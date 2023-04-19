@@ -1,14 +1,8 @@
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
+#![forbid(unsafe_code)]
+// TODO remove when possible
+#![allow(dead_code)]
+#![allow(unused_variables)]
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+mod bus;
+mod cpu;
+mod ppu;
