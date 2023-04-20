@@ -109,9 +109,6 @@ fn from_ines_file(mut file: File) -> Result<(Cartridge, Mapper), CartridgeFileEr
     file.read_exact(&mut prg_rom)?;
 
     let mut chr_rom = vec![0; chr_rom_size as usize];
-    file.seek(SeekFrom::Start(
-        prg_rom_start_address + u64::from(chr_rom_size),
-    ))?;
     file.read_exact(&mut chr_rom)?;
 
     log::info!("PRG ROM size: {prg_rom_size}");
