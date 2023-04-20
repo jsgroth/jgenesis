@@ -436,28 +436,11 @@ struct AccumulatorState(Instruction);
 
 impl InstructionState for AccumulatorState {
     fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
-        match self.0 {
-            Instruction::ShiftLeft(..) => {
-                registers.accumulator =
-                    shift_left(registers.accumulator, &mut registers.status_flags());
-            }
-            Instruction::LogicalShiftRight(..) => {
-                registers.accumulator =
-                    shift_right(registers.accumulator, &mut registers.status_flags());
-            }
-            Instruction::RotateLeft(..) => {
-                registers.accumulator =
-                    rotate_left(registers.accumulator, &mut registers.status_flags());
-            }
-            Instruction::RotateRight(..) => {
-                registers.accumulator =
-                    rotate_right(registers.accumulator, &mut registers.status_flags());
-            }
-            _ => panic!(
-                "instruction does not support Accumulator addressing mode: {:?}",
-                self.0
-            ),
-        }
+        registers.accumulator = execute_modify_instruction(
+            self.0,
+            registers.accumulator,
+            &mut registers.status_flags(),
+        );
 
         None
     }
@@ -470,42 +453,7 @@ impl InstructionState for ImmediateState {
         let value = bus.read_address(registers.pc);
         registers.pc += 1;
 
-        match self.0 {
-            Instruction::AddWithCarry(..) => {
-                registers.accumulator =
-                    add(registers.accumulator, value, &mut registers.status_flags());
-            }
-            Instruction::And(..) => {
-                registers.accumulator =
-                    and(registers.accumulator, value, &mut registers.status_flags());
-            }
-            Instruction::Compare(register, ..) => {
-                compare(
-                    read_register(registers, register),
-                    value,
-                    &mut registers.status_flags(),
-                );
-            }
-            Instruction::ExclusiveOr(..) => {
-                registers.accumulator =
-                    xor(registers.accumulator, value, &mut registers.status_flags());
-            }
-            Instruction::LoadRegister(register, ..) => {
-                write_register(registers, register, value);
-            }
-            Instruction::InclusiveOr(..) => {
-                registers.accumulator =
-                    or(registers.accumulator, value, &mut registers.status_flags());
-            }
-            Instruction::SubtractWithCarry(..) => {
-                registers.accumulator =
-                    subtract(registers.accumulator, value, &mut registers.status_flags());
-            }
-            _ => panic!(
-                "instruction does not support Immediate addressing mode: {:?}",
-                self.0
-            ),
-        }
+        execute_read_instruction(self.0, value, registers);
 
         None
     }
@@ -537,33 +485,7 @@ impl InstructionState for ZeroPageReadState {
             } => {
                 let value = bus.read_address(u16::from(address));
 
-                match instruction {
-                    Instruction::AddWithCarry(..) => {
-                        registers.accumulator = add(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::And(..) => {
-                        registers.accumulator = and(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::BitTest(..) => {
-                        bit_test(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::Compare(register, ..) => {
-                        compare(read_register(registers, register), value, &mut registers.status_flags());
-                    }
-                    Instruction::ExclusiveOr(..) => {
-                        registers.accumulator = xor(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::LoadRegister(register, ..) => {
-                        write_register(registers, register, value);
-                    }
-                    Instruction::InclusiveOr(..) => {
-                        registers.accumulator = or(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::SubtractWithCarry(..) => {
-                        registers.accumulator = subtract(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    _ => panic!("instruction does not support Zero Page addressing mode or is not a read instruction: {instruction:?}")
-                }
+                execute_read_instruction(instruction, value, registers);
 
                 None
             }
@@ -663,15 +585,8 @@ impl InstructionState for ZeroPageModifyState {
                 address,
                 value,
             } => {
-                let new_value = match instruction {
-                    Instruction::ShiftLeft(..) => shift_left(value, &mut registers.status_flags()),
-                    Instruction::DecrementMemory(..) => decrement(value, &mut registers.status_flags()),
-                    Instruction::IncrementMemory(..) => increment(value, &mut registers.status_flags()),
-                    Instruction::LogicalShiftRight(..) => shift_right(value, &mut registers.status_flags()),
-                    Instruction::RotateLeft(..) => rotate_left(value, &mut registers.status_flags()),
-                    Instruction::RotateRight(..) => rotate_right(value, &mut registers.status_flags()),
-                    _ => panic!("instruction does not support Zero Page addressing mode or is not a read-modify-write instruction: {instruction:?}"),
-                };
+                let new_value =
+                    execute_modify_instruction(instruction, value, &mut registers.status_flags());
 
                 bus.write_address(u16::from(address), new_value);
 
@@ -735,30 +650,7 @@ impl InstructionState for ZeroPageIndexedReadState {
                 let indexed_address = u16::from(address.wrapping_add(index));
                 let value = bus.read_address(indexed_address);
 
-                match instruction {
-                    Instruction::AddWithCarry(..) => {
-                        registers.accumulator = add(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::And(..) => {
-                        registers.accumulator = and(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::Compare(CpuRegister::A, ..) => {
-                        compare(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::ExclusiveOr(..) => {
-                        registers.accumulator = xor(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::LoadRegister(register, ..) => {
-                        write_register(registers, register, value);
-                    }
-                    Instruction::InclusiveOr(..) => {
-                        registers.accumulator = or(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::SubtractWithCarry(..) => {
-                        registers.accumulator = subtract(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    _ => panic!("instruction does not support Zero Page X/Y addressing mode or is not a read instruction: {instruction:?}")
-                }
+                execute_read_instruction(instruction, value, registers);
 
                 None
             }
@@ -906,15 +798,8 @@ impl InstructionState for ZeroPageIndexedModifyState {
                 indexed_address,
                 value,
             } => {
-                let new_value = match instruction {
-                    Instruction::ShiftLeft(..) => shift_left(value, &mut registers.status_flags()),
-                    Instruction::DecrementMemory(..) => decrement(value, &mut registers.status_flags()),
-                    Instruction::IncrementMemory(..) => increment(value, &mut registers.status_flags()),
-                    Instruction::LogicalShiftRight(..) => shift_right(value, &mut registers.status_flags()),
-                    Instruction::RotateLeft(..) => rotate_left(value, &mut registers.status_flags()),
-                    Instruction::RotateRight(..) => rotate_right(value, &mut registers.status_flags()),
-                    _ => panic!("instruction does not support Zero Page X/Y addressing mode or is not a read-modify-write instruction: {instruction:?}"),
-                };
+                let new_value =
+                    execute_modify_instruction(instruction, value, &mut registers.status_flags());
 
                 bus.write_address(indexed_address, new_value);
 
@@ -967,33 +852,7 @@ impl InstructionState for AbsoluteReadState {
             } => {
                 let value = bus.read_address(address);
 
-                match instruction {
-                    Instruction::AddWithCarry(..) => {
-                        registers.accumulator = add(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::And(..) => {
-                        registers.accumulator = and(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::BitTest(..) => {
-                        bit_test(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::Compare(register, ..) => {
-                        compare(read_register(registers, register), value, &mut registers.status_flags());
-                    }
-                    Instruction::ExclusiveOr(..) => {
-                        registers.accumulator = xor(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::LoadRegister(register, ..) => {
-                        write_register(registers, register, value);
-                    }
-                    Instruction::InclusiveOr(..) => {
-                        registers.accumulator = or(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::SubtractWithCarry(..) => {
-                        registers.accumulator = subtract(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    _ => panic!("instruction does not support Absolute addressing mode or is not a read instruction: {instruction:?}")
-                }
+                execute_read_instruction(instruction, value, registers);
 
                 None
             }
@@ -1128,15 +987,8 @@ impl InstructionState for AbsoluteModifyState {
                 address,
                 value,
             } => {
-                let new_value = match instruction {
-                    Instruction::ShiftLeft(..) => shift_left(value, &mut registers.status_flags()),
-                    Instruction::DecrementMemory(..) => decrement(value, &mut registers.status_flags()),
-                    Instruction::IncrementMemory(..) => increment(value, &mut registers.status_flags()),
-                    Instruction::LogicalShiftRight(..) => shift_right(value, &mut registers.status_flags()),
-                    Instruction::RotateLeft(..) => rotate_left(value, &mut registers.status_flags()),
-                    Instruction::RotateRight(..) => rotate_right(value, &mut registers.status_flags()),
-                    _ => panic!("instruction does not support Absolute addressing mode or is not a read-modify-write instruction: {instruction:?}"),
-                };
+                let new_value =
+                    execute_modify_instruction(instruction, value, &mut registers.status_flags());
 
                 bus.write_address(address, new_value);
 
@@ -1218,30 +1070,7 @@ impl InstructionState for AbsoluteIndexedReadState {
             } => {
                 let value = bus.read_address(indexed_address);
 
-                match instruction {
-                    Instruction::AddWithCarry(..) => {
-                        registers.accumulator = add(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::And(..) => {
-                        registers.accumulator = and(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::Compare(CpuRegister::A, ..) => {
-                        compare(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::ExclusiveOr(..) => {
-                        registers.accumulator = xor(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::LoadRegister(register, ..) => {
-                        write_register(registers, register, value);
-                    }
-                    Instruction::InclusiveOr(..) => {
-                        registers.accumulator = or(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::SubtractWithCarry(..) => {
-                        registers.accumulator = subtract(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    _ => panic!("instruction does not support Absolute X/Y addressing mode or is not a read instruction: {instruction:?}")
-                }
+                execute_read_instruction(instruction, value, registers);
 
                 None
             }
@@ -1417,15 +1246,8 @@ impl InstructionState for AbsoluteIndexedModifyState {
                 indexed_address,
                 value,
             } => {
-                let new_value = match instruction {
-                    Instruction::ShiftLeft(..) => shift_left(value, &mut registers.status_flags()),
-                    Instruction::DecrementMemory(..) => decrement(value, &mut registers.status_flags()),
-                    Instruction::IncrementMemory(..) => increment(value, &mut registers.status_flags()),
-                    Instruction::LogicalShiftRight(..) => shift_right(value, &mut registers.status_flags()),
-                    Instruction::RotateLeft(..) => rotate_left(value, &mut registers.status_flags()),
-                    Instruction::RotateRight(..) => rotate_right(value, &mut registers.status_flags()),
-                    _ => panic!("instruction does not support Absolute X/Y addressing mode or is not a read-modify-write instruction: {instruction:?}"),
-                };
+                let new_value =
+                    execute_modify_instruction(instruction, value, &mut registers.status_flags());
 
                 bus.write_address(indexed_address, new_value);
 
@@ -1508,37 +1330,14 @@ impl InstructionState for IndexedIndirectState {
                 instruction,
                 effective_address,
             } => {
-                let value = match instruction {
-                    Instruction::StoreRegister(..) => 0,
-                    _ => bus.read_address(effective_address),
-                };
-
                 match instruction {
-                    Instruction::AddWithCarry(..) => {
-                        registers.accumulator = add(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::And(..) => {
-                        registers.accumulator = and(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::Compare(CpuRegister::A, ..) => {
-                        compare(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::ExclusiveOr(..) => {
-                        registers.accumulator = xor(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::LoadRegister(CpuRegister::A, ..) => {
-                        registers.accumulator = value;
-                    }
-                    Instruction::InclusiveOr(..) => {
-                        registers.accumulator = or(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::SubtractWithCarry(..) => {
-                        registers.accumulator = subtract(registers.accumulator, value, &mut registers.status_flags());
-                    }
                     Instruction::StoreRegister(CpuRegister::A, ..) => {
                         bus.write_address(effective_address, registers.accumulator);
                     }
-                    _ => panic!("instruction does not support Indirect X addressing mode or is not a read/write instruction: {instruction:?}"),
+                    _ => {
+                        let value = bus.read_address(effective_address);
+                        execute_read_instruction(instruction, value, registers);
+                    }
                 }
 
                 None
@@ -1634,42 +1433,14 @@ impl InstructionState for IndirectIndexedState {
                 instruction,
                 indexed_address,
             } => {
-                let value = match instruction {
-                    Instruction::StoreRegister(..) => 0,
-                    _ => bus.read_address(indexed_address),
-                };
-
                 match instruction {
-                    Instruction::AddWithCarry(..) => {
-                        registers.accumulator =
-                            add(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::And(..) => {
-                        registers.accumulator =
-                            and(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::Compare(CpuRegister::A, ..) => {
-                        compare(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::ExclusiveOr(..) => {
-                        registers.accumulator =
-                            xor(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::LoadRegister(CpuRegister::A, ..) => {
-                        registers.accumulator = value;
-                    }
-                    Instruction::InclusiveOr(..) => {
-                        registers.accumulator =
-                            or(registers.accumulator, value, &mut registers.status_flags());
-                    }
-                    Instruction::SubtractWithCarry(..) => {
-                        registers.accumulator =
-                            subtract(registers.accumulator, value, &mut registers.status_flags());
-                    }
                     Instruction::StoreRegister(CpuRegister::A, ..) => {
                         bus.write_address(indexed_address, registers.accumulator);
                     }
-                    _ => panic!("instruction does not support Indirect Y addressing mode or is not a read/write instruction: {instruction:?}"),
+                    _ => {
+                        let value = bus.read_address(indexed_address);
+                        execute_read_instruction(instruction, value, registers);
+                    }
                 }
 
                 None
@@ -1707,6 +1478,57 @@ fn write_register(registers: &mut CpuRegisters, register: CpuRegister, value: u8
         CpuRegister::S => {
             registers.sp = value;
         }
+    }
+}
+
+fn execute_read_instruction(instruction: Instruction, value: u8, registers: &mut CpuRegisters) {
+    match instruction {
+        Instruction::AddWithCarry(..) => {
+            registers.accumulator =
+                add(registers.accumulator, value, &mut registers.status_flags());
+        }
+        Instruction::And(..) => {
+            registers.accumulator =
+                and(registers.accumulator, value, &mut registers.status_flags());
+        }
+        Instruction::Compare(register, ..) => {
+            compare(
+                read_register(registers, register),
+                value,
+                &mut registers.status_flags(),
+            );
+        }
+        Instruction::ExclusiveOr(..) => {
+            registers.accumulator =
+                xor(registers.accumulator, value, &mut registers.status_flags());
+        }
+        Instruction::LoadRegister(register, ..) => {
+            write_register(registers, register, value);
+        }
+        Instruction::InclusiveOr(..) => {
+            registers.accumulator = or(registers.accumulator, value, &mut registers.status_flags());
+        }
+        Instruction::SubtractWithCarry(..) => {
+            registers.accumulator =
+                subtract(registers.accumulator, value, &mut registers.status_flags());
+        }
+        _ => panic!("instruction is not a read instruction: {instruction:?}"),
+    }
+}
+
+fn execute_modify_instruction(
+    instruction: Instruction,
+    value: u8,
+    status_flags: &mut StatusFlags<'_>,
+) -> u8 {
+    match instruction {
+        Instruction::ShiftLeft(..) => shift_left(value, status_flags),
+        Instruction::DecrementMemory(..) => decrement(value, status_flags),
+        Instruction::IncrementMemory(..) => increment(value, status_flags),
+        Instruction::LogicalShiftRight(..) => shift_right(value, status_flags),
+        Instruction::RotateLeft(..) => rotate_left(value, status_flags),
+        Instruction::RotateRight(..) => rotate_right(value, status_flags),
+        _ => panic!("instruction is not a read-modify-write instruction: {instruction:?}"),
     }
 }
 
