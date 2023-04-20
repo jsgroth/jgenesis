@@ -1,3 +1,6 @@
+use crate::bus::Bus;
+use crate::cpu::instructions::ExecutingInstruction;
+
 mod instructions;
 
 pub struct CpuRegisters {
@@ -108,9 +111,29 @@ impl<'a> StatusFlags<'a> {
 
 enum State {
     InstructionStart,
+    InstructionExecuting(ExecutingInstruction),
 }
 
 pub struct CpuState {
     registers: CpuRegisters,
     state: State,
+}
+
+pub fn tick(state: &mut CpuState, bus: &mut Bus) {
+    // TODO interrupts
+
+    let new_state = match std::mem::replace(&mut state.state, State::InstructionStart) {
+        State::InstructionStart => {
+            let executing_instruction =
+                ExecutingInstruction::fetch(&mut state.registers, &mut bus.cpu());
+            State::InstructionExecuting(executing_instruction)
+        }
+        State::InstructionExecuting(executing_instruction) => {
+            match executing_instruction.next(&mut state.registers, &mut bus.cpu()) {
+                Some(executing_instruction) => State::InstructionExecuting(executing_instruction),
+                None => State::InstructionStart,
+            }
+        }
+    };
+    state.state = new_state;
 }

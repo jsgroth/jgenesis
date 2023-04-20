@@ -15,6 +15,7 @@ pub enum AddressingMode {
     Indirect,
     IndirectX,
     IndirectY,
+    Implied,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -441,6 +442,45 @@ impl Instruction {
             Self::ForceInterrupt => InstructionType::ForceInterrupt,
         }
     }
+
+    pub fn get_addressing_mode(self) -> AddressingMode {
+        match self {
+            Self::AddWithCarry(addressing_mode)
+            | Self::And(addressing_mode)
+            | Self::ShiftLeft(addressing_mode)
+            | Self::BitTest(addressing_mode)
+            | Self::Compare(_, addressing_mode)
+            | Self::DecrementMemory(addressing_mode)
+            | Self::ExclusiveOr(addressing_mode)
+            | Self::IncrementMemory(addressing_mode)
+            | Self::Jump(addressing_mode)
+            | Self::LoadRegister(_, addressing_mode)
+            | Self::LogicalShiftRight(addressing_mode)
+            | Self::InclusiveOr(addressing_mode)
+            | Self::RotateLeft(addressing_mode)
+            | Self::RotateRight(addressing_mode)
+            | Self::SubtractWithCarry(addressing_mode)
+            | Self::StoreRegister(_, addressing_mode) => addressing_mode,
+            Self::Branch(..)
+            | Self::ForceInterrupt
+            | Self::ClearCarryFlag
+            | Self::ClearDecimalFlag
+            | Self::ClearInterruptDisable
+            | Self::ClearOverflowFlag
+            | Self::DecrementRegister(..)
+            | Self::IncrementRegister(..)
+            | Self::JumpToSubroutine
+            | Self::NoOp
+            | Self::PushStack(..)
+            | Self::PullStack(..)
+            | Self::ReturnFromInterrupt
+            | Self::ReturnFromSubroutine
+            | Self::SetCarryFlag
+            | Self::SetDecimalFlag
+            | Self::SetInterruptDisable
+            | Self::TransferBetweenRegisters { .. } => AddressingMode::Implied,
+        }
+    }
 }
 
 trait InstructionState<StateType = Self> {
@@ -448,7 +488,7 @@ trait InstructionState<StateType = Self> {
     fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<StateType>;
 }
 
-struct AccumulatorState(Instruction);
+pub(crate) struct AccumulatorState(Instruction);
 
 impl InstructionState for AccumulatorState {
     fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
@@ -462,7 +502,7 @@ impl InstructionState for AccumulatorState {
     }
 }
 
-struct ImmediateState(Instruction);
+pub(crate) struct ImmediateState(Instruction);
 
 impl InstructionState for ImmediateState {
     fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
@@ -475,7 +515,7 @@ impl InstructionState for ImmediateState {
     }
 }
 
-enum ZeroPageReadState {
+pub(crate) enum ZeroPageReadState {
     Cycle1(Instruction),
     Cycle2 {
         instruction: Instruction,
@@ -509,7 +549,7 @@ impl InstructionState for ZeroPageReadState {
     }
 }
 
-enum ZeroPageWriteState {
+pub(crate) enum ZeroPageWriteState {
     Cycle1(Instruction),
     Cycle2 {
         instruction: Instruction,
@@ -546,7 +586,7 @@ impl InstructionState for ZeroPageWriteState {
     }
 }
 
-enum ZeroPageModifyState {
+pub(crate) enum ZeroPageModifyState {
     Cycle1(Instruction),
     Cycle2 {
         instruction: Instruction,
@@ -617,12 +657,12 @@ impl InstructionState for ZeroPageModifyState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum IndexType {
+pub(crate) enum IndexType {
     X,
     Y,
 }
 
-enum ZeroPageIndexedReadState {
+pub(crate) enum ZeroPageIndexedReadState {
     Cycle1(Instruction, IndexType),
     Cycle2 {
         instruction: Instruction,
@@ -682,7 +722,7 @@ impl InstructionState for ZeroPageIndexedReadState {
     }
 }
 
-enum ZeroPageIndexedWriteState {
+pub(crate) enum ZeroPageIndexedWriteState {
     Cycle1(Instruction, IndexType),
     Cycle2 {
         instruction: Instruction,
@@ -748,7 +788,7 @@ impl InstructionState for ZeroPageIndexedWriteState {
     }
 }
 
-enum ZeroPageIndexedModifyState {
+pub(crate) enum ZeroPageIndexedModifyState {
     Cycle1(Instruction, IndexType),
     Cycle2 {
         instruction: Instruction,
@@ -845,7 +885,7 @@ impl InstructionState for ZeroPageIndexedModifyState {
     }
 }
 
-enum AbsoluteReadState {
+pub(crate) enum AbsoluteReadState {
     Cycle1(Instruction),
     Cycle2 {
         instruction: Instruction,
@@ -896,7 +936,7 @@ impl InstructionState for AbsoluteReadState {
     }
 }
 
-enum AbsoluteWriteState {
+pub(crate) enum AbsoluteWriteState {
     Cycle1(Instruction),
     Cycle2 {
         instruction: Instruction,
@@ -950,7 +990,7 @@ impl InstructionState for AbsoluteWriteState {
     }
 }
 
-enum AbsoluteModifyState {
+pub(crate) enum AbsoluteModifyState {
     Cycle1(Instruction),
     Cycle2 {
         instruction: Instruction,
@@ -1038,7 +1078,7 @@ impl InstructionState for AbsoluteModifyState {
     }
 }
 
-enum AbsoluteIndexedReadState {
+pub(crate) enum AbsoluteIndexedReadState {
     Cycle1(Instruction, IndexType),
     Cycle2 {
         instruction: Instruction,
@@ -1122,7 +1162,7 @@ impl InstructionState for AbsoluteIndexedReadState {
     }
 }
 
-enum AbsoluteIndexedWriteState {
+pub(crate) enum AbsoluteIndexedWriteState {
     Cycle1(Instruction, IndexType),
     Cycle2 {
         instruction: Instruction,
@@ -1201,7 +1241,7 @@ impl InstructionState for AbsoluteIndexedWriteState {
     }
 }
 
-enum AbsoluteIndexedModifyState {
+pub(crate) enum AbsoluteIndexedModifyState {
     Cycle1(Instruction, IndexType),
     Cycle2 {
         instruction: Instruction,
@@ -1316,7 +1356,7 @@ impl InstructionState for AbsoluteIndexedModifyState {
     }
 }
 
-enum IndexedIndirectState {
+pub(crate) enum IndexedIndirectState {
     Cycle1(Instruction),
     Cycle2 {
         instruction: Instruction,
@@ -1407,7 +1447,7 @@ impl InstructionState for IndexedIndirectState {
     }
 }
 
-enum IndirectIndexedState {
+pub(crate) enum IndirectIndexedState {
     Cycle1(Instruction),
     Cycle2 {
         instruction: Instruction,
@@ -1518,7 +1558,7 @@ impl InstructionState for IndirectIndexedState {
     }
 }
 
-struct RegistersOnlyState(Instruction);
+pub(crate) struct RegistersOnlyState(Instruction);
 
 impl InstructionState for RegistersOnlyState {
     fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
@@ -1577,7 +1617,7 @@ impl InstructionState for RegistersOnlyState {
     }
 }
 
-enum BranchState {
+pub(crate) enum BranchState {
     Cycle1(BranchCondition),
     Cycle2 { offset: i8 },
     Cycle3,
@@ -1610,7 +1650,7 @@ impl InstructionState for BranchState {
     }
 }
 
-enum JumpState {
+pub(crate) enum JumpState {
     Cycle1(AddressingMode),
     Cycle2 {
         addressing_mode: AddressingMode,
@@ -1677,7 +1717,7 @@ impl InstructionState for JumpState {
     }
 }
 
-enum JumpSubroutineState {
+pub(crate) enum JumpSubroutineState {
     Cycle1,
     Cycle2 { address_lsb: u8 },
     Cycle3 { address_lsb: u8 },
@@ -1720,7 +1760,7 @@ impl InstructionState for JumpSubroutineState {
     }
 }
 
-enum ReturnSubroutineState {
+pub(crate) enum ReturnSubroutineState {
     Cycle1,
     Cycle2,
     Cycle3,
@@ -1762,7 +1802,7 @@ impl InstructionState for ReturnSubroutineState {
     }
 }
 
-enum ReturnInterruptState {
+pub(crate) enum ReturnInterruptState {
     Cycle1,
     Cycle2,
     Cycle3,
@@ -1807,7 +1847,7 @@ impl InstructionState for ReturnInterruptState {
     }
 }
 
-enum PushStackState {
+pub(crate) enum PushStackState {
     Cycle1(CpuRegister),
     Cycle2(CpuRegister),
 }
@@ -1831,7 +1871,7 @@ impl InstructionState for PushStackState {
     }
 }
 
-enum PullStackState {
+pub(crate) enum PullStackState {
     Cycle1(CpuRegister),
     Cycle2(CpuRegister),
     Cycle3(CpuRegister),
@@ -2064,4 +2104,201 @@ fn rotate_right(value: u8, flags: &mut StatusFlags<'_>) -> u8 {
         .set_zero(rotated == 0)
         .set_carry(value & 0x01 != 0);
     rotated
+}
+
+pub(crate) enum ExecutingInstruction {
+    Accumulator(AccumulatorState),
+    Immediate(ImmediateState),
+    ZeroPageRead(ZeroPageReadState),
+    ZeroPageWrite(ZeroPageWriteState),
+    ZeroPageModify(ZeroPageModifyState),
+    ZeroPageIndexedRead(ZeroPageIndexedReadState),
+    ZeroPageIndexedWrite(ZeroPageIndexedWriteState),
+    ZeroPageIndexedModify(ZeroPageIndexedModifyState),
+    AbsoluteRead(AbsoluteReadState),
+    AbsoluteWrite(AbsoluteWriteState),
+    AbsoluteModify(AbsoluteModifyState),
+    AbsoluteIndexedRead(AbsoluteIndexedReadState),
+    AbsoluteIndexedWrite(AbsoluteIndexedWriteState),
+    AbsoluteIndexedModify(AbsoluteIndexedModifyState),
+    IndirectIndexed(IndirectIndexedState),
+    IndexedIndirect(IndexedIndirectState),
+    RegistersOnly(RegistersOnlyState),
+    Branch(BranchState),
+    Jump(JumpState),
+    JumpSubroutine(JumpSubroutineState),
+    ReturnSubroutine(ReturnSubroutineState),
+    ReturnInterrupt(ReturnInterruptState),
+    PushStack(PushStackState),
+    PullStack(PullStackState),
+}
+
+macro_rules! executing_instruction_next {
+    (($executing_instruction:expr, $registers:expr, $bus:expr), $($variant:ident,)+$(,)?) => {
+        match $executing_instruction {
+            $(
+                Self::$variant(state) => state.next($registers, $bus).map(Self::$variant),
+            )*
+        }
+    }
+}
+
+impl ExecutingInstruction {
+    pub fn fetch(registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Self {
+        let opcode = bus.read_address(registers.pc);
+        registers.pc += 1;
+
+        let Some(instruction) = Instruction::from_opcode(opcode)
+        else {
+            panic!("unsupported opcode: {opcode:02X}");
+        };
+
+        match (instruction.get_addressing_mode(), instruction.get_type()) {
+            (AddressingMode::Accumulator, _) => Self::Accumulator(AccumulatorState(instruction)),
+            (AddressingMode::Immediate, _) => Self::Immediate(ImmediateState(instruction)),
+            (AddressingMode::ZeroPage, InstructionType::Read) => {
+                Self::ZeroPageRead(ZeroPageReadState::Cycle1(instruction))
+            }
+            (AddressingMode::ZeroPage, InstructionType::Write) => {
+                Self::ZeroPageWrite(ZeroPageWriteState::Cycle1(instruction))
+            }
+            (AddressingMode::ZeroPage, InstructionType::ReadModifyWrite) => {
+                Self::ZeroPageModify(ZeroPageModifyState::Cycle1(instruction))
+            }
+            (AddressingMode::ZeroPageX, InstructionType::Read) => Self::ZeroPageIndexedRead(
+                ZeroPageIndexedReadState::Cycle1(instruction, IndexType::X),
+            ),
+            (AddressingMode::ZeroPageY, InstructionType::Read) => Self::ZeroPageIndexedRead(
+                ZeroPageIndexedReadState::Cycle1(instruction, IndexType::Y),
+            ),
+            (AddressingMode::ZeroPageX, InstructionType::Write) => Self::ZeroPageIndexedWrite(
+                ZeroPageIndexedWriteState::Cycle1(instruction, IndexType::X),
+            ),
+            (AddressingMode::ZeroPageY, InstructionType::Write) => Self::ZeroPageIndexedWrite(
+                ZeroPageIndexedWriteState::Cycle1(instruction, IndexType::Y),
+            ),
+            (AddressingMode::ZeroPageX, InstructionType::ReadModifyWrite) => {
+                Self::ZeroPageIndexedModify(ZeroPageIndexedModifyState::Cycle1(
+                    instruction,
+                    IndexType::X,
+                ))
+            }
+            (AddressingMode::ZeroPageY, InstructionType::ReadModifyWrite) => {
+                Self::ZeroPageIndexedModify(ZeroPageIndexedModifyState::Cycle1(
+                    instruction,
+                    IndexType::Y,
+                ))
+            }
+            (AddressingMode::Absolute, InstructionType::Read) => {
+                Self::AbsoluteRead(AbsoluteReadState::Cycle1(instruction))
+            }
+            (AddressingMode::Absolute, InstructionType::Write) => {
+                Self::AbsoluteWrite(AbsoluteWriteState::Cycle1(instruction))
+            }
+            (AddressingMode::Absolute, InstructionType::ReadModifyWrite) => {
+                Self::AbsoluteModify(AbsoluteModifyState::Cycle1(instruction))
+            }
+            (AddressingMode::AbsoluteX, InstructionType::Read) => Self::AbsoluteIndexedRead(
+                AbsoluteIndexedReadState::Cycle1(instruction, IndexType::X),
+            ),
+            (AddressingMode::AbsoluteY, InstructionType::Read) => Self::AbsoluteIndexedRead(
+                AbsoluteIndexedReadState::Cycle1(instruction, IndexType::Y),
+            ),
+            (AddressingMode::AbsoluteX, InstructionType::Write) => Self::AbsoluteIndexedWrite(
+                AbsoluteIndexedWriteState::Cycle1(instruction, IndexType::X),
+            ),
+            (AddressingMode::AbsoluteY, InstructionType::Write) => Self::AbsoluteIndexedWrite(
+                AbsoluteIndexedWriteState::Cycle1(instruction, IndexType::Y),
+            ),
+            (AddressingMode::AbsoluteX, InstructionType::ReadModifyWrite) => {
+                Self::AbsoluteIndexedModify(AbsoluteIndexedModifyState::Cycle1(
+                    instruction,
+                    IndexType::X,
+                ))
+            }
+            (AddressingMode::AbsoluteY, InstructionType::ReadModifyWrite) => {
+                Self::AbsoluteIndexedModify(AbsoluteIndexedModifyState::Cycle1(
+                    instruction,
+                    IndexType::Y,
+                ))
+            }
+            (AddressingMode::IndirectX, _) => {
+                Self::IndexedIndirect(IndexedIndirectState::Cycle1(instruction))
+            }
+            (AddressingMode::IndirectY, _) => {
+                Self::IndirectIndexed(IndirectIndexedState::Cycle1(instruction))
+            }
+            (_, InstructionType::RegistersOnly) => {
+                Self::RegistersOnly(RegistersOnlyState(instruction))
+            }
+            (_, InstructionType::Branch) => {
+                let Instruction::Branch(condition) = instruction
+                else {
+                    panic!("instruction has type branch but is not a branch instruction: {instruction:?}");
+                };
+                Self::Branch(BranchState::Cycle1(condition))
+            }
+            (addressing_mode, InstructionType::Jump) => {
+                Self::Jump(JumpState::Cycle1(addressing_mode))
+            }
+            (_, InstructionType::JumpToSubroutine) => {
+                Self::JumpSubroutine(JumpSubroutineState::Cycle1)
+            }
+            (_, InstructionType::ReturnFromSubroutine) => {
+                Self::ReturnSubroutine(ReturnSubroutineState::Cycle1)
+            }
+            (_, InstructionType::ReturnFromInterrupt) => {
+                Self::ReturnInterrupt(ReturnInterruptState::Cycle1)
+            }
+            (_, InstructionType::PushStack) => {
+                let Instruction::PushStack(register) = instruction
+                else {
+                    panic!("instruction has type PushStack but is not a PushStack instruction: {instruction:?}");
+                };
+                Self::PushStack(PushStackState::Cycle1(register))
+            }
+            (_, InstructionType::PullStack) => {
+                let Instruction::PullStack(register) = instruction
+                else {
+                    panic!("instruction has type PullStack but is not a PullStack instruction: {instruction:?}");
+                };
+                Self::PullStack(PullStackState::Cycle1(register))
+            }
+            _ => panic!(
+                "invalid addressing mode / instruction type combination: mode={:?}, type={:?}",
+                instruction.get_addressing_mode(),
+                instruction.get_type()
+            ),
+        }
+    }
+
+    pub fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
+        executing_instruction_next!(
+            (self, registers, bus),
+            Accumulator,
+            Immediate,
+            ZeroPageRead,
+            ZeroPageWrite,
+            ZeroPageModify,
+            ZeroPageIndexedRead,
+            ZeroPageIndexedWrite,
+            ZeroPageIndexedModify,
+            AbsoluteRead,
+            AbsoluteWrite,
+            AbsoluteModify,
+            AbsoluteIndexedRead,
+            AbsoluteIndexedWrite,
+            AbsoluteIndexedModify,
+            IndirectIndexed,
+            IndexedIndirect,
+            RegistersOnly,
+            Branch,
+            Jump,
+            JumpSubroutine,
+            ReturnSubroutine,
+            ReturnInterrupt,
+            PushStack,
+            PullStack,
+        )
+    }
 }
