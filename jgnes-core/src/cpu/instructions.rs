@@ -591,11 +591,15 @@ impl InstructionState for ZeroPageModifyState {
                 instruction,
                 address,
                 value,
-            } => Some(Self::Cycle4 {
-                instruction,
-                address,
-                value,
-            }),
+            } => {
+                bus.write_address(u16::from(address), value);
+
+                Some(Self::Cycle4 {
+                    instruction,
+                    address,
+                    value,
+                })
+            }
             Self::Cycle4 {
                 instruction,
                 address,
@@ -649,11 +653,15 @@ impl InstructionState for ZeroPageIndexedReadState {
                 instruction,
                 index_type,
                 address,
-            } => Some(Self::Cycle3 {
-                instruction,
-                index_type,
-                address,
-            }),
+            } => {
+                bus.read_address(u16::from(address));
+
+                Some(Self::Cycle3 {
+                    instruction,
+                    index_type,
+                    address,
+                })
+            }
             Self::Cycle3 {
                 instruction,
                 index_type,
@@ -705,11 +713,15 @@ impl InstructionState for ZeroPageIndexedWriteState {
                 instruction,
                 index_type,
                 address,
-            } => Some(Self::Cycle3 {
-                instruction,
-                index_type,
-                address,
-            }),
+            } => {
+                bus.read_address(u16::from(address));
+
+                Some(Self::Cycle3 {
+                    instruction,
+                    index_type,
+                    address,
+                })
+            }
             Self::Cycle3 {
                 instruction,
                 index_type,
@@ -777,11 +789,15 @@ impl InstructionState for ZeroPageIndexedModifyState {
                 instruction,
                 index_type,
                 address,
-            } => Some(Self::Cycle3 {
-                instruction,
-                index_type,
-                address,
-            }),
+            } => {
+                bus.read_address(u16::from(address));
+
+                Some(Self::Cycle3 {
+                    instruction,
+                    index_type,
+                    address,
+                })
+            }
             Self::Cycle3 {
                 instruction,
                 index_type,
@@ -804,11 +820,15 @@ impl InstructionState for ZeroPageIndexedModifyState {
                 instruction,
                 indexed_address,
                 value,
-            } => Some(Self::Cycle5 {
-                instruction,
-                indexed_address,
-                value,
-            }),
+            } => {
+                bus.write_address(indexed_address, value);
+
+                Some(Self::Cycle5 {
+                    instruction,
+                    indexed_address,
+                    value,
+                })
+            }
             Self::Cycle5 {
                 instruction,
                 indexed_address,
@@ -993,11 +1013,15 @@ impl InstructionState for AbsoluteModifyState {
                 instruction,
                 address,
                 value,
-            } => Some(Self::Cycle5 {
-                instruction,
-                address,
-                value,
-            }),
+            } => {
+                bus.write_address(address, value);
+
+                Some(Self::Cycle5 {
+                    instruction,
+                    address,
+                    value,
+                })
+            }
             Self::Cycle5 {
                 instruction,
                 address,
@@ -1071,10 +1095,14 @@ impl InstructionState for AbsoluteIndexedReadState {
                 instruction,
                 indexed_address,
                 address_msb,
-            } if address_msb != (indexed_address >> 8) as u8 => Some(Self::Cycle4 {
-                instruction,
-                indexed_address,
-            }),
+            } if address_msb != (indexed_address >> 8) as u8 => {
+                bus.read_address((u16::from(address_msb) << 8) | (indexed_address & 0x00FF));
+
+                Some(Self::Cycle4 {
+                    instruction,
+                    indexed_address,
+                })
+            }
             Self::Cycle3 {
                 instruction,
                 indexed_address,
@@ -1148,10 +1176,14 @@ impl InstructionState for AbsoluteIndexedWriteState {
             Self::Cycle3 {
                 instruction,
                 indexed_address,
-            } => Some(Self::Cycle4 {
-                instruction,
-                indexed_address,
-            }),
+            } => {
+                bus.read_address(indexed_address);
+
+                Some(Self::Cycle4 {
+                    instruction,
+                    indexed_address,
+                })
+            }
             Self::Cycle4 {
                 instruction,
                 indexed_address,
@@ -1179,6 +1211,7 @@ enum AbsoluteIndexedModifyState {
     Cycle3 {
         instruction: Instruction,
         indexed_address: u16,
+        address: u16,
     },
     Cycle4 {
         instruction: Instruction,
@@ -1228,15 +1261,21 @@ impl InstructionState for AbsoluteIndexedModifyState {
                 Some(Self::Cycle3 {
                     instruction,
                     indexed_address,
+                    address,
                 })
             }
             Self::Cycle3 {
                 instruction,
                 indexed_address,
-            } => Some(Self::Cycle4 {
-                instruction,
-                indexed_address,
-            }),
+                address,
+            } => {
+                bus.read_address(address);
+
+                Some(Self::Cycle4 {
+                    instruction,
+                    indexed_address,
+                })
+            }
             Self::Cycle4 {
                 instruction,
                 indexed_address,
@@ -1252,11 +1291,15 @@ impl InstructionState for AbsoluteIndexedModifyState {
                 instruction,
                 indexed_address,
                 value,
-            } => Some(Self::Cycle6 {
-                instruction,
-                indexed_address,
-                value,
-            }),
+            } => {
+                bus.write_address(indexed_address, value);
+
+                Some(Self::Cycle6 {
+                    instruction,
+                    indexed_address,
+                    value,
+                })
+            }
             Self::Cycle6 {
                 instruction,
                 indexed_address,
@@ -1310,6 +1353,8 @@ impl InstructionState for IndexedIndirectState {
                 instruction,
                 address,
             } => {
+                bus.read_address(u16::from(address));
+
                 let indexed_address = address.wrapping_add(registers.x);
                 Some(Self::Cycle3 {
                     instruction,
@@ -1427,19 +1472,27 @@ impl InstructionState for IndirectIndexedState {
             Self::Cycle4 {
                 instruction: Instruction::StoreRegister(register, ..),
                 indexed_address,
-                ..
-            } => Some(Self::Cycle5 {
-                instruction: Instruction::StoreRegister(register, AddressingMode::IndirectY),
-                indexed_address,
-            }),
+                effective_address,
+            } => {
+                bus.read_address(effective_address);
+
+                Some(Self::Cycle5 {
+                    instruction: Instruction::StoreRegister(register, AddressingMode::IndirectY),
+                    indexed_address,
+                })
+            }
             Self::Cycle4 {
                 instruction,
                 effective_address,
                 indexed_address,
-            } if (effective_address & 0xFF00) != (indexed_address & 0xFF00) => Some(Self::Cycle5 {
-                instruction,
-                indexed_address,
-            }),
+            } if (effective_address & 0xFF00) != (indexed_address & 0xFF00) => {
+                bus.read_address(effective_address);
+
+                Some(Self::Cycle5 {
+                    instruction,
+                    indexed_address,
+                })
+            }
             Self::Cycle4 {
                 instruction,
                 indexed_address,
@@ -1678,7 +1731,11 @@ enum ReturnSubroutineState {
 impl InstructionState for ReturnSubroutineState {
     fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
         match self {
-            Self::Cycle1 => Some(Self::Cycle2),
+            Self::Cycle1 => {
+                bus.read_address(registers.pc.wrapping_add(1));
+
+                Some(Self::Cycle2)
+            }
             Self::Cycle2 => {
                 registers.sp = registers.sp.wrapping_add(1);
                 Some(Self::Cycle3)
@@ -1716,7 +1773,11 @@ enum ReturnInterruptState {
 impl InstructionState for ReturnInterruptState {
     fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
         match self {
-            Self::Cycle1 => Some(Self::Cycle2),
+            Self::Cycle1 => {
+                bus.read_address(registers.pc.wrapping_add(1));
+
+                Some(Self::Cycle2)
+            }
             Self::Cycle2 => {
                 registers.sp = registers.sp.wrapping_add(1);
                 Some(Self::Cycle3)
@@ -1754,7 +1815,11 @@ enum PushStackState {
 impl InstructionState for PushStackState {
     fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
         match self {
-            Self::Cycle1(register) => Some(Self::Cycle2(register)),
+            Self::Cycle1(register) => {
+                bus.read_address(registers.pc.wrapping_add(1));
+
+                Some(Self::Cycle2(register))
+            }
             Self::Cycle2(register) => {
                 let stack_address = bus::CPU_STACK_START | u16::from(registers.sp);
                 bus.write_address(stack_address, read_register(registers, register));
@@ -1775,7 +1840,11 @@ enum PullStackState {
 impl InstructionState for PullStackState {
     fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
         match self {
-            Self::Cycle1(register) => Some(Self::Cycle2(register)),
+            Self::Cycle1(register) => {
+                bus.read_address(registers.pc.wrapping_add(1));
+
+                Some(Self::Cycle2(register))
+            }
             Self::Cycle2(register) => {
                 registers.sp = registers.sp.wrapping_add(1);
                 Some(Self::Cycle3(register))
