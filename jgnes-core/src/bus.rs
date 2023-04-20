@@ -1,3 +1,7 @@
+mod cartridge;
+
+use crate::bus::cartridge::{CpuMapResult, Mapper, PpuMapResult};
+use cartridge::Cartridge;
 use std::cmp::Ordering;
 use tinyvec::ArrayVec;
 
@@ -30,52 +34,6 @@ pub const PPU_NAMETABLES_MASK: u16 = 0x0FFF;
 pub const PPU_PALETTES_START: u16 = 0x3F00;
 pub const PPU_PALETTES_END: u16 = 0x3FFF;
 pub const PPU_PALETTES_MASK: u16 = 0x001F;
-
-#[derive(Debug, Clone, Copy)]
-enum CpuMapResult {
-    PrgROM(u16),
-    PrgRAM(u16),
-    None,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum PpuMapResult {
-    ChrROM(u16),
-    ChrRAM(u16),
-    Vram(u16),
-    None,
-}
-
-#[derive(Debug, Clone)]
-enum Mapper {
-    Nrom,
-}
-
-impl Mapper {
-    fn map_cpu_address(&self, address: u16) -> CpuMapResult {
-        todo!()
-    }
-
-    fn write_cpu_address(&mut self, address: u16, value: u8) {
-        todo!()
-    }
-
-    fn map_ppu_address(&self, address: u16) -> PpuMapResult {
-        todo!()
-    }
-
-    fn write_ppu_address(&mut self, address: u16, value: u8) {
-        todo!()
-    }
-}
-
-#[derive(Debug, Clone)]
-struct Cartridge {
-    prg_rom: Vec<u8>,
-    prg_ram: Vec<u8>,
-    chr_rom: Vec<u8>,
-    chr_ram: Vec<u8>,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WriteSource {
@@ -180,10 +138,18 @@ impl PpuRegister {
     }
 }
 
+// TODO implement
 pub struct PpuRegisters {
     data: [u8; 8],
 }
 
+impl PpuRegisters {
+    pub fn new() -> Self {
+        Self { data: [0; 8] }
+    }
+}
+
+// TODO implement
 pub struct IoRegisters;
 
 pub struct Bus {
@@ -199,6 +165,20 @@ pub struct Bus {
 }
 
 impl Bus {
+    pub(crate) fn from_cartridge(cartridge: Cartridge, mapper: Mapper) -> Self {
+        Self {
+            cartridge,
+            mapper,
+            cpu_internal_ram: [0; 2048],
+            ppu_registers: PpuRegisters::new(),
+            io_registers: IoRegisters,
+            ppu_vram: [0; 2048],
+            ppu_palette_ram: [0; 64],
+            ppu_oam: [0; 256],
+            pending_writes: ArrayVec::new(),
+        }
+    }
+
     pub fn cpu(&mut self) -> CpuBus<'_> {
         CpuBus(self)
     }
