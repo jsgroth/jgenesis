@@ -1,3 +1,4 @@
+use crate::bus;
 use crate::bus::CpuBus;
 use crate::cpu::{CpuRegisters, StatusFlags};
 
@@ -34,6 +35,21 @@ pub enum BranchCondition {
     OverflowClear,
     // BVS
     OverflowSet,
+}
+
+impl BranchCondition {
+    fn check(self, status_flags: &StatusFlags<'_>) -> bool {
+        match self {
+            Self::CarryClear => !status_flags.carry(),
+            Self::CarrySet => status_flags.carry(),
+            Self::Equal => status_flags.zero(),
+            Self::Minus => status_flags.negative(),
+            Self::NotEqual => !status_flags.zero(),
+            Self::Positive => !status_flags.negative(),
+            Self::OverflowClear => !status_flags.overflow(),
+            Self::OverflowSet => status_flags.overflow(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1449,7 +1465,331 @@ impl InstructionState for IndirectIndexedState {
     }
 }
 
-// TODO: unique instructions
+struct RegistersOnlyState(Instruction);
+
+impl InstructionState for RegistersOnlyState {
+    fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
+        match self.0 {
+            Instruction::ClearCarryFlag => {
+                registers.status_flags().set_carry(false);
+            }
+            Instruction::ClearDecimalFlag => {
+                registers.status_flags().set_decimal(false);
+            }
+            Instruction::ClearInterruptDisable => {
+                registers.status_flags().set_interrupt_disable(false);
+            }
+            Instruction::ClearOverflowFlag => {
+                registers.status_flags().set_overflow(false);
+            }
+            Instruction::DecrementRegister(register) => {
+                let value = decrement(
+                    read_register(registers, register),
+                    &mut registers.status_flags(),
+                );
+                write_register(registers, register, value);
+            }
+            Instruction::IncrementRegister(register) => {
+                let value = increment(
+                    read_register(registers, register),
+                    &mut registers.status_flags(),
+                );
+                write_register(registers, register, value);
+            }
+            Instruction::NoOp => {}
+            Instruction::SetCarryFlag => {
+                registers.status_flags().set_carry(true);
+            }
+            Instruction::SetDecimalFlag => {
+                registers.status_flags().set_decimal(true);
+            }
+            Instruction::SetInterruptDisable => {
+                registers.status_flags().set_interrupt_disable(true);
+            }
+            Instruction::TransferBetweenRegisters { to, from } => {
+                let value = read_register(registers, from);
+                registers
+                    .status_flags()
+                    .set_negative(value & 0x80 != 0)
+                    .set_zero(value == 0);
+                write_register(registers, to, value);
+            }
+            _ => panic!(
+                "instruction is not a registers-only instruction: {:?}",
+                self.0
+            ),
+        }
+
+        None
+    }
+}
+
+enum BranchState {
+    Cycle1(BranchCondition),
+    Cycle2 { offset: i8 },
+    Cycle3,
+}
+
+impl InstructionState for BranchState {
+    fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
+        match self {
+            Self::Cycle1(condition) => {
+                let offset = bus.read_address(registers.pc) as i8;
+                registers.pc += 1;
+
+                condition
+                    .check(&registers.status_flags())
+                    .then_some(Self::Cycle2 { offset })
+            }
+            Self::Cycle2 { offset } => {
+                let new_address = (i32::from(registers.pc) + i32::from(offset)) as u16;
+                let next_state = if (new_address & 0xFF00) == (registers.pc & 0xFF00) {
+                    None
+                } else {
+                    Some(Self::Cycle3)
+                };
+
+                registers.pc = new_address;
+                next_state
+            }
+            Self::Cycle3 => None,
+        }
+    }
+}
+
+enum JumpState {
+    Cycle1(AddressingMode),
+    Cycle2 {
+        addressing_mode: AddressingMode,
+        address_lsb: u8,
+    },
+    Cycle3 {
+        address: u16,
+    },
+    Cycle4 {
+        address: u16,
+        effective_address_lsb: u8,
+    },
+}
+
+impl InstructionState for JumpState {
+    fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
+        match self {
+            Self::Cycle1(addressing_mode) => {
+                let address_lsb = bus.read_address(registers.pc);
+                registers.pc += 1;
+
+                Some(Self::Cycle2 {
+                    addressing_mode,
+                    address_lsb,
+                })
+            }
+            Self::Cycle2 {
+                addressing_mode,
+                address_lsb,
+            } => {
+                let address_msb = bus.read_address(registers.pc);
+                registers.pc += 1;
+
+                let address = u16::from_le_bytes([address_lsb, address_msb]);
+
+                match addressing_mode {
+                    AddressingMode::Absolute => {
+                        registers.pc = address;
+                        None
+                    }
+                    AddressingMode::Indirect => Some(Self::Cycle3 { address }),
+                    _ => panic!("invalid jump addressing mode: {addressing_mode:?}"),
+                }
+            }
+            Self::Cycle3 { address } => {
+                let effective_address_lsb = bus.read_address(address);
+                Some(Self::Cycle4 {
+                    address,
+                    effective_address_lsb,
+                })
+            }
+            Self::Cycle4 {
+                address,
+                effective_address_lsb,
+            } => {
+                let effective_address_msb = bus.read_address(address.wrapping_add(1));
+                let effective_address =
+                    u16::from_le_bytes([effective_address_lsb, effective_address_msb]);
+
+                registers.pc = effective_address;
+                None
+            }
+        }
+    }
+}
+
+enum JumpSubroutineState {
+    Cycle1,
+    Cycle2 { address_lsb: u8 },
+    Cycle3 { address_lsb: u8 },
+    Cycle4 { address_lsb: u8 },
+    Cycle5 { address_lsb: u8 },
+}
+
+impl InstructionState for JumpSubroutineState {
+    fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
+        match self {
+            Self::Cycle1 => {
+                let address_lsb = bus.read_address(registers.pc);
+                registers.pc += 1;
+
+                Some(Self::Cycle2 { address_lsb })
+            }
+            Self::Cycle2 { address_lsb } => Some(Self::Cycle3 { address_lsb }),
+            Self::Cycle3 { address_lsb } => {
+                let stack_address = bus::CPU_STACK_START | u16::from(registers.sp);
+                bus.write_address(stack_address, (registers.pc >> 8) as u8);
+                registers.sp = registers.sp.wrapping_sub(1);
+
+                Some(Self::Cycle4 { address_lsb })
+            }
+            Self::Cycle4 { address_lsb } => {
+                let stack_address = bus::CPU_STACK_START | u16::from(registers.sp);
+                bus.write_address(stack_address, (registers.pc & 0x00FF) as u8);
+                registers.sp = registers.sp.wrapping_sub(1);
+
+                Some(Self::Cycle5 { address_lsb })
+            }
+            Self::Cycle5 { address_lsb } => {
+                let address_msb = bus.read_address(registers.pc);
+                let address = u16::from_le_bytes([address_lsb, address_msb]);
+
+                registers.pc = address;
+                None
+            }
+        }
+    }
+}
+
+enum ReturnSubroutineState {
+    Cycle1,
+    Cycle2,
+    Cycle3,
+    Cycle4 { pc_lsb: u8 },
+    Cycle5,
+}
+
+impl InstructionState for ReturnSubroutineState {
+    fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
+        match self {
+            Self::Cycle1 => Some(Self::Cycle2),
+            Self::Cycle2 => {
+                registers.sp = registers.sp.wrapping_add(1);
+                Some(Self::Cycle3)
+            }
+            Self::Cycle3 => {
+                let stack_address = bus::CPU_STACK_START | u16::from(registers.sp);
+                let pc_lsb = bus.read_address(stack_address);
+                registers.sp = registers.sp.wrapping_add(1);
+
+                Some(Self::Cycle4 { pc_lsb })
+            }
+            Self::Cycle4 { pc_lsb } => {
+                let stack_address = bus::CPU_STACK_START | u16::from(registers.sp);
+                let pc_msb = bus.read_address(stack_address);
+                registers.pc = u16::from_le_bytes([pc_lsb, pc_msb]);
+
+                Some(Self::Cycle5)
+            }
+            Self::Cycle5 => {
+                registers.pc += 1;
+                None
+            }
+        }
+    }
+}
+
+enum ReturnInterruptState {
+    Cycle1,
+    Cycle2,
+    Cycle3,
+    Cycle4,
+    Cycle5 { pc_lsb: u8 },
+}
+
+impl InstructionState for ReturnInterruptState {
+    fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
+        match self {
+            Self::Cycle1 => Some(Self::Cycle2),
+            Self::Cycle2 => {
+                registers.sp = registers.sp.wrapping_add(1);
+                Some(Self::Cycle3)
+            }
+            Self::Cycle3 => {
+                let stack_address = bus::CPU_STACK_START | u16::from(registers.sp);
+                registers.status = bus.read_address(stack_address);
+                registers.sp = registers.sp.wrapping_add(1);
+
+                Some(Self::Cycle4)
+            }
+            Self::Cycle4 => {
+                let stack_address = bus::CPU_STACK_START | u16::from(registers.sp);
+                let pc_lsb = bus.read_address(stack_address);
+                registers.sp = registers.sp.wrapping_add(1);
+
+                Some(Self::Cycle5 { pc_lsb })
+            }
+            Self::Cycle5 { pc_lsb } => {
+                let stack_address = bus::CPU_STACK_START | u16::from(registers.sp);
+                let pc_msb = bus.read_address(stack_address);
+
+                registers.pc = u16::from_le_bytes([pc_lsb, pc_msb]);
+                None
+            }
+        }
+    }
+}
+
+enum PushStackState {
+    Cycle1(CpuRegister),
+    Cycle2(CpuRegister),
+}
+
+impl InstructionState for PushStackState {
+    fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
+        match self {
+            Self::Cycle1(register) => Some(Self::Cycle2(register)),
+            Self::Cycle2(register) => {
+                let stack_address = bus::CPU_STACK_START | u16::from(registers.sp);
+                bus.write_address(stack_address, read_register(registers, register));
+                registers.sp = registers.sp.wrapping_sub(1);
+
+                None
+            }
+        }
+    }
+}
+
+enum PullStackState {
+    Cycle1(CpuRegister),
+    Cycle2(CpuRegister),
+    Cycle3(CpuRegister),
+}
+
+impl InstructionState for PullStackState {
+    fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
+        match self {
+            Self::Cycle1(register) => Some(Self::Cycle2(register)),
+            Self::Cycle2(register) => {
+                registers.sp = registers.sp.wrapping_add(1);
+                Some(Self::Cycle3(register))
+            }
+            Self::Cycle3(register) => {
+                let value = bus.read_address(bus::CPU_STACK_START | u16::from(registers.sp));
+                write_register(registers, register, value);
+                None
+            }
+        }
+    }
+}
+
+// TODO: BRK
 
 fn read_register(registers: &CpuRegisters, register: CpuRegister) -> u8 {
     match register {

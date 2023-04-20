@@ -5,6 +5,8 @@ pub const CPU_RAM_START: u16 = 0x0000;
 pub const CPU_RAM_END: u16 = 0x1FFF;
 pub const CPU_RAM_MASK: u16 = 0x07FF;
 
+pub const CPU_STACK_START: u16 = 0x0100;
+
 pub const CPU_PPU_REGISTERS_START: u16 = 0x2000;
 pub const CPU_PPU_REGISTERS_END: u16 = 0x3FFF;
 pub const CPU_PPU_REGISTERS_MASK: u16 = 0x0007;
