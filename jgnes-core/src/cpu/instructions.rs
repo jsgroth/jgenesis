@@ -952,10 +952,10 @@ impl InstructionState for AbsoluteReadState {
                 instruction,
                 address_lsb,
             } => {
-                let address_hsb = bus.read_address(registers.pc);
+                let address_msb = bus.read_address(registers.pc);
                 registers.pc += 1;
 
-                let address = u16::from_le_bytes([address_lsb, address_hsb]);
+                let address = u16::from_le_bytes([address_lsb, address_msb]);
                 Some(Self::Cycle3 {
                     instruction,
                     address,
@@ -1029,10 +1029,10 @@ impl InstructionState for AbsoluteWriteState {
                 instruction,
                 address_lsb,
             } => {
-                let address_hsb = bus.read_address(registers.pc);
+                let address_msb = bus.read_address(registers.pc);
                 registers.pc += 1;
 
-                let address = u16::from_le_bytes([address_lsb, address_hsb]);
+                let address = u16::from_le_bytes([address_lsb, address_msb]);
                 Some(Self::Cycle3 {
                     instruction,
                     address,
@@ -1055,8 +1055,630 @@ impl InstructionState for AbsoluteWriteState {
     }
 }
 
-// TODO: absolute modify, absolute indexed read+write+modify, indirect indexed read+write+modify,
-// TODO: indexed indirect read+write+modify, unique instructions
+enum AbsoluteModifyState {
+    Cycle1(Instruction),
+    Cycle2 {
+        instruction: Instruction,
+        address_lsb: u8,
+    },
+    Cycle3 {
+        instruction: Instruction,
+        address: u16,
+    },
+    Cycle4 {
+        instruction: Instruction,
+        address: u16,
+        value: u8,
+    },
+    Cycle5 {
+        instruction: Instruction,
+        address: u16,
+        value: u8,
+    },
+}
+
+impl InstructionState for AbsoluteModifyState {
+    fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
+        match self {
+            Self::Cycle1(instruction) => {
+                let address_lsb = bus.read_address(registers.pc);
+                registers.pc += 1;
+
+                Some(Self::Cycle2 {
+                    instruction,
+                    address_lsb,
+                })
+            }
+            Self::Cycle2 {
+                instruction,
+                address_lsb,
+            } => {
+                let address_msb = bus.read_address(registers.pc);
+                registers.pc += 1;
+
+                let address = u16::from_le_bytes([address_lsb, address_msb]);
+                Some(Self::Cycle3 {
+                    instruction,
+                    address,
+                })
+            }
+            Self::Cycle3 {
+                instruction,
+                address,
+            } => {
+                let value = bus.read_address(address);
+
+                Some(Self::Cycle4 {
+                    instruction,
+                    address,
+                    value,
+                })
+            }
+            Self::Cycle4 {
+                instruction,
+                address,
+                value,
+            } => Some(Self::Cycle5 {
+                instruction,
+                address,
+                value,
+            }),
+            Self::Cycle5 {
+                instruction,
+                address,
+                value,
+            } => {
+                let new_value = match instruction {
+                    Instruction::ShiftLeft(..) => shift_left(value, &mut registers.status_flags()),
+                    Instruction::DecrementMemory(..) => decrement(value, &mut registers.status_flags()),
+                    Instruction::IncrementMemory(..) => increment(value, &mut registers.status_flags()),
+                    Instruction::LogicalShiftRight(..) => shift_right(value, &mut registers.status_flags()),
+                    Instruction::RotateLeft(..) => rotate_left(value, &mut registers.status_flags()),
+                    Instruction::RotateRight(..) => rotate_right(value, &mut registers.status_flags()),
+                    _ => panic!("instruction does not support Absolute addressing mode or is not a read-modify-write instruction: {instruction:?}"),
+                };
+
+                bus.write_address(address, new_value);
+
+                None
+            }
+        }
+    }
+}
+
+enum AbsoluteIndexedReadState {
+    Cycle1(Instruction, IndexType),
+    Cycle2 {
+        instruction: Instruction,
+        index_type: IndexType,
+        address_lsb: u8,
+    },
+    Cycle3 {
+        instruction: Instruction,
+        indexed_address: u16,
+        address_msb: u8,
+    },
+    Cycle4 {
+        instruction: Instruction,
+        indexed_address: u16,
+    },
+}
+
+impl InstructionState for AbsoluteIndexedReadState {
+    fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
+        match self {
+            Self::Cycle1(instruction, index_type) => {
+                let address_lsb = bus.read_address(registers.pc);
+                registers.pc += 1;
+
+                Some(Self::Cycle2 {
+                    instruction,
+                    index_type,
+                    address_lsb,
+                })
+            }
+            Self::Cycle2 {
+                instruction,
+                index_type,
+                address_lsb,
+            } => {
+                let address_msb = bus.read_address(registers.pc);
+                registers.pc += 1;
+
+                let address = u16::from_le_bytes([address_lsb, address_msb]);
+
+                let index = match index_type {
+                    IndexType::X => registers.x,
+                    IndexType::Y => registers.y,
+                };
+                let indexed_address = address.wrapping_add(u16::from(index));
+
+                Some(Self::Cycle3 {
+                    instruction,
+                    indexed_address,
+                    address_msb,
+                })
+            }
+            Self::Cycle3 {
+                instruction,
+                indexed_address,
+                address_msb,
+            } if address_msb != (indexed_address >> 8) as u8 => Some(Self::Cycle4 {
+                instruction,
+                indexed_address,
+            }),
+            Self::Cycle3 {
+                instruction,
+                indexed_address,
+                ..
+            }
+            | Self::Cycle4 {
+                instruction,
+                indexed_address,
+            } => {
+                let value = bus.read_address(indexed_address);
+
+                match instruction {
+                    Instruction::AddWithCarry(..) => {
+                        registers.accumulator = add(registers.accumulator, value, &mut registers.status_flags());
+                    }
+                    Instruction::And(..) => {
+                        registers.accumulator = and(registers.accumulator, value, &mut registers.status_flags());
+                    }
+                    Instruction::Compare(CpuRegister::A, ..) => {
+                        compare(registers.accumulator, value, &mut registers.status_flags());
+                    }
+                    Instruction::ExclusiveOr(..) => {
+                        registers.accumulator = xor(registers.accumulator, value, &mut registers.status_flags());
+                    }
+                    Instruction::LoadRegister(register, ..) => {
+                        write_register(registers, register, value);
+                    }
+                    Instruction::InclusiveOr(..) => {
+                        registers.accumulator = or(registers.accumulator, value, &mut registers.status_flags());
+                    }
+                    Instruction::SubtractWithCarry(..) => {
+                        registers.accumulator = subtract(registers.accumulator, value, &mut registers.status_flags());
+                    }
+                    _ => panic!("instruction does not support Absolute X/Y addressing mode or is not a read instruction: {instruction:?}")
+                }
+
+                None
+            }
+        }
+    }
+}
+
+enum AbsoluteIndexedWriteState {
+    Cycle1(Instruction, IndexType),
+    Cycle2 {
+        instruction: Instruction,
+        index_type: IndexType,
+        address_lsb: u8,
+    },
+    Cycle3 {
+        instruction: Instruction,
+        indexed_address: u16,
+    },
+    Cycle4 {
+        instruction: Instruction,
+        indexed_address: u16,
+    },
+}
+
+impl InstructionState for AbsoluteIndexedWriteState {
+    fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
+        match self {
+            Self::Cycle1(instruction, index_type) => {
+                let address_lsb = bus.read_address(registers.pc);
+                registers.pc += 1;
+
+                Some(Self::Cycle2 {
+                    instruction,
+                    index_type,
+                    address_lsb,
+                })
+            }
+            Self::Cycle2 {
+                instruction,
+                index_type,
+                address_lsb,
+            } => {
+                let address_msb = bus.read_address(registers.pc);
+                registers.pc += 1;
+
+                let address = u16::from_le_bytes([address_lsb, address_msb]);
+
+                let index = match index_type {
+                    IndexType::X => registers.x,
+                    IndexType::Y => registers.y,
+                };
+                let indexed_address = address.wrapping_add(u16::from(index));
+
+                Some(Self::Cycle3 {
+                    instruction,
+                    indexed_address,
+                })
+            }
+            Self::Cycle3 {
+                instruction,
+                indexed_address,
+            } => Some(Self::Cycle4 {
+                instruction,
+                indexed_address,
+            }),
+            Self::Cycle4 {
+                instruction,
+                indexed_address,
+            } => {
+                let value = match instruction {
+                    Instruction::StoreRegister(CpuRegister::A, ..) => registers.accumulator,
+                    _ => panic!("instruction does not support Absolute X/Y addressing or is not a write instruction: {instruction:?}"),
+                };
+
+                bus.write_address(indexed_address, value);
+
+                None
+            }
+        }
+    }
+}
+
+enum AbsoluteIndexedModifyState {
+    Cycle1(Instruction, IndexType),
+    Cycle2 {
+        instruction: Instruction,
+        index_type: IndexType,
+        address_lsb: u8,
+    },
+    Cycle3 {
+        instruction: Instruction,
+        indexed_address: u16,
+    },
+    Cycle4 {
+        instruction: Instruction,
+        indexed_address: u16,
+    },
+    Cycle5 {
+        instruction: Instruction,
+        indexed_address: u16,
+        value: u8,
+    },
+    Cycle6 {
+        instruction: Instruction,
+        indexed_address: u16,
+        value: u8,
+    },
+}
+
+impl InstructionState for AbsoluteIndexedModifyState {
+    fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
+        match self {
+            Self::Cycle1(instruction, index_type) => {
+                let address_lsb = bus.read_address(registers.pc);
+                registers.pc += 1;
+
+                Some(Self::Cycle2 {
+                    instruction,
+                    index_type,
+                    address_lsb,
+                })
+            }
+            Self::Cycle2 {
+                instruction,
+                index_type,
+                address_lsb,
+            } => {
+                let address_msb = bus.read_address(registers.pc);
+                registers.pc += 1;
+
+                let address = u16::from_le_bytes([address_lsb, address_msb]);
+
+                let index = match index_type {
+                    IndexType::X => registers.x,
+                    IndexType::Y => registers.y,
+                };
+                let indexed_address = address.wrapping_add(u16::from(index));
+
+                Some(Self::Cycle3 {
+                    instruction,
+                    indexed_address,
+                })
+            }
+            Self::Cycle3 {
+                instruction,
+                indexed_address,
+            } => Some(Self::Cycle4 {
+                instruction,
+                indexed_address,
+            }),
+            Self::Cycle4 {
+                instruction,
+                indexed_address,
+            } => {
+                let value = bus.read_address(indexed_address);
+                Some(Self::Cycle5 {
+                    instruction,
+                    indexed_address,
+                    value,
+                })
+            }
+            Self::Cycle5 {
+                instruction,
+                indexed_address,
+                value,
+            } => Some(Self::Cycle6 {
+                instruction,
+                indexed_address,
+                value,
+            }),
+            Self::Cycle6 {
+                instruction,
+                indexed_address,
+                value,
+            } => {
+                let new_value = match instruction {
+                    Instruction::ShiftLeft(..) => shift_left(value, &mut registers.status_flags()),
+                    Instruction::DecrementMemory(..) => decrement(value, &mut registers.status_flags()),
+                    Instruction::IncrementMemory(..) => increment(value, &mut registers.status_flags()),
+                    Instruction::LogicalShiftRight(..) => shift_right(value, &mut registers.status_flags()),
+                    Instruction::RotateLeft(..) => rotate_left(value, &mut registers.status_flags()),
+                    Instruction::RotateRight(..) => rotate_right(value, &mut registers.status_flags()),
+                    _ => panic!("instruction does not support Absolute X/Y addressing mode or is not a read-modify-write instruction: {instruction:?}"),
+                };
+
+                bus.write_address(indexed_address, new_value);
+
+                None
+            }
+        }
+    }
+}
+
+enum IndexedIndirectState {
+    Cycle1(Instruction),
+    Cycle2 {
+        instruction: Instruction,
+        address: u8,
+    },
+    Cycle3 {
+        instruction: Instruction,
+        indexed_address: u8,
+    },
+    Cycle4 {
+        instruction: Instruction,
+        indexed_address: u8,
+        effective_address_lsb: u8,
+    },
+    Cycle5 {
+        instruction: Instruction,
+        effective_address: u16,
+    },
+}
+
+impl InstructionState for IndexedIndirectState {
+    fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
+        match self {
+            Self::Cycle1(instruction) => {
+                let address = bus.read_address(registers.pc);
+                registers.pc += 1;
+
+                Some(Self::Cycle2 {
+                    instruction,
+                    address,
+                })
+            }
+            Self::Cycle2 {
+                instruction,
+                address,
+            } => {
+                let indexed_address = address.wrapping_add(registers.x);
+                Some(Self::Cycle3 {
+                    instruction,
+                    indexed_address,
+                })
+            }
+            Self::Cycle3 {
+                instruction,
+                indexed_address,
+            } => {
+                let effective_address_lsb = bus.read_address(u16::from(indexed_address));
+                Some(Self::Cycle4 {
+                    instruction,
+                    indexed_address,
+                    effective_address_lsb,
+                })
+            }
+            Self::Cycle4 {
+                instruction,
+                indexed_address,
+                effective_address_lsb,
+            } => {
+                let effective_address_msb =
+                    bus.read_address(u16::from(indexed_address.wrapping_add(1)));
+                let effective_address =
+                    u16::from_le_bytes([effective_address_lsb, effective_address_msb]);
+
+                Some(Self::Cycle5 {
+                    instruction,
+                    effective_address,
+                })
+            }
+            Self::Cycle5 {
+                instruction,
+                effective_address,
+            } => {
+                let value = match instruction {
+                    Instruction::StoreRegister(..) => 0,
+                    _ => bus.read_address(effective_address),
+                };
+
+                match instruction {
+                    Instruction::AddWithCarry(..) => {
+                        registers.accumulator = add(registers.accumulator, value, &mut registers.status_flags());
+                    }
+                    Instruction::And(..) => {
+                        registers.accumulator = and(registers.accumulator, value, &mut registers.status_flags());
+                    }
+                    Instruction::Compare(CpuRegister::A, ..) => {
+                        compare(registers.accumulator, value, &mut registers.status_flags());
+                    }
+                    Instruction::ExclusiveOr(..) => {
+                        registers.accumulator = xor(registers.accumulator, value, &mut registers.status_flags());
+                    }
+                    Instruction::LoadRegister(CpuRegister::A, ..) => {
+                        registers.accumulator = value;
+                    }
+                    Instruction::InclusiveOr(..) => {
+                        registers.accumulator = or(registers.accumulator, value, &mut registers.status_flags());
+                    }
+                    Instruction::SubtractWithCarry(..) => {
+                        registers.accumulator = subtract(registers.accumulator, value, &mut registers.status_flags());
+                    }
+                    Instruction::StoreRegister(CpuRegister::A, ..) => {
+                        bus.write_address(effective_address, registers.accumulator);
+                    }
+                    _ => panic!("instruction does not support Indirect X addressing mode or is not a read/write instruction: {instruction:?}"),
+                }
+
+                None
+            }
+        }
+    }
+}
+
+enum IndirectIndexedState {
+    Cycle1(Instruction),
+    Cycle2 {
+        instruction: Instruction,
+        address: u8,
+    },
+    Cycle3 {
+        instruction: Instruction,
+        address: u8,
+        effective_address_lsb: u8,
+    },
+    Cycle4 {
+        instruction: Instruction,
+        effective_address: u16,
+        indexed_address: u16,
+    },
+    Cycle5 {
+        instruction: Instruction,
+        indexed_address: u16,
+    },
+}
+
+impl InstructionState for IndirectIndexedState {
+    fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
+        match self {
+            Self::Cycle1(instruction) => {
+                let address = bus.read_address(registers.pc);
+                registers.pc += 1;
+
+                Some(Self::Cycle2 {
+                    instruction,
+                    address,
+                })
+            }
+            Self::Cycle2 {
+                instruction,
+                address,
+            } => {
+                let effective_address_lsb = bus.read_address(u16::from(address));
+                Some(Self::Cycle3 {
+                    instruction,
+                    address,
+                    effective_address_lsb,
+                })
+            }
+            Self::Cycle3 {
+                instruction,
+                address,
+                effective_address_lsb,
+            } => {
+                let effective_address_msb = bus.read_address(u16::from(address.wrapping_add(1)));
+                let effective_address =
+                    u16::from_le_bytes([effective_address_lsb, effective_address_msb]);
+
+                let indexed_address = effective_address.wrapping_add(u16::from(registers.y));
+
+                Some(Self::Cycle4 {
+                    instruction,
+                    effective_address,
+                    indexed_address,
+                })
+            }
+            Self::Cycle4 {
+                instruction: Instruction::StoreRegister(register, ..),
+                indexed_address,
+                ..
+            } => Some(Self::Cycle5 {
+                instruction: Instruction::StoreRegister(register, AddressingMode::IndirectY),
+                indexed_address,
+            }),
+            Self::Cycle4 {
+                instruction,
+                effective_address,
+                indexed_address,
+            } if (effective_address & 0xFF00) != (indexed_address & 0xFF00) => Some(Self::Cycle5 {
+                instruction,
+                indexed_address,
+            }),
+            Self::Cycle4 {
+                instruction,
+                indexed_address,
+                ..
+            }
+            | Self::Cycle5 {
+                instruction,
+                indexed_address,
+            } => {
+                let value = match instruction {
+                    Instruction::StoreRegister(..) => 0,
+                    _ => bus.read_address(indexed_address),
+                };
+
+                match instruction {
+                    Instruction::AddWithCarry(..) => {
+                        registers.accumulator =
+                            add(registers.accumulator, value, &mut registers.status_flags());
+                    }
+                    Instruction::And(..) => {
+                        registers.accumulator =
+                            and(registers.accumulator, value, &mut registers.status_flags());
+                    }
+                    Instruction::Compare(CpuRegister::A, ..) => {
+                        compare(registers.accumulator, value, &mut registers.status_flags());
+                    }
+                    Instruction::ExclusiveOr(..) => {
+                        registers.accumulator =
+                            xor(registers.accumulator, value, &mut registers.status_flags());
+                    }
+                    Instruction::LoadRegister(CpuRegister::A, ..) => {
+                        registers.accumulator = value;
+                    }
+                    Instruction::InclusiveOr(..) => {
+                        registers.accumulator =
+                            or(registers.accumulator, value, &mut registers.status_flags());
+                    }
+                    Instruction::SubtractWithCarry(..) => {
+                        registers.accumulator =
+                            subtract(registers.accumulator, value, &mut registers.status_flags());
+                    }
+                    Instruction::StoreRegister(CpuRegister::A, ..) => {
+                        bus.write_address(indexed_address, registers.accumulator);
+                    }
+                    _ => panic!("instruction does not support Indirect Y addressing mode or is not a read/write instruction: {instruction:?}"),
+                }
+
+                None
+            }
+        }
+    }
+}
+
+// TODO: unique instructions
 
 fn read_register(registers: &CpuRegisters, register: CpuRegister) -> u8 {
     match register {
