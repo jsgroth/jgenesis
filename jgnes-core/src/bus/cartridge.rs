@@ -1,3 +1,4 @@
+use crate::bus;
 use std::fs::File;
 use std::io;
 use std::io::{Read, Seek, SeekFrom};
@@ -14,35 +15,76 @@ pub(crate) struct Cartridge {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum CpuMapResult {
-    PrgROM(u16),
-    PrgRAM(u16),
+    PrgROM(u32),
+    PrgRAM(u32),
     None,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum PpuMapResult {
-    ChrROM(u16),
-    ChrRAM(u16),
+    ChrROM(u32),
+    ChrRAM(u32),
     Vram(u16),
     None,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NametableMirroring {
+    Horizontal,
+    Vertical,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) enum Mapper {
-    Nrom,
+    Nrom {
+        prg_rom_size: u16,
+        nametable_mirroring: NametableMirroring,
+    },
 }
 
 impl Mapper {
     pub(crate) fn map_cpu_address(&self, address: u16) -> CpuMapResult {
-        todo!()
+        match self {
+            &Self::Nrom { prg_rom_size, .. } => {
+                if address < 0x8000 {
+                    CpuMapResult::None
+                } else {
+                    let relative_addr = (address - 0x8000) & (prg_rom_size - 1);
+                    CpuMapResult::PrgROM(relative_addr.into())
+                }
+            }
+        }
     }
 
     pub(crate) fn write_cpu_address(&mut self, address: u16, value: u8) {
-        todo!()
+        match self {
+            Self::Nrom { .. } => {}
+        }
     }
 
     pub(crate) fn map_ppu_address(&self, address: u16) -> PpuMapResult {
-        todo!()
+        match self {
+            &Self::Nrom {
+                nametable_mirroring,
+                ..
+            } => match address {
+                address @ bus::PPU_PATTERN_TABLES_START..=bus::PPU_PATTERN_TABLES_END => {
+                    PpuMapResult::ChrROM(address.into())
+                }
+                address @ bus::PPU_NAMETABLES_START..=bus::PPU_NAMETABLES_END => {
+                    let relative_addr = (address - bus::PPU_NAMETABLES_START) & 0x0FFF;
+                    let vram_addr = match nametable_mirroring {
+                        NametableMirroring::Horizontal => {
+                            // Swap bits 10 and 11, and then discard the new bit 11
+                            (relative_addr & 0x0800 >> 1) | (relative_addr & 0x03FF)
+                        }
+                        NametableMirroring::Vertical => relative_addr & 0x07FF,
+                    };
+                    PpuMapResult::Vram(vram_addr)
+                }
+                _ => panic!("invalid PPU map address: {address:04X}"),
+            },
+        }
     }
 
     pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8) {
@@ -122,7 +164,16 @@ fn from_ines_file(mut file: File) -> Result<(Cartridge, Mapper), CartridgeFileEr
         chr_ram: Vec::new(),
     };
 
-    let mapper = Mapper::Nrom;
+    let nametable_mirroring = if header[6] & 0x01 != 0 {
+        NametableMirroring::Vertical
+    } else {
+        NametableMirroring::Horizontal
+    };
+
+    let mapper = Mapper::Nrom {
+        prg_rom_size: prg_rom_size as u16,
+        nametable_mirroring,
+    };
 
     Ok((cartridge, mapper))
 }

@@ -1,8 +1,10 @@
-use crate::bus::Bus;
+use crate::bus;
+use crate::bus::{Bus, CpuBus};
 use crate::cpu::instructions::ExecutingInstruction;
 
 mod instructions;
 
+#[derive(Debug)]
 pub struct CpuRegisters {
     pub accumulator: u8,
     pub x: u8,
@@ -13,6 +15,21 @@ pub struct CpuRegisters {
 }
 
 impl CpuRegisters {
+    pub fn new(bus: &mut CpuBus<'_>) -> Self {
+        let pc_lsb = bus.read_address(bus::CPU_RESET_VECTOR);
+        let pc_msb = bus.read_address(bus::CPU_RESET_VECTOR + 1);
+        let pc = u16::from_le_bytes([pc_lsb, pc_msb]);
+
+        Self {
+            accumulator: 0,
+            x: 0,
+            y: 0,
+            status: 0x34,
+            pc,
+            sp: 0xFD,
+        }
+    }
+
     fn status_flags(&mut self) -> StatusFlags<'_> {
         StatusFlags(&mut self.status)
     }
@@ -43,19 +60,6 @@ impl<'a> StatusFlags<'a> {
             *self.0 |= 0x40;
         } else {
             *self.0 &= !0x40;
-        }
-        self
-    }
-
-    fn break_flag(&self) -> bool {
-        *self.0 & 0x10 != 0
-    }
-
-    fn set_break(&mut self, value: bool) -> &mut Self {
-        if value {
-            *self.0 |= 0x10;
-        } else {
-            *self.0 &= !0x10;
         }
         self
     }
@@ -119,6 +123,15 @@ pub struct CpuState {
     state: State,
 }
 
+impl CpuState {
+    pub fn new(registers: CpuRegisters) -> Self {
+        Self {
+            registers,
+            state: State::InstructionStart,
+        }
+    }
+}
+
 pub fn tick(state: &mut CpuState, bus: &mut Bus) {
     // TODO interrupts
 
@@ -126,6 +139,7 @@ pub fn tick(state: &mut CpuState, bus: &mut Bus) {
         State::InstructionStart => {
             let executing_instruction =
                 ExecutingInstruction::fetch(&mut state.registers, &mut bus.cpu());
+            println!("Fetched {executing_instruction:?}");
             State::InstructionExecuting(executing_instruction)
         }
         State::InstructionExecuting(executing_instruction) => {

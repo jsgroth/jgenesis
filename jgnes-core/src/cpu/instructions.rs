@@ -488,6 +488,7 @@ trait InstructionState<StateType = Self> {
     fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<StateType>;
 }
 
+#[derive(Debug)]
 pub(crate) struct AccumulatorState(Instruction);
 
 impl InstructionState for AccumulatorState {
@@ -502,6 +503,7 @@ impl InstructionState for AccumulatorState {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct ImmediateState(Instruction);
 
 impl InstructionState for ImmediateState {
@@ -515,6 +517,7 @@ impl InstructionState for ImmediateState {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum ZeroPageReadState {
     Cycle1(Instruction),
     Cycle2 {
@@ -549,6 +552,7 @@ impl InstructionState for ZeroPageReadState {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum ZeroPageWriteState {
     Cycle1(Instruction),
     Cycle2 {
@@ -586,6 +590,7 @@ impl InstructionState for ZeroPageWriteState {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum ZeroPageModifyState {
     Cycle1(Instruction),
     Cycle2 {
@@ -662,6 +667,7 @@ pub(crate) enum IndexType {
     Y,
 }
 
+#[derive(Debug)]
 pub(crate) enum ZeroPageIndexedReadState {
     Cycle1(Instruction, IndexType),
     Cycle2 {
@@ -722,6 +728,7 @@ impl InstructionState for ZeroPageIndexedReadState {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum ZeroPageIndexedWriteState {
     Cycle1(Instruction, IndexType),
     Cycle2 {
@@ -788,6 +795,7 @@ impl InstructionState for ZeroPageIndexedWriteState {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum ZeroPageIndexedModifyState {
     Cycle1(Instruction, IndexType),
     Cycle2 {
@@ -885,6 +893,7 @@ impl InstructionState for ZeroPageIndexedModifyState {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum AbsoluteReadState {
     Cycle1(Instruction),
     Cycle2 {
@@ -936,6 +945,7 @@ impl InstructionState for AbsoluteReadState {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum AbsoluteWriteState {
     Cycle1(Instruction),
     Cycle2 {
@@ -990,6 +1000,7 @@ impl InstructionState for AbsoluteWriteState {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum AbsoluteModifyState {
     Cycle1(Instruction),
     Cycle2 {
@@ -1078,6 +1089,7 @@ impl InstructionState for AbsoluteModifyState {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum AbsoluteIndexedReadState {
     Cycle1(Instruction, IndexType),
     Cycle2 {
@@ -1162,6 +1174,7 @@ impl InstructionState for AbsoluteIndexedReadState {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum AbsoluteIndexedWriteState {
     Cycle1(Instruction, IndexType),
     Cycle2 {
@@ -1241,6 +1254,7 @@ impl InstructionState for AbsoluteIndexedWriteState {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum AbsoluteIndexedModifyState {
     Cycle1(Instruction, IndexType),
     Cycle2 {
@@ -1356,6 +1370,7 @@ impl InstructionState for AbsoluteIndexedModifyState {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum IndexedIndirectState {
     Cycle1(Instruction),
     Cycle2 {
@@ -1447,6 +1462,7 @@ impl InstructionState for IndexedIndirectState {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum IndirectIndexedState {
     Cycle1(Instruction),
     Cycle2 {
@@ -1558,6 +1574,7 @@ impl InstructionState for IndirectIndexedState {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct RegistersOnlyState(Instruction);
 
 impl InstructionState for RegistersOnlyState {
@@ -1617,6 +1634,7 @@ impl InstructionState for RegistersOnlyState {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum BranchState {
     Cycle1(BranchCondition),
     Cycle2 { offset: i8 },
@@ -1650,6 +1668,7 @@ impl InstructionState for BranchState {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum JumpState {
     Cycle1(AddressingMode),
     Cycle2 {
@@ -1717,6 +1736,7 @@ impl InstructionState for JumpState {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum JumpSubroutineState {
     Cycle1,
     Cycle2 { address_lsb: u8 },
@@ -1760,6 +1780,7 @@ impl InstructionState for JumpSubroutineState {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum ReturnSubroutineState {
     Cycle1,
     Cycle2,
@@ -1802,6 +1823,7 @@ impl InstructionState for ReturnSubroutineState {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum ReturnInterruptState {
     Cycle1,
     Cycle2,
@@ -1824,7 +1846,7 @@ impl InstructionState for ReturnInterruptState {
             }
             Self::Cycle3 => {
                 let stack_address = bus::CPU_STACK_START | u16::from(registers.sp);
-                registers.status = bus.read_address(stack_address);
+                registers.status = bus.read_address(stack_address) | 0x30;
                 registers.sp = registers.sp.wrapping_add(1);
 
                 Some(Self::Cycle4)
@@ -1847,6 +1869,7 @@ impl InstructionState for ReturnInterruptState {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum PushStackState {
     Cycle1(CpuRegister),
     Cycle2(CpuRegister),
@@ -1862,7 +1885,11 @@ impl InstructionState for PushStackState {
             }
             Self::Cycle2(register) => {
                 let stack_address = bus::CPU_STACK_START | u16::from(registers.sp);
-                bus.write_address(stack_address, read_register(registers, register));
+                let value = match register {
+                    CpuRegister::P => read_register(registers, register) | 0x30,
+                    _ => read_register(registers, register),
+                };
+                bus.write_address(stack_address, value);
                 registers.sp = registers.sp.wrapping_sub(1);
 
                 None
@@ -1871,6 +1898,7 @@ impl InstructionState for PushStackState {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum PullStackState {
     Cycle1(CpuRegister),
     Cycle2(CpuRegister),
@@ -1891,7 +1919,70 @@ impl InstructionState for PullStackState {
             }
             Self::Cycle3(register) => {
                 let value = bus.read_address(bus::CPU_STACK_START | u16::from(registers.sp));
+
+                let value = match register {
+                    CpuRegister::P => value | 0x30,
+                    _ => value,
+                };
+
                 write_register(registers, register, value);
+                None
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum ForceInterruptState {
+    Cycle1,
+    Cycle2,
+    Cycle3,
+    Cycle4,
+    Cycle5,
+    Cycle6 { pc_lsb: u8 },
+}
+
+impl InstructionState for ForceInterruptState {
+    fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
+        match self {
+            Self::Cycle1 => {
+                bus.read_address(registers.pc);
+                registers.pc += 1;
+
+                Some(Self::Cycle2)
+            }
+            Self::Cycle2 => {
+                let stack_address = bus::CPU_STACK_START | u16::from(registers.sp);
+                bus.write_address(stack_address, (registers.pc >> 8) as u8);
+                registers.sp = registers.sp.wrapping_sub(1);
+
+                Some(Self::Cycle3)
+            }
+            Self::Cycle3 => {
+                let stack_address = bus::CPU_STACK_START | u16::from(registers.sp);
+                bus.write_address(stack_address, (registers.pc & 0x00FF) as u8);
+                registers.sp = registers.sp.wrapping_sub(1);
+
+                Some(Self::Cycle4)
+            }
+            Self::Cycle4 => {
+                let stack_address = bus::CPU_STACK_START | u16::from(registers.sp);
+                bus.write_address(stack_address, registers.status | 0x30);
+                registers.sp = registers.sp.wrapping_sub(1);
+
+                Some(Self::Cycle5)
+            }
+            Self::Cycle5 => {
+                let pc_lsb = bus.read_address(bus::CPU_IRQ_VECTOR);
+
+                registers.status_flags().set_interrupt_disable(true);
+
+                Some(Self::Cycle6 { pc_lsb })
+            }
+            Self::Cycle6 { pc_lsb } => {
+                let pc_msb = bus.read_address(bus::CPU_IRQ_VECTOR + 1);
+                registers.pc = u16::from_le_bytes([pc_lsb, pc_msb]);
+
                 None
             }
         }
@@ -2106,6 +2197,7 @@ fn rotate_right(value: u8, flags: &mut StatusFlags<'_>) -> u8 {
     rotated
 }
 
+#[derive(Debug)]
 pub(crate) enum ExecutingInstruction {
     Accumulator(AccumulatorState),
     Immediate(ImmediateState),
@@ -2131,6 +2223,7 @@ pub(crate) enum ExecutingInstruction {
     ReturnInterrupt(ReturnInterruptState),
     PushStack(PushStackState),
     PullStack(PullStackState),
+    ForceInterrupt(ForceInterruptState),
 }
 
 macro_rules! executing_instruction_next {
@@ -2264,6 +2357,9 @@ impl ExecutingInstruction {
                 };
                 Self::PullStack(PullStackState::Cycle1(register))
             }
+            (_, InstructionType::ForceInterrupt) => {
+                Self::ForceInterrupt(ForceInterruptState::Cycle1)
+            }
             _ => panic!(
                 "invalid addressing mode / instruction type combination: mode={:?}, type={:?}",
                 instruction.get_addressing_mode(),
@@ -2299,6 +2395,7 @@ impl ExecutingInstruction {
             ReturnInterrupt,
             PushStack,
             PullStack,
+            ForceInterrupt,
         )
     }
 }

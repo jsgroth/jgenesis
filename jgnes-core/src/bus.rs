@@ -1,4 +1,4 @@
-mod cartridge;
+pub mod cartridge;
 
 use crate::bus::cartridge::{CpuMapResult, Mapper, PpuMapResult};
 use cartridge::Cartridge;
@@ -8,8 +8,6 @@ use tinyvec::ArrayVec;
 pub const CPU_RAM_START: u16 = 0x0000;
 pub const CPU_RAM_END: u16 = 0x1FFF;
 pub const CPU_RAM_MASK: u16 = 0x07FF;
-
-pub const CPU_STACK_START: u16 = 0x0100;
 
 pub const CPU_PPU_REGISTERS_START: u16 = 0x2000;
 pub const CPU_PPU_REGISTERS_END: u16 = 0x3FFF;
@@ -34,6 +32,10 @@ pub const PPU_NAMETABLES_MASK: u16 = 0x0FFF;
 pub const PPU_PALETTES_START: u16 = 0x3F00;
 pub const PPU_PALETTES_END: u16 = 0x3FFF;
 pub const PPU_PALETTES_MASK: u16 = 0x001F;
+
+pub const CPU_STACK_START: u16 = 0x0100;
+pub const CPU_RESET_VECTOR: u16 = 0xFFFC;
+pub const CPU_IRQ_VECTOR: u16 = 0xFFFE;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WriteSource {
@@ -188,7 +190,17 @@ impl Bus {
     }
 
     pub fn flush(&mut self) {
-        todo!()
+        let writes: ArrayVec<[PendingWrite; 10]> = self.pending_writes.drain(..).collect();
+        for write in writes {
+            match write.address_type {
+                AddressType::Cpu => {
+                    self.cpu().apply_write(write.address, write.value);
+                }
+                AddressType::Ppu => {
+                    todo!()
+                }
+            }
+        }
     }
 }
 
@@ -224,8 +236,33 @@ impl<'a> CpuBus<'a> {
         }
     }
 
+    fn apply_write(&mut self, address: u16, value: u8) {
+        match address {
+            address @ CPU_RAM_START..=CPU_RAM_END => {
+                let ram_address = address & CPU_RAM_MASK;
+                self.0.cpu_internal_ram[ram_address as usize] = value;
+            }
+            address @ CPU_PPU_REGISTERS_START..=CPU_PPU_REGISTERS_END => {
+                let ppu_register_relative_addr =
+                    (address - CPU_PPU_REGISTERS_START) & CPU_PPU_REGISTERS_MASK;
+                self.write_ppu_register(ppu_register_relative_addr as usize, value);
+            }
+            address @ CPU_IO_REGISTERS_START..=CPU_IO_REGISTERS_END => {
+                todo!()
+            }
+            _address @ CPU_IO_TEST_MODE_START..=CPU_IO_TEST_MODE_END => {}
+            address @ CPU_CARTRIDGE_START..=CPU_CARTRIDGE_END => {
+                self.0.mapper.write_cpu_address(address, value);
+            }
+        }
+    }
+
     pub fn write_address(&mut self, address: u16, value: u8) {
-        todo!()
+        self.0.pending_writes.push(PendingWrite {
+            address_type: AddressType::Cpu,
+            address,
+            value,
+        });
     }
 
     fn read_ppu_register(&mut self, relative_addr: usize) -> u8 {
