@@ -113,9 +113,79 @@ impl<'a> StatusFlags<'a> {
     }
 }
 
+enum HandlingInterruptState {
+    Cycle1,
+    Cycle2,
+    Cycle3,
+    Cycle4 { interrupt_vector: u16 },
+    Cycle5 { interrupt_vector: u16 },
+    Cycle6 { interrupt_vector: u16, pc_lsb: u8 },
+}
+
+impl HandlingInterruptState {
+    fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
+        match self {
+            Self::Cycle1 => {
+                bus.read_address(registers.pc);
+                Some(Self::Cycle2)
+            }
+            Self::Cycle2 => {
+                let stack_address = bus::CPU_STACK_START | u16::from(registers.sp);
+                bus.write_address(stack_address, (registers.pc >> 8) as u8);
+                registers.sp = registers.sp.wrapping_sub(1);
+
+                Some(Self::Cycle3)
+            }
+            Self::Cycle3 => {
+                let stack_address = bus::CPU_STACK_START | u16::from(registers.sp);
+                bus.write_address(stack_address, (registers.pc & 0x00FF) as u8);
+                registers.sp = registers.sp.wrapping_sub(1);
+
+                let interrupt_vector = if bus.interrupt_lines().nmi_triggered() {
+                    bus.interrupt_lines().clear_nmi_triggered();
+                    bus::CPU_NMI_VECTOR
+                } else {
+                    bus::CPU_IRQ_VECTOR
+                };
+
+                Some(Self::Cycle4 { interrupt_vector })
+            }
+            Self::Cycle4 { interrupt_vector } => {
+                let stack_address = bus::CPU_STACK_START | u16::from(registers.sp);
+                // Write P register with B flag cleared
+                bus.write_address(stack_address, (registers.status | 0x20) & 0xEF);
+                registers.sp = registers.sp.wrapping_sub(1);
+
+                Some(Self::Cycle5 { interrupt_vector })
+            }
+            Self::Cycle5 { interrupt_vector } => {
+                let pc_lsb = bus.read_address(interrupt_vector);
+
+                registers.status_flags().set_interrupt_disable(true);
+
+                Some(Self::Cycle6 {
+                    interrupt_vector,
+                    pc_lsb,
+                })
+            }
+            Self::Cycle6 {
+                interrupt_vector,
+                pc_lsb,
+            } => {
+                let pc_msb = bus.read_address(interrupt_vector + 1);
+
+                registers.pc = u16::from_le_bytes([pc_lsb, pc_msb]);
+
+                None
+            }
+        }
+    }
+}
+
 enum State {
     InstructionStart,
     InstructionExecuting(ExecutingInstruction),
+    // HandlingInterrupt(HandlingInterruptState),
 }
 
 pub struct CpuState {

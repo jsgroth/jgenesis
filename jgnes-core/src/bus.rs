@@ -34,6 +34,7 @@ pub const PPU_PALETTES_END: u16 = 0x3FFF;
 pub const PPU_PALETTES_MASK: u16 = 0x001F;
 
 pub const CPU_STACK_START: u16 = 0x0100;
+pub const CPU_NMI_VECTOR: u16 = 0xFFFA;
 pub const CPU_RESET_VECTOR: u16 = 0xFFFC;
 pub const CPU_IRQ_VECTOR: u16 = 0xFFFE;
 
@@ -154,6 +155,87 @@ impl PpuRegisters {
 // TODO implement
 pub struct IoRegisters;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InterruptLine {
+    High,
+    Low,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IrqSource {
+    ApuDmc,
+    ApuFrameCounter,
+    Mapper,
+}
+
+impl IrqSource {
+    fn to_low_pull_bit(self) -> u8 {
+        match self {
+            Self::ApuDmc => 0x01,
+            Self::ApuFrameCounter => 0x02,
+            Self::Mapper => 0x04,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct InterruptLines {
+    nmi_line: InterruptLine,
+    next_nmi_line: InterruptLine,
+    nmi_triggered: bool,
+    irq_line: InterruptLine,
+    irq_low_pulls: u8,
+}
+
+impl InterruptLines {
+    fn new() -> Self {
+        Self {
+            nmi_line: InterruptLine::High,
+            next_nmi_line: InterruptLine::High,
+            nmi_triggered: false,
+            irq_line: InterruptLine::High,
+            irq_low_pulls: 0x00,
+        }
+    }
+
+    fn tick(&mut self) {
+        if self.nmi_line == InterruptLine::High && self.next_nmi_line == InterruptLine::Low {
+            self.nmi_triggered = true;
+        }
+
+        self.nmi_line = self.next_nmi_line;
+        self.irq_line = if self.irq_low_pulls != 0 {
+            InterruptLine::Low
+        } else {
+            InterruptLine::High
+        };
+    }
+
+    pub fn nmi_triggered(&self) -> bool {
+        self.nmi_triggered
+    }
+
+    pub fn clear_nmi_triggered(&mut self) {
+        self.nmi_triggered = false;
+    }
+
+    pub fn ppu_set_nmi_line(&mut self, interrupt_line: InterruptLine) {
+        self.next_nmi_line = interrupt_line;
+    }
+
+    pub fn irq_triggered(&self) -> bool {
+        self.irq_line == InterruptLine::Low
+    }
+
+    pub fn pull_irq_low(&mut self, source: IrqSource) {
+        self.irq_low_pulls |= source.to_low_pull_bit();
+    }
+
+    pub fn release_irq_low_pull(&mut self, source: IrqSource) {
+        self.irq_low_pulls &= !source.to_low_pull_bit();
+    }
+}
+
 pub struct Bus {
     cartridge: Cartridge,
     mapper: Mapper,
@@ -163,7 +245,8 @@ pub struct Bus {
     ppu_vram: [u8; 2048],
     ppu_palette_ram: [u8; 64],
     ppu_oam: [u8; 256],
-    pending_writes: ArrayVec<[PendingWrite; 10]>,
+    interrupt_lines: InterruptLines,
+    pending_writes: ArrayVec<[PendingWrite; 5]>,
 }
 
 impl Bus {
@@ -177,6 +260,7 @@ impl Bus {
             ppu_vram: [0; 2048],
             ppu_palette_ram: [0; 64],
             ppu_oam: [0; 256],
+            interrupt_lines: InterruptLines::new(),
             pending_writes: ArrayVec::new(),
         }
     }
@@ -189,8 +273,12 @@ impl Bus {
         PpuBus(self)
     }
 
-    pub fn flush(&mut self) {
-        let writes: ArrayVec<[PendingWrite; 10]> = self.pending_writes.drain(..).collect();
+    pub fn interrupt_lines(&mut self) -> &mut InterruptLines {
+        &mut self.interrupt_lines
+    }
+
+    pub fn tick(&mut self) {
+        let writes: ArrayVec<[PendingWrite; 5]> = self.pending_writes.drain(..).collect();
         for write in writes {
             match write.address_type {
                 AddressType::Cpu => {
@@ -263,6 +351,10 @@ impl<'a> CpuBus<'a> {
             address,
             value,
         });
+    }
+
+    pub fn interrupt_lines(&mut self) -> &mut InterruptLines {
+        &mut self.0.interrupt_lines
     }
 
     fn read_ppu_register(&mut self, relative_addr: usize) -> u8 {

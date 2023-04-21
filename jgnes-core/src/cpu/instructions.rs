@@ -577,12 +577,7 @@ impl InstructionState for ZeroPageWriteState {
                 instruction,
                 address,
             } => {
-                let value = match instruction {
-                    Instruction::StoreRegister(register, ..) => read_register(registers, register),
-                    _ => panic!("instruction does not support Zero Page addressing mode or is not a write instruction: {instruction:?}"),
-                };
-
-                bus.write_address(u16::from(address), value);
+                execute_write_instruction(instruction, registers, u16::from(address), bus);
 
                 None
             }
@@ -780,14 +775,7 @@ impl InstructionState for ZeroPageIndexedWriteState {
                 };
                 let indexed_address = u16::from(address.wrapping_add(index));
 
-                let value = match instruction {
-                    Instruction::StoreRegister(register, ..) =>
-                       read_register(registers, register),
-
-                    _ => panic!("instruction does not support Zero Page X/Y addressing mode or is not a write instruction: {instruction:?}")
-                };
-
-                bus.write_address(indexed_address, value);
+                execute_write_instruction(instruction, registers, indexed_address, bus);
 
                 None
             }
@@ -987,12 +975,7 @@ impl InstructionState for AbsoluteWriteState {
                 instruction,
                 address,
             } => {
-                let value = match instruction {
-                    Instruction::StoreRegister(register, ..) => read_register(registers, register),
-                    _ => panic!("instruction does not support Absolute addressing mode or is not a write instruction: {instruction:?}"),
-                };
-
-                bus.write_address(address, value);
+                execute_write_instruction(instruction, registers, address, bus);
 
                 None
             }
@@ -1241,12 +1224,7 @@ impl InstructionState for AbsoluteIndexedWriteState {
                 instruction,
                 indexed_address,
             } => {
-                let value = match instruction {
-                    Instruction::StoreRegister(CpuRegister::A, ..) => registers.accumulator,
-                    _ => panic!("instruction does not support Absolute X/Y addressing or is not a write instruction: {instruction:?}"),
-                };
-
-                bus.write_address(indexed_address, value);
+                execute_write_instruction(instruction, registers, indexed_address, bus);
 
                 None
             }
@@ -1937,9 +1915,9 @@ pub(crate) enum ForceInterruptState {
     Cycle1,
     Cycle2,
     Cycle3,
-    Cycle4,
-    Cycle5,
-    Cycle6 { pc_lsb: u8 },
+    Cycle4 { interrupt_vector: u16 },
+    Cycle5 { interrupt_vector: u16 },
+    Cycle6 { interrupt_vector: u16, pc_lsb: u8 },
 }
 
 impl InstructionState for ForceInterruptState {
@@ -1963,24 +1941,38 @@ impl InstructionState for ForceInterruptState {
                 bus.write_address(stack_address, (registers.pc & 0x00FF) as u8);
                 registers.sp = registers.sp.wrapping_sub(1);
 
-                Some(Self::Cycle4)
+                // NMI interrupts can hijack IRQ/BRK interrupts
+                let interrupt_vector = if bus.interrupt_lines().nmi_triggered() {
+                    bus.interrupt_lines().clear_nmi_triggered();
+                    bus::CPU_NMI_VECTOR
+                } else {
+                    bus::CPU_IRQ_VECTOR
+                };
+
+                Some(Self::Cycle4 { interrupt_vector })
             }
-            Self::Cycle4 => {
+            Self::Cycle4 { interrupt_vector } => {
                 let stack_address = bus::CPU_STACK_START | u16::from(registers.sp);
                 bus.write_address(stack_address, registers.status | 0x30);
                 registers.sp = registers.sp.wrapping_sub(1);
 
-                Some(Self::Cycle5)
+                Some(Self::Cycle5 { interrupt_vector })
             }
-            Self::Cycle5 => {
-                let pc_lsb = bus.read_address(bus::CPU_IRQ_VECTOR);
+            Self::Cycle5 { interrupt_vector } => {
+                let pc_lsb = bus.read_address(interrupt_vector);
 
                 registers.status_flags().set_interrupt_disable(true);
 
-                Some(Self::Cycle6 { pc_lsb })
+                Some(Self::Cycle6 {
+                    interrupt_vector,
+                    pc_lsb,
+                })
             }
-            Self::Cycle6 { pc_lsb } => {
-                let pc_msb = bus.read_address(bus::CPU_IRQ_VECTOR + 1);
+            Self::Cycle6 {
+                interrupt_vector,
+                pc_lsb,
+            } => {
+                let pc_msb = bus.read_address(interrupt_vector + 1);
                 registers.pc = u16::from_le_bytes([pc_lsb, pc_msb]);
 
                 None
@@ -1988,8 +1980,6 @@ impl InstructionState for ForceInterruptState {
         }
     }
 }
-
-// TODO: BRK
 
 fn read_register(registers: &CpuRegisters, register: CpuRegister) -> u8 {
     match register {
@@ -2054,6 +2044,20 @@ fn execute_read_instruction(instruction: Instruction, value: u8, registers: &mut
         }
         _ => panic!("instruction is not a read instruction: {instruction:?}"),
     }
+}
+
+fn execute_write_instruction(
+    instruction: Instruction,
+    registers: &CpuRegisters,
+    address: u16,
+    bus: &mut CpuBus<'_>,
+) {
+    let value = match instruction {
+        Instruction::StoreRegister(register, ..) => read_register(registers, register),
+        _ => panic!("instruction is not a write instruction: {instruction:?}"),
+    };
+
+    bus.write_address(address, value);
 }
 
 fn execute_modify_instruction(
@@ -2397,5 +2401,9 @@ impl ExecutingInstruction {
             PullStack,
             ForceInterrupt,
         )
+    }
+
+    pub fn is_branch(&self) -> bool {
+        matches!(self, Self::Branch(..))
     }
 }

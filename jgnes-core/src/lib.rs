@@ -25,7 +25,7 @@ pub fn run(path: &str) -> Result<(), Box<dyn Error>> {
 
     for _ in 0..20000 {
         cpu::tick(&mut cpu_state, &mut bus);
-        bus.flush();
+        bus.tick();
     }
 
     Ok(())
