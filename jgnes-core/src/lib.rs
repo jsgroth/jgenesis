@@ -23,10 +23,8 @@ pub fn run(path: &str) -> Result<(), Box<dyn Error>> {
 
     let mut cpu_state = CpuState::new(cpu_registers);
 
-    for _ in 0..20000 {
+    loop {
         cpu::tick(&mut cpu_state, &mut bus);
         bus.tick();
     }
-
-    Ok(())
 }

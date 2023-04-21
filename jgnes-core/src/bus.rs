@@ -336,7 +336,7 @@ impl<'a> CpuBus<'a> {
                 self.write_ppu_register(ppu_register_relative_addr as usize, value);
             }
             address @ CPU_IO_REGISTERS_START..=CPU_IO_REGISTERS_END => {
-                todo!()
+                // TODO
             }
             _address @ CPU_IO_TEST_MODE_START..=CPU_IO_TEST_MODE_END => {}
             address @ CPU_CARTRIDGE_START..=CPU_CARTRIDGE_END => {
@@ -358,11 +358,12 @@ impl<'a> CpuBus<'a> {
     }
 
     fn read_ppu_register(&mut self, relative_addr: usize) -> u8 {
-        todo!()
+        // TODO
+        0xFF
     }
 
     fn write_ppu_register(&mut self, relative_addr: usize, value: u8) {
-        todo!()
+        // TODO
     }
 }
 

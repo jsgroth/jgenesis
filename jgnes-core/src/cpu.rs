@@ -211,16 +211,10 @@ impl CpuState {
 }
 
 pub fn tick(state: &mut CpuState, bus: &mut Bus) {
-    // TODO interrupts
-
-    // Read I flag before executing
-    let irq_enabled = !state.registers.status_flags().interrupt_disable();
-
     let new_state = match std::mem::replace(&mut state.state, State::InstructionStart) {
         State::InstructionStart => {
             let executing_instruction =
                 ExecutingInstruction::fetch(&mut state.registers, &mut bus.cpu());
-            println!("Fetched {executing_instruction:?}");
             State::InstructionExecuting {
                 executing_instruction,
                 interrupt_pending: false,
@@ -230,6 +224,9 @@ pub fn tick(state: &mut CpuState, bus: &mut Bus) {
             executing_instruction,
             interrupt_pending,
         } => {
+            // Read I flag before executing
+            let irq_enabled = !state.registers.status_flags().interrupt_disable();
+
             let interrupt_pending = match &executing_instruction {
                 // Special case branch instructions because they poll interrupts weirdly
                 ExecutingInstruction::Branch(branch_state) => match branch_state {

@@ -2021,6 +2021,9 @@ fn execute_read_instruction(instruction: Instruction, value: u8, registers: &mut
             registers.accumulator =
                 and(registers.accumulator, value, &mut registers.status_flags());
         }
+        Instruction::BitTest(..) => {
+            bit_test(registers.accumulator, value, &mut registers.status_flags());
+        }
         Instruction::Compare(register, ..) => {
             compare(
                 read_register(registers, register),
