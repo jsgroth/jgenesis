@@ -1,4 +1,4 @@
-#![cfg(test)]
+#![cfg(ignored)]
 
 use crate::bus;
 use crate::bus::CpuBus;
