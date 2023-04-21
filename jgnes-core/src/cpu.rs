@@ -1,6 +1,6 @@
 use crate::bus;
 use crate::bus::{Bus, CpuBus};
-use crate::cpu::instructions::ExecutingInstruction;
+use crate::cpu::instructions::{BranchState, ExecutingInstruction};
 
 mod instructions;
 
@@ -114,6 +114,7 @@ impl<'a> StatusFlags<'a> {
 }
 
 enum HandlingInterruptState {
+    Cycle0,
     Cycle1,
     Cycle2,
     Cycle3,
@@ -125,6 +126,10 @@ enum HandlingInterruptState {
 impl HandlingInterruptState {
     fn next(self, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> Option<Self> {
         match self {
+            Self::Cycle0 => {
+                bus.read_address(registers.pc);
+                Some(Self::Cycle1)
+            }
             Self::Cycle1 => {
                 bus.read_address(registers.pc);
                 Some(Self::Cycle2)
@@ -184,8 +189,11 @@ impl HandlingInterruptState {
 
 enum State {
     InstructionStart,
-    InstructionExecuting(ExecutingInstruction),
-    // HandlingInterrupt(HandlingInterruptState),
+    InstructionExecuting {
+        executing_instruction: ExecutingInstruction,
+        interrupt_pending: bool,
+    },
+    HandlingInterrupt(HandlingInterruptState),
 }
 
 pub struct CpuState {
@@ -205,19 +213,59 @@ impl CpuState {
 pub fn tick(state: &mut CpuState, bus: &mut Bus) {
     // TODO interrupts
 
+    // Read I flag before executing
+    let irq_enabled = !state.registers.status_flags().interrupt_disable();
+
     let new_state = match std::mem::replace(&mut state.state, State::InstructionStart) {
         State::InstructionStart => {
             let executing_instruction =
                 ExecutingInstruction::fetch(&mut state.registers, &mut bus.cpu());
             println!("Fetched {executing_instruction:?}");
-            State::InstructionExecuting(executing_instruction)
+            State::InstructionExecuting {
+                executing_instruction,
+                interrupt_pending: false,
+            }
         }
-        State::InstructionExecuting(executing_instruction) => {
+        State::InstructionExecuting {
+            executing_instruction,
+            interrupt_pending,
+        } => {
+            let interrupt_pending = match &executing_instruction {
+                // Special case branch instructions because they poll interrupts weirdly
+                ExecutingInstruction::Branch(branch_state) => match branch_state {
+                    BranchState::Cycle1(..) | BranchState::Cycle3 => {
+                        interrupt_pending || is_interrupt_pending(irq_enabled, bus)
+                    }
+                    BranchState::Cycle2 { .. } => interrupt_pending,
+                },
+                _ => is_interrupt_pending(irq_enabled, bus),
+            };
+
             match executing_instruction.next(&mut state.registers, &mut bus.cpu()) {
-                Some(executing_instruction) => State::InstructionExecuting(executing_instruction),
+                Some(executing_instruction) => State::InstructionExecuting {
+                    executing_instruction,
+                    interrupt_pending,
+                },
+                None => {
+                    if interrupt_pending {
+                        State::HandlingInterrupt(HandlingInterruptState::Cycle0)
+                    } else {
+                        State::InstructionStart
+                    }
+                }
+            }
+        }
+        State::HandlingInterrupt(interrupt_state) => {
+            match interrupt_state.next(&mut state.registers, &mut bus.cpu()) {
+                Some(next_state) => State::HandlingInterrupt(next_state),
                 None => State::InstructionStart,
             }
         }
     };
     state.state = new_state;
+}
+
+fn is_interrupt_pending(irq_enabled: bool, bus: &mut Bus) -> bool {
+    let interrupt_lines = bus.interrupt_lines();
+    interrupt_lines.nmi_triggered() || (irq_enabled && interrupt_lines.irq_triggered())
 }
