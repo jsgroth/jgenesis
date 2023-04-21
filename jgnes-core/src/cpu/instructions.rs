@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use crate::bus;
 use crate::bus::CpuBus;
 use crate::cpu::{CpuRegisters, StatusFlags};
