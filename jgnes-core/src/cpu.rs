@@ -238,6 +238,7 @@ pub fn tick(state: &mut CpuState, bus: &mut Bus) {
                     }
                     BranchState::Cycle2 { .. } => interrupt_pending,
                 },
+                // Non-branch instructions always poll on the last cycle so ignore previous value
                 _ => is_interrupt_pending(irq_enabled, bus),
             };
 
