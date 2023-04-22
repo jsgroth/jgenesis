@@ -1,3 +1,4 @@
+use crate::bus;
 use crate::bus::CpuBus;
 use crate::cpu::{CpuRegisters, StatusFlags, StatusReadContext};
 use tinyvec::ArrayVec;
@@ -294,34 +295,33 @@ impl BranchCondition {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum InterruptType {
-    Nmi,
-    Reset,
-    Irq,
-}
-
-impl InterruptType {
-    pub const fn interrupt_vector(self) -> u16 {
-        match self {
-            Self::Nmi => 0xFFFA,
-            Self::Reset => 0xFFFC,
-            Self::Irq => 0xFFFE,
-        }
-    }
-}
-
 type OpVec = ArrayVec<[CycleOp; 7]>;
 
 #[derive(Debug, Clone)]
-struct InstructionState {
-    ops: OpVec,
-    op_index: u8,
-    operand_first_byte: u8,
-    operand_second_byte: u8,
-    target_first_byte: u8,
-    target_second_byte: u8,
-    pending_interrupt: Option<InterruptType>,
+pub struct InstructionState {
+    pub ops: OpVec,
+    pub op_index: u8,
+    pub operand_first_byte: u8,
+    pub operand_second_byte: u8,
+    pub target_first_byte: u8,
+    pub target_second_byte: u8,
+    pub interrupt_vector: u16,
+    pub pending_interrupt: bool,
+}
+
+impl InstructionState {
+    pub fn from_ops(ops: OpVec) -> Self {
+        Self {
+            ops,
+            op_index: 0,
+            operand_first_byte: 0,
+            operand_second_byte: 0,
+            target_first_byte: 0,
+            target_second_byte: 0,
+            interrupt_vector: 0,
+            pending_interrupt: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -403,12 +403,32 @@ impl Default for CycleOp {
 }
 
 impl CycleOp {
-    fn execute(
+    pub fn execute(
         self,
         mut state: InstructionState,
         registers: &mut CpuRegisters,
         bus: &mut CpuBus<'_>,
     ) -> InstructionState {
+        // Check for interrupts before executing op because op could modify the I flag
+        let last_cycle_op = usize::from(state.op_index) == state.ops.len() - 1;
+        if last_cycle_op
+            || matches!(
+                self,
+                Self::CheckBranchCondition(..)
+                    | Self::ExecuteAbsoluteIndexedRead(..)
+                    | Self::ExecuteIndirectIndexedRead(..)
+            )
+        {
+            let interrupt_pending = bus.interrupt_lines().nmi_triggered()
+                || (!registers.status.interrupt_disable && bus.interrupt_lines().irq_triggered());
+            if self == Self::FixBranchHighByte {
+                // Last cycle of branch instruction
+                state.pending_interrupt |= interrupt_pending;
+            } else {
+                state.pending_interrupt = interrupt_pending;
+            }
+        }
+
         match self {
             Self::FetchOperand1 => {
                 state.operand_first_byte = bus.read_address(registers.pc);
@@ -750,28 +770,19 @@ impl CycleOp {
                 bus.write_address(stack_address, registers.status.to_byte(read_ctx));
                 registers.sp = registers.sp.wrapping_sub(1);
 
-                state.pending_interrupt = Some(if bus.interrupt_lines().nmi_triggered() {
-                    InterruptType::Nmi
+                state.interrupt_vector = if bus.interrupt_lines().nmi_triggered() {
+                    bus.interrupt_lines().clear_nmi_triggered();
+                    bus::CPU_NMI_VECTOR
                 } else {
-                    InterruptType::Irq
-                });
+                    bus::CPU_IRQ_VECTOR
+                };
             }
             Self::InterruptPullPCLow => {
-                let interrupt_vector = match state.pending_interrupt {
-                    Some(pending_interrupt) => pending_interrupt.interrupt_vector(),
-                    None => panic!("InterruptPullPCLow invoked before InterruptPushStatus"),
-                };
-                registers.pc = u16::from(bus.read_address(interrupt_vector));
-
+                registers.pc = u16::from(bus.read_address(state.interrupt_vector));
                 registers.status.interrupt_disable = true;
             }
             Self::InterruptPullPCHigh => {
-                let interrupt_vector = match state.pending_interrupt {
-                    Some(pending_interrupt) => pending_interrupt.interrupt_vector(),
-                    None => panic!("InterruptPullPCHigh invoked before InterruptPushStatus"),
-                };
-
-                let pc_msb = bus.read_address(interrupt_vector + 1);
+                let pc_msb = bus.read_address(state.interrupt_vector + 1);
                 registers.pc |= u16::from(pc_msb) << 8;
             }
         }
@@ -806,7 +817,7 @@ pub enum Instruction {
 }
 
 impl Instruction {
-    fn get_cycle_ops(self) -> OpVec {
+    pub fn get_cycle_ops(self) -> OpVec {
         match self {
             Self::Read(instruction) => get_read_cycle_ops(instruction),
             Self::StoreRegister(register, addressing_mode) => {
@@ -891,7 +902,7 @@ impl Instruction {
         }
     }
 
-    fn from_opcode(opcode: u8) -> Option<Self> {
+    pub fn from_opcode(opcode: u8) -> Option<Self> {
         match opcode {
             0x00 => Some(Self::ForceInterrupt),
             0x01 => Some(Self::Read(ReadInstruction::InclusiveOr(
@@ -1353,7 +1364,7 @@ impl Instruction {
     }
 }
 
-pub const INTERRUPT_HANDLER_CYCLE_OPS: [CycleOp; 7] = [
+pub const INTERRUPT_HANDLER_OPS: [CycleOp; 7] = [
     CycleOp::SpuriousOperandRead,
     CycleOp::SpuriousOperandRead,
     CycleOp::PushPCHigh,

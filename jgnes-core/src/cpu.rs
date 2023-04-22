@@ -1,5 +1,6 @@
 use crate::bus;
 use crate::bus::{Bus, CpuBus};
+use crate::cpu::instructions::{Instruction, InstructionState};
 
 mod instructions;
 
@@ -120,16 +121,52 @@ impl CpuRegisters {
     }
 }
 
+enum State {
+    InstructionStart,
+    Executing(InstructionState),
+}
+
 pub struct CpuState {
     registers: CpuRegisters,
+    state: State,
 }
 
 impl CpuState {
     pub fn new(registers: CpuRegisters) -> Self {
-        Self { registers }
+        Self {
+            registers,
+            state: State::InstructionStart,
+        }
     }
 }
 
 pub fn tick(state: &mut CpuState, bus: &mut Bus) {
-    todo!()
+    state.state = match std::mem::replace(&mut state.state, State::InstructionStart) {
+        State::InstructionStart => {
+            let opcode = bus.cpu().read_address(state.registers.pc);
+            state.registers.pc += 1;
+
+            let instruction = Instruction::from_opcode(opcode).unwrap();
+            let instruction_state = InstructionState::from_ops(instruction.get_cycle_ops());
+
+            State::Executing(instruction_state)
+        }
+        State::Executing(instruction_state) => {
+            let cycle_op = instruction_state.ops[instruction_state.op_index as usize];
+
+            let instruction_state =
+                cycle_op.execute(instruction_state, &mut state.registers, &mut bus.cpu());
+
+            if usize::from(instruction_state.op_index) < instruction_state.ops.len() {
+                State::Executing(instruction_state)
+            } else if instruction_state.pending_interrupt {
+                let interrupt_state = InstructionState::from_ops(
+                    instructions::INTERRUPT_HANDLER_OPS.into_iter().collect(),
+                );
+                State::Executing(interrupt_state)
+            } else {
+                State::InstructionStart
+            }
+        }
+    }
 }
