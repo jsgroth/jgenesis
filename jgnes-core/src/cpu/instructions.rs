@@ -601,6 +601,10 @@ impl CycleOp {
                     // Skip next (last) cycle
                     state.op_index += 1;
                 }
+
+                log::trace!(
+                    "  ExecuteAbsoluteIndexedRead: Low byte overflowed, taking extra cycle"
+                );
             }
             Self::ExecuteAbsoluteIndexedReadDelayed(index, instruction) => {
                 let address =
@@ -654,6 +658,10 @@ impl CycleOp {
                     // Skip next (last) cycle
                     state.op_index += 1;
                 }
+
+                log::trace!(
+                    "  ExecuteIndirectIndexedRead: low byte overflowed, taking extra cycle"
+                );
             }
             Self::ExecuteIndirectIndexedReadDelayed(instruction) => {
                 let indexed_address =
@@ -679,6 +687,8 @@ impl CycleOp {
                     // Skip rest of branch cycles
                     state.op_index += 2;
                 }
+
+                log::trace!("  CheckBranchCondition: {branch_condition:?} evaluated to true");
             }
             Self::CheckBranchHighByte => {
                 // Spurious read when branch is taken
@@ -692,6 +702,10 @@ impl CycleOp {
                     registers.pc = new_pc;
                     state.op_index += 1;
                 }
+
+                log::trace!(
+                    "  CheckBranchHighByte: High byte needs to be fixed, taking extra cycle"
+                );
             }
             Self::FixBranchHighByte => {
                 let offset = state.operand_first_byte as i8;
@@ -771,9 +785,13 @@ impl CycleOp {
                 registers.sp = registers.sp.wrapping_sub(1);
 
                 state.interrupt_vector = if bus.interrupt_lines().nmi_triggered() {
+                    log::trace!("  InterruptPushStatus: Jumping to NMI vector");
+
                     bus.interrupt_lines().clear_nmi_triggered();
                     bus::CPU_NMI_VECTOR
                 } else {
+                    log::trace!("  InterruptPushStatus: Jumping to IRQ vector");
+
                     bus::CPU_IRQ_VECTOR
                 };
             }

@@ -174,6 +174,8 @@ pub fn tick(state: &mut CpuState, bus: &mut Bus) {
             if usize::from(instruction_state.op_index) < instruction_state.ops.len() {
                 State::Executing(instruction_state)
             } else if instruction_state.pending_interrupt {
+                log::trace!("INTERRUPT: Handling hardware NMI/IRQ interrupt");
+
                 let interrupt_state = InstructionState::from_ops(
                     instructions::INTERRUPT_HANDLER_OPS.into_iter().collect(),
                 );
