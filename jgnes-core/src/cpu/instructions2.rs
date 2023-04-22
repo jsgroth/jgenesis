@@ -269,16 +269,24 @@ enum CycleOp {
     FetchZeroPage2,
     FetchZeroPageIndexed1,
     FetchZeroPageIndexed2,
+    AbsoluteIndexedFixHighByte(Index),
+    IndirectIndexedFixHighByte,
     ExecuteRegistersOnly,
     ExecuteImmediateRead,
     ExecuteZeroPageRead,
+    ExecuteZeroPageStore,
     ExecuteZeroPageIndexedRead(Index),
+    ExecuteZeroPageIndexedStore(Index),
     ExecuteAbsoluteRead,
+    ExecuteAbsoluteStore,
     ExecuteAbsoluteIndexedRead(Index),
     ExecuteAbsoluteIndexedReadDelayed(Index),
+    ExecuteAbsoluteIndexedStore(Index),
     ExecuteIndexedIndirectRead,
+    ExecuteIndexedIndirectStore,
     ExecuteIndirectIndexedRead,
     ExecuteIndirectIndexedReadDelayed,
+    ExecuteIndirectIndexedStore,
 }
 
 // Needed for ArrayVec
@@ -328,6 +336,21 @@ impl CycleOp {
                 );
                 state.target_second_byte = bus.read_address(address);
             }
+            Self::AbsoluteIndexedFixHighByte(index) => {
+                let index = index.get(registers);
+                let indexed_low_byte = state.operand_first_byte.wrapping_add(index);
+                bus.read_address(u16::from_le_bytes([
+                    indexed_low_byte,
+                    state.operand_second_byte,
+                ]));
+            }
+            Self::IndirectIndexedFixHighByte => {
+                let indexed_low_byte = state.target_first_byte.wrapping_add(registers.y);
+                bus.read_address(u16::from_le_bytes([
+                    indexed_low_byte,
+                    state.target_second_byte,
+                ]));
+            }
             Self::ExecuteRegistersOnly => {
                 // Spurious bus read
                 bus.read_address(registers.pc);
@@ -341,8 +364,14 @@ impl CycleOp {
                     .execute(state.operand_first_byte, registers);
             }
             Self::ExecuteZeroPageRead => {
-                let value = bus.read_address(u16::from_be_bytes([0x00, state.operand_first_byte]));
+                let value = bus.read_address(u16::from(state.operand_first_byte));
                 state.instruction.as_read().execute(value, registers);
+            }
+            Self::ExecuteZeroPageStore => {
+                let value = read_register(registers, state.instruction.as_store());
+                let address = u16::from(state.operand_first_byte);
+
+                bus.write_address(address, value);
             }
             Self::ExecuteZeroPageIndexedRead(index) => {
                 let index = index.get(registers);
@@ -351,12 +380,26 @@ impl CycleOp {
 
                 state.instruction.as_read().execute(value, registers);
             }
+            Self::ExecuteZeroPageIndexedStore(index) => {
+                let index = index.get(registers);
+                let indexed_address = u16::from(state.operand_first_byte.wrapping_add(index));
+                let value = read_register(registers, state.instruction.as_store());
+
+                bus.write_address(indexed_address, value);
+            }
             Self::ExecuteAbsoluteRead => {
                 let address =
                     u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte]);
                 let value = bus.read_address(address);
 
                 state.instruction.as_read().execute(value, registers);
+            }
+            Self::ExecuteAbsoluteStore => {
+                let address =
+                    u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte]);
+                let value = read_register(registers, state.instruction.as_store());
+
+                bus.write_address(address, value);
             }
             Self::ExecuteAbsoluteIndexedRead(index) => {
                 let index = index.get(registers);
@@ -382,12 +425,28 @@ impl CycleOp {
 
                 state.instruction.as_read().execute(value, registers);
             }
+            Self::ExecuteAbsoluteIndexedStore(index) => {
+                let address =
+                    u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte]);
+                let index = index.get(registers);
+                let indexed_address = address.wrapping_add(u16::from(index));
+                let value = read_register(registers, state.instruction.as_store());
+
+                bus.write_address(indexed_address, value);
+            }
             Self::ExecuteIndexedIndirectRead => {
                 let effective_address =
                     u16::from_le_bytes([state.target_first_byte, state.target_second_byte]);
                 let value = bus.read_address(effective_address);
 
                 state.instruction.as_read().execute(value, registers);
+            }
+            Self::ExecuteIndexedIndirectStore => {
+                let effective_address =
+                    u16::from_le_bytes([state.target_first_byte, state.target_second_byte]);
+                let value = read_register(registers, state.instruction.as_store());
+
+                bus.write_address(effective_address, value);
             }
             Self::ExecuteIndirectIndexedRead => {
                 let (indexed_low_byte, overflowed) =
@@ -409,6 +468,14 @@ impl CycleOp {
                 let value = bus.read_address(indexed_address);
 
                 state.instruction.as_read().execute(value, registers);
+            }
+            Self::ExecuteIndirectIndexedStore => {
+                let indexed_address =
+                    u16::from_le_bytes([state.target_first_byte, state.target_second_byte])
+                        .wrapping_add(u16::from(registers.y));
+                let value = read_register(registers, state.instruction.as_store());
+
+                bus.write_address(indexed_address, value);
             }
         }
 
@@ -446,6 +513,13 @@ impl Instruction {
         match self {
             Self::Read(instruction) => instruction,
             _ => panic!("instruction is not a read instruction: {self:?}"),
+        }
+    }
+
+    fn as_store(self) -> CpuRegister {
+        match self {
+            Self::StoreRegister(register, ..) => register,
+            _ => panic!("instruction is not StoreRegister: {self:?}"),
         }
     }
 
@@ -530,6 +604,67 @@ impl Instruction {
                 .into_iter()
                 .collect(),
                 _ => panic!("unsupported addressing mode for a read instruction: {self:?}"),
+            },
+            Self::StoreRegister(_, addressing_mode) => match addressing_mode {
+                AddressingMode::ZeroPage => [CycleOp::FetchOperand1, CycleOp::ExecuteZeroPageStore]
+                    .into_iter()
+                    .collect(),
+                AddressingMode::ZeroPageX => [
+                    CycleOp::FetchOperand1,
+                    CycleOp::ZeroPageIndexAddress,
+                    CycleOp::ExecuteZeroPageIndexedStore(Index::X),
+                ]
+                .into_iter()
+                .collect(),
+                AddressingMode::ZeroPageY => [
+                    CycleOp::FetchOperand1,
+                    CycleOp::ZeroPageIndexAddress,
+                    CycleOp::ExecuteZeroPageIndexedStore(Index::Y),
+                ]
+                .into_iter()
+                .collect(),
+                AddressingMode::Absolute => [
+                    CycleOp::FetchOperand1,
+                    CycleOp::FetchOperand2,
+                    CycleOp::ExecuteAbsoluteStore,
+                ]
+                .into_iter()
+                .collect(),
+                AddressingMode::AbsoluteX => [
+                    CycleOp::FetchOperand1,
+                    CycleOp::FetchOperand2,
+                    CycleOp::AbsoluteIndexedFixHighByte(Index::X),
+                    CycleOp::ExecuteAbsoluteIndexedStore(Index::X),
+                ]
+                .into_iter()
+                .collect(),
+                AddressingMode::AbsoluteY => [
+                    CycleOp::FetchOperand1,
+                    CycleOp::FetchOperand2,
+                    CycleOp::AbsoluteIndexedFixHighByte(Index::Y),
+                    CycleOp::ExecuteAbsoluteIndexedStore(Index::Y),
+                ]
+                .into_iter()
+                .collect(),
+                AddressingMode::IndirectX => [
+                    CycleOp::FetchOperand1,
+                    CycleOp::ZeroPageIndexAddress,
+                    CycleOp::FetchZeroPageIndexed1,
+                    CycleOp::FetchZeroPageIndexed2,
+                    CycleOp::ExecuteIndexedIndirectStore,
+                ]
+                .into_iter()
+                .collect(),
+                AddressingMode::IndirectY => [
+                    CycleOp::FetchOperand1,
+                    CycleOp::FetchZeroPage1,
+                    CycleOp::FetchZeroPage2,
+                    CycleOp::IndirectIndexedFixHighByte,
+                    CycleOp::ExecuteIndirectIndexedStore,
+                ]
+                .into_iter()
+                .collect(),
+                _ => panic!("unsupported addressing mode for StoreRegister: {self:?}"),
             },
             _ => todo!("non-read instructions"),
         }
