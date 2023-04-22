@@ -133,46 +133,50 @@ impl ModifyInstruction {
 
     fn execute(self, value: u8, flags: &mut StatusFlags) -> u8 {
         match self {
-            Self::ShiftLeft(addressing_mode) => {
+            Self::ShiftLeft(..) => {
                 let shifted = value << 1;
-                flags.set_carry(value & 0x80 != 0);
-                if addressing_mode == AddressingMode::Accumulator {
-                    flags
-                        .set_negative(shifted & 0x80 != 0)
-                        .set_zero(shifted == 0);
-                }
+                flags
+                    .set_carry(value & 0x80 != 0)
+                    .set_negative(shifted & 0x80 != 0)
+                    .set_zero(shifted == 0);
                 shifted
             }
-            Self::DecrementMemory(..) => value.wrapping_sub(1),
-            Self::IncrementMemory(..) => value.wrapping_add(1),
-            Self::LogicalShiftRight(addressing_mode) => {
+            Self::DecrementMemory(..) => {
+                let decremented = value.wrapping_sub(1);
+                flags
+                    .set_negative(decremented & 0x80 != 0)
+                    .set_zero(decremented == 0);
+                decremented
+            }
+            Self::IncrementMemory(..) => {
+                let incremented = value.wrapping_add(1);
+                flags
+                    .set_negative(incremented & 0x80 != 0)
+                    .set_zero(incremented == 0);
+                incremented
+            }
+            Self::LogicalShiftRight(..) => {
                 let shifted = value >> 1;
-                flags.set_carry(value & 0x01 != 0);
-                if addressing_mode == AddressingMode::Accumulator {
-                    flags
-                        .set_negative(shifted & 0x80 != 0)
-                        .set_zero(shifted == 0);
-                }
+                flags
+                    .set_carry(value & 0x01 != 0)
+                    .set_negative(shifted & 0x80 != 0)
+                    .set_zero(shifted == 0);
                 shifted
             }
-            Self::RotateLeft(addressing_mode) => {
+            Self::RotateLeft(..) => {
                 let rotated = (value << 1) | u8::from(flags.carry);
-                flags.set_carry(value & 0x80 != 0);
-                if addressing_mode == AddressingMode::Accumulator {
-                    flags
-                        .set_negative(rotated & 0x80 != 0)
-                        .set_zero(rotated == 0);
-                }
+                flags
+                    .set_carry(value & 0x80 != 0)
+                    .set_negative(rotated & 0x80 != 0)
+                    .set_zero(rotated == 0);
                 rotated
             }
-            Self::RotateRight(addressing_mode) => {
+            Self::RotateRight(..) => {
                 let rotated = (value >> 1) | (u8::from(flags.carry) << 7);
-                flags.set_carry(value & 0x01 != 0);
-                if addressing_mode == AddressingMode::Accumulator {
-                    flags
-                        .set_negative(rotated & 0x80 != 0)
-                        .set_zero(rotated == 0);
-                }
+                flags
+                    .set_carry(value & 0x01 != 0)
+                    .set_negative(rotated & 0x80 != 0)
+                    .set_zero(rotated == 0);
                 rotated
             }
         }
