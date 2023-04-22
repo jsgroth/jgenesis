@@ -72,7 +72,7 @@ impl StatusFlags {
         };
 
         // Bit 5 is unused, always reads as 1
-        (u8::from(self.carry) << 7)
+        (u8::from(self.negative) << 7)
             | (u8::from(self.overflow) << 6)
             | 0x20
             | b_flag
@@ -80,6 +80,17 @@ impl StatusFlags {
             | (u8::from(self.interrupt_disable) << 2)
             | (u8::from(self.zero) << 1)
             | u8::from(self.carry)
+    }
+
+    pub fn from_byte(byte: u8) -> Self {
+        Self {
+            negative: byte & 0x80 != 0,
+            overflow: byte & 0x40 != 0,
+            decimal: byte & 0x08 != 0,
+            interrupt_disable: byte & 0x04 != 0,
+            zero: byte & 0x02 != 0,
+            carry: byte & 0x01 != 0,
+        }
     }
 }
 

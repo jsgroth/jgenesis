@@ -1,5 +1,5 @@
 use crate::bus::CpuBus;
-use crate::cpu::{CpuRegisters, StatusFlags};
+use crate::cpu::{CpuRegisters, StatusFlags, StatusReadContext};
 use tinyvec::ArrayVec;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -325,6 +325,8 @@ impl Index {
 enum CycleOp {
     FetchOperand1,
     FetchOperand2,
+    SpuriousOperandRead,
+    SpuriousStackRead,
     ZeroPageIndexAddress,
     FetchZeroPage1,
     FetchZeroPage2,
@@ -364,6 +366,8 @@ enum CycleOp {
     FixBranchHighByte,
     ExecuteJumpAbsolute,
     ExecuteJumpIndirect,
+    ExecutePush(PushableRegister),
+    ExecutePull(PushableRegister),
 }
 
 // Needed for ArrayVec
@@ -388,6 +392,12 @@ impl CycleOp {
             Self::FetchOperand2 => {
                 state.operand_second_byte = bus.read_address(registers.pc);
                 registers.pc += 1;
+            }
+            Self::SpuriousOperandRead => {
+                bus.read_address(registers.pc);
+            }
+            Self::SpuriousStackRead => {
+                bus.read_address(u16::from_be_bytes([0x01, registers.sp]));
             }
             Self::ZeroPageIndexAddress => {
                 // Spurious read
@@ -659,6 +669,34 @@ impl CycleOp {
 
                 registers.pc = u16::from_le_bytes([state.target_first_byte, effective_address_msb]);
             }
+            Self::ExecutePush(register) => {
+                let value = match register {
+                    PushableRegister::A => registers.accumulator,
+                    PushableRegister::P => registers.status.to_byte(StatusReadContext::PushStack),
+                };
+                let stack_address = u16::from_be_bytes([0x01, registers.sp]);
+
+                bus.write_address(stack_address, value);
+                registers.sp = registers.sp.wrapping_sub(1);
+            }
+            Self::ExecutePull(register) => {
+                registers.sp = registers.sp.wrapping_add(1);
+                let stack_address = u16::from_be_bytes([0x01, registers.sp]);
+                let value = bus.read_address(stack_address);
+
+                match register {
+                    PushableRegister::A => {
+                        registers.accumulator = value;
+                        registers
+                            .status
+                            .set_negative(value & 0x80 != 0)
+                            .set_zero(value == 0);
+                    }
+                    PushableRegister::P => {
+                        registers.status = StatusFlags::from_byte(value);
+                    }
+                }
+            }
         }
 
         state.op_index += 1;
@@ -721,7 +759,18 @@ impl Instruction {
             ]
             .into_iter()
             .collect(),
-            Self::PushStack(..) => todo!("push stack"),
+            Self::PushStack(register) => {
+                [CycleOp::SpuriousOperandRead, CycleOp::ExecutePush(register)]
+                    .into_iter()
+                    .collect()
+            }
+            Self::PullStack(register) => [
+                CycleOp::SpuriousOperandRead,
+                CycleOp::SpuriousStackRead,
+                CycleOp::ExecutePull(register),
+            ]
+            .into_iter()
+            .collect(),
             _ => todo!("other instructions"),
         }
     }
