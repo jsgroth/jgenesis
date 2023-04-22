@@ -657,11 +657,11 @@ impl CycleOp {
 
                     // Skip next (last) cycle
                     state.op_index += 1;
+                } else {
+                    log::trace!(
+                        "  ExecuteIndirectIndexedRead: low byte overflowed, taking extra cycle"
+                    );
                 }
-
-                log::trace!(
-                    "  ExecuteIndirectIndexedRead: low byte overflowed, taking extra cycle"
-                );
             }
             Self::ExecuteIndirectIndexedReadDelayed(instruction) => {
                 let indexed_address =
@@ -686,9 +686,9 @@ impl CycleOp {
                 if !branch_condition.check(registers.status) {
                     // Skip rest of branch cycles
                     state.op_index += 2;
+                } else {
+                    log::trace!("  CheckBranchCondition: {branch_condition:?} evaluated to true");
                 }
-
-                log::trace!("  CheckBranchCondition: {branch_condition:?} evaluated to true");
             }
             Self::CheckBranchHighByte => {
                 // Spurious read when branch is taken
@@ -701,11 +701,11 @@ impl CycleOp {
                     // Skip last branch cycle
                     registers.pc = new_pc;
                     state.op_index += 1;
+                } else {
+                    log::trace!(
+                        "  CheckBranchHighByte: High byte needs to be fixed, taking extra cycle"
+                    );
                 }
-
-                log::trace!(
-                    "  CheckBranchHighByte: High byte needs to be fixed, taking extra cycle"
-                );
             }
             Self::FixBranchHighByte => {
                 let offset = state.operand_first_byte as i8;
