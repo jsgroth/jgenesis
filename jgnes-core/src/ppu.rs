@@ -26,7 +26,9 @@ impl PpuState {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 struct SpriteData {
+    oam_index: u8,
     y_pos: u8,
     tile_index: u8,
     attributes: u8,
@@ -37,18 +39,18 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     match state.scanline {
         scanline @ 0..=239 => {
             // Visible scanlines
+            if state.dot == 0 {
+                render_scanline(scanline, state, bus);
+            }
         }
-        240 => {
-            // Post-render scanline
+        240 | 242..=260 => {
+            // Post-render scanline / 2+ VBlank scanlines, PPU idles
         }
         241 => {
             // First VBlank scanline
             if state.dot == 1 {
                 bus.get_ppu_registers_mut().set_vblank_flag(true);
             }
-        }
-        242..=260 => {
-            // Remaining VBlank scanlines
         }
         261 => {
             // Pre-render scanline
@@ -71,4 +73,179 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
             state.scanline = 0;
         }
     }
+}
+
+fn render_scanline(scanline: u16, state: &mut PpuState, bus: &mut PpuBus<'_>) {
+    let scanline = scanline as u8;
+
+    let ppu_registers = bus.get_ppu_registers();
+    let bg_enabled = ppu_registers.bg_enabled();
+    let sprites_enabled = ppu_registers.sprites_enabled();
+    let double_height_sprites = ppu_registers.double_height_sprites();
+    let sprite_height = if double_height_sprites { 16 } else { 8 };
+    let bg_pattern_table_address = ppu_registers.bg_pattern_table_address();
+    let sprite_pattern_table_address = ppu_registers.sprite_pattern_table_address();
+    let base_nametable_address = ppu_registers.base_nametable_address();
+
+    let scroll_x = ppu_registers.scroll_x();
+    let scroll_y = ppu_registers.scroll_y();
+
+    let backdrop_color = bus.get_palette_ram()[0] & 0x3F;
+
+    if !bg_enabled && !sprites_enabled {
+        for value in state.frame_buffer[scanline as usize].iter_mut() {
+            *value = backdrop_color;
+        }
+        return;
+    }
+
+    let mut sprites = Vec::new();
+
+    if scanline > 0 && sprites_enabled {
+        let oam = bus.get_oam();
+        for (oam_index, chunk) in oam.chunks_exact(4).enumerate() {
+            let &[y_pos, tile_index, attributes, x_pos] = chunk
+            else {
+                panic!("all OAM iteration chunks should be size 4");
+            };
+
+            if (y_pos..y_pos.saturating_add(sprite_height)).contains(&scanline) {
+                sprites.push(SpriteData {
+                    oam_index: oam_index as u8,
+                    y_pos,
+                    tile_index,
+                    attributes,
+                    x_pos,
+                });
+                if sprites.len() == 8 {
+                    break;
+                }
+            }
+        }
+    }
+
+    let mut nametable_address = base_nametable_address;
+
+    let mut bg_y = u16::from(scroll_y) + u16::from(scanline);
+    while bg_y >= SCREEN_HEIGHT {
+        bg_y -= SCREEN_HEIGHT;
+        nametable_address = 0x2000 + ((nametable_address + 0x0800) & 0x0F00);
+    }
+
+    let bg_tile_y = bg_y / 8;
+
+    let mut bg_x = u16::from(scroll_x);
+
+    for pixel in 0..SCREEN_WIDTH {
+        let bg_tile_x = bg_x / 8;
+        let nametable_index = 30 * bg_tile_y + bg_tile_x;
+        let attribute_index = 0x03C0 + nametable_index / 16;
+
+        let bg_tile_index = bus.read_address(nametable_address + nametable_index);
+        let bg_attributes = bus.read_address(nametable_address + attribute_index);
+
+        let bg_fine_x = (bg_x % 8) as u8;
+        let bg_fine_y = (bg_y % 8) as u8;
+
+        let bg_palette_index = match (bg_fine_x, bg_fine_y) {
+            (x, y) if x < 4 && y < 4 => bg_attributes & 0x03,
+            (x, y) if x >= 4 && y < 4 => (bg_attributes >> 2) & 0x03,
+            (x, y) if x < 4 && y >= 4 => (bg_attributes >> 4) & 0x03,
+            (x, y) if x >= 4 && y >= 4 => (bg_attributes >> 6) & 0x03,
+            _ => panic!("match arm guards should be exhaustive"),
+        };
+
+        let bg_tile_data_0 = bus.read_address(
+            bg_pattern_table_address + 16 * u16::from(bg_tile_index) + u16::from(bg_fine_y),
+        );
+        let bg_tile_data_1 = bus.read_address(
+            bg_pattern_table_address + 16 * u16::from(bg_tile_index) + u16::from(bg_fine_y) + 1,
+        );
+
+        let bg_color_id = color_id(bg_tile_data_0, bg_tile_data_1, bg_fine_x, bg_fine_y);
+        let bg_color_id = if bg_enabled { bg_color_id } else { 0 };
+
+        let sprite = first_opaque_sprite_pixel(
+            &sprites,
+            bus,
+            scanline,
+            pixel as u8,
+            sprite_pattern_table_address,
+            double_height_sprites,
+        );
+
+        if let Some((SpriteData { oam_index: 0, .. }, _)) = sprite {
+            if bg_color_id != 0 {
+                bus.get_ppu_registers_mut().set_sprite_0_hit(true);
+            }
+        }
+
+        let (sprite_color_id, sprite_bg_priority, sprite_palette_index) = match sprite {
+            Some((sprite, color_id)) => (
+                color_id,
+                sprite.attributes & 0x20 != 0,
+                sprite.attributes & 0x03,
+            ),
+            None => (0, true, 0),
+        };
+
+        let palette_ram = bus.get_palette_ram();
+        let pixel_color = if sprite_color_id != 0 && (bg_color_id == 0 || !sprite_bg_priority) {
+            palette_ram[(0x10 + 4 * sprite_palette_index + sprite_color_id) as usize] & 0x3F
+        } else if bg_color_id != 0 {
+            palette_ram[(4 * bg_palette_index + bg_color_id) as usize] & 0x3F
+        } else {
+            backdrop_color
+        };
+
+        log::info!("Setting ({scanline}, {pixel}) to {pixel_color}");
+
+        state.frame_buffer[scanline as usize][pixel as usize] = pixel_color;
+
+        bg_x += 1;
+        if bg_x == SCREEN_WIDTH {
+            bg_x = 0;
+            nametable_address =
+                (nametable_address & 0x2800) + ((nametable_address + 0x0400) & 0x0700);
+        }
+    }
+}
+
+fn color_id(tile_data_0: u8, tile_data_1: u8, fine_x: u8, fine_y: u8) -> u8 {
+    (((tile_data_0 & (1 << (7 - fine_x))) >> (7 - fine_x)) << 1)
+        | ((tile_data_1 & (1 << (7 - fine_x))) >> (7 - fine_x))
+}
+
+fn first_opaque_sprite_pixel(
+    sprites: &[SpriteData],
+    bus: &mut PpuBus<'_>,
+    scanline: u8,
+    pixel: u8,
+    sprite_pattern_table_address: u16,
+    double_height_sprites: bool,
+) -> Option<(SpriteData, u8)> {
+    sprites.iter().find_map(|&sprite| {
+        if !(sprite.x_pos..sprite.x_pos.saturating_add(8)).contains(&pixel) {
+            return None;
+        }
+
+        let tile_index = u16::from(sprite.tile_index);
+        let pattern_table_address = if double_height_sprites {
+            0x1000 * (tile_index & 0x01)
+                + (tile_index & 0xFE)
+                + u16::from(scanline - sprite.y_pos >= 8)
+        } else {
+            sprite_pattern_table_address + tile_index
+        };
+
+        let tile_data_0 = bus.read_address(pattern_table_address);
+        let tile_data_1 = bus.read_address(pattern_table_address + 1);
+
+        let fine_x = (pixel - sprite.x_pos) % 8;
+        let fine_y = (scanline - sprite.y_pos) % 8;
+
+        let color_id = color_id(tile_data_0, tile_data_1, fine_x, fine_y);
+
+        (color_id != 0).then_some((sprite, color_id))
+    })
 }

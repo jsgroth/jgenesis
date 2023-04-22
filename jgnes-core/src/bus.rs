@@ -263,6 +263,14 @@ impl PpuRegisters {
         }
     }
 
+    pub fn scroll_x(&self) -> u8 {
+        self.ppu_scroll_x
+    }
+
+    pub fn scroll_y(&self) -> u8 {
+        self.ppu_scroll_y
+    }
+
     fn tick(&mut self, interrupt_lines: &mut InterruptLines) {
         if self.ppu_status_read {
             self.ppu_status_read = true;
@@ -499,7 +507,7 @@ pub struct Bus {
     ppu_registers: PpuRegisters,
     io_registers: IoRegisters,
     ppu_vram: [u8; 2048],
-    ppu_palette_ram: [u8; 64],
+    ppu_palette_ram: [u8; 32],
     ppu_oam: [u8; 256],
     interrupt_lines: InterruptLines,
     pending_writes: ArrayVec<[PendingWrite; 5]>,
@@ -514,7 +522,7 @@ impl Bus {
             ppu_registers: PpuRegisters::new(),
             io_registers: IoRegisters::new(),
             ppu_vram: [0; 2048],
-            ppu_palette_ram: [0; 64],
+            ppu_palette_ram: [0; 32],
             ppu_oam: [0; 256],
             interrupt_lines: InterruptLines::new(),
             pending_writes: ArrayVec::new(),
@@ -758,6 +766,14 @@ impl<'a> PpuBus<'a> {
             address @ PPU_PALETTES_START..=PPU_PALETTES_END => {
                 let palette_relative_addr =
                     ((address - PPU_PALETTES_START) & PPU_PALETTES_MASK) as usize;
+                let palette_relative_addr = if palette_relative_addr >= 0x10
+                    && palette_relative_addr.trailing_zeros() >= 2
+                {
+                    palette_relative_addr - 0x10
+                } else {
+                    palette_relative_addr
+                };
+
                 self.0.ppu_palette_ram[palette_relative_addr]
             }
             _address @ 0x4000..=0xFFFF => {
@@ -786,6 +802,13 @@ impl<'a> PpuBus<'a> {
             address @ PPU_PALETTES_START..=PPU_PALETTES_END => {
                 let palette_relative_addr =
                     ((address - PPU_PALETTES_START) & PPU_PALETTES_MASK) as usize;
+                let palette_relative_addr = if palette_relative_addr >= 0x10
+                    && palette_relative_addr.trailing_zeros() >= 2
+                {
+                    palette_relative_addr - 0x10
+                } else {
+                    palette_relative_addr
+                };
                 self.0.ppu_palette_ram[palette_relative_addr] = value;
             }
             _address @ 0x4000..=0xFFFF => {
@@ -794,7 +817,19 @@ impl<'a> PpuBus<'a> {
         }
     }
 
+    pub fn get_ppu_registers(&self) -> &PpuRegisters {
+        &self.0.ppu_registers
+    }
+
     pub fn get_ppu_registers_mut(&mut self) -> &mut PpuRegisters {
         &mut self.0.ppu_registers
+    }
+
+    pub fn get_oam(&self) -> &[u8; 256] {
+        &self.0.ppu_oam
+    }
+
+    pub fn get_palette_ram(&self) -> &[u8; 32] {
+        &self.0.ppu_palette_ram
     }
 }
