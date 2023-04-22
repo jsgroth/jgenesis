@@ -34,6 +34,36 @@ impl StatusFlags {
         }
     }
 
+    pub fn set_negative(&mut self, negative: bool) -> &mut Self {
+        self.negative = negative;
+        self
+    }
+
+    pub fn set_overflow(&mut self, overflow: bool) -> &mut Self {
+        self.overflow = overflow;
+        self
+    }
+
+    pub fn set_decimal(&mut self, decimal: bool) -> &mut Self {
+        self.decimal = decimal;
+        self
+    }
+
+    pub fn set_interrupt_disable(&mut self, interrupt_disable: bool) -> &mut Self {
+        self.interrupt_disable = interrupt_disable;
+        self
+    }
+
+    pub fn set_zero(&mut self, zero: bool) -> &mut Self {
+        self.zero = zero;
+        self
+    }
+
+    pub fn set_carry(&mut self, carry: bool) -> &mut Self {
+        self.carry = carry;
+        self
+    }
+
     pub fn to_byte(self, read_ctx: StatusReadContext) -> u8 {
         // B flag is set during BRK and PHA/PHP, cleared during NMI & IRQ handlers
         let b_flag = match read_ctx {
