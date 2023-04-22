@@ -61,39 +61,21 @@ impl Ord for WriteSource {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AddressType {
-    Cpu,
-    Ppu,
-}
-
-impl PartialOrd for AddressType {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for AddressType {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match (self, other) {
-            (Self::Cpu, Self::Ppu) => Ordering::Less,
-            (Self::Ppu, Self::Cpu) => Ordering::Greater,
-            _ => Ordering::Equal,
-        }
-    }
+enum WriteAddress {
+    Cpu(u16),
+    Ppu(PpuRegister),
 }
 
 #[derive(Debug, Clone, Copy)]
 struct PendingWrite {
-    address_type: AddressType,
-    address: u16,
+    address: WriteAddress,
     value: u8,
 }
 
 impl Default for PendingWrite {
     fn default() -> Self {
         Self {
-            address_type: AddressType::Cpu,
-            address: 0,
+            address: WriteAddress::Cpu(0),
             value: 0,
         }
     }
@@ -141,19 +123,286 @@ impl PpuRegister {
     }
 }
 
-// TODO implement
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PpuRegisterLatch {
+    Clear,
+    HalfLatched,
+    Latched,
+}
+
 pub struct PpuRegisters {
-    data: [u8; 8],
+    ppu_ctrl: u8,
+    ppu_mask: u8,
+    ppu_status: u8,
+    oam_addr: u8,
+    ppu_scroll_x: u8,
+    ppu_scroll_y: u8,
+    ppu_addr: u16,
+    ppu_data_buffer: u8,
+    ppu_status_read: bool,
+    ppu_scroll_latch: PpuRegisterLatch,
+    ppu_addr_latch: PpuRegisterLatch,
 }
 
 impl PpuRegisters {
     pub fn new() -> Self {
-        Self { data: [0; 8] }
+        Self {
+            ppu_ctrl: 0,
+            ppu_mask: 0,
+            ppu_status: 0xA0,
+            oam_addr: 0,
+            ppu_scroll_x: 0,
+            ppu_scroll_y: 0,
+            ppu_addr: 0,
+            ppu_data_buffer: 0,
+            ppu_status_read: false,
+            ppu_scroll_latch: PpuRegisterLatch::Clear,
+            ppu_addr_latch: PpuRegisterLatch::Clear,
+        }
+    }
+
+    pub fn nmi_enabled(&self) -> bool {
+        self.ppu_ctrl & 0x80 != 0
+    }
+
+    pub fn double_height_sprites(&self) -> bool {
+        self.ppu_ctrl & 0x20 != 0
+    }
+
+    pub fn bg_pattern_table_address(&self) -> u16 {
+        if self.ppu_ctrl & 0x10 != 0 {
+            0x1000
+        } else {
+            0x0000
+        }
+    }
+
+    pub fn sprite_pattern_table_address(&self) -> u16 {
+        if self.ppu_ctrl & 0x08 != 0 {
+            0x1000
+        } else {
+            0x0000
+        }
+    }
+
+    pub fn ppu_data_addr_increment(&self) -> u16 {
+        if self.ppu_ctrl & 0x04 != 0 {
+            32
+        } else {
+            1
+        }
+    }
+
+    pub fn base_nametable_address(&self) -> u16 {
+        match self.ppu_ctrl & 0x03 {
+            0x00 => 0x2000,
+            0x01 => 0x2400,
+            0x02 => 0x2800,
+            0x03 => 0x2C00,
+            _ => panic!("{} & 0x03 was not 0x00/0x01/0x02/0x03", self.ppu_ctrl),
+        }
+    }
+
+    pub fn emphasize_blue(&self) -> bool {
+        self.ppu_mask & 0x80 != 0
+    }
+
+    pub fn emphasize_green(&self) -> bool {
+        self.ppu_mask & 0x40 != 0
+    }
+
+    pub fn emphasize_red(&self) -> bool {
+        self.ppu_mask & 0x20 != 0
+    }
+
+    pub fn sprites_enabled(&self) -> bool {
+        self.ppu_mask & 0x10 != 0
+    }
+
+    pub fn bg_enabled(&self) -> bool {
+        self.ppu_mask & 0x08 != 0
+    }
+
+    pub fn left_edge_sprites_enabled(&self) -> bool {
+        self.ppu_mask & 0x04 != 0
+    }
+
+    pub fn left_edge_bg_enabled(&self) -> bool {
+        self.ppu_mask & 0x02 != 0
+    }
+
+    pub fn greyscale_enabled(&self) -> bool {
+        self.ppu_mask & 0x01 != 0
+    }
+
+    pub fn vblank_flag(&self) -> bool {
+        self.ppu_status & 0x80 != 0
+    }
+
+    pub fn set_vblank_flag(&mut self, vblank: bool) {
+        if vblank {
+            self.ppu_status |= 0x80;
+        } else {
+            self.ppu_status &= 0x7F;
+        }
+    }
+
+    pub fn set_sprite_0_hit(&mut self, sprite_0_hit: bool) {
+        if sprite_0_hit {
+            self.ppu_status |= 0x40;
+        } else {
+            self.ppu_status &= 0xBF;
+        }
+    }
+
+    pub fn set_sprite_overflow(&mut self, sprite_overflow: bool) {
+        if sprite_overflow {
+            self.ppu_status |= 0x20;
+        } else {
+            self.ppu_status &= 0xDF;
+        }
+    }
+
+    fn tick(&mut self, interrupt_lines: &mut InterruptLines) {
+        if self.ppu_status_read {
+            self.ppu_status_read = true;
+
+            self.set_vblank_flag(false);
+            self.ppu_scroll_latch = PpuRegisterLatch::Clear;
+            self.ppu_addr_latch = PpuRegisterLatch::Clear;
+        }
+
+        let nmi_line = if self.vblank_flag() && self.nmi_enabled() {
+            InterruptLine::Low
+        } else {
+            InterruptLine::High
+        };
+        interrupt_lines.ppu_set_nmi_line(nmi_line);
     }
 }
 
-// TODO implement
-pub struct IoRegisters;
+#[allow(clippy::upper_case_acronyms)]
+#[allow(non_camel_case_types)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IoRegister {
+    SQ1_VOL,
+    SQ1_SWEEP,
+    SQ1_LO,
+    SQ1_HI,
+    SQ2_VOL,
+    SQ2_SWEEP,
+    SQ2_LO,
+    SQ2_HI,
+    TRI_LINEAR,
+    TRI_LO,
+    TRI_HI,
+    NOISE_VOL,
+    NOISE_LO,
+    NOISE_HI,
+    DMC_FREQ,
+    DMC_RAW,
+    DMC_START,
+    DMC_LEN,
+    OAMDMA,
+    SND_CHN,
+    JOY1,
+    JOY2,
+}
+
+impl IoRegister {
+    const fn to_relative_address(self) -> usize {
+        match self {
+            Self::SQ1_VOL => 0x00,
+            Self::SQ1_SWEEP => 0x01,
+            Self::SQ1_LO => 0x02,
+            Self::SQ1_HI => 0x03,
+            Self::SQ2_VOL => 0x04,
+            Self::SQ2_SWEEP => 0x05,
+            Self::SQ2_LO => 0x06,
+            Self::SQ2_HI => 0x07,
+            Self::TRI_LINEAR => 0x08,
+            Self::TRI_LO => 0x0A,
+            Self::TRI_HI => 0x0B,
+            Self::NOISE_VOL => 0x0C,
+            Self::NOISE_LO => 0x0E,
+            Self::NOISE_HI => 0x0F,
+            Self::DMC_FREQ => 0x10,
+            Self::DMC_RAW => 0x11,
+            Self::DMC_START => 0x12,
+            Self::DMC_LEN => 0x13,
+            Self::OAMDMA => 0x14,
+            Self::SND_CHN => 0x15,
+            Self::JOY1 => 0x16,
+            Self::JOY2 => 0x17,
+        }
+    }
+
+    fn from_relative_address(relative_addr: u16) -> Option<Self> {
+        match relative_addr {
+            0x00 => Some(Self::SQ1_VOL),
+            0x01 => Some(Self::SQ1_SWEEP),
+            0x02 => Some(Self::SQ1_LO),
+            0x03 => Some(Self::SQ1_HI),
+            0x04 => Some(Self::SQ2_VOL),
+            0x05 => Some(Self::SQ2_SWEEP),
+            0x06 => Some(Self::SQ2_LO),
+            0x07 => Some(Self::SQ2_HI),
+            0x08 => Some(Self::TRI_LINEAR),
+            0x0A => Some(Self::TRI_LO),
+            0x0B => Some(Self::TRI_HI),
+            0x0C => Some(Self::NOISE_VOL),
+            0x0E => Some(Self::NOISE_LO),
+            0x0F => Some(Self::NOISE_HI),
+            0x10 => Some(Self::DMC_FREQ),
+            0x11 => Some(Self::DMC_RAW),
+            0x12 => Some(Self::DMC_START),
+            0x13 => Some(Self::DMC_LEN),
+            0x14 => Some(Self::OAMDMA),
+            0x15 => Some(Self::SND_CHN),
+            0x16 => Some(Self::JOY1),
+            0x17 => Some(Self::JOY2),
+            _ => None,
+        }
+    }
+}
+
+pub struct IoRegisters {
+    data: [u8; 0x18],
+}
+
+impl IoRegisters {
+    fn new() -> Self {
+        Self { data: [0; 0x18] }
+    }
+
+    fn read_address(&self, address: u16) -> u8 {
+        let relative_addr = address - CPU_IO_REGISTERS_START;
+        let Some(register) = IoRegister::from_relative_address(relative_addr) else { return 0xFF };
+
+        self.read_register(register)
+    }
+
+    fn read_register(&self, register: IoRegister) -> u8 {
+        match register {
+            IoRegister::SND_CHN | IoRegister::JOY1 | IoRegister::JOY2 => {
+                self.data[register.to_relative_address()]
+            }
+            _ => 0xFF,
+        }
+    }
+
+    fn write_address(&mut self, address: u16, value: u8) {
+        let relative_addr = address - CPU_IO_REGISTERS_START;
+        let Some(register) = IoRegister::from_relative_address(relative_addr) else { return };
+
+        self.write_register(register, value);
+    }
+
+    fn write_register(&mut self, register: IoRegister, value: u8) {
+        // TODO
+        self.data[register.to_relative_address()] = value;
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InterruptLine {
@@ -256,7 +505,7 @@ impl Bus {
             mapper,
             cpu_internal_ram: [0; 2048],
             ppu_registers: PpuRegisters::new(),
-            io_registers: IoRegisters,
+            io_registers: IoRegisters::new(),
             ppu_vram: [0; 2048],
             ppu_palette_ram: [0; 64],
             ppu_oam: [0; 256],
@@ -278,17 +527,20 @@ impl Bus {
     }
 
     pub fn tick(&mut self) {
-        let writes: ArrayVec<[PendingWrite; 5]> = self.pending_writes.drain(..).collect();
+        let writes: ArrayVec<[PendingWrite; 2]> = self.pending_writes.drain(..).collect();
         for write in writes {
-            match write.address_type {
-                AddressType::Cpu => {
-                    self.cpu().apply_write(write.address, write.value);
+            match write.address {
+                WriteAddress::Cpu(address) => {
+                    self.cpu().apply_write(address, write.value);
                 }
-                AddressType::Ppu => {
-                    todo!()
+                WriteAddress::Ppu(register) => {
+                    self.cpu().apply_ppu_register_write(register, write.value);
                 }
             }
         }
+
+        self.ppu_registers.tick(&mut self.interrupt_lines);
+        self.interrupt_lines.tick();
     }
 }
 
@@ -307,7 +559,7 @@ impl<'a> CpuBus<'a> {
                 self.read_ppu_register(ppu_register_relative_addr as usize)
             }
             address @ CPU_IO_REGISTERS_START..=CPU_IO_REGISTERS_END => {
-                todo!()
+                self.0.io_registers.read_address(address)
             }
             _address @ CPU_IO_TEST_MODE_START..=CPU_IO_TEST_MODE_END => 0xFF,
             address @ CPU_CARTRIDGE_START..=CPU_CARTRIDGE_END => {
@@ -336,7 +588,7 @@ impl<'a> CpuBus<'a> {
                 self.write_ppu_register(ppu_register_relative_addr as usize, value);
             }
             address @ CPU_IO_REGISTERS_START..=CPU_IO_REGISTERS_END => {
-                // TODO
+                self.0.io_registers.write_address(address, value);
             }
             _address @ CPU_IO_TEST_MODE_START..=CPU_IO_TEST_MODE_END => {}
             address @ CPU_CARTRIDGE_START..=CPU_CARTRIDGE_END => {
@@ -347,8 +599,7 @@ impl<'a> CpuBus<'a> {
 
     pub fn write_address(&mut self, address: u16, value: u8) {
         self.0.pending_writes.push(PendingWrite {
-            address_type: AddressType::Cpu,
-            address,
+            address: WriteAddress::Cpu(address),
             value,
         });
     }
@@ -358,11 +609,103 @@ impl<'a> CpuBus<'a> {
     }
 
     fn read_ppu_register(&mut self, relative_addr: usize) -> u8 {
-        todo!()
+        let Some(register) = PpuRegister::from_relative_address(relative_addr)
+        else {
+            panic!("invalid PPU register address: {relative_addr}");
+        };
+
+        match register {
+            PpuRegister::PPUCTRL
+            | PpuRegister::PPUMASK
+            | PpuRegister::OAMADDR
+            | PpuRegister::PPUSCROLL
+            | PpuRegister::PPUADDR => 0xFF,
+            PpuRegister::PPUSTATUS => {
+                self.0.ppu_registers.ppu_status_read = true;
+                self.0.ppu_registers.ppu_status | 0x1F
+            }
+            PpuRegister::OAMDATA => self.0.ppu_oam[self.0.ppu_registers.oam_addr as usize],
+            PpuRegister::PPUDATA => {
+                let address = self.0.ppu_registers.ppu_addr & 0x3FFF;
+                let (data, buffer_read_address) = if address < 0x3F00 {
+                    (self.0.ppu_registers.ppu_data_buffer, address)
+                } else {
+                    let palette_address = (address - 0x3F00) & 0x001F;
+                    let palette_byte = self.0.ppu_palette_ram[palette_address as usize];
+                    (palette_byte, address - 0x1000)
+                };
+
+                self.0.ppu_registers.ppu_data_buffer =
+                    self.0.ppu().read_address(buffer_read_address);
+
+                let addr_increment = self.0.ppu_registers.ppu_data_addr_increment();
+                self.0.ppu_registers.ppu_addr =
+                    self.0.ppu_registers.ppu_addr.wrapping_add(addr_increment);
+
+                data
+            }
+        }
     }
 
     fn write_ppu_register(&mut self, relative_addr: usize, value: u8) {
-        todo!()
+        let Some(register) = PpuRegister::from_relative_address(relative_addr)
+        else {
+            panic!("invalid PPU register address: {relative_addr}");
+        };
+
+        self.0.pending_writes.push(PendingWrite {
+            address: WriteAddress::Ppu(register),
+            value,
+        });
+    }
+
+    fn apply_ppu_register_write(&mut self, register: PpuRegister, value: u8) {
+        match register {
+            PpuRegister::PPUCTRL => {
+                self.0.ppu_registers.ppu_ctrl = value;
+            }
+            PpuRegister::PPUMASK => {
+                self.0.ppu_registers.ppu_mask = value;
+            }
+            PpuRegister::PPUSTATUS => {}
+            PpuRegister::OAMADDR => {
+                self.0.ppu_registers.oam_addr = value;
+            }
+            PpuRegister::OAMDATA => {
+                let oam_addr = self.0.ppu_registers.oam_addr;
+                self.0.ppu_oam[oam_addr as usize] = value;
+                self.0.ppu_registers.oam_addr = self.0.ppu_registers.oam_addr.wrapping_add(1);
+            }
+            PpuRegister::PPUSCROLL => match self.0.ppu_registers.ppu_scroll_latch {
+                PpuRegisterLatch::Clear => {
+                    self.0.ppu_registers.ppu_scroll_x = value;
+                    self.0.ppu_registers.ppu_scroll_latch = PpuRegisterLatch::HalfLatched;
+                }
+                PpuRegisterLatch::HalfLatched => {
+                    self.0.ppu_registers.ppu_scroll_y = value;
+                    self.0.ppu_registers.ppu_scroll_latch = PpuRegisterLatch::Latched;
+                }
+                PpuRegisterLatch::Latched => {}
+            },
+            PpuRegister::PPUADDR => match self.0.ppu_registers.ppu_addr_latch {
+                PpuRegisterLatch::Clear => {
+                    self.0.ppu_registers.ppu_addr = u16::from(value) << 8;
+                    self.0.ppu_registers.ppu_addr_latch = PpuRegisterLatch::HalfLatched;
+                }
+                PpuRegisterLatch::HalfLatched => {
+                    self.0.ppu_registers.ppu_addr |= u16::from(value);
+                    self.0.ppu_registers.ppu_addr_latch = PpuRegisterLatch::Latched;
+                }
+                PpuRegisterLatch::Latched => {}
+            },
+            PpuRegister::PPUDATA => {
+                let address = self.0.ppu_registers.ppu_addr;
+                self.0.ppu().write_address(address & 0x3FFF, value);
+
+                let addr_increment = self.0.ppu_registers.ppu_data_addr_increment();
+                self.0.ppu_registers.ppu_addr = address.wrapping_add(addr_increment);
+            }
+        }
     }
 }
 
@@ -396,7 +739,31 @@ impl<'a> PpuBus<'a> {
         }
     }
 
-    pub fn write_address(&self, address: u16, value: u8) {
-        todo!()
+    pub fn write_address(&mut self, address: u16, value: u8) {
+        let address = address & 0x3FFF;
+        match address {
+            address @ PPU_PATTERN_TABLES_START..=PPU_NAMETABLES_END => {
+                match self.0.mapper.map_ppu_address(address) {
+                    PpuMapResult::ChrROM(chr_rom_address) => {
+                        self.0.mapper.write_ppu_address(address, value);
+                    }
+                    PpuMapResult::ChrRAM(chr_ram_address) => {
+                        self.0.cartridge.chr_ram[chr_ram_address as usize] = value;
+                    }
+                    PpuMapResult::Vram(vram_address) => {
+                        self.0.ppu_vram[vram_address as usize] = value;
+                    }
+                    PpuMapResult::None => {}
+                }
+            }
+            address @ PPU_PALETTES_START..=PPU_PALETTES_END => {
+                let palette_relative_addr =
+                    ((address - PPU_PALETTES_START) & PPU_PALETTES_MASK) as usize;
+                self.0.ppu_palette_ram[palette_relative_addr] = value;
+            }
+            _address @ 0x4000..=0xFFFF => {
+                panic!("{address} should be <= 0x3FFF after masking with 0x3FFF")
+            }
+        }
     }
 }

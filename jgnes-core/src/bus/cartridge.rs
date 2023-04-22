@@ -88,7 +88,9 @@ impl Mapper {
     }
 
     pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8) {
-        todo!()
+        match self {
+            Self::Nrom { .. } => {}
+        }
     }
 }
 
