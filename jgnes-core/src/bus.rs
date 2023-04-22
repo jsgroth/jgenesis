@@ -368,11 +368,15 @@ impl IoRegister {
 
 pub struct IoRegisters {
     data: [u8; 0x18],
+    dma_dirty: bool,
 }
 
 impl IoRegisters {
     fn new() -> Self {
-        Self { data: [0; 0x18] }
+        Self {
+            data: [0; 0x18],
+            dma_dirty: false,
+        }
     }
 
     fn read_address(&self, address: u16) -> u8 {
@@ -399,8 +403,11 @@ impl IoRegisters {
     }
 
     fn write_register(&mut self, register: IoRegister, value: u8) {
-        // TODO
         self.data[register.to_relative_address()] = value;
+
+        if register == IoRegister::OAMDMA {
+            self.dma_dirty = true;
+        }
     }
 }
 
@@ -556,7 +563,7 @@ impl<'a> CpuBus<'a> {
             address @ CPU_PPU_REGISTERS_START..=CPU_PPU_REGISTERS_END => {
                 let ppu_register_relative_addr =
                     (address - CPU_PPU_REGISTERS_START) & CPU_PPU_REGISTERS_MASK;
-                self.read_ppu_register(ppu_register_relative_addr as usize)
+                self.read_ppu_register_address(ppu_register_relative_addr as usize)
             }
             address @ CPU_IO_REGISTERS_START..=CPU_IO_REGISTERS_END => {
                 self.0.io_registers.read_address(address)
@@ -585,7 +592,7 @@ impl<'a> CpuBus<'a> {
             address @ CPU_PPU_REGISTERS_START..=CPU_PPU_REGISTERS_END => {
                 let ppu_register_relative_addr =
                     (address - CPU_PPU_REGISTERS_START) & CPU_PPU_REGISTERS_MASK;
-                self.write_ppu_register(ppu_register_relative_addr as usize, value);
+                self.write_ppu_register_address(ppu_register_relative_addr as usize, value);
             }
             address @ CPU_IO_REGISTERS_START..=CPU_IO_REGISTERS_END => {
                 self.0.io_registers.write_address(address, value);
@@ -608,12 +615,16 @@ impl<'a> CpuBus<'a> {
         &mut self.0.interrupt_lines
     }
 
-    fn read_ppu_register(&mut self, relative_addr: usize) -> u8 {
+    fn read_ppu_register_address(&mut self, relative_addr: usize) -> u8 {
         let Some(register) = PpuRegister::from_relative_address(relative_addr)
         else {
             panic!("invalid PPU register address: {relative_addr}");
         };
 
+        self.read_ppu_register(register)
+    }
+
+    pub fn read_ppu_register(&mut self, register: PpuRegister) -> u8 {
         match register {
             PpuRegister::PPUCTRL
             | PpuRegister::PPUMASK
@@ -647,12 +658,16 @@ impl<'a> CpuBus<'a> {
         }
     }
 
-    fn write_ppu_register(&mut self, relative_addr: usize, value: u8) {
+    fn write_ppu_register_address(&mut self, relative_addr: usize, value: u8) {
         let Some(register) = PpuRegister::from_relative_address(relative_addr)
         else {
             panic!("invalid PPU register address: {relative_addr}");
         };
 
+        self.write_ppu_register(register, value);
+    }
+
+    pub fn write_ppu_register(&mut self, register: PpuRegister, value: u8) {
         self.0.pending_writes.push(PendingWrite {
             address: WriteAddress::Ppu(register),
             value,
@@ -706,6 +721,18 @@ impl<'a> CpuBus<'a> {
                 self.0.ppu_registers.ppu_addr = address.wrapping_add(addr_increment);
             }
         }
+    }
+
+    pub fn is_oamdma_dirty(&self) -> bool {
+        self.0.io_registers.dma_dirty
+    }
+
+    pub fn clear_oamdma_dirty(&mut self) {
+        self.0.io_registers.dma_dirty = false;
+    }
+
+    pub fn read_io_register(&self, io_register: IoRegister) -> u8 {
+        self.0.io_registers.read_register(io_register)
     }
 }
 

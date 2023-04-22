@@ -1,5 +1,5 @@
 use crate::bus;
-use crate::bus::{Bus, CpuBus};
+use crate::bus::{Bus, CpuBus, IoRegister, PpuRegister};
 use crate::cpu::instructions::{Instruction, InstructionState};
 
 mod instructions;
@@ -121,9 +121,17 @@ impl CpuRegisters {
     }
 }
 
+struct OamDmaState {
+    cycles_remaining: u16,
+    source_high_byte: u8,
+    last_read_value: u8,
+}
+
 enum State {
     InstructionStart,
     Executing(InstructionState),
+    OamDmaStart,
+    OamDma(OamDmaState),
 }
 
 pub struct CpuState {
@@ -173,6 +181,12 @@ pub fn tick(state: &mut CpuState, bus: &mut Bus) {
 
             if usize::from(instruction_state.op_index) < instruction_state.ops.len() {
                 State::Executing(instruction_state)
+            } else if bus.cpu().is_oamdma_dirty() {
+                bus.cpu().clear_oamdma_dirty();
+
+                log::trace!("OAMDMA was written to, starting OAM DMA transfer");
+
+                State::OamDmaStart
             } else if instruction_state.pending_interrupt {
                 log::trace!("INTERRUPT: Handling hardware NMI/IRQ interrupt");
 
@@ -180,6 +194,44 @@ pub fn tick(state: &mut CpuState, bus: &mut Bus) {
                     instructions::INTERRUPT_HANDLER_OPS.into_iter().collect(),
                 );
                 State::Executing(interrupt_state)
+            } else {
+                State::InstructionStart
+            }
+        }
+        State::OamDmaStart => {
+            let source_high_byte = bus.cpu().read_io_register(IoRegister::OAMDMA);
+
+            log::trace!("Initiating OAM DMA transfer from 0x{source_high_byte:02X}00");
+
+            State::OamDma(OamDmaState {
+                cycles_remaining: 512,
+                source_high_byte,
+                last_read_value: 0,
+            })
+        }
+        State::OamDma(OamDmaState {
+            mut cycles_remaining,
+            source_high_byte,
+            mut last_read_value,
+        }) => {
+            cycles_remaining -= 1;
+
+            if cycles_remaining % 2 == 1 {
+                let source_low_byte = (0xFF - cycles_remaining / 2) as u8;
+                last_read_value = bus
+                    .cpu()
+                    .read_address(u16::from_le_bytes([source_low_byte, source_high_byte]));
+            } else {
+                bus.cpu()
+                    .write_ppu_register(PpuRegister::OAMDATA, last_read_value);
+            }
+
+            if cycles_remaining > 0 {
+                State::OamDma(OamDmaState {
+                    cycles_remaining,
+                    source_high_byte,
+                    last_read_value,
+                })
             } else {
                 State::InstructionStart
             }
