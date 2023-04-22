@@ -294,6 +294,23 @@ impl BranchCondition {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InterruptType {
+    Nmi,
+    Reset,
+    Irq,
+}
+
+impl InterruptType {
+    pub const fn interrupt_vector(self) -> u16 {
+        match self {
+            Self::Nmi => 0xFFFA,
+            Self::Reset => 0xFFFC,
+            Self::Irq => 0xFFFE,
+        }
+    }
+}
+
 type OpVec = ArrayVec<[CycleOp; 7]>;
 
 #[derive(Debug, Clone)]
@@ -304,10 +321,11 @@ struct InstructionState {
     operand_second_byte: u8,
     target_first_byte: u8,
     target_second_byte: u8,
+    pending_interrupt: Option<InterruptType>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Index {
+pub enum Index {
     X,
     Y,
 }
@@ -322,7 +340,7 @@ impl Index {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CycleOp {
+pub enum CycleOp {
     FetchOperand1,
     FetchOperand2,
     SpuriousOperandRead,
@@ -368,6 +386,13 @@ enum CycleOp {
     ExecuteJumpIndirect,
     ExecutePush(PushableRegister),
     ExecutePull(PushableRegister),
+    PushPCHigh,
+    PushPCLow,
+    PullPCLow,
+    PullPCHigh,
+    InterruptPushStatus(StatusReadContext),
+    InterruptPullPCLow,
+    InterruptPullPCHigh,
 }
 
 // Needed for ArrayVec
@@ -697,6 +722,58 @@ impl CycleOp {
                     }
                 }
             }
+            Self::PushPCHigh => {
+                let stack_address = u16::from_be_bytes([0x01, registers.sp]);
+                bus.write_address(stack_address, (registers.pc >> 8) as u8);
+                registers.sp = registers.sp.wrapping_sub(1);
+            }
+            Self::PushPCLow => {
+                let stack_address = u16::from_be_bytes([0x01, registers.sp]);
+                bus.write_address(stack_address, (registers.pc & 0x00FF) as u8);
+                registers.sp = registers.sp.wrapping_sub(1);
+            }
+            Self::PullPCLow => {
+                registers.sp = registers.sp.wrapping_add(1);
+                let stack_address = u16::from_be_bytes([0x01, registers.sp]);
+
+                registers.pc = u16::from(bus.read_address(stack_address));
+            }
+            Self::PullPCHigh => {
+                registers.sp = registers.sp.wrapping_add(1);
+                let stack_address = u16::from_be_bytes([0x01, registers.sp]);
+                let pc_msb = bus.read_address(stack_address);
+
+                registers.pc |= u16::from(pc_msb) << 8;
+            }
+            Self::InterruptPushStatus(read_ctx) => {
+                let stack_address = u16::from_be_bytes([0x01, registers.sp]);
+                bus.write_address(stack_address, registers.status.to_byte(read_ctx));
+                registers.sp = registers.sp.wrapping_sub(1);
+
+                state.pending_interrupt = Some(if bus.interrupt_lines().nmi_triggered() {
+                    InterruptType::Nmi
+                } else {
+                    InterruptType::Irq
+                });
+            }
+            Self::InterruptPullPCLow => {
+                let interrupt_vector = match state.pending_interrupt {
+                    Some(pending_interrupt) => pending_interrupt.interrupt_vector(),
+                    None => panic!("InterruptPullPCLow invoked before InterruptPushStatus"),
+                };
+                registers.pc = u16::from(bus.read_address(interrupt_vector));
+
+                registers.status.interrupt_disable = true;
+            }
+            Self::InterruptPullPCHigh => {
+                let interrupt_vector = match state.pending_interrupt {
+                    Some(pending_interrupt) => pending_interrupt.interrupt_vector(),
+                    None => panic!("InterruptPullPCHigh invoked before InterruptPushStatus"),
+                };
+
+                let pc_msb = bus.read_address(interrupt_vector + 1);
+                registers.pc |= u16::from(pc_msb) << 8;
+            }
         }
 
         state.op_index += 1;
@@ -771,7 +848,46 @@ impl Instruction {
             ]
             .into_iter()
             .collect(),
-            _ => todo!("other instructions"),
+            Self::JumpToSubroutine => [
+                CycleOp::FetchOperand1,
+                CycleOp::SpuriousStackRead,
+                CycleOp::PushPCHigh,
+                CycleOp::PushPCLow,
+                CycleOp::ExecuteJumpAbsolute,
+            ]
+            .into_iter()
+            .collect(),
+            Self::ReturnFromSubroutine => [
+                CycleOp::SpuriousOperandRead,
+                CycleOp::SpuriousStackRead,
+                CycleOp::PullPCLow,
+                CycleOp::PullPCHigh,
+                CycleOp::FetchOperand1,
+            ]
+            .into_iter()
+            .collect(),
+            Self::ReturnFromInterrupt => [
+                CycleOp::SpuriousOperandRead,
+                CycleOp::SpuriousStackRead,
+                CycleOp::ExecutePull(PushableRegister::P),
+                CycleOp::PullPCLow,
+                CycleOp::PullPCHigh,
+            ]
+            .into_iter()
+            .collect(),
+            Self::ForceInterrupt => [
+                CycleOp::FetchOperand1,
+                CycleOp::PushPCHigh,
+                CycleOp::PushPCLow,
+                CycleOp::InterruptPushStatus(StatusReadContext::Brk),
+                CycleOp::InterruptPullPCLow,
+                CycleOp::InterruptPullPCHigh,
+            ]
+            .into_iter()
+            .collect(),
+            Self::Jump(addressing_mode) => {
+                panic!("invalid jump addressing mode: {addressing_mode:?}")
+            }
         }
     }
 
@@ -1236,6 +1352,16 @@ impl Instruction {
         }
     }
 }
+
+pub const INTERRUPT_HANDLER_CYCLE_OPS: [CycleOp; 7] = [
+    CycleOp::SpuriousOperandRead,
+    CycleOp::SpuriousOperandRead,
+    CycleOp::PushPCHigh,
+    CycleOp::PushPCLow,
+    CycleOp::InterruptPushStatus(StatusReadContext::HardwareInterruptHandler),
+    CycleOp::InterruptPullPCLow,
+    CycleOp::InterruptPullPCHigh,
+];
 
 fn get_read_cycle_ops(instruction: ReadInstruction) -> OpVec {
     match instruction.addressing_mode() {

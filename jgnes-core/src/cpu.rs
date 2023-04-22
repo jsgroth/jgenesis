@@ -4,10 +4,10 @@ use crate::bus::{Bus, CpuBus};
 mod instructions;
 mod instructions2;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatusReadContext {
     HardwareInterruptHandler,
-    BrkInstruction,
+    Brk,
     PushStack,
 }
 
@@ -67,7 +67,7 @@ impl StatusFlags {
     pub fn to_byte(self, read_ctx: StatusReadContext) -> u8 {
         // B flag is set during BRK and PHA/PHP, cleared during NMI & IRQ handlers
         let b_flag = match read_ctx {
-            StatusReadContext::BrkInstruction | StatusReadContext::PushStack => 0x10,
+            StatusReadContext::Brk | StatusReadContext::PushStack => 0x10,
             StatusReadContext::HardwareInterruptHandler => 0x00,
         };
 

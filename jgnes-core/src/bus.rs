@@ -358,12 +358,11 @@ impl<'a> CpuBus<'a> {
     }
 
     fn read_ppu_register(&mut self, relative_addr: usize) -> u8 {
-        // TODO
-        0xFF
+        todo!()
     }
 
     fn write_ppu_register(&mut self, relative_addr: usize, value: u8) {
-        // TODO
+        todo!()
     }
 }
 
