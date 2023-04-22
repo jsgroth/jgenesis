@@ -232,12 +232,12 @@ pub enum BranchCondition {
     OverflowSet,
 }
 
-type OpsVec = ArrayVec<[CycleOp; 7]>;
+type OpVec = ArrayVec<[CycleOp; 7]>;
 
 #[derive(Debug, Clone)]
 struct InstructionState {
     instruction: Instruction,
-    ops: OpsVec,
+    ops: OpVec,
     op_index: u8,
     operand_first_byte: u8,
     operand_second_byte: u8,
@@ -537,7 +537,7 @@ impl Instruction {
         }
     }
 
-    fn get_cycle_ops(self) -> OpsVec {
+    fn get_cycle_ops(self) -> OpVec {
         match self {
             Self::Read(instruction) => match instruction.addressing_mode() {
                 AddressingMode::Immediate => {
