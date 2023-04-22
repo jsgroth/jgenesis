@@ -5,6 +5,7 @@
 
 use crate::bus::{cartridge, Bus};
 use crate::cpu::{CpuRegisters, CpuState};
+use crate::ppu::PpuState;
 use std::error::Error;
 use std::path::Path;
 
@@ -22,9 +23,17 @@ pub fn run(path: &str) -> Result<(), Box<dyn Error>> {
     let cpu_registers = CpuRegisters::new(&mut bus.cpu());
 
     let mut cpu_state = CpuState::new(cpu_registers);
+    let mut ppu_state = PpuState::new();
 
     loop {
         cpu::tick(&mut cpu_state, &mut bus);
+        ppu::tick(&mut ppu_state, &mut bus.ppu());
+        bus.tick();
+
+        ppu::tick(&mut ppu_state, &mut bus.ppu());
+        bus.tick();
+
+        ppu::tick(&mut ppu_state, &mut bus.ppu());
         bus.tick();
     }
 }

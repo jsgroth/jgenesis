@@ -766,4 +766,8 @@ impl<'a> PpuBus<'a> {
             }
         }
     }
+
+    pub fn get_ppu_registers_mut(&mut self) -> &mut PpuRegisters {
+        &mut self.0.ppu_registers
+    }
 }
