@@ -2,7 +2,6 @@ use crate::bus;
 use crate::bus::{Bus, CpuBus};
 
 mod instructions;
-mod instructions2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatusReadContext {
