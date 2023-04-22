@@ -29,23 +29,58 @@ pub(crate) enum PpuMapResult {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum NametableMirroring {
+pub(crate) enum NromMirroring {
     Horizontal,
     Vertical,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Mmc1Mirroring {
+    OneScreenLowerBank,
+    OneScreenUpperBank,
+    Vertical,
+    Horizontal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Mmc1PrgBankingMode {
+    Switch32Kb,
+    Switch16KbFirstBankFixed,
+    Switch16KbLastBankFixed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Mmc1ChrBankingMode {
+    Single8KbBank,
+    Two4KbBanks,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) enum Mapper {
     Nrom {
         prg_rom_size: u16,
-        nametable_mirroring: NametableMirroring,
+        nametable_mirroring: NromMirroring,
+    },
+    Mmc1 {
+        prg_rom_size: u32,
+        prg_ram_size: u16,
+        chr_rom_size: u32,
+        shift_register: u8,
+        written_this_cycle: bool,
+        written_last_cycle: bool,
+        nametable_mirroring: Mmc1Mirroring,
+        prg_banking_mode: Mmc1PrgBankingMode,
+        chr_banking_mode: Mmc1ChrBankingMode,
+        chr_bank_0: u8,
+        chr_bank_1: u8,
+        prg_bank: u8,
     },
 }
 
 impl Mapper {
     pub(crate) fn map_cpu_address(&self, address: u16) -> CpuMapResult {
-        match self {
-            &Self::Nrom { prg_rom_size, .. } => {
+        match *self {
+            Self::Nrom { prg_rom_size, .. } => {
                 if address < 0x8000 {
                     CpuMapResult::None
                 } else {
@@ -53,18 +88,73 @@ impl Mapper {
                     CpuMapResult::PrgROM(relative_addr.into())
                 }
             }
+            Self::Mmc1 {
+                prg_rom_size,
+                prg_ram_size,
+                prg_banking_mode,
+                prg_bank,
+                ..
+            } => match address {
+                0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
+                0x4020..=0x5FFF => CpuMapResult::None,
+                0x6000..=0x7FFF => {
+                    if prg_ram_size > 0 {
+                        CpuMapResult::PrgRAM(u32::from(address) - 0x6000)
+                    } else {
+                        CpuMapResult::None
+                    }
+                }
+                0x8000..=0xFFFF => match prg_banking_mode {
+                    Mmc1PrgBankingMode::Switch32Kb => {
+                        let bank_address =
+                            (u32::from(prg_bank & 0x0E) * 32 * 1024) & (prg_rom_size - 1);
+                        CpuMapResult::PrgROM(bank_address + (u32::from(address) - 0x8000))
+                    }
+                    Mmc1PrgBankingMode::Switch16KbFirstBankFixed => match address {
+                        0x0000..=0x7FFF => panic!("match arm should be unreachable"),
+                        0x8000..=0xBFFF => CpuMapResult::PrgROM(u32::from(address) - 0x8000),
+                        0xC000..=0xFFFF => {
+                            let bank_address =
+                                (u32::from(prg_bank) * 16 * 1024) & (prg_rom_size - 1);
+                            CpuMapResult::PrgROM(bank_address + (u32::from(address) - 0xC000))
+                        }
+                    },
+                    Mmc1PrgBankingMode::Switch16KbLastBankFixed => match address {
+                        0x0000..=0x7FFF => panic!("match arm should be unreachable"),
+                        0x8000..=0xBFFF => {
+                            let bank_address =
+                                (u32::from(prg_bank) * 16 * 1024) & (prg_rom_size - 1);
+                            CpuMapResult::PrgROM(bank_address + (u32::from(address) - 0x8000))
+                        }
+                        0xC000..=0xFFFF => {
+                            let bank_address = prg_rom_size - 0x4000;
+                            CpuMapResult::PrgROM(bank_address + (u32::from(address) - 0xC000))
+                        }
+                    },
+                },
+            },
         }
     }
 
     pub(crate) fn write_cpu_address(&mut self, address: u16, value: u8) {
         match self {
             Self::Nrom { .. } => {}
+            Self::Mmc1 {
+                shift_register,
+                written_this_cycle,
+                nametable_mirroring,
+                prg_banking_mode,
+                chr_banking_mode,
+                ..
+            } => {
+                todo!()
+            }
         }
     }
 
     pub(crate) fn map_ppu_address(&self, address: u16) -> PpuMapResult {
-        match self {
-            &Self::Nrom {
+        match *self {
+            Self::Nrom {
                 nametable_mirroring,
                 ..
             } => match address {
@@ -74,22 +164,31 @@ impl Mapper {
                 address @ bus::PPU_NAMETABLES_START..=bus::PPU_NAMETABLES_END => {
                     let relative_addr = (address - bus::PPU_NAMETABLES_START) & 0x0FFF;
                     let vram_addr = match nametable_mirroring {
-                        NametableMirroring::Horizontal => {
+                        NromMirroring::Horizontal => {
                             // Swap bits 10 and 11, and then discard the new bit 11
                             (relative_addr & 0x0800 >> 1) | (relative_addr & 0x03FF)
                         }
-                        NametableMirroring::Vertical => relative_addr & 0x07FF,
+                        NromMirroring::Vertical => relative_addr & 0x07FF,
                     };
                     PpuMapResult::Vram(vram_addr)
                 }
                 _ => panic!("invalid PPU map address: {address:04X}"),
             },
+            Self::Mmc1 {
+                chr_rom_size,
+                chr_banking_mode,
+                chr_bank_0,
+                chr_bank_1,
+                ..
+            } => {
+                todo!()
+            }
         }
     }
 
     pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8) {
         match self {
-            Self::Nrom { .. } => {}
+            Self::Nrom { .. } | Self::Mmc1 { .. } => {}
         }
     }
 }
@@ -167,9 +266,9 @@ fn from_ines_file(mut file: File) -> Result<(Cartridge, Mapper), CartridgeFileEr
     };
 
     let nametable_mirroring = if header[6] & 0x01 != 0 {
-        NametableMirroring::Vertical
+        NromMirroring::Vertical
     } else {
-        NametableMirroring::Horizontal
+        NromMirroring::Horizontal
     };
 
     let mapper = Mapper::Nrom {
