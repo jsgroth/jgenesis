@@ -129,6 +129,53 @@ impl ModifyInstruction {
             | Self::RotateRight(addressing_mode) => addressing_mode,
         }
     }
+
+    fn execute(self, value: u8, flags: &mut StatusFlags) -> u8 {
+        match self {
+            Self::ShiftLeft(addressing_mode) => {
+                let shifted = value << 1;
+                flags.set_carry(value & 0x80 != 0);
+                if addressing_mode == AddressingMode::Accumulator {
+                    flags
+                        .set_negative(shifted & 0x80 != 0)
+                        .set_zero(shifted == 0);
+                }
+                shifted
+            }
+            Self::DecrementMemory(..) => value.wrapping_sub(1),
+            Self::IncrementMemory(..) => value.wrapping_add(1),
+            Self::LogicalShiftRight(addressing_mode) => {
+                let shifted = value >> 1;
+                flags.set_carry(value & 0x01 != 0);
+                if addressing_mode == AddressingMode::Accumulator {
+                    flags
+                        .set_negative(shifted & 0x80 != 0)
+                        .set_zero(shifted == 0);
+                }
+                shifted
+            }
+            Self::RotateLeft(addressing_mode) => {
+                let rotated = (value << 1) | u8::from(flags.carry);
+                flags.set_carry(value & 0x80 != 0);
+                if addressing_mode == AddressingMode::Accumulator {
+                    flags
+                        .set_negative(rotated & 0x80 != 0)
+                        .set_zero(rotated == 0);
+                }
+                rotated
+            }
+            Self::RotateRight(addressing_mode) => {
+                let rotated = (value >> 1) | (u8::from(flags.carry) << 7);
+                flags.set_carry(value & 0x01 != 0);
+                if addressing_mode == AddressingMode::Accumulator {
+                    flags
+                        .set_negative(rotated & 0x80 != 0)
+                        .set_zero(rotated == 0);
+                }
+                rotated
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -269,19 +316,30 @@ enum CycleOp {
     FetchZeroPage2,
     FetchZeroPageIndexed1,
     FetchZeroPageIndexed2,
+    FetchAbsolute,
+    FetchAbsoluteIndexed,
+    ZeroPageWriteBack,
+    ZeroPageIndexedWriteBack,
+    AbsoluteWriteBack,
+    AbsoluteIndexedWriteBack,
     AbsoluteIndexedFixHighByte(Index),
     IndirectIndexedFixHighByte,
     ExecuteRegistersOnly,
+    ExecuteAccumulatorModify,
     ExecuteImmediateRead,
     ExecuteZeroPageRead,
     ExecuteZeroPageStore,
+    ExecuteZeroPageModify,
     ExecuteZeroPageIndexedRead(Index),
     ExecuteZeroPageIndexedStore(Index),
+    ExecuteZeroPageIndexedModify,
     ExecuteAbsoluteRead,
     ExecuteAbsoluteStore,
+    ExecuteAbsoluteModify,
     ExecuteAbsoluteIndexedRead(Index),
     ExecuteAbsoluteIndexedReadDelayed(Index),
     ExecuteAbsoluteIndexedStore(Index),
+    ExecuteAbsoluteIndexedModify,
     ExecuteIndexedIndirectRead,
     ExecuteIndexedIndirectStore,
     ExecuteIndirectIndexedRead,
@@ -336,6 +394,39 @@ impl CycleOp {
                 );
                 state.target_second_byte = bus.read_address(address);
             }
+            Self::FetchAbsolute => {
+                let address =
+                    u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte]);
+                state.target_first_byte = bus.read_address(address);
+            }
+            Self::FetchAbsoluteIndexed => {
+                let address =
+                    u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte])
+                        .wrapping_add(u16::from(registers.x));
+                state.target_first_byte = bus.read_address(address);
+            }
+            Self::ZeroPageWriteBack => {
+                // Spurious write
+                bus.write_address(u16::from(state.operand_first_byte), state.target_first_byte);
+            }
+            Self::ZeroPageIndexedWriteBack => {
+                // Spurious write
+                let address = u16::from(state.operand_first_byte.wrapping_add(registers.x));
+                bus.write_address(address, state.target_first_byte);
+            }
+            Self::AbsoluteWriteBack => {
+                // Spurious write
+                let address =
+                    u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte]);
+                bus.write_address(address, state.target_first_byte);
+            }
+            Self::AbsoluteIndexedWriteBack => {
+                // Spurious write
+                let address =
+                    u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte])
+                        .wrapping_add(u16::from(registers.x));
+                bus.write_address(address, state.target_first_byte);
+            }
             Self::AbsoluteIndexedFixHighByte(index) => {
                 let index = index.get(registers);
                 let indexed_low_byte = state.operand_first_byte.wrapping_add(index);
@@ -357,6 +448,15 @@ impl CycleOp {
 
                 state.instruction.as_registers_only().execute(registers);
             }
+            Self::ExecuteAccumulatorModify => {
+                // Spurious bus read
+                bus.read_address(registers.pc);
+
+                registers.accumulator = state
+                    .instruction
+                    .as_modify()
+                    .execute(registers.accumulator, &mut registers.status);
+            }
             Self::ExecuteImmediateRead => {
                 state
                     .instruction
@@ -373,6 +473,13 @@ impl CycleOp {
 
                 bus.write_address(address, value);
             }
+            Self::ExecuteZeroPageModify => {
+                let value = state
+                    .instruction
+                    .as_modify()
+                    .execute(state.target_first_byte, &mut registers.status);
+                bus.write_address(u16::from(state.operand_first_byte), value);
+            }
             Self::ExecuteZeroPageIndexedRead(index) => {
                 let index = index.get(registers);
                 let indexed_address = u16::from(state.operand_first_byte.wrapping_add(index));
@@ -387,6 +494,15 @@ impl CycleOp {
 
                 bus.write_address(indexed_address, value);
             }
+            Self::ExecuteZeroPageIndexedModify => {
+                let value = state
+                    .instruction
+                    .as_modify()
+                    .execute(state.target_first_byte, &mut registers.status);
+
+                let indexed_address = u16::from(state.operand_first_byte.wrapping_add(registers.x));
+                bus.write_address(indexed_address, value);
+            }
             Self::ExecuteAbsoluteRead => {
                 let address =
                     u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte]);
@@ -399,6 +515,16 @@ impl CycleOp {
                     u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte]);
                 let value = read_register(registers, state.instruction.as_store());
 
+                bus.write_address(address, value);
+            }
+            Self::ExecuteAbsoluteModify => {
+                let value = state
+                    .instruction
+                    .as_modify()
+                    .execute(state.target_first_byte, &mut registers.status);
+
+                let address =
+                    u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte]);
                 bus.write_address(address, value);
             }
             Self::ExecuteAbsoluteIndexedRead(index) => {
@@ -433,6 +559,17 @@ impl CycleOp {
                 let value = read_register(registers, state.instruction.as_store());
 
                 bus.write_address(indexed_address, value);
+            }
+            Self::ExecuteAbsoluteIndexedModify => {
+                let value = state
+                    .instruction
+                    .as_modify()
+                    .execute(state.target_first_byte, &mut registers.status);
+
+                let address =
+                    u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte])
+                        .wrapping_add(u16::from(registers.x));
+                bus.write_address(address, value);
             }
             Self::ExecuteIndexedIndirectRead => {
                 let effective_address =
@@ -539,133 +676,9 @@ impl Instruction {
 
     fn get_cycle_ops(self) -> OpVec {
         match self {
-            Self::Read(instruction) => match instruction.addressing_mode() {
-                AddressingMode::Immediate => {
-                    [CycleOp::FetchOperand1, CycleOp::ExecuteImmediateRead]
-                        .into_iter()
-                        .collect()
-                }
-                AddressingMode::ZeroPage => [CycleOp::FetchOperand1, CycleOp::ExecuteZeroPageRead]
-                    .into_iter()
-                    .collect(),
-                AddressingMode::ZeroPageX => [
-                    CycleOp::FetchOperand1,
-                    CycleOp::ZeroPageIndexAddress,
-                    CycleOp::ExecuteZeroPageIndexedRead(Index::X),
-                ]
-                .into_iter()
-                .collect(),
-                AddressingMode::ZeroPageY => [
-                    CycleOp::FetchOperand1,
-                    CycleOp::ZeroPageIndexAddress,
-                    CycleOp::ExecuteZeroPageIndexedRead(Index::Y),
-                ]
-                .into_iter()
-                .collect(),
-                AddressingMode::Absolute => [
-                    CycleOp::FetchOperand1,
-                    CycleOp::FetchOperand2,
-                    CycleOp::ExecuteAbsoluteRead,
-                ]
-                .into_iter()
-                .collect(),
-                AddressingMode::AbsoluteX => [
-                    CycleOp::FetchOperand1,
-                    CycleOp::FetchOperand2,
-                    CycleOp::ExecuteAbsoluteIndexedRead(Index::X),
-                    CycleOp::ExecuteAbsoluteIndexedReadDelayed(Index::X),
-                ]
-                .into_iter()
-                .collect(),
-                AddressingMode::AbsoluteY => [
-                    CycleOp::FetchOperand1,
-                    CycleOp::FetchOperand2,
-                    CycleOp::ExecuteAbsoluteIndexedRead(Index::Y),
-                    CycleOp::ExecuteAbsoluteIndexedReadDelayed(Index::Y),
-                ]
-                .into_iter()
-                .collect(),
-                AddressingMode::IndirectX => [
-                    CycleOp::FetchOperand1,
-                    CycleOp::ZeroPageIndexAddress,
-                    CycleOp::FetchZeroPageIndexed1,
-                    CycleOp::FetchZeroPageIndexed2,
-                    CycleOp::ExecuteIndexedIndirectRead,
-                ]
-                .into_iter()
-                .collect(),
-                AddressingMode::IndirectY => [
-                    CycleOp::FetchOperand1,
-                    CycleOp::FetchZeroPage1,
-                    CycleOp::FetchZeroPage2,
-                    CycleOp::ExecuteIndirectIndexedRead,
-                    CycleOp::ExecuteIndirectIndexedReadDelayed,
-                ]
-                .into_iter()
-                .collect(),
-                _ => panic!("unsupported addressing mode for a read instruction: {self:?}"),
-            },
-            Self::StoreRegister(_, addressing_mode) => match addressing_mode {
-                AddressingMode::ZeroPage => [CycleOp::FetchOperand1, CycleOp::ExecuteZeroPageStore]
-                    .into_iter()
-                    .collect(),
-                AddressingMode::ZeroPageX => [
-                    CycleOp::FetchOperand1,
-                    CycleOp::ZeroPageIndexAddress,
-                    CycleOp::ExecuteZeroPageIndexedStore(Index::X),
-                ]
-                .into_iter()
-                .collect(),
-                AddressingMode::ZeroPageY => [
-                    CycleOp::FetchOperand1,
-                    CycleOp::ZeroPageIndexAddress,
-                    CycleOp::ExecuteZeroPageIndexedStore(Index::Y),
-                ]
-                .into_iter()
-                .collect(),
-                AddressingMode::Absolute => [
-                    CycleOp::FetchOperand1,
-                    CycleOp::FetchOperand2,
-                    CycleOp::ExecuteAbsoluteStore,
-                ]
-                .into_iter()
-                .collect(),
-                AddressingMode::AbsoluteX => [
-                    CycleOp::FetchOperand1,
-                    CycleOp::FetchOperand2,
-                    CycleOp::AbsoluteIndexedFixHighByte(Index::X),
-                    CycleOp::ExecuteAbsoluteIndexedStore(Index::X),
-                ]
-                .into_iter()
-                .collect(),
-                AddressingMode::AbsoluteY => [
-                    CycleOp::FetchOperand1,
-                    CycleOp::FetchOperand2,
-                    CycleOp::AbsoluteIndexedFixHighByte(Index::Y),
-                    CycleOp::ExecuteAbsoluteIndexedStore(Index::Y),
-                ]
-                .into_iter()
-                .collect(),
-                AddressingMode::IndirectX => [
-                    CycleOp::FetchOperand1,
-                    CycleOp::ZeroPageIndexAddress,
-                    CycleOp::FetchZeroPageIndexed1,
-                    CycleOp::FetchZeroPageIndexed2,
-                    CycleOp::ExecuteIndexedIndirectStore,
-                ]
-                .into_iter()
-                .collect(),
-                AddressingMode::IndirectY => [
-                    CycleOp::FetchOperand1,
-                    CycleOp::FetchZeroPage1,
-                    CycleOp::FetchZeroPage2,
-                    CycleOp::IndirectIndexedFixHighByte,
-                    CycleOp::ExecuteIndirectIndexedStore,
-                ]
-                .into_iter()
-                .collect(),
-                _ => panic!("unsupported addressing mode for StoreRegister: {self:?}"),
-            },
+            Self::Read(instruction) => get_read_cycle_ops(instruction),
+            Self::StoreRegister(_, addressing_mode) => get_store_cycle_ops(addressing_mode),
+            Self::ReadModifyWrite(instruction) => get_modify_cycle_ops(instruction),
             _ => todo!("non-read instructions"),
         }
     }
@@ -1128,6 +1141,182 @@ impl Instruction {
                 // Unused or unofficial opcode
                 None
             }
+        }
+    }
+}
+
+fn get_read_cycle_ops(instruction: ReadInstruction) -> OpVec {
+    match instruction.addressing_mode() {
+        AddressingMode::Immediate => [CycleOp::FetchOperand1, CycleOp::ExecuteImmediateRead]
+            .into_iter()
+            .collect(),
+        AddressingMode::ZeroPage => [CycleOp::FetchOperand1, CycleOp::ExecuteZeroPageRead]
+            .into_iter()
+            .collect(),
+        AddressingMode::ZeroPageX => [
+            CycleOp::FetchOperand1,
+            CycleOp::ZeroPageIndexAddress,
+            CycleOp::ExecuteZeroPageIndexedRead(Index::X),
+        ]
+        .into_iter()
+        .collect(),
+        AddressingMode::ZeroPageY => [
+            CycleOp::FetchOperand1,
+            CycleOp::ZeroPageIndexAddress,
+            CycleOp::ExecuteZeroPageIndexedRead(Index::Y),
+        ]
+        .into_iter()
+        .collect(),
+        AddressingMode::Absolute => [
+            CycleOp::FetchOperand1,
+            CycleOp::FetchOperand2,
+            CycleOp::ExecuteAbsoluteRead,
+        ]
+        .into_iter()
+        .collect(),
+        AddressingMode::AbsoluteX => [
+            CycleOp::FetchOperand1,
+            CycleOp::FetchOperand2,
+            CycleOp::ExecuteAbsoluteIndexedRead(Index::X),
+            CycleOp::ExecuteAbsoluteIndexedReadDelayed(Index::X),
+        ]
+        .into_iter()
+        .collect(),
+        AddressingMode::AbsoluteY => [
+            CycleOp::FetchOperand1,
+            CycleOp::FetchOperand2,
+            CycleOp::ExecuteAbsoluteIndexedRead(Index::Y),
+            CycleOp::ExecuteAbsoluteIndexedReadDelayed(Index::Y),
+        ]
+        .into_iter()
+        .collect(),
+        AddressingMode::IndirectX => [
+            CycleOp::FetchOperand1,
+            CycleOp::ZeroPageIndexAddress,
+            CycleOp::FetchZeroPageIndexed1,
+            CycleOp::FetchZeroPageIndexed2,
+            CycleOp::ExecuteIndexedIndirectRead,
+        ]
+        .into_iter()
+        .collect(),
+        AddressingMode::IndirectY => [
+            CycleOp::FetchOperand1,
+            CycleOp::FetchZeroPage1,
+            CycleOp::FetchZeroPage2,
+            CycleOp::ExecuteIndirectIndexedRead,
+            CycleOp::ExecuteIndirectIndexedReadDelayed,
+        ]
+        .into_iter()
+        .collect(),
+        _ => panic!("unsupported addressing mode for a read instruction: {instruction:?}"),
+    }
+}
+
+fn get_store_cycle_ops(addressing_mode: AddressingMode) -> OpVec {
+    match addressing_mode {
+        AddressingMode::ZeroPage => [CycleOp::FetchOperand1, CycleOp::ExecuteZeroPageStore]
+            .into_iter()
+            .collect(),
+        AddressingMode::ZeroPageX => [
+            CycleOp::FetchOperand1,
+            CycleOp::ZeroPageIndexAddress,
+            CycleOp::ExecuteZeroPageIndexedStore(Index::X),
+        ]
+        .into_iter()
+        .collect(),
+        AddressingMode::ZeroPageY => [
+            CycleOp::FetchOperand1,
+            CycleOp::ZeroPageIndexAddress,
+            CycleOp::ExecuteZeroPageIndexedStore(Index::Y),
+        ]
+        .into_iter()
+        .collect(),
+        AddressingMode::Absolute => [
+            CycleOp::FetchOperand1,
+            CycleOp::FetchOperand2,
+            CycleOp::ExecuteAbsoluteStore,
+        ]
+        .into_iter()
+        .collect(),
+        AddressingMode::AbsoluteX => [
+            CycleOp::FetchOperand1,
+            CycleOp::FetchOperand2,
+            CycleOp::AbsoluteIndexedFixHighByte(Index::X),
+            CycleOp::ExecuteAbsoluteIndexedStore(Index::X),
+        ]
+        .into_iter()
+        .collect(),
+        AddressingMode::AbsoluteY => [
+            CycleOp::FetchOperand1,
+            CycleOp::FetchOperand2,
+            CycleOp::AbsoluteIndexedFixHighByte(Index::Y),
+            CycleOp::ExecuteAbsoluteIndexedStore(Index::Y),
+        ]
+        .into_iter()
+        .collect(),
+        AddressingMode::IndirectX => [
+            CycleOp::FetchOperand1,
+            CycleOp::ZeroPageIndexAddress,
+            CycleOp::FetchZeroPageIndexed1,
+            CycleOp::FetchZeroPageIndexed2,
+            CycleOp::ExecuteIndexedIndirectStore,
+        ]
+        .into_iter()
+        .collect(),
+        AddressingMode::IndirectY => [
+            CycleOp::FetchOperand1,
+            CycleOp::FetchZeroPage1,
+            CycleOp::FetchZeroPage2,
+            CycleOp::IndirectIndexedFixHighByte,
+            CycleOp::ExecuteIndirectIndexedStore,
+        ]
+        .into_iter()
+        .collect(),
+        _ => panic!("unsupported addressing mode for StoreRegister: {addressing_mode:?}"),
+    }
+}
+
+fn get_modify_cycle_ops(instruction: ModifyInstruction) -> OpVec {
+    match instruction.addressing_mode() {
+        AddressingMode::Accumulator => [CycleOp::ExecuteAccumulatorModify].into_iter().collect(),
+        AddressingMode::ZeroPage => [
+            CycleOp::FetchOperand1,
+            CycleOp::FetchZeroPage1,
+            CycleOp::ZeroPageWriteBack,
+            CycleOp::ExecuteZeroPageModify,
+        ]
+        .into_iter()
+        .collect(),
+        AddressingMode::ZeroPageX => [
+            CycleOp::FetchOperand1,
+            CycleOp::FetchZeroPage1,
+            CycleOp::FetchZeroPageIndexed1,
+            CycleOp::ZeroPageIndexedWriteBack,
+            CycleOp::ExecuteZeroPageIndexedModify,
+        ]
+        .into_iter()
+        .collect(),
+        AddressingMode::Absolute => [
+            CycleOp::FetchOperand1,
+            CycleOp::FetchOperand2,
+            CycleOp::FetchAbsolute,
+            CycleOp::AbsoluteWriteBack,
+            CycleOp::ExecuteAbsoluteModify,
+        ]
+        .into_iter()
+        .collect(),
+        AddressingMode::AbsoluteX => [
+            CycleOp::FetchOperand1,
+            CycleOp::FetchOperand2,
+            CycleOp::AbsoluteIndexedFixHighByte(Index::X),
+            CycleOp::FetchAbsoluteIndexed,
+            CycleOp::AbsoluteIndexedWriteBack,
+            CycleOp::ExecuteAbsoluteIndexedModify,
+        ]
+        .into_iter()
+        .collect(),
+        _ => {
+            panic!("unsupported addressing mode for read-modify-write instruction: {instruction:?}")
         }
     }
 }
