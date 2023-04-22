@@ -149,10 +149,24 @@ pub fn tick(state: &mut CpuState, bus: &mut Bus) {
             let instruction = Instruction::from_opcode(opcode).unwrap();
             let instruction_state = InstructionState::from_ops(instruction.get_cycle_ops());
 
+            log::trace!(
+                "FETCH: Fetched instruction {instruction:?} from PC 0x{:04X}",
+                state.registers.pc - 1
+            );
+
             State::Executing(instruction_state)
         }
         State::Executing(instruction_state) => {
             let cycle_op = instruction_state.ops[instruction_state.op_index as usize];
+
+            log::trace!("OP: Executing op {cycle_op:?}");
+            log::trace!("  Current CPU registers: {:04X?}", state.registers);
+            log::trace!("  Current instruction state: {instruction_state:02X?}");
+            log::trace!(
+                "  Bytes at PC and PC+1: 0x{:02X} 0x{:02X}",
+                bus.cpu().read_address(state.registers.pc),
+                bus.cpu().read_address(state.registers.pc + 1)
+            );
 
             let instruction_state =
                 cycle_op.execute(instruction_state, &mut state.registers, &mut bus.cpu());
