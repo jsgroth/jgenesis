@@ -25,6 +25,7 @@ pub fn run(path: &str) -> Result<(), Box<dyn Error>> {
     let mut cpu_state = CpuState::new(cpu_registers);
     let mut ppu_state = PpuState::new();
 
+    let mut count = 0;
     loop {
         cpu::tick(&mut cpu_state, &mut bus);
         ppu::tick(&mut ppu_state, &mut bus.ppu());
@@ -35,5 +36,25 @@ pub fn run(path: &str) -> Result<(), Box<dyn Error>> {
 
         ppu::tick(&mut ppu_state, &mut bus.ppu());
         bus.tick();
+
+        // TODO scaffolding for printing test ROM output, remove at some point
+        count += 1;
+        if count % 1000000 == 0
+            && [0x6001, 0x6002, 0x6003].map(|address| bus.cpu().read_address(address))
+                == [0xDE, 0xB0, 0x61]
+        {
+            let mut buf = String::new();
+            let mut address = 0x6004;
+            loop {
+                let value = bus.cpu().read_address(address);
+                if value == 0 {
+                    break;
+                }
+
+                buf.push(char::from(value));
+                address += 1;
+            }
+            log::info!("{}", buf);
+        }
     }
 }

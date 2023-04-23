@@ -291,8 +291,12 @@ impl Mapper {
                         let nametable_relative_addr = (address & 0x2FFF) - 0x2000;
 
                         match nametable_mirroring {
-                            Mmc1Mirroring::OneScreenLowerBank => todo!(),
-                            Mmc1Mirroring::OneScreenUpperBank => todo!(),
+                            Mmc1Mirroring::OneScreenLowerBank => {
+                                PpuMapResult::ChrROM(u32::from(nametable_relative_addr & 0x03FF))
+                            }
+                            Mmc1Mirroring::OneScreenUpperBank => PpuMapResult::ChrROM(
+                                0x0400 + (u32::from(nametable_relative_addr) & 0x03FF),
+                            ),
                             Mmc1Mirroring::Vertical => {
                                 PpuMapResult::ChrROM(u32::from(nametable_relative_addr) & 0x07FF)
                             }
@@ -394,7 +398,8 @@ fn from_ines_file(mut file: File) -> Result<(Cartridge, Mapper), CartridgeFileEr
 
     let cartridge = Cartridge {
         prg_rom,
-        prg_ram: Vec::new(),
+        // TODO actually figure out size
+        prg_ram: vec![0; 8192],
         chr_rom,
         chr_ram: Vec::new(),
     };

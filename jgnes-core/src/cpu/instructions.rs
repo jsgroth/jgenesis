@@ -839,6 +839,8 @@ pub enum Instruction {
     ReturnFromInterrupt,
     // RTS
     ReturnFromSubroutine,
+    // 0xC2, unofficial 2-byte NOP
+    NoOpImmediate,
 }
 
 impl Instruction {
@@ -921,6 +923,7 @@ impl Instruction {
             ]
             .into_iter()
             .collect(),
+            Self::NoOpImmediate => [CycleOp::FetchOperand1].into_iter().collect(),
             Self::Jump(addressing_mode) => {
                 panic!("invalid jump addressing mode: {addressing_mode:?}")
             }
@@ -1271,6 +1274,7 @@ impl Instruction {
                 CpuRegister::A,
                 AddressingMode::IndirectX,
             ))),
+            0xC2 => Some(Self::NoOpImmediate),
             0xC4 => Some(Self::Read(ReadInstruction::Compare(
                 CpuRegister::Y,
                 AddressingMode::ZeroPage,

@@ -159,7 +159,10 @@ pub fn tick(state: &mut CpuState, bus: &mut Bus) {
             let opcode = bus.cpu().read_address(state.registers.pc);
             state.registers.pc += 1;
 
-            let instruction = Instruction::from_opcode(opcode).unwrap();
+            let Some(instruction) = Instruction::from_opcode(opcode)
+            else {
+                panic!("Unsupported opcode: {opcode:02X}");
+            };
             let instruction_state = InstructionState::from_ops(instruction.get_cycle_ops());
 
             log::trace!(
