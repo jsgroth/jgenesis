@@ -1617,10 +1617,8 @@ fn add(accumulator: u8, value: u8, flags: &mut StatusFlags) -> u8 {
         (sum, false) => sum.overflowing_add(u8::from(existing_carry)),
     };
 
-    let (_, overflow) = match (accumulator as i8).overflowing_add(value as i8) {
-        (sum, true) => (sum, true),
-        (sum, false) => sum.overflowing_add(i8::from(existing_carry)),
-    };
+    let bit_6_carry = (accumulator & 0x7F) + (value & 0x7F) + u8::from(existing_carry) >= 0x80;
+    let overflow = new_carry ^ bit_6_carry;
 
     flags
         .set_negative(result & 0x80 != 0)
@@ -1633,17 +1631,15 @@ fn add(accumulator: u8, value: u8, flags: &mut StatusFlags) -> u8 {
 
 fn subtract(accumulator: u8, value: u8, flags: &mut StatusFlags) -> u8 {
     // Carry flag is inverted in subtraction
-    let existing_carry = u8::from(!flags.carry);
+    let existing_borrow = u8::from(!flags.carry);
 
     let (result, borrowed) = match accumulator.overflowing_sub(value) {
-        (difference, true) => (difference - existing_carry, true),
-        (difference, false) => difference.overflowing_sub(existing_carry),
+        (difference, true) => (difference - existing_borrow, true),
+        (difference, false) => difference.overflowing_sub(existing_borrow),
     };
 
-    let (_, overflow) = match (accumulator as i8).overflowing_sub(value as i8) {
-        (difference, true) => (difference, true),
-        (difference, false) => difference.overflowing_sub(existing_carry as i8),
-    };
+    let bit_6_borrowed = accumulator & 0x7F < (value & 0x7F) + existing_borrow;
+    let overflow = borrowed ^ bit_6_borrowed;
 
     flags
         .set_negative(result & 0x80 != 0)
