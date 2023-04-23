@@ -273,7 +273,7 @@ impl PpuRegisters {
 
     fn tick(&mut self, interrupt_lines: &mut InterruptLines) {
         if self.ppu_status_read {
-            self.ppu_status_read = true;
+            self.ppu_status_read = false;
 
             self.set_vblank_flag(false);
             self.ppu_scroll_latch = PpuRegisterLatch::Clear;

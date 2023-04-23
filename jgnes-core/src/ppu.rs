@@ -49,12 +49,14 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
         241 => {
             // First VBlank scanline
             if state.dot == 1 {
+                log::trace!("PPU: Setting VBlank flag");
                 bus.get_ppu_registers_mut().set_vblank_flag(true);
             }
         }
         261 => {
             // Pre-render scanline
             if state.dot == 1 {
+                log::trace!("PPU: Clearing flags in pre-render scanline");
                 let ppu_registers = bus.get_ppu_registers_mut();
                 ppu_registers.set_vblank_flag(false);
                 ppu_registers.set_sprite_0_hit(false);
@@ -76,6 +78,8 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
 }
 
 fn render_scanline(scanline: u16, state: &mut PpuState, bus: &mut PpuBus<'_>) {
+    log::trace!("PPU: Rendering scanline {scanline}");
+
     let scanline = scanline as u8;
 
     let ppu_registers = bus.get_ppu_registers();
