@@ -91,7 +91,7 @@ fn run_test(program: &str, expected_state: ExpectedState) {
     let mapper = Mapper::Mmc1 {
         prg_rom_size,
         prg_ram_size: 8192,
-        chr_rom_size: 8192,
+        has_chr_ram: false,
         shift_register: 0,
         shift_register_len: 0,
         written_this_cycle: false,
