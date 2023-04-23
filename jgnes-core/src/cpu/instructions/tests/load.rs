@@ -414,3 +414,87 @@ fn sta_absolute() {
         },
     );
 }
+
+#[test]
+fn sta_absolute_x() {
+    run_test(
+        // STA $6578,X
+        "9D7865",
+        ExpectedState {
+            a: Some(0x00),
+            x: Some(0x00),
+            p: Some(0x34),
+            memory: hash_map! { 0x6578: 0x00 },
+            cycles: Some(5),
+            ..ExpectedState::default()
+        },
+    );
+
+    run_test(
+        // LDA #$85; LDX #$34; STA $6578,X
+        "A985A2349D7865",
+        ExpectedState {
+            a: Some(0x85),
+            x: Some(0x34),
+            p: Some(0x34),
+            memory: hash_map! { 0x6578: 0x00, 0x65AC: 0x85 },
+            cycles: Some(11),
+            ..ExpectedState::default()
+        },
+    );
+
+    run_test(
+        // LDA #$85; LDX #$34; STA $65F0,X
+        "A985A2349DF065",
+        ExpectedState {
+            a: Some(0x85),
+            x: Some(0x34),
+            p: Some(0x34),
+            memory: hash_map! { 0x65F0: 0x00, 0x6624: 0x85 },
+            cycles: Some(11),
+            ..ExpectedState::default()
+        },
+    );
+}
+
+#[test]
+fn sta_absolute_y() {
+    run_test(
+        // STA $6578,Y
+        "997865",
+        ExpectedState {
+            a: Some(0x00),
+            y: Some(0x00),
+            p: Some(0x34),
+            memory: hash_map! { 0x6578: 0x00 },
+            cycles: Some(5),
+            ..ExpectedState::default()
+        },
+    );
+
+    run_test(
+        // LDA #$85; LDY #$34; STA $6578,Y
+        "A985A034997865",
+        ExpectedState {
+            a: Some(0x85),
+            y: Some(0x34),
+            p: Some(0x34),
+            memory: hash_map! { 0x6578: 0x00, 0x65AC: 0x85 },
+            cycles: Some(11),
+            ..ExpectedState::default()
+        },
+    );
+
+    run_test(
+        // LDA #$85; LDY #$34; STA $65F0,Y
+        "A985A03499F065",
+        ExpectedState {
+            a: Some(0x85),
+            y: Some(0x34),
+            p: Some(0x34),
+            memory: hash_map! { 0x65F0: 0x00, 0x6624: 0x85 },
+            cycles: Some(11),
+            ..ExpectedState::default()
+        },
+    );
+}
