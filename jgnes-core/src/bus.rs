@@ -1,6 +1,7 @@
 pub mod cartridge;
 
 use crate::bus::cartridge::{CpuMapResult, CpuWriteMapResult, Mapper, PpuMapResult};
+use crate::input::{JoypadState, LatchedJoypadState};
 use cartridge::Cartridge;
 use std::cmp::Ordering;
 use tinyvec::ArrayVec;
@@ -379,6 +380,8 @@ impl IoRegister {
 pub struct IoRegisters {
     data: [u8; 0x18],
     dma_dirty: bool,
+    joypad_state: JoypadState,
+    latched_joypad_state: Option<LatchedJoypadState>,
 }
 
 impl IoRegisters {
@@ -386,21 +389,29 @@ impl IoRegisters {
         Self {
             data: [0; 0x18],
             dma_dirty: false,
+            joypad_state: JoypadState::new(),
+            latched_joypad_state: None,
         }
     }
 
-    fn read_address(&self, address: u16) -> u8 {
+    fn read_address(&mut self, address: u16) -> u8 {
         let relative_addr = address - CPU_IO_REGISTERS_START;
         let Some(register) = IoRegister::from_relative_address(relative_addr) else { return 0xFF };
 
         self.read_register(register)
     }
 
-    fn read_register(&self, register: IoRegister) -> u8 {
+    fn read_register(&mut self, register: IoRegister) -> u8 {
         match register {
-            IoRegister::SND_CHN | IoRegister::JOY1 | IoRegister::JOY2 => {
-                self.data[register.to_relative_address()]
+            IoRegister::JOY1 => {
+                if let Some(latched_joypad_state) = self.latched_joypad_state {
+                    self.latched_joypad_state = Some(latched_joypad_state.shift());
+                    latched_joypad_state.next_bit()
+                } else {
+                    u8::from(self.joypad_state.a)
+                }
             }
+            IoRegister::SND_CHN | IoRegister::JOY2 => self.data[register.to_relative_address()],
             _ => 0xFF,
         }
     }
@@ -415,8 +426,18 @@ impl IoRegisters {
     fn write_register(&mut self, register: IoRegister, value: u8) {
         self.data[register.to_relative_address()] = value;
 
-        if register == IoRegister::OAMDMA {
-            self.dma_dirty = true;
+        match register {
+            IoRegister::JOY1 => {
+                if value & 0x01 != 0 {
+                    self.latched_joypad_state = None;
+                } else if self.latched_joypad_state.is_none() {
+                    self.latched_joypad_state = Some(self.joypad_state.latch());
+                }
+            }
+            IoRegister::OAMDMA => {
+                self.dma_dirty = true;
+            }
+            _ => {}
         }
     }
 }
@@ -546,6 +567,10 @@ impl Bus {
     // TODO this is bad, clean up
     pub fn read_oamdma_register(&self) -> u8 {
         self.io_registers.data[IoRegister::OAMDMA.to_relative_address()]
+    }
+
+    pub fn update_joypad_state(&mut self, joypad_state: JoypadState) {
+        self.io_registers.joypad_state = joypad_state;
     }
 
     pub fn tick(&mut self) {
@@ -750,7 +775,7 @@ impl<'a> CpuBus<'a> {
         self.0.io_registers.dma_dirty = false;
     }
 
-    pub fn read_io_register(&self, io_register: IoRegister) -> u8 {
+    pub fn read_io_register(&mut self, io_register: IoRegister) -> u8 {
         self.0.io_registers.read_register(io_register)
     }
 }

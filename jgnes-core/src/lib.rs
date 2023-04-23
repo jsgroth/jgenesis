@@ -5,8 +5,10 @@
 
 use crate::bus::{cartridge, Bus};
 use crate::cpu::{CpuRegisters, CpuState};
+use crate::input::JoypadState;
 use crate::ppu::PpuState;
 use sdl2::event::Event;
+use sdl2::keyboard::Keycode;
 use sdl2::pixels::{Color, PixelFormatEnum};
 use std::error::Error;
 use std::ffi::OsStr;
@@ -14,6 +16,7 @@ use std::path::Path;
 
 mod bus;
 mod cpu;
+mod input;
 mod ppu;
 
 // TODO do colors properly
@@ -57,6 +60,7 @@ pub fn run(path: &str) -> Result<(), Box<dyn Error>> {
 
     let mut cpu_state = CpuState::new(cpu_registers);
     let mut ppu_state = PpuState::new();
+    let mut joypad_state = JoypadState::new();
 
     let mut count = 0;
     loop {
@@ -90,10 +94,31 @@ pub fn run(path: &str) -> Result<(), Box<dyn Error>> {
             canvas.present();
 
             for event in event_pump.poll_iter() {
-                if let Event::Quit { .. } = event {
-                    return Ok(());
+                match event {
+                    Event::Quit { .. }
+                    | Event::KeyDown {
+                        keycode: Some(Keycode::Escape),
+                        ..
+                    } => {
+                        return Ok(());
+                    }
+                    Event::KeyDown {
+                        keycode: Some(keycode),
+                        ..
+                    } => {
+                        joypad_state.key_down(keycode);
+                    }
+                    Event::KeyUp {
+                        keycode: Some(keycode),
+                        ..
+                    } => {
+                        joypad_state.key_up(keycode);
+                    }
+                    _ => {}
                 }
             }
+
+            bus.update_joypad_state(joypad_state);
         }
 
         // TODO scaffolding for printing test ROM output, remove at some point
