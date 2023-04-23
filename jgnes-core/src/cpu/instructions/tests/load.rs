@@ -124,7 +124,7 @@ fn tax() {
 
     run_test(
         // LDA #$45; TAX
-        "A945AA",
+        concat!("A945", "AA"),
         ExpectedState {
             a: Some(0x45),
             x: Some(0x45),
@@ -136,7 +136,7 @@ fn tax() {
 
     run_test(
         // LDA #$CD; TAX
-        "A9CDAA",
+        concat!("A9CD", "AA"),
         ExpectedState {
             a: Some(0xCD),
             x: Some(0xCD),
@@ -163,7 +163,7 @@ fn tay() {
 
     run_test(
         // LDA #$45; TAY
-        "A945A8",
+        concat!("A945", "A8"),
         ExpectedState {
             a: Some(0x45),
             y: Some(0x45),
@@ -175,7 +175,7 @@ fn tay() {
 
     run_test(
         // LDA #$CD; TAY
-        "A9CDA8",
+        concat!("A9CD", "A8"),
         ExpectedState {
             a: Some(0xCD),
             y: Some(0xCD),
@@ -202,7 +202,7 @@ fn txs() {
 
     run_test(
         // LDX #$FF; LDA #$01; TXS
-        "A2FFA9019A",
+        concat!("A2FF", "A901", "9A"),
         ExpectedState {
             a: Some(0x01),
             x: Some(0xFF),
@@ -230,7 +230,7 @@ fn tsx() {
 
     run_test(
         // TXS; TSX; LDX #$FF; TSX
-        "9ABAA2FFBA",
+        concat!("9A", "BA", "A2FF", "BA"),
         ExpectedState {
             x: Some(0x00),
             s: Some(0x00),
@@ -257,7 +257,7 @@ fn txa() {
 
     run_test(
         // LDX #$45; LDA #$00; TXA
-        "A245A9008A",
+        concat!("A245", "A900", "8A"),
         ExpectedState {
             a: Some(0x45),
             x: Some(0x45),
@@ -269,7 +269,7 @@ fn txa() {
 
     run_test(
         // LDX #$EE; LDA #$00; TXA
-        "A2EEA9008A",
+        concat!("A2EE", "A900", "8A"),
         ExpectedState {
             a: Some(0xEE),
             x: Some(0xEE),
@@ -296,7 +296,7 @@ fn tya() {
 
     run_test(
         // LDY #$45; LDA #$00; TYA
-        "A045A90098",
+        concat!("A045", "A900", "98"),
         ExpectedState {
             a: Some(0x45),
             y: Some(0x45),
@@ -308,7 +308,7 @@ fn tya() {
 
     run_test(
         // LDY #$EE; LDA #$00; TYA
-        "A0EEA90098",
+        concat!("A0EE", "A900", "98"),
         ExpectedState {
             a: Some(0xEE),
             y: Some(0xEE),
@@ -335,7 +335,7 @@ fn sta_zero_page() {
 
     run_test(
         // LDA #$BA; STA $45
-        "A9BA8545",
+        concat!("A9BA", "8545"),
         ExpectedState {
             a: Some(0xBA),
             p: Some(0xB4),
@@ -363,7 +363,7 @@ fn sta_zero_page_indexed() {
 
     run_test(
         // LDA #$78; LDX #$05; STA $45,X
-        "A978A2059545",
+        concat!("A978", "A205", "9545"),
         ExpectedState {
             a: Some(0x78),
             x: Some(0x05),
@@ -376,7 +376,7 @@ fn sta_zero_page_indexed() {
 
     run_test(
         // LDA #$78; LDX #$10; STA $F5,X
-        "A978A21095F5",
+        concat!("A978", "A210", "95F5"),
         ExpectedState {
             a: Some(0x78),
             x: Some(0x10),
@@ -404,7 +404,7 @@ fn sta_absolute() {
 
     run_test(
         // LDA #$85; STA 6578
-        "A9858D7865",
+        concat!("A985", "8D7865"),
         ExpectedState {
             a: Some(0x85),
             p: Some(0xB4),
@@ -432,7 +432,7 @@ fn sta_absolute_x() {
 
     run_test(
         // LDA #$85; LDX #$34; STA $6578,X
-        "A985A2349D7865",
+        concat!("A985", "A234", "9D7865"),
         ExpectedState {
             a: Some(0x85),
             x: Some(0x34),
@@ -445,7 +445,7 @@ fn sta_absolute_x() {
 
     run_test(
         // LDA #$85; LDX #$34; STA $65F0,X
-        "A985A2349DF065",
+        concat!("A985", "A234", "9DF065"),
         ExpectedState {
             a: Some(0x85),
             x: Some(0x34),
@@ -474,7 +474,7 @@ fn sta_absolute_y() {
 
     run_test(
         // LDA #$85; LDY #$34; STA $6578,Y
-        "A985A034997865",
+        concat!("A985", "A034", "997865"),
         ExpectedState {
             a: Some(0x85),
             y: Some(0x34),
@@ -487,7 +487,7 @@ fn sta_absolute_y() {
 
     run_test(
         // LDA #$85; LDY #$34; STA $65F0,Y
-        "A985A03499F065",
+        concat!("A985", "A034", "99F065"),
         ExpectedState {
             a: Some(0x85),
             y: Some(0x34),
