@@ -257,15 +257,16 @@ fn first_opaque_sprite_pixel(
         }
 
         let tile_index = u16::from(sprite.tile_index);
+        let flip_y = sprite.attributes & 0x80 != 0;
+
         let pattern_table_address = if double_height_sprites {
+            let should_use_bottom_tile = flip_y ^ (scanline - sprite.y_pos >= 8);
             0x1000 * (tile_index & 0x01)
-                + 16 * ((tile_index & 0xFE) + u16::from(scanline - sprite.y_pos >= 8))
+                + 16 * ((tile_index & 0xFE) + u16::from(should_use_bottom_tile))
         } else {
             sprite_pattern_table_address + 16 * tile_index
         };
 
-        // TODO make flip y work with double-height sprites
-        let flip_y = sprite.attributes & 0x80 != 0;
         let flip_x = sprite.attributes & 0x40 != 0;
 
         let fine_y = if flip_y {
