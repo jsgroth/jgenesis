@@ -82,6 +82,12 @@ pub(crate) enum Mapper {
         chr_bank_1: u8,
         prg_bank: u8,
     },
+    Uxrom {
+        prg_rom_size: u32,
+        prg_bank: u8,
+        has_chr_ram: bool,
+        nametable_mirroring: NromMirroring,
+    },
 }
 
 impl Mapper {
@@ -139,6 +145,22 @@ impl Mapper {
                         }
                     },
                 },
+            },
+            Self::Uxrom {
+                prg_rom_size,
+                prg_bank,
+                ..
+            } => match address {
+                0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
+                0x4020..=0x7FFF => CpuMapResult::None,
+                0x8000..=0xBFFF => {
+                    let bank_address = (u32::from(prg_bank) * 16 * 1024) & (prg_rom_size - 1);
+                    CpuMapResult::PrgROM(bank_address + u32::from(address - 0x8000))
+                }
+                0xC000..=0xFFFF => {
+                    let last_bank_address = prg_rom_size - 16 * 1024;
+                    CpuMapResult::PrgROM(last_bank_address + u32::from(address - 0xC000))
+                }
             },
         }
     }
@@ -244,6 +266,13 @@ impl Mapper {
                     }
                 }
             }
+            Self::Uxrom { prg_bank, .. } => match address {
+                0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
+                0x4020..=0x7FFF => {}
+                0x8000..=0xFFFF => {
+                    *prg_bank = value;
+                }
+            },
         }
 
         CpuWriteMapResult::None
@@ -330,18 +359,43 @@ impl Mapper {
                     0x3F00..=0xFFFF => panic!("invalid PPU map address: 0x{address:04X}"),
                 }
             }
+            Self::Uxrom {
+                nametable_mirroring,
+                has_chr_ram,
+                ..
+            } => match address {
+                address @ bus::PPU_PATTERN_TABLES_START..=bus::PPU_PATTERN_TABLES_END => {
+                    if has_chr_ram {
+                        PpuMapResult::ChrRAM(address.into())
+                    } else {
+                        PpuMapResult::ChrROM(address.into())
+                    }
+                }
+                address @ bus::PPU_NAMETABLES_START..=bus::PPU_NAMETABLES_END => {
+                    let relative_addr = (address - bus::PPU_NAMETABLES_START) & 0x0FFF;
+                    let vram_addr = match nametable_mirroring {
+                        NromMirroring::Horizontal => {
+                            // Swap bits 10 and 11, and then discard the new bit 11
+                            ((relative_addr & 0x0800) >> 1) | (relative_addr & 0x03FF)
+                        }
+                        NromMirroring::Vertical => relative_addr & 0x07FF,
+                    };
+                    PpuMapResult::Vram(vram_addr)
+                }
+                _ => panic!("invalid PPU map address: 0x{address:04X}"),
+            },
         }
     }
 
     pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8) {
         match self {
-            Self::Nrom { .. } | Self::Mmc1 { .. } => {}
+            Self::Nrom { .. } | Self::Mmc1 { .. } | Self::Uxrom { .. } => {}
         }
     }
 
     pub(crate) fn tick(&mut self) {
         match self {
-            Self::Nrom { .. } => {}
+            Self::Nrom { .. } | Self::Uxrom { .. } => {}
             Self::Mmc1 {
                 written_last_cycle,
                 written_this_cycle,
@@ -424,13 +478,14 @@ fn from_ines_file(mut file: File) -> Result<(Cartridge, Mapper), CartridgeFileEr
         chr_ram: vec![0; 8192],
     };
 
+    let nametable_mirroring = if header[6] & 0x01 != 0 {
+        NromMirroring::Vertical
+    } else {
+        NromMirroring::Horizontal
+    };
+
     let mapper = match mapper_number {
         0 => {
-            let nametable_mirroring = if header[6] & 0x01 != 0 {
-                NromMirroring::Vertical
-            } else {
-                NromMirroring::Horizontal
-            };
             log::info!("NROM mapper using mirroring {nametable_mirroring:?}");
             Mapper::Nrom {
                 prg_rom_size: prg_rom_size as u16,
@@ -451,6 +506,12 @@ fn from_ines_file(mut file: File) -> Result<(Cartridge, Mapper), CartridgeFileEr
             chr_bank_0: 0,
             chr_bank_1: 0,
             prg_bank: 0,
+        },
+        2 => Mapper::Uxrom {
+            prg_rom_size,
+            prg_bank: 0,
+            has_chr_ram: chr_rom_size == 0,
+            nametable_mirroring,
         },
         _ => {
             return Err(CartridgeFileError::UnsupportedMapper { mapper_number });
