@@ -66,6 +66,7 @@ pub(crate) enum Mapper {
         prg_ram_size: u16,
         chr_rom_size: u32,
         shift_register: u8,
+        shift_register_len: u8,
         written_this_cycle: bool,
         written_last_cycle: bool,
         nametable_mirroring: Mmc1Mirroring,
@@ -141,14 +142,81 @@ impl Mapper {
             Self::Nrom { .. } => {}
             Self::Mmc1 {
                 shift_register,
+                shift_register_len,
+                written_last_cycle,
                 written_this_cycle,
                 nametable_mirroring,
                 prg_banking_mode,
                 chr_banking_mode,
+                chr_bank_0,
+                chr_bank_1,
+                prg_bank,
                 ..
-            } => {
-                todo!()
-            }
+            } => match address {
+                0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
+                0x4020..=0x7FFF => {}
+                0x8000..=0xFFFF => {
+                    if value & 0x80 != 0 {
+                        *shift_register = 0;
+                        *shift_register_len = 0;
+                        *prg_banking_mode = Mmc1PrgBankingMode::Switch16KbLastBankFixed;
+                        return;
+                    }
+
+                    if *written_last_cycle {
+                        return;
+                    }
+
+                    *written_this_cycle = true;
+
+                    *shift_register = (*shift_register << 1) | (value & 0x01);
+                    *shift_register_len += 1;
+
+                    if *shift_register_len == 5 {
+                        match address {
+                            0x0000..=0x7FFF => panic!("match arm should be unreachable"),
+                            0x8000..=0x9FFF => {
+                                *nametable_mirroring = match *shift_register & 0x03 {
+                                    0x00 => Mmc1Mirroring::OneScreenLowerBank,
+                                    0x01 => Mmc1Mirroring::OneScreenUpperBank,
+                                    0x02 => Mmc1Mirroring::Vertical,
+                                    0x03 => Mmc1Mirroring::Horizontal,
+                                    _ => panic!(
+                                        "{shift_register} & 0x03 was not 0x00/0x01/0x02/0x03"
+                                    ),
+                                };
+
+                                *prg_banking_mode = match *shift_register & 0x0C {
+                                    0x00 | 0x04 => Mmc1PrgBankingMode::Switch32Kb,
+                                    0x08 => Mmc1PrgBankingMode::Switch16KbFirstBankFixed,
+                                    0x0C => Mmc1PrgBankingMode::Switch16KbLastBankFixed,
+                                    _ => panic!(
+                                        "{shift_register} & 0x0C was not 0x00/0x04/0x08/0x0C"
+                                    ),
+                                };
+
+                                *chr_banking_mode = if *shift_register & 0x01 != 0 {
+                                    Mmc1ChrBankingMode::Two4KbBanks
+                                } else {
+                                    Mmc1ChrBankingMode::Single8KbBank
+                                };
+                            }
+                            0xA000..=0xBFFF => {
+                                *chr_bank_0 = *shift_register;
+                            }
+                            0xC000..=0xDFFF => {
+                                *chr_bank_1 = *shift_register;
+                            }
+                            0xE000..=0xFFFF => {
+                                *prg_bank = *shift_register;
+                            }
+                        }
+
+                        *shift_register = 0;
+                        *shift_register_len = 0;
+                    }
+                }
+            },
         }
     }
 
@@ -172,16 +240,57 @@ impl Mapper {
                     };
                     PpuMapResult::Vram(vram_addr)
                 }
-                _ => panic!("invalid PPU map address: {address:04X}"),
+                _ => panic!("invalid PPU map address: 0x{address:04X}"),
             },
             Self::Mmc1 {
                 chr_rom_size,
+                nametable_mirroring,
                 chr_banking_mode,
                 chr_bank_0,
                 chr_bank_1,
                 ..
             } => {
-                todo!()
+                if chr_rom_size == 0 {
+                    // ???
+                    return PpuMapResult::None;
+                }
+
+                match address {
+                    0x0000..=0x1FFF => match chr_banking_mode {
+                        Mmc1ChrBankingMode::Two4KbBanks => {
+                            let (bank_number, relative_addr) = if address < 0x1000 {
+                                (chr_bank_0, address)
+                            } else {
+                                (chr_bank_1, address - 0x1000)
+                            };
+                            let bank_address = u32::from(bank_number) * 4 * 1024;
+                            PpuMapResult::ChrROM(bank_address + u32::from(relative_addr))
+                        }
+                        Mmc1ChrBankingMode::Single8KbBank => {
+                            let chr_bank = chr_bank_0 & 0x1E;
+                            let bank_address = u32::from(chr_bank) * 8 * 1024;
+                            PpuMapResult::ChrROM(bank_address + u32::from(address))
+                        }
+                    },
+                    0x2000..=0x3EFF => {
+                        let nametable_relative_addr = (address & 0x2FFF) - 0x2000;
+
+                        match nametable_mirroring {
+                            Mmc1Mirroring::OneScreenLowerBank => todo!(),
+                            Mmc1Mirroring::OneScreenUpperBank => todo!(),
+                            Mmc1Mirroring::Vertical => {
+                                PpuMapResult::ChrROM(u32::from(nametable_relative_addr) & 0x07FF)
+                            }
+                            Mmc1Mirroring::Horizontal => {
+                                // Swap bits 10 and 11, and then discard the new bit 11
+                                let rom_address = (nametable_relative_addr & 0x0800 >> 1)
+                                    | (nametable_relative_addr & 0x03FF);
+                                PpuMapResult::ChrROM(u32::from(rom_address))
+                            }
+                        }
+                    }
+                    0x3F00..=0xFFFF => panic!("invalid PPU map address: 0x{address:04X}"),
+                }
             }
         }
     }
@@ -189,6 +298,20 @@ impl Mapper {
     pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8) {
         match self {
             Self::Nrom { .. } | Self::Mmc1 { .. } => {}
+        }
+    }
+
+    pub(crate) fn tick(&mut self) {
+        match self {
+            Self::Nrom { .. } => {}
+            Self::Mmc1 {
+                written_last_cycle,
+                written_this_cycle,
+                ..
+            } => {
+                *written_last_cycle = *written_this_cycle;
+                *written_this_cycle = false;
+            }
         }
     }
 }
@@ -241,10 +364,6 @@ fn from_ines_file(mut file: File) -> Result<(Cartridge, Mapper), CartridgeFileEr
 
     let mapper_number = (header[7] & 0xF0) | ((header[6] & 0xF0) >> 4);
 
-    if mapper_number != 0 {
-        return Err(CartridgeFileError::UnsupportedMapper { mapper_number });
-    }
-
     let prg_rom_start_address = if has_trainer { 16 + 512 } else { 16 };
 
     let mut prg_rom = vec![0; prg_rom_size as usize];
@@ -265,15 +384,36 @@ fn from_ines_file(mut file: File) -> Result<(Cartridge, Mapper), CartridgeFileEr
         chr_ram: Vec::new(),
     };
 
-    let nametable_mirroring = if header[6] & 0x01 != 0 {
-        NromMirroring::Vertical
-    } else {
-        NromMirroring::Horizontal
-    };
-
-    let mapper = Mapper::Nrom {
-        prg_rom_size: prg_rom_size as u16,
-        nametable_mirroring,
+    let mapper = match mapper_number {
+        0 => {
+            let nametable_mirroring = if header[6] & 0x01 != 0 {
+                NromMirroring::Vertical
+            } else {
+                NromMirroring::Horizontal
+            };
+            Mapper::Nrom {
+                prg_rom_size: prg_rom_size as u16,
+                nametable_mirroring,
+            }
+        }
+        1 => Mapper::Mmc1 {
+            prg_rom_size,
+            prg_ram_size: 8192,
+            chr_rom_size,
+            shift_register: 0,
+            shift_register_len: 0,
+            written_this_cycle: false,
+            written_last_cycle: false,
+            nametable_mirroring: Mmc1Mirroring::Vertical,
+            prg_banking_mode: Mmc1PrgBankingMode::Switch16KbLastBankFixed,
+            chr_banking_mode: Mmc1ChrBankingMode::Two4KbBanks,
+            chr_bank_0: 0,
+            chr_bank_1: 0,
+            prg_bank: 0,
+        },
+        _ => {
+            return Err(CartridgeFileError::UnsupportedMapper { mapper_number });
+        }
     };
 
     Ok((cartridge, mapper))

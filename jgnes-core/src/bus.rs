@@ -556,6 +556,8 @@ impl Bus {
 
         self.ppu_registers.tick(&mut self.interrupt_lines);
         self.interrupt_lines.tick();
+
+        self.mapper.tick();
     }
 }
 
