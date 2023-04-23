@@ -1,8 +1,5 @@
 mod load;
 
-use crate::bus::cartridge::{
-    Cartridge, Mapper, Mmc1ChrBankingMode, Mmc1Mirroring, Mmc1PrgBankingMode,
-};
 use crate::bus::Bus;
 use crate::cpu;
 use crate::cpu::{CpuRegisters, CpuState, StatusReadContext};
@@ -81,30 +78,9 @@ fn run_test(program: &str, expected_state: ExpectedState) {
 
     let prg_rom_size = prg_rom.len() as u32;
 
-    let cartridge = Cartridge {
-        prg_rom,
-        prg_ram: vec![0; 8192],
-        chr_rom: vec![0; 8192],
-        chr_ram: Vec::new(),
-    };
+    let mapper = Mapper::new_mmc1(prg_rom);
 
-    let mapper = Mapper::Mmc1 {
-        prg_rom_size,
-        prg_ram_size: 8192,
-        has_chr_ram: false,
-        shift_register: 0,
-        shift_register_len: 0,
-        written_this_cycle: false,
-        written_last_cycle: false,
-        nametable_mirroring: Mmc1Mirroring::Vertical,
-        prg_banking_mode: Mmc1PrgBankingMode::Switch16KbLastBankFixed,
-        chr_banking_mode: Mmc1ChrBankingMode::Two4KbBanks,
-        chr_bank_0: 0,
-        chr_bank_1: 0,
-        prg_bank: 0,
-    };
-
-    let mut bus = Bus::from_cartridge(cartridge, mapper);
+    let mut bus = Bus::from_cartridge(mapper);
 
     let mut cpu_state = CpuState::new(CpuRegisters::create(&mut bus.cpu()));
 
@@ -134,4 +110,5 @@ macro_rules! hash_map {
     }
 }
 
+use crate::bus::cartridge::Mapper;
 use hash_map;

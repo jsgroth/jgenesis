@@ -5,11 +5,28 @@ use std::path::Path;
 use thiserror::Error;
 
 #[derive(Debug, Clone)]
-struct Cartridge {
+pub(crate) struct Cartridge {
     prg_rom: Vec<u8>,
     prg_ram: Vec<u8>,
     chr_rom: Vec<u8>,
     chr_ram: Vec<u8>,
+}
+
+impl Cartridge {
+    #[cfg(test)]
+    pub(crate) fn new(
+        prg_rom: Vec<u8>,
+        prg_ram: Vec<u8>,
+        chr_rom: Vec<u8>,
+        chr_ram: Vec<u8>,
+    ) -> Self {
+        Self {
+            prg_rom,
+            prg_ram,
+            chr_rom,
+            chr_ram,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -464,6 +481,31 @@ impl Mapper {
                 mmc1.tick();
             }
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_mmc1(prg_rom: Vec<u8>) -> Self {
+        Self::Mmc1(MapperImpl {
+            cartridge: Cartridge {
+                prg_rom,
+                prg_ram: vec![0; 8192],
+                chr_rom: vec![0; 8192],
+                chr_ram: Vec::new(),
+            },
+            data: Mmc1 {
+                chr_type: ChrType::ROM,
+                shift_register: 0,
+                shift_register_len: 0,
+                written_this_cycle: false,
+                written_last_cycle: false,
+                nametable_mirroring: Mmc1Mirroring::Vertical,
+                prg_banking_mode: Mmc1PrgBankingMode::Switch16KbLastBankFixed,
+                chr_banking_mode: Mmc1ChrBankingMode::Single8KbBank,
+                chr_bank_0: 0,
+                chr_bank_1: 0,
+                prg_bank: 0,
+            },
+        })
     }
 }
 
