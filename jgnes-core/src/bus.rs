@@ -202,13 +202,7 @@ impl PpuRegisters {
     }
 
     pub fn base_nametable_address(&self) -> u16 {
-        match self.ppu_ctrl & 0x03 {
-            0x00 => 0x2000,
-            0x01 => 0x2400,
-            0x02 => 0x2800,
-            0x03 => 0x2C00,
-            _ => panic!("{} & 0x03 was not 0x00/0x01/0x02/0x03", self.ppu_ctrl),
-        }
+        0x2000 + (0x0400 * u16::from(self.ppu_ctrl & 0x03))
     }
 
     pub fn emphasize_blue(&self) -> bool {
