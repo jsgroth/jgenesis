@@ -70,7 +70,7 @@ pub(crate) enum Mapper {
     Mmc1 {
         prg_rom_size: u32,
         prg_ram_size: u16,
-        chr_rom_size: u32,
+        has_chr_ram: bool,
         shift_register: u8,
         shift_register_len: u8,
         written_this_cycle: bool,
@@ -160,76 +160,90 @@ impl Mapper {
                 chr_bank_1,
                 prg_bank,
                 ..
-            } => match address {
-                0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
-                0x4020..=0x5FFF => {}
-                0x6000..=0x7FFF => {
-                    if *prg_ram_size > 0 {
-                        return CpuWriteMapResult::PrgRAM(u32::from(address) - 0x6000);
+            } => {
+                match address {
+                    0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
+                    0x4020..=0x5FFF => {}
+                    0x6000..=0x7FFF => {
+                        if *prg_ram_size > 0 {
+                            return CpuWriteMapResult::PrgRAM(u32::from(address) - 0x6000);
+                        }
                     }
-                }
-                0x8000..=0xFFFF => {
-                    if value & 0x80 != 0 {
-                        *shift_register = 0;
-                        *shift_register_len = 0;
-                        *prg_banking_mode = Mmc1PrgBankingMode::Switch16KbLastBankFixed;
-                        return CpuWriteMapResult::None;
-                    }
+                    0x8000..=0xFFFF => {
+                        if value & 0x80 != 0 {
+                            log::trace!("MMC1: Reset shift register");
 
-                    if *written_last_cycle {
-                        return CpuWriteMapResult::None;
-                    }
-
-                    *written_this_cycle = true;
-
-                    *shift_register = (*shift_register << 1) | (value & 0x01);
-                    *shift_register_len += 1;
-
-                    if *shift_register_len == 5 {
-                        match address {
-                            0x0000..=0x7FFF => panic!("match arm should be unreachable"),
-                            0x8000..=0x9FFF => {
-                                *nametable_mirroring = match *shift_register & 0x03 {
-                                    0x00 => Mmc1Mirroring::OneScreenLowerBank,
-                                    0x01 => Mmc1Mirroring::OneScreenUpperBank,
-                                    0x02 => Mmc1Mirroring::Vertical,
-                                    0x03 => Mmc1Mirroring::Horizontal,
-                                    _ => panic!(
-                                        "{shift_register} & 0x03 was not 0x00/0x01/0x02/0x03"
-                                    ),
-                                };
-
-                                *prg_banking_mode = match *shift_register & 0x0C {
-                                    0x00 | 0x04 => Mmc1PrgBankingMode::Switch32Kb,
-                                    0x08 => Mmc1PrgBankingMode::Switch16KbFirstBankFixed,
-                                    0x0C => Mmc1PrgBankingMode::Switch16KbLastBankFixed,
-                                    _ => panic!(
-                                        "{shift_register} & 0x0C was not 0x00/0x04/0x08/0x0C"
-                                    ),
-                                };
-
-                                *chr_banking_mode = if *shift_register & 0x01 != 0 {
-                                    Mmc1ChrBankingMode::Two4KbBanks
-                                } else {
-                                    Mmc1ChrBankingMode::Single8KbBank
-                                };
-                            }
-                            0xA000..=0xBFFF => {
-                                *chr_bank_0 = *shift_register;
-                            }
-                            0xC000..=0xDFFF => {
-                                *chr_bank_1 = *shift_register;
-                            }
-                            0xE000..=0xFFFF => {
-                                *prg_bank = *shift_register;
-                            }
+                            *shift_register = 0;
+                            *shift_register_len = 0;
+                            *prg_banking_mode = Mmc1PrgBankingMode::Switch16KbLastBankFixed;
+                            return CpuWriteMapResult::None;
                         }
 
-                        *shift_register = 0;
-                        *shift_register_len = 0;
+                        if *written_last_cycle {
+                            return CpuWriteMapResult::None;
+                        }
+
+                        *written_this_cycle = true;
+
+                        *shift_register = (*shift_register >> 1) | ((value & 0x01) << 4);
+                        *shift_register_len += 1;
+
+                        if *shift_register_len == 5 {
+                            match address {
+                                0x0000..=0x7FFF => panic!("match arm should be unreachable"),
+                                0x8000..=0x9FFF => {
+                                    *nametable_mirroring = match *shift_register & 0x03 {
+                                        0x00 => Mmc1Mirroring::OneScreenLowerBank,
+                                        0x01 => Mmc1Mirroring::OneScreenUpperBank,
+                                        0x02 => Mmc1Mirroring::Vertical,
+                                        0x03 => Mmc1Mirroring::Horizontal,
+                                        _ => panic!(
+                                            "{shift_register} & 0x03 was not 0x00/0x01/0x02/0x03"
+                                        ),
+                                    };
+                                    log::trace!("MMC1: Changed nametable mirroring to {nametable_mirroring:?}");
+
+                                    *prg_banking_mode = match *shift_register & 0x0C {
+                                        0x00 | 0x04 => Mmc1PrgBankingMode::Switch32Kb,
+                                        0x08 => Mmc1PrgBankingMode::Switch16KbFirstBankFixed,
+                                        0x0C => Mmc1PrgBankingMode::Switch16KbLastBankFixed,
+                                        _ => panic!(
+                                            "{shift_register} & 0x0C was not 0x00/0x04/0x08/0x0C"
+                                        ),
+                                    };
+                                    log::trace!(
+                                        "MMC1: Changed PRG banking mode to {prg_banking_mode:?}"
+                                    );
+
+                                    *chr_banking_mode = if *shift_register & 0x01 != 0 {
+                                        Mmc1ChrBankingMode::Two4KbBanks
+                                    } else {
+                                        Mmc1ChrBankingMode::Single8KbBank
+                                    };
+                                    log::trace!(
+                                        "MMC1: Changed CHR banking mode to {chr_banking_mode:?}"
+                                    );
+                                }
+                                0xA000..=0xBFFF => {
+                                    *chr_bank_0 = *shift_register;
+                                    log::trace!("MMC1: Changed CHR bank 0 to {chr_bank_0}");
+                                }
+                                0xC000..=0xDFFF => {
+                                    *chr_bank_1 = *shift_register;
+                                    log::trace!("MMC1: Changed CHR bank 1 to {chr_bank_1}");
+                                }
+                                0xE000..=0xFFFF => {
+                                    *prg_bank = *shift_register;
+                                    log::trace!("MMC1: Changed PRG bank to {prg_bank}");
+                                }
+                            }
+
+                            *shift_register = 0;
+                            *shift_register_len = 0;
+                        }
                     }
                 }
-            },
+            }
         }
 
         CpuWriteMapResult::None
@@ -258,18 +272,13 @@ impl Mapper {
                 _ => panic!("invalid PPU map address: 0x{address:04X}"),
             },
             Self::Mmc1 {
-                chr_rom_size,
+                has_chr_ram,
                 nametable_mirroring,
                 chr_banking_mode,
                 chr_bank_0,
                 chr_bank_1,
                 ..
             } => {
-                if chr_rom_size == 0 {
-                    // ???
-                    return PpuMapResult::None;
-                }
-
                 match address {
                     0x0000..=0x1FFF => match chr_banking_mode {
                         Mmc1ChrBankingMode::Two4KbBanks => {
@@ -279,12 +288,22 @@ impl Mapper {
                                 (chr_bank_1, address - 0x1000)
                             };
                             let bank_address = u32::from(bank_number) * 4 * 1024;
-                            PpuMapResult::ChrROM(bank_address + u32::from(relative_addr))
+                            let chr_address = bank_address + u32::from(relative_addr);
+                            if has_chr_ram {
+                                PpuMapResult::ChrRAM(chr_address)
+                            } else {
+                                PpuMapResult::ChrROM(chr_address)
+                            }
                         }
                         Mmc1ChrBankingMode::Single8KbBank => {
                             let chr_bank = chr_bank_0 & 0x1E;
-                            let bank_address = u32::from(chr_bank) * 8 * 1024;
-                            PpuMapResult::ChrROM(bank_address + u32::from(address))
+                            let bank_address = u32::from(chr_bank) * 4 * 1024;
+                            let chr_address = bank_address + u32::from(address);
+                            if has_chr_ram {
+                                PpuMapResult::ChrRAM(chr_address)
+                            } else {
+                                PpuMapResult::ChrROM(chr_address)
+                            }
                         }
                     },
                     0x2000..=0x3EFF => {
@@ -292,19 +311,19 @@ impl Mapper {
 
                         match nametable_mirroring {
                             Mmc1Mirroring::OneScreenLowerBank => {
-                                PpuMapResult::ChrROM(u32::from(nametable_relative_addr & 0x03FF))
+                                PpuMapResult::Vram(nametable_relative_addr & 0x03FF)
                             }
-                            Mmc1Mirroring::OneScreenUpperBank => PpuMapResult::ChrROM(
-                                0x0400 + (u32::from(nametable_relative_addr) & 0x03FF),
-                            ),
+                            Mmc1Mirroring::OneScreenUpperBank => {
+                                PpuMapResult::Vram(0x0400 + (nametable_relative_addr & 0x03FF))
+                            }
                             Mmc1Mirroring::Vertical => {
-                                PpuMapResult::ChrROM(u32::from(nametable_relative_addr) & 0x07FF)
+                                PpuMapResult::Vram(nametable_relative_addr & 0x07FF)
                             }
                             Mmc1Mirroring::Horizontal => {
                                 // Swap bits 10 and 11, and then discard the new bit 11
-                                let rom_address = (nametable_relative_addr & 0x0800 >> 1)
+                                let vram_address = ((nametable_relative_addr & 0x0800) >> 1)
                                     | (nametable_relative_addr & 0x03FF);
-                                PpuMapResult::ChrROM(u32::from(rom_address))
+                                PpuMapResult::Vram(vram_address)
                             }
                         }
                     }
@@ -401,7 +420,8 @@ fn from_ines_file(mut file: File) -> Result<(Cartridge, Mapper), CartridgeFileEr
         // TODO actually figure out size
         prg_ram: vec![0; 8192],
         chr_rom,
-        chr_ram: Vec::new(),
+        // TODO actually figure out size
+        chr_ram: vec![0; 8192],
     };
 
     let mapper = match mapper_number {
@@ -420,7 +440,7 @@ fn from_ines_file(mut file: File) -> Result<(Cartridge, Mapper), CartridgeFileEr
         1 => Mapper::Mmc1 {
             prg_rom_size,
             prg_ram_size: 8192,
-            chr_rom_size,
+            has_chr_ram: chr_rom_size == 0,
             shift_register: 0,
             shift_register_len: 0,
             written_this_cycle: false,
