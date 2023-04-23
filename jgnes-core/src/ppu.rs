@@ -24,6 +24,14 @@ impl PpuState {
             frame_buffer: [[0; SCREEN_WIDTH as usize]; SCREEN_HEIGHT as usize],
         }
     }
+
+    pub fn frame_buffer(&self) -> &FrameBuffer {
+        &self.frame_buffer
+    }
+
+    pub fn in_vblank(&self) -> bool {
+        (FIRST_VBLANK_SCANLINE..PRE_RENDER_SCANLINE).contains(&self.scanline)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

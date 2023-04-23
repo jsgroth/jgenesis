@@ -6,6 +6,8 @@
 use crate::bus::{cartridge, Bus};
 use crate::cpu::{CpuRegisters, CpuState};
 use crate::ppu::PpuState;
+use sdl2::event::Event;
+use sdl2::pixels::{Color, PixelFormatEnum};
 use std::error::Error;
 use std::path::Path;
 
@@ -13,9 +15,41 @@ mod bus;
 mod cpu;
 mod ppu;
 
+// TODO do colors properly
+const COLOR_MAPPING: &[u8] = include_bytes!("../../nespalette.pal");
+
 // TODO clean this up
 /// # Errors
 pub fn run(path: &str) -> Result<(), Box<dyn Error>> {
+    let sdl_ctx = sdl2::init()?;
+    let video_subsystem = sdl_ctx.video()?;
+
+    let file_name = Path::new(path)
+        .file_name()
+        .and_then(|file_name| file_name.to_str())
+        .unwrap();
+    let window = video_subsystem
+        .window(
+            &format!("jgnes - {file_name}"),
+            3 * u32::from(ppu::SCREEN_WIDTH),
+            3 * u32::from(ppu::VISIBLE_SCREEN_HEIGHT),
+        )
+        .build()?;
+    let mut canvas = window.into_canvas().present_vsync().build()?;
+
+    canvas.set_draw_color(Color::RGB(0, 0, 0));
+    canvas.clear();
+    canvas.present();
+
+    let texture_creator = canvas.texture_creator();
+    let mut texture = texture_creator.create_texture_streaming(
+        PixelFormatEnum::RGB24,
+        ppu::SCREEN_WIDTH.into(),
+        ppu::VISIBLE_SCREEN_HEIGHT.into(),
+    )?;
+
+    let mut event_pump = sdl_ctx.event_pump()?;
+
     let (cartridge, mapper) = cartridge::from_file(Path::new(path))?;
 
     let mut bus = Bus::from_cartridge(cartridge, mapper);
@@ -27,6 +61,8 @@ pub fn run(path: &str) -> Result<(), Box<dyn Error>> {
 
     let mut count = 0;
     loop {
+        let prev_in_vblank = ppu_state.in_vblank();
+
         cpu::tick(&mut cpu_state, &mut bus);
         ppu::tick(&mut ppu_state, &mut bus.ppu());
         bus.tick();
@@ -36,6 +72,30 @@ pub fn run(path: &str) -> Result<(), Box<dyn Error>> {
 
         ppu::tick(&mut ppu_state, &mut bus.ppu());
         bus.tick();
+
+        if !prev_in_vblank && ppu_state.in_vblank() {
+            let frame_buffer = ppu_state.frame_buffer();
+            texture.with_lock(None, |pixels, pitch| {
+                for (i, scanline) in frame_buffer[8..232].iter().enumerate() {
+                    for (j, nes_color) in scanline.iter().copied().enumerate() {
+                        let color_map_index = (3 * nes_color) as usize;
+                        let start = i * pitch + 3 * j;
+                        pixels[start..start + 3]
+                            .copy_from_slice(&COLOR_MAPPING[color_map_index..color_map_index + 3]);
+                    }
+                }
+            })?;
+
+            canvas.clear();
+            canvas.copy(&texture, None, None)?;
+            canvas.present();
+
+            for event in event_pump.poll_iter() {
+                if let Event::Quit { .. } = event {
+                    return Ok(());
+                }
+            }
+        }
 
         // TODO scaffolding for printing test ROM output, remove at some point
         count += 1;
