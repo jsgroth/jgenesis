@@ -98,6 +98,14 @@ fn render_scanline(scanline: u16, state: &mut PpuState, bus: &mut PpuBus<'_>) {
     let scanline = scanline as u8;
 
     let ppu_registers = bus.get_ppu_registers();
+    log::trace!(
+        "PPUCTRL={:02X}, PPUMASK={:02X}, PPUSCROLL_X={:02X}, PPUSCROLL_Y={:02X}",
+        ppu_registers.ppu_ctrl(),
+        ppu_registers.ppu_mask(),
+        ppu_registers.scroll_x(),
+        ppu_registers.scroll_y()
+    );
+
     let bg_enabled = ppu_registers.bg_enabled();
     let sprites_enabled = ppu_registers.sprites_enabled();
     let double_height_sprites = ppu_registers.double_height_sprites();
@@ -157,8 +165,8 @@ fn render_scanline(scanline: u16, state: &mut PpuState, bus: &mut PpuBus<'_>) {
 
     for pixel in 0..SCREEN_WIDTH {
         let bg_tile_x = bg_x / 8;
-        let nametable_index = 30 * bg_tile_y + bg_tile_x;
-        let attribute_index = 0x03C0 + nametable_index / 16;
+        let nametable_index = 32 * bg_tile_y + bg_tile_x;
+        let attribute_index = 0x03C0 + 8 * (bg_y / 32) + bg_x / 32;
 
         let bg_tile_index = bus.read_address(nametable_address + nametable_index);
         let bg_attributes = bus.read_address(nametable_address + attribute_index);
@@ -166,11 +174,11 @@ fn render_scanline(scanline: u16, state: &mut PpuState, bus: &mut PpuBus<'_>) {
         let bg_fine_x = (bg_x % 8) as u8;
         let bg_fine_y = (bg_y % 8) as u8;
 
-        let bg_palette_index = match (bg_fine_x, bg_fine_y) {
-            (x, y) if x < 4 && y < 4 => bg_attributes & 0x03,
-            (x, y) if x >= 4 && y < 4 => (bg_attributes >> 2) & 0x03,
-            (x, y) if x < 4 && y >= 4 => (bg_attributes >> 4) & 0x03,
-            (x, y) if x >= 4 && y >= 4 => (bg_attributes >> 6) & 0x03,
+        let bg_palette_index = match (bg_x % 32, bg_y % 32) {
+            (x, y) if x < 16 && y < 16 => bg_attributes & 0x03,
+            (x, y) if x >= 16 && y < 16 => (bg_attributes >> 2) & 0x03,
+            (x, y) if x < 16 && y >= 16 => (bg_attributes >> 4) & 0x03,
+            (x, y) if x >= 16 && y >= 16 => (bg_attributes >> 6) & 0x03,
             _ => panic!("match arm guards should be exhaustive"),
         };
 
@@ -178,7 +186,7 @@ fn render_scanline(scanline: u16, state: &mut PpuState, bus: &mut PpuBus<'_>) {
             bg_pattern_table_address + 16 * u16::from(bg_tile_index) + u16::from(bg_fine_y),
         );
         let bg_tile_data_1 = bus.read_address(
-            bg_pattern_table_address + 16 * u16::from(bg_tile_index) + u16::from(bg_fine_y) + 1,
+            bg_pattern_table_address + 16 * u16::from(bg_tile_index) + u16::from(bg_fine_y) + 8,
         );
 
         let bg_color_id = get_color_id(bg_tile_data_0, bg_tile_data_1, bg_fine_x);
@@ -231,8 +239,8 @@ fn render_scanline(scanline: u16, state: &mut PpuState, bus: &mut PpuBus<'_>) {
 fn get_color_id(tile_data_0: u8, tile_data_1: u8, fine_x: u8) -> u8 {
     assert!(fine_x < 8, "fine_x must be less than 8: {fine_x}");
 
-    (((tile_data_0 & (1 << (7 - fine_x))) >> (7 - fine_x)) << 1)
-        | ((tile_data_1 & (1 << (7 - fine_x))) >> (7 - fine_x))
+    ((tile_data_0 & (1 << (7 - fine_x))) >> (7 - fine_x))
+        | (((tile_data_1 & (1 << (7 - fine_x))) >> (7 - fine_x)) << 1)
 }
 
 fn first_opaque_sprite_pixel(
@@ -251,18 +259,28 @@ fn first_opaque_sprite_pixel(
         let tile_index = u16::from(sprite.tile_index);
         let pattern_table_address = if double_height_sprites {
             0x1000 * (tile_index & 0x01)
-                + (tile_index & 0xFE)
-                + u16::from(scanline - sprite.y_pos >= 8)
+                + 16 * ((tile_index & 0xFE) + u16::from(scanline - sprite.y_pos >= 8))
         } else {
-            sprite_pattern_table_address + tile_index
+            sprite_pattern_table_address + 16 * tile_index
         };
 
-        let tile_data_0 = bus.read_address(pattern_table_address);
-        let tile_data_1 = bus.read_address(pattern_table_address + 1);
+        // TODO make flip y work with double-height sprites
+        let flip_y = sprite.attributes & 0x80 != 0;
+        let flip_x = sprite.attributes & 0x40 != 0;
 
-        let fine_x = (pixel - sprite.x_pos) % 8;
-        let fine_y = (scanline - sprite.y_pos) % 8;
+        let fine_y = if flip_y {
+            7 - ((scanline - sprite.y_pos) % 8)
+        } else {
+            (scanline - sprite.y_pos) % 8
+        };
+        let tile_data_0 = bus.read_address(pattern_table_address + u16::from(fine_y));
+        let tile_data_1 = bus.read_address(pattern_table_address + 8 + u16::from(fine_y));
 
+        let fine_x = if flip_x {
+            7 - ((pixel - sprite.x_pos) % 8)
+        } else {
+            (pixel - sprite.x_pos) % 8
+        };
         let color_id = get_color_id(tile_data_0, tile_data_1, fine_x);
 
         (color_id != 0).then_some((sprite, color_id))
@@ -277,8 +295,8 @@ mod tests {
     fn color_id() {
         assert_eq!(0, get_color_id(0, 0, 0));
 
-        assert_eq!(2, get_color_id(0x80, 0, 0));
-        assert_eq!(1, get_color_id(0, 0x80, 0));
+        assert_eq!(1, get_color_id(0x80, 0, 0));
+        assert_eq!(2, get_color_id(0, 0x80, 0));
         assert_eq!(3, get_color_id(0x80, 0x80, 0));
 
         assert_eq!(0, get_color_id(0x80, 0x80, 1));

@@ -1,5 +1,5 @@
 use crate::bus;
-use crate::bus::{Bus, CpuBus, IoRegister, PpuRegister};
+use crate::bus::{Bus, CpuBus, PpuRegister};
 use crate::cpu::instructions::{Instruction, InstructionState};
 
 mod instructions;
@@ -207,7 +207,7 @@ pub fn tick(state: &mut CpuState, bus: &mut Bus) {
             }
         }
         State::OamDmaStart => {
-            let source_high_byte = bus.cpu().read_io_register(IoRegister::OAMDMA);
+            let source_high_byte = bus.read_oamdma_register();
 
             log::trace!("Initiating OAM DMA transfer from 0x{source_high_byte:02X}00");
 

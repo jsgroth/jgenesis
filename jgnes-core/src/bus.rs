@@ -161,6 +161,14 @@ impl PpuRegisters {
         }
     }
 
+    pub fn ppu_ctrl(&self) -> u8 {
+        self.ppu_ctrl
+    }
+
+    pub fn ppu_mask(&self) -> u8 {
+        self.ppu_mask
+    }
+
     pub fn nmi_enabled(&self) -> bool {
         self.ppu_ctrl & 0x80 != 0
     }
@@ -541,6 +549,11 @@ impl Bus {
         &mut self.interrupt_lines
     }
 
+    // TODO this is bad, clean up
+    pub fn read_oamdma_register(&self) -> u8 {
+        self.io_registers.data[IoRegister::OAMDMA.to_relative_address()]
+    }
+
     pub fn tick(&mut self) {
         let writes: ArrayVec<[PendingWrite; 2]> = self.pending_writes.drain(..).collect();
         for write in writes {
@@ -706,7 +719,7 @@ impl<'a> CpuBus<'a> {
                 self.0.ppu_registers.oam_addr = self.0.ppu_registers.oam_addr.wrapping_add(1);
             }
             PpuRegister::PPUSCROLL => match self.0.ppu_registers.ppu_scroll_latch {
-                PpuRegisterLatch::Clear => {
+                PpuRegisterLatch::Clear | PpuRegisterLatch::Latched => {
                     self.0.ppu_registers.ppu_scroll_x = value;
                     self.0.ppu_registers.ppu_scroll_latch = PpuRegisterLatch::HalfLatched;
                 }
@@ -714,10 +727,9 @@ impl<'a> CpuBus<'a> {
                     self.0.ppu_registers.ppu_scroll_y = value;
                     self.0.ppu_registers.ppu_scroll_latch = PpuRegisterLatch::Latched;
                 }
-                PpuRegisterLatch::Latched => {}
             },
             PpuRegister::PPUADDR => match self.0.ppu_registers.ppu_addr_latch {
-                PpuRegisterLatch::Clear => {
+                PpuRegisterLatch::Clear | PpuRegisterLatch::Latched => {
                     self.0.ppu_registers.ppu_addr = u16::from(value) << 8;
                     self.0.ppu_registers.ppu_addr_latch = PpuRegisterLatch::HalfLatched;
                 }
@@ -725,7 +737,6 @@ impl<'a> CpuBus<'a> {
                     self.0.ppu_registers.ppu_addr |= u16::from(value);
                     self.0.ppu_registers.ppu_addr_latch = PpuRegisterLatch::Latched;
                 }
-                PpuRegisterLatch::Latched => {}
             },
             PpuRegister::PPUDATA => {
                 let address = self.0.ppu_registers.ppu_addr;

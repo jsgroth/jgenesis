@@ -9,6 +9,7 @@ use crate::ppu::PpuState;
 use sdl2::event::Event;
 use sdl2::pixels::{Color, PixelFormatEnum};
 use std::error::Error;
+use std::ffi::OsStr;
 use std::path::Path;
 
 mod bus;
@@ -20,14 +21,12 @@ const COLOR_MAPPING: &[u8] = include_bytes!("../../nespalette.pal");
 
 // TODO clean this up
 /// # Errors
+/// # Panics
 pub fn run(path: &str) -> Result<(), Box<dyn Error>> {
     let sdl_ctx = sdl2::init()?;
     let video_subsystem = sdl_ctx.video()?;
 
-    let file_name = Path::new(path)
-        .file_name()
-        .and_then(|file_name| file_name.to_str())
-        .unwrap();
+    let file_name = Path::new(path).file_name().and_then(OsStr::to_str).unwrap();
     let window = video_subsystem
         .window(
             &format!("jgnes - {file_name}"),

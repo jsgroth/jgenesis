@@ -249,7 +249,7 @@ impl Mapper {
                     let vram_addr = match nametable_mirroring {
                         NromMirroring::Horizontal => {
                             // Swap bits 10 and 11, and then discard the new bit 11
-                            (relative_addr & 0x0800 >> 1) | (relative_addr & 0x03FF)
+                            ((relative_addr & 0x0800) >> 1) | (relative_addr & 0x03FF)
                         }
                         NromMirroring::Vertical => relative_addr & 0x07FF,
                     };
@@ -411,6 +411,7 @@ fn from_ines_file(mut file: File) -> Result<(Cartridge, Mapper), CartridgeFileEr
             } else {
                 NromMirroring::Horizontal
             };
+            log::info!("NROM mapper using mirroring {nametable_mirroring:?}");
             Mapper::Nrom {
                 prg_rom_size: prg_rom_size as u16,
                 nametable_mirroring,
