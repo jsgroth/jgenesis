@@ -1,6 +1,8 @@
 mod load;
 
-use crate::bus::cartridge::{Cartridge, Mapper, NromMirroring};
+use crate::bus::cartridge::{
+    Cartridge, Mapper, Mmc1ChrBankingMode, Mmc1Mirroring, Mmc1PrgBankingMode,
+};
 use crate::bus::Bus;
 use crate::cpu;
 use crate::cpu::{CpuRegisters, CpuState, StatusReadContext};
@@ -56,7 +58,7 @@ impl ExpectedState {
         for (&address, &value) in &self.memory {
             let actual_value = bus.cpu().read_address(address);
             if value != actual_value {
-                errors.push(format!("[Mismatch at memory address {address:04X}: expected = {value:02X}, actual = {actual_value:02X}]"));
+                errors.push(format!("[Mismatch at memory address 0x{address:04X}: expected = 0x{value:02X}, actual = 0x{actual_value:02X}]"));
             }
         }
 
@@ -67,9 +69,9 @@ impl ExpectedState {
 }
 
 fn run_test(program: &str, expected_state: ExpectedState) {
-    let mut prg_rom = vec![0; 16384];
+    let mut prg_rom = vec![0; 32768];
     // Set RESET vector to 0x8000
-    prg_rom[16381] = 0x80;
+    prg_rom[32765] = 0x80;
 
     for (chunk, prg_byte) in program.as_bytes().chunks_exact(2).zip(prg_rom.iter_mut()) {
         let hex = String::from_utf8(Vec::from(chunk)).unwrap();
@@ -77,18 +79,29 @@ fn run_test(program: &str, expected_state: ExpectedState) {
         *prg_byte = value;
     }
 
-    let prg_rom_size = prg_rom.len() as u16;
+    let prg_rom_size = prg_rom.len() as u32;
 
     let cartridge = Cartridge {
         prg_rom,
-        prg_ram: Vec::new(),
+        prg_ram: vec![0; 8192],
         chr_rom: vec![0; 8192],
         chr_ram: Vec::new(),
     };
 
-    let mapper = Mapper::Nrom {
+    let mapper = Mapper::Mmc1 {
         prg_rom_size,
-        nametable_mirroring: NromMirroring::Vertical,
+        prg_ram_size: 8192,
+        chr_rom_size: 8192,
+        shift_register: 0,
+        shift_register_len: 0,
+        written_this_cycle: false,
+        written_last_cycle: false,
+        nametable_mirroring: Mmc1Mirroring::Vertical,
+        prg_banking_mode: Mmc1PrgBankingMode::Switch16KbLastBankFixed,
+        chr_banking_mode: Mmc1ChrBankingMode::Two4KbBanks,
+        chr_bank_0: 0,
+        chr_bank_1: 0,
+        prg_bank: 0,
     };
 
     let mut bus = Bus::from_cartridge(cartridge, mapper);
@@ -106,3 +119,19 @@ fn run_test(program: &str, expected_state: ExpectedState) {
 
     expected_state.assert_eq(&cpu_state.registers, &mut bus, cycle_count);
 }
+
+macro_rules! hash_map {
+    ($($key:literal: $value:expr),+$(,)?) => {
+        {
+            let mut map = std::collections::HashMap::new();
+
+            $(
+                map.insert($key, $value);
+            )*
+
+            map
+        }
+    }
+}
+
+use hash_map;

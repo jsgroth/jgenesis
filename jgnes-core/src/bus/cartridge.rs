@@ -21,6 +21,12 @@ pub(crate) enum CpuMapResult {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub(crate) enum CpuWriteMapResult {
+    PrgRAM(u32),
+    None,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum PpuMapResult {
     ChrROM(u32),
     ChrRAM(u32),
@@ -137,10 +143,12 @@ impl Mapper {
         }
     }
 
-    pub(crate) fn write_cpu_address(&mut self, address: u16, value: u8) {
+    #[must_use]
+    pub(crate) fn write_cpu_address(&mut self, address: u16, value: u8) -> CpuWriteMapResult {
         match self {
             Self::Nrom { .. } => {}
             Self::Mmc1 {
+                prg_ram_size,
                 shift_register,
                 shift_register_len,
                 written_last_cycle,
@@ -154,17 +162,22 @@ impl Mapper {
                 ..
             } => match address {
                 0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
-                0x4020..=0x7FFF => {}
+                0x4020..=0x5FFF => {}
+                0x6000..=0x7FFF => {
+                    if *prg_ram_size > 0 {
+                        return CpuWriteMapResult::PrgRAM(u32::from(address) - 0x6000);
+                    }
+                }
                 0x8000..=0xFFFF => {
                     if value & 0x80 != 0 {
                         *shift_register = 0;
                         *shift_register_len = 0;
                         *prg_banking_mode = Mmc1PrgBankingMode::Switch16KbLastBankFixed;
-                        return;
+                        return CpuWriteMapResult::None;
                     }
 
                     if *written_last_cycle {
-                        return;
+                        return CpuWriteMapResult::None;
                     }
 
                     *written_this_cycle = true;
@@ -218,6 +231,8 @@ impl Mapper {
                 }
             },
         }
+
+        CpuWriteMapResult::None
     }
 
     pub(crate) fn map_ppu_address(&self, address: u16) -> PpuMapResult {

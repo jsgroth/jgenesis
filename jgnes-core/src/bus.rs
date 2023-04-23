@@ -1,6 +1,6 @@
 pub mod cartridge;
 
-use crate::bus::cartridge::{CpuMapResult, Mapper, PpuMapResult};
+use crate::bus::cartridge::{CpuMapResult, CpuWriteMapResult, Mapper, PpuMapResult};
 use cartridge::Cartridge;
 use std::cmp::Ordering;
 use tinyvec::ArrayVec;
@@ -609,7 +609,11 @@ impl<'a> CpuBus<'a> {
             }
             _address @ CPU_IO_TEST_MODE_START..=CPU_IO_TEST_MODE_END => {}
             address @ CPU_CARTRIDGE_START..=CPU_CARTRIDGE_END => {
-                self.0.mapper.write_cpu_address(address, value);
+                if let CpuWriteMapResult::PrgRAM(prg_ram_addr) =
+                    self.0.mapper.write_cpu_address(address, value)
+                {
+                    self.0.cartridge.prg_ram[prg_ram_addr as usize] = value;
+                }
             }
         }
     }

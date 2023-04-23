@@ -1,4 +1,4 @@
-use super::{run_test, ExpectedState};
+use super::{hash_map, run_test, ExpectedState};
 
 #[test]
 fn lda_immediate() {
@@ -314,6 +314,102 @@ fn tya() {
             y: Some(0xEE),
             p: Some(0xB4),
             cycles: Some(8),
+            ..ExpectedState::default()
+        },
+    );
+}
+
+#[test]
+fn sta_zero_page() {
+    run_test(
+        // STA $45
+        "8545",
+        ExpectedState {
+            a: Some(0x00),
+            p: Some(0x34),
+            memory: hash_map! { 0x0045: 0x00 },
+            cycles: Some(3),
+            ..ExpectedState::default()
+        },
+    );
+
+    run_test(
+        // LDA #$BA; STA $45
+        "A9BA8545",
+        ExpectedState {
+            a: Some(0xBA),
+            p: Some(0xB4),
+            memory: hash_map! { 0x0045: 0xBA },
+            cycles: Some(6),
+            ..ExpectedState::default()
+        },
+    );
+}
+
+#[test]
+fn sta_zero_page_indexed() {
+    run_test(
+        // STA $45,X
+        "9545",
+        ExpectedState {
+            a: Some(0x00),
+            x: Some(0x00),
+            p: Some(0x34),
+            memory: hash_map! { 0x0045: 0x00 },
+            cycles: Some(4),
+            ..ExpectedState::default()
+        },
+    );
+
+    run_test(
+        // LDA #$78; LDX #$05; STA $45,X
+        "A978A2059545",
+        ExpectedState {
+            a: Some(0x78),
+            x: Some(0x05),
+            p: Some(0x34),
+            memory: hash_map! { 0x0045: 0x00, 0x004A: 0x78 },
+            cycles: Some(10),
+            ..ExpectedState::default()
+        },
+    );
+
+    run_test(
+        // LDA #$78; LDX #$10; STA $F5,X
+        "A978A21095F5",
+        ExpectedState {
+            a: Some(0x78),
+            x: Some(0x10),
+            p: Some(0x34),
+            memory: hash_map! { 0x0005: 0x78, 0x0105: 0x00 },
+            cycles: Some(10),
+            ..ExpectedState::default()
+        },
+    );
+}
+
+#[test]
+fn sta_absolute() {
+    run_test(
+        // STA $6578
+        "8D7865",
+        ExpectedState {
+            a: Some(0x00),
+            p: Some(0x34),
+            memory: hash_map! { 0x6578: 0x00 },
+            cycles: Some(4),
+            ..ExpectedState::default()
+        },
+    );
+
+    run_test(
+        // LDA #$85; STA 6578
+        "A9858D7865",
+        ExpectedState {
+            a: Some(0x85),
+            p: Some(0xB4),
+            memory: hash_map! { 0x6578: 0x85 },
+            cycles: Some(7),
             ..ExpectedState::default()
         },
     );
