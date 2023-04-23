@@ -1,8 +1,7 @@
 pub mod cartridge;
 
-use crate::bus::cartridge::{CpuMapResult, CpuWriteMapResult, Mapper, PpuMapResult};
+use crate::bus::cartridge::Mapper;
 use crate::input::{JoypadState, LatchedJoypadState};
-use cartridge::Cartridge;
 use std::cmp::Ordering;
 use tinyvec::ArrayVec;
 
@@ -524,7 +523,6 @@ impl InterruptLines {
 }
 
 pub struct Bus {
-    cartridge: Cartridge,
     mapper: Mapper,
     cpu_internal_ram: [u8; 2048],
     ppu_registers: PpuRegisters,
@@ -537,9 +535,8 @@ pub struct Bus {
 }
 
 impl Bus {
-    pub(crate) fn from_cartridge(cartridge: Cartridge, mapper: Mapper) -> Self {
+    pub(crate) fn from_cartridge(mapper: Mapper) -> Self {
         Self {
-            cartridge,
             mapper,
             cpu_internal_ram: [0; 2048],
             ppu_registers: PpuRegisters::new(),
@@ -612,15 +609,7 @@ impl<'a> CpuBus<'a> {
             }
             _address @ CPU_IO_TEST_MODE_START..=CPU_IO_TEST_MODE_END => 0xFF,
             address @ CPU_CARTRIDGE_START..=CPU_CARTRIDGE_END => {
-                match self.0.mapper.map_cpu_address(address) {
-                    CpuMapResult::PrgROM(prg_rom_address) => {
-                        self.0.cartridge.prg_rom[prg_rom_address as usize]
-                    }
-                    CpuMapResult::PrgRAM(prg_ram_address) => {
-                        self.0.cartridge.prg_ram[prg_ram_address as usize]
-                    }
-                    CpuMapResult::None => 0xFF,
-                }
+                self.0.mapper.read_cpu_address(address)
             }
         }
     }
@@ -641,11 +630,7 @@ impl<'a> CpuBus<'a> {
             }
             _address @ CPU_IO_TEST_MODE_START..=CPU_IO_TEST_MODE_END => {}
             address @ CPU_CARTRIDGE_START..=CPU_CARTRIDGE_END => {
-                if let CpuWriteMapResult::PrgRAM(prg_ram_addr) =
-                    self.0.mapper.write_cpu_address(address, value)
-                {
-                    self.0.cartridge.prg_ram[prg_ram_addr as usize] = value;
-                }
+                self.0.mapper.write_cpu_address(address, value);
             }
         }
     }
@@ -788,16 +773,7 @@ impl<'a> PpuBus<'a> {
         let address = address & 0x3FFF;
         match address {
             address @ PPU_PATTERN_TABLES_START..=PPU_NAMETABLES_END => {
-                match self.0.mapper.map_ppu_address(address) {
-                    PpuMapResult::ChrROM(chr_rom_address) => {
-                        self.0.cartridge.chr_rom[chr_rom_address as usize]
-                    }
-                    PpuMapResult::ChrRAM(chr_ram_address) => {
-                        self.0.cartridge.chr_ram[chr_ram_address as usize]
-                    }
-                    PpuMapResult::Vram(vram_address) => self.0.ppu_vram[vram_address as usize],
-                    PpuMapResult::None => 0xFF,
-                }
+                self.0.mapper.read_ppu_address(address, &self.0.ppu_vram)
             }
             address @ PPU_PALETTES_START..=PPU_PALETTES_END => {
                 let palette_relative_addr =
@@ -822,18 +798,9 @@ impl<'a> PpuBus<'a> {
         let address = address & 0x3FFF;
         match address {
             address @ PPU_PATTERN_TABLES_START..=PPU_NAMETABLES_END => {
-                match self.0.mapper.map_ppu_address(address) {
-                    PpuMapResult::ChrROM(chr_rom_address) => {
-                        self.0.mapper.write_ppu_address(address, value);
-                    }
-                    PpuMapResult::ChrRAM(chr_ram_address) => {
-                        self.0.cartridge.chr_ram[chr_ram_address as usize] = value;
-                    }
-                    PpuMapResult::Vram(vram_address) => {
-                        self.0.ppu_vram[vram_address as usize] = value;
-                    }
-                    PpuMapResult::None => {}
-                }
+                self.0
+                    .mapper
+                    .write_ppu_address(address, value, &mut self.0.ppu_vram);
             }
             address @ PPU_PALETTES_START..=PPU_PALETTES_END => {
                 let palette_relative_addr =

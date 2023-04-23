@@ -52,9 +52,9 @@ pub fn run(path: &str) -> Result<(), Box<dyn Error>> {
 
     let mut event_pump = sdl_ctx.event_pump()?;
 
-    let (cartridge, mapper) = cartridge::from_file(Path::new(path))?;
+    let mapper = cartridge::from_file(Path::new(path))?;
 
-    let mut bus = Bus::from_cartridge(cartridge, mapper);
+    let mut bus = Bus::from_cartridge(mapper);
 
     let cpu_registers = CpuRegisters::create(&mut bus.cpu());
 
