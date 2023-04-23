@@ -5,28 +5,11 @@ use std::path::Path;
 use thiserror::Error;
 
 #[derive(Debug, Clone)]
-pub(crate) struct Cartridge {
+struct Cartridge {
     prg_rom: Vec<u8>,
     prg_ram: Vec<u8>,
     chr_rom: Vec<u8>,
     chr_ram: Vec<u8>,
-}
-
-impl Cartridge {
-    #[cfg(test)]
-    pub(crate) fn new(
-        prg_rom: Vec<u8>,
-        prg_ram: Vec<u8>,
-        chr_rom: Vec<u8>,
-        chr_ram: Vec<u8>,
-    ) -> Self {
-        Self {
-            prg_rom,
-            prg_ram,
-            chr_rom,
-            chr_ram,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
