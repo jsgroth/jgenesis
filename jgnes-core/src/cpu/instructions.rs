@@ -729,9 +729,9 @@ impl CycleOp {
                 registers.pc = u16::from_le_bytes([state.operand_first_byte, address_msb]);
             }
             Self::ExecuteJumpIndirect => {
-                let address =
-                    u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte]);
-                let effective_address_msb = bus.read_address(address.wrapping_add(1));
+                let address_lsb = state.operand_first_byte.wrapping_add(1);
+                let address = u16::from_le_bytes([address_lsb, state.operand_second_byte]);
+                let effective_address_msb = bus.read_address(address);
 
                 registers.pc = u16::from_le_bytes([state.target_first_byte, effective_address_msb]);
             }
