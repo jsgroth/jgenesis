@@ -136,6 +136,10 @@ fn render_scanline(scanline: u16, state: &mut PpuState, bus: &mut PpuBus<'_>) {
                 panic!("all OAM iteration chunks should be size 4");
             };
 
+            // TODO this is really not the right way to fix this, but OAM Y position is 1 lower
+            // than the first line the sprite should render on
+            let y_pos = y_pos.saturating_add(1);
+
             if (y_pos..y_pos.saturating_add(sprite_height)).contains(&scanline) {
                 sprites.push(SpriteData {
                     oam_index: oam_index as u8,
