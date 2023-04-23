@@ -198,8 +198,6 @@ fn render_scanline(scanline: u16, state: &mut PpuState, bus: &mut PpuBus<'_>) {
             backdrop_color
         };
 
-        log::info!("Setting ({scanline}, {pixel}) to {pixel_color}");
-
         state.frame_buffer[scanline as usize][pixel as usize] = pixel_color;
 
         bg_x += 1;

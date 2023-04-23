@@ -20,7 +20,7 @@ pub fn run(path: &str) -> Result<(), Box<dyn Error>> {
 
     let mut bus = Bus::from_cartridge(cartridge, mapper);
 
-    let cpu_registers = CpuRegisters::new(&mut bus.cpu());
+    let cpu_registers = CpuRegisters::create(&mut bus.cpu());
 
     let mut cpu_state = CpuState::new(cpu_registers);
     let mut ppu_state = PpuState::new();

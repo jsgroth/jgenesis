@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 use crate::bus;
 use crate::bus::CpuBus;
 use crate::cpu::{CpuRegisters, StatusFlags, StatusReadContext};

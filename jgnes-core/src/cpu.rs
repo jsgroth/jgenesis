@@ -105,7 +105,7 @@ pub struct CpuRegisters {
 }
 
 impl CpuRegisters {
-    pub fn new(bus: &mut CpuBus<'_>) -> Self {
+    pub fn create(bus: &mut CpuBus<'_>) -> Self {
         let pc_lsb = bus.read_address(bus::CPU_RESET_VECTOR);
         let pc_msb = bus.read_address(bus::CPU_RESET_VECTOR + 1);
         let pc = u16::from_le_bytes([pc_lsb, pc_msb]);
@@ -145,6 +145,11 @@ impl CpuState {
             registers,
             state: State::InstructionStart,
         }
+    }
+
+    #[cfg(test)]
+    pub fn at_instruction_start(&self) -> bool {
+        matches!(self.state, State::InstructionStart)
     }
 }
 
