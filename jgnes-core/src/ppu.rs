@@ -166,7 +166,7 @@ fn render_scanline(scanline: u16, state: &mut PpuState, bus: &mut PpuBus<'_>) {
             bg_pattern_table_address + 16 * u16::from(bg_tile_index) + u16::from(bg_fine_y) + 1,
         );
 
-        let bg_color_id = color_id(bg_tile_data_0, bg_tile_data_1, bg_fine_x, bg_fine_y);
+        let bg_color_id = get_color_id(bg_tile_data_0, bg_tile_data_1, bg_fine_x);
         let bg_color_id = if bg_enabled { bg_color_id } else { 0 };
 
         let sprite = first_opaque_sprite_pixel(
@@ -213,9 +213,11 @@ fn render_scanline(scanline: u16, state: &mut PpuState, bus: &mut PpuBus<'_>) {
     }
 }
 
-fn color_id(tile_data_0: u8, tile_data_1: u8, fine_x: u8, fine_y: u8) -> u8 {
-    (((tile_data_0 & (1 << (7 - fine_x))) >> fine_x) << 1)
-        | ((tile_data_1 & (1 << (7 - fine_x))) >> fine_x)
+fn get_color_id(tile_data_0: u8, tile_data_1: u8, fine_x: u8) -> u8 {
+    assert!(fine_x < 8, "fine_x must be less than 8: {fine_x}");
+
+    (((tile_data_0 & (1 << (7 - fine_x))) >> (7 - fine_x)) << 1)
+        | ((tile_data_1 & (1 << (7 - fine_x))) >> (7 - fine_x))
 }
 
 fn first_opaque_sprite_pixel(
@@ -246,8 +248,28 @@ fn first_opaque_sprite_pixel(
         let fine_x = (pixel - sprite.x_pos) % 8;
         let fine_y = (scanline - sprite.y_pos) % 8;
 
-        let color_id = color_id(tile_data_0, tile_data_1, fine_x, fine_y);
+        let color_id = get_color_id(tile_data_0, tile_data_1, fine_x);
 
         (color_id != 0).then_some((sprite, color_id))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn color_id() {
+        assert_eq!(0, get_color_id(0, 0, 0));
+
+        assert_eq!(2, get_color_id(0x80, 0, 0));
+        assert_eq!(1, get_color_id(0, 0x80, 0));
+        assert_eq!(3, get_color_id(0x80, 0x80, 0));
+
+        assert_eq!(0, get_color_id(0x80, 0x80, 1));
+
+        assert_eq!(3, get_color_id(0x10, 0x10, 3));
+
+        assert_eq!(3, get_color_id(0x01, 0x01, 7));
+    }
 }
