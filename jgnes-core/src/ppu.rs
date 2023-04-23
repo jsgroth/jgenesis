@@ -212,8 +212,8 @@ fn render_scanline(scanline: u16, state: &mut PpuState, bus: &mut PpuBus<'_>) {
 }
 
 fn color_id(tile_data_0: u8, tile_data_1: u8, fine_x: u8, fine_y: u8) -> u8 {
-    (((tile_data_0 & (1 << (7 - fine_x))) >> (7 - fine_x)) << 1)
-        | ((tile_data_1 & (1 << (7 - fine_x))) >> (7 - fine_x))
+    (((tile_data_0 & (1 << (7 - fine_x))) >> fine_x) << 1)
+        | ((tile_data_1 & (1 << (7 - fine_x))) >> fine_x)
 }
 
 fn first_opaque_sprite_pixel(
