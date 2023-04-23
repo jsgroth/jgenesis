@@ -13,6 +13,7 @@ pub type FrameBuffer = [[u8; SCREEN_WIDTH as usize]; SCREEN_HEIGHT as usize];
 pub struct PpuState {
     scanline: u16,
     dot: u16,
+    frame_count: u64,
     frame_buffer: FrameBuffer,
 }
 
@@ -21,6 +22,7 @@ impl PpuState {
         Self {
             scanline: PRE_RENDER_SCANLINE,
             dot: 0,
+            frame_count: 0,
             frame_buffer: [[0; SCREEN_WIDTH as usize]; SCREEN_HEIGHT as usize],
         }
     }
@@ -75,12 +77,17 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     }
 
     state.dot += 1;
-    if state.dot == DOTS_PER_SCANLINE {
+    if state.dot == DOTS_PER_SCANLINE
+        || (state.scanline == PRE_RENDER_SCANLINE
+            && state.dot == DOTS_PER_SCANLINE - 1
+            && state.frame_count % 2 == 0)
+    {
         state.scanline += 1;
         state.dot = 0;
 
         if state.scanline == PRE_RENDER_SCANLINE + 1 {
             state.scanline = 0;
+            state.frame_count += 1;
         }
     }
 }
