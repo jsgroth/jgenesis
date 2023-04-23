@@ -215,7 +215,7 @@ impl Mapper {
                                         "MMC1: Changed PRG banking mode to {prg_banking_mode:?}"
                                     );
 
-                                    *chr_banking_mode = if *shift_register & 0x01 != 0 {
+                                    *chr_banking_mode = if *shift_register & 0x10 != 0 {
                                         Mmc1ChrBankingMode::Two4KbBanks
                                     } else {
                                         Mmc1ChrBankingMode::Single8KbBank
