@@ -63,7 +63,6 @@ impl Ord for WriteSource {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WriteAddress {
     Cpu(u16),
-    Ppu(PpuRegister),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -119,6 +118,19 @@ impl PpuRegister {
             Self::PPUSCROLL => 0x05,
             Self::PPUADDR => 0x06,
             Self::PPUDATA => 0x07,
+        }
+    }
+
+    pub const fn to_address(self) -> u16 {
+        match self {
+            Self::PPUCTRL => 0x2000,
+            Self::PPUMASK => 0x2001,
+            Self::PPUSTATUS => 0x2002,
+            Self::OAMADDR => 0x2003,
+            Self::OAMDATA => 0x2004,
+            Self::PPUSCROLL => 0x2005,
+            Self::PPUADDR => 0x2006,
+            Self::PPUDATA => 0x2007,
         }
     }
 }
@@ -572,9 +584,6 @@ impl Bus {
                 WriteAddress::Cpu(address) => {
                     self.cpu().apply_write(address, write.value);
                 }
-                WriteAddress::Ppu(register) => {
-                    self.cpu().apply_ppu_register_write(register, write.value);
-                }
             }
         }
 
@@ -690,17 +699,6 @@ impl<'a> CpuBus<'a> {
             panic!("invalid PPU register address: {relative_addr}");
         };
 
-        self.write_ppu_register(register, value);
-    }
-
-    pub fn write_ppu_register(&mut self, register: PpuRegister, value: u8) {
-        self.0.pending_writes.push(PendingWrite {
-            address: WriteAddress::Ppu(register),
-            value,
-        });
-    }
-
-    fn apply_ppu_register_write(&mut self, register: PpuRegister, value: u8) {
         match register {
             PpuRegister::PPUCTRL => {
                 self.0.ppu_registers.ppu_ctrl = value;

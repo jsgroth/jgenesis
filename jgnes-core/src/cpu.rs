@@ -231,7 +231,7 @@ pub fn tick(state: &mut CpuState, bus: &mut Bus) {
                     .read_address(u16::from_le_bytes([source_low_byte, source_high_byte]));
             } else {
                 bus.cpu()
-                    .write_ppu_register(PpuRegister::OAMDATA, last_read_value);
+                    .write_address(PpuRegister::OAMDATA.to_address(), last_read_value);
             }
 
             if cycles_remaining > 0 {
