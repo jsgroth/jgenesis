@@ -107,7 +107,9 @@ fn render_scanline(scanline: u16, state: &mut PpuState, bus: &mut PpuBus<'_>) {
     );
 
     let bg_enabled = ppu_registers.bg_enabled();
+    let left_edge_bg_enabled = ppu_registers.left_edge_bg_enabled();
     let sprites_enabled = ppu_registers.sprites_enabled();
+    let left_edge_sprites_enabled = ppu_registers.left_edge_sprites_enabled();
     let double_height_sprites = ppu_registers.double_height_sprites();
     let sprite_height = if double_height_sprites { 16 } else { 8 };
     let bg_pattern_table_address = ppu_registers.bg_pattern_table_address();
@@ -194,16 +196,24 @@ fn render_scanline(scanline: u16, state: &mut PpuState, bus: &mut PpuBus<'_>) {
         );
 
         let bg_color_id = get_color_id(bg_tile_data_0, bg_tile_data_1, bg_fine_x);
-        let bg_color_id = if bg_enabled { bg_color_id } else { 0 };
+        let bg_color_id = if bg_enabled && (pixel >= 8 || left_edge_bg_enabled) {
+            bg_color_id
+        } else {
+            0
+        };
 
-        let sprite = first_opaque_sprite_pixel(
-            &sprites,
-            bus,
-            scanline,
-            pixel as u8,
-            sprite_pattern_table_address,
-            double_height_sprites,
-        );
+        let sprite = (pixel >= 8 || left_edge_sprites_enabled)
+            .then(|| {
+                first_opaque_sprite_pixel(
+                    &sprites,
+                    bus,
+                    scanline,
+                    pixel as u8,
+                    sprite_pattern_table_address,
+                    double_height_sprites,
+                )
+            })
+            .flatten();
 
         if let Some((SpriteData { oam_index: 0, .. }, _)) = sprite {
             if bg_color_id != 0 {
