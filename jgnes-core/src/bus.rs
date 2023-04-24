@@ -561,11 +561,6 @@ impl Bus {
         &mut self.interrupt_lines
     }
 
-    // TODO this is bad, clean up
-    pub fn read_oamdma_register(&self) -> u8 {
-        self.io_registers.data[IoRegister::OAMDMA.to_relative_address()]
-    }
-
     pub fn update_joypad_state(&mut self, joypad_state: JoypadState) {
         self.io_registers.joypad_state = joypad_state;
     }
@@ -752,12 +747,17 @@ impl<'a> CpuBus<'a> {
         }
     }
 
+    // TODO potentially move oamdma methods to IoRegisters depending on how that API shakes out
     pub fn is_oamdma_dirty(&self) -> bool {
         self.0.io_registers.dma_dirty
     }
 
     pub fn clear_oamdma_dirty(&mut self) {
         self.0.io_registers.dma_dirty = false;
+    }
+
+    pub fn read_oamdma_for_transfer(&self) -> u8 {
+        self.0.io_registers.data[IoRegister::OAMDMA.to_relative_address()]
     }
 
     pub fn read_io_register(&mut self, io_register: IoRegister) -> u8 {

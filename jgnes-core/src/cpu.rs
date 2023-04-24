@@ -207,7 +207,7 @@ pub fn tick(state: &mut CpuState, bus: &mut Bus) {
             }
         }
         State::OamDmaStart => {
-            let source_high_byte = bus.read_oamdma_register();
+            let source_high_byte = bus.cpu().read_oamdma_for_transfer();
 
             log::trace!("Initiating OAM DMA transfer from 0x{source_high_byte:02X}00");
 
