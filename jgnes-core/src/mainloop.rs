@@ -56,6 +56,8 @@ pub fn run(path: &str) -> Result<(), RunError> {
     let sdl_ctx = sdl2::init()?;
     let video_subsystem = sdl_ctx.video()?;
 
+    sdl_ctx.mouse().show_cursor(false);
+
     let file_name = Path::new(path).file_name().and_then(OsStr::to_str).unwrap();
     let window = video_subsystem
         .window(
