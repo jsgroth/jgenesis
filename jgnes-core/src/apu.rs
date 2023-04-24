@@ -1,3 +1,103 @@
+use crate::bus::{CpuBus, InterruptLines, IoRegister, IrqSource};
+use std::collections::VecDeque;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FrameCounterMode {
+    FourStep,
+    FiveStep,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FrameCounterResetState {
+    Joy2Updated,
+    PendingReset,
+    JustReset,
+    None,
+}
+
+#[derive(Debug, Clone)]
+struct FrameCounter {
+    cpu_ticks: u16,
+    mode: FrameCounterMode,
+    interrupt_inhibit_flag: bool,
+    reset_state: FrameCounterResetState,
+}
+
+impl FrameCounter {
+    fn new() -> Self {
+        Self {
+            cpu_ticks: 0,
+            mode: FrameCounterMode::FourStep,
+            interrupt_inhibit_flag: false,
+            reset_state: FrameCounterResetState::None,
+        }
+    }
+
+    fn process_joy2_update(&mut self, joy2_value: u8) {
+        self.mode = if joy2_value & 0x80 != 0 {
+            FrameCounterMode::FiveStep
+        } else {
+            FrameCounterMode::FourStep
+        };
+        self.interrupt_inhibit_flag = joy2_value & 0x40 != 0;
+
+        self.reset_state = FrameCounterResetState::Joy2Updated;
+    }
+
+    fn tick(&mut self) {
+        if self.reset_state == FrameCounterResetState::JustReset {
+            self.reset_state = FrameCounterResetState::None;
+        }
+
+        self.cpu_ticks += 1;
+
+        if (self.cpu_ticks == 29830 && self.mode == FrameCounterMode::FourStep)
+            || self.cpu_ticks == 37282
+        {
+            self.cpu_ticks = 0;
+        }
+
+        if self.cpu_ticks & 0x01 == 0 {
+            match self.reset_state {
+                FrameCounterResetState::Joy2Updated => {
+                    self.reset_state = FrameCounterResetState::PendingReset;
+                }
+                FrameCounterResetState::PendingReset => {
+                    self.cpu_ticks = 0;
+                    self.reset_state = FrameCounterResetState::JustReset;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn divider_clock(&self) -> bool {
+        self.cpu_ticks & 0x01 == 0
+    }
+
+    fn generate_quarter_frame_clock(&self) -> bool {
+        (self.cpu_ticks == 7457
+            || self.cpu_ticks == 14913
+            || self.cpu_ticks == 22371
+            || (self.cpu_ticks == 29829 && self.mode == FrameCounterMode::FourStep)
+            || self.cpu_ticks == 37281)
+            || (self.reset_state == FrameCounterResetState::JustReset
+                && self.mode == FrameCounterMode::FiveStep)
+    }
+
+    fn generate_half_frame_clock(&self) -> bool {
+        (self.cpu_ticks == 14913
+            || (self.cpu_ticks == 29829 && self.mode == FrameCounterMode::FourStep)
+            || self.cpu_ticks == 37281)
+            || (self.reset_state == FrameCounterResetState::JustReset
+                && self.mode == FrameCounterMode::FiveStep)
+    }
+
+    fn should_set_interrupt_flag(&self) -> bool {
+        !self.interrupt_inhibit_flag && self.cpu_ticks == 29828
+    }
+}
+
 const LENGTH_COUNTER_LOOKUP_TABLE: [u8; 32] = [
     10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20, 96, 22,
     192, 24, 72, 26, 16, 28, 32, 30,
@@ -349,6 +449,10 @@ impl PulseChannel {
         self.envelope.process_hi_update();
     }
 
+    fn process_snd_chn_update(&mut self, snd_chn_value: u8) {
+        self.length_counter.process_snd_chn_update(snd_chn_value);
+    }
+
     fn clock_quarter_frame(&mut self) {
         self.envelope.clock();
     }
@@ -371,5 +475,134 @@ impl PulseChannel {
 
         let wave_step = self.duty_cycle.waveform()[self.timer.phase as usize];
         wave_step * self.envelope.volume()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ApuState {
+    channel_1: PulseChannel,
+    channel_2: PulseChannel,
+    frame_counter: FrameCounter,
+    frame_counter_interrupt_flag: bool,
+    sample_queue: VecDeque<f32>,
+    hpf_capacitor: f64,
+    total_ticks: u64,
+}
+
+impl ApuState {
+    pub fn new() -> Self {
+        Self {
+            channel_1: PulseChannel::new_channel_1(),
+            channel_2: PulseChannel::new_channel_2(),
+            frame_counter: FrameCounter::new(),
+            frame_counter_interrupt_flag: false,
+            sample_queue: VecDeque::new(),
+            hpf_capacitor: 0.0,
+            total_ticks: 0,
+        }
+    }
+
+    fn process_register_updates(&mut self, iter: impl Iterator<Item = (IoRegister, u8)>) {
+        for (register, value) in iter {
+            match register {
+                IoRegister::SQ1_VOL => {
+                    self.channel_1.process_vol_update(value);
+                }
+                IoRegister::SQ1_SWEEP => {
+                    self.channel_1.process_sweep_update(value);
+                }
+                IoRegister::SQ1_LO => {
+                    self.channel_1.process_lo_update(value);
+                }
+                IoRegister::SQ1_HI => {
+                    self.channel_1.process_hi_update(value);
+                }
+                IoRegister::SQ2_VOL => {
+                    self.channel_2.process_vol_update(value);
+                }
+                IoRegister::SQ2_SWEEP => {
+                    self.channel_2.process_sweep_update(value);
+                }
+                IoRegister::SQ2_LO => {
+                    self.channel_2.process_lo_update(value);
+                }
+                IoRegister::SQ2_HI => {
+                    self.channel_2.process_hi_update(value);
+                }
+                IoRegister::SND_CHN => {
+                    self.channel_1.process_snd_chn_update(value);
+                    self.channel_2.process_snd_chn_update(value);
+                }
+                IoRegister::JOY2 => {
+                    self.frame_counter.process_joy2_update(value);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn tick_cpu(&mut self, interrupt_lines: &mut InterruptLines) {
+        self.channel_1.tick_cpu();
+        self.channel_2.tick_cpu();
+        self.frame_counter.tick();
+
+        if self.frame_counter.generate_quarter_frame_clock() {
+            self.channel_1.clock_quarter_frame();
+            self.channel_2.clock_quarter_frame();
+        }
+
+        if self.frame_counter.generate_half_frame_clock() {
+            self.channel_1.clock_half_frame();
+            self.channel_2.clock_half_frame();
+        }
+
+        if self.frame_counter.should_set_interrupt_flag() {
+            self.frame_counter_interrupt_flag = true;
+        } else if self.frame_counter.interrupt_inhibit_flag {
+            self.frame_counter_interrupt_flag = false;
+        }
+
+        interrupt_lines.set_irq_low_pull(
+            IrqSource::ApuFrameCounter,
+            self.frame_counter_interrupt_flag,
+        );
+    }
+
+    fn mix_samples(&self) -> f32 {
+        let pulse_mix = 95.88
+            / (8128.0 / (f64::from(self.channel_1.sample() + self.channel_2.sample())) + 100.0);
+        pulse_mix as f32
+    }
+
+    fn high_pass_filter(&mut self, sample: f32) -> f32 {
+        let filtered_sample = f64::from(sample) - self.hpf_capacitor;
+
+        // TODO figure out something better to do than copy-pasting what I did for the Game Boy
+        self.hpf_capacitor = f64::from(sample) - 0.996336 * filtered_sample;
+
+        filtered_sample as f32
+    }
+
+    pub fn get_sample_queue_mut(&mut self) -> &mut VecDeque<f32> {
+        &mut self.sample_queue
+    }
+}
+
+pub fn tick(state: &mut ApuState, bus: &mut CpuBus<'_>) {
+    state.process_register_updates(bus.get_io_registers_mut().drain_dirty_registers());
+
+    state.tick_cpu(bus.interrupt_lines());
+
+    let prev_ticks = state.total_ticks;
+    state.total_ticks += 1;
+
+    // TODO don't hardcode frequencies
+    if (prev_ticks as f64 * 48000.0 / 1789772.73).round() as u64
+        != (state.total_ticks as f64 * 48000.0 / 1789772.73).round() as u64
+    {
+        let mixed_sample = state.mix_samples();
+        let mixed_sample = state.high_pass_filter(mixed_sample);
+        state.sample_queue.push_back(mixed_sample);
+        state.sample_queue.push_back(mixed_sample);
     }
 }

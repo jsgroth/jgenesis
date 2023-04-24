@@ -1,9 +1,11 @@
+use crate::apu::ApuState;
 use crate::bus::cartridge::CartridgeFileError;
 use crate::bus::{cartridge, Bus};
 use crate::cpu::{CpuRegisters, CpuState};
 use crate::input::JoypadState;
 use crate::ppu::PpuState;
-use crate::{cpu, ppu};
+use crate::{apu, cpu, ppu};
+use sdl2::audio::AudioSpecDesired;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::{Color, PixelFormatEnum};
@@ -55,6 +57,7 @@ const COLOR_MAPPING: &[u8] = include_bytes!("../../nespalette.pal");
 pub fn run(path: &str) -> Result<(), RunError> {
     let sdl_ctx = sdl2::init()?;
     let video_subsystem = sdl_ctx.video()?;
+    let audio_subsystem = sdl_ctx.audio()?;
 
     sdl_ctx.mouse().show_cursor(false);
 
@@ -79,6 +82,16 @@ pub fn run(path: &str) -> Result<(), RunError> {
         ppu::VISIBLE_SCREEN_HEIGHT.into(),
     )?;
 
+    let audio_queue = audio_subsystem.open_queue::<f32, _>(
+        None,
+        &AudioSpecDesired {
+            channels: Some(2),
+            freq: Some(48000),
+            samples: Some(1024),
+        },
+    )?;
+    audio_queue.resume();
+
     let mut event_pump = sdl_ctx.event_pump()?;
 
     let mapper = cartridge::from_file(Path::new(path))?;
@@ -89,6 +102,7 @@ pub fn run(path: &str) -> Result<(), RunError> {
 
     let mut cpu_state = CpuState::new(cpu_registers);
     let mut ppu_state = PpuState::new();
+    let mut apu_state = ApuState::new();
     let mut joypad_state = JoypadState::new();
 
     let mut count = 0;
@@ -96,6 +110,7 @@ pub fn run(path: &str) -> Result<(), RunError> {
         let prev_in_vblank = ppu_state.in_vblank();
 
         cpu::tick(&mut cpu_state, &mut bus);
+        apu::tick(&mut apu_state, &mut bus.cpu());
         ppu::tick(&mut ppu_state, &mut bus.ppu());
         bus.tick();
 
@@ -148,6 +163,12 @@ pub fn run(path: &str) -> Result<(), RunError> {
             }
 
             bus.update_joypad_state(joypad_state);
+
+            let sample_queue = apu_state.get_sample_queue_mut();
+            if !sample_queue.is_empty() {
+                let samples: Vec<_> = sample_queue.drain(..).collect();
+                audio_queue.queue_audio(&samples)?;
+            }
         }
 
         // TODO scaffolding for printing test ROM output, remove at some point

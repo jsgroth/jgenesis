@@ -331,6 +331,13 @@ pub enum IoRegister {
     JOY2,
 }
 
+// Needed for ArrayVec
+impl Default for IoRegister {
+    fn default() -> Self {
+        Self::SQ1_VOL
+    }
+}
+
 impl IoRegister {
     const fn to_relative_address(self) -> usize {
         match self {
@@ -391,6 +398,7 @@ impl IoRegister {
 pub struct IoRegisters {
     data: [u8; 0x18],
     dma_dirty: bool,
+    dirty_registers: ArrayVec<[IoRegister; 5]>,
     joypad_state: JoypadState,
     latched_joypad_state: Option<LatchedJoypadState>,
 }
@@ -400,6 +408,7 @@ impl IoRegisters {
         Self {
             data: [0; 0x18],
             dma_dirty: false,
+            dirty_registers: ArrayVec::new(),
             joypad_state: JoypadState::new(),
             latched_joypad_state: None,
         }
@@ -436,6 +445,7 @@ impl IoRegisters {
 
     fn write_register(&mut self, register: IoRegister, value: u8) {
         self.data[register.to_relative_address()] = value;
+        self.dirty_registers.push(register);
 
         match register {
             IoRegister::JOY1 => {
@@ -450,6 +460,12 @@ impl IoRegisters {
             }
             _ => {}
         }
+    }
+
+    pub fn drain_dirty_registers(&mut self) -> impl Iterator<Item = (IoRegister, u8)> + '_ {
+        self.dirty_registers
+            .drain(..)
+            .map(|register| (register, self.data[register.to_relative_address()]))
     }
 }
 
@@ -531,6 +547,14 @@ impl InterruptLines {
 
     pub fn release_irq_low_pull(&mut self, source: IrqSource) {
         self.irq_low_pulls &= !source.to_low_pull_bit();
+    }
+
+    pub fn set_irq_low_pull(&mut self, source: IrqSource, value: bool) {
+        if value {
+            self.pull_irq_low(source);
+        } else {
+            self.release_irq_low_pull(source);
+        }
     }
 }
 
@@ -760,6 +784,14 @@ impl<'a> CpuBus<'a> {
 
     pub fn read_io_register(&mut self, io_register: IoRegister) -> u8 {
         self.0.io_registers.read_register(io_register)
+    }
+
+    pub fn get_io_registers(&self) -> &IoRegisters {
+        &self.0.io_registers
+    }
+
+    pub fn get_io_registers_mut(&mut self) -> &mut IoRegisters {
+        &mut self.0.io_registers
     }
 }
 

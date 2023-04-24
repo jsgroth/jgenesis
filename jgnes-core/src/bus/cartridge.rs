@@ -370,24 +370,18 @@ impl MapperImpl<Mmc1> {
                     self.data.chr_type.to_map_result(chr_address)
                 }
             },
-            0x2000..=0x3EFF => {
-                let nametable_relative_addr = (address & 0x2FFF) - 0x2000;
-
-                match self.data.nametable_mirroring {
-                    Mmc1Mirroring::OneScreenLowerBank => {
-                        PpuMapResult::Vram(nametable_relative_addr & 0x03FF)
-                    }
-                    Mmc1Mirroring::OneScreenUpperBank => {
-                        PpuMapResult::Vram(0x0400 + (nametable_relative_addr & 0x03FF))
-                    }
-                    Mmc1Mirroring::Vertical => {
-                        PpuMapResult::Vram(NametableMirroring::Vertical.map_to_vram(address))
-                    }
-                    Mmc1Mirroring::Horizontal => {
-                        PpuMapResult::Vram(NametableMirroring::Horizontal.map_to_vram(address))
-                    }
+            0x2000..=0x3EFF => match self.data.nametable_mirroring {
+                Mmc1Mirroring::OneScreenLowerBank => PpuMapResult::Vram(address & 0x03FF),
+                Mmc1Mirroring::OneScreenUpperBank => {
+                    PpuMapResult::Vram(0x0400 + (address & 0x03FF))
                 }
-            }
+                Mmc1Mirroring::Vertical => {
+                    PpuMapResult::Vram(NametableMirroring::Vertical.map_to_vram(address))
+                }
+                Mmc1Mirroring::Horizontal => {
+                    PpuMapResult::Vram(NametableMirroring::Horizontal.map_to_vram(address))
+                }
+            },
             _ => panic!("invalid PPU map address: 0x{address:04X}"),
         }
     }
