@@ -162,7 +162,7 @@ fn render_scanline(scanline: u16, state: &mut PpuState, bus: &mut PpuBus<'_>) {
     let mut bg_y = u16::from(scroll_y) + u16::from(scanline);
     while bg_y >= SCREEN_HEIGHT {
         bg_y -= SCREEN_HEIGHT;
-        nametable_address = 0x2000 + ((nametable_address + 0x0800) & 0x0F00);
+        nametable_address ^= 0x0800;
     }
 
     let bg_tile_y = bg_y / 8;
@@ -244,8 +244,7 @@ fn render_scanline(scanline: u16, state: &mut PpuState, bus: &mut PpuBus<'_>) {
         bg_x += 1;
         if bg_x == SCREEN_WIDTH {
             bg_x = 0;
-            nametable_address =
-                (nametable_address & 0x2800) + ((nametable_address + 0x0400) & 0x0700);
+            nametable_address ^= 0x0400;
         }
     }
 }
