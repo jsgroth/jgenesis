@@ -154,6 +154,7 @@ pub struct PpuRegisters {
     ppu_status_read: bool,
     ppu_scroll_latch: PpuRegisterLatch,
     ppu_addr_latch: PpuRegisterLatch,
+    base_nametable_address: u16,
 }
 
 impl PpuRegisters {
@@ -170,6 +171,7 @@ impl PpuRegisters {
             ppu_status_read: false,
             ppu_scroll_latch: PpuRegisterLatch::Clear,
             ppu_addr_latch: PpuRegisterLatch::Clear,
+            base_nametable_address: 0x2000,
         }
     }
 
@@ -214,7 +216,7 @@ impl PpuRegisters {
     }
 
     pub fn base_nametable_address(&self) -> u16 {
-        0x2000 + (0x0400 * u16::from(self.ppu_ctrl & 0x03))
+        self.base_nametable_address
     }
 
     pub fn emphasize_blue(&self) -> bool {
@@ -300,6 +302,10 @@ impl PpuRegisters {
             InterruptLine::High
         };
         interrupt_lines.ppu_set_nmi_line(nmi_line);
+    }
+
+    fn update_base_nametable_address(&mut self, nametable_bits: u8) {
+        self.base_nametable_address = 0x2000 + 0x0400 * u16::from(nametable_bits & 0x03);
     }
 }
 
@@ -742,6 +748,7 @@ impl<'a> CpuBus<'a> {
         match register {
             PpuRegister::PPUCTRL => {
                 self.0.ppu_registers.ppu_ctrl = value;
+                self.0.ppu_registers.update_base_nametable_address(value);
             }
             PpuRegister::PPUMASK => {
                 self.0.ppu_registers.ppu_mask = value;
@@ -769,6 +776,11 @@ impl<'a> CpuBus<'a> {
                 PpuRegisterLatch::Clear | PpuRegisterLatch::Latched => {
                     self.0.ppu_registers.ppu_addr = u16::from(value) << 8;
                     self.0.ppu_registers.ppu_addr_latch = PpuRegisterLatch::HalfLatched;
+                    // Bits 2-3 from the first write to PPUADDR set the nametable address, in
+                    // addition to PPUCTRL writes setting it
+                    self.0
+                        .ppu_registers
+                        .update_base_nametable_address(value >> 2);
                 }
                 PpuRegisterLatch::HalfLatched => {
                     self.0.ppu_registers.ppu_addr |= u16::from(value);
