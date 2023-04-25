@@ -113,6 +113,8 @@ impl DeltaModulationChannel {
     }
 
     pub fn process_snd_chn_update(&mut self, snd_chn_value: u8, bus: &mut CpuBus<'_>) {
+        self.interrupt_flag = false;
+
         self.enabled = snd_chn_value & 0x10 != 0;
         if self.enabled && self.sample_bytes_remaining == 0 {
             self.restart();
@@ -121,8 +123,6 @@ impl DeltaModulationChannel {
             self.sample_bytes_remaining = 0;
             self.sample_buffer = None;
         }
-
-        self.interrupt_flag = false;
     }
 
     fn restart(&mut self) {

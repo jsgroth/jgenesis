@@ -353,7 +353,8 @@ impl ApuConfig {
 }
 
 pub fn tick(state: &mut ApuState, config: &ApuConfig, bus: &mut CpuBus<'_>) {
-    log::debug!("APU: Frame counter state: {:?}", state.frame_counter);
+    log::trace!("APU: Frame counter state: {:?}", state.frame_counter);
+    log::trace!("APU: DMC state: {:?}", state.channel_5);
 
     if bus.get_io_registers_mut().get_and_clear_snd_chn_read() {
         state.frame_counter_interrupt_flag = false;
@@ -366,6 +367,7 @@ pub fn tick(state: &mut ApuState, config: &ApuConfig, bus: &mut CpuBus<'_>) {
 
     bus.get_io_registers_mut()
         .set_apu_status(state.get_apu_status());
+    log::trace!("APU: Status set to {:02X}", state.get_apu_status());
 
     let prev_ticks = state.total_ticks;
     state.total_ticks += 1;
