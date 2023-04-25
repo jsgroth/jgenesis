@@ -399,6 +399,7 @@ pub struct IoRegisters {
     data: [u8; 0x18],
     dma_dirty: bool,
     dirty_registers: ArrayVec<[IoRegister; 5]>,
+    snd_chn_read: bool,
     joypad_state: JoypadState,
     latched_joypad_state: Option<LatchedJoypadState>,
 }
@@ -409,6 +410,7 @@ impl IoRegisters {
             data: [0; 0x18],
             dma_dirty: false,
             dirty_registers: ArrayVec::new(),
+            snd_chn_read: false,
             joypad_state: JoypadState::new(),
             latched_joypad_state: None,
         }
@@ -431,7 +433,11 @@ impl IoRegisters {
                     u8::from(self.joypad_state.a)
                 }
             }
-            IoRegister::SND_CHN | IoRegister::JOY2 => self.data[register.to_relative_address()],
+            IoRegister::SND_CHN => {
+                self.snd_chn_read = true;
+                self.data[register.to_relative_address()]
+            }
+            IoRegister::JOY2 => self.data[register.to_relative_address()],
             _ => 0xFF,
         }
     }
@@ -466,6 +472,16 @@ impl IoRegisters {
         self.dirty_registers
             .drain(..)
             .map(|register| (register, self.data[register.to_relative_address()]))
+    }
+
+    pub fn set_apu_status(&mut self, apu_status: u8) {
+        self.data[IoRegister::SND_CHN.to_relative_address()] = apu_status;
+    }
+
+    pub fn get_and_clear_snd_chn_read(&mut self) -> bool {
+        let snd_chn_read = self.snd_chn_read;
+        self.snd_chn_read = false;
+        snd_chn_read
     }
 }
 

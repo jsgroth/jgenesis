@@ -1,4 +1,4 @@
-use crate::bus::{CpuBus, InterruptLines, IoRegister, IrqSource};
+use crate::bus::{CpuBus, IoRegister, IrqSource};
 use std::collections::VecDeque;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -700,12 +700,184 @@ impl NoiseChannel {
     }
 }
 
+const DMC_PERIOD_LOOKUP_TABLE: [u16; 16] = [
+    420, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54,
+];
+
+#[derive(Debug, Clone)]
+struct DmcOutputUnit {
+    output_level: u8,
+    shift_register: u8,
+    bits_remaining: u8,
+    silence_flag: bool,
+}
+
+impl DmcOutputUnit {
+    fn new() -> Self {
+        Self {
+            output_level: 0,
+            shift_register: 0,
+            bits_remaining: 8,
+            silence_flag: true,
+        }
+    }
+
+    fn clock(&mut self, sample_buffer: &mut Option<u8>) {
+        if !self.silence_flag {
+            let new_output_level = if self.shift_register & 0x01 != 0 {
+                self.output_level + 2
+            } else {
+                self.output_level.wrapping_sub(2)
+            };
+            if new_output_level < 128 {
+                self.output_level = new_output_level;
+            }
+        }
+
+        self.shift_register >>= 1;
+        self.bits_remaining -= 1;
+
+        if self.bits_remaining == 0 {
+            self.bits_remaining = 8;
+            match sample_buffer.take() {
+                Some(sample_bits) => {
+                    self.shift_register = sample_bits;
+                    self.silence_flag = false;
+                }
+                None => {
+                    self.silence_flag = true;
+                }
+            }
+        }
+    }
+
+    fn sample(&self) -> u8 {
+        self.output_level
+    }
+}
+
+#[derive(Debug, Clone)]
+struct DeltaModulationChannel {
+    enabled: bool,
+    timer_counter: u16,
+    timer_period: u16,
+    sample_buffer: Option<u8>,
+    output_unit: DmcOutputUnit,
+    sample_address: u16,
+    current_sample_address: u16,
+    sample_length: u16,
+    sample_bytes_remaining: u16,
+    loop_flag: bool,
+    irq_enabled: bool,
+    interrupt_flag: bool,
+}
+
+impl DeltaModulationChannel {
+    fn new() -> Self {
+        Self {
+            enabled: false,
+            timer_counter: 0,
+            timer_period: 1,
+            sample_buffer: None,
+            output_unit: DmcOutputUnit::new(),
+            sample_address: 0x8000,
+            current_sample_address: 0x8000,
+            sample_length: 1,
+            sample_bytes_remaining: 0,
+            loop_flag: false,
+            irq_enabled: false,
+            interrupt_flag: false,
+        }
+    }
+
+    fn process_dmc_freq_update(&mut self, dmc_freq_value: u8) {
+        self.irq_enabled = dmc_freq_value & 0x80 != 0;
+        self.loop_flag = dmc_freq_value & 0x40 != 0;
+        self.timer_period = DMC_PERIOD_LOOKUP_TABLE[(dmc_freq_value & 0x0F) as usize];
+
+        if !self.irq_enabled {
+            self.interrupt_flag = false;
+        }
+    }
+
+    fn process_dmc_raw_update(&mut self, dmc_raw_value: u8) {
+        self.output_unit.output_level = dmc_raw_value & 0x7F;
+    }
+
+    fn process_dmc_start_update(&mut self, dmc_start_value: u8) {
+        self.sample_address = 0xC000 | (u16::from(dmc_start_value) << 6);
+    }
+
+    fn process_dmc_len_update(&mut self, dmc_len_value: u8) {
+        self.sample_length = (u16::from(dmc_len_value) << 4) + 1;
+    }
+
+    fn process_snd_chn_update(&mut self, snd_chn_value: u8, bus: &mut CpuBus<'_>) {
+        self.enabled = snd_chn_value & 0x10 != 0;
+        if self.enabled && self.sample_bytes_remaining == 0 {
+            self.restart();
+            self.fill_sample_buffer(bus);
+        } else if !self.enabled {
+            self.sample_bytes_remaining = 0;
+            self.sample_buffer = None;
+        }
+
+        self.interrupt_flag = false;
+    }
+
+    fn restart(&mut self) {
+        self.current_sample_address = self.sample_address;
+        self.sample_bytes_remaining = self.sample_length;
+    }
+
+    fn fill_sample_buffer(&mut self, bus: &mut CpuBus<'_>) {
+        if self.sample_buffer.is_some() || self.sample_bytes_remaining == 0 {
+            return;
+        }
+
+        self.sample_buffer = Some(bus.read_address(self.current_sample_address));
+        self.current_sample_address = if self.current_sample_address == 0xFFFF {
+            0x8000
+        } else {
+            self.current_sample_address + 1
+        };
+        self.sample_bytes_remaining -= 1;
+
+        if self.sample_bytes_remaining == 0 {
+            if self.loop_flag {
+                self.restart();
+            } else if self.irq_enabled {
+                self.interrupt_flag = true;
+            }
+        }
+    }
+
+    fn tick_cpu(&mut self, bus: &mut CpuBus<'_>) {
+        if self.timer_counter == 0 {
+            self.clock(bus);
+            self.timer_counter = self.timer_period - 1;
+        } else {
+            self.timer_counter -= 1;
+        }
+    }
+
+    fn clock(&mut self, bus: &mut CpuBus<'_>) {
+        self.output_unit.clock(&mut self.sample_buffer);
+        self.fill_sample_buffer(bus);
+    }
+
+    fn sample(&self) -> u8 {
+        self.output_unit.sample()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ApuState {
     channel_1: PulseChannel,
     channel_2: PulseChannel,
     channel_3: TriangleChannel,
     channel_4: NoiseChannel,
+    channel_5: DeltaModulationChannel,
     frame_counter: FrameCounter,
     frame_counter_interrupt_flag: bool,
     sample_queue: VecDeque<f32>,
@@ -720,6 +892,7 @@ impl ApuState {
             channel_2: PulseChannel::new_channel_2(),
             channel_3: TriangleChannel::new(),
             channel_4: NoiseChannel::new(),
+            channel_5: DeltaModulationChannel::new(),
             frame_counter: FrameCounter::new(),
             frame_counter_interrupt_flag: false,
             sample_queue: VecDeque::new(),
@@ -728,7 +901,11 @@ impl ApuState {
         }
     }
 
-    fn process_register_updates(&mut self, iter: impl Iterator<Item = (IoRegister, u8)>) {
+    fn process_register_updates(
+        &mut self,
+        iter: impl Iterator<Item = (IoRegister, u8)>,
+        bus: &mut CpuBus<'_>,
+    ) {
         for (register, value) in iter {
             match register {
                 IoRegister::SQ1_VOL => {
@@ -773,11 +950,24 @@ impl ApuState {
                 IoRegister::NOISE_HI => {
                     self.channel_4.process_hi_update(value);
                 }
+                IoRegister::DMC_FREQ => {
+                    self.channel_5.process_dmc_freq_update(value);
+                }
+                IoRegister::DMC_RAW => {
+                    self.channel_5.process_dmc_raw_update(value);
+                }
+                IoRegister::DMC_START => {
+                    self.channel_5.process_dmc_start_update(value);
+                }
+                IoRegister::DMC_LEN => {
+                    self.channel_5.process_dmc_len_update(value);
+                }
                 IoRegister::SND_CHN => {
                     self.channel_1.process_snd_chn_update(value);
                     self.channel_2.process_snd_chn_update(value);
                     self.channel_3.process_snd_chn_update(value);
                     self.channel_4.process_snd_chn_update(value);
+                    self.channel_5.process_snd_chn_update(value, bus);
                 }
                 IoRegister::JOY2 => {
                     self.frame_counter.process_joy2_update(value);
@@ -787,11 +977,12 @@ impl ApuState {
         }
     }
 
-    fn tick_cpu(&mut self, interrupt_lines: &mut InterruptLines) {
+    fn tick_cpu(&mut self, bus: &mut CpuBus<'_>) {
         self.channel_1.tick_cpu();
         self.channel_2.tick_cpu();
         self.channel_3.tick_cpu();
         self.channel_4.tick_cpu();
+        self.channel_5.tick_cpu(bus);
         self.frame_counter.tick();
 
         if self.frame_counter.generate_quarter_frame_clock() {
@@ -814,10 +1005,23 @@ impl ApuState {
             self.frame_counter_interrupt_flag = false;
         }
 
-        interrupt_lines.set_irq_low_pull(
+        bus.interrupt_lines().set_irq_low_pull(
             IrqSource::ApuFrameCounter,
             self.frame_counter_interrupt_flag,
         );
+
+        bus.interrupt_lines()
+            .set_irq_low_pull(IrqSource::ApuDmc, self.channel_5.interrupt_flag);
+    }
+
+    fn get_apu_status(&self) -> u8 {
+        (u8::from(self.channel_5.interrupt_flag) << 7)
+            | (u8::from(self.frame_counter_interrupt_flag) << 6)
+            | (u8::from(self.channel_5.sample_bytes_remaining > 0) << 4)
+            | (u8::from(self.channel_4.length_counter.counter > 0) << 3)
+            | (u8::from(self.channel_3.length_counter.counter > 0) << 2)
+            | (u8::from(self.channel_2.length_counter.counter > 0) << 1)
+            | u8::from(self.channel_1.length_counter.counter > 0)
     }
 
     fn mix_samples(&self) -> f32 {
@@ -825,6 +1029,7 @@ impl ApuState {
         let pulse2_sample = self.channel_2.sample();
         let triangle_sample = self.channel_3.sample();
         let noise_sample = self.channel_4.sample();
+        let dmc_sample = self.channel_5.sample();
 
         // TODO this could be a lookup table, will be helpful when sampling every cycle
         // for a low-pass filter
@@ -836,9 +1041,12 @@ impl ApuState {
             0.0
         };
 
-        let tnd_mix = if triangle_sample > 0 {
+        let tnd_mix = if triangle_sample > 0 || noise_sample > 0 || dmc_sample > 0 {
             159.79
-                / (1.0 / (f64::from(triangle_sample) / 8227.0 + f64::from(noise_sample) / 12241.0)
+                / (1.0
+                    / (f64::from(triangle_sample) / 8227.0
+                        + f64::from(noise_sample) / 12241.0
+                        + f64::from(dmc_sample) / 22638.0)
                     + 100.0)
         } else {
             0.0
@@ -862,9 +1070,17 @@ impl ApuState {
 }
 
 pub fn tick(state: &mut ApuState, bus: &mut CpuBus<'_>) {
-    state.process_register_updates(bus.get_io_registers_mut().drain_dirty_registers());
+    if bus.get_io_registers_mut().get_and_clear_snd_chn_read() {
+        state.frame_counter_interrupt_flag = false;
+    }
 
-    state.tick_cpu(bus.interrupt_lines());
+    let dirty_registers: Vec<_> = bus.get_io_registers_mut().drain_dirty_registers().collect();
+    state.process_register_updates(dirty_registers.into_iter(), bus);
+
+    state.tick_cpu(bus);
+
+    bus.get_io_registers_mut()
+        .set_apu_status(state.get_apu_status());
 
     let prev_ticks = state.total_ticks;
     state.total_ticks += 1;
