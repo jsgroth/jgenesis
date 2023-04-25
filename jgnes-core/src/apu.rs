@@ -104,7 +104,9 @@ impl FrameCounter {
     }
 
     fn should_set_interrupt_flag(&self) -> bool {
-        !self.interrupt_inhibit_flag && self.cpu_ticks == 29828
+        !self.interrupt_inhibit_flag
+            && self.mode == FrameCounterMode::FourStep
+            && self.cpu_ticks == 29828
     }
 }
 
