@@ -17,7 +17,7 @@ impl DutyCycle {
             0x40 => Self::OneFourth,
             0x80 => Self::OneHalf,
             0xC0 => Self::ThreeFourths,
-            _ => panic!("{vol_value} & 0xC0 was not 0x00/0x40/0x80/0xC0"),
+            _ => unreachable!("{vol_value} & 0xC0 was not 0x00/0x40/0x80/0xC0"),
         }
     }
 

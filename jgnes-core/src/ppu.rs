@@ -135,7 +135,7 @@ fn render_scanline(scanline: u16, state: &mut PpuState, bus: &mut PpuBus<'_>) {
         for (oam_index, chunk) in oam.chunks_exact(4).enumerate() {
             let &[y_pos, tile_index, attributes, x_pos] = chunk
             else {
-                panic!("all OAM iteration chunks should be size 4");
+                unreachable!("all OAM iteration chunks should be size 4");
             };
 
             // TODO this is really not the right way to fix this, but OAM Y position is 1 lower
@@ -185,7 +185,7 @@ fn render_scanline(scanline: u16, state: &mut PpuState, bus: &mut PpuBus<'_>) {
             (x, y) if x >= 16 && y < 16 => (bg_attributes >> 2) & 0x03,
             (x, y) if x < 16 && y >= 16 => (bg_attributes >> 4) & 0x03,
             (x, y) if x >= 16 && y >= 16 => (bg_attributes >> 6) & 0x03,
-            _ => panic!("match arm guards should be exhaustive"),
+            _ => unreachable!("match arm guards should be exhaustive"),
         };
 
         let bg_tile_data_0 = bus.read_address(

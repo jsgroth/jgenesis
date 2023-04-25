@@ -786,7 +786,7 @@ impl<'a> PpuBus<'a> {
                 self.0.ppu_palette_ram[palette_relative_addr]
             }
             0x4000..=0xFFFF => {
-                panic!("{address} should be <= 0x3FFF after masking with 0x3FFF")
+                unreachable!("{address} should be <= 0x3FFF after masking with 0x3FFF")
             }
         }
     }
@@ -811,7 +811,7 @@ impl<'a> PpuBus<'a> {
                 self.0.ppu_palette_ram[palette_relative_addr] = value;
             }
             0x4000..=0xFFFF => {
-                panic!("{address} should be <= 0x3FFF after masking with 0x3FFF")
+                unreachable!("{address} should be <= 0x3FFF after masking with 0x3FFF")
             }
         }
     }

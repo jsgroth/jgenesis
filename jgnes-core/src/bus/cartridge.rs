@@ -255,7 +255,7 @@ impl MapperImpl<Mmc1> {
                             & (self.cartridge.prg_rom.len() as u32 - 1);
                         CpuMapResult::PrgROM(bank_address + (u32::from(address) & 0x3FFF))
                     }
-                    _ => panic!("match arm should be unreachable"),
+                    _ => unreachable!("match arm should be unreachable"),
                 },
                 Mmc1PrgBankingMode::Switch16KbLastBankFixed => match address {
                     0x8000..=0xBFFF => {
@@ -267,7 +267,7 @@ impl MapperImpl<Mmc1> {
                         let last_bank_address = self.cartridge.prg_rom.len() as u32 - 0x4000;
                         CpuMapResult::PrgROM(last_bank_address + (u32::from(address) & 0x3FFF))
                     }
-                    _ => panic!("match arm should be unreachable"),
+                    _ => unreachable!("match arm should be unreachable"),
                 },
             },
         }
@@ -317,14 +317,18 @@ impl MapperImpl<Mmc1> {
                                 0x01 => Mmc1Mirroring::OneScreenUpperBank,
                                 0x02 => Mmc1Mirroring::Vertical,
                                 0x03 => Mmc1Mirroring::Horizontal,
-                                _ => panic!("{shift_register} & 0x03 was not 0x00/0x01/0x02/0x03",),
+                                _ => unreachable!(
+                                    "{shift_register} & 0x03 was not 0x00/0x01/0x02/0x03",
+                                ),
                             };
 
                             self.data.prg_banking_mode = match shift_register & 0x0C {
                                 0x00 | 0x04 => Mmc1PrgBankingMode::Switch32Kb,
                                 0x08 => Mmc1PrgBankingMode::Switch16KbFirstBankFixed,
                                 0x0C => Mmc1PrgBankingMode::Switch16KbLastBankFixed,
-                                _ => panic!("{shift_register} & 0x0C was not 0x00/0x04/0x08/0x0C"),
+                                _ => unreachable!(
+                                    "{shift_register} & 0x0C was not 0x00/0x04/0x08/0x0C"
+                                ),
                             };
 
                             self.data.chr_banking_mode = if shift_register & 0x10 != 0 {
@@ -342,7 +346,7 @@ impl MapperImpl<Mmc1> {
                         0xE000..=0xFFFF => {
                             self.data.prg_bank = shift_register;
                         }
-                        _ => panic!("match arm should be unreachable"),
+                        _ => unreachable!("match arm should be unreachable"),
                     }
                 }
             }
@@ -456,12 +460,225 @@ impl MapperImpl<Cnrom> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mmc3PrgMode {
+    Mode0,
+    Mode1,
+}
+
+impl Mmc3PrgMode {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mmc3ChrMode {
+    Mode0,
+    Mode1,
+}
+
+impl Mmc3ChrMode {}
+
+#[derive(Debug, Clone)]
+struct Mmc3BankMapping {
+    prg_mode: Mmc3PrgMode,
+    chr_mode: Mmc3ChrMode,
+    prg_rom_len: u32,
+    chr_len: u32,
+    prg_bank_0: u8,
+    prg_bank_1: u8,
+    chr_banks: [u8; 6],
+}
+
+impl Mmc3BankMapping {
+    fn new(prg_rom_len: u32, chr_len: u32) -> Self {
+        Self {
+            prg_mode: Mmc3PrgMode::Mode0,
+            chr_mode: Mmc3ChrMode::Mode0,
+            prg_rom_len,
+            chr_len,
+            prg_bank_0: 0,
+            prg_bank_1: 0,
+            chr_banks: [0; 6],
+        }
+    }
+
+    fn prg_bank_address(bank_number: u8, address: u16) -> u32 {
+        u32::from(bank_number & 0x3F) * 8192 + u32::from(address & 0x1FFF)
+    }
+
+    fn chr_1kb_bank_address(bank_number: u8, address: u16) -> u32 {
+        u32::from(bank_number) * 1024 + u32::from(address & 0x03FF)
+    }
+
+    fn chr_2kb_bank_address(bank_number: u8, address: u16) -> u32 {
+        u32::from(bank_number & 0xFE) * 1024 + u32::from(address & 0x07FF)
+    }
+
+    fn map_prg_rom_address(&self, address: u16) -> u32 {
+        match (self.prg_mode, address) {
+            (_, 0x0000..=0x7FFF) => panic!("invalid MMC3 PRG ROM address: 0x{address:04X}"),
+            (Mmc3PrgMode::Mode0, 0x8000..=0x9FFF) | (Mmc3PrgMode::Mode1, 0xC000..=0xDFFF) => {
+                Self::prg_bank_address(self.prg_bank_0, address)
+            }
+            (_, 0xA000..=0xBFFF) => Self::prg_bank_address(self.prg_bank_1, address),
+            (Mmc3PrgMode::Mode0, 0xC000..=0xDFFF) | (Mmc3PrgMode::Mode1, 0x8000..=0x9FFF) => {
+                Self::prg_bank_address(((self.prg_rom_len >> 13) - 2) as u8, address)
+            }
+            (_, 0xE000..=0xFFFF) => {
+                Self::prg_bank_address(((self.prg_rom_len >> 13) - 1) as u8, address)
+            }
+        }
+    }
+
+    fn map_pattern_table_address(&self, address: u16) -> u32 {
+        let mapped_address = match (self.chr_mode, address) {
+            (Mmc3ChrMode::Mode0, 0x0000..=0x07FF) | (Mmc3ChrMode::Mode1, 0x1000..=0x17FF) => {
+                Self::chr_2kb_bank_address(self.chr_banks[0], address)
+            }
+            (Mmc3ChrMode::Mode0, 0x0800..=0x0FFF) | (Mmc3ChrMode::Mode1, 0x1800..=0x1FFF) => {
+                Self::chr_2kb_bank_address(self.chr_banks[1], address)
+            }
+            (Mmc3ChrMode::Mode0, 0x1000..=0x13FF) | (Mmc3ChrMode::Mode1, 0x0000..=0x03FF) => {
+                Self::chr_1kb_bank_address(self.chr_banks[2], address)
+            }
+            (Mmc3ChrMode::Mode0, 0x1400..=0x17FF) | (Mmc3ChrMode::Mode1, 0x0400..=0x07FF) => {
+                Self::chr_1kb_bank_address(self.chr_banks[3], address)
+            }
+            (Mmc3ChrMode::Mode0, 0x1800..=0x1BFF) | (Mmc3ChrMode::Mode1, 0x0800..=0x0BFF) => {
+                Self::chr_1kb_bank_address(self.chr_banks[4], address)
+            }
+            (Mmc3ChrMode::Mode0, 0x1C00..=0x1FFF) | (Mmc3ChrMode::Mode1, 0x0C00..=0x0FFF) => {
+                Self::chr_1kb_bank_address(self.chr_banks[5], address)
+            }
+            (_, 0x2000..=0xFFFF) => {
+                panic!("invalid MMC3 CHR pattern table address: 0x{address:04X}")
+            }
+        };
+        mapped_address & (self.chr_len - 1)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mmc3BankUpdate {
+    PrgBank0,
+    PrgBank1,
+    ChrBank(u8),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct Mmc3 {
+    chr_type: ChrType,
+    bank_mapping: Mmc3BankMapping,
+    nametable_mirroring: NametableMirroring,
+    bank_update_select: Mmc3BankUpdate,
+    // TODO MMC3 IRQs, requires either terrible hacks or a more accurate PPU implementation
+}
+
+impl MapperImpl<Mmc3> {
+    fn read_cpu_address(&self, address: u16) -> u8 {
+        match address {
+            0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
+            0x4020..=0x5FFF => 0xFF,
+            0x6000..=0x7FFF => {
+                if !self.cartridge.prg_ram.is_empty() {
+                    self.cartridge.prg_ram[(address & 0x1FFF) as usize]
+                } else {
+                    0xFF
+                }
+            }
+            0x8000..=0xFFFF => {
+                self.cartridge.prg_rom[self.data.bank_mapping.map_prg_rom_address(address) as usize]
+            }
+        }
+    }
+
+    fn write_cpu_address(&mut self, address: u16, value: u8) {
+        #[allow(clippy::match_same_arms)]
+        match address {
+            0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
+            0x4020..=0x5FFF => {}
+            0x6000..=0x7FFF => {
+                if !self.cartridge.prg_ram.is_empty() {
+                    self.cartridge.prg_ram[(address & 0x1FFF) as usize] = value;
+                }
+            }
+            0x8000..=0x9FFF => {
+                if address & 0x01 == 0 {
+                    self.data.bank_mapping.chr_mode = if value & 0x80 != 0 {
+                        Mmc3ChrMode::Mode1
+                    } else {
+                        Mmc3ChrMode::Mode0
+                    };
+                    self.data.bank_mapping.prg_mode = if value & 0x40 != 0 {
+                        Mmc3PrgMode::Mode1
+                    } else {
+                        Mmc3PrgMode::Mode0
+                    };
+                    self.data.bank_update_select = match value & 0x07 {
+                        masked_value @ 0x00..=0x05 => Mmc3BankUpdate::ChrBank(masked_value),
+                        0x06 => Mmc3BankUpdate::PrgBank0,
+                        0x07 => Mmc3BankUpdate::PrgBank1,
+                        _ => unreachable!(
+                            "masking with 0x07 should always be in the range 0x00..=0x07"
+                        ),
+                    }
+                } else {
+                    match self.data.bank_update_select {
+                        Mmc3BankUpdate::ChrBank(chr_bank) => {
+                            self.data.bank_mapping.chr_banks[chr_bank as usize] = value;
+                        }
+                        Mmc3BankUpdate::PrgBank0 => {
+                            self.data.bank_mapping.prg_bank_0 = value;
+                        }
+                        Mmc3BankUpdate::PrgBank1 => {
+                            self.data.bank_mapping.prg_bank_1 = value;
+                        }
+                    }
+                }
+            }
+            0xA000..=0xBFFF => {
+                if address & 0x01 == 0 {
+                    self.data.nametable_mirroring = if value & 0x01 != 0 {
+                        NametableMirroring::Horizontal
+                    } else {
+                        NametableMirroring::Vertical
+                    };
+                }
+            }
+            0xC000..=0xFFFF => {
+                // TODO interrupt registers
+            }
+        }
+    }
+
+    fn map_ppu_address(&self, address: u16) -> PpuMapResult {
+        match address & 0x3FFF {
+            0x0000..=0x1FFF => self
+                .data
+                .chr_type
+                .to_map_result(self.data.bank_mapping.map_pattern_table_address(address)),
+            0x2000..=0x3EFF => {
+                PpuMapResult::Vram(self.data.nametable_mirroring.map_to_vram(address))
+            }
+            _ => panic!("invalid PPU map address: 0x{address:04X}"),
+        }
+    }
+
+    fn read_ppu_address(&self, address: u16, vram: &[u8; 2048]) -> u8 {
+        self.map_ppu_address(address).read(&self.cartridge, vram)
+    }
+
+    fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
+        self.map_ppu_address(address)
+            .write(value, &mut self.cartridge, vram);
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) enum Mapper {
     Nrom(MapperImpl<Nrom>),
     Uxrom(MapperImpl<Uxrom>),
     Mmc1(MapperImpl<Mmc1>),
     Cnrom(MapperImpl<Cnrom>),
+    Mmc3(MapperImpl<Mmc3>),
 }
 
 impl Mapper {
@@ -471,6 +688,7 @@ impl Mapper {
             Self::Uxrom(uxrom) => uxrom.read_cpu_address(address),
             Self::Mmc1(mmc1) => mmc1.read_cpu_address(address),
             Self::Cnrom(cnrom) => cnrom.read_cpu_address(address),
+            Self::Mmc3(mmc3) => mmc3.read_cpu_address(address),
         }
     }
 
@@ -486,6 +704,9 @@ impl Mapper {
             Self::Cnrom(cnrom) => {
                 cnrom.write_cpu_address(address, value);
             }
+            Self::Mmc3(mmc3) => {
+                mmc3.write_cpu_address(address, value);
+            }
         }
     }
 
@@ -495,6 +716,7 @@ impl Mapper {
             Self::Uxrom(uxrom) => uxrom.read_ppu_address(address, vram),
             Self::Mmc1(mmc1) => mmc1.read_ppu_address(address, vram),
             Self::Cnrom(cnrom) => cnrom.read_ppu_address(address, vram),
+            Self::Mmc3(mmc3) => mmc3.read_ppu_address(address, vram),
         }
     }
 
@@ -512,12 +734,16 @@ impl Mapper {
             Self::Cnrom(cnrom) => {
                 cnrom.write_ppu_address(address, value, vram);
             }
+            Self::Mmc3(mmc3) => {
+                mmc3.write_ppu_address(address, value, vram);
+            }
         }
     }
 
     pub(crate) fn tick(&mut self) {
         match self {
-            Self::Nrom(..) | Self::Uxrom(..) | Self::Cnrom(..) => {}
+            // TODO MMC3 IRQs will require ticking
+            Self::Nrom(..) | Self::Uxrom(..) | Self::Cnrom(..) | Self::Mmc3(..) => {}
             Self::Mmc1(mmc1) => {
                 mmc1.tick();
             }
@@ -618,6 +844,11 @@ fn from_ines_file(mut file: File) -> Result<Mapper, CartridgeFileError> {
         ChrType::ROM => 0,
     };
 
+    let chr_size = match chr_type {
+        ChrType::ROM => chr_rom.len(),
+        ChrType::RAM => chr_ram_size,
+    };
+
     log::info!("PRG ROM size: {prg_rom_size}");
     log::info!("CHR ROM size: {chr_rom_size}");
     log::info!("Mapper number: {mapper_number}");
@@ -678,6 +909,15 @@ fn from_ines_file(mut file: File) -> Result<Mapper, CartridgeFileError> {
                 chr_type,
                 chr_bank: 0,
                 nametable_mirroring,
+            },
+        }),
+        4 => Mapper::Mmc3(MapperImpl {
+            cartridge,
+            data: Mmc3 {
+                chr_type,
+                bank_mapping: Mmc3BankMapping::new(prg_rom_size, chr_size as u32),
+                bank_update_select: Mmc3BankUpdate::ChrBank(0),
+                nametable_mirroring: NametableMirroring::Vertical,
             },
         }),
         _ => {
