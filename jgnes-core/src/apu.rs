@@ -261,12 +261,36 @@ impl ApuState {
             | u8::from(self.channel_1.length_counter() > 0)
     }
 
-    fn mix_samples(&self) -> f32 {
-        let pulse1_sample = self.channel_1.sample();
-        let pulse2_sample = self.channel_2.sample();
-        let triangle_sample = self.channel_3.sample();
-        let noise_sample = self.channel_4.sample();
-        let dmc_sample = self.channel_5.sample();
+    fn mix_samples(&self, config: &ApuConfig) -> f32 {
+        let pulse1_sample = if config.ch1_enabled {
+            self.channel_1.sample()
+        } else {
+            0
+        };
+
+        let pulse2_sample = if config.ch2_enabled {
+            self.channel_2.sample()
+        } else {
+            0
+        };
+
+        let triangle_sample = if config.ch3_enabled {
+            self.channel_3.sample()
+        } else {
+            0
+        };
+
+        let noise_sample = if config.ch4_enabled {
+            self.channel_4.sample()
+        } else {
+            0
+        };
+
+        let dmc_sample = if config.ch5_enabled {
+            self.channel_5.sample()
+        } else {
+            0
+        };
 
         // TODO this could be a lookup table, will be helpful when sampling every cycle
         // for a low-pass filter
@@ -306,7 +330,27 @@ impl ApuState {
     }
 }
 
-pub fn tick(state: &mut ApuState, bus: &mut CpuBus<'_>) {
+pub struct ApuConfig {
+    pub ch1_enabled: bool,
+    pub ch2_enabled: bool,
+    pub ch3_enabled: bool,
+    pub ch4_enabled: bool,
+    pub ch5_enabled: bool,
+}
+
+impl ApuConfig {
+    pub fn new() -> Self {
+        Self {
+            ch1_enabled: true,
+            ch2_enabled: true,
+            ch3_enabled: true,
+            ch4_enabled: true,
+            ch5_enabled: true,
+        }
+    }
+}
+
+pub fn tick(state: &mut ApuState, config: &ApuConfig, bus: &mut CpuBus<'_>) {
     if bus.get_io_registers_mut().get_and_clear_snd_chn_read() {
         state.frame_counter_interrupt_flag = false;
     }
@@ -326,7 +370,7 @@ pub fn tick(state: &mut ApuState, bus: &mut CpuBus<'_>) {
     if (prev_ticks as f64 * 48000.0 / 1789772.73).round() as u64
         != (state.total_ticks as f64 * 48000.0 / 1789772.73).round() as u64
     {
-        let mixed_sample = state.mix_samples();
+        let mixed_sample = state.mix_samples(config);
         let mixed_sample = state.high_pass_filter(mixed_sample);
         state.sample_queue.push_back(mixed_sample);
         state.sample_queue.push_back(mixed_sample);

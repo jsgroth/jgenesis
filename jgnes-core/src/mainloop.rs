@@ -1,4 +1,4 @@
-use crate::apu::ApuState;
+use crate::apu::{ApuConfig, ApuState};
 use crate::bus::cartridge::CartridgeFileError;
 use crate::bus::{cartridge, Bus};
 use crate::cpu::{CpuRegisters, CpuState};
@@ -103,6 +103,7 @@ pub fn run(path: &str) -> Result<(), RunError> {
     let mut cpu_state = CpuState::new(cpu_registers);
     let mut ppu_state = PpuState::new();
     let mut apu_state = ApuState::new();
+    let mut apu_config = ApuConfig::new();
     let mut joypad_state = JoypadState::new();
 
     let mut count = 0;
@@ -110,7 +111,7 @@ pub fn run(path: &str) -> Result<(), RunError> {
         let prev_in_vblank = ppu_state.in_vblank();
 
         cpu::tick(&mut cpu_state, &mut bus);
-        apu::tick(&mut apu_state, &mut bus.cpu());
+        apu::tick(&mut apu_state, &apu_config, &mut bus.cpu());
         ppu::tick(&mut ppu_state, &mut bus.ppu());
         bus.tick();
 
@@ -151,6 +152,25 @@ pub fn run(path: &str) -> Result<(), RunError> {
                         ..
                     } => {
                         joypad_state.key_down(keycode);
+
+                        match keycode {
+                            Keycode::Num1 => {
+                                apu_config.ch1_enabled = !apu_config.ch1_enabled;
+                            }
+                            Keycode::Num2 => {
+                                apu_config.ch2_enabled = !apu_config.ch2_enabled;
+                            }
+                            Keycode::Num3 => {
+                                apu_config.ch3_enabled = !apu_config.ch3_enabled;
+                            }
+                            Keycode::Num4 => {
+                                apu_config.ch4_enabled = !apu_config.ch4_enabled;
+                            }
+                            Keycode::Num5 => {
+                                apu_config.ch5_enabled = !apu_config.ch5_enabled;
+                            }
+                            _ => {}
+                        }
                     }
                     Event::KeyUp {
                         keycode: Some(keycode),
