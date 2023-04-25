@@ -373,8 +373,9 @@ pub fn tick(state: &mut ApuState, config: &ApuConfig, bus: &mut CpuBus<'_>) {
     state.total_ticks += 1;
 
     // TODO don't hardcode frequencies
-    if (prev_ticks as f64 * 48000.0 / 1789772.73).round() as u64
-        != (state.total_ticks as f64 * 48000.0 / 1789772.73).round() as u64
+    // the 60.0988 / 60 factor is because the actual NES displays at slightly higher than 60Hz
+    if (prev_ticks as f64 * 48000.0 / 1789772.73 * 60.0988 / 60.0).round() as u64
+        != (state.total_ticks as f64 * 48000.0 / 1789772.73 * 60.0988 / 60.0).round() as u64
     {
         let mixed_sample = state.mix_samples(config);
         let mixed_sample = state.high_pass_filter(mixed_sample);
