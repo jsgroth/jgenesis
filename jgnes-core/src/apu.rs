@@ -716,7 +716,7 @@ impl ApuState {
             0.0
         };
 
-        (pulse_mix + tnd_mix) as f32
+        (pulse_mix + tnd_mix - 0.5) as f32
     }
 
     fn high_pass_filter(&mut self, sample: f32) -> f32 {
