@@ -353,6 +353,8 @@ impl ApuConfig {
 }
 
 pub fn tick(state: &mut ApuState, config: &ApuConfig, bus: &mut CpuBus<'_>) {
+    log::debug!("APU: Frame counter state: {:?}", state.frame_counter);
+
     if bus.get_io_registers_mut().get_and_clear_snd_chn_read() {
         state.frame_counter_interrupt_flag = false;
     }

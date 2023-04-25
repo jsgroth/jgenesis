@@ -537,7 +537,10 @@ impl CycleOp {
                     instruction.execute(registers.accumulator, &mut registers.status);
             }
             Self::ExecuteImmediateRead(instruction) => {
-                instruction.execute(state.operand_first_byte, registers);
+                let operand = bus.read_address(registers.pc);
+                registers.pc += 1;
+
+                instruction.execute(operand, registers);
             }
             Self::ExecuteZeroPageRead(instruction) => {
                 let value = bus.read_address(u16::from(state.operand_first_byte));
@@ -1405,12 +1408,9 @@ pub const INTERRUPT_HANDLER_OPS: [CycleOp; 7] = [
 
 fn get_read_cycle_ops(instruction: ReadInstruction) -> OpVec {
     match instruction.addressing_mode() {
-        AddressingMode::Immediate => [
-            CycleOp::FetchOperand1,
-            CycleOp::ExecuteImmediateRead(instruction),
-        ]
-        .into_iter()
-        .collect(),
+        AddressingMode::Immediate => [CycleOp::ExecuteImmediateRead(instruction)]
+            .into_iter()
+            .collect(),
         AddressingMode::ZeroPage => [
             CycleOp::FetchOperand1,
             CycleOp::ExecuteZeroPageRead(instruction),
