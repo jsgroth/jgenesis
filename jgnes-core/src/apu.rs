@@ -590,11 +590,122 @@ impl TriangleChannel {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LfsrMode {
+    Bit1Feedback,
+    Bit6Feedback,
+}
+
+impl LfsrMode {}
+
+#[derive(Debug, Clone)]
+struct LinearFeedbackShiftRegister {
+    register: u16,
+    mode: LfsrMode,
+}
+
+impl LinearFeedbackShiftRegister {
+    fn new() -> Self {
+        Self {
+            register: 1,
+            mode: LfsrMode::Bit1Feedback,
+        }
+    }
+
+    fn clock(&mut self) {
+        let feedback = match self.mode {
+            LfsrMode::Bit1Feedback => (self.register & 0x01) ^ ((self.register & 0x02) >> 1),
+            LfsrMode::Bit6Feedback => (self.register & 0x01) ^ ((self.register & 0x40) >> 6),
+        };
+
+        self.register = (self.register >> 1) | (feedback << 14);
+    }
+
+    fn sample(&self) -> u8 {
+        (!self.register & 0x01) as u8
+    }
+}
+
+const NOISE_PERIOD_LOOKUP_TABLE: [u16; 16] = [
+    4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
+];
+
+#[derive(Debug, Clone)]
+struct NoiseChannel {
+    lfsr: LinearFeedbackShiftRegister,
+    timer_counter: u16,
+    timer_period: u16,
+    length_counter: LengthCounter,
+    envelope: Envelope,
+}
+
+impl NoiseChannel {
+    fn new() -> Self {
+        Self {
+            lfsr: LinearFeedbackShiftRegister::new(),
+            timer_counter: 0,
+            timer_period: 1,
+            length_counter: LengthCounter::new(LengthCounterChannel::Noise),
+            envelope: Envelope::new(),
+        }
+    }
+
+    fn clock_quarter_frame(&mut self) {
+        self.envelope.clock();
+    }
+
+    fn clock_half_frame(&mut self) {
+        self.length_counter.clock();
+    }
+
+    fn tick_cpu(&mut self) {
+        if self.timer_counter == 0 {
+            self.timer_counter = self.timer_period - 1;
+            self.lfsr.clock();
+        } else {
+            self.timer_counter -= 1;
+        }
+    }
+
+    fn process_vol_update(&mut self, vol_value: u8) {
+        self.envelope.process_vol_update(vol_value);
+        self.length_counter.process_vol_update(vol_value);
+    }
+
+    fn process_lo_update(&mut self, lo_value: u8) {
+        self.lfsr.mode = if lo_value & 0x80 != 0 {
+            LfsrMode::Bit6Feedback
+        } else {
+            LfsrMode::Bit1Feedback
+        };
+
+        self.timer_period = NOISE_PERIOD_LOOKUP_TABLE[(lo_value & 0x0F) as usize];
+    }
+
+    fn process_hi_update(&mut self, hi_value: u8) {
+        self.envelope.process_hi_update();
+        self.length_counter.process_hi_update(hi_value);
+    }
+
+    fn process_snd_chn_update(&mut self, snd_chn_value: u8) {
+        self.length_counter.process_snd_chn_update(snd_chn_value);
+    }
+
+    fn sample(&self) -> u8 {
+        if self.length_counter.counter == 0 {
+            0
+        } else {
+            self.lfsr.sample() * self.envelope.volume()
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ApuState {
     channel_1: PulseChannel,
     channel_2: PulseChannel,
     channel_3: TriangleChannel,
+    channel_4: NoiseChannel,
     frame_counter: FrameCounter,
     frame_counter_interrupt_flag: bool,
     sample_queue: VecDeque<f32>,
@@ -608,6 +719,7 @@ impl ApuState {
             channel_1: PulseChannel::new_channel_1(),
             channel_2: PulseChannel::new_channel_2(),
             channel_3: TriangleChannel::new(),
+            channel_4: NoiseChannel::new(),
             frame_counter: FrameCounter::new(),
             frame_counter_interrupt_flag: false,
             sample_queue: VecDeque::new(),
@@ -652,10 +764,20 @@ impl ApuState {
                 IoRegister::TRI_HI => {
                     self.channel_3.process_hi_update(value);
                 }
+                IoRegister::NOISE_VOL => {
+                    self.channel_4.process_vol_update(value);
+                }
+                IoRegister::NOISE_LO => {
+                    self.channel_4.process_lo_update(value);
+                }
+                IoRegister::NOISE_HI => {
+                    self.channel_4.process_hi_update(value);
+                }
                 IoRegister::SND_CHN => {
                     self.channel_1.process_snd_chn_update(value);
                     self.channel_2.process_snd_chn_update(value);
                     self.channel_3.process_snd_chn_update(value);
+                    self.channel_4.process_snd_chn_update(value);
                 }
                 IoRegister::JOY2 => {
                     self.frame_counter.process_joy2_update(value);
@@ -669,18 +791,21 @@ impl ApuState {
         self.channel_1.tick_cpu();
         self.channel_2.tick_cpu();
         self.channel_3.tick_cpu();
+        self.channel_4.tick_cpu();
         self.frame_counter.tick();
 
         if self.frame_counter.generate_quarter_frame_clock() {
             self.channel_1.clock_quarter_frame();
             self.channel_2.clock_quarter_frame();
             self.channel_3.clock_quarter_frame();
+            self.channel_4.clock_quarter_frame();
         }
 
         if self.frame_counter.generate_half_frame_clock() {
             self.channel_1.clock_half_frame();
             self.channel_2.clock_half_frame();
             self.channel_3.clock_half_frame();
+            self.channel_4.clock_half_frame();
         }
 
         if self.frame_counter.should_set_interrupt_flag() {
@@ -699,6 +824,7 @@ impl ApuState {
         let pulse1_sample = self.channel_1.sample();
         let pulse2_sample = self.channel_2.sample();
         let triangle_sample = self.channel_3.sample();
+        let noise_sample = self.channel_4.sample();
 
         // TODO this could be a lookup table, will be helpful when sampling every cycle
         // for a low-pass filter
@@ -711,7 +837,9 @@ impl ApuState {
         };
 
         let tnd_mix = if triangle_sample > 0 {
-            159.79 / (1.0 / (f64::from(triangle_sample) / 8227.0) + 100.0)
+            159.79
+                / (1.0 / (f64::from(triangle_sample) / 8227.0 + f64::from(noise_sample) / 12241.0)
+                    + 100.0)
         } else {
             0.0
         };
