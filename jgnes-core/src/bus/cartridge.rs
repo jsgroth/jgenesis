@@ -401,10 +401,67 @@ impl MapperImpl<Mmc1> {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) struct Cnrom {
+    chr_type: ChrType,
+    chr_bank: u8,
+    nametable_mirroring: NametableMirroring,
+}
+
+impl MapperImpl<Cnrom> {
+    fn read_cpu_address(&self, address: u16) -> u8 {
+        match address {
+            0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
+            0x4020..=0x7FFF => 0xFF,
+            0x8000..=0xFFFF => {
+                self.cartridge.prg_rom
+                    [(address as usize - 0x8000) & (self.cartridge.prg_rom.len() - 1)]
+            }
+        }
+    }
+
+    fn write_cpu_address(&mut self, address: u16, value: u8) {
+        match address {
+            0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
+            0x4020..=0x7FFF => {}
+            0x8000..=0xFFFF => {
+                self.data.chr_bank = value;
+            }
+        }
+    }
+
+    fn map_ppu_address(&self, address: u16) -> PpuMapResult {
+        match address {
+            0x0000..=0x1FFF => {
+                let chr_mask = match self.data.chr_type {
+                    ChrType::ROM => self.cartridge.chr_rom.len() as u32 - 1,
+                    ChrType::RAM => self.cartridge.chr_ram.len() as u32 - 1,
+                };
+                let chr_address = u32::from(self.data.chr_bank) * 8192 + u32::from(address);
+                self.data.chr_type.to_map_result(chr_address & chr_mask)
+            }
+            0x2000..=0x3EFF => {
+                PpuMapResult::Vram(self.data.nametable_mirroring.map_to_vram(address))
+            }
+            _ => panic!("invalid PPU map address: 0x{address:04X}"),
+        }
+    }
+
+    fn read_ppu_address(&self, address: u16, vram: &[u8; 2048]) -> u8 {
+        self.map_ppu_address(address).read(&self.cartridge, vram)
+    }
+
+    fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
+        self.map_ppu_address(address)
+            .write(value, &mut self.cartridge, vram);
+    }
+}
+
+#[derive(Debug, Clone)]
 pub(crate) enum Mapper {
     Nrom(MapperImpl<Nrom>),
     Uxrom(MapperImpl<Uxrom>),
     Mmc1(MapperImpl<Mmc1>),
+    Cnrom(MapperImpl<Cnrom>),
 }
 
 impl Mapper {
@@ -413,6 +470,7 @@ impl Mapper {
             Self::Nrom(nrom) => nrom.read_cpu_address(address),
             Self::Uxrom(uxrom) => uxrom.read_cpu_address(address),
             Self::Mmc1(mmc1) => mmc1.read_cpu_address(address),
+            Self::Cnrom(cnrom) => cnrom.read_cpu_address(address),
         }
     }
 
@@ -425,6 +483,9 @@ impl Mapper {
             Self::Mmc1(mmc1) => {
                 mmc1.write_cpu_address(address, value);
             }
+            Self::Cnrom(cnrom) => {
+                cnrom.write_cpu_address(address, value);
+            }
         }
     }
 
@@ -433,6 +494,7 @@ impl Mapper {
             Self::Nrom(nrom) => nrom.read_ppu_address(address, vram),
             Self::Uxrom(uxrom) => uxrom.read_ppu_address(address, vram),
             Self::Mmc1(mmc1) => mmc1.read_ppu_address(address, vram),
+            Self::Cnrom(cnrom) => cnrom.read_ppu_address(address, vram),
         }
     }
 
@@ -447,12 +509,15 @@ impl Mapper {
             Self::Mmc1(mmc1) => {
                 mmc1.write_ppu_address(address, value, vram);
             }
+            Self::Cnrom(cnrom) => {
+                cnrom.write_ppu_address(address, value, vram);
+            }
         }
     }
 
     pub(crate) fn tick(&mut self) {
         match self {
-            Self::Nrom(..) | Self::Uxrom(..) => {}
+            Self::Nrom(..) | Self::Uxrom(..) | Self::Cnrom(..) => {}
             Self::Mmc1(mmc1) => {
                 mmc1.tick();
             }
@@ -604,6 +669,14 @@ fn from_ines_file(mut file: File) -> Result<Mapper, CartridgeFileError> {
             data: Uxrom {
                 prg_bank: 0,
                 chr_type,
+                nametable_mirroring,
+            },
+        }),
+        3 => Mapper::Cnrom(MapperImpl {
+            cartridge,
+            data: Cnrom {
+                chr_type,
+                chr_bank: 0,
                 nametable_mirroring,
             },
         }),

@@ -76,8 +76,6 @@ fn run_test(program: &str, expected_state: ExpectedState) {
         *prg_byte = value;
     }
 
-    let prg_rom_size = prg_rom.len() as u32;
-
     let mapper = Mapper::new_mmc1(prg_rom);
 
     let mut bus = Bus::from_cartridge(mapper);
