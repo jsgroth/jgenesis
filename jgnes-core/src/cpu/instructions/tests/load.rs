@@ -8,7 +8,7 @@ fn lda_immediate() {
         ExpectedState {
             a: Some(0x78),
             p: Some(0x34),
-            cycles: Some(3),
+            cycles: Some(2),
             ..ExpectedState::default()
         },
     );
@@ -19,7 +19,7 @@ fn lda_immediate() {
         ExpectedState {
             a: Some(0xDD),
             p: Some(0xB4),
-            cycles: Some(3),
+            cycles: Some(2),
             ..ExpectedState::default()
         },
     );
@@ -30,7 +30,7 @@ fn lda_immediate() {
         ExpectedState {
             a: Some(0x00),
             p: Some(0x36),
-            cycles: Some(3),
+            cycles: Some(2),
             ..ExpectedState::default()
         },
     );
@@ -46,7 +46,7 @@ fn ldx_immediate() {
         ExpectedState {
             x: Some(0x78),
             p: Some(0x34),
-            cycles: Some(3),
+            cycles: Some(2),
             ..ExpectedState::default()
         },
     );
@@ -57,7 +57,7 @@ fn ldx_immediate() {
         ExpectedState {
             x: Some(0xDD),
             p: Some(0xB4),
-            cycles: Some(3),
+            cycles: Some(2),
             ..ExpectedState::default()
         },
     );
@@ -68,7 +68,7 @@ fn ldx_immediate() {
         ExpectedState {
             x: Some(0x00),
             p: Some(0x36),
-            cycles: Some(3),
+            cycles: Some(2),
             ..ExpectedState::default()
         },
     );
@@ -84,7 +84,7 @@ fn ldy_immediate() {
         ExpectedState {
             y: Some(0x78),
             p: Some(0x34),
-            cycles: Some(3),
+            cycles: Some(2),
             ..ExpectedState::default()
         },
     );
@@ -95,7 +95,7 @@ fn ldy_immediate() {
         ExpectedState {
             y: Some(0xDD),
             p: Some(0xB4),
-            cycles: Some(3),
+            cycles: Some(2),
             ..ExpectedState::default()
         },
     );
@@ -106,7 +106,7 @@ fn ldy_immediate() {
         ExpectedState {
             y: Some(0x00),
             p: Some(0x36),
-            cycles: Some(3),
+            cycles: Some(2),
             ..ExpectedState::default()
         },
     );
@@ -135,7 +135,7 @@ fn tax() {
             a: Some(0x45),
             x: Some(0x45),
             p: Some(0x34),
-            cycles: Some(5),
+            cycles: Some(4),
             ..ExpectedState::default()
         },
     );
@@ -147,7 +147,7 @@ fn tax() {
             a: Some(0xCD),
             x: Some(0xCD),
             p: Some(0xB4),
-            cycles: Some(5),
+            cycles: Some(4),
             ..ExpectedState::default()
         },
     );
@@ -174,7 +174,7 @@ fn tay() {
             a: Some(0x45),
             y: Some(0x45),
             p: Some(0x34),
-            cycles: Some(5),
+            cycles: Some(4),
             ..ExpectedState::default()
         },
     );
@@ -186,7 +186,7 @@ fn tay() {
             a: Some(0xCD),
             y: Some(0xCD),
             p: Some(0xB4),
-            cycles: Some(5),
+            cycles: Some(4),
             ..ExpectedState::default()
         },
     );
@@ -214,7 +214,7 @@ fn txs() {
             x: Some(0xFF),
             s: Some(0xFF),
             p: Some(0x34),
-            cycles: Some(8),
+            cycles: Some(6),
             ..ExpectedState::default()
         },
     );
@@ -241,7 +241,7 @@ fn tsx() {
             x: Some(0x00),
             s: Some(0x00),
             p: Some(0x36),
-            cycles: Some(9),
+            cycles: Some(8),
             ..ExpectedState::default()
         },
     );
@@ -268,7 +268,7 @@ fn txa() {
             a: Some(0x45),
             x: Some(0x45),
             p: Some(0x34),
-            cycles: Some(8),
+            cycles: Some(6),
             ..ExpectedState::default()
         },
     );
@@ -280,7 +280,7 @@ fn txa() {
             a: Some(0xEE),
             x: Some(0xEE),
             p: Some(0xB4),
-            cycles: Some(8),
+            cycles: Some(6),
             ..ExpectedState::default()
         },
     );
@@ -307,7 +307,7 @@ fn tya() {
             a: Some(0x45),
             y: Some(0x45),
             p: Some(0x34),
-            cycles: Some(8),
+            cycles: Some(6),
             ..ExpectedState::default()
         },
     );
@@ -319,7 +319,7 @@ fn tya() {
             a: Some(0xEE),
             y: Some(0xEE),
             p: Some(0xB4),
-            cycles: Some(8),
+            cycles: Some(6),
             ..ExpectedState::default()
         },
     );
@@ -346,7 +346,7 @@ fn sta_zero_page() {
             a: Some(0xBA),
             p: Some(0xB4),
             memory: hash_map! { 0x0045: 0xBA },
-            cycles: Some(6),
+            cycles: Some(5),
             ..ExpectedState::default()
         },
     );
@@ -375,7 +375,7 @@ fn sta_zero_page_indexed() {
             x: Some(0x05),
             p: Some(0x34),
             memory: hash_map! { 0x0045: 0x00, 0x004A: 0x78 },
-            cycles: Some(10),
+            cycles: Some(8),
             ..ExpectedState::default()
         },
     );
@@ -388,7 +388,7 @@ fn sta_zero_page_indexed() {
             x: Some(0x10),
             p: Some(0x34),
             memory: hash_map! { 0x0005: 0x78, 0x0105: 0x00 },
-            cycles: Some(10),
+            cycles: Some(8),
             ..ExpectedState::default()
         },
     );
@@ -415,7 +415,7 @@ fn sta_absolute() {
             a: Some(0x85),
             p: Some(0xB4),
             memory: hash_map! { 0x6578: 0x85 },
-            cycles: Some(7),
+            cycles: Some(6),
             ..ExpectedState::default()
         },
     );
@@ -444,7 +444,7 @@ fn sta_absolute_x() {
             x: Some(0x34),
             p: Some(0x34),
             memory: hash_map! { 0x6578: 0x00, 0x65AC: 0x85 },
-            cycles: Some(11),
+            cycles: Some(9),
             ..ExpectedState::default()
         },
     );
@@ -457,7 +457,7 @@ fn sta_absolute_x() {
             x: Some(0x34),
             p: Some(0x34),
             memory: hash_map! { 0x65F0: 0x00, 0x6624: 0x85 },
-            cycles: Some(11),
+            cycles: Some(9),
             ..ExpectedState::default()
         },
     );
@@ -486,7 +486,7 @@ fn sta_absolute_y() {
             y: Some(0x34),
             p: Some(0x34),
             memory: hash_map! { 0x6578: 0x00, 0x65AC: 0x85 },
-            cycles: Some(11),
+            cycles: Some(9),
             ..ExpectedState::default()
         },
     );
@@ -499,7 +499,7 @@ fn sta_absolute_y() {
             y: Some(0x34),
             p: Some(0x34),
             memory: hash_map! { 0x65F0: 0x00, 0x6624: 0x85 },
-            cycles: Some(11),
+            cycles: Some(9),
             ..ExpectedState::default()
         },
     );
@@ -528,7 +528,7 @@ fn stx_zero_page() {
             x: Some(0xBA),
             p: Some(0xB4),
             memory: hash_map! { 0x0045: 0xBA },
-            cycles: Some(6),
+            cycles: Some(5),
             ..ExpectedState::default()
         },
     );
@@ -557,7 +557,7 @@ fn stx_zero_page_indexed() {
             y: Some(0x05),
             p: Some(0x34),
             memory: hash_map! { 0x0045: 0x00, 0x004A: 0x78 },
-            cycles: Some(10),
+            cycles: Some(8),
             ..ExpectedState::default()
         },
     );
@@ -570,7 +570,7 @@ fn stx_zero_page_indexed() {
             y: Some(0x10),
             p: Some(0x34),
             memory: hash_map! { 0x0005: 0x78, 0x0105: 0x00 },
-            cycles: Some(10),
+            cycles: Some(8),
             ..ExpectedState::default()
         },
     );
@@ -597,7 +597,7 @@ fn stx_absolute() {
             x: Some(0x85),
             p: Some(0xB4),
             memory: hash_map! { 0x6578: 0x85 },
-            cycles: Some(7),
+            cycles: Some(6),
             ..ExpectedState::default()
         },
     );
@@ -624,7 +624,7 @@ fn sty_zero_page() {
             y: Some(0xBA),
             p: Some(0xB4),
             memory: hash_map! { 0x0045: 0xBA },
-            cycles: Some(6),
+            cycles: Some(5),
             ..ExpectedState::default()
         },
     );
@@ -653,7 +653,7 @@ fn sty_zero_page_indexed() {
             x: Some(0x05),
             p: Some(0x34),
             memory: hash_map! { 0x0045: 0x00, 0x004A: 0x78 },
-            cycles: Some(10),
+            cycles: Some(8),
             ..ExpectedState::default()
         },
     );
@@ -666,7 +666,7 @@ fn sty_zero_page_indexed() {
             x: Some(0x10),
             p: Some(0x34),
             memory: hash_map! { 0x0005: 0x78, 0x0105: 0x00 },
-            cycles: Some(10),
+            cycles: Some(8),
             ..ExpectedState::default()
         },
     );
@@ -693,7 +693,7 @@ fn sty_absolute() {
             y: Some(0x85),
             p: Some(0xB4),
             memory: hash_map! { 0x6578: 0x85 },
-            cycles: Some(7),
+            cycles: Some(6),
             ..ExpectedState::default()
         },
     );
