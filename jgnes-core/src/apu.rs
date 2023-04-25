@@ -59,12 +59,12 @@ impl FrameCounter {
             self.reset_state = FrameCounterResetState::None;
         }
 
-        self.cpu_ticks += 1;
-
         if (self.cpu_ticks == 29830 && self.mode == FrameCounterMode::FourStep)
             || self.cpu_ticks == 37282
         {
-            self.cpu_ticks = 0;
+            self.cpu_ticks = 1;
+        } else {
+            self.cpu_ticks += 1;
         }
 
         if self.cpu_ticks & 0x01 == 0 {
@@ -106,7 +106,7 @@ impl FrameCounter {
     fn should_set_interrupt_flag(&self) -> bool {
         !self.interrupt_inhibit_flag
             && self.mode == FrameCounterMode::FourStep
-            && self.cpu_ticks == 29828
+            && (29828..29831).contains(&self.cpu_ticks)
     }
 }
 
