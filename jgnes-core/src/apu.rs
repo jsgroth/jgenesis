@@ -86,19 +86,19 @@ impl FrameCounter {
     }
 
     fn generate_quarter_frame_clock(&self) -> bool {
-        (self.cpu_ticks == 7457
-            || self.cpu_ticks == 14913
-            || self.cpu_ticks == 22371
-            || (self.cpu_ticks == 29829 && self.mode == FrameCounterMode::FourStep)
-            || self.cpu_ticks == 37281)
+        (self.cpu_ticks == 7456
+            || self.cpu_ticks == 14912
+            || self.cpu_ticks == 22370
+            || (self.cpu_ticks == 29828 && self.mode == FrameCounterMode::FourStep)
+            || self.cpu_ticks == 37280)
             || (self.reset_state == FrameCounterResetState::JustReset
                 && self.mode == FrameCounterMode::FiveStep)
     }
 
     fn generate_half_frame_clock(&self) -> bool {
-        (self.cpu_ticks == 14913
-            || (self.cpu_ticks == 29829 && self.mode == FrameCounterMode::FourStep)
-            || self.cpu_ticks == 37281)
+        (self.cpu_ticks == 14912
+            || (self.cpu_ticks == 29828 && self.mode == FrameCounterMode::FourStep)
+            || self.cpu_ticks == 37280)
             || (self.reset_state == FrameCounterResetState::JustReset
                 && self.mode == FrameCounterMode::FiveStep)
     }
