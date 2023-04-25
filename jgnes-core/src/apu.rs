@@ -269,15 +269,15 @@ impl DutyCycle {
 }
 
 #[derive(Debug, Clone)]
-struct PhaseTimer<const MAX_PHASE: u8, const CPU_TICKS_PER_CLOCK: u8> {
+struct PhaseTimer<const MAX_PHASE: u8, const CPU_TICKS_PER_CLOCK: u8, const CAN_RESET_PHASE: bool> {
     cpu_ticks: u8,
     cpu_divider: u16,
     divider_period: u16,
     phase: u8,
 }
 
-impl<const MAX_PHASE: u8, const CPU_TICKS_PER_CLOCK: u8>
-    PhaseTimer<MAX_PHASE, CPU_TICKS_PER_CLOCK>
+impl<const MAX_PHASE: u8, const CPU_TICKS_PER_CLOCK: u8, const CAN_RESET_PHASE: bool>
+    PhaseTimer<MAX_PHASE, CPU_TICKS_PER_CLOCK, CAN_RESET_PHASE>
 {
     fn new() -> Self {
         Self {
@@ -294,10 +294,12 @@ impl<const MAX_PHASE: u8, const CPU_TICKS_PER_CLOCK: u8>
 
     fn process_hi_update(&mut self, hi_value: u8) {
         self.divider_period = (u16::from(hi_value & 0x07) << 8) | (self.divider_period & 0x00FF);
-        self.phase = 0;
+        if CAN_RESET_PHASE {
+            self.phase = 0;
+        }
     }
 
-    fn tick(&mut self) {
+    fn tick(&mut self, sequencer_enabled: bool) {
         self.cpu_ticks += 1;
         if self.cpu_ticks < CPU_TICKS_PER_CLOCK {
             return;
@@ -306,15 +308,17 @@ impl<const MAX_PHASE: u8, const CPU_TICKS_PER_CLOCK: u8>
 
         if self.cpu_divider == 0 {
             self.cpu_divider = self.divider_period;
-            self.phase = (self.phase + 1) & (MAX_PHASE - 1);
+            if sequencer_enabled {
+                self.phase = (self.phase + 1) & (MAX_PHASE - 1);
+            }
         } else {
             self.cpu_divider -= 1;
         }
     }
 }
 
-type PulsePhaseTimer = PhaseTimer<8, 2>;
-type TrianglePhaseTimer = PhaseTimer<32, 1>;
+type PulsePhaseTimer = PhaseTimer<8, 2, true>;
+type TrianglePhaseTimer = PhaseTimer<32, 1, false>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SweepNegateBehavior {
@@ -463,7 +467,7 @@ impl PulseChannel {
     }
 
     fn tick_cpu(&mut self) {
-        self.timer.tick();
+        self.timer.tick(true);
     }
 
     fn sample(&self) -> u8 {
@@ -479,9 +483,118 @@ impl PulseChannel {
 }
 
 #[derive(Debug, Clone)]
+struct LinearCounter {
+    counter: u8,
+    reload_value: u8,
+    control_flag: bool,
+    reload_flag: bool,
+}
+
+impl LinearCounter {
+    fn new() -> Self {
+        Self {
+            counter: 0,
+            reload_value: 0,
+            control_flag: false,
+            reload_flag: false,
+        }
+    }
+
+    fn process_tri_linear_update(&mut self, tri_linear_value: u8) {
+        self.control_flag = tri_linear_value & 0x80 != 0;
+        self.reload_value = tri_linear_value & 0x7F;
+    }
+
+    fn process_hi_update(&mut self) {
+        self.reload_flag = true;
+    }
+
+    fn clock(&mut self) {
+        if self.reload_flag {
+            self.counter = self.reload_value;
+        } else if self.counter > 0 {
+            self.counter -= 1;
+        }
+
+        if !self.control_flag {
+            self.reload_flag = false;
+        }
+    }
+}
+
+const TRIANGLE_WAVEFORM: [u8; 32] = [
+    15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+    13, 14, 15,
+];
+
+#[derive(Debug, Clone)]
+struct TriangleChannel {
+    timer: TrianglePhaseTimer,
+    linear_counter: LinearCounter,
+    length_counter: LengthCounter,
+}
+
+impl TriangleChannel {
+    fn new() -> Self {
+        Self {
+            timer: TrianglePhaseTimer::new(),
+            linear_counter: LinearCounter::new(),
+            length_counter: LengthCounter::new(LengthCounterChannel::Triangle),
+        }
+    }
+
+    fn process_tri_linear_update(&mut self, tri_linear_value: u8) {
+        self.linear_counter
+            .process_tri_linear_update(tri_linear_value);
+        self.length_counter
+            .process_tri_linear_update(tri_linear_value);
+    }
+
+    fn process_lo_update(&mut self, lo_value: u8) {
+        self.timer.process_lo_update(lo_value);
+    }
+
+    fn process_hi_update(&mut self, hi_value: u8) {
+        self.timer.process_hi_update(hi_value);
+        self.linear_counter.process_hi_update();
+        self.length_counter.process_hi_update(hi_value);
+    }
+
+    fn process_snd_chn_update(&mut self, snd_chn_value: u8) {
+        self.length_counter.process_snd_chn_update(snd_chn_value);
+    }
+
+    fn clock_quarter_frame(&mut self) {
+        self.linear_counter.clock();
+    }
+
+    fn clock_half_frame(&mut self) {
+        self.length_counter.clock();
+    }
+
+    fn silenced(&self) -> bool {
+        if self.linear_counter.counter == 0 || self.length_counter.counter == 0 {
+            return true;
+        }
+
+        // TODO remove once a low-pass filter is in place
+        self.timer.divider_period < 2
+    }
+
+    fn tick_cpu(&mut self) {
+        self.timer.tick(!self.silenced());
+    }
+
+    fn sample(&self) -> u8 {
+        TRIANGLE_WAVEFORM[self.timer.phase as usize]
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct ApuState {
     channel_1: PulseChannel,
     channel_2: PulseChannel,
+    channel_3: TriangleChannel,
     frame_counter: FrameCounter,
     frame_counter_interrupt_flag: bool,
     sample_queue: VecDeque<f32>,
@@ -494,6 +607,7 @@ impl ApuState {
         Self {
             channel_1: PulseChannel::new_channel_1(),
             channel_2: PulseChannel::new_channel_2(),
+            channel_3: TriangleChannel::new(),
             frame_counter: FrameCounter::new(),
             frame_counter_interrupt_flag: false,
             sample_queue: VecDeque::new(),
@@ -529,9 +643,19 @@ impl ApuState {
                 IoRegister::SQ2_HI => {
                     self.channel_2.process_hi_update(value);
                 }
+                IoRegister::TRI_LINEAR => {
+                    self.channel_3.process_tri_linear_update(value);
+                }
+                IoRegister::TRI_LO => {
+                    self.channel_3.process_lo_update(value);
+                }
+                IoRegister::TRI_HI => {
+                    self.channel_3.process_hi_update(value);
+                }
                 IoRegister::SND_CHN => {
                     self.channel_1.process_snd_chn_update(value);
                     self.channel_2.process_snd_chn_update(value);
+                    self.channel_3.process_snd_chn_update(value);
                 }
                 IoRegister::JOY2 => {
                     self.frame_counter.process_joy2_update(value);
@@ -544,16 +668,19 @@ impl ApuState {
     fn tick_cpu(&mut self, interrupt_lines: &mut InterruptLines) {
         self.channel_1.tick_cpu();
         self.channel_2.tick_cpu();
+        self.channel_3.tick_cpu();
         self.frame_counter.tick();
 
         if self.frame_counter.generate_quarter_frame_clock() {
             self.channel_1.clock_quarter_frame();
             self.channel_2.clock_quarter_frame();
+            self.channel_3.clock_quarter_frame();
         }
 
         if self.frame_counter.generate_half_frame_clock() {
             self.channel_1.clock_half_frame();
             self.channel_2.clock_half_frame();
+            self.channel_3.clock_half_frame();
         }
 
         if self.frame_counter.should_set_interrupt_flag() {
@@ -569,9 +696,27 @@ impl ApuState {
     }
 
     fn mix_samples(&self) -> f32 {
-        let pulse_mix = 95.88
-            / (8128.0 / (f64::from(self.channel_1.sample() + self.channel_2.sample())) + 100.0);
-        pulse_mix as f32
+        let pulse1_sample = self.channel_1.sample();
+        let pulse2_sample = self.channel_2.sample();
+        let triangle_sample = self.channel_3.sample();
+
+        // TODO this could be a lookup table, will be helpful when sampling every cycle
+        // for a low-pass filter
+
+        // Formulas from https://www.nesdev.org/wiki/APU_Mixer
+        let pulse_mix = if pulse1_sample > 0 || pulse2_sample > 0 {
+            95.88 / (8128.0 / (f64::from(pulse1_sample + pulse2_sample)) + 100.0)
+        } else {
+            0.0
+        };
+
+        let tnd_mix = if triangle_sample > 0 {
+            159.79 / (1.0 / (f64::from(triangle_sample) / 8227.0) + 100.0)
+        } else {
+            0.0
+        };
+
+        (pulse_mix + tnd_mix) as f32
     }
 
     fn high_pass_filter(&mut self, sample: f32) -> f32 {
