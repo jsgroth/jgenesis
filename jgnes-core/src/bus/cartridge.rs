@@ -88,6 +88,7 @@ impl NametableMirroring {
 #[derive(Debug, Clone)]
 pub(crate) struct Nrom {
     nametable_mirroring: NametableMirroring,
+    chr_type: ChrType,
 }
 
 impl MapperImpl<Nrom> {
@@ -105,7 +106,7 @@ impl MapperImpl<Nrom> {
 
     fn map_ppu_address(&self, address: u16) -> PpuMapResult {
         match address {
-            0x0000..=0x1FFF => PpuMapResult::ChrROM(address.into()),
+            0x0000..=0x1FFF => self.data.chr_type.to_map_result(address.into()),
             0x2000..=0x3EFF => {
                 PpuMapResult::Vram(self.data.nametable_mirroring.map_to_vram(address))
             }
@@ -580,6 +581,7 @@ fn from_ines_file(mut file: File) -> Result<Mapper, CartridgeFileError> {
                 cartridge,
                 data: Nrom {
                     nametable_mirroring,
+                    chr_type,
                 },
             })
         }
