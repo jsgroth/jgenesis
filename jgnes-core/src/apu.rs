@@ -73,7 +73,7 @@ impl FrameCounter {
                     self.reset_state = FrameCounterResetState::PendingReset;
                 }
                 FrameCounterResetState::PendingReset => {
-                    self.cpu_ticks = 0;
+                    self.cpu_ticks = 1;
                     self.reset_state = FrameCounterResetState::JustReset;
                 }
                 _ => {}
