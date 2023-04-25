@@ -81,10 +81,6 @@ impl FrameCounter {
         }
     }
 
-    fn divider_clock(&self) -> bool {
-        self.cpu_ticks & 0x01 == 0
-    }
-
     fn generate_quarter_frame_clock(&self) -> bool {
         (self.cpu_ticks == 7456
             || self.cpu_ticks == 14912

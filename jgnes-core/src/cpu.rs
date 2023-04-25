@@ -44,16 +44,6 @@ impl StatusFlags {
         self
     }
 
-    pub fn set_decimal(&mut self, decimal: bool) -> &mut Self {
-        self.decimal = decimal;
-        self
-    }
-
-    pub fn set_interrupt_disable(&mut self, interrupt_disable: bool) -> &mut Self {
-        self.interrupt_disable = interrupt_disable;
-        self
-    }
-
     pub fn set_zero(&mut self, zero: bool) -> &mut Self {
         self.zero = zero;
         self

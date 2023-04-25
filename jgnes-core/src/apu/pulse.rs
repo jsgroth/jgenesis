@@ -70,7 +70,7 @@ impl PulseSweep {
         }
     }
 
-    fn process_sweep_update(&mut self, sweep_value: u8, timer_period: u16) {
+    fn process_sweep_update(&mut self, sweep_value: u8) {
         self.reload_flag = true;
 
         self.enabled = sweep_value & 0x80 != 0;
@@ -145,8 +145,7 @@ impl PulseChannel {
     }
 
     pub fn process_sweep_update(&mut self, sweep_value: u8) {
-        self.sweep
-            .process_sweep_update(sweep_value, self.timer.divider_period);
+        self.sweep.process_sweep_update(sweep_value);
     }
 
     pub fn process_lo_update(&mut self, lo_value: u8) {

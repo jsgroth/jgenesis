@@ -40,7 +40,6 @@ pub(crate) enum PpuMapResult {
     ChrROM(u32),
     ChrRAM(u32),
     Vram(u16),
-    None,
 }
 
 impl PpuMapResult {
@@ -49,13 +48,12 @@ impl PpuMapResult {
             Self::ChrROM(address) => cartridge.chr_rom[address as usize],
             Self::ChrRAM(address) => cartridge.chr_ram[address as usize],
             Self::Vram(address) => vram[address as usize],
-            Self::None => 0xFF,
         }
     }
 
     fn write(self, value: u8, cartridge: &mut Cartridge, vram: &mut [u8; 2048]) {
         match self {
-            Self::ChrROM(_) | Self::None => {}
+            Self::ChrROM(_) => {}
             Self::ChrRAM(address) => {
                 cartridge.chr_ram[address as usize] = value;
             }
@@ -420,7 +418,7 @@ impl Mapper {
 
     pub(crate) fn write_cpu_address(&mut self, address: u16, value: u8) {
         match self {
-            Self::Nrom(nrom) => {}
+            Self::Nrom(..) => {}
             Self::Uxrom(uxrom) => {
                 uxrom.write_cpu_address(address, value);
             }

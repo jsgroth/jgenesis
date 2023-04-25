@@ -19,7 +19,6 @@ pub enum AddressingMode {
     Indirect,
     IndirectX,
     IndirectY,
-    Implied,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -2,7 +2,6 @@ pub mod cartridge;
 
 use crate::bus::cartridge::Mapper;
 use crate::input::{JoypadState, LatchedJoypadState};
-use std::cmp::Ordering;
 use tinyvec::ArrayVec;
 
 pub const CPU_RAM_START: u16 = 0x0000;
@@ -22,43 +21,9 @@ pub const CPU_IO_TEST_MODE_END: u16 = 0x401F;
 pub const CPU_CARTRIDGE_START: u16 = 0x4020;
 pub const CPU_CARTRIDGE_END: u16 = 0xFFFF;
 
-pub const PPU_PATTERN_TABLES_START: u16 = 0x0000;
-pub const PPU_PATTERN_TABLES_END: u16 = 0x1FFF;
-
-pub const PPU_NAMETABLES_START: u16 = 0x2000;
-pub const PPU_NAMETABLES_END: u16 = 0x3EFF;
-pub const PPU_NAMETABLES_MASK: u16 = 0x0FFF;
-
-pub const PPU_PALETTES_START: u16 = 0x3F00;
-pub const PPU_PALETTES_END: u16 = 0x3FFF;
-pub const PPU_PALETTES_MASK: u16 = 0x001F;
-
-pub const CPU_STACK_START: u16 = 0x0100;
 pub const CPU_NMI_VECTOR: u16 = 0xFFFA;
 pub const CPU_RESET_VECTOR: u16 = 0xFFFC;
 pub const CPU_IRQ_VECTOR: u16 = 0xFFFE;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WriteSource {
-    Cpu,
-    Ppu,
-}
-
-impl PartialOrd for WriteSource {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for WriteSource {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match (self, other) {
-            (Self::Cpu, Self::Ppu) => Ordering::Less,
-            (Self::Ppu, Self::Cpu) => Ordering::Greater,
-            _ => Ordering::Equal,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WriteAddress {
@@ -105,19 +70,6 @@ impl PpuRegister {
             0x06 => Some(Self::PPUADDR),
             0x07 => Some(Self::PPUDATA),
             _ => None,
-        }
-    }
-
-    const fn to_relative_address(self) -> usize {
-        match self {
-            Self::PPUCTRL => 0x00,
-            Self::PPUMASK => 0x01,
-            Self::PPUSTATUS => 0x02,
-            Self::OAMADDR => 0x03,
-            Self::OAMDATA => 0x04,
-            Self::PPUSCROLL => 0x05,
-            Self::PPUADDR => 0x06,
-            Self::PPUDATA => 0x07,
         }
     }
 
@@ -219,14 +171,17 @@ impl PpuRegisters {
         self.base_nametable_address
     }
 
+    #[allow(dead_code)]
     pub fn emphasize_blue(&self) -> bool {
         self.ppu_mask & 0x80 != 0
     }
 
+    #[allow(dead_code)]
     pub fn emphasize_green(&self) -> bool {
         self.ppu_mask & 0x40 != 0
     }
 
+    #[allow(dead_code)]
     pub fn emphasize_red(&self) -> bool {
         self.ppu_mask & 0x20 != 0
     }
@@ -247,6 +202,7 @@ impl PpuRegisters {
         self.ppu_mask & 0x02 != 0
     }
 
+    #[allow(dead_code)]
     pub fn greyscale_enabled(&self) -> bool {
         self.ppu_mask & 0x01 != 0
     }
@@ -501,7 +457,6 @@ pub enum InterruptLine {
 pub enum IrqSource {
     ApuDmc,
     ApuFrameCounter,
-    Mapper,
 }
 
 impl IrqSource {
@@ -509,7 +464,6 @@ impl IrqSource {
         match self {
             Self::ApuDmc => 0x01,
             Self::ApuFrameCounter => 0x02,
-            Self::Mapper => 0x04,
         }
     }
 }
@@ -613,10 +567,6 @@ impl Bus {
 
     pub fn ppu(&mut self) -> PpuBus<'_> {
         PpuBus(self)
-    }
-
-    pub fn interrupt_lines(&mut self) -> &mut InterruptLines {
-        &mut self.interrupt_lines
     }
 
     pub fn update_joypad_state(&mut self, joypad_state: JoypadState) {
@@ -810,14 +760,6 @@ impl<'a> CpuBus<'a> {
         self.0.io_registers.data[IoRegister::OAMDMA.to_relative_address()]
     }
 
-    pub fn read_io_register(&mut self, io_register: IoRegister) -> u8 {
-        self.0.io_registers.read_register(io_register)
-    }
-
-    pub fn get_io_registers(&self) -> &IoRegisters {
-        &self.0.io_registers
-    }
-
     pub fn get_io_registers_mut(&mut self) -> &mut IoRegisters {
         &mut self.0.io_registers
     }
@@ -830,12 +772,9 @@ impl<'a> PpuBus<'a> {
         // PPU bus only has 14-bit addressing
         let address = address & 0x3FFF;
         match address {
-            address @ PPU_PATTERN_TABLES_START..=PPU_NAMETABLES_END => {
-                self.0.mapper.read_ppu_address(address, &self.0.ppu_vram)
-            }
-            address @ PPU_PALETTES_START..=PPU_PALETTES_END => {
-                let palette_relative_addr =
-                    ((address - PPU_PALETTES_START) & PPU_PALETTES_MASK) as usize;
+            0x0000..=0x3EFF => self.0.mapper.read_ppu_address(address, &self.0.ppu_vram),
+            0x3F00..=0x3FFF => {
+                let palette_relative_addr = ((address - 0x3F00) & 0x001F) as usize;
                 let palette_relative_addr = if palette_relative_addr >= 0x10
                     && palette_relative_addr.trailing_zeros() >= 2
                 {
@@ -846,7 +785,7 @@ impl<'a> PpuBus<'a> {
 
                 self.0.ppu_palette_ram[palette_relative_addr]
             }
-            _address @ 0x4000..=0xFFFF => {
+            0x4000..=0xFFFF => {
                 panic!("{address} should be <= 0x3FFF after masking with 0x3FFF")
             }
         }
@@ -855,14 +794,13 @@ impl<'a> PpuBus<'a> {
     pub fn write_address(&mut self, address: u16, value: u8) {
         let address = address & 0x3FFF;
         match address {
-            address @ PPU_PATTERN_TABLES_START..=PPU_NAMETABLES_END => {
+            0x0000..=0x3EFF => {
                 self.0
                     .mapper
                     .write_ppu_address(address, value, &mut self.0.ppu_vram);
             }
-            address @ PPU_PALETTES_START..=PPU_PALETTES_END => {
-                let palette_relative_addr =
-                    ((address - PPU_PALETTES_START) & PPU_PALETTES_MASK) as usize;
+            0x3F00..=0x3FFF => {
+                let palette_relative_addr = ((address - 0x3F00) & 0x001F) as usize;
                 let palette_relative_addr = if palette_relative_addr >= 0x10
                     && palette_relative_addr.trailing_zeros() >= 2
                 {
@@ -872,7 +810,7 @@ impl<'a> PpuBus<'a> {
                 };
                 self.0.ppu_palette_ram[palette_relative_addr] = value;
             }
-            _address @ 0x4000..=0xFFFF => {
+            0x4000..=0xFFFF => {
                 panic!("{address} should be <= 0x3FFF after masking with 0x3FFF")
             }
         }
