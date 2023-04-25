@@ -55,7 +55,6 @@ struct PulseSweep {
     negate_behavior: SweepNegateBehavior,
     shift: u8,
     reload_flag: bool,
-    target_period: u16,
 }
 
 impl PulseSweep {
@@ -68,7 +67,6 @@ impl PulseSweep {
             negate_behavior,
             shift: 0,
             reload_flag: false,
-            target_period: 0,
         }
     }
 
@@ -79,8 +77,6 @@ impl PulseSweep {
         self.divider_period = (sweep_value >> 4) & 0x07;
         self.negate_flag = sweep_value & 0x08 != 0;
         self.shift = sweep_value & 0x07;
-
-        self.target_period = self.compute_target_period(timer_period);
     }
 
     fn compute_target_period(&self, timer_period: u16) -> u16 {
@@ -95,13 +91,12 @@ impl PulseSweep {
     }
 
     fn is_channel_muted(&self, timer_period: u16) -> bool {
-        timer_period < 8 || self.target_period > 0x07FF
+        timer_period < 8 || self.compute_target_period(timer_period) > 0x07FF
     }
 
     fn clock(&mut self, timer_period: &mut u16) {
         if self.divider == 0 && self.enabled && !self.is_channel_muted(*timer_period) {
-            *timer_period = self.target_period;
-            self.target_period = self.compute_target_period(*timer_period);
+            *timer_period = self.compute_target_period(*timer_period);
         }
 
         if self.divider == 0 || self.reload_flag {
