@@ -728,6 +728,16 @@ pub(crate) enum Mapper {
 }
 
 impl Mapper {
+    pub(crate) fn name(&self) -> &'static str {
+        match self {
+            Self::Nrom(..) => "NROM",
+            Self::Uxrom(..) => "UxROM",
+            Self::Mmc1(..) => "MMC1",
+            Self::Cnrom(..) => "CNROM",
+            Self::Mmc3(..) => "MMC3",
+        }
+    }
+
     pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
         match self {
             Self::Nrom(nrom) => nrom.read_cpu_address(address),
@@ -901,10 +911,6 @@ fn from_ines_file(mut file: File) -> Result<Mapper, CartridgeFileError> {
         ChrType::RAM => chr_ram_size,
     };
 
-    log::info!("PRG ROM size: {prg_rom_size}");
-    log::info!("CHR ROM size: {chr_rom_size}");
-    log::info!("Mapper number: {mapper_number}");
-
     let cartridge = Cartridge {
         prg_rom,
         // TODO actually figure out size
@@ -921,16 +927,13 @@ fn from_ines_file(mut file: File) -> Result<Mapper, CartridgeFileError> {
     };
 
     let mapper = match mapper_number {
-        0 => {
-            log::info!("NROM mapper using mirroring {nametable_mirroring:?}");
-            Mapper::Nrom(MapperImpl {
-                cartridge,
-                data: Nrom {
-                    nametable_mirroring,
-                    chr_type,
-                },
-            })
-        }
+        0 => Mapper::Nrom(MapperImpl {
+            cartridge,
+            data: Nrom {
+                nametable_mirroring,
+                chr_type,
+            },
+        }),
         1 => Mapper::Mmc1(MapperImpl {
             cartridge,
             data: Mmc1 {
@@ -983,6 +986,14 @@ fn from_ines_file(mut file: File) -> Result<Mapper, CartridgeFileError> {
             return Err(CartridgeFileError::UnsupportedMapper { mapper_number });
         }
     };
+
+    log::info!("PRG ROM size: {prg_rom_size}");
+    log::info!("CHR ROM size: {chr_rom_size}");
+    log::info!("CHR memory type: {chr_type:?}");
+    log::info!("Mapper number: {mapper_number} ({})", mapper.name());
+    log::info!(
+        "Hardwired nametable mirroring: {nametable_mirroring:?} (not applicable to all mappers)"
+    );
 
     Ok(mapper)
 }
