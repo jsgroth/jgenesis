@@ -569,7 +569,13 @@ pub(crate) struct Mmc3 {
     bank_mapping: Mmc3BankMapping,
     nametable_mirroring: NametableMirroring,
     bank_update_select: Mmc3BankUpdate,
-    // TODO MMC3 IRQs, requires either terrible hacks or a more accurate PPU implementation
+    interrupt_flag: bool,
+    irq_counter: u8,
+    irq_reload_value: u8,
+    irq_reload_flag: bool,
+    irq_enabled: bool,
+    last_a12_read: u16,
+    a12_low_cycles: u32,
 }
 
 impl MapperImpl<Mmc3> {
@@ -643,13 +649,49 @@ impl MapperImpl<Mmc3> {
                     };
                 }
             }
-            0xC000..=0xFFFF => {
-                // TODO interrupt registers
+            0xC000..=0xDFFF => {
+                if address & 0x01 == 0 {
+                    self.data.irq_reload_value = value;
+                } else {
+                    self.data.irq_reload_flag = true;
+                }
+            }
+            0xE000..=0xFFFF => {
+                if address & 0x01 == 0 {
+                    self.data.irq_enabled = false;
+                    self.data.interrupt_flag = false;
+                } else {
+                    self.data.irq_enabled = true;
+                }
             }
         }
     }
 
-    fn map_ppu_address(&self, address: u16) -> PpuMapResult {
+    fn clock_irq(&mut self) {
+        if self.data.irq_counter == 0 || self.data.irq_reload_flag {
+            self.data.irq_counter = self.data.irq_reload_value;
+            self.data.irq_reload_flag = false;
+        } else {
+            self.data.irq_counter -= 1;
+            if self.data.irq_counter == 0 && self.data.irq_enabled {
+                self.data.interrupt_flag = true;
+            }
+        }
+    }
+
+    fn map_ppu_address(&mut self, address: u16) -> PpuMapResult {
+        let a12 = address & (1 << 12);
+        if a12 != 0 && self.data.last_a12_read == 0 && self.data.a12_low_cycles >= 10 {
+            self.clock_irq();
+        }
+
+        self.data.last_a12_read = a12;
+        if a12 == 0 {
+            self.data.a12_low_cycles += 1;
+        } else {
+            self.data.a12_low_cycles = 0;
+        }
+
         match address & 0x3FFF {
             0x0000..=0x1FFF => self
                 .data
@@ -662,13 +704,17 @@ impl MapperImpl<Mmc3> {
         }
     }
 
-    fn read_ppu_address(&self, address: u16, vram: &[u8; 2048]) -> u8 {
+    fn read_ppu_address(&mut self, address: u16, vram: &[u8; 2048]) -> u8 {
         self.map_ppu_address(address).read(&self.cartridge, vram)
     }
 
     fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
         self.map_ppu_address(address)
             .write(value, &mut self.cartridge, vram);
+    }
+
+    fn interrupt_flag(&self) -> bool {
+        self.data.interrupt_flag
     }
 }
 
@@ -710,7 +756,7 @@ impl Mapper {
         }
     }
 
-    pub(crate) fn read_ppu_address(&self, address: u16, vram: &[u8; 2048]) -> u8 {
+    pub(crate) fn read_ppu_address(&mut self, address: u16, vram: &[u8; 2048]) -> u8 {
         match self {
             Self::Nrom(nrom) => nrom.read_ppu_address(address, vram),
             Self::Uxrom(uxrom) => uxrom.read_ppu_address(address, vram),
@@ -742,11 +788,17 @@ impl Mapper {
 
     pub(crate) fn tick(&mut self) {
         match self {
-            // TODO MMC3 IRQs will require ticking
             Self::Nrom(..) | Self::Uxrom(..) | Self::Cnrom(..) | Self::Mmc3(..) => {}
             Self::Mmc1(mmc1) => {
                 mmc1.tick();
             }
+        }
+    }
+
+    pub(crate) fn interrupt_flag(&self) -> bool {
+        match self {
+            Self::Mmc3(mmc3) => mmc3.interrupt_flag(),
+            _ => false,
         }
     }
 
@@ -916,8 +968,15 @@ fn from_ines_file(mut file: File) -> Result<Mapper, CartridgeFileError> {
             data: Mmc3 {
                 chr_type,
                 bank_mapping: Mmc3BankMapping::new(prg_rom_size, chr_size as u32),
-                bank_update_select: Mmc3BankUpdate::ChrBank(0),
                 nametable_mirroring: NametableMirroring::Vertical,
+                bank_update_select: Mmc3BankUpdate::ChrBank(0),
+                interrupt_flag: false,
+                irq_counter: 0,
+                irq_reload_value: 0,
+                irq_reload_flag: false,
+                irq_enabled: false,
+                last_a12_read: 0,
+                a12_low_cycles: 0,
             },
         }),
         _ => {

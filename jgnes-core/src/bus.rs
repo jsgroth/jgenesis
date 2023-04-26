@@ -465,6 +465,7 @@ pub enum InterruptLine {
 pub enum IrqSource {
     ApuDmc,
     ApuFrameCounter,
+    Mapper,
 }
 
 impl IrqSource {
@@ -472,6 +473,7 @@ impl IrqSource {
         match self {
             Self::ApuDmc => 0x01,
             Self::ApuFrameCounter => 0x02,
+            Self::Mapper => 0x04,
         }
     }
 }
@@ -592,9 +594,12 @@ impl Bus {
         }
 
         self.ppu_registers.tick(&mut self.interrupt_lines);
-        self.interrupt_lines.tick();
-
         self.mapper.tick();
+
+        self.interrupt_lines
+            .set_irq_low_pull(IrqSource::Mapper, self.mapper.interrupt_flag());
+
+        self.interrupt_lines.tick();
     }
 }
 
@@ -762,7 +767,7 @@ impl<'a> CpuBus<'a> {
 pub struct PpuBus<'a>(&'a mut Bus);
 
 impl<'a> PpuBus<'a> {
-    pub fn read_address(&self, address: u16) -> u8 {
+    pub fn read_address(&mut self, address: u16) -> u8 {
         // PPU bus only has 14-bit addressing
         let address = address & 0x3FFF;
         match address {

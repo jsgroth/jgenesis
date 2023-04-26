@@ -571,7 +571,7 @@ fn render_pixel(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     state.frame_buffer[state.scanline as usize][pixel as usize] = pixel_color;
 }
 
-fn fetch_bg_tile_data(state: &mut PpuState, bus: &PpuBus<'_>) {
+fn fetch_bg_tile_data(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     assert!((1..=256).contains(&state.dot) || (321..=336).contains(&state.dot));
 
     let tile_cycle_offset = (state.dot - 1) & 0x07;
@@ -609,7 +609,7 @@ fn fetch_bg_tile_data(state: &mut PpuState, bus: &PpuBus<'_>) {
     }
 }
 
-fn fetch_sprite_tile_data(state: &mut PpuState, bus: &PpuBus<'_>) {
+fn fetch_sprite_tile_data(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     assert!((257..=320).contains(&state.dot));
 
     let sprite_pattern_table_address = bus.get_ppu_registers().sprite_pattern_table_address();
@@ -821,11 +821,11 @@ fn find_first_overlapping_sprite(pixel: u8, sprites: &SpriteBuffers) -> Option<(
     })
 }
 
-fn fetch_nametable_byte(registers: &InternalRegisters, bus: &PpuBus<'_>) -> u8 {
+fn fetch_nametable_byte(registers: &InternalRegisters, bus: &mut PpuBus<'_>) -> u8 {
     bus.read_address(0x2000 | (registers.vram_address & 0x0FFF))
 }
 
-fn fetch_palette_index(registers: &InternalRegisters, bus: &PpuBus<'_>) -> u8 {
+fn fetch_palette_index(registers: &InternalRegisters, bus: &mut PpuBus<'_>) -> u8 {
     let coarse_y = registers.coarse_y();
     let coarse_x = registers.coarse_x();
     let nametable_bits = registers.nametable_bits();
@@ -852,7 +852,7 @@ fn fetch_bg_pattern_table_byte(
     nametable_byte: u8,
     fine_y_scroll: u16,
     byte: PatternTableByte,
-    bus: &PpuBus<'_>,
+    bus: &mut PpuBus<'_>,
 ) -> u8 {
     let offset = match byte {
         PatternTableByte::Low => 0x0000,
@@ -873,7 +873,7 @@ fn fetch_sprite_pattern_table_byte(
     tile_index: u8,
     scanline: u8,
     byte: PatternTableByte,
-    bus: &PpuBus<'_>,
+    bus: &mut PpuBus<'_>,
 ) -> u8 {
     let offset = match byte {
         PatternTableByte::Low => 0x0000,
