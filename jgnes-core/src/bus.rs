@@ -518,7 +518,7 @@ impl InterruptLines {
             (InterruptLine::Low, InterruptLine::Low, NmiStatus::Pending1Cycle) => {
                 self.nmi_status = NmiStatus::Triggered;
             }
-            (_, InterruptLine::High, _) => {
+            (_, InterruptLine::High, NmiStatus::Pending1Cycle | NmiStatus::Pending2Cycles) => {
                 self.nmi_status = NmiStatus::None;
             }
             _ => {}
