@@ -275,7 +275,7 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
         if state.scanline == PRE_RENDER_SCANLINE + 1 {
             state.scanline = 0;
 
-            if state.odd_frame {
+            if state.odd_frame && rendering_enabled {
                 // Skip the idle cycle in the first visible scanline on odd frames
                 state.dot = 1;
             }
