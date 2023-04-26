@@ -6,7 +6,6 @@ mod cpu;
 mod input;
 mod mainloop;
 mod ppu;
-mod ppu2;
 
 pub use mainloop::RunError;
 
