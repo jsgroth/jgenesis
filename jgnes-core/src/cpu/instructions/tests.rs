@@ -1,6 +1,6 @@
 mod load;
 
-use crate::bus::Bus;
+use crate::bus::{cartridge, Bus};
 use crate::cpu;
 use crate::cpu::{CpuRegisters, CpuState, StatusReadContext};
 use std::collections::HashMap;
@@ -76,7 +76,7 @@ fn run_test(program: &str, expected_state: ExpectedState) {
         *prg_byte = value;
     }
 
-    let mapper = Mapper::new_mmc1(prg_rom);
+    let mapper = cartridge::new_mmc1(prg_rom);
 
     let mut bus = Bus::from_cartridge(mapper);
 
@@ -108,5 +108,4 @@ macro_rules! hash_map {
     }
 }
 
-use crate::bus::cartridge::Mapper;
 use hash_map;
