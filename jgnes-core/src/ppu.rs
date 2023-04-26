@@ -1,3 +1,5 @@
+#![cfg(ignored)]
+
 use crate::bus::PpuBus;
 
 pub const SCREEN_WIDTH: u16 = 256;
@@ -250,8 +252,6 @@ fn render_scanline(scanline: u16, state: &mut PpuState, bus: &mut PpuBus<'_>) {
 }
 
 fn get_color_id(tile_data_0: u8, tile_data_1: u8, fine_x: u8) -> u8 {
-    assert!(fine_x < 8, "fine_x must be less than 8: {fine_x}");
-
     ((tile_data_0 & (1 << (7 - fine_x))) >> (7 - fine_x))
         | (((tile_data_1 & (1 << (7 - fine_x))) >> (7 - fine_x)) << 1)
 }
@@ -299,24 +299,4 @@ fn first_opaque_sprite_pixel(
 
         (color_id != 0).then_some((sprite, color_id))
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn color_id() {
-        assert_eq!(0, get_color_id(0, 0, 0));
-
-        assert_eq!(1, get_color_id(0x80, 0, 0));
-        assert_eq!(2, get_color_id(0, 0x80, 0));
-        assert_eq!(3, get_color_id(0x80, 0x80, 0));
-
-        assert_eq!(0, get_color_id(0x80, 0x80, 1));
-
-        assert_eq!(3, get_color_id(0x10, 0x10, 3));
-
-        assert_eq!(3, get_color_id(0x01, 0x01, 7));
-    }
 }

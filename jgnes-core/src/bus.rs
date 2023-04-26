@@ -88,10 +88,18 @@ impl PpuRegister {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PpuRegisterLatch {
-    Clear,
-    HalfLatched,
-    Latched,
+pub enum PpuWriteToggle {
+    First,
+    Second,
+}
+
+impl PpuWriteToggle {
+    fn toggle(self) -> Self {
+        match self {
+            Self::First => Self::Second,
+            Self::Second => Self::First,
+        }
+    }
 }
 
 pub struct PpuRegisters {
@@ -99,14 +107,15 @@ pub struct PpuRegisters {
     ppu_mask: u8,
     ppu_status: u8,
     oam_addr: u8,
-    ppu_scroll_x: u8,
-    ppu_scroll_y: u8,
     ppu_addr: u16,
     ppu_data_buffer: u8,
     ppu_status_read: bool,
-    ppu_scroll_latch: PpuRegisterLatch,
-    ppu_addr_latch: PpuRegisterLatch,
-    base_nametable_address: u16,
+    ppu_addr_accessed: bool,
+    write_buffer: u8,
+    ppu_scroll_written: bool,
+    ppu_addr_written: bool,
+    ppu_ctrl_written: bool,
+    write_toggle: PpuWriteToggle,
 }
 
 impl PpuRegisters {
@@ -116,23 +125,20 @@ impl PpuRegisters {
             ppu_mask: 0,
             ppu_status: 0xA0,
             oam_addr: 0,
-            ppu_scroll_x: 0,
-            ppu_scroll_y: 0,
             ppu_addr: 0,
             ppu_data_buffer: 0,
             ppu_status_read: false,
-            ppu_scroll_latch: PpuRegisterLatch::Clear,
-            ppu_addr_latch: PpuRegisterLatch::Clear,
-            base_nametable_address: 0x2000,
+            ppu_addr_accessed: false,
+            write_buffer: 0,
+            ppu_scroll_written: false,
+            ppu_addr_written: false,
+            ppu_ctrl_written: false,
+            write_toggle: PpuWriteToggle::First,
         }
     }
 
     pub fn ppu_ctrl(&self) -> u8 {
         self.ppu_ctrl
-    }
-
-    pub fn ppu_mask(&self) -> u8 {
-        self.ppu_mask
     }
 
     pub fn nmi_enabled(&self) -> bool {
@@ -165,10 +171,6 @@ impl PpuRegisters {
         } else {
             1
         }
-    }
-
-    pub fn base_nametable_address(&self) -> u16 {
-        self.base_nametable_address
     }
 
     #[allow(dead_code)]
@@ -235,12 +237,52 @@ impl PpuRegisters {
         }
     }
 
-    pub fn scroll_x(&self) -> u8 {
-        self.ppu_scroll_x
+    pub fn get_and_clear_ppu_scroll_written(&mut self) -> bool {
+        if self.ppu_scroll_written {
+            self.ppu_scroll_written = false;
+            true
+        } else {
+            false
+        }
     }
 
-    pub fn scroll_y(&self) -> u8 {
-        self.ppu_scroll_y
+    pub fn get_and_clear_ppu_addr_written(&mut self) -> bool {
+        if self.ppu_addr_written {
+            self.ppu_addr_written = false;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn get_and_clear_ppu_ctrl_written(&mut self) -> bool {
+        if self.ppu_ctrl_written {
+            self.ppu_ctrl_written = false;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn get_and_clear_ppu_addr_accessed(&mut self) -> bool {
+        if self.ppu_addr_accessed {
+            self.ppu_addr_accessed = false;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn get_write_buffer(&self) -> u8 {
+        self.write_buffer
+    }
+
+    pub fn get_write_toggle(&self) -> PpuWriteToggle {
+        self.write_toggle
+    }
+
+    pub fn set_ppu_addr(&mut self, ppu_addr: u16) {
+        self.ppu_addr = ppu_addr;
     }
 
     fn tick(&mut self, interrupt_lines: &mut InterruptLines) {
@@ -248,8 +290,7 @@ impl PpuRegisters {
             self.ppu_status_read = false;
 
             self.set_vblank_flag(false);
-            self.ppu_scroll_latch = PpuRegisterLatch::Clear;
-            self.ppu_addr_latch = PpuRegisterLatch::Clear;
+            self.write_toggle = PpuWriteToggle::First;
         }
 
         let nmi_line = if self.vblank_flag() && self.nmi_enabled() {
@@ -258,10 +299,6 @@ impl PpuRegisters {
             InterruptLine::High
         };
         interrupt_lines.ppu_set_nmi_line(nmi_line);
-    }
-
-    fn update_base_nametable_address(&mut self, nametable_bits: u8) {
-        self.base_nametable_address = 0x2000 + 0x0400 * u16::from(nametable_bits & 0x03);
     }
 }
 
@@ -683,6 +720,7 @@ impl<'a> CpuBus<'a> {
                 let addr_increment = self.0.ppu_registers.ppu_data_addr_increment();
                 self.0.ppu_registers.ppu_addr =
                     self.0.ppu_registers.ppu_addr.wrapping_add(addr_increment);
+                self.0.ppu_registers.ppu_addr_accessed = true;
 
                 data
             }
@@ -698,7 +736,7 @@ impl<'a> CpuBus<'a> {
         match register {
             PpuRegister::PPUCTRL => {
                 self.0.ppu_registers.ppu_ctrl = value;
-                self.0.ppu_registers.update_base_nametable_address(value);
+                self.0.ppu_registers.ppu_ctrl_written = true;
             }
             PpuRegister::PPUMASK => {
                 self.0.ppu_registers.ppu_mask = value;
@@ -712,37 +750,23 @@ impl<'a> CpuBus<'a> {
                 self.0.ppu_oam[oam_addr as usize] = value;
                 self.0.ppu_registers.oam_addr = self.0.ppu_registers.oam_addr.wrapping_add(1);
             }
-            PpuRegister::PPUSCROLL => match self.0.ppu_registers.ppu_scroll_latch {
-                PpuRegisterLatch::Clear | PpuRegisterLatch::Latched => {
-                    self.0.ppu_registers.ppu_scroll_x = value;
-                    self.0.ppu_registers.ppu_scroll_latch = PpuRegisterLatch::HalfLatched;
-                }
-                PpuRegisterLatch::HalfLatched => {
-                    self.0.ppu_registers.ppu_scroll_y = value;
-                    self.0.ppu_registers.ppu_scroll_latch = PpuRegisterLatch::Latched;
-                }
-            },
-            PpuRegister::PPUADDR => match self.0.ppu_registers.ppu_addr_latch {
-                PpuRegisterLatch::Clear | PpuRegisterLatch::Latched => {
-                    self.0.ppu_registers.ppu_addr = u16::from(value) << 8;
-                    self.0.ppu_registers.ppu_addr_latch = PpuRegisterLatch::HalfLatched;
-                    // Bits 2-3 from the first write to PPUADDR set the nametable address, in
-                    // addition to PPUCTRL writes setting it
-                    self.0
-                        .ppu_registers
-                        .update_base_nametable_address(value >> 2);
-                }
-                PpuRegisterLatch::HalfLatched => {
-                    self.0.ppu_registers.ppu_addr |= u16::from(value);
-                    self.0.ppu_registers.ppu_addr_latch = PpuRegisterLatch::Latched;
-                }
-            },
+            PpuRegister::PPUSCROLL => {
+                self.0.ppu_registers.write_buffer = value;
+                self.0.ppu_registers.ppu_scroll_written = true;
+                self.0.ppu_registers.write_toggle = self.0.ppu_registers.write_toggle.toggle();
+            }
+            PpuRegister::PPUADDR => {
+                self.0.ppu_registers.write_buffer = value;
+                self.0.ppu_registers.ppu_addr_written = true;
+                self.0.ppu_registers.write_toggle = self.0.ppu_registers.write_toggle.toggle();
+            }
             PpuRegister::PPUDATA => {
                 let address = self.0.ppu_registers.ppu_addr;
                 self.0.ppu().write_address(address & 0x3FFF, value);
 
                 let addr_increment = self.0.ppu_registers.ppu_data_addr_increment();
                 self.0.ppu_registers.ppu_addr = address.wrapping_add(addr_increment);
+                self.0.ppu_registers.ppu_addr_accessed = true;
             }
         }
     }

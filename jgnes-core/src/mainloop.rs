@@ -3,8 +3,8 @@ use crate::bus::cartridge::CartridgeFileError;
 use crate::bus::{cartridge, Bus};
 use crate::cpu::{CpuRegisters, CpuState};
 use crate::input::JoypadState;
-use crate::ppu::PpuState;
-use crate::{apu, cpu, ppu};
+use crate::ppu2::PpuState;
+use crate::{apu, cpu, ppu2};
 use sdl2::audio::AudioSpecDesired;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
@@ -65,8 +65,8 @@ pub fn run(path: &str) -> Result<(), RunError> {
     let window = video_subsystem
         .window(
             &format!("jgnes - {file_name}"),
-            3 * u32::from(ppu::SCREEN_WIDTH),
-            3 * u32::from(ppu::VISIBLE_SCREEN_HEIGHT),
+            3 * u32::from(ppu2::SCREEN_WIDTH),
+            3 * u32::from(ppu2::VISIBLE_SCREEN_HEIGHT),
         )
         .build()?;
     let mut canvas = window.into_canvas().present_vsync().build()?;
@@ -78,8 +78,8 @@ pub fn run(path: &str) -> Result<(), RunError> {
     let texture_creator = canvas.texture_creator();
     let mut texture = texture_creator.create_texture_streaming(
         PixelFormatEnum::RGB24,
-        ppu::SCREEN_WIDTH.into(),
-        ppu::VISIBLE_SCREEN_HEIGHT.into(),
+        ppu2::SCREEN_WIDTH.into(),
+        ppu2::VISIBLE_SCREEN_HEIGHT.into(),
     )?;
 
     let audio_queue = audio_subsystem.open_queue::<f32, _>(
@@ -112,13 +112,13 @@ pub fn run(path: &str) -> Result<(), RunError> {
 
         cpu::tick(&mut cpu_state, &mut bus);
         apu::tick(&mut apu_state, &apu_config, &mut bus.cpu());
-        ppu::tick(&mut ppu_state, &mut bus.ppu());
+        ppu2::tick(&mut ppu_state, &mut bus.ppu());
         bus.tick();
 
-        ppu::tick(&mut ppu_state, &mut bus.ppu());
+        ppu2::tick(&mut ppu_state, &mut bus.ppu());
         bus.tick();
 
-        ppu::tick(&mut ppu_state, &mut bus.ppu());
+        ppu2::tick(&mut ppu_state, &mut bus.ppu());
         bus.tick();
 
         if !prev_in_vblank && ppu_state.in_vblank() {
