@@ -73,7 +73,7 @@ impl FrameCounter {
                     self.reset_state = FrameCounterResetState::PendingReset;
                 }
                 FrameCounterResetState::PendingReset => {
-                    self.cpu_ticks = 1;
+                    self.cpu_ticks = 0;
                     self.reset_state = FrameCounterResetState::JustReset;
                 }
                 _ => {}
@@ -102,7 +102,7 @@ impl FrameCounter {
     fn should_set_interrupt_flag(&self) -> bool {
         !self.interrupt_inhibit_flag
             && self.mode == FrameCounterMode::FourStep
-            && (29828..29831).contains(&self.cpu_ticks)
+            && (29827..29830).contains(&self.cpu_ticks)
     }
 }
 

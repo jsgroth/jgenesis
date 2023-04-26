@@ -493,6 +493,7 @@ pub struct InterruptLines {
     nmi_status: NmiStatus,
     irq_line: InterruptLine,
     irq_low_pulls: u8,
+    irq_low_cycles: u64,
 }
 
 impl InterruptLines {
@@ -503,6 +504,7 @@ impl InterruptLines {
             nmi_status: NmiStatus::None,
             irq_line: InterruptLine::High,
             irq_low_pulls: 0x00,
+            irq_low_cycles: 0,
         }
     }
 
@@ -524,10 +526,16 @@ impl InterruptLines {
             _ => {}
         }
 
+        if self.irq_line == InterruptLine::Low {
+            // The IRQ line must stay low for 3 cycles before triggering an interrupt
+            self.irq_low_cycles += 1;
+        }
+
         self.nmi_line = self.next_nmi_line;
         self.irq_line = if self.irq_low_pulls != 0 {
             InterruptLine::Low
         } else {
+            self.irq_low_cycles = 0;
             InterruptLine::High
         };
     }
@@ -545,7 +553,7 @@ impl InterruptLines {
     }
 
     pub fn irq_triggered(&self) -> bool {
-        self.irq_line == InterruptLine::Low
+        self.irq_low_cycles >= 3
     }
 
     pub fn pull_irq_low(&mut self, source: IrqSource) {
