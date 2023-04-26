@@ -1,4 +1,4 @@
-use crate::bus::{PpuBus, PpuWriteToggle};
+use crate::bus::{PpuBus, PpuTrackedRegister, PpuWriteToggle};
 
 pub const SCREEN_WIDTH: u16 = 256;
 pub const SCREEN_HEIGHT: u16 = 240;
@@ -376,58 +376,57 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
 }
 
 fn process_register_updates(state: &mut PpuState, bus: &mut PpuBus<'_>) {
-    if bus
-        .get_ppu_registers_mut()
-        .get_and_clear_ppu_scroll_written()
-    {
-        let value = bus.get_ppu_registers().get_write_buffer();
-        match bus.get_ppu_registers().get_write_toggle() {
-            PpuWriteToggle::Second => {
-                // Write was with w=0, set coarse X and fine X
-                state.registers.temp_vram_address =
-                    (state.registers.temp_vram_address & 0xFFE0) | u16::from(value >> 3);
-                state.registers.fine_x_scroll = value & 0x07;
-            }
-            PpuWriteToggle::First => {
-                // Write was with w=1, set coarse Y and fine Y
-                state.registers.temp_vram_address = (state.registers.temp_vram_address & 0x0C1F)
-                    | (u16::from(value & 0x07) << 12)
-                    | (u16::from(value & 0xF1) << 2);
+    match bus.get_ppu_registers_mut().take_last_accessed_register() {
+        Some(PpuTrackedRegister::PPUCTRL) => {
+            let ppu_ctrl = bus.get_ppu_registers().ppu_ctrl();
+
+            // Set nametable bits
+            state.registers.temp_vram_address =
+                (state.registers.temp_vram_address & 0xF3FF) | (u16::from(ppu_ctrl & 0x03) << 10);
+        }
+        Some(PpuTrackedRegister::PPUSCROLL) => {
+            let value = bus.get_ppu_registers().get_write_buffer();
+            match bus.get_ppu_registers().get_write_toggle() {
+                PpuWriteToggle::Second => {
+                    // Write was with w=0, set coarse X and fine X
+                    state.registers.temp_vram_address =
+                        (state.registers.temp_vram_address & 0xFFE0) | u16::from(value >> 3);
+                    state.registers.fine_x_scroll = value & 0x07;
+                }
+                PpuWriteToggle::First => {
+                    // Write was with w=1, set coarse Y and fine Y
+                    state.registers.temp_vram_address = (state.registers.temp_vram_address
+                        & 0x0C1F)
+                        | (u16::from(value & 0x07) << 12)
+                        | (u16::from(value & 0xF1) << 2);
+                }
             }
         }
-        // log::info!("{value:02X} written to PPUSCROLL, write toggle {:?}, registers: {:04X?}", bus.get_ppu_registers().get_write_toggle(), state.registers);
-    } else if bus.get_ppu_registers_mut().get_and_clear_ppu_addr_written() {
-        let value = bus.get_ppu_registers().get_write_buffer();
-        match bus.get_ppu_registers().get_write_toggle() {
-            PpuWriteToggle::Second => {
-                // Write was with w=0, set bits 13-8 and clear bit 14
-                state.registers.temp_vram_address =
-                    (state.registers.temp_vram_address & 0x00FF) | (u16::from(value & 0x3F) << 8);
-            }
-            PpuWriteToggle::First => {
-                // Write was with w=1, set bits 7-0 and copy from t to v
-                state.registers.temp_vram_address =
-                    (state.registers.temp_vram_address & 0xFF00) | u16::from(value);
-                state.registers.vram_address = state.registers.temp_vram_address;
+        Some(PpuTrackedRegister::PPUADDR) => {
+            let value = bus.get_ppu_registers().get_write_buffer();
+            match bus.get_ppu_registers().get_write_toggle() {
+                PpuWriteToggle::Second => {
+                    // Write was with w=0, set bits 13-8 and clear bit 14
+                    state.registers.temp_vram_address = (state.registers.temp_vram_address
+                        & 0x00FF)
+                        | (u16::from(value & 0x3F) << 8);
+                }
+                PpuWriteToggle::First => {
+                    // Write was with w=1, set bits 7-0 and copy from t to v
+                    state.registers.temp_vram_address =
+                        (state.registers.temp_vram_address & 0xFF00) | u16::from(value);
+                    state.registers.vram_address = state.registers.temp_vram_address;
+                }
             }
         }
-        // log::info!("{value:02X} written to PPUADDR, write toggle {:?}, registers: {:04X?}", bus.get_ppu_registers().get_write_toggle(), state.registers);
-    } else if bus.get_ppu_registers_mut().get_and_clear_ppu_ctrl_written() {
-        let ppu_ctrl = bus.get_ppu_registers().ppu_ctrl();
-
-        // Set nametable bits
-        state.registers.temp_vram_address =
-            (state.registers.temp_vram_address & 0xF3FF) | (u16::from(ppu_ctrl & 0x03) << 10);
-
-        // log::info!("{ppu_ctrl:02X} written PPUCTRL, registers: {:04X?}", state.registers);
-    } else if bus
-        .get_ppu_registers_mut()
-        .get_and_clear_ppu_addr_accessed()
-    {
-        state.registers.vram_address = state
-            .registers
-            .vram_address
-            .wrapping_add(bus.get_ppu_registers().ppu_data_addr_increment());
+        Some(PpuTrackedRegister::PPUDATA) => {
+            // Any time the CPU accesses PPUDATA, ncrement VRAM address by 1 or 32 based on PPUCTRL
+            state.registers.vram_address = state
+                .registers
+                .vram_address
+                .wrapping_add(bus.get_ppu_registers().ppu_data_addr_increment());
+        }
+        None => {}
     }
 }
 

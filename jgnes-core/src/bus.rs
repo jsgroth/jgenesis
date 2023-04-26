@@ -102,6 +102,15 @@ impl PpuWriteToggle {
     }
 }
 
+#[allow(clippy::upper_case_acronyms)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PpuTrackedRegister {
+    PPUCTRL,
+    PPUSCROLL,
+    PPUADDR,
+    PPUDATA,
+}
+
 pub struct PpuRegisters {
     ppu_ctrl: u8,
     ppu_mask: u8,
@@ -110,11 +119,8 @@ pub struct PpuRegisters {
     ppu_addr: u16,
     ppu_data_buffer: u8,
     ppu_status_read: bool,
-    ppu_addr_accessed: bool,
     write_buffer: u8,
-    ppu_scroll_written: bool,
-    ppu_addr_written: bool,
-    ppu_ctrl_written: bool,
+    last_accessed_register: Option<PpuTrackedRegister>,
     write_toggle: PpuWriteToggle,
 }
 
@@ -128,11 +134,8 @@ impl PpuRegisters {
             ppu_addr: 0,
             ppu_data_buffer: 0,
             ppu_status_read: false,
-            ppu_addr_accessed: false,
             write_buffer: 0,
-            ppu_scroll_written: false,
-            ppu_addr_written: false,
-            ppu_ctrl_written: false,
+            last_accessed_register: None,
             write_toggle: PpuWriteToggle::First,
         }
     }
@@ -237,40 +240,8 @@ impl PpuRegisters {
         }
     }
 
-    pub fn get_and_clear_ppu_scroll_written(&mut self) -> bool {
-        if self.ppu_scroll_written {
-            self.ppu_scroll_written = false;
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn get_and_clear_ppu_addr_written(&mut self) -> bool {
-        if self.ppu_addr_written {
-            self.ppu_addr_written = false;
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn get_and_clear_ppu_ctrl_written(&mut self) -> bool {
-        if self.ppu_ctrl_written {
-            self.ppu_ctrl_written = false;
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn get_and_clear_ppu_addr_accessed(&mut self) -> bool {
-        if self.ppu_addr_accessed {
-            self.ppu_addr_accessed = false;
-            true
-        } else {
-            false
-        }
+    pub fn take_last_accessed_register(&mut self) -> Option<PpuTrackedRegister> {
+        self.last_accessed_register.take()
     }
 
     pub fn get_write_buffer(&self) -> u8 {
@@ -720,7 +691,7 @@ impl<'a> CpuBus<'a> {
                 let addr_increment = self.0.ppu_registers.ppu_data_addr_increment();
                 self.0.ppu_registers.ppu_addr =
                     self.0.ppu_registers.ppu_addr.wrapping_add(addr_increment);
-                self.0.ppu_registers.ppu_addr_accessed = true;
+                self.0.ppu_registers.last_accessed_register = Some(PpuTrackedRegister::PPUDATA);
 
                 data
             }
@@ -736,7 +707,7 @@ impl<'a> CpuBus<'a> {
         match register {
             PpuRegister::PPUCTRL => {
                 self.0.ppu_registers.ppu_ctrl = value;
-                self.0.ppu_registers.ppu_ctrl_written = true;
+                self.0.ppu_registers.last_accessed_register = Some(PpuTrackedRegister::PPUCTRL);
             }
             PpuRegister::PPUMASK => {
                 self.0.ppu_registers.ppu_mask = value;
@@ -752,21 +723,19 @@ impl<'a> CpuBus<'a> {
             }
             PpuRegister::PPUSCROLL => {
                 self.0.ppu_registers.write_buffer = value;
-                self.0.ppu_registers.ppu_scroll_written = true;
+                self.0.ppu_registers.last_accessed_register = Some(PpuTrackedRegister::PPUSCROLL);
                 self.0.ppu_registers.write_toggle = self.0.ppu_registers.write_toggle.toggle();
             }
             PpuRegister::PPUADDR => {
                 self.0.ppu_registers.write_buffer = value;
-                self.0.ppu_registers.ppu_addr_written = true;
+                self.0.ppu_registers.last_accessed_register = Some(PpuTrackedRegister::PPUADDR);
                 self.0.ppu_registers.write_toggle = self.0.ppu_registers.write_toggle.toggle();
             }
             PpuRegister::PPUDATA => {
                 let address = self.0.ppu_registers.ppu_addr;
                 self.0.ppu().write_address(address & 0x3FFF, value);
 
-                let addr_increment = self.0.ppu_registers.ppu_data_addr_increment();
-                self.0.ppu_registers.ppu_addr = address.wrapping_add(addr_increment);
-                self.0.ppu_registers.ppu_addr_accessed = true;
+                self.0.ppu_registers.last_accessed_register = Some(PpuTrackedRegister::PPUDATA);
             }
         }
     }
