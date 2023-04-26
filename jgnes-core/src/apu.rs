@@ -350,6 +350,8 @@ impl ApuConfig {
 
 pub fn tick(state: &mut ApuState, config: &ApuConfig, bus: &mut CpuBus<'_>) {
     log::trace!("APU: Frame counter state: {:?}", state.frame_counter);
+    log::trace!("APU: Pulse 1 state: {:?}", state.channel_1);
+    log::trace!("APU: Pulse 2 state: {:?}", state.channel_2);
     log::trace!("APU: DMC state: {:?}", state.channel_5);
 
     if bus.get_io_registers_mut().get_and_clear_snd_chn_read() {

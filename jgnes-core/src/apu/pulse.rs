@@ -80,6 +80,13 @@ impl PulseSweep {
     }
 
     fn compute_target_period(&self, timer_period: u16) -> u16 {
+        if self.shift == 0 && self.negate_flag {
+            // Always return 0 when negate is set and shift is 0.
+            // Not doing this will cause channel 1 to incorrectly silence during some games because
+            // of its weird one's complement behavior.
+            return 0;
+        }
+
         let delta = timer_period >> self.shift;
         let signed_delta = if self.negate_flag {
             self.negate_behavior.negate(delta)
@@ -95,7 +102,11 @@ impl PulseSweep {
     }
 
     fn clock(&mut self, timer_period: &mut u16) {
-        if self.divider == 0 && self.enabled && !self.is_channel_muted(*timer_period) {
+        if self.divider == 0
+            && self.enabled
+            && self.shift > 0
+            && !self.is_channel_muted(*timer_period)
+        {
             *timer_period = self.compute_target_period(*timer_period);
         }
 
