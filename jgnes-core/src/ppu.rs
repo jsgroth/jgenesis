@@ -379,6 +379,11 @@ fn process_register_updates(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     match bus.get_ppu_registers_mut().take_last_accessed_register() {
         Some(PpuTrackedRegister::PPUCTRL) => {
             let ppu_ctrl = bus.get_ppu_registers().ppu_ctrl();
+            log::trace!(
+                "PPU: {ppu_ctrl:02X} written to PPUCTRL on scanline {}, dot {}",
+                state.scanline,
+                state.dot
+            );
 
             // Set nametable bits
             state.registers.temp_vram_address =
@@ -386,6 +391,13 @@ fn process_register_updates(state: &mut PpuState, bus: &mut PpuBus<'_>) {
         }
         Some(PpuTrackedRegister::PPUSCROLL) => {
             let value = bus.get_ppu_registers().get_write_buffer();
+            log::trace!(
+                "PPU: {value:02X} written to PPUSCROLL, write_toggle={:?} on scanline {}, dot {}",
+                bus.get_ppu_registers().get_write_toggle(),
+                state.scanline,
+                state.dot,
+            );
+
             match bus.get_ppu_registers().get_write_toggle() {
                 PpuWriteToggle::Second => {
                     // Write was with w=0, set coarse X and fine X
@@ -398,12 +410,19 @@ fn process_register_updates(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                     state.registers.temp_vram_address = (state.registers.temp_vram_address
                         & 0x0C1F)
                         | (u16::from(value & 0x07) << 12)
-                        | (u16::from(value & 0xF1) << 2);
+                        | (u16::from(value & 0xF8) << 2);
                 }
             }
         }
         Some(PpuTrackedRegister::PPUADDR) => {
             let value = bus.get_ppu_registers().get_write_buffer();
+            log::trace!(
+                "PPU: {value:02X} written to PPUADDR, write_toggle={:?} on scanline {}, dot {}",
+                bus.get_ppu_registers().get_write_toggle(),
+                state.scanline,
+                state.dot
+            );
+
             match bus.get_ppu_registers().get_write_toggle() {
                 PpuWriteToggle::Second => {
                     // Write was with w=0, set bits 13-8 and clear bit 14
@@ -420,6 +439,11 @@ fn process_register_updates(state: &mut PpuState, bus: &mut PpuBus<'_>) {
             }
         }
         Some(PpuTrackedRegister::PPUDATA) => {
+            log::trace!(
+                "PPU: PPUDATA was accessed on scanline {} / dot {}, incrementing internal v register by {}",
+                state.scanline, state.dot, bus.get_ppu_registers().ppu_data_addr_increment()
+            );
+
             // Any time the CPU accesses PPUDATA, ncrement VRAM address by 1 or 32 based on PPUCTRL
             state.registers.vram_address = state
                 .registers

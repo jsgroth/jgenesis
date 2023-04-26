@@ -710,6 +710,7 @@ impl<'a> CpuBus<'a> {
                 self.0.ppu_registers.last_accessed_register = Some(PpuTrackedRegister::PPUCTRL);
             }
             PpuRegister::PPUMASK => {
+                log::trace!("BUS: PPUMASK set to {value:02X}");
                 self.0.ppu_registers.ppu_mask = value;
             }
             PpuRegister::PPUSTATUS => {}
