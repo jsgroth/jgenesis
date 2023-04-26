@@ -119,6 +119,7 @@ impl SpriteBuffers {
             let i = i as usize;
             SpriteData {
                 is_sprite_0: i == 0 && self.sprite_0_buffered,
+                y_position: self.y_positions[i],
                 x_position: self.x_positions[i],
                 attributes: self.attributes[i],
                 pattern_table_low: self.pattern_table_low[i],
@@ -203,6 +204,7 @@ impl SpriteEvaluationData {
 #[derive(Debug, Clone, Copy)]
 struct SpriteData {
     is_sprite_0: bool,
+    y_position: u8,
     x_position: u8,
     attributes: u8,
     pattern_table_low: u8,
@@ -517,6 +519,11 @@ fn render_pixel(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     let sprites_enabled = ppu_registers.sprites_enabled();
     let left_edge_bg_enabled = ppu_registers.left_edge_bg_enabled();
     let left_edge_sprites_enabled = ppu_registers.left_edge_sprites_enabled();
+    let sprite_height = if ppu_registers.double_height_sprites() {
+        16
+    } else {
+        8
+    };
 
     // Get next BG pixel color ID
     let bg_color_id = if bg_enabled && (pixel >= 8 || left_edge_bg_enabled) {
@@ -533,11 +540,19 @@ fn render_pixel(state: &mut PpuState, bus: &mut PpuBus<'_>) {
 
     // Find the first overlapping sprite by OAM index, if any; use transparent if none found
     let (sprite, sprite_color_id) = (sprites_enabled && (pixel >= 8 || left_edge_sprites_enabled))
-        .then(|| find_first_overlapping_sprite(pixel, &state.sprite_buffers))
+        .then(|| {
+            find_first_overlapping_sprite(
+                state.scanline as u8,
+                pixel,
+                &state.sprite_buffers,
+                sprite_height,
+            )
+        })
         .flatten()
         .unwrap_or((
             SpriteData {
                 is_sprite_0: false,
+                y_position: state.scanline as u8,
                 x_position: pixel,
                 attributes: 0x00,
                 pattern_table_high: 0,
@@ -797,9 +812,22 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     };
 }
 
-fn find_first_overlapping_sprite(pixel: u8, sprites: &SpriteBuffers) -> Option<(SpriteData, u8)> {
+fn find_first_overlapping_sprite(
+    scanline: u8,
+    pixel: u8,
+    sprites: &SpriteBuffers,
+    sprite_height: u8,
+) -> Option<(SpriteData, u8)> {
+    if scanline == 0 {
+        // No sprites ever render on the first scanline
+        return None;
+    }
+
     sprites.iter().find_map(|sprite| {
-        if !(sprite.x_position..sprite.x_position.saturating_add(8)).contains(&pixel) {
+        if !(sprite.y_position..sprite.y_position.saturating_add(sprite_height))
+            .contains(&(scanline - 1))
+            || !(sprite.x_position..sprite.x_position.saturating_add(8)).contains(&pixel)
+        {
             return None;
         }
 
@@ -896,9 +924,9 @@ fn fetch_sprite_pattern_table_byte(
         )
     } else {
         let fine_y_scroll = if flip_y {
-            7 - (scanline - y_position)
+            7 - scanline.saturating_sub(y_position)
         } else {
-            scanline - y_position
+            scanline.saturating_sub(y_position)
         };
         (sprite_pattern_table_address, tile_index, fine_y_scroll)
     };
