@@ -719,12 +719,60 @@ impl MapperImpl<Mmc3> {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) struct Axrom {
+    chr_type: ChrType,
+    prg_bank: u8,
+    nametable_vram_bank: u8,
+}
+
+impl MapperImpl<Axrom> {
+    fn read_cpu_address(&self, address: u16) -> u8 {
+        if address < 0x8000 {
+            return 0xFF;
+        }
+
+        let bank_address =
+            (u32::from(self.data.prg_bank) << 15) & (self.cartridge.prg_rom.len() as u32 - 1);
+        self.cartridge.prg_rom[(bank_address | u32::from(address & 0x7FFF)) as usize]
+    }
+
+    fn write_cpu_address(&mut self, address: u16, value: u8) {
+        if address < 0x8000 {
+            return;
+        }
+
+        self.data.prg_bank = value & 0x07;
+        self.data.nametable_vram_bank = (value & 0x10) >> 4;
+    }
+
+    fn map_ppu_address(&self, address: u16) -> PpuMapResult {
+        match address {
+            0x0000..=0x1FFF => self.data.chr_type.to_map_result(address.into()),
+            0x2000..=0x3EFF => PpuMapResult::Vram(
+                (u16::from(self.data.nametable_vram_bank) << 10) | (address & 0x03FF),
+            ),
+            _ => panic!("invalid PPU map address: 0x{address:04X}"),
+        }
+    }
+
+    fn read_ppu_address(&self, address: u16, vram: &[u8; 2048]) -> u8 {
+        self.map_ppu_address(address).read(&self.cartridge, vram)
+    }
+
+    fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
+        self.map_ppu_address(address)
+            .write(value, &mut self.cartridge, vram);
+    }
+}
+
+#[derive(Debug, Clone)]
 pub(crate) enum Mapper {
     Nrom(MapperImpl<Nrom>),
     Uxrom(MapperImpl<Uxrom>),
     Mmc1(MapperImpl<Mmc1>),
     Cnrom(MapperImpl<Cnrom>),
     Mmc3(MapperImpl<Mmc3>),
+    Axrom(MapperImpl<Axrom>),
 }
 
 impl Mapper {
@@ -735,6 +783,7 @@ impl Mapper {
             Self::Mmc1(..) => "MMC1",
             Self::Cnrom(..) => "CNROM",
             Self::Mmc3(..) => "MMC3",
+            Self::Axrom(..) => "AxROM",
         }
     }
 
@@ -745,6 +794,7 @@ impl Mapper {
             Self::Mmc1(mmc1) => mmc1.read_cpu_address(address),
             Self::Cnrom(cnrom) => cnrom.read_cpu_address(address),
             Self::Mmc3(mmc3) => mmc3.read_cpu_address(address),
+            Self::Axrom(axrom) => axrom.read_cpu_address(address),
         }
     }
 
@@ -763,6 +813,9 @@ impl Mapper {
             Self::Mmc3(mmc3) => {
                 mmc3.write_cpu_address(address, value);
             }
+            Self::Axrom(axrom) => {
+                axrom.write_cpu_address(address, value);
+            }
         }
     }
 
@@ -773,6 +826,7 @@ impl Mapper {
             Self::Mmc1(mmc1) => mmc1.read_ppu_address(address, vram),
             Self::Cnrom(cnrom) => cnrom.read_ppu_address(address, vram),
             Self::Mmc3(mmc3) => mmc3.read_ppu_address(address, vram),
+            Self::Axrom(axrom) => axrom.read_ppu_address(address, vram),
         }
     }
 
@@ -793,12 +847,19 @@ impl Mapper {
             Self::Mmc3(mmc3) => {
                 mmc3.write_ppu_address(address, value, vram);
             }
+            Self::Axrom(axrom) => {
+                axrom.write_ppu_address(address, value, vram);
+            }
         }
     }
 
     pub(crate) fn tick(&mut self) {
         match self {
-            Self::Nrom(..) | Self::Uxrom(..) | Self::Cnrom(..) | Self::Mmc3(..) => {}
+            Self::Nrom(..)
+            | Self::Uxrom(..)
+            | Self::Cnrom(..)
+            | Self::Mmc3(..)
+            | Self::Axrom(..) => {}
             Self::Mmc1(mmc1) => {
                 mmc1.tick();
             }
@@ -980,6 +1041,14 @@ fn from_ines_file(mut file: File) -> Result<Mapper, CartridgeFileError> {
                 irq_enabled: false,
                 last_a12_read: 0,
                 a12_low_cycles: 0,
+            },
+        }),
+        7 => Mapper::Axrom(MapperImpl {
+            cartridge,
+            data: Axrom {
+                chr_type,
+                prg_bank: 0,
+                nametable_vram_bank: 0,
             },
         }),
         _ => {
