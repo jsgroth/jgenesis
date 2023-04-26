@@ -478,11 +478,19 @@ impl IrqSource {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NmiStatus {
+    None,
+    Pending2Cycles,
+    Pending1Cycle,
+    Triggered,
+}
+
 #[derive(Debug)]
 pub struct InterruptLines {
     nmi_line: InterruptLine,
     next_nmi_line: InterruptLine,
-    nmi_triggered: bool,
+    nmi_status: NmiStatus,
     irq_line: InterruptLine,
     irq_low_pulls: u8,
 }
@@ -492,15 +500,28 @@ impl InterruptLines {
         Self {
             nmi_line: InterruptLine::High,
             next_nmi_line: InterruptLine::High,
-            nmi_triggered: false,
+            nmi_status: NmiStatus::None,
             irq_line: InterruptLine::High,
             irq_low_pulls: 0x00,
         }
     }
 
     fn tick(&mut self) {
-        if self.nmi_line == InterruptLine::High && self.next_nmi_line == InterruptLine::Low {
-            self.nmi_triggered = true;
+        match (self.nmi_line, self.next_nmi_line, self.nmi_status) {
+            (InterruptLine::High, InterruptLine::Low, NmiStatus::None) => {
+                // The NMI line must stay low for 3 cycles before the interrupt triggers
+                self.nmi_status = NmiStatus::Pending2Cycles;
+            }
+            (InterruptLine::Low, InterruptLine::Low, NmiStatus::Pending2Cycles) => {
+                self.nmi_status = NmiStatus::Pending1Cycle;
+            }
+            (InterruptLine::Low, InterruptLine::Low, NmiStatus::Pending1Cycle) => {
+                self.nmi_status = NmiStatus::Triggered;
+            }
+            (_, InterruptLine::High, _) => {
+                self.nmi_status = NmiStatus::None;
+            }
+            _ => {}
         }
 
         self.nmi_line = self.next_nmi_line;
@@ -512,11 +533,11 @@ impl InterruptLines {
     }
 
     pub fn nmi_triggered(&self) -> bool {
-        self.nmi_triggered
+        self.nmi_status == NmiStatus::Triggered
     }
 
     pub fn clear_nmi_triggered(&mut self) {
-        self.nmi_triggered = false;
+        self.nmi_status = NmiStatus::None;
     }
 
     pub fn ppu_set_nmi_line(&mut self, interrupt_line: InterruptLine) {
