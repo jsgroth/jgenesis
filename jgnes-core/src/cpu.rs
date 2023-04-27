@@ -1,5 +1,5 @@
 use crate::bus;
-use crate::bus::{Bus, CpuBus, PpuRegister};
+use crate::bus::{CpuBus, PpuRegister};
 use crate::cpu::instructions::{Instruction, InstructionState};
 
 mod instructions;
@@ -143,10 +143,10 @@ impl CpuState {
     }
 }
 
-pub fn tick(state: &mut CpuState, bus: &mut Bus) {
+pub fn tick(state: &mut CpuState, bus: &mut CpuBus<'_>) {
     state.state = match std::mem::replace(&mut state.state, State::InstructionStart) {
         State::InstructionStart => {
-            let opcode = bus.cpu().read_address(state.registers.pc);
+            let opcode = bus.read_address(state.registers.pc);
             state.registers.pc += 1;
 
             let Some(instruction) = Instruction::from_opcode(opcode)
@@ -170,17 +170,16 @@ pub fn tick(state: &mut CpuState, bus: &mut Bus) {
             log::trace!("  Current instruction state: {instruction_state:02X?}");
             log::trace!(
                 "  Bytes at PC and PC+1: 0x{:02X} 0x{:02X}",
-                bus.cpu().read_address(state.registers.pc),
-                bus.cpu().read_address(state.registers.pc + 1)
+                bus.read_address(state.registers.pc),
+                bus.read_address(state.registers.pc + 1)
             );
 
-            let instruction_state =
-                cycle_op.execute(instruction_state, &mut state.registers, &mut bus.cpu());
+            let instruction_state = cycle_op.execute(instruction_state, &mut state.registers, bus);
 
             if usize::from(instruction_state.op_index) < instruction_state.ops.len() {
                 State::Executing(instruction_state)
-            } else if bus.cpu().is_oamdma_dirty() {
-                bus.cpu().clear_oamdma_dirty();
+            } else if bus.is_oamdma_dirty() {
+                bus.clear_oamdma_dirty();
 
                 log::trace!("OAMDMA was written to, starting OAM DMA transfer");
 
@@ -197,7 +196,7 @@ pub fn tick(state: &mut CpuState, bus: &mut Bus) {
             }
         }
         State::OamDmaStart => {
-            let source_high_byte = bus.cpu().read_oamdma_for_transfer();
+            let source_high_byte = bus.read_oamdma_for_transfer();
 
             log::trace!("Initiating OAM DMA transfer from 0x{source_high_byte:02X}00");
 
@@ -216,12 +215,10 @@ pub fn tick(state: &mut CpuState, bus: &mut Bus) {
 
             if cycles_remaining % 2 == 1 {
                 let source_low_byte = (0xFF - cycles_remaining / 2) as u8;
-                last_read_value = bus
-                    .cpu()
-                    .read_address(u16::from_le_bytes([source_low_byte, source_high_byte]));
+                last_read_value =
+                    bus.read_address(u16::from_le_bytes([source_low_byte, source_high_byte]));
             } else {
-                bus.cpu()
-                    .write_address(PpuRegister::OAMDATA.to_address(), last_read_value);
+                bus.write_address(PpuRegister::OAMDATA.to_address(), last_read_value);
             }
 
             if cycles_remaining > 0 {
