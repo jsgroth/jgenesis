@@ -139,7 +139,8 @@ enum SpriteEvaluationState {
         byte_index: u8,
     },
     CheckingForOverflow {
-        oam_address: u8,
+        oam_index: u8,
+        oam_offset: u8,
         skip_bytes_remaining: u8,
     },
     Done,
@@ -249,13 +250,15 @@ impl PpuState {
 pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     process_register_updates(state, bus);
 
-    if state.scanline == PRE_RENDER_SCANLINE && state.dot == 1 {
+    // Set/reset flags on dot 2 instead of 1 because these writes aren't buffered by the bus, at
+    // least currently
+    if state.scanline == PRE_RENDER_SCANLINE && state.dot == 2 {
         // Clear per-frame flags at the start of the pre-render scanline
         let ppu_registers = bus.get_ppu_registers_mut();
         ppu_registers.set_vblank_flag(false);
         ppu_registers.set_sprite_0_hit(false);
         ppu_registers.set_sprite_overflow(false);
-    } else if state.scanline == 241 && state.dot == 1 {
+    } else if state.scanline == 241 && state.dot == 2 {
         bus.get_ppu_registers_mut().set_vblank_flag(true);
     }
 
@@ -763,7 +766,8 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                     SpriteEvaluationState::Done
                 } else if evaluation_data.sprites_found == 8 {
                     SpriteEvaluationState::CheckingForOverflow {
-                        oam_address: next_oam_index << 2,
+                        oam_index: next_oam_index,
+                        oam_offset: 0,
                         skip_bytes_remaining: 0,
                     }
                 } else {
@@ -774,36 +778,28 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>) {
             }
         }
         SpriteEvaluationState::CheckingForOverflow {
-            oam_address,
+            oam_index,
+            oam_offset,
             skip_bytes_remaining,
         } => {
             if skip_bytes_remaining > 0 {
-                if oam_address < 255 {
-                    SpriteEvaluationState::CheckingForOverflow {
-                        oam_address: oam_address + 1,
-                        skip_bytes_remaining: skip_bytes_remaining - 1,
-                    }
-                } else {
-                    SpriteEvaluationState::Done
+                SpriteEvaluationState::CheckingForOverflow {
+                    oam_index,
+                    oam_offset: (oam_offset + 1) & 0x03,
+                    skip_bytes_remaining: skip_bytes_remaining - 1,
                 }
             } else {
-                let y_position = oam[oam_address as usize];
-                if (y_position..y_position + sprite_height).contains(&(state.scanline as u8)) {
+                let y_position = oam[((oam_index << 2) | oam_offset) as usize];
+                if (y_position..y_position.saturating_add(sprite_height)).contains(&(state.scanline as u8)) {
                     bus.get_ppu_registers_mut().set_sprite_overflow(true);
-
-                    if oam_address < 255 {
-                        SpriteEvaluationState::CheckingForOverflow {
-                            oam_address: oam_address + 1,
-                            skip_bytes_remaining: 3,
-                        }
-                    } else {
-                        SpriteEvaluationState::Done
-                    }
-                } else if oam_address < 251 {
-                    // Yes, +5; this is replicating a hardware bug that makes the sprite overflow
-                    // flag essentially useless
+                    
+                    SpriteEvaluationState::Done
+                } else if oam_index < 63 {
+                    // Yes, increment both index and offset; this is replicating a hardware bug that
+                    // makes the sprite overflow flag essentially useless
                     SpriteEvaluationState::CheckingForOverflow {
-                        oam_address: oam_address + 5,
+                        oam_index: oam_index + 1,
+                        oam_offset: (oam_offset + 1) & 0x03,
                         skip_bytes_remaining: 0,
                     }
                 } else {
