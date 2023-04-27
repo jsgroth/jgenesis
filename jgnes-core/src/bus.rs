@@ -119,7 +119,7 @@ pub struct PpuRegisters {
     ppu_addr: u16,
     ppu_data_buffer: u8,
     ppu_status_read: bool,
-    write_buffer: u8,
+    open_bus_value: u8,
     last_accessed_register: Option<PpuTrackedRegister>,
     write_toggle: PpuWriteToggle,
 }
@@ -134,7 +134,7 @@ impl PpuRegisters {
             ppu_addr: 0,
             ppu_data_buffer: 0,
             ppu_status_read: false,
-            write_buffer: 0,
+            open_bus_value: 0,
             last_accessed_register: None,
             write_toggle: PpuWriteToggle::First,
         }
@@ -244,8 +244,8 @@ impl PpuRegisters {
         self.last_accessed_register.take()
     }
 
-    pub fn get_write_buffer(&self) -> u8 {
-        self.write_buffer
+    pub fn get_open_bus_value(&self) -> u8 {
+        self.open_bus_value
     }
 
     pub fn get_write_toggle(&self) -> PpuWriteToggle {
@@ -702,12 +702,23 @@ impl<'a> CpuBus<'a> {
             | PpuRegister::PPUMASK
             | PpuRegister::OAMADDR
             | PpuRegister::PPUSCROLL
-            | PpuRegister::PPUADDR => 0xFF,
+            | PpuRegister::PPUADDR => self.0.ppu_registers.open_bus_value,
             PpuRegister::PPUSTATUS => {
                 self.0.ppu_registers.ppu_status_read = true;
-                self.0.ppu_registers.ppu_status | 0x1F
+
+                // PPUSTATUS reads only affect bits 7-5 of open bus, bits 4-0 remain intact
+                // and are returned as part of the read
+                let ppu_status_high_bits = self.0.ppu_registers.ppu_status & 0xE0;
+                let open_bus_lower_bits = self.0.ppu_registers.open_bus_value & 0x1F;
+                self.0.ppu_registers.open_bus_value = ppu_status_high_bits | open_bus_lower_bits;
+
+                self.0.ppu_registers.open_bus_value
             }
-            PpuRegister::OAMDATA => self.0.ppu_oam[self.0.ppu_registers.oam_addr as usize],
+            PpuRegister::OAMDATA => {
+                self.0.ppu_registers.open_bus_value =
+                    self.0.ppu_oam[self.0.ppu_registers.oam_addr as usize];
+                self.0.ppu_registers.open_bus_value
+            }
             PpuRegister::PPUDATA => {
                 let address = self.0.ppu_registers.ppu_addr & 0x3FFF;
                 let (data, buffer_read_address) = if address < 0x3F00 {
@@ -720,6 +731,7 @@ impl<'a> CpuBus<'a> {
 
                 self.0.ppu_registers.ppu_data_buffer =
                     self.0.ppu().read_address(buffer_read_address);
+                self.0.ppu_registers.open_bus_value = data;
 
                 let addr_increment = self.0.ppu_registers.ppu_data_addr_increment();
                 self.0.ppu_registers.ppu_addr =
@@ -736,6 +748,9 @@ impl<'a> CpuBus<'a> {
         else {
             panic!("invalid PPU register address: {relative_addr}");
         };
+
+        // Writes to any memory-mapped PPU register put the value on open bus
+        self.0.ppu_registers.open_bus_value = value;
 
         match register {
             PpuRegister::PPUCTRL => {
@@ -756,12 +771,10 @@ impl<'a> CpuBus<'a> {
                 self.0.ppu_registers.oam_addr = self.0.ppu_registers.oam_addr.wrapping_add(1);
             }
             PpuRegister::PPUSCROLL => {
-                self.0.ppu_registers.write_buffer = value;
                 self.0.ppu_registers.last_accessed_register = Some(PpuTrackedRegister::PPUSCROLL);
                 self.0.ppu_registers.write_toggle = self.0.ppu_registers.write_toggle.toggle();
             }
             PpuRegister::PPUADDR => {
-                self.0.ppu_registers.write_buffer = value;
                 self.0.ppu_registers.last_accessed_register = Some(PpuTrackedRegister::PPUADDR);
                 self.0.ppu_registers.write_toggle = self.0.ppu_registers.write_toggle.toggle();
             }

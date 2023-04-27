@@ -395,7 +395,7 @@ fn process_register_updates(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                 (state.registers.temp_vram_address & 0xF3FF) | (u16::from(ppu_ctrl & 0x03) << 10);
         }
         Some(PpuTrackedRegister::PPUSCROLL) => {
-            let value = bus.get_ppu_registers().get_write_buffer();
+            let value = bus.get_ppu_registers().get_open_bus_value();
             log::trace!(
                 "PPU: {value:02X} written to PPUSCROLL, write_toggle={:?} on scanline {}, dot {}",
                 bus.get_ppu_registers().get_write_toggle(),
@@ -420,7 +420,7 @@ fn process_register_updates(state: &mut PpuState, bus: &mut PpuBus<'_>) {
             }
         }
         Some(PpuTrackedRegister::PPUADDR) => {
-            let value = bus.get_ppu_registers().get_write_buffer();
+            let value = bus.get_ppu_registers().get_open_bus_value();
             log::trace!(
                 "PPU: {value:02X} written to PPUADDR, write_toggle={:?} on scanline {}, dot {}",
                 bus.get_ppu_registers().get_write_toggle(),
