@@ -479,10 +479,9 @@ impl IrqSource {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum NmiStatus {
+enum IrqStatus {
     None,
-    Pending2Cycles,
-    Pending1Cycle,
+    Pending,
     Triggered,
 }
 
@@ -490,10 +489,10 @@ enum NmiStatus {
 pub struct InterruptLines {
     nmi_line: InterruptLine,
     next_nmi_line: InterruptLine,
-    nmi_status: NmiStatus,
+    nmi_triggered: bool,
+    irq_status: IrqStatus,
     irq_line: InterruptLine,
     irq_low_pulls: u8,
-    irq_low_cycles: u64,
 }
 
 impl InterruptLines {
@@ -501,51 +500,46 @@ impl InterruptLines {
         Self {
             nmi_line: InterruptLine::High,
             next_nmi_line: InterruptLine::High,
-            nmi_status: NmiStatus::None,
+            nmi_triggered: false,
+            irq_status: IrqStatus::None,
             irq_line: InterruptLine::High,
             irq_low_pulls: 0x00,
-            irq_low_cycles: 0,
         }
     }
 
     fn tick(&mut self) {
-        match (self.nmi_line, self.next_nmi_line, self.nmi_status) {
-            (InterruptLine::High, InterruptLine::Low, NmiStatus::None) => {
-                // The NMI line must stay low for 3 cycles before the interrupt triggers
-                self.nmi_status = NmiStatus::Pending2Cycles;
-            }
-            (InterruptLine::Low, InterruptLine::Low, NmiStatus::Pending2Cycles) => {
-                self.nmi_status = NmiStatus::Pending1Cycle;
-            }
-            (InterruptLine::Low, InterruptLine::Low, NmiStatus::Pending1Cycle) => {
-                self.nmi_status = NmiStatus::Triggered;
-            }
-            (_, InterruptLine::High, NmiStatus::Pending1Cycle | NmiStatus::Pending2Cycles) => {
-                self.nmi_status = NmiStatus::None;
-            }
-            _ => {}
+        if self.nmi_line == InterruptLine::High && self.next_nmi_line == InterruptLine::Low {
+            self.nmi_triggered = true;
         }
-
-        if self.irq_line == InterruptLine::Low {
-            // The IRQ line must stay low for 3 cycles before triggering an interrupt
-            self.irq_low_cycles += 1;
-        }
-
         self.nmi_line = self.next_nmi_line;
+
         self.irq_line = if self.irq_low_pulls != 0 {
             InterruptLine::Low
         } else {
-            self.irq_low_cycles = 0;
             InterruptLine::High
         };
+
+        match (self.irq_line, self.irq_status) {
+            (InterruptLine::High, _) => {
+                self.irq_status = IrqStatus::None;
+            }
+            (InterruptLine::Low, IrqStatus::None) => {
+                // IRQ interrupts need to be delayed by 1 CPU cycle
+                self.irq_status = IrqStatus::Pending;
+            }
+            (InterruptLine::Low, IrqStatus::Pending) => {
+                self.irq_status = IrqStatus::Triggered;
+            }
+            (InterruptLine::Low, IrqStatus::Triggered) => {}
+        }
     }
 
     pub fn nmi_triggered(&self) -> bool {
-        self.nmi_status == NmiStatus::Triggered
+        self.nmi_triggered
     }
 
     pub fn clear_nmi_triggered(&mut self) {
-        self.nmi_status = NmiStatus::None;
+        self.nmi_triggered = false;
     }
 
     pub fn ppu_set_nmi_line(&mut self, interrupt_line: InterruptLine) {
@@ -553,7 +547,7 @@ impl InterruptLines {
     }
 
     pub fn irq_triggered(&self) -> bool {
-        self.irq_low_cycles >= 3
+        self.irq_status == IrqStatus::Triggered
     }
 
     pub fn pull_irq_low(&mut self, source: IrqSource) {
@@ -627,7 +621,11 @@ impl Bus {
 
         self.interrupt_lines
             .set_irq_low_pull(IrqSource::Mapper, self.mapper.interrupt_flag());
+    }
 
+    // Poll NMI/IRQ interrupt lines; this should be called once per CPU cycle, between the first
+    // and second PPU ticks
+    pub fn poll_interrupt_lines(&mut self) {
         self.interrupt_lines.tick();
     }
 }

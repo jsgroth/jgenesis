@@ -790,9 +790,11 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                 }
             } else {
                 let y_position = oam[((oam_index << 2) | oam_offset) as usize];
-                if (y_position..y_position.saturating_add(sprite_height)).contains(&(state.scanline as u8)) {
+                if (y_position..y_position.saturating_add(sprite_height))
+                    .contains(&(state.scanline as u8))
+                {
                     bus.get_ppu_registers_mut().set_sprite_overflow(true);
-                    
+
                     SpriteEvaluationState::Done
                 } else if oam_index < 63 {
                     // Yes, increment both index and offset; this is replicating a hardware bug that

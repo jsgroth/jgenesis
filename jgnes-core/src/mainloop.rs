@@ -115,6 +115,8 @@ pub fn run(path: &str) -> Result<(), RunError> {
         ppu::tick(&mut ppu_state, &mut bus.ppu());
         bus.tick();
 
+        bus.poll_interrupt_lines();
+
         ppu::tick(&mut ppu_state, &mut bus.ppu());
         bus.tick();
 
