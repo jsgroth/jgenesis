@@ -850,6 +850,7 @@ impl<'a> PpuBus<'a> {
 fn map_palette_address(address: u16) -> usize {
     let palette_relative_addr = ((address - 0x3F00) & 0x001F) as usize;
     if palette_relative_addr >= 0x10 && palette_relative_addr.trailing_zeros() >= 2 {
+        // 0x10, 0x14, 0x18, 0x1C are mirrored to 0x00, 0x04, 0x08, 0x0C
         palette_relative_addr - 0x10
     } else {
         palette_relative_addr
