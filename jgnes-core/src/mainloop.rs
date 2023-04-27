@@ -106,7 +106,8 @@ pub fn run(path: &str) -> Result<(), RunError> {
     let mut apu_config = ApuConfig::new();
     let mut joypad_state = JoypadState::new();
 
-    let mut count = 0;
+    init_apu(&mut apu_state, &apu_config, &mut bus);
+
     loop {
         let prev_in_vblank = ppu_state.in_vblank();
 
@@ -192,25 +193,17 @@ pub fn run(path: &str) -> Result<(), RunError> {
                 audio_queue.queue_audio(&samples)?;
             }
         }
+    }
+}
 
-        // TODO scaffolding for printing test ROM output, remove at some point
-        count += 1;
-        if count % 1000000 == 0
-            && [0x6001, 0x6002, 0x6003].map(|address| bus.cpu().read_address(address))
-                == [0xDE, 0xB0, 0x61]
-        {
-            let mut buf = String::new();
-            let mut address = 0x6004;
-            loop {
-                let value = bus.cpu().read_address(address);
-                if value == 0 {
-                    break;
-                }
+fn init_apu(apu_state: &mut ApuState, apu_config: &ApuConfig, bus: &mut Bus) {
+    // Write 0x00 to JOY2 to reset the frame counter
+    bus.cpu().write_address(0x4017, 0x00);
+    bus.tick();
 
-                buf.push(char::from(value));
-                address += 1;
-            }
-            log::info!("{}", buf);
-        }
+    // Run the APU for 10 cycles
+    for _ in 0..10 {
+        apu::tick(apu_state, apu_config, &mut bus.cpu());
+        bus.tick();
     }
 }
