@@ -855,3 +855,17 @@ fn map_palette_address(address: u16) -> usize {
         palette_relative_addr
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::bus::{cartridge, Bus};
+
+    #[test]
+    fn randomized_ram_on_startup() {
+        let mapper = cartridge::new_mmc1(vec![0; 32768]);
+        let bus1 = Bus::from_cartridge(mapper.clone());
+        let bus2 = Bus::from_cartridge(mapper);
+
+        assert_ne!(bus1.cpu_internal_ram, bus2.cpu_internal_ram);
+    }
+}

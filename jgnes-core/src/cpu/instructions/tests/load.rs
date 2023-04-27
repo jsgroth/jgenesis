@@ -374,7 +374,7 @@ fn sta_zero_page_indexed() {
             a: Some(0x78),
             x: Some(0x05),
             p: Some(0x34),
-            memory: hash_map! { 0x0045: 0x00, 0x004A: 0x78 },
+            memory: hash_map! { 0x004A: 0x78 },
             cycles: Some(8),
             ..ExpectedState::default()
         },
@@ -387,7 +387,7 @@ fn sta_zero_page_indexed() {
             a: Some(0x78),
             x: Some(0x10),
             p: Some(0x34),
-            memory: hash_map! { 0x0005: 0x78, 0x0105: 0x00 },
+            memory: hash_map! { 0x0005: 0x78 },
             cycles: Some(8),
             ..ExpectedState::default()
         },
@@ -443,7 +443,7 @@ fn sta_absolute_x() {
             a: Some(0x85),
             x: Some(0x34),
             p: Some(0x34),
-            memory: hash_map! { 0x6578: 0x00, 0x65AC: 0x85 },
+            memory: hash_map! { 0x65AC: 0x85 },
             cycles: Some(9),
             ..ExpectedState::default()
         },
@@ -456,7 +456,7 @@ fn sta_absolute_x() {
             a: Some(0x85),
             x: Some(0x34),
             p: Some(0x34),
-            memory: hash_map! { 0x65F0: 0x00, 0x6624: 0x85 },
+            memory: hash_map! { 0x6624: 0x85 },
             cycles: Some(9),
             ..ExpectedState::default()
         },
@@ -485,7 +485,7 @@ fn sta_absolute_y() {
             a: Some(0x85),
             y: Some(0x34),
             p: Some(0x34),
-            memory: hash_map! { 0x6578: 0x00, 0x65AC: 0x85 },
+            memory: hash_map! { 0x65AC: 0x85 },
             cycles: Some(9),
             ..ExpectedState::default()
         },
@@ -498,7 +498,7 @@ fn sta_absolute_y() {
             a: Some(0x85),
             y: Some(0x34),
             p: Some(0x34),
-            memory: hash_map! { 0x65F0: 0x00, 0x6624: 0x85 },
+            memory: hash_map! { 0x6624: 0x85 },
             cycles: Some(9),
             ..ExpectedState::default()
         },
@@ -556,7 +556,7 @@ fn stx_zero_page_indexed() {
             x: Some(0x78),
             y: Some(0x05),
             p: Some(0x34),
-            memory: hash_map! { 0x0045: 0x00, 0x004A: 0x78 },
+            memory: hash_map! { 0x004A: 0x78 },
             cycles: Some(8),
             ..ExpectedState::default()
         },
@@ -569,7 +569,7 @@ fn stx_zero_page_indexed() {
             x: Some(0x78),
             y: Some(0x10),
             p: Some(0x34),
-            memory: hash_map! { 0x0005: 0x78, 0x0105: 0x00 },
+            memory: hash_map! { 0x0005: 0x78 },
             cycles: Some(8),
             ..ExpectedState::default()
         },
@@ -652,7 +652,7 @@ fn sty_zero_page_indexed() {
             y: Some(0x78),
             x: Some(0x05),
             p: Some(0x34),
-            memory: hash_map! { 0x0045: 0x00, 0x004A: 0x78 },
+            memory: hash_map! { 0x004A: 0x78 },
             cycles: Some(8),
             ..ExpectedState::default()
         },
@@ -665,7 +665,7 @@ fn sty_zero_page_indexed() {
             y: Some(0x78),
             x: Some(0x10),
             p: Some(0x34),
-            memory: hash_map! { 0x0005: 0x78, 0x0105: 0x00 },
+            memory: hash_map! { 0x0005: 0x78 },
             cycles: Some(8),
             ..ExpectedState::default()
         },
