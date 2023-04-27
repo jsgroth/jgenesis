@@ -62,6 +62,7 @@ pub struct DeltaModulationChannel {
     timer_counter: u16,
     timer_period: u16,
     sample_buffer: Option<u8>,
+    dma_this_cycle: bool,
     output_unit: DmcOutputUnit,
     sample_address: u16,
     current_sample_address: u16,
@@ -79,6 +80,7 @@ impl DeltaModulationChannel {
             timer_counter: 0,
             timer_period: 1,
             sample_buffer: None,
+            dma_this_cycle: false,
             output_unit: DmcOutputUnit::new(),
             sample_address: 0x8000,
             current_sample_address: 0x8000,
@@ -136,6 +138,7 @@ impl DeltaModulationChannel {
         }
 
         self.sample_buffer = Some(bus.read_address(self.current_sample_address));
+        self.dma_this_cycle = true;
         self.current_sample_address = if self.current_sample_address == 0xFFFF {
             0x8000
         } else {
@@ -176,5 +179,13 @@ impl DeltaModulationChannel {
 
     pub fn interrupt_flag(&self) -> bool {
         self.interrupt_flag
+    }
+
+    pub fn started_dma_this_cycle(&self) -> bool {
+        self.dma_this_cycle
+    }
+
+    pub fn clear_dma_this_cycle(&mut self) {
+        self.dma_this_cycle = false;
     }
 }

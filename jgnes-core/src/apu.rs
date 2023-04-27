@@ -136,6 +136,10 @@ impl ApuState {
         }
     }
 
+    pub fn dmc_dma_started(&self) -> bool {
+        self.channel_5.started_dma_this_cycle()
+    }
+
     fn process_register_updates(
         &mut self,
         iter: impl Iterator<Item = (IoRegister, u8)>,
@@ -357,6 +361,9 @@ pub fn tick(state: &mut ApuState, config: &ApuConfig, bus: &mut CpuBus<'_>) {
     if bus.get_io_registers_mut().get_and_clear_snd_chn_read() {
         state.frame_counter_interrupt_flag = false;
     }
+
+    // Clear DMC DMA flag at the start of every cycle, before potentially setting it
+    state.channel_5.clear_dma_this_cycle();
 
     let dirty_registers: Vec<_> = bus.get_io_registers_mut().drain_dirty_registers().collect();
     state.process_register_updates(dirty_registers.into_iter(), bus);
