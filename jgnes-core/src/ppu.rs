@@ -582,6 +582,9 @@ fn render_pixel(state: &mut PpuState, bus: &mut PpuBus<'_>) {
         backdrop_color
     };
 
+    // Discard the highest two bits, colors range from 0 to 63
+    let pixel_color = pixel_color & 0x3F;
+
     // Render the pixel to the frame buffer
     state.frame_buffer[state.scanline as usize][pixel as usize] = pixel_color;
 }
