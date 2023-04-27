@@ -583,7 +583,8 @@ impl Bus {
     pub(crate) fn from_cartridge(mapper: Mapper) -> Self {
         Self {
             mapper,
-            cpu_internal_ram: [0; 2048],
+            // Randomize initial RAM contents
+            cpu_internal_ram: [0; 2048].map(|_| rand::random()),
             ppu_registers: PpuRegisters::new(),
             io_registers: IoRegisters::new(),
             ppu_vram: [0; 2048],
