@@ -714,8 +714,8 @@ impl<'a> CpuBus<'a> {
                 let (data, buffer_read_address) = if address < 0x3F00 {
                     (self.0.ppu_registers.ppu_data_buffer, address)
                 } else {
-                    let palette_address = (address - 0x3F00) & 0x001F;
-                    let palette_byte = self.0.ppu_palette_ram[palette_address as usize];
+                    let palette_address = map_palette_address(address);
+                    let palette_byte = self.0.ppu_palette_ram[palette_address];
                     (palette_byte, address - 0x1000)
                 };
 
@@ -802,14 +802,7 @@ impl<'a> PpuBus<'a> {
         match address {
             0x0000..=0x3EFF => self.0.mapper.read_ppu_address(address, &self.0.ppu_vram),
             0x3F00..=0x3FFF => {
-                let palette_relative_addr = ((address - 0x3F00) & 0x001F) as usize;
-                let palette_relative_addr = if palette_relative_addr >= 0x10
-                    && palette_relative_addr.trailing_zeros() >= 2
-                {
-                    palette_relative_addr - 0x10
-                } else {
-                    palette_relative_addr
-                };
+                let palette_relative_addr = map_palette_address(address);
 
                 self.0.ppu_palette_ram[palette_relative_addr]
             }
@@ -828,14 +821,7 @@ impl<'a> PpuBus<'a> {
                     .write_ppu_address(address, value, &mut self.0.ppu_vram);
             }
             0x3F00..=0x3FFF => {
-                let palette_relative_addr = ((address - 0x3F00) & 0x001F) as usize;
-                let palette_relative_addr = if palette_relative_addr >= 0x10
-                    && palette_relative_addr.trailing_zeros() >= 2
-                {
-                    palette_relative_addr - 0x10
-                } else {
-                    palette_relative_addr
-                };
+                let palette_relative_addr = map_palette_address(address);
                 self.0.ppu_palette_ram[palette_relative_addr] = value;
             }
             0x4000..=0xFFFF => {
@@ -858,5 +844,14 @@ impl<'a> PpuBus<'a> {
 
     pub fn get_palette_ram(&self) -> &[u8; 32] {
         &self.0.ppu_palette_ram
+    }
+}
+
+fn map_palette_address(address: u16) -> usize {
+    let palette_relative_addr = ((address - 0x3F00) & 0x001F) as usize;
+    if palette_relative_addr >= 0x10 && palette_relative_addr.trailing_zeros() >= 2 {
+        palette_relative_addr - 0x10
+    } else {
+        palette_relative_addr
     }
 }
