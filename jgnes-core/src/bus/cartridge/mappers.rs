@@ -645,7 +645,6 @@ impl MapperImpl<Mmc3> {
     }
 
     pub(crate) fn write_cpu_address(&mut self, address: u16, value: u8) {
-        #[allow(clippy::match_same_arms)]
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
             0x4020..=0x5FFF => {}
@@ -721,9 +720,10 @@ impl MapperImpl<Mmc3> {
             self.data.irq_reload_flag = false;
         } else {
             self.data.irq_counter -= 1;
-            if self.data.irq_counter == 0 && self.data.irq_enabled {
-                self.data.interrupt_flag = true;
-            }
+        }
+
+        if self.data.irq_counter == 0 && self.data.irq_enabled {
+            self.data.interrupt_flag = true;
         }
     }
 
