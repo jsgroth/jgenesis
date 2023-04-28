@@ -121,6 +121,7 @@ struct OamDmaState {
 enum State {
     InstructionStart { pending_interrupt: bool },
     Executing(InstructionState),
+    OamDmaDelay(OamDmaState),
     OamDma(OamDmaState),
 }
 
@@ -145,7 +146,7 @@ impl CpuState {
     }
 }
 
-pub fn tick(state: &mut CpuState, bus: &mut CpuBus<'_>) {
+pub fn tick(state: &mut CpuState, bus: &mut CpuBus<'_>, is_apu_active_cycle: bool) {
     state.state = match std::mem::replace(
         &mut state.state,
         State::InstructionStart {
@@ -162,12 +163,17 @@ pub fn tick(state: &mut CpuState, bus: &mut CpuBus<'_>) {
                 let source_high_byte = bus.read_oamdma_for_transfer();
                 log::trace!("OAM: Initiating OAM DMA transfer from {source_high_byte:02X}");
 
-                State::OamDma(OamDmaState {
+                let oam_dma_state = OamDmaState {
                     cycles_remaining: 512,
                     source_high_byte,
                     last_read_value: 0,
                     pending_interrupt,
-                })
+                };
+                if is_apu_active_cycle {
+                    State::OamDmaDelay(oam_dma_state)
+                } else {
+                    State::OamDma(oam_dma_state)
+                }
             } else if pending_interrupt {
                 log::trace!("INTERRUPT: Handling hardware NMI/IRQ interrupt");
 
@@ -215,6 +221,7 @@ pub fn tick(state: &mut CpuState, bus: &mut CpuBus<'_>) {
                 }
             }
         }
+        State::OamDmaDelay(state) => State::OamDma(state),
         State::OamDma(OamDmaState {
             mut cycles_remaining,
             source_high_byte,

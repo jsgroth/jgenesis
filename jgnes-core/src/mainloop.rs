@@ -111,7 +111,7 @@ pub fn run(path: &str) -> Result<(), RunError> {
     loop {
         let prev_in_vblank = ppu_state.in_vblank();
 
-        cpu::tick(&mut cpu_state, &mut bus.cpu());
+        cpu::tick(&mut cpu_state, &mut bus.cpu(), apu_state.is_active_cycle());
         apu::tick(&mut apu_state, &apu_config, &mut bus.cpu());
         ppu::tick(&mut ppu_state, &mut bus.ppu());
         bus.tick();

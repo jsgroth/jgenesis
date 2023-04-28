@@ -136,6 +136,10 @@ impl ApuState {
         }
     }
 
+    pub fn is_active_cycle(&self) -> bool {
+        self.frame_counter.cpu_ticks & 0x01 != 0
+    }
+
     fn process_register_updates(
         &mut self,
         iter: impl Iterator<Item = (IoRegister, u8)>,
