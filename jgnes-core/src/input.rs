@@ -37,6 +37,23 @@ impl JoypadState {
         if let Some(field) = self.get_field_mut(keycode) {
             *field = true;
         }
+
+        // Don't allow inputs of opposite directions
+        match keycode {
+            Keycode::Up => {
+                self.down = false;
+            }
+            Keycode::Down => {
+                self.up = false;
+            }
+            Keycode::Left => {
+                self.right = false;
+            }
+            Keycode::Right => {
+                self.left = false;
+            }
+            _ => {}
+        }
     }
 
     pub fn key_up(&mut self, keycode: Keycode) {
