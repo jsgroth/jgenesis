@@ -115,12 +115,12 @@ struct OamDmaState {
     cycles_remaining: u16,
     source_high_byte: u8,
     last_read_value: u8,
+    pending_interrupt: bool,
 }
 
 enum State {
-    InstructionStart,
+    InstructionStart { pending_interrupt: bool },
     Executing(InstructionState),
-    OamDmaStart,
     OamDma(OamDmaState),
 }
 
@@ -133,34 +133,65 @@ impl CpuState {
     pub fn new(registers: CpuRegisters) -> Self {
         Self {
             registers,
-            state: State::InstructionStart,
+            state: State::InstructionStart {
+                pending_interrupt: false,
+            },
         }
     }
 
     #[cfg(test)]
     pub fn at_instruction_start(&self) -> bool {
-        matches!(self.state, State::InstructionStart)
+        matches!(self.state, State::InstructionStart { .. })
     }
 }
 
 pub fn tick(state: &mut CpuState, bus: &mut CpuBus<'_>) {
-    state.state = match std::mem::replace(&mut state.state, State::InstructionStart) {
-        State::InstructionStart => {
+    state.state = match std::mem::replace(
+        &mut state.state,
+        State::InstructionStart {
+            pending_interrupt: false,
+        },
+    ) {
+        State::InstructionStart { pending_interrupt } => {
+            // Always read opcode, even if it won't be used
             let opcode = bus.read_address(state.registers.pc);
-            state.registers.pc += 1;
 
-            let Some(instruction) = Instruction::from_opcode(opcode)
-            else {
-                panic!("Unsupported opcode: {opcode:02X}");
-            };
-            let instruction_state = InstructionState::from_ops(instruction.get_cycle_ops());
+            if bus.is_oamdma_dirty() {
+                bus.clear_oamdma_dirty();
 
-            log::trace!(
-                "FETCH: Fetched instruction {instruction:?} from PC 0x{:04X}",
-                state.registers.pc - 1
-            );
+                let source_high_byte = bus.read_oamdma_for_transfer();
+                log::trace!("OAM: Initiating OAM DMA transfer from {source_high_byte:02X}");
 
-            State::Executing(instruction_state)
+                State::OamDma(OamDmaState {
+                    cycles_remaining: 512,
+                    source_high_byte,
+                    last_read_value: 0,
+                    pending_interrupt,
+                })
+            } else if pending_interrupt {
+                log::trace!("INTERRUPT: Handling hardware NMI/IRQ interrupt");
+
+                let interrupt_state = InstructionState::from_ops(
+                    instructions::INTERRUPT_HANDLER_OPS.into_iter().collect(),
+                );
+
+                State::Executing(interrupt_state)
+            } else {
+                state.registers.pc += 1;
+
+                let Some(instruction) = Instruction::from_opcode(opcode)
+                    else {
+                        panic!("Unsupported opcode: {opcode:02X}");
+                    };
+                let instruction_state = InstructionState::from_ops(instruction.get_cycle_ops());
+
+                log::trace!(
+                    "FETCH: Fetched instruction {instruction:?} from PC 0x{:04X}",
+                    state.registers.pc - 1
+                );
+
+                State::Executing(instruction_state)
+            }
         }
         State::Executing(instruction_state) => {
             let cycle_op = instruction_state.ops[instruction_state.op_index as usize];
@@ -178,38 +209,17 @@ pub fn tick(state: &mut CpuState, bus: &mut CpuBus<'_>) {
 
             if usize::from(instruction_state.op_index) < instruction_state.ops.len() {
                 State::Executing(instruction_state)
-            } else if bus.is_oamdma_dirty() {
-                bus.clear_oamdma_dirty();
-
-                log::trace!("OAMDMA was written to, starting OAM DMA transfer");
-
-                State::OamDmaStart
-            } else if instruction_state.pending_interrupt {
-                log::trace!("INTERRUPT: Handling hardware NMI/IRQ interrupt");
-
-                let interrupt_state = InstructionState::from_ops(
-                    instructions::INTERRUPT_HANDLER_OPS.into_iter().collect(),
-                );
-                State::Executing(interrupt_state)
             } else {
-                State::InstructionStart
+                State::InstructionStart {
+                    pending_interrupt: instruction_state.pending_interrupt,
+                }
             }
-        }
-        State::OamDmaStart => {
-            let source_high_byte = bus.read_oamdma_for_transfer();
-
-            log::trace!("Initiating OAM DMA transfer from 0x{source_high_byte:02X}00");
-
-            State::OamDma(OamDmaState {
-                cycles_remaining: 512,
-                source_high_byte,
-                last_read_value: 0,
-            })
         }
         State::OamDma(OamDmaState {
             mut cycles_remaining,
             source_high_byte,
             mut last_read_value,
+            pending_interrupt,
         }) => {
             cycles_remaining -= 1;
 
@@ -226,9 +236,10 @@ pub fn tick(state: &mut CpuState, bus: &mut CpuBus<'_>) {
                     cycles_remaining,
                     source_high_byte,
                     last_read_value,
+                    pending_interrupt,
                 })
             } else {
-                State::InstructionStart
+                State::InstructionStart { pending_interrupt }
             }
         }
     }

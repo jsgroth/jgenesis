@@ -1395,8 +1395,7 @@ impl Instruction {
     }
 }
 
-pub const INTERRUPT_HANDLER_OPS: [CycleOp; 7] = [
-    CycleOp::SpuriousOperandRead,
+pub const INTERRUPT_HANDLER_OPS: [CycleOp; 6] = [
     CycleOp::SpuriousOperandRead,
     CycleOp::PushPCHigh,
     CycleOp::PushPCLow,
