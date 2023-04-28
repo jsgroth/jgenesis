@@ -275,6 +275,9 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
         let backdrop_color = *state
             .rendering_disabled_backdrop_color
             .get_or_insert_with(|| {
+                // "Background palette hack": If the current VRAM address is inside the palette RAM
+                // address range when rendering is disabled, use the color at that address instead
+                // of the standard backdrop color
                 let palette_ram_addr = if (0x3F00..=0x3FFF).contains(&state.registers.vram_address)
                 {
                     state.registers.vram_address & 0x001F
