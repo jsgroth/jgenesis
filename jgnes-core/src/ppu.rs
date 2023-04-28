@@ -222,6 +222,7 @@ pub struct PpuState {
     scanline: u16,
     dot: u16,
     odd_frame: bool,
+    rendering_disabled_backdrop_color: Option<u8>,
 }
 
 impl PpuState {
@@ -235,6 +236,7 @@ impl PpuState {
             scanline: PRE_RENDER_SCANLINE,
             dot: 0,
             odd_frame: false,
+            rendering_disabled_backdrop_color: None,
         }
     }
 
@@ -265,7 +267,26 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     let rendering_enabled =
         bus.get_ppu_registers().bg_enabled() || bus.get_ppu_registers().sprites_enabled();
     if rendering_enabled {
+        state.rendering_disabled_backdrop_color = None;
         process_scanline(state, bus);
+    } else {
+        // When rendering is disabled, pixels should use whatever the backdrop color was set to
+        // at disable time until rendering is enabled again
+        let backdrop_color = *state
+            .rendering_disabled_backdrop_color
+            .get_or_insert_with(|| {
+                let palette_ram_addr = if (0x3F00..=0x3FFF).contains(&state.registers.vram_address)
+                {
+                    state.registers.vram_address & 0x001F
+                } else {
+                    0
+                };
+                bus.get_palette_ram()[palette_ram_addr as usize] & 0x3F
+            });
+
+        if state.scanline <= 239 && (1..=256).contains(&state.dot) {
+            state.frame_buffer[state.scanline as usize][(state.dot - 1) as usize] = backdrop_color;
+        }
     }
 
     // Copy v register to where the CPU can see it
