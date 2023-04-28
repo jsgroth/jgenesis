@@ -76,8 +76,8 @@ impl DeltaModulationChannel {
     pub fn new() -> Self {
         Self {
             enabled: false,
-            timer_counter: 0,
-            timer_period: 1,
+            timer_counter: DMC_PERIOD_LOOKUP_TABLE[0] - 1,
+            timer_period: DMC_PERIOD_LOOKUP_TABLE[0],
             sample_buffer: None,
             output_unit: DmcOutputUnit::new(),
             sample_address: 0x8000,
