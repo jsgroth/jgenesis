@@ -777,6 +777,10 @@ impl MapperImpl<Mmc3> {
             self.process_ppu_address(u16::from(value) << 8);
         }
     }
+
+    pub(crate) fn process_ppu_addr_increment(&mut self, new_ppu_addr: u16) {
+        self.process_ppu_address(new_ppu_addr);
+    }
 }
 
 #[derive(Debug, Clone)]

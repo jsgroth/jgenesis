@@ -733,10 +733,14 @@ impl<'a> CpuBus<'a> {
                     self.0.ppu().read_address(buffer_read_address);
                 self.0.ppu_registers.open_bus_value = data;
 
-                let addr_increment = self.0.ppu_registers.ppu_data_addr_increment();
-                self.0.ppu_registers.ppu_addr =
-                    self.0.ppu_registers.ppu_addr.wrapping_add(addr_increment);
                 self.0.ppu_registers.last_accessed_register = Some(PpuTrackedRegister::PPUDATA);
+
+                self.0.mapper.process_ppu_addr_increment(
+                    self.0
+                        .ppu_registers
+                        .ppu_addr
+                        .wrapping_add(self.0.ppu_registers.ppu_data_addr_increment()),
+                );
 
                 data
             }
@@ -783,6 +787,13 @@ impl<'a> CpuBus<'a> {
                 self.0.ppu_registers.write_toggle = self.0.ppu_registers.write_toggle.toggle();
             }
             PpuRegister::PPUDATA => {
+                self.0.mapper.process_ppu_addr_increment(
+                    self.0
+                        .ppu_registers
+                        .ppu_addr
+                        .wrapping_add(self.0.ppu_registers.ppu_data_addr_increment()),
+                );
+
                 let address = self.0.ppu_registers.ppu_addr;
                 self.0.ppu().write_address(address & 0x3FFF, value);
 

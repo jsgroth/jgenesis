@@ -139,6 +139,12 @@ impl Mapper {
             mmc3.process_ppu_addr_update(value, write_toggle);
         }
     }
+
+    pub(crate) fn process_ppu_addr_increment(&mut self, new_ppu_addr: u16) {
+        if let Self::Mmc3(mmc3) = self {
+            mmc3.process_ppu_addr_increment(new_ppu_addr);
+        }
+    }
 }
 
 #[derive(Debug, Error)]
