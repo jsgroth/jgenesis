@@ -775,6 +775,10 @@ impl<'a> CpuBus<'a> {
                 self.0.ppu_registers.write_toggle = self.0.ppu_registers.write_toggle.toggle();
             }
             PpuRegister::PPUADDR => {
+                self.0
+                    .mapper
+                    .process_ppu_addr_update(value, self.0.ppu_registers.write_toggle);
+
                 self.0.ppu_registers.last_accessed_register = Some(PpuTrackedRegister::PPUADDR);
                 self.0.ppu_registers.write_toggle = self.0.ppu_registers.write_toggle.toggle();
             }

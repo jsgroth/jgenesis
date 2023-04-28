@@ -1,4 +1,5 @@
 use crate::bus::cartridge::{Cartridge, MapperImpl};
+use crate::bus::PpuWriteToggle;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -726,18 +727,16 @@ impl MapperImpl<Mmc3> {
         }
     }
 
-    fn map_ppu_address(&mut self, address: u16) -> PpuMapResult {
+    fn process_ppu_address(&mut self, address: u16) {
         let a12 = address & (1 << 12);
         if a12 != 0 && self.data.last_a12_read == 0 && self.data.a12_low_cycles >= 10 {
             self.clock_irq();
         }
-
         self.data.last_a12_read = a12;
-        if a12 == 0 {
-            self.data.a12_low_cycles += 1;
-        } else {
-            self.data.a12_low_cycles = 0;
-        }
+    }
+
+    fn map_ppu_address(&mut self, address: u16) -> PpuMapResult {
+        self.process_ppu_address(address);
 
         match address & 0x3FFF {
             0x0000..=0x1FFF => self
@@ -762,6 +761,21 @@ impl MapperImpl<Mmc3> {
 
     pub(crate) fn interrupt_flag(&self) -> bool {
         self.data.interrupt_flag
+    }
+
+    pub(crate) fn tick(&mut self) {
+        if self.data.last_a12_read == 0 {
+            self.data.a12_low_cycles += 1;
+        } else {
+            self.data.a12_low_cycles = 0;
+        }
+    }
+
+    pub(crate) fn process_ppu_addr_update(&mut self, value: u8, write_toggle: PpuWriteToggle) {
+        if write_toggle == PpuWriteToggle::First {
+            // This mapper only cares about bit 12
+            self.process_ppu_address(u16::from(value) << 8);
+        }
     }
 }
 

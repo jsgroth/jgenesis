@@ -9,6 +9,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use thiserror::Error;
 
+use crate::bus::PpuWriteToggle;
 #[cfg(test)]
 pub(crate) use mappers::new_mmc1;
 
@@ -116,13 +117,12 @@ impl Mapper {
 
     pub(crate) fn tick(&mut self) {
         match self {
-            Self::Nrom(..)
-            | Self::Uxrom(..)
-            | Self::Cnrom(..)
-            | Self::Mmc3(..)
-            | Self::Axrom(..) => {}
+            Self::Nrom(..) | Self::Uxrom(..) | Self::Cnrom(..) | Self::Axrom(..) => {}
             Self::Mmc1(mmc1) => {
                 mmc1.tick();
+            }
+            Self::Mmc3(mmc3) => {
+                mmc3.tick();
             }
         }
     }
@@ -131,6 +131,12 @@ impl Mapper {
         match self {
             Self::Mmc3(mmc3) => mmc3.interrupt_flag(),
             _ => false,
+        }
+    }
+
+    pub(crate) fn process_ppu_addr_update(&mut self, value: u8, write_toggle: PpuWriteToggle) {
+        if let Self::Mmc3(mmc3) = self {
+            mmc3.process_ppu_addr_update(value, write_toggle);
         }
     }
 }
