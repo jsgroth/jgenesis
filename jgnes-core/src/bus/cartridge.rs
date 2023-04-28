@@ -4,9 +4,9 @@ use crate::bus::cartridge::mappers::{
     Axrom, ChrType, Cnrom, Mmc1, Mmc3, NametableMirroring, Nrom, Uxrom,
 };
 use std::fs::File;
-use std::io;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
+use std::{cmp, io};
 use thiserror::Error;
 
 use crate::bus::PpuWriteToggle;
@@ -158,6 +158,8 @@ pub enum CartridgeFileError {
     Format,
     #[error("unsupported mapper: {mapper_number}")]
     UnsupportedMapper { mapper_number: u8 },
+    #[error("cartridge header specifies both volatile and non-volatile PRG RAM")]
+    MultiplePrgRamTypes,
 }
 
 pub(crate) fn from_file<P>(path: P) -> Result<Mapper, CartridgeFileError>
@@ -180,6 +182,12 @@ where
     }
 
     from_ines_file(file)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FileFormat {
+    INes,
+    Nes2Point0,
 }
 
 fn from_ines_file(mut file: File) -> Result<Mapper, CartridgeFileError> {
@@ -210,9 +218,52 @@ fn from_ines_file(mut file: File) -> Result<Mapper, CartridgeFileError> {
         ChrType::ROM
     };
 
-    let chr_ram_size = match chr_type {
-        ChrType::RAM => 8192,
-        ChrType::ROM => 0,
+    let nametable_mirroring = if header[6] & 0x01 != 0 {
+        NametableMirroring::Vertical
+    } else {
+        NametableMirroring::Horizontal
+    };
+
+    let format = if header[7] & 0x0C == 0x08 {
+        FileFormat::Nes2Point0
+    } else {
+        FileFormat::INes
+    };
+
+    let sub_mapper_number = match format {
+        FileFormat::Nes2Point0 => header[8] >> 4,
+        FileFormat::INes => 0,
+    };
+
+    let prg_ram_size = match format {
+        FileFormat::Nes2Point0 => {
+            let volatile_shift = header[10] & 0x0F;
+            let non_volatile_shift = header[10] >> 4;
+            if volatile_shift > 0 && non_volatile_shift > 0 {
+                // ???
+                return Err(CartridgeFileError::MultiplePrgRamTypes);
+            }
+            let shift = cmp::max(volatile_shift, non_volatile_shift);
+            if shift > 0 {
+                64 << shift
+            } else {
+                0
+            }
+        }
+        FileFormat::INes => 8192,
+    };
+
+    let chr_ram_size = match (chr_type, format) {
+        (ChrType::RAM, FileFormat::Nes2Point0) => {
+            let chr_ram_shift = header[11] & 0x0F;
+            if chr_ram_shift > 0 {
+                64 << chr_ram_shift
+            } else {
+                0
+            }
+        }
+        (ChrType::RAM, FileFormat::INes) => 8192,
+        (ChrType::ROM, _) => 0,
     };
 
     let chr_size = match chr_type {
@@ -222,17 +273,9 @@ fn from_ines_file(mut file: File) -> Result<Mapper, CartridgeFileError> {
 
     let cartridge = Cartridge {
         prg_rom,
-        // TODO actually figure out size
-        prg_ram: vec![0; 8192],
+        prg_ram: vec![0; prg_ram_size],
         chr_rom,
-        // TODO actually figure out size
         chr_ram: vec![0; chr_ram_size],
-    };
-
-    let nametable_mirroring = if header[6] & 0x01 != 0 {
-        NametableMirroring::Vertical
-    } else {
-        NametableMirroring::Horizontal
     };
 
     let mapper = match mapper_number {
@@ -254,7 +297,7 @@ fn from_ines_file(mut file: File) -> Result<Mapper, CartridgeFileError> {
         }),
         4 => Mapper::Mmc3(MapperImpl {
             cartridge,
-            data: Mmc3::new(chr_type, prg_rom_size, chr_size as u32),
+            data: Mmc3::new(chr_type, prg_rom_size, chr_size as u32, sub_mapper_number),
         }),
         7 => Mapper::Axrom(MapperImpl {
             cartridge,
@@ -266,7 +309,9 @@ fn from_ines_file(mut file: File) -> Result<Mapper, CartridgeFileError> {
     };
 
     log::info!("PRG ROM size: {prg_rom_size}");
+    log::info!("PRG RAM size: {prg_ram_size}");
     log::info!("CHR ROM size: {chr_rom_size}");
+    log::info!("CHR RAM size: {chr_ram_size}");
     log::info!("CHR memory type: {chr_type:?}");
     log::info!("Mapper number: {mapper_number} ({})", mapper.name());
     log::info!(

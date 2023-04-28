@@ -593,12 +593,80 @@ enum Mmc3BankUpdate {
     ChrBank(u8),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mmc3SubMapper {
+    StandardMmc3,
+    Mmc6,
+}
+
+impl Mmc3SubMapper {
+    fn name(self) -> &'static str {
+        match self {
+            Self::StandardMmc3 => "MMC3",
+            Self::Mmc6 => "MMC6",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mmc3RamMode {
+    Mmc3Enabled,
+    Mmc3WritesDisabled,
+    Mmc6Enabled {
+        first_half_reads: bool,
+        first_half_writes: bool,
+        second_half_reads: bool,
+        second_half_writes: bool,
+    },
+    Disabled,
+}
+
+impl Mmc3RamMode {
+    fn reads_enabled(self, address: u16) -> bool {
+        match self {
+            Self::Mmc3Enabled | Self::Mmc3WritesDisabled => true,
+            Self::Mmc6Enabled {
+                first_half_reads,
+                second_half_reads,
+                ..
+            } => {
+                if address & 0x0200 != 0 {
+                    second_half_reads
+                } else {
+                    first_half_reads
+                }
+            }
+            Self::Disabled => false,
+        }
+    }
+
+    fn writes_enabled(self, address: u16) -> bool {
+        match self {
+            Self::Mmc3Enabled => true,
+            Self::Mmc6Enabled {
+                first_half_writes,
+                second_half_writes,
+                ..
+            } => {
+                if address & 0x0200 != 0 {
+                    second_half_writes
+                } else {
+                    first_half_writes
+                }
+            }
+            Self::Disabled | Self::Mmc3WritesDisabled => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct Mmc3 {
+    sub_mapper: Mmc3SubMapper,
     chr_type: ChrType,
     bank_mapping: Mmc3BankMapping,
     nametable_mirroring: NametableMirroring,
     bank_update_select: Mmc3BankUpdate,
+    ram_mode: Mmc3RamMode,
     interrupt_flag: bool,
     irq_counter: u8,
     irq_reload_value: u8,
@@ -609,12 +677,24 @@ pub(crate) struct Mmc3 {
 }
 
 impl Mmc3 {
-    pub(crate) fn new(chr_type: ChrType, prg_rom_len: u32, chr_size: u32) -> Self {
+    pub(crate) fn new(
+        chr_type: ChrType,
+        prg_rom_len: u32,
+        chr_size: u32,
+        sub_mapper_number: u8,
+    ) -> Self {
+        let sub_mapper = match sub_mapper_number {
+            1 => Mmc3SubMapper::Mmc6,
+            _ => Mmc3SubMapper::StandardMmc3,
+        };
+        log::info!("MMC3 sub mapper: {}", sub_mapper.name());
         Self {
+            sub_mapper,
             chr_type,
             bank_mapping: Mmc3BankMapping::new(prg_rom_len, chr_size),
             nametable_mirroring: NametableMirroring::Vertical,
             bank_update_select: Mmc3BankUpdate::ChrBank(0),
+            ram_mode: Mmc3RamMode::Disabled,
             interrupt_flag: false,
             irq_counter: 0,
             irq_reload_value: 0,
@@ -632,8 +712,9 @@ impl MapperImpl<Mmc3> {
             0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
             0x4020..=0x5FFF => 0xFF,
             0x6000..=0x7FFF => {
-                if !self.cartridge.prg_ram.is_empty() {
-                    self.cartridge.prg_ram[(address & 0x1FFF) as usize]
+                if self.data.ram_mode.reads_enabled(address) && !self.cartridge.prg_ram.is_empty() {
+                    let prg_ram_addr = address & (self.cartridge.prg_ram.len() as u16 - 1);
+                    self.cartridge.prg_ram[prg_ram_addr as usize]
                 } else {
                     0xFF
                 }
@@ -649,8 +730,10 @@ impl MapperImpl<Mmc3> {
             0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
             0x4020..=0x5FFF => {}
             0x6000..=0x7FFF => {
-                if !self.cartridge.prg_ram.is_empty() {
-                    self.cartridge.prg_ram[(address & 0x1FFF) as usize] = value;
+                if self.data.ram_mode.writes_enabled(address) && !self.cartridge.prg_ram.is_empty()
+                {
+                    let prg_ram_addr = address & (self.cartridge.prg_ram.len() as u16 - 1);
+                    self.cartridge.prg_ram[prg_ram_addr as usize] = value;
                 }
             }
             0x8000..=0x9FFF => {
@@ -672,6 +755,20 @@ impl MapperImpl<Mmc3> {
                         _ => unreachable!(
                             "masking with 0x07 should always be in the range 0x00..=0x07"
                         ),
+                    };
+
+                    if self.data.sub_mapper == Mmc3SubMapper::Mmc6 {
+                        let ram_enabled = value & 0x20 != 0;
+                        if !ram_enabled {
+                            self.data.ram_mode = Mmc3RamMode::Disabled;
+                        } else if ram_enabled && self.data.ram_mode == Mmc3RamMode::Disabled {
+                            self.data.ram_mode = Mmc3RamMode::Mmc6Enabled {
+                                first_half_reads: false,
+                                first_half_writes: false,
+                                second_half_reads: false,
+                                second_half_writes: false,
+                            };
+                        }
                     }
                 } else {
                     match self.data.bank_update_select {
@@ -694,6 +791,35 @@ impl MapperImpl<Mmc3> {
                     } else {
                         NametableMirroring::Vertical
                     };
+                } else {
+                    match self.data.sub_mapper {
+                        Mmc3SubMapper::Mmc6 => {
+                            self.data.ram_mode = if self.data.ram_mode == Mmc3RamMode::Disabled {
+                                // $A001 writes are ignored if RAM is disabled via $8000
+                                Mmc3RamMode::Disabled
+                            } else {
+                                let first_half_writes = value & 0x10 != 0;
+                                let first_half_reads = value & 0x20 != 0;
+                                let second_half_writes = value & 0x40 != 0;
+                                let second_half_reads = value & 0x80 != 0;
+                                Mmc3RamMode::Mmc6Enabled {
+                                    first_half_reads,
+                                    first_half_writes,
+                                    second_half_reads,
+                                    second_half_writes,
+                                }
+                            };
+                        }
+                        Mmc3SubMapper::StandardMmc3 => {
+                            self.data.ram_mode = if value & 0x80 == 0 {
+                                Mmc3RamMode::Disabled
+                            } else if value & 0x40 != 0 {
+                                Mmc3RamMode::Mmc3WritesDisabled
+                            } else {
+                                Mmc3RamMode::Mmc3Enabled
+                            };
+                        }
+                    }
                 }
             }
             0xC000..=0xDFFF => {
