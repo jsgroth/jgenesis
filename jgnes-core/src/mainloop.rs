@@ -116,10 +116,6 @@ pub fn run(path: &str) -> Result<(), RunError> {
         ppu::tick(&mut ppu_state, &mut bus.ppu());
         bus.tick();
 
-        if apu_state.dmc_dma_started() {
-            cpu::delay_for_dmc_dma(&mut cpu_state);
-        }
-
         bus.poll_interrupt_lines();
 
         ppu::tick(&mut ppu_state, &mut bus.ppu());

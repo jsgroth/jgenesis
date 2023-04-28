@@ -122,10 +122,6 @@ enum State {
     Executing(InstructionState),
     OamDmaStart,
     OamDma(OamDmaState),
-    Delay {
-        remaining_cycles: u8,
-        previous_state: Box<State>,
-    },
 }
 
 pub struct CpuState {
@@ -235,27 +231,5 @@ pub fn tick(state: &mut CpuState, bus: &mut CpuBus<'_>) {
                 State::InstructionStart
             }
         }
-        State::Delay {
-            remaining_cycles,
-            previous_state,
-        } => {
-            if remaining_cycles == 1 {
-                *previous_state
-            } else {
-                State::Delay {
-                    remaining_cycles: remaining_cycles - 1,
-                    previous_state,
-                }
-            }
-        }
     }
-}
-
-pub fn delay_for_dmc_dma(cpu_state: &mut CpuState) {
-    let previous_state = std::mem::replace(&mut cpu_state.state, State::InstructionStart);
-    // TODO vary the number of delay cycles based on the current CPU state
-    cpu_state.state = State::Delay {
-        remaining_cycles: 4,
-        previous_state: Box::new(previous_state),
-    };
 }
