@@ -4,9 +4,9 @@ use crate::bus::cartridge::mappers::{
     Axrom, ChrType, Cnrom, Mmc1, Mmc3, Mmc5, NametableMirroring, Nrom, Uxrom,
 };
 use std::fs::File;
+use std::io;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
-use std::{cmp, io};
 use thiserror::Error;
 
 use crate::bus::PpuWriteToggle;
@@ -274,11 +274,8 @@ fn from_ines_file(mut file: File) -> Result<Mapper, CartridgeFileError> {
         FileFormat::Nes2Point0 => {
             let volatile_shift = header[10] & 0x0F;
             let non_volatile_shift = header[10] >> 4;
-            if volatile_shift > 0 && non_volatile_shift > 0 {
-                // ???
-                return Err(CartridgeFileError::MultiplePrgRamTypes);
-            }
-            let shift = cmp::max(volatile_shift, non_volatile_shift);
+            // TODO separate these? very very few games have both volatile and non-volatile RAM
+            let shift = volatile_shift + non_volatile_shift;
             if shift > 0 {
                 64 << shift
             } else {

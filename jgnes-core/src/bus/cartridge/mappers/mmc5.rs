@@ -811,10 +811,12 @@ impl MapperImpl<Mmc5> {
                     let chr_4kb_bank = self.data.vertical_split.chr_bank;
                     let chr_address =
                         (u32::from(chr_4kb_bank) << 12) | u32::from(pattern_table_addr & 0x0FFF);
-                    self.cartridge.chr_rom[chr_address as usize]
+                    self.cartridge.chr_rom
+                        [(chr_address as usize) & (self.cartridge.chr_rom.len() - 1)]
                 } else {
                     let chr_address = self.data.chr_mapper.map_chr_address(address, tile_type);
-                    self.cartridge.chr_rom[chr_address as usize]
+                    self.cartridge.chr_rom
+                        [(chr_address as usize) & (self.cartridge.chr_rom.len() - 1)]
                 };
 
                 self.data.scanline_counter.increment_tile_bytes_fetched();
