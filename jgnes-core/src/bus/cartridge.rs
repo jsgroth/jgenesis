@@ -1,12 +1,12 @@
 mod mappers;
 
 use crate::bus::cartridge::mappers::{
-    Axrom, ChrType, Cnrom, Mmc1, Mmc3, NametableMirroring, Nrom, Uxrom,
+    Axrom, ChrType, Cnrom, Mmc1, Mmc3, Mmc5, NametableMirroring, Nrom, Uxrom,
 };
 use std::fs::File;
+use std::io;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
-use std::{cmp, io};
 use thiserror::Error;
 
 use crate::bus::PpuWriteToggle;
@@ -27,6 +27,7 @@ pub(crate) struct MapperImpl<MapperData> {
     data: MapperData,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub(crate) enum Mapper {
     Nrom(MapperImpl<Nrom>),
@@ -35,6 +36,7 @@ pub(crate) enum Mapper {
     Cnrom(MapperImpl<Cnrom>),
     Mmc3(MapperImpl<Mmc3>),
     Axrom(MapperImpl<Axrom>),
+    Mmc5(MapperImpl<Mmc5>),
 }
 
 impl Mapper {
@@ -46,10 +48,11 @@ impl Mapper {
             Self::Cnrom(..) => "CNROM",
             Self::Mmc3(..) => "MMC3",
             Self::Axrom(..) => "AxROM",
+            Self::Mmc5(..) => "MMC5",
         }
     }
 
-    pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
+    pub(crate) fn read_cpu_address(&mut self, address: u16) -> u8 {
         match self {
             Self::Nrom(nrom) => nrom.read_cpu_address(address),
             Self::Uxrom(uxrom) => uxrom.read_cpu_address(address),
@@ -57,6 +60,7 @@ impl Mapper {
             Self::Cnrom(cnrom) => cnrom.read_cpu_address(address),
             Self::Mmc3(mmc3) => mmc3.read_cpu_address(address),
             Self::Axrom(axrom) => axrom.read_cpu_address(address),
+            Self::Mmc5(mmc5) => mmc5.read_cpu_address(address),
         }
     }
 
@@ -78,6 +82,9 @@ impl Mapper {
             Self::Axrom(axrom) => {
                 axrom.write_cpu_address(address, value);
             }
+            Self::Mmc5(mmc5) => {
+                mmc5.write_cpu_address(address, value);
+            }
         }
     }
 
@@ -89,6 +96,7 @@ impl Mapper {
             Self::Cnrom(cnrom) => cnrom.read_ppu_address(address, vram),
             Self::Mmc3(mmc3) => mmc3.read_ppu_address(address, vram),
             Self::Axrom(axrom) => axrom.read_ppu_address(address, vram),
+            Self::Mmc5(mmc5) => mmc5.read_ppu_address(address, vram),
         }
     }
 
@@ -112,32 +120,41 @@ impl Mapper {
             Self::Axrom(axrom) => {
                 axrom.write_ppu_address(address, value, vram);
             }
-        }
-    }
-
-    pub(crate) fn tick(&mut self) {
-        match self {
-            Self::Nrom(..)
-            | Self::Uxrom(..)
-            | Self::Cnrom(..)
-            | Self::Axrom(..)
-            | Self::Mmc1(..) => {}
-            Self::Mmc3(mmc3) => {
-                mmc3.tick();
+            Self::Mmc5(mmc5) => {
+                mmc5.write_ppu_address(address, value, vram);
             }
         }
     }
 
+    pub(crate) fn tick(&mut self) {
+        if let Self::Mmc3(mmc3) = self {
+            mmc3.tick();
+        }
+    }
+
     pub(crate) fn tick_cpu(&mut self) {
-        if let Self::Mmc1(mmc1) = self {
-            mmc1.tick_cpu();
+        match self {
+            Self::Mmc1(mmc1) => {
+                mmc1.tick_cpu();
+            }
+            Self::Mmc5(mmc5) => {
+                mmc5.tick_cpu();
+            }
+            _ => {}
         }
     }
 
     pub(crate) fn interrupt_flag(&self) -> bool {
         match self {
             Self::Mmc3(mmc3) => mmc3.interrupt_flag(),
+            Self::Mmc5(mmc5) => mmc5.interrupt_flag(),
             _ => false,
+        }
+    }
+
+    pub(crate) fn process_ppu_ctrl_update(&mut self, value: u8) {
+        if let Self::Mmc5(mmc5) = self {
+            mmc5.process_ppu_ctrl_update(value);
         }
     }
 
@@ -147,9 +164,17 @@ impl Mapper {
         }
     }
 
+    // This should be called *before* the actual memory access; MMC5 depends on this for correctly
+    // mapping PPUDATA accesses to the correct CHR bank
     pub(crate) fn process_ppu_addr_increment(&mut self, new_ppu_addr: u16) {
-        if let Self::Mmc3(mmc3) = self {
-            mmc3.process_ppu_addr_increment(new_ppu_addr);
+        match self {
+            Self::Mmc3(mmc3) => {
+                mmc3.process_ppu_addr_increment(new_ppu_addr);
+            }
+            Self::Mmc5(mmc5) => {
+                mmc5.about_to_access_ppu_data();
+            }
+            _ => {}
         }
     }
 }
@@ -231,6 +256,9 @@ fn from_ines_file(mut file: File) -> Result<Mapper, CartridgeFileError> {
         NametableMirroring::Horizontal
     };
 
+    // TODO make persistent save files work
+    let has_battery = header[6] & 0x02 != 0;
+
     let format = if header[7] & 0x0C == 0x08 {
         FileFormat::Nes2Point0
     } else {
@@ -246,11 +274,8 @@ fn from_ines_file(mut file: File) -> Result<Mapper, CartridgeFileError> {
         FileFormat::Nes2Point0 => {
             let volatile_shift = header[10] & 0x0F;
             let non_volatile_shift = header[10] >> 4;
-            if volatile_shift > 0 && non_volatile_shift > 0 {
-                // ???
-                return Err(CartridgeFileError::MultiplePrgRamTypes);
-            }
-            let shift = cmp::max(volatile_shift, non_volatile_shift);
+            // TODO separate these? very very few games have both volatile and non-volatile RAM
+            let shift = volatile_shift + non_volatile_shift;
             if shift > 0 {
                 64 << shift
             } else {
@@ -306,6 +331,10 @@ fn from_ines_file(mut file: File) -> Result<Mapper, CartridgeFileError> {
             cartridge,
             data: Mmc3::new(chr_type, prg_rom_size, chr_size as u32, sub_mapper_number),
         }),
+        5 => Mapper::Mmc5(MapperImpl {
+            cartridge,
+            data: Mmc5::new(),
+        }),
         7 => Mapper::Axrom(MapperImpl {
             cartridge,
             data: Axrom::new(chr_type),
@@ -318,6 +347,7 @@ fn from_ines_file(mut file: File) -> Result<Mapper, CartridgeFileError> {
     log::info!("Mapper number: {mapper_number} ({})", mapper.name());
     log::info!("PRG ROM size: {prg_rom_size}");
     log::info!("PRG RAM size: {prg_ram_size}");
+    log::info!("Cartridge has battery-backed PRG RAM: {has_battery}");
     log::info!("CHR ROM size: {chr_rom_size}");
     log::info!("CHR RAM size: {chr_ram_size}");
     log::info!("CHR memory type: {chr_type:?}");

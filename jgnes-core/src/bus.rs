@@ -733,18 +733,18 @@ impl<'a> CpuBus<'a> {
                     (palette_byte, address - 0x1000)
                 };
 
-                self.0.ppu_registers.ppu_data_buffer =
-                    self.0.ppu().read_address(buffer_read_address);
-                self.0.ppu_registers.open_bus_value = data;
-
-                self.0.ppu_registers.last_accessed_register = Some(PpuTrackedRegister::PPUDATA);
-
                 self.0.mapper.process_ppu_addr_increment(
                     self.0
                         .ppu_registers
                         .ppu_addr
                         .wrapping_add(self.0.ppu_registers.ppu_data_addr_increment()),
                 );
+
+                self.0.ppu_registers.ppu_data_buffer =
+                    self.0.ppu().read_address(buffer_read_address);
+                self.0.ppu_registers.open_bus_value = data;
+
+                self.0.ppu_registers.last_accessed_register = Some(PpuTrackedRegister::PPUDATA);
 
                 data
             }
@@ -764,6 +764,7 @@ impl<'a> CpuBus<'a> {
             PpuRegister::PPUCTRL => {
                 self.0.ppu_registers.ppu_ctrl = value;
                 self.0.ppu_registers.last_accessed_register = Some(PpuTrackedRegister::PPUCTRL);
+                self.0.mapper.process_ppu_ctrl_update(value);
             }
             PpuRegister::PPUMASK => {
                 log::trace!("BUS: PPUMASK set to {value:02X}");
