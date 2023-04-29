@@ -606,6 +606,8 @@ impl MapperImpl<Mmc5> {
     fn read_internal_register(&mut self, address: u16) -> u8 {
         match address {
             0x5204 => {
+                log::trace!("Scanline IRQ status register read, clearing IRQ pending flag");
+
                 let result = (u8::from(self.data.scanline_counter.irq_pending) << 7)
                     | (u8::from(self.data.scanline_counter.in_frame) << 6);
                 self.data.scanline_counter.irq_pending = false;
@@ -627,6 +629,7 @@ impl MapperImpl<Mmc5> {
                     0x03 => PrgBankingMode::Mode3,
                     _ => unreachable!("value & 0x03 should always be 0x00/0x01/0x02/0x03"),
                 };
+                log::trace!("PRG banking mode set to {:?}", self.data.prg_banking_mode);
             }
             0x5101 => {
                 self.data.chr_mapper.mode = match value & 0x03 {
@@ -636,6 +639,7 @@ impl MapperImpl<Mmc5> {
                     0x03 => ChrBankingMode::OneKb,
                     _ => unreachable!("value & 0x03 should always be 0x00/0x01/0x02/0x03"),
                 };
+                log::trace!("CHR banking mode set to {:?}", self.data.chr_mapper.mode);
             }
             0x5102 => {
                 self.data.ram_writes_enabled_1 = value & 0x03 == 0x02;
@@ -650,16 +654,22 @@ impl MapperImpl<Mmc5> {
                     0x02 => ExtendedRamMode::ReadWrite,
                     0x03 => ExtendedRamMode::ReadOnly,
                     _ => unreachable!("value & 0x03 should be 0x00/0x01/0x02/0x03"),
-                }
+                };
+                log::trace!("Extended RAM mode set to {:?}", self.data.extended_ram_mode);
             }
             0x5105 => {
                 self.data.nametable_mappings[0] = NametableMapping::from_bits(value & 0x03);
                 self.data.nametable_mappings[1] = NametableMapping::from_bits((value >> 2) & 0x03);
                 self.data.nametable_mappings[2] = NametableMapping::from_bits((value >> 4) & 0x03);
                 self.data.nametable_mappings[3] = NametableMapping::from_bits((value >> 6) & 0x03);
+                log::trace!(
+                    "Nametable mappings set to {:?}",
+                    self.data.nametable_mappings
+                );
             }
             0x5106 => {
                 self.data.fill_mode_tile_data = value;
+                log::trace!("Fill mode tile set to {value:02X}");
             }
             0x5107 => {
                 let palette_index = value & 0x03;
@@ -667,6 +677,7 @@ impl MapperImpl<Mmc5> {
                     | (palette_index << 2)
                     | (palette_index << 4)
                     | (palette_index << 6);
+                log::trace!("Fill mode palette index set to {value:02X}");
             }
             0x5113..=0x5117 => {
                 self.data.prg_bank_registers[(address - 0x5113) as usize] = value;
@@ -684,18 +695,29 @@ impl MapperImpl<Mmc5> {
                     VerticalSplitMode::Left
                 };
                 self.data.vertical_split.split_tile_index = value & 0x1F;
+                log::trace!(
+                    "Vertical split enabled/mode/index set: {:?}",
+                    self.data.vertical_split
+                );
             }
             0x5201 => {
                 self.data.vertical_split.y_scroll = value;
+                log::trace!("Vertical split Y scroll set to {value}");
             }
             0x5202 => {
                 self.data.vertical_split.chr_bank = value;
+                log::trace!("Vertical split CHR bank set to {value:02X}");
             }
             0x5203 => {
                 self.data.scanline_counter.compare_value = value;
+                log::trace!("Scanline counter compare value set to {value:02X}");
             }
             0x5204 => {
                 self.data.scanline_counter.irq_enabled = value & 0x80 != 0;
+                log::trace!(
+                    "Scanline IRQ enabled set to {}",
+                    self.data.scanline_counter.irq_enabled
+                );
             }
             0x5205 => {
                 self.data.multiplier.operand_l = value.into();
