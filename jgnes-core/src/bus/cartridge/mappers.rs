@@ -59,7 +59,11 @@ impl CpuMapResult {
                 cartridge.prg_rom[(address as usize) & (cartridge.prg_rom.len() - 1)]
             }
             Self::PrgRAM(address) => {
-                cartridge.prg_ram[(address as usize) & (cartridge.prg_ram.len() - 1)]
+                if !cartridge.prg_ram.is_empty() {
+                    cartridge.prg_ram[(address as usize) & (cartridge.prg_ram.len() - 1)]
+                } else {
+                    0xFF
+                }
             }
             Self::None => 0xFF,
         }
