@@ -365,10 +365,10 @@ impl VerticalSplit {
 
         match self.mode {
             VerticalSplitMode::Left => {
-                self.split_tile_index < scanline_counter.current_tile_index()
+                scanline_counter.current_tile_index() < self.split_tile_index
             }
             VerticalSplitMode::Right => {
-                self.split_tile_index >= scanline_counter.current_tile_index()
+                scanline_counter.current_tile_index() >= self.split_tile_index
             }
         }
     }
@@ -856,8 +856,20 @@ impl MapperImpl<Mmc5> {
                 {
                     // Ignore nametable mapping when inside the vertical split, always read from
                     // extended RAM
-                    let coarse_y_scroll = self.data.vertical_split.y_scroll >> 3;
-                    let extended_ram_addr = (relative_addr + u16::from(coarse_y_scroll)) & 0x03FF;
+                    let scanline = self.data.scanline_counter.scanline;
+                    let y_scroll = self.data.vertical_split.y_scroll;
+                    let tile_x_index = self.data.scanline_counter.current_tile_index() & 0x1F;
+                    let tile_y_index = ((u16::from(scanline) + u16::from(y_scroll)) >> 3) % 30;
+
+                    let extended_ram_addr = if relative_addr & 0x03FF < 0x03C0 {
+                        // Nametable lookup
+                        (u16::from(tile_y_index) << 5) | u16::from(tile_x_index)
+                    } else {
+                        // Attribute table lookup
+                        0x03C0
+                            + ((u16::from(tile_y_index >> 2) << 3) | (u16::from(tile_x_index) >> 2))
+                    };
+
                     return self.data.extended_ram[extended_ram_addr as usize];
                 }
 
