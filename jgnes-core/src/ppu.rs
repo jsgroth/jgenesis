@@ -315,6 +315,8 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
 }
 
 fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
+    log::trace!("Rendering at scanline {} dot {}", state.scanline, state.dot);
+
     match state.scanline {
         0..=239 | 261 => {
             if state.scanline == PRE_RENDER_SCANLINE && (280..=304).contains(&state.dot) {
@@ -681,7 +683,9 @@ fn fetch_sprite_tile_data(state: &mut PpuState, bus: &mut PpuBus<'_>) {
         0 | 6 => {
             if state.dot < 319 {
                 // Spurious nametable fetch
-                bus.read_address(0x2000);
+                // Address doesn't matter, but needs to vary based on sprite to avoid triggering
+                // MMC5 scanline counter
+                bus.read_address(0x2000 + u16::from(sprite_index) + 1);
             }
         }
         2 => {

@@ -410,16 +410,24 @@ impl ScanlineCounter {
             self.same_nametable_addr_fetch_count = 0;
 
             if self.in_frame {
+                log::trace!(
+                    "Detected new scanline; nametable address = {:04X}",
+                    self.last_nametable_address
+                );
+
                 self.scanline += 1;
 
                 if self.scanline == 241 {
+                    log::trace!("Reached VBlank scanline, resetting state");
                     self.scanline = 0;
                     self.irq_pending = false;
                     self.in_frame = false;
                 } else if self.compare_value != 0 && self.scanline == self.compare_value {
+                    log::trace!("Setting IRQ pending flag");
                     self.irq_pending = true;
                 }
             } else {
+                log::trace!("Detected new frame");
                 self.scanline = 0;
                 self.in_frame = true;
             }
@@ -429,12 +437,17 @@ impl ScanlineCounter {
     // This should be called *after* mapping the tile address in case the increment changes the
     // current tile type
     fn increment_tile_bytes_fetched(&mut self) {
+        log::trace!(
+            "Tile byte fetched, current fetches={}",
+            self.scanline_tile_byte_fetches
+        );
+
         self.cpu_ticks_no_read = 0;
 
         self.scanline_tile_byte_fetches += 1;
 
-        // 68 BG tile bytes + 64 sprite tiles * 2 pattern table bytes per tile
-        if self.scanline_tile_byte_fetches == 68 + 128 {
+        // 68 BG tile bytes + 8 sprite tiles * 2 pattern table bytes per tile
+        if self.scanline_tile_byte_fetches == 68 + 16 {
             self.scanline_tile_byte_fetches = 0;
         }
     }
@@ -460,11 +473,15 @@ impl ScanlineCounter {
 
     fn current_tile_type(&self) -> TileType {
         // 34 BG tiles * 2 pattern table bytes per tile
-        if self.scanline_tile_byte_fetches < 68 {
+        let tile_type = if self.scanline_tile_byte_fetches < 68 {
             TileType::Background
         } else {
             TileType::Sprite
-        }
+        };
+
+        log::trace!("current tile type is {tile_type:?}");
+
+        tile_type
     }
 
     fn current_tile_index(&self) -> u8 {
@@ -476,8 +493,12 @@ impl ScanlineCounter {
     }
 
     fn tick_cpu(&mut self) {
-        if self.cpu_ticks_no_read >= 3 {
+        if self.cpu_ticks_no_read == 3 {
+            log::trace!("Went 3 CPU cycles with no PPU reads, clearing in frame flag");
             self.in_frame = false;
+            // Set to 4 so that the counter increments correctly starting from the pre-render scanline
+            // 2 tiles * 2 bytes per tile
+            self.scanline_tile_byte_fetches = 4;
         }
 
         self.cpu_ticks_no_read += 1;

@@ -256,6 +256,9 @@ fn from_ines_file(mut file: File) -> Result<Mapper, CartridgeFileError> {
         NametableMirroring::Horizontal
     };
 
+    // TODO make persistent save files work
+    let has_battery = header[6] & 0x02 != 0;
+
     let format = if header[7] & 0x0C == 0x08 {
         FileFormat::Nes2Point0
     } else {
@@ -347,6 +350,7 @@ fn from_ines_file(mut file: File) -> Result<Mapper, CartridgeFileError> {
     log::info!("Mapper number: {mapper_number} ({})", mapper.name());
     log::info!("PRG ROM size: {prg_rom_size}");
     log::info!("PRG RAM size: {prg_ram_size}");
+    log::info!("Cartridge has battery-backed PRG RAM: {has_battery}");
     log::info!("CHR ROM size: {chr_rom_size}");
     log::info!("CHR RAM size: {chr_ram_size}");
     log::info!("CHR memory type: {chr_type:?}");
