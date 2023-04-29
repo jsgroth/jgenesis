@@ -624,6 +624,10 @@ impl Bus {
             .set_irq_low_pull(IrqSource::Mapper, self.mapper.interrupt_flag());
     }
 
+    pub fn tick_cpu(&mut self) {
+        self.mapper.tick_cpu();
+    }
+
     // Poll NMI/IRQ interrupt lines; this should be called once per CPU cycle, between the first
     // and second PPU ticks
     pub fn poll_interrupt_lines(&mut self) {

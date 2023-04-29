@@ -113,6 +113,8 @@ impl MapperImpl<Mmc1> {
                 }
             }
             0x8000..=0xFFFF => {
+                self.data.written_this_cycle = true;
+
                 if value & 0x80 != 0 {
                     self.data.shift_register = 0;
                     self.data.shift_register_len = 0;
@@ -123,8 +125,6 @@ impl MapperImpl<Mmc1> {
                 if self.data.written_last_cycle {
                     return;
                 }
-
-                self.data.written_this_cycle = true;
 
                 self.data.shift_register = (self.data.shift_register >> 1) | ((value & 0x01) << 4);
                 self.data.shift_register_len += 1;
@@ -223,7 +223,7 @@ impl MapperImpl<Mmc1> {
             .write(value, &mut self.cartridge, vram);
     }
 
-    pub(crate) fn tick(&mut self) {
+    pub(crate) fn tick_cpu(&mut self) {
         self.data.written_last_cycle = self.data.written_this_cycle;
         self.data.written_this_cycle = false;
     }

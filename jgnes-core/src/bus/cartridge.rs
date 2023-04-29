@@ -117,13 +117,20 @@ impl Mapper {
 
     pub(crate) fn tick(&mut self) {
         match self {
-            Self::Nrom(..) | Self::Uxrom(..) | Self::Cnrom(..) | Self::Axrom(..) => {}
-            Self::Mmc1(mmc1) => {
-                mmc1.tick();
-            }
+            Self::Nrom(..)
+            | Self::Uxrom(..)
+            | Self::Cnrom(..)
+            | Self::Axrom(..)
+            | Self::Mmc1(..) => {}
             Self::Mmc3(mmc3) => {
                 mmc3.tick();
             }
+        }
+    }
+
+    pub(crate) fn tick_cpu(&mut self) {
+        if let Self::Mmc1(mmc1) = self {
+            mmc1.tick_cpu();
         }
     }
 
