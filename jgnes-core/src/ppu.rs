@@ -361,6 +361,13 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                         // Increment effective vertical position at the end of the rendering phase
                         increment_vertical_pos(&mut state.registers);
                     }
+
+                    // TODO figure out properly why aligning the sprite data fetches this way fixes
+                    // the MMC3 IRQ tests
+                    if state.dot == 255 {
+                        // Spurious nametable read
+                        bus.read_address(0x2000);
+                    }
                 }
                 257..=320 => {
                     // Cycles for fetching sprite data for the next scanline
@@ -668,13 +675,16 @@ fn fetch_sprite_tile_data(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     let tile_index = state.sprite_buffers.tile_indices[sprite_index as usize];
     let attributes = state.sprite_buffers.attributes[sprite_index as usize];
 
+    // TODO figure out properly why aligning the dots to accesses this way fixes the MMC3 IRQ tests
     let tile_cycle_offset = (state.dot - 1) & 0x07;
     match tile_cycle_offset {
-        0 | 2 => {
-            // Spurious nametable fetch
-            bus.read_address(0x2000);
+        0 | 6 => {
+            if state.dot < 319 {
+                // Spurious nametable fetch
+                bus.read_address(0x2000);
+            }
         }
-        4 => {
+        2 => {
             if sprite_index < state.sprite_buffers.buffer_len {
                 let pattern_table_low = fetch_sprite_pattern_table_byte(
                     sprite_pattern_table_address,
@@ -701,7 +711,7 @@ fn fetch_sprite_tile_data(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                 );
             }
         }
-        6 => {
+        4 => {
             if sprite_index < state.sprite_buffers.buffer_len {
                 let pattern_table_high = fetch_sprite_pattern_table_byte(
                     sprite_pattern_table_address,
