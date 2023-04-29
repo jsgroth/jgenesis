@@ -49,7 +49,7 @@ impl From<String> for RunError {
 }
 
 // TODO do colors properly
-const COLOR_MAPPING: &[u8] = include_bytes!("../../nespalette.pal");
+const COLOR_MAPPING: &[u8; 8 * 64 * 3] = include_bytes!("../../nespalette.pal");
 
 // TODO clean this up
 /// # Errors
