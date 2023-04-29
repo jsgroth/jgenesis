@@ -289,6 +289,10 @@ impl ChrMapper {
 
     fn process_ppu_ctrl_update(&mut self, ppu_ctrl_value: u8) {
         self.double_height_sprites = ppu_ctrl_value & 0x20 != 0;
+        log::trace!(
+            "Double height sprites update detected: {}",
+            self.double_height_sprites
+        );
     }
 
     fn process_bank_register_update(&mut self, address: u16, value: u8) {
@@ -416,6 +420,9 @@ impl ScanlineCounter {
                 );
 
                 self.scanline += 1;
+                // Reset the tile byte fetch counter on every scanline in case the game disabled
+                // and re-enabled rendering mid-scanline
+                self.scanline_tile_byte_fetches = 4;
 
                 if self.scanline == 241 {
                     log::trace!("Reached VBlank scanline, resetting state");
@@ -681,11 +688,13 @@ impl MapperImpl<Mmc5> {
             }
             0x5113..=0x5117 => {
                 self.data.prg_bank_registers[(address - 0x5113) as usize] = value;
+                log::trace!("PRG bank {:02X} set to {value:02X}", address - 0x5113);
             }
             0x5120..=0x512B => {
                 self.data
                     .chr_mapper
                     .process_bank_register_update(address, value);
+                log::trace!("CHR bank {:02X} set to {value:02X}", address - 0x5120);
             }
             0x5200 => {
                 self.data.vertical_split.enabled = value & 0x80 != 0;
