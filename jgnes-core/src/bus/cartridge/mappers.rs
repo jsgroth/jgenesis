@@ -1,11 +1,13 @@
 mod mmc1;
 mod mmc3;
+mod mmc5;
 mod nrom;
 
 use crate::bus::cartridge::Cartridge;
 
 pub(crate) use mmc1::Mmc1;
 pub(crate) use mmc3::Mmc3;
+pub(crate) use mmc5::Mmc5;
 pub(crate) use nrom::{Axrom, Cnrom, Nrom, Uxrom};
 
 #[allow(clippy::upper_case_acronyms)]
@@ -53,9 +55,19 @@ pub(crate) enum CpuMapResult {
 impl CpuMapResult {
     fn read(self, cartridge: &Cartridge) -> u8 {
         match self {
-            Self::PrgROM(address) => cartridge.prg_rom[address as usize],
-            Self::PrgRAM(address) => cartridge.prg_ram[address as usize],
+            Self::PrgROM(address) => {
+                cartridge.prg_rom[(address as usize) & (cartridge.prg_rom.len() - 1)]
+            }
+            Self::PrgRAM(address) => {
+                cartridge.prg_ram[(address as usize) & (cartridge.prg_ram.len() - 1)]
+            }
             Self::None => 0xFF,
+        }
+    }
+
+    fn write(self, value: u8, cartridge: &mut Cartridge) {
+        if let Self::PrgRAM(address) = self {
+            cartridge.prg_ram[address as usize] = value;
         }
     }
 }
