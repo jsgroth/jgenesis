@@ -308,12 +308,12 @@ fn from_ines_file(mut file: File) -> Result<Mapper, CartridgeFileError> {
         }
     };
 
+    log::info!("Mapper number: {mapper_number} ({})", mapper.name());
     log::info!("PRG ROM size: {prg_rom_size}");
     log::info!("PRG RAM size: {prg_ram_size}");
     log::info!("CHR ROM size: {chr_rom_size}");
     log::info!("CHR RAM size: {chr_ram_size}");
     log::info!("CHR memory type: {chr_type:?}");
-    log::info!("Mapper number: {mapper_number} ({})", mapper.name());
     log::info!(
         "Hardwired nametable mirroring: {nametable_mirroring:?} (not applicable to all mappers)"
     );
