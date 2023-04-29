@@ -863,11 +863,10 @@ impl MapperImpl<Mmc5> {
 
                     let extended_ram_addr = if relative_addr & 0x03FF < 0x03C0 {
                         // Nametable lookup
-                        (u16::from(tile_y_index) << 5) | u16::from(tile_x_index)
+                        (tile_y_index << 5) | u16::from(tile_x_index)
                     } else {
                         // Attribute table lookup
-                        0x03C0
-                            + ((u16::from(tile_y_index >> 2) << 3) | (u16::from(tile_x_index) >> 2))
+                        0x03C0 + (((tile_y_index >> 2) << 3) | (u16::from(tile_x_index) >> 2))
                     };
 
                     return self.data.extended_ram[extended_ram_addr as usize];
