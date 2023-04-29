@@ -236,7 +236,8 @@ impl PpuState {
             scanline: PRE_RENDER_SCANLINE,
             dot: 0,
             odd_frame: false,
-            rendering_disabled_backdrop_color: None,
+            // 0x0F == Black
+            rendering_disabled_backdrop_color: Some(0x0F),
         }
     }
 
