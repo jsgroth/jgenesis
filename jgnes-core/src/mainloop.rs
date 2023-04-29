@@ -1,6 +1,6 @@
 use crate::apu::{ApuConfig, ApuState};
 use crate::bus::cartridge::CartridgeFileError;
-use crate::bus::{cartridge, Bus};
+use crate::bus::{cartridge, Bus, PpuBus};
 use crate::cpu::{CpuRegisters, CpuState};
 use crate::input::JoypadState;
 use crate::ppu::PpuState;
@@ -126,10 +126,11 @@ pub fn run(path: &str) -> Result<(), RunError> {
 
         if !prev_in_vblank && ppu_state.in_vblank() {
             let frame_buffer = ppu_state.frame_buffer();
+            let color_emphasis_offset = get_color_emphasis_offset(&bus.ppu()) as usize;
             texture.with_lock(None, |pixels, pitch| {
                 for (i, scanline) in frame_buffer[8..232].iter().enumerate() {
                     for (j, nes_color) in scanline.iter().copied().enumerate() {
-                        let color_map_index = (3 * nes_color) as usize;
+                        let color_map_index = color_emphasis_offset + (3 * nes_color) as usize;
                         let start = i * pitch + 3 * j;
                         pixels[start..start + 3]
                             .copy_from_slice(&COLOR_MAPPING[color_map_index..color_map_index + 3]);
@@ -194,6 +195,13 @@ pub fn run(path: &str) -> Result<(), RunError> {
             }
         }
     }
+}
+
+fn get_color_emphasis_offset(bus: &PpuBus<'_>) -> u16 {
+    let ppu_registers = bus.get_ppu_registers();
+    64 * u16::from(ppu_registers.emphasize_red())
+        + 128 * u16::from(ppu_registers.emphasize_green())
+        + 256 * u16::from(ppu_registers.emphasize_blue())
 }
 
 fn init_apu(apu_state: &mut ApuState, apu_config: &ApuConfig, bus: &mut Bus) {
