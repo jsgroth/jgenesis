@@ -710,7 +710,7 @@ impl MapperImpl<Mmc5> {
             }
             0x5203 => {
                 self.data.scanline_counter.compare_value = value;
-                log::trace!("Scanline counter compare value set to {value:02X}");
+                log::trace!("Scanline counter compare value set to {value}");
             }
             0x5204 => {
                 self.data.scanline_counter.irq_enabled = value & 0x80 != 0;
