@@ -760,7 +760,7 @@ impl MapperImpl<Mmc5> {
                 self.write_internal_register(address, value);
             }
             0x5C00..=0x5FFF => {
-                if self.data.extended_ram_mode == ExtendedRamMode::ReadWrite {
+                if self.data.extended_ram_mode != ExtendedRamMode::ReadOnly {
                     self.data.extended_ram[(address - 0x5C00) as usize] = value;
                 }
             }
