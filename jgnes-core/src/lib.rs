@@ -1,15 +1,12 @@
 #![forbid(unsafe_code)]
 
+mod api;
 mod apu;
 mod bus;
 mod cpu;
 mod input;
-mod mainloop;
 mod ppu;
 
-pub use mainloop::RunError;
-
-/// # Errors
-pub fn run(path: &str) -> Result<(), RunError> {
-    mainloop::run(path)
-}
+pub use api::{AudioPlayer, ColorEmphasis, EmulationError, Emulator, InputPoller, Renderer};
+pub use input::JoypadState;
+pub use ppu::FrameBuffer;

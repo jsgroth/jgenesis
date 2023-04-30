@@ -8,6 +8,5 @@ edition = "2021"
 [dependencies]
 log = "0.4"
 rand = "0.8"
-sdl2 = "0.35"
 thiserror = "1.0"
 tinyvec = "1.6"

@@ -370,8 +370,9 @@ pub struct IoRegisters {
     dma_dirty: bool,
     dirty_registers: ArrayVec<[IoRegister; 5]>,
     snd_chn_read: bool,
-    joypad_state: JoypadState,
-    latched_joypad_state: Option<LatchedJoypadState>,
+    p1_joypad_state: JoypadState,
+    p2_joypad_state: JoypadState,
+    latched_joypad_state: Option<(LatchedJoypadState, LatchedJoypadState)>,
 }
 
 impl IoRegisters {
@@ -381,7 +382,8 @@ impl IoRegisters {
             dma_dirty: false,
             dirty_registers: ArrayVec::new(),
             snd_chn_read: false,
-            joypad_state: JoypadState::new(),
+            p1_joypad_state: JoypadState::new(),
+            p2_joypad_state: JoypadState::new(),
             latched_joypad_state: None,
         }
     }
@@ -395,19 +397,26 @@ impl IoRegisters {
 
     fn read_register(&mut self, register: IoRegister) -> u8 {
         match register {
-            IoRegister::JOY1 => {
-                if let Some(latched_joypad_state) = self.latched_joypad_state {
-                    self.latched_joypad_state = Some(latched_joypad_state.shift());
-                    latched_joypad_state.next_bit()
-                } else {
-                    u8::from(self.joypad_state.a)
-                }
-            }
             IoRegister::SND_CHN => {
                 self.snd_chn_read = true;
                 self.data[register.to_relative_address()]
             }
-            IoRegister::JOY2 => self.data[register.to_relative_address()],
+            IoRegister::JOY1 => {
+                if let Some((p1_joypad_state, p2_joypad_state)) = self.latched_joypad_state {
+                    self.latched_joypad_state = Some((p1_joypad_state.shift(), p2_joypad_state));
+                    p1_joypad_state.next_bit() | 0x40
+                } else {
+                    u8::from(self.p1_joypad_state.a) | 0x40
+                }
+            }
+            IoRegister::JOY2 => {
+                if let Some((p1_joypad_state, p2_joypad_state)) = self.latched_joypad_state {
+                    self.latched_joypad_state = Some((p1_joypad_state, p2_joypad_state.shift()));
+                    p2_joypad_state.next_bit() | 0x40
+                } else {
+                    u8::from(self.p2_joypad_state.a) | 0x40
+                }
+            }
             _ => 0xFF,
         }
     }
@@ -428,7 +437,8 @@ impl IoRegisters {
                 if value & 0x01 != 0 {
                     self.latched_joypad_state = None;
                 } else if self.latched_joypad_state.is_none() {
-                    self.latched_joypad_state = Some(self.joypad_state.latch());
+                    self.latched_joypad_state =
+                        Some((self.p1_joypad_state.latch(), self.p2_joypad_state.latch()));
                 }
             }
             IoRegister::OAMDMA => {
@@ -603,8 +613,12 @@ impl Bus {
         PpuBus(self)
     }
 
-    pub fn update_joypad_state(&mut self, joypad_state: JoypadState) {
-        self.io_registers.joypad_state = joypad_state;
+    pub fn update_p1_joypad_state(&mut self, p1_joypad_state: JoypadState) {
+        self.io_registers.p1_joypad_state = p1_joypad_state;
+    }
+
+    pub fn update_p2_joypad_state(&mut self, p2_joypad_state: JoypadState) {
+        self.io_registers.p2_joypad_state = p2_joypad_state;
     }
 
     pub fn tick(&mut self) {

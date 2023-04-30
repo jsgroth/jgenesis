@@ -1,5 +1,3 @@
-use sdl2::keyboard::Keycode;
-
 #[derive(Debug, Clone, Copy, Default)]
 pub struct JoypadState {
     pub up: bool,
@@ -13,56 +11,12 @@ pub struct JoypadState {
 }
 
 impl JoypadState {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    fn get_field_mut(&mut self, keycode: Keycode) -> Option<&mut bool> {
-        let field = match keycode {
-            Keycode::Up => &mut self.up,
-            Keycode::Down => &mut self.down,
-            Keycode::Left => &mut self.left,
-            Keycode::Right => &mut self.right,
-            Keycode::Z => &mut self.a,
-            Keycode::X => &mut self.b,
-            Keycode::Return => &mut self.start,
-            Keycode::RShift => &mut self.select,
-            _ => return None,
-        };
-
-        Some(field)
-    }
-
-    pub fn key_down(&mut self, keycode: Keycode) {
-        if let Some(field) = self.get_field_mut(keycode) {
-            *field = true;
-        }
-
-        // Don't allow inputs of opposite directions
-        match keycode {
-            Keycode::Up => {
-                self.down = false;
-            }
-            Keycode::Down => {
-                self.up = false;
-            }
-            Keycode::Left => {
-                self.right = false;
-            }
-            Keycode::Right => {
-                self.left = false;
-            }
-            _ => {}
-        }
-    }
-
-    pub fn key_up(&mut self, keycode: Keycode) {
-        if let Some(field) = self.get_field_mut(keycode) {
-            *field = false;
-        }
-    }
-
-    pub fn latch(self) -> LatchedJoypadState {
+    pub(crate) fn latch(self) -> LatchedJoypadState {
         let bitstream = (u8::from(self.right) << 7)
             | (u8::from(self.left) << 6)
             | (u8::from(self.down) << 5)

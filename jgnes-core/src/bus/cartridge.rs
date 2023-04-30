@@ -3,10 +3,7 @@ mod mappers;
 use crate::bus::cartridge::mappers::{
     Axrom, ChrType, Cnrom, Mmc1, Mmc3, Mmc5, NametableMirroring, Nrom, Uxrom,
 };
-use std::fs::File;
 use std::io;
-use std::io::{Read, Seek, SeekFrom};
-use std::path::Path;
 use thiserror::Error;
 
 use crate::bus::PpuWriteToggle;
@@ -194,28 +191,6 @@ pub enum CartridgeFileError {
     MultiplePrgRamTypes,
 }
 
-pub(crate) fn from_file<P>(path: P) -> Result<Mapper, CartridgeFileError>
-where
-    P: AsRef<Path>,
-{
-    let path = path.as_ref();
-
-    log::info!("Loading cartridge from {}", path.display());
-
-    let mut file = File::open(path)?;
-
-    let mut buf = [0; 8];
-    file.read_exact(&mut buf)?;
-
-    // First 4 bytes should be equal to "NES<EOF>"
-    if buf[..4] != [0x4E, 0x45, 0x53, 0x1A] {
-        log::error!("First 4 bytes of file do not match the iNES header");
-        return Err(CartridgeFileError::Format);
-    }
-
-    from_ines_file(file)
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FileFormat {
     INes,
@@ -237,11 +212,8 @@ struct INesHeader {
 }
 
 impl INesHeader {
-    fn parse_from_file(file: &mut File) -> Result<INesHeader, CartridgeFileError> {
-        file.seek(SeekFrom::Start(0))?;
-
-        let mut header = [0; 16];
-        file.read_exact(&mut header)?;
+    fn parse_from_file(file_bytes: &[u8]) -> Result<INesHeader, CartridgeFileError> {
+        let header = &file_bytes[..16];
 
         // All iNES headers should begin with this 4-byte sequence, which is "NES" followed by the
         // character that MS-DOS used for EOF
@@ -325,18 +297,16 @@ impl INesHeader {
     }
 }
 
-fn from_ines_file(mut file: File) -> Result<Mapper, CartridgeFileError> {
-    let header = INesHeader::parse_from_file(&mut file)?;
+pub(crate) fn from_ines_file(file_bytes: &[u8]) -> Result<Mapper, CartridgeFileError> {
+    let header = INesHeader::parse_from_file(file_bytes)?;
 
     // Header is 16 bytes, trainer is 512 bytes if present
-    let prg_rom_start_address = if header.has_trainer { 16 + 512 } else { 16 };
+    let prg_rom_start_address = if header.has_trainer { 16 + 512 } else { 16 } as usize;
+    let prg_rom_end_address = prg_rom_start_address + header.prg_rom_size as usize;
+    let chr_rom_end_address = prg_rom_end_address + header.chr_rom_size as usize;
 
-    let mut prg_rom = vec![0; header.prg_rom_size as usize];
-    file.seek(SeekFrom::Start(prg_rom_start_address))?;
-    file.read_exact(&mut prg_rom)?;
-
-    let mut chr_rom = vec![0; header.chr_rom_size as usize];
-    file.read_exact(&mut chr_rom)?;
+    let prg_rom = Vec::from(&file_bytes[prg_rom_start_address..prg_rom_end_address]);
+    let chr_rom = Vec::from(&file_bytes[prg_rom_end_address..chr_rom_end_address]);
 
     let cartridge = Cartridge {
         prg_rom,
