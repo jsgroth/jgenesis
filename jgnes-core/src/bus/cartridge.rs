@@ -209,6 +209,7 @@ struct INesHeader {
     nametable_mirroring: NametableMirroring,
     has_trainer: bool,
     has_battery: bool,
+    has_four_screen_vram: bool,
 }
 
 impl INesHeader {
@@ -239,6 +240,8 @@ impl INesHeader {
         } else {
             NametableMirroring::Horizontal
         };
+
+        let has_four_screen_vram = header[6] & 0x08 != 0;
 
         // TODO make persistent save files work
         let has_battery = header[6] & 0x02 != 0;
@@ -293,6 +296,7 @@ impl INesHeader {
             nametable_mirroring,
             has_trainer,
             has_battery,
+            has_four_screen_vram,
         })
     }
 }
@@ -344,6 +348,7 @@ pub(crate) fn from_ines_file(file_bytes: &[u8]) -> Result<Mapper, CartridgeFileE
                 header.prg_rom_size,
                 chr_size,
                 header.sub_mapper_number,
+                header.has_four_screen_vram,
             ),
         }),
         5 => Mapper::Mmc5(MapperImpl {
@@ -378,6 +383,10 @@ pub(crate) fn from_ines_file(file_bytes: &[u8]) -> Result<Mapper, CartridgeFileE
     log::info!(
         "Hardwired nametable mirroring: {:?} (not applicable to all mappers)",
         header.nametable_mirroring
+    );
+    log::info!(
+        "Has 4-screen nametable VRAM: {}",
+        header.has_four_screen_vram
     );
 
     Ok(mapper)

@@ -1,4 +1,4 @@
-use crate::bus::cartridge::mappers::{ChrType, NametableMirroring, PpuMapResult};
+use crate::bus::cartridge::mappers::{ChrType, NametableMirroring};
 use crate::bus::cartridge::MapperImpl;
 use crate::bus::PpuWriteToggle;
 
@@ -172,11 +172,17 @@ impl Mmc3RamMode {
 }
 
 #[derive(Debug, Clone)]
+enum Mmc3NametableMirroring {
+    Standard(NametableMirroring),
+    FourScreenVram { external_vram: Box<[u8; 4096]> },
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct Mmc3 {
     sub_mapper: Mmc3SubMapper,
     chr_type: ChrType,
     bank_mapping: Mmc3BankMapping,
-    nametable_mirroring: NametableMirroring,
+    nametable_mirroring: Mmc3NametableMirroring,
     bank_update_select: Mmc3BankUpdate,
     ram_mode: Mmc3RamMode,
     interrupt_flag: bool,
@@ -194,6 +200,7 @@ impl Mmc3 {
         prg_rom_len: u32,
         chr_size: u32,
         sub_mapper_number: u8,
+        has_four_screen_vram: bool,
     ) -> Self {
         let sub_mapper = match sub_mapper_number {
             1 => Mmc3SubMapper::Mmc6,
@@ -204,7 +211,13 @@ impl Mmc3 {
             sub_mapper,
             chr_type,
             bank_mapping: Mmc3BankMapping::new(prg_rom_len, chr_size),
-            nametable_mirroring: NametableMirroring::Vertical,
+            nametable_mirroring: if has_four_screen_vram {
+                Mmc3NametableMirroring::FourScreenVram {
+                    external_vram: Box::new([0; 4096]),
+                }
+            } else {
+                Mmc3NametableMirroring::Standard(NametableMirroring::Vertical)
+            },
             bank_update_select: Mmc3BankUpdate::ChrBank(0),
             ram_mode: Mmc3RamMode::Disabled,
             interrupt_flag: false,
@@ -297,12 +310,19 @@ impl MapperImpl<Mmc3> {
                 }
             }
             0xA000..=0xBFFF => {
-                if address & 0x01 == 0 {
-                    self.data.nametable_mirroring = if value & 0x01 != 0 {
+                if address & 0x01 == 0
+                    && matches!(
+                        self.data.nametable_mirroring,
+                        Mmc3NametableMirroring::Standard(..)
+                    )
+                {
+                    let nametable_mirroring = if value & 0x01 != 0 {
                         NametableMirroring::Horizontal
                     } else {
                         NametableMirroring::Vertical
                     };
+                    self.data.nametable_mirroring =
+                        Mmc3NametableMirroring::Standard(nametable_mirroring);
                 } else {
                     match self.data.sub_mapper {
                         Mmc3SubMapper::Mmc6 => {
@@ -373,28 +393,47 @@ impl MapperImpl<Mmc3> {
         self.data.last_a12_read = a12;
     }
 
-    fn map_ppu_address(&mut self, address: u16) -> PpuMapResult {
+    pub(crate) fn read_ppu_address(&mut self, address: u16, vram: &[u8; 2048]) -> u8 {
         self.process_ppu_address(address);
 
         match address & 0x3FFF {
             0x0000..=0x1FFF => self
                 .data
                 .chr_type
-                .to_map_result(self.data.bank_mapping.map_pattern_table_address(address)),
-            0x2000..=0x3EFF => {
-                PpuMapResult::Vram(self.data.nametable_mirroring.map_to_vram(address))
-            }
-            _ => panic!("invalid PPU map address: 0x{address:04X}"),
+                .to_map_result(self.data.bank_mapping.map_pattern_table_address(address))
+                .read(&self.cartridge, vram),
+            0x2000..=0x3EFF => match &self.data.nametable_mirroring {
+                Mmc3NametableMirroring::Standard(nametable_mirroring) => {
+                    vram[nametable_mirroring.map_to_vram(address) as usize]
+                }
+                Mmc3NametableMirroring::FourScreenVram { external_vram } => {
+                    external_vram[(address & 0x0FFF) as usize]
+                }
+            },
+            0x3F00..=0xFFFF => panic!("invalid PPU map address: 0x{address:04X}"),
         }
     }
 
-    pub(crate) fn read_ppu_address(&mut self, address: u16, vram: &[u8; 2048]) -> u8 {
-        self.map_ppu_address(address).read(&self.cartridge, vram)
-    }
-
     pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
-        self.map_ppu_address(address)
-            .write(value, &mut self.cartridge, vram);
+        self.process_ppu_address(address);
+
+        match address & 0x3FFF {
+            0x0000..=0x1FFF => {
+                self.data
+                    .chr_type
+                    .to_map_result(self.data.bank_mapping.map_pattern_table_address(address))
+                    .write(value, &mut self.cartridge, vram);
+            }
+            0x2000..=0x3EFF => match &mut self.data.nametable_mirroring {
+                Mmc3NametableMirroring::Standard(nametable_mirroring) => {
+                    vram[nametable_mirroring.map_to_vram(address) as usize] = value;
+                }
+                Mmc3NametableMirroring::FourScreenVram { external_vram } => {
+                    external_vram[(address & 0x0FFF) as usize] = value;
+                }
+            },
+            0x3F00..=0xFFFF => panic!("invalid PPU map address: 0x{address:04X}"),
+        }
     }
 
     pub(crate) fn interrupt_flag(&self) -> bool {
