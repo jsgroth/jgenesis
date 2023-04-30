@@ -25,6 +25,9 @@ impl MapperImpl<Nrom> {
         }
     }
 
+    #[allow(clippy::unused_self)]
+    pub(crate) fn write_cpu_address(&self, _address: u16, _value: u8) {}
+
     fn map_ppu_address(&self, address: u16) -> PpuMapResult {
         match address {
             0x0000..=0x1FFF => self.data.chr_type.to_map_result(address.into()),

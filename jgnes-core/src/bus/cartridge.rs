@@ -87,85 +87,63 @@ impl Mapper {
     }
 
     pub(crate) fn read_cpu_address(&mut self, address: u16) -> u8 {
-        match self {
-            Self::Axrom(axrom) => axrom.read_cpu_address(address),
-            Self::Cnrom(cnrom) => cnrom.read_cpu_address(address),
-            Self::Mmc1(mmc1) => mmc1.read_cpu_address(address),
-            Self::Mmc2(mmc2) => mmc2.read_cpu_address(address),
-            Self::Mmc3(mmc3) => mmc3.read_cpu_address(address),
-            Self::Mmc5(mmc5) => mmc5.read_cpu_address(address),
-            Self::Nrom(nrom) => nrom.read_cpu_address(address),
-            Self::Uxrom(uxrom) => uxrom.read_cpu_address(address),
+        macro_rules! read_cpu_address {
+            ($($variant:ident),+$(,)?) => {
+                match self {
+                    $(
+                        Self::$variant(mapper) => mapper.read_cpu_address(address),
+                    )*
+                }
+            }
         }
+
+        read_cpu_address!(Axrom, Cnrom, Mmc1, Mmc2, Mmc3, Mmc5, Nrom, Uxrom)
     }
 
     pub(crate) fn write_cpu_address(&mut self, address: u16, value: u8) {
-        match self {
-            Self::Axrom(axrom) => {
-                axrom.write_cpu_address(address, value);
-            }
-            Self::Cnrom(cnrom) => {
-                cnrom.write_cpu_address(address, value);
-            }
-            Self::Mmc1(mmc1) => {
-                mmc1.write_cpu_address(address, value);
-            }
-            Self::Mmc2(mmc2) => {
-                mmc2.write_cpu_address(address, value);
-            }
-            Self::Mmc3(mmc3) => {
-                mmc3.write_cpu_address(address, value);
-            }
-            Self::Mmc5(mmc5) => {
-                mmc5.write_cpu_address(address, value);
-            }
-            Self::Nrom(..) => {}
-            Self::Uxrom(uxrom) => {
-                uxrom.write_cpu_address(address, value);
+        macro_rules! write_cpu_address {
+            ($($variant:ident),+$(,)?) => {
+                match self {
+                    $(
+                        Self::$variant(mapper) => {
+                            mapper.write_cpu_address(address, value);
+                        }
+                    )*
+                }
             }
         }
+
+        write_cpu_address!(Axrom, Cnrom, Mmc1, Mmc2, Mmc3, Mmc5, Nrom, Uxrom);
     }
 
     pub(crate) fn read_ppu_address(&mut self, address: u16, vram: &[u8; 2048]) -> u8 {
-        match self {
-            Self::Axrom(axrom) => axrom.read_ppu_address(address, vram),
-            Self::Cnrom(cnrom) => cnrom.read_ppu_address(address, vram),
-            Self::Mmc1(mmc1) => mmc1.read_ppu_address(address, vram),
-            Self::Mmc2(mmc2) => mmc2.read_ppu_address(address, vram),
-            Self::Mmc3(mmc3) => mmc3.read_ppu_address(address, vram),
-            Self::Mmc5(mmc5) => mmc5.read_ppu_address(address, vram),
-            Self::Nrom(nrom) => nrom.read_ppu_address(address, vram),
-            Self::Uxrom(uxrom) => uxrom.read_ppu_address(address, vram),
+        macro_rules! read_ppu_address {
+            ($($variant:ident),+$(,)?) => {
+                match self {
+                    $(
+                        Self::$variant(mapper) => mapper.read_ppu_address(address, vram),
+                    )*
+                }
+            }
         }
+
+        read_ppu_address!(Axrom, Cnrom, Mmc1, Mmc2, Mmc3, Mmc5, Nrom, Uxrom)
     }
 
     pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
-        match self {
-            Self::Axrom(axrom) => {
-                axrom.write_ppu_address(address, value, vram);
-            }
-            Self::Cnrom(cnrom) => {
-                cnrom.write_ppu_address(address, value, vram);
-            }
-            Self::Mmc1(mmc1) => {
-                mmc1.write_ppu_address(address, value, vram);
-            }
-            Self::Mmc2(mmc2) => {
-                mmc2.write_ppu_address(address, value, vram);
-            }
-            Self::Mmc3(mmc3) => {
-                mmc3.write_ppu_address(address, value, vram);
-            }
-            Self::Mmc5(mmc5) => {
-                mmc5.write_ppu_address(address, value, vram);
-            }
-            Self::Nrom(nrom) => {
-                nrom.write_ppu_address(address, value, vram);
-            }
-            Self::Uxrom(uxrom) => {
-                uxrom.write_ppu_address(address, value, vram);
+        macro_rules! write_ppu_address {
+            ($($variant:ident),+$(,)?) => {
+                match self {
+                    $(
+                        Self::$variant(mapper) => {
+                            mapper.write_ppu_address(address, value, vram);
+                        }
+                    )*
+                }
             }
         }
+
+        write_ppu_address!(Axrom, Cnrom, Mmc1, Mmc2, Mmc3, Mmc5, Nrom, Uxrom);
     }
 
     pub(crate) fn tick(&mut self) {
