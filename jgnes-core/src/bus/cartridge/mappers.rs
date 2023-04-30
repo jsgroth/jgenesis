@@ -57,23 +57,15 @@ pub(crate) enum CpuMapResult {
 impl CpuMapResult {
     fn read(self, cartridge: &Cartridge) -> u8 {
         match self {
-            Self::PrgROM(address) => {
-                cartridge.prg_rom[(address as usize) & (cartridge.prg_rom.len() - 1)]
-            }
-            Self::PrgRAM(address) => {
-                if !cartridge.prg_ram.is_empty() {
-                    cartridge.prg_ram[(address as usize) & (cartridge.prg_ram.len() - 1)]
-                } else {
-                    0xFF
-                }
-            }
+            Self::PrgROM(address) => cartridge.get_prg_rom(address),
+            Self::PrgRAM(address) => cartridge.get_prg_ram(address),
             Self::None => 0xFF,
         }
     }
 
     fn write(self, value: u8, cartridge: &mut Cartridge) {
         if let Self::PrgRAM(address) = self {
-            cartridge.prg_ram[address as usize] = value;
+            cartridge.set_prg_ram(address, value);
         }
     }
 }
@@ -88,8 +80,8 @@ pub(crate) enum PpuMapResult {
 impl PpuMapResult {
     fn read(self, cartridge: &Cartridge, vram: &[u8; 2048]) -> u8 {
         match self {
-            Self::ChrROM(address) => cartridge.chr_rom[address as usize],
-            Self::ChrRAM(address) => cartridge.chr_ram[address as usize],
+            Self::ChrROM(address) => cartridge.get_chr_rom(address),
+            Self::ChrRAM(address) => cartridge.get_chr_ram(address),
             Self::Vram(address) => vram[address as usize],
         }
     }
@@ -98,7 +90,7 @@ impl PpuMapResult {
         match self {
             Self::ChrROM(_) => {}
             Self::ChrRAM(address) => {
-                cartridge.chr_ram[address as usize] = value;
+                cartridge.set_chr_ram(address, value);
             }
             Self::Vram(address) => {
                 vram[address as usize] = value;

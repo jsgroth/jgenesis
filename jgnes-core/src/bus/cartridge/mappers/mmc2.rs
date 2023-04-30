@@ -113,7 +113,8 @@ impl MapperImpl<Mmc2> {
             0x4020..=0x5FFF | 0x8000..=0x9FFF => {}
             0x6000..=0x7FFF => {
                 if !self.cartridge.prg_ram.is_empty() {
-                    self.cartridge.prg_ram[(address & 0x1FFF) as usize] = value;
+                    self.cartridge
+                        .set_prg_ram(u32::from(address & 0x1FFF), value);
                 }
             }
             0xA000..=0xAFFF => {
@@ -146,25 +147,21 @@ impl MapperImpl<Mmc2> {
             0x0000..=0x0FFF => match self.data.chr_0_latch {
                 ChrBankLatch::FD => {
                     let chr_rom_addr = to_chr_rom_address(self.data.chr_0_fd_bank, address);
-                    self.cartridge.chr_rom
-                        [(chr_rom_addr as usize) & (self.cartridge.chr_rom.len() - 1)]
+                    self.cartridge.get_chr_rom(chr_rom_addr)
                 }
                 ChrBankLatch::FE => {
                     let chr_rom_addr = to_chr_rom_address(self.data.chr_0_fe_bank, address);
-                    self.cartridge.chr_rom
-                        [(chr_rom_addr as usize) & (self.cartridge.chr_rom.len() - 1)]
+                    self.cartridge.get_chr_rom(chr_rom_addr)
                 }
             },
             0x1000..=0x1FFF => match self.data.chr_1_latch {
                 ChrBankLatch::FD => {
                     let chr_rom_addr = to_chr_rom_address(self.data.chr_1_fd_bank, address);
-                    self.cartridge.chr_rom
-                        [(chr_rom_addr as usize) & (self.cartridge.chr_rom.len() - 1)]
+                    self.cartridge.get_chr_rom(chr_rom_addr)
                 }
                 ChrBankLatch::FE => {
                     let chr_rom_addr = to_chr_rom_address(self.data.chr_1_fe_bank, address);
-                    self.cartridge.chr_rom
-                        [(chr_rom_addr as usize) & (self.cartridge.chr_rom.len() - 1)]
+                    self.cartridge.get_chr_rom(chr_rom_addr)
                 }
             },
             0x2000..=0x3EFF => vram[self.data.nametable_mirroring.map_to_vram(address) as usize],

@@ -18,6 +18,40 @@ struct Cartridge {
     chr_ram: Vec<u8>,
 }
 
+impl Cartridge {
+    fn get_prg_rom(&self, address: u32) -> u8 {
+        self.prg_rom[(address as usize) % self.prg_rom.len()]
+    }
+
+    fn get_prg_ram(&self, address: u32) -> u8 {
+        if !self.prg_ram.is_empty() {
+            self.prg_ram[(address as usize) % self.prg_ram.len()]
+        } else {
+            0xFF
+        }
+    }
+
+    fn set_prg_ram(&mut self, address: u32, value: u8) {
+        if !self.prg_ram.is_empty() {
+            let prg_ram_len = self.prg_ram.len();
+            self.prg_ram[(address as usize) % prg_ram_len] = value;
+        }
+    }
+
+    fn get_chr_rom(&self, address: u32) -> u8 {
+        self.chr_rom[(address as usize) % self.chr_rom.len()]
+    }
+
+    fn get_chr_ram(&self, address: u32) -> u8 {
+        self.chr_ram[(address as usize) % self.chr_ram.len()]
+    }
+
+    fn set_chr_ram(&mut self, address: u32, value: u8) {
+        let chr_ram_len = self.chr_ram.len();
+        self.chr_ram[(address as usize) % chr_ram_len] = value;
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct MapperImpl<MapperData> {
     cartridge: Cartridge,

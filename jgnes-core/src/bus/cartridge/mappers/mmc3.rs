@@ -238,15 +238,14 @@ impl MapperImpl<Mmc3> {
             0x4020..=0x5FFF => 0xFF,
             0x6000..=0x7FFF => {
                 if self.data.ram_mode.reads_enabled(address) && !self.cartridge.prg_ram.is_empty() {
-                    let prg_ram_addr = address & (self.cartridge.prg_ram.len() as u16 - 1);
-                    self.cartridge.prg_ram[prg_ram_addr as usize]
+                    self.cartridge.get_prg_ram(u32::from(address & 0x1FFF))
                 } else {
                     0xFF
                 }
             }
-            0x8000..=0xFFFF => {
-                self.cartridge.prg_rom[self.data.bank_mapping.map_prg_rom_address(address) as usize]
-            }
+            0x8000..=0xFFFF => self
+                .cartridge
+                .get_prg_rom(self.data.bank_mapping.map_prg_rom_address(address)),
         }
     }
 
@@ -257,8 +256,8 @@ impl MapperImpl<Mmc3> {
             0x6000..=0x7FFF => {
                 if self.data.ram_mode.writes_enabled(address) && !self.cartridge.prg_ram.is_empty()
                 {
-                    let prg_ram_addr = address & (self.cartridge.prg_ram.len() as u16 - 1);
-                    self.cartridge.prg_ram[prg_ram_addr as usize] = value;
+                    self.cartridge
+                        .set_prg_ram(u32::from(address & 0x1FFF), value);
                 }
             }
             0x8000..=0x9FFF => {

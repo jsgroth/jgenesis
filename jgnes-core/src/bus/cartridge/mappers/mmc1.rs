@@ -69,23 +69,20 @@ impl MapperImpl<Mmc1> {
             }
             0x8000..=0xFFFF => match self.data.prg_banking_mode {
                 Mmc1PrgBankingMode::Switch32Kb => {
-                    let bank_address = (u32::from(self.data.prg_bank & 0x0E) << 15)
-                        & (self.cartridge.prg_rom.len() as u32 - 1);
+                    let bank_address = u32::from(self.data.prg_bank & 0x0E) << 15;
                     CpuMapResult::PrgROM(bank_address + u32::from(address & 0x7FFF))
                 }
                 Mmc1PrgBankingMode::Switch16KbFirstBankFixed => match address {
                     0x8000..=0xBFFF => CpuMapResult::PrgROM(u32::from(address) & 0x3FFF),
                     0xC000..=0xFFFF => {
-                        let bank_address = (u32::from(self.data.prg_bank) << 14)
-                            & (self.cartridge.prg_rom.len() as u32 - 1);
+                        let bank_address = u32::from(self.data.prg_bank) << 14;
                         CpuMapResult::PrgROM(bank_address + (u32::from(address) & 0x3FFF))
                     }
                     _ => unreachable!("match arm should be unreachable"),
                 },
                 Mmc1PrgBankingMode::Switch16KbLastBankFixed => match address {
                     0x8000..=0xBFFF => {
-                        let bank_address = (u32::from(self.data.prg_bank) << 14)
-                            & (self.cartridge.prg_rom.len() as u32 - 1);
+                        let bank_address = u32::from(self.data.prg_bank) << 14;
                         CpuMapResult::PrgROM(bank_address + (u32::from(address) & 0x3FFF))
                     }
                     0xC000..=0xFFFF => {
@@ -108,8 +105,8 @@ impl MapperImpl<Mmc1> {
             0x4020..=0x5FFF => {}
             0x6000..=0x7FFF => {
                 if !self.cartridge.prg_ram.is_empty() {
-                    let prg_ram_len = self.cartridge.prg_ram.len();
-                    self.cartridge.prg_ram[(address as usize) & (prg_ram_len - 1)] = value;
+                    self.cartridge
+                        .set_prg_ram(u32::from(address & 0x1FFF), value);
                 }
             }
             0x8000..=0xFFFF => {

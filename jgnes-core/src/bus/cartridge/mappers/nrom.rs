@@ -21,11 +21,7 @@ impl MapperImpl<Nrom> {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
             0x4020..=0x7FFF => 0xFF,
-            0x8000..=0xFFFF => {
-                let prg_rom_addr =
-                    usize::from(address & 0x7FFF) & (self.cartridge.prg_rom.len() - 1);
-                self.cartridge.prg_rom[prg_rom_addr]
-            }
+            0x8000..=0xFFFF => self.cartridge.get_prg_rom(u32::from(address & 0x7FFF)),
         }
     }
 
@@ -72,15 +68,14 @@ impl MapperImpl<Uxrom> {
             0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
             0x4020..=0x7FFF => 0xFF,
             0x8000..=0xBFFF => {
-                let bank_address = (u32::from(self.data.prg_bank) << 14)
-                    & (self.cartridge.prg_rom.len() as u32 - 1);
+                let bank_address = u32::from(self.data.prg_bank) << 14;
                 let prg_rom_addr = bank_address + u32::from(address & 0x3FFF);
-                self.cartridge.prg_rom[prg_rom_addr as usize]
+                self.cartridge.get_prg_rom(prg_rom_addr)
             }
             0xC000..=0xFFFF => {
                 let last_bank_address = self.cartridge.prg_rom.len() - (1 << 14);
                 let prg_rom_addr = last_bank_address + usize::from(address & 0x3FFF);
-                self.cartridge.prg_rom[prg_rom_addr]
+                self.cartridge.get_prg_rom(prg_rom_addr as u32)
             }
         }
     }
@@ -137,10 +132,7 @@ impl MapperImpl<Cnrom> {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
             0x4020..=0x7FFF => 0xFF,
-            0x8000..=0xFFFF => {
-                self.cartridge.prg_rom
-                    [(address as usize - 0x8000) & (self.cartridge.prg_rom.len() - 1)]
-            }
+            0x8000..=0xFFFF => self.cartridge.get_prg_rom(u32::from(address & 0x7FFF)),
         }
     }
 
@@ -157,12 +149,8 @@ impl MapperImpl<Cnrom> {
     fn map_ppu_address(&self, address: u16) -> PpuMapResult {
         match address {
             0x0000..=0x1FFF => {
-                let chr_mask = match self.data.chr_type {
-                    ChrType::ROM => self.cartridge.chr_rom.len() as u32 - 1,
-                    ChrType::RAM => self.cartridge.chr_ram.len() as u32 - 1,
-                };
                 let chr_address = u32::from(self.data.chr_bank) * 8192 + u32::from(address);
-                self.data.chr_type.to_map_result(chr_address & chr_mask)
+                self.data.chr_type.to_map_result(chr_address)
             }
             0x2000..=0x3EFF => {
                 PpuMapResult::Vram(self.data.nametable_mirroring.map_to_vram(address))
@@ -204,9 +192,9 @@ impl MapperImpl<Axrom> {
             return 0xFF;
         }
 
-        let bank_address =
-            (u32::from(self.data.prg_bank) << 15) & (self.cartridge.prg_rom.len() as u32 - 1);
-        self.cartridge.prg_rom[(bank_address | u32::from(address & 0x7FFF)) as usize]
+        let bank_address = u32::from(self.data.prg_bank) << 15;
+        self.cartridge
+            .get_prg_rom(bank_address | u32::from(address & 0x7FFF))
     }
 
     pub(crate) fn write_cpu_address(&mut self, address: u16, value: u8) {
