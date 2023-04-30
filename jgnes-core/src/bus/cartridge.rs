@@ -30,6 +30,7 @@ pub(crate) enum Mapper {
     Axrom(MapperImpl<Axrom>),
     Cnrom(MapperImpl<Cnrom>),
     Mmc1(MapperImpl<Mmc1>),
+    // Used for both MMC2 and MMC4 because they're almost exactly the same
     Mmc2(MapperImpl<Mmc2>),
     Mmc3(MapperImpl<Mmc3>),
     Mmc5(MapperImpl<Mmc5>),
@@ -43,7 +44,7 @@ impl Mapper {
             Self::Axrom(..) => "AxROM",
             Self::Cnrom(..) => "CNROM",
             Self::Mmc1(..) => "MMC1",
-            Self::Mmc2(..) => "MMC2",
+            Self::Mmc2(mmc2) => mmc2.name(),
             Self::Mmc3(..) => "MMC3",
             Self::Mmc5(..) => "MMC5",
             Self::Nrom(..) => "NROM",
@@ -371,7 +372,11 @@ pub(crate) fn from_ines_file(file_bytes: &[u8]) -> Result<Mapper, CartridgeFileE
         }),
         9 => Mapper::Mmc2(MapperImpl {
             cartridge,
-            data: Mmc2::new(),
+            data: Mmc2::new_mmc2(),
+        }),
+        10 => Mapper::Mmc2(MapperImpl {
+            cartridge,
+            data: Mmc2::new_mmc4(),
         }),
         _ => {
             return Err(CartridgeFileError::UnsupportedMapper {
