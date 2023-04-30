@@ -1,7 +1,7 @@
 mod mappers;
 
 use crate::bus::cartridge::mappers::{
-    Axrom, ChrType, Cnrom, Mmc1, Mmc3, Mmc5, NametableMirroring, Nrom, Uxrom,
+    Axrom, ChrType, Cnrom, Mmc1, Mmc2, Mmc3, Mmc5, NametableMirroring, Nrom, Uxrom,
 };
 use std::io;
 use thiserror::Error;
@@ -27,98 +27,108 @@ pub(crate) struct MapperImpl<MapperData> {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub(crate) enum Mapper {
+    Axrom(MapperImpl<Axrom>),
+    Cnrom(MapperImpl<Cnrom>),
+    Mmc1(MapperImpl<Mmc1>),
+    Mmc2(MapperImpl<Mmc2>),
+    Mmc3(MapperImpl<Mmc3>),
+    Mmc5(MapperImpl<Mmc5>),
     Nrom(MapperImpl<Nrom>),
     Uxrom(MapperImpl<Uxrom>),
-    Mmc1(MapperImpl<Mmc1>),
-    Cnrom(MapperImpl<Cnrom>),
-    Mmc3(MapperImpl<Mmc3>),
-    Axrom(MapperImpl<Axrom>),
-    Mmc5(MapperImpl<Mmc5>),
 }
 
 impl Mapper {
     pub(crate) fn name(&self) -> &'static str {
         match self {
+            Self::Axrom(..) => "AxROM",
+            Self::Cnrom(..) => "CNROM",
+            Self::Mmc1(..) => "MMC1",
+            Self::Mmc2(..) => "MMC2",
+            Self::Mmc3(..) => "MMC3",
+            Self::Mmc5(..) => "MMC5",
             Self::Nrom(..) => "NROM",
             Self::Uxrom(..) => "UxROM",
-            Self::Mmc1(..) => "MMC1",
-            Self::Cnrom(..) => "CNROM",
-            Self::Mmc3(..) => "MMC3",
-            Self::Axrom(..) => "AxROM",
-            Self::Mmc5(..) => "MMC5",
         }
     }
 
     pub(crate) fn read_cpu_address(&mut self, address: u16) -> u8 {
         match self {
+            Self::Axrom(axrom) => axrom.read_cpu_address(address),
+            Self::Cnrom(cnrom) => cnrom.read_cpu_address(address),
+            Self::Mmc1(mmc1) => mmc1.read_cpu_address(address),
+            Self::Mmc2(mmc2) => mmc2.read_cpu_address(address),
+            Self::Mmc3(mmc3) => mmc3.read_cpu_address(address),
+            Self::Mmc5(mmc5) => mmc5.read_cpu_address(address),
             Self::Nrom(nrom) => nrom.read_cpu_address(address),
             Self::Uxrom(uxrom) => uxrom.read_cpu_address(address),
-            Self::Mmc1(mmc1) => mmc1.read_cpu_address(address),
-            Self::Cnrom(cnrom) => cnrom.read_cpu_address(address),
-            Self::Mmc3(mmc3) => mmc3.read_cpu_address(address),
-            Self::Axrom(axrom) => axrom.read_cpu_address(address),
-            Self::Mmc5(mmc5) => mmc5.read_cpu_address(address),
         }
     }
 
     pub(crate) fn write_cpu_address(&mut self, address: u16, value: u8) {
         match self {
-            Self::Nrom(..) => {}
-            Self::Uxrom(uxrom) => {
-                uxrom.write_cpu_address(address, value);
-            }
-            Self::Mmc1(mmc1) => {
-                mmc1.write_cpu_address(address, value);
+            Self::Axrom(axrom) => {
+                axrom.write_cpu_address(address, value);
             }
             Self::Cnrom(cnrom) => {
                 cnrom.write_cpu_address(address, value);
             }
+            Self::Mmc1(mmc1) => {
+                mmc1.write_cpu_address(address, value);
+            }
+            Self::Mmc2(mmc2) => {
+                mmc2.write_cpu_address(address, value);
+            }
             Self::Mmc3(mmc3) => {
                 mmc3.write_cpu_address(address, value);
             }
-            Self::Axrom(axrom) => {
-                axrom.write_cpu_address(address, value);
-            }
             Self::Mmc5(mmc5) => {
                 mmc5.write_cpu_address(address, value);
+            }
+            Self::Nrom(..) => {}
+            Self::Uxrom(uxrom) => {
+                uxrom.write_cpu_address(address, value);
             }
         }
     }
 
     pub(crate) fn read_ppu_address(&mut self, address: u16, vram: &[u8; 2048]) -> u8 {
         match self {
+            Self::Axrom(axrom) => axrom.read_ppu_address(address, vram),
+            Self::Cnrom(cnrom) => cnrom.read_ppu_address(address, vram),
+            Self::Mmc1(mmc1) => mmc1.read_ppu_address(address, vram),
+            Self::Mmc2(mmc2) => mmc2.read_ppu_address(address, vram),
+            Self::Mmc3(mmc3) => mmc3.read_ppu_address(address, vram),
+            Self::Mmc5(mmc5) => mmc5.read_ppu_address(address, vram),
             Self::Nrom(nrom) => nrom.read_ppu_address(address, vram),
             Self::Uxrom(uxrom) => uxrom.read_ppu_address(address, vram),
-            Self::Mmc1(mmc1) => mmc1.read_ppu_address(address, vram),
-            Self::Cnrom(cnrom) => cnrom.read_ppu_address(address, vram),
-            Self::Mmc3(mmc3) => mmc3.read_ppu_address(address, vram),
-            Self::Axrom(axrom) => axrom.read_ppu_address(address, vram),
-            Self::Mmc5(mmc5) => mmc5.read_ppu_address(address, vram),
         }
     }
 
     pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
         match self {
+            Self::Axrom(axrom) => {
+                axrom.write_ppu_address(address, value, vram);
+            }
+            Self::Cnrom(cnrom) => {
+                cnrom.write_ppu_address(address, value, vram);
+            }
+            Self::Mmc1(mmc1) => {
+                mmc1.write_ppu_address(address, value, vram);
+            }
+            Self::Mmc2(mmc2) => {
+                mmc2.write_ppu_address(address, value, vram);
+            }
+            Self::Mmc3(mmc3) => {
+                mmc3.write_ppu_address(address, value, vram);
+            }
+            Self::Mmc5(mmc5) => {
+                mmc5.write_ppu_address(address, value, vram);
+            }
             Self::Nrom(nrom) => {
                 nrom.write_ppu_address(address, value, vram);
             }
             Self::Uxrom(uxrom) => {
                 uxrom.write_ppu_address(address, value, vram);
-            }
-            Self::Mmc1(mmc1) => {
-                mmc1.write_ppu_address(address, value, vram);
-            }
-            Self::Cnrom(cnrom) => {
-                cnrom.write_ppu_address(address, value, vram);
-            }
-            Self::Mmc3(mmc3) => {
-                mmc3.write_ppu_address(address, value, vram);
-            }
-            Self::Axrom(axrom) => {
-                axrom.write_ppu_address(address, value, vram);
-            }
-            Self::Mmc5(mmc5) => {
-                mmc5.write_ppu_address(address, value, vram);
             }
         }
     }
@@ -358,6 +368,10 @@ pub(crate) fn from_ines_file(file_bytes: &[u8]) -> Result<Mapper, CartridgeFileE
         7 => Mapper::Axrom(MapperImpl {
             cartridge,
             data: Axrom::new(header.chr_type),
+        }),
+        9 => Mapper::Mmc2(MapperImpl {
+            cartridge,
+            data: Mmc2::new(),
         }),
         _ => {
             return Err(CartridgeFileError::UnsupportedMapper {
