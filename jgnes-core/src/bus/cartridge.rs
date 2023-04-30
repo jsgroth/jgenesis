@@ -14,6 +14,8 @@ pub(crate) use mappers::new_mmc1;
 struct Cartridge {
     prg_rom: Vec<u8>,
     prg_ram: Vec<u8>,
+    has_ram_battery: bool,
+    prg_ram_dirty_bit: bool,
     chr_rom: Vec<u8>,
     chr_ram: Vec<u8>,
 }
@@ -35,6 +37,9 @@ impl Cartridge {
         if !self.prg_ram.is_empty() {
             let prg_ram_len = self.prg_ram.len();
             self.prg_ram[(address as usize) % prg_ram_len] = value;
+            if self.has_ram_battery {
+                self.prg_ram_dirty_bit = true;
+            }
         }
     }
 
@@ -197,6 +202,38 @@ impl Mapper {
             _ => {}
         }
     }
+
+    pub(crate) fn get_and_clear_ram_dirty_bit(&mut self) -> bool {
+        macro_rules! get_and_clear_ram_dirty_bit {
+            ($($variant:ident),+$(,)?) => {
+                match self {
+                    $(
+                        Self::$variant(mapper) => {
+                            let dirty_bit = mapper.cartridge.prg_ram_dirty_bit;
+                            mapper.cartridge.prg_ram_dirty_bit = false;
+                            dirty_bit
+                        }
+                    )*
+                }
+            }
+        }
+
+        get_and_clear_ram_dirty_bit!(Axrom, Cnrom, Mmc1, Mmc2, Mmc3, Mmc5, Nrom, Uxrom)
+    }
+
+    pub(crate) fn get_prg_ram(&self) -> &[u8] {
+        macro_rules! get_prg_ram {
+            ($($variant:ident),+$(,)?) => {
+                match self {
+                    $(
+                        Self::$variant(mapper) => &mapper.cartridge.prg_ram,
+                    )*
+                }
+            }
+        }
+
+        get_prg_ram!(Axrom, Cnrom, Mmc1, Mmc2, Mmc3, Mmc5, Nrom, Uxrom)
+    }
 }
 
 #[derive(Debug, Error)]
@@ -285,12 +322,17 @@ impl INesHeader {
                 let volatile_shift = header[10] & 0x0F;
                 let non_volatile_shift = header[10] >> 4;
                 // TODO separate these? very very few games have both volatile and non-volatile RAM
-                let shift = volatile_shift + non_volatile_shift;
-                if shift > 0 {
-                    64 << shift
+                let volatile_ram = if volatile_shift > 0 {
+                    64 << volatile_shift
                 } else {
                     0
-                }
+                };
+                let non_volatile_ram = if non_volatile_shift > 0 {
+                    64 << non_volatile_shift
+                } else {
+                    0
+                };
+                volatile_ram + non_volatile_ram
             }
             FileFormat::INes => 8192,
         };
@@ -324,7 +366,10 @@ impl INesHeader {
     }
 }
 
-pub(crate) fn from_ines_file(file_bytes: &[u8]) -> Result<Mapper, CartridgeFileError> {
+pub(crate) fn from_ines_file(
+    file_bytes: &[u8],
+    sav_bytes: Option<Vec<u8>>,
+) -> Result<Mapper, CartridgeFileError> {
     let header = INesHeader::parse_from_file(file_bytes)?;
 
     // Header is 16 bytes, trainer is 512 bytes if present
@@ -335,9 +380,21 @@ pub(crate) fn from_ines_file(file_bytes: &[u8]) -> Result<Mapper, CartridgeFileE
     let prg_rom = Vec::from(&file_bytes[prg_rom_start_address..prg_rom_end_address]);
     let chr_rom = Vec::from(&file_bytes[prg_rom_end_address..chr_rom_end_address]);
 
+    let prg_ram = if let Some(sav_bytes) = sav_bytes {
+        if sav_bytes.len() == header.prg_ram_size as usize {
+            sav_bytes
+        } else {
+            vec![0; header.prg_ram_size as usize]
+        }
+    } else {
+        vec![0; header.prg_ram_size as usize]
+    };
+
     let cartridge = Cartridge {
         prg_rom,
-        prg_ram: vec![0; header.prg_ram_size as usize],
+        prg_ram,
+        has_ram_battery: header.has_battery,
+        prg_ram_dirty_bit: false,
         chr_rom,
         chr_ram: vec![0; header.chr_ram_size as usize],
     };

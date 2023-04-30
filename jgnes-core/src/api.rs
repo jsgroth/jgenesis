@@ -92,31 +92,50 @@ pub trait InputPoller {
     fn poll_p2_input(&self) -> JoypadState;
 }
 
-#[derive(Debug)]
-pub enum EmulationError<RenderError, AudioError> {
-    Render(RenderError),
-    Audio(AudioError),
+pub trait SaveWriter {
+    type Err;
+
+    /// Optionally persist the contents of non-volatile PRG RAM, which generally contains save data.
+    ///
+    /// This method will only be called when running games that have battery-backed PRG RAM.
+    /// Additionally, it will only be called when the contents of PRG RAM have changed since the
+    /// last time this method was called.
+    ///
+    /// # Errors
+    ///
+    /// This method can return an error if it is unable to persist the data to whatever it is
+    /// writing to, and the error will be propagated.
+    fn persist_sram(&mut self, sram: &[u8]) -> Result<(), Self::Err>;
 }
 
-impl<R: Display, A: Display> Display for EmulationError<R, A> {
+#[derive(Debug)]
+pub enum EmulationError<RenderError, AudioError, SaveError> {
+    Render(RenderError),
+    Audio(AudioError),
+    Save(SaveError),
+}
+
+impl<R: Display, A: Display, S: Display> Display for EmulationError<R, A, S> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Render(err) => write!(f, "Rendering error: {err}"),
             Self::Audio(err) => write!(f, "Audio error: {err}"),
+            Self::Save(err) => write!(f, "Save error: {err}"),
         }
     }
 }
 
-impl<R: Error + 'static, A: Error + 'static> Error for EmulationError<R, A> {
+impl<R: Error + 'static, A: Error + 'static, S: Error + 'static> Error for EmulationError<R, A, S> {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Render(err) => Some(err),
             Self::Audio(err) => Some(err),
+            Self::Save(err) => Some(err),
         }
     }
 }
 
-pub struct Emulator<Renderer, AudioPlayer, InputPoller> {
+pub struct Emulator<Renderer, AudioPlayer, InputPoller, SaveWriter> {
     bus: Bus,
     cpu_state: CpuState,
     ppu_state: PpuState,
@@ -124,9 +143,13 @@ pub struct Emulator<Renderer, AudioPlayer, InputPoller> {
     renderer: Renderer,
     audio_player: AudioPlayer,
     input_poller: InputPoller,
+    save_writer: SaveWriter,
 }
 
-impl<R: Renderer, A: AudioPlayer, I: InputPoller> Emulator<R, A, I> {
+pub type EmulationResult<RenderError, AudioError, SaveError> =
+    Result<(), EmulationError<RenderError, AudioError, SaveError>>;
+
+impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, I, S> {
     /// Create a new emulator instance.
     ///
     /// # Errors
@@ -134,12 +157,14 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller> Emulator<R, A, I> {
     /// This function will return an error if it cannot successfully parse NES ROM data out of the
     /// given ROM bytes.
     pub fn create(
-        rom_bytes: &[u8],
+        rom_bytes: Vec<u8>,
+        sav_bytes: Option<Vec<u8>>,
         renderer: R,
         audio_player: A,
         input_poller: I,
+        save_writer: S,
     ) -> Result<Self, CartridgeFileError> {
-        let mapper = cartridge::from_ines_file(rom_bytes)?;
+        let mapper = cartridge::from_ines_file(&rom_bytes, sav_bytes)?;
         let mut bus = Bus::from_cartridge(mapper);
 
         let cpu_registers = CpuRegisters::create(&mut bus.cpu());
@@ -157,6 +182,7 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller> Emulator<R, A, I> {
             renderer,
             audio_player,
             input_poller,
+            save_writer,
         })
     }
 
@@ -164,9 +190,9 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller> Emulator<R, A, I> {
     ///
     /// # Errors
     ///
-    /// This method will propagate any errors encountered while rendering a frame or pushing
-    /// audio samples.
-    pub fn tick(&mut self) -> Result<(), EmulationError<R::Err, A::Err>> {
+    /// This method will propagate any errors encountered while rendering a frame, pushing
+    /// audio samples, or persisting SRAM.
+    pub fn tick(&mut self) -> EmulationResult<R::Err, A::Err, S::Err> {
         let prev_in_vblank = self.ppu_state.in_vblank();
 
         cpu::tick(
@@ -208,6 +234,13 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller> Emulator<R, A, I> {
 
             let p2_joypad_state = self.input_poller.poll_p2_input();
             self.bus.update_p2_joypad_state(p2_joypad_state);
+
+            if self.bus.get_and_clear_sram_dirty_bit() {
+                let sram = self.bus.get_sram();
+                self.save_writer
+                    .persist_sram(sram)
+                    .map_err(EmulationError::Save)?;
+            }
         }
 
         Ok(())

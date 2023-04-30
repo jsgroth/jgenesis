@@ -107,6 +107,8 @@ pub(crate) fn new_mmc1(prg_rom: Vec<u8>) -> super::Mapper {
         cartridge: Cartridge {
             prg_rom,
             prg_ram: vec![0; 8192],
+            has_ram_battery: false,
+            prg_ram_dirty_bit: false,
             chr_rom: vec![0; 8192],
             chr_ram: Vec::new(),
         },
