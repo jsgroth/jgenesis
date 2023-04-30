@@ -382,6 +382,5 @@ pub fn tick(state: &mut ApuState, config: &ApuConfig, bus: &mut CpuBus<'_>) {
         let mixed_sample = state.mix_samples(config);
         let mixed_sample = state.high_pass_filter(mixed_sample);
         state.sample_queue.push_back(mixed_sample);
-        state.sample_queue.push_back(mixed_sample);
     }
 }

@@ -85,7 +85,7 @@ pub fn run(path: &str) -> Result<(), RunError> {
     let audio_queue = audio_subsystem.open_queue::<f32, _>(
         None,
         &AudioSpecDesired {
-            channels: Some(2),
+            channels: Some(1),
             freq: Some(48000),
             samples: Some(1024),
         },
