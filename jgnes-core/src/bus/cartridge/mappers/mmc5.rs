@@ -98,23 +98,18 @@ impl PrgBankingMode {
                     ),
                 },
                 // 4x8KB
-                Self::Mode3 => match address {
-                    0x0000..=0x7FFF => unreachable!("nested match expressions"),
-                    0x8000..=0x9FFF => {
-                        Self::map_result(prg_bank_registers[1], PrgBankSize::EightKb, address)
-                    }
-                    0xA000..=0xBFFF => {
-                        Self::map_result(prg_bank_registers[2], PrgBankSize::EightKb, address)
-                    }
-                    0xC000..=0xDFFF => {
-                        Self::map_result(prg_bank_registers[3], PrgBankSize::EightKb, address)
-                    }
-                    0xE000..=0xFFFF => Self::map_result(
-                        prg_bank_registers[4] | 0x80,
+                Self::Mode3 => {
+                    // 0x8000..=0x9FFF to bank 1
+                    // 0xA000..=0xBFFF to bank 2
+                    // 0xC000..=0xDFFF to bank 3
+                    // 0xD000..=0xFFFF to bank 4
+                    let bank_register = (address & 0x7FFF) / 0x2000 + 1;
+                    Self::map_result(
+                        prg_bank_registers[bank_register as usize],
                         PrgBankSize::EightKb,
                         address,
-                    ),
-                },
+                    )
+                }
             },
         }
     }
@@ -176,65 +171,47 @@ impl ChrMapper {
     }
 
     fn map_sprite_chr_address(&self, address: u16) -> u32 {
+        assert!((0x0000..=0x1FFF).contains(&address));
+
         match self.mode {
             ChrBankingMode::EightKb => {
                 ChrBankingMode::EightKb.map_address(self.bank_registers[7], address)
             }
-            ChrBankingMode::FourKb => match address {
-                0x0000..=0x0FFF => {
-                    ChrBankingMode::FourKb.map_address(self.bank_registers[3], address)
-                }
-                0x1000..=0x1FFF => {
-                    ChrBankingMode::FourKb.map_address(self.bank_registers[7], address)
-                }
-                0x2000..=0xFFFF => panic!("invalid MMC5 CHR map address: {address:04X}"),
-            },
-            ChrBankingMode::TwoKb => match address {
-                0x0000..=0x07FF => {
-                    ChrBankingMode::TwoKb.map_address(self.bank_registers[1], address)
-                }
-                0x0800..=0x0FFF => {
-                    ChrBankingMode::TwoKb.map_address(self.bank_registers[3], address)
-                }
-                0x1000..=0x17FF => {
-                    ChrBankingMode::TwoKb.map_address(self.bank_registers[5], address)
-                }
-                0x1800..=0x1FFF => {
-                    ChrBankingMode::TwoKb.map_address(self.bank_registers[7], address)
-                }
-                0x2000..=0xFFFF => panic!("invalid MMC5 CHR map address {address:04X}"),
-            },
-            ChrBankingMode::OneKb => match address {
-                0x0000..=0x03FF => {
-                    ChrBankingMode::OneKb.map_address(self.bank_registers[0], address)
-                }
-                0x0400..=0x07FF => {
-                    ChrBankingMode::OneKb.map_address(self.bank_registers[1], address)
-                }
-                0x0800..=0x0BFF => {
-                    ChrBankingMode::OneKb.map_address(self.bank_registers[2], address)
-                }
-                0x0C00..=0x0FFF => {
-                    ChrBankingMode::OneKb.map_address(self.bank_registers[3], address)
-                }
-                0x1000..=0x13FF => {
-                    ChrBankingMode::OneKb.map_address(self.bank_registers[4], address)
-                }
-                0x1400..=0x17FF => {
-                    ChrBankingMode::OneKb.map_address(self.bank_registers[5], address)
-                }
-                0x1800..=0x1BFF => {
-                    ChrBankingMode::OneKb.map_address(self.bank_registers[6], address)
-                }
-                0x1C00..=0x1FFF => {
-                    ChrBankingMode::OneKb.map_address(self.bank_registers[7], address)
-                }
-                0x2000..=0xFFFF => panic!("invalid MMC5 CHR map address: {address:04X}"),
-            },
+            ChrBankingMode::FourKb => {
+                // 0x0000..=0x0FFF to bank 3
+                // 0x1000..=0x1FFF to bank 7
+                let bank_register = 4 * (address / 0x1000) + 3;
+                ChrBankingMode::FourKb
+                    .map_address(self.bank_registers[bank_register as usize], address)
+            }
+            ChrBankingMode::TwoKb => {
+                // 0x0000..=0x07FF to bank 1
+                // 0x0800..=0x0FFF to bank 3
+                // 0x1000..=0x17FF to bank 5
+                // 0x1800..=0x1FFF to bank 7
+                let bank_register = 2 * (address / 0x0800) + 1;
+                ChrBankingMode::TwoKb
+                    .map_address(self.bank_registers[bank_register as usize], address)
+            }
+            ChrBankingMode::OneKb => {
+                // 0x0000..=0x03FF to bank 0
+                // 0x0400..=0x07FF to bank 1
+                // 0x0800..=0x0BFF to bank 2
+                // 0x0C00..=0x0FFF to bank 3
+                // 0x1000..=0x13FF to bank 4
+                // 0x1400..=0x17FF to bank 5
+                // 0x1800..=0x1BFF to bank 6
+                // 0x1C00..=0x1FFF to bank 7
+                let bank_register = address / 0x0400;
+                ChrBankingMode::OneKb
+                    .map_address(self.bank_registers[bank_register as usize], address)
+            }
         }
     }
 
     fn map_bg_chr_address(&self, address: u16) -> u32 {
+        assert!((0x0000..=0x1FFF).contains(&address));
+
         match self.mode {
             ChrBankingMode::EightKb => {
                 ChrBankingMode::EightKb.map_address(self.bank_registers[11], address)
@@ -242,30 +219,22 @@ impl ChrMapper {
             ChrBankingMode::FourKb => {
                 ChrBankingMode::FourKb.map_address(self.bank_registers[11], address)
             }
-            ChrBankingMode::TwoKb => match address {
-                0x0000..=0x07FF | 0x1000..=0x17FF => {
-                    ChrBankingMode::TwoKb.map_address(self.bank_registers[9], address)
-                }
-                0x0800..=0x0FFF | 0x1800..=0x1FFF => {
-                    ChrBankingMode::TwoKb.map_address(self.bank_registers[11], address)
-                }
-                0x2000..=0xFFFF => panic!("invalid MMC5 CHR map address: {address:04X}"),
-            },
-            ChrBankingMode::OneKb => match address {
-                0x0000..=0x03FF | 0x1000..=0x13FF => {
-                    ChrBankingMode::OneKb.map_address(self.bank_registers[8], address)
-                }
-                0x0400..=0x07FF | 0x1400..=0x17FF => {
-                    ChrBankingMode::OneKb.map_address(self.bank_registers[9], address)
-                }
-                0x0800..=0x0BFF | 0x1800..=0x1BFF => {
-                    ChrBankingMode::OneKb.map_address(self.bank_registers[10], address)
-                }
-                0x0C00..=0x0FFF | 0x1C00..=0x1FFF => {
-                    ChrBankingMode::OneKb.map_address(self.bank_registers[11], address)
-                }
-                0x2000..=0xFFFF => panic!("invalid MMC5 CHR map address: {address:04X}"),
-            },
+            ChrBankingMode::TwoKb => {
+                // 0x0000..=0x07FF and 0x1000..=0x17FF to bank 9
+                // 0x0800..=0x0FFF and 0x1800..=0x1FFF to bank 11
+                let bank_register = 2 * ((address & 0x0FFF) / 0x0800) + 9;
+                ChrBankingMode::TwoKb
+                    .map_address(self.bank_registers[bank_register as usize], address)
+            }
+            ChrBankingMode::OneKb => {
+                // 0x0000..=0x03FF and 0x1000..=0x13FF to bank 8
+                // 0x0400..=0x07FF and 0x1400..=0x17FF to bank 9
+                // 0x0800..=0x0BFF and 0x1800..=0x1BFF to bank 10
+                // 0x0C00..=0x0FFF and 0x1C00..=0x1FFF to bank 11
+                let bank_register = (address & 0x0FFF) / 0x0400 + 8;
+                ChrBankingMode::OneKb
+                    .map_address(self.bank_registers[bank_register as usize], address)
+            }
         }
     }
 
