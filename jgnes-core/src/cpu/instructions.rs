@@ -932,6 +932,7 @@ impl Instruction {
         }
     }
 
+    #[allow(clippy::match_same_arms)]
     pub fn from_opcode(opcode: u8) -> Option<Self> {
         match opcode {
             0x00 => Some(Self::ForceInterrupt),
@@ -1102,6 +1103,7 @@ impl Instruction {
             0x7E => Some(Self::ReadModifyWrite(ModifyInstruction::RotateRight(
                 AddressingMode::AbsoluteX,
             ))),
+            0x80 => Some(Self::NoOpImmediate),
             0x81 => Some(Self::StoreRegister(
                 CpuRegister::A,
                 AddressingMode::IndirectX,
@@ -1121,6 +1123,7 @@ impl Instruction {
             0x88 => Some(Self::RegistersOnly(
                 RegistersInstruction::DecrementRegister(CpuRegister::Y),
             )),
+            0x89 => Some(Self::NoOpImmediate),
             0x8A => Some(Self::RegistersOnly(
                 RegistersInstruction::TransferBetweenRegisters {
                     to: CpuRegister::A,
@@ -1326,6 +1329,7 @@ impl Instruction {
                 CpuRegister::A,
                 AddressingMode::AbsoluteY,
             ))),
+            0xDA => Some(Self::RegistersOnly(RegistersInstruction::NoOp)),
             0xDD => Some(Self::Read(ReadInstruction::Compare(
                 CpuRegister::A,
                 AddressingMode::AbsoluteX,
@@ -1381,6 +1385,7 @@ impl Instruction {
             0xF9 => Some(Self::Read(ReadInstruction::SubtractWithCarry(
                 AddressingMode::AbsoluteY,
             ))),
+            0xFA => Some(Self::RegistersOnly(RegistersInstruction::NoOp)),
             0xFD => Some(Self::Read(ReadInstruction::SubtractWithCarry(
                 AddressingMode::AbsoluteX,
             ))),
