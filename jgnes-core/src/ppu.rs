@@ -222,6 +222,7 @@ pub struct PpuState {
     dot: u16,
     odd_frame: bool,
     rendering_disabled_backdrop_color: Option<u8>,
+    pending_sprite_0_hit: bool,
 }
 
 impl PpuState {
@@ -237,6 +238,7 @@ impl PpuState {
             odd_frame: false,
             // 0x0F == Black
             rendering_disabled_backdrop_color: Some(0x0F),
+            pending_sprite_0_hit: false,
         }
     }
 
@@ -315,6 +317,12 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
 
 fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     log::trace!("Rendering at scanline {} dot {}", state.scanline, state.dot);
+
+    if state.pending_sprite_0_hit {
+        // If sprite 0 hit triggered on the last cycle, set the flag in PPUSTATUS
+        state.pending_sprite_0_hit = false;
+        bus.get_ppu_registers_mut().set_sprite_0_hit(true);
+    }
 
     match state.scanline {
         0..=239 | 261 => {
@@ -599,8 +607,10 @@ fn render_pixel(state: &mut PpuState, bus: &mut PpuBus<'_>) {
 
     if sprite.is_sprite_0 && bg_color_id != 0 && sprite_color_id != 0 && pixel < 255 {
         // Set sprite 0 hit when a non-transparent sprite pixel overlaps a non-transparent BG pixel
-        // at x < 255
-        bus.get_ppu_registers_mut().set_sprite_0_hit(true);
+        // at x < 255.
+        // Set the actual flag in PPUSTATUS on a 1-PPU-cycle delay to avoid some CPU/PPU alignment
+        // issues.
+        state.pending_sprite_0_hit = true;
     }
 
     let sprite_bg_priority = sprite.attributes & 0x20 != 0;
