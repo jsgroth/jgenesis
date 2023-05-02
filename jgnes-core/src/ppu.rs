@@ -597,8 +597,9 @@ fn render_pixel(state: &mut PpuState, bus: &mut PpuBus<'_>) {
             0,
         ));
 
-    if sprite.is_sprite_0 && bg_color_id != 0 && sprite_color_id != 0 {
+    if sprite.is_sprite_0 && bg_color_id != 0 && sprite_color_id != 0 && pixel < 255 {
         // Set sprite 0 hit when a non-transparent sprite pixel overlaps a non-transparent BG pixel
+        // at x < 255
         bus.get_ppu_registers_mut().set_sprite_0_hit(true);
     }
 
