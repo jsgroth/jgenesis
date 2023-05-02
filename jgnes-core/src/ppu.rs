@@ -867,7 +867,7 @@ fn find_first_overlapping_sprite(
     sprites.iter().find_map(|sprite| {
         if !(sprite.y_position..sprite.y_position.saturating_add(sprite_height))
             .contains(&(scanline - 1))
-            || !(sprite.x_position..sprite.x_position.saturating_add(8)).contains(&pixel)
+            || !(sprite.x_position..=sprite.x_position.saturating_add(7)).contains(&pixel)
         {
             return None;
         }
