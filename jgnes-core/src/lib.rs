@@ -12,4 +12,4 @@ pub use api::{
     SaveWriter,
 };
 pub use input::JoypadState;
-pub use ppu::FrameBuffer;
+pub use ppu::{FrameBuffer, SCREEN_HEIGHT, SCREEN_WIDTH, VISIBLE_SCREEN_HEIGHT};

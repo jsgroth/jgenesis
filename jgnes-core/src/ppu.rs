@@ -2,6 +2,7 @@ use crate::bus::{PpuBus, PpuTrackedRegister, PpuWriteToggle};
 
 pub const SCREEN_WIDTH: u16 = 256;
 pub const SCREEN_HEIGHT: u16 = 240;
+pub const VISIBLE_SCREEN_HEIGHT: u16 = 224;
 
 const PRE_RENDER_SCANLINE: u16 = 261;
 const DOTS_PER_SCANLINE: u16 = 341;
