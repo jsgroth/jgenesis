@@ -135,12 +135,12 @@ impl<R: Error + 'static, A: Error + 'static, S: Error + 'static> Error for Emula
     }
 }
 
-pub struct Emulator<Renderer, AudioPlayer, InputPoller, SaveWriter> {
+pub struct Emulator<'a, RenderError, AudioPlayer, InputPoller, SaveWriter> {
     bus: Bus,
     cpu_state: CpuState,
     ppu_state: PpuState,
     apu_state: ApuState,
-    renderer: Renderer,
+    renderer: Box<dyn Renderer<Err = RenderError> + 'a>,
     audio_player: AudioPlayer,
     input_poller: InputPoller,
     save_writer: SaveWriter,
@@ -149,7 +149,9 @@ pub struct Emulator<Renderer, AudioPlayer, InputPoller, SaveWriter> {
 pub type EmulationResult<RenderError, AudioError, SaveError> =
     Result<(), EmulationError<RenderError, AudioError, SaveError>>;
 
-impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, I, S> {
+impl<'a, RenderError, A: AudioPlayer, I: InputPoller, S: SaveWriter>
+    Emulator<'a, RenderError, A, I, S>
+{
     /// Create a new emulator instance.
     ///
     /// # Errors
@@ -159,7 +161,7 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
     pub fn create(
         rom_bytes: Vec<u8>,
         sav_bytes: Option<Vec<u8>>,
-        renderer: R,
+        renderer: Box<dyn Renderer<Err = RenderError> + 'a>,
         audio_player: A,
         input_poller: I,
         save_writer: S,
@@ -192,7 +194,7 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
     ///
     /// This method will propagate any errors encountered while rendering a frame, pushing
     /// audio samples, or persisting SRAM.
-    pub fn tick(&mut self) -> EmulationResult<R::Err, A::Err, S::Err> {
+    pub fn tick(&mut self) -> EmulationResult<RenderError, A::Err, S::Err> {
         let prev_in_vblank = self.ppu_state.in_vblank();
 
         cpu::tick(
