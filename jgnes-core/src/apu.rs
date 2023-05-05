@@ -309,7 +309,7 @@ impl ApuState {
         let filtered_sample = sample - self.hpf_capacitor;
 
         // TODO figure out something better to do than copy-pasting what I did for the Game Boy
-        self.hpf_capacitor = sample - 0.999082 * filtered_sample;
+        self.hpf_capacitor = sample - 0.9999015765 * filtered_sample;
 
         filtered_sample
     }
