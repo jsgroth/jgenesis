@@ -1,4 +1,4 @@
-use crate::apu::{ApuConfig, ApuState};
+use crate::apu::ApuState;
 use crate::bus::cartridge::CartridgeFileError;
 use crate::bus::{cartridge, Bus, PpuBus};
 use crate::cpu::{CpuRegisters, CpuState};
@@ -69,16 +69,19 @@ pub trait Renderer {
 pub trait AudioPlayer {
     type Err;
 
-    /// Push audio samples to the audio device.
+    /// Process an audio sample.
     ///
-    /// Samples are provided as a single channel of 32-bit floating point PCM samples, and they will
-    /// be timed to an output frequency of 48000Hz.
+    /// Samples are provided as raw 64-bit floating-point PCM samples directly from the NES APU, at
+    /// the APU's clock speed of 1.789773 MHz (or more precisely, 236.25 MHz / 121). Implementations
+    /// are responsible for downsampling to a frequency that the audio device can play.
+    ///
+    /// All samples will be in the range \[-1.0, 1.0\].
     ///
     /// # Errors
     ///
     /// This method can return an error if it is unable to play audio, and the error will be
     /// propagated.
-    fn push_samples(&mut self, samples: &[f32]) -> Result<(), Self::Err>;
+    fn push_sample(&mut self, sample: f64) -> Result<(), Self::Err>;
 }
 
 pub trait InputPoller {
@@ -172,7 +175,7 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
         let ppu_state = PpuState::new();
         let mut apu_state = ApuState::new();
 
-        init_apu(&mut apu_state, &ApuConfig::new(), &mut bus);
+        init_apu(&mut apu_state, &mut bus);
 
         Ok(Self {
             bus,
@@ -200,7 +203,7 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
             &mut self.bus.cpu(),
             self.apu_state.is_active_cycle(),
         );
-        apu::tick(&mut self.apu_state, &ApuConfig::new(), &mut self.bus.cpu());
+        apu::tick(&mut self.apu_state, &mut self.bus.cpu());
         ppu::tick(&mut self.ppu_state, &mut self.bus.ppu());
         self.bus.tick();
         self.bus.tick_cpu();
@@ -213,6 +216,10 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
         ppu::tick(&mut self.ppu_state, &mut self.bus.ppu());
         self.bus.tick();
 
+        self.audio_player
+            .push_sample(self.apu_state.sample())
+            .map_err(EmulationError::Audio)?;
+
         if !prev_in_vblank && self.ppu_state.in_vblank() {
             let frame_buffer = self.ppu_state.frame_buffer();
             let color_emphasis = ColorEmphasis::get_current(&self.bus.ppu());
@@ -220,14 +227,6 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
             self.renderer
                 .render_frame(frame_buffer, color_emphasis)
                 .map_err(EmulationError::Render)?;
-
-            let sample_queue = self.apu_state.get_sample_queue_mut();
-            if !sample_queue.is_empty() {
-                let samples: Vec<_> = sample_queue.drain(..).collect();
-                self.audio_player
-                    .push_samples(&samples)
-                    .map_err(EmulationError::Audio)?;
-            }
 
             let p1_joypad_state = self.input_poller.poll_p1_input();
             self.bus.update_p1_joypad_state(p1_joypad_state);
@@ -247,14 +246,14 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
     }
 }
 
-fn init_apu(apu_state: &mut ApuState, apu_config: &ApuConfig, bus: &mut Bus) {
+fn init_apu(apu_state: &mut ApuState, bus: &mut Bus) {
     // Write 0x00 to JOY2 to reset the frame counter
     bus.cpu().write_address(0x4017, 0x00);
     bus.tick();
 
     // Run the APU for 10 cycles
     for _ in 0..10 {
-        apu::tick(apu_state, apu_config, &mut bus.cpu());
+        apu::tick(apu_state, &mut bus.cpu());
         bus.tick();
     }
 }

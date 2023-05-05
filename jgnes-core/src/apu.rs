@@ -9,7 +9,6 @@ use crate::apu::noise::NoiseChannel;
 use crate::apu::pulse::PulseChannel;
 use crate::apu::triangle::TriangleChannel;
 use crate::bus::{CpuBus, IoRegister, IrqSource};
-use std::collections::VecDeque;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FrameCounterMode {
@@ -115,9 +114,7 @@ pub struct ApuState {
     channel_5: DeltaModulationChannel,
     frame_counter: FrameCounter,
     frame_counter_interrupt_flag: bool,
-    sample_queue: VecDeque<f32>,
     hpf_capacitor: f64,
-    total_ticks: u64,
 }
 
 impl ApuState {
@@ -130,9 +127,7 @@ impl ApuState {
             channel_5: DeltaModulationChannel::new(),
             frame_counter: FrameCounter::new(),
             frame_counter_interrupt_flag: false,
-            sample_queue: VecDeque::new(),
             hpf_capacitor: 0.0,
-            total_ticks: 0,
         }
     }
 
@@ -263,36 +258,12 @@ impl ApuState {
             | u8::from(self.channel_1.length_counter() > 0)
     }
 
-    fn mix_samples(&self, config: &ApuConfig) -> f32 {
-        let pulse1_sample = if config.ch1_enabled {
-            self.channel_1.sample()
-        } else {
-            0
-        };
-
-        let pulse2_sample = if config.ch2_enabled {
-            self.channel_2.sample()
-        } else {
-            0
-        };
-
-        let triangle_sample = if config.ch3_enabled {
-            self.channel_3.sample()
-        } else {
-            0
-        };
-
-        let noise_sample = if config.ch4_enabled {
-            self.channel_4.sample()
-        } else {
-            0
-        };
-
-        let dmc_sample = if config.ch5_enabled {
-            self.channel_5.sample()
-        } else {
-            0
-        };
+    fn mix_samples(&self) -> f64 {
+        let pulse1_sample = self.channel_1.sample();
+        let pulse2_sample = self.channel_2.sample();
+        let triangle_sample = self.channel_3.sample();
+        let noise_sample = self.channel_4.sample();
+        let dmc_sample = self.channel_5.sample();
 
         // TODO this could be a lookup table, will be helpful when sampling every cycle
         // for a low-pass filter
@@ -315,44 +286,24 @@ impl ApuState {
             0.0
         };
 
-        (pulse_mix + tnd_mix - 0.5) as f32
+        pulse_mix + tnd_mix - 0.5
     }
 
-    fn high_pass_filter(&mut self, sample: f32) -> f32 {
-        let filtered_sample = f64::from(sample) - self.hpf_capacitor;
+    fn high_pass_filter(&mut self, sample: f64) -> f64 {
+        let filtered_sample = sample - self.hpf_capacitor;
 
         // TODO figure out something better to do than copy-pasting what I did for the Game Boy
-        self.hpf_capacitor = f64::from(sample) - 0.996336 * filtered_sample;
+        self.hpf_capacitor = sample - 0.999082 * filtered_sample;
 
-        filtered_sample as f32
+        filtered_sample
     }
 
-    pub fn get_sample_queue_mut(&mut self) -> &mut VecDeque<f32> {
-        &mut self.sample_queue
-    }
-}
-
-pub struct ApuConfig {
-    pub ch1_enabled: bool,
-    pub ch2_enabled: bool,
-    pub ch3_enabled: bool,
-    pub ch4_enabled: bool,
-    pub ch5_enabled: bool,
-}
-
-impl ApuConfig {
-    pub fn new() -> Self {
-        Self {
-            ch1_enabled: true,
-            ch2_enabled: true,
-            ch3_enabled: true,
-            ch4_enabled: true,
-            ch5_enabled: true,
-        }
+    pub fn sample(&mut self) -> f64 {
+        self.high_pass_filter(self.mix_samples())
     }
 }
 
-pub fn tick(state: &mut ApuState, config: &ApuConfig, bus: &mut CpuBus<'_>) {
+pub fn tick(state: &mut ApuState, bus: &mut CpuBus<'_>) {
     log::trace!("APU: Frame counter state: {:?}", state.frame_counter);
     log::trace!("APU: Pulse 1 state: {:?}", state.channel_1);
     log::trace!("APU: Pulse 2 state: {:?}", state.channel_2);
@@ -370,17 +321,4 @@ pub fn tick(state: &mut ApuState, config: &ApuConfig, bus: &mut CpuBus<'_>) {
     bus.get_io_registers_mut()
         .set_apu_status(state.get_apu_status());
     log::trace!("APU: Status set to {:02X}", state.get_apu_status());
-
-    let prev_ticks = state.total_ticks;
-    state.total_ticks += 1;
-
-    // TODO don't hardcode frequencies
-    // the 60.0988 / 60 factor is because the actual NES displays at slightly higher than 60Hz
-    if (prev_ticks as f64 * 48000.0 / 1789772.73 * 60.0988 / 60.0).round() as u64
-        != (state.total_ticks as f64 * 48000.0 / 1789772.73 * 60.0988 / 60.0).round() as u64
-    {
-        let mixed_sample = state.mix_samples(config);
-        let mixed_sample = state.high_pass_filter(mixed_sample);
-        state.sample_queue.push_back(mixed_sample);
-    }
 }
