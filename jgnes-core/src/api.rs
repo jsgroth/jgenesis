@@ -72,7 +72,7 @@ pub trait AudioPlayer {
     /// Process an audio sample.
     ///
     /// Samples are provided as raw 64-bit floating-point PCM samples directly from the NES APU, at
-    /// the APU's clock speed of 1.789773 MHz (or more precisely, 236.25 MHz / 121). Implementations
+    /// the APU's clock speed of 1.789773 MHz (or more precisely, 236.25 MHz / 132). Implementations
     /// are responsible for downsampling to a frequency that the audio device can play.
     ///
     /// All samples will be in the range \[-1.0, 1.0\].

@@ -93,12 +93,7 @@ impl TriangleChannel {
     }
 
     fn silenced(&self) -> bool {
-        if self.linear_counter.counter == 0 || self.length_counter.counter == 0 {
-            return true;
-        }
-
-        // TODO remove once a low-pass filter is in place
-        self.timer.divider_period < 2
+        self.linear_counter.counter == 0 || self.length_counter.counter == 0
     }
 
     pub fn tick_cpu(&mut self) {
