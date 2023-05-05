@@ -244,6 +244,10 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
 
         Ok(())
     }
+
+    pub fn get_renderer_mut(&mut self) -> &mut R {
+        &mut self.renderer
+    }
 }
 
 fn init_apu(apu_state: &mut ApuState, bus: &mut Bus) {
