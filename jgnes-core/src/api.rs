@@ -5,8 +5,10 @@ use crate::cpu::{CpuRegisters, CpuState};
 use crate::input::JoypadState;
 use crate::ppu::{FrameBuffer, PpuState};
 use crate::{apu, cpu, ppu};
+use std::cell::RefCell;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::rc::Rc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ColorEmphasis {
@@ -64,6 +66,18 @@ pub trait Renderer {
         frame_buffer: &FrameBuffer,
         color_emphasis: ColorEmphasis,
     ) -> Result<(), Self::Err>;
+}
+
+impl<R: Renderer> Renderer for Rc<RefCell<R>> {
+    type Err = R::Err;
+
+    fn render_frame(
+        &mut self,
+        frame_buffer: &FrameBuffer,
+        color_emphasis: ColorEmphasis,
+    ) -> Result<(), Self::Err> {
+        self.borrow_mut().render_frame(frame_buffer, color_emphasis)
+    }
 }
 
 pub trait AudioPlayer {
@@ -135,12 +149,12 @@ impl<R: Error + 'static, A: Error + 'static, S: Error + 'static> Error for Emula
     }
 }
 
-pub struct Emulator<'a, RenderError, AudioPlayer, InputPoller, SaveWriter> {
+pub struct Emulator<Renderer, AudioPlayer, InputPoller, SaveWriter> {
     bus: Bus,
     cpu_state: CpuState,
     ppu_state: PpuState,
     apu_state: ApuState,
-    renderer: Box<dyn Renderer<Err = RenderError> + 'a>,
+    renderer: Renderer,
     audio_player: AudioPlayer,
     input_poller: InputPoller,
     save_writer: SaveWriter,
@@ -149,9 +163,7 @@ pub struct Emulator<'a, RenderError, AudioPlayer, InputPoller, SaveWriter> {
 pub type EmulationResult<RenderError, AudioError, SaveError> =
     Result<(), EmulationError<RenderError, AudioError, SaveError>>;
 
-impl<'a, RenderError, A: AudioPlayer, I: InputPoller, S: SaveWriter>
-    Emulator<'a, RenderError, A, I, S>
-{
+impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, I, S> {
     /// Create a new emulator instance.
     ///
     /// # Errors
@@ -161,7 +173,7 @@ impl<'a, RenderError, A: AudioPlayer, I: InputPoller, S: SaveWriter>
     pub fn create(
         rom_bytes: Vec<u8>,
         sav_bytes: Option<Vec<u8>>,
-        renderer: Box<dyn Renderer<Err = RenderError> + 'a>,
+        renderer: R,
         audio_player: A,
         input_poller: I,
         save_writer: S,
@@ -194,7 +206,7 @@ impl<'a, RenderError, A: AudioPlayer, I: InputPoller, S: SaveWriter>
     ///
     /// This method will propagate any errors encountered while rendering a frame, pushing
     /// audio samples, or persisting SRAM.
-    pub fn tick(&mut self) -> EmulationResult<RenderError, A::Err, S::Err> {
+    pub fn tick(&mut self) -> EmulationResult<R::Err, A::Err, S::Err> {
         let prev_in_vblank = self.ppu_state.in_vblank();
 
         cpu::tick(
