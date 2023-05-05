@@ -9,6 +9,7 @@ use crate::apu::noise::NoiseChannel;
 use crate::apu::pulse::PulseChannel;
 use crate::apu::triangle::TriangleChannel;
 use crate::bus::{CpuBus, IoRegister, IrqSource};
+use once_cell::sync::Lazy;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FrameCounterMode {
@@ -116,6 +117,38 @@ pub struct ApuState {
     frame_counter_interrupt_flag: bool,
     hpf_capacitor: f64,
 }
+
+// Formulas from https://www.nesdev.org/wiki/APU_Mixer
+static PULSE_AUDIO_LOOKUP_TABLE: Lazy<[[f64; 16]; 16]> = Lazy::new(|| {
+    let mut lookup_table = [[0.0; 16]; 16];
+
+    for (pulse1_sample, row) in lookup_table.iter_mut().enumerate() {
+        for (pulse2_sample, value) in row.iter_mut().enumerate() {
+            *value = 95.88 / (8128.0 / (pulse1_sample + pulse2_sample) as f64 + 100.0);
+        }
+    }
+
+    lookup_table
+});
+
+static TND_AUDIO_LOOKUP_TABLE: Lazy<[[[f64; 128]; 16]; 16]> = Lazy::new(|| {
+    let mut lookup_table = [[[0.0; 128]; 16]; 16];
+
+    for (triangle_sample, triangle_row) in lookup_table.iter_mut().enumerate() {
+        for (noise_sample, noise_row) in triangle_row.iter_mut().enumerate() {
+            for (dmc_sample, value) in noise_row.iter_mut().enumerate() {
+                *value = 159.79
+                    / (1.0
+                        / (triangle_sample as f64 / 8227.0
+                            + noise_sample as f64 / 12241.0
+                            + dmc_sample as f64 / 22638.0)
+                        + 100.0);
+            }
+        }
+    }
+
+    lookup_table
+});
 
 impl ApuState {
     pub fn new() -> Self {
@@ -265,26 +298,9 @@ impl ApuState {
         let noise_sample = self.channel_4.sample();
         let dmc_sample = self.channel_5.sample();
 
-        // TODO this could be a lookup table, will be helpful when sampling every cycle
-        // for a low-pass filter
-
-        // Formulas from https://www.nesdev.org/wiki/APU_Mixer
-        let pulse_mix = if pulse1_sample > 0 || pulse2_sample > 0 {
-            95.88 / (8128.0 / (f64::from(pulse1_sample + pulse2_sample)) + 100.0)
-        } else {
-            0.0
-        };
-
-        let tnd_mix = if triangle_sample > 0 || noise_sample > 0 || dmc_sample > 0 {
-            159.79
-                / (1.0
-                    / (f64::from(triangle_sample) / 8227.0
-                        + f64::from(noise_sample) / 12241.0
-                        + f64::from(dmc_sample) / 22638.0)
-                    + 100.0)
-        } else {
-            0.0
-        };
+        let pulse_mix = PULSE_AUDIO_LOOKUP_TABLE[pulse1_sample as usize][pulse2_sample as usize];
+        let tnd_mix = TND_AUDIO_LOOKUP_TABLE[triangle_sample as usize][noise_sample as usize]
+            [dmc_sample as usize];
 
         pulse_mix + tnd_mix - 0.5
     }
