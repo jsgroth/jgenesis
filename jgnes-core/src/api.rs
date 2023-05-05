@@ -5,10 +5,8 @@ use crate::cpu::{CpuRegisters, CpuState};
 use crate::input::JoypadState;
 use crate::ppu::{FrameBuffer, PpuState};
 use crate::{apu, cpu, ppu};
-use std::cell::RefCell;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::rc::Rc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ColorEmphasis {
@@ -66,18 +64,6 @@ pub trait Renderer {
         frame_buffer: &FrameBuffer,
         color_emphasis: ColorEmphasis,
     ) -> Result<(), Self::Err>;
-}
-
-impl<R: Renderer> Renderer for Rc<RefCell<R>> {
-    type Err = R::Err;
-
-    fn render_frame(
-        &mut self,
-        frame_buffer: &FrameBuffer,
-        color_emphasis: ColorEmphasis,
-    ) -> Result<(), Self::Err> {
-        self.borrow_mut().render_frame(frame_buffer, color_emphasis)
-    }
 }
 
 pub trait AudioPlayer {
