@@ -1,11 +1,25 @@
 use crate::bus::{PpuBus, PpuTrackedRegister, PpuWriteToggle};
+use std::ops::RangeInclusive;
 
 pub const SCREEN_WIDTH: u16 = 256;
 pub const SCREEN_HEIGHT: u16 = 240;
 pub const VISIBLE_SCREEN_HEIGHT: u16 = 224;
 
-const PRE_RENDER_SCANLINE: u16 = 261;
 const DOTS_PER_SCANLINE: u16 = 341;
+const RENDERING_DOTS: RangeInclusive<u16> = 1..=256;
+const SPRITE_EVALUATION_DOTS: RangeInclusive<u16> = 65..=256;
+const SPRITE_TILE_FETCH_DOTS: RangeInclusive<u16> = 257..=320;
+const BG_TILE_PRE_FETCH_DOTS: RangeInclusive<u16> = 321..=336;
+const RESET_VERTICAL_POS_DOTS: RangeInclusive<u16> = 280..=304;
+const INC_VERTICAL_POS_DOT: u16 = 256;
+const RESET_HORIZONTAL_POS_DOT: u16 = 257;
+const FIRST_SPRITE_TILE_FETCH_DOT: u16 = 257;
+
+const VISIBLE_SCANLINES: RangeInclusive<u16> = 0..=239;
+const FIRST_VBLANK_SCANLINE: u16 = 241;
+const VBLANK_SCANLINES: RangeInclusive<u16> = 241..=260;
+const ALL_IDLE_SCANLINES: RangeInclusive<u16> = 240..=260;
+const PRE_RENDER_SCANLINE: u16 = 261;
 
 pub type FrameBuffer = [[u8; SCREEN_WIDTH as usize]; SCREEN_HEIGHT as usize];
 
@@ -227,7 +241,7 @@ impl PpuState {
     }
 
     pub fn in_vblank(&self) -> bool {
-        (241..=260).contains(&self.scanline)
+        VBLANK_SCANLINES.contains(&self.scanline)
     }
 
     pub fn frame_buffer(&self) -> &FrameBuffer {
@@ -249,7 +263,7 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
         ppu_registers.set_vblank_flag(false);
         ppu_registers.set_sprite_0_hit(false);
         ppu_registers.set_sprite_overflow(false);
-    } else if state.scanline == 241 && state.dot == 2 {
+    } else if state.scanline == FIRST_VBLANK_SCANLINE && state.dot == 2 {
         bus.get_ppu_registers_mut().set_vblank_flag(true);
     }
 
@@ -274,13 +288,13 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                 bus.get_palette_ram()[palette_ram_addr as usize] & 0x3F
             });
 
-        if state.scanline <= 239 && (1..=256).contains(&state.dot) {
+        if VISIBLE_SCANLINES.contains(&state.scanline) && RENDERING_DOTS.contains(&state.dot) {
             state.frame_buffer[state.scanline as usize][(state.dot - 1) as usize] = backdrop_color;
         }
     }
 
     // Copy v register to where the CPU can see it
-    if !rendering_enabled || (240..=260).contains(&state.scanline) {
+    if !rendering_enabled || ALL_IDLE_SCANLINES.contains(&state.scanline) {
         bus.set_bus_address(state.registers.vram_address & 0x3FFF);
     }
 
@@ -312,13 +326,14 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
 
     match state.scanline {
         0..=239 | 261 => {
-            if state.scanline == PRE_RENDER_SCANLINE && (280..=304).contains(&state.dot) {
+            if state.scanline == PRE_RENDER_SCANLINE && RESET_VERTICAL_POS_DOTS.contains(&state.dot)
+            {
                 // Repeatedly reset vertical position during the pre-render scanline
                 reset_vertical_pos(&mut state.registers);
             }
 
             if state.scanline != PRE_RENDER_SCANLINE && state.dot == 1 {
-                // Clear sprite evaluation data
+                // Clear sprite evaluation data at the beginning of each visible scanline
                 state.sprite_evaluation_data = SpriteEvaluationData::new();
             }
 
@@ -346,13 +361,13 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
 
                     // Evaluate sprites on odd cycles during 65-256
                     if state.scanline != PRE_RENDER_SCANLINE
-                        && state.dot >= 65
+                        && SPRITE_EVALUATION_DOTS.contains(&state.dot)
                         && state.dot & 0x01 != 0
                     {
                         evaluate_sprites(state, bus);
                     }
 
-                    if state.scanline != PRE_RENDER_SCANLINE && state.dot == 256 {
+                    if state.scanline != PRE_RENDER_SCANLINE && state.dot == INC_VERTICAL_POS_DOT {
                         // Increment effective vertical position at the end of the rendering phase
                         increment_vertical_pos(&mut state.registers);
                     }
@@ -367,7 +382,7 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                 257..=320 => {
                     // Cycles for fetching sprite data for the next scanline
 
-                    if state.dot == 257 {
+                    if state.dot == RESET_HORIZONTAL_POS_DOT {
                         // Reset horizontal position immediately after the rendering phase
                         reset_horizontal_pos(&mut state.registers);
 
@@ -383,8 +398,9 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                     fetch_bg_tile_data(state, bus);
                     state.bg_buffers.shift();
 
-                    if state.dot == 328 || state.dot == 336 {
+                    if state.dot.trailing_zeros() >= 3 {
                         // Increment horizontal position and reload buffers at the end of each tile
+                        // (dots 328 and 336)
                         increment_horizontal_pos(&mut state.registers);
                         state.bg_buffers.reload();
                     }
@@ -471,7 +487,10 @@ fn process_register_updates(state: &mut PpuState, bus: &mut PpuBus<'_>, renderin
             }
         }
         Some(PpuTrackedRegister::PPUDATA) => {
-            if rendering_enabled && ((0..=239).contains(&state.scanline) || state.scanline == 261) {
+            if rendering_enabled
+                && (VISIBLE_SCANLINES.contains(&state.scanline)
+                    || state.scanline == PRE_RENDER_SCANLINE)
+            {
                 // Accessing PPUDATA during rendering causes a coarse X increment + Y increment
                 log::trace!(
                     "PPU: PPUDATA was accessed during rendering (scanline {} / dot {}), incrementing coarse X and Y in v register",
@@ -620,7 +639,7 @@ fn render_pixel(state: &mut PpuState, bus: &mut PpuBus<'_>) {
 }
 
 fn fetch_bg_tile_data(state: &mut PpuState, bus: &mut PpuBus<'_>) {
-    assert!((1..=256).contains(&state.dot) || (321..=336).contains(&state.dot));
+    assert!(RENDERING_DOTS.contains(&state.dot) || BG_TILE_PRE_FETCH_DOTS.contains(&state.dot));
 
     let tile_cycle_offset = (state.dot - 1) & 0x07;
     let bg_pattern_table_address = bus.get_ppu_registers().bg_pattern_table_address();
@@ -660,13 +679,13 @@ fn fetch_bg_tile_data(state: &mut PpuState, bus: &mut PpuBus<'_>) {
 }
 
 fn fetch_sprite_tile_data(state: &mut PpuState, bus: &mut PpuBus<'_>) {
-    assert!((257..=320).contains(&state.dot));
+    assert!(SPRITE_TILE_FETCH_DOTS.contains(&state.dot));
 
     let sprite_pattern_table_address = bus.get_ppu_registers().sprite_pattern_table_address();
     let double_height_sprites = bus.get_ppu_registers().double_height_sprites();
 
     // 8 cycles per sprite
-    let sprite_index = ((state.dot - 257) >> 3) as u8;
+    let sprite_index = ((state.dot - FIRST_SPRITE_TILE_FETCH_DOT) >> 3) as u8;
 
     let y_position = state.sprite_buffers.y_positions[sprite_index as usize];
     let tile_index = state.sprite_buffers.tile_indices[sprite_index as usize];
