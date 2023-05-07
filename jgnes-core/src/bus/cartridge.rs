@@ -86,7 +86,7 @@ impl Mapper {
             Self::Mmc3(..) => "MMC3",
             Self::Mmc5(..) => "MMC5",
             Self::Nrom(..) => "NROM",
-            Self::Uxrom(..) => "UxROM",
+            Self::Uxrom(uxrom) => uxrom.name(),
         }
     }
 
@@ -400,9 +400,14 @@ pub(crate) fn from_ines_file(
             cartridge,
             data: Mmc1::new(header.chr_type),
         }),
-        2 => Mapper::Uxrom(MapperImpl {
+        2 | 71 => Mapper::Uxrom(MapperImpl {
             cartridge,
-            data: Uxrom::new(header.chr_type, header.nametable_mirroring),
+            data: Uxrom::new(
+                header.mapper_number,
+                header.sub_mapper_number,
+                header.chr_type,
+                header.nametable_mirroring,
+            ),
         }),
         3 => Mapper::Cnrom(MapperImpl {
             cartridge,
