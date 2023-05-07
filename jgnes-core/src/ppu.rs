@@ -113,20 +113,6 @@ impl SpriteBuffers {
             sprite_0_buffered: false,
         }
     }
-
-    fn iter(&self) -> impl Iterator<Item = SpriteData> + '_ {
-        (0..self.buffer_len).map(|i| {
-            let i = i as usize;
-            SpriteData {
-                is_sprite_0: i == 0 && self.sprite_0_buffered,
-                y_position: self.y_positions[i],
-                x_position: self.x_positions[i],
-                attributes: self.attributes[i],
-                pattern_table_low: self.pattern_table_low[i],
-                pattern_table_high: self.pattern_table_high[i],
-            }
-        })
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -204,12 +190,9 @@ impl SpriteEvaluationData {
 
 #[derive(Debug, Clone, Copy)]
 struct SpriteData {
+    color_id: u8,
     is_sprite_0: bool,
-    y_position: u8,
-    x_position: u8,
     attributes: u8,
-    pattern_table_low: u8,
-    pattern_table_high: u8,
 }
 
 #[derive(Debug, Clone)]
@@ -578,11 +561,6 @@ fn render_pixel(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     let sprites_enabled = ppu_registers.sprites_enabled();
     let left_edge_bg_enabled = ppu_registers.left_edge_bg_enabled();
     let left_edge_sprites_enabled = ppu_registers.left_edge_sprites_enabled();
-    let sprite_height = if ppu_registers.double_height_sprites() {
-        16
-    } else {
-        8
-    };
 
     // Get next BG pixel color ID
     let bg_color_id = if bg_enabled && (pixel >= 8 || left_edge_bg_enabled) {
@@ -598,29 +576,19 @@ fn render_pixel(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     state.bg_buffers.shift();
 
     // Find the first overlapping sprite by OAM index, if any; use transparent if none found
-    let (sprite, sprite_color_id) = (sprites_enabled && (pixel >= 8 || left_edge_sprites_enabled))
-        .then(|| {
-            find_first_overlapping_sprite(
-                state.scanline as u8,
-                pixel,
-                &state.sprite_buffers,
-                sprite_height,
-            )
-        })
+    let sprite = (state.scanline != 0
+        && state.scanline != PRE_RENDER_SCANLINE
+        && sprites_enabled
+        && (pixel >= 8 || left_edge_sprites_enabled))
+        .then(|| find_first_overlapping_sprite(pixel, &state.sprite_buffers))
         .flatten()
-        .unwrap_or((
-            SpriteData {
-                is_sprite_0: false,
-                y_position: state.scanline as u8,
-                x_position: pixel,
-                attributes: 0x00,
-                pattern_table_high: 0,
-                pattern_table_low: 0,
-            },
-            0,
-        ));
+        .unwrap_or(SpriteData {
+            color_id: 0,
+            is_sprite_0: false,
+            attributes: 0x00,
+        });
 
-    if sprite.is_sprite_0 && bg_color_id != 0 && sprite_color_id != 0 && pixel < 255 {
+    if sprite.is_sprite_0 && bg_color_id != 0 && sprite.color_id != 0 && pixel < 255 {
         // Set sprite 0 hit when a non-transparent sprite pixel overlaps a non-transparent BG pixel
         // at x < 255.
         // Set the actual flag in PPUSTATUS on a 1-PPU-cycle delay to avoid some CPU/PPU alignment
@@ -634,8 +602,8 @@ fn render_pixel(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     // Determine whether to show BG pixel color, sprite pixel color, or backdrop color
     let palette_ram = bus.get_palette_ram();
     let backdrop_color = palette_ram[0];
-    let pixel_color = if sprite_color_id != 0 && (bg_color_id == 0 || !sprite_bg_priority) {
-        let palette_addr = 0x10 | (sprite_palette_index << 2) | sprite_color_id;
+    let pixel_color = if sprite.color_id != 0 && (bg_color_id == 0 || !sprite_bg_priority) {
+        let palette_addr = 0x10 | (sprite_palette_index << 2) | sprite.color_id;
         palette_ram[palette_addr as usize]
     } else if bg_color_id != 0 {
         let palette_addr = (bg_fine_x << 2) | bg_color_id;
@@ -879,40 +847,35 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     };
 }
 
-fn find_first_overlapping_sprite(
-    scanline: u8,
-    pixel: u8,
-    sprites: &SpriteBuffers,
-    sprite_height: u8,
-) -> Option<(SpriteData, u8)> {
-    if scanline == 0 {
-        // No sprites ever render on the first scanline
-        return None;
-    }
+fn find_first_overlapping_sprite(pixel: u8, sprites: &SpriteBuffers) -> Option<SpriteData> {
+    (0..sprites.buffer_len as usize).find_map(|i| {
+        let x_pos = sprites.x_positions[i];
 
-    sprites.iter().find_map(|sprite| {
-        if !(sprite.y_position..sprite.y_position.saturating_add(sprite_height))
-            .contains(&(scanline - 1))
-            || !(sprite.x_position..=sprite.x_position.saturating_add(7)).contains(&pixel)
-        {
+        if !(x_pos..=x_pos.saturating_add(7)).contains(&pixel) {
             return None;
         }
 
-        let sprite_flip_x = sprite.attributes & 0x40 != 0;
+        let attributes = sprites.attributes[i];
+
+        let sprite_flip_x = attributes & 0x40 != 0;
 
         // Determine sprite pixel color ID
         let sprite_fine_x = if sprite_flip_x {
-            7 - (pixel - sprite.x_position)
+            7 - (pixel - x_pos)
         } else {
-            pixel - sprite.x_position
+            pixel - x_pos
         };
         let sprite_color_id = get_color_id(
-            sprite.pattern_table_low,
-            sprite.pattern_table_high,
+            sprites.pattern_table_low[i],
+            sprites.pattern_table_high[i],
             sprite_fine_x,
         );
 
-        (sprite_color_id != 0).then_some((sprite, sprite_color_id))
+        (sprite_color_id != 0).then_some(SpriteData {
+            color_id: sprite_color_id,
+            attributes,
+            is_sprite_0: i == 0 && sprites.sprite_0_buffered,
+        })
     })
 }
 
@@ -979,9 +942,9 @@ fn fetch_sprite_pattern_table_byte(
     let (sprite_pattern_table_address, tile_index, fine_y_scroll) = if double_height_sprites {
         let sprite_pattern_table_address = u16::from(tile_index & 0x01) << 12;
         let fine_y_scroll = if flip_y {
-            15 - (scanline - y_position)
+            15 - scanline.saturating_sub(y_position)
         } else {
-            scanline - y_position
+            scanline.saturating_sub(y_position)
         };
         let tile_index = (tile_index & 0xFE) | u8::from(fine_y_scroll >= 8);
         (
