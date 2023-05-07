@@ -6,6 +6,9 @@ pub const SCREEN_HEIGHT: u16 = 240;
 pub const VISIBLE_SCREEN_HEIGHT: u16 = 224;
 
 const DOTS_PER_SCANLINE: u16 = 341;
+// Set/reset flags on dot 2 instead of 1 to resolve some CPU/PPU alignment issues that affect NMI
+// timing
+const VBLANK_FLAG_SET_DOT: u16 = 2;
 const RENDERING_DOTS: RangeInclusive<u16> = 1..=256;
 const SPRITE_EVALUATION_DOTS: RangeInclusive<u16> = 65..=256;
 const SPRITE_TILE_FETCH_DOTS: RangeInclusive<u16> = 257..=320;
@@ -255,15 +258,13 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
 
     process_register_updates(state, bus, rendering_enabled);
 
-    // Set/reset flags on dot 2 instead of 1 because these writes aren't buffered by the bus, at
-    // least currently
-    if state.scanline == PRE_RENDER_SCANLINE && state.dot == 2 {
+    if state.scanline == PRE_RENDER_SCANLINE && state.dot == VBLANK_FLAG_SET_DOT {
         // Clear per-frame flags at the start of the pre-render scanline
         let ppu_registers = bus.get_ppu_registers_mut();
         ppu_registers.set_vblank_flag(false);
         ppu_registers.set_sprite_0_hit(false);
         ppu_registers.set_sprite_overflow(false);
-    } else if state.scanline == FIRST_VBLANK_SCANLINE && state.dot == 2 {
+    } else if state.scanline == FIRST_VBLANK_SCANLINE && state.dot == VBLANK_FLAG_SET_DOT {
         bus.get_ppu_registers_mut().set_vblank_flag(true);
     }
 
