@@ -3,6 +3,7 @@ mod mmc2;
 mod mmc3;
 mod mmc5;
 mod nrom;
+mod sunsoft;
 
 use crate::bus::cartridge::Cartridge;
 
@@ -11,6 +12,7 @@ pub(crate) use mmc2::Mmc2;
 pub(crate) use mmc3::Mmc3;
 pub(crate) use mmc5::Mmc5;
 pub(crate) use nrom::{Axrom, Cnrom, Nrom, Uxrom};
+pub(crate) use sunsoft::Sunsoft;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
