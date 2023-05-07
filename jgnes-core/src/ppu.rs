@@ -372,13 +372,6 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                         // Increment effective vertical position at the end of the rendering phase
                         increment_vertical_pos(&mut state.registers);
                     }
-
-                    // TODO figure out properly why aligning the sprite data fetches this way fixes
-                    // the MMC3 IRQ tests
-                    if state.dot == 255 {
-                        // Spurious nametable read
-                        bus.read_address(0x2000);
-                    }
                 }
                 257..=320 => {
                     // Cycles for fetching sprite data for the next scanline
@@ -692,16 +685,15 @@ fn fetch_sprite_tile_data(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     let tile_index = state.sprite_buffers.tile_indices[sprite_index as usize];
     let attributes = state.sprite_buffers.attributes[sprite_index as usize];
 
-    // TODO figure out properly why aligning the dots to accesses this way fixes the MMC3 IRQ tests
+    // These offsets are not cycle accurate, but for some reason these timings cause the MMC3 IRQ
+    // tests to pass
     let tile_cycle_offset = (state.dot - 1) & 0x07;
     match tile_cycle_offset {
-        0 | 6 => {
-            if state.dot < 319 {
-                // Spurious nametable fetch
-                // Address doesn't matter, but needs to vary based on sprite to avoid triggering
-                // MMC5 scanline counter
-                bus.read_address(0x2000 + u16::from(sprite_index) + 1);
-            }
+        0 | 1 => {
+            // Spurious nametable fetch
+            // Address doesn't matter, but needs to vary based on sprite to avoid triggering
+            // MMC5 scanline counter
+            bus.read_address(0x2000 + u16::from(sprite_index) + 1);
         }
         2 => {
             if sprite_index < state.sprite_buffers.buffer_len {
