@@ -84,7 +84,7 @@ impl Mapper {
             Self::Cnrom(..) => "CNROM",
             Self::Mmc1(..) => "MMC1",
             Self::Mmc2(mmc2) => mmc2.name(),
-            Self::Mmc3(..) => "MMC3",
+            Self::Mmc3(mmc3) => mmc3.name(),
             Self::Mmc5(..) => "MMC5",
             Self::Nrom(..) => "NROM",
             Self::Sunsoft(..) => "Sunsoft",
