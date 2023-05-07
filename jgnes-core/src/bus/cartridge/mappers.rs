@@ -32,6 +32,8 @@ impl ChrType {
 pub(crate) enum NametableMirroring {
     Horizontal,
     Vertical,
+    SingleScreenBank0,
+    SingleScreenBank1,
 }
 
 impl NametableMirroring {
@@ -43,6 +45,8 @@ impl NametableMirroring {
         match self {
             Self::Horizontal => ((relative_addr & 0x0800) >> 1) | (relative_addr & 0x03FF),
             Self::Vertical => relative_addr & 0x07FF,
+            Self::SingleScreenBank0 => relative_addr & 0x03FF,
+            Self::SingleScreenBank1 => 0x0400 | (relative_addr & 0x03FF),
         }
     }
 }

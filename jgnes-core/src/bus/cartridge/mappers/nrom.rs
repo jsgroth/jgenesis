@@ -55,28 +55,12 @@ pub(crate) enum UxromVariant {
     FireHawk,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum VramBank {
-    Bank0,
-    Bank1,
-}
-
-impl VramBank {
-    fn base_vram_address(self) -> u16 {
-        match self {
-            Self::Bank0 => 0x0000,
-            Self::Bank1 => 0x0400,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub(crate) struct Uxrom {
     variant: UxromVariant,
     prg_bank: u8,
     chr_type: ChrType,
     nametable_mirroring: NametableMirroring,
-    nametable_vram_bank: VramBank,
 }
 
 impl Uxrom {
@@ -93,12 +77,15 @@ impl Uxrom {
             _ => panic!("invalid UxROM mapper/submapper: mapper={mapper_number}, submapper={sub_mapper_number}"),
         };
 
+        let nametable_mirroring = match variant {
+            UxromVariant::FireHawk => NametableMirroring::SingleScreenBank0,
+            UxromVariant::Uxrom | UxromVariant::Codemasters => nametable_mirroring,
+        };
         Self {
             variant,
             prg_bank: 0,
             chr_type,
             nametable_mirroring,
-            nametable_vram_bank: VramBank::Bank0,
         }
     }
 }
@@ -129,10 +116,10 @@ impl MapperImpl<Uxrom> {
                 self.data.prg_bank = value;
             }
             (UxromVariant::FireHawk, 0x8000..=0x9FFF) => {
-                self.data.nametable_vram_bank = if value & 0x10 != 0 {
-                    VramBank::Bank1
+                self.data.nametable_mirroring = if value & 0x10 != 0 {
+                    NametableMirroring::SingleScreenBank1
                 } else {
-                    VramBank::Bank0
+                    NametableMirroring::SingleScreenBank0
                 };
             }
             (_, 0x4020..=0x7FFF)
@@ -144,14 +131,9 @@ impl MapperImpl<Uxrom> {
     pub(crate) fn map_ppu_address(&self, address: u16) -> PpuMapResult {
         match address {
             0x0000..=0x1FFF => self.data.chr_type.to_map_result(address.into()),
-            0x2000..=0x3EFF => match self.data.variant {
-                UxromVariant::Uxrom | UxromVariant::Codemasters => {
-                    PpuMapResult::Vram(self.data.nametable_mirroring.map_to_vram(address))
-                }
-                UxromVariant::FireHawk => PpuMapResult::Vram(
-                    self.data.nametable_vram_bank.base_vram_address() | (address & 0x03FF),
-                ),
-            },
+            0x2000..=0x3EFF => {
+                PpuMapResult::Vram(self.data.nametable_mirroring.map_to_vram(address))
+            }
             _ => panic!("invalid PPU map address: 0x{address:04X}"),
         }
     }
@@ -237,7 +219,7 @@ impl MapperImpl<Cnrom> {
 pub(crate) struct Axrom {
     chr_type: ChrType,
     prg_bank: u8,
-    nametable_vram_bank: u8,
+    nametable_mirroring: NametableMirroring,
 }
 
 impl Axrom {
@@ -245,7 +227,7 @@ impl Axrom {
         Self {
             chr_type,
             prg_bank: 0,
-            nametable_vram_bank: 0,
+            nametable_mirroring: NametableMirroring::SingleScreenBank0,
         }
     }
 }
@@ -267,15 +249,19 @@ impl MapperImpl<Axrom> {
         }
 
         self.data.prg_bank = value & 0x07;
-        self.data.nametable_vram_bank = (value & 0x10) >> 4;
+        self.data.nametable_mirroring = if value & 0x10 != 0 {
+            NametableMirroring::SingleScreenBank1
+        } else {
+            NametableMirroring::SingleScreenBank0
+        };
     }
 
     fn map_ppu_address(&self, address: u16) -> PpuMapResult {
         match address {
             0x0000..=0x1FFF => self.data.chr_type.to_map_result(address.into()),
-            0x2000..=0x3EFF => PpuMapResult::Vram(
-                (u16::from(self.data.nametable_vram_bank) << 10) | (address & 0x03FF),
-            ),
+            0x2000..=0x3EFF => {
+                PpuMapResult::Vram(self.data.nametable_mirroring.map_to_vram(address))
+            }
             _ => panic!("invalid PPU map address: 0x{address:04X}"),
         }
     }
