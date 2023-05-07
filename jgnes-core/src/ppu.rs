@@ -491,7 +491,7 @@ fn process_register_updates(state: &mut PpuState, bus: &mut PpuBus<'_>, renderin
             if rendering_enabled && ((0..=239).contains(&state.scanline) || state.scanline == 261) {
                 // Accessing PPUDATA during rendering causes a coarse X increment + Y increment
                 log::trace!(
-                    "PPU: PPUDATA was accessed outside of rendering (scanline {} / dot {}), incrementing coarse X and Y in v register",
+                    "PPU: PPUDATA was accessed during rendering (scanline {} / dot {}), incrementing coarse X and Y in v register",
                     state.scanline, state.dot
                 );
 
