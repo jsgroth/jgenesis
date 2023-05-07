@@ -116,7 +116,6 @@ pub struct PpuRegisters {
     ppu_mask: u8,
     ppu_status: u8,
     oam_addr: u8,
-    ppu_addr: u16,
     ppu_data_buffer: u8,
     ppu_status_read: bool,
     open_bus_value: u8,
@@ -131,7 +130,6 @@ impl PpuRegisters {
             ppu_mask: 0,
             ppu_status: 0xA0,
             oam_addr: 0,
-            ppu_addr: 0,
             ppu_data_buffer: 0,
             ppu_status_read: false,
             open_bus_value: 0,
@@ -250,10 +248,6 @@ impl PpuRegisters {
 
     pub fn get_write_toggle(&self) -> PpuWriteToggle {
         self.write_toggle
-    }
-
-    pub fn set_ppu_addr(&mut self, ppu_addr: u16) {
-        self.ppu_addr = ppu_addr;
     }
 
     fn tick(&mut self, interrupt_lines: &mut InterruptLines) {
@@ -585,6 +579,7 @@ pub struct Bus {
     ppu_vram: [u8; 2048],
     ppu_palette_ram: [u8; 32],
     ppu_oam: [u8; 256],
+    ppu_bus_address: u16,
     interrupt_lines: InterruptLines,
     pending_writes: ArrayVec<[PendingWrite; 5]>,
 }
@@ -600,6 +595,7 @@ impl Bus {
             ppu_vram: [0; 2048],
             ppu_palette_ram: [0; 32],
             ppu_oam: [0; 256],
+            ppu_bus_address: 0,
             interrupt_lines: InterruptLines::new(),
             pending_writes: ArrayVec::new(),
         }
@@ -632,7 +628,7 @@ impl Bus {
         }
 
         self.ppu_registers.tick(&mut self.interrupt_lines);
-        self.mapper.tick();
+        self.mapper.tick(self.ppu_bus_address);
 
         self.interrupt_lines
             .set_irq_low_pull(IrqSource::Mapper, self.mapper.interrupt_flag());
@@ -746,24 +742,25 @@ impl<'a> CpuBus<'a> {
                 self.0.ppu_registers.open_bus_value
             }
             PpuRegister::PPUDATA => {
-                let address = self.0.ppu_registers.ppu_addr & 0x3FFF;
+                let address = self.0.ppu_bus_address;
                 let (data, buffer_read_address) = if address < 0x3F00 {
                     (self.0.ppu_registers.ppu_data_buffer, address)
                 } else {
                     let palette_address = map_palette_address(address);
                     let palette_byte = self.0.ppu_palette_ram[palette_address];
+                    // When PPUDATA is used to read palette RAM, buffer reads mirror the nametable
+                    // data located at $2F00-$2FFF
                     (palette_byte, address - 0x1000)
                 };
 
-                self.0.mapper.process_ppu_addr_increment(
-                    self.0
-                        .ppu_registers
-                        .ppu_addr
-                        .wrapping_add(self.0.ppu_registers.ppu_data_addr_increment()),
-                );
+                self.0.mapper.about_to_access_ppu_data();
 
                 self.0.ppu_registers.ppu_data_buffer =
                     self.0.ppu().read_address(buffer_read_address);
+                // Reset the bus address in case the buffer read address was different from the
+                // actual address
+                self.0.ppu_bus_address = address;
+
                 self.0.ppu_registers.open_bus_value = data;
 
                 self.0.ppu_registers.last_accessed_register = Some(PpuTrackedRegister::PPUDATA);
@@ -806,22 +803,13 @@ impl<'a> CpuBus<'a> {
                 self.0.ppu_registers.write_toggle = self.0.ppu_registers.write_toggle.toggle();
             }
             PpuRegister::PPUADDR => {
-                self.0
-                    .mapper
-                    .process_ppu_addr_update(value, self.0.ppu_registers.write_toggle);
-
                 self.0.ppu_registers.last_accessed_register = Some(PpuTrackedRegister::PPUADDR);
                 self.0.ppu_registers.write_toggle = self.0.ppu_registers.write_toggle.toggle();
             }
             PpuRegister::PPUDATA => {
-                self.0.mapper.process_ppu_addr_increment(
-                    self.0
-                        .ppu_registers
-                        .ppu_addr
-                        .wrapping_add(self.0.ppu_registers.ppu_data_addr_increment()),
-                );
+                self.0.mapper.about_to_access_ppu_data();
 
-                let address = self.0.ppu_registers.ppu_addr;
+                let address = self.0.ppu_bus_address;
                 self.0.ppu().write_address(address & 0x3FFF, value);
 
                 self.0.ppu_registers.last_accessed_register = Some(PpuTrackedRegister::PPUDATA);
@@ -853,6 +841,9 @@ impl<'a> PpuBus<'a> {
     pub fn read_address(&mut self, address: u16) -> u8 {
         // PPU bus only has 14-bit addressing
         let address = address & 0x3FFF;
+
+        self.0.ppu_bus_address = address;
+
         match address {
             0x0000..=0x3EFF => self.0.mapper.read_ppu_address(address, &self.0.ppu_vram),
             0x3F00..=0x3FFF => {
@@ -898,6 +889,10 @@ impl<'a> PpuBus<'a> {
 
     pub fn get_palette_ram(&self) -> &[u8; 32] {
         &self.0.ppu_palette_ram
+    }
+
+    pub fn set_bus_address(&mut self, address: u16) {
+        self.0.ppu_bus_address = address;
     }
 }
 

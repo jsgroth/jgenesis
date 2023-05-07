@@ -253,7 +253,10 @@ impl PpuState {
 }
 
 pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
-    process_register_updates(state, bus);
+    let rendering_enabled =
+        bus.get_ppu_registers().bg_enabled() || bus.get_ppu_registers().sprites_enabled();
+
+    process_register_updates(state, bus, rendering_enabled);
 
     // Set/reset flags on dot 2 instead of 1 because these writes aren't buffered by the bus, at
     // least currently
@@ -267,8 +270,6 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
         bus.get_ppu_registers_mut().set_vblank_flag(true);
     }
 
-    let rendering_enabled =
-        bus.get_ppu_registers().bg_enabled() || bus.get_ppu_registers().sprites_enabled();
     if rendering_enabled {
         state.rendering_disabled_backdrop_color = None;
         process_scanline(state, bus);
@@ -296,8 +297,9 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     }
 
     // Copy v register to where the CPU can see it
-    bus.get_ppu_registers_mut()
-        .set_ppu_addr(state.registers.vram_address & 0x3FFF);
+    if !rendering_enabled || (240..=260).contains(&state.scanline) {
+        bus.set_bus_address(state.registers.vram_address & 0x3FFF);
+    }
 
     state.dot += 1;
     if state.dot == DOTS_PER_SCANLINE {
@@ -422,7 +424,7 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     }
 }
 
-fn process_register_updates(state: &mut PpuState, bus: &mut PpuBus<'_>) {
+fn process_register_updates(state: &mut PpuState, bus: &mut PpuBus<'_>, rendering_enabled: bool) {
     match bus.get_ppu_registers_mut().take_last_accessed_register() {
         Some(PpuTrackedRegister::PPUCTRL) => {
             let ppu_ctrl = bus.get_ppu_registers().ppu_ctrl();
@@ -486,16 +488,28 @@ fn process_register_updates(state: &mut PpuState, bus: &mut PpuBus<'_>) {
             }
         }
         Some(PpuTrackedRegister::PPUDATA) => {
-            log::trace!(
-                "PPU: PPUDATA was accessed on scanline {} / dot {}, incrementing internal v register by {}",
-                state.scanline, state.dot, bus.get_ppu_registers().ppu_data_addr_increment()
-            );
+            if rendering_enabled && ((0..=239).contains(&state.scanline) || state.scanline == 261) {
+                // Accessing PPUDATA during rendering causes a coarse X increment + Y increment
+                log::trace!(
+                    "PPU: PPUDATA was accessed outside of rendering (scanline {} / dot {}), incrementing coarse X and Y in v register",
+                    state.scanline, state.dot
+                );
 
-            // Any time the CPU accesses PPUDATA, ncrement VRAM address by 1 or 32 based on PPUCTRL
-            state.registers.vram_address = state
-                .registers
-                .vram_address
-                .wrapping_add(bus.get_ppu_registers().ppu_data_addr_increment());
+                increment_horizontal_pos(&mut state.registers);
+                increment_vertical_pos(&mut state.registers);
+            } else {
+                log::trace!(
+                    "PPU: PPUDATA was accessed on scanline {} / dot {}, incrementing internal v register by {}",
+                    state.scanline, state.dot, bus.get_ppu_registers().ppu_data_addr_increment()
+                );
+
+                // Any time the CPU accesses PPUDATA outside of rendering, increment VRAM address by
+                // 1 or 32 based on PPUCTRL
+                state.registers.vram_address = state
+                    .registers
+                    .vram_address
+                    .wrapping_add(bus.get_ppu_registers().ppu_data_addr_increment());
+            }
         }
         None => {}
     }

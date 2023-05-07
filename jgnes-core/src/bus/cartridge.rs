@@ -6,7 +6,6 @@ use crate::bus::cartridge::mappers::{
 use std::io;
 use thiserror::Error;
 
-use crate::bus::PpuWriteToggle;
 #[cfg(test)]
 pub(crate) use mappers::new_mmc1;
 
@@ -151,9 +150,9 @@ impl Mapper {
         write_ppu_address!(Axrom, Cnrom, Mmc1, Mmc2, Mmc3, Mmc5, Nrom, Uxrom);
     }
 
-    pub(crate) fn tick(&mut self) {
+    pub(crate) fn tick(&mut self, ppu_bus_address: u16) {
         if let Self::Mmc3(mmc3) = self {
-            mmc3.tick();
+            mmc3.tick(ppu_bus_address);
         }
     }
 
@@ -183,23 +182,11 @@ impl Mapper {
         }
     }
 
-    pub(crate) fn process_ppu_addr_update(&mut self, value: u8, write_toggle: PpuWriteToggle) {
-        if let Self::Mmc3(mmc3) = self {
-            mmc3.process_ppu_addr_update(value, write_toggle);
-        }
-    }
-
     // This should be called *before* the actual memory access; MMC5 depends on this for correctly
     // mapping PPUDATA accesses to the correct CHR bank
-    pub(crate) fn process_ppu_addr_increment(&mut self, new_ppu_addr: u16) {
-        match self {
-            Self::Mmc3(mmc3) => {
-                mmc3.process_ppu_addr_increment(new_ppu_addr);
-            }
-            Self::Mmc5(mmc5) => {
-                mmc5.about_to_access_ppu_data();
-            }
-            _ => {}
+    pub(crate) fn about_to_access_ppu_data(&mut self) {
+        if let Self::Mmc5(mmc5) = self {
+            mmc5.about_to_access_ppu_data();
         }
     }
 

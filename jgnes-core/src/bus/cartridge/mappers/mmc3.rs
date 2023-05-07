@@ -1,6 +1,5 @@
 use crate::bus::cartridge::mappers::{ChrType, NametableMirroring};
 use crate::bus::cartridge::MapperImpl;
-use crate::bus::PpuWriteToggle;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Mmc3PrgMode {
@@ -393,8 +392,6 @@ impl MapperImpl<Mmc3> {
     }
 
     pub(crate) fn read_ppu_address(&mut self, address: u16, vram: &[u8; 2048]) -> u8 {
-        self.process_ppu_address(address);
-
         match address & 0x3FFF {
             0x0000..=0x1FFF => self
                 .data
@@ -439,22 +436,13 @@ impl MapperImpl<Mmc3> {
         self.data.interrupt_flag
     }
 
-    pub(crate) fn tick(&mut self) {
+    pub(crate) fn tick(&mut self, ppu_bus_address: u16) {
+        self.process_ppu_address(ppu_bus_address);
+
         if self.data.last_a12_read == 0 {
             self.data.a12_low_cycles += 1;
         } else {
             self.data.a12_low_cycles = 0;
         }
-    }
-
-    pub(crate) fn process_ppu_addr_update(&mut self, value: u8, write_toggle: PpuWriteToggle) {
-        if write_toggle == PpuWriteToggle::First {
-            // This mapper only cares about bit 12
-            self.process_ppu_address(u16::from(value) << 8);
-        }
-    }
-
-    pub(crate) fn process_ppu_addr_increment(&mut self, new_ppu_addr: u16) {
-        self.process_ppu_address(new_ppu_addr);
     }
 }
