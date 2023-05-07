@@ -371,6 +371,13 @@ impl MapperImpl<Mmc3> {
     }
 
     fn clock_irq(&mut self) {
+        log::trace!(
+            "IRQ clocked; counter={}, reload_flag={}, reload_value={}",
+            self.data.irq_counter,
+            self.data.irq_reload_flag,
+            self.data.irq_reload_value
+        );
+
         if self.data.irq_counter == 0 || self.data.irq_reload_flag {
             self.data.irq_counter = self.data.irq_reload_value;
             self.data.irq_reload_flag = false;
@@ -384,6 +391,8 @@ impl MapperImpl<Mmc3> {
     }
 
     fn process_ppu_address(&mut self, address: u16) {
+        log::trace!("PPU bus address: {address:04X}");
+
         let a12 = address & (1 << 12);
         if a12 != 0 && self.data.last_a12_read == 0 && self.data.a12_low_cycles >= 10 {
             self.clock_irq();

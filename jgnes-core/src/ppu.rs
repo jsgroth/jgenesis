@@ -700,7 +700,7 @@ fn fetch_sprite_tile_data(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                 // Spurious read
                 fetch_sprite_pattern_table_byte(
                     sprite_pattern_table_address,
-                    false,
+                    double_height_sprites,
                     0xFF,
                     0xFF,
                     0xFF,
@@ -727,7 +727,7 @@ fn fetch_sprite_tile_data(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                 // Spurious read
                 fetch_sprite_pattern_table_byte(
                     sprite_pattern_table_address,
-                    false,
+                    double_height_sprites,
                     0xFF,
                     0xFF,
                     0xFF,
