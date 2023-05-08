@@ -513,6 +513,10 @@ impl PcmChannel {
             PcmMode::Read
         };
         self.irq_enabled = value & 0x80 != 0;
+
+        if !self.irq_enabled {
+            self.irq_pending = false;
+        }
     }
 
     fn read_control(&mut self) -> u8 {
