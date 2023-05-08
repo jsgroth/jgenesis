@@ -53,9 +53,9 @@ pub fn match_each_variant_macro(input: TokenStream) -> TokenStream {
             let variant_ident = &variant.ident;
 
             let Fields::Unnamed(fields) = &variant.fields
-        else {
-            panic!("{ident}::{variant_ident} should have unnamed fields");
-        };
+            else {
+                panic!("{ident}::{variant_ident} should have unnamed fields");
+            };
 
             assert_eq!(
                 fields.unnamed.len(),
