@@ -252,7 +252,7 @@ impl MapperImpl<Vrc4> {
                 self.data.prg_bank_0 = value & 0x1F;
             }
             0x9000..=0x9FFF => {
-                let remapped = self.data.variant.remap_address(address);
+                let remapped = self.data.variant.remap_address(address) & 0x9003;
                 match (self.data.variant.to_type(), remapped) {
                     (Type::Vrc2, 0x9000..=0x9003) => {
                         self.data.nametable_mirroring = if value & 0x01 == 0 {
@@ -330,7 +330,7 @@ impl MapperImpl<Vrc4> {
             }
             0xF000..=0xFFFF => {
                 if self.data.variant.to_type() == Type::Vrc4 {
-                    match self.data.variant.remap_address(address) {
+                    match self.data.variant.remap_address(address) & 0xF003 {
                         0xF000 => {
                             self.data.irq.set_reload_value_low_4_bits(value & 0x0F);
                         }
