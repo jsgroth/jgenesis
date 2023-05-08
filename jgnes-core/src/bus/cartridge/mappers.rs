@@ -8,7 +8,7 @@ mod sunsoft;
 
 use crate::bus::cartridge::Cartridge;
 
-pub(crate) use konami::{Vrc4, Vrc6};
+pub(crate) use konami::{Vrc4, Vrc6, Vrc7};
 pub(crate) use mmc1::Mmc1;
 pub(crate) use mmc2::Mmc2;
 pub(crate) use mmc3::Mmc3;

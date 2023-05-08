@@ -1,6 +1,8 @@
 use crate::apu::units::PhaseTimer;
 use crate::bus::cartridge::mappers::konami::irq::VrcIrqCounter;
-use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring, PpuMapResult};
+use crate::bus::cartridge::mappers::{
+    konami, BankSizeKb, ChrType, NametableMirroring, PpuMapResult,
+};
 use crate::bus::cartridge::{mappers, MapperImpl};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -310,18 +312,12 @@ impl MapperImpl<Vrc6> {
     }
 
     fn map_ppu_address(&self, address: u16) -> PpuMapResult {
-        match address {
-            0x0000..=0x1FFF => {
-                let chr_bank_index = address / 0x0400;
-                let chr_bank_number = self.data.chr_banks[chr_bank_index as usize];
-                let chr_addr = BankSizeKb::One.to_absolute_address(chr_bank_number, address);
-                self.data.chr_type.to_map_result(chr_addr)
-            }
-            0x2000..=0x3EFF => {
-                PpuMapResult::Vram(self.data.nametable_mirroring.map_to_vram(address))
-            }
-            0x3F00..=0xFFFF => panic!("invalid PPU map address: {address:04X}"),
-        }
+        konami::map_ppu_address(
+            address,
+            &self.data.chr_banks,
+            self.data.chr_type,
+            self.data.nametable_mirroring,
+        )
     }
 
     pub(crate) fn read_ppu_address(&self, address: u16, vram: &[u8; 2048]) -> u8 {
