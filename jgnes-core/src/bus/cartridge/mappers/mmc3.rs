@@ -1,4 +1,4 @@
-use crate::bus::cartridge::mappers::{ChrType, NametableMirroring};
+use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring};
 use crate::bus::cartridge::MapperImpl;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,53 +37,44 @@ impl BankMapping {
         }
     }
 
-    fn prg_bank_address(bank_number: u8, address: u16) -> u32 {
-        u32::from(bank_number & 0x3F) * 8192 + u32::from(address & 0x1FFF)
-    }
-
-    fn chr_1kb_bank_address(bank_number: u8, address: u16) -> u32 {
-        u32::from(bank_number) * 1024 + u32::from(address & 0x03FF)
-    }
-
-    fn chr_2kb_bank_address(bank_number: u8, address: u16) -> u32 {
-        u32::from(bank_number & 0xFE) * 1024 + u32::from(address & 0x07FF)
-    }
-
     fn map_prg_rom_address(&self, address: u16) -> u32 {
         match (self.prg_mode, address) {
             (_, 0x0000..=0x7FFF) => panic!("invalid MMC3 PRG ROM address: 0x{address:04X}"),
             (PrgMode::Mode0, 0x8000..=0x9FFF) | (PrgMode::Mode1, 0xC000..=0xDFFF) => {
-                Self::prg_bank_address(self.prg_bank_0, address)
+                BankSizeKb::Eight.to_absolute_address(self.prg_bank_0, address)
             }
-            (_, 0xA000..=0xBFFF) => Self::prg_bank_address(self.prg_bank_1, address),
+            (_, 0xA000..=0xBFFF) => BankSizeKb::Eight.to_absolute_address(self.prg_bank_1, address),
             (PrgMode::Mode0, 0xC000..=0xDFFF) | (PrgMode::Mode1, 0x8000..=0x9FFF) => {
-                Self::prg_bank_address(((self.prg_rom_len >> 13) - 2) as u8, address)
+                // Fixed at second-to-last bank
+                BankSizeKb::Eight.to_absolute_address_from_end(2_u32, self.prg_rom_len, address)
             }
             (_, 0xE000..=0xFFFF) => {
-                Self::prg_bank_address(((self.prg_rom_len >> 13) - 1) as u8, address)
+                // Fixed at last bank
+                BankSizeKb::Eight.to_absolute_address_last_bank(self.prg_rom_len, address)
             }
         }
     }
 
     fn map_pattern_table_address(&self, address: u16) -> u32 {
         let mapped_address = match (self.chr_mode, address) {
+            // 2KB banks are treated as 1KB bank numbers while ignoring the lowest bit
             (ChrMode::Mode0, 0x0000..=0x07FF) | (ChrMode::Mode1, 0x1000..=0x17FF) => {
-                Self::chr_2kb_bank_address(self.chr_banks[0], address)
+                BankSizeKb::Two.to_absolute_address(self.chr_banks[0] >> 1, address)
             }
             (ChrMode::Mode0, 0x0800..=0x0FFF) | (ChrMode::Mode1, 0x1800..=0x1FFF) => {
-                Self::chr_2kb_bank_address(self.chr_banks[1], address)
+                BankSizeKb::Two.to_absolute_address(self.chr_banks[1] >> 1, address)
             }
             (ChrMode::Mode0, 0x1000..=0x13FF) | (ChrMode::Mode1, 0x0000..=0x03FF) => {
-                Self::chr_1kb_bank_address(self.chr_banks[2], address)
+                BankSizeKb::One.to_absolute_address(self.chr_banks[2], address)
             }
             (ChrMode::Mode0, 0x1400..=0x17FF) | (ChrMode::Mode1, 0x0400..=0x07FF) => {
-                Self::chr_1kb_bank_address(self.chr_banks[3], address)
+                BankSizeKb::One.to_absolute_address(self.chr_banks[3], address)
             }
             (ChrMode::Mode0, 0x1800..=0x1BFF) | (ChrMode::Mode1, 0x0800..=0x0BFF) => {
-                Self::chr_1kb_bank_address(self.chr_banks[4], address)
+                BankSizeKb::One.to_absolute_address(self.chr_banks[4], address)
             }
             (ChrMode::Mode0, 0x1C00..=0x1FFF) | (ChrMode::Mode1, 0x0C00..=0x0FFF) => {
-                Self::chr_1kb_bank_address(self.chr_banks[5], address)
+                BankSizeKb::One.to_absolute_address(self.chr_banks[5], address)
             }
             (_, 0x2000..=0xFFFF) => {
                 panic!("invalid MMC3 CHR pattern table address: 0x{address:04X}")

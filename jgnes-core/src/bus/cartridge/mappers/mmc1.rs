@@ -1,23 +1,17 @@
-use crate::bus::cartridge::mappers::{ChrType, CpuMapResult, NametableMirroring, PpuMapResult};
+use crate::bus::cartridge::mappers::{
+    BankSizeKb, ChrType, CpuMapResult, NametableMirroring, PpuMapResult,
+};
 use crate::bus::cartridge::MapperImpl;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Mmc1Mirroring {
-    OneScreenLowerBank,
-    OneScreenUpperBank,
-    Vertical,
-    Horizontal,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Mmc1PrgBankingMode {
+pub(crate) enum PrgBankingMode {
     Switch32Kb,
     Switch16KbFirstBankFixed,
     Switch16KbLastBankFixed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Mmc1ChrBankingMode {
+pub(crate) enum ChrBankingMode {
     Single8KbBank,
     Two4KbBanks,
 }
@@ -29,9 +23,9 @@ pub(crate) struct Mmc1 {
     shift_register_len: u8,
     written_this_cycle: bool,
     written_last_cycle: bool,
-    nametable_mirroring: Mmc1Mirroring,
-    prg_banking_mode: Mmc1PrgBankingMode,
-    chr_banking_mode: Mmc1ChrBankingMode,
+    nametable_mirroring: NametableMirroring,
+    prg_banking_mode: PrgBankingMode,
+    chr_banking_mode: ChrBankingMode,
     chr_bank_0: u8,
     chr_bank_1: u8,
     prg_bank: u8,
@@ -45,9 +39,9 @@ impl Mmc1 {
             shift_register_len: 0,
             written_this_cycle: false,
             written_last_cycle: false,
-            nametable_mirroring: Mmc1Mirroring::Horizontal,
-            prg_banking_mode: Mmc1PrgBankingMode::Switch16KbLastBankFixed,
-            chr_banking_mode: Mmc1ChrBankingMode::Single8KbBank,
+            nametable_mirroring: NametableMirroring::Horizontal,
+            prg_banking_mode: PrgBankingMode::Switch16KbLastBankFixed,
+            chr_banking_mode: ChrBankingMode::Single8KbBank,
             chr_bank_0: 0,
             chr_bank_1: 0,
             prg_bank: 0,
@@ -68,26 +62,35 @@ impl MapperImpl<Mmc1> {
                 }
             }
             0x8000..=0xFFFF => match self.data.prg_banking_mode {
-                Mmc1PrgBankingMode::Switch32Kb => {
-                    let bank_address = u32::from(self.data.prg_bank & 0x0E) << 15;
-                    CpuMapResult::PrgROM(bank_address + u32::from(address & 0x7FFF))
+                PrgBankingMode::Switch32Kb => {
+                    // In 32KB mode, treat the bank number as a 16KB bank number but ignore the lowest bit
+                    let prg_rom_addr =
+                        BankSizeKb::ThirtyTwo.to_absolute_address(self.data.prg_bank >> 1, address);
+                    CpuMapResult::PrgROM(prg_rom_addr)
                 }
-                Mmc1PrgBankingMode::Switch16KbFirstBankFixed => match address {
-                    0x8000..=0xBFFF => CpuMapResult::PrgROM(u32::from(address) & 0x3FFF),
+                PrgBankingMode::Switch16KbFirstBankFixed => match address {
+                    0x8000..=0xBFFF => {
+                        CpuMapResult::PrgROM((address & BankSizeKb::Sixteen.address_mask()).into())
+                    }
                     0xC000..=0xFFFF => {
-                        let bank_address = u32::from(self.data.prg_bank) << 14;
-                        CpuMapResult::PrgROM(bank_address + (u32::from(address) & 0x3FFF))
+                        let prg_rom_addr =
+                            BankSizeKb::Sixteen.to_absolute_address(self.data.prg_bank, address);
+                        CpuMapResult::PrgROM(prg_rom_addr)
                     }
                     _ => unreachable!("match arm should be unreachable"),
                 },
-                Mmc1PrgBankingMode::Switch16KbLastBankFixed => match address {
+                PrgBankingMode::Switch16KbLastBankFixed => match address {
                     0x8000..=0xBFFF => {
-                        let bank_address = u32::from(self.data.prg_bank) << 14;
-                        CpuMapResult::PrgROM(bank_address + (u32::from(address) & 0x3FFF))
+                        let prg_rom_addr =
+                            BankSizeKb::Sixteen.to_absolute_address(self.data.prg_bank, address);
+                        CpuMapResult::PrgROM(prg_rom_addr)
                     }
                     0xC000..=0xFFFF => {
-                        let last_bank_address = self.cartridge.prg_rom.len() as u32 - 0x4000;
-                        CpuMapResult::PrgROM(last_bank_address + (u32::from(address) & 0x3FFF))
+                        let prg_rom_addr = BankSizeKb::Sixteen.to_absolute_address_last_bank(
+                            self.cartridge.prg_rom.len() as u32,
+                            address,
+                        );
+                        CpuMapResult::PrgROM(prg_rom_addr)
                     }
                     _ => unreachable!("match arm should be unreachable"),
                 },
@@ -115,7 +118,7 @@ impl MapperImpl<Mmc1> {
                 if value & 0x80 != 0 {
                     self.data.shift_register = 0;
                     self.data.shift_register_len = 0;
-                    self.data.prg_banking_mode = Mmc1PrgBankingMode::Switch16KbLastBankFixed;
+                    self.data.prg_banking_mode = PrgBankingMode::Switch16KbLastBankFixed;
                     return;
                 }
 
@@ -135,28 +138,28 @@ impl MapperImpl<Mmc1> {
                     match address {
                         0x8000..=0x9FFF => {
                             self.data.nametable_mirroring = match shift_register & 0x03 {
-                                0x00 => Mmc1Mirroring::OneScreenLowerBank,
-                                0x01 => Mmc1Mirroring::OneScreenUpperBank,
-                                0x02 => Mmc1Mirroring::Vertical,
-                                0x03 => Mmc1Mirroring::Horizontal,
+                                0x00 => NametableMirroring::SingleScreenBank0,
+                                0x01 => NametableMirroring::SingleScreenBank1,
+                                0x02 => NametableMirroring::Vertical,
+                                0x03 => NametableMirroring::Horizontal,
                                 _ => unreachable!(
                                     "{shift_register} & 0x03 was not 0x00/0x01/0x02/0x03",
                                 ),
                             };
 
                             self.data.prg_banking_mode = match shift_register & 0x0C {
-                                0x00 | 0x04 => Mmc1PrgBankingMode::Switch32Kb,
-                                0x08 => Mmc1PrgBankingMode::Switch16KbFirstBankFixed,
-                                0x0C => Mmc1PrgBankingMode::Switch16KbLastBankFixed,
+                                0x00 | 0x04 => PrgBankingMode::Switch32Kb,
+                                0x08 => PrgBankingMode::Switch16KbFirstBankFixed,
+                                0x0C => PrgBankingMode::Switch16KbLastBankFixed,
                                 _ => unreachable!(
                                     "{shift_register} & 0x0C was not 0x00/0x04/0x08/0x0C"
                                 ),
                             };
 
                             self.data.chr_banking_mode = if shift_register & 0x10 != 0 {
-                                Mmc1ChrBankingMode::Two4KbBanks
+                                ChrBankingMode::Two4KbBanks
                             } else {
-                                Mmc1ChrBankingMode::Single8KbBank
+                                ChrBankingMode::Single8KbBank
                             };
                         }
                         0xA000..=0xBFFF => {
@@ -178,35 +181,26 @@ impl MapperImpl<Mmc1> {
     fn map_ppu_address(&self, address: u16) -> PpuMapResult {
         match address {
             0x0000..=0x1FFF => match self.data.chr_banking_mode {
-                Mmc1ChrBankingMode::Two4KbBanks => {
-                    let (bank_number, relative_addr) = if address < 0x1000 {
-                        (self.data.chr_bank_0, address)
+                ChrBankingMode::Two4KbBanks => {
+                    let bank_number = if address < 0x1000 {
+                        self.data.chr_bank_0
                     } else {
-                        (self.data.chr_bank_1, address - 0x1000)
+                        self.data.chr_bank_1
                     };
-                    let bank_address = u32::from(bank_number) * 4 * 1024;
-                    let chr_address = bank_address + u32::from(relative_addr);
-                    self.data.chr_type.to_map_result(chr_address)
+                    let chr_addr = BankSizeKb::Four.to_absolute_address(bank_number, address);
+                    self.data.chr_type.to_map_result(chr_addr)
                 }
-                Mmc1ChrBankingMode::Single8KbBank => {
-                    let chr_bank = self.data.chr_bank_0 & 0x1E;
-                    let bank_address = u32::from(chr_bank) * 4 * 1024;
-                    let chr_address = bank_address + u32::from(address);
-                    self.data.chr_type.to_map_result(chr_address)
-                }
-            },
-            0x2000..=0x3EFF => match self.data.nametable_mirroring {
-                Mmc1Mirroring::OneScreenLowerBank => PpuMapResult::Vram(address & 0x03FF),
-                Mmc1Mirroring::OneScreenUpperBank => {
-                    PpuMapResult::Vram(0x0400 + (address & 0x03FF))
-                }
-                Mmc1Mirroring::Vertical => {
-                    PpuMapResult::Vram(NametableMirroring::Vertical.map_to_vram(address))
-                }
-                Mmc1Mirroring::Horizontal => {
-                    PpuMapResult::Vram(NametableMirroring::Horizontal.map_to_vram(address))
+                ChrBankingMode::Single8KbBank => {
+                    // In 8KB mode, use CHR bank 0 and treat it as a 4KB bank number while ignoring
+                    // the lowest bit
+                    let chr_addr =
+                        BankSizeKb::Eight.to_absolute_address(self.data.chr_bank_0 >> 1, address);
+                    self.data.chr_type.to_map_result(chr_addr)
                 }
             },
+            0x2000..=0x3EFF => {
+                PpuMapResult::Vram(self.data.nametable_mirroring.map_to_vram(address))
+            }
             _ => panic!("invalid PPU map address: 0x{address:04X}"),
         }
     }

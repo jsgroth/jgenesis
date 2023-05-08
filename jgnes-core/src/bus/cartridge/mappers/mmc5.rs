@@ -1,4 +1,4 @@
-use crate::bus::cartridge::mappers::CpuMapResult;
+use crate::bus::cartridge::mappers::{BankSizeKb, CpuMapResult};
 use crate::bus::cartridge::MapperImpl;
 
 #[allow(clippy::enum_variant_names)]
@@ -15,14 +15,6 @@ impl PrgBankSize {
             Self::EightKb => 0xFF,
             Self::SixteenKb => 0xFE,
             Self::ThirtyTwoKb => 0xFC,
-        }
-    }
-
-    fn address_mask(self) -> u16 {
-        match self {
-            Self::EightKb => 0x1FFF,
-            Self::SixteenKb => 0x3FFF,
-            Self::ThirtyTwoKb => 0x7FFF,
         }
     }
 }
@@ -44,11 +36,10 @@ impl PrgBankingMode {
         } else {
             bank_number & 0x0F
         };
+
+        // All bank numbers are treated as 8KB banks while selectively ignoring lower bits
         let masked_bank_number = masked_bank_number & bank_size.bank_number_mask();
-
-        let masked_address = address & bank_size.address_mask();
-
-        let mapped_address = (u32::from(masked_bank_number) << 13) | u32::from(masked_address);
+        let mapped_address = BankSizeKb::Eight.to_absolute_address(masked_bank_number, address);
 
         if is_rom {
             CpuMapResult::PrgROM(mapped_address)
@@ -115,44 +106,9 @@ impl PrgBankingMode {
     }
 }
 
-#[allow(clippy::enum_variant_names)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ChrBankingMode {
-    EightKb,
-    FourKb,
-    TwoKb,
-    OneKb,
-}
-
-impl ChrBankingMode {
-    fn bank_address(self, bank_number: u8) -> u32 {
-        match self {
-            Self::EightKb => u32::from(bank_number) << 13,
-            Self::FourKb => u32::from(bank_number) << 12,
-            Self::TwoKb => u32::from(bank_number) << 11,
-            Self::OneKb => u32::from(bank_number) << 10,
-        }
-    }
-
-    fn address_mask(self) -> u16 {
-        match self {
-            Self::EightKb => 0x1FFF,
-            Self::FourKb => 0x0FFF,
-            Self::TwoKb => 0x07FF,
-            Self::OneKb => 0x03FF,
-        }
-    }
-
-    fn map_address(self, bank_number: u8, address: u16) -> u32 {
-        let bank_address = self.bank_address(bank_number);
-        let masked_address = u32::from(address & self.address_mask());
-        bank_address | masked_address
-    }
-}
-
 #[derive(Debug, Clone)]
 struct ChrMapper {
-    mode: ChrBankingMode,
+    bank_size: BankSizeKb,
     bank_registers: [u8; 12],
     double_height_sprites: bool,
     last_register_written: usize,
@@ -162,7 +118,7 @@ struct ChrMapper {
 impl ChrMapper {
     fn new() -> Self {
         Self {
-            mode: ChrBankingMode::EightKb,
+            bank_size: BankSizeKb::Eight,
             bank_registers: [0; 12],
             double_height_sprites: false,
             last_register_written: 0,
@@ -173,27 +129,27 @@ impl ChrMapper {
     fn map_sprite_chr_address(&self, address: u16) -> u32 {
         assert!((0x0000..=0x1FFF).contains(&address));
 
-        match self.mode {
-            ChrBankingMode::EightKb => {
-                ChrBankingMode::EightKb.map_address(self.bank_registers[7], address)
+        match self.bank_size {
+            BankSizeKb::Eight => {
+                BankSizeKb::Eight.to_absolute_address(self.bank_registers[7], address)
             }
-            ChrBankingMode::FourKb => {
+            BankSizeKb::Four => {
                 // 0x0000..=0x0FFF to bank 3
                 // 0x1000..=0x1FFF to bank 7
                 let bank_register = 4 * (address / 0x1000) + 3;
-                ChrBankingMode::FourKb
-                    .map_address(self.bank_registers[bank_register as usize], address)
+                BankSizeKb::Four
+                    .to_absolute_address(self.bank_registers[bank_register as usize], address)
             }
-            ChrBankingMode::TwoKb => {
+            BankSizeKb::Two => {
                 // 0x0000..=0x07FF to bank 1
                 // 0x0800..=0x0FFF to bank 3
                 // 0x1000..=0x17FF to bank 5
                 // 0x1800..=0x1FFF to bank 7
                 let bank_register = 2 * (address / 0x0800) + 1;
-                ChrBankingMode::TwoKb
-                    .map_address(self.bank_registers[bank_register as usize], address)
+                BankSizeKb::Two
+                    .to_absolute_address(self.bank_registers[bank_register as usize], address)
             }
-            ChrBankingMode::OneKb => {
+            BankSizeKb::One => {
                 // 0x0000..=0x03FF to bank 0
                 // 0x0400..=0x07FF to bank 1
                 // 0x0800..=0x0BFF to bank 2
@@ -203,38 +159,40 @@ impl ChrMapper {
                 // 0x1800..=0x1BFF to bank 6
                 // 0x1C00..=0x1FFF to bank 7
                 let bank_register = address / 0x0400;
-                ChrBankingMode::OneKb
-                    .map_address(self.bank_registers[bank_register as usize], address)
+                BankSizeKb::One
+                    .to_absolute_address(self.bank_registers[bank_register as usize], address)
             }
+            _ => panic!("MMC5 bank size should always be 1/2/4/8"),
         }
     }
 
     fn map_bg_chr_address(&self, address: u16) -> u32 {
         assert!((0x0000..=0x1FFF).contains(&address));
 
-        match self.mode {
-            ChrBankingMode::EightKb => {
-                ChrBankingMode::EightKb.map_address(self.bank_registers[11], address)
+        match self.bank_size {
+            BankSizeKb::Eight => {
+                BankSizeKb::Eight.to_absolute_address(self.bank_registers[11], address)
             }
-            ChrBankingMode::FourKb => {
-                ChrBankingMode::FourKb.map_address(self.bank_registers[11], address)
+            BankSizeKb::Four => {
+                BankSizeKb::Four.to_absolute_address(self.bank_registers[11], address)
             }
-            ChrBankingMode::TwoKb => {
+            BankSizeKb::Two => {
                 // 0x0000..=0x07FF and 0x1000..=0x17FF to bank 9
                 // 0x0800..=0x0FFF and 0x1800..=0x1FFF to bank 11
                 let bank_register = 2 * ((address & 0x0FFF) / 0x0800) + 9;
-                ChrBankingMode::TwoKb
-                    .map_address(self.bank_registers[bank_register as usize], address)
+                BankSizeKb::Two
+                    .to_absolute_address(self.bank_registers[bank_register as usize], address)
             }
-            ChrBankingMode::OneKb => {
+            BankSizeKb::One => {
                 // 0x0000..=0x03FF and 0x1000..=0x13FF to bank 8
                 // 0x0400..=0x07FF and 0x1400..=0x17FF to bank 9
                 // 0x0800..=0x0BFF and 0x1800..=0x1BFF to bank 10
                 // 0x0C00..=0x0FFF and 0x1C00..=0x1FFF to bank 11
                 let bank_register = (address & 0x0FFF) / 0x0400 + 8;
-                ChrBankingMode::OneKb
-                    .map_address(self.bank_registers[bank_register as usize], address)
+                BankSizeKb::One
+                    .to_absolute_address(self.bank_registers[bank_register as usize], address)
             }
+            _ => panic!("MMC5 CHR bank size should always be 1/2/4/8"),
         }
     }
 
@@ -608,14 +566,14 @@ impl MapperImpl<Mmc5> {
                 log::trace!("PRG banking mode set to {:?}", self.data.prg_banking_mode);
             }
             0x5101 => {
-                self.data.chr_mapper.mode = match value & 0x03 {
-                    0x00 => ChrBankingMode::EightKb,
-                    0x01 => ChrBankingMode::FourKb,
-                    0x02 => ChrBankingMode::TwoKb,
-                    0x03 => ChrBankingMode::OneKb,
+                self.data.chr_mapper.bank_size = match value & 0x03 {
+                    0x00 => BankSizeKb::Eight,
+                    0x01 => BankSizeKb::Four,
+                    0x02 => BankSizeKb::Two,
+                    0x03 => BankSizeKb::One,
                     _ => unreachable!("value & 0x03 should always be 0x00/0x01/0x02/0x03"),
                 };
-                log::trace!("CHR banking mode set to {:?}", self.data.chr_mapper.mode);
+                log::trace!("CHR bank size set to {:?}", self.data.chr_mapper.bank_size);
             }
             0x5102 => {
                 self.data.ram_writes_enabled_1 = value & 0x03 == 0x02;
@@ -777,13 +735,12 @@ impl MapperImpl<Mmc5> {
                     let pattern_table_addr =
                         (address & 0xFFF8) | ((address + u16::from(fine_y_scroll)) & 0x07);
 
-                    let chr_4kb_bank = self.data.vertical_split.chr_bank;
-                    let chr_address =
-                        (u32::from(chr_4kb_bank) << 12) | u32::from(pattern_table_addr & 0x0FFF);
-                    self.cartridge.get_chr_rom(chr_address)
+                    let chr_addr = BankSizeKb::Four
+                        .to_absolute_address(self.data.vertical_split.chr_bank, pattern_table_addr);
+                    self.cartridge.get_chr_rom(chr_addr)
                 } else {
-                    let chr_address = self.data.chr_mapper.map_chr_address(address, tile_type);
-                    self.cartridge.get_chr_rom(chr_address)
+                    let chr_addr = self.data.chr_mapper.map_chr_address(address, tile_type);
+                    self.cartridge.get_chr_rom(chr_addr)
                 };
 
                 self.data.scanline_counter.increment_tile_bytes_fetched();

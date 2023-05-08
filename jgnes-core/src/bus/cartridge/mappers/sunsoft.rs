@@ -1,4 +1,6 @@
-use crate::bus::cartridge::mappers::{ChrType, CpuMapResult, NametableMirroring, PpuMapResult};
+use crate::bus::cartridge::mappers::{
+    BankSizeKb, ChrType, CpuMapResult, NametableMirroring, PpuMapResult,
+};
 use crate::bus::cartridge::MapperImpl;
 
 #[allow(clippy::upper_case_acronyms)]
@@ -42,25 +44,21 @@ impl Sunsoft {
 }
 
 impl MapperImpl<Sunsoft> {
-    fn prg_address(bank_number: u8, address: u16) -> u32 {
-        (u32::from(bank_number) << 13) | u32::from(address & 0x1FFF)
-    }
-
-    fn chr_address(bank_number: u8, address: u16) -> u32 {
-        (u32::from(bank_number) << 10) | u32::from(address & 0x03FF)
-    }
-
     fn map_cpu_address(&self, address: u16) -> CpuMapResult {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: {address:04X}"),
             0x4020..=0x5FFF => CpuMapResult::None,
             0x6000..=0x7FFF => match self.data.prg_bank_0_type {
                 PrgType::ROM => {
-                    CpuMapResult::PrgROM(Self::prg_address(self.data.prg_banks[0], address))
+                    let prg_rom_addr =
+                        BankSizeKb::Eight.to_absolute_address(self.data.prg_banks[0], address);
+                    CpuMapResult::PrgROM(prg_rom_addr)
                 }
                 PrgType::RAM => {
                     if self.data.prg_ram_enabled && !self.cartridge.prg_ram.is_empty() {
-                        CpuMapResult::PrgRAM(Self::prg_address(self.data.prg_banks[0], address))
+                        let prg_ram_addr =
+                            BankSizeKb::Eight.to_absolute_address(self.data.prg_banks[0], address);
+                        CpuMapResult::PrgRAM(prg_ram_addr)
                     } else {
                         CpuMapResult::None
                     }
@@ -71,14 +69,14 @@ impl MapperImpl<Sunsoft> {
                 // 0xA000..=0xBFFF to bank index 2
                 // 0xC000..=0xDFFF to bank index 3
                 let bank_index = (address - 0x6000) / 0x2000;
-                CpuMapResult::PrgROM(Self::prg_address(
-                    self.data.prg_banks[bank_index as usize],
-                    address,
-                ))
+                let prg_rom_addr = BankSizeKb::Eight
+                    .to_absolute_address(self.data.prg_banks[bank_index as usize], address);
+                CpuMapResult::PrgROM(prg_rom_addr)
             }
             0xE000..=0xFFFF => {
-                let prg_rom_addr =
-                    self.cartridge.prg_rom.len() as u32 - 8192 + u32::from(address & 0x1FFF);
+                // Fixed to last bank
+                let prg_rom_addr = BankSizeKb::Eight
+                    .to_absolute_address_last_bank(self.cartridge.prg_rom.len() as u32, address);
                 CpuMapResult::PrgROM(prg_rom_addr)
             }
         }
@@ -146,8 +144,8 @@ impl MapperImpl<Sunsoft> {
         match address {
             0x0000..=0x1FFF => {
                 let chr_bank_index = address / 0x0400;
-                let chr_addr =
-                    Self::chr_address(self.data.chr_banks[chr_bank_index as usize], address);
+                let chr_addr = BankSizeKb::One
+                    .to_absolute_address(self.data.chr_banks[chr_bank_index as usize], address);
                 self.data.chr_type.to_map_result(chr_addr)
             }
             0x2000..=0x3EFF => {

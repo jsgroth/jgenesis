@@ -1,4 +1,4 @@
-use crate::bus::cartridge::mappers::{CpuMapResult, NametableMirroring};
+use crate::bus::cartridge::mappers::{BankSizeKb, CpuMapResult, NametableMirroring};
 use crate::bus::cartridge::MapperImpl;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,19 +49,6 @@ impl Mmc2 {
     }
 }
 
-fn to_8kb_prg_rom_address(bank_number: u8, address: u16) -> u32 {
-    (u32::from(bank_number) << 13) | u32::from(address & 0x1FFF)
-}
-
-fn to_16kb_prg_rom_address(bank_number: u8, address: u16) -> u32 {
-    (u32::from(bank_number) << 14) | u32::from(address & 0x3FFF)
-}
-
-fn to_chr_rom_address(bank_number: u8, address: u16) -> u32 {
-    // 4KB banks
-    (u32::from(bank_number) << 12) | u32::from(address & 0x0FFF)
-}
-
 impl MapperImpl<Mmc2> {
     fn map_cpu_address(&self, address: u16) -> CpuMapResult {
         match (self.data.variant, address) {
@@ -75,30 +62,44 @@ impl MapperImpl<Mmc2> {
                 }
             }
             (Variant::Mmc2, 0x8000..=0x9FFF) => {
-                CpuMapResult::PrgROM(to_8kb_prg_rom_address(self.data.prg_bank, address))
+                let prg_rom_addr =
+                    BankSizeKb::Eight.to_absolute_address(self.data.prg_bank, address);
+                CpuMapResult::PrgROM(prg_rom_addr)
             }
             (Variant::Mmc2, 0xA000..=0xBFFF) => {
                 // Fixed at third-to-last PRG ROM bank
-                let bank_number = ((self.cartridge.prg_rom.len() >> 13) - 3) as u8;
-                CpuMapResult::PrgROM(to_8kb_prg_rom_address(bank_number, address))
+                let prg_rom_addr = BankSizeKb::Eight.to_absolute_address_from_end(
+                    3_u32,
+                    self.cartridge.prg_rom.len() as u32,
+                    address,
+                );
+                CpuMapResult::PrgROM(prg_rom_addr)
             }
             (Variant::Mmc2, 0xC000..=0xDFFF) => {
                 // Fixed at second-to-last PRG ROM bank
-                let bank_number = ((self.cartridge.prg_rom.len() >> 13) - 2) as u8;
-                CpuMapResult::PrgROM(to_8kb_prg_rom_address(bank_number, address))
+                let prg_rom_addr = BankSizeKb::Eight.to_absolute_address_from_end(
+                    2_u32,
+                    self.cartridge.prg_rom.len() as u32,
+                    address,
+                );
+                CpuMapResult::PrgROM(prg_rom_addr)
             }
             (Variant::Mmc2, 0xE000..=0xFFFF) => {
                 // Fixed at last PRG ROM bank
-                let bank_number = ((self.cartridge.prg_rom.len() >> 13) - 1) as u8;
-                CpuMapResult::PrgROM(to_8kb_prg_rom_address(bank_number, address))
+                let prg_rom_addr = BankSizeKb::Eight
+                    .to_absolute_address_last_bank(self.cartridge.prg_rom.len() as u32, address);
+                CpuMapResult::PrgROM(prg_rom_addr)
             }
             (Variant::Mmc4, 0x8000..=0xBFFF) => {
-                CpuMapResult::PrgROM(to_16kb_prg_rom_address(self.data.prg_bank, address))
+                let prg_rom_addr =
+                    BankSizeKb::Sixteen.to_absolute_address(self.data.prg_bank, address);
+                CpuMapResult::PrgROM(prg_rom_addr)
             }
             (Variant::Mmc4, 0xC000..=0xFFFF) => {
                 // Fixed at last PRG ROM bank
-                let bank_number = ((self.cartridge.prg_rom.len() >> 14) - 1) as u8;
-                CpuMapResult::PrgROM(to_16kb_prg_rom_address(bank_number, address))
+                let prg_rom_addr = BankSizeKb::Sixteen
+                    .to_absolute_address_last_bank(self.cartridge.prg_rom.len() as u32, address);
+                CpuMapResult::PrgROM(prg_rom_addr)
             }
         }
     }
@@ -146,21 +147,25 @@ impl MapperImpl<Mmc2> {
         let value = match address {
             0x0000..=0x0FFF => match self.data.chr_0_latch {
                 ChrBankLatch::FD => {
-                    let chr_rom_addr = to_chr_rom_address(self.data.chr_0_fd_bank, address);
+                    let chr_rom_addr =
+                        BankSizeKb::Four.to_absolute_address(self.data.chr_0_fd_bank, address);
                     self.cartridge.get_chr_rom(chr_rom_addr)
                 }
                 ChrBankLatch::FE => {
-                    let chr_rom_addr = to_chr_rom_address(self.data.chr_0_fe_bank, address);
+                    let chr_rom_addr =
+                        BankSizeKb::Four.to_absolute_address(self.data.chr_0_fe_bank, address);
                     self.cartridge.get_chr_rom(chr_rom_addr)
                 }
             },
             0x1000..=0x1FFF => match self.data.chr_1_latch {
                 ChrBankLatch::FD => {
-                    let chr_rom_addr = to_chr_rom_address(self.data.chr_1_fd_bank, address);
+                    let chr_rom_addr =
+                        BankSizeKb::Four.to_absolute_address(self.data.chr_1_fd_bank, address);
                     self.cartridge.get_chr_rom(chr_rom_addr)
                 }
                 ChrBankLatch::FE => {
-                    let chr_rom_addr = to_chr_rom_address(self.data.chr_1_fe_bank, address);
+                    let chr_rom_addr =
+                        BankSizeKb::Four.to_absolute_address(self.data.chr_1_fe_bank, address);
                     self.cartridge.get_chr_rom(chr_rom_addr)
                 }
             },

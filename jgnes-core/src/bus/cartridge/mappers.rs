@@ -105,6 +105,58 @@ impl PpuMapResult {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BankSizeKb {
+    One,
+    Two,
+    Four,
+    Eight,
+    Sixteen,
+    ThirtyTwo,
+}
+
+impl BankSizeKb {
+    fn shift(self) -> u32 {
+        match self {
+            Self::One => 10,
+            Self::Two => 11,
+            Self::Four => 12,
+            Self::Eight => 13,
+            Self::Sixteen => 14,
+            Self::ThirtyTwo => 15,
+        }
+    }
+
+    fn address_mask(self) -> u16 {
+        match self {
+            Self::One => 0x03FF,
+            Self::Two => 0x07FF,
+            Self::Four => 0x0FFF,
+            Self::Eight => 0x1FFF,
+            Self::Sixteen => 0x3FFF,
+            Self::ThirtyTwo => 0x7FFF,
+        }
+    }
+
+    fn to_absolute_address<N: Into<u32>>(self, bank_number: N, address: u16) -> u32 {
+        (bank_number.into() << self.shift()) | u32::from(address & self.address_mask())
+    }
+
+    fn to_absolute_address_from_end<N: Into<u32>>(
+        self,
+        inverse_bank_number: N,
+        memory_len: u32,
+        address: u16,
+    ) -> u32 {
+        (((memory_len >> self.shift()) - inverse_bank_number.into()) << self.shift())
+            | u32::from(address & self.address_mask())
+    }
+
+    fn to_absolute_address_last_bank(self, memory_len: u32, address: u16) -> u32 {
+        self.to_absolute_address_from_end(1_u32, memory_len, address)
+    }
+}
+
 #[cfg(test)]
 pub(crate) fn new_mmc1(prg_rom: Vec<u8>) -> super::Mapper {
     use super::{Mapper, MapperImpl};
