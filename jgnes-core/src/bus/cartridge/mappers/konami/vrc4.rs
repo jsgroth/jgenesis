@@ -260,10 +260,10 @@ impl MapperImpl<Vrc4> {
                 let remapped = self.data.variant.remap_address(address);
                 match (self.data.variant.to_type(), remapped) {
                     (Type::Vrc2, Some(0x9000..=0x9003)) => {
-                        self.data.nametable_mirroring = if value & 0x01 != 0 {
-                            NametableMirroring::Horizontal
-                        } else {
+                        self.data.nametable_mirroring = if value & 0x01 == 0 {
                             NametableMirroring::Vertical
+                        } else {
+                            NametableMirroring::Horizontal
                         };
                     }
                     (Type::Vrc4, Some(0x9000)) => {
@@ -277,10 +277,10 @@ impl MapperImpl<Vrc4> {
                     }
                     (Type::Vrc4, Some(0x9002)) => {
                         self.data.ram_enabled = value & 0x01 != 0;
-                        self.data.prg_mode = if value & 0x02 != 0 {
-                            PrgMode::Mode1
-                        } else {
+                        self.data.prg_mode = if value & 0x02 == 0 {
                             PrgMode::Mode0
+                        } else {
+                            PrgMode::Mode1
                         };
                     }
                     _ => {}

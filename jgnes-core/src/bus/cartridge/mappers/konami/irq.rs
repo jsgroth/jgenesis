@@ -64,10 +64,10 @@ impl VrcIrqCounter {
 
         self.enable_after_ack = value & 0x01 != 0;
         self.enabled = value & 0x02 != 0;
-        self.mode = if value & 0x04 != 0 {
-            IrqMode::Cycle
-        } else {
+        self.mode = if value & 0x04 == 0 {
             IrqMode::Scanline
+        } else {
+            IrqMode::Cycle
         };
 
         if self.enabled {
