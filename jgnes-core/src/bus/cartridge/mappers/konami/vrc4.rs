@@ -263,9 +263,9 @@ impl MapperImpl<Vrc4> {
                 match (self.data.variant.to_type(), remapped) {
                     (Type::Vrc2, Some(0x9000..=0x9003)) => {
                         self.data.nametable_mirroring = if value & 0x01 != 0 {
-                            NametableMirroring::Vertical
-                        } else {
                             NametableMirroring::Horizontal
+                        } else {
+                            NametableMirroring::Vertical
                         };
                     }
                     (Type::Vrc4, Some(0x9000)) => {
