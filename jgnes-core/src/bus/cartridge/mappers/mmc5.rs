@@ -1,5 +1,5 @@
 use crate::apu;
-use crate::apu::pulse::PulseChannel;
+use crate::apu::pulse::{PulseChannel, SweepStatus};
 use crate::apu::{FrameCounter, SignalPolarity};
 use crate::bus::cartridge::mappers::{BankSizeKb, CpuMapResult};
 use crate::bus::cartridge::MapperImpl;
@@ -496,13 +496,10 @@ pub(crate) struct Mmc5 {
 
 impl Mmc5 {
     pub(crate) fn new() -> Self {
-        let mut pulse_channel_1 = PulseChannel::new_channel_1(SignalPolarity::Reversed);
-        let mut pulse_channel_2 = PulseChannel::new_channel_2(SignalPolarity::Reversed);
-
-        // Set negate flag on both channels so sweep will never disable them; the MMC5 pulse
-        // channels don't have sweep units
-        pulse_channel_1.process_sweep_update(0x08);
-        pulse_channel_2.process_sweep_update(0x08);
+        let pulse_channel_1 =
+            PulseChannel::new_channel_1(SignalPolarity::Reversed, SweepStatus::Disabled);
+        let pulse_channel_2 =
+            PulseChannel::new_channel_2(SignalPolarity::Reversed, SweepStatus::Disabled);
 
         Self {
             extended_ram: [0; 1024],

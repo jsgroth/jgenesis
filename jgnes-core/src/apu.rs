@@ -6,7 +6,7 @@ pub mod units;
 
 use crate::apu::dmc::DeltaModulationChannel;
 use crate::apu::noise::NoiseChannel;
-use crate::apu::pulse::PulseChannel;
+use crate::apu::pulse::{PulseChannel, SweepStatus};
 use crate::apu::triangle::TriangleChannel;
 use crate::bus::{CpuBus, IoRegister, IrqSource};
 use once_cell::sync::Lazy;
@@ -174,8 +174,8 @@ static TND_AUDIO_LOOKUP_TABLE: Lazy<[[[f64; 128]; 16]; 16]> = Lazy::new(|| {
 impl ApuState {
     pub fn new() -> Self {
         Self {
-            channel_1: PulseChannel::new_channel_1(SignalPolarity::Normal),
-            channel_2: PulseChannel::new_channel_2(SignalPolarity::Normal),
+            channel_1: PulseChannel::new_channel_1(SignalPolarity::Normal, SweepStatus::Enabled),
+            channel_2: PulseChannel::new_channel_2(SignalPolarity::Normal, SweepStatus::Enabled),
             channel_3: TriangleChannel::new(),
             channel_4: NoiseChannel::new(),
             channel_5: DeltaModulationChannel::new(),

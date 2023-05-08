@@ -127,28 +127,37 @@ pub struct PulseChannel {
     length_counter: LengthCounter,
     envelope: Envelope,
     sweep: PulseSweep,
+    sweep_status: SweepStatus,
     polarity: SignalPolarity,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SweepStatus {
+    Enabled,
+    Disabled,
+}
+
 impl PulseChannel {
-    pub fn new_channel_1(polarity: SignalPolarity) -> Self {
+    pub fn new_channel_1(polarity: SignalPolarity, sweep_status: SweepStatus) -> Self {
         Self {
             timer: PulsePhaseTimer::new(),
             duty_cycle: DutyCycle::OneEighth,
             length_counter: LengthCounter::new(LengthCounterChannel::Pulse1),
             envelope: Envelope::new(),
             sweep: PulseSweep::new(SweepNegateBehavior::OnesComplement),
+            sweep_status,
             polarity,
         }
     }
 
-    pub fn new_channel_2(polarity: SignalPolarity) -> Self {
+    pub fn new_channel_2(polarity: SignalPolarity, sweep_status: SweepStatus) -> Self {
         Self {
             timer: PulsePhaseTimer::new(),
             duty_cycle: DutyCycle::OneEighth,
             length_counter: LengthCounter::new(LengthCounterChannel::Pulse2),
             envelope: Envelope::new(),
             sweep: PulseSweep::new(SweepNegateBehavior::TwosComplement),
+            sweep_status,
             polarity,
         }
     }
@@ -183,7 +192,10 @@ impl PulseChannel {
 
     pub fn clock_half_frame(&mut self) {
         self.length_counter.clock();
-        self.sweep.clock(&mut self.timer.divider_period);
+
+        if self.sweep_status == SweepStatus::Enabled {
+            self.sweep.clock(&mut self.timer.divider_period);
+        }
     }
 
     pub fn tick_cpu(&mut self) {
@@ -192,7 +204,8 @@ impl PulseChannel {
 
     pub fn sample(&self) -> u8 {
         if self.length_counter.counter == 0
-            || self.sweep.is_channel_muted(self.timer.divider_period)
+            || (self.sweep_status == SweepStatus::Enabled
+                && self.sweep.is_channel_muted(self.timer.divider_period))
         {
             return 0;
         }
