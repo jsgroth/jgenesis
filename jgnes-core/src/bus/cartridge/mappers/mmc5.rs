@@ -1,24 +1,6 @@
 use crate::bus::cartridge::mappers::{BankSizeKb, CpuMapResult};
 use crate::bus::cartridge::MapperImpl;
 
-#[allow(clippy::enum_variant_names)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PrgBankSize {
-    EightKb,
-    SixteenKb,
-    ThirtyTwoKb,
-}
-
-impl PrgBankSize {
-    fn bank_number_mask(self) -> u8 {
-        match self {
-            Self::EightKb => 0xFF,
-            Self::SixteenKb => 0xFE,
-            Self::ThirtyTwoKb => 0xFC,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PrgBankingMode {
     Mode0,
@@ -28,7 +10,7 @@ enum PrgBankingMode {
 }
 
 impl PrgBankingMode {
-    fn map_result(bank_number: u8, bank_size: PrgBankSize, address: u16) -> CpuMapResult {
+    fn map_result(bank_number: u8, bank_size: BankSizeKb, address: u16) -> CpuMapResult {
         let is_rom = bank_number & 0x80 != 0;
 
         let masked_bank_number = if is_rom {
@@ -38,9 +20,14 @@ impl PrgBankingMode {
         };
 
         // All bank numbers are treated as 8KB banks while selectively ignoring lower bits
-        let masked_bank_number = masked_bank_number & bank_size.bank_number_mask();
-        let mapped_address = BankSizeKb::Eight.to_absolute_address(masked_bank_number, address);
+        let shifted_bank_number = match bank_size {
+            BankSizeKb::Eight => masked_bank_number,
+            BankSizeKb::Sixteen => masked_bank_number >> 1,
+            BankSizeKb::ThirtyTwo => masked_bank_number >> 2,
+            _ => panic!("MMC5 mapper should only have 8KB/16KB/32KB bank size, was {bank_size:?}"),
+        };
 
+        let mapped_address = bank_size.to_absolute_address(shifted_bank_number, address);
         if is_rom {
             CpuMapResult::PrgROM(mapped_address)
         } else {
@@ -52,41 +39,35 @@ impl PrgBankingMode {
         match address {
             0x0000..=0x5FFF => panic!("invalid MMC5 PRG map address: {address:04X}"),
             0x6000..=0x7FFF => {
-                Self::map_result(prg_bank_registers[0] & 0x7F, PrgBankSize::EightKb, address)
+                Self::map_result(prg_bank_registers[0] & 0x7F, BankSizeKb::Eight, address)
             }
             0x8000..=0xFFFF => match self {
                 // 1x32KB
-                Self::Mode0 => Self::map_result(
-                    prg_bank_registers[4] | 0x80,
-                    PrgBankSize::ThirtyTwoKb,
-                    address,
-                ),
+                Self::Mode0 => {
+                    Self::map_result(prg_bank_registers[4] | 0x80, BankSizeKb::ThirtyTwo, address)
+                }
                 // 2x16KB
                 Self::Mode1 => match address {
                     0x0000..=0x7FFF => unreachable!("nested match expressions"),
                     0x8000..=0xBFFF => {
-                        Self::map_result(prg_bank_registers[2], PrgBankSize::SixteenKb, address)
+                        Self::map_result(prg_bank_registers[2], BankSizeKb::Sixteen, address)
                     }
-                    0xC000..=0xFFFF => Self::map_result(
-                        prg_bank_registers[4] | 0x80,
-                        PrgBankSize::SixteenKb,
-                        address,
-                    ),
+                    0xC000..=0xFFFF => {
+                        Self::map_result(prg_bank_registers[4] | 0x80, BankSizeKb::Sixteen, address)
+                    }
                 },
                 // 1x16KB + 2x8KB
                 Self::Mode2 => match address {
                     0x0000..=0x7FFF => unreachable!("nested match expressions"),
                     0x8000..=0xBFFF => {
-                        Self::map_result(prg_bank_registers[2], PrgBankSize::SixteenKb, address)
+                        Self::map_result(prg_bank_registers[2], BankSizeKb::Sixteen, address)
                     }
                     0xC000..=0xDFFF => {
-                        Self::map_result(prg_bank_registers[3], PrgBankSize::EightKb, address)
+                        Self::map_result(prg_bank_registers[3], BankSizeKb::Eight, address)
                     }
-                    0xE000..=0xFFFF => Self::map_result(
-                        prg_bank_registers[4] | 0x80,
-                        PrgBankSize::EightKb,
-                        address,
-                    ),
+                    0xE000..=0xFFFF => {
+                        Self::map_result(prg_bank_registers[4] | 0x80, BankSizeKb::Eight, address)
+                    }
                 },
                 // 4x8KB
                 Self::Mode3 => {
@@ -97,7 +78,7 @@ impl PrgBankingMode {
                     let bank_register = (address & 0x7FFF) / 0x2000 + 1;
                     Self::map_result(
                         prg_bank_registers[bank_register as usize],
-                        PrgBankSize::EightKb,
+                        BankSizeKb::Eight,
                         address,
                     )
                 }
