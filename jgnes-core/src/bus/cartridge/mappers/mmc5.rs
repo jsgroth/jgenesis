@@ -2,7 +2,7 @@ use crate::apu;
 use crate::apu::pulse::{PulseChannel, SweepStatus};
 use crate::apu::FrameCounter;
 use crate::bus::cartridge::mappers::{BankSizeKb, CpuMapResult};
-use crate::bus::cartridge::MapperImpl;
+use crate::bus::cartridge::{Cartridge, MapperImpl};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PrgBankingMode {
@@ -445,12 +445,12 @@ impl ExtendedAttributesState {
         &self,
         pattern_table_addr: u16,
         extended_ram: &[u8; 1024],
-        chr_rom: &[u8],
+        cartridge: &Cartridge,
     ) -> u8 {
         let extended_attributes = extended_ram[(self.last_nametable_addr & 0x03FF) as usize];
         let chr_4kb_bank = extended_attributes & 0x3F;
-        let chr_address = (u32::from(chr_4kb_bank) << 12) | u32::from(pattern_table_addr & 0x0FFF);
-        chr_rom[chr_address as usize]
+        let chr_addr = BankSizeKb::Four.to_absolute_address(chr_4kb_bank, pattern_table_addr);
+        cartridge.get_chr_rom(chr_addr)
     }
 }
 
@@ -473,6 +473,75 @@ impl MultiplierUnit {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PcmMode {
+    Read,
+    Write,
+}
+
+impl PcmMode {
+    fn bit(self) -> u8 {
+        match self {
+            Self::Read => 0x01,
+            Self::Write => 0x00,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct PcmChannel {
+    output_level: u8,
+    mode: PcmMode,
+    irq_enabled: bool,
+    irq_pending: bool,
+}
+
+impl PcmChannel {
+    fn new() -> Self {
+        Self {
+            output_level: 0,
+            mode: PcmMode::Write,
+            irq_enabled: false,
+            irq_pending: false,
+        }
+    }
+
+    fn process_control_update(&mut self, value: u8) {
+        self.mode = if value & 0x01 == 0 {
+            PcmMode::Write
+        } else {
+            PcmMode::Read
+        };
+        self.irq_enabled = value & 0x80 != 0;
+    }
+
+    fn read_control(&mut self) -> u8 {
+        let control = (u8::from(self.irq_pending) << 7) | self.mode.bit();
+        self.irq_pending = false;
+        control
+    }
+
+    fn process_cpu_read(&mut self, address: u16, value: u8) {
+        if self.mode == PcmMode::Read && (0x8000..=0xBFFF).contains(&address) {
+            if value != 0 {
+                self.output_level = value;
+            } else if self.irq_enabled {
+                self.irq_pending = true;
+            }
+        }
+    }
+
+    fn process_raw_pcm_update(&mut self, value: u8) {
+        if self.mode == PcmMode::Write {
+            if value != 0 {
+                self.output_level = value;
+            } else if self.irq_enabled {
+                self.irq_pending = true;
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct Mmc5 {
     extended_ram: [u8; 1024],
@@ -489,6 +558,7 @@ pub(crate) struct Mmc5 {
     multiplier: MultiplierUnit,
     pulse_channel_1: PulseChannel,
     pulse_channel_2: PulseChannel,
+    pcm_channel: PcmChannel,
     frame_counter: FrameCounter,
     ram_writes_enabled_1: bool,
     ram_writes_enabled_2: bool,
@@ -496,9 +566,6 @@ pub(crate) struct Mmc5 {
 
 impl Mmc5 {
     pub(crate) fn new() -> Self {
-        let pulse_channel_1 = PulseChannel::new_channel_1(SweepStatus::Disabled);
-        let pulse_channel_2 = PulseChannel::new_channel_2(SweepStatus::Disabled);
-
         Self {
             extended_ram: [0; 1024],
             extended_ram_mode: ExtendedRamMode::ReadOnly,
@@ -512,8 +579,9 @@ impl Mmc5 {
             scanline_counter: ScanlineCounter::new(),
             extended_attributes_state: ExtendedAttributesState::new(),
             multiplier: MultiplierUnit::new(),
-            pulse_channel_1,
-            pulse_channel_2,
+            pulse_channel_1: PulseChannel::new_channel_1(SweepStatus::Disabled),
+            pulse_channel_2: PulseChannel::new_channel_2(SweepStatus::Disabled),
+            pcm_channel: PcmChannel::new(),
             frame_counter: FrameCounter::new(),
             ram_writes_enabled_1: false,
             ram_writes_enabled_2: false,
@@ -532,6 +600,7 @@ impl MapperImpl<Mmc5> {
 
     fn read_internal_register(&mut self, address: u16) -> u8 {
         match address {
+            0x5010 => self.data.pcm_channel.read_control(),
             0x5015 => {
                 (u8::from(self.data.pulse_channel_2.length_counter() != 0) << 1)
                     | u8::from(self.data.pulse_channel_1.length_counter() != 0)
@@ -569,6 +638,12 @@ impl MapperImpl<Mmc5> {
             }
             0x5007 => {
                 self.data.pulse_channel_2.process_hi_update(value);
+            }
+            0x5010 => {
+                self.data.pcm_channel.process_control_update(value);
+            }
+            0x5011 => {
+                self.data.pcm_channel.process_raw_pcm_update(value);
             }
             0x5015 => {
                 self.data.pulse_channel_1.process_snd_chn_update(value);
@@ -699,11 +774,17 @@ impl MapperImpl<Mmc5> {
                 }
                 ExtendedRamMode::Nametable | ExtendedRamMode::NametableExtendedAttributes => 0xFF,
             },
-            0x6000..=0xFFFF => self
-                .data
-                .prg_banking_mode
-                .map_prg_address(self.data.prg_bank_registers, address)
-                .read(&self.cartridge),
+            0x6000..=0xFFFF => {
+                let value = self
+                    .data
+                    .prg_banking_mode
+                    .map_prg_address(self.data.prg_bank_registers, address)
+                    .read(&self.cartridge);
+
+                self.data.pcm_channel.process_cpu_read(address, value);
+
+                value
+            }
         }
     }
 
@@ -742,7 +823,7 @@ impl MapperImpl<Mmc5> {
                     self.data.extended_attributes_state.get_pattern_table_byte(
                         address,
                         &self.data.extended_ram,
-                        &self.cartridge.chr_rom,
+                        &self.cartridge,
                     )
                 } else if tile_type == TileType::Background
                     && self
@@ -874,7 +955,7 @@ impl MapperImpl<Mmc5> {
     }
 
     pub(crate) fn interrupt_flag(&self) -> bool {
-        self.data.scanline_counter.interrupt_flag()
+        self.data.scanline_counter.interrupt_flag() || self.data.pcm_channel.irq_pending
     }
 
     pub(crate) fn tick_cpu(&mut self) {
@@ -895,16 +976,18 @@ impl MapperImpl<Mmc5> {
     }
 
     pub(crate) fn sample_audio(&self, mixed_apu_sample: f64) -> f64 {
-        if self.data.pulse_channel_1.length_counter() == 0
-            && self.data.pulse_channel_2.length_counter() == 0
-        {
-            return mixed_apu_sample;
-        }
-
         let pulse1_sample = self.data.pulse_channel_1.sample();
         let pulse2_sample = self.data.pulse_channel_2.sample();
-        let mmc5_sample = apu::mix_pulse_samples(pulse1_sample, pulse2_sample);
+        let mmc5_pulse_mix = apu::mix_pulse_samples(pulse1_sample, pulse2_sample);
 
-        mixed_apu_sample - mmc5_sample
+        // Partial formula from from https://www.nesdev.org/wiki/APU_Mixer
+        let pcm_sample = self.data.pcm_channel.output_level;
+        let scaled_pcm_sample = if pcm_sample != 0 {
+            159.79 / (1.0 / (f64::from(pcm_sample) / 22638.0) + 100.0)
+        } else {
+            0.0
+        };
+
+        mixed_apu_sample - mmc5_pulse_mix - scaled_pcm_sample
     }
 }
