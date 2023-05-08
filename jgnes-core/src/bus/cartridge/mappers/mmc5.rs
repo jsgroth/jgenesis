@@ -1,6 +1,6 @@
 use crate::apu;
 use crate::apu::pulse::{PulseChannel, SweepStatus};
-use crate::apu::{FrameCounter, SignalPolarity};
+use crate::apu::FrameCounter;
 use crate::bus::cartridge::mappers::{BankSizeKb, CpuMapResult};
 use crate::bus::cartridge::MapperImpl;
 
@@ -496,10 +496,8 @@ pub(crate) struct Mmc5 {
 
 impl Mmc5 {
     pub(crate) fn new() -> Self {
-        let pulse_channel_1 =
-            PulseChannel::new_channel_1(SignalPolarity::Reversed, SweepStatus::Disabled);
-        let pulse_channel_2 =
-            PulseChannel::new_channel_2(SignalPolarity::Reversed, SweepStatus::Disabled);
+        let pulse_channel_1 = PulseChannel::new_channel_1(SweepStatus::Disabled);
+        let pulse_channel_2 = PulseChannel::new_channel_2(SweepStatus::Disabled);
 
         Self {
             extended_ram: [0; 1024],
@@ -907,8 +905,6 @@ impl MapperImpl<Mmc5> {
         let pulse2_sample = self.data.pulse_channel_2.sample();
         let mmc5_sample = apu::mix_pulse_samples(pulse1_sample, pulse2_sample);
 
-        // Derived from the formulas on https://www.nesdev.org/wiki/APU_Mixer, assuming the max
-        // possible output value for each channel and doubling the pulse mix value
-        (mixed_apu_sample + mmc5_sample) / 1.2584824565063129
+        mixed_apu_sample - mmc5_sample
     }
 }

@@ -1,7 +1,6 @@
 use crate::apu::units::{Envelope, LengthCounter, LengthCounterChannel, PhaseTimer};
-use crate::apu::SignalPolarity;
 
-type PulsePhaseTimer = PhaseTimer<8, 2, true>;
+type PulsePhaseTimer = PhaseTimer<8, 2, 11, true>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DutyCycle {
@@ -128,7 +127,6 @@ pub struct PulseChannel {
     envelope: Envelope,
     sweep: PulseSweep,
     sweep_status: SweepStatus,
-    polarity: SignalPolarity,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,7 +136,7 @@ pub enum SweepStatus {
 }
 
 impl PulseChannel {
-    pub fn new_channel_1(polarity: SignalPolarity, sweep_status: SweepStatus) -> Self {
+    pub fn new_channel_1(sweep_status: SweepStatus) -> Self {
         Self {
             timer: PulsePhaseTimer::new(),
             duty_cycle: DutyCycle::OneEighth,
@@ -146,11 +144,10 @@ impl PulseChannel {
             envelope: Envelope::new(),
             sweep: PulseSweep::new(SweepNegateBehavior::OnesComplement),
             sweep_status,
-            polarity,
         }
     }
 
-    pub fn new_channel_2(polarity: SignalPolarity, sweep_status: SweepStatus) -> Self {
+    pub fn new_channel_2(sweep_status: SweepStatus) -> Self {
         Self {
             timer: PulsePhaseTimer::new(),
             duty_cycle: DutyCycle::OneEighth,
@@ -158,7 +155,6 @@ impl PulseChannel {
             envelope: Envelope::new(),
             sweep: PulseSweep::new(SweepNegateBehavior::TwosComplement),
             sweep_status,
-            polarity,
         }
     }
 
@@ -211,7 +207,6 @@ impl PulseChannel {
         }
 
         let wave_step = self.duty_cycle.waveform()[self.timer.phase as usize];
-        let wave_step = self.polarity.apply(wave_step);
         wave_step * self.envelope.volume()
     }
 

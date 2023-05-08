@@ -1,6 +1,6 @@
 use crate::apu::units::{LengthCounter, LengthCounterChannel, PhaseTimer};
 
-type TrianglePhaseTimer = PhaseTimer<32, 1, false>;
+type TrianglePhaseTimer = PhaseTimer<32, 1, 11, false>;
 
 #[derive(Debug, Clone)]
 struct LinearCounter {

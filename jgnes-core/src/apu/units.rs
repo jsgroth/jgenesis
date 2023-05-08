@@ -143,6 +143,7 @@ impl Envelope {
 pub struct PhaseTimer<
     const MAX_PHASE: u8,
     const CPU_TICKS_PER_CLOCK: u8,
+    const DIVIDER_BITS: u8,
     const CAN_RESET_PHASE: bool,
 > {
     cpu_ticks: u8,
@@ -151,10 +152,19 @@ pub struct PhaseTimer<
     pub phase: u8,
 }
 
-impl<const MAX_PHASE: u8, const CPU_TICKS_PER_CLOCK: u8, const CAN_RESET_PHASE: bool>
-    PhaseTimer<MAX_PHASE, CPU_TICKS_PER_CLOCK, CAN_RESET_PHASE>
+impl<
+        const MAX_PHASE: u8,
+        const CPU_TICKS_PER_CLOCK: u8,
+        const DIVIDER_BITS: u8,
+        const CAN_RESET_PHASE: bool,
+    > PhaseTimer<MAX_PHASE, CPU_TICKS_PER_CLOCK, DIVIDER_BITS, CAN_RESET_PHASE>
 {
     pub fn new() -> Self {
+        assert!(
+            DIVIDER_BITS == 11 || DIVIDER_BITS == 12,
+            "DIVIDER_BITS must be 11 or 12"
+        );
+
         Self {
             cpu_ticks: 0,
             cpu_divider: 0,
@@ -168,7 +178,13 @@ impl<const MAX_PHASE: u8, const CPU_TICKS_PER_CLOCK: u8, const CAN_RESET_PHASE: 
     }
 
     pub fn process_hi_update(&mut self, hi_value: u8) {
-        self.divider_period = (u16::from(hi_value & 0x07) << 8) | (self.divider_period & 0x00FF);
+        let hi_mask = match DIVIDER_BITS {
+            11 => 0x07,
+            12 => 0x0F,
+            _ => panic!("DIVIDER_BITS must be 11 or 12"),
+        };
+
+        self.divider_period = (u16::from(hi_value & hi_mask) << 8) | (self.divider_period & 0x00FF);
         if CAN_RESET_PHASE {
             self.phase = 0;
         }

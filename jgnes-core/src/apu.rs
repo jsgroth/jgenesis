@@ -106,23 +106,6 @@ impl FrameCounter {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SignalPolarity {
-    Normal,
-    Reversed,
-}
-
-impl SignalPolarity {
-    pub fn apply(self, waveform_sample: u8) -> u8 {
-        assert!(waveform_sample <= 1);
-
-        match self {
-            Self::Normal => waveform_sample,
-            Self::Reversed => 1 - waveform_sample,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct ApuState {
     channel_1: PulseChannel,
@@ -174,8 +157,8 @@ static TND_AUDIO_LOOKUP_TABLE: Lazy<[[[f64; 128]; 16]; 16]> = Lazy::new(|| {
 impl ApuState {
     pub fn new() -> Self {
         Self {
-            channel_1: PulseChannel::new_channel_1(SignalPolarity::Normal, SweepStatus::Enabled),
-            channel_2: PulseChannel::new_channel_2(SignalPolarity::Normal, SweepStatus::Enabled),
+            channel_1: PulseChannel::new_channel_1(SweepStatus::Enabled),
+            channel_2: PulseChannel::new_channel_2(SweepStatus::Enabled),
             channel_3: TriangleChannel::new(),
             channel_4: NoiseChannel::new(),
             channel_5: DeltaModulationChannel::new(),
