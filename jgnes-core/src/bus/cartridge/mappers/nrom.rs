@@ -274,3 +274,67 @@ impl MapperImpl<Axrom> {
             .write(value, &mut self.cartridge, vram);
     }
 }
+
+#[derive(Debug, Clone)]
+pub(crate) struct ColorDreams {
+    prg_bank: u8,
+    chr_bank: u8,
+    nametable_mirroring: NametableMirroring,
+}
+
+impl ColorDreams {
+    pub(crate) fn new(nametable_mirroring: NametableMirroring) -> Self {
+        Self {
+            prg_bank: 0,
+            chr_bank: 0,
+            nametable_mirroring,
+        }
+    }
+}
+
+impl MapperImpl<ColorDreams> {
+    pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
+        match address {
+            0x0000..=0x401F => panic!("invalid CPU map address: {address:04X}"),
+            0x4020..=0x7FFF => 0xFF,
+            0x8000..=0xFFFF => {
+                let prg_rom_addr =
+                    BankSizeKb::ThirtyTwo.to_absolute_address(self.data.prg_bank, address);
+                self.cartridge.get_prg_rom(prg_rom_addr)
+            }
+        }
+    }
+
+    pub(crate) fn write_cpu_address(&mut self, address: u16, value: u8) {
+        match address {
+            0x0000..=0x401F => panic!("invalid CPU map address: {address:04X}"),
+            0x4020..=0x7FFF => {}
+            0x8000..=0xFFFF => {
+                self.data.prg_bank = value & 0x03;
+                self.data.chr_bank = (value & 0xF0) >> 4;
+            }
+        }
+    }
+
+    pub(crate) fn read_ppu_address(&self, address: u16, vram: &[u8; 2048]) -> u8 {
+        match address {
+            0x0000..=0x1FFF => {
+                let chr_rom_addr =
+                    BankSizeKb::Eight.to_absolute_address(self.data.chr_bank, address);
+                self.cartridge.get_chr_rom(chr_rom_addr)
+            }
+            0x2000..=0x3EFF => vram[self.data.nametable_mirroring.map_to_vram(address) as usize],
+            0x3F00..=0xFFFF => panic!("invalid PPU map address: {address:04X}"),
+        }
+    }
+
+    pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
+        match address {
+            0x0000..=0x1FFF => {}
+            0x2000..=0x3EFF => {
+                vram[self.data.nametable_mirroring.map_to_vram(address) as usize] = value;
+            }
+            0x3F00..=0xFFFF => panic!("invalid PPU map address: {address:04X}"),
+        }
+    }
+}

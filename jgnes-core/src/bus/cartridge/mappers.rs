@@ -11,7 +11,7 @@ pub(crate) use mmc1::Mmc1;
 pub(crate) use mmc2::Mmc2;
 pub(crate) use mmc3::Mmc3;
 pub(crate) use mmc5::Mmc5;
-pub(crate) use nrom::{Axrom, Cnrom, Nrom, Uxrom};
+pub(crate) use nrom::{Axrom, Cnrom, ColorDreams, Nrom, Uxrom};
 pub(crate) use sunsoft::Sunsoft;
 
 #[allow(clippy::upper_case_acronyms)]

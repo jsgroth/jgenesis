@@ -1,7 +1,8 @@
 mod mappers;
 
 use crate::bus::cartridge::mappers::{
-    Axrom, ChrType, Cnrom, Mmc1, Mmc2, Mmc3, Mmc5, NametableMirroring, Nrom, Sunsoft, Uxrom,
+    Axrom, ChrType, Cnrom, ColorDreams, Mmc1, Mmc2, Mmc3, Mmc5, NametableMirroring, Nrom, Sunsoft,
+    Uxrom,
 };
 use std::io;
 use thiserror::Error;
@@ -67,6 +68,7 @@ pub(crate) struct MapperImpl<MapperData> {
 pub(crate) enum Mapper {
     Axrom(MapperImpl<Axrom>),
     Cnrom(MapperImpl<Cnrom>),
+    ColorDreams(MapperImpl<ColorDreams>),
     Mmc1(MapperImpl<Mmc1>),
     // Used for both MMC2 and MMC4 because they're almost exactly the same
     Mmc2(MapperImpl<Mmc2>),
@@ -82,6 +84,7 @@ impl Mapper {
         match self {
             Self::Axrom(..) => "AxROM",
             Self::Cnrom(..) => "CNROM",
+            Self::ColorDreams(..) => "Color Dreams",
             Self::Mmc1(..) => "MMC1",
             Self::Mmc2(mmc2) => mmc2.name(),
             Self::Mmc3(mmc3) => mmc3.name(),
@@ -103,7 +106,18 @@ impl Mapper {
             }
         }
 
-        read_cpu_address!(Axrom, Cnrom, Mmc1, Mmc2, Mmc3, Mmc5, Nrom, Sunsoft, Uxrom)
+        read_cpu_address!(
+            Axrom,
+            Cnrom,
+            ColorDreams,
+            Mmc1,
+            Mmc2,
+            Mmc3,
+            Mmc5,
+            Nrom,
+            Sunsoft,
+            Uxrom
+        )
     }
 
     pub(crate) fn write_cpu_address(&mut self, address: u16, value: u8) {
@@ -119,7 +133,18 @@ impl Mapper {
             }
         }
 
-        write_cpu_address!(Axrom, Cnrom, Mmc1, Mmc2, Mmc3, Mmc5, Nrom, Sunsoft, Uxrom);
+        write_cpu_address!(
+            Axrom,
+            Cnrom,
+            ColorDreams,
+            Mmc1,
+            Mmc2,
+            Mmc3,
+            Mmc5,
+            Nrom,
+            Sunsoft,
+            Uxrom
+        );
     }
 
     pub(crate) fn read_ppu_address(&mut self, address: u16, vram: &[u8; 2048]) -> u8 {
@@ -133,7 +158,18 @@ impl Mapper {
             }
         }
 
-        read_ppu_address!(Axrom, Cnrom, Mmc1, Mmc2, Mmc3, Mmc5, Nrom, Sunsoft, Uxrom)
+        read_ppu_address!(
+            Axrom,
+            Cnrom,
+            ColorDreams,
+            Mmc1,
+            Mmc2,
+            Mmc3,
+            Mmc5,
+            Nrom,
+            Sunsoft,
+            Uxrom
+        )
     }
 
     pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
@@ -149,7 +185,18 @@ impl Mapper {
             }
         }
 
-        write_ppu_address!(Axrom, Cnrom, Mmc1, Mmc2, Mmc3, Mmc5, Nrom, Sunsoft, Uxrom);
+        write_ppu_address!(
+            Axrom,
+            Cnrom,
+            ColorDreams,
+            Mmc1,
+            Mmc2,
+            Mmc3,
+            Mmc5,
+            Nrom,
+            Sunsoft,
+            Uxrom
+        );
     }
 
     pub(crate) fn tick(&mut self, ppu_bus_address: u16) {
@@ -211,7 +258,18 @@ impl Mapper {
             }
         }
 
-        get_and_clear_ram_dirty_bit!(Axrom, Cnrom, Mmc1, Mmc2, Mmc3, Mmc5, Nrom, Sunsoft, Uxrom)
+        get_and_clear_ram_dirty_bit!(
+            Axrom,
+            Cnrom,
+            ColorDreams,
+            Mmc1,
+            Mmc2,
+            Mmc3,
+            Mmc5,
+            Nrom,
+            Sunsoft,
+            Uxrom
+        )
     }
 
     pub(crate) fn get_prg_ram(&self) -> &[u8] {
@@ -225,7 +283,18 @@ impl Mapper {
             }
         }
 
-        get_prg_ram!(Axrom, Cnrom, Mmc1, Mmc2, Mmc3, Mmc5, Nrom, Sunsoft, Uxrom)
+        get_prg_ram!(
+            Axrom,
+            Cnrom,
+            ColorDreams,
+            Mmc1,
+            Mmc2,
+            Mmc3,
+            Mmc5,
+            Nrom,
+            Sunsoft,
+            Uxrom
+        )
     }
 }
 
@@ -444,6 +513,10 @@ pub(crate) fn from_ines_file(
         10 => Mapper::Mmc2(MapperImpl {
             cartridge,
             data: Mmc2::new_mmc4(),
+        }),
+        11 => Mapper::ColorDreams(MapperImpl {
+            cartridge,
+            data: ColorDreams::new(header.nametable_mirroring),
         }),
         69 => Mapper::Sunsoft(MapperImpl {
             cartridge,
