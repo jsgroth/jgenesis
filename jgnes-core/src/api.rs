@@ -216,8 +216,13 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
         ppu::tick(&mut self.ppu_state, &mut self.bus.ppu());
         self.bus.tick();
 
+        let audio_sample = {
+            let sample = self.apu_state.sample();
+            let sample = self.bus.mapper().sample_audio(sample);
+            self.apu_state.high_pass_filter(sample)
+        };
         self.audio_player
-            .push_sample(self.apu_state.sample())
+            .push_sample(audio_sample)
             .map_err(EmulationError::Audio)?;
 
         if !prev_in_vblank && self.ppu_state.in_vblank() {
@@ -234,8 +239,8 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
             let p2_joypad_state = self.input_poller.poll_p2_input();
             self.bus.update_p2_joypad_state(p2_joypad_state);
 
-            if self.bus.get_and_clear_sram_dirty_bit() {
-                let sram = self.bus.get_sram();
+            if self.bus.mapper_mut().get_and_clear_ram_dirty_bit() {
+                let sram = self.bus.mapper().get_prg_ram();
                 self.save_writer
                     .persist_sram(sram)
                     .map_err(EmulationError::Save)?;

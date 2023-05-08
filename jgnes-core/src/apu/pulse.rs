@@ -1,4 +1,5 @@
 use crate::apu::units::{Envelope, LengthCounter, LengthCounterChannel, PhaseTimer};
+use crate::apu::SignalPolarity;
 
 type PulsePhaseTimer = PhaseTimer<8, 2, true>;
 
@@ -126,26 +127,29 @@ pub struct PulseChannel {
     length_counter: LengthCounter,
     envelope: Envelope,
     sweep: PulseSweep,
+    polarity: SignalPolarity,
 }
 
 impl PulseChannel {
-    pub fn new_channel_1() -> Self {
+    pub fn new_channel_1(polarity: SignalPolarity) -> Self {
         Self {
             timer: PulsePhaseTimer::new(),
             duty_cycle: DutyCycle::OneEighth,
             length_counter: LengthCounter::new(LengthCounterChannel::Pulse1),
             envelope: Envelope::new(),
             sweep: PulseSweep::new(SweepNegateBehavior::OnesComplement),
+            polarity,
         }
     }
 
-    pub fn new_channel_2() -> Self {
+    pub fn new_channel_2(polarity: SignalPolarity) -> Self {
         Self {
             timer: PulsePhaseTimer::new(),
             duty_cycle: DutyCycle::OneEighth,
             length_counter: LengthCounter::new(LengthCounterChannel::Pulse2),
             envelope: Envelope::new(),
             sweep: PulseSweep::new(SweepNegateBehavior::TwosComplement),
+            polarity,
         }
     }
 
@@ -194,6 +198,7 @@ impl PulseChannel {
         }
 
         let wave_step = self.duty_cycle.waveform()[self.timer.phase as usize];
+        let wave_step = self.polarity.apply(wave_step);
         wave_step * self.envelope.volume()
     }
 

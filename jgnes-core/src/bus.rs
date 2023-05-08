@@ -644,12 +644,12 @@ impl Bus {
         self.interrupt_lines.tick();
     }
 
-    pub fn get_and_clear_sram_dirty_bit(&mut self) -> bool {
-        self.mapper.get_and_clear_ram_dirty_bit()
+    pub(crate) fn mapper(&self) -> &Mapper {
+        &self.mapper
     }
 
-    pub fn get_sram(&self) -> &[u8] {
-        self.mapper.get_prg_ram()
+    pub(crate) fn mapper_mut(&mut self) -> &mut Mapper {
+        &mut self.mapper
     }
 }
 

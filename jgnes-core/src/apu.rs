@@ -1,8 +1,8 @@
 mod dmc;
 mod noise;
-mod pulse;
+pub mod pulse;
 mod triangle;
-mod units;
+pub mod units;
 
 use crate::apu::dmc::DeltaModulationChannel;
 use crate::apu::noise::NoiseChannel;
@@ -26,7 +26,7 @@ enum FrameCounterResetState {
 }
 
 #[derive(Debug, Clone)]
-struct FrameCounter {
+pub struct FrameCounter {
     cpu_ticks: u16,
     mode: FrameCounterMode,
     interrupt_inhibit_flag: bool,
@@ -34,7 +34,7 @@ struct FrameCounter {
 }
 
 impl FrameCounter {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             cpu_ticks: 0,
             mode: FrameCounterMode::FourStep,
@@ -54,7 +54,7 @@ impl FrameCounter {
         self.reset_state = FrameCounterResetState::Joy2Updated;
     }
 
-    fn tick(&mut self) {
+    pub fn tick(&mut self) {
         if self.reset_state == FrameCounterResetState::JustReset {
             self.reset_state = FrameCounterResetState::None;
         }
@@ -81,7 +81,7 @@ impl FrameCounter {
         }
     }
 
-    fn generate_quarter_frame_clock(&self) -> bool {
+    pub fn generate_quarter_frame_clock(&self) -> bool {
         (self.cpu_ticks == 7456
             || self.cpu_ticks == 14912
             || self.cpu_ticks == 22370
@@ -91,7 +91,7 @@ impl FrameCounter {
                 && self.mode == FrameCounterMode::FiveStep)
     }
 
-    fn generate_half_frame_clock(&self) -> bool {
+    pub fn generate_half_frame_clock(&self) -> bool {
         (self.cpu_ticks == 14912
             || (self.cpu_ticks == 29828 && self.mode == FrameCounterMode::FourStep)
             || self.cpu_ticks == 37280)
@@ -103,6 +103,23 @@ impl FrameCounter {
         !self.interrupt_inhibit_flag
             && self.mode == FrameCounterMode::FourStep
             && (29827..29830).contains(&self.cpu_ticks)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignalPolarity {
+    Normal,
+    Reversed,
+}
+
+impl SignalPolarity {
+    pub fn apply(self, waveform_sample: u8) -> u8 {
+        assert!(waveform_sample <= 1);
+
+        match self {
+            Self::Normal => waveform_sample,
+            Self::Reversed => 1 - waveform_sample,
+        }
     }
 }
 
@@ -157,8 +174,8 @@ static TND_AUDIO_LOOKUP_TABLE: Lazy<[[[f64; 128]; 16]; 16]> = Lazy::new(|| {
 impl ApuState {
     pub fn new() -> Self {
         Self {
-            channel_1: PulseChannel::new_channel_1(),
-            channel_2: PulseChannel::new_channel_2(),
+            channel_1: PulseChannel::new_channel_1(SignalPolarity::Normal),
+            channel_2: PulseChannel::new_channel_2(SignalPolarity::Normal),
             channel_3: TriangleChannel::new(),
             channel_4: NoiseChannel::new(),
             channel_5: DeltaModulationChannel::new(),
@@ -302,14 +319,14 @@ impl ApuState {
         let noise_sample = self.channel_4.sample();
         let dmc_sample = self.channel_5.sample();
 
-        let pulse_mix = PULSE_AUDIO_LOOKUP_TABLE[pulse1_sample as usize][pulse2_sample as usize];
+        let pulse_mix = mix_pulse_samples(pulse1_sample, pulse2_sample);
         let tnd_mix = TND_AUDIO_LOOKUP_TABLE[triangle_sample as usize][noise_sample as usize]
             [dmc_sample as usize];
 
-        pulse_mix + tnd_mix - 0.5
+        pulse_mix + tnd_mix
     }
 
-    fn high_pass_filter(&mut self, sample: f64) -> f64 {
+    pub fn high_pass_filter(&mut self, sample: f64) -> f64 {
         let filtered_sample = sample - self.hpf_capacitor;
 
         // TODO figure out something better to do than copy-pasting what I did for the Game Boy
@@ -318,9 +335,15 @@ impl ApuState {
         filtered_sample
     }
 
-    pub fn sample(&mut self) -> f64 {
-        self.high_pass_filter(self.mix_samples())
+    pub fn sample(&self) -> f64 {
+        self.mix_samples()
     }
+}
+
+pub fn mix_pulse_samples(pulse1_sample: u8, pulse2_sample: u8) -> f64 {
+    assert!((0..=15).contains(&pulse1_sample) && (0..=15).contains(&pulse2_sample));
+
+    PULSE_AUDIO_LOOKUP_TABLE[pulse1_sample as usize][pulse2_sample as usize]
 }
 
 pub fn tick(state: &mut ApuState, bus: &mut CpuBus<'_>) {

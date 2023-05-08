@@ -179,6 +179,13 @@ impl Mapper {
     pub(crate) fn get_prg_ram(&self) -> &[u8] {
         match_each_variant!(self, mapper => &mapper.cartridge.prg_ram)
     }
+
+    pub(crate) fn sample_audio(&self, mixed_apu_sample: f64) -> f64 {
+        match self {
+            Self::Mmc5(mmc5) => mmc5.sample_audio(mixed_apu_sample),
+            _ => mixed_apu_sample,
+        }
+    }
 }
 
 #[derive(Debug, Error)]

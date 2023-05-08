@@ -1,3 +1,6 @@
+use crate::apu;
+use crate::apu::pulse::PulseChannel;
+use crate::apu::{FrameCounter, SignalPolarity};
 use crate::bus::cartridge::mappers::{BankSizeKb, CpuMapResult};
 use crate::bus::cartridge::MapperImpl;
 
@@ -484,12 +487,23 @@ pub(crate) struct Mmc5 {
     scanline_counter: ScanlineCounter,
     extended_attributes_state: ExtendedAttributesState,
     multiplier: MultiplierUnit,
+    pulse_channel_1: PulseChannel,
+    pulse_channel_2: PulseChannel,
+    frame_counter: FrameCounter,
     ram_writes_enabled_1: bool,
     ram_writes_enabled_2: bool,
 }
 
 impl Mmc5 {
     pub(crate) fn new() -> Self {
+        let mut pulse_channel_1 = PulseChannel::new_channel_1(SignalPolarity::Reversed);
+        let mut pulse_channel_2 = PulseChannel::new_channel_2(SignalPolarity::Reversed);
+
+        // Set negate flag on both channels so sweep will never disable them; the MMC5 pulse
+        // channels don't have sweep units
+        pulse_channel_1.process_sweep_update(0x08);
+        pulse_channel_2.process_sweep_update(0x08);
+
         Self {
             extended_ram: [0; 1024],
             extended_ram_mode: ExtendedRamMode::ReadOnly,
@@ -503,6 +517,9 @@ impl Mmc5 {
             scanline_counter: ScanlineCounter::new(),
             extended_attributes_state: ExtendedAttributesState::new(),
             multiplier: MultiplierUnit::new(),
+            pulse_channel_1,
+            pulse_channel_2,
+            frame_counter: FrameCounter::new(),
             ram_writes_enabled_1: false,
             ram_writes_enabled_2: false,
         }
@@ -520,6 +537,10 @@ impl MapperImpl<Mmc5> {
 
     fn read_internal_register(&mut self, address: u16) -> u8 {
         match address {
+            0x5015 => {
+                (u8::from(self.data.pulse_channel_2.length_counter() != 0) << 1)
+                    | u8::from(self.data.pulse_channel_1.length_counter() != 0)
+            }
             0x5204 => {
                 log::trace!("Scanline IRQ status register read, clearing IRQ pending flag");
 
@@ -536,6 +557,28 @@ impl MapperImpl<Mmc5> {
 
     fn write_internal_register(&mut self, address: u16, value: u8) {
         match address {
+            0x5000 => {
+                self.data.pulse_channel_1.process_vol_update(value);
+            }
+            0x5002 => {
+                self.data.pulse_channel_1.process_lo_update(value);
+            }
+            0x5003 => {
+                self.data.pulse_channel_1.process_hi_update(value);
+            }
+            0x5004 => {
+                self.data.pulse_channel_2.process_vol_update(value);
+            }
+            0x5006 => {
+                self.data.pulse_channel_2.process_lo_update(value);
+            }
+            0x5007 => {
+                self.data.pulse_channel_2.process_hi_update(value);
+            }
+            0x5015 => {
+                self.data.pulse_channel_1.process_snd_chn_update(value);
+                self.data.pulse_channel_2.process_snd_chn_update(value);
+            }
             0x5100 => {
                 self.data.prg_banking_mode = match value & 0x03 {
                     0x00 => PrgBankingMode::Mode0,
@@ -841,5 +884,34 @@ impl MapperImpl<Mmc5> {
 
     pub(crate) fn tick_cpu(&mut self) {
         self.data.scanline_counter.tick_cpu();
+
+        self.data.pulse_channel_1.tick_cpu();
+        self.data.pulse_channel_2.tick_cpu();
+        self.data.frame_counter.tick();
+
+        if self.data.frame_counter.generate_quarter_frame_clock() {
+            // MMC5 channels clock both length counter and envelope at 240Hz
+            self.data.pulse_channel_1.clock_quarter_frame();
+            self.data.pulse_channel_1.clock_half_frame();
+
+            self.data.pulse_channel_2.clock_quarter_frame();
+            self.data.pulse_channel_2.clock_half_frame();
+        }
+    }
+
+    pub(crate) fn sample_audio(&self, mixed_apu_sample: f64) -> f64 {
+        if self.data.pulse_channel_1.length_counter() == 0
+            && self.data.pulse_channel_2.length_counter() == 0
+        {
+            return mixed_apu_sample;
+        }
+
+        let pulse1_sample = self.data.pulse_channel_1.sample();
+        let pulse2_sample = self.data.pulse_channel_2.sample();
+        let mmc5_sample = apu::mix_pulse_samples(pulse1_sample, pulse2_sample);
+
+        // Derived from the formulas on https://www.nesdev.org/wiki/APU_Mixer, assuming the max
+        // possible output value for each channel and doubling the pulse mix value
+        (mixed_apu_sample + mmc5_sample) / 1.2584824565063129
     }
 }
