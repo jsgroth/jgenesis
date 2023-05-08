@@ -1,3 +1,4 @@
+mod konami;
 mod mmc1;
 mod mmc2;
 mod mmc3;
@@ -7,6 +8,7 @@ mod sunsoft;
 
 use crate::bus::cartridge::Cartridge;
 
+pub(crate) use konami::Vrc4;
 pub(crate) use mmc1::Mmc1;
 pub(crate) use mmc2::Mmc2;
 pub(crate) use mmc3::Mmc3;
@@ -155,6 +157,10 @@ impl BankSizeKb {
     fn to_absolute_address_last_bank(self, memory_len: u32, address: u16) -> u32 {
         self.to_absolute_address_from_end(1_u32, memory_len, address)
     }
+}
+
+fn cpu_open_bus(address: u16) -> u8 {
+    (address >> 8) as u8
 }
 
 #[cfg(test)]

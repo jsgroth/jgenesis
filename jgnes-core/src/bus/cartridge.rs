@@ -2,7 +2,7 @@ mod mappers;
 
 use crate::bus::cartridge::mappers::{
     Axrom, ChrType, Cnrom, ColorDreams, Mmc1, Mmc2, Mmc3, Mmc5, NametableMirroring, Nrom, Sunsoft,
-    Uxrom,
+    Uxrom, Vrc4,
 };
 use std::io;
 use thiserror::Error;
@@ -77,6 +77,7 @@ pub(crate) enum Mapper {
     Nrom(MapperImpl<Nrom>),
     Sunsoft(MapperImpl<Sunsoft>),
     Uxrom(MapperImpl<Uxrom>),
+    Vrc4(MapperImpl<Vrc4>),
 }
 
 impl Mapper {
@@ -92,6 +93,7 @@ impl Mapper {
             Self::Nrom(..) => "NROM",
             Self::Sunsoft(..) => "Sunsoft",
             Self::Uxrom(uxrom) => uxrom.name(),
+            Self::Vrc4(vrc4) => vrc4.name(),
         }
     }
 
@@ -116,7 +118,8 @@ impl Mapper {
             Mmc5,
             Nrom,
             Sunsoft,
-            Uxrom
+            Uxrom,
+            Vrc4,
         )
     }
 
@@ -143,7 +146,8 @@ impl Mapper {
             Mmc5,
             Nrom,
             Sunsoft,
-            Uxrom
+            Uxrom,
+            Vrc4,
         );
     }
 
@@ -168,7 +172,8 @@ impl Mapper {
             Mmc5,
             Nrom,
             Sunsoft,
-            Uxrom
+            Uxrom,
+            Vrc4,
         )
     }
 
@@ -195,7 +200,8 @@ impl Mapper {
             Mmc5,
             Nrom,
             Sunsoft,
-            Uxrom
+            Uxrom,
+            Vrc4,
         );
     }
 
@@ -216,6 +222,9 @@ impl Mapper {
             Self::Sunsoft(sunsoft) => {
                 sunsoft.tick_cpu();
             }
+            Self::Vrc4(vrc4) => {
+                vrc4.tick_cpu();
+            }
             _ => {}
         }
     }
@@ -225,6 +234,7 @@ impl Mapper {
             Self::Mmc3(mmc3) => mmc3.interrupt_flag(),
             Self::Mmc5(mmc5) => mmc5.interrupt_flag(),
             Self::Sunsoft(sunsoft) => sunsoft.interrupt_flag(),
+            Self::Vrc4(vrc4) => vrc4.interrupt_flag(),
             _ => false,
         }
     }
@@ -268,7 +278,8 @@ impl Mapper {
             Mmc5,
             Nrom,
             Sunsoft,
-            Uxrom
+            Uxrom,
+            Vrc4,
         )
     }
 
@@ -293,7 +304,8 @@ impl Mapper {
             Mmc5,
             Nrom,
             Sunsoft,
-            Uxrom
+            Uxrom,
+            Vrc4,
         )
     }
 }
@@ -517,6 +529,14 @@ pub(crate) fn from_ines_file(
         11 => Mapper::ColorDreams(MapperImpl {
             cartridge,
             data: ColorDreams::new(header.nametable_mirroring),
+        }),
+        21 | 22 | 23 | 25 => Mapper::Vrc4(MapperImpl {
+            cartridge,
+            data: Vrc4::new(
+                header.mapper_number,
+                header.sub_mapper_number,
+                header.chr_type,
+            ),
         }),
         69 => Mapper::Sunsoft(MapperImpl {
             cartridge,
