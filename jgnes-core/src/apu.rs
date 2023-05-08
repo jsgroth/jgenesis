@@ -124,7 +124,9 @@ static PULSE_AUDIO_LOOKUP_TABLE: Lazy<[[f64; 16]; 16]> = Lazy::new(|| {
 
     for (pulse1_sample, row) in lookup_table.iter_mut().enumerate() {
         for (pulse2_sample, value) in row.iter_mut().enumerate() {
-            *value = 95.88 / (8128.0 / (pulse1_sample + pulse2_sample) as f64 + 100.0);
+            if pulse1_sample > 0 || pulse2_sample > 0 {
+                *value = 95.88 / (8128.0 / (pulse1_sample + pulse2_sample) as f64 + 100.0);
+            }
         }
     }
 
@@ -137,12 +139,14 @@ static TND_AUDIO_LOOKUP_TABLE: Lazy<[[[f64; 128]; 16]; 16]> = Lazy::new(|| {
     for (triangle_sample, triangle_row) in lookup_table.iter_mut().enumerate() {
         for (noise_sample, noise_row) in triangle_row.iter_mut().enumerate() {
             for (dmc_sample, value) in noise_row.iter_mut().enumerate() {
-                *value = 159.79
-                    / (1.0
-                        / (triangle_sample as f64 / 8227.0
-                            + noise_sample as f64 / 12241.0
-                            + dmc_sample as f64 / 22638.0)
-                        + 100.0);
+                if triangle_sample > 0 || noise_sample > 0 || dmc_sample > 0 {
+                    *value = 159.79
+                        / (1.0
+                            / (triangle_sample as f64 / 8227.0
+                                + noise_sample as f64 / 12241.0
+                                + dmc_sample as f64 / 22638.0)
+                            + 100.0);
+                }
             }
         }
     }
