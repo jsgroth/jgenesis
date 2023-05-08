@@ -41,7 +41,6 @@ impl VrcIrqCounter {
         }
     }
 
-    #[allow(dead_code)]
     pub(crate) fn set_reload_value(&mut self, value: u8) {
         self.reload_value = value;
     }

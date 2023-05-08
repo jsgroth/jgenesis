@@ -2,7 +2,7 @@ mod mappers;
 
 use crate::bus::cartridge::mappers::{
     Axrom, ChrType, Cnrom, ColorDreams, Mmc1, Mmc2, Mmc3, Mmc5, NametableMirroring, Nrom, Sunsoft,
-    Uxrom, Vrc4,
+    Uxrom, Vrc4, Vrc6,
 };
 use jgnes_proc_macros::MatchEachVariantMacro;
 use std::io;
@@ -79,6 +79,7 @@ pub(crate) enum Mapper {
     Sunsoft(MapperImpl<Sunsoft>),
     Uxrom(MapperImpl<Uxrom>),
     Vrc4(MapperImpl<Vrc4>),
+    Vrc6(MapperImpl<Vrc6>),
 }
 
 impl Mapper {
@@ -95,6 +96,7 @@ impl Mapper {
             Self::Sunsoft(..) => "Sunsoft",
             Self::Uxrom(uxrom) => uxrom.name(),
             Self::Vrc4(vrc4) => vrc4.name(),
+            Self::Vrc6(..) => "VRC6",
         }
     }
 
@@ -134,6 +136,9 @@ impl Mapper {
             Self::Vrc4(vrc4) => {
                 vrc4.tick_cpu();
             }
+            Self::Vrc6(vrc6) => {
+                vrc6.tick_cpu();
+            }
             _ => {}
         }
     }
@@ -144,6 +149,7 @@ impl Mapper {
             Self::Mmc5(mmc5) => mmc5.interrupt_flag(),
             Self::Sunsoft(sunsoft) => sunsoft.interrupt_flag(),
             Self::Vrc4(vrc4) => vrc4.interrupt_flag(),
+            Self::Vrc6(vrc6) => vrc6.interrupt_flag(),
             _ => false,
         }
     }
@@ -402,6 +408,10 @@ pub(crate) fn from_ines_file(
                 header.sub_mapper_number,
                 header.chr_type,
             ),
+        }),
+        24 | 26 => Mapper::Vrc6(MapperImpl {
+            cartridge,
+            data: Vrc6::new(header.mapper_number, header.chr_type),
         }),
         69 => Mapper::Sunsoft(MapperImpl {
             cartridge,
