@@ -4,6 +4,7 @@ use crate::bus::cartridge::mappers::{
     Axrom, ChrType, Cnrom, ColorDreams, Mmc1, Mmc2, Mmc3, Mmc5, NametableMirroring, Nrom, Sunsoft,
     Uxrom, Vrc4,
 };
+use jgnes_proc_macros::MatchEachVariantMacro;
 use std::io;
 use thiserror::Error;
 
@@ -64,7 +65,7 @@ pub(crate) struct MapperImpl<MapperData> {
 }
 
 #[allow(clippy::large_enum_variant)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, MatchEachVariantMacro)]
 pub(crate) enum Mapper {
     Axrom(MapperImpl<Axrom>),
     Cnrom(MapperImpl<Cnrom>),
@@ -98,111 +99,19 @@ impl Mapper {
     }
 
     pub(crate) fn read_cpu_address(&mut self, address: u16) -> u8 {
-        macro_rules! read_cpu_address {
-            ($($variant:ident),+$(,)?) => {
-                match self {
-                    $(
-                        Self::$variant(mapper) => mapper.read_cpu_address(address),
-                    )*
-                }
-            }
-        }
-
-        read_cpu_address!(
-            Axrom,
-            Cnrom,
-            ColorDreams,
-            Mmc1,
-            Mmc2,
-            Mmc3,
-            Mmc5,
-            Nrom,
-            Sunsoft,
-            Uxrom,
-            Vrc4,
-        )
+        match_each_variant!(self, mapper => mapper.read_cpu_address(address))
     }
 
     pub(crate) fn write_cpu_address(&mut self, address: u16, value: u8) {
-        macro_rules! write_cpu_address {
-            ($($variant:ident),+$(,)?) => {
-                match self {
-                    $(
-                        Self::$variant(mapper) => {
-                            mapper.write_cpu_address(address, value);
-                        }
-                    )*
-                }
-            }
-        }
-
-        write_cpu_address!(
-            Axrom,
-            Cnrom,
-            ColorDreams,
-            Mmc1,
-            Mmc2,
-            Mmc3,
-            Mmc5,
-            Nrom,
-            Sunsoft,
-            Uxrom,
-            Vrc4,
-        );
+        match_each_variant!(self, mapper => mapper.write_cpu_address(address, value));
     }
 
     pub(crate) fn read_ppu_address(&mut self, address: u16, vram: &[u8; 2048]) -> u8 {
-        macro_rules! read_ppu_address {
-            ($($variant:ident),+$(,)?) => {
-                match self {
-                    $(
-                        Self::$variant(mapper) => mapper.read_ppu_address(address, vram),
-                    )*
-                }
-            }
-        }
-
-        read_ppu_address!(
-            Axrom,
-            Cnrom,
-            ColorDreams,
-            Mmc1,
-            Mmc2,
-            Mmc3,
-            Mmc5,
-            Nrom,
-            Sunsoft,
-            Uxrom,
-            Vrc4,
-        )
+        match_each_variant!(self, mapper => mapper.read_ppu_address(address, vram))
     }
 
     pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
-        macro_rules! write_ppu_address {
-            ($($variant:ident),+$(,)?) => {
-                match self {
-                    $(
-                        Self::$variant(mapper) => {
-                            mapper.write_ppu_address(address, value, vram);
-                        }
-                    )*
-                }
-            }
-        }
-
-        write_ppu_address!(
-            Axrom,
-            Cnrom,
-            ColorDreams,
-            Mmc1,
-            Mmc2,
-            Mmc3,
-            Mmc5,
-            Nrom,
-            Sunsoft,
-            Uxrom,
-            Vrc4,
-        );
+        match_each_variant!(self, mapper => mapper.write_ppu_address(address, value, vram));
     }
 
     pub(crate) fn tick(&mut self, ppu_bus_address: u16) {
@@ -254,59 +163,15 @@ impl Mapper {
     }
 
     pub(crate) fn get_and_clear_ram_dirty_bit(&mut self) -> bool {
-        macro_rules! get_and_clear_ram_dirty_bit {
-            ($($variant:ident),+$(,)?) => {
-                match self {
-                    $(
-                        Self::$variant(mapper) => {
-                            let dirty_bit = mapper.cartridge.prg_ram_dirty_bit;
-                            mapper.cartridge.prg_ram_dirty_bit = false;
-                            dirty_bit
-                        }
-                    )*
-                }
-            }
-        }
-
-        get_and_clear_ram_dirty_bit!(
-            Axrom,
-            Cnrom,
-            ColorDreams,
-            Mmc1,
-            Mmc2,
-            Mmc3,
-            Mmc5,
-            Nrom,
-            Sunsoft,
-            Uxrom,
-            Vrc4,
-        )
+        match_each_variant!(self, mapper => {
+            let dirty_bit = mapper.cartridge.prg_ram_dirty_bit;
+            mapper.cartridge.prg_ram_dirty_bit = false;
+            dirty_bit
+        })
     }
 
     pub(crate) fn get_prg_ram(&self) -> &[u8] {
-        macro_rules! get_prg_ram {
-            ($($variant:ident),+$(,)?) => {
-                match self {
-                    $(
-                        Self::$variant(mapper) => &mapper.cartridge.prg_ram,
-                    )*
-                }
-            }
-        }
-
-        get_prg_ram!(
-            Axrom,
-            Cnrom,
-            ColorDreams,
-            Mmc1,
-            Mmc2,
-            Mmc3,
-            Mmc5,
-            Nrom,
-            Sunsoft,
-            Uxrom,
-            Vrc4,
-        )
+        match_each_variant!(self, mapper => &mapper.cartridge.prg_ram)
     }
 }
 
