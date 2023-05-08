@@ -252,11 +252,9 @@ impl MapperImpl<Vrc4> {
                 }
             },
             0x8000..=0x80FF => {
-                log::trace!("remap: {:02X?}", self.data.variant.remap_address(address));
                 if self.data.variant.remap_address(address).is_some() {
                     self.data.prg_bank_0 = value & 0x1F;
                 }
-                log::trace!("set prg bank 0 to {:02X}", self.data.prg_bank_0);
             }
             0x9000..=0x90FF => {
                 let remapped = self.data.variant.remap_address(address);
@@ -287,16 +285,13 @@ impl MapperImpl<Vrc4> {
                     }
                     _ => {}
                 }
-                log::trace!("nametable mirroring is {:?}", self.data.nametable_mirroring);
             }
             0xA000..=0xA0FF => {
                 if self.data.variant.remap_address(address).is_some() {
                     self.data.prg_bank_1 = value & 0x1F;
                 }
-                log::trace!("set PRG bank 1 to {:02X}", self.data.prg_bank_1);
             }
             0xB000..=0xEFFF => {
-                log::trace!("Write: address={address:04X}, value={value:02X}");
                 if let Some(remapped) = self.data.variant.remap_address(address) {
                     // $B000, $B001 => 0
                     // $B002, $B003 => 1
@@ -341,7 +336,6 @@ impl MapperImpl<Vrc4> {
                         }
                     }
                 }
-                log::trace!("chr banks: {:02X?}", self.data.chr_banks);
             }
             0xF000..=0xF0FF => {
                 if self.data.variant.to_type() == Type::Vrc4 {
