@@ -43,11 +43,6 @@ impl SingleVariant {
     }
 
     fn remap_address(self, address: u16) -> Option<u16> {
-        if address.trailing_zeros() >= 8 {
-            // $xx00 is the same in every variant
-            return Some(address);
-        }
-
         let a0 = address & self.a0() != 0;
         let a1 = address & self.a1() != 0;
 
@@ -92,11 +87,12 @@ impl Variant {
         }
     }
 
-    fn remap_address(self, address: u16) -> Option<u16> {
-        match self {
+    fn remap_address(self, address: u16) -> u16 {
+        (match self {
             Self::Single(variant) => variant.remap_address(address),
             Self::Multi(a, b) => a.remap_address(address).or(b.remap_address(address)),
-        }
+        })
+        .unwrap_or(address & 0xFF00)
     }
 
     fn name(self) -> String {
@@ -229,6 +225,7 @@ impl MapperImpl<Vrc4> {
         log::trace!("CPU write: address={address:04X}, value={value:02X}");
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: {address:04X}"),
+            0x4020..=0x5FFF => {}
             0x6000..=0x7FFF => match self.data.variant.to_type() {
                 Type::Vrc2 => {
                     if !self.cartridge.prg_ram.is_empty() {
@@ -251,22 +248,20 @@ impl MapperImpl<Vrc4> {
                     }
                 }
             },
-            0x8000..=0x80FF => {
-                if self.data.variant.remap_address(address).is_some() {
-                    self.data.prg_bank_0 = value & 0x1F;
-                }
+            0x8000..=0x8FFF => {
+                self.data.prg_bank_0 = value & 0x1F;
             }
-            0x9000..=0x90FF => {
+            0x9000..=0x9FFF => {
                 let remapped = self.data.variant.remap_address(address);
                 match (self.data.variant.to_type(), remapped) {
-                    (Type::Vrc2, Some(0x9000..=0x9003)) => {
+                    (Type::Vrc2, 0x9000..=0x9003) => {
                         self.data.nametable_mirroring = if value & 0x01 == 0 {
                             NametableMirroring::Vertical
                         } else {
                             NametableMirroring::Horizontal
                         };
                     }
-                    (Type::Vrc4, Some(0x9000)) => {
+                    (Type::Vrc4, 0x9000) => {
                         self.data.nametable_mirroring = match value & 0x03 {
                             0x00 => NametableMirroring::Vertical,
                             0x01 => NametableMirroring::Horizontal,
@@ -275,7 +270,7 @@ impl MapperImpl<Vrc4> {
                             _ => unreachable!("value & 0x03 should always be 0x00/0x01/0x02/0x03"),
                         };
                     }
-                    (Type::Vrc4, Some(0x9002)) => {
+                    (Type::Vrc4, 0x9002) => {
                         self.data.ram_enabled = value & 0x01 != 0;
                         self.data.prg_mode = if value & 0x02 == 0 {
                             PrgMode::Mode0
@@ -286,77 +281,72 @@ impl MapperImpl<Vrc4> {
                     _ => {}
                 }
             }
-            0xA000..=0xA0FF => {
-                if self.data.variant.remap_address(address).is_some() {
-                    self.data.prg_bank_1 = value & 0x1F;
-                }
+            0xA000..=0xAFFF => {
+                self.data.prg_bank_1 = value & 0x1F;
             }
             0xB000..=0xEFFF => {
-                if let Some(remapped) = self.data.variant.remap_address(address) {
-                    // $B000, $B001 => 0
-                    // $B002, $B003 => 1
-                    // $C000, $C001 => 2
-                    // $C002, $C003 => 3
-                    // $D000, $D001 => 4
-                    // $D002, $D003 => 5
-                    // $E000, $E001 => 6
-                    // $E002, $E003 => 7
-                    let chr_bank_index =
-                        2 * ((remapped - 0xB000) / 0x1000) + ((remapped & 0x02) >> 1);
-                    let existing_value = self.data.chr_banks[chr_bank_index as usize];
-                    if remapped & 0x01 == 0 {
-                        match self.data.variant {
-                            Variant::Single(SingleVariant::Vrc2a) => {
-                                // In VRC2a, everything is shifted right one
-                                self.data.chr_banks[chr_bank_index as usize] =
-                                    (existing_value & 0xFFF8) | u16::from((value & 0x0F) >> 1);
-                            }
-                            _ => {
-                                self.data.chr_banks[chr_bank_index as usize] =
-                                    (existing_value & 0xFFF0) | u16::from(value & 0x0F);
-                            }
+                let remapped = self.data.variant.remap_address(address);
+                // $B000, $B001 => 0
+                // $B002, $B003 => 1
+                // $C000, $C001 => 2
+                // $C002, $C003 => 3
+                // $D000, $D001 => 4
+                // $D002, $D003 => 5
+                // $E000, $E001 => 6
+                // $E002, $E003 => 7
+                let chr_bank_index = 2 * ((remapped - 0xB000) / 0x1000) + ((remapped & 0x02) >> 1);
+                let existing_value = self.data.chr_banks[chr_bank_index as usize];
+                if remapped & 0x01 == 0 {
+                    match self.data.variant {
+                        Variant::Single(SingleVariant::Vrc2a) => {
+                            // In VRC2a, everything is shifted right one
+                            self.data.chr_banks[chr_bank_index as usize] =
+                                (existing_value & 0xFFF8) | u16::from((value & 0x0F) >> 1);
                         }
-                    } else {
-                        match self.data.variant {
-                            Variant::Single(SingleVariant::Vrc2a) => {
-                                // In VRC2a, everything is shifted right one
-                                self.data.chr_banks[chr_bank_index as usize] =
-                                    (existing_value & 0xFF87) | u16::from((value & 0x0F) << 3);
-                            }
-                            _ => match self.data.variant.to_type() {
-                                Type::Vrc2 => {
-                                    self.data.chr_banks[chr_bank_index as usize] =
-                                        (existing_value & 0xFF0F) | u16::from((value & 0x0F) << 4);
-                                }
-                                Type::Vrc4 => {
-                                    self.data.chr_banks[chr_bank_index as usize] =
-                                        (existing_value & 0xFE0F) | u16::from((value & 0x1F) << 4);
-                                }
-                            },
+                        _ => {
+                            self.data.chr_banks[chr_bank_index as usize] =
+                                (existing_value & 0xFFF0) | u16::from(value & 0x0F);
                         }
+                    }
+                } else {
+                    match self.data.variant {
+                        Variant::Single(SingleVariant::Vrc2a) => {
+                            // In VRC2a, everything is shifted right one
+                            self.data.chr_banks[chr_bank_index as usize] =
+                                (existing_value & 0xFF87) | u16::from((value & 0x0F) << 3);
+                        }
+                        _ => match self.data.variant.to_type() {
+                            Type::Vrc2 => {
+                                self.data.chr_banks[chr_bank_index as usize] =
+                                    (existing_value & 0xFF0F) | u16::from((value & 0x0F) << 4);
+                            }
+                            Type::Vrc4 => {
+                                self.data.chr_banks[chr_bank_index as usize] =
+                                    (existing_value & 0xFE0F) | u16::from((value & 0x1F) << 4);
+                            }
+                        },
                     }
                 }
             }
-            0xF000..=0xF0FF => {
+            0xF000..=0xFFFF => {
                 if self.data.variant.to_type() == Type::Vrc4 {
                     match self.data.variant.remap_address(address) {
-                        Some(0xF000) => {
+                        0xF000 => {
                             self.data.irq.set_reload_value_low_4_bits(value & 0x0F);
                         }
-                        Some(0xF001) => {
+                        0xF001 => {
                             self.data.irq.set_reload_value_high_4_bits(value & 0x0F);
                         }
-                        Some(0xF002) => {
+                        0xF002 => {
                             self.data.irq.set_control(value);
                         }
-                        Some(0xF003) => {
+                        0xF003 => {
                             self.data.irq.acknowledge();
                         }
                         _ => {}
                     }
                 }
             }
-            _ => {}
         }
     }
 
