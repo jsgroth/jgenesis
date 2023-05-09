@@ -7,6 +7,7 @@ use serde::ser::{SerializeSeq, SerializeTuple};
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::Formatter;
 use std::io;
+use std::io::{BufReader, BufWriter};
 use std::marker::PhantomData;
 use thiserror::Error;
 use tinyvec::ArrayVec;
@@ -28,12 +29,43 @@ pub enum SaveStateError {
     },
 }
 
-pub fn save_state<W: io::Write>(state: &EmulationState, writer: W) -> Result<(), SaveStateError> {
-    Ok(bincode::serialize_into(writer, state)?)
+pub fn save_state<W>(
+    bus: &Bus,
+    cpu_state: &CpuState,
+    ppu_state: &PpuState,
+    apu_state: &ApuState,
+    writer: W,
+) -> Result<(), SaveStateError>
+where
+    W: io::Write,
+{
+    let mut writer = BufWriter::new(writer);
+
+    bincode::serialize_into(&mut writer, bus)?;
+    bincode::serialize_into(&mut writer, cpu_state)?;
+    bincode::serialize_into(&mut writer, ppu_state)?;
+    bincode::serialize_into(writer, apu_state)?;
+
+    Ok(())
 }
 
-pub fn load_state<R: io::Read>(reader: R) -> Result<EmulationState, SaveStateError> {
-    Ok(bincode::deserialize_from(reader)?)
+pub fn load_state<R>(reader: R) -> Result<EmulationState, SaveStateError>
+where
+    R: io::Read,
+{
+    let mut reader = BufReader::new(reader);
+
+    let bus = bincode::deserialize_from(&mut reader)?;
+    let cpu_state = bincode::deserialize_from(&mut reader)?;
+    let ppu_state = bincode::deserialize_from(&mut reader)?;
+    let apu_state = bincode::deserialize_from(reader)?;
+
+    Ok(EmulationState {
+        bus,
+        cpu_state,
+        ppu_state,
+        apu_state,
+    })
 }
 
 pub fn serialize_array<S, T, const N: usize>(

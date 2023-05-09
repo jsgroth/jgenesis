@@ -262,15 +262,17 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
     ///
     /// This method will return an error if it is unable to completely serialize and write state
     /// to the given writer.
-    pub fn save_state<W: io::Write>(&self, writer: W) -> Result<(), SaveStateError> {
-        let state = EmulationState {
-            bus: self.bus.clone(),
-            cpu_state: self.cpu_state.clone(),
-            ppu_state: self.ppu_state.clone(),
-            apu_state: self.apu_state.clone(),
-        };
-
-        serialize::save_state(&state, writer)
+    pub fn save_state<Writer>(&self, writer: Writer) -> Result<(), SaveStateError>
+    where
+        Writer: io::Write,
+    {
+        serialize::save_state(
+            &self.bus,
+            &self.cpu_state,
+            &self.ppu_state,
+            &self.apu_state,
+            writer,
+        )
     }
 
     /// Load emulation state from the specified reader.
@@ -283,7 +285,10 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
     /// This should not be considered a fatal error - for example, deserialization might fail if the
     /// internal state format has changed in an incompatible way due to code changes since the state
     /// was last saved.
-    pub fn load_state<Read: io::Read>(&mut self, reader: Read) -> Result<(), SaveStateError> {
+    pub fn load_state<Reader>(&mut self, reader: Reader) -> Result<(), SaveStateError>
+    where
+        Reader: io::Read,
+    {
         let EmulationState {
             mut bus,
             cpu_state,
