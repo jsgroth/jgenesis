@@ -46,6 +46,9 @@ where
 {
     let mut writer = BufWriter::new(writer);
 
+    // Annoying, but bincode doesn't support the equivalent of #[serde(skip)]
+    let bus = bus.clone_without_rom();
+
     bincode::encode_into_std_write(bus, &mut writer, BINCODE_CONFIG)?;
     bincode::encode_into_std_write(cpu_state, &mut writer, BINCODE_CONFIG)?;
     bincode::encode_into_std_write(ppu_state, &mut writer, BINCODE_CONFIG)?;

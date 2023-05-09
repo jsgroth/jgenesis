@@ -58,7 +58,18 @@ impl Cartridge {
         self.chr_ram[(address as usize) & (chr_ram_len - 1)] = value;
     }
 
-    fn move_unserializable_fields_from(&mut self, other: &mut Self) {
+    fn clone_without_rom(&self) -> Self {
+        Self {
+            prg_rom: vec![],
+            prg_ram: self.prg_ram.clone(),
+            has_ram_battery: self.has_ram_battery,
+            prg_ram_dirty_bit: self.prg_ram_dirty_bit,
+            chr_rom: vec![],
+            chr_ram: self.chr_ram.clone(),
+        }
+    }
+
+    fn move_unserialized_fields_from(&mut self, other: &mut Self) {
         self.prg_rom = mem::take(&mut other.prg_rom);
         self.chr_rom = mem::take(&mut other.chr_rom);
     }
@@ -200,9 +211,19 @@ impl Mapper {
         }
     }
 
-    pub(crate) fn move_unserializable_fields_from(&mut self, other: &mut Self) {
+    pub(crate) fn clone_without_rom(&self) -> Self {
+        match_each_variant!(
+            self,
+            mapper => :variant(MapperImpl {
+                cartridge: mapper.cartridge.clone_without_rom(),
+                data: mapper.data.clone(),
+            })
+        )
+    }
+
+    pub(crate) fn move_unserialized_fields_from(&mut self, other: &mut Self) {
         let other_cartridge = match_each_variant!(other, mapper => &mut mapper.cartridge);
-        match_each_variant!(self, mapper => mapper.cartridge.move_unserializable_fields_from(other_cartridge));
+        match_each_variant!(self, mapper => mapper.cartridge.move_unserialized_fields_from(other_cartridge));
     }
 }
 

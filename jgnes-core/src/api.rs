@@ -296,7 +296,7 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
             apu_state,
         } = serialize::load_state(reader)?;
 
-        bus.move_unserializable_fields_from(&mut self.bus);
+        bus.move_unserialized_fields_from(&mut self.bus);
 
         self.bus = bus;
         self.cpu_state = cpu_state;
