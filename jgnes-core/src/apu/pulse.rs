@@ -1,9 +1,8 @@
 use crate::apu::units::{Envelope, LengthCounter, LengthCounterChannel, PhaseTimer};
-use serde::{Deserialize, Serialize};
 
 type PulsePhaseTimer = PhaseTimer<8, 2, 11, true>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DutyCycle {
     OneEighth,
     OneFourth,
@@ -32,7 +31,7 @@ impl DutyCycle {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SweepNegateBehavior {
     OnesComplement,
     TwosComplement,
@@ -47,7 +46,7 @@ impl SweepNegateBehavior {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 struct PulseSweep {
     enabled: bool,
     divider: u8,
@@ -120,13 +119,7 @@ impl PulseSweep {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SweepStatus {
-    Enabled,
-    Disabled,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct PulseChannel {
     timer: PulsePhaseTimer,
     duty_cycle: DutyCycle,
@@ -134,6 +127,12 @@ pub struct PulseChannel {
     envelope: Envelope,
     sweep: PulseSweep,
     sweep_status: SweepStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SweepStatus {
+    Enabled,
+    Disabled,
 }
 
 impl PulseChannel {

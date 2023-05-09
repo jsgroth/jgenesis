@@ -4,9 +4,8 @@ use crate::bus::cartridge::mappers::{
     konami, BankSizeKb, ChrType, NametableMirroring, PpuMapResult,
 };
 use crate::bus::cartridge::{mappers, MapperImpl};
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Variant {
     Vrc6a,
     Vrc6b,
@@ -27,7 +26,7 @@ impl Variant {
 
 type Vrc6PulsePhaseTimer = PhaseTimer<16, 1, 12, false>;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 struct Vrc6PulseChannel {
     enabled: bool,
     timer: Vrc6PulsePhaseTimer,
@@ -86,7 +85,7 @@ impl Vrc6PulseChannel {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 struct SawtoothChannel {
     enabled: bool,
     accumulator: u8,
@@ -159,7 +158,7 @@ impl SawtoothChannel {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub(crate) struct Vrc6 {
     variant: Variant,
     prg_16kb_bank: u8,

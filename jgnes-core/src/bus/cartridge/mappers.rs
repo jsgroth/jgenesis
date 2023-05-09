@@ -7,7 +7,6 @@ mod nrom;
 mod sunsoft;
 
 use crate::bus::cartridge::Cartridge;
-use serde::{Deserialize, Serialize};
 
 pub(crate) use konami::{Vrc4, Vrc6, Vrc7};
 pub(crate) use mmc1::Mmc1;
@@ -18,7 +17,7 @@ pub(crate) use nrom::{Axrom, Cnrom, ColorDreams, Nrom, Uxrom};
 pub(crate) use sunsoft::Sunsoft;
 
 #[allow(clippy::upper_case_acronyms)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ChrType {
     ROM,
     RAM,
@@ -33,7 +32,7 @@ impl ChrType {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NametableMirroring {
     Horizontal,
     Vertical,
@@ -108,7 +107,7 @@ impl PpuMapResult {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BankSizeKb {
     One,
     Two,

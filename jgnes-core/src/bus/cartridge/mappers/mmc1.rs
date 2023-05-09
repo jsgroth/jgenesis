@@ -2,22 +2,21 @@ use crate::bus::cartridge::mappers::{
     BankSizeKb, ChrType, CpuMapResult, NametableMirroring, PpuMapResult,
 };
 use crate::bus::cartridge::MapperImpl;
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PrgBankingMode {
     Switch32Kb,
     Switch16KbFirstBankFixed,
     Switch16KbLastBankFixed,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ChrBankingMode {
     Single8KbBank,
     Two4KbBanks,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub(crate) struct Mmc1 {
     chr_type: ChrType,
     shift_register: u8,

@@ -1,8 +1,7 @@
 use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring, PpuMapResult};
 use crate::bus::cartridge::MapperImpl;
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub(crate) struct Nrom {
     chr_type: ChrType,
     nametable_mirroring: NametableMirroring,
@@ -49,14 +48,14 @@ impl MapperImpl<Nrom> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UxromVariant {
     Uxrom,
     Codemasters,
     FireHawk,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub(crate) struct Uxrom {
     variant: UxromVariant,
     prg_bank: u8,
@@ -157,7 +156,7 @@ impl MapperImpl<Uxrom> {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub(crate) struct Cnrom {
     chr_type: ChrType,
     chr_bank: u8,
@@ -216,7 +215,7 @@ impl MapperImpl<Cnrom> {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub(crate) struct Axrom {
     chr_type: ChrType,
     prg_bank: u8,
@@ -276,7 +275,7 @@ impl MapperImpl<Axrom> {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub(crate) struct ColorDreams {
     prg_bank: u8,
     chr_bank: u8,

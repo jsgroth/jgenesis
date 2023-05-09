@@ -1,5 +1,4 @@
 use crate::bus::{PpuBus, PpuTrackedRegister, PpuWriteToggle};
-use serde::{Deserialize, Serialize};
 use std::ops::RangeInclusive;
 
 pub const SCREEN_WIDTH: u16 = 256;
@@ -27,7 +26,7 @@ const PRE_RENDER_SCANLINE: u16 = 261;
 
 pub type FrameBuffer = [[u8; SCREEN_WIDTH as usize]; SCREEN_HEIGHT as usize];
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 struct InternalRegisters {
     vram_address: u16,
     temp_vram_address: u16,
@@ -64,7 +63,7 @@ impl InternalRegisters {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 struct BgBuffers {
     pattern_table_low: u16,
     pattern_table_high: u16,
@@ -106,7 +105,7 @@ impl BgBuffers {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 struct SpriteBuffers {
     y_positions: [u8; 8],
     x_positions: [u8; 8],
@@ -133,7 +132,7 @@ impl SpriteBuffers {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SpriteEvaluationState {
     ScanningOam {
         primary_oam_index: u8,
@@ -150,7 +149,7 @@ enum SpriteEvaluationState {
     Done,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 struct SpriteEvaluationData {
     secondary_oam: [u8; 32],
     sprites_found: u8,
@@ -213,12 +212,8 @@ struct SpriteData {
     attributes: u8,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct PpuState {
-    #[serde(
-        serialize_with = "crate::serialize::serialize_2d_array",
-        deserialize_with = "crate::serialize::deserialize_2d_array"
-    )]
     frame_buffer: FrameBuffer,
     registers: InternalRegisters,
     bg_buffers: BgBuffers,

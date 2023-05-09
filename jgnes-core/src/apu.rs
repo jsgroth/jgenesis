@@ -10,15 +10,14 @@ use crate::apu::pulse::{PulseChannel, SweepStatus};
 use crate::apu::triangle::TriangleChannel;
 use crate::bus::{CpuBus, IoRegister, IrqSource};
 use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FrameCounterMode {
     FourStep,
     FiveStep,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FrameCounterResetState {
     Joy2Updated,
     PendingReset,
@@ -26,7 +25,7 @@ enum FrameCounterResetState {
     None,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct FrameCounter {
     cpu_ticks: u16,
     mode: FrameCounterMode,
@@ -107,7 +106,7 @@ impl FrameCounter {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ApuState {
     channel_1: PulseChannel,
     channel_2: PulseChannel,

@@ -3,15 +3,14 @@ use crate::bus::cartridge::mappers::{
     konami, BankSizeKb, ChrType, NametableMirroring, PpuMapResult,
 };
 use crate::bus::cartridge::{mappers, MapperImpl};
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Variant {
     Vrc7a,
     Vrc7b,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub(crate) struct Vrc7 {
     variant: Variant,
     prg_bank_0: u8,

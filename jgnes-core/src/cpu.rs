@@ -1,18 +1,17 @@
 use crate::bus;
 use crate::bus::{CpuBus, PpuRegister};
 use crate::cpu::instructions::{Instruction, InstructionState};
-use serde::{Deserialize, Serialize};
 
 mod instructions;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatusReadContext {
     HardwareInterruptHandler,
     Brk,
     PushStack,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy)]
 pub struct StatusFlags {
     negative: bool,
     overflow: bool,
@@ -85,7 +84,7 @@ impl StatusFlags {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct CpuRegisters {
     pub accumulator: u8,
     pub x: u8,
@@ -112,7 +111,6 @@ impl CpuRegisters {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
 struct OamDmaState {
     cycles_remaining: u16,
     source_high_byte: u8,
@@ -120,7 +118,6 @@ struct OamDmaState {
     pending_interrupt: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
 enum State {
     InstructionStart { pending_interrupt: bool },
     Executing(InstructionState),
@@ -128,7 +125,6 @@ enum State {
     OamDma(OamDmaState),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CpuState {
     registers: CpuRegisters,
     state: State,

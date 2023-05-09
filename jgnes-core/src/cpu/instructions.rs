@@ -4,10 +4,9 @@ mod tests;
 use crate::bus;
 use crate::bus::CpuBus;
 use crate::cpu::{CpuRegisters, StatusFlags, StatusReadContext};
-use serde::{Deserialize, Serialize};
 use tinyvec::ArrayVec;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AddressingMode {
     Accumulator,
     Immediate,
@@ -22,7 +21,7 @@ pub enum AddressingMode {
     IndirectY,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CpuRegister {
     A,
     X,
@@ -30,13 +29,13 @@ pub enum CpuRegister {
     S,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PushableRegister {
     A,
     P,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReadInstruction {
     // ADC
     AddWithCarry(AddressingMode),
@@ -106,7 +105,7 @@ impl ReadInstruction {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModifyInstruction {
     // ASL
     ShiftLeft(AddressingMode),
@@ -186,7 +185,7 @@ impl ModifyInstruction {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegistersInstruction {
     // CLC
     ClearCarryFlag,
@@ -267,7 +266,7 @@ impl RegistersInstruction {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BranchCondition {
     // BCC
     CarryClear,
@@ -304,12 +303,8 @@ impl BranchCondition {
 
 type OpVec = ArrayVec<[CycleOp; 7]>;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct InstructionState {
-    #[serde(
-        serialize_with = "crate::serialize::serialize_array_vec",
-        deserialize_with = "crate::serialize::deserialize_array_vec"
-    )]
     pub ops: OpVec,
     pub op_index: u8,
     pub operand_first_byte: u8,
@@ -335,7 +330,7 @@ impl InstructionState {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Index {
     X,
     Y,
@@ -350,7 +345,7 @@ impl Index {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CycleOp {
     FetchOperand1,
     FetchOperand2,

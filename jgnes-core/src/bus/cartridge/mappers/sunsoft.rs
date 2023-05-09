@@ -2,16 +2,15 @@ use crate::bus::cartridge::mappers::{
     BankSizeKb, ChrType, CpuMapResult, NametableMirroring, PpuMapResult,
 };
 use crate::bus::cartridge::MapperImpl;
-use serde::{Deserialize, Serialize};
 
 #[allow(clippy::upper_case_acronyms)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PrgType {
     ROM,
     RAM,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub(crate) struct Sunsoft {
     prg_banks: [u8; 4],
     prg_bank_0_type: PrgType,

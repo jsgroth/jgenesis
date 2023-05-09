@@ -3,15 +3,14 @@ use crate::bus::cartridge::mappers::{
     konami, BankSizeKb, ChrType, NametableMirroring, PpuMapResult,
 };
 use crate::bus::cartridge::{mappers, MapperImpl};
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Type {
     Vrc2,
     Vrc4,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SingleVariant {
     Vrc2a,
     Vrc2b,
@@ -76,7 +75,7 @@ impl SingleVariant {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Variant {
     Single(SingleVariant),
     Multi(SingleVariant, SingleVariant),
@@ -106,13 +105,13 @@ impl Variant {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PrgMode {
     Mode0,
     Mode1,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub(crate) struct Vrc4 {
     variant: Variant,
     prg_mode: PrgMode,

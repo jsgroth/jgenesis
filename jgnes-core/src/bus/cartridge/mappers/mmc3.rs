@@ -1,20 +1,19 @@
 use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring};
 use crate::bus::cartridge::MapperImpl;
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PrgMode {
     Mode0,
     Mode1,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ChrMode {
     Mode0,
     Mode1,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 struct BankMapping {
     prg_mode: PrgMode,
     chr_mode: ChrMode,
@@ -85,14 +84,14 @@ impl BankMapping {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BankUpdate {
     PrgBank0,
     PrgBank1,
     ChrBank(u8),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Variant {
     Mmc3,
     Mmc6,
@@ -109,7 +108,7 @@ impl Variant {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RamMode {
     Mmc3Enabled,
     Mmc3WritesDisabled,
@@ -160,19 +159,13 @@ impl RamMode {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 enum Mmc3NametableMirroring {
     Standard(NametableMirroring),
-    FourScreenVram {
-        #[serde(
-            serialize_with = "crate::serialize::serialize_array",
-            deserialize_with = "crate::serialize::deserialize_boxed_array"
-        )]
-        external_vram: Box<[u8; 4096]>,
-    },
+    FourScreenVram { external_vram: Box<[u8; 4096]> },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub(crate) struct Mmc3 {
     variant: Variant,
     chr_type: ChrType,

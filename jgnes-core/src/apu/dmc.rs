@@ -1,11 +1,10 @@
 use crate::bus::CpuBus;
-use serde::{Deserialize, Serialize};
 
 const DMC_PERIOD_LOOKUP_TABLE: [u16; 16] = [
     428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54,
 ];
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 struct DmcOutputUnit {
     output_level: u8,
     shift_register: u8,
@@ -57,7 +56,7 @@ impl DmcOutputUnit {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct DeltaModulationChannel {
     enabled: bool,
     timer_counter: u16,
