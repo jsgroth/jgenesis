@@ -1,8 +1,9 @@
 use crate::apu::units::{LengthCounter, LengthCounterChannel, PhaseTimer};
+use bincode::{Decode, Encode};
 
 type TrianglePhaseTimer = PhaseTimer<32, 1, 11, false>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 struct LinearCounter {
     counter: u8,
     reload_value: u8,
@@ -47,7 +48,7 @@ const TRIANGLE_WAVEFORM: [u8; 32] = [
     13, 14, 15,
 ];
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct TriangleChannel {
     timer: TrianglePhaseTimer,
     linear_counter: LinearCounter,

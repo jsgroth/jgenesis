@@ -2,6 +2,8 @@ pub mod cartridge;
 
 use crate::bus::cartridge::Mapper;
 use crate::input::{JoypadState, LatchedJoypadState};
+use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 use tinyvec::ArrayVec;
 
 pub const CPU_RAM_START: u16 = 0x0000;
@@ -25,24 +27,10 @@ pub const CPU_NMI_VECTOR: u16 = 0xFFFA;
 pub const CPU_RESET_VECTOR: u16 = 0xFFFC;
 pub const CPU_IRQ_VECTOR: u16 = 0xFFFE;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum WriteAddress {
-    Cpu(u16),
-}
-
-#[derive(Debug, Clone, Copy)]
-struct PendingWrite {
-    address: WriteAddress,
+#[derive(Debug, Clone, Copy, Default, Encode, Decode, Serialize, Deserialize)]
+struct PendingCpuWrite {
+    address: u16,
     value: u8,
-}
-
-impl Default for PendingWrite {
-    fn default() -> Self {
-        Self {
-            address: WriteAddress::Cpu(0),
-            value: 0,
-        }
-    }
 }
 
 #[allow(clippy::upper_case_acronyms)]
@@ -87,7 +75,7 @@ impl PpuRegister {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum PpuWriteToggle {
     First,
     Second,
@@ -103,7 +91,7 @@ impl PpuWriteToggle {
 }
 
 #[allow(clippy::upper_case_acronyms)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum PpuTrackedRegister {
     PPUCTRL,
     PPUSCROLL,
@@ -111,6 +99,7 @@ pub enum PpuTrackedRegister {
     PPUDATA,
 }
 
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct PpuRegisters {
     ppu_ctrl: u8,
     ppu_mask: u8,
@@ -269,7 +258,7 @@ impl PpuRegisters {
 
 #[allow(clippy::upper_case_acronyms)]
 #[allow(non_camel_case_types)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
 pub enum IoRegister {
     SQ1_VOL,
     SQ1_SWEEP,
@@ -359,9 +348,11 @@ impl IoRegister {
     }
 }
 
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct IoRegisters {
     data: [u8; 0x18],
     dma_dirty: bool,
+    #[bincode(with_serde)]
     dirty_registers: ArrayVec<[IoRegister; 5]>,
     snd_chn_read: bool,
     p1_joypad_state: JoypadState,
@@ -459,13 +450,13 @@ impl IoRegisters {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum InterruptLine {
     High,
     Low,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum IrqSource {
     ApuDmc,
     ApuFrameCounter,
@@ -482,14 +473,14 @@ impl IrqSource {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum IrqStatus {
     None,
     Pending,
     Triggered,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct InterruptLines {
     nmi_line: InterruptLine,
     next_nmi_line: InterruptLine,
@@ -571,6 +562,7 @@ impl InterruptLines {
     }
 }
 
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct Bus {
     mapper: Mapper,
     cpu_internal_ram: [u8; 2048],
@@ -581,7 +573,8 @@ pub struct Bus {
     ppu_oam: [u8; 256],
     ppu_bus_address: u16,
     interrupt_lines: InterruptLines,
-    pending_writes: ArrayVec<[PendingWrite; 5]>,
+    #[bincode(with_serde)]
+    pending_writes: ArrayVec<[PendingCpuWrite; 5]>,
 }
 
 impl Bus {
@@ -618,13 +611,9 @@ impl Bus {
     }
 
     pub fn tick(&mut self) {
-        let writes: ArrayVec<[PendingWrite; 2]> = self.pending_writes.drain(..).collect();
+        let writes: ArrayVec<[PendingCpuWrite; 2]> = self.pending_writes.drain(..).collect();
         for write in writes {
-            match write.address {
-                WriteAddress::Cpu(address) => {
-                    self.cpu().apply_write(address, write.value);
-                }
-            }
+            self.cpu().apply_write(write.address, write.value);
         }
 
         self.ppu_registers.tick(&mut self.interrupt_lines);
@@ -650,6 +639,11 @@ impl Bus {
 
     pub(crate) fn mapper_mut(&mut self) -> &mut Mapper {
         &mut self.mapper
+    }
+
+    pub(crate) fn move_unserializable_fields_from(&mut self, other: &mut Self) {
+        self.mapper
+            .move_unserializable_fields_from(&mut other.mapper);
     }
 }
 
@@ -699,10 +693,9 @@ impl<'a> CpuBus<'a> {
     }
 
     pub fn write_address(&mut self, address: u16, value: u8) {
-        self.0.pending_writes.push(PendingWrite {
-            address: WriteAddress::Cpu(address),
-            value,
-        });
+        self.0
+            .pending_writes
+            .push(PendingCpuWrite { address, value });
     }
 
     pub fn interrupt_lines(&mut self) -> &mut InterruptLines {

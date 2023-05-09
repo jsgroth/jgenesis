@@ -1,19 +1,20 @@
 use crate::bus::cartridge::mappers::{BankSizeKb, CpuMapResult, NametableMirroring};
 use crate::bus::cartridge::MapperImpl;
+use bincode::{Decode, Encode};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum ChrBankLatch {
     FD,
     FE,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum Variant {
     Mmc2,
     Mmc4,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub(crate) struct Mmc2 {
     variant: Variant,
     prg_bank: u8,

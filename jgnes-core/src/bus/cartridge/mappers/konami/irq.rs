@@ -1,25 +1,18 @@
-use std::array;
-use std::iter::{Cycle, Peekable};
+use bincode::{Decode, Encode};
 
 const PRESCALER_SEQUENCE: [u8; 3] = [114, 114, 113];
 
-type PrescalerIter = Peekable<Cycle<array::IntoIter<u8, 3>>>;
-
-fn prescaler_iter() -> PrescalerIter {
-    PRESCALER_SEQUENCE.into_iter().cycle().peekable()
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum IrqMode {
     Scanline,
     Cycle,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub(crate) struct VrcIrqCounter {
     irq_counter: u8,
     prescaler_counter: u8,
-    prescaler_iter: PrescalerIter,
+    prescaler_seq_index: usize,
     enabled: bool,
     pending: bool,
     mode: IrqMode,
@@ -32,7 +25,7 @@ impl VrcIrqCounter {
         Self {
             irq_counter: 0,
             prescaler_counter: 0,
-            prescaler_iter: prescaler_iter(),
+            prescaler_seq_index: 0,
             enabled: false,
             pending: false,
             mode: IrqMode::Scanline,
@@ -88,11 +81,12 @@ impl VrcIrqCounter {
             IrqMode::Scanline => {
                 // Scanline mode uses a prescaler that approximates a 113.666~ divider
                 self.prescaler_counter += 1;
-                if self.prescaler_counter == *self.prescaler_iter.peek().unwrap() {
+                if self.prescaler_counter == PRESCALER_SEQUENCE[self.prescaler_seq_index] {
                     self.clock_irq();
 
                     self.prescaler_counter = 0;
-                    self.prescaler_iter.next();
+                    self.prescaler_seq_index =
+                        (self.prescaler_seq_index + 1) % PRESCALER_SEQUENCE.len();
                 }
             }
             IrqMode::Cycle => {
@@ -117,6 +111,6 @@ impl VrcIrqCounter {
 
     fn reset_prescaler(&mut self) {
         self.prescaler_counter = 0;
-        self.prescaler_iter = prescaler_iter();
+        self.prescaler_seq_index = 0;
     }
 }

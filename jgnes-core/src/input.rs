@@ -1,4 +1,6 @@
-#[derive(Debug, Clone, Copy, Default)]
+use bincode::{Decode, Encode};
+
+#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
 pub struct JoypadState {
     pub up: bool,
     pub down: bool,
@@ -29,7 +31,7 @@ impl JoypadState {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Encode, Decode)]
 pub struct LatchedJoypadState(u8);
 
 impl LatchedJoypadState {

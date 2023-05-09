@@ -3,8 +3,9 @@ use crate::apu::pulse::{PulseChannel, SweepStatus};
 use crate::apu::FrameCounter;
 use crate::bus::cartridge::mappers::{BankSizeKb, CpuMapResult};
 use crate::bus::cartridge::{Cartridge, MapperImpl};
+use bincode::{Decode, Encode};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum PrgBankingMode {
     Mode0,
     Mode1,
@@ -90,7 +91,7 @@ impl PrgBankingMode {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 struct ChrMapper {
     bank_size: BankSizeKb,
     bank_registers: [u8; 12],
@@ -215,7 +216,7 @@ impl ChrMapper {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum ExtendedRamMode {
     Nametable,
     NametableExtendedAttributes,
@@ -223,7 +224,7 @@ enum ExtendedRamMode {
     ReadOnly,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum NametableMapping {
     VramPage0,
     VramPage1,
@@ -243,13 +244,13 @@ impl NametableMapping {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum VerticalSplitMode {
     Left,
     Right,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 struct VerticalSplit {
     enabled: bool,
     mode: VerticalSplitMode,
@@ -285,13 +286,13 @@ impl VerticalSplit {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum TileType {
     Background,
     Sprite,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 struct ScanlineCounter {
     scanline: u8,
     scanline_tile_byte_fetches: u8,
@@ -423,7 +424,7 @@ impl ScanlineCounter {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 struct ExtendedAttributesState {
     last_nametable_addr: u16,
 }
@@ -454,7 +455,7 @@ impl ExtendedAttributesState {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Encode, Decode)]
 struct MultiplierUnit {
     operand_l: u16,
     operand_r: u16,
@@ -473,7 +474,7 @@ impl MultiplierUnit {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum PcmMode {
     Read,
     Write,
@@ -488,7 +489,7 @@ impl PcmMode {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 struct PcmChannel {
     output_level: u8,
     mode: PcmMode,
@@ -546,7 +547,7 @@ impl PcmChannel {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub(crate) struct Mmc5 {
     extended_ram: [u8; 1024],
     extended_ram_mode: ExtendedRamMode,

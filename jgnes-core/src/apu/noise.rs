@@ -1,12 +1,13 @@
 use crate::apu::units::{Envelope, LengthCounter, LengthCounterChannel};
+use bincode::{Decode, Encode};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum LfsrMode {
     Bit1Feedback,
     Bit6Feedback,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 struct LinearFeedbackShiftRegister {
     register: u16,
     mode: LfsrMode,
@@ -38,7 +39,7 @@ const NOISE_PERIOD_LOOKUP_TABLE: [u16; 16] = [
     4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
 ];
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct NoiseChannel {
     lfsr: LinearFeedbackShiftRegister,
     timer_counter: u16,

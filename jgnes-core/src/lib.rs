@@ -6,6 +6,7 @@ mod bus;
 mod cpu;
 mod input;
 mod ppu;
+mod serialize;
 
 pub use api::{
     AudioPlayer, ColorEmphasis, EmulationError, EmulationResult, Emulator, InputPoller, Renderer,
