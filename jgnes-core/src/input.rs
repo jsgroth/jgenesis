@@ -1,4 +1,6 @@
-#[derive(Debug, Clone, Copy, Default)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct JoypadState {
     pub up: bool,
     pub down: bool,
@@ -29,7 +31,7 @@ impl JoypadState {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct LatchedJoypadState(u8);
 
 impl LatchedJoypadState {

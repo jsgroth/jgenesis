@@ -3,8 +3,9 @@ use crate::apu::pulse::{PulseChannel, SweepStatus};
 use crate::apu::FrameCounter;
 use crate::bus::cartridge::mappers::{BankSizeKb, CpuMapResult};
 use crate::bus::cartridge::{Cartridge, MapperImpl};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum PrgBankingMode {
     Mode0,
     Mode1,
@@ -90,7 +91,7 @@ impl PrgBankingMode {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ChrMapper {
     bank_size: BankSizeKb,
     bank_registers: [u8; 12],
@@ -215,7 +216,7 @@ impl ChrMapper {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum ExtendedRamMode {
     Nametable,
     NametableExtendedAttributes,
@@ -223,8 +224,9 @@ enum ExtendedRamMode {
     ReadOnly,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 enum NametableMapping {
+    #[default]
     VramPage0,
     VramPage1,
     ExtendedRam,
@@ -243,13 +245,13 @@ impl NametableMapping {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum VerticalSplitMode {
     Left,
     Right,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct VerticalSplit {
     enabled: bool,
     mode: VerticalSplitMode,
@@ -285,13 +287,13 @@ impl VerticalSplit {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum TileType {
     Background,
     Sprite,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ScanlineCounter {
     scanline: u8,
     scanline_tile_byte_fetches: u8,
@@ -423,7 +425,7 @@ impl ScanlineCounter {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ExtendedAttributesState {
     last_nametable_addr: u16,
 }
@@ -454,7 +456,7 @@ impl ExtendedAttributesState {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 struct MultiplierUnit {
     operand_l: u16,
     operand_r: u16,
@@ -473,7 +475,7 @@ impl MultiplierUnit {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum PcmMode {
     Read,
     Write,
@@ -488,7 +490,7 @@ impl PcmMode {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct PcmChannel {
     output_level: u8,
     mode: PcmMode,
@@ -546,8 +548,12 @@ impl PcmChannel {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Mmc5 {
+    #[serde(
+        serialize_with = "crate::serialize::serialize_array",
+        deserialize_with = "crate::serialize::deserialize_array"
+    )]
     extended_ram: [u8; 1024],
     extended_ram_mode: ExtendedRamMode,
     prg_banking_mode: PrgBankingMode,

@@ -4,9 +4,11 @@ use crate::bus::{cartridge, Bus, PpuBus};
 use crate::cpu::{CpuRegisters, CpuState};
 use crate::input::JoypadState;
 use crate::ppu::{FrameBuffer, PpuState};
-use crate::{apu, cpu, ppu};
+use crate::serialize::EmulationState;
+use crate::{apu, cpu, ppu, serialize, SaveStateError};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::io;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ColorEmphasis {
@@ -252,6 +254,51 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
 
     pub fn get_renderer_mut(&mut self) -> &mut R {
         &mut self.renderer
+    }
+
+    /// Save current emulation state to the given writer.
+    ///
+    /// # Errors
+    ///
+    /// This method will return an error if it is unable to completely serialize and write state
+    /// to the given writer.
+    pub fn save_state<W: io::Write>(&self, writer: W) -> Result<(), SaveStateError> {
+        let state = EmulationState {
+            bus: self.bus.clone(),
+            cpu_state: self.cpu_state.clone(),
+            ppu_state: self.ppu_state.clone(),
+            apu_state: self.apu_state.clone(),
+        };
+
+        serialize::save_state(&state, writer)
+    }
+
+    /// Load emulation state from the specified reader.
+    ///
+    /// # Errors
+    ///
+    /// This method will return an error if it is unable to completely load or deserialize state
+    /// from the given reader.
+    ///
+    /// This should not be considered a fatal error - for example, deserialization might fail if the
+    /// internal state format has changed in an incompatible way due to code changes since the state
+    /// was last saved.
+    pub fn load_state<Read: io::Read>(&mut self, reader: Read) -> Result<(), SaveStateError> {
+        let EmulationState {
+            mut bus,
+            cpu_state,
+            ppu_state,
+            apu_state,
+        } = serialize::load_state(reader)?;
+
+        bus.move_unserializable_fields_from(&mut self.bus);
+
+        self.bus = bus;
+        self.cpu_state = cpu_state;
+        self.ppu_state = ppu_state;
+        self.apu_state = apu_state;
+
+        Ok(())
     }
 }
 

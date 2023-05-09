@@ -1,9 +1,11 @@
+use serde::{Deserialize, Serialize};
+
 const LENGTH_COUNTER_LOOKUP_TABLE: [u8; 32] = [
     10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20, 96, 22,
     192, 24, 72, 26, 16, 28, 32, 30,
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LengthCounterChannel {
     Pulse1,
     Pulse2,
@@ -22,7 +24,7 @@ impl LengthCounterChannel {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LengthCounter {
     channel: LengthCounterChannel,
     pub counter: u8,
@@ -79,7 +81,7 @@ impl LengthCounter {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Envelope {
     divider: u8,
     divider_period: u8,
@@ -139,7 +141,7 @@ impl Envelope {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PhaseTimer<
     const MAX_PHASE: u8,
     const CPU_TICKS_PER_CLOCK: u8,

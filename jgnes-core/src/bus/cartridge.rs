@@ -5,18 +5,21 @@ use crate::bus::cartridge::mappers::{
     Uxrom, Vrc4, Vrc6, Vrc7,
 };
 use jgnes_proc_macros::MatchEachVariantMacro;
-use std::io;
+use serde::{Deserialize, Serialize};
+use std::{io, mem};
 use thiserror::Error;
 
 #[cfg(test)]
 pub(crate) use mappers::new_mmc1;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Cartridge {
+    #[serde(skip)]
     prg_rom: Vec<u8>,
     prg_ram: Vec<u8>,
     has_ram_battery: bool,
     prg_ram_dirty_bit: bool,
+    #[serde(skip)]
     chr_rom: Vec<u8>,
     chr_ram: Vec<u8>,
 }
@@ -56,16 +59,21 @@ impl Cartridge {
         let chr_ram_len = self.chr_ram.len();
         self.chr_ram[(address as usize) & (chr_ram_len - 1)] = value;
     }
+
+    fn move_unserializable_fields_from(&mut self, other: &mut Self) {
+        self.prg_rom = mem::take(&mut other.prg_rom);
+        self.chr_rom = mem::take(&mut other.chr_rom);
+    }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct MapperImpl<MapperData> {
     cartridge: Cartridge,
     data: MapperData,
 }
 
 #[allow(clippy::large_enum_variant)]
-#[derive(Debug, Clone, MatchEachVariantMacro)]
+#[derive(Debug, Clone, Serialize, Deserialize, MatchEachVariantMacro)]
 pub(crate) enum Mapper {
     Axrom(MapperImpl<Axrom>),
     Cnrom(MapperImpl<Cnrom>),
@@ -192,6 +200,11 @@ impl Mapper {
             Self::Vrc6(vrc6) => vrc6.sample_audio(mixed_apu_sample),
             _ => mixed_apu_sample,
         }
+    }
+
+    pub(crate) fn move_unserializable_fields_from(&mut self, other: &mut Self) {
+        let other_cartridge = match_each_variant!(other, mapper => &mut mapper.cartridge);
+        match_each_variant!(self, mapper => mapper.cartridge.move_unserializable_fields_from(other_cartridge));
     }
 }
 

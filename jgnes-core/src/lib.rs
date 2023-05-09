@@ -6,6 +6,7 @@ mod bus;
 mod cpu;
 mod input;
 mod ppu;
+mod serialize;
 
 pub use api::{
     AudioPlayer, ColorEmphasis, EmulationError, EmulationResult, Emulator, InputPoller, Renderer,
@@ -13,3 +14,4 @@ pub use api::{
 };
 pub use input::JoypadState;
 pub use ppu::{FrameBuffer, SCREEN_HEIGHT, SCREEN_WIDTH, VISIBLE_SCREEN_HEIGHT};
+pub use serialize::SaveStateError;
