@@ -573,8 +573,7 @@ pub struct Bus {
     ppu_oam: [u8; 256],
     ppu_bus_address: u16,
     interrupt_lines: InterruptLines,
-    #[bincode(with_serde)]
-    pending_writes: ArrayVec<[PendingCpuWrite; 5]>,
+    pending_write: Option<PendingCpuWrite>,
 }
 
 impl Bus {
@@ -590,7 +589,7 @@ impl Bus {
             ppu_oam: [0; 256],
             ppu_bus_address: 0,
             interrupt_lines: InterruptLines::new(),
-            pending_writes: ArrayVec::new(),
+            pending_write: None,
         }
     }
 
@@ -611,8 +610,7 @@ impl Bus {
     }
 
     pub fn tick(&mut self) {
-        let writes: ArrayVec<[PendingCpuWrite; 2]> = self.pending_writes.drain(..).collect();
-        for write in writes {
+        if let Some(write) = self.pending_write.take() {
             self.cpu().apply_write(write.address, write.value);
         }
 
@@ -652,7 +650,7 @@ impl Bus {
             ppu_oam: self.ppu_oam,
             ppu_bus_address: self.ppu_bus_address,
             interrupt_lines: self.interrupt_lines.clone(),
-            pending_writes: self.pending_writes,
+            pending_write: self.pending_write,
         }
     }
 
@@ -707,9 +705,14 @@ impl<'a> CpuBus<'a> {
     }
 
     pub fn write_address(&mut self, address: u16, value: u8) {
-        self.0
-            .pending_writes
-            .push(PendingCpuWrite { address, value });
+        if self
+            .0
+            .pending_write
+            .replace(PendingCpuWrite { address, value })
+            .is_some()
+        {
+            panic!("Attempted to write twice in the same cycle");
+        }
     }
 
     pub fn interrupt_lines(&mut self) -> &mut InterruptLines {
