@@ -1,5 +1,6 @@
 use crate::bus::cartridge::mappers::{BankSizeKb, CpuMapResult, NametableMirroring};
 use crate::bus::cartridge::MapperImpl;
+use crate::num::GetBit;
 use bincode::{Decode, Encode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -139,7 +140,7 @@ impl MapperImpl<Mmc2> {
                 self.data.chr_1_fe_bank = value & 0x1F;
             }
             0xF000..=0xFFFF => {
-                self.data.nametable_mirroring = if value & 0x01 != 0 {
+                self.data.nametable_mirroring = if value.bit(0) {
                     NametableMirroring::Horizontal
                 } else {
                     NametableMirroring::Vertical

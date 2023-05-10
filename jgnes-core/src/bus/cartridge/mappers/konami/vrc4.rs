@@ -4,6 +4,7 @@ use crate::bus::cartridge::mappers::{
     konami, BankSizeKb, ChrType, NametableMirroring, PpuMapResult,
 };
 use crate::bus::cartridge::MapperImpl;
+use crate::num::GetBit;
 use bincode::{Decode, Encode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,29 +27,29 @@ enum SingleVariant {
 }
 
 impl SingleVariant {
-    fn a0(self) -> u16 {
+    fn a0(self, address: u16) -> bool {
         match self {
-            Self::Vrc2b | Self::Vrc4f => 0x01,
-            Self::Vrc2a | Self::Vrc2c | Self::Vrc4a | Self::Vrc4b => 0x02,
-            Self::Vrc4c => 0x40,
-            Self::Vrc4d => 0x08,
-            Self::Vrc4e => 0x04,
+            Self::Vrc2b | Self::Vrc4f => address.bit(0),
+            Self::Vrc2a | Self::Vrc2c | Self::Vrc4a | Self::Vrc4b => address.bit(1),
+            Self::Vrc4c => address.bit(6),
+            Self::Vrc4d => address.bit(3),
+            Self::Vrc4e => address.bit(2),
         }
     }
 
-    fn a1(self) -> u16 {
+    fn a1(self, address: u16) -> bool {
         match self {
-            Self::Vrc2b | Self::Vrc4f => 0x02,
-            Self::Vrc2a | Self::Vrc2c | Self::Vrc4b => 0x01,
-            Self::Vrc4a | Self::Vrc4d => 0x04,
-            Self::Vrc4c => 0x80,
-            Self::Vrc4e => 0x08,
+            Self::Vrc2b | Self::Vrc4f => address.bit(1),
+            Self::Vrc2a | Self::Vrc2c | Self::Vrc4b => address.bit(0),
+            Self::Vrc4a | Self::Vrc4d => address.bit(2),
+            Self::Vrc4c => address.bit(7),
+            Self::Vrc4e => address.bit(3),
         }
     }
 
     fn remap_address(self, address: u16) -> Option<u16> {
-        let a0 = address & self.a0() != 0;
-        let a1 = address & self.a1() != 0;
+        let a0 = self.a0(address);
+        let a1 = self.a1(address);
 
         (a0 || a1).then_some((address & 0xFF00) | (u16::from(a1) << 1) | u16::from(a0))
     }
@@ -259,10 +260,10 @@ impl MapperImpl<Vrc4> {
                 let remapped = self.data.variant.remap_address(address) & 0x9003;
                 match (self.data.variant.to_type(), remapped) {
                     (Type::Vrc2, 0x9000..=0x9003) => {
-                        self.data.nametable_mirroring = if value & 0x01 == 0 {
-                            NametableMirroring::Vertical
-                        } else {
+                        self.data.nametable_mirroring = if value.bit(0) {
                             NametableMirroring::Horizontal
+                        } else {
+                            NametableMirroring::Vertical
                         };
                     }
                     (Type::Vrc4, 0x9000) => {
@@ -275,11 +276,11 @@ impl MapperImpl<Vrc4> {
                         };
                     }
                     (Type::Vrc4, 0x9002) => {
-                        self.data.ram_enabled = value & 0x01 != 0;
-                        self.data.prg_mode = if value & 0x02 == 0 {
-                            PrgMode::Mode0
-                        } else {
+                        self.data.ram_enabled = value.bit(0);
+                        self.data.prg_mode = if value.bit(1) {
                             PrgMode::Mode1
+                        } else {
+                            PrgMode::Mode0
                         };
                     }
                     _ => {}
@@ -300,7 +301,7 @@ impl MapperImpl<Vrc4> {
                 // $E002, $E003 => 7
                 let chr_bank_index = 2 * ((remapped - 0xB000) / 0x1000) + ((remapped & 0x02) >> 1);
                 let existing_value = self.data.chr_banks[chr_bank_index as usize];
-                if remapped & 0x01 == 0 {
+                if !remapped.bit(0) {
                     match self.data.variant {
                         Variant::Single(SingleVariant::Vrc2a) => {
                             // In VRC2a, everything is shifted right one

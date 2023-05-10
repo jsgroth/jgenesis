@@ -1,6 +1,7 @@
 use crate::bus;
 use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring, PpuMapResult};
 use crate::bus::cartridge::MapperImpl;
+use crate::num::GetBit;
 use bincode::{Decode, Encode};
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -118,7 +119,7 @@ impl MapperImpl<Uxrom> {
                 self.data.prg_bank = value;
             }
             (UxromVariant::FireHawk, 0x8000..=0x9FFF) => {
-                self.data.nametable_mirroring = if value & 0x10 != 0 {
+                self.data.nametable_mirroring = if value.bit(4) {
                     NametableMirroring::SingleScreenBank1
                 } else {
                     NametableMirroring::SingleScreenBank0
@@ -250,7 +251,7 @@ impl MapperImpl<Axrom> {
         }
 
         self.data.prg_bank = value & 0x07;
-        self.data.nametable_mirroring = if value & 0x10 != 0 {
+        self.data.nametable_mirroring = if value.bit(4) {
             NametableMirroring::SingleScreenBank1
         } else {
             NametableMirroring::SingleScreenBank0

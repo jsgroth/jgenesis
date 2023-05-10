@@ -12,6 +12,7 @@ use jgnes_proc_macros::MatchEachVariantMacro;
 use std::{io, mem};
 use thiserror::Error;
 
+use crate::num::GetBit;
 #[cfg(test)]
 pub(crate) use mappers::new_mmc1;
 
@@ -308,7 +309,7 @@ impl INesHeader {
         let prg_rom_size = 16 * 1024 * ((u32::from(header[9] & 0x0F) << 8) | u32::from(header[4]));
         let chr_rom_size = 8 * 1024 * ((u32::from(header[9] & 0xF0) << 4) | u32::from(header[5]));
 
-        let has_trainer = header[6] & 0x04 != 0;
+        let has_trainer = header[6].bit(2);
 
         let mapper_number = u16::from((header[7] & 0xF0) | ((header[6] & 0xF0) >> 4));
 
@@ -318,16 +319,15 @@ impl INesHeader {
             ChrType::ROM
         };
 
-        let nametable_mirroring = if header[6] & 0x01 != 0 {
+        let nametable_mirroring = if header[6].bit(0) {
             NametableMirroring::Vertical
         } else {
             NametableMirroring::Horizontal
         };
 
-        let has_four_screen_vram = header[6] & 0x08 != 0;
+        let has_four_screen_vram = header[6].bit(3);
 
-        // TODO make persistent save files work
-        let has_battery = header[6] & 0x02 != 0;
+        let has_battery = header[6].bit(1);
 
         let format = if header[7] & 0x0C == 0x08 {
             FileFormat::Nes2Point0

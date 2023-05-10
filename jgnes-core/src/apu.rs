@@ -9,6 +9,7 @@ use crate::apu::noise::NoiseChannel;
 use crate::apu::pulse::{PulseChannel, SweepStatus};
 use crate::apu::triangle::TriangleChannel;
 use crate::bus::{CpuBus, IoRegister, IrqSource};
+use crate::num::GetBit;
 use bincode::{Decode, Encode};
 use once_cell::sync::Lazy;
 use std::iter;
@@ -46,12 +47,12 @@ impl FrameCounter {
     }
 
     fn process_joy2_update(&mut self, joy2_value: u8) {
-        self.mode = if joy2_value & 0x80 != 0 {
+        self.mode = if joy2_value.bit(7) {
             FrameCounterMode::FiveStep
         } else {
             FrameCounterMode::FourStep
         };
-        self.interrupt_inhibit_flag = joy2_value & 0x40 != 0;
+        self.interrupt_inhibit_flag = joy2_value.bit(6);
 
         self.reset_state = FrameCounterResetState::Joy2Updated;
     }
@@ -69,7 +70,7 @@ impl FrameCounter {
             self.cpu_ticks += 1;
         }
 
-        if self.cpu_ticks & 0x01 == 0 {
+        if !self.cpu_ticks.bit(0) {
             match self.reset_state {
                 FrameCounterResetState::Joy2Updated => {
                     self.reset_state = FrameCounterResetState::PendingReset;
@@ -171,7 +172,7 @@ impl ApuState {
     }
 
     pub fn is_active_cycle(&self) -> bool {
-        self.frame_counter.cpu_ticks & 0x01 != 0
+        self.frame_counter.cpu_ticks.bit(0)
     }
 
     fn process_register_updates(

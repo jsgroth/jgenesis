@@ -1,4 +1,5 @@
 use crate::apu::units::{Envelope, LengthCounter, LengthCounterChannel};
+use crate::num::GetBit;
 use bincode::{Decode, Encode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -82,7 +83,7 @@ impl NoiseChannel {
     }
 
     pub fn process_lo_update(&mut self, lo_value: u8) {
-        self.lfsr.mode = if lo_value & 0x80 != 0 {
+        self.lfsr.mode = if lo_value.bit(7) {
             LfsrMode::Bit6Feedback
         } else {
             LfsrMode::Bit1Feedback

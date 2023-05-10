@@ -1,3 +1,4 @@
+use crate::num::GetBit;
 use bincode::{Decode, Encode};
 
 const PRESCALER_SEQUENCE: [u8; 3] = [114, 114, 113];
@@ -54,12 +55,12 @@ impl VrcIrqCounter {
         self.pending = false;
         self.reset_prescaler();
 
-        self.enable_after_ack = value & 0x01 != 0;
-        self.enabled = value & 0x02 != 0;
-        self.mode = if value & 0x04 == 0 {
-            IrqMode::Scanline
-        } else {
+        self.enable_after_ack = value.bit(0);
+        self.enabled = value.bit(1);
+        self.mode = if value.bit(2) {
             IrqMode::Cycle
+        } else {
+            IrqMode::Scanline
         };
 
         if self.enabled {

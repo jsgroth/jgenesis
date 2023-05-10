@@ -2,6 +2,7 @@ use crate::bus::cartridge::mappers::{
     BankSizeKb, ChrType, CpuMapResult, NametableMirroring, PpuMapResult,
 };
 use crate::bus::cartridge::MapperImpl;
+use crate::num::GetBit;
 use bincode::{Decode, Encode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -120,7 +121,7 @@ impl MapperImpl<Mmc1> {
             0x8000..=0xFFFF => {
                 self.data.written_this_cycle = true;
 
-                if value & 0x80 != 0 {
+                if value.bit(7) {
                     self.data.shift_register = 0;
                     self.data.shift_register_len = 0;
                     self.data.prg_banking_mode = PrgBankingMode::Switch16KbLastBankFixed;
@@ -161,7 +162,7 @@ impl MapperImpl<Mmc1> {
                                 ),
                             };
 
-                            self.data.chr_banking_mode = if shift_register & 0x10 != 0 {
+                            self.data.chr_banking_mode = if shift_register.bit(4) {
                                 ChrBankingMode::Two4KbBanks
                             } else {
                                 ChrBankingMode::Single8KbBank

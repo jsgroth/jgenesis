@@ -4,6 +4,7 @@ mod tests;
 use crate::bus;
 use crate::bus::CpuBus;
 use crate::cpu::{CpuRegisters, StatusFlags, StatusReadContext};
+use crate::num::GetBit;
 use bincode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use tinyvec::ArrayVec;
@@ -80,7 +81,7 @@ impl ReadInstruction {
                 write_register(registers, register, value);
                 registers
                     .status
-                    .set_negative(value & 0x80 != 0)
+                    .set_negative(value.bit(7))
                     .set_zero(value == 0);
             }
             Self::InclusiveOr(..) => {
@@ -140,46 +141,46 @@ impl ModifyInstruction {
             Self::ShiftLeft(..) => {
                 let shifted = value << 1;
                 flags
-                    .set_carry(value & 0x80 != 0)
-                    .set_negative(shifted & 0x80 != 0)
+                    .set_carry(value.bit(7))
+                    .set_negative(shifted.bit(7))
                     .set_zero(shifted == 0);
                 shifted
             }
             Self::DecrementMemory(..) => {
                 let decremented = value.wrapping_sub(1);
                 flags
-                    .set_negative(decremented & 0x80 != 0)
+                    .set_negative(decremented.bit(7))
                     .set_zero(decremented == 0);
                 decremented
             }
             Self::IncrementMemory(..) => {
                 let incremented = value.wrapping_add(1);
                 flags
-                    .set_negative(incremented & 0x80 != 0)
+                    .set_negative(incremented.bit(7))
                     .set_zero(incremented == 0);
                 incremented
             }
             Self::LogicalShiftRight(..) => {
                 let shifted = value >> 1;
                 flags
-                    .set_carry(value & 0x01 != 0)
-                    .set_negative(shifted & 0x80 != 0)
+                    .set_carry(value.bit(0))
+                    .set_negative(shifted.bit(7))
                     .set_zero(shifted == 0);
                 shifted
             }
             Self::RotateLeft(..) => {
                 let rotated = (value << 1) | u8::from(flags.carry);
                 flags
-                    .set_carry(value & 0x80 != 0)
-                    .set_negative(rotated & 0x80 != 0)
+                    .set_carry(value.bit(7))
+                    .set_negative(rotated.bit(7))
                     .set_zero(rotated == 0);
                 rotated
             }
             Self::RotateRight(..) => {
                 let rotated = (value >> 1) | (u8::from(flags.carry) << 7);
                 flags
-                    .set_carry(value & 0x01 != 0)
-                    .set_negative(rotated & 0x80 != 0)
+                    .set_carry(value.bit(0))
+                    .set_negative(rotated.bit(7))
                     .set_zero(rotated == 0);
                 rotated
             }
@@ -233,7 +234,7 @@ impl RegistersInstruction {
                 write_register(registers, register, value);
                 registers
                     .status
-                    .set_negative(value & 0x80 != 0)
+                    .set_negative(value.bit(7))
                     .set_zero(value == 0);
             }
             Self::IncrementRegister(register) => {
@@ -241,7 +242,7 @@ impl RegistersInstruction {
                 write_register(registers, register, value);
                 registers
                     .status
-                    .set_negative(value & 0x80 != 0)
+                    .set_negative(value.bit(7))
                     .set_zero(value == 0);
             }
             Self::NoOp => {}
@@ -260,7 +261,7 @@ impl RegistersInstruction {
                 if to != CpuRegister::S {
                     registers
                         .status
-                        .set_negative(value & 0x80 != 0)
+                        .set_negative(value.bit(7))
                         .set_zero(value == 0);
                 }
             }
@@ -760,7 +761,7 @@ impl CycleOp {
                         registers.accumulator = value;
                         registers
                             .status
-                            .set_negative(value & 0x80 != 0)
+                            .set_negative(value.bit(7))
                             .set_zero(value == 0);
                     }
                     PushableRegister::P => {
@@ -1627,7 +1628,7 @@ fn add(accumulator: u8, value: u8, flags: &mut StatusFlags) -> u8 {
     let overflow = new_carry ^ bit_6_carry;
 
     flags
-        .set_negative(result & 0x80 != 0)
+        .set_negative(result.bit(7))
         .set_overflow(overflow)
         .set_zero(result == 0)
         .set_carry(new_carry);
@@ -1648,7 +1649,7 @@ fn subtract(accumulator: u8, value: u8, flags: &mut StatusFlags) -> u8 {
     let overflow = borrowed ^ bit_6_borrowed;
 
     flags
-        .set_negative(result & 0x80 != 0)
+        .set_negative(result.bit(7))
         .set_overflow(overflow)
         .set_zero(result == 0)
         .set_carry(!borrowed);
@@ -1658,32 +1659,32 @@ fn subtract(accumulator: u8, value: u8, flags: &mut StatusFlags) -> u8 {
 
 fn and(accumulator: u8, value: u8, flags: &mut StatusFlags) -> u8 {
     let result = accumulator & value;
-    flags.set_negative(result & 0x80 != 0).set_zero(result == 0);
+    flags.set_negative(result.bit(7)).set_zero(result == 0);
     result
 }
 
 fn or(accumulator: u8, value: u8, flags: &mut StatusFlags) -> u8 {
     let result = accumulator | value;
-    flags.set_negative(result & 0x80 != 0).set_zero(result == 0);
+    flags.set_negative(result.bit(7)).set_zero(result == 0);
     result
 }
 
 fn xor(accumulator: u8, value: u8, flags: &mut StatusFlags) -> u8 {
     let result = accumulator ^ value;
-    flags.set_negative(result & 0x80 != 0).set_zero(result == 0);
+    flags.set_negative(result.bit(7)).set_zero(result == 0);
     result
 }
 
 fn compare(register: u8, value: u8, flags: &mut StatusFlags) {
     flags
-        .set_negative(register.wrapping_sub(value) & 0x80 != 0)
+        .set_negative(register.wrapping_sub(value).bit(7))
         .set_zero(register == value)
         .set_carry(register >= value);
 }
 
 fn bit_test(accumulator: u8, value: u8, flags: &mut StatusFlags) {
     flags
-        .set_negative(value & 0x80 != 0)
-        .set_overflow(value & 0x40 != 0)
+        .set_negative(value.bit(7))
+        .set_overflow(value.bit(6))
         .set_zero(accumulator & value == 0);
 }

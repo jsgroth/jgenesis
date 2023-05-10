@@ -1,4 +1,5 @@
 use crate::bus::{PpuBus, PpuTrackedRegister, PpuWriteToggle};
+use crate::num::GetBit;
 use bincode::{Decode, Encode};
 use std::ops::RangeInclusive;
 
@@ -380,7 +381,7 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                     // Evaluate sprites on odd cycles during 65-256
                     if state.scanline != PRE_RENDER_SCANLINE
                         && SPRITE_EVALUATION_DOTS.contains(&state.dot)
-                        && state.dot & 0x01 != 0
+                        && state.dot.bit(0)
                     {
                         evaluate_sprites(state, bus);
                     }
@@ -642,7 +643,7 @@ fn render_pixel(state: &mut PpuState, bus: &mut PpuBus<'_>) {
         state.pending_sprite_0_hit = true;
     }
 
-    let sprite_bg_priority = sprite.attributes & 0x20 != 0;
+    let sprite_bg_priority = sprite.attributes.bit(5);
     let sprite_palette_index = sprite.attributes & 0x03;
 
     // Determine whether to show BG pixel color, sprite pixel color, or backdrop color
@@ -939,7 +940,7 @@ fn find_first_overlapping_sprite(pixel: u8, sprites: &SpriteBuffers) -> Option<S
 
         let attributes = sprites.attributes[i];
 
-        let sprite_flip_x = attributes & 0x40 != 0;
+        let sprite_flip_x = attributes.bit(6);
 
         // Determine sprite pixel color ID
         let sprite_fine_x = if sprite_flip_x {
@@ -1020,7 +1021,7 @@ fn fetch_sprite_pattern_table_byte(
         PatternTableByte::High => 0x0008,
     };
 
-    let flip_y = attributes & 0x80 != 0;
+    let flip_y = attributes.bit(7);
     let (sprite_pattern_table_address, tile_index, fine_y_scroll) = if double_height_sprites {
         let sprite_pattern_table_address = u16::from(tile_index & 0x01) << 12;
         let fine_y_scroll = if flip_y {

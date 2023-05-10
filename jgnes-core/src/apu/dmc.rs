@@ -1,4 +1,5 @@
 use crate::bus::CpuBus;
+use crate::num::GetBit;
 use bincode::{Decode, Encode};
 
 const DMC_PERIOD_LOOKUP_TABLE: [u16; 16] = [
@@ -25,7 +26,7 @@ impl DmcOutputUnit {
 
     fn clock(&mut self, sample_buffer: &mut Option<u8>) {
         if !self.silence_flag {
-            let new_output_level = if self.shift_register & 0x01 != 0 {
+            let new_output_level = if self.shift_register.bit(0) {
                 self.output_level + 2
             } else {
                 self.output_level.wrapping_sub(2)
@@ -92,8 +93,8 @@ impl DeltaModulationChannel {
     }
 
     pub fn process_dmc_freq_update(&mut self, dmc_freq_value: u8) {
-        self.irq_enabled = dmc_freq_value & 0x80 != 0;
-        self.loop_flag = dmc_freq_value & 0x40 != 0;
+        self.irq_enabled = dmc_freq_value.bit(7);
+        self.loop_flag = dmc_freq_value.bit(6);
         self.timer_period = DMC_PERIOD_LOOKUP_TABLE[(dmc_freq_value & 0x0F) as usize];
 
         if !self.irq_enabled {
@@ -116,7 +117,7 @@ impl DeltaModulationChannel {
     pub fn process_snd_chn_update(&mut self, snd_chn_value: u8, bus: &mut CpuBus<'_>) {
         self.interrupt_flag = false;
 
-        self.enabled = snd_chn_value & 0x10 != 0;
+        self.enabled = snd_chn_value.bit(4);
         if self.enabled && self.sample_bytes_remaining == 0 {
             self.restart();
             self.fill_sample_buffer(bus);

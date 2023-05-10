@@ -1,4 +1,5 @@
 use crate::apu::units::{LengthCounter, LengthCounterChannel, PhaseTimer};
+use crate::num::GetBit;
 use bincode::{Decode, Encode};
 
 type TrianglePhaseTimer = PhaseTimer<32, 1, 11, false>;
@@ -22,7 +23,7 @@ impl LinearCounter {
     }
 
     fn process_tri_linear_update(&mut self, tri_linear_value: u8) {
-        self.control_flag = tri_linear_value & 0x80 != 0;
+        self.control_flag = tri_linear_value.bit(7);
         self.reload_value = tri_linear_value & 0x7F;
     }
 

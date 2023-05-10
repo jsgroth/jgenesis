@@ -1,3 +1,4 @@
+use crate::num::GetBit;
 use bincode::{Decode, Encode};
 
 const LENGTH_COUNTER_LOOKUP_TABLE: [u8; 32] = [
@@ -59,13 +60,13 @@ impl LengthCounter {
                 | LengthCounterChannel::Noise
         ));
 
-        self.halted = vol_value & 0x20 != 0;
+        self.halted = vol_value.bit(5);
     }
 
     pub fn process_tri_linear_update(&mut self, tri_linear_value: u8) {
         assert_eq!(self.channel, LengthCounterChannel::Triangle);
 
-        self.halted = tri_linear_value & 0x80 != 0;
+        self.halted = tri_linear_value.bit(7);
     }
 
     pub fn process_hi_update(&mut self, hi_value: u8) {
@@ -112,8 +113,8 @@ impl Envelope {
     }
 
     pub fn process_vol_update(&mut self, vol_value: u8) {
-        self.loop_flag = vol_value & 0x20 != 0;
-        self.constant_volume_flag = vol_value & 0x10 != 0;
+        self.loop_flag = vol_value.bit(5);
+        self.constant_volume_flag = vol_value.bit(4);
         self.divider_period = vol_value & 0x0F;
     }
 

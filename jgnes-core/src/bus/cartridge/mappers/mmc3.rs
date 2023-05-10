@@ -1,6 +1,7 @@
 use crate::bus;
 use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring};
 use crate::bus::cartridge::MapperImpl;
+use crate::num::GetBit;
 use bincode::{Decode, Encode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -132,7 +133,7 @@ impl RamMode {
                 second_half_reads,
                 ..
             } => {
-                if address & 0x0200 != 0 {
+                if address.bit(9) {
                     second_half_reads
                 } else {
                     first_half_reads
@@ -150,7 +151,7 @@ impl RamMode {
                 second_half_writes,
                 ..
             } => {
-                if address & 0x0200 != 0 {
+                if address.bit(9) {
                     second_half_writes
                 } else {
                     first_half_writes
@@ -180,7 +181,7 @@ pub(crate) struct Mmc3 {
     irq_reload_value: u8,
     irq_reload_flag: bool,
     irq_enabled: bool,
-    last_a12_read: u16,
+    last_a12_read: bool,
     a12_low_cycles: u32,
     mc_acc_pulse_counter: u8,
 }
@@ -218,7 +219,7 @@ impl Mmc3 {
             irq_reload_value: 0,
             irq_reload_flag: false,
             irq_enabled: false,
-            last_a12_read: 0,
+            last_a12_read: false,
             a12_low_cycles: 0,
             mc_acc_pulse_counter: ACC_COUNTER_INIT_VALUE,
         }
@@ -255,13 +256,13 @@ impl MapperImpl<Mmc3> {
                 }
             }
             0x8000..=0x9FFF => {
-                if address & 0x01 == 0 {
-                    self.data.bank_mapping.chr_mode = if value & 0x80 != 0 {
+                if !address.bit(0) {
+                    self.data.bank_mapping.chr_mode = if value.bit(7) {
                         ChrMode::Mode1
                     } else {
                         ChrMode::Mode0
                     };
-                    self.data.bank_mapping.prg_mode = if value & 0x40 != 0 {
+                    self.data.bank_mapping.prg_mode = if value.bit(6) {
                         PrgMode::Mode1
                     } else {
                         PrgMode::Mode0
@@ -276,7 +277,7 @@ impl MapperImpl<Mmc3> {
                     };
 
                     if self.data.variant == Variant::Mmc6 {
-                        let ram_enabled = value & 0x20 != 0;
+                        let ram_enabled = value.bit(5);
                         if !ram_enabled {
                             self.data.ram_mode = RamMode::Disabled;
                         } else if ram_enabled && self.data.ram_mode == RamMode::Disabled {
@@ -303,13 +304,13 @@ impl MapperImpl<Mmc3> {
                 }
             }
             0xA000..=0xBFFF => {
-                if address & 0x01 == 0
+                if !address.bit(0)
                     && matches!(
                         self.data.nametable_mirroring,
                         Mmc3NametableMirroring::Standard(..)
                     )
                 {
-                    let nametable_mirroring = if value & 0x01 != 0 {
+                    let nametable_mirroring = if value.bit(0) {
                         NametableMirroring::Horizontal
                     } else {
                         NametableMirroring::Vertical
@@ -323,10 +324,10 @@ impl MapperImpl<Mmc3> {
                                 // $A001 writes are ignored if RAM is disabled via $8000
                                 RamMode::Disabled
                             } else {
-                                let first_half_writes = value & 0x10 != 0;
-                                let first_half_reads = value & 0x20 != 0;
-                                let second_half_writes = value & 0x40 != 0;
-                                let second_half_reads = value & 0x80 != 0;
+                                let first_half_writes = value.bit(4);
+                                let first_half_reads = value.bit(5);
+                                let second_half_writes = value.bit(6);
+                                let second_half_reads = value.bit(7);
                                 RamMode::Mmc6Enabled {
                                     first_half_reads,
                                     first_half_writes,
@@ -336,9 +337,9 @@ impl MapperImpl<Mmc3> {
                             };
                         }
                         Variant::Mmc3 | Variant::McAcc => {
-                            self.data.ram_mode = if value & 0x80 == 0 {
+                            self.data.ram_mode = if !value.bit(7) {
                                 RamMode::Disabled
-                            } else if value & 0x40 != 0 {
+                            } else if value.bit(6) {
                                 RamMode::Mmc3WritesDisabled
                             } else {
                                 RamMode::Mmc3Enabled
@@ -348,7 +349,7 @@ impl MapperImpl<Mmc3> {
                 }
             }
             0xC000..=0xDFFF => {
-                if address & 0x01 == 0 {
+                if !address.bit(0) {
                     self.data.irq_reload_value = value;
                 } else {
                     self.data.irq_reload_flag = true;
@@ -356,7 +357,7 @@ impl MapperImpl<Mmc3> {
                 }
             }
             0xE000..=0xFFFF => {
-                if address & 0x01 == 0 {
+                if !address.bit(0) {
                     self.data.irq_enabled = false;
                     self.data.interrupt_flag = false;
                 } else {
@@ -389,16 +390,16 @@ impl MapperImpl<Mmc3> {
     fn process_ppu_address(&mut self, address: u16) {
         log::trace!("PPU bus address: {address:04X}");
 
-        let a12 = address & (1 << 12);
+        let a12 = address.bit(12);
 
         match self.data.variant {
             Variant::Mmc3 | Variant::Mmc6 => {
-                if a12 != 0 && self.data.last_a12_read == 0 && self.data.a12_low_cycles >= 10 {
+                if a12 && !self.data.last_a12_read && self.data.a12_low_cycles >= 10 {
                     self.clock_irq();
                 }
             }
             Variant::McAcc => {
-                if a12 == 0 && self.data.last_a12_read != 0 {
+                if !a12 && self.data.last_a12_read {
                     self.data.mc_acc_pulse_counter += 1;
                     if self.data.mc_acc_pulse_counter == 8 {
                         self.clock_irq();
@@ -459,7 +460,7 @@ impl MapperImpl<Mmc3> {
     pub(crate) fn tick(&mut self, ppu_bus_address: u16) {
         self.process_ppu_address(ppu_bus_address);
 
-        if self.data.last_a12_read == 0 {
+        if !self.data.last_a12_read {
             self.data.a12_low_cycles += 1;
         } else {
             self.data.a12_low_cycles = 0;

@@ -2,6 +2,7 @@ use crate::bus::cartridge::mappers::{
     BankSizeKb, ChrType, CpuMapResult, NametableMirroring, PpuMapResult,
 };
 use crate::bus::cartridge::MapperImpl;
+use crate::num::GetBit;
 use bincode::{Decode, Encode};
 
 #[allow(clippy::upper_case_acronyms)]
@@ -132,9 +133,9 @@ impl Sunsoft5bAudioUnit {
                 self.channel_3.handle_period_high_update(value);
             }
             0x07 => {
-                self.channel_3.tone_enabled = value & 0x04 == 0;
-                self.channel_2.tone_enabled = value & 0x02 == 0;
-                self.channel_1.tone_enabled = value & 0x01 == 0;
+                self.channel_3.tone_enabled = !value.bit(2);
+                self.channel_2.tone_enabled = !value.bit(1);
+                self.channel_1.tone_enabled = !value.bit(0);
             }
             0x08 => {
                 self.channel_1.handle_volume_update(value);
@@ -262,12 +263,12 @@ impl MapperImpl<Sunsoft> {
                 }
                 0x08 => {
                     self.data.prg_banks[0] = value & 0x3F;
-                    self.data.prg_bank_0_type = if value & 0x40 != 0 {
+                    self.data.prg_bank_0_type = if value.bit(6) {
                         PrgType::RAM
                     } else {
                         PrgType::ROM
                     };
-                    self.data.prg_ram_enabled = value & 0x80 != 0;
+                    self.data.prg_ram_enabled = value.bit(7);
                 }
                 0x09..=0x0B => {
                     let prg_bank_index = self.data.command_register - 0x08;
@@ -283,8 +284,8 @@ impl MapperImpl<Sunsoft> {
                     };
                 }
                 0x0D => {
-                    self.data.irq_enabled = value & 0x01 != 0;
-                    self.data.irq_counter_enabled = value & 0x80 != 0;
+                    self.data.irq_enabled = value.bit(0);
+                    self.data.irq_counter_enabled = value.bit(7);
                     self.data.irq_triggered = false;
                 }
                 0x0E => {

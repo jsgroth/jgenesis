@@ -1,6 +1,7 @@
 use crate::bus;
 use crate::bus::{CpuBus, PpuRegister};
 use crate::cpu::instructions::{Instruction, InstructionState};
+use crate::num::GetBit;
 use bincode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
@@ -76,12 +77,12 @@ impl StatusFlags {
 
     pub fn from_byte(byte: u8) -> Self {
         Self {
-            negative: byte & 0x80 != 0,
-            overflow: byte & 0x40 != 0,
-            decimal: byte & 0x08 != 0,
-            interrupt_disable: byte & 0x04 != 0,
-            zero: byte & 0x02 != 0,
-            carry: byte & 0x01 != 0,
+            negative: byte.bit(7),
+            overflow: byte.bit(6),
+            decimal: byte.bit(3),
+            interrupt_disable: byte.bit(2),
+            zero: byte.bit(1),
+            carry: byte.bit(0),
         }
     }
 }

@@ -5,6 +5,7 @@ mod apu;
 mod bus;
 mod cpu;
 mod input;
+mod num;
 mod ppu;
 mod serialize;
 

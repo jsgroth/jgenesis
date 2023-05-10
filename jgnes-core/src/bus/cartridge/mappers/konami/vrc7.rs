@@ -4,6 +4,7 @@ use crate::bus::cartridge::mappers::{
     konami, BankSizeKb, ChrType, NametableMirroring, PpuMapResult,
 };
 use crate::bus::cartridge::MapperImpl;
+use crate::num::GetBit;
 use bincode::{Decode, Encode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -120,7 +121,7 @@ impl MapperImpl<Vrc7> {
                         0x03 => NametableMirroring::SingleScreenBank1,
                         _ => unreachable!("value & 0x03 should always be 0x00/0x01/0x02/0x03"),
                     };
-                    self.data.ram_enabled = value & 0x80 != 0;
+                    self.data.ram_enabled = value.bit(7);
                 }
                 (Variant::Vrc7a, 0xE010) | (Variant::Vrc7b, 0xE008) => {
                     self.data.irq.set_reload_value(value);

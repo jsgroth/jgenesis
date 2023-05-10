@@ -5,6 +5,7 @@ use crate::bus::cartridge::mappers::{
     konami, BankSizeKb, ChrType, NametableMirroring, PpuMapResult,
 };
 use crate::bus::cartridge::MapperImpl;
+use crate::num::GetBit;
 use bincode::{Decode, Encode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -48,7 +49,7 @@ impl Vrc6PulseChannel {
 
     fn process_control_update(&mut self, control_value: u8) {
         self.volume = control_value & 0x0F;
-        self.duty_cycle = if control_value & 0x80 != 0 {
+        self.duty_cycle = if control_value.bit(7) {
             // If mode flag is set, act like duty cycle is 100%
             15
         } else {
@@ -62,7 +63,7 @@ impl Vrc6PulseChannel {
 
     fn process_freq_high_update(&mut self, freq_high_value: u8) {
         self.timer.process_hi_update(freq_high_value);
-        self.enabled = freq_high_value & 0x80 != 0;
+        self.enabled = freq_high_value.bit(7);
 
         if !self.enabled {
             self.timer.phase = 0;
@@ -120,7 +121,7 @@ impl SawtoothChannel {
     fn process_freq_high_update(&mut self, freq_high_value: u8) {
         self.divider_period =
             (self.divider_period & 0x00FF) | (u16::from(freq_high_value & 0x0F) << 8);
-        self.enabled = freq_high_value & 0x80 != 0;
+        self.enabled = freq_high_value.bit(7);
 
         if !self.enabled {
             self.accumulator = 0;
@@ -134,7 +135,7 @@ impl SawtoothChannel {
         if self.accumulator_clocks == 14 {
             self.accumulator = 0;
             self.accumulator_clocks = 0;
-        } else if self.accumulator_clocks & 0x01 == 0 {
+        } else if !self.accumulator_clocks.bit(0) {
             // Accumulator only clocks on even steps
             self.accumulator += self.accumulator_rate;
         }
@@ -281,7 +282,7 @@ impl MapperImpl<Vrc6> {
                             0x0C => NametableMirroring::SingleScreenBank1,
                             _ => unreachable!("value & 0x0C should always be 0x00/0x04/0x08/0x0C"),
                         };
-                        self.data.ram_enabled = value & 0x80 != 0;
+                        self.data.ram_enabled = value.bit(7);
                     }
                     0xC000..=0xC003 => {
                         self.data.prg_8kb_bank = value & 0x1F;

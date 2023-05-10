@@ -2,6 +2,7 @@ pub mod cartridge;
 
 use crate::bus::cartridge::Mapper;
 use crate::input::{JoypadState, LatchedJoypadState};
+use crate::num::GetBit;
 use bincode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use tinyvec::ArrayVec;
@@ -134,15 +135,15 @@ impl PpuRegisters {
     }
 
     pub fn nmi_enabled(&self) -> bool {
-        self.ppu_ctrl & 0x80 != 0
+        self.ppu_ctrl.bit(7)
     }
 
     pub fn double_height_sprites(&self) -> bool {
-        self.ppu_ctrl & 0x20 != 0
+        self.ppu_ctrl.bit(5)
     }
 
     pub fn bg_pattern_table_address(&self) -> u16 {
-        if self.ppu_ctrl & 0x10 != 0 {
+        if self.ppu_ctrl.bit(4) {
             0x1000
         } else {
             0x0000
@@ -150,7 +151,7 @@ impl PpuRegisters {
     }
 
     pub fn sprite_pattern_table_address(&self) -> u16 {
-        if self.ppu_ctrl & 0x08 != 0 {
+        if self.ppu_ctrl.bit(3) {
             0x1000
         } else {
             0x0000
@@ -158,7 +159,7 @@ impl PpuRegisters {
     }
 
     pub fn ppu_data_addr_increment(&self) -> u16 {
-        if self.ppu_ctrl & 0x04 != 0 {
+        if self.ppu_ctrl.bit(2) {
             32
         } else {
             1
@@ -166,58 +167,58 @@ impl PpuRegisters {
     }
 
     pub fn emphasize_blue(&self) -> bool {
-        self.ppu_mask & 0x80 != 0
+        self.ppu_mask.bit(7)
     }
 
     pub fn emphasize_green(&self) -> bool {
-        self.ppu_mask & 0x40 != 0
+        self.ppu_mask.bit(6)
     }
 
     pub fn emphasize_red(&self) -> bool {
-        self.ppu_mask & 0x20 != 0
+        self.ppu_mask.bit(5)
     }
 
     pub fn sprites_enabled(&self) -> bool {
-        self.ppu_mask & 0x10 != 0
+        self.ppu_mask.bit(4)
     }
 
     pub fn bg_enabled(&self) -> bool {
-        self.ppu_mask & 0x08 != 0
+        self.ppu_mask.bit(3)
     }
 
     pub fn left_edge_sprites_enabled(&self) -> bool {
-        self.ppu_mask & 0x04 != 0
+        self.ppu_mask.bit(2)
     }
 
     pub fn left_edge_bg_enabled(&self) -> bool {
-        self.ppu_mask & 0x02 != 0
+        self.ppu_mask.bit(1)
     }
 
     pub fn vblank_flag(&self) -> bool {
-        self.ppu_status & 0x80 != 0
+        self.ppu_status.bit(7)
     }
 
     pub fn set_vblank_flag(&mut self, vblank: bool) {
         if vblank {
-            self.ppu_status |= 0x80;
+            self.ppu_status |= 1 << 7;
         } else {
-            self.ppu_status &= 0x7F;
+            self.ppu_status &= !(1 << 7);
         }
     }
 
     pub fn set_sprite_0_hit(&mut self, sprite_0_hit: bool) {
         if sprite_0_hit {
-            self.ppu_status |= 0x40;
+            self.ppu_status |= 1 << 6;
         } else {
-            self.ppu_status &= 0xBF;
+            self.ppu_status &= !(1 << 6);
         }
     }
 
     pub fn set_sprite_overflow(&mut self, sprite_overflow: bool) {
         if sprite_overflow {
-            self.ppu_status |= 0x20;
+            self.ppu_status |= 1 << 5;
         } else {
-            self.ppu_status &= 0xDF;
+            self.ppu_status &= !(1 << 5);
         }
     }
 
@@ -420,7 +421,7 @@ impl IoRegisters {
 
         match register {
             IoRegister::JOY1 => {
-                if value & 0x01 != 0 {
+                if value.bit(0) {
                     self.latched_joypad_state = None;
                 } else if self.latched_joypad_state.is_none() {
                     self.latched_joypad_state =

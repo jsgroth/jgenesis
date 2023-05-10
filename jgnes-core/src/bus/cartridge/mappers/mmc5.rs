@@ -2,6 +2,7 @@ use crate::apu::pulse::{PulseChannel, SweepStatus};
 use crate::apu::FrameCounter;
 use crate::bus::cartridge::mappers::{BankSizeKb, CpuMapResult};
 use crate::bus::cartridge::{Cartridge, MapperImpl};
+use crate::num::GetBit;
 use crate::{apu, bus};
 use bincode::{Decode, Encode};
 
@@ -15,7 +16,7 @@ enum PrgBankingMode {
 
 impl PrgBankingMode {
     fn map_result(bank_number: u8, bank_size: BankSizeKb, address: u16) -> CpuMapResult {
-        let is_rom = bank_number & 0x80 != 0;
+        let is_rom = bank_number.bit(7);
 
         let masked_bank_number = if is_rom {
             bank_number & 0x7F
@@ -200,7 +201,7 @@ impl ChrMapper {
     }
 
     fn process_ppu_ctrl_update(&mut self, ppu_ctrl_value: u8) {
-        self.double_height_sprites = ppu_ctrl_value & 0x20 != 0;
+        self.double_height_sprites = ppu_ctrl_value.bit(5);
         log::trace!(
             "Double height sprites update detected: {}",
             self.double_height_sprites
@@ -508,12 +509,12 @@ impl PcmChannel {
     }
 
     fn process_control_update(&mut self, value: u8) {
-        self.mode = if value & 0x01 == 0 {
-            PcmMode::Write
-        } else {
+        self.mode = if value.bit(0) {
             PcmMode::Read
+        } else {
+            PcmMode::Write
         };
-        self.irq_enabled = value & 0x80 != 0;
+        self.irq_enabled = value.bit(7);
 
         if !self.irq_enabled {
             self.irq_pending = false;
@@ -723,8 +724,8 @@ impl MapperImpl<Mmc5> {
                 log::trace!("CHR bank {:02X} set to {value:02X}", address - 0x5120);
             }
             0x5200 => {
-                self.data.vertical_split.enabled = value & 0x80 != 0;
-                self.data.vertical_split.mode = if value & 0x40 != 0 {
+                self.data.vertical_split.enabled = value.bit(7);
+                self.data.vertical_split.mode = if value.bit(6) {
                     VerticalSplitMode::Right
                 } else {
                     VerticalSplitMode::Left
@@ -748,7 +749,7 @@ impl MapperImpl<Mmc5> {
                 log::trace!("Scanline counter compare value set to {value}");
             }
             0x5204 => {
-                self.data.scanline_counter.irq_enabled = value & 0x80 != 0;
+                self.data.scanline_counter.irq_enabled = value.bit(7);
                 log::trace!(
                     "Scanline IRQ enabled set to {}",
                     self.data.scanline_counter.irq_enabled

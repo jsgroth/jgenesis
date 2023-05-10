@@ -1,4 +1,5 @@
 use crate::apu::units::{Envelope, LengthCounter, LengthCounterChannel, PhaseTimer};
+use crate::num::GetBit;
 use bincode::{Decode, Encode};
 
 type PulsePhaseTimer = PhaseTimer<8, 2, 11, true>;
@@ -74,9 +75,9 @@ impl PulseSweep {
     fn process_sweep_update(&mut self, sweep_value: u8) {
         self.reload_flag = true;
 
-        self.enabled = sweep_value & 0x80 != 0;
+        self.enabled = sweep_value.bit(7);
         self.divider_period = (sweep_value >> 4) & 0x07;
-        self.negate_flag = sweep_value & 0x08 != 0;
+        self.negate_flag = sweep_value.bit(3);
         self.shift = sweep_value & 0x07;
     }
 
