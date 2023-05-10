@@ -912,6 +912,7 @@ impl<'a> PpuBus<'a> {
         self.0.ppu_registers.ppu_ctrl = 0x00;
         self.0.ppu_registers.ppu_mask = 0x00;
         self.0.ppu_registers.write_toggle = PpuWriteToggle::First;
+        self.0.ppu_registers.ppu_data_buffer = 0x00;
         self.0.ppu_registers.open_bus_value = 0x00;
     }
 }
