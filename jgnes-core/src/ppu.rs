@@ -147,7 +147,9 @@ enum SpriteEvaluationState {
         oam_offset: u8,
         skip_bytes_remaining: u8,
     },
-    Done,
+    Done {
+        oam_index: u8,
+    },
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -273,6 +275,8 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
         state.rendering_disabled_backdrop_color = None;
         process_scanline(state, bus);
     } else {
+        bus.get_ppu_registers_mut().set_oam_open_bus(None);
+
         // When rendering is disabled, pixels should use whatever the backdrop color was set to
         // at disable time until rendering is enabled again
         let backdrop_color = *state
@@ -353,6 +357,9 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
             match state.dot {
                 0 => {
                     // Idle cycle
+
+                    bus.get_ppu_registers_mut()
+                        .set_oam_open_bus(Some(state.sprite_evaluation_data.secondary_oam[0]));
                 }
                 1..=256 => {
                     // Rendering + sprite evaluation cycles
@@ -376,6 +383,11 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                         && state.dot & 0x01 != 0
                     {
                         evaluate_sprites(state, bus);
+                    }
+
+                    if !SPRITE_EVALUATION_DOTS.contains(&state.dot) {
+                        // OAMDATA always reads $FF during cycles 1-64
+                        bus.get_ppu_registers_mut().set_oam_open_bus(Some(0xFF));
                     }
 
                     if state.scanline != PRE_RENDER_SCANLINE && state.dot == INC_VERTICAL_POS_DOT {
@@ -408,20 +420,31 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                         increment_horizontal_pos(&mut state.registers);
                         state.bg_buffers.reload();
                     }
+
+                    bus.get_ppu_registers_mut()
+                        .set_oam_open_bus(Some(state.sprite_evaluation_data.secondary_oam[0]));
                 }
                 337 | 339 => {
                     // Idle cycles that do spurious reads
                     // At least one mapper depends on these reads happening (MMC5)
                     fetch_nametable_byte(&state.registers, bus);
+
+                    bus.get_ppu_registers_mut()
+                        .set_oam_open_bus(Some(state.sprite_evaluation_data.secondary_oam[0]));
                 }
                 338 | 340 => {
                     // Truly idle cycles at the end of each scanline
+
+                    bus.get_ppu_registers_mut()
+                        .set_oam_open_bus(Some(state.sprite_evaluation_data.secondary_oam[0]));
                 }
                 _ => panic!("invalid dot: {}", state.dot),
             }
         }
         240..=260 => {
             // PPU idle scanlines
+
+            bus.get_ppu_registers_mut().set_oam_open_bus(None);
         }
         _ => panic!("invalid scanline: {}", state.scanline),
     }
@@ -442,7 +465,7 @@ fn process_register_updates(state: &mut PpuState, bus: &mut PpuBus<'_>, renderin
                 (state.registers.temp_vram_address & 0xF3FF) | (u16::from(ppu_ctrl & 0x03) << 10);
         }
         Some(PpuTrackedRegister::PPUSCROLL) => {
-            let value = bus.get_ppu_registers().get_open_bus_value();
+            let value = bus.get_ppu_registers().get_ppu_open_bus_value();
             log::trace!(
                 "PPU: {value:02X} written to PPUSCROLL, write_toggle={:?} on scanline {}, dot {}",
                 bus.get_ppu_registers().get_write_toggle(),
@@ -467,7 +490,7 @@ fn process_register_updates(state: &mut PpuState, bus: &mut PpuBus<'_>, renderin
             }
         }
         Some(PpuTrackedRegister::PPUADDR) => {
-            let value = bus.get_ppu_registers().get_open_bus_value();
+            let value = bus.get_ppu_registers().get_ppu_open_bus_value();
             log::trace!(
                 "PPU: {value:02X} written to PPUADDR, write_toggle={:?} on scanline {}, dot {}",
                 bus.get_ppu_registers().get_write_toggle(),
@@ -695,6 +718,18 @@ fn fetch_sprite_tile_data(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     let tile_index = state.sprite_buffers.tile_indices[sprite_index as usize];
     let attributes = state.sprite_buffers.attributes[sprite_index as usize];
 
+    // This is not completely accurate but it's close enough
+    // In reality, during cycles 1-4 the value will be Y position, tile index, attributes, and X position in that order
+    // During cycles 5-8 it will stay X position
+    // Once past the end of the sprite buffer, the value will be sprite 63's Y position once, then $FF for the rest of this period
+    if sprite_index < state.sprite_buffers.buffer_len {
+        bus.get_ppu_registers_mut().set_oam_open_bus(Some(
+            state.sprite_buffers.x_positions[sprite_index as usize],
+        ));
+    } else {
+        bus.get_ppu_registers_mut().set_oam_open_bus(Some(0xFF));
+    }
+
     // These offsets are not cycle accurate, but for some reason these timings cause the MMC3 IRQ
     // tests to pass
     let tile_cycle_offset = (state.dot - 1) & 0x07;
@@ -778,6 +813,9 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>) {
 
             let y_position = oam[(primary_oam_index << 2) as usize];
 
+            bus.get_ppu_registers_mut()
+                .set_oam_open_bus(Some(y_position));
+
             evaluation_data.secondary_oam[(evaluation_data.sprites_found << 2) as usize] =
                 y_position;
 
@@ -797,7 +835,9 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                     primary_oam_index: primary_oam_index + 1,
                 }
             } else {
-                SpriteEvaluationState::Done
+                SpriteEvaluationState::Done {
+                    oam_index: primary_oam_index,
+                }
             }
         }
         SpriteEvaluationState::CopyingOam {
@@ -806,9 +846,13 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>) {
         } => {
             assert!(primary_oam_index < 64 && byte_index < 4);
 
+            let next_byte = oam[((primary_oam_index << 2) | byte_index) as usize];
             evaluation_data.secondary_oam
-                [((evaluation_data.sprites_found << 2) | byte_index) as usize] =
-                oam[((primary_oam_index << 2) | byte_index) as usize];
+                [((evaluation_data.sprites_found << 2) | byte_index) as usize] = next_byte;
+
+            bus.get_ppu_registers_mut()
+                .set_oam_open_bus(Some(next_byte));
+
             if byte_index < 3 {
                 SpriteEvaluationState::CopyingOam {
                     primary_oam_index,
@@ -819,7 +863,9 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>) {
 
                 let next_oam_index = primary_oam_index + 1;
                 if next_oam_index == 64 {
-                    SpriteEvaluationState::Done
+                    SpriteEvaluationState::Done {
+                        oam_index: primary_oam_index,
+                    }
                 } else if evaluation_data.sprites_found == 8 {
                     SpriteEvaluationState::CheckingForOverflow {
                         oam_index: next_oam_index,
@@ -839,6 +885,10 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>) {
             skip_bytes_remaining,
         } => {
             if skip_bytes_remaining > 0 {
+                let dummy_read = oam[((oam_index << 2) | oam_offset) as usize];
+                bus.get_ppu_registers_mut()
+                    .set_oam_open_bus(Some(dummy_read));
+
                 SpriteEvaluationState::CheckingForOverflow {
                     oam_index,
                     oam_offset: (oam_offset + 1) & 0x03,
@@ -846,12 +896,16 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                 }
             } else {
                 let y_position = oam[((oam_index << 2) | oam_offset) as usize];
+
+                bus.get_ppu_registers_mut()
+                    .set_oam_open_bus(Some(y_position));
+
                 if (y_position..y_position.saturating_add(sprite_height))
                     .contains(&(state.scanline as u8))
                 {
                     bus.get_ppu_registers_mut().set_sprite_overflow(true);
 
-                    SpriteEvaluationState::Done
+                    SpriteEvaluationState::Done { oam_index }
                 } else if oam_index < 63 {
                     // Yes, increment both index and offset; this is replicating a hardware bug that
                     // makes the sprite overflow flag essentially useless
@@ -861,11 +915,17 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                         skip_bytes_remaining: 0,
                     }
                 } else {
-                    SpriteEvaluationState::Done
+                    SpriteEvaluationState::Done { oam_index }
                 }
             }
         }
-        SpriteEvaluationState::Done => SpriteEvaluationState::Done,
+        SpriteEvaluationState::Done { oam_index } => {
+            let dummy_read = oam[(oam_index << 2) as usize];
+            bus.get_ppu_registers_mut()
+                .set_oam_open_bus(Some(dummy_read));
+
+            SpriteEvaluationState::Done { oam_index }
+        }
     };
 }
 
