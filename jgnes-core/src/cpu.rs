@@ -151,7 +151,16 @@ impl CpuState {
     }
 }
 
-pub fn tick(state: &mut CpuState, bus: &mut CpuBus<'_>, is_apu_active_cycle: bool) {
+#[derive(Debug)]
+pub enum CpuError {
+    InvalidOpcode(u8),
+}
+
+pub fn tick(
+    state: &mut CpuState,
+    bus: &mut CpuBus<'_>,
+    is_apu_active_cycle: bool,
+) -> Result<(), CpuError> {
     state.state = match std::mem::replace(
         &mut state.state,
         State::InstructionStart {
@@ -191,9 +200,9 @@ pub fn tick(state: &mut CpuState, bus: &mut CpuBus<'_>, is_apu_active_cycle: boo
                 state.registers.pc += 1;
 
                 let Some(instruction) = Instruction::from_opcode(opcode)
-                    else {
-                        panic!("Unsupported opcode: {opcode:02X}");
-                    };
+                else {
+                    return Err(CpuError::InvalidOpcode(opcode));
+                };
                 let instruction_state = InstructionState::from_ops(instruction.get_cycle_ops());
 
                 log::trace!(
@@ -254,7 +263,9 @@ pub fn tick(state: &mut CpuState, bus: &mut CpuBus<'_>, is_apu_active_cycle: boo
                 State::InstructionStart { pending_interrupt }
             }
         }
-    }
+    };
+
+    Ok(())
 }
 
 pub fn reset(cpu_state: &mut CpuState, bus: &mut CpuBus<'_>) {
