@@ -1,8 +1,9 @@
+use crate::bus;
 use crate::bus::cartridge::mappers::konami::irq::VrcIrqCounter;
 use crate::bus::cartridge::mappers::{
     konami, BankSizeKb, ChrType, NametableMirroring, PpuMapResult,
 };
-use crate::bus::cartridge::{mappers, MapperImpl};
+use crate::bus::cartridge::MapperImpl;
 use bincode::{Decode, Encode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -52,12 +53,12 @@ impl MapperImpl<Vrc7> {
     pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: {address:04X}"),
-            0x4020..=0x5FFF => mappers::cpu_open_bus(address),
+            0x4020..=0x5FFF => bus::cpu_open_bus(address),
             0x6000..=0x7FFF => {
                 if self.data.ram_enabled {
                     self.cartridge.get_prg_ram((address & 0x1FFF).into())
                 } else {
-                    mappers::cpu_open_bus(address)
+                    bus::cpu_open_bus(address)
                 }
             }
             0x8000..=0x9FFF => {

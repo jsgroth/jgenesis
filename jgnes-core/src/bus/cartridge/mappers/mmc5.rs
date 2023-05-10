@@ -1,8 +1,8 @@
-use crate::apu;
 use crate::apu::pulse::{PulseChannel, SweepStatus};
 use crate::apu::FrameCounter;
 use crate::bus::cartridge::mappers::{BankSizeKb, CpuMapResult};
 use crate::bus::cartridge::{Cartridge, MapperImpl};
+use crate::{apu, bus};
 use bincode::{Decode, Encode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -620,7 +620,7 @@ impl MapperImpl<Mmc5> {
             }
             0x5205 => (self.data.multiplier.output() & 0x00FF) as u8,
             0x5206 => (self.data.multiplier.output() >> 8) as u8,
-            _ => 0xFF,
+            _ => bus::cpu_open_bus(address),
         }
     }
 
@@ -771,13 +771,15 @@ impl MapperImpl<Mmc5> {
 
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: {address:04X}"),
-            0x4020..=0x4FFF => 0xFF,
+            0x4020..=0x4FFF => bus::cpu_open_bus(address),
             0x5000..=0x5BFF => self.read_internal_register(address),
             0x5C00..=0x5FFF => match self.data.extended_ram_mode {
                 ExtendedRamMode::ReadWrite | ExtendedRamMode::ReadOnly => {
                     self.data.extended_ram[(address - 0x5C00) as usize]
                 }
-                ExtendedRamMode::Nametable | ExtendedRamMode::NametableExtendedAttributes => 0xFF,
+                ExtendedRamMode::Nametable | ExtendedRamMode::NametableExtendedAttributes => {
+                    bus::cpu_open_bus(address)
+                }
             },
             0x6000..=0xFFFF => {
                 let value = self
@@ -913,7 +915,9 @@ impl MapperImpl<Mmc5> {
                         | ExtendedRamMode::NametableExtendedAttributes => {
                             self.data.extended_ram[(relative_addr & 0x03FF) as usize]
                         }
-                        ExtendedRamMode::ReadWrite | ExtendedRamMode::ReadOnly => 0xFF,
+                        ExtendedRamMode::ReadWrite | ExtendedRamMode::ReadOnly => {
+                            bus::cpu_open_bus(address)
+                        }
                     },
                     NametableMapping::FillMode => {
                         if relative_addr & 0x03FF < 0x03C0 {

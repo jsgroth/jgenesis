@@ -1,8 +1,9 @@
+use crate::bus;
 use crate::bus::cartridge::mappers::konami::irq::VrcIrqCounter;
 use crate::bus::cartridge::mappers::{
     konami, BankSizeKb, ChrType, NametableMirroring, PpuMapResult,
 };
-use crate::bus::cartridge::{mappers, MapperImpl};
+use crate::bus::cartridge::MapperImpl;
 use bincode::{Decode, Encode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,12 +168,12 @@ impl MapperImpl<Vrc4> {
     pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
         match (self.data.variant.to_type(), address) {
             (_, 0x0000..=0x401F) => panic!("invalid CPU map address: {address:04X}"),
-            (_, 0x4020..=0x5FFF) => mappers::cpu_open_bus(address),
+            (_, 0x4020..=0x5FFF) => bus::cpu_open_bus(address),
             (Type::Vrc2, 0x6000..=0x7FFF) => {
                 if !self.cartridge.prg_ram.is_empty() {
                     self.cartridge.get_prg_ram((address & 0x1FFF).into())
                 } else {
-                    let open_bus = mappers::cpu_open_bus(address);
+                    let open_bus = bus::cpu_open_bus(address);
                     if address < 0x7000 {
                         (open_bus & 0xFE) | self.data.vrc2_ram_bit
                     } else {
@@ -187,10 +188,10 @@ impl MapperImpl<Vrc4> {
                         (2048, 0x6000..=0x6FFF) => {
                             self.cartridge.get_prg_ram((address & 0x07FF).into())
                         }
-                        _ => mappers::cpu_open_bus(address),
+                        _ => bus::cpu_open_bus(address),
                     }
                 } else {
-                    mappers::cpu_open_bus(address)
+                    bus::cpu_open_bus(address)
                 }
             }
             (_, 0x8000..=0xFFFF) => match (self.data.prg_mode, address) {

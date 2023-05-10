@@ -9,6 +9,7 @@ mod sunsoft;
 use crate::bus::cartridge::Cartridge;
 use bincode::{Decode, Encode};
 
+use crate::bus;
 pub(crate) use konami::{Vrc4, Vrc6, Vrc7};
 pub(crate) use mmc1::Mmc1;
 pub(crate) use mmc2::Mmc2;
@@ -60,7 +61,7 @@ impl NametableMirroring {
 pub(crate) enum CpuMapResult {
     PrgROM(u32),
     PrgRAM(u32),
-    None,
+    None { original_address: u16 },
 }
 
 impl CpuMapResult {
@@ -68,7 +69,7 @@ impl CpuMapResult {
         match self {
             Self::PrgROM(address) => cartridge.get_prg_rom(address),
             Self::PrgRAM(address) => cartridge.get_prg_ram(address),
-            Self::None => 0xFF,
+            Self::None { original_address } => bus::cpu_open_bus(original_address),
         }
     }
 
@@ -158,10 +159,6 @@ impl BankSizeKb {
     fn to_absolute_address_last_bank(self, memory_len: u32, address: u16) -> u32 {
         self.to_absolute_address_from_end(1_u32, memory_len, address)
     }
-}
-
-fn cpu_open_bus(address: u16) -> u8 {
-    (address >> 8) as u8
 }
 
 #[cfg(test)]

@@ -1,3 +1,4 @@
+use crate::bus;
 use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring};
 use crate::bus::cartridge::MapperImpl;
 use bincode::{Decode, Encode};
@@ -228,12 +229,12 @@ impl MapperImpl<Mmc3> {
     pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
-            0x4020..=0x5FFF => 0xFF,
+            0x4020..=0x5FFF => bus::cpu_open_bus(address),
             0x6000..=0x7FFF => {
                 if self.data.ram_mode.reads_enabled(address) && !self.cartridge.prg_ram.is_empty() {
                     self.cartridge.get_prg_ram(u32::from(address & 0x1FFF))
                 } else {
-                    0xFF
+                    bus::cpu_open_bus(address)
                 }
             }
             0x8000..=0xFFFF => self

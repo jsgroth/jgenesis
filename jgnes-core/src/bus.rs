@@ -361,6 +361,9 @@ pub struct IoRegisters {
 }
 
 impl IoRegisters {
+    // All I/O registers are at $40xx and SND_CHN/JOY1/JOY2 all leave the highest 3 bits unused
+    const IO_OPEN_BUS_BITS: u8 = 0x40;
+
     fn new() -> Self {
         Self {
             data: [0; 0x18],
@@ -375,7 +378,7 @@ impl IoRegisters {
 
     fn read_address(&mut self, address: u16) -> u8 {
         let relative_addr = address - CPU_IO_REGISTERS_START;
-        let Some(register) = IoRegister::from_relative_address(relative_addr) else { return 0xFF };
+        let Some(register) = IoRegister::from_relative_address(relative_addr) else { return cpu_open_bus(address) };
 
         self.read_register(register)
     }
@@ -384,25 +387,25 @@ impl IoRegisters {
         match register {
             IoRegister::SND_CHN => {
                 self.snd_chn_read = true;
-                self.data[register.to_relative_address()]
+                self.data[register.to_relative_address()] | Self::IO_OPEN_BUS_BITS
             }
             IoRegister::JOY1 => {
                 if let Some((p1_joypad_state, p2_joypad_state)) = self.latched_joypad_state {
                     self.latched_joypad_state = Some((p1_joypad_state.shift(), p2_joypad_state));
-                    p1_joypad_state.next_bit() | 0x40
+                    p1_joypad_state.next_bit() | Self::IO_OPEN_BUS_BITS
                 } else {
-                    u8::from(self.p1_joypad_state.a) | 0x40
+                    u8::from(self.p1_joypad_state.a) | Self::IO_OPEN_BUS_BITS
                 }
             }
             IoRegister::JOY2 => {
                 if let Some((p1_joypad_state, p2_joypad_state)) = self.latched_joypad_state {
                     self.latched_joypad_state = Some((p1_joypad_state, p2_joypad_state.shift()));
-                    p2_joypad_state.next_bit() | 0x40
+                    p2_joypad_state.next_bit() | Self::IO_OPEN_BUS_BITS
                 } else {
-                    u8::from(self.p2_joypad_state.a) | 0x40
+                    u8::from(self.p2_joypad_state.a) | Self::IO_OPEN_BUS_BITS
                 }
             }
-            _ => 0xFF,
+            _ => Self::IO_OPEN_BUS_BITS,
         }
     }
 
@@ -676,7 +679,7 @@ impl<'a> CpuBus<'a> {
             address @ CPU_IO_REGISTERS_START..=CPU_IO_REGISTERS_END => {
                 self.0.io_registers.read_address(address)
             }
-            _address @ CPU_IO_TEST_MODE_START..=CPU_IO_TEST_MODE_END => 0xFF,
+            _address @ CPU_IO_TEST_MODE_START..=CPU_IO_TEST_MODE_END => cpu_open_bus(address),
             address @ CPU_CARTRIDGE_START..=CPU_CARTRIDGE_END => {
                 self.0.mapper.read_cpu_address(address)
             }
@@ -935,4 +938,8 @@ mod tests {
 
         assert_ne!(bus1.cpu_internal_ram, bus2.cpu_internal_ram);
     }
+}
+
+pub(crate) fn cpu_open_bus(address: u16) -> u8 {
+    (address >> 8) as u8
 }

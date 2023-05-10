@@ -1,3 +1,4 @@
+use crate::bus;
 use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring, PpuMapResult};
 use crate::bus::cartridge::MapperImpl;
 use bincode::{Decode, Encode};
@@ -21,7 +22,7 @@ impl MapperImpl<Nrom> {
     pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
-            0x4020..=0x7FFF => 0xFF,
+            0x4020..=0x7FFF => bus::cpu_open_bus(address),
             0x8000..=0xFFFF => self.cartridge.get_prg_rom(u32::from(address & 0x7FFF)),
         }
     }
@@ -95,7 +96,7 @@ impl MapperImpl<Uxrom> {
     pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
-            0x4020..=0x7FFF => 0xFF,
+            0x4020..=0x7FFF => bus::cpu_open_bus(address),
             0x8000..=0xBFFF => {
                 let prg_rom_addr =
                     BankSizeKb::Sixteen.to_absolute_address(self.data.prg_bank, address);
@@ -178,7 +179,7 @@ impl MapperImpl<Cnrom> {
     pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
-            0x4020..=0x7FFF => 0xFF,
+            0x4020..=0x7FFF => bus::cpu_open_bus(address),
             0x8000..=0xFFFF => self.cartridge.get_prg_rom(u32::from(address & 0x7FFF)),
         }
     }
@@ -236,7 +237,7 @@ impl Axrom {
 impl MapperImpl<Axrom> {
     pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
         if address < 0x8000 {
-            return 0xFF;
+            return bus::cpu_open_bus(address);
         }
 
         let prg_rom_addr = BankSizeKb::ThirtyTwo.to_absolute_address(self.data.prg_bank, address);
@@ -297,7 +298,7 @@ impl MapperImpl<ColorDreams> {
     pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: {address:04X}"),
-            0x4020..=0x7FFF => 0xFF,
+            0x4020..=0x7FFF => bus::cpu_open_bus(address),
             0x8000..=0xFFFF => {
                 let prg_rom_addr =
                     BankSizeKb::ThirtyTwo.to_absolute_address(self.data.prg_bank, address);

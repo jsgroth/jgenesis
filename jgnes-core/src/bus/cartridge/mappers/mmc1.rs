@@ -54,12 +54,16 @@ impl MapperImpl<Mmc1> {
     fn map_cpu_address(&self, address: u16) -> CpuMapResult {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
-            0x4020..=0x5FFF => CpuMapResult::None,
+            0x4020..=0x5FFF => CpuMapResult::None {
+                original_address: address,
+            },
             0x6000..=0x7FFF => {
                 if !self.cartridge.prg_ram.is_empty() {
                     CpuMapResult::PrgRAM(u32::from(address & 0x1FFF))
                 } else {
-                    CpuMapResult::None
+                    CpuMapResult::None {
+                        original_address: address,
+                    }
                 }
             }
             0x8000..=0xFFFF => match self.data.prg_banking_mode {
