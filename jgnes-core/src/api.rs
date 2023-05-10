@@ -264,7 +264,10 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
         apu::reset(&mut self.apu_state, &mut self.bus.cpu());
         ppu::reset(&mut self.ppu_state, &mut self.bus.ppu());
 
-        init_apu(&mut self.apu_state, &mut self.bus);
+        for _ in 0..10 {
+            apu::tick(&mut self.apu_state, &mut self.bus.cpu());
+            self.bus.tick();
+        }
     }
 
     /// Completely re-initialize all emulation state.

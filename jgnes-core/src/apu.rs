@@ -355,6 +355,9 @@ pub fn reset(state: &mut ApuState, bus: &mut CpuBus<'_>) {
     // Silence the APU by simulating a SND_CHN=$00 write
     state.process_register_updates(iter::once((IoRegister::SND_CHN, 0x00)), bus);
 
+    state.frame_counter.reset_state = FrameCounterResetState::Joy2Updated;
+    state.frame_counter_interrupt_flag = false;
+
     state.triangle_channel.reset();
     state.dmc.reset();
 }
