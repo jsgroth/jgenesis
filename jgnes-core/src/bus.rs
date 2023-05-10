@@ -385,7 +385,7 @@ impl IoRegisters {
         match register {
             IoRegister::SND_CHN => {
                 self.snd_chn_read = true;
-                self.data[register.to_relative_address()] | Self::IO_OPEN_BUS_BITS
+                self.data[register.to_relative_address()]
             }
             IoRegister::JOY1 => {
                 if let Some((p1_joypad_state, p2_joypad_state)) = self.latched_joypad_state {
