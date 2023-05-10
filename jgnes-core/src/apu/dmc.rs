@@ -178,4 +178,8 @@ impl DeltaModulationChannel {
     pub fn interrupt_flag(&self) -> bool {
         self.interrupt_flag
     }
+
+    pub fn reset(&mut self) {
+        self.output_unit.output_level &= 0x01;
+    }
 }

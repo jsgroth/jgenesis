@@ -256,3 +256,18 @@ pub fn tick(state: &mut CpuState, bus: &mut CpuBus<'_>, is_apu_active_cycle: boo
         }
     }
 }
+
+pub fn reset(cpu_state: &mut CpuState, bus: &mut CpuBus<'_>) {
+    let reset_vector_lsb = bus.read_address(bus::CPU_RESET_VECTOR);
+    let reset_vector_msb = bus.read_address(bus::CPU_RESET_VECTOR + 1);
+    let reset_vector = u16::from_le_bytes([reset_vector_lsb, reset_vector_msb]);
+    cpu_state.registers.pc = reset_vector;
+
+    cpu_state.registers.sp = cpu_state.registers.sp.wrapping_sub(3);
+
+    cpu_state.registers.status.interrupt_disable = true;
+
+    cpu_state.state = State::InstructionStart {
+        pending_interrupt: false,
+    };
+}

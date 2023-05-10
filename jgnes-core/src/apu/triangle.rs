@@ -108,4 +108,8 @@ impl TriangleChannel {
     pub fn length_counter(&self) -> u8 {
         self.length_counter.counter
     }
+
+    pub fn reset(&mut self) {
+        self.timer.phase = 0;
+    }
 }

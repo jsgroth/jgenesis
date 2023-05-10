@@ -904,6 +904,13 @@ impl<'a> PpuBus<'a> {
     pub fn set_bus_address(&mut self, address: u16) {
         self.0.ppu_bus_address = address;
     }
+
+    pub fn reset(&mut self) {
+        self.0.ppu_registers.ppu_ctrl = 0x00;
+        self.0.ppu_registers.ppu_mask = 0x00;
+        self.0.ppu_registers.write_toggle = PpuWriteToggle::First;
+        self.0.ppu_registers.open_bus_value = 0x00;
+    }
 }
 
 fn map_palette_address(address: u16) -> usize {

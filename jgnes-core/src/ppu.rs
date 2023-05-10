@@ -317,6 +317,15 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     }
 }
 
+pub fn reset(state: &mut PpuState, bus: &mut PpuBus<'_>) {
+    // Reset clears everything except the v register
+    let vram_address = state.registers.vram_address;
+    *state = PpuState::new();
+    state.registers.vram_address = vram_address;
+
+    bus.reset();
+}
+
 fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     log::trace!("Rendering at scanline {} dot {}", state.scanline, state.dot);
 

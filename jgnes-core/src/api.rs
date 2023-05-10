@@ -149,6 +149,8 @@ pub struct Emulator<Renderer, AudioPlayer, InputPoller, SaveWriter> {
     audio_player: AudioPlayer,
     input_poller: InputPoller,
     save_writer: SaveWriter,
+    // Kept around to enable hard reset
+    raw_rom_bytes: Vec<u8>,
 }
 
 pub type EmulationResult<RenderError, AudioError, SaveError> =
@@ -188,6 +190,7 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
             audio_player,
             input_poller,
             save_writer,
+            raw_rom_bytes: rom_bytes,
         })
     }
 
@@ -250,6 +253,33 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
         }
 
         Ok(())
+    }
+
+    /// Press the (emulated) reset button.
+    ///
+    /// Note that just like on a real NES, this leaves some state intact. For a hard reset you
+    /// should call `hard_reset`.
+    pub fn soft_reset(&mut self) {
+        cpu::reset(&mut self.cpu_state, &mut self.bus.cpu());
+        apu::reset(&mut self.apu_state, &mut self.bus.cpu());
+        ppu::reset(&mut self.ppu_state, &mut self.bus.ppu());
+
+        init_apu(&mut self.apu_state, &mut self.bus);
+    }
+
+    /// Completely re-initialize all emulation state.
+    #[must_use]
+    pub fn hard_reset(self) -> Self {
+        let prg_ram = Vec::from(self.bus.mapper().get_prg_ram());
+        Self::create(
+            self.raw_rom_bytes,
+            Some(prg_ram),
+            self.renderer,
+            self.audio_player,
+            self.input_poller,
+            self.save_writer,
+        )
+        .expect("hard reset should never fail cartridge validation")
     }
 
     pub fn get_renderer_mut(&mut self) -> &mut R {

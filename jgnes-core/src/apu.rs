@@ -11,6 +11,7 @@ use crate::apu::triangle::TriangleChannel;
 use crate::bus::{CpuBus, IoRegister, IrqSource};
 use bincode::{Decode, Encode};
 use once_cell::sync::Lazy;
+use std::iter;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum FrameCounterMode {
@@ -109,11 +110,11 @@ impl FrameCounter {
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct ApuState {
-    channel_1: PulseChannel,
-    channel_2: PulseChannel,
-    channel_3: TriangleChannel,
-    channel_4: NoiseChannel,
-    channel_5: DeltaModulationChannel,
+    pulse_channel_1: PulseChannel,
+    pulse_channel_2: PulseChannel,
+    triangle_channel: TriangleChannel,
+    noise_channel: NoiseChannel,
+    dmc: DeltaModulationChannel,
     frame_counter: FrameCounter,
     frame_counter_interrupt_flag: bool,
     hpf_capacitor: f64,
@@ -158,11 +159,11 @@ static TND_AUDIO_LOOKUP_TABLE: Lazy<[[[f64; 128]; 16]; 16]> = Lazy::new(|| {
 impl ApuState {
     pub fn new() -> Self {
         Self {
-            channel_1: PulseChannel::new_channel_1(SweepStatus::Enabled),
-            channel_2: PulseChannel::new_channel_2(SweepStatus::Enabled),
-            channel_3: TriangleChannel::new(),
-            channel_4: NoiseChannel::new(),
-            channel_5: DeltaModulationChannel::new(),
+            pulse_channel_1: PulseChannel::new_channel_1(SweepStatus::Enabled),
+            pulse_channel_2: PulseChannel::new_channel_2(SweepStatus::Enabled),
+            triangle_channel: TriangleChannel::new(),
+            noise_channel: NoiseChannel::new(),
+            dmc: DeltaModulationChannel::new(),
             frame_counter: FrameCounter::new(),
             frame_counter_interrupt_flag: false,
             hpf_capacitor: 0.0,
@@ -181,65 +182,65 @@ impl ApuState {
         for (register, value) in iter {
             match register {
                 IoRegister::SQ1_VOL => {
-                    self.channel_1.process_vol_update(value);
+                    self.pulse_channel_1.process_vol_update(value);
                 }
                 IoRegister::SQ1_SWEEP => {
-                    self.channel_1.process_sweep_update(value);
+                    self.pulse_channel_1.process_sweep_update(value);
                 }
                 IoRegister::SQ1_LO => {
-                    self.channel_1.process_lo_update(value);
+                    self.pulse_channel_1.process_lo_update(value);
                 }
                 IoRegister::SQ1_HI => {
-                    self.channel_1.process_hi_update(value);
+                    self.pulse_channel_1.process_hi_update(value);
                 }
                 IoRegister::SQ2_VOL => {
-                    self.channel_2.process_vol_update(value);
+                    self.pulse_channel_2.process_vol_update(value);
                 }
                 IoRegister::SQ2_SWEEP => {
-                    self.channel_2.process_sweep_update(value);
+                    self.pulse_channel_2.process_sweep_update(value);
                 }
                 IoRegister::SQ2_LO => {
-                    self.channel_2.process_lo_update(value);
+                    self.pulse_channel_2.process_lo_update(value);
                 }
                 IoRegister::SQ2_HI => {
-                    self.channel_2.process_hi_update(value);
+                    self.pulse_channel_2.process_hi_update(value);
                 }
                 IoRegister::TRI_LINEAR => {
-                    self.channel_3.process_tri_linear_update(value);
+                    self.triangle_channel.process_tri_linear_update(value);
                 }
                 IoRegister::TRI_LO => {
-                    self.channel_3.process_lo_update(value);
+                    self.triangle_channel.process_lo_update(value);
                 }
                 IoRegister::TRI_HI => {
-                    self.channel_3.process_hi_update(value);
+                    self.triangle_channel.process_hi_update(value);
                 }
                 IoRegister::NOISE_VOL => {
-                    self.channel_4.process_vol_update(value);
+                    self.noise_channel.process_vol_update(value);
                 }
                 IoRegister::NOISE_LO => {
-                    self.channel_4.process_lo_update(value);
+                    self.noise_channel.process_lo_update(value);
                 }
                 IoRegister::NOISE_HI => {
-                    self.channel_4.process_hi_update(value);
+                    self.noise_channel.process_hi_update(value);
                 }
                 IoRegister::DMC_FREQ => {
-                    self.channel_5.process_dmc_freq_update(value);
+                    self.dmc.process_dmc_freq_update(value);
                 }
                 IoRegister::DMC_RAW => {
-                    self.channel_5.process_dmc_raw_update(value);
+                    self.dmc.process_dmc_raw_update(value);
                 }
                 IoRegister::DMC_START => {
-                    self.channel_5.process_dmc_start_update(value);
+                    self.dmc.process_dmc_start_update(value);
                 }
                 IoRegister::DMC_LEN => {
-                    self.channel_5.process_dmc_len_update(value);
+                    self.dmc.process_dmc_len_update(value);
                 }
                 IoRegister::SND_CHN => {
-                    self.channel_1.process_snd_chn_update(value);
-                    self.channel_2.process_snd_chn_update(value);
-                    self.channel_3.process_snd_chn_update(value);
-                    self.channel_4.process_snd_chn_update(value);
-                    self.channel_5.process_snd_chn_update(value, bus);
+                    self.pulse_channel_1.process_snd_chn_update(value);
+                    self.pulse_channel_2.process_snd_chn_update(value);
+                    self.triangle_channel.process_snd_chn_update(value);
+                    self.noise_channel.process_snd_chn_update(value);
+                    self.dmc.process_snd_chn_update(value, bus);
                 }
                 IoRegister::JOY2 => {
                     self.frame_counter.process_joy2_update(value);
@@ -250,25 +251,25 @@ impl ApuState {
     }
 
     fn tick_cpu(&mut self, bus: &mut CpuBus<'_>) {
-        self.channel_1.tick_cpu();
-        self.channel_2.tick_cpu();
-        self.channel_3.tick_cpu();
-        self.channel_4.tick_cpu();
-        self.channel_5.tick_cpu(bus);
+        self.pulse_channel_1.tick_cpu();
+        self.pulse_channel_2.tick_cpu();
+        self.triangle_channel.tick_cpu();
+        self.noise_channel.tick_cpu();
+        self.dmc.tick_cpu(bus);
         self.frame_counter.tick();
 
         if self.frame_counter.generate_quarter_frame_clock() {
-            self.channel_1.clock_quarter_frame();
-            self.channel_2.clock_quarter_frame();
-            self.channel_3.clock_quarter_frame();
-            self.channel_4.clock_quarter_frame();
+            self.pulse_channel_1.clock_quarter_frame();
+            self.pulse_channel_2.clock_quarter_frame();
+            self.triangle_channel.clock_quarter_frame();
+            self.noise_channel.clock_quarter_frame();
         }
 
         if self.frame_counter.generate_half_frame_clock() {
-            self.channel_1.clock_half_frame();
-            self.channel_2.clock_half_frame();
-            self.channel_3.clock_half_frame();
-            self.channel_4.clock_half_frame();
+            self.pulse_channel_1.clock_half_frame();
+            self.pulse_channel_2.clock_half_frame();
+            self.triangle_channel.clock_half_frame();
+            self.noise_channel.clock_half_frame();
         }
 
         if self.frame_counter.should_set_interrupt_flag() {
@@ -283,25 +284,25 @@ impl ApuState {
         );
 
         bus.interrupt_lines()
-            .set_irq_low_pull(IrqSource::ApuDmc, self.channel_5.interrupt_flag());
+            .set_irq_low_pull(IrqSource::ApuDmc, self.dmc.interrupt_flag());
     }
 
     fn get_apu_status(&self) -> u8 {
-        (u8::from(self.channel_5.interrupt_flag()) << 7)
+        (u8::from(self.dmc.interrupt_flag()) << 7)
             | (u8::from(self.frame_counter_interrupt_flag) << 6)
-            | (u8::from(self.channel_5.sample_bytes_remaining() > 0) << 4)
-            | (u8::from(self.channel_4.length_counter() > 0) << 3)
-            | (u8::from(self.channel_3.length_counter() > 0) << 2)
-            | (u8::from(self.channel_2.length_counter() > 0) << 1)
-            | u8::from(self.channel_1.length_counter() > 0)
+            | (u8::from(self.dmc.sample_bytes_remaining() > 0) << 4)
+            | (u8::from(self.noise_channel.length_counter() > 0) << 3)
+            | (u8::from(self.triangle_channel.length_counter() > 0) << 2)
+            | (u8::from(self.pulse_channel_2.length_counter() > 0) << 1)
+            | u8::from(self.pulse_channel_1.length_counter() > 0)
     }
 
     fn mix_samples(&self) -> f64 {
-        let pulse1_sample = self.channel_1.sample();
-        let pulse2_sample = self.channel_2.sample();
-        let triangle_sample = self.channel_3.sample();
-        let noise_sample = self.channel_4.sample();
-        let dmc_sample = self.channel_5.sample();
+        let pulse1_sample = self.pulse_channel_1.sample();
+        let pulse2_sample = self.pulse_channel_2.sample();
+        let triangle_sample = self.triangle_channel.sample();
+        let noise_sample = self.noise_channel.sample();
+        let dmc_sample = self.dmc.sample();
 
         let pulse_mix = mix_pulse_samples(pulse1_sample, pulse2_sample);
         let tnd_mix = TND_AUDIO_LOOKUP_TABLE[triangle_sample as usize][noise_sample as usize]
@@ -332,9 +333,9 @@ pub fn mix_pulse_samples(pulse1_sample: u8, pulse2_sample: u8) -> f64 {
 
 pub fn tick(state: &mut ApuState, bus: &mut CpuBus<'_>) {
     log::trace!("APU: Frame counter state: {:?}", state.frame_counter);
-    log::trace!("APU: Pulse 1 state: {:?}", state.channel_1);
-    log::trace!("APU: Pulse 2 state: {:?}", state.channel_2);
-    log::trace!("APU: DMC state: {:?}", state.channel_5);
+    log::trace!("APU: Pulse 1 state: {:?}", state.pulse_channel_1);
+    log::trace!("APU: Pulse 2 state: {:?}", state.pulse_channel_2);
+    log::trace!("APU: DMC state: {:?}", state.dmc);
 
     if bus.get_io_registers_mut().get_and_clear_snd_chn_read() {
         state.frame_counter_interrupt_flag = false;
@@ -348,4 +349,12 @@ pub fn tick(state: &mut ApuState, bus: &mut CpuBus<'_>) {
     bus.get_io_registers_mut()
         .set_apu_status(state.get_apu_status());
     log::trace!("APU: Status set to {:02X}", state.get_apu_status());
+}
+
+pub fn reset(state: &mut ApuState, bus: &mut CpuBus<'_>) {
+    // Silence the APU by simulating a SND_CHN=$00 write
+    state.process_register_updates(iter::once((IoRegister::SND_CHN, 0x00)), bus);
+
+    state.triangle_channel.reset();
+    state.dmc.reset();
 }
