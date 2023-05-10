@@ -206,6 +206,7 @@ impl Mapper {
     pub(crate) fn sample_audio(&self, mixed_apu_sample: f64) -> f64 {
         match self {
             Self::Mmc5(mmc5) => mmc5.sample_audio(mixed_apu_sample),
+            Self::Sunsoft(sunsoft) => sunsoft.sample_audio(mixed_apu_sample),
             Self::Vrc6(vrc6) => vrc6.sample_audio(mixed_apu_sample),
             _ => mixed_apu_sample,
         }
