@@ -4,7 +4,10 @@ use crate::bus::cartridge::mappers::{
     Axrom, ChrType, Cnrom, ColorDreams, Mmc1, Mmc2, Mmc3, Mmc5, NametableMirroring, Nrom, Sunsoft,
     Uxrom, Vrc4, Vrc6, Vrc7,
 };
-use bincode::{Decode, Encode};
+use bincode::de::{BorrowDecoder, Decoder};
+use bincode::enc::Encoder;
+use bincode::error::{DecodeError, EncodeError};
+use bincode::{BorrowDecode, Decode, Encode};
 use jgnes_proc_macros::MatchEachVariantMacro;
 use std::{io, mem};
 use thiserror::Error;
@@ -12,7 +15,7 @@ use thiserror::Error;
 #[cfg(test)]
 pub(crate) use mappers::new_mmc1;
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone)]
 struct Cartridge {
     prg_rom: Vec<u8>,
     prg_ram: Vec<u8>,
@@ -20,6 +23,55 @@ struct Cartridge {
     prg_ram_dirty_bit: bool,
     chr_rom: Vec<u8>,
     chr_ram: Vec<u8>,
+}
+
+// Encode and Decode are implemented explicitly instead of using derive in order to avoid
+// serializing ROM bytes as part of save states
+impl Encode for Cartridge {
+    fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
+        self.prg_ram.encode(encoder)?;
+        self.has_ram_battery.encode(encoder)?;
+        self.prg_ram_dirty_bit.encode(encoder)?;
+        self.chr_ram.encode(encoder)?;
+
+        Ok(())
+    }
+}
+
+impl Decode for Cartridge {
+    fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError> {
+        let prg_ram = Decode::decode(decoder)?;
+        let has_ram_battery = Decode::decode(decoder)?;
+        let prg_ram_dirty_bit = Decode::decode(decoder)?;
+        let chr_ram = Decode::decode(decoder)?;
+
+        Ok(Self {
+            prg_rom: vec![],
+            prg_ram,
+            has_ram_battery,
+            prg_ram_dirty_bit,
+            chr_rom: vec![],
+            chr_ram,
+        })
+    }
+}
+
+impl<'de> BorrowDecode<'de> for Cartridge {
+    fn borrow_decode<D: BorrowDecoder<'de>>(decoder: &mut D) -> Result<Self, DecodeError> {
+        let prg_ram = BorrowDecode::borrow_decode(decoder)?;
+        let has_ram_battery = BorrowDecode::borrow_decode(decoder)?;
+        let prg_ram_dirty_bit = BorrowDecode::borrow_decode(decoder)?;
+        let chr_ram = BorrowDecode::borrow_decode(decoder)?;
+
+        Ok(Self {
+            prg_rom: vec![],
+            prg_ram,
+            has_ram_battery,
+            prg_ram_dirty_bit,
+            chr_rom: vec![],
+            chr_ram,
+        })
+    }
 }
 
 impl Cartridge {
@@ -56,17 +108,6 @@ impl Cartridge {
     fn set_chr_ram(&mut self, address: u32, value: u8) {
         let chr_ram_len = self.chr_ram.len();
         self.chr_ram[(address as usize) & (chr_ram_len - 1)] = value;
-    }
-
-    fn clone_without_rom(&self) -> Self {
-        Self {
-            prg_rom: vec![],
-            prg_ram: self.prg_ram.clone(),
-            has_ram_battery: self.has_ram_battery,
-            prg_ram_dirty_bit: self.prg_ram_dirty_bit,
-            chr_rom: vec![],
-            chr_ram: self.chr_ram.clone(),
-        }
     }
 
     fn move_unserialized_fields_from(&mut self, other: &mut Self) {
@@ -210,16 +251,6 @@ impl Mapper {
             Self::Vrc6(vrc6) => vrc6.sample_audio(mixed_apu_sample),
             _ => mixed_apu_sample,
         }
-    }
-
-    pub(crate) fn clone_without_rom(&self) -> Self {
-        match_each_variant!(
-            self,
-            mapper => :variant(MapperImpl {
-                cartridge: mapper.cartridge.clone_without_rom(),
-                data: mapper.data.clone(),
-            })
-        )
     }
 
     pub(crate) fn move_unserialized_fields_from(&mut self, other: &mut Self) {
