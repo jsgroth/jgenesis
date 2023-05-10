@@ -4,6 +4,7 @@ use crate::bus::cartridge::mappers::{
 use crate::bus::cartridge::MapperImpl;
 use crate::num::GetBit;
 use bincode::{Decode, Encode};
+use once_cell::sync::Lazy;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -23,6 +24,42 @@ struct Sunsoft5bChannel {
 }
 
 const AUDIO_DIVIDER: u8 = 16;
+
+static DAC_LOOKUP_TABLE: Lazy<[f64; 16]> = Lazy::new(|| {
+    let mut lookup_table = [0.0; 16];
+
+    // Arbitrary value, will get normalized later
+    lookup_table[1] = 1.0;
+
+    // https://en.wikipedia.org/wiki/Decibel
+    //
+    // Each step produces an output difference of 3dB which gives this equation, where L0 is the
+    // previous output value on a linear scale and L1 is the current value:
+    //   3dB = 20 * log10(L1/L0)
+    // Simple algebra brings this to:
+    //   L1 = L0 * 10^(3/20)
+    for i in 2..16 {
+        lookup_table[i] = lookup_table[i - 1] * 10.0_f64.powf(3.0 / 20.0);
+    }
+
+    // Hack: the 5B has some sort of compressor that appears to make the difference between
+    // volume 14 and volume 15 much smaller than it should be.
+    //
+    // Without doing anything, volume 14 will end up around (0.707 * volume 15), so modify
+    // volume 15 to be a bit higher than that.
+    //
+    // This also has the effect of making all of the lower volumes a little louder, which is
+    // desired because otherwise they will sound too soft.
+    lookup_table[15] *= 0.72;
+
+    // Normalize the values so that the max is 1.0
+    let max = lookup_table[15];
+    for value in lookup_table[1..].iter_mut() {
+        *value /= max;
+    }
+
+    lookup_table
+});
 
 impl Sunsoft5bChannel {
     fn new() -> Self {
@@ -56,14 +93,8 @@ impl Sunsoft5bChannel {
         }
     }
 
-    // TODO logarithmic DAC
     fn sample_analog(&self) -> f64 {
-        let sample = self.sample();
-        if sample == 0 {
-            0.0
-        } else {
-            f64::from(sample) / 15.0
-        }
+        DAC_LOOKUP_TABLE[self.sample() as usize]
     }
 
     fn clock(&mut self) {
@@ -161,6 +192,15 @@ impl Sunsoft5bAudioUnit {
             + self.channel_2.sample_analog()
             + self.channel_3.sample_analog())
             / 3.0
+    }
+
+    fn enabled(&self) -> bool {
+        self.channel_1.tone_enabled
+            || self.channel_2.tone_enabled
+            || self.channel_3.tone_enabled
+            || self.channel_1.volume != 0
+            || self.channel_2.volume != 0
+            || self.channel_3.volume != 0
     }
 }
 
@@ -348,9 +388,13 @@ impl MapperImpl<Sunsoft> {
     }
 
     pub(crate) fn sample_audio(&self, mixed_apu_sample: f64) -> f64 {
+        if !self.data.audio.enabled() {
+            return mixed_apu_sample;
+        }
+
         let sunsoft_5b_sample = self.data.audio.sample();
 
-        // TODO better mixing
-        mixed_apu_sample - sunsoft_5b_sample / 2.0
+        // This audio chip appears to slightly decrease APU channel volume
+        0.7 * mixed_apu_sample - sunsoft_5b_sample
     }
 }
