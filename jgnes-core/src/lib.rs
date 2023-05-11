@@ -2,6 +2,7 @@
 
 mod api;
 mod apu;
+pub mod audio;
 mod bus;
 mod cpu;
 mod input;
