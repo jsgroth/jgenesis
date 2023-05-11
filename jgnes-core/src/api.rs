@@ -168,8 +168,14 @@ pub struct Emulator<Renderer, AudioPlayer, InputPoller, SaveWriter> {
     raw_rom_bytes: Vec<u8>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TickEffect {
+    None,
+    FrameRendered,
+}
+
 pub type EmulationResult<RenderError, AudioError, SaveError> =
-    Result<(), EmulationError<RenderError, AudioError, SaveError>>;
+    Result<TickEffect, EmulationError<RenderError, AudioError, SaveError>>;
 
 impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, I, S> {
     /// Create a new emulator instance.
@@ -265,9 +271,11 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
                     .persist_sram(sram)
                     .map_err(EmulationError::Save)?;
             }
+
+            return Ok(TickEffect::FrameRendered);
         }
 
-        Ok(())
+        Ok(TickEffect::None)
     }
 
     /// Press the (emulated) reset button.
@@ -298,6 +306,10 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
             self.save_writer,
         )
         .expect("hard reset should never fail cartridge validation")
+    }
+
+    pub fn get_renderer(&self) -> &R {
+        &self.renderer
     }
 
     pub fn get_renderer_mut(&mut self) -> &mut R {

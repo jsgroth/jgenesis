@@ -136,8 +136,8 @@ static PULSE_AUDIO_LOOKUP_TABLE: Lazy<[[f64; 16]; 16]> = Lazy::new(|| {
     lookup_table
 });
 
-static TND_AUDIO_LOOKUP_TABLE: Lazy<[[[f64; 128]; 16]; 16]> = Lazy::new(|| {
-    let mut lookup_table = [[[0.0; 128]; 16]; 16];
+static TND_AUDIO_LOOKUP_TABLE: Lazy<Box<[[[f64; 128]; 16]; 16]>> = Lazy::new(|| {
+    let mut lookup_table = Box::new([[[0.0; 128]; 16]; 16]);
 
     for (triangle_sample, triangle_row) in lookup_table.iter_mut().enumerate() {
         for (noise_sample, noise_row) in triangle_row.iter_mut().enumerate() {
