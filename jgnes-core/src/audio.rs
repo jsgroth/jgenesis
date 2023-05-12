@@ -40,6 +40,26 @@ impl Default for LowPassFilter {
     }
 }
 
+// 236.25MHz / 11 / 12
+const NES_AUDIO_FREQUENCY: f64 = 1789772.7272727272727273;
+const NES_NATIVE_DISPLAY_RATE: f64 = 60.0988;
+
+#[must_use]
+pub fn should_output_sample(
+    total_sample_count: u64,
+    output_frequency: f64,
+    display_refresh_rate: f64,
+) -> bool {
+    ((total_sample_count - 1) as f64 * output_frequency / NES_AUDIO_FREQUENCY
+        * NES_NATIVE_DISPLAY_RATE
+        / display_refresh_rate)
+        .round() as u64
+        != (total_sample_count as f64 * output_frequency / NES_AUDIO_FREQUENCY
+            * NES_NATIVE_DISPLAY_RATE
+            / display_refresh_rate)
+            .round() as u64
+}
+
 // Generated in Octave using `fir1(93, 24000 / (1789772.72727272 / 2), 'low')`
 const FIR_COEFFICIENT_0: f64 = -0.0003510245168949023;
 const FIR_COEFFICIENTS: [f64; 93] = [
