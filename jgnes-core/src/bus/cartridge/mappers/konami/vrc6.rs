@@ -355,6 +355,16 @@ impl MapperImpl<Vrc6> {
 
         // Derived from https://www.nesdev.org/wiki/APU_Mixer by assuming the max value for each
         // channel then multiplying by 61/30
-        mixed_apu_sample - 0.5255823148813802 * vrc6_mix
+        let mixed_sample = mixed_apu_sample - 0.5255823148813802 * vrc6_mix;
+
+        // Slightly amplify because otherwise this chip is very quiet
+        let amplified = 1.25 * mixed_sample;
+        if amplified > 1.0 {
+            1.0
+        } else if amplified < -1.0 {
+            -1.0
+        } else {
+            amplified
+        }
     }
 }
