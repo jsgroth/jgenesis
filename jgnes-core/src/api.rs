@@ -6,9 +6,11 @@ use crate::input::JoypadState;
 use crate::ppu::{FrameBuffer, PpuState};
 use crate::serialize::{EmulationState, SaveStateError};
 use crate::{apu, cpu, ppu, serialize};
+use std::cell::RefCell;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::io;
+use std::rc::Rc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ColorEmphasis {
@@ -68,6 +70,18 @@ pub trait Renderer {
     ) -> Result<(), Self::Err>;
 }
 
+impl<R: Renderer> Renderer for Rc<RefCell<R>> {
+    type Err = R::Err;
+
+    fn render_frame(
+        &mut self,
+        frame_buffer: &FrameBuffer,
+        color_emphasis: ColorEmphasis,
+    ) -> Result<(), Self::Err> {
+        self.borrow_mut().render_frame(frame_buffer, color_emphasis)
+    }
+}
+
 pub trait AudioPlayer {
     type Err;
 
@@ -86,6 +100,14 @@ pub trait AudioPlayer {
     fn push_sample(&mut self, sample: f64) -> Result<(), Self::Err>;
 }
 
+impl<A: AudioPlayer> AudioPlayer for Rc<RefCell<A>> {
+    type Err = A::Err;
+
+    fn push_sample(&mut self, sample: f64) -> Result<(), Self::Err> {
+        self.borrow_mut().push_sample(sample)
+    }
+}
+
 pub trait InputPoller {
     /// Retrieve the current Player 1 input state.
     fn poll_p1_input(&self) -> JoypadState;
@@ -95,6 +117,26 @@ pub trait InputPoller {
     /// If only one input device is desired, implementations can have this method return
     /// `JoypadState::default()`.
     fn poll_p2_input(&self) -> JoypadState;
+}
+
+impl<I: InputPoller> InputPoller for Rc<I> {
+    fn poll_p1_input(&self) -> JoypadState {
+        I::poll_p1_input(self)
+    }
+
+    fn poll_p2_input(&self) -> JoypadState {
+        I::poll_p2_input(self)
+    }
+}
+
+impl<I: InputPoller> InputPoller for RefCell<I> {
+    fn poll_p1_input(&self) -> JoypadState {
+        self.borrow().poll_p1_input()
+    }
+
+    fn poll_p2_input(&self) -> JoypadState {
+        self.borrow().poll_p2_input()
+    }
 }
 
 pub trait SaveWriter {
@@ -111,6 +153,14 @@ pub trait SaveWriter {
     /// This method can return an error if it is unable to persist the data to whatever it is
     /// writing to, and the error will be propagated.
     fn persist_sram(&mut self, sram: &[u8]) -> Result<(), Self::Err>;
+}
+
+impl<S: SaveWriter> SaveWriter for Rc<RefCell<S>> {
+    type Err = S::Err;
+
+    fn persist_sram(&mut self, sram: &[u8]) -> Result<(), Self::Err> {
+        self.borrow_mut().persist_sram(sram)
+    }
 }
 
 #[derive(Debug)]
