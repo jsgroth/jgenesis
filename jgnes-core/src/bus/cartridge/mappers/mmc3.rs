@@ -1,3 +1,5 @@
+//! Code for the MMC3 and MMC6 boards (iNES mapper 4).
+
 use crate::bus;
 use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring};
 use crate::bus::cartridge::MapperImpl;

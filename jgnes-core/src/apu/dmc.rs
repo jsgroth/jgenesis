@@ -1,3 +1,11 @@
+//! The APU's delta modulation channel (DMC) which can play back delta-encoded PCM samples read
+//! from memory, one byte at a time.
+//!
+//! Channel output values are between 0 and 127 (inclusive).
+//!
+//! This channel can optionally generate IRQs when the current sample has been completely read
+//! from memory.
+
 use crate::bus::CpuBus;
 use crate::num::GetBit;
 use bincode::{Decode, Encode};

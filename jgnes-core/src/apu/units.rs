@@ -1,3 +1,10 @@
+//! Common units that are used in multiple APU channels.
+//!
+//! These include:
+//! * A length counter, which can automatically disable the channel after a set amount of time
+//! * An envelope, which can automatically increase or decrease the channel's volume over time
+//! * A frequency timer which infinitely cycles through a set number of phase steps based on a divider of the CPU clock
+
 use crate::num::GetBit;
 use bincode::{Decode, Encode};
 

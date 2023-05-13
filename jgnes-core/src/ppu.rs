@@ -1,3 +1,9 @@
+//! PPU (pixel/picture processing unit) emulation code.
+//!
+//! The PPU constantly cycles through 261 scanlines: 240 visible scanlines where the PPU is actively
+//! rendering pixels, a 20-scanline vertical blanking period where the PPU is idle, and a pre-render
+//! scanline where the PPU fetches data that is needed to render the first visible scanline.
+
 use crate::bus::{PpuBus, PpuTrackedRegister, PpuWriteToggle};
 use crate::num::GetBit;
 use bincode::{Decode, Encode};
@@ -247,15 +253,25 @@ impl PpuState {
         }
     }
 
+    /// Return whether the PPU is currently in the vertical blanking period.
+    ///
+    /// While the PPU's first idle scanline is scanline 240, this method will not return true
+    /// until scanline 241 in order to align with when the PPU sets the VBlank in PPUSTATUS.
     pub fn in_vblank(&self) -> bool {
         VBLANK_SCANLINES.contains(&self.scanline)
     }
 
+    /// Retrieve a reference the PPU's frame buffer.
+    ///
+    /// The frame buffer is a 256x240 grid storing 6-bit NES colors. These colors
+    /// do not map directly to RGB; some sort of palette is needed to convert these colors to RGB
+    /// colors that are appropriate for display.
     pub fn frame_buffer(&self) -> &FrameBuffer {
         &self.frame_buffer
     }
 }
 
+/// Run the PPU for one PPU cycle. Pixels will be written to `PpuState`'s frame buffer as appropriate.
 pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     let rendering_enabled =
         bus.get_ppu_registers().bg_enabled() || bus.get_ppu_registers().sprites_enabled();
@@ -322,8 +338,11 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     }
 }
 
+/// Reset the PPU, as if the console's reset button was pressed.
+///
+/// This resets all PPU state except for the internal v register, and also clears most of the
+/// memory-mapped PPU regsiters.
 pub fn reset(state: &mut PpuState, bus: &mut PpuBus<'_>) {
-    // Reset clears everything except the v register
     let vram_address = state.registers.vram_address;
     *state = PpuState::new();
     state.registers.vram_address = vram_address;

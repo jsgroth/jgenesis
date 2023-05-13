@@ -1,3 +1,11 @@
+//! The APU's triangle wave generator channel, which constantly cycles through a 32-step waveform
+//! going from 15 down to 0 then back up to 15. Period is configurable.
+//!
+//! In addition to a length counter, this channel also has a "linear counter" which works similarly
+//! but is clocked every quarter-frame rather than every half-frame.
+//!
+//! Channel output values are between 0 and 15 (inclusive).
+
 use crate::apu::units::{LengthCounter, LengthCounterChannel, PhaseTimer};
 use crate::num::GetBit;
 use bincode::{Decode, Encode};

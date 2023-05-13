@@ -1,3 +1,8 @@
+//! Code for emulating the 6502 CPU instruction set.
+//!
+//! Instructions are broken down into a list of cycle ops that specify exactly what the CPU should
+//! do on each cycle of each instruction.
+
 #[cfg(test)]
 mod tests;
 

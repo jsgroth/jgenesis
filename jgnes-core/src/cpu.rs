@@ -1,3 +1,5 @@
+//! CPU emulation code.
+
 use crate::bus;
 use crate::bus::{CpuBus, PpuRegister};
 use crate::cpu::instructions::{Instruction, InstructionState};
@@ -157,6 +159,7 @@ pub enum CpuError {
     InvalidOpcode(u8),
 }
 
+/// Run the CPU for 1 CPU cycle.
 pub fn tick(
     state: &mut CpuState,
     bus: &mut CpuBus<'_>,

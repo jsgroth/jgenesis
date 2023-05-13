@@ -1,3 +1,38 @@
+//! Code for emulating the bus, and more generally the NES CPU and PPU address spaces.
+//!
+//! The NES does not have a unified bus; it has two buses, a 16-bit CPU bus and a 14-bit PPU bus.
+//! The CPU can only access the PPU bus through memory-mapped I/O.
+//!
+//! CPU address mapping:
+//! * $0000-$07FF: 2KB internal RAM
+//! * $0800-$1FFF: Mirrors of internal RAM
+//! * $2000-$2007: Memory-mapped PPU registers
+//! * $2008-$3FFF: Mirrors of memory-mapped PPU registers
+//! * $4000-$4017: Memory-mapped APU and I/O registers
+//! * $4018-$401F: "Test mode" functionality that is not emulated here
+//! * $4020-$FFFF: Mapped to the cartridge board
+//!
+//! Most cartridge boards map $6000-$7FFF to PRG RAM (if present) and $8000-$FFFF to PRG ROM. Writes
+//! to $8000-$FFFF are often mapped to internal cartridge board registers.
+//!
+//! PPU address mapping:
+//! * $0000-$3EFF: Mapped to the cartridge board
+//! * $3F00-$3F1F: 32 bytes of internal palette RAM
+//! * $3F20-$3FFF: Mirrors of palette RAM
+//!
+//! While almost the entire PPU address space is controlled by the cartridge board, the PPU does
+//! expect specific address ranges to hold specific data:
+//! * $0000-$1FFF: Pattern tables (2x4KB) holding tile data
+//! * $2000-$2FFF: Nametables (4x1KB) holding background tile maps and background tile attributes
+//! * $3000-$3EFF: Mirrors of the nametables (not directly used by the PPU but the CPU can read/write here through memory-mapped I/O)
+//!
+//! Most cartridge boards contain CHR ROM or CHR RAM that is mapped into $0000-$1FFF for the pattern
+//! tables.
+//!
+//! The PPU has 2KB of internal VRAM that the cartridge board is free to map into the PPU address
+//! space however it wishes. Most boards use this VRAM for nametable data, mapping it into
+//! $2000-$2FFF (with some ranges mirrored).
+
 pub mod cartridge;
 
 use crate::bus::cartridge::Mapper;
@@ -646,6 +681,7 @@ impl Bus {
     }
 }
 
+/// A view of the bus containing methods that are appropriate for use by the CPU and APU.
 pub struct CpuBus<'a>(&'a mut Bus);
 
 impl<'a> CpuBus<'a> {
@@ -839,6 +875,7 @@ impl<'a> CpuBus<'a> {
     }
 }
 
+/// A view of the bus containing methods that are appropriate for use by the PPU.
 pub struct PpuBus<'a>(&'a mut Bus);
 
 impl<'a> PpuBus<'a> {

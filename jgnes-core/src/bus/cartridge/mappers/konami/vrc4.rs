@@ -1,3 +1,5 @@
+//! Code for Konami's VRC2 and VRC4 boards (iNES mappers 21 + 22 + 23 + 25).
+
 use crate::bus;
 use crate::bus::cartridge::mappers::konami::irq::VrcIrqCounter;
 use crate::bus::cartridge::mappers::{

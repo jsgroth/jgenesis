@@ -1,3 +1,5 @@
+//! Code for the Sunsoft 5A / 5B / FME-7 boards (iNES mapper 69).
+
 use crate::bus::cartridge::mappers::{
     BankSizeKb, ChrType, CpuMapResult, NametableMirroring, PpuMapResult,
 };

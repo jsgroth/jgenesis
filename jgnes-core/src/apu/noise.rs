@@ -1,3 +1,8 @@
+//! The APU's pseudo-random noise generator channel. Generates white noise using a linear feedback
+//! shift register with a configurable period.
+//!
+//! Channel output values are between 0 and 15 (inclusive).
+
 use crate::apu::units::{Envelope, LengthCounter, LengthCounterChannel};
 use crate::num::GetBit;
 use bincode::{Decode, Encode};

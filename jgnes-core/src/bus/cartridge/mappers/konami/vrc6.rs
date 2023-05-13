@@ -1,3 +1,5 @@
+//! Code for Konami's VRC6 board (iNES mappers 24 + 26).
+
 use crate::apu::units::PhaseTimer;
 use crate::bus;
 use crate::bus::cartridge::mappers::konami::irq::VrcIrqCounter;

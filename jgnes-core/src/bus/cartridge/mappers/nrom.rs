@@ -1,3 +1,16 @@
+//! Code for the NROM board (iNES mapper 0) as well as simple NROM variants.
+//!
+//! Variants implemented here include:
+//! * UxROM (iNES mapper 2)
+//! * CNROM (iNES mapper 3)
+//! * AxROM (iNES mapper 7)
+//! * Color Dreams unlicensed board (iNES mapper 11, very similar to GxROM)
+//! * BNROM (iNES mapper 34)
+//! * NINA-001 (also iNES mapper 34, very similar to BNROM)
+//! * GxROM (iNES mapper 66)
+//! * Codemasters unlicensed board (iNES mapper 71, very similar to UxROM)
+//! * Jaleco JF-11 / JF-14 (iNES mapper 140, very similar to GxROM)
+
 use crate::bus;
 use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring, PpuMapResult};
 use crate::bus::cartridge::MapperImpl;

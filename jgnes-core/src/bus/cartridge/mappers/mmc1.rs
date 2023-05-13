@@ -1,3 +1,5 @@
+//! Code for the MMC1 board (iNES mapper 1).
+
 use crate::bus::cartridge::mappers::{
     BankSizeKb, ChrType, CpuMapResult, NametableMirroring, PpuMapResult,
 };

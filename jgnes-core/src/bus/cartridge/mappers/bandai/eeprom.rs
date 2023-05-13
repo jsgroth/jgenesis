@@ -1,3 +1,5 @@
+//! Code for the X24C01 and X24C02 EEPROM chips, which are used in some of Bandai's FCG boards.
+
 use crate::num::GetBit;
 use bincode::{Decode, Encode};
 use std::fmt::Debug;

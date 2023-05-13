@@ -145,6 +145,7 @@ pub(crate) enum Mapper {
 }
 
 impl Mapper {
+    /// Retrieve the mapper's user-readable name. Only used for logging output.
     pub(crate) fn name(&self) -> &'static str {
         match self {
             Self::Axrom(..) => "AxROM",
@@ -165,28 +166,35 @@ impl Mapper {
         }
     }
 
+    /// Read a value from the given address in the CPU address space.
     pub(crate) fn read_cpu_address(&mut self, address: u16) -> u8 {
         match_each_variant!(self, mapper => mapper.read_cpu_address(address))
     }
 
+    /// Write a value to the given address in the CPU address space.
     pub(crate) fn write_cpu_address(&mut self, address: u16, value: u8) {
         match_each_variant!(self, mapper => mapper.write_cpu_address(address, value));
     }
 
+    /// Read a value from the given address in the PPU address space.
     pub(crate) fn read_ppu_address(&mut self, address: u16, vram: &[u8; 2048]) -> u8 {
         match_each_variant!(self, mapper => mapper.read_ppu_address(address, vram))
     }
 
+    /// Write a value to the given address in the PPU address space.
     pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
         match_each_variant!(self, mapper => mapper.write_ppu_address(address, value, vram));
     }
 
+    /// Perform any processing that should be performed after every PPU cycle.
     pub(crate) fn tick(&mut self, ppu_bus_address: u16) {
         if let Self::Mmc3(mmc3) = self {
             mmc3.tick(ppu_bus_address);
         }
     }
 
+    /// Perform any processing that should be performed after every CPU cycle. Commonly used for
+    /// interrupt counters and expansion audio.
     pub(crate) fn tick_cpu(&mut self) {
         match self {
             Self::BandaiFcg(bandai_fcg) => {
@@ -214,6 +222,7 @@ impl Mapper {
         }
     }
 
+    /// Return whether this board is currently generating an IRQ.
     pub(crate) fn interrupt_flag(&self) -> bool {
         match self {
             Self::BandaiFcg(bandai_fcg) => bandai_fcg.interrupt_flag(),
@@ -227,20 +236,26 @@ impl Mapper {
         }
     }
 
+    /// Process a PPUCTRL write. Only needed by the MMC5 mapper in order to know whether double
+    /// height sprites are doubled.
     pub(crate) fn process_ppu_ctrl_update(&mut self, value: u8) {
         if let Self::Mmc5(mmc5) = self {
             mmc5.process_ppu_ctrl_update(value);
         }
     }
 
-    // This should be called *before* the actual memory access; MMC5 depends on this for correctly
-    // mapping PPUDATA accesses to the correct CHR bank
+    /// Notify the mapper that the CPU will imminently read the PPUDATA register. This is required
+    /// by MMC5 to map PPUDATA reads/writes to the correct CHR banks.
+    ///
+    /// This should be called *before* the actual memory access.
     pub(crate) fn about_to_access_ppu_data(&mut self) {
         if let Self::Mmc5(mmc5) = self {
             mmc5.about_to_access_ppu_data();
         }
     }
 
+    /// Return whether the board's writable memory (if any) has been written to since the last time
+    /// this method was called.
     pub(crate) fn get_and_clear_ram_dirty_bit(&mut self) -> bool {
         if let Mapper::BandaiFcg(mapper) = self {
             // Bandai FCG chips can have EEPROM - prefer that memory if present
@@ -256,6 +271,8 @@ impl Mapper {
         })
     }
 
+    /// Return the board's writable memory as a slice. This will be an empty slice if the board
+    /// has no PRG RAM or EEPROM.
     pub(crate) fn get_prg_ram(&self) -> &[u8] {
         if let Mapper::BandaiFcg(mapper) = self {
             // Bandai FCG chips can have EEPROM - prefer that memory if present
@@ -267,6 +284,11 @@ impl Mapper {
         match_each_variant!(self, mapper => &mapper.cartridge.prg_ram)
     }
 
+    /// If the board has expansion audio, generate an audio sample and mix it with the mixed APU
+    /// sample.
+    ///
+    /// If the board does not have expansion audio or it is not enabled then this method will simply
+    /// return the mixed APU sample as-is.
     pub(crate) fn sample_audio(&self, mixed_apu_sample: f64) -> f64 {
         match self {
             Self::Mmc5(mmc5) => mmc5.sample_audio(mixed_apu_sample),
@@ -276,6 +298,7 @@ impl Mapper {
         }
     }
 
+    /// Move cartridge ROM fields from another `Mapper` instance. Used when loading save states.
     pub(crate) fn move_unserialized_fields_from(&mut self, other: &mut Self) {
         let other_cartridge = match_each_variant!(other, mapper => &mut mapper.cartridge);
         match_each_variant!(self, mapper => mapper.cartridge.move_unserialized_fields_from(other_cartridge));
@@ -411,6 +434,11 @@ impl INesHeader {
     }
 }
 
+/// Parse cartridge data out of an iNES file.
+///
+/// # Errors
+///
+/// This function will return an error if the given bytes do not appear to represent an iNES file.
 pub(crate) fn from_ines_file(
     file_bytes: &[u8],
     sav_bytes: Option<Vec<u8>>,

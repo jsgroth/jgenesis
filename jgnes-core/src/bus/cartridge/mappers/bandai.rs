@@ -1,3 +1,5 @@
+//! Code for Bandai's FCG boards (iNES mappers 16 + 153 + 159).
+
 mod eeprom;
 
 use crate::bus;

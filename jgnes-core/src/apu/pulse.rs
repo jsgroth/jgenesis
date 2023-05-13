@@ -1,3 +1,11 @@
+//! One of the APU's square wave generator channels, which generates a square wave with a
+//! configurable duty cycle and period. These channels also have sweep units which can automatically
+//! increase or decrease the period over time.
+//!
+//! Channel output values are between 0 and 15 (inclusive).
+//!
+//! This code is also used in the MMC5 mapper's expansion audio implementation.
+
 use crate::apu::units::{Envelope, LengthCounter, LengthCounterChannel, PhaseTimer};
 use crate::num::GetBit;
 use bincode::{Decode, Encode};

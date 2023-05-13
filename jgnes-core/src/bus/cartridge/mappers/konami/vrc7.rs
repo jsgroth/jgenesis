@@ -1,3 +1,5 @@
+//! Code for Konami's VRC7 board (iNES mapper 85).
+
 use crate::bus;
 use crate::bus::cartridge::mappers::konami::irq::VrcIrqCounter;
 use crate::bus::cartridge::mappers::{
