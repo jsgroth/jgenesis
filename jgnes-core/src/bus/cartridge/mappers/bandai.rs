@@ -89,6 +89,7 @@ pub(crate) struct BandaiFcg {
     variant: Variant,
     chr_type: ChrType,
     prg_bank: u8,
+    prg_256kb_bank: u8,
     chr_banks: [u8; 8],
     nametable_mirroring: NametableMirroring,
     ram_enabled: bool,
@@ -136,6 +137,7 @@ impl BandaiFcg {
             variant,
             chr_type,
             prg_bank: 0,
+            prg_256kb_bank: 0,
             chr_banks: [0; 8],
             nametable_mirroring: NametableMirroring::Vertical,
             ram_enabled: false,
@@ -173,12 +175,22 @@ impl MapperImpl<BandaiFcg> {
             0x8000..=0xBFFF => {
                 let prg_rom_addr =
                     BankSizeKb::Sixteen.to_absolute_address(self.data.prg_bank, address);
-                self.cartridge.get_prg_rom(prg_rom_addr)
+                self.cartridge
+                    .get_prg_rom(prg_rom_addr | (u32::from(self.data.prg_256kb_bank) << 18))
             }
             0xC000..=0xFFFF => {
-                let prg_rom_addr = BankSizeKb::Sixteen
-                    .to_absolute_address_last_bank(self.cartridge.prg_rom.len() as u32, address);
-                self.cartridge.get_prg_rom(prg_rom_addr)
+                // Gross, but necessary; the one game that uses LZ93D50 w/ SRAM has two 256KB "outer"
+                // banks, and this range needs to map into the last inner bank of whichever outer bank
+                // is selected
+                let prg_rom_len = if self.data.variant == Variant::Lz93D50(MemoryVariant::RAM) {
+                    self.cartridge.prg_rom.len() / 2
+                } else {
+                    self.cartridge.prg_rom.len()
+                };
+                let prg_rom_addr =
+                    BankSizeKb::Sixteen.to_absolute_address_last_bank(prg_rom_len as u32, address);
+                self.cartridge
+                    .get_prg_rom(prg_rom_addr | (u32::from(self.data.prg_256kb_bank) << 18))
             }
         }
     }
@@ -190,7 +202,9 @@ impl MapperImpl<BandaiFcg> {
             (Variant::Fcg | Variant::Unknown, 0x6000..=0x7FFF)
             | (Variant::Lz93D50(_) | Variant::Unknown, 0x8000..=0xFFFF) => {
                 match (self.data.variant, address & 0x000F) {
-                    (Variant::Lz93D50(MemoryVariant::RAM), 0x0000..=0x0003) => todo!(),
+                    (Variant::Lz93D50(MemoryVariant::RAM), 0x0000..=0x0003) => {
+                        self.data.prg_256kb_bank = value & 0x01;
+                    }
                     (
                         Variant::Fcg
                         | Variant::Lz93D50(
@@ -240,6 +254,9 @@ impl MapperImpl<BandaiFcg> {
                         }
                         None => {}
                     },
+                    (Variant::Lz93D50(MemoryVariant::RAM), 0x000D) => {
+                        self.data.ram_enabled = value.bit(5);
+                    }
                     _ => {}
                 }
             }

@@ -409,6 +409,10 @@ impl INesHeader {
     }
 }
 
+fn random_vec(size: u32) -> Vec<u8> {
+    (0..size).map(|_| rand::random()).collect()
+}
+
 pub(crate) fn from_ines_file(
     file_bytes: &[u8],
     sav_bytes: Option<Vec<u8>>,
@@ -427,10 +431,10 @@ pub(crate) fn from_ines_file(
         if sav_bytes.len() == header.prg_ram_size as usize {
             sav_bytes.clone()
         } else {
-            vec![0; header.prg_ram_size as usize]
+            random_vec(header.prg_ram_size)
         }
     } else {
-        vec![0; header.prg_ram_size as usize]
+        random_vec(header.prg_ram_size)
     };
 
     let cartridge = Cartridge {
