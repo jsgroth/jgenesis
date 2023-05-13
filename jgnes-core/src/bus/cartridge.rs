@@ -1,8 +1,8 @@
 mod mappers;
 
 use crate::bus::cartridge::mappers::{
-    Axrom, ChrType, Cnrom, ColorDreams, Mmc1, Mmc2, Mmc3, Mmc5, NametableMirroring, Nrom, Sunsoft,
-    Uxrom, Vrc4, Vrc6, Vrc7,
+    Axrom, BandaiFcg, ChrType, Cnrom, ColorDreams, Mmc1, Mmc2, Mmc3, Mmc5, NametableMirroring,
+    Nrom, Sunsoft, Uxrom, Vrc4, Vrc6, Vrc7,
 };
 use bincode::de::{BorrowDecoder, Decoder};
 use bincode::enc::Encoder;
@@ -127,6 +127,7 @@ pub(crate) struct MapperImpl<MapperData> {
 #[derive(Debug, Clone, Encode, Decode, MatchEachVariantMacro)]
 pub(crate) enum Mapper {
     Axrom(MapperImpl<Axrom>),
+    BandaiFcg(MapperImpl<BandaiFcg>),
     Cnrom(MapperImpl<Cnrom>),
     ColorDreams(MapperImpl<ColorDreams>),
     Mmc1(MapperImpl<Mmc1>),
@@ -146,6 +147,7 @@ impl Mapper {
     pub(crate) fn name(&self) -> &'static str {
         match self {
             Self::Axrom(..) => "AxROM",
+            Self::BandaiFcg(bandai_fcg) => bandai_fcg.name(),
             Self::Cnrom(..) => "CNROM",
             Self::ColorDreams(..) => "Color Dreams",
             Self::Mmc1(..) => "MMC1",
@@ -185,6 +187,9 @@ impl Mapper {
 
     pub(crate) fn tick_cpu(&mut self) {
         match self {
+            Self::BandaiFcg(bandai_fcg) => {
+                bandai_fcg.tick_cpu();
+            }
             Self::Mmc1(mmc1) => {
                 mmc1.tick_cpu();
             }
@@ -209,6 +214,7 @@ impl Mapper {
 
     pub(crate) fn interrupt_flag(&self) -> bool {
         match self {
+            Self::BandaiFcg(bandai_fcg) => bandai_fcg.interrupt_flag(),
             Self::Mmc3(mmc3) => mmc3.interrupt_flag(),
             Self::Mmc5(mmc5) => mmc5.interrupt_flag(),
             Self::Sunsoft(sunsoft) => sunsoft.interrupt_flag(),
@@ -478,6 +484,15 @@ pub(crate) fn from_ines_file(
         11 => Mapper::ColorDreams(MapperImpl {
             cartridge,
             data: ColorDreams::new(header.nametable_mirroring),
+        }),
+        16 | 153 | 159 => Mapper::BandaiFcg(MapperImpl {
+            cartridge,
+            data: BandaiFcg::new(
+                header.mapper_number,
+                header.sub_mapper_number,
+                header.chr_type,
+                header.prg_ram_size,
+            ),
         }),
         21 | 22 | 23 | 25 => Mapper::Vrc4(MapperImpl {
             cartridge,
