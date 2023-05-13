@@ -380,3 +380,92 @@ impl MapperImpl<Gxrom> {
         }
     }
 }
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub(crate) struct Bnrom {
+    prg_bank: u8,
+    chr_bank_0: u8,
+    chr_bank_1: u8,
+    chr_type: ChrType,
+    nametable_mirroring: NametableMirroring,
+}
+
+impl Bnrom {
+    pub(crate) fn new(chr_type: ChrType, nametable_mirroring: NametableMirroring) -> Self {
+        Self {
+            prg_bank: 0,
+            chr_bank_0: 0,
+            chr_bank_1: 1,
+            chr_type,
+            nametable_mirroring,
+        }
+    }
+}
+
+impl MapperImpl<Bnrom> {
+    pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
+        match address {
+            0x0000..=0x401F => panic!("invalid CPU map address: {address:04X}"),
+            0x4020..=0x5FFF => bus::cpu_open_bus(address),
+            0x6000..=0x7FFF => {
+                if !self.cartridge.prg_ram.is_empty() {
+                    self.cartridge.get_prg_ram((address & 0x1FFF).into())
+                } else {
+                    bus::cpu_open_bus(address)
+                }
+            }
+            0x8000..=0xFFFF => {
+                let prg_rom_addr =
+                    BankSizeKb::ThirtyTwo.to_absolute_address(self.data.prg_bank, address);
+                self.cartridge.get_prg_rom(prg_rom_addr)
+            }
+        }
+    }
+
+    pub(crate) fn write_cpu_address(&mut self, address: u16, value: u8) {
+        match address {
+            0x0000..=0x401F => panic!("invalid CPU map address: {address:04X}"),
+            0x4020..=0x5FFF => {}
+            0x6000..=0x7FFC => {
+                if !self.cartridge.prg_ram.is_empty() {
+                    self.cartridge.set_prg_ram((address & 0x1FFF).into(), value);
+                }
+            }
+            0x7FFD | 0x8000..=0xFFFF => {
+                self.data.prg_bank = value & 0x03;
+            }
+            0x7FFE => {
+                self.data.chr_bank_0 = value & 0x0F;
+            }
+            0x7FFF => {
+                self.data.chr_bank_1 = value & 0x0F;
+            }
+        }
+    }
+
+    fn map_ppu_address(&self, address: u16) -> PpuMapResult {
+        match address {
+            0x0000..=0x0FFF => {
+                let chr_addr = BankSizeKb::Four.to_absolute_address(self.data.chr_bank_0, address);
+                self.data.chr_type.to_map_result(chr_addr)
+            }
+            0x1000..=0x1FFF => {
+                let chr_addr = BankSizeKb::Four.to_absolute_address(self.data.chr_bank_1, address);
+                self.data.chr_type.to_map_result(chr_addr)
+            }
+            0x2000..=0x3EFF => {
+                PpuMapResult::Vram(self.data.nametable_mirroring.map_to_vram(address))
+            }
+            0x3F00..=0xFFFF => panic!("invalid PPU map address: {address:04X}"),
+        }
+    }
+
+    pub(crate) fn read_ppu_address(&self, address: u16, vram: &[u8; 2048]) -> u8 {
+        self.map_ppu_address(address).read(&self.cartridge, vram)
+    }
+
+    pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
+        self.map_ppu_address(address)
+            .write(value, &mut self.cartridge, vram);
+    }
+}

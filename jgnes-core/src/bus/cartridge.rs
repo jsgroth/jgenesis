@@ -1,8 +1,8 @@
 mod mappers;
 
 use crate::bus::cartridge::mappers::{
-    Axrom, BandaiFcg, ChrType, Cnrom, Gxrom, Mmc1, Mmc2, Mmc3, Mmc5, NametableMirroring, Nrom,
-    Sunsoft, Uxrom, Vrc4, Vrc6, Vrc7,
+    Axrom, BandaiFcg, Bnrom, ChrType, Cnrom, Gxrom, Mmc1, Mmc2, Mmc3, Mmc5, NametableMirroring,
+    Nrom, Sunsoft, Uxrom, Vrc4, Vrc6, Vrc7,
 };
 use bincode::de::{BorrowDecoder, Decoder};
 use bincode::enc::Encoder;
@@ -128,6 +128,7 @@ pub(crate) struct MapperImpl<MapperData> {
 pub(crate) enum Mapper {
     Axrom(MapperImpl<Axrom>),
     BandaiFcg(MapperImpl<BandaiFcg>),
+    Bnrom(MapperImpl<Bnrom>),
     Cnrom(MapperImpl<Cnrom>),
     Gxrom(MapperImpl<Gxrom>),
     Mmc1(MapperImpl<Mmc1>),
@@ -148,6 +149,7 @@ impl Mapper {
         match self {
             Self::Axrom(..) => "AxROM",
             Self::BandaiFcg(bandai_fcg) => bandai_fcg.name(),
+            Self::Bnrom(..) => "BNROM / NINA-001",
             Self::Cnrom(..) => "CNROM",
             Self::Gxrom(gxrom) => gxrom.name(),
             Self::Mmc1(..) => "MMC1",
@@ -499,6 +501,10 @@ pub(crate) fn from_ines_file(
             cartridge,
             data: Mmc2::new_mmc4(),
         }),
+        11 | 66 | 140 => Mapper::Gxrom(MapperImpl {
+            cartridge,
+            data: Gxrom::new(header.mapper_number, header.nametable_mirroring),
+        }),
         16 | 153 | 159 => Mapper::BandaiFcg(MapperImpl {
             cartridge,
             data: BandaiFcg::new(
@@ -521,9 +527,9 @@ pub(crate) fn from_ines_file(
             cartridge,
             data: Vrc6::new(header.mapper_number, header.chr_type),
         }),
-        11 | 66 | 140 => Mapper::Gxrom(MapperImpl {
+        34 => Mapper::Bnrom(MapperImpl {
             cartridge,
-            data: Gxrom::new(header.mapper_number, header.nametable_mirroring),
+            data: Bnrom::new(header.chr_type, header.nametable_mirroring),
         }),
         69 => Mapper::Sunsoft(MapperImpl {
             cartridge,
