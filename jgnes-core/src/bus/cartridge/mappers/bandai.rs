@@ -1,6 +1,7 @@
 mod eeprom;
 
 use crate::bus;
+use crate::bus::cartridge::mappers::bandai::eeprom::X24C01Chip;
 use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring, PpuMapResult};
 use crate::bus::cartridge::MapperImpl;
 use crate::num::GetBit;
@@ -78,6 +79,11 @@ impl IrqCounter {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
+enum Eeprom {
+    X24C01(X24C01Chip),
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
 pub(crate) struct BandaiFcg {
     variant: Variant,
     chr_type: ChrType,
@@ -86,6 +92,7 @@ pub(crate) struct BandaiFcg {
     nametable_mirroring: NametableMirroring,
     ram_enabled: bool,
     irq: IrqCounter,
+    eeprom: Option<Eeprom>,
 }
 
 impl BandaiFcg {
@@ -94,6 +101,7 @@ impl BandaiFcg {
         sub_mapper_number: u8,
         chr_type: ChrType,
         prg_ram_len: u32,
+        sav_bytes: Option<&Vec<u8>>,
     ) -> Self {
         let variant = match (mapper_number, sub_mapper_number) {
             (16, 4) => Variant::Fcg,
@@ -111,6 +119,14 @@ impl BandaiFcg {
             _ => panic!("unsupported Bandai mapper number: {mapper_number}"),
         };
 
+        // TODO load from save file
+        let eeprom = match variant {
+            Variant::Lz93D50(MemoryVariant::X24C01) => {
+                Some(Eeprom::X24C01(X24C01Chip::new(sav_bytes)))
+            }
+            _ => None,
+        };
+
         log::info!("Bandai FCG variant: {variant:?}");
 
         Self {
@@ -121,8 +137,13 @@ impl BandaiFcg {
             nametable_mirroring: NametableMirroring::Vertical,
             ram_enabled: false,
             irq: IrqCounter::new(variant),
+            eeprom,
         }
     }
+}
+
+fn eeprom_read(address: u16, data: bool) -> u8 {
+    (bus::cpu_open_bus(address) & 0xEF) | (u8::from(data) << 4)
 }
 
 impl MapperImpl<BandaiFcg> {
@@ -131,7 +152,7 @@ impl MapperImpl<BandaiFcg> {
             0x0000..=0x401F => panic!("invalid CPU map address: {address:04X}"),
             0x4020..=0x5FFF => bus::cpu_open_bus(address),
             0x6000..=0x7FFF => match self.data.variant {
-                Variant::Fcg => bus::cpu_open_bus(address),
+                Variant::Fcg | Variant::Lz93D50(MemoryVariant::None) => bus::cpu_open_bus(address),
                 Variant::Lz93D50(MemoryVariant::RAM) => {
                     if self.data.ram_enabled {
                         self.cartridge.get_prg_ram((address & 0x1FFF).into())
@@ -139,7 +160,11 @@ impl MapperImpl<BandaiFcg> {
                         bus::cpu_open_bus(address)
                     }
                 }
-                Variant::Lz93D50(_) | Variant::Unknown => todo!(),
+                Variant::Lz93D50(MemoryVariant::X24C01 | MemoryVariant::X24C02)
+                | Variant::Unknown => match &self.data.eeprom {
+                    Some(Eeprom::X24C01(chip)) => eeprom_read(address, chip.handle_read()),
+                    None => bus::cpu_open_bus(address),
+                },
             },
             0x8000..=0xBFFF => {
                 let prg_rom_addr =
@@ -198,8 +223,13 @@ impl MapperImpl<BandaiFcg> {
                             .irq
                             .update_counter(IrqCounterUpdate::HighByte, value);
                     }
-                    (Variant::Lz93D50(MemoryVariant::X24C02 | MemoryVariant::X24C01), 0x000D) => {
-                        todo!()
+                    (Variant::Lz93D50(MemoryVariant::X24C01 | MemoryVariant::X24C02), 0x000D) => {
+                        match &mut self.data.eeprom {
+                            Some(Eeprom::X24C01(chip)) => {
+                                chip.handle_write(value);
+                            }
+                            None => {}
+                        }
                     }
                     _ => {}
                 }
@@ -246,6 +276,21 @@ impl MapperImpl<BandaiFcg> {
 
     pub(crate) fn interrupt_flag(&self) -> bool {
         self.data.irq.interrupt_flag()
+    }
+
+    pub(crate) fn get_and_clear_eeprom_dirty_bit(&mut self) -> bool {
+        self.data
+            .eeprom
+            .as_mut()
+            .map_or(false, |eeprom| match eeprom {
+                Eeprom::X24C01(chip) => chip.get_and_clear_dirty_bit(),
+            })
+    }
+
+    pub(crate) fn eeprom(&self) -> Option<&[u8]> {
+        self.data.eeprom.as_ref().map(|eeprom| match eeprom {
+            Eeprom::X24C01(chip) => chip.get_memory(),
+        })
     }
 
     pub(crate) fn name(&self) -> &'static str {

@@ -240,6 +240,12 @@ impl Mapper {
     }
 
     pub(crate) fn get_and_clear_ram_dirty_bit(&mut self) -> bool {
+        if let Mapper::BandaiFcg(mapper) = self {
+            if mapper.get_and_clear_eeprom_dirty_bit() {
+                return true;
+            }
+        }
+
         match_each_variant!(self, mapper => {
             let dirty_bit = mapper.cartridge.prg_ram_dirty_bit;
             mapper.cartridge.prg_ram_dirty_bit = false;
@@ -248,6 +254,12 @@ impl Mapper {
     }
 
     pub(crate) fn get_prg_ram(&self) -> &[u8] {
+        if let Mapper::BandaiFcg(mapper) = self {
+            if let Some(eeprom) = mapper.eeprom() {
+                return eeprom;
+            }
+        }
+
         match_each_variant!(self, mapper => &mapper.cartridge.prg_ram)
     }
 
@@ -409,9 +421,9 @@ pub(crate) fn from_ines_file(
     let prg_rom = Vec::from(&file_bytes[prg_rom_start_address..prg_rom_end_address]);
     let chr_rom = Vec::from(&file_bytes[prg_rom_end_address..chr_rom_end_address]);
 
-    let prg_ram = if let Some(sav_bytes) = sav_bytes {
+    let prg_ram = if let Some(sav_bytes) = &sav_bytes {
         if sav_bytes.len() == header.prg_ram_size as usize {
-            sav_bytes
+            sav_bytes.clone()
         } else {
             vec![0; header.prg_ram_size as usize]
         }
@@ -492,6 +504,7 @@ pub(crate) fn from_ines_file(
                 header.sub_mapper_number,
                 header.chr_type,
                 header.prg_ram_size,
+                sav_bytes.as_ref(),
             ),
         }),
         21 | 22 | 23 | 25 => Mapper::Vrc4(MapperImpl {
