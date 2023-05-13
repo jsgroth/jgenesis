@@ -237,14 +237,14 @@ impl Mapper {
     }
 
     /// Process a PPUCTRL write. Only needed by the MMC5 mapper in order to know whether double
-    /// height sprites are doubled.
+    /// height sprites are enabled.
     pub(crate) fn process_ppu_ctrl_update(&mut self, value: u8) {
         if let Self::Mmc5(mmc5) = self {
             mmc5.process_ppu_ctrl_update(value);
         }
     }
 
-    /// Notify the mapper that the CPU will imminently read the PPUDATA register. This is required
+    /// Notify the mapper that the CPU will imminently access the PPUDATA register. This is required
     /// by MMC5 to map PPUDATA reads/writes to the correct CHR banks.
     ///
     /// This should be called *before* the actual memory access.

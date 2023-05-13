@@ -272,6 +272,12 @@ pub fn tick(
     Ok(())
 }
 
+/// Reset the CPU, as if the console's reset button was pressed.
+///
+/// Reset does the following:
+/// * Immediately update the PC to point to the RESET vector, and abandon the currently-in-progress instruction (if any)
+/// * Subtract 3 from the stack pointer
+/// * Disable IRQs
 pub fn reset(cpu_state: &mut CpuState, bus: &mut CpuBus<'_>) {
     let reset_vector_lsb = bus.read_address(bus::CPU_RESET_VECTOR);
     let reset_vector_msb = bus.read_address(bus::CPU_RESET_VECTOR + 1);

@@ -256,7 +256,7 @@ impl PpuState {
     /// Return whether the PPU is currently in the vertical blanking period.
     ///
     /// While the PPU's first idle scanline is scanline 240, this method will not return true
-    /// until scanline 241 in order to align with when the PPU sets the VBlank in PPUSTATUS.
+    /// until scanline 241 in order to align with when the PPU sets the VBlank flag in PPUSTATUS.
     pub fn in_vblank(&self) -> bool {
         VBLANK_SCANLINES.contains(&self.scanline)
     }
