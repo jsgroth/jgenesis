@@ -1,7 +1,7 @@
 mod eeprom;
 
 use crate::bus;
-use crate::bus::cartridge::mappers::bandai::eeprom::X24C01Chip;
+use crate::bus::cartridge::mappers::bandai::eeprom::{X24C01Chip, X24C02Chip};
 use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring, PpuMapResult};
 use crate::bus::cartridge::MapperImpl;
 use crate::num::GetBit;
@@ -81,6 +81,7 @@ impl IrqCounter {
 #[derive(Debug, Clone, Encode, Decode)]
 enum Eeprom {
     X24C01(X24C01Chip),
+    X24C02(X24C02Chip),
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -113,16 +114,18 @@ impl BandaiFcg {
                 };
                 Variant::Lz93D50(memory_variant)
             }
-            (14, _) => Variant::Unknown,
+            (16, _) => Variant::Unknown,
             (153, _) => Variant::Lz93D50(MemoryVariant::RAM),
             (159, _) => Variant::Lz93D50(MemoryVariant::X24C01),
             _ => panic!("unsupported Bandai mapper number: {mapper_number}"),
         };
 
-        // TODO load from save file
         let eeprom = match variant {
             Variant::Lz93D50(MemoryVariant::X24C01) => {
                 Some(Eeprom::X24C01(X24C01Chip::new(sav_bytes)))
+            }
+            Variant::Lz93D50(MemoryVariant::X24C02) | Variant::Unknown => {
+                Some(Eeprom::X24C02(X24C02Chip::new(sav_bytes)))
             }
             _ => None,
         };
@@ -163,6 +166,7 @@ impl MapperImpl<BandaiFcg> {
                 Variant::Lz93D50(MemoryVariant::X24C01 | MemoryVariant::X24C02)
                 | Variant::Unknown => match &self.data.eeprom {
                     Some(Eeprom::X24C01(chip)) => eeprom_read(address, chip.handle_read()),
+                    Some(Eeprom::X24C02(chip)) => eeprom_read(address, chip.handle_read()),
                     None => bus::cpu_open_bus(address),
                 },
             },
@@ -223,14 +227,19 @@ impl MapperImpl<BandaiFcg> {
                             .irq
                             .update_counter(IrqCounterUpdate::HighByte, value);
                     }
-                    (Variant::Lz93D50(MemoryVariant::X24C01 | MemoryVariant::X24C02), 0x000D) => {
-                        match &mut self.data.eeprom {
-                            Some(Eeprom::X24C01(chip)) => {
-                                chip.handle_write(value);
-                            }
-                            None => {}
+                    (
+                        Variant::Lz93D50(MemoryVariant::X24C01 | MemoryVariant::X24C02)
+                        | Variant::Unknown,
+                        0x000D,
+                    ) => match &mut self.data.eeprom {
+                        Some(Eeprom::X24C01(chip)) => {
+                            chip.handle_write(value);
                         }
-                    }
+                        Some(Eeprom::X24C02(chip)) => {
+                            chip.handle_write(value);
+                        }
+                        None => {}
+                    },
                     _ => {}
                 }
             }
@@ -284,12 +293,14 @@ impl MapperImpl<BandaiFcg> {
             .as_mut()
             .map_or(false, |eeprom| match eeprom {
                 Eeprom::X24C01(chip) => chip.get_and_clear_dirty_bit(),
+                Eeprom::X24C02(chip) => chip.get_and_clear_dirty_bit(),
             })
     }
 
     pub(crate) fn eeprom(&self) -> Option<&[u8]> {
         self.data.eeprom.as_ref().map(|eeprom| match eeprom {
             Eeprom::X24C01(chip) => chip.get_memory(),
+            Eeprom::X24C02(chip) => chip.get_memory(),
         })
     }
 

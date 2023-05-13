@@ -84,17 +84,14 @@ impl EepromState for X24C01State {
                 bits_received,
                 bits_remaining,
             } => {
-                if bits_remaining == 0 && !data {
-                    // Acknowledged, continue sequential write - but only increment the lowest 2 bits
-                    let address = (address & 0xFC) | (((address & 0x03) + 1) & 0x03);
+                if bits_remaining == 0 {
+                    // Continue sequential write - but only increment the lowest 2 bits
+                    let address = (address & 0xFC) | (address.wrapping_add(1) & 0x03);
                     Self::ReceivingData {
                         address,
                         bits_received: 0,
                         bits_remaining: 8,
                     }
-                } else if bits_remaining == 0 && data {
-                    // Unspecified - just do nothing
-                    self
                 } else {
                     let bits_received = (bits_received << 1) | u8::from(data);
                     if bits_remaining == 1 {
@@ -121,12 +118,188 @@ impl EepromState for X24C01State {
                         bits_remaining: 8,
                     }
                 } else if bits_remaining == 0 && data {
-                    // Unspecified - just do nothing
-                    self
+                    Self::Stopped
                 } else {
                     Self::SendingData {
                         address,
                         bits_remaining: bits_remaining - 1,
+                    }
+                }
+            }
+        }
+    }
+
+    fn read(self, memory: &[u8]) -> Option<bool> {
+        let Self::SendingData { address, bits_remaining } = self else { return None };
+
+        if bits_remaining == 8 {
+            return None;
+        }
+
+        Some(memory[address as usize].bit(bits_remaining))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+pub enum X24C02State {
+    Standby {
+        address: u8,
+    },
+    Stopped {
+        address: u8,
+    },
+    ReceivingDeviceAddress {
+        address: u8,
+        bits_received: u8,
+        bits_remaining: u8,
+    },
+    ReceivingWriteAddress {
+        address: u8,
+        bits_received: u8,
+        bits_remaining: u8,
+    },
+    ReceivingData {
+        address: u8,
+        bits_received: u8,
+        bits_remaining: u8,
+    },
+    SendingData {
+        address: u8,
+        bits_remaining: u8,
+    },
+}
+
+impl Default for X24C02State {
+    fn default() -> Self {
+        Self::Stopped { address: 0 }
+    }
+}
+
+impl EepromState for X24C02State {
+    fn start(self) -> Self {
+        log::trace!("transitioning to Start from {self:?}");
+        match self {
+            Self::Standby { address }
+            | Self::Stopped { address }
+            | Self::ReceivingDeviceAddress { address, .. }
+            | Self::ReceivingWriteAddress { address, .. }
+            | Self::ReceivingData { address, .. }
+            | Self::SendingData { address, .. } => Self::Standby { address },
+        }
+    }
+
+    fn stop(self) -> Self {
+        log::trace!("transitioning to Stop from {self:?}");
+        match self {
+            Self::Standby { address }
+            | Self::Stopped { address }
+            | Self::ReceivingDeviceAddress { address, .. }
+            | Self::ReceivingWriteAddress { address, .. }
+            | Self::ReceivingData { address, .. }
+            | Self::SendingData { address, .. } => Self::Stopped { address },
+        }
+    }
+
+    fn clock(self, data: bool, memory: &mut [u8], dirty: &mut bool) -> Self {
+        match self {
+            Self::Standby { address } => Self::ReceivingDeviceAddress {
+                address,
+                bits_received: u8::from(data),
+                bits_remaining: 7,
+            },
+            Self::Stopped { address } => Self::Stopped { address },
+            Self::ReceivingDeviceAddress {
+                address,
+                bits_received,
+                bits_remaining,
+            } => {
+                if bits_remaining > 0 {
+                    let bits_received = (bits_received << 1) | u8::from(data);
+                    Self::ReceivingDeviceAddress {
+                        address,
+                        bits_received,
+                        bits_remaining: bits_remaining - 1,
+                    }
+                } else if bits_received.bit(0) {
+                    // Read operation
+                    Self::SendingData {
+                        address,
+                        bits_remaining: 8,
+                    }
+                } else {
+                    // Write operation
+                    Self::ReceivingWriteAddress {
+                        address,
+                        bits_received: 0,
+                        bits_remaining: 8,
+                    }
+                }
+            }
+            Self::ReceivingWriteAddress {
+                address,
+                bits_received,
+                bits_remaining,
+            } => {
+                if bits_remaining > 0 {
+                    let bits_received = (bits_received << 1) | u8::from(data);
+                    Self::ReceivingWriteAddress {
+                        address,
+                        bits_received,
+                        bits_remaining: bits_remaining - 1,
+                    }
+                } else {
+                    Self::ReceivingData {
+                        address: bits_received,
+                        bits_received: 0,
+                        bits_remaining: 8,
+                    }
+                }
+            }
+            Self::ReceivingData {
+                address,
+                bits_received,
+                bits_remaining,
+            } => {
+                if bits_remaining > 0 {
+                    let bits_received = (bits_received << 1) | u8::from(data);
+                    if bits_remaining == 1 {
+                        memory[address as usize] = bits_received;
+                        *dirty = true;
+                    }
+                    Self::ReceivingData {
+                        address,
+                        bits_received,
+                        bits_remaining: bits_remaining - 1,
+                    }
+                } else {
+                    // Continue sequential write - but only increment the lowest 2 bits
+                    let address = (address & 0xFC) | (address.wrapping_add(1) & 0x03);
+                    Self::ReceivingData {
+                        address,
+                        bits_received: 0,
+                        bits_remaining: 8,
+                    }
+                }
+            }
+            Self::SendingData {
+                address,
+                bits_remaining,
+            } => {
+                if bits_remaining > 0 {
+                    Self::SendingData {
+                        address,
+                        bits_remaining: bits_remaining - 1,
+                    }
+                } else if !data {
+                    // Acknowledged, continue sequential read
+                    let address = address.wrapping_add(1);
+                    Self::SendingData {
+                        address,
+                        bits_remaining: 8,
+                    }
+                } else {
+                    Self::Stopped {
+                        address: address.wrapping_add(1),
                     }
                 }
             }
@@ -172,6 +345,7 @@ impl<State: EepromState + Debug, const N: usize> EepromChip<State, N> {
     }
 
     pub fn handle_read(&self) -> bool {
+        log::trace!("EEPROM read");
         self.state.read(&self.memory).unwrap_or(false)
     }
 
@@ -213,3 +387,4 @@ impl<State: EepromState + Debug, const N: usize> EepromChip<State, N> {
 }
 
 pub type X24C01Chip = EepromChip<X24C01State, 128>;
+pub type X24C02Chip = EepromChip<X24C02State, 256>;

@@ -241,6 +241,7 @@ impl Mapper {
 
     pub(crate) fn get_and_clear_ram_dirty_bit(&mut self) -> bool {
         if let Mapper::BandaiFcg(mapper) = self {
+            // Bandai FCG chips can have EEPROM - prefer that memory if present
             if mapper.get_and_clear_eeprom_dirty_bit() {
                 return true;
             }
@@ -255,6 +256,7 @@ impl Mapper {
 
     pub(crate) fn get_prg_ram(&self) -> &[u8] {
         if let Mapper::BandaiFcg(mapper) = self {
+            // Bandai FCG chips can have EEPROM - prefer that memory if present
             if let Some(eeprom) = mapper.eeprom() {
                 return eeprom;
             }
