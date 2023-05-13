@@ -278,16 +278,32 @@ impl MapperImpl<Axrom> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+enum GxromVariant {
+    Gxrom,
+    ColorDreams,
+    Jaleco,
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
-pub(crate) struct ColorDreams {
+pub(crate) struct Gxrom {
+    variant: GxromVariant,
     prg_bank: u8,
     chr_bank: u8,
     nametable_mirroring: NametableMirroring,
 }
 
-impl ColorDreams {
-    pub(crate) fn new(nametable_mirroring: NametableMirroring) -> Self {
+impl Gxrom {
+    pub(crate) fn new(mapper_number: u16, nametable_mirroring: NametableMirroring) -> Self {
+        let variant = match mapper_number {
+            11 => GxromVariant::ColorDreams,
+            66 => GxromVariant::Gxrom,
+            140 => GxromVariant::Jaleco,
+            _ => panic!("invalid GxROM mapper number: {mapper_number}"),
+        };
+
         Self {
+            variant,
             prg_bank: 0,
             chr_bank: 0,
             nametable_mirroring,
@@ -295,7 +311,7 @@ impl ColorDreams {
     }
 }
 
-impl MapperImpl<ColorDreams> {
+impl MapperImpl<Gxrom> {
     pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: {address:04X}"),
@@ -309,35 +325,58 @@ impl MapperImpl<ColorDreams> {
     }
 
     pub(crate) fn write_cpu_address(&mut self, address: u16, value: u8) {
-        match address {
-            0x0000..=0x401F => panic!("invalid CPU map address: {address:04X}"),
-            0x4020..=0x7FFF => {}
-            0x8000..=0xFFFF => {
-                self.data.prg_bank = value & 0x03;
-                self.data.chr_bank = (value & 0xF0) >> 4;
+        match (self.data.variant, address) {
+            (_, 0x0000..=0x401F) => panic!("invalid CPU map address: {address:04X}"),
+            (_, 0x4020..=0x5FFF)
+            | (GxromVariant::Gxrom | GxromVariant::ColorDreams, 0x6000..=0x7FFF)
+            | (GxromVariant::Jaleco, 0x8000..=0xFFFF) => {}
+            (GxromVariant::Gxrom | GxromVariant::ColorDreams, 0x8000..=0xFFFF)
+            | (GxromVariant::Jaleco, 0x6000..=0x7FFF) => {
+                let high_nibble = (value & 0xF0) >> 4;
+                let low_nibble = value & 0x0F;
+
+                match self.data.variant {
+                    GxromVariant::ColorDreams => {
+                        self.data.prg_bank = low_nibble;
+                        self.data.chr_bank = high_nibble;
+                    }
+                    GxromVariant::Gxrom | GxromVariant::Jaleco => {
+                        self.data.prg_bank = high_nibble;
+                        self.data.chr_bank = low_nibble;
+                    }
+                }
             }
         }
     }
 
-    pub(crate) fn read_ppu_address(&self, address: u16, vram: &[u8; 2048]) -> u8 {
+    fn map_ppu_address(&self, address: u16) -> PpuMapResult {
         match address {
             0x0000..=0x1FFF => {
                 let chr_rom_addr =
                     BankSizeKb::Eight.to_absolute_address(self.data.chr_bank, address);
-                self.cartridge.get_chr_rom(chr_rom_addr)
+                PpuMapResult::ChrROM(chr_rom_addr)
             }
-            0x2000..=0x3EFF => vram[self.data.nametable_mirroring.map_to_vram(address) as usize],
+            0x2000..=0x3EFF => {
+                PpuMapResult::Vram(self.data.nametable_mirroring.map_to_vram(address))
+            }
             0x3F00..=0xFFFF => panic!("invalid PPU map address: {address:04X}"),
         }
     }
 
+    pub(crate) fn read_ppu_address(&self, address: u16, vram: &[u8; 2048]) -> u8 {
+        self.map_ppu_address(address).read(&self.cartridge, vram)
+    }
+
     pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
-        match address {
-            0x0000..=0x1FFF => {}
-            0x2000..=0x3EFF => {
-                vram[self.data.nametable_mirroring.map_to_vram(address) as usize] = value;
-            }
-            0x3F00..=0xFFFF => panic!("invalid PPU map address: {address:04X}"),
+        self.map_ppu_address(address)
+            .write(value, &mut self.cartridge, vram);
+    }
+
+    pub(crate) fn name(&self) -> &'static str {
+        match self.data.variant {
+            GxromVariant::Gxrom => "GxROM",
+            GxromVariant::Jaleco => "Jaleco JF-11 / JF-14",
+            GxromVariant::ColorDreams => "Color Dreams",
         }
     }
 }

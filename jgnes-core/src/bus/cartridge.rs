@@ -1,8 +1,8 @@
 mod mappers;
 
 use crate::bus::cartridge::mappers::{
-    Axrom, BandaiFcg, ChrType, Cnrom, ColorDreams, Mmc1, Mmc2, Mmc3, Mmc5, NametableMirroring,
-    Nrom, Sunsoft, Uxrom, Vrc4, Vrc6, Vrc7,
+    Axrom, BandaiFcg, ChrType, Cnrom, Gxrom, Mmc1, Mmc2, Mmc3, Mmc5, NametableMirroring, Nrom,
+    Sunsoft, Uxrom, Vrc4, Vrc6, Vrc7,
 };
 use bincode::de::{BorrowDecoder, Decoder};
 use bincode::enc::Encoder;
@@ -129,7 +129,7 @@ pub(crate) enum Mapper {
     Axrom(MapperImpl<Axrom>),
     BandaiFcg(MapperImpl<BandaiFcg>),
     Cnrom(MapperImpl<Cnrom>),
-    ColorDreams(MapperImpl<ColorDreams>),
+    Gxrom(MapperImpl<Gxrom>),
     Mmc1(MapperImpl<Mmc1>),
     // Used for both MMC2 and MMC4 because they're almost exactly the same
     Mmc2(MapperImpl<Mmc2>),
@@ -149,7 +149,7 @@ impl Mapper {
             Self::Axrom(..) => "AxROM",
             Self::BandaiFcg(bandai_fcg) => bandai_fcg.name(),
             Self::Cnrom(..) => "CNROM",
-            Self::ColorDreams(..) => "Color Dreams",
+            Self::Gxrom(gxrom) => gxrom.name(),
             Self::Mmc1(..) => "MMC1",
             Self::Mmc2(mmc2) => mmc2.name(),
             Self::Mmc3(mmc3) => mmc3.name(),
@@ -499,10 +499,6 @@ pub(crate) fn from_ines_file(
             cartridge,
             data: Mmc2::new_mmc4(),
         }),
-        11 => Mapper::ColorDreams(MapperImpl {
-            cartridge,
-            data: ColorDreams::new(header.nametable_mirroring),
-        }),
         16 | 153 | 159 => Mapper::BandaiFcg(MapperImpl {
             cartridge,
             data: BandaiFcg::new(
@@ -524,6 +520,10 @@ pub(crate) fn from_ines_file(
         24 | 26 => Mapper::Vrc6(MapperImpl {
             cartridge,
             data: Vrc6::new(header.mapper_number, header.chr_type),
+        }),
+        11 | 66 | 140 => Mapper::Gxrom(MapperImpl {
+            cartridge,
+            data: Gxrom::new(header.mapper_number, header.nametable_mirroring),
         }),
         69 => Mapper::Sunsoft(MapperImpl {
             cartridge,
