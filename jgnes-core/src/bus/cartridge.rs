@@ -1,8 +1,8 @@
 mod mappers;
 
 use crate::bus::cartridge::mappers::{
-    Axrom, ChrType, Cnrom, ColorDreams, Mmc1, Mmc2, Mmc3, Mmc5, NametableMirroring, Nrom, Sunsoft,
-    Uxrom, Vrc4, Vrc6, Vrc7,
+    Axrom, BandaiFcg, ChrType, Cnrom, ColorDreams, Mmc1, Mmc2, Mmc3, Mmc5, NametableMirroring,
+    Nrom, Sunsoft, Uxrom, Vrc4, Vrc6, Vrc7,
 };
 use bincode::de::{BorrowDecoder, Decoder};
 use bincode::enc::Encoder;
@@ -127,6 +127,7 @@ pub(crate) struct MapperImpl<MapperData> {
 #[derive(Debug, Clone, Encode, Decode, MatchEachVariantMacro)]
 pub(crate) enum Mapper {
     Axrom(MapperImpl<Axrom>),
+    BandaiFcg(MapperImpl<BandaiFcg>),
     Cnrom(MapperImpl<Cnrom>),
     ColorDreams(MapperImpl<ColorDreams>),
     Mmc1(MapperImpl<Mmc1>),
@@ -146,6 +147,7 @@ impl Mapper {
     pub(crate) fn name(&self) -> &'static str {
         match self {
             Self::Axrom(..) => "AxROM",
+            Self::BandaiFcg(bandai_fcg) => bandai_fcg.name(),
             Self::Cnrom(..) => "CNROM",
             Self::ColorDreams(..) => "Color Dreams",
             Self::Mmc1(..) => "MMC1",
@@ -185,6 +187,9 @@ impl Mapper {
 
     pub(crate) fn tick_cpu(&mut self) {
         match self {
+            Self::BandaiFcg(bandai_fcg) => {
+                bandai_fcg.tick_cpu();
+            }
             Self::Mmc1(mmc1) => {
                 mmc1.tick_cpu();
             }
@@ -209,6 +214,7 @@ impl Mapper {
 
     pub(crate) fn interrupt_flag(&self) -> bool {
         match self {
+            Self::BandaiFcg(bandai_fcg) => bandai_fcg.interrupt_flag(),
             Self::Mmc3(mmc3) => mmc3.interrupt_flag(),
             Self::Mmc5(mmc5) => mmc5.interrupt_flag(),
             Self::Sunsoft(sunsoft) => sunsoft.interrupt_flag(),
@@ -234,6 +240,13 @@ impl Mapper {
     }
 
     pub(crate) fn get_and_clear_ram_dirty_bit(&mut self) -> bool {
+        if let Mapper::BandaiFcg(mapper) = self {
+            // Bandai FCG chips can have EEPROM - prefer that memory if present
+            if mapper.get_and_clear_eeprom_dirty_bit() {
+                return true;
+            }
+        }
+
         match_each_variant!(self, mapper => {
             let dirty_bit = mapper.cartridge.prg_ram_dirty_bit;
             mapper.cartridge.prg_ram_dirty_bit = false;
@@ -242,6 +255,13 @@ impl Mapper {
     }
 
     pub(crate) fn get_prg_ram(&self) -> &[u8] {
+        if let Mapper::BandaiFcg(mapper) = self {
+            // Bandai FCG chips can have EEPROM - prefer that memory if present
+            if let Some(eeprom) = mapper.eeprom() {
+                return eeprom;
+            }
+        }
+
         match_each_variant!(self, mapper => &mapper.cartridge.prg_ram)
     }
 
@@ -389,6 +409,10 @@ impl INesHeader {
     }
 }
 
+fn random_vec(size: u32) -> Vec<u8> {
+    (0..size).map(|_| rand::random()).collect()
+}
+
 pub(crate) fn from_ines_file(
     file_bytes: &[u8],
     sav_bytes: Option<Vec<u8>>,
@@ -403,14 +427,14 @@ pub(crate) fn from_ines_file(
     let prg_rom = Vec::from(&file_bytes[prg_rom_start_address..prg_rom_end_address]);
     let chr_rom = Vec::from(&file_bytes[prg_rom_end_address..chr_rom_end_address]);
 
-    let prg_ram = if let Some(sav_bytes) = sav_bytes {
+    let prg_ram = if let Some(sav_bytes) = &sav_bytes {
         if sav_bytes.len() == header.prg_ram_size as usize {
-            sav_bytes
+            sav_bytes.clone()
         } else {
-            vec![0; header.prg_ram_size as usize]
+            random_vec(header.prg_ram_size)
         }
     } else {
-        vec![0; header.prg_ram_size as usize]
+        random_vec(header.prg_ram_size)
     };
 
     let cartridge = Cartridge {
@@ -478,6 +502,16 @@ pub(crate) fn from_ines_file(
         11 => Mapper::ColorDreams(MapperImpl {
             cartridge,
             data: ColorDreams::new(header.nametable_mirroring),
+        }),
+        16 | 153 | 159 => Mapper::BandaiFcg(MapperImpl {
+            cartridge,
+            data: BandaiFcg::new(
+                header.mapper_number,
+                header.sub_mapper_number,
+                header.chr_type,
+                header.prg_ram_size,
+                sav_bytes.as_ref(),
+            ),
         }),
         21 | 22 | 23 | 25 => Mapper::Vrc4(MapperImpl {
             cartridge,
