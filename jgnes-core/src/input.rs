@@ -18,6 +18,27 @@ impl JoypadState {
         Self::default()
     }
 
+    /// Prevent left+right or up+down from being pressed simultaneously from the NES's perspective.
+    ///
+    /// If left+right are pressed simultaneously, left will be preferred.
+    /// If up+down are pressed simultaneously, up will be preferred.
+    #[must_use]
+    pub fn sanitize_opposing_directions(self) -> Self {
+        let mut sanitized = self;
+
+        if self.left && self.right {
+            // Arbitrarily prefer left
+            sanitized.right = false;
+        }
+
+        if self.up && self.down {
+            // Arbitrarily prefer up
+            sanitized.down = false;
+        }
+
+        sanitized
+    }
+
     pub(crate) fn latch(self) -> LatchedJoypadState {
         let bitstream = (u8::from(self.right) << 7)
             | (u8::from(self.left) << 6)
