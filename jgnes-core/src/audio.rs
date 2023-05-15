@@ -56,19 +56,19 @@ pub struct DownsampleCounter {
     sample_count: u64,
     next_output_count: u64,
     next_output_count_float: f64,
-    output_frequency: f64,
-    display_refresh_rate: f64,
+    output_count_increment: f64,
 }
 
 impl DownsampleCounter {
     #[must_use]
     pub fn new(output_frequency: f64, display_refresh_rate: f64) -> Self {
+        let output_count_increment =
+            NES_AUDIO_FREQUENCY / output_frequency * display_refresh_rate / NES_NATIVE_DISPLAY_RATE;
         Self {
             sample_count: 0,
-            next_output_count: 1,
-            next_output_count_float: 1.0,
-            output_frequency,
-            display_refresh_rate,
+            next_output_count: output_count_increment.round() as u64,
+            next_output_count_float: output_count_increment,
+            output_count_increment,
         }
     }
 
@@ -77,9 +77,7 @@ impl DownsampleCounter {
         self.sample_count += 1;
 
         if self.sample_count == self.next_output_count {
-            self.next_output_count_float += NES_AUDIO_FREQUENCY / self.output_frequency
-                * self.display_refresh_rate
-                / NES_NATIVE_DISPLAY_RATE;
+            self.next_output_count_float += self.output_count_increment;
             self.next_output_count = self.next_output_count_float.round() as u64;
 
             DownsampleAction::OutputSample
