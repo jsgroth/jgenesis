@@ -65,6 +65,7 @@ struct PulseSweep {
     negate_behavior: SweepNegateBehavior,
     shift: u8,
     reload_flag: bool,
+    target_period: u16,
 }
 
 impl PulseSweep {
@@ -77,16 +78,23 @@ impl PulseSweep {
             negate_behavior,
             shift: 0,
             reload_flag: false,
+            target_period: 0,
         }
     }
 
-    fn process_sweep_update(&mut self, sweep_value: u8) {
+    fn process_sweep_update(&mut self, sweep_value: u8, timer_period: u16) {
         self.reload_flag = true;
 
         self.enabled = sweep_value.bit(7);
         self.divider_period = (sweep_value >> 4) & 0x07;
         self.negate_flag = sweep_value.bit(3);
         self.shift = sweep_value & 0x07;
+
+        self.target_period = self.compute_target_period(timer_period);
+    }
+
+    fn process_timer_period_update(&mut self, timer_period: u16) {
+        self.target_period = self.compute_target_period(timer_period);
     }
 
     fn compute_target_period(&self, timer_period: u16) -> u16 {
@@ -108,7 +116,7 @@ impl PulseSweep {
     }
 
     fn is_channel_muted(&self, timer_period: u16) -> bool {
-        timer_period < 8 || self.compute_target_period(timer_period) > 0x07FF
+        timer_period < 8 || self.target_period > 0x07FF
     }
 
     fn clock(&mut self, timer_period: &mut u16) {
@@ -117,7 +125,8 @@ impl PulseSweep {
             && self.shift > 0
             && !self.is_channel_muted(*timer_period)
         {
-            *timer_period = self.compute_target_period(*timer_period);
+            *timer_period = self.target_period;
+            self.target_period = self.compute_target_period(self.target_period);
         }
 
         if self.divider == 0 || self.reload_flag {
@@ -175,15 +184,21 @@ impl PulseChannel {
     }
 
     pub fn process_sweep_update(&mut self, sweep_value: u8) {
-        self.sweep.process_sweep_update(sweep_value);
+        self.sweep
+            .process_sweep_update(sweep_value, self.timer.divider_period);
     }
 
     pub fn process_lo_update(&mut self, lo_value: u8) {
         self.timer.process_lo_update(lo_value);
+        self.sweep
+            .process_timer_period_update(self.timer.divider_period);
     }
 
     pub fn process_hi_update(&mut self, hi_value: u8) {
         self.timer.process_hi_update(hi_value);
+        self.sweep
+            .process_timer_period_update(self.timer.divider_period);
+
         self.length_counter.process_hi_update(hi_value);
         self.envelope.process_hi_update();
     }
