@@ -114,6 +114,23 @@ impl BgBuffers {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
+struct BitSet256([u64; 4]);
+
+impl BitSet256 {
+    fn new() -> Self {
+        Self([0; 4])
+    }
+
+    fn get(&self, bit: u8) -> bool {
+        self.0[(bit >> 6) as usize] & (1_u64 << (bit & 0x3F)) != 0
+    }
+
+    fn set(&mut self, bit: u8) {
+        self.0[(bit >> 6) as usize] |= 1_u64 << (bit & 0x3F);
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
 struct SpriteBuffers {
     y_positions: [u8; 8],
     x_positions: [u8; 8],
@@ -123,6 +140,8 @@ struct SpriteBuffers {
     pattern_table_high: [u8; 8],
     buffer_len: u8,
     sprite_0_buffered: bool,
+    // Stores whether there is any sprite at the given X coordinate
+    sprite_x_bit_set: BitSet256,
 }
 
 impl SpriteBuffers {
@@ -136,6 +155,7 @@ impl SpriteBuffers {
             pattern_table_high: [0; 8],
             buffer_len: 0,
             sprite_0_buffered: false,
+            sprite_x_bit_set: BitSet256::new(),
         }
     }
 }
@@ -184,6 +204,7 @@ impl SpriteEvaluationData {
         let mut x_positions = [0xFF; 8];
         let mut attributes = [0xFF; 8];
         let mut tile_indices = [0xFF; 8];
+        let mut sprite_x_bit_set = BitSet256::new();
 
         for (i, chunk) in self
             .secondary_oam
@@ -200,6 +221,10 @@ impl SpriteEvaluationData {
             x_positions[i] = x_position;
             attributes[i] = attributes_byte;
             tile_indices[i] = tile_index;
+
+            for x in x_position..=x_position.saturating_add(7) {
+                sprite_x_bit_set.set(x);
+            }
         }
 
         SpriteBuffers {
@@ -211,6 +236,7 @@ impl SpriteEvaluationData {
             pattern_table_high: [0; 8],
             buffer_len: self.sprites_found,
             sprite_0_buffered: self.sprite_0_found,
+            sprite_x_bit_set,
         }
     }
 }
@@ -645,14 +671,15 @@ fn render_pixel(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     let sprite = (state.scanline != 0
         && state.scanline != PRE_RENDER_SCANLINE
         && sprites_enabled
-        && (pixel >= 8 || left_edge_sprites_enabled))
-        .then(|| find_first_overlapping_sprite(pixel, &state.sprite_buffers))
-        .flatten()
-        .unwrap_or(SpriteData {
-            color_id: 0,
-            is_sprite_0: false,
-            attributes: 0x00,
-        });
+        && (pixel >= 8 || left_edge_sprites_enabled)
+        && state.sprite_buffers.sprite_x_bit_set.get(pixel))
+    .then(|| find_first_overlapping_sprite(pixel, &state.sprite_buffers))
+    .flatten()
+    .unwrap_or(SpriteData {
+        color_id: 0,
+        is_sprite_0: false,
+        attributes: 0x00,
+    });
 
     if sprite.is_sprite_0 && bg_color_id != 0 && sprite.color_id != 0 && pixel < 255 {
         // Set sprite 0 hit when a non-transparent sprite pixel overlaps a non-transparent BG pixel
