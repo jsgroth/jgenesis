@@ -1,5 +1,6 @@
 #![allow(clippy::excessive_precision)]
 
+use bincode::{Decode, Encode};
 use std::collections::VecDeque;
 
 pub struct LowPassFilter {
@@ -44,20 +45,48 @@ impl Default for LowPassFilter {
 const NES_AUDIO_FREQUENCY: f64 = 1789772.7272727272727273;
 const NES_NATIVE_DISPLAY_RATE: f64 = 60.0988;
 
-#[must_use]
-pub fn should_output_sample(
-    total_sample_count: u64,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DownsampleAction {
+    None,
+    OutputSample,
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct DownsampleCounter {
+    sample_count: u64,
+    next_output_count: u64,
+    next_output_count_float: f64,
     output_frequency: f64,
     display_refresh_rate: f64,
-) -> bool {
-    ((total_sample_count - 1) as f64 * output_frequency / NES_AUDIO_FREQUENCY
-        * NES_NATIVE_DISPLAY_RATE
-        / display_refresh_rate)
-        .round() as u64
-        != (total_sample_count as f64 * output_frequency / NES_AUDIO_FREQUENCY
-            * NES_NATIVE_DISPLAY_RATE
-            / display_refresh_rate)
-            .round() as u64
+}
+
+impl DownsampleCounter {
+    #[must_use]
+    pub fn new(output_frequency: f64, display_refresh_rate: f64) -> Self {
+        Self {
+            sample_count: 0,
+            next_output_count: 1,
+            next_output_count_float: 1.0,
+            output_frequency,
+            display_refresh_rate,
+        }
+    }
+
+    #[must_use]
+    pub fn increment(&mut self) -> DownsampleAction {
+        self.sample_count += 1;
+
+        if self.sample_count == self.next_output_count {
+            self.next_output_count_float += NES_AUDIO_FREQUENCY / self.output_frequency
+                * self.display_refresh_rate
+                / NES_NATIVE_DISPLAY_RATE;
+            self.next_output_count = self.next_output_count_float.round() as u64;
+
+            DownsampleAction::OutputSample
+        } else {
+            DownsampleAction::None
+        }
+    }
 }
 
 // Generated in Octave using `fir1(93, 24000 / (1789772.72727272 / 2), 'low')`
