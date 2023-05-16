@@ -284,6 +284,17 @@ impl Mapper {
         match_each_variant!(self, mapper => &mapper.cartridge.prg_ram)
     }
 
+    pub(crate) fn has_persistent_ram(&self) -> bool {
+        if let Mapper::BandaiFcg(mapper) = self {
+            if mapper.eeprom().is_some() {
+                return true;
+            }
+        }
+
+        !self.get_prg_ram().is_empty()
+            && match_each_variant!(self, mapper => mapper.cartridge.has_ram_battery)
+    }
+
     /// If the board has expansion audio, generate an audio sample and mix it with the mixed APU
     /// sample.
     ///

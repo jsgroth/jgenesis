@@ -415,6 +415,11 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
 
         Ok(())
     }
+
+    /// Return whether the loaded cartridge has some sort of persistent RAM (e.g. SRAM or EEPROM).
+    pub fn has_persistent_ram(&self) -> bool {
+        self.bus.mapper().has_persistent_ram()
+    }
 }
 
 fn init_apu(apu_state: &mut ApuState, bus: &mut Bus) {
