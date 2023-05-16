@@ -478,7 +478,7 @@ pub(crate) fn from_ines_file(
         prg_rom,
         prg_ram,
         has_ram_battery: header.has_battery,
-        prg_ram_dirty_bit: false,
+        prg_ram_dirty_bit: header.has_battery,
         chr_rom,
         chr_ram: vec![0; header.chr_ram_size as usize],
     };

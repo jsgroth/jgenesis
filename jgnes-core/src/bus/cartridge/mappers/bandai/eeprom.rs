@@ -339,7 +339,7 @@ impl<State: EepromState + Debug, const N: usize> EepromChip<State, N> {
 
         Self {
             memory,
-            dirty: false,
+            dirty: true,
             state: State::default(),
             last_data: false,
             last_clock: false,
