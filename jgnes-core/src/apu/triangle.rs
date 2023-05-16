@@ -102,12 +102,14 @@ impl TriangleChannel {
         self.length_counter.clock();
     }
 
-    fn silenced(&self) -> bool {
-        self.linear_counter.counter == 0 || self.length_counter.counter == 0
+    fn silenced(&self, silence_ultrasonic_output: bool) -> bool {
+        self.linear_counter.counter == 0
+            || self.length_counter.counter == 0
+            || (silence_ultrasonic_output && self.timer.divider_period < 2)
     }
 
-    pub fn tick_cpu(&mut self) {
-        self.timer.tick(!self.silenced());
+    pub fn tick_cpu(&mut self, silence_ultrasonic_output: bool) {
+        self.timer.tick(!self.silenced(silence_ultrasonic_output));
     }
 
     pub fn sample(&self) -> u8 {

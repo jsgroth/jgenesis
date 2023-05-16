@@ -205,6 +205,12 @@ impl<R: Error + 'static, A: Error + 'static, S: Error + 'static> Error for Emula
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct EmulatorConfig {
+    /// If true, silence the triangle wave channel when it is outputting a wave at ultrasonic frequency
+    pub silence_ultrasonic_triangle_output: bool,
+}
+
 pub struct Emulator<Renderer, AudioPlayer, InputPoller, SaveWriter> {
     bus: Bus,
     cpu_state: CpuState,
@@ -270,8 +276,9 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
     /// # Errors
     ///
     /// This method will propagate any errors encountered while rendering a frame, pushing
-    /// audio samples, or persisting SRAM.
-    pub fn tick(&mut self) -> EmulationResult<R::Err, A::Err, S::Err> {
+    /// audio samples, or persisting SRAM. It will also return an error if the emulated CPU executes
+    /// an invalid opcode.
+    pub fn tick(&mut self, config: &EmulatorConfig) -> EmulationResult<R::Err, A::Err, S::Err> {
         let prev_in_vblank = self.ppu_state.in_vblank();
 
         cpu::tick(
@@ -279,7 +286,7 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
             &mut self.bus.cpu(),
             self.apu_state.is_active_cycle(),
         )?;
-        apu::tick(&mut self.apu_state, &mut self.bus.cpu());
+        apu::tick(&mut self.apu_state, &mut self.bus.cpu(), config);
         ppu::tick(&mut self.ppu_state, &mut self.bus.ppu());
         self.bus.tick();
         self.bus.tick_cpu();
@@ -338,7 +345,11 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
         ppu::reset(&mut self.ppu_state, &mut self.bus.ppu());
 
         for _ in 0..10 {
-            apu::tick(&mut self.apu_state, &mut self.bus.cpu());
+            apu::tick(
+                &mut self.apu_state,
+                &mut self.bus.cpu(),
+                &EmulatorConfig::default(),
+            );
             self.bus.tick();
         }
     }
@@ -429,7 +440,7 @@ fn init_apu(apu_state: &mut ApuState, bus: &mut Bus) {
 
     // Run the APU for 10 cycles
     for _ in 0..10 {
-        apu::tick(apu_state, &mut bus.cpu());
+        apu::tick(apu_state, &mut bus.cpu(), &EmulatorConfig::default());
         bus.tick();
     }
 }

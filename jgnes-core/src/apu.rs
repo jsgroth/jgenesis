@@ -24,6 +24,7 @@ use crate::apu::pulse::{PulseChannel, SweepStatus};
 use crate::apu::triangle::TriangleChannel;
 use crate::bus::{CpuBus, IoRegister, IrqSource};
 use crate::num::GetBit;
+use crate::EmulatorConfig;
 use bincode::{Decode, Encode};
 use once_cell::sync::Lazy;
 use std::iter;
@@ -265,10 +266,11 @@ impl ApuState {
         }
     }
 
-    fn tick_cpu(&mut self, bus: &mut CpuBus<'_>) {
+    fn tick_cpu(&mut self, bus: &mut CpuBus<'_>, config: &EmulatorConfig) {
         self.pulse_channel_1.tick_cpu();
         self.pulse_channel_2.tick_cpu();
-        self.triangle_channel.tick_cpu();
+        self.triangle_channel
+            .tick_cpu(config.silence_ultrasonic_triangle_output);
         self.noise_channel.tick_cpu();
         self.dmc.tick_cpu(bus);
         self.frame_counter.tick();
@@ -351,7 +353,7 @@ pub fn mix_pulse_samples(pulse1_sample: u8, pulse2_sample: u8) -> f64 {
 ///
 /// This function only updates internal state. It does not directly output audio samples anywhere.
 /// To retrieve the current audio sample, call `ApuState::sample`.
-pub fn tick(state: &mut ApuState, bus: &mut CpuBus<'_>) {
+pub fn tick(state: &mut ApuState, bus: &mut CpuBus<'_>, config: &EmulatorConfig) {
     log::trace!("APU: Frame counter state: {:?}", state.frame_counter);
     log::trace!("APU: Pulse 1 state: {:?}", state.pulse_channel_1);
     log::trace!("APU: Pulse 2 state: {:?}", state.pulse_channel_2);
@@ -364,7 +366,7 @@ pub fn tick(state: &mut ApuState, bus: &mut CpuBus<'_>) {
     let dirty_registers: Vec<_> = bus.get_io_registers_mut().drain_dirty_registers().collect();
     state.process_register_updates(dirty_registers.into_iter(), bus);
 
-    state.tick_cpu(bus);
+    state.tick_cpu(bus, config);
 
     bus.get_io_registers_mut()
         .set_apu_status(state.get_apu_status());
