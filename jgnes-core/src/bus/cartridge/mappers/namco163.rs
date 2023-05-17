@@ -187,10 +187,10 @@ impl Namco163AudioUnit {
     }
 
     fn sample(&self) -> f64 {
-        if self.enabled_channel_count <= 6 {
+        if self.enabled_channel_count < 6 {
             self.channels[self.current_channel as usize].current_output
         } else {
-            // Special case 7-8 enabled channels because an accurate implementation sounds horrible
+            // Special case 6-8 enabled channels because an accurate implementation sounds horrible
             // without a very expensive low-pass filter
             let channel_sum = self
                 .channels
