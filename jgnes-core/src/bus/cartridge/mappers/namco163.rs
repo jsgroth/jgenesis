@@ -192,10 +192,12 @@ impl Namco163AudioUnit {
         } else {
             // Special case 7-8 enabled channels because an accurate implementation sounds horrible
             // without a very expensive low-pass filter
-            let channel_sum = (0..=7)
+            let channel_sum = self
+                .channels
+                .iter()
                 .rev()
                 .take(self.enabled_channel_count as usize)
-                .map(|i| self.channels[i].current_output)
+                .map(|channel| channel.current_output)
                 .sum::<f64>();
             channel_sum / f64::from(self.enabled_channel_count)
         }
