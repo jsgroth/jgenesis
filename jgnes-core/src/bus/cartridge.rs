@@ -1,7 +1,7 @@
 mod mappers;
 
 use crate::bus::cartridge::mappers::{
-    Axrom, BandaiFcg, Bnrom, ChrType, Cnrom, Gxrom, Mmc1, Mmc2, Mmc3, Mmc5, Namco163,
+    Axrom, BandaiFcg, Bnrom, ChrType, Cnrom, Gxrom, Mmc1, Mmc2, Mmc3, Mmc5, Namco163, Namco175,
     NametableMirroring, Nrom, Sunsoft, Uxrom, Vrc4, Vrc6, Vrc7,
 };
 use bincode::de::{BorrowDecoder, Decoder};
@@ -137,6 +137,7 @@ pub(crate) enum Mapper {
     Mmc3(MapperImpl<Mmc3>),
     Mmc5(MapperImpl<Mmc5>),
     Namco163(MapperImpl<Namco163>),
+    Namco175(MapperImpl<Namco175>),
     Nrom(MapperImpl<Nrom>),
     Sunsoft(MapperImpl<Sunsoft>),
     Uxrom(MapperImpl<Uxrom>),
@@ -159,6 +160,7 @@ impl Mapper {
             Self::Mmc3(mmc3) => mmc3.name(),
             Self::Mmc5(..) => "MMC5",
             Self::Namco163(..) => "Namco 163",
+            Self::Namco175(..) => "Namco 175",
             Self::Nrom(..) => "NROM",
             Self::Sunsoft(..) => "Sunsoft",
             Self::Uxrom(uxrom) => uxrom.name(),
@@ -614,6 +616,14 @@ pub(crate) fn from_ines_file(
         85 => Mapper::Vrc7(MapperImpl {
             cartridge,
             data: Vrc7::new(header.sub_mapper_number, header.chr_type),
+        }),
+        210 => Mapper::Namco175(MapperImpl {
+            cartridge,
+            data: Namco175::new(
+                header.sub_mapper_number,
+                header.chr_type,
+                header.nametable_mirroring,
+            ),
         }),
         _ => {
             return Err(CartridgeFileError::UnsupportedMapper {
