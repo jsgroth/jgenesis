@@ -204,6 +204,32 @@ impl Namco163AudioUnit {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+enum VolumeVariantDb {
+    Twelve,
+    Sixteen,
+    Eighteen,
+}
+
+impl VolumeVariantDb {
+    const fn n163_coefficient(self) -> f64 {
+        match self {
+            Self::Twelve => {
+                // APU pulse volume * 10^(12/20)
+                0.594679822071084
+            }
+            Self::Sixteen => {
+                // APU pulse volume * 10^(16.5/20)
+                0.998350874789345
+            }
+            Self::Eighteen => {
+                // APU pulse volume * 10^(18.75/20)
+                1.293549947919034
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub(crate) struct Namco163 {
     chr_type: ChrType,
@@ -219,16 +245,23 @@ pub(crate) struct Namco163 {
     ram_window_writes_enabled: [bool; 4],
     irq: IrqCounter,
     audio: Namco163AudioUnit,
+    volume_variant: VolumeVariantDb,
 }
 
 impl Namco163 {
     pub(crate) fn new(
-        _sub_mapper_number: u8,
+        sub_mapper_number: u8,
         chr_type: ChrType,
         has_battery: bool,
         prg_ram_len: u32,
         sav_bytes: Option<Vec<u8>>,
     ) -> Self {
+        let volume_variant = match sub_mapper_number {
+            4 => VolumeVariantDb::Sixteen,
+            5 => VolumeVariantDb::Eighteen,
+            _ => VolumeVariantDb::Twelve,
+        };
+
         let mut internal_ram = [0; 128];
 
         if has_battery && prg_ram_len == 0 {
@@ -238,6 +271,8 @@ impl Namco163 {
                 }
             }
         }
+
+        log::info!("Namco 163 volume variant: {volume_variant:?}");
 
         Self {
             chr_type,
@@ -253,6 +288,7 @@ impl Namco163 {
             ram_window_writes_enabled: [false; 4],
             irq: IrqCounter::new(),
             audio: Namco163AudioUnit::new(),
+            volume_variant,
         }
     }
 }
@@ -429,6 +465,9 @@ impl MapperImpl<Namco163> {
             return mixed_apu_sample;
         }
 
-        mixed_apu_sample - self.data.audio.sample()
+        let n163_sample = self.data.audio.sample() * self.data.volume_variant.n163_coefficient();
+        let clamped_n163_sample = if n163_sample > 1.0 { 1.0 } else { n163_sample };
+
+        mixed_apu_sample - clamped_n163_sample
     }
 }
