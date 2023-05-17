@@ -102,6 +102,7 @@ enum Variant {
     Mmc6,
     McAcc,
     Namco108,
+    Namco108LargeChr,
     Namcot3446,
 }
 
@@ -111,9 +112,16 @@ impl Variant {
             Self::Mmc3 => "MMC3",
             Self::Mmc6 => "MMC6",
             Self::McAcc => "MMC3 (MC-ACC variant)",
-            Self::Namco108 => "Namco 108",
+            Self::Namco108 | Self::Namco108LargeChr => "Namco 108",
             Self::Namcot3446 => "NAMCOT-3446",
         }
+    }
+
+    fn is_namco_variant(self) -> bool {
+        matches!(
+            self,
+            Self::Namco108 | Self::Namco108LargeChr | Self::Namcot3446
+        )
     }
 }
 
@@ -209,6 +217,7 @@ impl Mmc3 {
             (4, 3) => Variant::McAcc,
             (4, _) => Variant::Mmc3,
             (76, _) => Variant::Namcot3446,
+            (88, _) => Variant::Namco108LargeChr,
             (206, _) => Variant::Namco108,
             _ => panic!("invalid MMC3 mapper number: {mapper_number}"),
         };
@@ -220,7 +229,7 @@ impl Mmc3 {
                 Mmc3NametableMirroring::FourScreenVram {
                     external_vram: Box::new([0; 4096]),
                 }
-            } else if matches!(variant, Variant::Namco108 | Variant::Namcot3446) {
+            } else if variant.is_namco_variant() {
                 Mmc3NametableMirroring::Standard(nametable_mirroring)
             } else {
                 Mmc3NametableMirroring::Standard(NametableMirroring::Vertical)
@@ -270,7 +279,7 @@ impl MapperImpl<Mmc3> {
             }
             0x8000..=0x9FFF => {
                 if !address.bit(0) {
-                    if self.data.variant != Variant::Namco108 {
+                    if !self.data.variant.is_namco_variant() {
                         self.data.bank_mapping.chr_mode = if value.bit(7) {
                             ChrMode::Mode1
                         } else {
@@ -361,7 +370,7 @@ impl MapperImpl<Mmc3> {
                                 RamMode::Mmc3Enabled
                             };
                         }
-                        Variant::Namco108 | Variant::Namcot3446 => {}
+                        Variant::Namco108 | Variant::Namco108LargeChr | Variant::Namcot3446 => {}
                     }
                 }
             }
@@ -424,7 +433,7 @@ impl MapperImpl<Mmc3> {
                     }
                 }
             }
-            Variant::Namco108 | Variant::Namcot3446 => {}
+            Variant::Namco108 | Variant::Namco108LargeChr | Variant::Namcot3446 => {}
         }
 
         self.data.last_a12_read = a12;
@@ -432,6 +441,13 @@ impl MapperImpl<Mmc3> {
 
     fn map_pattern_table_address(&self, address: u16) -> PpuMapResult {
         match self.data.variant {
+            Variant::Namco108LargeChr => {
+                let chr_outer_bank = address.bit(12);
+                let chr_addr = (self.data.bank_mapping.map_pattern_table_address(address)
+                    & 0x0000FFFF)
+                    | (u32::from(chr_outer_bank) << 16);
+                self.data.chr_type.to_map_result(chr_addr)
+            }
             Variant::Namcot3446 => {
                 let bank_index = address / 0x0800 + 2;
                 let bank_number = self.data.bank_mapping.chr_banks[bank_index as usize];
