@@ -1,7 +1,7 @@
 //! Code for the MMC3 and MMC6 boards (iNES mapper 4).
 
 use crate::bus;
-use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring};
+use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring, PpuMapResult};
 use crate::bus::cartridge::MapperImpl;
 use crate::num::GetBit;
 use bincode::{Decode, Encode};
@@ -102,6 +102,7 @@ enum Variant {
     Mmc6,
     McAcc,
     Namco108,
+    Namcot3446,
 }
 
 impl Variant {
@@ -111,6 +112,7 @@ impl Variant {
             Self::Mmc6 => "MMC6",
             Self::McAcc => "MMC3 (MC-ACC variant)",
             Self::Namco108 => "Namco 108",
+            Self::Namcot3446 => "NAMCOT-3446",
         }
     }
 }
@@ -206,6 +208,7 @@ impl Mmc3 {
             (4, 1) => Variant::Mmc6,
             (4, 3) => Variant::McAcc,
             (4, _) => Variant::Mmc3,
+            (76, _) => Variant::Namcot3446,
             (206, _) => Variant::Namco108,
             _ => panic!("invalid MMC3 mapper number: {mapper_number}"),
         };
@@ -217,7 +220,7 @@ impl Mmc3 {
                 Mmc3NametableMirroring::FourScreenVram {
                     external_vram: Box::new([0; 4096]),
                 }
-            } else if variant == Variant::Namco108 {
+            } else if matches!(variant, Variant::Namco108 | Variant::Namcot3446) {
                 Mmc3NametableMirroring::Standard(nametable_mirroring)
             } else {
                 Mmc3NametableMirroring::Standard(NametableMirroring::Vertical)
@@ -358,7 +361,7 @@ impl MapperImpl<Mmc3> {
                                 RamMode::Mmc3Enabled
                             };
                         }
-                        Variant::Namco108 => {}
+                        Variant::Namco108 | Variant::Namcot3446 => {}
                     }
                 }
             }
@@ -421,18 +424,31 @@ impl MapperImpl<Mmc3> {
                     }
                 }
             }
-            Variant::Namco108 => {}
+            Variant::Namco108 | Variant::Namcot3446 => {}
         }
 
         self.data.last_a12_read = a12;
     }
 
+    fn map_pattern_table_address(&self, address: u16) -> PpuMapResult {
+        match self.data.variant {
+            Variant::Namcot3446 => {
+                let bank_index = address / 0x0800 + 2;
+                let bank_number = self.data.bank_mapping.chr_banks[bank_index as usize];
+                let chr_addr = BankSizeKb::Two.to_absolute_address(bank_number, address);
+                self.data.chr_type.to_map_result(chr_addr)
+            }
+            _ => self
+                .data
+                .chr_type
+                .to_map_result(self.data.bank_mapping.map_pattern_table_address(address)),
+        }
+    }
+
     pub(crate) fn read_ppu_address(&mut self, address: u16, vram: &[u8; 2048]) -> u8 {
         match address & 0x3FFF {
             0x0000..=0x1FFF => self
-                .data
-                .chr_type
-                .to_map_result(self.data.bank_mapping.map_pattern_table_address(address))
+                .map_pattern_table_address(address)
                 .read(&self.cartridge, vram),
             0x2000..=0x3EFF => match &self.data.nametable_mirroring {
                 Mmc3NametableMirroring::Standard(nametable_mirroring) => {
@@ -451,9 +467,7 @@ impl MapperImpl<Mmc3> {
 
         match address & 0x3FFF {
             0x0000..=0x1FFF => {
-                self.data
-                    .chr_type
-                    .to_map_result(self.data.bank_mapping.map_pattern_table_address(address))
+                self.map_pattern_table_address(address)
                     .write(value, &mut self.cartridge, vram);
             }
             0x2000..=0x3EFF => match &mut self.data.nametable_mirroring {
