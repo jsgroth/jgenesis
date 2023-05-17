@@ -348,7 +348,7 @@ impl MapperImpl<Namco163> {
             0xF800..=0xFFFF => {
                 // This register doubles as both PRG RAM write protection and the internal RAM address
                 self.data.ram_writes_enabled = value & 0xF0 == 0x40;
-                for bit in 0..3 {
+                for bit in 0..=3 {
                     self.data.ram_window_writes_enabled[bit as usize] = !value.bit(bit);
                 }
 
