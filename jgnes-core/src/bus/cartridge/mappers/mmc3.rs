@@ -104,6 +104,7 @@ enum Variant {
     Namco108,
     Namco108LargeChr,
     Namcot3446,
+    Namcot3453,
 }
 
 impl Variant {
@@ -114,13 +115,14 @@ impl Variant {
             Self::McAcc => "MMC3 (MC-ACC variant)",
             Self::Namco108 | Self::Namco108LargeChr => "Namco 108",
             Self::Namcot3446 => "NAMCOT-3446",
+            Self::Namcot3453 => "NAMCOT-3453",
         }
     }
 
     fn is_namco_variant(self) -> bool {
         matches!(
             self,
-            Self::Namco108 | Self::Namco108LargeChr | Self::Namcot3446
+            Self::Namco108 | Self::Namco108LargeChr | Self::Namcot3446 | Self::Namcot3453
         )
     }
 }
@@ -218,6 +220,7 @@ impl Mmc3 {
             (4, _) => Variant::Mmc3,
             (76, _) => Variant::Namcot3446,
             (88, _) => Variant::Namco108LargeChr,
+            (154, _) => Variant::Namcot3453,
             (206, _) => Variant::Namco108,
             _ => panic!("invalid MMC3 mapper number: {mapper_number}"),
         };
@@ -229,6 +232,8 @@ impl Mmc3 {
                 Mmc3NametableMirroring::FourScreenVram {
                     external_vram: Box::new([0; 4096]),
                 }
+            } else if variant == Variant::Namcot3453 {
+                Mmc3NametableMirroring::Standard(NametableMirroring::SingleScreenBank0)
             } else if variant.is_namco_variant() {
                 Mmc3NametableMirroring::Standard(nametable_mirroring)
             } else {
@@ -330,6 +335,7 @@ impl MapperImpl<Mmc3> {
             }
             0xA000..=0xBFFF => {
                 if !address.bit(0)
+                    && !self.data.variant.is_namco_variant()
                     && matches!(
                         self.data.nametable_mirroring,
                         Mmc3NametableMirroring::Standard(..)
@@ -342,7 +348,7 @@ impl MapperImpl<Mmc3> {
                     };
                     self.data.nametable_mirroring =
                         Mmc3NametableMirroring::Standard(nametable_mirroring);
-                } else {
+                } else if address.bit(0) {
                     match self.data.variant {
                         Variant::Mmc6 => {
                             self.data.ram_mode = if self.data.ram_mode == RamMode::Disabled {
@@ -370,7 +376,10 @@ impl MapperImpl<Mmc3> {
                                 RamMode::Mmc3Enabled
                             };
                         }
-                        Variant::Namco108 | Variant::Namco108LargeChr | Variant::Namcot3446 => {}
+                        Variant::Namco108
+                        | Variant::Namco108LargeChr
+                        | Variant::Namcot3446
+                        | Variant::Namcot3453 => {}
                     }
                 }
             }
@@ -390,6 +399,14 @@ impl MapperImpl<Mmc3> {
                     self.data.irq_enabled = true;
                 }
             }
+        }
+
+        if self.data.variant == Variant::Namcot3453 && (0x8000..=0xFFFF).contains(&address) {
+            self.data.nametable_mirroring = if value.bit(6) {
+                Mmc3NametableMirroring::Standard(NametableMirroring::SingleScreenBank0)
+            } else {
+                Mmc3NametableMirroring::Standard(NametableMirroring::SingleScreenBank1)
+            };
         }
     }
 
@@ -433,7 +450,10 @@ impl MapperImpl<Mmc3> {
                     }
                 }
             }
-            Variant::Namco108 | Variant::Namco108LargeChr | Variant::Namcot3446 => {}
+            Variant::Namco108
+            | Variant::Namco108LargeChr
+            | Variant::Namcot3446
+            | Variant::Namcot3453 => {}
         }
 
         self.data.last_a12_read = a12;
@@ -441,7 +461,7 @@ impl MapperImpl<Mmc3> {
 
     fn map_pattern_table_address(&self, address: u16) -> PpuMapResult {
         match self.data.variant {
-            Variant::Namco108LargeChr => {
+            Variant::Namco108LargeChr | Variant::Namcot3453 => {
                 let chr_outer_bank = address.bit(12);
                 let chr_addr = (self.data.bank_mapping.map_pattern_table_address(address)
                     & 0x0000FFFF)
