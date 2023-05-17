@@ -1,8 +1,9 @@
+//! Code for the Namco 175 and Namco 340 boards (iNES mapper 210).
+
 use crate::bus;
 use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring, PpuMapResult};
 use crate::bus::cartridge::MapperImpl;
 use crate::num::GetBit;
-/// Code for the Namco 175 and Namco 340 boards (iNES mapper 210).
 use bincode::{Decode, Encode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
