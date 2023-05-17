@@ -187,7 +187,18 @@ impl Namco163AudioUnit {
     }
 
     fn sample(&self) -> f64 {
-        self.channels[self.current_channel as usize].current_output
+        if self.enabled_channel_count <= 6 {
+            self.channels[self.current_channel as usize].current_output
+        } else {
+            // Special case 7-8 enabled channels because an accurate implementation sounds horrible
+            // without a very expensive low-pass filter
+            let channel_sum = (0..=7)
+                .rev()
+                .take(self.enabled_channel_count as usize)
+                .map(|i| self.channels[i].current_output)
+                .sum::<f64>();
+            channel_sum / f64::from(self.enabled_channel_count)
+        }
     }
 }
 
