@@ -1,4 +1,5 @@
-/// Code for the Namco 129 and Namco 163 boards (iNES mapper 19).
+//! Code for the Namco 129 and Namco 163 boards (iNES mapper 19).
+
 use crate::bus;
 use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, PpuMapResult};
 use crate::bus::cartridge::MapperImpl;
