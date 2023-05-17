@@ -50,13 +50,144 @@ impl IrqCounter {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
-struct Namco163Audio {
-    enabled: bool,
+struct Namco163AudioChannel {
+    frequency: u32,
+    phase: u32,
+    length_mask: u8,
+    address: u8,
+    volume: u8,
+    current_output: f64,
 }
 
-impl Namco163Audio {
+impl Namco163AudioChannel {
     fn new() -> Self {
-        Self { enabled: false }
+        Self {
+            frequency: 0,
+            phase: 0,
+            length_mask: 0,
+            address: 0,
+            volume: 0,
+            current_output: 0.0,
+        }
+    }
+
+    fn process_register_update(&mut self, index: u8, value: u8) {
+        match index {
+            0 => {
+                // Lowest 8 bits of frequency
+                self.frequency = (self.frequency & 0xFFFFFF00) | u32::from(value);
+            }
+            1 => {
+                // Lowest 8 bits of phase
+                self.phase = (self.phase & 0xFFFFFF00) | u32::from(value);
+            }
+            2 => {
+                // Middle 8 bits of frequency
+                self.frequency = (self.frequency & 0xFFFF00FF) | (u32::from(value) << 8);
+            }
+            3 => {
+                // Middle 8 bits of phase
+                self.phase = (self.phase & 0xFFFF00FF) | (u32::from(value) << 8);
+            }
+            4 => {
+                // High 2 bits of frequency + waveform length
+                self.frequency = (self.frequency & 0x0000FFFF) | (u32::from(value & 0x03) << 16);
+                // Length is 256 - (length << 2), set mask to that minus 1
+                self.length_mask = 255 - (value & 0xFC);
+            }
+            5 => {
+                // High 8 bits of phase
+                self.phase = (self.phase & 0x0000FFFF) | (u32::from(value) << 16);
+            }
+            6 => {
+                // Waveform address
+                self.address = value;
+            }
+            7 => {
+                // Volume
+                self.volume = value & 0x0F;
+            }
+            _ => panic!("invalid audio register index: {index}"),
+        }
+    }
+
+    fn clock(&mut self, internal_ram: &[u8; 128]) {
+        self.phase = (self.phase + self.frequency) & !(1 << 24);
+        let sample_phase = ((self.phase >> 16) as u8) & self.length_mask;
+        let sample_addr = self.address.wrapping_add(sample_phase);
+        let sample_byte = internal_ram[(sample_addr >> 1) as usize];
+        // Samples are 4-bit nibbles in little-endian: 0=low nibble, 1=high nibble
+        let sample = if sample_addr & 0x01 == 0 {
+            sample_byte & 0x0F
+        } else {
+            sample_byte >> 4
+        };
+
+        // Volume should act as if the waveform is centered at sample value 8
+        // This will produce a value in the range [-120, 105]
+        let sample = (i16::from(sample) - 8) * i16::from(self.volume);
+
+        // Shift the sample to a range of [0, 1]
+        self.current_output = f64::from(sample + 120) / 225.0;
+    }
+}
+
+const AUDIO_DIVIDER: u8 = 15;
+
+#[derive(Debug, Clone, Encode, Decode)]
+struct Namco163AudioUnit {
+    enabled: bool,
+    channels: [Namco163AudioChannel; 8],
+    divider: u8,
+    current_channel: u8,
+    enabled_channel_count: u8,
+}
+
+impl Namco163AudioUnit {
+    fn new() -> Self {
+        Self {
+            enabled: false,
+            channels: [(); 8].map(|_| Namco163AudioChannel::new()),
+            divider: AUDIO_DIVIDER,
+            current_channel: 0,
+            enabled_channel_count: 0,
+        }
+    }
+
+    fn process_internal_ram_update(&mut self, address: u8, value: u8) {
+        if address >= 0x40 {
+            let channel_index = (address & 0x3F) / 0x08;
+            self.channels[channel_index as usize].process_register_update(address & 0x07, value);
+
+            if address == 0x7F {
+                // Bits 6-4 of $7F control which channels are enabled in addition to channel 8 volume
+                self.enabled_channel_count = ((value & 0x70) >> 4) + 1;
+            }
+        }
+    }
+
+    fn clock(&mut self, internal_ram: &[u8; 128]) {
+        if !self.enabled {
+            return;
+        }
+
+        self.current_channel = self.current_channel.wrapping_sub(1) & 0x07;
+        if self.current_channel < 8 - self.enabled_channel_count {
+            self.current_channel = 7;
+        }
+        self.channels[self.current_channel as usize].clock(internal_ram);
+    }
+
+    fn tick_cpu(&mut self, internal_ram: &[u8; 128]) {
+        self.divider -= 1;
+        if self.divider == 0 {
+            self.clock(internal_ram);
+            self.divider = AUDIO_DIVIDER;
+        }
+    }
+
+    fn sample(&self) -> f64 {
+        self.channels[self.current_channel as usize].current_output
     }
 }
 
@@ -74,7 +205,7 @@ pub(crate) struct Namco163 {
     ram_writes_enabled: bool,
     ram_window_writes_enabled: [bool; 4],
     irq: IrqCounter,
-    audio: Namco163Audio,
+    audio: Namco163AudioUnit,
 }
 
 impl Namco163 {
@@ -108,7 +239,7 @@ impl Namco163 {
             ram_writes_enabled: false,
             ram_window_writes_enabled: [false; 4],
             irq: IrqCounter::new(),
-            audio: Namco163Audio::new(),
+            audio: Namco163AudioUnit::new(),
         }
     }
 }
@@ -156,13 +287,14 @@ impl MapperImpl<Namco163> {
             0x0000..=0x401F => panic!("invalid CPU map address: {address:04X}"),
             0x4020..=0x47FF => {}
             0x4800..=0x4FFF => {
-                if self.data.ram_writes_enabled {
-                    self.data.internal_ram[self.data.internal_ram_addr as usize] = value;
-                    self.data.internal_ram_dirty_bit = true;
+                let ram_addr = self.data.internal_ram_addr;
+                self.data.internal_ram[ram_addr as usize] = value;
+                self.data.internal_ram_dirty_bit = true;
 
-                    if self.data.internal_ram_auto_increment {
-                        self.data.internal_ram_addr = (self.data.internal_ram_addr + 1) & 0x7F;
-                    }
+                self.data.audio.process_internal_ram_update(ram_addr, value);
+
+                if self.data.internal_ram_auto_increment {
+                    self.data.internal_ram_addr = (ram_addr + 1) & 0x7F;
                 }
             }
             0x5000..=0x57FF => {
@@ -201,10 +333,14 @@ impl MapperImpl<Namco163> {
                 self.data.prg_banks[2] = value & 0x3F;
             }
             0xF800..=0xFFFF => {
+                // This register doubles as both PRG RAM write protection and the internal RAM address
                 self.data.ram_writes_enabled = value & 0xF0 == 0x40;
                 for bit in 0..3 {
                     self.data.ram_window_writes_enabled[bit as usize] = !value.bit(bit);
                 }
+
+                self.data.internal_ram_auto_increment = value.bit(7);
+                self.data.internal_ram_addr = value & 0x7F;
             }
         }
     }
@@ -254,6 +390,7 @@ impl MapperImpl<Namco163> {
 
     pub(crate) fn tick_cpu(&mut self) {
         self.data.irq.tick_cpu();
+        self.data.audio.tick_cpu(&self.data.internal_ram);
     }
 
     pub(crate) fn interrupt_flag(&self) -> bool {
@@ -272,5 +409,13 @@ impl MapperImpl<Namco163> {
 
     pub(crate) fn get_internal_ram(&self) -> &[u8; 128] {
         &self.data.internal_ram
+    }
+
+    pub(crate) fn sample_audio(&self, mixed_apu_sample: f64) -> f64 {
+        if !self.data.audio.enabled {
+            return mixed_apu_sample;
+        }
+
+        mixed_apu_sample - self.data.audio.sample()
     }
 }
