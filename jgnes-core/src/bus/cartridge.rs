@@ -543,13 +543,15 @@ pub(crate) fn from_ines_file(
             cartridge,
             data: Cnrom::new(header.chr_type, header.nametable_mirroring),
         }),
-        4 => Mapper::Mmc3(MapperImpl {
+        4 | 76 | 206 => Mapper::Mmc3(MapperImpl {
             cartridge,
             data: Mmc3::new(
                 header.chr_type,
                 header.prg_rom_size,
                 chr_size,
+                header.mapper_number,
                 header.sub_mapper_number,
+                header.nametable_mirroring,
                 header.has_four_screen_vram,
             ),
         }),

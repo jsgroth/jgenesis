@@ -101,6 +101,7 @@ enum Variant {
     Mmc3,
     Mmc6,
     McAcc,
+    Namco108,
 }
 
 impl Variant {
@@ -109,6 +110,7 @@ impl Variant {
             Self::Mmc3 => "MMC3",
             Self::Mmc6 => "MMC6",
             Self::McAcc => "MMC3 (MC-ACC variant)",
+            Self::Namco108 => "Namco 108",
         }
     }
 }
@@ -195,13 +197,17 @@ impl Mmc3 {
         chr_type: ChrType,
         prg_rom_len: u32,
         chr_size: u32,
+        mapper_number: u16,
         sub_mapper_number: u8,
+        nametable_mirroring: NametableMirroring,
         has_four_screen_vram: bool,
     ) -> Self {
-        let variant = match sub_mapper_number {
-            1 => Variant::Mmc6,
-            3 => Variant::McAcc,
-            _ => Variant::Mmc3,
+        let variant = match (mapper_number, sub_mapper_number) {
+            (4, 1) => Variant::Mmc6,
+            (4, 3) => Variant::McAcc,
+            (4, _) => Variant::Mmc3,
+            (206, _) => Variant::Namco108,
+            _ => panic!("invalid MMC3 mapper number: {mapper_number}"),
         };
         Self {
             variant,
@@ -211,6 +217,8 @@ impl Mmc3 {
                 Mmc3NametableMirroring::FourScreenVram {
                     external_vram: Box::new([0; 4096]),
                 }
+            } else if variant == Variant::Namco108 {
+                Mmc3NametableMirroring::Standard(nametable_mirroring)
             } else {
                 Mmc3NametableMirroring::Standard(NametableMirroring::Vertical)
             },
@@ -259,16 +267,19 @@ impl MapperImpl<Mmc3> {
             }
             0x8000..=0x9FFF => {
                 if !address.bit(0) {
-                    self.data.bank_mapping.chr_mode = if value.bit(7) {
-                        ChrMode::Mode1
-                    } else {
-                        ChrMode::Mode0
-                    };
-                    self.data.bank_mapping.prg_mode = if value.bit(6) {
-                        PrgMode::Mode1
-                    } else {
-                        PrgMode::Mode0
-                    };
+                    if self.data.variant != Variant::Namco108 {
+                        self.data.bank_mapping.chr_mode = if value.bit(7) {
+                            ChrMode::Mode1
+                        } else {
+                            ChrMode::Mode0
+                        };
+                        self.data.bank_mapping.prg_mode = if value.bit(6) {
+                            PrgMode::Mode1
+                        } else {
+                            PrgMode::Mode0
+                        };
+                    }
+
                     self.data.bank_update_select = match value & 0x07 {
                         masked_value @ 0x00..=0x05 => BankUpdate::ChrBank(masked_value),
                         0x06 => BankUpdate::PrgBank0,
@@ -347,6 +358,7 @@ impl MapperImpl<Mmc3> {
                                 RamMode::Mmc3Enabled
                             };
                         }
+                        Variant::Namco108 => {}
                     }
                 }
             }
@@ -409,6 +421,7 @@ impl MapperImpl<Mmc3> {
                     }
                 }
             }
+            Variant::Namco108 => {}
         }
 
         self.data.last_a12_read = a12;
