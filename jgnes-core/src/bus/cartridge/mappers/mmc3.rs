@@ -1,4 +1,10 @@
 //! Code for the MMC3 and MMC6 boards (iNES mapper 4).
+//!
+//! This module also contains code for some other boards that are extremely similar to MMC3:
+//! * Namco 108 (iNES mapper 206)
+//! * Namco 108 with 128KB CHR ROM (iNES mapper 88)
+//! * NAMCOT-3446 (iNES mapper 76)
+//! * NAMCOT-3453 (iNES mapper 154)
 
 use crate::bus;
 use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring, PpuMapResult};
