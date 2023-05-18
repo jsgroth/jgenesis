@@ -1,7 +1,13 @@
 //! Code for the MMC3 and MMC6 boards (iNES mapper 4).
+//!
+//! This module also contains code for some other boards that are extremely similar to MMC3:
+//! * Namco 108 (iNES mapper 206)
+//! * Namco 108 with 128KB CHR ROM (iNES mapper 88)
+//! * NAMCOT-3446 (iNES mapper 76)
+//! * NAMCOT-3453 (iNES mapper 154)
 
 use crate::bus;
-use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring};
+use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring, PpuMapResult};
 use crate::bus::cartridge::MapperImpl;
 use crate::num::GetBit;
 use bincode::{Decode, Encode};
@@ -101,6 +107,11 @@ enum Variant {
     Mmc3,
     Mmc6,
     McAcc,
+    Namco108,
+    Namco108LargeChr,
+    Namcot3425,
+    Namcot3446,
+    Namcot3453,
 }
 
 impl Variant {
@@ -109,7 +120,22 @@ impl Variant {
             Self::Mmc3 => "MMC3",
             Self::Mmc6 => "MMC6",
             Self::McAcc => "MMC3 (MC-ACC variant)",
+            Self::Namco108 | Self::Namco108LargeChr => "Namco 108",
+            Self::Namcot3425 => "NAMCOT-3425",
+            Self::Namcot3446 => "NAMCOT-3446",
+            Self::Namcot3453 => "NAMCOT-3453",
         }
+    }
+
+    fn is_namco_variant(self) -> bool {
+        matches!(
+            self,
+            Self::Namco108
+                | Self::Namco108LargeChr
+                | Self::Namcot3425
+                | Self::Namcot3446
+                | Self::Namcot3453
+        )
     }
 }
 
@@ -195,13 +221,21 @@ impl Mmc3 {
         chr_type: ChrType,
         prg_rom_len: u32,
         chr_size: u32,
+        mapper_number: u16,
         sub_mapper_number: u8,
+        nametable_mirroring: NametableMirroring,
         has_four_screen_vram: bool,
     ) -> Self {
-        let variant = match sub_mapper_number {
-            1 => Variant::Mmc6,
-            3 => Variant::McAcc,
-            _ => Variant::Mmc3,
+        let variant = match (mapper_number, sub_mapper_number) {
+            (4, 1) => Variant::Mmc6,
+            (4, 3) => Variant::McAcc,
+            (4, _) => Variant::Mmc3,
+            (76, _) => Variant::Namcot3446,
+            (88, _) => Variant::Namco108LargeChr,
+            (95, _) => Variant::Namcot3425,
+            (154, _) => Variant::Namcot3453,
+            (206, _) => Variant::Namco108,
+            _ => panic!("invalid MMC3 mapper number: {mapper_number}"),
         };
         Self {
             variant,
@@ -211,6 +245,10 @@ impl Mmc3 {
                 Mmc3NametableMirroring::FourScreenVram {
                     external_vram: Box::new([0; 4096]),
                 }
+            } else if variant == Variant::Namcot3453 {
+                Mmc3NametableMirroring::Standard(NametableMirroring::SingleScreenBank0)
+            } else if variant.is_namco_variant() {
+                Mmc3NametableMirroring::Standard(nametable_mirroring)
             } else {
                 Mmc3NametableMirroring::Standard(NametableMirroring::Vertical)
             },
@@ -259,16 +297,19 @@ impl MapperImpl<Mmc3> {
             }
             0x8000..=0x9FFF => {
                 if !address.bit(0) {
-                    self.data.bank_mapping.chr_mode = if value.bit(7) {
-                        ChrMode::Mode1
-                    } else {
-                        ChrMode::Mode0
-                    };
-                    self.data.bank_mapping.prg_mode = if value.bit(6) {
-                        PrgMode::Mode1
-                    } else {
-                        PrgMode::Mode0
-                    };
+                    if !self.data.variant.is_namco_variant() {
+                        self.data.bank_mapping.chr_mode = if value.bit(7) {
+                            ChrMode::Mode1
+                        } else {
+                            ChrMode::Mode0
+                        };
+                        self.data.bank_mapping.prg_mode = if value.bit(6) {
+                            PrgMode::Mode1
+                        } else {
+                            PrgMode::Mode0
+                        };
+                    }
+
                     self.data.bank_update_select = match value & 0x07 {
                         masked_value @ 0x00..=0x05 => BankUpdate::ChrBank(masked_value),
                         0x06 => BankUpdate::PrgBank0,
@@ -307,6 +348,7 @@ impl MapperImpl<Mmc3> {
             }
             0xA000..=0xBFFF => {
                 if !address.bit(0)
+                    && !self.data.variant.is_namco_variant()
                     && matches!(
                         self.data.nametable_mirroring,
                         Mmc3NametableMirroring::Standard(..)
@@ -319,7 +361,7 @@ impl MapperImpl<Mmc3> {
                     };
                     self.data.nametable_mirroring =
                         Mmc3NametableMirroring::Standard(nametable_mirroring);
-                } else {
+                } else if address.bit(0) {
                     match self.data.variant {
                         Variant::Mmc6 => {
                             self.data.ram_mode = if self.data.ram_mode == RamMode::Disabled {
@@ -347,6 +389,11 @@ impl MapperImpl<Mmc3> {
                                 RamMode::Mmc3Enabled
                             };
                         }
+                        Variant::Namco108
+                        | Variant::Namco108LargeChr
+                        | Variant::Namcot3425
+                        | Variant::Namcot3446
+                        | Variant::Namcot3453 => {}
                     }
                 }
             }
@@ -366,6 +413,14 @@ impl MapperImpl<Mmc3> {
                     self.data.irq_enabled = true;
                 }
             }
+        }
+
+        if self.data.variant == Variant::Namcot3453 && (0x8000..=0xFFFF).contains(&address) {
+            self.data.nametable_mirroring = if value.bit(6) {
+                Mmc3NametableMirroring::Standard(NametableMirroring::SingleScreenBank0)
+            } else {
+                Mmc3NametableMirroring::Standard(NametableMirroring::SingleScreenBank1)
+            };
         }
     }
 
@@ -409,25 +464,63 @@ impl MapperImpl<Mmc3> {
                     }
                 }
             }
+            Variant::Namco108
+            | Variant::Namco108LargeChr
+            | Variant::Namcot3425
+            | Variant::Namcot3446
+            | Variant::Namcot3453 => {}
         }
 
         self.data.last_a12_read = a12;
     }
 
+    fn map_pattern_table_address(&self, address: u16) -> PpuMapResult {
+        match self.data.variant {
+            Variant::Namco108LargeChr | Variant::Namcot3453 => {
+                let chr_outer_bank = address.bit(12);
+                let chr_addr = (self.data.bank_mapping.map_pattern_table_address(address)
+                    & 0x0000FFFF)
+                    | (u32::from(chr_outer_bank) << 16);
+                self.data.chr_type.to_map_result(chr_addr)
+            }
+            Variant::Namcot3446 => {
+                let bank_index = address / 0x0800 + 2;
+                let bank_number = self.data.bank_mapping.chr_banks[bank_index as usize];
+                let chr_addr = BankSizeKb::Two.to_absolute_address(bank_number, address);
+                self.data.chr_type.to_map_result(chr_addr)
+            }
+            _ => self
+                .data
+                .chr_type
+                .to_map_result(self.data.bank_mapping.map_pattern_table_address(address)),
+        }
+    }
+
+    fn map_namcot_3425_nametable_addr(&self, address: u16) -> u32 {
+        let bank_index = (address & 0x0FFF) / 0x0800;
+        let bank_number = self.data.bank_mapping.chr_banks[bank_index as usize];
+        let vram_bank = bank_number.bit(5);
+        (u32::from(vram_bank) << 10) | u32::from(address & 0x03FF)
+    }
+
     pub(crate) fn read_ppu_address(&mut self, address: u16, vram: &[u8; 2048]) -> u8 {
         match address & 0x3FFF {
             0x0000..=0x1FFF => self
-                .data
-                .chr_type
-                .to_map_result(self.data.bank_mapping.map_pattern_table_address(address))
+                .map_pattern_table_address(address)
                 .read(&self.cartridge, vram),
-            0x2000..=0x3EFF => match &self.data.nametable_mirroring {
-                Mmc3NametableMirroring::Standard(nametable_mirroring) => {
-                    vram[nametable_mirroring.map_to_vram(address) as usize]
+            0x2000..=0x3EFF => match self.data.variant {
+                Variant::Namcot3425 => {
+                    let vram_addr = self.map_namcot_3425_nametable_addr(address);
+                    vram[vram_addr as usize]
                 }
-                Mmc3NametableMirroring::FourScreenVram { external_vram } => {
-                    external_vram[(address & 0x0FFF) as usize]
-                }
+                _ => match &self.data.nametable_mirroring {
+                    Mmc3NametableMirroring::Standard(nametable_mirroring) => {
+                        vram[nametable_mirroring.map_to_vram(address) as usize]
+                    }
+                    Mmc3NametableMirroring::FourScreenVram { external_vram } => {
+                        external_vram[(address & 0x0FFF) as usize]
+                    }
+                },
             },
             0x3F00..=0xFFFF => panic!("invalid PPU map address: 0x{address:04X}"),
         }
@@ -438,18 +531,22 @@ impl MapperImpl<Mmc3> {
 
         match address & 0x3FFF {
             0x0000..=0x1FFF => {
-                self.data
-                    .chr_type
-                    .to_map_result(self.data.bank_mapping.map_pattern_table_address(address))
+                self.map_pattern_table_address(address)
                     .write(value, &mut self.cartridge, vram);
             }
-            0x2000..=0x3EFF => match &mut self.data.nametable_mirroring {
-                Mmc3NametableMirroring::Standard(nametable_mirroring) => {
-                    vram[nametable_mirroring.map_to_vram(address) as usize] = value;
+            0x2000..=0x3EFF => match self.data.variant {
+                Variant::Namcot3425 => {
+                    let vram_addr = self.map_namcot_3425_nametable_addr(address);
+                    vram[vram_addr as usize] = value;
                 }
-                Mmc3NametableMirroring::FourScreenVram { external_vram } => {
-                    external_vram[(address & 0x0FFF) as usize] = value;
-                }
+                _ => match &mut self.data.nametable_mirroring {
+                    Mmc3NametableMirroring::Standard(nametable_mirroring) => {
+                        vram[nametable_mirroring.map_to_vram(address) as usize] = value;
+                    }
+                    Mmc3NametableMirroring::FourScreenVram { external_vram } => {
+                        external_vram[(address & 0x0FFF) as usize] = value;
+                    }
+                },
             },
             0x3F00..=0xFFFF => panic!("invalid PPU map address: 0x{address:04X}"),
         }

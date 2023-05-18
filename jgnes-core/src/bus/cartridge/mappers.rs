@@ -4,6 +4,8 @@ mod mmc1;
 mod mmc2;
 mod mmc3;
 mod mmc5;
+mod namco163;
+mod namco175;
 mod nrom;
 mod sunsoft;
 
@@ -17,6 +19,8 @@ pub(crate) use mmc1::Mmc1;
 pub(crate) use mmc2::Mmc2;
 pub(crate) use mmc3::Mmc3;
 pub(crate) use mmc5::Mmc5;
+pub(crate) use namco163::Namco163;
+pub(crate) use namco175::Namco175;
 pub(crate) use nrom::{Axrom, Bnrom, Cnrom, Gxrom, Nrom, Uxrom};
 pub(crate) use sunsoft::Sunsoft;
 

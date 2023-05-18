@@ -1,8 +1,8 @@
 mod mappers;
 
 use crate::bus::cartridge::mappers::{
-    Axrom, BandaiFcg, Bnrom, ChrType, Cnrom, Gxrom, Mmc1, Mmc2, Mmc3, Mmc5, NametableMirroring,
-    Nrom, Sunsoft, Uxrom, Vrc4, Vrc6, Vrc7,
+    Axrom, BandaiFcg, Bnrom, ChrType, Cnrom, Gxrom, Mmc1, Mmc2, Mmc3, Mmc5, Namco163, Namco175,
+    NametableMirroring, Nrom, Sunsoft, Uxrom, Vrc4, Vrc6, Vrc7,
 };
 use bincode::de::{BorrowDecoder, Decoder};
 use bincode::enc::Encoder;
@@ -136,6 +136,8 @@ pub(crate) enum Mapper {
     Mmc2(MapperImpl<Mmc2>),
     Mmc3(MapperImpl<Mmc3>),
     Mmc5(MapperImpl<Mmc5>),
+    Namco163(MapperImpl<Namco163>),
+    Namco175(MapperImpl<Namco175>),
     Nrom(MapperImpl<Nrom>),
     Sunsoft(MapperImpl<Sunsoft>),
     Uxrom(MapperImpl<Uxrom>),
@@ -157,6 +159,8 @@ impl Mapper {
             Self::Mmc2(mmc2) => mmc2.name(),
             Self::Mmc3(mmc3) => mmc3.name(),
             Self::Mmc5(..) => "MMC5",
+            Self::Namco163(..) => "Namco 163",
+            Self::Namco175(..) => "Namco 175",
             Self::Nrom(..) => "NROM",
             Self::Sunsoft(..) => "Sunsoft",
             Self::Uxrom(uxrom) => uxrom.name(),
@@ -206,6 +210,9 @@ impl Mapper {
             Self::Mmc5(mmc5) => {
                 mmc5.tick_cpu();
             }
+            Self::Namco163(namco163) => {
+                namco163.tick_cpu();
+            }
             Self::Sunsoft(sunsoft) => {
                 sunsoft.tick_cpu();
             }
@@ -228,6 +235,7 @@ impl Mapper {
             Self::BandaiFcg(bandai_fcg) => bandai_fcg.interrupt_flag(),
             Self::Mmc3(mmc3) => mmc3.interrupt_flag(),
             Self::Mmc5(mmc5) => mmc5.interrupt_flag(),
+            Self::Namco163(namco163) => namco163.interrupt_flag(),
             Self::Sunsoft(sunsoft) => sunsoft.interrupt_flag(),
             Self::Vrc4(vrc4) => vrc4.interrupt_flag(),
             Self::Vrc6(vrc6) => vrc6.interrupt_flag(),
@@ -257,11 +265,20 @@ impl Mapper {
     /// Return whether the board's writable memory (if any) has been written to since the last time
     /// this method was called.
     pub(crate) fn get_and_clear_ram_dirty_bit(&mut self) -> bool {
-        if let Mapper::BandaiFcg(mapper) = self {
-            // Bandai FCG chips can have EEPROM - prefer that memory if present
-            if mapper.get_and_clear_eeprom_dirty_bit() {
-                return true;
+        match self {
+            Mapper::BandaiFcg(mapper) => {
+                if mapper.get_and_clear_eeprom_dirty_bit() {
+                    return true;
+                }
             }
+            Mapper::Namco163(mapper) => {
+                if mapper.has_battery_backed_internal_ram()
+                    && mapper.get_and_clear_internal_ram_dirty_bit()
+                {
+                    return true;
+                }
+            }
+            _ => {}
         }
 
         match_each_variant!(self, mapper => {
@@ -274,21 +291,36 @@ impl Mapper {
     /// Return the board's writable memory as a slice. This will be an empty slice if the board
     /// has no PRG RAM or EEPROM.
     pub(crate) fn get_prg_ram(&self) -> &[u8] {
-        if let Mapper::BandaiFcg(mapper) = self {
-            // Bandai FCG chips can have EEPROM - prefer that memory if present
-            if let Some(eeprom) = mapper.eeprom() {
-                return eeprom;
+        match self {
+            Mapper::BandaiFcg(mapper) => {
+                if let Some(eeprom) = mapper.eeprom() {
+                    return eeprom;
+                }
             }
+            Mapper::Namco163(mapper) => {
+                if mapper.has_battery_backed_internal_ram() {
+                    return mapper.get_internal_ram();
+                }
+            }
+            _ => {}
         }
 
         match_each_variant!(self, mapper => &mapper.cartridge.prg_ram)
     }
 
     pub(crate) fn has_persistent_ram(&self) -> bool {
-        if let Mapper::BandaiFcg(mapper) = self {
-            if mapper.eeprom().is_some() {
-                return true;
+        match self {
+            Mapper::BandaiFcg(mapper) => {
+                if mapper.eeprom().is_some() {
+                    return true;
+                }
             }
+            Mapper::Namco163(mapper) => {
+                if mapper.has_battery_backed_internal_ram() {
+                    return true;
+                }
+            }
+            _ => {}
         }
 
         !self.get_prg_ram().is_empty()
@@ -303,6 +335,7 @@ impl Mapper {
     pub(crate) fn sample_audio(&self, mixed_apu_sample: f64) -> f64 {
         match self {
             Self::Mmc5(mmc5) => mmc5.sample_audio(mixed_apu_sample),
+            Self::Namco163(namco163) => namco163.sample_audio(mixed_apu_sample),
             Self::Sunsoft(sunsoft) => sunsoft.sample_audio(mixed_apu_sample),
             Self::Vrc6(vrc6) => vrc6.sample_audio(mixed_apu_sample),
             _ => mixed_apu_sample,
@@ -510,13 +543,15 @@ pub(crate) fn from_ines_file(
             cartridge,
             data: Cnrom::new(header.chr_type, header.nametable_mirroring),
         }),
-        4 => Mapper::Mmc3(MapperImpl {
+        4 | 76 | 88 | 95 | 154 | 206 => Mapper::Mmc3(MapperImpl {
             cartridge,
             data: Mmc3::new(
                 header.chr_type,
                 header.prg_rom_size,
                 chr_size,
+                header.mapper_number,
                 header.sub_mapper_number,
+                header.nametable_mirroring,
                 header.has_four_screen_vram,
             ),
         }),
@@ -550,6 +585,16 @@ pub(crate) fn from_ines_file(
                 sav_bytes.as_ref(),
             ),
         }),
+        19 => Mapper::Namco163(MapperImpl {
+            cartridge,
+            data: Namco163::new(
+                header.sub_mapper_number,
+                header.chr_type,
+                header.has_battery,
+                header.prg_ram_size,
+                sav_bytes,
+            ),
+        }),
         21 | 22 | 23 | 25 => Mapper::Vrc4(MapperImpl {
             cartridge,
             data: Vrc4::new(
@@ -573,6 +618,14 @@ pub(crate) fn from_ines_file(
         85 => Mapper::Vrc7(MapperImpl {
             cartridge,
             data: Vrc7::new(header.sub_mapper_number, header.chr_type),
+        }),
+        210 => Mapper::Namco175(MapperImpl {
+            cartridge,
+            data: Namco175::new(
+                header.sub_mapper_number,
+                header.chr_type,
+                header.nametable_mirroring,
+            ),
         }),
         _ => {
             return Err(CartridgeFileError::UnsupportedMapper {
