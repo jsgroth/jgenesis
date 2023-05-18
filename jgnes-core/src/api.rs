@@ -377,6 +377,10 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
         &mut self.renderer
     }
 
+    pub fn get_audio_player_mut(&mut self) -> &mut A {
+        &mut self.audio_player
+    }
+
     /// Save current emulation state to the given writer.
     ///
     /// # Errors
