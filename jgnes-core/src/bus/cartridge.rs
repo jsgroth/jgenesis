@@ -338,6 +338,7 @@ impl Mapper {
             Self::Namco163(namco163) => namco163.sample_audio(mixed_apu_sample),
             Self::Sunsoft(sunsoft) => sunsoft.sample_audio(mixed_apu_sample),
             Self::Vrc6(vrc6) => vrc6.sample_audio(mixed_apu_sample),
+            Self::Vrc7(vrc7) => vrc7.sample_audio(mixed_apu_sample),
             _ => mixed_apu_sample,
         }
     }

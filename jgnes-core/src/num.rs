@@ -17,3 +17,11 @@ impl GetBit for u16 {
         self & (1 << i) != 0
     }
 }
+
+impl GetBit for u32 {
+    fn bit(self, i: u8) -> bool {
+        assert!(i < 32, "invalid u32 bit: {i}");
+
+        self & (1 << i) != 0
+    }
+}
