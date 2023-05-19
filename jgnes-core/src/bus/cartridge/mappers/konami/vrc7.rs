@@ -941,6 +941,18 @@ impl MapperImpl<Vrc7> {
             return mixed_apu_sample;
         }
 
-        mixed_apu_sample - self.data.audio.sample()
+        let vrc7_sample = self.data.audio.sample();
+
+        // Amplify the VRC7 samples by ~4dB because otherwise this chip is very quiet
+        let amplified_sample = vrc7_sample * 1.5848931924611136;
+        let clamped_sample = if amplified_sample < -1.0 {
+            -1.0
+        } else if amplified_sample > 1.0 {
+            1.0
+        } else {
+            amplified_sample
+        };
+
+        mixed_apu_sample - clamped_sample
     }
 }
