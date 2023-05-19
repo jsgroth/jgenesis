@@ -327,7 +327,7 @@ impl EnvelopeGenerator {
 
     fn key_off(&mut self) {
         if self.state == EnvelopeState::Attack {
-            self.counter = self.output().0.round() as u32;
+            self.counter = (self.output().0 * ENVELOPE_SCALE).round() as u32;
         }
 
         self.state = match (self.operator_type, self.sustain_enabled) {
@@ -483,7 +483,6 @@ impl<WaveType: WaveGeneratorBehavior> WaveGenerator<WaveType> {
             + key_scale_attenuation
             + self.envelope.output()
             + am_additive;
-        // TODO I don't think this conversion is right
         let output_linear = output_db.to_linear();
         // Clamp to [0, 1]
         let current_output_linear = if output_linear < EPSILON {
