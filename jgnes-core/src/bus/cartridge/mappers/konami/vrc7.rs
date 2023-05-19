@@ -256,7 +256,7 @@ impl EnvelopeGenerator {
 
     fn clock(&mut self, frequency: u16, octave: u8, channel_sustain_on: bool) {
         let freq_rate = (octave << 1) | (frequency >> 8) as u8;
-        let scale = if self.key_rate_scaling {
+        let key_scale_offset = if self.key_rate_scaling {
             freq_rate
         } else {
             freq_rate >> 2
@@ -265,21 +265,30 @@ impl EnvelopeGenerator {
         let rate = match self.state {
             EnvelopeState::Attack => self.attack,
             EnvelopeState::Decay => self.decay,
-            EnvelopeState::Sustain | EnvelopeState::Idle => 0,
+            EnvelopeState::Sustain => {
+                if !self.sustain_enabled {
+                    self.release
+                } else {
+                    0
+                }
+            }
             EnvelopeState::Release => {
                 if channel_sustain_on {
                     5
+                } else if !self.sustain_enabled {
+                    7
                 } else {
                     self.release
                 }
             }
+            EnvelopeState::Idle => 0,
         };
 
         if rate == 0 {
             return;
         }
 
-        let scaled_rate = (rate << 2) + scale;
+        let scaled_rate = (rate << 2) + key_scale_offset;
         let shift = cmp::min(15, scaled_rate >> 2);
         let base = u32::from(scaled_rate & 0x03);
 
@@ -297,11 +306,7 @@ impl EnvelopeGenerator {
                 let sustain_level = 3 * u32::from(self.sustain) * (1 << 23) / 48;
                 if self.counter >= sustain_level {
                     self.counter = sustain_level;
-                    self.state = if self.sustain_enabled {
-                        EnvelopeState::Sustain
-                    } else {
-                        EnvelopeState::Release
-                    };
+                    self.state = EnvelopeState::Sustain;
                 }
             }
             EnvelopeState::Release => {
@@ -321,7 +326,7 @@ impl EnvelopeGenerator {
             self.counter = self.output().0.round() as u32;
         }
 
-        if self.operator_type == OperatorType::Carrier || !self.sustain_enabled {
+        if self.operator_type == OperatorType::Carrier {
             self.state = EnvelopeState::Release;
         }
     }
