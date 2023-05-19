@@ -341,8 +341,7 @@ impl EnvelopeGenerator {
             EnvelopeState::Attack => {
                 let volume =
                     Decibels(48.0 * f64::from(self.counter).ln() / f64::from(1 << 23).ln());
-                let attenuation = Decibels(48.0) - volume;
-                attenuation
+                Decibels(48.0) - volume
             }
             EnvelopeState::Decay | EnvelopeState::Sustain | EnvelopeState::Release => {
                 Decibels(f64::from(self.counter) / ENVELOPE_SCALE)
@@ -485,7 +484,7 @@ impl<WaveType: WaveGeneratorBehavior> WaveGenerator<WaveType> {
             + self.envelope.output()
             + am_additive;
         // TODO I don't think this conversion is right
-        let output_linear = Decibels::from(output_db).to_linear();
+        let output_linear = output_db.to_linear();
         // Clamp to [0, 1]
         let current_output_linear = if output_linear < EPSILON {
             0.0
