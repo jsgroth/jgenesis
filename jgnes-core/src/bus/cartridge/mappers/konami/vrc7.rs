@@ -309,7 +309,7 @@ impl EnvelopeGenerator {
                     self.state = EnvelopeState::Sustain;
                 }
             }
-            EnvelopeState::Release => {
+            EnvelopeState::Sustain | EnvelopeState::Release => {
                 self.counter += (base + 4) << shift.saturating_sub(1);
 
                 if self.counter >= 1 << 23 {
@@ -317,7 +317,7 @@ impl EnvelopeGenerator {
                     self.state = EnvelopeState::Idle;
                 }
             }
-            EnvelopeState::Sustain | EnvelopeState::Idle => {}
+            EnvelopeState::Idle => {}
         }
     }
 
