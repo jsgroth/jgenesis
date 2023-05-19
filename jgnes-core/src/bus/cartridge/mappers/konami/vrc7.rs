@@ -339,9 +339,11 @@ impl EnvelopeGenerator {
     fn output(&self) -> Decibels {
         match self.state {
             EnvelopeState::Attack => {
-                let volume =
-                    Decibels(48.0 * f64::from(self.counter).ln() / f64::from(1 << 23).ln());
-                Decibels(48.0) - volume
+                let volume = Decibels(
+                    Decibels::MAX_ATTENUATION.0 * f64::from(self.counter).ln()
+                        / f64::from(1 << 23).ln(),
+                );
+                Decibels::MAX_ATTENUATION - volume
             }
             EnvelopeState::Decay | EnvelopeState::Sustain | EnvelopeState::Release => {
                 Decibels(f64::from(self.counter) / ENVELOPE_SCALE)
