@@ -74,10 +74,15 @@ const AUDIO_DIVIDER: u8 = 36;
 
 const EPSILON: f64 = 1e-9;
 
+// 2^23 / 48
+const ENVELOPE_SCALE: f64 = 174762.66666666666;
+
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Encode, Decode)]
 struct Decibels(f64);
 
 impl Decibels {
+    const MAX_ATTENUATION: Self = Self(48.0);
+
     fn from_linear(linear: f64) -> Self {
         Self(-20.0 * linear.log10())
     }
@@ -87,26 +92,7 @@ impl Decibels {
     }
 }
 
-impl Sub for Decibels {
-    type Output = Self;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        Self(self.0 - rhs.0)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Encode, Decode)]
-struct ScaledDecibels(f64);
-
-impl ScaledDecibels {
-    // 2^23 / 48
-    const SCALE: f64 = 174762.66666666666;
-
-    // 2^23
-    const MAX_ATTENUATION: Self = Self(8388608.0);
-}
-
-impl Add for ScaledDecibels {
+impl Add for Decibels {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
@@ -114,15 +100,11 @@ impl Add for ScaledDecibels {
     }
 }
 
-impl From<Decibels> for ScaledDecibels {
-    fn from(value: Decibels) -> Self {
-        Self(value.0 * ScaledDecibels::SCALE)
-    }
-}
+impl Sub for Decibels {
+    type Output = Self;
 
-impl From<ScaledDecibels> for Decibels {
-    fn from(value: ScaledDecibels) -> Self {
-        Self(value.0 / ScaledDecibels::SCALE)
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self(self.0 - rhs.0)
     }
 }
 
@@ -344,18 +326,18 @@ impl EnvelopeGenerator {
         }
     }
 
-    fn output(&self) -> ScaledDecibels {
+    fn output(&self) -> Decibels {
         match self.state {
             EnvelopeState::Attack => {
                 let volume =
                     Decibels(48.0 * f64::from(self.counter).ln() / f64::from(1 << 23).ln());
                 let attenuation = Decibels(48.0) - volume;
-                attenuation.into()
+                attenuation
             }
             EnvelopeState::Decay | EnvelopeState::Sustain | EnvelopeState::Release => {
-                ScaledDecibels(self.counter.into())
+                Decibels(f64::from(self.counter) / ENVELOPE_SCALE)
             }
-            EnvelopeState::Idle => ScaledDecibels::MAX_ATTENUATION,
+            EnvelopeState::Idle => Decibels::MAX_ATTENUATION,
         }
     }
 }
@@ -363,7 +345,7 @@ impl EnvelopeGenerator {
 trait WaveGeneratorBehavior: Copy {
     fn adjust_phase(self, phase: u32, current_modulator_output: i32) -> u32;
 
-    fn base_attenuation(self, channel_attenuation: u8) -> ScaledDecibels;
+    fn base_attenuation(self, channel_attenuation: u8) -> Decibels;
 }
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]
@@ -383,8 +365,8 @@ impl WaveGeneratorBehavior for ModulatorWaveBehavior {
         }
     }
 
-    fn base_attenuation(self, _channel_attenuation: u8) -> ScaledDecibels {
-        ScaledDecibels::from(Decibels(0.75 * f64::from(self.output_level)))
+    fn base_attenuation(self, _channel_attenuation: u8) -> Decibels {
+        Decibels(0.75 * f64::from(self.output_level))
     }
 }
 
@@ -396,8 +378,8 @@ impl WaveGeneratorBehavior for CarrierWaveBehavior {
         ((phase as i32 + current_modulator_output) as u32) & PHASE_MASK
     }
 
-    fn base_attenuation(self, channel_attenuation: u8) -> ScaledDecibels {
-        ScaledDecibels::from(Decibels(3.0 * f64::from(channel_attenuation)))
+    fn base_attenuation(self, channel_attenuation: u8) -> Decibels {
+        Decibels(3.0 * f64::from(channel_attenuation))
     }
 }
 
@@ -438,7 +420,7 @@ impl<WaveType: WaveGeneratorBehavior> WaveGenerator<WaveType> {
         octave: u8,
         channel_sustain_on: bool,
         channel_attenuation: u8,
-        am_output: ScaledDecibels,
+        am_output: Decibels,
         fm_output: f64,
         modulator_output: i32,
     ) {
@@ -461,7 +443,7 @@ impl<WaveType: WaveGeneratorBehavior> WaveGenerator<WaveType> {
         let sin_output = (std::f64::consts::PI * f64::from(self.adjusted_phase & 0x0001FFFF)
             / WAVE_PHASE_SCALE)
             .sin();
-        let sin_output_db = ScaledDecibels::from(Decibels::from_linear(sin_output));
+        let sin_output_db = Decibels::from_linear(sin_output);
 
         let base_attenuation = self.behavior.base_attenuation(channel_attenuation);
 
@@ -477,12 +459,12 @@ impl<WaveType: WaveGeneratorBehavior> WaveGenerator<WaveType> {
         } else {
             0.0
         };
-        let key_scale_attenuation = ScaledDecibels::from(Decibels(key_scale_attenuation));
+        let key_scale_attenuation = Decibels(key_scale_attenuation);
 
         let am_additive = if self.tremolo {
             am_output
         } else {
-            ScaledDecibels(0.0)
+            Decibels(0.0)
         };
 
         let output_db = sin_output_db
@@ -665,7 +647,7 @@ impl FmSynthChannel {
         self.control.attenuation = value & 0x0F;
     }
 
-    fn clock(&mut self, am_output: ScaledDecibels, fm_output: f64) {
+    fn clock(&mut self, am_output: Decibels, fm_output: f64) {
         self.modulator.clock(
             self.control.frequency,
             self.control.octave,
@@ -743,7 +725,7 @@ impl Vrc7AudioUnit {
         self.am.clock();
         self.fm.clock();
 
-        let am_output = ScaledDecibels::from(self.am.output());
+        let am_output = self.am.output();
         let fm_output = self.fm.output();
 
         for channel in &mut self.channels {
