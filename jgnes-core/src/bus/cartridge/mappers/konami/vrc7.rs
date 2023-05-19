@@ -330,9 +330,10 @@ impl EnvelopeGenerator {
             self.counter = self.output().0.round() as u32;
         }
 
-        if self.operator_type == OperatorType::Carrier {
-            self.state = EnvelopeState::Release;
-        }
+        self.state = match (self.operator_type, self.sustain_enabled) {
+            (OperatorType::Carrier, _) | (OperatorType::Modulator, false) => EnvelopeState::Release,
+            (OperatorType::Modulator, true) => EnvelopeState::Sustain,
+        };
     }
 
     fn output(&self) -> Decibels {
