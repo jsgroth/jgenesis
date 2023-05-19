@@ -1,4 +1,8 @@
 //! Code for Konami's VRC7 board (iNES mapper 85).
+//!
+//! This board has a full-blown FM synthesizer chip as expansion audio, and as such the vast
+//! majority of this module is dedicated to audio chip emulation. The mapper excluding audio is
+//! a bit less complicated than MMC3.
 
 use crate::bus;
 use crate::bus::cartridge::mappers::konami::irq::VrcIrqCounter;
