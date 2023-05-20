@@ -408,6 +408,17 @@ struct WaveGenerator<WaveType> {
     behavior: WaveType,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct WaveGeneratorClockArgs {
+    frequency: u16,
+    octave: u8,
+    channel_sustain_on: bool,
+    channel_attenuation: u8,
+    am_output: Decibels,
+    fm_output: f64,
+    modulator_output: i32,
+}
+
 impl<WaveType: WaveGeneratorBehavior> WaveGenerator<WaveType> {
     fn new(behavior: WaveType) -> Self {
         Self {
@@ -424,17 +435,17 @@ impl<WaveType: WaveGeneratorBehavior> WaveGenerator<WaveType> {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn clock(
-        &mut self,
-        frequency: u16,
-        octave: u8,
-        channel_sustain_on: bool,
-        channel_attenuation: u8,
-        am_output: Decibels,
-        fm_output: f64,
-        modulator_output: i32,
-    ) {
+    fn clock(&mut self, args: WaveGeneratorClockArgs) {
+        let WaveGeneratorClockArgs {
+            frequency,
+            octave,
+            channel_sustain_on,
+            channel_attenuation,
+            am_output,
+            fm_output,
+            modulator_output,
+        } = args;
+
         // Frequency
         let fm_multiplier = if self.vibrato { fm_output } else { 1.0 };
         // TODO figure out why dividing by 2 here is necessary and fix the actual bug
@@ -660,24 +671,21 @@ impl FmSynthChannel {
     }
 
     fn clock(&mut self, am_output: Decibels, fm_output: f64) {
-        self.modulator.clock(
-            self.control.frequency,
-            self.control.octave,
-            self.control.sustain,
-            self.control.attenuation,
+        let clock_args = WaveGeneratorClockArgs {
+            frequency: self.control.frequency,
+            octave: self.control.octave,
+            channel_sustain_on: self.control.sustain,
+            channel_attenuation: self.control.attenuation,
             am_output,
             fm_output,
-            self.modulator.current_output,
-        );
-        self.carrier.clock(
-            self.control.frequency,
-            self.control.octave,
-            self.control.sustain,
-            self.control.attenuation,
-            am_output,
-            fm_output,
-            self.modulator.current_output,
-        );
+            modulator_output: self.modulator.current_output,
+        };
+
+        self.modulator.clock(clock_args);
+        self.carrier.clock(WaveGeneratorClockArgs {
+            modulator_output: self.modulator.current_output,
+            ..clock_args
+        });
     }
 }
 
