@@ -119,16 +119,14 @@ enum FmSynthWaveform {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
-struct ModulatorPatch {
+struct CommonPatchFields {
     tremolo: bool,
     vibrato: bool,
     sustain_enabled: bool,
     key_rate_scaling: bool,
     multiplier: f64,
     key_level_scaling: u8,
-    output_level: u8,
     waveform: FmSynthWaveform,
-    feedback_level: u8,
     attack: u8,
     decay: u8,
     sustain: u8,
@@ -136,19 +134,13 @@ struct ModulatorPatch {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
-struct CarrierPatch {
-    tremolo: bool,
-    vibrato: bool,
-    sustain_enabled: bool,
-    key_rate_scaling: bool,
-    multiplier: f64,
-    key_level_scaling: u8,
-    waveform: FmSynthWaveform,
-    attack: u8,
-    decay: u8,
-    sustain: u8,
-    release: u8,
+struct ModulatorPatch {
+    common: CommonPatchFields,
+    output_level: u8,
+    feedback_level: u8,
 }
+
+type CarrierPatch = CommonPatchFields;
 
 #[derive(Debug, Clone, Encode, Decode)]
 struct FmSynthPatch {
@@ -160,23 +152,25 @@ impl FmSynthPatch {
     fn from_bytes(bytes: [u8; 8]) -> Self {
         Self {
             modulator: ModulatorPatch {
-                tremolo: bytes[0].bit(7),
-                vibrato: bytes[0].bit(6),
-                sustain_enabled: bytes[0].bit(5),
-                key_rate_scaling: bytes[0].bit(4),
-                multiplier: MULTIPLIER_LOOKUP_TABLE[(bytes[0] & 0x0F) as usize],
-                key_level_scaling: bytes[2] >> 6,
-                output_level: bytes[2] & 0x3F,
-                waveform: if bytes[3].bit(3) {
-                    FmSynthWaveform::ClippedHalfSine
-                } else {
-                    FmSynthWaveform::Sine
+                common: CommonPatchFields {
+                    tremolo: bytes[0].bit(7),
+                    vibrato: bytes[0].bit(6),
+                    sustain_enabled: bytes[0].bit(5),
+                    key_rate_scaling: bytes[0].bit(4),
+                    multiplier: MULTIPLIER_LOOKUP_TABLE[(bytes[0] & 0x0F) as usize],
+                    key_level_scaling: bytes[2] >> 6,
+                    waveform: if bytes[3].bit(3) {
+                        FmSynthWaveform::ClippedHalfSine
+                    } else {
+                        FmSynthWaveform::Sine
+                    },
+                    attack: bytes[4] >> 4,
+                    decay: bytes[4] & 0x0F,
+                    sustain: bytes[6] >> 4,
+                    release: bytes[6] & 0x0F,
                 },
+                output_level: bytes[2] & 0x3F,
                 feedback_level: bytes[3] & 0x07,
-                attack: bytes[4] >> 4,
-                decay: bytes[4] & 0x0F,
-                sustain: bytes[6] >> 4,
-                release: bytes[6] & 0x0F,
             },
             carrier: CarrierPatch {
                 tremolo: bytes[1].bit(7),
@@ -208,6 +202,8 @@ enum Instrument {
 #[derive(Debug, Clone, Encode, Decode)]
 struct ChannelControl {
     frequency: u16,
+    // This bit is really badly named - if set, it overrides the envelope release rate in both
+    // operators to 5, ignoring the release rates specified by the current instrument
     sustain: bool,
     key_on: bool,
     octave: u8,
@@ -244,10 +240,10 @@ struct EnvelopeGenerator {
 }
 
 impl EnvelopeGenerator {
-    fn new() -> Self {
+    fn new_idle() -> Self {
         Self {
             counter: 0,
-            state: EnvelopeState::Attack,
+            state: EnvelopeState::Idle,
             operator_type: OperatorType::Carrier,
             sustain_enabled: false,
             key_rate_scaling: false,
@@ -255,6 +251,20 @@ impl EnvelopeGenerator {
             decay: 0,
             sustain: 0,
             release: 0,
+        }
+    }
+
+    fn from_patch(operator_type: OperatorType, patch: &CommonPatchFields) -> Self {
+        Self {
+            counter: 0,
+            state: EnvelopeState::Attack,
+            operator_type,
+            sustain_enabled: patch.sustain_enabled,
+            key_rate_scaling: patch.key_rate_scaling,
+            attack: patch.attack,
+            decay: patch.decay,
+            sustain: patch.sustain,
+            release: patch.release,
         }
     }
 
@@ -429,7 +439,7 @@ impl<WaveType: WaveGeneratorBehavior> WaveGenerator<WaveType> {
             waveform: FmSynthWaveform::Sine,
             freq_multiplier: 0.0,
             key_scale_level: 0,
-            envelope: EnvelopeGenerator::new(),
+            envelope: EnvelopeGenerator::new_idle(),
             current_output: 0,
             behavior,
         }
@@ -516,6 +526,23 @@ impl<WaveType: WaveGeneratorBehavior> WaveGenerator<WaveType> {
         };
 
         self.current_output = (self.current_output + negated_output) / 2;
+    }
+
+    fn update_from_patch(&mut self, patch: &CommonPatchFields) {
+        self.waveform = patch.waveform;
+        self.tremolo = patch.tremolo;
+        self.vibrato = patch.vibrato;
+        self.freq_multiplier = patch.multiplier;
+        self.key_scale_level = patch.key_level_scaling;
+    }
+}
+
+impl WaveGenerator<ModulatorWaveBehavior> {
+    fn update_from_modulator_patch(&mut self, patch: &ModulatorPatch) {
+        self.update_from_patch(&patch.common);
+
+        self.behavior.output_level = patch.output_level;
+        self.behavior.feedback_level = patch.feedback_level;
     }
 }
 
@@ -613,42 +640,13 @@ impl FmSynthChannel {
                     }
                 };
 
-                self.modulator.envelope = EnvelopeGenerator {
-                    counter: 0,
-                    state: EnvelopeState::Attack,
-                    operator_type: OperatorType::Modulator,
-                    sustain_enabled: patch.modulator.sustain_enabled,
-                    key_rate_scaling: patch.modulator.key_rate_scaling,
-                    attack: patch.modulator.attack,
-                    decay: patch.modulator.decay,
-                    sustain: patch.modulator.sustain,
-                    release: patch.modulator.release,
-                };
-                self.carrier.envelope = EnvelopeGenerator {
-                    counter: 0,
-                    state: EnvelopeState::Attack,
-                    operator_type: OperatorType::Carrier,
-                    sustain_enabled: patch.carrier.sustain_enabled,
-                    key_rate_scaling: patch.carrier.key_rate_scaling,
-                    attack: patch.carrier.attack,
-                    decay: patch.carrier.decay,
-                    sustain: patch.carrier.sustain,
-                    release: patch.carrier.release,
-                };
+                self.modulator.envelope =
+                    EnvelopeGenerator::from_patch(OperatorType::Modulator, &patch.modulator.common);
+                self.carrier.envelope =
+                    EnvelopeGenerator::from_patch(OperatorType::Carrier, &patch.carrier);
 
-                self.modulator.waveform = patch.modulator.waveform;
-                self.modulator.tremolo = patch.modulator.tremolo;
-                self.modulator.vibrato = patch.modulator.vibrato;
-                self.modulator.freq_multiplier = patch.modulator.multiplier;
-                self.modulator.key_scale_level = patch.modulator.key_level_scaling;
-                self.modulator.behavior.output_level = patch.modulator.output_level;
-                self.modulator.behavior.feedback_level = patch.modulator.feedback_level;
-
-                self.carrier.waveform = patch.carrier.waveform;
-                self.carrier.tremolo = patch.carrier.tremolo;
-                self.carrier.vibrato = patch.carrier.vibrato;
-                self.carrier.freq_multiplier = patch.carrier.multiplier;
-                self.carrier.key_scale_level = patch.carrier.key_level_scaling;
+                self.modulator.update_from_modulator_patch(&patch.modulator);
+                self.carrier.update_from_patch(&patch.carrier);
             }
             (true, false) => {
                 self.modulator.envelope.key_off();
