@@ -664,7 +664,7 @@ fn render_pixel(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     } else {
         0
     };
-    let bg_fine_x = state.bg_buffers.get_palette_index(state.registers.fine_x());
+    let bg_palette_index = state.bg_buffers.get_palette_index(state.registers.fine_x());
     state.bg_buffers.shift();
 
     // Find the first overlapping sprite by OAM index, if any; use transparent if none found
@@ -699,7 +699,7 @@ fn render_pixel(state: &mut PpuState, bus: &mut PpuBus<'_>) {
         let palette_addr = 0x10 | (sprite_palette_index << 2) | sprite.color_id;
         palette_ram[palette_addr as usize]
     } else if bg_color_id != 0 {
-        let palette_addr = (bg_fine_x << 2) | bg_color_id;
+        let palette_addr = (bg_palette_index << 2) | bg_color_id;
         palette_ram[palette_addr as usize]
     } else {
         backdrop_color
