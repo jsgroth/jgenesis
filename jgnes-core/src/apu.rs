@@ -151,12 +151,12 @@ static PULSE_AUDIO_LOOKUP_TABLE: Lazy<[[f64; 16]; 16]> = Lazy::new(|| {
     lookup_table
 });
 
-static TND_AUDIO_LOOKUP_TABLE: Lazy<Box<[[[f64; 128]; 16]; 16]>> = Lazy::new(|| {
-    let mut lookup_table = Box::new([[[0.0; 128]; 16]; 16]);
+static TND_AUDIO_LOOKUP_TABLE: Lazy<Box<[[[f64; 16]; 16]; 128]>> = Lazy::new(|| {
+    let mut lookup_table = Box::new([[[0.0; 16]; 16]; 128]);
 
-    for (triangle_sample, triangle_row) in lookup_table.iter_mut().enumerate() {
-        for (noise_sample, noise_row) in triangle_row.iter_mut().enumerate() {
-            for (dmc_sample, value) in noise_row.iter_mut().enumerate() {
+    for (dmc_sample, dmc_row) in lookup_table.iter_mut().enumerate() {
+        for (triangle_sample, triangle_row) in dmc_row.iter_mut().enumerate() {
+            for (noise_sample, value) in triangle_row.iter_mut().enumerate() {
                 if triangle_sample > 0 || noise_sample > 0 || dmc_sample > 0 {
                     *value = 159.79
                         / (1.0
@@ -322,8 +322,8 @@ impl ApuState {
         let dmc_sample = self.dmc.sample();
 
         let pulse_mix = mix_pulse_samples(pulse1_sample, pulse2_sample);
-        let tnd_mix = TND_AUDIO_LOOKUP_TABLE[triangle_sample as usize][noise_sample as usize]
-            [dmc_sample as usize];
+        let tnd_mix = TND_AUDIO_LOOKUP_TABLE[dmc_sample as usize][triangle_sample as usize]
+            [noise_sample as usize];
 
         pulse_mix + tnd_mix
     }
