@@ -618,11 +618,11 @@ impl CycleOp {
 
                     // Skip next (last) cycle
                     state.op_index += 1;
+                } else {
+                    log::trace!(
+                        "  ExecuteAbsoluteIndexedRead: Low byte overflowed, taking extra cycle"
+                    );
                 }
-
-                log::trace!(
-                    "  ExecuteAbsoluteIndexedRead: Low byte overflowed, taking extra cycle"
-                );
             }
             Self::ExecuteAbsoluteIndexedReadDelayed(index, instruction) => {
                 let address =
