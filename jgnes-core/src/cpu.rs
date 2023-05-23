@@ -132,7 +132,7 @@ enum State {
     OamDma(OamDmaState),
 }
 
-#[derive(Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct CpuState {
     registers: CpuRegisters,
     state: State,

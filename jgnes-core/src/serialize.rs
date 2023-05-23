@@ -1,3 +1,4 @@
+use crate::api::EmulationState;
 use crate::apu::ApuState;
 use crate::bus::Bus;
 use crate::cpu::CpuState;
@@ -7,13 +8,6 @@ use bincode::error::{DecodeError, EncodeError};
 use std::io;
 use std::io::{BufReader, BufWriter};
 use thiserror::Error;
-
-pub struct EmulationState {
-    pub bus: Bus,
-    pub cpu_state: CpuState,
-    pub ppu_state: PpuState,
-    pub apu_state: ApuState,
-}
 
 #[derive(Debug, Error)]
 pub enum SaveStateError {

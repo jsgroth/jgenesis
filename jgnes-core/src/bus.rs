@@ -676,8 +676,24 @@ impl Bus {
         &mut self.mapper
     }
 
-    pub(crate) fn move_unserialized_fields_from(&mut self, other: &mut Self) {
-        self.mapper.move_unserialized_fields_from(&mut other.mapper);
+    pub(crate) fn move_rom_from(&mut self, other: &mut Self) {
+        self.mapper.move_rom_from(&mut other.mapper);
+    }
+
+    // Clone all internal state except for the cartridge ROM fields, which will be empty Vecs in the clone
+    pub fn clone_without_rom(&self) -> Self {
+        Self {
+            mapper: self.mapper.clone_without_rom(),
+            cpu_internal_ram: self.cpu_internal_ram,
+            ppu_registers: self.ppu_registers.clone(),
+            io_registers: self.io_registers.clone(),
+            ppu_vram: self.ppu_vram,
+            ppu_palette_ram: self.ppu_palette_ram,
+            ppu_oam: self.ppu_oam,
+            ppu_bus_address: self.ppu_bus_address,
+            interrupt_lines: self.interrupt_lines.clone(),
+            pending_write: self.pending_write,
+        }
     }
 }
 

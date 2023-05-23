@@ -4,7 +4,7 @@ use crate::bus::{cartridge, Bus, PpuBus};
 use crate::cpu::{CpuError, CpuRegisters, CpuState};
 use crate::input::JoypadState;
 use crate::ppu::{FrameBuffer, PpuState};
-use crate::serialize::{EmulationState, SaveStateError};
+use crate::serialize::SaveStateError;
 use crate::{apu, cpu, ppu, serialize};
 use std::cell::RefCell;
 use std::error::Error;
@@ -211,6 +211,13 @@ pub struct EmulatorConfig {
     pub silence_ultrasonic_triangle_output: bool,
 }
 
+pub struct EmulationState {
+    pub(crate) bus: Bus,
+    pub(crate) cpu_state: CpuState,
+    pub(crate) ppu_state: PpuState,
+    pub(crate) apu_state: ApuState,
+}
+
 pub struct Emulator<Renderer, AudioPlayer, InputPoller, SaveWriter> {
     bus: Bus,
     cpu_state: CpuState,
@@ -368,7 +375,26 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
         )
         .expect("hard reset should never fail cartridge validation")
     }
+}
 
+impl<R: Renderer, A, I, S> Emulator<R, A, I, S> {
+    /// Force the emulator to render a frame based on its current state.
+    ///
+    /// The emulator will naturally render frames as `tick()` is called; this method should only be
+    /// called if the caller wants to force the emulator to render a frame outside of normal
+    /// operation.
+    ///
+    /// # Errors
+    ///
+    /// This method will propagate any error returned by the renderer.
+    pub fn force_render(&mut self) -> Result<(), R::Err> {
+        let color_emphasis = ColorEmphasis::get_current(&self.bus.ppu());
+        let frame_buffer = self.ppu_state.frame_buffer();
+        self.renderer.render_frame(frame_buffer, color_emphasis)
+    }
+}
+
+impl<R, A, I, S> Emulator<R, A, I, S> {
     pub fn get_renderer(&self) -> &R {
         &self.renderer
     }
@@ -414,21 +440,32 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
     where
         Reader: io::Read,
     {
-        let EmulationState {
-            mut bus,
-            cpu_state,
-            ppu_state,
-            apu_state,
-        } = serialize::load_state(reader)?;
+        let state = serialize::load_state(reader)?;
 
-        bus.move_unserialized_fields_from(&mut self.bus);
-
-        self.bus = bus;
-        self.cpu_state = cpu_state;
-        self.ppu_state = ppu_state;
-        self.apu_state = apu_state;
+        self.load_state_snapshot(state);
 
         Ok(())
+    }
+
+    /// Retrieve a snapshot of the emulator's current state. This snapshot can later be passed to
+    /// `load_state_snapshot` to reset the emulator to that state.
+    pub fn snapshot_state(&self) -> EmulationState {
+        EmulationState {
+            bus: self.bus.clone_without_rom(),
+            cpu_state: self.cpu_state.clone(),
+            ppu_state: self.ppu_state.clone(),
+            apu_state: self.apu_state.clone(),
+        }
+    }
+
+    /// Reset the emulator's state to a previously saved snapshot.
+    pub fn load_state_snapshot(&mut self, mut state: EmulationState) {
+        state.bus.move_rom_from(&mut self.bus);
+
+        self.bus = state.bus;
+        self.cpu_state = state.cpu_state;
+        self.ppu_state = state.ppu_state;
+        self.apu_state = state.apu_state;
     }
 
     /// Return whether the loaded cartridge has some sort of persistent RAM (e.g. SRAM or EEPROM).

@@ -11,8 +11,8 @@ mod ppu;
 mod serialize;
 
 pub use api::{
-    AudioPlayer, ColorEmphasis, EmulationError, EmulationResult, Emulator, EmulatorConfig,
-    InputPoller, Renderer, SaveWriter, TickEffect,
+    AudioPlayer, ColorEmphasis, EmulationError, EmulationResult, EmulationState, Emulator,
+    EmulatorConfig, InputPoller, Renderer, SaveWriter, TickEffect,
 };
 pub use input::JoypadState;
 pub use ppu::{FrameBuffer, SCREEN_HEIGHT, SCREEN_WIDTH, VISIBLE_SCREEN_HEIGHT};

@@ -111,9 +111,20 @@ impl Cartridge {
         self.chr_ram[(address as usize) & (chr_ram_len - 1)] = value;
     }
 
-    fn move_unserialized_fields_from(&mut self, other: &mut Self) {
+    fn move_rom_from(&mut self, other: &mut Self) {
         self.prg_rom = mem::take(&mut other.prg_rom);
         self.chr_rom = mem::take(&mut other.chr_rom);
+    }
+
+    fn clone_without_rom(&self) -> Self {
+        Self {
+            prg_rom: vec![],
+            prg_ram: self.prg_ram.clone(),
+            has_ram_battery: self.has_ram_battery,
+            prg_ram_dirty_bit: self.prg_ram_dirty_bit,
+            chr_rom: vec![],
+            chr_ram: self.chr_ram.clone(),
+        }
     }
 }
 
@@ -344,9 +355,19 @@ impl Mapper {
     }
 
     /// Move cartridge ROM fields from another `Mapper` instance. Used when loading save states.
-    pub(crate) fn move_unserialized_fields_from(&mut self, other: &mut Self) {
+    pub(crate) fn move_rom_from(&mut self, other: &mut Self) {
         let other_cartridge = match_each_variant!(other, mapper => &mut mapper.cartridge);
-        match_each_variant!(self, mapper => mapper.cartridge.move_unserialized_fields_from(other_cartridge));
+        match_each_variant!(self, mapper => mapper.cartridge.move_rom_from(other_cartridge));
+    }
+
+    /// Clone all internal state except for the cartridge ROM fields, which will be set to empty
+    /// Vecs in the clone.
+    pub(crate) fn clone_without_rom(&self) -> Self {
+        let cartridge = match_each_variant!(self, mapper => &mapper.cartridge);
+        match_each_variant!(self, mapper => :variant(MapperImpl {
+            cartridge: cartridge.clone_without_rom(),
+            data: mapper.data.clone(),
+        }))
     }
 }
 
