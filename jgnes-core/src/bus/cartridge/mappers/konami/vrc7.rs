@@ -790,13 +790,15 @@ pub(crate) struct Vrc7 {
 enum Variant {
     Vrc7a,
     Vrc7b,
+    Unknown,
 }
 
 impl Vrc7 {
     pub(crate) fn new(sub_mapper_number: u8, chr_type: ChrType) -> Self {
         let variant = match sub_mapper_number {
-            0 | 1 => Variant::Vrc7b,
+            1 => Variant::Vrc7b,
             2 => Variant::Vrc7a,
+            0 => Variant::Unknown,
             _ => panic!("invalid VRC7 sub mapper: {sub_mapper_number}"),
         };
 
@@ -865,18 +867,19 @@ impl MapperImpl<Vrc7> {
                 (_, 0x8000) => {
                     self.data.prg_bank_0 = value & 0x3F;
                 }
-                (Variant::Vrc7a, 0x8010) | (Variant::Vrc7b, 0x8008) => {
+                (Variant::Vrc7a | Variant::Unknown, 0x8010)
+                | (Variant::Vrc7b | Variant::Unknown, 0x8008) => {
                     self.data.prg_bank_1 = value & 0x3F;
                 }
                 (_, 0x9000) => {
                     self.data.prg_bank_2 = value & 0x3F;
                 }
-                (Variant::Vrc7a, 0x9010) => {
+                (Variant::Vrc7a | Variant::Unknown, 0x9010) => {
                     if self.data.audio.enabled {
                         self.data.audio.selected_register = value;
                     }
                 }
-                (Variant::Vrc7a, 0x9030) => {
+                (Variant::Vrc7a | Variant::Unknown, 0x9030) => {
                     if self.data.audio.enabled {
                         self.data.audio.handle_register_write(value);
                     }
@@ -885,6 +888,7 @@ impl MapperImpl<Vrc7> {
                     let address_mask = match self.data.variant {
                         Variant::Vrc7a => 0x0010,
                         Variant::Vrc7b => 0x0008,
+                        Variant::Unknown => 0x0018,
                     };
                     let chr_bank_index =
                         2 * ((address - 0xA000) / 0x1000) + u16::from(address & address_mask != 0);
@@ -906,13 +910,15 @@ impl MapperImpl<Vrc7> {
                         self.data.audio = Vrc7AudioUnit::new();
                     }
                 }
-                (Variant::Vrc7a, 0xE010) | (Variant::Vrc7b, 0xE008) => {
+                (Variant::Vrc7a | Variant::Unknown, 0xE010)
+                | (Variant::Vrc7b | Variant::Unknown, 0xE008) => {
                     self.data.irq.set_reload_value(value);
                 }
                 (_, 0xF000) => {
                     self.data.irq.set_control(value);
                 }
-                (Variant::Vrc7a, 0xF010) | (Variant::Vrc7b, 0xF008) => {
+                (Variant::Vrc7a | Variant::Unknown, 0xF010)
+                | (Variant::Vrc7b | Variant::Unknown, 0xF008) => {
                     self.data.irq.acknowledge();
                 }
                 _ => {}
