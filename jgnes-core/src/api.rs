@@ -12,7 +12,7 @@ use std::fmt::{Display, Formatter};
 use std::io;
 use std::rc::Rc;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ColorEmphasis {
     pub red: bool,
     pub green: bool,
