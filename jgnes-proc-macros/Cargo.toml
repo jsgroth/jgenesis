@@ -9,6 +9,6 @@ edition = "2021"
 proc-macro = true
 
 [dependencies]
-chrono = { version = "0.4", default-features = false, features = ["clock", "std", "wasm-bindgen"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 quote = "1"
 syn = "2"
