@@ -1,3 +1,4 @@
+use chrono::Utc;
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Fields};
@@ -217,6 +218,27 @@ pub fn enum_from_str(input: TokenStream) -> TokenStream {
                 }
             }
         }
+    };
+
+    gen.into()
+}
+
+/// Generate a formatted string representing the timestamp that the code was built, in UTC.
+///
+/// Example usage:
+/// ```
+/// use jgnes_proc_macros::build_time_pretty_str;
+///
+/// let build_time = build_time_pretty_str!();
+/// println!("{}", build_time);
+/// ```
+#[proc_macro]
+pub fn build_time_pretty_str(_input: TokenStream) -> TokenStream {
+    let now = Utc::now();
+    let now_str = now.format("%B %-d, %Y %H:%M:%S UTC").to_string();
+
+    let gen = quote! {
+        #now_str
     };
 
     gen.into()

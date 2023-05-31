@@ -9,5 +9,6 @@ edition = "2021"
 proc-macro = true
 
 [dependencies]
+chrono = "0.4"
 quote = "1"
 syn = "2"
