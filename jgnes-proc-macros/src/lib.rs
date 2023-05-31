@@ -223,14 +223,19 @@ pub fn enum_from_str(input: TokenStream) -> TokenStream {
     gen.into()
 }
 
-/// Generate a formatted string representing the timestamp that the code was built, in UTC.
+/// Generate a string literal representing the timestamp that the code was built, in UTC.
+///
+/// The timestamp is regenerated each time this macro is called, so if it is used in multiple
+/// locations then the value should be stored in a constant instead of calling the macro multiple
+/// times.
 ///
 /// Example usage:
 /// ```
 /// use jgnes_proc_macros::build_time_pretty_str;
 ///
-/// let build_time = build_time_pretty_str!();
-/// println!("{}", build_time);
+/// // Explicit type only present for clarity; not required for use
+/// let build_time: &'static str = build_time_pretty_str!();
+/// println!("{build_time}");
 /// ```
 #[proc_macro]
 pub fn build_time_pretty_str(_input: TokenStream) -> TokenStream {
