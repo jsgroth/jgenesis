@@ -310,7 +310,7 @@ impl MapperImpl<BandaiFcg> {
         self.data
             .eeprom
             .as_mut()
-            .map_or(false, |eeprom| match eeprom {
+            .is_some_and(|eeprom| match eeprom {
                 Eeprom::X24C01(chip) => chip.get_and_clear_dirty_bit(),
                 Eeprom::X24C02(chip) => chip.get_and_clear_dirty_bit(),
             })

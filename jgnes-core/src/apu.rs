@@ -26,8 +26,8 @@ use crate::bus::{CpuBus, IoRegister, IrqSource};
 use crate::num::GetBit;
 use crate::EmulatorConfig;
 use bincode::{Decode, Encode};
-use once_cell::sync::Lazy;
 use std::iter;
+use std::sync::OnceLock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum FrameCounterMode {
@@ -135,42 +135,6 @@ pub struct ApuState {
     frame_counter_interrupt_flag: bool,
     hpf_capacitor: f64,
 }
-
-// Formulas from https://www.nesdev.org/wiki/APU_Mixer
-static PULSE_AUDIO_LOOKUP_TABLE: Lazy<[[f64; 16]; 16]> = Lazy::new(|| {
-    let mut lookup_table = [[0.0; 16]; 16];
-
-    for (pulse1_sample, row) in lookup_table.iter_mut().enumerate() {
-        for (pulse2_sample, value) in row.iter_mut().enumerate() {
-            if pulse1_sample > 0 || pulse2_sample > 0 {
-                *value = 95.88 / (8128.0 / (pulse1_sample + pulse2_sample) as f64 + 100.0);
-            }
-        }
-    }
-
-    lookup_table
-});
-
-static TND_AUDIO_LOOKUP_TABLE: Lazy<Box<[[[f64; 16]; 16]; 128]>> = Lazy::new(|| {
-    let mut lookup_table = Box::new([[[0.0; 16]; 16]; 128]);
-
-    for (dmc_sample, dmc_row) in lookup_table.iter_mut().enumerate() {
-        for (triangle_sample, triangle_row) in dmc_row.iter_mut().enumerate() {
-            for (noise_sample, value) in triangle_row.iter_mut().enumerate() {
-                if triangle_sample > 0 || noise_sample > 0 || dmc_sample > 0 {
-                    *value = 159.79
-                        / (1.0
-                            / (triangle_sample as f64 / 8227.0
-                                + noise_sample as f64 / 12241.0
-                                + dmc_sample as f64 / 22638.0)
-                            + 100.0);
-                }
-            }
-        }
-    }
-
-    lookup_table
-});
 
 impl ApuState {
     pub fn new() -> Self {
@@ -322,8 +286,7 @@ impl ApuState {
         let dmc_sample = self.dmc.sample();
 
         let pulse_mix = mix_pulse_samples(pulse1_sample, pulse2_sample);
-        let tnd_mix = TND_AUDIO_LOOKUP_TABLE[dmc_sample as usize][triangle_sample as usize]
-            [noise_sample as usize];
+        let tnd_mix = mix_tnd_samples(triangle_sample, noise_sample, dmc_sample);
 
         pulse_mix + tnd_mix
     }
@@ -344,9 +307,50 @@ impl ApuState {
 }
 
 pub fn mix_pulse_samples(pulse1_sample: u8, pulse2_sample: u8) -> f64 {
-    assert!((0..=15).contains(&pulse1_sample) && (0..=15).contains(&pulse2_sample));
+    static PULSE_AUDIO_LOOKUP_TABLE: OnceLock<[[f64; 16]; 16]> = OnceLock::new();
+    let lookup_table = PULSE_AUDIO_LOOKUP_TABLE.get_or_init(|| {
+        let mut lookup_table = [[0.0; 16]; 16];
 
-    PULSE_AUDIO_LOOKUP_TABLE[pulse1_sample as usize][pulse2_sample as usize]
+        for (pulse1_sample, row) in lookup_table.iter_mut().enumerate() {
+            for (pulse2_sample, value) in row.iter_mut().enumerate() {
+                if pulse1_sample > 0 || pulse2_sample > 0 {
+                    // Formula from https://www.nesdev.org/wiki/APU_Mixer
+                    *value = 95.88 / (8128.0 / (pulse1_sample + pulse2_sample) as f64 + 100.0);
+                }
+            }
+        }
+
+        lookup_table
+    });
+
+    lookup_table[pulse1_sample as usize][pulse2_sample as usize]
+}
+
+fn mix_tnd_samples(triangle_sample: u8, noise_sample: u8, dmc_sample: u8) -> f64 {
+    static TND_AUDIO_LOOKUP_TABLE: OnceLock<Box<[[[f64; 16]; 16]; 128]>> = OnceLock::new();
+    let lookup_table = TND_AUDIO_LOOKUP_TABLE.get_or_init(|| {
+        let mut lookup_table = Box::new([[[0.0; 16]; 16]; 128]);
+
+        for (dmc_sample, dmc_row) in lookup_table.iter_mut().enumerate() {
+            for (triangle_sample, triangle_row) in dmc_row.iter_mut().enumerate() {
+                for (noise_sample, value) in triangle_row.iter_mut().enumerate() {
+                    if triangle_sample > 0 || noise_sample > 0 || dmc_sample > 0 {
+                        // Formula from https://www.nesdev.org/wiki/APU_Mixer
+                        *value = 159.79
+                            / (1.0
+                                / (triangle_sample as f64 / 8227.0
+                                    + noise_sample as f64 / 12241.0
+                                    + dmc_sample as f64 / 22638.0)
+                                + 100.0);
+                    }
+                }
+            }
+        }
+
+        lookup_table
+    });
+
+    lookup_table[dmc_sample as usize][triangle_sample as usize][noise_sample as usize]
 }
 
 /// Tick the APU for one CPU cycle.
