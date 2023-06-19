@@ -169,10 +169,11 @@ impl BankSizeKb {
 
 #[cfg(test)]
 pub(crate) fn new_mmc1(prg_rom: Vec<u8>) -> super::Mapper {
-    use super::{Mapper, MapperImpl};
+    use super::{Mapper, MapperImpl, TimingMode};
 
     Mapper::Mmc1(MapperImpl {
         cartridge: Cartridge {
+            timing_mode: TimingMode::Ntsc,
             prg_rom,
             prg_ram: vec![0; 8192],
             has_ram_battery: false,
