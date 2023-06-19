@@ -12,12 +12,19 @@ use jgnes_proc_macros::MatchEachVariantMacro;
 use std::{io, mem};
 use thiserror::Error;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+pub enum TimingMode {
+    Ntsc,
+    Pal,
+}
+
 use crate::num::GetBit;
 #[cfg(test)]
 pub(crate) use mappers::new_mmc1;
 
 #[derive(Debug, Clone)]
 struct Cartridge {
+    timing_mode: TimingMode,
     prg_rom: Vec<u8>,
     prg_ram: Vec<u8>,
     has_ram_battery: bool,
@@ -30,6 +37,7 @@ struct Cartridge {
 // serializing ROM bytes as part of save states
 impl Encode for Cartridge {
     fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
+        self.timing_mode.encode(encoder)?;
         self.prg_ram.encode(encoder)?;
         self.has_ram_battery.encode(encoder)?;
         self.prg_ram_dirty_bit.encode(encoder)?;
@@ -41,12 +49,14 @@ impl Encode for Cartridge {
 
 impl Decode for Cartridge {
     fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError> {
+        let timing_mode = Decode::decode(decoder)?;
         let prg_ram = Decode::decode(decoder)?;
         let has_ram_battery = Decode::decode(decoder)?;
         let prg_ram_dirty_bit = Decode::decode(decoder)?;
         let chr_ram = Decode::decode(decoder)?;
 
         Ok(Self {
+            timing_mode,
             prg_rom: vec![],
             prg_ram,
             has_ram_battery,
@@ -59,12 +69,14 @@ impl Decode for Cartridge {
 
 impl<'de> BorrowDecode<'de> for Cartridge {
     fn borrow_decode<D: BorrowDecoder<'de>>(decoder: &mut D) -> Result<Self, DecodeError> {
+        let timing_mode = BorrowDecode::borrow_decode(decoder)?;
         let prg_ram = BorrowDecode::borrow_decode(decoder)?;
         let has_ram_battery = BorrowDecode::borrow_decode(decoder)?;
         let prg_ram_dirty_bit = BorrowDecode::borrow_decode(decoder)?;
         let chr_ram = BorrowDecode::borrow_decode(decoder)?;
 
         Ok(Self {
+            timing_mode,
             prg_rom: vec![],
             prg_ram,
             has_ram_battery,
@@ -118,6 +130,7 @@ impl Cartridge {
 
     fn clone_without_rom(&self) -> Self {
         Self {
+            timing_mode: self.timing_mode,
             prg_rom: vec![],
             prg_ram: self.prg_ram.clone(),
             has_ram_battery: self.has_ram_battery,
@@ -384,6 +397,10 @@ pub enum CartridgeFileError {
     UnsupportedMapper { mapper_number: u16 },
     #[error("cartridge header specifies both volatile and non-volatile PRG RAM")]
     MultiplePrgRamTypes,
+    #[error("unsupported timing mode byte: {byte}")]
+    UnsupportedTimingMode { byte: u8 },
+    #[error("PAL is not yet supported")]
+    PalUnsupported,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -396,6 +413,7 @@ enum FileFormat {
 struct INesHeader {
     mapper_number: u16,
     sub_mapper_number: u8,
+    timing_mode: TimingMode,
     prg_rom_size: u32,
     prg_ram_size: u32,
     chr_rom_size: u32,
@@ -451,6 +469,34 @@ impl INesHeader {
             FileFormat::INes => 0,
         };
 
+        let timing_mode = match format {
+            FileFormat::Nes2Point0 => {
+                let timing_mode_byte = header[12] & 0x03;
+                match timing_mode_byte {
+                    0x00 => TimingMode::Ntsc,
+                    0x01 => TimingMode::Pal,
+                    0x02 | 0x03 => {
+                        return Err(CartridgeFileError::UnsupportedTimingMode {
+                            byte: timing_mode_byte,
+                        });
+                    }
+                    _ => unreachable!("value & 0x03 should always be 0x00/0x01/0x02/0x03"),
+                }
+            }
+            FileFormat::INes => {
+                if header[0].bit(0) {
+                    TimingMode::Pal
+                } else {
+                    TimingMode::Ntsc
+                }
+            }
+        };
+
+        // TODO remove when PAL is implemented
+        if timing_mode == TimingMode::Pal {
+            return Err(CartridgeFileError::PalUnsupported);
+        }
+
         let prg_ram_size = match format {
             FileFormat::Nes2Point0 => {
                 let volatile_shift = header[10] & 0x0F;
@@ -487,6 +533,7 @@ impl INesHeader {
         Ok(Self {
             mapper_number,
             sub_mapper_number,
+            timing_mode,
             prg_rom_size,
             prg_ram_size,
             chr_rom_size,
@@ -530,6 +577,7 @@ pub(crate) fn from_ines_file(
     };
 
     let cartridge = Cartridge {
+        timing_mode: header.timing_mode,
         prg_rom,
         prg_ram,
         has_ram_battery: header.has_battery,

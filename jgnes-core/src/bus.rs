@@ -42,6 +42,8 @@ use bincode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use tinyvec::ArrayVec;
 
+pub use cartridge::TimingMode;
+
 pub const CPU_RAM_START: u16 = 0x0000;
 pub const CPU_RAM_END: u16 = 0x1FFF;
 pub const CPU_RAM_MASK: u16 = 0x07FF;
