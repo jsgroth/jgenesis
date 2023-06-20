@@ -190,7 +190,6 @@ impl FrameCounter {
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct ApuState {
-    timing_mode: TimingMode,
     pulse_channel_1: PulseChannel,
     pulse_channel_2: PulseChannel,
     triangle_channel: TriangleChannel,
@@ -204,7 +203,6 @@ pub struct ApuState {
 impl ApuState {
     pub fn new(timing_mode: TimingMode) -> Self {
         Self {
-            timing_mode,
             pulse_channel_1: PulseChannel::new_channel_1(SweepStatus::Enabled),
             pulse_channel_2: PulseChannel::new_channel_2(SweepStatus::Enabled),
             triangle_channel: TriangleChannel::new(),

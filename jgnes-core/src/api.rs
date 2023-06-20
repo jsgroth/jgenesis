@@ -121,6 +121,12 @@ pub trait AudioPlayer {
     /// This method can return an error if it is unable to play audio, and the error will be
     /// propagated.
     fn push_sample(&mut self, sample: f64) -> Result<(), Self::Err>;
+
+    /// Set the timing mode (NTSC/PAL).
+    ///
+    /// NTSC and PAL need to use different downsampling ratios because the APU clock speed is
+    /// different.
+    fn set_timing_mode(&mut self, timing_mode: TimingMode);
 }
 
 impl<A: AudioPlayer> AudioPlayer for Rc<RefCell<A>> {
@@ -128,6 +134,10 @@ impl<A: AudioPlayer> AudioPlayer for Rc<RefCell<A>> {
 
     fn push_sample(&mut self, sample: f64) -> Result<(), Self::Err> {
         self.borrow_mut().push_sample(sample)
+    }
+
+    fn set_timing_mode(&mut self, timing_mode: TimingMode) {
+        self.borrow_mut().set_timing_mode(timing_mode);
     }
 }
 
@@ -294,7 +304,7 @@ where
         rom_bytes: Vec<u8>,
         sav_bytes: Option<Vec<u8>>,
         mut renderer: R,
-        audio_player: A,
+        mut audio_player: A,
         input_poller: I,
         save_writer: S,
     ) -> Result<Self, InitializationError<R::Err>> {
@@ -304,6 +314,7 @@ where
         renderer
             .set_timing_mode(timing_mode)
             .map_err(|err| InitializationError::RendererInit { source: err })?;
+        audio_player.set_timing_mode(timing_mode);
 
         let mut bus = Bus::from_cartridge(mapper);
 
