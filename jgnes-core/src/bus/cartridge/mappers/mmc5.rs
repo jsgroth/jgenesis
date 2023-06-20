@@ -5,7 +5,7 @@ use crate::apu::FrameCounter;
 use crate::bus::cartridge::mappers::{BankSizeKb, CpuMapResult};
 use crate::bus::cartridge::{Cartridge, MapperImpl};
 use crate::num::GetBit;
-use crate::{apu, bus};
+use crate::{apu, bus, TimingMode};
 use bincode::{Decode, Encode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -590,7 +590,7 @@ impl Mmc5 {
             pulse_channel_1: PulseChannel::new_channel_1(SweepStatus::Disabled),
             pulse_channel_2: PulseChannel::new_channel_2(SweepStatus::Disabled),
             pcm_channel: PcmChannel::new(),
-            frame_counter: FrameCounter::new(),
+            frame_counter: FrameCounter::new(TimingMode::Ntsc),
             ram_writes_enabled_1: false,
             ram_writes_enabled_2: false,
         }

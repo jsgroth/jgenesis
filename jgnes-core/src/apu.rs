@@ -27,6 +27,7 @@ use crate::num::GetBit;
 use crate::EmulatorConfig;
 use bincode::{Decode, Encode};
 use std::iter;
+use std::ops::Range;
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -43,8 +44,67 @@ enum FrameCounterResetState {
     None,
 }
 
+impl TimingMode {
+    const fn step_1(self) -> u16 {
+        match self {
+            Self::Ntsc => 7456,
+            Self::Pal => 8312,
+        }
+    }
+
+    const fn step_2(self) -> u16 {
+        match self {
+            Self::Ntsc => 14912,
+            Self::Pal => 16626,
+        }
+    }
+
+    const fn step_3(self) -> u16 {
+        match self {
+            Self::Ntsc => 22370,
+            Self::Pal => 24938,
+        }
+    }
+
+    const fn step_4(self) -> u16 {
+        match self {
+            Self::Ntsc => 29828,
+            Self::Pal => 33252,
+        }
+    }
+
+    const fn step_5(self) -> u16 {
+        match self {
+            Self::Ntsc => 37280,
+            Self::Pal => 41564,
+        }
+    }
+
+    const fn four_step_reset(self) -> u16 {
+        match self {
+            Self::Ntsc => 29830,
+            Self::Pal => 33254,
+        }
+    }
+
+    const fn five_step_reset(self) -> u16 {
+        match self {
+            Self::Ntsc => 37282,
+            Self::Pal => 41566,
+        }
+    }
+
+    const fn interrupt_range(self) -> Range<u16> {
+        match self {
+            Self::Ntsc => 29827..29830,
+            Self::Pal => 33251..33254,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct FrameCounter {
+    timing_mode: TimingMode,
     cpu_ticks: u16,
     mode: FrameCounterMode,
     interrupt_inhibit_flag: bool,
@@ -52,8 +112,9 @@ pub struct FrameCounter {
 }
 
 impl FrameCounter {
-    pub fn new() -> Self {
+    pub fn new(timing_mode: TimingMode) -> Self {
         Self {
+            timing_mode,
             cpu_ticks: 0,
             mode: FrameCounterMode::FourStep,
             interrupt_inhibit_flag: false,
@@ -77,8 +138,9 @@ impl FrameCounter {
             self.reset_state = FrameCounterResetState::None;
         }
 
-        if (self.cpu_ticks == 29830 && self.mode == FrameCounterMode::FourStep)
-            || self.cpu_ticks == 37282
+        if (self.cpu_ticks == self.timing_mode.four_step_reset()
+            && self.mode == FrameCounterMode::FourStep)
+            || self.cpu_ticks == self.timing_mode.five_step_reset()
         {
             self.cpu_ticks = 1;
         } else {
@@ -100,19 +162,21 @@ impl FrameCounter {
     }
 
     pub fn generate_quarter_frame_clock(&self) -> bool {
-        (self.cpu_ticks == 7456
-            || self.cpu_ticks == 14912
-            || self.cpu_ticks == 22370
-            || (self.cpu_ticks == 29828 && self.mode == FrameCounterMode::FourStep)
-            || self.cpu_ticks == 37280)
+        (self.cpu_ticks == self.timing_mode.step_1()
+            || self.cpu_ticks == self.timing_mode.step_2()
+            || self.cpu_ticks == self.timing_mode.step_3()
+            || (self.cpu_ticks == self.timing_mode.step_4()
+                && self.mode == FrameCounterMode::FourStep)
+            || self.cpu_ticks == self.timing_mode.step_5())
             || (self.reset_state == FrameCounterResetState::JustReset
                 && self.mode == FrameCounterMode::FiveStep)
     }
 
     pub fn generate_half_frame_clock(&self) -> bool {
-        (self.cpu_ticks == 14912
-            || (self.cpu_ticks == 29828 && self.mode == FrameCounterMode::FourStep)
-            || self.cpu_ticks == 37280)
+        (self.cpu_ticks == self.timing_mode.step_2()
+            || (self.cpu_ticks == self.timing_mode.step_4()
+                && self.mode == FrameCounterMode::FourStep)
+            || self.cpu_ticks == self.timing_mode.step_5())
             || (self.reset_state == FrameCounterResetState::JustReset
                 && self.mode == FrameCounterMode::FiveStep)
     }
@@ -120,7 +184,7 @@ impl FrameCounter {
     fn should_set_interrupt_flag(&self) -> bool {
         !self.interrupt_inhibit_flag
             && self.mode == FrameCounterMode::FourStep
-            && (29827..29830).contains(&self.cpu_ticks)
+            && self.timing_mode.interrupt_range().contains(&self.cpu_ticks)
     }
 }
 
@@ -146,7 +210,7 @@ impl ApuState {
             triangle_channel: TriangleChannel::new(),
             noise_channel: NoiseChannel::new(),
             dmc: DeltaModulationChannel::new(),
-            frame_counter: FrameCounter::new(),
+            frame_counter: FrameCounter::new(timing_mode),
             frame_counter_interrupt_flag: false,
             hpf_capacitor: 0.0,
         }
