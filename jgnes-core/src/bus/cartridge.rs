@@ -473,9 +473,9 @@ impl INesHeader {
             FileFormat::Nes2Point0 => {
                 let timing_mode_byte = header[12] & 0x03;
                 match timing_mode_byte {
-                    0x00 => TimingMode::Ntsc,
+                    0x00 | 0x02 => TimingMode::Ntsc,
                     0x01 => TimingMode::Pal,
-                    0x02 | 0x03 => {
+                    0x03 => {
                         return Err(CartridgeFileError::UnsupportedTimingMode {
                             byte: timing_mode_byte,
                         });
