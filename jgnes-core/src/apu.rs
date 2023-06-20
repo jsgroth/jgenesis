@@ -22,7 +22,7 @@ use crate::apu::dmc::DeltaModulationChannel;
 use crate::apu::noise::NoiseChannel;
 use crate::apu::pulse::{PulseChannel, SweepStatus};
 use crate::apu::triangle::TriangleChannel;
-use crate::bus::{CpuBus, IoRegister, IrqSource};
+use crate::bus::{CpuBus, IoRegister, IrqSource, TimingMode};
 use crate::num::GetBit;
 use crate::EmulatorConfig;
 use bincode::{Decode, Encode};
@@ -126,6 +126,7 @@ impl FrameCounter {
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct ApuState {
+    timing_mode: TimingMode,
     pulse_channel_1: PulseChannel,
     pulse_channel_2: PulseChannel,
     triangle_channel: TriangleChannel,
@@ -137,8 +138,9 @@ pub struct ApuState {
 }
 
 impl ApuState {
-    pub fn new() -> Self {
+    pub fn new(timing_mode: TimingMode) -> Self {
         Self {
+            timing_mode,
             pulse_channel_1: PulseChannel::new_channel_1(SweepStatus::Enabled),
             pulse_channel_2: PulseChannel::new_channel_2(SweepStatus::Enabled),
             triangle_channel: TriangleChannel::new(),

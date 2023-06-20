@@ -1,17 +1,20 @@
 //! PPU (pixel/picture processing unit) emulation code.
 //!
-//! The PPU constantly cycles through 261 scanlines: 240 visible scanlines where the PPU is actively
-//! rendering pixels, a 20-scanline vertical blanking period where the PPU is idle, and a pre-render
-//! scanline where the PPU fetches data that is needed to render the first visible scanline.
+//! In NTSC, the PPU constantly cycles through 262 scanlines: 240 visible scanlines where the PPU is
+//! actively rendering pixels, a 21-scanline vertical blanking period where the PPU is idle, and a
+//! pre-render scanline where the PPU fetches data that is needed to render the first visible scanline.
+//!
+//! PAL is (mostly) the same except the vertical blanking period lasts for 70 scanlines instead of 20,
+//! for a total of 312 scanlines.
 
-use crate::bus::{PpuBus, PpuTrackedRegister, PpuWriteToggle};
+use crate::bus::{PpuBus, PpuTrackedRegister, PpuWriteToggle, TimingMode};
 use crate::num::GetBit;
 use bincode::{Decode, Encode};
 use std::ops::RangeInclusive;
 
 pub const SCREEN_WIDTH: u16 = 256;
 pub const SCREEN_HEIGHT: u16 = 240;
-pub const VISIBLE_SCREEN_HEIGHT: u16 = 224;
+const NTSC_VISIBLE_SCREEN_HEIGHT: u16 = 224;
 
 const DOTS_PER_SCANLINE: u16 = 341;
 // Set/reset flags on dot 2 instead of 1 to resolve some CPU/PPU alignment issues that affect NMI
@@ -28,11 +31,44 @@ const FIRST_SPRITE_TILE_FETCH_DOT: u16 = 257;
 
 const VISIBLE_SCANLINES: RangeInclusive<u16> = 0..=239;
 const FIRST_VBLANK_SCANLINE: u16 = 241;
-const VBLANK_SCANLINES: RangeInclusive<u16> = 241..=260;
-const ALL_IDLE_SCANLINES: RangeInclusive<u16> = 240..=260;
-const PRE_RENDER_SCANLINE: u16 = 261;
+const NTSC_VBLANK_SCANLINES: RangeInclusive<u16> = 241..=260;
+const NTSC_ALL_IDLE_SCANLINES: RangeInclusive<u16> = 240..=260;
+const NTSC_PRE_RENDER_SCANLINE: u16 = 261;
+const PAL_VBLANK_SCANLINES: RangeInclusive<u16> = 241..=310;
+const PAL_ALL_IDLE_SCANLINES: RangeInclusive<u16> = 240..=310;
+const PAL_PRE_RENDER_SCANLINE: u16 = 311;
 
 pub type FrameBuffer = [[u8; SCREEN_WIDTH as usize]; SCREEN_HEIGHT as usize];
+
+impl TimingMode {
+    pub const fn visible_screen_height(self) -> u16 {
+        match self {
+            Self::Ntsc => NTSC_VISIBLE_SCREEN_HEIGHT,
+            Self::Pal => SCREEN_HEIGHT,
+        }
+    }
+
+    fn vblank_scanlines(self) -> RangeInclusive<u16> {
+        match self {
+            Self::Ntsc => NTSC_VBLANK_SCANLINES,
+            Self::Pal => PAL_VBLANK_SCANLINES,
+        }
+    }
+
+    fn all_idle_scanlines(self) -> RangeInclusive<u16> {
+        match self {
+            Self::Ntsc => NTSC_ALL_IDLE_SCANLINES,
+            Self::Pal => PAL_ALL_IDLE_SCANLINES,
+        }
+    }
+
+    fn pre_render_scanline(self) -> u16 {
+        match self {
+            Self::Ntsc => NTSC_PRE_RENDER_SCANLINE,
+            Self::Pal => PAL_PRE_RENDER_SCANLINE,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Encode, Decode)]
 struct InternalRegisters {
@@ -250,6 +286,7 @@ struct SpriteData {
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct PpuState {
+    timing_mode: TimingMode,
     frame_buffer: FrameBuffer,
     registers: InternalRegisters,
     bg_buffers: BgBuffers,
@@ -263,14 +300,15 @@ pub struct PpuState {
 }
 
 impl PpuState {
-    pub fn new() -> Self {
+    pub fn new(timing_mode: TimingMode) -> Self {
         Self {
+            timing_mode,
             frame_buffer: [[0; SCREEN_WIDTH as usize]; SCREEN_HEIGHT as usize],
             registers: InternalRegisters::new(),
             bg_buffers: BgBuffers::new(),
             sprite_buffers: SpriteBuffers::new(),
             sprite_evaluation_data: SpriteEvaluationData::new(),
-            scanline: PRE_RENDER_SCANLINE,
+            scanline: timing_mode.pre_render_scanline(),
             dot: 0,
             odd_frame: false,
             // 0x0F == Black
@@ -284,7 +322,7 @@ impl PpuState {
     /// While the PPU's first idle scanline is scanline 240, this method will not return true
     /// until scanline 241 in order to align with when the PPU sets the VBlank flag in PPUSTATUS.
     pub fn in_vblank(&self) -> bool {
-        VBLANK_SCANLINES.contains(&self.scanline)
+        self.timing_mode.vblank_scanlines().contains(&self.scanline)
     }
 
     /// Retrieve a reference the PPU's frame buffer.
@@ -304,7 +342,8 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
 
     process_register_updates(state, bus, rendering_enabled);
 
-    if state.scanline == PRE_RENDER_SCANLINE && state.dot == VBLANK_FLAG_SET_DOT {
+    if state.scanline == state.timing_mode.pre_render_scanline() && state.dot == VBLANK_FLAG_SET_DOT
+    {
         // Clear per-frame flags at the start of the pre-render scanline
         let ppu_registers = bus.get_ppu_registers_mut();
         ppu_registers.set_vblank_flag(false);
@@ -343,7 +382,12 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     }
 
     // Copy v register to where the CPU can see it
-    if !rendering_enabled || ALL_IDLE_SCANLINES.contains(&state.scanline) {
+    if !rendering_enabled
+        || state
+            .timing_mode
+            .all_idle_scanlines()
+            .contains(&state.scanline)
+    {
         bus.set_bus_address(state.registers.vram_address & 0x3FFF);
     }
 
@@ -352,11 +396,11 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
         state.scanline += 1;
         state.dot = 0;
 
-        if state.scanline == PRE_RENDER_SCANLINE + 1 {
+        if state.scanline == state.timing_mode.pre_render_scanline() + 1 {
             state.scanline = 0;
 
-            if state.odd_frame && rendering_enabled {
-                // Skip the idle cycle in the first visible scanline on odd frames
+            if state.timing_mode == TimingMode::Ntsc && state.odd_frame && rendering_enabled {
+                // In NTSC, skip the idle cycle in the first visible scanline on odd frames
                 state.dot = 1;
             }
             state.odd_frame = !state.odd_frame;
@@ -370,7 +414,7 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
 /// memory-mapped PPU regsiters.
 pub fn reset(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     let vram_address = state.registers.vram_address;
-    *state = PpuState::new();
+    *state = PpuState::new(state.timing_mode);
     state.registers.vram_address = vram_address;
 
     bus.reset();
@@ -385,15 +429,17 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
         bus.get_ppu_registers_mut().set_sprite_0_hit(true);
     }
 
-    match state.scanline {
-        0..=239 | 261 => {
-            if state.scanline == PRE_RENDER_SCANLINE && RESET_VERTICAL_POS_DOTS.contains(&state.dot)
+    match (state.timing_mode, state.scanline) {
+        (_, 0..=239) | (TimingMode::Ntsc, 261) | (TimingMode::Pal, 311) => {
+            let pre_render_scanline = state.timing_mode.pre_render_scanline();
+
+            if state.scanline == pre_render_scanline && RESET_VERTICAL_POS_DOTS.contains(&state.dot)
             {
                 // Repeatedly reset vertical position during the pre-render scanline
                 reset_vertical_pos(&mut state.registers);
             }
 
-            if state.scanline != PRE_RENDER_SCANLINE && state.dot == 1 {
+            if state.scanline != pre_render_scanline && state.dot == 1 {
                 // Clear sprite evaluation data at the beginning of each visible scanline
                 state.sprite_evaluation_data = SpriteEvaluationData::new();
             }
@@ -410,7 +456,7 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                 1..=256 => {
                     // Rendering + sprite evaluation cycles
 
-                    if state.scanline != PRE_RENDER_SCANLINE {
+                    if state.scanline != pre_render_scanline {
                         render_pixel(state, bus);
                     }
 
@@ -424,7 +470,7 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                     fetch_bg_tile_data(state, bus);
 
                     // Evaluate sprites on odd cycles during 65-256
-                    if state.scanline != PRE_RENDER_SCANLINE
+                    if state.scanline != pre_render_scanline
                         && SPRITE_EVALUATION_DOTS.contains(&state.dot)
                         && state.dot.bit(0)
                     {
@@ -436,7 +482,7 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                         bus.get_ppu_registers_mut().set_oam_open_bus(Some(0xFF));
                     }
 
-                    if state.scanline != PRE_RENDER_SCANLINE && state.dot == INC_VERTICAL_POS_DOT {
+                    if state.scanline != pre_render_scanline && state.dot == INC_VERTICAL_POS_DOT {
                         // Increment effective vertical position at the end of the rendering phase
                         increment_vertical_pos(&mut state.registers);
                     }
@@ -487,7 +533,7 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                 _ => panic!("invalid dot: {}", state.dot),
             }
         }
-        240..=260 => {
+        (TimingMode::Ntsc, 240..=260) | (TimingMode::Pal, 240..=310) => {
             // PPU idle scanlines
 
             bus.get_ppu_registers_mut().set_oam_open_bus(None);
@@ -562,7 +608,7 @@ fn process_register_updates(state: &mut PpuState, bus: &mut PpuBus<'_>, renderin
         Some(PpuTrackedRegister::PPUDATA) => {
             if rendering_enabled
                 && (VISIBLE_SCANLINES.contains(&state.scanline)
-                    || state.scanline == PRE_RENDER_SCANLINE)
+                    || state.scanline == state.timing_mode.pre_render_scanline())
             {
                 // Accessing PPUDATA during rendering causes a coarse X increment + Y increment
                 log::trace!(
@@ -669,7 +715,7 @@ fn render_pixel(state: &mut PpuState, bus: &mut PpuBus<'_>) {
 
     // Find the first overlapping sprite by OAM index, if any; use transparent if none found
     let sprite = (state.scanline != 0
-        && state.scanline != PRE_RENDER_SCANLINE
+        && state.scanline != state.timing_mode.pre_render_scanline()
         && sprites_enabled
         && (pixel >= 8 || left_edge_sprites_enabled)
         && state.sprite_buffers.sprite_x_bit_set.get(pixel))
