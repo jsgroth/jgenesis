@@ -41,6 +41,7 @@ const PAL_PRE_RENDER_SCANLINE: u16 = 311;
 pub type FrameBuffer = [[u8; SCREEN_WIDTH as usize]; SCREEN_HEIGHT as usize];
 
 impl TimingMode {
+    #[must_use]
     pub const fn visible_screen_height(self) -> u16 {
         match self {
             Self::Ntsc => NTSC_VISIBLE_SCREEN_HEIGHT,

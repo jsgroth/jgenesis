@@ -11,6 +11,7 @@ use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::io;
 use std::rc::Rc;
+use thiserror::Error;
 
 // The number of master clock ticks to run in one `Emulator::tick` call
 const PAL_MASTER_CLOCK_TICKS: u32 = 80;
@@ -80,6 +81,11 @@ pub trait Renderer {
     ///
     /// Renderers need to be aware of timing mode because the visible screen height is different
     /// between NTSC (224px) and PAL (240px), but the NES frame buffer is 256x240 in both cases.
+    ///
+    /// # Errors
+    ///
+    /// This method can return an error if it is unable to initialize some inner state, and the
+    /// error will be propagated.
     fn set_timing_mode(&mut self, timing_mode: TimingMode) -> Result<(), Self::Err>;
 }
 
@@ -260,6 +266,20 @@ pub type EmulationResult<RenderError, AudioError, SaveError> =
 type UnitEmulationResult<RenderError, AudioError, SaveError> =
     Result<(), EmulationError<RenderError, AudioError, SaveError>>;
 
+#[derive(Debug, Error)]
+pub enum InitializationError<RenderError> {
+    #[error("Error loading cartridge ROM: {source}")]
+    CartridgeLoad {
+        #[from]
+        source: CartridgeFileError,
+    },
+    #[error("Error initializing renderer: {source}")]
+    RendererInit {
+        #[source]
+        source: RenderError,
+    },
+}
+
 impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, I, S>
 where
     R::Err: Debug,
@@ -277,12 +297,13 @@ where
         audio_player: A,
         input_poller: I,
         save_writer: S,
-    ) -> Result<Self, CartridgeFileError> {
+    ) -> Result<Self, InitializationError<R::Err>> {
         let mapper = cartridge::from_ines_file(&rom_bytes, sav_bytes)?;
         let timing_mode = mapper.timing_mode();
 
-        // TODO properly propagate errors
-        renderer.set_timing_mode(timing_mode).unwrap();
+        renderer
+            .set_timing_mode(timing_mode)
+            .map_err(|err| InitializationError::RendererInit { source: err })?;
 
         let mut bus = Bus::from_cartridge(mapper);
 
