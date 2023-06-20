@@ -290,10 +290,7 @@ pub enum InitializationError<RenderError> {
     },
 }
 
-impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, I, S>
-where
-    R::Err: Debug,
-{
+impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, I, S> {
     /// Create a new emulator instance.
     ///
     /// # Errors
@@ -486,7 +483,10 @@ where
     ///
     /// `sav_bytes` will be used if set, otherwise PRG RAM will be moved from the existing Emulator.
     #[must_use]
-    pub fn hard_reset(self, sav_bytes: Option<Vec<u8>>) -> Self {
+    pub fn hard_reset(self, sav_bytes: Option<Vec<u8>>) -> Self
+    where
+        R::Err: Debug,
+    {
         let prg_ram = sav_bytes.unwrap_or_else(|| Vec::from(self.bus.mapper().get_prg_ram()));
         Self::create(
             self.raw_rom_bytes,
