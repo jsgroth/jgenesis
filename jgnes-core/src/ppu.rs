@@ -38,6 +38,8 @@ const PAL_VBLANK_SCANLINES: RangeInclusive<u16> = 241..=310;
 const PAL_ALL_IDLE_SCANLINES: RangeInclusive<u16> = 240..=310;
 const PAL_PRE_RENDER_SCANLINE: u16 = 311;
 
+const BLACK_NES_COLOR: u8 = 0x0F;
+
 pub type FrameBuffer = [[u8; SCREEN_WIDTH as usize]; SCREEN_HEIGHT as usize];
 
 impl TimingMode {
@@ -312,8 +314,7 @@ impl PpuState {
             scanline: timing_mode.pre_render_scanline(),
             dot: 0,
             odd_frame: false,
-            // 0x0F == Black
-            rendering_disabled_backdrop_color: Some(0x0F),
+            rendering_disabled_backdrop_color: Some(BLACK_NES_COLOR),
             pending_sprite_0_hit: false,
         }
     }
@@ -333,6 +334,25 @@ impl PpuState {
     /// colors that are appropriate for display.
     pub fn frame_buffer(&self) -> &FrameBuffer {
         &self.frame_buffer
+    }
+}
+
+pub fn render_pal_black_border(state: &mut PpuState) {
+    // Clear top scanline
+    for value in state.frame_buffer[0].iter_mut() {
+        *value = BLACK_NES_COLOR;
+    }
+
+    // Clear leftmost two columns and rightmost two columns
+    for col in [
+        0,
+        1,
+        (SCREEN_WIDTH - 2) as usize,
+        (SCREEN_WIDTH - 1) as usize,
+    ] {
+        for row in 1..SCREEN_HEIGHT as usize {
+            state.frame_buffer[row][col] = BLACK_NES_COLOR;
+        }
     }
 }
 

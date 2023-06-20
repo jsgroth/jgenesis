@@ -240,6 +240,8 @@ impl<R: Error + 'static, A: Error + 'static, S: Error + 'static> Error for Emula
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct EmulatorConfig {
+    /// If true, add a black border over the top scanline, the leftmost 2 columns, and the rightmost 2 columns
+    pub pal_black_border: bool,
     /// If true, silence the triangle wave channel when it is outputting a wave at ultrasonic frequency
     pub silence_ultrasonic_triangle_output: bool,
 }
@@ -357,6 +359,10 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
         }
 
         if !prev_in_vblank && self.ppu_state.in_vblank() {
+            if config.pal_black_border {
+                ppu::render_pal_black_border(&mut self.ppu_state);
+            }
+
             let frame_buffer = self.ppu_state.frame_buffer();
             let color_emphasis = ColorEmphasis::get_current(&self.bus.ppu());
 
