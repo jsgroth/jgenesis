@@ -1,6 +1,6 @@
 use crate::apu::ApuState;
 use crate::bus::cartridge::CartridgeFileError;
-use crate::bus::{cartridge, Bus, PpuBus};
+use crate::bus::{cartridge, Bus, PpuBus, TimingMode};
 use crate::cpu::{CpuError, CpuRegisters, CpuState};
 use crate::input::JoypadState;
 use crate::ppu::{FrameBuffer, PpuState};
@@ -8,9 +8,16 @@ use crate::serialize::SaveStateError;
 use crate::{apu, cpu, ppu, serialize};
 use std::cell::RefCell;
 use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::io;
 use std::rc::Rc;
+use thiserror::Error;
+
+// The number of master clock ticks to run in one `Emulator::tick` call
+const PAL_MASTER_CLOCK_TICKS: u32 = 80;
+
+const PAL_CPU_DIVIDER: u32 = 16;
+const PAL_PPU_DIVIDER: u32 = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ColorEmphasis {
@@ -54,10 +61,10 @@ pub trait Renderer {
     /// The R/G/B color emphasis bits are included directly from the NES PPU. It is up to
     /// implementations to choose how to apply these.
     ///
-    /// Note that while the NES's internal resolution is 256x240, virtually no TVs displayed more
-    /// than 224 pixels vertically due to overscan, so just about every implementation will want to
-    /// remove the top 8 and bottom 8 rows of pixels to produce a 256x224 frame. Some games may look
-    /// better with even more overscan on certain sides of the frame.
+    /// Note that while the NES's internal resolution is 256x240, the visible vertical resolution
+    /// depends on whether the emulated console is running in NTSC mode or PAL mode. If in NTSC
+    /// mode, the renderer should display at most 224px vertically, removing the top 8 and bottom 8
+    /// rows of pixels. If in PAL mode, the renderer should display the full 240px.
     ///
     /// # Errors
     ///
@@ -68,6 +75,18 @@ pub trait Renderer {
         frame_buffer: &FrameBuffer,
         color_emphasis: ColorEmphasis,
     ) -> Result<(), Self::Err>;
+
+    /// Set the timing mode (NTSC/PAL). This will be called whenever a new ROM is loaded, although
+    /// renderers should default to NTSC if it is not called.
+    ///
+    /// Renderers need to be aware of timing mode because the visible screen height is different
+    /// between NTSC (224px) and PAL (240px), but the NES frame buffer is 256x240 in both cases.
+    ///
+    /// # Errors
+    ///
+    /// This method can return an error if it is unable to initialize some inner state, and the
+    /// error will be propagated.
+    fn set_timing_mode(&mut self, timing_mode: TimingMode) -> Result<(), Self::Err>;
 }
 
 impl<R: Renderer> Renderer for Rc<RefCell<R>> {
@@ -79,6 +98,10 @@ impl<R: Renderer> Renderer for Rc<RefCell<R>> {
         color_emphasis: ColorEmphasis,
     ) -> Result<(), Self::Err> {
         self.borrow_mut().render_frame(frame_buffer, color_emphasis)
+    }
+
+    fn set_timing_mode(&mut self, timing_mode: TimingMode) -> Result<(), Self::Err> {
+        self.borrow_mut().set_timing_mode(timing_mode)
     }
 }
 
@@ -98,6 +121,12 @@ pub trait AudioPlayer {
     /// This method can return an error if it is unable to play audio, and the error will be
     /// propagated.
     fn push_sample(&mut self, sample: f64) -> Result<(), Self::Err>;
+
+    /// Set the timing mode (NTSC/PAL).
+    ///
+    /// NTSC and PAL need to use different downsampling ratios because the APU clock speed is
+    /// different.
+    fn set_timing_mode(&mut self, timing_mode: TimingMode);
 }
 
 impl<A: AudioPlayer> AudioPlayer for Rc<RefCell<A>> {
@@ -105,6 +134,10 @@ impl<A: AudioPlayer> AudioPlayer for Rc<RefCell<A>> {
 
     fn push_sample(&mut self, sample: f64) -> Result<(), Self::Err> {
         self.borrow_mut().push_sample(sample)
+    }
+
+    fn set_timing_mode(&mut self, timing_mode: TimingMode) {
+        self.borrow_mut().set_timing_mode(timing_mode);
     }
 }
 
@@ -207,6 +240,8 @@ impl<R: Error + 'static, A: Error + 'static, S: Error + 'static> Error for Emula
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct EmulatorConfig {
+    /// If true, add a black border over the top scanline, the leftmost 2 columns, and the rightmost 2 columns
+    pub pal_black_border: bool,
     /// If true, silence the triangle wave channel when it is outputting a wave at ultrasonic frequency
     pub silence_ultrasonic_triangle_output: bool,
 }
@@ -240,6 +275,23 @@ pub enum TickEffect {
 pub type EmulationResult<RenderError, AudioError, SaveError> =
     Result<TickEffect, EmulationError<RenderError, AudioError, SaveError>>;
 
+type UnitEmulationResult<RenderError, AudioError, SaveError> =
+    Result<(), EmulationError<RenderError, AudioError, SaveError>>;
+
+#[derive(Debug, Error)]
+pub enum InitializationError<RenderError> {
+    #[error("Error loading cartridge ROM: {source}")]
+    CartridgeLoad {
+        #[from]
+        source: CartridgeFileError,
+    },
+    #[error("Error initializing renderer: {source}")]
+    RendererInit {
+        #[source]
+        source: RenderError,
+    },
+}
+
 impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, I, S> {
     /// Create a new emulator instance.
     ///
@@ -250,18 +302,25 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
     pub fn create(
         rom_bytes: Vec<u8>,
         sav_bytes: Option<Vec<u8>>,
-        renderer: R,
-        audio_player: A,
+        mut renderer: R,
+        mut audio_player: A,
         input_poller: I,
         save_writer: S,
-    ) -> Result<Self, CartridgeFileError> {
+    ) -> Result<Self, InitializationError<R::Err>> {
         let mapper = cartridge::from_ines_file(&rom_bytes, sav_bytes)?;
+        let timing_mode = mapper.timing_mode();
+
+        renderer
+            .set_timing_mode(timing_mode)
+            .map_err(|err| InitializationError::RendererInit { source: err })?;
+        audio_player.set_timing_mode(timing_mode);
+
         let mut bus = Bus::from_cartridge(mapper);
 
         let cpu_registers = CpuRegisters::create(&mut bus.cpu());
         let cpu_state = CpuState::new(cpu_registers);
-        let ppu_state = PpuState::new();
-        let mut apu_state = ApuState::new();
+        let ppu_state = PpuState::new(timing_mode);
+        let mut apu_state = ApuState::new(timing_mode);
 
         init_apu(&mut apu_state, &mut bus);
 
@@ -278,7 +337,7 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
         })
     }
 
-    /// Run the emulator for one CPU cycle / three PPU cycles.
+    /// Run the emulator for 1 CPU cycle / 3 PPU cycles (NTSC) or 5 CPU cycles / 16 PPU cycles (PAL).
     ///
     /// # Errors
     ///
@@ -288,34 +347,22 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
     pub fn tick(&mut self, config: &EmulatorConfig) -> EmulationResult<R::Err, A::Err, S::Err> {
         let prev_in_vblank = self.ppu_state.in_vblank();
 
-        cpu::tick(
-            &mut self.cpu_state,
-            &mut self.bus.cpu(),
-            self.apu_state.is_active_cycle(),
-        )?;
-        apu::tick(&mut self.apu_state, &mut self.bus.cpu(), config);
-        ppu::tick(&mut self.ppu_state, &mut self.bus.ppu());
-        self.bus.tick();
-        self.bus.tick_cpu();
+        let timing_mode = self.bus.mapper().timing_mode();
 
-        self.bus.poll_interrupt_lines();
-
-        ppu::tick(&mut self.ppu_state, &mut self.bus.ppu());
-        self.bus.tick();
-
-        ppu::tick(&mut self.ppu_state, &mut self.bus.ppu());
-        self.bus.tick();
-
-        let audio_sample = {
-            let sample = self.apu_state.sample();
-            let sample = self.bus.mapper().sample_audio(sample);
-            self.apu_state.high_pass_filter(sample)
-        };
-        self.audio_player
-            .push_sample(audio_sample)
-            .map_err(EmulationError::Audio)?;
+        match timing_mode {
+            TimingMode::Ntsc => {
+                self.ntsc_tick(config)?;
+            }
+            TimingMode::Pal => {
+                self.pal_tick(config)?;
+            }
+        }
 
         if !prev_in_vblank && self.ppu_state.in_vblank() {
+            if config.pal_black_border {
+                ppu::render_pal_black_border(&mut self.ppu_state);
+            }
+
             let frame_buffer = self.ppu_state.frame_buffer();
             let color_emphasis = ColorEmphasis::get_current(&self.bus.ppu());
 
@@ -342,6 +389,83 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
         Ok(TickEffect::None)
     }
 
+    fn ntsc_tick(
+        &mut self,
+        config: &EmulatorConfig,
+    ) -> UnitEmulationResult<R::Err, A::Err, S::Err> {
+        cpu::tick(
+            &mut self.cpu_state,
+            &mut self.bus.cpu(),
+            self.apu_state.is_active_cycle(),
+        )?;
+        apu::tick(&mut self.apu_state, &mut self.bus.cpu(), config);
+        ppu::tick(&mut self.ppu_state, &mut self.bus.ppu());
+        self.bus.tick();
+        self.bus.tick_cpu();
+
+        self.bus.poll_interrupt_lines();
+
+        ppu::tick(&mut self.ppu_state, &mut self.bus.ppu());
+        self.bus.tick();
+
+        ppu::tick(&mut self.ppu_state, &mut self.bus.ppu());
+        self.bus.tick();
+
+        self.push_audio_sample()?;
+
+        Ok(())
+    }
+
+    fn pal_tick(&mut self, config: &EmulatorConfig) -> UnitEmulationResult<R::Err, A::Err, S::Err> {
+        // Both CPU and PPU tick on the first master clock cycle
+        cpu::tick(
+            &mut self.cpu_state,
+            &mut self.bus.cpu(),
+            self.apu_state.is_active_cycle(),
+        )?;
+        apu::tick(&mut self.apu_state, &mut self.bus.cpu(), config);
+        ppu::tick(&mut self.ppu_state, &mut self.bus.ppu());
+        self.bus.tick();
+        self.bus.tick_cpu();
+
+        self.bus.poll_interrupt_lines();
+
+        self.push_audio_sample()?;
+
+        for i in 1..PAL_MASTER_CLOCK_TICKS {
+            if i % PAL_CPU_DIVIDER == 0 {
+                cpu::tick(
+                    &mut self.cpu_state,
+                    &mut self.bus.cpu(),
+                    self.apu_state.is_active_cycle(),
+                )?;
+                apu::tick(&mut self.apu_state, &mut self.bus.cpu(), config);
+                self.bus.tick();
+                self.bus.tick_cpu();
+
+                self.bus.poll_interrupt_lines();
+
+                self.push_audio_sample()?;
+            } else if i % PAL_PPU_DIVIDER == 0 {
+                ppu::tick(&mut self.ppu_state, &mut self.bus.ppu());
+                self.bus.tick();
+            }
+        }
+
+        Ok(())
+    }
+
+    fn push_audio_sample(&mut self) -> UnitEmulationResult<R::Err, A::Err, S::Err> {
+        let audio_sample = {
+            let sample = self.apu_state.sample();
+            let sample = self.bus.mapper().sample_audio(sample);
+            self.apu_state.high_pass_filter(sample)
+        };
+        self.audio_player
+            .push_sample(audio_sample)
+            .map_err(EmulationError::Audio)
+    }
+
     /// Press the (emulated) reset button.
     ///
     /// Note that just like on a real NES, this leaves some state intact. For a hard reset you
@@ -365,7 +489,10 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
     ///
     /// `sav_bytes` will be used if set, otherwise PRG RAM will be moved from the existing Emulator.
     #[must_use]
-    pub fn hard_reset(self, sav_bytes: Option<Vec<u8>>) -> Self {
+    pub fn hard_reset(self, sav_bytes: Option<Vec<u8>>) -> Self
+    where
+        R::Err: Debug,
+    {
         let prg_ram = sav_bytes.unwrap_or_else(|| Vec::from(self.bus.mapper().get_prg_ram()));
         Self::create(
             self.raw_rom_bytes,

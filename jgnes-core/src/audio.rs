@@ -1,5 +1,6 @@
 #![allow(clippy::excessive_precision)]
 
+use crate::TimingMode;
 use bincode::{Decode, Encode};
 use std::collections::VecDeque;
 
@@ -42,8 +43,35 @@ impl Default for LowPassFilter {
 }
 
 // 236.25MHz / 11 / 12
-const NES_AUDIO_FREQUENCY: f64 = 1789772.7272727272727273;
-const NES_NATIVE_DISPLAY_RATE: f64 = 60.0988;
+const NTSC_NES_AUDIO_FREQUENCY: f64 = 1789772.7272727272727273;
+const NTSC_NES_NATIVE_DISPLAY_RATE: f64 = 60.0988;
+
+// 26.6017125.MHz / 16
+const PAL_NES_AUDIO_FREQUENCY: f64 = 1662607.03125;
+const PAL_NES_NATIVE_DISPLAY_RATE: f64 = 50.0070;
+
+impl TimingMode {
+    const fn nes_audio_frequency(self) -> f64 {
+        match self {
+            Self::Ntsc => NTSC_NES_AUDIO_FREQUENCY,
+            Self::Pal => PAL_NES_AUDIO_FREQUENCY,
+        }
+    }
+
+    const fn nes_native_display_rate(self) -> f64 {
+        match self {
+            Self::Ntsc => NTSC_NES_NATIVE_DISPLAY_RATE,
+            Self::Pal => PAL_NES_NATIVE_DISPLAY_RATE,
+        }
+    }
+
+    fn refresh_rate_multiplier(self) -> f64 {
+        match self {
+            Self::Ntsc => 1.0,
+            Self::Pal => PAL_NES_NATIVE_DISPLAY_RATE / NTSC_NES_NATIVE_DISPLAY_RATE,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DownsampleAction {
@@ -57,18 +85,36 @@ pub struct DownsampleCounter {
     next_output_count: u64,
     next_output_count_float: f64,
     output_count_increment: f64,
+    output_frequency: f64,
+    display_refresh_rate: f64,
 }
 
 impl DownsampleCounter {
+    fn compute_output_count_increment(
+        output_frequency: f64,
+        display_refresh_rate: f64,
+        timing_mode: TimingMode,
+    ) -> f64 {
+        timing_mode.nes_audio_frequency() / output_frequency
+            * display_refresh_rate
+            * timing_mode.refresh_rate_multiplier()
+            / timing_mode.nes_native_display_rate()
+    }
+
     #[must_use]
     pub fn new(output_frequency: f64, display_refresh_rate: f64) -> Self {
-        let output_count_increment =
-            NES_AUDIO_FREQUENCY / output_frequency * display_refresh_rate / NES_NATIVE_DISPLAY_RATE;
+        let output_count_increment = Self::compute_output_count_increment(
+            output_frequency,
+            display_refresh_rate,
+            TimingMode::Ntsc,
+        );
         Self {
             sample_count: 0,
             next_output_count: output_count_increment.round() as u64,
             next_output_count_float: output_count_increment,
             output_count_increment,
+            output_frequency,
+            display_refresh_rate,
         }
     }
 
@@ -84,6 +130,14 @@ impl DownsampleCounter {
         } else {
             DownsampleAction::None
         }
+    }
+
+    pub fn set_timing_mode(&mut self, timing_mode: TimingMode) {
+        self.output_count_increment = Self::compute_output_count_increment(
+            self.output_frequency,
+            self.display_refresh_rate,
+            timing_mode,
+        );
     }
 }
 

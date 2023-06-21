@@ -100,6 +100,8 @@ pub struct CpuRegisters {
 }
 
 impl CpuRegisters {
+    /// Create a new `CpuRegisters` value with the PC pointing to the address at the cartridge's
+    /// RESET vector.
     pub fn create(bus: &mut CpuBus<'_>) -> Self {
         let pc_lsb = bus.read_address(bus::CPU_RESET_VECTOR);
         let pc_msb = bus.read_address(bus::CPU_RESET_VECTOR + 1);

@@ -9,6 +9,7 @@ use bincode::enc::Encoder;
 use bincode::error::{DecodeError, EncodeError};
 use bincode::{BorrowDecode, Decode, Encode};
 use jgnes_proc_macros::MatchEachVariantMacro;
+use std::fmt::{Display, Formatter};
 use std::{io, mem};
 use thiserror::Error;
 
@@ -16,6 +17,15 @@ use thiserror::Error;
 pub enum TimingMode {
     Ntsc,
     Pal,
+}
+
+impl Display for TimingMode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Ntsc => write!(f, "NTSC"),
+            Self::Pal => write!(f, "PAL"),
+        }
+    }
 }
 
 use crate::num::GetBit;
@@ -351,6 +361,11 @@ impl Mapper {
             && match_each_variant!(self, mapper => mapper.cartridge.has_ram_battery)
     }
 
+    /// Retrieve the timing mode of the cartridge (NTSC/PAL).
+    pub(crate) fn timing_mode(&self) -> TimingMode {
+        match_each_variant!(self, mapper => mapper.cartridge.timing_mode)
+    }
+
     /// If the board has expansion audio, generate an audio sample and mix it with the mixed APU
     /// sample.
     ///
@@ -399,8 +414,6 @@ pub enum CartridgeFileError {
     MultiplePrgRamTypes,
     #[error("unsupported timing mode byte: {byte}")]
     UnsupportedTimingMode { byte: u8 },
-    #[error("PAL is not yet supported")]
-    PalUnsupported,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -491,11 +504,6 @@ impl INesHeader {
                 }
             }
         };
-
-        // TODO remove when PAL is implemented
-        if timing_mode == TimingMode::Pal {
-            return Err(CartridgeFileError::PalUnsupported);
-        }
 
         let prg_ram_size = match format {
             FileFormat::Nes2Point0 => {
@@ -704,6 +712,7 @@ pub(crate) fn from_ines_file(
         }
     };
 
+    log::info!("Timing mode: {}", header.timing_mode);
     log::info!(
         "Mapper number: {} ({})",
         header.mapper_number,
