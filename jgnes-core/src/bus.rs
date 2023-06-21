@@ -207,12 +207,18 @@ impl PpuRegisters {
         self.ppu_mask.bit(7)
     }
 
-    pub fn emphasize_green(&self) -> bool {
-        self.ppu_mask.bit(6)
+    pub fn emphasize_green(&self, timing_mode: TimingMode) -> bool {
+        match timing_mode {
+            TimingMode::Ntsc => self.ppu_mask.bit(6),
+            TimingMode::Pal => self.ppu_mask.bit(5),
+        }
     }
 
-    pub fn emphasize_red(&self) -> bool {
-        self.ppu_mask.bit(5)
+    pub fn emphasize_red(&self, timing_mode: TimingMode) -> bool {
+        match timing_mode {
+            TimingMode::Ntsc => self.ppu_mask.bit(5),
+            TimingMode::Pal => self.ppu_mask.bit(6),
+        }
     }
 
     pub fn sprites_enabled(&self) -> bool {

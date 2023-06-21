@@ -27,11 +27,11 @@ pub struct ColorEmphasis {
 }
 
 impl ColorEmphasis {
-    fn get_current(bus: &PpuBus<'_>) -> Self {
+    fn get_current(bus: &PpuBus<'_>, timing_mode: TimingMode) -> Self {
         let ppu_registers = bus.get_ppu_registers();
         Self {
-            red: ppu_registers.emphasize_red(),
-            green: ppu_registers.emphasize_green(),
+            red: ppu_registers.emphasize_red(timing_mode),
+            green: ppu_registers.emphasize_green(timing_mode),
             blue: ppu_registers.emphasize_blue(),
         }
     }
@@ -364,7 +364,7 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
             }
 
             let frame_buffer = self.ppu_state.frame_buffer();
-            let color_emphasis = ColorEmphasis::get_current(&self.bus.ppu());
+            let color_emphasis = ColorEmphasis::get_current(&self.bus.ppu(), timing_mode);
 
             self.renderer
                 .render_frame(frame_buffer, color_emphasis)
@@ -517,7 +517,8 @@ impl<R: Renderer, A, I, S> Emulator<R, A, I, S> {
     ///
     /// This method will propagate any error returned by the renderer.
     pub fn force_render(&mut self) -> Result<(), R::Err> {
-        let color_emphasis = ColorEmphasis::get_current(&self.bus.ppu());
+        let timing_mode = self.bus.mapper().timing_mode();
+        let color_emphasis = ColorEmphasis::get_current(&self.bus.ppu(), timing_mode);
         let frame_buffer = self.ppu_state.frame_buffer();
         self.renderer.render_frame(frame_buffer, color_emphasis)
     }
