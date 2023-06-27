@@ -12,7 +12,7 @@ mod serialize;
 
 pub use api::{
     AudioPlayer, ColorEmphasis, EmulationError, EmulationResult, EmulationState, Emulator,
-    EmulatorConfig, InputPoller, Renderer, SaveWriter, TickEffect,
+    EmulatorConfig, EmulatorCreateArgs, InputPoller, Renderer, SaveWriter, TickEffect,
 };
 pub use bus::TimingMode;
 pub use input::JoypadState;

@@ -9,11 +9,12 @@ use bincode::enc::Encoder;
 use bincode::error::{DecodeError, EncodeError};
 use bincode::{BorrowDecode, Decode, Encode};
 use jgnes_proc_macros::MatchEachVariantMacro;
+use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::{io, mem};
 use thiserror::Error;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
 pub enum TimingMode {
     Ntsc,
     Pal,

@@ -264,6 +264,7 @@ pub struct Emulator<Renderer, AudioPlayer, InputPoller, SaveWriter> {
     save_writer: SaveWriter,
     // Kept around to enable hard reset
     raw_rom_bytes: Vec<u8>,
+    forced_timing_mode: Option<TimingMode>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -292,6 +293,17 @@ pub enum InitializationError<RenderError> {
     },
 }
 
+#[derive(Debug, Clone)]
+pub struct EmulatorCreateArgs<R, A, I, S> {
+    pub rom_bytes: Vec<u8>,
+    pub sav_bytes: Option<Vec<u8>>,
+    pub forced_timing_mode: Option<TimingMode>,
+    pub renderer: R,
+    pub audio_player: A,
+    pub input_poller: I,
+    pub save_writer: S,
+}
+
 impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, I, S> {
     /// Create a new emulator instance.
     ///
@@ -300,15 +312,20 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
     /// This function will return an error if it cannot successfully parse NES ROM data out of the
     /// given ROM bytes.
     pub fn create(
-        rom_bytes: Vec<u8>,
-        sav_bytes: Option<Vec<u8>>,
-        mut renderer: R,
-        mut audio_player: A,
-        input_poller: I,
-        save_writer: S,
+        args: EmulatorCreateArgs<R, A, I, S>,
     ) -> Result<Self, InitializationError<R::Err>> {
+        let EmulatorCreateArgs {
+            rom_bytes,
+            sav_bytes,
+            forced_timing_mode,
+            mut renderer,
+            mut audio_player,
+            input_poller,
+            save_writer,
+        } = args;
+
         let mapper = cartridge::from_ines_file(&rom_bytes, sav_bytes)?;
-        let timing_mode = mapper.timing_mode();
+        let timing_mode = forced_timing_mode.unwrap_or_else(|| mapper.timing_mode());
 
         renderer
             .set_timing_mode(timing_mode)
@@ -334,6 +351,7 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
             input_poller,
             save_writer,
             raw_rom_bytes: rom_bytes,
+            forced_timing_mode,
         })
     }
 
@@ -494,14 +512,15 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
         R::Err: Debug,
     {
         let prg_ram = sav_bytes.unwrap_or_else(|| Vec::from(self.bus.mapper().get_prg_ram()));
-        Self::create(
-            self.raw_rom_bytes,
-            Some(prg_ram),
-            self.renderer,
-            self.audio_player,
-            self.input_poller,
-            self.save_writer,
-        )
+        Self::create(EmulatorCreateArgs {
+            rom_bytes: self.raw_rom_bytes,
+            sav_bytes: Some(prg_ram),
+            forced_timing_mode: self.forced_timing_mode,
+            renderer: self.renderer,
+            audio_player: self.audio_player,
+            input_poller: self.input_poller,
+            save_writer: self.save_writer,
+        })
         .expect("hard reset should never fail cartridge validation")
     }
 }
