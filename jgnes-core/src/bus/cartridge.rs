@@ -20,6 +20,13 @@ pub enum TimingMode {
     Pal,
 }
 
+impl TimingMode {
+    #[must_use]
+    pub const fn all() -> &'static [TimingMode] {
+        &[TimingMode::Ntsc, TimingMode::Pal]
+    }
+}
+
 impl Display for TimingMode {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
