@@ -571,6 +571,7 @@ impl INesHeader {
 pub(crate) fn from_ines_file(
     file_bytes: &[u8],
     sav_bytes: Option<Vec<u8>>,
+    forced_timing_mode: Option<TimingMode>,
 ) -> Result<Mapper, CartridgeFileError> {
     let header = INesHeader::parse_from_file(file_bytes)?;
 
@@ -592,8 +593,16 @@ pub(crate) fn from_ines_file(
         vec![0; header.prg_ram_size as usize]
     };
 
+    let timing_mode = forced_timing_mode.unwrap_or(header.timing_mode);
+    if timing_mode != header.timing_mode {
+        log::info!(
+            "Forcing timing mode to {timing_mode}; ignoring timing mode {} from cartridge header",
+            header.timing_mode
+        );
+    }
+
     let cartridge = Cartridge {
-        timing_mode: header.timing_mode,
+        timing_mode,
         prg_rom,
         prg_ram,
         has_ram_battery: header.has_battery,
@@ -720,7 +729,7 @@ pub(crate) fn from_ines_file(
         }
     };
 
-    log::info!("Timing mode: {}", header.timing_mode);
+    log::info!("Timing mode: {timing_mode}");
     log::info!(
         "Mapper number: {} ({})",
         header.mapper_number,

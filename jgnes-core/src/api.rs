@@ -324,8 +324,8 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
             save_writer,
         } = args;
 
-        let mapper = cartridge::from_ines_file(&rom_bytes, sav_bytes)?;
-        let timing_mode = forced_timing_mode.unwrap_or_else(|| mapper.timing_mode());
+        let mapper = cartridge::from_ines_file(&rom_bytes, sav_bytes, forced_timing_mode)?;
+        let timing_mode = mapper.timing_mode();
 
         renderer
             .set_timing_mode(timing_mode)
