@@ -2,7 +2,7 @@
 
 use crate::bus;
 use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring, PpuMapResult};
-use crate::bus::cartridge::MapperImpl;
+use crate::bus::cartridge::{HasBasicPpuMapping, MapperImpl};
 use crate::num::GetBit;
 use bincode::{Decode, Encode};
 
@@ -113,7 +113,9 @@ impl MapperImpl<Namco175> {
             _ => {}
         }
     }
+}
 
+impl HasBasicPpuMapping for MapperImpl<Namco175> {
     fn map_ppu_address(&self, address: u16) -> PpuMapResult {
         match address {
             0x0000..=0x1FFF => {
@@ -127,14 +129,5 @@ impl MapperImpl<Namco175> {
             }
             0x3F00..=0xFFFF => panic!("invalid PPU map result: {address:04X}"),
         }
-    }
-
-    pub(crate) fn read_ppu_address(&self, address: u16, vram: &[u8; 2048]) -> u8 {
-        self.map_ppu_address(address).read(&self.cartridge, vram)
-    }
-
-    pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
-        self.map_ppu_address(address)
-            .write(value, &mut self.cartridge, vram);
     }
 }

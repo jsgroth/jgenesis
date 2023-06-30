@@ -9,7 +9,7 @@ use crate::bus::cartridge::mappers::konami::irq::VrcIrqCounter;
 use crate::bus::cartridge::mappers::{
     konami, BankSizeKb, ChrType, NametableMirroring, PpuMapResult,
 };
-use crate::bus::cartridge::MapperImpl;
+use crate::bus::cartridge::{HasBasicPpuMapping, MapperImpl};
 use crate::num::GetBit;
 use bincode::{Decode, Encode};
 use std::cmp;
@@ -926,24 +926,6 @@ impl MapperImpl<Vrc7> {
         }
     }
 
-    fn map_ppu_address(&self, address: u16) -> PpuMapResult {
-        konami::map_ppu_address(
-            address,
-            &self.data.chr_banks,
-            self.data.chr_type,
-            self.data.nametable_mirroring,
-        )
-    }
-
-    pub(crate) fn read_ppu_address(&self, address: u16, vram: &[u8; 2048]) -> u8 {
-        self.map_ppu_address(address).read(&self.cartridge, vram)
-    }
-
-    pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
-        self.map_ppu_address(address)
-            .write(value, &mut self.cartridge, vram);
-    }
-
     pub(crate) fn tick_cpu(&mut self) {
         self.data.irq.tick_cpu();
         self.data.audio.tick_cpu();
@@ -971,5 +953,16 @@ impl MapperImpl<Vrc7> {
         };
 
         mixed_apu_sample - clamped_sample
+    }
+}
+
+impl HasBasicPpuMapping for MapperImpl<Vrc7> {
+    fn map_ppu_address(&self, address: u16) -> PpuMapResult {
+        konami::map_ppu_address(
+            address,
+            &self.data.chr_banks,
+            self.data.chr_type,
+            self.data.nametable_mirroring,
+        )
     }
 }

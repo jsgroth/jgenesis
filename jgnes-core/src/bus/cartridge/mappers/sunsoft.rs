@@ -3,7 +3,7 @@
 use crate::bus::cartridge::mappers::{
     BankSizeKb, ChrType, CpuMapResult, NametableMirroring, PpuMapResult,
 };
-use crate::bus::cartridge::MapperImpl;
+use crate::bus::cartridge::{HasBasicPpuMapping, MapperImpl};
 use crate::num::GetBit;
 use bincode::{Decode, Encode};
 use std::sync::OnceLock;
@@ -349,30 +349,6 @@ impl MapperImpl<Sunsoft> {
         }
     }
 
-    fn map_ppu_address(&self, address: u16) -> PpuMapResult {
-        match address {
-            0x0000..=0x1FFF => {
-                let chr_bank_index = address / 0x0400;
-                let chr_addr = BankSizeKb::One
-                    .to_absolute_address(self.data.chr_banks[chr_bank_index as usize], address);
-                self.data.chr_type.to_map_result(chr_addr)
-            }
-            0x2000..=0x3EFF => {
-                PpuMapResult::Vram(self.data.nametable_mirroring.map_to_vram(address))
-            }
-            0x3F00..=0xFFFF => panic!("invalid PPU map address: {address:04X}"),
-        }
-    }
-
-    pub(crate) fn read_ppu_address(&self, address: u16, vram: &[u8; 2048]) -> u8 {
-        self.map_ppu_address(address).read(&self.cartridge, vram)
-    }
-
-    pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
-        self.map_ppu_address(address)
-            .write(value, &mut self.cartridge, vram);
-    }
-
     pub(crate) fn interrupt_flag(&self) -> bool {
         self.data.irq_triggered
     }
@@ -399,5 +375,22 @@ impl MapperImpl<Sunsoft> {
 
         // This audio chip appears to slightly decrease APU channel volume
         0.7 * mixed_apu_sample - sunsoft_5b_sample
+    }
+}
+
+impl HasBasicPpuMapping for MapperImpl<Sunsoft> {
+    fn map_ppu_address(&self, address: u16) -> PpuMapResult {
+        match address {
+            0x0000..=0x1FFF => {
+                let chr_bank_index = address / 0x0400;
+                let chr_addr = BankSizeKb::One
+                    .to_absolute_address(self.data.chr_banks[chr_bank_index as usize], address);
+                self.data.chr_type.to_map_result(chr_addr)
+            }
+            0x2000..=0x3EFF => {
+                PpuMapResult::Vram(self.data.nametable_mirroring.map_to_vram(address))
+            }
+            0x3F00..=0xFFFF => panic!("invalid PPU map address: {address:04X}"),
+        }
     }
 }

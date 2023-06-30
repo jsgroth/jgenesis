@@ -2,7 +2,7 @@
 
 use crate::bus;
 use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, PpuMapResult};
-use crate::bus::cartridge::MapperImpl;
+use crate::bus::cartridge::{HasBasicPpuMapping, MapperImpl};
 use crate::num::GetBit;
 use bincode::{Decode, Encode};
 
@@ -396,49 +396,6 @@ impl MapperImpl<Namco163> {
         }
     }
 
-    fn map_ppu_address(&self, address: u16) -> PpuMapResult {
-        match address {
-            0x0000..=0x1FFF => {
-                let bank_index = address / 0x0400;
-                let bank_number = self.data.pattern_table_chr_banks[bank_index as usize];
-                let pattern_table_index = address / 0x1000;
-                if bank_number >= 0xE0
-                    && self.data.vram_chr_banks_enabled[pattern_table_index as usize]
-                {
-                    let vram_bank = u16::from(bank_number & 0x01);
-                    PpuMapResult::Vram((vram_bank * 0x0400) | (address & 0x03FF))
-                } else {
-                    let chr_addr = BankSizeKb::One.to_absolute_address(bank_number, address);
-                    self.data.chr_type.to_map_result(chr_addr)
-                }
-            }
-            0x2000..=0x3EFF => {
-                let relative_addr = address & 0x0FFF;
-                let bank_index = relative_addr / 0x0400;
-                let bank_number = self.data.nametable_chr_banks[bank_index as usize];
-                if bank_number >= 0xE0 {
-                    let vram_bank = u16::from(bank_number & 0x01);
-                    PpuMapResult::Vram((vram_bank * 0x0400) | (address & 0x03FF))
-                } else {
-                    let chr_addr = BankSizeKb::One.to_absolute_address(bank_number, address);
-                    self.data.chr_type.to_map_result(chr_addr)
-                }
-            }
-            0x3F00..=0xFFFF => {
-                panic!("invalid PPU map address: {address:04X}")
-            }
-        }
-    }
-
-    pub(crate) fn read_ppu_address(&self, address: u16, vram: &[u8; 2048]) -> u8 {
-        self.map_ppu_address(address).read(&self.cartridge, vram)
-    }
-
-    pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
-        self.map_ppu_address(address)
-            .write(value, &mut self.cartridge, vram);
-    }
-
     pub(crate) fn tick_cpu(&mut self) {
         self.data.irq.tick_cpu();
         self.data.audio.tick_cpu(&self.data.internal_ram);
@@ -471,5 +428,41 @@ impl MapperImpl<Namco163> {
         let clamped_n163_sample = if n163_sample > 1.0 { 1.0 } else { n163_sample };
 
         mixed_apu_sample - clamped_n163_sample
+    }
+}
+
+impl HasBasicPpuMapping for MapperImpl<Namco163> {
+    fn map_ppu_address(&self, address: u16) -> PpuMapResult {
+        match address {
+            0x0000..=0x1FFF => {
+                let bank_index = address / 0x0400;
+                let bank_number = self.data.pattern_table_chr_banks[bank_index as usize];
+                let pattern_table_index = address / 0x1000;
+                if bank_number >= 0xE0
+                    && self.data.vram_chr_banks_enabled[pattern_table_index as usize]
+                {
+                    let vram_bank = u16::from(bank_number & 0x01);
+                    PpuMapResult::Vram((vram_bank * 0x0400) | (address & 0x03FF))
+                } else {
+                    let chr_addr = BankSizeKb::One.to_absolute_address(bank_number, address);
+                    self.data.chr_type.to_map_result(chr_addr)
+                }
+            }
+            0x2000..=0x3EFF => {
+                let relative_addr = address & 0x0FFF;
+                let bank_index = relative_addr / 0x0400;
+                let bank_number = self.data.nametable_chr_banks[bank_index as usize];
+                if bank_number >= 0xE0 {
+                    let vram_bank = u16::from(bank_number & 0x01);
+                    PpuMapResult::Vram((vram_bank * 0x0400) | (address & 0x03FF))
+                } else {
+                    let chr_addr = BankSizeKb::One.to_absolute_address(bank_number, address);
+                    self.data.chr_type.to_map_result(chr_addr)
+                }
+            }
+            0x3F00..=0xFFFF => {
+                panic!("invalid PPU map address: {address:04X}")
+            }
+        }
     }
 }

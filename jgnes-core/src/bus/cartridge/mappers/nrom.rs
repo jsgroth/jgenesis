@@ -13,9 +13,29 @@
 
 use crate::bus;
 use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring, PpuMapResult};
-use crate::bus::cartridge::MapperImpl;
+use crate::bus::cartridge::{Cartridge, HasBasicPpuMapping, MapperImpl};
 use crate::num::GetBit;
 use bincode::{Decode, Encode};
+
+fn basic_read_cpu_address(address: u16, cartridge: &Cartridge) -> u8 {
+    match address {
+        0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
+        0x4020..=0x7FFF => bus::cpu_open_bus(address),
+        0x8000..=0xFFFF => cartridge.get_prg_rom(u32::from(address & 0x7FFF)),
+    }
+}
+
+fn basic_map_ppu_address(
+    address: u16,
+    chr_type: ChrType,
+    nametable_mirroring: NametableMirroring,
+) -> PpuMapResult {
+    match address {
+        0x0000..=0x1FFF => chr_type.to_map_result(address.into()),
+        0x2000..=0x3EFF => PpuMapResult::Vram(nametable_mirroring.map_to_vram(address)),
+        _ => panic!("invalid PPU map address: 0x{address:04X}"),
+    }
+}
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub(crate) struct Nrom {
@@ -34,33 +54,18 @@ impl Nrom {
 
 impl MapperImpl<Nrom> {
     pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
-        match address {
-            0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
-            0x4020..=0x7FFF => bus::cpu_open_bus(address),
-            0x8000..=0xFFFF => self.cartridge.get_prg_rom(u32::from(address & 0x7FFF)),
-        }
+        basic_read_cpu_address(address, &self.cartridge)
     }
 
+    // Intentionally blank implementation that is present because every MapperImpl must have a
+    // write_cpu_address method; see Mapper::write_cpu_address
     #[allow(clippy::unused_self)]
     pub(crate) fn write_cpu_address(&self, _address: u16, _value: u8) {}
+}
 
+impl HasBasicPpuMapping for MapperImpl<Nrom> {
     fn map_ppu_address(&self, address: u16) -> PpuMapResult {
-        match address {
-            0x0000..=0x1FFF => self.data.chr_type.to_map_result(address.into()),
-            0x2000..=0x3EFF => {
-                PpuMapResult::Vram(self.data.nametable_mirroring.map_to_vram(address))
-            }
-            _ => panic!("invalid PPU map address: 0x{address:04X}"),
-        }
-    }
-
-    pub(crate) fn read_ppu_address(&self, address: u16, vram: &[u8; 2048]) -> u8 {
-        self.map_ppu_address(address).read(&self.cartridge, vram)
-    }
-
-    pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
-        self.map_ppu_address(address)
-            .write(value, &mut self.cartridge, vram);
+        basic_map_ppu_address(address, self.data.chr_type, self.data.nametable_mirroring)
     }
 }
 
@@ -144,31 +149,18 @@ impl MapperImpl<Uxrom> {
         }
     }
 
-    pub(crate) fn map_ppu_address(&self, address: u16) -> PpuMapResult {
-        match address {
-            0x0000..=0x1FFF => self.data.chr_type.to_map_result(address.into()),
-            0x2000..=0x3EFF => {
-                PpuMapResult::Vram(self.data.nametable_mirroring.map_to_vram(address))
-            }
-            _ => panic!("invalid PPU map address: 0x{address:04X}"),
-        }
-    }
-
-    pub(crate) fn read_ppu_address(&self, address: u16, vram: &[u8; 2048]) -> u8 {
-        self.map_ppu_address(address).read(&self.cartridge, vram)
-    }
-
-    pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
-        self.map_ppu_address(address)
-            .write(value, &mut self.cartridge, vram);
-    }
-
     pub(crate) fn name(&self) -> &'static str {
         match self.data.variant {
             UxromVariant::Uxrom => "UxROM",
             UxromVariant::Codemasters => "Codemasters",
             UxromVariant::FireHawk => "Codemasters (Fire Hawk variant)",
         }
+    }
+}
+
+impl HasBasicPpuMapping for MapperImpl<Uxrom> {
+    fn map_ppu_address(&self, address: u16) -> PpuMapResult {
+        basic_map_ppu_address(address, self.data.chr_type, self.data.nametable_mirroring)
     }
 }
 
@@ -191,11 +183,7 @@ impl Cnrom {
 
 impl MapperImpl<Cnrom> {
     pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
-        match address {
-            0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
-            0x4020..=0x7FFF => bus::cpu_open_bus(address),
-            0x8000..=0xFFFF => self.cartridge.get_prg_rom(u32::from(address & 0x7FFF)),
-        }
+        basic_read_cpu_address(address, &self.cartridge)
     }
 
     pub(crate) fn write_cpu_address(&mut self, address: u16, value: u8) {
@@ -207,7 +195,9 @@ impl MapperImpl<Cnrom> {
             }
         }
     }
+}
 
+impl HasBasicPpuMapping for MapperImpl<Cnrom> {
     fn map_ppu_address(&self, address: u16) -> PpuMapResult {
         match address {
             0x0000..=0x1FFF => {
@@ -219,15 +209,6 @@ impl MapperImpl<Cnrom> {
             }
             _ => panic!("invalid PPU map address: 0x{address:04X}"),
         }
-    }
-
-    pub(crate) fn read_ppu_address(&self, address: u16, vram: &[u8; 2048]) -> u8 {
-        self.map_ppu_address(address).read(&self.cartridge, vram)
-    }
-
-    pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
-        self.map_ppu_address(address)
-            .write(value, &mut self.cartridge, vram);
     }
 }
 
@@ -270,24 +251,11 @@ impl MapperImpl<Axrom> {
             NametableMirroring::SingleScreenBank0
         };
     }
+}
 
+impl HasBasicPpuMapping for MapperImpl<Axrom> {
     fn map_ppu_address(&self, address: u16) -> PpuMapResult {
-        match address {
-            0x0000..=0x1FFF => self.data.chr_type.to_map_result(address.into()),
-            0x2000..=0x3EFF => {
-                PpuMapResult::Vram(self.data.nametable_mirroring.map_to_vram(address))
-            }
-            _ => panic!("invalid PPU map address: 0x{address:04X}"),
-        }
-    }
-
-    pub(crate) fn read_ppu_address(&self, address: u16, vram: &[u8; 2048]) -> u8 {
-        self.map_ppu_address(address).read(&self.cartridge, vram)
-    }
-
-    pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
-        self.map_ppu_address(address)
-            .write(value, &mut self.cartridge, vram);
+        basic_map_ppu_address(address, self.data.chr_type, self.data.nametable_mirroring)
     }
 }
 
@@ -362,6 +330,16 @@ impl MapperImpl<Gxrom> {
         }
     }
 
+    pub(crate) fn name(&self) -> &'static str {
+        match self.data.variant {
+            GxromVariant::Gxrom => "GxROM",
+            GxromVariant::Jaleco => "Jaleco JF-11 / JF-14",
+            GxromVariant::ColorDreams => "Color Dreams",
+        }
+    }
+}
+
+impl HasBasicPpuMapping for MapperImpl<Gxrom> {
     fn map_ppu_address(&self, address: u16) -> PpuMapResult {
         match address {
             0x0000..=0x1FFF => {
@@ -373,23 +351,6 @@ impl MapperImpl<Gxrom> {
                 PpuMapResult::Vram(self.data.nametable_mirroring.map_to_vram(address))
             }
             0x3F00..=0xFFFF => panic!("invalid PPU map address: {address:04X}"),
-        }
-    }
-
-    pub(crate) fn read_ppu_address(&self, address: u16, vram: &[u8; 2048]) -> u8 {
-        self.map_ppu_address(address).read(&self.cartridge, vram)
-    }
-
-    pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
-        self.map_ppu_address(address)
-            .write(value, &mut self.cartridge, vram);
-    }
-
-    pub(crate) fn name(&self) -> &'static str {
-        match self.data.variant {
-            GxromVariant::Gxrom => "GxROM",
-            GxromVariant::Jaleco => "Jaleco JF-11 / JF-14",
-            GxromVariant::ColorDreams => "Color Dreams",
         }
     }
 }
@@ -455,7 +416,9 @@ impl MapperImpl<Bnrom> {
             }
         }
     }
+}
 
+impl HasBasicPpuMapping for MapperImpl<Bnrom> {
     fn map_ppu_address(&self, address: u16) -> PpuMapResult {
         match address {
             0x0000..=0x0FFF => {
@@ -471,14 +434,5 @@ impl MapperImpl<Bnrom> {
             }
             0x3F00..=0xFFFF => panic!("invalid PPU map address: {address:04X}"),
         }
-    }
-
-    pub(crate) fn read_ppu_address(&self, address: u16, vram: &[u8; 2048]) -> u8 {
-        self.map_ppu_address(address).read(&self.cartridge, vram)
-    }
-
-    pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
-        self.map_ppu_address(address)
-            .write(value, &mut self.cartridge, vram);
     }
 }

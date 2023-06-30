@@ -5,7 +5,7 @@ use crate::bus::cartridge::mappers::konami::irq::VrcIrqCounter;
 use crate::bus::cartridge::mappers::{
     konami, BankSizeKb, ChrType, NametableMirroring, PpuMapResult,
 };
-use crate::bus::cartridge::MapperImpl;
+use crate::bus::cartridge::{HasBasicPpuMapping, MapperImpl};
 use crate::num::GetBit;
 use bincode::{Decode, Encode};
 
@@ -357,24 +357,6 @@ impl MapperImpl<Vrc4> {
         }
     }
 
-    fn map_ppu_address(&self, address: u16) -> PpuMapResult {
-        konami::map_ppu_address(
-            address,
-            &self.data.chr_banks,
-            self.data.chr_type,
-            self.data.nametable_mirroring,
-        )
-    }
-
-    pub(crate) fn read_ppu_address(&self, address: u16, vram: &[u8; 2048]) -> u8 {
-        self.map_ppu_address(address).read(&self.cartridge, vram)
-    }
-
-    pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
-        self.map_ppu_address(address)
-            .write(value, &mut self.cartridge, vram);
-    }
-
     pub(crate) fn interrupt_flag(&self) -> bool {
         self.data.variant.to_type() == Type::Vrc4 && self.data.irq.interrupt_flag()
     }
@@ -390,5 +372,16 @@ impl MapperImpl<Vrc4> {
             Type::Vrc2 => "VRC2",
             Type::Vrc4 => "VRC4",
         }
+    }
+}
+
+impl HasBasicPpuMapping for MapperImpl<Vrc4> {
+    fn map_ppu_address(&self, address: u16) -> PpuMapResult {
+        konami::map_ppu_address(
+            address,
+            &self.data.chr_banks,
+            self.data.chr_type,
+            self.data.nametable_mirroring,
+        )
     }
 }

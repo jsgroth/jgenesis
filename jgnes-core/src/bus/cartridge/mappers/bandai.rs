@@ -5,7 +5,7 @@ mod eeprom;
 use crate::bus;
 use crate::bus::cartridge::mappers::bandai::eeprom::{X24C01Chip, X24C02Chip};
 use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring, PpuMapResult};
-use crate::bus::cartridge::MapperImpl;
+use crate::bus::cartridge::{HasBasicPpuMapping, MapperImpl};
 use crate::num::GetBit;
 use bincode::{Decode, Encode};
 
@@ -271,33 +271,6 @@ impl MapperImpl<BandaiFcg> {
         }
     }
 
-    fn map_ppu_address(&self, address: u16) -> PpuMapResult {
-        match address {
-            0x0000..=0x1FFF => match self.data.variant {
-                Variant::Lz93D50(MemoryVariant::RAM) => PpuMapResult::ChrRAM(address.into()),
-                _ => {
-                    let chr_bank_index = address / 0x0400;
-                    let chr_bank_number = self.data.chr_banks[chr_bank_index as usize];
-                    let chr_addr = BankSizeKb::One.to_absolute_address(chr_bank_number, address);
-                    self.data.chr_type.to_map_result(chr_addr)
-                }
-            },
-            0x2000..=0x3EFF => {
-                PpuMapResult::Vram(self.data.nametable_mirroring.map_to_vram(address))
-            }
-            0x3F00..=0xFFFF => panic!("invalid PPU map address: {address:04X}"),
-        }
-    }
-
-    pub(crate) fn read_ppu_address(&self, address: u16, vram: &[u8; 2048]) -> u8 {
-        self.map_ppu_address(address).read(&self.cartridge, vram)
-    }
-
-    pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
-        self.map_ppu_address(address)
-            .write(value, &mut self.cartridge, vram);
-    }
-
     pub(crate) fn tick_cpu(&mut self) {
         self.data.irq.tick_cpu();
     }
@@ -328,6 +301,26 @@ impl MapperImpl<BandaiFcg> {
             Variant::Fcg => "Bandai FCG-1 / FCG-2",
             Variant::Lz93D50(_) => "Bandai LZ93D50",
             Variant::Unknown => "Bandai FCG",
+        }
+    }
+}
+
+impl HasBasicPpuMapping for MapperImpl<BandaiFcg> {
+    fn map_ppu_address(&self, address: u16) -> PpuMapResult {
+        match address {
+            0x0000..=0x1FFF => match self.data.variant {
+                Variant::Lz93D50(MemoryVariant::RAM) => PpuMapResult::ChrRAM(address.into()),
+                _ => {
+                    let chr_bank_index = address / 0x0400;
+                    let chr_bank_number = self.data.chr_banks[chr_bank_index as usize];
+                    let chr_addr = BankSizeKb::One.to_absolute_address(chr_bank_number, address);
+                    self.data.chr_type.to_map_result(chr_addr)
+                }
+            },
+            0x2000..=0x3EFF => {
+                PpuMapResult::Vram(self.data.nametable_mirroring.map_to_vram(address))
+            }
+            0x3F00..=0xFFFF => panic!("invalid PPU map address: {address:04X}"),
         }
     }
 }

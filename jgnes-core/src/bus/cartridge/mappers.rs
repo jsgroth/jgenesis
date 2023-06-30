@@ -94,7 +94,7 @@ pub(crate) enum PpuMapResult {
 }
 
 impl PpuMapResult {
-    fn read(self, cartridge: &Cartridge, vram: &[u8; 2048]) -> u8 {
+    pub(super) fn read(self, cartridge: &Cartridge, vram: &[u8; 2048]) -> u8 {
         match self {
             Self::ChrROM(address) => cartridge.get_chr_rom(address),
             Self::ChrRAM(address) => cartridge.get_chr_ram(address),
@@ -102,7 +102,7 @@ impl PpuMapResult {
         }
     }
 
-    fn write(self, value: u8, cartridge: &mut Cartridge, vram: &mut [u8; 2048]) {
+    pub(super) fn write(self, value: u8, cartridge: &mut Cartridge, vram: &mut [u8; 2048]) {
         match self {
             Self::ChrROM(_) => {}
             Self::ChrRAM(address) => {

@@ -3,7 +3,7 @@
 use crate::bus::cartridge::mappers::{
     BankSizeKb, ChrType, CpuMapResult, NametableMirroring, PpuMapResult,
 };
-use crate::bus::cartridge::MapperImpl;
+use crate::bus::cartridge::{HasBasicPpuMapping, MapperImpl};
 use crate::num::GetBit;
 use bincode::{Decode, Encode};
 
@@ -186,6 +186,13 @@ impl MapperImpl<Mmc1> {
         }
     }
 
+    pub(crate) fn tick_cpu(&mut self) {
+        self.data.written_last_cycle = self.data.written_this_cycle;
+        self.data.written_this_cycle = false;
+    }
+}
+
+impl HasBasicPpuMapping for MapperImpl<Mmc1> {
     fn map_ppu_address(&self, address: u16) -> PpuMapResult {
         match address {
             0x0000..=0x1FFF => match self.data.chr_banking_mode {
@@ -211,19 +218,5 @@ impl MapperImpl<Mmc1> {
             }
             _ => panic!("invalid PPU map address: 0x{address:04X}"),
         }
-    }
-
-    pub(crate) fn read_ppu_address(&self, address: u16, vram: &[u8; 2048]) -> u8 {
-        self.map_ppu_address(address).read(&self.cartridge, vram)
-    }
-
-    pub(crate) fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
-        self.map_ppu_address(address)
-            .write(value, &mut self.cartridge, vram);
-    }
-
-    pub(crate) fn tick_cpu(&mut self) {
-        self.data.written_last_cycle = self.data.written_this_cycle;
-        self.data.written_this_cycle = false;
     }
 }

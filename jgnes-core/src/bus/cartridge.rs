@@ -2,7 +2,7 @@ mod mappers;
 
 use crate::bus::cartridge::mappers::{
     Axrom, BandaiFcg, Bnrom, ChrType, Cnrom, Gxrom, Mmc1, Mmc2, Mmc3, Mmc5, Namco163, Namco175,
-    NametableMirroring, Nrom, Sunsoft, Uxrom, Vrc4, Vrc6, Vrc7,
+    NametableMirroring, Nrom, PpuMapResult, Sunsoft, Uxrom, Vrc4, Vrc6, Vrc7,
 };
 use bincode::de::{BorrowDecoder, Decoder};
 use bincode::enc::Encoder;
@@ -165,6 +165,24 @@ pub(crate) struct MapperImpl<MapperData> {
     data: MapperData,
 }
 
+pub(crate) trait HasBasicPpuMapping {
+    fn map_ppu_address(&self, address: u16) -> PpuMapResult;
+}
+
+impl<MapperData> MapperImpl<MapperData>
+where
+    MapperImpl<MapperData>: HasBasicPpuMapping,
+{
+    fn read_ppu_address(&self, address: u16, vram: &[u8; 2048]) -> u8 {
+        self.map_ppu_address(address).read(&self.cartridge, vram)
+    }
+
+    fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
+        self.map_ppu_address(address)
+            .write(value, &mut self.cartridge, vram);
+    }
+}
+
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Encode, Decode, MatchEachVariantMacro)]
 pub(crate) enum Mapper {
@@ -174,7 +192,6 @@ pub(crate) enum Mapper {
     Cnrom(MapperImpl<Cnrom>),
     Gxrom(MapperImpl<Gxrom>),
     Mmc1(MapperImpl<Mmc1>),
-    // Used for both MMC2 and MMC4 because they're almost exactly the same
     Mmc2(MapperImpl<Mmc2>),
     Mmc3(MapperImpl<Mmc3>),
     Mmc5(MapperImpl<Mmc5>),
