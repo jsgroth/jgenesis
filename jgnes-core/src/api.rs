@@ -506,6 +506,7 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
     /// Completely re-initialize all emulation state.
     ///
     /// `sav_bytes` will be used if set, otherwise PRG RAM will be moved from the existing Emulator.
+    #[allow(clippy::missing_panics_doc)]
     #[must_use]
     pub fn hard_reset(self, sav_bytes: Option<Vec<u8>>) -> Self
     where

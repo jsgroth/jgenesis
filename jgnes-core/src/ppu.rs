@@ -339,7 +339,7 @@ impl PpuState {
 
 pub fn render_pal_black_border(state: &mut PpuState) {
     // Clear top scanline
-    for value in state.frame_buffer[0].iter_mut() {
+    for value in &mut state.frame_buffer[0] {
         *value = BLACK_NES_COLOR;
     }
 

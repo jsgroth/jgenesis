@@ -32,7 +32,7 @@ impl LowPassFilter {
                 .samples
                 .iter()
                 .copied()
-                .zip(FIR_COEFFICIENTS.into_iter())
+                .zip(FIR_COEFFICIENTS)
                 .map(|(a, b)| a * b)
                 .sum::<f64>()
     }

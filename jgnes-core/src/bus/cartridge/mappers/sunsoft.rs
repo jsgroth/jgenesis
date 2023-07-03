@@ -90,7 +90,7 @@ impl Sunsoft5bChannel {
 
             // Normalize the values so that the max is 1.0
             let max = lookup_table[15];
-            for value in lookup_table[1..].iter_mut() {
+            for value in &mut lookup_table[1..] {
                 *value /= max;
             }
 
