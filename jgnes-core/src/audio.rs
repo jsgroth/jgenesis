@@ -16,6 +16,7 @@ impl LowPassFilter {
         }
     }
 
+    #[inline]
     pub fn collect_sample(&mut self, sample: f64) {
         self.samples.push_back(sample);
         if self.samples.len() > FIR_COEFFICIENTS.len() {
@@ -24,6 +25,7 @@ impl LowPassFilter {
     }
 
     #[must_use]
+    #[inline]
     pub fn output_sample(&self) -> f64 {
         FIR_COEFFICIENT_0
             + self
@@ -119,6 +121,7 @@ impl DownsampleCounter {
     }
 
     #[must_use]
+    #[inline]
     pub fn increment(&mut self) -> DownsampleAction {
         self.sample_count += 1;
 

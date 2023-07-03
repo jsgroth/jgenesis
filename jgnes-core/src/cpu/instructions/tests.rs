@@ -86,6 +86,7 @@ fn run_test(program: &str, expected_state: ExpectedState) {
     let mut cycle_count = 0;
     while cpu_state.registers.pc < 0x8000 + program_len || !cpu_state.at_instruction_start() {
         cpu::tick(&mut cpu_state, &mut bus.cpu(), false).unwrap();
+        bus.tick_cpu();
         bus.tick();
 
         cycle_count += 1;

@@ -134,6 +134,12 @@ enum State {
     OamDma(OamDmaState),
 }
 
+impl State {
+    const INITIAL: Self = Self::InstructionStart {
+        pending_interrupt: false,
+    };
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct CpuState {
     registers: CpuRegisters,
@@ -144,9 +150,7 @@ impl CpuState {
     pub fn new(registers: CpuRegisters) -> Self {
         Self {
             registers,
-            state: State::InstructionStart {
-                pending_interrupt: false,
-            },
+            state: State::INITIAL,
         }
     }
 
@@ -167,12 +171,7 @@ pub fn tick(
     bus: &mut CpuBus<'_>,
     is_apu_active_cycle: bool,
 ) -> Result<(), CpuError> {
-    state.state = match std::mem::replace(
-        &mut state.state,
-        State::InstructionStart {
-            pending_interrupt: false,
-        },
-    ) {
+    state.state = match std::mem::replace(&mut state.state, State::INITIAL) {
         State::InstructionStart { pending_interrupt } => {
             // Always read opcode, even if it won't be used
             let opcode = bus.read_address(state.registers.pc);
@@ -290,7 +289,5 @@ pub fn reset(cpu_state: &mut CpuState, bus: &mut CpuBus<'_>) {
 
     cpu_state.registers.status.interrupt_disable = true;
 
-    cpu_state.state = State::InstructionStart {
-        pending_interrupt: false,
-    };
+    cpu_state.state = State::INITIAL;
 }

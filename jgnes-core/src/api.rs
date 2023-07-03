@@ -418,8 +418,8 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
         )?;
         apu::tick(&mut self.apu_state, &mut self.bus.cpu(), config);
         ppu::tick(&mut self.ppu_state, &mut self.bus.ppu());
-        self.bus.tick();
         self.bus.tick_cpu();
+        self.bus.tick();
 
         self.bus.poll_interrupt_lines();
 
@@ -443,8 +443,8 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
         )?;
         apu::tick(&mut self.apu_state, &mut self.bus.cpu(), config);
         ppu::tick(&mut self.ppu_state, &mut self.bus.ppu());
-        self.bus.tick();
         self.bus.tick_cpu();
+        self.bus.tick();
 
         self.bus.poll_interrupt_lines();
 
@@ -458,8 +458,8 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
                     self.apu_state.is_active_cycle(),
                 )?;
                 apu::tick(&mut self.apu_state, &mut self.bus.cpu(), config);
-                self.bus.tick();
                 self.bus.tick_cpu();
+                self.bus.tick();
 
                 self.bus.poll_interrupt_lines();
 

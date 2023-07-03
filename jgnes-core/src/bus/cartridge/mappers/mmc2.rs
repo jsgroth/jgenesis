@@ -31,9 +31,9 @@ pub(crate) struct Mmc2 {
 }
 
 impl Mmc2 {
-    pub(crate) fn new_mmc2() -> Self {
+    fn new(variant: Variant) -> Self {
         Self {
-            variant: Variant::Mmc2,
+            variant,
             prg_bank: 0,
             chr_0_fd_bank: 0,
             chr_0_fe_bank: 0,
@@ -45,11 +45,12 @@ impl Mmc2 {
         }
     }
 
+    pub(crate) fn new_mmc2() -> Self {
+        Self::new(Variant::Mmc2)
+    }
+
     pub(crate) fn new_mmc4() -> Self {
-        Self {
-            variant: Variant::Mmc4,
-            ..Self::new_mmc2()
-        }
+        Self::new(Variant::Mmc4)
     }
 }
 

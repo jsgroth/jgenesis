@@ -780,7 +780,9 @@ fn render_pixel(state: &mut PpuState, bus: &mut PpuBus<'_>) {
 }
 
 fn fetch_bg_tile_data(state: &mut PpuState, bus: &mut PpuBus<'_>) {
-    assert!(RENDERING_DOTS.contains(&state.dot) || BG_TILE_PRE_FETCH_DOTS.contains(&state.dot));
+    debug_assert!(
+        RENDERING_DOTS.contains(&state.dot) || BG_TILE_PRE_FETCH_DOTS.contains(&state.dot)
+    );
 
     let tile_cycle_offset = (state.dot - 1) & 0x07;
     let bg_pattern_table_address = bus.get_ppu_registers().bg_pattern_table_address();
@@ -795,7 +797,8 @@ fn fetch_bg_tile_data(state: &mut PpuState, bus: &mut PpuBus<'_>) {
             let next_palette_index = u16::from(fetch_palette_index(&state.registers, bus));
             state.bg_buffers.next_palette_indices = (0..8)
                 .map(|i| next_palette_index << (2 * i))
-                .fold(0, |a, b| a | b);
+                .reduce(|a, b| a | b)
+                .unwrap();
         }
         2 => {
             state.bg_buffers.next_pattern_table_low = fetch_bg_pattern_table_byte(
@@ -820,7 +823,7 @@ fn fetch_bg_tile_data(state: &mut PpuState, bus: &mut PpuBus<'_>) {
 }
 
 fn fetch_sprite_tile_data(state: &mut PpuState, bus: &mut PpuBus<'_>) {
-    assert!(SPRITE_TILE_FETCH_DOTS.contains(&state.dot));
+    debug_assert!(SPRITE_TILE_FETCH_DOTS.contains(&state.dot));
 
     let sprite_pattern_table_address = bus.get_ppu_registers().sprite_pattern_table_address();
     let double_height_sprites = bus.get_ppu_registers().double_height_sprites();
@@ -923,7 +926,7 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     let oam = bus.get_oam();
     evaluation_data.state = match evaluation_data.state {
         SpriteEvaluationState::ScanningOam { primary_oam_index } => {
-            assert!(primary_oam_index < 64 && evaluation_data.sprites_found < 8);
+            debug_assert!(primary_oam_index < 64 && evaluation_data.sprites_found < 8);
 
             let y_position = oam[(primary_oam_index << 2) as usize];
 
@@ -958,7 +961,7 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>) {
             primary_oam_index,
             byte_index,
         } => {
-            assert!(primary_oam_index < 64 && byte_index < 4);
+            debug_assert!(primary_oam_index < 64 && byte_index < 4);
 
             let next_byte = oam[((primary_oam_index << 2) | byte_index) as usize];
             evaluation_data.secondary_oam
@@ -1174,10 +1177,11 @@ fn get_bg_color_id(pattern_table_low: u16, pattern_table_high: u16, fine_x: u8) 
 }
 
 fn get_color_id(pattern_table_low: u8, pattern_table_high: u8, fine_x: u8) -> u8 {
-    assert!(fine_x < 8, "fine_x must be less than 8: {fine_x}");
+    debug_assert!(fine_x < 8, "fine_x must be less than 8: {fine_x}");
 
-    ((pattern_table_low & (1 << (7 - fine_x))) >> (7 - fine_x))
-        | (((pattern_table_high & (1 << (7 - fine_x))) >> (7 - fine_x)) << 1)
+    let shift = 7 - fine_x;
+    let mask = 1 << shift;
+    ((pattern_table_low & mask) >> shift) | (((pattern_table_high & mask) >> shift) << 1)
 }
 
 #[cfg(test)]

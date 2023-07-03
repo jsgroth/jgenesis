@@ -26,7 +26,6 @@ use crate::bus::{CpuBus, IoRegister, IrqSource, TimingMode};
 use crate::num::GetBit;
 use crate::EmulatorConfig;
 use bincode::{Decode, Encode};
-use std::iter;
 use std::ops::Range;
 use std::sync::OnceLock;
 
@@ -175,79 +174,73 @@ impl ApuState {
         self.frame_counter.cpu_ticks.bit(0)
     }
 
-    fn process_register_updates(
-        &mut self,
-        iter: impl Iterator<Item = (IoRegister, u8)>,
-        bus: &mut CpuBus<'_>,
-    ) {
-        for (register, value) in iter {
-            match register {
-                IoRegister::SQ1_VOL => {
-                    self.pulse_channel_1.process_vol_update(value);
-                }
-                IoRegister::SQ1_SWEEP => {
-                    self.pulse_channel_1.process_sweep_update(value);
-                }
-                IoRegister::SQ1_LO => {
-                    self.pulse_channel_1.process_lo_update(value);
-                }
-                IoRegister::SQ1_HI => {
-                    self.pulse_channel_1.process_hi_update(value);
-                }
-                IoRegister::SQ2_VOL => {
-                    self.pulse_channel_2.process_vol_update(value);
-                }
-                IoRegister::SQ2_SWEEP => {
-                    self.pulse_channel_2.process_sweep_update(value);
-                }
-                IoRegister::SQ2_LO => {
-                    self.pulse_channel_2.process_lo_update(value);
-                }
-                IoRegister::SQ2_HI => {
-                    self.pulse_channel_2.process_hi_update(value);
-                }
-                IoRegister::TRI_LINEAR => {
-                    self.triangle_channel.process_tri_linear_update(value);
-                }
-                IoRegister::TRI_LO => {
-                    self.triangle_channel.process_lo_update(value);
-                }
-                IoRegister::TRI_HI => {
-                    self.triangle_channel.process_hi_update(value);
-                }
-                IoRegister::NOISE_VOL => {
-                    self.noise_channel.process_vol_update(value);
-                }
-                IoRegister::NOISE_LO => {
-                    self.noise_channel.process_lo_update(value);
-                }
-                IoRegister::NOISE_HI => {
-                    self.noise_channel.process_hi_update(value);
-                }
-                IoRegister::DMC_FREQ => {
-                    self.dmc.process_dmc_freq_update(value);
-                }
-                IoRegister::DMC_RAW => {
-                    self.dmc.process_dmc_raw_update(value);
-                }
-                IoRegister::DMC_START => {
-                    self.dmc.process_dmc_start_update(value);
-                }
-                IoRegister::DMC_LEN => {
-                    self.dmc.process_dmc_len_update(value);
-                }
-                IoRegister::SND_CHN => {
-                    self.pulse_channel_1.process_snd_chn_update(value);
-                    self.pulse_channel_2.process_snd_chn_update(value);
-                    self.triangle_channel.process_snd_chn_update(value);
-                    self.noise_channel.process_snd_chn_update(value);
-                    self.dmc.process_snd_chn_update(value, bus);
-                }
-                IoRegister::JOY2 => {
-                    self.frame_counter.process_joy2_update(value);
-                }
-                _ => {}
+    fn process_register_update(&mut self, register: IoRegister, value: u8, bus: &mut CpuBus<'_>) {
+        match register {
+            IoRegister::SQ1_VOL => {
+                self.pulse_channel_1.process_vol_update(value);
             }
+            IoRegister::SQ1_SWEEP => {
+                self.pulse_channel_1.process_sweep_update(value);
+            }
+            IoRegister::SQ1_LO => {
+                self.pulse_channel_1.process_lo_update(value);
+            }
+            IoRegister::SQ1_HI => {
+                self.pulse_channel_1.process_hi_update(value);
+            }
+            IoRegister::SQ2_VOL => {
+                self.pulse_channel_2.process_vol_update(value);
+            }
+            IoRegister::SQ2_SWEEP => {
+                self.pulse_channel_2.process_sweep_update(value);
+            }
+            IoRegister::SQ2_LO => {
+                self.pulse_channel_2.process_lo_update(value);
+            }
+            IoRegister::SQ2_HI => {
+                self.pulse_channel_2.process_hi_update(value);
+            }
+            IoRegister::TRI_LINEAR => {
+                self.triangle_channel.process_tri_linear_update(value);
+            }
+            IoRegister::TRI_LO => {
+                self.triangle_channel.process_lo_update(value);
+            }
+            IoRegister::TRI_HI => {
+                self.triangle_channel.process_hi_update(value);
+            }
+            IoRegister::NOISE_VOL => {
+                self.noise_channel.process_vol_update(value);
+            }
+            IoRegister::NOISE_LO => {
+                self.noise_channel.process_lo_update(value);
+            }
+            IoRegister::NOISE_HI => {
+                self.noise_channel.process_hi_update(value);
+            }
+            IoRegister::DMC_FREQ => {
+                self.dmc.process_dmc_freq_update(value);
+            }
+            IoRegister::DMC_RAW => {
+                self.dmc.process_dmc_raw_update(value);
+            }
+            IoRegister::DMC_START => {
+                self.dmc.process_dmc_start_update(value);
+            }
+            IoRegister::DMC_LEN => {
+                self.dmc.process_dmc_len_update(value);
+            }
+            IoRegister::SND_CHN => {
+                self.pulse_channel_1.process_snd_chn_update(value);
+                self.pulse_channel_2.process_snd_chn_update(value);
+                self.triangle_channel.process_snd_chn_update(value);
+                self.noise_channel.process_snd_chn_update(value);
+                self.dmc.process_snd_chn_update(value, bus);
+            }
+            IoRegister::JOY2 => {
+                self.frame_counter.process_joy2_update(value);
+            }
+            _ => {}
         }
     }
 
@@ -388,8 +381,9 @@ pub fn tick(state: &mut ApuState, bus: &mut CpuBus<'_>, config: &EmulatorConfig)
         state.frame_counter_interrupt_flag = false;
     }
 
-    let dirty_registers: Vec<_> = bus.get_io_registers_mut().drain_dirty_registers().collect();
-    state.process_register_updates(dirty_registers.into_iter(), bus);
+    if let Some((dirty_register, value)) = bus.get_io_registers_mut().take_dirty_register() {
+        state.process_register_update(dirty_register, value, bus);
+    }
 
     state.tick_cpu(bus, config);
 
@@ -404,7 +398,7 @@ pub fn tick(state: &mut ApuState, bus: &mut CpuBus<'_>, config: &EmulatorConfig)
 /// counter, and reset some triangle wave generator and DMC state.
 pub fn reset(state: &mut ApuState, bus: &mut CpuBus<'_>) {
     // Silence the APU by simulating a SND_CHN=$00 write
-    state.process_register_updates(iter::once((IoRegister::SND_CHN, 0x00)), bus);
+    state.process_register_update(IoRegister::SND_CHN, 0x00, bus);
 
     state.frame_counter.reset_state = FrameCounterResetState::Joy2Updated;
     state.frame_counter_interrupt_flag = false;

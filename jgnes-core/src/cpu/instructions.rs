@@ -425,8 +425,8 @@ impl CycleOp {
         bus: &mut CpuBus<'_>,
     ) -> InstructionState {
         // Check for interrupts before executing op because op could modify the I flag
-        let last_cycle_op = usize::from(state.op_index) == state.ops.len() - 1;
-        if last_cycle_op
+        let is_last_cycle = usize::from(state.op_index) == state.ops.len() - 1;
+        if is_last_cycle
             || matches!(
                 self,
                 Self::CheckBranchCondition(..)

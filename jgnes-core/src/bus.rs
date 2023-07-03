@@ -40,7 +40,6 @@ use crate::input::{JoypadState, LatchedJoypadState};
 use crate::num::GetBit;
 use bincode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
-use tinyvec::ArrayVec;
 
 pub use cartridge::TimingMode;
 
@@ -300,7 +299,7 @@ impl PpuRegisters {
 
 #[allow(clippy::upper_case_acronyms)]
 #[allow(non_camel_case_types)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum IoRegister {
     SQ1_VOL,
     SQ1_SWEEP,
@@ -394,8 +393,7 @@ impl IoRegister {
 pub struct IoRegisters {
     data: [u8; 0x18],
     dma_dirty: bool,
-    #[bincode(with_serde)]
-    dirty_registers: ArrayVec<[IoRegister; 5]>,
+    dirty_register: Option<IoRegister>,
     snd_chn_read: bool,
     p1_joypad_state: JoypadState,
     p2_joypad_state: JoypadState,
@@ -403,14 +401,14 @@ pub struct IoRegisters {
 }
 
 impl IoRegisters {
-    // All I/O registers are at $40xx and SND_CHN/JOY1/JOY2 all leave the highest 3 bits unused
+    // All I/O registers are at $40xx, and JOY1/JOY2 leave the highest 3 bits unused
     const IO_OPEN_BUS_BITS: u8 = 0x40;
 
     fn new() -> Self {
         Self {
             data: [0; 0x18],
             dma_dirty: false,
-            dirty_registers: ArrayVec::new(),
+            dirty_register: None,
             snd_chn_read: false,
             p1_joypad_state: JoypadState::new(),
             p2_joypad_state: JoypadState::new(),
@@ -458,9 +456,13 @@ impl IoRegisters {
         self.write_register(register, value);
     }
 
+    #[allow(clippy::manual_assert)]
     fn write_register(&mut self, register: IoRegister, value: u8) {
         self.data[register.to_relative_address()] = value;
-        self.dirty_registers.push(register);
+
+        if self.dirty_register.replace(register).is_some() {
+            panic!("Attempted to write an I/O register twice in the same cycle");
+        }
 
         match register {
             IoRegister::JOY1 => {
@@ -478,9 +480,9 @@ impl IoRegisters {
         }
     }
 
-    pub fn drain_dirty_registers(&mut self) -> impl Iterator<Item = (IoRegister, u8)> + '_ {
-        self.dirty_registers
-            .drain(..)
+    pub fn take_dirty_register(&mut self) -> Option<(IoRegister, u8)> {
+        self.dirty_register
+            .take()
             .map(|register| (register, self.data[register.to_relative_address()]))
     }
 
@@ -531,7 +533,6 @@ pub struct InterruptLines {
     next_nmi_line: InterruptLine,
     nmi_triggered: bool,
     irq_status: IrqStatus,
-    irq_line: InterruptLine,
     irq_low_pulls: u8,
 }
 
@@ -542,7 +543,6 @@ impl InterruptLines {
             next_nmi_line: InterruptLine::High,
             nmi_triggered: false,
             irq_status: IrqStatus::None,
-            irq_line: InterruptLine::High,
             irq_low_pulls: 0x00,
         }
     }
@@ -553,13 +553,13 @@ impl InterruptLines {
         }
         self.nmi_line = self.next_nmi_line;
 
-        self.irq_line = if self.irq_low_pulls != 0 {
+        let irq_line = if self.irq_low_pulls != 0 {
             InterruptLine::Low
         } else {
             InterruptLine::High
         };
 
-        match (self.irq_line, self.irq_status) {
+        match (irq_line, self.irq_status) {
             (InterruptLine::High, _) => {
                 self.irq_status = IrqStatus::None;
             }
@@ -590,19 +590,11 @@ impl InterruptLines {
         self.irq_status == IrqStatus::Triggered
     }
 
-    pub fn pull_irq_low(&mut self, source: IrqSource) {
-        self.irq_low_pulls |= source.to_low_pull_bit();
-    }
-
-    pub fn release_irq_low_pull(&mut self, source: IrqSource) {
-        self.irq_low_pulls &= !source.to_low_pull_bit();
-    }
-
     pub fn set_irq_low_pull(&mut self, source: IrqSource, value: bool) {
         if value {
-            self.pull_irq_low(source);
+            self.irq_low_pulls |= source.to_low_pull_bit();
         } else {
-            self.release_irq_low_pull(source);
+            self.irq_low_pulls &= !source.to_low_pull_bit();
         }
     }
 }
@@ -655,24 +647,24 @@ impl Bus {
     }
 
     pub fn tick(&mut self) {
+        self.ppu_registers.tick(&mut self.interrupt_lines);
+        self.mapper.tick(self.ppu_bus_address);
+    }
+
+    pub fn tick_cpu(&mut self) {
         if let Some(write) = self.pending_write.take() {
             self.cpu().apply_write(write.address, write.value);
         }
 
-        self.ppu_registers.tick(&mut self.interrupt_lines);
-        self.mapper.tick(self.ppu_bus_address);
-
-        self.interrupt_lines
-            .set_irq_low_pull(IrqSource::Mapper, self.mapper.interrupt_flag());
-    }
-
-    pub fn tick_cpu(&mut self) {
         self.mapper.tick_cpu();
     }
 
     // Poll NMI/IRQ interrupt lines; this should be called once per CPU cycle, between the first
     // and second PPU ticks
     pub fn poll_interrupt_lines(&mut self) {
+        self.interrupt_lines
+            .set_irq_low_pull(IrqSource::Mapper, self.mapper.interrupt_flag());
+
         self.interrupt_lines.tick();
     }
 
@@ -881,7 +873,6 @@ impl<'a> CpuBus<'a> {
         }
     }
 
-    // TODO potentially move oamdma methods to IoRegisters depending on how that API shakes out
     pub fn is_oamdma_dirty(&self) -> bool {
         self.0.io_registers.dma_dirty
     }
