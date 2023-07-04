@@ -1098,7 +1098,6 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>, remove_sprite_li
 }
 
 fn finish_sprite_evaluation_no_limit(state: &mut PpuState, bus: &mut PpuBus<'_>) {
-    log::info!("asdfasdf");
     while !matches!(
         &state.sprite_evaluation_data.state,
         SpriteEvaluationState::Done { .. }
