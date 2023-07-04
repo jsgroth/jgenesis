@@ -9,6 +9,7 @@
 
 use crate::bus::{PpuBus, PpuTrackedRegister, PpuWriteToggle, TimingMode};
 use crate::num::GetBit;
+use crate::EmulatorConfig;
 use bincode::{Decode, Encode};
 use std::ops::RangeInclusive;
 
@@ -22,7 +23,6 @@ const DOTS_PER_SCANLINE: u16 = 341;
 const VBLANK_FLAG_SET_DOT: u16 = 2;
 const RENDERING_DOTS: RangeInclusive<u16> = 1..=256;
 const SPRITE_EVALUATION_DOTS: RangeInclusive<u16> = 65..=256;
-const SPRITE_TILE_FETCH_DOTS: RangeInclusive<u16> = 257..=320;
 const BG_TILE_PRE_FETCH_DOTS: RangeInclusive<u16> = 321..=336;
 const RESET_VERTICAL_POS_DOTS: RangeInclusive<u16> = 280..=304;
 const INC_VERTICAL_POS_DOT: u16 = 256;
@@ -169,14 +169,32 @@ impl BitSet256 {
     }
 }
 
+#[derive(Debug, Clone, Copy, Encode, Decode)]
+struct SpriteBufferData {
+    y_position: u8,
+    x_position: u8,
+    attributes: u8,
+    tile_index: u8,
+}
+
+impl Default for SpriteBufferData {
+    fn default() -> Self {
+        Self {
+            y_position: 0xFF,
+            x_position: 0xFF,
+            attributes: 0xFF,
+            tile_index: 0xFF,
+        }
+    }
+}
+
+const SPRITE_BUFFER_LEN: usize = 64;
+
 #[derive(Debug, Clone, Encode, Decode)]
 struct SpriteBuffers {
-    y_positions: [u8; 8],
-    x_positions: [u8; 8],
-    attributes: [u8; 8],
-    tile_indices: [u8; 8],
-    pattern_table_low: [u8; 8],
-    pattern_table_high: [u8; 8],
+    sprites: [SpriteBufferData; SPRITE_BUFFER_LEN],
+    pattern_table_low: [u8; SPRITE_BUFFER_LEN],
+    pattern_table_high: [u8; SPRITE_BUFFER_LEN],
     buffer_len: u8,
     sprite_0_buffered: bool,
     // Stores whether there is any sprite at the given X coordinate
@@ -186,12 +204,9 @@ struct SpriteBuffers {
 impl SpriteBuffers {
     fn new() -> Self {
         Self {
-            y_positions: [0xFF; 8],
-            x_positions: [0xFF; 8],
-            attributes: [0xFF; 8],
-            tile_indices: [0xFF; 8],
-            pattern_table_low: [0; 8],
-            pattern_table_high: [0; 8],
+            sprites: [SpriteBufferData::default(); SPRITE_BUFFER_LEN],
+            pattern_table_low: [0; SPRITE_BUFFER_LEN],
+            pattern_table_high: [0; SPRITE_BUFFER_LEN],
             buffer_len: 0,
             sprite_0_buffered: false,
             sprite_x_bit_set: BitSet256::new(),
@@ -220,7 +235,7 @@ enum SpriteEvaluationState {
 
 #[derive(Debug, Clone, Encode, Decode)]
 struct SpriteEvaluationData {
-    secondary_oam: [u8; 32],
+    secondary_oam: [u8; SPRITE_BUFFER_LEN * 4],
     sprites_found: u8,
     sprite_0_found: bool,
     state: SpriteEvaluationState,
@@ -229,7 +244,7 @@ struct SpriteEvaluationData {
 impl SpriteEvaluationData {
     fn new() -> Self {
         Self {
-            secondary_oam: [0xFF; 32],
+            secondary_oam: [0xFF; SPRITE_BUFFER_LEN * 4],
             sprites_found: 0,
             sprite_0_found: false,
             state: SpriteEvaluationState::ScanningOam {
@@ -239,10 +254,7 @@ impl SpriteEvaluationData {
     }
 
     fn to_sprite_buffers(&self) -> SpriteBuffers {
-        let mut y_positions = [0xFF; 8];
-        let mut x_positions = [0xFF; 8];
-        let mut attributes = [0xFF; 8];
-        let mut tile_indices = [0xFF; 8];
+        let mut sprites = [SpriteBufferData::default(); SPRITE_BUFFER_LEN];
         let mut sprite_x_bit_set = BitSet256::new();
 
         for (i, chunk) in self
@@ -256,10 +268,12 @@ impl SpriteEvaluationData {
                 unreachable!("all chunks from chunks_exact(4) should be of size 4")
             };
 
-            y_positions[i] = y_position;
-            x_positions[i] = x_position;
-            attributes[i] = attributes_byte;
-            tile_indices[i] = tile_index;
+            sprites[i] = SpriteBufferData {
+                y_position,
+                x_position,
+                attributes: attributes_byte,
+                tile_index,
+            };
 
             for x in x_position..=x_position.saturating_add(7) {
                 sprite_x_bit_set.set(x);
@@ -267,12 +281,9 @@ impl SpriteEvaluationData {
         }
 
         SpriteBuffers {
-            y_positions,
-            x_positions,
-            attributes,
-            tile_indices,
-            pattern_table_low: [0; 8],
-            pattern_table_high: [0; 8],
+            sprites,
+            pattern_table_low: [0; SPRITE_BUFFER_LEN],
+            pattern_table_high: [0; SPRITE_BUFFER_LEN],
             buffer_len: self.sprites_found,
             sprite_0_buffered: self.sprite_0_found,
             sprite_x_bit_set,
@@ -357,7 +368,7 @@ pub fn render_pal_black_border(state: &mut PpuState) {
 }
 
 /// Run the PPU for one PPU cycle. Pixels will be written to `PpuState`'s frame buffer as appropriate.
-pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
+pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>, config: &EmulatorConfig) {
     let rendering_enabled =
         bus.get_ppu_registers().bg_enabled() || bus.get_ppu_registers().sprites_enabled();
 
@@ -376,7 +387,7 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>) {
 
     if rendering_enabled {
         state.rendering_disabled_backdrop_color = None;
-        process_scanline(state, bus);
+        process_scanline(state, bus, config.remove_sprite_limit);
     } else {
         bus.get_ppu_registers_mut().set_oam_open_bus(None);
 
@@ -441,8 +452,12 @@ pub fn reset(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     bus.reset();
 }
 
-fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
-    log::trace!("Rendering at scanline {} dot {}", state.scanline, state.dot);
+fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>, remove_sprite_limit: bool) {
+    let scanline = state.scanline;
+    let dot = state.dot;
+    let timing_mode = state.timing_mode;
+
+    log::trace!("Rendering at scanline {} dot {}", scanline, dot);
 
     if state.pending_sprite_0_hit {
         // If sprite 0 hit triggered on the last cycle, set the flag in PPUSTATUS
@@ -450,24 +465,23 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
         bus.get_ppu_registers_mut().set_sprite_0_hit(true);
     }
 
-    match (state.timing_mode, state.scanline) {
+    match (timing_mode, scanline) {
         (_, 0..=239) | (TimingMode::Ntsc, 261) | (TimingMode::Pal, 311) => {
-            let pre_render_scanline = state.timing_mode.pre_render_scanline();
+            let is_pre_render_scanline = scanline == timing_mode.pre_render_scanline();
 
-            if state.scanline == pre_render_scanline && RESET_VERTICAL_POS_DOTS.contains(&state.dot)
-            {
+            if is_pre_render_scanline && RESET_VERTICAL_POS_DOTS.contains(&dot) {
                 // Repeatedly reset vertical position during the pre-render scanline
                 reset_vertical_pos(&mut state.registers);
             }
 
-            if state.scanline != pre_render_scanline && state.dot == 1 {
+            if !is_pre_render_scanline && dot == 1 {
                 // Clear sprite evaluation data at the beginning of each visible scanline
                 state.sprite_evaluation_data = SpriteEvaluationData::new();
             }
 
             // Render scanlines
             #[allow(clippy::match_same_arms)]
-            match state.dot {
+            match dot {
                 0 => {
                     // Idle cycle
 
@@ -477,11 +491,11 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                 1..=256 => {
                     // Rendering + sprite evaluation cycles
 
-                    if state.scanline != pre_render_scanline {
+                    if !is_pre_render_scanline {
                         render_pixel(state, bus);
                     }
 
-                    if state.dot > 1 && (state.dot - 1).trailing_zeros() >= 3 {
+                    if dot > 1 && (dot - 1).trailing_zeros() >= 3 {
                         // Increment horizontal position on cycles 9, 17, 25, ..
                         // before fetching BG tile data
                         increment_horizontal_pos(&mut state.registers);
@@ -491,19 +505,23 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                     fetch_bg_tile_data(state, bus);
 
                     // Evaluate sprites on odd cycles during 65-256
-                    if state.scanline != pre_render_scanline
-                        && SPRITE_EVALUATION_DOTS.contains(&state.dot)
-                        && state.dot.bit(0)
+                    if !is_pre_render_scanline
+                        && SPRITE_EVALUATION_DOTS.contains(&dot)
+                        && dot.bit(0)
                     {
-                        evaluate_sprites(state, bus);
+                        evaluate_sprites(state, bus, remove_sprite_limit);
+
+                        if remove_sprite_limit && dot == 255 {
+                            finish_sprite_evaluation_no_limit(state, bus);
+                        }
                     }
 
-                    if !SPRITE_EVALUATION_DOTS.contains(&state.dot) {
+                    if !SPRITE_EVALUATION_DOTS.contains(&dot) {
                         // OAMDATA always reads $FF during cycles 1-64
                         bus.get_ppu_registers_mut().set_oam_open_bus(Some(0xFF));
                     }
 
-                    if state.scanline != pre_render_scanline && state.dot == INC_VERTICAL_POS_DOT {
+                    if !is_pre_render_scanline && dot == INC_VERTICAL_POS_DOT {
                         // Increment effective vertical position at the end of the rendering phase
                         increment_vertical_pos(&mut state.registers);
                     }
@@ -511,7 +529,7 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                 257..=320 => {
                     // Cycles for fetching sprite data for the next scanline
 
-                    if state.dot == RESET_HORIZONTAL_POS_DOT {
+                    if dot == RESET_HORIZONTAL_POS_DOT {
                         // Reset horizontal position immediately after the rendering phase
                         reset_horizontal_pos(&mut state.registers);
 
@@ -519,7 +537,11 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                         state.sprite_buffers = state.sprite_evaluation_data.to_sprite_buffers();
                     }
 
-                    fetch_sprite_tile_data(state, bus);
+                    fetch_sprite_tile_data(bus, scanline, dot, &mut state.sprite_buffers);
+
+                    if remove_sprite_limit && dot == 320 {
+                        finish_sprite_tile_fetches(bus, scanline, dot, &mut state.sprite_buffers);
+                    }
                 }
                 321..=336 => {
                     // Cycles for fetching BG tile data for the first 2 tiles of the next scanline
@@ -527,7 +549,7 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                     fetch_bg_tile_data(state, bus);
                     state.bg_buffers.shift();
 
-                    if state.dot.trailing_zeros() >= 3 {
+                    if dot.trailing_zeros() >= 3 {
                         // Increment horizontal position and reload buffers at the end of each tile
                         // (dots 328 and 336)
                         increment_horizontal_pos(&mut state.registers);
@@ -551,7 +573,7 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                     bus.get_ppu_registers_mut()
                         .set_oam_open_bus(Some(state.sprite_evaluation_data.secondary_oam[0]));
                 }
-                _ => panic!("invalid dot: {}", state.dot),
+                _ => panic!("invalid dot: {dot}"),
             }
         }
         (TimingMode::Ntsc, 240..=260) | (TimingMode::Pal, 240..=310) => {
@@ -559,7 +581,7 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>) {
 
             bus.get_ppu_registers_mut().set_oam_open_bus(None);
         }
-        _ => panic!("invalid scanline: {}", state.scanline),
+        _ => panic!("invalid scanline: {scanline}"),
     }
 }
 
@@ -822,26 +844,34 @@ fn fetch_bg_tile_data(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     }
 }
 
-fn fetch_sprite_tile_data(state: &mut PpuState, bus: &mut PpuBus<'_>) {
-    debug_assert!(SPRITE_TILE_FETCH_DOTS.contains(&state.dot));
+fn fetch_sprite_tile_data(
+    bus: &mut PpuBus<'_>,
+    scanline: u16,
+    dot: u16,
+    sprite_buffers: &mut SpriteBuffers,
+) {
+    debug_assert!(dot >= FIRST_SPRITE_TILE_FETCH_DOT);
 
     let sprite_pattern_table_address = bus.get_ppu_registers().sprite_pattern_table_address();
     let double_height_sprites = bus.get_ppu_registers().double_height_sprites();
 
     // 8 cycles per sprite
-    let sprite_index = ((state.dot - FIRST_SPRITE_TILE_FETCH_DOT) >> 3) as u8;
+    let sprite_index = sprite_fetch_index(dot);
 
-    let y_position = state.sprite_buffers.y_positions[sprite_index as usize];
-    let tile_index = state.sprite_buffers.tile_indices[sprite_index as usize];
-    let attributes = state.sprite_buffers.attributes[sprite_index as usize];
+    let SpriteBufferData {
+        y_position,
+        attributes,
+        tile_index,
+        ..
+    } = sprite_buffers.sprites[sprite_index as usize];
 
     // This is not completely accurate but it's close enough
     // In reality, during cycles 1-4 the value will be Y position, tile index, attributes, and X position in that order
     // During cycles 5-8 it will stay X position
     // Once past the end of the sprite buffer, the value will be sprite 63's Y position once, then $FF for the rest of this period
-    if sprite_index < state.sprite_buffers.buffer_len {
+    if sprite_index < sprite_buffers.buffer_len {
         bus.get_ppu_registers_mut().set_oam_open_bus(Some(
-            state.sprite_buffers.x_positions[sprite_index as usize],
+            sprite_buffers.sprites[sprite_index as usize].x_position,
         ));
     } else {
         bus.get_ppu_registers_mut().set_oam_open_bus(Some(0xFF));
@@ -849,7 +879,7 @@ fn fetch_sprite_tile_data(state: &mut PpuState, bus: &mut PpuBus<'_>) {
 
     // These offsets are not cycle accurate, but for some reason these timings cause the MMC3 IRQ
     // tests to pass
-    let tile_cycle_offset = (state.dot - 1) & 0x07;
+    let tile_cycle_offset = (dot - 1) & 0x07;
     match tile_cycle_offset {
         0 | 1 => {
             // Spurious nametable fetch
@@ -858,18 +888,18 @@ fn fetch_sprite_tile_data(state: &mut PpuState, bus: &mut PpuBus<'_>) {
             bus.read_address(0x2000 + u16::from(sprite_index) + 1);
         }
         2 => {
-            if sprite_index < state.sprite_buffers.buffer_len {
+            if sprite_index < sprite_buffers.buffer_len {
                 let pattern_table_low = fetch_sprite_pattern_table_byte(
                     sprite_pattern_table_address,
                     double_height_sprites,
                     y_position,
                     attributes,
                     tile_index,
-                    state.scanline as u8,
+                    scanline as u8,
                     PatternTableByte::Low,
                     bus,
                 );
-                state.sprite_buffers.pattern_table_low[sprite_index as usize] = pattern_table_low;
+                sprite_buffers.pattern_table_low[sprite_index as usize] = pattern_table_low;
             } else {
                 // Spurious read
                 fetch_sprite_pattern_table_byte(
@@ -885,18 +915,18 @@ fn fetch_sprite_tile_data(state: &mut PpuState, bus: &mut PpuBus<'_>) {
             }
         }
         4 => {
-            if sprite_index < state.sprite_buffers.buffer_len {
+            if sprite_index < sprite_buffers.buffer_len {
                 let pattern_table_high = fetch_sprite_pattern_table_byte(
                     sprite_pattern_table_address,
                     double_height_sprites,
                     y_position,
                     attributes,
                     tile_index,
-                    state.scanline as u8,
+                    scanline as u8,
                     PatternTableByte::High,
                     bus,
                 );
-                state.sprite_buffers.pattern_table_high[sprite_index as usize] = pattern_table_high;
+                sprite_buffers.pattern_table_high[sprite_index as usize] = pattern_table_high;
             } else {
                 // Spurious read
                 fetch_sprite_pattern_table_byte(
@@ -915,7 +945,25 @@ fn fetch_sprite_tile_data(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     }
 }
 
-fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>) {
+fn sprite_fetch_index(dot: u16) -> u8 {
+    ((dot - FIRST_SPRITE_TILE_FETCH_DOT) >> 3) as u8
+}
+
+fn finish_sprite_tile_fetches(
+    bus: &mut PpuBus<'_>,
+    scanline: u16,
+    dot: u16,
+    sprite_buffers: &mut SpriteBuffers,
+) {
+    let mut dot = dot + 1;
+
+    while sprite_fetch_index(dot) < sprite_buffers.buffer_len {
+        fetch_sprite_tile_data(bus, scanline, dot, sprite_buffers);
+        dot += 1;
+    }
+}
+
+fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>, remove_sprite_limit: bool) {
     let sprite_height = if bus.get_ppu_registers().double_height_sprites() {
         16
     } else {
@@ -926,7 +974,10 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     let oam = bus.get_oam();
     evaluation_data.state = match evaluation_data.state {
         SpriteEvaluationState::ScanningOam { primary_oam_index } => {
-            debug_assert!(primary_oam_index < 64 && evaluation_data.sprites_found < 8);
+            debug_assert!(
+                primary_oam_index < 64
+                    && (remove_sprite_limit || evaluation_data.sprites_found < 8)
+            );
 
             let y_position = oam[(primary_oam_index << 2) as usize];
 
@@ -983,7 +1034,7 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>) {
                     SpriteEvaluationState::Done {
                         oam_index: primary_oam_index,
                     }
-                } else if evaluation_data.sprites_found == 8 {
+                } else if !remove_sprite_limit && evaluation_data.sprites_found == 8 {
                     SpriteEvaluationState::CheckingForOverflow {
                         oam_index: next_oam_index,
                         oam_offset: 0,
@@ -1046,15 +1097,27 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     };
 }
 
+fn finish_sprite_evaluation_no_limit(state: &mut PpuState, bus: &mut PpuBus<'_>) {
+    log::info!("asdfasdf");
+    while !matches!(
+        &state.sprite_evaluation_data.state,
+        SpriteEvaluationState::Done { .. }
+    ) {
+        evaluate_sprites(state, bus, true);
+    }
+}
+
 fn find_first_overlapping_sprite(pixel: u8, sprites: &SpriteBuffers) -> Option<SpriteData> {
     (0..sprites.buffer_len as usize).find_map(|i| {
-        let x_pos = sprites.x_positions[i];
+        let SpriteBufferData {
+            x_position: x_pos,
+            attributes,
+            ..
+        } = sprites.sprites[i];
 
         if !(x_pos..=x_pos.saturating_add(7)).contains(&pixel) {
             return None;
         }
-
-        let attributes = sprites.attributes[i];
 
         let sprite_flip_x = attributes.bit(6);
 

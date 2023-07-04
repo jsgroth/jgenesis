@@ -240,6 +240,9 @@ impl<R: Error + 'static, A: Error + 'static, S: Error + 'static> Error for Emula
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct EmulatorConfig {
+    /// If true, do not emulate the 8 sprite per scanline limit; this eliminates sprite flickering
+    /// but can cause bugs in some games
+    pub remove_sprite_limit: bool,
     /// If true, add a black border over the top scanline, the leftmost 2 columns, and the rightmost 2 columns
     pub pal_black_border: bool,
     /// If true, silence the triangle wave channel when it is outputting a wave at ultrasonic frequency
@@ -417,16 +420,16 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
             self.apu_state.is_active_cycle(),
         )?;
         apu::tick(&mut self.apu_state, &mut self.bus.cpu(), config);
-        ppu::tick(&mut self.ppu_state, &mut self.bus.ppu());
+        ppu::tick(&mut self.ppu_state, &mut self.bus.ppu(), config);
         self.bus.tick_cpu();
         self.bus.tick();
 
         self.bus.poll_interrupt_lines();
 
-        ppu::tick(&mut self.ppu_state, &mut self.bus.ppu());
+        ppu::tick(&mut self.ppu_state, &mut self.bus.ppu(), config);
         self.bus.tick();
 
-        ppu::tick(&mut self.ppu_state, &mut self.bus.ppu());
+        ppu::tick(&mut self.ppu_state, &mut self.bus.ppu(), config);
         self.bus.tick();
 
         self.push_audio_sample()?;
@@ -442,7 +445,7 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
             self.apu_state.is_active_cycle(),
         )?;
         apu::tick(&mut self.apu_state, &mut self.bus.cpu(), config);
-        ppu::tick(&mut self.ppu_state, &mut self.bus.ppu());
+        ppu::tick(&mut self.ppu_state, &mut self.bus.ppu(), config);
         self.bus.tick_cpu();
         self.bus.tick();
 
@@ -465,7 +468,7 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
 
                 self.push_audio_sample()?;
             } else if i % PAL_PPU_DIVIDER == 0 {
-                ppu::tick(&mut self.ppu_state, &mut self.bus.ppu());
+                ppu::tick(&mut self.ppu_state, &mut self.bus.ppu(), config);
                 self.bus.tick();
             }
         }
