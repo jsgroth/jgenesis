@@ -315,9 +315,7 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
     /// This function will return an error if it cannot successfully parse NES ROM data out of the
     /// given ROM bytes.
     pub fn create(
-        args: EmulatorCreateArgs<R, A, I, S>,
-    ) -> Result<Self, InitializationError<R::Err>> {
-        let EmulatorCreateArgs {
+        EmulatorCreateArgs {
             rom_bytes,
             sav_bytes,
             forced_timing_mode,
@@ -325,8 +323,8 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
             mut audio_player,
             input_poller,
             save_writer,
-        } = args;
-
+        }: EmulatorCreateArgs<R, A, I, S>,
+    ) -> Result<Self, InitializationError<R::Err>> {
         let mapper = cartridge::from_ines_file(&rom_bytes, sav_bytes, forced_timing_mode)?;
         let timing_mode = mapper.timing_mode();
 

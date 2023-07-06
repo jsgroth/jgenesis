@@ -445,8 +445,9 @@ impl<WaveType: WaveGeneratorBehavior> WaveGenerator<WaveType> {
         }
     }
 
-    fn clock(&mut self, args: WaveGeneratorClockArgs) {
-        let WaveGeneratorClockArgs {
+    fn clock(
+        &mut self,
+        WaveGeneratorClockArgs {
             frequency,
             octave,
             channel_sustain_on,
@@ -454,8 +455,8 @@ impl<WaveType: WaveGeneratorBehavior> WaveGenerator<WaveType> {
             am_output,
             fm_output,
             modulator_output,
-        } = args;
-
+        }: WaveGeneratorClockArgs,
+    ) {
         // Frequency
         let fm_multiplier = if self.vibrato { fm_output } else { 1.0 };
         // TODO figure out why dividing by 2 here is necessary and fix the actual bug
