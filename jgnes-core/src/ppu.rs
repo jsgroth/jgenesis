@@ -728,7 +728,7 @@ fn reset_vertical_pos(registers: &mut InternalRegisters) {
         (registers.vram_address & 0x041F) | (registers.temp_vram_address & 0xFBE0);
 }
 
-fn render_pixel(state: &mut PpuState, bus: &mut PpuBus<'_>) {
+fn render_pixel(state: &mut PpuState, bus: &PpuBus<'_>) {
     let pixel = (state.dot - 1) as u8;
 
     let tile_cycle_offset = pixel & 0x07;
