@@ -963,6 +963,8 @@ fn finish_sprite_tile_fetches(
     }
 }
 
+const SPRITE_PER_SCANLINE_LIMIT: u8 = 8;
+
 fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>, remove_sprite_limit: bool) {
     let sprite_height = if bus.get_ppu_registers().double_height_sprites() {
         16
@@ -976,7 +978,8 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>, remove_sprite_li
         SpriteEvaluationState::ScanningOam { primary_oam_index } => {
             debug_assert!(
                 primary_oam_index < 64
-                    && (remove_sprite_limit || evaluation_data.sprites_found < 8)
+                    && (remove_sprite_limit
+                        || evaluation_data.sprites_found < SPRITE_PER_SCANLINE_LIMIT)
             );
 
             let y_position = oam[(primary_oam_index << 2) as usize];
@@ -1034,13 +1037,24 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>, remove_sprite_li
                     SpriteEvaluationState::Done {
                         oam_index: primary_oam_index,
                     }
-                } else if !remove_sprite_limit && evaluation_data.sprites_found == 8 {
+                } else if !remove_sprite_limit
+                    && evaluation_data.sprites_found == SPRITE_PER_SCANLINE_LIMIT
+                {
                     SpriteEvaluationState::CheckingForOverflow {
                         oam_index: next_oam_index,
                         oam_offset: 0,
                         skip_bytes_remaining: 0,
                     }
                 } else {
+                    // This isn't completely accurate because of the buggy nature of how the
+                    // PPU checks for sprite overflow on actual hardware, but it seems to work
+                    // well enough to not break games that depend on this flag
+                    if remove_sprite_limit
+                        && evaluation_data.sprites_found == SPRITE_PER_SCANLINE_LIMIT + 1
+                    {
+                        bus.get_ppu_registers_mut().set_sprite_overflow(true);
+                    }
+
                     SpriteEvaluationState::ScanningOam {
                         primary_oam_index: next_oam_index,
                     }
