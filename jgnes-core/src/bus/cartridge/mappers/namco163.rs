@@ -5,6 +5,7 @@ use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, PpuMapResult};
 use crate::bus::cartridge::{HasBasicPpuMapping, MapperImpl};
 use crate::num::GetBit;
 use bincode::{Decode, Encode};
+use std::array;
 
 #[derive(Debug, Clone, Encode, Decode)]
 struct IrqCounter {
@@ -149,7 +150,7 @@ impl Namco163AudioUnit {
     fn new() -> Self {
         Self {
             enabled: false,
-            channels: [(); 8].map(|_| Namco163AudioChannel::new()),
+            channels: array::from_fn(|_| Namco163AudioChannel::new()),
             divider: AUDIO_DIVIDER,
             current_channel: 0,
             enabled_channel_count: 0,

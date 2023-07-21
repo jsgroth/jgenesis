@@ -12,8 +12,8 @@ use crate::bus::cartridge::mappers::{
 use crate::bus::cartridge::{HasBasicPpuMapping, MapperImpl};
 use crate::num::GetBit;
 use bincode::{Decode, Encode};
-use std::cmp;
 use std::ops::{Add, Sub};
+use std::{array, cmp};
 
 const MULTIPLIER_LOOKUP_TABLE: [f64; 16] = [
     0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 10.0, 12.0, 12.0, 15.0, 15.0,
@@ -704,7 +704,7 @@ impl Vrc7AudioUnit {
     fn new() -> Self {
         Self {
             enabled: false,
-            channels: [(); 6].map(|_| FmSynthChannel::new()),
+            channels: array::from_fn(|_| FmSynthChannel::new()),
             am: AmplitudeModulationUnit { counter: 0 },
             fm: FrequencyModulationUnit { counter: 0 },
             selected_register: 0,
