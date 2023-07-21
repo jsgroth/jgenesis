@@ -600,14 +600,28 @@ pub(crate) fn from_ines_file(
     let prg_rom = Vec::from(&file_bytes[prg_rom_start_address..prg_rom_end_address]);
     let chr_rom = Vec::from(&file_bytes[prg_rom_end_address..chr_rom_end_address]);
 
+    // Hack to handle MMC5 headers that don't specify PRG RAM size; use 64KB of RAM in this case,
+    // which is the maximum possible PRG RAM size for MMC5
+    let prg_ram_size = if header.mapper_number == 5 && header.prg_ram_size == 0 {
+        64 * 1024
+    } else {
+        header.prg_ram_size
+    };
+    if prg_ram_size != header.prg_ram_size {
+        log::info!(
+            "Ignoring PRG RAM size of {} in header; using {prg_ram_size} instead",
+            header.prg_ram_size
+        );
+    }
+
     let prg_ram = if let Some(sav_bytes) = &sav_bytes {
-        if sav_bytes.len() == header.prg_ram_size as usize {
+        if sav_bytes.len() == prg_ram_size as usize {
             sav_bytes.clone()
         } else {
-            vec![0; header.prg_ram_size as usize]
+            vec![0; prg_ram_size as usize]
         }
     } else {
-        vec![0; header.prg_ram_size as usize]
+        vec![0; prg_ram_size as usize]
     };
 
     let timing_mode = forced_timing_mode.unwrap_or(header.timing_mode);
@@ -753,7 +767,7 @@ pub(crate) fn from_ines_file(
         mapper.name()
     );
     log::info!("PRG ROM size: {}", header.prg_rom_size);
-    log::info!("PRG RAM size: {}", header.prg_ram_size);
+    log::info!("PRG RAM size: {}", prg_ram_size);
     log::info!(
         "Cartridge has battery-backed PRG RAM: {}",
         header.has_battery
