@@ -447,6 +447,15 @@ enum FileFormat {
     Nes2Point0,
 }
 
+impl Display for FileFormat {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::INes => write!(f, "iNES"),
+            Self::Nes2Point0 => write!(f, "NES 2.0"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct INesHeader {
     mapper_number: u16,
@@ -502,6 +511,8 @@ impl INesHeader {
             FileFormat::INes
         };
 
+        log::info!("ROM header format: {format}");
+
         let sub_mapper_number = match format {
             FileFormat::Nes2Point0 => header[8] >> 4,
             FileFormat::INes => 0,
@@ -530,25 +541,7 @@ impl INesHeader {
             }
         };
 
-        let prg_ram_size = match format {
-            FileFormat::Nes2Point0 => {
-                let volatile_shift = header[10] & 0x0F;
-                let non_volatile_shift = header[10] >> 4;
-                // TODO separate these? very very few games have both volatile and non-volatile RAM
-                let volatile_ram = if volatile_shift > 0 {
-                    64 << volatile_shift
-                } else {
-                    0
-                };
-                let non_volatile_ram = if non_volatile_shift > 0 {
-                    64 << non_volatile_shift
-                } else {
-                    0
-                };
-                volatile_ram + non_volatile_ram
-            }
-            FileFormat::INes => 8192,
-        };
+        let prg_ram_size = determine_prg_ram_size(header, mapper_number, format);
 
         let chr_ram_size = match (chr_type, format) {
             (ChrType::RAM, FileFormat::Nes2Point0) => {
@@ -580,6 +573,46 @@ impl INesHeader {
     }
 }
 
+fn determine_prg_ram_size(header: &[u8], mapper_number: u16, format: FileFormat) -> u32 {
+    let prg_ram_size = match format {
+        FileFormat::Nes2Point0 => {
+            let volatile_shift = header[10] & 0x0F;
+            let non_volatile_shift = header[10] >> 4;
+            // TODO separate these? very very few games have both volatile and non-volatile RAM
+            let volatile_ram = if volatile_shift > 0 {
+                64 << volatile_shift
+            } else {
+                0
+            };
+            let non_volatile_ram = if non_volatile_shift > 0 {
+                64 << non_volatile_shift
+            } else {
+                0
+            };
+            let total_ram = volatile_ram + non_volatile_ram;
+
+            // Hack to handle MMC5 headers that don't specify PRG RAM size but expect 32KB/64KB of
+            // PRG RAM
+            if mapper_number == 5 && total_ram == 0 {
+                log::info!(
+                    "Ignoring PRG RAM size of 0 in MMC5 NES 2.0 header; setting to 64KB instead"
+                );
+                None
+            } else {
+                Some(total_ram)
+            }
+        }
+        FileFormat::INes => None,
+    };
+
+    // Default to 64KB for MMC5, 8KB for all other mappers
+    let default_ram_size = match mapper_number {
+        5 => 64 * 1024,
+        _ => 8 * 1024,
+    };
+    prg_ram_size.unwrap_or(default_ram_size)
+}
+
 /// Parse cartridge data out of an iNES file.
 ///
 /// # Errors
@@ -600,28 +633,14 @@ pub(crate) fn from_ines_file(
     let prg_rom = Vec::from(&file_bytes[prg_rom_start_address..prg_rom_end_address]);
     let chr_rom = Vec::from(&file_bytes[prg_rom_end_address..chr_rom_end_address]);
 
-    // Hack to handle MMC5 headers that don't specify PRG RAM size; use 64KB of RAM in this case,
-    // which is the maximum possible PRG RAM size for MMC5
-    let prg_ram_size = if header.mapper_number == 5 && header.prg_ram_size == 0 {
-        64 * 1024
-    } else {
-        header.prg_ram_size
-    };
-    if prg_ram_size != header.prg_ram_size {
-        log::info!(
-            "Ignoring PRG RAM size of {} in header; using {prg_ram_size} instead",
-            header.prg_ram_size
-        );
-    }
-
     let prg_ram = if let Some(sav_bytes) = &sav_bytes {
-        if sav_bytes.len() == prg_ram_size as usize {
+        if sav_bytes.len() == header.prg_ram_size as usize {
             sav_bytes.clone()
         } else {
-            vec![0; prg_ram_size as usize]
+            vec![0; header.prg_ram_size as usize]
         }
     } else {
-        vec![0; prg_ram_size as usize]
+        vec![0; header.prg_ram_size as usize]
     };
 
     let timing_mode = forced_timing_mode.unwrap_or(header.timing_mode);
@@ -767,7 +786,7 @@ pub(crate) fn from_ines_file(
         mapper.name()
     );
     log::info!("PRG ROM size: {}", header.prg_rom_size);
-    log::info!("PRG RAM size: {}", prg_ram_size);
+    log::info!("PRG RAM size: {}", header.prg_ram_size);
     log::info!(
         "Cartridge has battery-backed PRG RAM: {}",
         header.has_battery
