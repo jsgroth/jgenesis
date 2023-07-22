@@ -93,7 +93,7 @@ pub enum ReadInstruction {
     // AXS (unofficial X := (A&X) - #imm)
     AXSubtract,
     // LAS (unofficial A,X,S := value & S)
-    LoadAndStatus,
+    LoadAndStack,
     // unofficial NOPs
     NoOp(AddressingMode),
 }
@@ -190,7 +190,7 @@ impl ReadInstruction {
 
                 compare(ax, value, &mut registers.status);
             }
-            Self::LoadAndStatus => {
+            Self::LoadAndStack => {
                 // LAS sets A, X, and S to (value & S)
 
                 let new_value = value & registers.sp;
@@ -225,7 +225,7 @@ impl ReadInstruction {
             | Self::AndWithRotateRight
             | Self::LoadAndXImmediate
             | Self::AXSubtract => AddressingMode::Immediate,
-            Self::LoadAndStatus => AddressingMode::AbsoluteY,
+            Self::LoadAndStack => AddressingMode::AbsoluteY,
         }
     }
 }
@@ -814,7 +814,7 @@ impl Instruction {
                 to: CpuRegister::X,
                 from: CpuRegister::S,
             })),
-            0xBB => Some(Self::Read(RI::LoadAndStatus)),
+            0xBB => Some(Self::Read(RI::LoadAndStack)),
             0xBC => Some(Self::Read(RI::Load(CpuRegister::Y, AM::AbsoluteX))),
             0xBD => Some(Self::Read(RI::Load(CpuRegister::A, AM::AbsoluteX))),
             0xBE => Some(Self::Read(RI::Load(CpuRegister::X, AM::AbsoluteY))),
