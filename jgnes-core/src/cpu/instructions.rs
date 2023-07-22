@@ -44,6 +44,25 @@ pub enum PushableRegister {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
+pub enum StorableRegister {
+    A,
+    X,
+    Y,
+    AX,
+}
+
+impl StorableRegister {
+    fn read(self, registers: &CpuRegisters) -> u8 {
+        match self {
+            Self::A => registers.accumulator,
+            Self::X => registers.x,
+            Self::Y => registers.y,
+            Self::AX => registers.accumulator & registers.x,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
 pub enum ReadInstruction {
     // ADC
     AddWithCarry(AddressingMode),
@@ -61,6 +80,20 @@ pub enum ReadInstruction {
     InclusiveOr(AddressingMode),
     // SBC
     SubtractWithCarry(AddressingMode),
+    // ANC (unofficial AND + ASL/ROL)
+    AndWithShiftLeft,
+    // ALR (unofficial AND + LSR)
+    AndWithShiftRight,
+    // ARR (unofficial AND + ROR)
+    AndWithRotateRight,
+    // LAX (unofficial LDA + TAX)
+    LoadTransferAX(AddressingMode),
+    // XAA (unofficial A := X & #imm)
+    LoadAndXImmediate,
+    // AXS (unofficial X := (A&X) - #imm)
+    AXSubtract,
+    // unofficial NOPs
+    NoOp(AddressingMode),
 }
 
 impl ReadInstruction {
@@ -96,6 +129,66 @@ impl ReadInstruction {
                 registers.accumulator =
                     subtract(registers.accumulator, value, &mut registers.status);
             }
+            Self::AndWithShiftLeft => {
+                // ANC performs an AND and then sets the C flag the way that ASL does
+                registers.accumulator = and(registers.accumulator, value, &mut registers.status);
+                registers.status.carry = registers.accumulator.bit(7);
+            }
+            Self::AndWithShiftRight => {
+                // ALR simply performs an AND followed by an LSR
+                let and_value = and(registers.accumulator, value, &mut registers.status);
+                registers.accumulator = logical_shift_right(and_value, &mut registers.status);
+            }
+            Self::AndWithRotateRight => {
+                // ARR is like a mix of AND, ROR, and ADC; the accumulator is set to (A & #imm) rotated,
+                // but the flags are set differently from ROR
+
+                let and_value = and(registers.accumulator, value, &mut StatusFlags::new());
+                registers.accumulator = (and_value >> 1) | (u8::from(registers.status.carry) << 7);
+
+                // The overflow flag is set as if an ADC was performed between the AND and ROR, and
+                // the carry flag is set based on what was bit 7 prior to the rotation
+                let overflow = registers.accumulator.bit(6) ^ registers.accumulator.bit(5);
+                registers
+                    .status
+                    .set_negative(registers.accumulator.bit(7))
+                    .set_overflow(overflow)
+                    .set_carry(registers.accumulator.bit(6))
+                    .set_zero(registers.accumulator == 0);
+            }
+            Self::LoadTransferAX(..) => {
+                // LAX simply performs LDA and LDX simultaneously
+
+                registers.accumulator = value;
+                registers.x = value;
+
+                registers
+                    .status
+                    .set_negative(value.bit(7))
+                    .set_zero(value == 0);
+            }
+            Self::LoadAndXImmediate => {
+                registers.accumulator = registers.x & value;
+                registers
+                    .status
+                    .set_negative(registers.accumulator.bit(7))
+                    .set_zero(registers.accumulator == 0);
+            }
+            Self::AXSubtract => {
+                // AXS sets X to (A&X) - #imm, while ignoring the current carry flag. The flags
+                // are set not from the subtraction operation but from a CMP between (A&X) and #imm
+
+                let ax = registers.accumulator & registers.x;
+                let mut flags = StatusFlags {
+                    // Set carry to true because SBC inverts the carry flag for borrowing
+                    carry: true,
+                    ..StatusFlags::new()
+                };
+                registers.x = subtract(ax, value, &mut flags);
+
+                compare(ax, value, &mut registers.status);
+            }
+            Self::NoOp(_) => {}
         }
     }
 
@@ -108,7 +201,14 @@ impl ReadInstruction {
             | Self::ExclusiveOr(addressing_mode)
             | Self::LoadRegister(_, addressing_mode)
             | Self::InclusiveOr(addressing_mode)
-            | Self::SubtractWithCarry(addressing_mode) => addressing_mode,
+            | Self::SubtractWithCarry(addressing_mode)
+            | Self::NoOp(addressing_mode)
+            | Self::LoadTransferAX(addressing_mode) => addressing_mode,
+            Self::AndWithShiftLeft
+            | Self::AndWithShiftRight
+            | Self::AndWithRotateRight
+            | Self::LoadAndXImmediate
+            | Self::AXSubtract => AddressingMode::Immediate,
         }
     }
 }
@@ -127,6 +227,18 @@ pub enum ModifyInstruction {
     RotateLeft(AddressingMode),
     // ROR
     RotateRight(AddressingMode),
+    // SLO (unofficial ASL + ORA)
+    ShiftLeftOr(AddressingMode),
+    // RLA (unofficial ROL + AND)
+    RotateLeftAnd(AddressingMode),
+    // SRE (unofficial LSR + EOR)
+    ShiftRightExclusiveOr(AddressingMode),
+    // RRA (unofficial ROR + ADC)
+    RotateRightAdd(AddressingMode),
+    // DCP (unofficial DEC + CMP)
+    DecrementCompare(AddressingMode),
+    // ISC (unofficial INC + SBC)
+    IncrementSubtract(AddressingMode),
 }
 
 impl ModifyInstruction {
@@ -137,57 +249,54 @@ impl ModifyInstruction {
             | Self::IncrementMemory(addressing_mode)
             | Self::LogicalShiftRight(addressing_mode)
             | Self::RotateLeft(addressing_mode)
-            | Self::RotateRight(addressing_mode) => addressing_mode,
+            | Self::RotateRight(addressing_mode)
+            | Self::ShiftLeftOr(addressing_mode)
+            | Self::RotateLeftAnd(addressing_mode)
+            | Self::ShiftRightExclusiveOr(addressing_mode)
+            | Self::RotateRightAdd(addressing_mode)
+            | Self::DecrementCompare(addressing_mode)
+            | Self::IncrementSubtract(addressing_mode) => addressing_mode,
         }
     }
 
-    fn execute(self, value: u8, flags: &mut StatusFlags) -> u8 {
+    fn execute(self, value: u8, registers: &mut CpuRegisters) -> u8 {
         match self {
-            Self::ShiftLeft(..) => {
-                let shifted = value << 1;
-                flags
-                    .set_carry(value.bit(7))
-                    .set_negative(shifted.bit(7))
-                    .set_zero(shifted == 0);
+            Self::ShiftLeft(..) => shift_left(value, &mut registers.status),
+            Self::DecrementMemory(..) => decrement(value, &mut registers.status),
+            Self::IncrementMemory(..) => increment(value, &mut registers.status),
+            Self::LogicalShiftRight(..) => logical_shift_right(value, &mut registers.status),
+            Self::RotateLeft(..) => rotate_left(value, &mut registers.status),
+            Self::RotateRight(..) => rotate_right(value, &mut registers.status),
+            Self::ShiftLeftOr(..) => {
+                let shifted = shift_left(value, &mut registers.status);
+                registers.accumulator = or(registers.accumulator, shifted, &mut registers.status);
                 shifted
             }
-            Self::DecrementMemory(..) => {
-                let decremented = value.wrapping_sub(1);
-                flags
-                    .set_negative(decremented.bit(7))
-                    .set_zero(decremented == 0);
+            Self::RotateLeftAnd(..) => {
+                let rotated = rotate_left(value, &mut registers.status);
+                registers.accumulator = and(registers.accumulator, rotated, &mut registers.status);
+                rotated
+            }
+            Self::ShiftRightExclusiveOr(..) => {
+                let shifted = logical_shift_right(value, &mut registers.status);
+                registers.accumulator = xor(registers.accumulator, shifted, &mut registers.status);
+                shifted
+            }
+            Self::RotateRightAdd(..) => {
+                let rotated = rotate_right(value, &mut registers.status);
+                registers.accumulator = add(registers.accumulator, rotated, &mut registers.status);
+                rotated
+            }
+            Self::DecrementCompare(..) => {
+                let decremented = decrement(value, &mut registers.status);
+                compare(registers.accumulator, decremented, &mut registers.status);
                 decremented
             }
-            Self::IncrementMemory(..) => {
-                let incremented = value.wrapping_add(1);
-                flags
-                    .set_negative(incremented.bit(7))
-                    .set_zero(incremented == 0);
+            Self::IncrementSubtract(..) => {
+                let incremented = increment(value, &mut registers.status);
+                registers.accumulator =
+                    subtract(registers.accumulator, incremented, &mut registers.status);
                 incremented
-            }
-            Self::LogicalShiftRight(..) => {
-                let shifted = value >> 1;
-                flags
-                    .set_carry(value.bit(0))
-                    .set_negative(shifted.bit(7))
-                    .set_zero(shifted == 0);
-                shifted
-            }
-            Self::RotateLeft(..) => {
-                let rotated = (value << 1) | u8::from(flags.carry);
-                flags
-                    .set_carry(value.bit(7))
-                    .set_negative(rotated.bit(7))
-                    .set_zero(rotated == 0);
-                rotated
-            }
-            Self::RotateRight(..) => {
-                let rotated = (value >> 1) | (u8::from(flags.carry) << 7);
-                flags
-                    .set_carry(value.bit(0))
-                    .set_negative(rotated.bit(7))
-                    .set_zero(rotated == 0);
-                rotated
             }
         }
     }
@@ -320,6 +429,7 @@ pub struct InstructionState {
     pub operand_second_byte: u8,
     pub target_first_byte: u8,
     pub target_second_byte: u8,
+    pub indirect_byte: u8,
     pub interrupt_vector: u16,
     pub pending_interrupt: bool,
 }
@@ -333,6 +443,7 @@ impl InstructionState {
             operand_second_byte: 0,
             target_first_byte: 0,
             target_second_byte: 0,
+            indirect_byte: 0,
             interrupt_vector: 0,
             pending_interrupt: false,
         }
@@ -366,34 +477,41 @@ pub enum CycleOp {
     FetchZeroPageIndexed1,
     FetchZeroPageIndexed2,
     FetchAbsolute,
-    FetchAbsoluteIndexed,
+    FetchAbsoluteIndexed(Index),
+    FetchIndexedIndirect,
+    FetchIndirectIndexed,
     ZeroPageWriteBack,
     ZeroPageIndexedWriteBack,
     AbsoluteWriteBack,
-    AbsoluteIndexedWriteBack,
+    AbsoluteIndexedWriteBack(Index),
+    IndexedIndirectWriteBack,
+    IndirectIndexedWriteBack,
     AbsoluteIndexedFixHighByte(Index),
     IndirectIndexedFixHighByte,
     ExecuteRegistersOnly(RegistersInstruction),
     ExecuteAccumulatorModify(ModifyInstruction),
     ExecuteImmediateRead(ReadInstruction),
     ExecuteZeroPageRead(ReadInstruction),
-    ExecuteZeroPageStore(CpuRegister),
+    ExecuteZeroPageStore(StorableRegister),
     ExecuteZeroPageModify(ModifyInstruction),
     ExecuteZeroPageIndexedRead(Index, ReadInstruction),
-    ExecuteZeroPageIndexedStore(Index, CpuRegister),
+    ExecuteZeroPageIndexedStore(Index, StorableRegister),
     ExecuteZeroPageIndexedModify(ModifyInstruction),
     ExecuteAbsoluteRead(ReadInstruction),
-    ExecuteAbsoluteStore(CpuRegister),
+    ExecuteAbsoluteStore(StorableRegister),
     ExecuteAbsoluteModify(ModifyInstruction),
     ExecuteAbsoluteIndexedRead(Index, ReadInstruction),
     ExecuteAbsoluteIndexedReadDelayed(Index, ReadInstruction),
-    ExecuteAbsoluteIndexedStore(Index, CpuRegister),
-    ExecuteAbsoluteIndexedModify(ModifyInstruction),
+    ExecuteAbsoluteIndexedStore(Index, StorableRegister),
+    ExecuteAbsoluteIndexedModify(Index, ModifyInstruction),
     ExecuteIndexedIndirectRead(ReadInstruction),
-    ExecuteIndexedIndirectStore(CpuRegister),
+    ExecuteIndexedIndirectStore(StorableRegister),
+    ExecuteIndexedIndirectModify(ModifyInstruction),
     ExecuteIndirectIndexedRead(ReadInstruction),
     ExecuteIndirectIndexedReadDelayed(ReadInstruction),
-    ExecuteIndirectIndexedStore(CpuRegister),
+    ExecuteIndirectIndexedStore(StorableRegister),
+    ExecuteIndirectIndexedModify(ModifyInstruction),
+    ExecuteUnofficialStore(Index, CpuRegister),
     CheckBranchCondition(BranchCondition),
     CheckBranchHighByte,
     FixBranchHighByte,
@@ -488,11 +606,24 @@ impl CycleOp {
                     u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte]);
                 state.target_first_byte = bus.read_address(address);
             }
-            Self::FetchAbsoluteIndexed => {
+            Self::FetchAbsoluteIndexed(index) => {
                 let address =
-                    u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte])
-                        .wrapping_add(u16::from(registers.x));
-                state.target_first_byte = bus.read_address(address);
+                    u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte]);
+                let index = index.get(registers);
+                let indexed_address = address.wrapping_add(index.into());
+
+                state.target_first_byte = bus.read_address(indexed_address);
+            }
+            Self::FetchIndexedIndirect => {
+                let effective_address =
+                    u16::from_le_bytes([state.target_first_byte, state.target_second_byte]);
+                state.indirect_byte = bus.read_address(effective_address);
+            }
+            Self::FetchIndirectIndexed => {
+                let effective_address =
+                    u16::from_le_bytes([state.target_first_byte, state.target_second_byte])
+                        .wrapping_add(registers.y.into());
+                state.indirect_byte = bus.read_address(effective_address);
             }
             Self::ZeroPageWriteBack => {
                 // Spurious write
@@ -509,12 +640,25 @@ impl CycleOp {
                     u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte]);
                 bus.write_address(address, state.target_first_byte);
             }
-            Self::AbsoluteIndexedWriteBack => {
+            Self::AbsoluteIndexedWriteBack(index) => {
                 // Spurious write
                 let address =
-                    u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte])
-                        .wrapping_add(u16::from(registers.x));
-                bus.write_address(address, state.target_first_byte);
+                    u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte]);
+                let index = index.get(registers);
+                let indexed_address = address.wrapping_add(index.into());
+
+                bus.write_address(indexed_address, state.target_first_byte);
+            }
+            Self::IndexedIndirectWriteBack => {
+                let effective_address =
+                    u16::from_le_bytes([state.target_first_byte, state.target_second_byte]);
+                bus.write_address(effective_address, state.indirect_byte);
+            }
+            Self::IndirectIndexedWriteBack => {
+                let effective_address =
+                    u16::from_le_bytes([state.target_first_byte, state.target_second_byte])
+                        .wrapping_add(registers.y.into());
+                bus.write_address(effective_address, state.indirect_byte);
             }
             Self::AbsoluteIndexedFixHighByte(index) => {
                 let index = index.get(registers);
@@ -541,8 +685,7 @@ impl CycleOp {
                 // Spurious bus read
                 bus.read_address(registers.pc);
 
-                registers.accumulator =
-                    instruction.execute(registers.accumulator, &mut registers.status);
+                registers.accumulator = instruction.execute(registers.accumulator, registers);
             }
             Self::ExecuteImmediateRead(instruction) => {
                 let operand = bus.read_address(registers.pc);
@@ -555,13 +698,13 @@ impl CycleOp {
                 instruction.execute(value, registers);
             }
             Self::ExecuteZeroPageStore(register) => {
-                let value = read_register(registers, register);
+                let value = register.read(registers);
                 let address = u16::from(state.operand_first_byte);
 
                 bus.write_address(address, value);
             }
             Self::ExecuteZeroPageModify(instruction) => {
-                let value = instruction.execute(state.target_first_byte, &mut registers.status);
+                let value = instruction.execute(state.target_first_byte, registers);
                 bus.write_address(u16::from(state.operand_first_byte), value);
             }
             Self::ExecuteZeroPageIndexedRead(index, instruction) => {
@@ -574,12 +717,12 @@ impl CycleOp {
             Self::ExecuteZeroPageIndexedStore(index, register) => {
                 let index = index.get(registers);
                 let indexed_address = u16::from(state.operand_first_byte.wrapping_add(index));
-                let value = read_register(registers, register);
+                let value = register.read(registers);
 
                 bus.write_address(indexed_address, value);
             }
             Self::ExecuteZeroPageIndexedModify(instruction) => {
-                let value = instruction.execute(state.target_first_byte, &mut registers.status);
+                let value = instruction.execute(state.target_first_byte, registers);
 
                 let indexed_address = u16::from(state.operand_first_byte.wrapping_add(registers.x));
                 bus.write_address(indexed_address, value);
@@ -594,12 +737,12 @@ impl CycleOp {
             Self::ExecuteAbsoluteStore(register) => {
                 let address =
                     u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte]);
-                let value = read_register(registers, register);
+                let value = register.read(registers);
 
                 bus.write_address(address, value);
             }
             Self::ExecuteAbsoluteModify(instruction) => {
-                let value = instruction.execute(state.target_first_byte, &mut registers.status);
+                let value = instruction.execute(state.target_first_byte, registers);
 
                 let address =
                     u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte]);
@@ -637,18 +780,40 @@ impl CycleOp {
                 let address =
                     u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte]);
                 let index = index.get(registers);
-                let indexed_address = address.wrapping_add(u16::from(index));
-                let value = read_register(registers, register);
+                let indexed_address = address.wrapping_add(index.into());
+
+                let value = register.read(registers);
 
                 bus.write_address(indexed_address, value);
             }
-            Self::ExecuteAbsoluteIndexedModify(instruction) => {
-                let value = instruction.execute(state.target_first_byte, &mut registers.status);
+            Self::ExecuteUnofficialStore(index, register) => {
+                // This is a buggy instruction that is only implemented because CPU test ROMs test
+                // it.
+                // This implementation ANDs the X/Y register with the high byte of the address plus 1
+                // and then stores that value, but only if the indexing did not overflow.
 
                 let address =
-                    u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte])
-                        .wrapping_add(u16::from(registers.x));
-                bus.write_address(address, value);
+                    u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte]);
+                let index = index.get(registers);
+                let indexed_address = address.wrapping_add(index.into());
+                let (_, overflowed) = state.operand_first_byte.overflowing_add(index);
+
+                let value =
+                    read_register(registers, register) & state.operand_second_byte.wrapping_add(1);
+
+                if !overflowed {
+                    bus.write_address(indexed_address, value);
+                }
+            }
+            Self::ExecuteAbsoluteIndexedModify(index, instruction) => {
+                let address =
+                    u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte]);
+                let index = index.get(registers);
+                let indexed_address = address.wrapping_add(u16::from(index));
+
+                let value = instruction.execute(state.target_first_byte, registers);
+
+                bus.write_address(indexed_address, value);
             }
             Self::ExecuteIndexedIndirectRead(instruction) => {
                 let effective_address =
@@ -660,8 +825,14 @@ impl CycleOp {
             Self::ExecuteIndexedIndirectStore(register) => {
                 let effective_address =
                     u16::from_le_bytes([state.target_first_byte, state.target_second_byte]);
-                let value = read_register(registers, register);
+                let value = register.read(registers);
 
+                bus.write_address(effective_address, value);
+            }
+            Self::ExecuteIndexedIndirectModify(instruction) => {
+                let effective_address =
+                    u16::from_le_bytes([state.target_first_byte, state.target_second_byte]);
+                let value = instruction.execute(state.indirect_byte, registers);
                 bus.write_address(effective_address, value);
             }
             Self::ExecuteIndirectIndexedRead(instruction) => {
@@ -684,7 +855,7 @@ impl CycleOp {
             Self::ExecuteIndirectIndexedReadDelayed(instruction) => {
                 let indexed_address =
                     u16::from_le_bytes([state.target_first_byte, state.target_second_byte])
-                        .wrapping_add(u16::from(registers.y));
+                        .wrapping_add(registers.y.into());
                 let value = bus.read_address(indexed_address);
 
                 instruction.execute(value, registers);
@@ -692,8 +863,16 @@ impl CycleOp {
             Self::ExecuteIndirectIndexedStore(register) => {
                 let indexed_address =
                     u16::from_le_bytes([state.target_first_byte, state.target_second_byte])
-                        .wrapping_add(u16::from(registers.y));
-                let value = read_register(registers, register);
+                        .wrapping_add(registers.y.into());
+                let value = register.read(registers);
+
+                bus.write_address(indexed_address, value);
+            }
+            Self::ExecuteIndirectIndexedModify(instruction) => {
+                let indexed_address =
+                    u16::from_le_bytes([state.target_first_byte, state.target_second_byte])
+                        .wrapping_add(registers.y.into());
+                let value = instruction.execute(state.indirect_byte, registers);
 
                 bus.write_address(indexed_address, value);
             }
@@ -834,8 +1013,10 @@ pub enum Instruction {
     ReadModifyWrite(ModifyInstruction),
     RegistersOnly(RegistersInstruction),
     Branch(BranchCondition),
-    // STA / STX / STY
-    StoreRegister(CpuRegister, AddressingMode),
+    // STA / STX / STY / SAX (SAX == unofficial STA + STX)
+    StoreRegister(StorableRegister, AddressingMode),
+    // SHY / SHX (buggy unofficial opcodes)
+    UnofficialStore(CpuRegister),
     // BRK
     ForceInterrupt,
     // JMP
@@ -850,8 +1031,6 @@ pub enum Instruction {
     ReturnFromInterrupt,
     // RTS
     ReturnFromSubroutine,
-    // 0xC2, unofficial 2-byte NOP
-    NoOpImmediate,
 }
 
 impl Instruction {
@@ -861,6 +1040,22 @@ impl Instruction {
             Self::StoreRegister(register, addressing_mode) => {
                 get_store_cycle_ops(register, addressing_mode)
             }
+            Self::UnofficialStore(CpuRegister::X) => [
+                CycleOp::FetchOperand1,
+                CycleOp::FetchOperand2,
+                CycleOp::AbsoluteIndexedFixHighByte(Index::Y),
+                CycleOp::ExecuteUnofficialStore(Index::Y, CpuRegister::X),
+            ]
+            .into_iter()
+            .collect(),
+            Self::UnofficialStore(CpuRegister::Y) => [
+                CycleOp::FetchOperand1,
+                CycleOp::FetchOperand2,
+                CycleOp::AbsoluteIndexedFixHighByte(Index::X),
+                CycleOp::ExecuteUnofficialStore(Index::X, CpuRegister::Y),
+            ]
+            .into_iter()
+            .collect(),
             Self::ReadModifyWrite(instruction) => get_modify_cycle_ops(instruction),
             Self::RegistersOnly(instruction) => [CycleOp::ExecuteRegistersOnly(instruction)]
                 .into_iter()
@@ -934,24 +1129,32 @@ impl Instruction {
             ]
             .into_iter()
             .collect(),
-            Self::NoOpImmediate => [CycleOp::FetchOperand1].into_iter().collect(),
             Self::Jump(addressing_mode) => {
                 panic!("invalid jump addressing mode: {addressing_mode:?}")
+            }
+            Self::UnofficialStore(register) => {
+                panic!("invalid unofficial store register: {register:?}")
             }
         }
     }
 
-    #[allow(clippy::match_same_arms)]
     pub fn from_opcode(opcode: u8) -> Option<Self> {
         match opcode {
             0x00 => Some(Self::ForceInterrupt),
             0x01 => Some(Self::Read(ReadInstruction::InclusiveOr(
                 AddressingMode::IndirectX,
             ))),
+            0x03 => Some(Self::ReadModifyWrite(ModifyInstruction::ShiftLeftOr(
+                AddressingMode::IndirectX,
+            ))),
+            0x04 | 0x44 | 0x64 => Some(Self::Read(ReadInstruction::NoOp(AddressingMode::ZeroPage))),
             0x05 => Some(Self::Read(ReadInstruction::InclusiveOr(
                 AddressingMode::ZeroPage,
             ))),
             0x06 => Some(Self::ReadModifyWrite(ModifyInstruction::ShiftLeft(
+                AddressingMode::ZeroPage,
+            ))),
+            0x07 => Some(Self::ReadModifyWrite(ModifyInstruction::ShiftLeftOr(
                 AddressingMode::ZeroPage,
             ))),
             0x08 => Some(Self::PushStack(PushableRegister::P)),
@@ -961,20 +1164,34 @@ impl Instruction {
             0x0A => Some(Self::ReadModifyWrite(ModifyInstruction::ShiftLeft(
                 AddressingMode::Accumulator,
             ))),
+            0x0B | 0x2B => Some(Self::Read(ReadInstruction::AndWithShiftLeft)),
+            0x0C => Some(Self::Read(ReadInstruction::NoOp(AddressingMode::Absolute))),
             0x0D => Some(Self::Read(ReadInstruction::InclusiveOr(
                 AddressingMode::Absolute,
             ))),
             0x0E => Some(Self::ReadModifyWrite(ModifyInstruction::ShiftLeft(
                 AddressingMode::Absolute,
             ))),
+            0x0F => Some(Self::ReadModifyWrite(ModifyInstruction::ShiftLeftOr(
+                AddressingMode::Absolute,
+            ))),
             0x10 => Some(Self::Branch(BranchCondition::Positive)),
             0x11 => Some(Self::Read(ReadInstruction::InclusiveOr(
                 AddressingMode::IndirectY,
             ))),
+            0x13 => Some(Self::ReadModifyWrite(ModifyInstruction::ShiftLeftOr(
+                AddressingMode::IndirectY,
+            ))),
+            0x14 | 0x34 | 0x54 | 0x74 | 0xD4 | 0xF4 => {
+                Some(Self::Read(ReadInstruction::NoOp(AddressingMode::ZeroPageX)))
+            }
             0x15 => Some(Self::Read(ReadInstruction::InclusiveOr(
                 AddressingMode::ZeroPageX,
             ))),
             0x16 => Some(Self::ReadModifyWrite(ModifyInstruction::ShiftLeft(
+                AddressingMode::ZeroPageX,
+            ))),
+            0x17 => Some(Self::ReadModifyWrite(ModifyInstruction::ShiftLeftOr(
                 AddressingMode::ZeroPageX,
             ))),
             0x18 => Some(Self::RegistersOnly(RegistersInstruction::ClearCarryFlag)),
@@ -987,13 +1204,31 @@ impl Instruction {
             0x1E => Some(Self::ReadModifyWrite(ModifyInstruction::ShiftLeft(
                 AddressingMode::AbsoluteX,
             ))),
+            0x1A | 0x3A | 0x5A | 0x7A | 0xDA | 0xEA | 0xFA => {
+                Some(Self::RegistersOnly(RegistersInstruction::NoOp))
+            }
+            0x1B => Some(Self::ReadModifyWrite(ModifyInstruction::ShiftLeftOr(
+                AddressingMode::AbsoluteY,
+            ))),
+            0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC => {
+                Some(Self::Read(ReadInstruction::NoOp(AddressingMode::AbsoluteX)))
+            }
+            0x1F => Some(Self::ReadModifyWrite(ModifyInstruction::ShiftLeftOr(
+                AddressingMode::AbsoluteX,
+            ))),
             0x20 => Some(Self::JumpToSubroutine),
             0x21 => Some(Self::Read(ReadInstruction::And(AddressingMode::IndirectX))),
+            0x23 => Some(Self::ReadModifyWrite(ModifyInstruction::RotateLeftAnd(
+                AddressingMode::IndirectX,
+            ))),
             0x24 => Some(Self::Read(ReadInstruction::BitTest(
                 AddressingMode::ZeroPage,
             ))),
             0x25 => Some(Self::Read(ReadInstruction::And(AddressingMode::ZeroPage))),
             0x26 => Some(Self::ReadModifyWrite(ModifyInstruction::RotateLeft(
+                AddressingMode::ZeroPage,
+            ))),
+            0x27 => Some(Self::ReadModifyWrite(ModifyInstruction::RotateLeftAnd(
                 AddressingMode::ZeroPage,
             ))),
             0x28 => Some(Self::PullStack(PushableRegister::P)),
@@ -1008,28 +1243,49 @@ impl Instruction {
             0x2E => Some(Self::ReadModifyWrite(ModifyInstruction::RotateLeft(
                 AddressingMode::Absolute,
             ))),
+            0x2F => Some(Self::ReadModifyWrite(ModifyInstruction::RotateLeftAnd(
+                AddressingMode::Absolute,
+            ))),
             0x30 => Some(Self::Branch(BranchCondition::Minus)),
             0x31 => Some(Self::Read(ReadInstruction::And(AddressingMode::IndirectY))),
+            0x33 => Some(Self::ReadModifyWrite(ModifyInstruction::RotateLeftAnd(
+                AddressingMode::IndirectY,
+            ))),
             0x35 => Some(Self::Read(ReadInstruction::And(AddressingMode::ZeroPageX))),
             0x36 => Some(Self::ReadModifyWrite(ModifyInstruction::RotateLeft(
                 AddressingMode::ZeroPageX,
             ))),
+            0x37 => Some(Self::ReadModifyWrite(ModifyInstruction::RotateLeftAnd(
+                AddressingMode::ZeroPageX,
+            ))),
             0x38 => Some(Self::RegistersOnly(RegistersInstruction::SetCarryFlag)),
             0x39 => Some(Self::Read(ReadInstruction::And(AddressingMode::AbsoluteY))),
+            0x3B => Some(Self::ReadModifyWrite(ModifyInstruction::RotateLeftAnd(
+                AddressingMode::AbsoluteY,
+            ))),
             0x3D => Some(Self::Read(ReadInstruction::And(AddressingMode::AbsoluteX))),
             0x3E => Some(Self::ReadModifyWrite(ModifyInstruction::RotateLeft(
+                AddressingMode::AbsoluteX,
+            ))),
+            0x3F => Some(Self::ReadModifyWrite(ModifyInstruction::RotateLeftAnd(
                 AddressingMode::AbsoluteX,
             ))),
             0x40 => Some(Self::ReturnFromInterrupt),
             0x41 => Some(Self::Read(ReadInstruction::ExclusiveOr(
                 AddressingMode::IndirectX,
             ))),
+            0x43 => Some(Self::ReadModifyWrite(
+                ModifyInstruction::ShiftRightExclusiveOr(AddressingMode::IndirectX),
+            )),
             0x45 => Some(Self::Read(ReadInstruction::ExclusiveOr(
                 AddressingMode::ZeroPage,
             ))),
             0x46 => Some(Self::ReadModifyWrite(ModifyInstruction::LogicalShiftRight(
                 AddressingMode::ZeroPage,
             ))),
+            0x47 => Some(Self::ReadModifyWrite(
+                ModifyInstruction::ShiftRightExclusiveOr(AddressingMode::ZeroPage),
+            )),
             0x48 => Some(Self::PushStack(PushableRegister::A)),
             0x49 => Some(Self::Read(ReadInstruction::ExclusiveOr(
                 AddressingMode::Immediate,
@@ -1037,6 +1293,7 @@ impl Instruction {
             0x4A => Some(Self::ReadModifyWrite(ModifyInstruction::LogicalShiftRight(
                 AddressingMode::Accumulator,
             ))),
+            0x4B => Some(Self::Read(ReadInstruction::AndWithShiftRight)),
             0x4C => Some(Self::Jump(AddressingMode::Absolute)),
             0x4D => Some(Self::Read(ReadInstruction::ExclusiveOr(
                 AddressingMode::Absolute,
@@ -1044,36 +1301,57 @@ impl Instruction {
             0x4E => Some(Self::ReadModifyWrite(ModifyInstruction::LogicalShiftRight(
                 AddressingMode::Absolute,
             ))),
+            0x4F => Some(Self::ReadModifyWrite(
+                ModifyInstruction::ShiftRightExclusiveOr(AddressingMode::Absolute),
+            )),
             0x50 => Some(Self::Branch(BranchCondition::OverflowClear)),
             0x51 => Some(Self::Read(ReadInstruction::ExclusiveOr(
                 AddressingMode::IndirectY,
             ))),
+            0x53 => Some(Self::ReadModifyWrite(
+                ModifyInstruction::ShiftRightExclusiveOr(AddressingMode::IndirectY),
+            )),
             0x55 => Some(Self::Read(ReadInstruction::ExclusiveOr(
                 AddressingMode::ZeroPageX,
             ))),
             0x56 => Some(Self::ReadModifyWrite(ModifyInstruction::LogicalShiftRight(
                 AddressingMode::ZeroPageX,
             ))),
+            0x57 => Some(Self::ReadModifyWrite(
+                ModifyInstruction::ShiftRightExclusiveOr(AddressingMode::ZeroPageX),
+            )),
             0x58 => Some(Self::RegistersOnly(
                 RegistersInstruction::ClearInterruptDisable,
             )),
             0x59 => Some(Self::Read(ReadInstruction::ExclusiveOr(
                 AddressingMode::AbsoluteY,
             ))),
+            0x5B => Some(Self::ReadModifyWrite(
+                ModifyInstruction::ShiftRightExclusiveOr(AddressingMode::AbsoluteY),
+            )),
             0x5D => Some(Self::Read(ReadInstruction::ExclusiveOr(
                 AddressingMode::AbsoluteX,
             ))),
             0x5E => Some(Self::ReadModifyWrite(ModifyInstruction::LogicalShiftRight(
                 AddressingMode::AbsoluteX,
             ))),
+            0x5F => Some(Self::ReadModifyWrite(
+                ModifyInstruction::ShiftRightExclusiveOr(AddressingMode::AbsoluteX),
+            )),
             0x60 => Some(Self::ReturnFromSubroutine),
             0x61 => Some(Self::Read(ReadInstruction::AddWithCarry(
+                AddressingMode::IndirectX,
+            ))),
+            0x63 => Some(Self::ReadModifyWrite(ModifyInstruction::RotateRightAdd(
                 AddressingMode::IndirectX,
             ))),
             0x65 => Some(Self::Read(ReadInstruction::AddWithCarry(
                 AddressingMode::ZeroPage,
             ))),
             0x66 => Some(Self::ReadModifyWrite(ModifyInstruction::RotateRight(
+                AddressingMode::ZeroPage,
+            ))),
+            0x67 => Some(Self::ReadModifyWrite(ModifyInstruction::RotateRightAdd(
                 AddressingMode::ZeroPage,
             ))),
             0x68 => Some(Self::PullStack(PushableRegister::A)),
@@ -1083,6 +1361,7 @@ impl Instruction {
             0x6A => Some(Self::ReadModifyWrite(ModifyInstruction::RotateRight(
                 AddressingMode::Accumulator,
             ))),
+            0x6B => Some(Self::Read(ReadInstruction::AndWithRotateRight)),
             0x6C => Some(Self::Jump(AddressingMode::Indirect)),
             0x6D => Some(Self::Read(ReadInstruction::AddWithCarry(
                 AddressingMode::Absolute,
@@ -1090,8 +1369,14 @@ impl Instruction {
             0x6E => Some(Self::ReadModifyWrite(ModifyInstruction::RotateRight(
                 AddressingMode::Absolute,
             ))),
+            0x6F => Some(Self::ReadModifyWrite(ModifyInstruction::RotateRightAdd(
+                AddressingMode::Absolute,
+            ))),
             0x70 => Some(Self::Branch(BranchCondition::OverflowSet)),
             0x71 => Some(Self::Read(ReadInstruction::AddWithCarry(
+                AddressingMode::IndirectY,
+            ))),
+            0x73 => Some(Self::ReadModifyWrite(ModifyInstruction::RotateRightAdd(
                 AddressingMode::IndirectY,
             ))),
             0x75 => Some(Self::Read(ReadInstruction::AddWithCarry(
@@ -1100,10 +1385,16 @@ impl Instruction {
             0x76 => Some(Self::ReadModifyWrite(ModifyInstruction::RotateRight(
                 AddressingMode::ZeroPageX,
             ))),
+            0x77 => Some(Self::ReadModifyWrite(ModifyInstruction::RotateRightAdd(
+                AddressingMode::ZeroPageX,
+            ))),
             0x78 => Some(Self::RegistersOnly(
                 RegistersInstruction::SetInterruptDisable,
             )),
             0x79 => Some(Self::Read(ReadInstruction::AddWithCarry(
+                AddressingMode::AbsoluteY,
+            ))),
+            0x7B => Some(Self::ReadModifyWrite(ModifyInstruction::RotateRightAdd(
                 AddressingMode::AbsoluteY,
             ))),
             0x7D => Some(Self::Read(ReadInstruction::AddWithCarry(
@@ -1112,60 +1403,81 @@ impl Instruction {
             0x7E => Some(Self::ReadModifyWrite(ModifyInstruction::RotateRight(
                 AddressingMode::AbsoluteX,
             ))),
-            0x80 => Some(Self::NoOpImmediate),
+            0x7F => Some(Self::ReadModifyWrite(ModifyInstruction::RotateRightAdd(
+                AddressingMode::AbsoluteX,
+            ))),
+            0x80 | 0x82 | 0x89 | 0xC2 | 0xE2 => {
+                Some(Self::Read(ReadInstruction::NoOp(AddressingMode::Immediate)))
+            }
             0x81 => Some(Self::StoreRegister(
-                CpuRegister::A,
+                StorableRegister::A,
+                AddressingMode::IndirectX,
+            )),
+            0x83 => Some(Self::StoreRegister(
+                StorableRegister::AX,
                 AddressingMode::IndirectX,
             )),
             0x84 => Some(Self::StoreRegister(
-                CpuRegister::Y,
+                StorableRegister::Y,
                 AddressingMode::ZeroPage,
             )),
             0x85 => Some(Self::StoreRegister(
-                CpuRegister::A,
+                StorableRegister::A,
                 AddressingMode::ZeroPage,
             )),
             0x86 => Some(Self::StoreRegister(
-                CpuRegister::X,
+                StorableRegister::X,
+                AddressingMode::ZeroPage,
+            )),
+            0x87 => Some(Self::StoreRegister(
+                StorableRegister::AX,
                 AddressingMode::ZeroPage,
             )),
             0x88 => Some(Self::RegistersOnly(
                 RegistersInstruction::DecrementRegister(CpuRegister::Y),
             )),
-            0x89 => Some(Self::NoOpImmediate),
             0x8A => Some(Self::RegistersOnly(
                 RegistersInstruction::TransferBetweenRegisters {
                     to: CpuRegister::A,
                     from: CpuRegister::X,
                 },
             )),
+            0x8B => Some(Self::Read(ReadInstruction::LoadAndXImmediate)),
             0x8C => Some(Self::StoreRegister(
-                CpuRegister::Y,
+                StorableRegister::Y,
                 AddressingMode::Absolute,
             )),
             0x8D => Some(Self::StoreRegister(
-                CpuRegister::A,
+                StorableRegister::A,
                 AddressingMode::Absolute,
             )),
             0x8E => Some(Self::StoreRegister(
-                CpuRegister::X,
+                StorableRegister::X,
+                AddressingMode::Absolute,
+            )),
+            0x8F => Some(Self::StoreRegister(
+                StorableRegister::AX,
                 AddressingMode::Absolute,
             )),
             0x90 => Some(Self::Branch(BranchCondition::CarryClear)),
             0x91 => Some(Self::StoreRegister(
-                CpuRegister::A,
+                StorableRegister::A,
                 AddressingMode::IndirectY,
             )),
             0x94 => Some(Self::StoreRegister(
-                CpuRegister::Y,
+                StorableRegister::Y,
                 AddressingMode::ZeroPageX,
             )),
             0x95 => Some(Self::StoreRegister(
-                CpuRegister::A,
+                StorableRegister::A,
                 AddressingMode::ZeroPageX,
             )),
             0x96 => Some(Self::StoreRegister(
-                CpuRegister::X,
+                StorableRegister::X,
+                AddressingMode::ZeroPageY,
+            )),
+            0x97 => Some(Self::StoreRegister(
+                StorableRegister::AX,
                 AddressingMode::ZeroPageY,
             )),
             0x98 => Some(Self::RegistersOnly(
@@ -1175,7 +1487,7 @@ impl Instruction {
                 },
             )),
             0x99 => Some(Self::StoreRegister(
-                CpuRegister::A,
+                StorableRegister::A,
                 AddressingMode::AbsoluteY,
             )),
             0x9A => Some(Self::RegistersOnly(
@@ -1184,10 +1496,12 @@ impl Instruction {
                     from: CpuRegister::X,
                 },
             )),
+            0x9C => Some(Self::UnofficialStore(CpuRegister::Y)),
             0x9D => Some(Self::StoreRegister(
-                CpuRegister::A,
+                StorableRegister::A,
                 AddressingMode::AbsoluteX,
             )),
+            0x9E => Some(Self::UnofficialStore(CpuRegister::X)),
             0xA0 => Some(Self::Read(ReadInstruction::LoadRegister(
                 CpuRegister::Y,
                 AddressingMode::Immediate,
@@ -1200,6 +1514,9 @@ impl Instruction {
                 CpuRegister::X,
                 AddressingMode::Immediate,
             ))),
+            0xA3 => Some(Self::Read(ReadInstruction::LoadTransferAX(
+                AddressingMode::IndirectX,
+            ))),
             0xA4 => Some(Self::Read(ReadInstruction::LoadRegister(
                 CpuRegister::Y,
                 AddressingMode::ZeroPage,
@@ -1210,6 +1527,9 @@ impl Instruction {
             ))),
             0xA6 => Some(Self::Read(ReadInstruction::LoadRegister(
                 CpuRegister::X,
+                AddressingMode::ZeroPage,
+            ))),
+            0xA7 => Some(Self::Read(ReadInstruction::LoadTransferAX(
                 AddressingMode::ZeroPage,
             ))),
             0xA8 => Some(Self::RegistersOnly(
@@ -1228,6 +1548,9 @@ impl Instruction {
                     from: CpuRegister::A,
                 },
             )),
+            0xAB => Some(Self::Read(ReadInstruction::LoadTransferAX(
+                AddressingMode::Immediate,
+            ))),
             0xAC => Some(Self::Read(ReadInstruction::LoadRegister(
                 CpuRegister::Y,
                 AddressingMode::Absolute,
@@ -1240,9 +1563,15 @@ impl Instruction {
                 CpuRegister::X,
                 AddressingMode::Absolute,
             ))),
+            0xAF => Some(Self::Read(ReadInstruction::LoadTransferAX(
+                AddressingMode::Absolute,
+            ))),
             0xB0 => Some(Self::Branch(BranchCondition::CarrySet)),
             0xB1 => Some(Self::Read(ReadInstruction::LoadRegister(
                 CpuRegister::A,
+                AddressingMode::IndirectY,
+            ))),
+            0xB3 => Some(Self::Read(ReadInstruction::LoadTransferAX(
                 AddressingMode::IndirectY,
             ))),
             0xB4 => Some(Self::Read(ReadInstruction::LoadRegister(
@@ -1255,6 +1584,9 @@ impl Instruction {
             ))),
             0xB6 => Some(Self::Read(ReadInstruction::LoadRegister(
                 CpuRegister::X,
+                AddressingMode::ZeroPageY,
+            ))),
+            0xB7 => Some(Self::Read(ReadInstruction::LoadTransferAX(
                 AddressingMode::ZeroPageY,
             ))),
             0xB8 => Some(Self::RegistersOnly(RegistersInstruction::ClearOverflowFlag)),
@@ -1280,6 +1612,9 @@ impl Instruction {
                 CpuRegister::X,
                 AddressingMode::AbsoluteY,
             ))),
+            0xBF => Some(Self::Read(ReadInstruction::LoadTransferAX(
+                AddressingMode::AbsoluteY,
+            ))),
             0xC0 => Some(Self::Read(ReadInstruction::Compare(
                 CpuRegister::Y,
                 AddressingMode::Immediate,
@@ -1288,7 +1623,9 @@ impl Instruction {
                 CpuRegister::A,
                 AddressingMode::IndirectX,
             ))),
-            0xC2 => Some(Self::NoOpImmediate),
+            0xC3 => Some(Self::ReadModifyWrite(ModifyInstruction::DecrementCompare(
+                AddressingMode::IndirectX,
+            ))),
             0xC4 => Some(Self::Read(ReadInstruction::Compare(
                 CpuRegister::Y,
                 AddressingMode::ZeroPage,
@@ -1298,6 +1635,9 @@ impl Instruction {
                 AddressingMode::ZeroPage,
             ))),
             0xC6 => Some(Self::ReadModifyWrite(ModifyInstruction::DecrementMemory(
+                AddressingMode::ZeroPage,
+            ))),
+            0xC7 => Some(Self::ReadModifyWrite(ModifyInstruction::DecrementCompare(
                 AddressingMode::ZeroPage,
             ))),
             0xC8 => Some(Self::RegistersOnly(
@@ -1310,6 +1650,7 @@ impl Instruction {
             0xCA => Some(Self::RegistersOnly(
                 RegistersInstruction::DecrementRegister(CpuRegister::X),
             )),
+            0xCB => Some(Self::Read(ReadInstruction::AXSubtract)),
             0xCC => Some(Self::Read(ReadInstruction::Compare(
                 CpuRegister::Y,
                 AddressingMode::Absolute,
@@ -1321,9 +1662,15 @@ impl Instruction {
             0xCE => Some(Self::ReadModifyWrite(ModifyInstruction::DecrementMemory(
                 AddressingMode::Absolute,
             ))),
+            0xCF => Some(Self::ReadModifyWrite(ModifyInstruction::DecrementCompare(
+                AddressingMode::Absolute,
+            ))),
             0xD0 => Some(Self::Branch(BranchCondition::NotEqual)),
             0xD1 => Some(Self::Read(ReadInstruction::Compare(
                 CpuRegister::A,
+                AddressingMode::IndirectY,
+            ))),
+            0xD3 => Some(Self::ReadModifyWrite(ModifyInstruction::DecrementCompare(
                 AddressingMode::IndirectY,
             ))),
             0xD5 => Some(Self::Read(ReadInstruction::Compare(
@@ -1333,12 +1680,17 @@ impl Instruction {
             0xD6 => Some(Self::ReadModifyWrite(ModifyInstruction::DecrementMemory(
                 AddressingMode::ZeroPageX,
             ))),
+            0xD7 => Some(Self::ReadModifyWrite(ModifyInstruction::DecrementCompare(
+                AddressingMode::ZeroPageX,
+            ))),
             0xD8 => Some(Self::RegistersOnly(RegistersInstruction::ClearDecimalFlag)),
             0xD9 => Some(Self::Read(ReadInstruction::Compare(
                 CpuRegister::A,
                 AddressingMode::AbsoluteY,
             ))),
-            0xDA => Some(Self::RegistersOnly(RegistersInstruction::NoOp)),
+            0xDB => Some(Self::ReadModifyWrite(ModifyInstruction::DecrementCompare(
+                AddressingMode::AbsoluteY,
+            ))),
             0xDD => Some(Self::Read(ReadInstruction::Compare(
                 CpuRegister::A,
                 AddressingMode::AbsoluteX,
@@ -1346,11 +1698,17 @@ impl Instruction {
             0xDE => Some(Self::ReadModifyWrite(ModifyInstruction::DecrementMemory(
                 AddressingMode::AbsoluteX,
             ))),
+            0xDF => Some(Self::ReadModifyWrite(ModifyInstruction::DecrementCompare(
+                AddressingMode::AbsoluteX,
+            ))),
             0xE0 => Some(Self::Read(ReadInstruction::Compare(
                 CpuRegister::X,
                 AddressingMode::Immediate,
             ))),
             0xE1 => Some(Self::Read(ReadInstruction::SubtractWithCarry(
+                AddressingMode::IndirectX,
+            ))),
+            0xE3 => Some(Self::ReadModifyWrite(ModifyInstruction::IncrementSubtract(
                 AddressingMode::IndirectX,
             ))),
             0xE4 => Some(Self::Read(ReadInstruction::Compare(
@@ -1363,13 +1721,15 @@ impl Instruction {
             0xE6 => Some(Self::ReadModifyWrite(ModifyInstruction::IncrementMemory(
                 AddressingMode::ZeroPage,
             ))),
+            0xE7 => Some(Self::ReadModifyWrite(ModifyInstruction::IncrementSubtract(
+                AddressingMode::ZeroPage,
+            ))),
             0xE8 => Some(Self::RegistersOnly(
                 RegistersInstruction::IncrementRegister(CpuRegister::X),
             )),
-            0xE9 => Some(Self::Read(ReadInstruction::SubtractWithCarry(
+            0xE9 | 0xEB => Some(Self::Read(ReadInstruction::SubtractWithCarry(
                 AddressingMode::Immediate,
             ))),
-            0xEA => Some(Self::RegistersOnly(RegistersInstruction::NoOp)),
             0xEC => Some(Self::Read(ReadInstruction::Compare(
                 CpuRegister::X,
                 AddressingMode::Absolute,
@@ -1380,8 +1740,14 @@ impl Instruction {
             0xEE => Some(Self::ReadModifyWrite(ModifyInstruction::IncrementMemory(
                 AddressingMode::Absolute,
             ))),
+            0xEF => Some(Self::ReadModifyWrite(ModifyInstruction::IncrementSubtract(
+                AddressingMode::Absolute,
+            ))),
             0xF0 => Some(Self::Branch(BranchCondition::Equal)),
             0xF1 => Some(Self::Read(ReadInstruction::SubtractWithCarry(
+                AddressingMode::IndirectY,
+            ))),
+            0xF3 => Some(Self::ReadModifyWrite(ModifyInstruction::IncrementSubtract(
                 AddressingMode::IndirectY,
             ))),
             0xF5 => Some(Self::Read(ReadInstruction::SubtractWithCarry(
@@ -1390,15 +1756,23 @@ impl Instruction {
             0xF6 => Some(Self::ReadModifyWrite(ModifyInstruction::IncrementMemory(
                 AddressingMode::ZeroPageX,
             ))),
+            0xF7 => Some(Self::ReadModifyWrite(ModifyInstruction::IncrementSubtract(
+                AddressingMode::ZeroPageX,
+            ))),
             0xF8 => Some(Self::RegistersOnly(RegistersInstruction::SetDecimalFlag)),
             0xF9 => Some(Self::Read(ReadInstruction::SubtractWithCarry(
                 AddressingMode::AbsoluteY,
             ))),
-            0xFA => Some(Self::RegistersOnly(RegistersInstruction::NoOp)),
+            0xFB => Some(Self::ReadModifyWrite(ModifyInstruction::IncrementSubtract(
+                AddressingMode::AbsoluteY,
+            ))),
             0xFD => Some(Self::Read(ReadInstruction::SubtractWithCarry(
                 AddressingMode::AbsoluteX,
             ))),
             0xFE => Some(Self::ReadModifyWrite(ModifyInstruction::IncrementMemory(
+                AddressingMode::AbsoluteX,
+            ))),
+            0xFF => Some(Self::ReadModifyWrite(ModifyInstruction::IncrementSubtract(
                 AddressingMode::AbsoluteX,
             ))),
             _ => {
@@ -1488,7 +1862,7 @@ fn get_read_cycle_ops(instruction: ReadInstruction) -> OpVec {
     }
 }
 
-fn get_store_cycle_ops(register: CpuRegister, addressing_mode: AddressingMode) -> OpVec {
+fn get_store_cycle_ops(register: StorableRegister, addressing_mode: AddressingMode) -> OpVec {
     match addressing_mode {
         AddressingMode::ZeroPage => [
             CycleOp::FetchOperand1,
@@ -1586,13 +1960,27 @@ fn get_modify_cycle_ops(instruction: ModifyInstruction) -> OpVec {
         ]
         .into_iter()
         .collect(),
-        AddressingMode::AbsoluteX => [
+        AddressingMode::AbsoluteX => absolute_indexed_modify_cycle_ops(Index::X, instruction),
+        AddressingMode::AbsoluteY => absolute_indexed_modify_cycle_ops(Index::Y, instruction),
+        AddressingMode::IndirectX => [
             CycleOp::FetchOperand1,
-            CycleOp::FetchOperand2,
-            CycleOp::AbsoluteIndexedFixHighByte(Index::X),
-            CycleOp::FetchAbsoluteIndexed,
-            CycleOp::AbsoluteIndexedWriteBack,
-            CycleOp::ExecuteAbsoluteIndexedModify(instruction),
+            CycleOp::ZeroPageIndexAddress,
+            CycleOp::FetchZeroPageIndexed1,
+            CycleOp::FetchZeroPageIndexed2,
+            CycleOp::FetchIndexedIndirect,
+            CycleOp::IndexedIndirectWriteBack,
+            CycleOp::ExecuteIndexedIndirectModify(instruction),
+        ]
+        .into_iter()
+        .collect(),
+        AddressingMode::IndirectY => [
+            CycleOp::FetchOperand1,
+            CycleOp::FetchZeroPage1,
+            CycleOp::FetchZeroPage2,
+            CycleOp::IndirectIndexedFixHighByte,
+            CycleOp::FetchIndirectIndexed,
+            CycleOp::IndirectIndexedWriteBack,
+            CycleOp::ExecuteIndirectIndexedModify(instruction),
         ]
         .into_iter()
         .collect(),
@@ -1600,6 +1988,19 @@ fn get_modify_cycle_ops(instruction: ModifyInstruction) -> OpVec {
             panic!("unsupported addressing mode for read-modify-write instruction: {instruction:?}")
         }
     }
+}
+
+fn absolute_indexed_modify_cycle_ops(index: Index, instruction: ModifyInstruction) -> OpVec {
+    [
+        CycleOp::FetchOperand1,
+        CycleOp::FetchOperand2,
+        CycleOp::AbsoluteIndexedFixHighByte(index),
+        CycleOp::FetchAbsoluteIndexed(index),
+        CycleOp::AbsoluteIndexedWriteBack(index),
+        CycleOp::ExecuteAbsoluteIndexedModify(index, instruction),
+    ]
+    .into_iter()
+    .collect()
 }
 
 fn read_register(registers: &CpuRegisters, register: CpuRegister) -> u8 {
@@ -1692,4 +2093,56 @@ fn bit_test(accumulator: u8, value: u8, flags: &mut StatusFlags) {
         .set_negative(value.bit(7))
         .set_overflow(value.bit(6))
         .set_zero(accumulator & value == 0);
+}
+
+fn increment(value: u8, flags: &mut StatusFlags) -> u8 {
+    let incremented = value.wrapping_add(1);
+    flags
+        .set_negative(incremented.bit(7))
+        .set_zero(incremented == 0);
+    incremented
+}
+
+fn decrement(value: u8, flags: &mut StatusFlags) -> u8 {
+    let decremented = value.wrapping_sub(1);
+    flags
+        .set_negative(decremented.bit(7))
+        .set_zero(decremented == 0);
+    decremented
+}
+
+fn shift_left(value: u8, flags: &mut StatusFlags) -> u8 {
+    let shifted = value << 1;
+    flags
+        .set_carry(value.bit(7))
+        .set_negative(shifted.bit(7))
+        .set_zero(shifted == 0);
+    shifted
+}
+
+fn logical_shift_right(value: u8, flags: &mut StatusFlags) -> u8 {
+    let shifted = value >> 1;
+    flags
+        .set_carry(value.bit(0))
+        .set_negative(false)
+        .set_zero(shifted == 0);
+    shifted
+}
+
+fn rotate_left(value: u8, flags: &mut StatusFlags) -> u8 {
+    let rotated = (value << 1) | u8::from(flags.carry);
+    flags
+        .set_carry(value.bit(7))
+        .set_negative(rotated.bit(7))
+        .set_zero(rotated == 0);
+    rotated
+}
+
+fn rotate_right(value: u8, flags: &mut StatusFlags) -> u8 {
+    let rotated = (value >> 1) | (u8::from(flags.carry) << 7);
+    flags
+        .set_carry(value.bit(0))
+        .set_negative(rotated.bit(7))
+        .set_zero(rotated == 0);
+    rotated
 }
