@@ -217,7 +217,7 @@ pub fn tick(state: &mut CpuState, bus: &mut CpuBus<'_>, is_apu_active_cycle: boo
                 State::Executing(instruction_state)
             }
         }
-        State::Executing(instruction_state) => {
+        State::Executing(mut instruction_state) => {
             let cycle_op = instruction_state.ops[instruction_state.op_index as usize];
 
             log::trace!("OP: Executing op {cycle_op:?}");
@@ -229,7 +229,7 @@ pub fn tick(state: &mut CpuState, bus: &mut CpuBus<'_>, is_apu_active_cycle: boo
                 bus.read_address(state.registers.pc + 1)
             );
 
-            let instruction_state = cycle_op.execute(instruction_state, &mut state.registers, bus);
+            cycle_op.execute(&mut instruction_state, &mut state.registers, bus);
 
             if usize::from(instruction_state.op_index) < instruction_state.ops.len() {
                 State::Executing(instruction_state)
