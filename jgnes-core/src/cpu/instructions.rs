@@ -75,7 +75,7 @@ pub enum ReadInstruction {
     // EOR
     ExclusiveOr(AddressingMode),
     // LDA / LDX / LDY
-    LoadRegister(CpuRegister, AddressingMode),
+    Load(CpuRegister, AddressingMode),
     // ORA
     InclusiveOr(AddressingMode),
     // SBC
@@ -115,7 +115,7 @@ impl ReadInstruction {
             Self::ExclusiveOr(..) => {
                 registers.accumulator = xor(registers.accumulator, value, &mut registers.status);
             }
-            Self::LoadRegister(register, ..) => {
+            Self::Load(register, ..) => {
                 write_register(registers, register, value);
                 registers
                     .status
@@ -199,7 +199,7 @@ impl ReadInstruction {
             | Self::BitTest(addressing_mode)
             | Self::Compare(_, addressing_mode)
             | Self::ExclusiveOr(addressing_mode)
-            | Self::LoadRegister(_, addressing_mode)
+            | Self::Load(_, addressing_mode)
             | Self::InclusiveOr(addressing_mode)
             | Self::SubtractWithCarry(addressing_mode)
             | Self::NoOp(addressing_mode)
@@ -218,9 +218,9 @@ pub enum ModifyInstruction {
     // ASL
     ShiftLeft(AddressingMode),
     // DEC
-    DecrementMemory(AddressingMode),
+    Decrement(AddressingMode),
     // INC
-    IncrementMemory(AddressingMode),
+    Increment(AddressingMode),
     // LSR
     LogicalShiftRight(AddressingMode),
     // ROL
@@ -245,8 +245,8 @@ impl ModifyInstruction {
     fn addressing_mode(self) -> AddressingMode {
         match self {
             Self::ShiftLeft(addressing_mode)
-            | Self::DecrementMemory(addressing_mode)
-            | Self::IncrementMemory(addressing_mode)
+            | Self::Decrement(addressing_mode)
+            | Self::Increment(addressing_mode)
             | Self::LogicalShiftRight(addressing_mode)
             | Self::RotateLeft(addressing_mode)
             | Self::RotateRight(addressing_mode)
@@ -262,8 +262,8 @@ impl ModifyInstruction {
     fn execute(self, value: u8, registers: &mut CpuRegisters) -> u8 {
         match self {
             Self::ShiftLeft(..) => shift_left(value, &mut registers.status),
-            Self::DecrementMemory(..) => decrement(value, &mut registers.status),
-            Self::IncrementMemory(..) => increment(value, &mut registers.status),
+            Self::Decrement(..) => decrement(value, &mut registers.status),
+            Self::Increment(..) => increment(value, &mut registers.status),
             Self::LogicalShiftRight(..) => logical_shift_right(value, &mut registers.status),
             Self::RotateLeft(..) => rotate_left(value, &mut registers.status),
             Self::RotateRight(..) => rotate_right(value, &mut registers.status),
@@ -313,9 +313,9 @@ pub enum RegistersInstruction {
     // CLV
     ClearOverflowFlag,
     // DEX / DEY
-    DecrementRegister(CpuRegister),
+    Decrement(CpuRegister),
     // INX / INY
-    IncrementRegister(CpuRegister),
+    Increment(CpuRegister),
     // NOP
     NoOp,
     // SEC
@@ -325,7 +325,7 @@ pub enum RegistersInstruction {
     // SEI
     SetInterruptDisable,
     // TAX / TAY / TSX / TXA / TXS / TYA
-    TransferBetweenRegisters { to: CpuRegister, from: CpuRegister },
+    Transfer { to: CpuRegister, from: CpuRegister },
 }
 
 impl RegistersInstruction {
@@ -343,7 +343,7 @@ impl RegistersInstruction {
             Self::ClearOverflowFlag => {
                 registers.status.overflow = false;
             }
-            Self::DecrementRegister(register) => {
+            Self::Decrement(register) => {
                 let value = read_register(registers, register).wrapping_sub(1);
                 write_register(registers, register, value);
                 registers
@@ -351,7 +351,7 @@ impl RegistersInstruction {
                     .set_negative(value.bit(7))
                     .set_zero(value == 0);
             }
-            Self::IncrementRegister(register) => {
+            Self::Increment(register) => {
                 let value = read_register(registers, register).wrapping_add(1);
                 write_register(registers, register, value);
                 registers
@@ -369,7 +369,7 @@ impl RegistersInstruction {
             Self::SetInterruptDisable => {
                 registers.status.interrupt_disable = true;
             }
-            Self::TransferBetweenRegisters { to, from } => {
+            Self::Transfer { to, from } => {
                 let value = read_register(registers, from);
                 write_register(registers, to, value);
                 if to != CpuRegister::S {
@@ -1010,7 +1010,7 @@ impl CycleOp {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Instruction {
     Read(ReadInstruction),
-    ReadModifyWrite(ModifyInstruction),
+    Modify(ModifyInstruction),
     RegistersOnly(RegistersInstruction),
     Branch(BranchCondition),
     // STA / STX / STY / SAX (SAX == unofficial STA + STX)
@@ -1056,7 +1056,7 @@ impl Instruction {
             ]
             .into_iter()
             .collect(),
-            Self::ReadModifyWrite(instruction) => get_modify_cycle_ops(instruction),
+            Self::Modify(instruction) => get_modify_cycle_ops(instruction),
             Self::RegistersOnly(instruction) => [CycleOp::ExecuteRegistersOnly(instruction)]
                 .into_iter()
                 .collect(),
@@ -1139,642 +1139,259 @@ impl Instruction {
     }
 
     pub fn from_opcode(opcode: u8) -> Option<Self> {
+        use AddressingMode as AM;
+        use ModifyInstruction as MI;
+        use ReadInstruction as RI;
+
         match opcode {
             0x00 => Some(Self::ForceInterrupt),
-            0x01 => Some(Self::Read(ReadInstruction::InclusiveOr(
-                AddressingMode::IndirectX,
-            ))),
-            0x03 => Some(Self::ReadModifyWrite(ModifyInstruction::ShiftLeftOr(
-                AddressingMode::IndirectX,
-            ))),
-            0x04 | 0x44 | 0x64 => Some(Self::Read(ReadInstruction::NoOp(AddressingMode::ZeroPage))),
-            0x05 => Some(Self::Read(ReadInstruction::InclusiveOr(
-                AddressingMode::ZeroPage,
-            ))),
-            0x06 => Some(Self::ReadModifyWrite(ModifyInstruction::ShiftLeft(
-                AddressingMode::ZeroPage,
-            ))),
-            0x07 => Some(Self::ReadModifyWrite(ModifyInstruction::ShiftLeftOr(
-                AddressingMode::ZeroPage,
-            ))),
+            0x01 => Some(Self::Read(RI::InclusiveOr(AM::IndirectX))),
+            0x03 => Some(Self::Modify(MI::ShiftLeftOr(AM::IndirectX))),
+            0x04 | 0x44 | 0x64 => Some(Self::Read(RI::NoOp(AM::ZeroPage))),
+            0x05 => Some(Self::Read(RI::InclusiveOr(AM::ZeroPage))),
+            0x06 => Some(Self::Modify(MI::ShiftLeft(AM::ZeroPage))),
+            0x07 => Some(Self::Modify(MI::ShiftLeftOr(AM::ZeroPage))),
             0x08 => Some(Self::PushStack(PushableRegister::P)),
-            0x09 => Some(Self::Read(ReadInstruction::InclusiveOr(
-                AddressingMode::Immediate,
-            ))),
-            0x0A => Some(Self::ReadModifyWrite(ModifyInstruction::ShiftLeft(
-                AddressingMode::Accumulator,
-            ))),
-            0x0B | 0x2B => Some(Self::Read(ReadInstruction::AndWithShiftLeft)),
-            0x0C => Some(Self::Read(ReadInstruction::NoOp(AddressingMode::Absolute))),
-            0x0D => Some(Self::Read(ReadInstruction::InclusiveOr(
-                AddressingMode::Absolute,
-            ))),
-            0x0E => Some(Self::ReadModifyWrite(ModifyInstruction::ShiftLeft(
-                AddressingMode::Absolute,
-            ))),
-            0x0F => Some(Self::ReadModifyWrite(ModifyInstruction::ShiftLeftOr(
-                AddressingMode::Absolute,
-            ))),
+            0x09 => Some(Self::Read(RI::InclusiveOr(AM::Immediate))),
+            0x0A => Some(Self::Modify(MI::ShiftLeft(AM::Accumulator))),
+            0x0B | 0x2B => Some(Self::Read(RI::AndWithShiftLeft)),
+            0x0C => Some(Self::Read(RI::NoOp(AM::Absolute))),
+            0x0D => Some(Self::Read(RI::InclusiveOr(AM::Absolute))),
+            0x0E => Some(Self::Modify(MI::ShiftLeft(AM::Absolute))),
+            0x0F => Some(Self::Modify(MI::ShiftLeftOr(AM::Absolute))),
             0x10 => Some(Self::Branch(BranchCondition::Positive)),
-            0x11 => Some(Self::Read(ReadInstruction::InclusiveOr(
-                AddressingMode::IndirectY,
-            ))),
-            0x13 => Some(Self::ReadModifyWrite(ModifyInstruction::ShiftLeftOr(
-                AddressingMode::IndirectY,
-            ))),
-            0x14 | 0x34 | 0x54 | 0x74 | 0xD4 | 0xF4 => {
-                Some(Self::Read(ReadInstruction::NoOp(AddressingMode::ZeroPageX)))
-            }
-            0x15 => Some(Self::Read(ReadInstruction::InclusiveOr(
-                AddressingMode::ZeroPageX,
-            ))),
-            0x16 => Some(Self::ReadModifyWrite(ModifyInstruction::ShiftLeft(
-                AddressingMode::ZeroPageX,
-            ))),
-            0x17 => Some(Self::ReadModifyWrite(ModifyInstruction::ShiftLeftOr(
-                AddressingMode::ZeroPageX,
-            ))),
+            0x11 => Some(Self::Read(RI::InclusiveOr(AM::IndirectY))),
+            0x13 => Some(Self::Modify(MI::ShiftLeftOr(AM::IndirectY))),
+            0x14 | 0x34 | 0x54 | 0x74 | 0xD4 | 0xF4 => Some(Self::Read(RI::NoOp(AM::ZeroPageX))),
+            0x15 => Some(Self::Read(RI::InclusiveOr(AM::ZeroPageX))),
+            0x16 => Some(Self::Modify(MI::ShiftLeft(AM::ZeroPageX))),
+            0x17 => Some(Self::Modify(MI::ShiftLeftOr(AM::ZeroPageX))),
             0x18 => Some(Self::RegistersOnly(RegistersInstruction::ClearCarryFlag)),
-            0x19 => Some(Self::Read(ReadInstruction::InclusiveOr(
-                AddressingMode::AbsoluteY,
-            ))),
-            0x1D => Some(Self::Read(ReadInstruction::InclusiveOr(
-                AddressingMode::AbsoluteX,
-            ))),
-            0x1E => Some(Self::ReadModifyWrite(ModifyInstruction::ShiftLeft(
-                AddressingMode::AbsoluteX,
-            ))),
+            0x19 => Some(Self::Read(RI::InclusiveOr(AM::AbsoluteY))),
+            0x1D => Some(Self::Read(RI::InclusiveOr(AM::AbsoluteX))),
+            0x1E => Some(Self::Modify(MI::ShiftLeft(AM::AbsoluteX))),
             0x1A | 0x3A | 0x5A | 0x7A | 0xDA | 0xEA | 0xFA => {
                 Some(Self::RegistersOnly(RegistersInstruction::NoOp))
             }
-            0x1B => Some(Self::ReadModifyWrite(ModifyInstruction::ShiftLeftOr(
-                AddressingMode::AbsoluteY,
-            ))),
-            0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC => {
-                Some(Self::Read(ReadInstruction::NoOp(AddressingMode::AbsoluteX)))
-            }
-            0x1F => Some(Self::ReadModifyWrite(ModifyInstruction::ShiftLeftOr(
-                AddressingMode::AbsoluteX,
-            ))),
+            0x1B => Some(Self::Modify(MI::ShiftLeftOr(AM::AbsoluteY))),
+            0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC => Some(Self::Read(RI::NoOp(AM::AbsoluteX))),
+            0x1F => Some(Self::Modify(MI::ShiftLeftOr(AM::AbsoluteX))),
             0x20 => Some(Self::JumpToSubroutine),
-            0x21 => Some(Self::Read(ReadInstruction::And(AddressingMode::IndirectX))),
-            0x23 => Some(Self::ReadModifyWrite(ModifyInstruction::RotateLeftAnd(
-                AddressingMode::IndirectX,
-            ))),
-            0x24 => Some(Self::Read(ReadInstruction::BitTest(
-                AddressingMode::ZeroPage,
-            ))),
-            0x25 => Some(Self::Read(ReadInstruction::And(AddressingMode::ZeroPage))),
-            0x26 => Some(Self::ReadModifyWrite(ModifyInstruction::RotateLeft(
-                AddressingMode::ZeroPage,
-            ))),
-            0x27 => Some(Self::ReadModifyWrite(ModifyInstruction::RotateLeftAnd(
-                AddressingMode::ZeroPage,
-            ))),
+            0x21 => Some(Self::Read(RI::And(AM::IndirectX))),
+            0x23 => Some(Self::Modify(MI::RotateLeftAnd(AM::IndirectX))),
+            0x24 => Some(Self::Read(RI::BitTest(AM::ZeroPage))),
+            0x25 => Some(Self::Read(RI::And(AM::ZeroPage))),
+            0x26 => Some(Self::Modify(MI::RotateLeft(AM::ZeroPage))),
+            0x27 => Some(Self::Modify(MI::RotateLeftAnd(AM::ZeroPage))),
             0x28 => Some(Self::PullStack(PushableRegister::P)),
-            0x29 => Some(Self::Read(ReadInstruction::And(AddressingMode::Immediate))),
-            0x2A => Some(Self::ReadModifyWrite(ModifyInstruction::RotateLeft(
-                AddressingMode::Accumulator,
-            ))),
-            0x2C => Some(Self::Read(ReadInstruction::BitTest(
-                AddressingMode::Absolute,
-            ))),
-            0x2D => Some(Self::Read(ReadInstruction::And(AddressingMode::Absolute))),
-            0x2E => Some(Self::ReadModifyWrite(ModifyInstruction::RotateLeft(
-                AddressingMode::Absolute,
-            ))),
-            0x2F => Some(Self::ReadModifyWrite(ModifyInstruction::RotateLeftAnd(
-                AddressingMode::Absolute,
-            ))),
+            0x29 => Some(Self::Read(RI::And(AM::Immediate))),
+            0x2A => Some(Self::Modify(MI::RotateLeft(AM::Accumulator))),
+            0x2C => Some(Self::Read(RI::BitTest(AM::Absolute))),
+            0x2D => Some(Self::Read(RI::And(AM::Absolute))),
+            0x2E => Some(Self::Modify(MI::RotateLeft(AM::Absolute))),
+            0x2F => Some(Self::Modify(MI::RotateLeftAnd(AM::Absolute))),
             0x30 => Some(Self::Branch(BranchCondition::Minus)),
-            0x31 => Some(Self::Read(ReadInstruction::And(AddressingMode::IndirectY))),
-            0x33 => Some(Self::ReadModifyWrite(ModifyInstruction::RotateLeftAnd(
-                AddressingMode::IndirectY,
-            ))),
-            0x35 => Some(Self::Read(ReadInstruction::And(AddressingMode::ZeroPageX))),
-            0x36 => Some(Self::ReadModifyWrite(ModifyInstruction::RotateLeft(
-                AddressingMode::ZeroPageX,
-            ))),
-            0x37 => Some(Self::ReadModifyWrite(ModifyInstruction::RotateLeftAnd(
-                AddressingMode::ZeroPageX,
-            ))),
+            0x31 => Some(Self::Read(RI::And(AM::IndirectY))),
+            0x33 => Some(Self::Modify(MI::RotateLeftAnd(AM::IndirectY))),
+            0x35 => Some(Self::Read(RI::And(AM::ZeroPageX))),
+            0x36 => Some(Self::Modify(MI::RotateLeft(AM::ZeroPageX))),
+            0x37 => Some(Self::Modify(MI::RotateLeftAnd(AM::ZeroPageX))),
             0x38 => Some(Self::RegistersOnly(RegistersInstruction::SetCarryFlag)),
-            0x39 => Some(Self::Read(ReadInstruction::And(AddressingMode::AbsoluteY))),
-            0x3B => Some(Self::ReadModifyWrite(ModifyInstruction::RotateLeftAnd(
-                AddressingMode::AbsoluteY,
-            ))),
-            0x3D => Some(Self::Read(ReadInstruction::And(AddressingMode::AbsoluteX))),
-            0x3E => Some(Self::ReadModifyWrite(ModifyInstruction::RotateLeft(
-                AddressingMode::AbsoluteX,
-            ))),
-            0x3F => Some(Self::ReadModifyWrite(ModifyInstruction::RotateLeftAnd(
-                AddressingMode::AbsoluteX,
-            ))),
+            0x39 => Some(Self::Read(RI::And(AM::AbsoluteY))),
+            0x3B => Some(Self::Modify(MI::RotateLeftAnd(AM::AbsoluteY))),
+            0x3D => Some(Self::Read(RI::And(AM::AbsoluteX))),
+            0x3E => Some(Self::Modify(MI::RotateLeft(AM::AbsoluteX))),
+            0x3F => Some(Self::Modify(MI::RotateLeftAnd(AM::AbsoluteX))),
             0x40 => Some(Self::ReturnFromInterrupt),
-            0x41 => Some(Self::Read(ReadInstruction::ExclusiveOr(
-                AddressingMode::IndirectX,
-            ))),
-            0x43 => Some(Self::ReadModifyWrite(
-                ModifyInstruction::ShiftRightExclusiveOr(AddressingMode::IndirectX),
-            )),
-            0x45 => Some(Self::Read(ReadInstruction::ExclusiveOr(
-                AddressingMode::ZeroPage,
-            ))),
-            0x46 => Some(Self::ReadModifyWrite(ModifyInstruction::LogicalShiftRight(
-                AddressingMode::ZeroPage,
-            ))),
-            0x47 => Some(Self::ReadModifyWrite(
-                ModifyInstruction::ShiftRightExclusiveOr(AddressingMode::ZeroPage),
-            )),
+            0x41 => Some(Self::Read(RI::ExclusiveOr(AM::IndirectX))),
+            0x43 => Some(Self::Modify(MI::ShiftRightExclusiveOr(AM::IndirectX))),
+            0x45 => Some(Self::Read(RI::ExclusiveOr(AM::ZeroPage))),
+            0x46 => Some(Self::Modify(MI::LogicalShiftRight(AM::ZeroPage))),
+            0x47 => Some(Self::Modify(MI::ShiftRightExclusiveOr(AM::ZeroPage))),
             0x48 => Some(Self::PushStack(PushableRegister::A)),
-            0x49 => Some(Self::Read(ReadInstruction::ExclusiveOr(
-                AddressingMode::Immediate,
-            ))),
-            0x4A => Some(Self::ReadModifyWrite(ModifyInstruction::LogicalShiftRight(
-                AddressingMode::Accumulator,
-            ))),
-            0x4B => Some(Self::Read(ReadInstruction::AndWithShiftRight)),
-            0x4C => Some(Self::Jump(AddressingMode::Absolute)),
-            0x4D => Some(Self::Read(ReadInstruction::ExclusiveOr(
-                AddressingMode::Absolute,
-            ))),
-            0x4E => Some(Self::ReadModifyWrite(ModifyInstruction::LogicalShiftRight(
-                AddressingMode::Absolute,
-            ))),
-            0x4F => Some(Self::ReadModifyWrite(
-                ModifyInstruction::ShiftRightExclusiveOr(AddressingMode::Absolute),
-            )),
+            0x49 => Some(Self::Read(RI::ExclusiveOr(AM::Immediate))),
+            0x4A => Some(Self::Modify(MI::LogicalShiftRight(AM::Accumulator))),
+            0x4B => Some(Self::Read(RI::AndWithShiftRight)),
+            0x4C => Some(Self::Jump(AM::Absolute)),
+            0x4D => Some(Self::Read(RI::ExclusiveOr(AM::Absolute))),
+            0x4E => Some(Self::Modify(MI::LogicalShiftRight(AM::Absolute))),
+            0x4F => Some(Self::Modify(MI::ShiftRightExclusiveOr(AM::Absolute))),
             0x50 => Some(Self::Branch(BranchCondition::OverflowClear)),
-            0x51 => Some(Self::Read(ReadInstruction::ExclusiveOr(
-                AddressingMode::IndirectY,
-            ))),
-            0x53 => Some(Self::ReadModifyWrite(
-                ModifyInstruction::ShiftRightExclusiveOr(AddressingMode::IndirectY),
-            )),
-            0x55 => Some(Self::Read(ReadInstruction::ExclusiveOr(
-                AddressingMode::ZeroPageX,
-            ))),
-            0x56 => Some(Self::ReadModifyWrite(ModifyInstruction::LogicalShiftRight(
-                AddressingMode::ZeroPageX,
-            ))),
-            0x57 => Some(Self::ReadModifyWrite(
-                ModifyInstruction::ShiftRightExclusiveOr(AddressingMode::ZeroPageX),
-            )),
+            0x51 => Some(Self::Read(RI::ExclusiveOr(AM::IndirectY))),
+            0x53 => Some(Self::Modify(MI::ShiftRightExclusiveOr(AM::IndirectY))),
+            0x55 => Some(Self::Read(RI::ExclusiveOr(AM::ZeroPageX))),
+            0x56 => Some(Self::Modify(MI::LogicalShiftRight(AM::ZeroPageX))),
+            0x57 => Some(Self::Modify(MI::ShiftRightExclusiveOr(AM::ZeroPageX))),
             0x58 => Some(Self::RegistersOnly(
                 RegistersInstruction::ClearInterruptDisable,
             )),
-            0x59 => Some(Self::Read(ReadInstruction::ExclusiveOr(
-                AddressingMode::AbsoluteY,
-            ))),
-            0x5B => Some(Self::ReadModifyWrite(
-                ModifyInstruction::ShiftRightExclusiveOr(AddressingMode::AbsoluteY),
-            )),
-            0x5D => Some(Self::Read(ReadInstruction::ExclusiveOr(
-                AddressingMode::AbsoluteX,
-            ))),
-            0x5E => Some(Self::ReadModifyWrite(ModifyInstruction::LogicalShiftRight(
-                AddressingMode::AbsoluteX,
-            ))),
-            0x5F => Some(Self::ReadModifyWrite(
-                ModifyInstruction::ShiftRightExclusiveOr(AddressingMode::AbsoluteX),
-            )),
+            0x59 => Some(Self::Read(RI::ExclusiveOr(AM::AbsoluteY))),
+            0x5B => Some(Self::Modify(MI::ShiftRightExclusiveOr(AM::AbsoluteY))),
+            0x5D => Some(Self::Read(RI::ExclusiveOr(AM::AbsoluteX))),
+            0x5E => Some(Self::Modify(MI::LogicalShiftRight(AM::AbsoluteX))),
+            0x5F => Some(Self::Modify(MI::ShiftRightExclusiveOr(AM::AbsoluteX))),
             0x60 => Some(Self::ReturnFromSubroutine),
-            0x61 => Some(Self::Read(ReadInstruction::AddWithCarry(
-                AddressingMode::IndirectX,
-            ))),
-            0x63 => Some(Self::ReadModifyWrite(ModifyInstruction::RotateRightAdd(
-                AddressingMode::IndirectX,
-            ))),
-            0x65 => Some(Self::Read(ReadInstruction::AddWithCarry(
-                AddressingMode::ZeroPage,
-            ))),
-            0x66 => Some(Self::ReadModifyWrite(ModifyInstruction::RotateRight(
-                AddressingMode::ZeroPage,
-            ))),
-            0x67 => Some(Self::ReadModifyWrite(ModifyInstruction::RotateRightAdd(
-                AddressingMode::ZeroPage,
-            ))),
+            0x61 => Some(Self::Read(RI::AddWithCarry(AM::IndirectX))),
+            0x63 => Some(Self::Modify(MI::RotateRightAdd(AM::IndirectX))),
+            0x65 => Some(Self::Read(RI::AddWithCarry(AM::ZeroPage))),
+            0x66 => Some(Self::Modify(MI::RotateRight(AM::ZeroPage))),
+            0x67 => Some(Self::Modify(MI::RotateRightAdd(AM::ZeroPage))),
             0x68 => Some(Self::PullStack(PushableRegister::A)),
-            0x69 => Some(Self::Read(ReadInstruction::AddWithCarry(
-                AddressingMode::Immediate,
-            ))),
-            0x6A => Some(Self::ReadModifyWrite(ModifyInstruction::RotateRight(
-                AddressingMode::Accumulator,
-            ))),
-            0x6B => Some(Self::Read(ReadInstruction::AndWithRotateRight)),
-            0x6C => Some(Self::Jump(AddressingMode::Indirect)),
-            0x6D => Some(Self::Read(ReadInstruction::AddWithCarry(
-                AddressingMode::Absolute,
-            ))),
-            0x6E => Some(Self::ReadModifyWrite(ModifyInstruction::RotateRight(
-                AddressingMode::Absolute,
-            ))),
-            0x6F => Some(Self::ReadModifyWrite(ModifyInstruction::RotateRightAdd(
-                AddressingMode::Absolute,
-            ))),
+            0x69 => Some(Self::Read(RI::AddWithCarry(AM::Immediate))),
+            0x6A => Some(Self::Modify(MI::RotateRight(AM::Accumulator))),
+            0x6B => Some(Self::Read(RI::AndWithRotateRight)),
+            0x6C => Some(Self::Jump(AM::Indirect)),
+            0x6D => Some(Self::Read(RI::AddWithCarry(AM::Absolute))),
+            0x6E => Some(Self::Modify(MI::RotateRight(AM::Absolute))),
+            0x6F => Some(Self::Modify(MI::RotateRightAdd(AM::Absolute))),
             0x70 => Some(Self::Branch(BranchCondition::OverflowSet)),
-            0x71 => Some(Self::Read(ReadInstruction::AddWithCarry(
-                AddressingMode::IndirectY,
-            ))),
-            0x73 => Some(Self::ReadModifyWrite(ModifyInstruction::RotateRightAdd(
-                AddressingMode::IndirectY,
-            ))),
-            0x75 => Some(Self::Read(ReadInstruction::AddWithCarry(
-                AddressingMode::ZeroPageX,
-            ))),
-            0x76 => Some(Self::ReadModifyWrite(ModifyInstruction::RotateRight(
-                AddressingMode::ZeroPageX,
-            ))),
-            0x77 => Some(Self::ReadModifyWrite(ModifyInstruction::RotateRightAdd(
-                AddressingMode::ZeroPageX,
-            ))),
+            0x71 => Some(Self::Read(RI::AddWithCarry(AM::IndirectY))),
+            0x73 => Some(Self::Modify(MI::RotateRightAdd(AM::IndirectY))),
+            0x75 => Some(Self::Read(RI::AddWithCarry(AM::ZeroPageX))),
+            0x76 => Some(Self::Modify(MI::RotateRight(AM::ZeroPageX))),
+            0x77 => Some(Self::Modify(MI::RotateRightAdd(AM::ZeroPageX))),
             0x78 => Some(Self::RegistersOnly(
                 RegistersInstruction::SetInterruptDisable,
             )),
-            0x79 => Some(Self::Read(ReadInstruction::AddWithCarry(
-                AddressingMode::AbsoluteY,
+            0x79 => Some(Self::Read(RI::AddWithCarry(AM::AbsoluteY))),
+            0x7B => Some(Self::Modify(MI::RotateRightAdd(AM::AbsoluteY))),
+            0x7D => Some(Self::Read(RI::AddWithCarry(AM::AbsoluteX))),
+            0x7E => Some(Self::Modify(MI::RotateRight(AM::AbsoluteX))),
+            0x7F => Some(Self::Modify(MI::RotateRightAdd(AM::AbsoluteX))),
+            0x80 | 0x82 | 0x89 | 0xC2 | 0xE2 => Some(Self::Read(RI::NoOp(AM::Immediate))),
+            0x81 => Some(Self::StoreRegister(StorableRegister::A, AM::IndirectX)),
+            0x83 => Some(Self::StoreRegister(StorableRegister::AX, AM::IndirectX)),
+            0x84 => Some(Self::StoreRegister(StorableRegister::Y, AM::ZeroPage)),
+            0x85 => Some(Self::StoreRegister(StorableRegister::A, AM::ZeroPage)),
+            0x86 => Some(Self::StoreRegister(StorableRegister::X, AM::ZeroPage)),
+            0x87 => Some(Self::StoreRegister(StorableRegister::AX, AM::ZeroPage)),
+            0x88 => Some(Self::RegistersOnly(RegistersInstruction::Decrement(
+                CpuRegister::Y,
             ))),
-            0x7B => Some(Self::ReadModifyWrite(ModifyInstruction::RotateRightAdd(
-                AddressingMode::AbsoluteY,
-            ))),
-            0x7D => Some(Self::Read(ReadInstruction::AddWithCarry(
-                AddressingMode::AbsoluteX,
-            ))),
-            0x7E => Some(Self::ReadModifyWrite(ModifyInstruction::RotateRight(
-                AddressingMode::AbsoluteX,
-            ))),
-            0x7F => Some(Self::ReadModifyWrite(ModifyInstruction::RotateRightAdd(
-                AddressingMode::AbsoluteX,
-            ))),
-            0x80 | 0x82 | 0x89 | 0xC2 | 0xE2 => {
-                Some(Self::Read(ReadInstruction::NoOp(AddressingMode::Immediate)))
-            }
-            0x81 => Some(Self::StoreRegister(
-                StorableRegister::A,
-                AddressingMode::IndirectX,
-            )),
-            0x83 => Some(Self::StoreRegister(
-                StorableRegister::AX,
-                AddressingMode::IndirectX,
-            )),
-            0x84 => Some(Self::StoreRegister(
-                StorableRegister::Y,
-                AddressingMode::ZeroPage,
-            )),
-            0x85 => Some(Self::StoreRegister(
-                StorableRegister::A,
-                AddressingMode::ZeroPage,
-            )),
-            0x86 => Some(Self::StoreRegister(
-                StorableRegister::X,
-                AddressingMode::ZeroPage,
-            )),
-            0x87 => Some(Self::StoreRegister(
-                StorableRegister::AX,
-                AddressingMode::ZeroPage,
-            )),
-            0x88 => Some(Self::RegistersOnly(
-                RegistersInstruction::DecrementRegister(CpuRegister::Y),
-            )),
-            0x8A => Some(Self::RegistersOnly(
-                RegistersInstruction::TransferBetweenRegisters {
-                    to: CpuRegister::A,
-                    from: CpuRegister::X,
-                },
-            )),
-            0x8B => Some(Self::Read(ReadInstruction::LoadAndXImmediate)),
-            0x8C => Some(Self::StoreRegister(
-                StorableRegister::Y,
-                AddressingMode::Absolute,
-            )),
-            0x8D => Some(Self::StoreRegister(
-                StorableRegister::A,
-                AddressingMode::Absolute,
-            )),
-            0x8E => Some(Self::StoreRegister(
-                StorableRegister::X,
-                AddressingMode::Absolute,
-            )),
-            0x8F => Some(Self::StoreRegister(
-                StorableRegister::AX,
-                AddressingMode::Absolute,
-            )),
+            0x8A => Some(Self::RegistersOnly(RegistersInstruction::Transfer {
+                to: CpuRegister::A,
+                from: CpuRegister::X,
+            })),
+            0x8B => Some(Self::Read(RI::LoadAndXImmediate)),
+            0x8C => Some(Self::StoreRegister(StorableRegister::Y, AM::Absolute)),
+            0x8D => Some(Self::StoreRegister(StorableRegister::A, AM::Absolute)),
+            0x8E => Some(Self::StoreRegister(StorableRegister::X, AM::Absolute)),
+            0x8F => Some(Self::StoreRegister(StorableRegister::AX, AM::Absolute)),
             0x90 => Some(Self::Branch(BranchCondition::CarryClear)),
-            0x91 => Some(Self::StoreRegister(
-                StorableRegister::A,
-                AddressingMode::IndirectY,
-            )),
-            0x94 => Some(Self::StoreRegister(
-                StorableRegister::Y,
-                AddressingMode::ZeroPageX,
-            )),
-            0x95 => Some(Self::StoreRegister(
-                StorableRegister::A,
-                AddressingMode::ZeroPageX,
-            )),
-            0x96 => Some(Self::StoreRegister(
-                StorableRegister::X,
-                AddressingMode::ZeroPageY,
-            )),
-            0x97 => Some(Self::StoreRegister(
-                StorableRegister::AX,
-                AddressingMode::ZeroPageY,
-            )),
-            0x98 => Some(Self::RegistersOnly(
-                RegistersInstruction::TransferBetweenRegisters {
-                    to: CpuRegister::A,
-                    from: CpuRegister::Y,
-                },
-            )),
-            0x99 => Some(Self::StoreRegister(
-                StorableRegister::A,
-                AddressingMode::AbsoluteY,
-            )),
-            0x9A => Some(Self::RegistersOnly(
-                RegistersInstruction::TransferBetweenRegisters {
-                    to: CpuRegister::S,
-                    from: CpuRegister::X,
-                },
-            )),
+            0x91 => Some(Self::StoreRegister(StorableRegister::A, AM::IndirectY)),
+            0x94 => Some(Self::StoreRegister(StorableRegister::Y, AM::ZeroPageX)),
+            0x95 => Some(Self::StoreRegister(StorableRegister::A, AM::ZeroPageX)),
+            0x96 => Some(Self::StoreRegister(StorableRegister::X, AM::ZeroPageY)),
+            0x97 => Some(Self::StoreRegister(StorableRegister::AX, AM::ZeroPageY)),
+            0x98 => Some(Self::RegistersOnly(RegistersInstruction::Transfer {
+                to: CpuRegister::A,
+                from: CpuRegister::Y,
+            })),
+            0x99 => Some(Self::StoreRegister(StorableRegister::A, AM::AbsoluteY)),
+            0x9A => Some(Self::RegistersOnly(RegistersInstruction::Transfer {
+                to: CpuRegister::S,
+                from: CpuRegister::X,
+            })),
             0x9C => Some(Self::UnofficialStore(CpuRegister::Y)),
-            0x9D => Some(Self::StoreRegister(
-                StorableRegister::A,
-                AddressingMode::AbsoluteX,
-            )),
+            0x9D => Some(Self::StoreRegister(StorableRegister::A, AM::AbsoluteX)),
             0x9E => Some(Self::UnofficialStore(CpuRegister::X)),
-            0xA0 => Some(Self::Read(ReadInstruction::LoadRegister(
-                CpuRegister::Y,
-                AddressingMode::Immediate,
-            ))),
-            0xA1 => Some(Self::Read(ReadInstruction::LoadRegister(
-                CpuRegister::A,
-                AddressingMode::IndirectX,
-            ))),
-            0xA2 => Some(Self::Read(ReadInstruction::LoadRegister(
-                CpuRegister::X,
-                AddressingMode::Immediate,
-            ))),
-            0xA3 => Some(Self::Read(ReadInstruction::LoadTransferAX(
-                AddressingMode::IndirectX,
-            ))),
-            0xA4 => Some(Self::Read(ReadInstruction::LoadRegister(
-                CpuRegister::Y,
-                AddressingMode::ZeroPage,
-            ))),
-            0xA5 => Some(Self::Read(ReadInstruction::LoadRegister(
-                CpuRegister::A,
-                AddressingMode::ZeroPage,
-            ))),
-            0xA6 => Some(Self::Read(ReadInstruction::LoadRegister(
-                CpuRegister::X,
-                AddressingMode::ZeroPage,
-            ))),
-            0xA7 => Some(Self::Read(ReadInstruction::LoadTransferAX(
-                AddressingMode::ZeroPage,
-            ))),
-            0xA8 => Some(Self::RegistersOnly(
-                RegistersInstruction::TransferBetweenRegisters {
-                    to: CpuRegister::Y,
-                    from: CpuRegister::A,
-                },
-            )),
-            0xA9 => Some(Self::Read(ReadInstruction::LoadRegister(
-                CpuRegister::A,
-                AddressingMode::Immediate,
-            ))),
-            0xAA => Some(Self::RegistersOnly(
-                RegistersInstruction::TransferBetweenRegisters {
-                    to: CpuRegister::X,
-                    from: CpuRegister::A,
-                },
-            )),
-            0xAB => Some(Self::Read(ReadInstruction::LoadTransferAX(
-                AddressingMode::Immediate,
-            ))),
-            0xAC => Some(Self::Read(ReadInstruction::LoadRegister(
-                CpuRegister::Y,
-                AddressingMode::Absolute,
-            ))),
-            0xAD => Some(Self::Read(ReadInstruction::LoadRegister(
-                CpuRegister::A,
-                AddressingMode::Absolute,
-            ))),
-            0xAE => Some(Self::Read(ReadInstruction::LoadRegister(
-                CpuRegister::X,
-                AddressingMode::Absolute,
-            ))),
-            0xAF => Some(Self::Read(ReadInstruction::LoadTransferAX(
-                AddressingMode::Absolute,
-            ))),
+            0xA0 => Some(Self::Read(RI::Load(CpuRegister::Y, AM::Immediate))),
+            0xA1 => Some(Self::Read(RI::Load(CpuRegister::A, AM::IndirectX))),
+            0xA2 => Some(Self::Read(RI::Load(CpuRegister::X, AM::Immediate))),
+            0xA3 => Some(Self::Read(RI::LoadTransferAX(AM::IndirectX))),
+            0xA4 => Some(Self::Read(RI::Load(CpuRegister::Y, AM::ZeroPage))),
+            0xA5 => Some(Self::Read(RI::Load(CpuRegister::A, AM::ZeroPage))),
+            0xA6 => Some(Self::Read(RI::Load(CpuRegister::X, AM::ZeroPage))),
+            0xA7 => Some(Self::Read(RI::LoadTransferAX(AM::ZeroPage))),
+            0xA8 => Some(Self::RegistersOnly(RegistersInstruction::Transfer {
+                to: CpuRegister::Y,
+                from: CpuRegister::A,
+            })),
+            0xA9 => Some(Self::Read(RI::Load(CpuRegister::A, AM::Immediate))),
+            0xAA => Some(Self::RegistersOnly(RegistersInstruction::Transfer {
+                to: CpuRegister::X,
+                from: CpuRegister::A,
+            })),
+            0xAB => Some(Self::Read(RI::LoadTransferAX(AM::Immediate))),
+            0xAC => Some(Self::Read(RI::Load(CpuRegister::Y, AM::Absolute))),
+            0xAD => Some(Self::Read(RI::Load(CpuRegister::A, AM::Absolute))),
+            0xAE => Some(Self::Read(RI::Load(CpuRegister::X, AM::Absolute))),
+            0xAF => Some(Self::Read(RI::LoadTransferAX(AM::Absolute))),
             0xB0 => Some(Self::Branch(BranchCondition::CarrySet)),
-            0xB1 => Some(Self::Read(ReadInstruction::LoadRegister(
-                CpuRegister::A,
-                AddressingMode::IndirectY,
-            ))),
-            0xB3 => Some(Self::Read(ReadInstruction::LoadTransferAX(
-                AddressingMode::IndirectY,
-            ))),
-            0xB4 => Some(Self::Read(ReadInstruction::LoadRegister(
-                CpuRegister::Y,
-                AddressingMode::ZeroPageX,
-            ))),
-            0xB5 => Some(Self::Read(ReadInstruction::LoadRegister(
-                CpuRegister::A,
-                AddressingMode::ZeroPageX,
-            ))),
-            0xB6 => Some(Self::Read(ReadInstruction::LoadRegister(
-                CpuRegister::X,
-                AddressingMode::ZeroPageY,
-            ))),
-            0xB7 => Some(Self::Read(ReadInstruction::LoadTransferAX(
-                AddressingMode::ZeroPageY,
-            ))),
+            0xB1 => Some(Self::Read(RI::Load(CpuRegister::A, AM::IndirectY))),
+            0xB3 => Some(Self::Read(RI::LoadTransferAX(AM::IndirectY))),
+            0xB4 => Some(Self::Read(RI::Load(CpuRegister::Y, AM::ZeroPageX))),
+            0xB5 => Some(Self::Read(RI::Load(CpuRegister::A, AM::ZeroPageX))),
+            0xB6 => Some(Self::Read(RI::Load(CpuRegister::X, AM::ZeroPageY))),
+            0xB7 => Some(Self::Read(RI::LoadTransferAX(AM::ZeroPageY))),
             0xB8 => Some(Self::RegistersOnly(RegistersInstruction::ClearOverflowFlag)),
-            0xB9 => Some(Self::Read(ReadInstruction::LoadRegister(
-                CpuRegister::A,
-                AddressingMode::AbsoluteY,
-            ))),
-            0xBA => Some(Self::RegistersOnly(
-                RegistersInstruction::TransferBetweenRegisters {
-                    to: CpuRegister::X,
-                    from: CpuRegister::S,
-                },
-            )),
-            0xBC => Some(Self::Read(ReadInstruction::LoadRegister(
+            0xB9 => Some(Self::Read(RI::Load(CpuRegister::A, AM::AbsoluteY))),
+            0xBA => Some(Self::RegistersOnly(RegistersInstruction::Transfer {
+                to: CpuRegister::X,
+                from: CpuRegister::S,
+            })),
+            0xBC => Some(Self::Read(RI::Load(CpuRegister::Y, AM::AbsoluteX))),
+            0xBD => Some(Self::Read(RI::Load(CpuRegister::A, AM::AbsoluteX))),
+            0xBE => Some(Self::Read(RI::Load(CpuRegister::X, AM::AbsoluteY))),
+            0xBF => Some(Self::Read(RI::LoadTransferAX(AM::AbsoluteY))),
+            0xC0 => Some(Self::Read(RI::Compare(CpuRegister::Y, AM::Immediate))),
+            0xC1 => Some(Self::Read(RI::Compare(CpuRegister::A, AM::IndirectX))),
+            0xC3 => Some(Self::Modify(MI::DecrementCompare(AM::IndirectX))),
+            0xC4 => Some(Self::Read(RI::Compare(CpuRegister::Y, AM::ZeroPage))),
+            0xC5 => Some(Self::Read(RI::Compare(CpuRegister::A, AM::ZeroPage))),
+            0xC6 => Some(Self::Modify(MI::Decrement(AM::ZeroPage))),
+            0xC7 => Some(Self::Modify(MI::DecrementCompare(AM::ZeroPage))),
+            0xC8 => Some(Self::RegistersOnly(RegistersInstruction::Increment(
                 CpuRegister::Y,
-                AddressingMode::AbsoluteX,
             ))),
-            0xBD => Some(Self::Read(ReadInstruction::LoadRegister(
-                CpuRegister::A,
-                AddressingMode::AbsoluteX,
-            ))),
-            0xBE => Some(Self::Read(ReadInstruction::LoadRegister(
+            0xC9 => Some(Self::Read(RI::Compare(CpuRegister::A, AM::Immediate))),
+            0xCA => Some(Self::RegistersOnly(RegistersInstruction::Decrement(
                 CpuRegister::X,
-                AddressingMode::AbsoluteY,
             ))),
-            0xBF => Some(Self::Read(ReadInstruction::LoadTransferAX(
-                AddressingMode::AbsoluteY,
-            ))),
-            0xC0 => Some(Self::Read(ReadInstruction::Compare(
-                CpuRegister::Y,
-                AddressingMode::Immediate,
-            ))),
-            0xC1 => Some(Self::Read(ReadInstruction::Compare(
-                CpuRegister::A,
-                AddressingMode::IndirectX,
-            ))),
-            0xC3 => Some(Self::ReadModifyWrite(ModifyInstruction::DecrementCompare(
-                AddressingMode::IndirectX,
-            ))),
-            0xC4 => Some(Self::Read(ReadInstruction::Compare(
-                CpuRegister::Y,
-                AddressingMode::ZeroPage,
-            ))),
-            0xC5 => Some(Self::Read(ReadInstruction::Compare(
-                CpuRegister::A,
-                AddressingMode::ZeroPage,
-            ))),
-            0xC6 => Some(Self::ReadModifyWrite(ModifyInstruction::DecrementMemory(
-                AddressingMode::ZeroPage,
-            ))),
-            0xC7 => Some(Self::ReadModifyWrite(ModifyInstruction::DecrementCompare(
-                AddressingMode::ZeroPage,
-            ))),
-            0xC8 => Some(Self::RegistersOnly(
-                RegistersInstruction::IncrementRegister(CpuRegister::Y),
-            )),
-            0xC9 => Some(Self::Read(ReadInstruction::Compare(
-                CpuRegister::A,
-                AddressingMode::Immediate,
-            ))),
-            0xCA => Some(Self::RegistersOnly(
-                RegistersInstruction::DecrementRegister(CpuRegister::X),
-            )),
-            0xCB => Some(Self::Read(ReadInstruction::AXSubtract)),
-            0xCC => Some(Self::Read(ReadInstruction::Compare(
-                CpuRegister::Y,
-                AddressingMode::Absolute,
-            ))),
-            0xCD => Some(Self::Read(ReadInstruction::Compare(
-                CpuRegister::A,
-                AddressingMode::Absolute,
-            ))),
-            0xCE => Some(Self::ReadModifyWrite(ModifyInstruction::DecrementMemory(
-                AddressingMode::Absolute,
-            ))),
-            0xCF => Some(Self::ReadModifyWrite(ModifyInstruction::DecrementCompare(
-                AddressingMode::Absolute,
-            ))),
+            0xCB => Some(Self::Read(RI::AXSubtract)),
+            0xCC => Some(Self::Read(RI::Compare(CpuRegister::Y, AM::Absolute))),
+            0xCD => Some(Self::Read(RI::Compare(CpuRegister::A, AM::Absolute))),
+            0xCE => Some(Self::Modify(MI::Decrement(AM::Absolute))),
+            0xCF => Some(Self::Modify(MI::DecrementCompare(AM::Absolute))),
             0xD0 => Some(Self::Branch(BranchCondition::NotEqual)),
-            0xD1 => Some(Self::Read(ReadInstruction::Compare(
-                CpuRegister::A,
-                AddressingMode::IndirectY,
-            ))),
-            0xD3 => Some(Self::ReadModifyWrite(ModifyInstruction::DecrementCompare(
-                AddressingMode::IndirectY,
-            ))),
-            0xD5 => Some(Self::Read(ReadInstruction::Compare(
-                CpuRegister::A,
-                AddressingMode::ZeroPageX,
-            ))),
-            0xD6 => Some(Self::ReadModifyWrite(ModifyInstruction::DecrementMemory(
-                AddressingMode::ZeroPageX,
-            ))),
-            0xD7 => Some(Self::ReadModifyWrite(ModifyInstruction::DecrementCompare(
-                AddressingMode::ZeroPageX,
-            ))),
+            0xD1 => Some(Self::Read(RI::Compare(CpuRegister::A, AM::IndirectY))),
+            0xD3 => Some(Self::Modify(MI::DecrementCompare(AM::IndirectY))),
+            0xD5 => Some(Self::Read(RI::Compare(CpuRegister::A, AM::ZeroPageX))),
+            0xD6 => Some(Self::Modify(MI::Decrement(AM::ZeroPageX))),
+            0xD7 => Some(Self::Modify(MI::DecrementCompare(AM::ZeroPageX))),
             0xD8 => Some(Self::RegistersOnly(RegistersInstruction::ClearDecimalFlag)),
-            0xD9 => Some(Self::Read(ReadInstruction::Compare(
-                CpuRegister::A,
-                AddressingMode::AbsoluteY,
-            ))),
-            0xDB => Some(Self::ReadModifyWrite(ModifyInstruction::DecrementCompare(
-                AddressingMode::AbsoluteY,
-            ))),
-            0xDD => Some(Self::Read(ReadInstruction::Compare(
-                CpuRegister::A,
-                AddressingMode::AbsoluteX,
-            ))),
-            0xDE => Some(Self::ReadModifyWrite(ModifyInstruction::DecrementMemory(
-                AddressingMode::AbsoluteX,
-            ))),
-            0xDF => Some(Self::ReadModifyWrite(ModifyInstruction::DecrementCompare(
-                AddressingMode::AbsoluteX,
-            ))),
-            0xE0 => Some(Self::Read(ReadInstruction::Compare(
+            0xD9 => Some(Self::Read(RI::Compare(CpuRegister::A, AM::AbsoluteY))),
+            0xDB => Some(Self::Modify(MI::DecrementCompare(AM::AbsoluteY))),
+            0xDD => Some(Self::Read(RI::Compare(CpuRegister::A, AM::AbsoluteX))),
+            0xDE => Some(Self::Modify(MI::Decrement(AM::AbsoluteX))),
+            0xDF => Some(Self::Modify(MI::DecrementCompare(AM::AbsoluteX))),
+            0xE0 => Some(Self::Read(RI::Compare(CpuRegister::X, AM::Immediate))),
+            0xE1 => Some(Self::Read(RI::SubtractWithCarry(AM::IndirectX))),
+            0xE3 => Some(Self::Modify(MI::IncrementSubtract(AM::IndirectX))),
+            0xE4 => Some(Self::Read(RI::Compare(CpuRegister::X, AM::ZeroPage))),
+            0xE5 => Some(Self::Read(RI::SubtractWithCarry(AM::ZeroPage))),
+            0xE6 => Some(Self::Modify(MI::Increment(AM::ZeroPage))),
+            0xE7 => Some(Self::Modify(MI::IncrementSubtract(AM::ZeroPage))),
+            0xE8 => Some(Self::RegistersOnly(RegistersInstruction::Increment(
                 CpuRegister::X,
-                AddressingMode::Immediate,
             ))),
-            0xE1 => Some(Self::Read(ReadInstruction::SubtractWithCarry(
-                AddressingMode::IndirectX,
-            ))),
-            0xE3 => Some(Self::ReadModifyWrite(ModifyInstruction::IncrementSubtract(
-                AddressingMode::IndirectX,
-            ))),
-            0xE4 => Some(Self::Read(ReadInstruction::Compare(
-                CpuRegister::X,
-                AddressingMode::ZeroPage,
-            ))),
-            0xE5 => Some(Self::Read(ReadInstruction::SubtractWithCarry(
-                AddressingMode::ZeroPage,
-            ))),
-            0xE6 => Some(Self::ReadModifyWrite(ModifyInstruction::IncrementMemory(
-                AddressingMode::ZeroPage,
-            ))),
-            0xE7 => Some(Self::ReadModifyWrite(ModifyInstruction::IncrementSubtract(
-                AddressingMode::ZeroPage,
-            ))),
-            0xE8 => Some(Self::RegistersOnly(
-                RegistersInstruction::IncrementRegister(CpuRegister::X),
-            )),
-            0xE9 | 0xEB => Some(Self::Read(ReadInstruction::SubtractWithCarry(
-                AddressingMode::Immediate,
-            ))),
-            0xEC => Some(Self::Read(ReadInstruction::Compare(
-                CpuRegister::X,
-                AddressingMode::Absolute,
-            ))),
-            0xED => Some(Self::Read(ReadInstruction::SubtractWithCarry(
-                AddressingMode::Absolute,
-            ))),
-            0xEE => Some(Self::ReadModifyWrite(ModifyInstruction::IncrementMemory(
-                AddressingMode::Absolute,
-            ))),
-            0xEF => Some(Self::ReadModifyWrite(ModifyInstruction::IncrementSubtract(
-                AddressingMode::Absolute,
-            ))),
+            0xE9 | 0xEB => Some(Self::Read(RI::SubtractWithCarry(AM::Immediate))),
+            0xEC => Some(Self::Read(RI::Compare(CpuRegister::X, AM::Absolute))),
+            0xED => Some(Self::Read(RI::SubtractWithCarry(AM::Absolute))),
+            0xEE => Some(Self::Modify(MI::Increment(AM::Absolute))),
+            0xEF => Some(Self::Modify(MI::IncrementSubtract(AM::Absolute))),
             0xF0 => Some(Self::Branch(BranchCondition::Equal)),
-            0xF1 => Some(Self::Read(ReadInstruction::SubtractWithCarry(
-                AddressingMode::IndirectY,
-            ))),
-            0xF3 => Some(Self::ReadModifyWrite(ModifyInstruction::IncrementSubtract(
-                AddressingMode::IndirectY,
-            ))),
-            0xF5 => Some(Self::Read(ReadInstruction::SubtractWithCarry(
-                AddressingMode::ZeroPageX,
-            ))),
-            0xF6 => Some(Self::ReadModifyWrite(ModifyInstruction::IncrementMemory(
-                AddressingMode::ZeroPageX,
-            ))),
-            0xF7 => Some(Self::ReadModifyWrite(ModifyInstruction::IncrementSubtract(
-                AddressingMode::ZeroPageX,
-            ))),
+            0xF1 => Some(Self::Read(RI::SubtractWithCarry(AM::IndirectY))),
+            0xF3 => Some(Self::Modify(MI::IncrementSubtract(AM::IndirectY))),
+            0xF5 => Some(Self::Read(RI::SubtractWithCarry(AM::ZeroPageX))),
+            0xF6 => Some(Self::Modify(MI::Increment(AM::ZeroPageX))),
+            0xF7 => Some(Self::Modify(MI::IncrementSubtract(AM::ZeroPageX))),
             0xF8 => Some(Self::RegistersOnly(RegistersInstruction::SetDecimalFlag)),
-            0xF9 => Some(Self::Read(ReadInstruction::SubtractWithCarry(
-                AddressingMode::AbsoluteY,
-            ))),
-            0xFB => Some(Self::ReadModifyWrite(ModifyInstruction::IncrementSubtract(
-                AddressingMode::AbsoluteY,
-            ))),
-            0xFD => Some(Self::Read(ReadInstruction::SubtractWithCarry(
-                AddressingMode::AbsoluteX,
-            ))),
-            0xFE => Some(Self::ReadModifyWrite(ModifyInstruction::IncrementMemory(
-                AddressingMode::AbsoluteX,
-            ))),
-            0xFF => Some(Self::ReadModifyWrite(ModifyInstruction::IncrementSubtract(
-                AddressingMode::AbsoluteX,
-            ))),
+            0xF9 => Some(Self::Read(RI::SubtractWithCarry(AM::AbsoluteY))),
+            0xFB => Some(Self::Modify(MI::IncrementSubtract(AM::AbsoluteY))),
+            0xFD => Some(Self::Read(RI::SubtractWithCarry(AM::AbsoluteX))),
+            0xFE => Some(Self::Modify(MI::Increment(AM::AbsoluteX))),
+            0xFF => Some(Self::Modify(MI::IncrementSubtract(AM::AbsoluteX))),
             _ => {
                 // Unused or unofficial opcode
                 None
