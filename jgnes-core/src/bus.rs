@@ -40,6 +40,7 @@ use crate::input::{JoypadState, LatchedJoypadState};
 use crate::num::GetBit;
 use bincode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+use std::array;
 
 pub use cartridge::TimingMode;
 
@@ -617,8 +618,8 @@ impl Bus {
     pub(crate) fn from_cartridge(mapper: Mapper) -> Self {
         Self {
             mapper,
-            // Randomize initial RAM contents
-            cpu_internal_ram: [0; 2048].map(|_| rand::random()),
+            // (Somewhat) randomize initial RAM contents
+            cpu_internal_ram: array::from_fn(|_| if rand::random() { 0x00 } else { 0xFF }),
             ppu_registers: PpuRegisters::new(),
             io_registers: IoRegisters::new(),
             ppu_vram: [0; 2048],

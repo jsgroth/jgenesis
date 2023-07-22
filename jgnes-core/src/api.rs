@@ -1,7 +1,7 @@
 use crate::apu::ApuState;
 use crate::bus::cartridge::CartridgeFileError;
 use crate::bus::{cartridge, Bus, PpuBus, TimingMode};
-use crate::cpu::{CpuError, CpuRegisters, CpuState};
+use crate::cpu::{CpuRegisters, CpuState};
 use crate::input::JoypadState;
 use crate::ppu::{FrameBuffer, PpuState};
 use crate::serialize::SaveStateError;
@@ -201,17 +201,6 @@ pub enum EmulationError<RenderError, AudioError, SaveError> {
     Render(RenderError),
     Audio(AudioError),
     Save(SaveError),
-    CpuInvalidOpcode(u8),
-}
-
-impl<RenderError, AudioError, SaveError> From<CpuError>
-    for EmulationError<RenderError, AudioError, SaveError>
-{
-    fn from(value: CpuError) -> Self {
-        match value {
-            CpuError::InvalidOpcode(opcode) => Self::CpuInvalidOpcode(opcode),
-        }
-    }
 }
 
 impl<R: Display, A: Display, S: Display> Display for EmulationError<R, A, S> {
@@ -220,9 +209,6 @@ impl<R: Display, A: Display, S: Display> Display for EmulationError<R, A, S> {
             Self::Render(err) => write!(f, "Rendering error: {err}"),
             Self::Audio(err) => write!(f, "Audio error: {err}"),
             Self::Save(err) => write!(f, "Save error: {err}"),
-            Self::CpuInvalidOpcode(opcode) => {
-                write!(f, "CPU executed invalid/unsupported opcode: ${opcode:02X}")
-            }
         }
     }
 }
@@ -233,7 +219,6 @@ impl<R: Error + 'static, A: Error + 'static, S: Error + 'static> Error for Emula
             Self::Render(err) => Some(err),
             Self::Audio(err) => Some(err),
             Self::Save(err) => Some(err),
-            Self::CpuInvalidOpcode(..) => None,
         }
     }
 }
@@ -416,7 +401,7 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
             &mut self.cpu_state,
             &mut self.bus.cpu(),
             self.apu_state.is_active_cycle(),
-        )?;
+        );
         apu::tick(&mut self.apu_state, &mut self.bus.cpu(), config);
         ppu::tick(&mut self.ppu_state, &mut self.bus.ppu(), config);
         self.bus.tick_cpu();
@@ -441,7 +426,7 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
             &mut self.cpu_state,
             &mut self.bus.cpu(),
             self.apu_state.is_active_cycle(),
-        )?;
+        );
         apu::tick(&mut self.apu_state, &mut self.bus.cpu(), config);
         ppu::tick(&mut self.ppu_state, &mut self.bus.ppu(), config);
         self.bus.tick_cpu();
@@ -457,7 +442,7 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
                     &mut self.cpu_state,
                     &mut self.bus.cpu(),
                     self.apu_state.is_active_cycle(),
-                )?;
+                );
                 apu::tick(&mut self.apu_state, &mut self.bus.cpu(), config);
                 self.bus.tick_cpu();
                 self.bus.tick();

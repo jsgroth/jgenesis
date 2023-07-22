@@ -92,6 +92,8 @@ pub enum ReadInstruction {
     LoadAndXImmediate,
     // AXS (unofficial X := (A&X) - #imm)
     AXSubtract,
+    // LAS (unofficial A,X,S := value & S)
+    LoadAndStatus,
     // unofficial NOPs
     NoOp(AddressingMode),
 }
@@ -188,6 +190,20 @@ impl ReadInstruction {
 
                 compare(ax, value, &mut registers.status);
             }
+            Self::LoadAndStatus => {
+                // LAS sets A, X, and S to (value & S)
+
+                let new_value = value & registers.sp;
+
+                registers.accumulator = new_value;
+                registers.x = new_value;
+                registers.sp = new_value;
+
+                registers
+                    .status
+                    .set_negative(new_value.bit(7))
+                    .set_zero(new_value == 0);
+            }
             Self::NoOp(_) => {}
         }
     }
@@ -209,6 +225,7 @@ impl ReadInstruction {
             | Self::AndWithRotateRight
             | Self::LoadAndXImmediate
             | Self::AXSubtract => AddressingMode::Immediate,
+            Self::LoadAndStatus => AddressingMode::AbsoluteY,
         }
     }
 }
@@ -1015,8 +1032,6 @@ pub enum Instruction {
     Branch(BranchCondition),
     // STA / STX / STY / SAX (SAX == unofficial STA + STX)
     StoreRegister(StorableRegister, AddressingMode),
-    // SHY / SHX (buggy unofficial opcodes)
-    UnofficialStore(CpuRegister),
     // BRK
     ForceInterrupt,
     // JMP
@@ -1031,6 +1046,10 @@ pub enum Instruction {
     ReturnFromInterrupt,
     // RTS
     ReturnFromSubroutine,
+    // SHY / SHX (buggy unofficial opcodes)
+    UnofficialStore(CpuRegister),
+    // unimplemented buggy unofficial opcodes (AHX / TAS)
+    UnimplementedUnofficialStore(AddressingMode),
 }
 
 impl Instruction {
@@ -1040,22 +1059,6 @@ impl Instruction {
             Self::StoreRegister(register, addressing_mode) => {
                 get_store_cycle_ops(register, addressing_mode)
             }
-            Self::UnofficialStore(CpuRegister::X) => [
-                CycleOp::FetchOperand1,
-                CycleOp::FetchOperand2,
-                CycleOp::AbsoluteIndexedFixHighByte(Index::Y),
-                CycleOp::ExecuteUnofficialStore(Index::Y, CpuRegister::X),
-            ]
-            .into_iter()
-            .collect(),
-            Self::UnofficialStore(CpuRegister::Y) => [
-                CycleOp::FetchOperand1,
-                CycleOp::FetchOperand2,
-                CycleOp::AbsoluteIndexedFixHighByte(Index::X),
-                CycleOp::ExecuteUnofficialStore(Index::X, CpuRegister::Y),
-            ]
-            .into_iter()
-            .collect(),
             Self::Modify(instruction) => get_modify_cycle_ops(instruction),
             Self::RegistersOnly(instruction) => [CycleOp::ExecuteRegistersOnly(instruction)]
                 .into_iter()
@@ -1129,11 +1132,47 @@ impl Instruction {
             ]
             .into_iter()
             .collect(),
+            Self::UnofficialStore(CpuRegister::X) => [
+                CycleOp::FetchOperand1,
+                CycleOp::FetchOperand2,
+                CycleOp::AbsoluteIndexedFixHighByte(Index::Y),
+                CycleOp::ExecuteUnofficialStore(Index::Y, CpuRegister::X),
+            ]
+            .into_iter()
+            .collect(),
+            Self::UnofficialStore(CpuRegister::Y) => [
+                CycleOp::FetchOperand1,
+                CycleOp::FetchOperand2,
+                CycleOp::AbsoluteIndexedFixHighByte(Index::X),
+                CycleOp::ExecuteUnofficialStore(Index::X, CpuRegister::Y),
+            ]
+            .into_iter()
+            .collect(),
+            Self::UnimplementedUnofficialStore(AddressingMode::AbsoluteY) => [
+                CycleOp::FetchOperand1,
+                CycleOp::FetchOperand2,
+                CycleOp::AbsoluteIndexedFixHighByte(Index::X),
+                CycleOp::AbsoluteIndexedWriteBack(Index::X),
+            ]
+            .into_iter()
+            .collect(),
+            Self::UnimplementedUnofficialStore(AddressingMode::IndirectY) => [
+                CycleOp::FetchOperand1,
+                CycleOp::FetchZeroPage1,
+                CycleOp::FetchZeroPage2,
+                CycleOp::IndirectIndexedFixHighByte,
+                CycleOp::IndirectIndexedWriteBack,
+            ]
+            .into_iter()
+            .collect(),
             Self::Jump(addressing_mode) => {
                 panic!("invalid jump addressing mode: {addressing_mode:?}")
             }
             Self::UnofficialStore(register) => {
                 panic!("invalid unofficial store register: {register:?}")
+            }
+            Self::UnimplementedUnofficialStore(addressing_mode) => {
+                panic!("invalid addressing mode for unimplemented unofficial store instruction: {addressing_mode:?}")
             }
         }
     }
@@ -1279,6 +1318,7 @@ impl Instruction {
             0x8F => Some(Self::StoreRegister(StorableRegister::AX, AM::Absolute)),
             0x90 => Some(Self::Branch(BranchCondition::CarryClear)),
             0x91 => Some(Self::StoreRegister(StorableRegister::A, AM::IndirectY)),
+            0x93 => Some(Self::UnimplementedUnofficialStore(AM::IndirectY)),
             0x94 => Some(Self::StoreRegister(StorableRegister::Y, AM::ZeroPageX)),
             0x95 => Some(Self::StoreRegister(StorableRegister::A, AM::ZeroPageX)),
             0x96 => Some(Self::StoreRegister(StorableRegister::X, AM::ZeroPageY)),
@@ -1292,6 +1332,7 @@ impl Instruction {
                 to: CpuRegister::S,
                 from: CpuRegister::X,
             })),
+            0x9B | 0x9F => Some(Self::UnimplementedUnofficialStore(AM::AbsoluteY)),
             0x9C => Some(Self::UnofficialStore(CpuRegister::Y)),
             0x9D => Some(Self::StoreRegister(StorableRegister::A, AM::AbsoluteX)),
             0x9E => Some(Self::UnofficialStore(CpuRegister::X)),
@@ -1330,6 +1371,7 @@ impl Instruction {
                 to: CpuRegister::X,
                 from: CpuRegister::S,
             })),
+            0xBB => Some(Self::Read(RI::LoadAndStatus)),
             0xBC => Some(Self::Read(RI::Load(CpuRegister::Y, AM::AbsoluteX))),
             0xBD => Some(Self::Read(RI::Load(CpuRegister::A, AM::AbsoluteX))),
             0xBE => Some(Self::Read(RI::Load(CpuRegister::X, AM::AbsoluteY))),
@@ -1392,8 +1434,8 @@ impl Instruction {
             0xFD => Some(Self::Read(RI::SubtractWithCarry(AM::AbsoluteX))),
             0xFE => Some(Self::Modify(MI::Increment(AM::AbsoluteX))),
             0xFF => Some(Self::Modify(MI::IncrementSubtract(AM::AbsoluteX))),
-            _ => {
-                // Unused or unofficial opcode
+            0x02 | 0x12 | 0x22 | 0x32 | 0x42 | 0x52 | 0x62 | 0x72 | 0x92 | 0xB2 | 0xD2 | 0xF2 => {
+                // KIL unofficial opcodes; executing any of these halts the CPU until a reset or power cycle
                 None
             }
         }

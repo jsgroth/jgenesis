@@ -144,6 +144,7 @@ impl State {
 pub struct CpuState {
     registers: CpuRegisters,
     state: State,
+    terminated: bool,
 }
 
 impl CpuState {
@@ -151,6 +152,7 @@ impl CpuState {
         Self {
             registers,
             state: State::INITIAL,
+            terminated: false,
         }
     }
 
@@ -160,17 +162,12 @@ impl CpuState {
     }
 }
 
-#[derive(Debug)]
-pub enum CpuError {
-    InvalidOpcode(u8),
-}
-
 /// Run the CPU for 1 CPU cycle.
-pub fn tick(
-    state: &mut CpuState,
-    bus: &mut CpuBus<'_>,
-    is_apu_active_cycle: bool,
-) -> Result<(), CpuError> {
+pub fn tick(state: &mut CpuState, bus: &mut CpuBus<'_>, is_apu_active_cycle: bool) {
+    if state.terminated {
+        return;
+    }
+
     state.state = match std::mem::replace(&mut state.state, State::INITIAL) {
         State::InstructionStart { pending_interrupt } => {
             // Always read opcode, even if it won't be used
@@ -206,7 +203,9 @@ pub fn tick(
 
                 let Some(instruction) = Instruction::from_opcode(opcode)
                 else {
-                    return Err(CpuError::InvalidOpcode(opcode));
+                    log::error!("CPU executed an illegal KIL opcode (${opcode:02X}); CPU will halt until a reset or power cycle");
+                    state.terminated = true;
+                    return;
                 };
                 let instruction_state = InstructionState::from_ops(instruction.get_cycle_ops());
 
@@ -269,8 +268,6 @@ pub fn tick(
             }
         }
     };
-
-    Ok(())
 }
 
 /// Reset the CPU, as if the console's reset button was pressed.
@@ -290,4 +287,6 @@ pub fn reset(cpu_state: &mut CpuState, bus: &mut CpuBus<'_>) {
     cpu_state.registers.status.interrupt_disable = true;
 
     cpu_state.state = State::INITIAL;
+
+    cpu_state.terminated = false;
 }
