@@ -225,6 +225,20 @@ impl<'registers, 'address_space, A: AddressSpace> InstructionParser<'registers, 
                 modify_target,
                 side_effect,
             },
+            0x40..=0x7F => {
+                let bit = (opcode_2 >> 3) & 0x07;
+                Instruction::TestBit(modify_target, bit)
+            }
+            0x80..=0xFF => {
+                let bit = (opcode_2 >> 3) & 0x07;
+                let value = opcode_2.bit(6);
+                Instruction::SetBit {
+                    modify_target,
+                    bit,
+                    value,
+                    side_effect,
+                }
+            }
             _ => panic!("CB-prefixed opcode not implemented yet: {opcode_2:02X}"),
         }
     }

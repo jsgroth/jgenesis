@@ -271,6 +271,13 @@ pub enum Instruction {
     },
     RotateLeft12(ModifyTarget8),
     RotateRight12(ModifyTarget8),
+    TestBit(ModifyTarget8, u8),
+    SetBit {
+        modify_target: ModifyTarget8,
+        bit: u8,
+        value: bool,
+        side_effect: Option<Register8>,
+    },
     DecimalAdjustAccumulator,
     ComplementAccumulator,
     NegateAccumulator,
@@ -367,6 +374,22 @@ impl Instruction {
             Self::RotateRight12(modify_target) => {
                 rotate_right_12(registers, address_space, modify_target)
             }
+            Self::TestBit(modify_target, bit) => {
+                bit_test(registers, address_space, modify_target, bit)
+            }
+            Self::SetBit {
+                modify_target,
+                bit,
+                value,
+                side_effect,
+            } => set_bit(
+                registers,
+                address_space,
+                modify_target,
+                bit,
+                value,
+                side_effect,
+            ),
             Self::DecimalAdjustAccumulator => decimal_adjust_accumulator(registers),
             Self::ComplementAccumulator => complement_accumulator(registers),
             Self::NegateAccumulator => negate_accumulator(registers),
@@ -1137,6 +1160,60 @@ fn rotate_right_12<A: AddressSpace>(
         .set_subtract(false);
 
     ExecuteResult { t_cycles: 10 }
+}
+
+fn bit_test<A: AddressSpace>(
+    registers: &mut Registers,
+    address_space: &mut A,
+    modify_target: ModifyTarget8,
+    bit: u8,
+) -> ExecuteResult {
+    let value = modify_target.read(registers, address_space);
+    let bit_set = value & (1 << bit) != 0;
+
+    registers
+        .f
+        .set_zero(!bit_set)
+        .set_half_carry(true)
+        .set_subtract(false);
+
+    let t_cycles = match modify_target {
+        ModifyTarget8::Register(..) => 0,
+        ModifyTarget8::Indirect(..) => 4,
+        ModifyTarget8::Indexed(..) => 5,
+    };
+
+    ExecuteResult { t_cycles }
+}
+
+fn set_bit<A: AddressSpace>(
+    registers: &mut Registers,
+    address_space: &mut A,
+    modify_target: ModifyTarget8,
+    bit: u8,
+    set: bool,
+    side_effect: Option<Register8>,
+) -> ExecuteResult {
+    let original = modify_target.read(registers, address_space);
+    let value = if set {
+        original | (1 << bit)
+    } else {
+        original & !(1 << bit)
+    };
+
+    modify_target.write(registers, address_space, value);
+
+    if let Some(register) = side_effect {
+        register.write(registers, value);
+    }
+
+    let mut t_cycles = modify_target.t_cycles_required();
+    if let ModifyTarget8::Indexed(..) = modify_target {
+        // TODO comment
+        t_cycles -= 4;
+    }
+
+    ExecuteResult { t_cycles }
 }
 
 fn decimal_adjust_accumulator(registers: &mut Registers) -> ExecuteResult {
