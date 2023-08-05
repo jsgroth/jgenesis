@@ -2,7 +2,7 @@
 
 use crate::bus;
 use crate::bus::{CpuBus, PpuRegister};
-use crate::cpu::instructions::{Instruction, InstructionState};
+use crate::cpu::instructions::InstructionState;
 use crate::num::GetBit;
 use bincode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -193,45 +193,22 @@ pub fn tick(state: &mut CpuState, bus: &mut CpuBus<'_>, is_apu_active_cycle: boo
             } else if pending_interrupt {
                 log::trace!("INTERRUPT: Handling hardware NMI/IRQ interrupt");
 
-                let interrupt_state = InstructionState::from_ops(
-                    instructions::INTERRUPT_HANDLER_OPS.into_iter().collect(),
-                );
+                let interrupt_state = InstructionState::interrupt_service();
 
                 State::Executing(interrupt_state)
             } else {
                 state.registers.pc += 1;
 
-                let Some(instruction) = Instruction::from_opcode(opcode)
-                else {
-                    log::error!("CPU executed an illegal KIL opcode (${opcode:02X}); CPU will halt until a reset or power cycle");
-                    state.terminated = true;
-                    return;
-                };
-                let instruction_state = InstructionState::from_ops(instruction.get_cycle_ops());
-
-                log::trace!(
-                    "FETCH: Fetched instruction {instruction:?} from PC 0x{:04X}",
-                    state.registers.pc - 1
-                );
+                let instruction_state = InstructionState::from_opcode(opcode);
 
                 State::Executing(instruction_state)
             }
         }
         State::Executing(mut instruction_state) => {
-            let cycle_op = instruction_state.ops[instruction_state.op_index as usize];
+            instructions::execute_cycle(&mut instruction_state, &mut state.registers, bus);
+            state.terminated = instruction_state.terminated;
 
-            log::trace!("OP: Executing op {cycle_op:?}");
-            log::trace!("  Current CPU registers: {:04X?}", state.registers);
-            log::trace!("  Current instruction state: {instruction_state:02X?}");
-            log::trace!(
-                "  Bytes at PC and PC+1: 0x{:02X} 0x{:02X}",
-                bus.read_address(state.registers.pc),
-                bus.read_address(state.registers.pc + 1)
-            );
-
-            cycle_op.execute(&mut instruction_state, &mut state.registers, bus);
-
-            if usize::from(instruction_state.op_index) < instruction_state.ops.len() {
+            if !instruction_state.instruction_complete {
                 State::Executing(instruction_state)
             } else {
                 State::InstructionStart {
