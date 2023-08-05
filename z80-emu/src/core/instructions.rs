@@ -1,5 +1,9 @@
+mod parser;
+
+use crate::core::instructions::parser::{InstructionParser, ParseResult};
 use crate::core::{IndexRegister, Register16, Register8, Registers};
 use crate::traits::AddressSpace;
+use std::mem;
 
 trait GetBit: Copy {
     fn bit(self, i: u8) -> bool;
@@ -84,6 +88,57 @@ impl WriteTarget8 {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ModifyResult {
+    original: u8,
+    modified: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModifyTarget8 {
+    Register(Register8),
+    Indirect(Register16),
+    Indexed(IndexRegister, i8),
+}
+
+impl ModifyTarget8 {
+    fn read<A: AddressSpace>(self, registers: &Registers, address_space: &mut A) -> u8 {
+        match self {
+            Self::Register(register) => {
+                ReadTarget8::Register(register).read(registers, address_space)
+            }
+            Self::Indirect(register) => {
+                ReadTarget8::Indirect(register).read(registers, address_space)
+            }
+            Self::Indexed(index, d) => {
+                ReadTarget8::Indexed(index, d).read(registers, address_space)
+            }
+        }
+    }
+
+    fn write<A: AddressSpace>(self, registers: &mut Registers, address_space: &mut A, value: u8) {
+        match self {
+            Self::Register(register) => {
+                WriteTarget8::Register(register).write(registers, address_space, value);
+            }
+            Self::Indirect(register) => {
+                WriteTarget8::Indirect(register).write(registers, address_space, value);
+            }
+            Self::Indexed(index, d) => {
+                WriteTarget8::Indexed(index, d).write(registers, address_space, value);
+            }
+        }
+    }
+
+    fn t_cycles_required(self) -> u32 {
+        match self {
+            Self::Register(..) => 0,
+            Self::Indirect(..) => 7,
+            Self::Indexed(..) => 12,
+        }
+    }
+}
+
 fn index_address(address: u16, d: i8) -> u16 {
     (i32::from(address) + i32::from(d)) as u16
 }
@@ -154,6 +209,26 @@ pub enum Instruction {
     Load16(WriteTarget16, ReadTarget16),
     Push(Register16),
     Pop(Register16),
+    ExchangeDEHL,
+    ExchangeAF,
+    ExchangeGeneralPurpose,
+    ExchangeStack(Register16),
+    Transfer(TransferMode),
+    CompareBlock(TransferMode),
+    Add {
+        read_target: ReadTarget8,
+        with_carry: bool,
+    },
+    Subtract {
+        read_target: ReadTarget8,
+        with_carry: bool,
+    },
+    And(ReadTarget8),
+    Or(ReadTarget8),
+    Xor(ReadTarget8),
+    Compare(ReadTarget8),
+    Increment(ModifyTarget8),
+    Decrement(ModifyTarget8),
     Halt,
 }
 
@@ -171,6 +246,28 @@ impl Instruction {
             }
             Self::Push(register) => push(registers, address_space, register),
             Self::Pop(register) => pop(registers, address_space, register),
+            Self::ExchangeDEHL => exchange_de_hl(registers),
+            Self::ExchangeAF => exchange_af(registers),
+            Self::ExchangeGeneralPurpose => exchange_general_purpose(registers),
+            Self::ExchangeStack(register) => exchange_stack(registers, address_space, register),
+            Self::Transfer(transfer_mode) => transfer(registers, address_space, transfer_mode),
+            Self::CompareBlock(transfer_mode) => {
+                compare_block(registers, address_space, transfer_mode)
+            }
+            Self::Add {
+                read_target,
+                with_carry,
+            } => add(registers, address_space, read_target, with_carry),
+            Self::Subtract {
+                read_target,
+                with_carry,
+            } => subtract(registers, address_space, read_target, with_carry),
+            Self::And(read_target) => and(registers, address_space, read_target),
+            Self::Or(read_target) => or(registers, address_space, read_target),
+            Self::Xor(read_target) => xor(registers, address_space, read_target),
+            Self::Compare(read_target) => compare(registers, address_space, read_target),
+            Self::Increment(modify_target) => increment(registers, address_space, modify_target),
+            Self::Decrement(modify_target) => decrement(registers, address_space, modify_target),
             Self::Halt => todo!("halt not implemented"),
         }
     }
@@ -201,9 +298,13 @@ fn load_8<A: AddressSpace>(
             .set_subtract(false);
     }
 
-    ExecuteResult {
-        t_cycles: read_target.t_cycles_required() + write_target.t_cycles_required(),
+    let mut t_cycles = read_target.t_cycles_required() + write_target.t_cycles_required();
+    if let (WriteTarget8::Indexed(..), ReadTarget8::Immediate(..)) = (write_target, read_target) {
+        // TODO comment
+        t_cycles -= 3;
     }
+
+    ExecuteResult { t_cycles }
 }
 
 fn load_16<A: AddressSpace>(
@@ -258,230 +359,364 @@ fn pop<A: AddressSpace>(
     }
 }
 
+fn exchange_de_hl(registers: &mut Registers) -> ExecuteResult {
+    mem::swap(&mut registers.d, &mut registers.h);
+    mem::swap(&mut registers.e, &mut registers.l);
+
+    ExecuteResult { t_cycles: 0 }
+}
+
+fn exchange_af(registers: &mut Registers) -> ExecuteResult {
+    mem::swap(&mut registers.a, &mut registers.ap);
+    mem::swap(&mut registers.f, &mut registers.fp);
+
+    ExecuteResult { t_cycles: 0 }
+}
+
+fn exchange_general_purpose(registers: &mut Registers) -> ExecuteResult {
+    mem::swap(&mut registers.b, &mut registers.bp);
+    mem::swap(&mut registers.c, &mut registers.cp);
+    mem::swap(&mut registers.d, &mut registers.dp);
+    mem::swap(&mut registers.e, &mut registers.ep);
+    mem::swap(&mut registers.h, &mut registers.hp);
+    mem::swap(&mut registers.l, &mut registers.lp);
+
+    ExecuteResult { t_cycles: 0 }
+}
+
+fn exchange_stack<A: AddressSpace>(
+    registers: &mut Registers,
+    address_space: &mut A,
+    register: Register16,
+) -> ExecuteResult {
+    let stack_lsb = address_space.read(registers.sp);
+    let stack_msb = address_space.read(registers.sp.wrapping_add(1));
+    let stack_value = u16::from_le_bytes([stack_lsb, stack_msb]);
+
+    let [register_lsb, register_msb] = register.read(registers).to_le_bytes();
+
+    address_space.write(registers.sp, register_lsb);
+    address_space.write(registers.sp.wrapping_add(1), register_msb);
+    register.write(registers, stack_value);
+
+    ExecuteResult { t_cycles: 15 }
+}
+
 #[derive(Debug, Clone, Copy)]
-pub struct ParseResult {
-    instruction: Instruction,
-    t_cycles: u32,
+pub enum TransferMode {
+    Increment { repeat: bool },
+    Decrement { repeat: bool },
 }
 
-#[derive(Debug, Clone)]
-struct InstructionParser {
-    t_cycles: u32,
+impl TransferMode {
+    fn repeat(self) -> bool {
+        match self {
+            Self::Increment { repeat } | Self::Decrement { repeat } => repeat,
+        }
+    }
 }
 
-impl InstructionParser {
-    const OPCODE_T_CYCLES: u32 = 4;
-    const OPERAND_T_CYCLES: u32 = 3;
+fn transfer<A: AddressSpace>(
+    registers: &mut Registers,
+    address_space: &mut A,
+    mode: TransferMode,
+) -> ExecuteResult {
+    let hl = Register16::HL.read(registers);
+    let de = Register16::DE.read(registers);
 
-    fn new() -> Self {
-        Self { t_cycles: 0 }
-    }
+    let value = address_space.read(hl);
+    address_space.write(de, value);
 
-    fn fetch_opcode_byte<A: AddressSpace>(
-        &mut self,
-        registers: &mut Registers,
-        address_space: &mut A,
-    ) -> u8 {
-        let byte = address_space.read(registers.pc);
-        registers.pc = registers.pc.wrapping_add(1);
-        self.t_cycles += Self::OPCODE_T_CYCLES;
+    let bc = Register16::BC.read(registers);
+    Register16::BC.write(registers, bc.wrapping_sub(1));
 
-        byte
-    }
-
-    fn fetch_operand_byte<A: AddressSpace>(
-        &mut self,
-        registers: &mut Registers,
-        address_space: &mut A,
-    ) -> u8 {
-        let byte = address_space.read(registers.pc);
-        registers.pc = registers.pc.wrapping_add(1);
-        self.t_cycles += Self::OPERAND_T_CYCLES;
-
-        byte
-    }
-
-    fn fetch_u16_operand<A: AddressSpace>(
-        &mut self,
-        registers: &mut Registers,
-        address_space: &mut A,
-    ) -> u16 {
-        let operand_lsb = self.fetch_operand_byte(registers, address_space);
-        let operand_msb = self.fetch_operand_byte(registers, address_space);
-        u16::from_le_bytes([operand_lsb, operand_msb])
-    }
-
-    fn parse_indexed_instruction<A: AddressSpace>(
-        &mut self,
-        registers: &mut Registers,
-        address_space: &mut A,
-        index: IndexRegister,
-    ) -> Instruction {
-        use ReadTarget16 as RT16;
-        use ReadTarget8 as RT8;
-        use Register16 as R16;
-        use WriteTarget16 as WT16;
-        use WriteTarget8 as WT8;
-
-        let opcode_2 = self.fetch_opcode_byte(registers, address_space);
-
-        match opcode_2 {
-            0x21 => {
-                let nn = self.fetch_u16_operand(registers, address_space);
-                Instruction::Load16(WT16::Register(index.into()), RT16::Immediate(nn))
-            }
-            0x22 => {
-                let nn = self.fetch_u16_operand(registers, address_space);
-                Instruction::Load16(WT16::Direct(nn), RT16::Register(index.into()))
-            }
-            0x2A => {
-                let nn = self.fetch_u16_operand(registers, address_space);
-                Instruction::Load16(WT16::Register(index.into()), RT16::Direct(nn))
-            }
-            0x36 => {
-                let d = self.fetch_operand_byte(registers, address_space) as i8;
-                let n = self.fetch_operand_byte(registers, address_space);
-
-                // LD (IX+d), n overlaps the second operand fetch with the indexing
-                self.t_cycles -= Self::OPERAND_T_CYCLES;
-
-                Instruction::Load8(WT8::Indexed(index, d), RT8::Immediate(n))
-            }
-            0x46 | 0x4E | 0x56 | 0x5E | 0x66 | 0x6E | 0x76 | 0x7E => {
-                let write_target = parse_write_target_8(opcode_2 >> 3);
-                let d = self.fetch_operand_byte(registers, address_space) as i8;
-                Instruction::Load8(write_target, RT8::Indexed(index, d))
-            }
-            0x70..=0x77 => {
-                let read_target = parse_read_target_8(opcode_2);
-                let d = self.fetch_operand_byte(registers, address_space) as i8;
-                Instruction::Load8(WT8::Indexed(index, d), read_target)
-            }
-            0xE1 => Instruction::Pop(index.into()),
-            0xE5 => Instruction::Push(index.into()),
-            0xF9 => Instruction::Load16(WT16::Register(R16::SP), RT16::Register(index.into())),
-            _ => panic!("indexed X/Y opcode not implemented yet: {opcode_2:02X}"),
+    match mode {
+        TransferMode::Increment { .. } => {
+            Register16::HL.write(registers, hl.wrapping_add(1));
+            Register16::DE.write(registers, de.wrapping_add(1));
+        }
+        TransferMode::Decrement { .. } => {
+            Register16::HL.write(registers, hl.wrapping_sub(1));
+            Register16::DE.write(registers, de.wrapping_sub(1));
         }
     }
 
-    fn parse_ed_prefix_instruction<A: AddressSpace>(
-        &mut self,
-        registers: &mut Registers,
-        address_space: &mut A,
-    ) -> Instruction {
-        use ReadTarget16 as RT16;
-        use ReadTarget8 as RT8;
-        use Register8 as R8;
-        use WriteTarget16 as WT16;
-        use WriteTarget8 as WT8;
+    let should_repeat = mode.repeat() && bc != 1;
+    if should_repeat {
+        registers.pc = registers.pc.wrapping_sub(2);
+    }
 
-        let opcode_2 = self.fetch_opcode_byte(registers, address_space);
+    registers
+        .f
+        .set_half_carry(false)
+        .set_subtract(false)
+        .set_overflow(bc != 1);
 
-        match opcode_2 {
-            0x03 | 0x13 | 0x23 | 0x33 => {
-                let register = parse_load_register_16(opcode_2);
-                let nn = self.fetch_u16_operand(registers, address_space);
-                Instruction::Load16(WT16::Direct(nn), RT16::Register(register))
-            }
-            0x47 => {
-                self.t_cycles += 1;
-                Instruction::Load8(WT8::Register(R8::I), RT8::Register(R8::A))
-            }
-            0x4B | 0x5B | 0x6B | 0x7B => {
-                let register = parse_load_register_16(opcode_2);
-                let nn = self.fetch_u16_operand(registers, address_space);
-                Instruction::Load16(WT16::Register(register), RT16::Direct(nn))
-            }
-            0x4F => {
-                // TODO do this t_cycle increment in ReadTarget/WriteTarget instead?
-                self.t_cycles += 1;
-                Instruction::Load8(WT8::Register(R8::R), RT8::Register(R8::A))
-            }
-            0x57 => {
-                self.t_cycles += 1;
-                Instruction::Load8(WT8::Register(R8::A), RT8::Register(R8::I))
-            }
-            0x5F => {
-                self.t_cycles += 1;
-                Instruction::Load8(WT8::Register(R8::A), RT8::Register(R8::R))
-            }
-            _ => panic!("ED-prefixed opcode not implemented: {opcode_2:02X}"),
+    ExecuteResult {
+        t_cycles: if should_repeat { 13 } else { 8 },
+    }
+}
+
+fn compare_block<A: AddressSpace>(
+    registers: &mut Registers,
+    address_space: &mut A,
+    mode: TransferMode,
+) -> ExecuteResult {
+    let hl = Register16::HL.read(registers);
+    let value = address_space.read(hl);
+
+    let bc = Register16::BC.read(registers);
+    Register16::BC.write(registers, bc.wrapping_sub(1));
+
+    match mode {
+        TransferMode::Increment { .. } => {
+            Register16::HL.write(registers, hl.wrapping_add(1));
+        }
+        TransferMode::Decrement { .. } => {
+            Register16::HL.write(registers, hl.wrapping_sub(1));
         }
     }
 
-    fn parse<A: AddressSpace>(
-        mut self,
-        registers: &mut Registers,
-        address_space: &mut A,
-    ) -> ParseResult {
-        use ReadTarget16 as RT16;
-        use ReadTarget8 as RT8;
-        use Register16 as R16;
-        use Register8 as R8;
-        use WriteTarget16 as WT16;
-        use WriteTarget8 as WT8;
+    let should_repeat = mode.repeat() && bc != 1;
+    if should_repeat {
+        registers.pc = registers.pc.wrapping_sub(2);
+    }
 
-        let opcode = self.fetch_opcode_byte(registers, address_space);
+    let a = registers.a;
 
-        let instruction = match opcode {
-            0x01 | 0x11 | 0x21 | 0x31 => {
-                let register = parse_load_register_16(opcode);
-                let nn = self.fetch_u16_operand(registers, address_space);
-                Instruction::Load16(WT16::Register(register), RT16::Immediate(nn))
-            }
-            0x02 => Instruction::Load8(WT8::Indirect(R16::BC), RT8::Register(R8::A)),
-            0x0A => Instruction::Load8(WT8::Register(R8::A), RT8::Indirect(R16::BC)),
-            0x12 => Instruction::Load8(WT8::Indirect(R16::DE), RT8::Register(R8::A)),
-            0x1A => Instruction::Load8(WT8::Register(R8::A), RT8::Indirect(R16::DE)),
-            0x22 => {
-                let nn = self.fetch_u16_operand(registers, address_space);
-                Instruction::Load16(WT16::Direct(nn), RT16::Register(R16::HL))
-            }
-            0x2A => {
-                let nn = self.fetch_u16_operand(registers, address_space);
-                Instruction::Load16(WT16::Register(R16::HL), RT16::Direct(nn))
-            }
-            0x32 => {
-                let nn = self.fetch_u16_operand(registers, address_space);
-                Instruction::Load8(WT8::Direct(nn), RT8::Register(R8::A))
-            }
-            0x3A => {
-                let nn = self.fetch_u16_operand(registers, address_space);
-                Instruction::Load8(WT8::Register(R8::A), RT8::Direct(nn))
-            }
-            0x40..=0x7F => {
-                if opcode == 0x76 {
-                    Instruction::Halt
-                } else {
-                    let write_target = parse_write_target_8(opcode >> 3);
-                    let read_target = parse_read_target_8(opcode);
-                    Instruction::Load8(write_target, read_target)
-                }
-            }
-            0x06 | 0x0E | 0x16 | 0x1E | 0x26 | 0x2E | 0x36 | 0x3E => {
-                let write_target = parse_write_target_8(opcode >> 3);
-                let n = self.fetch_operand_byte(registers, address_space);
-                Instruction::Load8(write_target, RT8::Immediate(n))
-            }
-            0xC1 | 0xD1 | 0xE1 | 0xF1 => {
-                let register = parse_stack_register(opcode);
-                Instruction::Pop(register)
-            }
-            0xC5 | 0xD5 | 0xE5 | 0xF5 => {
-                let register = parse_stack_register(opcode);
-                Instruction::Push(register)
-            }
-            0xDD => self.parse_indexed_instruction(registers, address_space, IndexRegister::IX),
-            0xED => self.parse_ed_prefix_instruction(registers, address_space),
-            0xF9 => Instruction::Load16(WT16::Register(R16::SP), RT16::Register(R16::HL)),
-            0xFD => self.parse_indexed_instruction(registers, address_space, IndexRegister::IY),
-            _ => panic!("opcode not implemented yet: {opcode:02X}"),
-        };
+    registers
+        .f
+        .set_sign(a.wrapping_sub(value).bit(7))
+        .set_zero(a == value)
+        .set_half_carry(a & 0x0F < value & 0x0F)
+        .set_overflow(bc != 1)
+        .set_subtract(true);
 
-        ParseResult {
-            instruction,
-            t_cycles: self.t_cycles,
-        }
+    ExecuteResult {
+        t_cycles: if should_repeat { 13 } else { 8 },
+    }
+}
+
+fn add<A: AddressSpace>(
+    registers: &mut Registers,
+    address_space: &mut A,
+    read_target: ReadTarget8,
+    with_carry: bool,
+) -> ExecuteResult {
+    let operand = read_target.read(registers, address_space);
+    let carry_operand = if with_carry {
+        u8::from(registers.f.carry())
+    } else {
+        0
+    };
+
+    let a = registers.a;
+    let half_carry = (a & 0x0F) + (operand & 0x0F) + carry_operand >= 0x10;
+    let (value, carry) = match a.overflowing_add(operand) {
+        (sum, true) => (sum + carry_operand, true),
+        (sum, false) => sum.overflowing_add(carry_operand),
+    };
+
+    let bit_6_carry = (a & 0x7F) + (operand & 0x7F) + carry_operand >= 0x80;
+    let overflow = bit_6_carry != carry;
+
+    registers.a = value;
+    registers
+        .f
+        .set_sign(value.bit(7))
+        .set_zero(value == 0)
+        .set_half_carry(half_carry)
+        .set_overflow(overflow)
+        .set_subtract(false)
+        .set_carry(carry);
+
+    ExecuteResult {
+        t_cycles: read_target.t_cycles_required(),
+    }
+}
+
+fn subtract<A: AddressSpace>(
+    registers: &mut Registers,
+    address_space: &mut A,
+    read_target: ReadTarget8,
+    with_carry: bool,
+) -> ExecuteResult {
+    let operand = read_target.read(registers, address_space);
+    let carry_operand = if with_carry {
+        u8::from(registers.f.carry())
+    } else {
+        0
+    };
+
+    let a = registers.a;
+    let half_carry = a & 0x0F < (operand & 0x0F) + carry_operand;
+    let (value, carry) = match a.overflowing_sub(operand) {
+        (difference, true) => (difference - carry_operand, true),
+        (difference, false) => difference.overflowing_sub(carry_operand),
+    };
+
+    let bit_6_borrow = a & 0x7F < (operand & 0x7F) + carry_operand;
+    let overflow = bit_6_borrow != carry;
+
+    registers.a = value;
+    registers
+        .f
+        .set_sign(value.bit(7))
+        .set_zero(value == 0)
+        .set_half_carry(half_carry)
+        .set_overflow(overflow)
+        .set_subtract(true)
+        .set_carry(carry);
+
+    ExecuteResult {
+        t_cycles: read_target.t_cycles_required(),
+    }
+}
+
+fn and<A: AddressSpace>(
+    registers: &mut Registers,
+    address_space: &mut A,
+    read_target: ReadTarget8,
+) -> ExecuteResult {
+    let operand = read_target.read(registers, address_space);
+    let value = registers.a & operand;
+
+    let parity = value.count_ones() % 2 == 0;
+
+    registers.a = value;
+    registers
+        .f
+        .set_sign(value.bit(7))
+        .set_zero(value == 0)
+        .set_half_carry(true)
+        .set_overflow(parity)
+        .set_subtract(false)
+        .set_carry(false);
+
+    ExecuteResult {
+        t_cycles: read_target.t_cycles_required(),
+    }
+}
+
+fn or<A: AddressSpace>(
+    registers: &mut Registers,
+    address_space: &mut A,
+    read_target: ReadTarget8,
+) -> ExecuteResult {
+    let operand = read_target.read(registers, address_space);
+    let value = registers.a | operand;
+
+    let parity = value.count_ones() % 2 == 0;
+
+    registers.a = value;
+    registers
+        .f
+        .set_sign(value.bit(7))
+        .set_zero(value == 0)
+        .set_half_carry(false)
+        .set_overflow(parity)
+        .set_subtract(false)
+        .set_carry(false);
+
+    ExecuteResult {
+        t_cycles: read_target.t_cycles_required(),
+    }
+}
+
+fn xor<A: AddressSpace>(
+    registers: &mut Registers,
+    address_space: &mut A,
+    read_target: ReadTarget8,
+) -> ExecuteResult {
+    let operand = read_target.read(registers, address_space);
+    let value = registers.a ^ operand;
+
+    let parity = value.count_ones() % 2 == 0;
+
+    registers.a = value;
+    registers
+        .f
+        .set_sign(value.bit(7))
+        .set_zero(value == 0)
+        .set_half_carry(false)
+        .set_overflow(parity)
+        .set_subtract(false)
+        .set_carry(false);
+
+    ExecuteResult {
+        t_cycles: read_target.t_cycles_required(),
+    }
+}
+
+fn compare<A: AddressSpace>(
+    registers: &mut Registers,
+    address_space: &mut A,
+    read_target: ReadTarget8,
+) -> ExecuteResult {
+    let operand = read_target.read(registers, address_space);
+
+    let a = registers.a;
+    let half_carry = a & 0x0F < operand & 0x0F;
+    let (value, carry) = a.overflowing_sub(operand);
+
+    let bit_6_borrow = a & 0x7F < value & 0x7F;
+    let overflow = bit_6_borrow != carry;
+
+    registers
+        .f
+        .set_sign(value.bit(7))
+        .set_zero(value == 0)
+        .set_half_carry(half_carry)
+        .set_overflow(overflow)
+        .set_subtract(true)
+        .set_carry(carry);
+
+    ExecuteResult {
+        t_cycles: read_target.t_cycles_required(),
+    }
+}
+
+fn increment<A: AddressSpace>(
+    registers: &mut Registers,
+    address_space: &mut A,
+    modify_target: ModifyTarget8,
+) -> ExecuteResult {
+    let original = modify_target.read(registers, address_space);
+    let value = original.wrapping_add(1);
+
+    modify_target.write(registers, address_space, value);
+    registers
+        .f
+        .set_sign(value.bit(7))
+        .set_zero(value == 0)
+        .set_half_carry(original.trailing_ones() >= 4)
+        .set_overflow(value == 0x80)
+        .set_subtract(false);
+
+    ExecuteResult {
+        t_cycles: modify_target.t_cycles_required(),
+    }
+}
+
+fn decrement<A: AddressSpace>(
+    registers: &mut Registers,
+    address_space: &mut A,
+    modify_target: ModifyTarget8,
+) -> ExecuteResult {
+    let original = modify_target.read(registers, address_space);
+    let value = original.wrapping_sub(1);
+
+    modify_target.write(registers, address_space, value);
+    registers
+        .f
+        .set_sign(value.bit(7))
+        .set_zero(value == 0)
+        .set_half_carry(original.trailing_zeros() >= 4)
+        .set_overflow(value == 0x7F)
+        .set_subtract(true);
+
+    ExecuteResult {
+        t_cycles: modify_target.t_cycles_required(),
     }
 }
 
@@ -489,53 +724,5 @@ pub fn parse_next_instruction<A: AddressSpace>(
     registers: &mut Registers,
     address_space: &mut A,
 ) -> ParseResult {
-    InstructionParser::new().parse(registers, address_space)
-}
-
-fn parse_read_target_8(opcode: u8) -> ReadTarget8 {
-    match opcode & 0x07 {
-        0x00 => ReadTarget8::Register(Register8::B),
-        0x01 => ReadTarget8::Register(Register8::C),
-        0x02 => ReadTarget8::Register(Register8::D),
-        0x03 => ReadTarget8::Register(Register8::E),
-        0x04 => ReadTarget8::Register(Register8::H),
-        0x05 => ReadTarget8::Register(Register8::L),
-        0x06 => ReadTarget8::Indirect(Register16::HL),
-        0x07 => ReadTarget8::Register(Register8::A),
-        _ => unreachable!("value & 0x07 is <= 0x07"),
-    }
-}
-
-fn parse_write_target_8(opcode: u8) -> WriteTarget8 {
-    match opcode & 0x07 {
-        0x00 => WriteTarget8::Register(Register8::B),
-        0x01 => WriteTarget8::Register(Register8::C),
-        0x02 => WriteTarget8::Register(Register8::D),
-        0x03 => WriteTarget8::Register(Register8::E),
-        0x04 => WriteTarget8::Register(Register8::H),
-        0x05 => WriteTarget8::Register(Register8::L),
-        0x06 => WriteTarget8::Indirect(Register16::HL),
-        0x07 => WriteTarget8::Register(Register8::A),
-        _ => unreachable!("value & 0x07 is <= 0x07"),
-    }
-}
-
-fn parse_load_register_16(opcode: u8) -> Register16 {
-    match opcode & 0x30 {
-        0x00 => Register16::BC,
-        0x10 => Register16::DE,
-        0x20 => Register16::HL,
-        0x30 => Register16::SP,
-        _ => unreachable!("value & 0x30 is always 0x00/0x10/0x20/0x30"),
-    }
-}
-
-fn parse_stack_register(opcode: u8) -> Register16 {
-    match opcode & 0x30 {
-        0x00 => Register16::BC,
-        0x10 => Register16::DE,
-        0x20 => Register16::HL,
-        0x30 => Register16::AF,
-        _ => unreachable!("value & 0x30 is always 0x00/0x10/0x20/0x30"),
-    }
+    InstructionParser::new(registers, address_space).parse()
 }

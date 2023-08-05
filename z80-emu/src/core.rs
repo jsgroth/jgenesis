@@ -80,6 +80,15 @@ impl Flags {
         self.0 & Self::CARRY_BIT != 0
     }
 
+    fn set_carry(&mut self, carry: bool) -> &mut Self {
+        if carry {
+            self.0 |= Self::CARRY_BIT;
+        } else {
+            self.0 &= !Self::CARRY_BIT;
+        }
+        self
+    }
+
     fn to_byte(self) -> u8 {
         self.0
     }
@@ -96,7 +105,7 @@ pub struct Registers {
     h: u8,
     l: u8,
     ap: u8,
-    fp: u8,
+    fp: Flags,
     bp: u8,
     cp: u8,
     dp: u8,
