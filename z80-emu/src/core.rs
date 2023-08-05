@@ -94,6 +94,13 @@ impl Flags {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InterruptMode {
+    Mode0,
+    Mode1,
+    Mode2,
+}
+
 #[derive(Debug, Clone)]
 pub struct Registers {
     a: u8,
@@ -120,6 +127,7 @@ pub struct Registers {
     pc: u16,
     iff1: bool,
     iff2: bool,
+    interrupt_mode: InterruptMode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,7 +1,7 @@
 mod parser;
 
 use crate::core::instructions::parser::{InstructionParser, ParseResult};
-use crate::core::{IndexRegister, Register16, Register8, Registers};
+use crate::core::{IndexRegister, InterruptMode, Register16, Register8, Registers};
 use crate::traits::AddressSpace;
 use std::mem;
 
@@ -12,6 +12,13 @@ trait GetBit: Copy {
 impl GetBit for u8 {
     fn bit(self, i: u8) -> bool {
         assert!(i <= 7);
+        self & (1 << i) != 0
+    }
+}
+
+impl GetBit for u16 {
+    fn bit(self, i: u8) -> bool {
+        assert!(i <= 15);
         self & (1 << i) != 0
     }
 }
@@ -219,17 +226,61 @@ pub enum Instruction {
         read_target: ReadTarget8,
         with_carry: bool,
     },
+    Add16 {
+        write: Register16,
+        read: Register16,
+        with_carry: bool,
+    },
     Subtract {
         read_target: ReadTarget8,
         with_carry: bool,
+    },
+    Subtract16 {
+        write: Register16,
+        read: Register16,
     },
     And(ReadTarget8),
     Or(ReadTarget8),
     Xor(ReadTarget8),
     Compare(ReadTarget8),
     Increment(ModifyTarget8),
+    IncrementRegister16(Register16),
     Decrement(ModifyTarget8),
+    DecrementRegister16(Register16),
+    RotateLeft {
+        modify_target: ModifyTarget8,
+        thru_carry: bool,
+        side_effect: Option<Register8>,
+    },
+    RotateRight {
+        modify_target: ModifyTarget8,
+        thru_carry: bool,
+        side_effect: Option<Register8>,
+    },
+    ShiftLeft {
+        modify_target: ModifyTarget8,
+        side_effect: Option<Register8>,
+    },
+    ShiftRightArithmetic {
+        modify_target: ModifyTarget8,
+        side_effect: Option<Register8>,
+    },
+    ShiftRightLogical {
+        modify_target: ModifyTarget8,
+        side_effect: Option<Register8>,
+    },
+    RotateLeft12(ModifyTarget8),
+    RotateRight12(ModifyTarget8),
+    DecimalAdjustAccumulator,
+    ComplementAccumulator,
+    NegateAccumulator,
+    ComplementCarry,
+    SetCarry,
+    NoOp,
     Halt,
+    DisableInterrupts,
+    EnableInterrupts,
+    SetInterruptMode(InterruptMode),
 }
 
 impl Instruction {
@@ -258,16 +309,73 @@ impl Instruction {
                 read_target,
                 with_carry,
             } => add(registers, address_space, read_target, with_carry),
+            Self::Add16 {
+                write,
+                read,
+                with_carry,
+            } => add_u16(registers, write, read, with_carry),
             Self::Subtract {
                 read_target,
                 with_carry,
             } => subtract(registers, address_space, read_target, with_carry),
+            Self::Subtract16 { write, read } => subtract_u16(registers, write, read),
             Self::And(read_target) => and(registers, address_space, read_target),
             Self::Or(read_target) => or(registers, address_space, read_target),
             Self::Xor(read_target) => xor(registers, address_space, read_target),
             Self::Compare(read_target) => compare(registers, address_space, read_target),
             Self::Increment(modify_target) => increment(registers, address_space, modify_target),
+            Self::IncrementRegister16(register) => increment_register_16(registers, register),
             Self::Decrement(modify_target) => decrement(registers, address_space, modify_target),
+            Self::DecrementRegister16(register) => decrement_register_16(registers, register),
+            Self::RotateLeft {
+                modify_target,
+                thru_carry,
+                side_effect,
+            } => rotate_left(
+                registers,
+                address_space,
+                modify_target,
+                thru_carry,
+                side_effect,
+            ),
+            Self::RotateRight {
+                modify_target,
+                thru_carry,
+                side_effect,
+            } => rotate_right(
+                registers,
+                address_space,
+                modify_target,
+                thru_carry,
+                side_effect,
+            ),
+            Self::ShiftLeft {
+                modify_target,
+                side_effect,
+            } => shift_left(registers, address_space, modify_target, side_effect),
+            Self::ShiftRightArithmetic {
+                modify_target,
+                side_effect,
+            } => shift_right_arithmetic(registers, address_space, modify_target, side_effect),
+            Self::ShiftRightLogical {
+                modify_target,
+                side_effect,
+            } => shift_right_logical(registers, address_space, modify_target, side_effect),
+            Self::RotateLeft12(modify_target) => {
+                rotate_left_12(registers, address_space, modify_target)
+            }
+            Self::RotateRight12(modify_target) => {
+                rotate_right_12(registers, address_space, modify_target)
+            }
+            Self::DecimalAdjustAccumulator => decimal_adjust_accumulator(registers),
+            Self::ComplementAccumulator => complement_accumulator(registers),
+            Self::NegateAccumulator => negate_accumulator(registers),
+            Self::ComplementCarry => complement_carry(registers),
+            Self::SetCarry => set_carry(registers),
+            Self::NoOp => ExecuteResult { t_cycles: 0 },
+            Self::DisableInterrupts => disable_interrupts(registers),
+            Self::EnableInterrupts => enable_interrupts(registers),
+            Self::SetInterruptMode(interrupt_mode) => set_interrupt_mode(registers, interrupt_mode),
             Self::Halt => todo!("halt not implemented"),
         }
     }
@@ -535,6 +643,48 @@ fn add<A: AddressSpace>(
     }
 }
 
+fn add_u16(
+    registers: &mut Registers,
+    write_register: Register16,
+    read_register: Register16,
+    with_carry: bool,
+) -> ExecuteResult {
+    let operand_l = write_register.read(registers);
+    let operand_r = read_register.read(registers);
+    let carry_operand = if with_carry {
+        registers.f.carry().into()
+    } else {
+        0
+    };
+
+    let half_carry = (operand_l & 0x0FFF) + (operand_r & 0x0FFF) + carry_operand >= 0x1000;
+    let (value, carry) = match operand_l.overflowing_add(operand_r) {
+        (sum, true) => (sum + carry_operand, true),
+        (sum, false) => sum.overflowing_add(carry_operand),
+    };
+
+    write_register.write(registers, value);
+
+    registers
+        .f
+        .set_half_carry(half_carry)
+        .set_subtract(false)
+        .set_carry(carry);
+
+    if with_carry {
+        let bit_14_carry = (operand_l & 0x7FFF) + (operand_r & 0x7FFF) + carry_operand >= 0x8000;
+        let overflow = bit_14_carry != carry;
+
+        registers
+            .f
+            .set_sign(value.bit(15))
+            .set_zero(value == 0)
+            .set_overflow(overflow);
+    }
+
+    ExecuteResult { t_cycles: 7 }
+}
+
 fn subtract<A: AddressSpace>(
     registers: &mut Registers,
     address_space: &mut A,
@@ -571,6 +721,37 @@ fn subtract<A: AddressSpace>(
     ExecuteResult {
         t_cycles: read_target.t_cycles_required(),
     }
+}
+
+fn subtract_u16(
+    registers: &mut Registers,
+    write_register: Register16,
+    read_register: Register16,
+) -> ExecuteResult {
+    let operand_l = write_register.read(registers);
+    let operand_r = read_register.read(registers);
+    let carry_operand = u16::from(registers.f.carry());
+
+    let half_carry = operand_l & 0x0FFF < (operand_r & 0x0FFF) + carry_operand;
+    let (value, carry) = match operand_l.overflowing_sub(operand_r) {
+        (difference, true) => (difference - carry_operand, true),
+        (difference, false) => difference.overflowing_sub(carry_operand),
+    };
+
+    let bit_14_borrow = operand_l & 0x7FFF < (operand_r & 0x7FFF) + carry_operand;
+    let overflow = bit_14_borrow != carry;
+
+    write_register.write(registers, value);
+    registers
+        .f
+        .set_sign(value.bit(15))
+        .set_zero(value == 0)
+        .set_half_carry(half_carry)
+        .set_overflow(overflow)
+        .set_subtract(true)
+        .set_carry(carry);
+
+    ExecuteResult { t_cycles: 7 }
 }
 
 fn and<A: AddressSpace>(
@@ -698,6 +879,13 @@ fn increment<A: AddressSpace>(
     }
 }
 
+fn increment_register_16(registers: &mut Registers, register: Register16) -> ExecuteResult {
+    let value = register.read(registers).wrapping_add(1);
+    register.write(registers, value);
+
+    ExecuteResult { t_cycles: 2 }
+}
+
 fn decrement<A: AddressSpace>(
     registers: &mut Registers,
     address_space: &mut A,
@@ -720,9 +908,348 @@ fn decrement<A: AddressSpace>(
     }
 }
 
+fn decrement_register_16(registers: &mut Registers, register: Register16) -> ExecuteResult {
+    let value = register.read(registers).wrapping_sub(1);
+    register.write(registers, value);
+
+    ExecuteResult { t_cycles: 2 }
+}
+
+fn rotate_left<A: AddressSpace>(
+    registers: &mut Registers,
+    address_space: &mut A,
+    modify_target: ModifyTarget8,
+    thru_carry: bool,
+    side_effect: Option<Register8>,
+) -> ExecuteResult {
+    let original = modify_target.read(registers, address_space);
+    let bit_0 = if thru_carry {
+        registers.f.carry()
+    } else {
+        original.bit(7)
+    };
+    let value = (original << 1) | u8::from(bit_0);
+
+    modify_target.write(registers, address_space, value);
+    registers
+        .f
+        .set_half_carry(false)
+        .set_subtract(false)
+        .set_carry(original.bit(7));
+
+    if let Some(register) = side_effect {
+        register.write(registers, value);
+    }
+
+    let mut t_cycles = modify_target.t_cycles_required();
+    if let ModifyTarget8::Indexed(..) = modify_target {
+        // TODO comment
+        t_cycles -= 4;
+    }
+
+    ExecuteResult { t_cycles }
+}
+
+fn rotate_right<A: AddressSpace>(
+    registers: &mut Registers,
+    address_space: &mut A,
+    modify_target: ModifyTarget8,
+    thru_carry: bool,
+    side_effect: Option<Register8>,
+) -> ExecuteResult {
+    let original = modify_target.read(registers, address_space);
+    let bit_7 = if thru_carry {
+        registers.f.carry()
+    } else {
+        original.bit(0)
+    };
+    let value = (original >> 1) | (u8::from(bit_7) << 7);
+
+    modify_target.write(registers, address_space, value);
+    registers
+        .f
+        .set_half_carry(false)
+        .set_subtract(false)
+        .set_carry(original.bit(0));
+
+    if let Some(register) = side_effect {
+        register.write(registers, value);
+    }
+
+    let mut t_cycles = modify_target.t_cycles_required();
+    if let ModifyTarget8::Indexed(..) = modify_target {
+        // TODO comment
+        t_cycles -= 4;
+    }
+
+    ExecuteResult { t_cycles }
+}
+
+fn shift_left<A: AddressSpace>(
+    registers: &mut Registers,
+    address_space: &mut A,
+    modify_target: ModifyTarget8,
+    side_effect: Option<Register8>,
+) -> ExecuteResult {
+    let original = modify_target.read(registers, address_space);
+    let value = original << 1;
+
+    let parity = value.count_ones() % 2 == 0;
+
+    modify_target.write(registers, address_space, value);
+    registers
+        .f
+        .set_sign(value.bit(7))
+        .set_zero(value == 0)
+        .set_half_carry(false)
+        .set_overflow(parity)
+        .set_subtract(false)
+        .set_carry(original.bit(7));
+
+    if let Some(register) = side_effect {
+        register.write(registers, value);
+    }
+
+    let mut t_cycles = modify_target.t_cycles_required();
+    if let ModifyTarget8::Indexed(..) = modify_target {
+        // TODO comment
+        t_cycles -= 4;
+    }
+
+    ExecuteResult { t_cycles }
+}
+
+fn shift_right_arithmetic<A: AddressSpace>(
+    registers: &mut Registers,
+    address_space: &mut A,
+    modify_target: ModifyTarget8,
+    side_effect: Option<Register8>,
+) -> ExecuteResult {
+    let original = modify_target.read(registers, address_space);
+    let value = (original >> 1) | (original & 0x80);
+
+    let parity = value.count_ones() % 2 == 0;
+
+    modify_target.write(registers, address_space, value);
+    registers
+        .f
+        .set_sign(value.bit(7))
+        .set_zero(value == 0)
+        .set_half_carry(false)
+        .set_overflow(parity)
+        .set_subtract(false)
+        .set_carry(original.bit(0));
+
+    if let Some(register) = side_effect {
+        register.write(registers, value);
+    }
+
+    let mut t_cycles = modify_target.t_cycles_required();
+    if let ModifyTarget8::Indexed(..) = modify_target {
+        // TODO comment
+        t_cycles -= 4;
+    }
+
+    ExecuteResult { t_cycles }
+}
+
+fn shift_right_logical<A: AddressSpace>(
+    registers: &mut Registers,
+    address_space: &mut A,
+    modify_target: ModifyTarget8,
+    side_effect: Option<Register8>,
+) -> ExecuteResult {
+    let original = modify_target.read(registers, address_space);
+    let value = original >> 1;
+
+    let parity = value.count_ones() % 2 == 0;
+
+    modify_target.write(registers, address_space, value);
+    registers
+        .f
+        .set_sign(false)
+        .set_zero(value == 0)
+        .set_half_carry(false)
+        .set_overflow(parity)
+        .set_subtract(false)
+        .set_carry(original.bit(0));
+
+    if let Some(register) = side_effect {
+        register.write(registers, value);
+    }
+
+    let mut t_cycles = modify_target.t_cycles_required();
+    if let ModifyTarget8::Indexed(..) = modify_target {
+        // TODO comment
+        t_cycles -= 4;
+    }
+
+    ExecuteResult { t_cycles }
+}
+
+fn rotate_left_12<A: AddressSpace>(
+    registers: &mut Registers,
+    address_space: &mut A,
+    modify_target: ModifyTarget8,
+) -> ExecuteResult {
+    let a = registers.a;
+    let memory_value = modify_target.read(registers, address_space);
+
+    let new_a = (a & 0xF0) | ((memory_value & 0xF0) >> 4);
+    let new_memory_value = ((memory_value & 0x0F) << 4) | (a & 0x0F);
+
+    let parity = new_a.count_ones() % 2 == 0;
+
+    registers.a = new_a;
+    modify_target.write(registers, address_space, new_memory_value);
+    registers
+        .f
+        .set_sign(new_a.bit(7))
+        .set_zero(new_a == 0)
+        .set_half_carry(false)
+        .set_overflow(parity)
+        .set_subtract(false);
+
+    ExecuteResult { t_cycles: 10 }
+}
+
+fn rotate_right_12<A: AddressSpace>(
+    registers: &mut Registers,
+    address_space: &mut A,
+    modify_target: ModifyTarget8,
+) -> ExecuteResult {
+    let a = registers.a;
+    let memory_value = modify_target.read(registers, address_space);
+
+    let new_a = (a & 0xF0) | (memory_value & 0x0F);
+    let new_memory_value = ((a & 0x0F) << 4) | ((memory_value & 0xF0) >> 4);
+
+    let parity = new_a.count_ones() % 2 == 0;
+
+    registers.a = new_a;
+    modify_target.write(registers, address_space, new_memory_value);
+    registers
+        .f
+        .set_sign(new_a.bit(7))
+        .set_zero(new_a == 0)
+        .set_half_carry(false)
+        .set_overflow(parity)
+        .set_subtract(false);
+
+    ExecuteResult { t_cycles: 10 }
+}
+
+fn decimal_adjust_accumulator(registers: &mut Registers) -> ExecuteResult {
+    if registers.f.subtract() {
+        let mut value = registers.a;
+        if registers.f.half_carry() {
+            value = value.wrapping_sub(0x06);
+        }
+        if registers.f.carry() {
+            value = value.wrapping_sub(0x60);
+        }
+
+        registers.a = value;
+        registers
+            .f
+            .set_sign(value.bit(7))
+            .set_zero(value == 0)
+            .set_half_carry(false);
+    } else {
+        let mut value = registers.a;
+        let mut carry = false;
+        if value > 0x99 || registers.f.carry() {
+            value = value.wrapping_add(0x60);
+            carry = true;
+        }
+        if value & 0x0F >= 0x0A || registers.f.half_carry() {
+            value = value.wrapping_add(0x06);
+        }
+
+        registers.a = value;
+        registers
+            .f
+            .set_sign(value.bit(7))
+            .set_zero(value == 0)
+            .set_half_carry(false)
+            .set_carry(carry);
+    }
+
+    ExecuteResult { t_cycles: 0 }
+}
+
+fn complement_accumulator(registers: &mut Registers) -> ExecuteResult {
+    registers.a = !registers.a;
+    registers.f.set_half_carry(true).set_subtract(true);
+
+    ExecuteResult { t_cycles: 0 }
+}
+
+fn negate_accumulator(registers: &mut Registers) -> ExecuteResult {
+    let (value, carry) = 0_u8.overflowing_sub(registers.a);
+    let half_carry = registers.a.trailing_zeros() < 4;
+
+    registers.a = value;
+    registers
+        .f
+        .set_sign(value.bit(7))
+        .set_zero(value == 0)
+        .set_half_carry(half_carry)
+        .set_overflow(value == 0x80)
+        .set_subtract(true)
+        .set_carry(carry);
+
+    ExecuteResult { t_cycles: 0 }
+}
+
 pub fn parse_next_instruction<A: AddressSpace>(
     registers: &mut Registers,
     address_space: &mut A,
 ) -> ParseResult {
     InstructionParser::new(registers, address_space).parse()
+}
+
+fn complement_carry(registers: &mut Registers) -> ExecuteResult {
+    let previous_carry = registers.f.carry();
+    registers
+        .f
+        .set_half_carry(previous_carry)
+        .set_subtract(false)
+        .set_carry(!previous_carry);
+
+    ExecuteResult { t_cycles: 0 }
+}
+
+fn set_carry(registers: &mut Registers) -> ExecuteResult {
+    registers
+        .f
+        .set_half_carry(false)
+        .set_subtract(false)
+        .set_carry(true);
+
+    ExecuteResult { t_cycles: 0 }
+}
+
+fn disable_interrupts(registers: &mut Registers) -> ExecuteResult {
+    registers.iff1 = false;
+    registers.iff2 = false;
+
+    // TODO interrupt delay
+
+    ExecuteResult { t_cycles: 0 }
+}
+
+fn enable_interrupts(registers: &mut Registers) -> ExecuteResult {
+    registers.iff1 = true;
+    registers.iff2 = true;
+
+    // TODO interrupt delay
+
+    ExecuteResult { t_cycles: 0 }
+}
+
+fn set_interrupt_mode(registers: &mut Registers, mode: InterruptMode) -> ExecuteResult {
+    registers.interrupt_mode = mode;
+
+    ExecuteResult { t_cycles: 0 }
 }
