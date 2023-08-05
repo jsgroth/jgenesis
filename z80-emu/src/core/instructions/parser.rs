@@ -3,7 +3,7 @@ use crate::core::instructions::{
     WriteTarget8,
 };
 use crate::core::{IndexRegister, InterruptMode, Register16, Register8, Registers};
-use crate::traits::AddressSpace;
+use crate::traits::BusInterface;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ParseResult {
@@ -19,7 +19,7 @@ pub struct InstructionParser<'registers, 'address_space, A> {
     index: Option<IndexRegister>,
 }
 
-impl<'registers, 'address_space, A: AddressSpace> InstructionParser<'registers, 'address_space, A> {
+impl<'registers, 'address_space, A: BusInterface> InstructionParser<'registers, 'address_space, A> {
     const OPCODE_T_CYCLES: u32 = 4;
     const OPERAND_T_CYCLES: u32 = 3;
 
@@ -33,7 +33,7 @@ impl<'registers, 'address_space, A: AddressSpace> InstructionParser<'registers, 
     }
 
     fn fetch_opcode_byte(&mut self) -> u8 {
-        let byte = self.address_space.read(self.registers.pc);
+        let byte = self.address_space.read_memory(self.registers.pc);
         self.registers.pc = self.registers.pc.wrapping_add(1);
         self.t_cycles += Self::OPCODE_T_CYCLES;
 
@@ -41,7 +41,7 @@ impl<'registers, 'address_space, A: AddressSpace> InstructionParser<'registers, 
     }
 
     fn fetch_operand_byte(&mut self) -> u8 {
-        let byte = self.address_space.read(self.registers.pc);
+        let byte = self.address_space.read_memory(self.registers.pc);
         self.registers.pc = self.registers.pc.wrapping_add(1);
         self.t_cycles += Self::OPERAND_T_CYCLES;
 

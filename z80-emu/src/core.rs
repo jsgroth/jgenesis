@@ -128,6 +128,7 @@ pub struct Registers {
     iff1: bool,
     iff2: bool,
     interrupt_mode: InterruptMode,
+    interrupt_delay: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -141,6 +142,10 @@ pub enum Register8 {
     L,
     I,
     R,
+    IXHigh,
+    IXLow,
+    IYHigh,
+    IYLow,
 }
 
 impl Register8 {
@@ -155,6 +160,10 @@ impl Register8 {
             Self::L => registers.l,
             Self::I => registers.i,
             Self::R => registers.r,
+            Self::IXHigh => (registers.ix >> 8) as u8,
+            Self::IXLow => registers.ix as u8,
+            Self::IYHigh => (registers.iy >> 8) as u8,
+            Self::IYLow => registers.iy as u8,
         }
     }
 
@@ -186,6 +195,18 @@ impl Register8 {
             }
             Self::R => {
                 registers.r = value;
+            }
+            Self::IXHigh => {
+                registers.ix = (registers.ix & 0x00FF) | (u16::from(value) << 8);
+            }
+            Self::IXLow => {
+                registers.ix = (registers.ix & 0xFF00) | u16::from(value);
+            }
+            Self::IYHigh => {
+                registers.iy = (registers.iy & 0x00FF) | (u16::from(value) << 8);
+            }
+            Self::IYLow => {
+                registers.iy = (registers.iy & 0xFF00) | u16::from(value);
             }
         }
     }

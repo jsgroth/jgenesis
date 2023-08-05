@@ -2,7 +2,7 @@ mod parser;
 
 use crate::core::instructions::parser::{InstructionParser, ParseResult};
 use crate::core::{IndexRegister, InterruptMode, Register16, Register8, Registers};
-use crate::traits::AddressSpace;
+use crate::traits::BusInterface;
 use std::mem;
 
 trait GetBit: Copy {
@@ -33,18 +33,18 @@ pub enum ReadTarget8 {
 }
 
 impl ReadTarget8 {
-    fn read<A: AddressSpace>(self, registers: &Registers, address_space: &mut A) -> u8 {
+    fn read<B: BusInterface>(self, registers: &Registers, bus: &mut B) -> u8 {
         match self {
             Self::Immediate(n) => n,
             Self::Register(register) => register.read(registers),
             Self::Indirect(register) => {
                 let address = register.read(registers);
-                address_space.read(address)
+                bus.read_memory(address)
             }
-            Self::Direct(address) => address_space.read(address),
+            Self::Direct(address) => bus.read_memory(address),
             Self::Indexed(index, d) => {
                 let address = index_address(index.read(registers), d);
-                address_space.read(address)
+                bus.read_memory(address)
             }
         }
     }
@@ -67,21 +67,21 @@ pub enum WriteTarget8 {
 }
 
 impl WriteTarget8 {
-    fn write<A: AddressSpace>(self, registers: &mut Registers, address_space: &mut A, value: u8) {
+    fn write<B: BusInterface>(self, registers: &mut Registers, bus: &mut B, value: u8) {
         match self {
             Self::Register(register) => {
                 register.write(registers, value);
             }
             Self::Indirect(register) => {
                 let address = register.read(registers);
-                address_space.write(address, value);
+                bus.write_memory(address, value);
             }
             Self::Direct(address) => {
-                address_space.write(address, value);
+                bus.write_memory(address, value);
             }
             Self::Indexed(index, d) => {
                 let address = index_address(index.read(registers), d);
-                address_space.write(address, value);
+                bus.write_memory(address, value);
             }
         }
     }
@@ -109,30 +109,24 @@ pub enum ModifyTarget8 {
 }
 
 impl ModifyTarget8 {
-    fn read<A: AddressSpace>(self, registers: &Registers, address_space: &mut A) -> u8 {
+    fn read<B: BusInterface>(self, registers: &Registers, bus: &mut B) -> u8 {
         match self {
-            Self::Register(register) => {
-                ReadTarget8::Register(register).read(registers, address_space)
-            }
-            Self::Indirect(register) => {
-                ReadTarget8::Indirect(register).read(registers, address_space)
-            }
-            Self::Indexed(index, d) => {
-                ReadTarget8::Indexed(index, d).read(registers, address_space)
-            }
+            Self::Register(register) => ReadTarget8::Register(register).read(registers, bus),
+            Self::Indirect(register) => ReadTarget8::Indirect(register).read(registers, bus),
+            Self::Indexed(index, d) => ReadTarget8::Indexed(index, d).read(registers, bus),
         }
     }
 
-    fn write<A: AddressSpace>(self, registers: &mut Registers, address_space: &mut A, value: u8) {
+    fn write<B: BusInterface>(self, registers: &mut Registers, bus: &mut B, value: u8) {
         match self {
             Self::Register(register) => {
-                WriteTarget8::Register(register).write(registers, address_space, value);
+                WriteTarget8::Register(register).write(registers, bus, value);
             }
             Self::Indirect(register) => {
-                WriteTarget8::Indirect(register).write(registers, address_space, value);
+                WriteTarget8::Indirect(register).write(registers, bus, value);
             }
             Self::Indexed(index, d) => {
-                WriteTarget8::Indexed(index, d).write(registers, address_space, value);
+                WriteTarget8::Indexed(index, d).write(registers, bus, value);
             }
         }
     }
@@ -158,13 +152,13 @@ pub enum ReadTarget16 {
 }
 
 impl ReadTarget16 {
-    fn read<A: AddressSpace>(self, registers: &Registers, address_space: &mut A) -> u16 {
+    fn read<B: BusInterface>(self, registers: &Registers, bus: &mut B) -> u16 {
         match self {
             Self::Immediate(nn) => nn,
             Self::Register(register) => register.read(registers),
             Self::Direct(nn) => {
-                let lsb = address_space.read(nn);
-                let msb = address_space.read(nn.wrapping_add(1));
+                let lsb = bus.read_memory(nn);
+                let msb = bus.read_memory(nn.wrapping_add(1));
                 u16::from_le_bytes([lsb, msb])
             }
         }
@@ -185,15 +179,15 @@ pub enum WriteTarget16 {
 }
 
 impl WriteTarget16 {
-    fn write<A: AddressSpace>(self, registers: &mut Registers, address_space: &mut A, value: u16) {
+    fn write<B: BusInterface>(self, registers: &mut Registers, bus: &mut B, value: u16) {
         match self {
             Self::Register(register) => {
                 register.write(registers, value);
             }
             Self::Direct(nn) => {
                 let [lsb, msb] = value.to_le_bytes();
-                address_space.write(nn, lsb);
-                address_space.write(nn.wrapping_add(1), msb);
+                bus.write_memory(nn, lsb);
+                bus.write_memory(nn.wrapping_add(1), msb);
             }
         }
     }
@@ -206,8 +200,50 @@ impl WriteTarget16 {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct ExecuteResult {
     t_cycles: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JumpCondition {
+    NonZero,
+    Zero,
+    NoCarry,
+    Carry,
+    OddParity,
+    EvenParity,
+    Positive,
+    Negative,
+}
+
+impl JumpCondition {
+    fn from_bits(bits: u8) -> Self {
+        match bits & 0x07 {
+            0x00 => Self::NonZero,
+            0x01 => Self::Zero,
+            0x02 => Self::NoCarry,
+            0x03 => Self::Carry,
+            0x04 => Self::OddParity,
+            0x05 => Self::EvenParity,
+            0x06 => Self::Positive,
+            0x07 => Self::Negative,
+            _ => unreachable!("value & 0x07 is always <= 0x07"),
+        }
+    }
+
+    fn check(self, registers: &Registers) -> bool {
+        match self {
+            Self::NonZero => !registers.f.zero(),
+            Self::Zero => registers.f.zero(),
+            Self::NoCarry => !registers.f.carry(),
+            Self::Carry => registers.f.carry(),
+            Self::OddParity => !registers.f.overflow(),
+            Self::EvenParity => registers.f.overflow(),
+            Self::Positive => !registers.f.sign(),
+            Self::Negative => registers.f.sign(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -288,34 +324,45 @@ pub enum Instruction {
     DisableInterrupts,
     EnableInterrupts,
     SetInterruptMode(InterruptMode),
+    JumpAbsolute(u16, Option<JumpCondition>),
+    JumpRelative(i8, Option<JumpCondition>),
+    JumpRelativeDecB(i8),
+    JumpRegister(Register16),
+    Call(u16, Option<JumpCondition>),
+    Return {
+        condition: Option<JumpCondition>,
+        reti: bool,
+    },
+    ReturnFromNmi,
+    Restart(u16),
 }
 
 impl Instruction {
-    pub fn execute<A>(self, registers: &mut Registers, address_space: &mut A) -> ExecuteResult
+    pub fn execute<B>(self, registers: &mut Registers, bus: &mut B) -> ExecuteResult
     where
-        A: AddressSpace,
+        B: BusInterface,
     {
+        registers.interrupt_delay = false;
+
         match self {
             Self::Load8(write_target, read_target) => {
-                load_8(registers, address_space, write_target, read_target)
+                load_8(registers, bus, write_target, read_target)
             }
             Self::Load16(write_target, read_target) => {
-                load_16(registers, address_space, write_target, read_target)
+                load_16(registers, bus, write_target, read_target)
             }
-            Self::Push(register) => push(registers, address_space, register),
-            Self::Pop(register) => pop(registers, address_space, register),
+            Self::Push(register) => push(registers, bus, register),
+            Self::Pop(register) => pop(registers, bus, register),
             Self::ExchangeDEHL => exchange_de_hl(registers),
             Self::ExchangeAF => exchange_af(registers),
             Self::ExchangeGeneralPurpose => exchange_general_purpose(registers),
-            Self::ExchangeStack(register) => exchange_stack(registers, address_space, register),
-            Self::Transfer(transfer_mode) => transfer(registers, address_space, transfer_mode),
-            Self::CompareBlock(transfer_mode) => {
-                compare_block(registers, address_space, transfer_mode)
-            }
+            Self::ExchangeStack(register) => exchange_stack(registers, bus, register),
+            Self::Transfer(transfer_mode) => transfer(registers, bus, transfer_mode),
+            Self::CompareBlock(transfer_mode) => compare_block(registers, bus, transfer_mode),
             Self::Add {
                 read_target,
                 with_carry,
-            } => add(registers, address_space, read_target, with_carry),
+            } => add(registers, bus, read_target, with_carry),
             Self::Add16 {
                 write,
                 read,
@@ -324,72 +371,47 @@ impl Instruction {
             Self::Subtract {
                 read_target,
                 with_carry,
-            } => subtract(registers, address_space, read_target, with_carry),
+            } => subtract(registers, bus, read_target, with_carry),
             Self::Subtract16 { write, read } => subtract_u16(registers, write, read),
-            Self::And(read_target) => and(registers, address_space, read_target),
-            Self::Or(read_target) => or(registers, address_space, read_target),
-            Self::Xor(read_target) => xor(registers, address_space, read_target),
-            Self::Compare(read_target) => compare(registers, address_space, read_target),
-            Self::Increment(modify_target) => increment(registers, address_space, modify_target),
+            Self::And(read_target) => and(registers, bus, read_target),
+            Self::Or(read_target) => or(registers, bus, read_target),
+            Self::Xor(read_target) => xor(registers, bus, read_target),
+            Self::Compare(read_target) => compare(registers, bus, read_target),
+            Self::Increment(modify_target) => increment(registers, bus, modify_target),
             Self::IncrementRegister16(register) => increment_register_16(registers, register),
-            Self::Decrement(modify_target) => decrement(registers, address_space, modify_target),
+            Self::Decrement(modify_target) => decrement(registers, bus, modify_target),
             Self::DecrementRegister16(register) => decrement_register_16(registers, register),
             Self::RotateLeft {
                 modify_target,
                 thru_carry,
                 side_effect,
-            } => rotate_left(
-                registers,
-                address_space,
-                modify_target,
-                thru_carry,
-                side_effect,
-            ),
+            } => rotate_left(registers, bus, modify_target, thru_carry, side_effect),
             Self::RotateRight {
                 modify_target,
                 thru_carry,
                 side_effect,
-            } => rotate_right(
-                registers,
-                address_space,
-                modify_target,
-                thru_carry,
-                side_effect,
-            ),
+            } => rotate_right(registers, bus, modify_target, thru_carry, side_effect),
             Self::ShiftLeft {
                 modify_target,
                 side_effect,
-            } => shift_left(registers, address_space, modify_target, side_effect),
+            } => shift_left(registers, bus, modify_target, side_effect),
             Self::ShiftRightArithmetic {
                 modify_target,
                 side_effect,
-            } => shift_right_arithmetic(registers, address_space, modify_target, side_effect),
+            } => shift_right_arithmetic(registers, bus, modify_target, side_effect),
             Self::ShiftRightLogical {
                 modify_target,
                 side_effect,
-            } => shift_right_logical(registers, address_space, modify_target, side_effect),
-            Self::RotateLeft12(modify_target) => {
-                rotate_left_12(registers, address_space, modify_target)
-            }
-            Self::RotateRight12(modify_target) => {
-                rotate_right_12(registers, address_space, modify_target)
-            }
-            Self::TestBit(modify_target, bit) => {
-                bit_test(registers, address_space, modify_target, bit)
-            }
+            } => shift_right_logical(registers, bus, modify_target, side_effect),
+            Self::RotateLeft12(modify_target) => rotate_left_12(registers, bus, modify_target),
+            Self::RotateRight12(modify_target) => rotate_right_12(registers, bus, modify_target),
+            Self::TestBit(modify_target, bit) => bit_test(registers, bus, modify_target, bit),
             Self::SetBit {
                 modify_target,
                 bit,
                 value,
                 side_effect,
-            } => set_bit(
-                registers,
-                address_space,
-                modify_target,
-                bit,
-                value,
-                side_effect,
-            ),
+            } => set_bit(registers, bus, modify_target, bit, value, side_effect),
             Self::DecimalAdjustAccumulator => decimal_adjust_accumulator(registers),
             Self::ComplementAccumulator => complement_accumulator(registers),
             Self::NegateAccumulator => negate_accumulator(registers),
@@ -399,19 +421,27 @@ impl Instruction {
             Self::DisableInterrupts => disable_interrupts(registers),
             Self::EnableInterrupts => enable_interrupts(registers),
             Self::SetInterruptMode(interrupt_mode) => set_interrupt_mode(registers, interrupt_mode),
+            Self::JumpAbsolute(address, condition) => jump_absolute(registers, address, condition),
+            Self::JumpRelative(offset, condition) => jump_relative(registers, offset, condition),
+            Self::JumpRelativeDecB(offset) => jump_relative_dec_b(registers, offset),
+            Self::JumpRegister(register) => jump_register(registers, register),
+            Self::Call(address, condition) => call(registers, bus, address, condition),
+            Self::Return { condition, reti } => ret(registers, bus, condition, reti),
+            Self::ReturnFromNmi => retn(registers, bus),
+            Self::Restart(address) => restart(registers, bus, address),
             Self::Halt => todo!("halt not implemented"),
         }
     }
 }
 
-fn load_8<A: AddressSpace>(
+fn load_8<B: BusInterface>(
     registers: &mut Registers,
-    address_space: &mut A,
+    bus: &mut B,
     write_target: WriteTarget8,
     read_target: ReadTarget8,
 ) -> ExecuteResult {
-    let value = read_target.read(registers, address_space);
-    write_target.write(registers, address_space, value);
+    let value = read_target.read(registers, bus);
+    write_target.write(registers, bus, value);
 
     if write_target == WriteTarget8::Register(Register8::A)
         && matches!(
@@ -438,32 +468,32 @@ fn load_8<A: AddressSpace>(
     ExecuteResult { t_cycles }
 }
 
-fn load_16<A: AddressSpace>(
+fn load_16<B: BusInterface>(
     registers: &mut Registers,
-    address_space: &mut A,
+    bus: &mut B,
     write_target: WriteTarget16,
     read_target: ReadTarget16,
 ) -> ExecuteResult {
-    let value = read_target.read(registers, address_space);
-    write_target.write(registers, address_space, value);
+    let value = read_target.read(registers, bus);
+    write_target.write(registers, bus, value);
 
     ExecuteResult {
         t_cycles: read_target.t_cycles_required() + write_target.t_cycles_required(),
     }
 }
 
-fn push<A: AddressSpace>(
+fn push<B: BusInterface>(
     registers: &mut Registers,
-    address_space: &mut A,
+    bus: &mut B,
     register: Register16,
 ) -> ExecuteResult {
     let value = register.read(registers);
     let [lsb, msb] = value.to_le_bytes();
 
     registers.sp = registers.sp.wrapping_sub(1);
-    address_space.write(registers.sp, msb);
+    bus.write_memory(registers.sp, msb);
     registers.sp = registers.sp.wrapping_sub(1);
-    address_space.write(registers.sp, lsb);
+    bus.write_memory(registers.sp, lsb);
 
     ExecuteResult {
         // Extra cycle for the opcode read + 2 memory writes
@@ -471,14 +501,14 @@ fn push<A: AddressSpace>(
     }
 }
 
-fn pop<A: AddressSpace>(
+fn pop<B: BusInterface>(
     registers: &mut Registers,
-    address_space: &mut A,
+    bus: &mut B,
     register: Register16,
 ) -> ExecuteResult {
-    let lsb = address_space.read(registers.sp);
+    let lsb = bus.read_memory(registers.sp);
     registers.sp = registers.sp.wrapping_add(1);
-    let msb = address_space.read(registers.sp);
+    let msb = bus.read_memory(registers.sp);
     registers.sp = registers.sp.wrapping_add(1);
 
     let value = u16::from_le_bytes([lsb, msb]);
@@ -515,19 +545,19 @@ fn exchange_general_purpose(registers: &mut Registers) -> ExecuteResult {
     ExecuteResult { t_cycles: 0 }
 }
 
-fn exchange_stack<A: AddressSpace>(
+fn exchange_stack<B: BusInterface>(
     registers: &mut Registers,
-    address_space: &mut A,
+    bus: &mut B,
     register: Register16,
 ) -> ExecuteResult {
-    let stack_lsb = address_space.read(registers.sp);
-    let stack_msb = address_space.read(registers.sp.wrapping_add(1));
+    let stack_lsb = bus.read_memory(registers.sp);
+    let stack_msb = bus.read_memory(registers.sp.wrapping_add(1));
     let stack_value = u16::from_le_bytes([stack_lsb, stack_msb]);
 
     let [register_lsb, register_msb] = register.read(registers).to_le_bytes();
 
-    address_space.write(registers.sp, register_lsb);
-    address_space.write(registers.sp.wrapping_add(1), register_msb);
+    bus.write_memory(registers.sp, register_lsb);
+    bus.write_memory(registers.sp.wrapping_add(1), register_msb);
     register.write(registers, stack_value);
 
     ExecuteResult { t_cycles: 15 }
@@ -547,16 +577,16 @@ impl TransferMode {
     }
 }
 
-fn transfer<A: AddressSpace>(
+fn transfer<B: BusInterface>(
     registers: &mut Registers,
-    address_space: &mut A,
+    bus: &mut B,
     mode: TransferMode,
 ) -> ExecuteResult {
     let hl = Register16::HL.read(registers);
     let de = Register16::DE.read(registers);
 
-    let value = address_space.read(hl);
-    address_space.write(de, value);
+    let value = bus.read_memory(hl);
+    bus.write_memory(de, value);
 
     let bc = Register16::BC.read(registers);
     Register16::BC.write(registers, bc.wrapping_sub(1));
@@ -588,13 +618,13 @@ fn transfer<A: AddressSpace>(
     }
 }
 
-fn compare_block<A: AddressSpace>(
+fn compare_block<B: BusInterface>(
     registers: &mut Registers,
-    address_space: &mut A,
+    bus: &mut B,
     mode: TransferMode,
 ) -> ExecuteResult {
     let hl = Register16::HL.read(registers);
-    let value = address_space.read(hl);
+    let value = bus.read_memory(hl);
 
     let bc = Register16::BC.read(registers);
     Register16::BC.write(registers, bc.wrapping_sub(1));
@@ -628,13 +658,13 @@ fn compare_block<A: AddressSpace>(
     }
 }
 
-fn add<A: AddressSpace>(
+fn add<B: BusInterface>(
     registers: &mut Registers,
-    address_space: &mut A,
+    bus: &mut B,
     read_target: ReadTarget8,
     with_carry: bool,
 ) -> ExecuteResult {
-    let operand = read_target.read(registers, address_space);
+    let operand = read_target.read(registers, bus);
     let carry_operand = if with_carry {
         u8::from(registers.f.carry())
     } else {
@@ -708,13 +738,13 @@ fn add_u16(
     ExecuteResult { t_cycles: 7 }
 }
 
-fn subtract<A: AddressSpace>(
+fn subtract<B: BusInterface>(
     registers: &mut Registers,
-    address_space: &mut A,
+    bus: &mut B,
     read_target: ReadTarget8,
     with_carry: bool,
 ) -> ExecuteResult {
-    let operand = read_target.read(registers, address_space);
+    let operand = read_target.read(registers, bus);
     let carry_operand = if with_carry {
         u8::from(registers.f.carry())
     } else {
@@ -777,12 +807,12 @@ fn subtract_u16(
     ExecuteResult { t_cycles: 7 }
 }
 
-fn and<A: AddressSpace>(
+fn and<B: BusInterface>(
     registers: &mut Registers,
-    address_space: &mut A,
+    bus: &mut B,
     read_target: ReadTarget8,
 ) -> ExecuteResult {
-    let operand = read_target.read(registers, address_space);
+    let operand = read_target.read(registers, bus);
     let value = registers.a & operand;
 
     let parity = value.count_ones() % 2 == 0;
@@ -802,12 +832,12 @@ fn and<A: AddressSpace>(
     }
 }
 
-fn or<A: AddressSpace>(
+fn or<B: BusInterface>(
     registers: &mut Registers,
-    address_space: &mut A,
+    bus: &mut B,
     read_target: ReadTarget8,
 ) -> ExecuteResult {
-    let operand = read_target.read(registers, address_space);
+    let operand = read_target.read(registers, bus);
     let value = registers.a | operand;
 
     let parity = value.count_ones() % 2 == 0;
@@ -827,12 +857,12 @@ fn or<A: AddressSpace>(
     }
 }
 
-fn xor<A: AddressSpace>(
+fn xor<B: BusInterface>(
     registers: &mut Registers,
-    address_space: &mut A,
+    bus: &mut B,
     read_target: ReadTarget8,
 ) -> ExecuteResult {
-    let operand = read_target.read(registers, address_space);
+    let operand = read_target.read(registers, bus);
     let value = registers.a ^ operand;
 
     let parity = value.count_ones() % 2 == 0;
@@ -852,12 +882,12 @@ fn xor<A: AddressSpace>(
     }
 }
 
-fn compare<A: AddressSpace>(
+fn compare<B: BusInterface>(
     registers: &mut Registers,
-    address_space: &mut A,
+    bus: &mut B,
     read_target: ReadTarget8,
 ) -> ExecuteResult {
-    let operand = read_target.read(registers, address_space);
+    let operand = read_target.read(registers, bus);
 
     let a = registers.a;
     let half_carry = a & 0x0F < operand & 0x0F;
@@ -880,15 +910,15 @@ fn compare<A: AddressSpace>(
     }
 }
 
-fn increment<A: AddressSpace>(
+fn increment<B: BusInterface>(
     registers: &mut Registers,
-    address_space: &mut A,
+    bus: &mut B,
     modify_target: ModifyTarget8,
 ) -> ExecuteResult {
-    let original = modify_target.read(registers, address_space);
+    let original = modify_target.read(registers, bus);
     let value = original.wrapping_add(1);
 
-    modify_target.write(registers, address_space, value);
+    modify_target.write(registers, bus, value);
     registers
         .f
         .set_sign(value.bit(7))
@@ -909,15 +939,15 @@ fn increment_register_16(registers: &mut Registers, register: Register16) -> Exe
     ExecuteResult { t_cycles: 2 }
 }
 
-fn decrement<A: AddressSpace>(
+fn decrement<B: BusInterface>(
     registers: &mut Registers,
-    address_space: &mut A,
+    bus: &mut B,
     modify_target: ModifyTarget8,
 ) -> ExecuteResult {
-    let original = modify_target.read(registers, address_space);
+    let original = modify_target.read(registers, bus);
     let value = original.wrapping_sub(1);
 
-    modify_target.write(registers, address_space, value);
+    modify_target.write(registers, bus, value);
     registers
         .f
         .set_sign(value.bit(7))
@@ -938,14 +968,14 @@ fn decrement_register_16(registers: &mut Registers, register: Register16) -> Exe
     ExecuteResult { t_cycles: 2 }
 }
 
-fn rotate_left<A: AddressSpace>(
+fn rotate_left<B: BusInterface>(
     registers: &mut Registers,
-    address_space: &mut A,
+    bus: &mut B,
     modify_target: ModifyTarget8,
     thru_carry: bool,
     side_effect: Option<Register8>,
 ) -> ExecuteResult {
-    let original = modify_target.read(registers, address_space);
+    let original = modify_target.read(registers, bus);
     let bit_0 = if thru_carry {
         registers.f.carry()
     } else {
@@ -953,7 +983,7 @@ fn rotate_left<A: AddressSpace>(
     };
     let value = (original << 1) | u8::from(bit_0);
 
-    modify_target.write(registers, address_space, value);
+    modify_target.write(registers, bus, value);
     registers
         .f
         .set_half_carry(false)
@@ -973,14 +1003,14 @@ fn rotate_left<A: AddressSpace>(
     ExecuteResult { t_cycles }
 }
 
-fn rotate_right<A: AddressSpace>(
+fn rotate_right<B: BusInterface>(
     registers: &mut Registers,
-    address_space: &mut A,
+    bus: &mut B,
     modify_target: ModifyTarget8,
     thru_carry: bool,
     side_effect: Option<Register8>,
 ) -> ExecuteResult {
-    let original = modify_target.read(registers, address_space);
+    let original = modify_target.read(registers, bus);
     let bit_7 = if thru_carry {
         registers.f.carry()
     } else {
@@ -988,7 +1018,7 @@ fn rotate_right<A: AddressSpace>(
     };
     let value = (original >> 1) | (u8::from(bit_7) << 7);
 
-    modify_target.write(registers, address_space, value);
+    modify_target.write(registers, bus, value);
     registers
         .f
         .set_half_carry(false)
@@ -1008,18 +1038,18 @@ fn rotate_right<A: AddressSpace>(
     ExecuteResult { t_cycles }
 }
 
-fn shift_left<A: AddressSpace>(
+fn shift_left<B: BusInterface>(
     registers: &mut Registers,
-    address_space: &mut A,
+    bus: &mut B,
     modify_target: ModifyTarget8,
     side_effect: Option<Register8>,
 ) -> ExecuteResult {
-    let original = modify_target.read(registers, address_space);
+    let original = modify_target.read(registers, bus);
     let value = original << 1;
 
     let parity = value.count_ones() % 2 == 0;
 
-    modify_target.write(registers, address_space, value);
+    modify_target.write(registers, bus, value);
     registers
         .f
         .set_sign(value.bit(7))
@@ -1042,18 +1072,18 @@ fn shift_left<A: AddressSpace>(
     ExecuteResult { t_cycles }
 }
 
-fn shift_right_arithmetic<A: AddressSpace>(
+fn shift_right_arithmetic<B: BusInterface>(
     registers: &mut Registers,
-    address_space: &mut A,
+    bus: &mut B,
     modify_target: ModifyTarget8,
     side_effect: Option<Register8>,
 ) -> ExecuteResult {
-    let original = modify_target.read(registers, address_space);
+    let original = modify_target.read(registers, bus);
     let value = (original >> 1) | (original & 0x80);
 
     let parity = value.count_ones() % 2 == 0;
 
-    modify_target.write(registers, address_space, value);
+    modify_target.write(registers, bus, value);
     registers
         .f
         .set_sign(value.bit(7))
@@ -1076,18 +1106,18 @@ fn shift_right_arithmetic<A: AddressSpace>(
     ExecuteResult { t_cycles }
 }
 
-fn shift_right_logical<A: AddressSpace>(
+fn shift_right_logical<B: BusInterface>(
     registers: &mut Registers,
-    address_space: &mut A,
+    bus: &mut B,
     modify_target: ModifyTarget8,
     side_effect: Option<Register8>,
 ) -> ExecuteResult {
-    let original = modify_target.read(registers, address_space);
+    let original = modify_target.read(registers, bus);
     let value = original >> 1;
 
     let parity = value.count_ones() % 2 == 0;
 
-    modify_target.write(registers, address_space, value);
+    modify_target.write(registers, bus, value);
     registers
         .f
         .set_sign(false)
@@ -1110,13 +1140,13 @@ fn shift_right_logical<A: AddressSpace>(
     ExecuteResult { t_cycles }
 }
 
-fn rotate_left_12<A: AddressSpace>(
+fn rotate_left_12<B: BusInterface>(
     registers: &mut Registers,
-    address_space: &mut A,
+    bus: &mut B,
     modify_target: ModifyTarget8,
 ) -> ExecuteResult {
     let a = registers.a;
-    let memory_value = modify_target.read(registers, address_space);
+    let memory_value = modify_target.read(registers, bus);
 
     let new_a = (a & 0xF0) | ((memory_value & 0xF0) >> 4);
     let new_memory_value = ((memory_value & 0x0F) << 4) | (a & 0x0F);
@@ -1124,7 +1154,7 @@ fn rotate_left_12<A: AddressSpace>(
     let parity = new_a.count_ones() % 2 == 0;
 
     registers.a = new_a;
-    modify_target.write(registers, address_space, new_memory_value);
+    modify_target.write(registers, bus, new_memory_value);
     registers
         .f
         .set_sign(new_a.bit(7))
@@ -1136,13 +1166,13 @@ fn rotate_left_12<A: AddressSpace>(
     ExecuteResult { t_cycles: 10 }
 }
 
-fn rotate_right_12<A: AddressSpace>(
+fn rotate_right_12<B: BusInterface>(
     registers: &mut Registers,
-    address_space: &mut A,
+    bus: &mut B,
     modify_target: ModifyTarget8,
 ) -> ExecuteResult {
     let a = registers.a;
-    let memory_value = modify_target.read(registers, address_space);
+    let memory_value = modify_target.read(registers, bus);
 
     let new_a = (a & 0xF0) | (memory_value & 0x0F);
     let new_memory_value = ((a & 0x0F) << 4) | ((memory_value & 0xF0) >> 4);
@@ -1150,7 +1180,7 @@ fn rotate_right_12<A: AddressSpace>(
     let parity = new_a.count_ones() % 2 == 0;
 
     registers.a = new_a;
-    modify_target.write(registers, address_space, new_memory_value);
+    modify_target.write(registers, bus, new_memory_value);
     registers
         .f
         .set_sign(new_a.bit(7))
@@ -1162,13 +1192,13 @@ fn rotate_right_12<A: AddressSpace>(
     ExecuteResult { t_cycles: 10 }
 }
 
-fn bit_test<A: AddressSpace>(
+fn bit_test<B: BusInterface>(
     registers: &mut Registers,
-    address_space: &mut A,
+    bus: &mut B,
     modify_target: ModifyTarget8,
     bit: u8,
 ) -> ExecuteResult {
-    let value = modify_target.read(registers, address_space);
+    let value = modify_target.read(registers, bus);
     let bit_set = value & (1 << bit) != 0;
 
     registers
@@ -1186,22 +1216,22 @@ fn bit_test<A: AddressSpace>(
     ExecuteResult { t_cycles }
 }
 
-fn set_bit<A: AddressSpace>(
+fn set_bit<B: BusInterface>(
     registers: &mut Registers,
-    address_space: &mut A,
+    bus: &mut B,
     modify_target: ModifyTarget8,
     bit: u8,
     set: bool,
     side_effect: Option<Register8>,
 ) -> ExecuteResult {
-    let original = modify_target.read(registers, address_space);
+    let original = modify_target.read(registers, bus);
     let value = if set {
         original | (1 << bit)
     } else {
         original & !(1 << bit)
     };
 
-    modify_target.write(registers, address_space, value);
+    modify_target.write(registers, bus, value);
 
     if let Some(register) = side_effect {
         register.write(registers, value);
@@ -1279,11 +1309,11 @@ fn negate_accumulator(registers: &mut Registers) -> ExecuteResult {
     ExecuteResult { t_cycles: 0 }
 }
 
-pub fn parse_next_instruction<A: AddressSpace>(
+pub fn parse_next_instruction<B: BusInterface>(
     registers: &mut Registers,
-    address_space: &mut A,
+    bus: &mut B,
 ) -> ParseResult {
-    InstructionParser::new(registers, address_space).parse()
+    InstructionParser::new(registers, bus).parse()
 }
 
 fn complement_carry(registers: &mut Registers) -> ExecuteResult {
@@ -1311,16 +1341,13 @@ fn disable_interrupts(registers: &mut Registers) -> ExecuteResult {
     registers.iff1 = false;
     registers.iff2 = false;
 
-    // TODO interrupt delay
-
     ExecuteResult { t_cycles: 0 }
 }
 
 fn enable_interrupts(registers: &mut Registers) -> ExecuteResult {
     registers.iff1 = true;
     registers.iff2 = true;
-
-    // TODO interrupt delay
+    registers.interrupt_delay = true;
 
     ExecuteResult { t_cycles: 0 }
 }
@@ -1329,4 +1356,166 @@ fn set_interrupt_mode(registers: &mut Registers, mode: InterruptMode) -> Execute
     registers.interrupt_mode = mode;
 
     ExecuteResult { t_cycles: 0 }
+}
+
+fn jump_absolute(
+    registers: &mut Registers,
+    address: u16,
+    condition: Option<JumpCondition>,
+) -> ExecuteResult {
+    if condition.is_some_and(|cc| !cc.check(registers)) {
+        return ExecuteResult { t_cycles: 0 };
+    }
+
+    registers.pc = address;
+    ExecuteResult { t_cycles: 0 }
+}
+
+fn jump_relative(
+    registers: &mut Registers,
+    offset: i8,
+    condition: Option<JumpCondition>,
+) -> ExecuteResult {
+    if condition.is_some_and(|cc| !cc.check(registers)) {
+        return ExecuteResult { t_cycles: 0 };
+    }
+
+    registers.pc = (i32::from(registers.pc) + i32::from(offset)) as u16;
+    ExecuteResult { t_cycles: 5 }
+}
+
+fn jump_relative_dec_b(registers: &mut Registers, offset: i8) -> ExecuteResult {
+    registers.b = registers.b.wrapping_sub(1);
+
+    if registers.b != 0 {
+        registers.pc = (i32::from(registers.pc) + i32::from(offset)) as u16;
+        ExecuteResult { t_cycles: 5 }
+    } else {
+        ExecuteResult { t_cycles: 0 }
+    }
+}
+
+fn jump_register(registers: &mut Registers, register: Register16) -> ExecuteResult {
+    registers.pc = register.read(registers);
+    ExecuteResult { t_cycles: 0 }
+}
+
+fn call<B: BusInterface>(
+    registers: &mut Registers,
+    bus: &mut B,
+    address: u16,
+    condition: Option<JumpCondition>,
+) -> ExecuteResult {
+    if condition.is_some_and(|cc| !cc.check(registers)) {
+        return ExecuteResult { t_cycles: 0 };
+    }
+
+    registers.sp = registers.sp.wrapping_sub(1);
+    bus.write_memory(registers.sp, (registers.pc >> 8) as u8);
+    registers.sp = registers.sp.wrapping_sub(1);
+    bus.write_memory(registers.sp, registers.pc as u8);
+
+    registers.pc = address;
+
+    ExecuteResult { t_cycles: 6 }
+}
+
+fn ret<B: BusInterface>(
+    registers: &mut Registers,
+    bus: &mut B,
+    condition: Option<JumpCondition>,
+    is_reti: bool,
+) -> ExecuteResult {
+    if condition.is_some_and(|cc| !cc.check(registers)) {
+        return ExecuteResult { t_cycles: 1 };
+    }
+
+    let pc_lsb = bus.read_memory(registers.sp);
+    registers.sp = registers.sp.wrapping_add(1);
+    let pc_msb = bus.read_memory(registers.sp);
+    registers.sp = registers.sp.wrapping_add(1);
+
+    registers.pc = u16::from_le_bytes([pc_lsb, pc_msb]);
+
+    let condition_delay = u32::from(condition.is_some());
+    let reti_delay = if is_reti { 4 } else { 0 };
+    ExecuteResult {
+        t_cycles: 6 + condition_delay + reti_delay,
+    }
+}
+
+fn retn<B: BusInterface>(registers: &mut Registers, bus: &mut B) -> ExecuteResult {
+    ret(registers, bus, None, false);
+    registers.iff1 = registers.iff2;
+
+    ExecuteResult { t_cycles: 6 }
+}
+
+fn restart<B: BusInterface>(registers: &mut Registers, bus: &mut B, address: u16) -> ExecuteResult {
+    call(registers, bus, address, None);
+
+    ExecuteResult { t_cycles: 7 }
+}
+
+fn io_in<B: BusInterface>(
+    registers: &mut Registers,
+    bus: &mut B,
+    write_register: Register8,
+    read_register: Register8,
+    set_flags: bool,
+) -> ExecuteResult {
+    let lsb = read_register.read(registers);
+    let msb_register = match read_register {
+        Register8::C => Register8::B,
+        _ => Register8::A,
+    };
+    let msb = msb_register.read(registers);
+
+    let value = bus.read_io(u16::from_le_bytes([lsb, msb]));
+    write_register.write(registers, value);
+
+    if set_flags {
+        let parity = value.count_ones() % 2 == 0;
+        registers
+            .f
+            .set_sign(value.bit(7))
+            .set_zero(value == 0)
+            .set_half_carry(false)
+            .set_overflow(parity)
+            .set_subtract(false);
+    }
+
+    ExecuteResult { t_cycles: 4 }
+}
+
+fn io_in_block<B: BusInterface>(
+    registers: &mut Registers,
+    bus: &mut B,
+    mode: TransferMode,
+) -> ExecuteResult {
+    let address = u16::from_be_bytes([registers.b, registers.c]);
+    let value = bus.read_io(address);
+
+    let hl = Register16::HL.read(registers);
+    bus.write_memory(hl, value);
+    registers.b = registers.b.wrapping_sub(1);
+
+    registers.f.set_zero(registers.b == 0).set_subtract(true);
+
+    match mode {
+        TransferMode::Increment { .. } => {
+            Register16::HL.write(registers, hl.wrapping_add(1));
+        }
+        TransferMode::Decrement { .. } => {
+            Register16::HL.write(registers, hl.wrapping_sub(1));
+        }
+    }
+
+    let should_repeat = mode.repeat() && registers.b == 0;
+    if should_repeat {
+        registers.pc -= 2;
+    }
+
+    let t_cycles = if should_repeat { 13 } else { 8 };
+    ExecuteResult { t_cycles }
 }
