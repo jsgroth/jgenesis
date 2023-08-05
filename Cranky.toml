@@ -1,0 +1,49 @@
+# https://github.com/ericseppanen/cargo-cranky
+# Install: cargo install cargo-cranky
+# Run: cargo cranky
+
+warn = [
+    "clippy::all",
+    "clippy::pedantic",
+    "rust_2018_idioms",
+    # A small selection of restriction lints
+    "clippy::clone_on_ref_ptr",
+    "clippy::dbg_macro",
+    "clippy::empty_drop",
+    "clippy::empty_structs_with_brackets",
+    "clippy::float_cmp_const",
+    "clippy::fn_to_numeric_cast_any",
+    "clippy::get_unwrap",
+    "clippy::if_then_some_else_none",
+    "clippy::mem_forget",
+    "clippy::mixed_read_write_in_expression",
+    "clippy::mod_module_files",
+    "clippy::mutex_atomic",
+    "clippy::rc_buffer",
+    "clippy::rc_mutex",
+    "clippy::rest_pat_in_fully_bound_structs",
+    "clippy::string_to_string",
+    "clippy::suspicious_xor_used_as_pow",
+    "clippy::try_err",
+    "clippy::unneeded_field_pattern",
+    "clippy::unseparated_literal_suffix",
+    "clippy::verbose_file_reads",
+]
+
+# Remove pedantic lints that have a high false positive rate or that I disagree with
+allow = [
+    "clippy::cast_possible_truncation",
+    "clippy::cast_possible_wrap",
+    "clippy::cast_precision_loss",
+    "clippy::cast_sign_loss",
+    "clippy::if_not_else",
+    "clippy::inline_always",
+    "clippy::module_name_repetitions",
+    "clippy::needless_pass_by_value",
+    "clippy::similar_names",
+    "clippy::single_match_else",
+    "clippy::stable_sort_primitive",
+    "clippy::struct_excessive_bools",
+    "clippy::too_many_lines",
+    "clippy::unreadable_literal",
+]

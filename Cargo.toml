@@ -1,0 +1,20 @@
+[workspace]
+members = [
+    "z80-emu",
+]
+resolver = "2"
+
+[profile.dev]
+opt-level = 1
+
+[profile.release-lto]
+inherits = "release"
+lto = true
+
+[profile.profiling]
+inherits = "release"
+debug = true
+
+[profile.profiling-lto]
+inherits = "profiling"
+lto = true
