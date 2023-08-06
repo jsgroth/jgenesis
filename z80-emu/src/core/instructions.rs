@@ -1,4 +1,5 @@
 mod arithmetic;
+mod bits;
 mod control;
 mod load;
 
@@ -141,6 +142,37 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         u16::from_le_bytes([lsb, msb])
     }
 
+    fn execute_cb_prefix(&mut self, index: Option<IndexRegister>) -> u32 {
+        // For DD+CB and FD+CB instructions, the index offset comes before the last opcode byte
+        let index_with_offset = match index {
+            Some(index) => {
+                let offset = self.fetch_operand() as i8;
+                Some((index, offset))
+            }
+            None => None,
+        };
+
+        let opcode2 = self.fetch_operand();
+
+        match opcode2 {
+            0x00..=0x05 | 0x07 => self.rlc_r(opcode2, index_with_offset),
+            0x06 => self.rlc_hl(index_with_offset),
+            0x08..=0x0D | 0x0F => self.rrc_r(opcode2, index_with_offset),
+            0x0E => self.rrc_hl(index_with_offset),
+            0x10..=0x15 | 0x17 => self.rl_r(opcode2, index_with_offset),
+            0x16 => self.rl_hl(index_with_offset),
+            0x18..=0x1D | 0x1F => self.rr_r(opcode2, index_with_offset),
+            0x1E => self.rr_hl(index_with_offset),
+            0x20..=0x25 | 0x27 => self.sla_r(opcode2, index_with_offset),
+            0x26 => self.sla_hl(index_with_offset),
+            0x28..=0x2D | 0x2F => self.sra_r(opcode2, index_with_offset),
+            0x2E => self.sra_hl(index_with_offset),
+            0x38..=0x3D | 0x3F => self.srl_r(opcode2, index_with_offset),
+            0x3E => self.srl_hl(index_with_offset),
+            _ => todo!(),
+        }
+    }
+
     fn execute_ed_prefix(&mut self) -> u32 {
         let opcode2 = self.fetch_operand();
 
@@ -157,6 +189,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             0x57 => self.ld_a_ir(Register8::I),
             0x5E => self.im(InterruptMode::Mode2),
             0x5F => self.ld_a_ir(Register8::R),
+            0x67 => self.rrd(),
+            0x6F => self.rld(),
             0xA0 => self.block_transfer(BlockMode::Increment, false),
             0xA8 => self.block_transfer(BlockMode::Decrement, false),
             0xB0 => self.block_transfer(BlockMode::Increment, true),
@@ -183,12 +217,16 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             0x35 => self.dec_hl(index),
             0x06 | 0x0E | 0x16 | 0x1E | 0x26 | 0x2E | 0x3E => self.ld_r_immediate(opcode, index),
             0x36 => self.ld_hl_immediate(index),
+            0x07 => self.rlca(),
             0x08 => self.exchange_af(),
             0x09 | 0x19 | 0x29 | 0x39 => self.add_hl_ss(opcode, index),
             0x0A => self.ld_a_indirect(Register16::BC),
             0x0B | 0x1B | 0x2B | 0x3B => self.dec_ss(opcode, index),
+            0x0F => self.rrca(),
             0x12 => self.ld_indirect_a(Register16::DE),
+            0x17 => self.rla(),
             0x1A => self.ld_a_indirect(Register16::DE),
+            0x1F => self.rra(),
             0x22 => self.ld_direct_hl(index),
             0x27 => self.daa(),
             0x2A => self.ld_hl_direct(index),
@@ -224,6 +262,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             0xC1 | 0xD1 | 0xE1 | 0xF1 => self.pop_qq(opcode, index),
             0xC5 | 0xD5 | 0xE5 | 0xF5 => self.push_qq(opcode, index),
             0xC6 => self.add_a_immediate(false),
+            0xCB => self.execute_cb_prefix(index),
             0xCE => self.add_a_immediate(true),
             0xD6 => self.sub_a_immediate(false),
             0xD9 => self.exchange_bcdehl(),

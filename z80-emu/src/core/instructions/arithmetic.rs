@@ -168,6 +168,9 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     impl_r_increment_op!(dec_r, decrement);
     impl_hl_increment_op!(dec_hl, decrement);
 
+    impl_16_bit_increment_op!(inc_ss, increment_u16);
+    impl_16_bit_increment_op!(dec_ss, decrement_u16);
+
     pub(super) fn add_hl_ss(&mut self, opcode: u8, index: Option<IndexRegister>) -> u32 {
         let l_register = index.map_or(Register16::HL, IndexRegister::into);
         let r_register = super::parse_dd_register(opcode, index);
@@ -205,11 +208,46 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         15
     }
 
-    impl_16_bit_increment_op!(inc_ss, increment_u16);
-    impl_16_bit_increment_op!(dec_ss, decrement_u16);
-
     pub(super) fn daa(&mut self) -> u32 {
-        todo!()
+        let flags = self.registers.f;
+        if flags.subtract() {
+            let mut value = self.registers.a;
+            if flags.half_carry() {
+                value = value.wrapping_sub(0x06);
+            }
+            if flags.carry() {
+                value = value.wrapping_sub(0x60);
+            }
+
+            self.registers.a = value;
+            self.registers
+                .f
+                .set_sign_from(value)
+                .set_zero_from(value)
+                .set_half_carry(false)
+                .set_parity_from(value);
+        } else {
+            let mut value = self.registers.a;
+            let mut carry = false;
+            if value & 0x0F >= 0x0A || flags.half_carry() {
+                value = value.wrapping_add(0x06);
+            }
+            if value > 0x9F || flags.carry() {
+                value = value.wrapping_add(0x60);
+                carry = true;
+            }
+
+            self.registers.a = value;
+            self.registers
+                .f
+                .set_sign_from(value)
+                .set_zero_from(value)
+                .set_half_carry(false)
+                .set_parity_from(value)
+                .set_carry(carry);
+        }
+
+        4
     }
 
     pub(super) fn cpl(&mut self) -> u32 {
