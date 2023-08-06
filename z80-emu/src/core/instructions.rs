@@ -1,12 +1,27 @@
 mod arithmetic;
 mod bits;
 mod control;
+mod io;
 mod jump;
 mod load;
 
-use crate::core::instructions::load::BlockMode;
 use crate::core::{IndexRegister, InterruptMode, Register16, Register8, Registers};
 use crate::traits::BusInterface;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlockMode {
+    Increment,
+    Decrement,
+}
+
+impl BlockMode {
+    fn apply(self, value: u16) -> u16 {
+        match self {
+            Self::Increment => value.wrapping_add(1),
+            Self::Decrement => value.wrapping_sub(1),
+        }
+    }
+}
 
 fn parse_register_from_opcode(opcode: u8, index: Option<IndexRegister>) -> Option<Register8> {
     match opcode & 0x07 {
@@ -199,6 +214,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let opcode2 = self.fetch_operand();
 
         match opcode2 {
+            0x40 | 0x48 | 0x50 | 0x58 | 0x60 | 0x68 | 0x70 | 0x78 => self.in_r_c(opcode2),
+            0x41 | 0x49 | 0x51 | 0x59 | 0x61 | 0x69 | 0x71 | 0x79 => self.out_c_r(opcode2),
             0x42 | 0x52 | 0x62 | 0x72 => self.sbc_hl_ss(opcode2),
             0x43 | 0x53 | 0x63 | 0x73 => self.ld_direct_dd(opcode2),
             0x44 => self.neg(),
@@ -216,9 +233,21 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             0x67 => self.rrd(),
             0x6F => self.rld(),
             0xA0 => self.block_transfer(BlockMode::Increment, false),
+            0xA1 => self.compare_block(BlockMode::Increment, false),
+            0xA2 => self.in_block(BlockMode::Increment, false),
+            0xA3 => self.out_block(BlockMode::Increment, false),
             0xA8 => self.block_transfer(BlockMode::Decrement, false),
+            0xA9 => self.compare_block(BlockMode::Decrement, false),
+            0xAA => self.in_block(BlockMode::Decrement, false),
+            0xAB => self.out_block(BlockMode::Decrement, false),
             0xB0 => self.block_transfer(BlockMode::Increment, true),
+            0xB1 => self.compare_block(BlockMode::Increment, true),
+            0xB2 => self.in_block(BlockMode::Increment, true),
+            0xB3 => self.out_block(BlockMode::Increment, true),
             0xB8 => self.block_transfer(BlockMode::Decrement, true),
+            0xB9 => self.compare_block(BlockMode::Decrement, true),
+            0xBA => self.in_block(BlockMode::Decrement, true),
+            0xBB => self.out_block(BlockMode::Decrement, true),
             _ => todo!(),
         }
     }
@@ -303,8 +332,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             0xCB => self.execute_cb_prefix(index),
             0xCD => self.call_nn(),
             0xCE => self.add_a_immediate(true),
+            0xD3 => self.out_n_a(),
             0xD6 => self.sub_a_immediate(false),
             0xD9 => self.exchange_bcdehl(),
+            0xDB => self.in_a_n(),
             0xDE => self.sub_a_immediate(true),
             0xE3 => self.exchange_stack_hl(index),
             0xE6 => self.and_a_immediate(),
@@ -318,7 +349,6 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             0xFB => self.ei(),
             0xFE => self.cp_a_immediate(),
             0xDD | 0xFD => unreachable!("DD/FD prefixes have already been removed"),
-            _ => todo!(),
         };
 
         ExecuteResult {

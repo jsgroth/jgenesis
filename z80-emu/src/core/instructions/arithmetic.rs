@@ -1,4 +1,4 @@
-use crate::core::instructions::InstructionExecutor;
+use crate::core::instructions::{BlockMode, InstructionExecutor};
 use crate::core::{Flags, GetBit, IndexRegister, Register16};
 use crate::traits::BusInterface;
 
@@ -283,6 +283,36 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             .set_carry(true);
 
         4
+    }
+
+    pub(super) fn compare_block(&mut self, mode: BlockMode, repeat: bool) -> u32 {
+        let a = self.registers.a;
+        let bc = Register16::BC.read_from(self.registers);
+        let hl = Register16::HL.read_from(self.registers);
+        let operand = self.bus.read_memory(hl);
+
+        let difference = a.wrapping_sub(operand);
+        let half_carry = a & 0x0F < operand & 0x0F;
+
+        self.registers
+            .f
+            .set_sign_from(difference)
+            .set_zero_from(difference)
+            .set_half_carry(half_carry)
+            .set_overflow(bc != 1)
+            .set_subtract(true);
+
+        Register16::HL.write_to(mode.apply(hl), self.registers);
+
+        Register16::BC.write_to(bc.wrapping_sub(1), self.registers);
+
+        let should_repeat = repeat && bc != 1;
+        if should_repeat {
+            self.registers.pc -= 2;
+            21
+        } else {
+            16
+        }
     }
 }
 

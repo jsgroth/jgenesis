@@ -1,13 +1,7 @@
-use crate::core::instructions::InstructionExecutor;
+use crate::core::instructions::{BlockMode, InstructionExecutor};
 use crate::core::{IndexRegister, Register16, Register8};
 use crate::traits::BusInterface;
 use std::mem;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BlockMode {
-    Increment,
-    Decrement,
-}
 
 impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
     pub(super) fn ld_r_r(&mut self, opcode: u8, index: Option<IndexRegister>) -> u32 {
@@ -252,16 +246,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let bc = Register16::BC.read_from(self.registers);
         Register16::BC.write_to(bc.wrapping_sub(1), self.registers);
 
-        match mode {
-            BlockMode::Increment => {
-                Register16::HL.write_to(hl.wrapping_add(1), self.registers);
-                Register16::DE.write_to(de.wrapping_add(1), self.registers);
-            }
-            BlockMode::Decrement => {
-                Register16::HL.write_to(hl.wrapping_sub(1), self.registers);
-                Register16::DE.write_to(de.wrapping_sub(1), self.registers);
-            }
-        }
+        Register16::HL.write_to(mode.apply(hl), self.registers);
+        Register16::DE.write_to(mode.apply(de), self.registers);
 
         let should_repeat = repeat && bc == 1;
         if should_repeat {
