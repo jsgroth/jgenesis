@@ -1,6 +1,13 @@
-use crate::core::instructions::{GetBit, InstructionExecutor};
+use crate::core::instructions::InstructionExecutor;
 use crate::core::{IndexRegister, Register16, Register8};
 use crate::traits::BusInterface;
+use std::mem;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlockMode {
+    Increment,
+    Decrement,
+}
 
 impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
     pub(super) fn ld_r_r(&mut self, opcode: u8, index: Option<IndexRegister>) -> u32 {
@@ -98,13 +105,15 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
     // LD A, I and LD A, R
     pub(super) fn ld_a_ir(&mut self, register: Register8) -> u32 {
+        debug_assert!(register == Register8::I || register == Register8::R);
+
         let value = register.read_from(self.registers);
         self.registers.a = value;
 
         self.registers
             .f
-            .set_sign(value.bit(7))
-            .set_zero(value == 0)
+            .set_sign_from(value)
+            .set_zero_from(value)
             .set_half_carry(false)
             .set_overflow(self.registers.iff2)
             .set_subtract(false);
@@ -114,6 +123,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
     // LD I, A and LD R, A
     pub(super) fn ld_ir_a(&mut self, register: Register8) -> u32 {
+        debug_assert!(register == Register8::I || register == Register8::R);
+
         register.write_to(self.registers.a, self.registers);
 
         9
@@ -193,5 +204,80 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         register.write_to(value, self.registers);
 
         10
+    }
+
+    pub(super) fn exchange_de_hl(&mut self) -> u32 {
+        mem::swap(&mut self.registers.d, &mut self.registers.h);
+        mem::swap(&mut self.registers.e, &mut self.registers.l);
+
+        4
+    }
+
+    pub(super) fn exchange_af(&mut self) -> u32 {
+        mem::swap(&mut self.registers.a, &mut self.registers.ap);
+        mem::swap(&mut self.registers.f, &mut self.registers.fp);
+
+        4
+    }
+
+    pub(super) fn exchange_bcdehl(&mut self) -> u32 {
+        mem::swap(&mut self.registers.b, &mut self.registers.bp);
+        mem::swap(&mut self.registers.c, &mut self.registers.cp);
+        mem::swap(&mut self.registers.d, &mut self.registers.dp);
+        mem::swap(&mut self.registers.e, &mut self.registers.ep);
+        mem::swap(&mut self.registers.h, &mut self.registers.hp);
+        mem::swap(&mut self.registers.l, &mut self.registers.lp);
+
+        4
+    }
+
+    pub(super) fn exchange_stack_hl(&mut self, index: Option<IndexRegister>) -> u32 {
+        let register = index.map_or(Register16::HL, IndexRegister::into);
+        let register_value = register.read_from(self.registers);
+        let stack_value = self.pop_stack();
+
+        register.write_to(stack_value, self.registers);
+        self.push_stack(register_value);
+
+        19
+    }
+
+    pub(super) fn block_transfer(&mut self, mode: BlockMode, repeat: bool) -> u32 {
+        let hl = Register16::HL.read_from(self.registers);
+        let de = Register16::DE.read_from(self.registers);
+
+        let value = self.bus.read_memory(hl);
+        self.bus.write_memory(de, value);
+
+        let bc = Register16::BC.read_from(self.registers);
+        Register16::BC.write_to(bc.wrapping_sub(1), self.registers);
+
+        match mode {
+            BlockMode::Increment => {
+                Register16::HL.write_to(hl.wrapping_add(1), self.registers);
+                Register16::DE.write_to(de.wrapping_add(1), self.registers);
+            }
+            BlockMode::Decrement => {
+                Register16::HL.write_to(hl.wrapping_sub(1), self.registers);
+                Register16::DE.write_to(de.wrapping_sub(1), self.registers);
+            }
+        }
+
+        let should_repeat = repeat && bc == 1;
+        if should_repeat {
+            self.registers.pc = self.registers.pc.wrapping_sub(2);
+        }
+
+        self.registers
+            .f
+            .set_half_carry(false)
+            .set_overflow(bc != 1)
+            .set_subtract(false);
+
+        if should_repeat {
+            21
+        } else {
+            16
+        }
     }
 }

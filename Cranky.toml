@@ -46,4 +46,5 @@ allow = [
     "clippy::struct_excessive_bools",
     "clippy::too_many_lines",
     "clippy::unreadable_literal",
+    "clippy::verbose_bit_mask",
 ]

@@ -1,0 +1,457 @@
+use crate::core::instructions::InstructionExecutor;
+use crate::core::{Flags, GetBit, IndexRegister, Register16};
+use crate::traits::BusInterface;
+
+macro_rules! impl_a_r_add_op {
+    ($name:ident, $op_fn:ident) => {
+        pub(super) fn $name(
+            &mut self,
+            opcode: u8,
+            index: Option<IndexRegister>,
+            with_carry: bool,
+        ) -> u32 {
+            let read_target =
+                super::parse_register_from_opcode(opcode, index).expect("invalid opcode");
+            let operand = read_target.read_from(self.registers);
+
+            self.registers.a = $op_fn(self.registers.a, operand, with_carry, &mut self.registers.f);
+
+            4
+        }
+    };
+}
+
+macro_rules! impl_a_immediate_add_op {
+    ($name:ident, $op_fn:ident) => {
+        pub(super) fn $name(&mut self, with_carry: bool) -> u32 {
+            let operand = self.fetch_operand();
+
+            self.registers.a = $op_fn(self.registers.a, operand, with_carry, &mut self.registers.f);
+
+            7
+        }
+    };
+}
+
+macro_rules! impl_a_hl_add_op {
+    ($name:ident, $op_fn:ident) => {
+        pub(super) fn $name(&mut self, index: Option<IndexRegister>, with_carry: bool) -> u32 {
+            let address = self.fetch_indirect_hl_address(index);
+            let operand = self.bus.read_memory(address);
+
+            self.registers.a = $op_fn(self.registers.a, operand, with_carry, &mut self.registers.f);
+
+            match index {
+                Some(_) => 15,
+                None => 7,
+            }
+        }
+    };
+}
+
+macro_rules! impl_a_r_bit_op {
+    ($name:ident, $op_fn:ident) => {
+        pub(super) fn $name(&mut self, opcode: u8, index: Option<IndexRegister>) -> u32 {
+            let read_target =
+                super::parse_register_from_opcode(opcode, index).expect("invalid opcode");
+            let operand = read_target.read_from(self.registers);
+
+            self.registers.a = $op_fn(self.registers.a, operand, &mut self.registers.f);
+
+            4
+        }
+    };
+}
+
+macro_rules! impl_a_immediate_bit_op {
+    ($name:ident, $op_fn:ident) => {
+        pub(super) fn $name(&mut self) -> u32 {
+            let operand = self.fetch_operand();
+
+            self.registers.a = $op_fn(self.registers.a, operand, &mut self.registers.f);
+
+            7
+        }
+    };
+}
+
+macro_rules! impl_a_hl_bit_op {
+    ($name:ident, $op_fn:ident) => {
+        pub(super) fn $name(&mut self, index: Option<IndexRegister>) -> u32 {
+            let address = self.fetch_indirect_hl_address(index);
+            let operand = self.bus.read_memory(address);
+
+            self.registers.a = $op_fn(self.registers.a, operand, &mut self.registers.f);
+
+            match index {
+                Some(_) => 15,
+                None => 7,
+            }
+        }
+    };
+}
+
+macro_rules! impl_r_increment_op {
+    ($name:ident, $op_fn:ident) => {
+        pub(super) fn $name(&mut self, opcode: u8, index: Option<IndexRegister>) -> u32 {
+            let register =
+                super::parse_register_from_opcode(opcode, index).expect("invalid opcode");
+            let original = register.read_from(self.registers);
+            let modified = $op_fn(original, &mut self.registers.f);
+
+            register.write_to(modified, self.registers);
+
+            4
+        }
+    };
+}
+
+macro_rules! impl_hl_increment_op {
+    ($name:ident, $op_fn:ident) => {
+        pub(super) fn $name(&mut self, index: Option<IndexRegister>) -> u32 {
+            let address = self.fetch_indirect_hl_address(index);
+            let original = self.bus.read_memory(address);
+            let modified = $op_fn(original, &mut self.registers.f);
+
+            self.bus.write_memory(address, modified);
+
+            match index {
+                Some(_) => 19,
+                None => 11,
+            }
+        }
+    };
+}
+
+macro_rules! impl_16_bit_increment_op {
+    ($name:ident, $op_fn:ident) => {
+        pub(super) fn $name(&mut self, opcode: u8, index: Option<IndexRegister>) -> u32 {
+            let register = super::parse_dd_register(opcode, index);
+            let original = register.read_from(self.registers);
+            let modified = $op_fn(original);
+
+            register.write_to(modified, self.registers);
+
+            6
+        }
+    };
+}
+
+impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
+    impl_a_r_add_op!(add_a_r, add);
+    impl_a_immediate_add_op!(add_a_immediate, add);
+    impl_a_hl_add_op!(add_a_hl, add);
+
+    impl_a_r_add_op!(sub_a_r, subtract);
+    impl_a_immediate_add_op!(sub_a_immediate, subtract);
+    impl_a_hl_add_op!(sub_a_hl, subtract);
+
+    impl_a_r_bit_op!(and_a_r, and);
+    impl_a_immediate_bit_op!(and_a_immediate, and);
+    impl_a_hl_bit_op!(and_a_hl, and);
+
+    impl_a_r_bit_op!(or_a_r, or);
+    impl_a_immediate_bit_op!(or_a_immediate, or);
+    impl_a_hl_bit_op!(or_a_hl, or);
+
+    impl_a_r_bit_op!(xor_a_r, xor);
+    impl_a_immediate_bit_op!(xor_a_immediate, xor);
+    impl_a_hl_bit_op!(xor_a_hl, xor);
+
+    impl_a_r_bit_op!(cp_a_r, compare);
+    impl_a_immediate_bit_op!(cp_a_immediate, compare);
+    impl_a_hl_bit_op!(cp_a_hl, compare);
+
+    impl_r_increment_op!(inc_r, increment);
+    impl_hl_increment_op!(inc_hl, increment);
+
+    impl_r_increment_op!(dec_r, decrement);
+    impl_hl_increment_op!(dec_hl, decrement);
+
+    pub(super) fn add_hl_ss(&mut self, opcode: u8, index: Option<IndexRegister>) -> u32 {
+        let l_register = index.map_or(Register16::HL, IndexRegister::into);
+        let r_register = super::parse_dd_register(opcode, index);
+
+        let l_value = l_register.read_from(self.registers);
+        let r_value = r_register.read_from(self.registers);
+
+        let sum = add_u16(l_value, r_value, false, &mut self.registers.f);
+        l_register.write_to(sum, self.registers);
+
+        11
+    }
+
+    pub(super) fn adc_hl_ss(&mut self, opcode: u8) -> u32 {
+        let register = super::parse_dd_register(opcode, None);
+
+        let l_value = Register16::HL.read_from(self.registers);
+        let r_value = register.read_from(self.registers);
+
+        let sum = add_u16(l_value, r_value, true, &mut self.registers.f);
+        Register16::HL.write_to(sum, self.registers);
+
+        15
+    }
+
+    pub(super) fn sbc_hl_ss(&mut self, opcode: u8) -> u32 {
+        let register = super::parse_dd_register(opcode, None);
+
+        let l_value = Register16::HL.read_from(self.registers);
+        let r_value = register.read_from(self.registers);
+
+        let difference = sbc_u16(l_value, r_value, &mut self.registers.f);
+        Register16::HL.write_to(difference, self.registers);
+
+        15
+    }
+
+    impl_16_bit_increment_op!(inc_ss, increment_u16);
+    impl_16_bit_increment_op!(dec_ss, decrement_u16);
+
+    pub(super) fn daa(&mut self) -> u32 {
+        todo!()
+    }
+
+    pub(super) fn cpl(&mut self) -> u32 {
+        self.registers.a = !self.registers.a;
+        self.registers.f.set_half_carry(true).set_subtract(true);
+
+        4
+    }
+
+    pub(super) fn neg(&mut self) -> u32 {
+        self.registers.a = subtract(0, self.registers.a, false, &mut self.registers.f);
+
+        8
+    }
+
+    pub(super) fn ccf(&mut self) -> u32 {
+        let prev_carry = self.registers.f.carry();
+
+        self.registers
+            .f
+            .set_half_carry(prev_carry)
+            .set_subtract(false)
+            .set_carry(!prev_carry);
+
+        4
+    }
+
+    pub(super) fn scf(&mut self) -> u32 {
+        self.registers
+            .f
+            .set_half_carry(false)
+            .set_subtract(false)
+            .set_carry(true);
+
+        4
+    }
+}
+
+fn add(l: u8, r: u8, with_carry: bool, flags: &mut Flags) -> u8 {
+    let carry_operand = if with_carry {
+        u8::from(flags.carry())
+    } else {
+        0
+    };
+
+    let (sum, carry) = match l.overflowing_add(r) {
+        (sum, true) => (sum + carry_operand, true),
+        (sum, false) => sum.overflowing_add(carry_operand),
+    };
+
+    let half_carry = (l & 0x0F) + (r & 0x0F) + carry_operand >= 0x10;
+    let bit_6_carry = (l & 0x7F) + (r & 0x7F) + carry_operand >= 0x80;
+    let overflow = bit_6_carry != carry;
+
+    flags
+        .set_sign_from(sum)
+        .set_zero_from(sum)
+        .set_half_carry(half_carry)
+        .set_overflow(overflow)
+        .set_subtract(false)
+        .set_carry(carry);
+
+    sum
+}
+
+fn add_u16(l: u16, r: u16, with_carry: bool, flags: &mut Flags) -> u16 {
+    let carry_operand = if with_carry {
+        u16::from(flags.carry())
+    } else {
+        0
+    };
+
+    let (sum, carry) = match l.overflowing_add(r) {
+        (sum, true) => (sum + carry_operand, true),
+        (sum, false) => sum.overflowing_add(carry_operand),
+    };
+
+    let half_carry = (l & 0x0FFF) + (r & 0x0FFF) + carry_operand >= 0x1000;
+
+    flags
+        .set_half_carry(half_carry)
+        .set_subtract(false)
+        .set_carry(carry);
+
+    if with_carry {
+        // S, Z, and P/V are only set in 16-bit ADC, not 16-bit ADD
+        let bit_14_carry = (l & 0x7FFF) + (r & 0x7FFF) + carry_operand >= 0x8000;
+        let overflow = bit_14_carry != carry;
+
+        flags
+            .set_sign(sum.bit(15))
+            .set_zero(sum == 0)
+            .set_overflow(overflow);
+    }
+
+    sum
+}
+
+fn subtract(l: u8, r: u8, with_carry: bool, flags: &mut Flags) -> u8 {
+    let carry_operand = if with_carry {
+        u8::from(flags.carry())
+    } else {
+        0
+    };
+
+    let (difference, carry) = match l.overflowing_sub(r) {
+        (difference, true) => (difference - carry_operand, true),
+        (difference, false) => difference.overflowing_sub(carry_operand),
+    };
+
+    let half_carry = l & 0x0F < (r & 0x0F) + carry_operand;
+    let bit_6_borrow = l & 0x7F < (r & 0x7F) + carry_operand;
+    let overflow = bit_6_borrow != carry;
+
+    flags
+        .set_sign_from(difference)
+        .set_zero_from(difference)
+        .set_half_carry(half_carry)
+        .set_overflow(overflow)
+        .set_subtract(true)
+        .set_carry(carry);
+
+    difference
+}
+
+fn sbc_u16(l: u16, r: u16, flags: &mut Flags) -> u16 {
+    let carry_operand = u16::from(flags.carry());
+
+    let (difference, carry) = match l.overflowing_sub(r) {
+        (difference, true) => (difference - carry_operand, true),
+        (difference, false) => difference.overflowing_sub(carry_operand),
+    };
+
+    let half_carry = l & 0x0FFF < (r & 0x0FFF) + carry_operand;
+    let bit_14_borrow = l & 0x7FFF < (r & 0x7FFF) + carry_operand;
+    let overflow = bit_14_borrow != carry;
+
+    flags
+        .set_sign(difference.bit(15))
+        .set_zero(difference == 0)
+        .set_half_carry(half_carry)
+        .set_overflow(overflow)
+        .set_subtract(true)
+        .set_carry(carry);
+
+    difference
+}
+
+fn and(l: u8, r: u8, flags: &mut Flags) -> u8 {
+    let value = l & r;
+
+    flags
+        .set_sign_from(value)
+        .set_zero_from(value)
+        .set_half_carry(true)
+        .set_parity_from(value)
+        .set_subtract(false)
+        .set_carry(false);
+
+    value
+}
+
+fn or(l: u8, r: u8, flags: &mut Flags) -> u8 {
+    let value = l | r;
+
+    flags
+        .set_sign_from(value)
+        .set_zero_from(value)
+        .set_half_carry(false)
+        .set_parity_from(value)
+        .set_subtract(false)
+        .set_carry(false);
+
+    value
+}
+
+fn xor(l: u8, r: u8, flags: &mut Flags) -> u8 {
+    let value = l ^ r;
+
+    flags
+        .set_sign_from(value)
+        .set_zero_from(value)
+        .set_half_carry(false)
+        .set_parity_from(value)
+        .set_subtract(false)
+        .set_carry(false);
+
+    value
+}
+
+fn compare(l: u8, r: u8, flags: &mut Flags) -> u8 {
+    let (difference, carry) = l.overflowing_sub(r);
+
+    let half_carry = l & 0x0F < r & 0x0F;
+    let bit_6_borrow = l & 0x7F < r & 0x7F;
+    let overflow = bit_6_borrow != carry;
+
+    flags
+        .set_sign_from(difference)
+        .set_zero_from(difference)
+        .set_half_carry(half_carry)
+        .set_overflow(overflow)
+        .set_subtract(true)
+        .set_carry(carry);
+
+    l
+}
+
+fn increment(value: u8, flags: &mut Flags) -> u8 {
+    let half_carry = value & 0x0F == 0x0F;
+    let overflow = value == 0x7F;
+
+    let incremented = value.wrapping_add(1);
+    flags
+        .set_sign_from(incremented)
+        .set_zero_from(incremented)
+        .set_half_carry(half_carry)
+        .set_overflow(overflow)
+        .set_subtract(false);
+
+    incremented
+}
+
+fn decrement(value: u8, flags: &mut Flags) -> u8 {
+    let half_carry = value & 0x0F == 0x00;
+    let overflow = value == 0x80;
+
+    let decremented = value.wrapping_sub(1);
+    flags
+        .set_sign_from(decremented)
+        .set_zero_from(decremented)
+        .set_half_carry(half_carry)
+        .set_overflow(overflow)
+        .set_subtract(true);
+
+    decremented
+}
+
+fn increment_u16(value: u16) -> u16 {
+    value.wrapping_add(1)
+}
+
+fn decrement_u16(value: u16) -> u16 {
+    value.wrapping_sub(1)
+}

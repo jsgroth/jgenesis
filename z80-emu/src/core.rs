@@ -1,5 +1,23 @@
 mod instructions;
 
+trait GetBit: Copy {
+    fn bit(self, i: u8) -> bool;
+}
+
+impl GetBit for u8 {
+    fn bit(self, i: u8) -> bool {
+        assert!(i < 8);
+        self & (1 << i) != 0
+    }
+}
+
+impl GetBit for u16 {
+    fn bit(self, i: u8) -> bool {
+        assert!(i < 16);
+        self & (1 << i) != 0
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Flags(u8);
 
@@ -24,12 +42,30 @@ impl Flags {
         self
     }
 
+    fn set_sign_from(&mut self, value: u8) -> &mut Self {
+        if value.bit(7) {
+            self.0 |= Self::SIGN_BIT;
+        } else {
+            self.0 &= !Self::SIGN_BIT;
+        }
+        self
+    }
+
     fn zero(self) -> bool {
         self.0 & Self::ZERO_BIT != 0
     }
 
     fn set_zero(&mut self, zero: bool) -> &mut Self {
         if zero {
+            self.0 |= Self::ZERO_BIT;
+        } else {
+            self.0 &= !Self::ZERO_BIT;
+        }
+        self
+    }
+
+    fn set_zero_from(&mut self, value: u8) -> &mut Self {
+        if value == 0 {
             self.0 |= Self::ZERO_BIT;
         } else {
             self.0 &= !Self::ZERO_BIT;
@@ -56,6 +92,15 @@ impl Flags {
 
     fn set_overflow(&mut self, overflow: bool) -> &mut Self {
         if overflow {
+            self.0 |= Self::OVERFLOW_BIT;
+        } else {
+            self.0 &= !Self::OVERFLOW_BIT;
+        }
+        self
+    }
+
+    fn set_parity_from(&mut self, value: u8) -> &mut Self {
+        if value.count_ones() % 2 == 0 {
             self.0 |= Self::OVERFLOW_BIT;
         } else {
             self.0 &= !Self::OVERFLOW_BIT;
@@ -129,6 +174,7 @@ pub struct Registers {
     iff2: bool,
     interrupt_mode: InterruptMode,
     interrupt_delay: bool,
+    halted: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
