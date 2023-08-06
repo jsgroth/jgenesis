@@ -167,9 +167,30 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             0x26 => self.sla_hl(index_with_offset),
             0x28..=0x2D | 0x2F => self.sra_r(opcode2, index_with_offset),
             0x2E => self.sra_hl(index_with_offset),
+            0x30..=0x37 => todo!("undocumented SLL instruction"),
             0x38..=0x3D | 0x3F => self.srl_r(opcode2, index_with_offset),
             0x3E => self.srl_hl(index_with_offset),
-            _ => todo!(),
+            0x40..=0x7F => {
+                if opcode2 & 0x07 == 0x06 {
+                    self.bit_b_hl(opcode2, index_with_offset)
+                } else {
+                    self.bit_b_r(opcode2)
+                }
+            }
+            0x80..=0xBF => {
+                if opcode2 & 0x07 == 0x06 {
+                    self.res_b_hl(opcode2, index_with_offset)
+                } else {
+                    self.res_b_r(opcode2, index_with_offset)
+                }
+            }
+            0xC0..=0xFF => {
+                if opcode2 & 0x07 == 0x06 {
+                    self.set_b_hl(opcode2, index_with_offset)
+                } else {
+                    self.set_b_r(opcode2, index_with_offset)
+                }
+            }
         }
     }
 
@@ -200,6 +221,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     }
 
     fn execute(mut self) -> ExecuteResult {
+        self.registers.interrupt_delay = false;
+
         let ParseResult {
             opcode,
             index_prefix: index,
