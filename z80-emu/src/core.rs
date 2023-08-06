@@ -149,7 +149,7 @@ pub enum Register8 {
 }
 
 impl Register8 {
-    fn read(self, registers: &Registers) -> u8 {
+    fn read_from(self, registers: &Registers) -> u8 {
         match self {
             Self::A => registers.a,
             Self::B => registers.b,
@@ -167,7 +167,7 @@ impl Register8 {
         }
     }
 
-    fn write(self, registers: &mut Registers, value: u8) {
+    fn write_to(self, value: u8, registers: &mut Registers) {
         match self {
             Self::A => {
                 registers.a = value;
@@ -224,7 +224,7 @@ pub enum Register16 {
 }
 
 impl Register16 {
-    fn read(self, registers: &Registers) -> u16 {
+    fn read_from(self, registers: &Registers) -> u16 {
         match self {
             Self::AF => u16::from_be_bytes([registers.a, registers.f.to_byte()]),
             Self::BC => u16::from_be_bytes([registers.b, registers.c]),
@@ -236,7 +236,7 @@ impl Register16 {
         }
     }
 
-    fn write(self, registers: &mut Registers, value: u16) {
+    fn write_to(self, value: u16, registers: &mut Registers) {
         match self {
             Self::AF => {
                 let [a, f] = value.to_be_bytes();
@@ -278,10 +278,24 @@ pub enum IndexRegister {
 }
 
 impl IndexRegister {
-    fn read(self, registers: &Registers) -> u16 {
+    fn read_from(self, registers: &Registers) -> u16 {
         match self {
             Self::IX => registers.ix,
             Self::IY => registers.iy,
+        }
+    }
+
+    fn high_byte(self) -> Register8 {
+        match self {
+            Self::IX => Register8::IXHigh,
+            Self::IY => Register8::IYHigh,
+        }
+    }
+
+    fn low_byte(self) -> Register8 {
+        match self {
+            Self::IX => Register8::IXLow,
+            Self::IY => Register8::IYLow,
         }
     }
 }
