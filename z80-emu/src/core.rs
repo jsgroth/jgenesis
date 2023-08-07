@@ -1,5 +1,5 @@
 use crate::core::instructions::ExecuteResult;
-use crate::traits::BusInterface;
+use crate::traits::{BusInterface, InterruptLine};
 
 mod instructions;
 
@@ -96,6 +96,7 @@ pub struct Registers {
     iff2: bool,
     interrupt_mode: InterruptMode,
     interrupt_delay: bool,
+    last_nmi: InterruptLine,
     halted: bool,
 }
 
@@ -128,6 +129,7 @@ impl Registers {
             iff2: false,
             interrupt_mode: InterruptMode::Mode0,
             interrupt_delay: false,
+            last_nmi: InterruptLine::High,
             halted: false,
         }
     }

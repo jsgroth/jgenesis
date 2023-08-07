@@ -7,7 +7,7 @@ mod load;
 mod mnemonics;
 
 use crate::core::{GetBit, IndexRegister, InterruptMode, Register16, Register8, Registers};
-use crate::traits::BusInterface;
+use crate::traits::{BusInterface, InterruptLine};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlockMode {
@@ -22,6 +22,12 @@ impl BlockMode {
             Self::Decrement => value.wrapping_sub(1),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InterruptType {
+    Nmi,
+    Int,
 }
 
 fn parse_register_from_opcode(opcode: u8, index: Option<IndexRegister>) -> Option<Register8> {
@@ -171,6 +177,59 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         u16::from_le_bytes([lsb, msb])
     }
 
+
+    fn check_pending_interrupt(&self) -> Option<InterruptType> {
+        if self.registers.interrupt_delay {
+            None
+        } else if self.bus.nmi() == InterruptLine::Low && self.registers.last_nmi == InterruptLine::High {
+            Some(InterruptType::Nmi)
+        } else if self.bus.int() == InterruptLine::Low {
+            Some(InterruptType::Int)
+        } else {
+            None
+        }
+    }
+
+    fn interrupt_service_routine(&mut self, interrupt_type: InterruptType) -> ExecuteResult {
+        self.registers.halted = false;
+
+        let t_cycles = match interrupt_type {
+            InterruptType::Nmi => {
+                self.push_stack(self.registers.pc);
+                self.registers.pc = 0x0066;
+                self.registers.iff1 = false;
+
+                11
+            }
+            InterruptType::Int => {
+                self.registers.iff1 = false;
+                self.registers.iff2 = false;
+
+                #[allow(unreachable_code)]
+                match self.registers.interrupt_mode {
+                    InterruptMode::Mode0 => {
+                        todo!("interrupt mode 0");
+
+                        13
+                    }
+                    InterruptMode::Mode1 => {
+                        self.push_stack(self.registers.pc);
+                        self.registers.pc = 0x0038;
+
+                        13
+                    }
+                    InterruptMode::Mode2 => {
+                        todo!("interrupt mode 2");
+
+                        19
+                    }
+                }
+            }
+        };
+
+        ExecuteResult { t_cycles }
+    }
+
     fn execute_cb_prefix(&mut self, index: Option<IndexRegister>) -> u32 {
         // For DD+CB and FD+CB instructions, the index offset comes before the last opcode byte
         let index_with_offset = match index {
@@ -270,7 +329,20 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
     fn execute(mut self) -> ExecuteResult {
         self.registers.r = (self.registers.r.wrapping_add(1) & 0x7F) | (self.registers.r & 0x80);
+
+        let interrupt_type = self.check_pending_interrupt();
+
         self.registers.interrupt_delay = false;
+        self.registers.last_nmi = self.bus.nmi();
+
+        if let Some(interrupt_type) = interrupt_type {
+            return self.interrupt_service_routine(interrupt_type);
+        }
+
+        if self.registers.halted {
+            let t_cycles = control::nop();
+            return ExecuteResult { t_cycles };
+        }
 
         let ParseResult {
             opcode,
