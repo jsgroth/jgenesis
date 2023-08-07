@@ -1,3 +1,6 @@
+use crate::core::instructions::ExecuteResult;
+use crate::traits::BusInterface;
+
 mod instructions;
 
 trait GetBit: Copy {
@@ -177,6 +180,40 @@ pub struct Registers {
     halted: bool,
 }
 
+impl Registers {
+    pub fn new() -> Self {
+        Self {
+            a: 0xFF,
+            f: Flags(0xFF),
+            b: 0xFF,
+            c: 0xFF,
+            d: 0xFF,
+            e: 0xFF,
+            h: 0xFF,
+            l: 0xFF,
+            ap: 0xFF,
+            fp: Flags(0xFF),
+            bp: 0xFF,
+            cp: 0xFF,
+            dp: 0xFF,
+            ep: 0xFF,
+            hp: 0xFF,
+            lp: 0xFF,
+            i: 0xFF,
+            r: 0xFF,
+            ix: 0xFFFF,
+            iy: 0xFFFF,
+            sp: 0xFFFF,
+            pc: 0x0000,
+            iff1: false,
+            iff2: false,
+            interrupt_mode: InterruptMode::Mode0,
+            interrupt_delay: false,
+            halted: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Register8 {
     A,
@@ -352,5 +389,37 @@ impl From<IndexRegister> for Register16 {
             IndexRegister::IX => Register16::IX,
             IndexRegister::IY => Register16::IY,
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Z80 {
+    registers: Registers,
+}
+
+impl Z80 {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            registers: Registers::new(),
+        }
+    }
+
+    pub fn set_pc(&mut self, pc: u16) {
+        self.registers.pc = pc;
+    }
+
+    pub fn execute_instruction<B: BusInterface>(&mut self, bus: &mut B) -> u32 {
+        let ExecuteResult { t_cycles } = instructions::execute(&mut self.registers, bus);
+
+        // TODO interrupts
+
+        t_cycles
+    }
+}
+
+impl Default for Z80 {
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -4,6 +4,7 @@ mod control;
 mod io;
 mod jump;
 mod load;
+mod mnemonics;
 
 use crate::core::{IndexRegister, InterruptMode, Register16, Register8, Registers};
 use crate::traits::BusInterface;
@@ -170,6 +171,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         let opcode2 = self.fetch_operand();
 
+        log::trace!("CB prefix opcode: {opcode2:02X}");
+
         match opcode2 {
             0x00..=0x05 | 0x07 => self.rlc_r(opcode2, index_with_offset),
             0x06 => self.rlc_hl(index_with_offset),
@@ -213,6 +216,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     fn execute_ed_prefix(&mut self) -> u32 {
         let opcode2 = self.fetch_operand();
 
+        log::trace!("ED prefix opcode: {opcode2:02X}");
+
         match opcode2 {
             0x40 | 0x48 | 0x50 | 0x58 | 0x60 | 0x68 | 0x70 | 0x78 => self.in_r_c(opcode2),
             0x41 | 0x49 | 0x51 | 0x59 | 0x61 | 0x69 | 0x71 | 0x79 => self.out_c_r(opcode2),
@@ -248,11 +253,12 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             0xB9 => self.compare_block(BlockMode::Decrement, true),
             0xBA => self.in_block(BlockMode::Decrement, true),
             0xBB => self.out_block(BlockMode::Decrement, true),
-            _ => todo!(),
+            _ => todo!("unimplemented ED-prefixed opcode"),
         }
     }
 
     fn execute(mut self) -> ExecuteResult {
+        self.registers.r = (self.registers.r.wrapping_add(1) & 0x7F) | (self.registers.r & 0x80);
         self.registers.interrupt_delay = false;
 
         let ParseResult {
@@ -260,6 +266,14 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             index_prefix: index,
             index_fetch_t_cycles,
         } = self.parse_opcode();
+
+        log::trace!(
+            "PC={:04X}, opcode={opcode:02X} ({}), index={index:?}, a={:02X}, next={:02X}",
+            self.registers.pc,
+            mnemonics::for_opcode(opcode),
+            self.registers.a,
+            self.bus.read_memory(self.registers.pc)
+        );
 
         let instruction_t_cycles = match opcode {
             0x00 => control::nop(),

@@ -267,3 +267,236 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::Registers;
+    use crate::traits::InMemoryBus;
+
+    const REAL_REGISTERS: &[Register8] = &[
+        Register8::B,
+        Register8::C,
+        Register8::D,
+        Register8::E,
+        Register8::H,
+        Register8::L,
+        Register8::A,
+    ];
+
+    fn register_opcode_bits(register: Register8) -> u8 {
+        use Register8::*;
+
+        match register {
+            B => 0x00,
+            C => 0x01,
+            D => 0x02,
+            E => 0x03,
+            H => 0x04,
+            L => 0x05,
+            A => 0x07,
+            _ => panic!("unexpected register: {register:?}"),
+        }
+    }
+
+    #[test]
+    fn load_r_r() {
+        let mut registers = Registers::new();
+        let mut bus = InMemoryBus::new();
+
+        for &r in REAL_REGISTERS {
+            for &rp in REAL_REGISTERS {
+                let opcode = 0x40 | (register_opcode_bits(r) << 3) | register_opcode_bits(rp);
+
+                r.write_to(rand::random(), &mut registers);
+                let value = rand::random();
+                rp.write_to(value, &mut registers);
+
+                InstructionExecutor::new(&mut registers, &mut bus).ld_r_r(opcode, None);
+
+                assert_eq!(r.read_from(&registers), value, "LD {r:?}, {rp:?}");
+                assert_eq!(rp.read_from(&registers), value, "LD {r:?}, {rp:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn load_r_hl() {
+        let mut registers = Registers::new();
+        let mut bus = InMemoryBus::new();
+
+        for &r in REAL_REGISTERS {
+            let opcode = 0x46 | (register_opcode_bits(r) << 3);
+
+            let address = rand::random();
+            let value = rand::random();
+
+            bus.write_memory(address, value);
+            r.write_to(rand::random(), &mut registers);
+            Register16::HL.write_to(address, &mut registers);
+
+            InstructionExecutor::new(&mut registers, &mut bus).ld_r_hl(opcode, None);
+
+            assert_eq!(r.read_from(&registers), value, "LD {r:?}, (HL)");
+            assert_eq!(bus.read_memory(address), value, "LD {r:?}, (HL)");
+        }
+    }
+
+    #[test]
+    fn load_r_immediate() {
+        let mut registers = Registers::new();
+        let mut bus = InMemoryBus::new();
+
+        for &r in REAL_REGISTERS {
+            let opcode = 0x06 | (register_opcode_bits(r) << 3);
+
+            let value = rand::random();
+            r.write_to(rand::random(), &mut registers);
+
+            let pc = rand::random();
+            registers.pc = pc;
+            bus.write_memory(registers.pc, value);
+
+            InstructionExecutor::new(&mut registers, &mut bus).ld_r_immediate(opcode, None);
+
+            assert_eq!(registers.pc, pc.wrapping_add(1), "LD {r:?}, n");
+            assert_eq!(r.read_from(&registers), value, "LD {r:?}, n");
+        }
+    }
+
+    #[test]
+    fn load_hl_r() {
+        let mut registers = Registers::new();
+        let mut bus = InMemoryBus::new();
+
+        for &r in REAL_REGISTERS {
+            let opcode = 0x70 | register_opcode_bits(r);
+
+            let address = rand::random();
+            let value = rand::random();
+
+            Register16::HL.write_to(address, &mut registers);
+            r.write_to(value, &mut registers);
+            let address = Register16::HL.read_from(&registers);
+
+            bus.write_memory(address, rand::random());
+
+            InstructionExecutor::new(&mut registers, &mut bus).ld_hl_r(opcode, None);
+
+            assert_eq!(r.read_from(&registers), value, "LD (HL), {r:?}");
+            assert_eq!(bus.read_memory(address), value, "LD (HL), {r:?}");
+        }
+    }
+
+    #[test]
+    fn load_hl_immediate() {
+        let mut registers = Registers::new();
+        let mut bus = InMemoryBus::new();
+
+        let address = rand::random();
+        let value = rand::random();
+
+        Register16::HL.write_to(address, &mut registers);
+
+        bus.write_memory(address, rand::random());
+
+        let pc = rand::random();
+        registers.pc = pc;
+        bus.write_memory(pc, value);
+
+        InstructionExecutor::new(&mut registers, &mut bus).ld_hl_immediate(None);
+
+        assert_eq!(registers.pc, pc.wrapping_add(1), "LD (HL), n");
+        assert_eq!(bus.read_memory(address), value, "LD (HL), n");
+    }
+
+    #[test]
+    fn load_a_indirect() {
+        let mut registers = Registers::new();
+        let mut bus = InMemoryBus::new();
+
+        for r16 in [Register16::BC, Register16::DE] {
+            let address = rand::random();
+            let value = rand::random();
+
+            r16.write_to(address, &mut registers);
+            bus.write_memory(address, value);
+
+            registers.a = rand::random();
+
+            InstructionExecutor::new(&mut registers, &mut bus).ld_a_indirect(r16);
+
+            assert_eq!(registers.a, value, "LD A, ({r16:?})");
+            assert_eq!(bus.read_memory(address), value, "LD A, ({r16:?})");
+        }
+    }
+
+    #[test]
+    fn load_a_direct() {
+        let mut registers = Registers::new();
+        let mut bus = InMemoryBus::new();
+
+        let address: u16 = rand::random();
+        let value = rand::random();
+        let pc = rand::random();
+
+        let [address_lsb, address_msb] = address.to_le_bytes();
+
+        registers.pc = pc;
+        bus.write_memory(pc, address_lsb);
+        bus.write_memory(pc.wrapping_add(1), address_msb);
+        bus.write_memory(address, value);
+
+        registers.a = rand::random();
+
+        InstructionExecutor::new(&mut registers, &mut bus).ld_a_direct();
+
+        assert_eq!(registers.pc, pc.wrapping_add(2), "LD A, (nn)");
+        assert_eq!(registers.a, value, "LD A, (nn)");
+    }
+
+    #[test]
+    fn load_indirect_a() {
+        let mut registers = Registers::new();
+        let mut bus = InMemoryBus::new();
+
+        for r16 in [Register16::BC, Register16::DE] {
+            let address = rand::random();
+            let value = rand::random();
+
+            r16.write_to(address, &mut registers);
+            registers.a = value;
+
+            bus.write_memory(address, rand::random());
+
+            InstructionExecutor::new(&mut registers, &mut bus).ld_indirect_a(r16);
+
+            assert_eq!(bus.read_memory(address), value, "LD ({r16:?}), A");
+            assert_eq!(registers.a, value, "LD ({r16:?}), A");
+        }
+    }
+
+    #[test]
+    fn load_direct_a() {
+        let mut registers = Registers::new();
+        let mut bus = InMemoryBus::new();
+
+        let address: u16 = rand::random();
+        let [address_lsb, address_msb] = address.to_le_bytes();
+        let value = rand::random();
+        let pc = rand::random();
+
+        registers.pc = pc;
+        registers.a = value;
+        bus.write_memory(pc, address_lsb);
+        bus.write_memory(pc.wrapping_add(1), address_msb);
+
+        bus.write_memory(address, rand::random());
+
+        InstructionExecutor::new(&mut registers, &mut bus).ld_direct_a();
+
+        assert_eq!(registers.pc, pc.wrapping_add(2), "LD (nn), A");
+        assert_eq!(bus.read_memory(address), value, "LD (nn), A");
+        assert_eq!(registers.a, value, "LD (nn), A");
+    }
+}

@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "z80-emu",
+    "z80-test-runner",
 ]
 resolver = "2"
 
