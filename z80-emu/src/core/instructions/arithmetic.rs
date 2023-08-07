@@ -209,43 +209,34 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     }
 
     pub(super) fn daa(&mut self) -> u32 {
+        let a = self.registers.a;
         let flags = self.registers.f;
-        if flags.subtract() {
-            let mut value = self.registers.a;
-            if flags.half_carry() {
-                value = value.wrapping_sub(0x06);
-            }
-            if flags.carry() {
-                value = value.wrapping_sub(0x60);
-            }
 
-            self.registers.a = value;
-            self.registers
-                .f
-                .set_sign_from(value)
-                .set_zero_from(value)
-                .set_half_carry(false)
-                .set_parity_from(value);
-        } else {
-            let mut value = self.registers.a;
-            let mut carry = false;
-            if value & 0x0F >= 0x0A || flags.half_carry() {
-                value = value.wrapping_add(0x06);
-            }
-            if value > 0x9F || flags.carry() {
-                value = value.wrapping_add(0x60);
-                carry = true;
-            }
-
-            self.registers.a = value;
-            self.registers
-                .f
-                .set_sign_from(value)
-                .set_zero_from(value)
-                .set_half_carry(false)
-                .set_parity_from(value)
-                .set_carry(carry);
+        let mut diff = 0;
+        if flags.half_carry() || (a & 0x0F > 0x09) {
+            diff |= 0x06;
         }
+        let carry = flags.carry() || a > 0x99;
+        if carry {
+            diff |= 0x60;
+        }
+
+        let value = if flags.subtract() {
+            a.wrapping_sub(diff)
+        } else {
+            a.wrapping_add(diff)
+        };
+
+        let half_carry = a.bit(4) != value.bit(4);
+
+        self.registers.a = value;
+        self.registers
+            .f
+            .set_sign_from(value)
+            .set_zero_from(value)
+            .set_half_carry(half_carry)
+            .set_parity_from(value)
+            .set_carry(carry);
 
         4
     }
@@ -521,4 +512,79 @@ fn increment_u16(value: u16) -> u16 {
 
 fn decrement_u16(value: u16) -> u16 {
     value.wrapping_sub(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::Registers;
+    use crate::traits::InMemoryBus;
+
+    #[test]
+    fn cpl() {
+        let mut registers = Registers::new();
+        let mut bus = InMemoryBus::new();
+
+        registers.a = 0x37;
+        registers.f = 0_u8.into();
+
+        InstructionExecutor::new(&mut registers, &mut bus).cpl();
+
+        assert_eq!(registers.a, 0xC8);
+        assert_eq!(u8::from(registers.f) & 0xD7, 0x12);
+
+        let value = rand::random();
+        registers.a = value;
+        registers.f = 0xFF_u8.into();
+
+        InstructionExecutor::new(&mut registers, &mut bus).cpl();
+
+        assert_eq!(registers.a, !value);
+        assert_eq!(u8::from(registers.f) & 0xD7, 0xD7);
+    }
+
+    #[test]
+    fn ccf() {
+        let mut registers = Registers::new();
+        let mut bus = InMemoryBus::new();
+
+        registers.f = 0_u8.into();
+
+        InstructionExecutor::new(&mut registers, &mut bus).ccf();
+        assert_eq!(u8::from(registers.f) & 0xD7, 0x01);
+
+        InstructionExecutor::new(&mut registers, &mut bus).ccf();
+        assert_eq!(u8::from(registers.f) & 0xD7, 0x10);
+
+        InstructionExecutor::new(&mut registers, &mut bus).ccf();
+        assert_eq!(u8::from(registers.f) & 0xD7, 0x01);
+
+        registers.f = 0xFF_u8.into();
+
+        InstructionExecutor::new(&mut registers, &mut bus).ccf();
+        assert_eq!(u8::from(registers.f) & 0xD7, 0xD4);
+
+        InstructionExecutor::new(&mut registers, &mut bus).ccf();
+        assert_eq!(u8::from(registers.f) & 0xD7, 0xC5);
+    }
+
+    #[test]
+    fn scf() {
+        let mut registers = Registers::new();
+        let mut bus = InMemoryBus::new();
+
+        registers.f = 0_u8.into();
+
+        for _ in 0..2 {
+            InstructionExecutor::new(&mut registers, &mut bus).scf();
+            assert_eq!(u8::from(registers.f) & 0xD7, 0x01);
+        }
+
+        registers.f = 0xFF_u8.into();
+
+        for _ in 0..2 {
+            InstructionExecutor::new(&mut registers, &mut bus).scf();
+            assert_eq!(u8::from(registers.f) & 0xD7, 0xC5);
+        }
+    }
 }

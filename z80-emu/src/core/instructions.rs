@@ -275,7 +275,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             self.bus.read_memory(self.registers.pc.wrapping_add(1)),
             self.registers.sp,
             self.registers.a,
-            self.registers.f.to_byte(),
+            u8::from(self.registers.f),
             self.registers.b,
             self.registers.c,
             self.registers.d,

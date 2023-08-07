@@ -77,7 +77,7 @@ impl Flags {
     }
 
     fn half_carry(self) -> bool {
-        self.0 & Self::ZERO_BIT != 0
+        self.0 & Self::HALF_CARRY_BIT != 0
     }
 
     fn set_half_carry(&mut self, half_carry: bool) -> &mut Self {
@@ -136,9 +136,17 @@ impl Flags {
         }
         self
     }
+}
 
-    fn to_byte(self) -> u8 {
-        self.0
+impl From<u8> for Flags {
+    fn from(value: u8) -> Self {
+        Self(value)
+    }
+}
+
+impl From<Flags> for u8 {
+    fn from(value: Flags) -> Self {
+        value.0
     }
 }
 
@@ -309,7 +317,7 @@ pub enum Register16 {
 impl Register16 {
     fn read_from(self, registers: &Registers) -> u16 {
         match self {
-            Self::AF => u16::from_be_bytes([registers.a, registers.f.to_byte()]),
+            Self::AF => u16::from_be_bytes([registers.a, registers.f.into()]),
             Self::BC => u16::from_be_bytes([registers.b, registers.c]),
             Self::DE => u16::from_be_bytes([registers.d, registers.e]),
             Self::HL => u16::from_be_bytes([registers.h, registers.l]),
