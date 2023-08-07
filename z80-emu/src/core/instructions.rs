@@ -183,7 +183,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             None
         } else if self.bus.nmi() == InterruptLine::Low && self.registers.last_nmi == InterruptLine::High {
             Some(InterruptType::Nmi)
-        } else if self.bus.int() == InterruptLine::Low {
+        } else if self.registers.iff1 && self.bus.int() == InterruptLine::Low {
             Some(InterruptType::Int)
         } else {
             None
