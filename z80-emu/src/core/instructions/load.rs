@@ -53,8 +53,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     }
 
     pub(super) fn ld_hl_immediate(&mut self, index: Option<IndexRegister>) -> u32 {
-        let value = self.fetch_operand();
         let address = self.fetch_indirect_hl_address(index);
+        let value = self.fetch_operand();
 
         self.bus.write_memory(address, value);
 

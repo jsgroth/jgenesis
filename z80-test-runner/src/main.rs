@@ -1,3 +1,5 @@
+//! Test runner for running tests assembled for CP/M, specifically ZEXDOC and ZEXALL.
+
 use env_logger::Env;
 use std::error::Error;
 use std::io::Write;

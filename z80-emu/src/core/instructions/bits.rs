@@ -145,11 +145,14 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     impl_r_shift_op!(sla_r, shift_left_arithmetic);
     impl_hl_shift_op!(sla_hl, shift_left_arithmetic);
 
+    impl_r_shift_op!(sll_r, shift_left_logical);
+    impl_hl_shift_op!(sll_hl, shift_left_logical);
+
     impl_r_shift_op!(sra_r, shift_right_arithmetic);
     impl_hl_shift_op!(sra_hl, shift_right_arithmetic);
 
     impl_r_shift_op!(srl_r, shift_right_logical);
-    impl_hl_shift_op!(srl_hl, shift_right_arithmetic);
+    impl_hl_shift_op!(srl_hl, shift_right_logical);
 
     impl_rotate_decimal_op!(rld, rotate_left_decimal);
     impl_rotate_decimal_op!(rrd, rotate_right_decimal);
@@ -163,14 +166,13 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     // RLCA sets flags differently from RLC
     pub(super) fn rlca(&mut self) -> u32 {
         let a = self.registers.a;
-        let carry = a.bit(7);
 
-        self.registers.a = (a << 1) | u8::from(carry);
+        self.registers.a = (a << 1) | (a >> 7);
         self.registers
             .f
             .set_half_carry(false)
             .set_subtract(false)
-            .set_carry(carry);
+            .set_carry(a.bit(7));
 
         4
     }
@@ -178,14 +180,13 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     // RLA sets flags differently from RL
     pub(super) fn rla(&mut self) -> u32 {
         let a = self.registers.a;
-        let carry = self.registers.f.carry();
 
-        self.registers.a = (a << 1) | u8::from(carry);
+        self.registers.a = (a << 1) | u8::from(self.registers.f.carry());
         self.registers
             .f
             .set_half_carry(false)
             .set_subtract(false)
-            .set_carry(carry);
+            .set_carry(a.bit(7));
 
         4
     }
@@ -193,14 +194,13 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     // RRCA sets flags differently from RRC
     pub(super) fn rrca(&mut self) -> u32 {
         let a = self.registers.a;
-        let carry = a.bit(0);
 
-        self.registers.a = (a >> 1) | (u8::from(carry) << 7);
+        self.registers.a = (a >> 1) | (a << 7);
         self.registers
             .f
             .set_half_carry(false)
             .set_subtract(false)
-            .set_carry(carry);
+            .set_carry(a.bit(0));
 
         4
     }
@@ -208,14 +208,13 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     // RRA sets flags differently from RR
     pub(super) fn rra(&mut self) -> u32 {
         let a = self.registers.a;
-        let carry = self.registers.f.carry();
 
-        self.registers.a = (a >> 1) | (u8::from(carry) << 7);
+        self.registers.a = (a >> 1) | (u8::from(self.registers.f.carry()) << 7);
         self.registers
             .f
             .set_half_carry(false)
             .set_subtract(false)
-            .set_carry(carry);
+            .set_carry(a.bit(0));
 
         4
     }
@@ -294,8 +293,16 @@ fn shift_left_arithmetic(value: u8, flags: &mut Flags) -> u8 {
     shifted
 }
 
+fn shift_left_logical(value: u8, flags: &mut Flags) -> u8 {
+    let shifted = (value << 1) | 0x01;
+
+    set_shift_flags(flags, shifted, value.bit(7));
+
+    shifted
+}
+
 fn shift_right_arithmetic(value: u8, flags: &mut Flags) -> u8 {
-    let shifted = (value >> 1) | (value >> 7);
+    let shifted = (value >> 1) | (value & 0x80);
 
     set_shift_flags(flags, shifted, value.bit(0));
 
@@ -329,7 +336,7 @@ fn rotate_right_decimal(a: u8, memory_value: u8, flags: &mut Flags) -> (u8, u8) 
 }
 
 fn bit_test(value: u8, bit: u8, flags: &mut Flags) {
-    let zero = value & (1 << bit) != 0;
+    let zero = value & (1 << bit) == 0;
 
     flags
         .set_zero(zero)

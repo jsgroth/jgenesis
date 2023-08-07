@@ -405,6 +405,7 @@ impl Z80 {
         }
     }
 
+    #[must_use]
     pub fn pc(&self) -> u16 {
         self.registers.pc
     }

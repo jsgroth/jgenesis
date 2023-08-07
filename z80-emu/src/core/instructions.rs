@@ -186,7 +186,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             0x26 => self.sla_hl(index_with_offset),
             0x28..=0x2D | 0x2F => self.sra_r(opcode2, index_with_offset),
             0x2E => self.sra_hl(index_with_offset),
-            0x30..=0x37 => todo!("undocumented SLL instruction"),
+            0x30..=0x35 | 0x37 => self.sll_r(opcode2, index_with_offset),
+            0x36 => self.sll_hl(index_with_offset),
             0x38..=0x3D | 0x3F => self.srl_r(opcode2, index_with_offset),
             0x3E => self.srl_hl(index_with_offset),
             0x40..=0x7F => {

@@ -316,8 +316,8 @@ pub fn for_opcode(opcode: u8, next: u8) -> &'static str {
             0xB9 => "CPDR",
             0xBA => "INDR",
             0xBB => "OTDR",
-            _ => "unknown ED-prefixed opcode"
-        }
-        _ => OPCODE_MNEMONICS[opcode as usize]
+            _ => "unknown ED-prefixed opcode",
+        },
+        _ => OPCODE_MNEMONICS[opcode as usize],
     }
 }

@@ -294,6 +294,9 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let difference = a.wrapping_sub(operand);
         let half_carry = a & 0x0F < operand & 0x0F;
 
+        Register16::HL.write_to(mode.apply(hl), self.registers);
+        Register16::BC.write_to(bc.wrapping_sub(1), self.registers);
+
         self.registers
             .f
             .set_sign_from(difference)
@@ -302,11 +305,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             .set_overflow(bc != 1)
             .set_subtract(true);
 
-        Register16::HL.write_to(mode.apply(hl), self.registers);
-
-        Register16::BC.write_to(bc.wrapping_sub(1), self.registers);
-
-        let should_repeat = repeat && bc != 1;
+        let should_repeat = repeat && difference != 0 && bc != 1;
         if should_repeat {
             self.registers.pc -= 2;
             21
