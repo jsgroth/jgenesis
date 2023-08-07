@@ -405,6 +405,10 @@ impl Z80 {
         }
     }
 
+    pub fn pc(&self) -> u16 {
+        self.registers.pc
+    }
+
     pub fn set_pc(&mut self, pc: u16) {
         self.registers.pc = pc;
     }

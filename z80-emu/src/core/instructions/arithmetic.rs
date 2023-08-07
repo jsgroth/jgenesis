@@ -95,7 +95,7 @@ macro_rules! impl_r_increment_op {
     ($name:ident, $op_fn:ident) => {
         pub(super) fn $name(&mut self, opcode: u8, index: Option<IndexRegister>) -> u32 {
             let register =
-                super::parse_register_from_opcode(opcode, index).expect("invalid opcode");
+                super::parse_register_from_opcode(opcode >> 3, index).expect("invalid opcode");
             let original = register.read_from(self.registers);
             let modified = $op_fn(original, &mut self.registers.f);
 

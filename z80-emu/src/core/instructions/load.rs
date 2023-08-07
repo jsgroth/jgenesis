@@ -249,7 +249,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         Register16::HL.write_to(mode.apply(hl), self.registers);
         Register16::DE.write_to(mode.apply(de), self.registers);
 
-        let should_repeat = repeat && bc == 1;
+        let should_repeat = repeat && bc != 1;
         if should_repeat {
             self.registers.pc = self.registers.pc.wrapping_sub(2);
         }

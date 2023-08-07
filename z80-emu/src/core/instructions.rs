@@ -216,8 +216,6 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     fn execute_ed_prefix(&mut self) -> u32 {
         let opcode2 = self.fetch_operand();
 
-        log::trace!("ED prefix opcode: {opcode2:02X}");
-
         match opcode2 {
             0x40 | 0x48 | 0x50 | 0x58 | 0x60 | 0x68 | 0x70 | 0x78 => self.in_r_c(opcode2),
             0x41 | 0x49 | 0x51 | 0x59 | 0x61 | 0x69 | 0x71 | 0x79 => self.out_c_r(opcode2),
@@ -268,11 +266,21 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         } = self.parse_opcode();
 
         log::trace!(
-            "PC={:04X}, opcode={opcode:02X} ({}), index={index:?}, a={:02X}, next={:02X}",
-            self.registers.pc,
-            mnemonics::for_opcode(opcode),
+            "PC={:04X}, opcode={opcode:02X} ({}), index={index:?}, a={:02X}, next={:02X} {:02X}, sp={:04X}, a={:02X}, f={:02X}, b={:02X}, c={:02X}, d={:02X}, e={:02X}, h={:02X}, l={:02X}",
+            self.registers.pc.wrapping_sub(1),
+            mnemonics::for_opcode(opcode, self.bus.read_memory(self.registers.pc)),
             self.registers.a,
-            self.bus.read_memory(self.registers.pc)
+            self.bus.read_memory(self.registers.pc),
+            self.bus.read_memory(self.registers.pc.wrapping_add(1)),
+            self.registers.sp,
+            self.registers.a,
+            self.registers.f.to_byte(),
+            self.registers.b,
+            self.registers.c,
+            self.registers.d,
+            self.registers.e,
+            self.registers.h,
+            self.registers.l
         );
 
         let instruction_t_cycles = match opcode {

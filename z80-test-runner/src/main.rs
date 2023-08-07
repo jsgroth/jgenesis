@@ -55,7 +55,7 @@ const CPM_IO_ROUTINE: &str = concat!(
     "18F8", // JR -8
     "1A",   // LD A, (DE)
     "FE24", // CP 36
-    "28F2", // JR Z, -14
+    "28F3", // JR Z, -13
     "D300", // OUT (0), A
     "13",   // INC DE
     "18F6", // JR -10
@@ -135,7 +135,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut z80 = Z80::new();
     z80.set_pc(0x100);
 
-    loop {
+    while z80.pc() != 0 {
         z80.execute_instruction(&mut bus);
     }
+
+    Ok(())
 }
