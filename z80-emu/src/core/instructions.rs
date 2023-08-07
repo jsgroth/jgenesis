@@ -6,7 +6,7 @@ mod jump;
 mod load;
 mod mnemonics;
 
-use crate::core::{IndexRegister, InterruptMode, Register16, Register8, Registers};
+use crate::core::{GetBit, IndexRegister, InterruptMode, Register16, Register8, Registers};
 use crate::traits::BusInterface;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,6 +56,18 @@ fn parse_qq_register(opcode: u8, index: Option<IndexRegister>) -> Register16 {
         0x30 => Register16::AF,
         _ => unreachable!("value & 0x30 is always 0x00/0x10/0x20/0x30"),
     }
+}
+
+fn sign_flag(value: u8) -> bool {
+    value.bit(7)
+}
+
+fn zero_flag(value: u8) -> bool {
+    value == 0
+}
+
+fn parity_flag(value: u8) -> bool {
+    value.count_ones() % 2 == 0
 }
 
 #[derive(Debug, Clone, Copy)]

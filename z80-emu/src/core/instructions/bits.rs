@@ -1,4 +1,4 @@
-use crate::core::instructions::InstructionExecutor;
+use crate::core::instructions::{parity_flag, sign_flag, zero_flag, InstructionExecutor};
 use crate::core::{Flags, GetBit, IndexRegister, Register16, Registers};
 use crate::traits::BusInterface;
 
@@ -168,11 +168,12 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let a = self.registers.a;
 
         self.registers.a = (a << 1) | (a >> 7);
-        self.registers
-            .f
-            .set_half_carry(false)
-            .set_subtract(false)
-            .set_carry(a.bit(7));
+        self.registers.f = Flags {
+            half_carry: false,
+            subtract: false,
+            carry: a.bit(7),
+            ..self.registers.f
+        };
 
         4
     }
@@ -181,12 +182,13 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     pub(super) fn rla(&mut self) -> u32 {
         let a = self.registers.a;
 
-        self.registers.a = (a << 1) | u8::from(self.registers.f.carry());
-        self.registers
-            .f
-            .set_half_carry(false)
-            .set_subtract(false)
-            .set_carry(a.bit(7));
+        self.registers.a = (a << 1) | u8::from(self.registers.f.carry);
+        self.registers.f = Flags {
+            half_carry: false,
+            subtract: false,
+            carry: a.bit(7),
+            ..self.registers.f
+        };
 
         4
     }
@@ -196,11 +198,12 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let a = self.registers.a;
 
         self.registers.a = (a >> 1) | (a << 7);
-        self.registers
-            .f
-            .set_half_carry(false)
-            .set_subtract(false)
-            .set_carry(a.bit(0));
+        self.registers.f = Flags {
+            half_carry: false,
+            subtract: false,
+            carry: a.bit(0),
+            ..self.registers.f
+        };
 
         4
     }
@@ -209,12 +212,13 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     pub(super) fn rra(&mut self) -> u32 {
         let a = self.registers.a;
 
-        self.registers.a = (a >> 1) | (u8::from(self.registers.f.carry()) << 7);
-        self.registers
-            .f
-            .set_half_carry(false)
-            .set_subtract(false)
-            .set_carry(a.bit(0));
+        self.registers.a = (a >> 1) | (u8::from(self.registers.f.carry) << 7);
+        self.registers.f = Flags {
+            half_carry: false,
+            subtract: false,
+            carry: a.bit(0),
+            ..self.registers.f
+        };
 
         4
     }
@@ -250,18 +254,20 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 }
 
 fn set_shift_flags(flags: &mut Flags, value: u8, carry: bool) {
-    flags
-        .set_sign_from(value)
-        .set_zero_from(value)
-        .set_half_carry(false)
-        .set_parity_from(value)
-        .set_subtract(false)
-        .set_carry(carry);
+    *flags = Flags {
+        sign: sign_flag(value),
+        zero: zero_flag(value),
+        half_carry: false,
+        overflow: parity_flag(value),
+        subtract: false,
+        carry,
+        ..*flags
+    };
 }
 
 fn rotate_left(value: u8, thru_carry: bool, flags: &mut Flags) -> u8 {
     let bit_0 = if thru_carry {
-        flags.carry()
+        flags.carry
     } else {
         value.bit(7)
     };
@@ -274,7 +280,7 @@ fn rotate_left(value: u8, thru_carry: bool, flags: &mut Flags) -> u8 {
 
 fn rotate_right(value: u8, thru_carry: bool, flags: &mut Flags) -> u8 {
     let bit_7 = if thru_carry {
-        flags.carry()
+        flags.carry
     } else {
         value.bit(0)
     };
@@ -321,7 +327,7 @@ fn rotate_left_decimal(a: u8, memory_value: u8, flags: &mut Flags) -> (u8, u8) {
     let new_a = (a & 0xF0) | (memory_value >> 4);
     let new_memory_value = (memory_value << 4) | (a & 0x0F);
 
-    set_shift_flags(flags, new_a, flags.carry());
+    set_shift_flags(flags, new_a, flags.carry);
 
     (new_a, new_memory_value)
 }
@@ -330,18 +336,19 @@ fn rotate_right_decimal(a: u8, memory_value: u8, flags: &mut Flags) -> (u8, u8) 
     let new_a = (a & 0xF0) | (memory_value & 0x0F);
     let new_memory_value = (memory_value >> 4) | (a << 4);
 
-    set_shift_flags(flags, new_a, flags.carry());
+    set_shift_flags(flags, new_a, flags.carry);
 
     (new_a, new_memory_value)
 }
 
 fn bit_test(value: u8, bit: u8, flags: &mut Flags) {
     let zero = value & (1 << bit) == 0;
-
-    flags
-        .set_zero(zero)
-        .set_half_carry(true)
-        .set_subtract(false);
+    *flags = Flags {
+        zero,
+        half_carry: true,
+        subtract: false,
+        ..*flags
+    };
 }
 
 fn set_bit(value: u8, bit: u8) -> u8 {

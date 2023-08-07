@@ -1,4 +1,6 @@
-use crate::core::instructions::{BlockMode, InstructionExecutor};
+use crate::core::instructions::{
+    parity_flag, sign_flag, zero_flag, BlockMode, InstructionExecutor,
+};
 use crate::core::{Flags, GetBit, IndexRegister, Register16};
 use crate::traits::BusInterface;
 
@@ -213,15 +215,15 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let flags = self.registers.f;
 
         let mut diff = 0;
-        if flags.half_carry() || (a & 0x0F > 0x09) {
+        if flags.half_carry || (a & 0x0F > 0x09) {
             diff |= 0x06;
         }
-        let carry = flags.carry() || a > 0x99;
+        let carry = flags.carry || a > 0x99;
         if carry {
             diff |= 0x60;
         }
 
-        let value = if flags.subtract() {
+        let value = if flags.subtract {
             a.wrapping_sub(diff)
         } else {
             a.wrapping_add(diff)
@@ -230,20 +232,25 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let half_carry = a.bit(4) != value.bit(4);
 
         self.registers.a = value;
-        self.registers
-            .f
-            .set_sign_from(value)
-            .set_zero_from(value)
-            .set_half_carry(half_carry)
-            .set_parity_from(value)
-            .set_carry(carry);
+        self.registers.f = Flags {
+            sign: sign_flag(value),
+            zero: zero_flag(value),
+            half_carry,
+            overflow: parity_flag(value),
+            carry,
+            ..flags
+        };
 
         4
     }
 
     pub(super) fn cpl(&mut self) -> u32 {
         self.registers.a = !self.registers.a;
-        self.registers.f.set_half_carry(true).set_subtract(true);
+        self.registers.f = Flags {
+            half_carry: true,
+            subtract: true,
+            ..self.registers.f
+        };
 
         4
     }
@@ -255,23 +262,24 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     }
 
     pub(super) fn ccf(&mut self) -> u32 {
-        let prev_carry = self.registers.f.carry();
-
-        self.registers
-            .f
-            .set_half_carry(prev_carry)
-            .set_subtract(false)
-            .set_carry(!prev_carry);
+        let prev_carry = self.registers.f.carry;
+        self.registers.f = Flags {
+            half_carry: prev_carry,
+            subtract: false,
+            carry: !prev_carry,
+            ..self.registers.f
+        };
 
         4
     }
 
     pub(super) fn scf(&mut self) -> u32 {
-        self.registers
-            .f
-            .set_half_carry(false)
-            .set_subtract(false)
-            .set_carry(true);
+        self.registers.f = Flags {
+            half_carry: false,
+            subtract: false,
+            carry: true,
+            ..self.registers.f
+        };
 
         4
     }
@@ -288,13 +296,14 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         Register16::HL.write_to(mode.apply(hl), self.registers);
         Register16::BC.write_to(bc.wrapping_sub(1), self.registers);
 
-        self.registers
-            .f
-            .set_sign_from(difference)
-            .set_zero_from(difference)
-            .set_half_carry(half_carry)
-            .set_overflow(bc != 1)
-            .set_subtract(true);
+        self.registers.f = Flags {
+            sign: sign_flag(difference),
+            zero: zero_flag(difference),
+            half_carry,
+            overflow: bc != 1,
+            subtract: true,
+            ..self.registers.f
+        };
 
         let should_repeat = repeat && difference != 0 && bc != 1;
         if should_repeat {
@@ -307,11 +316,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 }
 
 fn add(l: u8, r: u8, with_carry: bool, flags: &mut Flags) -> u8 {
-    let carry_operand = if with_carry {
-        u8::from(flags.carry())
-    } else {
-        0
-    };
+    let carry_operand = if with_carry { u8::from(flags.carry) } else { 0 };
 
     let (sum, carry) = match l.overflowing_add(r) {
         (sum, true) => (sum + carry_operand, true),
@@ -322,20 +327,22 @@ fn add(l: u8, r: u8, with_carry: bool, flags: &mut Flags) -> u8 {
     let bit_6_carry = (l & 0x7F) + (r & 0x7F) + carry_operand >= 0x80;
     let overflow = bit_6_carry != carry;
 
-    flags
-        .set_sign_from(sum)
-        .set_zero_from(sum)
-        .set_half_carry(half_carry)
-        .set_overflow(overflow)
-        .set_subtract(false)
-        .set_carry(carry);
+    *flags = Flags {
+        sign: sign_flag(sum),
+        zero: zero_flag(sum),
+        half_carry,
+        overflow,
+        subtract: false,
+        carry,
+        ..*flags
+    };
 
     sum
 }
 
 fn add_u16(l: u16, r: u16, with_carry: bool, flags: &mut Flags) -> u16 {
     let carry_operand = if with_carry {
-        u16::from(flags.carry())
+        u16::from(flags.carry)
     } else {
         0
     };
@@ -347,31 +354,31 @@ fn add_u16(l: u16, r: u16, with_carry: bool, flags: &mut Flags) -> u16 {
 
     let half_carry = (l & 0x0FFF) + (r & 0x0FFF) + carry_operand >= 0x1000;
 
-    flags
-        .set_half_carry(half_carry)
-        .set_subtract(false)
-        .set_carry(carry);
+    *flags = Flags {
+        half_carry,
+        subtract: false,
+        carry,
+        ..*flags
+    };
 
     if with_carry {
         // S, Z, and P/V are only set in 16-bit ADC, not 16-bit ADD
         let bit_14_carry = (l & 0x7FFF) + (r & 0x7FFF) + carry_operand >= 0x8000;
         let overflow = bit_14_carry != carry;
 
-        flags
-            .set_sign(sum.bit(15))
-            .set_zero(sum == 0)
-            .set_overflow(overflow);
+        *flags = Flags {
+            sign: sum.bit(15),
+            zero: sum == 0,
+            overflow,
+            ..*flags
+        };
     }
 
     sum
 }
 
 fn subtract(l: u8, r: u8, with_carry: bool, flags: &mut Flags) -> u8 {
-    let carry_operand = if with_carry {
-        u8::from(flags.carry())
-    } else {
-        0
-    };
+    let carry_operand = if with_carry { u8::from(flags.carry) } else { 0 };
 
     let (difference, carry) = match l.overflowing_sub(r) {
         (difference, true) => (difference - carry_operand, true),
@@ -382,19 +389,21 @@ fn subtract(l: u8, r: u8, with_carry: bool, flags: &mut Flags) -> u8 {
     let bit_6_borrow = l & 0x7F < (r & 0x7F) + carry_operand;
     let overflow = bit_6_borrow != carry;
 
-    flags
-        .set_sign_from(difference)
-        .set_zero_from(difference)
-        .set_half_carry(half_carry)
-        .set_overflow(overflow)
-        .set_subtract(true)
-        .set_carry(carry);
+    *flags = Flags {
+        sign: sign_flag(difference),
+        zero: zero_flag(difference),
+        half_carry,
+        overflow,
+        subtract: true,
+        carry,
+        ..*flags
+    };
 
     difference
 }
 
 fn sbc_u16(l: u16, r: u16, flags: &mut Flags) -> u16 {
-    let carry_operand = u16::from(flags.carry());
+    let carry_operand = u16::from(flags.carry);
 
     let (difference, carry) = match l.overflowing_sub(r) {
         (difference, true) => (difference - carry_operand, true),
@@ -405,13 +414,15 @@ fn sbc_u16(l: u16, r: u16, flags: &mut Flags) -> u16 {
     let bit_14_borrow = l & 0x7FFF < (r & 0x7FFF) + carry_operand;
     let overflow = bit_14_borrow != carry;
 
-    flags
-        .set_sign(difference.bit(15))
-        .set_zero(difference == 0)
-        .set_half_carry(half_carry)
-        .set_overflow(overflow)
-        .set_subtract(true)
-        .set_carry(carry);
+    *flags = Flags {
+        sign: difference.bit(15),
+        zero: difference == 0,
+        half_carry,
+        overflow,
+        subtract: true,
+        carry,
+        ..*flags
+    };
 
     difference
 }
@@ -419,13 +430,15 @@ fn sbc_u16(l: u16, r: u16, flags: &mut Flags) -> u16 {
 fn and(l: u8, r: u8, flags: &mut Flags) -> u8 {
     let value = l & r;
 
-    flags
-        .set_sign_from(value)
-        .set_zero_from(value)
-        .set_half_carry(true)
-        .set_parity_from(value)
-        .set_subtract(false)
-        .set_carry(false);
+    *flags = Flags {
+        sign: sign_flag(value),
+        zero: zero_flag(value),
+        half_carry: true,
+        overflow: parity_flag(value),
+        subtract: false,
+        carry: false,
+        ..*flags
+    };
 
     value
 }
@@ -433,13 +446,15 @@ fn and(l: u8, r: u8, flags: &mut Flags) -> u8 {
 fn or(l: u8, r: u8, flags: &mut Flags) -> u8 {
     let value = l | r;
 
-    flags
-        .set_sign_from(value)
-        .set_zero_from(value)
-        .set_half_carry(false)
-        .set_parity_from(value)
-        .set_subtract(false)
-        .set_carry(false);
+    *flags = Flags {
+        sign: sign_flag(value),
+        zero: zero_flag(value),
+        half_carry: false,
+        overflow: parity_flag(value),
+        subtract: false,
+        carry: false,
+        ..*flags
+    };
 
     value
 }
@@ -447,13 +462,15 @@ fn or(l: u8, r: u8, flags: &mut Flags) -> u8 {
 fn xor(l: u8, r: u8, flags: &mut Flags) -> u8 {
     let value = l ^ r;
 
-    flags
-        .set_sign_from(value)
-        .set_zero_from(value)
-        .set_half_carry(false)
-        .set_parity_from(value)
-        .set_subtract(false)
-        .set_carry(false);
+    *flags = Flags {
+        sign: sign_flag(value),
+        zero: zero_flag(value),
+        half_carry: false,
+        overflow: parity_flag(value),
+        subtract: false,
+        carry: false,
+        ..*flags
+    };
 
     value
 }
@@ -465,13 +482,15 @@ fn compare(l: u8, r: u8, flags: &mut Flags) -> u8 {
     let bit_6_borrow = l & 0x7F < r & 0x7F;
     let overflow = bit_6_borrow != carry;
 
-    flags
-        .set_sign_from(difference)
-        .set_zero_from(difference)
-        .set_half_carry(half_carry)
-        .set_overflow(overflow)
-        .set_subtract(true)
-        .set_carry(carry);
+    *flags = Flags {
+        sign: sign_flag(difference),
+        zero: zero_flag(difference),
+        half_carry,
+        overflow,
+        subtract: true,
+        carry,
+        ..*flags
+    };
 
     l
 }
@@ -481,12 +500,14 @@ fn increment(value: u8, flags: &mut Flags) -> u8 {
     let overflow = value == 0x7F;
 
     let incremented = value.wrapping_add(1);
-    flags
-        .set_sign_from(incremented)
-        .set_zero_from(incremented)
-        .set_half_carry(half_carry)
-        .set_overflow(overflow)
-        .set_subtract(false);
+    *flags = Flags {
+        sign: sign_flag(incremented),
+        zero: zero_flag(incremented),
+        half_carry,
+        overflow,
+        subtract: false,
+        ..*flags
+    };
 
     incremented
 }
@@ -496,12 +517,14 @@ fn decrement(value: u8, flags: &mut Flags) -> u8 {
     let overflow = value == 0x80;
 
     let decremented = value.wrapping_sub(1);
-    flags
-        .set_sign_from(decremented)
-        .set_zero_from(decremented)
-        .set_half_carry(half_carry)
-        .set_overflow(overflow)
-        .set_subtract(true);
+    *flags = Flags {
+        sign: sign_flag(decremented),
+        zero: zero_flag(decremented),
+        half_carry,
+        overflow,
+        subtract: true,
+        ..*flags
+    };
 
     decremented
 }

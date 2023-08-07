@@ -1,5 +1,7 @@
-use crate::core::instructions::{BlockMode, InstructionExecutor};
-use crate::core::Register16;
+use crate::core::instructions::{
+    parity_flag, sign_flag, zero_flag, BlockMode, InstructionExecutor,
+};
+use crate::core::{Flags, Register16};
 use crate::traits::BusInterface;
 
 impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
@@ -21,13 +23,14 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             register.write_to(value, self.registers);
         }
 
-        self.registers
-            .f
-            .set_sign_from(value)
-            .set_zero_from(value)
-            .set_half_carry(false)
-            .set_parity_from(value)
-            .set_subtract(false);
+        self.registers.f = Flags {
+            sign: sign_flag(value),
+            zero: zero_flag(value),
+            half_carry: false,
+            overflow: parity_flag(value),
+            subtract: false,
+            ..self.registers.f
+        };
 
         12
     }
@@ -49,10 +52,11 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             self.registers.pc -= 2;
         }
 
-        self.registers
-            .f
-            .set_zero(repeat || b == 1)
-            .set_subtract(true);
+        self.registers.f = Flags {
+            zero: repeat || b == 1,
+            subtract: true,
+            ..self.registers.f
+        };
 
         if should_repeat {
             21
@@ -100,10 +104,11 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             self.registers.pc -= 2;
         }
 
-        self.registers
-            .f
-            .set_zero(repeat || b == 1)
-            .set_subtract(true);
+        self.registers.f = Flags {
+            zero: repeat || b == 1,
+            subtract: true,
+            ..self.registers.f
+        };
 
         if should_repeat {
             21

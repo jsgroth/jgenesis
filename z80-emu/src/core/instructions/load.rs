@@ -1,5 +1,5 @@
-use crate::core::instructions::{BlockMode, InstructionExecutor};
-use crate::core::{IndexRegister, Register16, Register8};
+use crate::core::instructions::{sign_flag, zero_flag, BlockMode, InstructionExecutor};
+use crate::core::{Flags, IndexRegister, Register16, Register8};
 use crate::traits::BusInterface;
 use std::mem;
 
@@ -104,13 +104,14 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let value = register.read_from(self.registers);
         self.registers.a = value;
 
-        self.registers
-            .f
-            .set_sign_from(value)
-            .set_zero_from(value)
-            .set_half_carry(false)
-            .set_overflow(self.registers.iff2)
-            .set_subtract(false);
+        self.registers.f = Flags {
+            sign: sign_flag(value),
+            zero: zero_flag(value),
+            half_carry: false,
+            overflow: self.registers.iff2,
+            subtract: false,
+            ..self.registers.f
+        };
 
         9
     }
@@ -254,11 +255,12 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             self.registers.pc = self.registers.pc.wrapping_sub(2);
         }
 
-        self.registers
-            .f
-            .set_half_carry(false)
-            .set_overflow(bc != 1)
-            .set_subtract(false);
+        self.registers.f = Flags {
+            half_carry: false,
+            overflow: bc != 1,
+            subtract: false,
+            ..self.registers.f
+        };
 
         if should_repeat {
             21

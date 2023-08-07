@@ -31,14 +31,14 @@ impl JumpCondition {
 
     fn check(self, registers: &Registers) -> bool {
         match self {
-            Self::NonZero => !registers.f.zero(),
-            Self::Zero => registers.f.zero(),
-            Self::NoCarry => !registers.f.carry(),
-            Self::Carry => registers.f.carry(),
-            Self::ParityOdd => !registers.f.overflow(),
-            Self::ParityEven => registers.f.overflow(),
-            Self::Positive => !registers.f.sign(),
-            Self::Negative => registers.f.sign(),
+            Self::NonZero => !registers.f.zero,
+            Self::Zero => registers.f.zero,
+            Self::NoCarry => !registers.f.carry,
+            Self::Carry => registers.f.carry,
+            Self::ParityOdd => !registers.f.overflow,
+            Self::ParityEven => registers.f.overflow,
+            Self::Positive => !registers.f.sign,
+            Self::Negative => registers.f.sign,
         }
     }
 }
@@ -57,7 +57,7 @@ macro_rules! impl_jr_op {
         pub(super) fn $name(&mut self) -> u32 {
             let offset = self.fetch_operand() as i8;
 
-            if self.registers.f.$flag() == $flag_value {
+            if self.registers.f.$flag == $flag_value {
                 self.registers.pc = (i32::from(self.registers.pc) + i32::from(offset)) as u16;
                 12
             } else {

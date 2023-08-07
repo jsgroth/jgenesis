@@ -22,131 +22,42 @@ impl GetBit for u16 {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Flags(u8);
+struct Flags {
+    sign: bool,
+    zero: bool,
+    y: bool,
+    half_carry: bool,
+    x: bool,
+    overflow: bool,
+    subtract: bool,
+    carry: bool,
+}
 
-impl Flags {
-    const SIGN_BIT: u8 = 1 << 7;
-    const ZERO_BIT: u8 = 1 << 6;
-    const HALF_CARRY_BIT: u8 = 1 << 4;
-    const OVERFLOW_BIT: u8 = 1 << 2;
-    const SUBTRACT_BIT: u8 = 1 << 1;
-    const CARRY_BIT: u8 = 1 << 0;
-
-    fn sign(self) -> bool {
-        self.0 & Self::SIGN_BIT != 0
-    }
-
-    fn set_sign(&mut self, sign: bool) -> &mut Self {
-        if sign {
-            self.0 |= Self::SIGN_BIT;
-        } else {
-            self.0 &= !Self::SIGN_BIT;
-        }
-        self
-    }
-
-    fn set_sign_from(&mut self, value: u8) -> &mut Self {
-        if value.bit(7) {
-            self.0 |= Self::SIGN_BIT;
-        } else {
-            self.0 &= !Self::SIGN_BIT;
-        }
-        self
-    }
-
-    fn zero(self) -> bool {
-        self.0 & Self::ZERO_BIT != 0
-    }
-
-    fn set_zero(&mut self, zero: bool) -> &mut Self {
-        if zero {
-            self.0 |= Self::ZERO_BIT;
-        } else {
-            self.0 &= !Self::ZERO_BIT;
-        }
-        self
-    }
-
-    fn set_zero_from(&mut self, value: u8) -> &mut Self {
-        if value == 0 {
-            self.0 |= Self::ZERO_BIT;
-        } else {
-            self.0 &= !Self::ZERO_BIT;
-        }
-        self
-    }
-
-    fn half_carry(self) -> bool {
-        self.0 & Self::HALF_CARRY_BIT != 0
-    }
-
-    fn set_half_carry(&mut self, half_carry: bool) -> &mut Self {
-        if half_carry {
-            self.0 |= Self::HALF_CARRY_BIT;
-        } else {
-            self.0 &= !Self::HALF_CARRY_BIT;
-        }
-        self
-    }
-
-    fn overflow(self) -> bool {
-        self.0 & Self::OVERFLOW_BIT != 0
-    }
-
-    fn set_overflow(&mut self, overflow: bool) -> &mut Self {
-        if overflow {
-            self.0 |= Self::OVERFLOW_BIT;
-        } else {
-            self.0 &= !Self::OVERFLOW_BIT;
-        }
-        self
-    }
-
-    fn set_parity_from(&mut self, value: u8) -> &mut Self {
-        if value.count_ones() % 2 == 0 {
-            self.0 |= Self::OVERFLOW_BIT;
-        } else {
-            self.0 &= !Self::OVERFLOW_BIT;
-        }
-        self
-    }
-
-    fn subtract(self) -> bool {
-        self.0 & Self::SUBTRACT_BIT != 0
-    }
-
-    fn set_subtract(&mut self, subtract: bool) -> &mut Self {
-        if subtract {
-            self.0 |= Self::SUBTRACT_BIT;
-        } else {
-            self.0 &= !Self::SUBTRACT_BIT;
-        }
-        self
-    }
-
-    fn carry(self) -> bool {
-        self.0 & Self::CARRY_BIT != 0
-    }
-
-    fn set_carry(&mut self, carry: bool) -> &mut Self {
-        if carry {
-            self.0 |= Self::CARRY_BIT;
-        } else {
-            self.0 &= !Self::CARRY_BIT;
-        }
-        self
+impl From<Flags> for u8 {
+    fn from(value: Flags) -> Self {
+        (u8::from(value.sign) << 7)
+            | (u8::from(value.zero) << 6)
+            | (u8::from(value.y) << 5)
+            | (u8::from(value.half_carry) << 4)
+            | (u8::from(value.x) << 3)
+            | (u8::from(value.overflow) << 2)
+            | (u8::from(value.subtract) << 1)
+            | u8::from(value.carry)
     }
 }
 
 impl From<u8> for Flags {
     fn from(value: u8) -> Self {
-        Self(value)
-    }
-}
-
-impl From<Flags> for u8 {
-    fn from(value: Flags) -> Self {
-        value.0
+        Self {
+            sign: value & 0x80 != 0,
+            zero: value & 0x40 != 0,
+            y: value & 0x20 != 0,
+            half_carry: value & 0x10 != 0,
+            x: value & 0x08 != 0,
+            overflow: value & 0x04 != 0,
+            subtract: value & 0x02 != 0,
+            carry: value & 0x01 != 0,
+        }
     }
 }
 
@@ -192,7 +103,7 @@ impl Registers {
     pub fn new() -> Self {
         Self {
             a: 0xFF,
-            f: Flags(0xFF),
+            f: 0xFF.into(),
             b: 0xFF,
             c: 0xFF,
             d: 0xFF,
@@ -200,7 +111,7 @@ impl Registers {
             h: 0xFF,
             l: 0xFF,
             ap: 0xFF,
-            fp: Flags(0xFF),
+            fp: 0xFF.into(),
             bp: 0xFF,
             cp: 0xFF,
             dp: 0xFF,
@@ -332,7 +243,7 @@ impl Register16 {
             Self::AF => {
                 let [a, f] = value.to_be_bytes();
                 registers.a = a;
-                registers.f = Flags(f);
+                registers.f = f.into();
             }
             Self::BC => {
                 let [b, c] = value.to_be_bytes();
