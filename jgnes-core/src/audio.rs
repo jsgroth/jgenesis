@@ -89,25 +89,36 @@ pub struct DownsampleCounter {
     output_count_increment: f64,
     output_frequency: f64,
     display_refresh_rate: f64,
+    apply_refresh_rate_adjustment: bool,
 }
 
 impl DownsampleCounter {
     fn compute_output_count_increment(
         output_frequency: f64,
         display_refresh_rate: f64,
+        apply_refresh_rate_adjustment: bool,
         timing_mode: TimingMode,
     ) -> f64 {
-        timing_mode.nes_audio_frequency() / output_frequency
-            * display_refresh_rate
-            * timing_mode.refresh_rate_multiplier()
-            / timing_mode.nes_native_display_rate()
+        let refresh_rate_adjustment = if apply_refresh_rate_adjustment {
+            timing_mode.refresh_rate_multiplier() * display_refresh_rate
+                / timing_mode.nes_native_display_rate()
+        } else {
+            1.0
+        };
+
+        timing_mode.nes_audio_frequency() / output_frequency * refresh_rate_adjustment
     }
 
     #[must_use]
-    pub fn new(output_frequency: f64, display_refresh_rate: f64) -> Self {
+    pub fn new(
+        output_frequency: f64,
+        display_refresh_rate: f64,
+        apply_refresh_rate_adjustment: bool,
+    ) -> Self {
         let output_count_increment = Self::compute_output_count_increment(
             output_frequency,
             display_refresh_rate,
+            apply_refresh_rate_adjustment,
             TimingMode::Ntsc,
         );
         Self {
@@ -117,6 +128,7 @@ impl DownsampleCounter {
             output_count_increment,
             output_frequency,
             display_refresh_rate,
+            apply_refresh_rate_adjustment,
         }
     }
 
@@ -139,8 +151,13 @@ impl DownsampleCounter {
         self.output_count_increment = Self::compute_output_count_increment(
             self.output_frequency,
             self.display_refresh_rate,
+            self.apply_refresh_rate_adjustment,
             timing_mode,
         );
+    }
+
+    pub fn set_refresh_rate_adjustment(&mut self, apply_refresh_rate_adjustment: bool) {
+        self.apply_refresh_rate_adjustment = apply_refresh_rate_adjustment;
     }
 }
 
