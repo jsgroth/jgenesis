@@ -12,5 +12,5 @@ bincode = { version = "2.0.0-rc.3", features = ["serde"] }
 log = "0.4"
 rand = "0.8"
 serde = { version = "1", features = ["derive"] }
-thiserror = "1.0"
-tinyvec = { version = "1.6", features = ["serde"] }
+thiserror = "1"
+tinyvec = { version = "1", features = ["serde"] }
