@@ -7,7 +7,7 @@ use crate::num::GetBit;
 #[inline]
 fn poll_interrupt_lines(
     state: &mut InstructionState,
-    registers: &mut CpuRegisters,
+    registers: &CpuRegisters,
     bus: &mut CpuBus<'_>,
 ) {
     state.pending_interrupt |= bus.interrupt_lines().nmi_triggered()
@@ -15,7 +15,7 @@ fn poll_interrupt_lines(
 }
 
 #[inline]
-fn final_cycle(state: &mut InstructionState, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) {
+fn final_cycle(state: &mut InstructionState, registers: &CpuRegisters, bus: &mut CpuBus<'_>) {
     poll_interrupt_lines(state, registers, bus);
     state.instruction_complete = true;
 }
