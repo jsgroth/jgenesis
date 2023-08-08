@@ -4,33 +4,34 @@ use crate::cpu::instructions::InstructionState;
 use crate::cpu::{CpuRegisters, StatusFlags, StatusReadContext};
 use crate::num::GetBit;
 
-macro_rules! poll_interrupt_lines {
-    ($state:expr, $registers:expr, $bus:expr) => {
-        $state.pending_interrupt |= $bus.interrupt_lines().nmi_triggered()
-            || (!$registers.status.interrupt_disable && $bus.interrupt_lines().irq_triggered());
-    };
+#[inline]
+fn poll_interrupt_lines(
+    state: &mut InstructionState,
+    registers: &mut CpuRegisters,
+    bus: &mut CpuBus<'_>,
+) {
+    state.pending_interrupt |= bus.interrupt_lines().nmi_triggered()
+        || (!registers.status.interrupt_disable && bus.interrupt_lines().irq_triggered());
 }
 
-macro_rules! final_cycle {
-    ($state:expr, $registers:expr, $bus:expr) => {{
-        poll_interrupt_lines!($state, $registers, $bus);
-        $state.instruction_complete = true;
-    }};
+#[inline]
+fn final_cycle(state: &mut InstructionState, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) {
+    poll_interrupt_lines(state, registers, bus);
+    state.instruction_complete = true;
 }
 
-macro_rules! fetch_operand {
-    ($registers:expr, $bus:expr) => {{
-        let operand = $bus.read_address($registers.pc);
-        $registers.pc += 1;
-        operand
-    }};
+#[inline]
+fn fetch_operand(registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) -> u8 {
+    let operand = bus.read_address(registers.pc);
+    registers.pc = registers.pc.wrapping_add(1);
+    operand
 }
 
 macro_rules! impl_read_immediate {
     ($state:expr, $registers:expr, $bus:expr, $operand:ident, $body:block) => {{
-        final_cycle!($state, $registers, $bus);
+        final_cycle($state, $registers, $bus);
 
-        let $operand = fetch_operand!($registers, $bus);
+        let $operand = fetch_operand($registers, $bus);
         $body
     }};
 }
@@ -39,10 +40,10 @@ macro_rules! impl_read_zero_page {
     ($state:expr, $registers:expr, $bus:expr, $operand:ident, $body:block) => {
         match $state.cycle {
             0 => {
-                $state.operand_first_byte = fetch_operand!($registers, $bus);
+                $state.operand_first_byte = fetch_operand($registers, $bus);
             }
             1 => {
-                final_cycle!($state, $registers, $bus);
+                final_cycle($state, $registers, $bus);
 
                 let $operand = $bus.read_address($state.operand_first_byte.into());
                 $body
@@ -56,13 +57,13 @@ macro_rules! impl_read_zero_page_indexed {
     (index: $index:ident, $state:expr, $registers:expr, $bus:expr, $operand:ident, $body:block) => {
         match $state.cycle {
             0 => {
-                $state.operand_first_byte = fetch_operand!($registers, $bus);
+                $state.operand_first_byte = fetch_operand($registers, $bus);
             }
             1 => {
                 $bus.read_address($state.operand_first_byte.into());
             }
             2 => {
-                final_cycle!($state, $registers, $bus);
+                final_cycle($state, $registers, $bus);
 
                 let index = $registers.$index;
                 let address = $state.operand_first_byte.wrapping_add(index);
@@ -78,13 +79,13 @@ macro_rules! impl_read_absolute {
     ($state:expr, $registers:expr, $bus:expr, $operand:ident, $body:block) => {
         match $state.cycle {
             0 => {
-                $state.operand_first_byte = fetch_operand!($registers, $bus);
+                $state.operand_first_byte = fetch_operand($registers, $bus);
             }
             1 => {
-                $state.operand_second_byte = fetch_operand!($registers, $bus);
+                $state.operand_second_byte = fetch_operand($registers, $bus);
             }
             2 => {
-                final_cycle!($state, $registers, $bus);
+                final_cycle($state, $registers, $bus);
 
                 let address =
                     u16::from_le_bytes([$state.operand_first_byte, $state.operand_second_byte]);
@@ -100,13 +101,13 @@ macro_rules! impl_read_absolute_indexed {
     (index: $index:ident, $state:expr, $registers:expr, $bus:expr, $operand:ident, $body:block) => {
         match $state.cycle {
             0 => {
-                $state.operand_first_byte = fetch_operand!($registers, $bus);
+                $state.operand_first_byte = fetch_operand($registers, $bus);
             }
             1 => {
-                $state.operand_second_byte = fetch_operand!($registers, $bus);
+                $state.operand_second_byte = fetch_operand($registers, $bus);
             }
             2 => {
-                poll_interrupt_lines!($state, $registers, $bus);
+                poll_interrupt_lines($state, $registers, $bus);
 
                 let (address_lsb, overflowed) =
                     $state.operand_first_byte.overflowing_add($registers.$index);
@@ -119,7 +120,7 @@ macro_rules! impl_read_absolute_indexed {
                 }
             }
             3 => {
-                final_cycle!($state, $registers, $bus);
+                final_cycle($state, $registers, $bus);
 
                 let address = u16::from_le_bytes([$state.operand_first_byte, $state.operand_second_byte])
                     .wrapping_add($registers.$index.into());
@@ -135,7 +136,7 @@ macro_rules! impl_read_indirect_x {
     ($state:expr, $registers:expr, $bus:expr, $operand:ident, $body:block) => {
         match $state.cycle {
             0 => {
-                $state.operand_first_byte = fetch_operand!($registers, $bus);
+                $state.operand_first_byte = fetch_operand($registers, $bus);
             }
             1 => {
                 $bus.read_address($state.operand_first_byte.into());
@@ -152,7 +153,7 @@ macro_rules! impl_read_indirect_x {
                 $state.target_second_byte = $bus.read_address(address.into());
             }
             4 => {
-                final_cycle!($state, $registers, $bus);
+                final_cycle($state, $registers, $bus);
 
                 let address =
                     u16::from_le_bytes([$state.target_first_byte, $state.target_second_byte]);
@@ -168,7 +169,7 @@ macro_rules! impl_read_indirect_y {
     ($state:expr, $registers:expr, $bus:expr, $operand:ident, $body:block) => {
         match $state.cycle {
             0 => {
-                $state.operand_first_byte = fetch_operand!($registers, $bus);
+                $state.operand_first_byte = fetch_operand($registers, $bus);
             }
             1 => {
                 $state.target_first_byte = $bus.read_address($state.operand_first_byte.into());
@@ -178,7 +179,7 @@ macro_rules! impl_read_indirect_y {
                     $bus.read_address($state.operand_first_byte.wrapping_add(1).into());
             }
             3 => {
-                poll_interrupt_lines!($state, $registers, $bus);
+                poll_interrupt_lines($state, $registers, $bus);
 
                 let (address_lsb, overflowed) = $state.target_first_byte.overflowing_add($registers.y);
                 let address = u16::from_le_bytes([address_lsb, $state.target_second_byte]);
@@ -190,7 +191,7 @@ macro_rules! impl_read_indirect_y {
                 }
             }
             4 => {
-                final_cycle!($state, $registers, $bus);
+                final_cycle($state, $registers, $bus);
 
                 let address = u16::from_le_bytes([$state.target_first_byte, $state.target_second_byte])
                     .wrapping_add($registers.y.into());
@@ -236,10 +237,10 @@ macro_rules! impl_store_zero_page {
     ($state:expr, $registers:expr, $bus:expr, $register:expr) => {
         match $state.cycle {
             0 => {
-                $state.operand_first_byte = fetch_operand!($registers, $bus);
+                $state.operand_first_byte = fetch_operand($registers, $bus);
             }
             1 => {
-                final_cycle!($state, $registers, $bus);
+                final_cycle($state, $registers, $bus);
 
                 let address = $state.operand_first_byte.into();
                 $bus.write_address(address, $register);
@@ -253,13 +254,13 @@ macro_rules! impl_store_zero_page_indexed {
     (index: $index:ident, $state:expr, $registers:expr, $bus:expr, $register:expr) => {
         match $state.cycle {
             0 => {
-                $state.operand_first_byte = fetch_operand!($registers, $bus);
+                $state.operand_first_byte = fetch_operand($registers, $bus);
             }
             1 => {
                 $bus.read_address($state.operand_first_byte.into());
             }
             2 => {
-                final_cycle!($state, $registers, $bus);
+                final_cycle($state, $registers, $bus);
 
                 let address = $state
                     .operand_first_byte
@@ -276,13 +277,13 @@ macro_rules! impl_store_absolute {
     ($state:expr, $registers:expr, $bus:expr, $register:expr) => {
         match $state.cycle {
             0 => {
-                $state.operand_first_byte = fetch_operand!($registers, $bus);
+                $state.operand_first_byte = fetch_operand($registers, $bus);
             }
             1 => {
-                $state.operand_second_byte = fetch_operand!($registers, $bus);
+                $state.operand_second_byte = fetch_operand($registers, $bus);
             }
             2 => {
-                final_cycle!($state, $registers, $bus);
+                final_cycle($state, $registers, $bus);
 
                 let address =
                     u16::from_le_bytes([$state.operand_first_byte, $state.operand_second_byte]);
@@ -297,10 +298,10 @@ macro_rules! impl_store_absolute_indexed {
     (index: $index:ident, $state:expr, $registers:expr, $bus:expr, $register:expr) => {
         match $state.cycle {
             0 => {
-                $state.operand_first_byte = fetch_operand!($registers, $bus);
+                $state.operand_first_byte = fetch_operand($registers, $bus);
             }
             1 => {
-                $state.operand_second_byte = fetch_operand!($registers, $bus);
+                $state.operand_second_byte = fetch_operand($registers, $bus);
             }
             2 => {
                 let address_lsb = $state.operand_first_byte.wrapping_add($registers.$index);
@@ -308,7 +309,7 @@ macro_rules! impl_store_absolute_indexed {
                 $bus.read_address(address);
             }
             3 => {
-                final_cycle!($state, $registers, $bus);
+                final_cycle($state, $registers, $bus);
 
                 let address =
                     u16::from_le_bytes([$state.operand_first_byte, $state.operand_second_byte])
@@ -324,7 +325,7 @@ macro_rules! impl_store_indirect_x {
     ($state:expr, $registers:expr, $bus:expr, $register:expr) => {
         match $state.cycle {
             0 => {
-                $state.operand_first_byte = fetch_operand!($registers, $bus);
+                $state.operand_first_byte = fetch_operand($registers, $bus);
             }
             1 => {
                 $bus.read_address($state.operand_first_byte.into());
@@ -341,7 +342,7 @@ macro_rules! impl_store_indirect_x {
                 $state.target_second_byte = $bus.read_address(address.into());
             }
             4 => {
-                final_cycle!($state, $registers, $bus);
+                final_cycle($state, $registers, $bus);
 
                 let address =
                     u16::from_le_bytes([$state.target_first_byte, $state.target_second_byte]);
@@ -356,7 +357,7 @@ macro_rules! impl_store_indirect_y {
     ($state:expr, $registers:expr, $bus:expr, $register:expr) => {
         match $state.cycle {
             0 => {
-                $state.operand_first_byte = fetch_operand!($registers, $bus);
+                $state.operand_first_byte = fetch_operand($registers, $bus);
             }
             1 => {
                 $state.target_first_byte = $bus.read_address($state.operand_first_byte.into());
@@ -371,7 +372,7 @@ macro_rules! impl_store_indirect_y {
                 $bus.read_address(address);
             }
             4 => {
-                final_cycle!($state, $registers, $bus);
+                final_cycle($state, $registers, $bus);
 
                 let address =
                     u16::from_le_bytes([$state.target_first_byte, $state.target_second_byte])
@@ -412,7 +413,7 @@ macro_rules! impl_store {
 
 macro_rules! impl_modify_accumulator {
     ($state:expr, $registers:expr, $bus:expr, $operand:ident, $body:block) => {{
-        final_cycle!($state, $registers, $bus);
+        final_cycle($state, $registers, $bus);
 
         $bus.read_address($registers.pc);
 
@@ -425,7 +426,7 @@ macro_rules! impl_modify_zero_page {
     ($state:expr, $registers:expr, $bus:expr, $operand:ident, $body:block) => {
         match $state.cycle {
             0 => {
-                $state.operand_first_byte = fetch_operand!($registers, $bus);
+                $state.operand_first_byte = fetch_operand($registers, $bus);
             }
             1 => {
                 $state.target_first_byte = $bus.read_address($state.operand_first_byte.into());
@@ -434,7 +435,7 @@ macro_rules! impl_modify_zero_page {
                 $bus.write_address($state.operand_first_byte.into(), $state.target_first_byte);
             }
             3 => {
-                final_cycle!($state, $registers, $bus);
+                final_cycle($state, $registers, $bus);
 
                 let $operand = $state.target_first_byte;
                 let value = $body;
@@ -449,7 +450,7 @@ macro_rules! impl_modify_zero_page_x {
     ($state:expr, $registers:expr, $bus:expr, $operand:ident, $body:block) => {
         match $state.cycle {
             0 => {
-                $state.operand_first_byte = fetch_operand!($registers, $bus);
+                $state.operand_first_byte = fetch_operand($registers, $bus);
             }
             1 => {
                 $bus.read_address($state.operand_first_byte.into());
@@ -463,7 +464,7 @@ macro_rules! impl_modify_zero_page_x {
                 $bus.write_address(address, $state.target_first_byte);
             }
             4 => {
-                final_cycle!($state, $registers, $bus);
+                final_cycle($state, $registers, $bus);
 
                 let $operand = $state.target_first_byte;
                 let value = $body;
@@ -480,10 +481,10 @@ macro_rules! impl_modify_absolute {
     ($state:expr, $registers:expr, $bus:expr, $operand:ident, $body:block) => {
         match $state.cycle {
             0 => {
-                $state.operand_first_byte = fetch_operand!($registers, $bus);
+                $state.operand_first_byte = fetch_operand($registers, $bus);
             }
             1 => {
-                $state.operand_second_byte = fetch_operand!($registers, $bus);
+                $state.operand_second_byte = fetch_operand($registers, $bus);
             }
             2 => {
                 let address =
@@ -496,7 +497,7 @@ macro_rules! impl_modify_absolute {
                 $bus.write_address(address, $state.target_first_byte);
             }
             4 => {
-                final_cycle!($state, $registers, $bus);
+                final_cycle($state, $registers, $bus);
 
                 let $operand = $state.target_first_byte;
                 let value = $body;
@@ -514,10 +515,10 @@ macro_rules! impl_modify_absolute_indexed {
     (index: $index:ident, $state:expr, $registers:expr, $bus:expr, $operand:ident, $body:block) => {
         match $state.cycle {
             0 => {
-                $state.operand_first_byte = fetch_operand!($registers, $bus);
+                $state.operand_first_byte = fetch_operand($registers, $bus);
             }
             1 => {
-                $state.operand_second_byte = fetch_operand!($registers, $bus);
+                $state.operand_second_byte = fetch_operand($registers, $bus);
             }
             2 => {
                 let address_lsb = $state.operand_first_byte.wrapping_add($registers.$index);
@@ -537,7 +538,7 @@ macro_rules! impl_modify_absolute_indexed {
                 $bus.write_address(address, $state.target_first_byte);
             }
             5 => {
-                final_cycle!($state, $registers, $bus);
+                final_cycle($state, $registers, $bus);
 
                 let $operand = $state.target_first_byte;
                 let value = $body;
@@ -556,7 +557,7 @@ macro_rules! impl_modify_indirect_x {
     ($state:expr, $registers:expr, $bus:expr, $operand:ident, $body:block) => {
         match $state.cycle {
             0 => {
-                $state.operand_first_byte = fetch_operand!($registers, $bus);
+                $state.operand_first_byte = fetch_operand($registers, $bus);
             }
             1 => {
                 $bus.read_address($state.operand_first_byte.into());
@@ -583,7 +584,7 @@ macro_rules! impl_modify_indirect_x {
                 $bus.write_address(address, $state.indirect_byte);
             }
             6 => {
-                final_cycle!($state, $registers, $bus);
+                final_cycle($state, $registers, $bus);
 
                 let $operand = $state.indirect_byte;
                 let value = $body;
@@ -601,7 +602,7 @@ macro_rules! impl_modify_indirect_y {
     ($state:expr, $registers:expr, $bus:expr, $operand:ident, $body:block) => {
         match $state.cycle {
             0 => {
-                $state.operand_first_byte = fetch_operand!($registers, $bus);
+                $state.operand_first_byte = fetch_operand($registers, $bus);
             }
             1 => {
                 $state.target_first_byte = $bus.read_address($state.operand_first_byte.into());
@@ -628,7 +629,7 @@ macro_rules! impl_modify_indirect_y {
                 $bus.write_address(address, $state.indirect_byte);
             }
             6 => {
-                final_cycle!($state, $registers, $bus);
+                final_cycle($state, $registers, $bus);
 
                 let $operand = $state.indirect_byte;
                 let value = $body;
@@ -672,7 +673,7 @@ macro_rules! impl_modify_instruction {
 
 macro_rules! impl_registers_instruction {
     ($state:expr, $registers:expr, $bus:expr, || $body:block) => {{
-        final_cycle!($state, $registers, $bus);
+        final_cycle($state, $registers, $bus);
 
         $bus.read_address($registers.pc);
 
@@ -1095,9 +1096,9 @@ macro_rules! branch {
     ($flag:ident == $flag_value:expr, $state:expr, $registers:expr, $bus:expr) => {
         match $state.cycle {
             0 => {
-                poll_interrupt_lines!($state, $registers, $bus);
+                poll_interrupt_lines($state, $registers, $bus);
 
-                $state.operand_first_byte = fetch_operand!($registers, $bus);
+                $state.operand_first_byte = fetch_operand($registers, $bus);
 
                 if $registers.status.$flag != $flag_value {
                     $state.instruction_complete = true;
@@ -1115,7 +1116,7 @@ macro_rules! branch {
                 }
             }
             2 => {
-                final_cycle!($state, $registers, $bus);
+                final_cycle($state, $registers, $bus);
 
                 let offset = $state.operand_first_byte as i8;
                 let pc = (i32::from($registers.pc) + i32::from(offset)) as u16;
@@ -1133,10 +1134,10 @@ macro_rules! branch {
 fn jump_absolute(state: &mut InstructionState, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) {
     match state.cycle {
         0 => {
-            state.operand_first_byte = fetch_operand!(registers, bus);
+            state.operand_first_byte = fetch_operand(registers, bus);
         }
         1 => {
-            final_cycle!(state, registers, bus);
+            final_cycle(state, registers, bus);
 
             let address_msb = bus.read_address(registers.pc);
             registers.pc = u16::from_le_bytes([state.operand_first_byte, address_msb]);
@@ -1149,17 +1150,17 @@ fn jump_absolute(state: &mut InstructionState, registers: &mut CpuRegisters, bus
 fn jump_indirect(state: &mut InstructionState, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) {
     match state.cycle {
         0 => {
-            state.operand_first_byte = fetch_operand!(registers, bus);
+            state.operand_first_byte = fetch_operand(registers, bus);
         }
         1 => {
-            state.operand_second_byte = fetch_operand!(registers, bus);
+            state.operand_second_byte = fetch_operand(registers, bus);
         }
         2 => {
             let address = u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte]);
             state.target_first_byte = bus.read_address(address);
         }
         3 => {
-            final_cycle!(state, registers, bus);
+            final_cycle(state, registers, bus);
 
             let address_lsb = state.operand_first_byte.wrapping_add(1);
             let address = u16::from_le_bytes([address_lsb, state.operand_second_byte]);
@@ -1178,7 +1179,7 @@ macro_rules! impl_push_stack {
                 $bus.read_address($registers.pc);
             }
             1 => {
-                final_cycle!($state, $registers, $bus);
+                final_cycle($state, $registers, $bus);
 
                 let address = u16::from_be_bytes([0x01, $registers.sp]);
                 $bus.write_address(address, $register);
@@ -1229,7 +1230,7 @@ macro_rules! pull_stack {
                 $bus.read_address(u16::from_be_bytes([0x01, $registers.sp]));
             }
             2 => {
-                final_cycle!($state, $registers, $bus);
+                final_cycle($state, $registers, $bus);
 
                 $registers.sp = $registers.sp.wrapping_add(1);
                 let value = $bus.read_address(u16::from_be_bytes([0x01, $registers.sp]));
@@ -1277,7 +1278,7 @@ fn jump_to_subroutine(
 ) {
     match state.cycle {
         0 => {
-            state.operand_first_byte = fetch_operand!(registers, bus);
+            state.operand_first_byte = fetch_operand(registers, bus);
         }
         1 => {
             // Spurious stack read
@@ -1290,7 +1291,7 @@ fn jump_to_subroutine(
             push_pc_lsb(registers, bus);
         }
         4 => {
-            final_cycle!(state, registers, bus);
+            final_cycle(state, registers, bus);
 
             let address_msb = bus.read_address(registers.pc);
             registers.pc = u16::from_le_bytes([state.operand_first_byte, address_msb]);
@@ -1321,10 +1322,10 @@ fn return_from_subroutine(
             pull_pc_msb(registers, bus);
         }
         4 => {
-            final_cycle!(state, registers, bus);
+            final_cycle(state, registers, bus);
 
             // Fetch operand and increment PC, ignore fetch result
-            fetch_operand!(registers, bus);
+            fetch_operand(registers, bus);
         }
         _ => panic!("invalid cycle: {}", state.cycle),
     }
@@ -1354,7 +1355,7 @@ fn return_from_interrupt(
             pull_pc_lsb(registers, bus);
         }
         4 => {
-            final_cycle!(state, registers, bus);
+            final_cycle(state, registers, bus);
 
             pull_pc_msb(registers, bus);
         }
@@ -1409,7 +1410,7 @@ fn force_interrupt(
 ) {
     match state.cycle {
         0 => {
-            fetch_operand!(registers, bus);
+            fetch_operand(registers, bus);
         }
         1 => {
             push_pc_msb(registers, bus);
@@ -1424,7 +1425,7 @@ fn force_interrupt(
             interrupt_pull_pc_lsb(state, registers, bus);
         }
         5 => {
-            final_cycle!(state, registers, bus);
+            final_cycle(state, registers, bus);
 
             interrupt_pull_pc_msb(state, registers, bus);
         }
@@ -1461,7 +1462,7 @@ fn interrupt_service_routine(
             interrupt_pull_pc_lsb(state, registers, bus);
         }
         5 => {
-            final_cycle!(state, registers, bus);
+            final_cycle(state, registers, bus);
 
             state.executing_interrupt = false;
             interrupt_pull_pc_msb(state, registers, bus);
@@ -1497,10 +1498,10 @@ macro_rules! unofficial_store {
     (register: $register:ident, index: $index:ident, $state:expr, $registers:expr, $bus:expr) => {
         match $state.cycle {
             0 => {
-                $state.operand_first_byte = fetch_operand!($registers, $bus);
+                $state.operand_first_byte = fetch_operand($registers, $bus);
             }
             1 => {
-                $state.operand_second_byte = fetch_operand!($registers, $bus);
+                $state.operand_second_byte = fetch_operand($registers, $bus);
             }
             2 => {
                 let address_lsb = $state.operand_first_byte.wrapping_add($registers.$index);
@@ -1508,7 +1509,7 @@ macro_rules! unofficial_store {
                 $bus.read_address(address);
             }
             3 => {
-                final_cycle!($state, $registers, $bus);
+                final_cycle($state, $registers, $bus);
 
                 let value = $registers.$register;
                 let index = $registers.$index;
@@ -1527,10 +1528,10 @@ fn unimplemented_unofficial_store_absolute_y(
 ) {
     match state.cycle {
         0 => {
-            state.operand_first_byte = fetch_operand!(registers, bus);
+            state.operand_first_byte = fetch_operand(registers, bus);
         }
         1 => {
-            state.operand_second_byte = fetch_operand!(registers, bus);
+            state.operand_second_byte = fetch_operand(registers, bus);
         }
         2 => {
             let address_lsb = state.operand_first_byte.wrapping_add(registers.y);
@@ -1538,7 +1539,7 @@ fn unimplemented_unofficial_store_absolute_y(
             state.target_first_byte = bus.read_address(address);
         }
         3 => {
-            final_cycle!(state, registers, bus);
+            final_cycle(state, registers, bus);
 
             let address_lsb = state.operand_first_byte.wrapping_add(registers.y);
             let address = u16::from_le_bytes([address_lsb, state.operand_second_byte]);
@@ -1556,7 +1557,7 @@ fn unimplemented_unofficial_store_indirect_y(
 ) {
     match state.cycle {
         0 => {
-            state.operand_first_byte = fetch_operand!(registers, bus);
+            state.operand_first_byte = fetch_operand(registers, bus);
         }
         1 => {
             state.target_first_byte = bus.read_address(state.operand_first_byte.into());
@@ -1571,7 +1572,7 @@ fn unimplemented_unofficial_store_indirect_y(
             state.indirect_byte = bus.read_address(address);
         }
         4 => {
-            final_cycle!(state, registers, bus);
+            final_cycle(state, registers, bus);
 
             let address_lsb = state.target_first_byte.wrapping_add(registers.y);
             let address = u16::from_le_bytes([address_lsb, state.target_second_byte]);
@@ -1644,56 +1645,58 @@ macro_rules! load_transfer_ax {
 }
 
 // XAA (unofficial)
-macro_rules! load_and_x_immediate {
-    ($state:expr, $registers:expr, $bus:expr) => {
-        impl_read_instruction!(immediate, $state, $registers, $bus, |operand| {
-            $registers.accumulator = $registers.x & operand;
-            $registers
-                .status
-                .set_negative($registers.accumulator.bit(7))
-                .set_zero($registers.accumulator == 0);
-        })
-    };
+fn load_and_x_immediate(
+    state: &mut InstructionState,
+    registers: &mut CpuRegisters,
+    bus: &mut CpuBus<'_>,
+) {
+    impl_read_instruction!(immediate, state, registers, bus, |operand| {
+        registers.accumulator = registers.x & operand;
+        registers
+            .status
+            .set_negative(registers.accumulator.bit(7))
+            .set_zero(registers.accumulator == 0);
+    });
 }
 
 // AXS (unofficial)
-macro_rules! ax_subtract {
-    ($state:expr, $registers:expr, $bus:expr) => {
-        impl_read_instruction!(immediate, $state, $registers, $bus, |operand| {
-            // AXS sets X to (A&X) - #imm, while ignoring the current carry flag. The flags
-            // are set not from the subtraction operation but from a CMP between (A&X) and #imm
+fn ax_subtract(state: &mut InstructionState, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) {
+    impl_read_instruction!(immediate, state, registers, bus, |operand| {
+        // AXS sets X to (A&X) - #imm, while ignoring the current carry flag. The flags
+        // are set not from the subtraction operation but from a CMP between (A&X) and #imm
 
-            let ax = $registers.accumulator & $registers.x;
-            let mut flags = StatusFlags {
-                // Set carry to true because SBC inverts the carry flag for borrowing
-                carry: true,
-                ..StatusFlags::new()
-            };
-            $registers.x = subtract(ax, operand, &mut flags);
+        let ax = registers.accumulator & registers.x;
+        let mut flags = StatusFlags {
+            // Set carry to true because SBC inverts the carry flag for borrowing
+            carry: true,
+            ..StatusFlags::new()
+        };
+        registers.x = subtract(ax, operand, &mut flags);
 
-            compare(ax, operand, &mut $registers.status);
-        })
-    };
+        compare(ax, operand, &mut registers.status);
+    });
 }
 
 // LAS (unofficial)
-macro_rules! load_and_stack {
-    ($state:expr, $registers:expr, $bus:expr) => {
-        impl_read_instruction!(absolute_y, $state, $registers, $bus, |operand| {
-            // LAS sets A, X, and S to (value & S)
+fn load_and_stack(
+    state: &mut InstructionState,
+    registers: &mut CpuRegisters,
+    bus: &mut CpuBus<'_>,
+) {
+    impl_read_instruction!(absolute_y, state, registers, bus, |operand| {
+        // LAS sets A, X, and S to (value & S)
 
-            let new_value = operand & $registers.sp;
+        let new_value = operand & registers.sp;
 
-            $registers.accumulator = new_value;
-            $registers.x = new_value;
-            $registers.sp = new_value;
+        registers.accumulator = new_value;
+        registers.x = new_value;
+        registers.sp = new_value;
 
-            $registers
-                .status
-                .set_negative(new_value.bit(7))
-                .set_zero(new_value == 0);
-        })
-    };
+        registers
+            .status
+            .set_negative(new_value.bit(7))
+            .set_zero(new_value == 0);
+    });
 }
 
 // unofficial NOPs
@@ -1836,7 +1839,7 @@ pub fn execute_cycle(
         0x87 => store!(zero_page, register: ax, state, registers, bus),
         0x88 => decrement_register!(register: y, state, registers, bus),
         0x8A => register_transfer!(to: accumulator, from: x, state, registers, bus),
-        0x8B => load_and_x_immediate!(state, registers, bus),
+        0x8B => load_and_x_immediate(state, registers, bus),
         0x8C => store!(absolute, register: y, state, registers, bus),
         0x8D => store!(absolute, register: accumulator, state, registers, bus),
         0x8E => store!(absolute, register: x, state, registers, bus),
@@ -1881,7 +1884,7 @@ pub fn execute_cycle(
         0xB8 => set_status_flag!(overflow, false, state, registers, bus),
         0xB9 => load!(absolute_y, register: accumulator, state, registers, bus),
         0xBA => register_transfer!(to: x, from: sp, state, registers, bus),
-        0xBB => load_and_stack!(state, registers, bus),
+        0xBB => load_and_stack(state, registers, bus),
         0xBC => load!(absolute_x, register: y, state, registers, bus),
         0xBD => load!(absolute_x, register: accumulator, state, registers, bus),
         0xBE => load!(absolute_y, register: x, state, registers, bus),
@@ -1896,7 +1899,7 @@ pub fn execute_cycle(
         0xC8 => increment_register!(register: y, state, registers, bus),
         0xC9 => compare!(immediate, register: accumulator, state, registers, bus),
         0xCA => decrement_register!(register: x, state, registers, bus),
-        0xCB => ax_subtract!(state, registers, bus),
+        0xCB => ax_subtract(state, registers, bus),
         0xCC => compare!(absolute, register: y, state, registers, bus),
         0xCD => compare!(absolute, register: accumulator, state, registers, bus),
         0xCE => decrement!(absolute, state, registers, bus),
