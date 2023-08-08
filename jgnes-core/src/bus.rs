@@ -39,7 +39,6 @@ use crate::bus::cartridge::Mapper;
 use crate::input::{JoypadState, LatchedJoypadState};
 use crate::num::GetBit;
 use bincode::{Decode, Encode};
-use serde::{Deserialize, Serialize};
 use std::array;
 
 pub use cartridge::TimingMode;
@@ -65,7 +64,7 @@ pub const CPU_NMI_VECTOR: u16 = 0xFFFA;
 pub const CPU_RESET_VECTOR: u16 = 0xFFFC;
 pub const CPU_IRQ_VECTOR: u16 = 0xFFFE;
 
-#[derive(Debug, Clone, Copy, Default, Encode, Decode, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
 struct PendingCpuWrite {
     address: u16,
     value: u8,

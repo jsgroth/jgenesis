@@ -5,11 +5,10 @@ use crate::bus::{CpuBus, PpuRegister};
 use crate::cpu::instructions::InstructionState;
 use crate::num::GetBit;
 use bincode::{Decode, Encode};
-use serde::{Deserialize, Serialize};
 
 mod instructions;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum StatusReadContext {
     HardwareInterruptHandler,
     Brk,
