@@ -671,7 +671,7 @@ macro_rules! impl_modify_instruction {
 }
 
 macro_rules! impl_registers_instruction {
-    ($state:expr, $registers:expr, $bus:expr, $body:block) => {{
+    ($state:expr, $registers:expr, $bus:expr, || $body:block) => {{
         final_cycle!($state, $registers, $bus);
 
         $bus.read_address($registers.pc);
@@ -1028,7 +1028,7 @@ macro_rules! increment_subtract {
 // CLC, CLD, CLI, CLV, SEC, SED, SEI
 macro_rules! set_status_flag {
     ($flag:ident, $value:expr, $state:expr, $registers:expr, $bus:expr) => {
-        impl_registers_instruction!($state, $registers, $bus, {
+        impl_registers_instruction!($state, $registers, $bus, || {
             $registers.status.$flag = $value;
         })
     };
@@ -1037,7 +1037,7 @@ macro_rules! set_status_flag {
 // INX, INY
 macro_rules! increment_register {
     (register: $register:ident, $state:expr, $registers:expr, $bus:expr) => {
-        impl_registers_instruction!($state, $registers, $bus, {
+        impl_registers_instruction!($state, $registers, $bus, || {
             let value = $registers.$register.wrapping_add(1);
             $registers.$register = value;
             $registers
@@ -1051,7 +1051,7 @@ macro_rules! increment_register {
 // DEX, DEY
 macro_rules! decrement_register {
     (register: $register:ident, $state:expr, $registers:expr, $bus:expr) => {
-        impl_registers_instruction!($state, $registers, $bus, {
+        impl_registers_instruction!($state, $registers, $bus, || {
             let value = $registers.$register.wrapping_sub(1);
             $registers.$register = value;
             $registers
@@ -1075,7 +1075,7 @@ macro_rules! set_transfer_flags {
 // TAX, TAY, TSX, TXA, TXS, TYA
 macro_rules! register_transfer {
     (to: $to:ident, from: $from:ident, $state:expr, $registers:expr, $bus:expr) => {
-        impl_registers_instruction!($state, $registers, $bus, {
+        impl_registers_instruction!($state, $registers, $bus, || {
             let value = $registers.$from;
             $registers.$to = value;
             set_transfer_flags!($to, $registers, value);
@@ -1086,55 +1086,20 @@ macro_rules! register_transfer {
 // NOP
 macro_rules! noop {
     ($state:expr, $registers:expr, $bus:expr) => {
-        impl_registers_instruction!($state, $registers, $bus, {})
+        impl_registers_instruction!($state, $registers, $bus, || {})
     };
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BranchCondition {
-    // BCC
-    CarryClear,
-    // BCS
-    CarrySet,
-    // BEQ
-    Equal,
-    // BMI
-    Minus,
-    // BNE
-    NotEqual,
-    // BPL
-    Positive,
-    // BVC
-    OverflowClear,
-    // BVS
-    OverflowSet,
-}
-
-impl BranchCondition {
-    fn check(self, flags: StatusFlags) -> bool {
-        match self {
-            Self::CarryClear => !flags.carry,
-            Self::CarrySet => flags.carry,
-            Self::Equal => flags.zero,
-            Self::Minus => flags.negative,
-            Self::NotEqual => !flags.zero,
-            Self::Positive => !flags.negative,
-            Self::OverflowClear => !flags.overflow,
-            Self::OverflowSet => flags.overflow,
-        }
-    }
 }
 
 // BCC, BCS, BEQ, BMI, BNE, BPL
 macro_rules! branch {
-    ($condition:expr, $state:expr, $registers:expr, $bus:expr) => {
+    ($flag:ident == $flag_value:expr, $state:expr, $registers:expr, $bus:expr) => {
         match $state.cycle {
             0 => {
                 poll_interrupt_lines!($state, $registers, $bus);
 
                 $state.operand_first_byte = fetch_operand!($registers, $bus);
 
-                if !$condition.check($registers.status) {
+                if $registers.status.$flag != $flag_value {
                     $state.instruction_complete = true;
                 }
             }
@@ -1165,50 +1130,45 @@ macro_rules! branch {
 }
 
 // JMP
-macro_rules! jump_absolute {
-    ($state:expr, $registers:expr, $bus:expr) => {
-        match $state.cycle {
-            0 => {
-                $state.operand_first_byte = fetch_operand!($registers, $bus);
-            }
-            1 => {
-                final_cycle!($state, $registers, $bus);
-
-                let address_msb = $bus.read_address($registers.pc);
-                $registers.pc = u16::from_le_bytes([$state.operand_first_byte, address_msb]);
-            }
-            _ => panic!("invalid cycle: {}", $state.cycle),
+fn jump_absolute(state: &mut InstructionState, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) {
+    match state.cycle {
+        0 => {
+            state.operand_first_byte = fetch_operand!(registers, bus);
         }
-    };
+        1 => {
+            final_cycle!(state, registers, bus);
+
+            let address_msb = bus.read_address(registers.pc);
+            registers.pc = u16::from_le_bytes([state.operand_first_byte, address_msb]);
+        }
+        _ => panic!("invalid cycle: {}", state.cycle),
+    }
 }
 
 // JMP
-macro_rules! jump_indirect {
-    ($state:expr, $registers:expr, $bus:expr) => {
-        match $state.cycle {
-            0 => {
-                $state.operand_first_byte = fetch_operand!($registers, $bus);
-            }
-            1 => {
-                $state.operand_second_byte = fetch_operand!($registers, $bus);
-            }
-            2 => {
-                let address =
-                    u16::from_le_bytes([$state.operand_first_byte, $state.operand_second_byte]);
-                $state.target_first_byte = $bus.read_address(address);
-            }
-            3 => {
-                final_cycle!($state, $registers, $bus);
-
-                let address_lsb = $state.operand_first_byte.wrapping_add(1);
-                let address = u16::from_le_bytes([address_lsb, $state.operand_second_byte]);
-                let pc_msb = $bus.read_address(address);
-
-                $registers.pc = u16::from_le_bytes([$state.target_first_byte, pc_msb]);
-            }
-            _ => panic!("invalid cycle: {}", $state.cycle),
+fn jump_indirect(state: &mut InstructionState, registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) {
+    match state.cycle {
+        0 => {
+            state.operand_first_byte = fetch_operand!(registers, bus);
         }
-    };
+        1 => {
+            state.operand_second_byte = fetch_operand!(registers, bus);
+        }
+        2 => {
+            let address = u16::from_le_bytes([state.operand_first_byte, state.operand_second_byte]);
+            state.target_first_byte = bus.read_address(address);
+        }
+        3 => {
+            final_cycle!(state, registers, bus);
+
+            let address_lsb = state.operand_first_byte.wrapping_add(1);
+            let address = u16::from_le_bytes([address_lsb, state.operand_second_byte]);
+            let pc_msb = bus.read_address(address);
+
+            registers.pc = u16::from_le_bytes([state.target_first_byte, pc_msb]);
+        }
+        _ => panic!("invalid cycle: {}", state.cycle),
+    }
 }
 
 macro_rules! impl_push_stack {
@@ -1280,113 +1240,129 @@ macro_rules! pull_stack {
     }
 }
 
-macro_rules! push_pc_msb {
-    ($registers:expr, $bus:expr) => {{
-        let address = u16::from_be_bytes([0x01, $registers.sp]);
-        $bus.write_address(address, ($registers.pc >> 8) as u8);
-        $registers.sp = $registers.sp.wrapping_sub(1);
-    }};
+#[inline]
+fn push_pc_msb(registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) {
+    let address = u16::from_be_bytes([0x01, registers.sp]);
+    bus.write_address(address, (registers.pc >> 8) as u8);
+    registers.sp = registers.sp.wrapping_sub(1);
 }
 
-macro_rules! push_pc_lsb {
-    ($registers:expr, $bus:expr) => {{
-        let address = u16::from_be_bytes([0x01, $registers.sp]);
-        $bus.write_address(address, $registers.pc as u8);
-        $registers.sp = $registers.sp.wrapping_sub(1);
-    }};
+#[inline]
+fn push_pc_lsb(registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) {
+    let address = u16::from_be_bytes([0x01, registers.sp]);
+    bus.write_address(address, registers.pc as u8);
+    registers.sp = registers.sp.wrapping_sub(1);
+}
+
+#[inline]
+fn pull_pc_lsb(registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) {
+    registers.sp = registers.sp.wrapping_add(1);
+    registers.pc = bus
+        .read_address(u16::from_be_bytes([0x01, registers.sp]))
+        .into();
+}
+
+#[inline]
+fn pull_pc_msb(registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) {
+    registers.sp = registers.sp.wrapping_add(1);
+    let pc_msb = bus.read_address(u16::from_be_bytes([0x01, registers.sp]));
+    registers.pc |= u16::from(pc_msb) << 8;
 }
 
 // JSR
-macro_rules! jump_to_subroutine {
-    ($state:expr, $registers:expr, $bus:expr) => {
-        match $state.cycle {
-            0 => {
-                $state.operand_first_byte = fetch_operand!($registers, $bus);
-            }
-            1 => {
-                $bus.read_address(u16::from_be_bytes([0x01, $registers.sp]));
-            }
-            2 => {
-                push_pc_msb!($registers, $bus);
-            }
-            3 => {
-                push_pc_lsb!($registers, $bus);
-            }
-            4 => {
-                final_cycle!($state, $registers, $bus);
-
-                let address_msb = $bus.read_address($registers.pc);
-                $registers.pc = u16::from_le_bytes([$state.operand_first_byte, address_msb]);
-            }
-            _ => panic!("invalid cycle: {}", $state.cycle),
+fn jump_to_subroutine(
+    state: &mut InstructionState,
+    registers: &mut CpuRegisters,
+    bus: &mut CpuBus<'_>,
+) {
+    match state.cycle {
+        0 => {
+            state.operand_first_byte = fetch_operand!(registers, bus);
         }
-    };
+        1 => {
+            // Spurious stack read
+            bus.read_address(u16::from_be_bytes([0x01, registers.sp]));
+        }
+        2 => {
+            push_pc_msb(registers, bus);
+        }
+        3 => {
+            push_pc_lsb(registers, bus);
+        }
+        4 => {
+            final_cycle!(state, registers, bus);
+
+            let address_msb = bus.read_address(registers.pc);
+            registers.pc = u16::from_le_bytes([state.operand_first_byte, address_msb]);
+        }
+        _ => panic!("invalid cycle: {}", state.cycle),
+    }
 }
 
 // RTS
-macro_rules! return_from_subroutine {
-    ($state:expr, $registers:expr, $bus:expr) => {
-        match $state.cycle {
-            0 => {
-                $bus.read_address($registers.pc);
-            }
-            1 => {
-                $bus.read_address(u16::from_be_bytes([0x01, $registers.sp]));
-            }
-            2 => {
-                $registers.sp = $registers.sp.wrapping_add(1);
-                $registers.pc = $bus
-                    .read_address(u16::from_be_bytes([0x01, $registers.sp]))
-                    .into();
-            }
-            3 => {
-                $registers.sp = $registers.sp.wrapping_add(1);
-                let pc_msb = $bus.read_address(u16::from_be_bytes([0x01, $registers.sp]));
-                $registers.pc |= u16::from(pc_msb) << 8;
-            }
-            4 => {
-                final_cycle!($state, $registers, $bus);
-
-                fetch_operand!($registers, $bus);
-            }
-            _ => panic!("invalid cycle: {}", $state.cycle),
+fn return_from_subroutine(
+    state: &mut InstructionState,
+    registers: &mut CpuRegisters,
+    bus: &mut CpuBus<'_>,
+) {
+    match state.cycle {
+        0 => {
+            // Spurious operand read
+            bus.read_address(registers.pc);
         }
-    };
+        1 => {
+            // Spurious stack read
+            bus.read_address(u16::from_be_bytes([0x01, registers.sp]));
+        }
+        2 => {
+            pull_pc_lsb(registers, bus);
+        }
+        3 => {
+            pull_pc_msb(registers, bus);
+        }
+        4 => {
+            final_cycle!(state, registers, bus);
+
+            // Fetch operand and increment PC, ignore fetch result
+            fetch_operand!(registers, bus);
+        }
+        _ => panic!("invalid cycle: {}", state.cycle),
+    }
 }
 
 // RTI
-macro_rules! return_from_interrupt {
-    ($state:expr, $registers:expr, $bus:expr) => {
-        match $state.cycle {
-            0 => {
-                $bus.read_address($registers.pc);
-            }
-            1 => {
-                $bus.read_address(u16::from_be_bytes([0x01, $registers.sp]));
-            }
-            2 => {
-                $registers.sp = $registers.sp.wrapping_add(1);
-                let value = $bus.read_address(u16::from_be_bytes([0x01, $registers.sp]));
-                $registers.status = StatusFlags::from_byte(value);
-            }
-            3 => {
-                $registers.sp = $registers.sp.wrapping_add(1);
-                $registers.pc = $bus
-                    .read_address(u16::from_be_bytes([0x01, $registers.sp]))
-                    .into();
-            }
-            4 => {
-                final_cycle!($state, $registers, $bus);
-
-                $registers.sp = $registers.sp.wrapping_add(1);
-                let pc_msb = $bus.read_address(u16::from_be_bytes([0x01, $registers.sp]));
-                $registers.pc |= u16::from(pc_msb) << 8;
-            }
-            _ => panic!("invalid cycle: {}", $state.cycle),
+fn return_from_interrupt(
+    state: &mut InstructionState,
+    registers: &mut CpuRegisters,
+    bus: &mut CpuBus<'_>,
+) {
+    match state.cycle {
+        0 => {
+            // Spurious operand read
+            bus.read_address(registers.pc);
         }
-    };
+        1 => {
+            // Spurious stack read
+            bus.read_address(u16::from_be_bytes([0x01, registers.sp]));
+        }
+        2 => {
+            registers.sp = registers.sp.wrapping_add(1);
+            let value = bus.read_address(u16::from_be_bytes([0x01, registers.sp]));
+            registers.status = StatusFlags::from_byte(value);
+        }
+        3 => {
+            pull_pc_lsb(registers, bus);
+        }
+        4 => {
+            final_cycle!(state, registers, bus);
+
+            pull_pc_msb(registers, bus);
+        }
+        _ => panic!("invalid cycle: {}", state.cycle),
+    }
 }
 
+#[inline]
 fn interrupt_push_status(
     state: &mut InstructionState,
     registers: &mut CpuRegisters,
@@ -1405,82 +1381,93 @@ fn interrupt_push_status(
     };
 }
 
-macro_rules! interrupt_pull_pc_lsb {
-    ($state:expr, $registers:expr, $bus:expr) => {{
-        $registers.pc = $bus.read_address($state.interrupt_vector).into();
-        $registers.status.interrupt_disable = true;
-    }};
+#[inline]
+fn interrupt_pull_pc_lsb(
+    state: &InstructionState,
+    registers: &mut CpuRegisters,
+    bus: &mut CpuBus<'_>,
+) {
+    registers.pc = bus.read_address(state.interrupt_vector).into();
+    registers.status.interrupt_disable = true;
 }
 
-macro_rules! interrupt_pull_pc_msb {
-    ($state:expr, $registers:expr, $bus:expr) => {{
-        let pc_msb = $bus.read_address($state.interrupt_vector + 1);
-        $registers.pc |= u16::from(pc_msb) << 8;
-    }};
+#[inline]
+fn interrupt_pull_pc_msb(
+    state: &InstructionState,
+    registers: &mut CpuRegisters,
+    bus: &mut CpuBus<'_>,
+) {
+    let pc_msb = bus.read_address(state.interrupt_vector + 1);
+    registers.pc |= u16::from(pc_msb) << 8;
 }
 
 // BRK
-macro_rules! force_interrupt {
-    ($state:expr, $registers:expr, $bus:expr) => {
-        match $state.cycle {
-            0 => {
-                fetch_operand!($registers, $bus);
-            }
-            1 => {
-                push_pc_msb!($registers, $bus);
-            }
-            2 => {
-                push_pc_lsb!($registers, $bus);
-            }
-            3 => {
-                interrupt_push_status($state, $registers, $bus, StatusReadContext::Brk);
-            }
-            4 => {
-                interrupt_pull_pc_lsb!($state, $registers, $bus);
-            }
-            5 => {
-                final_cycle!($state, $registers, $bus);
-
-                interrupt_pull_pc_msb!($state, $registers, $bus);
-            }
-            _ => panic!("invalid cycle: {}", $state.cycle),
+fn force_interrupt(
+    state: &mut InstructionState,
+    registers: &mut CpuRegisters,
+    bus: &mut CpuBus<'_>,
+) {
+    match state.cycle {
+        0 => {
+            fetch_operand!(registers, bus);
         }
-    };
+        1 => {
+            push_pc_msb(registers, bus);
+        }
+        2 => {
+            push_pc_lsb(registers, bus);
+        }
+        3 => {
+            interrupt_push_status(state, registers, bus, StatusReadContext::Brk);
+        }
+        4 => {
+            interrupt_pull_pc_lsb(state, registers, bus);
+        }
+        5 => {
+            final_cycle!(state, registers, bus);
+
+            interrupt_pull_pc_msb(state, registers, bus);
+        }
+        _ => panic!("invalid cycle: {}", state.cycle),
+    }
 }
 
 // Hardware interrupt servicing routine
-macro_rules! interrupt_service_routine {
-    ($state:expr, $registers:expr, $bus:expr) => {
-        match $state.cycle {
-            0 => {
-                $bus.read_address($registers.pc);
-            }
-            1 => {
-                push_pc_msb!($registers, $bus);
-            }
-            2 => {
-                push_pc_lsb!($registers, $bus);
-            }
-            3 => {
-                interrupt_push_status(
-                    $state,
-                    $registers,
-                    $bus,
-                    StatusReadContext::HardwareInterruptHandler,
-                );
-            }
-            4 => {
-                interrupt_pull_pc_lsb!($state, $registers, $bus);
-            }
-            5 => {
-                final_cycle!($state, $registers, $bus);
-                $state.executing_interrupt = false;
-
-                interrupt_pull_pc_msb!($state, $registers, $bus);
-            }
-            _ => panic!("invalid cycle: {}", $state.cycle),
+fn interrupt_service_routine(
+    state: &mut InstructionState,
+    registers: &mut CpuRegisters,
+    bus: &mut CpuBus<'_>,
+) {
+    match state.cycle {
+        0 => {
+            // Spurious operand read
+            bus.read_address(registers.pc);
         }
-    };
+        1 => {
+            push_pc_msb(registers, bus);
+        }
+        2 => {
+            push_pc_lsb(registers, bus);
+        }
+        3 => {
+            interrupt_push_status(
+                state,
+                registers,
+                bus,
+                StatusReadContext::HardwareInterruptHandler,
+            );
+        }
+        4 => {
+            interrupt_pull_pc_lsb(state, registers, bus);
+        }
+        5 => {
+            final_cycle!(state, registers, bus);
+
+            state.executing_interrupt = false;
+            interrupt_pull_pc_msb(state, registers, bus);
+        }
+        _ => panic!("invalid cycle: {}", state.cycle),
+    }
 }
 
 fn execute_unofficial_store(
@@ -1533,61 +1520,65 @@ macro_rules! unofficial_store {
 }
 
 // AHX, TAS (unofficial) (not actually implemented because these opcodes are very unstable)
-macro_rules! unimplemented_unofficial_store_absolute_y {
-    ($state:expr, $registers:expr, $bus:expr) => {
-        match $state.cycle {
-            0 => {
-                $state.operand_first_byte = fetch_operand!($registers, $bus);
-            }
-            1 => {
-                $state.operand_second_byte = fetch_operand!($registers, $bus);
-            }
-            2 => {
-                let address_lsb = $state.operand_first_byte.wrapping_add($registers.y);
-                let address = u16::from_le_bytes([address_lsb, $state.operand_second_byte]);
-                $state.target_first_byte = $bus.read_address(address);
-            }
-            3 => {
-                final_cycle!($state, $registers, $bus);
-
-                let address_lsb = $state.operand_first_byte.wrapping_add($registers.y);
-                let address = u16::from_le_bytes([address_lsb, $state.operand_second_byte]);
-                $bus.write_address(address, $state.target_first_byte);
-            }
-            _ => panic!("invalid cycle: {}", $state.cycle),
+fn unimplemented_unofficial_store_absolute_y(
+    state: &mut InstructionState,
+    registers: &mut CpuRegisters,
+    bus: &mut CpuBus<'_>,
+) {
+    match state.cycle {
+        0 => {
+            state.operand_first_byte = fetch_operand!(registers, bus);
         }
-    };
+        1 => {
+            state.operand_second_byte = fetch_operand!(registers, bus);
+        }
+        2 => {
+            let address_lsb = state.operand_first_byte.wrapping_add(registers.y);
+            let address = u16::from_le_bytes([address_lsb, state.operand_second_byte]);
+            state.target_first_byte = bus.read_address(address);
+        }
+        3 => {
+            final_cycle!(state, registers, bus);
+
+            let address_lsb = state.operand_first_byte.wrapping_add(registers.y);
+            let address = u16::from_le_bytes([address_lsb, state.operand_second_byte]);
+            bus.write_address(address, state.target_first_byte);
+        }
+        _ => panic!("invalid cycle: {}", state.cycle),
+    }
 }
 
 // AHX, TAS (unofficial) (not actually implemented because these opcodes are very unstable)
-macro_rules! unimplemented_unofficial_store_indirect_y {
-    ($state:expr, $registers:expr, $bus:expr) => {
-        match $state.cycle {
-            0 => {
-                $state.operand_first_byte = fetch_operand!($registers, $bus);
-            }
-            1 => {
-                $state.target_first_byte = $bus.read_address($state.operand_first_byte.into());
-            }
-            2 => {
-                let address = $state.operand_first_byte.wrapping_add(1).into();
-                $state.target_second_byte = $bus.read_address(address);
-            }
-            3 => {
-                let address_lsb = $state.target_first_byte.wrapping_add($registers.y);
-                let address = u16::from_le_bytes([address_lsb, $state.target_second_byte]);
-                $state.indirect_byte = $bus.read_address(address);
-            }
-            4 => {
-                final_cycle!($state, $registers, $bus);
-
-                let address_lsb = $state.target_first_byte.wrapping_add($registers.y);
-                let address = u16::from_le_bytes([address_lsb, $state.target_second_byte]);
-                $bus.write_address(address, $state.indirect_byte);
-            }
-            _ => panic!("invalid cycle: {}", $state.cycle),
+fn unimplemented_unofficial_store_indirect_y(
+    state: &mut InstructionState,
+    registers: &mut CpuRegisters,
+    bus: &mut CpuBus<'_>,
+) {
+    match state.cycle {
+        0 => {
+            state.operand_first_byte = fetch_operand!(registers, bus);
         }
-    };
+        1 => {
+            state.target_first_byte = bus.read_address(state.operand_first_byte.into());
+        }
+        2 => {
+            let address = state.operand_first_byte.wrapping_add(1).into();
+            state.target_second_byte = bus.read_address(address);
+        }
+        3 => {
+            let address_lsb = state.target_first_byte.wrapping_add(registers.y);
+            let address = u16::from_le_bytes([address_lsb, state.target_second_byte]);
+            state.indirect_byte = bus.read_address(address);
+        }
+        4 => {
+            final_cycle!(state, registers, bus);
+
+            let address_lsb = state.target_first_byte.wrapping_add(registers.y);
+            let address = u16::from_le_bytes([address_lsb, state.target_second_byte]);
+            bus.write_address(address, state.indirect_byte);
+        }
+        _ => panic!("invalid cycle: {}", state.cycle),
+    }
 }
 
 // ANC (unofficial)
@@ -1718,13 +1709,13 @@ pub fn execute_cycle(
     bus: &mut CpuBus<'_>,
 ) {
     if state.executing_interrupt {
-        interrupt_service_routine!(state, registers, bus);
+        interrupt_service_routine(state, registers, bus);
         state.cycle += 1;
         return;
     }
 
     match state.opcode {
-        0x00 => force_interrupt!(state, registers, bus),
+        0x00 => force_interrupt(state, registers, bus),
         0x01 => or!(indirect_x, state, registers, bus),
         0x03 => shift_left_or!(indirect_x, state, registers, bus),
         0x04 | 0x44 | 0x64 => multi_byte_noop!(zero_page, state, registers, bus),
@@ -1739,7 +1730,7 @@ pub fn execute_cycle(
         0x0D => or!(absolute, state, registers, bus),
         0x0E => shift_left!(absolute, state, registers, bus),
         0x0F => shift_left_or!(absolute, state, registers, bus),
-        0x10 => branch!(BranchCondition::Positive, state, registers, bus),
+        0x10 => branch!(negative == false, state, registers, bus),
         0x11 => or!(indirect_y, state, registers, bus),
         0x13 => shift_left_or!(indirect_y, state, registers, bus),
         0x14 | 0x34 | 0x54 | 0x74 | 0xD4 | 0xF4 => {
@@ -1758,7 +1749,7 @@ pub fn execute_cycle(
         0x1D => or!(absolute_x, state, registers, bus),
         0x1E => shift_left!(absolute_x, state, registers, bus),
         0x1F => shift_left_or!(absolute_x, state, registers, bus),
-        0x20 => jump_to_subroutine!(state, registers, bus),
+        0x20 => jump_to_subroutine(state, registers, bus),
         0x21 => and!(indirect_x, state, registers, bus),
         0x23 => rotate_left_and!(indirect_x, state, registers, bus),
         0x24 => bit_test!(zero_page, state, registers, bus),
@@ -1772,7 +1763,7 @@ pub fn execute_cycle(
         0x2D => and!(absolute, state, registers, bus),
         0x2E => rotate_left!(absolute, state, registers, bus),
         0x2F => rotate_left_and!(absolute, state, registers, bus),
-        0x30 => branch!(BranchCondition::Minus, state, registers, bus),
+        0x30 => branch!(negative == true, state, registers, bus),
         0x31 => and!(indirect_y, state, registers, bus),
         0x33 => rotate_left_and!(indirect_y, state, registers, bus),
         0x35 => and!(zero_page_x, state, registers, bus),
@@ -1784,7 +1775,7 @@ pub fn execute_cycle(
         0x3D => and!(absolute_x, state, registers, bus),
         0x3E => rotate_left!(absolute_x, state, registers, bus),
         0x3F => rotate_left_and!(absolute_x, state, registers, bus),
-        0x40 => return_from_interrupt!(state, registers, bus),
+        0x40 => return_from_interrupt(state, registers, bus),
         0x41 => xor!(indirect_x, state, registers, bus),
         0x43 => shift_right_xor!(indirect_x, state, registers, bus),
         0x45 => xor!(zero_page, state, registers, bus),
@@ -1794,11 +1785,11 @@ pub fn execute_cycle(
         0x49 => xor!(immediate, state, registers, bus),
         0x4A => logical_shift_right!(accumulator, state, registers, bus),
         0x4B => and_with_shift_right!(state, registers, bus),
-        0x4C => jump_absolute!(state, registers, bus),
+        0x4C => jump_absolute(state, registers, bus),
         0x4D => xor!(absolute, state, registers, bus),
         0x4E => logical_shift_right!(absolute, state, registers, bus),
         0x4F => shift_right_xor!(absolute, state, registers, bus),
-        0x50 => branch!(BranchCondition::OverflowClear, state, registers, bus),
+        0x50 => branch!(overflow == false, state, registers, bus),
         0x51 => xor!(indirect_y, state, registers, bus),
         0x53 => shift_right_xor!(indirect_y, state, registers, bus),
         0x55 => xor!(zero_page_x, state, registers, bus),
@@ -1810,7 +1801,7 @@ pub fn execute_cycle(
         0x5D => xor!(absolute_x, state, registers, bus),
         0x5E => logical_shift_right!(absolute_x, state, registers, bus),
         0x5F => shift_right_xor!(absolute_x, state, registers, bus),
-        0x60 => return_from_subroutine!(state, registers, bus),
+        0x60 => return_from_subroutine(state, registers, bus),
         0x61 => add_with_carry!(indirect_x, state, registers, bus),
         0x63 => rotate_right_add!(indirect_x, state, registers, bus),
         0x65 => add_with_carry!(zero_page, state, registers, bus),
@@ -1820,11 +1811,11 @@ pub fn execute_cycle(
         0x69 => add_with_carry!(immediate, state, registers, bus),
         0x6A => rotate_right!(accumulator, state, registers, bus),
         0x6B => and_with_rotate_right!(state, registers, bus),
-        0x6C => jump_indirect!(state, registers, bus),
+        0x6C => jump_indirect(state, registers, bus),
         0x6D => add_with_carry!(absolute, state, registers, bus),
         0x6E => rotate_right!(absolute, state, registers, bus),
         0x6F => rotate_right_add!(absolute, state, registers, bus),
-        0x70 => branch!(BranchCondition::OverflowSet, state, registers, bus),
+        0x70 => branch!(overflow == true, state, registers, bus),
         0x71 => add_with_carry!(indirect_y, state, registers, bus),
         0x73 => rotate_right_add!(indirect_y, state, registers, bus),
         0x75 => add_with_carry!(zero_page_x, state, registers, bus),
@@ -1850,9 +1841,9 @@ pub fn execute_cycle(
         0x8D => store!(absolute, register: accumulator, state, registers, bus),
         0x8E => store!(absolute, register: x, state, registers, bus),
         0x8F => store!(absolute, register: ax, state, registers, bus),
-        0x90 => branch!(BranchCondition::CarryClear, state, registers, bus),
+        0x90 => branch!(carry == false, state, registers, bus),
         0x91 => store!(indirect_y, register: accumulator, state, registers, bus),
-        0x93 => unimplemented_unofficial_store_indirect_y!(state, registers, bus),
+        0x93 => unimplemented_unofficial_store_indirect_y(state, registers, bus),
         0x94 => store!(zero_page_x, register: y, state, registers, bus),
         0x95 => store!(zero_page_x, register: accumulator, state, registers, bus),
         0x96 => store!(zero_page_y, register: x, state, registers, bus),
@@ -1860,7 +1851,7 @@ pub fn execute_cycle(
         0x98 => register_transfer!(to: accumulator, from: y, state, registers, bus),
         0x99 => store!(absolute_y, register: accumulator, state, registers, bus),
         0x9A => register_transfer!(to: sp, from: x, state, registers, bus),
-        0x9B | 0x9F => unimplemented_unofficial_store_absolute_y!(state, registers, bus),
+        0x9B | 0x9F => unimplemented_unofficial_store_absolute_y(state, registers, bus),
         0x9C => unofficial_store!(register: y, index: x, state, registers, bus),
         0x9D => store!(absolute_x, register: accumulator, state, registers, bus),
         0x9E => unofficial_store!(register: x, index: y, state, registers, bus),
@@ -1880,7 +1871,7 @@ pub fn execute_cycle(
         0xAD => load!(absolute, register: accumulator, state, registers, bus),
         0xAE => load!(absolute, register: x, state, registers, bus),
         0xAF => load_transfer_ax!(absolute, state, registers, bus),
-        0xB0 => branch!(BranchCondition::CarrySet, state, registers, bus),
+        0xB0 => branch!(carry == true, state, registers, bus),
         0xB1 => load!(indirect_y, register: accumulator, state, registers, bus),
         0xB3 => load_transfer_ax!(indirect_y, state, registers, bus),
         0xB4 => load!(zero_page_x, register: y, state, registers, bus),
@@ -1910,7 +1901,7 @@ pub fn execute_cycle(
         0xCD => compare!(absolute, register: accumulator, state, registers, bus),
         0xCE => decrement!(absolute, state, registers, bus),
         0xCF => decrement_compare!(absolute, state, registers, bus),
-        0xD0 => branch!(BranchCondition::NotEqual, state, registers, bus),
+        0xD0 => branch!(zero == false, state, registers, bus),
         0xD1 => compare!(indirect_y, register: accumulator, state, registers, bus),
         0xD3 => decrement_compare!(indirect_y, state, registers, bus),
         0xD5 => compare!(zero_page_x, register: accumulator, state, registers, bus),
@@ -1935,7 +1926,7 @@ pub fn execute_cycle(
         0xED => subtract_with_carry!(absolute, state, registers, bus),
         0xEE => increment!(absolute, state, registers, bus),
         0xEF => increment_subtract!(absolute, state, registers, bus),
-        0xF0 => branch!(BranchCondition::Equal, state, registers, bus),
+        0xF0 => branch!(zero == true, state, registers, bus),
         0xF1 => subtract_with_carry!(indirect_y, state, registers, bus),
         0xF3 => increment_subtract!(indirect_y, state, registers, bus),
         0xF5 => subtract_with_carry!(zero_page_x, state, registers, bus),
