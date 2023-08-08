@@ -70,7 +70,7 @@ impl TimingMode {
     fn refresh_rate_multiplier(self) -> f64 {
         match self {
             Self::Ntsc => 1.0,
-            Self::Pal => PAL_NES_NATIVE_DISPLAY_RATE / NTSC_NES_NATIVE_DISPLAY_RATE,
+            Self::Pal => 50.0 / 60.0,
         }
     }
 }
