@@ -83,11 +83,6 @@ struct ParseResult {
     index_fetch_t_cycles: u32,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct ExecuteResult {
-    pub t_cycles: u32,
-}
-
 struct InstructionExecutor<'registers, 'bus, B> {
     registers: &'registers mut Registers,
     bus: &'bus mut B,
@@ -177,11 +172,12 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         u16::from_le_bytes([lsb, msb])
     }
 
-
     fn check_pending_interrupt(&self) -> Option<InterruptType> {
         if self.registers.interrupt_delay {
             None
-        } else if self.bus.nmi() == InterruptLine::Low && self.registers.last_nmi == InterruptLine::High {
+        } else if self.bus.nmi() == InterruptLine::Low
+            && self.registers.last_nmi == InterruptLine::High
+        {
             Some(InterruptType::Nmi)
         } else if self.registers.iff1 && self.bus.int() == InterruptLine::Low {
             Some(InterruptType::Int)
@@ -190,10 +186,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         }
     }
 
-    fn interrupt_service_routine(&mut self, interrupt_type: InterruptType) -> ExecuteResult {
+    fn interrupt_service_routine(&mut self, interrupt_type: InterruptType) -> u32 {
         self.registers.halted = false;
 
-        let t_cycles = match interrupt_type {
+        match interrupt_type {
             InterruptType::Nmi => {
                 self.push_stack(self.registers.pc);
                 self.registers.pc = 0x0066;
@@ -225,9 +221,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                     }
                 }
             }
-        };
-
-        ExecuteResult { t_cycles }
+        }
     }
 
     fn execute_cb_prefix(&mut self, index: Option<IndexRegister>) -> u32 {
@@ -327,7 +321,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         }
     }
 
-    fn execute(mut self) -> ExecuteResult {
+    fn execute(mut self) -> u32 {
         self.registers.r = (self.registers.r.wrapping_add(1) & 0x7F) | (self.registers.r & 0x80);
 
         let interrupt_type = self.check_pending_interrupt();
@@ -340,8 +334,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         }
 
         if self.registers.halted {
-            let t_cycles = control::nop();
-            return ExecuteResult { t_cycles };
+            return control::nop();
         }
 
         let ParseResult {
@@ -458,12 +451,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             0xDD | 0xFD => unreachable!("DD/FD prefixes have already been removed"),
         };
 
-        ExecuteResult {
-            t_cycles: index_fetch_t_cycles + instruction_t_cycles,
-        }
+        index_fetch_t_cycles + instruction_t_cycles
     }
 }
 
-pub fn execute<B: BusInterface>(registers: &mut Registers, bus: &mut B) -> ExecuteResult {
+pub fn execute<B: BusInterface>(registers: &mut Registers, bus: &mut B) -> u32 {
     InstructionExecutor::new(registers, bus).execute()
 }

@@ -1,4 +1,3 @@
-use crate::core::instructions::ExecuteResult;
 use crate::traits::{BusInterface, InterruptLine};
 
 mod instructions;
@@ -335,12 +334,9 @@ impl Z80 {
         self.registers.pc = pc;
     }
 
+    /// Execute a single instruction (or the interrupt service routine) and return how many T-cycles it took.
     pub fn execute_instruction<B: BusInterface>(&mut self, bus: &mut B) -> u32 {
-        let ExecuteResult { t_cycles } = instructions::execute(&mut self.registers, bus);
-
-        // TODO interrupts
-
-        t_cycles
+        instructions::execute(&mut self.registers, bus)
     }
 }
 

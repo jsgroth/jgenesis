@@ -5,16 +5,22 @@ pub enum InterruptLine {
 }
 
 pub trait BusInterface {
+    /// Read a byte from the given memory address.
     fn read_memory(&mut self, address: u16) -> u8;
 
+    /// Write the given byte to the given memory address.
     fn write_memory(&mut self, address: u16, value: u8);
 
+    /// Read a byte from the given I/O port. Most hardware only uses the lower 8 bits of the address.
     fn read_io(&mut self, address: u16) -> u8;
 
+    /// Write the given byte to the given I/O port. Most hardware only uses the lower 8 bits of the address.
     fn write_io(&mut self, address: u16, value: u8);
 
+    /// Poll the NMI interrupt line.
     fn nmi(&self) -> InterruptLine;
 
+    /// Poll the INT interrupt line.
     fn int(&self) -> InterruptLine;
 }
 
