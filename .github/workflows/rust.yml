@@ -1,0 +1,50 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install latest stable Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+
+    - name: Check formatting
+      uses: actions-rs/cargo@v1
+      with:
+        command: fmt
+        args: --check
+
+    - name: Build
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+
+    - name: Install cranky
+      uses: actions-rs/cargo@v1
+      with:
+        command: install
+        args: cargo-cranky
+
+    - name: Check Clippy warnings
+      uses: actions-rs/cargo@v1
+      with:
+        command: cranky
+        args: -- -D warnings
+
+    - name: Run tests
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
