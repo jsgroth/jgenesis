@@ -1,0 +1,12 @@
+[package]
+name = "smsgg-core"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+z80-emu = { path = "../z80-emu" }
+
+log = "0.4"
+minifb = "0.25"

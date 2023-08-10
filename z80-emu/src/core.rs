@@ -48,14 +48,14 @@ impl From<Flags> for u8 {
 impl From<u8> for Flags {
     fn from(value: u8) -> Self {
         Self {
-            sign: value & 0x80 != 0,
-            zero: value & 0x40 != 0,
-            y: value & 0x20 != 0,
-            half_carry: value & 0x10 != 0,
-            x: value & 0x08 != 0,
-            overflow: value & 0x04 != 0,
-            subtract: value & 0x02 != 0,
-            carry: value & 0x01 != 0,
+            sign: value.bit(7),
+            zero: value.bit(6),
+            y: value.bit(5),
+            half_carry: value.bit(4),
+            x: value.bit(3),
+            overflow: value.bit(2),
+            subtract: value.bit(1),
+            carry: value.bit(0),
         }
     }
 }
@@ -332,6 +332,10 @@ impl Z80 {
 
     pub fn set_pc(&mut self, pc: u16) {
         self.registers.pc = pc;
+    }
+
+    pub fn set_sp(&mut self, sp: u16) {
+        self.registers.sp = sp;
     }
 
     /// Execute a single instruction (or the interrupt service routine) and return how many T-cycles it took.

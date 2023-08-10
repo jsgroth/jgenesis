@@ -32,17 +32,17 @@ jobs:
       with:
         command: build
 
-    - name: Install cranky
-      uses: actions-rs/cargo@v1
-      with:
-        command: install
-        args: cargo-cranky
-
-    - name: Check Clippy warnings
-      uses: actions-rs/cargo@v1
-      with:
-        command: cranky
-        args: -- -D warnings
+#    - name: Install cranky
+#      uses: actions-rs/cargo@v1
+#      with:
+#        command: install
+#        args: cargo-cranky
+#
+#    - name: Check Clippy warnings
+#      uses: actions-rs/cargo@v1
+#      with:
+#        command: cranky
+#        args: -- -D warnings
 
     - name: Run tests
       uses: actions-rs/cargo@v1

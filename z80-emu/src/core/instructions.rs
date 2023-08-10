@@ -187,6 +187,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     }
 
     fn interrupt_service_routine(&mut self, interrupt_type: InterruptType) -> u32 {
+        log::trace!("Executing interrupt service routine for interrupt type {interrupt_type:?}");
+
         self.registers.halted = false;
 
         match interrupt_type {
