@@ -23,7 +23,7 @@ jobs:
 
     - name: Install system library dependencies
       run: |
-        sudo apt update && sudo apt install -y alsa
+        sudo apt update && sudo apt install -y libasound2
 
     - name: Check formatting
       uses: actions-rs/cargo@v1
