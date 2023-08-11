@@ -66,7 +66,7 @@ pub fn run(config: SmsGgConfig) {
     log::info!("Using VDP {vdp_version} and PSG {psg_version}");
 
     let mut window = Window::new(file_name, 3 * 256, 3 * 192, WindowOptions::default()).unwrap();
-    window.limit_update_rate(Some(Duration::from_micros(16600)));
+    window.limit_update_rate(Some(Duration::from_micros(16400)));
 
     // TODO variable resolutions for Game Gear, 224-line mode, borders, etc.
     let mut minifb_buffer = vec![0_u32; 256 * 192];
@@ -123,7 +123,7 @@ pub fn run(config: SmsGgConfig) {
             &mut vdp,
             &mut psg,
             &mut input,
-        )) + leftover_vdp_cycles;
+        ));
 
         for _ in 0..t_cycles {
             if psg.tick() == PsgTickEffect::Clocked {
@@ -153,9 +153,10 @@ pub fn run(config: SmsGgConfig) {
             }
         }
 
-        leftover_vdp_cycles = t_cycles % 2;
+        let t_cycles_plus_leftover = t_cycles + leftover_vdp_cycles;
+        leftover_vdp_cycles = t_cycles_plus_leftover % 2;
 
-        let vdp_cycles = t_cycles / 2 * 3;
+        let vdp_cycles = t_cycles_plus_leftover / 2 * 3;
         for _ in 0..vdp_cycles {
             if vdp.tick() == VdpTickEffect::FrameComplete {
                 let vdb_buffer = vdp.frame_buffer();
