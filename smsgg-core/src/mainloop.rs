@@ -4,13 +4,15 @@ use crate::vdp::{FrameBuffer, TickEffect, Vdp, VdpVersion};
 use minifb::{Key, Window, WindowOptions};
 use std::fs;
 use std::path::Path;
+use std::time::Duration;
 use z80_emu::Z80;
 
 // TODO generalize all this
 pub fn run(path: &str) {
     let file_name = Path::new(path).file_name().unwrap().to_str().unwrap();
 
-    let mut window = Window::new(file_name, 512, 384, WindowOptions::default()).unwrap();
+    let mut window = Window::new(file_name, 3 * 256, 3 * 192, WindowOptions::default()).unwrap();
+    window.limit_update_rate(Some(Duration::from_micros(16600)));
 
     let mut minifb_buffer = vec![0_u32; 256 * 192];
 
