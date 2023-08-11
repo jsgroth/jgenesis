@@ -3,9 +3,11 @@ use crate::memory::Memory;
 use crate::num::GetBit;
 use crate::psg::Psg;
 use crate::vdp::Vdp;
+use crate::VdpVersion;
 use z80_emu::traits::{BusInterface, InterruptLine};
 
 pub struct Bus<'a> {
+    version: VdpVersion,
     memory: &'a mut Memory,
     vdp: &'a mut Vdp,
     psg: &'a mut Psg,
@@ -14,12 +16,14 @@ pub struct Bus<'a> {
 
 impl<'a> Bus<'a> {
     pub fn new(
+        version: VdpVersion,
         memory: &'a mut Memory,
         vdp: &'a mut Vdp,
         psg: &'a mut Psg,
         input: &'a mut InputState,
     ) -> Self {
         Self {
+            version,
             memory,
             vdp,
             psg,
@@ -38,6 +42,18 @@ impl<'a> BusInterface for Bus<'a> {
     }
 
     fn read_io(&mut self, address: u16) -> u8 {
+        let address = address & 0xFF;
+        if self.version == VdpVersion::GameGear && address <= 0x06 {
+            // TODO Game Gear registers
+            return match address {
+                0x00 => (u8::from(!self.input.pause_pressed()) << 7) | 0x40,
+                0x01 => 0x7F,
+                0x02 | 0x04 | 0x06 => 0xFF,
+                0x03 | 0x05 => 0x00,
+                _ => unreachable!("value is <= 0x06"),
+            };
+        }
+
         match (address.bit(7), address.bit(6), address.bit(0)) {
             (false, false, _) => {
                 // Invalid read addresses
@@ -72,6 +88,12 @@ impl<'a> BusInterface for Bus<'a> {
     }
 
     fn write_io(&mut self, address: u16, value: u8) {
+        let address = address & 0xFF;
+        if self.version == VdpVersion::GameGear && address <= 0x06 {
+            // TODO Game Gear registers
+            return;
+        }
+
         match (address.bit(7), address.bit(6), address.bit(0)) {
             (false, false, false) => {
                 // TODO memory control
@@ -98,8 +120,11 @@ impl<'a> BusInterface for Bus<'a> {
     }
 
     fn nmi(&self) -> InterruptLine {
-        // TODO PAUSE button
-        InterruptLine::High
+        if self.version == VdpVersion::MasterSystem2 && self.input.pause_pressed() {
+            InterruptLine::Low
+        } else {
+            InterruptLine::High
+        }
     }
 
     fn int(&self) -> InterruptLine {

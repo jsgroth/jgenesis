@@ -1,21 +1,41 @@
 use crate::num::GetBit;
+use std::fmt::{Display, Formatter};
+use std::str::FromStr;
 use z80_emu::traits::InterruptLine;
 
-// TODO remove once versioning is implemented
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VdpVersion {
-    MasterSystem,
+    #[default]
     MasterSystem2,
-    GameGearSmsMode,
-    GameGearGgMode,
+    GameGear,
 }
 
 impl VdpVersion {
     const fn cram_address_mask(self) -> u16 {
         match self {
-            Self::GameGearGgMode => 0x003F,
-            _ => 0x001F,
+            Self::MasterSystem2 => 0x001F,
+            Self::GameGear => 0x003F,
+        }
+    }
+}
+
+impl Display for VdpVersion {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MasterSystem2 => write!(f, "MasterSystem2"),
+            Self::GameGear => write!(f, "GameGear"),
+        }
+    }
+}
+
+impl FromStr for VdpVersion {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "MasterSystem2" => Ok(Self::MasterSystem2),
+            "GameGear" => Ok(Self::GameGear),
+            _ => Err(format!("invalid VDP version string: {s}")),
         }
     }
 }
@@ -412,13 +432,13 @@ fn find_sprites_on_scanline(
 }
 
 const VRAM_SIZE: usize = 16 * 1024;
-const COLOR_RAM_SIZE: usize = 32;
+const COLOR_RAM_SIZE: usize = 64;
 
 const SCREEN_WIDTH: u16 = 256;
 const FRAME_BUFFER_HEIGHT: u16 = 240;
 
 // TODO properly handle borders
-pub type FrameBuffer = [[u8; SCREEN_WIDTH as usize]; FRAME_BUFFER_HEIGHT as usize];
+pub type FrameBuffer = [[u16; SCREEN_WIDTH as usize]; FRAME_BUFFER_HEIGHT as usize];
 
 #[derive(Debug, Clone)]
 pub struct Vdp {
@@ -452,6 +472,16 @@ impl Vdp {
             dot: 0,
             sprite_buffer: SpriteBuffer::new(),
             line_counter: 0xFF,
+        }
+    }
+
+    fn read_color_ram_word(&self, address: u8) -> u16 {
+        match self.registers.version {
+            VdpVersion::MasterSystem2 => self.color_ram[address as usize].into(),
+            VdpVersion::GameGear => u16::from_le_bytes([
+                self.color_ram[(2 * address) as usize],
+                self.color_ram[(2 * address + 1) as usize],
+            ]),
         }
     }
 
@@ -493,7 +523,7 @@ impl Vdp {
             };
 
         // Backdrop color always reads from the second half of CRAM
-        let backdrop_color = self.color_ram[0x10 | self.registers.backdrop_color as usize];
+        let backdrop_color = self.read_color_ram_word(0x10 | self.registers.backdrop_color);
 
         for dot in 0..fine_x_scroll {
             self.frame_buffer[scanline as usize][dot as usize] = backdrop_color;
@@ -603,9 +633,9 @@ impl Vdp {
                 let pixel_color =
                     if sprite_color_id != 0 && (bg_color_id == 0 || !bg_tile_data.priority) {
                         // Sprites can only use palette 1
-                        self.color_ram[(0x10 | sprite_color_id) as usize]
+                        self.read_color_ram_word(0x10 | sprite_color_id)
                     } else {
-                        self.color_ram[(bg_base_cram_addr | bg_color_id) as usize]
+                        self.read_color_ram_word(bg_base_cram_addr | bg_color_id)
                     };
                 self.frame_buffer[scanline as usize][dot as usize] = pixel_color;
             }
@@ -673,6 +703,11 @@ impl Vdp {
         let vblank_start = self.scanline == 193 && self.dot == 0;
         if vblank_start {
             self.registers.frame_interrupt_pending = true;
+
+            // TODO do this somewhere else, e.g. the renderer
+            if self.registers.version == VdpVersion::GameGear {
+                self.clear_game_gear_border();
+            }
         }
 
         let tick_effect = if vblank_start {
@@ -692,6 +727,32 @@ impl Vdp {
         }
 
         tick_effect
+    }
+
+    fn clear_game_gear_border(&mut self) {
+        for scanline in &mut self.frame_buffer[..24] {
+            for pixel in scanline {
+                *pixel = 0;
+            }
+        }
+
+        for scanline in &mut self.frame_buffer[168..192] {
+            for pixel in scanline {
+                *pixel = 0;
+            }
+        }
+
+        for column in 0..48 {
+            for scanline in 0..192 {
+                self.frame_buffer[scanline][column] = 0;
+            }
+        }
+
+        for column in 208..256 {
+            for scanline in 0..192 {
+                self.frame_buffer[scanline][column] = 0;
+            }
+        }
     }
 
     pub fn frame_buffer(&self) -> &FrameBuffer {

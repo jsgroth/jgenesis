@@ -13,12 +13,25 @@ use std::time::Duration;
 use std::{fs, process, thread};
 use z80_emu::Z80;
 
+#[derive(Debug, Clone)]
+pub struct SmsGgConfig {
+    pub rom_file_path: String,
+    pub vdp_version: VdpVersion,
+    pub psg_version: PsgVersion,
+}
+
 // TODO generalize all this
 /// # Panics
 ///
 /// Panics if the file cannot be read
-pub fn run(path: &str) {
-    let file_name = Path::new(path).file_name().unwrap().to_str().unwrap();
+pub fn run(config: SmsGgConfig) {
+    log::info!("Running with config: {config:?}");
+
+    let file_name = Path::new(&config.rom_file_path)
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap();
 
     let mut window = Window::new(file_name, 3 * 256, 3 * 192, WindowOptions::default()).unwrap();
     window.limit_update_rate(Some(Duration::from_micros(16600)));
@@ -54,15 +67,15 @@ pub fn run(path: &str) {
         .unwrap();
     audio_stream.play().unwrap();
 
-    let rom = fs::read(Path::new(path)).unwrap();
+    let rom = fs::read(Path::new(&config.rom_file_path)).unwrap();
     let mut memory = Memory::new(rom);
 
     let mut z80 = Z80::new();
     z80.set_pc(0x0000);
     z80.set_sp(0xDFFF);
 
-    let mut vdp = Vdp::new(VdpVersion::MasterSystem);
-    let mut psg = Psg::new(PsgVersion::MasterSystem2);
+    let mut vdp = Vdp::new(config.vdp_version);
+    let mut psg = Psg::new(config.psg_version);
     let mut input = InputState::new();
 
     let mut sample_count = 0_u64;
@@ -70,9 +83,13 @@ pub fn run(path: &str) {
 
     let mut leftover_vdp_cycles = 0;
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        let t_cycles =
-            z80.execute_instruction(&mut Bus::new(&mut memory, &mut vdp, &mut psg, &mut input))
-                + leftover_vdp_cycles;
+        let t_cycles = z80.execute_instruction(&mut Bus::new(
+            config.vdp_version,
+            &mut memory,
+            &mut vdp,
+            &mut psg,
+            &mut input,
+        )) + leftover_vdp_cycles;
 
         for _ in 0..t_cycles {
             if psg.tick() == PsgTickEffect::Clocked {
@@ -109,7 +126,7 @@ pub fn run(path: &str) {
             if vdp.tick() == VdpTickEffect::FrameComplete {
                 let vdb_buffer = vdp.frame_buffer();
 
-                vdp_buffer_to_minifb_buffer(vdb_buffer, &mut minifb_buffer);
+                vdp_buffer_to_minifb_buffer(vdb_buffer, config.vdp_version, &mut minifb_buffer);
 
                 window.update_with_buffer(&minifb_buffer, 256, 192).unwrap();
 
@@ -120,23 +137,44 @@ pub fn run(path: &str) {
                 p1_input.down = window.is_key_down(Key::Down);
                 p1_input.button_1 = window.is_key_down(Key::S);
                 p1_input.button_2 = window.is_key_down(Key::A);
+
+                input.set_pause(window.is_key_down(Key::Enter));
             }
         }
     }
 }
 
-fn vdp_buffer_to_minifb_buffer(vdp_buffer: &FrameBuffer, minifb_buffer: &mut [u32]) {
+fn vdp_buffer_to_minifb_buffer(
+    vdp_buffer: &FrameBuffer,
+    vdp_version: VdpVersion,
+    minifb_buffer: &mut [u32],
+) {
     for (i, row) in vdp_buffer[..192].iter().enumerate() {
-        for (j, sms_color) in row.iter().copied().enumerate() {
-            let r = convert_sms_color(sms_color & 0x03);
-            let g = convert_sms_color((sms_color >> 2) & 0x03);
-            let b = convert_sms_color((sms_color >> 4) & 0x03);
+        for (j, color) in row.iter().copied().enumerate() {
+            let (r, g, b) = match vdp_version {
+                VdpVersion::MasterSystem2 => (
+                    convert_sms_color(color & 0x03),
+                    convert_sms_color((color >> 2) & 0x03),
+                    convert_sms_color((color >> 4) & 0x03),
+                ),
+                VdpVersion::GameGear => (
+                    convert_gg_color(color & 0x0F),
+                    convert_gg_color((color >> 4) & 0x0F),
+                    convert_gg_color((color >> 8) & 0x0F),
+                ),
+            };
 
             minifb_buffer[i * 256 + j] = (r << 16) | (g << 8) | b;
         }
     }
 }
 
-fn convert_sms_color(color: u8) -> u32 {
+fn convert_sms_color(color: u16) -> u32 {
     [0, 85, 170, 255][color as usize]
+}
+
+fn convert_gg_color(color: u16) -> u32 {
+    [
+        0, 17, 34, 51, 68, 85, 102, 119, 136, 153, 170, 187, 204, 221, 238, 255,
+    ][color as usize]
 }

@@ -29,6 +29,7 @@ impl PinDirection {
 pub struct InputState {
     p1: JoypadState,
     p2: JoypadState,
+    pause: bool,
     port_a_tr: PinDirection,
     port_a_th: PinDirection,
     port_b_tr: PinDirection,
@@ -40,6 +41,7 @@ impl InputState {
         Self {
             p1: JoypadState::default(),
             p2: JoypadState::default(),
+            pause: false,
             port_a_tr: PinDirection::Input,
             port_a_th: PinDirection::Input,
             port_b_tr: PinDirection::Input,
@@ -49,6 +51,14 @@ impl InputState {
 
     pub fn p1(&mut self) -> &mut JoypadState {
         &mut self.p1
+    }
+
+    pub fn pause_pressed(&self) -> bool {
+        self.pause
+    }
+
+    pub fn set_pause(&mut self, pause: bool) {
+        self.pause = pause;
     }
 
     pub fn write_control(&mut self, value: u8) {

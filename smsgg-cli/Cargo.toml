@@ -8,4 +8,5 @@ edition = "2021"
 [dependencies]
 smsgg-core = { path = "../smsgg-core" }
 
+clap = { version = "4", features = ["derive"] }
 env_logger = "0.10"

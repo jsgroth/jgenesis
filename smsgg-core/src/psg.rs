@@ -1,5 +1,7 @@
 use crate::num::GetBit;
 use std::array;
+use std::fmt::{Display, Formatter};
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WaveOutput {
@@ -249,12 +251,32 @@ pub enum PsgTickEffect {
     Clocked,
 }
 
-// TODO remove dead code allow
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PsgVersion {
+    #[default]
     MasterSystem2,
     Other,
+}
+
+impl Display for PsgVersion {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MasterSystem2 => write!(f, "MasterSystem2"),
+            Self::Other => write!(f, "Other"),
+        }
+    }
+}
+
+impl FromStr for PsgVersion {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "MasterSystem2" => Ok(Self::MasterSystem2),
+            "Other" => Ok(Self::Other),
+            _ => Err(format!("invalid PSG version string: {s}")),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

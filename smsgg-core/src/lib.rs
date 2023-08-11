@@ -6,4 +6,6 @@ mod num;
 mod psg;
 mod vdp;
 
-pub use mainloop::run;
+pub use mainloop::{run, SmsGgConfig};
+pub use psg::PsgVersion;
+pub use vdp::VdpVersion;
