@@ -104,7 +104,10 @@ impl SquareWaveGenerator {
             self.counter -= 1;
             if self.counter == 0 {
                 self.counter = self.tone;
-                self.current_output = self.current_output.invert();
+                // TODO hack - don't oscillate the wave when the channel is at ultrasonic frequencies
+                if self.tone >= 5 {
+                    self.current_output = self.current_output.invert();
+                }
             }
         }
     }
