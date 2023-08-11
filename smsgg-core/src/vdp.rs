@@ -435,7 +435,7 @@ const DOTS_PER_SCANLINE: u16 = 342;
 const NTSC_SCANLINES_PER_FRAME: u16 = 262;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TickEffect {
+pub enum VdpTickEffect {
     None,
     FrameComplete,
 }
@@ -646,7 +646,7 @@ impl Vdp {
     }
 
     #[must_use]
-    pub fn tick(&mut self) -> TickEffect {
+    pub fn tick(&mut self) -> VdpTickEffect {
         // TODO 224-line / 240-line modes
         if self.registers.display_enabled && self.scanline < 192 && self.dot == 0 {
             self.render_scanline();
@@ -663,9 +663,9 @@ impl Vdp {
         }
 
         let tick_effect = if vblank_start {
-            TickEffect::FrameComplete
+            VdpTickEffect::FrameComplete
         } else {
-            TickEffect::None
+            VdpTickEffect::None
         };
 
         // TODO line interrupts

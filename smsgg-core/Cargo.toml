@@ -8,5 +8,6 @@ edition = "2021"
 [dependencies]
 z80-emu = { path = "../z80-emu" }
 
+cpal = "0.15"
 log = "0.4"
 minifb = "0.25"

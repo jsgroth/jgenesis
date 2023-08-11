@@ -1,18 +1,30 @@
 use crate::input::InputState;
 use crate::memory::Memory;
 use crate::num::GetBit;
+use crate::psg::Psg;
 use crate::vdp::Vdp;
 use z80_emu::traits::{BusInterface, InterruptLine};
 
 pub struct Bus<'a> {
     memory: &'a mut Memory,
     vdp: &'a mut Vdp,
+    psg: &'a mut Psg,
     input: &'a mut InputState,
 }
 
 impl<'a> Bus<'a> {
-    pub fn new(memory: &'a mut Memory, vdp: &'a mut Vdp, input: &'a mut InputState) -> Self {
-        Self { memory, vdp, input }
+    pub fn new(
+        memory: &'a mut Memory,
+        vdp: &'a mut Vdp,
+        psg: &'a mut Psg,
+        input: &'a mut InputState,
+    ) -> Self {
+        Self {
+            memory,
+            vdp,
+            psg,
+            input,
+        }
     }
 }
 
@@ -70,8 +82,8 @@ impl<'a> BusInterface for Bus<'a> {
                 self.input.write_control(value);
             }
             (false, true, _) => {
-                // TODO PSG
                 log::trace!("PSG write: {value:02X}");
+                self.psg.write(value);
             }
             (true, false, false) => {
                 log::trace!("VDP data write: {value:02X}");
