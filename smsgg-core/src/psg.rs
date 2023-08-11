@@ -57,6 +57,26 @@ const ATTENUATION_TO_VOLUME: [f64; 16] = [
     0.0,
 ];
 
+// The SMS2 clips the highest 3 volumes; 0.55 was chosen arbitrarily
+const SMS2_ATTENUATION_TO_VOLUME: [f64; 16] = [
+    0.55,
+    0.55,
+    0.55,
+    0.5011872336272722,
+    0.3981071705534972,
+    0.3162277660168379,
+    0.25118864315095796,
+    0.19952623149688792,
+    0.15848931924611132,
+    0.1258925411794167,
+    0.09999999999999998,
+    0.07943282347242814,
+    0.06309573444801932,
+    0.05011872336272722,
+    0.03981071705534972,
+    0.0,
+];
+
 impl SquareWaveGenerator {
     fn new() -> Self {
         Self {
@@ -87,8 +107,8 @@ impl SquareWaveGenerator {
         }
     }
 
-    fn sample(&self) -> f64 {
-        f64::from(self.current_output) * ATTENUATION_TO_VOLUME[self.attenuation as usize]
+    fn sample(&self, volume_table: &[f64; 16]) -> f64 {
+        f64::from(self.current_output) * volume_table[self.attenuation as usize]
     }
 }
 
@@ -190,8 +210,8 @@ impl NoiseGenerator {
         }
     }
 
-    fn sample(&self) -> f64 {
-        f64::from(self.current_lfsr_output) * ATTENUATION_TO_VOLUME[self.attenuation as usize]
+    fn sample(&self, volume_table: &[f64; 16]) -> f64 {
+        f64::from(self.current_lfsr_output) * volume_table[self.attenuation as usize]
     }
 }
 
@@ -229,8 +249,17 @@ pub enum PsgTickEffect {
     Clocked,
 }
 
+// TODO remove dead code allow
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PsgVersion {
+    MasterSystem2,
+    Other,
+}
+
 #[derive(Debug, Clone)]
 pub struct Psg {
+    version: PsgVersion,
     square_wave_channels: [SquareWaveGenerator; 3],
     noise_channel: NoiseGenerator,
     latched_register: Register,
@@ -240,8 +269,9 @@ pub struct Psg {
 const PSG_DIVIDER: u8 = 16;
 
 impl Psg {
-    pub fn new() -> Self {
+    pub fn new(version: PsgVersion) -> Self {
         Self {
+            version,
             square_wave_channels: array::from_fn(|_| SquareWaveGenerator::new()),
             noise_channel: NoiseGenerator::new(),
             latched_register: Register::Tone0,
@@ -324,11 +354,15 @@ impl Psg {
 
     pub fn sample(&self) -> f64 {
         // TODO rewrite to use integer arithmetic as much as possible
+        let volume_table = match self.version {
+            PsgVersion::MasterSystem2 => &SMS2_ATTENUATION_TO_VOLUME,
+            PsgVersion::Other => &ATTENUATION_TO_VOLUME,
+        };
         let mixed_square = self
             .square_wave_channels
             .iter()
-            .map(|channel| channel.sample() * 0.5)
+            .map(|channel| channel.sample(volume_table) * 0.5)
             .sum::<f64>();
-        (mixed_square + self.noise_channel.sample()) / 4.0
+        (mixed_square + self.noise_channel.sample(volume_table)) / 4.0
     }
 }

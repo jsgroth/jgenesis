@@ -1,7 +1,7 @@
 use crate::bus::Bus;
 use crate::input::InputState;
 use crate::memory::Memory;
-use crate::psg::{Psg, PsgTickEffect};
+use crate::psg::{Psg, PsgTickEffect, PsgVersion};
 use crate::vdp::{FrameBuffer, Vdp, VdpTickEffect, VdpVersion};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{BufferSize, SampleRate, StreamConfig};
@@ -62,7 +62,7 @@ pub fn run(path: &str) {
     z80.set_sp(0xDFFF);
 
     let mut vdp = Vdp::new(VdpVersion::MasterSystem);
-    let mut psg = Psg::new();
+    let mut psg = Psg::new(PsgVersion::MasterSystem2);
     let mut input = InputState::new();
 
     let mut sample_count = 0_u64;
