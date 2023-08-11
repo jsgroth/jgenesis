@@ -68,6 +68,7 @@ pub fn run(config: SmsGgConfig) {
     let mut window = Window::new(file_name, 3 * 256, 3 * 192, WindowOptions::default()).unwrap();
     window.limit_update_rate(Some(Duration::from_micros(16600)));
 
+    // TODO variable resolutions for Game Gear, 224-line mode, borders, etc.
     let mut minifb_buffer = vec![0_u32; 256 * 192];
 
     let mut audio_buffer = Vec::new();
@@ -79,6 +80,7 @@ pub fn run(config: SmsGgConfig) {
     let audio_stream = audio_device
         .build_output_stream(
             &StreamConfig {
+                // TODO stereo sound for Game Gear
                 channels: 1,
                 sample_rate: SampleRate(48000),
                 buffer_size: BufferSize::Fixed(1024),
@@ -171,6 +173,8 @@ pub fn run(config: SmsGgConfig) {
                 p1_input.button_2 = window.is_key_down(Key::A);
 
                 input.set_pause(window.is_key_down(Key::Enter));
+
+                // TODO RESET button
             }
         }
     }
