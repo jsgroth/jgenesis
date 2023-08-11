@@ -134,6 +134,8 @@ impl Registers {
             ControlWriteFlag::Second => {
                 self.data_address = (self.data_address & 0x00FF) | (u16::from(value & 0x3F) << 8);
 
+                log::trace!("VRAM address set to {:04X?}", self.data_address);
+
                 match value & 0xC0 {
                     0x00 => {
                         // VRAM read
@@ -141,10 +143,14 @@ impl Registers {
                         self.data_address = (self.data_address + 1) & DATA_ADDRESS_MASK;
 
                         self.data_write_location = DataWriteLocation::Vram;
+
+                        log::trace!("VRAM read");
                     }
                     0x40 => {
                         // VRAM write
                         self.data_write_location = DataWriteLocation::Vram;
+
+                        log::trace!("VRAM write");
                     }
                     0x80 => {
                         // Internal register write
@@ -152,10 +158,17 @@ impl Registers {
                         self.write_internal_register(register, self.latched_control_byte);
 
                         self.data_write_location = DataWriteLocation::Vram;
+
+                        log::trace!(
+                            "Internal register write: {register} set to {:02X}",
+                            self.latched_control_byte
+                        );
                     }
                     0xC0 => {
                         // CRAM write
                         self.data_write_location = DataWriteLocation::Cram;
+
+                        log::trace!("CRAM write");
                     }
                     _ => unreachable!("value & 0xC0 is always 0x00/0x40/0x80/0xC0"),
                 }
@@ -234,7 +247,7 @@ impl Registers {
             6 => {
                 // Sprite pattern table base address
                 // TODO SMS1 hardware quirk - bits 1 and 0 are ANDed with bits 8 and 6 of the tile index
-                self.base_sprite_pattern_address = u16::from(value.bit(2)) << 11;
+                self.base_sprite_pattern_address = u16::from(value.bit(2)) << 13;
             }
             7 => {
                 // Backdrop color
@@ -355,7 +368,7 @@ impl Vdp {
         let scanline = self.scanline;
 
         let (coarse_x_scroll, fine_x_scroll) =
-            if self.scanline < 16 && self.registers.horizontal_scroll_lock {
+            if scanline < 16 && self.registers.horizontal_scroll_lock {
                 (0, 0)
             } else {
                 (
@@ -397,6 +410,7 @@ impl Vdp {
 
             let base_cram_addr = bg_tile_data.palette.base_cram_addr();
 
+            // TODO vertical flip
             let tile_row = (scanline + fine_y_scroll) % 8;
 
             for tile_col in 0..8 {
@@ -405,6 +419,7 @@ impl Vdp {
                     break;
                 }
 
+                // TODO horizontal flip
                 let shift = 7 - tile_col;
                 let mask = 1 << shift;
                 let color_id = ((bg_tile[(4 * tile_row) as usize] & mask) >> shift)
@@ -424,11 +439,47 @@ impl Vdp {
         }
     }
 
+    fn debug_log(&self) {
+        log::trace!("Registers: {:04X?}", self.registers);
+
+        log::trace!("CRAM:");
+        for (i, value) in self.color_ram.into_iter().enumerate() {
+            log::trace!("  {i:02X}: {value:02X}");
+        }
+
+        log::trace!(
+            "Nametable ({:04X}):",
+            self.registers.base_name_table_address
+        );
+        for row in 0..28 {
+            for col in 0..32 {
+                let name_table_word = self.read_name_table_word(row, col);
+                log::trace!("  ({row}, {col}): {name_table_word:03X?}");
+
+                let name_table_addr =
+                    (self.registers.base_name_table_address | (row << 6) | (col << 1)) as usize;
+                let memory = &self.vram[name_table_addr..name_table_addr + 2];
+                log::trace!("  RAM bytes: {memory:02X?}");
+            }
+        }
+
+        log::trace!("Tiles:");
+        for i in 0..512 {
+            let address = i * 32;
+            let values = &self.vram[address..address + 32];
+            log::trace!("  {i:03X}: {values:02X?}");
+        }
+    }
+
     #[must_use]
     pub fn tick(&mut self) -> TickEffect {
         // TODO 224-line / 240-line modes
         if self.registers.display_enabled && self.scanline < 192 && self.dot == 0 {
             self.render_scanline();
+        }
+
+        if log::log_enabled!(log::Level::Trace) && self.scanline == 0 && self.dot == 0 {
+            self.debug_log();
         }
 
         // TODO 224-line / 240-line modes

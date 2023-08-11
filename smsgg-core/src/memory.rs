@@ -4,11 +4,11 @@ use crate::num::GetBit;
 struct Cartridge {
     rom: Vec<u8>,
     ram: Vec<u8>,
-    rom_bank_0: u16,
-    rom_bank_1: u16,
-    rom_bank_2: u16,
+    rom_bank_0: u32,
+    rom_bank_1: u32,
+    rom_bank_2: u32,
     ram_mapped: bool,
-    ram_bank: u16,
+    ram_bank: u32,
 }
 
 const CARTRIDGE_RAM_SIZE: usize = 32 * 1024;
@@ -26,7 +26,7 @@ impl Cartridge {
         }
     }
 
-    fn read_rom_address(&self, address: u16) -> u8 {
+    fn read_rom_address(&self, address: u32) -> u8 {
         let wrapped_addr = (address as usize) & (self.rom.len() - 1);
         self.rom[wrapped_addr]
     }
@@ -35,19 +35,19 @@ impl Cartridge {
         match address {
             0x0000..=0x03FF => self.rom[address as usize],
             0x0400..=0x3FFF => {
-                let rom_addr = (self.rom_bank_0 << 14) | address;
+                let rom_addr = (self.rom_bank_0 << 14) | u32::from(address);
                 self.read_rom_address(rom_addr)
             }
             0x4000..=0x7FFF => {
-                let rom_addr = (self.rom_bank_1 << 14) | (address & 0x3FFF);
+                let rom_addr = (self.rom_bank_1 << 14) | u32::from(address & 0x3FFF);
                 self.read_rom_address(rom_addr)
             }
             0x8000..=0xBFFF => {
                 if self.ram_mapped {
-                    let ram_addr = (self.ram_bank << 14) | (address & 0x3FFF);
+                    let ram_addr = (self.ram_bank << 14) | u32::from(address & 0x3FFF);
                     self.ram[ram_addr as usize]
                 } else {
-                    let rom_addr = (self.rom_bank_2 << 14) | (address & 0x3FFF);
+                    let rom_addr = (self.rom_bank_2 << 14) | u32::from(address & 0x3FFF);
                     self.read_rom_address(rom_addr)
                 }
             }
@@ -57,7 +57,7 @@ impl Cartridge {
 
     fn write_ram(&mut self, address: u16, value: u8) {
         if self.ram_mapped {
-            let ram_addr = (self.ram_bank << 14) | (address & 0x3FFF);
+            let ram_addr = (self.ram_bank << 14) | u32::from(address & 0x3FFF);
             self.ram[ram_addr as usize] = value;
         }
     }
@@ -100,16 +100,20 @@ impl Memory {
                 self.cartridge.write_ram(address, value);
             }
             0xFFFC => {
+                log::trace!("RAM flags set to {value:02X}");
                 self.cartridge.ram_mapped = value.bit(3);
                 self.cartridge.ram_bank = value.bit(2).into();
             }
             0xFFFD => {
+                log::trace!("ROM bank 0 set to {value:02X}");
                 self.cartridge.rom_bank_0 = value.into();
             }
             0xFFFE => {
+                log::trace!("ROM bank 1 set to {value:02X}");
                 self.cartridge.rom_bank_1 = value.into();
             }
             0xFFFF => {
+                log::trace!("ROM bank 2 set to {value:02X}");
                 self.cartridge.rom_bank_2 = value.into();
             }
             _ => {}

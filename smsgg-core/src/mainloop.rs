@@ -52,7 +52,7 @@ fn vdp_buffer_to_minifb_buffer(vdp_buffer: &FrameBuffer, minifb_buffer: &mut [u3
             let g = convert_sms_color((sms_color >> 2) & 0x03);
             let b = convert_sms_color((sms_color >> 4) & 0x03);
 
-            minifb_buffer[i * 256 + j] = (b << 16) | (g << 8) | r;
+            minifb_buffer[i * 256 + j] = (r << 16) | (g << 8) | b;
         }
     }
 }
