@@ -1,4 +1,5 @@
 use crate::bus::Bus;
+use crate::input::InputState;
 use crate::memory::Memory;
 use crate::vdp::{FrameBuffer, TickEffect, Vdp, VdpVersion};
 use minifb::{Key, Window, WindowOptions};
@@ -28,10 +29,12 @@ pub fn run(path: &str) {
 
     let mut vdp = Vdp::new(VdpVersion::MasterSystem);
 
+    let mut input = InputState::new();
+
     let mut leftover_vdp_cycles = 0;
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        let t_cycles =
-            z80.execute_instruction(&mut Bus::new(&mut memory, &mut vdp)) + leftover_vdp_cycles;
+        let t_cycles = z80.execute_instruction(&mut Bus::new(&mut memory, &mut vdp, &mut input))
+            + leftover_vdp_cycles;
 
         leftover_vdp_cycles = t_cycles % 2;
 
@@ -43,6 +46,14 @@ pub fn run(path: &str) {
                 vdp_buffer_to_minifb_buffer(vdb_buffer, &mut minifb_buffer);
 
                 window.update_with_buffer(&minifb_buffer, 256, 192).unwrap();
+
+                let p1_input = input.p1();
+                p1_input.up = window.is_key_down(Key::Up);
+                p1_input.left = window.is_key_down(Key::Left);
+                p1_input.right = window.is_key_down(Key::Right);
+                p1_input.down = window.is_key_down(Key::Down);
+                p1_input.button_1 = window.is_key_down(Key::S);
+                p1_input.button_2 = window.is_key_down(Key::A);
             }
         }
     }

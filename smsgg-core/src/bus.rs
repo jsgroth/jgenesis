@@ -1,3 +1,4 @@
+use crate::input::InputState;
 use crate::memory::Memory;
 use crate::num::GetBit;
 use crate::vdp::Vdp;
@@ -6,11 +7,12 @@ use z80_emu::traits::{BusInterface, InterruptLine};
 pub struct Bus<'a> {
     memory: &'a mut Memory,
     vdp: &'a mut Vdp,
+    input: &'a mut InputState,
 }
 
 impl<'a> Bus<'a> {
-    pub fn new(memory: &'a mut Memory, vdp: &'a mut Vdp) -> Self {
-        Self { memory, vdp }
+    pub fn new(memory: &'a mut Memory, vdp: &'a mut Vdp, input: &'a mut InputState) -> Self {
+        Self { memory, vdp, input }
     }
 }
 
@@ -47,14 +49,12 @@ impl<'a> BusInterface for Bus<'a> {
                 self.vdp.read_control()
             }
             (true, true, false) => {
-                // TODO I/O A/B
                 log::trace!("I/O A/B read");
-                0xFF
+                self.input.port_dc()
             }
             (true, true, true) => {
-                // TODO I/O B/misc
                 log::trace!("I/O B/misc. read");
-                0xFF
+                self.input.port_dd()
             }
         }
     }
@@ -66,8 +66,8 @@ impl<'a> BusInterface for Bus<'a> {
                 log::trace!("Memory control write: {value:02X}");
             }
             (false, false, true) => {
-                // TODO I/O control
                 log::trace!("I/O control write: {value:02X}");
+                self.input.write_control(value);
             }
             (false, true, _) => {
                 // TODO PSG
