@@ -23,7 +23,7 @@ jobs:
 
     - name: Install system library dependencies
       run: |
-        sudo apt update && sudo apt install -y alsa-base
+        sudo apt update && sudo apt install -y alsa
 
     - name: Check formatting
       uses: actions-rs/cargo@v1
