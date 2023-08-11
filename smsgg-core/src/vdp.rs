@@ -429,6 +429,7 @@ pub struct Vdp {
     scanline: u16,
     dot: u16,
     sprite_buffer: SpriteBuffer,
+    line_counter: u8,
 }
 
 const DOTS_PER_SCANLINE: u16 = 342;
@@ -450,6 +451,7 @@ impl Vdp {
             scanline: 0,
             dot: 0,
             sprite_buffer: SpriteBuffer::new(),
+            line_counter: 0xFF,
         }
     }
 
@@ -647,13 +649,27 @@ impl Vdp {
 
     #[must_use]
     pub fn tick(&mut self) -> VdpTickEffect {
+        if log::log_enabled!(log::Level::Trace) && self.scanline == 0 && self.dot == 0 {
+            self.debug_log();
+        }
+
         // TODO 224-line / 240-line modes
         if self.registers.display_enabled && self.scanline < 192 && self.dot == 0 {
             self.render_scanline();
         }
 
-        if log::log_enabled!(log::Level::Trace) && self.scanline == 0 && self.dot == 0 {
-            self.debug_log();
+        // TODO 224-line / 240-line modes
+        if self.scanline < 193 && self.dot == 0 {
+            let (new_counter, overflowed) = self.line_counter.overflowing_sub(1);
+            if overflowed {
+                self.line_counter = self.registers.line_counter_reload_value;
+                self.registers.line_interrupt_pending = true;
+            } else {
+                self.line_counter = new_counter;
+            }
+        } else if self.scanline >= 193 {
+            // Line counter is constantly reloaded outside of the active display period
+            self.line_counter = self.registers.line_counter_reload_value;
         }
 
         // TODO 224-line / 240-line modes
@@ -667,8 +683,6 @@ impl Vdp {
         } else {
             VdpTickEffect::None
         };
-
-        // TODO line interrupts
 
         self.dot += 1;
         if self.dot == DOTS_PER_SCANLINE {
