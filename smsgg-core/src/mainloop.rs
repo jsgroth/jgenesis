@@ -16,8 +16,26 @@ use z80_emu::Z80;
 #[derive(Debug, Clone)]
 pub struct SmsGgConfig {
     pub rom_file_path: String,
-    pub vdp_version: VdpVersion,
-    pub psg_version: PsgVersion,
+    pub vdp_version: Option<VdpVersion>,
+    pub psg_version: Option<PsgVersion>,
+}
+
+fn default_vdp_version_for_ext(file_ext: &str) -> VdpVersion {
+    match file_ext {
+        "sms" => VdpVersion::MasterSystem2,
+        "gg" => VdpVersion::GameGear,
+        _ => {
+            log::warn!("Unknown file extension {file_ext}, defaulting to SMS VDP");
+            VdpVersion::MasterSystem2
+        }
+    }
+}
+
+fn default_psg_version_for_ext(file_ext: &str) -> PsgVersion {
+    match file_ext {
+        "sms" => PsgVersion::MasterSystem2,
+        _ => PsgVersion::Other,
+    }
 }
 
 // TODO generalize all this
@@ -32,6 +50,20 @@ pub fn run(config: SmsGgConfig) {
         .unwrap()
         .to_str()
         .unwrap();
+    let file_ext = Path::new(&config.rom_file_path)
+        .extension()
+        .unwrap()
+        .to_str()
+        .unwrap();
+
+    let vdp_version = config
+        .vdp_version
+        .unwrap_or_else(|| default_vdp_version_for_ext(file_ext));
+    let psg_version = config
+        .psg_version
+        .unwrap_or_else(|| default_psg_version_for_ext(file_ext));
+
+    log::info!("Using VDP {vdp_version} and PSG {psg_version}");
 
     let mut window = Window::new(file_name, 3 * 256, 3 * 192, WindowOptions::default()).unwrap();
     window.limit_update_rate(Some(Duration::from_micros(16600)));
@@ -74,8 +106,8 @@ pub fn run(config: SmsGgConfig) {
     z80.set_pc(0x0000);
     z80.set_sp(0xDFFF);
 
-    let mut vdp = Vdp::new(config.vdp_version);
-    let mut psg = Psg::new(config.psg_version);
+    let mut vdp = Vdp::new(vdp_version);
+    let mut psg = Psg::new(psg_version);
     let mut input = InputState::new();
 
     let mut sample_count = 0_u64;
@@ -84,7 +116,7 @@ pub fn run(config: SmsGgConfig) {
     let mut leftover_vdp_cycles = 0;
     while window.is_open() && !window.is_key_down(Key::Escape) {
         let t_cycles = z80.execute_instruction(&mut Bus::new(
-            config.vdp_version,
+            vdp_version,
             &mut memory,
             &mut vdp,
             &mut psg,
@@ -126,7 +158,7 @@ pub fn run(config: SmsGgConfig) {
             if vdp.tick() == VdpTickEffect::FrameComplete {
                 let vdb_buffer = vdp.frame_buffer();
 
-                vdp_buffer_to_minifb_buffer(vdb_buffer, config.vdp_version, &mut minifb_buffer);
+                vdp_buffer_to_minifb_buffer(vdb_buffer, vdp_version, &mut minifb_buffer);
 
                 window.update_with_buffer(&minifb_buffer, 256, 192).unwrap();
 

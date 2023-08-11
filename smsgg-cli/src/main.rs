@@ -9,12 +9,12 @@ struct Args {
     file_path: String,
 
     /// VDP version
-    #[arg(long, default_value_t)]
-    vdp_version: VdpVersion,
+    #[arg(long)]
+    vdp_version: Option<VdpVersion>,
 
     /// PSG version
-    #[arg(long, default_value_t)]
-    psg_version: PsgVersion,
+    #[arg(long)]
+    psg_version: Option<PsgVersion>,
 }
 
 fn main() {
