@@ -492,13 +492,12 @@ impl Vdp {
                 )
             };
 
-        let sprite_color_0 = self.color_ram[0x10];
-        for dot in 0..fine_x_scroll {
-            self.frame_buffer[scanline as usize][dot as usize] = sprite_color_0;
-        }
-
         // Backdrop color always reads from the second half of CRAM
         let backdrop_color = self.color_ram[0x10 | self.registers.backdrop_color as usize];
+
+        for dot in 0..fine_x_scroll {
+            self.frame_buffer[scanline as usize][dot as usize] = backdrop_color;
+        }
 
         find_sprites_on_scanline(
             scanline as u8,
@@ -602,13 +601,11 @@ impl Vdp {
 
                 let sprite_color_id = found_sprite_color_id.unwrap_or(0);
                 let pixel_color =
-                    if bg_color_id != 0 && (bg_tile_data.priority || sprite_color_id == 0) {
-                        self.color_ram[(bg_base_cram_addr | bg_color_id) as usize]
-                    } else if sprite_color_id != 0 {
+                    if sprite_color_id != 0 && (bg_color_id == 0 || !bg_tile_data.priority) {
                         // Sprites can only use palette 1
                         self.color_ram[(0x10 | sprite_color_id) as usize]
                     } else {
-                        backdrop_color
+                        self.color_ram[(bg_base_cram_addr | bg_color_id) as usize]
                     };
                 self.frame_buffer[scanline as usize][dot as usize] = pixel_color;
             }
