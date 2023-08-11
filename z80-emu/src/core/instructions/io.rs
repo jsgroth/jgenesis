@@ -75,7 +75,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     }
 
     pub(super) fn out_c_r(&mut self, opcode: u8) -> u32 {
-        let register = super::parse_register_from_opcode(opcode, None);
+        let register = super::parse_register_from_opcode(opcode >> 3, None);
         let io_address = u16::from_be_bytes([self.registers.b, self.registers.c]);
         let value = match register {
             Some(register) => register.read_from(self.registers),
