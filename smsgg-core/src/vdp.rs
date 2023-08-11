@@ -1,6 +1,8 @@
 use crate::num::GetBit;
 use z80_emu::traits::InterruptLine;
 
+// TODO remove once versioning is implemented
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VdpVersion {
     MasterSystem,
@@ -259,6 +261,7 @@ impl Registers {
             }
             9 => {
                 // Y scroll
+                // TODO updates to Y scroll should only take effect at end-of-frame
                 self.y_scroll = value;
             }
             10 => {
@@ -266,6 +269,22 @@ impl Registers {
                 self.line_counter_reload_value = value;
             }
             _ => {}
+        }
+    }
+
+    fn sprite_height(&self) -> u8 {
+        match (self.double_sprite_size, self.double_sprite_height) {
+            (true, true) => 32,
+            (true, false) | (false, true) => 16,
+            (false, false) => 8,
+        }
+    }
+
+    fn sprite_width(&self) -> u8 {
+        if self.double_sprite_size {
+            16
+        } else {
+            8
         }
     }
 }
@@ -294,11 +313,102 @@ struct BgTileData {
     tile_index: u16,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 struct SpriteData {
     y: u8,
     x: u8,
-    tile_index: u8,
+    tile_index: u16,
+}
+
+#[derive(Debug, Clone)]
+struct SpriteBuffer {
+    sprites: [SpriteData; 8],
+    len: usize,
+    overflow: bool,
+}
+
+impl SpriteBuffer {
+    fn new() -> Self {
+        Self {
+            sprites: [SpriteData::default(); 8],
+            len: 0,
+            overflow: false,
+        }
+    }
+
+    fn iter(&self) -> BufferIter<'_, SpriteData> {
+        BufferIter {
+            buffer: &self.sprites,
+            idx: 0,
+            len: self.len,
+        }
+    }
+
+    fn clear(&mut self) {
+        self.len = 0;
+        self.overflow = false;
+    }
+}
+
+#[derive(Debug, Clone)]
+struct BufferIter<'a, T> {
+    buffer: &'a [T],
+    idx: usize,
+    len: usize,
+}
+
+impl<'a, T: Copy> Iterator for BufferIter<'a, T> {
+    type Item = T;
+
+    #[allow(clippy::if_then_some_else_none)]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.idx < self.len {
+            let data = self.buffer[self.idx];
+            self.idx += 1;
+            Some(data)
+        } else {
+            None
+        }
+    }
+}
+
+fn find_sprites_on_scanline(
+    scanline: u8,
+    registers: &Registers,
+    vram: &[u8],
+    sprite_buffer: &mut SpriteBuffer,
+) {
+    sprite_buffer.clear();
+
+    let sprite_height = registers.sprite_height();
+
+    let base_sat_addr = registers.base_sprite_table_address;
+    for i in 0..64 {
+        let y = vram[(base_sat_addr | i) as usize];
+        if y == 0xD0 {
+            // TODO 224-line / 240-line modes
+            return;
+        }
+
+        let x = vram[(base_sat_addr | 0x80 | (2 * i)) as usize];
+        let tile_index = vram[(base_sat_addr | 0x80 | (2 * i + 1)) as usize];
+
+        let sprite_top = y.saturating_add(1);
+        let sprite_bottom = sprite_top.saturating_add(sprite_height);
+        if (sprite_top..sprite_bottom).contains(&scanline) {
+            if sprite_buffer.len == 8 {
+                sprite_buffer.overflow = true;
+                return;
+            }
+
+            sprite_buffer.sprites[sprite_buffer.len] = SpriteData {
+                y,
+                x,
+                tile_index: tile_index.into(),
+            };
+            sprite_buffer.len += 1;
+        }
+    }
 }
 
 const VRAM_SIZE: usize = 16 * 1024;
@@ -307,6 +417,7 @@ const COLOR_RAM_SIZE: usize = 32;
 const SCREEN_WIDTH: u16 = 256;
 const FRAME_BUFFER_HEIGHT: u16 = 240;
 
+// TODO properly handle borders
 pub type FrameBuffer = [[u8; SCREEN_WIDTH as usize]; FRAME_BUFFER_HEIGHT as usize];
 
 #[derive(Debug, Clone)]
@@ -317,6 +428,7 @@ pub struct Vdp {
     color_ram: [u8; COLOR_RAM_SIZE],
     scanline: u16,
     dot: u16,
+    sprite_buffer: SpriteBuffer,
 }
 
 const DOTS_PER_SCANLINE: u16 = 342;
@@ -337,13 +449,14 @@ impl Vdp {
             color_ram: [0; COLOR_RAM_SIZE],
             scanline: 0,
             dot: 0,
+            sprite_buffer: SpriteBuffer::new(),
         }
     }
 
     fn read_name_table_word(&self, row: u16, col: u16) -> BgTileData {
         let name_table_addr = self.registers.base_name_table_address | (row << 6) | (col << 1);
-        let high_byte = self.vram[name_table_addr as usize];
-        let low_byte = self.vram[(name_table_addr + 1) as usize];
+        let low_byte = self.vram[name_table_addr as usize];
+        let high_byte = self.vram[(name_table_addr + 1) as usize];
 
         let priority = high_byte.bit(4);
         let palette = if !high_byte.bit(3) {
@@ -377,15 +490,30 @@ impl Vdp {
                 )
             };
 
-        let color_0 = self.color_ram[0];
+        let sprite_color_0 = self.color_ram[0x10];
         for dot in 0..fine_x_scroll {
-            self.frame_buffer[scanline as usize][dot as usize] = color_0;
+            self.frame_buffer[scanline as usize][dot as usize] = sprite_color_0;
         }
 
         // Backdrop color always reads from the second half of CRAM
         let backdrop_color = self.color_ram[0x10 | self.registers.backdrop_color as usize];
 
-        // TODO sprites
+        find_sprites_on_scanline(
+            scanline as u8,
+            &self.registers,
+            &self.vram,
+            &mut self.sprite_buffer,
+        );
+        if self.sprite_buffer.overflow {
+            self.registers.sprite_overflow = true;
+        }
+
+        let sprite_width = self.registers.sprite_width();
+        let sprite_pixel_size = if self.registers.double_sprite_size {
+            2
+        } else {
+            1
+        };
 
         for column in 0..32 {
             let (coarse_y_scroll, fine_y_scroll) =
@@ -398,42 +526,88 @@ impl Vdp {
                     )
                 };
 
-            // TODO hide leftmost column
-
             // TODO 224-line and 240-line modes - nametable is 32 rows intead of 28
-            let name_table_row = (scanline / 8 + coarse_y_scroll) % 28;
+            let name_table_row = ((scanline + fine_y_scroll) / 8 + coarse_y_scroll) % 28;
             let name_table_col = (column + (32 - coarse_x_scroll)) % 32;
             let bg_tile_data = self.read_name_table_word(name_table_row, name_table_col);
 
             let bg_tile_addr = (bg_tile_data.tile_index * 32) as usize;
             let bg_tile = &self.vram[bg_tile_addr..bg_tile_addr + 32];
 
-            let base_cram_addr = bg_tile_data.palette.base_cram_addr();
+            let bg_base_cram_addr = bg_tile_data.palette.base_cram_addr();
 
-            // TODO vertical flip
-            let tile_row = (scanline + fine_y_scroll) % 8;
+            let bg_tile_row = if bg_tile_data.vertical_flip {
+                7 - ((scanline + fine_y_scroll) % 8)
+            } else {
+                (scanline + fine_y_scroll) % 8
+            };
 
-            for tile_col in 0..8 {
-                let dot = 8 * column + fine_x_scroll + tile_col;
+            for bg_tile_col in 0..8 {
+                let dot = 8 * column + fine_x_scroll + bg_tile_col;
                 if dot == SCREEN_WIDTH {
                     break;
                 }
 
-                // TODO horizontal flip
-                let shift = 7 - tile_col;
-                let mask = 1 << shift;
-                let color_id = ((bg_tile[(4 * tile_row) as usize] & mask) >> shift)
-                    | (((bg_tile[(4 * tile_row + 1) as usize] & mask) >> shift) << 1)
-                    | (((bg_tile[(4 * tile_row + 2) as usize] & mask) >> shift) << 2)
-                    | (((bg_tile[(4 * tile_row + 3) as usize] & mask) >> shift) << 3);
+                if self.registers.hide_left_column && dot < 8 {
+                    self.frame_buffer[scanline as usize][dot as usize] = backdrop_color;
+                    continue;
+                }
 
-                // TODO properly support GG mode's extended palette RAM
+                let bg_color_id = get_color_id(
+                    bg_tile,
+                    bg_tile_row,
+                    bg_tile_col,
+                    bg_tile_data.horizontal_flip,
+                );
 
-                let pixel_color = if color_id != 0 {
-                    self.color_ram[(base_cram_addr | color_id) as usize]
-                } else {
-                    backdrop_color
-                };
+                // TODO sprites
+                let mut found_sprite_color_id = None;
+                for sprite in self.sprite_buffer.iter() {
+                    let sprite_right_inclusive = sprite.x.saturating_add(sprite_width - 1);
+                    if !(sprite.x..=sprite_right_inclusive).contains(&(dot as u8)) {
+                        continue;
+                    }
+
+                    let sprite_tile_row =
+                        (scanline - (u16::from(sprite.y) + 1)) / sprite_pixel_size;
+                    let sprite_tile_col = (dot - u16::from(sprite.x)) / sprite_pixel_size;
+
+                    let tile_index = if self.registers.double_sprite_height {
+                        let top_tile = sprite.tile_index & 0xFE;
+                        top_tile | u16::from(sprite_tile_row >= 8)
+                    } else {
+                        sprite.tile_index
+                    };
+
+                    let sprite_tile_addr =
+                        (self.registers.base_sprite_pattern_address | (tile_index * 32)) as usize;
+                    let sprite_tile = &self.vram[sprite_tile_addr..sprite_tile_addr + 32];
+
+                    let sprite_color_id =
+                        get_color_id(sprite_tile, sprite_tile_row & 0x07, sprite_tile_col, false);
+                    if sprite_color_id != 0 {
+                        match found_sprite_color_id {
+                            None => {
+                                found_sprite_color_id = Some(sprite_color_id);
+                            }
+                            Some(_) => {
+                                self.registers.sprite_collision = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                let sprite_color_id = found_sprite_color_id.unwrap_or(0);
+                let pixel_color =
+                    if bg_color_id != 0 && (bg_tile_data.priority || sprite_color_id == 0) {
+                        self.color_ram[(bg_base_cram_addr | bg_color_id) as usize]
+                    } else if sprite_color_id != 0 {
+                        // Sprites can only use palette 1
+                        self.color_ram[(0x10 | sprite_color_id) as usize]
+                    } else {
+                        backdrop_color
+                    };
                 self.frame_buffer[scanline as usize][dot as usize] = pixel_color;
             }
         }
@@ -559,4 +733,18 @@ impl Vdp {
             InterruptLine::High
         }
     }
+}
+
+// TODO properly support GG mode's extended palette RAM
+fn get_color_id(tile: &[u8], tile_row: u16, tile_col: u16, horizontal_flip: bool) -> u8 {
+    let shift = if horizontal_flip {
+        tile_col
+    } else {
+        7 - tile_col
+    };
+    let mask = 1 << shift;
+    ((tile[(4 * tile_row) as usize] & mask) >> shift)
+        | (((tile[(4 * tile_row + 1) as usize] & mask) >> shift) << 1)
+        | (((tile[(4 * tile_row + 2) as usize] & mask) >> shift) << 2)
+        | (((tile[(4 * tile_row + 3) as usize] & mask) >> shift) << 3)
 }

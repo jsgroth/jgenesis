@@ -8,6 +8,9 @@ use std::time::Duration;
 use z80_emu::Z80;
 
 // TODO generalize all this
+/// # Panics
+///
+/// Panics if the file cannot be read
 pub fn run(path: &str) {
     let file_name = Path::new(path).file_name().unwrap().to_str().unwrap();
 
