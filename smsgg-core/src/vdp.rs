@@ -764,18 +764,7 @@ impl Vdp {
     }
 
     pub fn write_control(&mut self, value: u8) {
-        let prev_display_enabled = self.registers.display_enabled;
-
         self.registers.write_control(value, &self.vram);
-
-        if prev_display_enabled && !self.registers.display_enabled {
-            // Display was just disabled; clear frame buffer
-            for row in &mut self.frame_buffer {
-                for pixel in row {
-                    *pixel = 0x00;
-                }
-            }
-        }
     }
 
     pub fn read_data(&mut self) -> u8 {
