@@ -34,7 +34,7 @@ fn default_vdp_version_for_ext(file_ext: &str) -> VdpVersion {
 fn default_psg_version_for_ext(file_ext: &str) -> PsgVersion {
     match file_ext {
         "sms" => PsgVersion::MasterSystem2,
-        _ => PsgVersion::Other,
+        _ => PsgVersion::Standard,
     }
 }
 

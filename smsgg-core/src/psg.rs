@@ -258,14 +258,14 @@ pub enum PsgTickEffect {
 pub enum PsgVersion {
     #[default]
     MasterSystem2,
-    Other,
+    Standard,
 }
 
 impl Display for PsgVersion {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MasterSystem2 => write!(f, "MasterSystem2"),
-            Self::Other => write!(f, "Other"),
+            Self::Standard => write!(f, "Standard"),
         }
     }
 }
@@ -276,7 +276,7 @@ impl FromStr for PsgVersion {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "MasterSystem2" => Ok(Self::MasterSystem2),
-            "Other" => Ok(Self::Other),
+            "Standard" => Ok(Self::Standard),
             _ => Err(format!("invalid PSG version string: {s}")),
         }
     }
@@ -381,7 +381,7 @@ impl Psg {
         // TODO rewrite to use integer arithmetic as much as possible
         let volume_table = match self.version {
             PsgVersion::MasterSystem2 => &SMS2_ATTENUATION_TO_VOLUME,
-            PsgVersion::Other => &ATTENUATION_TO_VOLUME,
+            PsgVersion::Standard => &ATTENUATION_TO_VOLUME,
         };
         let mixed_square = self
             .square_wave_channels
