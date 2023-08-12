@@ -38,7 +38,7 @@ impl ViewportSize {
     const GAME_GEAR: Self = Self {
         width: 160,
         height: 144,
-        top: 40,
+        top: 24,
         left: 48,
         top_border_height: 0,
         bottom_border_height: 0,
