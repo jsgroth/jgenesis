@@ -1,4 +1,4 @@
 mod core;
 pub mod traits;
 
-pub use crate::core::Z80;
+pub use crate::core::{InterruptMode, Z80};

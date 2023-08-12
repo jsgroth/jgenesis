@@ -11,7 +11,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{fs, process, thread};
-use z80_emu::Z80;
+use z80_emu::{InterruptMode, Z80};
 
 #[derive(Debug, Clone)]
 pub struct SmsGgConfig {
@@ -131,6 +131,7 @@ pub fn run(config: SmsGgConfig) {
     let mut z80 = Z80::new();
     z80.set_pc(0x0000);
     z80.set_sp(0xDFFF);
+    z80.set_interrupt_mode(InterruptMode::Mode1);
 
     let mut vdp = Vdp::new(vdp_version);
     let mut psg = Psg::new(psg_version);

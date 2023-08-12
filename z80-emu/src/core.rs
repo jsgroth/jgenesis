@@ -338,6 +338,10 @@ impl Z80 {
         self.registers.sp = sp;
     }
 
+    pub fn set_interrupt_mode(&mut self, mode: InterruptMode) {
+        self.registers.interrupt_mode = mode;
+    }
+
     /// Execute a single instruction (or the interrupt service routine) and return how many T-cycles it took.
     pub fn execute_instruction<B: BusInterface>(&mut self, bus: &mut B) -> u32 {
         instructions::execute(&mut self.registers, bus)

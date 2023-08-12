@@ -129,9 +129,56 @@ enum DataWriteLocation {
     Cram,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum Mode {
+    #[default]
+    Four,
+    Four224Line,
+}
+
+impl Mode {
+    fn from_mode_bits(mode_bits: [bool; 4]) -> Self {
+        match mode_bits {
+            [false, false, false, true]
+            | [false, true, false, true]
+            | [false, false, true, true]
+            | [true, true, true, true] => Self::Four,
+            [true, true, false, true] => Self::Four224Line,
+            _ => {
+                log::warn!("Unsupported mode, defaulting to mode 4: {mode_bits:?}");
+                Self::Four
+            }
+        }
+    }
+
+    const fn name_table_rows(self) -> u16 {
+        match self {
+            Self::Four => 28,
+            Self::Four224Line => 32,
+        }
+    }
+
+    const fn active_scanlines(self) -> u16 {
+        match self {
+            Self::Four => 192,
+            Self::Four224Line => 224,
+        }
+    }
+
+    // The number of scanlines to remove from each of the top and bottom borders when in this modet
+    const fn vertical_border_offset(self) -> u16 {
+        match self {
+            Self::Four => 0,
+            Self::Four224Line => 16,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct Registers {
     version: VdpVersion,
+    mode: Mode,
+    mode_bits: [bool; 4],
     control_write_flag: ControlWriteFlag,
     latched_control_byte: u8,
     data_write_location: DataWriteLocation,
@@ -166,6 +213,8 @@ impl Registers {
     fn new(version: VdpVersion) -> Self {
         Self {
             version,
+            mode: Mode::Four,
+            mode_bits: [false, false, false, true],
             control_write_flag: ControlWriteFlag::First,
             latched_control_byte: 0,
             data_write_location: DataWriteLocation::Vram,
@@ -312,13 +361,18 @@ impl Registers {
                 self.hide_left_column = value.bit(5);
                 self.line_interrupt_enabled = value.bit(4);
                 self.shift_sprites_left = value.bit(3);
-                // TODO mode select bits M2/M4 and sync/monochrome bit
+                self.mode_bits[3] = value.bit(2);
+                self.mode_bits[1] = value.bit(1);
+                self.mode = Mode::from_mode_bits(self.mode_bits);
+                // TODO sync/monochrome bit
             }
             1 => {
                 // Mode control #2
                 self.display_enabled = value.bit(6);
                 self.frame_interrupt_enabled = value.bit(5);
-                // TODO mode select bits M1/M3
+                self.mode_bits[0] = value.bit(4);
+                self.mode_bits[2] = value.bit(3);
+                self.mode = Mode::from_mode_bits(self.mode_bits);
                 self.double_sprite_height = value.bit(1);
                 self.double_sprite_size = value.bit(0);
             }
@@ -473,8 +527,7 @@ fn find_sprites_on_scanline(
     let base_sat_addr = registers.base_sprite_table_address;
     for i in 0..64 {
         let y = vram[(base_sat_addr | i) as usize];
-        if y == 0xD0 {
-            // TODO 224-line / 240-line modes
+        if registers.mode != Mode::Four224Line && y == 0xD0 {
             return;
         }
 
@@ -627,7 +680,12 @@ impl Vdp {
     }
 
     fn read_name_table_word(&self, row: u16, col: u16) -> BgTileData {
-        let name_table_addr = self.registers.base_name_table_address | (row << 6) | (col << 1);
+        let base_name_table_addr = match self.registers.mode {
+            Mode::Four => self.registers.base_name_table_address,
+            // Mask out bit 10 and offset by $0700
+            Mode::Four224Line => (self.registers.base_name_table_address & 0xF000) | 0x0700,
+        };
+        let name_table_addr = base_name_table_addr + (row << 6) + (col << 1);
         let low_byte = self.vram[name_table_addr as usize];
         let high_byte = self.vram[(name_table_addr + 1) as usize];
 
@@ -652,7 +710,8 @@ impl Vdp {
 
     fn render_scanline(&mut self) {
         let scanline = self.scanline;
-        let frame_buffer_row = scanline + self.frame_buffer.viewport.top_border_height;
+        let frame_buffer_row = scanline + self.frame_buffer.viewport.top_border_height
+            - self.registers.mode.vertical_border_offset();
 
         let (coarse_x_scroll, fine_x_scroll) =
             if scanline < 16 && self.registers.horizontal_scroll_lock {
@@ -699,8 +758,9 @@ impl Vdp {
                     )
                 };
 
-            // TODO 224-line and 240-line modes - nametable is 32 rows intead of 28
-            let name_table_row = ((scanline + fine_y_scroll) / 8 + coarse_y_scroll) % 28;
+            let name_table_rows = self.registers.mode.name_table_rows();
+            let name_table_row =
+                ((scanline + fine_y_scroll) / 8 + coarse_y_scroll) % name_table_rows;
             let name_table_col = (column + (32 - coarse_x_scroll)) % 32;
             let bg_tile_data = self.read_name_table_word(name_table_row, name_table_col);
 
@@ -733,7 +793,6 @@ impl Vdp {
                     bg_tile_data.horizontal_flip,
                 );
 
-                // TODO sprites
                 let mut found_sprite_color_id = None;
                 for sprite in self.sprite_buffer.iter() {
                     let sprite_right_inclusive = sprite.x.saturating_add(sprite_width - 1);
@@ -822,13 +881,12 @@ impl Vdp {
             self.debug_log();
         }
 
-        // TODO 224-line / 240-line modes
-        if self.registers.display_enabled && self.scanline < 192 && self.dot == 0 {
+        let active_scanlines = self.registers.mode.active_scanlines();
+        if self.registers.display_enabled && self.scanline < active_scanlines && self.dot == 0 {
             self.render_scanline();
         }
 
-        // TODO 224-line / 240-line modes
-        if self.scanline < 193 && self.dot == 0 {
+        if self.scanline < active_scanlines + 1 && self.dot == 0 {
             let (new_counter, overflowed) = self.line_counter.overflowing_sub(1);
             if overflowed {
                 self.line_counter = self.registers.line_counter_reload_value;
@@ -836,13 +894,12 @@ impl Vdp {
             } else {
                 self.line_counter = new_counter;
             }
-        } else if self.scanline >= 193 {
+        } else if self.scanline >= active_scanlines + 1 {
             // Line counter is constantly reloaded outside of the active display period
             self.line_counter = self.registers.line_counter_reload_value;
         }
 
-        // TODO 224-line / 240-line modes
-        let vblank_start = self.scanline == 193 && self.dot == 0;
+        let vblank_start = self.scanline == active_scanlines + 1 && self.dot == 0;
         if vblank_start {
             self.registers.frame_interrupt_pending = true;
 
@@ -882,14 +939,16 @@ impl Vdp {
             ..
         } = self.frame_buffer.viewport;
 
-        // TODO generalize
-        for scanline in 0..top_border_height {
+        let mode_border_offset = self.registers.mode.vertical_border_offset();
+
+        let viewport_top = top_border_height - mode_border_offset;
+        for scanline in 0..viewport_top {
             for pixel in 0..256 {
                 self.frame_buffer.set(scanline, pixel, backdrop_color);
             }
         }
 
-        let viewport_bottom = height - bottom_border_height;
+        let viewport_bottom = height - bottom_border_height + mode_border_offset;
         for scanline in viewport_bottom..height {
             for pixel in 0..256 {
                 self.frame_buffer.set(scanline, pixel, backdrop_color);
@@ -919,11 +978,37 @@ impl Vdp {
     }
 
     pub fn v_counter(&self) -> u8 {
-        // TODO NTSC/PAL, 224-line and 240-line modes
-        if self.scanline <= 0xDA {
-            self.scanline as u8
-        } else {
-            (self.scanline - 6) as u8
+        match (self.registers.version, self.registers.mode) {
+            (VdpVersion::NtscMasterSystem2 | VdpVersion::GameGear, Mode::Four) => {
+                if self.scanline <= 0xDA {
+                    self.scanline as u8
+                } else {
+                    (self.scanline - 6) as u8
+                }
+            }
+            (VdpVersion::PalMasterSystem2, Mode::Four) => {
+                if self.scanline <= 0xF2 {
+                    self.scanline as u8
+                } else {
+                    (self.scanline - 57) as u8
+                }
+            }
+            (VdpVersion::NtscMasterSystem2 | VdpVersion::GameGear, Mode::Four224Line) => {
+                if self.scanline <= 0xEA {
+                    self.scanline as u8
+                } else {
+                    (self.scanline - 6) as u8
+                }
+            }
+            (VdpVersion::PalMasterSystem2, Mode::Four224Line) => {
+                if self.scanline <= 0xFF {
+                    self.scanline as u8
+                } else if self.scanline <= 0x102 {
+                    (self.scanline - 0x100) as u8
+                } else {
+                    (self.scanline - 57) as u8
+                }
+            }
         }
     }
 
@@ -938,7 +1023,6 @@ impl Vdp {
     }
 }
 
-// TODO properly support GG mode's extended palette RAM
 fn get_color_id(tile: &[u8], tile_row: u16, tile_col: u16, horizontal_flip: bool) -> u8 {
     let shift = if horizontal_flip {
         tile_col
