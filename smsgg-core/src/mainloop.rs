@@ -159,9 +159,9 @@ pub fn run(config: SmsGgConfig) {
         let vdp_cycles = t_cycles_plus_leftover / 2 * 3;
         for _ in 0..vdp_cycles {
             if vdp.tick() == VdpTickEffect::FrameComplete {
-                let vdb_buffer = vdp.frame_buffer();
+                let vdp_buffer = vdp.frame_buffer();
 
-                vdp_buffer_to_minifb_buffer(vdb_buffer, vdp_version, &mut minifb_buffer);
+                vdp_buffer_to_minifb_buffer(vdp_buffer, vdp_version, &mut minifb_buffer);
 
                 window.update_with_buffer(&minifb_buffer, 256, 192).unwrap();
 
