@@ -1,12 +1,13 @@
 [package]
-name = "smsgg-cli"
+name = "jgsms-core"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-smsgg-core = { path = "../smsgg-core" }
+z80-emu = { path = "../z80-emu" }
 
-clap = { version = "4", features = ["derive"] }
-env_logger = "0.10"
+cpal = "0.15"
+log = "0.4"
+minifb = "0.25"

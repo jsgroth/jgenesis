@@ -1,7 +1,7 @@
 [workspace]
 members = [
-    "smsgg-cli",
-    "smsgg-core",
+    "jgsms-cli",
+    "jgsms-core",
     "z80-emu",
     "z80-test-runner",
 ]

@@ -1,6 +1,6 @@
 use clap::Parser;
 use env_logger::Env;
-use smsgg_core::{PsgVersion, SmsGgConfig, VdpVersion};
+use jgsms_core::{PsgVersion, SmsGgConfig, VdpVersion};
 
 #[derive(Parser)]
 struct Args {
@@ -39,5 +39,5 @@ fn main() {
         crop_sms_left_border: args.crop_sms_left_border,
     };
 
-    smsgg_core::run(config);
+    jgsms_core::run(config);
 }
