@@ -24,11 +24,11 @@ pub struct SmsGgConfig {
 
 fn default_vdp_version_for_ext(file_ext: &str) -> VdpVersion {
     match file_ext {
-        "sms" => VdpVersion::MasterSystem2,
+        "sms" => VdpVersion::NtscMasterSystem2,
         "gg" => VdpVersion::GameGear,
         _ => {
-            log::warn!("Unknown file extension {file_ext}, defaulting to SMS VDP");
-            VdpVersion::MasterSystem2
+            log::warn!("Unknown file extension {file_ext}, defaulting to NTSC SMS VDP");
+            VdpVersion::NtscMasterSystem2
         }
     }
 }
@@ -39,6 +39,9 @@ fn default_psg_version_for_ext(file_ext: &str) -> PsgVersion {
         _ => PsgVersion::Standard,
     }
 }
+
+const NTSC_MASTER_CLOCK: f64 = 53693175.0;
+const PAL_MASTER_CLOCK: f64 = 53203424.0;
 
 // TODO generalize all this
 /// # Panics
@@ -134,7 +137,11 @@ pub fn run(config: SmsGgConfig) {
     let mut input = InputState::new();
 
     let mut sample_count = 0_u64;
-    let downsampling_ratio = 53693175.0 / 15.0 / 16.0 / 48000.0;
+    let master_clock = match vdp_version {
+        VdpVersion::NtscMasterSystem2 | VdpVersion::GameGear => NTSC_MASTER_CLOCK,
+        VdpVersion::PalMasterSystem2 => PAL_MASTER_CLOCK,
+    };
+    let downsampling_ratio = master_clock / 15.0 / 16.0 / 48000.0;
 
     let mut leftover_vdp_cycles = 0;
     while window.is_open() && !window.is_key_down(Key::Escape) {
@@ -242,7 +249,7 @@ fn vdp_buffer_to_minifb_buffer(
     for (i, row) in vdp_buffer.iter().skip(row_skip).take(row_take).enumerate() {
         for (j, color) in row.iter().copied().skip(col_skip).enumerate() {
             let (r, g, b) = match vdp_version {
-                VdpVersion::MasterSystem2 => (
+                VdpVersion::NtscMasterSystem2 | VdpVersion::PalMasterSystem2 => (
                     convert_sms_color(color & 0x03),
                     convert_sms_color((color >> 2) & 0x03),
                     convert_sms_color((color >> 4) & 0x03),

@@ -25,6 +25,16 @@ impl ViewportSize {
         left_border_width: 8,
     };
 
+    const PAL_SMS2: Self = Self {
+        width: 256,
+        height: 240,
+        top: 0,
+        left: 0,
+        top_border_height: 24,
+        bottom_border_height: 24,
+        left_border_width: 8,
+    };
+
     const GAME_GEAR: Self = Self {
         width: 160,
         height: 144,
@@ -47,14 +57,20 @@ impl ViewportSize {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VdpVersion {
     #[default]
-    MasterSystem2,
+    NtscMasterSystem2,
+    PalMasterSystem2,
     GameGear,
 }
 
 impl VdpVersion {
+    #[must_use]
+    pub fn is_master_system(self) -> bool {
+        matches!(self, Self::NtscMasterSystem2 | Self::PalMasterSystem2)
+    }
+
     const fn cram_address_mask(self) -> u16 {
         match self {
-            Self::MasterSystem2 => 0x001F,
+            Self::NtscMasterSystem2 | Self::PalMasterSystem2 => 0x001F,
             Self::GameGear => 0x003F,
         }
     }
@@ -62,7 +78,8 @@ impl VdpVersion {
     #[must_use]
     pub const fn viewport_size(self) -> ViewportSize {
         match self {
-            Self::MasterSystem2 => ViewportSize::NTSC_SMS2,
+            Self::NtscMasterSystem2 => ViewportSize::NTSC_SMS2,
+            Self::PalMasterSystem2 => ViewportSize::PAL_SMS2,
             Self::GameGear => ViewportSize::GAME_GEAR,
         }
     }
@@ -71,7 +88,8 @@ impl VdpVersion {
 impl Display for VdpVersion {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::MasterSystem2 => write!(f, "MasterSystem2"),
+            Self::NtscMasterSystem2 => write!(f, "NtscMasterSystem2"),
+            Self::PalMasterSystem2 => write!(f, "PalMasterSystem2"),
             Self::GameGear => write!(f, "GameGear"),
         }
     }
@@ -82,7 +100,8 @@ impl FromStr for VdpVersion {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "MasterSystem2" => Ok(Self::MasterSystem2),
+            "NtscMasterSystem2" => Ok(Self::NtscMasterSystem2),
+            "PalMasterSystem2" => Ok(Self::PalMasterSystem2),
             "GameGear" => Ok(Self::GameGear),
             _ => Err(format!("invalid VDP version string: {s}")),
         }
@@ -484,7 +503,7 @@ const VRAM_SIZE: usize = 16 * 1024;
 const COLOR_RAM_SIZE: usize = 64;
 
 const SCREEN_WIDTH: u16 = 256;
-const SCREEN_HEIGHT: u16 = 224;
+const SCREEN_HEIGHT: u16 = 240;
 const FRAME_BUFFER_LEN: usize = SCREEN_WIDTH as usize * SCREEN_HEIGHT as usize;
 
 #[derive(Debug, Clone)]
@@ -573,6 +592,7 @@ pub struct Vdp {
 
 const DOTS_PER_SCANLINE: u16 = 342;
 const NTSC_SCANLINES_PER_FRAME: u16 = 262;
+const PAL_SCANLINES_PER_FRAME: u16 = 313;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VdpTickEffect {
@@ -596,7 +616,9 @@ impl Vdp {
 
     fn read_color_ram_word(&self, address: u8) -> u16 {
         match self.registers.version {
-            VdpVersion::MasterSystem2 => self.color_ram[address as usize].into(),
+            VdpVersion::NtscMasterSystem2 | VdpVersion::PalMasterSystem2 => {
+                self.color_ram[address as usize].into()
+            }
             VdpVersion::GameGear => u16::from_le_bytes([
                 self.color_ram[(2 * address) as usize],
                 self.color_ram[(2 * address + 1) as usize],
@@ -630,7 +652,7 @@ impl Vdp {
 
     fn render_scanline(&mut self) {
         let scanline = self.scanline;
-        let frame_buffer_row = scanline + 16;
+        let frame_buffer_row = scanline + self.frame_buffer.viewport.top_border_height;
 
         let (coarse_x_scroll, fine_x_scroll) =
             if scanline < 16 && self.registers.horizontal_scroll_lock {
@@ -838,7 +860,11 @@ impl Vdp {
             self.scanline += 1;
             self.dot = 0;
 
-            if self.scanline == NTSC_SCANLINES_PER_FRAME {
+            let scanlines_per_frame = match self.registers.version {
+                VdpVersion::NtscMasterSystem2 | VdpVersion::GameGear => NTSC_SCANLINES_PER_FRAME,
+                VdpVersion::PalMasterSystem2 => PAL_SCANLINES_PER_FRAME,
+            };
+            if self.scanline == scanlines_per_frame {
                 self.scanline = 0;
             }
         }
@@ -849,14 +875,22 @@ impl Vdp {
     fn fill_vertical_border(&mut self) {
         let backdrop_color = self.read_color_ram_word(0x10 | self.registers.backdrop_color);
 
+        let ViewportSize {
+            top_border_height,
+            height,
+            bottom_border_height,
+            ..
+        } = self.frame_buffer.viewport;
+
         // TODO generalize
-        for scanline in 0..16 {
+        for scanline in 0..top_border_height {
             for pixel in 0..256 {
                 self.frame_buffer.set(scanline, pixel, backdrop_color);
             }
         }
 
-        for scanline in 208..224 {
+        let viewport_bottom = height - bottom_border_height;
+        for scanline in viewport_bottom..height {
             for pixel in 0..256 {
                 self.frame_buffer.set(scanline, pixel, backdrop_color);
             }

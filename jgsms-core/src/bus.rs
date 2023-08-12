@@ -120,7 +120,7 @@ impl<'a> BusInterface for Bus<'a> {
     }
 
     fn nmi(&self) -> InterruptLine {
-        if self.version == VdpVersion::MasterSystem2 && self.input.pause_pressed() {
+        if self.version.is_master_system() && self.input.pause_pressed() {
             InterruptLine::Low
         } else {
             InterruptLine::High

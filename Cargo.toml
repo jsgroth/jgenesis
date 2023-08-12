@@ -7,9 +7,6 @@ members = [
 ]
 resolver = "2"
 
-[profile.dev]
-opt-level = 1
-
 [profile.release-lto]
 inherits = "release"
 lto = true
