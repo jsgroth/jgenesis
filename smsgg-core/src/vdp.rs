@@ -3,6 +3,30 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use z80_emu::traits::InterruptLine;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ViewportSize {
+    pub width: u16,
+    pub height: u16,
+    top: u16,
+    left: u16,
+}
+
+impl ViewportSize {
+    const NTSC_SMS2: Self = Self {
+        width: 256,
+        height: 224,
+        top: 0,
+        left: 0,
+    };
+
+    const GAME_GEAR: Self = Self {
+        width: 160,
+        height: 144,
+        top: 40,
+        left: 48,
+    };
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VdpVersion {
     #[default]
@@ -15,6 +39,14 @@ impl VdpVersion {
         match self {
             Self::MasterSystem2 => 0x001F,
             Self::GameGear => 0x003F,
+        }
+    }
+
+    #[must_use]
+    pub const fn viewport_size(self) -> ViewportSize {
+        match self {
+            Self::MasterSystem2 => ViewportSize::NTSC_SMS2,
+            Self::GameGear => ViewportSize::GAME_GEAR,
         }
     }
 }
@@ -435,10 +467,101 @@ const VRAM_SIZE: usize = 16 * 1024;
 const COLOR_RAM_SIZE: usize = 64;
 
 const SCREEN_WIDTH: u16 = 256;
-const FRAME_BUFFER_HEIGHT: u16 = 240;
+const SCREEN_HEIGHT: u16 = 224;
+const FRAME_BUFFER_LEN: usize = SCREEN_WIDTH as usize * SCREEN_HEIGHT as usize;
 
-// TODO properly handle borders
-pub type FrameBuffer = [[u16; SCREEN_WIDTH as usize]; FRAME_BUFFER_HEIGHT as usize];
+#[derive(Debug, Clone)]
+pub struct FrameBuffer {
+    buffer: [u16; FRAME_BUFFER_LEN],
+    viewport: ViewportSize,
+}
+
+impl FrameBuffer {
+    fn new(version: VdpVersion) -> Self {
+        Self {
+            buffer: [0; FRAME_BUFFER_LEN],
+            viewport: version.viewport_size(),
+        }
+    }
+
+    #[inline]
+    pub fn get(&self, row: u16, col: u16) -> u16 {
+        let idx = (self.viewport.top as usize + row as usize) * SCREEN_WIDTH as usize
+            + self.viewport.left as usize
+            + col as usize;
+        self.buffer[idx]
+    }
+
+    #[inline]
+    fn set(&mut self, row: u16, col: u16, value: u16) {
+        self.buffer[row as usize * SCREEN_WIDTH as usize + col as usize] = value;
+    }
+
+    pub fn iter(&self) -> FrameBufferRowIter<'_> {
+        FrameBufferRowIter {
+            buffer: self,
+            row: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FrameBufferRowIter<'a> {
+    buffer: &'a FrameBuffer,
+    row: u16,
+}
+
+#[derive(Debug, Clone)]
+pub struct FrameBufferColIter<'a> {
+    buffer: &'a FrameBuffer,
+    row: u16,
+    col: u16,
+}
+
+impl<'a> Iterator for FrameBufferRowIter<'a> {
+    type Item = FrameBufferColIter<'a>;
+
+    #[inline]
+    #[allow(clippy::if_then_some_else_none)]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.row < self.buffer.viewport.height {
+            let iter = FrameBufferColIter {
+                buffer: self.buffer,
+                row: self.row,
+                col: 0,
+            };
+            self.row += 1;
+            Some(iter)
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a> Iterator for FrameBufferColIter<'a> {
+    type Item = u16;
+
+    #[inline]
+    #[allow(clippy::if_then_some_else_none)]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.col < self.buffer.viewport.width {
+            let value = self.buffer.get(self.row, self.col);
+            self.col += 1;
+            Some(value)
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a> IntoIterator for &'a FrameBuffer {
+    type Item = FrameBufferColIter<'a>;
+    type IntoIter = FrameBufferRowIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Vdp {
@@ -464,7 +587,7 @@ pub enum VdpTickEffect {
 impl Vdp {
     pub fn new(version: VdpVersion) -> Self {
         Self {
-            frame_buffer: [[0; SCREEN_WIDTH as usize]; FRAME_BUFFER_HEIGHT as usize],
+            frame_buffer: FrameBuffer::new(version),
             registers: Registers::new(version),
             vram: [0; VRAM_SIZE],
             color_ram: [0; COLOR_RAM_SIZE],
@@ -511,6 +634,7 @@ impl Vdp {
 
     fn render_scanline(&mut self) {
         let scanline = self.scanline;
+        let frame_buffer_row = scanline + 16;
 
         let (coarse_x_scroll, fine_x_scroll) =
             if scanline < 16 && self.registers.horizontal_scroll_lock {
@@ -526,7 +650,7 @@ impl Vdp {
         let backdrop_color = self.read_color_ram_word(0x10 | self.registers.backdrop_color);
 
         for dot in 0..fine_x_scroll {
-            self.frame_buffer[scanline as usize][dot as usize] = backdrop_color;
+            self.frame_buffer.set(frame_buffer_row, dot, backdrop_color);
         }
 
         find_sprites_on_scanline(
@@ -580,7 +704,7 @@ impl Vdp {
                 }
 
                 if self.registers.hide_left_column && dot < 8 {
-                    self.frame_buffer[scanline as usize][dot as usize] = backdrop_color;
+                    self.frame_buffer.set(frame_buffer_row, dot, backdrop_color);
                     continue;
                 }
 
@@ -637,7 +761,7 @@ impl Vdp {
                     } else {
                         self.read_color_ram_word(bg_base_cram_addr | bg_color_id)
                     };
-                self.frame_buffer[scanline as usize][dot as usize] = pixel_color;
+                self.frame_buffer.set(frame_buffer_row, dot, pixel_color);
             }
         }
     }
@@ -704,10 +828,7 @@ impl Vdp {
         if vblank_start {
             self.registers.frame_interrupt_pending = true;
 
-            // TODO do this somewhere else, e.g. the renderer
-            if self.registers.version == VdpVersion::GameGear {
-                self.clear_game_gear_border();
-            }
+            self.fill_vertical_border();
         }
 
         let tick_effect = if vblank_start {
@@ -729,28 +850,19 @@ impl Vdp {
         tick_effect
     }
 
-    fn clear_game_gear_border(&mut self) {
-        for scanline in &mut self.frame_buffer[..24] {
-            for pixel in scanline {
-                *pixel = 0;
+    fn fill_vertical_border(&mut self) {
+        let backdrop_color = self.read_color_ram_word(0x10 | self.registers.backdrop_color);
+
+        // TODO generalize
+        for scanline in 0..16 {
+            for pixel in 0..256 {
+                self.frame_buffer.set(scanline, pixel, backdrop_color);
             }
         }
 
-        for scanline in &mut self.frame_buffer[168..192] {
-            for pixel in scanline {
-                *pixel = 0;
-            }
-        }
-
-        for column in 0..48 {
-            for scanline in 0..192 {
-                self.frame_buffer[scanline][column] = 0;
-            }
-        }
-
-        for column in 208..256 {
-            for scanline in 0..192 {
-                self.frame_buffer[scanline][column] = 0;
+        for scanline in 208..224 {
+            for pixel in 0..256 {
+                self.frame_buffer.set(scanline, pixel, backdrop_color);
             }
         }
     }

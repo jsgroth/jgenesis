@@ -18,6 +18,8 @@ pub struct SmsGgConfig {
     pub rom_file_path: String,
     pub vdp_version: Option<VdpVersion>,
     pub psg_version: Option<PsgVersion>,
+    pub crop_sms_vertical_border: bool,
+    pub crop_sms_left_border: bool,
 }
 
 fn default_vdp_version_for_ext(file_ext: &str) -> VdpVersion {
@@ -65,11 +67,34 @@ pub fn run(config: SmsGgConfig) {
 
     log::info!("Using VDP {vdp_version} and PSG {psg_version}");
 
-    let mut window = Window::new(file_name, 3 * 256, 3 * 192, WindowOptions::default()).unwrap();
+    let viewport = vdp_version.viewport_size();
+
+    let crop_vertical_border =
+        config.crop_sms_vertical_border && vdp_version == VdpVersion::MasterSystem2;
+    let crop_left_border = config.crop_sms_left_border && vdp_version == VdpVersion::MasterSystem2;
+
+    let window_height = if crop_vertical_border {
+        viewport.height - 32
+    } else {
+        viewport.height
+    };
+    let window_width = if crop_left_border {
+        viewport.width - 8
+    } else {
+        viewport.width
+    };
+
+    let mut window = Window::new(
+        file_name,
+        3 * window_width as usize,
+        3 * window_height as usize,
+        WindowOptions::default(),
+    )
+    .unwrap();
     window.limit_update_rate(Some(Duration::from_micros(16400)));
 
     // TODO variable resolutions for Game Gear, 224-line mode, borders, etc.
-    let mut minifb_buffer = vec![0_u32; 256 * 192];
+    let mut minifb_buffer = vec![0_u32; window_width as usize * window_height as usize];
 
     let mut audio_buffer = Vec::new();
     let audio_queue = Arc::new(Mutex::new(VecDeque::<f32>::new()));
@@ -161,9 +186,22 @@ pub fn run(config: SmsGgConfig) {
             if vdp.tick() == VdpTickEffect::FrameComplete {
                 let vdp_buffer = vdp.frame_buffer();
 
-                vdp_buffer_to_minifb_buffer(vdp_buffer, vdp_version, &mut minifb_buffer);
+                vdp_buffer_to_minifb_buffer(
+                    vdp_buffer,
+                    vdp_version,
+                    window_width as usize,
+                    crop_vertical_border,
+                    crop_left_border,
+                    &mut minifb_buffer,
+                );
 
-                window.update_with_buffer(&minifb_buffer, 256, 192).unwrap();
+                window
+                    .update_with_buffer(
+                        &minifb_buffer,
+                        window_width as usize,
+                        window_height as usize,
+                    )
+                    .unwrap();
 
                 let p1_input = input.p1();
                 p1_input.up = window.is_key_down(Key::Up);
@@ -184,10 +222,20 @@ pub fn run(config: SmsGgConfig) {
 fn vdp_buffer_to_minifb_buffer(
     vdp_buffer: &FrameBuffer,
     vdp_version: VdpVersion,
+    window_width: usize,
+    crop_vertical_border: bool,
+    crop_left_border: bool,
     minifb_buffer: &mut [u32],
 ) {
-    for (i, row) in vdp_buffer[..192].iter().enumerate() {
-        for (j, color) in row.iter().copied().enumerate() {
+    let (row_skip, row_take) = if crop_vertical_border {
+        (16, 192)
+    } else {
+        (0, 224)
+    };
+    let col_skip = if crop_left_border { 8 } else { 0 };
+
+    for (i, row) in vdp_buffer.iter().skip(row_skip).take(row_take).enumerate() {
+        for (j, color) in row.skip(col_skip).enumerate() {
             let (r, g, b) = match vdp_version {
                 VdpVersion::MasterSystem2 => (
                     convert_sms_color(color & 0x03),
@@ -201,7 +249,7 @@ fn vdp_buffer_to_minifb_buffer(
                 ),
             };
 
-            minifb_buffer[i * 256 + j] = (r << 16) | (g << 8) | b;
+            minifb_buffer[i * window_width + j] = (r << 16) | (g << 8) | b;
         }
     }
 }
