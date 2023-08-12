@@ -7,6 +7,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{BufferSize, SampleRate, StreamConfig};
 use minifb::{Key, Window, WindowOptions};
 use std::collections::VecDeque;
+use std::error::Error;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -44,10 +45,14 @@ const NTSC_MASTER_CLOCK: f64 = 53693175.0;
 const PAL_MASTER_CLOCK: f64 = 53203424.0;
 
 // TODO generalize all this
+/// # Errors
+///
+/// Returns an error if the file cannot be read or there is a video/audio error
+///
 /// # Panics
 ///
-/// Panics if the file cannot be read
-pub fn run(config: SmsGgConfig) {
+/// Panics if unable to determine filename or initialize audio (TODO: should be an error)
+pub fn run(config: SmsGgConfig) -> Result<(), Box<dyn Error>> {
     log::info!("Running with config: {config:?}");
 
     let file_name = Path::new(&config.rom_file_path)
@@ -60,6 +65,8 @@ pub fn run(config: SmsGgConfig) {
         .unwrap()
         .to_str()
         .unwrap();
+
+    let sav_file_path = Path::new(&config.rom_file_path).with_extension("sav");
 
     let vdp_version = config
         .vdp_version
@@ -88,11 +95,9 @@ pub fn run(config: SmsGgConfig) {
         3 * window_width as usize,
         3 * window_height as usize,
         WindowOptions::default(),
-    )
-    .unwrap();
+    )?;
     window.limit_update_rate(Some(Duration::from_micros(16400)));
 
-    // TODO variable resolutions for Game Gear, 224-line mode, borders, etc.
     let mut minifb_buffer = vec![0_u32; window_width as usize * window_height as usize];
 
     let mut audio_buffer = Vec::new();
@@ -101,32 +106,31 @@ pub fn run(config: SmsGgConfig) {
 
     let audio_host = cpal::default_host();
     let audio_device = audio_host.default_output_device().unwrap();
-    let audio_stream = audio_device
-        .build_output_stream(
-            &StreamConfig {
-                // TODO stereo sound for Game Gear
-                channels: 1,
-                sample_rate: SampleRate(48000),
-                buffer_size: BufferSize::Fixed(1024),
-            },
-            move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                let mut callback_queue = callback_queue.lock().unwrap();
-                for output in data {
-                    let Some(sample) = callback_queue.pop_front() else { break };
-                    *output = sample;
-                }
-            },
-            move |err| {
-                log::error!("Audio error: {err}");
-                process::exit(1);
-            },
-            None,
-        )
-        .unwrap();
-    audio_stream.play().unwrap();
+    let audio_stream = audio_device.build_output_stream(
+        &StreamConfig {
+            // TODO stereo sound for Game Gear
+            channels: 1,
+            sample_rate: SampleRate(48000),
+            buffer_size: BufferSize::Fixed(1024),
+        },
+        move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+            let mut callback_queue = callback_queue.lock().unwrap();
+            for output in data {
+                let Some(sample) = callback_queue.pop_front() else { break };
+                *output = sample;
+            }
+        },
+        move |err| {
+            log::error!("Audio error: {err}");
+            process::exit(1);
+        },
+        None,
+    )?;
+    audio_stream.play()?;
 
-    let rom = fs::read(Path::new(&config.rom_file_path)).unwrap();
-    let mut memory = Memory::new(rom);
+    let rom = fs::read(Path::new(&config.rom_file_path))?;
+    let initial_cartridge_ram = fs::read(&sav_file_path).ok();
+    let mut memory = Memory::new(rom, initial_cartridge_ram);
 
     let mut z80 = Z80::new();
     z80.set_pc(0x0000);
@@ -143,6 +147,9 @@ pub fn run(config: SmsGgConfig) {
         VdpVersion::PalMasterSystem2 => PAL_MASTER_CLOCK,
     };
     let downsampling_ratio = master_clock / 15.0 / 16.0 / 48000.0;
+
+    let mut frame_count = 0_u64;
+    let mut last_save_frame_count = 0_u64;
 
     let mut leftover_vdp_cycles = 0;
     while window.is_open() && !window.is_key_down(Key::Escape) {
@@ -218,9 +225,22 @@ pub fn run(config: SmsGgConfig) {
                 input.set_pause(window.is_key_down(Key::Enter));
 
                 // TODO RESET button
+
+                frame_count += 1;
+                if memory.cartridge_has_battery()
+                    && memory.cartridge_ram_dirty()
+                    && (last_save_frame_count - frame_count) >= 60
+                {
+                    last_save_frame_count = frame_count;
+                    memory.clear_cartridge_ram_dirty();
+
+                    fs::write(Path::new(&sav_file_path), memory.cartridge_ram())?;
+                }
             }
         }
     }
+
+    Ok(())
 }
 
 fn vdp_buffer_to_minifb_buffer(

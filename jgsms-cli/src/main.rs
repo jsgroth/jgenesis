@@ -1,6 +1,7 @@
 use clap::Parser;
 use env_logger::Env;
 use jgsms_core::{PsgVersion, SmsGgConfig, VdpVersion};
+use std::error::Error;
 
 #[derive(Parser)]
 struct Args {
@@ -26,7 +27,7 @@ struct Args {
     crop_sms_left_border: bool,
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
     let args = Args::parse();
@@ -39,5 +40,5 @@ fn main() {
         crop_sms_left_border: args.crop_sms_left_border,
     };
 
-    jgsms_core::run(config);
+    jgsms_core::run(config)
 }

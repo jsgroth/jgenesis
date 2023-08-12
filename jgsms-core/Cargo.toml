@@ -9,5 +9,6 @@ edition = "2021"
 z80-emu = { path = "../z80-emu" }
 
 cpal = "0.15"
+crc = "3"
 log = "0.4"
 minifb = "0.25"

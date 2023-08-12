@@ -1,4 +1,7 @@
+mod metadata;
+
 use crate::num::GetBit;
+use crc::Crc;
 use std::ops::RangeInclusive;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -47,29 +50,53 @@ struct Cartridge {
     rom: Vec<u8>,
     ram: Vec<u8>,
     mapper: Mapper,
+    has_battery: bool,
     rom_bank_0: u32,
     rom_bank_1: u32,
     rom_bank_2: u32,
     ram_mapped: bool,
     ram_bank: u32,
+    ram_dirty: bool,
 }
 
+// Most cartridges with RAM only had 8KB, but up to 32KB was supported, and the header contains
+// no information on RAM size (or even whether RAM is present)
 const CARTRIDGE_RAM_SIZE: usize = 32 * 1024;
 
+const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
+
 impl Cartridge {
-    fn from_rom(rom: Vec<u8>) -> Self {
+    fn new(rom: Vec<u8>, initial_ram: Option<Vec<u8>>) -> Self {
         let mapper = Mapper::detect_from_rom(&rom);
         log::info!("Detected mapper {mapper:?} from ROM header");
 
+        let mut crc_digest = CRC.digest();
+        crc_digest.update(&rom);
+        let checksum = crc_digest.finalize();
+        log::info!("ROM CRC32: {checksum:08X}");
+
+        let has_battery = metadata::has_battery_backup(checksum);
+        log::info!("Cartridge has battery-backed RAM: {has_battery}");
+
+        let ram = match initial_ram {
+            Some(ram) if ram.len() == CARTRIDGE_RAM_SIZE => {
+                log::info!("Successfully loaded cartridge SRAM");
+                ram
+            }
+            _ => vec![0; CARTRIDGE_RAM_SIZE],
+        };
+
         Self {
             rom,
-            ram: vec![0; CARTRIDGE_RAM_SIZE],
+            ram,
             mapper,
+            has_battery,
             rom_bank_0: 0,
             rom_bank_1: 1,
             rom_bank_2: 2,
             ram_mapped: false,
             ram_bank: 0,
+            ram_dirty: false,
         }
     }
 
@@ -117,8 +144,13 @@ impl Cartridge {
 
     fn write_ram(&mut self, address: u16, value: u8) {
         if self.ram_mapped {
-            let ram_addr = (self.ram_bank << 14) | u32::from(address & 0x3FFF);
+            let ram_addr = match self.mapper {
+                Mapper::Sega => (self.ram_bank << 14) | u32::from(address & 0x3FFF),
+                Mapper::Codemasters => (address & 0x1FFF).into(),
+            };
             self.ram[ram_addr as usize] = value;
+
+            self.ram_dirty = true;
         }
     }
 }
@@ -132,9 +164,9 @@ pub struct Memory {
 }
 
 impl Memory {
-    pub fn new(rom: Vec<u8>) -> Self {
+    pub fn new(rom: Vec<u8>, initial_cartridge_ram: Option<Vec<u8>>) -> Self {
         Self {
-            cartridge: Cartridge::from_rom(rom),
+            cartridge: Cartridge::new(rom, initial_cartridge_ram),
             ram: [0; SYSTEM_RAM_SIZE],
         }
     }
@@ -183,12 +215,28 @@ impl Memory {
             }
             (Mapper::Codemasters, 0xA000..=0xBFFF) => {
                 if self.cartridge.ram_mapped {
-                    self.cartridge.ram[(address & 0x1FFF) as usize] = value;
+                    self.cartridge.write_ram(address, value);
                 } else {
                     self.cartridge.rom_bank_2 = value.into();
                 }
             }
             _ => {}
         }
+    }
+
+    pub fn cartridge_ram(&self) -> &[u8] {
+        &self.cartridge.ram
+    }
+
+    pub fn cartridge_has_battery(&self) -> bool {
+        self.cartridge.has_battery
+    }
+
+    pub fn cartridge_ram_dirty(&self) -> bool {
+        self.cartridge.ram_dirty
+    }
+
+    pub fn clear_cartridge_ram_dirty(&mut self) {
+        self.cartridge.ram_dirty = false;
     }
 }
