@@ -69,17 +69,13 @@ pub fn run(config: SmsGgConfig) {
 
     let viewport = vdp_version.viewport_size();
 
-    let crop_vertical_border =
-        config.crop_sms_vertical_border && vdp_version == VdpVersion::MasterSystem2;
-    let crop_left_border = config.crop_sms_left_border && vdp_version == VdpVersion::MasterSystem2;
-
-    let window_height = if crop_vertical_border {
-        viewport.height - 32
+    let window_height = if config.crop_sms_vertical_border {
+        viewport.height_without_border()
     } else {
         viewport.height
     };
-    let window_width = if crop_left_border {
-        viewport.width - 8
+    let window_width = if config.crop_sms_left_border {
+        viewport.width_without_border()
     } else {
         viewport.width
     };
@@ -190,8 +186,8 @@ pub fn run(config: SmsGgConfig) {
                     vdp_buffer,
                     vdp_version,
                     window_width as usize,
-                    crop_vertical_border,
-                    crop_left_border,
+                    config.crop_sms_vertical_border,
+                    config.crop_sms_left_border,
                     &mut minifb_buffer,
                 );
 
@@ -227,12 +223,21 @@ fn vdp_buffer_to_minifb_buffer(
     crop_left_border: bool,
     minifb_buffer: &mut [u32],
 ) {
+    let viewport = vdp_version.viewport_size();
+
     let (row_skip, row_take) = if crop_vertical_border {
-        (16, 192)
+        (
+            viewport.top_border_height as usize,
+            viewport.height_without_border() as usize,
+        )
     } else {
-        (0, 224)
+        (0, viewport.height as usize)
     };
-    let col_skip = if crop_left_border { 8 } else { 0 };
+    let col_skip = if crop_left_border {
+        viewport.left_border_width as usize
+    } else {
+        0
+    };
 
     for (i, row) in vdp_buffer.iter().skip(row_skip).take(row_take).enumerate() {
         for (j, color) in row.iter().copied().skip(col_skip).enumerate() {

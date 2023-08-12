@@ -7,8 +7,11 @@ use z80_emu::traits::InterruptLine;
 pub struct ViewportSize {
     pub width: u16,
     pub height: u16,
-    top: u16,
-    left: u16,
+    pub top: u16,
+    pub left: u16,
+    pub top_border_height: u16,
+    pub bottom_border_height: u16,
+    pub left_border_width: u16,
 }
 
 impl ViewportSize {
@@ -17,6 +20,9 @@ impl ViewportSize {
         height: 224,
         top: 0,
         left: 0,
+        top_border_height: 16,
+        bottom_border_height: 16,
+        left_border_width: 8,
     };
 
     const GAME_GEAR: Self = Self {
@@ -24,7 +30,18 @@ impl ViewportSize {
         height: 144,
         top: 40,
         left: 48,
+        top_border_height: 0,
+        bottom_border_height: 0,
+        left_border_width: 0,
     };
+
+    pub fn height_without_border(self) -> u16 {
+        self.height - self.top_border_height - self.bottom_border_height
+    }
+
+    pub fn width_without_border(self) -> u16 {
+        self.width - self.left_border_width
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
