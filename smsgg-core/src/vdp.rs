@@ -485,11 +485,15 @@ impl FrameBuffer {
     }
 
     #[inline]
-    pub fn get(&self, row: u16, col: u16) -> u16 {
-        let idx = (self.viewport.top as usize + row as usize) * SCREEN_WIDTH as usize
+    fn idx(&self, row: u16, col: u16) -> usize {
+        (self.viewport.top as usize + row as usize) * SCREEN_WIDTH as usize
             + self.viewport.left as usize
-            + col as usize;
-        self.buffer[idx]
+            + col as usize
+    }
+
+    #[inline]
+    pub fn get(&self, row: u16, col: u16) -> u16 {
+        self.buffer[self.idx(row, col)]
     }
 
     #[inline]
@@ -511,43 +515,18 @@ pub struct FrameBufferRowIter<'a> {
     row: u16,
 }
 
-#[derive(Debug, Clone)]
-pub struct FrameBufferColIter<'a> {
-    buffer: &'a FrameBuffer,
-    row: u16,
-    col: u16,
-}
-
 impl<'a> Iterator for FrameBufferRowIter<'a> {
-    type Item = FrameBufferColIter<'a>;
+    type Item = &'a [u16];
 
     #[inline]
     #[allow(clippy::if_then_some_else_none)]
     fn next(&mut self) -> Option<Self::Item> {
         if self.row < self.buffer.viewport.height {
-            let iter = FrameBufferColIter {
-                buffer: self.buffer,
-                row: self.row,
-                col: 0,
-            };
+            let start_idx = self.buffer.idx(self.row, 0);
+            let row_slice =
+                &self.buffer.buffer[start_idx..start_idx + self.buffer.viewport.width as usize];
             self.row += 1;
-            Some(iter)
-        } else {
-            None
-        }
-    }
-}
-
-impl<'a> Iterator for FrameBufferColIter<'a> {
-    type Item = u16;
-
-    #[inline]
-    #[allow(clippy::if_then_some_else_none)]
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.col < self.buffer.viewport.width {
-            let value = self.buffer.get(self.row, self.col);
-            self.col += 1;
-            Some(value)
+            Some(row_slice)
         } else {
             None
         }
@@ -555,7 +534,7 @@ impl<'a> Iterator for FrameBufferColIter<'a> {
 }
 
 impl<'a> IntoIterator for &'a FrameBuffer {
-    type Item = FrameBufferColIter<'a>;
+    type Item = &'a [u16];
     type IntoIter = FrameBufferRowIter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {

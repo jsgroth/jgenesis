@@ -235,7 +235,7 @@ fn vdp_buffer_to_minifb_buffer(
     let col_skip = if crop_left_border { 8 } else { 0 };
 
     for (i, row) in vdp_buffer.iter().skip(row_skip).take(row_take).enumerate() {
-        for (j, color) in row.skip(col_skip).enumerate() {
+        for (j, color) in row.iter().copied().skip(col_skip).enumerate() {
             let (r, g, b) = match vdp_version {
                 VdpVersion::MasterSystem2 => (
                     convert_sms_color(color & 0x03),
