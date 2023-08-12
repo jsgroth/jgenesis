@@ -139,10 +139,9 @@ enum Mode {
 impl Mode {
     fn from_mode_bits(mode_bits: [bool; 4]) -> Self {
         match mode_bits {
-            [false, false, false, true]
-            | [false, true, false, true]
-            | [false, false, true, true]
-            | [true, true, true, true] => Self::Four,
+            [false, _, false, true] | [false, false, true, true] | [true, true, true, true] => {
+                Self::Four
+            }
             [true, true, false, true] => Self::Four224Line,
             _ => {
                 log::warn!("Unsupported mode, defaulting to mode 4: {mode_bits:?}");
@@ -886,7 +885,10 @@ impl Vdp {
             self.render_scanline();
         }
 
-        if self.scanline < active_scanlines + 1 && self.dot == 0 {
+        // The apparent off-by-one in this comparison is intentional. The line counter is
+        // decremented on every active scanline *and* on the scanline immediately following the
+        // active period.
+        if self.scanline <= active_scanlines && self.dot == 0 {
             let (new_counter, overflowed) = self.line_counter.overflowing_sub(1);
             if overflowed {
                 self.line_counter = self.registers.line_counter_reload_value;
@@ -894,7 +896,7 @@ impl Vdp {
             } else {
                 self.line_counter = new_counter;
             }
-        } else if self.scanline >= active_scanlines + 1 {
+        } else if self.scanline > active_scanlines {
             // Line counter is constantly reloaded outside of the active display period
             self.line_counter = self.registers.line_counter_reload_value;
         }
