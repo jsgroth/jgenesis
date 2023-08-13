@@ -7,7 +7,7 @@ use bincode::error::{DecodeError, EncodeError};
 use bincode::{BorrowDecode, Decode, Encode};
 use crc::Crc;
 use std::mem;
-use std::ops::RangeInclusive;
+use std::ops::{Index, RangeInclusive};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum Mapper {
@@ -50,9 +50,44 @@ impl Mapper {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
+struct Rom(Vec<u8>);
+
+impl Rom {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl Index<usize> for Rom {
+    type Output = <Vec<u8> as Index<usize>>::Output;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
+    }
+}
+
+impl Encode for Rom {
+    fn encode<E: Encoder>(&self, _encoder: &mut E) -> Result<(), EncodeError> {
+        Ok(())
+    }
+}
+
+impl Decode for Rom {
+    fn decode<D: Decoder>(_decoder: &mut D) -> Result<Self, DecodeError> {
+        Ok(Self(vec![]))
+    }
+}
+
+impl<'de> BorrowDecode<'de> for Rom {
+    fn borrow_decode<D: BorrowDecoder<'de>>(_decoder: &mut D) -> Result<Self, DecodeError> {
+        Ok(Self(vec![]))
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
 struct Cartridge {
-    rom: Vec<u8>,
+    rom: Rom,
     ram: Vec<u8>,
     mapper: Mapper,
     has_battery: bool,
@@ -62,76 +97,6 @@ struct Cartridge {
     ram_mapped: bool,
     ram_bank: u32,
     ram_dirty: bool,
-}
-
-impl Encode for Cartridge {
-    fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
-        self.ram.encode(encoder)?;
-        self.mapper.encode(encoder)?;
-        self.has_battery.encode(encoder)?;
-        self.rom_bank_0.encode(encoder)?;
-        self.rom_bank_1.encode(encoder)?;
-        self.rom_bank_2.encode(encoder)?;
-        self.ram_mapped.encode(encoder)?;
-        self.ram_bank.encode(encoder)?;
-        self.ram_dirty.encode(encoder)?;
-
-        Ok(())
-    }
-}
-
-impl Decode for Cartridge {
-    fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError> {
-        let ram = Decode::decode(decoder)?;
-        let mapper = Decode::decode(decoder)?;
-        let has_battery = Decode::decode(decoder)?;
-        let rom_bank_0 = Decode::decode(decoder)?;
-        let rom_bank_1 = Decode::decode(decoder)?;
-        let rom_bank_2 = Decode::decode(decoder)?;
-        let ram_mapped = Decode::decode(decoder)?;
-        let ram_bank = Decode::decode(decoder)?;
-        let ram_dirty = Decode::decode(decoder)?;
-
-        Ok(Self {
-            rom: vec![],
-            ram,
-            mapper,
-            has_battery,
-            rom_bank_0,
-            rom_bank_1,
-            rom_bank_2,
-            ram_mapped,
-            ram_bank,
-            ram_dirty,
-        })
-    }
-}
-
-impl<'de> BorrowDecode<'de> for Cartridge {
-    fn borrow_decode<D: BorrowDecoder<'de>>(decoder: &mut D) -> Result<Self, DecodeError> {
-        let ram = BorrowDecode::borrow_decode(decoder)?;
-        let mapper = BorrowDecode::borrow_decode(decoder)?;
-        let has_battery = BorrowDecode::borrow_decode(decoder)?;
-        let rom_bank_0 = BorrowDecode::borrow_decode(decoder)?;
-        let rom_bank_1 = BorrowDecode::borrow_decode(decoder)?;
-        let rom_bank_2 = BorrowDecode::borrow_decode(decoder)?;
-        let ram_mapped = BorrowDecode::borrow_decode(decoder)?;
-        let ram_bank = BorrowDecode::borrow_decode(decoder)?;
-        let ram_dirty = BorrowDecode::borrow_decode(decoder)?;
-
-        Ok(Self {
-            rom: vec![],
-            ram,
-            mapper,
-            has_battery,
-            rom_bank_0,
-            rom_bank_1,
-            rom_bank_2,
-            ram_mapped,
-            ram_bank,
-            ram_dirty,
-        })
-    }
 }
 
 // Most cartridges with RAM only had 8KB, but up to 32KB was supported, and the header contains
@@ -162,7 +127,7 @@ impl Cartridge {
         };
 
         Self {
-            rom,
+            rom: Rom(rom),
             ram,
             mapper,
             has_battery,
