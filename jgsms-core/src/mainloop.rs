@@ -3,11 +3,14 @@ use crate::input::InputState;
 use crate::memory::Memory;
 use crate::psg::{Psg, PsgTickEffect, PsgVersion};
 use crate::vdp::{FrameBuffer, Vdp, VdpTickEffect, VdpVersion};
+use bincode::config::{Fixint, LittleEndian};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{BufferSize, SampleRate, StreamConfig};
-use minifb::{Key, Window, WindowOptions};
+use minifb::{Key, KeyRepeat, Window, WindowOptions};
 use std::collections::VecDeque;
 use std::error::Error;
+use std::fs::File;
+use std::io::{BufReader, BufWriter};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -68,6 +71,7 @@ pub fn run(config: SmsGgConfig) -> Result<(), Box<dyn Error>> {
         .unwrap();
 
     let sav_file_path = Path::new(&config.rom_file_path).with_extension("sav");
+    let save_state_path = Path::new(&config.rom_file_path).with_extension("ss0");
 
     let vdp_version = config
         .vdp_version
@@ -240,6 +244,31 @@ pub fn run(config: SmsGgConfig) -> Result<(), Box<dyn Error>> {
 
                     fs::write(Path::new(&sav_file_path), memory.cartridge_ram())?;
                 }
+
+                if window.is_key_pressed(Key::F5, KeyRepeat::No) {
+                    save_state(&save_state_path, &z80, &vdp, &psg, &memory)?;
+
+                    log::info!("Saved state to {}", save_state_path.display());
+                }
+
+                if window.is_key_pressed(Key::F6, KeyRepeat::No) {
+                    match load_state(&save_state_path, &mut memory) {
+                        Ok((loaded_z80, loaded_vdp, loaded_psg, loaded_memory)) => {
+                            z80 = loaded_z80;
+                            vdp = loaded_vdp;
+                            psg = loaded_psg;
+                            memory = loaded_memory;
+
+                            log::info!("Loaded save state from {}", save_state_path.display());
+                        }
+                        Err(err) => {
+                            log::error!(
+                                "Unable to load state from {}: {err}",
+                                save_state_path.display()
+                            );
+                        }
+                    }
+                }
             }
         }
     }
@@ -299,4 +328,42 @@ fn convert_gg_color(color: u16) -> u32 {
     [
         0, 17, 34, 51, 68, 85, 102, 119, 136, 153, 170, 187, 204, 221, 238, 255,
     ][color as usize]
+}
+
+const BINCODE_CONFIG: bincode::config::Configuration<LittleEndian, Fixint> =
+    bincode::config::standard()
+        .with_little_endian()
+        .with_fixed_int_encoding();
+
+fn save_state<P: AsRef<Path>>(
+    path: P,
+    z80: &Z80,
+    vdp: &Vdp,
+    psg: &Psg,
+    memory: &Memory,
+) -> Result<(), Box<dyn Error>> {
+    let mut writer = BufWriter::new(File::create(path.as_ref())?);
+
+    bincode::encode_into_std_write(z80, &mut writer, BINCODE_CONFIG)?;
+    bincode::encode_into_std_write(vdp, &mut writer, BINCODE_CONFIG)?;
+    bincode::encode_into_std_write(psg, &mut writer, BINCODE_CONFIG)?;
+    bincode::encode_into_std_write(memory, &mut writer, BINCODE_CONFIG)?;
+
+    Ok(())
+}
+
+fn load_state<P: AsRef<Path>>(
+    path: P,
+    existing_memory: &mut Memory,
+) -> Result<(Z80, Vdp, Psg, Memory), Box<dyn Error>> {
+    let mut reader = BufReader::new(File::open(path.as_ref())?);
+
+    let z80 = bincode::decode_from_std_read(&mut reader, BINCODE_CONFIG)?;
+    let vdp = bincode::decode_from_std_read(&mut reader, BINCODE_CONFIG)?;
+    let psg = bincode::decode_from_std_read(&mut reader, BINCODE_CONFIG)?;
+    let mut memory: Memory = bincode::decode_from_std_read(&mut reader, BINCODE_CONFIG)?;
+
+    memory.take_rom_from(existing_memory);
+
+    Ok((z80, vdp, psg, memory))
 }

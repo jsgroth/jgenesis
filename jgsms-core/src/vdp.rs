@@ -1,9 +1,10 @@
 use crate::num::GetBit;
+use bincode::{Decode, Encode};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use z80_emu::traits::InterruptLine;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub struct ViewportSize {
     pub width: u16,
     pub height: u16,
@@ -54,7 +55,7 @@ impl ViewportSize {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum VdpVersion {
     #[default]
     NtscMasterSystem2,
@@ -108,7 +109,7 @@ impl FromStr for VdpVersion {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum ControlWriteFlag {
     First,
     Second,
@@ -123,13 +124,13 @@ impl ControlWriteFlag {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum DataWriteLocation {
     Vram,
     Cram,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum Mode {
     #[default]
     Four,
@@ -173,7 +174,7 @@ impl Mode {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 struct Registers {
     version: VdpVersion,
     mode: Mode,
@@ -454,14 +455,14 @@ struct BgTileData {
     tile_index: u16,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
 struct SpriteData {
     y: u8,
     x: u8,
     tile_index: u16,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 struct SpriteBuffer {
     sprites: [SpriteData; 64],
     len: usize,
@@ -561,7 +562,7 @@ const SCREEN_WIDTH: u16 = 256;
 const SCREEN_HEIGHT: u16 = 240;
 const FRAME_BUFFER_LEN: usize = SCREEN_WIDTH as usize * SCREEN_HEIGHT as usize;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct FrameBuffer {
     buffer: [u16; FRAME_BUFFER_LEN],
     viewport: ViewportSize,
@@ -633,7 +634,7 @@ impl<'a> IntoIterator for &'a FrameBuffer {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct Vdp {
     frame_buffer: FrameBuffer,
     registers: Registers,

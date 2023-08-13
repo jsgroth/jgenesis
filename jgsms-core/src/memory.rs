@@ -1,10 +1,15 @@
 mod metadata;
 
 use crate::num::GetBit;
+use bincode::de::{BorrowDecoder, Decoder};
+use bincode::enc::Encoder;
+use bincode::error::{DecodeError, EncodeError};
+use bincode::{BorrowDecode, Decode, Encode};
 use crc::Crc;
+use std::mem;
 use std::ops::RangeInclusive;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum Mapper {
     #[default]
     Sega,
@@ -57,6 +62,76 @@ struct Cartridge {
     ram_mapped: bool,
     ram_bank: u32,
     ram_dirty: bool,
+}
+
+impl Encode for Cartridge {
+    fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
+        self.ram.encode(encoder)?;
+        self.mapper.encode(encoder)?;
+        self.has_battery.encode(encoder)?;
+        self.rom_bank_0.encode(encoder)?;
+        self.rom_bank_1.encode(encoder)?;
+        self.rom_bank_2.encode(encoder)?;
+        self.ram_mapped.encode(encoder)?;
+        self.ram_bank.encode(encoder)?;
+        self.ram_dirty.encode(encoder)?;
+
+        Ok(())
+    }
+}
+
+impl Decode for Cartridge {
+    fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError> {
+        let ram = Decode::decode(decoder)?;
+        let mapper = Decode::decode(decoder)?;
+        let has_battery = Decode::decode(decoder)?;
+        let rom_bank_0 = Decode::decode(decoder)?;
+        let rom_bank_1 = Decode::decode(decoder)?;
+        let rom_bank_2 = Decode::decode(decoder)?;
+        let ram_mapped = Decode::decode(decoder)?;
+        let ram_bank = Decode::decode(decoder)?;
+        let ram_dirty = Decode::decode(decoder)?;
+
+        Ok(Self {
+            rom: vec![],
+            ram,
+            mapper,
+            has_battery,
+            rom_bank_0,
+            rom_bank_1,
+            rom_bank_2,
+            ram_mapped,
+            ram_bank,
+            ram_dirty,
+        })
+    }
+}
+
+impl<'de> BorrowDecode<'de> for Cartridge {
+    fn borrow_decode<D: BorrowDecoder<'de>>(decoder: &mut D) -> Result<Self, DecodeError> {
+        let ram = BorrowDecode::borrow_decode(decoder)?;
+        let mapper = BorrowDecode::borrow_decode(decoder)?;
+        let has_battery = BorrowDecode::borrow_decode(decoder)?;
+        let rom_bank_0 = BorrowDecode::borrow_decode(decoder)?;
+        let rom_bank_1 = BorrowDecode::borrow_decode(decoder)?;
+        let rom_bank_2 = BorrowDecode::borrow_decode(decoder)?;
+        let ram_mapped = BorrowDecode::borrow_decode(decoder)?;
+        let ram_bank = BorrowDecode::borrow_decode(decoder)?;
+        let ram_dirty = BorrowDecode::borrow_decode(decoder)?;
+
+        Ok(Self {
+            rom: vec![],
+            ram,
+            mapper,
+            has_battery,
+            rom_bank_0,
+            rom_bank_1,
+            rom_bank_2,
+            ram_mapped,
+            ram_bank,
+            ram_dirty,
+        })
+    }
 }
 
 // Most cartridges with RAM only had 8KB, but up to 32KB was supported, and the header contains
@@ -157,7 +232,7 @@ impl Cartridge {
 
 const SYSTEM_RAM_SIZE: usize = 8 * 1024;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct Memory {
     cartridge: Cartridge,
     ram: [u8; SYSTEM_RAM_SIZE],
@@ -238,5 +313,9 @@ impl Memory {
 
     pub fn clear_cartridge_ram_dirty(&mut self) {
         self.cartridge.ram_dirty = false;
+    }
+
+    pub fn take_rom_from(&mut self, other: &mut Self) {
+        self.cartridge.rom = mem::take(&mut other.cartridge.rom);
     }
 }

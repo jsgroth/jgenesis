@@ -1,9 +1,10 @@
 use crate::num::GetBit;
+use bincode::{Decode, Encode};
 use std::array;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum WaveOutput {
     Positive,
     Negative,
@@ -30,7 +31,7 @@ impl From<WaveOutput> for f64 {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Encode, Decode)]
 struct SquareWaveGenerator {
     counter: u16,
     current_output: WaveOutput,
@@ -117,13 +118,13 @@ impl SquareWaveGenerator {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum NoiseType {
     Periodic,
     White,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum NoiseReload {
     Value(u16),
     Tone2,
@@ -148,7 +149,7 @@ impl NoiseReload {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 struct NoiseGenerator {
     counter: u16,
     current_counter_output: WaveOutput,
@@ -220,7 +221,7 @@ impl NoiseGenerator {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum Register {
     Tone0,
     Tone1,
@@ -254,7 +255,7 @@ pub enum PsgTickEffect {
     Clocked,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum PsgVersion {
     #[default]
     MasterSystem2,
@@ -282,7 +283,7 @@ impl FromStr for PsgVersion {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Encode, Decode)]
 struct StereoControl {
     square_0_l: bool,
     square_1_l: bool,
@@ -322,7 +323,7 @@ impl Default for StereoControl {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct Psg {
     version: PsgVersion,
     square_wave_channels: [SquareWaveGenerator; 3],

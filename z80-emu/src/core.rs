@@ -21,6 +21,7 @@ impl GetBit for u16 {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
 struct Flags {
     sign: bool,
     zero: bool,
@@ -61,6 +62,7 @@ impl From<u8> for Flags {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
 pub enum InterruptMode {
     Mode0,
     Mode1,
@@ -68,6 +70,7 @@ pub enum InterruptMode {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
 pub struct Registers {
     a: u8,
     f: Flags,
@@ -313,6 +316,7 @@ impl From<IndexRegister> for Register16 {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
 pub struct Z80 {
     registers: Registers,
 }
