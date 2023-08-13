@@ -21,6 +21,7 @@ pub struct SmsGgConfig {
     pub psg_version: Option<PsgVersion>,
     pub crop_sms_vertical_border: bool,
     pub crop_sms_left_border: bool,
+    pub remove_sprite_limit: bool,
 }
 
 fn default_vdp_version_for_ext(file_ext: &str) -> VdpVersion {
@@ -136,7 +137,7 @@ pub fn run(config: SmsGgConfig) -> Result<(), Box<dyn Error>> {
     z80.set_sp(0xDFFF);
     z80.set_interrupt_mode(InterruptMode::Mode1);
 
-    let mut vdp = Vdp::new(vdp_version);
+    let mut vdp = Vdp::new(vdp_version, config.remove_sprite_limit);
     let mut psg = Psg::new(psg_version);
     let mut input = InputState::new();
 

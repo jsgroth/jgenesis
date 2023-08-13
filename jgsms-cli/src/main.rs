@@ -25,6 +25,10 @@ struct Args {
     /// smooth sprite scrolling off the left edge
     #[arg(long)]
     crop_sms_left_border: bool,
+
+    /// Remove 8-sprite-per-scanline limit which disables sprite flickering
+    #[arg(long)]
+    remove_sprite_limit: bool,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -38,6 +42,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         psg_version: args.psg_version,
         crop_sms_vertical_border: args.crop_sms_vertical_border,
         crop_sms_left_border: args.crop_sms_left_border,
+        remove_sprite_limit: args.remove_sprite_limit,
     };
 
     jgsms_core::run(config)

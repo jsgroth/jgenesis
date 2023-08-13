@@ -463,7 +463,7 @@ struct SpriteData {
 
 #[derive(Debug, Clone)]
 struct SpriteBuffer {
-    sprites: [SpriteData; 8],
+    sprites: [SpriteData; 64],
     len: usize,
     overflow: bool,
 }
@@ -471,7 +471,7 @@ struct SpriteBuffer {
 impl SpriteBuffer {
     fn new() -> Self {
         Self {
-            sprites: [SpriteData::default(); 8],
+            sprites: [SpriteData::default(); 64],
             len: 0,
             overflow: false,
         }
@@ -518,6 +518,7 @@ fn find_sprites_on_scanline(
     registers: &Registers,
     vram: &[u8],
     sprite_buffer: &mut SpriteBuffer,
+    remove_sprite_limit: bool,
 ) {
     sprite_buffer.clear();
 
@@ -538,7 +539,9 @@ fn find_sprites_on_scanline(
         if (sprite_top..sprite_bottom).contains(&scanline) {
             if sprite_buffer.len == 8 {
                 sprite_buffer.overflow = true;
-                return;
+                if !remove_sprite_limit {
+                    return;
+                }
             }
 
             sprite_buffer.sprites[sprite_buffer.len] = SpriteData {
@@ -639,6 +642,7 @@ pub struct Vdp {
     scanline: u16,
     dot: u16,
     sprite_buffer: SpriteBuffer,
+    remove_sprite_limit: bool,
     line_counter: u8,
 }
 
@@ -653,7 +657,7 @@ pub enum VdpTickEffect {
 }
 
 impl Vdp {
-    pub fn new(version: VdpVersion) -> Self {
+    pub fn new(version: VdpVersion, remove_sprite_limit: bool) -> Self {
         Self {
             frame_buffer: FrameBuffer::new(version),
             registers: Registers::new(version),
@@ -662,6 +666,7 @@ impl Vdp {
             scanline: 0,
             dot: 0,
             sprite_buffer: SpriteBuffer::new(),
+            remove_sprite_limit,
             line_counter: 0xFF,
         }
     }
@@ -734,6 +739,7 @@ impl Vdp {
             &self.registers,
             &self.vram,
             &mut self.sprite_buffer,
+            self.remove_sprite_limit,
         );
         if self.sprite_buffer.overflow {
             self.registers.sprite_overflow = true;
