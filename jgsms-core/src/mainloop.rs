@@ -108,8 +108,7 @@ pub fn run(config: SmsGgConfig) -> Result<(), Box<dyn Error>> {
     let audio_device = audio_host.default_output_device().unwrap();
     let audio_stream = audio_device.build_output_stream(
         &StreamConfig {
-            // TODO stereo sound for Game Gear
-            channels: 1,
+            channels: 2,
             sample_rate: SampleRate(48000),
             buffer_size: BufferSize::Fixed(1024),
         },
@@ -163,7 +162,7 @@ pub fn run(config: SmsGgConfig) -> Result<(), Box<dyn Error>> {
 
         for _ in 0..t_cycles {
             if psg.tick() == PsgTickEffect::Clocked {
-                let sample = psg.sample();
+                let (sample_l, sample_r) = psg.sample();
 
                 let prev_count = sample_count;
                 sample_count += 1;
@@ -171,13 +170,17 @@ pub fn run(config: SmsGgConfig) -> Result<(), Box<dyn Error>> {
                 if (prev_count as f64 / downsampling_ratio).round() as u64
                     != (sample_count as f64 / downsampling_ratio).round() as u64
                 {
-                    audio_buffer.push(sample as f32);
+                    audio_buffer.push((sample_l as f32, sample_r as f32));
                     if audio_buffer.len() == 64 {
                         loop {
                             {
                                 let mut audio_queue = audio_queue.lock().unwrap();
                                 if audio_queue.len() < 1024 {
-                                    audio_queue.extend(audio_buffer.drain(..));
+                                    audio_queue.extend(
+                                        audio_buffer
+                                            .drain(..)
+                                            .flat_map(|(sample_l, sample_r)| [sample_l, sample_r]),
+                                    );
                                     break;
                                 }
                             }

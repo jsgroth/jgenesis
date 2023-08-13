@@ -30,7 +30,7 @@ impl From<WaveOutput> for f64 {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 struct SquareWaveGenerator {
     counter: u16,
     current_output: WaveOutput,
@@ -112,7 +112,7 @@ impl SquareWaveGenerator {
         }
     }
 
-    fn sample(&self, volume_table: &[f64; 16]) -> f64 {
+    fn sample(self, volume_table: &[f64; 16]) -> f64 {
         f64::from(self.current_output) * volume_table[self.attenuation as usize]
     }
 }
@@ -282,12 +282,53 @@ impl FromStr for PsgVersion {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct StereoControl {
+    square_0_l: bool,
+    square_1_l: bool,
+    square_2_l: bool,
+    noise_l: bool,
+    square_0_r: bool,
+    square_1_r: bool,
+    square_2_r: bool,
+    noise_r: bool,
+}
+
+impl StereoControl {
+    fn write(&mut self, value: u8) {
+        self.square_0_r = value.bit(0);
+        self.square_1_r = value.bit(1);
+        self.square_2_r = value.bit(2);
+        self.noise_r = value.bit(3);
+        self.square_0_l = value.bit(4);
+        self.square_1_l = value.bit(5);
+        self.square_2_l = value.bit(6);
+        self.noise_l = value.bit(7);
+    }
+}
+
+impl Default for StereoControl {
+    fn default() -> Self {
+        Self {
+            square_0_l: true,
+            square_1_l: true,
+            square_2_l: true,
+            noise_l: true,
+            square_0_r: true,
+            square_1_r: true,
+            square_2_r: true,
+            noise_r: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Psg {
     version: PsgVersion,
     square_wave_channels: [SquareWaveGenerator; 3],
     noise_channel: NoiseGenerator,
     latched_register: Register,
+    stereo_control: StereoControl,
     divider: u8,
 }
 
@@ -300,6 +341,7 @@ impl Psg {
             square_wave_channels: array::from_fn(|_| SquareWaveGenerator::new()),
             noise_channel: NoiseGenerator::new(),
             latched_register: Register::Tone0,
+            stereo_control: StereoControl::default(),
             divider: PSG_DIVIDER,
         }
     }
@@ -361,6 +403,10 @@ impl Psg {
         }
     }
 
+    pub fn write_stereo_control(&mut self, value: u8) {
+        self.stereo_control.write(value);
+    }
+
     pub fn tick(&mut self) -> PsgTickEffect {
         self.divider -= 1;
         if self.divider == 0 {
@@ -377,17 +423,29 @@ impl Psg {
         }
     }
 
-    pub fn sample(&self) -> f64 {
+    pub fn sample(&self) -> (f64, f64) {
         // TODO rewrite to use integer arithmetic as much as possible
         let volume_table = match self.version {
             PsgVersion::MasterSystem2 => &SMS2_ATTENUATION_TO_VOLUME,
             PsgVersion::Standard => &ATTENUATION_TO_VOLUME,
         };
-        let mixed_square = self
+
+        let square_samples = self
             .square_wave_channels
-            .iter()
-            .map(|channel| channel.sample(volume_table) * 0.5)
-            .sum::<f64>();
-        (mixed_square + self.noise_channel.sample(volume_table)) / 4.0
+            .map(|channel| channel.sample(volume_table) * 0.5);
+        let noise_sample = self.noise_channel.sample(volume_table);
+
+        let sample_l = (f64::from(self.stereo_control.square_0_l) * square_samples[0]
+            + f64::from(self.stereo_control.square_1_l) * square_samples[1]
+            + f64::from(self.stereo_control.square_2_l) * square_samples[2]
+            + f64::from(self.stereo_control.noise_l) * noise_sample)
+            / 4.0;
+        let sample_r = (f64::from(self.stereo_control.square_0_r) * square_samples[0]
+            + f64::from(self.stereo_control.square_1_r) * square_samples[1]
+            + f64::from(self.stereo_control.square_2_r) * square_samples[2]
+            + f64::from(self.stereo_control.noise_r) * noise_sample)
+            / 4.0;
+
+        (sample_l, sample_r)
     }
 }

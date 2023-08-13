@@ -90,7 +90,9 @@ impl<'a> BusInterface for Bus<'a> {
     fn write_io(&mut self, address: u16, value: u8) {
         let address = address & 0xFF;
         if self.version == VdpVersion::GameGear && address <= 0x06 {
-            // TODO Game Gear registers
+            if address == 0x06 {
+                self.psg.write_stereo_control(value);
+            }
             return;
         }
 
