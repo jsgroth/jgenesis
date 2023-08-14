@@ -225,7 +225,7 @@ enum SizedValue {
 }
 
 impl SizedValue {
-    fn from(value: u32, size: OpSize) -> Self {
+    fn from_size(value: u32, size: OpSize) -> Self {
         match size {
             OpSize::Byte => Self::Byte(value as u8),
             OpSize::Word => Self::Word(value as u16),
@@ -259,6 +259,24 @@ impl From<SizedValue> for u32 {
             SizedValue::Word(value) => value.into(),
             SizedValue::LongWord(value) => value,
         }
+    }
+}
+
+impl From<u8> for SizedValue {
+    fn from(value: u8) -> Self {
+        Self::Byte(value)
+    }
+}
+
+impl From<u16> for SizedValue {
+    fn from(value: u16) -> Self {
+        Self::Word(value)
+    }
+}
+
+impl From<u32> for SizedValue {
+    fn from(value: u32) -> Self {
+        Self::LongWord(value)
     }
 }
 
@@ -339,6 +357,7 @@ enum AddressingMode {
     AbsoluteShort,
     AbsoluteLong,
     Immediate,
+    Quick(u8),
     Implied,
 }
 
@@ -382,6 +401,7 @@ impl AddressingMode {
             Self::PcRelativeDisplacement
                 | Self::PcRelativeIndexed
                 | Self::Immediate
+                | Self::Quick(..)
                 | Self::Implied
         )
     }
@@ -415,6 +435,11 @@ impl ResolvedAddress {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Instruction {
+    Add {
+        size: OpSize,
+        source: AddressingMode,
+        dest: AddressingMode,
+    },
     And {
         size: OpSize,
         source: AddressingMode,
@@ -433,16 +458,20 @@ enum Instruction {
 impl Instruction {
     fn source_addressing_mode(self) -> Option<AddressingMode> {
         match self {
-            Self::And { source, .. } | Self::Move { source, .. } | Self::MoveToCcr(source) => {
-                Some(source)
-            }
+            Self::Add { source, .. }
+            | Self::And { source, .. }
+            | Self::Move { source, .. }
+            | Self::MoveToCcr(source) => Some(source),
             Self::MoveQuick(..) | Self::MoveFromSr(..) => None,
         }
     }
 
     fn dest_addressing_mode(self) -> Option<AddressingMode> {
         match self {
-            Self::And { dest, .. } | Self::Move { dest, .. } | Self::MoveFromSr(dest) => Some(dest),
+            Self::Add { dest, .. }
+            | Self::And { dest, .. }
+            | Self::Move { dest, .. }
+            | Self::MoveFromSr(dest) => Some(dest),
             Self::MoveToCcr(..) | Self::MoveQuick(..) => None,
         }
     }
@@ -607,6 +636,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                     }
                 }
             }
+            AddressingMode::Quick(value) => ResolvedAddress::Immediate(value.into()),
             AddressingMode::Implied => panic!("cannot resolve implied addressing mode"),
         };
 
@@ -667,22 +697,22 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
     fn read_byte(&mut self, source: AddressingMode) -> ExecuteResult<u8> {
         let resolved_address = self.resolve_address(source, OpSize::Byte)?;
-        let value = self.read_byte_resolved(resolved_address);
         resolved_address.apply_post(self.registers);
+        let value = self.read_byte_resolved(resolved_address);
         Ok(value)
     }
 
     fn read_word(&mut self, source: AddressingMode) -> ExecuteResult<u16> {
         let resolved_address = self.resolve_address(source, OpSize::Word)?;
-        let value = self.read_word_resolved(resolved_address)?;
         resolved_address.apply_post(self.registers);
+        let value = self.read_word_resolved(resolved_address)?;
         Ok(value)
     }
 
     fn read_long_word(&mut self, source: AddressingMode) -> ExecuteResult<u32> {
         let resolved_address = self.resolve_address(source, OpSize::LongWord)?;
-        let value = self.read_long_word_resolved(resolved_address)?;
         resolved_address.apply_post(self.registers);
+        let value = self.read_long_word_resolved(resolved_address)?;
         Ok(value)
     }
 
@@ -889,6 +919,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         log::trace!("Decoded instruction: {instruction:?}");
 
         match instruction {
+            Instruction::Add { size, source, dest } => self.add(size, source, dest),
             Instruction::And { size, source, dest } => self.and(size, source, dest),
             Instruction::Move { size, source, dest } => self.move_(size, source, dest),
             Instruction::MoveFromSr(dest) => self.move_from_sr(dest),
@@ -921,21 +952,39 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 fn decode_opcode(opcode: u16) -> ExecuteResult<Instruction> {
     match opcode & 0xF000 {
         0x0000 => {
-            // ANDI
-            // TODO these are not all ANDI
+            match opcode & 0x0F00 {
+                0x0200 => {
+                    // ANDI
+                    let size = OpSize::parse_from_opcode(opcode)?;
+                    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
 
-            let size = OpSize::parse_from_opcode(opcode)?;
-            let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
+                    if addressing_mode.is_address_direct() || !addressing_mode.is_writable() {
+                        return Err(Exception::IllegalInstruction(opcode));
+                    }
 
-            if addressing_mode.is_address_direct() || !addressing_mode.is_writable() {
-                return Err(Exception::IllegalInstruction(opcode));
+                    Ok(Instruction::And {
+                        size,
+                        source: AddressingMode::Immediate,
+                        dest: addressing_mode,
+                    })
+                }
+                0x0600 => {
+                    // ADDI
+                    let size = OpSize::parse_from_opcode(opcode)?;
+                    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
+
+                    if addressing_mode.is_address_direct() || !addressing_mode.is_writable() {
+                        return Err(Exception::IllegalInstruction(opcode));
+                    }
+
+                    Ok(Instruction::Add {
+                        size,
+                        source: AddressingMode::Immediate,
+                        dest: addressing_mode,
+                    })
+                }
+                _ => Err(Exception::IllegalInstruction(opcode)),
             }
-
-            Ok(Instruction::And {
-                size,
-                source: AddressingMode::Immediate,
-                dest: addressing_mode,
-            })
         }
         0x1000 | 0x2000 | 0x3000 => {
             // MOVE / MOVEA
@@ -981,6 +1030,29 @@ fn decode_opcode(opcode: u16) -> ExecuteResult<Instruction> {
             }
             _ => Err(Exception::IllegalInstruction(opcode)),
         },
+        0x5000 => {
+            if !opcode.bit(8) {
+                // ADDQ
+                // TODO also Scc/DBcc
+
+                let size = OpSize::parse_from_opcode(opcode)?;
+                let dest = AddressingMode::parse_from_opcode(opcode)?;
+                let operand = ((opcode >> 9) & 0x07) as u8;
+                let operand = if operand == 0 { 8 } else { operand };
+
+                if !dest.is_writable() || (size == OpSize::Byte && dest.is_address_direct()) {
+                    return Err(Exception::IllegalInstruction(opcode));
+                }
+
+                Ok(Instruction::Add {
+                    size,
+                    source: AddressingMode::Quick(operand),
+                    dest,
+                })
+            } else {
+                Err(Exception::IllegalInstruction(opcode))
+            }
+        }
         0x7000 => {
             if opcode.bit(8) {
                 Err(Exception::IllegalInstruction(opcode))
@@ -1016,6 +1088,49 @@ fn decode_opcode(opcode: u16) -> ExecuteResult<Instruction> {
             };
 
             Ok(Instruction::And { size, source, dest })
+        }
+        0xD000 => {
+            // ADD / ADDA (TODO: ADDX)
+            let register = ((opcode >> 9) & 0x07) as u8;
+            let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
+            let size = OpSize::parse_from_opcode(opcode);
+            match size {
+                Ok(size) => {
+                    // ADD (TODO: ADDX)
+                    let direction = if opcode.bit(8) {
+                        Direction::RegisterToMemory
+                    } else {
+                        Direction::MemoryToRegister
+                    };
+
+                    if direction == Direction::RegisterToMemory && !addressing_mode.is_writable() {
+                        return Err(Exception::IllegalInstruction(opcode));
+                    }
+
+                    let register_am = AddressingMode::DataDirect(DataRegister(register));
+                    let (source, dest) = match direction {
+                        Direction::RegisterToMemory => (register_am, addressing_mode),
+                        Direction::MemoryToRegister => (addressing_mode, register_am),
+                    };
+
+                    Ok(Instruction::Add { size, source, dest })
+                }
+                Err(_) => {
+                    // ADDA
+
+                    let size = if opcode.bit(8) {
+                        OpSize::LongWord
+                    } else {
+                        OpSize::Word
+                    };
+
+                    Ok(Instruction::Add {
+                        size,
+                        source: addressing_mode,
+                        dest: AddressingMode::AddressDirect(AddressRegister(register)),
+                    })
+                }
+            }
         }
         _ => Err(Exception::IllegalInstruction(opcode)),
     }

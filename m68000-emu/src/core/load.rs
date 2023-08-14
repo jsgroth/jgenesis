@@ -10,17 +10,17 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         source: AddressingMode,
         dest: AddressingMode,
     ) -> ExecuteResult<()> {
-        let source_resolved = self.resolve_address(source, size)?;
-        source_resolved.apply_post(self.registers);
-        let value = self.read_resolved(source_resolved, size)?;
+        let value = self.read(source, size)?;
 
-        self.registers.ccr = ConditionCodes {
-            carry: false,
-            overflow: false,
-            zero: value.is_zero(),
-            negative: value.sign_bit(),
-            ..self.registers.ccr
-        };
+        if !dest.is_address_direct() {
+            self.registers.ccr = ConditionCodes {
+                carry: false,
+                overflow: false,
+                zero: value.is_zero(),
+                negative: value.sign_bit(),
+                ..self.registers.ccr
+            };
+        }
 
         match (size, dest) {
             (OpSize::LongWord, AddressingMode::AddressIndirectPredecrement(register)) => {
@@ -50,9 +50,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     }
 
     pub(super) fn move_to_ccr(&mut self, source: AddressingMode) -> ExecuteResult<()> {
-        let source_resolved = self.resolve_address(source, OpSize::Word)?;
-        source_resolved.apply_post(self.registers);
-        let value = self.read_word_resolved(source_resolved)?;
+        let value = self.read_word(source)?;
 
         self.registers.ccr = (value as u8).into();
 

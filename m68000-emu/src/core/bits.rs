@@ -13,10 +13,11 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let operand_l = self.read(source, size)?;
 
         let dest_resolved = self.resolve_address(dest, size)?;
+        dest_resolved.apply_post(self.registers);
         let operand_r = self.read_resolved(dest_resolved, size)?;
 
         let value = u32::from(operand_l) & u32::from(operand_r);
-        let value = SizedValue::from(value, size);
+        let value = SizedValue::from_size(value, size);
 
         self.registers.ccr = ConditionCodes {
             carry: false,
@@ -27,7 +28,6 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         };
 
         self.write_resolved(dest_resolved, value)?;
-        dest_resolved.apply_post(self.registers);
 
         Ok(())
     }
