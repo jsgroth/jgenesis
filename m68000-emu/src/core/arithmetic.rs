@@ -1,8 +1,8 @@
 use crate::core::{
-    AddressRegister, AddressingMode, ConditionCodes, ExecuteResult, InstructionExecutor, OpSize,
-    SizedValue,
+    AddressRegister, AddressingMode, ConditionCodes, DataRegister, Direction, Exception,
+    ExecuteResult, Instruction, InstructionExecutor, OpSize, SizedValue,
 };
-use crate::traits::{BusInterface, SignBit};
+use crate::traits::{BusInterface, GetBit, SignBit};
 
 impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
     pub(super) fn add(
@@ -84,4 +84,82 @@ fn add_long_words(operand_l: u32, operand_r: u32) -> (SizedValue, bool, bool) {
     let overflow = bit_31_carry != carry;
 
     (sum.into(), carry, overflow)
+}
+
+pub(super) fn decode_add(opcode: u16) -> ExecuteResult<Instruction> {
+    let register = ((opcode >> 9) & 0x07) as u8;
+    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
+    let size = OpSize::parse_from_opcode(opcode);
+    match size {
+        Ok(size) => {
+            // ADD (TODO: ADDX)
+            let direction = if opcode.bit(8) {
+                Direction::RegisterToMemory
+            } else {
+                Direction::MemoryToRegister
+            };
+
+            if direction == Direction::RegisterToMemory && !addressing_mode.is_writable() {
+                return Err(Exception::IllegalInstruction(opcode));
+            }
+
+            let register_am = AddressingMode::DataDirect(DataRegister(register));
+            let (source, dest) = match direction {
+                Direction::RegisterToMemory => (register_am, addressing_mode),
+                Direction::MemoryToRegister => (addressing_mode, register_am),
+            };
+
+            Ok(Instruction::Add { size, source, dest })
+        }
+        Err(_) => {
+            // ADDA
+
+            let size = if opcode.bit(8) {
+                OpSize::LongWord
+            } else {
+                OpSize::Word
+            };
+
+            Ok(Instruction::Add {
+                size,
+                source: addressing_mode,
+                dest: AddressingMode::AddressDirect(AddressRegister(register)),
+            })
+        }
+    }
+}
+
+pub(super) fn decode_addq_subq(opcode: u16, size: OpSize) -> ExecuteResult<Instruction> {
+    let dest = AddressingMode::parse_from_opcode(opcode)?;
+    let operand = ((opcode >> 9) & 0x07) as u8;
+    let operand = if operand == 0 { 8 } else { operand };
+
+    if !dest.is_writable() || (size == OpSize::Byte && dest.is_address_direct()) {
+        return Err(Exception::IllegalInstruction(opcode));
+    }
+
+    if !opcode.bit(8) {
+        Ok(Instruction::Add {
+            size,
+            source: AddressingMode::Quick(operand),
+            dest,
+        })
+    } else {
+        todo!("SUBQ")
+    }
+}
+
+pub(super) fn decode_addi(opcode: u16) -> ExecuteResult<Instruction> {
+    let size = OpSize::parse_from_opcode(opcode)?;
+    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
+
+    if addressing_mode.is_address_direct() || !addressing_mode.is_writable() {
+        return Err(Exception::IllegalInstruction(opcode));
+    }
+
+    Ok(Instruction::Add {
+        size,
+        source: AddressingMode::Immediate,
+        dest: addressing_mode,
+    })
 }

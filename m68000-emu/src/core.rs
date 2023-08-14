@@ -953,185 +953,88 @@ fn decode_opcode(opcode: u16) -> ExecuteResult<Instruction> {
     match opcode & 0xF000 {
         0x0000 => {
             match opcode & 0x0F00 {
-                0x0200 => {
-                    // ANDI
-                    let size = OpSize::parse_from_opcode(opcode)?;
-                    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
-
-                    if addressing_mode.is_address_direct() || !addressing_mode.is_writable() {
-                        return Err(Exception::IllegalInstruction(opcode));
-                    }
-
-                    Ok(Instruction::And {
-                        size,
-                        source: AddressingMode::Immediate,
-                        dest: addressing_mode,
-                    })
+                0b0000_0000_0000_0000 => {
+                    todo!("ORI to CCR / ORI to SR / ORI")
                 }
-                0x0600 => {
+                0b0000_0010_0000_0000 => {
+                    // ANDI / ANDI to CCR / ANDI to SR
+                    bits::decode_andi(opcode)
+                }
+                0b0000_0100_0000_0000 => todo!("SUBI"),
+                0b0000_0110_0000_0000 => {
                     // ADDI
-                    let size = OpSize::parse_from_opcode(opcode)?;
-                    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
-
-                    if addressing_mode.is_address_direct() || !addressing_mode.is_writable() {
-                        return Err(Exception::IllegalInstruction(opcode));
-                    }
-
-                    Ok(Instruction::Add {
-                        size,
-                        source: AddressingMode::Immediate,
-                        dest: addressing_mode,
-                    })
+                    arithmetic::decode_addi(opcode)
                 }
-                _ => Err(Exception::IllegalInstruction(opcode)),
+                0b0000_1010_0000_0000 => todo!("EORI to CCR / EORI to SR / EORI"),
+                0b0000_1100_0000_0000 => todo!("CMPI"),
+                0b0000_1000_0000_0000 => todo!("BTST / BCHG / BCLR / BSET (immediate)"),
+                _ => {
+                    if opcode.bit(8) {
+                        todo!("BTST / BCHG / BCLR / BSET (data register")
+                    } else {
+                        Err(Exception::IllegalInstruction(opcode))
+                    }
+                }
             }
         }
         0x1000 | 0x2000 | 0x3000 => {
             // MOVE / MOVEA
-            let size = match opcode & 0xF000 {
-                0x1000 => OpSize::Byte,
-                0x2000 => OpSize::LongWord,
-                0x3000 => OpSize::Word,
-                _ => unreachable!("nested match expressions"),
-            };
-
-            let source = AddressingMode::parse_from_opcode(opcode)?;
-
-            let dest_mode = (opcode >> 6) as u8;
-            let dest_register = (opcode >> 9) as u8;
-            let dest = AddressingMode::parse_from(dest_mode, dest_register)?;
-
-            if !dest.is_writable() || (dest.is_address_direct() && size == OpSize::Byte) {
-                return Err(Exception::IllegalInstruction(opcode));
-            }
-
-            Ok(Instruction::Move { size, source, dest })
+            load::decode_move(opcode)
         }
-        0x4000 => match opcode & 0x0FC0 {
-            0x00C0 => {
+        0x4000 => match opcode & 0b0000_1111_1100_0000 {
+            0b0000_0000_1100_0000 => {
                 // MOVE from SR
-                let dest = AddressingMode::parse_from_opcode(opcode)?;
-
-                if !dest.is_writable() || dest.is_address_direct() {
-                    return Err(Exception::IllegalInstruction(opcode));
-                }
-
-                Ok(Instruction::MoveFromSr(dest))
+                load::decode_move_from_sr(opcode)
             }
-            0x04C0 => {
+            0b0000_0100_1100_0000 => {
                 // MOVE to CCR
-                let source = AddressingMode::parse_from_opcode(opcode)?;
-
-                if source.is_address_direct() {
-                    return Err(Exception::IllegalInstruction(opcode));
-                }
-
-                Ok(Instruction::MoveToCcr(source))
+                load::decode_move_to_ccr(opcode)
             }
-            _ => Err(Exception::IllegalInstruction(opcode)),
+            0b0000_0110_1100_0000 => todo!("MOVE to SR"),
+            0b0000_0000_0000_0000 | 0b0000_0000_0100_0000 | 0b0000_0000_1000_0000 => todo!("NEGX"),
+            0b0000_0010_0000_0000 | 0b0000_0010_0100_0000 | 0b0000_0010_1000_0000 => todo!("CLR"),
+            0b0000_0100_0000_0000 | 0b0000_0100_0100_0000 | 0b0000_0100_1000_0000 => todo!("NEG"),
+            0b0000_0110_0000_0000 | 0b0000_0110_0100_0000 | 0b0000_0110_1000_0000 => todo!("NOT"),
+            0b0000_1000_1000_0000
+            | 0b0000_1000_1100_0000
+            | 0b0000_1100_1000_0000
+            | 0b0000_1100_1100_0000 => todo!("EXT / MOVEM"),
+            0b0000_1000_0000_0000 => todo!("NBCD"),
+            0b0000_1000_0100_0000 => todo!("SWAP / PEA"),
+            0b0000_1010_1100_0000 => todo!("ILLEGAL / TAS"),
+            0b0000_1010_0000_0000 | 0b0000_1010_0100_0000 | 0b0000_1010_1000_0000 => todo!("TST"),
+            0b0000_1110_0100_0000 => todo!(
+                "TRAP / LINK / UNLK / MOVE USP / RESET / NOP / STOP / RTE / RTS / TRAPV / RTR"
+            ),
+            0b0000_1110_1000_0000 => todo!("JSR"),
+            0b0000_1110_1100_0000 => todo!("JMP"),
+            _ => todo!("LEA / CHK"),
         },
         0x5000 => {
-            if !opcode.bit(8) {
-                // ADDQ
-                // TODO also Scc/DBcc
-
-                let size = OpSize::parse_from_opcode(opcode)?;
-                let dest = AddressingMode::parse_from_opcode(opcode)?;
-                let operand = ((opcode >> 9) & 0x07) as u8;
-                let operand = if operand == 0 { 8 } else { operand };
-
-                if !dest.is_writable() || (size == OpSize::Byte && dest.is_address_direct()) {
-                    return Err(Exception::IllegalInstruction(opcode));
-                }
-
-                Ok(Instruction::Add {
-                    size,
-                    source: AddressingMode::Quick(operand),
-                    dest,
-                })
-            } else {
-                Err(Exception::IllegalInstruction(opcode))
-            }
-        }
-        0x7000 => {
-            if opcode.bit(8) {
-                Err(Exception::IllegalInstruction(opcode))
-            } else {
-                // MOVEQ
-                let data = opcode as i8;
-                let register = ((opcode >> 9) & 0x07) as u8;
-                Ok(Instruction::MoveQuick(data, DataRegister(register)))
-            }
-        }
-        0xC000 => {
-            // AND
-            // TODO these are not all AND
-            let register = ((opcode >> 9) & 0x07) as u8;
-            let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
-            let direction = if opcode.bit(8) {
-                Direction::RegisterToMemory
-            } else {
-                Direction::MemoryToRegister
-            };
-            let size = OpSize::parse_from_opcode(opcode)?;
-
-            if addressing_mode.is_address_direct()
-                || (direction == Direction::RegisterToMemory && !addressing_mode.is_writable())
-            {
-                return Err(Exception::IllegalInstruction(opcode));
-            }
-
-            let register_am = AddressingMode::DataDirect(DataRegister(register));
-            let (source, dest) = match direction {
-                Direction::RegisterToMemory => (register_am, addressing_mode),
-                Direction::MemoryToRegister => (addressing_mode, register_am),
-            };
-
-            Ok(Instruction::And { size, source, dest })
-        }
-        0xD000 => {
-            // ADD / ADDA (TODO: ADDX)
-            let register = ((opcode >> 9) & 0x07) as u8;
-            let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
-            let size = OpSize::parse_from_opcode(opcode);
-            match size {
+            match OpSize::parse_from_opcode(opcode) {
                 Ok(size) => {
-                    // ADD (TODO: ADDX)
-                    let direction = if opcode.bit(8) {
-                        Direction::RegisterToMemory
-                    } else {
-                        Direction::MemoryToRegister
-                    };
-
-                    if direction == Direction::RegisterToMemory && !addressing_mode.is_writable() {
-                        return Err(Exception::IllegalInstruction(opcode));
-                    }
-
-                    let register_am = AddressingMode::DataDirect(DataRegister(register));
-                    let (source, dest) = match direction {
-                        Direction::RegisterToMemory => (register_am, addressing_mode),
-                        Direction::MemoryToRegister => (addressing_mode, register_am),
-                    };
-
-                    Ok(Instruction::Add { size, source, dest })
+                    // ADDQ / SUBQ
+                    arithmetic::decode_addq_subq(opcode, size)
                 }
                 Err(_) => {
-                    // ADDA
-
-                    let size = if opcode.bit(8) {
-                        OpSize::LongWord
-                    } else {
-                        OpSize::Word
-                    };
-
-                    Ok(Instruction::Add {
-                        size,
-                        source: addressing_mode,
-                        dest: AddressingMode::AddressDirect(AddressRegister(register)),
-                    })
+                    todo!("Scc / DBcc")
                 }
             }
         }
+        0x6000 => todo!("BRA / BSR / Bcc"),
+        0x7000 => load::decode_movq(opcode),
+        0x8000 => todo!("DIVU / DIVS / SBCD / OR"),
+        0x9000 => todo!("SUB / SUBX / SUBA"),
+        0xB000 => todo!("EOR / CMPM / CMP / CMPA"),
+        0xC000 => {
+            // AND (TODO: MULU / MULS / ABCD / EXG)
+            bits::decode_and(opcode)
+        }
+        0xD000 => {
+            // ADD / ADDA / ADDX
+            arithmetic::decode_add(opcode)
+        }
+        0xE000 => todo!("ASd / LSd / ROXd / ROd"),
         _ => Err(Exception::IllegalInstruction(opcode)),
     }
 }
