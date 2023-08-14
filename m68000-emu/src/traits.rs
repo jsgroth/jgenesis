@@ -2,37 +2,27 @@ pub trait BusInterface {
     // Addresses are 32-bit internally but the 68000 only has a 24-bit address bus
     const ADDRESS_MASK: u32 = 0x00FF_FFFF;
 
-    fn read_memory(&mut self, address: u32) -> u8;
+    fn read_byte(&mut self, address: u32) -> u8;
 
-    fn write_memory(&mut self, address: u32, value: u8);
+    fn read_word(&mut self, address: u32) -> u16;
 
-    fn read_word(&mut self, address: u32) -> u16 {
-        u16::from_be_bytes([
-            self.read_memory(address),
-            self.read_memory(address.wrapping_add(1)),
-        ])
-    }
+    fn write_byte(&mut self, address: u32, value: u8);
 
-    fn write_word(&mut self, address: u32, value: u16) {
-        let [msb, lsb] = value.to_be_bytes();
-        self.write_memory(address, msb);
-        self.write_memory(address.wrapping_add(1), lsb);
-    }
+    fn write_word(&mut self, address: u32, value: u16);
 
     fn read_long_word(&mut self, address: u32) -> u32 {
-        u32::from_be_bytes([
-            self.read_memory(address),
-            self.read_memory(address.wrapping_add(1)),
-            self.read_memory(address.wrapping_add(2)),
-            self.read_memory(address.wrapping_add(3)),
-        ])
+        let high_word = self.read_word(address);
+        let low_word = self.read_word(address.wrapping_add(2));
+
+        (u32::from(high_word) << 16) | u32::from(low_word)
     }
 
     fn write_long_word(&mut self, address: u32, value: u32) {
-        let bytes = value.to_be_bytes();
-        for i in 0..4 {
-            self.write_memory(address.wrapping_add(i), bytes[i as usize]);
-        }
+        let high_word = (value >> 16) as u16;
+        let low_word = value as u16;
+
+        self.write_word(address, high_word);
+        self.write_word(address.wrapping_add(2), low_word);
     }
 }
 

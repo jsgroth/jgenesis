@@ -66,7 +66,7 @@ impl State {
         let ram = final_state
             .ram
             .iter()
-            .map(|&(address, _)| (address, bus.read_memory(address)))
+            .map(|&(address, _)| (address, bus.read_byte(address)))
             .collect();
 
         Self {
@@ -187,7 +187,7 @@ fn init_test_state(state: &State, bus: &mut InMemoryBus) -> M68000 {
     bus.write_word(state.pc.wrapping_add(2), state.prefetch[1]);
 
     for &(address, value) in &state.ram {
-        bus.write_memory(address, value);
+        bus.write_byte(address, value);
     }
 
     m68000

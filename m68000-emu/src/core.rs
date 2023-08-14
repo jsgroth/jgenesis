@@ -157,33 +157,6 @@ impl OpSize {
     const ALL: [Self; 3] = [Self::Byte, Self::Word, Self::LongWord];
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SizedValue {
-    Byte(u8),
-    Word(u16),
-    LongWord(u32),
-}
-
-impl SizedValue {
-    fn is_zero(self) -> bool {
-        match self {
-            Self::Byte(value) => value == 0,
-            Self::Word(value) => value == 0,
-            Self::LongWord(value) => value == 0,
-        }
-    }
-}
-
-impl SignBit for SizedValue {
-    fn sign_bit(self) -> bool {
-        match self {
-            Self::Byte(value) => value.sign_bit(),
-            Self::Word(value) => value.sign_bit(),
-            Self::LongWord(value) => value.sign_bit(),
-        }
-    }
-}
-
 trait IncrementStep: Copy {
     fn increment_step_for(register: AddressRegister) -> u32;
 }
@@ -211,6 +184,33 @@ impl IncrementStep for u32 {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SizedValue {
+    Byte(u8),
+    Word(u16),
+    LongWord(u32),
+}
+
+impl SizedValue {
+    fn is_zero(self) -> bool {
+        match self {
+            Self::Byte(value) => value == 0,
+            Self::Word(value) => value == 0,
+            Self::LongWord(value) => value == 0,
+        }
+    }
+}
+
+impl SignBit for SizedValue {
+    fn sign_bit(self) -> bool {
+        match self {
+            Self::Byte(value) => value.sign_bit(),
+            Self::Word(value) => value.sign_bit(),
+            Self::LongWord(value) => value.sign_bit(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum IndexRegister {
     Data(DataRegister),
     Address(AddressRegister),
@@ -230,11 +230,42 @@ impl IndexRegister {
     }
 }
 
+fn parse_index(extension: u16) -> (IndexRegister, IndexSize) {
+    let register_number = ((extension >> 12) & 0x07) as u8;
+    let register = if extension.bit(15) {
+        IndexRegister::Address(AddressRegister(register_number))
+    } else {
+        IndexRegister::Data(DataRegister(register_number))
+    };
+
+    let size = if extension.bit(11) {
+        IndexSize::LongWord
+    } else {
+        IndexSize::SignExtendedWord
+    };
+
+    (register, size)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum IndexSize {
     SignExtendedWord,
     LongWord,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BusOpType {
+    Read,
+    Write,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Exception {
+    AddressError(u32, BusOpType),
+    IllegalInstruction,
+}
+
+type ExecuteResult<T> = Result<T, Exception>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AddressingMode {
@@ -243,172 +274,41 @@ enum AddressingMode {
     AddressIndirect(AddressRegister),
     AddressIndirectPostincrement(AddressRegister),
     AddressIndirectPredecrement(AddressRegister),
-    AddressIndirectDisplacement(AddressRegister, i16),
-    AddressIndirectIndexed(AddressRegister, IndexRegister, IndexSize, i8),
-    PcRelativeDisplacement(u32, i16),
-    PcRelativeIndexed(u32, IndexRegister, IndexSize, i8),
-    AbsoluteShort(i16),
-    AbsoluteLong(u32),
-    Immediate(u32),
-}
-
-macro_rules! impl_addressing_read_method {
-    ($method_name:ident, $t:ty, $bus_read_method:ident) => {
-        fn $method_name<B: BusInterface>(self, registers: &mut Registers, bus: &mut B) -> $t {
-            match self {
-                Self::DataDirect(register) => register.read_from(registers) as $t,
-                Self::AddressDirect(register) => register.read_from(registers) as $t,
-                Self::AddressIndirect(register) => {
-                    let address = register.read_from(registers);
-                    bus.$bus_read_method(address)
-                }
-                Self::AddressIndirectPostincrement(register) => {
-                    let increment_step = <$t>::increment_step_for(register);
-
-                    let address = register.read_from(registers);
-                    register.write_long_word_to(registers, address.wrapping_add(increment_step));
-                    bus.$bus_read_method(address)
-                }
-                Self::AddressIndirectPredecrement(register) => {
-                    let increment_step = <$t>::increment_step_for(register);
-
-                    let address = register.read_from(registers).wrapping_sub(increment_step);
-                    register.write_long_word_to(registers, address);
-                    bus.$bus_read_method(address)
-                }
-                Self::AddressIndirectDisplacement(register, displacement) => {
-                    let address = register
-                        .read_from(registers)
-                        .wrapping_add(displacement as u32);
-                    bus.$bus_read_method(address)
-                }
-                Self::AddressIndirectIndexed(
-                    a_register,
-                    index_register,
-                    index_size,
-                    displacement,
-                ) => {
-                    let index = index_register.read_from(registers, index_size);
-                    let address = a_register
-                        .read_from(registers)
-                        .wrapping_add(index)
-                        .wrapping_add(displacement as u32);
-                    bus.$bus_read_method(address)
-                }
-                Self::PcRelativeDisplacement(pc, displacement) => {
-                    let address = pc.wrapping_add(displacement as u32);
-                    bus.$bus_read_method(address)
-                }
-                Self::PcRelativeIndexed(pc, index_register, index_size, displacement) => {
-                    let index = index_register.read_from(registers, index_size);
-                    let address = pc.wrapping_add(index).wrapping_add(displacement as u32);
-                    bus.$bus_read_method(address)
-                }
-                Self::AbsoluteShort(address) => bus.$bus_read_method(address as u32),
-                Self::AbsoluteLong(address) => bus.$bus_read_method(address),
-                Self::Immediate(data) => data as $t,
-            }
-        }
-    };
-}
-
-macro_rules! impl_addressing_write_method {
-    ($method_name:ident, $t:ty, $bus_write_method:ident, $register_write_method:ident) => {
-        fn $method_name<B: BusInterface>(self, registers: &mut Registers, bus: &mut B, value: $t) {
-            match self {
-                Self::DataDirect(register) => {
-                    register.$register_write_method(registers, value);
-                }
-                Self::AddressDirect(register) => {
-                    register.$register_write_method(registers, value);
-                }
-                Self::AddressIndirect(register) => {
-                    let address = register.read_from(registers);
-                    bus.$bus_write_method(address, value);
-                }
-                Self::AddressIndirectPostincrement(register) => {
-                    let increment_step = <$t>::increment_step_for(register);
-
-                    let address = register.read_from(registers);
-                    register.write_long_word_to(registers, address.wrapping_add(increment_step));
-                    bus.$bus_write_method(address, value);
-                }
-                Self::AddressIndirectPredecrement(register) => {
-                    let increment_step = <$t>::increment_step_for(register);
-
-                    let address = register.read_from(registers).wrapping_sub(increment_step);
-                    register.write_long_word_to(registers, address);
-                    bus.$bus_write_method(address, value);
-                }
-                Self::AddressIndirectDisplacement(register, displacement) => {
-                    let address = register
-                        .read_from(registers)
-                        .wrapping_add(displacement as u32);
-                    bus.$bus_write_method(address, value);
-                }
-                Self::AddressIndirectIndexed(
-                    a_register,
-                    index_register,
-                    index_size,
-                    displacement,
-                ) => {
-                    let index = index_register.read_from(registers, index_size);
-                    let address = a_register
-                        .read_from(registers)
-                        .wrapping_add(index)
-                        .wrapping_add(displacement as u32);
-                    bus.$bus_write_method(address, value);
-                }
-                Self::AbsoluteShort(address) => {
-                    bus.$bus_write_method(address as u32, value);
-                }
-                Self::AbsoluteLong(address) => {
-                    bus.$bus_write_method(address, value);
-                }
-                Self::PcRelativeDisplacement(..)
-                | Self::PcRelativeIndexed(..)
-                | Self::Immediate(..) => {
-                    panic!("writes not supported with addressing mode {self:?}")
-                }
-            }
-        }
-    };
+    AddressIndirectDisplacement(AddressRegister),
+    AddressIndirectIndexed(AddressRegister),
+    PcRelativeDisplacement,
+    PcRelativeIndexed,
+    AbsoluteShort,
+    AbsoluteLong,
+    Immediate,
 }
 
 impl AddressingMode {
-    impl_addressing_read_method!(read_byte_from, u8, read_memory);
-    impl_addressing_read_method!(read_word_from, u16, read_word);
-    impl_addressing_read_method!(read_long_word_from, u32, read_long_word);
-
-    fn read_from<B: BusInterface>(
-        self,
-        registers: &mut Registers,
-        bus: &mut B,
-        size: OpSize,
-    ) -> SizedValue {
-        match size {
-            OpSize::Byte => SizedValue::Byte(self.read_byte_from(registers, bus)),
-            OpSize::Word => SizedValue::Word(self.read_word_from(registers, bus)),
-            OpSize::LongWord => SizedValue::LongWord(self.read_long_word_from(registers, bus)),
+    fn parse_from(mode: u8, register: u8) -> ExecuteResult<Self> {
+        match (mode & 0x07, register & 0x07) {
+            (0x00, register) => Ok(Self::DataDirect(DataRegister(register))),
+            (0x01, register) => Ok(Self::AddressDirect(AddressRegister(register))),
+            (0x02, register) => Ok(Self::AddressIndirect(AddressRegister(register))),
+            (0x03, register) => Ok(Self::AddressIndirectPostincrement(AddressRegister(
+                register,
+            ))),
+            (0x04, register) => Ok(Self::AddressIndirectPredecrement(AddressRegister(register))),
+            (0x05, register) => Ok(Self::AddressIndirectDisplacement(AddressRegister(register))),
+            (0x06, register) => Ok(Self::AddressIndirectIndexed(AddressRegister(register))),
+            (0x07, 0x00) => Ok(Self::AbsoluteShort),
+            (0x07, 0x01) => Ok(Self::AbsoluteLong),
+            (0x07, 0x02) => Ok(Self::PcRelativeDisplacement),
+            (0x07, 0x03) => Ok(Self::PcRelativeIndexed),
+            (0x07, 0x04) => Ok(Self::Immediate),
+            (0x07, 0x05..=0x07) => Err(Exception::IllegalInstruction),
+            _ => unreachable!("value & 0x07 is always <= 0x07"),
         }
     }
 
-    impl_addressing_write_method!(write_byte_to, u8, write_memory, write_byte_to);
-    impl_addressing_write_method!(write_word_to, u16, write_word, write_word_to);
-    impl_addressing_write_method!(write_long_word_to, u32, write_long_word, write_long_word_to);
-
-    fn write_to<B: BusInterface>(self, registers: &mut Registers, bus: &mut B, value: SizedValue) {
-        match value {
-            SizedValue::Byte(value) => {
-                self.write_byte_to(registers, bus, value);
-            }
-            SizedValue::Word(value) => {
-                self.write_word_to(registers, bus, value);
-            }
-            SizedValue::LongWord(value) => {
-                self.write_long_word_to(registers, bus, value);
-            }
-        }
+    fn parse_from_opcode(opcode: u16) -> ExecuteResult<Self> {
+        let mode = (opcode >> 3) as u8;
+        let register = opcode as u8;
+        Self::parse_from(mode, register)
     }
 
     fn is_address_direct(self) -> bool {
@@ -418,7 +318,7 @@ impl AddressingMode {
     fn is_writable(self) -> bool {
         !matches!(
             self,
-            Self::PcRelativeDisplacement(..) | Self::PcRelativeIndexed(..) | Self::Immediate(..)
+            Self::PcRelativeDisplacement | Self::PcRelativeIndexed | Self::Immediate
         )
     }
 }
@@ -430,204 +330,433 @@ enum Instruction {
         source: AddressingMode,
         dest: AddressingMode,
     },
-    Illegal,
 }
 
+impl Instruction {
+    #[allow(clippy::unnecessary_wraps)]
+    fn source_addressing_mode(self) -> Option<AddressingMode> {
+        match self {
+            Self::Move { source, .. } => Some(source),
+        }
+    }
+
+    fn dest_addressing_mode(self) -> AddressingMode {
+        match self {
+            Self::Move { dest, .. } => dest,
+        }
+    }
+}
+
+#[derive(Debug)]
 struct InstructionExecutor<'registers, 'bus, B> {
     registers: &'registers mut Registers,
     bus: &'bus mut B,
+    opcode: u16,
+    dest: Option<AddressingMode>,
+    source: Option<AddressingMode>,
+}
+
+macro_rules! impl_read_immediate {
+    (u8, $self:expr) => {{
+        let extension = $self.fetch_operand()?;
+        Ok(extension as u8)
+    }};
+    (u16, $self:expr) => {
+        $self.fetch_operand()
+    };
+    (u32, $self:expr) => {{
+        let extension0 = $self.fetch_operand()?;
+        let extension1 = $self.fetch_operand()?;
+        Ok((u32::from(extension0) << 16) | u32::from(extension1))
+    }};
+}
+
+macro_rules! impl_read_method {
+    ($name:ident, $t:tt, $bus_read_method:ident) => {
+        fn $name(&mut self, source: AddressingMode) -> ExecuteResult<$t> {
+            match source {
+                AddressingMode::DataDirect(register) => {
+                    Ok(register.read_from(self.registers) as $t)
+                }
+                AddressingMode::AddressDirect(register) => {
+                    Ok(register.read_from(self.registers) as $t)
+                }
+                AddressingMode::AddressIndirect(register) => {
+                    let address = register.read_from(self.registers);
+                    self.$bus_read_method(address)
+                }
+                AddressingMode::AddressIndirectPostincrement(register) => {
+                    let address = register.read_from(self.registers);
+                    let increment = <$t>::increment_step_for(register);
+                    register.write_long_word_to(self.registers, address.wrapping_add(increment));
+
+                    self.$bus_read_method(address)
+                }
+                AddressingMode::AddressIndirectPredecrement(register) => {
+                    let increment = <$t>::increment_step_for(register);
+                    let address = register.read_from(self.registers).wrapping_sub(increment);
+                    register.write_long_word_to(self.registers, address);
+                    self.$bus_read_method(address)
+                }
+                AddressingMode::AddressIndirectDisplacement(register) => {
+                    let extension = self.fetch_operand()?;
+                    let displacement = extension as i16;
+                    let address = register
+                        .read_from(self.registers)
+                        .wrapping_add(displacement as u32);
+                    self.$bus_read_method(address)
+                }
+                AddressingMode::AddressIndirectIndexed(register) => {
+                    let extension = self.fetch_operand()?;
+                    let (index_register, index_size) = parse_index(extension);
+                    let index = index_register.read_from(self.registers, index_size);
+                    let displacement = extension as i8;
+
+                    let address = register
+                        .read_from(self.registers)
+                        .wrapping_add(index)
+                        .wrapping_add(displacement as u32);
+                    self.$bus_read_method(address)
+                }
+                AddressingMode::PcRelativeDisplacement => {
+                    let pc = self.registers.pc;
+                    let extension = self.fetch_operand()?;
+                    let displacement = extension as i16;
+
+                    let address = pc.wrapping_add(displacement as u32);
+                    self.$bus_read_method(address)
+                }
+                AddressingMode::PcRelativeIndexed => {
+                    let pc = self.registers.pc;
+                    let extension = self.fetch_operand()?;
+                    let (index_register, index_size) = parse_index(extension);
+                    let index = index_register.read_from(self.registers, index_size);
+                    let displacement = extension as i8;
+
+                    let address = pc.wrapping_add(index).wrapping_add(displacement as u32);
+                    self.$bus_read_method(address)
+                }
+                AddressingMode::AbsoluteShort => {
+                    let extension = self.fetch_operand()?;
+                    let address = extension as i16 as u32;
+                    self.$bus_read_method(address)
+                }
+                AddressingMode::AbsoluteLong => {
+                    let extension0 = self.fetch_operand()?;
+                    let extension1 = self.fetch_operand()?;
+                    let address = (u32::from(extension0) << 16) | u32::from(extension1);
+                    self.$bus_read_method(address)
+                }
+                AddressingMode::Immediate => impl_read_immediate!($t, self),
+            }
+        }
+    };
+}
+
+macro_rules! impl_predecrement_write {
+    (u8, $self:expr, $register:expr, $value:expr) => {
+        let increment = u8::increment_step_for($register);
+        let address = $register.read_from($self.registers).wrapping_sub(increment);
+        $register.write_long_word_to($self.registers, address);
+        $self.bus.write_byte(address, $value);
+    };
+    (u16, $self:expr, $register:expr, $value:expr) => {
+        let address = $register.read_from($self.registers).wrapping_sub(2);
+        $register.write_long_word_to($self.registers, address);
+        $self.write_bus_word(address, $value)?;
+    };
+    (u32, $self:expr, $register:expr, $value:expr) => {{
+        let high_word = ($value >> 16) as u16;
+        let low_word = $value as u16;
+
+        let address = $register.read_from($self.registers).wrapping_sub(2);
+        $register.write_long_word_to($self.registers, address);
+        $self.write_bus_word(address, low_word)?;
+
+        let address = address.wrapping_sub(2);
+        $register.write_long_word_to($self.registers, address);
+        $self.write_bus_word(address, high_word)?;
+    }};
+}
+
+macro_rules! impl_write_method {
+    ($name:ident, $t:tt, $register_write_method:ident, $bus_write_method:ident) => {
+        fn $name(&mut self, dest: AddressingMode, value: $t) -> ExecuteResult<()> {
+            match dest {
+                AddressingMode::DataDirect(register) => {
+                    register.$register_write_method(self.registers, value);
+                }
+                AddressingMode::AddressDirect(register) => {
+                    register.$register_write_method(self.registers, value);
+                }
+                AddressingMode::AddressIndirect(register) => {
+                    let address = register.read_from(self.registers);
+                    self.$bus_write_method(address, value)?;
+                }
+                AddressingMode::AddressIndirectPostincrement(register) => {
+                    let address = register.read_from(self.registers);
+                    self.$bus_write_method(address, value)?;
+
+                    let increment = <$t>::increment_step_for(register);
+                    register.write_long_word_to(self.registers, address.wrapping_add(increment));
+                }
+                AddressingMode::AddressIndirectPredecrement(register) => {
+                    impl_predecrement_write!($t, self, register, value);
+                }
+                AddressingMode::AddressIndirectDisplacement(register) => {
+                    let extension = self.fetch_operand()?;
+                    let displacement = extension as i16;
+                    let address = register
+                        .read_from(self.registers)
+                        .wrapping_add(displacement as u32);
+                    self.$bus_write_method(address, value)?
+                }
+                AddressingMode::AddressIndirectIndexed(register) => {
+                    let extension = self.fetch_operand()?;
+                    let (index_register, index_size) = parse_index(extension);
+                    let index = index_register.read_from(self.registers, index_size);
+                    let displacement = extension as i8;
+
+                    let address = register
+                        .read_from(self.registers)
+                        .wrapping_add(index)
+                        .wrapping_add(displacement as u32);
+                    self.$bus_write_method(address, value)?;
+                }
+                AddressingMode::AbsoluteShort => {
+                    let extension = self.fetch_operand()?;
+                    let address = extension as i16 as u32;
+                    self.$bus_write_method(address, value)?;
+                }
+                AddressingMode::AbsoluteLong => {
+                    let extension0 = self.fetch_operand()?;
+                    let extension1 = self.fetch_operand()?;
+                    let address = (u32::from(extension0) << 16) | u32::from(extension1);
+                    self.$bus_write_method(address, value)?;
+                }
+                AddressingMode::PcRelativeDisplacement
+                | AddressingMode::PcRelativeIndexed
+                | AddressingMode::Immediate => panic!("cannot write with addressing mode {dest:?}"),
+            }
+
+            Ok(())
+        }
+    };
 }
 
 impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
     fn new(registers: &'registers mut Registers, bus: &'bus mut B) -> Self {
-        Self { registers, bus }
+        Self {
+            registers,
+            bus,
+            opcode: 0,
+            dest: None,
+            source: None,
+        }
     }
 
-    fn fetch_operand(&mut self) -> u16 {
-        let operand = self.bus.read_word(self.registers.pc);
+    #[allow(clippy::unnecessary_wraps)]
+    fn read_bus_byte(&mut self, address: u32) -> ExecuteResult<u8> {
+        Ok(self.bus.read_byte(address))
+    }
+
+    #[allow(clippy::unnecessary_wraps)]
+    fn write_bus_byte(&mut self, address: u32, value: u8) -> ExecuteResult<()> {
+        self.bus.write_byte(address, value);
+
+        Ok(())
+    }
+
+    fn read_bus_word(&mut self, address: u32) -> ExecuteResult<u16> {
+        if address % 2 != 0 {
+            return Err(Exception::AddressError(address, BusOpType::Read));
+        }
+
+        Ok(self.bus.read_word(address))
+    }
+
+    fn write_bus_word(&mut self, address: u32, value: u16) -> ExecuteResult<()> {
+        if address % 2 != 0 {
+            return Err(Exception::AddressError(address, BusOpType::Write));
+        }
+
+        self.bus.write_word(address, value);
+
+        Ok(())
+    }
+
+    fn read_bus_long_word(&mut self, address: u32) -> ExecuteResult<u32> {
+        if address % 2 != 0 {
+            return Err(Exception::AddressError(address, BusOpType::Read));
+        }
+
+        Ok(self.bus.read_long_word(address))
+    }
+
+    fn write_bus_long_word(&mut self, address: u32, value: u32) -> ExecuteResult<()> {
+        if address % 2 != 0 {
+            return Err(Exception::AddressError(address, BusOpType::Write));
+        }
+
+        self.bus.write_long_word(address, value);
+
+        Ok(())
+    }
+
+    fn fetch_operand(&mut self) -> ExecuteResult<u16> {
+        let operand = self.read_bus_word(self.registers.pc)?;
         self.registers.pc = self.registers.pc.wrapping_add(2);
-        operand
+
+        Ok(operand)
     }
 
-    fn fetch_addressing_mode(
-        &mut self,
-        mode: u8,
-        register: u8,
-        size: OpSize,
-    ) -> Option<AddressingMode> {
-        match (mode & 0x07, register & 0x07) {
-            (0x00, register) => Some(AddressingMode::DataDirect(DataRegister(register))),
-            (0x01, register) => Some(AddressingMode::AddressDirect(AddressRegister(register))),
-            (0x02, register) => Some(AddressingMode::AddressIndirect(AddressRegister(register))),
-            (0x03, register) => Some(AddressingMode::AddressIndirectPostincrement(
-                AddressRegister(register),
-            )),
-            (0x04, register) => Some(AddressingMode::AddressIndirectPredecrement(
-                AddressRegister(register),
-            )),
-            (0x05, register) => {
-                let extension = self.fetch_operand();
-                log::trace!("Extension word: {extension:04X}");
+    impl_read_method!(read_byte, u8, read_bus_byte);
+    impl_read_method!(read_word, u16, read_bus_word);
+    impl_read_method!(read_long_word, u32, read_bus_long_word);
 
-                let displacement = extension as i16;
-                Some(AddressingMode::AddressIndirectDisplacement(
-                    AddressRegister(register),
-                    displacement,
-                ))
-            }
-            (0x06, register) => {
-                let extension = self.fetch_operand();
-                log::trace!("Extension word: {extension:04X}");
-
-                let (index_register, index_size) = parse_index(extension);
-                let displacement = extension as i8;
-
-                Some(AddressingMode::AddressIndirectIndexed(
-                    AddressRegister(register),
-                    index_register,
-                    index_size,
-                    displacement,
-                ))
-            }
-            (0x07, 0x00) => {
-                let extension = self.fetch_operand();
-                log::trace!("Extension word: {extension:04X}");
-
-                Some(AddressingMode::AbsoluteShort(extension as i16))
-            }
-            (0x07, 0x01) => {
-                let extension_0 = self.fetch_operand();
-                let extension_1 = self.fetch_operand();
-
-                log::trace!("Extension words: {extension_0:04X} {extension_1:04X}");
-
-                let address = (u32::from(extension_0) << 16) | u32::from(extension_1);
-                Some(AddressingMode::AbsoluteLong(address))
-            }
-            (0x07, 0x02) => {
-                let pc = self.registers.pc;
-                let extension = self.fetch_operand();
-                log::trace!("Extension word: {extension:04X}");
-
-                let displacement = extension as i16;
-                Some(AddressingMode::PcRelativeDisplacement(pc, displacement))
-            }
-            (0x07, 0x03) => {
-                let pc = self.registers.pc;
-                let extension = self.fetch_operand();
-                log::trace!("Extension word: {extension:04X}");
-
-                let (index_register, index_size) = parse_index(extension);
-                let displacement = extension as i8;
-
-                Some(AddressingMode::PcRelativeIndexed(
-                    pc,
-                    index_register,
-                    index_size,
-                    displacement,
-                ))
-            }
-            (0x07, 0x04) => {
-                let extension_0 = self.fetch_operand();
-                log::trace!("Extension word: {extension_0:04X}");
-
-                let immediate_value = match size {
-                    OpSize::Byte => (extension_0 as u8).into(),
-                    OpSize::Word => extension_0.into(),
-                    OpSize::LongWord => {
-                        let extension_1 = self.fetch_operand();
-                        log::trace!("Second extension word: {extension_1:04X}");
-
-                        (u32::from(extension_0) << 16) | u32::from(extension_1)
-                    }
-                };
-
-                Some(AddressingMode::Immediate(immediate_value))
-            }
-            (0x07, 0x05 | 0x06 | 0x07) => {
-                // Reserved/illegal addressing mode
-                None
-            }
-            _ => unreachable!("value & 0x07 is always <= 0x07"),
+    fn read(&mut self, source: AddressingMode, size: OpSize) -> ExecuteResult<SizedValue> {
+        match size {
+            OpSize::Byte => self.read_byte(source).map(SizedValue::Byte),
+            OpSize::Word => self.read_word(source).map(SizedValue::Word),
+            OpSize::LongWord => self.read_long_word(source).map(SizedValue::LongWord),
         }
     }
 
-    fn fetch_addressing_mode_from_opcode(
-        &mut self,
-        opcode: u16,
-        size: OpSize,
-    ) -> Option<AddressingMode> {
-        let mode = ((opcode >> 3) & 0x07) as u8;
-        let register = (opcode & 0x07) as u8;
-        self.fetch_addressing_mode(mode, register, size)
-    }
+    impl_write_method!(write_byte, u8, write_byte_to, write_bus_byte);
+    impl_write_method!(write_word, u16, write_word_to, write_bus_word);
+    impl_write_method!(
+        write_long_word,
+        u32,
+        write_long_word_to,
+        write_bus_long_word
+    );
 
-    fn decode_instruction(&mut self) -> Instruction {
-        let opcode = self.fetch_operand();
-        log::trace!("opcode is {opcode:016b}");
-        match opcode & 0xF000 {
-            0x1000 | 0x2000 | 0x3000 => {
-                // MOVE / MOVEA
-                let size = match opcode & 0xF000 {
-                    0x1000 => OpSize::Byte,
-                    0x3000 => OpSize::Word,
-                    0x2000 => OpSize::LongWord,
-                    _ => unreachable!("nested match expressions"),
-                };
-
-                let Some(source) = self.fetch_addressing_mode_from_opcode(opcode, size)
-                else {
-                    return Instruction::Illegal;
-                };
-
-                let dest_mode = ((opcode >> 6) & 0x07) as u8;
-                let dest_register = ((opcode >> 9) & 0x07) as u8;
-                let Some(dest) = self.fetch_addressing_mode(dest_mode, dest_register, size)
-                else {
-                    return Instruction::Illegal;
-                };
-
-                if !dest.is_writable() || (dest.is_address_direct() && size == OpSize::Byte) {
-                    return Instruction::Illegal;
-                }
-
-                Instruction::Move { size, source, dest }
-            }
-            _ => Instruction::Illegal,
+    fn write(&mut self, dest: AddressingMode, value: SizedValue) -> ExecuteResult<()> {
+        match value {
+            SizedValue::Byte(value) => self.write_byte(dest, value),
+            SizedValue::Word(value) => self.write_word(dest, value),
+            SizedValue::LongWord(value) => self.write_long_word(dest, value),
         }
     }
 
-    fn execute_instruction(&mut self, instruction: Instruction) {
+    fn push_stack_u16(&mut self, value: u16) -> ExecuteResult<()> {
+        let sp = if self.registers.supervisor_mode {
+            &mut self.registers.ssp
+        } else {
+            &mut self.registers.usp
+        };
+
+        *sp = sp.wrapping_sub(2);
+        let address = *sp;
+        self.write_bus_word(address, value)
+    }
+
+    fn push_stack_u32(&mut self, value: u32) -> ExecuteResult<()> {
+        let high_word = (value >> 16) as u16;
+        let low_word = value as u16;
+
+        self.push_stack_u16(low_word)?;
+        self.push_stack_u16(high_word)?;
+
+        Ok(())
+    }
+
+    fn handle_address_error(&mut self, address: u32, op_type: BusOpType) -> ExecuteResult<()> {
+        let sr = self.registers.status_register();
+        self.registers.trace_enabled = false;
+        self.registers.supervisor_mode = true;
+
+        let pc = match (op_type, self.dest, self.source) {
+            (BusOpType::Write, Some(AddressingMode::AddressIndirectPredecrement(..)), _) => {
+                self.registers.pc
+            }
+            (
+                BusOpType::Write,
+                Some(AddressingMode::AbsoluteLong),
+                Some(
+                    AddressingMode::AddressIndirect(..)
+                    | AddressingMode::AddressIndirectPostincrement(..)
+                    | AddressingMode::AddressIndirectPredecrement(..)
+                    | AddressingMode::AddressIndirectDisplacement(..)
+                    | AddressingMode::AddressIndirectIndexed(..)
+                    | AddressingMode::PcRelativeDisplacement
+                    | AddressingMode::PcRelativeIndexed
+                    | AddressingMode::AbsoluteShort
+                    | AddressingMode::AbsoluteLong,
+                ),
+            ) => self.registers.pc.wrapping_sub(4),
+            _ => self.registers.pc.wrapping_sub(2),
+        };
+
+        self.push_stack_u32(pc)?;
+        self.push_stack_u16(sr)?;
+        self.push_stack_u16(self.opcode)?;
+        self.push_stack_u32(address)?;
+
+        let status_word =
+            (self.opcode & 0xFFE0) | (u16::from(op_type == BusOpType::Read) << 4) | 0x0005;
+        self.push_stack_u16(status_word)?;
+
+        let vector = self.bus.read_long_word(12);
+        self.registers.pc = vector;
+
+        Ok(())
+    }
+
+    fn do_execute(&mut self) -> ExecuteResult<()> {
+        let opcode = self.fetch_operand()?;
+        self.opcode = opcode;
+
+        let instruction = decode_opcode(opcode)?;
+        self.dest = Some(instruction.dest_addressing_mode());
+        self.source = instruction.source_addressing_mode();
+        log::trace!("Decoded instruction: {instruction:?}");
+
         match instruction {
-            Instruction::Move { size, source, dest } => self.mov(size, source, dest),
-            Instruction::Illegal => panic!("illegal or unimplemented instruction"),
+            Instruction::Move { size, source, dest } => self.move_(size, source, dest),
         }
     }
 
     fn execute(mut self) {
-        let instruction = self.decode_instruction();
-        log::trace!(
-            "Decoded instruction {instruction:?}, PC is now {:08X}",
-            self.registers.pc
-        );
-        self.execute_instruction(instruction);
+        match self.do_execute() {
+            Ok(()) => {}
+            Err(Exception::AddressError(address, op_type)) => {
+                log::trace!(
+                    "Encountered address error; address={address:08X}, op_type={op_type:?}"
+                );
+                if self.handle_address_error(address, op_type).is_err() {
+                    todo!("halt CPU")
+                }
+            }
+            Err(Exception::IllegalInstruction) => todo!(),
+        }
     }
 }
 
-fn parse_index(extension: u16) -> (IndexRegister, IndexSize) {
-    let index_register_number = ((extension >> 12) & 0x07) as u8;
-    let index_register = if extension.bit(15) {
-        IndexRegister::Address(AddressRegister(index_register_number))
-    } else {
-        IndexRegister::Data(DataRegister(index_register_number))
-    };
+fn decode_opcode(opcode: u16) -> ExecuteResult<Instruction> {
+    match opcode & 0xF000 {
+        0x1000 | 0x2000 | 0x3000 => {
+            let size = match opcode & 0xF000 {
+                0x1000 => OpSize::Byte,
+                0x2000 => OpSize::LongWord,
+                0x3000 => OpSize::Word,
+                _ => unreachable!("nested match expressions"),
+            };
 
-    let index_size = if extension.bit(11) {
-        IndexSize::LongWord
-    } else {
-        IndexSize::SignExtendedWord
-    };
-    (index_register, index_size)
+            let source = AddressingMode::parse_from_opcode(opcode)?;
+
+            let dest_mode = (opcode >> 6) as u8;
+            let dest_register = (opcode >> 9) as u8;
+            let dest = AddressingMode::parse_from(dest_mode, dest_register)?;
+
+            if !dest.is_writable() || (dest.is_address_direct() && size == OpSize::Byte) {
+                return Err(Exception::IllegalInstruction);
+            }
+
+            Ok(Instruction::Move { size, source, dest })
+        }
+        _ => Err(Exception::IllegalInstruction),
+    }
 }
 
 pub struct M68000 {
@@ -698,52 +827,5 @@ impl M68000 {
 impl Default for M68000 {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::bus::InMemoryBus;
-
-    #[test]
-    fn decode_mov() {
-        // MOVE.w A3, D7
-        let opcode = 0b0011_111_000_001_011;
-
-        let mut registers = Registers::new();
-        let mut bus = InMemoryBus::new();
-
-        registers.pc = 0x1234;
-        bus.write_word(registers.pc, opcode);
-
-        let instruction = InstructionExecutor::new(&mut registers, &mut bus).decode_instruction();
-        assert_eq!(
-            instruction,
-            Instruction::Move {
-                size: OpSize::Word,
-                source: AddressingMode::AddressDirect(AddressRegister(3)),
-                dest: AddressingMode::DataDirect(DataRegister(7)),
-            }
-        );
-        assert_eq!(registers.pc, 0x1234 + 2);
-
-        // MOVE.b #$12, ($3456, A4)
-        let opcode = 0b0001_100_101_111_100;
-        registers.pc = 0x1234;
-        bus.write_word(registers.pc, opcode);
-        bus.write_word(registers.pc.wrapping_add(2), 0xFF12);
-        bus.write_word(registers.pc.wrapping_add(4), 0x3456);
-
-        let instruction = InstructionExecutor::new(&mut registers, &mut bus).decode_instruction();
-        assert_eq!(
-            instruction,
-            Instruction::Move {
-                size: OpSize::Byte,
-                source: AddressingMode::Immediate(0x12),
-                dest: AddressingMode::AddressIndirectDisplacement(AddressRegister(4), 0x3456),
-            }
-        );
-        assert_eq!(registers.pc, 0x1234 + 6);
     }
 }
