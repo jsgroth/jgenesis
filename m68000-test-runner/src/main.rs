@@ -1,4 +1,4 @@
-//! Designed to run the 68000 tests from https://github.com/TomHarte/ProcessorTests
+//! Designed to run the 68000 tests from <https://github.com/TomHarte/ProcessorTests>
 
 use env_logger::Env;
 use flate2::read::GzDecoder;
@@ -38,7 +38,7 @@ struct State {
 }
 
 macro_rules! diff_field {
-    ($actual:expr, $expected:expr, $field:ident, hex) => {
+    ($actual:expr, $expected:expr, $field:ident) => {
         if $actual.$field != $expected.$field {
             log::info!(
                 "  {}: actual={:08X}, expected={:08X}",
@@ -48,25 +48,12 @@ macro_rules! diff_field {
             );
         }
     };
-    ($actual:expr, $expected:expr, $field:ident) => {
-        if $actual.$field != $expected.$field {
-            log::info!(
-                "  {}:\n    actual={:?}\n    expected={:?}",
-                stringify!($field),
-                $actual.$field,
-                $expected.$field
-            );
-        }
-    };
 }
 
 macro_rules! diff_fields {
-    ($actual:expr, $expected:expr, [$($hex_field:ident),*], [$($other_field:ident),*]) => {
+    ($actual:expr, $expected:expr, [$($hex_field:ident),*]) => {
         $(
-            diff_field!($actual, $expected, $hex_field, hex);
-        )*
-        $(
-            diff_field!($actual, $expected, $other_field);
+            diff_field!($actual, $expected, $hex_field);
         )*
     }
 }
@@ -102,10 +89,7 @@ impl State {
             ssp: m68000.supervisor_stack_pointer(),
             sr: m68000.status_register(),
             pc: m68000.pc(),
-            prefetch: [
-                bus.read_word(m68000.pc()),
-                bus.read_word(m68000.pc().wrapping_add(2)),
-            ],
+            prefetch: final_state.prefetch,
             ram,
         }
     }
@@ -114,9 +98,19 @@ impl State {
         diff_fields!(
             self,
             expected,
-            [d0, d1, d2, d3, d4, d5, d6, d7, a0, a1, a2, a3, a4, a5, a6, usp, ssp, sr, pc],
-            [prefetch, ram]
+            [d0, d1, d2, d3, d4, d5, d6, d7, a0, a1, a2, a3, a4, a5, a6, usp, ssp, sr, pc]
         );
+
+        if self.ram != expected.ram {
+            log::info!("  ram:");
+            for ((address, actual), (_, expected)) in
+                self.ram.iter().copied().zip(expected.ram.iter().copied())
+            {
+                if actual != expected {
+                    log::info!("    {address:08X}: actual={actual:02X}, expected={expected:02X}");
+                }
+            }
+        }
     }
 }
 
@@ -150,10 +144,12 @@ fn main() {
 
     let test_descriptions: Vec<TestDescription> = serde_json::from_reader(file).unwrap();
 
+    log::info!("Loaded {} tests", test_descriptions.len());
+
+    let mut bus = InMemoryBus::new();
     let mut failure_count = 0_u32;
     for test_description in &test_descriptions {
-        let (mut m68000, mut bus) = init_test_state(&test_description.initial);
-
+        let mut m68000 = init_test_state(&test_description.initial, &mut bus);
         m68000.execute_instruction(&mut bus);
 
         let state = State::from(&m68000, &mut bus, &test_description.final_state);
@@ -171,9 +167,8 @@ fn main() {
     );
 }
 
-fn init_test_state(state: &State) -> (M68000, InMemoryBus) {
+fn init_test_state(state: &State, bus: &mut InMemoryBus) -> M68000 {
     let mut m68000 = M68000::new();
-    let mut bus = InMemoryBus::new();
 
     m68000.set_data_registers([
         state.d0, state.d1, state.d2, state.d3, state.d4, state.d5, state.d6, state.d7,
@@ -195,5 +190,5 @@ fn init_test_state(state: &State) -> (M68000, InMemoryBus) {
         bus.write_memory(address, value);
     }
 
-    (m68000, bus)
+    m68000
 }
