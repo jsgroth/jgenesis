@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+#[cfg(any(test, feature = "memorybus"))]
+pub mod bus;
 mod core;
 pub mod traits;
 

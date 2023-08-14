@@ -36,27 +36,49 @@ pub trait BusInterface {
     }
 }
 
-#[cfg(test)]
-pub(crate) struct InMemoryBus {
-    memory: Vec<u8>,
+pub(crate) trait GetBit: Copy {
+    fn bit(self, i: u8) -> bool;
 }
 
-#[cfg(test)]
-impl InMemoryBus {
-    pub(crate) fn new() -> Self {
-        Self {
-            memory: vec![0; 0x0100_0000],
-        }
+impl GetBit for u8 {
+    fn bit(self, i: u8) -> bool {
+        assert!(i < 8);
+        self & (1 << i) != 0
     }
 }
 
-#[cfg(test)]
-impl BusInterface for InMemoryBus {
-    fn read_memory(&mut self, address: u32) -> u8 {
-        self.memory[(address & Self::ADDRESS_MASK) as usize]
+impl GetBit for u16 {
+    fn bit(self, i: u8) -> bool {
+        assert!(i < 16);
+        self & (1 << i) != 0
     }
+}
 
-    fn write_memory(&mut self, address: u32, value: u8) {
-        self.memory[(address & Self::ADDRESS_MASK) as usize] = value;
+impl GetBit for u32 {
+    fn bit(self, i: u8) -> bool {
+        assert!(i < 32);
+        self & (1 << i) != 0
+    }
+}
+
+pub(crate) trait SignBit: Copy {
+    fn sign_bit(self) -> bool;
+}
+
+impl SignBit for u8 {
+    fn sign_bit(self) -> bool {
+        self.bit(7)
+    }
+}
+
+impl SignBit for u16 {
+    fn sign_bit(self) -> bool {
+        self.bit(15)
+    }
+}
+
+impl SignBit for u32 {
+    fn sign_bit(self) -> bool {
+        self.bit(31)
     }
 }

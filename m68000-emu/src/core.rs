@@ -1,31 +1,6 @@
 mod load;
 
-use crate::traits::BusInterface;
-
-trait GetBit: Copy {
-    fn bit(self, i: u8) -> bool;
-}
-
-impl GetBit for u8 {
-    fn bit(self, i: u8) -> bool {
-        assert!(i < 8);
-        self & (1 << i) != 0
-    }
-}
-
-impl GetBit for u16 {
-    fn bit(self, i: u8) -> bool {
-        assert!(i < 16);
-        self & (1 << i) != 0
-    }
-}
-
-impl GetBit for u32 {
-    fn bit(self, i: u8) -> bool {
-        assert!(i < 32);
-        self & (1 << i) != 0
-    }
-}
+use crate::traits::{BusInterface, GetBit, SignBit};
 
 #[derive(Debug, Clone, Copy)]
 struct ConditionCodes {
@@ -61,10 +36,13 @@ impl From<ConditionCodes> for u8 {
 #[derive(Debug, Clone)]
 struct Registers {
     data: [u32; 8],
-    address: [u32; 8],
+    address: [u32; 7],
+    usp: u32,
+    ssp: u32,
     pc: u32,
     ccr: ConditionCodes,
     interrupt_priority_mask: u8,
+    supervisor_mode: bool,
     trace_enabled: bool,
 }
 
@@ -72,12 +50,34 @@ impl Registers {
     pub fn new() -> Self {
         Self {
             data: [0; 8],
-            address: [0; 8],
+            address: [0; 7],
+            usp: 0,
+            ssp: 0,
             pc: 0,
             ccr: 0.into(),
             interrupt_priority_mask: 0,
+            supervisor_mode: true,
             trace_enabled: false,
         }
+    }
+
+    fn status_register(&self) -> u16 {
+        let lsb: u8 = self.ccr.into();
+        let msb = self.interrupt_priority_mask
+            | (u8::from(self.supervisor_mode) << 5)
+            | (u8::from(self.trace_enabled) << 7);
+
+        u16::from_be_bytes([msb, lsb])
+    }
+
+    fn set_status_register(&mut self, value: u16) {
+        let [msb, lsb] = value.to_be_bytes();
+
+        self.interrupt_priority_mask = msb & 0x07;
+        self.supervisor_mode = msb.bit(5);
+        self.trace_enabled = msb.bit(7);
+
+        self.ccr = lsb.into();
     }
 }
 
@@ -113,7 +113,11 @@ impl AddressRegister {
     }
 
     fn read_from(self, registers: &Registers) -> u32 {
-        registers.address[self.0 as usize]
+        match (self.0, registers.supervisor_mode) {
+            (7, false) => registers.usp,
+            (7, true) => registers.ssp,
+            (register, _) => registers.address[register as usize],
+        }
     }
 
     #[allow(clippy::unused_self)]
@@ -122,11 +126,22 @@ impl AddressRegister {
     }
 
     fn write_word_to(self, registers: &mut Registers, value: u16) {
-        registers.address[self.0 as usize] = value as i16 as u32;
+        // Address register writes are always sign extended to 32 bits
+        self.write_long_word_to(registers, value as i16 as u32);
     }
 
     fn write_long_word_to(self, registers: &mut Registers, value: u32) {
-        registers.address[self.0 as usize] = value;
+        match (self.0, registers.supervisor_mode) {
+            (7, false) => {
+                registers.usp = value;
+            }
+            (7, true) => {
+                registers.ssp = value;
+            }
+            (register, _) => {
+                registers.address[register as usize] = value;
+            }
+        }
     }
 }
 
@@ -157,12 +172,14 @@ impl SizedValue {
             Self::LongWord(value) => value == 0,
         }
     }
+}
 
+impl SignBit for SizedValue {
     fn sign_bit(self) -> bool {
         match self {
-            Self::Byte(value) => value.bit(7),
-            Self::Word(value) => value.bit(15),
-            Self::LongWord(value) => value.bit(31),
+            Self::Byte(value) => value.sign_bit(),
+            Self::Word(value) => value.sign_bit(),
+            Self::LongWord(value) => value.sign_bit(),
         }
     }
 }
@@ -228,8 +245,8 @@ enum AddressingMode {
     AddressIndirectPredecrement(AddressRegister),
     AddressIndirectDisplacement(AddressRegister, i16),
     AddressIndirectIndexed(AddressRegister, IndexRegister, IndexSize, i8),
-    PcRelativeDisplacement(i16),
-    PcRelativeIndexed(IndexRegister, IndexSize, i8),
+    PcRelativeDisplacement(u32, i16),
+    PcRelativeIndexed(u32, IndexRegister, IndexSize, i8),
     AbsoluteShort(i16),
     AbsoluteLong(u32),
     Immediate(u32),
@@ -278,16 +295,13 @@ macro_rules! impl_addressing_read_method {
                         .wrapping_add(displacement as u32);
                     bus.$bus_read_method(address)
                 }
-                Self::PcRelativeDisplacement(displacement) => {
-                    let address = registers.pc.wrapping_add(displacement as u32);
+                Self::PcRelativeDisplacement(pc, displacement) => {
+                    let address = pc.wrapping_add(displacement as u32);
                     bus.$bus_read_method(address)
                 }
-                Self::PcRelativeIndexed(index_register, index_size, displacement) => {
+                Self::PcRelativeIndexed(pc, index_register, index_size, displacement) => {
                     let index = index_register.read_from(registers, index_size);
-                    let address = registers
-                        .pc
-                        .wrapping_add(index)
-                        .wrapping_add(displacement as u32);
+                    let address = pc.wrapping_add(index).wrapping_add(displacement as u32);
                     bus.$bus_read_method(address)
                 }
                 Self::AbsoluteShort(address) => bus.$bus_read_method(address as u32),
@@ -396,9 +410,20 @@ impl AddressingMode {
             }
         }
     }
+
+    fn is_address_direct(self) -> bool {
+        matches!(self, Self::AddressDirect(..))
+    }
+
+    fn is_writable(self) -> bool {
+        !matches!(
+            self,
+            Self::PcRelativeDisplacement(..) | Self::PcRelativeIndexed(..) | Self::Immediate(..)
+        )
+    }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Instruction {
     Move {
         size: OpSize,
@@ -441,7 +466,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 AddressRegister(register),
             )),
             (0x05, register) => {
-                let displacement = self.fetch_operand() as i16;
+                let extension = self.fetch_operand();
+                log::trace!("Extension word: {extension:04X}");
+
+                let displacement = extension as i16;
                 Some(AddressingMode::AddressIndirectDisplacement(
                     AddressRegister(register),
                     displacement,
@@ -449,6 +477,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             }
             (0x06, register) => {
                 let extension = self.fetch_operand();
+                log::trace!("Extension word: {extension:04X}");
 
                 let (index_register, index_size) = parse_index(extension);
                 let displacement = extension as i8;
@@ -462,26 +491,37 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             }
             (0x07, 0x00) => {
                 let extension = self.fetch_operand();
+                log::trace!("Extension word: {extension:04X}");
+
                 Some(AddressingMode::AbsoluteShort(extension as i16))
             }
             (0x07, 0x01) => {
                 let extension_0 = self.fetch_operand();
                 let extension_1 = self.fetch_operand();
 
+                log::trace!("Extension words: {extension_0:04X} {extension_1:04X}");
+
                 let address = (u32::from(extension_0) << 16) | u32::from(extension_1);
                 Some(AddressingMode::AbsoluteLong(address))
             }
             (0x07, 0x02) => {
-                let displacement = self.fetch_operand() as i16;
-                Some(AddressingMode::PcRelativeDisplacement(displacement))
+                let pc = self.registers.pc;
+                let extension = self.fetch_operand();
+                log::trace!("Extension word: {extension:04X}");
+
+                let displacement = extension as i16;
+                Some(AddressingMode::PcRelativeDisplacement(pc, displacement))
             }
             (0x07, 0x03) => {
+                let pc = self.registers.pc;
                 let extension = self.fetch_operand();
+                log::trace!("Extension word: {extension:04X}");
 
                 let (index_register, index_size) = parse_index(extension);
                 let displacement = extension as i8;
 
                 Some(AddressingMode::PcRelativeIndexed(
+                    pc,
                     index_register,
                     index_size,
                     displacement,
@@ -489,12 +529,15 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             }
             (0x07, 0x04) => {
                 let extension_0 = self.fetch_operand();
+                log::trace!("Extension word: {extension_0:04X}");
 
                 let immediate_value = match size {
                     OpSize::Byte => (extension_0 as u8).into(),
                     OpSize::Word => extension_0.into(),
                     OpSize::LongWord => {
                         let extension_1 = self.fetch_operand();
+                        log::trace!("Second extension word: {extension_1:04X}");
+
                         (u32::from(extension_0) << 16) | u32::from(extension_1)
                     }
                 };
@@ -521,6 +564,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
     fn decode_instruction(&mut self) -> Instruction {
         let opcode = self.fetch_operand();
+        log::trace!("opcode is {opcode:016b}");
         match opcode & 0xF000 {
             0x1000 | 0x2000 | 0x3000 => {
                 // MOVE / MOVEA
@@ -543,6 +587,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                     return Instruction::Illegal;
                 };
 
+                if !dest.is_writable() || (dest.is_address_direct() && size == OpSize::Byte) {
+                    return Instruction::Illegal;
+                }
+
                 Instruction::Move { size, source, dest }
             }
             _ => Instruction::Illegal,
@@ -558,6 +606,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
     fn execute(mut self) {
         let instruction = self.decode_instruction();
+        log::trace!(
+            "Decoded instruction {instruction:?}, PC is now {:08X}",
+            self.registers.pc
+        );
         self.execute_instruction(instruction);
     }
 }
@@ -591,12 +643,55 @@ impl M68000 {
     }
 
     #[must_use]
+    pub fn data_registers(&self) -> [u32; 8] {
+        self.registers.data
+    }
+
+    pub fn set_data_registers(&mut self, registers: [u32; 8]) {
+        self.registers.data = registers;
+    }
+
+    #[must_use]
+    pub fn address_registers(&self) -> [u32; 7] {
+        self.registers.address
+    }
+
+    #[must_use]
+    pub fn user_stack_pointer(&self) -> u32 {
+        self.registers.usp
+    }
+
+    #[must_use]
+    pub fn supervisor_stack_pointer(&self) -> u32 {
+        self.registers.ssp
+    }
+
+    pub fn set_address_registers(&mut self, registers: [u32; 7], usp: u32, ssp: u32) {
+        self.registers.address = registers;
+        self.registers.usp = usp;
+        self.registers.ssp = ssp;
+    }
+
+    #[must_use]
+    pub fn status_register(&self) -> u16 {
+        self.registers.status_register()
+    }
+
+    pub fn set_status_register(&mut self, status_register: u16) {
+        self.registers.set_status_register(status_register);
+    }
+
+    #[must_use]
     pub fn pc(&self) -> u32 {
         self.registers.pc
     }
 
     pub fn set_pc(&mut self, pc: u32) {
         self.registers.pc = pc;
+    }
+
+    pub fn execute_instruction<B: BusInterface>(&mut self, bus: &mut B) {
+        InstructionExecutor::new(&mut self.registers, bus).execute();
     }
 }
 
@@ -608,8 +703,8 @@ impl Default for M68000 {
 
 #[cfg(test)]
 mod tests {
-    use crate::core::{InstructionExecutor, Registers};
-    use crate::traits::{BusInterface, InMemoryBus};
+    use super::*;
+    use crate::bus::InMemoryBus;
 
     #[test]
     fn decode_mov() {
@@ -622,12 +717,33 @@ mod tests {
         registers.pc = 0x1234;
         bus.write_word(registers.pc, opcode);
 
-        registers.address[3] = 0x11223344;
-        registers.data[7] = 0x55667788;
+        let instruction = InstructionExecutor::new(&mut registers, &mut bus).decode_instruction();
+        assert_eq!(
+            instruction,
+            Instruction::Move {
+                size: OpSize::Word,
+                source: AddressingMode::AddressDirect(AddressRegister(3)),
+                dest: AddressingMode::DataDirect(DataRegister(7)),
+            }
+        );
+        assert_eq!(registers.pc, 0x1234 + 2);
 
-        InstructionExecutor::new(&mut registers, &mut bus).execute();
+        // MOVE.b #$12, ($3456, A4)
+        let opcode = 0b0001_100_101_111_100;
+        registers.pc = 0x1234;
+        bus.write_word(registers.pc, opcode);
+        bus.write_word(registers.pc.wrapping_add(2), 0xFF12);
+        bus.write_word(registers.pc.wrapping_add(4), 0x3456);
 
-        assert_eq!(registers.address[3], 0x11223344);
-        assert_eq!(registers.data[7], 0x55663344);
+        let instruction = InstructionExecutor::new(&mut registers, &mut bus).decode_instruction();
+        assert_eq!(
+            instruction,
+            Instruction::Move {
+                size: OpSize::Byte,
+                source: AddressingMode::Immediate(0x12),
+                dest: AddressingMode::AddressIndirectDisplacement(AddressRegister(4), 0x3456),
+            }
+        );
+        assert_eq!(registers.pc, 0x1234 + 6);
     }
 }
