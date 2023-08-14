@@ -2,6 +2,7 @@
 members = [
     "jgsms-cli",
     "jgsms-core",
+    "m68000-emu",
     "z80-emu",
     "z80-test-runner",
 ]
