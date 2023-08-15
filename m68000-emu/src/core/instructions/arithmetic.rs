@@ -157,6 +157,61 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
     impl_extend_op_method!(subx, sub_bytes, sub_words, sub_long_words);
     impl_op_method!(sub, suba, subx, sub_bytes, sub_words, sub_long_words);
+
+    pub(super) fn neg(
+        &mut self,
+        size: OpSize,
+        dest: AddressingMode,
+        with_extend: bool,
+    ) -> ExecuteResult<()> {
+        if with_extend {
+            return self.negx(size, dest);
+        }
+
+        let dest_resolved = self.resolve_address_with_post(dest, size)?;
+        let operand_r: u32 = self.read_resolved(dest_resolved, size)?.into();
+        let (difference, carry, overflow) = match size {
+            OpSize::Byte => sub_bytes(0, operand_r as u8, false),
+            OpSize::Word => sub_words(0, operand_r as u16, false),
+            OpSize::LongWord => sub_long_words(0, operand_r, false),
+        };
+
+        self.registers.ccr = ConditionCodes {
+            carry,
+            overflow,
+            zero: difference.is_zero(),
+            negative: difference.sign_bit(),
+            extend: carry,
+        };
+
+        self.write_resolved(dest_resolved, difference)?;
+
+        Ok(())
+    }
+
+    fn negx(&mut self, size: OpSize, dest: AddressingMode) -> ExecuteResult<()> {
+        let dest_resolved = self.resolve_address_with_post(dest, size)?;
+        let operand_r: u32 = self.read_resolved(dest_resolved, size)?.into();
+
+        let extend = self.registers.ccr.extend;
+        let (difference, carry, overflow) = match size {
+            OpSize::Byte => sub_bytes(0, operand_r as u8, extend),
+            OpSize::Word => sub_words(0, operand_r as u16, extend),
+            OpSize::LongWord => sub_long_words(0, operand_r, extend),
+        };
+
+        self.registers.ccr = ConditionCodes {
+            carry,
+            overflow,
+            zero: self.registers.ccr.zero && difference.is_zero(),
+            negative: difference.sign_bit(),
+            extend: carry,
+        };
+
+        self.write_resolved(dest_resolved, difference)?;
+
+        Ok(())
+    }
 }
 
 macro_rules! impl_add_fn {
@@ -337,3 +392,26 @@ macro_rules! impl_decode_immediate_fn {
 
 impl_decode_immediate_fn!(decode_addi, Add);
 impl_decode_immediate_fn!(decode_subi, Subtract);
+
+fn decode_negate(opcode: u16, with_extend: bool) -> ExecuteResult<Instruction> {
+    let size = OpSize::parse_from_opcode(opcode)?;
+    let dest = AddressingMode::parse_from_opcode(opcode)?;
+
+    if dest.is_address_direct() || !dest.is_writable() {
+        return Err(Exception::IllegalInstruction(opcode));
+    }
+
+    Ok(Instruction::Negate {
+        size,
+        dest,
+        with_extend,
+    })
+}
+
+pub(super) fn decode_neg(opcode: u16) -> ExecuteResult<Instruction> {
+    decode_negate(opcode, false)
+}
+
+pub(super) fn decode_negx(opcode: u16) -> ExecuteResult<Instruction> {
+    decode_negate(opcode, true)
+}

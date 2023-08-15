@@ -78,6 +78,11 @@ pub enum Instruction {
     MoveToSr(AddressingMode),
     MoveUsp(UspDirection, AddressRegister),
     MoveQuick(i8, DataRegister),
+    Negate {
+        size: OpSize,
+        dest: AddressingMode,
+        with_extend: bool,
+    },
     Or {
         size: OpSize,
         source: AddressingMode,
@@ -111,6 +116,7 @@ impl Instruction {
             | Self::MoveQuick(..)
             | Self::MoveFromSr(..)
             | Self::MoveUsp(..)
+            | Self::Negate { .. }
             | Self::OrToCcr
             | Self::OrToSr => None,
         }
@@ -123,6 +129,7 @@ impl Instruction {
             | Self::ExclusiveOr { dest, .. }
             | Self::Move { dest, .. }
             | Self::MoveFromSr(dest)
+            | Self::Negate { dest, .. }
             | Self::Or { dest, .. }
             | Self::Subtract { dest, .. } => Some(dest),
             Self::AndToCcr
@@ -173,6 +180,11 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 self.move_usp(direction, register);
                 Ok(())
             }
+            Instruction::Negate {
+                size,
+                dest,
+                with_extend,
+            } => self.neg(size, dest, with_extend),
             Instruction::Or { size, source, dest } => self.or(size, source, dest),
             Instruction::OrToCcr => self.ori_to_ccr(),
             Instruction::OrToSr => self.ori_to_sr(),
@@ -209,9 +221,13 @@ fn decode_opcode(opcode: u16, supervisor_mode: bool) -> ExecuteResult<Instructio
             0b0000_0000_1100_0000 => load::decode_move_from_sr(opcode),
             0b0000_0100_1100_0000 => load::decode_move_to_ccr(opcode),
             0b0000_0110_1100_0000 => load::decode_move_to_sr(opcode, supervisor_mode),
-            0b0000_0000_0000_0000 | 0b0000_0000_0100_0000 | 0b0000_0000_1000_0000 => todo!("NEGX"),
+            0b0000_0000_0000_0000 | 0b0000_0000_0100_0000 | 0b0000_0000_1000_0000 => {
+                arithmetic::decode_negx(opcode)
+            }
             0b0000_0010_0000_0000 | 0b0000_0010_0100_0000 | 0b0000_0010_1000_0000 => todo!("CLR"),
-            0b0000_0100_0000_0000 | 0b0000_0100_0100_0000 | 0b0000_0100_1000_0000 => todo!("NEG"),
+            0b0000_0100_0000_0000 | 0b0000_0100_0100_0000 | 0b0000_0100_1000_0000 => {
+                arithmetic::decode_neg(opcode)
+            }
             0b0000_0110_0000_0000 | 0b0000_0110_0100_0000 | 0b0000_0110_1000_0000 => todo!("NOT"),
             0b0000_1000_1000_0000
             | 0b0000_1000_1100_0000
