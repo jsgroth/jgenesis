@@ -1,4 +1,4 @@
-use crate::core::instructions::Instruction;
+use crate::core::instructions::{BranchCondition, Instruction};
 use crate::core::{
     AddressRegister, AddressingMode, BusOpType, ConditionCodes, DataRegister, Exception,
     ExecuteResult, InstructionExecutor, OpSize, ResolvedAddress,
@@ -144,6 +144,82 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             Ok(())
         }
     }
+
+    fn fetch_branch_displacement(&mut self, displacement: i8) -> ExecuteResult<i16> {
+        let displacement = if displacement == 0 {
+            let extension = self.fetch_operand()?;
+            extension as i16
+        } else {
+            displacement.into()
+        };
+
+        Ok(displacement)
+    }
+
+    pub(super) fn branch(
+        &mut self,
+        condition: BranchCondition,
+        displacement: i8,
+    ) -> ExecuteResult<()> {
+        let pc = self.registers.pc;
+        let displacement = self.fetch_branch_displacement(displacement)?;
+
+        if condition.check(self.registers.ccr) {
+            let address = pc.wrapping_add(displacement as u32);
+            self.registers.pc = self.check_jump_address(address)?;
+        }
+
+        Ok(())
+    }
+
+    pub(super) fn bsr(&mut self, displacement: i8) -> ExecuteResult<()> {
+        let pc = self.registers.pc;
+        let displacement = self.fetch_branch_displacement(displacement)?;
+
+        self.push_stack_u32(self.registers.pc)?;
+
+        let address = pc.wrapping_add(displacement as u32);
+        self.registers.pc = self.check_jump_address(address)?;
+
+        Ok(())
+    }
+
+    pub(super) fn dbcc(
+        &mut self,
+        condition: BranchCondition,
+        register: DataRegister,
+    ) -> ExecuteResult<()> {
+        let pc = self.registers.pc;
+        let displacement = self.fetch_operand()? as i16;
+
+        if !condition.check(self.registers.ccr) {
+            let value = register.read_from(self.registers) as u16;
+            register.write_word_to(self.registers, value.wrapping_sub(1));
+
+            if value != 0 {
+                let address = pc.wrapping_add(displacement as u32);
+                self.registers.pc = self.check_jump_address(address)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(super) fn scc(
+        &mut self,
+        condition: BranchCondition,
+        dest: AddressingMode,
+    ) -> ExecuteResult<()> {
+        let value = if condition.check(self.registers.ccr) {
+            0xFF
+        } else {
+            0x00
+        };
+
+        self.write_byte(dest, value)?;
+
+        Ok(())
+    }
 }
 
 pub(super) fn trap(vector: u32) -> ExecuteResult<()> {
@@ -231,4 +307,28 @@ pub(super) fn decode_chk(opcode: u16) -> ExecuteResult<Instruction> {
     let register = ((opcode >> 9) & 0x07) as u8;
 
     Ok(Instruction::CheckRegister(register.into(), source))
+}
+
+pub(super) fn decode_branch(opcode: u16) -> Instruction {
+    let condition = BranchCondition::parse_from_opcode(opcode);
+    let displacement = opcode as i8;
+
+    match condition {
+        BranchCondition::False => Instruction::BranchToSubroutine(displacement),
+        _ => Instruction::Branch(condition, displacement),
+    }
+}
+
+pub(super) fn decode_dbcc(opcode: u16) -> Instruction {
+    let condition = BranchCondition::parse_from_opcode(opcode);
+    let register = (opcode & 0x07) as u8;
+
+    Instruction::BranchDecrement(condition, register.into())
+}
+
+pub(super) fn decode_scc(opcode: u16) -> ExecuteResult<Instruction> {
+    let condition = BranchCondition::parse_from_opcode(opcode);
+    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
+
+    Ok(Instruction::Set(condition, addressing_mode))
 }

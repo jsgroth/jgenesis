@@ -4,8 +4,8 @@ mod controlflow;
 mod load;
 
 use crate::core::{
-    AddressRegister, AddressingMode, DataRegister, Exception, ExecuteResult, InstructionExecutor,
-    OpSize, Registers,
+    AddressRegister, AddressingMode, ConditionCodes, DataRegister, Exception, ExecuteResult,
+    InstructionExecutor, OpSize, Registers,
 };
 use crate::traits::{BusInterface, GetBit};
 
@@ -89,6 +89,71 @@ impl ExtendOpMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BranchCondition {
+    True,
+    False,
+    Higher,
+    LowerOrSame,
+    CarryClear,
+    CarrySet,
+    NotEqual,
+    Equal,
+    OverflowClear,
+    OverflowSet,
+    Plus,
+    Minus,
+    GreaterOrEqual,
+    LessThan,
+    GreaterThan,
+    LessOrEqual,
+}
+
+impl BranchCondition {
+    fn parse_from_opcode(opcode: u16) -> Self {
+        match opcode & 0x0F00 {
+            0x0000 => BranchCondition::True,
+            0x0100 => BranchCondition::False,
+            0x0200 => BranchCondition::Higher,
+            0x0300 => BranchCondition::LowerOrSame,
+            0x0400 => BranchCondition::CarryClear,
+            0x0500 => BranchCondition::CarrySet,
+            0x0600 => BranchCondition::NotEqual,
+            0x0700 => BranchCondition::Equal,
+            0x0800 => BranchCondition::OverflowClear,
+            0x0900 => BranchCondition::OverflowSet,
+            0x0A00 => BranchCondition::Plus,
+            0x0B00 => BranchCondition::Minus,
+            0x0C00 => BranchCondition::GreaterOrEqual,
+            0x0D00 => BranchCondition::LessThan,
+            0x0E00 => BranchCondition::GreaterThan,
+            0x0F00 => BranchCondition::LessOrEqual,
+            _ => unreachable!("value & 0x0F00 is always one of the above values"),
+        }
+    }
+
+    fn check(self, ccr: ConditionCodes) -> bool {
+        match self {
+            Self::True => true,
+            Self::False => false,
+            Self::Higher => !ccr.carry && !ccr.zero,
+            Self::LowerOrSame => ccr.carry || ccr.zero,
+            Self::CarryClear => !ccr.carry,
+            Self::CarrySet => ccr.carry,
+            Self::NotEqual => !ccr.zero,
+            Self::Equal => ccr.zero,
+            Self::OverflowClear => !ccr.overflow,
+            Self::OverflowSet => ccr.overflow,
+            Self::Plus => !ccr.negative,
+            Self::Minus => ccr.negative,
+            Self::GreaterOrEqual => ccr.negative == ccr.overflow,
+            Self::LessThan => ccr.negative != ccr.overflow,
+            Self::GreaterThan => !ccr.zero && ccr.negative == ccr.overflow,
+            Self::LessOrEqual => ccr.zero || ccr.negative != ccr.overflow,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Instruction {
     Add {
         size: OpSize,
@@ -125,6 +190,9 @@ pub enum Instruction {
         source: AddressingMode,
         dest: AddressingMode,
     },
+    Branch(BranchCondition, i8),
+    BranchDecrement(BranchCondition, DataRegister),
+    BranchToSubroutine(i8),
     CheckRegister(DataRegister, AddressingMode),
     Clear(OpSize, AddressingMode),
     Compare {
@@ -189,6 +257,7 @@ pub enum Instruction {
     RotateRegister(OpSize, ShiftDirection, DataRegister, ShiftCount),
     RotateThruExtendMemory(ShiftDirection, AddressingMode),
     RotateThruExtendRegister(OpSize, ShiftDirection, DataRegister, ShiftCount),
+    Set(BranchCondition, AddressingMode),
     Subtract {
         size: OpSize,
         source: AddressingMode,
@@ -239,6 +308,9 @@ impl Instruction {
             Self::AndToCcr
             | Self::AndToSr
             | Self::ArithmeticShiftRegister(..)
+            | Self::Branch(..)
+            | Self::BranchDecrement(..)
+            | Self::BranchToSubroutine(..)
             | Self::Clear(..)
             | Self::ExchangeAddress(..)
             | Self::ExchangeData(..)
@@ -263,6 +335,7 @@ impl Instruction {
             | Self::ReturnFromException
             | Self::RotateRegister(..)
             | Self::RotateThruExtendRegister(..)
+            | Self::Set(..)
             | Self::Swap(..)
             | Self::Trap(..)
             | Self::TrapOnOverflow
@@ -283,6 +356,7 @@ impl Instruction {
             | Self::Negate { dest, .. }
             | Self::Not(_, dest)
             | Self::Or { dest, .. }
+            | Self::Set(_, dest)
             | Self::Subtract { dest, .. }
             | Self::SubtractDecimal { dest, .. } => Some(dest),
             Self::AndToCcr
@@ -293,6 +367,9 @@ impl Instruction {
             | Self::BitTestAndChange { .. }
             | Self::BitTestAndClear { .. }
             | Self::BitTestAndSet { .. }
+            | Self::Branch(..)
+            | Self::BranchDecrement(..)
+            | Self::BranchToSubroutine(..)
             | Self::CheckRegister(..)
             | Self::DivideSigned(..)
             | Self::DivideUnsigned(..)
@@ -364,6 +441,9 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             Instruction::BitTestAndChange { source, dest } => self.bchg(source, dest),
             Instruction::BitTestAndClear { source, dest } => self.bclr(source, dest),
             Instruction::BitTestAndSet { source, dest } => self.bset(source, dest),
+            Instruction::Branch(condition, displacement) => self.branch(condition, displacement),
+            Instruction::BranchDecrement(condition, register) => self.dbcc(condition, register),
+            Instruction::BranchToSubroutine(displacement) => self.bsr(displacement),
             Instruction::CheckRegister(register, source) => self.chk(register, source),
             Instruction::Clear(size, dest) => self.clr(size, dest),
             Instruction::Compare { size, source, dest } => self.cmp(size, source, dest),
@@ -443,6 +523,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 self.roxd_register(size, direction, register, count);
                 Ok(())
             }
+            Instruction::Set(condition, dest) => self.scc(condition, dest),
             Instruction::Subtract {
                 size,
                 source,
@@ -565,10 +646,14 @@ fn decode_opcode(opcode: u16, supervisor_mode: bool) -> ExecuteResult<Instructio
         0x5000 => match OpSize::parse_from_opcode(opcode) {
             Ok(size) => arithmetic::decode_addq_subq(opcode, size),
             Err(_) => {
-                todo!("Scc / DBcc")
+                if opcode & 0b0000_0000_0011_1000 == 0b0000_0000_0000_1000 {
+                    Ok(controlflow::decode_dbcc(opcode))
+                } else {
+                    controlflow::decode_scc(opcode)
+                }
             }
         },
-        0x6000 => todo!("BRA / BSR / Bcc"),
+        0x6000 => Ok(controlflow::decode_branch(opcode)),
         0x7000 => load::decode_movq(opcode),
         0x8000 => match opcode & 0b0000_0001_1111_0000 {
             0b0000_0001_0000_0000 => Ok(arithmetic::decode_sbcd(opcode)),
