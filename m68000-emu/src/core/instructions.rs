@@ -249,6 +249,7 @@ pub enum Instruction {
     OrToCcr,
     OrToSr,
     PushEffectiveAddress(AddressingMode),
+    Reset,
     Return {
         restore_ccr: bool,
     },
@@ -269,6 +270,8 @@ pub enum Instruction {
         dest: AddressingMode,
     },
     Swap(DataRegister),
+    Test(OpSize, AddressingMode),
+    TestAndSet(AddressingMode),
     Trap(u32),
     TrapOnOverflow,
     Unlink(AddressRegister),
@@ -304,7 +307,8 @@ impl Instruction {
             | Self::RotateMemory(_, source)
             | Self::RotateThruExtendMemory(_, source)
             | Self::Subtract { source, .. }
-            | Self::SubtractDecimal { source, .. } => Some(source),
+            | Self::SubtractDecimal { source, .. }
+            | Self::Test(_, source) => Some(source),
             Self::AndToCcr
             | Self::AndToSr
             | Self::ArithmeticShiftRegister(..)
@@ -331,12 +335,14 @@ impl Instruction {
             | Self::Not(..)
             | Self::OrToCcr
             | Self::OrToSr
+            | Self::Reset
             | Self::Return { .. }
             | Self::ReturnFromException
             | Self::RotateRegister(..)
             | Self::RotateThruExtendRegister(..)
             | Self::Set(..)
             | Self::Swap(..)
+            | Self::TestAndSet(..)
             | Self::Trap(..)
             | Self::TrapOnOverflow
             | Self::Unlink(..) => None,
@@ -358,7 +364,8 @@ impl Instruction {
             | Self::Or { dest, .. }
             | Self::Set(_, dest)
             | Self::Subtract { dest, .. }
-            | Self::SubtractDecimal { dest, .. } => Some(dest),
+            | Self::SubtractDecimal { dest, .. }
+            | Self::TestAndSet(dest) => Some(dest),
             Self::AndToCcr
             | Self::AndToSr
             | Self::ArithmeticShiftMemory(..)
@@ -398,6 +405,7 @@ impl Instruction {
             | Self::OrToCcr
             | Self::OrToSr
             | Self::PushEffectiveAddress(..)
+            | Self::Reset
             | Self::Return { .. }
             | Self::ReturnFromException
             | Self::RotateMemory(..)
@@ -405,6 +413,7 @@ impl Instruction {
             | Self::RotateThruExtendMemory(..)
             | Self::RotateThruExtendRegister(..)
             | Self::Swap(..)
+            | Self::Test(..)
             | Self::Trap(..)
             | Self::TrapOnOverflow
             | Self::Unlink(..) => None,
@@ -509,6 +518,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             Instruction::OrToCcr => self.ori_to_ccr(),
             Instruction::OrToSr => self.ori_to_sr(),
             Instruction::PushEffectiveAddress(source) => self.pea(source),
+            Instruction::Reset => {
+                // TODO RESET
+                Ok(())
+            }
             Instruction::Return { restore_ccr } => self.ret(restore_ccr),
             Instruction::ReturnFromException => self.rte(),
             Instruction::RotateMemory(direction, dest) => self.rod_memory(direction, dest),
@@ -535,6 +548,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 self.swap(register);
                 Ok(())
             }
+            Instruction::Test(size, source) => self.tst(size, source),
+            Instruction::TestAndSet(dest) => self.tas(dest),
             Instruction::Trap(vector) => controlflow::trap(vector),
             Instruction::TrapOnOverflow => self.trapv(),
             Instruction::Unlink(register) => self.unlk(register),
@@ -611,10 +626,24 @@ fn decode_opcode(opcode: u16, supervisor_mode: bool) -> ExecuteResult<Instructio
                     controlflow::decode_pea(opcode)
                 }
             }
-            0b0000_1010_1100_0000 => todo!("ILLEGAL / TAS"),
-            0b0000_1010_0000_0000 | 0b0000_1010_0100_0000 | 0b0000_1010_1000_0000 => todo!("TST"),
+            0b0000_1010_1100_0000 => {
+                if opcode & 0b0000_0000_0011_1111 == 0b0000_0000_0011_1100 {
+                    Err(Exception::IllegalInstruction(opcode))
+                } else {
+                    bits::decode_tas(opcode)
+                }
+            }
+            0b0000_1010_0000_0000 | 0b0000_1010_0100_0000 | 0b0000_1010_1000_0000 => {
+                bits::decode_tst(opcode)
+            }
             0b0000_1110_0100_0000 => match opcode & 0b0000_0000_0011_1111 {
-                0b0000_0000_0011_0000 => todo!("RESET"),
+                0b0000_0000_0011_0000 => {
+                    if supervisor_mode {
+                        Ok(Instruction::Reset)
+                    } else {
+                        Err(Exception::PrivilegeViolation)
+                    }
+                }
                 0b0000_0000_0011_0001 => Ok(Instruction::NoOp),
                 0b0000_0000_0011_0010 => todo!("STOP"),
                 0b0000_0000_0011_0011 => controlflow::decode_rte(opcode, supervisor_mode),

@@ -492,6 +492,37 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         Ok(())
     }
+
+    pub(super) fn tst(&mut self, size: OpSize, source: AddressingMode) -> ExecuteResult<()> {
+        let value = self.read(source, size)?;
+
+        self.registers.ccr = ConditionCodes {
+            carry: false,
+            overflow: false,
+            zero: value.is_zero(),
+            negative: value.sign_bit(),
+            ..self.registers.ccr
+        };
+
+        Ok(())
+    }
+
+    pub(super) fn tas(&mut self, dest: AddressingMode) -> ExecuteResult<()> {
+        let dest_resolved = self.resolve_address_with_post(dest, OpSize::Byte)?;
+        let value = self.read_byte_resolved(dest_resolved);
+
+        self.registers.ccr = ConditionCodes {
+            carry: false,
+            overflow: false,
+            zero: value == 0,
+            negative: value.sign_bit(),
+            ..self.registers.ccr
+        };
+
+        self.write_byte_resolved(dest_resolved, value | 0x80);
+
+        Ok(())
+    }
 }
 
 macro_rules! impl_decode_bit_op {
@@ -674,3 +705,20 @@ impl_decode_shift_register!(decode_asd_register, ArithmeticShiftRegister);
 impl_decode_shift_register!(decode_lsd_register, LogicalShiftRegister);
 impl_decode_shift_register!(decode_rod_register, RotateRegister);
 impl_decode_shift_register!(decode_roxd_register, RotateThruExtendRegister);
+
+pub(super) fn decode_tst(opcode: u16) -> ExecuteResult<Instruction> {
+    let size = OpSize::parse_from_opcode(opcode)?;
+    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
+
+    Ok(Instruction::Test(size, addressing_mode))
+}
+
+pub(super) fn decode_tas(opcode: u16) -> ExecuteResult<Instruction> {
+    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
+
+    if addressing_mode.is_address_direct() || !addressing_mode.is_writable() {
+        return Err(Exception::IllegalInstruction(opcode));
+    }
+
+    Ok(Instruction::TestAndSet(addressing_mode))
+}
