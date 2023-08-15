@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::ffi::OsStr;
 use std::fs::File;
-use std::io::Read;
+use std::io::{BufReader, Read};
 use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -133,12 +133,10 @@ fn main() {
     let file_path = Path::new(&file_path);
 
     let file_ext = file_path.extension().and_then(OsStr::to_str).unwrap();
+    let file = BufReader::new(File::open(file_path).unwrap());
     let file: Box<dyn Read> = match file_ext {
-        "json" => Box::new(File::open(file_path).unwrap()),
-        "gz" => {
-            let file = File::open(file_path).unwrap();
-            Box::new(GzDecoder::new(file))
-        }
+        "json" => Box::new(file),
+        "gz" => Box::new(GzDecoder::new(file)),
         _ => panic!("unsupported file extension: {file_ext}"),
     };
 

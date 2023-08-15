@@ -52,11 +52,7 @@ pub enum Instruction {
         size: OpSize,
         source: AddressingMode,
         dest: AddressingMode,
-    },
-    AddExtend {
-        size: OpSize,
-        source: AddressingMode,
-        dest: AddressingMode,
+        with_extend: bool,
     },
     And {
         size: OpSize,
@@ -89,19 +85,25 @@ pub enum Instruction {
     },
     OrToCcr,
     OrToSr,
+    Subtract {
+        size: OpSize,
+        source: AddressingMode,
+        dest: AddressingMode,
+        with_extend: bool,
+    },
 }
 
 impl Instruction {
     pub fn source_addressing_mode(self) -> Option<AddressingMode> {
         match self {
             Self::Add { source, .. }
-            | Self::AddExtend { source, .. }
             | Self::And { source, .. }
             | Self::ExclusiveOr { source, .. }
             | Self::Move { source, .. }
             | Self::MoveToCcr(source)
             | Self::MoveToSr(source)
-            | Self::Or { source, .. } => Some(source),
+            | Self::Or { source, .. }
+            | Self::Subtract { source, .. } => Some(source),
             Self::AndToCcr
             | Self::AndToSr
             | Self::ExclusiveOrToCcr
@@ -117,12 +119,12 @@ impl Instruction {
     pub fn dest_addressing_mode(self) -> Option<AddressingMode> {
         match self {
             Self::Add { dest, .. }
-            | Self::AddExtend { dest, .. }
             | Self::And { dest, .. }
             | Self::ExclusiveOr { dest, .. }
             | Self::Move { dest, .. }
             | Self::MoveFromSr(dest)
-            | Self::Or { dest, .. } => Some(dest),
+            | Self::Or { dest, .. }
+            | Self::Subtract { dest, .. } => Some(dest),
             Self::AndToCcr
             | Self::AndToSr
             | Self::ExclusiveOrToCcr
@@ -147,8 +149,12 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         log::trace!("Decoded instruction: {instruction:?}");
 
         match instruction {
-            Instruction::Add { size, source, dest } => self.add(size, source, dest),
-            Instruction::AddExtend { size, source, dest } => self.addx(size, source, dest),
+            Instruction::Add {
+                size,
+                source,
+                dest,
+                with_extend,
+            } => self.add(size, source, dest, with_extend),
             Instruction::And { size, source, dest } => self.and(size, source, dest),
             Instruction::AndToCcr => self.andi_to_ccr(),
             Instruction::AndToSr => self.andi_to_sr(),
@@ -170,6 +176,12 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             Instruction::Or { size, source, dest } => self.or(size, source, dest),
             Instruction::OrToCcr => self.ori_to_ccr(),
             Instruction::OrToSr => self.ori_to_sr(),
+            Instruction::Subtract {
+                size,
+                source,
+                dest,
+                with_extend,
+            } => self.sub(size, source, dest, with_extend),
         }
     }
 }
@@ -179,7 +191,7 @@ fn decode_opcode(opcode: u16, supervisor_mode: bool) -> ExecuteResult<Instructio
         0x0000 => match opcode & 0b0000_1111_0000_0000 {
             0b0000_0000_0000_0000 => bits::decode_ori(opcode, supervisor_mode),
             0b0000_0010_0000_0000 => bits::decode_andi(opcode, supervisor_mode),
-            0b0000_0100_0000_0000 => todo!("SUBI"),
+            0b0000_0100_0000_0000 => arithmetic::decode_subi(opcode),
             0b0000_0110_0000_0000 => arithmetic::decode_addi(opcode),
             0b0000_1010_0000_0000 => bits::decode_eori(opcode, supervisor_mode),
             0b0000_1100_0000_0000 => todo!("CMPI"),
@@ -243,7 +255,7 @@ fn decode_opcode(opcode: u16, supervisor_mode: bool) -> ExecuteResult<Instructio
                 _ => bits::decode_or(opcode),
             },
         },
-        0x9000 => todo!("SUB / SUBX / SUBA"),
+        0x9000 => arithmetic::decode_sub(opcode),
         0xB000 => match opcode & 0b0000_0000_1100_0000 {
             0b0000_0000_1100_0000 => todo!("CMPA"),
             _ => {
@@ -261,12 +273,7 @@ fn decode_opcode(opcode: u16, supervisor_mode: bool) -> ExecuteResult<Instructio
             // AND (TODO: MULU / MULS / ABCD / EXG)
             bits::decode_and(opcode)
         }
-        0xD000 => match opcode & 0b0000_0001_1111_0000 {
-            0b0000_0001_0000_0000 | 0b0000_0001_0100_0000 | 0b0000_0001_1000_0000 => {
-                arithmetic::decode_addx(opcode)
-            }
-            _ => arithmetic::decode_add(opcode),
-        },
+        0xD000 => arithmetic::decode_add(opcode),
         0xE000 => todo!("ASd / LSd / ROXd / ROd"),
         _ => Err(Exception::IllegalInstruction(opcode)),
     }
