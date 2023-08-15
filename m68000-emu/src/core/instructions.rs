@@ -96,6 +96,10 @@ pub enum Instruction {
         dest: AddressingMode,
         with_extend: bool,
     },
+    AddDecimal {
+        source: AddressingMode,
+        dest: AddressingMode,
+    },
     And {
         size: OpSize,
         source: AddressingMode,
@@ -166,6 +170,7 @@ pub enum Instruction {
         dest: AddressingMode,
         with_extend: bool,
     },
+    NegateDecimal(AddressingMode),
     NoOp,
     Not(OpSize, AddressingMode),
     Or {
@@ -190,6 +195,10 @@ pub enum Instruction {
         dest: AddressingMode,
         with_extend: bool,
     },
+    SubtractDecimal {
+        source: AddressingMode,
+        dest: AddressingMode,
+    },
     Swap(DataRegister),
     Trap(u32),
     TrapOnOverflow,
@@ -200,6 +209,7 @@ impl Instruction {
     pub fn source_addressing_mode(self) -> Option<AddressingMode> {
         match self {
             Self::Add { source, .. }
+            | Self::AddDecimal { source, .. }
             | Self::And { source, .. }
             | Self::ArithmeticShiftMemory(_, source)
             | Self::BitTest { source, .. }
@@ -224,7 +234,8 @@ impl Instruction {
             | Self::PushEffectiveAddress(source)
             | Self::RotateMemory(_, source)
             | Self::RotateThruExtendMemory(_, source)
-            | Self::Subtract { source, .. } => Some(source),
+            | Self::Subtract { source, .. }
+            | Self::SubtractDecimal { source, .. } => Some(source),
             Self::AndToCcr
             | Self::AndToSr
             | Self::ArithmeticShiftRegister(..)
@@ -243,6 +254,7 @@ impl Instruction {
             | Self::MoveQuick(..)
             | Self::MoveUsp(..)
             | Self::Negate { .. }
+            | Self::NegateDecimal(..)
             | Self::NoOp
             | Self::Not(..)
             | Self::OrToCcr
@@ -261,6 +273,7 @@ impl Instruction {
     pub fn dest_addressing_mode(self) -> Option<AddressingMode> {
         match self {
             Self::Add { dest, .. }
+            | Self::AddDecimal { dest, .. }
             | Self::And { dest, .. }
             | Self::Clear(_, dest)
             | Self::Compare { dest, .. }
@@ -270,7 +283,8 @@ impl Instruction {
             | Self::Negate { dest, .. }
             | Self::Not(_, dest)
             | Self::Or { dest, .. }
-            | Self::Subtract { dest, .. } => Some(dest),
+            | Self::Subtract { dest, .. }
+            | Self::SubtractDecimal { dest, .. } => Some(dest),
             Self::AndToCcr
             | Self::AndToSr
             | Self::ArithmeticShiftMemory(..)
@@ -302,6 +316,7 @@ impl Instruction {
             | Self::MoveQuick(..)
             | Self::MultiplySigned(..)
             | Self::MultiplyUnsigned(..)
+            | Self::NegateDecimal(..)
             | Self::NoOp
             | Self::OrToCcr
             | Self::OrToSr
@@ -336,6 +351,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 dest,
                 with_extend,
             } => self.add(size, source, dest, with_extend),
+            Instruction::AddDecimal { source, dest } => self.abcd(source, dest),
             Instruction::And { size, source, dest } => self.and(size, source, dest),
             Instruction::AndToCcr => self.andi_to_ccr(),
             Instruction::AndToSr => self.andi_to_sr(),
@@ -406,22 +422,13 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 dest,
                 with_extend,
             } => self.neg(size, dest, with_extend),
+            Instruction::NegateDecimal(dest) => self.nbcd(dest),
             Instruction::NoOp => Ok(()),
             Instruction::Not(size, dest) => self.not(size, dest),
             Instruction::Or { size, source, dest } => self.or(size, source, dest),
             Instruction::OrToCcr => self.ori_to_ccr(),
             Instruction::OrToSr => self.ori_to_sr(),
             Instruction::PushEffectiveAddress(source) => self.pea(source),
-            Instruction::Subtract {
-                size,
-                source,
-                dest,
-                with_extend,
-            } => self.sub(size, source, dest, with_extend),
-            Instruction::Swap(register) => {
-                self.swap(register);
-                Ok(())
-            }
             Instruction::Return { restore_ccr } => self.ret(restore_ccr),
             Instruction::ReturnFromException => self.rte(),
             Instruction::RotateMemory(direction, dest) => self.rod_memory(direction, dest),
@@ -434,6 +441,17 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             }
             Instruction::RotateThruExtendRegister(size, direction, register, count) => {
                 self.roxd_register(size, direction, register, count);
+                Ok(())
+            }
+            Instruction::Subtract {
+                size,
+                source,
+                dest,
+                with_extend,
+            } => self.sub(size, source, dest, with_extend),
+            Instruction::SubtractDecimal { source, dest } => self.sbcd(source, dest),
+            Instruction::Swap(register) => {
+                self.swap(register);
                 Ok(())
             }
             Instruction::Trap(vector) => controlflow::trap(vector),
@@ -504,7 +522,7 @@ fn decode_opcode(opcode: u16, supervisor_mode: bool) -> ExecuteResult<Instructio
                     load::decode_movem(opcode)
                 }
             }
-            0b0000_1000_0000_0000 => todo!("NBCD"),
+            0b0000_1000_0000_0000 => arithmetic::decode_nbcd(opcode),
             0b0000_1000_0100_0000 => {
                 if opcode & 0b0000_0000_0011_1000 == 0 {
                     Ok(bits::decode_swap(opcode))
@@ -553,7 +571,7 @@ fn decode_opcode(opcode: u16, supervisor_mode: bool) -> ExecuteResult<Instructio
         0x6000 => todo!("BRA / BSR / Bcc"),
         0x7000 => load::decode_movq(opcode),
         0x8000 => match opcode & 0b0000_0001_1111_0000 {
-            0b0000_0001_0000_0000 => todo!("SBCD"),
+            0b0000_0001_0000_0000 => Ok(arithmetic::decode_sbcd(opcode)),
             _ => match opcode & 0b0000_0001_1100_0000 {
                 0b0000_0000_1100_0000 => arithmetic::decode_divu(opcode),
                 0b0000_0001_1100_0000 => arithmetic::decode_divs(opcode),
@@ -575,7 +593,7 @@ fn decode_opcode(opcode: u16, supervisor_mode: bool) -> ExecuteResult<Instructio
             }
         },
         0xC000 => match opcode & 0b0000_0001_1111_0000 {
-            0b0000_0001_0000_0000 => todo!("ABCD"),
+            0b0000_0001_0000_0000 => Ok(arithmetic::decode_abcd(opcode)),
             0b0000_0001_0100_0000 | 0b0000_0001_1000_0000 => load::decode_exg(opcode),
             _ => match opcode & 0b0000_0001_1100_0000 {
                 0b0000_0001_1100_0000 => arithmetic::decode_muls(opcode),

@@ -389,6 +389,113 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         Ok(())
     }
+
+    pub(super) fn abcd(
+        &mut self,
+        source: AddressingMode,
+        dest: AddressingMode,
+    ) -> ExecuteResult<()> {
+        let operand_l = self.read_byte(source)?;
+
+        let dest_resolved = self.resolve_address(dest, OpSize::Byte)?;
+        let operand_r = self.read_byte_resolved(dest_resolved);
+
+        let extend: u8 = self.registers.ccr.extend.into();
+
+        let (sum, carry) = match operand_l.overflowing_add(operand_r) {
+            (sum, true) => (sum + extend, true),
+            (sum, false) => sum.overflowing_add(extend),
+        };
+
+        let mut diff = 0;
+        if ((operand_l & 0x0F) + (operand_r & 0x0F) + extend >= 0x10) || (sum & 0x0F > 0x09) {
+            diff += 0x06;
+        }
+        if sum > 0x99 || carry {
+            diff += 0x60;
+        }
+
+        let (corrected_sum, corrected_carry) = sum.overflowing_add(diff);
+
+        let bit_6_carry = (sum & 0x7F) + (diff & 0x7F) >= 0x80;
+        let overflow = bit_6_carry != corrected_carry;
+
+        log::trace!("sum={sum:02X}");
+
+        let carry = carry || corrected_carry;
+        self.registers.ccr = ConditionCodes {
+            carry,
+            overflow,
+            zero: self.registers.ccr.zero && corrected_sum == 0,
+            negative: corrected_sum.sign_bit(),
+            extend: carry,
+        };
+
+        self.write_byte_resolved(dest_resolved, corrected_sum);
+
+        Ok(())
+    }
+
+    pub(super) fn sbcd(
+        &mut self,
+        source: AddressingMode,
+        dest: AddressingMode,
+    ) -> ExecuteResult<()> {
+        let operand_r = self.read_byte(source)?;
+
+        let dest_resolved = self.resolve_address(dest, OpSize::Byte)?;
+        let operand_l = self.read_byte_resolved(dest_resolved);
+
+        let difference = self.decimal_subtract(operand_l, operand_r);
+
+        self.write_byte_resolved(dest_resolved, difference);
+
+        Ok(())
+    }
+
+    pub(super) fn nbcd(&mut self, dest: AddressingMode) -> ExecuteResult<()> {
+        let dest_resolved = self.resolve_address_with_post(dest, OpSize::Byte)?;
+        let operand_r = self.read_byte_resolved(dest_resolved);
+
+        let difference = self.decimal_subtract(0, operand_r);
+
+        self.write_byte_resolved(dest_resolved, difference);
+
+        Ok(())
+    }
+
+    fn decimal_subtract(&mut self, operand_l: u8, operand_r: u8) -> u8 {
+        let extend: u8 = self.registers.ccr.extend.into();
+
+        let (difference, borrow) = match operand_l.overflowing_sub(operand_r) {
+            (difference, true) => (difference - extend, true),
+            (difference, false) => difference.overflowing_sub(extend),
+        };
+
+        let mut diff = 0;
+        if operand_l & 0x0F < (operand_r & 0x0F) + extend {
+            diff += 0x06;
+        }
+        if borrow {
+            diff += 0x60;
+        }
+
+        let (corrected_difference, corrected_borrow) = difference.overflowing_sub(diff);
+
+        let bit_6_borrow = difference & 0x7F < diff & 0x7F;
+        let overflow = bit_6_borrow != corrected_borrow;
+
+        let borrow = borrow || corrected_borrow;
+        self.registers.ccr = ConditionCodes {
+            carry: borrow,
+            overflow,
+            zero: self.registers.ccr.zero && corrected_difference == 0,
+            negative: corrected_difference.sign_bit(),
+            extend: borrow,
+        };
+
+        corrected_difference
+    }
 }
 
 macro_rules! impl_add_fn {
@@ -708,4 +815,34 @@ pub(super) fn decode_divu(opcode: u16) -> ExecuteResult<Instruction> {
         register.into(),
         addressing_mode,
     ))
+}
+
+macro_rules! impl_decode_decimal {
+    ($name:ident, $instruction:ident) => {
+        pub(super) fn $name(opcode: u16) -> Instruction {
+            let source_register = (opcode & 0x07) as u8;
+            let dest_register = ((opcode >> 9) & 0x07) as u8;
+
+            if opcode.bit(3) {
+                Instruction::$instruction {
+                    source: AddressingMode::AddressIndirectPredecrement(source_register.into()),
+                    dest: AddressingMode::AddressIndirectPredecrement(dest_register.into()),
+                }
+            } else {
+                Instruction::$instruction {
+                    source: AddressingMode::DataDirect(source_register.into()),
+                    dest: AddressingMode::DataDirect(dest_register.into()),
+                }
+            }
+        }
+    };
+}
+
+impl_decode_decimal!(decode_abcd, AddDecimal);
+impl_decode_decimal!(decode_sbcd, SubtractDecimal);
+
+pub(super) fn decode_nbcd(opcode: u16) -> ExecuteResult<Instruction> {
+    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
+
+    Ok(Instruction::NegateDecimal(addressing_mode))
 }
