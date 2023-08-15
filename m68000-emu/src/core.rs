@@ -80,6 +80,22 @@ impl Registers {
 
         self.ccr = lsb.into();
     }
+
+    fn sp(&self) -> u32 {
+        if self.supervisor_mode {
+            self.ssp
+        } else {
+            self.usp
+        }
+    }
+
+    fn set_sp(&mut self, sp: u32) {
+        if self.supervisor_mode {
+            self.ssp = sp;
+        } else {
+            self.usp = sp;
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -338,6 +354,7 @@ enum IndexSize {
 enum BusOpType {
     Read,
     Write,
+    Jump,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -345,6 +362,9 @@ enum Exception {
     AddressError(u32, BusOpType),
     PrivilegeViolation,
     IllegalInstruction(u16),
+    DivisionByZero,
+    Trap(u32),
+    CheckRegister,
 }
 
 type ExecuteResult<T> = Result<T, Exception>;
@@ -445,6 +465,11 @@ struct InstructionExecutor<'registers, 'bus, B> {
     instruction: Option<Instruction>,
 }
 
+const ADDRESS_ERROR_VECTOR: u32 = 3;
+const ILLEGAL_OPCODE_VECTOR: u32 = 4;
+const DIVIDE_BY_ZERO_VECTOR: u32 = 5;
+const CHECK_REGISTER_VECTOR: u32 = 6;
+
 impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
     fn new(registers: &'registers mut Registers, bus: &'bus mut B) -> Self {
         Self {
@@ -467,6 +492,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         Ok(())
     }
 
+    // Read a word from the bus; returns an address error if address is odd
     fn read_bus_word(&mut self, address: u32) -> ExecuteResult<u16> {
         if address % 2 != 0 {
             return Err(Exception::AddressError(address, BusOpType::Read));
@@ -475,6 +501,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         Ok(self.bus.read_word(address))
     }
 
+    // Write a word to the bus; returns an address error if address is odd
     fn write_bus_word(&mut self, address: u32, value: u16) -> ExecuteResult<()> {
         if address % 2 != 0 {
             return Err(Exception::AddressError(address, BusOpType::Write));
@@ -485,6 +512,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         Ok(())
     }
 
+    // Read a long word from the bus; returns an address error if address is odd
     fn read_bus_long_word(&mut self, address: u32) -> ExecuteResult<u32> {
         if address % 2 != 0 {
             return Err(Exception::AddressError(address, BusOpType::Read));
@@ -493,6 +521,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         Ok(self.bus.read_long_word(address))
     }
 
+    // Write a long word to the bus; returns an address error if address is odd
     fn write_bus_long_word(&mut self, address: u32, value: u32) -> ExecuteResult<()> {
         if address % 2 != 0 {
             return Err(Exception::AddressError(address, BusOpType::Write));
@@ -503,6 +532,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         Ok(())
     }
 
+    // Fetch a word from the current PC and increment PC; returns an address error if PC is odd
     fn fetch_operand(&mut self) -> ExecuteResult<u16> {
         let operand = self.read_bus_word(self.registers.pc)?;
         self.registers.pc = self.registers.pc.wrapping_add(2);
@@ -510,6 +540,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         Ok(operand)
     }
 
+    // Resolve the given addressing mode to a concrete register, memory location, or immediate value,
+    // which may require fetching extension words
     fn resolve_address(
         &mut self,
         addressing_mode: AddressingMode,
@@ -605,6 +637,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         Ok(resolved_address)
     }
 
+    // Resolve the given address and, if it is a postincrement address, apply the increment
     fn resolve_address_with_post(
         &mut self,
         addressing_mode: AddressingMode,
@@ -625,6 +658,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         }
     }
 
+    // Read a word from the given location; will return an address error if the location is an odd memory address
     fn read_word_resolved(&mut self, resolved_address: ResolvedAddress) -> ExecuteResult<u16> {
         match resolved_address {
             ResolvedAddress::DataRegister(register) => {
@@ -639,6 +673,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         }
     }
 
+    // Read a long word from the given location; will return an address error if the location is an odd memory address
     fn read_long_word_resolved(&mut self, resolved_address: ResolvedAddress) -> ExecuteResult<u32> {
         match resolved_address {
             ResolvedAddress::DataRegister(register) => Ok(register.read_from(self.registers)),
@@ -819,29 +854,49 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     }
 
     fn push_stack_u16(&mut self, value: u16) -> ExecuteResult<()> {
-        let sp = if self.registers.supervisor_mode {
-            &mut self.registers.ssp
-        } else {
-            &mut self.registers.usp
-        };
+        let sp = self.registers.sp().wrapping_sub(2);
+        self.registers.set_sp(sp);
 
-        *sp = sp.wrapping_sub(2);
-        let address = *sp;
-        self.write_bus_word(address, value)
+        self.write_bus_word(sp, value)?;
+
+        Ok(())
     }
 
     fn push_stack_u32(&mut self, value: u32) -> ExecuteResult<()> {
         let high_word = (value >> 16) as u16;
         let low_word = value as u16;
 
-        self.push_stack_u16(low_word)?;
-        self.push_stack_u16(high_word)?;
+        let sp = self.registers.sp().wrapping_sub(4);
+        self.registers.set_sp(sp);
+
+        self.write_bus_word(sp, high_word)?;
+        self.write_bus_word(sp.wrapping_add(2), low_word)?;
 
         Ok(())
     }
 
+    fn pop_stack_u16(&mut self) -> ExecuteResult<u16> {
+        let sp = self.registers.sp();
+        let value = self.read_bus_word(sp)?;
+
+        self.registers.set_sp(sp.wrapping_add(2));
+
+        Ok(value)
+    }
+
+    fn pop_stack_u32(&mut self) -> ExecuteResult<u32> {
+        let sp = self.registers.sp();
+        let value = self.read_bus_long_word(sp)?;
+
+        self.registers.set_sp(sp.wrapping_add(4));
+
+        Ok(value)
+    }
+
     fn handle_address_error(&mut self, address: u32, op_type: BusOpType) -> ExecuteResult<()> {
         let sr = self.registers.status_register();
+        let supervisor_mode = self.registers.supervisor_mode;
+
         self.registers.trace_enabled = false;
         self.registers.supervisor_mode = true;
 
@@ -872,18 +927,45 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             _ => self.registers.pc.wrapping_sub(2),
         };
 
+        log::trace!("Address error PC: {pc:08X}");
         self.push_stack_u32(pc)?;
+        log::trace!("Address error SR: {sr:08X}");
         self.push_stack_u16(sr)?;
+        log::trace!("Address error opcode: {:08X}", self.opcode);
         self.push_stack_u16(self.opcode)?;
         self.push_stack_u32(address)?;
 
-        let rw_bit = (op_type == BusOpType::Read)
+        let rw_bit = (op_type == BusOpType::Read || op_type == BusOpType::Jump)
             ^ matches!(self.instruction, Some(Instruction::MoveFromSr(..)));
-        let status_word = (self.opcode & 0xFFE0) | (u16::from(rw_bit) << 4) | 0x0005;
+        let status_code = match op_type {
+            BusOpType::Jump => {
+                if supervisor_mode {
+                    0x0E
+                } else {
+                    0x0A
+                }
+            }
+            _ => 0x05,
+        };
+        let status_word = (self.opcode & 0xFFE0) | (u16::from(rw_bit) << 4) | status_code;
+        log::trace!("Pushing status word: {status_word:08X}");
         self.push_stack_u16(status_word)?;
 
-        let vector = self.bus.read_long_word(12);
+        let vector = self.bus.read_long_word(ADDRESS_ERROR_VECTOR * 4);
         self.registers.pc = vector;
+
+        Ok(())
+    }
+
+    fn handle_trap(&mut self, vector: u32, pc: u32) -> ExecuteResult<()> {
+        let sr = self.registers.status_register();
+        self.registers.trace_enabled = false;
+        self.registers.supervisor_mode = true;
+
+        self.push_stack_u32(pc)?;
+        self.push_stack_u16(sr)?;
+
+        self.registers.pc = self.bus.read_long_word(vector * 4);
 
         Ok(())
     }
@@ -901,7 +983,34 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             }
             Err(Exception::PrivilegeViolation) => todo!("privilege violation"),
             Err(Exception::IllegalInstruction(opcode)) => {
-                panic!("unimplemented opcode: {opcode:016b}")
+                log::error!("Illegal opcode executed: {opcode:04X} / {opcode:016b}");
+                if self
+                    .handle_trap(ILLEGAL_OPCODE_VECTOR, self.registers.pc.wrapping_sub(2))
+                    .is_err()
+                {
+                    todo!("???")
+                }
+            }
+            Err(Exception::DivisionByZero) => {
+                if self
+                    .handle_trap(DIVIDE_BY_ZERO_VECTOR, self.registers.pc.wrapping_sub(4))
+                    .is_err()
+                {
+                    todo!("???")
+                }
+            }
+            Err(Exception::Trap(vector)) => {
+                if self.handle_trap(vector, self.registers.pc).is_err() {
+                    todo!("???")
+                }
+            }
+            Err(Exception::CheckRegister) => {
+                if self
+                    .handle_trap(CHECK_REGISTER_VECTOR, self.registers.pc)
+                    .is_err()
+                {
+                    todo!("???")
+                }
             }
         }
     }

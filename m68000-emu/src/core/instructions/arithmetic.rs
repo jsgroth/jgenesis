@@ -1,7 +1,7 @@
 use crate::core::instructions::{Direction, ExtendOpMode};
 use crate::core::{
-    AddressRegister, AddressingMode, ConditionCodes, Exception, ExecuteResult, Instruction,
-    InstructionExecutor, OpSize, ResolvedAddress, SizedValue,
+    AddressRegister, AddressingMode, ConditionCodes, DataRegister, Exception, ExecuteResult,
+    Instruction, InstructionExecutor, OpSize, ResolvedAddress, SizedValue,
 };
 use crate::traits::{BusInterface, GetBit, SignBit};
 
@@ -252,6 +252,140 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let dest_operand = dest.read_from(self.registers);
 
         compare_long_words(source_operand, dest_operand, &mut self.registers.ccr);
+
+        Ok(())
+    }
+
+    pub(super) fn muls(
+        &mut self,
+        register: DataRegister,
+        source: AddressingMode,
+    ) -> ExecuteResult<()> {
+        let operand_l = self.read_word(source)? as i16;
+        let operand_r = register.read_from(self.registers) as i16;
+
+        let value = (i32::from(operand_l) * i32::from(operand_r)) as u32;
+        register.write_long_word_to(self.registers, value);
+
+        self.registers.ccr = ConditionCodes {
+            carry: false,
+            overflow: false,
+            zero: value == 0,
+            negative: value.sign_bit(),
+            ..self.registers.ccr
+        };
+
+        Ok(())
+    }
+
+    pub(super) fn mulu(
+        &mut self,
+        register: DataRegister,
+        source: AddressingMode,
+    ) -> ExecuteResult<()> {
+        let operand_l = self.read_word(source)?;
+        let operand_r = register.read_from(self.registers) as u16;
+
+        let value = u32::from(operand_l) * u32::from(operand_r);
+        register.write_long_word_to(self.registers, value);
+
+        self.registers.ccr = ConditionCodes {
+            carry: false,
+            overflow: false,
+            zero: value == 0,
+            negative: value.sign_bit(),
+            ..self.registers.ccr
+        };
+
+        Ok(())
+    }
+
+    pub(super) fn divs(
+        &mut self,
+        register: DataRegister,
+        source: AddressingMode,
+    ) -> ExecuteResult<()> {
+        let operand_l = register.read_from(self.registers) as i32;
+        let operand_r: i32 = (self.read_word(source)? as i16).into();
+
+        if operand_r == 0 {
+            self.registers.ccr = ConditionCodes {
+                carry: false,
+                overflow: false,
+                zero: false,
+                negative: false,
+                ..self.registers.ccr
+            };
+            return Err(Exception::DivisionByZero);
+        }
+
+        let quotient = operand_l / operand_r;
+        let remainder = operand_l % operand_r;
+
+        if quotient > i16::MAX.into() || quotient < i16::MIN.into() {
+            self.registers.ccr = ConditionCodes {
+                carry: false,
+                overflow: true,
+                ..self.registers.ccr
+            };
+            return Ok(());
+        }
+
+        let value = ((quotient as u32) & 0x0000_FFFF) | ((remainder as u32) << 16);
+        register.write_long_word_to(self.registers, value);
+
+        self.registers.ccr = ConditionCodes {
+            carry: false,
+            overflow: false,
+            zero: value == 0,
+            negative: quotient < 0,
+            ..self.registers.ccr
+        };
+
+        Ok(())
+    }
+
+    pub(super) fn divu(
+        &mut self,
+        register: DataRegister,
+        source: AddressingMode,
+    ) -> ExecuteResult<()> {
+        let operand_l = register.read_from(self.registers);
+        let operand_r: u32 = self.read_word(source)?.into();
+
+        if operand_r == 0 {
+            self.registers.ccr = ConditionCodes {
+                carry: false,
+                overflow: false,
+                zero: false,
+                negative: false,
+                ..self.registers.ccr
+            };
+            return Err(Exception::DivisionByZero);
+        }
+
+        let quotient = operand_l / operand_r;
+        let remainder = operand_l % operand_r;
+
+        if quotient > u16::MAX.into() {
+            self.registers.ccr = ConditionCodes {
+                carry: false,
+                overflow: true,
+                ..self.registers.ccr
+            };
+            return Ok(());
+        }
+
+        let value = (quotient & 0x0000_FFFF) | (remainder << 16);
+        register.write_long_word_to(self.registers, value);
+
+        self.registers.ccr = ConditionCodes {
+            carry: false,
+            overflow: false,
+            zero: value == 0,
+            negative: quotient.bit(15),
+            ..self.registers.ccr
+        };
 
         Ok(())
     }
@@ -537,4 +671,41 @@ pub(super) fn decode_cmpm(opcode: u16) -> ExecuteResult<Instruction> {
         source: AddressingMode::AddressIndirectPostincrement(source.into()),
         dest: AddressingMode::AddressIndirectPostincrement(dest.into()),
     })
+}
+
+pub(super) fn decode_muls(opcode: u16) -> ExecuteResult<Instruction> {
+    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
+    let register = ((opcode >> 9) & 0x07) as u8;
+
+    Ok(Instruction::MultiplySigned(
+        register.into(),
+        addressing_mode,
+    ))
+}
+
+pub(super) fn decode_mulu(opcode: u16) -> ExecuteResult<Instruction> {
+    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
+    let register = ((opcode >> 9) & 0x07) as u8;
+
+    Ok(Instruction::MultiplyUnsigned(
+        register.into(),
+        addressing_mode,
+    ))
+}
+
+pub(super) fn decode_divs(opcode: u16) -> ExecuteResult<Instruction> {
+    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
+    let register = ((opcode >> 9) & 0x07) as u8;
+
+    Ok(Instruction::DivideSigned(register.into(), addressing_mode))
+}
+
+pub(super) fn decode_divu(opcode: u16) -> ExecuteResult<Instruction> {
+    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
+    let register = ((opcode >> 9) & 0x07) as u8;
+
+    Ok(Instruction::DivideUnsigned(
+        register.into(),
+        addressing_mode,
+    ))
 }

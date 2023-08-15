@@ -1,9 +1,9 @@
 use crate::core::instructions::Direction;
 use crate::core::{
-    AddressingMode, ConditionCodes, Exception, ExecuteResult, Instruction, InstructionExecutor,
-    OpSize, SizedValue,
+    AddressingMode, ConditionCodes, DataRegister, Exception, ExecuteResult, Instruction,
+    InstructionExecutor, OpSize, SizedValue,
 };
-use crate::traits::{BusInterface, SignBit};
+use crate::traits::{BusInterface, GetBit, SignBit};
 
 macro_rules! impl_bit_op {
     ($name:ident, $operator:tt) => {
@@ -55,6 +55,42 @@ macro_rules! impl_bit_op_to_sr {
     }
 }
 
+macro_rules! impl_bit_test_op {
+    ($name:ident $(, |$value:ident, $bit:ident| $body:block)?) => {
+        pub(super) fn $name(&mut self, source: AddressingMode, dest: AddressingMode) -> ExecuteResult<()> {
+            let bit_index = self.read_byte(source)?;
+
+            match dest {
+                AddressingMode::DataDirect(register) => {
+                    let value = register.read_from(self.registers);
+                    let bit = bit_index % 32;
+                    self.registers.ccr.zero = !value.bit(bit);
+                    $(
+                        let $value = value;
+                        let $bit = bit;
+                        let value = $body;
+                        register.write_long_word_to(self.registers, value);
+                    )?
+                }
+                _ => {
+                    let dest_resolved = self.resolve_address_with_post(dest, OpSize::Byte)?;
+                    let value = self.read_byte_resolved(dest_resolved);
+                    let bit = bit_index % 8;
+                    self.registers.ccr.zero = !value.bit(bit);
+                    $(
+                        let $value = value;
+                        let $bit = bit;
+                        let value = $body;
+                        self.write_byte_resolved(dest_resolved, value);
+                    )?
+                }
+            }
+
+            Ok(())
+        }
+    }
+}
+
 impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
     impl_bit_op!(and, &);
     impl_bit_op!(or, |);
@@ -67,6 +103,17 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     impl_bit_op_to_sr!(andi_to_sr, &);
     impl_bit_op_to_sr!(ori_to_sr, |);
     impl_bit_op_to_sr!(eori_to_sr, ^);
+
+    impl_bit_test_op!(btst);
+    impl_bit_test_op!(bclr, |value, bit| { value & !(1 << bit) });
+    impl_bit_test_op!(bset, |value, bit| { value | (1 << bit) });
+    impl_bit_test_op!(bchg, |value, bit| {
+        if value.bit(bit) {
+            value & !(1 << bit)
+        } else {
+            value | (1 << bit)
+        }
+    });
 
     pub(super) fn not(&mut self, size: OpSize, dest: AddressingMode) -> ExecuteResult<()> {
         let dest_resolved = self.resolve_address_with_post(dest, size)?;
@@ -101,6 +148,46 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         self.write_resolved(dest_resolved, SizedValue::from_size(0, size))?;
 
         Ok(())
+    }
+
+    pub(super) fn ext(&mut self, size: OpSize, register: DataRegister) {
+        let (zero, sign) = match size {
+            OpSize::Word => {
+                let byte = register.read_from(self.registers) as u8;
+                let sign_extended = byte as i8 as u16;
+                register.write_word_to(self.registers, sign_extended);
+                (sign_extended == 0, sign_extended.sign_bit())
+            }
+            OpSize::LongWord => {
+                let word = register.read_from(self.registers) as u16;
+                let sign_extended = word as i16 as u32;
+                register.write_long_word_to(self.registers, sign_extended);
+                (sign_extended == 0, sign_extended.sign_bit())
+            }
+            OpSize::Byte => panic!("EXT does not support size byte"),
+        };
+
+        self.registers.ccr = ConditionCodes {
+            carry: false,
+            overflow: false,
+            zero,
+            negative: sign,
+            ..self.registers.ccr
+        };
+    }
+
+    pub(super) fn swap(&mut self, register: DataRegister) {
+        let [b3, b2, b1, b0] = register.read_from(self.registers).to_be_bytes();
+        let value = u32::from_be_bytes([b1, b0, b3, b2]);
+        register.write_long_word_to(self.registers, value);
+
+        self.registers.ccr = ConditionCodes {
+            carry: false,
+            overflow: false,
+            zero: value == 0,
+            negative: value.sign_bit(),
+            ..self.registers.ccr
+        };
     }
 }
 
@@ -189,3 +276,59 @@ pub(super) fn decode_clr(opcode: u16) -> ExecuteResult<Instruction> {
 
     Ok(Instruction::Clear(size, addressing_mode))
 }
+
+pub(super) fn decode_ext(opcode: u16) -> Instruction {
+    let register = (opcode & 0x07) as u8;
+    let size = if opcode.bit(6) {
+        OpSize::LongWord
+    } else {
+        OpSize::Word
+    };
+
+    Instruction::Extend(size, register.into())
+}
+
+pub(super) fn decode_swap(opcode: u16) -> Instruction {
+    let register = (opcode & 0x07) as u8;
+
+    Instruction::Swap(register.into())
+}
+
+macro_rules! impl_decode_single_bit_static {
+    ($name:ident, $instruction:ident) => {
+        pub(super) fn $name(opcode: u16) -> ExecuteResult<Instruction> {
+            let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
+
+            Ok(Instruction::$instruction {
+                source: AddressingMode::Immediate,
+                dest: addressing_mode,
+            })
+        }
+    };
+}
+
+macro_rules! impl_decode_single_bit_dynamic {
+    ($name:ident, $instruction:ident) => {
+        pub(super) fn $name(opcode: u16) -> ExecuteResult<Instruction> {
+            let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
+            let register = ((opcode >> 9) & 0x07) as u8;
+
+            Ok(Instruction::$instruction {
+                source: AddressingMode::DataDirect(register.into()),
+                dest: addressing_mode,
+            })
+        }
+    };
+}
+
+impl_decode_single_bit_static!(decode_btst_static, BitTest);
+impl_decode_single_bit_dynamic!(decode_btst_dynamic, BitTest);
+
+impl_decode_single_bit_static!(decode_bchg_static, BitTestAndChange);
+impl_decode_single_bit_dynamic!(decode_bchg_dynamic, BitTestAndChange);
+
+impl_decode_single_bit_static!(decode_bclr_static, BitTestAndClear);
+impl_decode_single_bit_dynamic!(decode_bclr_dynamic, BitTestAndClear);
+
+impl_decode_single_bit_static!(decode_bset_static, BitTestAndSet);
+impl_decode_single_bit_dynamic!(decode_bset_dynamic, BitTestAndSet);
