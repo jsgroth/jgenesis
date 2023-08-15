@@ -1,4 +1,4 @@
-use crate::core::instructions::Direction;
+use crate::core::instructions::{Direction, ShiftCount, ShiftDirection};
 use crate::core::{
     AddressingMode, ConditionCodes, DataRegister, Exception, ExecuteResult, Instruction,
     InstructionExecutor, OpSize, SizedValue,
@@ -91,6 +91,96 @@ macro_rules! impl_bit_test_op {
     }
 }
 
+macro_rules! impl_shift_register_op {
+    (
+        $name:ident,
+        $operator:tt,
+        $signed_t:ty,
+        $unsigned_t:ty,
+        $register_write_method:ident,
+        carry: $carry_bit:expr
+        $(, set $overflow:ident)?
+    ) => {
+        fn $name(&mut self, register: DataRegister, count: ShiftCount) {
+            let shifts = count.get(self.registers) % 64;
+
+            self.registers.ccr.carry = false;
+            self.registers.ccr.overflow = false;
+
+            let mut value = register.read_from(self.registers) as $signed_t;
+
+            for _ in 0..shifts {
+                let carry = value.bit($carry_bit);
+                self.registers.ccr.carry = carry;
+                self.registers.ccr.extend = carry;
+
+                $(
+                    if value.sign_bit() != (value $operator 1).sign_bit() {
+                        self.registers.ccr.$overflow = true;
+                    }
+                )?
+
+                value = value $operator 1;
+            }
+
+            register.$register_write_method(self.registers, value as $unsigned_t);
+
+            self.registers.ccr.zero = value == 0;
+            self.registers.ccr.negative = value.sign_bit();
+        }
+    }
+}
+
+macro_rules! impl_rotate_register_op {
+    (@set_initial_carry) => {
+        false
+    };
+    (@set_initial_carry $extend:expr) => {
+        $extend
+    };
+    (@set_carry $carry:expr) => {
+        $carry
+    };
+    (@set_carry $carry:expr, $extend:expr) => {
+        $extend
+    };
+    (
+        $name:ident,
+        $operator:tt,
+        $t:ty,
+        $register_write_method:ident,
+        carry: $carry_bit:expr
+        $(, rotate_in: $opposite_op:tt $opposite_shift:expr)?
+        $(, thru $extend:ident)?
+    ) => {
+        fn $name(&mut self, register: DataRegister, count: ShiftCount) {
+            let rotates = count.get(self.registers) % 64;
+
+            self.registers.ccr.overflow = false;
+            self.registers.ccr.carry = impl_rotate_register_op!(@set_initial_carry $( self.registers.ccr.$extend )?);
+
+            let mut value = register.read_from(self.registers) as $t;
+            for _ in 0..rotates {
+                let carry = value.bit($carry_bit);
+                let rotating_in = impl_rotate_register_op!(@set_carry carry $(, self.registers.ccr.$extend )?);
+
+                value = (value $operator 1) | (<$t>::from(rotating_in) $( $opposite_op $opposite_shift )? );
+
+                self.registers.ccr.carry = carry;
+                $(
+                    self.registers.ccr.$extend = carry;
+                )?
+            }
+
+            register.$register_write_method(self.registers, value);
+
+            self.registers.ccr.zero = value == 0;
+            self.registers.ccr.negative = value.sign_bit();
+        }
+    };
+}
+
+#[allow(clippy::assign_op_pattern)]
 impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
     impl_bit_op!(and, &);
     impl_bit_op!(or, |);
@@ -114,6 +204,38 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             value | (1 << bit)
         }
     });
+
+    impl_shift_register_op!(asl_register_u8, <<, i8, u8, write_byte_to, carry: 7, set overflow);
+    impl_shift_register_op!(asl_register_u16, <<, i16, u16, write_word_to, carry: 15, set overflow);
+    impl_shift_register_op!(asl_register_u32, <<, i32, u32, write_long_word_to, carry: 31, set overflow);
+
+    impl_shift_register_op!(asr_register_u8, >>, i8, u8, write_byte_to, carry: 0, set overflow);
+    impl_shift_register_op!(asr_register_u16, >>, i16, u16, write_word_to, carry: 0, set overflow);
+    impl_shift_register_op!(asr_register_u32, >>, i32, u32, write_long_word_to, carry: 0, set overflow);
+
+    impl_shift_register_op!(lsl_register_u8, <<, u8, u8, write_byte_to, carry: 7);
+    impl_shift_register_op!(lsl_register_u16, <<, u16, u16, write_word_to, carry: 15);
+    impl_shift_register_op!(lsl_register_u32, <<, u32, u32, write_long_word_to, carry: 31);
+
+    impl_shift_register_op!(lsr_register_u8, >>, u8, u8, write_byte_to, carry: 0);
+    impl_shift_register_op!(lsr_register_u16, >>, u16, u16, write_word_to, carry: 0);
+    impl_shift_register_op!(lsr_register_u32, >>, u32, u32, write_long_word_to, carry: 0);
+
+    impl_rotate_register_op!(rol_register_u8, <<, u8, write_byte_to, carry: 7);
+    impl_rotate_register_op!(rol_register_u16, <<, u16, write_word_to, carry: 15);
+    impl_rotate_register_op!(rol_register_u32, <<, u32, write_long_word_to, carry: 31);
+
+    impl_rotate_register_op!(ror_register_u8, >>, u8, write_byte_to, carry: 0, rotate_in: << 7);
+    impl_rotate_register_op!(ror_register_u16, >>, u16, write_word_to, carry: 0, rotate_in: << 15);
+    impl_rotate_register_op!(ror_register_u32, >>, u32, write_long_word_to, carry: 0, rotate_in: << 31);
+
+    impl_rotate_register_op!(roxl_register_u8, <<, u8, write_byte_to, carry: 7, thru extend);
+    impl_rotate_register_op!(roxl_register_u16, <<, u16, write_word_to, carry: 15, thru extend);
+    impl_rotate_register_op!(roxl_register_u32, <<, u32, write_long_word_to, carry: 31, thru extend);
+
+    impl_rotate_register_op!(roxr_register_u8, >>, u8, write_byte_to, carry: 0, rotate_in: << 7, thru extend);
+    impl_rotate_register_op!(roxr_register_u16, >>, u16, write_word_to, carry: 0, rotate_in: << 15, thru extend);
+    impl_rotate_register_op!(roxr_register_u32, >>, u32, write_long_word_to, carry: 0, rotate_in: << 31, thru extend);
 
     pub(super) fn not(&mut self, size: OpSize, dest: AddressingMode) -> ExecuteResult<()> {
         let dest_resolved = self.resolve_address_with_post(dest, size)?;
@@ -188,6 +310,187 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             negative: value.sign_bit(),
             ..self.registers.ccr
         };
+    }
+
+    pub(super) fn asd_register(
+        &mut self,
+        size: OpSize,
+        direction: ShiftDirection,
+        register: DataRegister,
+        count: ShiftCount,
+    ) {
+        match (size, direction) {
+            (OpSize::Byte, ShiftDirection::Left) => self.asl_register_u8(register, count),
+            (OpSize::Byte, ShiftDirection::Right) => self.asr_register_u8(register, count),
+            (OpSize::Word, ShiftDirection::Left) => self.asl_register_u16(register, count),
+            (OpSize::Word, ShiftDirection::Right) => self.asr_register_u16(register, count),
+            (OpSize::LongWord, ShiftDirection::Left) => self.asl_register_u32(register, count),
+            (OpSize::LongWord, ShiftDirection::Right) => self.asr_register_u32(register, count),
+        }
+    }
+
+    pub(super) fn asd_memory(
+        &mut self,
+        direction: ShiftDirection,
+        dest: AddressingMode,
+    ) -> ExecuteResult<()> {
+        let dest_resolved = self.resolve_address_with_post(dest, OpSize::Word)?;
+        let original = self.read_word_resolved(dest_resolved)?;
+
+        let (value, carry) = match direction {
+            ShiftDirection::Left => (original << 1, original.bit(15)),
+            ShiftDirection::Right => ((original >> 1) | (original & 0x8000), original.bit(0)),
+        };
+
+        let overflow = original.sign_bit() != value.sign_bit();
+
+        self.registers.ccr = ConditionCodes {
+            carry,
+            overflow,
+            zero: value == 0,
+            negative: value.sign_bit(),
+            extend: carry,
+        };
+
+        self.write_word_resolved(dest_resolved, value)?;
+
+        Ok(())
+    }
+
+    pub(super) fn lsd_register(
+        &mut self,
+        size: OpSize,
+        direction: ShiftDirection,
+        register: DataRegister,
+        count: ShiftCount,
+    ) {
+        match (size, direction) {
+            (OpSize::Byte, ShiftDirection::Left) => self.lsl_register_u8(register, count),
+            (OpSize::Byte, ShiftDirection::Right) => self.lsr_register_u8(register, count),
+            (OpSize::Word, ShiftDirection::Left) => self.lsl_register_u16(register, count),
+            (OpSize::Word, ShiftDirection::Right) => self.lsr_register_u16(register, count),
+            (OpSize::LongWord, ShiftDirection::Left) => self.lsl_register_u32(register, count),
+            (OpSize::LongWord, ShiftDirection::Right) => self.lsr_register_u32(register, count),
+        }
+    }
+
+    pub(super) fn lsd_memory(
+        &mut self,
+        direction: ShiftDirection,
+        dest: AddressingMode,
+    ) -> ExecuteResult<()> {
+        let dest_resolved = self.resolve_address_with_post(dest, OpSize::Word)?;
+        let original = self.read_word_resolved(dest_resolved)?;
+
+        let (value, carry) = match direction {
+            ShiftDirection::Left => (original << 1, original.bit(15)),
+            ShiftDirection::Right => (original >> 1, original.bit(0)),
+        };
+
+        self.registers.ccr = ConditionCodes {
+            carry,
+            overflow: false,
+            zero: value == 0,
+            negative: value.sign_bit(),
+            extend: carry,
+        };
+
+        self.write_word_resolved(dest_resolved, value)?;
+
+        Ok(())
+    }
+
+    pub(super) fn rod_register(
+        &mut self,
+        size: OpSize,
+        direction: ShiftDirection,
+        register: DataRegister,
+        count: ShiftCount,
+    ) {
+        match (size, direction) {
+            (OpSize::Byte, ShiftDirection::Left) => self.rol_register_u8(register, count),
+            (OpSize::Byte, ShiftDirection::Right) => self.ror_register_u8(register, count),
+            (OpSize::Word, ShiftDirection::Left) => self.rol_register_u16(register, count),
+            (OpSize::Word, ShiftDirection::Right) => self.ror_register_u16(register, count),
+            (OpSize::LongWord, ShiftDirection::Left) => self.rol_register_u32(register, count),
+            (OpSize::LongWord, ShiftDirection::Right) => self.ror_register_u32(register, count),
+        }
+    }
+
+    pub(super) fn rod_memory(
+        &mut self,
+        direction: ShiftDirection,
+        dest: AddressingMode,
+    ) -> ExecuteResult<()> {
+        let dest_resolved = self.resolve_address_with_post(dest, OpSize::Word)?;
+        let original = self.read_word_resolved(dest_resolved)?;
+
+        let (value, carry) = match direction {
+            ShiftDirection::Left => (
+                (original << 1) | u16::from(original.sign_bit()),
+                original.sign_bit(),
+            ),
+            ShiftDirection::Right => (
+                (original >> 1) | (u16::from(original.bit(0)) << 15),
+                original.bit(0),
+            ),
+        };
+
+        self.registers.ccr = ConditionCodes {
+            carry,
+            overflow: false,
+            zero: value == 0,
+            negative: value.sign_bit(),
+            ..self.registers.ccr
+        };
+
+        self.write_word_resolved(dest_resolved, value)?;
+
+        Ok(())
+    }
+
+    pub(super) fn roxd_register(
+        &mut self,
+        size: OpSize,
+        direction: ShiftDirection,
+        register: DataRegister,
+        count: ShiftCount,
+    ) {
+        match (size, direction) {
+            (OpSize::Byte, ShiftDirection::Left) => self.roxl_register_u8(register, count),
+            (OpSize::Byte, ShiftDirection::Right) => self.roxr_register_u8(register, count),
+            (OpSize::Word, ShiftDirection::Left) => self.roxl_register_u16(register, count),
+            (OpSize::Word, ShiftDirection::Right) => self.roxr_register_u16(register, count),
+            (OpSize::LongWord, ShiftDirection::Left) => self.roxl_register_u32(register, count),
+            (OpSize::LongWord, ShiftDirection::Right) => self.roxr_register_u32(register, count),
+        }
+    }
+
+    pub(super) fn roxd_memory(
+        &mut self,
+        direction: ShiftDirection,
+        dest: AddressingMode,
+    ) -> ExecuteResult<()> {
+        let dest_resolved = self.resolve_address_with_post(dest, OpSize::Word)?;
+        let original = self.read_word_resolved(dest_resolved)?;
+
+        let extend = self.registers.ccr.extend;
+        let (value, carry) = match direction {
+            ShiftDirection::Left => ((original << 1) | u16::from(extend), original.bit(15)),
+            ShiftDirection::Right => ((original >> 1) | (u16::from(extend) << 15), original.bit(0)),
+        };
+
+        self.registers.ccr = ConditionCodes {
+            carry,
+            overflow: false,
+            zero: value == 0,
+            negative: value.sign_bit(),
+            extend: carry,
+        };
+
+        self.write_word_resolved(dest_resolved, value)?;
+
+        Ok(())
     }
 }
 
@@ -332,3 +635,42 @@ impl_decode_single_bit_dynamic!(decode_bclr_dynamic, BitTestAndClear);
 
 impl_decode_single_bit_static!(decode_bset_static, BitTestAndSet);
 impl_decode_single_bit_dynamic!(decode_bset_dynamic, BitTestAndSet);
+
+macro_rules! impl_decode_shift_memory {
+    ($name:ident, $instruction:ident) => {
+        pub(super) fn $name(opcode: u16) -> ExecuteResult<Instruction> {
+            let direction = ShiftDirection::parse_from_opcode(opcode);
+            let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
+
+            Ok(Instruction::$instruction(direction, addressing_mode))
+        }
+    };
+}
+
+impl_decode_shift_memory!(decode_asd_memory, ArithmeticShiftMemory);
+impl_decode_shift_memory!(decode_lsd_memory, LogicalShiftMemory);
+impl_decode_shift_memory!(decode_rod_memory, RotateMemory);
+impl_decode_shift_memory!(decode_roxd_memory, RotateThruExtendMemory);
+
+macro_rules! impl_decode_shift_register {
+    ($name:ident, $instruction:ident) => {
+        pub(super) fn $name(opcode: u16) -> ExecuteResult<Instruction> {
+            let size = OpSize::parse_from_opcode(opcode)?;
+            let direction = ShiftDirection::parse_from_opcode(opcode);
+            let register = (opcode & 0x07) as u8;
+            let count = ShiftCount::parse_from_opcode(opcode);
+
+            Ok(Instruction::$instruction(
+                size,
+                direction,
+                register.into(),
+                count,
+            ))
+        }
+    };
+}
+
+impl_decode_shift_register!(decode_asd_register, ArithmeticShiftRegister);
+impl_decode_shift_register!(decode_lsd_register, LogicalShiftRegister);
+impl_decode_shift_register!(decode_rod_register, RotateRegister);
+impl_decode_shift_register!(decode_roxd_register, RotateThruExtendRegister);

@@ -5,7 +5,7 @@ mod load;
 
 use crate::core::{
     AddressRegister, AddressingMode, DataRegister, Exception, ExecuteResult, InstructionExecutor,
-    OpSize,
+    OpSize, Registers,
 };
 use crate::traits::{BusInterface, GetBit};
 
@@ -29,6 +29,47 @@ impl Direction {
 pub enum UspDirection {
     RegisterToUsp,
     UspToRegister,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShiftDirection {
+    Left,
+    Right,
+}
+
+impl ShiftDirection {
+    fn parse_from_opcode(opcode: u16) -> Self {
+        if opcode.bit(8) {
+            Self::Left
+        } else {
+            Self::Right
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShiftCount {
+    Constant(u8),
+    Register(DataRegister),
+}
+
+impl ShiftCount {
+    fn parse_from_opcode(opcode: u16) -> Self {
+        let value = ((opcode >> 9) & 0x07) as u8;
+        if opcode.bit(5) {
+            Self::Register(value.into())
+        } else {
+            let shift = if value == 0 { 8 } else { value };
+            Self::Constant(shift)
+        }
+    }
+
+    fn get(self, registers: &Registers) -> u8 {
+        match self {
+            Self::Constant(count) => count,
+            Self::Register(register) => register.read_from(registers) as u8,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,6 +103,8 @@ pub enum Instruction {
     },
     AndToCcr,
     AndToSr,
+    ArithmeticShiftMemory(ShiftDirection, AddressingMode),
+    ArithmeticShiftRegister(OpSize, ShiftDirection, DataRegister, ShiftCount),
     BitTest {
         source: AddressingMode,
         dest: AddressingMode,
@@ -100,8 +143,10 @@ pub enum Instruction {
     Extend(OpSize, DataRegister),
     Jump(AddressingMode),
     JumpToSubroutine(AddressingMode),
-    LoadEffectiveAddress(AddressingMode, AddressRegister),
     Link(AddressRegister),
+    LoadEffectiveAddress(AddressingMode, AddressRegister),
+    LogicalShiftMemory(ShiftDirection, AddressingMode),
+    LogicalShiftRegister(OpSize, ShiftDirection, DataRegister, ShiftCount),
     Move {
         size: OpSize,
         source: AddressingMode,
@@ -135,6 +180,10 @@ pub enum Instruction {
         restore_ccr: bool,
     },
     ReturnFromException,
+    RotateMemory(ShiftDirection, AddressingMode),
+    RotateRegister(OpSize, ShiftDirection, DataRegister, ShiftCount),
+    RotateThruExtendMemory(ShiftDirection, AddressingMode),
+    RotateThruExtendRegister(OpSize, ShiftDirection, DataRegister, ShiftCount),
     Subtract {
         size: OpSize,
         source: AddressingMode,
@@ -152,6 +201,7 @@ impl Instruction {
         match self {
             Self::Add { source, .. }
             | Self::And { source, .. }
+            | Self::ArithmeticShiftMemory(_, source)
             | Self::BitTest { source, .. }
             | Self::BitTestAndChange { source, .. }
             | Self::BitTestAndClear { source, .. }
@@ -162,6 +212,7 @@ impl Instruction {
             | Self::DivideUnsigned(_, source)
             | Self::ExclusiveOr { source, .. }
             | Self::LoadEffectiveAddress(source, ..)
+            | Self::LogicalShiftMemory(_, source)
             | Self::Jump(source)
             | Self::JumpToSubroutine(source)
             | Self::Move { source, .. }
@@ -171,9 +222,12 @@ impl Instruction {
             | Self::MultiplyUnsigned(_, source)
             | Self::Or { source, .. }
             | Self::PushEffectiveAddress(source)
+            | Self::RotateMemory(_, source)
+            | Self::RotateThruExtendMemory(_, source)
             | Self::Subtract { source, .. } => Some(source),
             Self::AndToCcr
             | Self::AndToSr
+            | Self::ArithmeticShiftRegister(..)
             | Self::Clear(..)
             | Self::ExchangeAddress(..)
             | Self::ExchangeData(..)
@@ -182,6 +236,7 @@ impl Instruction {
             | Self::ExclusiveOrToSr
             | Self::Extend(..)
             | Self::Link(..)
+            | Self::LogicalShiftRegister(..)
             | Self::MoveFromSr(..)
             | Self::MoveMultiple(..)
             | Self::MovePeripheral(..)
@@ -194,6 +249,8 @@ impl Instruction {
             | Self::OrToSr
             | Self::Return { .. }
             | Self::ReturnFromException
+            | Self::RotateRegister(..)
+            | Self::RotateThruExtendRegister(..)
             | Self::Swap(..)
             | Self::Trap(..)
             | Self::TrapOnOverflow
@@ -216,6 +273,8 @@ impl Instruction {
             | Self::Subtract { dest, .. } => Some(dest),
             Self::AndToCcr
             | Self::AndToSr
+            | Self::ArithmeticShiftMemory(..)
+            | Self::ArithmeticShiftRegister(..)
             | Self::BitTest { .. }
             | Self::BitTestAndChange { .. }
             | Self::BitTestAndClear { .. }
@@ -231,8 +290,10 @@ impl Instruction {
             | Self::Extend(..)
             | Self::Jump(..)
             | Self::JumpToSubroutine(..)
-            | Self::LoadEffectiveAddress(..)
             | Self::Link(..)
+            | Self::LoadEffectiveAddress(..)
+            | Self::LogicalShiftMemory(..)
+            | Self::LogicalShiftRegister(..)
             | Self::MoveMultiple(..)
             | Self::MovePeripheral(..)
             | Self::MoveToCcr(..)
@@ -247,6 +308,10 @@ impl Instruction {
             | Self::PushEffectiveAddress(..)
             | Self::Return { .. }
             | Self::ReturnFromException
+            | Self::RotateMemory(..)
+            | Self::RotateRegister(..)
+            | Self::RotateThruExtendMemory(..)
+            | Self::RotateThruExtendRegister(..)
             | Self::Swap(..)
             | Self::Trap(..)
             | Self::TrapOnOverflow
@@ -274,6 +339,11 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             Instruction::And { size, source, dest } => self.and(size, source, dest),
             Instruction::AndToCcr => self.andi_to_ccr(),
             Instruction::AndToSr => self.andi_to_sr(),
+            Instruction::ArithmeticShiftMemory(direction, dest) => self.asd_memory(direction, dest),
+            Instruction::ArithmeticShiftRegister(size, direction, register, count) => {
+                self.asd_register(size, direction, register, count);
+                Ok(())
+            }
             Instruction::BitTest { source, dest } => self.btst(source, dest),
             Instruction::BitTestAndChange { source, dest } => self.bchg(source, dest),
             Instruction::BitTestAndClear { source, dest } => self.bclr(source, dest),
@@ -304,8 +374,13 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             }
             Instruction::Jump(source) => self.jmp(source),
             Instruction::JumpToSubroutine(source) => self.jsr(source),
-            Instruction::LoadEffectiveAddress(source, dest) => self.lea(source, dest),
             Instruction::Link(register) => self.link(register),
+            Instruction::LoadEffectiveAddress(source, dest) => self.lea(source, dest),
+            Instruction::LogicalShiftMemory(direction, dest) => self.lsd_memory(direction, dest),
+            Instruction::LogicalShiftRegister(size, direction, register, count) => {
+                self.lsd_register(size, direction, register, count);
+                Ok(())
+            }
             Instruction::Move { size, source, dest } => self.move_(size, source, dest),
             Instruction::MoveFromSr(dest) => self.move_from_sr(dest),
             Instruction::MoveMultiple(size, addressing_mode, direction) => {
@@ -349,6 +424,18 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             }
             Instruction::Return { restore_ccr } => self.ret(restore_ccr),
             Instruction::ReturnFromException => self.rte(),
+            Instruction::RotateMemory(direction, dest) => self.rod_memory(direction, dest),
+            Instruction::RotateRegister(size, direction, register, count) => {
+                self.rod_register(size, direction, register, count);
+                Ok(())
+            }
+            Instruction::RotateThruExtendMemory(direction, dest) => {
+                self.roxd_memory(direction, dest)
+            }
+            Instruction::RotateThruExtendRegister(size, direction, register, count) => {
+                self.roxd_register(size, direction, register, count);
+                Ok(())
+            }
             Instruction::Trap(vector) => controlflow::trap(vector),
             Instruction::TrapOnOverflow => self.trapv(),
             Instruction::Unlink(register) => self.unlk(register),
@@ -497,7 +584,22 @@ fn decode_opcode(opcode: u16, supervisor_mode: bool) -> ExecuteResult<Instructio
             },
         },
         0xD000 => arithmetic::decode_add(opcode),
-        0xE000 => todo!("ASd / LSd / ROXd / ROd"),
+        0xE000 => match opcode & 0b0000_0000_1100_0000 {
+            0b0000_0000_1100_0000 => match opcode & 0b0000_1110_0000_0000 {
+                0b0000_0000_0000_0000 => bits::decode_asd_memory(opcode),
+                0b0000_0010_0000_0000 => bits::decode_lsd_memory(opcode),
+                0b0000_0100_0000_0000 => bits::decode_roxd_memory(opcode),
+                0b0000_0110_0000_0000 => bits::decode_rod_memory(opcode),
+                _ => Err(Exception::IllegalInstruction(opcode)),
+            },
+            _ => match opcode & 0b0000_0000_0001_1000 {
+                0b0000_0000_0000_0000 => bits::decode_asd_register(opcode),
+                0b0000_0000_0000_1000 => bits::decode_lsd_register(opcode),
+                0b0000_0000_0001_0000 => bits::decode_roxd_register(opcode),
+                0b0000_0000_0001_1000 => bits::decode_rod_register(opcode),
+                _ => unreachable!("match after bit mask"),
+            },
+        },
         _ => Err(Exception::IllegalInstruction(opcode)),
     }
 }
