@@ -61,6 +61,7 @@ pub enum Instruction {
     },
     AndToCcr,
     AndToSr,
+    Clear(OpSize, AddressingMode),
     Compare {
         size: OpSize,
         source: AddressingMode,
@@ -73,6 +74,7 @@ pub enum Instruction {
     },
     ExclusiveOrToCcr,
     ExclusiveOrToSr,
+    LoadEffectiveAddress(AddressingMode, AddressRegister),
     Move {
         size: OpSize,
         source: AddressingMode,
@@ -88,6 +90,8 @@ pub enum Instruction {
         dest: AddressingMode,
         with_extend: bool,
     },
+    NoOp,
+    Not(OpSize, AddressingMode),
     Or {
         size: OpSize,
         source: AddressingMode,
@@ -110,6 +114,7 @@ impl Instruction {
             | Self::And { source, .. }
             | Self::Compare { source, .. }
             | Self::ExclusiveOr { source, .. }
+            | Self::LoadEffectiveAddress(source, ..)
             | Self::Move { source, .. }
             | Self::MoveToCcr(source)
             | Self::MoveToSr(source)
@@ -117,12 +122,15 @@ impl Instruction {
             | Self::Subtract { source, .. } => Some(source),
             Self::AndToCcr
             | Self::AndToSr
+            | Self::Clear(..)
             | Self::ExclusiveOrToCcr
             | Self::ExclusiveOrToSr
             | Self::MoveQuick(..)
             | Self::MoveFromSr(..)
             | Self::MoveUsp(..)
             | Self::Negate { .. }
+            | Self::NoOp
+            | Self::Not(..)
             | Self::OrToCcr
             | Self::OrToSr => None,
         }
@@ -132,21 +140,25 @@ impl Instruction {
         match self {
             Self::Add { dest, .. }
             | Self::And { dest, .. }
+            | Self::Clear(_, dest)
             | Self::Compare { dest, .. }
             | Self::ExclusiveOr { dest, .. }
             | Self::Move { dest, .. }
             | Self::MoveFromSr(dest)
             | Self::Negate { dest, .. }
+            | Self::Not(_, dest)
             | Self::Or { dest, .. }
             | Self::Subtract { dest, .. } => Some(dest),
             Self::AndToCcr
             | Self::AndToSr
             | Self::ExclusiveOrToCcr
             | Self::ExclusiveOrToSr
+            | Self::LoadEffectiveAddress(..)
             | Self::MoveToCcr(..)
             | Self::MoveToSr(..)
             | Self::MoveUsp(..)
             | Self::MoveQuick(..)
+            | Self::NoOp
             | Self::OrToCcr
             | Self::OrToSr => None,
         }
@@ -172,10 +184,12 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             Instruction::And { size, source, dest } => self.and(size, source, dest),
             Instruction::AndToCcr => self.andi_to_ccr(),
             Instruction::AndToSr => self.andi_to_sr(),
+            Instruction::Clear(size, dest) => self.clr(size, dest),
             Instruction::Compare { size, source, dest } => self.cmp(size, source, dest),
             Instruction::ExclusiveOr { size, source, dest } => self.eor(size, source, dest),
             Instruction::ExclusiveOrToCcr => self.eori_to_ccr(),
             Instruction::ExclusiveOrToSr => self.eori_to_sr(),
+            Instruction::LoadEffectiveAddress(source, dest) => self.lea(source, dest),
             Instruction::Move { size, source, dest } => self.move_(size, source, dest),
             Instruction::MoveFromSr(dest) => self.move_from_sr(dest),
             Instruction::MoveToCcr(source) => self.move_to_ccr(source),
@@ -193,6 +207,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 dest,
                 with_extend,
             } => self.neg(size, dest, with_extend),
+            Instruction::NoOp => Ok(()),
+            Instruction::Not(size, dest) => self.not(size, dest),
             Instruction::Or { size, source, dest } => self.or(size, source, dest),
             Instruction::OrToCcr => self.ori_to_ccr(),
             Instruction::OrToSr => self.ori_to_sr(),
@@ -232,22 +248,26 @@ fn decode_opcode(opcode: u16, supervisor_mode: bool) -> ExecuteResult<Instructio
             0b0000_0000_0000_0000 | 0b0000_0000_0100_0000 | 0b0000_0000_1000_0000 => {
                 arithmetic::decode_negx(opcode)
             }
-            0b0000_0010_0000_0000 | 0b0000_0010_0100_0000 | 0b0000_0010_1000_0000 => todo!("CLR"),
+            0b0000_0010_0000_0000 | 0b0000_0010_0100_0000 | 0b0000_0010_1000_0000 => {
+                bits::decode_clr(opcode)
+            }
             0b0000_0100_0000_0000 | 0b0000_0100_0100_0000 | 0b0000_0100_1000_0000 => {
                 arithmetic::decode_neg(opcode)
             }
-            0b0000_0110_0000_0000 | 0b0000_0110_0100_0000 | 0b0000_0110_1000_0000 => todo!("NOT"),
+            0b0000_0110_0000_0000 | 0b0000_0110_0100_0000 | 0b0000_0110_1000_0000 => {
+                bits::decode_not(opcode)
+            }
             0b0000_1000_1000_0000
             | 0b0000_1000_1100_0000
             | 0b0000_1100_1000_0000
             | 0b0000_1100_1100_0000 => todo!("EXT / MOVEM"),
             0b0000_1000_0000_0000 => todo!("NBCD"),
             0b0000_1000_0100_0000 => todo!("SWAP / PEA"),
-            0b0000_1010_1100_0000 => todo!("ILLEGAL / 0TAS"),
+            0b0000_1010_1100_0000 => todo!("ILLEGAL / TAS"),
             0b0000_1010_0000_0000 | 0b0000_1010_0100_0000 | 0b0000_1010_1000_0000 => todo!("TST"),
             0b0000_1110_0100_0000 => match opcode & 0b0000_0000_0011_1111 {
                 0b0000_0000_0011_0000 => todo!("RESET"),
-                0b0000_0000_0011_0001 => todo!("NOP"),
+                0b0000_0000_0011_0001 => Ok(Instruction::NoOp),
                 0b0000_0000_0011_0010 => todo!("STOP"),
                 _ => match opcode & 0b0000_0000_0011_1000 {
                     0b0000_0000_0000_0000 | 0b0000_0000_0000_1000 => todo!("TRAP"),
@@ -261,7 +281,13 @@ fn decode_opcode(opcode: u16, supervisor_mode: bool) -> ExecuteResult<Instructio
             },
             0b0000_1110_1000_0000 => todo!("JSR"),
             0b0000_1110_1100_0000 => todo!("JMP"),
-            _ => todo!("LEA / CHK"),
+            _ => {
+                if opcode.bit(8) {
+                    load::decode_lea(opcode)
+                } else {
+                    todo!("CHK")
+                }
+            }
         },
         0x5000 => match OpSize::parse_from_opcode(opcode) {
             Ok(size) => arithmetic::decode_addq_subq(opcode, size),

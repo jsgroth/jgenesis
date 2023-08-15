@@ -1,7 +1,7 @@
 use crate::core::instructions::UspDirection;
 use crate::core::{
     AddressRegister, AddressingMode, ConditionCodes, DataRegister, Exception, ExecuteResult,
-    Instruction, InstructionExecutor, OpSize,
+    Instruction, InstructionExecutor, OpSize, ResolvedAddress,
 };
 use crate::traits::{BusInterface, GetBit, SignBit};
 
@@ -72,6 +72,22 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 register.write_long_word_to(self.registers, self.registers.usp);
             }
         }
+    }
+
+    pub(super) fn lea(
+        &mut self,
+        source: AddressingMode,
+        register: AddressRegister,
+    ) -> ExecuteResult<()> {
+        let resolved = self.resolve_address(source, OpSize::LongWord)?;
+        let ResolvedAddress::Memory(address) = resolved
+        else {
+            panic!("all LEA invocations should resolve to a memory address");
+        };
+
+        register.write_long_word_to(self.registers, address);
+
+        Ok(())
     }
 }
 
@@ -154,4 +170,22 @@ pub(super) fn decode_move_usp(opcode: u16, supervisor_mode: bool) -> ExecuteResu
     };
 
     Ok(Instruction::MoveUsp(direction, register.into()))
+}
+
+pub(super) fn decode_lea(opcode: u16) -> ExecuteResult<Instruction> {
+    let source = AddressingMode::parse_from_opcode(opcode)?;
+    let register = ((opcode >> 9) & 0x07) as u8;
+
+    if matches!(
+        source,
+        AddressingMode::DataDirect(..)
+            | AddressingMode::AddressDirect(..)
+            | AddressingMode::AddressIndirectPostincrement(..)
+            | AddressingMode::AddressIndirectPredecrement(..)
+            | AddressingMode::Immediate
+    ) {
+        return Err(Exception::IllegalInstruction(opcode));
+    }
+
+    Ok(Instruction::LoadEffectiveAddress(source, register.into()))
 }

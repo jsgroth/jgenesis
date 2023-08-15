@@ -67,6 +67,41 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     impl_bit_op_to_sr!(andi_to_sr, &);
     impl_bit_op_to_sr!(ori_to_sr, |);
     impl_bit_op_to_sr!(eori_to_sr, ^);
+
+    pub(super) fn not(&mut self, size: OpSize, dest: AddressingMode) -> ExecuteResult<()> {
+        let dest_resolved = self.resolve_address_with_post(dest, size)?;
+        let value: u32 = self.read_resolved(dest_resolved, size)?.into();
+        let negated = SizedValue::from_size(!value, size);
+
+        self.registers.ccr = ConditionCodes {
+            carry: false,
+            overflow: false,
+            zero: negated.is_zero(),
+            negative: negated.sign_bit(),
+            ..self.registers.ccr
+        };
+
+        self.write_resolved(dest_resolved, negated)?;
+
+        Ok(())
+    }
+
+    pub(super) fn clr(&mut self, size: OpSize, dest: AddressingMode) -> ExecuteResult<()> {
+        let dest_resolved = self.resolve_address_with_post(dest, size)?;
+        self.read_resolved(dest_resolved, size)?;
+
+        self.registers.ccr = ConditionCodes {
+            carry: false,
+            overflow: false,
+            zero: true,
+            negative: false,
+            ..self.registers.ccr
+        };
+
+        self.write_resolved(dest_resolved, SizedValue::from_size(0, size))?;
+
+        Ok(())
+    }
 }
 
 macro_rules! impl_decode_bit_op {
@@ -132,3 +167,25 @@ macro_rules! impl_decode_bit_op_immediate {
 impl_decode_bit_op_immediate!(decode_andi, And, AndToCcr, AndToSr);
 impl_decode_bit_op_immediate!(decode_ori, Or, OrToCcr, OrToSr);
 impl_decode_bit_op_immediate!(decode_eori, ExclusiveOr, ExclusiveOrToCcr, ExclusiveOrToSr);
+
+pub(super) fn decode_not(opcode: u16) -> ExecuteResult<Instruction> {
+    let size = OpSize::parse_from_opcode(opcode)?;
+    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
+
+    if addressing_mode.is_address_direct() || !addressing_mode.is_writable() {
+        return Err(Exception::IllegalInstruction(opcode));
+    }
+
+    Ok(Instruction::Not(size, addressing_mode))
+}
+
+pub(super) fn decode_clr(opcode: u16) -> ExecuteResult<Instruction> {
+    let size = OpSize::parse_from_opcode(opcode)?;
+    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
+
+    if addressing_mode.is_address_direct() || !addressing_mode.is_writable() {
+        return Err(Exception::IllegalInstruction(opcode));
+    }
+
+    Ok(Instruction::Clear(size, addressing_mode))
+}
