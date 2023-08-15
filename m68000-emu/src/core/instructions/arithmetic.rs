@@ -1,6 +1,7 @@
+use crate::core::instructions::{Direction, ExtendOpMode};
 use crate::core::{
-    AddressRegister, AddressingMode, ConditionCodes, Direction, Exception, ExecuteResult,
-    ExtendOpMode, Instruction, InstructionExecutor, OpSize, ResolvedAddress, SizedValue,
+    AddressRegister, AddressingMode, ConditionCodes, Exception, ExecuteResult, Instruction,
+    InstructionExecutor, OpSize, ResolvedAddress, SizedValue,
 };
 use crate::traits::{BusInterface, GetBit, SignBit};
 

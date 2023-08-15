@@ -1,6 +1,7 @@
+use crate::core::instructions::UspDirection;
 use crate::core::{
     AddressRegister, AddressingMode, ConditionCodes, DataRegister, Exception, ExecuteResult,
-    Instruction, InstructionExecutor, OpSize, UspDirection,
+    Instruction, InstructionExecutor, OpSize,
 };
 use crate::traits::{BusInterface, GetBit, SignBit};
 
