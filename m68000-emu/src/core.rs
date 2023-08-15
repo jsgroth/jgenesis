@@ -120,6 +120,12 @@ impl DataRegister {
     }
 }
 
+impl From<u8> for DataRegister {
+    fn from(value: u8) -> Self {
+        Self(value)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct AddressRegister(u8);
 
@@ -158,6 +164,12 @@ impl AddressRegister {
                 registers.address[register as usize] = value;
             }
         }
+    }
+}
+
+impl From<u8> for AddressRegister {
+    fn from(value: u8) -> Self {
+        Self(value)
     }
 }
 
@@ -286,6 +298,38 @@ enum Direction {
     MemoryToRegister,
 }
 
+impl Direction {
+    fn parse_from_opcode(opcode: u16) -> Self {
+        if opcode.bit(8) {
+            Self::RegisterToMemory
+        } else {
+            Self::MemoryToRegister
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UspDirection {
+    RegisterToUsp,
+    UspToRegister,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExtendOpMode {
+    DataDirect,
+    AddressIndirectPredecrement,
+}
+
+impl ExtendOpMode {
+    fn parse_from_opcode(opcode: u16) -> Self {
+        if opcode.bit(3) {
+            Self::AddressIndirectPredecrement
+        } else {
+            Self::DataDirect
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum IndexRegister {
     Data(DataRegister),
@@ -309,9 +353,9 @@ impl IndexRegister {
 fn parse_index(extension: u16) -> (IndexRegister, IndexSize) {
     let register_number = ((extension >> 12) & 0x07) as u8;
     let register = if extension.bit(15) {
-        IndexRegister::Address(AddressRegister(register_number))
+        IndexRegister::Address(register_number.into())
     } else {
-        IndexRegister::Data(DataRegister(register_number))
+        IndexRegister::Data(register_number.into())
     };
 
     let size = if extension.bit(11) {
@@ -338,6 +382,7 @@ enum BusOpType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Exception {
     AddressError(u32, BusOpType),
+    PrivilegeViolation,
     IllegalInstruction(u16),
 }
 
@@ -364,15 +409,13 @@ enum AddressingMode {
 impl AddressingMode {
     fn parse_from(mode: u8, register: u8) -> ExecuteResult<Self> {
         match (mode & 0x07, register & 0x07) {
-            (0x00, register) => Ok(Self::DataDirect(DataRegister(register))),
-            (0x01, register) => Ok(Self::AddressDirect(AddressRegister(register))),
-            (0x02, register) => Ok(Self::AddressIndirect(AddressRegister(register))),
-            (0x03, register) => Ok(Self::AddressIndirectPostincrement(AddressRegister(
-                register,
-            ))),
-            (0x04, register) => Ok(Self::AddressIndirectPredecrement(AddressRegister(register))),
-            (0x05, register) => Ok(Self::AddressIndirectDisplacement(AddressRegister(register))),
-            (0x06, register) => Ok(Self::AddressIndirectIndexed(AddressRegister(register))),
+            (0x00, register) => Ok(Self::DataDirect(register.into())),
+            (0x01, register) => Ok(Self::AddressDirect(register.into())),
+            (0x02, register) => Ok(Self::AddressIndirect(register.into())),
+            (0x03, register) => Ok(Self::AddressIndirectPostincrement(register.into())),
+            (0x04, register) => Ok(Self::AddressIndirectPredecrement(register.into())),
+            (0x05, register) => Ok(Self::AddressIndirectDisplacement(register.into())),
+            (0x06, register) => Ok(Self::AddressIndirectIndexed(register.into())),
             (0x07, 0x00) => Ok(Self::AbsoluteShort),
             (0x07, 0x01) => Ok(Self::AbsoluteLong),
             (0x07, 0x02) => Ok(Self::PcRelativeDisplacement),
@@ -440,11 +483,25 @@ enum Instruction {
         source: AddressingMode,
         dest: AddressingMode,
     },
+    AddExtend {
+        size: OpSize,
+        source: AddressingMode,
+        dest: AddressingMode,
+    },
     And {
         size: OpSize,
         source: AddressingMode,
         dest: AddressingMode,
     },
+    AndToCcr,
+    AndToSr,
+    ExclusiveOr {
+        size: OpSize,
+        source: AddressingMode,
+        dest: AddressingMode,
+    },
+    ExclusiveOrToCcr,
+    ExclusiveOrToSr,
     Move {
         size: OpSize,
         source: AddressingMode,
@@ -452,27 +509,60 @@ enum Instruction {
     },
     MoveFromSr(AddressingMode),
     MoveToCcr(AddressingMode),
+    MoveToSr(AddressingMode),
+    MoveUsp(UspDirection, AddressRegister),
     MoveQuick(i8, DataRegister),
+    Or {
+        size: OpSize,
+        source: AddressingMode,
+        dest: AddressingMode,
+    },
+    OrToCcr,
+    OrToSr,
 }
 
 impl Instruction {
     fn source_addressing_mode(self) -> Option<AddressingMode> {
         match self {
             Self::Add { source, .. }
+            | Self::AddExtend { source, .. }
             | Self::And { source, .. }
+            | Self::ExclusiveOr { source, .. }
             | Self::Move { source, .. }
-            | Self::MoveToCcr(source) => Some(source),
-            Self::MoveQuick(..) | Self::MoveFromSr(..) => None,
+            | Self::MoveToCcr(source)
+            | Self::MoveToSr(source)
+            | Self::Or { source, .. } => Some(source),
+            Self::AndToCcr
+            | Self::AndToSr
+            | Self::ExclusiveOrToCcr
+            | Self::ExclusiveOrToSr
+            | Self::MoveQuick(..)
+            | Self::MoveFromSr(..)
+            | Self::MoveUsp(..)
+            | Self::OrToCcr
+            | Self::OrToSr => None,
         }
     }
 
     fn dest_addressing_mode(self) -> Option<AddressingMode> {
         match self {
             Self::Add { dest, .. }
+            | Self::AddExtend { dest, .. }
             | Self::And { dest, .. }
+            | Self::ExclusiveOr { dest, .. }
             | Self::Move { dest, .. }
-            | Self::MoveFromSr(dest) => Some(dest),
-            Self::MoveToCcr(..) | Self::MoveQuick(..) => None,
+            | Self::MoveFromSr(dest)
+            | Self::Or { dest, .. } => Some(dest),
+            Self::AndToCcr
+            | Self::AndToSr
+            | Self::ExclusiveOrToCcr
+            | Self::ExclusiveOrToSr
+            | Self::MoveToCcr(..)
+            | Self::MoveToSr(..)
+            | Self::MoveUsp(..)
+            | Self::MoveQuick(..)
+            | Self::OrToCcr
+            | Self::OrToSr => None,
         }
     }
 }
@@ -555,6 +645,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         addressing_mode: AddressingMode,
         size: OpSize,
     ) -> ExecuteResult<ResolvedAddress> {
+        log::trace!("Resolving addressing mode {addressing_mode:?}");
+
         let resolved_address = match addressing_mode {
             AddressingMode::DataDirect(register) => ResolvedAddress::DataRegister(register),
             AddressingMode::AddressDirect(register) => ResolvedAddress::AddressRegister(register),
@@ -641,6 +733,16 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         };
 
         Ok(resolved_address)
+    }
+
+    fn resolve_address_with_post(
+        &mut self,
+        addressing_mode: AddressingMode,
+        size: OpSize,
+    ) -> ExecuteResult<ResolvedAddress> {
+        let resolved = self.resolve_address(addressing_mode, size)?;
+        resolved.apply_post(self.registers);
+        Ok(resolved)
     }
 
     fn read_byte_resolved(&mut self, resolved_address: ResolvedAddress) -> u8 {
@@ -824,10 +926,25 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     }
 
     fn write(&mut self, dest: AddressingMode, value: SizedValue) -> ExecuteResult<()> {
-        match value {
-            SizedValue::Byte(value) => self.write_byte(dest, value),
-            SizedValue::Word(value) => self.write_word(dest, value),
-            SizedValue::LongWord(value) => self.write_long_word(dest, value),
+        match (value, dest) {
+            (SizedValue::Byte(value), _) => self.write_byte(dest, value),
+            (SizedValue::Word(value), _) => self.write_word(dest, value),
+            (
+                SizedValue::LongWord(value),
+                AddressingMode::AddressIndirectPredecrement(register),
+            ) => {
+                let high_word = (value >> 16) as u16;
+                let low_word = value as u16;
+
+                let address = register.read_from(self.registers).wrapping_sub(2);
+                register.write_long_word_to(self.registers, address);
+                self.write_bus_word(address, low_word)?;
+
+                let address = address.wrapping_sub(2);
+                register.write_long_word_to(self.registers, address);
+                self.write_bus_word(address, high_word)
+            }
+            (SizedValue::LongWord(value), _) => self.write_long_word(dest, value),
         }
     }
 
@@ -890,15 +1007,6 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         self.push_stack_u16(self.opcode)?;
         self.push_stack_u32(address)?;
 
-        // TODO this is awful, find a better way
-        if let Some(Instruction::MoveFromSr(AddressingMode::AddressIndirectPostincrement(
-            register,
-        ))) = self.instruction
-        {
-            let address = register.read_from(self.registers);
-            register.write_long_word_to(self.registers, address.wrapping_add(2));
-        }
-
         let rw_bit = (op_type == BusOpType::Read)
             ^ matches!(self.instruction, Some(Instruction::MoveFromSr(..)));
         let status_word = (self.opcode & 0xFFE0) | (u16::from(rw_bit) << 4) | 0x0005;
@@ -914,20 +1022,34 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let opcode = self.fetch_operand()?;
         self.opcode = opcode;
 
-        let instruction = decode_opcode(opcode)?;
+        let instruction = decode_opcode(opcode, self.registers.supervisor_mode)?;
         self.instruction = Some(instruction);
         log::trace!("Decoded instruction: {instruction:?}");
 
         match instruction {
             Instruction::Add { size, source, dest } => self.add(size, source, dest),
+            Instruction::AddExtend { size, source, dest } => self.addx(size, source, dest),
             Instruction::And { size, source, dest } => self.and(size, source, dest),
+            Instruction::AndToCcr => self.andi_to_ccr(),
+            Instruction::AndToSr => self.andi_to_sr(),
+            Instruction::ExclusiveOr { size, source, dest } => self.eor(size, source, dest),
+            Instruction::ExclusiveOrToCcr => self.eori_to_ccr(),
+            Instruction::ExclusiveOrToSr => self.eori_to_sr(),
             Instruction::Move { size, source, dest } => self.move_(size, source, dest),
             Instruction::MoveFromSr(dest) => self.move_from_sr(dest),
             Instruction::MoveToCcr(source) => self.move_to_ccr(source),
+            Instruction::MoveToSr(source) => self.move_to_sr(source),
             Instruction::MoveQuick(data, register) => {
                 self.moveq(data, register);
                 Ok(())
             }
+            Instruction::MoveUsp(direction, register) => {
+                self.move_usp(direction, register);
+                Ok(())
+            }
+            Instruction::Or { size, source, dest } => self.or(size, source, dest),
+            Instruction::OrToCcr => self.ori_to_ccr(),
+            Instruction::OrToSr => self.ori_to_sr(),
         }
     }
 
@@ -942,6 +1064,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                     todo!("halt CPU")
                 }
             }
+            Err(Exception::PrivilegeViolation) => todo!("privilege violation"),
             Err(Exception::IllegalInstruction(opcode)) => {
                 panic!("unimplemented opcode: {opcode:016b}")
             }
@@ -949,48 +1072,29 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     }
 }
 
-fn decode_opcode(opcode: u16) -> ExecuteResult<Instruction> {
+fn decode_opcode(opcode: u16, supervisor_mode: bool) -> ExecuteResult<Instruction> {
     match opcode & 0xF000 {
-        0x0000 => {
-            match opcode & 0x0F00 {
-                0b0000_0000_0000_0000 => {
-                    todo!("ORI to CCR / ORI to SR / ORI")
-                }
-                0b0000_0010_0000_0000 => {
-                    // ANDI / ANDI to CCR / ANDI to SR
-                    bits::decode_andi(opcode)
-                }
-                0b0000_0100_0000_0000 => todo!("SUBI"),
-                0b0000_0110_0000_0000 => {
-                    // ADDI
-                    arithmetic::decode_addi(opcode)
-                }
-                0b0000_1010_0000_0000 => todo!("EORI to CCR / EORI to SR / EORI"),
-                0b0000_1100_0000_0000 => todo!("CMPI"),
-                0b0000_1000_0000_0000 => todo!("BTST / BCHG / BCLR / BSET (immediate)"),
-                _ => {
-                    if opcode.bit(8) {
-                        todo!("BTST / BCHG / BCLR / BSET (data register")
-                    } else {
-                        Err(Exception::IllegalInstruction(opcode))
-                    }
+        0x0000 => match opcode & 0b0000_1111_0000_0000 {
+            0b0000_0000_0000_0000 => bits::decode_ori(opcode, supervisor_mode),
+            0b0000_0010_0000_0000 => bits::decode_andi(opcode, supervisor_mode),
+            0b0000_0100_0000_0000 => todo!("SUBI"),
+            0b0000_0110_0000_0000 => arithmetic::decode_addi(opcode),
+            0b0000_1010_0000_0000 => bits::decode_eori(opcode, supervisor_mode),
+            0b0000_1100_0000_0000 => todo!("CMPI"),
+            0b0000_1000_0000_0000 => todo!("BTST / BCHG / BCLR / BSET (immediate)"),
+            _ => {
+                if opcode.bit(8) {
+                    todo!("BTST / BCHG / BCLR / BSET (data register")
+                } else {
+                    Err(Exception::IllegalInstruction(opcode))
                 }
             }
-        }
-        0x1000 | 0x2000 | 0x3000 => {
-            // MOVE / MOVEA
-            load::decode_move(opcode)
-        }
+        },
+        0x1000 | 0x2000 | 0x3000 => load::decode_move(opcode),
         0x4000 => match opcode & 0b0000_1111_1100_0000 {
-            0b0000_0000_1100_0000 => {
-                // MOVE from SR
-                load::decode_move_from_sr(opcode)
-            }
-            0b0000_0100_1100_0000 => {
-                // MOVE to CCR
-                load::decode_move_to_ccr(opcode)
-            }
-            0b0000_0110_1100_0000 => todo!("MOVE to SR"),
+            0b0000_0000_1100_0000 => load::decode_move_from_sr(opcode),
+            0b0000_0100_1100_0000 => load::decode_move_to_ccr(opcode),
+            0b0000_0110_1100_0000 => load::decode_move_to_sr(opcode, supervisor_mode),
             0b0000_0000_0000_0000 | 0b0000_0000_0100_0000 | 0b0000_0000_1000_0000 => todo!("NEGX"),
             0b0000_0010_0000_0000 | 0b0000_0010_0100_0000 | 0b0000_0010_1000_0000 => todo!("CLR"),
             0b0000_0100_0000_0000 | 0b0000_0100_0100_0000 | 0b0000_0100_1000_0000 => todo!("NEG"),
@@ -1001,39 +1105,66 @@ fn decode_opcode(opcode: u16) -> ExecuteResult<Instruction> {
             | 0b0000_1100_1100_0000 => todo!("EXT / MOVEM"),
             0b0000_1000_0000_0000 => todo!("NBCD"),
             0b0000_1000_0100_0000 => todo!("SWAP / PEA"),
-            0b0000_1010_1100_0000 => todo!("ILLEGAL / TAS"),
+            0b0000_1010_1100_0000 => todo!("ILLEGAL / 0TAS"),
             0b0000_1010_0000_0000 | 0b0000_1010_0100_0000 | 0b0000_1010_1000_0000 => todo!("TST"),
-            0b0000_1110_0100_0000 => todo!(
-                "TRAP / LINK / UNLK / MOVE USP / RESET / NOP / STOP / RTE / RTS / TRAPV / RTR"
-            ),
+            0b0000_1110_0100_0000 => match opcode & 0b0000_0000_0011_1111 {
+                0b0000_0000_0011_0000 => todo!("RESET"),
+                0b0000_0000_0011_0001 => todo!("NOP"),
+                0b0000_0000_0011_0010 => todo!("STOP"),
+                _ => match opcode & 0b0000_0000_0011_1000 {
+                    0b0000_0000_0000_0000 | 0b0000_0000_0000_1000 => todo!("TRAP"),
+                    0b0000_0000_0001_0000 => todo!("LINK"),
+                    0b0000_0000_0001_1000 => todo!("UNLK"),
+                    0b0000_0000_0010_0000 | 0b0000_0000_0010_1000 => {
+                        load::decode_move_usp(opcode, supervisor_mode)
+                    }
+                    _ => Err(Exception::IllegalInstruction(opcode)),
+                },
+            },
             0b0000_1110_1000_0000 => todo!("JSR"),
             0b0000_1110_1100_0000 => todo!("JMP"),
             _ => todo!("LEA / CHK"),
         },
-        0x5000 => {
-            match OpSize::parse_from_opcode(opcode) {
-                Ok(size) => {
-                    // ADDQ / SUBQ
-                    arithmetic::decode_addq_subq(opcode, size)
-                }
-                Err(_) => {
-                    todo!("Scc / DBcc")
-                }
+        0x5000 => match OpSize::parse_from_opcode(opcode) {
+            Ok(size) => arithmetic::decode_addq_subq(opcode, size),
+            Err(_) => {
+                todo!("Scc / DBcc")
             }
-        }
+        },
         0x6000 => todo!("BRA / BSR / Bcc"),
         0x7000 => load::decode_movq(opcode),
-        0x8000 => todo!("DIVU / DIVS / SBCD / OR"),
+        0x8000 => match opcode & 0b0000_0001_1111_0000 {
+            0b0000_0001_0000_0000 => todo!("SBCD"),
+            _ => match opcode & 0b0000_0001_1100_0000 {
+                0b0000_0000_1100_0000 => todo!("DIVU"),
+                0b0000_0001_1100_0000 => todo!("DIVS"),
+                _ => bits::decode_or(opcode),
+            },
+        },
         0x9000 => todo!("SUB / SUBX / SUBA"),
-        0xB000 => todo!("EOR / CMPM / CMP / CMPA"),
+        0xB000 => match opcode & 0b0000_0000_1100_0000 {
+            0b0000_0000_1100_0000 => todo!("CMPA"),
+            _ => {
+                if opcode.bit(8) {
+                    match opcode & 0b0000_0000_0011_1000 {
+                        0b0000_0000_0000_1000 => todo!("CMPM"),
+                        _ => bits::decode_eor(opcode),
+                    }
+                } else {
+                    todo!("CMP")
+                }
+            }
+        },
         0xC000 => {
             // AND (TODO: MULU / MULS / ABCD / EXG)
             bits::decode_and(opcode)
         }
-        0xD000 => {
-            // ADD / ADDA / ADDX
-            arithmetic::decode_add(opcode)
-        }
+        0xD000 => match opcode & 0b0000_0001_1111_0000 {
+            0b0000_0001_0000_0000 | 0b0000_0001_0100_0000 | 0b0000_0001_1000_0000 => {
+                arithmetic::decode_addx(opcode)
+            }
+            _ => arithmetic::decode_add(opcode),
+        },
         0xE000 => todo!("ASd / LSd / ROXd / ROd"),
         _ => Err(Exception::IllegalInstruction(opcode)),
     }

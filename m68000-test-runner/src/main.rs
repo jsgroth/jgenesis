@@ -162,8 +162,9 @@ fn main() {
     }
 
     log::info!(
-        "Failed {failure_count} out of {} tests",
-        test_descriptions.len()
+        "Failed {failure_count} out of {} tests in {}",
+        test_descriptions.len(),
+        file_path.display()
     );
 }
 
