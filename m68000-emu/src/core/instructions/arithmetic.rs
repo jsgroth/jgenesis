@@ -212,6 +212,49 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         Ok(())
     }
+
+    pub(super) fn cmp(
+        &mut self,
+        size: OpSize,
+        source: AddressingMode,
+        dest: AddressingMode,
+    ) -> ExecuteResult<()> {
+        if let AddressingMode::AddressDirect(dest) = dest {
+            return self.cmpa(size, source, dest);
+        }
+
+        let source_operand: u32 = self.read(source, size)?.into();
+        let dest_operand: u32 = self.read(dest, size)?.into();
+
+        let ccr = &mut self.registers.ccr;
+        match size {
+            OpSize::Byte => {
+                compare_bytes(source_operand as u8, dest_operand as u8, ccr);
+            }
+            OpSize::Word => {
+                compare_words(source_operand as u16, dest_operand as u16, ccr);
+            }
+            OpSize::LongWord => {
+                compare_long_words(source_operand, dest_operand, ccr);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn cmpa(
+        &mut self,
+        size: OpSize,
+        source: AddressingMode,
+        dest: AddressRegister,
+    ) -> ExecuteResult<()> {
+        let source_operand = self.read_address_operand(size, source)?;
+        let dest_operand = dest.read_from(self.registers);
+
+        compare_long_words(source_operand, dest_operand, &mut self.registers.ccr);
+
+        Ok(())
+    }
 }
 
 macro_rules! impl_add_fn {
@@ -260,6 +303,28 @@ macro_rules! impl_sub_fn {
 impl_sub_fn!(sub_bytes, u8, 0x7F);
 impl_sub_fn!(sub_words, u16, 0x7FFF);
 impl_sub_fn!(sub_long_words, u32, 0x7FFF_FFFF);
+
+macro_rules! impl_compare_fn {
+    ($name:ident, $t:ty, $overflow_mask:expr) => {
+        fn $name(source: $t, dest: $t, ccr: &mut ConditionCodes) {
+            let (difference, borrow) = dest.overflowing_sub(source);
+            let bit_m1_borrow = dest & $overflow_mask < source & $overflow_mask;
+            let overflow = bit_m1_borrow != borrow;
+
+            *ccr = ConditionCodes {
+                carry: borrow,
+                overflow,
+                zero: difference == 0,
+                negative: difference.sign_bit(),
+                ..*ccr
+            };
+        }
+    };
+}
+
+impl_compare_fn!(compare_bytes, u8, 0x7F);
+impl_compare_fn!(compare_words, u16, 0x7FFF);
+impl_compare_fn!(compare_long_words, u32, 0x7FFF_FFFF);
 
 macro_rules! impl_decode_fn {
     ($name:ident, $instruction:ident) => {
@@ -414,4 +479,62 @@ pub(super) fn decode_neg(opcode: u16) -> ExecuteResult<Instruction> {
 
 pub(super) fn decode_negx(opcode: u16) -> ExecuteResult<Instruction> {
     decode_negate(opcode, true)
+}
+
+pub(super) fn decode_cmp(opcode: u16) -> ExecuteResult<Instruction> {
+    let register = ((opcode >> 9) & 0x07) as u8;
+    let size = OpSize::parse_from_opcode(opcode)?;
+    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
+
+    Ok(Instruction::Compare {
+        size,
+        source: addressing_mode,
+        dest: AddressingMode::DataDirect(register.into()),
+    })
+}
+
+pub(super) fn decode_cmpa(opcode: u16) -> ExecuteResult<Instruction> {
+    let register = ((opcode >> 9) & 0x07) as u8;
+    let size = if opcode.bit(8) {
+        OpSize::LongWord
+    } else {
+        OpSize::Word
+    };
+    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
+
+    Ok(Instruction::Compare {
+        size,
+        source: addressing_mode,
+        dest: AddressingMode::AddressDirect(register.into()),
+    })
+}
+
+pub(super) fn decode_cmpi(opcode: u16) -> ExecuteResult<Instruction> {
+    let size = OpSize::parse_from_opcode(opcode)?;
+    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
+
+    if matches!(
+        addressing_mode,
+        AddressingMode::AddressDirect(..) | AddressingMode::Immediate
+    ) {
+        return Err(Exception::IllegalInstruction(opcode));
+    }
+
+    Ok(Instruction::Compare {
+        size,
+        source: AddressingMode::Immediate,
+        dest: addressing_mode,
+    })
+}
+
+pub(super) fn decode_cmpm(opcode: u16) -> ExecuteResult<Instruction> {
+    let size = OpSize::parse_from_opcode(opcode)?;
+    let source = (opcode & 0x07) as u8;
+    let dest = ((opcode >> 9) & 0x07) as u8;
+
+    Ok(Instruction::Compare {
+        size,
+        source: AddressingMode::AddressIndirectPostincrement(source.into()),
+        dest: AddressingMode::AddressIndirectPostincrement(dest.into()),
+    })
 }

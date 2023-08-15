@@ -61,6 +61,11 @@ pub enum Instruction {
     },
     AndToCcr,
     AndToSr,
+    Compare {
+        size: OpSize,
+        source: AddressingMode,
+        dest: AddressingMode,
+    },
     ExclusiveOr {
         size: OpSize,
         source: AddressingMode,
@@ -103,6 +108,7 @@ impl Instruction {
         match self {
             Self::Add { source, .. }
             | Self::And { source, .. }
+            | Self::Compare { source, .. }
             | Self::ExclusiveOr { source, .. }
             | Self::Move { source, .. }
             | Self::MoveToCcr(source)
@@ -126,6 +132,7 @@ impl Instruction {
         match self {
             Self::Add { dest, .. }
             | Self::And { dest, .. }
+            | Self::Compare { dest, .. }
             | Self::ExclusiveOr { dest, .. }
             | Self::Move { dest, .. }
             | Self::MoveFromSr(dest)
@@ -165,6 +172,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             Instruction::And { size, source, dest } => self.and(size, source, dest),
             Instruction::AndToCcr => self.andi_to_ccr(),
             Instruction::AndToSr => self.andi_to_sr(),
+            Instruction::Compare { size, source, dest } => self.cmp(size, source, dest),
             Instruction::ExclusiveOr { size, source, dest } => self.eor(size, source, dest),
             Instruction::ExclusiveOrToCcr => self.eori_to_ccr(),
             Instruction::ExclusiveOrToSr => self.eori_to_sr(),
@@ -206,7 +214,7 @@ fn decode_opcode(opcode: u16, supervisor_mode: bool) -> ExecuteResult<Instructio
             0b0000_0100_0000_0000 => arithmetic::decode_subi(opcode),
             0b0000_0110_0000_0000 => arithmetic::decode_addi(opcode),
             0b0000_1010_0000_0000 => bits::decode_eori(opcode, supervisor_mode),
-            0b0000_1100_0000_0000 => todo!("CMPI"),
+            0b0000_1100_0000_0000 => arithmetic::decode_cmpi(opcode),
             0b0000_1000_0000_0000 => todo!("BTST / BCHG / BCLR / BSET (immediate)"),
             _ => {
                 if opcode.bit(8) {
@@ -273,15 +281,15 @@ fn decode_opcode(opcode: u16, supervisor_mode: bool) -> ExecuteResult<Instructio
         },
         0x9000 => arithmetic::decode_sub(opcode),
         0xB000 => match opcode & 0b0000_0000_1100_0000 {
-            0b0000_0000_1100_0000 => todo!("CMPA"),
+            0b0000_0000_1100_0000 => arithmetic::decode_cmpa(opcode),
             _ => {
                 if opcode.bit(8) {
                     match opcode & 0b0000_0000_0011_1000 {
-                        0b0000_0000_0000_1000 => todo!("CMPM"),
+                        0b0000_0000_0000_1000 => arithmetic::decode_cmpm(opcode),
                         _ => bits::decode_eor(opcode),
                     }
                 } else {
-                    todo!("CMP")
+                    arithmetic::decode_cmp(opcode)
                 }
             }
         },
