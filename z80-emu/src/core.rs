@@ -319,13 +319,17 @@ impl From<IndexRegister> for Register16 {
 #[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
 pub struct Z80 {
     registers: Registers,
+    stalled: bool,
 }
 
 impl Z80 {
+    const MINIMUM_T_CYCLES: u32 = 3;
+
     #[must_use]
     pub fn new() -> Self {
         Self {
             registers: Registers::new(),
+            stalled: false,
         }
     }
 
@@ -346,8 +350,34 @@ impl Z80 {
         self.registers.interrupt_mode = mode;
     }
 
+    #[must_use]
+    pub fn stalled(&self) -> bool {
+        self.stalled
+    }
+
     /// Execute a single instruction (or the interrupt service routine) and return how many T-cycles it took.
     pub fn execute_instruction<B: BusInterface>(&mut self, bus: &mut B) -> u32 {
+        if bus.busreq() {
+            // BUSREQ is asserted; Z80 is halted
+            self.stalled = true;
+            return Self::MINIMUM_T_CYCLES;
+        }
+
+        if bus.reset() {
+            // RESET is asserted; reset internal state
+            self.registers.i = 0;
+            self.registers.r = 0;
+            self.registers.pc = 0;
+            self.registers.iff1 = false;
+            self.registers.iff2 = false;
+            self.registers.interrupt_mode = InterruptMode::Mode0;
+
+            self.stalled = true;
+            return Self::MINIMUM_T_CYCLES;
+        }
+
+        self.stalled = false;
+
         instructions::execute(&mut self.registers, bus)
     }
 }

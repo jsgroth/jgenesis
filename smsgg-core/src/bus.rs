@@ -132,4 +132,12 @@ impl<'a> BusInterface for Bus<'a> {
     fn int(&self) -> InterruptLine {
         self.vdp.interrupt_line()
     }
+
+    fn busreq(&self) -> bool {
+        false
+    }
+
+    fn reset(&self) -> bool {
+        false
+    }
 }

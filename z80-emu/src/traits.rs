@@ -23,6 +23,12 @@ pub trait BusInterface {
 
     /// Poll the INT interrupt line.
     fn int(&self) -> InterruptLine;
+
+    /// Poll the BUSREQ line; setting this halts the Z80
+    fn busreq(&self) -> bool;
+
+    /// Poll the RESET line; setting this resets and halts the Z80
+    fn reset(&self) -> bool;
 }
 
 #[cfg(test)]
@@ -32,6 +38,7 @@ pub(crate) struct InMemoryBus {
     pub(crate) io_ports: [u8; 0x100],
     pub(crate) nmi: InterruptLine,
     pub(crate) int: InterruptLine,
+    pub(crate) reset: bool,
 }
 
 #[cfg(test)]
@@ -42,6 +49,7 @@ impl InMemoryBus {
             io_ports: [0; 0x100],
             nmi: InterruptLine::High,
             int: InterruptLine::High,
+            reset: false,
         }
     }
 }
@@ -70,5 +78,13 @@ impl BusInterface for InMemoryBus {
 
     fn int(&self) -> InterruptLine {
         self.int
+    }
+
+    fn busreq(&self) -> bool {
+        false
+    }
+
+    fn reset(&self) -> bool {
+        self.reset
     }
 }

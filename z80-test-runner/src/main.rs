@@ -112,6 +112,14 @@ impl BusInterface for FullyWritableBus {
     fn int(&self) -> InterruptLine {
         InterruptLine::High
     }
+
+    fn busreq(&self) -> bool {
+        false
+    }
+
+    fn reset(&self) -> bool {
+        false
+    }
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
