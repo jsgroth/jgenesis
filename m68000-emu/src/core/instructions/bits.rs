@@ -7,7 +7,7 @@ use crate::traits::{BusInterface, GetBit, SignBit};
 
 macro_rules! impl_bit_op {
     ($name:ident, $operator:tt) => {
-        pub(super) fn $name(&mut self, size: OpSize, source: AddressingMode, dest: AddressingMode) -> ExecuteResult<()> {
+        pub(super) fn $name(&mut self, size: OpSize, source: AddressingMode, dest: AddressingMode) -> ExecuteResult<u32> {
             let operand_l = self.read(source, size)?;
 
             let dest_resolved = self.resolve_address_with_post(dest, size)?;
@@ -26,38 +26,38 @@ macro_rules! impl_bit_op {
 
             self.write_resolved(dest_resolved, value)?;
 
-            Ok(())
+            Ok(0)
         }
     }
 }
 
 macro_rules! impl_bit_op_to_ccr {
     ($name:ident, $operator:tt) => {
-        pub(super) fn $name(&mut self) -> ExecuteResult<()> {
+        pub(super) fn $name(&mut self) -> ExecuteResult<u32> {
             let byte = self.read_byte(AddressingMode::Immediate)?;
             let value = byte $operator (u8::from(self.registers.ccr));
             self.registers.ccr = value.into();
 
-            Ok(())
+            Ok(0)
         }
     }
 }
 
 macro_rules! impl_bit_op_to_sr {
     ($name:ident, $operator:tt) => {
-        pub(super) fn $name(&mut self) -> ExecuteResult<()> {
+        pub(super) fn $name(&mut self) -> ExecuteResult<u32> {
             let word = self.read_word(AddressingMode::Immediate)?;
             let value = word $operator self.registers.status_register();
             self.registers.set_status_register(value);
 
-            Ok(())
+            Ok(0)
         }
     }
 }
 
 macro_rules! impl_bit_test_op {
     ($name:ident $(, |$value:ident, $bit:ident| $body:block)?) => {
-        pub(super) fn $name(&mut self, source: AddressingMode, dest: AddressingMode) -> ExecuteResult<()> {
+        pub(super) fn $name(&mut self, source: AddressingMode, dest: AddressingMode) -> ExecuteResult<u32> {
             let bit_index = self.read_byte(source)?;
 
             match dest {
@@ -86,7 +86,7 @@ macro_rules! impl_bit_test_op {
                 }
             }
 
-            Ok(())
+            Ok(0)
         }
     }
 }
@@ -237,7 +237,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     impl_rotate_register_op!(roxr_register_u16, >>, u16, write_word_to, carry: 0, rotate_in: << 15, thru extend);
     impl_rotate_register_op!(roxr_register_u32, >>, u32, write_long_word_to, carry: 0, rotate_in: << 31, thru extend);
 
-    pub(super) fn not(&mut self, size: OpSize, dest: AddressingMode) -> ExecuteResult<()> {
+    pub(super) fn not(&mut self, size: OpSize, dest: AddressingMode) -> ExecuteResult<u32> {
         let dest_resolved = self.resolve_address_with_post(dest, size)?;
         let value: u32 = self.read_resolved(dest_resolved, size)?.into();
         let negated = SizedValue::from_size(!value, size);
@@ -252,10 +252,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_resolved(dest_resolved, negated)?;
 
-        Ok(())
+        Ok(0)
     }
 
-    pub(super) fn clr(&mut self, size: OpSize, dest: AddressingMode) -> ExecuteResult<()> {
+    pub(super) fn clr(&mut self, size: OpSize, dest: AddressingMode) -> ExecuteResult<u32> {
         let dest_resolved = self.resolve_address_with_post(dest, size)?;
         self.read_resolved(dest_resolved, size)?;
 
@@ -269,10 +269,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_resolved(dest_resolved, SizedValue::from_size(0, size))?;
 
-        Ok(())
+        Ok(0)
     }
 
-    pub(super) fn ext(&mut self, size: OpSize, register: DataRegister) {
+    pub(super) fn ext(&mut self, size: OpSize, register: DataRegister) -> u32 {
         let (zero, sign) = match size {
             OpSize::Word => {
                 let byte = register.read_from(self.registers) as u8;
@@ -296,9 +296,11 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             negative: sign,
             ..self.registers.ccr
         };
+
+        0
     }
 
-    pub(super) fn swap(&mut self, register: DataRegister) {
+    pub(super) fn swap(&mut self, register: DataRegister) -> u32 {
         let [b3, b2, b1, b0] = register.read_from(self.registers).to_be_bytes();
         let value = u32::from_be_bytes([b1, b0, b3, b2]);
         register.write_long_word_to(self.registers, value);
@@ -310,6 +312,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             negative: value.sign_bit(),
             ..self.registers.ccr
         };
+
+        0
     }
 
     pub(super) fn asd_register(
@@ -318,7 +322,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         direction: ShiftDirection,
         register: DataRegister,
         count: ShiftCount,
-    ) {
+    ) -> u32 {
         match (size, direction) {
             (OpSize::Byte, ShiftDirection::Left) => self.asl_register_u8(register, count),
             (OpSize::Byte, ShiftDirection::Right) => self.asr_register_u8(register, count),
@@ -327,13 +331,15 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             (OpSize::LongWord, ShiftDirection::Left) => self.asl_register_u32(register, count),
             (OpSize::LongWord, ShiftDirection::Right) => self.asr_register_u32(register, count),
         }
+
+        0
     }
 
     pub(super) fn asd_memory(
         &mut self,
         direction: ShiftDirection,
         dest: AddressingMode,
-    ) -> ExecuteResult<()> {
+    ) -> ExecuteResult<u32> {
         let dest_resolved = self.resolve_address_with_post(dest, OpSize::Word)?;
         let original = self.read_word_resolved(dest_resolved)?;
 
@@ -354,7 +360,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_word_resolved(dest_resolved, value)?;
 
-        Ok(())
+        Ok(0)
     }
 
     pub(super) fn lsd_register(
@@ -363,7 +369,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         direction: ShiftDirection,
         register: DataRegister,
         count: ShiftCount,
-    ) {
+    ) -> u32 {
         match (size, direction) {
             (OpSize::Byte, ShiftDirection::Left) => self.lsl_register_u8(register, count),
             (OpSize::Byte, ShiftDirection::Right) => self.lsr_register_u8(register, count),
@@ -372,13 +378,15 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             (OpSize::LongWord, ShiftDirection::Left) => self.lsl_register_u32(register, count),
             (OpSize::LongWord, ShiftDirection::Right) => self.lsr_register_u32(register, count),
         }
+
+        0
     }
 
     pub(super) fn lsd_memory(
         &mut self,
         direction: ShiftDirection,
         dest: AddressingMode,
-    ) -> ExecuteResult<()> {
+    ) -> ExecuteResult<u32> {
         let dest_resolved = self.resolve_address_with_post(dest, OpSize::Word)?;
         let original = self.read_word_resolved(dest_resolved)?;
 
@@ -397,7 +405,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_word_resolved(dest_resolved, value)?;
 
-        Ok(())
+        Ok(0)
     }
 
     pub(super) fn rod_register(
@@ -406,7 +414,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         direction: ShiftDirection,
         register: DataRegister,
         count: ShiftCount,
-    ) {
+    ) -> u32 {
         match (size, direction) {
             (OpSize::Byte, ShiftDirection::Left) => self.rol_register_u8(register, count),
             (OpSize::Byte, ShiftDirection::Right) => self.ror_register_u8(register, count),
@@ -415,13 +423,15 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             (OpSize::LongWord, ShiftDirection::Left) => self.rol_register_u32(register, count),
             (OpSize::LongWord, ShiftDirection::Right) => self.ror_register_u32(register, count),
         }
+
+        0
     }
 
     pub(super) fn rod_memory(
         &mut self,
         direction: ShiftDirection,
         dest: AddressingMode,
-    ) -> ExecuteResult<()> {
+    ) -> ExecuteResult<u32> {
         let dest_resolved = self.resolve_address_with_post(dest, OpSize::Word)?;
         let original = self.read_word_resolved(dest_resolved)?;
 
@@ -446,7 +456,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_word_resolved(dest_resolved, value)?;
 
-        Ok(())
+        Ok(0)
     }
 
     pub(super) fn roxd_register(
@@ -455,7 +465,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         direction: ShiftDirection,
         register: DataRegister,
         count: ShiftCount,
-    ) {
+    ) -> u32 {
         match (size, direction) {
             (OpSize::Byte, ShiftDirection::Left) => self.roxl_register_u8(register, count),
             (OpSize::Byte, ShiftDirection::Right) => self.roxr_register_u8(register, count),
@@ -464,13 +474,15 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             (OpSize::LongWord, ShiftDirection::Left) => self.roxl_register_u32(register, count),
             (OpSize::LongWord, ShiftDirection::Right) => self.roxr_register_u32(register, count),
         }
+
+        0
     }
 
     pub(super) fn roxd_memory(
         &mut self,
         direction: ShiftDirection,
         dest: AddressingMode,
-    ) -> ExecuteResult<()> {
+    ) -> ExecuteResult<u32> {
         let dest_resolved = self.resolve_address_with_post(dest, OpSize::Word)?;
         let original = self.read_word_resolved(dest_resolved)?;
 
@@ -490,10 +502,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_word_resolved(dest_resolved, value)?;
 
-        Ok(())
+        Ok(0)
     }
 
-    pub(super) fn tst(&mut self, size: OpSize, source: AddressingMode) -> ExecuteResult<()> {
+    pub(super) fn tst(&mut self, size: OpSize, source: AddressingMode) -> ExecuteResult<u32> {
         let value = self.read(source, size)?;
 
         self.registers.ccr = ConditionCodes {
@@ -504,10 +516,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             ..self.registers.ccr
         };
 
-        Ok(())
+        Ok(0)
     }
 
-    pub(super) fn tas(&mut self, dest: AddressingMode) -> ExecuteResult<()> {
+    pub(super) fn tas(&mut self, dest: AddressingMode) -> ExecuteResult<u32> {
         let dest_resolved = self.resolve_address_with_post(dest, OpSize::Byte)?;
         let value = self.read_byte_resolved(dest_resolved);
 
@@ -521,7 +533,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_byte_resolved(dest_resolved, value | 0x80);
 
-        Ok(())
+        Ok(0)
     }
 }
 

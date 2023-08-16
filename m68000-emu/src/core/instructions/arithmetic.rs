@@ -12,7 +12,7 @@ macro_rules! impl_extend_op_method {
             size: OpSize,
             source: AddressingMode,
             dest: AddressingMode,
-        ) -> ExecuteResult<()> {
+        ) -> ExecuteResult<u32> {
             let (_, operand_r) = self.read_extend_operand(size, source)?;
             let operand_r: u32 = operand_r.into();
 
@@ -36,7 +36,7 @@ macro_rules! impl_extend_op_method {
 
             self.write_resolved(dest_resolved, sum)?;
 
-            Ok(())
+            Ok(0)
         }
     };
 }
@@ -49,7 +49,7 @@ macro_rules! impl_op_method {
             source: AddressingMode,
             dest: AddressingMode,
             with_extend: bool,
-        ) -> ExecuteResult<()> {
+        ) -> ExecuteResult<u32> {
             if with_extend {
                 return self.$xname(size, source, dest);
             }
@@ -81,7 +81,7 @@ macro_rules! impl_op_method {
 
             self.write_resolved(dest_resolved, sum)?;
 
-            Ok(())
+            Ok(0)
         }
     };
 }
@@ -127,14 +127,14 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         size: OpSize,
         source: AddressingMode,
         dest: AddressRegister,
-    ) -> ExecuteResult<()> {
+    ) -> ExecuteResult<u32> {
         let operand_r = self.read_address_operand(size, source)?;
         let operand_l = dest.read_from(self.registers);
 
         let sum = operand_l.wrapping_add(operand_r);
         dest.write_long_word_to(self.registers, sum);
 
-        Ok(())
+        Ok(0)
     }
 
     impl_extend_op_method!(addx, add_bytes, add_words, add_long_words);
@@ -145,14 +145,14 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         size: OpSize,
         source: AddressingMode,
         dest: AddressRegister,
-    ) -> ExecuteResult<()> {
+    ) -> ExecuteResult<u32> {
         let operand_r = self.read_address_operand(size, source)?;
         let operand_l = dest.read_from(self.registers);
 
         let difference = operand_l.wrapping_sub(operand_r);
         dest.write_long_word_to(self.registers, difference);
 
-        Ok(())
+        Ok(0)
     }
 
     impl_extend_op_method!(subx, sub_bytes, sub_words, sub_long_words);
@@ -163,7 +163,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         size: OpSize,
         dest: AddressingMode,
         with_extend: bool,
-    ) -> ExecuteResult<()> {
+    ) -> ExecuteResult<u32> {
         if with_extend {
             return self.negx(size, dest);
         }
@@ -186,10 +186,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_resolved(dest_resolved, difference)?;
 
-        Ok(())
+        Ok(0)
     }
 
-    fn negx(&mut self, size: OpSize, dest: AddressingMode) -> ExecuteResult<()> {
+    fn negx(&mut self, size: OpSize, dest: AddressingMode) -> ExecuteResult<u32> {
         let dest_resolved = self.resolve_address_with_post(dest, size)?;
         let operand_r: u32 = self.read_resolved(dest_resolved, size)?.into();
 
@@ -210,7 +210,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_resolved(dest_resolved, difference)?;
 
-        Ok(())
+        Ok(0)
     }
 
     pub(super) fn cmp(
@@ -218,7 +218,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         size: OpSize,
         source: AddressingMode,
         dest: AddressingMode,
-    ) -> ExecuteResult<()> {
+    ) -> ExecuteResult<u32> {
         if let AddressingMode::AddressDirect(dest) = dest {
             return self.cmpa(size, source, dest);
         }
@@ -239,7 +239,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             }
         }
 
-        Ok(())
+        Ok(0)
     }
 
     fn cmpa(
@@ -247,20 +247,20 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         size: OpSize,
         source: AddressingMode,
         dest: AddressRegister,
-    ) -> ExecuteResult<()> {
+    ) -> ExecuteResult<u32> {
         let source_operand = self.read_address_operand(size, source)?;
         let dest_operand = dest.read_from(self.registers);
 
         compare_long_words(source_operand, dest_operand, &mut self.registers.ccr);
 
-        Ok(())
+        Ok(0)
     }
 
     pub(super) fn muls(
         &mut self,
         register: DataRegister,
         source: AddressingMode,
-    ) -> ExecuteResult<()> {
+    ) -> ExecuteResult<u32> {
         let operand_l = self.read_word(source)? as i16;
         let operand_r = register.read_from(self.registers) as i16;
 
@@ -275,14 +275,14 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             ..self.registers.ccr
         };
 
-        Ok(())
+        Ok(0)
     }
 
     pub(super) fn mulu(
         &mut self,
         register: DataRegister,
         source: AddressingMode,
-    ) -> ExecuteResult<()> {
+    ) -> ExecuteResult<u32> {
         let operand_l = self.read_word(source)?;
         let operand_r = register.read_from(self.registers) as u16;
 
@@ -297,14 +297,14 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             ..self.registers.ccr
         };
 
-        Ok(())
+        Ok(0)
     }
 
     pub(super) fn divs(
         &mut self,
         register: DataRegister,
         source: AddressingMode,
-    ) -> ExecuteResult<()> {
+    ) -> ExecuteResult<u32> {
         let operand_l = register.read_from(self.registers) as i32;
         let operand_r: i32 = (self.read_word(source)? as i16).into();
 
@@ -328,7 +328,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 overflow: true,
                 ..self.registers.ccr
             };
-            return Ok(());
+            return Ok(0);
         }
 
         let value = ((quotient as u32) & 0x0000_FFFF) | ((remainder as u32) << 16);
@@ -342,14 +342,14 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             ..self.registers.ccr
         };
 
-        Ok(())
+        Ok(0)
     }
 
     pub(super) fn divu(
         &mut self,
         register: DataRegister,
         source: AddressingMode,
-    ) -> ExecuteResult<()> {
+    ) -> ExecuteResult<u32> {
         let operand_l = register.read_from(self.registers);
         let operand_r: u32 = self.read_word(source)?.into();
 
@@ -373,7 +373,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 overflow: true,
                 ..self.registers.ccr
             };
-            return Ok(());
+            return Ok(0);
         }
 
         let value = (quotient & 0x0000_FFFF) | (remainder << 16);
@@ -387,14 +387,14 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             ..self.registers.ccr
         };
 
-        Ok(())
+        Ok(0)
     }
 
     pub(super) fn abcd(
         &mut self,
         source: AddressingMode,
         dest: AddressingMode,
-    ) -> ExecuteResult<()> {
+    ) -> ExecuteResult<u32> {
         let operand_l = self.read_byte(source)?;
 
         let dest_resolved = self.resolve_address(dest, OpSize::Byte)?;
@@ -433,14 +433,14 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_byte_resolved(dest_resolved, corrected_sum);
 
-        Ok(())
+        Ok(0)
     }
 
     pub(super) fn sbcd(
         &mut self,
         source: AddressingMode,
         dest: AddressingMode,
-    ) -> ExecuteResult<()> {
+    ) -> ExecuteResult<u32> {
         let operand_r = self.read_byte(source)?;
 
         let dest_resolved = self.resolve_address(dest, OpSize::Byte)?;
@@ -450,10 +450,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_byte_resolved(dest_resolved, difference);
 
-        Ok(())
+        Ok(0)
     }
 
-    pub(super) fn nbcd(&mut self, dest: AddressingMode) -> ExecuteResult<()> {
+    pub(super) fn nbcd(&mut self, dest: AddressingMode) -> ExecuteResult<u32> {
         let dest_resolved = self.resolve_address_with_post(dest, OpSize::Byte)?;
         let operand_r = self.read_byte_resolved(dest_resolved);
 
@@ -461,7 +461,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_byte_resolved(dest_resolved, difference);
 
-        Ok(())
+        Ok(0)
     }
 
     fn decimal_subtract(&mut self, operand_l: u8, operand_r: u8) -> u8 {

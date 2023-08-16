@@ -970,9 +970,11 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         Ok(())
     }
 
-    fn execute(mut self) {
+    fn execute(mut self) -> u32 {
         match self.do_execute() {
-            Ok(()) => {}
+            Ok(cycles) => {
+                return cycles;
+            }
             Err(Exception::AddressError(address, op_type)) => {
                 log::trace!(
                     "Encountered address error; address={address:08X}, op_type={op_type:?}"
@@ -1013,6 +1015,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 }
             }
         }
+
+        0
     }
 }
 
@@ -1076,8 +1080,8 @@ impl M68000 {
         self.registers.pc = pc;
     }
 
-    pub fn execute_instruction<B: BusInterface>(&mut self, bus: &mut B) {
-        InstructionExecutor::new(&mut self.registers, bus).execute();
+    pub fn execute_instruction<B: BusInterface>(&mut self, bus: &mut B) -> u32 {
+        InstructionExecutor::new(&mut self.registers, bus).execute()
     }
 }
 

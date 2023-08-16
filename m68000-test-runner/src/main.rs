@@ -146,9 +146,10 @@ fn main() {
 
     let mut bus = InMemoryBus::new();
     let mut failure_count = 0_u32;
+    let mut timing_failure_count = 0_u32;
     for test_description in &test_descriptions {
         let mut m68000 = init_test_state(&test_description.initial, &mut bus);
-        m68000.execute_instruction(&mut bus);
+        let cycles = m68000.execute_instruction(&mut bus);
 
         let state = State::from(&m68000, &mut bus, &test_description.final_state);
         if state != test_description.final_state {
@@ -157,12 +158,23 @@ fn main() {
 
             failure_count += 1;
         }
+
+        if cycles != test_description.length {
+            log::info!(
+                "Timing mismatch for test '{}'; actual={cycles}, expected={}",
+                test_description.name,
+                test_description.length
+            );
+
+            timing_failure_count += 1;
+        }
     }
 
+    let num_tests = test_descriptions.len();
+    let display_path = file_path.display();
+    log::info!("Failed {failure_count} out of {num_tests} tests in {display_path}");
     log::info!(
-        "Failed {failure_count} out of {} tests in {}",
-        test_descriptions.len(),
-        file_path.display()
+        "Timing mismatches for {timing_failure_count} out of {num_tests} tests in {display_path}"
     );
 }
 

@@ -32,37 +32,37 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         &mut self,
         source: AddressingMode,
         register: AddressRegister,
-    ) -> ExecuteResult<()> {
+    ) -> ExecuteResult<u32> {
         let address = self.resolve_to_memory_address(source)?;
         register.write_long_word_to(self.registers, address);
 
-        Ok(())
+        Ok(0)
     }
 
-    pub(super) fn pea(&mut self, source: AddressingMode) -> ExecuteResult<()> {
+    pub(super) fn pea(&mut self, source: AddressingMode) -> ExecuteResult<u32> {
         let address = self.resolve_to_memory_address(source)?;
         self.push_stack_u32(address)?;
 
-        Ok(())
+        Ok(0)
     }
 
-    pub(super) fn jmp(&mut self, source: AddressingMode) -> ExecuteResult<()> {
+    pub(super) fn jmp(&mut self, source: AddressingMode) -> ExecuteResult<u32> {
         let address = self.resolve_to_memory_address(source)?;
         self.registers.pc = self.check_jump_address(address)?;
 
-        Ok(())
+        Ok(0)
     }
 
-    pub(super) fn jsr(&mut self, source: AddressingMode) -> ExecuteResult<()> {
+    pub(super) fn jsr(&mut self, source: AddressingMode) -> ExecuteResult<u32> {
         let address = self.resolve_to_memory_address(source)?;
         let old_pc = self.registers.pc;
         self.registers.pc = self.check_jump_address(address)?;
         self.push_stack_u32(old_pc)?;
 
-        Ok(())
+        Ok(0)
     }
 
-    pub(super) fn link(&mut self, register: AddressRegister) -> ExecuteResult<()> {
+    pub(super) fn link(&mut self, register: AddressRegister) -> ExecuteResult<u32> {
         let extension = self.fetch_operand()?;
         let displacement = extension as i16;
 
@@ -76,19 +76,19 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         register.write_long_word_to(self.registers, sp);
         self.registers.set_sp(sp.wrapping_add(displacement as u32));
 
-        Ok(())
+        Ok(0)
     }
 
-    pub(super) fn unlk(&mut self, register: AddressRegister) -> ExecuteResult<()> {
+    pub(super) fn unlk(&mut self, register: AddressRegister) -> ExecuteResult<u32> {
         self.registers.set_sp(register.read_from(self.registers));
 
         let address = self.pop_stack_u32()?;
         register.write_long_word_to(self.registers, address);
 
-        Ok(())
+        Ok(0)
     }
 
-    pub(super) fn ret(&mut self, restore_ccr: bool) -> ExecuteResult<()> {
+    pub(super) fn ret(&mut self, restore_ccr: bool) -> ExecuteResult<u32> {
         if restore_ccr {
             let word = self.pop_stack_u16()?;
             self.registers.ccr = (word as u8).into();
@@ -97,24 +97,24 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let pc = self.pop_stack_u32()?;
         self.registers.pc = self.check_jump_address(pc)?;
 
-        Ok(())
+        Ok(0)
     }
 
-    pub(super) fn rte(&mut self) -> ExecuteResult<()> {
+    pub(super) fn rte(&mut self) -> ExecuteResult<u32> {
         let sr = self.pop_stack_u16()?;
 
         let pc = self.pop_stack_u32()?;
         self.registers.set_status_register(sr);
         self.registers.pc = self.check_jump_address(pc)?;
 
-        Ok(())
+        Ok(0)
     }
 
-    pub(super) fn trapv(&self) -> ExecuteResult<()> {
+    pub(super) fn trapv(&self) -> ExecuteResult<u32> {
         if self.registers.ccr.overflow {
             Err(Exception::Trap(OVERFLOW_VECTOR))
         } else {
-            Ok(())
+            Ok(0)
         }
     }
 
@@ -122,7 +122,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         &mut self,
         register: DataRegister,
         source: AddressingMode,
-    ) -> ExecuteResult<()> {
+    ) -> ExecuteResult<u32> {
         let upper_bound = self.read_word(source)? as i16;
 
         let value = register.read_from(self.registers) as i16;
@@ -141,7 +141,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             self.registers.ccr.negative = false;
             Err(Exception::CheckRegister)
         } else {
-            Ok(())
+            Ok(0)
         }
     }
 
@@ -160,7 +160,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         &mut self,
         condition: BranchCondition,
         displacement: i8,
-    ) -> ExecuteResult<()> {
+    ) -> ExecuteResult<u32> {
         let pc = self.registers.pc;
         let displacement = self.fetch_branch_displacement(displacement)?;
 
@@ -169,10 +169,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             self.registers.pc = self.check_jump_address(address)?;
         }
 
-        Ok(())
+        Ok(0)
     }
 
-    pub(super) fn bsr(&mut self, displacement: i8) -> ExecuteResult<()> {
+    pub(super) fn bsr(&mut self, displacement: i8) -> ExecuteResult<u32> {
         let pc = self.registers.pc;
         let displacement = self.fetch_branch_displacement(displacement)?;
 
@@ -181,14 +181,14 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let address = pc.wrapping_add(displacement as u32);
         self.registers.pc = self.check_jump_address(address)?;
 
-        Ok(())
+        Ok(0)
     }
 
     pub(super) fn dbcc(
         &mut self,
         condition: BranchCondition,
         register: DataRegister,
-    ) -> ExecuteResult<()> {
+    ) -> ExecuteResult<u32> {
         let pc = self.registers.pc;
         let displacement = self.fetch_operand()? as i16;
 
@@ -202,14 +202,14 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             }
         }
 
-        Ok(())
+        Ok(0)
     }
 
     pub(super) fn scc(
         &mut self,
         condition: BranchCondition,
         dest: AddressingMode,
-    ) -> ExecuteResult<()> {
+    ) -> ExecuteResult<u32> {
         let value = if condition.check(self.registers.ccr) {
             0xFF
         } else {
@@ -218,11 +218,11 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_byte(dest, value)?;
 
-        Ok(())
+        Ok(0)
     }
 }
 
-pub(super) fn trap(vector: u32) -> ExecuteResult<()> {
+pub(super) fn trap(vector: u32) -> ExecuteResult<u32> {
     Err(Exception::Trap(TRAP_VECTOR_OFFSET + vector))
 }
 

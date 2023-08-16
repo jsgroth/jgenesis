@@ -7,12 +7,14 @@ use crate::traits::{BusInterface, GetBit, SignBit};
 
 macro_rules! impl_exg {
     ($name:ident, $tx:ty, $ty:ty) => {
-        pub(super) fn $name(&mut self, rx: $tx, ry: $ty) {
+        pub(super) fn $name(&mut self, rx: $tx, ry: $ty) -> u32 {
             let x_val = rx.read_from(self.registers);
             let y_val = ry.read_from(self.registers);
 
             rx.write_long_word_to(self.registers, y_val);
             ry.write_long_word_to(self.registers, x_val);
+
+            0
         }
     };
 }
@@ -23,7 +25,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         size: OpSize,
         source: AddressingMode,
         dest: AddressingMode,
-    ) -> ExecuteResult<()> {
+    ) -> ExecuteResult<u32> {
         let value = self.read(source, size)?;
 
         if !dest.is_address_direct() {
@@ -38,31 +40,33 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write(dest, value)?;
 
-        Ok(())
+        Ok(0)
     }
 
-    pub(super) fn move_from_sr(&mut self, dest: AddressingMode) -> ExecuteResult<()> {
+    pub(super) fn move_from_sr(&mut self, dest: AddressingMode) -> ExecuteResult<u32> {
         let dest_resolved = self.resolve_address_with_post(dest, OpSize::Word)?;
-        self.write_word_resolved(dest_resolved, self.registers.status_register())
+        self.write_word_resolved(dest_resolved, self.registers.status_register())?;
+
+        Ok(0)
     }
 
-    pub(super) fn move_to_ccr(&mut self, source: AddressingMode) -> ExecuteResult<()> {
+    pub(super) fn move_to_ccr(&mut self, source: AddressingMode) -> ExecuteResult<u32> {
         let value = self.read_word(source)?;
 
         self.registers.ccr = (value as u8).into();
 
-        Ok(())
+        Ok(0)
     }
 
-    pub(super) fn move_to_sr(&mut self, source: AddressingMode) -> ExecuteResult<()> {
+    pub(super) fn move_to_sr(&mut self, source: AddressingMode) -> ExecuteResult<u32> {
         let value = self.read_word(source)?;
 
         self.registers.set_status_register(value);
 
-        Ok(())
+        Ok(0)
     }
 
-    pub(super) fn moveq(&mut self, data: i8, register: DataRegister) {
+    pub(super) fn moveq(&mut self, data: i8, register: DataRegister) -> u32 {
         register.write_long_word_to(self.registers, data as u32);
 
         self.registers.ccr = ConditionCodes {
@@ -72,9 +76,11 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             negative: data < 0,
             ..self.registers.ccr
         };
+
+        0
     }
 
-    pub(super) fn move_usp(&mut self, direction: UspDirection, register: AddressRegister) {
+    pub(super) fn move_usp(&mut self, direction: UspDirection, register: AddressRegister) -> u32 {
         match direction {
             UspDirection::RegisterToUsp => {
                 let value = register.read_from(self.registers);
@@ -84,6 +90,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 register.write_long_word_to(self.registers, self.registers.usp);
             }
         }
+
+        0
     }
 
     pub(super) fn movem(
@@ -91,7 +99,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         size: OpSize,
         addressing_mode: AddressingMode,
         direction: Direction,
-    ) -> ExecuteResult<()> {
+    ) -> ExecuteResult<u32> {
         let extension = self.fetch_operand()?;
         if let AddressingMode::AddressIndirectPredecrement(register) = addressing_mode {
             return self.movem_predecrement(size, register, extension);
@@ -172,7 +180,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             }
         }
 
-        Ok(())
+        Ok(0)
     }
 
     fn movem_predecrement(
@@ -180,7 +188,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         size: OpSize,
         predec_register: AddressRegister,
         extension: u16,
-    ) -> ExecuteResult<()> {
+    ) -> ExecuteResult<u32> {
         let iter = MultipleRegisterIter::new_reverse(extension);
         let mut address = predec_register.read_from(self.registers);
 
@@ -208,7 +216,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         predec_register.write_long_word_to(self.registers, address);
 
-        Ok(())
+        Ok(0)
     }
 
     pub(super) fn movep(
@@ -217,7 +225,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         d_register: DataRegister,
         a_register: AddressRegister,
         direction: Direction,
-    ) -> ExecuteResult<()> {
+    ) -> ExecuteResult<u32> {
         let extension = self.fetch_operand()?;
         let displacement = extension as i16;
         let address = a_register
@@ -255,7 +263,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             (OpSize::Byte, _) => panic!("MOVEP does not support size byte"),
         }
 
-        Ok(())
+        Ok(0)
     }
 
     impl_exg!(exg_data, DataRegister, DataRegister);

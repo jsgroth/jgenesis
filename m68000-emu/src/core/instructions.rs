@@ -422,7 +422,7 @@ impl Instruction {
 }
 
 impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
-    pub(super) fn do_execute(&mut self) -> ExecuteResult<()> {
+    pub(super) fn do_execute(&mut self) -> ExecuteResult<u32> {
         let opcode = self.fetch_operand()?;
         self.opcode = opcode;
 
@@ -443,8 +443,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             Instruction::AndToSr => self.andi_to_sr(),
             Instruction::ArithmeticShiftMemory(direction, dest) => self.asd_memory(direction, dest),
             Instruction::ArithmeticShiftRegister(size, direction, register, count) => {
-                self.asd_register(size, direction, register, count);
-                Ok(())
+                Ok(self.asd_register(size, direction, register, count))
             }
             Instruction::BitTest { source, dest } => self.btst(source, dest),
             Instruction::BitTestAndChange { source, dest } => self.bchg(source, dest),
@@ -458,33 +457,20 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             Instruction::Compare { size, source, dest } => self.cmp(size, source, dest),
             Instruction::DivideSigned(register, source) => self.divs(register, source),
             Instruction::DivideUnsigned(register, source) => self.divu(register, source),
-            Instruction::ExchangeAddress(rx, ry) => {
-                self.exg_address(rx, ry);
-                Ok(())
-            }
-            Instruction::ExchangeData(rx, ry) => {
-                self.exg_data(rx, ry);
-                Ok(())
-            }
-            Instruction::ExchangeDataAddress(rx, ry) => {
-                self.exg_data_address(rx, ry);
-                Ok(())
-            }
+            Instruction::ExchangeAddress(rx, ry) => Ok(self.exg_address(rx, ry)),
+            Instruction::ExchangeData(rx, ry) => Ok(self.exg_data(rx, ry)),
+            Instruction::ExchangeDataAddress(rx, ry) => Ok(self.exg_data_address(rx, ry)),
             Instruction::ExclusiveOr { size, source, dest } => self.eor(size, source, dest),
             Instruction::ExclusiveOrToCcr => self.eori_to_ccr(),
             Instruction::ExclusiveOrToSr => self.eori_to_sr(),
-            Instruction::Extend(size, register) => {
-                self.ext(size, register);
-                Ok(())
-            }
+            Instruction::Extend(size, register) => Ok(self.ext(size, register)),
             Instruction::Jump(source) => self.jmp(source),
             Instruction::JumpToSubroutine(source) => self.jsr(source),
             Instruction::Link(register) => self.link(register),
             Instruction::LoadEffectiveAddress(source, dest) => self.lea(source, dest),
             Instruction::LogicalShiftMemory(direction, dest) => self.lsd_memory(direction, dest),
             Instruction::LogicalShiftRegister(size, direction, register, count) => {
-                self.lsd_register(size, direction, register, count);
-                Ok(())
+                Ok(self.lsd_register(size, direction, register, count))
             }
             Instruction::Move { size, source, dest } => self.move_(size, source, dest),
             Instruction::MoveFromSr(dest) => self.move_from_sr(dest),
@@ -494,16 +480,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             Instruction::MovePeripheral(size, d_register, a_register, direction) => {
                 self.movep(size, d_register, a_register, direction)
             }
-            Instruction::MoveQuick(data, register) => {
-                self.moveq(data, register);
-                Ok(())
-            }
+            Instruction::MoveQuick(data, register) => Ok(self.moveq(data, register)),
             Instruction::MoveToCcr(source) => self.move_to_ccr(source),
             Instruction::MoveToSr(source) => self.move_to_sr(source),
-            Instruction::MoveUsp(direction, register) => {
-                self.move_usp(direction, register);
-                Ok(())
-            }
+            Instruction::MoveUsp(direction, register) => Ok(self.move_usp(direction, register)),
             Instruction::MultiplySigned(register, source) => self.muls(register, source),
             Instruction::MultiplyUnsigned(register, source) => self.mulu(register, source),
             Instruction::Negate {
@@ -512,7 +492,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 with_extend,
             } => self.neg(size, dest, with_extend),
             Instruction::NegateDecimal(dest) => self.nbcd(dest),
-            Instruction::NoOp => Ok(()),
+            Instruction::NoOp => Ok(0),
             Instruction::Not(size, dest) => self.not(size, dest),
             Instruction::Or { size, source, dest } => self.or(size, source, dest),
             Instruction::OrToCcr => self.ori_to_ccr(),
@@ -520,21 +500,19 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             Instruction::PushEffectiveAddress(source) => self.pea(source),
             Instruction::Reset => {
                 // TODO RESET
-                Ok(())
+                Ok(0)
             }
             Instruction::Return { restore_ccr } => self.ret(restore_ccr),
             Instruction::ReturnFromException => self.rte(),
             Instruction::RotateMemory(direction, dest) => self.rod_memory(direction, dest),
             Instruction::RotateRegister(size, direction, register, count) => {
-                self.rod_register(size, direction, register, count);
-                Ok(())
+                Ok(self.rod_register(size, direction, register, count))
             }
             Instruction::RotateThruExtendMemory(direction, dest) => {
                 self.roxd_memory(direction, dest)
             }
             Instruction::RotateThruExtendRegister(size, direction, register, count) => {
-                self.roxd_register(size, direction, register, count);
-                Ok(())
+                Ok(self.roxd_register(size, direction, register, count))
             }
             Instruction::Set(condition, dest) => self.scc(condition, dest),
             Instruction::Subtract {
@@ -544,10 +522,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 with_extend,
             } => self.sub(size, source, dest, with_extend),
             Instruction::SubtractDecimal { source, dest } => self.sbcd(source, dest),
-            Instruction::Swap(register) => {
-                self.swap(register);
-                Ok(())
-            }
+            Instruction::Swap(register) => Ok(self.swap(register)),
             Instruction::Test(size, source) => self.tst(size, source),
             Instruction::TestAndSet(dest) => self.tas(dest),
             Instruction::Trap(vector) => controlflow::trap(vector),
