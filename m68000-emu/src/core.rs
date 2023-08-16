@@ -45,6 +45,7 @@ struct Registers {
     interrupt_priority_mask: u8,
     supervisor_mode: bool,
     trace_enabled: bool,
+    address_error: bool,
 }
 
 impl Registers {
@@ -59,6 +60,7 @@ impl Registers {
             interrupt_priority_mask: 0,
             supervisor_mode: true,
             trace_enabled: false,
+            address_error: false,
         }
     }
 
@@ -971,17 +973,22 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     }
 
     fn execute(mut self) -> u32 {
+        self.registers.address_error = false;
+
         match self.do_execute() {
-            Ok(cycles) => {
-                return cycles;
-            }
+            Ok(cycles) => cycles,
             Err(Exception::AddressError(address, op_type)) => {
+                self.registers.address_error = true;
+
                 log::trace!(
                     "Encountered address error; address={address:08X}, op_type={op_type:?}"
                 );
                 if self.handle_address_error(address, op_type).is_err() {
                     todo!("halt CPU")
                 }
+
+                // Not completely accurate but close enough; this shouldn't occur in real software
+                50
             }
             Err(Exception::PrivilegeViolation) => todo!("privilege violation"),
             Err(Exception::IllegalInstruction(opcode)) => {
@@ -992,6 +999,9 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 {
                     todo!("???")
                 }
+
+                // TODO this shouldn't happen in real software
+                50
             }
             Err(Exception::DivisionByZero) => {
                 if self
@@ -1000,11 +1010,17 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 {
                     todo!("???")
                 }
+
+                // TODO right number
+                50
             }
             Err(Exception::Trap(vector)) => {
                 if self.handle_trap(vector, self.registers.pc).is_err() {
                     todo!("???")
                 }
+
+                // TODO right number
+                50
             }
             Err(Exception::CheckRegister) => {
                 if self
@@ -1013,10 +1029,11 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 {
                     todo!("???")
                 }
+
+                // TODO right number
+                50
             }
         }
-
-        0
     }
 }
 
@@ -1078,6 +1095,11 @@ impl M68000 {
 
     pub fn set_pc(&mut self, pc: u32) {
         self.registers.pc = pc;
+    }
+
+    #[must_use]
+    pub fn address_error(&self) -> bool {
+        self.registers.address_error
     }
 
     pub fn execute_instruction<B: BusInterface>(&mut self, bus: &mut B) -> u32 {

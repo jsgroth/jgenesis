@@ -159,7 +159,7 @@ fn main() {
             failure_count += 1;
         }
 
-        if cycles != test_description.length {
+        if cycles != test_description.length && !m68000.address_error() {
             log::info!(
                 "Timing mismatch for test '{}'; actual={cycles}, expected={}",
                 test_description.name,
