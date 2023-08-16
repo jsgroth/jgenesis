@@ -320,6 +320,7 @@ impl From<IndexRegister> for Register16 {
 pub struct Z80 {
     registers: Registers,
     stalled: bool,
+    t_cycles_wait: u32,
 }
 
 impl Z80 {
@@ -330,6 +331,7 @@ impl Z80 {
         Self {
             registers: Registers::new(),
             stalled: false,
+            t_cycles_wait: 0,
         }
     }
 
@@ -379,6 +381,20 @@ impl Z80 {
         self.stalled = false;
 
         instructions::execute(&mut self.registers, bus)
+    }
+
+    /// Tick the Z80 for a single T-cycle.
+    ///
+    /// When run using this method, the Z80 will immediately execute an instruction in full and
+    /// internally record how many cycles the instruction took; the next instruction will be
+    /// executed after calling `tick()` that many times, and so on.
+    pub fn tick<B: BusInterface>(&mut self, bus: &mut B) {
+        if self.t_cycles_wait > 0 {
+            self.t_cycles_wait -= 1;
+        } else {
+            // Subtract 1 to account for the current tick() call
+            self.t_cycles_wait = self.execute_instruction(bus) - 1;
+        }
     }
 }
 
