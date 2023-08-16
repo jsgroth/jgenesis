@@ -336,6 +336,7 @@ pub struct Psg {
 const PSG_DIVIDER: u8 = 16;
 
 impl Psg {
+    #[must_use]
     pub fn new(version: PsgVersion) -> Self {
         Self {
             version,
@@ -424,6 +425,7 @@ impl Psg {
         }
     }
 
+    #[must_use]
     pub fn sample(&self) -> (f64, f64) {
         // TODO rewrite to use integer arithmetic as much as possible
         let volume_table = match self.version {

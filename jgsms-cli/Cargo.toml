@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-jgsms-core = { path = "../jgsms-core" }
+smsgg-core = { path = "../smsgg-core" }
 
 clap = { version = "4", features = ["derive"] }
 env_logger = "0.10"

@@ -595,19 +595,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "env_logger",
- "jgsms-core",
-]
-
-[[package]]
-name = "jgsms-core"
-version = "0.1.0"
-dependencies = [
- "bincode",
- "cpal",
- "crc",
- "log",
- "minifb",
- "z80-emu",
+ "smsgg-core",
 ]
 
 [[package]]
@@ -1223,6 +1211,18 @@ name = "smallvec"
 version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62bb4feee49fdd9f707ef802e22365a35de4b7b299de4763d44bfea899442ff9"
+
+[[package]]
+name = "smsgg-core"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "cpal",
+ "crc",
+ "log",
+ "minifb",
+ "z80-emu",
+]
 
 [[package]]
 name = "strsim"

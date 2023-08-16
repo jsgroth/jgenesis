@@ -1,6 +1,7 @@
 use clap::Parser;
 use env_logger::Env;
-use jgsms_core::{PsgVersion, SmsGgConfig, VdpVersion};
+use smsgg_core::psg::PsgVersion;
+use smsgg_core::{SmsGgConfig, VdpVersion};
 use std::error::Error;
 
 #[derive(Parser)]
@@ -45,5 +46,5 @@ fn main() -> Result<(), Box<dyn Error>> {
         remove_sprite_limit: args.remove_sprite_limit,
     };
 
-    jgsms_core::run(config)
+    smsgg_core::run(config)
 }
