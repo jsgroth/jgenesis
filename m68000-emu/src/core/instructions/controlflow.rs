@@ -76,7 +76,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         register.write_long_word_to(self.registers, sp);
         self.registers.set_sp(sp.wrapping_add(displacement as u32));
 
-        Ok(0)
+        Ok(16)
     }
 
     pub(super) fn unlk(&mut self, register: AddressRegister) -> ExecuteResult<u32> {
@@ -85,7 +85,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let address = self.pop_stack_u32()?;
         register.write_long_word_to(self.registers, address);
 
-        Ok(0)
+        Ok(12)
     }
 
     pub(super) fn ret(&mut self, restore_ccr: bool) -> ExecuteResult<u32> {
@@ -97,7 +97,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let pc = self.pop_stack_u32()?;
         self.registers.pc = self.check_jump_address(pc)?;
 
-        Ok(0)
+        Ok(if restore_ccr { 20 } else { 16 })
     }
 
     pub(super) fn rte(&mut self) -> ExecuteResult<u32> {
@@ -107,14 +107,14 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         self.registers.set_status_register(sr);
         self.registers.pc = self.check_jump_address(pc)?;
 
-        Ok(0)
+        Ok(20)
     }
 
     pub(super) fn trapv(&self) -> ExecuteResult<u32> {
         if self.registers.ccr.overflow {
             Err(Exception::Trap(OVERFLOW_VECTOR))
         } else {
-            Ok(0)
+            Ok(4)
         }
     }
 
@@ -145,15 +145,13 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         }
     }
 
-    fn fetch_branch_displacement(&mut self, displacement: i8) -> ExecuteResult<i16> {
-        let displacement = if displacement == 0 {
+    fn fetch_branch_displacement(&mut self, displacement: i8) -> ExecuteResult<(i16, bool)> {
+        Ok(if displacement == 0 {
             let extension = self.fetch_operand()?;
-            extension as i16
+            (extension as i16, true)
         } else {
-            displacement.into()
-        };
-
-        Ok(displacement)
+            (displacement.into(), false)
+        })
     }
 
     pub(super) fn branch(
@@ -162,26 +160,30 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         displacement: i8,
     ) -> ExecuteResult<u32> {
         let pc = self.registers.pc;
-        let displacement = self.fetch_branch_displacement(displacement)?;
+        let (displacement, fetched_extension) = self.fetch_branch_displacement(displacement)?;
 
         if condition.check(self.registers.ccr) {
             let address = pc.wrapping_add(displacement as u32);
             self.registers.pc = self.check_jump_address(address)?;
-        }
 
-        Ok(0)
+            Ok(10)
+        } else if fetched_extension {
+            Ok(12)
+        } else {
+            Ok(8)
+        }
     }
 
     pub(super) fn bsr(&mut self, displacement: i8) -> ExecuteResult<u32> {
         let pc = self.registers.pc;
-        let displacement = self.fetch_branch_displacement(displacement)?;
+        let (displacement, _) = self.fetch_branch_displacement(displacement)?;
 
         self.push_stack_u32(self.registers.pc)?;
 
         let address = pc.wrapping_add(displacement as u32);
         self.registers.pc = self.check_jump_address(address)?;
 
-        Ok(0)
+        Ok(18)
     }
 
     pub(super) fn dbcc(
@@ -199,10 +201,14 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             if value != 0 {
                 let address = pc.wrapping_add(displacement as u32);
                 self.registers.pc = self.check_jump_address(address)?;
-            }
-        }
 
-        Ok(0)
+                Ok(10)
+            } else {
+                Ok(14)
+            }
+        } else {
+            Ok(12)
+        }
     }
 
     pub(super) fn scc(
@@ -220,6 +226,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         Ok(0)
     }
+}
+
+pub(super) const fn nop() -> u32 {
+    4
 }
 
 pub(super) fn trap(vector: u32) -> ExecuteResult<u32> {

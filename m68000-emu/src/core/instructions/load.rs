@@ -14,7 +14,7 @@ macro_rules! impl_exg {
             rx.write_long_word_to(self.registers, y_val);
             ry.write_long_word_to(self.registers, x_val);
 
-            0
+            6
         }
     };
 }
@@ -263,7 +263,11 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             (OpSize::Byte, _) => panic!("MOVEP does not support size byte"),
         }
 
-        Ok(0)
+        Ok(match size {
+            OpSize::Word => 16,
+            OpSize::LongWord => 24,
+            OpSize::Byte => panic!("MOVEP does not support size byte"),
+        })
     }
 
     impl_exg!(exg_data, DataRegister, DataRegister);

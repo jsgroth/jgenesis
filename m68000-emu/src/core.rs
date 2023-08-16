@@ -1001,7 +1001,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 }
 
                 // TODO this shouldn't happen in real software
-                50
+                34
             }
             Err(Exception::DivisionByZero) => {
                 if self
@@ -1019,8 +1019,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                     todo!("???")
                 }
 
-                // TODO right number
-                50
+                34
             }
             Err(Exception::CheckRegister) => {
                 if self

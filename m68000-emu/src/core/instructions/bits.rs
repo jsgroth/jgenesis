@@ -101,7 +101,7 @@ macro_rules! impl_shift_register_op {
         carry: $carry_bit:expr
         $(, set $overflow:ident)?
     ) => {
-        fn $name(&mut self, register: DataRegister, count: ShiftCount) {
+        fn $name(&mut self, register: DataRegister, count: ShiftCount) -> u32 {
             let shifts = count.get(self.registers) % 64;
 
             self.registers.ccr.carry = false;
@@ -127,6 +127,8 @@ macro_rules! impl_shift_register_op {
 
             self.registers.ccr.zero = value == 0;
             self.registers.ccr.negative = value.sign_bit();
+
+            shifts.into()
         }
     }
 }
@@ -153,7 +155,7 @@ macro_rules! impl_rotate_register_op {
         $(, rotate_in: $opposite_op:tt $opposite_shift:expr)?
         $(, thru $extend:ident)?
     ) => {
-        fn $name(&mut self, register: DataRegister, count: ShiftCount) {
+        fn $name(&mut self, register: DataRegister, count: ShiftCount) -> u32 {
             let rotates = count.get(self.registers) % 64;
 
             self.registers.ccr.overflow = false;
@@ -176,6 +178,8 @@ macro_rules! impl_rotate_register_op {
 
             self.registers.ccr.zero = value == 0;
             self.registers.ccr.negative = value.sign_bit();
+
+            rotates.into()
         }
     };
 }
@@ -297,7 +301,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             ..self.registers.ccr
         };
 
-        0
+        4
     }
 
     pub(super) fn swap(&mut self, register: DataRegister) -> u32 {
@@ -313,7 +317,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             ..self.registers.ccr
         };
 
-        0
+        4
     }
 
     pub(super) fn asd_register(
@@ -323,16 +327,16 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         register: DataRegister,
         count: ShiftCount,
     ) -> u32 {
-        match (size, direction) {
+        let shifts = match (size, direction) {
             (OpSize::Byte, ShiftDirection::Left) => self.asl_register_u8(register, count),
             (OpSize::Byte, ShiftDirection::Right) => self.asr_register_u8(register, count),
             (OpSize::Word, ShiftDirection::Left) => self.asl_register_u16(register, count),
             (OpSize::Word, ShiftDirection::Right) => self.asr_register_u16(register, count),
             (OpSize::LongWord, ShiftDirection::Left) => self.asl_register_u32(register, count),
             (OpSize::LongWord, ShiftDirection::Right) => self.asr_register_u32(register, count),
-        }
+        };
 
-        0
+        shift_register_cycles(size, shifts)
     }
 
     pub(super) fn asd_memory(
@@ -370,16 +374,16 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         register: DataRegister,
         count: ShiftCount,
     ) -> u32 {
-        match (size, direction) {
+        let shifts = match (size, direction) {
             (OpSize::Byte, ShiftDirection::Left) => self.lsl_register_u8(register, count),
             (OpSize::Byte, ShiftDirection::Right) => self.lsr_register_u8(register, count),
             (OpSize::Word, ShiftDirection::Left) => self.lsl_register_u16(register, count),
             (OpSize::Word, ShiftDirection::Right) => self.lsr_register_u16(register, count),
             (OpSize::LongWord, ShiftDirection::Left) => self.lsl_register_u32(register, count),
             (OpSize::LongWord, ShiftDirection::Right) => self.lsr_register_u32(register, count),
-        }
+        };
 
-        0
+        shift_register_cycles(size, shifts)
     }
 
     pub(super) fn lsd_memory(
@@ -415,16 +419,16 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         register: DataRegister,
         count: ShiftCount,
     ) -> u32 {
-        match (size, direction) {
+        let rotates = match (size, direction) {
             (OpSize::Byte, ShiftDirection::Left) => self.rol_register_u8(register, count),
             (OpSize::Byte, ShiftDirection::Right) => self.ror_register_u8(register, count),
             (OpSize::Word, ShiftDirection::Left) => self.rol_register_u16(register, count),
             (OpSize::Word, ShiftDirection::Right) => self.ror_register_u16(register, count),
             (OpSize::LongWord, ShiftDirection::Left) => self.rol_register_u32(register, count),
             (OpSize::LongWord, ShiftDirection::Right) => self.ror_register_u32(register, count),
-        }
+        };
 
-        0
+        shift_register_cycles(size, rotates)
     }
 
     pub(super) fn rod_memory(
@@ -466,16 +470,16 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         register: DataRegister,
         count: ShiftCount,
     ) -> u32 {
-        match (size, direction) {
+        let rotates = match (size, direction) {
             (OpSize::Byte, ShiftDirection::Left) => self.roxl_register_u8(register, count),
             (OpSize::Byte, ShiftDirection::Right) => self.roxr_register_u8(register, count),
             (OpSize::Word, ShiftDirection::Left) => self.roxl_register_u16(register, count),
             (OpSize::Word, ShiftDirection::Right) => self.roxr_register_u16(register, count),
             (OpSize::LongWord, ShiftDirection::Left) => self.roxl_register_u32(register, count),
             (OpSize::LongWord, ShiftDirection::Right) => self.roxr_register_u32(register, count),
-        }
+        };
 
-        0
+        shift_register_cycles(size, rotates)
     }
 
     pub(super) fn roxd_memory(
@@ -535,6 +539,14 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         Ok(0)
     }
+}
+
+fn shift_register_cycles(size: OpSize, shifts: u32) -> u32 {
+    let base_cycles = match size {
+        OpSize::Byte | OpSize::Word => 6,
+        OpSize::LongWord => 8,
+    };
+    base_cycles + 2 * shifts
 }
 
 macro_rules! impl_decode_bit_op {

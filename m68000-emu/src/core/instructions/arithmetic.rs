@@ -36,7 +36,13 @@ macro_rules! impl_extend_op_method {
 
             self.write_resolved(dest_resolved, sum)?;
 
-            Ok(0)
+            // ADDX and SUBX only support Dx,Dy and -(Ax),-(Ay)
+            Ok(match (size, source) {
+                (OpSize::Byte | OpSize::Word, AddressingMode::DataDirect(..)) => 4,
+                (OpSize::LongWord, AddressingMode::DataDirect(..)) => 8,
+                (OpSize::Byte | OpSize::Word, _) => 18,
+                (OpSize::LongWord, _) => 30,
+            })
         }
     };
 }
@@ -239,7 +245,21 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             }
         }
 
-        Ok(0)
+        Ok(match (size, source, dest) {
+            // CMPM.b / CMPM.w
+            (
+                OpSize::Byte | OpSize::Word,
+                AddressingMode::AddressIndirectPostincrement(..),
+                AddressingMode::AddressIndirectPostincrement(..),
+            ) => 12,
+            // CMPM.l
+            (
+                OpSize::LongWord,
+                AddressingMode::AddressIndirectPostincrement(..),
+                AddressingMode::AddressIndirectPostincrement(..),
+            ) => 20,
+            _ => 0,
+        })
     }
 
     fn cmpa(
@@ -433,7 +453,11 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_byte_resolved(dest_resolved, corrected_sum);
 
-        Ok(0)
+        // ABCD only supports Dx,Dy and -(Ax),-(Ay)
+        Ok(match source {
+            AddressingMode::DataDirect(..) => 6,
+            _ => 18,
+        })
     }
 
     pub(super) fn sbcd(
@@ -450,7 +474,11 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_byte_resolved(dest_resolved, difference);
 
-        Ok(0)
+        // SBCD only supports Dx,Dy and -(Ax),-(Ay)
+        Ok(match source {
+            AddressingMode::DataDirect(..) => 6,
+            _ => 18,
+        })
     }
 
     pub(super) fn nbcd(&mut self, dest: AddressingMode) -> ExecuteResult<u32> {

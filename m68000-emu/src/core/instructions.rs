@@ -492,7 +492,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 with_extend,
             } => self.neg(size, dest, with_extend),
             Instruction::NegateDecimal(dest) => self.nbcd(dest),
-            Instruction::NoOp => Ok(0),
+            Instruction::NoOp => Ok(controlflow::nop()),
             Instruction::Not(size, dest) => self.not(size, dest),
             Instruction::Or { size, source, dest } => self.or(size, source, dest),
             Instruction::OrToCcr => self.ori_to_ccr(),
@@ -500,7 +500,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             Instruction::PushEffectiveAddress(source) => self.pea(source),
             Instruction::Reset => {
                 // TODO RESET
-                Ok(0)
+                Ok(controlflow::nop())
             }
             Instruction::Return { restore_ccr } => self.ret(restore_ccr),
             Instruction::ReturnFromException => self.rte(),
