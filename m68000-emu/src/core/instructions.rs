@@ -710,3 +710,55 @@ fn decode_opcode(opcode: u16, supervisor_mode: bool) -> ExecuteResult<Instructio
         _ => Err(Exception::IllegalInstruction(opcode)),
     }
 }
+
+fn unary_op_cycles(size: OpSize, dest: AddressingMode) -> u32 {
+    let mut cycles = match size {
+        OpSize::Byte | OpSize::Word => 4,
+        OpSize::LongWord => 8,
+    };
+
+    cycles += dest.address_calculation_cycles(size);
+
+    // 2 cycles are saved in .l ops if operating on a data register
+    if size == OpSize::LongWord && dest.is_data_direct() {
+        cycles -= 2;
+    }
+
+    // Add 4 cycles if need to write back to memory
+    if !dest.is_data_direct() {
+        cycles += 4;
+    }
+
+    cycles
+}
+
+fn binary_op_cycles(size: OpSize, source: AddressingMode, dest: AddressingMode) -> u32 {
+    let mut cycles = match size {
+        OpSize::Byte | OpSize::Word => 4,
+        OpSize::LongWord => 8,
+    };
+
+    // Word-size operations that write to address registers use the same circuitry as long word
+    // operations
+    if size == OpSize::Word && dest.is_address_direct() {
+        cycles += 4;
+    }
+
+    cycles += source.address_calculation_cycles(size);
+    cycles += dest.address_calculation_cycles(size);
+
+    // 2 cycles are saved in .l ops if the source is in memory and the destination is a register
+    if size == OpSize::LongWord
+        && source.is_memory()
+        && (dest.is_data_direct() || dest.is_address_direct())
+    {
+        cycles -= 2;
+    }
+
+    // 4 extra cycles are needed if the result is written back to memory
+    if dest.is_memory() {
+        cycles += 4;
+    }
+
+    cycles
+}

@@ -147,6 +147,7 @@ fn main() {
     let mut bus = InMemoryBus::new();
     let mut failure_count = 0_u32;
     let mut timing_failure_count = 0_u32;
+    let mut address_error_count = 0_u32;
     for test_description in &test_descriptions {
         let mut m68000 = init_test_state(&test_description.initial, &mut bus);
         let cycles = m68000.execute_instruction(&mut bus);
@@ -168,13 +169,19 @@ fn main() {
 
             timing_failure_count += 1;
         }
+
+        if m68000.address_error() {
+            address_error_count += 1;
+        }
     }
 
     let num_tests = test_descriptions.len();
     let display_path = file_path.display();
     log::info!("Failed {failure_count} out of {num_tests} tests in {display_path}");
+
+    let num_tests_without_address_errors = num_tests as u32 - address_error_count;
     log::info!(
-        "Timing mismatches for {timing_failure_count} out of {num_tests} tests in {display_path}"
+        "Timing mismatches for {timing_failure_count} out of {num_tests_without_address_errors} tests in {display_path}"
     );
 }
 

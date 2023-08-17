@@ -40,14 +40,26 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write(dest, value)?;
 
-        Ok(0)
+        // -(An) destinations take 2 fewer cycles than they do in other operations
+        let base_cycles = match dest {
+            AddressingMode::AddressIndirectPredecrement(..) => 2,
+            _ => 4,
+        };
+
+        Ok(base_cycles
+            + source.address_calculation_cycles(size)
+            + dest.address_calculation_cycles(size))
     }
 
     pub(super) fn move_from_sr(&mut self, dest: AddressingMode) -> ExecuteResult<u32> {
         let dest_resolved = self.resolve_address_with_post(dest, OpSize::Word)?;
         self.write_word_resolved(dest_resolved, self.registers.status_register())?;
 
-        Ok(0)
+        Ok(if dest.is_data_direct() {
+            6
+        } else {
+            8 + dest.address_calculation_cycles(OpSize::Word)
+        })
     }
 
     pub(super) fn move_to_ccr(&mut self, source: AddressingMode) -> ExecuteResult<u32> {
@@ -55,7 +67,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.registers.ccr = (value as u8).into();
 
-        Ok(0)
+        Ok(12 + source.address_calculation_cycles(OpSize::Word))
     }
 
     pub(super) fn move_to_sr(&mut self, source: AddressingMode) -> ExecuteResult<u32> {
@@ -63,7 +75,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.registers.set_status_register(value);
 
-        Ok(0)
+        Ok(12 + source.address_calculation_cycles(OpSize::Word))
     }
 
     pub(super) fn moveq(&mut self, data: i8, register: DataRegister) -> u32 {
@@ -77,7 +89,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             ..self.registers.ccr
         };
 
-        0
+        4
     }
 
     pub(super) fn move_usp(&mut self, direction: UspDirection, register: AddressRegister) -> u32 {
@@ -91,7 +103,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             }
         }
 
-        0
+        4
     }
 
     pub(super) fn movem(
@@ -116,6 +128,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             _ => panic!("MOVEM only supports addressing modes that resolve to a memory address"),
         };
 
+        let mut count = 0;
         match direction {
             Direction::RegisterToMemory => {
                 for register in iter {
@@ -131,6 +144,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                         }
                         OpSize::Byte => panic!("MOVEM does not support size byte"),
                     }
+
+                    count += 1;
                 }
             }
             Direction::MemoryToRegister => {
@@ -172,6 +187,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                         }
                         OpSize::Byte => panic!("MOVEM does not support size byte"),
                     };
+
+                    count += 1;
                 }
 
                 if let Some(postinc_register) = postinc_register {
@@ -180,7 +197,19 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             }
         }
 
-        Ok(0)
+        let count_cycles = match size {
+            OpSize::Word => 4 * count,
+            OpSize::LongWord => 8 * count,
+            OpSize::Byte => panic!("MOVEM does not support size byte"),
+        };
+        Ok(match direction {
+            Direction::MemoryToRegister => {
+                8 + addressing_mode.address_calculation_cycles(OpSize::Word) + count_cycles
+            }
+            Direction::RegisterToMemory => {
+                4 + addressing_mode.address_calculation_cycles(OpSize::Word) + count_cycles
+            }
+        })
     }
 
     fn movem_predecrement(
@@ -192,6 +221,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let iter = MultipleRegisterIter::new_reverse(extension);
         let mut address = predec_register.read_from(self.registers);
 
+        let mut count = 0;
         for register in iter {
             match size {
                 OpSize::Word => {
@@ -212,11 +242,17 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 }
                 OpSize::Byte => panic!("MOVEM does not support size byte"),
             }
+
+            count += 1;
         }
 
         predec_register.write_long_word_to(self.registers, address);
 
-        Ok(0)
+        Ok(8 + match size {
+            OpSize::Word => 4 * count,
+            OpSize::LongWord => 8 * count,
+            OpSize::Byte => panic!("MOVEM does not support size byte"),
+        })
     }
 
     pub(super) fn movep(

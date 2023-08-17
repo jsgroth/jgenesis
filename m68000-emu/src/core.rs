@@ -366,7 +366,7 @@ enum Exception {
     IllegalInstruction(u16),
     DivisionByZero,
     Trap(u32),
-    CheckRegister,
+    CheckRegister { cycles: u32 },
 }
 
 type ExecuteResult<T> = Result<T, Exception>;
@@ -417,8 +417,27 @@ impl AddressingMode {
         Self::parse_from(mode, register)
     }
 
+    fn is_data_direct(self) -> bool {
+        matches!(self, Self::DataDirect(..))
+    }
+
     fn is_address_direct(self) -> bool {
         matches!(self, Self::AddressDirect(..))
+    }
+
+    fn is_memory(self) -> bool {
+        matches!(
+            self,
+            Self::AddressIndirect(..)
+                | Self::AddressIndirectPostincrement(..)
+                | Self::AddressIndirectPredecrement(..)
+                | Self::AddressIndirectDisplacement(..)
+                | Self::AddressIndirectIndexed(..)
+                | Self::PcRelativeDisplacement
+                | Self::PcRelativeIndexed
+                | Self::AbsoluteShort
+                | Self::AbsoluteLong
+        )
     }
 
     fn is_writable(self) -> bool {
@@ -430,6 +449,36 @@ impl AddressingMode {
                 | Self::Quick(..)
                 | Self::Implied
         )
+    }
+
+    fn address_calculation_cycles(self, size: OpSize) -> u32 {
+        use AddressingMode::{
+            AbsoluteLong, AbsoluteShort, AddressDirect, AddressIndirect,
+            AddressIndirectDisplacement, AddressIndirectIndexed, AddressIndirectPostincrement,
+            AddressIndirectPredecrement, DataDirect, Immediate, Implied, PcRelativeDisplacement,
+            PcRelativeIndexed, Quick,
+        };
+        use OpSize::{Byte, LongWord, Word};
+
+        match (self, size) {
+            (DataDirect(..) | AddressDirect(..) | Quick(..) | Implied, _) => 0,
+            (AddressIndirect(..) | AddressIndirectPostincrement(..) | Immediate, Byte | Word) => 4,
+            (AddressIndirectPredecrement(..), Byte | Word) => 6,
+            (
+                AddressIndirectDisplacement(..) | PcRelativeDisplacement | AbsoluteShort,
+                Byte | Word,
+            )
+            | (AddressIndirect(..) | AddressIndirectPostincrement(..) | Immediate, LongWord) => 8,
+            (AddressIndirectIndexed(..) | PcRelativeIndexed, Byte | Word)
+            | (AddressIndirectPredecrement(..), LongWord) => 10,
+            (AbsoluteLong, Byte | Word)
+            | (
+                AddressIndirectDisplacement(..) | PcRelativeDisplacement | AbsoluteShort,
+                LongWord,
+            ) => 12,
+            (AddressIndirectIndexed(..) | PcRelativeIndexed, LongWord) => 14,
+            (AbsoluteLong, LongWord) => 16,
+        }
     }
 }
 
@@ -1021,7 +1070,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
                 34
             }
-            Err(Exception::CheckRegister) => {
+            Err(Exception::CheckRegister { cycles }) => {
                 if self
                     .handle_trap(CHECK_REGISTER_VECTOR, self.registers.pc)
                     .is_err()
@@ -1029,8 +1078,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                     todo!("???")
                 }
 
-                // TODO right number
-                50
+                30 + cycles
             }
         }
     }

@@ -87,7 +87,7 @@ macro_rules! impl_op_method {
 
             self.write_resolved(dest_resolved, sum)?;
 
-            Ok(0)
+            Ok(super::binary_op_cycles(size, source, dest))
         }
     };
 }
@@ -140,7 +140,11 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let sum = operand_l.wrapping_add(operand_r);
         dest.write_long_word_to(self.registers, sum);
 
-        Ok(0)
+        Ok(super::binary_op_cycles(
+            size,
+            source,
+            AddressingMode::AddressDirect(dest),
+        ))
     }
 
     impl_extend_op_method!(addx, add_bytes, add_words, add_long_words);
@@ -158,7 +162,11 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let difference = operand_l.wrapping_sub(operand_r);
         dest.write_long_word_to(self.registers, difference);
 
-        Ok(0)
+        Ok(super::binary_op_cycles(
+            size,
+            source,
+            AddressingMode::AddressDirect(dest),
+        ))
     }
 
     impl_extend_op_method!(subx, sub_bytes, sub_words, sub_long_words);
@@ -192,7 +200,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_resolved(dest_resolved, difference)?;
 
-        Ok(0)
+        Ok(super::unary_op_cycles(size, dest))
     }
 
     fn negx(&mut self, size: OpSize, dest: AddressingMode) -> ExecuteResult<u32> {
@@ -216,7 +224,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_resolved(dest_resolved, difference)?;
 
-        Ok(0)
+        Ok(super::unary_op_cycles(size, dest))
     }
 
     pub(super) fn cmp(
@@ -258,7 +266,27 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 AddressingMode::AddressIndirectPostincrement(..),
                 AddressingMode::AddressIndirectPostincrement(..),
             ) => 20,
-            _ => 0,
+            // CMPI.b / CMPI.w
+            (
+                OpSize::Byte | OpSize::Word,
+                AddressingMode::Immediate,
+                AddressingMode::DataDirect(..),
+            ) => 8,
+            (OpSize::Byte | OpSize::Word, AddressingMode::Immediate, _) => {
+                super::binary_op_cycles(size, source, dest) - 4
+            }
+            // CMPI.l
+            (OpSize::LongWord, AddressingMode::Immediate, AddressingMode::DataDirect(..)) => 14,
+            (OpSize::LongWord, AddressingMode::Immediate, _) => {
+                super::binary_op_cycles(size, source, dest) - 8
+            }
+            // CMP
+            (
+                OpSize::LongWord,
+                AddressingMode::DataDirect(..) | AddressingMode::AddressDirect(..),
+                AddressingMode::DataDirect(..),
+            ) => 6,
+            _ => super::binary_op_cycles(size, source, dest),
         })
     }
 
@@ -273,7 +301,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         compare_long_words(source_operand, dest_operand, &mut self.registers.ccr);
 
-        Ok(0)
+        Ok(6 + source.address_calculation_cycles(size))
     }
 
     pub(super) fn muls(
@@ -489,7 +517,11 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_byte_resolved(dest_resolved, difference);
 
-        Ok(0)
+        Ok(if dest.is_data_direct() {
+            6
+        } else {
+            super::unary_op_cycles(OpSize::Byte, dest)
+        })
     }
 
     fn decimal_subtract(&mut self, operand_l: u8, operand_r: u8) -> u8 {

@@ -36,21 +36,21 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let address = self.resolve_to_memory_address(source)?;
         register.write_long_word_to(self.registers, address);
 
-        Ok(0)
+        Ok(effective_address_cycles(source))
     }
 
     pub(super) fn pea(&mut self, source: AddressingMode) -> ExecuteResult<u32> {
         let address = self.resolve_to_memory_address(source)?;
         self.push_stack_u32(address)?;
 
-        Ok(0)
+        Ok(8 + effective_address_cycles(source))
     }
 
     pub(super) fn jmp(&mut self, source: AddressingMode) -> ExecuteResult<u32> {
         let address = self.resolve_to_memory_address(source)?;
         self.registers.pc = self.check_jump_address(address)?;
 
-        Ok(0)
+        Ok(jump_cycles(source))
     }
 
     pub(super) fn jsr(&mut self, source: AddressingMode) -> ExecuteResult<u32> {
@@ -59,7 +59,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         self.registers.pc = self.check_jump_address(address)?;
         self.push_stack_u32(old_pc)?;
 
-        Ok(0)
+        Ok(8 + jump_cycles(source))
     }
 
     pub(super) fn link(&mut self, register: AddressRegister) -> ExecuteResult<u32> {
@@ -134,14 +134,20 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             ..self.registers.ccr
         };
 
-        if value < 0 {
+        let address_cycles = source.address_calculation_cycles(OpSize::Word);
+
+        if value > upper_bound {
+            self.registers.ccr.negative = value < 0;
+            Err(Exception::CheckRegister {
+                cycles: address_cycles + 8,
+            })
+        } else if value < 0 {
             self.registers.ccr.negative = true;
-            Err(Exception::CheckRegister)
-        } else if value > upper_bound {
-            self.registers.ccr.negative = false;
-            Err(Exception::CheckRegister)
+            Err(Exception::CheckRegister {
+                cycles: address_cycles + 10,
+            })
         } else {
-            Ok(0)
+            Ok(address_cycles + 10)
         }
     }
 
@@ -216,15 +222,35 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         condition: BranchCondition,
         dest: AddressingMode,
     ) -> ExecuteResult<u32> {
-        let value = if condition.check(self.registers.ccr) {
-            0xFF
-        } else {
-            0x00
-        };
+        let cc = condition.check(self.registers.ccr);
+        let value = if cc { 0xFF } else { 0x00 };
 
         self.write_byte(dest, value)?;
 
-        Ok(0)
+        Ok(if dest.is_data_direct() {
+            4 + if cc { 2 } else { 0 }
+        } else {
+            8 + dest.address_calculation_cycles(OpSize::Byte)
+        })
+    }
+}
+
+fn jump_cycles(addressing_mode: AddressingMode) -> u32 {
+    match addressing_mode {
+        AddressingMode::AddressIndirect(..) => 8,
+        AddressingMode::AddressIndirectDisplacement(..)
+        | AddressingMode::PcRelativeDisplacement
+        | AddressingMode::AbsoluteShort => 10,
+        AddressingMode::AddressIndirectIndexed(..) | AddressingMode::PcRelativeIndexed => 14,
+        AddressingMode::AbsoluteLong => 12,
+        _ => panic!("invalid jump addressing mode: {addressing_mode:?}"),
+    }
+}
+
+fn effective_address_cycles(addressing_mode: AddressingMode) -> u32 {
+    match addressing_mode {
+        AddressingMode::AddressIndirectIndexed(..) | AddressingMode::PcRelativeIndexed => 12,
+        _ => addressing_mode.address_calculation_cycles(OpSize::Byte),
     }
 }
 

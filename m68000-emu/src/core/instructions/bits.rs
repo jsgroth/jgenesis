@@ -26,7 +26,7 @@ macro_rules! impl_bit_op {
 
             self.write_resolved(dest_resolved, value)?;
 
-            Ok(0)
+            Ok(super::binary_op_cycles(size, source, dest))
         }
     }
 }
@@ -38,7 +38,7 @@ macro_rules! impl_bit_op_to_ccr {
             let value = byte $operator (u8::from(self.registers.ccr));
             self.registers.ccr = value.into();
 
-            Ok(0)
+            Ok(20)
         }
     }
 }
@@ -50,13 +50,45 @@ macro_rules! impl_bit_op_to_sr {
             let value = word $operator self.registers.status_register();
             self.registers.set_status_register(value);
 
-            Ok(0)
+            Ok(20)
         }
     }
 }
 
-macro_rules! impl_bit_test_op {
-    ($name:ident $(, |$value:ident, $bit:ident| $body:block)?) => {
+macro_rules! impl_bit_test_op{
+    (@cycle_count $source:expr, $dest:expr) => {
+        {
+            let dest_cycles = match $dest {
+                AddressingMode::DataDirect(..) => 2,
+                AddressingMode::Immediate => 6,
+                _ => $dest.address_calculation_cycles(OpSize::Byte)
+            };
+
+            let source_cycles = match $source {
+                AddressingMode::Immediate => 4,
+                _ => 0
+            };
+
+            4 + source_cycles + dest_cycles
+        }
+    };
+    (@cycle_count $source:expr, $dest:expr, $bit_ident:ident $bit:expr $(, $extra_d_write_cycles:expr)?) => {
+        {
+            let dest_cycles = if $dest.is_data_direct() {
+                2 $(+ $extra_d_write_cycles)? + if $bit % 32 < 16 { 0 } else { 2 }
+            } else {
+                4 + $dest.address_calculation_cycles(OpSize::Byte)
+            };
+
+            let source_cycles = match $source {
+                AddressingMode::Immediate => 4,
+                _ => 0
+            };
+
+            4 + source_cycles + dest_cycles
+        }
+    };
+    ($name:ident $(, |$value:ident, $bit:ident| $body:block)? $(, extra_d_write_cycles: $extra_d_write_cycles:expr)?) => {
         pub(super) fn $name(&mut self, source: AddressingMode, dest: AddressingMode) -> ExecuteResult<u32> {
             let bit_index = self.read_byte(source)?;
 
@@ -86,9 +118,10 @@ macro_rules! impl_bit_test_op {
                 }
             }
 
-            Ok(0)
+            let cycles = impl_bit_test_op!(@cycle_count source, dest $(, $bit bit_index)? $(, $extra_d_write_cycles)?);
+            Ok(cycles)
         }
-    }
+    };
 }
 
 macro_rules! impl_shift_register_op {
@@ -199,7 +232,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     impl_bit_op_to_sr!(eori_to_sr, ^);
 
     impl_bit_test_op!(btst);
-    impl_bit_test_op!(bclr, |value, bit| { value & !(1 << bit) });
+    impl_bit_test_op!(bclr, |value, bit| { value & !(1 << bit) }, extra_d_write_cycles: 2);
     impl_bit_test_op!(bset, |value, bit| { value | (1 << bit) });
     impl_bit_test_op!(bchg, |value, bit| {
         if value.bit(bit) {
@@ -256,7 +289,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_resolved(dest_resolved, negated)?;
 
-        Ok(0)
+        Ok(super::unary_op_cycles(size, dest))
     }
 
     pub(super) fn clr(&mut self, size: OpSize, dest: AddressingMode) -> ExecuteResult<u32> {
@@ -273,7 +306,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_resolved(dest_resolved, SizedValue::from_size(0, size))?;
 
-        Ok(0)
+        Ok(super::unary_op_cycles(size, dest))
     }
 
     pub(super) fn ext(&mut self, size: OpSize, register: DataRegister) -> u32 {
@@ -364,7 +397,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_word_resolved(dest_resolved, value)?;
 
-        Ok(0)
+        Ok(shift_memory_cycles(dest))
     }
 
     pub(super) fn lsd_register(
@@ -409,7 +442,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_word_resolved(dest_resolved, value)?;
 
-        Ok(0)
+        Ok(shift_memory_cycles(dest))
     }
 
     pub(super) fn rod_register(
@@ -460,7 +493,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_word_resolved(dest_resolved, value)?;
 
-        Ok(0)
+        Ok(shift_memory_cycles(dest))
     }
 
     pub(super) fn roxd_register(
@@ -506,7 +539,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_word_resolved(dest_resolved, value)?;
 
-        Ok(0)
+        Ok(shift_memory_cycles(dest))
     }
 
     pub(super) fn tst(&mut self, size: OpSize, source: AddressingMode) -> ExecuteResult<u32> {
@@ -520,7 +553,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             ..self.registers.ccr
         };
 
-        Ok(0)
+        Ok(4 + source.address_calculation_cycles(size))
     }
 
     pub(super) fn tas(&mut self, dest: AddressingMode) -> ExecuteResult<u32> {
@@ -537,7 +570,11 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_byte_resolved(dest_resolved, value | 0x80);
 
-        Ok(0)
+        Ok(if dest.is_data_direct() {
+            4
+        } else {
+            10 + dest.address_calculation_cycles(OpSize::Byte)
+        })
     }
 }
 
@@ -547,6 +584,10 @@ fn shift_register_cycles(size: OpSize, shifts: u32) -> u32 {
         OpSize::LongWord => 8,
     };
     base_cycles + 2 * shifts
+}
+
+fn shift_memory_cycles(dest: AddressingMode) -> u32 {
+    8 + dest.address_calculation_cycles(OpSize::Word)
 }
 
 macro_rules! impl_decode_bit_op {
