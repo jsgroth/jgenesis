@@ -323,7 +323,17 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             ..self.registers.ccr
         };
 
-        Ok(0)
+        let mut last_bit = false;
+        let mut alternating_bits = 0;
+        for i in 0..16 {
+            let bit = operand_l.bit(i);
+            if bit != last_bit {
+                alternating_bits += 1;
+            }
+            last_bit = bit;
+        }
+
+        Ok(38 + 2 * alternating_bits + source.address_calculation_cycles(OpSize::Word))
     }
 
     pub(super) fn mulu(
@@ -345,7 +355,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             ..self.registers.ccr
         };
 
-        Ok(0)
+        Ok(38 + 2 * operand_l.count_ones() + source.address_calculation_cycles(OpSize::Word))
     }
 
     pub(super) fn divs(
