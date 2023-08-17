@@ -423,6 +423,11 @@ impl Instruction {
 
 impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
     pub(super) fn do_execute(&mut self) -> ExecuteResult<u32> {
+        log::trace!(
+            "Beginning instruction execution, PC={:08X}",
+            self.registers.pc
+        );
+
         let opcode = self.fetch_operand()?;
         self.opcode = opcode;
 

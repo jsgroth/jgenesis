@@ -510,6 +510,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "genesis-core"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "log",
+ "m68000-emu",
+ "minifb",
+ "smsgg-core",
+ "thiserror",
+ "z80-emu",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -595,6 +608,8 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "env_logger",
+ "genesis-core",
+ "log",
  "smsgg-core",
 ]
 

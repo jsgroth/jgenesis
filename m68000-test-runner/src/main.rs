@@ -177,11 +177,11 @@ fn main() {
 
     let num_tests = test_descriptions.len();
     let display_path = file_path.display();
-    log::info!("Failed {failure_count} out of {num_tests} tests in {display_path}");
+    log::info!("{failure_count} failed out of {num_tests} tests in {display_path}");
 
     let num_tests_without_address_errors = num_tests as u32 - address_error_count;
     log::info!(
-        "Timing mismatches for {timing_failure_count} out of {num_tests_without_address_errors} tests in {display_path}"
+        "{timing_failure_count} timing mismatches out of {num_tests_without_address_errors} tests in {display_path}"
     );
 }
 

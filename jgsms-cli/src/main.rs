@@ -1,14 +1,52 @@
 use clap::Parser;
 use env_logger::Env;
+use genesis_core::GenesisConfig;
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgConfig, VdpVersion};
 use std::error::Error;
+use std::ffi::OsStr;
+use std::fmt::{Display, Formatter};
+use std::path::Path;
+use std::str::FromStr;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Hardware {
+    MasterSystem,
+    Genesis,
+}
+
+impl Display for Hardware {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MasterSystem => write!(f, "MasterSystem"),
+            Self::Genesis => write!(f, "Genesis"),
+        }
+    }
+}
+
+impl FromStr for Hardware {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "MasterSystem" => Ok(Self::MasterSystem),
+            "Genesis" => Ok(Self::Genesis),
+            _ => Err(format!("invalid hardware string: {s}")),
+        }
+    }
+}
 
 #[derive(Parser)]
 struct Args {
     /// ROM file path
     #[arg(short = 'f', long)]
     file_path: String,
+
+    /// Hardware (MasterSystem / Genesis)
+    ///
+    /// Will default based on file extension if not set. MasterSystem is appropriate for both SMS
+    /// and Game Gear games.
+    hardware: Option<Hardware>,
 
     /// VDP version
     #[arg(long)]
@@ -37,6 +75,30 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let args = Args::parse();
 
+    let hardware = args.hardware.unwrap_or_else(|| {
+        let file_ext = Path::new(&args.file_path)
+            .extension()
+            .and_then(OsStr::to_str)
+            .unwrap();
+        match file_ext {
+            "sms" | "gg" => Hardware::MasterSystem,
+            "md" | "bin" => Hardware::Genesis,
+            _ => {
+                log::warn!("Unrecognized file extension: {file_ext} defaulting to SMS");
+                Hardware::MasterSystem
+            }
+        }
+    });
+
+    log::info!("Running with hardware {hardware}");
+
+    match hardware {
+        Hardware::MasterSystem => run_sms(args),
+        Hardware::Genesis => run_genesis(args),
+    }
+}
+
+fn run_sms(args: Args) -> Result<(), Box<dyn Error>> {
     let config = SmsGgConfig {
         rom_file_path: args.file_path,
         vdp_version: args.vdp_version,
@@ -47,4 +109,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     smsgg_core::run(config)
+}
+
+fn run_genesis(args: Args) -> Result<(), Box<dyn Error>> {
+    let config = GenesisConfig {
+        rom_file_path: args.file_path,
+    };
+
+    genesis_core::run(config)
 }

@@ -121,20 +121,6 @@ impl DataRegister {
     fn write_long_word_to(self, registers: &mut Registers, value: u32) {
         registers.data[self.0 as usize] = value;
     }
-
-    fn write_to(self, registers: &mut Registers, value: SizedValue) {
-        match value {
-            SizedValue::Byte(value) => {
-                self.write_byte_to(registers, value);
-            }
-            SizedValue::Word(value) => {
-                self.write_word_to(registers, value);
-            }
-            SizedValue::LongWord(value) => {
-                self.write_long_word_to(registers, value);
-            }
-        }
-    }
 }
 
 impl From<u8> for DataRegister {
@@ -386,7 +372,6 @@ pub enum AddressingMode {
     AbsoluteLong,
     Immediate,
     Quick(u8),
-    Implied,
 }
 
 impl AddressingMode {
@@ -447,7 +432,6 @@ impl AddressingMode {
                 | Self::PcRelativeIndexed
                 | Self::Immediate
                 | Self::Quick(..)
-                | Self::Implied
         )
     }
 
@@ -455,13 +439,13 @@ impl AddressingMode {
         use AddressingMode::{
             AbsoluteLong, AbsoluteShort, AddressDirect, AddressIndirect,
             AddressIndirectDisplacement, AddressIndirectIndexed, AddressIndirectPostincrement,
-            AddressIndirectPredecrement, DataDirect, Immediate, Implied, PcRelativeDisplacement,
+            AddressIndirectPredecrement, DataDirect, Immediate, PcRelativeDisplacement,
             PcRelativeIndexed, Quick,
         };
         use OpSize::{Byte, LongWord, Word};
 
         match (self, size) {
-            (DataDirect(..) | AddressDirect(..) | Quick(..) | Implied, _) => 0,
+            (DataDirect(..) | AddressDirect(..) | Quick(..), _) => 0,
             (AddressIndirect(..) | AddressIndirectPostincrement(..) | Immediate, Byte | Word) => 4,
             (AddressIndirectPredecrement(..), Byte | Word) => 6,
             (
@@ -529,18 +513,6 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             opcode: 0,
             instruction: None,
         }
-    }
-
-    #[allow(clippy::unnecessary_wraps)]
-    fn read_bus_byte(&mut self, address: u32) -> ExecuteResult<u8> {
-        Ok(self.bus.read_byte(address))
-    }
-
-    #[allow(clippy::unnecessary_wraps)]
-    fn write_bus_byte(&mut self, address: u32, value: u8) -> ExecuteResult<()> {
-        self.bus.write_byte(address, value);
-
-        Ok(())
     }
 
     // Read a word from the bus; returns an address error if address is odd
@@ -682,8 +654,9 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 }
             }
             AddressingMode::Quick(value) => ResolvedAddress::Immediate(value.into()),
-            AddressingMode::Implied => panic!("cannot resolve implied addressing mode"),
         };
+
+        log::trace!("Resolved to {resolved_address:08X?}");
 
         Ok(resolved_address)
     }
@@ -1085,6 +1058,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
 pub struct M68000 {
     registers: Registers,
+    halted: bool,
 }
 
 impl M68000 {
@@ -1092,6 +1066,7 @@ impl M68000 {
     pub fn new() -> Self {
         Self {
             registers: Registers::new(),
+            halted: false,
         }
     }
 
@@ -1117,6 +1092,10 @@ impl M68000 {
     #[must_use]
     pub fn supervisor_stack_pointer(&self) -> u32 {
         self.registers.ssp
+    }
+
+    pub fn set_supervisor_stack_pointer(&mut self, ssp: u32) {
+        self.registers.ssp = ssp;
     }
 
     pub fn set_address_registers(&mut self, registers: [u32; 7], usp: u32, ssp: u32) {
@@ -1148,7 +1127,15 @@ impl M68000 {
         self.registers.address_error
     }
 
+    pub fn set_halted(&mut self, halted: bool) {
+        self.halted = halted;
+    }
+
     pub fn execute_instruction<B: BusInterface>(&mut self, bus: &mut B) -> u32 {
+        if self.halted {
+            return 4;
+        }
+
         InstructionExecutor::new(&mut self.registers, bus).execute()
     }
 }
