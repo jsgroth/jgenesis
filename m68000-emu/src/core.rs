@@ -364,7 +364,7 @@ enum Exception {
     AddressError(u32, BusOpType),
     PrivilegeViolation,
     IllegalInstruction(u16),
-    DivisionByZero,
+    DivisionByZero { cycles: u32 },
     Trap(u32),
     CheckRegister { cycles: u32 },
 }
@@ -1052,7 +1052,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 // TODO this shouldn't happen in real software
                 34
             }
-            Err(Exception::DivisionByZero) => {
+            Err(Exception::DivisionByZero { cycles }) => {
                 if self
                     .handle_trap(DIVIDE_BY_ZERO_VECTOR, self.registers.pc.wrapping_sub(4))
                     .is_err()
@@ -1060,8 +1060,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                     todo!("???")
                 }
 
-                // TODO right number
-                50
+                38 + cycles
             }
             Err(Exception::Trap(vector)) => {
                 if self.handle_trap(vector, self.registers.pc).is_err() {

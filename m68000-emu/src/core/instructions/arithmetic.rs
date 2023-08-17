@@ -358,6 +358,20 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         Ok(38 + 2 * operand_l.count_ones() + source.address_calculation_cycles(OpSize::Word))
     }
 
+    fn divide_by_zero_error(&mut self, source: AddressingMode) -> Exception {
+        self.registers.ccr = ConditionCodes {
+            carry: false,
+            overflow: false,
+            zero: false,
+            negative: false,
+            ..self.registers.ccr
+        };
+
+        Exception::DivisionByZero {
+            cycles: source.address_calculation_cycles(OpSize::Word),
+        }
+    }
+
     pub(super) fn divs(
         &mut self,
         register: DataRegister,
@@ -367,14 +381,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let operand_r: i32 = (self.read_word(source)? as i16).into();
 
         if operand_r == 0 {
-            self.registers.ccr = ConditionCodes {
-                carry: false,
-                overflow: false,
-                zero: false,
-                negative: false,
-                ..self.registers.ccr
-            };
-            return Err(Exception::DivisionByZero);
+            return Err(self.divide_by_zero_error(source));
         }
 
         let quotient = operand_l / operand_r;
@@ -386,7 +393,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 overflow: true,
                 ..self.registers.ccr
             };
-            return Ok(0);
+            // TODO this is the best case cycle count, not accurate
+            return Ok(120);
         }
 
         let value = ((quotient as u32) & 0x0000_FFFF) | ((remainder as u32) << 16);
@@ -400,7 +408,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             ..self.registers.ccr
         };
 
-        Ok(0)
+        // TODO this is the best case cycle count, not accurate
+        Ok(120)
     }
 
     pub(super) fn divu(
@@ -412,14 +421,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let operand_r: u32 = self.read_word(source)?.into();
 
         if operand_r == 0 {
-            self.registers.ccr = ConditionCodes {
-                carry: false,
-                overflow: false,
-                zero: false,
-                negative: false,
-                ..self.registers.ccr
-            };
-            return Err(Exception::DivisionByZero);
+            return Err(self.divide_by_zero_error(source));
         }
 
         let quotient = operand_l / operand_r;
@@ -431,7 +433,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 overflow: true,
                 ..self.registers.ccr
             };
-            return Ok(0);
+            // TODO this is the best case cycle count, not accurate
+            return Ok(76);
         }
 
         let value = (quotient & 0x0000_FFFF) | (remainder << 16);
@@ -445,7 +448,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             ..self.registers.ccr
         };
 
-        Ok(0)
+        // TODO this is the best case cycle count, not accurate
+        Ok(76)
     }
 
     pub(super) fn abcd(
