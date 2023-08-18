@@ -171,8 +171,27 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
         match address {
             0x000000..=0x3FFFFF => self.memory.cartridge.read_byte(address),
             0xA00000..=0xA0FFFF => {
-                // TODO access to Z80 memory map
-                0xFF
+                // Z80 memory map
+                // $8000-$FFFF mirrors $0000-$7FFF
+                match address & 0x7FFF {
+                    0x0000..=0x3FFF => {
+                        // $2000-$3FFF mirrors $0000-$1FFF
+                        self.memory.audio_ram[(address & 0x1FFF) as usize]
+                    }
+                    0x4000..=0x5FFF => {
+                        // TODO YM2612
+                        0x00
+                    }
+                    0x6000..=0x60FF => {
+                        // TODO bank register
+                        0xFF
+                    }
+                    0x6100..=0x7FFF => {
+                        // TODO invalid addresses for 68000 access
+                        0xFF
+                    }
+                    _ => unreachable!("value & 0x7FFF is always <= 0x7FFF"),
+                }
             }
             0xA10000..=0xA1001F => {
                 // TODO I/O ports
@@ -204,8 +223,9 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
         match address {
             0x000000..=0x3FFFFF => self.memory.cartridge.read_word(address),
             0xA00000..=0xA0FFFF => {
-                // TODO access to Z80 memory map
-                0xFFFF
+                // All Z80 access is byte-size; word reads mirror the byte in both MSB and LSB
+                let byte = self.read_byte(address);
+                u16::from_le_bytes([byte, byte])
             }
             0xA10000..=0xA1001F => {
                 // TODO I/O ports
@@ -240,7 +260,24 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
         log::trace!("Main bus byte write: address={address:06X}, value={value:02X}");
         match address {
             0xA00000..=0xA0FFFF => {
-                // TODO access to Z80 memory map
+                // Z80 memory map
+                // $8000-$FFFF mirrors $0000-$7FFF
+                match address & 0x7FFF {
+                    0x0000..=0x3FFF => {
+                        // $2000-$3FFF mirrors $0000-$1FFF
+                        self.memory.audio_ram[(address & 0x1FFF) as usize] = value;
+                    }
+                    0x4000..=0x5FFF => {
+                        // TODO YM2612
+                    }
+                    0x6000..=0x60FF => {
+                        // TODO bank register
+                    }
+                    0x6100..=0x7FFF => {
+                        // TODO invalid addresses for 68000 access
+                    }
+                    _ => unreachable!("address & 0x7FFF is always <= 0x7FFF"),
+                }
             }
             0xA10000..=0xA1001F => {
                 // TODO I/O ports
@@ -278,7 +315,8 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
         log::trace!("Main bus word write: address={address:06X}, value={value:02X}");
         match address {
             0xA00000..=0xA0FFFF => {
-                // TODO access to Z80 memory map
+                // Z80 memory map; word-size writes write the MSB as a byte-size write
+                self.write_byte(address, (value >> 8) as u8);
             }
             0xA10000..=0xA1001F => {
                 // TODO I/O ports
