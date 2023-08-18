@@ -16,12 +16,6 @@ use thiserror::Error;
 #[derive(Debug, Clone)]
 struct Rom(Vec<u8>);
 
-impl Rom {
-    fn len(&self) -> usize {
-        self.0.len()
-    }
-}
-
 impl Index<usize> for Rom {
     type Output = u8;
 

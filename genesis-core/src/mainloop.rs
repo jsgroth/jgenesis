@@ -50,14 +50,13 @@ pub fn run(config: GenesisConfig) -> Result<(), Box<dyn Error>> {
     let mut color_window: Option<Window> = None;
     let mut color_buffer = vec![0; 64];
 
-    let mut master_cycles = 0_u64;
     while window.is_open() && !window.is_key_down(Key::Escape) {
         let m68k_cycles =
             m68k.execute_instruction(&mut MainBus::new(&mut memory, &mut vdp, &mut psg));
 
         let m68k_master_cycles = 7 * u64::from(m68k_cycles);
 
-        if vdp.tick(m68k_master_cycles, &mut memory, &mut m68k) == VdpTickEffect::FrameComplete {
+        if vdp.tick(m68k_master_cycles, &mut memory) == VdpTickEffect::FrameComplete {
             let screen_width = vdp.screen_width();
             populate_minifb_buffer(vdp.frame_buffer(), screen_width, &mut minifb_buffer);
             window.update_with_buffer(&minifb_buffer, screen_width as usize, 224)?;
@@ -72,8 +71,6 @@ pub fn run(config: GenesisConfig) -> Result<(), Box<dyn Error>> {
                 color_window.update_with_buffer(&color_buffer, 64, 1)?;
             }
         }
-
-        master_cycles += m68k_master_cycles;
 
         if window.is_key_pressed(Key::F2, KeyRepeat::No) && debug_window.is_none() {
             debug_window = Some(Window::new(
