@@ -1,4 +1,5 @@
 use crate::memory::{Cartridge, MainBus, Memory};
+use crate::vdp;
 use crate::vdp::{Vdp, VdpTickEffect};
 use m68000_emu::M68000;
 use minifb::{Key, KeyRepeat, Window, WindowOptions};
@@ -122,15 +123,11 @@ fn populate_minifb_buffer(frame_buffer: &[u16], screen_width: u32, minifb_buffer
             let idx = (row * screen_width + col) as usize;
 
             let gen_color = frame_buffer[idx];
-            let r = gen_color_to_rgb((gen_color >> 1) & 0x07);
-            let g = gen_color_to_rgb((gen_color >> 5) & 0x07);
-            let b = gen_color_to_rgb((gen_color >> 9) & 0x07);
+            let r = vdp::gen_color_to_rgb((gen_color >> 1) & 0x07);
+            let g = vdp::gen_color_to_rgb((gen_color >> 5) & 0x07);
+            let b = vdp::gen_color_to_rgb((gen_color >> 9) & 0x07);
 
             minifb_buffer[idx] = (r << 16) | (g << 8) | b;
         }
     }
-}
-
-fn gen_color_to_rgb(gen_color: u16) -> u32 {
-    [0, 36, 73, 109, 146, 182, 219, 255][gen_color as usize]
 }

@@ -81,6 +81,15 @@ impl ScrollSize {
             _ => unreachable!("value & 0x03 is always <= 0x03"),
         }
     }
+
+    // Used to mask line and pixel values; return value is equal to (size << 3) - 1
+    const fn pixel_bit_mask(self) -> u16 {
+        match self {
+            Self::ThirtyTwo => 0x00FF,
+            Self::SixtyFour => 0x01FF,
+            Self::OneTwentyEight => 0x03FF,
+        }
+    }
 }
 
 impl From<ScrollSize> for u16 {
@@ -789,43 +798,82 @@ impl Vdp {
             self.registers.background_color_id,
         );
 
-        let nt_row = scanline / 8;
-        for col in 0..screen_width {
-            let nt_col = col / 8;
+        let v_cell = scanline / 8;
+        for pixel in 0..screen_width {
+            let h_cell = pixel / 8;
+
+            let (v_scroll_a, v_scroll_b) =
+                read_v_scroll(&self.vsram, self.registers.vertical_scroll_mode, h_cell);
+            let (h_scroll_a, h_scroll_b) = read_h_scroll(
+                &self.vram,
+                self.registers.h_scroll_table_base_addr,
+                self.registers.horizontal_scroll_mode,
+                scanline,
+            );
+
+            let v_scroll_size = self.registers.vertical_scroll_size;
+
+            let scrolled_scanline_a =
+                scanline.wrapping_add(v_scroll_a) & v_scroll_size.pixel_bit_mask();
+            let scroll_a_v_cell = scrolled_scanline_a / 8;
+
+            let scrolled_scanline_b =
+                scanline.wrapping_add(v_scroll_b) & v_scroll_size.pixel_bit_mask();
+            let scroll_b_v_cell = scrolled_scanline_b / 8;
+
+            let h_scroll_size = self.registers.horizontal_scroll_size;
+
+            let scrolled_pixel_a = pixel.wrapping_sub(h_scroll_a) & h_scroll_size.pixel_bit_mask();
+            let scroll_a_h_cell = scrolled_pixel_a / 8;
+
+            let scrolled_pixel_b = pixel.wrapping_sub(h_scroll_b) & h_scroll_size.pixel_bit_mask();
+            let scroll_b_h_cell = scrolled_pixel_b / 8;
+
             let scroll_a_nt_word = read_name_table_word(
                 &self.vram,
                 self.registers.scroll_a_base_nt_addr,
                 self.registers.horizontal_scroll_size.into(),
-                nt_row,
-                nt_col,
+                scroll_a_v_cell,
+                scroll_a_h_cell,
             );
-
-            // TODO generalize this
-            let cell_row = if scroll_a_nt_word.vertical_flip {
-                7 - (scanline % 8)
-            } else {
-                scanline % 8
-            };
-            let cell_col = if scroll_a_nt_word.horizontal_flip {
-                7 - (col % 8)
-            } else {
-                col % 8
-            };
-            let color_id = read_pattern_generator(
+            let scroll_b_nt_word = read_name_table_word(
                 &self.vram,
-                scroll_a_nt_word.pattern_generator,
-                cell_row,
-                cell_col,
+                self.registers.scroll_b_base_nt_addr,
+                self.registers.horizontal_scroll_size.into(),
+                scroll_b_v_cell,
+                scroll_b_h_cell,
             );
 
-            let scroll_a_color = resolve_color(&self.cram, scroll_a_nt_word.palette, color_id);
+            let scroll_a_color_id = read_name_table_pattern(
+                &self.vram,
+                scroll_a_nt_word,
+                scrolled_scanline_a,
+                scrolled_pixel_a,
+            );
+            let scroll_b_color_id = read_name_table_pattern(
+                &self.vram,
+                scroll_b_nt_word,
+                scrolled_scanline_b,
+                scrolled_pixel_b,
+            );
 
-            let color = if color_id != 0 {
+            let scroll_a_color =
+                resolve_color(&self.cram, scroll_a_nt_word.palette, scroll_a_color_id);
+            let scroll_b_color =
+                resolve_color(&self.cram, scroll_b_nt_word.palette, scroll_b_color_id);
+
+            let color = if scroll_a_nt_word.priority && scroll_a_color_id != 0 {
                 scroll_a_color
+            } else if scroll_b_nt_word.priority && scroll_b_color_id != 0 {
+                scroll_b_color
+            } else if scroll_a_color_id != 0 {
+                scroll_a_color
+            } else if scroll_b_color_id != 0 {
+                scroll_b_color
             } else {
                 bg_color
             };
-            self.set_in_frame_buffer(scanline.into(), col.into(), color);
+            self.set_in_frame_buffer(scanline.into(), pixel.into(), color);
         }
     }
 
@@ -884,7 +932,84 @@ fn resolve_color(cram: &[u8], palette: u8, color_id: u8) -> u16 {
     u16::from_be_bytes([cram[addr], cram[addr + 1]])
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScrollScreen {
+    A,
+    B,
+}
+
+impl ScrollScreen {
+    const fn address_offset(self) -> u16 {
+        match self {
+            Self::A => 0x0000,
+            Self::B => 0x0002,
+        }
+    }
+}
+
+fn read_v_scroll(vsram: &[u8], v_scroll_mode: VerticalScrollMode, h_cell: u16) -> (u16, u16) {
+    let (v_scroll_a, v_scroll_b) = match v_scroll_mode {
+        VerticalScrollMode::FullScreen => {
+            let v_scroll_a = u16::from_be_bytes([vsram[0], vsram[1]]);
+            let v_scroll_b = u16::from_be_bytes([vsram[2], vsram[3]]);
+            (v_scroll_a, v_scroll_b)
+        }
+        VerticalScrollMode::TwoCell => {
+            let addr = 4 * (h_cell as usize / 2);
+            let v_scroll_a = u16::from_be_bytes([vsram[addr], vsram[addr + 1]]);
+            let v_scroll_b = u16::from_be_bytes([vsram[addr + 2], vsram[addr + 3]]);
+            (v_scroll_a, v_scroll_b)
+        }
+    };
+
+    (v_scroll_a & 0x03FF, v_scroll_b & 0x03FF)
+}
+
+fn read_h_scroll(
+    vram: &[u8],
+    h_scroll_table_addr: u16,
+    h_scroll_mode: HorizontalScrollMode,
+    scanline: u16,
+) -> (u16, u16) {
+    let (h_scroll_a, h_scroll_b) = match h_scroll_mode {
+        HorizontalScrollMode::FullScreen => {
+            let h_scroll_a = u16::from_be_bytes([
+                vram[h_scroll_table_addr as usize],
+                vram[h_scroll_table_addr.wrapping_add(1) as usize],
+            ]);
+            let h_scroll_b = u16::from_be_bytes([
+                vram[h_scroll_table_addr.wrapping_add(2) as usize],
+                vram[h_scroll_table_addr.wrapping_add(3) as usize],
+            ]);
+            (h_scroll_a, h_scroll_b)
+        }
+        HorizontalScrollMode::Cell => {
+            let v_cell = scanline / 8;
+            let addr = h_scroll_table_addr.wrapping_add(32 * v_cell);
+            let h_scroll_a =
+                u16::from_be_bytes([vram[addr as usize], vram[addr.wrapping_add(1) as usize]]);
+            let h_scroll_b = u16::from_be_bytes([
+                vram[addr.wrapping_add(2) as usize],
+                vram[addr.wrapping_add(3) as usize],
+            ]);
+            (h_scroll_a, h_scroll_b)
+        }
+        HorizontalScrollMode::Line => {
+            let addr = h_scroll_table_addr.wrapping_add(4 * scanline);
+            let h_scroll_a =
+                u16::from_be_bytes([vram[addr as usize], vram[addr.wrapping_add(1) as usize]]);
+            let h_scroll_b = u16::from_be_bytes([
+                vram[addr.wrapping_add(2) as usize],
+                vram[addr.wrapping_add(3) as usize],
+            ]);
+            (h_scroll_a, h_scroll_b)
+        }
+    };
+
+    (h_scroll_a & 0x03FF, h_scroll_b & 0x03FF)
+}
+
+#[derive(Debug, Clone, Copy)]
 struct NameTableWord {
     priority: bool,
     palette: u8,
@@ -913,6 +1038,20 @@ fn read_name_table_word(
     }
 }
 
+fn read_name_table_pattern(vram: &[u8], nt_word: NameTableWord, row: u16, col: u16) -> u8 {
+    let cell_row = if nt_word.vertical_flip {
+        7 - (row % 8)
+    } else {
+        row % 8
+    };
+    let cell_col = if nt_word.horizontal_flip {
+        7 - (col % 8)
+    } else {
+        col % 8
+    };
+    read_pattern_generator(vram, nt_word.pattern_generator, cell_row, cell_col)
+}
+
 fn read_pattern_generator(vram: &[u8], pattern_generator: u16, cell_row: u16, cell_col: u16) -> u8 {
     // TODO patterns are 64 bytes in interlaced 2x mode
     let addr = (32 * pattern_generator + 4 * cell_row + (cell_col >> 1)) as usize;
@@ -923,6 +1062,6 @@ fn read_pattern_generator(vram: &[u8], pattern_generator: u16, cell_row: u16, ce
     }
 }
 
-fn gen_color_to_rgb(gen_color: u16) -> u32 {
+pub fn gen_color_to_rgb(gen_color: u16) -> u32 {
     [0, 36, 73, 109, 146, 182, 219, 255][gen_color as usize]
 }
