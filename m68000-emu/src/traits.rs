@@ -24,6 +24,11 @@ pub trait BusInterface {
         self.write_word(address, high_word);
         self.write_word(address.wrapping_add(2), low_word);
     }
+
+    // Auto-vectored interrupt level; should be between 0 and 7, with 0 indicating no interrupt
+    fn interrupt_level(&self) -> u8;
+
+    fn acknowledge_interrupt(&mut self);
 }
 
 pub(crate) trait GetBit: Copy {

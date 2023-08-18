@@ -504,6 +504,7 @@ const ADDRESS_ERROR_VECTOR: u32 = 3;
 const ILLEGAL_OPCODE_VECTOR: u32 = 4;
 const DIVIDE_BY_ZERO_VECTOR: u32 = 5;
 const CHECK_REGISTER_VECTOR: u32 = 6;
+const AUTO_VECTORED_INTERRUPT_BASE_ADDRESS: u32 = 0x60;
 
 impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
     fn new(registers: &'registers mut Registers, bus: &'bus mut B) -> Self {
@@ -994,8 +995,34 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         Ok(())
     }
 
+    fn handle_auto_vectored_interrupt(&mut self, interrupt_level: u8) -> ExecuteResult<u32> {
+        let sr = self.registers.status_register();
+        self.registers.trace_enabled = false;
+        self.registers.supervisor_mode = true;
+        self.registers.interrupt_priority_mask = interrupt_level;
+
+        self.push_stack_u32(self.registers.pc)?;
+        self.push_stack_u16(sr)?;
+
+        let vector_addr = AUTO_VECTORED_INTERRUPT_BASE_ADDRESS + 4 * u32::from(interrupt_level);
+        self.registers.pc = self.bus.read_long_word(vector_addr);
+
+        // TODO this is maybe not correct
+        Ok(46)
+    }
+
     fn execute(mut self) -> u32 {
         self.registers.address_error = false;
+
+        // TODO properly handle non-maskable level 7 interrupts?
+        let interrupt_level = self.bus.interrupt_level() & 0x07;
+        if interrupt_level > self.registers.interrupt_priority_mask {
+            log::trace!("Handling interrupt of level {interrupt_level}");
+            self.bus.acknowledge_interrupt();
+            return self
+                .handle_auto_vectored_interrupt(interrupt_level)
+                .unwrap_or_else(|_err| todo!("address error during interrupt service routine"));
+        }
 
         match self.do_execute() {
             Ok(cycles) => cycles,
@@ -1125,6 +1152,11 @@ impl M68000 {
     #[must_use]
     pub fn address_error(&self) -> bool {
         self.registers.address_error
+    }
+
+    #[must_use]
+    pub fn halted(&self) -> bool {
+        self.halted
     }
 
     pub fn set_halted(&mut self, halted: bool) {

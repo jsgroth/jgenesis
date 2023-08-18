@@ -6,6 +6,7 @@ use bincode::de::{BorrowDecoder, Decoder};
 use bincode::enc::Encoder;
 use bincode::error::{DecodeError, EncodeError};
 use bincode::{BorrowDecode, Decode, Encode};
+use smsgg_core::num::GetBit;
 use smsgg_core::psg::Psg;
 use std::ops::Index;
 use std::path::Path;
@@ -100,10 +101,18 @@ impl Cartridge {
 const MAIN_RAM_LEN: usize = 64 * 1024;
 const AUDIO_RAM_LEN: usize = 8 * 1024;
 
+#[derive(Debug, Clone, Default)]
+struct Signals {
+    z80_busreq: bool,
+    z80_reset: bool,
+}
+
+#[derive(Debug, Clone)]
 pub struct Memory {
     cartridge: Cartridge,
     main_ram: Vec<u8>,
     audio_ram: Vec<u8>,
+    signals: Signals,
 }
 
 impl Memory {
@@ -112,6 +121,22 @@ impl Memory {
             cartridge,
             main_ram: vec![0; MAIN_RAM_LEN],
             audio_ram: vec![0; AUDIO_RAM_LEN],
+            signals: Signals::default(),
+        }
+    }
+
+    pub fn read_word_for_dma(&self, address: u32) -> u16 {
+        // TODO assuming that DMA can only read from ROM and 68k RAM
+        match address {
+            0x000000..=0x3FFFFF => self.cartridge.read_word(address),
+            0xFF0000..=0xFFFFFF => {
+                let addr = (address & 0xFFFF) as usize;
+                u16::from_be_bytes([
+                    self.main_ram[addr],
+                    self.main_ram[addr.wrapping_add(1) & 0xFFFF],
+                ])
+            }
+            _ => 0xFF,
         }
     }
 
@@ -142,6 +167,7 @@ const ADDRESS_MASK: u32 = 0xFFFFFF;
 impl<'a> m68000_emu::BusInterface for MainBus<'a> {
     fn read_byte(&mut self, address: u32) -> u8 {
         let address = address & ADDRESS_MASK;
+        log::trace!("Main bus byte read, address={address:06X}");
         match address {
             0x000000..=0x3FFFFF => self.memory.cartridge.read_byte(address),
             0xA00000..=0xA0FFFF => {
@@ -152,23 +178,20 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
                 // TODO I/O ports
                 0xFF
             }
-            0xA11000..=0xA11001 => {
-                // TODO Z80 BUSREQ
-                0xFF
-            }
             0xA11100..=0xA11101 => {
-                // TODO Z80 RESET
-                0xFF
+                // TODO wait until Z80 has stalled?
+                (!self.memory.signals.z80_busreq).into()
             }
             0xA13000..=0xA130FF => {
                 // TODO timer registers
                 0xFF
             }
-            0xC00000..=0xC00003 => self.vdp.read_data() as u8,
-            0xC00004..=0xC00007 => self.vdp.read_status() as u8,
+            0xC00000 | 0xC00002 => (self.vdp.read_data() >> 8) as u8,
+            0xC00001 | 0xC00003 => self.vdp.read_data() as u8,
+            0xC00004 | 0xC00006 => (self.vdp.read_status() >> 8) as u8,
+            0xC00005 | 0xC00007 => self.vdp.read_status() as u8,
             0xC00008..=0xC0000F => {
-                // TODO HV counter
-                0xFF
+                todo!("HV counter")
             }
             0xFF0000..=0xFFFFFF => self.memory.main_ram[(address & 0xFFFF) as usize],
             _ => 0xFF,
@@ -177,33 +200,29 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
 
     fn read_word(&mut self, address: u32) -> u16 {
         let address = address & ADDRESS_MASK;
+        log::trace!("Main bus word read, address={address:06X}");
         match address {
             0x000000..=0x3FFFFF => self.memory.cartridge.read_word(address),
             0xA00000..=0xA0FFFF => {
                 // TODO access to Z80 memory map
-                0xFF
+                0xFFFF
             }
             0xA10000..=0xA1001F => {
                 // TODO I/O ports
-                0xFF
+                0xFFFF
             }
-            0xA11000 => {
-                // TODO Z80 BUSREQ
-                0xFF
-            }
-            0xA11100 => {
-                // TODO Z80 RESET
-                0xFF
+            0xA11100..=0xA11101 => {
+                // TODO wait until Z80 has stalled?
+                (!self.memory.signals.z80_busreq).into()
             }
             0xA13000..=0xA130FF => {
                 // TODO timer registers
-                0xFF
+                0xFFFF
             }
             0xC00000..=0xC00003 => self.vdp.read_data(),
             0xC00004..=0xC00007 => self.vdp.read_status(),
             0xC00008..=0xC0000F => {
-                // TODO HV counter
-                0xFF
+                todo!("HV counter")
             }
             0xFF0000..=0xFFFFFF => {
                 let ram_addr = (address & 0xFFFF) as usize;
@@ -218,6 +237,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
 
     fn write_byte(&mut self, address: u32, value: u8) {
         let address = address & ADDRESS_MASK;
+        log::trace!("Main bus byte write: address={address:06X}, value={value:02X}");
         match address {
             0xA00000..=0xA0FFFF => {
                 // TODO access to Z80 memory map
@@ -225,11 +245,11 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
             0xA10000..=0xA1001F => {
                 // TODO I/O ports
             }
-            0xA11000..=0xA11001 => {
-                // TODO Z80 BUSREQ
-            }
             0xA11100..=0xA11101 => {
-                // TODO Z80 RESET
+                self.memory.signals.z80_busreq = value.bit(0);
+            }
+            0xA11200..=0xA11201 => {
+                self.memory.signals.z80_reset = value.bit(0);
             }
             0xA13000..=0xA130FF => {
                 // TODO timer registers
@@ -255,6 +275,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
 
     fn write_word(&mut self, address: u32, value: u16) {
         let address = address & ADDRESS_MASK;
+        log::trace!("Main bus word write: address={address:06X}, value={value:02X}");
         match address {
             0xA00000..=0xA0FFFF => {
                 // TODO access to Z80 memory map
@@ -262,11 +283,13 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
             0xA10000..=0xA1001F => {
                 // TODO I/O ports
             }
-            0xA11000..=0xA11001 => {
-                // TODO Z80 BUSREQ
-            }
             0xA11100..=0xA11101 => {
-                // TODO Z80 RESET
+                self.memory.signals.z80_busreq = value.bit(8);
+                log::trace!("Set Z80 BUSREQ to {}", self.memory.signals.z80_busreq);
+            }
+            0xA11200..=0xA11201 => {
+                self.memory.signals.z80_reset = value.bit(8);
+                log::trace!("Set Z80 RESET to {}", self.memory.signals.z80_reset);
             }
             0xA13000..=0xA130FF => {
                 // TODO timer registers
@@ -287,5 +310,13 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
             }
             _ => {}
         }
+    }
+
+    fn interrupt_level(&self) -> u8 {
+        self.vdp.interrupt_level()
+    }
+
+    fn acknowledge_interrupt(&mut self) {
+        self.vdp.acknowledge_interrupt();
     }
 }

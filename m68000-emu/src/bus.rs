@@ -34,6 +34,12 @@ impl BusInterface for InMemoryBus {
         self.memory[address] = msb;
         self.memory[address.wrapping_add(1)] = lsb;
     }
+
+    fn interrupt_level(&self) -> u8 {
+        0
+    }
+
+    fn acknowledge_interrupt(&mut self) {}
 }
 
 impl Default for InMemoryBus {
