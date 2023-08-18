@@ -752,7 +752,7 @@ impl Vdp {
     }
 
     fn in_vblank(&self) -> bool {
-        self.registers.scanline < ACTIVE_SCANLINES
+        self.registers.scanline >= ACTIVE_SCANLINES
     }
 
     fn in_hblank(&self) -> bool {
@@ -800,8 +800,17 @@ impl Vdp {
                 nt_col,
             );
 
-            let cell_row = scanline % 8;
-            let cell_col = col % 8;
+            // TODO generalize this
+            let cell_row = if scroll_a_nt_word.vertical_flip {
+                7 - (scanline % 8)
+            } else {
+                scanline % 8
+            };
+            let cell_col = if scroll_a_nt_word.horizontal_flip {
+                7 - (col % 8)
+            } else {
+                col % 8
+            };
             let color_id = read_pattern_generator(
                 &self.vram,
                 scroll_a_nt_word.pattern_generator,
