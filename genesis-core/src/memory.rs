@@ -171,7 +171,10 @@ impl<'a> MainBus<'a> {
             0xA10000 | 0xA10001 => 0xA0, // Version register
             0xA10002 | 0xA10003 => self.input.read_data(),
             0xA10008 | 0xA10009 => self.input.read_ctrl(),
-            _ => 0xFF,
+            // TxData registers return 0xFF by default
+            0xA1000E | 0xA1000F | 0xA10014 | 0xA10015 | 0xA1001A | 0xA1001B => 0xFF,
+            // Other I/O registers return 0x00 by default
+            _ => 0x00,
         }
     }
 
