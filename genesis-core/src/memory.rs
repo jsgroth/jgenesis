@@ -1,6 +1,7 @@
 // TODO remove
 #![allow(clippy::match_same_arms)]
 
+use crate::input::InputState;
 use crate::vdp::Vdp;
 use bincode::de::{BorrowDecoder, Decoder};
 use bincode::enc::Encoder;
@@ -147,11 +148,43 @@ pub struct MainBus<'a> {
     memory: &'a mut Memory,
     vdp: &'a mut Vdp,
     psg: &'a mut Psg,
+    input: &'a mut InputState,
 }
 
 impl<'a> MainBus<'a> {
-    pub fn new(memory: &'a mut Memory, vdp: &'a mut Vdp, psg: &'a mut Psg) -> Self {
-        Self { memory, vdp, psg }
+    pub fn new(
+        memory: &'a mut Memory,
+        vdp: &'a mut Vdp,
+        psg: &'a mut Psg,
+        input: &'a mut InputState,
+    ) -> Self {
+        Self {
+            memory,
+            vdp,
+            psg,
+            input,
+        }
+    }
+
+    fn read_io_register(&self, address: u32) -> u8 {
+        match address {
+            0xA10000 | 0xA10001 => 0xA0, // Version register
+            0xA10002 | 0xA10003 => self.input.read_data(),
+            0xA10008 | 0xA10009 => self.input.read_ctrl(),
+            _ => 0xFF,
+        }
+    }
+
+    fn write_io_register(&mut self, address: u32, value: u8) {
+        match address {
+            0xA10002 | 0xA10003 => {
+                self.input.write_data(value);
+            }
+            0xA10008 | 0xA10009 => {
+                self.input.write_ctrl(value);
+            }
+            _ => {}
+        }
     }
 }
 
@@ -187,10 +220,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
                     _ => unreachable!("value & 0x7FFF is always <= 0x7FFF"),
                 }
             }
-            0xA10000..=0xA1001F => {
-                // TODO I/O ports
-                0xFF
-            }
+            0xA10000..=0xA1001F => self.read_io_register(address),
             0xA11100..=0xA11101 => {
                 // TODO wait until Z80 has stalled?
                 (!self.memory.signals.z80_busreq).into()
@@ -221,10 +251,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
                 let byte = self.read_byte(address);
                 u16::from_le_bytes([byte, byte])
             }
-            0xA10000..=0xA1001F => {
-                // TODO I/O ports
-                0xFFFF
-            }
+            0xA10000..=0xA1001F => self.read_io_register(address).into(),
             0xA11100..=0xA11101 => {
                 // TODO wait until Z80 has stalled?
                 (!self.memory.signals.z80_busreq).into()
@@ -274,7 +301,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
                 }
             }
             0xA10000..=0xA1001F => {
-                // TODO I/O ports
+                self.write_io_register(address, value);
             }
             0xA11100..=0xA11101 => {
                 self.memory.signals.z80_busreq = value.bit(0);
@@ -313,7 +340,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
                 self.write_byte(address, (value >> 8) as u8);
             }
             0xA10000..=0xA1001F => {
-                // TODO I/O ports
+                self.write_io_register(address, value as u8);
             }
             0xA11100..=0xA11101 => {
                 self.memory.signals.z80_busreq = value.bit(8);

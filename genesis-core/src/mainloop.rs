@@ -1,3 +1,4 @@
+use crate::input::InputState;
 use crate::memory::{Cartridge, MainBus, Memory};
 use crate::vdp;
 use crate::vdp::{Vdp, VdpTickEffect};
@@ -24,6 +25,7 @@ pub fn run(config: GenesisConfig) -> Result<(), Box<dyn Error>> {
     let mut m68k = M68000::new();
     let mut vdp = Vdp::new();
     let mut psg = Psg::new(PsgVersion::Standard);
+    let mut input = InputState::new();
 
     // Genesis cartridges store the initial stack pointer in the first 4 bytes and the entry point
     // in the next 4 bytes
@@ -51,8 +53,12 @@ pub fn run(config: GenesisConfig) -> Result<(), Box<dyn Error>> {
     let mut color_buffer = vec![0; 64];
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        let m68k_cycles =
-            m68k.execute_instruction(&mut MainBus::new(&mut memory, &mut vdp, &mut psg));
+        let m68k_cycles = m68k.execute_instruction(&mut MainBus::new(
+            &mut memory,
+            &mut vdp,
+            &mut psg,
+            &mut input,
+        ));
 
         let m68k_master_cycles = 7 * u64::from(m68k_cycles);
 
@@ -60,6 +66,16 @@ pub fn run(config: GenesisConfig) -> Result<(), Box<dyn Error>> {
             let screen_width = vdp.screen_width();
             populate_minifb_buffer(vdp.frame_buffer(), screen_width, &mut minifb_buffer);
             window.update_with_buffer(&minifb_buffer, screen_width as usize, 224)?;
+
+            let p1 = input.p1_mut();
+            p1.up = window.is_key_down(Key::Up);
+            p1.left = window.is_key_down(Key::Left);
+            p1.right = window.is_key_down(Key::Right);
+            p1.down = window.is_key_down(Key::Down);
+            p1.a = window.is_key_down(Key::A);
+            p1.b = window.is_key_down(Key::S);
+            p1.c = window.is_key_down(Key::D);
+            p1.start = window.is_key_down(Key::Enter);
 
             if let Some(debug_window) = &mut debug_window {
                 vdp.render_pattern_debug(&mut debug_buffer, debug_palette);

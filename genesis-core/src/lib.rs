@@ -1,3 +1,4 @@
+mod input;
 mod mainloop;
 mod memory;
 mod vdp;
