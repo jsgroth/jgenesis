@@ -45,11 +45,30 @@ enum HorizontalDisplaySize {
 }
 
 impl HorizontalDisplaySize {
-    fn to_pixels(self) -> u16 {
+    const fn to_pixels(self) -> u16 {
         match self {
             Self::ThirtyTwoCell => 256,
             Self::FortyCell => 320,
         }
+    }
+
+    // Length in sprites
+    const fn sprite_table_len(self) -> u16 {
+        match self {
+            Self::ThirtyTwoCell => 64,
+            Self::FortyCell => 80,
+        }
+    }
+
+    const fn max_sprites_per_line(self) -> u16 {
+        match self {
+            Self::ThirtyTwoCell => 16,
+            Self::FortyCell => 20,
+        }
+    }
+
+    const fn max_sprite_pixels_per_line(self) -> u16 {
+        self.to_pixels()
     }
 }
 
@@ -408,6 +427,58 @@ impl Registers {
     }
 }
 
+#[derive(Debug, Clone)]
+struct SpriteData {
+    pattern_generator: u16,
+    v_position: u16,
+    h_position: u16,
+    h_size_cells: u8,
+    v_size_cells: u8,
+    palette: u8,
+    vertical_flip: bool,
+    horizontal_flip: bool,
+    priority: bool,
+    link_data: u8,
+    sprite_priority: u8,
+}
+
+impl SpriteData {
+    fn from_attribute_table(sprite_bytes: &[u8]) -> Self {
+        // 1st word
+        let v_position = u16::from_be_bytes([sprite_bytes[0] & 0x03, sprite_bytes[1]]);
+
+        // 2nd word
+        let h_size_cells = ((sprite_bytes[2] >> 2) & 0x03) + 1;
+        let v_size_cells = (sprite_bytes[2] & 0x03) + 1;
+        let link_data = sprite_bytes[3] & 0x7F;
+
+        // 3rd word
+        let priority = sprite_bytes[4].bit(7);
+        let palette = (sprite_bytes[4] >> 5) & 0x03;
+        let vertical_flip = sprite_bytes[4].bit(4);
+        let horizontal_flip = sprite_bytes[4].bit(3);
+        let pattern_generator = u16::from_be_bytes([sprite_bytes[4] & 0x07, sprite_bytes[5]]);
+
+        // 4th word
+        let h_position = u16::from_be_bytes([sprite_bytes[6] & 0x01, sprite_bytes[7]]);
+
+        Self {
+            pattern_generator,
+            v_position,
+            h_position,
+            h_size_cells,
+            v_size_cells,
+            palette,
+            vertical_flip,
+            horizontal_flip,
+            priority,
+            link_data,
+            // Will get filled in later
+            sprite_priority: 0xFF,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VdpTickEffect {
     None,
@@ -421,6 +492,7 @@ pub struct Vdp {
     cram: [u8; CRAM_LEN],
     vsram: [u8; VSRAM_LEN],
     registers: Registers,
+    sprite_buffer: Vec<SpriteData>,
     master_clock_cycles: u64,
 }
 
@@ -433,6 +505,8 @@ const ACTIVE_MCLK_CYCLES_PER_SCANLINE: u64 = 2560;
 const SCANLINES_PER_FRAME: u16 = 262;
 const ACTIVE_SCANLINES: u16 = 224;
 
+const MAX_SPRITES_PER_FRAME: usize = 80;
+
 impl Vdp {
     pub fn new() -> Self {
         Self {
@@ -441,6 +515,7 @@ impl Vdp {
             cram: [0; CRAM_LEN],
             vsram: [0; VSRAM_LEN],
             registers: Registers::new(),
+            sprite_buffer: Vec::with_capacity(MAX_SPRITES_PER_FRAME),
             master_clock_cycles: 0,
         }
     }
@@ -767,6 +842,8 @@ impl Vdp {
             return;
         }
 
+        self.populate_sprite_buffer();
+
         let scanline = self.registers.scanline;
         let screen_width = self.registers.horizontal_display_size.to_pixels();
 
@@ -778,6 +855,74 @@ impl Vdp {
 
         for pixel in 0..screen_width {
             self.render_pixel(bg_color, scanline, pixel);
+        }
+    }
+
+    // TODO optimize this to do fewer passes for sorting/filtering
+    fn populate_sprite_buffer(&mut self) {
+        self.sprite_buffer.clear();
+
+        // Populate buffer from the sprite attribute table
+        let h_size = self.registers.horizontal_display_size;
+        let sprite_table_addr = self.registers.sprite_attribute_table_base_addr;
+        for i in 0..h_size.sprite_table_len() {
+            let sprite_addr = sprite_table_addr.wrapping_add(8 * i) as usize;
+            let sprite_bytes = &self.vram[sprite_addr..sprite_addr + 8];
+            self.sprite_buffer
+                .push(SpriteData::from_attribute_table(sprite_bytes));
+        }
+
+        // Fill in sprite priorities
+        self.sprite_buffer[0].sprite_priority = 0;
+
+        let mut sprite_priority = 1;
+        let mut sprite_idx = self.sprite_buffer[0].link_data as usize;
+        while sprite_idx != 0 {
+            // TODO this should lock up the system
+            assert_eq!(
+                self.sprite_buffer[sprite_idx].sprite_priority, 0xFF,
+                "Link data loop detected in sprite attribute table"
+            );
+
+            self.sprite_buffer[sprite_idx].sprite_priority = sprite_priority;
+            sprite_priority += 1;
+            sprite_idx = self.sprite_buffer[sprite_idx].link_data as usize;
+        }
+
+        // TODO sprite overflow
+        self.sprite_buffer
+            .sort_by_key(|sprite| sprite.sprite_priority);
+        self.sprite_buffer
+            .retain(|sprite| sprite.sprite_priority != 0xFF);
+
+        // Remove sprites that don't fall on this scanline
+        // Sprite display area starts at $080 vertically
+        let sprite_scanline = 0x080 + self.registers.scanline;
+        self.sprite_buffer.retain(|sprite| {
+            let sprite_bottom = sprite.v_position + 8 * u16::from(sprite.v_size_cells);
+            (sprite.v_position..sprite_bottom).contains(&sprite_scanline)
+        });
+
+        // Sprites with H position 0 mask all lower priority sprites on the same scanline
+        for i in 0..self.sprite_buffer.len() {
+            if self.sprite_buffer[i].h_position == 0 {
+                self.sprite_buffer.truncate(i);
+                break;
+            }
+        }
+
+        // Apply max sprite per scanline limit
+        self.sprite_buffer
+            .truncate(h_size.max_sprites_per_line() as usize);
+
+        // Apply max sprite pixel per scanline limit
+        let mut pixels = 0;
+        for i in 0..self.sprite_buffer.len() {
+            pixels += 8 * u16::from(self.sprite_buffer[i].h_size_cells);
+            if pixels >= h_size.max_sprite_pixels_per_line() {
+                self.sprite_buffer.truncate(i + 1);
+                break;
+            }
         }
     }
 
@@ -847,13 +992,24 @@ impl Vdp {
             },
         );
 
+        let (sprite_priority, sprite_palette, sprite_color_id) = self
+            .find_first_overlapping_sprite(scanline, pixel)
+            .map_or((false, 0, 0), |(sprite, color_id)| {
+                (sprite.priority, sprite.palette, color_id)
+            });
+
         let scroll_a_color = resolve_color(&self.cram, scroll_a_nt_word.palette, scroll_a_color_id);
         let scroll_b_color = resolve_color(&self.cram, scroll_b_nt_word.palette, scroll_b_color_id);
+        let sprite_color = resolve_color(&self.cram, sprite_palette, sprite_color_id);
 
-        let color = if scroll_a_nt_word.priority && scroll_a_color_id != 0 {
+        let color = if sprite_priority && sprite_color_id != 0 {
+            sprite_color
+        } else if scroll_a_nt_word.priority && scroll_a_color_id != 0 {
             scroll_a_color
         } else if scroll_b_nt_word.priority && scroll_b_color_id != 0 {
             scroll_b_color
+        } else if sprite_color_id != 0 {
+            sprite_color
         } else if scroll_a_color_id != 0 {
             scroll_a_color
         } else if scroll_b_color_id != 0 {
@@ -862,6 +1018,53 @@ impl Vdp {
             bg_color
         };
         self.set_in_frame_buffer(scanline.into(), pixel.into(), color);
+    }
+
+    fn find_first_overlapping_sprite(
+        &self,
+        scanline: u16,
+        pixel: u16,
+    ) -> Option<(&SpriteData, u8)> {
+        // Sprite horizontal display area starts at $080
+        let sprite_pixel = 0x080 + pixel;
+
+        // TODO sprite collision
+        self.sprite_buffer.iter().find_map(|sprite| {
+            let sprite_right = sprite.h_position + 8 * u16::from(sprite.h_size_cells);
+            if !(sprite.h_position..sprite_right).contains(&sprite_pixel) {
+                return None;
+            }
+
+            let v_size_cells: u16 = sprite.v_size_cells.into();
+            let h_size_cells: u16 = sprite.h_size_cells.into();
+
+            let sprite_row = 0x080 + scanline - sprite.v_position;
+            let sprite_row = if sprite.vertical_flip {
+                8 * v_size_cells - 1 - sprite_row
+            } else {
+                sprite_row
+            };
+
+            let sprite_col = 0x080 + pixel - sprite.h_position;
+            let sprite_col = if sprite.horizontal_flip {
+                8 * h_size_cells - 1 - sprite_col
+            } else {
+                sprite_col
+            };
+
+            let pattern_offset = (sprite_col / 8) * v_size_cells + sprite_row / 8;
+            let color_id = read_pattern_generator(
+                &self.vram,
+                PatternGeneratorArgs {
+                    vertical_flip: false,
+                    horizontal_flip: false,
+                    pattern_generator: sprite.pattern_generator.wrapping_add(pattern_offset),
+                    row: sprite_row % 8,
+                    col: sprite_col % 8,
+                },
+            );
+            (color_id != 0).then_some((sprite, color_id))
+        })
     }
 
     pub fn frame_buffer(&self) -> &[u16] {
