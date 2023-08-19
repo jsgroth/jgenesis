@@ -82,7 +82,7 @@ impl PinDirections {
         } else {
             !joypad_state.start
         };
-        let tr_joypad = if th { !joypad_state.a } else { !joypad_state.b };
+        let tr_joypad = if th { !joypad_state.b } else { !joypad_state.a };
         let right_joypad = th && !joypad_state.right;
         let left_joypad = th && !joypad_state.left;
 
