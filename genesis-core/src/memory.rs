@@ -124,7 +124,7 @@ impl Memory {
         // TODO assuming that DMA can only read from ROM and 68k RAM
         match address {
             0x000000..=0x3FFFFF => self.cartridge.read_word(address),
-            0xFF0000..=0xFFFFFF => {
+            0xE00000..=0xFFFFFF => {
                 let addr = (address & 0xFFFF) as usize;
                 u16::from_be_bytes([
                     self.main_ram[addr],
@@ -236,7 +236,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
             0xC00008..=0xC0000F => {
                 todo!("HV counter")
             }
-            0xFF0000..=0xFFFFFF => self.memory.main_ram[(address & 0xFFFF) as usize],
+            0xE00000..=0xFFFFFF => self.memory.main_ram[(address & 0xFFFF) as usize],
             _ => 0xFF,
         }
     }
@@ -265,7 +265,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
             0xC00008..=0xC0000F => {
                 todo!("HV counter")
             }
-            0xFF0000..=0xFFFFFF => {
+            0xE00000..=0xFFFFFF => {
                 let ram_addr = (address & 0xFFFF) as usize;
                 u16::from_be_bytes([
                     self.memory.main_ram[ram_addr],
@@ -324,7 +324,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
             0xC00011 | 0xC00013 | 0xC00015 | 0xC00017 => {
                 self.psg.write(value);
             }
-            0xFF0000..=0xFFFFFF => {
+            0xE00000..=0xFFFFFF => {
                 self.memory.main_ram[(address & 0xFFFF) as usize] = value;
             }
             _ => {}
@@ -362,7 +362,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
             0xC00008..=0xC0000F => {
                 // TODO HV counter
             }
-            0xFF0000..=0xFFFFFF => {
+            0xE00000..=0xFFFFFF => {
                 let ram_addr = (address & 0xFFFF) as usize;
                 self.memory.main_ram[ram_addr] = (value >> 8) as u8;
                 self.memory.main_ram[(ram_addr + 1) & 0xFFFF] = value as u8;

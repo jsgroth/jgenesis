@@ -808,7 +808,7 @@ impl Vdp {
                     let word = memory.read_word_for_dma(source_addr);
                     match self.registers.data_port_location {
                         DataPortLocation::Vram => {
-                            self.write_vram_word(self.registers.data_address & !0x01, word);
+                            self.write_vram_word(self.registers.data_address, word);
                         }
                         DataPortLocation::Cram => {
                             let addr = self.registers.data_address as usize;
