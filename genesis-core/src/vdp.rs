@@ -719,9 +719,19 @@ impl Vdp {
         let prev_mclk_cycles = self.master_clock_cycles;
         self.master_clock_cycles += master_clock_cycles;
 
-        if prev_mclk_cycles / MCLK_CYCLES_PER_SCANLINE
-            != self.master_clock_cycles / MCLK_CYCLES_PER_SCANLINE
+        let prev_scanline_mclk = prev_mclk_cycles % MCLK_CYCLES_PER_SCANLINE;
+
+        // Check if an H interrupt has triggered
+        if self.registers.h_interrupt_enabled
+            && (self.registers.scanline + 1) % (self.registers.h_interrupt_interval + 1) == 0
+            && prev_scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE
+            && master_clock_cycles >= ACTIVE_MCLK_CYCLES_PER_SCANLINE - prev_scanline_mclk
         {
+            self.registers.h_interrupt_pending = true;
+        }
+
+        // Check if the VDP has advanced to a new scanline
+        if prev_scanline_mclk + master_clock_cycles >= MCLK_CYCLES_PER_SCANLINE {
             self.registers.scanline += 1;
             if self.registers.scanline == SCANLINES_PER_FRAME {
                 self.registers.scanline = 0;
