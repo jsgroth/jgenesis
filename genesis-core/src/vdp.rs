@@ -196,6 +196,7 @@ struct Registers {
     data_address: u16,
     v_interrupt_pending: bool,
     h_interrupt_pending: bool,
+    h_interrupt_counter: u16,
     sprite_overflow: bool,
     sprite_collision: bool,
     scanline: u16,
@@ -261,6 +262,7 @@ impl Registers {
             data_address: 0,
             v_interrupt_pending: false,
             h_interrupt_pending: false,
+            h_interrupt_counter: 0,
             sprite_overflow: false,
             sprite_collision: false,
             scanline: 0,
@@ -757,12 +759,23 @@ impl Vdp {
         let prev_scanline_mclk = prev_mclk_cycles % MCLK_CYCLES_PER_SCANLINE;
 
         // Check if an H interrupt has triggered
-        if self.registers.h_interrupt_enabled
-            && (self.registers.scanline + 1) % (self.registers.h_interrupt_interval + 1) == 0
-            && prev_scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE
+        if prev_scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE
             && master_clock_cycles >= ACTIVE_MCLK_CYCLES_PER_SCANLINE - prev_scanline_mclk
         {
-            self.registers.h_interrupt_pending = true;
+            if self.registers.scanline < 224 {
+                if self.registers.h_interrupt_counter == 0 {
+                    self.registers.h_interrupt_counter = self.registers.h_interrupt_interval;
+
+                    if self.registers.h_interrupt_enabled {
+                        self.registers.h_interrupt_pending = true;
+                    }
+                } else {
+                    self.registers.h_interrupt_counter -= 1;
+                }
+            } else {
+                // H interrupt counter is constantly refreshed during VBlank
+                self.registers.h_interrupt_counter = self.registers.h_interrupt_interval;
+            }
         }
 
         // Check if the VDP has advanced to a new scanline

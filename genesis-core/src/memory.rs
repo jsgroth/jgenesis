@@ -226,8 +226,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
                 (!self.memory.signals.z80_busreq).into()
             }
             0xA13000..=0xA130FF => {
-                // TODO timer registers
-                0xFF
+                todo!("timer register")
             }
             0xC00000 | 0xC00002 => (self.vdp.read_data() >> 8) as u8,
             0xC00001 | 0xC00003 => self.vdp.read_data() as u8,
@@ -257,8 +256,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
                 (!self.memory.signals.z80_busreq).into()
             }
             0xA13000..=0xA130FF => {
-                // TODO timer registers
-                0xFFFF
+                todo!("timer register")
             }
             0xC00000..=0xC00003 => self.vdp.read_data(),
             0xC00004..=0xC00007 => self.vdp.read_status(),
