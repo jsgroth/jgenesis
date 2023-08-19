@@ -1050,34 +1050,34 @@ impl Vdp {
             },
         );
 
-        let (window_priority, window_palette, window_color_id) =
-            if self.registers.is_in_window(scanline, pixel) {
-                let v_cell = scanline / 8;
-                let window_nt_word = read_name_table_word(
-                    &self.vram,
-                    self.registers.window_base_nt_addr,
-                    self.registers.horizontal_display_size.window_cell_width(),
-                    v_cell,
-                    h_cell,
-                );
-                let window_color_id = read_pattern_generator(
-                    &self.vram,
-                    PatternGeneratorArgs {
-                        vertical_flip: window_nt_word.vertical_flip,
-                        horizontal_flip: window_nt_word.horizontal_flip,
-                        pattern_generator: window_nt_word.pattern_generator,
-                        row: scanline,
-                        col: pixel,
-                    },
-                );
-                (
-                    window_nt_word.priority,
-                    window_nt_word.palette,
-                    window_color_id,
-                )
-            } else {
-                (false, 0, 0)
-            };
+        let in_window = self.registers.is_in_window(scanline, pixel);
+        let (window_priority, window_palette, window_color_id) = if in_window {
+            let v_cell = scanline / 8;
+            let window_nt_word = read_name_table_word(
+                &self.vram,
+                self.registers.window_base_nt_addr,
+                self.registers.horizontal_display_size.window_cell_width(),
+                v_cell,
+                h_cell,
+            );
+            let window_color_id = read_pattern_generator(
+                &self.vram,
+                PatternGeneratorArgs {
+                    vertical_flip: window_nt_word.vertical_flip,
+                    horizontal_flip: window_nt_word.horizontal_flip,
+                    pattern_generator: window_nt_word.pattern_generator,
+                    row: scanline,
+                    col: pixel,
+                },
+            );
+            (
+                window_nt_word.priority,
+                window_nt_word.palette,
+                window_color_id,
+            )
+        } else {
+            (false, 0, 0)
+        };
 
         let (sprite_priority, sprite_palette, sprite_color_id) = self
             .find_first_overlapping_sprite(scanline, pixel)
@@ -1094,7 +1094,7 @@ impl Vdp {
             sprite_color
         } else if window_priority && window_color_id != 0 {
             window_color
-        } else if scroll_a_nt_word.priority && scroll_a_color_id != 0 {
+        } else if !in_window && scroll_a_nt_word.priority && scroll_a_color_id != 0 {
             scroll_a_color
         } else if scroll_b_nt_word.priority && scroll_b_color_id != 0 {
             scroll_b_color
@@ -1102,7 +1102,7 @@ impl Vdp {
             sprite_color
         } else if window_color_id != 0 {
             window_color
-        } else if scroll_a_color_id != 0 {
+        } else if !in_window && scroll_a_color_id != 0 {
             scroll_a_color
         } else if scroll_b_color_id != 0 {
             scroll_b_color
