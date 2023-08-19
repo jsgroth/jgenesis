@@ -70,6 +70,13 @@ impl HorizontalDisplaySize {
     const fn max_sprite_pixels_per_line(self) -> u16 {
         self.to_pixels()
     }
+
+    const fn window_cell_width(self) -> u16 {
+        match self {
+            Self::ThirtyTwoCell => 32,
+            Self::FortyCell => 64,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,10 +133,30 @@ enum WindowHorizontalMode {
     CenterToRight,
 }
 
+impl WindowHorizontalMode {
+    fn in_window(self, pixel: u16, window_x: u16) -> bool {
+        let cell = pixel / 8;
+        match self {
+            Self::LeftToCenter => cell < window_x,
+            Self::CenterToRight => cell >= window_x,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WindowVerticalMode {
     TopToCenter,
     CenterToBottom,
+}
+
+impl WindowVerticalMode {
+    fn in_window(self, scanline: u16, window_y: u16) -> bool {
+        let cell = scanline / 8;
+        match self {
+            Self::TopToCenter => cell < window_y,
+            Self::CenterToBottom => cell >= window_y,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -424,6 +451,14 @@ impl Registers {
             }
             _ => {}
         }
+    }
+
+    fn is_in_window(&self, scanline: u16, pixel: u16) -> bool {
+        self.window_horizontal_mode
+            .in_window(pixel, self.window_x_position)
+            || self
+                .window_vertical_mode
+                .in_window(scanline, self.window_y_position)
     }
 }
 
@@ -1002,6 +1037,35 @@ impl Vdp {
             },
         );
 
+        let (window_priority, window_palette, window_color_id) =
+            if self.registers.is_in_window(scanline, pixel) {
+                let v_cell = scanline / 8;
+                let window_nt_word = read_name_table_word(
+                    &self.vram,
+                    self.registers.window_base_nt_addr,
+                    self.registers.horizontal_display_size.window_cell_width(),
+                    v_cell,
+                    h_cell,
+                );
+                let window_color_id = read_pattern_generator(
+                    &self.vram,
+                    PatternGeneratorArgs {
+                        vertical_flip: window_nt_word.vertical_flip,
+                        horizontal_flip: window_nt_word.horizontal_flip,
+                        pattern_generator: window_nt_word.pattern_generator,
+                        row: scanline,
+                        col: pixel,
+                    },
+                );
+                (
+                    window_nt_word.priority,
+                    window_nt_word.palette,
+                    window_color_id,
+                )
+            } else {
+                (false, 0, 0)
+            };
+
         let (sprite_priority, sprite_palette, sprite_color_id) = self
             .find_first_overlapping_sprite(scanline, pixel)
             .map_or((false, 0, 0), |(sprite, color_id)| {
@@ -1010,16 +1074,21 @@ impl Vdp {
 
         let scroll_a_color = resolve_color(&self.cram, scroll_a_nt_word.palette, scroll_a_color_id);
         let scroll_b_color = resolve_color(&self.cram, scroll_b_nt_word.palette, scroll_b_color_id);
+        let window_color = resolve_color(&self.cram, window_palette, window_color_id);
         let sprite_color = resolve_color(&self.cram, sprite_palette, sprite_color_id);
 
         let color = if sprite_priority && sprite_color_id != 0 {
             sprite_color
+        } else if window_priority && window_color_id != 0 {
+            window_color
         } else if scroll_a_nt_word.priority && scroll_a_color_id != 0 {
             scroll_a_color
         } else if scroll_b_nt_word.priority && scroll_b_color_id != 0 {
             scroll_b_color
         } else if sprite_color_id != 0 {
             sprite_color
+        } else if window_color_id != 0 {
+            window_color
         } else if scroll_a_color_id != 0 {
             scroll_a_color
         } else if scroll_b_color_id != 0 {
