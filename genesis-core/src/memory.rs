@@ -402,6 +402,8 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
 
 impl<'a> z80_emu::BusInterface for MainBus<'a> {
     fn read_memory(&mut self, address: u16) -> u8 {
+        log::trace!("Z80 bus read from {address:04X}");
+
         match address {
             0x0000..=0x3FFF => {
                 // Z80 RAM (mirrored at $2000-$3FFF)
@@ -444,6 +446,8 @@ impl<'a> z80_emu::BusInterface for MainBus<'a> {
     }
 
     fn write_memory(&mut self, address: u16, value: u8) {
+        log::trace!("Z80 bus write at {address:04X}");
+
         match address {
             0x0000..=0x3FFF => {
                 // Z80 RAM (mirrored at $2000-$3FFF)

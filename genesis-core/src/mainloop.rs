@@ -39,7 +39,7 @@ impl AudioOutput {
         }
     }
 
-    fn initialize(&self) -> Result<(), Box<dyn Error>> {
+    fn initialize(&self) -> Result<impl StreamTrait, Box<dyn Error>> {
         let callback_queue = Arc::clone(&self.audio_queue);
 
         let audio_host = cpal::default_host();
@@ -65,7 +65,7 @@ impl AudioOutput {
         )?;
         audio_stream.play()?;
 
-        Ok(())
+        Ok(audio_stream)
     }
 
     fn collect_sample(&mut self, sample_l: f64, sample_r: f64) {
@@ -133,7 +133,7 @@ pub fn run(config: GenesisConfig) -> Result<(), Box<dyn Error>> {
 
     // TODO generalize this
     let mut audio_output = AudioOutput::new();
-    audio_output.initialize()?;
+    let _audio_stream = audio_output.initialize()?;
 
     let mut debug_window: Option<Window> = None;
     let mut debug_buffer = vec![0; 64 * 32 * 64];
