@@ -53,8 +53,174 @@ impl<'de> BorrowDecode<'de> for Rom {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+enum HardwareRegion {
+    Americas,
+    Japan,
+}
+
+impl HardwareRegion {
+    fn from_rom(rom: &[u8]) -> Option<Self> {
+        let region_bytes = &rom[0x1F0..0x1F3];
+
+        // Prefer Americas if region code contains a 'U'
+        if region_bytes.contains(&b'U') {
+            return Some(HardwareRegion::Americas);
+        }
+
+        // Otherwise prefer Japan if it contains a 'J'
+        if region_bytes.contains(&b'J') {
+            return Some(HardwareRegion::Japan);
+        }
+
+        // If region code contains neither a 'U' nor a 'J', treat it as a hex char
+        let c = region_bytes[0] as char;
+        let value = u8::from_str_radix(&c.to_string(), 16).ok()?;
+        if value & 0x04 != 0 {
+            // Bit 2 = Americas
+            Some(HardwareRegion::Americas)
+        } else if value & 0x01 != 0 {
+            // Bit 0 = Asia
+            Some(HardwareRegion::Japan)
+        } else {
+            // Only supports Europe, not yet implemented
+            None
+        }
+    }
+
+    fn version_bit(self) -> bool {
+        self == Self::Americas
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+enum RamType {
+    SixteenBit,
+    EightBitOddAddress,
+    EightBitEvenAddress,
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+struct Ram {
+    ram: Vec<u8>,
+    address_mask: u32,
+    ram_type: RamType,
+    persistent: bool,
+    start_address: u32,
+    end_address: u32,
+}
+
+impl Ram {
+    fn from_rom_header(rom: &[u8]) -> Option<Self> {
+        let ram_header_bytes = &rom[0x1B0..0x1BC];
+
+        // RAM header should always start with "RA", and 4th byte should always be $20
+        if ram_header_bytes[..2] != [b'R', b'A'] || ram_header_bytes[3] != 0x20 {
+            return None;
+        }
+
+        // Third byte indicates RAM type and whether or not it is persistent memory
+        let (ram_type, persistent) = match ram_header_bytes[2] {
+            0xA0 => (RamType::SixteenBit, false),
+            0xB0 => (RamType::EightBitEvenAddress, false),
+            0xB8 => (RamType::EightBitOddAddress, false),
+            0xE0 => (RamType::SixteenBit, true),
+            0xF0 => (RamType::EightBitEvenAddress, true),
+            0xF8 => (RamType::EightBitOddAddress, true),
+            _ => {
+                return None;
+            }
+        };
+
+        // Next 8 bytes indicate start and end addresses
+        let start_address = u32::from_be_bytes([
+            ram_header_bytes[4],
+            ram_header_bytes[5],
+            ram_header_bytes[6],
+            ram_header_bytes[7],
+        ]);
+        let end_address = u32::from_be_bytes([
+            ram_header_bytes[8],
+            ram_header_bytes[9],
+            ram_header_bytes[10],
+            ram_header_bytes[11],
+        ]);
+
+        log::info!("RAM header information: type={ram_type:?}, persistent={persistent}, start_address={start_address:06X}, end_address={end_address:06X}");
+
+        let ram_len = if ram_type == RamType::SixteenBit {
+            end_address - start_address + 1
+        } else {
+            (end_address - start_address) / 2 + 1
+        };
+
+        // TODO support RAM persistence
+        Some(Self {
+            ram: vec![0; ram_len as usize],
+            address_mask: ram_len - 1,
+            ram_type,
+            persistent,
+            start_address,
+            end_address,
+        })
+    }
+
+    fn map_address(&self, address: u32) -> Option<u32> {
+        if !(self.start_address..=self.end_address).contains(&address) {
+            return None;
+        }
+
+        match (self.ram_type, address.bit(0)) {
+            (RamType::SixteenBit, _) => Some(address & self.address_mask),
+            (RamType::EightBitOddAddress, false) | (RamType::EightBitEvenAddress, true) => None,
+            (RamType::EightBitEvenAddress, false) | (RamType::EightBitOddAddress, true) => {
+                Some((address >> 1) & self.address_mask)
+            }
+        }
+    }
+
+    fn read_byte(&self, address: u32) -> Option<u8> {
+        self.map_address(address)
+            .map(|address| self.ram[address as usize])
+    }
+
+    fn write_byte(&mut self, address: u32, value: u8) {
+        if let Some(address) = self.map_address(address) {
+            self.ram[address as usize] = value;
+        }
+    }
+
+    fn read_word(&self, address: u32) -> Option<u16> {
+        let msb = self.read_byte(address);
+        let lsb = self.read_byte(address.wrapping_add(1));
+        if msb.is_none() && lsb.is_none() {
+            None
+        } else {
+            Some(u16::from_be_bytes([
+                msb.unwrap_or(0x00),
+                lsb.unwrap_or(0x00),
+            ]))
+        }
+    }
+
+    fn write_word(&mut self, address: u32, value: u16) {
+        let msb_address = self.map_address(address);
+        let lsb_address = self.map_address(address.wrapping_add(1));
+
+        let [msb, lsb] = value.to_be_bytes();
+        if let Some(msb_address) = msb_address {
+            self.ram[msb_address as usize] = msb;
+        }
+        if let Some(lsb_address) = lsb_address {
+            self.ram[lsb_address as usize] = lsb;
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum CartridgeLoadError {
+    #[error("unable to determine cartridge region from header")]
+    IndeterminateRegion,
     #[error("I/O error loading cartridge file: {source}")]
     Io {
         #[from]
@@ -65,33 +231,66 @@ pub enum CartridgeLoadError {
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Cartridge {
     rom: Rom,
-    address_mask: u32,
+    ram: Option<Ram>,
+    rom_address_mask: u32,
+    region: HardwareRegion,
 }
 
 impl Cartridge {
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, CartridgeLoadError> {
         let bytes = fs::read(path)?;
-        Ok(Self::from_rom(bytes))
+        Self::from_rom(bytes)
     }
 
-    pub fn from_rom(rom_bytes: Vec<u8>) -> Self {
-        // TODO parse stuff out of header
-        let address_mask = (rom_bytes.len() - 1) as u32;
-        Self {
+    pub fn from_rom(rom_bytes: Vec<u8>) -> Result<Self, CartridgeLoadError> {
+        let Some(region) = HardwareRegion::from_rom(&rom_bytes)
+        else {
+            return Err(CartridgeLoadError::IndeterminateRegion);
+        };
+
+        let ram = Ram::from_rom_header(&rom_bytes);
+
+        log::info!("Inferred cartridge region: {region:?}");
+
+        // TODO parse more stuff out of header
+        let rom_address_mask = (rom_bytes.len() - 1) as u32;
+        Ok(Self {
             rom: Rom(rom_bytes),
-            address_mask,
-        }
+            ram,
+            rom_address_mask,
+            region,
+        })
     }
 
     fn read_byte(&self, address: u32) -> u8 {
-        self.rom[address & self.address_mask]
+        if let Some(byte) = self.ram.as_ref().and_then(|ram| ram.read_byte(address)) {
+            return byte;
+        }
+
+        self.rom[address & self.rom_address_mask]
     }
 
     fn read_word(&self, address: u32) -> u16 {
+        if let Some(word) = self.ram.as_ref().and_then(|ram| ram.read_word(address)) {
+            return word;
+        }
+
         u16::from_be_bytes([
             self.read_byte(address),
             self.read_byte(address.wrapping_add(1)),
         ])
+    }
+
+    fn write_byte(&mut self, address: u32, value: u8) {
+        if let Some(ram) = &mut self.ram {
+            ram.write_byte(address, value);
+        }
+    }
+
+    fn write_word(&mut self, address: u32, value: u16) {
+        if let Some(ram) = &mut self.ram {
+            ram.write_word(address, value);
+        }
     }
 }
 
@@ -195,7 +394,10 @@ impl<'a> MainBus<'a> {
 
     fn read_io_register(&self, address: u32) -> u8 {
         match address {
-            0xA10000 | 0xA10001 => 0xA0, // Version register
+            // Version register
+            0xA10000 | 0xA10001 => {
+                0x20 | (u8::from(self.memory.cartridge.region.version_bit()) << 7)
+            }
             0xA10002 | 0xA10003 => self.input.read_data(),
             0xA10008 | 0xA10009 => self.input.read_ctrl(),
             // TxData registers return 0xFF by default
@@ -320,6 +522,9 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
         let address = address & ADDRESS_MASK;
         log::trace!("Main bus byte write: address={address:06X}, value={value:02X}");
         match address {
+            0x000000..=0x3FFFFF => {
+                self.memory.cartridge.write_byte(address, value);
+            }
             0xA00000..=0xA0FFFF => {
                 // Z80 memory map
                 // For 68k access, $8000-$FFFF mirrors $0000-$7FFF
@@ -355,6 +560,9 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
         let address = address & ADDRESS_MASK;
         log::trace!("Main bus word write: address={address:06X}, value={value:02X}");
         match address {
+            0x000000..=0x3FFFFF => {
+                self.memory.cartridge.write_word(address, value);
+            }
             0xA00000..=0xA0FFFF => {
                 // Z80 memory map; word-size writes write the MSB as a byte-size write
                 self.write_byte(address, (value >> 8) as u8);
