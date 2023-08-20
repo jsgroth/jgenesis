@@ -10,6 +10,7 @@ m68000-emu = { path = "../m68000-emu" }
 smsgg-core = { path = "../smsgg-core" }
 z80-emu = { path = "../z80-emu" }
 
+cpal = "0.15"
 bincode = "2.0.0-rc.3"
 log = "0.4"
 minifb = "0.25"

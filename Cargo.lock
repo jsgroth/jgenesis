@@ -514,6 +514,7 @@ name = "genesis-core"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "cpal",
  "log",
  "m68000-emu",
  "minifb",

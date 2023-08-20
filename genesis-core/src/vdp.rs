@@ -1,6 +1,7 @@
 use crate::memory::Memory;
 use smsgg_core::num::GetBit;
 use std::cmp::Ordering;
+use z80_emu::traits::InterruptLine;
 
 const VRAM_LEN: usize = 64 * 1024;
 const CRAM_LEN: usize = 128;
@@ -879,7 +880,7 @@ impl Vdp {
         self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE >= ACTIVE_MCLK_CYCLES_PER_SCANLINE
     }
 
-    pub fn interrupt_level(&self) -> u8 {
+    pub fn m68k_interrupt_level(&self) -> u8 {
         // TODO external interrupts at level 2
         if self.registers.v_interrupt_pending && self.registers.v_interrupt_enabled {
             6
@@ -890,9 +891,17 @@ impl Vdp {
         }
     }
 
-    pub fn acknowledge_interrupt(&mut self) {
+    pub fn acknowledge_m68k_interrupt(&mut self) {
         self.registers.v_interrupt_pending = false;
         self.registers.h_interrupt_pending = false;
+    }
+
+    pub fn z80_interrupt_line(&self) -> InterruptLine {
+        if self.registers.scanline == 224 {
+            InterruptLine::Low
+        } else {
+            InterruptLine::High
+        }
     }
 
     fn render_scanline(&mut self) {

@@ -321,6 +321,7 @@ pub struct Z80 {
     registers: Registers,
     stalled: bool,
     t_cycles_wait: u32,
+    last_reset: bool,
 }
 
 impl Z80 {
@@ -332,6 +333,7 @@ impl Z80 {
             registers: Registers::new(),
             stalled: false,
             t_cycles_wait: 0,
+            last_reset: false,
         }
     }
 
@@ -365,7 +367,8 @@ impl Z80 {
             return Self::MINIMUM_T_CYCLES;
         }
 
-        if bus.reset() {
+        let bus_reset = bus.reset();
+        if !self.last_reset && bus_reset {
             // RESET is asserted; reset internal state
             self.registers.i = 0;
             self.registers.r = 0;
@@ -374,11 +377,12 @@ impl Z80 {
             self.registers.iff2 = false;
             self.registers.interrupt_mode = InterruptMode::Mode0;
 
-            self.stalled = true;
+            self.last_reset = true;
             return Self::MINIMUM_T_CYCLES;
         }
 
         self.stalled = false;
+        self.last_reset = bus_reset;
 
         instructions::execute(&mut self.registers, bus)
     }

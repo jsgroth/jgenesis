@@ -2,16 +2,99 @@ use crate::input::InputState;
 use crate::memory::{Cartridge, MainBus, Memory};
 use crate::vdp;
 use crate::vdp::{Vdp, VdpTickEffect};
+use crate::ym2612::Ym2612;
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{BufferSize, SampleRate, StreamConfig};
 use m68000_emu::M68000;
 use minifb::{Key, KeyRepeat, Window, WindowOptions};
-use smsgg_core::psg::{Psg, PsgVersion};
+use smsgg_core::psg::{Psg, PsgTickEffect, PsgVersion};
+use std::collections::VecDeque;
 use std::error::Error;
 use std::ffi::OsStr;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use std::{process, thread};
+use z80_emu::Z80;
 
 pub struct GenesisConfig {
     pub rom_file_path: String,
+}
+
+struct AudioOutput {
+    audio_buffer: Vec<(f32, f32)>,
+    audio_queue: Arc<Mutex<VecDeque<f32>>>,
+    sample_count: u64,
+}
+
+impl AudioOutput {
+    // 53693175.0 / 15.0 / 16.0 / 48000.0
+    const DOWNSAMPLING_RATIO: f64 = 4.6608658854166665;
+
+    fn new() -> Self {
+        Self {
+            audio_buffer: Vec::new(),
+            audio_queue: Arc::new(Mutex::new(VecDeque::new())),
+            sample_count: 0,
+        }
+    }
+
+    fn initialize(&self) -> Result<(), Box<dyn Error>> {
+        let callback_queue = Arc::clone(&self.audio_queue);
+
+        let audio_host = cpal::default_host();
+        let audio_device = audio_host.default_output_device().unwrap();
+        let audio_stream = audio_device.build_output_stream(
+            &StreamConfig {
+                channels: 2,
+                sample_rate: SampleRate(48000),
+                buffer_size: BufferSize::Fixed(1024),
+            },
+            move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                let mut callback_queue = callback_queue.lock().unwrap();
+                for output in data {
+                    let Some(sample) = callback_queue.pop_front() else { break };
+                    *output = sample;
+                }
+            },
+            move |err| {
+                log::error!("Audio error: {err}");
+                process::exit(1);
+            },
+            None,
+        )?;
+        audio_stream.play()?;
+
+        Ok(())
+    }
+
+    fn collect_sample(&mut self, sample_l: f64, sample_r: f64) {
+        let prev_count = self.sample_count;
+        self.sample_count += 1;
+
+        if (prev_count as f64 / Self::DOWNSAMPLING_RATIO).round() as u64
+            != (self.sample_count as f64 / Self::DOWNSAMPLING_RATIO).round() as u64
+        {
+            self.audio_buffer.push((sample_l as f32, sample_r as f32));
+            if self.audio_buffer.len() == 64 {
+                loop {
+                    {
+                        let mut audio_queue = self.audio_queue.lock().unwrap();
+                        if audio_queue.len() < 1024 {
+                            audio_queue.extend(
+                                self.audio_buffer
+                                    .drain(..)
+                                    .flat_map(|(sample_l, sample_r)| [sample_l, sample_r]),
+                            );
+                            break;
+                        }
+                    }
+
+                    thread::sleep(Duration::from_micros(250));
+                }
+            }
+        }
+    }
 }
 
 /// # Errors
@@ -23,8 +106,11 @@ pub fn run(config: GenesisConfig) -> Result<(), Box<dyn Error>> {
     let mut memory = Memory::new(cartridge);
 
     let mut m68k = M68000::new();
+    let mut z80 = Z80::new();
+
     let mut vdp = Vdp::new();
     let mut psg = Psg::new(PsgVersion::Standard);
+    let mut ym2612 = Ym2612::new();
     let mut input = InputState::new();
 
     // Genesis cartridges store the initial stack pointer in the first 4 bytes and the entry point
@@ -45,6 +131,10 @@ pub fn run(config: GenesisConfig) -> Result<(), Box<dyn Error>> {
 
     let mut minifb_buffer = vec![0_u32; 320 * 224];
 
+    // TODO generalize this
+    let mut audio_output = AudioOutput::new();
+    audio_output.initialize()?;
+
     let mut debug_window: Option<Window> = None;
     let mut debug_buffer = vec![0; 64 * 32 * 64];
     let mut debug_palette = 0;
@@ -52,15 +142,26 @@ pub fn run(config: GenesisConfig) -> Result<(), Box<dyn Error>> {
     let mut color_window: Option<Window> = None;
     let mut color_buffer = vec![0; 64];
 
+    let mut master_cycles = 0_u64;
+
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        let m68k_cycles = m68k.execute_instruction(&mut MainBus::new(
-            &mut memory,
-            &mut vdp,
-            &mut psg,
-            &mut input,
-        ));
+        let mut bus = MainBus::new(&mut memory, &mut vdp, &mut psg, &mut ym2612, &mut input);
+        let m68k_cycles = m68k.execute_instruction(&mut bus);
 
         let m68k_master_cycles = 7 * u64::from(m68k_cycles);
+
+        let z80_cycles = ((master_cycles + m68k_master_cycles) / 15) - master_cycles / 15;
+        for _ in 0..z80_cycles {
+            z80.tick(&mut bus);
+        }
+        master_cycles += m68k_master_cycles;
+
+        for _ in 0..z80_cycles {
+            if psg.tick() == PsgTickEffect::Clocked {
+                let (sample_l, sample_r) = psg.sample();
+                audio_output.collect_sample(sample_l, sample_r);
+            }
+        }
 
         if vdp.tick(m68k_master_cycles, &mut memory) == VdpTickEffect::FrameComplete {
             let screen_width = vdp.screen_width();
