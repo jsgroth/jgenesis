@@ -944,7 +944,7 @@ impl Vdp {
 
         let mut sprite_priority = 1;
         let mut sprite_idx = self.sprite_buffer[0].link_data as usize;
-        while sprite_idx != 0 {
+        while sprite_idx != 0 && sprite_idx < self.sprite_buffer.len() {
             // TODO this should lock up the system
             assert_eq!(
                 self.sprite_buffer[sprite_idx].sprite_priority, 0xFF,
