@@ -367,6 +367,9 @@ pub fn render_pal_black_border(state: &mut PpuState) {
     }
 }
 
+// NES colors are only 6 bits
+const COLOR_MASK: u8 = 0x3F;
+
 /// Run the PPU for one PPU cycle. Pixels will be written to `PpuState`'s frame buffer as appropriate.
 pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>, config: &EmulatorConfig) {
     let rendering_enabled =
@@ -391,21 +394,28 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>, config: &EmulatorConfig)
     } else {
         bus.get_ppu_registers_mut().set_oam_open_bus(None);
 
+        let is_start_of_frame = state.scanline == 0 && state.dot == 0;
+        if is_start_of_frame {
+            // The backdrop color always resets to color 0 if rendering is disabled at the start of
+            // the frame
+            state.rendering_disabled_backdrop_color = Some(bus.get_palette_ram()[0] & COLOR_MASK);
+        }
+
         // When rendering is disabled, pixels should use whatever the backdrop color was set to
         // at disable time until rendering is enabled again
         let backdrop_color = *state
             .rendering_disabled_backdrop_color
             .get_or_insert_with(|| {
-                // "Background palette hack": If the current VRAM address is inside the palette RAM
-                // address range when rendering is disabled, use the color at that address instead
-                // of the standard backdrop color
+                // "Background palette hack": If rendering is disabled mid-frame while the current
+                // VRAM address is inside the palette RAM address range, use the color at that
+                // address instead of the standard backdrop color
                 let palette_ram_addr = if (0x3F00..=0x3FFF).contains(&state.registers.vram_address)
                 {
                     state.registers.vram_address & 0x001F
                 } else {
                     0
                 };
-                bus.get_palette_ram()[palette_ram_addr as usize] & 0x3F
+                bus.get_palette_ram()[palette_ram_addr as usize] & COLOR_MASK
             });
 
         if VISIBLE_SCANLINES.contains(&state.scanline) && RENDERING_DOTS.contains(&state.dot) {
@@ -795,7 +805,7 @@ fn render_pixel(state: &mut PpuState, bus: &PpuBus<'_>) {
     };
 
     // Discard the highest two bits, colors range from 0 to 63
-    let pixel_color = pixel_color & 0x3F;
+    let pixel_color = pixel_color & COLOR_MASK;
 
     // Render the pixel to the frame buffer
     state.frame_buffer[state.scanline as usize][pixel as usize] = pixel_color;
