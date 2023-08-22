@@ -394,10 +394,9 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>, config: &EmulatorConfig)
     } else {
         bus.get_ppu_registers_mut().set_oam_open_bus(None);
 
-        let is_start_of_frame = state.scanline == 0 && state.dot == 0;
-        if is_start_of_frame {
-            // The backdrop color always resets to color 0 if rendering is disabled at the start of
-            // the frame
+        if !VISIBLE_SCANLINES.contains(&state.scanline) {
+            // The backdrop color always resets to color 0 when rendering is disabled outside of
+            // active display
             state.rendering_disabled_backdrop_color = Some(bus.get_palette_ram()[0] & COLOR_MASK);
         }
 
