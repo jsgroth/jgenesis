@@ -187,8 +187,7 @@ impl Default for PendingWrite {
 }
 
 #[derive(Debug, Clone)]
-struct Registers {
-    // Internal state
+struct InternalState {
     control_write_flag: ControlWriteFlag,
     first_word_code_bits: u8,
     code: u8,
@@ -203,6 +202,31 @@ struct Registers {
     scanline: u16,
     active_dma: Option<ActiveDma>,
     pending_writes: Vec<PendingWrite>,
+}
+
+impl InternalState {
+    fn new() -> Self {
+        Self {
+            control_write_flag: ControlWriteFlag::First,
+            first_word_code_bits: 0,
+            code: 0,
+            data_port_mode: DataPortMode::Write,
+            data_port_location: DataPortLocation::Vram,
+            data_address: 0,
+            v_interrupt_pending: false,
+            h_interrupt_pending: false,
+            h_interrupt_counter: 0,
+            sprite_overflow: false,
+            sprite_collision: false,
+            scanline: 0,
+            active_dma: None,
+            pending_writes: Vec::with_capacity(10),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct Registers {
     // Register #0
     h_interrupt_enabled: bool,
     hv_counter_stopped: bool,
@@ -255,20 +279,6 @@ struct Registers {
 impl Registers {
     fn new() -> Self {
         Self {
-            control_write_flag: ControlWriteFlag::First,
-            first_word_code_bits: 0,
-            code: 0,
-            data_port_mode: DataPortMode::Write,
-            data_port_location: DataPortLocation::Vram,
-            data_address: 0,
-            v_interrupt_pending: false,
-            h_interrupt_pending: false,
-            h_interrupt_counter: 0,
-            sprite_overflow: false,
-            sprite_collision: false,
-            scanline: 0,
-            active_dma: None,
-            pending_writes: Vec::with_capacity(10),
             h_interrupt_enabled: false,
             hv_counter_stopped: false,
             display_enabled: false,
@@ -297,12 +307,6 @@ impl Registers {
             dma_source_address: 0,
             dma_mode: DmaMode::MemoryToVram,
         }
-    }
-
-    fn increment_data_address(&mut self) {
-        self.data_address = self
-            .data_address
-            .wrapping_add(self.data_port_auto_increment);
     }
 
     fn write_internal_register(&mut self, register: u8, value: u8) {
@@ -529,6 +533,7 @@ pub struct Vdp {
     vram: Vec<u8>,
     cram: [u8; CRAM_LEN],
     vsram: [u8; VSRAM_LEN],
+    state: InternalState,
     registers: Registers,
     sprite_buffer: Vec<SpriteData>,
     master_clock_cycles: u64,
@@ -552,6 +557,7 @@ impl Vdp {
             vram: vec![0; VRAM_LEN],
             cram: [0; CRAM_LEN],
             vsram: [0; VSRAM_LEN],
+            state: InternalState::new(),
             registers: Registers::new(),
             sprite_buffer: Vec::with_capacity(MAX_SPRITES_PER_FRAME),
             master_clock_cycles: 0,
@@ -561,19 +567,17 @@ impl Vdp {
     pub fn write_control(&mut self, value: u16) {
         log::trace!(
             "VDP control write: {value:04X} (flag = {:?}, dma_enabled = {})",
-            self.registers.control_write_flag,
+            self.state.control_write_flag,
             self.registers.dma_enabled
         );
 
-        if self.registers.active_dma.is_some() {
-            self.registers
-                .pending_writes
-                .push(PendingWrite::Control(value));
+        if self.state.active_dma.is_some() {
+            self.state.pending_writes.push(PendingWrite::Control(value));
             return;
         }
 
         // TODO DMA
-        match self.registers.control_write_flag {
+        match self.state.control_write_flag {
             ControlWriteFlag::First => {
                 if value & 0xE000 == 0x8000 {
                     // Register set
@@ -582,19 +586,17 @@ impl Vdp {
                         .write_internal_register(register_number, value as u8);
                 } else {
                     // First word of command write
-                    self.registers.first_word_code_bits = ((value >> 14) & 0x03) as u8;
-                    self.registers.data_address =
-                        (self.registers.data_address & 0xC000) | (value & 0x3FFF);
+                    self.state.first_word_code_bits = ((value >> 14) & 0x03) as u8;
+                    self.state.data_address = (self.state.data_address & 0xC000) | (value & 0x3FFF);
 
-                    self.registers.control_write_flag = ControlWriteFlag::Second;
+                    self.state.control_write_flag = ControlWriteFlag::Second;
                 }
             }
             ControlWriteFlag::Second => {
-                self.registers.data_address =
-                    (self.registers.data_address & 0x3FFF) | (value << 14);
-                self.registers.control_write_flag = ControlWriteFlag::First;
+                self.state.data_address = (self.state.data_address & 0x3FFF) | (value << 14);
+                self.state.control_write_flag = ControlWriteFlag::First;
 
-                let code = (((value >> 2) & 0x3C) as u8) | self.registers.first_word_code_bits;
+                let code = (((value >> 2) & 0x3C) as u8) | self.state.first_word_code_bits;
                 let (data_port_location, data_port_mode) = match code & 0x0F {
                     0x01 => (DataPortLocation::Vram, DataPortMode::Write),
                     0x03 => (DataPortLocation::Cram, DataPortMode::Write),
@@ -608,9 +610,9 @@ impl Vdp {
                     }
                 };
 
-                self.registers.code = code;
-                self.registers.data_port_location = data_port_location;
-                self.registers.data_port_mode = data_port_mode;
+                self.state.code = code;
+                self.state.data_port_location = data_port_location;
+                self.state.data_port_mode = data_port_mode;
 
                 log::trace!("Set data port location to {data_port_location:?} and mode to {data_port_mode:?}");
 
@@ -621,7 +623,7 @@ impl Vdp {
                 {
                     // This is a DMA initiation, not a normal control write
                     log::trace!("DMA transfer initiated, mode={:?}", self.registers.dma_mode);
-                    self.registers.active_dma = match self.registers.dma_mode {
+                    self.state.active_dma = match self.registers.dma_mode {
                         DmaMode::MemoryToVram => Some(ActiveDma::MemoryToVram),
                         DmaMode::VramCopy => Some(ActiveDma::VramCopy),
                         DmaMode::VramFill => unreachable!("dma_mode != VramFill"),
@@ -634,27 +636,27 @@ impl Vdp {
     pub fn read_data(&mut self) -> u16 {
         log::trace!("VDP data read");
 
-        if self.registers.data_port_mode != DataPortMode::Read {
+        if self.state.data_port_mode != DataPortMode::Read {
             return 0xFFFF;
         }
 
-        let data = match self.registers.data_port_location {
+        let data = match self.state.data_port_location {
             DataPortLocation::Vram => {
                 // VRAM reads/writes ignore A0
-                let address = (self.registers.data_address & !0x01) as usize;
+                let address = (self.state.data_address & !0x01) as usize;
                 u16::from_be_bytes([self.vram[address], self.vram[(address + 1) & 0xFFFF]])
             }
             DataPortLocation::Cram => {
-                let address = (self.registers.data_address & 0x7F) as usize;
+                let address = (self.state.data_address & 0x7F) as usize;
                 u16::from_be_bytes([self.cram[address], self.cram[(address + 1) & 0x7F]])
             }
             DataPortLocation::Vsram => {
-                let address = (self.registers.data_address as usize) % VSRAM_LEN;
+                let address = (self.state.data_address as usize) % VSRAM_LEN;
                 u16::from_be_bytes([self.vsram[address], self.vsram[(address + 1) % VSRAM_LEN]])
             }
         };
 
-        self.registers.increment_data_address();
+        self.increment_data_address();
 
         data
     }
@@ -662,45 +664,43 @@ impl Vdp {
     pub fn write_data(&mut self, value: u16) {
         log::trace!("VDP data write: {value:04X}");
 
-        if self.registers.data_port_mode != DataPortMode::Write {
+        if self.state.data_port_mode != DataPortMode::Write {
             return;
         }
 
-        if self.registers.active_dma.is_some() {
-            self.registers
-                .pending_writes
-                .push(PendingWrite::Data(value));
+        if self.state.active_dma.is_some() {
+            self.state.pending_writes.push(PendingWrite::Data(value));
             return;
         }
 
-        if self.registers.code.bit(5)
+        if self.state.code.bit(5)
             && self.registers.dma_enabled
             && self.registers.dma_length > 0
             && self.registers.dma_mode == DmaMode::VramFill
         {
             log::trace!("Initiated VRAM fill DMA with fill data = {value:04X}");
-            self.registers.active_dma = Some(ActiveDma::VramFill(value));
+            self.state.active_dma = Some(ActiveDma::VramFill(value));
             return;
         }
 
-        match self.registers.data_port_location {
+        match self.state.data_port_location {
             DataPortLocation::Vram => {
                 // VRAM reads/writes ignore A0
-                let address = (self.registers.data_address & !0x01) as usize;
+                let address = (self.state.data_address & !0x01) as usize;
                 log::trace!("Writing to {address:04X} in VRAM");
                 let [msb, lsb] = value.to_be_bytes();
                 self.vram[address] = msb;
                 self.vram[(address + 1) & 0xFFFF] = lsb;
             }
             DataPortLocation::Cram => {
-                let address = (self.registers.data_address & 0x7F) as usize;
+                let address = (self.state.data_address & 0x7F) as usize;
                 log::trace!("Writing to {address:02X} in CRAM");
                 let [msb, lsb] = value.to_be_bytes();
                 self.cram[address] = msb;
                 self.cram[(address + 1) & 0x7F] = lsb;
             }
             DataPortLocation::Vsram => {
-                let address = (self.registers.data_address as usize) % VSRAM_LEN;
+                let address = (self.state.data_address as usize) % VSRAM_LEN;
                 log::trace!("Writing to {address:02X} in VSRAM");
                 let [msb, lsb] = value.to_be_bytes();
                 self.vsram[address] = msb;
@@ -708,7 +708,7 @@ impl Vdp {
             }
         }
 
-        self.registers.increment_data_address();
+        self.increment_data_address();
     }
 
     pub fn read_status(&self) -> u16 {
@@ -718,10 +718,9 @@ impl Vdp {
         // DMA busy (bit 1) hardcoded to false
         // PAL (bit 0) hardcoded to false
         0x0200
-            | (u16::from(self.registers.v_interrupt_pending && self.registers.v_interrupt_enabled)
-                << 7)
-            | (u16::from(self.registers.sprite_overflow) << 6)
-            | (u16::from(self.registers.sprite_collision) << 5)
+            | (u16::from(self.state.v_interrupt_pending && self.registers.v_interrupt_enabled) << 7)
+            | (u16::from(self.state.sprite_overflow) << 6)
+            | (u16::from(self.state.sprite_collision) << 5)
             | (u16::from(self.in_vblank()) << 3)
             | (u16::from(self.in_hblank()) << 2)
     }
@@ -731,16 +730,16 @@ impl Vdp {
         // The longest 68k instruction (DIVS) takes at most around 150 68k cycles
         assert!(master_clock_cycles < 1100);
 
-        if let Some(active_dma) = self.registers.active_dma {
+        if let Some(active_dma) = self.state.active_dma {
             // TODO accurate DMA timing
             self.run_dma(memory, active_dma);
         }
 
-        if !self.registers.pending_writes.is_empty() {
+        if !self.state.pending_writes.is_empty() {
             let mut pending_writes = [PendingWrite::default(); 10];
-            let pending_writes_len = self.registers.pending_writes.len();
-            pending_writes[..pending_writes_len].copy_from_slice(&self.registers.pending_writes);
-            self.registers.pending_writes.clear();
+            let pending_writes_len = self.state.pending_writes.len();
+            pending_writes[..pending_writes_len].copy_from_slice(&self.state.pending_writes);
+            self.state.pending_writes.clear();
 
             for &pending_write in &pending_writes[..pending_writes_len] {
                 match pending_write {
@@ -763,36 +762,36 @@ impl Vdp {
         if prev_scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE
             && master_clock_cycles >= ACTIVE_MCLK_CYCLES_PER_SCANLINE - prev_scanline_mclk
         {
-            if self.registers.scanline < 224 {
-                if self.registers.h_interrupt_counter == 0 {
-                    self.registers.h_interrupt_counter = self.registers.h_interrupt_interval;
+            if self.state.scanline < 224 {
+                if self.state.h_interrupt_counter == 0 {
+                    self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
 
                     if self.registers.h_interrupt_enabled {
-                        self.registers.h_interrupt_pending = true;
+                        self.state.h_interrupt_pending = true;
                     }
                 } else {
-                    self.registers.h_interrupt_counter -= 1;
+                    self.state.h_interrupt_counter -= 1;
                 }
             } else {
                 // H interrupt counter is constantly refreshed during VBlank
-                self.registers.h_interrupt_counter = self.registers.h_interrupt_interval;
+                self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
             }
         }
 
         // Check if the VDP has advanced to a new scanline
         if prev_scanline_mclk + master_clock_cycles >= MCLK_CYCLES_PER_SCANLINE {
-            self.registers.scanline += 1;
-            if self.registers.scanline == SCANLINES_PER_FRAME {
-                self.registers.scanline = 0;
+            self.state.scanline += 1;
+            if self.state.scanline == SCANLINES_PER_FRAME {
+                self.state.scanline = 0;
             }
 
-            match self.registers.scanline.cmp(&ACTIVE_SCANLINES) {
+            match self.state.scanline.cmp(&ACTIVE_SCANLINES) {
                 Ordering::Less => {
                     self.render_scanline();
                 }
                 Ordering::Equal => {
                     if self.registers.v_interrupt_enabled {
-                        self.registers.v_interrupt_pending = true;
+                        self.state.v_interrupt_pending = true;
                     }
 
                     return VdpTickEffect::FrameComplete;
@@ -815,29 +814,29 @@ impl Vdp {
                 log::trace!(
                     "Copying {} words from {source_addr:06X} to {:04X}, write location={:?}; data_addr_increment={:04X}",
                     self.registers.dma_length,
-                    self.registers.data_address, self.registers.data_port_location, self.registers.data_port_auto_increment
+                    self.state.data_address, self.state.data_port_location, self.registers.data_port_auto_increment
                 );
 
                 for _ in 0..self.registers.dma_length {
                     let word = memory.read_word_for_dma(source_addr);
-                    match self.registers.data_port_location {
+                    match self.state.data_port_location {
                         DataPortLocation::Vram => {
-                            self.write_vram_word(self.registers.data_address, word);
+                            self.write_vram_word(self.state.data_address, word);
                         }
                         DataPortLocation::Cram => {
-                            let addr = self.registers.data_address as usize;
+                            let addr = self.state.data_address as usize;
                             self.cram[addr & 0x7F] = (word >> 8) as u8;
                             self.cram[(addr + 1) & 0x7F] = word as u8;
                         }
                         DataPortLocation::Vsram => {
-                            let addr = self.registers.data_address as usize;
+                            let addr = self.state.data_address as usize;
                             self.vsram[addr % VSRAM_LEN] = (word >> 8) as u8;
                             self.vsram[(addr + 1) % VSRAM_LEN] = word as u8;
                         }
                     }
 
                     source_addr = source_addr.wrapping_add(2);
-                    self.registers.increment_data_address();
+                    self.increment_data_address();
                 }
 
                 self.registers.dma_source_address = source_addr;
@@ -845,15 +844,15 @@ impl Vdp {
             ActiveDma::VramFill(fill_data) => {
                 log::trace!(
                     "Running VRAM fill with addr {:04X} and length {}",
-                    self.registers.data_address,
+                    self.state.data_address,
                     self.registers.dma_length
                 );
 
                 for _ in 0..self.registers.dma_length {
-                    let dest_addr = self.registers.data_address & !0x01;
+                    let dest_addr = self.state.data_address & !0x01;
                     self.write_vram_word(dest_addr, fill_data);
 
-                    self.registers.increment_data_address();
+                    self.increment_data_address();
                 }
             }
             ActiveDma::VramCopy => {
@@ -861,8 +860,15 @@ impl Vdp {
             }
         }
 
-        self.registers.active_dma = None;
+        self.state.active_dma = None;
         self.registers.dma_length = 0;
+    }
+
+    fn increment_data_address(&mut self) {
+        self.state.data_address = self
+            .state
+            .data_address
+            .wrapping_add(self.registers.data_port_auto_increment);
     }
 
     fn write_vram_word(&mut self, address: u16, value: u16) {
@@ -873,7 +879,7 @@ impl Vdp {
     }
 
     fn in_vblank(&self) -> bool {
-        self.registers.scanline >= ACTIVE_SCANLINES
+        self.state.scanline >= ACTIVE_SCANLINES
     }
 
     fn in_hblank(&self) -> bool {
@@ -882,9 +888,9 @@ impl Vdp {
 
     pub fn m68k_interrupt_level(&self) -> u8 {
         // TODO external interrupts at level 2
-        if self.registers.v_interrupt_pending && self.registers.v_interrupt_enabled {
+        if self.state.v_interrupt_pending && self.registers.v_interrupt_enabled {
             6
-        } else if self.registers.h_interrupt_pending && self.registers.h_interrupt_enabled {
+        } else if self.state.h_interrupt_pending && self.registers.h_interrupt_enabled {
             4
         } else {
             0
@@ -892,12 +898,12 @@ impl Vdp {
     }
 
     pub fn acknowledge_m68k_interrupt(&mut self) {
-        self.registers.v_interrupt_pending = false;
-        self.registers.h_interrupt_pending = false;
+        self.state.v_interrupt_pending = false;
+        self.state.h_interrupt_pending = false;
     }
 
     pub fn z80_interrupt_line(&self) -> InterruptLine {
-        if self.registers.scanline == 224 {
+        if self.state.scanline == 224 {
             InterruptLine::Low
         } else {
             InterruptLine::High
@@ -911,7 +917,7 @@ impl Vdp {
 
         self.populate_sprite_buffer();
 
-        let scanline = self.registers.scanline;
+        let scanline = self.state.scanline;
         let screen_width = self.registers.horizontal_display_size.to_pixels();
 
         let bg_color = resolve_color(
@@ -964,7 +970,7 @@ impl Vdp {
 
         // Remove sprites that don't fall on this scanline
         // Sprite display area starts at $080 vertically
-        let sprite_scanline = 0x080 + self.registers.scanline;
+        let sprite_scanline = 0x080 + self.state.scanline;
         self.sprite_buffer.retain(|sprite| {
             let sprite_bottom = sprite.v_position + 8 * u16::from(sprite.v_size_cells);
             (sprite.v_position..sprite_bottom).contains(&sprite_scanline)
