@@ -11,8 +11,7 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-# Pin serde to <= 1.0.171 until/unless serde_derive stops including precompiled binaries
-serde = { version = ">= 1.0.0, <= 1.0.171", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
 
 [profile.dev]
 opt-level = 1
