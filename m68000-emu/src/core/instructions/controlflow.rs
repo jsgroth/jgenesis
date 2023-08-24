@@ -11,8 +11,7 @@ const OVERFLOW_VECTOR: u32 = 7;
 impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
     fn resolve_to_memory_address(&mut self, source: AddressingMode) -> ExecuteResult<u32> {
         let resolved = self.resolve_address(source, OpSize::LongWord)?;
-        let ResolvedAddress::Memory(address) = resolved
-        else {
+        let ResolvedAddress::Memory(address) = resolved else {
             panic!("effective address operations should only accept addressing modes that resolve to an effective address");
         };
 

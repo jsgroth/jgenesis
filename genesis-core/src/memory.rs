@@ -243,8 +243,7 @@ impl Cartridge {
     }
 
     pub fn from_rom(rom_bytes: Vec<u8>) -> Result<Self, CartridgeLoadError> {
-        let Some(region) = HardwareRegion::from_rom(&rom_bytes)
-        else {
+        let Some(region) = HardwareRegion::from_rom(&rom_bytes) else {
             return Err(CartridgeLoadError::IndeterminateRegion);
         };
 

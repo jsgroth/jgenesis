@@ -120,7 +120,9 @@ pub fn run(config: SmsGgConfig) -> Result<(), Box<dyn Error>> {
         move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
             let mut callback_queue = callback_queue.lock().unwrap();
             for output in data {
-                let Some(sample) = callback_queue.pop_front() else { break };
+                let Some(sample) = callback_queue.pop_front() else {
+                    break;
+                };
                 *output = sample;
             }
         },

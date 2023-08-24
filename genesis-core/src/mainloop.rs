@@ -2,12 +2,12 @@ use crate::input::InputState;
 use crate::memory::{Cartridge, MainBus, Memory};
 use crate::vdp;
 use crate::vdp::{Vdp, VdpTickEffect};
-use crate::ym2612::Ym2612;
+use crate::ym2612::{Ym2612, YmTickEffect};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{BufferSize, SampleRate, StreamConfig};
 use m68000_emu::M68000;
 use minifb::{Key, KeyRepeat, Window, WindowOptions};
-use smsgg_core::psg::{Psg, PsgTickEffect, PsgVersion};
+use smsgg_core::psg::{Psg, PsgVersion};
 use std::collections::VecDeque;
 use std::error::Error;
 use std::ffi::OsStr;
@@ -28,8 +28,8 @@ struct AudioOutput {
 }
 
 impl AudioOutput {
-    // 53693175.0 / 15.0 / 16.0 / 48000.0
-    const DOWNSAMPLING_RATIO: f64 = 4.6608658854166665;
+    // 53_693_175 / 7 / 6 / 24 / 48000
+    const DOWNSAMPLING_RATIO: f64 = 1.109729972718254;
 
     fn new() -> Self {
         Self {
@@ -53,7 +53,9 @@ impl AudioOutput {
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                 let mut callback_queue = callback_queue.lock().unwrap();
                 for output in data {
-                    let Some(sample) = callback_queue.pop_front() else { break };
+                    let Some(sample) = callback_queue.pop_front() else {
+                        break;
+                    };
                     *output = sample;
                 }
             },
@@ -157,8 +159,17 @@ pub fn run(config: GenesisConfig) -> Result<(), Box<dyn Error>> {
         master_cycles += m68k_master_cycles;
 
         for _ in 0..z80_cycles {
-            if psg.tick() == PsgTickEffect::Clocked {
-                let (sample_l, sample_r) = psg.sample();
+            psg.tick();
+        }
+
+        for _ in 0..m68k_cycles {
+            if ym2612.tick() == YmTickEffect::OutputSample {
+                let (ym_sample_l, ym_sample_r) = ym2612.sample();
+                let (psg_sample_l, psg_sample_r) = psg.sample();
+
+                // TODO more intelligent PSG mixing
+                let sample_l = (ym_sample_l + psg_sample_l).clamp(-1.0, 1.0);
+                let sample_r = (ym_sample_r + psg_sample_r).clamp(-1.0, 1.0);
                 audio_output.collect_sample(sample_l, sample_r);
             }
         }
