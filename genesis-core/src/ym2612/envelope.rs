@@ -154,7 +154,11 @@ impl EnvelopeGenerator {
             EnvelopePhase::Release => (self.release_rate << 1) | 0x01,
         };
 
-        let rate = cmp::min(63, 2 * r + self.key_scale_rate);
+        let rate = if r == 0 {
+            0
+        } else {
+            cmp::min(63, 2 * r + self.key_scale_rate)
+        };
 
         let update_frequency_shift = ((63 - rate) >> 2).saturating_sub(4);
         if self.cycle_count % (1 << update_frequency_shift) == 0 {
@@ -211,6 +215,8 @@ impl EnvelopeGenerator {
             self.phase = EnvelopePhase::Attack;
             self.attenuation = MAX_ATTENUATION;
         }
+
+        log::trace!("State at key on: {self:?}");
     }
 
     pub(super) fn key_off(&mut self) {

@@ -24,10 +24,10 @@ fn compute_key_code(f_number: u16, block: u8) -> u8 {
     // Bits 4-2: Block
     // Bit 1: F11
     // Bit 0: (F11 & (F10 | F9 | F8)) | (!F11 & F10 & F9 & F8)
-    let f11 = f_number.bit(11);
-    let f10 = f_number.bit(10);
-    let f9 = f_number.bit(9);
-    let f8 = f_number.bit(8);
+    let f11 = f_number.bit(10);
+    let f10 = f_number.bit(9);
+    let f9 = f_number.bit(8);
+    let f8 = f_number.bit(7);
     (block << 2)
         | (u8::from(f11) << 1)
         | u8::from((f11 && (f10 || f9 || f8)) || (!f11 && f10 && f9 && f8))
@@ -68,9 +68,8 @@ impl FmOperator {
     fn sample(&self, modulation_input: u16) -> i16 {
         let feedback = match self.feedback_level {
             0 => 0,
-            7 => ((self.phase.current_phase() + self.phase.last_phase()) << 1) & PHASE_MASK,
             feedback_level => {
-                ((self.phase.current_phase() + self.phase.last_phase()) >> (6 - feedback_level))
+                ((self.phase.current_phase() + self.phase.last_phase()) >> (7 - feedback_level))
                     & PHASE_MASK
             }
         };
@@ -81,13 +80,10 @@ impl FmOperator {
         let sine =
             (f64::from(phase) / f64::from(PHASE_MASK + 1) * 2.0 * std::f64::consts::PI).sin();
 
-        // Envelope attenuation represents a value from 0dB to 48dB on a scale from 0 to 2^10
+        // Envelope attenuation represents a value from 0dB to 96dB on a scale from 0 to 2^10
         let envelope_attenuation = self.envelope.current_attenuation();
-        let attenuation_db = if envelope_attenuation == envelope::MAX_ATTENUATION {
-            48.0
-        } else {
-            48.0 * f64::from(envelope_attenuation) / f64::from(envelope::MAX_ATTENUATION + 1)
-        };
+        let attenuation_db =
+            96.0 * f64::from(envelope_attenuation) / f64::from(envelope::MAX_ATTENUATION + 1);
 
         // Convert from attenuation in dB to volume in linear units
         let volume = 10.0_f64.powf(attenuation_db / -20.0);

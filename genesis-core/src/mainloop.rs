@@ -99,6 +99,10 @@ impl AudioOutput {
     }
 }
 
+// -6dB (10 ^ -6/20)
+// PSG is too loud if it's given the same volume level as the YM2612
+const PSG_COEFFICIENT: f64 = 0.5011872336272722;
+
 /// # Errors
 ///
 /// # Panics
@@ -168,8 +172,8 @@ pub fn run(config: GenesisConfig) -> Result<(), Box<dyn Error>> {
                 let (psg_sample_l, psg_sample_r) = psg.sample();
 
                 // TODO more intelligent PSG mixing
-                let sample_l = (ym_sample_l + psg_sample_l).clamp(-1.0, 1.0);
-                let sample_r = (ym_sample_r + psg_sample_r).clamp(-1.0, 1.0);
+                let sample_l = (ym_sample_l + PSG_COEFFICIENT * psg_sample_l).clamp(-1.0, 1.0);
+                let sample_r = (ym_sample_r + PSG_COEFFICIENT * psg_sample_r).clamp(-1.0, 1.0);
                 audio_output.collect_sample(sample_l, sample_r);
             }
         }

@@ -84,6 +84,10 @@ impl PhaseGenerator {
 
     pub(super) fn reset(&mut self) {
         self.counter = 0;
+        self.current_output = 0;
+        self.last_output = 0;
+
+        log::trace!("State at key on: {self:?}");
     }
 
     #[inline]
@@ -108,13 +112,11 @@ impl PhaseGenerator {
         let detune_magnitude = self.detune & 0x03;
         let detune_increment_magnitude: u32 =
             DETUNE_TABLE[key_code as usize][detune_magnitude as usize].into();
-        let detune_increment = if self.detune.bit(2) {
-            (!detune_increment_magnitude).wrapping_add(1)
+        let detuned_f_num = if self.detune.bit(2) {
+            shifted_f_num.wrapping_sub(detune_increment_magnitude) & SHIFTED_F_NUM_MASK
         } else {
-            detune_increment_magnitude
+            shifted_f_num.wrapping_add(detune_increment_magnitude) & SHIFTED_F_NUM_MASK
         };
-
-        let detuned_f_num = shifted_f_num.wrapping_add(detune_increment) & SHIFTED_F_NUM_MASK;
 
         // Apply frequency multiplier
         if self.multiple == 0 {
