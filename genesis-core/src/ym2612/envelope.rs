@@ -1,10 +1,10 @@
 use std::cmp;
 
-const ENVELOPE_DIVIDER: u8 = 3;
+const ENVELOPE_DIVIDER: u8 = 72;
 
 // Attenuation is 10 bits
-// This is also the max attenuation value
-pub(super) const MAX_ATTENUATION: u16 = 0x03FF;
+pub(super) const ATTENUATION_MASK: u16 = 0x03FF;
+pub(super) const MAX_ATTENUATION: u16 = ATTENUATION_MASK;
 
 // From http://gendev.spritesmind.net/forum/viewtopic.php?f=24&t=386&start=105
 const ATTENUATION_INCREMENTS: [[u8; 8]; 64] = [
@@ -96,7 +96,7 @@ pub(super) struct EnvelopeGenerator {
     // Internal state
     phase: EnvelopePhase,
     attenuation: u16,
-    key_scale_rate: u8,
+    pub(super) key_scale_rate: u8,
     cycle_count: u32,
     divider: u8,
 }
@@ -134,6 +134,19 @@ impl EnvelopeGenerator {
     fn envelope_clock(&mut self) {
         self.cycle_count = self.cycle_count.wrapping_add(1);
 
+        // Sustain level applies in increments of 32, with max level special cased to be
+        // max attenuation
+        let sustain_level = if self.sustain_level == 15 {
+            MAX_ATTENUATION
+        } else {
+            u16::from(self.sustain_level) << 5
+        };
+
+        // Skip decay phase if attenuation is already past sustain level
+        if self.phase == EnvelopePhase::Decay && self.attenuation >= sustain_level {
+            self.phase = EnvelopePhase::Sustain;
+        }
+
         let r = match self.phase {
             EnvelopePhase::Attack => self.attack_rate,
             EnvelopePhase::Decay => self.decay_rate,
@@ -157,21 +170,14 @@ impl EnvelopeGenerator {
                         // Formula from http://gendev.spritesmind.net/forum/viewtopic.php?f=24&t=386&start=405
                         self.attenuation = self
                             .attenuation
-                            .wrapping_add((!self.attenuation).wrapping_mul(increment) >> 4);
-                        if self.attenuation == 0 || self.attenuation > MAX_ATTENUATION {
+                            .wrapping_add((!self.attenuation).wrapping_mul(increment) >> 4)
+                            & ATTENUATION_MASK;
+                        if self.attenuation == 0 {
                             self.phase = EnvelopePhase::Decay;
-                            self.attenuation = 0;
                         }
                     }
                 }
                 EnvelopePhase::Decay => {
-                    // Sustain level applies in increments of 32, with max level special cased to be
-                    // max attenuation
-                    let sustain_level = if self.sustain_level == 15 {
-                        MAX_ATTENUATION
-                    } else {
-                        u16::from(self.sustain_level) << 5
-                    };
                     self.attenuation = cmp::min(sustain_level, self.attenuation + increment);
 
                     if self.attenuation == sustain_level {
@@ -185,7 +191,16 @@ impl EnvelopeGenerator {
         }
     }
 
+    pub(super) fn is_key_on(&self) -> bool {
+        self.phase != EnvelopePhase::Release
+    }
+
     pub(super) fn key_on(&mut self) {
+        if self.is_key_on() {
+            // Key is already down
+            return;
+        }
+
         let rate = 2 * self.attack_rate + self.key_scale_rate;
 
         // Rates of 62 and 63 skip attack phase
@@ -208,8 +223,8 @@ impl EnvelopeGenerator {
     }
 
     pub(super) fn current_attenuation(&self) -> u16 {
-        let total_level = self.total_level << 3;
-        cmp::min(MAX_ATTENUATION, self.attenuation + u16::from(total_level))
+        let total_level = u16::from(self.total_level) << 3;
+        cmp::min(MAX_ATTENUATION, self.attenuation + total_level)
     }
 }
 

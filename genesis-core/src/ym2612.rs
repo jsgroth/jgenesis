@@ -55,8 +55,10 @@ impl FmOperator {
 
     fn key_on_or_off(&mut self, value: bool) {
         if value {
-            self.phase.key_on();
-            self.envelope.key_on();
+            if !self.envelope.is_key_on() {
+                self.phase.reset();
+                self.envelope.key_on();
+            }
         } else {
             self.envelope.key_off();
         }
@@ -267,14 +269,37 @@ impl Ym2612 {
 
     // Write to the data port for group 1 (system registers + channels 1-3)
     pub fn write_data_1(&mut self, value: u8) {
+        if self.group_1_register != 0x2A {
+            log::trace!("G1: Wrote {value:02X} to {:02X}", self.group_1_register);
+        }
+
         let register = self.group_1_register;
         match register {
             0x22 => {
                 // LFO configuration register
                 self.lfo_enabled = value.bit(3);
                 self.lfo_frequency = value & 0x07;
+
+                log::trace!("LFO enabled: {}", self.lfo_enabled);
+                log::trace!("LFO frequency: {}", self.lfo_frequency);
             }
             // TODO timer registers: $24-$27
+            0x27 => {
+                let mode = if value & 0xC0 != 0 {
+                    FrequencyMode::Multiple
+                } else {
+                    FrequencyMode::Single
+                };
+
+                // Mode applies to both channel 3 and channel 6
+                self.channels[2].mode = mode;
+                self.channels[5].mode = mode;
+
+                self.channels[2].update_phase_generators();
+                self.channels[5].update_phase_generators();
+
+                log::trace!("Channel 3/6 frequency mode: {mode:?}");
+            }
             0x28 => {
                 let base_channel = if value.bit(2) {
                     GROUP_2_BASE_CHANNEL
@@ -289,6 +314,12 @@ impl Ym2612 {
                     channel.operators[1].key_on_or_off(value.bit(5));
                     channel.operators[2].key_on_or_off(value.bit(6));
                     channel.operators[3].key_on_or_off(value.bit(7));
+
+                    log::trace!(
+                        "Key on/off for channel {}: {:02X}",
+                        channel_idx + 1,
+                        value >> 4
+                    );
                 }
             }
             0x2A => {
@@ -296,6 +327,7 @@ impl Ym2612 {
             }
             0x2B => {
                 self.pcm_enabled = value.bit(7);
+                log::trace!("PCM enabled: {}", self.pcm_enabled);
             }
             0x30..=0x9F => {
                 self.write_operator_level_register(register, value, GROUP_1_BASE_CHANNEL);
@@ -314,6 +346,8 @@ impl Ym2612 {
 
     // Write to the data port for group 2 (channels 4-6)
     pub fn write_data_2(&mut self, value: u8) {
+        log::trace!("G2: Wrote {value:02X} to {:02X}", self.group_2_register);
+
         let register = self.group_2_register;
         match register {
             0x30..=0x9F => {
@@ -355,8 +389,8 @@ impl Ym2612 {
         let mut sum_r = 0;
         for channel in &self.channels[..5] {
             let (sample_l, sample_r) = channel.sample();
-            sum_l += sample_l;
-            sum_r += sample_r;
+            sum_l += i32::from(sample_l);
+            sum_r += i32::from(sample_r);
         }
 
         let (ch6_sample_l, ch6_sample_r) = if self.pcm_enabled {
@@ -366,8 +400,8 @@ impl Ym2612 {
         } else {
             self.channels[5].sample()
         };
-        sum_l += ch6_sample_l;
-        sum_r += ch6_sample_r;
+        sum_l += i32::from(ch6_sample_l);
+        sum_r += i32::from(ch6_sample_r);
 
         // Each channel has a range of [-8192, 8191], so divide the sums by 6*8192 to convert to [-1.0, 1.0]
         (f64::from(sum_l) / 49152.0, f64::from(sum_r) / 49152.0)
@@ -386,29 +420,64 @@ impl Ym2612 {
         // Operator comes from bits 2 and 3 of register, except swapped (01=Operator 3, 10=Operator 2)
         let operator_idx = (((register & 0x08) >> 3) | ((register & 0x04) >> 1)) as usize;
 
+        log::trace!(
+            "Writing to operator-level register for channel {} / operator {}",
+            channel_idx + 1,
+            operator_idx + 1
+        );
+
         let operator = &mut self.channels[channel_idx].operators[operator_idx];
         match register >> 4 {
             0x03 => {
                 operator.phase.multiple = value & 0x0F;
                 operator.phase.detune = (value >> 4) & 0x07;
+
+                log::trace!(
+                    "Multiple={}, detune={}",
+                    operator.phase.multiple,
+                    operator.phase.detune
+                );
             }
             0x04 => {
                 operator.envelope.total_level = value & 0x7F;
+
+                log::trace!("Total level={:02X}", operator.envelope.total_level);
             }
             0x05 => {
                 operator.envelope.attack_rate = value & 0x1F;
                 operator.update_key_scale(value >> 6);
+
+                log::trace!(
+                    "Attack rate={}, key scale={}, Rks={}",
+                    operator.envelope.attack_rate,
+                    operator.envelope.key_scale,
+                    operator.envelope.key_scale_rate
+                );
             }
             0x06 => {
                 operator.envelope.decay_rate = value & 0x1F;
                 operator.envelope.am_enabled = value.bit(7);
+
+                log::trace!(
+                    "Decay rate={}, AM enabled={}",
+                    operator.envelope.decay_rate,
+                    operator.envelope.am_enabled
+                );
             }
             0x07 => {
                 operator.envelope.sustain_rate = value & 0x1F;
+
+                log::trace!("Sustain rate={}", operator.envelope.sustain_rate);
             }
             0x08 => {
                 operator.envelope.release_rate = value & 0x0F;
                 operator.envelope.sustain_level = value >> 4;
+
+                log::trace!(
+                    "Release rate={}, sustain level={}",
+                    operator.envelope.release_rate,
+                    operator.envelope.sustain_level
+                );
             }
             0x09 => {
                 // TODO SSG-EG
@@ -427,6 +496,12 @@ impl Ym2612 {
                 let channel = &mut self.channels[channel_idx];
                 channel.channel_f_number = (channel.channel_f_number & 0xFF00) | u16::from(value);
                 channel.update_phase_generators();
+
+                log::trace!(
+                    "Channel {}: F-num={:04X}",
+                    channel_idx + 1,
+                    channel.channel_f_number
+                );
             }
             0xA4..=0xA6 => {
                 // F-number high bits and block
@@ -436,6 +511,13 @@ impl Ym2612 {
                     (channel.channel_f_number & 0x00FF) | (u16::from(value & 0x07) << 8);
                 channel.channel_block = (value >> 3) & 0x07;
                 channel.update_phase_generators();
+
+                log::trace!(
+                    "Channel {}: F-num={:04X}, block={}",
+                    channel_idx + 1,
+                    channel.channel_f_number,
+                    channel.channel_block
+                );
             }
             0xA8..=0xAA => {
                 // Operator-level F-number low bits for channels 3 and 6
@@ -452,6 +534,13 @@ impl Ym2612 {
                 if channel.mode == FrequencyMode::Multiple {
                     channel.update_phase_generators();
                 }
+
+                log::trace!(
+                    "Set operator-level frequency for channel {} / operator {}: F-num={:04X}",
+                    channel_idx + 1,
+                    operator_idx + 1,
+                    channel.operator_f_numbers[operator_idx]
+                );
             }
             0xAC..=0xAE => {
                 // Operator-level F-number high bits and block for channels 3 and 6
@@ -470,6 +559,14 @@ impl Ym2612 {
                 if channel.mode == FrequencyMode::Multiple {
                     channel.update_phase_generators();
                 }
+
+                log::trace!(
+                    "Set operator-level frequency / block for channel {} / operator {}: F-num={:04X}, block={}",
+                    channel_idx + 1,
+                    operator_idx + 1,
+                    channel.operator_f_numbers[operator_idx],
+                    channel.operator_blocks[operator_idx]
+                );
             }
             0xB0..=0xB2 => {
                 // Algorithm and operator 1 feedback level
@@ -477,6 +574,13 @@ impl Ym2612 {
                 let channel = &mut self.channels[channel_idx];
                 channel.algorithm = value & 0x07;
                 channel.operators[0].feedback_level = (value >> 3) & 0x07;
+
+                log::trace!(
+                    "Channel {}: Algorithm={}, feedback level={}",
+                    channel_idx + 1,
+                    channel.algorithm,
+                    channel.operators[0].feedback_level
+                );
             }
             0xB4..=0xB6 => {
                 // Stereo control and LFO sensitivity
@@ -486,6 +590,15 @@ impl Ym2612 {
                 channel.r_output = value.bit(6);
                 channel.am_sensitivity = (value >> 4) & 0x03;
                 channel.fm_sensitivity = value & 0x07;
+
+                log::trace!(
+                    "Channel {}: L={}, R={}, AM sensitivity={}, FM sensitivity={}",
+                    channel_idx + 1,
+                    channel.l_output,
+                    channel.r_output,
+                    channel.am_sensitivity,
+                    channel.fm_sensitivity
+                );
             }
             _ => {}
         }

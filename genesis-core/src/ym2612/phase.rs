@@ -82,7 +82,7 @@ impl PhaseGenerator {
         }
     }
 
-    pub(super) fn key_on(&mut self) {
+    pub(super) fn reset(&mut self) {
         self.counter = 0;
     }
 
