@@ -1,107 +1,21 @@
+use crate::audio::AudioOutput;
 use crate::input::InputState;
 use crate::memory::{Cartridge, MainBus, Memory};
-use crate::vdp;
 use crate::vdp::{Vdp, VdpTickEffect};
 use crate::ym2612::{Ym2612, YmTickEffect};
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{BufferSize, SampleRate, StreamConfig};
+use crate::{audio, vdp};
 use m68000_emu::M68000;
 use minifb::{Key, KeyRepeat, Window, WindowOptions};
 use smsgg_core::psg::{Psg, PsgVersion};
-use std::collections::VecDeque;
 use std::error::Error;
 use std::ffi::OsStr;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use std::{process, thread};
 use z80_emu::Z80;
 
 pub struct GenesisConfig {
     pub rom_file_path: String,
 }
-
-struct AudioOutput {
-    audio_buffer: Vec<(f32, f32)>,
-    audio_queue: Arc<Mutex<VecDeque<f32>>>,
-    sample_count: u64,
-}
-
-impl AudioOutput {
-    // 53_693_175 / 7 / 6 / 24 / 48000
-    const DOWNSAMPLING_RATIO: f64 = 1.109729972718254;
-
-    fn new() -> Self {
-        Self {
-            audio_buffer: Vec::new(),
-            audio_queue: Arc::new(Mutex::new(VecDeque::new())),
-            sample_count: 0,
-        }
-    }
-
-    fn initialize(&self) -> Result<impl StreamTrait, Box<dyn Error>> {
-        let callback_queue = Arc::clone(&self.audio_queue);
-
-        let audio_host = cpal::default_host();
-        let audio_device = audio_host.default_output_device().unwrap();
-        let audio_stream = audio_device.build_output_stream(
-            &StreamConfig {
-                channels: 2,
-                sample_rate: SampleRate(48000),
-                buffer_size: BufferSize::Fixed(1024),
-            },
-            move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                let mut callback_queue = callback_queue.lock().unwrap();
-                for output in data {
-                    let Some(sample) = callback_queue.pop_front() else {
-                        break;
-                    };
-                    *output = sample;
-                }
-            },
-            move |err| {
-                log::error!("Audio error: {err}");
-                process::exit(1);
-            },
-            None,
-        )?;
-        audio_stream.play()?;
-
-        Ok(audio_stream)
-    }
-
-    fn collect_sample(&mut self, sample_l: f64, sample_r: f64) {
-        let prev_count = self.sample_count;
-        self.sample_count += 1;
-
-        if (prev_count as f64 / Self::DOWNSAMPLING_RATIO).round() as u64
-            != (self.sample_count as f64 / Self::DOWNSAMPLING_RATIO).round() as u64
-        {
-            self.audio_buffer.push((sample_l as f32, sample_r as f32));
-            if self.audio_buffer.len() == 64 {
-                loop {
-                    {
-                        let mut audio_queue = self.audio_queue.lock().unwrap();
-                        if audio_queue.len() < 1024 {
-                            audio_queue.extend(
-                                self.audio_buffer
-                                    .drain(..)
-                                    .flat_map(|(sample_l, sample_r)| [sample_l, sample_r]),
-                            );
-                            break;
-                        }
-                    }
-
-                    thread::sleep(Duration::from_micros(250));
-                }
-            }
-        }
-    }
-}
-
-// -6dB (10 ^ -6/20)
-// PSG is too loud if it's given the same volume level as the YM2612
-const PSG_COEFFICIENT: f64 = 0.5011872336272722;
 
 /// # Errors
 ///
@@ -133,7 +47,7 @@ pub fn run(config: GenesisConfig) -> Result<(), Box<dyn Error>> {
         224 * 3,
         WindowOptions::default(),
     )?;
-    window.limit_update_rate(Some(Duration::from_micros(16400)));
+    window.limit_update_rate(Some(Duration::from_micros(16000)));
 
     let mut minifb_buffer = vec![0_u32; 320 * 224];
 
@@ -172,8 +86,10 @@ pub fn run(config: GenesisConfig) -> Result<(), Box<dyn Error>> {
                 let (psg_sample_l, psg_sample_r) = psg.sample();
 
                 // TODO more intelligent PSG mixing
-                let sample_l = (ym_sample_l + PSG_COEFFICIENT * psg_sample_l).clamp(-1.0, 1.0);
-                let sample_r = (ym_sample_r + PSG_COEFFICIENT * psg_sample_r).clamp(-1.0, 1.0);
+                let sample_l =
+                    (ym_sample_l + audio::PSG_COEFFICIENT * psg_sample_l).clamp(-1.0, 1.0);
+                let sample_r =
+                    (ym_sample_r + audio::PSG_COEFFICIENT * psg_sample_r).clamp(-1.0, 1.0);
                 audio_output.collect_sample(sample_l, sample_r);
             }
         }

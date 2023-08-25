@@ -1,3 +1,4 @@
+mod audio;
 mod input;
 mod mainloop;
 mod memory;
