@@ -398,6 +398,10 @@ impl<'a> MainBus<'a> {
                 0x20 | (u8::from(self.memory.cartridge.region.version_bit()) << 7)
             }
             0xA10002 | 0xA10003 => self.input.read_data(),
+            0xA10004 | 0xA10005 => {
+                // TODO P2 input
+                0xFF
+            }
             0xA10008 | 0xA10009 => self.input.read_ctrl(),
             // TxData registers return 0xFF by default
             0xA1000E | 0xA1000F | 0xA10014 | 0xA10015 | 0xA1001A | 0xA1001B => 0xFF,
