@@ -149,8 +149,8 @@ fn output_sample(buffer: &VecDeque<f64>) -> f64 {
             .zip(buffer.iter().copied())
             .map(|(a, b)| a * b)
             .sum::<f64>();
-    // Multiply amplitude by 2 to somewhat counterbalance the volume drop from zero padding
-    (sample * 2.0).clamp(-1.0, 1.0)
+    // Multiply amplitude by 3 to somewhat counterbalance the volume drop from zero padding
+    (sample * 3.0).clamp(-1.0, 1.0)
 }
 
 // -6dB (10 ^ -6/20)
