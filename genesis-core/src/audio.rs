@@ -153,6 +153,6 @@ fn output_sample(buffer: &VecDeque<f64>) -> f64 {
     (sample * 3.0).clamp(-1.0, 1.0)
 }
 
-// -6dB (10 ^ -6/20)
+// -8dB (10 ^ -8/20)
 // PSG is too loud if it's given the same volume level as the YM2612
-pub const PSG_COEFFICIENT: f64 = 0.5011872336272722;
+pub const PSG_COEFFICIENT: f64 = 0.3981071705534972;
