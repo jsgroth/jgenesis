@@ -128,6 +128,7 @@ pub fn run(config: GenesisConfig) -> anyhow::Result<()> {
                     &ym2612,
                     &psg,
                     &input,
+                    master_cycles,
                 )?;
                 log::info!("Saved state to {}", save_state_path.display());
             }
@@ -142,6 +143,7 @@ pub fn run(config: GenesisConfig) -> anyhow::Result<()> {
                         loaded_ym2612,
                         loaded_psg,
                         loaded_input,
+                        loaded_master_cycles,
                     )) => {
                         m68k = loaded_m68k;
                         z80 = loaded_z80;
@@ -149,6 +151,7 @@ pub fn run(config: GenesisConfig) -> anyhow::Result<()> {
                         ym2612 = loaded_ym2612;
                         psg = loaded_psg;
                         input = loaded_input;
+                        master_cycles = loaded_master_cycles;
 
                         loaded_memory.take_rom_from(&mut memory);
                         memory = loaded_memory;
@@ -240,6 +243,7 @@ fn save_state<P: AsRef<Path>>(
     ym2612: &Ym2612,
     psg: &Psg,
     input: &InputState,
+    master_cycles: u64,
 ) -> anyhow::Result<()> {
     let path = path.as_ref();
     let mut file = BufWriter::new(File::create(path)?);
@@ -253,13 +257,15 @@ fn save_state<P: AsRef<Path>>(
     bincode::encode_into_std_write(ym2612, &mut file, conf)?;
     bincode::encode_into_std_write(psg, &mut file, conf)?;
     bincode::encode_into_std_write(input, &mut file, conf)?;
+    bincode::encode_into_std_write(master_cycles, &mut file, conf)?;
 
     Ok(())
 }
 
+#[allow(clippy::type_complexity)]
 fn load_state<P: AsRef<Path>>(
     path: P,
-) -> anyhow::Result<(M68000, Z80, Memory, Vdp, Ym2612, Psg, InputState)> {
+) -> anyhow::Result<(M68000, Z80, Memory, Vdp, Ym2612, Psg, InputState, u64)> {
     let path = path.as_ref();
     let mut file = BufReader::new(File::open(path)?);
 
@@ -272,6 +278,7 @@ fn load_state<P: AsRef<Path>>(
     let ym2612 = bincode::decode_from_std_read(&mut file, conf)?;
     let psg = bincode::decode_from_std_read(&mut file, conf)?;
     let input = bincode::decode_from_std_read(&mut file, conf)?;
+    let master_cycles = bincode::decode_from_std_read(&mut file, conf)?;
 
-    Ok((m68k, z80, memory, vdp, ym2612, psg, input))
+    Ok((m68k, z80, memory, vdp, ym2612, psg, input, master_cycles))
 }
