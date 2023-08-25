@@ -1,3 +1,4 @@
+use bincode::{Decode, Encode};
 use std::cmp;
 
 const ENVELOPE_DIVIDER: u8 = 72;
@@ -74,7 +75,7 @@ const ATTENUATION_INCREMENTS: [[u8; 8]; 64] = [
     [8, 8, 8, 8, 8, 8, 8, 8],
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum EnvelopePhase {
     Attack,
     Decay,
@@ -82,7 +83,7 @@ enum EnvelopePhase {
     Release,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub(super) struct EnvelopeGenerator {
     // Register values
     pub(super) attack_rate: u8,

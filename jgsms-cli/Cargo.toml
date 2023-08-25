@@ -9,6 +9,7 @@ edition = "2021"
 genesis-core = { path = "../genesis-core" }
 smsgg-core = { path = "../smsgg-core" }
 
+anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 env_logger = "0.10"
 log = "0.4"

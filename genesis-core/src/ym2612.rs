@@ -3,6 +3,7 @@ mod phase;
 
 use crate::ym2612::envelope::EnvelopeGenerator;
 use crate::ym2612::phase::PhaseGenerator;
+use bincode::{Decode, Encode};
 use smsgg_core::num::GetBit;
 use std::array;
 
@@ -33,7 +34,7 @@ fn compute_key_code(f_number: u16, block: u8) -> u8 {
         | u8::from((f11 && (f10 || f9 || f8)) || (!f11 && f10 && f9 && f8))
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Encode, Decode)]
 struct FmOperator {
     phase: PhaseGenerator,
     envelope: EnvelopeGenerator,
@@ -99,14 +100,14 @@ impl FmOperator {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum FrequencyMode {
     #[default]
     Single,
     Multiple,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Encode, Decode)]
 struct FmChannel {
     operators: [FmOperator; 4],
     mode: FrequencyMode,
@@ -230,7 +231,7 @@ pub enum YmTickEffect {
     OutputSample,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct Ym2612 {
     channels: [FmChannel; 6],
     pcm_enabled: bool,

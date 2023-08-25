@@ -7,8 +7,9 @@ use crate::{audio, vdp};
 use m68000_emu::M68000;
 use minifb::{Key, KeyRepeat, Window, WindowOptions};
 use smsgg_core::psg::{Psg, PsgVersion};
-use std::error::Error;
 use std::ffi::OsStr;
+use std::fs::File;
+use std::io::{BufReader, BufWriter};
 use std::path::Path;
 use std::time::Duration;
 use z80_emu::Z80;
@@ -21,7 +22,7 @@ pub struct GenesisConfig {
 ///
 /// # Panics
 ///
-pub fn run(config: GenesisConfig) -> Result<(), Box<dyn Error>> {
+pub fn run(config: GenesisConfig) -> anyhow::Result<()> {
     let cartridge = Cartridge::from_file(Path::new(&config.rom_file_path))?;
     let mut memory = Memory::new(cartridge);
 
@@ -63,6 +64,8 @@ pub fn run(config: GenesisConfig) -> Result<(), Box<dyn Error>> {
     let mut color_buffer = vec![0; 64];
 
     let mut master_cycles = 0_u64;
+
+    let save_state_path = Path::new(&config.rom_file_path).with_extension("ss0");
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
         let mut bus = MainBus::new(&mut memory, &mut vdp, &mut psg, &mut ym2612, &mut input);
@@ -117,6 +120,52 @@ pub fn run(config: GenesisConfig) -> Result<(), Box<dyn Error>> {
             if let Some(color_window) = &mut color_window {
                 vdp.render_color_debug(&mut color_buffer);
                 color_window.update_with_buffer(&color_buffer, 64, 1)?;
+            }
+
+            if window.is_key_pressed(Key::F5, KeyRepeat::No) {
+                save_state(
+                    &save_state_path,
+                    &m68k,
+                    &z80,
+                    &memory,
+                    &vdp,
+                    &ym2612,
+                    &psg,
+                    &input,
+                )?;
+                log::info!("Saved state to {}", save_state_path.display());
+            }
+
+            if window.is_key_pressed(Key::F6, KeyRepeat::No) {
+                match load_state(&save_state_path) {
+                    Ok((
+                        loaded_m68k,
+                        loaded_z80,
+                        mut loaded_memory,
+                        loaded_vdp,
+                        loaded_ym2612,
+                        loaded_psg,
+                        loaded_input,
+                    )) => {
+                        m68k = loaded_m68k;
+                        z80 = loaded_z80;
+                        vdp = loaded_vdp;
+                        ym2612 = loaded_ym2612;
+                        psg = loaded_psg;
+                        input = loaded_input;
+
+                        loaded_memory.take_rom_from(&mut memory);
+                        memory = loaded_memory;
+
+                        log::info!("Loaded state from {}", save_state_path.display());
+                    }
+                    Err(err) => {
+                        log::error!(
+                            "Unable to load save state from {}: {err}",
+                            save_state_path.display()
+                        );
+                    }
+                }
             }
         }
 
@@ -175,4 +224,58 @@ fn populate_minifb_buffer(frame_buffer: &[u16], screen_width: u32, minifb_buffer
             minifb_buffer[idx] = (r << 16) | (g << 8) | b;
         }
     }
+}
+
+macro_rules! bincode_config {
+    () => {
+        bincode::config::standard()
+            .with_little_endian()
+            .with_fixed_int_encoding()
+    };
+}
+
+#[allow(clippy::too_many_arguments)]
+fn save_state<P: AsRef<Path>>(
+    path: P,
+    m68k: &M68000,
+    z80: &Z80,
+    memory: &Memory,
+    vdp: &Vdp,
+    ym2612: &Ym2612,
+    psg: &Psg,
+    input: &InputState,
+) -> anyhow::Result<()> {
+    let path = path.as_ref();
+    let mut file = BufWriter::new(File::create(path)?);
+
+    let conf = bincode_config!();
+
+    bincode::encode_into_std_write(m68k, &mut file, conf)?;
+    bincode::encode_into_std_write(z80, &mut file, conf)?;
+    bincode::encode_into_std_write(memory, &mut file, conf)?;
+    bincode::encode_into_std_write(vdp, &mut file, conf)?;
+    bincode::encode_into_std_write(ym2612, &mut file, conf)?;
+    bincode::encode_into_std_write(psg, &mut file, conf)?;
+    bincode::encode_into_std_write(input, &mut file, conf)?;
+
+    Ok(())
+}
+
+fn load_state<P: AsRef<Path>>(
+    path: P,
+) -> anyhow::Result<(M68000, Z80, Memory, Vdp, Ym2612, Psg, InputState)> {
+    let path = path.as_ref();
+    let mut file = BufReader::new(File::open(path)?);
+
+    let conf = bincode_config!();
+
+    let m68k = bincode::decode_from_std_read(&mut file, conf)?;
+    let z80 = bincode::decode_from_std_read(&mut file, conf)?;
+    let memory = bincode::decode_from_std_read(&mut file, conf)?;
+    let vdp = bincode::decode_from_std_read(&mut file, conf)?;
+    let ym2612 = bincode::decode_from_std_read(&mut file, conf)?;
+    let psg = bincode::decode_from_std_read(&mut file, conf)?;
+    let input = bincode::decode_from_std_read(&mut file, conf)?;
+
+    Ok((m68k, z80, memory, vdp, ym2612, psg, input))
 }

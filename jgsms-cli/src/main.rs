@@ -3,7 +3,6 @@ use env_logger::Env;
 use genesis_core::GenesisConfig;
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgConfig, VdpVersion};
-use std::error::Error;
 use std::ffi::OsStr;
 use std::fmt::{Display, Formatter};
 use std::path::Path;
@@ -70,7 +69,7 @@ struct Args {
     remove_sprite_limit: bool,
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
     let args = Args::parse();
@@ -98,7 +97,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn run_sms(args: Args) -> Result<(), Box<dyn Error>> {
+fn run_sms(args: Args) -> anyhow::Result<()> {
     let config = SmsGgConfig {
         rom_file_path: args.file_path,
         vdp_version: args.vdp_version,
@@ -111,7 +110,7 @@ fn run_sms(args: Args) -> Result<(), Box<dyn Error>> {
     smsgg_core::run(config)
 }
 
-fn run_genesis(args: Args) -> Result<(), Box<dyn Error>> {
+fn run_genesis(args: Args) -> anyhow::Result<()> {
     let config = GenesisConfig {
         rom_file_path: args.file_path,
     };

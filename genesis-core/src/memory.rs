@@ -12,11 +12,11 @@ use smsgg_core::num::GetBit;
 use smsgg_core::psg::Psg;
 use std::ops::Index;
 use std::path::Path;
-use std::{fs, io};
+use std::{fs, io, mem};
 use thiserror::Error;
 use z80_emu::traits::InterruptLine;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 struct Rom(Vec<u8>);
 
 impl Index<usize> for Rom {
@@ -296,7 +296,7 @@ impl Cartridge {
 const MAIN_RAM_LEN: usize = 64 * 1024;
 const AUDIO_RAM_LEN: usize = 8 * 1024;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 struct Z80BankRegister {
     bank_number: u32,
     current_bit: u8,
@@ -316,13 +316,13 @@ impl Z80BankRegister {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Encode, Decode)]
 struct Signals {
     z80_busreq: bool,
     z80_reset: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct Memory {
     cartridge: Cartridge,
     main_ram: Vec<u8>,
@@ -363,6 +363,10 @@ impl Memory {
         let b1 = self.cartridge.rom[address + 2];
         let b0 = self.cartridge.rom[address + 3];
         u32::from_be_bytes([b3, b2, b1, b0])
+    }
+
+    pub fn take_rom_from(&mut self, other: &mut Self) {
+        self.cartridge.rom = mem::take(&mut other.cartridge.rom);
     }
 }
 

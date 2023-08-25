@@ -1,3 +1,4 @@
+use bincode::{Decode, Encode};
 use smsgg_core::num::GetBit;
 
 const PHASE_DIVIDER: u8 = 144 / 6;
@@ -44,7 +45,7 @@ const DETUNE_TABLE: [[u8; 4]; 32] = [
     [0, 8, 16, 22],
 ];
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub(super) struct PhaseGenerator {
     // Register values
     pub(super) f_number: u16,

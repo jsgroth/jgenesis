@@ -1,6 +1,7 @@
+use bincode::{Decode, Encode};
 use smsgg_core::num::GetBit;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub struct JoypadState {
     pub up: bool,
     pub left: bool,
@@ -12,7 +13,7 @@ pub struct JoypadState {
     pub start: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum InputPinDirection {
     #[default]
     Input,
@@ -40,7 +41,7 @@ impl InputPinDirection {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
 struct PinDirections {
     last_data_write: u8,
     th: InputPinDirection,
@@ -114,7 +115,7 @@ impl PinDirections {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Encode, Decode)]
 pub struct InputState {
     p1: JoypadState,
     p1_pin_directions: PinDirections,

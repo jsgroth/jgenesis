@@ -1,4 +1,5 @@
 use crate::memory::Memory;
+use bincode::{Decode, Encode};
 use smsgg_core::num::GetBit;
 use std::cmp::Ordering;
 use z80_emu::traits::InterruptLine;
@@ -7,39 +8,39 @@ const VRAM_LEN: usize = 64 * 1024;
 const CRAM_LEN: usize = 128;
 const VSRAM_LEN: usize = 80;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum ControlWriteFlag {
     First,
     Second,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum DataPortMode {
     Read,
     Write,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum DataPortLocation {
     Vram,
     Cram,
     Vsram,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum VerticalScrollMode {
     FullScreen,
     TwoCell,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum HorizontalScrollMode {
     FullScreen,
     Cell,
     Line,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum HorizontalDisplaySize {
     ThirtyTwoCell,
     FortyCell,
@@ -80,14 +81,14 @@ impl HorizontalDisplaySize {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum InterlacingMode {
     Progressive,
     Interlaced,
     InterlacedDouble,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum ScrollSize {
     ThirtyTwo,
     SixtyFour,
@@ -128,7 +129,7 @@ impl From<ScrollSize> for u16 {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum WindowHorizontalMode {
     LeftToCenter,
     CenterToRight,
@@ -144,7 +145,7 @@ impl WindowHorizontalMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum WindowVerticalMode {
     TopToCenter,
     CenterToBottom,
@@ -160,21 +161,21 @@ impl WindowVerticalMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum DmaMode {
     MemoryToVram,
     VramFill,
     VramCopy,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum ActiveDma {
     MemoryToVram,
     VramFill(u16),
     VramCopy,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum PendingWrite {
     Control(u16),
     Data(u16),
@@ -186,7 +187,7 @@ impl Default for PendingWrite {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 struct InternalState {
     control_write_flag: ControlWriteFlag,
     first_word_code_bits: u8,
@@ -225,7 +226,7 @@ impl InternalState {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 struct Registers {
     // Register #0
     h_interrupt_enabled: bool,
@@ -469,7 +470,7 @@ impl Registers {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 struct SpriteData {
     pattern_generator: u16,
     v_position: u16,
@@ -527,7 +528,7 @@ pub enum VdpTickEffect {
     FrameComplete,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct Vdp {
     frame_buffer: Vec<u16>,
     vram: Vec<u8>,

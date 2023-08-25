@@ -4,6 +4,7 @@ use crate::core::instructions::Instruction;
 use crate::traits::{BusInterface, GetBit, SignBit};
 
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
 struct ConditionCodes {
     carry: bool,
     overflow: bool,
@@ -35,6 +36,7 @@ impl From<ConditionCodes> for u8 {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
 struct Registers {
     data: [u32; 8],
     address: [u32; 7],
@@ -1083,6 +1085,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     }
 }
 
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
 pub struct M68000 {
     registers: Registers,
     halted: bool,

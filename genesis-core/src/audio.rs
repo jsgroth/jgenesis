@@ -1,7 +1,6 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{BufferSize, SampleRate, StreamConfig};
 use std::collections::VecDeque;
-use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{process, thread};
@@ -62,7 +61,7 @@ impl AudioOutput {
         }
     }
 
-    pub fn initialize(&self) -> Result<impl StreamTrait, Box<dyn Error>> {
+    pub fn initialize(&self) -> anyhow::Result<impl StreamTrait> {
         let callback_queue = Arc::clone(&self.audio_queue);
 
         let audio_host = cpal::default_host();

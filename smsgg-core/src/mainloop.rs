@@ -8,7 +8,6 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{BufferSize, SampleRate, StreamConfig};
 use minifb::{Key, KeyRepeat, Window, WindowOptions};
 use std::collections::VecDeque;
-use std::error::Error;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::Path;
@@ -56,7 +55,7 @@ const PAL_MASTER_CLOCK: f64 = 53203424.0;
 /// # Panics
 ///
 /// Panics if unable to determine filename or initialize audio (TODO: should be an error)
-pub fn run(config: SmsGgConfig) -> Result<(), Box<dyn Error>> {
+pub fn run(config: SmsGgConfig) -> anyhow::Result<()> {
     log::info!("Running with config: {config:?}");
 
     let file_name = Path::new(&config.rom_file_path)
@@ -343,7 +342,7 @@ fn save_state<P: AsRef<Path>>(
     vdp: &Vdp,
     psg: &Psg,
     memory: &Memory,
-) -> Result<(), Box<dyn Error>> {
+) -> anyhow::Result<()> {
     let mut writer = BufWriter::new(File::create(path.as_ref())?);
 
     bincode::encode_into_std_write(z80, &mut writer, BINCODE_CONFIG)?;
@@ -357,7 +356,7 @@ fn save_state<P: AsRef<Path>>(
 fn load_state<P: AsRef<Path>>(
     path: P,
     existing_memory: &mut Memory,
-) -> Result<(Z80, Vdp, Psg, Memory), Box<dyn Error>> {
+) -> anyhow::Result<(Z80, Vdp, Psg, Memory)> {
     let mut reader = BufReader::new(File::open(path.as_ref())?);
 
     let z80 = bincode::decode_from_std_read(&mut reader, BINCODE_CONFIG)?;

@@ -89,6 +89,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.75"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4668cab20f66d8d020e1fbc0ebe47217433c1b6c8f2040faf858554e394ace6"
+
+[[package]]
 name = "autocfg"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -513,6 +519,7 @@ dependencies = [
 name = "genesis-core"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bincode",
  "cpal",
  "log",
@@ -607,6 +614,7 @@ checksum = "af150ab688ff2122fcef229be89cb50dd66af9e01a4ff320cc137eecc9bacc38"
 name = "jgsms-cli"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "clap",
  "env_logger",
  "genesis-core",
@@ -730,6 +738,7 @@ checksum = "b5e6163cb8c49088c2c36f57875e58ccd8c87c7427f7fbd50ea6710b2f3f2e8f"
 name = "m68000-emu"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "log",
 ]
 
@@ -1232,6 +1241,7 @@ checksum = "62bb4feee49fdd9f707ef802e22365a35de4b7b299de4763d44bfea899442ff9"
 name = "smsgg-core"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bincode",
  "cpal",
  "crc",
