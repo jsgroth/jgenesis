@@ -214,7 +214,6 @@ impl EnvelopeGenerator {
             self.attenuation = 0;
         } else {
             self.phase = EnvelopePhase::Attack;
-            self.attenuation = MAX_ATTENUATION;
         }
 
         log::trace!("State at key on: {self:?}");

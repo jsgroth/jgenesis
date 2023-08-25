@@ -55,7 +55,6 @@ pub(super) struct PhaseGenerator {
     // Internal state
     counter: u32,
     current_output: u16,
-    last_output: u16,
     divider: u8,
 }
 
@@ -68,7 +67,6 @@ impl PhaseGenerator {
             detune: 0,
             counter: 0,
             current_output: 0,
-            last_output: 0,
             divider: PHASE_DIVIDER,
         }
     }
@@ -85,8 +83,6 @@ impl PhaseGenerator {
 
     pub(super) fn reset(&mut self) {
         self.counter = 0;
-        self.current_output = 0;
-        self.last_output = 0;
 
         log::trace!("State at key on: {self:?}");
     }
@@ -97,7 +93,6 @@ impl PhaseGenerator {
         self.counter = (self.counter + phase_increment) & PHASE_COUNTER_MASK;
 
         // Phase generator output is the highest 10 bits of the 20-bit phase counter
-        self.last_output = self.current_output;
         self.current_output = (self.counter >> 10) as u16;
     }
 
@@ -129,10 +124,6 @@ impl PhaseGenerator {
 
     pub(super) fn current_phase(&self) -> u16 {
         self.current_output
-    }
-
-    pub(super) fn last_phase(&self) -> u16 {
-        self.last_output
     }
 }
 

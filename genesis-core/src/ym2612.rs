@@ -39,6 +39,8 @@ struct FmOperator {
     phase: PhaseGenerator,
     envelope: EnvelopeGenerator,
     feedback_level: u8,
+    current_output: i16,
+    last_output: i16,
 }
 
 impl FmOperator {
@@ -66,12 +68,15 @@ impl FmOperator {
     }
 
     // TODO optimize to avoid floating-point arithmetic and expensive sin/exp operations
-    fn sample(&self, modulation_input: u16) -> i16 {
+    fn sample_clock(&mut self, modulation_input: u16) -> i16 {
         let feedback = match self.feedback_level {
             0 => 0,
             feedback_level => {
-                ((self.phase.current_phase() + self.phase.last_phase()) >> (7 - feedback_level))
-                    & PHASE_MASK
+                // Feedback is implemented by summing the last 2 operator outputs, shifting from
+                // signed 14-bit to signed 10-bit, and then applying a right shift of (6 - feedback_level).
+                // This is equivalent to shifting by (10 - feedback_level).
+                let feedback_output = self.current_output + self.last_output;
+                ((feedback_output >> (10 - feedback_level)) as u16) & PHASE_MASK
             }
         };
 
@@ -92,11 +97,11 @@ impl FmOperator {
         // TODO LFO AM
 
         // Convert volume to a 14-bit signed integer representing a floating-point value between -1 and 1
-        if amplitude >= 0.0 {
-            (amplitude * f64::from(0x1FFF)).round() as i16
-        } else {
-            (amplitude * f64::from(0x2000)).round() as i16
-        }
+        let output = (amplitude * f64::from(OPERATOR_OUTPUT_MAX)).round() as i16;
+        self.last_output = self.current_output;
+        self.current_output = output;
+
+        output
     }
 }
 
@@ -107,7 +112,7 @@ enum FrequencyMode {
     Multiple,
 }
 
-#[derive(Debug, Clone, Default, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode)]
 struct FmChannel {
     operators: [FmOperator; 4],
     mode: FrequencyMode,
@@ -120,69 +125,128 @@ struct FmChannel {
     fm_sensitivity: u8,
     l_output: bool,
     r_output: bool,
+    divider: u8,
+    current_output: (i16, i16),
 }
 
 impl FmChannel {
+    fn new() -> Self {
+        Self {
+            operators: array::from_fn(|_| FmOperator::default()),
+            mode: FrequencyMode::Single,
+            channel_f_number: 0,
+            channel_block: 0,
+            operator_f_numbers: [0; 3],
+            operator_blocks: [0; 3],
+            algorithm: 0,
+            am_sensitivity: 0,
+            fm_sensitivity: 0,
+            l_output: false,
+            r_output: false,
+            divider: FM_SAMPLE_DIVIDER,
+            current_output: (0, 0),
+        }
+    }
+
     #[inline]
     fn fm_clock(&mut self) {
         for operator in &mut self.operators {
             operator.phase.fm_clock();
             operator.envelope.fm_clock();
         }
+
+        if self.divider == 1 {
+            self.divider = FM_SAMPLE_DIVIDER;
+            self.sample_clock();
+        } else {
+            self.divider -= 1;
+        }
     }
 
-    fn sample(&self) -> (i16, i16) {
+    fn sample_clock(&mut self) {
         let sample = match self.algorithm {
             0 => {
-                let m1 = compute_modulation_input(self.operators[0].sample(0));
-                let m2 = compute_modulation_input(self.operators[1].sample(m1));
-                let m3 = compute_modulation_input(self.operators[2].sample(m2));
-                self.operators[3].sample(m3)
+                // O1 -> O2 -> O3 -> O4 -> Output
+                let m1 = compute_modulation_input(self.operators[0].sample_clock(0));
+                let m2 = compute_modulation_input(self.operators[1].sample_clock(m1));
+                let m3 = compute_modulation_input(self.operators[2].sample_clock(m2));
+                self.operators[3].sample_clock(m3)
             }
             1 => {
-                let m1 = compute_modulation_input(self.operators[0].sample(0));
-                let m2 = compute_modulation_input(self.operators[1].sample(0));
-                let m3 = compute_modulation_input(self.operators[2].sample((m1 + m2) & PHASE_MASK));
-                self.operators[3].sample(m3)
+                // O1 --|
+                //      --> O3 -> O4 -> Output
+                // O2 --|
+                let m1 = compute_modulation_input(self.operators[0].sample_clock(0));
+                let m2 = compute_modulation_input(self.operators[1].sample_clock(0));
+                let m3 = compute_modulation_input(
+                    self.operators[2].sample_clock((m1 + m2) & PHASE_MASK),
+                );
+                self.operators[3].sample_clock(m3)
             }
             2 => {
-                let m1 = compute_modulation_input(self.operators[0].sample(0));
-                let m2 = compute_modulation_input(self.operators[1].sample(0));
-                let m3 = compute_modulation_input(self.operators[2].sample(m2));
-                self.operators[3].sample((m1 + m3) & PHASE_MASK)
+                //       O1 --|
+                //            --> O4 -> Output
+                // O2 -> O3 --|
+                let m1 = compute_modulation_input(self.operators[0].sample_clock(0));
+                let m2 = compute_modulation_input(self.operators[1].sample_clock(0));
+                let m3 = compute_modulation_input(self.operators[2].sample_clock(m2));
+                self.operators[3].sample_clock((m1 + m3) & PHASE_MASK)
             }
             3 => {
-                let m1 = compute_modulation_input(self.operators[0].sample(0));
-                let m2 = compute_modulation_input(self.operators[1].sample(m1));
-                let m3 = compute_modulation_input(self.operators[2].sample(0));
-                self.operators[3].sample((m2 + m3) & PHASE_MASK)
+                // O1 -> O2 --|
+                //            --> O4 -> Output
+                //       O3 --|
+                let m1 = compute_modulation_input(self.operators[0].sample_clock(0));
+                let m2 = compute_modulation_input(self.operators[1].sample_clock(m1));
+                let m3 = compute_modulation_input(self.operators[2].sample_clock(0));
+                self.operators[3].sample_clock((m2 + m3) & PHASE_MASK)
             }
             4 => {
-                let m1 = compute_modulation_input(self.operators[0].sample(0));
-                let c1 = self.operators[1].sample(m1);
-                let m2 = compute_modulation_input(self.operators[2].sample(0));
-                let c2 = self.operators[3].sample(m2);
+                // O1 -> O2 --|
+                //            --> Output
+                // O3 -> O4 --|
+                let m1 = compute_modulation_input(self.operators[0].sample_clock(0));
+                let c1 = self.operators[1].sample_clock(m1);
+                let m2 = compute_modulation_input(self.operators[2].sample_clock(0));
+                let c2 = self.operators[3].sample_clock(m2);
                 (c1 + c2).clamp(OPERATOR_OUTPUT_MIN, OPERATOR_OUTPUT_MAX)
             }
             5 => {
-                let m1 = compute_modulation_input(self.operators[0].sample(0));
-                let c1 = self.operators[1].sample(m1);
-                let c2 = self.operators[2].sample(m1);
-                let c3 = self.operators[3].sample(m1);
+                //      --> O2 --|
+                //      |        |
+                // O1 --|-> O3 ----> Output
+                //      |        |
+                //      --> O4 --|
+                let m1 = compute_modulation_input(self.operators[0].sample_clock(0));
+                let c1 = self.operators[1].sample_clock(m1);
+                let c2 = self.operators[2].sample_clock(m1);
+                let c3 = self.operators[3].sample_clock(m1);
                 (c1 + c2 + c3).clamp(OPERATOR_OUTPUT_MIN, OPERATOR_OUTPUT_MAX)
             }
             6 => {
-                let m1 = compute_modulation_input(self.operators[0].sample(0));
-                let c1 = self.operators[1].sample(m1);
-                let c2 = self.operators[2].sample(0);
-                let c3 = self.operators[3].sample(0);
+                // O1 --> O2 --|
+                //             |
+                //        O3 ----> Output
+                //             |
+                //        O4 --|
+                let m1 = compute_modulation_input(self.operators[0].sample_clock(0));
+                let c1 = self.operators[1].sample_clock(m1);
+                let c2 = self.operators[2].sample_clock(0);
+                let c3 = self.operators[3].sample_clock(0);
                 (c1 + c2 + c3).clamp(OPERATOR_OUTPUT_MIN, OPERATOR_OUTPUT_MAX)
             }
             7 => {
-                let c1 = self.operators[0].sample(0);
-                let c2 = self.operators[1].sample(0);
-                let c3 = self.operators[2].sample(0);
-                let c4 = self.operators[3].sample(0);
+                // O1 --|
+                //      |
+                // O2 --|
+                //      --> Output
+                // O3 --|
+                //      |
+                // O4 --|
+                let c1 = self.operators[0].sample_clock(0);
+                let c2 = self.operators[1].sample_clock(0);
+                let c3 = self.operators[2].sample_clock(0);
+                let c4 = self.operators[3].sample_clock(0);
                 (c1 + c2 + c3 + c4).clamp(OPERATOR_OUTPUT_MIN, OPERATOR_OUTPUT_MAX)
             }
             _ => panic!("invalid algorithm: {}", self.algorithm),
@@ -190,7 +254,7 @@ impl FmChannel {
 
         let sample_l = sample * i16::from(self.l_output);
         let sample_r = sample * i16::from(self.r_output);
-        (sample_l, sample_r)
+        self.current_output = (sample_l, sample_r);
     }
 
     // Update phase generator F-numbers & blocks after channel-level F-number, block, or frequency mode is updated
@@ -220,6 +284,13 @@ impl FmChannel {
     }
 }
 
+impl Default for FmChannel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[inline]
 fn compute_modulation_input(operator_output: i16) -> u16 {
     // Modulation input uses bits 10-1 of the operator output
     ((operator_output as u16) >> 1) & PHASE_MASK
@@ -288,14 +359,12 @@ impl Ym2612 {
                     FrequencyMode::Single
                 };
 
-                // Mode applies to both channel 3 and channel 6
-                self.channels[2].mode = mode;
-                self.channels[5].mode = mode;
+                // Mode applies only to channel 3
+                let channel = &mut self.channels[2];
+                channel.mode = mode;
+                channel.update_phase_generators();
 
-                self.channels[2].update_phase_generators();
-                self.channels[5].update_phase_generators();
-
-                log::trace!("Channel 3/6 frequency mode: {mode:?}");
+                log::trace!("Channel 3 frequency mode: {mode:?}");
             }
             0x28 => {
                 let base_channel = if value.bit(2) {
@@ -385,7 +454,7 @@ impl Ym2612 {
         let mut sum_l = 0;
         let mut sum_r = 0;
         for channel in &self.channels[..5] {
-            let (sample_l, sample_r) = channel.sample();
+            let (sample_l, sample_r) = channel.current_output;
             sum_l += i32::from(sample_l);
             sum_r += i32::from(sample_r);
         }
@@ -395,7 +464,7 @@ impl Ym2612 {
             let pcm_sample = (i16::from(self.pcm_sample) - 128) << 6;
             (pcm_sample, pcm_sample)
         } else {
-            self.channels[5].sample()
+            self.channels[5].current_output
         };
         sum_l += i32::from(ch6_sample_l);
         sum_r += i32::from(ch6_sample_r);
