@@ -8,10 +8,12 @@ use bincode::de::{BorrowDecoder, Decoder};
 use bincode::enc::Encoder;
 use bincode::error::{DecodeError, EncodeError};
 use bincode::{BorrowDecode, Decode, Encode};
+use regex::Regex;
 use smsgg_core::num::GetBit;
 use smsgg_core::psg::Psg;
 use std::ops::Index;
 use std::path::Path;
+use std::sync::OnceLock;
 use std::{fs, io, mem};
 use thiserror::Error;
 use z80_emu::traits::InterruptLine;
@@ -373,6 +375,20 @@ impl Memory {
 
     pub fn take_rom_from(&mut self, other: &mut Self) {
         self.cartridge.rom = mem::take(&mut other.cartridge.rom);
+    }
+
+    pub fn cartridge_title(&self) -> String {
+        static RE: OnceLock<Regex> = OnceLock::new();
+
+        let addr = match self.cartridge.region {
+            HardwareRegion::Americas => 0x0150,
+            HardwareRegion::Japan => 0x0120,
+        };
+        let bytes = &self.cartridge.rom.0[addr..addr + 48];
+        let title = bytes.iter().copied().map(|b| b as char).collect::<String>();
+
+        let re = RE.get_or_init(|| Regex::new(r" +").unwrap());
+        re.replace_all(title.trim(), " ").into()
     }
 }
 

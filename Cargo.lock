@@ -525,6 +525,7 @@ dependencies = [
  "log",
  "m68000-emu",
  "minifb",
+ "regex",
  "smsgg-core",
  "thiserror",
  "z80-emu",

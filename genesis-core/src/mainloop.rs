@@ -7,7 +7,6 @@ use crate::{audio, vdp};
 use m68000_emu::M68000;
 use minifb::{Key, KeyRepeat, Window, WindowOptions};
 use smsgg_core::psg::{Psg, PsgVersion};
-use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::Path;
@@ -40,10 +39,7 @@ pub fn run(config: GenesisConfig) -> anyhow::Result<()> {
     m68k.set_pc(memory.read_rom_u32(4));
 
     let mut window = Window::new(
-        Path::new(&config.rom_file_path)
-            .file_name()
-            .and_then(OsStr::to_str)
-            .unwrap(),
+        &format!("genesis - {}", &memory.cartridge_title()),
         320 * 3,
         224 * 3,
         WindowOptions::default(),
