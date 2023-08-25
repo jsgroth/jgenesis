@@ -46,7 +46,7 @@ pub fn run(config: GenesisConfig) -> anyhow::Result<()> {
     )?;
     window.limit_update_rate(Some(Duration::from_micros(16000)));
 
-    let mut minifb_buffer = vec![0_u32; 320 * 224];
+    let mut minifb_buffer = vec![0_u32; 320 * 224 * 2];
 
     // TODO generalize this
     let mut audio_output = AudioOutput::new();
@@ -95,8 +95,19 @@ pub fn run(config: GenesisConfig) -> anyhow::Result<()> {
 
         if vdp.tick(m68k_master_cycles, &mut memory) == VdpTickEffect::FrameComplete {
             let screen_width = vdp.screen_width();
-            populate_minifb_buffer(vdp.frame_buffer(), screen_width, &mut minifb_buffer);
-            window.update_with_buffer(&minifb_buffer, screen_width as usize, 224)?;
+            let screen_height = vdp.screen_height();
+
+            populate_minifb_buffer(
+                vdp.frame_buffer(),
+                screen_width,
+                screen_height,
+                &mut minifb_buffer,
+            );
+            window.update_with_buffer(
+                &minifb_buffer,
+                screen_width as usize,
+                screen_height as usize,
+            )?;
 
             let p1 = input.p1_mut();
             p1.up = window.is_key_down(Key::Up);
@@ -210,8 +221,13 @@ pub fn run(config: GenesisConfig) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn populate_minifb_buffer(frame_buffer: &[u16], screen_width: u32, minifb_buffer: &mut [u32]) {
-    for row in 0_u32..224 {
+fn populate_minifb_buffer(
+    frame_buffer: &[u16],
+    screen_width: u32,
+    screen_height: u32,
+    minifb_buffer: &mut [u32],
+) {
+    for row in 0..screen_height {
         for col in 0..screen_width {
             let idx = (row * screen_width + col) as usize;
 

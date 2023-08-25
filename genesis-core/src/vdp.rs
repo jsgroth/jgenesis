@@ -88,6 +88,36 @@ enum InterlacingMode {
     InterlacedDouble,
 }
 
+impl InterlacingMode {
+    const fn v_scroll_mask(self) -> u16 {
+        // V scroll values are 10 bits normally, 11 bits in interlaced 2x mode
+        match self {
+            Self::Progressive | Self::Interlaced => 0x03FF,
+            Self::InterlacedDouble => 0x07FF,
+        }
+    }
+
+    const fn sprite_display_top(self) -> u16 {
+        match self {
+            // The sprite display area starts at $080 normally, $100 in interlaced 2x mode
+            Self::Progressive | Self::Interlaced => 0x080,
+            Self::InterlacedDouble => 0x100,
+        }
+    }
+
+    const fn cell_height(self) -> u16 {
+        match self {
+            // Cells are 8x8 normally, 8x16 in interlaced 2x mode
+            Self::Progressive | Self::Interlaced => 8,
+            Self::InterlacedDouble => 16,
+        }
+    }
+
+    const fn is_interlaced(self) -> bool {
+        matches!(self, Self::Interlaced | Self::InterlacedDouble)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum ScrollSize {
     ThirtyTwo,
@@ -203,6 +233,7 @@ struct InternalState {
     scanline: u16,
     active_dma: Option<ActiveDma>,
     pending_writes: Vec<PendingWrite>,
+    frame_count: u64,
 }
 
 impl InternalState {
@@ -222,6 +253,7 @@ impl InternalState {
             scanline: 0,
             active_dma: None,
             pending_writes: Vec::with_capacity(10),
+            frame_count: 0,
         }
     }
 }
@@ -381,13 +413,9 @@ impl Registers {
                 };
                 // TODO shadows/highlights
                 self.interlacing_mode = match value & 0x03 {
-                    0x00 => InterlacingMode::Progressive,
+                    0x00 | 0x02 => InterlacingMode::Progressive,
                     0x01 => InterlacingMode::Interlaced,
                     0x03 => InterlacingMode::InterlacedDouble,
-                    0x02 => {
-                        log::warn!("Prohibited interlacing mode set; defaulting to progressive");
-                        InterlacingMode::Progressive
-                    }
                     _ => unreachable!("value & 0x03 is always <= 0x03"),
                 };
             }
@@ -542,7 +570,9 @@ pub struct Vdp {
 
 const MAX_SCREEN_WIDTH: usize = 320;
 const SCREEN_HEIGHT: usize = 224;
-const FRAME_BUFFER_LEN: usize = MAX_SCREEN_WIDTH * SCREEN_HEIGHT;
+
+// Double screen height to account for interlaced 2x mode
+const FRAME_BUFFER_LEN: usize = MAX_SCREEN_WIDTH * SCREEN_HEIGHT * 2;
 
 const MCLK_CYCLES_PER_SCANLINE: u64 = 3420;
 const ACTIVE_MCLK_CYCLES_PER_SCANLINE: u64 = 2560;
@@ -713,15 +743,17 @@ impl Vdp {
     }
 
     pub fn read_status(&self) -> u16 {
-        // TODO interlacing odd/even flag
         // Queue empty (bit 9) hardcoded to true
         // Queue full (bit 8) hardcoded to false
         // DMA busy (bit 1) hardcoded to false
         // PAL (bit 0) hardcoded to false
+        let interlaced_odd =
+            self.registers.interlacing_mode.is_interlaced() && self.state.frame_count % 2 == 1;
         0x0200
             | (u16::from(self.state.v_interrupt_pending && self.registers.v_interrupt_enabled) << 7)
             | (u16::from(self.state.sprite_overflow) << 6)
             | (u16::from(self.state.sprite_collision) << 5)
+            | (u16::from(interlaced_odd) << 4)
             | (u16::from(self.in_vblank()) << 3)
             | (u16::from(self.in_hblank()) << 2)
     }
@@ -784,6 +816,7 @@ impl Vdp {
             self.state.scanline += 1;
             if self.state.scanline == SCANLINES_PER_FRAME {
                 self.state.scanline = 0;
+                self.state.frame_count += 1;
             }
 
             match self.state.scanline.cmp(&ACTIVE_SCANLINES) {
@@ -913,12 +946,21 @@ impl Vdp {
 
     fn render_scanline(&mut self) {
         if !self.registers.display_enabled {
+            if !self.in_vblank() {
+                match self.registers.interlacing_mode {
+                    InterlacingMode::Progressive | InterlacingMode::Interlaced => {
+                        self.clear_scanline(self.state.scanline);
+                    }
+                    InterlacingMode::InterlacedDouble => {
+                        self.clear_scanline(2 * self.state.scanline);
+                        self.clear_scanline(2 * self.state.scanline + 1);
+                    }
+                }
+            }
+
             return;
         }
 
-        self.populate_sprite_buffer();
-
-        let scanline = self.state.scanline;
         let screen_width = self.registers.horizontal_display_size.to_pixels();
 
         let bg_color = resolve_color(
@@ -927,13 +969,44 @@ impl Vdp {
             self.registers.background_color_id,
         );
 
+        match self.registers.interlacing_mode {
+            InterlacingMode::Progressive | InterlacingMode::Interlaced => {
+                let scanline = self.state.scanline;
+                self.populate_sprite_buffer(scanline);
+
+                for pixel in 0..screen_width {
+                    self.render_pixel(bg_color, scanline, pixel);
+                }
+            }
+            InterlacingMode::InterlacedDouble => {
+                // Render scanlines 2N and 2N+1 at the same time
+                for scanline in [2 * self.state.scanline, 2 * self.state.scanline + 1] {
+                    self.populate_sprite_buffer(scanline);
+
+                    for pixel in 0..screen_width {
+                        self.render_pixel(bg_color, scanline, pixel);
+                    }
+                }
+            }
+        }
+    }
+
+    fn clear_scanline(&mut self, scanline: u16) {
+        let scanline = scanline.into();
+        let screen_width = self.registers.horizontal_display_size.to_pixels().into();
+        let bg_color = resolve_color(
+            &self.cram,
+            self.registers.background_palette,
+            self.registers.background_color_id,
+        );
+
         for pixel in 0..screen_width {
-            self.render_pixel(bg_color, scanline, pixel);
+            self.set_in_frame_buffer(scanline, pixel, bg_color);
         }
     }
 
     // TODO optimize this to do fewer passes for sorting/filtering
-    fn populate_sprite_buffer(&mut self) {
+    fn populate_sprite_buffer(&mut self, scanline: u16) {
         self.sprite_buffer.clear();
 
         // Populate buffer from the sprite attribute table
@@ -970,10 +1043,10 @@ impl Vdp {
             .retain(|sprite| sprite.sprite_priority != 0xFF);
 
         // Remove sprites that don't fall on this scanline
-        // Sprite display area starts at $080 vertically
-        let sprite_scanline = 0x080 + self.state.scanline;
+        let sprite_scanline = self.registers.interlacing_mode.sprite_display_top() + scanline;
+        let cell_height = self.registers.interlacing_mode.cell_height();
         self.sprite_buffer.retain(|sprite| {
-            let sprite_bottom = sprite.v_position + 8 * u16::from(sprite.v_size_cells);
+            let sprite_bottom = sprite.v_position + cell_height * u16::from(sprite.v_size_cells);
             (sprite.v_position..sprite_bottom).contains(&sprite_scanline)
         });
 
@@ -1002,25 +1075,39 @@ impl Vdp {
 
     fn render_pixel(&mut self, bg_color: u16, scanline: u16, pixel: u16) {
         let h_cell = pixel / 8;
+        let cell_height = self.registers.interlacing_mode.cell_height();
 
-        let (v_scroll_a, v_scroll_b) =
-            read_v_scroll(&self.vsram, self.registers.vertical_scroll_mode, h_cell);
+        let (v_scroll_a, v_scroll_b) = read_v_scroll(
+            &self.vsram,
+            self.registers.vertical_scroll_mode,
+            self.registers.interlacing_mode,
+            h_cell,
+        );
+
+        let h_scroll_scanline = match self.registers.interlacing_mode {
+            InterlacingMode::Progressive | InterlacingMode::Interlaced => scanline,
+            InterlacingMode::InterlacedDouble => scanline / 2,
+        };
         let (h_scroll_a, h_scroll_b) = read_h_scroll(
             &self.vram,
             self.registers.h_scroll_table_base_addr,
             self.registers.horizontal_scroll_mode,
-            scanline,
+            h_scroll_scanline,
         );
 
         let v_scroll_size = self.registers.vertical_scroll_size;
+        let scroll_line_bit_mask = match self.registers.interlacing_mode {
+            InterlacingMode::Progressive | InterlacingMode::Interlaced => {
+                v_scroll_size.pixel_bit_mask()
+            }
+            InterlacingMode::InterlacedDouble => (v_scroll_size.pixel_bit_mask() << 1) | 0x01,
+        };
 
-        let scrolled_scanline_a =
-            scanline.wrapping_add(v_scroll_a) & v_scroll_size.pixel_bit_mask();
-        let scroll_a_v_cell = scrolled_scanline_a / 8;
+        let scrolled_scanline_a = scanline.wrapping_add(v_scroll_a) & scroll_line_bit_mask;
+        let scroll_a_v_cell = scrolled_scanline_a / cell_height;
 
-        let scrolled_scanline_b =
-            scanline.wrapping_add(v_scroll_b) & v_scroll_size.pixel_bit_mask();
-        let scroll_b_v_cell = scrolled_scanline_b / 8;
+        let scrolled_scanline_b = scanline.wrapping_add(v_scroll_b) & scroll_line_bit_mask;
+        let scroll_b_v_cell = scrolled_scanline_b / cell_height;
 
         let h_scroll_size = self.registers.horizontal_scroll_size;
 
@@ -1053,6 +1140,7 @@ impl Vdp {
                 pattern_generator: scroll_a_nt_word.pattern_generator,
                 row: scrolled_scanline_a,
                 col: scrolled_pixel_a,
+                cell_height,
             },
         );
         let scroll_b_color_id = read_pattern_generator(
@@ -1063,12 +1151,13 @@ impl Vdp {
                 pattern_generator: scroll_b_nt_word.pattern_generator,
                 row: scrolled_scanline_b,
                 col: scrolled_pixel_b,
+                cell_height,
             },
         );
 
         let in_window = self.registers.is_in_window(scanline, pixel);
         let (window_priority, window_palette, window_color_id) = if in_window {
-            let v_cell = scanline / 8;
+            let v_cell = scanline / cell_height;
             let window_nt_word = read_name_table_word(
                 &self.vram,
                 self.registers.window_base_nt_addr,
@@ -1084,6 +1173,7 @@ impl Vdp {
                     pattern_generator: window_nt_word.pattern_generator,
                     row: scanline,
                     col: pixel,
+                    cell_height,
                 },
             );
             (
@@ -1133,6 +1223,9 @@ impl Vdp {
         scanline: u16,
         pixel: u16,
     ) -> Option<(&SpriteData, u8)> {
+        let sprite_display_top = self.registers.interlacing_mode.sprite_display_top();
+        let cell_height = self.registers.interlacing_mode.cell_height();
+
         // Sprite horizontal display area starts at $080
         let sprite_pixel = 0x080 + pixel;
 
@@ -1146,9 +1239,9 @@ impl Vdp {
             let v_size_cells: u16 = sprite.v_size_cells.into();
             let h_size_cells: u16 = sprite.h_size_cells.into();
 
-            let sprite_row = 0x080 + scanline - sprite.v_position;
+            let sprite_row = sprite_display_top + scanline - sprite.v_position;
             let sprite_row = if sprite.vertical_flip {
-                8 * v_size_cells - 1 - sprite_row
+                cell_height * v_size_cells - 1 - sprite_row
             } else {
                 sprite_row
             };
@@ -1160,15 +1253,16 @@ impl Vdp {
                 sprite_col
             };
 
-            let pattern_offset = (sprite_col / 8) * v_size_cells + sprite_row / 8;
+            let pattern_offset = (sprite_col / 8) * v_size_cells + sprite_row / cell_height;
             let color_id = read_pattern_generator(
                 &self.vram,
                 PatternGeneratorArgs {
                     vertical_flip: false,
                     horizontal_flip: false,
                     pattern_generator: sprite.pattern_generator.wrapping_add(pattern_offset),
-                    row: sprite_row % 8,
+                    row: sprite_row % cell_height,
                     col: sprite_col % 8,
+                    cell_height,
                 },
             );
             (color_id != 0).then_some((sprite, color_id))
@@ -1183,12 +1277,21 @@ impl Vdp {
         self.registers.horizontal_display_size.to_pixels().into()
     }
 
+    pub fn screen_height(&self) -> u32 {
+        match self.registers.interlacing_mode {
+            InterlacingMode::Progressive | InterlacingMode::Interlaced => SCREEN_HEIGHT as u32,
+            InterlacingMode::InterlacedDouble => (2 * SCREEN_HEIGHT) as u32,
+        }
+    }
+
     fn set_in_frame_buffer(&mut self, row: u32, col: u32, value: u16) {
         let screen_width = self.screen_width();
         self.frame_buffer[(row * screen_width + col) as usize] = value;
     }
 
     pub fn render_pattern_debug(&self, buffer: &mut [u32], palette: u8) {
+        let cell_height = self.registers.interlacing_mode.cell_height();
+
         for i in 0..2048 {
             for row in 0..8 {
                 for col in 0..8 {
@@ -1200,6 +1303,7 @@ impl Vdp {
                             pattern_generator: i,
                             row,
                             col,
+                            cell_height,
                         },
                     );
                     let color = if color_id != 0 {
@@ -1239,7 +1343,12 @@ fn resolve_color(cram: &[u8], palette: u8, color_id: u8) -> u16 {
     u16::from_be_bytes([cram[addr], cram[addr + 1]])
 }
 
-fn read_v_scroll(vsram: &[u8], v_scroll_mode: VerticalScrollMode, h_cell: u16) -> (u16, u16) {
+fn read_v_scroll(
+    vsram: &[u8],
+    v_scroll_mode: VerticalScrollMode,
+    interlacing_mode: InterlacingMode,
+    h_cell: u16,
+) -> (u16, u16) {
     let (v_scroll_a, v_scroll_b) = match v_scroll_mode {
         VerticalScrollMode::FullScreen => {
             let v_scroll_a = u16::from_be_bytes([vsram[0], vsram[1]]);
@@ -1254,7 +1363,8 @@ fn read_v_scroll(vsram: &[u8], v_scroll_mode: VerticalScrollMode, h_cell: u16) -
         }
     };
 
-    (v_scroll_a & 0x03FF, v_scroll_b & 0x03FF)
+    let v_scroll_mask = interlacing_mode.v_scroll_mask();
+    (v_scroll_a & v_scroll_mask, v_scroll_b & v_scroll_mask)
 }
 
 fn read_h_scroll(
@@ -1337,6 +1447,7 @@ struct PatternGeneratorArgs {
     pattern_generator: u16,
     row: u16,
     col: u16,
+    cell_height: u16,
 }
 
 fn read_pattern_generator(
@@ -1347,12 +1458,13 @@ fn read_pattern_generator(
         pattern_generator,
         row,
         col,
+        cell_height,
     }: PatternGeneratorArgs,
 ) -> u8 {
     let cell_row = if vertical_flip {
-        7 - (row % 8)
+        cell_height - 1 - (row % cell_height)
     } else {
-        row % 8
+        row % cell_height
     };
     let cell_col = if horizontal_flip {
         7 - (col % 8)
@@ -1360,8 +1472,8 @@ fn read_pattern_generator(
         col % 8
     };
 
-    // TODO patterns are 64 bytes in interlaced 2x mode
-    let addr = (32 * pattern_generator + 4 * cell_row + (cell_col >> 1)) as usize;
+    let row_addr = (4 * cell_height).wrapping_mul(pattern_generator);
+    let addr = (row_addr + 4 * cell_row + (cell_col >> 1)) as usize;
     if cell_col.bit(0) {
         vram[addr] & 0x0F
     } else {
