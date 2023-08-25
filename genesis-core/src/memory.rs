@@ -19,6 +19,12 @@ use z80_emu::traits::InterruptLine;
 #[derive(Debug, Clone, Default)]
 struct Rom(Vec<u8>);
 
+impl Rom {
+    fn get(&self, i: usize) -> Option<u8> {
+        self.0.get(i).copied()
+    }
+}
+
 impl Index<usize> for Rom {
     type Output = u8;
 
@@ -266,7 +272,7 @@ impl Cartridge {
             return byte;
         }
 
-        self.rom[address & self.rom_address_mask]
+        self.rom.get(address as usize).unwrap_or(0xFF)
     }
 
     fn read_word(&self, address: u32) -> u16 {
