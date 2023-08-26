@@ -474,12 +474,14 @@ impl<'a> MainBus<'a> {
     }
 
     fn write_vdp_byte(&mut self, address: u32, value: u8) {
+        // Byte-size VDP writes duplicate the byte into a word
+        let vdp_word = u16::from_le_bytes([value, value]);
         match address & 0x1F {
             0x00..=0x03 => {
-                self.vdp.write_data(value.into());
+                self.vdp.write_data(vdp_word);
             }
             0x04..=0x07 => {
-                self.vdp.write_control(value.into());
+                self.vdp.write_control(vdp_word);
             }
             0x11 | 0x13 | 0x15 | 0x17 => {
                 self.psg.write(value);

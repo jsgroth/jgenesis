@@ -715,11 +715,8 @@ impl Vdp {
         match self.state.data_port_location {
             DataPortLocation::Vram => {
                 // VRAM reads/writes ignore A0
-                let address = (self.state.data_address & !0x01) as usize;
-                log::trace!("Writing to {address:04X} in VRAM");
-                let [msb, lsb] = value.to_be_bytes();
-                self.vram[address] = msb;
-                self.vram[(address + 1) & 0xFFFF] = lsb;
+                log::trace!("Writing to {:04X} in VRAM", self.state.data_address);
+                self.write_vram_word(self.state.data_address, value);
             }
             DataPortLocation::Cram => {
                 let address = (self.state.data_address & 0x7F) as usize;
@@ -903,10 +900,15 @@ impl Vdp {
                     self.registers.dma_length
                 );
 
-                for _ in 0..self.registers.dma_length {
-                    let dest_addr = self.state.data_address & !0x01;
-                    self.write_vram_word(dest_addr, fill_data);
+                // VRAM fill is weird; it first performs a normal VRAM write with the given fill
+                // data, then it repeatedly writes the MSB only to (address ^ 1)
 
+                self.write_vram_word(self.state.data_address, fill_data);
+                self.increment_data_address();
+
+                let [msb, _] = fill_data.to_be_bytes();
+                for _ in 0..self.registers.dma_length {
+                    self.vram[(self.state.data_address ^ 0x01) as usize] = msb;
                     self.increment_data_address();
                 }
             }
@@ -944,10 +946,9 @@ impl Vdp {
     }
 
     fn write_vram_word(&mut self, address: u16, value: u16) {
-        // A0 is ignored in VRAM writes
-        let address = address & !0x01;
-        self.vram[address as usize] = (value >> 8) as u8;
-        self.vram[address.wrapping_add(1) as usize] = value as u8;
+        let [msb, lsb] = value.to_be_bytes();
+        self.vram[address as usize] = msb;
+        self.vram[(address ^ 0x01) as usize] = lsb;
     }
 
     fn in_vblank(&self) -> bool {
