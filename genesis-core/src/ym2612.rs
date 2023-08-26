@@ -1,8 +1,10 @@
 mod envelope;
+mod lfo;
 mod phase;
 mod timer;
 
 use crate::ym2612::envelope::EnvelopeGenerator;
+use crate::ym2612::lfo::LowFrequencyOscillator;
 use crate::ym2612::phase::PhaseGenerator;
 use crate::ym2612::timer::{TimerA, TimerB};
 use bincode::{Decode, Encode};
@@ -41,8 +43,12 @@ struct FmOperator {
     phase: PhaseGenerator,
     envelope: EnvelopeGenerator,
     feedback_level: u8,
+    am_enabled: bool,
     current_output: i16,
     last_output: i16,
+    // Values used in output calculation that are copied here for convenience
+    lfo_counter: u8,
+    am_sensitivity: u8,
 }
 
 impl FmOperator {
@@ -83,20 +89,24 @@ impl FmOperator {
         };
 
         // Phase represents a value from 0 to 2PI on a scale from 0 to 2^10
-        // TODO LFO FM
         let phase = (self.phase.current_phase() + modulation_input + feedback) & PHASE_MASK;
         let sine =
             (f64::from(phase) / f64::from(PHASE_MASK + 1) * 2.0 * std::f64::consts::PI).sin();
 
         // Envelope attenuation represents a value from 0dB to 96dB on a scale from 0 to 2^10
         let envelope_attenuation = self.envelope.current_attenuation();
+        let attenuation = if self.am_enabled {
+            let am_attenuation = lfo::amplitude_modulation(self.lfo_counter, self.am_sensitivity);
+            (envelope_attenuation + am_attenuation).clamp(0, envelope::MAX_ATTENUATION)
+        } else {
+            envelope_attenuation
+        };
         let attenuation_db =
-            96.0 * f64::from(envelope_attenuation) / f64::from(envelope::MAX_ATTENUATION + 1);
+            96.0 * f64::from(attenuation) / f64::from(envelope::MAX_ATTENUATION + 1);
 
         // Convert from attenuation in dB to volume in linear units
         let volume = 10.0_f64.powf(attenuation_db / -20.0);
         let amplitude = sine * volume;
-        // TODO LFO AM
 
         // Convert volume to a 14-bit signed integer representing a floating-point value between -1 and 1
         let output = (amplitude * f64::from(OPERATOR_OUTPUT_MAX)).round() as i16;
@@ -151,10 +161,13 @@ impl FmChannel {
     }
 
     #[inline]
-    fn fm_clock(&mut self) {
+    fn fm_clock(&mut self, lfo_counter: u8) {
         for operator in &mut self.operators {
-            operator.phase.fm_clock();
+            operator.phase.fm_clock(lfo_counter, self.fm_sensitivity);
             operator.envelope.fm_clock();
+
+            operator.lfo_counter = lfo_counter;
+            operator.am_sensitivity = self.am_sensitivity;
         }
 
         if self.divider == 1 {
@@ -309,8 +322,7 @@ pub struct Ym2612 {
     channels: [FmChannel; 6],
     pcm_enabled: bool,
     pcm_sample: u8,
-    lfo_enabled: bool,
-    lfo_frequency: u8,
+    lfo: LowFrequencyOscillator,
     group_1_register: u8,
     group_2_register: u8,
     clock_divider: u8,
@@ -325,8 +337,7 @@ impl Ym2612 {
             channels: array::from_fn(|_| FmChannel::default()),
             pcm_enabled: false,
             pcm_sample: 0,
-            lfo_enabled: false,
-            lfo_frequency: 0,
+            lfo: LowFrequencyOscillator::new(),
             group_1_register: 0,
             group_2_register: 0,
             clock_divider: FM_CLOCK_DIVIDER,
@@ -351,11 +362,14 @@ impl Ym2612 {
         match register {
             0x22 => {
                 // LFO configuration register
-                self.lfo_enabled = value.bit(3);
-                self.lfo_frequency = value & 0x07;
+                let lfo_enabled = value.bit(3);
+                self.lfo.set_enabled(lfo_enabled);
 
-                log::trace!("LFO enabled: {}", self.lfo_enabled);
-                log::trace!("LFO frequency: {}", self.lfo_frequency);
+                let lfo_frequency = value & 0x07;
+                self.lfo.set_frequency(lfo_frequency);
+
+                log::trace!("LFO enabled: {}", lfo_enabled);
+                log::trace!("LFO frequency: {}", lfo_frequency);
             }
             0x24 => {
                 // Timer A interval bits 9-2
@@ -474,12 +488,13 @@ impl Ym2612 {
 
     #[inline]
     pub fn tick(&mut self) -> YmTickEffect {
+        self.lfo.tick();
         self.timer_a.tick();
         self.timer_b.tick();
 
         if self.clock_divider == 1 {
             self.clock_divider = FM_CLOCK_DIVIDER;
-            self.clock();
+            self.clock(self.lfo.counter());
 
             self.sample_divider -= 1;
             if self.sample_divider == 0 {
@@ -496,7 +511,7 @@ impl Ym2612 {
     pub fn sample(&self) -> (f64, f64) {
         let mut sum_l = 0;
         let mut sum_r = 0;
-        for channel in &self.channels[..5] {
+        for channel in &self.channels[0..5] {
             let (sample_l, sample_r) = channel.current_output;
             sum_l += i32::from(sample_l);
             sum_r += i32::from(sample_r);
@@ -565,12 +580,12 @@ impl Ym2612 {
             }
             0x06 => {
                 operator.envelope.decay_rate = value & 0x1F;
-                operator.envelope.am_enabled = value.bit(7);
+                operator.am_enabled = value.bit(7);
 
                 log::trace!(
                     "Decay rate={}, AM enabled={}",
                     operator.envelope.decay_rate,
-                    operator.envelope.am_enabled
+                    operator.am_enabled
                 );
             }
             0x07 => {
@@ -714,9 +729,9 @@ impl Ym2612 {
     }
 
     #[inline]
-    fn clock(&mut self) {
+    fn clock(&mut self, lfo_counter: u8) {
         for channel in &mut self.channels {
-            channel.fm_clock();
+            channel.fm_clock(lfo_counter);
         }
     }
 }

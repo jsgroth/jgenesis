@@ -92,7 +92,6 @@ pub(super) struct EnvelopeGenerator {
     pub(super) release_rate: u8,
     pub(super) total_level: u8,
     pub(super) sustain_level: u8,
-    pub(super) am_enabled: bool,
     pub(super) key_scale: u8,
     // Internal state
     phase: EnvelopePhase,
@@ -111,7 +110,6 @@ impl EnvelopeGenerator {
             release_rate: 0,
             total_level: 0,
             sustain_level: 0,
-            am_enabled: false,
             key_scale: 0,
             phase: EnvelopePhase::Release,
             attenuation: MAX_ATTENUATION,
@@ -158,6 +156,7 @@ impl EnvelopeGenerator {
         let rate = if r == 0 {
             0
         } else {
+            // TODO should key scale rate be constantly recomputed when LFO FM is enabled?
             cmp::min(63, 2 * r + self.key_scale_rate)
         };
 

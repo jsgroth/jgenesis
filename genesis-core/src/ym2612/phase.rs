@@ -1,3 +1,4 @@
+use crate::ym2612::lfo;
 use bincode::{Decode, Encode};
 use smsgg_core::num::GetBit;
 
@@ -72,10 +73,10 @@ impl PhaseGenerator {
     }
 
     #[inline]
-    pub(super) fn fm_clock(&mut self) {
+    pub(super) fn fm_clock(&mut self, lfo_counter: u8, fm_sensitivity: u8) {
         if self.divider == 1 {
             self.divider = PHASE_DIVIDER;
-            self.clock();
+            self.clock(lfo_counter, fm_sensitivity);
         } else {
             self.divider -= 1;
         }
@@ -88,23 +89,25 @@ impl PhaseGenerator {
     }
 
     #[inline]
-    fn clock(&mut self) {
-        let phase_increment = self.compute_phase_increment();
+    fn clock(&mut self, lfo_counter: u8, fm_sensitivity: u8) {
+        let phase_increment = self.compute_phase_increment(lfo_counter, fm_sensitivity);
         self.counter = (self.counter + phase_increment) & PHASE_COUNTER_MASK;
 
         // Phase generator output is the highest 10 bits of the 20-bit phase counter
         self.current_output = (self.counter >> 10) as u16;
     }
 
-    fn compute_phase_increment(&self) -> u32 {
+    fn compute_phase_increment(&self, lfo_counter: u8, fm_sensitivity: u8) -> u32 {
+        let modulated_f_num = lfo::frequency_modulation(lfo_counter, fm_sensitivity, self.f_number);
+
         // Apply block/octave multiplier
         let shifted_f_num = match self.block {
-            0 => u32::from(self.f_number) >> 1,
-            block => u32::from(self.f_number) << (block - 1),
+            0 => u32::from(modulated_f_num) >> 1,
+            block => u32::from(modulated_f_num) << (block - 1),
         };
 
         // Apply detune
-        let key_code = super::compute_key_code(self.f_number, self.block);
+        let key_code = super::compute_key_code(modulated_f_num, self.block);
         let detune_magnitude = self.detune & 0x03;
         let detune_increment_magnitude: u32 =
             DETUNE_TABLE[key_code as usize][detune_magnitude as usize].into();
