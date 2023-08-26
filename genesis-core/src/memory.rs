@@ -463,9 +463,8 @@ impl<'a> MainBus<'a> {
             0x01 | 0x03 => self.vdp.read_data() as u8,
             0x04 | 0x06 => (self.vdp.read_status() >> 8) as u8,
             0x05 | 0x07 => self.vdp.read_status() as u8,
-            0x08..=0x0F => {
-                todo!("HV counter")
-            }
+            0x08 | 0x0A => (self.vdp.hv_counter() >> 8) as u8,
+            0x09 | 0x0B => self.vdp.hv_counter() as u8,
             0x10..=0x1F => {
                 // PSG / unused space; PSG is not readable
                 0xFF
@@ -481,9 +480,6 @@ impl<'a> MainBus<'a> {
             }
             0x04..=0x07 => {
                 self.vdp.write_control(value.into());
-            }
-            0x08..=0x0F => {
-                todo!("HV counter")
             }
             0x11 | 0x13 | 0x15 | 0x17 => {
                 self.psg.write(value);
@@ -542,9 +538,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
             }
             0xC00000..=0xC00003 => self.vdp.read_data(),
             0xC00004..=0xC00007 => self.vdp.read_status(),
-            0xC00008..=0xC0000F => {
-                todo!("HV counter")
-            }
+            0xC00008..=0xC0000F => self.vdp.hv_counter(),
             0xE00000..=0xFFFFFF => {
                 let ram_addr = (address & 0xFFFF) as usize;
                 u16::from_be_bytes([
@@ -626,9 +620,6 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
             }
             0xC00004..=0xC00007 => {
                 self.vdp.write_control(value);
-            }
-            0xC00008..=0xC0000F => {
-                // TODO HV counter
             }
             0xE00000..=0xFFFFFF => {
                 let ram_addr = (address & 0xFFFF) as usize;

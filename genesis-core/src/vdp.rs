@@ -262,6 +262,7 @@ impl InternalState {
 struct Registers {
     // Register #0
     h_interrupt_enabled: bool,
+    // TODO handle HV latching and interrupts
     hv_counter_stopped: bool,
     // Register #1
     display_enabled: bool,
@@ -753,6 +754,29 @@ impl Vdp {
             | (u16::from(interlaced_odd) << 4)
             | (u16::from(self.in_vblank()) << 3)
             | (u16::from(self.in_hblank()) << 2)
+    }
+
+    pub fn hv_counter(&self) -> u16 {
+        let v_counter = match self.registers.interlacing_mode {
+            InterlacingMode::Progressive | InterlacingMode::Interlaced => self.state.scanline as u8,
+            InterlacingMode::InterlacedDouble => {
+                let scanline = self.state.scanline << 1;
+                ((scanline & !0x01) as u8) | u8::from(scanline.bit(8))
+            }
+        };
+
+        let scanline_mclk = self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE;
+        let h_counter = if scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE {
+            let divider = match self.registers.horizontal_display_size {
+                HorizontalDisplaySize::ThirtyTwoCell => 10,
+                HorizontalDisplaySize::FortyCell => 8,
+            };
+            (scanline_mclk / divider) as u8
+        } else {
+            0
+        };
+
+        u16::from_be_bytes([v_counter, h_counter])
     }
 
     #[must_use]
