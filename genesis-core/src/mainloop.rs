@@ -64,7 +64,14 @@ pub fn run(config: GenesisConfig) -> anyhow::Result<()> {
     let save_state_path = Path::new(&config.rom_file_path).with_extension("ss0");
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        let mut bus = MainBus::new(&mut memory, &mut vdp, &mut psg, &mut ym2612, &mut input);
+        let mut bus = MainBus::new(
+            &mut memory,
+            &mut vdp,
+            &mut psg,
+            &mut ym2612,
+            &mut input,
+            z80.stalled(),
+        );
         let m68k_cycles = m68k.execute_instruction(&mut bus);
 
         let m68k_master_cycles = 7 * u64::from(m68k_cycles);

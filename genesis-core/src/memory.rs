@@ -407,6 +407,7 @@ pub struct MainBus<'a> {
     psg: &'a mut Psg,
     ym2612: &'a mut Ym2612,
     input: &'a mut InputState,
+    z80_stalled: bool,
 }
 
 impl<'a> MainBus<'a> {
@@ -416,6 +417,7 @@ impl<'a> MainBus<'a> {
         psg: &'a mut Psg,
         ym2612: &'a mut Ym2612,
         input: &'a mut InputState,
+        z80_stalled: bool,
     ) -> Self {
         Self {
             memory,
@@ -423,6 +425,7 @@ impl<'a> MainBus<'a> {
             psg,
             ym2612,
             input,
+            z80_stalled,
         }
     }
 
@@ -507,10 +510,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
                 <Self as z80_emu::BusInterface>::read_memory(self, (address & 0x7FFF) as u16)
             }
             0xA10000..=0xA1001F => self.read_io_register(address),
-            0xA11100..=0xA11101 => {
-                // TODO wait until Z80 has stalled?
-                (!self.memory.signals.z80_busreq).into()
-            }
+            0xA11100..=0xA11101 => (!self.z80_stalled).into(),
             0xA13000..=0xA130FF => {
                 todo!("timer register")
             }
@@ -531,10 +531,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
                 u16::from_le_bytes([byte, byte])
             }
             0xA10000..=0xA1001F => self.read_io_register(address).into(),
-            0xA11100..=0xA11101 => {
-                // TODO wait until Z80 has stalled?
-                (!self.memory.signals.z80_busreq).into()
-            }
+            0xA11100..=0xA11101 => (!self.z80_stalled).into(),
             0xA13000..=0xA130FF => {
                 todo!("timer register")
             }
@@ -632,10 +629,12 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
         }
     }
 
+    #[inline]
     fn interrupt_level(&self) -> u8 {
         self.vdp.m68k_interrupt_level()
     }
 
+    #[inline]
     fn acknowledge_interrupt(&mut self) {
         self.vdp.acknowledge_m68k_interrupt();
     }
@@ -736,28 +735,34 @@ impl<'a> z80_emu::BusInterface for MainBus<'a> {
         }
     }
 
+    #[inline]
     fn read_io(&mut self, _address: u16) -> u8 {
         // I/O ports are not wired up to the Z80
         0xFF
     }
 
+    #[inline]
     fn write_io(&mut self, _address: u16, _value: u8) {
         // I/O ports are not wired up to the Z80
     }
 
+    #[inline]
     fn nmi(&self) -> InterruptLine {
         // The NMI line is not connected to anything
         InterruptLine::High
     }
 
+    #[inline]
     fn int(&self) -> InterruptLine {
         self.vdp.z80_interrupt_line()
     }
 
+    #[inline]
     fn busreq(&self) -> bool {
         self.memory.signals.z80_busreq
     }
 
+    #[inline]
     fn reset(&self) -> bool {
         self.memory.signals.z80_reset
     }

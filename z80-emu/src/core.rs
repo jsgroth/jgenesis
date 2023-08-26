@@ -353,18 +353,13 @@ impl Z80 {
     }
 
     #[must_use]
+    #[inline]
     pub fn stalled(&self) -> bool {
         self.stalled
     }
 
     /// Execute a single instruction (or the interrupt service routine) and return how many T-cycles it took.
     pub fn execute_instruction<B: BusInterface>(&mut self, bus: &mut B) -> u32 {
-        if bus.busreq() {
-            // BUSREQ is asserted; Z80 is halted
-            self.stalled = true;
-            return Self::MINIMUM_T_CYCLES;
-        }
-
         if bus.reset() {
             // RESET is asserted; reset internal state
             self.registers.i = 0;
@@ -374,6 +369,12 @@ impl Z80 {
             self.registers.iff2 = false;
             self.registers.interrupt_mode = InterruptMode::Mode0;
 
+            return Self::MINIMUM_T_CYCLES;
+        }
+
+        if bus.busreq() {
+            // BUSREQ is asserted; Z80 is halted
+            self.stalled = true;
             return Self::MINIMUM_T_CYCLES;
         }
 
