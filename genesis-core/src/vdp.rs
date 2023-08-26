@@ -483,7 +483,7 @@ impl Registers {
                     0x80 => DmaMode::VramFill,
                     0xC0 => DmaMode::VramCopy,
                     _ => unreachable!("value & 0x0C is always 0x00/0x40/0x80/0xC0"),
-                }
+                };
             }
             _ => {}
         }
@@ -887,7 +887,24 @@ impl Vdp {
                 }
             }
             ActiveDma::VramCopy => {
-                todo!("VRAM copy DMA")
+                log::trace!(
+                    "Running VRAM copy with source addr {:04X}, dest addr {:04X}, and length {}",
+                    self.registers.dma_source_address,
+                    self.state.data_address,
+                    self.registers.dma_length
+                );
+
+                // VRAM copy DMA treats the source address as A15-A0 instead of A23-A1
+                let mut source_addr = (self.registers.dma_source_address >> 1) as u16;
+                for _ in 0..self.registers.dma_length {
+                    let dest_addr = self.state.data_address;
+                    self.vram[dest_addr as usize] = self.vram[source_addr as usize];
+
+                    source_addr = source_addr.wrapping_add(1);
+                    self.increment_data_address();
+                }
+
+                self.registers.dma_source_address = u32::from(source_addr) << 1;
             }
         }
 
