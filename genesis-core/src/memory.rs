@@ -1,6 +1,3 @@
-// TODO remove
-#![allow(clippy::match_same_arms)]
-
 use crate::input::InputState;
 use crate::vdp::Vdp;
 use crate::ym2612::Ym2612;
@@ -360,7 +357,6 @@ impl Memory {
     }
 
     pub fn read_word_for_dma(&self, address: u32) -> u16 {
-        // TODO assuming that DMA can only read from ROM and 68k RAM
         match address {
             0x000000..=0x3FFFFF => self.cartridge.read_word(address),
             0xE00000..=0xFFFFFF => {
@@ -429,6 +425,8 @@ impl<'a> MainBus<'a> {
         }
     }
 
+    // TODO remove
+    #[allow(clippy::match_same_arms)]
     fn read_io_register(&self, address: u32) -> u8 {
         match address {
             // Version register
@@ -549,6 +547,8 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
         }
     }
 
+    // TODO remove
+    #[allow(clippy::match_same_arms)]
     fn write_byte(&mut self, address: u32, value: u8) {
         let address = address & ADDRESS_MASK;
         log::trace!("Main bus byte write: address={address:06X}, value={value:02X}");
@@ -589,6 +589,8 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
         }
     }
 
+    // TODO remove
+    #[allow(clippy::match_same_arms)]
     fn write_word(&mut self, address: u32, value: u16) {
         let address = address & ADDRESS_MASK;
         log::trace!("Main bus word write: address={address:06X}, value={value:02X}");
@@ -641,6 +643,8 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
 }
 
 impl<'a> z80_emu::BusInterface for MainBus<'a> {
+    // TODO remove
+    #[allow(clippy::match_same_arms)]
     fn read_memory(&mut self, address: u16) -> u8 {
         log::trace!("Z80 bus read from {address:04X}");
 
@@ -673,7 +677,6 @@ impl<'a> z80_emu::BusInterface for MainBus<'a> {
                 0xFF
             }
             0x8000..=0xFFFF => {
-                // TODO 68000 memory area
                 let m68k_addr = self.memory.z80_bank_register.map_to_68k_address(address);
                 if !(0xA00000..=0xA0FFFF).contains(&m68k_addr) {
                     <Self as m68000_emu::BusInterface>::read_byte(self, m68k_addr)

@@ -605,7 +605,6 @@ impl Vdp {
             return;
         }
 
-        // TODO DMA
         match self.state.control_write_flag {
             ControlWriteFlag::First => {
                 if value & 0xE000 == 0x8000 {
