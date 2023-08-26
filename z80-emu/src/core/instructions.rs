@@ -346,7 +346,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         } = self.parse_opcode();
 
         log::trace!(
-            "PC={:04X}, opcode={opcode:02X} ({}), index={index:?}, a={:02X}, next={:02X} {:02X}, sp={:04X}, a={:02X}, f={:02X}, b={:02X}, c={:02X}, d={:02X}, e={:02X}, h={:02X}, l={:02X}",
+            "PC={:04X}, opcode={opcode:02X} ({}), index={index:?}, a={:02X}, next={:02X} {:02X}, sp={:04X}, a={:02X}, f={:02X}, b={:02X}, c={:02X}, d={:02X}, e={:02X}, h={:02X}, l={:02X}, iff1={}",
             self.registers.pc.wrapping_sub(1),
             mnemonics::for_opcode(opcode, self.bus.read_memory(self.registers.pc)),
             self.registers.a,
@@ -360,7 +360,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             self.registers.d,
             self.registers.e,
             self.registers.h,
-            self.registers.l
+            self.registers.l,
+            self.registers.iff1
         );
 
         let instruction_t_cycles = match opcode {

@@ -568,9 +568,11 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
             }
             0xA11100..=0xA11101 => {
                 self.memory.signals.z80_busreq = value.bit(0);
+                log::trace!("Set Z80 BUSREQ to {}", self.memory.signals.z80_busreq);
             }
             0xA11200..=0xA11201 => {
-                self.memory.signals.z80_reset = value.bit(0);
+                self.memory.signals.z80_reset = !value.bit(0);
+                log::trace!("Set Z80 RESET to {}", self.memory.signals.z80_reset);
             }
             0xA13000..=0xA130FF => {
                 // TODO timer registers
@@ -604,7 +606,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
                 log::trace!("Set Z80 BUSREQ to {}", self.memory.signals.z80_busreq);
             }
             0xA11200..=0xA11201 => {
-                self.memory.signals.z80_reset = value.bit(8);
+                self.memory.signals.z80_reset = !value.bit(8);
                 log::trace!("Set Z80 RESET to {}", self.memory.signals.z80_reset);
             }
             0xA13000..=0xA130FF => {
