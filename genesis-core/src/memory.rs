@@ -324,10 +324,19 @@ impl Z80BankRegister {
     }
 }
 
-#[derive(Debug, Clone, Default, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode)]
 struct Signals {
     z80_busreq: bool,
     z80_reset: bool,
+}
+
+impl Default for Signals {
+    fn default() -> Self {
+        Self {
+            z80_busreq: false,
+            z80_reset: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
