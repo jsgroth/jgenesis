@@ -2,7 +2,6 @@ mod bus;
 mod input;
 mod mainloop;
 mod memory;
-pub mod num;
 pub mod psg;
 mod vdp;
 

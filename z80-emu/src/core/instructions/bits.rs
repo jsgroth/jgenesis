@@ -1,6 +1,7 @@
 use crate::core::instructions::{parity_flag, sign_flag, zero_flag, InstructionExecutor};
-use crate::core::{Flags, GetBit, IndexRegister, Register16, Registers};
+use crate::core::{Flags, IndexRegister, Register16, Registers};
 use crate::traits::BusInterface;
+use jgenesis_traits::num::GetBit;
 
 fn compute_index_address(registers: &Registers, index: IndexRegister, offset: i8) -> u16 {
     let index_value = index.read_from(registers);

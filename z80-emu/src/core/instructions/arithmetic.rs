@@ -1,8 +1,9 @@
 use crate::core::instructions::{
     parity_flag, sign_flag, zero_flag, BlockMode, InstructionExecutor,
 };
-use crate::core::{Flags, GetBit, IndexRegister, Register16};
+use crate::core::{Flags, IndexRegister, Register16};
 use crate::traits::BusInterface;
+use jgenesis_traits::num::GetBit;
 
 macro_rules! impl_a_r_add_op {
     ($name:ident, $op_fn:ident) => {

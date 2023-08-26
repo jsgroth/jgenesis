@@ -1,24 +1,7 @@
 use crate::traits::{BusInterface, InterruptLine};
+use jgenesis_traits::num::GetBit;
 
 mod instructions;
-
-trait GetBit: Copy {
-    fn bit(self, i: u8) -> bool;
-}
-
-impl GetBit for u8 {
-    fn bit(self, i: u8) -> bool {
-        assert!(i < 8);
-        self & (1 << i) != 0
-    }
-}
-
-impl GetBit for u16 {
-    fn bit(self, i: u8) -> bool {
-        assert!(i < 16);
-        self & (1 << i) != 0
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]

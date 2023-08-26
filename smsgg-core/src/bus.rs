@@ -1,9 +1,9 @@
 use crate::input::InputState;
 use crate::memory::Memory;
-use crate::num::GetBit;
 use crate::psg::Psg;
 use crate::vdp::Vdp;
 use crate::VdpVersion;
+use jgenesis_traits::num::GetBit;
 use z80_emu::traits::{BusInterface, InterruptLine};
 
 pub struct Bus<'a> {

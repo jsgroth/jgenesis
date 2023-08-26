@@ -1,6 +1,6 @@
 use crate::memory::Memory;
 use bincode::{Decode, Encode};
-use smsgg_core::num::GetBit;
+use jgenesis_traits::num::GetBit;
 use std::cmp::Ordering;
 use z80_emu::traits::InterruptLine;
 

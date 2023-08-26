@@ -8,7 +8,7 @@ use crate::ym2612::lfo::LowFrequencyOscillator;
 use crate::ym2612::phase::PhaseGenerator;
 use crate::ym2612::timer::{TimerA, TimerB};
 use bincode::{Decode, Encode};
-use smsgg_core::num::GetBit;
+use jgenesis_traits::num::GetBit;
 use std::array;
 use std::sync::OnceLock;
 

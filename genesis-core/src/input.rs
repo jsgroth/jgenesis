@@ -1,5 +1,5 @@
 use bincode::{Decode, Encode};
-use smsgg_core::num::GetBit;
+use jgenesis_traits::num::GetBit;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub struct JoypadState {

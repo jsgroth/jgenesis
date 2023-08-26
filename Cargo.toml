@@ -2,6 +2,7 @@
 members = [
     "genesis-core",
     "jgenesis-cli",
+    "jgenesis-traits",
     "m68000-emu",
     "m68000-test-runner",
     "smsgg-core",

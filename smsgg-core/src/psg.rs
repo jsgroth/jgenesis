@@ -1,5 +1,5 @@
-use crate::num::GetBit;
 use bincode::{Decode, Encode};
+use jgenesis_traits::num::GetBit;
 use std::array;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;

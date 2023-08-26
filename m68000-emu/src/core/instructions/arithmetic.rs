@@ -3,7 +3,8 @@ use crate::core::{
     AddressRegister, AddressingMode, ConditionCodes, DataRegister, Exception, ExecuteResult,
     Instruction, InstructionExecutor, OpSize, ResolvedAddress, SizedValue,
 };
-use crate::traits::{BusInterface, GetBit, SignBit};
+use crate::traits::BusInterface;
+use jgenesis_traits::num::{GetBit, SignBit};
 
 macro_rules! impl_extend_op_method {
     ($name:ident, $bytes_fn:ident, $words_fn:ident, $long_words_fn:ident) => {

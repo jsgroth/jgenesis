@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+jgenesis-traits = { path = "../jgenesis-traits" }
 z80-emu = { path = "../z80-emu", features = ["bincode"] }
 
 anyhow = "1"

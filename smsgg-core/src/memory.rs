@@ -1,11 +1,11 @@
 mod metadata;
 
-use crate::num::GetBit;
 use bincode::de::{BorrowDecoder, Decoder};
 use bincode::enc::Encoder;
 use bincode::error::{DecodeError, EncodeError};
 use bincode::{BorrowDecode, Decode, Encode};
 use crc::Crc;
+use jgenesis_traits::num::GetBit;
 use std::mem;
 use std::ops::{Index, RangeInclusive};
 

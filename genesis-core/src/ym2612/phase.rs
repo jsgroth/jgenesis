@@ -1,6 +1,6 @@
 use crate::ym2612::lfo;
 use bincode::{Decode, Encode};
-use smsgg_core::num::GetBit;
+use jgenesis_traits::num::GetBit;
 
 const PHASE_DIVIDER: u8 = 144 / 6;
 

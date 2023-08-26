@@ -11,5 +11,7 @@ bincode = ["dep:bincode"]
 memorybus = []
 
 [dependencies]
+jgenesis-traits = { path = "../jgenesis-traits" }
+
 bincode = { version = "2.0.0-rc.3", optional = true }
 log = "0.4"

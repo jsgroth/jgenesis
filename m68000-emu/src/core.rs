@@ -1,7 +1,8 @@
 mod instructions;
 
 use crate::core::instructions::Instruction;
-use crate::traits::{BusInterface, GetBit, SignBit};
+use crate::traits::BusInterface;
+use jgenesis_traits::num::{GetBit, SignBit};
 
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]

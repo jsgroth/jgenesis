@@ -7,7 +7,8 @@ use crate::core::{
     AddressRegister, AddressingMode, ConditionCodes, DataRegister, Exception, ExecuteResult,
     InstructionExecutor, OpSize, Registers,
 };
-use crate::traits::{BusInterface, GetBit};
+use crate::traits::BusInterface;
+use jgenesis_traits::num::GetBit;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {

@@ -6,8 +6,9 @@ mod jump;
 mod load;
 mod mnemonics;
 
-use crate::core::{GetBit, IndexRegister, InterruptMode, Register16, Register8, Registers};
+use crate::core::{IndexRegister, InterruptMode, Register16, Register8, Registers};
 use crate::traits::{BusInterface, InterruptLine};
+use jgenesis_traits::num::GetBit;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlockMode {

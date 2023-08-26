@@ -1,5 +1,5 @@
 use bincode::{Decode, Encode};
-use smsgg_core::num::GetBit;
+use jgenesis_traits::num::GetBit;
 
 // LFO counter is 7 bits
 const LFO_COUNTER_MASK: u8 = 0x7F;

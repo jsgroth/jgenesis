@@ -1,4 +1,4 @@
-use crate::num::GetBit;
+use jgenesis_traits::num::GetBit;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct JoypadState {
