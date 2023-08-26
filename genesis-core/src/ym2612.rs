@@ -1,8 +1,10 @@
 mod envelope;
 mod phase;
+mod timer;
 
 use crate::ym2612::envelope::EnvelopeGenerator;
 use crate::ym2612::phase::PhaseGenerator;
+use crate::ym2612::timer::{TimerA, TimerB};
 use bincode::{Decode, Encode};
 use smsgg_core::num::GetBit;
 use std::array;
@@ -313,6 +315,8 @@ pub struct Ym2612 {
     group_2_register: u8,
     clock_divider: u8,
     sample_divider: u8,
+    timer_a: TimerA,
+    timer_b: TimerB,
 }
 
 impl Ym2612 {
@@ -327,6 +331,8 @@ impl Ym2612 {
             group_2_register: 0,
             clock_divider: FM_CLOCK_DIVIDER,
             sample_divider: FM_SAMPLE_DIVIDER,
+            timer_a: TimerA::new(),
+            timer_b: TimerB::new(),
         }
     }
 
@@ -351,8 +357,28 @@ impl Ym2612 {
                 log::trace!("LFO enabled: {}", self.lfo_enabled);
                 log::trace!("LFO frequency: {}", self.lfo_frequency);
             }
-            // TODO timer registers: $24-$27
+            0x24 => {
+                // Timer A interval bits 9-2
+                let interval = (self.timer_a.interval() & 0x0003) | (u32::from(value) << 2);
+                self.timer_a.set_interval(interval);
+
+                log::trace!("Timer A interval: {}", interval);
+            }
+            0x25 => {
+                // Timer A interval bits 1-0
+                let interval = (self.timer_a.interval() & 0xFFFC) | u32::from(value & 0x03);
+                self.timer_a.set_interval(interval);
+
+                log::trace!("Timer A interval: {}", interval);
+            }
+            0x26 => {
+                // Timer B interval
+                self.timer_b.set_interval(value.into());
+
+                log::trace!("Timer B interval: {}", self.timer_b.interval());
+            }
             0x27 => {
+                // Channel 3 mode + timer control
                 let mode = if value & 0xC0 != 0 {
                     FrequencyMode::Multiple
                 } else {
@@ -364,7 +390,21 @@ impl Ym2612 {
                 channel.mode = mode;
                 channel.update_phase_generators();
 
+                self.timer_a.set_enabled(value.bit(0));
+                self.timer_b.set_enabled(value.bit(1));
+                self.timer_a.set_overflow_flag_enabled(value.bit(2));
+                self.timer_b.set_overflow_flag_enabled(value.bit(3));
+
+                if value.bit(4) {
+                    self.timer_a.clear_overflow_flag();
+                }
+                if value.bit(5) {
+                    self.timer_b.clear_overflow_flag();
+                }
+
                 log::trace!("Channel 3 frequency mode: {mode:?}");
+                log::trace!("Timer A state: {:?}", self.timer_a);
+                log::trace!("Timer B state: {:?}", self.timer_b);
             }
             0x28 => {
                 let base_channel = if value.bit(2) {
@@ -428,12 +468,15 @@ impl Ym2612 {
 
     #[allow(clippy::unused_self)]
     pub fn read_register(&self) -> u8 {
-        // TODO busy bit, maybe timer overflow bits
-        0x00
+        // TODO busy bit
+        (u8::from(self.timer_b.overflow_flag()) << 1) | u8::from(self.timer_a.overflow_flag())
     }
 
     #[inline]
     pub fn tick(&mut self) -> YmTickEffect {
+        self.timer_a.tick();
+        self.timer_b.tick();
+
         if self.clock_divider == 1 {
             self.clock_divider = FM_CLOCK_DIVIDER;
             self.clock();
