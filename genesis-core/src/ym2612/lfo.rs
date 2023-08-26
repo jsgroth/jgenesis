@@ -89,8 +89,9 @@ pub fn frequency_modulation(lfo_counter: u8, fm_sensitivity: u8, f_number: u16) 
         (lfo_counter & 0x1F) >> 2
     };
 
-    // Compute total increment from the highest 6 bits of F-number
-    let fm_increment = (5..11)
+    // Compute total increment from the highest 7 bits of F-number; the lower 4 bits never add any
+    // increment
+    let fm_increment = (4..11)
         .map(|i| {
             if f_number.bit(i) {
                 FM_INCREMENT_TABLE[fm_sensitivity as usize][fm_table_idx as usize] >> (10 - i)
