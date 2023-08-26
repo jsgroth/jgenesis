@@ -510,7 +510,6 @@ struct SpriteData {
     horizontal_flip: bool,
     priority: bool,
     link_data: u8,
-    sprite_priority: u8,
 }
 
 impl SpriteData {
@@ -544,8 +543,6 @@ impl SpriteData {
             horizontal_flip,
             priority,
             link_data,
-            // Will get filled in later
-            sprite_priority: 0xFF,
         }
     }
 }
@@ -1012,35 +1009,26 @@ impl Vdp {
         // Populate buffer from the sprite attribute table
         let h_size = self.registers.horizontal_display_size;
         let sprite_table_addr = self.registers.sprite_attribute_table_base_addr;
-        for i in 0..h_size.sprite_table_len() {
-            let sprite_addr = sprite_table_addr.wrapping_add(8 * i) as usize;
-            let sprite_bytes = &self.vram[sprite_addr..sprite_addr + 8];
-            self.sprite_buffer
-                .push(SpriteData::from_attribute_table(sprite_bytes));
-        }
 
-        // Fill in sprite priorities
-        self.sprite_buffer[0].sprite_priority = 0;
+        // Sprite 0 is always populated
+        let sprite_0 = SpriteData::from_attribute_table(
+            &self.vram[sprite_table_addr as usize..sprite_table_addr as usize + 8],
+        );
+        let mut sprite_idx: u16 = sprite_0.link_data.into();
+        self.sprite_buffer.push(sprite_0);
 
-        let mut sprite_priority = 1;
-        let mut sprite_idx = self.sprite_buffer[0].link_data as usize;
-        while sprite_idx != 0 && sprite_idx < self.sprite_buffer.len() {
-            // TODO this should lock up the system
-            assert_eq!(
-                self.sprite_buffer[sprite_idx].sprite_priority, 0xFF,
-                "Link data loop detected in sprite attribute table"
-            );
+        for _ in 0..h_size.sprite_table_len() {
+            if sprite_idx == 0 {
+                break;
+            }
 
-            self.sprite_buffer[sprite_idx].sprite_priority = sprite_priority;
-            sprite_priority += 1;
-            sprite_idx = self.sprite_buffer[sprite_idx].link_data as usize;
+            let sprite_addr = sprite_table_addr.wrapping_add(8 * sprite_idx) as usize;
+            let sprite = SpriteData::from_attribute_table(&self.vram[sprite_addr..sprite_addr + 8]);
+            sprite_idx = sprite.link_data.into();
+            self.sprite_buffer.push(sprite);
         }
 
         // TODO sprite overflow
-        self.sprite_buffer
-            .sort_by_key(|sprite| sprite.sprite_priority);
-        self.sprite_buffer
-            .retain(|sprite| sprite.sprite_priority != 0xFF);
 
         // Remove sprites that don't fall on this scanline
         let sprite_scanline = self.registers.interlacing_mode.sprite_display_top() + scanline;
