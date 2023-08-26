@@ -459,12 +459,10 @@ impl<WaveType: WaveGeneratorBehavior> WaveGenerator<WaveType> {
     ) {
         // Frequency
         let fm_multiplier = if self.vibrato { fm_output } else { 1.0 };
-        // TODO figure out why dividing by 2 here is necessary and fix the actual bug
         let delta = f64::from(frequency)
-            * f64::from(1_u32 << octave)
+            * 2.0_f64.powi(i32::from(octave) - 1)
             * self.freq_multiplier
-            * fm_multiplier
-            / 2.0;
+            * fm_multiplier;
         self.phase_counter = (self.phase_counter + delta.round() as u32) & PHASE_MASK;
         self.adjusted_phase = self
             .behavior
