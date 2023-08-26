@@ -10,6 +10,7 @@ use crate::ym2612::timer::{TimerA, TimerB};
 use bincode::{Decode, Encode};
 use smsgg_core::num::GetBit;
 use std::array;
+use std::sync::OnceLock;
 
 const FM_CLOCK_DIVIDER: u8 = 6;
 const FM_SAMPLE_DIVIDER: u8 = 24;
@@ -75,7 +76,7 @@ impl FmOperator {
         }
     }
 
-    // TODO optimize to avoid floating-point arithmetic and expensive sin/exp operations
+    // TODO optimize to avoid floating-point arithmetic
     fn sample_clock(&mut self, modulation_input: u16) -> i16 {
         let feedback = match self.feedback_level {
             0 => 0,
@@ -88,12 +89,9 @@ impl FmOperator {
             }
         };
 
-        // Phase represents a value from 0 to 2PI on a scale from 0 to 2^10
         let phase = (self.phase.current_phase() + modulation_input + feedback) & PHASE_MASK;
-        let sine =
-            (f64::from(phase) / f64::from(PHASE_MASK + 1) * 2.0 * std::f64::consts::PI).sin();
+        let sine = phase_sin(phase);
 
-        // Envelope attenuation represents a value from 0dB to 96dB on a scale from 0 to 2^10
         let envelope_attenuation = self.envelope.current_attenuation();
         let attenuation = if self.am_enabled {
             let am_attenuation = lfo::amplitude_modulation(self.lfo_counter, self.am_sensitivity);
@@ -101,11 +99,9 @@ impl FmOperator {
         } else {
             envelope_attenuation
         };
-        let attenuation_db =
-            96.0 * f64::from(attenuation) / f64::from(envelope::MAX_ATTENUATION + 1);
 
         // Convert from attenuation in dB to volume in linear units
-        let volume = 10.0_f64.powf(attenuation_db / -20.0);
+        let volume = attenuation_to_volume(attenuation);
         let amplitude = sine * volume;
 
         // Convert volume to a 14-bit signed integer representing a floating-point value between -1 and 1
@@ -115,6 +111,30 @@ impl FmOperator {
 
         output
     }
+}
+
+#[inline]
+fn phase_sin(phase: u16) -> f64 {
+    static LOOKUP_TABLE: OnceLock<[f64; 1024]> = OnceLock::new();
+
+    // Phase represents a value from 0 to 2PI on a scale from 0 to 2^10
+    let lookup_table = LOOKUP_TABLE
+        .get_or_init(|| array::from_fn(|i| (i as f64 / 1024.0 * 2.0 * std::f64::consts::PI).sin()));
+    lookup_table[phase as usize]
+}
+
+#[inline]
+fn attenuation_to_volume(attenuation: u16) -> f64 {
+    static LOOKUP_TABLE: OnceLock<[f64; 1024]> = OnceLock::new();
+
+    // Envelope attenuation represents a value from 0dB to 96dB on a scale from 0 to 2^10
+    let lookup_table = LOOKUP_TABLE.get_or_init(|| {
+        array::from_fn(|i| {
+            let decibels = 96.0 * i as f64 / 1024.0;
+            10.0_f64.powf(decibels / -20.0)
+        })
+    });
+    lookup_table[attenuation as usize]
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]

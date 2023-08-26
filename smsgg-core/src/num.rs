@@ -3,6 +3,7 @@ pub trait GetBit: Copy {
 }
 
 impl GetBit for u8 {
+    #[inline]
     fn bit(self, i: u8) -> bool {
         assert!(i < 8);
 
@@ -11,6 +12,7 @@ impl GetBit for u8 {
 }
 
 impl GetBit for u16 {
+    #[inline]
     fn bit(self, i: u8) -> bool {
         assert!(i < 16);
 
@@ -19,6 +21,7 @@ impl GetBit for u16 {
 }
 
 impl GetBit for u32 {
+    #[inline]
     fn bit(self, i: u8) -> bool {
         assert!(i < 32);
 
