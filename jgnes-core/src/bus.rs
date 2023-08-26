@@ -418,7 +418,9 @@ impl IoRegisters {
 
     fn read_address(&mut self, address: u16) -> u8 {
         let relative_addr = address - CPU_IO_REGISTERS_START;
-        let Some(register) = IoRegister::from_relative_address(relative_addr) else { return cpu_open_bus(address) };
+        let Some(register) = IoRegister::from_relative_address(relative_addr) else {
+            return cpu_open_bus(address);
+        };
 
         self.read_register(register)
     }
@@ -451,7 +453,9 @@ impl IoRegisters {
 
     fn write_address(&mut self, address: u16, value: u8) {
         let relative_addr = address - CPU_IO_REGISTERS_START;
-        let Some(register) = IoRegister::from_relative_address(relative_addr) else { return };
+        let Some(register) = IoRegister::from_relative_address(relative_addr) else {
+            return;
+        };
 
         self.write_register(register, value);
     }
@@ -759,8 +763,7 @@ impl<'a> CpuBus<'a> {
     }
 
     fn read_ppu_register_address(&mut self, relative_addr: usize) -> u8 {
-        let Some(register) = PpuRegister::from_relative_address(relative_addr)
-        else {
+        let Some(register) = PpuRegister::from_relative_address(relative_addr) else {
             panic!("invalid PPU register address: {relative_addr}");
         };
 
@@ -825,8 +828,7 @@ impl<'a> CpuBus<'a> {
     }
 
     fn write_ppu_register_address(&mut self, relative_addr: usize, value: u8) {
-        let Some(register) = PpuRegister::from_relative_address(relative_addr)
-        else {
+        let Some(register) = PpuRegister::from_relative_address(relative_addr) else {
             panic!("invalid PPU register address: {relative_addr}");
         };
 

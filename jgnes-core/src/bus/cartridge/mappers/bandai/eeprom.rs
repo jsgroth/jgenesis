@@ -132,7 +132,13 @@ impl EepromState for X24C01State {
     }
 
     fn read(self, memory: &[u8]) -> Option<bool> {
-        let Self::SendingData { address, bits_remaining } = self else { return None };
+        let Self::SendingData {
+            address,
+            bits_remaining,
+        } = self
+        else {
+            return None;
+        };
 
         if bits_remaining == 8 {
             return None;
@@ -309,7 +315,13 @@ impl EepromState for X24C02State {
     }
 
     fn read(self, memory: &[u8]) -> Option<bool> {
-        let Self::SendingData { address, bits_remaining } = self else { return None };
+        let Self::SendingData {
+            address,
+            bits_remaining,
+        } = self
+        else {
+            return None;
+        };
 
         if bits_remaining == 8 {
             return None;

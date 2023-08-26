@@ -263,8 +263,7 @@ impl SpriteEvaluationData {
             .take(self.sprites_found as usize)
             .enumerate()
         {
-            let &[y_position, tile_index, attributes_byte, x_position] = chunk
-            else {
+            let &[y_position, tile_index, attributes_byte, x_position] = chunk else {
                 unreachable!("all chunks from chunks_exact(4) should be of size 4")
             };
 

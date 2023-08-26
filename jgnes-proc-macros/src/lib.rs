@@ -67,8 +67,7 @@ pub fn match_each_variant_macro(input: TokenStream) -> TokenStream {
 
     let ident = &input.ident;
 
-    let Data::Enum(data) = &input.data
-    else {
+    let Data::Enum(data) = &input.data else {
         panic!("{ident} is not an enum");
     };
 
@@ -78,8 +77,7 @@ pub fn match_each_variant_macro(input: TokenStream) -> TokenStream {
         .map(|variant| {
             let variant_ident = &variant.ident;
 
-            let Fields::Unnamed(fields) = &variant.fields
-            else {
+            let Fields::Unnamed(fields) = &variant.fields else {
                 panic!("{ident}::{variant_ident} should have unnamed fields");
             };
 
@@ -141,10 +139,9 @@ pub fn enum_display(input: TokenStream) -> TokenStream {
 
     let name = &ast.ident;
 
-    let Data::Enum(data) = &ast.data
-        else {
-            panic!("EnumDisplay derive macro can only be applied to enums; {name} is not an enum");
-        };
+    let Data::Enum(data) = &ast.data else {
+        panic!("EnumDisplay derive macro can only be applied to enums; {name} is not an enum");
+    };
 
     let match_arms: Vec<_> = data
         .variants
@@ -187,10 +184,9 @@ pub fn enum_from_str(input: TokenStream) -> TokenStream {
 
     let name = &ast.ident;
 
-    let Data::Enum(data) = &ast.data
-        else {
-            panic!("EnumFromStr derive macro can only be applied to enums; {name} is not an enum");
-        };
+    let Data::Enum(data) = &ast.data else {
+        panic!("EnumFromStr derive macro can only be applied to enums; {name} is not an enum");
+    };
 
     let match_arms: Vec<_> = data
         .variants
