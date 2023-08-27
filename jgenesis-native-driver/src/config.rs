@@ -105,6 +105,8 @@ pub struct SmsGgConfig {
     pub remove_sprite_limit: bool,
     pub sms_aspect_ratio: SmsAspectRatio,
     pub gg_aspect_ratio: GgAspectRatio,
+    pub sms_crop_vertical_border: bool,
+    pub sms_crop_left_border: bool,
     pub window_size: Option<WindowSize>,
     pub renderer_config: RendererConfig,
 }
@@ -118,6 +120,13 @@ impl Display for SmsGgConfig {
         writeln!(f, "  remove_sprite_limit: {}", self.remove_sprite_limit)?;
         writeln!(f, "  sms_aspect_ratio: {}", self.sms_aspect_ratio)?;
         writeln!(f, "  gg_aspect_ratio: {}", self.gg_aspect_ratio)?;
+        writeln!(
+            f,
+            "  sms_crop_vertical_border: {}",
+            self.sms_crop_vertical_border
+        )?;
+        writeln!(f, "  sms_crop_left_border: {}", self.sms_crop_left_border)?;
+        writeln!(f, "  window_size: {:?}", self.window_size)?;
         write!(f, "  renderer_config: {}", self.renderer_config)
     }
 }

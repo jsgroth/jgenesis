@@ -71,6 +71,14 @@ struct Args {
     #[arg(long, default_value_t)]
     gg_aspect_ratio: GgAspectRatio,
 
+    /// Crop SMS top and bottom border; almost all games display only the background color in this area
+    #[arg(long, default_value_t)]
+    sms_crop_vertical_border: bool,
+
+    /// Crop SMS left border; many games display only the background color in this area
+    #[arg(long, default_value_t)]
+    sms_crop_left_border: bool,
+
     /// Window width in pixels; height must also be set
     #[arg(long)]
     window_width: Option<u32>,
@@ -155,6 +163,8 @@ fn run_sms(args: Args) -> anyhow::Result<()> {
         remove_sprite_limit: args.remove_sprite_limit,
         sms_aspect_ratio: args.sms_aspect_ratio,
         gg_aspect_ratio: args.gg_aspect_ratio,
+        sms_crop_vertical_border: args.sms_crop_vertical_border,
+        sms_crop_left_border: args.sms_crop_left_border,
         window_size,
         renderer_config,
     };

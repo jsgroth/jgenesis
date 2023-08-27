@@ -105,6 +105,14 @@ impl<'de> BorrowDecode<'de> for FrameBuffer {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct SmsGgEmulatorConfig {
+    pub pixel_aspect_ratio: Option<PixelAspectRatio>,
+    pub remove_sprite_limit: bool,
+    pub sms_crop_vertical_border: bool,
+    pub sms_crop_left_border: bool,
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct SmsGgEmulator {
     memory: Memory,
@@ -115,6 +123,8 @@ pub struct SmsGgEmulator {
     psg: Psg,
     input: InputState,
     frame_buffer: FrameBuffer,
+    sms_crop_vertical_border: bool,
+    sms_crop_left_border: bool,
     leftover_vdp_cycles: u32,
     sample_count: u64,
     frame_count: u64,
@@ -126,12 +136,11 @@ impl SmsGgEmulator {
         rom: Vec<u8>,
         cartridge_ram: Option<Vec<u8>>,
         vdp_version: VdpVersion,
-        pixel_aspect_ratio: Option<PixelAspectRatio>,
         psg_version: PsgVersion,
-        remove_sprite_limit: bool,
+        config: SmsGgEmulatorConfig,
     ) -> Self {
         let memory = Memory::new(rom, cartridge_ram);
-        let vdp = Vdp::new(vdp_version, remove_sprite_limit);
+        let vdp = Vdp::new(vdp_version, config.remove_sprite_limit);
         let psg = Psg::new(psg_version);
         let input = InputState::new();
 
@@ -145,10 +154,12 @@ impl SmsGgEmulator {
             z80,
             vdp,
             vdp_version,
-            pixel_aspect_ratio,
+            pixel_aspect_ratio: config.pixel_aspect_ratio,
             psg,
             input,
             frame_buffer: FrameBuffer::new(),
+            sms_crop_vertical_border: config.sms_crop_vertical_border,
+            sms_crop_left_border: config.sms_crop_left_border,
             leftover_vdp_cycles: 0,
             sample_count: 0,
             frame_count: 0,
@@ -206,16 +217,33 @@ impl SmsGgEmulator {
         let vdp_cycles = t_cycles_plus_leftover / 2 * 3;
         for _ in 0..vdp_cycles {
             if self.vdp.tick() == VdpTickEffect::FrameComplete {
+                let crop_vertical_border =
+                    self.vdp_version.is_master_system() && self.sms_crop_vertical_border;
+                let crop_left_border =
+                    self.vdp_version.is_master_system() && self.sms_crop_left_border;
                 populate_frame_buffer(
                     self.vdp.frame_buffer(),
                     self.vdp_version,
+                    crop_vertical_border,
+                    crop_left_border,
                     &mut self.frame_buffer,
                 );
 
                 let viewport = self.vdp_version.viewport_size();
+                let frame_width = if crop_left_border {
+                    viewport.width_without_border().into()
+                } else {
+                    viewport.width.into()
+                };
+                let frame_height = if crop_vertical_border {
+                    viewport.height_without_border().into()
+                } else {
+                    viewport.height.into()
+                };
+
                 let frame_size = FrameSize {
-                    width: viewport.width.into(),
-                    height: viewport.height.into(),
+                    width: frame_width,
+                    height: frame_height,
                 };
                 renderer
                     .render_frame(&self.frame_buffer, frame_size, self.pixel_aspect_ratio)
@@ -252,12 +280,31 @@ impl SmsGgEmulator {
 fn populate_frame_buffer(
     vdp_buffer: &VdpBuffer,
     vdp_version: VdpVersion,
+    crop_vertical_border: bool,
+    crop_left_border: bool,
     frame_buffer: &mut [Color],
 ) {
-    let screen_width = vdp_version.viewport_size().width as usize;
+    let viewport = vdp_version.viewport_size();
 
-    for (i, row) in vdp_buffer.iter().enumerate() {
-        for (j, color) in row.iter().copied().enumerate() {
+    let (row_skip, row_take) = if crop_vertical_border {
+        (
+            viewport.top_border_height as usize,
+            viewport.height_without_border() as usize,
+        )
+    } else {
+        (0, viewport.height as usize)
+    };
+    let (col_skip, screen_width) = if crop_left_border {
+        (
+            viewport.left_border_width as usize,
+            viewport.width_without_border() as usize,
+        )
+    } else {
+        (0, viewport.width as usize)
+    };
+
+    for (i, row) in vdp_buffer.iter().skip(row_skip).take(row_take).enumerate() {
+        for (j, color) in row.iter().copied().skip(col_skip).enumerate() {
             let (r, g, b) = match vdp_version {
                 VdpVersion::NtscMasterSystem2 | VdpVersion::PalMasterSystem2 => (
                     convert_sms_color(color & 0x03),

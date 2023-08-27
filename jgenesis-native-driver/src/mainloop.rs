@@ -9,7 +9,7 @@ use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::AudioSubsystem;
-use smsgg_core::{SmsGgEmulator, SmsGgInputs, SmsGgTickEffect};
+use smsgg_core::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgInputs, SmsGgTickEffect};
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
@@ -153,13 +153,18 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
     let mut inputs = SmsGgInputs::default();
     let mut save_writer = FsSaveWriter::new(save_path);
 
+    let emulator_config = SmsGgEmulatorConfig {
+        pixel_aspect_ratio,
+        remove_sprite_limit: config.remove_sprite_limit,
+        sms_crop_vertical_border: config.sms_crop_vertical_border,
+        sms_crop_left_border: config.sms_crop_left_border,
+    };
     let mut emulator = SmsGgEmulator::create(
         rom,
         initial_cartridge_ram,
         vdp_version,
-        pixel_aspect_ratio,
         psg_version,
-        config.remove_sprite_limit,
+        emulator_config,
     );
 
     loop {

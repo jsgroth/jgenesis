@@ -418,6 +418,8 @@ fn compute_vertices(
     let x = (window_width - screen_width) / 2;
     let y = (window_height - screen_height) / 2;
 
+    log::info!("Display area: width={screen_width}, height={screen_height}, left={x}, top={y}");
+
     VERTICES
         .into_iter()
         .map(|vertex| Vertex {
