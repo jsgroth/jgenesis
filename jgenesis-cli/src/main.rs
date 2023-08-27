@@ -1,6 +1,7 @@
 use clap::Parser;
 use env_logger::Env;
 use jgenesis_native_driver::config::{GenesisConfig, SmsGgConfig};
+use jgenesis_native_driver::{FilterMode, PrescaleFactor, RendererConfig, VSyncMode};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::VdpVersion;
 use std::ffi::OsStr;
@@ -45,28 +46,44 @@ struct Args {
     ///
     /// Will default based on file extension if not set. MasterSystem is appropriate for both SMS
     /// and Game Gear games.
+    #[arg(long)]
     hardware: Option<Hardware>,
 
-    /// VDP version
+    /// Force SMS/GG VDP version (NtscMasterSystem2 / PalMasterSystem2 / GameGear)
     #[arg(long)]
     vdp_version: Option<VdpVersion>,
 
-    /// PSG version
+    /// Force SMS/GG PSG version (MasterSystem2 / Standard)
     #[arg(long)]
     psg_version: Option<PsgVersion>,
 
-    /// Crop SMS top and bottom borders (16px each); all games display only the overscan color here
-    #[arg(long)]
-    crop_sms_vertical_border: bool,
-
-    /// Crop SMS left border (8px); many games hide this part of the screen to enable
-    /// smooth sprite scrolling off the left edge
-    #[arg(long)]
-    crop_sms_left_border: bool,
-
-    /// Remove 8-sprite-per-scanline limit which disables sprite flickering
+    /// Remove SMS/GG 8-sprite-per-scanline limit which disables sprite flickering
     #[arg(long)]
     remove_sprite_limit: bool,
+
+    /// VSync mode (Enabled / Disabled / Fast)
+    #[arg(long, default_value_t = VSyncMode::Enabled)]
+    vsync_mode: VSyncMode,
+
+    /// Prescale factor; must be a positive integer
+    #[arg(long, default_value_t = 3)]
+    prescale_factor: u32,
+
+    /// Filter mode (Nearest / Linear)
+    #[arg(long, default_value_t = FilterMode::Linear)]
+    filter_mode: FilterMode,
+}
+
+impl Args {
+    fn renderer_config(&self) -> RendererConfig {
+        let prescale_factor = PrescaleFactor::try_from(self.prescale_factor)
+            .expect("prescale factor must be non-zero");
+        RendererConfig {
+            vsync_mode: self.vsync_mode,
+            prescale_factor,
+            filter_mode: self.filter_mode,
+        }
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -101,21 +118,23 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn run_sms(args: Args) -> anyhow::Result<()> {
+    let renderer_config = args.renderer_config();
     let config = SmsGgConfig {
         rom_file_path: args.file_path,
         vdp_version: args.vdp_version,
         psg_version: args.psg_version,
-        crop_sms_vertical_border: args.crop_sms_vertical_border,
-        crop_sms_left_border: args.crop_sms_left_border,
         remove_sprite_limit: args.remove_sprite_limit,
+        renderer_config,
     };
 
     jgenesis_native_driver::run_smsgg(config)
 }
 
 fn run_genesis(args: Args) -> anyhow::Result<()> {
+    let renderer_config = args.renderer_config();
     let config = GenesisConfig {
         rom_file_path: args.file_path,
+        renderer_config,
     };
 
     jgenesis_native_driver::run_genesis(config)

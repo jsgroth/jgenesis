@@ -1,5 +1,4 @@
 use crate::config::{GenesisConfig, SmsGgConfig};
-use crate::renderer::config::{FilterMode, PrescaleFactor, RendererConfig, VSyncMode};
 use crate::renderer::WgpuRenderer;
 use crate::{config, genesisinput, smsgginput};
 use anyhow::{anyhow, Context};
@@ -95,6 +94,8 @@ impl SaveWriter for FsSaveWriter {
 /// This function will propagate any video, audio, or disk errors encountered.
 #[allow(clippy::missing_panics_doc)]
 pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
+    log::info!("Running with config: {config}");
+
     let rom_file_path = Path::new(&config.rom_file_path);
     let rom_file_name = parse_file_name(rom_file_path)?;
     let file_ext = parse_file_ext(rom_file_path)?;
@@ -114,6 +115,9 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
         .psg_version
         .unwrap_or_else(|| config::default_psg_version_for_ext(file_ext));
 
+    log::info!("VDP version: {vdp_version:?}");
+    log::info!("PSG version: {psg_version:?}");
+
     let sdl = sdl2::init().map_err(|err| anyhow!("Error initializing SDL2: {err}"))?;
     let video = sdl
         .video()
@@ -126,23 +130,24 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
         .map_err(|err| anyhow!("Error initializing SDL2 event pump: {err}"))?;
 
     // TODO configurable
-    let (window_width, window_height, pixel_aspect_ratio) = match file_ext {
-        "gg" => (
-            3 * 192,
-            3 * 144,
-            PixelAspectRatio::from_width_and_height(
-                NonZeroU32::new(6).unwrap(),
-                NonZeroU32::new(5).unwrap(),
-            ),
-        ),
-        _ => (
+    let (window_width, window_height, pixel_aspect_ratio) = if vdp_version.is_master_system() {
+        (
             940,
             720,
             PixelAspectRatio::from_width_and_height(
                 NonZeroU32::new(8).unwrap(),
                 NonZeroU32::new(7).unwrap(),
             ),
-        ),
+        )
+    } else {
+        (
+            3 * 192,
+            3 * 144,
+            PixelAspectRatio::from_width_and_height(
+                NonZeroU32::new(6).unwrap(),
+                NonZeroU32::new(5).unwrap(),
+            ),
+        )
     };
     let window = video
         .window(
@@ -152,15 +157,7 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
         )
         .build()?;
 
-    // TODO configurable
-    let mut renderer = pollster::block_on(WgpuRenderer::new(
-        window,
-        RendererConfig {
-            vsync_mode: VSyncMode::Enabled,
-            prescale_factor: PrescaleFactor::from(NonZeroU32::new(3).unwrap()),
-            filter_mode: FilterMode::Linear,
-        },
-    ))?;
+    let mut renderer = pollster::block_on(WgpuRenderer::new(window, config.renderer_config))?;
     let mut audio_output = SdlAudioOutput::create_and_init(&audio)?;
     let mut inputs = SmsGgInputs::default();
     let mut save_writer = FsSaveWriter::new(save_path);
@@ -204,6 +201,8 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
 /// This function will return an error upon encountering any video, audio, or I/O error.
 #[allow(clippy::missing_panics_doc)]
 pub fn run_genesis(config: GenesisConfig) -> anyhow::Result<()> {
+    log::info!("Running with config: {config}");
+
     let rom_file_path = Path::new(&config.rom_file_path);
     let rom = fs::read(rom_file_path)?;
 
@@ -231,15 +230,7 @@ pub fn run_genesis(config: GenesisConfig) -> anyhow::Result<()> {
         )
         .build()?;
 
-    // TODO configurable
-    let mut renderer = pollster::block_on(WgpuRenderer::new(
-        window,
-        RendererConfig {
-            vsync_mode: VSyncMode::Enabled,
-            prescale_factor: PrescaleFactor::from(NonZeroU32::new(3).unwrap()),
-            filter_mode: FilterMode::Linear,
-        },
-    ))?;
+    let mut renderer = pollster::block_on(WgpuRenderer::new(window, config.renderer_config))?;
 
     let mut audio_output = SdlAudioOutput::create_and_init(&audio)?;
 

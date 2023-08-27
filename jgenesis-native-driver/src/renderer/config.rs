@@ -1,7 +1,9 @@
 // TODO remove
 #![allow(dead_code)]
 
+use std::fmt::{Display, Formatter};
 use std::num::NonZeroU32;
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VSyncMode {
@@ -20,12 +22,36 @@ impl VSyncMode {
     }
 }
 
+impl Display for VSyncMode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Enabled => write!(f, "Enabled"),
+            Self::Disabled => write!(f, "Disabled"),
+            Self::Fast => write!(f, "Fast"),
+        }
+    }
+}
+
+impl FromStr for VSyncMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Enabled" => Ok(Self::Enabled),
+            "Disabled" => Ok(Self::Disabled),
+            "Fast" => Ok(Self::Fast),
+            _ => Err(format!("invalid VSync mode string: {s}")),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PrescaleFactor(u32);
 
 impl PrescaleFactor {
     pub const ONE: Self = Self(1);
 
+    #[must_use]
     pub fn get(self) -> u32 {
         self.0
     }
@@ -60,6 +86,12 @@ impl Default for PrescaleFactor {
     }
 }
 
+impl Display for PrescaleFactor {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}x", self.0)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FilterMode {
     Nearest,
@@ -76,9 +108,40 @@ impl FilterMode {
     }
 }
 
+impl Display for FilterMode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Nearest => write!(f, "Nearest"),
+            Self::Linear => write!(f, "Linear"),
+        }
+    }
+}
+
+impl FromStr for FilterMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Nearest" => Ok(Self::Nearest),
+            "Linear" => Ok(Self::Linear),
+            _ => Err(format!("Invalid filter mod string: {s}")),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct RendererConfig {
     pub vsync_mode: VSyncMode,
     pub prescale_factor: PrescaleFactor,
     pub filter_mode: FilterMode,
+}
+
+impl Display for RendererConfig {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "RendererConfig{{vsync_mode={}, prescale_factor={}, filter_mode={}}}",
+            self.vsync_mode, self.prescale_factor, self.filter_mode
+        )
+    }
 }
