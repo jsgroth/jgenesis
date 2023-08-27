@@ -36,6 +36,8 @@ pub struct FrameSize {
 pub struct PixelAspectRatio(f64);
 
 impl PixelAspectRatio {
+    pub const SQUARE: Self = Self(1.0);
+
     #[must_use]
     #[inline]
     pub fn from_width_and_height(width: NonZeroU32, height: NonZeroU32) -> Self {

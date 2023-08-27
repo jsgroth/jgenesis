@@ -1,10 +1,10 @@
-use crate::config::{GenesisConfig, SmsGgConfig};
+use crate::config::{GenesisConfig, SmsGgConfig, WindowSize};
 use crate::renderer::WgpuRenderer;
 use crate::{config, genesisinput, smsgginput};
 use anyhow::{anyhow, Context};
 use bincode::{Decode, Encode};
 use genesis_core::{GenesisEmulator, GenesisInputs, GenesisTickEffect};
-use jgenesis_traits::frontend::{AudioOutput, PixelAspectRatio, SaveWriter};
+use jgenesis_traits::frontend::{AudioOutput, SaveWriter};
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
@@ -13,7 +13,6 @@ use smsgg_core::{SmsGgEmulator, SmsGgInputs, SmsGgTickEffect};
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
-use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::{fs, thread};
@@ -129,26 +128,12 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
         .event_pump()
         .map_err(|err| anyhow!("Error initializing SDL2 event pump: {err}"))?;
 
-    // TODO configurable
-    let (window_width, window_height, pixel_aspect_ratio) = if vdp_version.is_master_system() {
-        (
-            940,
-            720,
-            PixelAspectRatio::from_width_and_height(
-                NonZeroU32::new(8).unwrap(),
-                NonZeroU32::new(7).unwrap(),
-            ),
-        )
-    } else {
-        (
-            3 * 192,
-            3 * 144,
-            PixelAspectRatio::from_width_and_height(
-                NonZeroU32::new(6).unwrap(),
-                NonZeroU32::new(5).unwrap(),
-            ),
-        )
-    };
+    let WindowSize {
+        width: window_width,
+        height: window_height,
+    } = config
+        .window_size
+        .unwrap_or_else(|| config::default_smsgg_window_size(vdp_version));
     let window = video
         .window(
             &format!("smsgg - {rom_file_name}"),
@@ -156,6 +141,12 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
             window_height,
         )
         .build()?;
+
+    let pixel_aspect_ratio = if vdp_version.is_master_system() {
+        config.sms_aspect_ratio.to_pixel_aspect_ratio()
+    } else {
+        config.gg_aspect_ratio.to_pixel_aspect_ratio()
+    };
 
     let mut renderer = pollster::block_on(WgpuRenderer::new(window, config.renderer_config))?;
     let mut audio_output = SdlAudioOutput::create_and_init(&audio)?;
@@ -166,7 +157,7 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
         rom,
         initial_cartridge_ram,
         vdp_version,
-        Some(pixel_aspect_ratio),
+        pixel_aspect_ratio,
         psg_version,
         config.remove_sprite_limit,
     );

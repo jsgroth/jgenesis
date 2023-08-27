@@ -1,6 +1,8 @@
 use clap::Parser;
 use env_logger::Env;
-use jgenesis_native_driver::config::{GenesisConfig, SmsGgConfig};
+use jgenesis_native_driver::config::{
+    GenesisConfig, GgAspectRatio, SmsAspectRatio, SmsGgConfig, WindowSize,
+};
 use jgenesis_native_driver::{FilterMode, PrescaleFactor, RendererConfig, VSyncMode};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::VdpVersion;
@@ -61,6 +63,22 @@ struct Args {
     #[arg(long)]
     remove_sprite_limit: bool,
 
+    /// SMS aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
+    #[arg(long, default_value_t)]
+    sms_aspect_ratio: SmsAspectRatio,
+
+    /// GG aspect ratio (GgLcd / SquarePixels / Stretched)
+    #[arg(long, default_value_t)]
+    gg_aspect_ratio: GgAspectRatio,
+
+    /// Window width in pixels; height must also be set
+    #[arg(long)]
+    window_width: Option<u32>,
+
+    /// Window height in pixels; width must also be set
+    #[arg(long)]
+    window_height: Option<u32>,
+
     /// VSync mode (Enabled / Disabled / Fast)
     #[arg(long, default_value_t = VSyncMode::Enabled)]
     vsync_mode: VSyncMode,
@@ -75,6 +93,16 @@ struct Args {
 }
 
 impl Args {
+    fn window_size(&self) -> Option<WindowSize> {
+        match (self.window_width, self.window_height) {
+            (Some(width), Some(height)) => Some(WindowSize { width, height }),
+            (None, None) => None,
+            (Some(_), None) | (None, Some(_)) => {
+                panic!("Window width and height must either be both set or neither set")
+            }
+        }
+    }
+
     fn renderer_config(&self) -> RendererConfig {
         let prescale_factor = PrescaleFactor::try_from(self.prescale_factor)
             .expect("prescale factor must be non-zero");
@@ -118,12 +146,16 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn run_sms(args: Args) -> anyhow::Result<()> {
+    let window_size = args.window_size();
     let renderer_config = args.renderer_config();
     let config = SmsGgConfig {
         rom_file_path: args.file_path,
         vdp_version: args.vdp_version,
         psg_version: args.psg_version,
         remove_sprite_limit: args.remove_sprite_limit,
+        sms_aspect_ratio: args.sms_aspect_ratio,
+        gg_aspect_ratio: args.gg_aspect_ratio,
+        window_size,
         renderer_config,
     };
 
