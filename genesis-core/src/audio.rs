@@ -1,3 +1,4 @@
+use bincode::{Decode, Encode};
 use jgenesis_traits::frontend::AudioOutput;
 use std::collections::VecDeque;
 
@@ -34,7 +35,7 @@ const FIR_COEFFICIENTS: &[f64] = &[
     -0.002579939173264985,
 ];
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct AudioDownsampler {
     full_buffer_l: VecDeque<f64>,
     full_buffer_r: VecDeque<f64>,

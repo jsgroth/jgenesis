@@ -3,6 +3,7 @@ use crate::renderer::config::{FilterMode, PrescaleFactor, RendererConfig, VSyncM
 use crate::renderer::WgpuRenderer;
 use crate::{config, genesisinput, smsgginput};
 use anyhow::{anyhow, Context};
+use bincode::{Decode, Encode};
 use genesis_core::{GenesisEmulator, GenesisInputs, GenesisTickEffect};
 use jgenesis_traits::frontend::{AudioOutput, PixelAspectRatio, SaveWriter};
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
@@ -11,6 +12,8 @@ use sdl2::keyboard::Keycode;
 use sdl2::AudioSubsystem;
 use smsgg_core::{SmsGgEmulator, SmsGgInputs, SmsGgTickEffect};
 use std::ffi::OsStr;
+use std::fs::File;
+use std::io::{BufReader, BufWriter};
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -96,6 +99,8 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
     let rom_file_name = parse_file_name(rom_file_path)?;
     let file_ext = parse_file_ext(rom_file_path)?;
 
+    let save_state_path = rom_file_path.with_extension("ss0");
+
     let rom = fs::read(rom_file_path)
         .with_context(|| format!("Failed to read ROM file at {}", rom_file_path.display()))?;
 
@@ -175,6 +180,7 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
         {
             for event in event_pump.poll_iter() {
                 smsgginput::update_inputs(&event, &mut inputs);
+                handle_hotkeys(&event, &mut emulator, &save_state_path)?;
 
                 match event {
                     Event::Quit { .. }
@@ -200,6 +206,8 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
 pub fn run_genesis(config: GenesisConfig) -> anyhow::Result<()> {
     let rom_file_path = Path::new(&config.rom_file_path);
     let rom = fs::read(rom_file_path)?;
+
+    let save_state_path = rom_file_path.with_extension("ss0");
 
     let mut emulator = GenesisEmulator::from_rom(rom)?;
 
@@ -243,6 +251,7 @@ pub fn run_genesis(config: GenesisConfig) -> anyhow::Result<()> {
         {
             for event in event_pump.poll_iter() {
                 genesisinput::update_inputs(&event, &mut inputs);
+                handle_hotkeys(&event, &mut emulator, &save_state_path)?;
 
                 match event {
                     Event::Quit { .. }
@@ -269,4 +278,103 @@ fn parse_file_ext(path: &Path) -> anyhow::Result<&str> {
     path.extension()
         .and_then(OsStr::to_str)
         .ok_or_else(|| anyhow!("Unable to determine extension for path: {}", path.display()))
+}
+
+trait TakeRomFrom {
+    fn take_rom_from(&mut self, other: &mut Self);
+}
+
+impl TakeRomFrom for SmsGgEmulator {
+    fn take_rom_from(&mut self, other: &mut Self) {
+        self.take_rom_from(other);
+    }
+}
+
+impl TakeRomFrom for GenesisEmulator {
+    fn take_rom_from(&mut self, other: &mut Self) {
+        self.take_rom_from(other);
+    }
+}
+
+fn handle_hotkeys<Emulator, P>(
+    event: &Event,
+    emulator: &mut Emulator,
+    save_state_path: P,
+) -> anyhow::Result<()>
+where
+    Emulator: Encode + Decode + TakeRomFrom,
+    P: AsRef<Path>,
+{
+    let save_state_path = save_state_path.as_ref();
+
+    match event {
+        Event::KeyDown {
+            keycode: Some(Keycode::F5),
+            ..
+        } => {
+            save_state(emulator, save_state_path)?;
+        }
+        Event::KeyDown {
+            keycode: Some(Keycode::F6),
+            ..
+        } => {
+            let mut loaded_emulator: Emulator = match load_state(save_state_path) {
+                Ok(emulator) => emulator,
+                Err(err) => {
+                    log::error!(
+                        "Error loading save state from {}: {err}",
+                        save_state_path.display()
+                    );
+                    return Ok(());
+                }
+            };
+            loaded_emulator.take_rom_from(emulator);
+            *emulator = loaded_emulator;
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
+macro_rules! bincode_config {
+    () => {
+        bincode::config::standard()
+            .with_little_endian()
+            .with_fixed_int_encoding()
+    };
+}
+
+fn save_state<E, P>(emulator: &E, path: P) -> anyhow::Result<()>
+where
+    E: Encode,
+    P: AsRef<Path>,
+{
+    let path = path.as_ref();
+
+    let mut file = BufWriter::new(File::create(path)?);
+
+    let conf = bincode_config!();
+    bincode::encode_into_std_write(emulator, &mut file, conf)?;
+
+    log::info!("Saved state to {}", path.display());
+
+    Ok(())
+}
+
+fn load_state<D, P>(path: P) -> anyhow::Result<D>
+where
+    D: Decode,
+    P: AsRef<Path>,
+{
+    let path = path.as_ref();
+
+    let mut file = BufReader::new(File::open(path)?);
+
+    let conf = bincode_config!();
+    let emulator = bincode::decode_from_std_read(&mut file, conf)?;
+
+    log::info!("Loaded state from {}", path.display());
+
+    Ok(emulator)
 }

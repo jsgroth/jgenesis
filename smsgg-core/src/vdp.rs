@@ -1,4 +1,7 @@
-use bincode::{Decode, Encode};
+use bincode::de::{BorrowDecoder, Decoder};
+use bincode::enc::Encoder;
+use bincode::error::{DecodeError, EncodeError};
+use bincode::{BorrowDecode, Decode, Encode};
 use jgenesis_traits::num::GetBit;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -560,15 +563,15 @@ const COLOR_RAM_SIZE: usize = 64;
 
 pub const SCREEN_WIDTH: u16 = 256;
 pub const SCREEN_HEIGHT: u16 = 240;
-const FRAME_BUFFER_LEN: usize = SCREEN_WIDTH as usize * SCREEN_HEIGHT as usize;
+pub const FRAME_BUFFER_LEN: usize = SCREEN_WIDTH as usize * SCREEN_HEIGHT as usize;
 
-#[derive(Debug, Clone, Encode, Decode)]
-pub struct FrameBuffer {
+#[derive(Debug, Clone)]
+pub struct VdpBuffer {
     buffer: [u16; FRAME_BUFFER_LEN],
     viewport: ViewportSize,
 }
 
-impl FrameBuffer {
+impl VdpBuffer {
     fn new(version: VdpVersion) -> Self {
         Self {
             buffer: [0; FRAME_BUFFER_LEN],
@@ -601,9 +604,36 @@ impl FrameBuffer {
     }
 }
 
+impl Encode for VdpBuffer {
+    fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
+        self.viewport.encode(encoder)?;
+        Ok(())
+    }
+}
+
+impl Decode for VdpBuffer {
+    fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError> {
+        let viewport = ViewportSize::decode(decoder)?;
+        Ok(Self {
+            buffer: [0; FRAME_BUFFER_LEN],
+            viewport,
+        })
+    }
+}
+
+impl<'de> BorrowDecode<'de> for VdpBuffer {
+    fn borrow_decode<D: BorrowDecoder<'de>>(decoder: &mut D) -> Result<Self, DecodeError> {
+        let viewport = ViewportSize::borrow_decode(decoder)?;
+        Ok(Self {
+            buffer: [0; FRAME_BUFFER_LEN],
+            viewport,
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct FrameBufferRowIter<'a> {
-    buffer: &'a FrameBuffer,
+    buffer: &'a VdpBuffer,
     row: u16,
 }
 
@@ -625,7 +655,7 @@ impl<'a> Iterator for FrameBufferRowIter<'a> {
     }
 }
 
-impl<'a> IntoIterator for &'a FrameBuffer {
+impl<'a> IntoIterator for &'a VdpBuffer {
     type Item = &'a [u16];
     type IntoIter = FrameBufferRowIter<'a>;
 
@@ -636,7 +666,7 @@ impl<'a> IntoIterator for &'a FrameBuffer {
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Vdp {
-    frame_buffer: FrameBuffer,
+    frame_buffer: VdpBuffer,
     registers: Registers,
     vram: [u8; VRAM_SIZE],
     color_ram: [u8; COLOR_RAM_SIZE],
@@ -660,7 +690,7 @@ pub enum VdpTickEffect {
 impl Vdp {
     pub fn new(version: VdpVersion, remove_sprite_limit: bool) -> Self {
         Self {
-            frame_buffer: FrameBuffer::new(version),
+            frame_buffer: VdpBuffer::new(version),
             registers: Registers::new(version),
             vram: [0; VRAM_SIZE],
             color_ram: [0; COLOR_RAM_SIZE],
@@ -965,7 +995,7 @@ impl Vdp {
         }
     }
 
-    pub fn frame_buffer(&self) -> &FrameBuffer {
+    pub fn frame_buffer(&self) -> &VdpBuffer {
         &self.frame_buffer
     }
 

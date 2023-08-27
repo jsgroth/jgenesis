@@ -11,6 +11,7 @@ genesis-core = { path = "../genesis-core" }
 smsgg-core = { path = "../smsgg-core" }
 
 anyhow = "1"
+bincode = "2.0.0-rc.3"
 bytemuck = "1"
 log = "0.4"
 pollster = "0.3"

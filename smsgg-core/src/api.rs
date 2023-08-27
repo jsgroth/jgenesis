@@ -2,13 +2,18 @@ use crate::bus::Bus;
 use crate::input::InputState;
 use crate::memory::Memory;
 use crate::psg::{Psg, PsgTickEffect, PsgVersion};
-use crate::vdp::{FrameBuffer, Vdp, VdpTickEffect};
+use crate::vdp::{Vdp, VdpBuffer, VdpTickEffect};
 use crate::{vdp, SmsGgInputs, VdpVersion};
+use bincode::de::{BorrowDecoder, Decoder};
+use bincode::enc::Encoder;
+use bincode::error::{DecodeError, EncodeError};
+use bincode::{BorrowDecode, Decode, Encode};
 use jgenesis_traits::frontend::{
     AudioOutput, Color, FrameSize, PixelAspectRatio, Renderer, SaveWriter,
 };
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
+use std::ops::{Deref, DerefMut};
 use z80_emu::{InterruptMode, Z80};
 
 // 53_693_175 / 15 / 16 / 48000
@@ -60,6 +65,47 @@ where
 pub type SmsGgResult<RErr, AErr, SErr> = Result<SmsGgTickEffect, SmsGgError<RErr, AErr, SErr>>;
 
 #[derive(Debug, Clone)]
+struct FrameBuffer(Vec<Color>);
+
+impl FrameBuffer {
+    fn new() -> Self {
+        Self(vec![Color::default(); vdp::FRAME_BUFFER_LEN])
+    }
+}
+
+impl Deref for FrameBuffer {
+    type Target = Vec<Color>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for FrameBuffer {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Encode for FrameBuffer {
+    fn encode<E: Encoder>(&self, _encoder: &mut E) -> Result<(), EncodeError> {
+        Ok(())
+    }
+}
+
+impl Decode for FrameBuffer {
+    fn decode<D: Decoder>(_decoder: &mut D) -> Result<Self, DecodeError> {
+        Ok(Self::new())
+    }
+}
+
+impl<'de> BorrowDecode<'de> for FrameBuffer {
+    fn borrow_decode<D: BorrowDecoder<'de>>(_decoder: &mut D) -> Result<Self, DecodeError> {
+        Ok(Self::new())
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct SmsGgEmulator {
     memory: Memory,
     z80: Z80,
@@ -68,7 +114,7 @@ pub struct SmsGgEmulator {
     pixel_aspect_ratio: Option<PixelAspectRatio>,
     psg: Psg,
     input: InputState,
-    frame_buffer: Vec<Color>,
+    frame_buffer: FrameBuffer,
     leftover_vdp_cycles: u32,
     sample_count: u64,
     frame_count: u64,
@@ -102,10 +148,7 @@ impl SmsGgEmulator {
             pixel_aspect_ratio,
             psg,
             input,
-            frame_buffer: vec![
-                Color::default();
-                vdp::SCREEN_WIDTH as usize * vdp::SCREEN_HEIGHT as usize
-            ],
+            frame_buffer: FrameBuffer::new(),
             leftover_vdp_cycles: 0,
             sample_count: 0,
             frame_count: 0,
@@ -200,10 +243,14 @@ impl SmsGgEmulator {
             SmsGgTickEffect::None
         })
     }
+
+    pub fn take_rom_from(&mut self, other: &mut Self) {
+        self.memory.take_rom_from(&mut other.memory);
+    }
 }
 
 fn populate_frame_buffer(
-    vdp_buffer: &FrameBuffer,
+    vdp_buffer: &VdpBuffer,
     vdp_version: VdpVersion,
     frame_buffer: &mut [Color],
 ) {

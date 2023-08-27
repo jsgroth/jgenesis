@@ -1,8 +1,12 @@
 use crate::memory::Memory;
-use bincode::{Decode, Encode};
+use bincode::de::{BorrowDecoder, Decoder};
+use bincode::enc::Encoder;
+use bincode::error::{DecodeError, EncodeError};
+use bincode::{BorrowDecode, Decode, Encode};
 use jgenesis_traits::frontend::Color;
 use jgenesis_traits::num::GetBit;
 use std::cmp::Ordering;
+use std::ops::{Deref, DerefMut};
 use z80_emu::traits::InterruptLine;
 
 const VRAM_LEN: usize = 64 * 1024;
@@ -555,9 +559,50 @@ pub enum VdpTickEffect {
     FrameComplete,
 }
 
+#[derive(Debug, Clone)]
+struct FrameBuffer(Vec<Color>);
+
+impl FrameBuffer {
+    fn new() -> Self {
+        Self(vec![Color::default(); FRAME_BUFFER_LEN])
+    }
+}
+
+impl Deref for FrameBuffer {
+    type Target = Vec<Color>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for FrameBuffer {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Encode for FrameBuffer {
+    fn encode<E: Encoder>(&self, _encoder: &mut E) -> Result<(), EncodeError> {
+        Ok(())
+    }
+}
+
+impl Decode for FrameBuffer {
+    fn decode<D: Decoder>(_decoder: &mut D) -> Result<Self, DecodeError> {
+        Ok(Self::new())
+    }
+}
+
+impl<'de> BorrowDecode<'de> for FrameBuffer {
+    fn borrow_decode<D: BorrowDecoder<'de>>(_decoder: &mut D) -> Result<Self, DecodeError> {
+        Ok(Self::new())
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Vdp {
-    frame_buffer: Vec<Color>,
+    frame_buffer: FrameBuffer,
     vram: Vec<u8>,
     cram: [u8; CRAM_LEN],
     vsram: [u8; VSRAM_LEN],
@@ -583,7 +628,7 @@ const MAX_SPRITES_PER_FRAME: usize = 80;
 impl Vdp {
     pub fn new() -> Self {
         Self {
-            frame_buffer: vec![Color::default(); FRAME_BUFFER_LEN],
+            frame_buffer: FrameBuffer::new(),
             vram: vec![0; VRAM_LEN],
             cram: [0; CRAM_LEN],
             vsram: [0; VSRAM_LEN],

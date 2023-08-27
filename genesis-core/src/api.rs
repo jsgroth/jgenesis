@@ -4,6 +4,7 @@ use crate::input::{GenesisInputs, InputState};
 use crate::memory::{Cartridge, CartridgeLoadError, MainBus, Memory};
 use crate::vdp::{Vdp, VdpTickEffect};
 use crate::ym2612::{Ym2612, YmTickEffect};
+use bincode::{Decode, Encode};
 use jgenesis_traits::frontend::{AudioOutput, FrameSize, PixelAspectRatio, Renderer};
 use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgVersion};
@@ -55,7 +56,7 @@ pub enum GenesisTickEffect {
     FrameRendered,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct GenesisEmulator {
     memory: Memory,
     m68k: M68000,
@@ -212,5 +213,9 @@ impl GenesisEmulator {
         }
 
         Ok(GenesisTickEffect::None)
+    }
+
+    pub fn take_rom_from(&mut self, other: &mut Self) {
+        self.memory.take_rom_from(&mut other.memory);
     }
 }

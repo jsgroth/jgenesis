@@ -602,7 +602,6 @@ dependencies = [
  "anyhow",
  "clap",
  "env_logger",
- "genesis-core",
  "jgenesis-native-driver",
  "log",
  "smsgg-core",
@@ -613,6 +612,7 @@ name = "jgenesis-native-driver"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bincode",
  "bytemuck",
  "genesis-core",
  "jgenesis-traits",

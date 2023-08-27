@@ -32,6 +32,7 @@ pub struct FrameSize {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
 pub struct PixelAspectRatio(f64);
 
 impl PixelAspectRatio {

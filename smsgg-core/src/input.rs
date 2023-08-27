@@ -1,6 +1,7 @@
+use bincode::{Decode, Encode};
 use jgenesis_traits::num::GetBit;
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
 pub struct SmsGgJoypadState {
     pub up: bool,
     pub left: bool,
@@ -10,7 +11,7 @@ pub struct SmsGgJoypadState {
     pub button_2: bool,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Encode, Decode)]
 pub struct SmsGgInputs {
     pub p1: SmsGgJoypadState,
     pub p2: SmsGgJoypadState,
@@ -18,7 +19,7 @@ pub struct SmsGgInputs {
     pub reset: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum PinDirection {
     Input,
     Output(bool),
@@ -33,7 +34,7 @@ impl PinDirection {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct InputState {
     inputs: SmsGgInputs,
     port_a_tr: PinDirection,

@@ -367,8 +367,6 @@ impl Memory {
         u32::from_be_bytes([b3, b2, b1, b0])
     }
 
-    // TODO remove
-    #[allow(dead_code)]
     pub fn take_rom_from(&mut self, other: &mut Self) {
         self.cartridge.rom = mem::take(&mut other.cartridge.rom);
     }
