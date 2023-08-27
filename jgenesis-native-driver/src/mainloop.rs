@@ -5,7 +5,7 @@ use crate::{config, smsgginput};
 use anyhow::{anyhow, Context};
 use jgenesis_traits::frontend::{AudioOutput, PixelAspectRatio, SaveWriter};
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
-use sdl2::event::{Event, WindowEvent};
+use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::AudioSubsystem;
 use smsgg_core::{SmsGgEmulator, SmsGgInputs, SmsGgTickEffect};
@@ -184,10 +184,7 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
                 smsgginput::update_inputs(&event, &mut inputs);
 
                 match event {
-                    Event::Window {
-                        win_event: WindowEvent::Close,
-                        ..
-                    }
+                    Event::Quit { .. }
                     | Event::KeyDown {
                         keycode: Some(Keycode::Escape),
                         ..

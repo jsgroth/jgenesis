@@ -112,11 +112,6 @@ impl RenderingPipeline {
         });
 
         let vertices = compute_vertices(window_size, frame_size, pixel_aspect_ratio);
-        log::info!("Computed vertices:");
-        for vertex in &vertices {
-            log::info!("  {vertex:?}");
-        }
-
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: "vertex_buffer".into(),
             contents: bytemuck::cast_slice(&vertices),
