@@ -1,5 +1,5 @@
 [package]
-name = "smsgg-core"
+name = "jgenesis-native-driver"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,8 +7,11 @@ edition = "2021"
 
 [dependencies]
 jgenesis-traits = { path = "../jgenesis-traits" }
-z80-emu = { path = "../z80-emu", features = ["bincode"] }
+smsgg-core = { path = "../smsgg-core" }
 
-bincode = { version = "2.0.0-rc.3", features = ["derive"] }
-crc = "3"
+anyhow = "1"
+bytemuck = "1"
 log = "0.4"
+pollster = "0.3"
+sdl2 = { workspace = true }
+wgpu = "0.17"

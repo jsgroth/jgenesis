@@ -2,6 +2,7 @@
 members = [
     "genesis-core",
     "jgenesis-cli",
+    "jgenesis-native-driver",
     "jgenesis-traits",
     "m68000-emu",
     "m68000-test-runner",
@@ -13,6 +14,13 @@ resolver = "2"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
+
+# This is necessary because the latest published version of rust-sdl2 (0.35.2) uses raw-window-handle 0.4 which is
+# incompatible with wgpu using raw-window-handle 0.5
+[workspace.dependencies.sdl2]
+git = "https://github.com/Rust-SDL2/rust-sdl2.git"
+rev = "819ab438ac971a922d6ee1da558822002d343b4e"
+features = ["raw-window-handle"]
 
 [profile.dev]
 opt-level = 1

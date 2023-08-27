@@ -280,6 +280,8 @@ impl Memory {
         self.cartridge.ram_dirty = false;
     }
 
+    // TODO remove
+    #[allow(dead_code)]
     pub fn take_rom_from(&mut self, other: &mut Self) {
         self.cartridge.rom = mem::take(&mut other.cartridge.rom);
     }

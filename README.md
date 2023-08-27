@@ -15,3 +15,29 @@ Major TODOs:
 * Support player 2 inputs
 * Support the SMS reset button
 * Support persistent save files for Genesis games with persistent cartridge RAM
+
+## Dependencies
+
+### Rust
+
+This project requires the latest stable version of the [Rust toolchain](https://doc.rust-lang.org/book/ch01-01-installation.html) to build.
+
+### SDL2
+
+This project requires [SDL2](https://www.libsdl.org/) core headers to build.
+
+Linux (Debian-based):
+```
+sudo apt install libsdl2-dev
+```
+
+macOS:
+```
+brew install sdl2
+```
+
+### Build & Run
+
+```
+cargo run --release --bin jgenesis-cli -- -f <path_to_rom_file>
+```

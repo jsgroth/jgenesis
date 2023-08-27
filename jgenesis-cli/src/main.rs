@@ -1,8 +1,9 @@
 use clap::Parser;
 use env_logger::Env;
 use genesis_core::GenesisConfig;
+use jgenesis_native_driver::config::SmsGgConfig;
 use smsgg_core::psg::PsgVersion;
-use smsgg_core::{SmsGgConfig, VdpVersion};
+use smsgg_core::VdpVersion;
 use std::ffi::OsStr;
 use std::fmt::{Display, Formatter};
 use std::path::Path;
@@ -107,7 +108,7 @@ fn run_sms(args: Args) -> anyhow::Result<()> {
         remove_sprite_limit: args.remove_sprite_limit,
     };
 
-    smsgg_core::run(config)
+    jgenesis_native_driver::run_smsgg(config)
 }
 
 fn run_genesis(args: Args) -> anyhow::Result<()> {

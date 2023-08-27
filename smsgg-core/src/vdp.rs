@@ -558,8 +558,8 @@ fn find_sprites_on_scanline(
 const VRAM_SIZE: usize = 16 * 1024;
 const COLOR_RAM_SIZE: usize = 64;
 
-const SCREEN_WIDTH: u16 = 256;
-const SCREEN_HEIGHT: u16 = 240;
+pub const SCREEN_WIDTH: u16 = 256;
+pub const SCREEN_HEIGHT: u16 = 240;
 const FRAME_BUFFER_LEN: usize = SCREEN_WIDTH as usize * SCREEN_HEIGHT as usize;
 
 #[derive(Debug, Clone, Encode, Decode)]
