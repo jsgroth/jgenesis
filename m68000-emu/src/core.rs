@@ -187,9 +187,6 @@ pub enum OpSize {
 }
 
 impl OpSize {
-    #[cfg(test)]
-    const ALL: [Self; 3] = [Self::Byte, Self::Word, Self::LongWord];
-
     fn increment_step_for(self, register: AddressRegister) -> u32 {
         match self {
             Self::Byte => u8::increment_step_for(register),
