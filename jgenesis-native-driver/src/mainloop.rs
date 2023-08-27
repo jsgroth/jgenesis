@@ -6,9 +6,9 @@ use bincode::{Decode, Encode};
 use genesis_core::{GenesisEmulator, GenesisInputs, GenesisTickEffect};
 use jgenesis_traits::frontend::{AudioOutput, SaveWriter};
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
-use sdl2::event::Event;
+use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::Keycode;
-use sdl2::AudioSubsystem;
+use sdl2::{AudioSubsystem, EventPump, VideoSubsystem};
 use smsgg_core::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgInputs, SmsGgTickEffect};
 use std::ffi::OsStr;
 use std::fs::File;
@@ -117,16 +117,7 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
     log::info!("VDP version: {vdp_version:?}");
     log::info!("PSG version: {psg_version:?}");
 
-    let sdl = sdl2::init().map_err(|err| anyhow!("Error initializing SDL2: {err}"))?;
-    let video = sdl
-        .video()
-        .map_err(|err| anyhow!("Error initializing SDL2 video subsystem: {err}"))?;
-    let audio = sdl
-        .audio()
-        .map_err(|err| anyhow!("Error initializing SDL2 audio subsystem: {err}"))?;
-    let mut event_pump = sdl
-        .event_pump()
-        .map_err(|err| anyhow!("Error initializing SDL2 event pump: {err}"))?;
+    let (video, audio, mut event_pump) = init_sdl()?;
 
     let WindowSize {
         width: window_width,
@@ -140,6 +131,7 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
             window_width,
             window_height,
         )
+        .resizable()
         .build()?;
 
     let pixel_aspect_ratio = if vdp_version.is_master_system() {
@@ -183,6 +175,9 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
                     } => {
                         return Ok(());
                     }
+                    Event::Window { win_event, .. } => {
+                        handle_window_event(win_event, &mut renderer);
+                    }
                     _ => {}
                 }
             }
@@ -206,16 +201,7 @@ pub fn run_genesis(config: GenesisConfig) -> anyhow::Result<()> {
 
     let mut emulator = GenesisEmulator::from_rom(rom)?;
 
-    let sdl = sdl2::init().map_err(|err| anyhow!("Error initializing SDL2: {err}"))?;
-    let video = sdl
-        .video()
-        .map_err(|err| anyhow!("Error initializing SDL2 video subsystem: {err}"))?;
-    let audio = sdl
-        .audio()
-        .map_err(|err| anyhow!("Error initializing SDL2 audio subsystem: {err}"))?;
-    let mut event_pump = sdl
-        .event_pump()
-        .map_err(|err| anyhow!("Error initializing SDL2 event pump: {err}"))?;
+    let (video, audio, mut event_pump) = init_sdl()?;
 
     // TODO configurable
     let window = video
@@ -224,12 +210,11 @@ pub fn run_genesis(config: GenesisConfig) -> anyhow::Result<()> {
             878,
             672,
         )
+        .resizable()
         .build()?;
 
     let mut renderer = pollster::block_on(WgpuRenderer::new(window, config.renderer_config))?;
-
     let mut audio_output = SdlAudioOutput::create_and_init(&audio)?;
-
     let mut inputs = GenesisInputs::default();
 
     loop {
@@ -248,6 +233,9 @@ pub fn run_genesis(config: GenesisConfig) -> anyhow::Result<()> {
                     } => {
                         return Ok(());
                     }
+                    Event::Window { win_event, .. } => {
+                        handle_window_event(win_event, &mut renderer);
+                    }
                     _ => {}
                 }
             }
@@ -265,6 +253,24 @@ fn parse_file_ext(path: &Path) -> anyhow::Result<&str> {
     path.extension()
         .and_then(OsStr::to_str)
         .ok_or_else(|| anyhow!("Unable to determine extension for path: {}", path.display()))
+}
+
+// Initialize SDL2 and hide the mouse cursor
+fn init_sdl() -> anyhow::Result<(VideoSubsystem, AudioSubsystem, EventPump)> {
+    let sdl = sdl2::init().map_err(|err| anyhow!("Error initializing SDL2: {err}"))?;
+    let video = sdl
+        .video()
+        .map_err(|err| anyhow!("Error initializing SDL2 video subsystem: {err}"))?;
+    let audio = sdl
+        .audio()
+        .map_err(|err| anyhow!("Error initializing SDL2 audio subsystem: {err}"))?;
+    let event_pump = sdl
+        .event_pump()
+        .map_err(|err| anyhow!("Error initializing SDL2 event pump: {err}"))?;
+
+    sdl.mouse().show_cursor(false);
+
+    Ok((video, audio, event_pump))
 }
 
 trait TakeRomFrom {
@@ -322,6 +328,15 @@ where
     }
 
     Ok(())
+}
+
+fn handle_window_event(win_event: WindowEvent, renderer: &mut WgpuRenderer) {
+    match win_event {
+        WindowEvent::Resized(..) | WindowEvent::SizeChanged(..) | WindowEvent::Maximized => {
+            renderer.handle_resize();
+        }
+        _ => {}
+    }
 }
 
 macro_rules! bincode_config {

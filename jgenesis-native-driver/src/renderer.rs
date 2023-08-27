@@ -541,6 +541,16 @@ impl WgpuRenderer {
         })
     }
 
+    pub fn handle_resize(&mut self) {
+        let (window_width, window_height) = self.window.size();
+        self.surface_config.width = window_width;
+        self.surface_config.height = window_height;
+        self.surface.configure(&self.device, &self.surface_config);
+
+        // Force render pipeline to be recreated on the next render_frame() call
+        self.pipeline = None;
+    }
+
     fn ensure_pipeline(
         &mut self,
         frame_size: FrameSize,
