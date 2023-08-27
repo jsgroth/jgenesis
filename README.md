@@ -15,6 +15,7 @@ Major TODOs:
 * Support player 2 inputs
 * Support the SMS reset button
 * Support persistent save files for Genesis games with persistent cartridge RAM
+* Improve Genesis performance (there are some low-hanging fruit in the VDP and YM2612 implementations)
 
 ## Dependencies
 

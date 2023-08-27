@@ -1,5 +1,6 @@
 use crate::memory::Memory;
 use bincode::{Decode, Encode};
+use jgenesis_traits::frontend::Color;
 use jgenesis_traits::num::GetBit;
 use std::cmp::Ordering;
 use z80_emu::traits::InterruptLine;
@@ -556,7 +557,7 @@ pub enum VdpTickEffect {
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Vdp {
-    frame_buffer: Vec<u16>,
+    frame_buffer: Vec<Color>,
     vram: Vec<u8>,
     cram: [u8; CRAM_LEN],
     vsram: [u8; VSRAM_LEN],
@@ -582,7 +583,7 @@ const MAX_SPRITES_PER_FRAME: usize = 80;
 impl Vdp {
     pub fn new() -> Self {
         Self {
-            frame_buffer: vec![0; FRAME_BUFFER_LEN],
+            frame_buffer: vec![Color::default(); FRAME_BUFFER_LEN],
             vram: vec![0; VRAM_LEN],
             cram: [0; CRAM_LEN],
             vsram: [0; VSRAM_LEN],
@@ -1298,7 +1299,7 @@ impl Vdp {
         })
     }
 
-    pub fn frame_buffer(&self) -> &[u16] {
+    pub fn frame_buffer(&self) -> &[Color] {
         &self.frame_buffer
     }
 
@@ -1314,56 +1315,12 @@ impl Vdp {
     }
 
     fn set_in_frame_buffer(&mut self, row: u32, col: u32, value: u16) {
+        let r = gen_color_to_rgb((value >> 1) & 0x07);
+        let g = gen_color_to_rgb((value >> 5) & 0x07);
+        let b = gen_color_to_rgb((value >> 9) & 0x07);
+
         let screen_width = self.screen_width();
-        self.frame_buffer[(row * screen_width + col) as usize] = value;
-    }
-
-    pub fn render_pattern_debug(&self, buffer: &mut [u32], palette: u8) {
-        let cell_height = self.registers.interlacing_mode.cell_height();
-
-        for i in 0..2048 {
-            for row in 0..8 {
-                for col in 0..8 {
-                    let color_id = read_pattern_generator(
-                        &self.vram,
-                        PatternGeneratorArgs {
-                            vertical_flip: false,
-                            horizontal_flip: false,
-                            pattern_generator: i,
-                            row,
-                            col,
-                            cell_height,
-                        },
-                    );
-                    let color = if color_id != 0 {
-                        resolve_color(&self.cram, palette, color_id)
-                    } else {
-                        0
-                    };
-
-                    let pattern_row_idx = u32::from(i / 64);
-                    let pattern_col_idx = u32::from(i % 64);
-                    let idx = (8 * pattern_row_idx + u32::from(row)) * 64 * 8
-                        + pattern_col_idx * 8
-                        + u32::from(col);
-
-                    let r = gen_color_to_rgb((color >> 1) & 0x07);
-                    let g = gen_color_to_rgb((color >> 5) & 0x07);
-                    let b = gen_color_to_rgb((color >> 9) & 0x07);
-                    buffer[idx as usize] = (r << 16) | (g << 8) | b;
-                }
-            }
-        }
-    }
-
-    pub fn render_color_debug(&self, buffer: &mut [u32]) {
-        for i in 0..64 {
-            let color = resolve_color(&self.cram, i / 16, i % 16);
-            let r = gen_color_to_rgb((color >> 1) & 0x07);
-            let g = gen_color_to_rgb((color >> 5) & 0x07);
-            let b = gen_color_to_rgb((color >> 9) & 0x07);
-            buffer[i as usize] = (r << 16) | (g << 8) | b;
-        }
+        self.frame_buffer[(row * screen_width + col) as usize] = Color::rgb(r, g, b);
     }
 }
 
@@ -1510,6 +1467,17 @@ fn read_pattern_generator(
     }
 }
 
-pub fn gen_color_to_rgb(gen_color: u16) -> u32 {
-    [0, 36, 73, 109, 146, 182, 219, 255][gen_color as usize]
+#[inline]
+pub fn gen_color_to_rgb(gen_color: u16) -> u8 {
+    match gen_color {
+        0 => 0,
+        1 => 36,
+        2 => 73,
+        3 => 109,
+        4 => 146,
+        5 => 182,
+        6 => 219,
+        7 => 255,
+        _ => panic!("invalid Genesis color value: {gen_color}"),
+    }
 }

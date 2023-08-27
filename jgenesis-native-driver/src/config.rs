@@ -28,3 +28,8 @@ pub(crate) fn default_psg_version_for_ext(file_ext: &str) -> PsgVersion {
         _ => PsgVersion::Standard,
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct GenesisConfig {
+    pub rom_file_path: String,
+}

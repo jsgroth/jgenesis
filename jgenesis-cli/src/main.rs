@@ -1,7 +1,6 @@
 use clap::Parser;
 use env_logger::Env;
-use genesis_core::GenesisConfig;
-use jgenesis_native_driver::config::SmsGgConfig;
+use jgenesis_native_driver::config::{GenesisConfig, SmsGgConfig};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::VdpVersion;
 use std::ffi::OsStr;
@@ -119,5 +118,5 @@ fn run_genesis(args: Args) -> anyhow::Result<()> {
         rom_file_path: args.file_path,
     };
 
-    genesis_core::run(config)
+    jgenesis_native_driver::run_genesis(config)
 }

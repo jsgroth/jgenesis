@@ -8,10 +8,9 @@ use bincode::{BorrowDecode, Decode, Encode};
 use jgenesis_traits::num::GetBit;
 use regex::Regex;
 use smsgg_core::psg::Psg;
+use std::mem;
 use std::ops::Index;
-use std::path::Path;
 use std::sync::OnceLock;
-use std::{fs, io, mem};
 use thiserror::Error;
 use z80_emu::traits::InterruptLine;
 
@@ -226,11 +225,6 @@ impl Ram {
 pub enum CartridgeLoadError {
     #[error("unable to determine cartridge region from header")]
     IndeterminateRegion,
-    #[error("I/O error loading cartridge file: {source}")]
-    Io {
-        #[from]
-        source: io::Error,
-    },
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -242,11 +236,6 @@ pub struct Cartridge {
 }
 
 impl Cartridge {
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, CartridgeLoadError> {
-        let bytes = fs::read(path)?;
-        Self::from_rom(bytes)
-    }
-
     pub fn from_rom(rom_bytes: Vec<u8>) -> Result<Self, CartridgeLoadError> {
         let Some(region) = HardwareRegion::from_rom(&rom_bytes) else {
             return Err(CartridgeLoadError::IndeterminateRegion);
@@ -378,6 +367,8 @@ impl Memory {
         u32::from_be_bytes([b3, b2, b1, b0])
     }
 
+    // TODO remove
+    #[allow(dead_code)]
     pub fn take_rom_from(&mut self, other: &mut Self) {
         self.cartridge.rom = mem::take(&mut other.cartridge.rom);
     }

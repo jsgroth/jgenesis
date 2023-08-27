@@ -1,9 +1,5 @@
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{BufferSize, SampleRate, StreamConfig};
+use jgenesis_traits::frontend::AudioOutput;
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use std::{process, thread};
 
 // 53_693_175 / 7 / 6 / 24 * 3 / 48000
 // The *3 is because of zero padding the original audio signal with 2 zeros for every actual sample
@@ -38,61 +34,32 @@ const FIR_COEFFICIENTS: &[f64] = &[
     -0.002579939173264985,
 ];
 
-pub struct AudioOutput {
+#[derive(Debug, Clone)]
+pub struct AudioDownsampler {
     full_buffer_l: VecDeque<f64>,
     full_buffer_r: VecDeque<f64>,
-    audio_buffer: Vec<(f32, f32)>,
-    audio_queue: Arc<Mutex<VecDeque<f32>>>,
     sample_count: u64,
     next_sample: u64,
     next_sample_float: f64,
 }
 
-impl AudioOutput {
+impl AudioDownsampler {
     pub fn new() -> Self {
         Self {
             full_buffer_l: VecDeque::new(),
             full_buffer_r: VecDeque::new(),
-            audio_buffer: Vec::new(),
-            audio_queue: Arc::new(Mutex::new(VecDeque::new())),
             sample_count: 0,
             next_sample: DOWNSAMPLING_RATIO.round() as u64,
             next_sample_float: DOWNSAMPLING_RATIO,
         }
     }
 
-    pub fn initialize(&self) -> anyhow::Result<impl StreamTrait> {
-        let callback_queue = Arc::clone(&self.audio_queue);
-
-        let audio_host = cpal::default_host();
-        let audio_device = audio_host.default_output_device().unwrap();
-        let audio_stream = audio_device.build_output_stream(
-            &StreamConfig {
-                channels: 2,
-                sample_rate: SampleRate(48000),
-                buffer_size: BufferSize::Fixed(1024),
-            },
-            move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                let mut callback_queue = callback_queue.lock().unwrap();
-                for output in data {
-                    let Some(sample) = callback_queue.pop_front() else {
-                        break;
-                    };
-                    *output = sample;
-                }
-            },
-            move |err| {
-                log::error!("Audio error: {err}");
-                process::exit(1);
-            },
-            None,
-        )?;
-        audio_stream.play()?;
-
-        Ok(audio_stream)
-    }
-
-    fn buffer_sample(&mut self, sample_l: f64, sample_r: f64) {
+    fn buffer_sample<A: AudioOutput>(
+        &mut self,
+        sample_l: f64,
+        sample_r: f64,
+        audio_output: &mut A,
+    ) -> Result<(), A::Err> {
         self.full_buffer_l.push_back(sample_l);
         self.full_buffer_r.push_back(sample_r);
 
@@ -110,34 +77,25 @@ impl AudioOutput {
 
             let sample_l = output_sample(&self.full_buffer_l);
             let sample_r = output_sample(&self.full_buffer_r);
-
-            self.audio_buffer.push((sample_l as f32, sample_r as f32));
-            if self.audio_buffer.len() == 64 {
-                loop {
-                    {
-                        let mut audio_queue = self.audio_queue.lock().unwrap();
-                        if audio_queue.len() < 1024 {
-                            audio_queue.extend(
-                                self.audio_buffer
-                                    .drain(..)
-                                    .flat_map(|(sample_l, sample_r)| [sample_l, sample_r]),
-                            );
-                            break;
-                        }
-                    }
-
-                    thread::sleep(Duration::from_micros(250));
-                }
-            }
+            audio_output.push_sample(sample_l, sample_r)?;
         }
+
+        Ok(())
     }
 
-    pub fn collect_sample(&mut self, sample_l: f64, sample_r: f64) {
+    pub fn collect_sample<A: AudioOutput>(
+        &mut self,
+        sample_l: f64,
+        sample_r: f64,
+        audio_output: &mut A,
+    ) -> Result<(), A::Err> {
         // Zero pad each actual sample with 2 zeros because otherwise the source sample rate is
         // too close to the target sample rate for downsampling to work well
-        self.buffer_sample(sample_l, sample_r);
-        self.buffer_sample(0.0, 0.0);
-        self.buffer_sample(0.0, 0.0);
+        self.buffer_sample(sample_l, sample_r, audio_output)?;
+        self.buffer_sample(0.0, 0.0, audio_output)?;
+        self.buffer_sample(0.0, 0.0, audio_output)?;
+
+        Ok(())
     }
 }
 

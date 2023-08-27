@@ -2,7 +2,7 @@ use bincode::{Decode, Encode};
 use jgenesis_traits::num::GetBit;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
-pub struct JoypadState {
+pub struct GenesisJoypadState {
     pub up: bool,
     pub left: bool,
     pub right: bool,
@@ -11,6 +11,12 @@ pub struct JoypadState {
     pub b: bool,
     pub c: bool,
     pub start: bool,
+}
+
+#[derive(Debug, Clone, Default, Encode, Decode)]
+pub struct GenesisInputs {
+    pub p1: GenesisJoypadState,
+    pub p2: GenesisJoypadState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
@@ -75,7 +81,7 @@ impl PinDirections {
         }
     }
 
-    fn to_data_byte(self, joypad_state: JoypadState) -> u8 {
+    fn to_data_byte(self, joypad_state: GenesisJoypadState) -> u8 {
         let th = self.th.to_data_bit(true, self.last_data_write.bit(6));
 
         let tl_joypad = if th {
@@ -117,7 +123,7 @@ impl PinDirections {
 
 #[derive(Debug, Clone, Default, Encode, Decode)]
 pub struct InputState {
-    p1: JoypadState,
+    inputs: GenesisInputs,
     p1_pin_directions: PinDirections,
 }
 
@@ -126,12 +132,12 @@ impl InputState {
         Self::default()
     }
 
-    pub fn p1_mut(&mut self) -> &mut JoypadState {
-        &mut self.p1
+    pub fn set_inputs(&mut self, inputs: &GenesisInputs) {
+        self.inputs = inputs.clone();
     }
 
     pub fn read_data(&self) -> u8 {
-        self.p1_pin_directions.to_data_byte(self.p1)
+        self.p1_pin_directions.to_data_byte(self.inputs.p1)
     }
 
     pub fn write_data(&mut self, value: u8) {

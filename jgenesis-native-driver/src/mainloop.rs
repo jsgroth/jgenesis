@@ -1,8 +1,9 @@
-use crate::config::SmsGgConfig;
+use crate::config::{GenesisConfig, SmsGgConfig};
 use crate::renderer::config::{FilterMode, PrescaleFactor, RendererConfig, VSyncMode};
 use crate::renderer::WgpuRenderer;
-use crate::{config, smsgginput};
+use crate::{config, genesisinput, smsgginput};
 use anyhow::{anyhow, Context};
+use genesis_core::{GenesisEmulator, GenesisInputs, GenesisTickEffect};
 use jgenesis_traits::frontend::{AudioOutput, PixelAspectRatio, SaveWriter};
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::event::Event;
@@ -44,6 +45,7 @@ impl SdlAudioOutput {
 impl AudioOutput for SdlAudioOutput {
     type Err = anyhow::Error;
 
+    #[inline]
     fn push_sample(&mut self, sample_l: f64, sample_r: f64) -> Result<(), Self::Err> {
         self.audio_buffer.push(sample_l as f32);
         self.audio_buffer.push(sample_r as f32);
@@ -76,6 +78,7 @@ impl FsSaveWriter {
 impl SaveWriter for FsSaveWriter {
     type Err = anyhow::Error;
 
+    #[inline]
     fn persist_save(&mut self, save_bytes: &[u8]) -> Result<(), Self::Err> {
         fs::write(&self.path, save_bytes)?;
         Ok(())
@@ -90,18 +93,8 @@ impl SaveWriter for FsSaveWriter {
 #[allow(clippy::missing_panics_doc)]
 pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
     let rom_file_path = Path::new(&config.rom_file_path);
-    let Some(rom_file_name) = rom_file_path.file_name().and_then(OsStr::to_str) else {
-        return Err(anyhow!(
-            "Unable to determine file name for path: {}",
-            rom_file_path.display()
-        ));
-    };
-    let Some(file_ext) = rom_file_path.extension().and_then(OsStr::to_str) else {
-        return Err(anyhow!(
-            "Unable to determine file extension for path: {}",
-            rom_file_path.display()
-        ));
-    };
+    let rom_file_name = parse_file_name(rom_file_path)?;
+    let file_ext = parse_file_ext(rom_file_path)?;
 
     let rom = fs::read(rom_file_path)
         .with_context(|| format!("Failed to read ROM file at {}", rom_file_path.display()))?;
@@ -196,4 +189,84 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
             }
         }
     }
+}
+
+/// Run the Genesis core with the given config.
+///
+/// # Errors
+///
+/// This function will return an error upon encountering any video, audio, or I/O error.
+#[allow(clippy::missing_panics_doc)]
+pub fn run_genesis(config: GenesisConfig) -> anyhow::Result<()> {
+    let rom_file_path = Path::new(&config.rom_file_path);
+    let rom = fs::read(rom_file_path)?;
+
+    let mut emulator = GenesisEmulator::from_rom(rom)?;
+
+    let sdl = sdl2::init().map_err(|err| anyhow!("Error initializing SDL2: {err}"))?;
+    let video = sdl
+        .video()
+        .map_err(|err| anyhow!("Error initializing SDL2 video subsystem: {err}"))?;
+    let audio = sdl
+        .audio()
+        .map_err(|err| anyhow!("Error initializing SDL2 audio subsystem: {err}"))?;
+    let mut event_pump = sdl
+        .event_pump()
+        .map_err(|err| anyhow!("Error initializing SDL2 event pump: {err}"))?;
+
+    // TODO configurable
+    let window = video
+        .window(
+            &format!("genesis - {}", emulator.cartridge_title()),
+            878,
+            672,
+        )
+        .build()?;
+
+    // TODO configurable
+    let mut renderer = pollster::block_on(WgpuRenderer::new(
+        window,
+        RendererConfig {
+            vsync_mode: VSyncMode::Enabled,
+            prescale_factor: PrescaleFactor::from(NonZeroU32::new(3).unwrap()),
+            filter_mode: FilterMode::Linear,
+        },
+    ))?;
+
+    let mut audio_output = SdlAudioOutput::create_and_init(&audio)?;
+
+    let mut inputs = GenesisInputs::default();
+
+    loop {
+        if emulator.tick(&mut renderer, &mut audio_output, &inputs)?
+            == GenesisTickEffect::FrameRendered
+        {
+            for event in event_pump.poll_iter() {
+                genesisinput::update_inputs(&event, &mut inputs);
+
+                match event {
+                    Event::Quit { .. }
+                    | Event::KeyDown {
+                        keycode: Some(Keycode::Escape),
+                        ..
+                    } => {
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+fn parse_file_name(path: &Path) -> anyhow::Result<&str> {
+    path.file_name()
+        .and_then(OsStr::to_str)
+        .ok_or_else(|| anyhow!("Unable to determine file name for path: {}", path.display()))
+}
+
+fn parse_file_ext(path: &Path) -> anyhow::Result<&str> {
+    path.extension()
+        .and_then(OsStr::to_str)
+        .ok_or_else(|| anyhow!("Unable to determine extension for path: {}", path.display()))
 }

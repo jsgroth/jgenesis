@@ -2,6 +2,7 @@ use std::num::NonZeroU32;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
+#[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
 pub struct Color {
     pub r: u8,
     pub g: u8,
@@ -11,12 +12,14 @@ pub struct Color {
 
 impl Color {
     #[must_use]
+    #[inline]
     pub fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b, a: 255 }
     }
 }
 
 impl Default for Color {
+    #[inline]
     fn default() -> Self {
         Self::rgb(0, 0, 0)
     }
@@ -33,12 +36,14 @@ pub struct PixelAspectRatio(f64);
 
 impl PixelAspectRatio {
     #[must_use]
+    #[inline]
     pub fn from_width_and_height(width: NonZeroU32, height: NonZeroU32) -> Self {
         Self(f64::from(width.get()) / f64::from(height.get()))
     }
 }
 
 impl From<PixelAspectRatio> for f64 {
+    #[inline]
     fn from(value: PixelAspectRatio) -> Self {
         value.0
     }
@@ -47,6 +52,7 @@ impl From<PixelAspectRatio> for f64 {
 impl TryFrom<f64> for PixelAspectRatio {
     type Error = String;
 
+    #[inline]
     fn try_from(value: f64) -> Result<Self, Self::Error> {
         if value.is_finite() {
             Ok(Self(value))
