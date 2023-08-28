@@ -1,9 +1,15 @@
 use crate::RendererConfig;
+use genesis_core::GenesisAspectRatio;
 use jgenesis_traits::frontend::PixelAspectRatio;
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::VdpVersion;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+
+pub(crate) const DEFAULT_GENESIS_WINDOW_SIZE: WindowSize = WindowSize {
+    width: 878,
+    height: 672,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct WindowSize {
@@ -169,6 +175,8 @@ pub(crate) fn default_smsgg_window_size(vdp_version: VdpVersion) -> WindowSize {
 #[derive(Debug, Clone)]
 pub struct GenesisConfig {
     pub rom_file_path: String,
+    pub aspect_ratio: GenesisAspectRatio,
+    pub window_size: Option<WindowSize>,
     pub renderer_config: RendererConfig,
 }
 
@@ -176,6 +184,8 @@ impl Display for GenesisConfig {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         writeln!(f)?;
         writeln!(f, "  rom_file_path: {}", self.rom_file_path)?;
+        writeln!(f, "  aspect_ratio: {}", self.aspect_ratio)?;
+        writeln!(f, "  window_size: {:?}", self.window_size)?;
         write!(f, "  renderer_config: {}", self.renderer_config)
     }
 }

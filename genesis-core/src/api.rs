@@ -10,7 +10,7 @@ use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgVersion};
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
-use std::num::NonZeroU32;
+use std::str::FromStr;
 use z80_emu::Z80;
 
 const M68K_MCLK_DIVIDER: u64 = 7;
@@ -50,6 +50,51 @@ where
 
 pub type GenesisResult<RErr, AErr> = Result<GenesisTickEffect, GenesisError<RErr, AErr>>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+pub enum GenesisAspectRatio {
+    #[default]
+    Ntsc,
+    SquarePixels,
+    Stretched,
+}
+
+impl GenesisAspectRatio {
+    fn to_pixel_aspect_ratio(self, frame_size: FrameSize) -> Option<PixelAspectRatio> {
+        match (self, frame_size.width, frame_size.height) {
+            (Self::SquarePixels, _, _) => Some(PixelAspectRatio::SQUARE),
+            (Self::Stretched, _, _) => None,
+            (Self::Ntsc, 256, 224) => Some(PixelAspectRatio::try_from(8.0 / 7.0).unwrap()),
+            (Self::Ntsc, 320, 224) => Some(PixelAspectRatio::try_from(32.0 / 35.0).unwrap()),
+            (Self::Ntsc, 256, 448) => Some(PixelAspectRatio::try_from(16.0 / 7.0).unwrap()),
+            (Self::Ntsc, 320, 448) => Some(PixelAspectRatio::try_from(64.0 / 35.0).unwrap()),
+            (Self::Ntsc, _, _) => panic!("unexpected Genesis frame size: {frame_size:?}"),
+        }
+    }
+}
+
+impl Display for GenesisAspectRatio {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Ntsc => write!(f, "Ntsc"),
+            Self::SquarePixels => write!(f, "SquarePixels"),
+            Self::Stretched => write!(f, "Stretched"),
+        }
+    }
+}
+
+impl FromStr for GenesisAspectRatio {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Ntsc" => Ok(Self::Ntsc),
+            "SquarePixels" => Ok(Self::SquarePixels),
+            "Stretched" => Ok(Self::Stretched),
+            _ => Err(format!("invalid Genesis aspect ratio string: {s}")),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GenesisTickEffect {
     None,
@@ -65,6 +110,7 @@ pub struct GenesisEmulator {
     psg: Psg,
     ym2612: Ym2612,
     input: InputState,
+    aspect_ratio: GenesisAspectRatio,
     audio_downsampler: AudioDownsampler,
     master_clock_cycles: u64,
 }
@@ -75,7 +121,10 @@ impl GenesisEmulator {
     /// # Errors
     ///
     /// Returns an error if unable to parse the ROM header.
-    pub fn from_rom(rom: Vec<u8>) -> Result<Self, CartridgeLoadError> {
+    pub fn create(
+        rom: Vec<u8>,
+        aspect_ratio: GenesisAspectRatio,
+    ) -> Result<Self, CartridgeLoadError> {
         let cartridge = Cartridge::from_rom(rom)?;
         let memory = Memory::new(cartridge);
 
@@ -99,6 +148,7 @@ impl GenesisEmulator {
             psg,
             ym2612,
             input,
+            aspect_ratio,
             audio_downsampler: AudioDownsampler::new(),
             master_clock_cycles: 0,
         })
@@ -178,33 +228,10 @@ impl GenesisEmulator {
                 width: frame_width,
                 height: frame_height,
             };
-            // TODO configurable
-            let pixel_aspect_ratio = match (frame_width, frame_height) {
-                (256, 224) => PixelAspectRatio::from_width_and_height(
-                    NonZeroU32::new(8).unwrap(),
-                    NonZeroU32::new(7).unwrap(),
-                ),
-                (320, 224) => PixelAspectRatio::from_width_and_height(
-                    NonZeroU32::new(32).unwrap(),
-                    NonZeroU32::new(35).unwrap(),
-                ),
-                (256, 448) => PixelAspectRatio::from_width_and_height(
-                    NonZeroU32::new(16).unwrap(),
-                    NonZeroU32::new(7).unwrap(),
-                ),
-                (320, 448) => PixelAspectRatio::from_width_and_height(
-                    NonZeroU32::new(64).unwrap(),
-                    NonZeroU32::new(35).unwrap(),
-                ),
-                _ => panic!("Unexpected Genesis frame size: {frame_width}x{frame_height}"),
-            };
+            let pixel_aspect_ratio = self.aspect_ratio.to_pixel_aspect_ratio(frame_size);
 
             renderer
-                .render_frame(
-                    self.vdp.frame_buffer(),
-                    frame_size,
-                    Some(pixel_aspect_ratio),
-                )
+                .render_frame(self.vdp.frame_buffer(), frame_size, pixel_aspect_ratio)
                 .map_err(GenesisError::Render)?;
 
             self.input.set_inputs(inputs);

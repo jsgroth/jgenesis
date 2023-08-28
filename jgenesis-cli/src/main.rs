@@ -1,5 +1,6 @@
 use clap::Parser;
 use env_logger::Env;
+use genesis_core::GenesisAspectRatio;
 use jgenesis_native_driver::config::{
     GenesisConfig, GgAspectRatio, SmsAspectRatio, SmsGgConfig, WindowSize,
 };
@@ -70,6 +71,10 @@ struct Args {
     /// GG aspect ratio (GgLcd / SquarePixels / Stretched)
     #[arg(long, default_value_t)]
     gg_aspect_ratio: GgAspectRatio,
+
+    /// Genesis aspect ratio (Ntsc / SquarePixels / Stretched)
+    #[arg(long, default_value_t)]
+    genesis_aspect_ratio: GenesisAspectRatio,
 
     /// Crop SMS top and bottom border; almost all games display only the background color in this area
     #[arg(long, default_value_t)]
@@ -173,9 +178,12 @@ fn run_sms(args: Args) -> anyhow::Result<()> {
 }
 
 fn run_genesis(args: Args) -> anyhow::Result<()> {
+    let window_size = args.window_size();
     let renderer_config = args.renderer_config();
     let config = GenesisConfig {
         rom_file_path: args.file_path,
+        aspect_ratio: args.genesis_aspect_ratio,
+        window_size,
         renderer_config,
     };
 

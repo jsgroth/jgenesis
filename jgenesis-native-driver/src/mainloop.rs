@@ -199,16 +199,21 @@ pub fn run_genesis(config: GenesisConfig) -> anyhow::Result<()> {
 
     let save_state_path = rom_file_path.with_extension("ss0");
 
-    let mut emulator = GenesisEmulator::from_rom(rom)?;
+    let mut emulator = GenesisEmulator::create(rom, config.aspect_ratio)?;
 
     let (video, audio, mut event_pump) = init_sdl()?;
 
-    // TODO configurable
+    let WindowSize {
+        width: window_width,
+        height: window_height,
+    } = config
+        .window_size
+        .unwrap_or(config::DEFAULT_GENESIS_WINDOW_SIZE);
     let window = video
         .window(
             &format!("genesis - {}", emulator.cartridge_title()),
-            878,
-            672,
+            window_width,
+            window_height,
         )
         .resizable()
         .build()?;

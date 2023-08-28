@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+genesis-core = { path = "../genesis-core" }
 smsgg-core = { path = "../smsgg-core" }
 jgenesis-native-driver = { path = "../jgenesis-native-driver" }
 

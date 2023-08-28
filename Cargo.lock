@@ -602,6 +602,7 @@ dependencies = [
  "anyhow",
  "clap",
  "env_logger",
+ "genesis-core",
  "jgenesis-native-driver",
  "log",
  "smsgg-core",
