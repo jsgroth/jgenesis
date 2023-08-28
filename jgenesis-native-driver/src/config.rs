@@ -113,6 +113,7 @@ pub struct SmsGgConfig {
     pub gg_aspect_ratio: GgAspectRatio,
     pub sms_crop_vertical_border: bool,
     pub sms_crop_left_border: bool,
+    pub audio_sync: bool,
     pub window_size: Option<WindowSize>,
     pub renderer_config: RendererConfig,
 }
@@ -132,6 +133,7 @@ impl Display for SmsGgConfig {
             self.sms_crop_vertical_border
         )?;
         writeln!(f, "  sms_crop_left_border: {}", self.sms_crop_left_border)?;
+        writeln!(f, "  audio_sync: {}", self.audio_sync)?;
         writeln!(f, "  window_size: {:?}", self.window_size)?;
         write!(f, "  renderer_config: {}", self.renderer_config)
     }
@@ -176,6 +178,7 @@ pub(crate) fn default_smsgg_window_size(vdp_version: VdpVersion) -> WindowSize {
 pub struct GenesisConfig {
     pub rom_file_path: String,
     pub aspect_ratio: GenesisAspectRatio,
+    pub audio_sync: bool,
     pub window_size: Option<WindowSize>,
     pub renderer_config: RendererConfig,
 }
@@ -185,6 +188,7 @@ impl Display for GenesisConfig {
         writeln!(f)?;
         writeln!(f, "  rom_file_path: {}", self.rom_file_path)?;
         writeln!(f, "  aspect_ratio: {}", self.aspect_ratio)?;
+        writeln!(f, "  audio_sync: {}", self.audio_sync)?;
         writeln!(f, "  window_size: {:?}", self.window_size)?;
         write!(f, "  renderer_config: {}", self.renderer_config)
     }

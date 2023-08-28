@@ -20,10 +20,11 @@ use std::{fs, thread};
 struct SdlAudioOutput {
     audio_queue: AudioQueue<f32>,
     audio_buffer: Vec<f32>,
+    audio_sync: bool,
 }
 
 impl SdlAudioOutput {
-    fn create_and_init(audio: &AudioSubsystem) -> anyhow::Result<Self> {
+    fn create_and_init(audio: &AudioSubsystem, audio_sync: bool) -> anyhow::Result<Self> {
         let audio_queue = audio
             .open_queue(
                 None,
@@ -39,9 +40,13 @@ impl SdlAudioOutput {
         Ok(Self {
             audio_queue,
             audio_buffer: Vec::with_capacity(64),
+            audio_sync,
         })
     }
 }
+
+// 1024 4-byte samples
+const MAX_AUDIO_QUEUE_SIZE: u32 = 1024 * 4;
 
 impl AudioOutput for SdlAudioOutput {
     type Err = anyhow::Error;
@@ -52,8 +57,15 @@ impl AudioOutput for SdlAudioOutput {
         self.audio_buffer.push(sample_r as f32);
 
         if self.audio_buffer.len() == 64 {
-            while self.audio_queue.size() >= 1024 * 4 {
-                thread::sleep(Duration::from_micros(250));
+            if self.audio_sync {
+                // Wait until audio queue is not full
+                while self.audio_queue.size() >= MAX_AUDIO_QUEUE_SIZE {
+                    thread::sleep(Duration::from_micros(250));
+                }
+            } else if self.audio_queue.size() >= MAX_AUDIO_QUEUE_SIZE {
+                // Audio queue is full; drop samples
+                self.audio_buffer.clear();
+                return Ok(());
             }
 
             self.audio_queue
@@ -141,7 +153,7 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
     };
 
     let mut renderer = pollster::block_on(WgpuRenderer::new(window, config.renderer_config))?;
-    let mut audio_output = SdlAudioOutput::create_and_init(&audio)?;
+    let mut audio_output = SdlAudioOutput::create_and_init(&audio, config.audio_sync)?;
     let mut inputs = SmsGgInputs::default();
     let mut save_writer = FsSaveWriter::new(save_path);
 
@@ -219,7 +231,7 @@ pub fn run_genesis(config: GenesisConfig) -> anyhow::Result<()> {
         .build()?;
 
     let mut renderer = pollster::block_on(WgpuRenderer::new(window, config.renderer_config))?;
-    let mut audio_output = SdlAudioOutput::create_and_init(&audio)?;
+    let mut audio_output = SdlAudioOutput::create_and_init(&audio, config.audio_sync)?;
     let mut inputs = GenesisInputs::default();
 
     loop {

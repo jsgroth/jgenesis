@@ -84,6 +84,10 @@ struct Args {
     #[arg(long, default_value_t)]
     sms_crop_left_border: bool,
 
+    /// Disable audio sync
+    #[arg(long = "no-audio-sync", default_value_t = true, action = clap::ArgAction::SetFalse)]
+    audio_sync: bool,
+
     /// Window width in pixels; height must also be set
     #[arg(long)]
     window_width: Option<u32>,
@@ -170,6 +174,7 @@ fn run_sms(args: Args) -> anyhow::Result<()> {
         gg_aspect_ratio: args.gg_aspect_ratio,
         sms_crop_vertical_border: args.sms_crop_vertical_border,
         sms_crop_left_border: args.sms_crop_left_border,
+        audio_sync: args.audio_sync,
         window_size,
         renderer_config,
     };
@@ -183,6 +188,7 @@ fn run_genesis(args: Args) -> anyhow::Result<()> {
     let config = GenesisConfig {
         rom_file_path: args.file_path,
         aspect_ratio: args.genesis_aspect_ratio,
+        audio_sync: args.audio_sync,
         window_size,
         renderer_config,
     };
