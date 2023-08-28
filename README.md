@@ -3,7 +3,7 @@
 WIP multi-console Sega emulator. Currently mostly supports the Sega Master System, the Game Gear, and the Sega Genesis.
 
 Major TODOs:
-* Implement a unified frontend with GPU rendering and display configuration
+* Implement a GUI
 * Implement a few remaining Genesis VDP features (shadow/highlight bit, sprite overflow & collision flags)
 * Implement a few remaining YM2612 features (CSM and SSG-EG, they're obscure but some games did use them)
   * Volume levels also sound off in some games

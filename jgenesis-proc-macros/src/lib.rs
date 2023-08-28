@@ -186,11 +186,11 @@ pub fn config_display(input: TokenStream) -> TokenStream {
 
             if i == struct_data.fields.len() - 1 {
                 quote! {
-                    write!(f, #fmt_string, self.#field_ident)
+                    ::core::write!(f, #fmt_string, self.#field_ident)
                 }
             } else {
                 quote! {
-                    writeln!(f, #fmt_string, self.#field_ident)?;
+                    ::core::writeln!(f, #fmt_string, self.#field_ident)?;
                 }
             }
         })
@@ -200,7 +200,7 @@ pub fn config_display(input: TokenStream) -> TokenStream {
     let gen = quote! {
         impl ::std::fmt::Display for #struct_ident {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-                writeln!(f)?;
+                ::core::writeln!(f)?;
                 #(#writeln_statements)*
             }
         }
