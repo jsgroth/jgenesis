@@ -7,8 +7,9 @@ edition = "2021"
 
 [dependencies]
 genesis-core = { path = "../genesis-core" }
-smsgg-core = { path = "../smsgg-core" }
+jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
 jgenesis-native-driver = { path = "../jgenesis-native-driver" }
+smsgg-core = { path = "../smsgg-core" }
 
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }

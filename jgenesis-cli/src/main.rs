@@ -5,38 +5,16 @@ use jgenesis_native_driver::config::{
     GenesisConfig, GgAspectRatio, SmsAspectRatio, SmsGgConfig, WindowSize,
 };
 use jgenesis_native_driver::{FilterMode, PrescaleFactor, RendererConfig, VSyncMode};
+use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::VdpVersion;
 use std::ffi::OsStr;
-use std::fmt::{Display, Formatter};
 use std::path::Path;
-use std::str::FromStr;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumDisplay, EnumFromStr)]
 enum Hardware {
     MasterSystem,
     Genesis,
-}
-
-impl Display for Hardware {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::MasterSystem => write!(f, "MasterSystem"),
-            Self::Genesis => write!(f, "Genesis"),
-        }
-    }
-}
-
-impl FromStr for Hardware {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "MasterSystem" => Ok(Self::MasterSystem),
-            "Genesis" => Ok(Self::Genesis),
-            _ => Err(format!("invalid hardware string: {s}")),
-        }
-    }
 }
 
 #[derive(Parser)]

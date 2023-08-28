@@ -430,6 +430,7 @@ name = "genesis-core"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "jgenesis-proc-macros",
  "jgenesis-traits",
  "log",
  "m68000-emu",
@@ -604,6 +605,7 @@ dependencies = [
  "env_logger",
  "genesis-core",
  "jgenesis-native-driver",
+ "jgenesis-proc-macros",
  "log",
  "smsgg-core",
 ]
@@ -616,12 +618,21 @@ dependencies = [
  "bincode",
  "bytemuck",
  "genesis-core",
+ "jgenesis-proc-macros",
  "jgenesis-traits",
  "log",
  "pollster",
  "sdl2",
  "smsgg-core",
  "wgpu",
+]
+
+[[package]]
+name = "jgenesis-proc-macros"
+version = "0.1.0"
+dependencies = [
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -1097,6 +1108,7 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "crc",
+ "jgenesis-proc-macros",
  "jgenesis-traits",
  "log",
  "z80-emu",

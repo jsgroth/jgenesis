@@ -5,12 +5,12 @@ use crate::memory::{Cartridge, CartridgeLoadError, MainBus, Memory};
 use crate::vdp::{Vdp, VdpTickEffect};
 use crate::ym2612::{Ym2612, YmTickEffect};
 use bincode::{Decode, Encode};
+use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_traits::frontend::{AudioOutput, FrameSize, PixelAspectRatio, Renderer};
 use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgVersion};
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
-use std::str::FromStr;
 use z80_emu::Z80;
 
 const M68K_MCLK_DIVIDER: u64 = 7;
@@ -50,7 +50,7 @@ where
 
 pub type GenesisResult<RErr, AErr> = Result<GenesisTickEffect, GenesisError<RErr, AErr>>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
 pub enum GenesisAspectRatio {
     #[default]
     Ntsc,
@@ -68,29 +68,6 @@ impl GenesisAspectRatio {
             (Self::Ntsc, 256, 448) => Some(PixelAspectRatio::try_from(16.0 / 7.0).unwrap()),
             (Self::Ntsc, 320, 448) => Some(PixelAspectRatio::try_from(64.0 / 35.0).unwrap()),
             (Self::Ntsc, _, _) => panic!("unexpected Genesis frame size: {frame_size:?}"),
-        }
-    }
-}
-
-impl Display for GenesisAspectRatio {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Ntsc => write!(f, "Ntsc"),
-            Self::SquarePixels => write!(f, "SquarePixels"),
-            Self::Stretched => write!(f, "Stretched"),
-        }
-    }
-}
-
-impl FromStr for GenesisAspectRatio {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Ntsc" => Ok(Self::Ntsc),
-            "SquarePixels" => Ok(Self::SquarePixels),
-            "Stretched" => Ok(Self::Stretched),
-            _ => Err(format!("invalid Genesis aspect ratio string: {s}")),
         }
     }
 }

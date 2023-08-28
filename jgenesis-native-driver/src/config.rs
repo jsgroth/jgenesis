@@ -1,10 +1,9 @@
 use crate::RendererConfig;
 use genesis_core::GenesisAspectRatio;
+use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay, EnumFromStr};
 use jgenesis_traits::frontend::PixelAspectRatio;
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::VdpVersion;
-use std::fmt::{Display, Formatter};
-use std::str::FromStr;
 
 pub(crate) const DEFAULT_GENESIS_WINDOW_SIZE: WindowSize = WindowSize {
     width: 878,
@@ -17,7 +16,7 @@ pub struct WindowSize {
     pub height: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumDisplay, EnumFromStr)]
 pub enum SmsAspectRatio {
     #[default]
     Ntsc,
@@ -37,32 +36,7 @@ impl SmsAspectRatio {
     }
 }
 
-impl Display for SmsAspectRatio {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Ntsc => write!(f, "Ntsc"),
-            Self::Pal => write!(f, "Pal"),
-            Self::SquarePixels => write!(f, "SquarePixels"),
-            Self::Stretched => write!(f, "Stretched"),
-        }
-    }
-}
-
-impl FromStr for SmsAspectRatio {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Ntsc" => Ok(Self::Ntsc),
-            "Pal" => Ok(Self::Pal),
-            "SquarePixels" => Ok(Self::SquarePixels),
-            "Stretched" => Ok(Self::Stretched),
-            _ => Err(format!("invalid SMS aspect ratio string: {s}")),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumDisplay, EnumFromStr)]
 pub enum GgAspectRatio {
     #[default]
     GgLcd,
@@ -80,33 +54,12 @@ impl GgAspectRatio {
     }
 }
 
-impl Display for GgAspectRatio {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::GgLcd => write!(f, "GgLcd"),
-            Self::SquarePixels => write!(f, "SquarePixels"),
-            Self::Stretched => write!(f, "Stretched"),
-        }
-    }
-}
-
-impl FromStr for GgAspectRatio {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "GgLcd" => Ok(Self::GgLcd),
-            "SquarePixels" => Ok(Self::SquarePixels),
-            "Stretched" => Ok(Self::Stretched),
-            _ => Err(format!("invalid GG aspect ratio string: {s}")),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, ConfigDisplay)]
 pub struct SmsGgConfig {
     pub rom_file_path: String,
+    #[debug_fmt]
     pub vdp_version: Option<VdpVersion>,
+    #[debug_fmt]
     pub psg_version: Option<PsgVersion>,
     pub remove_sprite_limit: bool,
     pub sms_aspect_ratio: SmsAspectRatio,
@@ -114,29 +67,9 @@ pub struct SmsGgConfig {
     pub sms_crop_vertical_border: bool,
     pub sms_crop_left_border: bool,
     pub audio_sync: bool,
+    #[debug_fmt]
     pub window_size: Option<WindowSize>,
     pub renderer_config: RendererConfig,
-}
-
-impl Display for SmsGgConfig {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        writeln!(f)?;
-        writeln!(f, "  rom_file_path: {}", self.rom_file_path)?;
-        writeln!(f, "  vdp_version: {:?}", self.vdp_version)?;
-        writeln!(f, "  psg_version: {:?}", self.psg_version)?;
-        writeln!(f, "  remove_sprite_limit: {}", self.remove_sprite_limit)?;
-        writeln!(f, "  sms_aspect_ratio: {}", self.sms_aspect_ratio)?;
-        writeln!(f, "  gg_aspect_ratio: {}", self.gg_aspect_ratio)?;
-        writeln!(
-            f,
-            "  sms_crop_vertical_border: {}",
-            self.sms_crop_vertical_border
-        )?;
-        writeln!(f, "  sms_crop_left_border: {}", self.sms_crop_left_border)?;
-        writeln!(f, "  audio_sync: {}", self.audio_sync)?;
-        writeln!(f, "  window_size: {:?}", self.window_size)?;
-        write!(f, "  renderer_config: {}", self.renderer_config)
-    }
 }
 
 pub(crate) fn default_vdp_version_for_ext(file_ext: &str) -> VdpVersion {
@@ -174,22 +107,12 @@ pub(crate) fn default_smsgg_window_size(vdp_version: VdpVersion) -> WindowSize {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, ConfigDisplay)]
 pub struct GenesisConfig {
     pub rom_file_path: String,
     pub aspect_ratio: GenesisAspectRatio,
     pub audio_sync: bool,
+    #[debug_fmt]
     pub window_size: Option<WindowSize>,
     pub renderer_config: RendererConfig,
-}
-
-impl Display for GenesisConfig {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        writeln!(f)?;
-        writeln!(f, "  rom_file_path: {}", self.rom_file_path)?;
-        writeln!(f, "  aspect_ratio: {}", self.aspect_ratio)?;
-        writeln!(f, "  audio_sync: {}", self.audio_sync)?;
-        writeln!(f, "  window_size: {:?}", self.window_size)?;
-        write!(f, "  renderer_config: {}", self.renderer_config)
-    }
 }

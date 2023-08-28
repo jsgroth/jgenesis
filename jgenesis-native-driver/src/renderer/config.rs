@@ -1,11 +1,8 @@
-// TODO remove
-#![allow(dead_code)]
-
+use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroU32;
-use std::str::FromStr;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumDisplay, EnumFromStr)]
 pub enum VSyncMode {
     Enabled,
     Disabled,
@@ -18,29 +15,6 @@ impl VSyncMode {
             Self::Enabled => wgpu::PresentMode::Fifo,
             Self::Disabled => wgpu::PresentMode::Immediate,
             Self::Fast => wgpu::PresentMode::Mailbox,
-        }
-    }
-}
-
-impl Display for VSyncMode {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Enabled => write!(f, "Enabled"),
-            Self::Disabled => write!(f, "Disabled"),
-            Self::Fast => write!(f, "Fast"),
-        }
-    }
-}
-
-impl FromStr for VSyncMode {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Enabled" => Ok(Self::Enabled),
-            "Disabled" => Ok(Self::Disabled),
-            "Fast" => Ok(Self::Fast),
-            _ => Err(format!("invalid VSync mode string: {s}")),
         }
     }
 }
@@ -92,7 +66,7 @@ impl Display for PrescaleFactor {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumDisplay, EnumFromStr)]
 pub enum FilterMode {
     Nearest,
     #[default]
@@ -104,27 +78,6 @@ impl FilterMode {
         match self {
             Self::Nearest => wgpu::FilterMode::Nearest,
             Self::Linear => wgpu::FilterMode::Linear,
-        }
-    }
-}
-
-impl Display for FilterMode {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Nearest => write!(f, "Nearest"),
-            Self::Linear => write!(f, "Linear"),
-        }
-    }
-}
-
-impl FromStr for FilterMode {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Nearest" => Ok(Self::Nearest),
-            "Linear" => Ok(Self::Linear),
-            _ => Err(format!("Invalid filter mod string: {s}")),
         }
     }
 }

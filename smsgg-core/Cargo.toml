@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
 jgenesis-traits = { path = "../jgenesis-traits", features = ["bincode"] }
 z80-emu = { path = "../z80-emu", features = ["bincode"] }
 

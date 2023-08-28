@@ -2,9 +2,8 @@ use bincode::de::{BorrowDecoder, Decoder};
 use bincode::enc::Encoder;
 use bincode::error::{DecodeError, EncodeError};
 use bincode::{BorrowDecode, Decode, Encode};
+use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_traits::num::GetBit;
-use std::fmt::{Display, Formatter};
-use std::str::FromStr;
 use z80_emu::traits::InterruptLine;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -58,7 +57,7 @@ impl ViewportSize {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
 pub enum VdpVersion {
     #[default]
     NtscMasterSystem2,
@@ -85,29 +84,6 @@ impl VdpVersion {
             Self::NtscMasterSystem2 => ViewportSize::NTSC_SMS2,
             Self::PalMasterSystem2 => ViewportSize::PAL_SMS2,
             Self::GameGear => ViewportSize::GAME_GEAR,
-        }
-    }
-}
-
-impl Display for VdpVersion {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NtscMasterSystem2 => write!(f, "NtscMasterSystem2"),
-            Self::PalMasterSystem2 => write!(f, "PalMasterSystem2"),
-            Self::GameGear => write!(f, "GameGear"),
-        }
-    }
-}
-
-impl FromStr for VdpVersion {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "NtscMasterSystem2" => Ok(Self::NtscMasterSystem2),
-            "PalMasterSystem2" => Ok(Self::PalMasterSystem2),
-            "GameGear" => Ok(Self::GameGear),
-            _ => Err(format!("invalid VDP version string: {s}")),
         }
     }
 }
