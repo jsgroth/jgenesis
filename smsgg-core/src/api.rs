@@ -4,10 +4,8 @@ use crate::memory::Memory;
 use crate::psg::{Psg, PsgTickEffect, PsgVersion};
 use crate::vdp::{Vdp, VdpBuffer, VdpTickEffect};
 use crate::{vdp, SmsGgInputs, VdpVersion};
-use bincode::de::{BorrowDecoder, Decoder};
-use bincode::enc::Encoder;
-use bincode::error::{DecodeError, EncodeError};
-use bincode::{BorrowDecode, Decode, Encode};
+use bincode::{Decode, Encode};
+use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use jgenesis_traits::frontend::{
     AudioOutput, Color, FrameSize, PixelAspectRatio, Renderer, SaveWriter,
 };
@@ -64,12 +62,18 @@ where
 
 pub type SmsGgResult<RErr, AErr, SErr> = Result<SmsGgTickEffect, SmsGgError<RErr, AErr, SErr>>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, FakeEncode, FakeDecode)]
 struct FrameBuffer(Vec<Color>);
 
 impl FrameBuffer {
     fn new() -> Self {
         Self(vec![Color::default(); vdp::FRAME_BUFFER_LEN])
+    }
+}
+
+impl Default for FrameBuffer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -84,24 +88,6 @@ impl Deref for FrameBuffer {
 impl DerefMut for FrameBuffer {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
-    }
-}
-
-impl Encode for FrameBuffer {
-    fn encode<E: Encoder>(&self, _encoder: &mut E) -> Result<(), EncodeError> {
-        Ok(())
-    }
-}
-
-impl Decode for FrameBuffer {
-    fn decode<D: Decoder>(_decoder: &mut D) -> Result<Self, DecodeError> {
-        Ok(Self::new())
-    }
-}
-
-impl<'de> BorrowDecode<'de> for FrameBuffer {
-    fn borrow_decode<D: BorrowDecoder<'de>>(_decoder: &mut D) -> Result<Self, DecodeError> {
-        Ok(Self::new())
     }
 }
 

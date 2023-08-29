@@ -1,10 +1,8 @@
 use crate::input::InputState;
 use crate::vdp::Vdp;
 use crate::ym2612::Ym2612;
-use bincode::de::{BorrowDecoder, Decoder};
-use bincode::enc::Encoder;
-use bincode::error::{DecodeError, EncodeError};
-use bincode::{BorrowDecode, Decode, Encode};
+use bincode::{Decode, Encode};
+use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use jgenesis_traits::num::GetBit;
 use regex::Regex;
 use smsgg_core::psg::Psg;
@@ -14,7 +12,7 @@ use std::sync::OnceLock;
 use thiserror::Error;
 use z80_emu::traits::InterruptLine;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, FakeEncode, FakeDecode)]
 struct Rom(Vec<u8>);
 
 impl Rom {
@@ -36,24 +34,6 @@ impl Index<u32> for Rom {
 
     fn index(&self, index: u32) -> &Self::Output {
         &self.0[index as usize]
-    }
-}
-
-impl Encode for Rom {
-    fn encode<E: Encoder>(&self, _encoder: &mut E) -> Result<(), EncodeError> {
-        Ok(())
-    }
-}
-
-impl Decode for Rom {
-    fn decode<D: Decoder>(_decoder: &mut D) -> Result<Self, DecodeError> {
-        Ok(Self(vec![]))
-    }
-}
-
-impl<'de> BorrowDecode<'de> for Rom {
-    fn borrow_decode<D: BorrowDecoder<'de>>(_decoder: &mut D) -> Result<Self, DecodeError> {
-        Ok(Self(vec![]))
     }
 }
 

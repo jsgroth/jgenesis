@@ -1,10 +1,8 @@
 mod metadata;
 
-use bincode::de::{BorrowDecoder, Decoder};
-use bincode::enc::Encoder;
-use bincode::error::{DecodeError, EncodeError};
-use bincode::{BorrowDecode, Decode, Encode};
+use bincode::{Decode, Encode};
 use crc::Crc;
+use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use jgenesis_traits::num::GetBit;
 use std::mem;
 use std::ops::{Index, RangeInclusive};
@@ -50,7 +48,7 @@ impl Mapper {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, FakeEncode, FakeDecode)]
 struct Rom(Vec<u8>);
 
 impl Rom {
@@ -64,24 +62,6 @@ impl Index<usize> for Rom {
 
     fn index(&self, index: usize) -> &Self::Output {
         &self.0[index]
-    }
-}
-
-impl Encode for Rom {
-    fn encode<E: Encoder>(&self, _encoder: &mut E) -> Result<(), EncodeError> {
-        Ok(())
-    }
-}
-
-impl Decode for Rom {
-    fn decode<D: Decoder>(_decoder: &mut D) -> Result<Self, DecodeError> {
-        Ok(Self(vec![]))
-    }
-}
-
-impl<'de> BorrowDecode<'de> for Rom {
-    fn borrow_decode<D: BorrowDecoder<'de>>(_decoder: &mut D) -> Result<Self, DecodeError> {
-        Ok(Self(vec![]))
     }
 }
 

@@ -28,7 +28,7 @@ pub fn enum_display(input: TokenStream) -> TokenStream {
 
             let variant_name_str = variant_name.to_string();
             quote! {
-                Self::#variant_name => write!(f, #variant_name_str)
+                Self::#variant_name => ::std::write!(f, #variant_name_str)
             }
         })
         .collect();
@@ -73,7 +73,7 @@ pub fn enum_from_str(input: TokenStream) -> TokenStream {
 
             let variant_name_lowercase = variant_name.to_string().to_ascii_lowercase();
             quote! {
-                #variant_name_lowercase => Ok(Self::#variant_name)
+                #variant_name_lowercase => ::std::result::Result::Ok(Self::#variant_name)
             }
         })
         .collect();
@@ -86,7 +86,7 @@ pub fn enum_from_str(input: TokenStream) -> TokenStream {
             fn from_str(s: &str) -> ::std::result::Result<Self, Self::Err> {
                 match s.to_ascii_lowercase().as_str() {
                     #(#match_arms,)*
-                    _ => Err(format!(#err_fmt_string, s))
+                    _ => ::std::result::Result::Err(::std::format!(#err_fmt_string, s))
                 }
             }
         }
@@ -186,11 +186,11 @@ pub fn config_display(input: TokenStream) -> TokenStream {
 
             if i == struct_data.fields.len() - 1 {
                 quote! {
-                    ::core::write!(f, #fmt_string, self.#field_ident)
+                    ::std::write!(f, #fmt_string, self.#field_ident)
                 }
             } else {
                 quote! {
-                    ::core::writeln!(f, #fmt_string, self.#field_ident)?;
+                    ::std::writeln!(f, #fmt_string, self.#field_ident)?;
                 }
             }
         })
@@ -200,8 +200,68 @@ pub fn config_display(input: TokenStream) -> TokenStream {
     let gen = quote! {
         impl ::std::fmt::Display for #struct_ident {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-                ::core::writeln!(f)?;
+                ::std::writeln!(f)?;
                 #(#writeln_statements)*
+            }
+        }
+    };
+
+    gen.into()
+}
+
+/// Implements the `bincode::Encode` trait fpr the given type, with a fake implementation that
+/// does not encode anything and always returns `Ok(())`.
+///
+/// # Panics
+///
+/// This macro will panic only if it is unable to parse its input.
+#[proc_macro_derive(FakeEncode)]
+pub fn fake_encode(input: TokenStream) -> TokenStream {
+    let input: DeriveInput = syn::parse(input).expect("Unable to parse input");
+
+    let type_ident = &input.ident;
+    let gen = quote! {
+        impl ::bincode::Encode for #type_ident {
+            fn encode<E: ::bincode::enc::Encoder>(
+                &self,
+                _encoder: &mut E
+            ) -> ::std::result::Result<(), ::bincode::error::EncodeError> {
+                ::std::result::Result::Ok(())
+            }
+        }
+    };
+
+    gen.into()
+}
+
+/// Implements the `bincode::Decode` and `bincode::BorrowDecode` traits for the given type,
+/// with fake implementations that do not decode anything and always return `Ok(Self::default())`.
+///
+/// The type must have a `default()` associated function, preferably through implementing the
+/// `Default` trait.
+///
+/// # Panics
+///
+/// This macro will panic only if it is unable to parse its input.
+#[proc_macro_derive(FakeDecode)]
+pub fn fake_decode(input: TokenStream) -> TokenStream {
+    let input: DeriveInput = syn::parse(input).expect("Unable to parse input");
+
+    let type_ident = &input.ident;
+    let gen = quote! {
+        impl ::bincode::Decode for #type_ident {
+            fn decode<D: ::bincode::de::Decoder>(
+                _decoder: &mut D
+            ) -> ::std::result::Result<Self, ::bincode::error::DecodeError> {
+                ::std::result::Result::Ok(Self::default())
+            }
+        }
+
+        impl<'de> ::bincode::BorrowDecode<'de> for #type_ident {
+            fn borrow_decode<D: ::bincode::de::BorrowDecoder<'de>>(
+                _decoder: &mut D
+            ) -> ::std::result::Result<Self, ::bincode::error::DecodeError> {
+                ::std::result::Result::Ok(Self::default())
             }
         }
     };
