@@ -4,7 +4,7 @@ WIP multi-console Sega emulator. Currently mostly supports the Sega Master Syste
 
 Major TODOs:
 * Implement a GUI
-* Implement a few remaining Genesis VDP features (shadow/highlight bit, sprite overflow & collision flags)
+* Implement a few remaining Genesis VDP features (e.g. sprite overflow & collision flags)
 * Implement a few remaining YM2612 features (CSM and SSG-EG, they're obscure but some games did use them)
   * Volume levels also sound off in some games
 * Halt the 68000 for the appropriate amount of time whenever a memory-to-VRAM DMA runs; not doing this causes graphical glitches in some games

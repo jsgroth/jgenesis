@@ -4,7 +4,7 @@ use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use jgenesis_traits::frontend::Color;
 use jgenesis_traits::num::GetBit;
 use std::cmp::Ordering;
-use std::ops::{Deref, DerefMut};
+use std::ops::{Add, AddAssign, Deref, DerefMut};
 use z80_emu::traits::InterruptLine;
 
 const VRAM_LEN: usize = 64 * 1024;
@@ -291,8 +291,8 @@ struct Registers {
     horizontal_scroll_mode: HorizontalScrollMode,
     // Register #12
     horizontal_display_size: HorizontalDisplaySize,
+    shadow_highlight_flag: bool,
     interlacing_mode: InterlacingMode,
-    // TODO shadows/highlights
     // Register #13
     h_scroll_table_base_addr: u16,
     // Register #15
@@ -331,6 +331,7 @@ impl Registers {
             vertical_scroll_mode: VerticalScrollMode::FullScreen,
             horizontal_scroll_mode: HorizontalScrollMode::FullScreen,
             horizontal_display_size: HorizontalDisplaySize::ThirtyTwoCell,
+            shadow_highlight_flag: false,
             interlacing_mode: InterlacingMode::Progressive,
             h_scroll_table_base_addr: 0,
             data_port_auto_increment: 0,
@@ -415,7 +416,7 @@ impl Registers {
                 } else {
                     HorizontalDisplaySize::ThirtyTwoCell
                 };
-                // TODO shadows/highlights
+                self.shadow_highlight_flag = value.bit(3);
                 self.interlacing_mode = match value & 0x03 {
                     0x00 | 0x02 => InterlacingMode::Progressive,
                     0x01 => InterlacingMode::Interlaced,
@@ -548,6 +549,38 @@ impl SpriteData {
             priority,
             link_data,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ColorModifier {
+    None,
+    Shadow,
+    Highlight,
+}
+
+impl Add for ColorModifier {
+    type Output = Self;
+
+    #[allow(clippy::unnested_or_patterns)]
+    fn add(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Self::None, Self::None)
+            | (Self::Shadow, Self::Highlight)
+            | (Self::Highlight, Self::Shadow) => Self::None,
+            (Self::None, Self::Shadow)
+            | (Self::Shadow, Self::None)
+            | (Self::Shadow, Self::Shadow) => Self::Shadow,
+            (Self::None, Self::Highlight)
+            | (Self::Highlight, Self::None)
+            | (Self::Highlight, Self::Highlight) => Self::Highlight,
+        }
+    }
+}
+
+impl AddAssign for ColorModifier {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = *self + rhs;
     }
 }
 
@@ -1071,7 +1104,7 @@ impl Vdp {
         );
 
         for pixel in 0..screen_width {
-            self.set_in_frame_buffer(scanline, pixel, bg_color);
+            self.set_in_frame_buffer(scanline, pixel, bg_color, ColorModifier::None);
         }
     }
 
@@ -1252,31 +1285,35 @@ impl Vdp {
                 (sprite.priority, sprite.palette, color_id)
             });
 
-        let scroll_a_color = resolve_color(&self.cram, scroll_a_nt_word.palette, scroll_a_color_id);
-        let scroll_b_color = resolve_color(&self.cram, scroll_b_nt_word.palette, scroll_b_color_id);
-        let window_color = resolve_color(&self.cram, window_palette, window_color_id);
-        let sprite_color = resolve_color(&self.cram, sprite_palette, sprite_color_id);
-
-        let color = if sprite_priority && sprite_color_id != 0 {
-            sprite_color
-        } else if window_priority && window_color_id != 0 {
-            window_color
-        } else if !in_window && scroll_a_nt_word.priority && scroll_a_color_id != 0 {
-            scroll_a_color
-        } else if scroll_b_nt_word.priority && scroll_b_color_id != 0 {
-            scroll_b_color
-        } else if sprite_color_id != 0 {
-            sprite_color
-        } else if window_color_id != 0 {
-            window_color
-        } else if !in_window && scroll_a_color_id != 0 {
-            scroll_a_color
-        } else if scroll_b_color_id != 0 {
-            scroll_b_color
+        let (scroll_a_priority, scroll_a_palette, scroll_a_color_id) = if in_window {
+            // Window replaces scroll A if this pixel is inside the window
+            (window_priority, window_palette, window_color_id)
         } else {
-            bg_color
+            (
+                scroll_a_nt_word.priority,
+                scroll_a_nt_word.palette,
+                scroll_a_color_id,
+            )
         };
-        self.set_in_frame_buffer(scanline.into(), pixel.into(), color);
+
+        let (pixel_color, color_modifier) = determine_pixel_color(
+            &self.cram,
+            PixelColorArgs {
+                sprite_priority,
+                sprite_palette,
+                sprite_color_id,
+                scroll_a_priority,
+                scroll_a_palette,
+                scroll_a_color_id,
+                scroll_b_priority: scroll_b_nt_word.priority,
+                scroll_b_palette: scroll_b_nt_word.palette,
+                scroll_b_color_id,
+                bg_color,
+                shadow_highlight_flag: self.registers.shadow_highlight_flag,
+            },
+        );
+
+        self.set_in_frame_buffer(scanline.into(), pixel.into(), pixel_color, color_modifier);
     }
 
     fn find_first_overlapping_sprite(
@@ -1345,14 +1382,122 @@ impl Vdp {
         }
     }
 
-    fn set_in_frame_buffer(&mut self, row: u32, col: u32, value: u16) {
-        let r = gen_color_to_rgb((value >> 1) & 0x07);
-        let g = gen_color_to_rgb((value >> 5) & 0x07);
-        let b = gen_color_to_rgb((value >> 9) & 0x07);
+    fn set_in_frame_buffer(&mut self, row: u32, col: u32, value: u16, modifier: ColorModifier) {
+        let r = gen_color_to_rgb((value >> 1) & 0x07, modifier);
+        let g = gen_color_to_rgb((value >> 5) & 0x07, modifier);
+        let b = gen_color_to_rgb((value >> 9) & 0x07, modifier);
 
         let screen_width = self.screen_width();
         self.frame_buffer[(row * screen_width + col) as usize] = Color::rgb(r, g, b);
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct UnresolvedColor {
+    palette: u8,
+    color_id: u8,
+    is_sprite: bool,
+}
+
+struct PixelColorArgs {
+    sprite_priority: bool,
+    sprite_palette: u8,
+    sprite_color_id: u8,
+    scroll_a_priority: bool,
+    scroll_a_palette: u8,
+    scroll_a_color_id: u8,
+    scroll_b_priority: bool,
+    scroll_b_palette: u8,
+    scroll_b_color_id: u8,
+    bg_color: u16,
+    shadow_highlight_flag: bool,
+}
+
+#[inline]
+#[allow(clippy::unnested_or_patterns)]
+fn determine_pixel_color(
+    cram: &[u8],
+    PixelColorArgs {
+        sprite_priority,
+        sprite_palette,
+        sprite_color_id,
+        scroll_a_priority,
+        scroll_a_palette,
+        scroll_a_color_id,
+        scroll_b_priority,
+        scroll_b_palette,
+        scroll_b_color_id,
+        bg_color,
+        shadow_highlight_flag,
+    }: PixelColorArgs,
+) -> (u16, ColorModifier) {
+    let mut modifier =
+        if shadow_highlight_flag && !sprite_priority && !scroll_a_priority && !scroll_b_priority {
+            // If shadow/highlight bit is set and all priority flags are 0, default modifier to shadow
+            ColorModifier::Shadow
+        } else {
+            ColorModifier::None
+        };
+
+    let sprite = UnresolvedColor {
+        palette: sprite_palette,
+        color_id: sprite_color_id,
+        is_sprite: true,
+    };
+    let scroll_a = UnresolvedColor {
+        palette: scroll_a_palette,
+        color_id: scroll_a_color_id,
+        is_sprite: false,
+    };
+    let scroll_b = UnresolvedColor {
+        palette: scroll_b_palette,
+        color_id: scroll_b_color_id,
+        is_sprite: false,
+    };
+    let colors = match (sprite_priority, scroll_a_priority, scroll_b_priority) {
+        (false, false, false) | (true, false, false) | (true, true, false) | (true, true, true) => {
+            [sprite, scroll_a, scroll_b]
+        }
+        (false, true, false) => [scroll_a, sprite, scroll_b],
+        (false, false, true) => [scroll_b, sprite, scroll_a],
+        (true, false, true) => [sprite, scroll_b, scroll_a],
+        (false, true, true) => [scroll_a, scroll_b, sprite],
+    };
+
+    for UnresolvedColor {
+        palette,
+        color_id,
+        is_sprite,
+    } in colors
+    {
+        if color_id == 0 {
+            // Pixel is transparent
+            continue;
+        }
+
+        if shadow_highlight_flag && is_sprite && palette == 3 {
+            if color_id == 14 {
+                // Palette 3 + color 14 = highlight; sprite is transparent, underlying pixel is highlighted
+                modifier += ColorModifier::Highlight;
+                continue;
+            } else if color_id == 15 {
+                // Palette 3 + color 15 = shadow; sprite is transparent, underlying pixel is shadowed
+                modifier += ColorModifier::Shadow;
+                continue;
+            }
+        }
+
+        let color = resolve_color(cram, palette, color_id);
+        // Sprite color id 14 is never shadowed/highlighted
+        let modifier = if is_sprite && color_id == 14 {
+            ColorModifier::None
+        } else {
+            modifier
+        };
+        return (color, modifier);
+    }
+
+    (bg_color, modifier)
 }
 
 fn resolve_color(cram: &[u8], palette: u8, color_id: u8) -> u16 {
@@ -1499,16 +1644,40 @@ fn read_pattern_generator(
 }
 
 #[inline]
-pub fn gen_color_to_rgb(gen_color: u16) -> u8 {
-    match gen_color {
-        0 => 0,
-        1 => 36,
-        2 => 73,
-        3 => 109,
-        4 => 146,
-        5 => 182,
-        6 => 219,
-        7 => 255,
-        _ => panic!("invalid Genesis color value: {gen_color}"),
+fn gen_color_to_rgb(gen_color: u16, modifier: ColorModifier) -> u8 {
+    match modifier {
+        ColorModifier::None => match gen_color {
+            0 => 0,
+            1 => 36,
+            2 => 73,
+            3 => 109,
+            4 => 146,
+            5 => 182,
+            6 => 219,
+            7 => 255,
+            _ => panic!("invalid Genesis color value: {gen_color}"),
+        },
+        ColorModifier::Shadow => match gen_color {
+            0 => 0,
+            1 => 18,
+            2 => 36,
+            3 => 55,
+            4 => 73,
+            5 => 91,
+            6 => 109,
+            7 => 128,
+            _ => panic!("invalid Genesis color value: {gen_color}"),
+        },
+        ColorModifier::Highlight => match gen_color {
+            0 => 128,
+            1 => 146,
+            2 => 164,
+            3 => 182,
+            4 => 200,
+            5 => 219,
+            6 => 237,
+            7 => 255,
+            _ => panic!("invalid Genesis color value: {gen_color}"),
+        },
     }
 }
