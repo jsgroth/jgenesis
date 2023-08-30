@@ -12,7 +12,9 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     fn resolve_to_memory_address(&mut self, source: AddressingMode) -> ExecuteResult<u32> {
         let resolved = self.resolve_address(source, OpSize::LongWord)?;
         let ResolvedAddress::Memory(address) = resolved else {
-            panic!("effective address operations should only accept addressing modes that resolve to an effective address");
+            panic!(
+                "effective address operations should only accept addressing modes that resolve to an effective address"
+            );
         };
 
         Ok(address)
@@ -110,11 +112,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     }
 
     pub(super) fn trapv(&self) -> ExecuteResult<u32> {
-        if self.registers.ccr.overflow {
-            Err(Exception::Trap(OVERFLOW_VECTOR))
-        } else {
-            Ok(4)
-        }
+        if self.registers.ccr.overflow { Err(Exception::Trap(OVERFLOW_VECTOR)) } else { Ok(4) }
     }
 
     pub(super) fn chk(
@@ -126,25 +124,17 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         let value = register.read_from(self.registers) as i16;
 
-        self.registers.ccr = ConditionCodes {
-            carry: false,
-            overflow: false,
-            zero: false,
-            ..self.registers.ccr
-        };
+        self.registers.ccr =
+            ConditionCodes { carry: false, overflow: false, zero: false, ..self.registers.ccr };
 
         let address_cycles = source.address_calculation_cycles(OpSize::Word);
 
         if value > upper_bound {
             self.registers.ccr.negative = value < 0;
-            Err(Exception::CheckRegister {
-                cycles: address_cycles + 8,
-            })
+            Err(Exception::CheckRegister { cycles: address_cycles + 8 })
         } else if value < 0 {
             self.registers.ccr.negative = true;
-            Err(Exception::CheckRegister {
-                cycles: address_cycles + 10,
-            })
+            Err(Exception::CheckRegister { cycles: address_cycles + 10 })
         } else {
             Ok(address_cycles + 10)
         }

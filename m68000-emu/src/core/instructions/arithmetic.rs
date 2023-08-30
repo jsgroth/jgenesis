@@ -141,11 +141,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let sum = operand_l.wrapping_add(operand_r);
         dest.write_long_word_to(self.registers, sum);
 
-        Ok(super::binary_op_cycles(
-            size,
-            source,
-            AddressingMode::AddressDirect(dest),
-        ))
+        Ok(super::binary_op_cycles(size, source, AddressingMode::AddressDirect(dest)))
     }
 
     impl_extend_op_method!(addx, add_bytes, add_words, add_long_words);
@@ -163,11 +159,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let difference = operand_l.wrapping_sub(operand_r);
         dest.write_long_word_to(self.registers, difference);
 
-        Ok(super::binary_op_cycles(
-            size,
-            source,
-            AddressingMode::AddressDirect(dest),
-        ))
+        Ok(super::binary_op_cycles(size, source, AddressingMode::AddressDirect(dest)))
     }
 
     impl_extend_op_method!(subx, sub_bytes, sub_words, sub_long_words);
@@ -368,9 +360,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             ..self.registers.ccr
         };
 
-        Exception::DivisionByZero {
-            cycles: source.address_calculation_cycles(OpSize::Word),
-        }
+        Exception::DivisionByZero { cycles: source.address_calculation_cycles(OpSize::Word) }
     }
 
     pub(super) fn divs(
@@ -389,11 +379,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let remainder = operand_l % operand_r;
 
         if quotient > i16::MAX.into() || quotient < i16::MIN.into() {
-            self.registers.ccr = ConditionCodes {
-                carry: false,
-                overflow: true,
-                ..self.registers.ccr
-            };
+            self.registers.ccr =
+                ConditionCodes { carry: false, overflow: true, ..self.registers.ccr };
             // TODO this is the best case cycle count, not accurate
             return Ok(120);
         }
@@ -429,11 +416,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let remainder = operand_l % operand_r;
 
         if quotient > u16::MAX.into() {
-            self.registers.ccr = ConditionCodes {
-                carry: false,
-                overflow: true,
-                ..self.registers.ccr
-            };
+            self.registers.ccr =
+                ConditionCodes { carry: false, overflow: true, ..self.registers.ccr };
             // TODO this is the best case cycle count, not accurate
             return Ok(76);
         }
@@ -532,11 +516,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         self.write_byte_resolved(dest_resolved, difference);
 
-        Ok(if dest.is_data_direct() {
-            6
-        } else {
-            super::unary_op_cycles(OpSize::Byte, dest)
-        })
+        Ok(if dest.is_data_direct() { 6 } else { super::unary_op_cycles(OpSize::Byte, dest) })
     }
 
     fn decimal_subtract(&mut self, operand_l: u8, operand_r: u8) -> u8 {
@@ -695,20 +675,11 @@ macro_rules! impl_decode_fn {
                         Direction::MemoryToRegister => (addressing_mode, register_am),
                     };
 
-                    Ok(Instruction::$instruction {
-                        size,
-                        source,
-                        dest,
-                        with_extend: false,
-                    })
+                    Ok(Instruction::$instruction { size, source, dest, with_extend: false })
                 }
                 Err(_) => {
                     // ADDA / SUBA
-                    let size = if opcode.bit(8) {
-                        OpSize::LongWord
-                    } else {
-                        OpSize::Word
-                    };
+                    let size = if opcode.bit(8) { OpSize::LongWord } else { OpSize::Word };
 
                     Ok(Instruction::$instruction {
                         size,
@@ -782,11 +753,7 @@ fn decode_negate(opcode: u16, with_extend: bool) -> ExecuteResult<Instruction> {
         return Err(Exception::IllegalInstruction(opcode));
     }
 
-    Ok(Instruction::Negate {
-        size,
-        dest,
-        with_extend,
-    })
+    Ok(Instruction::Negate { size, dest, with_extend })
 }
 
 pub(super) fn decode_neg(opcode: u16) -> ExecuteResult<Instruction> {
@@ -811,11 +778,7 @@ pub(super) fn decode_cmp(opcode: u16) -> ExecuteResult<Instruction> {
 
 pub(super) fn decode_cmpa(opcode: u16) -> ExecuteResult<Instruction> {
     let register = ((opcode >> 9) & 0x07) as u8;
-    let size = if opcode.bit(8) {
-        OpSize::LongWord
-    } else {
-        OpSize::Word
-    };
+    let size = if opcode.bit(8) { OpSize::LongWord } else { OpSize::Word };
     let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
 
     Ok(Instruction::Compare {
@@ -829,18 +792,11 @@ pub(super) fn decode_cmpi(opcode: u16) -> ExecuteResult<Instruction> {
     let size = OpSize::parse_from_opcode(opcode)?;
     let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
 
-    if matches!(
-        addressing_mode,
-        AddressingMode::AddressDirect(..) | AddressingMode::Immediate
-    ) {
+    if matches!(addressing_mode, AddressingMode::AddressDirect(..) | AddressingMode::Immediate) {
         return Err(Exception::IllegalInstruction(opcode));
     }
 
-    Ok(Instruction::Compare {
-        size,
-        source: AddressingMode::Immediate,
-        dest: addressing_mode,
-    })
+    Ok(Instruction::Compare { size, source: AddressingMode::Immediate, dest: addressing_mode })
 }
 
 pub(super) fn decode_cmpm(opcode: u16) -> ExecuteResult<Instruction> {
@@ -859,20 +815,14 @@ pub(super) fn decode_muls(opcode: u16) -> ExecuteResult<Instruction> {
     let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
     let register = ((opcode >> 9) & 0x07) as u8;
 
-    Ok(Instruction::MultiplySigned(
-        register.into(),
-        addressing_mode,
-    ))
+    Ok(Instruction::MultiplySigned(register.into(), addressing_mode))
 }
 
 pub(super) fn decode_mulu(opcode: u16) -> ExecuteResult<Instruction> {
     let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
     let register = ((opcode >> 9) & 0x07) as u8;
 
-    Ok(Instruction::MultiplyUnsigned(
-        register.into(),
-        addressing_mode,
-    ))
+    Ok(Instruction::MultiplyUnsigned(register.into(), addressing_mode))
 }
 
 pub(super) fn decode_divs(opcode: u16) -> ExecuteResult<Instruction> {
@@ -886,10 +836,7 @@ pub(super) fn decode_divu(opcode: u16) -> ExecuteResult<Instruction> {
     let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
     let register = ((opcode >> 9) & 0x07) as u8;
 
-    Ok(Instruction::DivideUnsigned(
-        register.into(),
-        addressing_mode,
-    ))
+    Ok(Instruction::DivideUnsigned(register.into(), addressing_mode))
 }
 
 macro_rules! impl_decode_decimal {

@@ -174,10 +174,7 @@ pub fn config_display(input: TokenStream) -> TokenStream {
                 panic!("ConfigDisplay derive macro only supports structs with named fields");
             };
 
-            let debug_fmt = field
-                .attrs
-                .iter()
-                .any(|attr| attr.path().is_ident("debug_fmt"));
+            let debug_fmt = field.attrs.iter().any(|attr| attr.path().is_ident("debug_fmt"));
             let fmt_string = if debug_fmt {
                 format!("  {field_ident}: {{:?}}")
             } else {

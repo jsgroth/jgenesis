@@ -61,8 +61,7 @@ impl FmOperator {
 
     fn update_key_scale(&mut self, key_scale: u8) {
         self.envelope.key_scale = key_scale;
-        self.envelope
-            .update_key_scale_rate(self.phase.f_number, self.phase.block);
+        self.envelope.update_key_scale_rate(self.phase.f_number, self.phase.block);
     }
 
     fn key_on_or_off(&mut self, value: bool) {
@@ -413,11 +412,8 @@ impl Ym2612 {
             }
             0x27 => {
                 // Channel 3 mode + timer control
-                let mode = if value & 0xC0 != 0 {
-                    FrequencyMode::Multiple
-                } else {
-                    FrequencyMode::Single
-                };
+                let mode =
+                    if value & 0xC0 != 0 { FrequencyMode::Multiple } else { FrequencyMode::Single };
 
                 // Mode applies only to channel 3
                 let channel = &mut self.channels[2];
@@ -441,11 +437,8 @@ impl Ym2612 {
                 log::trace!("Timer B state: {:?}", self.timer_b);
             }
             0x28 => {
-                let base_channel = if value.bit(2) {
-                    GROUP_2_BASE_CHANNEL
-                } else {
-                    GROUP_1_BASE_CHANNEL
-                };
+                let base_channel =
+                    if value.bit(2) { GROUP_2_BASE_CHANNEL } else { GROUP_1_BASE_CHANNEL };
                 let offset = value & 0x03;
                 if offset < 3 {
                     let channel_idx = base_channel + (value & 0x03) as usize;
@@ -455,11 +448,7 @@ impl Ym2612 {
                     channel.operators[2].key_on_or_off(value.bit(6));
                     channel.operators[3].key_on_or_off(value.bit(7));
 
-                    log::trace!(
-                        "Key on/off for channel {}: {:02X}",
-                        channel_idx + 1,
-                        value >> 4
-                    );
+                    log::trace!("Key on/off for channel {}: {:02X}", channel_idx + 1, value >> 4);
                 }
             }
             0x2A => {
@@ -641,11 +630,7 @@ impl Ym2612 {
                 channel.channel_f_number = (channel.channel_f_number & 0xFF00) | u16::from(value);
                 channel.update_phase_generators();
 
-                log::trace!(
-                    "Channel {}: F-num={:04X}",
-                    channel_idx + 1,
-                    channel.channel_f_number
-                );
+                log::trace!("Channel {}: F-num={:04X}", channel_idx + 1, channel.channel_f_number);
             }
             0xA4..=0xA6 => {
                 // F-number high bits and block

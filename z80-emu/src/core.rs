@@ -311,11 +311,7 @@ impl Z80 {
 
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            registers: Registers::new(),
-            stalled: false,
-            t_cycles_wait: 0,
-        }
+        Self { registers: Registers::new(), stalled: false, t_cycles_wait: 0 }
     }
 
     #[must_use]

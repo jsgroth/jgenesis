@@ -63,11 +63,8 @@ impl State {
         let [d0, d1, d2, d3, d4, d5, d6, d7] = m68000.data_registers();
         let [a0, a1, a2, a3, a4, a5, a6] = m68000.address_registers();
 
-        let ram = final_state
-            .ram
-            .iter()
-            .map(|&(address, _)| (address, bus.read_byte(address)))
-            .collect();
+        let ram =
+            final_state.ram.iter().map(|&(address, _)| (address, bus.read_byte(address))).collect();
 
         Self {
             d0,
@@ -192,9 +189,7 @@ fn init_test_state(state: &State, bus: &mut InMemoryBus) -> M68000 {
         state.d0, state.d1, state.d2, state.d3, state.d4, state.d5, state.d6, state.d7,
     ]);
     m68000.set_address_registers(
-        [
-            state.a0, state.a1, state.a2, state.a3, state.a4, state.a5, state.a6,
-        ],
+        [state.a0, state.a1, state.a2, state.a3, state.a4, state.a5, state.a6],
         state.usp,
         state.ssp,
     );

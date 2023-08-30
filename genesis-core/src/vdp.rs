@@ -495,11 +495,8 @@ impl Registers {
     }
 
     fn is_in_window(&self, scanline: u16, pixel: u16) -> bool {
-        self.window_horizontal_mode
-            .in_window(pixel, self.window_x_position)
-            || self
-                .window_vertical_mode
-                .in_window(scanline, self.window_y_position)
+        self.window_horizontal_mode.in_window(pixel, self.window_x_position)
+            || self.window_vertical_mode.in_window(scanline, self.window_y_position)
     }
 }
 
@@ -675,8 +672,7 @@ impl Vdp {
                 if value & 0xE000 == 0x8000 {
                     // Register set
                     let register_number = ((value >> 8) & 0x1F) as u8;
-                    self.registers
-                        .write_internal_register(register_number, value as u8);
+                    self.registers.write_internal_register(register_number, value as u8);
                 } else {
                     // First word of command write
                     self.state.first_word_code_bits = ((value >> 14) & 0x03) as u8;
@@ -707,7 +703,9 @@ impl Vdp {
                 self.state.data_port_location = data_port_location;
                 self.state.data_port_mode = data_port_mode;
 
-                log::trace!("Set data port location to {data_port_location:?} and mode to {data_port_mode:?}");
+                log::trace!(
+                    "Set data port location to {data_port_location:?} and mode to {data_port_mode:?}"
+                );
 
                 if code.bit(5)
                     && self.registers.dma_enabled
@@ -937,7 +935,9 @@ impl Vdp {
                 log::trace!(
                     "Copying {} words from {source_addr:06X} to {:04X}, write location={:?}; data_addr_increment={:04X}",
                     self.registers.dma_length,
-                    self.state.data_address, self.state.data_port_location, self.registers.data_port_auto_increment
+                    self.state.data_address,
+                    self.state.data_port_location,
+                    self.registers.data_port_auto_increment
                 );
 
                 for _ in 0..self.registers.dma_length {
@@ -1010,10 +1010,8 @@ impl Vdp {
     }
 
     fn increment_data_address(&mut self) {
-        self.state.data_address = self
-            .state
-            .data_address
-            .wrapping_add(self.registers.data_port_auto_increment);
+        self.state.data_address =
+            self.state.data_address.wrapping_add(self.registers.data_port_auto_increment);
     }
 
     fn write_vram_word(&mut self, address: u16, value: u16) {
@@ -1281,11 +1279,7 @@ impl Vdp {
                     cell_height,
                 },
             );
-            (
-                window_nt_word.priority,
-                window_nt_word.palette,
-                window_color_id,
-            )
+            (window_nt_word.priority, window_nt_word.palette, window_color_id)
         } else {
             (false, 0, 0)
         };
@@ -1300,11 +1294,7 @@ impl Vdp {
             // Window replaces scroll A if this pixel is inside the window
             (window_priority, window_palette, window_color_id)
         } else {
-            (
-                scroll_a_nt_word.priority,
-                scroll_a_nt_word.palette,
-                scroll_a_color_id,
-            )
+            (scroll_a_nt_word.priority, scroll_a_nt_word.palette, scroll_a_color_id)
         };
 
         let (pixel_color, color_modifier) = determine_pixel_color(
@@ -1356,11 +1346,8 @@ impl Vdp {
             };
 
             let sprite_col = 0x080 + pixel - sprite.h_position;
-            let sprite_col = if sprite.horizontal_flip {
-                8 * h_size_cells - 1 - sprite_col
-            } else {
-                sprite_col
-            };
+            let sprite_col =
+                if sprite.horizontal_flip { 8 * h_size_cells - 1 - sprite_col } else { sprite_col };
 
             let pattern_offset = (sprite_col / 8) * v_size_cells + sprite_row / cell_height;
             let color_id = read_pattern_generator(
@@ -1471,11 +1458,8 @@ fn determine_pixel_color(
             ColorModifier::None
         };
 
-    let sprite = UnresolvedColor {
-        palette: sprite_palette,
-        color_id: sprite_color_id,
-        is_sprite: true,
-    };
+    let sprite =
+        UnresolvedColor { palette: sprite_palette, color_id: sprite_color_id, is_sprite: true };
     let scroll_a = UnresolvedColor {
         palette: scroll_a_palette,
         color_id: scroll_a_color_id,
@@ -1496,12 +1480,7 @@ fn determine_pixel_color(
         (false, true, true) => [scroll_a, scroll_b, sprite],
     };
 
-    for UnresolvedColor {
-        palette,
-        color_id,
-        is_sprite,
-    } in colors
-    {
+    for UnresolvedColor { palette, color_id, is_sprite } in colors {
         if color_id == 0 {
             // Pixel is transparent
             continue;
@@ -1521,11 +1500,7 @@ fn determine_pixel_color(
 
         let color = resolve_color(cram, palette, color_id);
         // Sprite color id 14 is never shadowed/highlighted
-        let modifier = if is_sprite && color_id == 14 {
-            ColorModifier::None
-        } else {
-            modifier
-        };
+        let modifier = if is_sprite && color_id == 14 { ColorModifier::None } else { modifier };
         return (color, modifier);
     }
 
@@ -1655,24 +1630,13 @@ fn read_pattern_generator(
         cell_height,
     }: PatternGeneratorArgs,
 ) -> u8 {
-    let cell_row = if vertical_flip {
-        cell_height - 1 - (row % cell_height)
-    } else {
-        row % cell_height
-    };
-    let cell_col = if horizontal_flip {
-        7 - (col % 8)
-    } else {
-        col % 8
-    };
+    let cell_row =
+        if vertical_flip { cell_height - 1 - (row % cell_height) } else { row % cell_height };
+    let cell_col = if horizontal_flip { 7 - (col % 8) } else { col % 8 };
 
     let row_addr = (4 * cell_height).wrapping_mul(pattern_generator);
     let addr = (row_addr + 4 * cell_row + (cell_col >> 1)) as usize;
-    if cell_col.bit(0) {
-        vram[addr] & 0x0F
-    } else {
-        vram[addr] >> 4
-    }
+    if cell_col.bit(0) { vram[addr] & 0x0F } else { vram[addr] >> 4 }
 }
 
 // i * 255 / 7

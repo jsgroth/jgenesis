@@ -18,11 +18,7 @@ pub enum Direction {
 
 impl Direction {
     fn parse_from_opcode(opcode: u16) -> Self {
-        if opcode.bit(8) {
-            Self::RegisterToMemory
-        } else {
-            Self::MemoryToRegister
-        }
+        if opcode.bit(8) { Self::RegisterToMemory } else { Self::MemoryToRegister }
     }
 }
 
@@ -40,11 +36,7 @@ pub enum ShiftDirection {
 
 impl ShiftDirection {
     fn parse_from_opcode(opcode: u16) -> Self {
-        if opcode.bit(8) {
-            Self::Left
-        } else {
-            Self::Right
-        }
+        if opcode.bit(8) { Self::Left } else { Self::Right }
     }
 }
 
@@ -81,11 +73,7 @@ enum ExtendOpMode {
 
 impl ExtendOpMode {
     fn parse_from_opcode(opcode: u16) -> Self {
-        if opcode.bit(3) {
-            Self::AddressIndirectPredecrement
-        } else {
-            Self::DataDirect
-        }
+        if opcode.bit(3) { Self::AddressIndirectPredecrement } else { Self::DataDirect }
     }
 }
 
@@ -156,61 +144,29 @@ impl BranchCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Instruction {
-    Add {
-        size: OpSize,
-        source: AddressingMode,
-        dest: AddressingMode,
-        with_extend: bool,
-    },
-    AddDecimal {
-        source: AddressingMode,
-        dest: AddressingMode,
-    },
-    And {
-        size: OpSize,
-        source: AddressingMode,
-        dest: AddressingMode,
-    },
+    Add { size: OpSize, source: AddressingMode, dest: AddressingMode, with_extend: bool },
+    AddDecimal { source: AddressingMode, dest: AddressingMode },
+    And { size: OpSize, source: AddressingMode, dest: AddressingMode },
     AndToCcr,
     AndToSr,
     ArithmeticShiftMemory(ShiftDirection, AddressingMode),
     ArithmeticShiftRegister(OpSize, ShiftDirection, DataRegister, ShiftCount),
-    BitTest {
-        source: AddressingMode,
-        dest: AddressingMode,
-    },
-    BitTestAndChange {
-        source: AddressingMode,
-        dest: AddressingMode,
-    },
-    BitTestAndClear {
-        source: AddressingMode,
-        dest: AddressingMode,
-    },
-    BitTestAndSet {
-        source: AddressingMode,
-        dest: AddressingMode,
-    },
+    BitTest { source: AddressingMode, dest: AddressingMode },
+    BitTestAndChange { source: AddressingMode, dest: AddressingMode },
+    BitTestAndClear { source: AddressingMode, dest: AddressingMode },
+    BitTestAndSet { source: AddressingMode, dest: AddressingMode },
     Branch(BranchCondition, i8),
     BranchDecrement(BranchCondition, DataRegister),
     BranchToSubroutine(i8),
     CheckRegister(DataRegister, AddressingMode),
     Clear(OpSize, AddressingMode),
-    Compare {
-        size: OpSize,
-        source: AddressingMode,
-        dest: AddressingMode,
-    },
+    Compare { size: OpSize, source: AddressingMode, dest: AddressingMode },
     DivideSigned(DataRegister, AddressingMode),
     DivideUnsigned(DataRegister, AddressingMode),
     ExchangeAddress(AddressRegister, AddressRegister),
     ExchangeData(DataRegister, DataRegister),
     ExchangeDataAddress(DataRegister, AddressRegister),
-    ExclusiveOr {
-        size: OpSize,
-        source: AddressingMode,
-        dest: AddressingMode,
-    },
+    ExclusiveOr { size: OpSize, source: AddressingMode, dest: AddressingMode },
     ExclusiveOrToCcr,
     ExclusiveOrToSr,
     Extend(OpSize, DataRegister),
@@ -220,11 +176,7 @@ pub enum Instruction {
     LoadEffectiveAddress(AddressingMode, AddressRegister),
     LogicalShiftMemory(ShiftDirection, AddressingMode),
     LogicalShiftRegister(OpSize, ShiftDirection, DataRegister, ShiftCount),
-    Move {
-        size: OpSize,
-        source: AddressingMode,
-        dest: AddressingMode,
-    },
+    Move { size: OpSize, source: AddressingMode, dest: AddressingMode },
     MoveFromSr(AddressingMode),
     MoveMultiple(OpSize, AddressingMode, Direction),
     MovePeripheral(OpSize, DataRegister, AddressRegister, Direction),
@@ -234,42 +186,24 @@ pub enum Instruction {
     MoveUsp(UspDirection, AddressRegister),
     MultiplySigned(DataRegister, AddressingMode),
     MultiplyUnsigned(DataRegister, AddressingMode),
-    Negate {
-        size: OpSize,
-        dest: AddressingMode,
-        with_extend: bool,
-    },
+    Negate { size: OpSize, dest: AddressingMode, with_extend: bool },
     NegateDecimal(AddressingMode),
     NoOp,
     Not(OpSize, AddressingMode),
-    Or {
-        size: OpSize,
-        source: AddressingMode,
-        dest: AddressingMode,
-    },
+    Or { size: OpSize, source: AddressingMode, dest: AddressingMode },
     OrToCcr,
     OrToSr,
     PushEffectiveAddress(AddressingMode),
     Reset,
-    Return {
-        restore_ccr: bool,
-    },
+    Return { restore_ccr: bool },
     ReturnFromException,
     RotateMemory(ShiftDirection, AddressingMode),
     RotateRegister(OpSize, ShiftDirection, DataRegister, ShiftCount),
     RotateThruExtendMemory(ShiftDirection, AddressingMode),
     RotateThruExtendRegister(OpSize, ShiftDirection, DataRegister, ShiftCount),
     Set(BranchCondition, AddressingMode),
-    Subtract {
-        size: OpSize,
-        source: AddressingMode,
-        dest: AddressingMode,
-        with_extend: bool,
-    },
-    SubtractDecimal {
-        source: AddressingMode,
-        dest: AddressingMode,
-    },
+    Subtract { size: OpSize, source: AddressingMode, dest: AddressingMode, with_extend: bool },
+    SubtractDecimal { source: AddressingMode, dest: AddressingMode },
     Swap(DataRegister),
     Test(OpSize, AddressingMode),
     TestAndSet(AddressingMode),
@@ -424,10 +358,7 @@ impl Instruction {
 
 impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
     pub(super) fn do_execute(&mut self) -> ExecuteResult<u32> {
-        log::trace!(
-            "Beginning instruction execution, PC={:08X}",
-            self.registers.pc
-        );
+        log::trace!("Beginning instruction execution, PC={:08X}", self.registers.pc);
 
         let opcode = self.fetch_operand()?;
         self.opcode = opcode;
@@ -437,12 +368,9 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         log::trace!("Decoded instruction: {instruction:?}");
 
         match instruction {
-            Instruction::Add {
-                size,
-                source,
-                dest,
-                with_extend,
-            } => self.add(size, source, dest, with_extend),
+            Instruction::Add { size, source, dest, with_extend } => {
+                self.add(size, source, dest, with_extend)
+            }
             Instruction::AddDecimal { source, dest } => self.abcd(source, dest),
             Instruction::And { size, source, dest } => self.and(size, source, dest),
             Instruction::AndToCcr => self.andi_to_ccr(),
@@ -492,11 +420,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             Instruction::MoveUsp(direction, register) => Ok(self.move_usp(direction, register)),
             Instruction::MultiplySigned(register, source) => self.muls(register, source),
             Instruction::MultiplyUnsigned(register, source) => self.mulu(register, source),
-            Instruction::Negate {
-                size,
-                dest,
-                with_extend,
-            } => self.neg(size, dest, with_extend),
+            Instruction::Negate { size, dest, with_extend } => self.neg(size, dest, with_extend),
             Instruction::NegateDecimal(dest) => self.nbcd(dest),
             Instruction::NoOp => Ok(controlflow::nop()),
             Instruction::Not(size, dest) => self.not(size, dest),
@@ -521,12 +445,9 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 Ok(self.roxd_register(size, direction, register, count))
             }
             Instruction::Set(condition, dest) => self.scc(condition, dest),
-            Instruction::Subtract {
-                size,
-                source,
-                dest,
-                with_extend,
-            } => self.sub(size, source, dest, with_extend),
+            Instruction::Subtract { size, source, dest, with_extend } => {
+                self.sub(size, source, dest, with_extend)
+            }
             Instruction::SubtractDecimal { source, dest } => self.sbcd(source, dest),
             Instruction::Swap(register) => Ok(self.swap(register)),
             Instruction::Test(size, source) => self.tst(size, source),

@@ -63,26 +63,14 @@ impl InputState {
     }
 
     pub fn write_control(&mut self, value: u8) {
-        self.port_b_th = if value.bit(3) {
-            PinDirection::Input
-        } else {
-            PinDirection::Output(value.bit(7))
-        };
-        self.port_b_tr = if value.bit(2) {
-            PinDirection::Input
-        } else {
-            PinDirection::Output(value.bit(6))
-        };
-        self.port_a_th = if value.bit(1) {
-            PinDirection::Input
-        } else {
-            PinDirection::Output(value.bit(5))
-        };
-        self.port_a_tr = if value.bit(0) {
-            PinDirection::Input
-        } else {
-            PinDirection::Output(value.bit(4))
-        };
+        self.port_b_th =
+            if value.bit(3) { PinDirection::Input } else { PinDirection::Output(value.bit(7)) };
+        self.port_b_tr =
+            if value.bit(2) { PinDirection::Input } else { PinDirection::Output(value.bit(6)) };
+        self.port_a_th =
+            if value.bit(1) { PinDirection::Input } else { PinDirection::Output(value.bit(5)) };
+        self.port_a_tr =
+            if value.bit(0) { PinDirection::Input } else { PinDirection::Output(value.bit(4)) };
     }
 
     pub fn port_dc(&self) -> u8 {

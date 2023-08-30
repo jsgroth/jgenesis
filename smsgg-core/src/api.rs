@@ -189,9 +189,7 @@ impl SmsGgEmulator {
                     != (self.sample_count as f64 / DOWNSAMPLING_RATIO).round() as u64
                 {
                     let (sample_l, sample_r) = self.psg.sample();
-                    audio_output
-                        .push_sample(sample_l, sample_r)
-                        .map_err(SmsGgError::Audio)?;
+                    audio_output.push_sample(sample_l, sample_r).map_err(SmsGgError::Audio)?;
                 }
             }
         }
@@ -227,10 +225,7 @@ impl SmsGgEmulator {
                     viewport.height.into()
                 };
 
-                let frame_size = FrameSize {
-                    width: frame_width,
-                    height: frame_height,
-                };
+                let frame_size = FrameSize { width: frame_width, height: frame_height };
                 renderer
                     .render_frame(&self.frame_buffer, frame_size, self.pixel_aspect_ratio)
                     .map_err(SmsGgError::Render)?;
@@ -251,11 +246,7 @@ impl SmsGgEmulator {
             }
         }
 
-        Ok(if frame_rendered {
-            SmsGgTickEffect::FrameRendered
-        } else {
-            SmsGgTickEffect::None
-        })
+        Ok(if frame_rendered { SmsGgTickEffect::FrameRendered } else { SmsGgTickEffect::None })
     }
 
     pub fn take_rom_from(&mut self, other: &mut Self) {
@@ -273,18 +264,12 @@ fn populate_frame_buffer(
     let viewport = vdp_version.viewport_size();
 
     let (row_skip, row_take) = if crop_vertical_border {
-        (
-            viewport.top_border_height as usize,
-            viewport.height_without_border() as usize,
-        )
+        (viewport.top_border_height as usize, viewport.height_without_border() as usize)
     } else {
         (0, viewport.height as usize)
     };
     let (col_skip, screen_width) = if crop_left_border {
-        (
-            viewport.left_border_width as usize,
-            viewport.width_without_border() as usize,
-        )
+        (viewport.left_border_width as usize, viewport.width_without_border() as usize)
     } else {
         (0, viewport.width as usize)
     };
@@ -316,7 +301,5 @@ fn convert_sms_color(color: u16) -> u8 {
 
 #[inline]
 fn convert_gg_color(color: u16) -> u8 {
-    [
-        0, 17, 34, 51, 68, 85, 102, 119, 136, 153, 170, 187, 204, 221, 238, 255,
-    ][color as usize]
+    [0, 17, 34, 51, 68, 85, 102, 119, 136, 153, 170, 187, 204, 221, 238, 255][color as usize]
 }

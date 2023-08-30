@@ -5,10 +5,7 @@ use jgenesis_traits::frontend::PixelAspectRatio;
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::VdpVersion;
 
-pub(crate) const DEFAULT_GENESIS_WINDOW_SIZE: WindowSize = WindowSize {
-    width: 878,
-    height: 672,
-};
+pub(crate) const DEFAULT_GENESIS_WINDOW_SIZE: WindowSize = WindowSize { width: 878, height: 672 };
 
 #[derive(Debug, Clone, Copy)]
 pub struct WindowSize {
@@ -92,18 +89,9 @@ pub(crate) fn default_psg_version_for_ext(file_ext: &str) -> PsgVersion {
 
 pub(crate) fn default_smsgg_window_size(vdp_version: VdpVersion) -> WindowSize {
     match vdp_version {
-        VdpVersion::NtscMasterSystem2 => WindowSize {
-            width: 940,
-            height: 720,
-        },
-        VdpVersion::PalMasterSystem2 => WindowSize {
-            width: 1131,
-            height: 720,
-        },
-        VdpVersion::GameGear => WindowSize {
-            width: 576,
-            height: 432,
-        },
+        VdpVersion::NtscMasterSystem2 => WindowSize { width: 940, height: 720 },
+        VdpVersion::PalMasterSystem2 => WindowSize { width: 1131, height: 720 },
+        VdpVersion::GameGear => WindowSize { width: 576, height: 432 },
     }
 }
 

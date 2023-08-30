@@ -40,7 +40,9 @@ impl Mapper {
         }
 
         if checksum == expected_checksum {
-            log::info!("Codemasters-style ROM checksum is {checksum:04X}, matches word at {CODEMASTERS_CHECKSUM_ADDR:04X}; assuming this is a Codemasters ROM");
+            log::info!(
+                "Codemasters-style ROM checksum is {checksum:04X}, matches word at {CODEMASTERS_CHECKSUM_ADDR:04X}; assuming this is a Codemasters ROM"
+            );
             Self::Codemasters
         } else {
             Self::Sega
@@ -185,10 +187,7 @@ pub struct Memory {
 
 impl Memory {
     pub fn new(rom: Vec<u8>, initial_cartridge_ram: Option<Vec<u8>>) -> Self {
-        Self {
-            cartridge: Cartridge::new(rom, initial_cartridge_ram),
-            ram: [0; SYSTEM_RAM_SIZE],
-        }
+        Self { cartridge: Cartridge::new(rom, initial_cartridge_ram), ram: [0; SYSTEM_RAM_SIZE] }
     }
 
     pub fn read(&self, address: u16) -> u8 {

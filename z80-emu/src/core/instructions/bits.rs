@@ -169,12 +169,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let a = self.registers.a;
 
         self.registers.a = (a << 1) | (a >> 7);
-        self.registers.f = Flags {
-            half_carry: false,
-            subtract: false,
-            carry: a.bit(7),
-            ..self.registers.f
-        };
+        self.registers.f =
+            Flags { half_carry: false, subtract: false, carry: a.bit(7), ..self.registers.f };
 
         4
     }
@@ -184,12 +180,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let a = self.registers.a;
 
         self.registers.a = (a << 1) | u8::from(self.registers.f.carry);
-        self.registers.f = Flags {
-            half_carry: false,
-            subtract: false,
-            carry: a.bit(7),
-            ..self.registers.f
-        };
+        self.registers.f =
+            Flags { half_carry: false, subtract: false, carry: a.bit(7), ..self.registers.f };
 
         4
     }
@@ -199,12 +191,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let a = self.registers.a;
 
         self.registers.a = (a >> 1) | (a << 7);
-        self.registers.f = Flags {
-            half_carry: false,
-            subtract: false,
-            carry: a.bit(0),
-            ..self.registers.f
-        };
+        self.registers.f =
+            Flags { half_carry: false, subtract: false, carry: a.bit(0), ..self.registers.f };
 
         4
     }
@@ -214,12 +202,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let a = self.registers.a;
 
         self.registers.a = (a >> 1) | (u8::from(self.registers.f.carry) << 7);
-        self.registers.f = Flags {
-            half_carry: false,
-            subtract: false,
-            carry: a.bit(0),
-            ..self.registers.f
-        };
+        self.registers.f =
+            Flags { half_carry: false, subtract: false, carry: a.bit(0), ..self.registers.f };
 
         4
     }
@@ -228,11 +212,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let register = super::parse_register_from_opcode(opcode, None).expect("invalid opcode");
         let bit = (opcode >> 3) & 0x07;
 
-        bit_test(
-            register.read_from(self.registers),
-            bit,
-            &mut self.registers.f,
-        );
+        bit_test(register.read_from(self.registers), bit, &mut self.registers.f);
 
         8
     }
@@ -267,11 +247,7 @@ fn set_shift_flags(flags: &mut Flags, value: u8, carry: bool) {
 }
 
 fn rotate_left(value: u8, thru_carry: bool, flags: &mut Flags) -> u8 {
-    let bit_0 = if thru_carry {
-        flags.carry
-    } else {
-        value.bit(7)
-    };
+    let bit_0 = if thru_carry { flags.carry } else { value.bit(7) };
     let rotated = (value << 1) | u8::from(bit_0);
 
     set_shift_flags(flags, rotated, value.bit(7));
@@ -280,11 +256,7 @@ fn rotate_left(value: u8, thru_carry: bool, flags: &mut Flags) -> u8 {
 }
 
 fn rotate_right(value: u8, thru_carry: bool, flags: &mut Flags) -> u8 {
-    let bit_7 = if thru_carry {
-        flags.carry
-    } else {
-        value.bit(0)
-    };
+    let bit_7 = if thru_carry { flags.carry } else { value.bit(0) };
     let rotated = (value >> 1) | (u8::from(bit_7) << 7);
 
     set_shift_flags(flags, rotated, value.bit(0));
@@ -344,12 +316,7 @@ fn rotate_right_decimal(a: u8, memory_value: u8, flags: &mut Flags) -> (u8, u8) 
 
 fn bit_test(value: u8, bit: u8, flags: &mut Flags) {
     let zero = value & (1 << bit) == 0;
-    *flags = Flags {
-        zero,
-        half_carry: true,
-        subtract: false,
-        ..*flags
-    };
+    *flags = Flags { zero, half_carry: true, subtract: false, ..*flags };
 }
 
 fn set_bit(value: u8, bit: u8) -> u8 {
