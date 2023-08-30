@@ -873,11 +873,11 @@ impl Vdp {
 
         let prev_scanline_mclk = prev_mclk_cycles % MCLK_CYCLES_PER_SCANLINE;
 
-        // Check if an H interrupt has triggered
+        // Check if an H/V interrupt has triggered
         if prev_scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE
             && master_clock_cycles >= ACTIVE_MCLK_CYCLES_PER_SCANLINE - prev_scanline_mclk
         {
-            if self.state.scanline < 224 {
+            if self.state.scanline < ACTIVE_SCANLINES {
                 if self.state.h_interrupt_counter == 0 {
                     self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
 
@@ -890,6 +890,11 @@ impl Vdp {
             } else {
                 // H interrupt counter is constantly refreshed during VBlank
                 self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
+
+                // Trigger V interrupt if this is the first scanline of VBlank
+                if self.state.scanline == ACTIVE_SCANLINES && self.registers.v_interrupt_enabled {
+                    self.state.v_interrupt_pending = true;
+                }
             }
         }
 
@@ -906,10 +911,6 @@ impl Vdp {
                     self.render_scanline();
                 }
                 Ordering::Equal => {
-                    if self.registers.v_interrupt_enabled {
-                        self.state.v_interrupt_pending = true;
-                    }
-
                     return VdpTickEffect::FrameComplete;
                 }
                 Ordering::Greater => {}
