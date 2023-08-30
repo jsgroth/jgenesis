@@ -1041,7 +1041,8 @@ impl Vdp {
     }
 
     pub fn z80_interrupt_line(&self) -> InterruptLine {
-        if self.state.scanline == 224 {
+        // Z80 INT line is low only during the first scanline of VBlank
+        if self.state.scanline == ACTIVE_SCANLINES {
             InterruptLine::Low
         } else {
             InterruptLine::High
@@ -1385,12 +1386,13 @@ impl Vdp {
     }
 
     fn set_in_frame_buffer(&mut self, row: u32, col: u32, value: u16, modifier: ColorModifier) {
-        let r = gen_color_to_rgb((value >> 1) & 0x07, modifier);
-        let g = gen_color_to_rgb((value >> 5) & 0x07, modifier);
-        let b = gen_color_to_rgb((value >> 9) & 0x07, modifier);
+        let r = ((value >> 1) & 0x07) as u8;
+        let g = ((value >> 5) & 0x07) as u8;
+        let b = ((value >> 9) & 0x07) as u8;
+        let color = gen_color_to_rgb(r, g, b, modifier);
 
         let screen_width = self.screen_width();
-        self.frame_buffer[(row * screen_width + col) as usize] = Color::rgb(r, g, b);
+        self.frame_buffer[(row * screen_width + col) as usize] = color;
     }
 }
 
@@ -1645,41 +1647,21 @@ fn read_pattern_generator(
     }
 }
 
+// i * 255 / 7
+const NORMAL_RGB_COLORS: [u8; 8] = [0, 36, 73, 109, 146, 182, 219, 255];
+
+// i * 255 / 7 / 2
+const SHADOWED_RGB_COLORS: [u8; 8] = [0, 18, 36, 55, 73, 91, 109, 128];
+
+// 255 / 2 + i * 255 / 7 / 2
+const HIGHLIGHTED_RGB_COLORS: [u8; 8] = [128, 146, 164, 182, 200, 219, 237, 255];
+
 #[inline]
-fn gen_color_to_rgb(gen_color: u16, modifier: ColorModifier) -> u8 {
-    match modifier {
-        ColorModifier::None => match gen_color {
-            0 => 0,
-            1 => 36,
-            2 => 73,
-            3 => 109,
-            4 => 146,
-            5 => 182,
-            6 => 219,
-            7 => 255,
-            _ => panic!("invalid Genesis color value: {gen_color}"),
-        },
-        ColorModifier::Shadow => match gen_color {
-            0 => 0,
-            1 => 18,
-            2 => 36,
-            3 => 55,
-            4 => 73,
-            5 => 91,
-            6 => 109,
-            7 => 128,
-            _ => panic!("invalid Genesis color value: {gen_color}"),
-        },
-        ColorModifier::Highlight => match gen_color {
-            0 => 128,
-            1 => 146,
-            2 => 164,
-            3 => 182,
-            4 => 200,
-            5 => 219,
-            6 => 237,
-            7 => 255,
-            _ => panic!("invalid Genesis color value: {gen_color}"),
-        },
-    }
+fn gen_color_to_rgb(r: u8, g: u8, b: u8, modifier: ColorModifier) -> Color {
+    let colors = match modifier {
+        ColorModifier::None => NORMAL_RGB_COLORS,
+        ColorModifier::Shadow => SHADOWED_RGB_COLORS,
+        ColorModifier::Highlight => HIGHLIGHTED_RGB_COLORS,
+    };
+    Color::rgb(colors[r as usize], colors[g as usize], colors[b as usize])
 }
