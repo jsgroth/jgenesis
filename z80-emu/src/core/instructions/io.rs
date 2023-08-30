@@ -52,17 +52,9 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             self.registers.pc -= 2;
         }
 
-        self.registers.f = Flags {
-            zero: repeat || b == 1,
-            subtract: true,
-            ..self.registers.f
-        };
+        self.registers.f = Flags { zero: repeat || b == 1, subtract: true, ..self.registers.f };
 
-        if should_repeat {
-            21
-        } else {
-            16
-        }
+        if should_repeat { 21 } else { 16 }
     }
 
     pub(super) fn out_n_a(&mut self) -> u32 {
@@ -104,16 +96,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             self.registers.pc -= 2;
         }
 
-        self.registers.f = Flags {
-            zero: repeat || b == 1,
-            subtract: true,
-            ..self.registers.f
-        };
+        self.registers.f = Flags { zero: repeat || b == 1, subtract: true, ..self.registers.f };
 
-        if should_repeat {
-            21
-        } else {
-            16
-        }
+        if should_repeat { 21 } else { 16 }
     }
 }

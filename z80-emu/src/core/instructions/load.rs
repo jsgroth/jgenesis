@@ -255,18 +255,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             self.registers.pc = self.registers.pc.wrapping_sub(2);
         }
 
-        self.registers.f = Flags {
-            half_carry: false,
-            overflow: bc != 1,
-            subtract: false,
-            ..self.registers.f
-        };
+        self.registers.f =
+            Flags { half_carry: false, overflow: bc != 1, subtract: false, ..self.registers.f };
 
-        if should_repeat {
-            21
-        } else {
-            16
-        }
+        if should_repeat { 21 } else { 16 }
     }
 }
 

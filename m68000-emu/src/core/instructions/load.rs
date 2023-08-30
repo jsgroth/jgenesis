@@ -123,9 +123,9 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let iter = MultipleRegisterIter::new(extension);
         let (mut address, postinc_register) = match resolved_address {
             ResolvedAddress::Memory(address) => (address, None),
-            ResolvedAddress::MemoryPostincrement {
-                address, register, ..
-            } => (address, Some(register)),
+            ResolvedAddress::MemoryPostincrement { address, register, .. } => {
+                (address, Some(register))
+            }
             _ => panic!("MOVEM only supports addressing modes that resolve to a memory address"),
         };
 
@@ -265,9 +265,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     ) -> ExecuteResult<u32> {
         let extension = self.fetch_operand()?;
         let displacement = extension as i16;
-        let address = a_register
-            .read_from(self.registers)
-            .wrapping_add(displacement as u32);
+        let address = a_register.read_from(self.registers).wrapping_add(displacement as u32);
 
         match (size, direction) {
             (OpSize::Word, Direction::RegisterToMemory) => {
@@ -347,19 +345,11 @@ struct MultipleRegisterIter {
 
 impl MultipleRegisterIter {
     fn new(extension: u16) -> Self {
-        Self {
-            mask: extension,
-            i: 0,
-            reverse: false,
-        }
+        Self { mask: extension, i: 0, reverse: false }
     }
 
     fn new_reverse(extension: u16) -> Self {
-        Self {
-            mask: extension,
-            i: 0,
-            reverse: true,
-        }
+        Self { mask: extension, i: 0, reverse: true }
     }
 }
 
@@ -387,11 +377,7 @@ impl Iterator for MultipleRegisterIter {
 }
 
 fn to_register(i: u8) -> Register {
-    if i < 8 {
-        Register::Data(DataRegister(i))
-    } else {
-        Register::Address(AddressRegister(i - 8))
-    }
+    if i < 8 { Register::Data(DataRegister(i)) } else { Register::Address(AddressRegister(i - 8)) }
 }
 
 pub(super) fn decode_move(opcode: u16) -> ExecuteResult<Instruction> {
@@ -466,27 +452,17 @@ pub(super) fn decode_move_usp(opcode: u16, supervisor_mode: bool) -> ExecuteResu
     }
 
     let register = (opcode & 0x07) as u8;
-    let direction = if opcode.bit(3) {
-        UspDirection::UspToRegister
-    } else {
-        UspDirection::RegisterToUsp
-    };
+    let direction =
+        if opcode.bit(3) { UspDirection::UspToRegister } else { UspDirection::RegisterToUsp };
 
     Ok(Instruction::MoveUsp(direction, register.into()))
 }
 
 pub(super) fn decode_movem(opcode: u16) -> ExecuteResult<Instruction> {
     let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
-    let size = if opcode.bit(6) {
-        OpSize::LongWord
-    } else {
-        OpSize::Word
-    };
-    let direction = if opcode.bit(10) {
-        Direction::MemoryToRegister
-    } else {
-        Direction::RegisterToMemory
-    };
+    let size = if opcode.bit(6) { OpSize::LongWord } else { OpSize::Word };
+    let direction =
+        if opcode.bit(10) { Direction::MemoryToRegister } else { Direction::RegisterToMemory };
 
     if matches!(
         addressing_mode,
@@ -498,20 +474,14 @@ pub(super) fn decode_movem(opcode: u16) -> ExecuteResult<Instruction> {
     }
 
     if direction == Direction::MemoryToRegister
-        && matches!(
-            addressing_mode,
-            AddressingMode::AddressIndirectPredecrement(..)
-        )
+        && matches!(addressing_mode, AddressingMode::AddressIndirectPredecrement(..))
     {
         return Err(Exception::IllegalInstruction(opcode));
     }
 
     if direction == Direction::RegisterToMemory
         && (!addressing_mode.is_writable()
-            || matches!(
-                addressing_mode,
-                AddressingMode::AddressIndirectPostincrement(..)
-            ))
+            || matches!(addressing_mode, AddressingMode::AddressIndirectPostincrement(..)))
     {
         return Err(Exception::IllegalInstruction(opcode));
     }
@@ -523,16 +493,9 @@ pub(super) fn decode_movep(opcode: u16) -> Instruction {
     let a_register = (opcode & 0x07) as u8;
     let d_register = ((opcode >> 9) & 0x07) as u8;
 
-    let size = if opcode.bit(6) {
-        OpSize::LongWord
-    } else {
-        OpSize::Word
-    };
-    let direction = if opcode.bit(7) {
-        Direction::RegisterToMemory
-    } else {
-        Direction::MemoryToRegister
-    };
+    let size = if opcode.bit(6) { OpSize::LongWord } else { OpSize::Word };
+    let direction =
+        if opcode.bit(7) { Direction::RegisterToMemory } else { Direction::MemoryToRegister };
 
     Instruction::MovePeripheral(size, d_register.into(), a_register.into(), direction)
 }
@@ -544,10 +507,7 @@ pub(super) fn decode_exg(opcode: u16) -> ExecuteResult<Instruction> {
     match opcode & 0b1100_1000 {
         0b0100_0000 => Ok(Instruction::ExchangeData(rx.into(), ry.into())),
         0b0100_1000 => Ok(Instruction::ExchangeAddress(rx.into(), ry.into())),
-        0b1000_1000 => Ok(Instruction::ExchangeDataAddress(
-            DataRegister(rx),
-            AddressRegister(ry),
-        )),
+        0b1000_1000 => Ok(Instruction::ExchangeDataAddress(DataRegister(rx), AddressRegister(ry))),
         _ => Err(Exception::IllegalInstruction(opcode)),
     }
 }

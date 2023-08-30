@@ -236,11 +236,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     impl_bit_test_op!(bclr, |value, bit| { value & !(1 << bit) }, extra_d_write_cycles: 2);
     impl_bit_test_op!(bset, |value, bit| { value | (1 << bit) });
     impl_bit_test_op!(bchg, |value, bit| {
-        if value.bit(bit) {
-            value & !(1 << bit)
-        } else {
-            value | (1 << bit)
-        }
+        if value.bit(bit) { value & !(1 << bit) } else { value | (1 << bit) }
     });
 
     impl_shift_register_op!(asl_register_u8, <<, i8, u8, write_byte_to, carry: 7, set overflow);
@@ -474,14 +470,12 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let original = self.read_word_resolved(dest_resolved)?;
 
         let (value, carry) = match direction {
-            ShiftDirection::Left => (
-                (original << 1) | u16::from(original.sign_bit()),
-                original.sign_bit(),
-            ),
-            ShiftDirection::Right => (
-                (original >> 1) | (u16::from(original.bit(0)) << 15),
-                original.bit(0),
-            ),
+            ShiftDirection::Left => {
+                ((original << 1) | u16::from(original.sign_bit()), original.sign_bit())
+            }
+            ShiftDirection::Right => {
+                ((original >> 1) | (u16::from(original.bit(0)) << 15), original.bit(0))
+            }
         };
 
         self.registers.ccr = ConditionCodes {
@@ -679,11 +673,7 @@ pub(super) fn decode_clr(opcode: u16) -> ExecuteResult<Instruction> {
 
 pub(super) fn decode_ext(opcode: u16) -> Instruction {
     let register = (opcode & 0x07) as u8;
-    let size = if opcode.bit(6) {
-        OpSize::LongWord
-    } else {
-        OpSize::Word
-    };
+    let size = if opcode.bit(6) { OpSize::LongWord } else { OpSize::Word };
 
     Instruction::Extend(size, register.into())
 }
@@ -757,12 +747,7 @@ macro_rules! impl_decode_shift_register {
             let register = (opcode & 0x07) as u8;
             let count = ShiftCount::parse_from_opcode(opcode);
 
-            Ok(Instruction::$instruction(
-                size,
-                direction,
-                register.into(),
-                count,
-            ))
+            Ok(Instruction::$instruction(size, direction, register.into(), count))
         }
     };
 }

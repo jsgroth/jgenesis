@@ -224,11 +224,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             diff |= 0x60;
         }
 
-        let value = if flags.subtract {
-            a.wrapping_sub(diff)
-        } else {
-            a.wrapping_add(diff)
-        };
+        let value = if flags.subtract { a.wrapping_sub(diff) } else { a.wrapping_add(diff) };
 
         let half_carry = a.bit(4) != value.bit(4);
 
@@ -247,11 +243,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
     pub(super) fn cpl(&mut self) -> u32 {
         self.registers.a = !self.registers.a;
-        self.registers.f = Flags {
-            half_carry: true,
-            subtract: true,
-            ..self.registers.f
-        };
+        self.registers.f = Flags { half_carry: true, subtract: true, ..self.registers.f };
 
         4
     }
@@ -275,12 +267,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     }
 
     pub(super) fn scf(&mut self) -> u32 {
-        self.registers.f = Flags {
-            half_carry: false,
-            subtract: false,
-            carry: true,
-            ..self.registers.f
-        };
+        self.registers.f =
+            Flags { half_carry: false, subtract: false, carry: true, ..self.registers.f };
 
         4
     }
@@ -342,11 +330,7 @@ fn add(l: u8, r: u8, with_carry: bool, flags: &mut Flags) -> u8 {
 }
 
 fn add_u16(l: u16, r: u16, with_carry: bool, flags: &mut Flags) -> u16 {
-    let carry_operand = if with_carry {
-        u16::from(flags.carry)
-    } else {
-        0
-    };
+    let carry_operand = if with_carry { u16::from(flags.carry) } else { 0 };
 
     let (sum, carry) = match l.overflowing_add(r) {
         (sum, true) => (sum + carry_operand, true),
@@ -355,24 +339,14 @@ fn add_u16(l: u16, r: u16, with_carry: bool, flags: &mut Flags) -> u16 {
 
     let half_carry = (l & 0x0FFF) + (r & 0x0FFF) + carry_operand >= 0x1000;
 
-    *flags = Flags {
-        half_carry,
-        subtract: false,
-        carry,
-        ..*flags
-    };
+    *flags = Flags { half_carry, subtract: false, carry, ..*flags };
 
     if with_carry {
         // S, Z, and P/V are only set in 16-bit ADC, not 16-bit ADD
         let bit_14_carry = (l & 0x7FFF) + (r & 0x7FFF) + carry_operand >= 0x8000;
         let overflow = bit_14_carry != carry;
 
-        *flags = Flags {
-            sign: sum.bit(15),
-            zero: sum == 0,
-            overflow,
-            ..*flags
-        };
+        *flags = Flags { sign: sum.bit(15), zero: sum == 0, overflow, ..*flags };
     }
 
     sum

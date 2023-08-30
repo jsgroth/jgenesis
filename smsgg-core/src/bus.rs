@@ -22,13 +22,7 @@ impl<'a> Bus<'a> {
         psg: &'a mut Psg,
         input: &'a mut InputState,
     ) -> Self {
-        Self {
-            version,
-            memory,
-            vdp,
-            psg,
-            input,
-        }
+        Self { version, memory, vdp, psg, input }
     }
 }
 

@@ -118,10 +118,7 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     let hardware = args.hardware.unwrap_or_else(|| {
-        let file_ext = Path::new(&args.file_path)
-            .extension()
-            .and_then(OsStr::to_str)
-            .unwrap();
+        let file_ext = Path::new(&args.file_path).extension().and_then(OsStr::to_str).unwrap();
         match file_ext {
             "sms" | "gg" => Hardware::MasterSystem,
             "md" | "bin" => Hardware::Genesis,

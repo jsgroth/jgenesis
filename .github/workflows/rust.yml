@@ -21,14 +21,21 @@ jobs:
       with:
         toolchain: stable
 
+    - name: Install latest nightly Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        components: rustfmt
+
     - name: Install system library dependencies
       run: |
-        sudo apt update && sudo apt install -y libsdl2-dev libasound2-dev
+        sudo apt update && sudo apt install -y libsdl2-dev
 
     - name: Check formatting
       uses: actions-rs/cargo@v1
       with:
         command: fmt
+        toolchain: nightly
         args: --check
 
     - name: Build

@@ -201,10 +201,7 @@ impl GenesisEmulator {
             let frame_width = self.vdp.screen_width();
             let frame_height = self.vdp.screen_height();
 
-            let frame_size = FrameSize {
-                width: frame_width,
-                height: frame_height,
-            };
+            let frame_size = FrameSize { width: frame_width, height: frame_height };
             let pixel_aspect_ratio = self.aspect_ratio.to_pixel_aspect_ratio(frame_size);
 
             renderer

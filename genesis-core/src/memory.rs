@@ -130,7 +130,9 @@ impl Ram {
             ram_header_bytes[11],
         ]);
 
-        log::info!("RAM header information: type={ram_type:?}, persistent={persistent}, start_address={start_address:06X}, end_address={end_address:06X}");
+        log::info!(
+            "RAM header information: type={ram_type:?}, persistent={persistent}, start_address={start_address:06X}, end_address={end_address:06X}"
+        );
 
         let ram_len = if ram_type == RamType::SixteenBit {
             end_address - start_address + 1
@@ -164,8 +166,7 @@ impl Ram {
     }
 
     fn read_byte(&self, address: u32) -> Option<u8> {
-        self.map_address(address)
-            .map(|address| self.ram[address as usize])
+        self.map_address(address).map(|address| self.ram[address as usize])
     }
 
     fn write_byte(&mut self, address: u32, value: u8) {
@@ -180,10 +181,7 @@ impl Ram {
         if msb.is_none() && lsb.is_none() {
             None
         } else {
-            Some(u16::from_be_bytes([
-                msb.unwrap_or(0x00),
-                lsb.unwrap_or(0x00),
-            ]))
+            Some(u16::from_be_bytes([msb.unwrap_or(0x00), lsb.unwrap_or(0x00)]))
         }
     }
 
@@ -227,12 +225,7 @@ impl Cartridge {
 
         // TODO parse more stuff out of header
         let rom_address_mask = (rom_bytes.len() - 1) as u32;
-        Ok(Self {
-            rom: Rom(rom_bytes),
-            ram,
-            rom_address_mask,
-            region,
-        })
+        Ok(Self { rom: Rom(rom_bytes), ram, rom_address_mask, region })
     }
 
     fn read_byte(&self, address: u32) -> u8 {
@@ -248,10 +241,7 @@ impl Cartridge {
             return word;
         }
 
-        u16::from_be_bytes([
-            self.read_byte(address),
-            self.read_byte(address.wrapping_add(1)),
-        ])
+        u16::from_be_bytes([self.read_byte(address), self.read_byte(address.wrapping_add(1))])
     }
 
     fn write_byte(&mut self, address: u32, value: u8) {
@@ -298,10 +288,7 @@ struct Signals {
 
 impl Default for Signals {
     fn default() -> Self {
-        Self {
-            z80_busreq: false,
-            z80_reset: true,
-        }
+        Self { z80_busreq: false, z80_reset: true }
     }
 }
 
@@ -384,14 +371,7 @@ impl<'a> MainBus<'a> {
         input: &'a mut InputState,
         z80_stalled: bool,
     ) -> Self {
-        Self {
-            memory,
-            vdp,
-            psg,
-            ym2612,
-            input,
-            z80_stalled,
-        }
+        Self { memory, vdp, psg, ym2612, input, z80_stalled }
     }
 
     // TODO remove
@@ -651,7 +631,9 @@ impl<'a> z80_emu::BusInterface for MainBus<'a> {
                     <Self as m68000_emu::BusInterface>::read_byte(self, m68k_addr)
                 } else {
                     // TODO this should lock up the system
-                    panic!("Z80 attempted to read its own memory from the 68k bus; z80_addr={address:04X}, m68k_addr={m68k_addr:08X}");
+                    panic!(
+                        "Z80 attempted to read its own memory from the 68k bus; z80_addr={address:04X}, m68k_addr={m68k_addr:08X}"
+                    );
                 }
             }
         }
@@ -701,7 +683,9 @@ impl<'a> z80_emu::BusInterface for MainBus<'a> {
                     <Self as m68000_emu::BusInterface>::write_byte(self, m68k_addr, value);
                 } else {
                     // TODO this should lock up the system
-                    panic!("Z80 attempted to read its own memory from the 68k bus; z80_addr={address:04X}, m68k_addr={m68k_addr:08X}");
+                    panic!(
+                        "Z80 attempted to read its own memory from the 68k bus; z80_addr={address:04X}, m68k_addr={m68k_addr:08X}"
+                    );
                 }
             }
         }

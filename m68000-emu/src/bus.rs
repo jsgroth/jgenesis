@@ -7,9 +7,7 @@ pub struct InMemoryBus {
 impl InMemoryBus {
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            memory: vec![0; 0x0100_0000],
-        }
+        Self { memory: vec![0; 0x0100_0000] }
     }
 }
 

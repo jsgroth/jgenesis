@@ -80,10 +80,7 @@ struct FullyWritableBus {
 
 impl FullyWritableBus {
     fn new() -> Self {
-        Self {
-            memory: [0; 0x10000],
-            io_ports: [0; 0x100],
-        }
+        Self { memory: [0; 0x10000], io_ports: [0; 0x100] }
     }
 }
 

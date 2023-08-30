@@ -28,11 +28,7 @@ enum InputPinDirection {
 
 impl InputPinDirection {
     fn from_ctrl_bit(bit: bool) -> Self {
-        if bit {
-            Self::Output
-        } else {
-            Self::Input
-        }
+        if bit { Self::Output } else { Self::Input }
     }
 
     fn to_ctrl_bit(self) -> bool {
@@ -69,26 +65,13 @@ impl PinDirections {
         let down = InputPinDirection::from_ctrl_bit(byte.bit(1));
         let up = InputPinDirection::from_ctrl_bit(byte.bit(0));
 
-        Self {
-            last_data_write,
-            th,
-            tl,
-            tr,
-            right,
-            left,
-            down,
-            up,
-        }
+        Self { last_data_write, th, tl, tr, right, left, down, up }
     }
 
     fn to_data_byte(self, joypad_state: GenesisJoypadState) -> u8 {
         let th = self.th.to_data_bit(true, self.last_data_write.bit(6));
 
-        let tl_joypad = if th {
-            !joypad_state.c
-        } else {
-            !joypad_state.start
-        };
+        let tl_joypad = if th { !joypad_state.c } else { !joypad_state.start };
         let tr_joypad = if th { !joypad_state.b } else { !joypad_state.a };
         let right_joypad = th && !joypad_state.right;
         let left_joypad = th && !joypad_state.left;
@@ -100,14 +83,8 @@ impl PinDirections {
             | (u8::from(self.tr.to_data_bit(tr_joypad, last_data_write.bit(4))) << 4)
             | (u8::from(self.right.to_data_bit(right_joypad, last_data_write.bit(3))) << 3)
             | (u8::from(self.left.to_data_bit(left_joypad, last_data_write.bit(2))) << 2)
-            | (u8::from(
-                self.down
-                    .to_data_bit(!joypad_state.down, last_data_write.bit(1)),
-            ) << 1)
-            | u8::from(
-                self.up
-                    .to_data_bit(!joypad_state.up, last_data_write.bit(0)),
-            )
+            | (u8::from(self.down.to_data_bit(!joypad_state.down, last_data_write.bit(1))) << 1)
+            | u8::from(self.up.to_data_bit(!joypad_state.up, last_data_write.bit(0)))
     }
 
     fn to_ctrl_byte(self) -> u8 {

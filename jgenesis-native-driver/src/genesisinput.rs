@@ -22,18 +22,12 @@ fn get_field(inputs: &mut GenesisInputs, keycode: Keycode) -> Option<&mut bool> 
 
 pub fn update_inputs(event: &Event, inputs: &mut GenesisInputs) {
     match *event {
-        Event::KeyDown {
-            keycode: Some(keycode),
-            ..
-        } => {
+        Event::KeyDown { keycode: Some(keycode), .. } => {
             if let Some(field) = get_field(inputs, keycode) {
                 *field = true;
             }
         }
-        Event::KeyUp {
-            keycode: Some(keycode),
-            ..
-        } => {
+        Event::KeyUp { keycode: Some(keycode), .. } => {
             if let Some(field) = get_field(inputs, keycode) {
                 *field = false;
             }

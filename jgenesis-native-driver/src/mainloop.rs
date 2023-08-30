@@ -28,20 +28,12 @@ impl SdlAudioOutput {
         let audio_queue = audio
             .open_queue(
                 None,
-                &AudioSpecDesired {
-                    freq: Some(48000),
-                    channels: Some(2),
-                    samples: Some(64),
-                },
+                &AudioSpecDesired { freq: Some(48000), channels: Some(2), samples: Some(64) },
             )
             .map_err(|err| anyhow!("Error opening SDL2 audio queue: {err}"))?;
         audio_queue.resume();
 
-        Ok(Self {
-            audio_queue,
-            audio_buffer: Vec::with_capacity(64),
-            audio_sync,
-        })
+        Ok(Self { audio_queue, audio_buffer: Vec::with_capacity(64), audio_sync })
     }
 }
 
@@ -119,30 +111,20 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
     let save_path = rom_file_path.with_extension("sav");
     let initial_cartridge_ram = fs::read(&save_path).ok();
 
-    let vdp_version = config
-        .vdp_version
-        .unwrap_or_else(|| config::default_vdp_version_for_ext(file_ext));
-    let psg_version = config
-        .psg_version
-        .unwrap_or_else(|| config::default_psg_version_for_ext(file_ext));
+    let vdp_version =
+        config.vdp_version.unwrap_or_else(|| config::default_vdp_version_for_ext(file_ext));
+    let psg_version =
+        config.psg_version.unwrap_or_else(|| config::default_psg_version_for_ext(file_ext));
 
     log::info!("VDP version: {vdp_version:?}");
     log::info!("PSG version: {psg_version:?}");
 
     let (video, audio, mut event_pump) = init_sdl()?;
 
-    let WindowSize {
-        width: window_width,
-        height: window_height,
-    } = config
-        .window_size
-        .unwrap_or_else(|| config::default_smsgg_window_size(vdp_version));
+    let WindowSize { width: window_width, height: window_height } =
+        config.window_size.unwrap_or_else(|| config::default_smsgg_window_size(vdp_version));
     let window = video
-        .window(
-            &format!("smsgg - {rom_file_name}"),
-            window_width,
-            window_height,
-        )
+        .window(&format!("smsgg - {rom_file_name}"), window_width, window_height)
         .resizable()
         .build()?;
 
@@ -180,11 +162,7 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
                 handle_hotkeys(&event, &mut emulator, &save_state_path)?;
 
                 match event {
-                    Event::Quit { .. }
-                    | Event::KeyDown {
-                        keycode: Some(Keycode::Escape),
-                        ..
-                    } => {
+                    Event::Quit { .. } | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
                         return Ok(());
                     }
                     Event::Window { win_event, .. } => {
@@ -215,18 +193,10 @@ pub fn run_genesis(config: GenesisConfig) -> anyhow::Result<()> {
 
     let (video, audio, mut event_pump) = init_sdl()?;
 
-    let WindowSize {
-        width: window_width,
-        height: window_height,
-    } = config
-        .window_size
-        .unwrap_or(config::DEFAULT_GENESIS_WINDOW_SIZE);
+    let WindowSize { width: window_width, height: window_height } =
+        config.window_size.unwrap_or(config::DEFAULT_GENESIS_WINDOW_SIZE);
     let window = video
-        .window(
-            &format!("genesis - {}", emulator.cartridge_title()),
-            window_width,
-            window_height,
-        )
+        .window(&format!("genesis - {}", emulator.cartridge_title()), window_width, window_height)
         .resizable()
         .build()?;
 
@@ -243,11 +213,7 @@ pub fn run_genesis(config: GenesisConfig) -> anyhow::Result<()> {
                 handle_hotkeys(&event, &mut emulator, &save_state_path)?;
 
                 match event {
-                    Event::Quit { .. }
-                    | Event::KeyDown {
-                        keycode: Some(Keycode::Escape),
-                        ..
-                    } => {
+                    Event::Quit { .. } | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
                         return Ok(());
                     }
                     Event::Window { win_event, .. } => {
@@ -275,15 +241,12 @@ fn parse_file_ext(path: &Path) -> anyhow::Result<&str> {
 // Initialize SDL2 and hide the mouse cursor
 fn init_sdl() -> anyhow::Result<(VideoSubsystem, AudioSubsystem, EventPump)> {
     let sdl = sdl2::init().map_err(|err| anyhow!("Error initializing SDL2: {err}"))?;
-    let video = sdl
-        .video()
-        .map_err(|err| anyhow!("Error initializing SDL2 video subsystem: {err}"))?;
-    let audio = sdl
-        .audio()
-        .map_err(|err| anyhow!("Error initializing SDL2 audio subsystem: {err}"))?;
-    let event_pump = sdl
-        .event_pump()
-        .map_err(|err| anyhow!("Error initializing SDL2 event pump: {err}"))?;
+    let video =
+        sdl.video().map_err(|err| anyhow!("Error initializing SDL2 video subsystem: {err}"))?;
+    let audio =
+        sdl.audio().map_err(|err| anyhow!("Error initializing SDL2 audio subsystem: {err}"))?;
+    let event_pump =
+        sdl.event_pump().map_err(|err| anyhow!("Error initializing SDL2 event pump: {err}"))?;
 
     sdl.mouse().show_cursor(false);
 
@@ -318,16 +281,10 @@ where
     let save_state_path = save_state_path.as_ref();
 
     match event {
-        Event::KeyDown {
-            keycode: Some(Keycode::F5),
-            ..
-        } => {
+        Event::KeyDown { keycode: Some(Keycode::F5), .. } => {
             save_state(emulator, save_state_path)?;
         }
-        Event::KeyDown {
-            keycode: Some(Keycode::F6),
-            ..
-        } => {
+        Event::KeyDown { keycode: Some(Keycode::F6), .. } => {
             let mut loaded_emulator: Emulator = match load_state(save_state_path) {
                 Ok(emulator) => emulator,
                 Err(err) => {
@@ -358,9 +315,7 @@ fn handle_window_event(win_event: WindowEvent, renderer: &mut WgpuRenderer) {
 
 macro_rules! bincode_config {
     () => {
-        bincode::config::standard()
-            .with_little_endian()
-            .with_fixed_int_encoding()
+        bincode::config::standard().with_little_endian().with_fixed_int_encoding()
     };
 }
 

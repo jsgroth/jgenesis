@@ -402,11 +402,7 @@ impl Registers {
     }
 
     fn sprite_width(&self) -> u8 {
-        if self.double_sprite_size {
-            16
-        } else {
-            8
-        }
+        if self.double_sprite_size { 16 } else { 8 }
     }
 }
 
@@ -450,19 +446,11 @@ struct SpriteBuffer {
 
 impl SpriteBuffer {
     fn new() -> Self {
-        Self {
-            sprites: [SpriteData::default(); 64],
-            len: 0,
-            overflow: false,
-        }
+        Self { sprites: [SpriteData::default(); 64], len: 0, overflow: false }
     }
 
     fn iter(&self) -> BufferIter<'_, SpriteData> {
-        BufferIter {
-            buffer: &self.sprites,
-            idx: 0,
-            len: self.len,
-        }
+        BufferIter { buffer: &self.sprites, idx: 0, len: self.len }
     }
 
     fn clear(&mut self) {
@@ -524,11 +512,8 @@ fn find_sprites_on_scanline(
                 }
             }
 
-            sprite_buffer.sprites[sprite_buffer.len] = SpriteData {
-                y,
-                x,
-                tile_index: tile_index.into(),
-            };
+            sprite_buffer.sprites[sprite_buffer.len] =
+                SpriteData { y, x, tile_index: tile_index.into() };
             sprite_buffer.len += 1;
         }
     }
@@ -549,10 +534,7 @@ pub struct VdpBuffer {
 
 impl VdpBuffer {
     fn new(version: VdpVersion) -> Self {
-        Self {
-            buffer: [0; FRAME_BUFFER_LEN],
-            viewport: version.viewport_size(),
-        }
+        Self { buffer: [0; FRAME_BUFFER_LEN], viewport: version.viewport_size() }
     }
 
     #[inline]
@@ -573,10 +555,7 @@ impl VdpBuffer {
     }
 
     pub fn iter(&self) -> FrameBufferRowIter<'_> {
-        FrameBufferRowIter {
-            buffer: self,
-            row: 0,
-        }
+        FrameBufferRowIter { buffer: self, row: 0 }
     }
 }
 
@@ -590,20 +569,14 @@ impl Encode for VdpBuffer {
 impl Decode for VdpBuffer {
     fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError> {
         let viewport = ViewportSize::decode(decoder)?;
-        Ok(Self {
-            buffer: [0; FRAME_BUFFER_LEN],
-            viewport,
-        })
+        Ok(Self { buffer: [0; FRAME_BUFFER_LEN], viewport })
     }
 }
 
 impl<'de> BorrowDecode<'de> for VdpBuffer {
     fn borrow_decode<D: BorrowDecoder<'de>>(decoder: &mut D) -> Result<Self, DecodeError> {
         let viewport = ViewportSize::borrow_decode(decoder)?;
-        Ok(Self {
-            buffer: [0; FRAME_BUFFER_LEN],
-            viewport,
-        })
+        Ok(Self { buffer: [0; FRAME_BUFFER_LEN], viewport })
     }
 }
 
@@ -701,22 +674,12 @@ impl Vdp {
         let high_byte = self.vram[(name_table_addr + 1) as usize];
 
         let priority = high_byte.bit(4);
-        let palette = if !high_byte.bit(3) {
-            Palette::Palette0
-        } else {
-            Palette::Palette1
-        };
+        let palette = if !high_byte.bit(3) { Palette::Palette0 } else { Palette::Palette1 };
         let vertical_flip = high_byte.bit(2);
         let horizontal_flip = high_byte.bit(1);
         let tile_index = (u16::from(high_byte.bit(0)) << 8) | u16::from(low_byte);
 
-        BgTileData {
-            priority,
-            palette,
-            vertical_flip,
-            horizontal_flip,
-            tile_index,
-        }
+        BgTileData { priority, palette, vertical_flip, horizontal_flip, tile_index }
     }
 
     fn render_scanline(&mut self) {
@@ -728,10 +691,7 @@ impl Vdp {
             if scanline < 16 && self.registers.horizontal_scroll_lock {
                 (0, 0)
             } else {
-                (
-                    u16::from(self.registers.x_scroll >> 3),
-                    u16::from(self.registers.x_scroll & 0x07),
-                )
+                (u16::from(self.registers.x_scroll >> 3), u16::from(self.registers.x_scroll & 0x07))
             };
 
         // Backdrop color always reads from the second half of CRAM
@@ -753,22 +713,16 @@ impl Vdp {
         }
 
         let sprite_width = self.registers.sprite_width();
-        let sprite_pixel_size = if self.registers.double_sprite_size {
-            2
-        } else {
-            1
-        };
+        let sprite_pixel_size = if self.registers.double_sprite_size { 2 } else { 1 };
 
         for column in 0..32 {
-            let (coarse_y_scroll, fine_y_scroll) =
-                if column >= 24 && self.registers.vertical_scroll_lock {
-                    (0, 0)
-                } else {
-                    (
-                        u16::from(self.registers.y_scroll >> 3),
-                        u16::from(self.registers.y_scroll & 0x07),
-                    )
-                };
+            let (coarse_y_scroll, fine_y_scroll) = if column >= 24
+                && self.registers.vertical_scroll_lock
+            {
+                (0, 0)
+            } else {
+                (u16::from(self.registers.y_scroll >> 3), u16::from(self.registers.y_scroll & 0x07))
+            };
 
             let name_table_rows = self.registers.mode.name_table_rows();
             let name_table_row =
@@ -798,12 +752,8 @@ impl Vdp {
                     continue;
                 }
 
-                let bg_color_id = get_color_id(
-                    bg_tile,
-                    bg_tile_row,
-                    bg_tile_col,
-                    bg_tile_data.horizontal_flip,
-                );
+                let bg_color_id =
+                    get_color_id(bg_tile, bg_tile_row, bg_tile_col, bg_tile_data.horizontal_flip);
 
                 let mut found_sprite_color_id = None;
                 for sprite in self.sprite_buffer.iter() {
@@ -863,10 +813,7 @@ impl Vdp {
             log::trace!("  {i:02X}: {value:02X}");
         }
 
-        log::trace!(
-            "Nametable ({:04X}):",
-            self.registers.base_name_table_address
-        );
+        log::trace!("Nametable ({:04X}):", self.registers.base_name_table_address);
         for row in 0..28 {
             for col in 0..32 {
                 let name_table_word = self.read_name_table_word(row, col);
@@ -921,11 +868,8 @@ impl Vdp {
             self.fill_vertical_border();
         }
 
-        let tick_effect = if vblank_start {
-            VdpTickEffect::FrameComplete
-        } else {
-            VdpTickEffect::None
-        };
+        let tick_effect =
+            if vblank_start { VdpTickEffect::FrameComplete } else { VdpTickEffect::None };
 
         self.dot += 1;
         if self.dot == DOTS_PER_SCANLINE {
@@ -947,12 +891,8 @@ impl Vdp {
     fn fill_vertical_border(&mut self) {
         let backdrop_color = self.read_color_ram_word(0x10 | self.registers.backdrop_color);
 
-        let ViewportSize {
-            top_border_height,
-            height,
-            bottom_border_height,
-            ..
-        } = self.frame_buffer.viewport;
+        let ViewportSize { top_border_height, height, bottom_border_height, .. } =
+            self.frame_buffer.viewport;
 
         let mode_border_offset = self.registers.mode.vertical_border_offset();
 
@@ -988,18 +928,13 @@ impl Vdp {
     }
 
     pub fn write_data(&mut self, value: u8) {
-        self.registers
-            .write_data(value, &mut self.vram, &mut self.color_ram);
+        self.registers.write_data(value, &mut self.vram, &mut self.color_ram);
     }
 
     pub fn v_counter(&self) -> u8 {
         match (self.registers.version, self.registers.mode) {
             (VdpVersion::NtscMasterSystem2 | VdpVersion::GameGear, Mode::Four) => {
-                if self.scanline <= 0xDA {
-                    self.scanline as u8
-                } else {
-                    (self.scanline - 6) as u8
-                }
+                if self.scanline <= 0xDA { self.scanline as u8 } else { (self.scanline - 6) as u8 }
             }
             (VdpVersion::PalMasterSystem2, Mode::Four) => {
                 if self.scanline <= 0xF2 {
@@ -1009,11 +944,7 @@ impl Vdp {
                 }
             }
             (VdpVersion::NtscMasterSystem2 | VdpVersion::GameGear, Mode::Four224Line) => {
-                if self.scanline <= 0xEA {
-                    self.scanline as u8
-                } else {
-                    (self.scanline - 6) as u8
-                }
+                if self.scanline <= 0xEA { self.scanline as u8 } else { (self.scanline - 6) as u8 }
             }
             (VdpVersion::PalMasterSystem2, Mode::Four224Line) => {
                 if self.scanline <= 0xFF {
@@ -1039,11 +970,7 @@ impl Vdp {
 }
 
 fn get_color_id(tile: &[u8], tile_row: u16, tile_col: u16, horizontal_flip: bool) -> u8 {
-    let shift = if horizontal_flip {
-        tile_col
-    } else {
-        7 - tile_col
-    };
+    let shift = if horizontal_flip { tile_col } else { 7 - tile_col };
     let mask = 1 << shift;
     ((tile[(4 * tile_row) as usize] & mask) >> shift)
         | (((tile[(4 * tile_row + 1) as usize] & mask) >> shift) << 1)

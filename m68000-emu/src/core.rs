@@ -87,11 +87,7 @@ impl Registers {
     }
 
     fn sp(&self) -> u32 {
-        if self.supervisor_mode {
-            self.ssp
-        } else {
-            self.usp
-        }
+        if self.supervisor_mode { self.ssp } else { self.usp }
     }
 
     fn set_sp(&mut self, sp: u32) {
@@ -212,11 +208,7 @@ trait IncrementStep: Copy {
 
 impl IncrementStep for u8 {
     fn increment_step_for(register: AddressRegister) -> u32 {
-        if register.is_stack_pointer() {
-            2
-        } else {
-            1
-        }
+        if register.is_stack_pointer() { 2 } else { 1 }
     }
 }
 
@@ -323,11 +315,7 @@ fn parse_index(extension: u16) -> (IndexRegister, IndexSize) {
         IndexRegister::Data(register_number.into())
     };
 
-    let size = if extension.bit(11) {
-        IndexSize::LongWord
-    } else {
-        IndexSize::SignExtendedWord
-    };
+    let size = if extension.bit(11) { IndexSize::LongWord } else { IndexSize::SignExtendedWord };
 
     (register, size)
 }
@@ -389,9 +377,9 @@ impl AddressingMode {
             (0x07, 0x02) => Ok(Self::PcRelativeDisplacement),
             (0x07, 0x03) => Ok(Self::PcRelativeIndexed),
             (0x07, 0x04) => Ok(Self::Immediate),
-            (0x07, 0x05..=0x07) => Err(Exception::IllegalInstruction(
-                ((mode << 3) | register).into(),
-            )),
+            (0x07, 0x05..=0x07) => {
+                Err(Exception::IllegalInstruction(((mode << 3) | register).into()))
+            }
             _ => unreachable!("value & 0x07 is always <= 0x07"),
         }
     }
@@ -471,22 +459,13 @@ enum ResolvedAddress {
     DataRegister(DataRegister),
     AddressRegister(AddressRegister),
     Memory(u32),
-    MemoryPostincrement {
-        address: u32,
-        register: AddressRegister,
-        increment: u32,
-    },
+    MemoryPostincrement { address: u32, register: AddressRegister, increment: u32 },
     Immediate(u32),
 }
 
 impl ResolvedAddress {
     fn apply_post(self, registers: &mut Registers) {
-        if let ResolvedAddress::MemoryPostincrement {
-            address,
-            register,
-            increment,
-        } = self
-        {
+        if let ResolvedAddress::MemoryPostincrement { address, register, increment } = self {
             register.write_long_word_to(registers, address.wrapping_add(increment));
         }
     }
@@ -508,12 +487,7 @@ const AUTO_VECTORED_INTERRUPT_BASE_ADDRESS: u32 = 0x60;
 
 impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
     fn new(registers: &'registers mut Registers, bus: &'bus mut B) -> Self {
-        Self {
-            registers,
-            bus,
-            opcode: 0,
-            instruction: None,
-        }
+        Self { registers, bus, opcode: 0, instruction: None }
     }
 
     // Read a word from the bus; returns an address error if address is odd
@@ -588,18 +562,12 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             AddressingMode::AddressIndirectPostincrement(register) => {
                 let increment = size.increment_step_for(register);
                 let address = register.read_from(self.registers);
-                ResolvedAddress::MemoryPostincrement {
-                    address,
-                    register,
-                    increment,
-                }
+                ResolvedAddress::MemoryPostincrement { address, register, increment }
             }
             AddressingMode::AddressIndirectDisplacement(register) => {
                 let extension = self.fetch_operand()?;
                 let displacement = extension as i16;
-                let address = register
-                    .read_from(self.registers)
-                    .wrapping_add(displacement as u32);
+                let address = register.read_from(self.registers).wrapping_add(displacement as u32);
                 ResolvedAddress::Memory(address)
             }
             AddressingMode::AddressIndirectIndexed(register) => {
@@ -718,12 +686,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     ) -> ExecuteResult<SizedValue> {
         match size {
             OpSize::Byte => Ok(SizedValue::Byte(self.read_byte_resolved(resolved_address))),
-            OpSize::Word => self
-                .read_word_resolved(resolved_address)
-                .map(SizedValue::Word),
-            OpSize::LongWord => self
-                .read_long_word_resolved(resolved_address)
-                .map(SizedValue::LongWord),
+            OpSize::Word => self.read_word_resolved(resolved_address).map(SizedValue::Word),
+            OpSize::LongWord => {
+                self.read_long_word_resolved(resolved_address).map(SizedValue::LongWord)
+            }
         }
     }
 
@@ -926,9 +892,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         self.registers.supervisor_mode = true;
 
         let dest = self.instruction.and_then(Instruction::dest_addressing_mode);
-        let source = self
-            .instruction
-            .and_then(Instruction::source_addressing_mode);
+        let source = self.instruction.and_then(Instruction::source_addressing_mode);
 
         let pc = match (op_type, dest, source) {
             (BusOpType::Write, Some(AddressingMode::AddressIndirectPredecrement(..)), Some(_)) => {
@@ -1070,10 +1034,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 34
             }
             Err(Exception::CheckRegister { cycles }) => {
-                if self
-                    .handle_trap(CHECK_REGISTER_VECTOR, self.registers.pc)
-                    .is_err()
-                {
+                if self.handle_trap(CHECK_REGISTER_VECTOR, self.registers.pc).is_err() {
                     todo!("???")
                 }
 
@@ -1093,10 +1054,7 @@ pub struct M68000 {
 impl M68000 {
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            registers: Registers::new(),
-            halted: false,
-        }
+        Self { registers: Registers::new(), halted: false }
     }
 
     #[must_use]

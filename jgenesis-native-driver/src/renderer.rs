@@ -28,22 +28,10 @@ impl Vertex {
 }
 
 const VERTICES: [Vertex; 4] = [
-    Vertex {
-        position: [-1.0, -1.0],
-        texture_coords: [0.0, 1.0],
-    },
-    Vertex {
-        position: [1.0, -1.0],
-        texture_coords: [1.0, 1.0],
-    },
-    Vertex {
-        position: [-1.0, 1.0],
-        texture_coords: [0.0, 0.0],
-    },
-    Vertex {
-        position: [1.0, 1.0],
-        texture_coords: [1.0, 0.0],
-    },
+    Vertex { position: [-1.0, -1.0], texture_coords: [0.0, 1.0] },
+    Vertex { position: [1.0, -1.0], texture_coords: [1.0, 1.0] },
+    Vertex { position: [-1.0, 1.0], texture_coords: [0.0, 0.0] },
+    Vertex { position: [1.0, 1.0], texture_coords: [1.0, 0.0] },
 ];
 
 struct RenderingPipeline {
@@ -317,9 +305,8 @@ impl RenderingPipeline {
         frame_buffer: &[Color],
     ) -> anyhow::Result<()> {
         let output = surface.get_current_texture()?;
-        let output_texture_view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let output_texture_view =
+            output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         queue.write_texture(
             wgpu::ImageCopyTexture {
@@ -337,13 +324,11 @@ impl RenderingPipeline {
             self.input_texture.size(),
         );
 
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: "encoder".into(),
-        });
+        let mut encoder = device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: "encoder".into() });
 
-        let scaled_texture_view = self
-            .scaled_texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let scaled_texture_view =
+            self.scaled_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         {
             let mut prescale_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -406,14 +391,10 @@ fn compute_vertices(
     let frame_aspect_ratio = f64::from(frame_size.width) / f64::from(frame_size.height);
     let screen_aspect_ratio = pixel_aspect_ratio * frame_aspect_ratio;
 
-    let screen_width = cmp::min(
-        window_width,
-        (f64::from(window_height) * screen_aspect_ratio).round() as u32,
-    );
-    let screen_height = cmp::min(
-        window_height,
-        (f64::from(screen_width) / screen_aspect_ratio).round() as u32,
-    );
+    let screen_width =
+        cmp::min(window_width, (f64::from(window_height) * screen_aspect_ratio).round() as u32);
+    let screen_height =
+        cmp::min(window_height, (f64::from(screen_width) / screen_aspect_ratio).round() as u32);
 
     let x = (window_width - screen_width) / 2;
     let y = (window_height - screen_height) / 2;
@@ -478,10 +459,7 @@ impl WgpuRenderer {
             .await
             .ok_or_else(|| anyhow!("Unable to obtain wgpu adapter"))?;
 
-        log::info!(
-            "Obtained wgpu adapter with backend {:?}",
-            adapter.get_info().backend
-        );
+        log::info!("Obtained wgpu adapter with backend {:?}", adapter.get_info().backend);
 
         let (device, queue) = adapter
             .request_device(
@@ -498,7 +476,10 @@ impl WgpuRenderer {
 
         let present_mode = config.vsync_mode.to_wgpu_present_mode();
         if !surface_capabilities.present_modes.contains(&present_mode) {
-            return Err(anyhow!("wgpu adapter does not support present mode {present_mode:?}; supported modes are {:?}", surface_capabilities.present_modes));
+            return Err(anyhow!(
+                "wgpu adapter does not support present mode {present_mode:?}; supported modes are {:?}",
+                surface_capabilities.present_modes
+            ));
         }
 
         let surface_format = surface_capabilities
@@ -562,7 +543,9 @@ impl WgpuRenderer {
                     || pipeline.pixel_aspect_ratio != pixel_aspect_ratio
             })
         {
-            log::info!("Creating render pipeline for frame size {frame_size:?} and pixel aspect ratio {pixel_aspect_ratio:?}");
+            log::info!(
+                "Creating render pipeline for frame size {frame_size:?} and pixel aspect ratio {pixel_aspect_ratio:?}"
+            );
 
             self.pipeline = Some(RenderingPipeline::create(
                 &self.device,

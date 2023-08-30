@@ -81,12 +81,7 @@ const SMS2_ATTENUATION_TO_VOLUME: [f64; 16] = [
 
 impl SquareWaveGenerator {
     fn new() -> Self {
-        Self {
-            counter: 0,
-            current_output: WaveOutput::Negative,
-            tone: 0,
-            attenuation: 0x0F,
-        }
+        Self { counter: 0, current_output: WaveOutput::Negative, tone: 0, attenuation: 0x0F }
     }
 
     fn update_tone_low_bits(&mut self, data: u8) {
@@ -175,11 +170,8 @@ impl NoiseGenerator {
     }
 
     fn shift_lfsr(&mut self) {
-        self.current_lfsr_output = if self.lfsr.bit(0) {
-            WaveOutput::Positive
-        } else {
-            WaveOutput::Zero
-        };
+        self.current_lfsr_output =
+            if self.lfsr.bit(0) { WaveOutput::Positive } else { WaveOutput::Zero };
 
         let input_bit = match self.noise_type {
             NoiseType::Periodic => self.lfsr.bit(0),
@@ -191,11 +183,7 @@ impl NoiseGenerator {
 
     fn write_data(&mut self, data: u8) {
         self.counter_reload = NoiseReload::from_noise_register(data);
-        self.noise_type = if data.bit(2) {
-            NoiseType::White
-        } else {
-            NoiseType::Periodic
-        };
+        self.noise_type = if data.bit(2) { NoiseType::White } else { NoiseType::Periodic };
 
         self.lfsr = INITIAL_LFSR;
     }
@@ -411,9 +399,8 @@ impl Psg {
             PsgVersion::Standard => &ATTENUATION_TO_VOLUME,
         };
 
-        let square_samples = self
-            .square_wave_channels
-            .map(|channel| channel.sample(volume_table) * 0.5);
+        let square_samples =
+            self.square_wave_channels.map(|channel| channel.sample(volume_table) * 0.5);
         let noise_sample = self.noise_channel.sample(volume_table);
 
         let sample_l = (f64::from(self.stereo_control.square_0_l) * square_samples[0]
