@@ -1144,8 +1144,9 @@ impl Vdp {
             (sprite.v_position..sprite_bottom).contains(&sprite_scanline)
         });
 
-        // Sprites with H position 0 mask all lower priority sprites on the same scanline
-        for i in 0..self.sprite_buffer.len() {
+        // Sprites with H position 0 mask all lower priority sprites on the same scanline, unless
+        // it's the highest priority sprite on the scanline (so skip the first sprite here)
+        for i in 1..self.sprite_buffer.len() {
             if self.sprite_buffer[i].h_position == 0 {
                 self.sprite_buffer.truncate(i);
                 break;
