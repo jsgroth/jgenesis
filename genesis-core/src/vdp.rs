@@ -801,20 +801,26 @@ impl Vdp {
         self.increment_data_address();
     }
 
-    pub fn read_status(&self) -> u16 {
+    pub fn read_status(&mut self) -> u16 {
         // Queue empty (bit 9) hardcoded to true
         // Queue full (bit 8) hardcoded to false
         // DMA busy (bit 1) hardcoded to false
         // PAL (bit 0) hardcoded to false
         let interlaced_odd =
             self.registers.interlacing_mode.is_interlaced() && self.state.frame_count % 2 == 1;
-        0x0200
-            | (u16::from(self.state.v_interrupt_pending && self.registers.v_interrupt_enabled) << 7)
+        let status = 0x0200
+            | (u16::from(self.state.v_interrupt_pending && self.registers.v_interrupt_enabled)
+                << 7)
             | (u16::from(self.state.sprite_overflow) << 6)
             | (u16::from(self.state.sprite_collision) << 5)
             | (u16::from(interlaced_odd) << 4)
             | (u16::from(self.in_vblank()) << 3)
-            | (u16::from(self.in_hblank()) << 2)
+            | (u16::from(self.in_hblank()) << 2);
+
+        self.state.sprite_overflow = false;
+        self.state.sprite_collision = false;
+
+        status
     }
 
     pub fn hv_counter(&self) -> u16 {
@@ -1136,8 +1142,6 @@ impl Vdp {
             self.sprite_buffer.push(sprite);
         }
 
-        // TODO sprite overflow
-
         // Remove sprites that don't fall on this scanline
         let sprite_scanline = self.registers.interlacing_mode.sprite_display_top() + scanline;
         let cell_height = self.registers.interlacing_mode.cell_height();
@@ -1156,8 +1160,11 @@ impl Vdp {
         }
 
         // Apply max sprite per scanline limit
-        self.sprite_buffer
-            .truncate(h_size.max_sprites_per_line() as usize);
+        let max_sprites_per_line = h_size.max_sprites_per_line() as usize;
+        if self.sprite_buffer.len() > max_sprites_per_line {
+            self.sprite_buffer.truncate(max_sprites_per_line);
+            self.state.sprite_overflow = true;
+        }
 
         // Apply max sprite pixel per scanline limit
         let mut pixels = 0;
@@ -1165,6 +1172,7 @@ impl Vdp {
             pixels += 8 * u16::from(self.sprite_buffer[i].h_size_cells);
             if pixels >= h_size.max_sprite_pixels_per_line() {
                 self.sprite_buffer.truncate(i + 1);
+                self.state.sprite_overflow = true;
                 break;
             }
         }
@@ -1320,7 +1328,7 @@ impl Vdp {
     }
 
     fn find_first_overlapping_sprite(
-        &self,
+        &mut self,
         scanline: u16,
         pixel: u16,
     ) -> Option<(&SpriteData, u8)> {
@@ -1330,11 +1338,11 @@ impl Vdp {
         // Sprite horizontal display area starts at $080
         let sprite_pixel = 0x080 + pixel;
 
-        // TODO sprite collision
-        self.sprite_buffer.iter().find_map(|sprite| {
+        let mut found_sprite: Option<(&SpriteData, u8)> = None;
+        for sprite in &self.sprite_buffer {
             let sprite_right = sprite.h_position + 8 * u16::from(sprite.h_size_cells);
             if !(sprite.h_position..sprite_right).contains(&sprite_pixel) {
-                return None;
+                continue;
             }
 
             let v_size_cells: u16 = sprite.v_size_cells.into();
@@ -1366,8 +1374,28 @@ impl Vdp {
                     cell_height,
                 },
             );
-            (color_id != 0).then_some((sprite, color_id))
-        })
+            if color_id == 0 {
+                // Sprite pixel is transparent
+                continue;
+            }
+
+            match found_sprite {
+                Some(_) => {
+                    self.state.sprite_collision = true;
+                    break;
+                }
+                None => {
+                    found_sprite = Some((sprite, color_id));
+                    if self.state.sprite_collision {
+                        // No point in continuing to check sprites if the collision flag is
+                        // already set
+                        break;
+                    }
+                }
+            }
+        }
+
+        found_sprite
     }
 
     pub fn frame_buffer(&self) -> &[Color] {
