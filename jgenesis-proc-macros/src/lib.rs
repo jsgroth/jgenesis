@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{Data, DeriveInput};
+use syn::{parse_quote, Data, DeriveInput, Type};
 
 /// Implement the `std::fmt::Display` trait for the given enum. Only supports enums which have only
 /// fieldless variants.
@@ -127,8 +127,6 @@ pub fn enum_from_str(input: TokenStream) -> TokenStream {
 ///
 /// #[derive(ConfigDisplay)]
 /// struct Config {
-///     #[debug_fmt]
-///     foo: Option<u32>,
 ///     bar: bool,
 ///     #[debug_fmt]
 ///     baz: NotDisplay,
@@ -140,19 +138,85 @@ pub fn enum_from_str(input: TokenStream) -> TokenStream {
 /// //   bar: true
 /// //   baz: NotDisplay("fdsa")
 /// let config = Config {
-///     foo: Some(5),
 ///     bar: true,
 ///     baz: NotDisplay("fdsa".into()),
 /// };
 /// let s = format!("config: {config}");
-/// assert_eq!(s, "config: \n  foo: Some(5)\n  bar: true\n  baz: NotDisplay(\"fdsa\")");
+/// assert_eq!(s, "config: \n  bar: true\n  baz: NotDisplay(\"fdsa\")");
+/// ```
+///
+/// The `#[indent_nested]` attribute allows indenting when printing a field that also implements
+/// the `Display` trait through this macro:
+/// ```
+/// use jgenesis_proc_macros::ConfigDisplay;
+///
+/// #[derive(ConfigDisplay)]
+/// struct Inner {
+///     foo: u32,
+/// }
+///
+/// #[derive(ConfigDisplay)]
+/// struct Outer {
+///     bar: u32,
+///     #[indent_nested]
+///     inner: Inner,
+///     baz: u32,
+/// }
+///
+/// // This prints the following output:
+/// // config:
+/// //   bar: 3
+/// //   inner:
+/// //     foo: 4
+/// //   baz: 5
+/// let config = Outer {
+///     bar: 3,
+///     inner: Inner { foo: 4 },
+///     baz: 5,
+/// };
+/// let s = format!("config: {config}");
+/// assert_eq!(s, "config: \n  bar: 3\n  inner: \n    foo: 4\n  baz: 5");
+/// ```
+///
+/// Options will automatically be formatted by unwrapping if the value is Some(v) and printing
+/// the string "<None>" if the value is None:
+/// ```
+/// use jgenesis_proc_macros::ConfigDisplay;
+///
+/// #[derive(ConfigDisplay)]
+/// struct Config {
+///     a: Option<String>,
+///     b: Option<u32>,
+/// }
+///
+/// // This prints the following output:
+/// // config:
+/// //   a: hello
+/// //   b: <None>
+/// let config = Config { a: Some("hello".into()), b: None };
+/// let s = format!("config: {config}");
+/// assert_eq!(s, "config: \n  a: hello\n  b: <None>");
+/// ```
+///
+/// Generics example / test case:
+/// ```
+/// use jgenesis_proc_macros::ConfigDisplay;
+///
+/// #[derive(ConfigDisplay)]
+/// struct Config<T> {
+///     field: T,
+/// }
+///
+/// let config = Config { field: String::from("hello") };
+/// let s = format!("config: {config}");
+/// assert_eq!(s, "config: \n  field: hello");
 /// ```
 ///
 /// # Panics
 ///
 /// This macro only supports structs with named fields and it will panic if applied to any other
 /// data type, including structs with no fields.
-#[proc_macro_derive(ConfigDisplay, attributes(debug_fmt))]
+#[proc_macro_derive(ConfigDisplay, attributes(debug_fmt, indent_nested))]
 pub fn config_display(input: TokenStream) -> TokenStream {
     let input: DeriveInput = syn::parse(input).expect("Unable to parse input");
 
@@ -181,21 +245,57 @@ pub fn config_display(input: TokenStream) -> TokenStream {
                 format!("  {field_ident}: {{}}")
             };
 
-            if i == struct_data.fields.len() - 1 {
+            let is_option = match &field.ty {
+                Type::Path(path) => {
+                    let first_segment = path.path.segments.iter().next();
+                    first_segment.is_some_and(|segment| segment.ident == "Option")
+                }
+                _ => false,
+            };
+            let format_invocation = if is_option {
+                let none_str = format!("  {field_ident}: <None>");
                 quote! {
-                    ::std::write!(f, #fmt_string, self.#field_ident)
+                    self.#field_ident.as_ref().map(|f| format!(#fmt_string, f))
+                        .unwrap_or_else(|| #none_str.into())
                 }
             } else {
                 quote! {
-                    ::std::writeln!(f, #fmt_string, self.#field_ident)?;
+                    format!(#fmt_string, self.#field_ident)
+                }
+            };
+
+            let indent_nested =
+                field.attrs.iter().any(|attr| attr.path().is_ident("indent_nested"));
+            let format_invocation = if indent_nested {
+                quote! {
+                    #format_invocation.replace("\n  ", "\n    ")
+                }
+            } else {
+                format_invocation
+            };
+
+            if i == struct_data.fields.len() - 1 {
+                quote! {
+                    ::std::write!(f, "{}", #format_invocation)
+                }
+            } else {
+                quote! {
+                    ::std::writeln!(f, "{}", #format_invocation)?;
                 }
             }
         })
         .collect();
 
+    let mut generics = input.generics.clone();
+    for type_param in generics.type_params_mut() {
+        type_param.bounds.push(parse_quote!(::std::fmt::Display));
+        type_param.bounds.push(parse_quote!(::std::fmt::Debug));
+    }
+    let (impl_generics, type_generics, where_clause) = generics.split_for_impl();
+
     let struct_ident = &input.ident;
     let gen = quote! {
-        impl ::std::fmt::Display for #struct_ident {
+        impl #impl_generics ::std::fmt::Display for #struct_ident #type_generics #where_clause {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 ::std::writeln!(f)?;
                 #(#writeln_statements)*

@@ -1,3 +1,6 @@
+pub mod input;
+
+use crate::config::input::{JoystickInput, KeyboardInput, SmsGgInputConfig};
 use crate::RendererConfig;
 use genesis_core::GenesisAspectRatio;
 use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay, EnumFromStr};
@@ -54,9 +57,7 @@ impl GgAspectRatio {
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct SmsGgConfig {
     pub rom_file_path: String,
-    #[debug_fmt]
     pub vdp_version: Option<VdpVersion>,
-    #[debug_fmt]
     pub psg_version: Option<PsgVersion>,
     pub remove_sprite_limit: bool,
     pub sms_aspect_ratio: SmsAspectRatio,
@@ -66,7 +67,13 @@ pub struct SmsGgConfig {
     pub audio_sync: bool,
     #[debug_fmt]
     pub window_size: Option<WindowSize>,
+    #[indent_nested]
     pub renderer_config: RendererConfig,
+    #[indent_nested]
+    pub keyboard_inputs: SmsGgInputConfig<KeyboardInput>,
+    pub axis_deadzone: i16,
+    #[indent_nested]
+    pub joystick_inputs: SmsGgInputConfig<JoystickInput>,
 }
 
 pub(crate) fn default_vdp_version_for_ext(file_ext: &str) -> VdpVersion {
@@ -102,5 +109,6 @@ pub struct GenesisConfig {
     pub audio_sync: bool,
     #[debug_fmt]
     pub window_size: Option<WindowSize>,
+    #[indent_nested]
     pub renderer_config: RendererConfig,
 }

@@ -1,6 +1,9 @@
 use clap::Parser;
 use env_logger::Env;
 use genesis_core::GenesisAspectRatio;
+use jgenesis_native_driver::config::input::{
+    KeyboardInput, SmsGgControllerConfig, SmsGgInputConfig,
+};
 use jgenesis_native_driver::config::{
     GenesisConfig, GgAspectRatio, SmsAspectRatio, SmsGgConfig, WindowSize,
 };
@@ -85,6 +88,38 @@ struct Args {
     /// Filter mode (Nearest / Linear)
     #[arg(long, default_value_t = FilterMode::Linear)]
     filter_mode: FilterMode,
+
+    /// P1 up key
+    #[arg(long)]
+    input_p1_up: Option<String>,
+
+    /// P1 left key
+    #[arg(long)]
+    input_p1_left: Option<String>,
+
+    /// P1 right key
+    #[arg(long)]
+    input_p1_right: Option<String>,
+
+    /// P1 down key
+    #[arg(long)]
+    input_p1_down: Option<String>,
+
+    /// P1 button 1 key (SMS/GG)
+    #[arg(long)]
+    input_p1_button_1: Option<String>,
+
+    /// P1 button 2 key (SMS/GG)
+    #[arg(long)]
+    input_p1_button_2: Option<String>,
+
+    /// P1 start/pause key
+    #[arg(long)]
+    input_p1_start: Option<String>,
+
+    /// Joystick axis deadzone
+    #[arg(long, default_value_t = 8000)]
+    joy_axis_deadzone: i16,
 }
 
 impl Args {
@@ -107,6 +142,34 @@ impl Args {
             filter_mode: self.filter_mode,
         }
     }
+
+    fn smsgg_keyboard_config(&self) -> SmsGgInputConfig<KeyboardInput> {
+        let default = SmsGgInputConfig::default();
+        SmsGgInputConfig {
+            p1: SmsGgControllerConfig {
+                up: self.input_p1_up.as_ref().map(keyboard_input).or(default.p1.up),
+                left: self.input_p1_left.as_ref().map(keyboard_input).or(default.p1.left),
+                right: self.input_p1_right.as_ref().map(keyboard_input).or(default.p1.right),
+                down: self.input_p1_down.as_ref().map(keyboard_input).or(default.p1.down),
+                button_1: self
+                    .input_p1_button_1
+                    .as_ref()
+                    .map(keyboard_input)
+                    .or(default.p1.button_1),
+                button_2: self
+                    .input_p1_button_2
+                    .as_ref()
+                    .map(keyboard_input)
+                    .or(default.p1.button_2),
+                pause: self.input_p1_start.as_ref().map(keyboard_input).or(default.p1.pause),
+            },
+            p2: default.p2,
+        }
+    }
+}
+
+fn keyboard_input(s: &String) -> KeyboardInput {
+    KeyboardInput { keycode: s.into() }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -140,6 +203,7 @@ fn main() -> anyhow::Result<()> {
 fn run_sms(args: Args) -> anyhow::Result<()> {
     let window_size = args.window_size();
     let renderer_config = args.renderer_config();
+    let keyboard_inputs = args.smsgg_keyboard_config();
     let config = SmsGgConfig {
         rom_file_path: args.file_path,
         vdp_version: args.vdp_version,
@@ -152,6 +216,9 @@ fn run_sms(args: Args) -> anyhow::Result<()> {
         audio_sync: args.audio_sync,
         window_size,
         renderer_config,
+        keyboard_inputs,
+        axis_deadzone: args.joy_axis_deadzone,
+        joystick_inputs: SmsGgInputConfig::default(),
     };
 
     jgenesis_native_driver::run_smsgg(config)

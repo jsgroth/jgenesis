@@ -1,4 +1,4 @@
-use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
+use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay, EnumFromStr};
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroU32;
 
@@ -82,19 +82,9 @@ impl FilterMode {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, ConfigDisplay)]
 pub struct RendererConfig {
     pub vsync_mode: VSyncMode,
     pub prescale_factor: PrescaleFactor,
     pub filter_mode: FilterMode,
-}
-
-impl Display for RendererConfig {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "RendererConfig{{vsync_mode={}, prescale_factor={}, filter_mode={}}}",
-            self.vsync_mode, self.prescale_factor, self.filter_mode
-        )
-    }
 }

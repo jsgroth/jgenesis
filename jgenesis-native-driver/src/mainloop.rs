@@ -1,6 +1,7 @@
 use crate::config::{GenesisConfig, SmsGgConfig, WindowSize};
+use crate::input::InputMapper;
 use crate::renderer::WgpuRenderer;
-use crate::{config, genesisinput, smsgginput};
+use crate::{config, genesisinput};
 use anyhow::{anyhow, Context};
 use bincode::{Decode, Encode};
 use genesis_core::{GenesisEmulator, GenesisInputs, GenesisTickEffect};
@@ -8,8 +9,8 @@ use jgenesis_traits::frontend::{AudioOutput, SaveWriter};
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::Keycode;
-use sdl2::{AudioSubsystem, EventPump, VideoSubsystem};
-use smsgg_core::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgInputs, SmsGgTickEffect};
+use sdl2::{AudioSubsystem, EventPump, JoystickSubsystem, VideoSubsystem};
+use smsgg_core::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgTickEffect};
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
@@ -119,7 +120,7 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
     log::info!("VDP version: {vdp_version:?}");
     log::info!("PSG version: {psg_version:?}");
 
-    let (video, audio, mut event_pump) = init_sdl()?;
+    let (video, audio, joystick, mut event_pump) = init_sdl()?;
 
     let WindowSize { width: window_width, height: window_height } =
         config.window_size.unwrap_or_else(|| config::default_smsgg_window_size(vdp_version));
@@ -136,7 +137,8 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
 
     let mut renderer = pollster::block_on(WgpuRenderer::new(window, config.renderer_config))?;
     let mut audio_output = SdlAudioOutput::create_and_init(&audio, config.audio_sync)?;
-    let mut inputs = SmsGgInputs::default();
+    let mut input_mapper =
+        InputMapper::new(&joystick, config.keyboard_inputs, config.axis_deadzone)?;
     let mut save_writer = FsSaveWriter::new(save_path);
 
     let emulator_config = SmsGgEmulatorConfig {
@@ -154,11 +156,15 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
     );
 
     loop {
-        if emulator.tick(&mut renderer, &mut audio_output, &inputs, &mut save_writer)?
-            == SmsGgTickEffect::FrameRendered
+        if emulator.tick(
+            &mut renderer,
+            &mut audio_output,
+            input_mapper.inputs(),
+            &mut save_writer,
+        )? == SmsGgTickEffect::FrameRendered
         {
             for event in event_pump.poll_iter() {
-                smsgginput::update_inputs(&event, &mut inputs);
+                input_mapper.handle_event(&event)?;
                 handle_hotkeys(&event, &mut emulator, &save_state_path)?;
 
                 match event {
@@ -191,7 +197,7 @@ pub fn run_genesis(config: GenesisConfig) -> anyhow::Result<()> {
 
     let mut emulator = GenesisEmulator::create(rom, config.aspect_ratio)?;
 
-    let (video, audio, mut event_pump) = init_sdl()?;
+    let (video, audio, _, mut event_pump) = init_sdl()?;
 
     let WindowSize { width: window_width, height: window_height } =
         config.window_size.unwrap_or(config::DEFAULT_GENESIS_WINDOW_SIZE);
@@ -239,18 +245,21 @@ fn parse_file_ext(path: &Path) -> anyhow::Result<&str> {
 }
 
 // Initialize SDL2 and hide the mouse cursor
-fn init_sdl() -> anyhow::Result<(VideoSubsystem, AudioSubsystem, EventPump)> {
+fn init_sdl() -> anyhow::Result<(VideoSubsystem, AudioSubsystem, JoystickSubsystem, EventPump)> {
     let sdl = sdl2::init().map_err(|err| anyhow!("Error initializing SDL2: {err}"))?;
     let video =
         sdl.video().map_err(|err| anyhow!("Error initializing SDL2 video subsystem: {err}"))?;
     let audio =
         sdl.audio().map_err(|err| anyhow!("Error initializing SDL2 audio subsystem: {err}"))?;
+    let joystick = sdl
+        .joystick()
+        .map_err(|err| anyhow!("Error initializing SDL2 joystick subsystem: {err}"))?;
     let event_pump =
         sdl.event_pump().map_err(|err| anyhow!("Error initializing SDL2 event pump: {err}"))?;
 
     sdl.mouse().show_cursor(false);
 
-    Ok((video, audio, event_pump))
+    Ok((video, audio, joystick, event_pump))
 }
 
 trait TakeRomFrom {
