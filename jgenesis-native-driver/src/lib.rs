@@ -1,7 +1,7 @@
 pub mod config;
-mod input;
+pub mod input;
 mod mainloop;
 mod renderer;
 
-pub use mainloop::{create_genesis, create_smsgg, NativeEmulator, NativeTickEffect};
+pub use mainloop::{create_genesis, create_smsgg, NativeEmulator, NativeTickEffect, TakeRomFrom};
 pub use renderer::config::{FilterMode, PrescaleFactor, RendererConfig, VSyncMode};

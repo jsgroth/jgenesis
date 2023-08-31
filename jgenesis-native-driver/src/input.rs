@@ -90,7 +90,7 @@ impl GetButtonField<GenesisButton> for GenesisInputs {
     }
 }
 
-pub struct InputMapper<Inputs, Button> {
+pub(crate) struct InputMapper<Inputs, Button> {
     inputs: Inputs,
     joystick_subsystem: JoystickSubsystem,
     joysticks: HashMap<u32, Joystick>,
@@ -124,7 +124,7 @@ impl<Inputs: Default, Button> InputMapper<Inputs, Button> {
 }
 
 impl InputMapper<SmsGgInputs, SmsGgButton> {
-    pub fn new_smsgg(
+    pub(crate) fn new_smsgg(
         joystick_subsystem: JoystickSubsystem,
         keyboard_inputs: SmsGgInputConfig<KeyboardInput>,
         axis_deadzone: i16,
@@ -158,7 +158,7 @@ impl InputMapper<SmsGgInputs, SmsGgButton> {
 }
 
 impl InputMapper<GenesisInputs, GenesisButton> {
-    pub fn new_genesis(
+    pub(crate) fn new_genesis(
         joystick_subsystem: JoystickSubsystem,
         keyboard_inputs: GenesisInputConfig<KeyboardInput>,
         axis_deadzone: i16,
@@ -198,7 +198,7 @@ where
     Inputs: Default + GetButtonField<Button>,
     Button: Copy,
 {
-    pub fn device_added(&mut self, device_id: u32) -> anyhow::Result<()> {
+    pub(crate) fn device_added(&mut self, device_id: u32) -> anyhow::Result<()> {
         let joystick = self.joystick_subsystem.open(device_id)?;
         let name = joystick.name();
         log::info!("Opened joystick id {device_id}: {name}");
@@ -220,7 +220,7 @@ where
         Ok(())
     }
 
-    pub fn device_removed(&mut self, instance_id: u32) {
+    pub(crate) fn device_removed(&mut self, instance_id: u32) {
         if let Some(device_id) = self.instance_id_to_device_id.remove(&instance_id) {
             if let Some(joystick) = self.joysticks.remove(&device_id) {
                 log::info!("Disconnected joystick id {device_id}: {}", joystick.name());
@@ -243,11 +243,11 @@ where
         }
     }
 
-    pub fn key_down(&mut self, keycode: Keycode) {
+    pub(crate) fn key_down(&mut self, keycode: Keycode) {
         self.key(keycode, true);
     }
 
-    pub fn key_up(&mut self, keycode: Keycode) {
+    pub(crate) fn key_up(&mut self, keycode: Keycode) {
         self.key(keycode, false);
     }
 
@@ -259,11 +259,11 @@ where
         }
     }
 
-    pub fn button_down(&mut self, instance_id: u32, button_idx: u8) {
+    pub(crate) fn button_down(&mut self, instance_id: u32, button_idx: u8) {
         self.button(instance_id, button_idx, true);
     }
 
-    pub fn button_up(&mut self, instance_id: u32, button_idx: u8) {
+    pub(crate) fn button_up(&mut self, instance_id: u32, button_idx: u8) {
         self.button(instance_id, button_idx, false);
     }
 
@@ -279,7 +279,7 @@ where
         }
     }
 
-    pub fn axis_motion(&mut self, instance_id: u32, axis_idx: u8, value: i16) {
+    pub(crate) fn axis_motion(&mut self, instance_id: u32, axis_idx: u8, value: i16) {
         let negative_down = value <= -self.axis_deadzone;
         let positive_down = value >= self.axis_deadzone;
 
@@ -299,7 +299,7 @@ where
         }
     }
 
-    pub fn hat_motion(&mut self, instance_id: u32, hat_idx: u8, state: HatState) {
+    pub(crate) fn hat_motion(&mut self, instance_id: u32, hat_idx: u8, state: HatState) {
         let up_pressed = matches!(state, HatState::LeftUp | HatState::Up | HatState::RightUp);
         let left_pressed = matches!(state, HatState::LeftUp | HatState::Left | HatState::LeftDown);
         let down_pressed =
@@ -325,7 +325,7 @@ where
         }
     }
 
-    pub fn handle_event(&mut self, event: &Event) -> anyhow::Result<()> {
+    pub(crate) fn handle_event(&mut self, event: &Event) -> anyhow::Result<()> {
         match *event {
             Event::KeyDown { keycode: Some(keycode), .. } => {
                 self.key_down(keycode);
@@ -357,7 +357,7 @@ where
         Ok(())
     }
 
-    pub fn inputs(&self) -> &Inputs {
+    pub(crate) fn inputs(&self) -> &Inputs {
         &self.inputs
     }
 }

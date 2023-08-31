@@ -167,7 +167,6 @@ where
 /// # Errors
 ///
 /// This function will propagate any video, audio, or disk errors encountered.
-#[allow(clippy::missing_panics_doc)]
 pub fn create_smsgg(
     config: SmsGgConfig,
 ) -> anyhow::Result<NativeEmulator<SmsGgInputs, SmsGgButton, SmsGgEmulator>> {

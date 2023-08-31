@@ -6,14 +6,18 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+genesis-core = { path = "../genesis-core" }
 jgenesis-native-driver = { path = "../jgenesis-native-driver" }
+jgenesis-traits = { path = "../jgenesis-traits" }
 smsgg-core = { path = "../smsgg-core", features = ["serde"] }
 
 anyhow = "1"
+bincode = "2.0.0-rc.3"
 eframe = "0.22"
 egui = "0.22"
 env_logger = "0.10"
 log = "0.4"
+rfd = "0.11"
 serde = { workspace = true }
 sdl2 = { workspace = true }
 toml = "0.7"
