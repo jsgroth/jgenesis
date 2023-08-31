@@ -52,11 +52,7 @@ impl Sunsoft5bChannel {
     }
 
     fn sample(&self) -> u8 {
-        if !self.tone_enabled {
-            self.volume
-        } else {
-            u8::from(self.wave_step) * self.volume
-        }
+        if !self.tone_enabled { self.volume } else { u8::from(self.wave_step) * self.volume }
     }
 
     fn sample_analog(&self) -> f64 {
@@ -246,9 +242,7 @@ impl MapperImpl<Sunsoft> {
     fn map_cpu_address(&self, address: u16) -> CpuMapResult {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: {address:04X}"),
-            0x4020..=0x5FFF => CpuMapResult::None {
-                original_address: address,
-            },
+            0x4020..=0x5FFF => CpuMapResult::None { original_address: address },
             0x6000..=0x7FFF => match self.data.prg_bank_0_type {
                 PrgType::ROM => {
                     let prg_rom_addr =
@@ -261,9 +255,7 @@ impl MapperImpl<Sunsoft> {
                             BankSizeKb::Eight.to_absolute_address(self.data.prg_banks[0], address);
                         CpuMapResult::PrgRAM(prg_ram_addr)
                     } else {
-                        CpuMapResult::None {
-                            original_address: address,
-                        }
+                        CpuMapResult::None { original_address: address }
                     }
                 }
             },
@@ -294,8 +286,7 @@ impl MapperImpl<Sunsoft> {
             0x0000..=0x401F => panic!("invalid CPU map address: {address:04X}"),
             0x4020..=0x5FFF => {}
             0x6000..=0x7FFF => {
-                self.map_cpu_address(address)
-                    .write(value, &mut self.cartridge);
+                self.map_cpu_address(address).write(value, &mut self.cartridge);
             }
             0x8000..=0x9FFF => {
                 self.data.command_register = value & 0x0F;
@@ -306,11 +297,8 @@ impl MapperImpl<Sunsoft> {
                 }
                 0x08 => {
                     self.data.prg_banks[0] = value & 0x3F;
-                    self.data.prg_bank_0_type = if value.bit(6) {
-                        PrgType::RAM
-                    } else {
-                        PrgType::ROM
-                    };
+                    self.data.prg_bank_0_type =
+                        if value.bit(6) { PrgType::RAM } else { PrgType::ROM };
                     self.data.prg_ram_enabled = value.bit(7);
                 }
                 0x09..=0x0B => {

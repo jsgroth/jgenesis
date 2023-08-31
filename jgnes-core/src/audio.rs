@@ -11,9 +11,7 @@ pub struct LowPassFilter {
 impl LowPassFilter {
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            samples: VecDeque::with_capacity(FIR_COEFFICIENTS.len() + 1),
-        }
+        Self { samples: VecDeque::with_capacity(FIR_COEFFICIENTS.len() + 1) }
     }
 
     #[inline]
@@ -28,13 +26,7 @@ impl LowPassFilter {
     #[inline]
     pub fn output_sample(&self) -> f64 {
         FIR_COEFFICIENT_0
-            + self
-                .samples
-                .iter()
-                .copied()
-                .zip(FIR_COEFFICIENTS)
-                .map(|(a, b)| a * b)
-                .sum::<f64>()
+            + self.samples.iter().copied().zip(FIR_COEFFICIENTS).map(|(a, b)| a * b).sum::<f64>()
     }
 }
 

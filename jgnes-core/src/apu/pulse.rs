@@ -106,11 +106,8 @@ impl PulseSweep {
         }
 
         let delta = timer_period >> self.shift;
-        let signed_delta = if self.negate_flag {
-            self.negate_behavior.negate(delta)
-        } else {
-            delta
-        };
+        let signed_delta =
+            if self.negate_flag { self.negate_behavior.negate(delta) } else { delta };
 
         timer_period.wrapping_add(signed_delta)
     }
@@ -184,20 +181,17 @@ impl PulseChannel {
     }
 
     pub fn process_sweep_update(&mut self, sweep_value: u8) {
-        self.sweep
-            .process_sweep_update(sweep_value, self.timer.divider_period);
+        self.sweep.process_sweep_update(sweep_value, self.timer.divider_period);
     }
 
     pub fn process_lo_update(&mut self, lo_value: u8) {
         self.timer.process_lo_update(lo_value);
-        self.sweep
-            .process_timer_period_update(self.timer.divider_period);
+        self.sweep.process_timer_period_update(self.timer.divider_period);
     }
 
     pub fn process_hi_update(&mut self, hi_value: u8) {
         self.timer.process_hi_update(hi_value);
-        self.sweep
-            .process_timer_period_update(self.timer.divider_period);
+        self.sweep.process_timer_period_update(self.timer.divider_period);
 
         self.length_counter.process_hi_update(hi_value);
         self.envelope.process_hi_update();

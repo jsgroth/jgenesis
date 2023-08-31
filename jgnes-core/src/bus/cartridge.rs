@@ -178,8 +178,7 @@ where
     }
 
     fn write_ppu_address(&mut self, address: u16, value: u8, vram: &mut [u8; 2048]) {
-        self.map_ppu_address(address)
-            .write(value, &mut self.cartridge, vram);
+        self.map_ppu_address(address).write(value, &mut self.cartridge, vram);
     }
 }
 
@@ -489,11 +488,7 @@ impl INesHeader {
 
         let mapper_number = u16::from((header[7] & 0xF0) | ((header[6] & 0xF0) >> 4));
 
-        let chr_type = if chr_rom_size == 0 {
-            ChrType::RAM
-        } else {
-            ChrType::ROM
-        };
+        let chr_type = if chr_rom_size == 0 { ChrType::RAM } else { ChrType::ROM };
 
         let nametable_mirroring = if header[6].bit(0) {
             NametableMirroring::Vertical
@@ -505,11 +500,8 @@ impl INesHeader {
 
         let has_battery = header[6].bit(1);
 
-        let format = if header[7] & 0x0C == 0x08 {
-            FileFormat::Nes2Point0
-        } else {
-            FileFormat::INes
-        };
+        let format =
+            if header[7] & 0x0C == 0x08 { FileFormat::Nes2Point0 } else { FileFormat::INes };
 
         log::info!("ROM header format: {format}");
 
@@ -546,11 +538,7 @@ impl INesHeader {
         let chr_ram_size = match (chr_type, format) {
             (ChrType::RAM, FileFormat::Nes2Point0) => {
                 let chr_ram_shift = header[11] & 0x0F;
-                if chr_ram_shift > 0 {
-                    64 << chr_ram_shift
-                } else {
-                    0
-                }
+                if chr_ram_shift > 0 { 64 << chr_ram_shift } else { 0 }
             }
             (ChrType::RAM, FileFormat::INes) => 8192,
             (ChrType::ROM, _) => 0,
@@ -579,16 +567,9 @@ fn determine_prg_ram_size(header: &[u8], mapper_number: u16, format: FileFormat)
             let volatile_shift = header[10] & 0x0F;
             let non_volatile_shift = header[10] >> 4;
             // TODO separate these? very very few games have both volatile and non-volatile RAM
-            let volatile_ram = if volatile_shift > 0 {
-                64 << volatile_shift
-            } else {
-                0
-            };
-            let non_volatile_ram = if non_volatile_shift > 0 {
-                64 << non_volatile_shift
-            } else {
-                0
-            };
+            let volatile_ram = if volatile_shift > 0 { 64 << volatile_shift } else { 0 };
+            let non_volatile_ram =
+                if non_volatile_shift > 0 { 64 << non_volatile_shift } else { 0 };
             let total_ram = volatile_ram + non_volatile_ram;
 
             // Hack to handle MMC5 headers that don't specify PRG RAM size but expect 32KB/64KB of
@@ -671,10 +652,7 @@ pub(crate) fn from_ines_file(
             cartridge,
             data: Nrom::new(header.chr_type, header.nametable_mirroring),
         }),
-        1 => Mapper::Mmc1(MapperImpl {
-            cartridge,
-            data: Mmc1::new(header.chr_type),
-        }),
+        1 => Mapper::Mmc1(MapperImpl { cartridge, data: Mmc1::new(header.chr_type) }),
         2 | 71 => Mapper::Uxrom(MapperImpl {
             cartridge,
             data: Uxrom::new(
@@ -700,22 +678,10 @@ pub(crate) fn from_ines_file(
                 header.has_four_screen_vram,
             ),
         }),
-        5 => Mapper::Mmc5(MapperImpl {
-            cartridge,
-            data: Mmc5::new(),
-        }),
-        7 => Mapper::Axrom(MapperImpl {
-            cartridge,
-            data: Axrom::new(header.chr_type),
-        }),
-        9 => Mapper::Mmc2(MapperImpl {
-            cartridge,
-            data: Mmc2::new_mmc2(),
-        }),
-        10 => Mapper::Mmc2(MapperImpl {
-            cartridge,
-            data: Mmc2::new_mmc4(),
-        }),
+        5 => Mapper::Mmc5(MapperImpl { cartridge, data: Mmc5::new() }),
+        7 => Mapper::Axrom(MapperImpl { cartridge, data: Axrom::new(header.chr_type) }),
+        9 => Mapper::Mmc2(MapperImpl { cartridge, data: Mmc2::new_mmc2() }),
+        10 => Mapper::Mmc2(MapperImpl { cartridge, data: Mmc2::new_mmc4() }),
         11 | 66 | 140 => Mapper::Gxrom(MapperImpl {
             cartridge,
             data: Gxrom::new(header.mapper_number, header.nametable_mirroring),
@@ -742,11 +708,7 @@ pub(crate) fn from_ines_file(
         }),
         21 | 22 | 23 | 25 => Mapper::Vrc4(MapperImpl {
             cartridge,
-            data: Vrc4::new(
-                header.mapper_number,
-                header.sub_mapper_number,
-                header.chr_type,
-            ),
+            data: Vrc4::new(header.mapper_number, header.sub_mapper_number, header.chr_type),
         }),
         24 | 26 => Mapper::Vrc6(MapperImpl {
             cartridge,
@@ -756,10 +718,7 @@ pub(crate) fn from_ines_file(
             cartridge,
             data: Bnrom::new(header.chr_type, header.nametable_mirroring),
         }),
-        69 => Mapper::Sunsoft(MapperImpl {
-            cartridge,
-            data: Sunsoft::new(header.chr_type),
-        }),
+        69 => Mapper::Sunsoft(MapperImpl { cartridge, data: Sunsoft::new(header.chr_type) }),
         85 => Mapper::Vrc7(MapperImpl {
             cartridge,
             data: Vrc7::new(header.sub_mapper_number, header.chr_type),
@@ -780,17 +739,10 @@ pub(crate) fn from_ines_file(
     };
 
     log::info!("Timing mode: {timing_mode}");
-    log::info!(
-        "Mapper number: {} ({})",
-        header.mapper_number,
-        mapper.name()
-    );
+    log::info!("Mapper number: {} ({})", header.mapper_number, mapper.name());
     log::info!("PRG ROM size: {}", header.prg_rom_size);
     log::info!("PRG RAM size: {}", header.prg_ram_size);
-    log::info!(
-        "Cartridge has battery-backed PRG RAM: {}",
-        header.has_battery
-    );
+    log::info!("Cartridge has battery-backed PRG RAM: {}", header.has_battery);
     log::info!("CHR ROM size: {}", header.chr_rom_size);
     log::info!("CHR RAM size: {}", header.chr_ram_size);
     log::info!("CHR memory type: {:?}", header.chr_type);
@@ -798,10 +750,7 @@ pub(crate) fn from_ines_file(
         "Hardwired nametable mirroring: {:?} (not applicable to all mappers)",
         header.nametable_mirroring
     );
-    log::info!(
-        "Has 4-screen nametable VRAM: {}",
-        header.has_four_screen_vram
-    );
+    log::info!("Has 4-screen nametable VRAM: {}", header.has_four_screen_vram);
 
     Ok(mapper)
 }

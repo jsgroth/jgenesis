@@ -279,11 +279,8 @@ impl MapperImpl<Vrc4> {
                     }
                     (Type::Vrc4, 0x9002) => {
                         self.data.ram_enabled = value.bit(0);
-                        self.data.prg_mode = if value.bit(1) {
-                            PrgMode::Mode1
-                        } else {
-                            PrgMode::Mode0
-                        };
+                        self.data.prg_mode =
+                            if value.bit(1) { PrgMode::Mode1 } else { PrgMode::Mode0 };
                     }
                     _ => {}
                 }

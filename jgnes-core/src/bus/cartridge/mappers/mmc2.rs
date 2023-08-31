@@ -58,16 +58,12 @@ impl MapperImpl<Mmc2> {
     fn map_cpu_address(&self, address: u16) -> CpuMapResult {
         match (self.data.variant, address) {
             (_, 0x0000..=0x401F) => panic!("invalid CPU map address: {address:04X}"),
-            (_, 0x4020..=0x5FFF) => CpuMapResult::None {
-                original_address: address,
-            },
+            (_, 0x4020..=0x5FFF) => CpuMapResult::None { original_address: address },
             (_, 0x6000..=0x7FFF) => {
                 if !self.cartridge.prg_ram.is_empty() {
                     CpuMapResult::PrgRAM(u32::from(address & 0x1FFF))
                 } else {
-                    CpuMapResult::None {
-                        original_address: address,
-                    }
+                    CpuMapResult::None { original_address: address }
                 }
             }
             (Variant::Mmc2, 0x8000..=0x9FFF) => {
@@ -123,8 +119,7 @@ impl MapperImpl<Mmc2> {
             0x4020..=0x5FFF | 0x8000..=0x9FFF => {}
             0x6000..=0x7FFF => {
                 if !self.cartridge.prg_ram.is_empty() {
-                    self.cartridge
-                        .set_prg_ram(u32::from(address & 0x1FFF), value);
+                    self.cartridge.set_prg_ram(u32::from(address & 0x1FFF), value);
                 }
             }
             0xA000..=0xAFFF => {

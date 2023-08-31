@@ -20,11 +20,7 @@ impl PrgBankingMode {
     fn map_result(bank_number: u8, bank_size: BankSizeKb, address: u16) -> CpuMapResult {
         let is_rom = bank_number.bit(7);
 
-        let masked_bank_number = if is_rom {
-            bank_number & 0x7F
-        } else {
-            bank_number & 0x0F
-        };
+        let masked_bank_number = if is_rom { bank_number & 0x7F } else { bank_number & 0x0F };
 
         // All bank numbers are treated as 8KB banks while selectively ignoring lower bits
         let shifted_bank_number = match bank_size {
@@ -204,10 +200,7 @@ impl ChrMapper {
 
     fn process_ppu_ctrl_update(&mut self, ppu_ctrl_value: u8) {
         self.double_height_sprites = ppu_ctrl_value.bit(5);
-        log::trace!(
-            "Double height sprites update detected: {}",
-            self.double_height_sprites
-        );
+        log::trace!("Double height sprites update detected: {}", self.double_height_sprites);
     }
 
     fn process_bank_register_update(&mut self, address: u16, value: u8) {
@@ -359,10 +352,7 @@ impl ScanlineCounter {
     // This should be called *after* mapping the tile address in case the increment changes the
     // current tile type
     fn increment_tile_bytes_fetched(&mut self) {
-        log::trace!(
-            "Tile byte fetched, current fetches={}",
-            self.scanline_tile_byte_fetches
-        );
+        log::trace!("Tile byte fetched, current fetches={}", self.scanline_tile_byte_fetches);
 
         self.cpu_ticks_no_read = 0;
 
@@ -434,9 +424,7 @@ struct ExtendedAttributesState {
 
 impl ExtendedAttributesState {
     fn new() -> Self {
-        Self {
-            last_nametable_addr: 0,
-        }
+        Self { last_nametable_addr: 0 }
     }
 
     fn get_attribute_byte(&self, extended_ram: &[u8; 1024]) -> u8 {
@@ -466,10 +454,7 @@ struct MultiplierUnit {
 
 impl MultiplierUnit {
     fn new() -> Self {
-        Self {
-            operand_l: 0xFF,
-            operand_r: 0xFF,
-        }
+        Self { operand_l: 0xFF, operand_r: 0xFF }
     }
 
     fn output(self) -> u16 {
@@ -502,20 +487,11 @@ struct PcmChannel {
 
 impl PcmChannel {
     fn new() -> Self {
-        Self {
-            output_level: 0,
-            mode: PcmMode::Write,
-            irq_enabled: false,
-            irq_pending: false,
-        }
+        Self { output_level: 0, mode: PcmMode::Write, irq_enabled: false, irq_pending: false }
     }
 
     fn process_control_update(&mut self, value: u8) {
-        self.mode = if value.bit(0) {
-            PcmMode::Read
-        } else {
-            PcmMode::Write
-        };
+        self.mode = if value.bit(0) { PcmMode::Read } else { PcmMode::Write };
         self.irq_enabled = value.bit(7);
 
         if !self.irq_enabled {
@@ -698,10 +674,7 @@ impl MapperImpl<Mmc5> {
                 self.data.nametable_mappings[1] = NametableMapping::from_bits((value >> 2) & 0x03);
                 self.data.nametable_mappings[2] = NametableMapping::from_bits((value >> 4) & 0x03);
                 self.data.nametable_mappings[3] = NametableMapping::from_bits((value >> 6) & 0x03);
-                log::trace!(
-                    "Nametable mappings set to {:?}",
-                    self.data.nametable_mappings
-                );
+                log::trace!("Nametable mappings set to {:?}", self.data.nametable_mappings);
             }
             0x5106 => {
                 self.data.fill_mode_tile_data = value;
@@ -720,18 +693,13 @@ impl MapperImpl<Mmc5> {
                 log::trace!("PRG bank {:02X} set to {value:02X}", address - 0x5113);
             }
             0x5120..=0x512B => {
-                self.data
-                    .chr_mapper
-                    .process_bank_register_update(address, value);
+                self.data.chr_mapper.process_bank_register_update(address, value);
                 log::trace!("CHR bank {:02X} set to {value:02X}", address - 0x5120);
             }
             0x5200 => {
                 self.data.vertical_split.enabled = value.bit(7);
-                self.data.vertical_split.mode = if value.bit(6) {
-                    VerticalSplitMode::Right
-                } else {
-                    VerticalSplitMode::Left
-                };
+                self.data.vertical_split.mode =
+                    if value.bit(6) { VerticalSplitMode::Right } else { VerticalSplitMode::Left };
                 self.data.vertical_split.split_tile_index = value & 0x1F;
                 log::trace!(
                     "Vertical split enabled/mode/index set: {:?}",
@@ -836,10 +804,7 @@ impl MapperImpl<Mmc5> {
                         &self.cartridge,
                     )
                 } else if tile_type == TileType::Background
-                    && self
-                        .data
-                        .vertical_split
-                        .inside_split(&self.data.scanline_counter)
+                    && self.data.vertical_split.inside_split(&self.data.scanline_counter)
                 {
                     let fine_y_scroll = self.data.vertical_split.y_scroll & 0x07;
                     let pattern_table_addr =
@@ -861,9 +826,7 @@ impl MapperImpl<Mmc5> {
                 let relative_addr = address & 0x0FFF;
                 let nametable_addr = 0x2000 | relative_addr;
 
-                self.data
-                    .scanline_counter
-                    .nametable_address_fetched(nametable_addr);
+                self.data.scanline_counter.nametable_address_fetched(nametable_addr);
 
                 let tile_type = self.data.scanline_counter.current_tile_type();
                 if tile_type == TileType::Background
@@ -879,10 +842,7 @@ impl MapperImpl<Mmc5> {
                 }
                 self.data.extended_attributes_state.last_nametable_addr = address;
 
-                if self
-                    .data
-                    .vertical_split
-                    .inside_split(&self.data.scanline_counter)
+                if self.data.vertical_split.inside_split(&self.data.scanline_counter)
                     && matches!(
                         self.data.extended_ram_mode,
                         ExtendedRamMode::Nametable | ExtendedRamMode::NametableExtendedAttributes

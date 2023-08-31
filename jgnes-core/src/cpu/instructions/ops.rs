@@ -152,10 +152,7 @@ macro_rules! impl_read_indirect_x {
                 $state.target_first_byte = $bus.read_address(address.into());
             }
             3 => {
-                let address = $state
-                    .operand_first_byte
-                    .wrapping_add($registers.x)
-                    .wrapping_add(1);
+                let address = $state.operand_first_byte.wrapping_add($registers.x).wrapping_add(1);
                 $state.target_second_byte = $bus.read_address(address.into());
             }
             4 => {
@@ -285,10 +282,7 @@ macro_rules! impl_store_zero_page_indexed {
             2 => {
                 final_cycle($state, $registers, $bus);
 
-                let address = $state
-                    .operand_first_byte
-                    .wrapping_add($registers.$index)
-                    .into();
+                let address = $state.operand_first_byte.wrapping_add($registers.$index).into();
                 $bus.write_address(address, $register);
             }
             _ => panic!("invalid cycle: {}", $state.cycle),
@@ -358,10 +352,7 @@ macro_rules! impl_store_indirect_x {
                 $state.target_first_byte = $bus.read_address(address.into());
             }
             3 => {
-                let address = $state
-                    .operand_first_byte
-                    .wrapping_add($registers.x)
-                    .wrapping_add(1);
+                let address = $state.operand_first_byte.wrapping_add($registers.x).wrapping_add(1);
                 $state.target_second_byte = $bus.read_address(address.into());
             }
             4 => {
@@ -638,10 +629,7 @@ macro_rules! impl_modify_indirect_x {
                 $state.target_first_byte = $bus.read_address(address.into());
             }
             3 => {
-                let address = $state
-                    .operand_first_byte
-                    .wrapping_add($registers.x)
-                    .wrapping_add(1);
+                let address = $state.operand_first_byte.wrapping_add($registers.x).wrapping_add(1);
                 $state.target_second_byte = $bus.read_address(address.into());
             }
             4 => {
@@ -778,10 +766,7 @@ macro_rules! impl_load {
     ($name:ident, $register:ident, $addressing_mode:tt) => {
         impl_read_fn!($name, $addressing_mode, |operand, registers| {
             registers.$register = operand;
-            registers
-                .status
-                .set_negative(operand.bit(7))
-                .set_zero(operand == 0);
+            registers.status.set_negative(operand.bit(7)).set_zero(operand == 0);
         });
     };
 }
@@ -870,10 +855,7 @@ impl_and!(and_indirect_x, indirect_x);
 impl_and!(and_indirect_y, indirect_y);
 
 fn bit_test(accumulator: u8, value: u8, flags: &mut StatusFlags) {
-    flags
-        .set_negative(value.bit(7))
-        .set_overflow(value.bit(6))
-        .set_zero(accumulator & value == 0);
+    flags.set_negative(value.bit(7)).set_overflow(value.bit(6)).set_zero(accumulator & value == 0);
 }
 
 // BIT
@@ -1010,10 +992,7 @@ impl_subtract_with_carry!(sbc_indirect_y, indirect_y);
 
 fn shift_left(value: u8, flags: &mut StatusFlags) -> u8 {
     let shifted = value << 1;
-    flags
-        .set_carry(value.bit(7))
-        .set_negative(shifted.bit(7))
-        .set_zero(shifted == 0);
+    flags.set_carry(value.bit(7)).set_negative(shifted.bit(7)).set_zero(shifted == 0);
     shifted
 }
 
@@ -1034,9 +1013,7 @@ impl_shift_left!(asl_absolute_x, absolute_x);
 
 fn decrement(value: u8, flags: &mut StatusFlags) -> u8 {
     let decremented = value.wrapping_sub(1);
-    flags
-        .set_negative(decremented.bit(7))
-        .set_zero(decremented == 0);
+    flags.set_negative(decremented.bit(7)).set_zero(decremented == 0);
     decremented
 }
 
@@ -1056,9 +1033,7 @@ impl_decrement!(dec_absolute_x, absolute_x);
 
 fn increment(value: u8, flags: &mut StatusFlags) -> u8 {
     let incremented = value.wrapping_add(1);
-    flags
-        .set_negative(incremented.bit(7))
-        .set_zero(incremented == 0);
+    flags.set_negative(incremented.bit(7)).set_zero(incremented == 0);
     incremented
 }
 
@@ -1078,10 +1053,7 @@ impl_increment!(inc_absolute_x, absolute_x);
 
 fn logical_shift_right(value: u8, flags: &mut StatusFlags) -> u8 {
     let shifted = value >> 1;
-    flags
-        .set_carry(value.bit(0))
-        .set_negative(false)
-        .set_zero(shifted == 0);
+    flags.set_carry(value.bit(0)).set_negative(false).set_zero(shifted == 0);
     shifted
 }
 
@@ -1102,10 +1074,7 @@ impl_logical_shift_right!(lsr_absolute_x, absolute_x);
 
 fn rotate_left(value: u8, flags: &mut StatusFlags) -> u8 {
     let rotated = (value << 1) | u8::from(flags.carry);
-    flags
-        .set_carry(value.bit(7))
-        .set_negative(rotated.bit(7))
-        .set_zero(rotated == 0);
+    flags.set_carry(value.bit(7)).set_negative(rotated.bit(7)).set_zero(rotated == 0);
     rotated
 }
 
@@ -1126,10 +1095,7 @@ impl_rotate_left!(rol_absolute_x, absolute_x);
 
 fn rotate_right(value: u8, flags: &mut StatusFlags) -> u8 {
     let rotated = (value >> 1) | (u8::from(flags.carry) << 7);
-    flags
-        .set_carry(value.bit(0))
-        .set_negative(rotated.bit(7))
-        .set_zero(rotated == 0);
+    flags.set_carry(value.bit(0)).set_negative(rotated.bit(7)).set_zero(rotated == 0);
     rotated
 }
 
@@ -1286,10 +1252,7 @@ macro_rules! impl_increment_register {
         impl_registers_only_fn!($name, |registers| {
             let value = registers.$register.wrapping_add(1);
             registers.$register = value;
-            registers
-                .status
-                .set_negative(value.bit(7))
-                .set_zero(value == 0);
+            registers.status.set_negative(value.bit(7)).set_zero(value == 0);
         });
     };
 }
@@ -1303,10 +1266,7 @@ macro_rules! impl_decrement_register {
         impl_registers_only_fn!($name, |registers| {
             let value = registers.$register.wrapping_sub(1);
             registers.$register = value;
-            registers
-                .status
-                .set_negative(value.bit(7))
-                .set_zero(value == 0);
+            registers.status.set_negative(value.bit(7)).set_zero(value == 0);
         });
     };
 }
@@ -1317,10 +1277,7 @@ impl_decrement_register!(dey, y);
 macro_rules! set_transfer_flags {
     (sp, $registers:expr, $value:expr) => {};
     ($to:ident, $registers:expr, $value:expr) => {
-        $registers
-            .status
-            .set_negative($value.bit(7))
-            .set_zero($value == 0);
+        $registers.status.set_negative($value.bit(7)).set_zero($value == 0);
     };
 }
 
@@ -1475,10 +1432,7 @@ macro_rules! write_register_for_pull {
     (accumulator, $registers:expr, $value:expr) => {{
         let value = $value;
         $registers.accumulator = value;
-        $registers
-            .status
-            .set_negative(value.bit(7))
-            .set_zero(value == 0);
+        $registers.status.set_negative(value.bit(7)).set_zero(value == 0);
     }};
     (p, $registers:expr, $value:expr) => {
         $registers.status = StatusFlags::from_byte($value);
@@ -1529,9 +1483,7 @@ fn push_pc_lsb(registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) {
 #[inline]
 fn pull_pc_lsb(registers: &mut CpuRegisters, bus: &mut CpuBus<'_>) {
     registers.sp = registers.sp.wrapping_add(1);
-    registers.pc = bus
-        .read_address(u16::from_be_bytes([0x01, registers.sp]))
-        .into();
+    registers.pc = bus.read_address(u16::from_be_bytes([0x01, registers.sp])).into();
 }
 
 #[inline]
@@ -1888,10 +1840,7 @@ macro_rules! impl_load_transfer_ax {
             registers.accumulator = operand;
             registers.x = operand;
 
-            registers
-                .status
-                .set_negative(operand.bit(7))
-                .set_zero(operand == 0);
+            registers.status.set_negative(operand.bit(7)).set_zero(operand == 0);
         });
     };
 }
@@ -1937,10 +1886,7 @@ impl_read_fn!(las, absolute_y, |operand, registers| {
     registers.x = new_value;
     registers.sp = new_value;
 
-    registers
-        .status
-        .set_negative(new_value.bit(7))
-        .set_zero(new_value == 0);
+    registers.status.set_negative(new_value.bit(7)).set_zero(new_value == 0);
 });
 
 // unofficial NOPs

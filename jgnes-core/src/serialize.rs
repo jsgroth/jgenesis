@@ -24,9 +24,7 @@ pub enum SaveStateError {
 }
 
 const BINCODE_CONFIG: bincode::config::Configuration<LittleEndian, Fixint> =
-    bincode::config::standard()
-        .with_little_endian()
-        .with_fixed_int_encoding();
+    bincode::config::standard().with_little_endian().with_fixed_int_encoding();
 
 pub fn save_state<W>(
     bus: &Bus,
@@ -59,10 +57,5 @@ where
     let ppu_state = bincode::decode_from_std_read(&mut reader, BINCODE_CONFIG)?;
     let apu_state = bincode::decode_from_std_read(&mut reader, BINCODE_CONFIG)?;
 
-    Ok(EmulationState {
-        bus,
-        cpu_state,
-        ppu_state,
-        apu_state,
-    })
+    Ok(EmulationState { bus, cpu_state, ppu_state, apu_state })
 }

@@ -18,10 +18,7 @@ const MAX_IRQ_COUNTER: u16 = 0x7FFF;
 
 impl IrqCounter {
     fn new() -> Self {
-        Self {
-            enabled: false,
-            counter: 0,
-        }
+        Self { enabled: false, counter: 0 }
     }
 
     fn get_counter_low_bits(&self) -> u8 {
@@ -64,14 +61,7 @@ struct Namco163AudioChannel {
 
 impl Namco163AudioChannel {
     fn new() -> Self {
-        Self {
-            frequency: 0,
-            phase: 0,
-            length_mask: 0,
-            address: 0,
-            volume: 0,
-            current_output: 0.0,
-        }
+        Self { frequency: 0, phase: 0, length_mask: 0, address: 0, volume: 0, current_output: 0.0 }
     }
 
     fn process_register_update(&mut self, index: u8, value: u8) {
@@ -120,11 +110,7 @@ impl Namco163AudioChannel {
         let sample_addr = self.address.wrapping_add(sample_phase);
         let sample_byte = internal_ram[(sample_addr >> 1) as usize];
         // Samples are 4-bit nibbles in little-endian: 0=low nibble, 1=high nibble
-        let sample = if sample_addr & 0x01 == 0 {
-            sample_byte & 0x0F
-        } else {
-            sample_byte >> 4
-        };
+        let sample = if sample_addr & 0x01 == 0 { sample_byte & 0x0F } else { sample_byte >> 4 };
 
         // Volume should act as if the waveform is centered at sample value 8
         // This will produce a value in the range [-120, 105]

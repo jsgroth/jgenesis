@@ -21,10 +21,7 @@ struct LinearFeedbackShiftRegister {
 
 impl LinearFeedbackShiftRegister {
     fn new() -> Self {
-        Self {
-            register: 1,
-            mode: LfsrMode::Bit1Feedback,
-        }
+        Self { register: 1, mode: LfsrMode::Bit1Feedback }
     }
 
     fn clock(&mut self) {
@@ -41,9 +38,8 @@ impl LinearFeedbackShiftRegister {
     }
 }
 
-const NOISE_PERIOD_LOOKUP_TABLE: [u16; 16] = [
-    4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
-];
+const NOISE_PERIOD_LOOKUP_TABLE: [u16; 16] =
+    [4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068];
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct NoiseChannel {
@@ -88,11 +84,8 @@ impl NoiseChannel {
     }
 
     pub fn process_lo_update(&mut self, lo_value: u8) {
-        self.lfsr.mode = if lo_value.bit(7) {
-            LfsrMode::Bit6Feedback
-        } else {
-            LfsrMode::Bit1Feedback
-        };
+        self.lfsr.mode =
+            if lo_value.bit(7) { LfsrMode::Bit6Feedback } else { LfsrMode::Bit1Feedback };
 
         self.timer_period = NOISE_PERIOD_LOOKUP_TABLE[(lo_value & 0x0F) as usize];
     }

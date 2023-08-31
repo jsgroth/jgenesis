@@ -22,12 +22,7 @@ struct LinearCounter {
 
 impl LinearCounter {
     fn new() -> Self {
-        Self {
-            counter: 0,
-            reload_value: 0,
-            control_flag: false,
-            reload_flag: false,
-        }
+        Self { counter: 0, reload_value: 0, control_flag: false, reload_flag: false }
     }
 
     fn process_tri_linear_update(&mut self, tri_linear_value: u8) {
@@ -74,10 +69,8 @@ impl TriangleChannel {
     }
 
     pub fn process_tri_linear_update(&mut self, tri_linear_value: u8) {
-        self.linear_counter
-            .process_tri_linear_update(tri_linear_value);
-        self.length_counter
-            .process_tri_linear_update(tri_linear_value);
+        self.linear_counter.process_tri_linear_update(tri_linear_value);
+        self.length_counter.process_tri_linear_update(tri_linear_value);
     }
 
     pub fn process_lo_update(&mut self, lo_value: u8) {

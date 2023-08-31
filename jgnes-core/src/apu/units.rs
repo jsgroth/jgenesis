@@ -42,12 +42,7 @@ pub struct LengthCounter {
 
 impl LengthCounter {
     pub fn new(channel: LengthCounterChannel) -> Self {
-        Self {
-            channel,
-            counter: 0,
-            enabled: false,
-            halted: false,
-        }
+        Self { channel, counter: 0, enabled: false, halted: false }
     }
 
     pub fn process_snd_chn_update(&mut self, snd_chn_value: u8) {
@@ -112,11 +107,7 @@ impl Envelope {
     }
 
     pub fn volume(&self) -> u8 {
-        if self.constant_volume_flag {
-            self.divider_period
-        } else {
-            self.decay_level_counter
-        }
+        if self.constant_volume_flag { self.divider_period } else { self.decay_level_counter }
     }
 
     pub fn process_vol_update(&mut self, vol_value: u8) {
@@ -163,24 +154,16 @@ pub struct PhaseTimer<
 }
 
 impl<
-        const MAX_PHASE: u8,
-        const CPU_TICKS_PER_CLOCK: u8,
-        const DIVIDER_BITS: u8,
-        const CAN_RESET_PHASE: bool,
-    > PhaseTimer<MAX_PHASE, CPU_TICKS_PER_CLOCK, DIVIDER_BITS, CAN_RESET_PHASE>
+    const MAX_PHASE: u8,
+    const CPU_TICKS_PER_CLOCK: u8,
+    const DIVIDER_BITS: u8,
+    const CAN_RESET_PHASE: bool,
+> PhaseTimer<MAX_PHASE, CPU_TICKS_PER_CLOCK, DIVIDER_BITS, CAN_RESET_PHASE>
 {
     pub fn new() -> Self {
-        assert!(
-            DIVIDER_BITS == 11 || DIVIDER_BITS == 12,
-            "DIVIDER_BITS must be 11 or 12"
-        );
+        assert!(DIVIDER_BITS == 11 || DIVIDER_BITS == 12, "DIVIDER_BITS must be 11 or 12");
 
-        Self {
-            cpu_ticks: 0,
-            cpu_divider: 0,
-            divider_period: 0,
-            phase: 0,
-        }
+        Self { cpu_ticks: 0, cpu_divider: 0, divider_period: 0, phase: 0 }
     }
 
     pub fn process_lo_update(&mut self, lo_value: u8) {
