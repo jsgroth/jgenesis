@@ -2,6 +2,7 @@
 members = [
     "genesis-core",
     "jgenesis-cli",
+    "jgenesis-gui",
     "jgenesis-native-driver",
     "jgenesis-proc-macros",
     "jgenesis-traits",

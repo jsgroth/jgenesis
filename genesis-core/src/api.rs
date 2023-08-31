@@ -6,7 +6,9 @@ use crate::vdp::{Vdp, VdpTickEffect};
 use crate::ym2612::{Ym2612, YmTickEffect};
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
-use jgenesis_traits::frontend::{AudioOutput, FrameSize, PixelAspectRatio, Renderer};
+use jgenesis_traits::frontend::{
+    AudioOutput, FrameSize, PixelAspectRatio, Renderer, SaveWriter, TickEffect, TickableEmulator,
+};
 use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgVersion};
 use std::error::Error;
@@ -17,38 +19,43 @@ const M68K_MCLK_DIVIDER: u64 = 7;
 const Z80_MCLK_DIVIDER: u64 = 15;
 
 #[derive(Debug)]
-pub enum GenesisError<RErr, AErr> {
+pub enum GenesisError<RErr, AErr, SErr> {
     Render(RErr),
     Audio(AErr),
+    Save(SErr),
 }
 
-impl<RErr, AErr> Display for GenesisError<RErr, AErr>
+impl<RErr, AErr, SErr> Display for GenesisError<RErr, AErr, SErr>
 where
     RErr: Display,
     AErr: Display,
+    SErr: Display,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Render(err) => write!(f, "Rendering error: {err}"),
             Self::Audio(err) => write!(f, "Audio error: {err}"),
+            Self::Save(err) => write!(f, "Save error: {err}"),
         }
     }
 }
 
-impl<RErr, AErr> Error for GenesisError<RErr, AErr>
+impl<RErr, AErr, SErr> Error for GenesisError<RErr, AErr, SErr>
 where
     RErr: Debug + Display + AsRef<dyn Error + 'static>,
     AErr: Debug + Display + AsRef<dyn Error + 'static>,
+    SErr: Debug + Display + AsRef<dyn Error + 'static>,
 {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Render(err) => Some(err.as_ref()),
             Self::Audio(err) => Some(err.as_ref()),
+            Self::Save(err) => Some(err.as_ref()),
         }
     }
 }
 
-pub type GenesisResult<RErr, AErr> = Result<GenesisTickEffect, GenesisError<RErr, AErr>>;
+pub type GenesisResult<RErr, AErr, _SErr> = Result<TickEffect, GenesisError<RErr, AErr, _SErr>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
 pub enum GenesisAspectRatio {
@@ -70,12 +77,6 @@ impl GenesisAspectRatio {
             (Self::Ntsc, _, _) => panic!("unexpected Genesis frame size: {frame_size:?}"),
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GenesisTickEffect {
-    None,
-    FrameRendered,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -136,6 +137,15 @@ impl GenesisEmulator {
         self.memory.cartridge_title()
     }
 
+    pub fn take_rom_from(&mut self, other: &mut Self) {
+        self.memory.take_rom_from(&mut other.memory);
+    }
+}
+
+impl TickableEmulator for GenesisEmulator {
+    type Inputs = GenesisInputs;
+    type Err<RErr, AErr, SErr> = GenesisError<RErr, AErr, SErr>;
+
     /// Execute one 68000 CPU instruction and run the rest of the components for the appropriate
     /// number of cycles.
     ///
@@ -144,16 +154,17 @@ impl GenesisEmulator {
     /// This method will propagate any errors encountered while rendering frames or pushing audio
     /// samples.
     #[inline]
-    #[allow(clippy::missing_panics_doc)]
-    pub fn tick<R, A>(
+    fn tick<R, A, S>(
         &mut self,
         renderer: &mut R,
         audio_output: &mut A,
-        inputs: &GenesisInputs,
-    ) -> GenesisResult<R::Err, A::Err>
+        inputs: &Self::Inputs,
+        _save_writer: &mut S,
+    ) -> GenesisResult<R::Err, A::Err, S::Err>
     where
         R: Renderer,
         A: AudioOutput,
+        S: SaveWriter,
     {
         let mut bus = MainBus::new(
             &mut self.memory,
@@ -210,13 +221,9 @@ impl GenesisEmulator {
 
             self.input.set_inputs(inputs);
 
-            return Ok(GenesisTickEffect::FrameRendered);
+            return Ok(TickEffect::FrameRendered);
         }
 
-        Ok(GenesisTickEffect::None)
-    }
-
-    pub fn take_rom_from(&mut self, other: &mut Self) {
-        self.memory.take_rom_from(&mut other.memory);
+        Ok(TickEffect::None)
     }
 }

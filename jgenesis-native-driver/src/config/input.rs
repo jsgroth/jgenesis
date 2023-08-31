@@ -89,6 +89,20 @@ pub struct SmsGgControllerConfig<Input> {
     pub pause: Option<Input>,
 }
 
+impl<Input> Default for SmsGgControllerConfig<Input> {
+    fn default() -> Self {
+        Self {
+            up: None,
+            left: None,
+            right: None,
+            down: None,
+            button_1: None,
+            button_2: None,
+            pause: None,
+        }
+    }
+}
+
 impl<Input: Display> Display for SmsGgControllerConfig<Input> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -118,52 +132,105 @@ pub struct SmsGgInputConfig<Input> {
     pub p2: SmsGgControllerConfig<Input>,
 }
 
+macro_rules! key_input {
+    ($key:ident) => {
+        Some(KeyboardInput { keycode: Keycode::$key.name() })
+    };
+}
+
 impl Default for SmsGgInputConfig<KeyboardInput> {
     fn default() -> Self {
         Self {
             p1: SmsGgControllerConfig {
-                up: Some(KeyboardInput { keycode: Keycode::Up.name() }),
-                left: Some(KeyboardInput { keycode: Keycode::Left.name() }),
-                right: Some(KeyboardInput { keycode: Keycode::Right.name() }),
-                down: Some(KeyboardInput { keycode: Keycode::Down.name() }),
-                button_1: Some(KeyboardInput { keycode: Keycode::S.name() }),
-                button_2: Some(KeyboardInput { keycode: Keycode::A.name() }),
-                pause: Some(KeyboardInput { keycode: Keycode::Return.name() }),
+                up: key_input!(Up),
+                left: key_input!(Left),
+                right: key_input!(Right),
+                down: key_input!(Down),
+                button_1: key_input!(S),
+                button_2: key_input!(A),
+                pause: key_input!(Return),
             },
-            p2: SmsGgControllerConfig {
-                up: None,
-                left: None,
-                right: None,
-                down: None,
-                button_1: None,
-                button_2: None,
-                pause: None,
-            },
+            p2: SmsGgControllerConfig::default(),
         }
     }
 }
 
 impl Default for SmsGgInputConfig<JoystickInput> {
     fn default() -> Self {
+        Self { p1: SmsGgControllerConfig::default(), p2: SmsGgControllerConfig::default() }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GenesisControllerConfig<Input> {
+    pub up: Option<Input>,
+    pub left: Option<Input>,
+    pub right: Option<Input>,
+    pub down: Option<Input>,
+    pub a: Option<Input>,
+    pub b: Option<Input>,
+    pub c: Option<Input>,
+    pub start: Option<Input>,
+}
+
+impl<Input> Default for GenesisControllerConfig<Input> {
+    fn default() -> Self {
         Self {
-            p1: SmsGgControllerConfig {
-                up: None,
-                left: None,
-                right: None,
-                down: None,
-                button_1: None,
-                button_2: None,
-                pause: None,
-            },
-            p2: SmsGgControllerConfig {
-                up: None,
-                left: None,
-                right: None,
-                down: None,
-                button_1: None,
-                button_2: None,
-                pause: None,
-            },
+            up: None,
+            left: None,
+            right: None,
+            down: None,
+            a: None,
+            b: None,
+            c: None,
+            start: None,
         }
+    }
+}
+
+impl<Input: Display> Display for GenesisControllerConfig<Input> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{{ up: {}, left: {}, right: {}, down: {}, a: {}, b: {}, c: {}, start: {} }}",
+            fmt_option(self.up.as_ref()),
+            fmt_option(self.left.as_ref()),
+            fmt_option(self.right.as_ref()),
+            fmt_option(self.down.as_ref()),
+            fmt_option(self.a.as_ref()),
+            fmt_option(self.b.as_ref()),
+            fmt_option(self.c.as_ref()),
+            fmt_option(self.start.as_ref())
+        )
+    }
+}
+
+#[derive(Debug, Clone, ConfigDisplay)]
+pub struct GenesisInputConfig<Input> {
+    pub p1: GenesisControllerConfig<Input>,
+    pub p2: GenesisControllerConfig<Input>,
+}
+
+impl Default for GenesisInputConfig<KeyboardInput> {
+    fn default() -> Self {
+        Self {
+            p1: GenesisControllerConfig {
+                up: key_input!(Up),
+                left: key_input!(Left),
+                right: key_input!(Right),
+                down: key_input!(Down),
+                a: key_input!(A),
+                b: key_input!(S),
+                c: key_input!(D),
+                start: key_input!(Return),
+            },
+            p2: GenesisControllerConfig::default(),
+        }
+    }
+}
+
+impl Default for GenesisInputConfig<JoystickInput> {
+    fn default() -> Self {
+        Self { p1: GenesisControllerConfig::default(), p2: GenesisControllerConfig::default() }
     }
 }

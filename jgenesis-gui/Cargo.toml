@@ -1,0 +1,19 @@
+[package]
+name = "jgenesis-gui"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+jgenesis-native-driver = { path = "../jgenesis-native-driver" }
+smsgg-core = { path = "../smsgg-core", features = ["serde"] }
+
+anyhow = "1"
+eframe = "0.22"
+egui = "0.22"
+env_logger = "0.10"
+log = "0.4"
+serde = { workspace = true }
+sdl2 = { workspace = true }
+toml = "0.7"

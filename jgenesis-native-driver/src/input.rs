@@ -1,7 +1,9 @@
 use crate::config::input::{
-    AxisDirection, HatDirection, JoystickAction, JoystickInput, KeyboardInput, SmsGgInputConfig,
+    AxisDirection, GenesisInputConfig, HatDirection, JoystickAction, JoystickInput, KeyboardInput,
+    SmsGgInputConfig,
 };
 use anyhow::anyhow;
+use genesis_core::GenesisInputs;
 use sdl2::event::Event;
 use sdl2::joystick::{HatState, Joystick};
 use sdl2::keyboard::Keycode;
@@ -24,6 +26,18 @@ pub enum SmsGgButton {
     Button1(Player),
     Button2(Player),
     Pause,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GenesisButton {
+    Up(Player),
+    Left(Player),
+    Right(Player),
+    Down(Player),
+    A(Player),
+    B(Player),
+    C(Player),
+    Start(Player),
 }
 
 pub trait GetButtonField<Button>
@@ -53,9 +67,32 @@ impl GetButtonField<SmsGgButton> for SmsGgInputs {
     }
 }
 
-pub struct InputMapper<'joy, Inputs, Button> {
+impl GetButtonField<GenesisButton> for GenesisInputs {
+    fn get_field(&mut self, button: GenesisButton) -> &mut bool {
+        match button {
+            GenesisButton::Up(Player::One) => &mut self.p1.up,
+            GenesisButton::Left(Player::One) => &mut self.p1.left,
+            GenesisButton::Right(Player::One) => &mut self.p1.right,
+            GenesisButton::Down(Player::One) => &mut self.p1.down,
+            GenesisButton::A(Player::One) => &mut self.p1.a,
+            GenesisButton::B(Player::One) => &mut self.p1.b,
+            GenesisButton::C(Player::One) => &mut self.p1.c,
+            GenesisButton::Start(Player::One) => &mut self.p1.start,
+            GenesisButton::Up(Player::Two) => &mut self.p2.up,
+            GenesisButton::Left(Player::Two) => &mut self.p2.left,
+            GenesisButton::Right(Player::Two) => &mut self.p2.right,
+            GenesisButton::Down(Player::Two) => &mut self.p2.down,
+            GenesisButton::A(Player::Two) => &mut self.p2.a,
+            GenesisButton::B(Player::Two) => &mut self.p2.b,
+            GenesisButton::C(Player::Two) => &mut self.p2.c,
+            GenesisButton::Start(Player::Two) => &mut self.p2.start,
+        }
+    }
+}
+
+pub struct InputMapper<Inputs, Button> {
     inputs: Inputs,
-    joystick_subsystem: &'joy JoystickSubsystem,
+    joystick_subsystem: JoystickSubsystem,
     joysticks: HashMap<u32, Joystick>,
     axis_deadzone: i16,
     instance_id_to_device_id: HashMap<u32, u32>,
@@ -65,9 +102,30 @@ pub struct InputMapper<'joy, Inputs, Button> {
     input_mapping: HashMap<(u32, JoystickAction), Vec<Button>>,
 }
 
-impl<'joy> InputMapper<'joy, SmsGgInputs, SmsGgButton> {
-    pub fn new(
-        joystick_subsystem: &'joy JoystickSubsystem,
+impl<Inputs: Default, Button> InputMapper<Inputs, Button> {
+    fn new(
+        joystick_subsystem: JoystickSubsystem,
+        keyboard_mapping: HashMap<Keycode, Vec<Button>>,
+        axis_deadzone: i16,
+    ) -> Self {
+        Self {
+            inputs: Inputs::default(),
+            joystick_subsystem,
+            joysticks: HashMap::new(),
+            axis_deadzone,
+            instance_id_to_device_id: HashMap::new(),
+            name_to_device_ids: HashMap::new(),
+            keyboard_mapping,
+            // TODO joystick mappings
+            raw_input_mapping: HashMap::new(),
+            input_mapping: HashMap::new(),
+        }
+    }
+}
+
+impl InputMapper<SmsGgInputs, SmsGgButton> {
+    pub fn new_smsgg(
+        joystick_subsystem: JoystickSubsystem,
         keyboard_inputs: SmsGgInputConfig<KeyboardInput>,
         axis_deadzone: i16,
     ) -> anyhow::Result<Self> {
@@ -95,22 +153,47 @@ impl<'joy> InputMapper<'joy, SmsGgInputs, SmsGgButton> {
             }
         }
 
-        Ok(Self {
-            inputs: SmsGgInputs::default(),
-            joystick_subsystem,
-            joysticks: HashMap::new(),
-            axis_deadzone,
-            instance_id_to_device_id: HashMap::new(),
-            name_to_device_ids: HashMap::new(),
-            keyboard_mapping,
-            // TODO joystick mappings
-            raw_input_mapping: HashMap::new(),
-            input_mapping: HashMap::new(),
-        })
+        Ok(Self::new(joystick_subsystem, keyboard_mapping, axis_deadzone))
     }
 }
 
-impl<'joy, Inputs, Button> InputMapper<'joy, Inputs, Button>
+impl InputMapper<GenesisInputs, GenesisButton> {
+    pub fn new_genesis(
+        joystick_subsystem: JoystickSubsystem,
+        keyboard_inputs: GenesisInputConfig<KeyboardInput>,
+        axis_deadzone: i16,
+    ) -> anyhow::Result<Self> {
+        let mut keyboard_mapping: HashMap<Keycode, Vec<GenesisButton>> = HashMap::new();
+        for (input, button) in [
+            (keyboard_inputs.p1.up, GenesisButton::Up(Player::One)),
+            (keyboard_inputs.p1.left, GenesisButton::Left(Player::One)),
+            (keyboard_inputs.p1.right, GenesisButton::Right(Player::One)),
+            (keyboard_inputs.p1.down, GenesisButton::Down(Player::One)),
+            (keyboard_inputs.p1.a, GenesisButton::A(Player::One)),
+            (keyboard_inputs.p1.b, GenesisButton::B(Player::One)),
+            (keyboard_inputs.p1.c, GenesisButton::C(Player::One)),
+            (keyboard_inputs.p1.start, GenesisButton::Start(Player::One)),
+            (keyboard_inputs.p2.up, GenesisButton::Up(Player::Two)),
+            (keyboard_inputs.p2.left, GenesisButton::Left(Player::Two)),
+            (keyboard_inputs.p2.right, GenesisButton::Right(Player::Two)),
+            (keyboard_inputs.p2.down, GenesisButton::Down(Player::Two)),
+            (keyboard_inputs.p2.a, GenesisButton::A(Player::Two)),
+            (keyboard_inputs.p2.b, GenesisButton::B(Player::Two)),
+            (keyboard_inputs.p2.c, GenesisButton::C(Player::Two)),
+            (keyboard_inputs.p2.start, GenesisButton::Start(Player::Two)),
+        ] {
+            if let Some(KeyboardInput { keycode }) = input {
+                let keycode = Keycode::from_name(&keycode)
+                    .ok_or_else(|| anyhow!("invalid SDL2 keycode: {keycode}"))?;
+                keyboard_mapping.entry(keycode).or_default().push(button);
+            }
+        }
+
+        Ok(Self::new(joystick_subsystem, keyboard_mapping, axis_deadzone))
+    }
+}
+
+impl<Inputs, Button> InputMapper<Inputs, Button>
 where
     Inputs: Default + GetButtonField<Button>,
     Button: Copy,

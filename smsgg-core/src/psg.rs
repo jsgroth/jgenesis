@@ -243,6 +243,7 @@ pub enum PsgTickEffect {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PsgVersion {
     #[default]
     MasterSystem2,

@@ -2,12 +2,15 @@ use clap::Parser;
 use env_logger::Env;
 use genesis_core::GenesisAspectRatio;
 use jgenesis_native_driver::config::input::{
-    KeyboardInput, SmsGgControllerConfig, SmsGgInputConfig,
+    GenesisControllerConfig, GenesisInputConfig, KeyboardInput, SmsGgControllerConfig,
+    SmsGgInputConfig,
 };
 use jgenesis_native_driver::config::{
-    GenesisConfig, GgAspectRatio, SmsAspectRatio, SmsGgConfig, WindowSize,
+    CommonConfig, GenesisConfig, GgAspectRatio, SmsAspectRatio, SmsGgConfig, WindowSize,
 };
-use jgenesis_native_driver::{FilterMode, PrescaleFactor, RendererConfig, VSyncMode};
+use jgenesis_native_driver::{
+    FilterMode, NativeTickEffect, PrescaleFactor, RendererConfig, VSyncMode,
+};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::VdpVersion;
@@ -113,6 +116,18 @@ struct Args {
     #[arg(long)]
     input_p1_button_2: Option<String>,
 
+    /// P1 A button key (Genesis)
+    #[arg(long)]
+    input_p1_a: Option<String>,
+
+    /// P1 B button key (Genesis)
+    #[arg(long)]
+    input_p1_b: Option<String>,
+
+    /// P1 C button key (Genesis)
+    #[arg(long)]
+    input_p1_c: Option<String>,
+
     /// P1 start/pause key
     #[arg(long)]
     input_p1_start: Option<String>,
@@ -123,6 +138,14 @@ struct Args {
 }
 
 impl Args {
+    fn validate(&self) {
+        assert!(
+            self.joy_axis_deadzone >= 0,
+            "joy_axis_deadzone must be non-negative; was {}",
+            self.joy_axis_deadzone
+        );
+    }
+
     fn window_size(&self) -> Option<WindowSize> {
         match (self.window_width, self.window_height) {
             (Some(width), Some(height)) => Some(WindowSize { width, height }),
@@ -166,6 +189,39 @@ impl Args {
             p2: default.p2,
         }
     }
+
+    fn genesis_keyboard_config(&self) -> GenesisInputConfig<KeyboardInput> {
+        let default = GenesisInputConfig::default();
+        GenesisInputConfig {
+            p1: GenesisControllerConfig {
+                up: self.input_p1_up.as_ref().map(keyboard_input).or(default.p1.up),
+                left: self.input_p1_left.as_ref().map(keyboard_input).or(default.p1.left),
+                right: self.input_p1_right.as_ref().map(keyboard_input).or(default.p1.right),
+                down: self.input_p1_down.as_ref().map(keyboard_input).or(default.p1.down),
+                a: self.input_p1_a.as_ref().map(keyboard_input).or(default.p1.a),
+                b: self.input_p1_b.as_ref().map(keyboard_input).or(default.p1.b),
+                c: self.input_p1_c.as_ref().map(keyboard_input).or(default.p1.c),
+                start: self.input_p1_start.as_ref().map(keyboard_input).or(default.p1.start),
+            },
+            p2: default.p2,
+        }
+    }
+
+    fn common_config<KC, JC>(
+        &self,
+        keyboard_inputs: KC,
+        joystick_inputs: JC,
+    ) -> CommonConfig<KC, JC> {
+        CommonConfig {
+            rom_file_path: self.file_path.clone(),
+            audio_sync: self.audio_sync,
+            window_size: self.window_size(),
+            renderer_config: self.renderer_config(),
+            keyboard_inputs,
+            axis_deadzone: self.joy_axis_deadzone,
+            joystick_inputs,
+        }
+    }
 }
 
 fn keyboard_input(s: &String) -> KeyboardInput {
@@ -179,6 +235,7 @@ fn main() -> anyhow::Result<()> {
     .init();
 
     let args = Args::parse();
+    args.validate();
 
     let hardware = args.hardware.unwrap_or_else(|| {
         let file_ext = Path::new(&args.file_path).extension().and_then(OsStr::to_str).unwrap();
@@ -201,11 +258,10 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn run_sms(args: Args) -> anyhow::Result<()> {
-    let window_size = args.window_size();
-    let renderer_config = args.renderer_config();
     let keyboard_inputs = args.smsgg_keyboard_config();
+    let common = args.common_config(keyboard_inputs, SmsGgInputConfig::default());
     let config = SmsGgConfig {
-        rom_file_path: args.file_path,
+        common,
         vdp_version: args.vdp_version,
         psg_version: args.psg_version,
         remove_sprite_limit: args.remove_sprite_limit,
@@ -213,27 +269,21 @@ fn run_sms(args: Args) -> anyhow::Result<()> {
         gg_aspect_ratio: args.gg_aspect_ratio,
         sms_crop_vertical_border: args.sms_crop_vertical_border,
         sms_crop_left_border: args.sms_crop_left_border,
-        audio_sync: args.audio_sync,
-        window_size,
-        renderer_config,
-        keyboard_inputs,
-        axis_deadzone: args.joy_axis_deadzone,
-        joystick_inputs: SmsGgInputConfig::default(),
     };
 
-    jgenesis_native_driver::run_smsgg(config)
+    let mut emulator = jgenesis_native_driver::create_smsgg(config)?;
+    while emulator.render_frame()? != NativeTickEffect::Exit {}
+
+    Ok(())
 }
 
 fn run_genesis(args: Args) -> anyhow::Result<()> {
-    let window_size = args.window_size();
-    let renderer_config = args.renderer_config();
-    let config = GenesisConfig {
-        rom_file_path: args.file_path,
-        aspect_ratio: args.genesis_aspect_ratio,
-        audio_sync: args.audio_sync,
-        window_size,
-        renderer_config,
-    };
+    let keyboard_inputs = args.genesis_keyboard_config();
+    let common = args.common_config(keyboard_inputs, GenesisInputConfig::default());
+    let config = GenesisConfig { common, aspect_ratio: args.genesis_aspect_ratio };
 
-    jgenesis_native_driver::run_genesis(config)
+    let mut emulator = jgenesis_native_driver::create_genesis(config)?;
+    while emulator.render_frame()? != NativeTickEffect::Exit {}
+
+    Ok(())
 }

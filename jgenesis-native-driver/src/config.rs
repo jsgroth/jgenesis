@@ -1,10 +1,11 @@
 pub mod input;
 
-use crate::config::input::{JoystickInput, KeyboardInput, SmsGgInputConfig};
+use crate::config::input::{GenesisInputConfig, JoystickInput, KeyboardInput, SmsGgInputConfig};
 use crate::RendererConfig;
 use genesis_core::GenesisAspectRatio;
 use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay, EnumFromStr};
 use jgenesis_traits::frontend::PixelAspectRatio;
+use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::VdpVersion;
 
@@ -16,7 +17,9 @@ pub struct WindowSize {
     pub height: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumDisplay, EnumFromStr)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
+)]
 pub enum SmsAspectRatio {
     #[default]
     Ntsc,
@@ -36,7 +39,9 @@ impl SmsAspectRatio {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumDisplay, EnumFromStr)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
+)]
 pub enum GgAspectRatio {
     #[default]
     GgLcd,
@@ -55,8 +60,24 @@ impl GgAspectRatio {
 }
 
 #[derive(Debug, Clone, ConfigDisplay)]
-pub struct SmsGgConfig {
+pub struct CommonConfig<KeyboardConfig, JoystickConfig> {
     pub rom_file_path: String,
+    pub audio_sync: bool,
+    #[debug_fmt]
+    pub window_size: Option<WindowSize>,
+    #[indent_nested]
+    pub renderer_config: RendererConfig,
+    #[indent_nested]
+    pub keyboard_inputs: KeyboardConfig,
+    pub axis_deadzone: i16,
+    #[indent_nested]
+    pub joystick_inputs: JoystickConfig,
+}
+
+#[derive(Debug, Clone, ConfigDisplay)]
+pub struct SmsGgConfig {
+    #[indent_nested]
+    pub common: CommonConfig<SmsGgInputConfig<KeyboardInput>, SmsGgInputConfig<JoystickInput>>,
     pub vdp_version: Option<VdpVersion>,
     pub psg_version: Option<PsgVersion>,
     pub remove_sprite_limit: bool,
@@ -64,16 +85,6 @@ pub struct SmsGgConfig {
     pub gg_aspect_ratio: GgAspectRatio,
     pub sms_crop_vertical_border: bool,
     pub sms_crop_left_border: bool,
-    pub audio_sync: bool,
-    #[debug_fmt]
-    pub window_size: Option<WindowSize>,
-    #[indent_nested]
-    pub renderer_config: RendererConfig,
-    #[indent_nested]
-    pub keyboard_inputs: SmsGgInputConfig<KeyboardInput>,
-    pub axis_deadzone: i16,
-    #[indent_nested]
-    pub joystick_inputs: SmsGgInputConfig<JoystickInput>,
 }
 
 pub(crate) fn default_vdp_version_for_ext(file_ext: &str) -> VdpVersion {
@@ -104,11 +115,7 @@ pub(crate) fn default_smsgg_window_size(vdp_version: VdpVersion) -> WindowSize {
 
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct GenesisConfig {
-    pub rom_file_path: String,
-    pub aspect_ratio: GenesisAspectRatio,
-    pub audio_sync: bool,
-    #[debug_fmt]
-    pub window_size: Option<WindowSize>,
     #[indent_nested]
-    pub renderer_config: RendererConfig,
+    pub common: CommonConfig<GenesisInputConfig<KeyboardInput>, GenesisInputConfig<JoystickInput>>,
+    pub aspect_ratio: GenesisAspectRatio,
 }

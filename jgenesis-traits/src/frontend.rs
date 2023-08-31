@@ -110,3 +110,33 @@ pub trait SaveWriter {
     /// This method will return an error if it is unable to persist the given save bytes.
     fn persist_save(&mut self, save_bytes: &[u8]) -> Result<(), Self::Err>;
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TickEffect {
+    None,
+    FrameRendered,
+}
+
+#[allow(clippy::type_complexity)]
+pub trait TickableEmulator {
+    type Inputs;
+    type Err<RErr, AErr, SErr>;
+
+    /// Tick the emulator for a small amount of time, e.g. a single CPU instruction.
+    ///
+    /// # Errors
+    ///
+    /// This method should propagate any errors encountered while rendering frames, pushing audio
+    /// samples, or persisting save files.
+    fn tick<R, A, S>(
+        &mut self,
+        renderer: &mut R,
+        audio_output: &mut A,
+        inputs: &Self::Inputs,
+        save_writer: &mut S,
+    ) -> Result<TickEffect, Self::Err<R::Err, A::Err, S::Err>>
+    where
+        R: Renderer,
+        A: AudioOutput,
+        S: SaveWriter;
+}

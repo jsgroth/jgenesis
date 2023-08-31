@@ -7,7 +7,8 @@ use crate::{vdp, SmsGgInputs, VdpVersion};
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use jgenesis_traits::frontend::{
-    AudioOutput, Color, FrameSize, PixelAspectRatio, Renderer, SaveWriter,
+    AudioOutput, Color, FrameSize, PixelAspectRatio, Renderer, SaveWriter, TickEffect,
+    TickableEmulator,
 };
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
@@ -16,12 +17,6 @@ use z80_emu::{InterruptMode, Z80};
 
 // 53_693_175 / 15 / 16 / 48000
 const DOWNSAMPLING_RATIO: f64 = 4.6608658854166665;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SmsGgTickEffect {
-    None,
-    FrameRendered,
-}
 
 #[derive(Debug)]
 pub enum SmsGgError<RErr, AErr, SErr> {
@@ -60,7 +55,7 @@ where
     }
 }
 
-pub type SmsGgResult<RErr, AErr, SErr> = Result<SmsGgTickEffect, SmsGgError<RErr, AErr, SErr>>;
+pub type SmsGgResult<RErr, AErr, SErr> = Result<TickEffect, SmsGgError<RErr, AErr, SErr>>;
 
 #[derive(Debug, Clone, FakeEncode, FakeDecode)]
 struct FrameBuffer(Vec<Color>);
@@ -152,6 +147,15 @@ impl SmsGgEmulator {
         }
     }
 
+    pub fn take_rom_from(&mut self, other: &mut Self) {
+        self.memory.take_rom_from(&mut other.memory);
+    }
+}
+
+impl TickableEmulator for SmsGgEmulator {
+    type Inputs = SmsGgInputs;
+    type Err<RErr, AErr, SErr> = SmsGgError<RErr, AErr, SErr>;
+
     /// Execute a single CPU instruction and run the rest of the components for the corresponding
     /// number of cycles.
     ///
@@ -160,11 +164,11 @@ impl SmsGgEmulator {
     /// This method will propagate any errors encountered while rendering frames, pushing audio
     /// samples, or persisting cartridge SRAM.
     #[inline]
-    pub fn tick<R, A, S>(
+    fn tick<R, A, S>(
         &mut self,
         renderer: &mut R,
         audio_output: &mut A,
-        inputs: &SmsGgInputs,
+        inputs: &Self::Inputs,
         save_writer: &mut S,
     ) -> SmsGgResult<R::Err, A::Err, S::Err>
     where
@@ -246,11 +250,7 @@ impl SmsGgEmulator {
             }
         }
 
-        Ok(if frame_rendered { SmsGgTickEffect::FrameRendered } else { SmsGgTickEffect::None })
-    }
-
-    pub fn take_rom_from(&mut self, other: &mut Self) {
-        self.memory.take_rom_from(&mut other.memory);
+        Ok(if frame_rendered { TickEffect::FrameRendered } else { TickEffect::None })
     }
 }
 

@@ -1,16 +1,16 @@
+use crate::config;
 use crate::config::{GenesisConfig, SmsGgConfig, WindowSize};
-use crate::input::InputMapper;
+use crate::input::{GenesisButton, GetButtonField, InputMapper, SmsGgButton};
 use crate::renderer::WgpuRenderer;
-use crate::{config, genesisinput};
 use anyhow::{anyhow, Context};
 use bincode::{Decode, Encode};
-use genesis_core::{GenesisEmulator, GenesisInputs, GenesisTickEffect};
-use jgenesis_traits::frontend::{AudioOutput, SaveWriter};
+use genesis_core::{GenesisEmulator, GenesisInputs};
+use jgenesis_traits::frontend::{AudioOutput, SaveWriter, TickEffect, TickableEmulator};
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::Keycode;
 use sdl2::{AudioSubsystem, EventPump, JoystickSubsystem, VideoSubsystem};
-use smsgg_core::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgTickEffect};
+use smsgg_core::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgInputs};
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
@@ -91,16 +91,89 @@ impl SaveWriter for FsSaveWriter {
     }
 }
 
-/// Run the SMS/GG core with the given config.
+struct NullSaveWriter;
+
+impl SaveWriter for NullSaveWriter {
+    type Err = anyhow::Error;
+
+    fn persist_save(&mut self, _save_bytes: &[u8]) -> Result<(), Self::Err> {
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeTickEffect {
+    None,
+    Exit,
+}
+
+pub struct NativeEmulator<Inputs, Button, Emulator> {
+    emulator: Emulator,
+    renderer: WgpuRenderer,
+    audio_output: SdlAudioOutput,
+    input_mapper: InputMapper<Inputs, Button>,
+    save_writer: FsSaveWriter,
+    event_pump: EventPump,
+    save_state_path: PathBuf,
+}
+
+// TODO simplify or generalize these trait bounds
+impl<Inputs, Button, Emulator> NativeEmulator<Inputs, Button, Emulator>
+where
+    Inputs: Default + GetButtonField<Button>,
+    Button: Copy,
+    Emulator: TickableEmulator<Inputs = Inputs> + Encode + Decode + TakeRomFrom,
+    anyhow::Error: From<Emulator::Err<anyhow::Error, anyhow::Error, anyhow::Error>>,
+{
+    /// Run the emulator until a frame is rendered.
+    ///
+    /// # Errors
+    ///
+    /// This method will propagate any errors encountered when rendering frames, pushing audio
+    /// samples, or writing save files.
+    pub fn render_frame(&mut self) -> anyhow::Result<NativeTickEffect> {
+        loop {
+            if self.emulator.tick(
+                &mut self.renderer,
+                &mut self.audio_output,
+                self.input_mapper.inputs(),
+                &mut self.save_writer,
+            )? == TickEffect::FrameRendered
+            {
+                for event in self.event_pump.poll_iter() {
+                    self.input_mapper.handle_event(&event)?;
+                    handle_hotkeys(&event, &mut self.emulator, &self.save_state_path)?;
+
+                    match event {
+                        Event::Quit { .. }
+                        | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
+                            return Ok(NativeTickEffect::Exit);
+                        }
+                        Event::Window { win_event, .. } => {
+                            handle_window_event(win_event, &mut self.renderer);
+                        }
+                        _ => {}
+                    }
+                }
+
+                return Ok(NativeTickEffect::None);
+            }
+        }
+    }
+}
+
+/// Create an emulator with the SMS/GG core with the given config.
 ///
 /// # Errors
 ///
 /// This function will propagate any video, audio, or disk errors encountered.
 #[allow(clippy::missing_panics_doc)]
-pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
+pub fn create_smsgg(
+    config: SmsGgConfig,
+) -> anyhow::Result<NativeEmulator<SmsGgInputs, SmsGgButton, SmsGgEmulator>> {
     log::info!("Running with config: {config}");
 
-    let rom_file_path = Path::new(&config.rom_file_path);
+    let rom_file_path = Path::new(&config.common.rom_file_path);
     let rom_file_name = parse_file_name(rom_file_path)?;
     let file_ext = parse_file_ext(rom_file_path)?;
 
@@ -120,10 +193,10 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
     log::info!("VDP version: {vdp_version:?}");
     log::info!("PSG version: {psg_version:?}");
 
-    let (video, audio, joystick, mut event_pump) = init_sdl()?;
+    let (video, audio, joystick, event_pump) = init_sdl()?;
 
     let WindowSize { width: window_width, height: window_height } =
-        config.window_size.unwrap_or_else(|| config::default_smsgg_window_size(vdp_version));
+        config.common.window_size.unwrap_or_else(|| config::default_smsgg_window_size(vdp_version));
     let window = video
         .window(&format!("smsgg - {rom_file_name}"), window_width, window_height)
         .resizable()
@@ -135,11 +208,14 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
         config.gg_aspect_ratio.to_pixel_aspect_ratio()
     };
 
-    let mut renderer = pollster::block_on(WgpuRenderer::new(window, config.renderer_config))?;
-    let mut audio_output = SdlAudioOutput::create_and_init(&audio, config.audio_sync)?;
-    let mut input_mapper =
-        InputMapper::new(&joystick, config.keyboard_inputs, config.axis_deadzone)?;
-    let mut save_writer = FsSaveWriter::new(save_path);
+    let renderer = pollster::block_on(WgpuRenderer::new(window, config.common.renderer_config))?;
+    let audio_output = SdlAudioOutput::create_and_init(&audio, config.common.audio_sync)?;
+    let input_mapper = InputMapper::new_smsgg(
+        joystick,
+        config.common.keyboard_inputs,
+        config.common.axis_deadzone,
+    )?;
+    let save_writer = FsSaveWriter::new(save_path);
 
     let emulator_config = SmsGgEmulatorConfig {
         pixel_aspect_ratio,
@@ -147,7 +223,7 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
         sms_crop_vertical_border: config.sms_crop_vertical_border,
         sms_crop_left_border: config.sms_crop_left_border,
     };
-    let mut emulator = SmsGgEmulator::create(
+    let emulator = SmsGgEmulator::create(
         rom,
         initial_cartridge_ram,
         vdp_version,
@@ -155,81 +231,62 @@ pub fn run_smsgg(config: SmsGgConfig) -> anyhow::Result<()> {
         emulator_config,
     );
 
-    loop {
-        if emulator.tick(
-            &mut renderer,
-            &mut audio_output,
-            input_mapper.inputs(),
-            &mut save_writer,
-        )? == SmsGgTickEffect::FrameRendered
-        {
-            for event in event_pump.poll_iter() {
-                input_mapper.handle_event(&event)?;
-                handle_hotkeys(&event, &mut emulator, &save_state_path)?;
-
-                match event {
-                    Event::Quit { .. } | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
-                        return Ok(());
-                    }
-                    Event::Window { win_event, .. } => {
-                        handle_window_event(win_event, &mut renderer);
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
+    Ok(NativeEmulator {
+        emulator,
+        renderer,
+        audio_output,
+        input_mapper,
+        save_writer,
+        event_pump,
+        save_state_path,
+    })
 }
 
-/// Run the Genesis core with the given config.
+/// Create an emulator with the Genesis core with the given config.
 ///
 /// # Errors
 ///
 /// This function will return an error upon encountering any video, audio, or I/O error.
-#[allow(clippy::missing_panics_doc)]
-pub fn run_genesis(config: GenesisConfig) -> anyhow::Result<()> {
+pub fn create_genesis(
+    config: GenesisConfig,
+) -> anyhow::Result<NativeEmulator<GenesisInputs, GenesisButton, GenesisEmulator>> {
     log::info!("Running with config: {config}");
 
-    let rom_file_path = Path::new(&config.rom_file_path);
+    let rom_file_path = Path::new(&config.common.rom_file_path);
     let rom = fs::read(rom_file_path)?;
 
+    let save_path = rom_file_path.with_extension("sav");
     let save_state_path = rom_file_path.with_extension("ss0");
 
-    let mut emulator = GenesisEmulator::create(rom, config.aspect_ratio)?;
+    let emulator = GenesisEmulator::create(rom, config.aspect_ratio)?;
 
-    let (video, audio, _, mut event_pump) = init_sdl()?;
+    let (video, audio, joystick, event_pump) = init_sdl()?;
 
     let WindowSize { width: window_width, height: window_height } =
-        config.window_size.unwrap_or(config::DEFAULT_GENESIS_WINDOW_SIZE);
+        config.common.window_size.unwrap_or(config::DEFAULT_GENESIS_WINDOW_SIZE);
     let window = video
         .window(&format!("genesis - {}", emulator.cartridge_title()), window_width, window_height)
         .resizable()
         .build()?;
 
-    let mut renderer = pollster::block_on(WgpuRenderer::new(window, config.renderer_config))?;
-    let mut audio_output = SdlAudioOutput::create_and_init(&audio, config.audio_sync)?;
-    let mut inputs = GenesisInputs::default();
+    let renderer = pollster::block_on(WgpuRenderer::new(window, config.common.renderer_config))?;
+    let audio_output = SdlAudioOutput::create_and_init(&audio, config.common.audio_sync)?;
+    let input_mapper = InputMapper::new_genesis(
+        joystick,
+        config.common.keyboard_inputs,
+        config.common.axis_deadzone,
+    )?;
+    let save_writer = FsSaveWriter::new(save_path);
 
-    loop {
-        if emulator.tick(&mut renderer, &mut audio_output, &inputs)?
-            == GenesisTickEffect::FrameRendered
-        {
-            for event in event_pump.poll_iter() {
-                genesisinput::update_inputs(&event, &mut inputs);
-                handle_hotkeys(&event, &mut emulator, &save_state_path)?;
-
-                match event {
-                    Event::Quit { .. } | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
-                        return Ok(());
-                    }
-                    Event::Window { win_event, .. } => {
-                        handle_window_event(win_event, &mut renderer);
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
+    Ok(NativeEmulator {
+        emulator,
+        renderer,
+        audio_output,
+        input_mapper,
+        save_writer,
+        event_pump,
+        save_state_path,
+    })
 }
 
 fn parse_file_name(path: &Path) -> anyhow::Result<&str> {
@@ -262,7 +319,7 @@ fn init_sdl() -> anyhow::Result<(VideoSubsystem, AudioSubsystem, JoystickSubsyst
     Ok((video, audio, joystick, event_pump))
 }
 
-trait TakeRomFrom {
+pub trait TakeRomFrom {
     fn take_rom_from(&mut self, other: &mut Self);
 }
 

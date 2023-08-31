@@ -16,5 +16,6 @@ bincode = "2.0.0-rc.3"
 bytemuck = "1"
 log = "0.4"
 pollster = "0.3"
+serde = { workspace = true }
 sdl2 = { workspace = true }
 wgpu = "0.17"
