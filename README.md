@@ -1,6 +1,6 @@
 # jgenesis
 
-WIP multi-console Sega emulator. Currently mostly supports the Sega Master System, the Game Gear, and the Sega Genesis.
+WIP multi-console Sega emulator. Currently mostly supports the Sega Master System, the Game Gear, and the Sega Genesis / Mega Drive.
 
 Major TODOs:
 * Implement a GUI
