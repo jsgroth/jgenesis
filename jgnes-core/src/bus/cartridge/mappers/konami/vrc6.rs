@@ -41,12 +41,7 @@ struct Vrc6PulseChannel {
 
 impl Vrc6PulseChannel {
     fn new() -> Self {
-        Self {
-            enabled: false,
-            timer: Vrc6PulsePhaseTimer::new(),
-            volume: 0,
-            duty_cycle: 0,
-        }
+        Self { enabled: false, timer: Vrc6PulsePhaseTimer::new(), volume: 0, duty_cycle: 0 }
     }
 
     fn process_control_update(&mut self, control_value: u8) {
@@ -82,11 +77,7 @@ impl Vrc6PulseChannel {
         }
 
         let duty_step = (16 - self.timer.phase) & 0x0F;
-        if duty_step <= self.duty_cycle {
-            self.volume
-        } else {
-            0
-        }
+        if duty_step <= self.duty_cycle { self.volume } else { 0 }
     }
 }
 
@@ -155,11 +146,7 @@ impl SawtoothChannel {
     }
 
     fn sample(&self) -> u8 {
-        if self.enabled {
-            self.accumulator >> 3
-        } else {
-            0
-        }
+        if self.enabled { self.accumulator >> 3 } else { 0 }
     }
 }
 

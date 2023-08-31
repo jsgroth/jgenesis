@@ -60,11 +60,7 @@ impl VrcIrqCounter {
 
         self.enable_after_ack = value.bit(0);
         self.enabled = value.bit(1);
-        self.mode = if value.bit(2) {
-            IrqMode::Cycle
-        } else {
-            IrqMode::Scanline
-        };
+        self.mode = if value.bit(2) { IrqMode::Cycle } else { IrqMode::Scanline };
 
         if self.enabled {
             self.irq_counter = self.reload_value;

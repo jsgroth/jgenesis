@@ -45,9 +45,6 @@ impl InstructionState {
     }
 
     pub fn interrupt_service() -> Self {
-        Self {
-            executing_interrupt: true,
-            ..Self::from_opcode(0)
-        }
+        Self { executing_interrupt: true, ..Self::from_opcode(0) }
     }
 }

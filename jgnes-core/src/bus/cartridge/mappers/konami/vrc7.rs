@@ -15,9 +15,8 @@ use bincode::{Decode, Encode};
 use std::ops::{Add, Sub};
 use std::{array, cmp};
 
-const MULTIPLIER_LOOKUP_TABLE: [f64; 16] = [
-    0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 10.0, 12.0, 12.0, 15.0, 15.0,
-];
+const MULTIPLIER_LOOKUP_TABLE: [f64; 16] =
+    [0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 10.0, 12.0, 12.0, 15.0, 15.0];
 
 // From https://www.nesdev.org/wiki/VRC7_audio#Internal_patch_set
 // Indexed into using (instrument # - 1) since 0 is custom instrument
@@ -270,11 +269,7 @@ impl EnvelopeGenerator {
 
     fn clock(&mut self, frequency: u16, octave: u8, channel_sustain_on: bool) {
         let freq_rate = (octave << 1) | (frequency >> 8) as u8;
-        let key_scale_offset = if self.key_rate_scaling {
-            freq_rate
-        } else {
-            freq_rate >> 2
-        };
+        let key_scale_offset = if self.key_rate_scaling { freq_rate } else { freq_rate >> 2 };
 
         let rate = match self.state {
             EnvelopeState::Attack => self.attack,
@@ -464,9 +459,7 @@ impl<WaveType: WaveGeneratorBehavior> WaveGenerator<WaveType> {
             * self.freq_multiplier
             * fm_multiplier;
         self.phase_counter = (self.phase_counter + delta.round() as u32) & PHASE_MASK;
-        self.adjusted_phase = self
-            .behavior
-            .adjust_phase(self.phase_counter, modulator_output);
+        self.adjusted_phase = self.behavior.adjust_phase(self.phase_counter, modulator_output);
 
         // Clock envelope before computing amplitude
         self.envelope.clock(frequency, octave, channel_sustain_on);
@@ -494,11 +487,7 @@ impl<WaveType: WaveGeneratorBehavior> WaveGenerator<WaveType> {
         };
         let key_scale_attenuation = Decibels(key_scale_attenuation);
 
-        let am_additive = if self.tremolo {
-            am_output
-        } else {
-            Decibels(0.0)
-        };
+        let am_additive = if self.tremolo { am_output } else { Decibels(0.0) };
 
         let output_db = sin_output_db
             + base_attenuation
@@ -598,10 +587,7 @@ struct FmSynthChannel {
 impl FmSynthChannel {
     fn new() -> Self {
         Self {
-            modulator: Modulator::new(ModulatorWaveBehavior {
-                output_level: 0,
-                feedback_level: 0,
-            }),
+            modulator: Modulator::new(ModulatorWaveBehavior { output_level: 0, feedback_level: 0 }),
             carrier: Carrier::new(CarrierWaveBehavior),
             control: ChannelControl {
                 frequency: 0,

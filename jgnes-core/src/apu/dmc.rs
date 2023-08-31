@@ -10,9 +10,8 @@ use crate::bus::CpuBus;
 use crate::num::GetBit;
 use bincode::{Decode, Encode};
 
-const DMC_PERIOD_LOOKUP_TABLE: [u16; 16] = [
-    428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54,
-];
+const DMC_PERIOD_LOOKUP_TABLE: [u16; 16] =
+    [428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54];
 
 #[derive(Debug, Clone, Encode, Decode)]
 struct DmcOutputUnit {
@@ -24,12 +23,7 @@ struct DmcOutputUnit {
 
 impl DmcOutputUnit {
     fn new() -> Self {
-        Self {
-            output_level: 0,
-            shift_register: 0,
-            bits_remaining: 8,
-            silence_flag: true,
-        }
+        Self { output_level: 0, shift_register: 0, bits_remaining: 8, silence_flag: true }
     }
 
     fn clock(&mut self, sample_buffer: &mut Option<u8>) {

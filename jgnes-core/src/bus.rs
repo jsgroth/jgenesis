@@ -179,27 +179,15 @@ impl PpuRegisters {
     }
 
     pub fn bg_pattern_table_address(&self) -> u16 {
-        if self.ppu_ctrl.bit(4) {
-            0x1000
-        } else {
-            0x0000
-        }
+        if self.ppu_ctrl.bit(4) { 0x1000 } else { 0x0000 }
     }
 
     pub fn sprite_pattern_table_address(&self) -> u16 {
-        if self.ppu_ctrl.bit(3) {
-            0x1000
-        } else {
-            0x0000
-        }
+        if self.ppu_ctrl.bit(3) { 0x1000 } else { 0x0000 }
     }
 
     pub fn ppu_data_addr_increment(&self) -> u16 {
-        if self.ppu_ctrl.bit(2) {
-            32
-        } else {
-            1
-        }
+        if self.ppu_ctrl.bit(2) { 32 } else { 1 }
     }
 
     pub fn emphasize_blue(&self) -> bool {
@@ -557,11 +545,8 @@ impl InterruptLines {
         }
         self.nmi_line = self.next_nmi_line;
 
-        let irq_line = if self.irq_low_pulls != 0 {
-            InterruptLine::Low
-        } else {
-            InterruptLine::High
-        };
+        let irq_line =
+            if self.irq_low_pulls != 0 { InterruptLine::Low } else { InterruptLine::High };
 
         match (irq_line, self.irq_status) {
             (InterruptLine::High, _) => {
@@ -666,8 +651,7 @@ impl Bus {
     // Poll NMI/IRQ interrupt lines; this should be called once per CPU cycle, between the first
     // and second PPU ticks
     pub fn poll_interrupt_lines(&mut self) {
-        self.interrupt_lines
-            .set_irq_low_pull(IrqSource::Mapper, self.mapper.interrupt_flag());
+        self.interrupt_lines.set_irq_low_pull(IrqSource::Mapper, self.mapper.interrupt_flag());
 
         self.interrupt_lines.tick();
     }
@@ -747,13 +731,9 @@ impl<'a> CpuBus<'a> {
         }
     }
 
+    #[allow(clippy::manual_assert)]
     pub fn write_address(&mut self, address: u16, value: u8) {
-        if self
-            .0
-            .pending_write
-            .replace(PendingCpuWrite { address, value })
-            .is_some()
-        {
+        if self.0.pending_write.replace(PendingCpuWrite { address, value }).is_some() {
             panic!("Attempted to write twice in the same cycle");
         }
     }
@@ -919,9 +899,7 @@ impl<'a> PpuBus<'a> {
         let address = address & 0x3FFF;
         match address {
             0x0000..=0x3EFF => {
-                self.0
-                    .mapper
-                    .write_ppu_address(address, value, &mut self.0.ppu_vram);
+                self.0.mapper.write_ppu_address(address, value, &mut self.0.ppu_vram);
             }
             0x3F00..=0x3FFF => {
                 let palette_relative_addr = map_palette_address(address);

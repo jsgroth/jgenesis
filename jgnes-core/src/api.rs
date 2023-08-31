@@ -39,11 +39,7 @@ impl ColorEmphasis {
 
 impl Display for ColorEmphasis {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "ColorEmphasis[R={}, G={}, B={}]",
-            self.red, self.green, self.blue
-        )
+        write!(f, "ColorEmphasis[R={}, G={}, B={}]", self.red, self.green, self.blue)
     }
 }
 
@@ -382,9 +378,7 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
 
             if self.bus.mapper_mut().get_and_clear_ram_dirty_bit() {
                 let sram = self.bus.mapper().get_prg_ram();
-                self.save_writer
-                    .persist_sram(sram)
-                    .map_err(EmulationError::Save)?;
+                self.save_writer.persist_sram(sram).map_err(EmulationError::Save)?;
             }
 
             return Ok(TickEffect::FrameRendered);
@@ -397,11 +391,7 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
         &mut self,
         config: &EmulatorConfig,
     ) -> UnitEmulationResult<R::Err, A::Err, S::Err> {
-        cpu::tick(
-            &mut self.cpu_state,
-            &mut self.bus.cpu(),
-            self.apu_state.is_active_cycle(),
-        );
+        cpu::tick(&mut self.cpu_state, &mut self.bus.cpu(), self.apu_state.is_active_cycle());
         apu::tick(&mut self.apu_state, &mut self.bus.cpu(), config);
         ppu::tick(&mut self.ppu_state, &mut self.bus.ppu(), config);
         self.bus.tick_cpu();
@@ -422,11 +412,7 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
 
     fn pal_tick(&mut self, config: &EmulatorConfig) -> UnitEmulationResult<R::Err, A::Err, S::Err> {
         // Both CPU and PPU tick on the first master clock cycle
-        cpu::tick(
-            &mut self.cpu_state,
-            &mut self.bus.cpu(),
-            self.apu_state.is_active_cycle(),
-        );
+        cpu::tick(&mut self.cpu_state, &mut self.bus.cpu(), self.apu_state.is_active_cycle());
         apu::tick(&mut self.apu_state, &mut self.bus.cpu(), config);
         ppu::tick(&mut self.ppu_state, &mut self.bus.ppu(), config);
         self.bus.tick_cpu();
@@ -465,9 +451,7 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
             let sample = self.bus.mapper().sample_audio(sample);
             self.apu_state.high_pass_filter(sample)
         };
-        self.audio_player
-            .push_sample(audio_sample)
-            .map_err(EmulationError::Audio)
+        self.audio_player.push_sample(audio_sample).map_err(EmulationError::Audio)
     }
 
     /// Press the (emulated) reset button.
@@ -480,11 +464,7 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
         ppu::reset(&mut self.ppu_state, &mut self.bus.ppu());
 
         for _ in 0..10 {
-            apu::tick(
-                &mut self.apu_state,
-                &mut self.bus.cpu(),
-                &EmulatorConfig::default(),
-            );
+            apu::tick(&mut self.apu_state, &mut self.bus.cpu(), &EmulatorConfig::default());
             self.bus.tick();
         }
     }
@@ -553,13 +533,7 @@ impl<R, A, I, S> Emulator<R, A, I, S> {
     where
         Writer: io::Write,
     {
-        serialize::save_state(
-            &self.bus,
-            &self.cpu_state,
-            &self.ppu_state,
-            &self.apu_state,
-            writer,
-        )
+        serialize::save_state(&self.bus, &self.cpu_state, &self.ppu_state, &self.apu_state, writer)
     }
 
     /// Load emulation state from the specified reader.

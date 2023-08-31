@@ -5,34 +5,19 @@ fn lda_immediate() {
     run_test(
         // LDA #$78
         "A978",
-        ExpectedState {
-            a: Some(0x78),
-            p: Some(0x34),
-            cycles: Some(2),
-            ..ExpectedState::default()
-        },
+        ExpectedState { a: Some(0x78), p: Some(0x34), cycles: Some(2), ..ExpectedState::default() },
     );
 
     run_test(
         // LDA #$DD
         "A9DD",
-        ExpectedState {
-            a: Some(0xDD),
-            p: Some(0xB4),
-            cycles: Some(2),
-            ..ExpectedState::default()
-        },
+        ExpectedState { a: Some(0xDD), p: Some(0xB4), cycles: Some(2), ..ExpectedState::default() },
     );
 
     run_test(
         // LDA #$00
         "A900",
-        ExpectedState {
-            a: Some(0x00),
-            p: Some(0x36),
-            cycles: Some(2),
-            ..ExpectedState::default()
-        },
+        ExpectedState { a: Some(0x00), p: Some(0x36), cycles: Some(2), ..ExpectedState::default() },
     );
 }
 
@@ -43,34 +28,19 @@ fn ldx_immediate() {
     run_test(
         // LDX #$78
         "A278",
-        ExpectedState {
-            x: Some(0x78),
-            p: Some(0x34),
-            cycles: Some(2),
-            ..ExpectedState::default()
-        },
+        ExpectedState { x: Some(0x78), p: Some(0x34), cycles: Some(2), ..ExpectedState::default() },
     );
 
     run_test(
         // LDX #$DD
         "A2DD",
-        ExpectedState {
-            x: Some(0xDD),
-            p: Some(0xB4),
-            cycles: Some(2),
-            ..ExpectedState::default()
-        },
+        ExpectedState { x: Some(0xDD), p: Some(0xB4), cycles: Some(2), ..ExpectedState::default() },
     );
 
     run_test(
         // LDX #$00
         "A200",
-        ExpectedState {
-            x: Some(0x00),
-            p: Some(0x36),
-            cycles: Some(2),
-            ..ExpectedState::default()
-        },
+        ExpectedState { x: Some(0x00), p: Some(0x36), cycles: Some(2), ..ExpectedState::default() },
     );
 }
 
@@ -81,34 +51,19 @@ fn ldy_immediate() {
     run_test(
         // LDY #$78
         "A078",
-        ExpectedState {
-            y: Some(0x78),
-            p: Some(0x34),
-            cycles: Some(2),
-            ..ExpectedState::default()
-        },
+        ExpectedState { y: Some(0x78), p: Some(0x34), cycles: Some(2), ..ExpectedState::default() },
     );
 
     run_test(
         // LDY #$DD
         "A0DD",
-        ExpectedState {
-            y: Some(0xDD),
-            p: Some(0xB4),
-            cycles: Some(2),
-            ..ExpectedState::default()
-        },
+        ExpectedState { y: Some(0xDD), p: Some(0xB4), cycles: Some(2), ..ExpectedState::default() },
     );
 
     run_test(
         // LDY #$00
         "A000",
-        ExpectedState {
-            y: Some(0x00),
-            p: Some(0x36),
-            cycles: Some(2),
-            ..ExpectedState::default()
-        },
+        ExpectedState { y: Some(0x00), p: Some(0x36), cycles: Some(2), ..ExpectedState::default() },
     );
 }
 

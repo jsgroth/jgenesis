@@ -82,11 +82,8 @@ impl FrameCounter {
     }
 
     fn process_joy2_update(&mut self, joy2_value: u8) {
-        self.mode = if joy2_value.bit(7) {
-            FrameCounterMode::FiveStep
-        } else {
-            FrameCounterMode::FourStep
-        };
+        self.mode =
+            if joy2_value.bit(7) { FrameCounterMode::FiveStep } else { FrameCounterMode::FourStep };
         self.interrupt_inhibit_flag = joy2_value.bit(6);
 
         self.reset_state = FrameCounterResetState::Joy2Updated;
@@ -247,8 +244,7 @@ impl ApuState {
     fn tick_cpu(&mut self, bus: &mut CpuBus<'_>, config: &EmulatorConfig) {
         self.pulse_channel_1.tick_cpu();
         self.pulse_channel_2.tick_cpu();
-        self.triangle_channel
-            .tick_cpu(config.silence_ultrasonic_triangle_output);
+        self.triangle_channel.tick_cpu(config.silence_ultrasonic_triangle_output);
         self.noise_channel.tick_cpu();
         self.dmc.tick_cpu(bus);
         self.frame_counter.tick();
@@ -273,13 +269,10 @@ impl ApuState {
             self.frame_counter_interrupt_flag = false;
         }
 
-        bus.interrupt_lines().set_irq_low_pull(
-            IrqSource::ApuFrameCounter,
-            self.frame_counter_interrupt_flag,
-        );
-
         bus.interrupt_lines()
-            .set_irq_low_pull(IrqSource::ApuDmc, self.dmc.interrupt_flag());
+            .set_irq_low_pull(IrqSource::ApuFrameCounter, self.frame_counter_interrupt_flag);
+
+        bus.interrupt_lines().set_irq_low_pull(IrqSource::ApuDmc, self.dmc.interrupt_flag());
     }
 
     fn get_apu_status(&self) -> u8 {
@@ -387,8 +380,7 @@ pub fn tick(state: &mut ApuState, bus: &mut CpuBus<'_>, config: &EmulatorConfig)
 
     state.tick_cpu(bus, config);
 
-    bus.get_io_registers_mut()
-        .set_apu_status(state.get_apu_status());
+    bus.get_io_registers_mut().set_apu_status(state.get_apu_status());
     log::trace!("APU: Status set to {:02X}", state.get_apu_status());
 }
 

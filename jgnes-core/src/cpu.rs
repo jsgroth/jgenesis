@@ -106,14 +106,7 @@ impl CpuRegisters {
         let pc_msb = bus.read_address(bus::CPU_RESET_VECTOR + 1);
         let pc = u16::from_le_bytes([pc_lsb, pc_msb]);
 
-        Self {
-            accumulator: 0,
-            x: 0,
-            y: 0,
-            status: StatusFlags::new(),
-            pc,
-            sp: 0xFD,
-        }
+        Self { accumulator: 0, x: 0, y: 0, status: StatusFlags::new(), pc, sp: 0xFD }
     }
 }
 
@@ -134,9 +127,7 @@ enum State {
 }
 
 impl State {
-    const INITIAL: Self = Self::InstructionStart {
-        pending_interrupt: false,
-    };
+    const INITIAL: Self = Self::InstructionStart { pending_interrupt: false };
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -148,11 +139,7 @@ pub struct CpuState {
 
 impl CpuState {
     pub fn new(registers: CpuRegisters) -> Self {
-        Self {
-            registers,
-            state: State::INITIAL,
-            terminated: false,
-        }
+        Self { registers, state: State::INITIAL, terminated: false }
     }
 
     #[cfg(test)]
@@ -210,9 +197,7 @@ pub fn tick(state: &mut CpuState, bus: &mut CpuBus<'_>, is_apu_active_cycle: boo
             if !instruction_state.instruction_complete {
                 State::Executing(instruction_state)
             } else {
-                State::InstructionStart {
-                    pending_interrupt: instruction_state.pending_interrupt,
-                }
+                State::InstructionStart { pending_interrupt: instruction_state.pending_interrupt }
             }
         }
         State::OamDmaDelay(state) => State::OamDma(state),

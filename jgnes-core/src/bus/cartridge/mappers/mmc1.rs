@@ -57,16 +57,12 @@ impl MapperImpl<Mmc1> {
     fn map_cpu_address(&self, address: u16) -> CpuMapResult {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
-            0x4020..=0x5FFF => CpuMapResult::None {
-                original_address: address,
-            },
+            0x4020..=0x5FFF => CpuMapResult::None { original_address: address },
             0x6000..=0x7FFF => {
                 if !self.cartridge.prg_ram.is_empty() {
                     CpuMapResult::PrgRAM(u32::from(address & 0x1FFF))
                 } else {
-                    CpuMapResult::None {
-                        original_address: address,
-                    }
+                    CpuMapResult::None { original_address: address }
                 }
             }
             0x8000..=0xFFFF => match self.data.prg_banking_mode {
@@ -116,8 +112,7 @@ impl MapperImpl<Mmc1> {
             0x4020..=0x5FFF => {}
             0x6000..=0x7FFF => {
                 if !self.cartridge.prg_ram.is_empty() {
-                    self.cartridge
-                        .set_prg_ram(u32::from(address & 0x1FFF), value);
+                    self.cartridge.set_prg_ram(u32::from(address & 0x1FFF), value);
                 }
             }
             0x8000..=0xFFFF => {
@@ -197,11 +192,8 @@ impl HasBasicPpuMapping for MapperImpl<Mmc1> {
         match address {
             0x0000..=0x1FFF => match self.data.chr_banking_mode {
                 ChrBankingMode::Two4KbBanks => {
-                    let bank_number = if address < 0x1000 {
-                        self.data.chr_bank_0
-                    } else {
-                        self.data.chr_bank_1
-                    };
+                    let bank_number =
+                        if address < 0x1000 { self.data.chr_bank_0 } else { self.data.chr_bank_1 };
                     let chr_addr = BankSizeKb::Four.to_absolute_address(bank_number, address);
                     self.data.chr_type.to_map_result(chr_addr)
                 }

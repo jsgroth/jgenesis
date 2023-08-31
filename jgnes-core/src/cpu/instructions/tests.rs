@@ -42,11 +42,7 @@ impl ExpectedState {
             ("A", self.a, cpu_registers.accumulator),
             ("X", self.x, cpu_registers.x),
             ("Y", self.y, cpu_registers.y),
-            (
-                "P",
-                self.p,
-                cpu_registers.status.to_byte(StatusReadContext::PushStack)
-            ),
+            ("P", self.p, cpu_registers.status.to_byte(StatusReadContext::PushStack)),
             ("S", self.s, cpu_registers.sp),
             ("PC", self.pc, cpu_registers.pc),
             ("Cycles", self.cycles, cycle_count),

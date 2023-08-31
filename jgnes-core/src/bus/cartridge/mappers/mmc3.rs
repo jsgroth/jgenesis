@@ -156,11 +156,7 @@ impl RamMode {
     fn reads_enabled(self, address: u16) -> bool {
         match self {
             Self::Mmc3Enabled | Self::Mmc3WritesDisabled => true,
-            Self::Mmc6Enabled {
-                first_half_reads,
-                second_half_reads,
-                ..
-            } => {
+            Self::Mmc6Enabled { first_half_reads, second_half_reads, .. } => {
                 if address.bit(9) {
                     second_half_reads
                 } else {
@@ -174,11 +170,7 @@ impl RamMode {
     fn writes_enabled(self, address: u16) -> bool {
         match self {
             Self::Mmc3Enabled => true,
-            Self::Mmc6Enabled {
-                first_half_writes,
-                second_half_writes,
-                ..
-            } => {
+            Self::Mmc6Enabled { first_half_writes, second_half_writes, .. } => {
                 if address.bit(9) {
                     second_half_writes
                 } else {
@@ -242,9 +234,7 @@ impl Mmc3 {
             chr_type,
             bank_mapping: BankMapping::new(prg_rom_len, chr_size),
             nametable_mirroring: if has_four_screen_vram {
-                Mmc3NametableMirroring::FourScreenVram {
-                    external_vram: Box::new([0; 4096]),
-                }
+                Mmc3NametableMirroring::FourScreenVram { external_vram: Box::new([0; 4096]) }
             } else if variant == Variant::Namcot3453 {
                 Mmc3NametableMirroring::Standard(NametableMirroring::SingleScreenBank0)
             } else if variant.is_namco_variant() {
@@ -278,9 +268,9 @@ impl MapperImpl<Mmc3> {
                     bus::cpu_open_bus(address)
                 }
             }
-            0x8000..=0xFFFF => self
-                .cartridge
-                .get_prg_rom(self.data.bank_mapping.map_prg_rom_address(address)),
+            0x8000..=0xFFFF => {
+                self.cartridge.get_prg_rom(self.data.bank_mapping.map_prg_rom_address(address))
+            }
         }
     }
 
@@ -291,23 +281,16 @@ impl MapperImpl<Mmc3> {
             0x6000..=0x7FFF => {
                 if self.data.ram_mode.writes_enabled(address) && !self.cartridge.prg_ram.is_empty()
                 {
-                    self.cartridge
-                        .set_prg_ram(u32::from(address & 0x1FFF), value);
+                    self.cartridge.set_prg_ram(u32::from(address & 0x1FFF), value);
                 }
             }
             0x8000..=0x9FFF => {
                 if !address.bit(0) {
                     if !self.data.variant.is_namco_variant() {
-                        self.data.bank_mapping.chr_mode = if value.bit(7) {
-                            ChrMode::Mode1
-                        } else {
-                            ChrMode::Mode0
-                        };
-                        self.data.bank_mapping.prg_mode = if value.bit(6) {
-                            PrgMode::Mode1
-                        } else {
-                            PrgMode::Mode0
-                        };
+                        self.data.bank_mapping.chr_mode =
+                            if value.bit(7) { ChrMode::Mode1 } else { ChrMode::Mode0 };
+                        self.data.bank_mapping.prg_mode =
+                            if value.bit(6) { PrgMode::Mode1 } else { PrgMode::Mode0 };
                     }
 
                     self.data.bank_update_select = match value & 0x07 {
@@ -349,10 +332,7 @@ impl MapperImpl<Mmc3> {
             0xA000..=0xBFFF => {
                 if !address.bit(0)
                     && !self.data.variant.is_namco_variant()
-                    && matches!(
-                        self.data.nametable_mirroring,
-                        Mmc3NametableMirroring::Standard(..)
-                    )
+                    && matches!(self.data.nametable_mirroring, Mmc3NametableMirroring::Standard(..))
                 {
                     let nametable_mirroring = if value.bit(0) {
                         NametableMirroring::Horizontal
@@ -505,9 +485,7 @@ impl MapperImpl<Mmc3> {
 
     pub(crate) fn read_ppu_address(&mut self, address: u16, vram: &[u8; 2048]) -> u8 {
         match address & 0x3FFF {
-            0x0000..=0x1FFF => self
-                .map_pattern_table_address(address)
-                .read(&self.cartridge, vram),
+            0x0000..=0x1FFF => self.map_pattern_table_address(address).read(&self.cartridge, vram),
             0x2000..=0x3EFF => match self.data.variant {
                 Variant::Namcot3425 => {
                     let vram_addr = self.map_namcot_3425_nametable_addr(address);
@@ -531,8 +509,7 @@ impl MapperImpl<Mmc3> {
 
         match address & 0x3FFF {
             0x0000..=0x1FFF => {
-                self.map_pattern_table_address(address)
-                    .write(value, &mut self.cartridge, vram);
+                self.map_pattern_table_address(address).write(value, &mut self.cartridge, vram);
             }
             0x2000..=0x3EFF => match self.data.variant {
                 Variant::Namcot3425 => {

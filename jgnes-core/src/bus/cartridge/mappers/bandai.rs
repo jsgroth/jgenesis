@@ -41,12 +41,7 @@ struct IrqCounter {
 
 impl IrqCounter {
     fn new(variant: Variant) -> Self {
-        Self {
-            variant,
-            counter: 0,
-            latch: 0,
-            enabled: false,
-        }
+        Self { variant, counter: 0, latch: 0, enabled: false }
     }
 
     fn handle_control_write(&mut self, value: u8) {
@@ -110,11 +105,8 @@ impl BandaiFcg {
         let variant = match (mapper_number, sub_mapper_number) {
             (16, 4) => Variant::Fcg,
             (16, 5) => {
-                let memory_variant = if prg_ram_len > 0 {
-                    MemoryVariant::X24C02
-                } else {
-                    MemoryVariant::None
-                };
+                let memory_variant =
+                    if prg_ram_len > 0 { MemoryVariant::X24C02 } else { MemoryVariant::None };
                 Variant::Lz93D50(memory_variant)
             }
             (16, _) => Variant::Unknown,
@@ -234,14 +226,10 @@ impl MapperImpl<BandaiFcg> {
                         self.data.irq.handle_control_write(value);
                     }
                     (_, 0x000B) => {
-                        self.data
-                            .irq
-                            .update_counter(IrqCounterUpdate::LowByte, value);
+                        self.data.irq.update_counter(IrqCounterUpdate::LowByte, value);
                     }
                     (_, 0x000C) => {
-                        self.data
-                            .irq
-                            .update_counter(IrqCounterUpdate::HighByte, value);
+                        self.data.irq.update_counter(IrqCounterUpdate::HighByte, value);
                     }
                     (
                         Variant::Lz93D50(MemoryVariant::X24C01 | MemoryVariant::X24C02)
@@ -280,13 +268,10 @@ impl MapperImpl<BandaiFcg> {
     }
 
     pub(crate) fn get_and_clear_eeprom_dirty_bit(&mut self) -> bool {
-        self.data
-            .eeprom
-            .as_mut()
-            .is_some_and(|eeprom| match eeprom {
-                Eeprom::X24C01(chip) => chip.get_and_clear_dirty_bit(),
-                Eeprom::X24C02(chip) => chip.get_and_clear_dirty_bit(),
-            })
+        self.data.eeprom.as_mut().is_some_and(|eeprom| match eeprom {
+            Eeprom::X24C01(chip) => chip.get_and_clear_dirty_bit(),
+            Eeprom::X24C02(chip) => chip.get_and_clear_dirty_bit(),
+        })
     }
 
     pub(crate) fn eeprom(&self) -> Option<&[u8]> {

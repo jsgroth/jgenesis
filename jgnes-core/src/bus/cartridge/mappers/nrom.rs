@@ -45,10 +45,7 @@ pub(crate) struct Nrom {
 
 impl Nrom {
     pub(crate) fn new(chr_type: ChrType, nametable_mirroring: NametableMirroring) -> Self {
-        Self {
-            chr_type,
-            nametable_mirroring,
-        }
+        Self { chr_type, nametable_mirroring }
     }
 }
 
@@ -95,19 +92,16 @@ impl Uxrom {
             (2, _) => UxromVariant::Uxrom,
             (71, 0) => UxromVariant::Codemasters,
             (71, 1) => UxromVariant::FireHawk,
-            _ => panic!("invalid UxROM mapper/submapper: mapper={mapper_number}, submapper={sub_mapper_number}"),
+            _ => panic!(
+                "invalid UxROM mapper/submapper: mapper={mapper_number}, submapper={sub_mapper_number}"
+            ),
         };
 
         let nametable_mirroring = match variant {
             UxromVariant::FireHawk => NametableMirroring::SingleScreenBank0,
             UxromVariant::Uxrom | UxromVariant::Codemasters => nametable_mirroring,
         };
-        Self {
-            variant,
-            prg_bank: 0,
-            chr_type,
-            nametable_mirroring,
-        }
+        Self { variant, prg_bank: 0, chr_type, nametable_mirroring }
     }
 }
 
@@ -173,11 +167,7 @@ pub(crate) struct Cnrom {
 
 impl Cnrom {
     pub(crate) fn new(chr_type: ChrType, nametable_mirroring: NametableMirroring) -> Self {
-        Self {
-            chr_type,
-            chr_bank: 0,
-            nametable_mirroring,
-        }
+        Self { chr_type, chr_bank: 0, nametable_mirroring }
     }
 }
 
@@ -221,11 +211,7 @@ pub(crate) struct Axrom {
 
 impl Axrom {
     pub(crate) fn new(chr_type: ChrType) -> Self {
-        Self {
-            chr_type,
-            prg_bank: 0,
-            nametable_mirroring: NametableMirroring::SingleScreenBank0,
-        }
+        Self { chr_type, prg_bank: 0, nametable_mirroring: NametableMirroring::SingleScreenBank0 }
     }
 }
 
@@ -283,12 +269,7 @@ impl Gxrom {
             _ => panic!("invalid GxROM mapper number: {mapper_number}"),
         };
 
-        Self {
-            variant,
-            prg_bank: 0,
-            chr_bank: 0,
-            nametable_mirroring,
-        }
+        Self { variant, prg_bank: 0, chr_bank: 0, nametable_mirroring }
     }
 }
 
@@ -366,13 +347,7 @@ pub(crate) struct Bnrom {
 
 impl Bnrom {
     pub(crate) fn new(chr_type: ChrType, nametable_mirroring: NametableMirroring) -> Self {
-        Self {
-            prg_bank: 0,
-            chr_bank_0: 0,
-            chr_bank_1: 1,
-            chr_type,
-            nametable_mirroring,
-        }
+        Self { prg_bank: 0, chr_bank_0: 0, chr_bank_1: 1, chr_type, nametable_mirroring }
     }
 }
 

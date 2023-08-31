@@ -82,11 +82,7 @@ struct InternalRegisters {
 
 impl InternalRegisters {
     fn new() -> Self {
-        Self {
-            vram_address: 0,
-            temp_vram_address: 0,
-            fine_x_scroll: 0,
-        }
+        Self { vram_address: 0, temp_vram_address: 0, fine_x_scroll: 0 }
     }
 
     fn fine_y(&self) -> u16 {
@@ -179,12 +175,7 @@ struct SpriteBufferData {
 
 impl Default for SpriteBufferData {
     fn default() -> Self {
-        Self {
-            y_position: 0xFF,
-            x_position: 0xFF,
-            attributes: 0xFF,
-            tile_index: 0xFF,
-        }
+        Self { y_position: 0xFF, x_position: 0xFF, attributes: 0xFF, tile_index: 0xFF }
     }
 }
 
@@ -216,21 +207,10 @@ impl SpriteBuffers {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum SpriteEvaluationState {
-    ScanningOam {
-        primary_oam_index: u8,
-    },
-    CopyingOam {
-        primary_oam_index: u8,
-        byte_index: u8,
-    },
-    CheckingForOverflow {
-        oam_index: u8,
-        oam_offset: u8,
-        skip_bytes_remaining: u8,
-    },
-    Done {
-        oam_index: u8,
-    },
+    ScanningOam { primary_oam_index: u8 },
+    CopyingOam { primary_oam_index: u8, byte_index: u8 },
+    CheckingForOverflow { oam_index: u8, oam_offset: u8, skip_bytes_remaining: u8 },
+    Done { oam_index: u8 },
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -247,9 +227,7 @@ impl SpriteEvaluationData {
             secondary_oam: [0xFF; SPRITE_BUFFER_LEN * 4],
             sprites_found: 0,
             sprite_0_found: false,
-            state: SpriteEvaluationState::ScanningOam {
-                primary_oam_index: 0,
-            },
+            state: SpriteEvaluationState::ScanningOam { primary_oam_index: 0 },
         }
     }
 
@@ -257,11 +235,8 @@ impl SpriteEvaluationData {
         let mut sprites = [SpriteBufferData::default(); SPRITE_BUFFER_LEN];
         let mut sprite_x_bit_set = BitSet256::new();
 
-        for (i, chunk) in self
-            .secondary_oam
-            .chunks_exact(4)
-            .take(self.sprites_found as usize)
-            .enumerate()
+        for (i, chunk) in
+            self.secondary_oam.chunks_exact(4).take(self.sprites_found as usize).enumerate()
         {
             let &[y_position, tile_index, attributes_byte, x_position] = chunk else {
                 unreachable!("all chunks from chunks_exact(4) should be of size 4")
@@ -354,12 +329,7 @@ pub fn render_pal_black_border(state: &mut PpuState) {
     }
 
     // Clear leftmost two columns and rightmost two columns
-    for col in [
-        0,
-        1,
-        (SCREEN_WIDTH - 2) as usize,
-        (SCREEN_WIDTH - 1) as usize,
-    ] {
+    for col in [0, 1, (SCREEN_WIDTH - 2) as usize, (SCREEN_WIDTH - 1) as usize] {
         for row in 1..SCREEN_HEIGHT as usize {
             state.frame_buffer[row][col] = BLACK_NES_COLOR;
         }
@@ -401,20 +371,17 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>, config: &EmulatorConfig)
 
         // When rendering is disabled, pixels should use whatever the backdrop color was set to
         // at disable time until rendering is enabled again
-        let backdrop_color = *state
-            .rendering_disabled_backdrop_color
-            .get_or_insert_with(|| {
-                // "Background palette hack": If rendering is disabled mid-frame while the current
-                // VRAM address is inside the palette RAM address range, use the color at that
-                // address instead of the standard backdrop color
-                let palette_ram_addr = if (0x3F00..=0x3FFF).contains(&state.registers.vram_address)
-                {
-                    state.registers.vram_address & 0x001F
-                } else {
-                    0
-                };
-                bus.get_palette_ram()[palette_ram_addr as usize] & COLOR_MASK
-            });
+        let backdrop_color = *state.rendering_disabled_backdrop_color.get_or_insert_with(|| {
+            // "Background palette hack": If rendering is disabled mid-frame while the current
+            // VRAM address is inside the palette RAM address range, use the color at that
+            // address instead of the standard backdrop color
+            let palette_ram_addr = if (0x3F00..=0x3FFF).contains(&state.registers.vram_address) {
+                state.registers.vram_address & 0x001F
+            } else {
+                0
+            };
+            bus.get_palette_ram()[palette_ram_addr as usize] & COLOR_MASK
+        });
 
         if VISIBLE_SCANLINES.contains(&state.scanline) && RENDERING_DOTS.contains(&state.dot) {
             state.frame_buffer[state.scanline as usize][(state.dot - 1) as usize] = backdrop_color;
@@ -422,12 +389,7 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>, config: &EmulatorConfig)
     }
 
     // Copy v register to where the CPU can see it
-    if !rendering_enabled
-        || state
-            .timing_mode
-            .all_idle_scanlines()
-            .contains(&state.scanline)
-    {
+    if !rendering_enabled || state.timing_mode.all_idle_scanlines().contains(&state.scanline) {
         bus.set_bus_address(state.registers.vram_address & 0x3FFF);
     }
 
@@ -664,7 +626,8 @@ fn process_register_updates(state: &mut PpuState, bus: &mut PpuBus<'_>, renderin
                 // Accessing PPUDATA during rendering causes a coarse X increment + Y increment
                 log::trace!(
                     "PPU: PPUDATA was accessed during rendering (scanline {} / dot {}), incrementing coarse X and Y in v register",
-                    state.scanline, state.dot
+                    state.scanline,
+                    state.dot
                 );
 
                 increment_horizontal_pos(&mut state.registers);
@@ -672,7 +635,9 @@ fn process_register_updates(state: &mut PpuState, bus: &mut PpuBus<'_>, renderin
             } else {
                 log::trace!(
                     "PPU: PPUDATA was accessed on scanline {} / dot {}, incrementing internal v register by {}",
-                    state.scanline, state.dot, bus.get_ppu_registers().ppu_data_addr_increment()
+                    state.scanline,
+                    state.dot,
+                    bus.get_ppu_registers().ppu_data_addr_increment()
                 );
 
                 // Any time the CPU accesses PPUDATA outside of rendering, increment VRAM address by
@@ -772,11 +737,7 @@ fn render_pixel(state: &mut PpuState, bus: &PpuBus<'_>) {
         && state.sprite_buffers.sprite_x_bit_set.get(pixel))
     .then(|| find_first_overlapping_sprite(pixel, &state.sprite_buffers))
     .flatten()
-    .unwrap_or(SpriteData {
-        color_id: 0,
-        is_sprite_0: false,
-        attributes: 0x00,
-    });
+    .unwrap_or(SpriteData { color_id: 0, is_sprite_0: false, attributes: 0x00 });
 
     if sprite.is_sprite_0 && bg_color_id != 0 && sprite.color_id != 0 && pixel < 255 {
         // Set sprite 0 hit when a non-transparent sprite pixel overlaps a non-transparent BG pixel
@@ -825,10 +786,8 @@ fn fetch_bg_tile_data(state: &mut PpuState, bus: &mut PpuBus<'_>) {
         }
         1 => {
             let next_palette_index = u16::from(fetch_palette_index(&state.registers, bus));
-            state.bg_buffers.next_palette_indices = (0..8)
-                .map(|i| next_palette_index << (2 * i))
-                .reduce(|a, b| a | b)
-                .unwrap();
+            state.bg_buffers.next_palette_indices =
+                (0..8).map(|i| next_palette_index << (2 * i)).reduce(|a, b| a | b).unwrap();
         }
         2 => {
             state.bg_buffers.next_pattern_table_low = fetch_bg_pattern_table_byte(
@@ -866,21 +825,16 @@ fn fetch_sprite_tile_data(
     // 8 cycles per sprite
     let sprite_index = sprite_fetch_index(dot);
 
-    let SpriteBufferData {
-        y_position,
-        attributes,
-        tile_index,
-        ..
-    } = sprite_buffers.sprites[sprite_index as usize];
+    let SpriteBufferData { y_position, attributes, tile_index, .. } =
+        sprite_buffers.sprites[sprite_index as usize];
 
     // This is not completely accurate but it's close enough
     // In reality, during cycles 1-4 the value will be Y position, tile index, attributes, and X position in that order
     // During cycles 5-8 it will stay X position
     // Once past the end of the sprite buffer, the value will be sprite 63's Y position once, then $FF for the rest of this period
     if sprite_index < sprite_buffers.buffer_len {
-        bus.get_ppu_registers_mut().set_oam_open_bus(Some(
-            sprite_buffers.sprites[sprite_index as usize].x_position,
-        ));
+        bus.get_ppu_registers_mut()
+            .set_oam_open_bus(Some(sprite_buffers.sprites[sprite_index as usize].x_position));
     } else {
         bus.get_ppu_registers_mut().set_oam_open_bus(Some(0xFF));
     }
@@ -974,11 +928,7 @@ fn finish_sprite_tile_fetches(
 const SPRITE_PER_SCANLINE_LIMIT: u8 = 8;
 
 fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>, remove_sprite_limit: bool) {
-    let sprite_height = if bus.get_ppu_registers().double_height_sprites() {
-        16
-    } else {
-        8
-    };
+    let sprite_height = if bus.get_ppu_registers().double_height_sprites() { 16 } else { 8 };
 
     let evaluation_data = &mut state.sprite_evaluation_data;
     let oam = bus.get_oam();
@@ -992,8 +942,7 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>, remove_sprite_li
 
             let y_position = oam[(primary_oam_index << 2) as usize];
 
-            bus.get_ppu_registers_mut()
-                .set_oam_open_bus(Some(y_position));
+            bus.get_ppu_registers_mut().set_oam_open_bus(Some(y_position));
 
             evaluation_data.secondary_oam[(evaluation_data.sprites_found << 2) as usize] =
                 y_position;
@@ -1005,46 +954,30 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>, remove_sprite_li
                     evaluation_data.sprite_0_found = true;
                 }
 
-                SpriteEvaluationState::CopyingOam {
-                    primary_oam_index,
-                    byte_index: 1,
-                }
+                SpriteEvaluationState::CopyingOam { primary_oam_index, byte_index: 1 }
             } else if primary_oam_index < 63 {
-                SpriteEvaluationState::ScanningOam {
-                    primary_oam_index: primary_oam_index + 1,
-                }
+                SpriteEvaluationState::ScanningOam { primary_oam_index: primary_oam_index + 1 }
             } else {
-                SpriteEvaluationState::Done {
-                    oam_index: primary_oam_index,
-                }
+                SpriteEvaluationState::Done { oam_index: primary_oam_index }
             }
         }
-        SpriteEvaluationState::CopyingOam {
-            primary_oam_index,
-            byte_index,
-        } => {
+        SpriteEvaluationState::CopyingOam { primary_oam_index, byte_index } => {
             debug_assert!(primary_oam_index < 64 && byte_index < 4);
 
             let next_byte = oam[((primary_oam_index << 2) | byte_index) as usize];
             evaluation_data.secondary_oam
                 [((evaluation_data.sprites_found << 2) | byte_index) as usize] = next_byte;
 
-            bus.get_ppu_registers_mut()
-                .set_oam_open_bus(Some(next_byte));
+            bus.get_ppu_registers_mut().set_oam_open_bus(Some(next_byte));
 
             if byte_index < 3 {
-                SpriteEvaluationState::CopyingOam {
-                    primary_oam_index,
-                    byte_index: byte_index + 1,
-                }
+                SpriteEvaluationState::CopyingOam { primary_oam_index, byte_index: byte_index + 1 }
             } else {
                 evaluation_data.sprites_found += 1;
 
                 let next_oam_index = primary_oam_index + 1;
                 if next_oam_index == 64 {
-                    SpriteEvaluationState::Done {
-                        oam_index: primary_oam_index,
-                    }
+                    SpriteEvaluationState::Done { oam_index: primary_oam_index }
                 } else if !remove_sprite_limit
                     && evaluation_data.sprites_found == SPRITE_PER_SCANLINE_LIMIT
                 {
@@ -1063,9 +996,7 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>, remove_sprite_li
                         bus.get_ppu_registers_mut().set_sprite_overflow(true);
                     }
 
-                    SpriteEvaluationState::ScanningOam {
-                        primary_oam_index: next_oam_index,
-                    }
+                    SpriteEvaluationState::ScanningOam { primary_oam_index: next_oam_index }
                 }
             }
         }
@@ -1076,8 +1007,7 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>, remove_sprite_li
         } => {
             if skip_bytes_remaining > 0 {
                 let dummy_read = oam[((oam_index << 2) | oam_offset) as usize];
-                bus.get_ppu_registers_mut()
-                    .set_oam_open_bus(Some(dummy_read));
+                bus.get_ppu_registers_mut().set_oam_open_bus(Some(dummy_read));
 
                 SpriteEvaluationState::CheckingForOverflow {
                     oam_index,
@@ -1087,8 +1017,7 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>, remove_sprite_li
             } else {
                 let y_position = oam[((oam_index << 2) | oam_offset) as usize];
 
-                bus.get_ppu_registers_mut()
-                    .set_oam_open_bus(Some(y_position));
+                bus.get_ppu_registers_mut().set_oam_open_bus(Some(y_position));
 
                 if (y_position..y_position.saturating_add(sprite_height))
                     .contains(&(state.scanline as u8))
@@ -1111,8 +1040,7 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>, remove_sprite_li
         }
         SpriteEvaluationState::Done { oam_index } => {
             let dummy_read = oam[(oam_index << 2) as usize];
-            bus.get_ppu_registers_mut()
-                .set_oam_open_bus(Some(dummy_read));
+            bus.get_ppu_registers_mut().set_oam_open_bus(Some(dummy_read));
 
             SpriteEvaluationState::Done { oam_index }
         }
@@ -1120,21 +1048,14 @@ fn evaluate_sprites(state: &mut PpuState, bus: &mut PpuBus<'_>, remove_sprite_li
 }
 
 fn finish_sprite_evaluation_no_limit(state: &mut PpuState, bus: &mut PpuBus<'_>) {
-    while !matches!(
-        &state.sprite_evaluation_data.state,
-        SpriteEvaluationState::Done { .. }
-    ) {
+    while !matches!(&state.sprite_evaluation_data.state, SpriteEvaluationState::Done { .. }) {
         evaluate_sprites(state, bus, true);
     }
 }
 
 fn find_first_overlapping_sprite(pixel: u8, sprites: &SpriteBuffers) -> Option<SpriteData> {
     (0..sprites.buffer_len as usize).find_map(|i| {
-        let SpriteBufferData {
-            x_position: x_pos,
-            attributes,
-            ..
-        } = sprites.sprites[i];
+        let SpriteBufferData { x_position: x_pos, attributes, .. } = sprites.sprites[i];
 
         if !(x_pos..=x_pos.saturating_add(7)).contains(&pixel) {
             return None;
@@ -1143,11 +1064,7 @@ fn find_first_overlapping_sprite(pixel: u8, sprites: &SpriteBuffers) -> Option<S
         let sprite_flip_x = attributes.bit(6);
 
         // Determine sprite pixel color ID
-        let sprite_fine_x = if sprite_flip_x {
-            7 - (pixel - x_pos)
-        } else {
-            pixel - x_pos
-        };
+        let sprite_fine_x = if sprite_flip_x { 7 - (pixel - x_pos) } else { pixel - x_pos };
         let sprite_color_id = get_color_id(
             sprites.pattern_table_low[i],
             sprites.pattern_table_high[i],
@@ -1230,11 +1147,7 @@ fn fetch_sprite_pattern_table_byte(
             scanline.saturating_sub(y_position)
         };
         let tile_index = (tile_index & 0xFE) | u8::from(fine_y_scroll >= 8);
-        (
-            sprite_pattern_table_address,
-            tile_index,
-            fine_y_scroll & 0x07,
-        )
+        (sprite_pattern_table_address, tile_index, fine_y_scroll & 0x07)
     } else {
         let fine_y_scroll = if flip_y {
             7 - scanline.saturating_sub(y_position)
@@ -1253,11 +1166,7 @@ fn fetch_sprite_pattern_table_byte(
 }
 
 fn get_bg_color_id(pattern_table_low: u16, pattern_table_high: u16, fine_x: u8) -> u8 {
-    get_color_id(
-        (pattern_table_low >> 8) as u8,
-        (pattern_table_high >> 8) as u8,
-        fine_x,
-    )
+    get_color_id((pattern_table_low >> 8) as u8, (pattern_table_high >> 8) as u8, fine_x)
 }
 
 fn get_color_id(pattern_table_low: u8, pattern_table_high: u8, fine_x: u8) -> u8 {
