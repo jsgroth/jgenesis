@@ -36,6 +36,15 @@ macOS:
 brew install sdl2
 ```
 
+### GTK3 (Linux GUI only)
+
+On Linux only, the GUI requires [GTK3](https://www.gtk.org/) headers to build.
+
+Linux (Debian-based):
+```
+sudo apt install libgtk-3-dev
+```
+
 ## Build & Run
 
 ```
