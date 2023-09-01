@@ -3,7 +3,8 @@ use crate::emuthread::{EmuThreadCommand, EmuThreadHandle};
 use eframe::Frame;
 use egui::panel::TopBottomSide;
 use egui::{
-    menu, Button, Context, Key, KeyboardShortcut, Modifiers, TopBottomPanel, Widget, Window,
+    menu, Button, Color32, Context, Key, KeyboardShortcut, Modifiers, TextEdit, TopBottomPanel,
+    Widget, Window,
 };
 use genesis_core::GenesisAspectRatio;
 use jgenesis_native_driver::config::input::{GenesisInputConfig, SmsGgInputConfig};
@@ -177,9 +178,20 @@ enum OpenWindow {
     CommonAudio,
 }
 
-#[derive(Default)]
 struct AppState {
     open_window: Option<OpenWindow>,
+    prescale_factor_text: String,
+    prescale_factor_invalid: bool,
+}
+
+impl AppState {
+    fn from_config(config: &AppConfig) -> Self {
+        Self {
+            open_window: None,
+            prescale_factor_text: config.common.prescale_factor.get().to_string(),
+            prescale_factor_invalid: false,
+        }
+    }
 }
 
 pub struct App {
@@ -193,8 +205,9 @@ impl App {
     #[must_use]
     pub fn new(config_path: PathBuf) -> Self {
         let config = AppConfig::from_file(&config_path);
+        let state = AppState::from_config(&config);
         let emu_thread = emuthread::spawn();
-        Self { config, state: AppState::default(), config_path, emu_thread }
+        Self { config, state, config_path, emu_thread }
     }
 
     fn open_file(&self) {
@@ -244,8 +257,6 @@ impl App {
                 });
             });
 
-            // TODO prescale factor
-
             ui.group(|ui| {
                 ui.label("Filter mode");
                 ui.horizontal(|ui| {
@@ -261,6 +272,34 @@ impl App {
                     );
                 });
             });
+
+            ui.horizontal(|ui| {
+                if TextEdit::singleline(&mut self.state.prescale_factor_text)
+                    .desired_width(30.0)
+                    .ui(ui)
+                    .changed()
+                {
+                    match self.state.prescale_factor_text.parse::<u32>() {
+                        Ok(prescale_factor) => match PrescaleFactor::try_from(prescale_factor) {
+                            Ok(prescale_factor) => {
+                                self.config.common.prescale_factor = prescale_factor;
+                                self.state.prescale_factor_invalid = false;
+                            }
+                            Err(_) => {
+                                self.state.prescale_factor_invalid = true;
+                            }
+                        },
+                        Err(_) => {
+                            self.state.prescale_factor_invalid = true;
+                        }
+                    }
+                }
+
+                ui.label("Prescale factor");
+            });
+            if self.state.prescale_factor_invalid {
+                ui.colored_label(Color32::RED, "Prescale factor must be a non-negative integer");
+            }
         });
         if !open {
             self.state.open_window = None;
@@ -407,7 +446,6 @@ impl eframe::App for App {
                     }
                 });
 
-                ui.set_enabled(self.state.open_window.is_none());
                 ui.menu_button("Video", |ui| {
                     if ui.button("General").clicked() {
                         self.state.open_window = Some(OpenWindow::CommonVideo);
