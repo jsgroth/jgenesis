@@ -327,22 +327,26 @@ impl App {
                         &mut self.config.smsgg.sms_aspect_ratio,
                         SmsAspectRatio::Ntsc,
                         "NTSC",
-                    );
+                    )
+                    .on_hover_text("8:7 pixel aspect ratio");
                     ui.radio_value(
                         &mut self.config.smsgg.sms_aspect_ratio,
                         SmsAspectRatio::Pal,
                         "PAL",
-                    );
+                    )
+                    .on_hover_text("11:8 pixel aspect ratio");
                     ui.radio_value(
                         &mut self.config.smsgg.sms_aspect_ratio,
                         SmsAspectRatio::SquarePixels,
                         "Square pixels",
-                    );
+                    )
+                    .on_hover_text("1:1 pixel aspect ratio");
                     ui.radio_value(
                         &mut self.config.smsgg.sms_aspect_ratio,
                         SmsAspectRatio::Stretched,
                         "Stretched",
-                    );
+                    )
+                    .on_hover_text("Stretch image to fill the screen");
                 });
             });
 
@@ -354,17 +358,20 @@ impl App {
                         &mut self.config.smsgg.gg_aspect_ratio,
                         GgAspectRatio::GgLcd,
                         "Game Gear LCD",
-                    );
+                    )
+                    .on_hover_text("6:5 pixel aspect ratio");
                     ui.radio_value(
                         &mut self.config.smsgg.gg_aspect_ratio,
                         GgAspectRatio::SquarePixels,
                         "Square pixels",
-                    );
+                    )
+                    .on_hover_text("1:1 pixel aspect ratio");
                     ui.radio_value(
                         &mut self.config.smsgg.gg_aspect_ratio,
                         GgAspectRatio::Stretched,
                         "Stretched",
-                    );
+                    )
+                    .on_hover_text("Stretch image to fill the screen");
                 });
             });
 
@@ -395,17 +402,20 @@ impl App {
                         &mut self.config.genesis.aspect_ratio,
                         GenesisAspectRatio::Ntsc,
                         "NTSC",
-                    );
+                    )
+                    .on_hover_text("32:35 pixel aspect ratio in 320px mode, 8:7 in 256px mode");
                     ui.radio_value(
                         &mut self.config.genesis.aspect_ratio,
                         GenesisAspectRatio::SquarePixels,
                         "Square pixels",
-                    );
+                    )
+                    .on_hover_text("1:1 pixel aspect ratio");
                     ui.radio_value(
                         &mut self.config.genesis.aspect_ratio,
                         GenesisAspectRatio::Stretched,
                         "Stretched",
-                    );
+                    )
+                    .on_hover_text("Stretch image to fill the screen");
                 });
             });
         });
