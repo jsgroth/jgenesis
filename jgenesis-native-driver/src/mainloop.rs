@@ -10,7 +10,7 @@ use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::Keycode;
 use sdl2::{AudioSubsystem, EventPump, JoystickSubsystem, VideoSubsystem};
-use smsgg_core::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgInputs};
+use smsgg_core::{SmsGgEmulator, SmsGgInputs};
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
@@ -130,17 +130,8 @@ impl NativeEmulator<SmsGgInputs, SmsGgButton, SmsGgEmulator> {
 
         self.reload_common_config(&config.common);
 
-        let pixel_aspect_ratio = if self.emulator.vdp_version().is_master_system() {
-            config.sms_aspect_ratio.to_pixel_aspect_ratio()
-        } else {
-            config.gg_aspect_ratio.to_pixel_aspect_ratio()
-        };
-        self.emulator.reload_config(SmsGgEmulatorConfig {
-            pixel_aspect_ratio,
-            remove_sprite_limit: config.remove_sprite_limit,
-            sms_crop_vertical_border: config.sms_crop_vertical_border,
-            sms_crop_left_border: config.sms_crop_left_border,
-        });
+        let emulator_config = config.to_emulator_config(self.emulator.vdp_version());
+        self.emulator.reload_config(emulator_config);
         // TODO reload inputs
     }
 }
@@ -150,7 +141,7 @@ impl NativeEmulator<GenesisInputs, GenesisButton, GenesisEmulator> {
         log::info!("Reloading config: {config}");
 
         self.reload_common_config(&config.common);
-        self.emulator.reload_config(config.aspect_ratio);
+        self.emulator.reload_config(config.to_emulator_config());
         // TODO reload inputs
     }
 }
@@ -244,11 +235,7 @@ pub fn create_smsgg(
         .resizable()
         .build()?;
 
-    let pixel_aspect_ratio = if vdp_version.is_master_system() {
-        config.sms_aspect_ratio.to_pixel_aspect_ratio()
-    } else {
-        config.gg_aspect_ratio.to_pixel_aspect_ratio()
-    };
+    let emulator_config = config.to_emulator_config(vdp_version);
 
     let renderer = pollster::block_on(WgpuRenderer::new(window, config.common.renderer_config))?;
     let audio_output = SdlAudioOutput::create_and_init(&audio, config.common.audio_sync)?;
@@ -259,12 +246,6 @@ pub fn create_smsgg(
     )?;
     let save_writer = FsSaveWriter::new(save_path);
 
-    let emulator_config = SmsGgEmulatorConfig {
-        pixel_aspect_ratio,
-        remove_sprite_limit: config.remove_sprite_limit,
-        sms_crop_vertical_border: config.sms_crop_vertical_border,
-        sms_crop_left_border: config.sms_crop_left_border,
-    };
     let emulator = SmsGgEmulator::create(
         rom,
         initial_cartridge_ram,
@@ -300,7 +281,7 @@ pub fn create_genesis(
     let save_path = rom_file_path.with_extension("sav");
     let save_state_path = rom_file_path.with_extension("ss0");
 
-    let emulator = GenesisEmulator::create(rom, config.aspect_ratio)?;
+    let emulator = GenesisEmulator::create(rom, config.to_emulator_config())?;
 
     let (video, audio, joystick, event_pump) = init_sdl()?;
 

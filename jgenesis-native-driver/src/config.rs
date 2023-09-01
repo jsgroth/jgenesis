@@ -2,12 +2,12 @@ pub mod input;
 
 use crate::config::input::{GenesisInputConfig, JoystickInput, KeyboardInput, SmsGgInputConfig};
 use crate::RendererConfig;
-use genesis_core::GenesisAspectRatio;
+use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig};
 use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay, EnumFromStr};
 use jgenesis_traits::frontend::PixelAspectRatio;
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
-use smsgg_core::VdpVersion;
+use smsgg_core::{SmsGgEmulatorConfig, VdpVersion};
 
 pub(crate) const DEFAULT_GENESIS_WINDOW_SIZE: WindowSize = WindowSize { width: 878, height: 672 };
 
@@ -87,6 +87,22 @@ pub struct SmsGgConfig {
     pub sms_crop_left_border: bool,
 }
 
+impl SmsGgConfig {
+    pub(crate) fn to_emulator_config(&self, vdp_version: VdpVersion) -> SmsGgEmulatorConfig {
+        let pixel_aspect_ratio = if vdp_version.is_master_system() {
+            self.sms_aspect_ratio.to_pixel_aspect_ratio()
+        } else {
+            self.gg_aspect_ratio.to_pixel_aspect_ratio()
+        };
+        SmsGgEmulatorConfig {
+            pixel_aspect_ratio,
+            remove_sprite_limit: self.remove_sprite_limit,
+            sms_crop_vertical_border: self.sms_crop_vertical_border,
+            sms_crop_left_border: self.sms_crop_left_border,
+        }
+    }
+}
+
 pub(crate) fn default_vdp_version_for_ext(file_ext: &str) -> VdpVersion {
     match file_ext {
         "sms" => VdpVersion::NtscMasterSystem2,
@@ -118,4 +134,16 @@ pub struct GenesisConfig {
     #[indent_nested]
     pub common: CommonConfig<GenesisInputConfig<KeyboardInput>, GenesisInputConfig<JoystickInput>>,
     pub aspect_ratio: GenesisAspectRatio,
+    // Whether or not to automatically double the pixel aspect ratio when the VDP is in interlaced
+    // double resolution mode
+    pub adjust_aspect_ratio_in_2x_resolution: bool,
+}
+
+impl GenesisConfig {
+    pub(crate) fn to_emulator_config(&self) -> GenesisEmulatorConfig {
+        GenesisEmulatorConfig {
+            aspect_ratio: self.aspect_ratio,
+            adjust_aspect_ratio_in_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
+        }
+    }
 }

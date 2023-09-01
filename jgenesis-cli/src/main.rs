@@ -60,6 +60,11 @@ struct Args {
     #[arg(long, default_value_t)]
     genesis_aspect_ratio: GenesisAspectRatio,
 
+    /// Disable automatic pixel aspect ratio adjustment when Genesis interlacing double resolution mode
+    /// is enabled
+    #[arg(long = "no-genesis-adjust-aspect-ratio", default_value_t = true, action = clap::ArgAction::SetFalse)]
+    genesis_adjust_aspect_ratio: bool,
+
     /// Crop SMS top and bottom border; almost all games display only the background color in this area
     #[arg(long, default_value_t)]
     sms_crop_vertical_border: bool,
@@ -280,7 +285,11 @@ fn run_sms(args: Args) -> anyhow::Result<()> {
 fn run_genesis(args: Args) -> anyhow::Result<()> {
     let keyboard_inputs = args.genesis_keyboard_config();
     let common = args.common_config(keyboard_inputs, GenesisInputConfig::default());
-    let config = GenesisConfig { common, aspect_ratio: args.genesis_aspect_ratio };
+    let config = GenesisConfig {
+        common,
+        aspect_ratio: args.genesis_aspect_ratio,
+        adjust_aspect_ratio_in_2x_resolution: args.genesis_adjust_aspect_ratio,
+    };
 
     let mut emulator = jgenesis_native_driver::create_genesis(config)?;
     while emulator.render_frame()? != NativeTickEffect::Exit {}

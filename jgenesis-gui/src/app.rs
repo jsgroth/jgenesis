@@ -85,6 +85,8 @@ impl Default for SmsGgAppConfig {
 struct GenesisAppConfig {
     #[serde(default)]
     aspect_ratio: GenesisAspectRatio,
+    #[serde(default = "true_fn")]
+    adjust_aspect_ratio_in_2x_resolution: bool,
 }
 
 impl Default for GenesisAppConfig {
@@ -161,6 +163,7 @@ impl AppConfig {
                 GenesisInputConfig::default(),
             ),
             aspect_ratio: self.genesis.aspect_ratio,
+            adjust_aspect_ratio_in_2x_resolution: self.genesis.adjust_aspect_ratio_in_2x_resolution,
         }
     }
 }
@@ -418,6 +421,11 @@ impl App {
                     .on_hover_text("Stretch image to fill the screen");
                 });
             });
+
+            ui.checkbox(
+                &mut self.config.genesis.adjust_aspect_ratio_in_2x_resolution,
+                "Automatically double pixel aspect ratio in double vertical resolution mode",
+            );
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::GenesisVideo);

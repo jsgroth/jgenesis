@@ -67,17 +67,31 @@ pub enum GenesisAspectRatio {
 }
 
 impl GenesisAspectRatio {
-    fn to_pixel_aspect_ratio(self, frame_size: FrameSize) -> Option<PixelAspectRatio> {
-        match (self, frame_size.width, frame_size.height) {
-            (Self::SquarePixels, _, _) => Some(PixelAspectRatio::SQUARE),
-            (Self::Stretched, _, _) => None,
-            (Self::Ntsc, 256, 224) => Some(PixelAspectRatio::try_from(8.0 / 7.0).unwrap()),
-            (Self::Ntsc, 320, 224) => Some(PixelAspectRatio::try_from(32.0 / 35.0).unwrap()),
-            (Self::Ntsc, 256, 448) => Some(PixelAspectRatio::try_from(16.0 / 7.0).unwrap()),
-            (Self::Ntsc, 320, 448) => Some(PixelAspectRatio::try_from(64.0 / 35.0).unwrap()),
-            (Self::Ntsc, _, _) => panic!("unexpected Genesis frame size: {frame_size:?}"),
+    fn to_pixel_aspect_ratio(
+        self,
+        frame_size: FrameSize,
+        adjust_for_2x_resolution: bool,
+    ) -> Option<PixelAspectRatio> {
+        let mut pixel_aspect_ratio = match (self, frame_size.width) {
+            (Self::SquarePixels, _) => Some(1.0),
+            (Self::Stretched, _) => None,
+            (Self::Ntsc, 256) => Some(8.0 / 7.0),
+            (Self::Ntsc, 320) => Some(32.0 / 35.0),
+            (Self::Ntsc, _) => panic!("unexpected Genesis frame width: {}", frame_size.width),
+        };
+
+        if adjust_for_2x_resolution && frame_size.height == 448 {
+            pixel_aspect_ratio = pixel_aspect_ratio.map(|par| par * 2.0);
         }
+
+        pixel_aspect_ratio.map(|par| PixelAspectRatio::try_from(par).unwrap())
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct GenesisEmulatorConfig {
+    pub aspect_ratio: GenesisAspectRatio,
+    pub adjust_aspect_ratio_in_2x_resolution: bool,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -90,6 +104,7 @@ pub struct GenesisEmulator {
     ym2612: Ym2612,
     input: InputState,
     aspect_ratio: GenesisAspectRatio,
+    adjust_aspect_ratio_in_2x_resolution: bool,
     audio_downsampler: AudioDownsampler,
     master_clock_cycles: u64,
 }
@@ -100,10 +115,7 @@ impl GenesisEmulator {
     /// # Errors
     ///
     /// Returns an error if unable to parse the ROM header.
-    pub fn create(
-        rom: Vec<u8>,
-        aspect_ratio: GenesisAspectRatio,
-    ) -> Result<Self, CartridgeLoadError> {
+    pub fn create(rom: Vec<u8>, config: GenesisEmulatorConfig) -> Result<Self, CartridgeLoadError> {
         let cartridge = Cartridge::from_rom(rom)?;
         let memory = Memory::new(cartridge);
 
@@ -127,14 +139,16 @@ impl GenesisEmulator {
             psg,
             ym2612,
             input,
-            aspect_ratio,
+            aspect_ratio: config.aspect_ratio,
+            adjust_aspect_ratio_in_2x_resolution: config.adjust_aspect_ratio_in_2x_resolution,
             audio_downsampler: AudioDownsampler::new(),
             master_clock_cycles: 0,
         })
     }
 
-    pub fn reload_config(&mut self, aspect_ratio: GenesisAspectRatio) {
-        self.aspect_ratio = aspect_ratio;
+    pub fn reload_config(&mut self, config: GenesisEmulatorConfig) {
+        self.aspect_ratio = config.aspect_ratio;
+        self.adjust_aspect_ratio_in_2x_resolution = config.adjust_aspect_ratio_in_2x_resolution;
     }
 
     #[must_use]
@@ -218,7 +232,9 @@ impl TickableEmulator for GenesisEmulator {
             let frame_height = self.vdp.screen_height();
 
             let frame_size = FrameSize { width: frame_width, height: frame_height };
-            let pixel_aspect_ratio = self.aspect_ratio.to_pixel_aspect_ratio(frame_size);
+            let pixel_aspect_ratio = self
+                .aspect_ratio
+                .to_pixel_aspect_ratio(frame_size, self.adjust_aspect_ratio_in_2x_resolution);
 
             renderer
                 .render_frame(self.vdp.frame_buffer(), frame_size, pixel_aspect_ratio)
