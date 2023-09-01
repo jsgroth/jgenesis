@@ -1,3 +1,4 @@
+use crate::api::SmsRegion;
 use bincode::{Decode, Encode};
 use jgenesis_traits::num::GetBit;
 
@@ -41,16 +42,18 @@ pub struct InputState {
     port_a_th: PinDirection,
     port_b_tr: PinDirection,
     port_b_th: PinDirection,
+    region: SmsRegion,
 }
 
 impl InputState {
-    pub fn new() -> Self {
+    pub fn new(region: SmsRegion) -> Self {
         Self {
             inputs: SmsGgInputs::default(),
             port_a_tr: PinDirection::Input,
             port_a_th: PinDirection::Input,
             port_b_tr: PinDirection::Input,
             port_b_th: PinDirection::Input,
+            region,
         }
     }
 
@@ -60,6 +63,10 @@ impl InputState {
 
     pub fn set_inputs(&mut self, inputs: &SmsGgInputs) {
         self.inputs = inputs.clone();
+    }
+
+    pub fn set_region(&mut self, region: SmsRegion) {
+        self.region = region;
     }
 
     pub fn write_control(&mut self, value: u8) {
@@ -87,9 +94,10 @@ impl InputState {
     }
 
     pub fn port_dd(&self) -> u8 {
-        // TODO TH bits should always be 0 on a JP SMS
-        let port_b_th_bit = u8::from(self.port_b_th.bit(true)) << 7;
-        let port_a_th_bit = u8::from(self.port_a_th.bit(true)) << 6;
+        let port_b_th_bit =
+            u8::from(self.region == SmsRegion::International && self.port_b_th.bit(true)) << 7;
+        let port_a_th_bit =
+            u8::from(self.region == SmsRegion::International && self.port_a_th.bit(true)) << 6;
         let port_b_tr_bit = u8::from(self.port_b_tr.bit(!self.inputs.p2.button_2)) << 3;
 
         // TODO RESET button

@@ -1,5 +1,5 @@
 use crate::emuthread;
-use crate::emuthread::{EmuThreadCommand, EmuThreadHandle};
+use crate::emuthread::{EmuThreadCommand, EmuThreadHandle, EmuThreadStatus};
 use eframe::Frame;
 use egui::panel::TopBottomSide;
 use egui::{
@@ -15,7 +15,7 @@ use jgenesis_native_driver::{FilterMode, PrescaleFactor, RendererConfig, VSyncMo
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
-use smsgg_core::VdpVersion;
+use smsgg_core::{SmsRegion, VdpVersion};
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fs;
@@ -59,9 +59,15 @@ fn default_prescale_factor() -> PrescaleFactor {
     PrescaleFactor::from(NonZeroU32::new(3).unwrap())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+enum TimingMode {
+    #[default]
+    Ntsc,
+    Pal,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct SmsGgAppConfig {
-    vdp_version: Option<VdpVersion>,
     psg_version: Option<PsgVersion>,
     #[serde(default)]
     remove_sprite_limit: bool,
@@ -69,6 +75,10 @@ struct SmsGgAppConfig {
     sms_aspect_ratio: SmsAspectRatio,
     #[serde(default)]
     gg_aspect_ratio: GgAspectRatio,
+    #[serde(default)]
+    sms_region: SmsRegion,
+    #[serde(default)]
+    sms_timing_mode: TimingMode,
     #[serde(default)]
     sms_crop_vertical_border: bool,
     #[serde(default)]
@@ -137,6 +147,15 @@ impl AppConfig {
     }
 
     fn smsgg_config(&self, path: String) -> SmsGgConfig {
+        let vdp_version = if Path::new(&path).extension().and_then(OsStr::to_str) == Some("sms") {
+            match self.smsgg.sms_timing_mode {
+                TimingMode::Ntsc => Some(VdpVersion::NtscMasterSystem2),
+                TimingMode::Pal => Some(VdpVersion::PalMasterSystem2),
+            }
+        } else {
+            None
+        };
+
         SmsGgConfig {
             // TODO configurable
             common: self.common_config(
@@ -144,11 +163,12 @@ impl AppConfig {
                 SmsGgInputConfig::default(),
                 SmsGgInputConfig::default(),
             ),
-            vdp_version: self.smsgg.vdp_version,
+            vdp_version,
             psg_version: self.smsgg.psg_version,
             remove_sprite_limit: self.smsgg.remove_sprite_limit,
             sms_aspect_ratio: self.smsgg.sms_aspect_ratio,
             gg_aspect_ratio: self.smsgg.gg_aspect_ratio,
+            sms_region: self.smsgg.sms_region,
             sms_crop_vertical_border: self.smsgg.sms_crop_vertical_border,
             sms_crop_left_border: self.smsgg.sms_crop_left_border,
         }
@@ -176,6 +196,7 @@ impl Default for AppConfig {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum OpenWindow {
+    SmsGgGeneral,
     CommonVideo,
     SmsGgVideo,
     GenesisVideo,
@@ -183,6 +204,7 @@ enum OpenWindow {
 }
 
 struct AppState {
+    current_file_path: String,
     open_windows: HashSet<OpenWindow>,
     prescale_factor_text: String,
     prescale_factor_invalid: bool,
@@ -191,6 +213,7 @@ struct AppState {
 impl AppState {
     fn from_config(config: &AppConfig) -> Self {
         Self {
+            current_file_path: String::new(),
             open_windows: HashSet::new(),
             prescale_factor_text: config.common.prescale_factor.get().to_string(),
             prescale_factor_invalid: false,
@@ -216,14 +239,16 @@ impl App {
         Self { config, state, config_path, emu_thread }
     }
 
-    fn open_file(&self) {
+    fn open_file(&mut self) {
         let Some(path) =
             FileDialog::new().add_filter("sms/gg/md", &["sms", "gg", "md", "bin"]).pick_file()
         else {
             return;
         };
 
-        let path_str = path.to_string_lossy().into();
+        let path_str = path.to_string_lossy().to_string();
+        self.state.current_file_path = path_str.clone();
+
         match path.extension().and_then(OsStr::to_str) {
             Some("sms" | "gg") => {
                 self.emu_thread.stop_emulator_if_running();
@@ -239,6 +264,45 @@ impl App {
             }
             Some(_) => todo!("unrecognized file extension"),
             None => {}
+        }
+    }
+
+    fn render_smsgg_general_settings(&mut self, ctx: &Context) {
+        let mut open = true;
+        Window::new("SMS/GG General Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.group(|ui| {
+                ui.label("SMS timing / display mode");
+
+                ui.set_enabled(self.emu_thread.status() != EmuThreadStatus::RunningSmsGg);
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.config.smsgg.sms_timing_mode,
+                        TimingMode::Ntsc,
+                        "NTSC",
+                    );
+                    ui.radio_value(&mut self.config.smsgg.sms_timing_mode, TimingMode::Pal, "PAL");
+                });
+            });
+
+            ui.group(|ui| {
+                ui.label("SMS region");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.config.smsgg.sms_region,
+                        SmsRegion::International,
+                        "International / Overseas",
+                    );
+                    ui.radio_value(
+                        &mut self.config.smsgg.sms_region,
+                        SmsRegion::Domestic,
+                        "Domestic (Japan)",
+                    );
+                });
+            });
+        });
+        if !open {
+            self.state.open_windows.remove(&OpenWindow::SmsGgGeneral);
         }
     }
 
@@ -432,10 +496,32 @@ impl App {
         }
     }
 
-    fn render_common_audio_settings(&mut self, ctx: &Context) {
+    fn render_audio_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("General Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.checkbox(&mut self.config.common.audio_sync, "Audio sync enabled");
+
+            ui.group(|ui| {
+                ui.label("SMS/GG PSG version");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(&mut self.config.smsgg.psg_version, None, "Auto").on_hover_text(
+                        "SMS games will use SMS2 PSG, Game Gear games will use SMS1/GG PSG",
+                    );
+                    ui.radio_value(
+                        &mut self.config.smsgg.psg_version,
+                        Some(PsgVersion::MasterSystem2),
+                        "SMS2",
+                    )
+                    .on_hover_text("SMS2 PSG clips high volumes");
+                    ui.radio_value(
+                        &mut self.config.smsgg.psg_version,
+                        Some(PsgVersion::Standard),
+                        "SMS1 / Game Gear",
+                    )
+                    .on_hover_text("SMS1 and Game Gear PSGs correctly play high volumes");
+                });
+            });
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::CommonAudio);
@@ -474,6 +560,13 @@ impl eframe::App for App {
                     }
                 });
 
+                ui.menu_button("Settings", |ui| {
+                    if ui.button("SMS/GG").clicked() {
+                        self.state.open_windows.insert(OpenWindow::SmsGgGeneral);
+                        ui.close_menu();
+                    }
+                });
+
                 ui.menu_button("Video", |ui| {
                     if ui.button("General").clicked() {
                         self.state.open_windows.insert(OpenWindow::CommonVideo);
@@ -502,6 +595,9 @@ impl eframe::App for App {
 
         for open_window in self.state.open_windows.clone() {
             match open_window {
+                OpenWindow::SmsGgGeneral => {
+                    self.render_smsgg_general_settings(ctx);
+                }
                 OpenWindow::CommonVideo => {
                     self.render_common_video_settings(ctx);
                 }
@@ -512,15 +608,15 @@ impl eframe::App for App {
                     self.render_genesis_video_settings(ctx);
                 }
                 OpenWindow::CommonAudio => {
-                    self.render_common_audio_settings(ctx);
+                    self.render_audio_settings(ctx);
                 }
             }
         }
 
         if prev_config != self.config {
             self.emu_thread.reload_config(
-                self.config.smsgg_config(String::new()),
-                self.config.genesis_config(String::new()),
+                self.config.smsgg_config(self.state.current_file_path.clone()),
+                self.config.genesis_config(self.state.current_file_path.clone()),
             );
 
             let config_str = toml::to_string_pretty(&self.config).unwrap();

@@ -131,7 +131,7 @@ impl NativeEmulator<SmsGgInputs, SmsGgButton, SmsGgEmulator> {
         self.reload_common_config(&config.common);
 
         let emulator_config = config.to_emulator_config(self.emulator.vdp_version());
-        self.emulator.reload_config(emulator_config);
+        self.emulator.reload_config(config.psg_version, emulator_config);
         // TODO reload inputs
     }
 }

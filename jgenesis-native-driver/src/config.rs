@@ -7,7 +7,7 @@ use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay, EnumFromStr};
 use jgenesis_traits::frontend::PixelAspectRatio;
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
-use smsgg_core::{SmsGgEmulatorConfig, VdpVersion};
+use smsgg_core::{SmsGgEmulatorConfig, SmsRegion, VdpVersion};
 
 pub(crate) const DEFAULT_GENESIS_WINDOW_SIZE: WindowSize = WindowSize { width: 878, height: 672 };
 
@@ -83,6 +83,7 @@ pub struct SmsGgConfig {
     pub remove_sprite_limit: bool,
     pub sms_aspect_ratio: SmsAspectRatio,
     pub gg_aspect_ratio: GgAspectRatio,
+    pub sms_region: SmsRegion,
     pub sms_crop_vertical_border: bool,
     pub sms_crop_left_border: bool,
 }
@@ -97,6 +98,7 @@ impl SmsGgConfig {
         SmsGgEmulatorConfig {
             pixel_aspect_ratio,
             remove_sprite_limit: self.remove_sprite_limit,
+            sms_region: self.sms_region,
             sms_crop_vertical_border: self.sms_crop_vertical_border,
             sms_crop_left_border: self.sms_crop_left_border,
         }

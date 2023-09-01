@@ -13,7 +13,7 @@ use jgenesis_native_driver::{
 };
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use smsgg_core::psg::PsgVersion;
-use smsgg_core::VdpVersion;
+use smsgg_core::{SmsRegion, VdpVersion};
 use std::ffi::OsStr;
 use std::path::Path;
 
@@ -64,6 +64,10 @@ struct Args {
     /// is enabled
     #[arg(long = "no-genesis-adjust-aspect-ratio", default_value_t = true, action = clap::ArgAction::SetFalse)]
     genesis_adjust_aspect_ratio: bool,
+
+    /// SMS region (International / Domestic)
+    #[arg(long, default_value_t)]
+    sms_region: SmsRegion,
 
     /// Crop SMS top and bottom border; almost all games display only the background color in this area
     #[arg(long, default_value_t)]
@@ -272,6 +276,7 @@ fn run_sms(args: Args) -> anyhow::Result<()> {
         remove_sprite_limit: args.remove_sprite_limit,
         sms_aspect_ratio: args.sms_aspect_ratio,
         gg_aspect_ratio: args.gg_aspect_ratio,
+        sms_region: args.sms_region,
         sms_crop_vertical_border: args.sms_crop_vertical_border,
         sms_crop_left_border: args.sms_crop_left_border,
     };

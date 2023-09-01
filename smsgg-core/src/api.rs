@@ -5,7 +5,7 @@ use crate::psg::{Psg, PsgTickEffect, PsgVersion};
 use crate::vdp::{Vdp, VdpBuffer, VdpTickEffect};
 use crate::{vdp, SmsGgInputs, VdpVersion};
 use bincode::{Decode, Encode};
-use jgenesis_proc_macros::{FakeDecode, FakeEncode};
+use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
 use jgenesis_traits::frontend::{
     AudioOutput, Color, FrameSize, PixelAspectRatio, Renderer, SaveWriter, TickEffect,
     TickableEmulator,
@@ -86,10 +86,19 @@ impl DerefMut for FrameBuffer {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum SmsRegion {
+    #[default]
+    International,
+    Domestic,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct SmsGgEmulatorConfig {
     pub pixel_aspect_ratio: Option<PixelAspectRatio>,
     pub remove_sprite_limit: bool,
+    pub sms_region: SmsRegion,
     pub sms_crop_vertical_border: bool,
     pub sms_crop_left_border: bool,
 }
@@ -123,7 +132,7 @@ impl SmsGgEmulator {
         let memory = Memory::new(rom, cartridge_ram);
         let vdp = Vdp::new(vdp_version, config.remove_sprite_limit);
         let psg = Psg::new(psg_version);
-        let input = InputState::new();
+        let input = InputState::new(config.sms_region);
 
         let mut z80 = Z80::new();
         z80.set_pc(0x0000);
@@ -152,9 +161,14 @@ impl SmsGgEmulator {
         self.vdp_version
     }
 
-    pub fn reload_config(&mut self, config: SmsGgEmulatorConfig) {
+    pub fn reload_config(&mut self, psg_version: Option<PsgVersion>, config: SmsGgEmulatorConfig) {
+        if let Some(psg_version) = psg_version {
+            self.psg.set_version(psg_version);
+        }
+
         self.pixel_aspect_ratio = config.pixel_aspect_ratio;
         self.vdp.set_remove_sprite_limit(config.remove_sprite_limit);
+        self.input.set_region(config.sms_region);
         self.sms_crop_vertical_border = config.sms_crop_vertical_border;
         self.sms_crop_left_border = config.sms_crop_left_border;
     }

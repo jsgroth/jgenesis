@@ -392,6 +392,10 @@ impl Psg {
         }
     }
 
+    pub fn set_version(&mut self, version: PsgVersion) {
+        self.version = version;
+    }
+
     #[must_use]
     pub fn sample(&self) -> (f64, f64) {
         // TODO rewrite to use integer arithmetic as much as possible
