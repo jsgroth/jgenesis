@@ -16,6 +16,7 @@ use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::VdpVersion;
+use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fs;
 use std::num::NonZeroU32;
@@ -170,7 +171,7 @@ impl Default for AppConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum OpenWindow {
     CommonVideo,
     SmsGgVideo,
@@ -179,7 +180,7 @@ enum OpenWindow {
 }
 
 struct AppState {
-    open_window: Option<OpenWindow>,
+    open_windows: HashSet<OpenWindow>,
     prescale_factor_text: String,
     prescale_factor_invalid: bool,
 }
@@ -187,7 +188,7 @@ struct AppState {
 impl AppState {
     fn from_config(config: &AppConfig) -> Self {
         Self {
-            open_window: None,
+            open_windows: HashSet::new(),
             prescale_factor_text: config.common.prescale_factor.get().to_string(),
             prescale_factor_invalid: false,
         }
@@ -200,6 +201,8 @@ pub struct App {
     config_path: PathBuf,
     emu_thread: EmuThreadHandle,
 }
+
+const MAX_PRESCALE_FACTOR: u32 = 20;
 
 impl App {
     #[must_use]
@@ -279,17 +282,19 @@ impl App {
                     .ui(ui)
                     .changed()
                 {
-                    match self.state.prescale_factor_text.parse::<u32>() {
-                        Ok(prescale_factor) => match PrescaleFactor::try_from(prescale_factor) {
-                            Ok(prescale_factor) => {
-                                self.config.common.prescale_factor = prescale_factor;
-                                self.state.prescale_factor_invalid = false;
-                            }
-                            Err(_) => {
-                                self.state.prescale_factor_invalid = true;
-                            }
-                        },
-                        Err(_) => {
+                    match self
+                        .state
+                        .prescale_factor_text
+                        .parse::<u32>()
+                        .ok()
+                        .filter(|&n| n <= MAX_PRESCALE_FACTOR)
+                        .and_then(|n| PrescaleFactor::try_from(n).ok())
+                    {
+                        Some(prescale_factor) => {
+                            self.config.common.prescale_factor = prescale_factor;
+                            self.state.prescale_factor_invalid = false;
+                        }
+                        None => {
                             self.state.prescale_factor_invalid = true;
                         }
                     }
@@ -298,11 +303,16 @@ impl App {
                 ui.label("Prescale factor");
             });
             if self.state.prescale_factor_invalid {
-                ui.colored_label(Color32::RED, "Prescale factor must be a non-negative integer");
+                ui.colored_label(
+                    Color32::RED,
+                    format!(
+                        "Prescale factor must be a non-negative integer <= {MAX_PRESCALE_FACTOR}"
+                    ),
+                );
             }
         });
         if !open {
-            self.state.open_window = None;
+            self.state.open_windows.remove(&OpenWindow::CommonVideo);
         }
     }
 
@@ -370,7 +380,7 @@ impl App {
             ui.checkbox(&mut self.config.smsgg.sms_crop_left_border, "(SMS) Crop left border");
         });
         if !open {
-            self.state.open_window = None;
+            self.state.open_windows.remove(&OpenWindow::SmsGgVideo);
         }
     }
 
@@ -400,7 +410,7 @@ impl App {
             });
         });
         if !open {
-            self.state.open_window = None;
+            self.state.open_windows.remove(&OpenWindow::GenesisVideo);
         }
     }
 
@@ -410,7 +420,7 @@ impl App {
             ui.checkbox(&mut self.config.common.audio_sync, "Audio sync enabled");
         });
         if !open {
-            self.state.open_window = None;
+            self.state.open_windows.remove(&OpenWindow::CommonAudio);
         }
     }
 }
@@ -448,44 +458,45 @@ impl eframe::App for App {
 
                 ui.menu_button("Video", |ui| {
                     if ui.button("General").clicked() {
-                        self.state.open_window = Some(OpenWindow::CommonVideo);
+                        self.state.open_windows.insert(OpenWindow::CommonVideo);
                         ui.close_menu();
                     }
 
                     if ui.button("SMS/GG").clicked() {
-                        self.state.open_window = Some(OpenWindow::SmsGgVideo);
+                        self.state.open_windows.insert(OpenWindow::SmsGgVideo);
                         ui.close_menu();
                     }
 
                     if ui.button("Genesis").clicked() {
-                        self.state.open_window = Some(OpenWindow::GenesisVideo);
+                        self.state.open_windows.insert(OpenWindow::GenesisVideo);
                         ui.close_menu();
                     }
                 });
 
                 ui.menu_button("Audio", |ui| {
                     if ui.button("General").clicked() {
-                        self.state.open_window = Some(OpenWindow::CommonAudio);
+                        self.state.open_windows.insert(OpenWindow::CommonAudio);
                         ui.close_menu();
                     }
                 });
             });
         });
 
-        match self.state.open_window {
-            Some(OpenWindow::CommonVideo) => {
-                self.render_common_video_settings(ctx);
+        for open_window in self.state.open_windows.clone() {
+            match open_window {
+                OpenWindow::CommonVideo => {
+                    self.render_common_video_settings(ctx);
+                }
+                OpenWindow::SmsGgVideo => {
+                    self.render_smsgg_video_settings(ctx);
+                }
+                OpenWindow::GenesisVideo => {
+                    self.render_genesis_video_settings(ctx);
+                }
+                OpenWindow::CommonAudio => {
+                    self.render_common_audio_settings(ctx);
+                }
             }
-            Some(OpenWindow::SmsGgVideo) => {
-                self.render_smsgg_video_settings(ctx);
-            }
-            Some(OpenWindow::GenesisVideo) => {
-                self.render_genesis_video_settings(ctx);
-            }
-            Some(OpenWindow::CommonAudio) => {
-                self.render_common_audio_settings(ctx);
-            }
-            None => {}
         }
 
         if prev_config != self.config {
