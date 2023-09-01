@@ -845,7 +845,7 @@ impl Vdp {
     }
 
     #[must_use]
-    pub fn tick(&mut self, master_clock_cycles: u64, memory: &mut Memory) -> VdpTickEffect {
+    pub fn tick(&mut self, master_clock_cycles: u64, memory: &Memory) -> VdpTickEffect {
         // The longest 68k instruction (DIVS) takes at most around 150 68k cycles
         assert!(master_clock_cycles < 1100);
 
@@ -925,7 +925,7 @@ impl Vdp {
     }
 
     // TODO maybe do this piecemeal instead of all at once
-    fn run_dma(&mut self, memory: &mut Memory, active_dma: ActiveDma) {
+    fn run_dma(&mut self, memory: &Memory, active_dma: ActiveDma) {
         match active_dma {
             ActiveDma::MemoryToVram => {
                 // TODO halt 68k during memory-to-VRAM transfers

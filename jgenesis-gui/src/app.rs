@@ -118,7 +118,7 @@ pub struct AppConfig {
 impl AppConfig {
     #[allow(clippy::missing_panics_doc)]
     pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
-        let config_str = fs::read_to_string(path).unwrap_or(String::new());
+        let config_str = fs::read_to_string(path).unwrap_or_default();
         toml::from_str(&config_str).unwrap_or_else(|err| {
             log::error!("Error deserializing app config: {err}");
             toml::from_str("").unwrap()

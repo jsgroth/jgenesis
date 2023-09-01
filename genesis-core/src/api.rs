@@ -227,7 +227,7 @@ impl TickableEmulator for GenesisEmulator {
             }
         }
 
-        if self.vdp.tick(elapsed_mclk_cycles, &mut self.memory) == VdpTickEffect::FrameComplete {
+        if self.vdp.tick(elapsed_mclk_cycles, &self.memory) == VdpTickEffect::FrameComplete {
             let frame_width = self.vdp.screen_width();
             let frame_height = self.vdp.screen_height();
 
