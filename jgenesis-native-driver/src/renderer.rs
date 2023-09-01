@@ -3,7 +3,7 @@ pub mod config;
 use anyhow::anyhow;
 use config::RendererConfig;
 use jgenesis_traits::frontend::{Color, FrameSize, PixelAspectRatio, Renderer};
-use sdl2::video::Window;
+use sdl2::video::{FullscreenType, Window};
 use std::{cmp, iter, mem};
 use wgpu::util::DeviceExt;
 
@@ -529,6 +529,14 @@ impl WgpuRenderer {
 
         // Force render pipeline to be recreated on the next render_frame() call
         self.pipeline = None;
+    }
+
+    pub fn toggle_fullscreen(&mut self) -> Result<(), String> {
+        let new_fullscreen = match self.window.fullscreen_state() {
+            FullscreenType::Off => FullscreenType::Desktop,
+            FullscreenType::Desktop | FullscreenType::True => FullscreenType::Off,
+        };
+        self.window.set_fullscreen(new_fullscreen)
     }
 
     pub fn handle_resize(&mut self) {

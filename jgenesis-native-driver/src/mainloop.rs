@@ -180,7 +180,12 @@ where
             {
                 for event in self.event_pump.poll_iter() {
                     self.input_mapper.handle_event(&event)?;
-                    handle_hotkeys(&event, &mut self.emulator, &self.save_state_path)?;
+                    handle_hotkeys(
+                        &event,
+                        &mut self.emulator,
+                        &mut self.renderer,
+                        &self.save_state_path,
+                    )?;
 
                     match event {
                         Event::Quit { .. }
@@ -375,6 +380,7 @@ impl TakeRomFrom for GenesisEmulator {
 fn handle_hotkeys<Emulator, P>(
     event: &Event,
     emulator: &mut Emulator,
+    renderer: &mut WgpuRenderer,
     save_state_path: P,
 ) -> anyhow::Result<()>
 where
@@ -400,6 +406,11 @@ where
             };
             loaded_emulator.take_rom_from(emulator);
             *emulator = loaded_emulator;
+        }
+        Event::KeyDown { keycode: Some(Keycode::F9), .. } => {
+            renderer
+                .toggle_fullscreen()
+                .map_err(|err| anyhow!("Error toggling fullscreen: {err}"))?;
         }
         _ => {}
     }

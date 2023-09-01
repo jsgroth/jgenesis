@@ -47,8 +47,19 @@ sudo apt install libgtk-3-dev
 
 ## Build & Run
 
+CLI:
 ```
 cargo run --release --bin jgenesis-cli -- -f <path_to_rom_file>
+```
+
+To view all CLI args:
+```
+cargo run --release --bin jgenesis-cli -- -h
+```
+
+GUI:
+```
+cargo run --release --bin jgenesis-gui
 ```
 
 ## Screenshots
