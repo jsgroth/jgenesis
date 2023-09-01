@@ -76,7 +76,7 @@ impl HorizontalDisplaySize {
         self.to_pixels()
     }
 
-    const fn window_cell_width(self) -> u16 {
+    const fn window_width_cells(self) -> u16 {
         match self {
             Self::ThirtyTwoCell => 32,
             Self::FortyCell => 64,
@@ -1264,7 +1264,7 @@ impl Vdp {
             let window_nt_word = read_name_table_word(
                 &self.vram,
                 self.registers.window_base_nt_addr,
-                self.registers.horizontal_display_size.window_cell_width(),
+                self.registers.horizontal_display_size.window_width_cells(),
                 v_cell,
                 h_cell,
             );
