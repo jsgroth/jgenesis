@@ -58,6 +58,7 @@ where
 pub type GenesisResult<RErr, AErr, _SErr> = Result<TickEffect, GenesisError<RErr, AErr, _SErr>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum GenesisAspectRatio {
     #[default]
     Ntsc,
@@ -130,6 +131,10 @@ impl GenesisEmulator {
             audio_downsampler: AudioDownsampler::new(),
             master_clock_cycles: 0,
         })
+    }
+
+    pub fn reload_config(&mut self, aspect_ratio: GenesisAspectRatio) {
+        self.aspect_ratio = aspect_ratio;
     }
 
     #[must_use]

@@ -652,6 +652,10 @@ impl Vdp {
         }
     }
 
+    pub fn set_remove_sprite_limit(&mut self, remove_sprite_limit: bool) {
+        self.remove_sprite_limit = remove_sprite_limit;
+    }
+
     fn read_color_ram_word(&self, address: u8) -> u16 {
         match self.registers.version {
             VdpVersion::NtscMasterSystem2 | VdpVersion::PalMasterSystem2 => {

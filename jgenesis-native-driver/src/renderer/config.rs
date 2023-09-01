@@ -88,7 +88,7 @@ impl FilterMode {
     }
 }
 
-#[derive(Debug, Clone, ConfigDisplay)]
+#[derive(Debug, Clone, Copy, ConfigDisplay)]
 pub struct RendererConfig {
     pub vsync_mode: VSyncMode,
     pub prescale_factor: PrescaleFactor,

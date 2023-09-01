@@ -2,7 +2,9 @@ use crate::emuthread;
 use crate::emuthread::{EmuThreadCommand, EmuThreadHandle};
 use eframe::Frame;
 use egui::panel::TopBottomSide;
-use egui::{menu, Button, Context, Key, KeyboardShortcut, Modifiers, TopBottomPanel, Widget};
+use egui::{
+    menu, Button, Context, Key, KeyboardShortcut, Modifiers, TopBottomPanel, Widget, Window,
+};
 use genesis_core::GenesisAspectRatio;
 use jgenesis_native_driver::config::input::{GenesisInputConfig, SmsGgInputConfig};
 use jgenesis_native_driver::config::{
@@ -78,11 +80,25 @@ impl Default for SmsGgAppConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct GenesisAppConfig {
+    #[serde(default)]
+    aspect_ratio: GenesisAspectRatio,
+}
+
+impl Default for GenesisAppConfig {
+    fn default() -> Self {
+        toml::from_str("").unwrap()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default)]
     common: CommonAppConfig,
     #[serde(default)]
     smsgg: SmsGgAppConfig,
+    #[serde(default)]
+    genesis: GenesisAppConfig,
 }
 
 impl AppConfig {
@@ -142,7 +158,7 @@ impl AppConfig {
                 GenesisInputConfig::default(),
                 GenesisInputConfig::default(),
             ),
-            aspect_ratio: GenesisAspectRatio::Ntsc,
+            aspect_ratio: self.genesis.aspect_ratio,
         }
     }
 }
@@ -153,8 +169,22 @@ impl Default for AppConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OpenWindow {
+    CommonVideo,
+    SmsGgVideo,
+    GenesisVideo,
+    CommonAudio,
+}
+
+#[derive(Default)]
+struct AppState {
+    open_window: Option<OpenWindow>,
+}
+
 pub struct App {
     config: AppConfig,
+    state: AppState,
     config_path: PathBuf,
     emu_thread: EmuThreadHandle,
 }
@@ -164,7 +194,7 @@ impl App {
     pub fn new(config_path: PathBuf) -> Self {
         let config = AppConfig::from_file(&config_path);
         let emu_thread = emuthread::spawn();
-        Self { config, config_path, emu_thread }
+        Self { config, state: AppState::default(), config_path, emu_thread }
     }
 
     fn open_file(&self) {
@@ -190,6 +220,158 @@ impl App {
             }
             Some(_) => todo!("unrecognized file extension"),
             None => {}
+        }
+    }
+
+    fn render_common_video_settings(&mut self, ctx: &Context) {
+        let mut open = true;
+        Window::new("General Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.group(|ui| {
+                ui.label("VSync mode");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.config.common.vsync_mode,
+                        VSyncMode::Enabled,
+                        "Enabled",
+                    );
+                    ui.radio_value(
+                        &mut self.config.common.vsync_mode,
+                        VSyncMode::Disabled,
+                        "Disabled",
+                    );
+                    ui.radio_value(&mut self.config.common.vsync_mode, VSyncMode::Fast, "Fast");
+                });
+            });
+
+            // TODO prescale factor
+
+            ui.group(|ui| {
+                ui.label("Filter mode");
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.config.common.filter_mode,
+                        FilterMode::Nearest,
+                        "Nearest neighbor",
+                    );
+                    ui.radio_value(
+                        &mut self.config.common.filter_mode,
+                        FilterMode::Linear,
+                        "Linear interpolation",
+                    );
+                });
+            });
+        });
+        if !open {
+            self.state.open_window = None;
+        }
+    }
+
+    fn render_smsgg_video_settings(&mut self, ctx: &Context) {
+        let mut open = true;
+        Window::new("SMS/GG Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.group(|ui| {
+                ui.label("SMS aspect ratio");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.config.smsgg.sms_aspect_ratio,
+                        SmsAspectRatio::Ntsc,
+                        "NTSC",
+                    );
+                    ui.radio_value(
+                        &mut self.config.smsgg.sms_aspect_ratio,
+                        SmsAspectRatio::Pal,
+                        "PAL",
+                    );
+                    ui.radio_value(
+                        &mut self.config.smsgg.sms_aspect_ratio,
+                        SmsAspectRatio::SquarePixels,
+                        "Square pixels",
+                    );
+                    ui.radio_value(
+                        &mut self.config.smsgg.sms_aspect_ratio,
+                        SmsAspectRatio::Stretched,
+                        "Stretched",
+                    );
+                });
+            });
+
+            ui.group(|ui| {
+                ui.label("Game Gear aspect ratio");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.config.smsgg.gg_aspect_ratio,
+                        GgAspectRatio::GgLcd,
+                        "Game Gear LCD",
+                    );
+                    ui.radio_value(
+                        &mut self.config.smsgg.gg_aspect_ratio,
+                        GgAspectRatio::SquarePixels,
+                        "Square pixels",
+                    );
+                    ui.radio_value(
+                        &mut self.config.smsgg.gg_aspect_ratio,
+                        GgAspectRatio::Stretched,
+                        "Stretched",
+                    );
+                });
+            });
+
+            ui.checkbox(
+                &mut self.config.smsgg.remove_sprite_limit,
+                "Remove sprite-per-scanline limit",
+            );
+
+            ui.checkbox(
+                &mut self.config.smsgg.sms_crop_vertical_border,
+                "(SMS) Crop vertical border",
+            );
+            ui.checkbox(&mut self.config.smsgg.sms_crop_left_border, "(SMS) Crop left border");
+        });
+        if !open {
+            self.state.open_window = None;
+        }
+    }
+
+    fn render_genesis_video_settings(&mut self, ctx: &Context) {
+        let mut open = true;
+        Window::new("Genesis Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.group(|ui| {
+                ui.label("Aspect ratio");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.config.genesis.aspect_ratio,
+                        GenesisAspectRatio::Ntsc,
+                        "NTSC",
+                    );
+                    ui.radio_value(
+                        &mut self.config.genesis.aspect_ratio,
+                        GenesisAspectRatio::SquarePixels,
+                        "Square pixels",
+                    );
+                    ui.radio_value(
+                        &mut self.config.genesis.aspect_ratio,
+                        GenesisAspectRatio::Stretched,
+                        "Stretched",
+                    );
+                });
+            });
+        });
+        if !open {
+            self.state.open_window = None;
+        }
+    }
+
+    fn render_common_audio_settings(&mut self, ctx: &Context) {
+        let mut open = true;
+        Window::new("General Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.checkbox(&mut self.config.common.audio_sync, "Audio sync enabled");
+        });
+        if !open {
+            self.state.open_window = None;
         }
     }
 }
@@ -224,10 +406,56 @@ impl eframe::App for App {
                         frame.close();
                     }
                 });
+
+                ui.set_enabled(self.state.open_window.is_none());
+                ui.menu_button("Video", |ui| {
+                    if ui.button("General").clicked() {
+                        self.state.open_window = Some(OpenWindow::CommonVideo);
+                        ui.close_menu();
+                    }
+
+                    if ui.button("SMS/GG").clicked() {
+                        self.state.open_window = Some(OpenWindow::SmsGgVideo);
+                        ui.close_menu();
+                    }
+
+                    if ui.button("Genesis").clicked() {
+                        self.state.open_window = Some(OpenWindow::GenesisVideo);
+                        ui.close_menu();
+                    }
+                });
+
+                ui.menu_button("Audio", |ui| {
+                    if ui.button("General").clicked() {
+                        self.state.open_window = Some(OpenWindow::CommonAudio);
+                        ui.close_menu();
+                    }
+                });
             });
         });
 
-        if prev_config != self.config || !self.config_path.exists() {
+        match self.state.open_window {
+            Some(OpenWindow::CommonVideo) => {
+                self.render_common_video_settings(ctx);
+            }
+            Some(OpenWindow::SmsGgVideo) => {
+                self.render_smsgg_video_settings(ctx);
+            }
+            Some(OpenWindow::GenesisVideo) => {
+                self.render_genesis_video_settings(ctx);
+            }
+            Some(OpenWindow::CommonAudio) => {
+                self.render_common_audio_settings(ctx);
+            }
+            None => {}
+        }
+
+        if prev_config != self.config {
+            self.emu_thread.reload_config(
+                self.config.smsgg_config(String::new()),
+                self.config.genesis_config(String::new()),
+            );
+
             let config_str = toml::to_string_pretty(&self.config).unwrap();
             if let Err(err) = fs::write(&self.config_path, config_str) {
                 log::error!("Error serializing app config: {err}");

@@ -54,7 +54,7 @@ impl RenderingPipeline {
         pixel_aspect_ratio: Option<PixelAspectRatio>,
         texture_format: wgpu::TextureFormat,
         surface_config: &wgpu::SurfaceConfiguration,
-        renderer_config: &RendererConfig,
+        renderer_config: RendererConfig,
     ) -> Self {
         let input_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: "input_texture".into(),
@@ -522,6 +522,15 @@ impl WgpuRenderer {
         })
     }
 
+    pub fn reload_config(&mut self, config: RendererConfig) {
+        self.renderer_config = config;
+        self.surface_config.present_mode = config.vsync_mode.to_wgpu_present_mode();
+        self.surface.configure(&self.device, &self.surface_config);
+
+        // Force render pipeline to be recreated on the next render_frame() call
+        self.pipeline = None;
+    }
+
     pub fn handle_resize(&mut self) {
         let (window_width, window_height) = self.window.size();
         self.surface_config.width = window_width;
@@ -554,7 +563,7 @@ impl WgpuRenderer {
                 pixel_aspect_ratio,
                 self.texture_format,
                 &self.surface_config,
-                &self.renderer_config,
+                self.renderer_config,
             ));
         }
     }

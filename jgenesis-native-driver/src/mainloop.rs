@@ -1,5 +1,5 @@
 use crate::config;
-use crate::config::{GenesisConfig, SmsGgConfig, WindowSize};
+use crate::config::{CommonConfig, GenesisConfig, SmsGgConfig, WindowSize};
 use crate::input::{GenesisButton, GetButtonField, InputMapper, SmsGgButton};
 use crate::renderer::WgpuRenderer;
 use anyhow::{anyhow, Context};
@@ -115,6 +115,44 @@ pub struct NativeEmulator<Inputs, Button, Emulator> {
     save_writer: FsSaveWriter,
     event_pump: EventPump,
     save_state_path: PathBuf,
+}
+
+impl<Inputs, Button, Emulator> NativeEmulator<Inputs, Button, Emulator> {
+    fn reload_common_config<KC, JC>(&mut self, config: &CommonConfig<KC, JC>) {
+        self.renderer.reload_config(config.renderer_config);
+        self.audio_output.audio_sync = config.audio_sync;
+    }
+}
+
+impl NativeEmulator<SmsGgInputs, SmsGgButton, SmsGgEmulator> {
+    pub fn reload_smsgg_config(&mut self, config: SmsGgConfig) {
+        log::info!("Reloading config: {config}");
+
+        self.reload_common_config(&config.common);
+
+        let pixel_aspect_ratio = if self.emulator.vdp_version().is_master_system() {
+            config.sms_aspect_ratio.to_pixel_aspect_ratio()
+        } else {
+            config.gg_aspect_ratio.to_pixel_aspect_ratio()
+        };
+        self.emulator.reload_config(SmsGgEmulatorConfig {
+            pixel_aspect_ratio,
+            remove_sprite_limit: config.remove_sprite_limit,
+            sms_crop_vertical_border: config.sms_crop_vertical_border,
+            sms_crop_left_border: config.sms_crop_left_border,
+        });
+        // TODO reload inputs
+    }
+}
+
+impl NativeEmulator<GenesisInputs, GenesisButton, GenesisEmulator> {
+    pub fn reload_genesis_config(&mut self, config: GenesisConfig) {
+        log::info!("Reloading config: {config}");
+
+        self.reload_common_config(&config.common);
+        self.emulator.reload_config(config.aspect_ratio);
+        // TODO reload inputs
+    }
 }
 
 // TODO simplify or generalize these trait bounds

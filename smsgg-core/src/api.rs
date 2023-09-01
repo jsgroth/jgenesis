@@ -147,6 +147,18 @@ impl SmsGgEmulator {
         }
     }
 
+    #[must_use]
+    pub fn vdp_version(&self) -> VdpVersion {
+        self.vdp_version
+    }
+
+    pub fn reload_config(&mut self, config: SmsGgEmulatorConfig) {
+        self.pixel_aspect_ratio = config.pixel_aspect_ratio;
+        self.vdp.set_remove_sprite_limit(config.remove_sprite_limit);
+        self.sms_crop_vertical_border = config.sms_crop_vertical_border;
+        self.sms_crop_left_border = config.sms_crop_left_border;
+    }
+
     pub fn take_rom_from(&mut self, other: &mut Self) {
         self.memory.take_rom_from(&mut other.memory);
     }
