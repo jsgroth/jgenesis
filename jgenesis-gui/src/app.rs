@@ -214,6 +214,8 @@ struct AppState {
     open_windows: HashSet<OpenWindow>,
     prescale_factor_text: String,
     prescale_factor_invalid: bool,
+    axis_deadzone_text: String,
+    axis_deadzone_invalid: bool,
     waiting_for_input: Option<GenericButton>,
 }
 
@@ -224,6 +226,8 @@ impl AppState {
             open_windows: HashSet::new(),
             prescale_factor_text: config.common.prescale_factor.get().to_string(),
             prescale_factor_invalid: false,
+            axis_deadzone_text: config.inputs.axis_deadzone.to_string(),
+            axis_deadzone_invalid: false,
             waiting_for_input: None,
         }
     }
@@ -561,6 +565,10 @@ impl eframe::App for App {
                         );
                     }
                 }
+            } else if self.emu_thread.status().is_running() {
+                Window::new("Input Configuration").resizable(false).show(ctx, |ui| {
+                    ui.colored_label(Color32::BLUE, "Use the emulator window to configure input");
+                });
             }
         }
 

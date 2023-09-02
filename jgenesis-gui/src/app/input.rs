@@ -1,6 +1,6 @@
 use crate::app::{App, OpenWindow};
 use crate::emuthread::{EmuThreadCommand, GenericInput, InputType};
-use egui::{Context, Ui, Window};
+use egui::{Color32, Context, TextEdit, Ui, Widget, Window};
 use jgenesis_native_driver::config::input::{
     GenesisControllerConfig, GenesisInputConfig, JoystickInput, KeyboardInput,
     SmsGgControllerConfig, SmsGgInputConfig,
@@ -17,23 +17,23 @@ pub enum GenericButton {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InputAppConfig {
     #[serde(default = "default_smsgg_p1_keyboard_config")]
-    smsgg_p1_keyboard: SmsGgControllerConfig<String>,
+    pub smsgg_p1_keyboard: SmsGgControllerConfig<String>,
     #[serde(default)]
-    smsgg_p2_keyboard: SmsGgControllerConfig<String>,
+    pub smsgg_p2_keyboard: SmsGgControllerConfig<String>,
     #[serde(default)]
-    smsgg_p1_joystick: SmsGgControllerConfig<JoystickInput>,
+    pub smsgg_p1_joystick: SmsGgControllerConfig<JoystickInput>,
     #[serde(default)]
-    smsgg_p2_joystick: SmsGgControllerConfig<JoystickInput>,
+    pub smsgg_p2_joystick: SmsGgControllerConfig<JoystickInput>,
     #[serde(default = "default_genesis_p1_keyboard_config")]
-    genesis_p1_keyboard: GenesisControllerConfig<String>,
+    pub genesis_p1_keyboard: GenesisControllerConfig<String>,
     #[serde(default)]
-    genesis_p2_keyboard: GenesisControllerConfig<String>,
+    pub genesis_p2_keyboard: GenesisControllerConfig<String>,
     #[serde(default)]
-    genesis_p1_joystick: GenesisControllerConfig<JoystickInput>,
+    pub genesis_p1_joystick: GenesisControllerConfig<JoystickInput>,
     #[serde(default)]
-    genesis_p2_joystick: GenesisControllerConfig<JoystickInput>,
+    pub genesis_p2_joystick: GenesisControllerConfig<JoystickInput>,
     #[serde(default = "default_axis_deadzone")]
-    axis_deadzone: i16,
+    pub axis_deadzone: i16,
 }
 
 macro_rules! set_input {
@@ -317,15 +317,6 @@ impl App {
         Window::new("SMS/GG Keyboard Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.set_enabled(self.state.waiting_for_input.is_none());
 
-            self.keyboard_input_button(
-                self.config.inputs.smsgg_p1_keyboard.pause.clone(),
-                "Start/Pause",
-                GenericButton::SmsGg(SmsGgButton::Pause),
-                ui,
-            );
-
-            ui.add_space(25.0);
-
             ui.heading("Player 1");
             render_smsgg_input!(
                 self,
@@ -335,7 +326,7 @@ impl App {
                 ui
             );
 
-            ui.add_space(25.0);
+            ui.add_space(20.0);
 
             ui.heading("Player 2");
             render_smsgg_input!(
@@ -344,6 +335,15 @@ impl App {
                 self.config.inputs.smsgg_p2_keyboard,
                 Player::Two,
                 ui
+            );
+
+            ui.add_space(20.0);
+
+            self.keyboard_input_button(
+                self.config.inputs.smsgg_p1_keyboard.pause.clone(),
+                "Start/Pause",
+                GenericButton::SmsGg(SmsGgButton::Pause),
+                ui,
             );
         });
         if !open {
@@ -356,15 +356,6 @@ impl App {
         Window::new("SMS/GG Gamepad Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.set_enabled(self.state.waiting_for_input.is_none());
 
-            self.gamepad_input_button(
-                self.config.inputs.smsgg_p1_joystick.pause.clone(),
-                "Start/Pause",
-                GenericButton::SmsGg(SmsGgButton::Pause),
-                ui,
-            );
-
-            ui.add_space(25.0);
-
             ui.heading("Player 1");
             render_smsgg_input!(
                 self,
@@ -374,7 +365,7 @@ impl App {
                 ui
             );
 
-            ui.add_space(25.0);
+            ui.add_space(20.0);
 
             ui.heading("Player 2");
             render_smsgg_input!(
@@ -384,6 +375,18 @@ impl App {
                 Player::Two,
                 ui
             );
+
+            ui.add_space(20.0);
+
+            self.gamepad_input_button(
+                self.config.inputs.smsgg_p1_joystick.pause.clone(),
+                "Start/Pause",
+                GenericButton::SmsGg(SmsGgButton::Pause),
+                ui,
+            );
+
+            ui.add_space(20.0);
+            self.render_axis_deadzone_input(ui);
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::SmsGgGamepad);
@@ -404,7 +407,7 @@ impl App {
                 ui
             );
 
-            ui.add_space(25.0);
+            ui.add_space(20.0);
 
             ui.heading("Player 2");
             render_genesis_input!(
@@ -434,7 +437,7 @@ impl App {
                 ui
             );
 
-            ui.add_space(25.0);
+            ui.add_space(20.0);
 
             ui.heading("Player 2");
             render_genesis_input!(
@@ -444,9 +447,38 @@ impl App {
                 Player::Two,
                 ui
             );
+
+            ui.add_space(20.0);
+
+            self.render_axis_deadzone_input(ui);
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::GenesisGamepad);
+        }
+    }
+
+    fn render_axis_deadzone_input(&mut self, ui: &mut Ui) {
+        ui.horizontal(|ui| {
+            if TextEdit::singleline(&mut self.state.axis_deadzone_text)
+                .desired_width(50.0)
+                .ui(ui)
+                .changed()
+            {
+                match self.state.axis_deadzone_text.parse::<i16>() {
+                    Ok(value) if (0..=i16::MAX).contains(&value) => {
+                        self.config.inputs.axis_deadzone = value;
+                        self.state.axis_deadzone_invalid = false;
+                    }
+                    _ => {
+                        self.state.axis_deadzone_invalid = true;
+                    }
+                }
+            }
+
+            ui.label("Joystick axis deadzone (0-32767)");
+        });
+        if self.state.axis_deadzone_invalid {
+            ui.colored_label(Color32::RED, "Axis dead zone must be an integer between 0 and 32767");
         }
     }
 
@@ -484,6 +516,8 @@ impl App {
         ui: &mut Ui,
     ) {
         ui.horizontal(|ui| {
+            ui.label(format!("{label}:"));
+
             if ui.button(text).clicked() {
                 log::debug!("Sending collect input command for button {button:?}");
                 self.emu_thread.send(EmuThreadCommand::CollectInput {
@@ -497,7 +531,6 @@ impl App {
 
                 self.state.waiting_for_input = Some(button);
             }
-            ui.label(label);
         });
     }
 }
