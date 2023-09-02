@@ -7,8 +7,8 @@ use crate::{vdp, SmsGgInputs, VdpVersion};
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
 use jgenesis_traits::frontend::{
-    AudioOutput, Color, FrameSize, PixelAspectRatio, Renderer, SaveWriter, TickEffect,
-    TickableEmulator,
+    AudioOutput, Color, EmulatorTrait, FrameSize, PixelAspectRatio, Renderer, SaveWriter,
+    TakeRomFrom, TickEffect, TickableEmulator,
 };
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
@@ -172,8 +172,10 @@ impl SmsGgEmulator {
         self.sms_crop_vertical_border = config.sms_crop_vertical_border;
         self.sms_crop_left_border = config.sms_crop_left_border;
     }
+}
 
-    pub fn take_rom_from(&mut self, other: &mut Self) {
+impl TakeRomFrom for SmsGgEmulator {
+    fn take_rom_from(&mut self, other: &mut Self) {
         self.memory.take_rom_from(&mut other.memory);
     }
 }
@@ -279,6 +281,8 @@ impl TickableEmulator for SmsGgEmulator {
         Ok(if frame_rendered { TickEffect::FrameRendered } else { TickEffect::None })
     }
 }
+
+impl EmulatorTrait<SmsGgInputs> for SmsGgEmulator {}
 
 fn populate_frame_buffer(
     vdp_buffer: &VdpBuffer,

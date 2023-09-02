@@ -1,8 +1,18 @@
+use bincode::{Decode, Encode};
 use std::num::NonZeroU32;
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
-#[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    bytemuck::Pod,
+    bytemuck::Zeroable,
+    bincode::Encode,
+    bincode::Decode,
+)]
 pub struct Color {
     pub r: u8,
     pub g: u8,
@@ -31,8 +41,7 @@ pub struct FrameSize {
     pub height: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
+#[derive(Debug, Clone, Copy, PartialEq, bincode::Encode, bincode::Decode)]
 pub struct PixelAspectRatio(f64);
 
 impl PixelAspectRatio {
@@ -111,6 +120,10 @@ pub trait SaveWriter {
     fn persist_save(&mut self, save_bytes: &[u8]) -> Result<(), Self::Err>;
 }
 
+pub trait TakeRomFrom {
+    fn take_rom_from(&mut self, other: &mut Self);
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TickEffect {
     None,
@@ -139,4 +152,10 @@ pub trait TickableEmulator {
         R: Renderer,
         A: AudioOutput,
         S: SaveWriter;
+}
+
+// Trait that simply combines useful trait bounds
+pub trait EmulatorTrait<Inputs>:
+    TickableEmulator<Inputs = Inputs> + Encode + Decode + TakeRomFrom
+{
 }

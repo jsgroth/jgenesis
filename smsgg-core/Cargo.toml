@@ -11,7 +11,7 @@ serde = ["dep:serde"]
 
 [dependencies]
 jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
-jgenesis-traits = { path = "../jgenesis-traits", features = ["bincode"] }
+jgenesis-traits = { path = "../jgenesis-traits" }
 z80-emu = { path = "../z80-emu", features = ["bincode"] }
 
 bincode = { version = "2.0.0-rc.3", features = ["derive"] }

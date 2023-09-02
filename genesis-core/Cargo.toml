@@ -11,7 +11,7 @@ serde = ["dep:serde"]
 
 [dependencies]
 jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
-jgenesis-traits = { path = "../jgenesis-traits", features = ["bincode"] }
+jgenesis-traits = { path = "../jgenesis-traits" }
 m68000-emu = { path = "../m68000-emu", features = ["bincode"] }
 smsgg-core = { path = "../smsgg-core" }
 z80-emu = { path = "../z80-emu", features = ["bincode"] }

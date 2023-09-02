@@ -5,7 +5,7 @@ use crate::renderer::WgpuRenderer;
 use anyhow::{anyhow, Context};
 use bincode::{Decode, Encode};
 use genesis_core::{GenesisEmulator, GenesisInputs};
-use jgenesis_traits::frontend::{AudioOutput, SaveWriter, TickEffect, TickableEmulator};
+use jgenesis_traits::frontend::{AudioOutput, EmulatorTrait, SaveWriter, TickEffect};
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::Keycode;
@@ -174,7 +174,7 @@ impl<Inputs, Button, Emulator> NativeEmulator<Inputs, Button, Emulator>
 where
     Inputs: Default + GetButtonField<Button>,
     Button: Copy,
-    Emulator: TickableEmulator<Inputs = Inputs> + Encode + Decode + TakeRomFrom,
+    Emulator: EmulatorTrait<Inputs>,
     anyhow::Error: From<Emulator::Err<anyhow::Error, anyhow::Error, anyhow::Error>>,
 {
     /// Run the emulator until a frame is rendered.
@@ -367,30 +367,14 @@ fn init_sdl() -> anyhow::Result<(VideoSubsystem, AudioSubsystem, JoystickSubsyst
     Ok((video, audio, joystick, event_pump))
 }
 
-pub trait TakeRomFrom {
-    fn take_rom_from(&mut self, other: &mut Self);
-}
-
-impl TakeRomFrom for SmsGgEmulator {
-    fn take_rom_from(&mut self, other: &mut Self) {
-        self.take_rom_from(other);
-    }
-}
-
-impl TakeRomFrom for GenesisEmulator {
-    fn take_rom_from(&mut self, other: &mut Self) {
-        self.take_rom_from(other);
-    }
-}
-
-fn handle_hotkeys<Emulator, P>(
+fn handle_hotkeys<Inputs, Emulator, P>(
     event: &Event,
     emulator: &mut Emulator,
     renderer: &mut WgpuRenderer,
     save_state_path: P,
 ) -> anyhow::Result<()>
 where
-    Emulator: Encode + Decode + TakeRomFrom,
+    Emulator: EmulatorTrait<Inputs>,
     P: AsRef<Path>,
 {
     let save_state_path = save_state_path.as_ref();

@@ -1,13 +1,12 @@
 use anyhow::anyhow;
-use bincode::{Decode, Encode};
 use genesis_core::{GenesisEmulator, GenesisInputs};
 use jgenesis_native_driver::config::input::{
     AxisDirection, HatDirection, JoystickAction, JoystickInput, KeyboardInput,
 };
 use jgenesis_native_driver::config::{GenesisConfig, SmsGgConfig};
 use jgenesis_native_driver::input::{GenesisButton, GetButtonField, Joysticks, SmsGgButton};
-use jgenesis_native_driver::{NativeEmulator, NativeTickEffect, TakeRomFrom};
-use jgenesis_traits::frontend::TickableEmulator;
+use jgenesis_native_driver::{NativeEmulator, NativeTickEffect};
+use jgenesis_traits::frontend::EmulatorTrait;
 use sdl2::event::Event;
 use sdl2::joystick::HatState;
 use sdl2::pixels::Color;
@@ -224,7 +223,7 @@ fn run_emulator<Inputs, Button, Emulator>(
 ) where
     Inputs: Default + GetButtonField<Button>,
     Button: Copy,
-    Emulator: TickableEmulator<Inputs = Inputs> + Encode + Decode + TakeRomFrom,
+    Emulator: EmulatorTrait<Inputs>,
     anyhow::Error: From<Emulator::Err<anyhow::Error, anyhow::Error, anyhow::Error>>,
 {
     loop {

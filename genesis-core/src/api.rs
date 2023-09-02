@@ -7,7 +7,8 @@ use crate::ym2612::{Ym2612, YmTickEffect};
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_traits::frontend::{
-    AudioOutput, FrameSize, PixelAspectRatio, Renderer, SaveWriter, TickEffect, TickableEmulator,
+    AudioOutput, EmulatorTrait, FrameSize, PixelAspectRatio, Renderer, SaveWriter, TakeRomFrom,
+    TickEffect, TickableEmulator,
 };
 use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgVersion};
@@ -155,8 +156,10 @@ impl GenesisEmulator {
     pub fn cartridge_title(&self) -> String {
         self.memory.cartridge_title()
     }
+}
 
-    pub fn take_rom_from(&mut self, other: &mut Self) {
+impl TakeRomFrom for GenesisEmulator {
+    fn take_rom_from(&mut self, other: &mut Self) {
         self.memory.take_rom_from(&mut other.memory);
     }
 }
@@ -248,3 +251,5 @@ impl TickableEmulator for GenesisEmulator {
         Ok(TickEffect::None)
     }
 }
+
+impl EmulatorTrait<GenesisInputs> for GenesisEmulator {}
