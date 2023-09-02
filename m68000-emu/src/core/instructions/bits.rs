@@ -56,24 +56,8 @@ macro_rules! impl_bit_op_to_sr {
     }
 }
 
-macro_rules! impl_bit_test_op{
-    (@cycle_count $source:expr, $dest:expr) => {
-        {
-            let dest_cycles = match $dest {
-                AddressingMode::DataDirect(..) => 2,
-                AddressingMode::Immediate => 6,
-                _ => $dest.address_calculation_cycles(OpSize::Byte)
-            };
-
-            let source_cycles = match $source {
-                AddressingMode::Immediate => 4,
-                _ => 0
-            };
-
-            4 + source_cycles + dest_cycles
-        }
-    };
-    (@cycle_count $source:expr, $dest:expr, $bit_ident:ident $bit:expr $(, $extra_d_write_cycles:expr)?) => {
+macro_rules! impl_bit_test_op {
+    (@cycle_count $source:expr, $dest:expr, $bit:expr $(, $extra_d_write_cycles:expr)?) => {
         {
             let dest_cycles = if $dest.is_data_direct() {
                 2 $(+ $extra_d_write_cycles)? + if $bit % 32 < 16 { 0 } else { 2 }
@@ -89,37 +73,31 @@ macro_rules! impl_bit_test_op{
             4 + source_cycles + dest_cycles
         }
     };
-    ($name:ident $(, |$value:ident, $bit:ident| $body:block)? $(, extra_d_write_cycles: $extra_d_write_cycles:expr)?) => {
+    ($name:ident, |$value:ident, $bit:ident| $body:block $(, extra_d_write_cycles: $extra_d_write_cycles:expr)?) => {
         pub(super) fn $name(&mut self, source: AddressingMode, dest: AddressingMode) -> ExecuteResult<u32> {
             let bit_index = self.read_byte(source)?;
 
             match dest {
                 AddressingMode::DataDirect(register) => {
-                    let value = register.read_from(self.registers);
-                    let bit = bit_index % 32;
-                    self.registers.ccr.zero = !value.bit(bit);
-                    $(
-                        let $value = value;
-                        let $bit = bit;
-                        let value = $body;
-                        register.write_long_word_to(self.registers, value);
-                    )?
+                    let $value = register.read_from(self.registers);
+                    let $bit = bit_index % 32;
+                    self.registers.ccr.zero = !$value.bit($bit);
+
+                    let value = $body;
+                    register.write_long_word_to(self.registers, value);
                 }
                 _ => {
                     let dest_resolved = self.resolve_address_with_post(dest, OpSize::Byte)?;
-                    let value = self.read_byte_resolved(dest_resolved);
-                    let bit = bit_index % 8;
-                    self.registers.ccr.zero = !value.bit(bit);
-                    $(
-                        let $value = value;
-                        let $bit = bit;
-                        let value = $body;
-                        self.write_byte_resolved(dest_resolved, value);
-                    )?
+                    let $value = self.read_byte_resolved(dest_resolved);
+                    let $bit = bit_index % 8;
+                    self.registers.ccr.zero = !$value.bit($bit);
+
+                    let value = $body;
+                    self.write_byte_resolved(dest_resolved, value);
                 }
             }
 
-            let cycles = impl_bit_test_op!(@cycle_count source, dest $(, $bit bit_index)? $(, $extra_d_write_cycles)?);
+            let cycles = impl_bit_test_op!(@cycle_count source, dest, bit_index $(, $extra_d_write_cycles)?);
             Ok(cycles)
         }
     };
@@ -232,7 +210,41 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     impl_bit_op_to_sr!(ori_to_sr, |);
     impl_bit_op_to_sr!(eori_to_sr, ^);
 
-    impl_bit_test_op!(btst);
+    pub(super) fn btst(
+        &mut self,
+        source: AddressingMode,
+        dest: AddressingMode,
+    ) -> ExecuteResult<u32> {
+        let bit_index = self.read_byte(source)?;
+
+        match dest {
+            AddressingMode::DataDirect(register) => {
+                let value = register.read_from(self.registers);
+                let bit = bit_index % 32;
+                self.registers.ccr.zero = !value.bit(bit);
+            }
+            _ => {
+                let dest_resolved = self.resolve_address_with_post(dest, OpSize::Byte)?;
+                let value = self.read_byte_resolved(dest_resolved);
+                let bit = bit_index % 8;
+                self.registers.ccr.zero = !value.bit(bit);
+            }
+        }
+
+        let dest_cycles = match dest {
+            AddressingMode::DataDirect(..) => 2,
+            AddressingMode::Immediate => 6,
+            _ => dest.address_calculation_cycles(OpSize::Byte),
+        };
+
+        let source_cycles = match source {
+            AddressingMode::Immediate => 4,
+            _ => 0,
+        };
+
+        Ok(4 + source_cycles + dest_cycles)
+    }
+
     impl_bit_test_op!(bclr, |value, bit| { value & !(1 << bit) }, extra_d_write_cycles: 2);
     impl_bit_test_op!(bset, |value, bit| { value | (1 << bit) });
     impl_bit_test_op!(bchg, |value, bit| {
