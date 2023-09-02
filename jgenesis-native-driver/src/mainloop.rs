@@ -1,6 +1,6 @@
 use crate::config;
 use crate::config::{CommonConfig, GenesisConfig, SmsGgConfig, WindowSize};
-use crate::input::{GenesisButton, GetButtonField, InputMapper, SmsGgButton};
+use crate::input::{GenesisButton, GetButtonField, InputMapper, Joysticks, SmsGgButton};
 use crate::renderer::WgpuRenderer;
 use anyhow::{anyhow, Context};
 use bincode::{Decode, Encode};
@@ -122,6 +122,17 @@ impl<Inputs, Button, Emulator> NativeEmulator<Inputs, Button, Emulator> {
         self.renderer.reload_config(config.renderer_config);
         self.audio_output.audio_sync = config.audio_sync;
     }
+
+    pub fn focus(&mut self) {
+        self.renderer.focus();
+    }
+
+    pub fn event_pump_and_joysticks_mut(
+        &mut self,
+    ) -> (&mut EventPump, &mut Joysticks, &JoystickSubsystem) {
+        let (joysticks, joystick_subsystem) = self.input_mapper.joysticks_mut();
+        (&mut self.event_pump, joysticks, joystick_subsystem)
+    }
 }
 
 impl NativeEmulator<SmsGgInputs, SmsGgButton, SmsGgEmulator> {
@@ -132,7 +143,13 @@ impl NativeEmulator<SmsGgInputs, SmsGgButton, SmsGgEmulator> {
 
         let emulator_config = config.to_emulator_config(self.emulator.vdp_version());
         self.emulator.reload_config(config.psg_version, emulator_config);
-        // TODO reload inputs
+
+        if let Err(err) = self
+            .input_mapper
+            .reload_config(config.common.keyboard_inputs, config.common.joystick_inputs)
+        {
+            log::error!("Error reloading input config: {err}");
+        }
     }
 }
 
@@ -142,7 +159,13 @@ impl NativeEmulator<GenesisInputs, GenesisButton, GenesisEmulator> {
 
         self.reload_common_config(&config.common);
         self.emulator.reload_config(config.to_emulator_config());
-        // TODO reload inputs
+
+        if let Err(err) = self
+            .input_mapper
+            .reload_config(config.common.keyboard_inputs, config.common.joystick_inputs)
+        {
+            log::error!("Error reloading input config: {err}");
+        }
     }
 }
 
@@ -242,6 +265,7 @@ pub fn create_smsgg(
     let input_mapper = InputMapper::new_smsgg(
         joystick,
         config.common.keyboard_inputs,
+        config.common.joystick_inputs,
         config.common.axis_deadzone,
     )?;
     let save_writer = FsSaveWriter::new(save_path);
@@ -297,6 +321,7 @@ pub fn create_genesis(
     let input_mapper = InputMapper::new_genesis(
         joystick,
         config.common.keyboard_inputs,
+        config.common.joystick_inputs,
         config.common.axis_deadzone,
     )?;
     let save_writer = FsSaveWriter::new(save_path);

@@ -1,3 +1,6 @@
+mod input;
+
+use crate::app::input::{GenericButton, InputAppConfig};
 use crate::emuthread;
 use crate::emuthread::{EmuThreadCommand, EmuThreadHandle, EmuThreadStatus};
 use eframe::Frame;
@@ -7,7 +10,6 @@ use egui::{
     Widget, Window,
 };
 use genesis_core::GenesisAspectRatio;
-use jgenesis_native_driver::config::input::{GenesisInputConfig, SmsGgInputConfig};
 use jgenesis_native_driver::config::{
     CommonConfig, GenesisConfig, GgAspectRatio, SmsAspectRatio, SmsGgConfig, WindowSize,
 };
@@ -113,6 +115,8 @@ pub struct AppConfig {
     smsgg: SmsGgAppConfig,
     #[serde(default)]
     genesis: GenesisAppConfig,
+    #[serde(default)]
+    inputs: InputAppConfig,
 }
 
 impl AppConfig {
@@ -157,11 +161,10 @@ impl AppConfig {
         };
 
         SmsGgConfig {
-            // TODO configurable
             common: self.common_config(
                 path,
-                SmsGgInputConfig::default(),
-                SmsGgInputConfig::default(),
+                self.inputs.to_smsgg_keyboard_config(),
+                self.inputs.to_smsgg_joystick_config(),
             ),
             vdp_version,
             psg_version: self.smsgg.psg_version,
@@ -176,11 +179,10 @@ impl AppConfig {
 
     fn genesis_config(&self, path: String) -> GenesisConfig {
         GenesisConfig {
-            // TODO configurable
             common: self.common_config(
                 path,
-                GenesisInputConfig::default(),
-                GenesisInputConfig::default(),
+                self.inputs.to_genesis_keyboard_config(),
+                self.inputs.to_genesis_joystick_config(),
             ),
             aspect_ratio: self.genesis.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: self.genesis.adjust_aspect_ratio_in_2x_resolution,
@@ -201,6 +203,10 @@ enum OpenWindow {
     SmsGgVideo,
     GenesisVideo,
     CommonAudio,
+    SmsGgKeyboard,
+    SmsGgGamepad,
+    GenesisKeyboard,
+    GenesisGamepad,
 }
 
 struct AppState {
@@ -208,6 +214,7 @@ struct AppState {
     open_windows: HashSet<OpenWindow>,
     prescale_factor_text: String,
     prescale_factor_invalid: bool,
+    waiting_for_input: Option<GenericButton>,
 }
 
 impl AppState {
@@ -217,6 +224,7 @@ impl AppState {
             open_windows: HashSet::new(),
             prescale_factor_text: config.common.prescale_factor.get().to_string(),
             prescale_factor_invalid: false,
+            waiting_for_input: None,
         }
     }
 }
@@ -240,6 +248,11 @@ impl App {
     }
 
     fn open_file(&mut self) {
+        if self.state.waiting_for_input.is_some() {
+            log::warn!("Cannot open file while configuring input");
+            return;
+        }
+
         let Some(path) =
             FileDialog::new().add_filter("sms/gg/md", &["sms", "gg", "md", "bin"]).pick_file()
         else {
@@ -533,6 +546,24 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &Context, frame: &mut Frame) {
         let prev_config = self.config.clone();
 
+        if let Some(button) = self.state.waiting_for_input {
+            if let Ok(input) = self.emu_thread.poll_input_receiver() {
+                self.state.waiting_for_input = None;
+
+                log::info!("Received input {input:?} for button {button:?}");
+                if let Some(input) = input {
+                    self.config.inputs.set_input(input, button);
+
+                    if self.emu_thread.status().is_running() {
+                        self.emu_thread.reload_config(
+                            self.config.smsgg_config(self.state.current_file_path.clone()),
+                            self.config.genesis_config(self.state.current_file_path.clone()),
+                        );
+                    }
+                }
+            }
+        }
+
         let open_shortcut = KeyboardShortcut::new(Modifiers::CTRL, Key::O);
         if ctx.input_mut(|input| input.consume_shortcut(&open_shortcut)) {
             self.open_file();
@@ -590,6 +621,28 @@ impl eframe::App for App {
                         ui.close_menu();
                     }
                 });
+
+                ui.menu_button("Input", |ui| {
+                    if ui.button("SMS/GG Keyboard").clicked() {
+                        self.state.open_windows.insert(OpenWindow::SmsGgKeyboard);
+                        ui.close_menu();
+                    }
+
+                    if ui.button("SMS/GG Gamepad").clicked() {
+                        self.state.open_windows.insert(OpenWindow::SmsGgGamepad);
+                        ui.close_menu();
+                    }
+
+                    if ui.button("Genesis Keyboard").clicked() {
+                        self.state.open_windows.insert(OpenWindow::GenesisKeyboard);
+                        ui.close_menu();
+                    }
+
+                    if ui.button("Genesis Gamepad").clicked() {
+                        self.state.open_windows.insert(OpenWindow::GenesisGamepad);
+                        ui.close_menu();
+                    }
+                });
             });
         });
 
@@ -609,6 +662,18 @@ impl eframe::App for App {
                 }
                 OpenWindow::CommonAudio => {
                     self.render_audio_settings(ctx);
+                }
+                OpenWindow::SmsGgKeyboard => {
+                    self.render_smsgg_keyboard_settings(ctx);
+                }
+                OpenWindow::SmsGgGamepad => {
+                    self.render_smsgg_gamepad_settings(ctx);
+                }
+                OpenWindow::GenesisKeyboard => {
+                    self.render_genesis_keyboard_settings(ctx);
+                }
+                OpenWindow::GenesisGamepad => {
+                    self.render_genesis_gamepad_settings(ctx);
                 }
             }
         }

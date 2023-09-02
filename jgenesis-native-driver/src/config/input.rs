@@ -1,8 +1,9 @@
 use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay};
 use sdl2::keyboard::Keycode;
+use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AxisDirection {
     Positive,
     Negative,
@@ -17,7 +18,7 @@ impl Display for AxisDirection {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumDisplay)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, EnumDisplay)]
 pub enum HatDirection {
     Up,
     Left,
@@ -25,7 +26,8 @@ pub enum HatDirection {
     Down,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(tag = "type")]
 pub enum JoystickAction {
     Button { button_idx: u8 },
     Axis { axis_idx: u8, direction: AxisDirection },
@@ -42,10 +44,17 @@ impl Display for JoystickAction {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct JoystickDeviceId {
     pub name: String,
     pub idx: u32, // Used to disambiguate if multiple controllers with the same name are connected
+}
+
+impl JoystickDeviceId {
+    #[must_use]
+    pub fn new(name: String, idx: u32) -> Self {
+        Self { name, idx }
+    }
 }
 
 impl Display for JoystickDeviceId {
@@ -54,7 +63,7 @@ impl Display for JoystickDeviceId {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct JoystickInput {
     pub device: JoystickDeviceId,
     pub action: JoystickAction,
@@ -77,7 +86,7 @@ impl Display for KeyboardInput {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SmsGgControllerConfig<Input> {
     pub up: Option<Input>,
     pub left: Option<Input>,
@@ -161,7 +170,7 @@ impl Default for SmsGgInputConfig<JoystickInput> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GenesisControllerConfig<Input> {
     pub up: Option<Input>,
     pub left: Option<Input>,

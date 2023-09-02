@@ -531,6 +531,10 @@ impl WgpuRenderer {
         self.pipeline = None;
     }
 
+    pub fn focus(&mut self) {
+        self.window.raise();
+    }
+
     pub fn toggle_fullscreen(&mut self) -> Result<(), String> {
         let new_fullscreen = match self.window.fullscreen_state() {
             FullscreenType::Off => FullscreenType::Desktop,

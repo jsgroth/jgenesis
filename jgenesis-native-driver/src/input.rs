@@ -1,6 +1,6 @@
 use crate::config::input::{
-    AxisDirection, GenesisInputConfig, HatDirection, JoystickAction, JoystickInput, KeyboardInput,
-    SmsGgInputConfig,
+    AxisDirection, GenesisInputConfig, HatDirection, JoystickAction, JoystickDeviceId,
+    JoystickInput, KeyboardInput, SmsGgInputConfig,
 };
 use anyhow::anyhow;
 use genesis_core::GenesisInputs;
@@ -90,116 +90,30 @@ impl GetButtonField<GenesisButton> for GenesisInputs {
     }
 }
 
-pub(crate) struct InputMapper<Inputs, Button> {
-    inputs: Inputs,
-    joystick_subsystem: JoystickSubsystem,
+#[derive(Default)]
+pub struct Joysticks {
     joysticks: HashMap<u32, Joystick>,
-    axis_deadzone: i16,
     instance_id_to_device_id: HashMap<u32, u32>,
     name_to_device_ids: HashMap<String, Vec<u32>>,
-    keyboard_mapping: HashMap<Keycode, Vec<Button>>,
-    raw_input_mapping: HashMap<JoystickInput, Vec<Button>>,
-    input_mapping: HashMap<(u32, JoystickAction), Vec<Button>>,
 }
 
-impl<Inputs: Default, Button> InputMapper<Inputs, Button> {
-    fn new(
-        joystick_subsystem: JoystickSubsystem,
-        keyboard_mapping: HashMap<Keycode, Vec<Button>>,
-        axis_deadzone: i16,
-    ) -> Self {
-        Self {
-            inputs: Inputs::default(),
-            joystick_subsystem,
-            joysticks: HashMap::new(),
-            axis_deadzone,
-            instance_id_to_device_id: HashMap::new(),
-            name_to_device_ids: HashMap::new(),
-            keyboard_mapping,
-            // TODO joystick mappings
-            raw_input_mapping: HashMap::new(),
-            input_mapping: HashMap::new(),
-        }
+impl Joysticks {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
     }
-}
 
-impl InputMapper<SmsGgInputs, SmsGgButton> {
-    pub(crate) fn new_smsgg(
-        joystick_subsystem: JoystickSubsystem,
-        keyboard_inputs: SmsGgInputConfig<KeyboardInput>,
-        axis_deadzone: i16,
-    ) -> anyhow::Result<Self> {
-        let mut keyboard_mapping: HashMap<Keycode, Vec<SmsGgButton>> = HashMap::new();
-        for (input, button) in [
-            (keyboard_inputs.p1.up, SmsGgButton::Up(Player::One)),
-            (keyboard_inputs.p1.left, SmsGgButton::Left(Player::One)),
-            (keyboard_inputs.p1.right, SmsGgButton::Right(Player::One)),
-            (keyboard_inputs.p1.down, SmsGgButton::Down(Player::One)),
-            (keyboard_inputs.p1.button_1, SmsGgButton::Button1(Player::One)),
-            (keyboard_inputs.p1.button_2, SmsGgButton::Button2(Player::One)),
-            (keyboard_inputs.p1.pause, SmsGgButton::Pause),
-            (keyboard_inputs.p2.up, SmsGgButton::Up(Player::Two)),
-            (keyboard_inputs.p2.left, SmsGgButton::Left(Player::Two)),
-            (keyboard_inputs.p2.right, SmsGgButton::Right(Player::Two)),
-            (keyboard_inputs.p2.down, SmsGgButton::Down(Player::Two)),
-            (keyboard_inputs.p2.button_1, SmsGgButton::Button1(Player::Two)),
-            (keyboard_inputs.p2.button_2, SmsGgButton::Button2(Player::Two)),
-            (keyboard_inputs.p2.pause, SmsGgButton::Pause),
-        ] {
-            if let Some(KeyboardInput { keycode }) = input {
-                let keycode = Keycode::from_name(&keycode)
-                    .ok_or_else(|| anyhow!("invalid SDL2 keycode: {keycode}"))?;
-                keyboard_mapping.entry(keycode).or_default().push(button);
-            }
-        }
-
-        Ok(Self::new(joystick_subsystem, keyboard_mapping, axis_deadzone))
-    }
-}
-
-impl InputMapper<GenesisInputs, GenesisButton> {
-    pub(crate) fn new_genesis(
-        joystick_subsystem: JoystickSubsystem,
-        keyboard_inputs: GenesisInputConfig<KeyboardInput>,
-        axis_deadzone: i16,
-    ) -> anyhow::Result<Self> {
-        let mut keyboard_mapping: HashMap<Keycode, Vec<GenesisButton>> = HashMap::new();
-        for (input, button) in [
-            (keyboard_inputs.p1.up, GenesisButton::Up(Player::One)),
-            (keyboard_inputs.p1.left, GenesisButton::Left(Player::One)),
-            (keyboard_inputs.p1.right, GenesisButton::Right(Player::One)),
-            (keyboard_inputs.p1.down, GenesisButton::Down(Player::One)),
-            (keyboard_inputs.p1.a, GenesisButton::A(Player::One)),
-            (keyboard_inputs.p1.b, GenesisButton::B(Player::One)),
-            (keyboard_inputs.p1.c, GenesisButton::C(Player::One)),
-            (keyboard_inputs.p1.start, GenesisButton::Start(Player::One)),
-            (keyboard_inputs.p2.up, GenesisButton::Up(Player::Two)),
-            (keyboard_inputs.p2.left, GenesisButton::Left(Player::Two)),
-            (keyboard_inputs.p2.right, GenesisButton::Right(Player::Two)),
-            (keyboard_inputs.p2.down, GenesisButton::Down(Player::Two)),
-            (keyboard_inputs.p2.a, GenesisButton::A(Player::Two)),
-            (keyboard_inputs.p2.b, GenesisButton::B(Player::Two)),
-            (keyboard_inputs.p2.c, GenesisButton::C(Player::Two)),
-            (keyboard_inputs.p2.start, GenesisButton::Start(Player::Two)),
-        ] {
-            if let Some(KeyboardInput { keycode }) = input {
-                let keycode = Keycode::from_name(&keycode)
-                    .ok_or_else(|| anyhow!("invalid SDL2 keycode: {keycode}"))?;
-                keyboard_mapping.entry(keycode).or_default().push(button);
-            }
-        }
-
-        Ok(Self::new(joystick_subsystem, keyboard_mapping, axis_deadzone))
-    }
-}
-
-impl<Inputs, Button> InputMapper<Inputs, Button>
-where
-    Inputs: Default + GetButtonField<Button>,
-    Button: Copy,
-{
-    pub(crate) fn device_added(&mut self, device_id: u32) -> anyhow::Result<()> {
-        let joystick = self.joystick_subsystem.open(device_id)?;
+    /// Open a joystick.
+    ///
+    /// # Errors
+    ///
+    /// Will return an error if SDL2 cannot open the given device.
+    pub fn device_added(
+        &mut self,
+        device_id: u32,
+        joystick_subsystem: &JoystickSubsystem,
+    ) -> anyhow::Result<()> {
+        let joystick = joystick_subsystem.open(device_id)?;
         let name = joystick.name();
         log::info!("Opened joystick id {device_id}: {name}");
 
@@ -215,29 +129,266 @@ where
             })
             .or_insert_with(|| vec![device_id]);
 
+        Ok(())
+    }
+
+    pub fn device_removed(&mut self, instance_id: u32) {
+        if let Some(device_id) = self.instance_id_to_device_id.remove(&instance_id) {
+            if let Some(joystick) = self.joysticks.remove(&device_id) {
+                log::info!("Disconnected joystick id {device_id}: {}", joystick.name());
+            }
+
+            for device_ids in self.name_to_device_ids.values_mut() {
+                device_ids.retain(|&id| id != device_id);
+            }
+        }
+    }
+
+    #[must_use]
+    pub fn joystick(&self, device_id: u32) -> Option<&Joystick> {
+        self.joysticks.get(&device_id)
+    }
+
+    #[must_use]
+    pub fn get_joystick_id(&self, device_id: u32) -> Option<JoystickDeviceId> {
+        let Some(joystick) = self.joysticks.get(&device_id) else { return None };
+
+        let name = joystick.name();
+        let Some(device_ids) = self.name_to_device_ids.get(&name) else { return None };
+        let Some((device_idx, _)) =
+            device_ids.iter().copied().enumerate().find(|&(_, id)| id == device_id)
+        else {
+            return None;
+        };
+
+        Some(JoystickDeviceId::new(name, device_idx as u32))
+    }
+
+    #[must_use]
+    pub fn device_id_for(&self, instance_id: u32) -> Option<u32> {
+        self.instance_id_to_device_id.get(&instance_id).copied()
+    }
+}
+
+pub(crate) struct InputMapper<Inputs, Button> {
+    inputs: Inputs,
+    joystick_subsystem: JoystickSubsystem,
+    joysticks: Joysticks,
+    axis_deadzone: i16,
+    keyboard_mapping: HashMap<Keycode, Vec<Button>>,
+    raw_joystick_mapping: HashMap<JoystickInput, Vec<Button>>,
+    joystick_mapping: HashMap<(u32, JoystickAction), Vec<Button>>,
+}
+
+impl<Inputs, Button> InputMapper<Inputs, Button> {
+    pub(crate) fn joysticks_mut(&mut self) -> (&mut Joysticks, &JoystickSubsystem) {
+        (&mut self.joysticks, &self.joystick_subsystem)
+    }
+}
+
+impl<Inputs: Default, Button> InputMapper<Inputs, Button> {
+    fn new(
+        joystick_subsystem: JoystickSubsystem,
+        keyboard_mapping: HashMap<Keycode, Vec<Button>>,
+        joystick_mapping: HashMap<JoystickInput, Vec<Button>>,
+        axis_deadzone: i16,
+    ) -> Self {
+        Self {
+            inputs: Inputs::default(),
+            joystick_subsystem,
+            joysticks: Joysticks::new(),
+            axis_deadzone,
+            keyboard_mapping,
+            raw_joystick_mapping: joystick_mapping,
+            joystick_mapping: HashMap::new(),
+        }
+    }
+}
+
+macro_rules! inputs_array {
+    ($p1_config:expr, $p2_config:expr, [$($field:ident -> $button:expr),*$(,)?]) => {
+        [
+            $(
+                ($p1_config.$field, $button(Player::One)),
+                ($p2_config.$field, $button(Player::Two)),
+            )*
+        ]
+    }
+}
+
+macro_rules! smsgg_input_array {
+    ($p1_config:expr, $p2_config:expr) => {
+        inputs_array!($p1_config, $p2_config, [
+            up -> SmsGgButton::Up,
+            left -> SmsGgButton::Left,
+            right -> SmsGgButton::Right,
+            down -> SmsGgButton::Down,
+            button_1 -> SmsGgButton::Button1,
+            button_2 -> SmsGgButton::Button2,
+        ])
+    }
+}
+
+impl InputMapper<SmsGgInputs, SmsGgButton> {
+    pub(crate) fn new_smsgg(
+        joystick_subsystem: JoystickSubsystem,
+        keyboard_inputs: SmsGgInputConfig<KeyboardInput>,
+        joystick_inputs: SmsGgInputConfig<JoystickInput>,
+        axis_deadzone: i16,
+    ) -> anyhow::Result<Self> {
+        let keyboard_mapping = generate_smsgg_keyboard_mapping(keyboard_inputs)?;
+        let joystick_mapping = generate_smsgg_joystick_mapping(joystick_inputs);
+
+        Ok(Self::new(joystick_subsystem, keyboard_mapping, joystick_mapping, axis_deadzone))
+    }
+
+    pub(crate) fn reload_config(
+        &mut self,
+        keyboard_inputs: SmsGgInputConfig<KeyboardInput>,
+        joystick_inputs: SmsGgInputConfig<JoystickInput>,
+    ) -> anyhow::Result<()> {
+        self.keyboard_mapping = generate_smsgg_keyboard_mapping(keyboard_inputs)?;
+        self.raw_joystick_mapping = generate_smsgg_joystick_mapping(joystick_inputs);
+
+        self.update_input_mapping();
+
+        Ok(())
+    }
+}
+
+fn generate_smsgg_keyboard_mapping(
+    keyboard_inputs: SmsGgInputConfig<KeyboardInput>,
+) -> anyhow::Result<HashMap<Keycode, Vec<SmsGgButton>>> {
+    let mut keyboard_mapping: HashMap<Keycode, Vec<SmsGgButton>> = HashMap::new();
+    for (input, button) in smsgg_input_array!(keyboard_inputs.p1, keyboard_inputs.p2) {
+        if let Some(KeyboardInput { keycode }) = input {
+            let keycode = Keycode::from_name(&keycode)
+                .ok_or_else(|| anyhow!("invalid SDL2 keycode: {keycode}"))?;
+            keyboard_mapping.entry(keycode).or_default().push(button);
+        }
+    }
+
+    if let Some(KeyboardInput { keycode }) = keyboard_inputs.p1.pause {
+        let keycode = Keycode::from_name(&keycode)
+            .ok_or_else(|| anyhow!("invalid SDL2 keycode: {keycode}"))?;
+        keyboard_mapping.entry(keycode).or_default().push(SmsGgButton::Pause);
+    }
+
+    Ok(keyboard_mapping)
+}
+
+fn generate_smsgg_joystick_mapping(
+    joystick_inputs: SmsGgInputConfig<JoystickInput>,
+) -> HashMap<JoystickInput, Vec<SmsGgButton>> {
+    let mut joystick_mapping: HashMap<JoystickInput, Vec<SmsGgButton>> = HashMap::new();
+    for (input, button) in smsgg_input_array!(joystick_inputs.p1, joystick_inputs.p2) {
+        if let Some(input) = input {
+            joystick_mapping.entry(input).or_default().push(button);
+        }
+    }
+
+    if let Some(input) = joystick_inputs.p1.pause {
+        joystick_mapping.entry(input).or_default().push(SmsGgButton::Pause);
+    }
+
+    joystick_mapping
+}
+
+macro_rules! genesis_input_array {
+    ($p1_config:expr, $p2_config:expr) => {
+        inputs_array!($p1_config, $p2_config, [
+            up -> GenesisButton::Up,
+            left -> GenesisButton::Left,
+            right -> GenesisButton::Right,
+            down -> GenesisButton::Down,
+            a -> GenesisButton::A,
+            b -> GenesisButton::B,
+            c -> GenesisButton::C,
+            start -> GenesisButton::Start,
+        ])
+    }
+}
+
+impl InputMapper<GenesisInputs, GenesisButton> {
+    pub(crate) fn new_genesis(
+        joystick_subsystem: JoystickSubsystem,
+        keyboard_inputs: GenesisInputConfig<KeyboardInput>,
+        joystick_inputs: GenesisInputConfig<JoystickInput>,
+        axis_deadzone: i16,
+    ) -> anyhow::Result<Self> {
+        let keyboard_mapping = generate_genesis_keyboard_mapping(keyboard_inputs)?;
+        let joystick_mapping = generate_genesis_joystick_mapping(joystick_inputs);
+
+        Ok(Self::new(joystick_subsystem, keyboard_mapping, joystick_mapping, axis_deadzone))
+    }
+
+    pub(crate) fn reload_config(
+        &mut self,
+        keyboard_inputs: GenesisInputConfig<KeyboardInput>,
+        joystick_inputs: GenesisInputConfig<JoystickInput>,
+    ) -> anyhow::Result<()> {
+        self.keyboard_mapping = generate_genesis_keyboard_mapping(keyboard_inputs)?;
+        self.raw_joystick_mapping = generate_genesis_joystick_mapping(joystick_inputs);
+
+        self.update_input_mapping();
+
+        Ok(())
+    }
+}
+
+fn generate_genesis_keyboard_mapping(
+    keyboard_inputs: GenesisInputConfig<KeyboardInput>,
+) -> anyhow::Result<HashMap<Keycode, Vec<GenesisButton>>> {
+    let mut keyboard_mapping: HashMap<Keycode, Vec<GenesisButton>> = HashMap::new();
+    for (input, button) in genesis_input_array!(keyboard_inputs.p1, keyboard_inputs.p2) {
+        if let Some(KeyboardInput { keycode }) = input {
+            let keycode = Keycode::from_name(&keycode)
+                .ok_or_else(|| anyhow!("invalid SDL2 keycode: {keycode}"))?;
+            keyboard_mapping.entry(keycode).or_default().push(button);
+        }
+    }
+
+    Ok(keyboard_mapping)
+}
+
+fn generate_genesis_joystick_mapping(
+    joystick_inputs: GenesisInputConfig<JoystickInput>,
+) -> HashMap<JoystickInput, Vec<GenesisButton>> {
+    let mut joystick_mapping: HashMap<JoystickInput, Vec<GenesisButton>> = HashMap::new();
+    for (input, button) in genesis_input_array!(joystick_inputs.p1, joystick_inputs.p2) {
+        if let Some(input) = input {
+            joystick_mapping.entry(input).or_default().push(button);
+        }
+    }
+
+    joystick_mapping
+}
+
+impl<Inputs, Button> InputMapper<Inputs, Button>
+where
+    Inputs: Default + GetButtonField<Button>,
+    Button: Copy,
+{
+    pub(crate) fn device_added(&mut self, device_id: u32) -> anyhow::Result<()> {
+        self.joysticks.device_added(device_id, &self.joystick_subsystem)?;
         self.update_input_mapping();
 
         Ok(())
     }
 
     pub(crate) fn device_removed(&mut self, instance_id: u32) {
-        if let Some(device_id) = self.instance_id_to_device_id.remove(&instance_id) {
-            if let Some(joystick) = self.joysticks.remove(&device_id) {
-                log::info!("Disconnected joystick id {device_id}: {}", joystick.name());
-            }
-        }
-
+        self.joysticks.device_removed(instance_id);
         self.update_input_mapping();
     }
 
     fn update_input_mapping(&mut self) {
-        self.input_mapping.clear();
+        self.joystick_mapping.clear();
         self.inputs = Inputs::default();
 
-        for (input, buttons) in &self.raw_input_mapping {
-            if let Some(device_ids) = self.name_to_device_ids.get(&input.device.name) {
+        for (input, buttons) in &self.raw_joystick_mapping {
+            if let Some(device_ids) = self.joysticks.name_to_device_ids.get(&input.device.name) {
                 if let Some(&device_id) = device_ids.get(input.device.idx as usize) {
-                    self.input_mapping.insert((device_id, input.action), buttons.clone());
+                    self.joystick_mapping.insert((device_id, input.action), buttons.clone());
                 }
             }
         }
@@ -268,9 +419,9 @@ where
     }
 
     fn button(&mut self, instance_id: u32, button_idx: u8, value: bool) {
-        if let Some(&device_id) = self.instance_id_to_device_id.get(&instance_id) {
+        if let Some(device_id) = self.joysticks.device_id_for(instance_id) {
             if let Some(buttons) =
-                self.input_mapping.get(&(device_id, JoystickAction::Button { button_idx }))
+                self.joystick_mapping.get(&(device_id, JoystickAction::Button { button_idx }))
             {
                 for &button in buttons {
                     *self.inputs.get_field(button) = value;
@@ -280,15 +431,15 @@ where
     }
 
     pub(crate) fn axis_motion(&mut self, instance_id: u32, axis_idx: u8, value: i16) {
-        let negative_down = value <= -self.axis_deadzone;
-        let positive_down = value >= self.axis_deadzone;
+        let negative_down = value < -self.axis_deadzone;
+        let positive_down = value > self.axis_deadzone;
 
-        if let Some(&device_id) = self.instance_id_to_device_id.get(&instance_id) {
+        if let Some(device_id) = self.joysticks.device_id_for(instance_id) {
             for (direction, value) in
                 [(AxisDirection::Positive, positive_down), (AxisDirection::Negative, negative_down)]
             {
                 if let Some(buttons) = self
-                    .input_mapping
+                    .joystick_mapping
                     .get(&(device_id, JoystickAction::Axis { axis_idx, direction }))
                 {
                     for &button in buttons {
@@ -307,15 +458,16 @@ where
         let right_pressed =
             matches!(state, HatState::RightUp | HatState::Right | HatState::RightDown);
 
-        if let Some(&device_id) = self.instance_id_to_device_id.get(&instance_id) {
+        if let Some(device_id) = self.joysticks.device_id_for(instance_id) {
             for (direction, value) in [
                 (HatDirection::Up, up_pressed),
                 (HatDirection::Left, left_pressed),
                 (HatDirection::Down, down_pressed),
                 (HatDirection::Right, right_pressed),
             ] {
-                if let Some(buttons) =
-                    self.input_mapping.get(&(device_id, JoystickAction::Hat { hat_idx, direction }))
+                if let Some(buttons) = self
+                    .joystick_mapping
+                    .get(&(device_id, JoystickAction::Hat { hat_idx, direction }))
                 {
                     for &button in buttons {
                         *self.inputs.get_field(button) = value;
