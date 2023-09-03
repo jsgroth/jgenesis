@@ -226,6 +226,7 @@ enum OpenWindow {
 struct AppState {
     current_file_path: String,
     open_windows: HashSet<OpenWindow>,
+    error_window_open: bool,
     prescale_factor_text: String,
     prescale_factor_invalid: bool,
     axis_deadzone_text: String,
@@ -240,6 +241,7 @@ impl AppState {
         Self {
             current_file_path: String::new(),
             open_windows: HashSet::new(),
+            error_window_open: false,
             prescale_factor_text: config.common.prescale_factor.get().to_string(),
             prescale_factor_invalid: false,
             axis_deadzone_text: config.inputs.axis_deadzone.to_string(),
@@ -663,6 +665,8 @@ impl App {
 
         TopBottomPanel::new(TopBottomSide::Top, "top_bottom_panel").show(ctx, |ui| {
             menu::bar(ui, |ui| {
+                ui.set_enabled(!self.state.error_window_open);
+
                 ui.menu_button("File", |ui| {
                     let open_button =
                         Button::new("Open").shortcut_text(ctx.format_shortcut(&open_shortcut));
@@ -771,6 +775,8 @@ impl App {
 
     fn render_central_panel(&mut self, ctx: &Context) {
         CentralPanel::default().show(ctx, |ui| {
+            ui.set_enabled(!self.state.error_window_open);
+
             if self.state.rom_list.is_empty() {
                 ui.centered_and_justified(|ui| {
                     if ui.selectable_label(false, "Configure ROM search directory").clicked() {
@@ -846,6 +852,21 @@ impl App {
         });
     }
 
+    fn check_emulator_error(&mut self, ctx: &Context) {
+        let mut error_lock = self.emu_thread.lock_emulator_error();
+        self.state.error_window_open = error_lock.is_some();
+
+        if let Some(error) = error_lock.as_ref() {
+            let mut open = true;
+            Window::new("Emulator Error").open(&mut open).resizable(false).show(ctx, |ui| {
+                ui.colored_label(Color32::RED, format!("Emulator terminated with error: {error}"));
+            });
+            if !open {
+                *error_lock = None;
+            }
+        }
+    }
+
     fn check_waiting_for_input(&mut self, ctx: &Context) {
         if let Some(button) = self.state.waiting_for_input {
             if let Ok(input) = self.emu_thread.poll_input_receiver() {
@@ -875,6 +896,7 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &Context, frame: &mut Frame) {
         let prev_config = self.config.clone();
 
+        self.check_emulator_error(ctx);
         self.check_waiting_for_input(ctx);
 
         self.render_menu(ctx, frame);

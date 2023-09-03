@@ -14,7 +14,7 @@ use sdl2::{EventPump, JoystickSubsystem};
 use smsgg_core::{SmsGgEmulator, SmsGgInputs};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
 
@@ -69,6 +69,7 @@ pub struct EmuThreadHandle {
     command_sender: Sender<EmuThreadCommand>,
     command_read_signal: Arc<AtomicBool>,
     input_receiver: Receiver<Option<GenericInput>>,
+    emulator_error: Arc<Mutex<Option<anyhow::Error>>>,
 }
 
 impl EmuThreadHandle {
@@ -82,6 +83,10 @@ impl EmuThreadHandle {
 
     pub fn status(&self) -> EmuThreadStatus {
         EmuThreadStatus::from_discriminant(self.status.load(Ordering::Relaxed))
+    }
+
+    pub fn lock_emulator_error(&mut self) -> MutexGuard<'_, Option<anyhow::Error>> {
+        self.emulator_error.lock().unwrap()
     }
 
     pub fn poll_input_receiver(&self) -> Result<Option<GenericInput>, TryRecvError> {
@@ -115,9 +120,11 @@ pub fn spawn() -> EmuThreadHandle {
     let (command_sender, command_receiver) = mpsc::channel();
     let (input_sender, input_receiver) = mpsc::channel();
     let command_read_signal_arc = Arc::new(AtomicBool::new(false));
+    let emulator_error_arc = Arc::new(Mutex::new(None));
 
     let status = Arc::clone(&status_arc);
     let command_read_signal = Arc::clone(&command_read_signal_arc);
+    let emulator_error = Arc::clone(&emulator_error_arc);
     thread::spawn(move || {
         loop {
             status.store(EmuThreadStatus::Idle as u8, Ordering::Relaxed);
@@ -130,6 +137,7 @@ pub fn spawn() -> EmuThreadHandle {
                         Ok(emulator) => emulator,
                         Err(err) => {
                             log::error!("Error initializing SMS/GG emulator: {err}");
+                            *emulator_error.lock().unwrap() = Some(err);
                             continue;
                         }
                     };
@@ -138,6 +146,7 @@ pub fn spawn() -> EmuThreadHandle {
                         &command_receiver,
                         &command_read_signal,
                         &input_sender,
+                        &emulator_error,
                         smsgg_reload_handler,
                     );
                 }
@@ -148,6 +157,7 @@ pub fn spawn() -> EmuThreadHandle {
                         Ok(emulator) => emulator,
                         Err(err) => {
                             log::error!("Error initializing Genesis emulator: {err}");
+                            *emulator_error.lock().unwrap() = Some(err);
                             continue;
                         }
                     };
@@ -156,6 +166,7 @@ pub fn spawn() -> EmuThreadHandle {
                         &command_receiver,
                         &command_read_signal,
                         &input_sender,
+                        &emulator_error,
                         genesis_reload_handler,
                     );
                 }
@@ -191,6 +202,7 @@ pub fn spawn() -> EmuThreadHandle {
         status: status_arc,
         command_read_signal: command_read_signal_arc,
         input_receiver,
+        emulator_error: emulator_error_arc,
     }
 }
 
@@ -223,6 +235,7 @@ fn run_emulator<Inputs, Button, Emulator>(
     command_receiver: &Receiver<EmuThreadCommand>,
     command_read_signal: &Arc<AtomicBool>,
     input_sender: &Sender<Option<GenericInput>>,
+    emulator_error: &Arc<Mutex<Option<anyhow::Error>>>,
     config_reload_handler: fn(&mut NativeEmulator<Inputs, Button, Emulator>, GenericConfig),
 ) where
     Inputs: Default + GetButtonField<Button>,
@@ -291,8 +304,8 @@ fn run_emulator<Inputs, Button, Emulator>(
                 return;
             }
             Err(err) => {
-                // TODO propagate to GUI
                 log::error!("Emulator terminated with an error: {err}");
+                *emulator_error.lock().unwrap() = Some(err);
                 return;
             }
         }
