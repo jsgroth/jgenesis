@@ -200,9 +200,11 @@ impl Ram {
         let [msb, lsb] = value.to_be_bytes();
         if let Some(msb_address) = msb_address {
             self.ram[msb_address as usize] = msb;
+            self.dirty = true;
         }
         if let Some(lsb_address) = lsb_address {
             self.ram[lsb_address as usize] = lsb;
+            self.dirty = true;
         }
     }
 }
