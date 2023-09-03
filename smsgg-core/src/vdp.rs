@@ -721,7 +721,7 @@ impl Vdp {
             self.registers.sprite_overflow = true;
         }
 
-        let sprite_width = self.registers.sprite_width();
+        let sprite_width: u16 = self.registers.sprite_width().into();
         let sprite_pixel_size = if self.registers.double_sprite_size { 2 } else { 1 };
 
         for column in 0..32 {
@@ -764,16 +764,18 @@ impl Vdp {
                 let bg_color_id =
                     get_color_id(bg_tile, bg_tile_row, bg_tile_col, bg_tile_data.horizontal_flip);
 
+                let sprite_dot = if self.registers.shift_sprites_left { dot + 8 } else { dot };
                 let mut found_sprite_color_id = None;
                 for sprite in self.sprite_buffer.iter() {
-                    let sprite_right_inclusive = sprite.x.saturating_add(sprite_width - 1);
-                    if !(sprite.x..=sprite_right_inclusive).contains(&(dot as u8)) {
+                    let sprite_left: u16 = sprite.x.into();
+                    let sprite_right = sprite_left + sprite_width;
+                    if !(sprite_left..sprite_right).contains(&sprite_dot) {
                         continue;
                     }
 
                     let sprite_tile_row =
                         (scanline - (u16::from(sprite.y) + 1)) / sprite_pixel_size;
-                    let sprite_tile_col = (dot - u16::from(sprite.x)) / sprite_pixel_size;
+                    let sprite_tile_col = (sprite_dot - sprite_left) / sprite_pixel_size;
 
                     let tile_index = if self.registers.double_sprite_height {
                         let top_tile = sprite.tile_index & 0xFE;
