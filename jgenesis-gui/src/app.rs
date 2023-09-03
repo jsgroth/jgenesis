@@ -209,6 +209,7 @@ enum OpenWindow {
     GenesisKeyboard,
     GenesisGamepad,
     Hotkeys,
+    About,
 }
 
 struct AppState {
@@ -546,6 +547,28 @@ impl App {
             self.state.open_windows.remove(&OpenWindow::CommonAudio);
         }
     }
+
+    fn render_about(&mut self, ctx: &Context) {
+        let mut open = true;
+        Window::new("About").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.heading("jgenesis");
+
+            ui.add_space(10.0);
+            ui.label(format!("Version: {}", env!("CARGO_PKG_VERSION")));
+
+            ui.add_space(15.0);
+            ui.label("Copyright © 2023 James Groth");
+
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                ui.label("Source code:");
+                ui.hyperlink("https://github.com/jsgroth/jgenesis");
+            });
+        });
+        if !open {
+            self.state.open_windows.remove(&OpenWindow::About);
+        }
+    }
 }
 
 impl eframe::App for App {
@@ -658,6 +681,13 @@ impl eframe::App for App {
                         ui.close_menu();
                     }
                 });
+
+                ui.menu_button("Help", |ui| {
+                    if ui.button("About").clicked() {
+                        self.state.open_windows.insert(OpenWindow::About);
+                        ui.close_menu();
+                    }
+                });
             });
         });
 
@@ -692,6 +722,9 @@ impl eframe::App for App {
                 }
                 OpenWindow::Hotkeys => {
                     self.render_hotkey_settings(ctx);
+                }
+                OpenWindow::About => {
+                    self.render_about(ctx);
                 }
             }
         }
