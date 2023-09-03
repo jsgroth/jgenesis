@@ -7,8 +7,8 @@ use crate::ym2612::{Ym2612, YmTickEffect};
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_traits::frontend::{
-    AudioOutput, EmulatorTrait, FrameSize, PixelAspectRatio, Renderer, SaveWriter, TakeRomFrom,
-    TickEffect, TickableEmulator,
+    AudioOutput, EmulatorTrait, FrameSize, PixelAspectRatio, Renderer, Resettable, SaveWriter,
+    TakeRomFrom, TickEffect, TickableEmulator,
 };
 use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgVersion};
@@ -118,19 +118,23 @@ impl GenesisEmulator {
     /// Returns an error if unable to parse the ROM header.
     pub fn create(rom: Vec<u8>, config: GenesisEmulatorConfig) -> Result<Self, CartridgeLoadError> {
         let cartridge = Cartridge::from_rom(rom)?;
-        let memory = Memory::new(cartridge);
-
-        // Genesis cartridges store the initial stack pointer in the first 4 bytes and the entry point
-        // in the next 4 bytes
-        let mut m68k = M68000::new();
-        m68k.set_supervisor_stack_pointer(memory.read_rom_u32(0));
-        m68k.set_pc(memory.read_rom_u32(4));
+        let mut memory = Memory::new(cartridge);
 
         let z80 = Z80::new();
-        let vdp = Vdp::new();
-        let psg = Psg::new(PsgVersion::Standard);
-        let ym2612 = Ym2612::new();
-        let input = InputState::new();
+        let mut vdp = Vdp::new();
+        let mut psg = Psg::new(PsgVersion::Standard);
+        let mut ym2612 = Ym2612::new();
+        let mut input = InputState::new();
+
+        let mut m68k = M68000::new();
+        m68k.reset(&mut MainBus::new(
+            &mut memory,
+            &mut vdp,
+            &mut psg,
+            &mut ym2612,
+            &mut input,
+            z80.stalled(),
+        ));
 
         Ok(Self {
             memory,
@@ -249,6 +253,35 @@ impl TickableEmulator for GenesisEmulator {
         }
 
         Ok(TickEffect::None)
+    }
+}
+
+impl Resettable for GenesisEmulator {
+    fn soft_reset(&mut self) {
+        log::info!("Soft resetting console");
+
+        self.m68k.reset(&mut MainBus::new(
+            &mut self.memory,
+            &mut self.vdp,
+            &mut self.psg,
+            &mut self.ym2612,
+            &mut self.input,
+            false,
+        ));
+        self.memory.reset_z80_signals();
+        self.ym2612.reset();
+    }
+
+    fn hard_reset(&mut self) {
+        log::info!("Hard resetting console");
+
+        let rom = self.memory.take_rom();
+        let config = GenesisEmulatorConfig {
+            aspect_ratio: self.aspect_ratio,
+            adjust_aspect_ratio_in_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
+        };
+
+        *self = GenesisEmulator::create(rom, config).unwrap();
     }
 }
 

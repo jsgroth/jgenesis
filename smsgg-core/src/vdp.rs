@@ -652,6 +652,10 @@ impl Vdp {
         }
     }
 
+    pub fn get_remove_sprite_limit(&self) -> bool {
+        self.remove_sprite_limit
+    }
+
     pub fn set_remove_sprite_limit(&mut self, remove_sprite_limit: bool) {
         self.remove_sprite_limit = remove_sprite_limit;
     }

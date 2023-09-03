@@ -392,6 +392,11 @@ impl Psg {
         }
     }
 
+    #[must_use]
+    pub fn version(&self) -> PsgVersion {
+        self.version
+    }
+
     pub fn set_version(&mut self, version: PsgVersion) {
         self.version = version;
     }

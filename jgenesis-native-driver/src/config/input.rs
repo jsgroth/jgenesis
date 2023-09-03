@@ -246,19 +246,53 @@ impl Default for GenesisInputConfig<JoystickInput> {
 
 #[derive(Debug, Clone, PartialEq, Eq, ConfigDisplay, Serialize, Deserialize)]
 pub struct HotkeyConfig {
+    #[serde(default = "default_quit")]
     pub quit: KeyboardInput,
+    #[serde(default = "default_toggle_fullscreen")]
     pub toggle_fullscreen: KeyboardInput,
+    #[serde(default = "default_save_state")]
     pub save_state: KeyboardInput,
+    #[serde(default = "default_load_state")]
     pub load_state: KeyboardInput,
+    #[serde(default = "default_soft_reset")]
+    pub soft_reset: KeyboardInput,
+    #[serde(default = "default_hard_reset")]
+    pub hard_reset: KeyboardInput,
 }
 
 impl Default for HotkeyConfig {
     fn default() -> Self {
         Self {
-            quit: KeyboardInput { keycode: Keycode::Escape.name() },
-            toggle_fullscreen: KeyboardInput { keycode: Keycode::F9.name() },
-            save_state: KeyboardInput { keycode: Keycode::F5.name() },
-            load_state: KeyboardInput { keycode: Keycode::F6.name() },
+            quit: default_quit(),
+            toggle_fullscreen: default_toggle_fullscreen(),
+            save_state: default_save_state(),
+            load_state: default_load_state(),
+            soft_reset: default_soft_reset(),
+            hard_reset: default_hard_reset(),
         }
     }
+}
+
+fn default_quit() -> KeyboardInput {
+    KeyboardInput { keycode: Keycode::Escape.name() }
+}
+
+fn default_toggle_fullscreen() -> KeyboardInput {
+    KeyboardInput { keycode: Keycode::F9.name() }
+}
+
+fn default_save_state() -> KeyboardInput {
+    KeyboardInput { keycode: Keycode::F5.name() }
+}
+
+fn default_load_state() -> KeyboardInput {
+    KeyboardInput { keycode: Keycode::F6.name() }
+}
+
+fn default_soft_reset() -> KeyboardInput {
+    KeyboardInput { keycode: Keycode::F1.name() }
+}
+
+fn default_hard_reset() -> KeyboardInput {
+    KeyboardInput { keycode: Keycode::F2.name() }
 }

@@ -160,6 +160,14 @@ struct Args {
     /// Load state hotkey
     #[arg(long, default_value_t = String::from("F6"))]
     hotkey_load_state: String,
+
+    /// Soft reset hotkey
+    #[arg(long, default_value_t = String::from("F1"))]
+    hotkey_soft_reset: String,
+
+    /// Hard reset hotkey
+    #[arg(long, default_value_t = String::from("F2"))]
+    hotkey_hard_reset: String,
 }
 
 impl Args {
@@ -238,6 +246,8 @@ impl Args {
             toggle_fullscreen: keyboard_input(&self.hotkey_toggle_fullscreen),
             save_state: keyboard_input(&self.hotkey_save_state),
             load_state: keyboard_input(&self.hotkey_load_state),
+            soft_reset: keyboard_input(&self.hotkey_soft_reset),
+            hard_reset: keyboard_input(&self.hotkey_hard_reset),
         }
     }
 

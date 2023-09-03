@@ -48,6 +48,8 @@ pub enum EmuThreadCommand {
     ReloadGenesisConfig(GenesisConfig),
     StopEmulator,
     CollectInput { input_type: InputType, axis_deadzone: i16 },
+    SoftReset,
+    HardReset,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -170,7 +172,9 @@ pub fn spawn() -> EmuThreadHandle {
                 Ok(
                     EmuThreadCommand::StopEmulator
                     | EmuThreadCommand::ReloadSmsGgConfig(_)
-                    | EmuThreadCommand::ReloadGenesisConfig(_),
+                    | EmuThreadCommand::ReloadGenesisConfig(_)
+                    | EmuThreadCommand::SoftReset
+                    | EmuThreadCommand::HardReset,
                 ) => {}
                 Err(err) => {
                     log::info!(
@@ -271,6 +275,12 @@ fn run_emulator<Inputs, Button, Emulator>(
                                     // Window was closed
                                     return;
                                 }
+                            }
+                            EmuThreadCommand::SoftReset => {
+                                emulator.soft_reset();
+                            }
+                            EmuThreadCommand::HardReset => {
+                                emulator.hard_reset();
                             }
                             _ => {}
                         }

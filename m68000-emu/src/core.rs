@@ -51,6 +51,8 @@ struct Registers {
     address_error: bool,
 }
 
+const DEFAULT_INTERRUPT_MASK: u8 = 7;
+
 impl Registers {
     pub fn new() -> Self {
         Self {
@@ -60,7 +62,7 @@ impl Registers {
             ssp: 0,
             pc: 0,
             ccr: 0.into(),
-            interrupt_priority_mask: 0,
+            interrupt_priority_mask: DEFAULT_INTERRUPT_MASK,
             supervisor_mode: true,
             trace_enabled: false,
             address_error: false,
@@ -1055,6 +1057,17 @@ impl M68000 {
     #[must_use]
     pub fn new() -> Self {
         Self { registers: Registers::new(), halted: false }
+    }
+
+    pub fn reset<B: BusInterface>(&mut self, bus: &mut B) {
+        // Reset the upper word of the status register
+        self.registers.supervisor_mode = true;
+        self.registers.trace_enabled = false;
+        self.registers.interrupt_priority_mask = DEFAULT_INTERRUPT_MASK;
+
+        // Read SSP from $000000 and PC from $000004
+        self.registers.ssp = bus.read_long_word(0);
+        self.registers.pc = bus.read_long_word(4);
     }
 
     #[must_use]

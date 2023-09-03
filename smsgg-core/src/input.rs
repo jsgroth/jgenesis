@@ -17,7 +17,6 @@ pub struct SmsGgInputs {
     pub p1: SmsGgJoypadState,
     pub p2: SmsGgJoypadState,
     pub pause: bool,
-    pub reset: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -43,6 +42,7 @@ pub struct InputState {
     port_b_tr: PinDirection,
     port_b_th: PinDirection,
     region: SmsRegion,
+    reset: bool,
 }
 
 impl InputState {
@@ -54,6 +54,7 @@ impl InputState {
             port_b_tr: PinDirection::Input,
             port_b_th: PinDirection::Input,
             region,
+            reset: false,
         }
     }
 
@@ -65,8 +66,16 @@ impl InputState {
         self.inputs = inputs.clone();
     }
 
+    pub fn region(&self) -> SmsRegion {
+        self.region
+    }
+
     pub fn set_region(&mut self, region: SmsRegion) {
         self.region = region;
+    }
+
+    pub fn set_reset(&mut self, reset: bool) {
+        self.reset = reset;
     }
 
     pub fn write_control(&mut self, value: u8) {
@@ -100,11 +109,10 @@ impl InputState {
             u8::from(self.region == SmsRegion::International && self.port_a_th.bit(true)) << 6;
         let port_b_tr_bit = u8::from(self.port_b_tr.bit(!self.inputs.p2.button_2)) << 3;
 
-        // TODO RESET button
-
         port_b_th_bit
             | port_a_th_bit
-            | 0x30
+            | 0x20
+            | (u8::from(!self.reset) << 4)
             | port_b_tr_bit
             | (u8::from(!self.inputs.p2.button_1) << 2)
             | (u8::from(!self.inputs.p2.right) << 1)

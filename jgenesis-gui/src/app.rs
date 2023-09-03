@@ -641,6 +641,25 @@ impl App {
                     }
                 });
 
+                ui.menu_button("Emulation", |ui| {
+                    ui.set_enabled(self.emu_thread.status().is_running());
+
+                    if ui.button("Soft Reset").clicked() {
+                        self.emu_thread.send(EmuThreadCommand::SoftReset);
+                        self.emu_thread.set_command_read_signal();
+                    }
+
+                    if ui.button("Hard Reset").clicked() {
+                        self.emu_thread.send(EmuThreadCommand::HardReset);
+                        self.emu_thread.set_command_read_signal();
+                    }
+
+                    if ui.button("Power Off").clicked() {
+                        self.emu_thread.send(EmuThreadCommand::StopEmulator);
+                        self.emu_thread.set_command_read_signal();
+                    }
+                });
+
                 ui.menu_button("Settings", |ui| {
                     if ui.button("SMS/GG").clicked() {
                         self.state.open_windows.insert(OpenWindow::SmsGgGeneral);

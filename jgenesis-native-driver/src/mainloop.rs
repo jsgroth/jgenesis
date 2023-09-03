@@ -231,6 +231,14 @@ where
             }
         }
     }
+
+    pub fn soft_reset(&mut self) {
+        self.emulator.soft_reset();
+    }
+
+    pub fn hard_reset(&mut self) {
+        self.emulator.hard_reset();
+    }
 }
 
 /// Create an emulator with the SMS/GG core with the given config.
@@ -430,6 +438,12 @@ where
                 };
                 loaded_emulator.take_rom_from(emulator);
                 *emulator = loaded_emulator;
+            }
+            Hotkey::SoftReset => {
+                emulator.soft_reset();
+            }
+            Hotkey::HardReset => {
+                emulator.hard_reset();
             }
         }
     }

@@ -154,8 +154,14 @@ pub trait TickableEmulator {
         S: SaveWriter;
 }
 
+pub trait Resettable {
+    fn soft_reset(&mut self);
+
+    fn hard_reset(&mut self);
+}
+
 // Trait that simply combines useful trait bounds
 pub trait EmulatorTrait<Inputs>:
-    TickableEmulator<Inputs = Inputs> + Encode + Decode + TakeRomFrom
+    TickableEmulator<Inputs = Inputs> + Encode + Decode + TakeRomFrom + Resettable
 {
 }

@@ -11,7 +11,6 @@ Major TODOs:
 * Support the SMS optional YM2413 FM sound chip
 * Support for specific Genesis games that do weird things with cartridge hardware (e.g. Phantasy Star 4 and Super Street Fighter 2)
 * Support player 2 inputs
-* Support the SMS reset button
 * Support persistent save files for Genesis games with persistent cartridge RAM
 * Improve Genesis performance (there are some low-hanging fruit in the VDP and YM2612 implementations)
 

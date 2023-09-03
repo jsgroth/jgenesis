@@ -366,6 +366,10 @@ impl Ym2612 {
         }
     }
 
+    pub fn reset(&mut self) {
+        *self = Self::new();
+    }
+
     // Set the address register for group 1 (system registers + channels 1-3)
     pub fn write_address_1(&mut self, value: u8) {
         self.group_1_register = value;

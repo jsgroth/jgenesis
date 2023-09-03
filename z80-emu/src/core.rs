@@ -347,6 +347,7 @@ impl Z80 {
             self.registers.iff1 = false;
             self.registers.iff2 = false;
             self.registers.interrupt_mode = InterruptMode::Mode0;
+            self.stalled = false;
 
             return Self::MINIMUM_T_CYCLES;
         }

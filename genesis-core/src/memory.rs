@@ -324,12 +324,8 @@ impl Memory {
         }
     }
 
-    pub fn read_rom_u32(&self, address: u32) -> u32 {
-        let b3 = self.cartridge.rom[address];
-        let b2 = self.cartridge.rom[address + 1];
-        let b1 = self.cartridge.rom[address + 2];
-        let b0 = self.cartridge.rom[address + 3];
-        u32::from_be_bytes([b3, b2, b1, b0])
+    pub fn take_rom(&mut self) -> Vec<u8> {
+        mem::take(&mut self.cartridge.rom).0
     }
 
     pub fn take_rom_from(&mut self, other: &mut Self) {
@@ -348,6 +344,10 @@ impl Memory {
 
         let re = RE.get_or_init(|| Regex::new(r" +").unwrap());
         re.replace_all(title.trim(), " ").into()
+    }
+
+    pub fn reset_z80_signals(&mut self) {
+        self.signals = Signals::default();
     }
 }
 

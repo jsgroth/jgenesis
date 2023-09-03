@@ -520,6 +520,8 @@ pub enum Hotkey {
     ToggleFullscreen,
     SaveState,
     LoadState,
+    SoftReset,
+    HardReset,
 }
 
 pub(crate) struct HotkeyMapper {
@@ -541,6 +543,8 @@ impl HotkeyMapper {
             (&config.toggle_fullscreen, Hotkey::ToggleFullscreen),
             (&config.save_state, Hotkey::SaveState),
             (&config.load_state, Hotkey::LoadState),
+            (&config.soft_reset, Hotkey::SoftReset),
+            (&config.hard_reset, Hotkey::HardReset),
         ] {
             let keycode = Keycode::from_name(&input.keycode)
                 .ok_or_else(|| anyhow!("Invalid SDL2 keycode: {}", input.keycode))?;

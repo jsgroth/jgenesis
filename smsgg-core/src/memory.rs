@@ -262,4 +262,10 @@ impl Memory {
     pub fn take_rom_from(&mut self, other: &mut Self) {
         self.cartridge.rom = mem::take(&mut other.cartridge.rom);
     }
+
+    pub fn take_cartridge_rom_and_ram(&mut self) -> (Vec<u8>, Vec<u8>) {
+        let rom = mem::take(&mut self.cartridge.rom);
+        let ram = mem::take(&mut self.cartridge.ram);
+        (rom.0, ram)
+    }
 }

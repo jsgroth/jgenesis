@@ -193,6 +193,12 @@ impl InputAppConfig {
                         Hotkey::LoadState => {
                             self.hotkeys.load_state = input;
                         }
+                        Hotkey::SoftReset => {
+                            self.hotkeys.soft_reset = input;
+                        }
+                        Hotkey::HardReset => {
+                            self.hotkeys.hard_reset = input;
+                        }
                     }
                 }
             }
@@ -505,6 +511,18 @@ impl App {
                 &self.config.inputs.hotkeys.load_state.keycode.clone(),
                 "Load state",
                 Hotkey::LoadState,
+                ui,
+            );
+            self.hotkey_button(
+                &self.config.inputs.hotkeys.soft_reset.keycode.clone(),
+                "Soft reset",
+                Hotkey::SoftReset,
+                ui,
+            );
+            self.hotkey_button(
+                &self.config.inputs.hotkeys.hard_reset.keycode.clone(),
+                "Hard reset",
+                Hotkey::HardReset,
                 ui,
             );
         });

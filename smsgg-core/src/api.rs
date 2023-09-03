@@ -7,8 +7,8 @@ use crate::{vdp, SmsGgInputs, VdpVersion};
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
 use jgenesis_traits::frontend::{
-    AudioOutput, Color, EmulatorTrait, FrameSize, PixelAspectRatio, Renderer, SaveWriter,
-    TakeRomFrom, TickEffect, TickableEmulator,
+    AudioOutput, Color, EmulatorTrait, FrameSize, PixelAspectRatio, Renderer, Resettable,
+    SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
 };
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
@@ -118,6 +118,7 @@ pub struct SmsGgEmulator {
     leftover_vdp_cycles: u32,
     sample_count: u64,
     frame_count: u64,
+    reset_frames_remaining: u32,
 }
 
 impl SmsGgEmulator {
@@ -135,9 +136,7 @@ impl SmsGgEmulator {
         let input = InputState::new(config.sms_region);
 
         let mut z80 = Z80::new();
-        z80.set_pc(0x0000);
-        z80.set_sp(0xDFFF);
-        z80.set_interrupt_mode(InterruptMode::Mode1);
+        init_z80(&mut z80);
 
         Self {
             memory,
@@ -153,6 +152,7 @@ impl SmsGgEmulator {
             leftover_vdp_cycles: 0,
             sample_count: 0,
             frame_count: 0,
+            reset_frames_remaining: 0,
         }
     }
 
@@ -172,6 +172,12 @@ impl SmsGgEmulator {
         self.sms_crop_vertical_border = config.sms_crop_vertical_border;
         self.sms_crop_left_border = config.sms_crop_left_border;
     }
+}
+
+fn init_z80(z80: &mut Z80) {
+    z80.set_pc(0x0000);
+    z80.set_sp(0xDFFF);
+    z80.set_interrupt_mode(InterruptMode::Mode1);
 }
 
 impl TakeRomFrom for SmsGgEmulator {
@@ -264,6 +270,8 @@ impl TickableEmulator for SmsGgEmulator {
                 frame_rendered = true;
 
                 self.input.set_inputs(inputs);
+                self.input.set_reset(self.reset_frames_remaining != 0);
+                self.reset_frames_remaining = self.reset_frames_remaining.saturating_sub(1);
 
                 self.frame_count += 1;
                 if self.frame_count % 60 == 0
@@ -279,6 +287,34 @@ impl TickableEmulator for SmsGgEmulator {
         }
 
         Ok(if frame_rendered { TickEffect::FrameRendered } else { TickEffect::None })
+    }
+}
+
+impl Resettable for SmsGgEmulator {
+    fn soft_reset(&mut self) {
+        log::info!("Soft resetting console");
+
+        // The SMS RESET button only sets a bit in a register; emulate "soft reset" by keeping the
+        // button virtually held down for 5 frames
+        self.reset_frames_remaining = 5;
+    }
+
+    fn hard_reset(&mut self) {
+        log::info!("Hard resetting console");
+
+        let (rom, ram) = self.memory.take_cartridge_rom_and_ram();
+        self.memory = Memory::new(rom, Some(ram));
+
+        self.z80 = Z80::new();
+        init_z80(&mut self.z80);
+
+        self.vdp = Vdp::new(self.vdp_version, self.vdp.get_remove_sprite_limit());
+        self.psg = Psg::new(self.psg.version());
+        self.input = InputState::new(self.input.region());
+
+        self.leftover_vdp_cycles = 0;
+        self.sample_count = 0;
+        self.frame_count = 0;
     }
 }
 
