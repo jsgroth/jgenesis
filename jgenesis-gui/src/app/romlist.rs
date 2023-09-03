@@ -39,7 +39,7 @@ pub struct RomMetadata {
 pub fn build(rom_search_dir: Option<&String>) -> Vec<RomMetadata> {
     let Some(rom_search_dir) = rom_search_dir else { return vec![] };
 
-    let mut list = fs::read_dir(Path::new(rom_search_dir))
+    let mut list: Vec<_> = fs::read_dir(Path::new(rom_search_dir))
         .map(|read_dir| {
             read_dir
                 .filter_map(|dir_entry| {
@@ -65,7 +65,7 @@ pub fn build(rom_search_dir: Option<&String>) -> Vec<RomMetadata> {
                 })
                 .collect()
         })
-        .unwrap_or(vec![]);
+        .unwrap_or_default();
 
     list.sort_by(|a, b| a.file_name_no_ext.cmp(&b.file_name_no_ext));
     list

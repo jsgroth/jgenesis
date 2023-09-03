@@ -251,12 +251,12 @@ impl Args {
 
     fn hotkey_config(&self) -> HotkeyConfig {
         HotkeyConfig {
-            quit: keyboard_input(&self.hotkey_quit),
-            toggle_fullscreen: keyboard_input(&self.hotkey_toggle_fullscreen),
-            save_state: keyboard_input(&self.hotkey_save_state),
-            load_state: keyboard_input(&self.hotkey_load_state),
-            soft_reset: keyboard_input(&self.hotkey_soft_reset),
-            hard_reset: keyboard_input(&self.hotkey_hard_reset),
+            quit: Some(keyboard_input(&self.hotkey_quit)),
+            toggle_fullscreen: Some(keyboard_input(&self.hotkey_toggle_fullscreen)),
+            save_state: Some(keyboard_input(&self.hotkey_save_state)),
+            load_state: Some(keyboard_input(&self.hotkey_load_state)),
+            soft_reset: Some(keyboard_input(&self.hotkey_soft_reset)),
+            hard_reset: Some(keyboard_input(&self.hotkey_hard_reset)),
         }
     }
 

@@ -1,6 +1,6 @@
 use crate::app::{App, OpenWindow};
 use crate::emuthread::{EmuThreadCommand, GenericInput, InputType};
-use egui::{Color32, Context, TextEdit, Ui, Widget, Window};
+use egui::{Color32, Context, Grid, TextEdit, Ui, Widget, Window};
 use jgenesis_native_driver::config::input::{
     GenesisControllerConfig, GenesisInputConfig, HotkeyConfig, JoystickInput, KeyboardInput,
     SmsGgControllerConfig, SmsGgInputConfig,
@@ -182,22 +182,22 @@ impl InputAppConfig {
                 if let GenericInput::Keyboard(input) = input {
                     match hotkey {
                         Hotkey::Quit => {
-                            self.hotkeys.quit = input;
+                            self.hotkeys.quit = Some(input);
                         }
                         Hotkey::ToggleFullscreen => {
-                            self.hotkeys.toggle_fullscreen = input;
+                            self.hotkeys.toggle_fullscreen = Some(input);
                         }
                         Hotkey::SaveState => {
-                            self.hotkeys.save_state = input;
+                            self.hotkeys.save_state = Some(input);
                         }
                         Hotkey::LoadState => {
-                            self.hotkeys.load_state = input;
+                            self.hotkeys.load_state = Some(input);
                         }
                         Hotkey::SoftReset => {
-                            self.hotkeys.soft_reset = input;
+                            self.hotkeys.soft_reset = Some(input);
                         }
                         Hotkey::HardReset => {
-                            self.hotkeys.hard_reset = input;
+                            self.hotkeys.hard_reset = Some(input);
                         }
                     }
                 }
@@ -345,33 +345,39 @@ impl App {
             ui.set_enabled(self.state.waiting_for_input.is_none());
 
             ui.heading("Player 1");
-            render_smsgg_input!(
-                self,
-                keyboard_input_button,
-                self.config.inputs.smsgg_p1_keyboard,
-                Player::One,
-                ui
-            );
+            Grid::new("smsgg_p1_keyboard_grid").show(ui, |ui| {
+                render_smsgg_input!(
+                    self,
+                    keyboard_input_button,
+                    self.config.inputs.smsgg_p1_keyboard,
+                    Player::One,
+                    ui
+                );
+            });
 
             ui.add_space(20.0);
 
             ui.heading("Player 2");
-            render_smsgg_input!(
-                self,
-                keyboard_input_button,
-                self.config.inputs.smsgg_p2_keyboard,
-                Player::Two,
-                ui
-            );
+            Grid::new("smsgg_p2_keyboard_grid").show(ui, |ui| {
+                render_smsgg_input!(
+                    self,
+                    keyboard_input_button,
+                    self.config.inputs.smsgg_p2_keyboard,
+                    Player::Two,
+                    ui
+                );
+            });
 
             ui.add_space(20.0);
 
-            self.keyboard_input_button(
-                self.config.inputs.smsgg_p1_keyboard.pause.clone(),
-                "Start/Pause",
-                GenericButton::SmsGg(SmsGgButton::Pause),
-                ui,
-            );
+            Grid::new("smsgg_pause_keyboard_grid").show(ui, |ui| {
+                self.keyboard_input_button(
+                    self.config.inputs.smsgg_p1_keyboard.pause.clone(),
+                    "Start/Pause",
+                    GenericButton::SmsGg(SmsGgButton::Pause),
+                    ui,
+                );
+            });
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::SmsGgKeyboard);
@@ -384,33 +390,39 @@ impl App {
             ui.set_enabled(self.state.waiting_for_input.is_none());
 
             ui.heading("Player 1");
-            render_smsgg_input!(
-                self,
-                gamepad_input_button,
-                self.config.inputs.smsgg_p1_joystick,
-                Player::One,
-                ui
-            );
+            Grid::new("smsgg_p1_gamepad_grid").show(ui, |ui| {
+                render_smsgg_input!(
+                    self,
+                    gamepad_input_button,
+                    self.config.inputs.smsgg_p1_joystick,
+                    Player::One,
+                    ui
+                );
+            });
 
             ui.add_space(20.0);
 
             ui.heading("Player 2");
-            render_smsgg_input!(
-                self,
-                gamepad_input_button,
-                self.config.inputs.smsgg_p2_joystick,
-                Player::Two,
-                ui
-            );
+            Grid::new("smsgg_p2_gamepad_grid").show(ui, |ui| {
+                render_smsgg_input!(
+                    self,
+                    gamepad_input_button,
+                    self.config.inputs.smsgg_p2_joystick,
+                    Player::Two,
+                    ui
+                );
+            });
 
             ui.add_space(20.0);
 
-            self.gamepad_input_button(
-                self.config.inputs.smsgg_p1_joystick.pause.clone(),
-                "Start/Pause",
-                GenericButton::SmsGg(SmsGgButton::Pause),
-                ui,
-            );
+            Grid::new("smsgg_pause_gamepad_grid").show(ui, |ui| {
+                self.gamepad_input_button(
+                    self.config.inputs.smsgg_p1_joystick.pause.clone(),
+                    "Start/Pause",
+                    GenericButton::SmsGg(SmsGgButton::Pause),
+                    ui,
+                );
+            });
 
             ui.add_space(20.0);
             self.render_axis_deadzone_input(ui);
@@ -426,24 +438,28 @@ impl App {
             ui.set_enabled(self.state.waiting_for_input.is_none());
 
             ui.heading("Player 1");
-            render_genesis_input!(
-                self,
-                keyboard_input_button,
-                self.config.inputs.genesis_p1_keyboard,
-                Player::One,
-                ui
-            );
+            Grid::new("genesis_p1_keyboard_grid").show(ui, |ui| {
+                render_genesis_input!(
+                    self,
+                    keyboard_input_button,
+                    self.config.inputs.genesis_p1_keyboard,
+                    Player::One,
+                    ui
+                );
+            });
 
             ui.add_space(20.0);
 
             ui.heading("Player 2");
-            render_genesis_input!(
-                self,
-                keyboard_input_button,
-                self.config.inputs.genesis_p2_keyboard,
-                Player::Two,
-                ui
-            );
+            Grid::new("genesis_p2_keyboard_grid").show(ui, |ui| {
+                render_genesis_input!(
+                    self,
+                    keyboard_input_button,
+                    self.config.inputs.genesis_p2_keyboard,
+                    Player::Two,
+                    ui
+                );
+            });
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::GenesisKeyboard);
@@ -456,24 +472,28 @@ impl App {
             ui.set_enabled(self.state.waiting_for_input.is_none());
 
             ui.heading("Player 1");
-            render_genesis_input!(
-                self,
-                gamepad_input_button,
-                self.config.inputs.genesis_p1_joystick,
-                Player::One,
-                ui
-            );
+            Grid::new("genesis_p1_gamepad_grid").show(ui, |ui| {
+                render_genesis_input!(
+                    self,
+                    gamepad_input_button,
+                    self.config.inputs.genesis_p1_joystick,
+                    Player::One,
+                    ui
+                );
+            });
 
             ui.add_space(20.0);
 
             ui.heading("Player 2");
-            render_genesis_input!(
-                self,
-                gamepad_input_button,
-                self.config.inputs.genesis_p2_joystick,
-                Player::Two,
-                ui
-            );
+            Grid::new("genesis_p2_gamepad_grid").show(ui, |ui| {
+                render_genesis_input!(
+                    self,
+                    gamepad_input_button,
+                    self.config.inputs.genesis_p2_joystick,
+                    Player::Two,
+                    ui
+                );
+            });
 
             ui.add_space(20.0);
 
@@ -489,42 +509,44 @@ impl App {
         Window::new("Hotkey Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.set_enabled(self.state.waiting_for_input.is_none());
 
-            self.hotkey_button(
-                &self.config.inputs.hotkeys.quit.keycode.clone(),
-                "Quit",
-                Hotkey::Quit,
-                ui,
-            );
-            self.hotkey_button(
-                &self.config.inputs.hotkeys.toggle_fullscreen.keycode.clone(),
-                "Toggle fullscreen",
-                Hotkey::ToggleFullscreen,
-                ui,
-            );
-            self.hotkey_button(
-                &self.config.inputs.hotkeys.save_state.keycode.clone(),
-                "Save state",
-                Hotkey::SaveState,
-                ui,
-            );
-            self.hotkey_button(
-                &self.config.inputs.hotkeys.load_state.keycode.clone(),
-                "Load state",
-                Hotkey::LoadState,
-                ui,
-            );
-            self.hotkey_button(
-                &self.config.inputs.hotkeys.soft_reset.keycode.clone(),
-                "Soft reset",
-                Hotkey::SoftReset,
-                ui,
-            );
-            self.hotkey_button(
-                &self.config.inputs.hotkeys.hard_reset.keycode.clone(),
-                "Hard reset",
-                Hotkey::HardReset,
-                ui,
-            );
+            Grid::new("hotkeys_grid").show(ui, |ui| {
+                self.hotkey_button(
+                    self.config.inputs.hotkeys.quit.clone(),
+                    "Quit",
+                    Hotkey::Quit,
+                    ui,
+                );
+                self.hotkey_button(
+                    self.config.inputs.hotkeys.toggle_fullscreen.clone(),
+                    "Toggle fullscreen",
+                    Hotkey::ToggleFullscreen,
+                    ui,
+                );
+                self.hotkey_button(
+                    self.config.inputs.hotkeys.save_state.clone(),
+                    "Save state",
+                    Hotkey::SaveState,
+                    ui,
+                );
+                self.hotkey_button(
+                    self.config.inputs.hotkeys.load_state.clone(),
+                    "Load state",
+                    Hotkey::LoadState,
+                    ui,
+                );
+                self.hotkey_button(
+                    self.config.inputs.hotkeys.soft_reset.clone(),
+                    "Soft reset",
+                    Hotkey::SoftReset,
+                    ui,
+                );
+                self.hotkey_button(
+                    self.config.inputs.hotkeys.hard_reset.clone(),
+                    "Hard reset",
+                    Hotkey::HardReset,
+                    ui,
+                );
+            });
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::Hotkeys);
@@ -589,42 +611,143 @@ impl App {
         button: GenericButton,
         ui: &mut Ui,
     ) {
-        ui.horizontal(|ui| {
-            ui.label(format!("{label}:"));
+        ui.label(format!("{label}:"));
 
-            if ui.button(text).clicked() {
-                log::debug!("Sending collect input command for button {button:?}");
-                self.emu_thread.send(EmuThreadCommand::CollectInput {
-                    input_type,
-                    axis_deadzone: self.config.inputs.axis_deadzone,
-                });
-                if self.emu_thread.status().is_running() {
-                    log::debug!("Setting read signal");
-                    self.emu_thread.set_command_read_signal();
-                }
-
-                self.state.waiting_for_input = Some(button);
+        if ui.button(text).clicked() {
+            log::debug!("Sending collect input command for button {button:?}");
+            self.emu_thread.send(EmuThreadCommand::CollectInput {
+                input_type,
+                axis_deadzone: self.config.inputs.axis_deadzone,
+            });
+            if self.emu_thread.status().is_running() {
+                log::debug!("Setting read signal");
+                self.emu_thread.set_command_read_signal();
             }
-        });
+
+            self.state.waiting_for_input = Some(button);
+        }
+
+        if ui.button("Clear").clicked() {
+            log::debug!("Clearing button {button:?} for input_type {input_type:?}");
+            self.clear_button_in_config(button, input_type);
+        }
+
+        ui.end_row();
     }
 
-    fn hotkey_button(&mut self, text: &str, label: &str, hotkey: Hotkey, ui: &mut Ui) {
-        ui.horizontal(|ui| {
-            ui.label(format!("{label}:"));
-
-            if ui.button(text).clicked() {
-                log::debug!("Sending collect input command for hotkey {hotkey:?}");
-                self.emu_thread.send(EmuThreadCommand::CollectInput {
-                    input_type: InputType::Keyboard,
-                    axis_deadzone: self.config.inputs.axis_deadzone,
-                });
-                if self.emu_thread.status().is_running() {
-                    log::debug!("Setting read signal");
-                    self.emu_thread.set_command_read_signal();
+    fn clear_button_in_config(&mut self, button: GenericButton, input_type: InputType) {
+        match button {
+            GenericButton::SmsGg(button) => match (input_type, button.player()) {
+                (InputType::Keyboard, Player::One) => {
+                    clear_smsgg_button(&mut self.config.inputs.smsgg_p1_keyboard, button);
                 }
-
-                self.state.waiting_for_input = Some(GenericButton::Hotkey(hotkey));
-            }
-        });
+                (InputType::Joystick, Player::One) => {
+                    clear_smsgg_button(&mut self.config.inputs.smsgg_p1_joystick, button);
+                }
+                (InputType::Keyboard, Player::Two) => {
+                    clear_smsgg_button(&mut self.config.inputs.smsgg_p2_keyboard, button);
+                }
+                (InputType::Joystick, Player::Two) => {
+                    clear_smsgg_button(&mut self.config.inputs.smsgg_p2_joystick, button);
+                }
+            },
+            GenericButton::Genesis(button) => match (input_type, button.player()) {
+                (InputType::Keyboard, Player::One) => {
+                    clear_genesis_button(&mut self.config.inputs.genesis_p1_keyboard, button);
+                }
+                (InputType::Joystick, Player::One) => {
+                    clear_genesis_button(&mut self.config.inputs.genesis_p1_joystick, button);
+                }
+                (InputType::Keyboard, Player::Two) => {
+                    clear_genesis_button(&mut self.config.inputs.genesis_p2_keyboard, button);
+                }
+                (InputType::Joystick, Player::Two) => {
+                    clear_genesis_button(&mut self.config.inputs.genesis_p2_joystick, button);
+                }
+            },
+            GenericButton::Hotkey(hotkey) => match hotkey {
+                Hotkey::Quit => {
+                    self.config.inputs.hotkeys.quit = None;
+                }
+                Hotkey::ToggleFullscreen => {
+                    self.config.inputs.hotkeys.toggle_fullscreen = None;
+                }
+                Hotkey::SaveState => {
+                    self.config.inputs.hotkeys.save_state = None;
+                }
+                Hotkey::LoadState => {
+                    self.config.inputs.hotkeys.load_state = None;
+                }
+                Hotkey::SoftReset => {
+                    self.config.inputs.hotkeys.soft_reset = None;
+                }
+                Hotkey::HardReset => {
+                    self.config.inputs.hotkeys.hard_reset = None;
+                }
+            },
+        }
     }
+
+    fn hotkey_button(
+        &mut self,
+        current_value: Option<KeyboardInput>,
+        label: &str,
+        hotkey: Hotkey,
+        ui: &mut Ui,
+    ) {
+        ui.label(format!("{label}:"));
+
+        let text = match current_value {
+            Some(value) => value.keycode,
+            None => "<None>".into(),
+        };
+        if ui.button(text).clicked() {
+            log::debug!("Sending collect input command for hotkey {hotkey:?}");
+            self.emu_thread.send(EmuThreadCommand::CollectInput {
+                input_type: InputType::Keyboard,
+                axis_deadzone: self.config.inputs.axis_deadzone,
+            });
+            if self.emu_thread.status().is_running() {
+                log::debug!("Setting read signal");
+                self.emu_thread.set_command_read_signal();
+            }
+
+            self.state.waiting_for_input = Some(GenericButton::Hotkey(hotkey));
+        }
+
+        if ui.button("Clear").clicked() {
+            self.clear_button_in_config(GenericButton::Hotkey(hotkey), InputType::Keyboard);
+        }
+
+        ui.end_row();
+    }
+}
+
+fn clear_smsgg_button<T>(config: &mut SmsGgControllerConfig<T>, button: SmsGgButton) {
+    let field = match button {
+        SmsGgButton::Up(_) => &mut config.up,
+        SmsGgButton::Left(_) => &mut config.left,
+        SmsGgButton::Right(_) => &mut config.right,
+        SmsGgButton::Down(_) => &mut config.down,
+        SmsGgButton::Button1(_) => &mut config.button_1,
+        SmsGgButton::Button2(_) => &mut config.button_2,
+        SmsGgButton::Pause => &mut config.pause,
+    };
+
+    *field = None;
+}
+
+fn clear_genesis_button<T>(config: &mut GenesisControllerConfig<T>, button: GenesisButton) {
+    let field = match button {
+        GenesisButton::Up(_) => &mut config.up,
+        GenesisButton::Left(_) => &mut config.left,
+        GenesisButton::Right(_) => &mut config.right,
+        GenesisButton::Down(_) => &mut config.down,
+        GenesisButton::A(_) => &mut config.a,
+        GenesisButton::B(_) => &mut config.b,
+        GenesisButton::C(_) => &mut config.c,
+        GenesisButton::Start(_) => &mut config.start,
+    };
+
+    *field = None;
 }

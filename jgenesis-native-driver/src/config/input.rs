@@ -247,17 +247,17 @@ impl Default for GenesisInputConfig<JoystickInput> {
 #[derive(Debug, Clone, PartialEq, Eq, ConfigDisplay, Serialize, Deserialize)]
 pub struct HotkeyConfig {
     #[serde(default = "default_quit")]
-    pub quit: KeyboardInput,
+    pub quit: Option<KeyboardInput>,
     #[serde(default = "default_toggle_fullscreen")]
-    pub toggle_fullscreen: KeyboardInput,
+    pub toggle_fullscreen: Option<KeyboardInput>,
     #[serde(default = "default_save_state")]
-    pub save_state: KeyboardInput,
+    pub save_state: Option<KeyboardInput>,
     #[serde(default = "default_load_state")]
-    pub load_state: KeyboardInput,
+    pub load_state: Option<KeyboardInput>,
     #[serde(default = "default_soft_reset")]
-    pub soft_reset: KeyboardInput,
+    pub soft_reset: Option<KeyboardInput>,
     #[serde(default = "default_hard_reset")]
-    pub hard_reset: KeyboardInput,
+    pub hard_reset: Option<KeyboardInput>,
 }
 
 impl Default for HotkeyConfig {
@@ -273,26 +273,26 @@ impl Default for HotkeyConfig {
     }
 }
 
-fn default_quit() -> KeyboardInput {
-    KeyboardInput { keycode: Keycode::Escape.name() }
+fn default_quit() -> Option<KeyboardInput> {
+    key_input!(Escape)
 }
 
-fn default_toggle_fullscreen() -> KeyboardInput {
-    KeyboardInput { keycode: Keycode::F9.name() }
+fn default_toggle_fullscreen() -> Option<KeyboardInput> {
+    key_input!(F9)
 }
 
-fn default_save_state() -> KeyboardInput {
-    KeyboardInput { keycode: Keycode::F5.name() }
+fn default_save_state() -> Option<KeyboardInput> {
+    key_input!(F5)
 }
 
-fn default_load_state() -> KeyboardInput {
-    KeyboardInput { keycode: Keycode::F6.name() }
+fn default_load_state() -> Option<KeyboardInput> {
+    key_input!(F6)
 }
 
-fn default_soft_reset() -> KeyboardInput {
-    KeyboardInput { keycode: Keycode::F1.name() }
+fn default_soft_reset() -> Option<KeyboardInput> {
+    key_input!(F1)
 }
 
-fn default_hard_reset() -> KeyboardInput {
-    KeyboardInput { keycode: Keycode::F2.name() }
+fn default_hard_reset() -> Option<KeyboardInput> {
+    key_input!(F2)
 }

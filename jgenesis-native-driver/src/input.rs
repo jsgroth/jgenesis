@@ -28,6 +28,21 @@ pub enum SmsGgButton {
     Pause,
 }
 
+impl SmsGgButton {
+    #[must_use]
+    pub fn player(self) -> Player {
+        match self {
+            Self::Up(player)
+            | Self::Left(player)
+            | Self::Right(player)
+            | Self::Down(player)
+            | Self::Button1(player)
+            | Self::Button2(player) => player,
+            Self::Pause => Player::One,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GenesisButton {
     Up(Player),
@@ -38,6 +53,22 @@ pub enum GenesisButton {
     B(Player),
     C(Player),
     Start(Player),
+}
+
+impl GenesisButton {
+    #[must_use]
+    pub fn player(self) -> Player {
+        match self {
+            Self::Up(player)
+            | Self::Left(player)
+            | Self::Right(player)
+            | Self::Down(player)
+            | Self::A(player)
+            | Self::B(player)
+            | Self::C(player)
+            | Self::Start(player) => player,
+        }
+    }
 }
 
 pub trait GetButtonField<Button>
@@ -151,10 +182,10 @@ impl Joysticks {
 
     #[must_use]
     pub fn get_joystick_id(&self, device_id: u32) -> Option<JoystickDeviceId> {
-        let Some(joystick) = self.joysticks.get(&device_id) else { return None };
+        let joystick = self.joysticks.get(&device_id)?;
 
         let name = joystick.name();
-        let Some(device_ids) = self.name_to_device_ids.get(&name) else { return None };
+        let device_ids = self.name_to_device_ids.get(&name)?;
         let Some((device_idx, _)) =
             device_ids.iter().copied().enumerate().find(|&(_, id)| id == device_id)
         else {
@@ -546,9 +577,11 @@ impl HotkeyMapper {
             (&config.soft_reset, Hotkey::SoftReset),
             (&config.hard_reset, Hotkey::HardReset),
         ] {
-            let keycode = Keycode::from_name(&input.keycode)
-                .ok_or_else(|| anyhow!("Invalid SDL2 keycode: {}", input.keycode))?;
-            mapping.entry(keycode).or_default().push(hotkey);
+            if let Some(input) = input {
+                let keycode = Keycode::from_name(&input.keycode)
+                    .ok_or_else(|| anyhow!("Invalid SDL2 keycode: {}", input.keycode))?;
+                mapping.entry(keycode).or_default().push(hotkey);
+            }
         }
 
         Ok(Self { mapping })
