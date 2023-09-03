@@ -10,6 +10,7 @@ use genesis_core::{GenesisEmulator, GenesisInputs};
 use jgenesis_traits::frontend::{AudioOutput, EmulatorTrait, SaveWriter, TickEffect};
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::event::{Event, WindowEvent};
+use sdl2::video::{FullscreenType, Window};
 use sdl2::{AudioSubsystem, EventPump, JoystickSubsystem, VideoSubsystem};
 use smsgg_core::{SmsGgEmulator, SmsGgInputs};
 use std::ffi::OsStr;
@@ -275,10 +276,13 @@ pub fn create_smsgg(
 
     let WindowSize { width: window_width, height: window_height } =
         config.common.window_size.unwrap_or_else(|| config::default_smsgg_window_size(vdp_version));
-    let window = video
-        .window(&format!("smsgg - {rom_file_name}"), window_width, window_height)
-        .resizable()
-        .build()?;
+    let window = create_window(
+        &video,
+        &format!("smsgg - {rom_file_name}"),
+        window_width,
+        window_height,
+        config.common.launch_in_fullscreen,
+    )?;
 
     let emulator_config = config.to_emulator_config(vdp_version);
 
@@ -335,10 +339,13 @@ pub fn create_genesis(
 
     let WindowSize { width: window_width, height: window_height } =
         config.common.window_size.unwrap_or(config::DEFAULT_GENESIS_WINDOW_SIZE);
-    let window = video
-        .window(&format!("genesis - {}", emulator.cartridge_title()), window_width, window_height)
-        .resizable()
-        .build()?;
+    let window = create_window(
+        &video,
+        &format!("genesis - {}", emulator.cartridge_title()),
+        window_width,
+        window_height,
+        config.common.launch_in_fullscreen,
+    )?;
 
     let renderer = pollster::block_on(WgpuRenderer::new(window, config.common.renderer_config))?;
     let audio_output = SdlAudioOutput::create_and_init(&audio, config.common.audio_sync)?;
@@ -391,6 +398,24 @@ fn init_sdl() -> anyhow::Result<(VideoSubsystem, AudioSubsystem, JoystickSubsyst
     sdl.mouse().show_cursor(false);
 
     Ok((video, audio, joystick, event_pump))
+}
+
+fn create_window(
+    video: &VideoSubsystem,
+    title: &str,
+    width: u32,
+    height: u32,
+    fullscreen: bool,
+) -> anyhow::Result<Window> {
+    let mut window = video.window(title, width, height).resizable().build()?;
+
+    if fullscreen {
+        window
+            .set_fullscreen(FullscreenType::Desktop)
+            .map_err(|err| anyhow!("Error setting fullscreen: {err}"))?;
+    }
+
+    Ok(window)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

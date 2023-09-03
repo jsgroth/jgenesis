@@ -89,6 +89,10 @@ struct Args {
     #[arg(long)]
     window_height: Option<u32>,
 
+    /// Launch in fullscreen
+    #[arg(long)]
+    fullscreen: bool,
+
     /// VSync mode (Enabled / Disabled / Fast)
     #[arg(long, default_value_t = VSyncMode::Enabled)]
     vsync_mode: VSyncMode,
@@ -261,6 +265,7 @@ impl Args {
             audio_sync: self.audio_sync,
             window_size: self.window_size(),
             renderer_config: self.renderer_config(),
+            launch_in_fullscreen: self.fullscreen,
             keyboard_inputs,
             axis_deadzone: self.joy_axis_deadzone,
             joystick_inputs,

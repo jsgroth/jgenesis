@@ -69,6 +69,7 @@ pub struct CommonConfig<KeyboardConfig, JoystickConfig> {
     pub window_size: Option<WindowSize>,
     #[indent_nested]
     pub renderer_config: RendererConfig,
+    pub launch_in_fullscreen: bool,
     #[indent_nested]
     pub keyboard_inputs: KeyboardConfig,
     pub axis_deadzone: i16,

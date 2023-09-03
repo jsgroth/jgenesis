@@ -34,6 +34,8 @@ struct CommonAppConfig {
     window_width: Option<u32>,
     window_height: Option<u32>,
     #[serde(default)]
+    launch_in_fullscreen: bool,
+    #[serde(default)]
     vsync_mode: VSyncMode,
     #[serde(default = "default_prescale_factor")]
     prescale_factor: PrescaleFactor,
@@ -148,6 +150,7 @@ impl AppConfig {
                 prescale_factor: self.common.prescale_factor,
                 filter_mode: self.common.filter_mode,
             },
+            launch_in_fullscreen: self.common.launch_in_fullscreen,
             keyboard_inputs,
             axis_deadzone: 8000,
             joystick_inputs,
@@ -372,6 +375,8 @@ impl App {
     fn render_common_video_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("General Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.checkbox(&mut self.config.common.launch_in_fullscreen, "Launch in fullscreen");
+
             ui.group(|ui| {
                 ui.label("VSync mode");
 
