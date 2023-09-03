@@ -102,6 +102,7 @@ impl PinDirections {
 pub struct InputState {
     inputs: GenesisInputs,
     p1_pin_directions: PinDirections,
+    p2_pin_directions: PinDirections,
 }
 
 impl InputState {
@@ -113,20 +114,37 @@ impl InputState {
         self.inputs = inputs.clone();
     }
 
-    pub fn read_data(&self) -> u8 {
+    pub fn read_p1_data(&self) -> u8 {
         self.p1_pin_directions.to_data_byte(self.inputs.p1)
     }
 
-    pub fn write_data(&mut self, value: u8) {
+    pub fn read_p2_data(&self) -> u8 {
+        self.p2_pin_directions.to_data_byte(self.inputs.p2)
+    }
+
+    pub fn write_p1_data(&mut self, value: u8) {
         self.p1_pin_directions.last_data_write = value;
     }
 
-    pub fn read_ctrl(&self) -> u8 {
+    pub fn write_p2_data(&mut self, value: u8) {
+        self.p2_pin_directions.last_data_write = value;
+    }
+
+    pub fn read_p1_ctrl(&self) -> u8 {
         self.p1_pin_directions.to_ctrl_byte()
     }
 
-    pub fn write_ctrl(&mut self, value: u8) {
+    pub fn read_p2_ctrl(&self) -> u8 {
+        self.p2_pin_directions.to_ctrl_byte()
+    }
+
+    pub fn write_p1_ctrl(&mut self, value: u8) {
         self.p1_pin_directions =
             PinDirections::from_ctrl_byte(value, self.p1_pin_directions.last_data_write);
+    }
+
+    pub fn write_p2_ctrl(&mut self, value: u8) {
+        self.p2_pin_directions =
+            PinDirections::from_ctrl_byte(value, self.p2_pin_directions.last_data_write);
     }
 }
