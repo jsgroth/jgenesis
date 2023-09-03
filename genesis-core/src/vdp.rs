@@ -498,6 +498,15 @@ impl Registers {
         self.window_horizontal_mode.in_window(pixel, self.window_x_position)
             || self.window_vertical_mode.in_window(scanline, self.window_y_position)
     }
+
+    fn dma_length(&self) -> u32 {
+        if self.dma_length > 0 {
+            self.dma_length.into()
+        } else {
+            // DMA length of 0 is treated as 65536
+            65536
+        }
+    }
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -710,7 +719,6 @@ impl Vdp {
                 if code.bit(5)
                     && self.registers.dma_enabled
                     && self.registers.dma_mode != DmaMode::VramFill
-                    && self.registers.dma_length > 0
                 {
                     // This is a DMA initiation, not a normal control write
                     log::trace!("DMA transfer initiated, mode={:?}", self.registers.dma_mode);
@@ -766,7 +774,6 @@ impl Vdp {
 
         if self.state.code.bit(5)
             && self.registers.dma_enabled
-            && self.registers.dma_length > 0
             && self.registers.dma_mode == DmaMode::VramFill
         {
             log::trace!("Initiated VRAM fill DMA with fill data = {value:04X}");
@@ -934,13 +941,13 @@ impl Vdp {
 
                 log::trace!(
                     "Copying {} words from {source_addr:06X} to {:04X}, write location={:?}; data_addr_increment={:04X}",
-                    self.registers.dma_length,
+                    self.registers.dma_length(),
                     self.state.data_address,
                     self.state.data_port_location,
                     self.registers.data_port_auto_increment
                 );
 
-                for _ in 0..self.registers.dma_length {
+                for _ in 0..self.registers.dma_length() {
                     let word = memory.read_word_for_dma(source_addr);
                     match self.state.data_port_location {
                         DataPortLocation::Vram => {
@@ -968,7 +975,7 @@ impl Vdp {
                 log::trace!(
                     "Running VRAM fill with addr {:04X} and length {}",
                     self.state.data_address,
-                    self.registers.dma_length
+                    self.registers.dma_length()
                 );
 
                 // VRAM fill is weird; it first performs a normal VRAM write with the given fill
@@ -978,7 +985,7 @@ impl Vdp {
                 self.increment_data_address();
 
                 let [msb, _] = fill_data.to_be_bytes();
-                for _ in 0..self.registers.dma_length {
+                for _ in 0..self.registers.dma_length() {
                     self.vram[(self.state.data_address ^ 0x01) as usize] = msb;
                     self.increment_data_address();
                 }
@@ -988,12 +995,12 @@ impl Vdp {
                     "Running VRAM copy with source addr {:04X}, dest addr {:04X}, and length {}",
                     self.registers.dma_source_address,
                     self.state.data_address,
-                    self.registers.dma_length
+                    self.registers.dma_length()
                 );
 
                 // VRAM copy DMA treats the source address as A15-A0 instead of A23-A1
                 let mut source_addr = (self.registers.dma_source_address >> 1) as u16;
-                for _ in 0..self.registers.dma_length {
+                for _ in 0..self.registers.dma_length() {
                     let dest_addr = self.state.data_address;
                     self.vram[dest_addr as usize] = self.vram[source_addr as usize];
 
