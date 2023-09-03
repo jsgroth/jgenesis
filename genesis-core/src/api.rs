@@ -56,7 +56,7 @@ where
     }
 }
 
-pub type GenesisResult<RErr, AErr, _SErr> = Result<TickEffect, GenesisError<RErr, AErr, _SErr>>;
+pub type GenesisResult<RErr, AErr, SErr> = Result<TickEffect, GenesisError<RErr, AErr, SErr>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -116,8 +116,12 @@ impl GenesisEmulator {
     /// # Errors
     ///
     /// Returns an error if unable to parse the ROM header.
-    pub fn create(rom: Vec<u8>, config: GenesisEmulatorConfig) -> Result<Self, CartridgeLoadError> {
-        let cartridge = Cartridge::from_rom(rom)?;
+    pub fn create(
+        rom: Vec<u8>,
+        initial_ram: Option<Vec<u8>>,
+        config: GenesisEmulatorConfig,
+    ) -> Result<Self, CartridgeLoadError> {
+        let cartridge = Cartridge::from_rom(rom, initial_ram)?;
         let mut memory = Memory::new(cartridge);
 
         let z80 = Z80::new();
@@ -185,7 +189,7 @@ impl TickableEmulator for GenesisEmulator {
         renderer: &mut R,
         audio_output: &mut A,
         inputs: &Self::Inputs,
-        _save_writer: &mut S,
+        save_writer: &mut S,
     ) -> GenesisResult<R::Err, A::Err, S::Err>
     where
         R: Renderer,
@@ -249,6 +253,14 @@ impl TickableEmulator for GenesisEmulator {
 
             self.input.set_inputs(inputs);
 
+            if self.memory.cartridge_ram_persistent() && self.memory.cartridge_ram_dirty() {
+                self.memory.clear_cartridge_ram_dirty();
+
+                if let Some(ram) = self.memory.cartridge_ram() {
+                    save_writer.persist_save(ram).map_err(GenesisError::Save)?;
+                }
+            }
+
             return Ok(TickEffect::FrameRendered);
         }
 
@@ -276,12 +288,13 @@ impl Resettable for GenesisEmulator {
         log::info!("Hard resetting console");
 
         let rom = self.memory.take_rom();
+        let cartridge_ram = self.memory.take_cartridge_ram_if_persistent();
         let config = GenesisEmulatorConfig {
             aspect_ratio: self.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
         };
 
-        *self = GenesisEmulator::create(rom, config).unwrap();
+        *self = GenesisEmulator::create(rom, cartridge_ram, config).unwrap();
     }
 }
 

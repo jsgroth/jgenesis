@@ -90,12 +90,13 @@ struct Ram {
     address_mask: u32,
     ram_type: RamType,
     persistent: bool,
+    dirty: bool,
     start_address: u32,
     end_address: u32,
 }
 
 impl Ram {
-    fn from_rom_header(rom: &[u8]) -> Option<Self> {
+    fn from_rom_header(rom: &[u8], initial_ram: Option<Vec<u8>>) -> Option<Self> {
         let ram_header_bytes = &rom[0x1B0..0x1BC];
 
         // RAM header should always start with "RA", and 4th byte should always be $20
@@ -140,12 +141,18 @@ impl Ram {
             (end_address - start_address) / 2 + 1
         };
 
+        let ram = match initial_ram {
+            Some(ram) if ram.len() as u32 == ram_len => ram,
+            _ => vec![0; ram_len as usize],
+        };
+
         // TODO support RAM persistence
         Some(Self {
-            ram: vec![0; ram_len as usize],
+            ram,
             address_mask: ram_len - 1,
             ram_type,
             persistent,
+            dirty: false,
             start_address,
             end_address,
         })
@@ -172,6 +179,7 @@ impl Ram {
     fn write_byte(&mut self, address: u32, value: u8) {
         if let Some(address) = self.map_address(address) {
             self.ram[address as usize] = value;
+            self.dirty = true;
         }
     }
 
@@ -214,12 +222,15 @@ pub struct Cartridge {
 }
 
 impl Cartridge {
-    pub fn from_rom(rom_bytes: Vec<u8>) -> Result<Self, CartridgeLoadError> {
+    pub fn from_rom(
+        rom_bytes: Vec<u8>,
+        initial_ram_bytes: Option<Vec<u8>>,
+    ) -> Result<Self, CartridgeLoadError> {
         let Some(region) = HardwareRegion::from_rom(&rom_bytes) else {
             return Err(CartridgeLoadError::IndeterminateRegion);
         };
 
-        let ram = Ram::from_rom_header(&rom_bytes);
+        let ram = Ram::from_rom_header(&rom_bytes, initial_ram_bytes);
 
         log::info!("Inferred cartridge region: {region:?}");
 
@@ -332,6 +343,13 @@ impl Memory {
         self.cartridge.rom = mem::take(&mut other.cartridge.rom);
     }
 
+    pub fn take_cartridge_ram_if_persistent(&mut self) -> Option<Vec<u8>> {
+        match &mut self.cartridge.ram {
+            Some(ram) if ram.persistent => Some(mem::take(&mut ram.ram)),
+            _ => None,
+        }
+    }
+
     pub fn cartridge_title(&self) -> String {
         static RE: OnceLock<Regex> = OnceLock::new();
 
@@ -344,6 +362,24 @@ impl Memory {
 
         let re = RE.get_or_init(|| Regex::new(r" +").unwrap());
         re.replace_all(title.trim(), " ").into()
+    }
+
+    pub fn cartridge_ram(&self) -> Option<&Vec<u8>> {
+        self.cartridge.ram.as_ref().map(|ram| &ram.ram)
+    }
+
+    pub fn cartridge_ram_persistent(&self) -> bool {
+        self.cartridge.ram.as_ref().is_some_and(|ram| ram.persistent)
+    }
+
+    pub fn cartridge_ram_dirty(&self) -> bool {
+        self.cartridge.ram.as_ref().is_some_and(|ram| ram.dirty)
+    }
+
+    pub fn clear_cartridge_ram_dirty(&mut self) {
+        if let Some(ram) = &mut self.cartridge.ram {
+            ram.dirty = false;
+        }
     }
 
     pub fn reset_z80_signals(&mut self) {

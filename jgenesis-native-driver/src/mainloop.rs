@@ -333,7 +333,12 @@ pub fn create_genesis(
     let save_path = rom_file_path.with_extension("sav");
     let save_state_path = rom_file_path.with_extension("ss0");
 
-    let emulator = GenesisEmulator::create(rom, config.to_emulator_config())?;
+    let initial_ram = fs::read(&save_path).ok();
+    if initial_ram.is_some() {
+        log::info!("Loaded save file from {}", save_path.display());
+    }
+
+    let emulator = GenesisEmulator::create(rom, initial_ram, config.to_emulator_config())?;
 
     let (video, audio, joystick, event_pump) = init_sdl()?;
 
