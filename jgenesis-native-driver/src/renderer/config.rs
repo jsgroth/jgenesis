@@ -6,6 +6,18 @@ use std::num::NonZeroU32;
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
 )]
+pub enum WgpuBackend {
+    #[default]
+    Auto,
+    Vulkan,
+    DirectX12,
+    Metal,
+    OpenGl,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
+)]
 pub enum VSyncMode {
     #[default]
     Enabled,
@@ -90,6 +102,7 @@ impl FilterMode {
 
 #[derive(Debug, Clone, Copy, ConfigDisplay)]
 pub struct RendererConfig {
+    pub wgpu_backend: WgpuBackend,
     pub vsync_mode: VSyncMode,
     pub prescale_factor: PrescaleFactor,
     pub filter_mode: FilterMode,

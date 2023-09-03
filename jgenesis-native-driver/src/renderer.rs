@@ -1,5 +1,6 @@
 pub mod config;
 
+use crate::WgpuBackend;
 use anyhow::anyhow;
 use config::RendererConfig;
 use jgenesis_traits::frontend::{Color, FrameSize, PixelAspectRatio, Renderer};
@@ -442,8 +443,16 @@ pub struct WgpuRenderer {
 
 impl WgpuRenderer {
     pub async fn new(window: Window, config: RendererConfig) -> anyhow::Result<Self> {
+        let backends = match config.wgpu_backend {
+            WgpuBackend::Auto => wgpu::Backends::PRIMARY,
+            WgpuBackend::Vulkan => wgpu::Backends::VULKAN,
+            WgpuBackend::DirectX12 => wgpu::Backends::DX12,
+            WgpuBackend::Metal => wgpu::Backends::METAL,
+            WgpuBackend::OpenGl => wgpu::Backends::GL,
+        };
+
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::PRIMARY,
+            backends,
             dx12_shader_compiler: wgpu::Dx12Compiler::default(),
         });
 

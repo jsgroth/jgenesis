@@ -16,7 +16,7 @@ use genesis_core::GenesisAspectRatio;
 use jgenesis_native_driver::config::{
     CommonConfig, GenesisConfig, GgAspectRatio, SmsAspectRatio, SmsGgConfig, WindowSize,
 };
-use jgenesis_native_driver::{FilterMode, PrescaleFactor, RendererConfig, VSyncMode};
+use jgenesis_native_driver::{FilterMode, PrescaleFactor, RendererConfig, VSyncMode, WgpuBackend};
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
@@ -35,6 +35,8 @@ struct CommonAppConfig {
     window_height: Option<u32>,
     #[serde(default)]
     launch_in_fullscreen: bool,
+    #[serde(default)]
+    wgpu_backend: WgpuBackend,
     #[serde(default)]
     vsync_mode: VSyncMode,
     #[serde(default = "default_prescale_factor")]
@@ -146,6 +148,7 @@ impl AppConfig {
             audio_sync: self.common.audio_sync,
             window_size: self.common.window_size(),
             renderer_config: RendererConfig {
+                wgpu_backend: self.common.wgpu_backend,
                 vsync_mode: self.common.vsync_mode,
                 prescale_factor: self.common.prescale_factor,
                 filter_mode: self.common.filter_mode,
@@ -376,6 +379,35 @@ impl App {
         let mut open = true;
         Window::new("General Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.checkbox(&mut self.config.common.launch_in_fullscreen, "Launch in fullscreen");
+
+            ui.group(|ui| {
+                ui.set_enabled(!self.emu_thread.status().is_running());
+
+                ui.label("wgpu backend");
+                ui.horizontal(|ui| {
+                    ui.radio_value(&mut self.config.common.wgpu_backend, WgpuBackend::Auto, "Auto");
+                    ui.radio_value(
+                        &mut self.config.common.wgpu_backend,
+                        WgpuBackend::Vulkan,
+                        "Vulkan",
+                    );
+                    ui.radio_value(
+                        &mut self.config.common.wgpu_backend,
+                        WgpuBackend::DirectX12,
+                        "DirectX 12",
+                    );
+                    ui.radio_value(
+                        &mut self.config.common.wgpu_backend,
+                        WgpuBackend::Metal,
+                        "Metal",
+                    );
+                    ui.radio_value(
+                        &mut self.config.common.wgpu_backend,
+                        WgpuBackend::OpenGl,
+                        "OpenGL",
+                    );
+                });
+            });
 
             ui.group(|ui| {
                 ui.label("VSync mode");

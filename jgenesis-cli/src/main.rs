@@ -9,7 +9,7 @@ use jgenesis_native_driver::config::{
     CommonConfig, GenesisConfig, GgAspectRatio, SmsAspectRatio, SmsGgConfig, WindowSize,
 };
 use jgenesis_native_driver::{
-    FilterMode, NativeTickEffect, PrescaleFactor, RendererConfig, VSyncMode,
+    FilterMode, NativeTickEffect, PrescaleFactor, RendererConfig, VSyncMode, WgpuBackend,
 };
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use smsgg_core::psg::PsgVersion;
@@ -92,6 +92,10 @@ struct Args {
     /// Launch in fullscreen
     #[arg(long)]
     fullscreen: bool,
+
+    /// wgpu backend (Auto / Vulkan / DirectX12 / Metal / OpenGl)
+    #[arg(long, default_value_t)]
+    wgpu_backend: WgpuBackend,
 
     /// VSync mode (Enabled / Disabled / Fast)
     #[arg(long, default_value_t = VSyncMode::Enabled)]
@@ -197,6 +201,7 @@ impl Args {
         let prescale_factor = PrescaleFactor::try_from(self.prescale_factor)
             .expect("prescale factor must be non-zero");
         RendererConfig {
+            wgpu_backend: self.wgpu_backend,
             vsync_mode: self.vsync_mode,
             prescale_factor,
             filter_mode: self.filter_mode,
