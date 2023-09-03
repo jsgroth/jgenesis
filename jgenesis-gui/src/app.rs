@@ -1,14 +1,17 @@
 mod input;
+mod romlist;
 
 use crate::app::input::{GenericButton, InputAppConfig};
+use crate::app::romlist::RomMetadata;
 use crate::emuthread;
 use crate::emuthread::{EmuThreadCommand, EmuThreadHandle, EmuThreadStatus};
 use eframe::Frame;
 use egui::panel::TopBottomSide;
 use egui::{
-    menu, Button, Color32, Context, Key, KeyboardShortcut, Modifiers, TextEdit, TopBottomPanel,
-    Widget, Window,
+    menu, Align, Button, CentralPanel, Color32, Context, Key, KeyboardShortcut, Layout, Modifiers,
+    TextEdit, TopBottomPanel, Vec2, Widget, Window,
 };
+use egui_extras::{Column, TableBuilder};
 use genesis_core::GenesisAspectRatio;
 use jgenesis_native_driver::config::{
     CommonConfig, GenesisConfig, GgAspectRatio, SmsAspectRatio, SmsGgConfig, WindowSize,
@@ -117,6 +120,7 @@ pub struct AppConfig {
     genesis: GenesisAppConfig,
     #[serde(default)]
     inputs: InputAppConfig,
+    rom_search_dir: Option<String>,
 }
 
 impl AppConfig {
@@ -200,6 +204,7 @@ impl Default for AppConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum OpenWindow {
     SmsGgGeneral,
+    Interface,
     CommonVideo,
     SmsGgVideo,
     GenesisVideo,
@@ -220,10 +225,12 @@ struct AppState {
     axis_deadzone_text: String,
     axis_deadzone_invalid: bool,
     waiting_for_input: Option<GenericButton>,
+    rom_list: Vec<RomMetadata>,
 }
 
 impl AppState {
     fn from_config(config: &AppConfig) -> Self {
+        let rom_list = romlist::build(config.rom_search_dir.as_ref());
         Self {
             current_file_path: String::new(),
             open_windows: HashSet::new(),
@@ -232,6 +239,7 @@ impl AppState {
             axis_deadzone_text: config.inputs.axis_deadzone.to_string(),
             axis_deadzone_invalid: false,
             waiting_for_input: None,
+            rom_list,
         }
     }
 }
@@ -260,31 +268,44 @@ impl App {
             return;
         }
 
-        let Some(path) =
-            FileDialog::new().add_filter("sms/gg/md", &["sms", "gg", "md", "bin"]).pick_file()
-        else {
-            return;
-        };
+        let mut file_dialog =
+            FileDialog::new().add_filter("sms/gg/md", &["sms", "gg", "md", "bin"]);
+        if let Some(dir) = &self.config.rom_search_dir {
+            file_dialog = file_dialog.set_directory(Path::new(dir));
+        }
+        let Some(path) = file_dialog.pick_file() else { return };
 
-        let path_str = path.to_string_lossy().to_string();
-        self.state.current_file_path = path_str.clone();
+        let Some(path_str) = path.to_str().map(String::from) else { return };
+        self.launch_emulator(path_str);
+    }
 
-        match path.extension().and_then(OsStr::to_str) {
+    fn launch_emulator(&mut self, path: String) {
+        self.state.current_file_path = path.clone();
+
+        match Path::new(&path).extension().and_then(OsStr::to_str) {
             Some("sms" | "gg") => {
                 self.emu_thread.stop_emulator_if_running();
 
-                let config = self.config.smsgg_config(path_str);
+                let config = self.config.smsgg_config(path);
                 self.emu_thread.send(EmuThreadCommand::RunSms(config));
             }
             Some("md" | "bin") => {
                 self.emu_thread.stop_emulator_if_running();
 
-                let config = self.config.genesis_config(path_str);
+                let config = self.config.genesis_config(path);
                 self.emu_thread.send(EmuThreadCommand::RunGenesis(config));
             }
             Some(_) => todo!("unrecognized file extension"),
             None => {}
         }
+    }
+
+    fn configure_rom_search_directory(&mut self) {
+        let Some(dir) = FileDialog::new().pick_folder() else { return };
+        let Some(dir) = dir.to_str() else { return };
+
+        self.config.rom_search_dir = Some(dir.into());
+        self.state.rom_list = romlist::build(self.config.rom_search_dir.as_ref());
     }
 
     fn render_smsgg_general_settings(&mut self, ctx: &Context) {
@@ -323,6 +344,28 @@ impl App {
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::SmsGgGeneral);
+        }
+    }
+
+    fn render_interface_settings(&mut self, ctx: &Context) {
+        let mut open = true;
+        Window::new("UI Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            let rom_search_dir = self.config.rom_search_dir.clone().unwrap_or("<None>".into());
+            ui.horizontal(|ui| {
+                if ui.button(&rom_search_dir).clicked() {
+                    self.configure_rom_search_directory();
+                }
+
+                ui.label("ROM search directory");
+
+                if ui.button("Clear").clicked() {
+                    self.config.rom_search_dir = None;
+                    self.state.rom_list = Vec::new();
+                }
+            });
+        });
+        if !open {
+            self.state.open_windows.remove(&OpenWindow::Interface);
         }
     }
 
@@ -569,34 +612,8 @@ impl App {
             self.state.open_windows.remove(&OpenWindow::About);
         }
     }
-}
 
-impl eframe::App for App {
-    fn update(&mut self, ctx: &Context, frame: &mut Frame) {
-        let prev_config = self.config.clone();
-
-        if let Some(button) = self.state.waiting_for_input {
-            if let Ok(input) = self.emu_thread.poll_input_receiver() {
-                self.state.waiting_for_input = None;
-
-                log::info!("Received input {input:?} for button {button:?}");
-                if let Some(input) = input {
-                    self.config.inputs.set_input(input, button);
-
-                    if self.emu_thread.status().is_running() {
-                        self.emu_thread.reload_config(
-                            self.config.smsgg_config(self.state.current_file_path.clone()),
-                            self.config.genesis_config(self.state.current_file_path.clone()),
-                        );
-                    }
-                }
-            } else if self.emu_thread.status().is_running() {
-                Window::new("Input Configuration").resizable(false).show(ctx, |ui| {
-                    ui.colored_label(Color32::BLUE, "Use the emulator window to configure input");
-                });
-            }
-        }
-
+    fn render_menu(&mut self, ctx: &Context, frame: &mut Frame) {
         let open_shortcut = KeyboardShortcut::new(Modifiers::CTRL, Key::O);
         if ctx.input_mut(|input| input.consume_shortcut(&open_shortcut)) {
             self.open_file();
@@ -627,6 +644,10 @@ impl eframe::App for App {
                 ui.menu_button("Settings", |ui| {
                     if ui.button("SMS/GG").clicked() {
                         self.state.open_windows.insert(OpenWindow::SmsGgGeneral);
+                        ui.close_menu();
+                    }
+                    if ui.button("Interface").clicked() {
+                        self.state.open_windows.insert(OpenWindow::Interface);
                         ui.close_menu();
                     }
                 });
@@ -690,11 +711,126 @@ impl eframe::App for App {
                 });
             });
         });
+    }
+
+    fn render_central_panel(&mut self, ctx: &Context) {
+        CentralPanel::default().show(ctx, |ui| {
+            if self.state.rom_list.is_empty() {
+                ui.centered_and_justified(|ui| {
+                    if ui.selectable_label(false, "Configure ROM search directory").clicked() {
+                        self.configure_rom_search_directory();
+                    }
+                });
+            } else {
+                ui.set_enabled(self.state.waiting_for_input.is_none());
+
+                TableBuilder::new(ui)
+                    .auto_shrink([false; 2])
+                    .striped(true)
+                    .cell_layout(Layout::left_to_right(Align::Center))
+                    .column(Column::auto().at_most(300.0))
+                    .columns(Column::auto(), 2)
+                    .column(Column::remainder())
+                    .header(30.0, |mut row| {
+                        row.col(|ui| {
+                            ui.vertical_centered(|ui| {
+                                ui.heading("Name");
+                            });
+                        });
+
+                        row.col(|ui| {
+                            ui.vertical_centered(|ui| {
+                                ui.heading("Console");
+                            });
+                        });
+
+                        row.col(|ui| {
+                            ui.vertical_centered(|ui| {
+                                ui.heading("Size");
+                            });
+                        });
+
+                        // Blank column to make stripes extend to the right
+                        row.col(|_ui| {});
+                    })
+                    .body(|mut body| {
+                        for metadata in self.state.rom_list.clone() {
+                            body.row(40.0, |mut row| {
+                                row.col(|ui| {
+                                    if Button::new(&metadata.file_name_no_ext)
+                                        .min_size(Vec2::new(300.0, 30.0))
+                                        .wrap(true)
+                                        .ui(ui)
+                                        .clicked()
+                                    {
+                                        self.emu_thread.stop_emulator_if_running();
+                                        self.launch_emulator(metadata.full_path.clone());
+                                    }
+                                });
+
+                                row.col(|ui| {
+                                    ui.centered_and_justified(|ui| {
+                                        ui.label(metadata.console.to_str());
+                                    });
+                                });
+
+                                row.col(|ui| {
+                                    ui.centered_and_justified(|ui| {
+                                        let size_kb = metadata.file_size / 1024;
+                                        ui.label(format!("{size_kb}KB"));
+                                    });
+                                });
+
+                                // Blank column to make stripes extend to the right
+                                row.col(|_ui| {});
+                            });
+                        }
+                    });
+            }
+        });
+    }
+
+    fn check_waiting_for_input(&mut self, ctx: &Context) {
+        if let Some(button) = self.state.waiting_for_input {
+            if let Ok(input) = self.emu_thread.poll_input_receiver() {
+                self.state.waiting_for_input = None;
+
+                log::info!("Received input {input:?} for button {button:?}");
+                if let Some(input) = input {
+                    self.config.inputs.set_input(input, button);
+
+                    if self.emu_thread.status().is_running() {
+                        self.emu_thread.reload_config(
+                            self.config.smsgg_config(self.state.current_file_path.clone()),
+                            self.config.genesis_config(self.state.current_file_path.clone()),
+                        );
+                    }
+                }
+            } else if self.emu_thread.status().is_running() {
+                Window::new("Input Configuration").resizable(false).show(ctx, |ui| {
+                    ui.colored_label(Color32::BLUE, "Use the emulator window to configure input");
+                });
+            }
+        }
+    }
+}
+
+impl eframe::App for App {
+    fn update(&mut self, ctx: &Context, frame: &mut Frame) {
+        let prev_config = self.config.clone();
+
+        self.check_waiting_for_input(ctx);
+
+        self.render_menu(ctx, frame);
+        self.render_central_panel(ctx);
 
         for open_window in self.state.open_windows.clone() {
             match open_window {
                 OpenWindow::SmsGgGeneral => {
                     self.render_smsgg_general_settings(ctx);
+                }
+                OpenWindow::Interface => {
+                    self.render_interface_settings(ctx);
                 }
                 OpenWindow::CommonVideo => {
                     self.render_common_video_settings(ctx);

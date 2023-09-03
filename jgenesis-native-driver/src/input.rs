@@ -526,6 +526,8 @@ pub(crate) struct HotkeyMapper {
     mapping: HashMap<Keycode, Vec<Hotkey>>,
 }
 
+const EMPTY_VEC: &Vec<Hotkey> = &Vec::new();
+
 impl HotkeyMapper {
     /// Build a hotkey mapper from the given config.
     ///
@@ -550,13 +552,11 @@ impl HotkeyMapper {
 
     #[must_use]
     pub fn check_for_hotkeys(&self, event: &Event) -> &Vec<Hotkey> {
-        static EMPTY_VEC: Vec<Hotkey> = Vec::new();
-
         match event {
             Event::KeyDown { keycode: Some(keycode), .. } => {
-                self.mapping.get(keycode).unwrap_or(&EMPTY_VEC)
+                self.mapping.get(keycode).unwrap_or(EMPTY_VEC)
             }
-            _ => &EMPTY_VEC,
+            _ => EMPTY_VEC,
         }
     }
 }
