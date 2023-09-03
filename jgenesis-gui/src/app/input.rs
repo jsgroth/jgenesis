@@ -508,6 +508,9 @@ impl App {
                 ui,
             );
         });
+        if !open {
+            self.state.open_windows.remove(&OpenWindow::Hotkeys);
+        }
     }
 
     fn render_axis_deadzone_input(&mut self, ui: &mut Ui) {
