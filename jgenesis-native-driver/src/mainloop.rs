@@ -1,6 +1,8 @@
 use crate::config;
 use crate::config::{CommonConfig, GenesisConfig, SmsGgConfig, WindowSize};
-use crate::input::{GenesisButton, GetButtonField, InputMapper, Joysticks, SmsGgButton};
+use crate::input::{
+    GenesisButton, GetButtonField, Hotkey, HotkeyMapper, InputMapper, Joysticks, SmsGgButton,
+};
 use crate::renderer::WgpuRenderer;
 use anyhow::{anyhow, Context};
 use bincode::{Decode, Encode};
@@ -8,7 +10,6 @@ use genesis_core::{GenesisEmulator, GenesisInputs};
 use jgenesis_traits::frontend::{AudioOutput, EmulatorTrait, SaveWriter, TickEffect};
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::event::{Event, WindowEvent};
-use sdl2::keyboard::Keycode;
 use sdl2::{AudioSubsystem, EventPump, JoystickSubsystem, VideoSubsystem};
 use smsgg_core::{SmsGgEmulator, SmsGgInputs};
 use std::ffi::OsStr;
@@ -112,6 +113,7 @@ pub struct NativeEmulator<Inputs, Button, Emulator> {
     renderer: WgpuRenderer,
     audio_output: SdlAudioOutput,
     input_mapper: InputMapper<Inputs, Button>,
+    hotkey_mapper: HotkeyMapper,
     save_writer: FsSaveWriter,
     event_pump: EventPump,
     save_state_path: PathBuf,
@@ -121,6 +123,15 @@ impl<Inputs, Button, Emulator> NativeEmulator<Inputs, Button, Emulator> {
     fn reload_common_config<KC, JC>(&mut self, config: &CommonConfig<KC, JC>) {
         self.renderer.reload_config(config.renderer_config);
         self.audio_output.audio_sync = config.audio_sync;
+
+        match HotkeyMapper::from_config(&config.hotkeys) {
+            Ok(hotkey_mapper) => {
+                self.hotkey_mapper = hotkey_mapper;
+            }
+            Err(err) => {
+                log::error!("Error reloading hotkey config: {err}");
+            }
+        }
     }
 
     pub fn focus(&mut self) {
@@ -194,16 +205,19 @@ where
             {
                 for event in self.event_pump.poll_iter() {
                     self.input_mapper.handle_event(&event)?;
-                    handle_hotkeys(
+                    if handle_hotkeys(
+                        &self.hotkey_mapper,
                         &event,
                         &mut self.emulator,
                         &mut self.renderer,
                         &self.save_state_path,
-                    )?;
+                    )? == HotkeyResult::Quit
+                    {
+                        return Ok(NativeTickEffect::Exit);
+                    }
 
                     match event {
-                        Event::Quit { .. }
-                        | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
+                        Event::Quit { .. } => {
                             return Ok(NativeTickEffect::Exit);
                         }
                         Event::Window { win_event, .. } => {
@@ -268,6 +282,7 @@ pub fn create_smsgg(
         config.common.joystick_inputs,
         config.common.axis_deadzone,
     )?;
+    let hotkey_mapper = HotkeyMapper::from_config(&config.common.hotkeys)?;
     let save_writer = FsSaveWriter::new(save_path);
 
     let emulator = SmsGgEmulator::create(
@@ -283,6 +298,7 @@ pub fn create_smsgg(
         renderer,
         audio_output,
         input_mapper,
+        hotkey_mapper,
         save_writer,
         event_pump,
         save_state_path,
@@ -324,6 +340,7 @@ pub fn create_genesis(
         config.common.joystick_inputs,
         config.common.axis_deadzone,
     )?;
+    let hotkey_mapper = HotkeyMapper::from_config(&config.common.hotkeys)?;
     let save_writer = FsSaveWriter::new(save_path);
 
     Ok(NativeEmulator {
@@ -331,6 +348,7 @@ pub fn create_genesis(
         renderer,
         audio_output,
         input_mapper,
+        hotkey_mapper,
         save_writer,
         event_pump,
         save_state_path,
@@ -367,45 +385,56 @@ fn init_sdl() -> anyhow::Result<(VideoSubsystem, AudioSubsystem, JoystickSubsyst
     Ok((video, audio, joystick, event_pump))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HotkeyResult {
+    None,
+    Quit,
+}
+
 fn handle_hotkeys<Inputs, Emulator, P>(
+    hotkey_mapper: &HotkeyMapper,
     event: &Event,
     emulator: &mut Emulator,
     renderer: &mut WgpuRenderer,
     save_state_path: P,
-) -> anyhow::Result<()>
+) -> anyhow::Result<HotkeyResult>
 where
     Emulator: EmulatorTrait<Inputs>,
     P: AsRef<Path>,
 {
     let save_state_path = save_state_path.as_ref();
 
-    match event {
-        Event::KeyDown { keycode: Some(Keycode::F5), .. } => {
-            save_state(emulator, save_state_path)?;
+    for &hotkey in hotkey_mapper.check_for_hotkeys(event) {
+        match hotkey {
+            Hotkey::Quit => {
+                return Ok(HotkeyResult::Quit);
+            }
+            Hotkey::ToggleFullscreen => {
+                renderer
+                    .toggle_fullscreen()
+                    .map_err(|err| anyhow!("Error toggling fullscreen: {err}"))?;
+            }
+            Hotkey::SaveState => {
+                save_state(emulator, save_state_path)?;
+            }
+            Hotkey::LoadState => {
+                let mut loaded_emulator: Emulator = match load_state(save_state_path) {
+                    Ok(emulator) => emulator,
+                    Err(err) => {
+                        log::error!(
+                            "Error loading save state from {}: {err}",
+                            save_state_path.display()
+                        );
+                        return Ok(HotkeyResult::None);
+                    }
+                };
+                loaded_emulator.take_rom_from(emulator);
+                *emulator = loaded_emulator;
+            }
         }
-        Event::KeyDown { keycode: Some(Keycode::F6), .. } => {
-            let mut loaded_emulator: Emulator = match load_state(save_state_path) {
-                Ok(emulator) => emulator,
-                Err(err) => {
-                    log::error!(
-                        "Error loading save state from {}: {err}",
-                        save_state_path.display()
-                    );
-                    return Ok(());
-                }
-            };
-            loaded_emulator.take_rom_from(emulator);
-            *emulator = loaded_emulator;
-        }
-        Event::KeyDown { keycode: Some(Keycode::F9), .. } => {
-            renderer
-                .toggle_fullscreen()
-                .map_err(|err| anyhow!("Error toggling fullscreen: {err}"))?;
-        }
-        _ => {}
     }
 
-    Ok(())
+    Ok(HotkeyResult::None)
 }
 
 fn handle_window_event(win_event: WindowEvent, renderer: &mut WgpuRenderer) {

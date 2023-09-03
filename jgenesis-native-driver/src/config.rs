@@ -1,6 +1,8 @@
 pub mod input;
 
-use crate::config::input::{GenesisInputConfig, JoystickInput, KeyboardInput, SmsGgInputConfig};
+use crate::config::input::{
+    GenesisInputConfig, HotkeyConfig, JoystickInput, KeyboardInput, SmsGgInputConfig,
+};
 use crate::RendererConfig;
 use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig};
 use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay, EnumFromStr};
@@ -72,6 +74,8 @@ pub struct CommonConfig<KeyboardConfig, JoystickConfig> {
     pub axis_deadzone: i16,
     #[indent_nested]
     pub joystick_inputs: JoystickConfig,
+    #[indent_nested]
+    pub hotkeys: HotkeyConfig,
 }
 
 #[derive(Debug, Clone, ConfigDisplay)]

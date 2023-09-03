@@ -2,8 +2,8 @@ use clap::Parser;
 use env_logger::Env;
 use genesis_core::GenesisAspectRatio;
 use jgenesis_native_driver::config::input::{
-    GenesisControllerConfig, GenesisInputConfig, KeyboardInput, SmsGgControllerConfig,
-    SmsGgInputConfig,
+    GenesisControllerConfig, GenesisInputConfig, HotkeyConfig, KeyboardInput,
+    SmsGgControllerConfig, SmsGgInputConfig,
 };
 use jgenesis_native_driver::config::{
     CommonConfig, GenesisConfig, GgAspectRatio, SmsAspectRatio, SmsGgConfig, WindowSize,
@@ -144,6 +144,22 @@ struct Args {
     /// Joystick axis deadzone
     #[arg(long, default_value_t = 8000)]
     joy_axis_deadzone: i16,
+
+    /// Quit hotkey
+    #[arg(long, default_value_t = String::from("Escape"))]
+    hotkey_quit: String,
+
+    /// Toggle fullscreen hotkey
+    #[arg(long, default_value_t = String::from("F9"))]
+    hotkey_toggle_fullscreen: String,
+
+    /// Save state hotkey
+    #[arg(long, default_value_t = String::from("F5"))]
+    hotkey_save_state: String,
+
+    /// Load state hotkey
+    #[arg(long, default_value_t = String::from("F6"))]
+    hotkey_load_state: String,
 }
 
 impl Args {
@@ -216,6 +232,15 @@ impl Args {
         }
     }
 
+    fn hotkey_config(&self) -> HotkeyConfig {
+        HotkeyConfig {
+            quit: keyboard_input(&self.hotkey_quit),
+            toggle_fullscreen: keyboard_input(&self.hotkey_toggle_fullscreen),
+            save_state: keyboard_input(&self.hotkey_save_state),
+            load_state: keyboard_input(&self.hotkey_load_state),
+        }
+    }
+
     fn common_config<KC, JC>(
         &self,
         keyboard_inputs: KC,
@@ -229,6 +254,7 @@ impl Args {
             keyboard_inputs,
             axis_deadzone: self.joy_axis_deadzone,
             joystick_inputs,
+            hotkeys: self.hotkey_config(),
         }
     }
 }

@@ -1,6 +1,6 @@
 use crate::config::input::{
-    AxisDirection, GenesisInputConfig, HatDirection, JoystickAction, JoystickDeviceId,
-    JoystickInput, KeyboardInput, SmsGgInputConfig,
+    AxisDirection, GenesisInputConfig, HatDirection, HotkeyConfig, JoystickAction,
+    JoystickDeviceId, JoystickInput, KeyboardInput, SmsGgInputConfig,
 };
 use anyhow::anyhow;
 use genesis_core::GenesisInputs;
@@ -511,5 +511,52 @@ where
 
     pub(crate) fn inputs(&self) -> &Inputs {
         &self.inputs
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hotkey {
+    Quit,
+    ToggleFullscreen,
+    SaveState,
+    LoadState,
+}
+
+pub(crate) struct HotkeyMapper {
+    mapping: HashMap<Keycode, Vec<Hotkey>>,
+}
+
+impl HotkeyMapper {
+    /// Build a hotkey mapper from the given config.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the given config contains any invalid keycodes.
+    pub fn from_config(config: &HotkeyConfig) -> anyhow::Result<Self> {
+        let mut mapping: HashMap<Keycode, Vec<Hotkey>> = HashMap::new();
+        for (input, hotkey) in [
+            (&config.quit, Hotkey::Quit),
+            (&config.toggle_fullscreen, Hotkey::ToggleFullscreen),
+            (&config.save_state, Hotkey::SaveState),
+            (&config.load_state, Hotkey::LoadState),
+        ] {
+            let keycode = Keycode::from_name(&input.keycode)
+                .ok_or_else(|| anyhow!("Invalid SDL2 keycode: {}", input.keycode))?;
+            mapping.entry(keycode).or_default().push(hotkey);
+        }
+
+        Ok(Self { mapping })
+    }
+
+    #[must_use]
+    pub fn check_for_hotkeys(&self, event: &Event) -> &Vec<Hotkey> {
+        static EMPTY_VEC: Vec<Hotkey> = Vec::new();
+
+        match event {
+            Event::KeyDown { keycode: Some(keycode), .. } => {
+                self.mapping.get(keycode).unwrap_or(&EMPTY_VEC)
+            }
+            _ => &EMPTY_VEC,
+        }
     }
 }

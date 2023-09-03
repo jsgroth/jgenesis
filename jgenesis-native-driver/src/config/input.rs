@@ -75,7 +75,7 @@ impl Display for JoystickInput {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeyboardInput {
     pub keycode: String,
 }
@@ -241,5 +241,24 @@ impl Default for GenesisInputConfig<KeyboardInput> {
 impl Default for GenesisInputConfig<JoystickInput> {
     fn default() -> Self {
         Self { p1: GenesisControllerConfig::default(), p2: GenesisControllerConfig::default() }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, ConfigDisplay, Serialize, Deserialize)]
+pub struct HotkeyConfig {
+    pub quit: KeyboardInput,
+    pub toggle_fullscreen: KeyboardInput,
+    pub save_state: KeyboardInput,
+    pub load_state: KeyboardInput,
+}
+
+impl Default for HotkeyConfig {
+    fn default() -> Self {
+        Self {
+            quit: KeyboardInput { keycode: Keycode::Escape.name() },
+            toggle_fullscreen: KeyboardInput { keycode: Keycode::F9.name() },
+            save_state: KeyboardInput { keycode: Keycode::F5.name() },
+            load_state: KeyboardInput { keycode: Keycode::F6.name() },
+        }
     }
 }

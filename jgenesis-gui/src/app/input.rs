@@ -2,16 +2,17 @@ use crate::app::{App, OpenWindow};
 use crate::emuthread::{EmuThreadCommand, GenericInput, InputType};
 use egui::{Color32, Context, TextEdit, Ui, Widget, Window};
 use jgenesis_native_driver::config::input::{
-    GenesisControllerConfig, GenesisInputConfig, JoystickInput, KeyboardInput,
+    GenesisControllerConfig, GenesisInputConfig, HotkeyConfig, JoystickInput, KeyboardInput,
     SmsGgControllerConfig, SmsGgInputConfig,
 };
-use jgenesis_native_driver::input::{GenesisButton, Player, SmsGgButton};
+use jgenesis_native_driver::input::{GenesisButton, Hotkey, Player, SmsGgButton};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GenericButton {
     SmsGg(SmsGgButton),
     Genesis(GenesisButton),
+    Hotkey(Hotkey),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,6 +35,8 @@ pub struct InputAppConfig {
     pub genesis_p2_joystick: GenesisControllerConfig<JoystickInput>,
     #[serde(default = "default_axis_deadzone")]
     pub axis_deadzone: i16,
+    #[serde(default)]
+    pub hotkeys: HotkeyConfig,
 }
 
 macro_rules! set_input {
@@ -175,6 +178,24 @@ impl InputAppConfig {
                     );
                 }
             },
+            GenericButton::Hotkey(hotkey) => {
+                if let GenericInput::Keyboard(input) = input {
+                    match hotkey {
+                        Hotkey::Quit => {
+                            self.hotkeys.quit = input;
+                        }
+                        Hotkey::ToggleFullscreen => {
+                            self.hotkeys.toggle_fullscreen = input;
+                        }
+                        Hotkey::SaveState => {
+                            self.hotkeys.save_state = input;
+                        }
+                        Hotkey::LoadState => {
+                            self.hotkeys.load_state = input;
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -457,6 +478,38 @@ impl App {
         }
     }
 
+    pub(super) fn render_hotkey_settings(&mut self, ctx: &Context) {
+        let mut open = true;
+        Window::new("Hotkey Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.set_enabled(self.state.waiting_for_input.is_none());
+
+            self.hotkey_button(
+                &self.config.inputs.hotkeys.quit.keycode.clone(),
+                "Quit",
+                Hotkey::Quit,
+                ui,
+            );
+            self.hotkey_button(
+                &self.config.inputs.hotkeys.toggle_fullscreen.keycode.clone(),
+                "Toggle fullscreen",
+                Hotkey::ToggleFullscreen,
+                ui,
+            );
+            self.hotkey_button(
+                &self.config.inputs.hotkeys.save_state.keycode.clone(),
+                "Save state",
+                Hotkey::SaveState,
+                ui,
+            );
+            self.hotkey_button(
+                &self.config.inputs.hotkeys.load_state.keycode.clone(),
+                "Load state",
+                Hotkey::LoadState,
+                ui,
+            );
+        });
+    }
+
     fn render_axis_deadzone_input(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
             if TextEdit::singleline(&mut self.state.axis_deadzone_text)
@@ -530,6 +583,26 @@ impl App {
                 }
 
                 self.state.waiting_for_input = Some(button);
+            }
+        });
+    }
+
+    fn hotkey_button(&mut self, text: &str, label: &str, hotkey: Hotkey, ui: &mut Ui) {
+        ui.horizontal(|ui| {
+            ui.label(format!("{label}:"));
+
+            if ui.button(text).clicked() {
+                log::debug!("Sending collect input command for hotkey {hotkey:?}");
+                self.emu_thread.send(EmuThreadCommand::CollectInput {
+                    input_type: InputType::Keyboard,
+                    axis_deadzone: self.config.inputs.axis_deadzone,
+                });
+                if self.emu_thread.status().is_running() {
+                    log::debug!("Setting read signal");
+                    self.emu_thread.set_command_read_signal();
+                }
+
+                self.state.waiting_for_input = Some(GenericButton::Hotkey(hotkey));
             }
         });
     }

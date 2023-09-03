@@ -147,6 +147,7 @@ impl AppConfig {
             keyboard_inputs,
             axis_deadzone: 8000,
             joystick_inputs,
+            hotkeys: self.inputs.hotkeys.clone(),
         }
     }
 
@@ -207,6 +208,7 @@ enum OpenWindow {
     SmsGgGamepad,
     GenesisKeyboard,
     GenesisGamepad,
+    Hotkeys,
 }
 
 struct AppState {
@@ -650,6 +652,11 @@ impl eframe::App for App {
                         self.state.open_windows.insert(OpenWindow::GenesisGamepad);
                         ui.close_menu();
                     }
+
+                    if ui.button("Hotkeys").clicked() {
+                        self.state.open_windows.insert(OpenWindow::Hotkeys);
+                        ui.close_menu();
+                    }
                 });
             });
         });
@@ -682,6 +689,9 @@ impl eframe::App for App {
                 }
                 OpenWindow::GenesisGamepad => {
                     self.render_genesis_gamepad_settings(ctx);
+                }
+                OpenWindow::Hotkeys => {
+                    self.render_hotkey_settings(ctx);
                 }
             }
         }
