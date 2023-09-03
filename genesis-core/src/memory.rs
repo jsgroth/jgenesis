@@ -274,9 +274,7 @@ impl Z80BankRegister {
     }
 
     fn write_bit(&mut self, bit: bool) {
-        let mask = 1 << self.current_bit;
-        self.bank_number = (self.bank_number & !mask) | (u32::from(bit) << self.current_bit);
-        self.current_bit = (self.current_bit + 1) % Self::BITS;
+        self.bank_number = (self.bank_number >> 1) | (u32::from(bit) << (Self::BITS - 1));
     }
 }
 
