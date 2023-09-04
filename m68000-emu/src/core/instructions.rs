@@ -205,6 +205,7 @@ pub enum Instruction {
     Subtract { size: OpSize, source: AddressingMode, dest: AddressingMode, with_extend: bool },
     SubtractDecimal { source: AddressingMode, dest: AddressingMode },
     Swap(DataRegister),
+    Stop,
     Test(OpSize, AddressingMode),
     TestAndSet(AddressingMode),
     Trap(u32),
@@ -277,6 +278,7 @@ impl Instruction {
             | Self::RotateThruExtendRegister(..)
             | Self::Set(..)
             | Self::Swap(..)
+            | Self::Stop
             | Self::TestAndSet(..)
             | Self::Trap(..)
             | Self::TrapOnOverflow
@@ -348,6 +350,7 @@ impl Instruction {
             | Self::RotateThruExtendMemory(..)
             | Self::RotateThruExtendRegister(..)
             | Self::Swap(..)
+            | Self::Stop
             | Self::Test(..)
             | Self::Trap(..)
             | Self::TrapOnOverflow
@@ -357,7 +360,10 @@ impl Instruction {
 }
 
 impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
+    #[allow(clippy::enum_glob_use)]
     pub(super) fn do_execute(&mut self) -> ExecuteResult<u32> {
+        use Instruction::*;
+
         log::trace!("Beginning instruction execution, PC={:08X}", self.registers.pc);
 
         let opcode = self.fetch_operand()?;
@@ -368,93 +374,90 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         log::trace!("Decoded instruction: {instruction:?}");
 
         match instruction {
-            Instruction::Add { size, source, dest, with_extend } => {
-                self.add(size, source, dest, with_extend)
-            }
-            Instruction::AddDecimal { source, dest } => self.abcd(source, dest),
-            Instruction::And { size, source, dest } => self.and(size, source, dest),
-            Instruction::AndToCcr => self.andi_to_ccr(),
-            Instruction::AndToSr => self.andi_to_sr(),
-            Instruction::ArithmeticShiftMemory(direction, dest) => self.asd_memory(direction, dest),
-            Instruction::ArithmeticShiftRegister(size, direction, register, count) => {
+            Add { size, source, dest, with_extend } => self.add(size, source, dest, with_extend),
+            AddDecimal { source, dest } => self.abcd(source, dest),
+            And { size, source, dest } => self.and(size, source, dest),
+            AndToCcr => self.andi_to_ccr(),
+            AndToSr => self.andi_to_sr(),
+            ArithmeticShiftMemory(direction, dest) => self.asd_memory(direction, dest),
+            ArithmeticShiftRegister(size, direction, register, count) => {
                 Ok(self.asd_register(size, direction, register, count))
             }
-            Instruction::BitTest { source, dest } => self.btst(source, dest),
-            Instruction::BitTestAndChange { source, dest } => self.bchg(source, dest),
-            Instruction::BitTestAndClear { source, dest } => self.bclr(source, dest),
-            Instruction::BitTestAndSet { source, dest } => self.bset(source, dest),
-            Instruction::Branch(condition, displacement) => self.branch(condition, displacement),
-            Instruction::BranchDecrement(condition, register) => self.dbcc(condition, register),
-            Instruction::BranchToSubroutine(displacement) => self.bsr(displacement),
-            Instruction::CheckRegister(register, source) => self.chk(register, source),
-            Instruction::Clear(size, dest) => self.clr(size, dest),
-            Instruction::Compare { size, source, dest } => self.cmp(size, source, dest),
-            Instruction::DivideSigned(register, source) => self.divs(register, source),
-            Instruction::DivideUnsigned(register, source) => self.divu(register, source),
-            Instruction::ExchangeAddress(rx, ry) => Ok(self.exg_address(rx, ry)),
-            Instruction::ExchangeData(rx, ry) => Ok(self.exg_data(rx, ry)),
-            Instruction::ExchangeDataAddress(rx, ry) => Ok(self.exg_data_address(rx, ry)),
-            Instruction::ExclusiveOr { size, source, dest } => self.eor(size, source, dest),
-            Instruction::ExclusiveOrToCcr => self.eori_to_ccr(),
-            Instruction::ExclusiveOrToSr => self.eori_to_sr(),
-            Instruction::Extend(size, register) => Ok(self.ext(size, register)),
-            Instruction::Jump(source) => self.jmp(source),
-            Instruction::JumpToSubroutine(source) => self.jsr(source),
-            Instruction::Link(register) => self.link(register),
-            Instruction::LoadEffectiveAddress(source, dest) => self.lea(source, dest),
-            Instruction::LogicalShiftMemory(direction, dest) => self.lsd_memory(direction, dest),
-            Instruction::LogicalShiftRegister(size, direction, register, count) => {
+            BitTest { source, dest } => self.btst(source, dest),
+            BitTestAndChange { source, dest } => self.bchg(source, dest),
+            BitTestAndClear { source, dest } => self.bclr(source, dest),
+            BitTestAndSet { source, dest } => self.bset(source, dest),
+            Branch(condition, displacement) => self.branch(condition, displacement),
+            BranchDecrement(condition, register) => self.dbcc(condition, register),
+            BranchToSubroutine(displacement) => self.bsr(displacement),
+            CheckRegister(register, source) => self.chk(register, source),
+            Clear(size, dest) => self.clr(size, dest),
+            Compare { size, source, dest } => self.cmp(size, source, dest),
+            DivideSigned(register, source) => self.divs(register, source),
+            DivideUnsigned(register, source) => self.divu(register, source),
+            ExchangeAddress(rx, ry) => Ok(self.exg_address(rx, ry)),
+            ExchangeData(rx, ry) => Ok(self.exg_data(rx, ry)),
+            ExchangeDataAddress(rx, ry) => Ok(self.exg_data_address(rx, ry)),
+            ExclusiveOr { size, source, dest } => self.eor(size, source, dest),
+            ExclusiveOrToCcr => self.eori_to_ccr(),
+            ExclusiveOrToSr => self.eori_to_sr(),
+            Extend(size, register) => Ok(self.ext(size, register)),
+            Jump(source) => self.jmp(source),
+            JumpToSubroutine(source) => self.jsr(source),
+            Link(register) => self.link(register),
+            LoadEffectiveAddress(source, dest) => self.lea(source, dest),
+            LogicalShiftMemory(direction, dest) => self.lsd_memory(direction, dest),
+            LogicalShiftRegister(size, direction, register, count) => {
                 Ok(self.lsd_register(size, direction, register, count))
             }
-            Instruction::Move { size, source, dest } => self.move_(size, source, dest),
-            Instruction::MoveFromSr(dest) => self.move_from_sr(dest),
-            Instruction::MoveMultiple(size, addressing_mode, direction) => {
+            Move { size, source, dest } => self.move_(size, source, dest),
+            MoveFromSr(dest) => self.move_from_sr(dest),
+            MoveMultiple(size, addressing_mode, direction) => {
                 self.movem(size, addressing_mode, direction)
             }
-            Instruction::MovePeripheral(size, d_register, a_register, direction) => {
+            MovePeripheral(size, d_register, a_register, direction) => {
                 self.movep(size, d_register, a_register, direction)
             }
-            Instruction::MoveQuick(data, register) => Ok(self.moveq(data, register)),
-            Instruction::MoveToCcr(source) => self.move_to_ccr(source),
-            Instruction::MoveToSr(source) => self.move_to_sr(source),
-            Instruction::MoveUsp(direction, register) => Ok(self.move_usp(direction, register)),
-            Instruction::MultiplySigned(register, source) => self.muls(register, source),
-            Instruction::MultiplyUnsigned(register, source) => self.mulu(register, source),
-            Instruction::Negate { size, dest, with_extend } => self.neg(size, dest, with_extend),
-            Instruction::NegateDecimal(dest) => self.nbcd(dest),
-            Instruction::NoOp => Ok(controlflow::nop()),
-            Instruction::Not(size, dest) => self.not(size, dest),
-            Instruction::Or { size, source, dest } => self.or(size, source, dest),
-            Instruction::OrToCcr => self.ori_to_ccr(),
-            Instruction::OrToSr => self.ori_to_sr(),
-            Instruction::PushEffectiveAddress(source) => self.pea(source),
-            Instruction::Reset => {
+            MoveQuick(data, register) => Ok(self.moveq(data, register)),
+            MoveToCcr(source) => self.move_to_ccr(source),
+            MoveToSr(source) => self.move_to_sr(source),
+            MoveUsp(direction, register) => Ok(self.move_usp(direction, register)),
+            MultiplySigned(register, source) => self.muls(register, source),
+            MultiplyUnsigned(register, source) => self.mulu(register, source),
+            Negate { size, dest, with_extend } => self.neg(size, dest, with_extend),
+            NegateDecimal(dest) => self.nbcd(dest),
+            NoOp => Ok(controlflow::nop()),
+            Not(size, dest) => self.not(size, dest),
+            Or { size, source, dest } => self.or(size, source, dest),
+            OrToCcr => self.ori_to_ccr(),
+            OrToSr => self.ori_to_sr(),
+            PushEffectiveAddress(source) => self.pea(source),
+            Reset => {
                 // TODO RESET
                 Ok(controlflow::nop())
             }
-            Instruction::Return { restore_ccr } => self.ret(restore_ccr),
-            Instruction::ReturnFromException => self.rte(),
-            Instruction::RotateMemory(direction, dest) => self.rod_memory(direction, dest),
-            Instruction::RotateRegister(size, direction, register, count) => {
+            Return { restore_ccr } => self.ret(restore_ccr),
+            ReturnFromException => self.rte(),
+            RotateMemory(direction, dest) => self.rod_memory(direction, dest),
+            RotateRegister(size, direction, register, count) => {
                 Ok(self.rod_register(size, direction, register, count))
             }
-            Instruction::RotateThruExtendMemory(direction, dest) => {
-                self.roxd_memory(direction, dest)
-            }
-            Instruction::RotateThruExtendRegister(size, direction, register, count) => {
+            RotateThruExtendMemory(direction, dest) => self.roxd_memory(direction, dest),
+            RotateThruExtendRegister(size, direction, register, count) => {
                 Ok(self.roxd_register(size, direction, register, count))
             }
-            Instruction::Set(condition, dest) => self.scc(condition, dest),
-            Instruction::Subtract { size, source, dest, with_extend } => {
+            Set(condition, dest) => self.scc(condition, dest),
+            Subtract { size, source, dest, with_extend } => {
                 self.sub(size, source, dest, with_extend)
             }
-            Instruction::SubtractDecimal { source, dest } => self.sbcd(source, dest),
-            Instruction::Swap(register) => Ok(self.swap(register)),
-            Instruction::Test(size, source) => self.tst(size, source),
-            Instruction::TestAndSet(dest) => self.tas(dest),
-            Instruction::Trap(vector) => controlflow::trap(vector),
-            Instruction::TrapOnOverflow => self.trapv(),
-            Instruction::Unlink(register) => self.unlk(register),
+            SubtractDecimal { source, dest } => self.sbcd(source, dest),
+            Swap(register) => Ok(self.swap(register)),
+            Stop => self.stop(),
+            Test(size, source) => self.tst(size, source),
+            TestAndSet(dest) => self.tas(dest),
+            Trap(vector) => controlflow::trap(vector),
+            TrapOnOverflow => self.trapv(),
+            Unlink(register) => self.unlk(register),
         }
     }
 }
@@ -547,7 +550,7 @@ fn decode_opcode(opcode: u16, supervisor_mode: bool) -> ExecuteResult<Instructio
                     }
                 }
                 0b0000_0000_0011_0001 => Ok(Instruction::NoOp),
-                0b0000_0000_0011_0010 => todo!("STOP"),
+                0b0000_0000_0011_0010 => Ok(Instruction::Stop),
                 0b0000_0000_0011_0011 => controlflow::decode_rte(opcode, supervisor_mode),
                 0b0000_0000_0011_0101 => Ok(Instruction::Return { restore_ccr: false }),
                 0b0000_0000_0011_0110 => Ok(Instruction::TrapOnOverflow),

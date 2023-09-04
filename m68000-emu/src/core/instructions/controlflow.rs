@@ -222,6 +222,18 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             8 + dest.address_calculation_cycles(OpSize::Byte)
         })
     }
+
+    pub(super) fn stop(&mut self) -> ExecuteResult<u32> {
+        if !self.registers.supervisor_mode {
+            return Err(Exception::PrivilegeViolation);
+        }
+
+        let sr = self.fetch_operand()?;
+        self.registers.set_status_register(sr);
+        self.registers.stopped = true;
+
+        Ok(4)
+    }
 }
 
 fn jump_cycles(addressing_mode: AddressingMode) -> u32 {

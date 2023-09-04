@@ -49,6 +49,7 @@ struct Registers {
     supervisor_mode: bool,
     trace_enabled: bool,
     address_error: bool,
+    stopped: bool,
 }
 
 const DEFAULT_INTERRUPT_MASK: u8 = 7;
@@ -66,6 +67,7 @@ impl Registers {
             supervisor_mode: true,
             trace_enabled: false,
             address_error: false,
+            stopped: false,
         }
     }
 
@@ -985,9 +987,14 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         if interrupt_level > self.registers.interrupt_priority_mask {
             log::trace!("Handling interrupt of level {interrupt_level}");
             self.bus.acknowledge_interrupt();
+            self.registers.stopped = false;
             return self
                 .handle_auto_vectored_interrupt(interrupt_level)
                 .unwrap_or_else(|_err| todo!("address error during interrupt service routine"));
+        }
+
+        if self.registers.stopped {
+            return 4;
         }
 
         match self.do_execute() {
@@ -1064,6 +1071,8 @@ impl M68000 {
         self.registers.supervisor_mode = true;
         self.registers.trace_enabled = false;
         self.registers.interrupt_priority_mask = DEFAULT_INTERRUPT_MASK;
+
+        self.registers.stopped = false;
 
         // Read SSP from $000000 and PC from $000004
         self.registers.ssp = bus.read_long_word(0);
