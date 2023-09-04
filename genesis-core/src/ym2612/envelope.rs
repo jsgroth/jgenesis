@@ -141,7 +141,12 @@ impl EnvelopeGenerator {
             u16::from(self.sustain_level) << 5
         };
 
-        // Skip decay phase if attenuation is already past sustain level
+        // Progress past attack phase if attenuation is at 0
+        if self.phase == EnvelopePhase::Attack && self.attenuation == 0 {
+            self.phase = EnvelopePhase::Decay;
+        }
+
+        // Progress past decay phase if attenuation is at or past sustain level
         if self.phase == EnvelopePhase::Decay && self.attenuation >= sustain_level {
             self.phase = EnvelopePhase::Sustain;
         }
@@ -176,17 +181,10 @@ impl EnvelopeGenerator {
                             .attenuation
                             .wrapping_add((!self.attenuation).wrapping_mul(increment) >> 4)
                             & ATTENUATION_MASK;
-                        if self.attenuation == 0 {
-                            self.phase = EnvelopePhase::Decay;
-                        }
                     }
                 }
                 EnvelopePhase::Decay => {
                     self.attenuation = cmp::min(sustain_level, self.attenuation + increment);
-
-                    if self.attenuation == sustain_level {
-                        self.phase = EnvelopePhase::Sustain;
-                    }
                 }
                 EnvelopePhase::Sustain | EnvelopePhase::Release => {
                     self.attenuation = cmp::min(MAX_ATTENUATION, self.attenuation + increment);
