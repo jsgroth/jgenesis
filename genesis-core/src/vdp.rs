@@ -22,6 +22,7 @@ enum ControlWriteFlag {
 enum DataPortMode {
     Read,
     Write,
+    Invalid,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -224,7 +225,6 @@ impl Default for PendingWrite {
 #[derive(Debug, Clone, Encode, Decode)]
 struct InternalState {
     control_write_flag: ControlWriteFlag,
-    first_word_code_bits: u8,
     code: u8,
     data_port_mode: DataPortMode,
     data_port_location: DataPortLocation,
@@ -244,7 +244,6 @@ impl InternalState {
     fn new() -> Self {
         Self {
             control_write_flag: ControlWriteFlag::First,
-            first_word_code_bits: 0,
             code: 0,
             data_port_mode: DataPortMode::Write,
             data_port_location: DataPortLocation::Vram,
@@ -740,6 +739,10 @@ impl Vdp {
 
         match self.state.control_write_flag {
             ControlWriteFlag::First => {
+                // Always latch lowest 2 code bits, even if this is a register write
+                self.state.code = (self.state.code & 0xFC) | ((value >> 14) & 0x03) as u8;
+                self.update_data_port_location();
+
                 if value & 0xE000 == 0x8000 {
                     // Register set
 
@@ -760,7 +763,6 @@ impl Vdp {
                     }
                 } else {
                     // First word of command write
-                    self.state.first_word_code_bits = ((value >> 14) & 0x03) as u8;
                     self.state.data_address = (self.state.data_address & 0xC000) | (value & 0x3FFF);
 
                     self.state.control_write_flag = ControlWriteFlag::Second;
@@ -770,29 +772,10 @@ impl Vdp {
                 self.state.data_address = (self.state.data_address & 0x3FFF) | (value << 14);
                 self.state.control_write_flag = ControlWriteFlag::First;
 
-                let code = (((value >> 2) & 0x3C) as u8) | self.state.first_word_code_bits;
-                let (data_port_location, data_port_mode) = match code & 0x0F {
-                    0x01 => (DataPortLocation::Vram, DataPortMode::Write),
-                    0x03 => (DataPortLocation::Cram, DataPortMode::Write),
-                    0x05 => (DataPortLocation::Vsram, DataPortMode::Write),
-                    0x00 => (DataPortLocation::Vram, DataPortMode::Read),
-                    0x08 => (DataPortLocation::Cram, DataPortMode::Read),
-                    0x04 => (DataPortLocation::Vsram, DataPortMode::Read),
-                    _ => {
-                        log::warn!("Invalid VDP control code: {code:02X}");
-                        (DataPortLocation::Vram, DataPortMode::Write)
-                    }
-                };
+                self.state.code = (((value >> 2) & 0x3C) as u8) | (self.state.code & 0x03);
+                self.update_data_port_location();
 
-                self.state.code = code;
-                self.state.data_port_location = data_port_location;
-                self.state.data_port_mode = data_port_mode;
-
-                log::trace!(
-                    "Set data port location to {data_port_location:?} and mode to {data_port_mode:?}"
-                );
-
-                if code.bit(5)
+                if self.state.code.bit(5)
                     && self.registers.dma_enabled
                     && self.registers.dma_mode != DmaMode::VramFill
                 {
@@ -806,6 +789,28 @@ impl Vdp {
                 }
             }
         }
+    }
+
+    fn update_data_port_location(&mut self) {
+        let (data_port_location, data_port_mode) = match self.state.code & 0x0F {
+            0x01 => (DataPortLocation::Vram, DataPortMode::Write),
+            0x03 => (DataPortLocation::Cram, DataPortMode::Write),
+            0x05 => (DataPortLocation::Vsram, DataPortMode::Write),
+            0x00 => (DataPortLocation::Vram, DataPortMode::Read),
+            0x08 => (DataPortLocation::Cram, DataPortMode::Read),
+            0x04 => (DataPortLocation::Vsram, DataPortMode::Read),
+            _ => {
+                // Invalid code
+                (DataPortLocation::Vram, DataPortMode::Invalid)
+            }
+        };
+
+        self.state.data_port_location = data_port_location;
+        self.state.data_port_mode = data_port_mode;
+
+        log::trace!(
+            "Set data port location to {data_port_location:?} and mode to {data_port_mode:?}"
+        );
     }
 
     pub fn read_data(&mut self) -> u16 {
