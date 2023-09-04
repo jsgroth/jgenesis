@@ -5,7 +5,6 @@ use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use jgenesis_traits::frontend::Color;
 use jgenesis_traits::num::GetBit;
-use std::cmp::Ordering;
 use std::ops::{Add, AddAssign, Deref, DerefMut};
 use z80_emu::traits::InterruptLine;
 
@@ -743,8 +742,22 @@ impl Vdp {
             ControlWriteFlag::First => {
                 if value & 0xE000 == 0x8000 {
                     // Register set
+
+                    let prev_display_enabled = self.registers.display_enabled;
+                    let prev_bg_palette = self.registers.background_palette;
+                    let prev_bg_color_id = self.registers.background_color_id;
+
                     let register_number = ((value >> 8) & 0x1F) as u8;
                     self.registers.write_internal_register(register_number, value as u8);
+
+                    // Re-render the next scanline if display enabled status or background color changed
+                    if self.in_hblank()
+                        && (prev_display_enabled != self.registers.display_enabled
+                            || prev_bg_palette != self.registers.background_palette
+                            || prev_bg_color_id != self.registers.background_color_id)
+                    {
+                        self.render_next_scanline();
+                    }
                 } else {
                     // First word of command write
                     self.state.first_word_code_bits = ((value >> 14) & 0x03) as u8;
@@ -947,11 +960,18 @@ impl Vdp {
 
         let prev_scanline_mclk = prev_mclk_cycles % MCLK_CYCLES_PER_SCANLINE;
 
-        // Check if an H/V interrupt has triggered
+        // Check if the VDP just entered the HBlank period
         if prev_scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE
             && master_clock_cycles >= ACTIVE_MCLK_CYCLES_PER_SCANLINE - prev_scanline_mclk
         {
-            if self.state.scanline < ACTIVE_SCANLINES {
+            // Render scanlines at the start of HBlank so that mid-HBlank writes will not affect
+            // the next scanline
+            self.render_next_scanline();
+
+            // Check if an H/V interrupt has occurred
+            if self.state.scanline < ACTIVE_SCANLINES
+                || self.state.scanline == SCANLINES_PER_FRAME - 1
+            {
                 if self.state.h_interrupt_counter == 0 {
                     self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
 
@@ -980,14 +1000,8 @@ impl Vdp {
                 self.state.frame_count += 1;
             }
 
-            match self.state.scanline.cmp(&ACTIVE_SCANLINES) {
-                Ordering::Less => {
-                    self.render_scanline();
-                }
-                Ordering::Equal => {
-                    return VdpTickEffect::FrameComplete;
-                }
-                Ordering::Greater => {}
+            if self.state.scanline == ACTIVE_SCANLINES {
+                return VdpTickEffect::FrameComplete;
             }
         }
 
@@ -1123,16 +1137,29 @@ impl Vdp {
         }
     }
 
-    fn render_scanline(&mut self) {
+    #[inline]
+    fn render_next_scanline(&mut self) {
+        match self.state.scanline {
+            261 => {
+                self.render_scanline(0);
+            }
+            scanline @ 0..=222 => {
+                self.render_scanline(scanline + 1);
+            }
+            _ => {}
+        }
+    }
+
+    fn render_scanline(&mut self, scanline: u16) {
         if !self.registers.display_enabled {
-            if !self.in_vblank() {
+            if scanline < ACTIVE_SCANLINES {
                 match self.registers.interlacing_mode {
                     InterlacingMode::Progressive | InterlacingMode::Interlaced => {
-                        self.clear_scanline(self.state.scanline);
+                        self.clear_scanline(scanline);
                     }
                     InterlacingMode::InterlacedDouble => {
-                        self.clear_scanline(2 * self.state.scanline);
-                        self.clear_scanline(2 * self.state.scanline + 1);
+                        self.clear_scanline(2 * scanline);
+                        self.clear_scanline(2 * scanline + 1);
                     }
                 }
             }
@@ -1150,7 +1177,6 @@ impl Vdp {
 
         match self.registers.interlacing_mode {
             InterlacingMode::Progressive | InterlacingMode::Interlaced => {
-                let scanline = self.state.scanline;
                 self.populate_sprite_buffer(scanline);
 
                 for pixel in 0..screen_width {
@@ -1159,7 +1185,7 @@ impl Vdp {
             }
             InterlacingMode::InterlacedDouble => {
                 // Render scanlines 2N and 2N+1 at the same time
-                for scanline in [2 * self.state.scanline, 2 * self.state.scanline + 1] {
+                for scanline in [2 * scanline, 2 * scanline + 1] {
                     self.populate_sprite_buffer(scanline);
 
                     for pixel in 0..screen_width {
