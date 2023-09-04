@@ -355,6 +355,9 @@ impl Registers {
                 // Register #0: Mode set register 1
                 self.h_interrupt_enabled = value.bit(4);
                 self.hv_counter_stopped = value.bit(1);
+
+                log::trace!("  H interrupt enabled: {}", self.h_interrupt_enabled);
+                log::trace!("  HV counter stopped: {}", self.hv_counter_stopped);
             }
             1 => {
                 // Register #1: Mode set register 2
@@ -362,31 +365,57 @@ impl Registers {
                 self.v_interrupt_enabled = value.bit(5);
                 self.dma_enabled = value.bit(4);
                 // TODO PAL V30-cell mode
+
+                log::trace!("  Display enabled: {}", self.display_enabled);
+                log::trace!("  V interrupt enabled: {}", self.v_interrupt_enabled);
+                log::trace!("  DMA enabled: {}", self.dma_enabled);
             }
             2 => {
                 // Register #2: Scroll A name table base address (bits 15-13)
                 self.scroll_a_base_nt_addr = u16::from(value & 0x38) << 10;
+
+                log::trace!(
+                    "  Scroll A base nametable address: {:04X}",
+                    self.scroll_a_base_nt_addr
+                );
             }
             3 => {
                 // Register #3: Window name table base address (bits 15-11)
                 self.window_base_nt_addr = u16::from(value & 0x3E) << 10;
+
+                log::trace!("  Window base nametable address: {:04X}", self.window_base_nt_addr);
             }
             4 => {
                 // Register #4: Scroll B name table base address (bits 15-13)
                 self.scroll_b_base_nt_addr = u16::from(value & 0x07) << 13;
+
+                log::trace!(
+                    "  Scroll B base nametable address: {:04X}",
+                    self.scroll_b_base_nt_addr
+                );
             }
             5 => {
                 // Register #5: Sprite attribute table base address (bits 15-9)
                 self.sprite_attribute_table_base_addr = u16::from(value & 0x7F) << 9;
+
+                log::trace!(
+                    "  Sprite attribute table base address: {:04X}",
+                    self.sprite_attribute_table_base_addr
+                );
             }
             7 => {
                 // Register #7: Background color
                 self.background_palette = (value >> 4) & 0x03;
                 self.background_color_id = value & 0x0F;
+
+                log::trace!("  BG palette: {}", self.background_palette);
+                log::trace!("  BG color id: {}", self.background_color_id);
             }
             10 => {
                 // Register #10: H interrupt interval
                 self.h_interrupt_interval = value.into();
+
+                log::trace!("  H interrupt interval: {}", self.h_interrupt_interval);
             }
             11 => {
                 // Register #11: Mode set register 3
@@ -407,7 +436,10 @@ impl Registers {
                         HorizontalScrollMode::FullScreen
                     }
                     _ => unreachable!("value & 0x03 is always <= 0x03"),
-                }
+                };
+
+                log::trace!("  Vertical scroll mode: {:?}", self.vertical_scroll_mode);
+                log::trace!("  Horizontal scroll mode: {:?}", self.horizontal_scroll_mode);
             }
             12 => {
                 // Register #12: Mode set register 4
@@ -423,19 +455,30 @@ impl Registers {
                     0x03 => InterlacingMode::InterlacedDouble,
                     _ => unreachable!("value & 0x03 is always <= 0x03"),
                 };
+
+                log::trace!("  Horizontal display size: {:?}", self.horizontal_display_size);
+                log::trace!("  Shadow/highlight flag: {}", self.shadow_highlight_flag);
+                log::trace!("  Interlacing mode: {:?}", self.interlacing_mode);
             }
             13 => {
                 // Register #13: Horizontal scroll table base address (bits 15-10)
                 self.h_scroll_table_base_addr = u16::from(value & 0x3F) << 10;
+
+                log::trace!("  H scroll table base address: {:04X}", self.h_scroll_table_base_addr);
             }
             15 => {
                 // Register #15: VRAM address auto increment
                 self.data_port_auto_increment = value.into();
+
+                log::trace!("  Data port auto increment: {:02X}", value);
             }
             16 => {
                 // Register #16: Scroll size
                 self.vertical_scroll_size = ScrollSize::from_bits(value >> 4);
                 self.horizontal_scroll_size = ScrollSize::from_bits(value);
+
+                log::trace!("  Vertical scroll size: {:?}", self.vertical_scroll_size);
+                log::trace!("  Horizontal scroll size: {:?}", self.horizontal_scroll_size);
             }
             17 => {
                 // Register #17: Window horizontal position
@@ -445,6 +488,9 @@ impl Registers {
                     WindowHorizontalMode::LeftToCenter
                 };
                 self.window_x_position = u16::from(value & 0x1F) << 1;
+
+                log::trace!("  Window horizontal mode: {:?}", self.window_horizontal_mode);
+                log::trace!("  Window X position: {}", self.window_x_position);
             }
             18 => {
                 // Register #18: Window vertical position
@@ -454,24 +500,35 @@ impl Registers {
                     WindowVerticalMode::TopToCenter
                 };
                 self.window_y_position = (value & 0x1F).into();
+
+                log::trace!("  Window vertical mode: {:?}", self.window_vertical_mode);
+                log::trace!("  Window Y position: {}", self.window_y_position);
             }
             19 => {
                 // Register #19: DMA length counter (bits 7-0)
                 self.dma_length = (self.dma_length & 0xFF00) | u16::from(value);
+
+                log::trace!("  DMA length: {}", self.dma_length);
             }
             20 => {
                 // Register #20: DMA length counter (bits 15-8)
                 self.dma_length = (self.dma_length & 0x00FF) | (u16::from(value) << 8);
+
+                log::trace!("  DMA length: {}", self.dma_length);
             }
             21 => {
                 // Register 21: DMA source address (bits 9-1)
                 self.dma_source_address =
                     (self.dma_source_address & 0xFFFF_FE00) | (u32::from(value) << 1);
+
+                log::trace!("  DMA source address: {:06X}", self.dma_source_address);
             }
             22 => {
                 // Register 22: DMA source address (bits 16-9)
                 self.dma_source_address =
                     (self.dma_source_address & 0xFFFE_01FF) | (u32::from(value) << 9);
+
+                log::trace!("  DMA source address: {:06X}", self.dma_source_address);
             }
             23 => {
                 // Register 23: DMA source address (bits 22-17) and mode
@@ -489,6 +546,9 @@ impl Registers {
                     0xC0 => DmaMode::VramCopy,
                     _ => unreachable!("value & 0x0C is always 0x00/0x40/0x80/0xC0"),
                 };
+
+                log::trace!("  DMA source address: {:06X}", self.dma_source_address);
+                log::trace!("  DMA mode: {:?}", self.dma_mode);
             }
             _ => {}
         }
@@ -666,7 +726,8 @@ impl Vdp {
 
     pub fn write_control(&mut self, value: u16) {
         log::trace!(
-            "VDP control write: {value:04X} (flag = {:?}, dma_enabled = {})",
+            "VDP control write on scanline {}: {value:04X} (flag = {:?}, dma_enabled = {})",
+            self.state.scanline,
             self.state.control_write_flag,
             self.registers.dma_enabled
         );
@@ -761,7 +822,7 @@ impl Vdp {
     }
 
     pub fn write_data(&mut self, value: u16) {
-        log::trace!("VDP data write: {value:04X}");
+        log::trace!("VDP data write on scanline {}: {value:04X}", self.state.scanline);
 
         if self.state.data_port_mode != DataPortMode::Write {
             return;
