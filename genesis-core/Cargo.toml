@@ -20,4 +20,3 @@ bincode = "2.0.0-rc.3"
 log = "0.4"
 regex = "1"
 serde = { workspace = true, optional = true }
-thiserror = "1"

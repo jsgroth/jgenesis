@@ -1,7 +1,7 @@
 use crate::audio;
 use crate::audio::AudioDownsampler;
 use crate::input::{GenesisInputs, InputState};
-use crate::memory::{Cartridge, CartridgeLoadError, MainBus, Memory};
+use crate::memory::{Cartridge, MainBus, Memory};
 use crate::vdp::{Vdp, VdpTickEffect};
 use crate::ym2612::{Ym2612, YmTickEffect};
 use bincode::{Decode, Encode};
@@ -116,12 +116,13 @@ impl GenesisEmulator {
     /// # Errors
     ///
     /// Returns an error if unable to parse the ROM header.
+    #[must_use]
     pub fn create(
         rom: Vec<u8>,
         initial_ram: Option<Vec<u8>>,
         config: GenesisEmulatorConfig,
-    ) -> Result<Self, CartridgeLoadError> {
-        let cartridge = Cartridge::from_rom(rom, initial_ram)?;
+    ) -> Self {
+        let cartridge = Cartridge::from_rom(rom, initial_ram);
         let mut memory = Memory::new(cartridge);
 
         let z80 = Z80::new();
@@ -140,7 +141,7 @@ impl GenesisEmulator {
             z80.stalled(),
         ));
 
-        Ok(Self {
+        Self {
             memory,
             m68k,
             z80,
@@ -152,7 +153,7 @@ impl GenesisEmulator {
             adjust_aspect_ratio_in_2x_resolution: config.adjust_aspect_ratio_in_2x_resolution,
             audio_downsampler: AudioDownsampler::new(),
             master_clock_cycles: 0,
-        })
+        }
     }
 
     pub fn reload_config(&mut self, config: GenesisEmulatorConfig) {
@@ -294,7 +295,7 @@ impl Resettable for GenesisEmulator {
             adjust_aspect_ratio_in_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
         };
 
-        *self = GenesisEmulator::create(rom, cartridge_ram, config).unwrap();
+        *self = GenesisEmulator::create(rom, cartridge_ram, config);
     }
 }
 

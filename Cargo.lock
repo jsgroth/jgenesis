@@ -1318,7 +1318,6 @@ dependencies = [
  "regex",
  "serde",
  "smsgg-core",
- "thiserror",
  "z80-emu",
 ]
 

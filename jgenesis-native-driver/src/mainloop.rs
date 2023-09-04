@@ -338,7 +338,7 @@ pub fn create_genesis(
         log::info!("Loaded save file from {}", save_path.display());
     }
 
-    let emulator = GenesisEmulator::create(rom, initial_ram, config.to_emulator_config())?;
+    let emulator = GenesisEmulator::create(rom, initial_ram, config.to_emulator_config());
 
     let (video, audio, joystick, event_pump) = init_sdl()?;
 

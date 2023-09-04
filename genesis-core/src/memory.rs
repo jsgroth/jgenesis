@@ -9,7 +9,6 @@ use smsgg_core::psg::Psg;
 use std::mem;
 use std::ops::Index;
 use std::sync::OnceLock;
-use thiserror::Error;
 use z80_emu::traits::InterruptLine;
 
 #[derive(Debug, Clone, Default, FakeEncode, FakeDecode)]
@@ -209,12 +208,6 @@ impl Ram {
     }
 }
 
-#[derive(Debug, Error)]
-pub enum CartridgeLoadError {
-    #[error("unable to determine cartridge region from header")]
-    IndeterminateRegion,
-}
-
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Cartridge {
     rom: Rom,
@@ -224,12 +217,13 @@ pub struct Cartridge {
 }
 
 impl Cartridge {
-    pub fn from_rom(
-        rom_bytes: Vec<u8>,
-        initial_ram_bytes: Option<Vec<u8>>,
-    ) -> Result<Self, CartridgeLoadError> {
-        let Some(region) = HardwareRegion::from_rom(&rom_bytes) else {
-            return Err(CartridgeLoadError::IndeterminateRegion);
+    pub fn from_rom(rom_bytes: Vec<u8>, initial_ram_bytes: Option<Vec<u8>>) -> Self {
+        let region = match HardwareRegion::from_rom(&rom_bytes) {
+            Some(region) => region,
+            None => {
+                log::warn!("Unable to determine cartridge region from ROM header; using Americas");
+                HardwareRegion::Americas
+            }
         };
 
         let ram = Ram::from_rom_header(&rom_bytes, initial_ram_bytes);
@@ -238,7 +232,7 @@ impl Cartridge {
 
         // TODO parse more stuff out of header
         let rom_address_mask = (rom_bytes.len() - 1) as u32;
-        Ok(Self { rom: Rom(rom_bytes), ram, rom_address_mask, region })
+        Self { rom: Rom(rom_bytes), ram, rom_address_mask, region }
     }
 
     fn read_byte(&self, address: u32) -> u8 {
