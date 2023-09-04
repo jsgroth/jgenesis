@@ -512,7 +512,11 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
                 u16::from_le_bytes([byte, byte])
             }
             0xA10000..=0xA1001F => self.read_io_register(address).into(),
-            0xA11100..=0xA11101 => (!self.z80_stalled).into(),
+            0xA11100..=0xA11101 => {
+                // Word reads of Z80 BUSREQ signal mirror the byte in both MSB and LSB
+                let byte: u8 = (!self.z80_stalled).into();
+                u16::from_le_bytes([byte, byte])
+            }
             0xA13000..=0xA130FF => {
                 todo!("timer register")
             }
