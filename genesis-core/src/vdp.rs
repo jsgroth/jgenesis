@@ -1,3 +1,5 @@
+mod debug;
+
 use crate::memory::Memory;
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};

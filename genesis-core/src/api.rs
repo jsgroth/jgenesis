@@ -7,8 +7,8 @@ use crate::ym2612::{Ym2612, YmTickEffect};
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_traits::frontend::{
-    AudioOutput, EmulatorTrait, FrameSize, PixelAspectRatio, Renderer, Resettable, SaveWriter,
-    TakeRomFrom, TickEffect, TickableEmulator,
+    AudioOutput, Color, EmulatorDebug, EmulatorTrait, FrameSize, PixelAspectRatio, Renderer,
+    Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
 };
 use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgVersion};
@@ -296,6 +296,21 @@ impl Resettable for GenesisEmulator {
         };
 
         *self = GenesisEmulator::create(rom, cartridge_ram, config);
+    }
+}
+
+impl EmulatorDebug for GenesisEmulator {
+    const NUM_PALETTES: u32 = 4;
+    const PALETTE_LEN: u32 = 16;
+
+    const PATTERN_TABLE_LEN: u32 = 2048;
+
+    fn debug_cram(&self, out: &mut [Color]) {
+        self.vdp.debug_cram(out);
+    }
+
+    fn debug_vram(&self, out: &mut [Color], palette: u8) {
+        self.vdp.debug_vram(out, palette);
     }
 }
 

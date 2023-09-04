@@ -1,8 +1,11 @@
+mod debug;
+
 use crate::config;
 use crate::config::{CommonConfig, GenesisConfig, SmsGgConfig, WindowSize};
 use crate::input::{
     GenesisButton, GetButtonField, Hotkey, HotkeyMapper, InputMapper, Joysticks, SmsGgButton,
 };
+use crate::mainloop::debug::{CramDebug, VramDebug};
 use crate::renderer::WgpuRenderer;
 use anyhow::{anyhow, Context};
 use bincode::{Decode, Encode};
@@ -118,6 +121,9 @@ pub struct NativeEmulator<Inputs, Button, Emulator> {
     save_writer: FsSaveWriter,
     event_pump: EventPump,
     save_state_path: PathBuf,
+    video: VideoSubsystem,
+    cram_debug: Option<CramDebug>,
+    vram_debug: Option<VramDebug>,
 }
 
 impl<Inputs, Button, Emulator> NativeEmulator<Inputs, Button, Emulator> {
@@ -212,6 +218,9 @@ where
                         &mut self.emulator,
                         &mut self.renderer,
                         &self.save_state_path,
+                        &self.video,
+                        &mut self.cram_debug,
+                        &mut self.vram_debug,
                     )? == HotkeyResult::Quit
                     {
                         return Ok(NativeTickEffect::Exit);
@@ -221,11 +230,37 @@ where
                         Event::Quit { .. } => {
                             return Ok(NativeTickEffect::Exit);
                         }
-                        Event::Window { win_event, .. } => {
-                            handle_window_event(win_event, &mut self.renderer);
+                        Event::Window { win_event, window_id, .. } => {
+                            if window_id == self.renderer.window_id() {
+                                handle_window_event(win_event, &mut self.renderer);
+                            } else if self
+                                .cram_debug
+                                .as_ref()
+                                .is_some_and(|cram_debug| cram_debug.window_id() == window_id)
+                            {
+                                if let WindowEvent::Close = win_event {
+                                    self.cram_debug = None;
+                                }
+                            } else if self
+                                .vram_debug
+                                .as_ref()
+                                .is_some_and(|vram_debug| vram_debug.window_id() == window_id)
+                            {
+                                if let WindowEvent::Close = win_event {
+                                    self.vram_debug = None;
+                                }
+                            }
                         }
                         _ => {}
                     }
+                }
+
+                if let Some(cram_debug) = &mut self.cram_debug {
+                    cram_debug.render(&self.emulator)?;
+                }
+
+                if let Some(vram_debug) = &mut self.vram_debug {
+                    vram_debug.render(&self.emulator)?;
                 }
 
                 return Ok(NativeTickEffect::None);
@@ -314,6 +349,9 @@ pub fn create_smsgg(
         save_writer,
         event_pump,
         save_state_path,
+        video,
+        cram_debug: None,
+        vram_debug: None,
     })
 }
 
@@ -372,6 +410,9 @@ pub fn create_genesis(
         save_writer,
         event_pump,
         save_state_path,
+        video,
+        cram_debug: None,
+        vram_debug: None,
     })
 }
 
@@ -429,12 +470,16 @@ enum HotkeyResult {
     Quit,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_hotkeys<Inputs, Emulator, P>(
     hotkey_mapper: &HotkeyMapper,
     event: &Event,
     emulator: &mut Emulator,
     renderer: &mut WgpuRenderer,
     save_state_path: P,
+    video: &VideoSubsystem,
+    cram_debug: &mut Option<CramDebug>,
+    vram_debug: &mut Option<VramDebug>,
 ) -> anyhow::Result<HotkeyResult>
 where
     Emulator: EmulatorTrait<Inputs>,
@@ -475,6 +520,19 @@ where
             Hotkey::HardReset => {
                 emulator.hard_reset();
             }
+            Hotkey::OpenCramDebug => {
+                if cram_debug.is_none() {
+                    *cram_debug = Some(CramDebug::new::<Emulator>(video)?);
+                }
+            }
+            Hotkey::OpenVramDebug => match vram_debug {
+                Some(vram_debug) => {
+                    vram_debug.toggle_palette()?;
+                }
+                None => {
+                    *vram_debug = Some(VramDebug::new::<Emulator>(video)?);
+                }
+            },
         }
     }
 

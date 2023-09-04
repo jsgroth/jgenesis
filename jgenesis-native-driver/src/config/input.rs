@@ -258,6 +258,10 @@ pub struct HotkeyConfig {
     pub soft_reset: Option<KeyboardInput>,
     #[serde(default = "default_hard_reset")]
     pub hard_reset: Option<KeyboardInput>,
+    #[serde(default = "default_cram_debug")]
+    pub open_cram_debug: Option<KeyboardInput>,
+    #[serde(default = "default_vram_debug")]
+    pub open_vram_debug: Option<KeyboardInput>,
 }
 
 impl Default for HotkeyConfig {
@@ -269,6 +273,8 @@ impl Default for HotkeyConfig {
             load_state: default_load_state(),
             soft_reset: default_soft_reset(),
             hard_reset: default_hard_reset(),
+            open_cram_debug: default_cram_debug(),
+            open_vram_debug: default_vram_debug(),
         }
     }
 }
@@ -295,4 +301,12 @@ fn default_soft_reset() -> Option<KeyboardInput> {
 
 fn default_hard_reset() -> Option<KeyboardInput> {
     key_input!(F2)
+}
+
+fn default_cram_debug() -> Option<KeyboardInput> {
+    key_input!(Semicolon)
+}
+
+fn default_vram_debug() -> Option<KeyboardInput> {
+    key_input!(Quote)
 }

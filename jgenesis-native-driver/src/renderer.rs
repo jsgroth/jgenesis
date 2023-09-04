@@ -562,6 +562,10 @@ impl WgpuRenderer {
         self.pipeline = None;
     }
 
+    pub fn window_id(&self) -> u32 {
+        self.window.id()
+    }
+
     fn ensure_pipeline(
         &mut self,
         frame_size: FrameSize,

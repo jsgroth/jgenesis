@@ -1,3 +1,5 @@
+mod debug;
+
 use bincode::de::{BorrowDecoder, Decoder};
 use bincode::enc::Encoder;
 use bincode::error::{DecodeError, EncodeError};
@@ -987,4 +989,14 @@ fn get_color_id(tile: &[u8], tile_row: u16, tile_col: u16, horizontal_flip: bool
         | (((tile[(4 * tile_row + 1) as usize] & mask) >> shift) << 1)
         | (((tile[(4 * tile_row + 2) as usize] & mask) >> shift) << 2)
         | (((tile[(4 * tile_row + 3) as usize] & mask) >> shift) << 3)
+}
+
+#[inline]
+pub fn convert_sms_color(color: u16) -> u8 {
+    [0, 85, 170, 255][color as usize]
+}
+
+#[inline]
+pub fn convert_gg_color(color: u16) -> u8 {
+    [0, 17, 34, 51, 68, 85, 102, 119, 136, 153, 170, 187, 204, 221, 238, 255][color as usize]
 }

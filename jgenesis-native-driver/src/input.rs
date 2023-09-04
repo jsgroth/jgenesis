@@ -553,6 +553,8 @@ pub enum Hotkey {
     LoadState,
     SoftReset,
     HardReset,
+    OpenCramDebug,
+    OpenVramDebug,
 }
 
 pub(crate) struct HotkeyMapper {
@@ -576,6 +578,8 @@ impl HotkeyMapper {
             (&config.load_state, Hotkey::LoadState),
             (&config.soft_reset, Hotkey::SoftReset),
             (&config.hard_reset, Hotkey::HardReset),
+            (&config.open_cram_debug, Hotkey::OpenCramDebug),
+            (&config.open_vram_debug, Hotkey::OpenVramDebug),
         ] {
             if let Some(input) = input {
                 let keycode = Keycode::from_name(&input.keycode)

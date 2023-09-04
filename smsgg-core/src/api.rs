@@ -7,8 +7,8 @@ use crate::{vdp, SmsGgInputs, VdpVersion};
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
 use jgenesis_traits::frontend::{
-    AudioOutput, Color, EmulatorTrait, FrameSize, PixelAspectRatio, Renderer, Resettable,
-    SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
+    AudioOutput, Color, EmulatorDebug, EmulatorTrait, FrameSize, PixelAspectRatio, Renderer,
+    Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
 };
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
@@ -318,6 +318,21 @@ impl Resettable for SmsGgEmulator {
     }
 }
 
+impl EmulatorDebug for SmsGgEmulator {
+    const NUM_PALETTES: u32 = 2;
+    const PALETTE_LEN: u32 = 16;
+
+    const PATTERN_TABLE_LEN: u32 = 512;
+
+    fn debug_cram(&self, out: &mut [Color]) {
+        self.vdp.debug_cram(out);
+    }
+
+    fn debug_vram(&self, out: &mut [Color], palette: u8) {
+        self.vdp.debug_vram(out, palette);
+    }
+}
+
 impl EmulatorTrait<SmsGgInputs> for SmsGgEmulator {}
 
 fn populate_frame_buffer(
@@ -344,28 +359,18 @@ fn populate_frame_buffer(
         for (j, color) in row.iter().copied().skip(col_skip).enumerate() {
             let (r, g, b) = match vdp_version {
                 VdpVersion::NtscMasterSystem2 | VdpVersion::PalMasterSystem2 => (
-                    convert_sms_color(color & 0x03),
-                    convert_sms_color((color >> 2) & 0x03),
-                    convert_sms_color((color >> 4) & 0x03),
+                    vdp::convert_sms_color(color & 0x03),
+                    vdp::convert_sms_color((color >> 2) & 0x03),
+                    vdp::convert_sms_color((color >> 4) & 0x03),
                 ),
                 VdpVersion::GameGear => (
-                    convert_gg_color(color & 0x0F),
-                    convert_gg_color((color >> 4) & 0x0F),
-                    convert_gg_color((color >> 8) & 0x0F),
+                    vdp::convert_gg_color(color & 0x0F),
+                    vdp::convert_gg_color((color >> 4) & 0x0F),
+                    vdp::convert_gg_color((color >> 8) & 0x0F),
                 ),
             };
 
             frame_buffer[i * screen_width + j] = Color::rgb(r, g, b);
         }
     }
-}
-
-#[inline]
-fn convert_sms_color(color: u16) -> u8 {
-    [0, 85, 170, 255][color as usize]
-}
-
-#[inline]
-fn convert_gg_color(color: u16) -> u8 {
-    [0, 17, 34, 51, 68, 85, 102, 119, 136, 153, 170, 187, 204, 221, 238, 255][color as usize]
 }

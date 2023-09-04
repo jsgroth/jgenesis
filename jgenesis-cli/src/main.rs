@@ -176,6 +176,14 @@ struct Args {
     /// Hard reset hotkey
     #[arg(long, default_value_t = String::from("F2"))]
     hotkey_hard_reset: String,
+
+    /// CRAM debug window hotkey
+    #[arg(long, default_value_t = String::from(";"))]
+    hotkey_cram_debug: String,
+
+    /// VRAM debug window hotkey
+    #[arg(long, default_value_t = String::from("'"))]
+    hotkey_vram_debug: String,
 }
 
 impl Args {
@@ -257,6 +265,8 @@ impl Args {
             load_state: Some(keyboard_input(&self.hotkey_load_state)),
             soft_reset: Some(keyboard_input(&self.hotkey_soft_reset)),
             hard_reset: Some(keyboard_input(&self.hotkey_hard_reset)),
+            open_cram_debug: Some(keyboard_input(&self.hotkey_cram_debug)),
+            open_vram_debug: Some(keyboard_input(&self.hotkey_vram_debug)),
         }
     }
 

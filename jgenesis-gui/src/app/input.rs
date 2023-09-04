@@ -199,6 +199,12 @@ impl InputAppConfig {
                         Hotkey::HardReset => {
                             self.hotkeys.hard_reset = Some(input);
                         }
+                        Hotkey::OpenCramDebug => {
+                            self.hotkeys.open_cram_debug = Some(input);
+                        }
+                        Hotkey::OpenVramDebug => {
+                            self.hotkeys.open_vram_debug = Some(input);
+                        }
                     }
                 }
             }
@@ -546,6 +552,18 @@ impl App {
                     Hotkey::HardReset,
                     ui,
                 );
+                self.hotkey_button(
+                    self.config.inputs.hotkeys.open_cram_debug.clone(),
+                    "CRAM debug window",
+                    Hotkey::OpenCramDebug,
+                    ui,
+                );
+                self.hotkey_button(
+                    self.config.inputs.hotkeys.open_vram_debug.clone(),
+                    "VRAM debug window",
+                    Hotkey::OpenVramDebug,
+                    ui,
+                );
             });
         });
         if !open {
@@ -683,6 +701,12 @@ impl App {
                 }
                 Hotkey::HardReset => {
                     self.config.inputs.hotkeys.hard_reset = None;
+                }
+                Hotkey::OpenCramDebug => {
+                    self.config.inputs.hotkeys.open_cram_debug = None;
+                }
+                Hotkey::OpenVramDebug => {
+                    self.config.inputs.hotkeys.open_vram_debug = None;
                 }
             },
         }

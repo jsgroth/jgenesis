@@ -160,8 +160,23 @@ pub trait Resettable {
     fn hard_reset(&mut self);
 }
 
+pub const VRAM_DEBUG_ROW_LEN: u32 = 64;
+
+pub trait EmulatorDebug {
+    // CRAM size
+    const NUM_PALETTES: u32;
+    const PALETTE_LEN: u32;
+
+    // VRAM size
+    const PATTERN_TABLE_LEN: u32;
+
+    fn debug_cram(&self, out: &mut [Color]);
+
+    fn debug_vram(&self, out: &mut [Color], palette: u8);
+}
+
 // Trait that simply combines useful trait bounds
 pub trait EmulatorTrait<Inputs>:
-    TickableEmulator<Inputs = Inputs> + Encode + Decode + TakeRomFrom + Resettable
+    TickableEmulator<Inputs = Inputs> + Encode + Decode + TakeRomFrom + Resettable + EmulatorDebug
 {
 }
