@@ -480,6 +480,7 @@ impl<'a> MainBus<'a> {
 const ADDRESS_MASK: u32 = 0xFFFFFF;
 
 impl<'a> m68000_emu::BusInterface for MainBus<'a> {
+    #[inline]
     fn read_byte(&mut self, address: u32) -> u8 {
         let address = address & ADDRESS_MASK;
         log::trace!("Main bus byte read, address={address:06X}");
@@ -501,6 +502,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
         }
     }
 
+    #[inline]
     fn read_word(&mut self, address: u32) -> u16 {
         let address = address & ADDRESS_MASK;
         log::trace!("Main bus word read, address={address:06X}");
@@ -534,6 +536,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
         }
     }
 
+    #[inline]
     // TODO remove
     #[allow(clippy::match_same_arms)]
     fn write_byte(&mut self, address: u32, value: u8) {
@@ -576,6 +579,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
         }
     }
 
+    #[inline]
     // TODO remove
     #[allow(clippy::match_same_arms)]
     fn write_word(&mut self, address: u32, value: u16) {
@@ -630,6 +634,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
 }
 
 impl<'a> z80_emu::BusInterface for MainBus<'a> {
+    #[inline]
     // TODO remove
     #[allow(clippy::match_same_arms)]
     fn read_memory(&mut self, address: u16) -> u8 {
@@ -677,6 +682,7 @@ impl<'a> z80_emu::BusInterface for MainBus<'a> {
         }
     }
 
+    #[inline]
     fn write_memory(&mut self, address: u16, value: u8) {
         log::trace!("Z80 bus write at {address:04X}");
 

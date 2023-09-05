@@ -2,7 +2,7 @@ mod instructions;
 
 use crate::core::instructions::Instruction;
 use crate::traits::BusInterface;
-use jgenesis_traits::num::{GetBit, SignBit};
+use jgenesis_traits::num::GetBit;
 
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
@@ -225,69 +225,6 @@ impl IncrementStep for u16 {
 impl IncrementStep for u32 {
     fn increment_step_for(_register: AddressRegister) -> u32 {
         4
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SizedValue {
-    Byte(u8),
-    Word(u16),
-    LongWord(u32),
-}
-
-impl SizedValue {
-    fn from_size(value: u32, size: OpSize) -> Self {
-        match size {
-            OpSize::Byte => Self::Byte(value as u8),
-            OpSize::Word => Self::Word(value as u16),
-            OpSize::LongWord => Self::LongWord(value),
-        }
-    }
-
-    fn is_zero(self) -> bool {
-        match self {
-            Self::Byte(value) => value == 0,
-            Self::Word(value) => value == 0,
-            Self::LongWord(value) => value == 0,
-        }
-    }
-}
-
-impl SignBit for SizedValue {
-    fn sign_bit(self) -> bool {
-        match self {
-            Self::Byte(value) => value.sign_bit(),
-            Self::Word(value) => value.sign_bit(),
-            Self::LongWord(value) => value.sign_bit(),
-        }
-    }
-}
-
-impl From<SizedValue> for u32 {
-    fn from(value: SizedValue) -> Self {
-        match value {
-            SizedValue::Byte(value) => value.into(),
-            SizedValue::Word(value) => value.into(),
-            SizedValue::LongWord(value) => value,
-        }
-    }
-}
-
-impl From<u8> for SizedValue {
-    fn from(value: u8) -> Self {
-        Self::Byte(value)
-    }
-}
-
-impl From<u16> for SizedValue {
-    fn from(value: u16) -> Self {
-        Self::Word(value)
-    }
-}
-
-impl From<u32> for SizedValue {
-    fn from(value: u32) -> Self {
-        Self::LongWord(value)
     }
 }
 
@@ -655,6 +592,16 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         }
     }
 
+    // Exists for ease of use in macros
+    #[allow(clippy::unnecessary_wraps)]
+    #[inline]
+    fn read_byte_resolved_as_result(
+        &mut self,
+        resolved_address: ResolvedAddress,
+    ) -> ExecuteResult<u8> {
+        Ok(self.read_byte_resolved(resolved_address))
+    }
+
     // Read a word from the given location; will return an address error if the location is an odd memory address
     fn read_word_resolved(&mut self, resolved_address: ResolvedAddress) -> ExecuteResult<u16> {
         match resolved_address {
@@ -683,47 +630,22 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         }
     }
 
-    fn read_resolved(
-        &mut self,
-        resolved_address: ResolvedAddress,
-        size: OpSize,
-    ) -> ExecuteResult<SizedValue> {
-        match size {
-            OpSize::Byte => Ok(SizedValue::Byte(self.read_byte_resolved(resolved_address))),
-            OpSize::Word => self.read_word_resolved(resolved_address).map(SizedValue::Word),
-            OpSize::LongWord => {
-                self.read_long_word_resolved(resolved_address).map(SizedValue::LongWord)
-            }
-        }
-    }
-
     fn read_byte(&mut self, source: AddressingMode) -> ExecuteResult<u8> {
-        let resolved_address = self.resolve_address(source, OpSize::Byte)?;
-        resolved_address.apply_post(self.registers);
+        let resolved_address = self.resolve_address_with_post(source, OpSize::Byte)?;
         let value = self.read_byte_resolved(resolved_address);
         Ok(value)
     }
 
     fn read_word(&mut self, source: AddressingMode) -> ExecuteResult<u16> {
-        let resolved_address = self.resolve_address(source, OpSize::Word)?;
-        resolved_address.apply_post(self.registers);
+        let resolved_address = self.resolve_address_with_post(source, OpSize::Word)?;
         let value = self.read_word_resolved(resolved_address)?;
         Ok(value)
     }
 
     fn read_long_word(&mut self, source: AddressingMode) -> ExecuteResult<u32> {
-        let resolved_address = self.resolve_address(source, OpSize::LongWord)?;
-        resolved_address.apply_post(self.registers);
+        let resolved_address = self.resolve_address_with_post(source, OpSize::LongWord)?;
         let value = self.read_long_word_resolved(resolved_address)?;
         Ok(value)
-    }
-
-    fn read(&mut self, source: AddressingMode, size: OpSize) -> ExecuteResult<SizedValue> {
-        match size {
-            OpSize::Byte => self.read_byte(source).map(SizedValue::Byte),
-            OpSize::Word => self.read_word(source).map(SizedValue::Word),
-            OpSize::LongWord => self.read_long_word(source).map(SizedValue::LongWord),
-        }
     }
 
     fn write_byte_resolved(&mut self, resolved_address: ResolvedAddress, value: u8) {
@@ -740,6 +662,18 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             }
             ResolvedAddress::Immediate(..) => panic!("cannot write to immediate addressing mode"),
         }
+    }
+
+    // Exists for ease of use in macros
+    #[allow(clippy::unnecessary_wraps)]
+    #[inline]
+    fn write_byte_resolved_as_result(
+        &mut self,
+        resolved_address: ResolvedAddress,
+        value: u8,
+    ) -> ExecuteResult<()> {
+        self.write_byte_resolved(resolved_address, value);
+        Ok(())
     }
 
     fn write_word_resolved(
@@ -786,21 +720,6 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         Ok(())
     }
 
-    fn write_resolved(
-        &mut self,
-        resolved_address: ResolvedAddress,
-        value: SizedValue,
-    ) -> ExecuteResult<()> {
-        match value {
-            SizedValue::Byte(value) => {
-                self.write_byte_resolved(resolved_address, value);
-                Ok(())
-            }
-            SizedValue::Word(value) => self.write_word_resolved(resolved_address, value),
-            SizedValue::LongWord(value) => self.write_long_word_resolved(resolved_address, value),
-        }
-    }
-
     fn write_byte(&mut self, dest: AddressingMode, value: u8) -> ExecuteResult<()> {
         let resolved_address = self.resolve_address(dest, OpSize::Byte)?;
         self.write_byte_resolved(resolved_address, value);
@@ -823,29 +742,6 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         resolved_address.apply_post(self.registers);
 
         Ok(())
-    }
-
-    fn write(&mut self, dest: AddressingMode, value: SizedValue) -> ExecuteResult<()> {
-        match (value, dest) {
-            (SizedValue::Byte(value), _) => self.write_byte(dest, value),
-            (SizedValue::Word(value), _) => self.write_word(dest, value),
-            (
-                SizedValue::LongWord(value),
-                AddressingMode::AddressIndirectPredecrement(register),
-            ) => {
-                let high_word = (value >> 16) as u16;
-                let low_word = value as u16;
-
-                let address = register.read_from(self.registers).wrapping_sub(2);
-                register.write_long_word_to(self.registers, address);
-                self.write_bus_word(address, low_word)?;
-
-                let address = address.wrapping_sub(2);
-                register.write_long_word_to(self.registers, address);
-                self.write_bus_word(address, high_word)
-            }
-            (SizedValue::LongWord(value), _) => self.write_long_word(dest, value),
-        }
     }
 
     fn push_stack_u16(&mut self, value: u16) -> ExecuteResult<()> {
@@ -1141,10 +1037,12 @@ impl M68000 {
         self.halted
     }
 
+    #[inline]
     pub fn set_halted(&mut self, halted: bool) {
         self.halted = halted;
     }
 
+    #[inline]
     pub fn execute_instruction<B: BusInterface>(&mut self, bus: &mut B) -> u32 {
         if self.halted {
             return 4;

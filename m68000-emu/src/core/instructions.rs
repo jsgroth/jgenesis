@@ -374,9 +374,19 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         log::trace!("Decoded instruction: {instruction:?}");
 
         match instruction {
-            Add { size, source, dest, with_extend } => self.add(size, source, dest, with_extend),
+            Add { size: OpSize::Byte, source, dest, with_extend } => {
+                self.add_byte(source, dest, with_extend)
+            }
+            Add { size: OpSize::Word, source, dest, with_extend } => {
+                self.add_word(source, dest, with_extend)
+            }
+            Add { size: OpSize::LongWord, source, dest, with_extend } => {
+                self.add_long_word(source, dest, with_extend)
+            }
             AddDecimal { source, dest } => self.abcd(source, dest),
-            And { size, source, dest } => self.and(size, source, dest),
+            And { size: OpSize::Byte, source, dest } => self.and_byte(source, dest),
+            And { size: OpSize::Word, source, dest } => self.and_word(source, dest),
+            And { size: OpSize::LongWord, source, dest } => self.and_long_word(source, dest),
             AndToCcr => self.andi_to_ccr(),
             AndToSr => self.andi_to_sr(),
             ArithmeticShiftMemory(direction, dest) => self.asd_memory(direction, dest),
@@ -391,14 +401,22 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             BranchDecrement(condition, register) => self.dbcc(condition, register),
             BranchToSubroutine(displacement) => self.bsr(displacement),
             CheckRegister(register, source) => self.chk(register, source),
-            Clear(size, dest) => self.clr(size, dest),
-            Compare { size, source, dest } => self.cmp(size, source, dest),
+            Clear(OpSize::Byte, dest) => self.clr_byte(dest),
+            Clear(OpSize::Word, dest) => self.clr_word(dest),
+            Clear(OpSize::LongWord, dest) => self.clr_long_word(dest),
+            Compare { size: OpSize::Byte, source, dest } => self.cmp_byte(source, dest),
+            Compare { size: OpSize::Word, source, dest } => self.cmp_word(source, dest),
+            Compare { size: OpSize::LongWord, source, dest } => self.cmp_long_word(source, dest),
             DivideSigned(register, source) => self.divs(register, source),
             DivideUnsigned(register, source) => self.divu(register, source),
             ExchangeAddress(rx, ry) => Ok(self.exg_address(rx, ry)),
             ExchangeData(rx, ry) => Ok(self.exg_data(rx, ry)),
             ExchangeDataAddress(rx, ry) => Ok(self.exg_data_address(rx, ry)),
-            ExclusiveOr { size, source, dest } => self.eor(size, source, dest),
+            ExclusiveOr { size: OpSize::Byte, source, dest } => self.eor_byte(source, dest),
+            ExclusiveOr { size: OpSize::Word, source, dest } => self.eor_word(source, dest),
+            ExclusiveOr { size: OpSize::LongWord, source, dest } => {
+                self.eor_long_word(source, dest)
+            }
             ExclusiveOrToCcr => self.eori_to_ccr(),
             ExclusiveOrToSr => self.eori_to_sr(),
             Extend(size, register) => Ok(self.ext(size, register)),
@@ -410,7 +428,9 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             LogicalShiftRegister(size, direction, register, count) => {
                 Ok(self.lsd_register(size, direction, register, count))
             }
-            Move { size, source, dest } => self.move_(size, source, dest),
+            Move { size: OpSize::Byte, source, dest } => self.move_byte(source, dest),
+            Move { size: OpSize::Word, source, dest } => self.move_word(source, dest),
+            Move { size: OpSize::LongWord, source, dest } => self.move_long_word(source, dest),
             MoveFromSr(dest) => self.move_from_sr(dest),
             MoveMultiple(size, addressing_mode, direction) => {
                 self.movem(size, addressing_mode, direction)
@@ -424,11 +444,19 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             MoveUsp(direction, register) => Ok(self.move_usp(direction, register)),
             MultiplySigned(register, source) => self.muls(register, source),
             MultiplyUnsigned(register, source) => self.mulu(register, source),
-            Negate { size, dest, with_extend } => self.neg(size, dest, with_extend),
+            Negate { size: OpSize::Byte, dest, with_extend } => self.neg_byte(dest, with_extend),
+            Negate { size: OpSize::Word, dest, with_extend } => self.neg_word(dest, with_extend),
+            Negate { size: OpSize::LongWord, dest, with_extend } => {
+                self.neg_long_word(dest, with_extend)
+            }
             NegateDecimal(dest) => self.nbcd(dest),
             NoOp => Ok(controlflow::nop()),
-            Not(size, dest) => self.not(size, dest),
-            Or { size, source, dest } => self.or(size, source, dest),
+            Not(OpSize::Byte, dest) => self.not_byte(dest),
+            Not(OpSize::Word, dest) => self.not_word(dest),
+            Not(OpSize::LongWord, dest) => self.not_long_word(dest),
+            Or { size: OpSize::Byte, source, dest } => self.or_byte(source, dest),
+            Or { size: OpSize::Word, source, dest } => self.or_word(source, dest),
+            Or { size: OpSize::LongWord, source, dest } => self.or_long_word(source, dest),
             OrToCcr => self.ori_to_ccr(),
             OrToSr => self.ori_to_sr(),
             PushEffectiveAddress(source) => self.pea(source),
@@ -447,13 +475,21 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 Ok(self.roxd_register(size, direction, register, count))
             }
             Set(condition, dest) => self.scc(condition, dest),
-            Subtract { size, source, dest, with_extend } => {
-                self.sub(size, source, dest, with_extend)
+            Subtract { size: OpSize::Byte, source, dest, with_extend } => {
+                self.sub_byte(source, dest, with_extend)
+            }
+            Subtract { size: OpSize::Word, source, dest, with_extend } => {
+                self.sub_word(source, dest, with_extend)
+            }
+            Subtract { size: OpSize::LongWord, source, dest, with_extend } => {
+                self.sub_long_word(source, dest, with_extend)
             }
             SubtractDecimal { source, dest } => self.sbcd(source, dest),
             Swap(register) => Ok(self.swap(register)),
             Stop => self.stop(),
-            Test(size, source) => self.tst(size, source),
+            Test(OpSize::Byte, source) => self.tst_byte(source),
+            Test(OpSize::Word, source) => self.tst_word(source),
+            Test(OpSize::LongWord, source) => self.tst_long_word(source),
             TestAndSet(dest) => self.tas(dest),
             Trap(vector) => controlflow::trap(vector),
             TrapOnOverflow => self.trapv(),
@@ -662,6 +698,7 @@ fn unary_op_cycles(size: OpSize, dest: AddressingMode) -> u32 {
     cycles
 }
 
+#[inline]
 fn binary_op_cycles(size: OpSize, source: AddressingMode, dest: AddressingMode) -> u32 {
     let mut cycles = match size {
         OpSize::Byte | OpSize::Word => 4,

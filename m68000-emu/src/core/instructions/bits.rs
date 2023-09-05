@@ -1,35 +1,63 @@
 use crate::core::instructions::{Direction, ShiftCount, ShiftDirection};
 use crate::core::{
     AddressingMode, ConditionCodes, DataRegister, Exception, ExecuteResult, Instruction,
-    InstructionExecutor, OpSize, SizedValue,
+    InstructionExecutor, OpSize,
 };
 use crate::traits::BusInterface;
 use jgenesis_traits::num::{GetBit, SignBit};
 
 macro_rules! impl_bit_op {
-    ($name:ident, $operator:tt) => {
-        pub(super) fn $name(&mut self, size: OpSize, source: AddressingMode, dest: AddressingMode) -> ExecuteResult<u32> {
-            let operand_l = self.read(source, size)?;
+    ($name:ident, $operator:tt, $read_method:ident, $read_resolved_method:ident, $write_method:ident, $size:expr) => {
+        pub(super) fn $name(&mut self, source: AddressingMode, dest: AddressingMode) -> ExecuteResult<u32> {
+            let operand_l = self.$read_method(source)?;
 
-            let dest_resolved = self.resolve_address_with_post(dest, size)?;
-            let operand_r = self.read_resolved(dest_resolved, size)?;
+            let dest_resolved = self.resolve_address_with_post(dest, $size)?;
+            let operand_r = self.$read_resolved_method(dest_resolved)?;
 
-            let value = u32::from(operand_l) $operator u32::from(operand_r);
-            let value = SizedValue::from_size(value, size);
+            let value = operand_l $operator operand_r;
 
             self.registers.ccr = ConditionCodes {
                 carry: false,
                 overflow: false,
-                zero: value.is_zero(),
+                zero: value == 0,
                 negative: value.sign_bit(),
                 ..self.registers.ccr
             };
 
-            self.write_resolved(dest_resolved, value)?;
+            self.$write_method(dest_resolved, value)?;
 
-            Ok(super::binary_op_cycles(size, source, dest))
+            Ok(super::binary_op_cycles($size, source, dest))
         }
     }
+}
+
+macro_rules! impl_bit_op_all_sizes {
+    ($byte_name:ident, $word_name:ident, $long_word_name:ident, $operator:tt) => {
+        impl_bit_op!(
+            $byte_name,
+            $operator,
+            read_byte,
+            read_byte_resolved_as_result,
+            write_byte_resolved_as_result,
+            OpSize::Byte
+        );
+        impl_bit_op!(
+            $word_name,
+            $operator,
+            read_word,
+            read_word_resolved,
+            write_word_resolved,
+            OpSize::Word
+        );
+        impl_bit_op!(
+            $long_word_name,
+            $operator,
+            read_long_word,
+            read_long_word_resolved,
+            write_long_word_resolved,
+            OpSize::LongWord
+        );
+    };
 }
 
 macro_rules! impl_bit_op_to_ccr {
@@ -54,6 +82,50 @@ macro_rules! impl_bit_op_to_sr {
             Ok(20)
         }
     }
+}
+
+macro_rules! impl_not {
+    ($name:ident, $read_method:ident, $write_method:ident, $size:expr) => {
+        pub(super) fn $name(&mut self, dest: AddressingMode) -> ExecuteResult<u32> {
+            let dest_resolved = self.resolve_address_with_post(dest, $size)?;
+            let value = self.$read_method(dest_resolved)?;
+            let negated = !value;
+
+            self.registers.ccr = ConditionCodes {
+                carry: false,
+                overflow: false,
+                zero: negated == 0,
+                negative: negated.sign_bit(),
+                ..self.registers.ccr
+            };
+
+            self.$write_method(dest_resolved, negated)?;
+
+            Ok(super::unary_op_cycles($size, dest))
+        }
+    };
+}
+
+macro_rules! impl_clr {
+    ($name:ident, $read_method:ident, $write_method:ident, $size:expr) => {
+        pub(super) fn $name(&mut self, dest: AddressingMode) -> ExecuteResult<u32> {
+            let dest_resolved = self.resolve_address_with_post(dest, $size)?;
+            // No-op read
+            self.$read_method(dest_resolved)?;
+
+            self.registers.ccr = ConditionCodes {
+                carry: false,
+                overflow: false,
+                zero: true,
+                negative: false,
+                ..self.registers.ccr
+            };
+
+            self.$write_method(dest_resolved, 0)?;
+
+            Ok(super::unary_op_cycles($size, dest))
+        }
+    };
 }
 
 macro_rules! impl_bit_test_op {
@@ -196,11 +268,29 @@ macro_rules! impl_rotate_register_op {
     };
 }
 
+macro_rules! impl_tst {
+    ($name:ident, $read_method:ident, $size:expr) => {
+        pub(super) fn $name(&mut self, source: AddressingMode) -> ExecuteResult<u32> {
+            let value = self.$read_method(source)?;
+
+            self.registers.ccr = ConditionCodes {
+                carry: false,
+                overflow: false,
+                zero: value == 0,
+                negative: value.sign_bit(),
+                ..self.registers.ccr
+            };
+
+            Ok(4 + source.address_calculation_cycles($size))
+        }
+    };
+}
+
 #[allow(clippy::assign_op_pattern)]
 impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
-    impl_bit_op!(and, &);
-    impl_bit_op!(or, |);
-    impl_bit_op!(eor, ^);
+    impl_bit_op_all_sizes!(and_byte, and_word, and_long_word, &);
+    impl_bit_op_all_sizes!(or_byte, or_word, or_long_word, |);
+    impl_bit_op_all_sizes!(eor_byte, eor_word, eor_long_word, ^);
 
     impl_bit_op_to_ccr!(andi_to_ccr, &);
     impl_bit_op_to_ccr!(ori_to_ccr, |);
@@ -283,40 +373,13 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     impl_rotate_register_op!(roxr_register_u16, >>, u16, write_word_to, carry: 0, rotate_in: << 15, thru extend);
     impl_rotate_register_op!(roxr_register_u32, >>, u32, write_long_word_to, carry: 0, rotate_in: << 31, thru extend);
 
-    pub(super) fn not(&mut self, size: OpSize, dest: AddressingMode) -> ExecuteResult<u32> {
-        let dest_resolved = self.resolve_address_with_post(dest, size)?;
-        let value: u32 = self.read_resolved(dest_resolved, size)?.into();
-        let negated = SizedValue::from_size(!value, size);
+    impl_not!(not_byte, read_byte_resolved_as_result, write_byte_resolved_as_result, OpSize::Byte);
+    impl_not!(not_word, read_word_resolved, write_word_resolved, OpSize::Word);
+    impl_not!(not_long_word, read_long_word_resolved, write_long_word_resolved, OpSize::LongWord);
 
-        self.registers.ccr = ConditionCodes {
-            carry: false,
-            overflow: false,
-            zero: negated.is_zero(),
-            negative: negated.sign_bit(),
-            ..self.registers.ccr
-        };
-
-        self.write_resolved(dest_resolved, negated)?;
-
-        Ok(super::unary_op_cycles(size, dest))
-    }
-
-    pub(super) fn clr(&mut self, size: OpSize, dest: AddressingMode) -> ExecuteResult<u32> {
-        let dest_resolved = self.resolve_address_with_post(dest, size)?;
-        self.read_resolved(dest_resolved, size)?;
-
-        self.registers.ccr = ConditionCodes {
-            carry: false,
-            overflow: false,
-            zero: true,
-            negative: false,
-            ..self.registers.ccr
-        };
-
-        self.write_resolved(dest_resolved, SizedValue::from_size(0, size))?;
-
-        Ok(super::unary_op_cycles(size, dest))
-    }
+    impl_clr!(clr_byte, read_byte_resolved_as_result, write_byte_resolved_as_result, OpSize::Byte);
+    impl_clr!(clr_word, read_word_resolved, write_word_resolved, OpSize::Word);
+    impl_clr!(clr_long_word, read_long_word_resolved, write_long_word_resolved, OpSize::LongWord);
 
     pub(super) fn ext(&mut self, size: OpSize, register: DataRegister) -> u32 {
         let (zero, sign) = match size {
@@ -549,19 +612,9 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         Ok(shift_memory_cycles(dest))
     }
 
-    pub(super) fn tst(&mut self, size: OpSize, source: AddressingMode) -> ExecuteResult<u32> {
-        let value = self.read(source, size)?;
-
-        self.registers.ccr = ConditionCodes {
-            carry: false,
-            overflow: false,
-            zero: value.is_zero(),
-            negative: value.sign_bit(),
-            ..self.registers.ccr
-        };
-
-        Ok(4 + source.address_calculation_cycles(size))
-    }
+    impl_tst!(tst_byte, read_byte, OpSize::Byte);
+    impl_tst!(tst_word, read_word, OpSize::Word);
+    impl_tst!(tst_long_word, read_long_word, OpSize::LongWord);
 
     pub(super) fn tas(&mut self, dest: AddressingMode) -> ExecuteResult<u32> {
         let dest_resolved = self.resolve_address_with_post(dest, OpSize::Byte)?;

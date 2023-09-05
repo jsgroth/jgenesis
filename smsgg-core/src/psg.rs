@@ -376,6 +376,7 @@ impl Psg {
         self.stereo_control.write(value);
     }
 
+    #[inline]
     pub fn tick(&mut self) -> PsgTickEffect {
         self.divider -= 1;
         if self.divider == 0 {

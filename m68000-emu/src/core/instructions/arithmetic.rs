@@ -1,44 +1,31 @@
 use crate::core::instructions::{Direction, ExtendOpMode};
 use crate::core::{
     AddressRegister, AddressingMode, ConditionCodes, DataRegister, Exception, ExecuteResult,
-    Instruction, InstructionExecutor, OpSize, ResolvedAddress, SizedValue,
+    Instruction, InstructionExecutor, OpSize, ResolvedAddress,
 };
 use crate::traits::BusInterface;
 use jgenesis_traits::num::{GetBit, SignBit};
 
 macro_rules! impl_extend_op_method {
-    ($name:ident, $bytes_fn:ident, $words_fn:ident, $long_words_fn:ident) => {
-        fn $name(
-            &mut self,
-            size: OpSize,
-            source: AddressingMode,
-            dest: AddressingMode,
-        ) -> ExecuteResult<u32> {
-            let (_, operand_r) = self.read_extend_operand(size, source)?;
-            let operand_r: u32 = operand_r.into();
+    ($name:ident, $read_method:ident, $write_method:ident, $op_fn:ident, $size:expr) => {
+        fn $name(&mut self, source: AddressingMode, dest: AddressingMode) -> ExecuteResult<u32> {
+            let (_, operand_r) = self.$read_method(source)?;
+            let (dest_resolved, operand_l) = self.$read_method(dest)?;
 
-            let (dest_resolved, operand_l) = self.read_extend_operand(size, dest)?;
-            let operand_l: u32 = operand_l.into();
-
-            let extend = self.registers.ccr.extend;
-            let (sum, carry, overflow) = match size {
-                OpSize::Byte => $bytes_fn(operand_l as u8, operand_r as u8, extend),
-                OpSize::Word => $words_fn(operand_l as u16, operand_r as u16, extend),
-                OpSize::LongWord => $long_words_fn(operand_l, operand_r, extend),
-            };
+            let (value, carry, overflow) = $op_fn(operand_l, operand_r, self.registers.ccr.extend);
 
             self.registers.ccr = ConditionCodes {
                 carry,
                 overflow,
-                zero: self.registers.ccr.zero && sum.is_zero(),
-                negative: sum.sign_bit(),
+                zero: self.registers.ccr.zero && value == 0,
+                negative: value.sign_bit(),
                 extend: carry,
             };
 
-            self.write_resolved(dest_resolved, sum)?;
+            self.$write_method(dest_resolved, value)?;
 
             // ADDX and SUBX only support Dx,Dy and -(Ax),-(Ay)
-            Ok(match (size, source) {
+            Ok(match ($size, source) {
                 (OpSize::Byte | OpSize::Word, AddressingMode::DataDirect(..)) => 4,
                 (OpSize::LongWord, AddressingMode::DataDirect(..)) => 8,
                 (OpSize::Byte | OpSize::Word, _) => 18,
@@ -49,58 +36,164 @@ macro_rules! impl_extend_op_method {
 }
 
 macro_rules! impl_op_method {
-    ($name:ident, $aname:ident, $xname:ident, $bytes_fn:ident, $words_fn:ident, $long_words_fn:ident) => {
+    ($name:ident, $aname:ident, $xname:ident, $read_method:ident, $read_resolved_method:ident, $write_method:ident, $op_fn:ident, $size:expr) => {
         pub(super) fn $name(
             &mut self,
-            size: OpSize,
             source: AddressingMode,
             dest: AddressingMode,
             with_extend: bool,
         ) -> ExecuteResult<u32> {
             if with_extend {
-                return self.$xname(size, source, dest);
+                return self.$xname(source, dest);
             }
 
             if let AddressingMode::AddressDirect(register) = dest {
-                return self.$aname(size, source, register);
+                return self.$aname($size, source, register);
             }
 
-            let operand_r: u32 = self.read(source, size)?.into();
+            let operand_r = self.$read_method(source)?;
 
-            let dest_resolved = self.resolve_address_with_post(dest, size)?;
-            let operand_l: u32 = self.read_resolved(dest_resolved, size)?.into();
+            let dest_resolved = self.resolve_address_with_post(dest, $size)?;
+            let operand_l = self.$read_resolved_method(dest_resolved)?;
 
-            let (sum, carry, overflow) = match size {
-                OpSize::Byte => $bytes_fn(operand_l as u8, operand_r as u8, false),
-                OpSize::Word => $words_fn(operand_l as u16, operand_r as u16, false),
-                OpSize::LongWord => $long_words_fn(operand_l, operand_r, false),
-            };
+            let (value, carry, overflow) = $op_fn(operand_l, operand_r, false);
 
             if !dest.is_address_direct() {
                 self.registers.ccr = ConditionCodes {
                     carry,
                     overflow,
-                    zero: sum.is_zero(),
-                    negative: sum.sign_bit(),
+                    zero: value == 0,
+                    negative: value.sign_bit(),
                     extend: carry,
                 };
             }
 
-            self.write_resolved(dest_resolved, sum)?;
+            self.$write_method(dest_resolved, value)?;
 
-            Ok(super::binary_op_cycles(size, source, dest))
+            Ok(super::binary_op_cycles($size, source, dest))
         }
     };
 }
 
+macro_rules! impl_neg {
+    ($name:ident, $read_method:ident, $write_method:ident, $sub_fn:ident, $size:expr) => {
+        pub(super) fn $name(
+            &mut self,
+            dest: AddressingMode,
+            with_extend: bool,
+        ) -> ExecuteResult<u32> {
+            let dest_resolved = self.resolve_address_with_post(dest, $size)?;
+            let operand_r = self.$read_method(dest_resolved)?;
+            let extend = with_extend && self.registers.ccr.extend;
+            let (difference, carry, overflow) = $sub_fn(0, operand_r, extend);
+
+            self.registers.ccr = ConditionCodes {
+                carry,
+                overflow,
+                zero: (!with_extend || self.registers.ccr.zero) && difference == 0,
+                negative: difference.sign_bit(),
+                extend: carry,
+            };
+
+            self.$write_method(dest_resolved, difference)?;
+
+            Ok(super::unary_op_cycles($size, dest))
+        }
+    };
+}
+
+macro_rules! impl_cmp {
+    ($name:ident, $read_method:ident, $cmp_fn:ident, $cycles_fn:ident, $size:expr) => {
+        pub(super) fn $name(
+            &mut self,
+            source: AddressingMode,
+            dest: AddressingMode,
+        ) -> ExecuteResult<u32> {
+            if let AddressingMode::AddressDirect(dest) = dest {
+                return self.cmpa($size, source, dest);
+            }
+
+            let source_operand = self.$read_method(source)?;
+            let dest_operand = self.$read_method(dest)?;
+
+            $cmp_fn(source_operand, dest_operand, &mut self.registers.ccr);
+
+            let cycles = $cycles_fn(source, dest);
+            Ok(cycles)
+        }
+    };
+}
+
+macro_rules! impl_cmp_cycles_byte_word {
+    ($name:ident, $size:expr) => {
+        #[inline]
+        fn $name(source: AddressingMode, dest: AddressingMode) -> u32 {
+            match (source, dest) {
+                // CMPM.b / CMPM.w
+                (
+                    AddressingMode::AddressIndirectPostincrement(..),
+                    AddressingMode::AddressIndirectPostincrement(..),
+                ) => 12,
+                // CMPI.b / CMPI.w
+                (AddressingMode::Immediate, AddressingMode::DataDirect(..)) => 8,
+                (AddressingMode::Immediate, _) => super::binary_op_cycles($size, source, dest) - 4,
+                // CMP
+                _ => super::binary_op_cycles($size, source, dest),
+            }
+        }
+    };
+}
+
+impl_cmp_cycles_byte_word!(cmp_cycles_byte, OpSize::Byte);
+impl_cmp_cycles_byte_word!(cmp_cycles_word, OpSize::Word);
+
+#[inline]
+fn cmp_cycles_long_word(source: AddressingMode, dest: AddressingMode) -> u32 {
+    match (source, dest) {
+        // CMPM.l
+        (
+            AddressingMode::AddressIndirectPostincrement(..),
+            AddressingMode::AddressIndirectPostincrement(..),
+        ) => 20,
+        // CMPI.l
+        (AddressingMode::Immediate, AddressingMode::DataDirect(..)) => 14,
+        (AddressingMode::Immediate, _) => {
+            super::binary_op_cycles(OpSize::LongWord, source, dest) - 8
+        }
+        // CMP
+        (
+            AddressingMode::DataDirect(..) | AddressingMode::AddressDirect(..),
+            AddressingMode::DataDirect(..),
+        ) => 6,
+        _ => super::binary_op_cycles(OpSize::LongWord, source, dest),
+    }
+}
+
 impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
-    fn read_extend_operand(
+    fn read_byte_for_extend(
         &mut self,
-        size: OpSize,
-        addressing_mode: AddressingMode,
-    ) -> ExecuteResult<(ResolvedAddress, SizedValue)> {
-        match (size, addressing_mode) {
-            (OpSize::LongWord, AddressingMode::AddressIndirectPredecrement(register)) => {
+        source: AddressingMode,
+    ) -> ExecuteResult<(ResolvedAddress, u8)> {
+        let address = self.resolve_address_with_post(source, OpSize::Byte)?;
+        let byte = self.read_byte_resolved(address);
+        Ok((address, byte))
+    }
+
+    fn read_word_for_extend(
+        &mut self,
+        source: AddressingMode,
+    ) -> ExecuteResult<(ResolvedAddress, u16)> {
+        let address = self.resolve_address_with_post(source, OpSize::Word)?;
+        let word = self.read_word_resolved(address)?;
+        Ok((address, word))
+    }
+
+    fn read_long_word_for_extend(
+        &mut self,
+        source: AddressingMode,
+    ) -> ExecuteResult<(ResolvedAddress, u32)> {
+        match source {
+            AddressingMode::AddressIndirectPredecrement(register) => {
                 let address = register.read_from(self.registers).wrapping_sub(2);
                 register.write_long_word_to(self.registers, address);
                 let low_word = self.read_bus_word(address)?;
@@ -110,11 +203,11 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 let high_word = self.read_bus_word(address)?;
 
                 let value = (u32::from(high_word) << 16) | u32::from(low_word);
-                Ok((ResolvedAddress::Memory(address), value.into()))
+                Ok((ResolvedAddress::Memory(address), value))
             }
             _ => {
-                let address = self.resolve_address_with_post(addressing_mode, size)?;
-                let value = self.read_resolved(address, size)?;
+                let address = self.resolve_address_with_post(source, OpSize::LongWord)?;
+                let value = self.read_long_word_resolved(address)?;
                 Ok((address, value))
             }
         }
@@ -144,8 +237,58 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         Ok(super::binary_op_cycles(size, source, AddressingMode::AddressDirect(dest)))
     }
 
-    impl_extend_op_method!(addx, add_bytes, add_words, add_long_words);
-    impl_op_method!(add, adda, addx, add_bytes, add_words, add_long_words);
+    impl_extend_op_method!(
+        addx_byte,
+        read_byte_for_extend,
+        write_byte_resolved_as_result,
+        add_bytes,
+        OpSize::Byte
+    );
+    impl_extend_op_method!(
+        addx_word,
+        read_word_for_extend,
+        write_word_resolved,
+        add_words,
+        OpSize::Word
+    );
+    impl_extend_op_method!(
+        addx_long_word,
+        read_long_word_for_extend,
+        write_long_word_resolved,
+        add_long_words,
+        OpSize::LongWord
+    );
+
+    impl_op_method!(
+        add_byte,
+        adda,
+        addx_byte,
+        read_byte,
+        read_byte_resolved_as_result,
+        write_byte_resolved_as_result,
+        add_bytes,
+        OpSize::Byte
+    );
+    impl_op_method!(
+        add_word,
+        adda,
+        addx_word,
+        read_word,
+        read_word_resolved,
+        write_word_resolved,
+        add_words,
+        OpSize::Word
+    );
+    impl_op_method!(
+        add_long_word,
+        adda,
+        addx_long_word,
+        read_long_word,
+        read_long_word_resolved,
+        write_long_word_resolved,
+        add_long_words,
+        OpSize::LongWord
+    );
 
     fn suba(
         &mut self,
@@ -162,126 +305,84 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         Ok(super::binary_op_cycles(size, source, AddressingMode::AddressDirect(dest)))
     }
 
-    impl_extend_op_method!(subx, sub_bytes, sub_words, sub_long_words);
-    impl_op_method!(sub, suba, subx, sub_bytes, sub_words, sub_long_words);
+    impl_extend_op_method!(
+        subx_byte,
+        read_byte_for_extend,
+        write_byte_resolved_as_result,
+        sub_bytes,
+        OpSize::Byte
+    );
+    impl_extend_op_method!(
+        subx_word,
+        read_word_for_extend,
+        write_word_resolved,
+        sub_words,
+        OpSize::Word
+    );
+    impl_extend_op_method!(
+        subx_long_word,
+        read_long_word_for_extend,
+        write_long_word_resolved,
+        sub_long_words,
+        OpSize::LongWord
+    );
 
-    pub(super) fn neg(
-        &mut self,
-        size: OpSize,
-        dest: AddressingMode,
-        with_extend: bool,
-    ) -> ExecuteResult<u32> {
-        if with_extend {
-            return self.negx(size, dest);
-        }
+    impl_op_method!(
+        sub_byte,
+        suba,
+        subx_byte,
+        read_byte,
+        read_byte_resolved_as_result,
+        write_byte_resolved_as_result,
+        sub_bytes,
+        OpSize::Byte
+    );
+    impl_op_method!(
+        sub_word,
+        suba,
+        subx_word,
+        read_word,
+        read_word_resolved,
+        write_word_resolved,
+        sub_words,
+        OpSize::Word
+    );
+    impl_op_method!(
+        sub_long_word,
+        suba,
+        subx_long_word,
+        read_long_word,
+        read_long_word_resolved,
+        write_long_word_resolved,
+        sub_long_words,
+        OpSize::LongWord
+    );
 
-        let dest_resolved = self.resolve_address_with_post(dest, size)?;
-        let operand_r: u32 = self.read_resolved(dest_resolved, size)?.into();
-        let (difference, carry, overflow) = match size {
-            OpSize::Byte => sub_bytes(0, operand_r as u8, false),
-            OpSize::Word => sub_words(0, operand_r as u16, false),
-            OpSize::LongWord => sub_long_words(0, operand_r, false),
-        };
+    impl_neg!(
+        neg_byte,
+        read_byte_resolved_as_result,
+        write_byte_resolved_as_result,
+        sub_bytes,
+        OpSize::Byte
+    );
+    impl_neg!(neg_word, read_word_resolved, write_word_resolved, sub_words, OpSize::Word);
+    impl_neg!(
+        neg_long_word,
+        read_long_word_resolved,
+        write_long_word_resolved,
+        sub_long_words,
+        OpSize::LongWord
+    );
 
-        self.registers.ccr = ConditionCodes {
-            carry,
-            overflow,
-            zero: difference.is_zero(),
-            negative: difference.sign_bit(),
-            extend: carry,
-        };
-
-        self.write_resolved(dest_resolved, difference)?;
-
-        Ok(super::unary_op_cycles(size, dest))
-    }
-
-    fn negx(&mut self, size: OpSize, dest: AddressingMode) -> ExecuteResult<u32> {
-        let dest_resolved = self.resolve_address_with_post(dest, size)?;
-        let operand_r: u32 = self.read_resolved(dest_resolved, size)?.into();
-
-        let extend = self.registers.ccr.extend;
-        let (difference, carry, overflow) = match size {
-            OpSize::Byte => sub_bytes(0, operand_r as u8, extend),
-            OpSize::Word => sub_words(0, operand_r as u16, extend),
-            OpSize::LongWord => sub_long_words(0, operand_r, extend),
-        };
-
-        self.registers.ccr = ConditionCodes {
-            carry,
-            overflow,
-            zero: self.registers.ccr.zero && difference.is_zero(),
-            negative: difference.sign_bit(),
-            extend: carry,
-        };
-
-        self.write_resolved(dest_resolved, difference)?;
-
-        Ok(super::unary_op_cycles(size, dest))
-    }
-
-    pub(super) fn cmp(
-        &mut self,
-        size: OpSize,
-        source: AddressingMode,
-        dest: AddressingMode,
-    ) -> ExecuteResult<u32> {
-        if let AddressingMode::AddressDirect(dest) = dest {
-            return self.cmpa(size, source, dest);
-        }
-
-        let source_operand: u32 = self.read(source, size)?.into();
-        let dest_operand: u32 = self.read(dest, size)?.into();
-
-        let ccr = &mut self.registers.ccr;
-        match size {
-            OpSize::Byte => {
-                compare_bytes(source_operand as u8, dest_operand as u8, ccr);
-            }
-            OpSize::Word => {
-                compare_words(source_operand as u16, dest_operand as u16, ccr);
-            }
-            OpSize::LongWord => {
-                compare_long_words(source_operand, dest_operand, ccr);
-            }
-        }
-
-        Ok(match (size, source, dest) {
-            // CMPM.b / CMPM.w
-            (
-                OpSize::Byte | OpSize::Word,
-                AddressingMode::AddressIndirectPostincrement(..),
-                AddressingMode::AddressIndirectPostincrement(..),
-            ) => 12,
-            // CMPM.l
-            (
-                OpSize::LongWord,
-                AddressingMode::AddressIndirectPostincrement(..),
-                AddressingMode::AddressIndirectPostincrement(..),
-            ) => 20,
-            // CMPI.b / CMPI.w
-            (
-                OpSize::Byte | OpSize::Word,
-                AddressingMode::Immediate,
-                AddressingMode::DataDirect(..),
-            ) => 8,
-            (OpSize::Byte | OpSize::Word, AddressingMode::Immediate, _) => {
-                super::binary_op_cycles(size, source, dest) - 4
-            }
-            // CMPI.l
-            (OpSize::LongWord, AddressingMode::Immediate, AddressingMode::DataDirect(..)) => 14,
-            (OpSize::LongWord, AddressingMode::Immediate, _) => {
-                super::binary_op_cycles(size, source, dest) - 8
-            }
-            // CMP
-            (
-                OpSize::LongWord,
-                AddressingMode::DataDirect(..) | AddressingMode::AddressDirect(..),
-                AddressingMode::DataDirect(..),
-            ) => 6,
-            _ => super::binary_op_cycles(size, source, dest),
-        })
-    }
+    impl_cmp!(cmp_byte, read_byte, compare_bytes, cmp_cycles_byte, OpSize::Byte);
+    impl_cmp!(cmp_word, read_word, compare_words, cmp_cycles_word, OpSize::Word);
+    impl_cmp!(
+        cmp_long_word,
+        read_long_word,
+        compare_long_words,
+        cmp_cycles_long_word,
+        OpSize::LongWord
+    );
 
     fn cmpa(
         &mut self,
@@ -555,7 +656,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
 macro_rules! impl_add_fn {
     ($name:ident, $t:ty, $overflow_mask:expr) => {
-        fn $name(operand_l: $t, operand_r: $t, extend: bool) -> (SizedValue, bool, bool) {
+        fn $name(operand_l: $t, operand_r: $t, extend: bool) -> ($t, bool, bool) {
             let extend_operand = <$t>::from(extend);
             let (sum, carry) = match operand_l.overflowing_add(operand_r) {
                 (sum, true) => (sum + extend_operand, true),
@@ -567,7 +668,7 @@ macro_rules! impl_add_fn {
                     > $overflow_mask;
             let overflow = bit_m1_carry != carry;
 
-            (sum.into(), carry, overflow)
+            (sum, carry, overflow)
         }
     };
 }
@@ -578,7 +679,7 @@ impl_add_fn!(add_long_words, u32, 0x7FFF_FFFF);
 
 macro_rules! impl_sub_fn {
     ($name:ident, $t:ty, $overflow_mask:expr) => {
-        fn $name(operand_l: $t, operand_r: $t, extend: bool) -> (SizedValue, bool, bool) {
+        fn $name(operand_l: $t, operand_r: $t, extend: bool) -> ($t, bool, bool) {
             let extend_operand = <$t>::from(extend);
             let (difference, borrow) = match operand_l.overflowing_sub(operand_r) {
                 (difference, true) => (difference - extend_operand, true),
@@ -591,7 +692,7 @@ macro_rules! impl_sub_fn {
 
             log::trace!("{operand_l} - {operand_r} = {difference}");
 
-            (difference.into(), borrow, overflow)
+            (difference, borrow, overflow)
         }
     };
 }

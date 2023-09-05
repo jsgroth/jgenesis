@@ -368,6 +368,7 @@ impl Z80 {
     /// When run using this method, the Z80 will immediately execute an instruction in full and
     /// internally record how many cycles the instruction took; the next instruction will be
     /// executed after calling `tick()` that many times, and so on.
+    #[inline]
     pub fn tick<B: BusInterface>(&mut self, bus: &mut B) {
         if self.t_cycles_wait > 0 {
             self.t_cycles_wait -= 1;

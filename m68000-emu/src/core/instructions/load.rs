@@ -6,6 +6,40 @@ use crate::core::{
 use crate::traits::BusInterface;
 use jgenesis_traits::num::{GetBit, SignBit};
 
+macro_rules! impl_move {
+    ($name:ident, $read_method:ident, $write_method:ident, $size:expr) => {
+        pub(super) fn $name(
+            &mut self,
+            source: AddressingMode,
+            dest: AddressingMode,
+        ) -> ExecuteResult<u32> {
+            let value = self.$read_method(source)?;
+
+            if !dest.is_address_direct() {
+                self.registers.ccr = ConditionCodes {
+                    carry: false,
+                    overflow: false,
+                    zero: value == 0,
+                    negative: value.sign_bit(),
+                    ..self.registers.ccr
+                };
+            }
+
+            self.$write_method(dest, value)?;
+
+            // -(An) destinations take 2 fewer cycles than they do in other operations
+            let base_cycles = match dest {
+                AddressingMode::AddressIndirectPredecrement(..) => 2,
+                _ => 4,
+            };
+
+            Ok(base_cycles
+                + source.address_calculation_cycles($size)
+                + dest.address_calculation_cycles($size))
+        }
+    };
+}
+
 macro_rules! impl_exg {
     ($name:ident, $tx:ty, $ty:ty) => {
         pub(super) fn $name(&mut self, rx: $tx, ry: $ty) -> u32 {
@@ -21,36 +55,30 @@ macro_rules! impl_exg {
 }
 
 impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
-    pub(super) fn move_(
-        &mut self,
-        size: OpSize,
-        source: AddressingMode,
-        dest: AddressingMode,
-    ) -> ExecuteResult<u32> {
-        let value = self.read(source, size)?;
+    #[inline]
+    fn write_long_word_for_move(&mut self, dest: AddressingMode, value: u32) -> ExecuteResult<()> {
+        match dest {
+            AddressingMode::AddressIndirectPredecrement(register) => {
+                let high_word = (value >> 16) as u16;
+                let low_word = value as u16;
 
-        if !dest.is_address_direct() {
-            self.registers.ccr = ConditionCodes {
-                carry: false,
-                overflow: false,
-                zero: value.is_zero(),
-                negative: value.sign_bit(),
-                ..self.registers.ccr
-            };
+                let address = register.read_from(self.registers).wrapping_sub(2);
+                register.write_long_word_to(self.registers, address);
+                self.write_bus_word(address, low_word)?;
+
+                let address = address.wrapping_sub(2);
+                register.write_long_word_to(self.registers, address);
+                self.write_bus_word(address, high_word)?;
+
+                Ok(())
+            }
+            _ => self.write_long_word(dest, value),
         }
-
-        self.write(dest, value)?;
-
-        // -(An) destinations take 2 fewer cycles than they do in other operations
-        let base_cycles = match dest {
-            AddressingMode::AddressIndirectPredecrement(..) => 2,
-            _ => 4,
-        };
-
-        Ok(base_cycles
-            + source.address_calculation_cycles(size)
-            + dest.address_calculation_cycles(size))
     }
+
+    impl_move!(move_byte, read_byte, write_byte, OpSize::Byte);
+    impl_move!(move_word, read_word, write_word, OpSize::Word);
+    impl_move!(move_long_word, read_long_word, write_long_word_for_move, OpSize::LongWord);
 
     pub(super) fn move_from_sr(&mut self, dest: AddressingMode) -> ExecuteResult<u32> {
         let dest_resolved = self.resolve_address_with_post(dest, OpSize::Word)?;
