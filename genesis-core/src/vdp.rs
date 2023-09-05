@@ -5,6 +5,7 @@ use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use jgenesis_traits::frontend::Color;
 use jgenesis_traits::num::GetBit;
+use m68000_emu::M68000;
 use std::ops::{Add, AddAssign, Deref, DerefMut};
 use z80_emu::traits::InterruptLine;
 
@@ -651,6 +652,61 @@ impl AddAssign for ColorModifier {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LineType {
+    Active,
+    Blanked,
+}
+
+impl LineType {
+    fn from_vdp(vdp: &Vdp) -> Self {
+        if !vdp.registers.display_enabled || vdp.in_vblank() { Self::Blanked } else { Self::Active }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Encode, Decode)]
+struct DmaTracker {
+    // TODO avoid floating point arithmetic?
+    in_progress: bool,
+    bytes_remaining: f64,
+}
+
+impl DmaTracker {
+    fn new() -> Self {
+        Self { in_progress: false, bytes_remaining: 0.0 }
+    }
+
+    fn init(&mut self, dma_length: u32) {
+        self.bytes_remaining = f64::from(2 * dma_length);
+        self.in_progress = true;
+    }
+
+    #[inline]
+    fn tick(
+        &mut self,
+        master_clock_cycles: u64,
+        h_display_size: HorizontalDisplaySize,
+        line_type: LineType,
+    ) {
+        if !self.in_progress {
+            return;
+        }
+
+        let bytes_per_line: u32 = match (h_display_size, line_type) {
+            (HorizontalDisplaySize::ThirtyTwoCell, LineType::Active) => 16,
+            (HorizontalDisplaySize::FortyCell, LineType::Active) => 18,
+            (HorizontalDisplaySize::ThirtyTwoCell, LineType::Blanked) => 167,
+            (HorizontalDisplaySize::FortyCell, LineType::Blanked) => 205,
+        };
+        let bytes_per_line: f64 = bytes_per_line.into();
+        self.bytes_remaining -=
+            bytes_per_line * master_clock_cycles as f64 / MCLK_CYCLES_PER_SCANLINE as f64;
+        if self.bytes_remaining <= 0.0 {
+            self.in_progress = false;
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VdpTickEffect {
     None,
     FrameComplete,
@@ -695,6 +751,7 @@ pub struct Vdp {
     registers: Registers,
     sprite_buffer: Vec<SpriteData>,
     master_clock_cycles: u64,
+    dma_tracker: DmaTracker,
 }
 
 const MAX_SCREEN_WIDTH: usize = 320;
@@ -721,6 +778,7 @@ impl Vdp {
             registers: Registers::new(),
             sprite_buffer: Vec::with_capacity(MAX_SPRITES_PER_FRAME),
             master_clock_cycles: 0,
+            dma_tracker: DmaTracker::new(),
         }
     }
 
@@ -933,7 +991,12 @@ impl Vdp {
     }
 
     #[must_use]
-    pub fn tick(&mut self, master_clock_cycles: u64, memory: &Memory) -> VdpTickEffect {
+    pub fn tick(
+        &mut self,
+        master_clock_cycles: u64,
+        memory: &Memory,
+        m68k: &mut M68000,
+    ) -> VdpTickEffect {
         // The longest 68k instruction (DIVS) takes at most around 150 68k cycles
         assert!(master_clock_cycles < 1100);
 
@@ -942,7 +1005,15 @@ impl Vdp {
             self.run_dma(memory, active_dma);
         }
 
-        if !self.state.pending_writes.is_empty() {
+        let line_type = LineType::from_vdp(self);
+        self.dma_tracker.tick(
+            master_clock_cycles,
+            self.registers.horizontal_display_size,
+            line_type,
+        );
+        m68k.set_halted(self.dma_tracker.in_progress);
+
+        if !self.dma_tracker.in_progress && !self.state.pending_writes.is_empty() {
             let mut pending_writes = [PendingWrite::default(); 10];
             let pending_writes_len = self.state.pending_writes.len();
             pending_writes[..pending_writes_len].copy_from_slice(&self.state.pending_writes);
@@ -1017,19 +1088,20 @@ impl Vdp {
     fn run_dma(&mut self, memory: &Memory, active_dma: ActiveDma) {
         match active_dma {
             ActiveDma::MemoryToVram => {
-                // TODO halt 68k during memory-to-VRAM transfers
+                let dma_length = self.registers.dma_length();
+                self.dma_tracker.init(dma_length);
 
                 let mut source_addr = self.registers.dma_source_address;
 
                 log::trace!(
                     "Copying {} words from {source_addr:06X} to {:04X}, write location={:?}; data_addr_increment={:04X}",
-                    self.registers.dma_length(),
+                    dma_length,
                     self.state.data_address,
                     self.state.data_port_location,
                     self.registers.data_port_auto_increment
                 );
 
-                for _ in 0..self.registers.dma_length() {
+                for _ in 0..dma_length {
                     let word = memory.read_word_for_dma(source_addr);
                     match self.state.data_port_location {
                         DataPortLocation::Vram => {
