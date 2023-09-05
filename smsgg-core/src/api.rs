@@ -16,7 +16,10 @@ use std::ops::{Deref, DerefMut};
 use z80_emu::{InterruptMode, Z80};
 
 // 53_693_175 / 15 / 16 / 48000
-const DOWNSAMPLING_RATIO: f64 = 4.6608658854166665;
+const NTSC_DOWNSAMPLING_RATIO: f64 = 4.6608658854166665;
+
+// 53_203_424 / 15 / 16 / 48000
+const PAL_DOWNSAMPLING_RATIO: f64 = 4.618352777777777;
 
 #[derive(Debug)]
 pub enum SmsGgError<RErr, AErr, SErr> {
@@ -218,13 +221,17 @@ impl TickableEmulator for SmsGgEmulator {
             &mut self.input,
         ));
 
+        let downsampling_ratio = match self.vdp_version {
+            VdpVersion::PalMasterSystem2 => PAL_DOWNSAMPLING_RATIO,
+            VdpVersion::NtscMasterSystem2 | VdpVersion::GameGear => NTSC_DOWNSAMPLING_RATIO,
+        };
         for _ in 0..t_cycles {
             if self.psg.tick() == PsgTickEffect::Clocked {
                 let prev_count = self.sample_count;
                 self.sample_count += 1;
 
-                if (prev_count as f64 / DOWNSAMPLING_RATIO).round() as u64
-                    != (self.sample_count as f64 / DOWNSAMPLING_RATIO).round() as u64
+                if (prev_count as f64 / downsampling_ratio).round() as u64
+                    != (self.sample_count as f64 / downsampling_ratio).round() as u64
                 {
                     let (sample_l, sample_r) = self.psg.sample();
                     audio_output.push_sample(sample_l, sample_r).map_err(SmsGgError::Audio)?;
