@@ -1,5 +1,6 @@
 mod debug;
 
+use crate::api::GenesisTimingMode;
 use crate::memory::Memory;
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
@@ -83,6 +84,21 @@ impl HorizontalDisplaySize {
         match self {
             Self::ThirtyTwoCell => 32,
             Self::FortyCell => 64,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+enum VerticalDisplaySize {
+    TwentyEightCell,
+    ThirtyCell,
+}
+
+impl VerticalDisplaySize {
+    fn active_scanlines(self) -> u16 {
+        match self {
+            Self::TwentyEightCell => 224,
+            Self::ThirtyCell => 240,
         }
     }
 }
@@ -239,6 +255,9 @@ struct InternalState {
     active_dma: Option<ActiveDma>,
     pending_writes: Vec<PendingWrite>,
     frame_count: u64,
+    // Marks whether a frame has been completed so that frames don't get double rendered if
+    // a game switches from V28 to V30 mode on scanlines 224-239
+    frame_completed: bool,
 }
 
 impl InternalState {
@@ -258,6 +277,7 @@ impl InternalState {
             active_dma: None,
             pending_writes: Vec::with_capacity(10),
             frame_count: 0,
+            frame_completed: false,
         }
     }
 }
@@ -272,7 +292,7 @@ struct Registers {
     display_enabled: bool,
     v_interrupt_enabled: bool,
     dma_enabled: bool,
-    // TODO PAL V30-cell mode
+    vertical_display_size: VerticalDisplaySize,
     // Register #2
     scroll_a_base_nt_addr: u16,
     // Register #3
@@ -322,6 +342,7 @@ impl Registers {
             display_enabled: false,
             v_interrupt_enabled: false,
             dma_enabled: false,
+            vertical_display_size: VerticalDisplaySize::TwentyEightCell,
             scroll_a_base_nt_addr: 0,
             window_base_nt_addr: 0,
             scroll_b_base_nt_addr: 0,
@@ -365,7 +386,11 @@ impl Registers {
                 self.display_enabled = value.bit(6);
                 self.v_interrupt_enabled = value.bit(5);
                 self.dma_enabled = value.bit(4);
-                // TODO PAL V30-cell mode
+                self.vertical_display_size = if value.bit(3) {
+                    VerticalDisplaySize::ThirtyCell
+                } else {
+                    VerticalDisplaySize::TwentyEightCell
+                };
 
                 log::trace!("  Display enabled: {}", self.display_enabled);
                 log::trace!("  V interrupt enabled: {}", self.v_interrupt_enabled);
@@ -747,6 +772,7 @@ pub struct Vdp {
     vram: Vec<u8>,
     cram: [u8; CRAM_LEN],
     vsram: [u8; VSRAM_LEN],
+    timing_mode: GenesisTimingMode,
     state: InternalState,
     registers: Registers,
     sprite_buffer: Vec<SpriteData>,
@@ -755,25 +781,35 @@ pub struct Vdp {
 }
 
 const MAX_SCREEN_WIDTH: usize = 320;
-const SCREEN_HEIGHT: usize = 224;
+const MAX_SCREEN_HEIGHT: usize = 240;
 
 // Double screen height to account for interlaced 2x mode
-const FRAME_BUFFER_LEN: usize = MAX_SCREEN_WIDTH * SCREEN_HEIGHT * 2;
+const FRAME_BUFFER_LEN: usize = MAX_SCREEN_WIDTH * MAX_SCREEN_HEIGHT * 2;
 
 const MCLK_CYCLES_PER_SCANLINE: u64 = 3420;
 const ACTIVE_MCLK_CYCLES_PER_SCANLINE: u64 = 2560;
-const SCANLINES_PER_FRAME: u16 = 262;
-const ACTIVE_SCANLINES: u16 = 224;
+const NTSC_SCANLINES_PER_FRAME: u16 = 262;
+const PAL_SCANLINES_PER_FRAME: u16 = 312;
 
 const MAX_SPRITES_PER_FRAME: usize = 80;
 
+impl GenesisTimingMode {
+    fn scanlines_per_frame(self) -> u16 {
+        match self {
+            Self::Ntsc => NTSC_SCANLINES_PER_FRAME,
+            Self::Pal => PAL_SCANLINES_PER_FRAME,
+        }
+    }
+}
+
 impl Vdp {
-    pub fn new() -> Self {
+    pub fn new(timing_mode: GenesisTimingMode) -> Self {
         Self {
             frame_buffer: FrameBuffer::new(),
             vram: vec![0; VRAM_LEN],
             cram: [0; CRAM_LEN],
             vsram: [0; VSRAM_LEN],
+            timing_mode,
             state: InternalState::new(),
             registers: Registers::new(),
             sprite_buffer: Vec::with_capacity(MAX_SPRITES_PER_FRAME),
@@ -949,7 +985,6 @@ impl Vdp {
         // Queue empty (bit 9) hardcoded to true
         // Queue full (bit 8) hardcoded to false
         // DMA busy (bit 1) hardcoded to false
-        // PAL (bit 0) hardcoded to false
         let interlaced_odd =
             self.registers.interlacing_mode.is_interlaced() && self.state.frame_count % 2 == 1;
         let status = 0x0200
@@ -959,7 +994,8 @@ impl Vdp {
             | (u16::from(self.state.sprite_collision) << 5)
             | (u16::from(interlaced_odd) << 4)
             | (u16::from(self.in_vblank()) << 3)
-            | (u16::from(self.in_hblank()) << 2);
+            | (u16::from(self.in_hblank()) << 2)
+            | u16::from(self.timing_mode == GenesisTimingMode::Pal);
 
         self.state.sprite_overflow = false;
         self.state.sprite_collision = false;
@@ -1031,12 +1067,14 @@ impl Vdp {
             }
         }
 
+        let scanlines_per_frame = self.timing_mode.scanlines_per_frame();
+        let active_scanlines = self.registers.vertical_display_size.active_scanlines();
+
         let prev_mclk_cycles = self.master_clock_cycles;
         self.master_clock_cycles += master_clock_cycles;
 
-        let prev_scanline_mclk = prev_mclk_cycles % MCLK_CYCLES_PER_SCANLINE;
-
         // Check if the VDP just entered the HBlank period
+        let prev_scanline_mclk = prev_mclk_cycles % MCLK_CYCLES_PER_SCANLINE;
         if prev_scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE
             && master_clock_cycles >= ACTIVE_MCLK_CYCLES_PER_SCANLINE - prev_scanline_mclk
         {
@@ -1045,8 +1083,8 @@ impl Vdp {
             self.render_next_scanline();
 
             // Check if an H/V interrupt has occurred
-            if self.state.scanline < ACTIVE_SCANLINES
-                || self.state.scanline == SCANLINES_PER_FRAME - 1
+            if self.state.scanline < active_scanlines
+                || self.state.scanline == scanlines_per_frame - 1
             {
                 if self.state.h_interrupt_counter == 0 {
                     self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
@@ -1062,7 +1100,7 @@ impl Vdp {
                 self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
 
                 // Trigger V interrupt if this is the first scanline of VBlank
-                if self.state.scanline == ACTIVE_SCANLINES && self.registers.v_interrupt_enabled {
+                if self.state.scanline == active_scanlines && self.registers.v_interrupt_enabled {
                     self.state.v_interrupt_pending = true;
                 }
             }
@@ -1071,12 +1109,14 @@ impl Vdp {
         // Check if the VDP has advanced to a new scanline
         if prev_scanline_mclk + master_clock_cycles >= MCLK_CYCLES_PER_SCANLINE {
             self.state.scanline += 1;
-            if self.state.scanline == SCANLINES_PER_FRAME {
+            if self.state.scanline == scanlines_per_frame {
                 self.state.scanline = 0;
                 self.state.frame_count += 1;
+                self.state.frame_completed = false;
             }
 
-            if self.state.scanline == ACTIVE_SCANLINES {
+            if self.state.scanline == active_scanlines && !self.state.frame_completed {
+                self.state.frame_completed = true;
                 return VdpTickEffect::FrameComplete;
             }
         }
@@ -1182,7 +1222,7 @@ impl Vdp {
     }
 
     fn in_vblank(&self) -> bool {
-        self.state.scanline >= ACTIVE_SCANLINES
+        self.state.scanline >= self.registers.vertical_display_size.active_scanlines()
     }
 
     fn in_hblank(&self) -> bool {
@@ -1207,7 +1247,7 @@ impl Vdp {
 
     pub fn z80_interrupt_line(&self) -> InterruptLine {
         // Z80 INT line is low only during the first scanline of VBlank
-        if self.state.scanline == ACTIVE_SCANLINES {
+        if self.state.scanline == self.registers.vertical_display_size.active_scanlines() {
             InterruptLine::Low
         } else {
             InterruptLine::High
@@ -1216,11 +1256,12 @@ impl Vdp {
 
     #[inline]
     fn render_next_scanline(&mut self) {
-        match self.state.scanline {
-            261 => {
+        match (self.timing_mode, self.registers.vertical_display_size, self.state.scanline) {
+            (GenesisTimingMode::Ntsc, _, 261) | (GenesisTimingMode::Pal, _, 311) => {
                 self.render_scanline(0);
             }
-            scanline @ 0..=222 => {
+            (_, VerticalDisplaySize::TwentyEightCell, scanline @ 0..=222)
+            | (_, VerticalDisplaySize::ThirtyCell, scanline @ 0..=238) => {
                 self.render_scanline(scanline + 1);
             }
             _ => {}
@@ -1229,7 +1270,7 @@ impl Vdp {
 
     fn render_scanline(&mut self, scanline: u16) {
         if !self.registers.display_enabled {
-            if scanline < ACTIVE_SCANLINES {
+            if scanline < self.registers.vertical_display_size.active_scanlines() {
                 match self.registers.interlacing_mode {
                     InterlacingMode::Progressive | InterlacingMode::Interlaced => {
                         self.clear_scanline(scanline);
@@ -1567,9 +1608,10 @@ impl Vdp {
     }
 
     pub fn screen_height(&self) -> u32 {
+        let screen_height: u32 = self.registers.vertical_display_size.active_scanlines().into();
         match self.registers.interlacing_mode {
-            InterlacingMode::Progressive | InterlacingMode::Interlaced => SCREEN_HEIGHT as u32,
-            InterlacingMode::InterlacedDouble => (2 * SCREEN_HEIGHT) as u32,
+            InterlacingMode::Progressive | InterlacingMode::Interlaced => screen_height,
+            InterlacingMode::InterlacedDouble => 2 * screen_height,
         }
     }
 

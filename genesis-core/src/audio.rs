@@ -1,10 +1,23 @@
+use crate::api::GenesisTimingMode;
 use bincode::{Decode, Encode};
 use jgenesis_traits::frontend::AudioOutput;
 use std::collections::VecDeque;
 
 // 53_693_175 / 7 / 6 / 24 * 3 / 48000
 // The *3 is because of zero padding the original audio signal with 2 zeros for every actual sample
-const DOWNSAMPLING_RATIO: f64 = 3.329189918154762;
+const NTSC_DOWNSAMPLING_RATIO: f64 = 3.329189918154762;
+
+// 53_203_424 / 7 / 6 / 24 * 3 / 48000
+const PAL_DOWNSAMPLING_RATIO: f64 = 3.298823412698413;
+
+impl GenesisTimingMode {
+    fn downsampling_ratio(self) -> f64 {
+        match self {
+            Self::Ntsc => NTSC_DOWNSAMPLING_RATIO,
+            Self::Pal => PAL_DOWNSAMPLING_RATIO,
+        }
+    }
+}
 
 const FIR_COEFFICIENT_0: f64 = -0.001478342773457343;
 const FIR_COEFFICIENTS: &[f64] = &[
@@ -42,16 +55,19 @@ pub struct AudioDownsampler {
     sample_count: u64,
     next_sample: u64,
     next_sample_float: f64,
+    downsampling_ratio: f64,
 }
 
 impl AudioDownsampler {
-    pub fn new() -> Self {
+    pub fn new(timing_mode: GenesisTimingMode) -> Self {
+        let downsampling_ratio = timing_mode.downsampling_ratio();
         Self {
             full_buffer_l: VecDeque::new(),
             full_buffer_r: VecDeque::new(),
             sample_count: 0,
-            next_sample: DOWNSAMPLING_RATIO.round() as u64,
-            next_sample_float: DOWNSAMPLING_RATIO,
+            next_sample: downsampling_ratio.round() as u64,
+            next_sample_float: downsampling_ratio,
+            downsampling_ratio,
         }
     }
 
@@ -73,7 +89,7 @@ impl AudioDownsampler {
 
         self.sample_count += 1;
         if self.sample_count == self.next_sample {
-            self.next_sample_float += DOWNSAMPLING_RATIO;
+            self.next_sample_float += self.downsampling_ratio;
             self.next_sample = self.next_sample_float.round() as u64;
 
             let sample_l = output_sample(&self.full_buffer_l);

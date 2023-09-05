@@ -5,7 +5,6 @@ WIP multi-console Sega emulator. Currently mostly supports the Sega Master Syste
 Major TODOs:
 * Implement a few remaining YM2612 features (CSM and SSG-EG, they're obscure but some games did use them)
   * Volume levels also sound slightly off in some games
-* Support PAL for Genesis
 * Support 6-button Genesis controllers
 * Support the SMS optional YM2413 FM sound chip
 * Support for specific Genesis games that do weird things with cartridge hardware (e.g. Phantasy Star 4 and Super Street Fighter 2)

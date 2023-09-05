@@ -12,7 +12,7 @@ use egui::{
     TextEdit, TopBottomPanel, Vec2, Widget, Window,
 };
 use egui_extras::{Column, TableBuilder};
-use genesis_core::GenesisAspectRatio;
+use genesis_core::{GenesisAspectRatio, GenesisTimingMode};
 use jgenesis_native_driver::config::{
     CommonConfig, GenesisConfig, GgAspectRatio, SmsAspectRatio, SmsGgConfig, WindowSize,
 };
@@ -102,6 +102,8 @@ impl Default for SmsGgAppConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct GenesisAppConfig {
+    #[serde(default)]
+    forced_timing_mode: Option<GenesisTimingMode>,
     #[serde(default)]
     aspect_ratio: GenesisAspectRatio,
     #[serde(default = "true_fn")]
@@ -195,6 +197,7 @@ impl AppConfig {
                 self.inputs.to_genesis_keyboard_config(),
                 self.inputs.to_genesis_joystick_config(),
             ),
+            forced_timing_mode: self.genesis.forced_timing_mode,
             aspect_ratio: self.genesis.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: self.genesis.adjust_aspect_ratio_in_2x_resolution,
         }
@@ -210,6 +213,7 @@ impl Default for AppConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum OpenWindow {
     SmsGgGeneral,
+    GenesisGeneral,
     Interface,
     CommonVideo,
     SmsGgVideo,
@@ -352,6 +356,34 @@ impl App {
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::SmsGgGeneral);
+        }
+    }
+
+    fn render_genesis_general_settings(&mut self, ctx: &Context) {
+        let mut open = true;
+        Window::new("Genesis General Settings").open(&mut open).resizable(true).show(ctx, |ui| {
+            ui.set_enabled(self.emu_thread.status() != EmuThreadStatus::RunningGenesis);
+
+            ui.group(|ui| {
+                ui.label("Timing / display mode");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(&mut self.config.genesis.forced_timing_mode, None, "Auto");
+                    ui.radio_value(
+                        &mut self.config.genesis.forced_timing_mode,
+                        Some(GenesisTimingMode::Ntsc),
+                        "NTSC",
+                    );
+                    ui.radio_value(
+                        &mut self.config.genesis.forced_timing_mode,
+                        Some(GenesisTimingMode::Pal),
+                        "PAL",
+                    );
+                });
+            });
+        });
+        if !open {
+            self.state.open_windows.remove(&OpenWindow::GenesisGeneral);
         }
     }
 
@@ -575,6 +607,12 @@ impl App {
                     .on_hover_text("32:35 pixel aspect ratio in 320px mode, 8:7 in 256px mode");
                     ui.radio_value(
                         &mut self.config.genesis.aspect_ratio,
+                        GenesisAspectRatio::Pal,
+                        "PAL",
+                    )
+                    .on_hover_text("11:10 pixel aspect ratio in 320px mode, 11:8 in 256px mode");
+                    ui.radio_value(
+                        &mut self.config.genesis.aspect_ratio,
                         GenesisAspectRatio::SquarePixels,
                         "Square pixels",
                     )
@@ -706,6 +744,12 @@ impl App {
                         self.state.open_windows.insert(OpenWindow::SmsGgGeneral);
                         ui.close_menu();
                     }
+
+                    if ui.button("Genesis").clicked() {
+                        self.state.open_windows.insert(OpenWindow::GenesisGeneral);
+                        ui.close_menu();
+                    }
+
                     if ui.button("Interface").clicked() {
                         self.state.open_windows.insert(OpenWindow::Interface);
                         ui.close_menu();
@@ -906,6 +950,9 @@ impl eframe::App for App {
             match open_window {
                 OpenWindow::SmsGgGeneral => {
                     self.render_smsgg_general_settings(ctx);
+                }
+                OpenWindow::GenesisGeneral => {
+                    self.render_genesis_general_settings(ctx);
                 }
                 OpenWindow::Interface => {
                     self.render_interface_settings(ctx);

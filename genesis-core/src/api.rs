@@ -1,7 +1,7 @@
 use crate::audio;
 use crate::audio::AudioDownsampler;
 use crate::input::{GenesisInputs, InputState};
-use crate::memory::{Cartridge, MainBus, Memory};
+use crate::memory::{Cartridge, HardwareRegion, MainBus, Memory};
 use crate::vdp::{Vdp, VdpTickEffect};
 use crate::ym2612::{Ym2612, YmTickEffect};
 use bincode::{Decode, Encode};
@@ -63,6 +63,7 @@ pub type GenesisResult<RErr, AErr, SErr> = Result<TickEffect, GenesisError<RErr,
 pub enum GenesisAspectRatio {
     #[default]
     Ntsc,
+    Pal,
     SquarePixels,
     Stretched,
 }
@@ -78,7 +79,11 @@ impl GenesisAspectRatio {
             (Self::Stretched, _) => None,
             (Self::Ntsc, 256) => Some(8.0 / 7.0),
             (Self::Ntsc, 320) => Some(32.0 / 35.0),
-            (Self::Ntsc, _) => panic!("unexpected Genesis frame width: {}", frame_size.width),
+            (Self::Pal, 256) => Some(11.0 / 8.0),
+            (Self::Pal, 320) => Some(11.0 / 10.0),
+            (Self::Ntsc | Self::Pal, _) => {
+                panic!("unexpected Genesis frame width: {}", frame_size.width)
+            }
         };
 
         if adjust_for_2x_resolution && frame_size.height == 448 {
@@ -89,8 +94,16 @@ impl GenesisAspectRatio {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumDisplay, EnumFromStr, Encode, Decode)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum GenesisTimingMode {
+    Ntsc,
+    Pal,
+}
+
 #[derive(Debug, Clone)]
 pub struct GenesisEmulatorConfig {
+    pub forced_timing_mode: Option<GenesisTimingMode>,
     pub aspect_ratio: GenesisAspectRatio,
     pub adjust_aspect_ratio_in_2x_resolution: bool,
 }
@@ -104,6 +117,7 @@ pub struct GenesisEmulator {
     psg: Psg,
     ym2612: Ym2612,
     input: InputState,
+    timing_mode: GenesisTimingMode,
     aspect_ratio: GenesisAspectRatio,
     adjust_aspect_ratio_in_2x_resolution: bool,
     audio_downsampler: AudioDownsampler,
@@ -125,8 +139,16 @@ impl GenesisEmulator {
         let cartridge = Cartridge::from_rom(rom, initial_ram);
         let mut memory = Memory::new(cartridge);
 
+        let timing_mode =
+            config.forced_timing_mode.unwrap_or_else(|| match memory.cartridge_region() {
+                HardwareRegion::Europe => GenesisTimingMode::Pal,
+                HardwareRegion::Americas | HardwareRegion::Japan => GenesisTimingMode::Ntsc,
+            });
+
+        log::info!("Using timing / display mode {timing_mode}");
+
         let z80 = Z80::new();
-        let mut vdp = Vdp::new();
+        let mut vdp = Vdp::new(timing_mode);
         let mut psg = Psg::new(PsgVersion::Standard);
         let mut ym2612 = Ym2612::new();
         let mut input = InputState::new();
@@ -138,6 +160,7 @@ impl GenesisEmulator {
             &mut psg,
             &mut ym2612,
             &mut input,
+            timing_mode,
             z80.stalled(),
         ));
 
@@ -151,8 +174,9 @@ impl GenesisEmulator {
             input,
             aspect_ratio: config.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: config.adjust_aspect_ratio_in_2x_resolution,
-            audio_downsampler: AudioDownsampler::new(),
+            audio_downsampler: AudioDownsampler::new(timing_mode),
             master_clock_cycles: 0,
+            timing_mode,
         }
     }
 
@@ -203,6 +227,7 @@ impl TickableEmulator for GenesisEmulator {
             &mut self.psg,
             &mut self.ym2612,
             &mut self.input,
+            self.timing_mode,
             self.z80.stalled(),
         );
         let m68k_cycles = self.m68k.execute_instruction(&mut bus);
@@ -281,6 +306,7 @@ impl Resettable for GenesisEmulator {
             &mut self.psg,
             &mut self.ym2612,
             &mut self.input,
+            self.timing_mode,
             false,
         ));
         self.memory.reset_z80_signals();
@@ -293,6 +319,7 @@ impl Resettable for GenesisEmulator {
         let rom = self.memory.take_rom();
         let cartridge_ram = self.memory.take_cartridge_ram_if_persistent();
         let config = GenesisEmulatorConfig {
+            forced_timing_mode: Some(self.timing_mode),
             aspect_ratio: self.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
         };

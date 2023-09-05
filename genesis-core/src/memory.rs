@@ -1,6 +1,7 @@
 use crate::input::InputState;
 use crate::vdp::Vdp;
 use crate::ym2612::Ym2612;
+use crate::GenesisTimingMode;
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use jgenesis_traits::num::GetBit;
@@ -37,9 +38,10 @@ impl Index<u32> for Rom {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum HardwareRegion {
+pub enum HardwareRegion {
     Americas,
     Japan,
+    Europe,
 }
 
 impl HardwareRegion {
@@ -51,28 +53,35 @@ impl HardwareRegion {
             return Some(HardwareRegion::Americas);
         }
 
-        // Otherwise prefer Japan if it contains a 'J'
+        // Otherwise, prefer Japan if it contains a 'J'
         if region_bytes.contains(&b'J') {
             return Some(HardwareRegion::Japan);
+        }
+
+        // Finally, prefer Europe if it contains an 'E'
+        if region_bytes.contains(&b'E') {
+            return Some(HardwareRegion::Europe);
         }
 
         // If region code contains neither a 'U' nor a 'J', treat it as a hex char
         let c = region_bytes[0] as char;
         let value = u8::from_str_radix(&c.to_string(), 16).ok()?;
-        if value & 0x04 != 0 {
+        if value.bit(2) {
             // Bit 2 = Americas
             Some(HardwareRegion::Americas)
-        } else if value & 0x01 != 0 {
+        } else if value.bit(0) {
             // Bit 0 = Asia
             Some(HardwareRegion::Japan)
+        } else if value.bit(3) {
+            Some(HardwareRegion::Europe)
         } else {
-            // Only supports Europe, not yet implemented
+            // Invalid
             None
         }
     }
 
     fn version_bit(self) -> bool {
-        self == Self::Americas
+        self != Self::Japan
     }
 }
 
@@ -350,7 +359,7 @@ impl Memory {
         static RE: OnceLock<Regex> = OnceLock::new();
 
         let addr = match self.cartridge.region {
-            HardwareRegion::Americas => 0x0150,
+            HardwareRegion::Americas | HardwareRegion::Europe => 0x0150,
             HardwareRegion::Japan => 0x0120,
         };
         let bytes = &self.cartridge.rom.0[addr..addr + 48];
@@ -358,6 +367,10 @@ impl Memory {
 
         let re = RE.get_or_init(|| Regex::new(r" +").unwrap());
         re.replace_all(title.trim(), " ").into()
+    }
+
+    pub fn cartridge_region(&self) -> HardwareRegion {
+        self.cartridge.region
     }
 
     pub fn cartridge_ram(&self) -> Option<&Vec<u8>> {
@@ -389,6 +402,7 @@ pub struct MainBus<'a> {
     psg: &'a mut Psg,
     ym2612: &'a mut Ym2612,
     input: &'a mut InputState,
+    timing_mode: GenesisTimingMode,
     z80_stalled: bool,
 }
 
@@ -399,9 +413,10 @@ impl<'a> MainBus<'a> {
         psg: &'a mut Psg,
         ym2612: &'a mut Ym2612,
         input: &'a mut InputState,
+        timing_mode: GenesisTimingMode,
         z80_stalled: bool,
     ) -> Self {
-        Self { memory, vdp, psg, ym2612, input, z80_stalled }
+        Self { memory, vdp, psg, ym2612, input, timing_mode, z80_stalled }
     }
 
     // TODO remove
@@ -411,6 +426,7 @@ impl<'a> MainBus<'a> {
             // Version register
             0xA10000 | 0xA10001 => {
                 0x20 | (u8::from(self.memory.cartridge.region.version_bit()) << 7)
+                    | (u8::from(self.timing_mode == GenesisTimingMode::Pal) << 6)
             }
             0xA10002 | 0xA10003 => self.input.read_p1_data(),
             0xA10004 | 0xA10005 => self.input.read_p2_data(),

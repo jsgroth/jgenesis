@@ -7,5 +7,6 @@ mod ym2612;
 
 pub use api::{
     GenesisAspectRatio, GenesisEmulator, GenesisEmulatorConfig, GenesisError, GenesisResult,
+    GenesisTimingMode,
 };
 pub use input::{GenesisInputs, GenesisJoypadState};

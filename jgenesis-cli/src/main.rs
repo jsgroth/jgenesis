@@ -1,6 +1,6 @@
 use clap::Parser;
 use env_logger::Env;
-use genesis_core::GenesisAspectRatio;
+use genesis_core::{GenesisAspectRatio, GenesisTimingMode};
 use jgenesis_native_driver::config::input::{
     GenesisControllerConfig, GenesisInputConfig, HotkeyConfig, KeyboardInput,
     SmsGgControllerConfig, SmsGgInputConfig,
@@ -44,6 +44,10 @@ struct Args {
     #[arg(long)]
     psg_version: Option<PsgVersion>,
 
+    /// Force Genesis timing mode (Ntsc / Pal)
+    #[arg(long)]
+    genesis_timing_mode: Option<GenesisTimingMode>,
+
     /// Remove SMS/GG 8-sprite-per-scanline limit which disables sprite flickering
     #[arg(long)]
     remove_sprite_limit: bool,
@@ -56,7 +60,7 @@ struct Args {
     #[arg(long, default_value_t)]
     gg_aspect_ratio: GgAspectRatio,
 
-    /// Genesis aspect ratio (Ntsc / SquarePixels / Stretched)
+    /// Genesis aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
     #[arg(long, default_value_t)]
     genesis_aspect_ratio: GenesisAspectRatio,
 
@@ -348,6 +352,7 @@ fn run_genesis(args: Args) -> anyhow::Result<()> {
     let common = args.common_config(keyboard_inputs, GenesisInputConfig::default());
     let config = GenesisConfig {
         common,
+        forced_timing_mode: args.genesis_timing_mode,
         aspect_ratio: args.genesis_aspect_ratio,
         adjust_aspect_ratio_in_2x_resolution: args.genesis_adjust_aspect_ratio,
     };
