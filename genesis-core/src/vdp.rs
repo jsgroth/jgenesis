@@ -731,6 +731,29 @@ impl DmaTracker {
     }
 }
 
+#[derive(Debug, Clone, Encode, Decode)]
+struct SpriteBitSet([u64; 5]);
+
+impl SpriteBitSet {
+    const LEN: u16 = 64 * 5;
+
+    fn new() -> Self {
+        Self([0; 5])
+    }
+
+    fn clear(&mut self) {
+        self.0 = [0; 5];
+    }
+
+    fn set(&mut self, bit: u16) {
+        self.0[(bit / 64) as usize] |= 1 << (bit % 64);
+    }
+
+    fn get(&self, bit: u16) -> bool {
+        self.0[(bit / 64) as usize] & (1 << (bit % 64)) != 0
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VdpTickEffect {
     None,
@@ -776,6 +799,9 @@ pub struct Vdp {
     state: InternalState,
     registers: Registers,
     sprite_buffer: Vec<SpriteData>,
+    sprite_bit_set: SpriteBitSet,
+    // Cache of CRAM in u16 form
+    color_buffer: [u16; CRAM_LEN / 2],
     master_clock_cycles: u64,
     dma_tracker: DmaTracker,
 }
@@ -813,6 +839,8 @@ impl Vdp {
             state: InternalState::new(),
             registers: Registers::new(),
             sprite_buffer: Vec::with_capacity(MAX_SPRITES_PER_FRAME),
+            sprite_bit_set: SpriteBitSet::new(),
+            color_buffer: [0; CRAM_LEN / 2],
             master_clock_cycles: 0,
             dma_tracker: DmaTracker::new(),
         }
@@ -1285,8 +1313,6 @@ impl Vdp {
             return;
         }
 
-        let screen_width = self.registers.horizontal_display_size.to_pixels();
-
         let bg_color = resolve_color(
             &self.cram,
             self.registers.background_palette,
@@ -1297,18 +1323,14 @@ impl Vdp {
             InterlacingMode::Progressive | InterlacingMode::Interlaced => {
                 self.populate_sprite_buffer(scanline);
 
-                for pixel in 0..screen_width {
-                    self.render_pixel(bg_color, scanline, pixel);
-                }
+                self.render_pixels_in_scanline(bg_color, scanline);
             }
             InterlacingMode::InterlacedDouble => {
                 // Render scanlines 2N and 2N+1 at the same time
                 for scanline in [2 * scanline, 2 * scanline + 1] {
                     self.populate_sprite_buffer(scanline);
 
-                    for pixel in 0..screen_width {
-                        self.render_pixel(bg_color, scanline, pixel);
-                    }
+                    self.render_pixels_in_scanline(bg_color, scanline);
                 }
             }
         }
@@ -1388,18 +1410,36 @@ impl Vdp {
                 break;
             }
         }
+
+        // Fill in bit set
+        self.sprite_bit_set.clear();
+        for sprite in &self.sprite_buffer {
+            for x in sprite.h_position..sprite.h_position + 8 * u16::from(sprite.h_size_cells) {
+                let pixel = x.wrapping_sub(0x080);
+                if pixel < SpriteBitSet::LEN {
+                    self.sprite_bit_set.set(pixel);
+                }
+            }
+        }
     }
 
-    fn render_pixel(&mut self, bg_color: u16, scanline: u16, pixel: u16) {
-        let h_cell = pixel / 8;
-        let cell_height = self.registers.interlacing_mode.cell_height();
+    fn render_pixels_in_scanline(&mut self, bg_color: u16, scanline: u16) {
+        // Populate color buffer
+        for (i, chunk) in self.cram.chunks_exact(2).enumerate() {
+            let &[msb, lsb] = chunk else { unreachable!("chunks_exact(2)") };
+            self.color_buffer[i] = u16::from_be_bytes([msb, lsb]);
+        }
 
-        let (v_scroll_a, v_scroll_b) = read_v_scroll(
-            &self.vsram,
-            self.registers.vertical_scroll_mode,
-            self.registers.interlacing_mode,
-            h_cell,
-        );
+        let cell_height = self.registers.interlacing_mode.cell_height();
+        let v_scroll_size = self.registers.vertical_scroll_size;
+        let h_scroll_size = self.registers.horizontal_scroll_size;
+
+        let scroll_line_bit_mask = match self.registers.interlacing_mode {
+            InterlacingMode::Progressive | InterlacingMode::Interlaced => {
+                v_scroll_size.pixel_bit_mask()
+            }
+            InterlacingMode::InterlacedDouble => (v_scroll_size.pixel_bit_mask() << 1) | 0x01,
+        };
 
         let h_scroll_scanline = match self.registers.interlacing_mode {
             InterlacingMode::Progressive | InterlacingMode::Interlaced => scanline,
@@ -1412,123 +1452,140 @@ impl Vdp {
             h_scroll_scanline,
         );
 
-        let v_scroll_size = self.registers.vertical_scroll_size;
-        let scroll_line_bit_mask = match self.registers.interlacing_mode {
-            InterlacingMode::Progressive | InterlacingMode::Interlaced => {
-                v_scroll_size.pixel_bit_mask()
-            }
-            InterlacingMode::InterlacedDouble => (v_scroll_size.pixel_bit_mask() << 1) | 0x01,
-        };
+        let mut scroll_a_nt_row = u16::MAX;
+        let mut scroll_a_nt_col = u16::MAX;
+        let mut scroll_a_nt_word = NameTableWord::default();
 
-        let scrolled_scanline_a = scanline.wrapping_add(v_scroll_a) & scroll_line_bit_mask;
-        let scroll_a_v_cell = scrolled_scanline_a / cell_height;
+        let mut scroll_b_nt_row = u16::MAX;
+        let mut scroll_b_nt_col = u16::MAX;
+        let mut scroll_b_nt_word = NameTableWord::default();
 
-        let scrolled_scanline_b = scanline.wrapping_add(v_scroll_b) & scroll_line_bit_mask;
-        let scroll_b_v_cell = scrolled_scanline_b / cell_height;
-
-        let h_scroll_size = self.registers.horizontal_scroll_size;
-
-        let scrolled_pixel_a = pixel.wrapping_sub(h_scroll_a) & h_scroll_size.pixel_bit_mask();
-        let scroll_a_h_cell = scrolled_pixel_a / 8;
-
-        let scrolled_pixel_b = pixel.wrapping_sub(h_scroll_b) & h_scroll_size.pixel_bit_mask();
-        let scroll_b_h_cell = scrolled_pixel_b / 8;
-
-        let scroll_a_nt_word = read_name_table_word(
-            &self.vram,
-            self.registers.scroll_a_base_nt_addr,
-            self.registers.horizontal_scroll_size.into(),
-            scroll_a_v_cell,
-            scroll_a_h_cell,
-        );
-        let scroll_b_nt_word = read_name_table_word(
-            &self.vram,
-            self.registers.scroll_b_base_nt_addr,
-            self.registers.horizontal_scroll_size.into(),
-            scroll_b_v_cell,
-            scroll_b_h_cell,
-        );
-
-        let scroll_a_color_id = read_pattern_generator(
-            &self.vram,
-            PatternGeneratorArgs {
-                vertical_flip: scroll_a_nt_word.vertical_flip,
-                horizontal_flip: scroll_a_nt_word.horizontal_flip,
-                pattern_generator: scroll_a_nt_word.pattern_generator,
-                row: scrolled_scanline_a,
-                col: scrolled_pixel_a,
-                cell_height,
-            },
-        );
-        let scroll_b_color_id = read_pattern_generator(
-            &self.vram,
-            PatternGeneratorArgs {
-                vertical_flip: scroll_b_nt_word.vertical_flip,
-                horizontal_flip: scroll_b_nt_word.horizontal_flip,
-                pattern_generator: scroll_b_nt_word.pattern_generator,
-                row: scrolled_scanline_b,
-                col: scrolled_pixel_b,
-                cell_height,
-            },
-        );
-
-        let in_window = self.registers.is_in_window(scanline, pixel);
-        let (window_priority, window_palette, window_color_id) = if in_window {
-            let v_cell = scanline / cell_height;
-            let window_nt_word = read_name_table_word(
-                &self.vram,
-                self.registers.window_base_nt_addr,
-                self.registers.horizontal_display_size.window_width_cells(),
-                v_cell,
+        for pixel in 0..self.registers.horizontal_display_size.to_pixels() {
+            let h_cell = pixel / 8;
+            let (v_scroll_a, v_scroll_b) = read_v_scroll(
+                &self.vsram,
+                self.registers.vertical_scroll_mode,
+                self.registers.interlacing_mode,
                 h_cell,
             );
-            let window_color_id = read_pattern_generator(
+
+            let scrolled_scanline_a = scanline.wrapping_add(v_scroll_a) & scroll_line_bit_mask;
+            let scroll_a_v_cell = scrolled_scanline_a / cell_height;
+
+            let scrolled_scanline_b = scanline.wrapping_add(v_scroll_b) & scroll_line_bit_mask;
+            let scroll_b_v_cell = scrolled_scanline_b / cell_height;
+
+            let scrolled_pixel_a = pixel.wrapping_sub(h_scroll_a) & h_scroll_size.pixel_bit_mask();
+            let scroll_a_h_cell = scrolled_pixel_a / 8;
+
+            let scrolled_pixel_b = pixel.wrapping_sub(h_scroll_b) & h_scroll_size.pixel_bit_mask();
+            let scroll_b_h_cell = scrolled_pixel_b / 8;
+
+            if scroll_a_v_cell != scroll_a_nt_row || scroll_a_h_cell != scroll_a_nt_col {
+                scroll_a_nt_word = read_name_table_word(
+                    &self.vram,
+                    self.registers.scroll_a_base_nt_addr,
+                    h_scroll_size.into(),
+                    scroll_a_v_cell,
+                    scroll_a_h_cell,
+                );
+                scroll_a_nt_row = scroll_a_v_cell;
+                scroll_a_nt_col = scroll_a_h_cell;
+            }
+
+            if scroll_b_v_cell != scroll_b_nt_row || scroll_b_h_cell != scroll_b_nt_col {
+                scroll_b_nt_word = read_name_table_word(
+                    &self.vram,
+                    self.registers.scroll_b_base_nt_addr,
+                    h_scroll_size.into(),
+                    scroll_b_v_cell,
+                    scroll_b_h_cell,
+                );
+                scroll_b_nt_row = scroll_b_v_cell;
+                scroll_b_nt_col = scroll_b_h_cell;
+            }
+
+            let scroll_a_color_id = read_pattern_generator(
                 &self.vram,
                 PatternGeneratorArgs {
-                    vertical_flip: window_nt_word.vertical_flip,
-                    horizontal_flip: window_nt_word.horizontal_flip,
-                    pattern_generator: window_nt_word.pattern_generator,
-                    row: scanline,
-                    col: pixel,
+                    vertical_flip: scroll_a_nt_word.vertical_flip,
+                    horizontal_flip: scroll_a_nt_word.horizontal_flip,
+                    pattern_generator: scroll_a_nt_word.pattern_generator,
+                    row: scrolled_scanline_a,
+                    col: scrolled_pixel_a,
                     cell_height,
                 },
             );
-            (window_nt_word.priority, window_nt_word.palette, window_color_id)
-        } else {
-            (false, 0, 0)
-        };
+            let scroll_b_color_id = read_pattern_generator(
+                &self.vram,
+                PatternGeneratorArgs {
+                    vertical_flip: scroll_b_nt_word.vertical_flip,
+                    horizontal_flip: scroll_b_nt_word.horizontal_flip,
+                    pattern_generator: scroll_b_nt_word.pattern_generator,
+                    row: scrolled_scanline_b,
+                    col: scrolled_pixel_b,
+                    cell_height,
+                },
+            );
 
-        let (sprite_priority, sprite_palette, sprite_color_id) = self
-            .find_first_overlapping_sprite(scanline, pixel)
-            .map_or((false, 0, 0), |(sprite, color_id)| {
-                (sprite.priority, sprite.palette, color_id)
-            });
+            let in_window = self.registers.is_in_window(scanline, pixel);
+            let (window_priority, window_palette, window_color_id) = if in_window {
+                let v_cell = scanline / cell_height;
+                let window_nt_word = read_name_table_word(
+                    &self.vram,
+                    self.registers.window_base_nt_addr,
+                    self.registers.horizontal_display_size.window_width_cells(),
+                    v_cell,
+                    h_cell,
+                );
+                let window_color_id = read_pattern_generator(
+                    &self.vram,
+                    PatternGeneratorArgs {
+                        vertical_flip: window_nt_word.vertical_flip,
+                        horizontal_flip: window_nt_word.horizontal_flip,
+                        pattern_generator: window_nt_word.pattern_generator,
+                        row: scanline,
+                        col: pixel,
+                        cell_height,
+                    },
+                );
+                (window_nt_word.priority, window_nt_word.palette, window_color_id)
+            } else {
+                (false, 0, 0)
+            };
 
-        let (scroll_a_priority, scroll_a_palette, scroll_a_color_id) = if in_window {
-            // Window replaces scroll A if this pixel is inside the window
-            (window_priority, window_palette, window_color_id)
-        } else {
-            (scroll_a_nt_word.priority, scroll_a_nt_word.palette, scroll_a_color_id)
-        };
+            let (sprite_priority, sprite_palette, sprite_color_id) = self
+                .find_first_overlapping_sprite(scanline, pixel)
+                .map_or((false, 0, 0), |(sprite, color_id)| {
+                    (sprite.priority, sprite.palette, color_id)
+                });
 
-        let (pixel_color, color_modifier) = determine_pixel_color(
-            &self.cram,
-            PixelColorArgs {
-                sprite_priority,
-                sprite_palette,
-                sprite_color_id,
-                scroll_a_priority,
-                scroll_a_palette,
-                scroll_a_color_id,
-                scroll_b_priority: scroll_b_nt_word.priority,
-                scroll_b_palette: scroll_b_nt_word.palette,
-                scroll_b_color_id,
-                bg_color,
-                shadow_highlight_flag: self.registers.shadow_highlight_flag,
-            },
-        );
+            let (scroll_a_priority, scroll_a_palette, scroll_a_color_id) = if in_window {
+                // Window replaces scroll A if this pixel is inside the window
+                (window_priority, window_palette, window_color_id)
+            } else {
+                (scroll_a_nt_word.priority, scroll_a_nt_word.palette, scroll_a_color_id)
+            };
 
-        self.set_in_frame_buffer(scanline.into(), pixel.into(), pixel_color, color_modifier);
+            let (pixel_color, color_modifier) = determine_pixel_color(
+                &self.color_buffer,
+                PixelColorArgs {
+                    sprite_priority,
+                    sprite_palette,
+                    sprite_color_id,
+                    scroll_a_priority,
+                    scroll_a_palette,
+                    scroll_a_color_id,
+                    scroll_b_priority: scroll_b_nt_word.priority,
+                    scroll_b_palette: scroll_b_nt_word.palette,
+                    scroll_b_color_id,
+                    bg_color,
+                    shadow_highlight_flag: self.registers.shadow_highlight_flag,
+                },
+            );
+
+            self.set_in_frame_buffer(scanline.into(), pixel.into(), pixel_color, color_modifier);
+        }
     }
 
     fn find_first_overlapping_sprite(
@@ -1536,6 +1593,10 @@ impl Vdp {
         scanline: u16,
         pixel: u16,
     ) -> Option<(&SpriteData, u8)> {
+        if !self.sprite_bit_set.get(pixel) {
+            return None;
+        }
+
         let sprite_display_top = self.registers.interlacing_mode.sprite_display_top();
         let cell_height = self.registers.interlacing_mode.cell_height();
 
@@ -1650,7 +1711,7 @@ struct PixelColorArgs {
 #[inline]
 #[allow(clippy::unnested_or_patterns)]
 fn determine_pixel_color(
-    cram: &[u8],
+    color_buffer: &[u16],
     PixelColorArgs {
         sprite_priority,
         sprite_palette,
@@ -1713,7 +1774,7 @@ fn determine_pixel_color(
             }
         }
 
-        let color = resolve_color(cram, palette, color_id);
+        let color = color_buffer[((palette << 4) | color_id) as usize];
         // Sprite color id 14 is never shadowed/highlighted
         let modifier = if is_sprite && color_id == 14 { ColorModifier::None } else { modifier };
         return (color, modifier);
@@ -1795,7 +1856,7 @@ fn read_h_scroll(
     (h_scroll_a & 0x03FF, h_scroll_b & 0x03FF)
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 struct NameTableWord {
     priority: bool,
     palette: u8,
@@ -1834,6 +1895,7 @@ struct PatternGeneratorArgs {
     cell_height: u16,
 }
 
+#[inline]
 fn read_pattern_generator(
     vram: &[u8],
     PatternGeneratorArgs {
@@ -1851,7 +1913,7 @@ fn read_pattern_generator(
 
     let row_addr = (4 * cell_height).wrapping_mul(pattern_generator);
     let addr = (row_addr + 4 * cell_row + (cell_col >> 1)) as usize;
-    if cell_col.bit(0) { vram[addr] & 0x0F } else { vram[addr] >> 4 }
+    (vram[addr] >> (4 - ((cell_col & 0x01) << 2))) & 0x0F
 }
 
 // i * 255 / 7
