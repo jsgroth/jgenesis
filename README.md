@@ -7,9 +7,11 @@ Major TODOs:
   * Volume levels also sound slightly off in some games
 * Support 6-button Genesis controllers
 * Support the SMS optional YM2413 FM sound chip
-* Support for specific Genesis games that do weird things with cartridge hardware (e.g. Phantasy Star 4 and Super Street Fighter 2)
+* Support for specific Genesis games that do weird things with cartridge hardware (e.g. _Phantasy Star 4_ and _Super Street Fighter 2_)
 * Improve Genesis performance (there are some low-hanging fruit in the VDP and YM2612 implementations)
-* Support for EEPROM chips; a few Genesis games used them for save data (e.g. Wonder Boy in Monster World)
+
+Minor TODOs:
+* Support 24C64 EEPROM chips (used only in _Frank Thomas Big Hurt Baseball_ and _College Slam_)
 
 ## Dependencies
 

@@ -333,10 +333,11 @@ impl TickableEmulator for GenesisEmulator {
 
             self.input.set_inputs(inputs);
 
-            if self.memory.cartridge_ram_persistent() && self.memory.cartridge_ram_dirty() {
-                self.memory.clear_cartridge_ram_dirty();
-
-                if let Some(ram) = self.memory.cartridge_ram() {
+            if self.memory.cartridge_ram_persistent()
+                && self.memory.get_and_clear_cartridge_ram_dirty()
+            {
+                let ram = self.memory.cartridge_ram();
+                if !ram.is_empty() {
                     save_writer.persist_save(ram).map_err(GenesisError::Save)?;
                 }
             }

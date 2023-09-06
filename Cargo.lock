@@ -1311,6 +1311,8 @@ name = "genesis-core"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "crc",
+ "env_logger",
  "jgenesis-proc-macros",
  "jgenesis-traits",
  "log",
@@ -1318,6 +1320,7 @@ dependencies = [
  "regex",
  "serde",
  "smsgg-core",
+ "test-log",
  "z80-emu",
 ]
 
@@ -2882,6 +2885,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be55cf8942feac5c765c2c993422806843c9a9a45d4d5c407ad6dd2ea95eb9b6"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "test-log"
+version = "0.2.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d9601d162c1d77e62c1ea0bc8116cd1caf143ce3af947536c3c9052a1677fe0c"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
 ]
 
 [[package]]

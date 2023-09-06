@@ -17,6 +17,11 @@ smsgg-core = { path = "../smsgg-core" }
 z80-emu = { path = "../z80-emu", features = ["bincode"] }
 
 bincode = "2.0.0-rc.3"
+crc = "3"
 log = "0.4"
 regex = "1"
 serde = { workspace = true, optional = true }
+
+[dev-dependencies]
+env_logger = "0.10"
+test-log = "0.2"

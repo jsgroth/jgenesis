@@ -1,5 +1,9 @@
+mod eeprom;
+mod external;
+
 use crate::api::GenesisRegion;
 use crate::input::InputState;
+use crate::memory::external::ExternalMemory;
 use crate::vdp::Vdp;
 use crate::ym2612::Ym2612;
 use crate::GenesisTimingMode;
@@ -38,142 +42,10 @@ impl Index<u32> for Rom {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum RamType {
-    SixteenBit,
-    EightBitOddAddress,
-    EightBitEvenAddress,
-}
-
-#[derive(Debug, Clone, Encode, Decode)]
-struct Ram {
-    ram: Vec<u8>,
-    address_mask: u32,
-    ram_type: RamType,
-    persistent: bool,
-    dirty: bool,
-    start_address: u32,
-    end_address: u32,
-}
-
-impl Ram {
-    fn from_rom_header(rom: &[u8], initial_ram: Option<Vec<u8>>) -> Option<Self> {
-        let ram_header_bytes = &rom[0x1B0..0x1BC];
-
-        // RAM header should always start with "RA", and 4th byte should always be $20
-        if ram_header_bytes[..2] != [b'R', b'A'] || ram_header_bytes[3] != 0x20 {
-            return None;
-        }
-
-        // Third byte indicates RAM type and whether or not it is persistent memory
-        let (ram_type, persistent) = match ram_header_bytes[2] {
-            0xA0 => (RamType::SixteenBit, false),
-            0xB0 => (RamType::EightBitEvenAddress, false),
-            0xB8 => (RamType::EightBitOddAddress, false),
-            0xE0 => (RamType::SixteenBit, true),
-            0xF0 => (RamType::EightBitEvenAddress, true),
-            0xF8 => (RamType::EightBitOddAddress, true),
-            _ => {
-                return None;
-            }
-        };
-
-        // Next 8 bytes indicate start and end addresses
-        let start_address = u32::from_be_bytes([
-            ram_header_bytes[4],
-            ram_header_bytes[5],
-            ram_header_bytes[6],
-            ram_header_bytes[7],
-        ]);
-        let end_address = u32::from_be_bytes([
-            ram_header_bytes[8],
-            ram_header_bytes[9],
-            ram_header_bytes[10],
-            ram_header_bytes[11],
-        ]);
-
-        log::info!(
-            "RAM header information: type={ram_type:?}, persistent={persistent}, start_address={start_address:06X}, end_address={end_address:06X}"
-        );
-
-        let ram_len = if ram_type == RamType::SixteenBit {
-            end_address - start_address + 1
-        } else {
-            (end_address - start_address) / 2 + 1
-        };
-
-        let ram = match initial_ram {
-            Some(ram) if ram.len() as u32 == ram_len => ram,
-            _ => vec![0; ram_len as usize],
-        };
-
-        // TODO support RAM persistence
-        Some(Self {
-            ram,
-            address_mask: ram_len - 1,
-            ram_type,
-            persistent,
-            dirty: false,
-            start_address,
-            end_address,
-        })
-    }
-
-    fn map_address(&self, address: u32) -> Option<u32> {
-        if !(self.start_address..=self.end_address).contains(&address) {
-            return None;
-        }
-
-        match (self.ram_type, address.bit(0)) {
-            (RamType::SixteenBit, _) => Some(address & self.address_mask),
-            (RamType::EightBitOddAddress, false) | (RamType::EightBitEvenAddress, true) => None,
-            (RamType::EightBitEvenAddress, false) | (RamType::EightBitOddAddress, true) => {
-                Some((address >> 1) & self.address_mask)
-            }
-        }
-    }
-
-    fn read_byte(&self, address: u32) -> Option<u8> {
-        self.map_address(address).map(|address| self.ram[address as usize])
-    }
-
-    fn write_byte(&mut self, address: u32, value: u8) {
-        if let Some(address) = self.map_address(address) {
-            self.ram[address as usize] = value;
-            self.dirty = true;
-        }
-    }
-
-    fn read_word(&self, address: u32) -> Option<u16> {
-        let msb = self.read_byte(address);
-        let lsb = self.read_byte(address.wrapping_add(1));
-        if msb.is_none() && lsb.is_none() {
-            None
-        } else {
-            Some(u16::from_be_bytes([msb.unwrap_or(0x00), lsb.unwrap_or(0x00)]))
-        }
-    }
-
-    fn write_word(&mut self, address: u32, value: u16) {
-        let msb_address = self.map_address(address);
-        let lsb_address = self.map_address(address.wrapping_add(1));
-
-        let [msb, lsb] = value.to_be_bytes();
-        if let Some(msb_address) = msb_address {
-            self.ram[msb_address as usize] = msb;
-            self.dirty = true;
-        }
-        if let Some(lsb_address) = lsb_address {
-            self.ram[lsb_address as usize] = lsb;
-            self.dirty = true;
-        }
-    }
-}
-
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Cartridge {
     rom: Rom,
-    ram: Option<Ram>,
+    external_memory: ExternalMemory,
     rom_address_mask: u32,
     region: GenesisRegion,
 }
@@ -193,15 +65,15 @@ impl Cartridge {
         });
         log::info!("Genesis hardware region: {region:?}");
 
-        let ram = Ram::from_rom_header(&rom_bytes, initial_ram_bytes);
+        let external_memory = ExternalMemory::from_rom(&rom_bytes, initial_ram_bytes);
 
         // TODO parse more stuff out of header
         let rom_address_mask = (rom_bytes.len() - 1) as u32;
-        Self { rom: Rom(rom_bytes), ram, rom_address_mask, region }
+        Self { rom: Rom(rom_bytes), external_memory, rom_address_mask, region }
     }
 
     fn read_byte(&self, address: u32) -> u8 {
-        if let Some(byte) = self.ram.as_ref().and_then(|ram| ram.read_byte(address)) {
+        if let Some(byte) = self.external_memory.read_byte(address) {
             return byte;
         }
 
@@ -209,7 +81,7 @@ impl Cartridge {
     }
 
     fn read_word(&self, address: u32) -> u16 {
-        if let Some(word) = self.ram.as_ref().and_then(|ram| ram.read_word(address)) {
+        if let Some(word) = self.external_memory.read_word(address) {
             return word;
         }
 
@@ -217,15 +89,11 @@ impl Cartridge {
     }
 
     fn write_byte(&mut self, address: u32, value: u8) {
-        if let Some(ram) = &mut self.ram {
-            ram.write_byte(address, value);
-        }
+        self.external_memory.write_byte(address, value);
     }
 
     fn write_word(&mut self, address: u32, value: u16) {
-        if let Some(ram) = &mut self.ram {
-            ram.write_word(address, value);
-        }
+        self.external_memory.write_word(address, value);
     }
 }
 
@@ -305,10 +173,7 @@ impl Memory {
     }
 
     pub fn take_cartridge_ram_if_persistent(&mut self) -> Option<Vec<u8>> {
-        match &mut self.cartridge.ram {
-            Some(ram) if ram.persistent => Some(mem::take(&mut ram.ram)),
-            _ => None,
-        }
+        self.cartridge.external_memory.take_if_persistent()
     }
 
     pub fn cartridge_title(&self) -> String {
@@ -329,22 +194,16 @@ impl Memory {
         self.cartridge.region
     }
 
-    pub fn cartridge_ram(&self) -> Option<&Vec<u8>> {
-        self.cartridge.ram.as_ref().map(|ram| &ram.ram)
+    pub fn cartridge_ram(&self) -> &[u8] {
+        self.cartridge.external_memory.get_memory()
     }
 
     pub fn cartridge_ram_persistent(&self) -> bool {
-        self.cartridge.ram.as_ref().is_some_and(|ram| ram.persistent)
+        self.cartridge.external_memory.is_persistent()
     }
 
-    pub fn cartridge_ram_dirty(&self) -> bool {
-        self.cartridge.ram.as_ref().is_some_and(|ram| ram.dirty)
-    }
-
-    pub fn clear_cartridge_ram_dirty(&mut self) {
-        if let Some(ram) = &mut self.cartridge.ram {
-            ram.dirty = false;
-        }
+    pub fn get_and_clear_cartridge_ram_dirty(&mut self) -> bool {
+        self.cartridge.external_memory.get_and_clear_dirty_bit()
     }
 
     pub fn reset_z80_signals(&mut self) {
@@ -539,7 +398,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
                 log::trace!("Set Z80 RESET to {}", self.memory.signals.z80_reset);
             }
             0xA13000..=0xA130FF => {
-                // TODO timer registers
+                todo!("timer register")
             }
             0xC00000..=0xC0001F => {
                 self.write_vdp_byte(address, value);
@@ -577,7 +436,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
                 log::trace!("Set Z80 RESET to {}", self.memory.signals.z80_reset);
             }
             0xA13000..=0xA130FF => {
-                // TODO timer registers
+                todo!("timer register")
             }
             0xC00000..=0xC00003 => {
                 self.vdp.write_data(value);
