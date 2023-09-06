@@ -189,11 +189,10 @@ impl FmChannel {
             operator.am_sensitivity = self.am_sensitivity;
         }
 
-        if self.divider == 1 {
+        self.divider -= 1;
+        if self.divider == 0 {
             self.divider = FM_SAMPLE_DIVIDER;
             self.sample_clock();
-        } else {
-            self.divider -= 1;
         }
     }
 
@@ -505,7 +504,8 @@ impl Ym2612 {
         self.timer_a.tick();
         self.timer_b.tick();
 
-        if self.clock_divider == 1 {
+        self.clock_divider -= 1;
+        if self.clock_divider == 0 {
             self.clock_divider = FM_CLOCK_DIVIDER;
             self.clock(self.lfo.counter());
 
@@ -514,8 +514,6 @@ impl Ym2612 {
                 self.sample_divider = FM_SAMPLE_DIVIDER;
                 return YmTickEffect::OutputSample;
             }
-        } else {
-            self.clock_divider -= 1;
         }
 
         YmTickEffect::None

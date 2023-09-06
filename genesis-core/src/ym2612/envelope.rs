@@ -121,11 +121,10 @@ impl EnvelopeGenerator {
 
     #[inline]
     pub(super) fn fm_clock(&mut self) {
-        if self.divider == 1 {
+        self.divider -= 1;
+        if self.divider == 0 {
             self.divider = ENVELOPE_DIVIDER;
             self.envelope_clock();
-        } else {
-            self.divider -= 1;
         }
     }
 

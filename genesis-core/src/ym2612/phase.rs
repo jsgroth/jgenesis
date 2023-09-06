@@ -74,11 +74,10 @@ impl PhaseGenerator {
 
     #[inline]
     pub(super) fn fm_clock(&mut self, lfo_counter: u8, fm_sensitivity: u8) {
-        if self.divider == 1 {
+        self.divider -= 1;
+        if self.divider == 0 {
             self.divider = PHASE_DIVIDER;
             self.clock(lfo_counter, fm_sensitivity);
-        } else {
-            self.divider -= 1;
         }
     }
 
