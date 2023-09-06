@@ -4,7 +4,7 @@ use crate::config::input::{
     GenesisInputConfig, HotkeyConfig, JoystickInput, KeyboardInput, SmsGgInputConfig,
 };
 use crate::RendererConfig;
-use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig, GenesisTimingMode};
+use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig, GenesisRegion, GenesisTimingMode};
 use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay, EnumFromStr};
 use jgenesis_traits::frontend::PixelAspectRatio;
 use serde::{Deserialize, Serialize};
@@ -141,6 +141,7 @@ pub struct GenesisConfig {
     #[indent_nested]
     pub common: CommonConfig<GenesisInputConfig<KeyboardInput>, GenesisInputConfig<JoystickInput>>,
     pub forced_timing_mode: Option<GenesisTimingMode>,
+    pub forced_region: Option<GenesisRegion>,
     pub aspect_ratio: GenesisAspectRatio,
     // Whether or not to automatically double the pixel aspect ratio when the VDP is in interlaced
     // double resolution mode
@@ -151,6 +152,7 @@ impl GenesisConfig {
     pub(crate) fn to_emulator_config(&self) -> GenesisEmulatorConfig {
         GenesisEmulatorConfig {
             forced_timing_mode: self.forced_timing_mode,
+            forced_region: self.forced_region,
             aspect_ratio: self.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
         }

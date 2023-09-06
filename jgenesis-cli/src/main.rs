@@ -1,6 +1,6 @@
 use clap::Parser;
 use env_logger::Env;
-use genesis_core::{GenesisAspectRatio, GenesisTimingMode};
+use genesis_core::{GenesisAspectRatio, GenesisRegion, GenesisTimingMode};
 use jgenesis_native_driver::config::input::{
     GenesisControllerConfig, GenesisInputConfig, HotkeyConfig, KeyboardInput,
     SmsGgControllerConfig, SmsGgInputConfig,
@@ -72,6 +72,10 @@ struct Args {
     /// SMS region (International / Domestic)
     #[arg(long, default_value_t)]
     sms_region: SmsRegion,
+
+    /// Force Genesis region (Americas / Japan / Europe)
+    #[arg(long)]
+    genesis_region: Option<GenesisRegion>,
 
     /// Crop SMS top and bottom border; almost all games display only the background color in this area
     #[arg(long, default_value_t)]
@@ -353,6 +357,7 @@ fn run_genesis(args: Args) -> anyhow::Result<()> {
     let config = GenesisConfig {
         common,
         forced_timing_mode: args.genesis_timing_mode,
+        forced_region: args.genesis_region,
         aspect_ratio: args.genesis_aspect_ratio,
         adjust_aspect_ratio_in_2x_resolution: args.genesis_adjust_aspect_ratio,
     };

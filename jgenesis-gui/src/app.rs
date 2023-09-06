@@ -12,7 +12,7 @@ use egui::{
     TextEdit, TopBottomPanel, Vec2, Widget, Window,
 };
 use egui_extras::{Column, TableBuilder};
-use genesis_core::{GenesisAspectRatio, GenesisTimingMode};
+use genesis_core::{GenesisAspectRatio, GenesisRegion, GenesisTimingMode};
 use jgenesis_native_driver::config::{
     CommonConfig, GenesisConfig, GgAspectRatio, SmsAspectRatio, SmsGgConfig, WindowSize,
 };
@@ -104,6 +104,8 @@ impl Default for SmsGgAppConfig {
 struct GenesisAppConfig {
     #[serde(default)]
     forced_timing_mode: Option<GenesisTimingMode>,
+    #[serde(default)]
+    forced_region: Option<GenesisRegion>,
     #[serde(default)]
     aspect_ratio: GenesisAspectRatio,
     #[serde(default = "true_fn")]
@@ -198,6 +200,7 @@ impl AppConfig {
                 self.inputs.to_genesis_joystick_config(),
             ),
             forced_timing_mode: self.genesis.forced_timing_mode,
+            forced_region: self.genesis.forced_region,
             aspect_ratio: self.genesis.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: self.genesis.adjust_aspect_ratio_in_2x_resolution,
         }
@@ -378,6 +381,29 @@ impl App {
                         &mut self.config.genesis.forced_timing_mode,
                         Some(GenesisTimingMode::Pal),
                         "PAL",
+                    );
+                });
+            });
+
+            ui.group(|ui| {
+                ui.label("Region");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(&mut self.config.genesis.forced_region, None, "Auto");
+                    ui.radio_value(
+                        &mut self.config.genesis.forced_region,
+                        Some(GenesisRegion::Americas),
+                        "Americas",
+                    );
+                    ui.radio_value(
+                        &mut self.config.genesis.forced_region,
+                        Some(GenesisRegion::Japan),
+                        "Japan",
+                    );
+                    ui.radio_value(
+                        &mut self.config.genesis.forced_region,
+                        Some(GenesisRegion::Europe),
+                        "Europe",
                     );
                 });
             });

@@ -6,7 +6,7 @@ mod vdp;
 mod ym2612;
 
 pub use api::{
-    GenesisAspectRatio, GenesisEmulator, GenesisEmulatorConfig, GenesisError, GenesisResult,
-    GenesisTimingMode,
+    GenesisAspectRatio, GenesisEmulator, GenesisEmulatorConfig, GenesisError, GenesisRegion,
+    GenesisResult, GenesisTimingMode,
 };
 pub use input::{GenesisInputs, GenesisJoypadState};

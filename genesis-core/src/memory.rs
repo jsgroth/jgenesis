@@ -1,3 +1,4 @@
+use crate::api::GenesisRegion;
 use crate::input::InputState;
 use crate::vdp::Vdp;
 use crate::ym2612::Ym2612;
@@ -34,54 +35,6 @@ impl Index<u32> for Rom {
 
     fn index(&self, index: u32) -> &Self::Output {
         &self.0[index as usize]
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-pub enum HardwareRegion {
-    Americas,
-    Japan,
-    Europe,
-}
-
-impl HardwareRegion {
-    fn from_rom(rom: &[u8]) -> Option<Self> {
-        let region_bytes = &rom[0x1F0..0x1F3];
-
-        // Prefer Americas if region code contains a 'U'
-        if region_bytes.contains(&b'U') {
-            return Some(HardwareRegion::Americas);
-        }
-
-        // Otherwise, prefer Japan if it contains a 'J'
-        if region_bytes.contains(&b'J') {
-            return Some(HardwareRegion::Japan);
-        }
-
-        // Finally, prefer Europe if it contains an 'E'
-        if region_bytes.contains(&b'E') {
-            return Some(HardwareRegion::Europe);
-        }
-
-        // If region code contains neither a 'U' nor a 'J', treat it as a hex char
-        let c = region_bytes[0] as char;
-        let value = u8::from_str_radix(&c.to_string(), 16).ok()?;
-        if value.bit(2) {
-            // Bit 2 = Americas
-            Some(HardwareRegion::Americas)
-        } else if value.bit(0) {
-            // Bit 0 = Asia
-            Some(HardwareRegion::Japan)
-        } else if value.bit(3) {
-            Some(HardwareRegion::Europe)
-        } else {
-            // Invalid
-            None
-        }
-    }
-
-    fn version_bit(self) -> bool {
-        self != Self::Japan
     }
 }
 
@@ -222,22 +175,25 @@ pub struct Cartridge {
     rom: Rom,
     ram: Option<Ram>,
     rom_address_mask: u32,
-    region: HardwareRegion,
+    region: GenesisRegion,
 }
 
 impl Cartridge {
-    pub fn from_rom(rom_bytes: Vec<u8>, initial_ram_bytes: Option<Vec<u8>>) -> Self {
-        let region = match HardwareRegion::from_rom(&rom_bytes) {
+    pub fn from_rom(
+        rom_bytes: Vec<u8>,
+        initial_ram_bytes: Option<Vec<u8>>,
+        forced_region: Option<GenesisRegion>,
+    ) -> Self {
+        let region = forced_region.unwrap_or_else(|| match GenesisRegion::from_rom(&rom_bytes) {
             Some(region) => region,
             None => {
                 log::warn!("Unable to determine cartridge region from ROM header; using Americas");
-                HardwareRegion::Americas
+                GenesisRegion::Americas
             }
-        };
+        });
+        log::info!("Genesis hardware region: {region:?}");
 
         let ram = Ram::from_rom_header(&rom_bytes, initial_ram_bytes);
-
-        log::info!("Inferred cartridge region: {region:?}");
 
         // TODO parse more stuff out of header
         let rom_address_mask = (rom_bytes.len() - 1) as u32;
@@ -359,8 +315,8 @@ impl Memory {
         static RE: OnceLock<Regex> = OnceLock::new();
 
         let addr = match self.cartridge.region {
-            HardwareRegion::Americas | HardwareRegion::Europe => 0x0150,
-            HardwareRegion::Japan => 0x0120,
+            GenesisRegion::Americas | GenesisRegion::Europe => 0x0150,
+            GenesisRegion::Japan => 0x0120,
         };
         let bytes = &self.cartridge.rom.0[addr..addr + 48];
         let title = bytes.iter().copied().map(|b| b as char).collect::<String>();
@@ -369,7 +325,7 @@ impl Memory {
         re.replace_all(title.trim(), " ").into()
     }
 
-    pub fn cartridge_region(&self) -> HardwareRegion {
+    pub fn hardware_region(&self) -> GenesisRegion {
         self.cartridge.region
     }
 

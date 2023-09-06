@@ -1,7 +1,7 @@
 use crate::audio;
 use crate::audio::AudioDownsampler;
 use crate::input::{GenesisInputs, InputState};
-use crate::memory::{Cartridge, HardwareRegion, MainBus, Memory};
+use crate::memory::{Cartridge, MainBus, Memory};
 use crate::vdp::{Vdp, VdpTickEffect};
 use crate::ym2612::{Ym2612, YmTickEffect};
 use bincode::{Decode, Encode};
@@ -10,6 +10,7 @@ use jgenesis_traits::frontend::{
     AudioOutput, Color, EmulatorDebug, EmulatorTrait, FrameSize, PixelAspectRatio, Renderer,
     Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
 };
+use jgenesis_traits::num::GetBit;
 use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgVersion};
 use std::error::Error;
@@ -101,9 +102,60 @@ pub enum GenesisTimingMode {
     Pal,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumDisplay, EnumFromStr, Encode, Decode)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum GenesisRegion {
+    Americas,
+    Japan,
+    Europe,
+}
+
+impl GenesisRegion {
+    pub(crate) fn from_rom(rom: &[u8]) -> Option<Self> {
+        let region_bytes = &rom[0x1F0..0x1F3];
+
+        // Prefer Americas if region code contains a 'U'
+        if region_bytes.contains(&b'U') {
+            return Some(GenesisRegion::Americas);
+        }
+
+        // Otherwise, prefer Japan if it contains a 'J'
+        if region_bytes.contains(&b'J') {
+            return Some(GenesisRegion::Japan);
+        }
+
+        // Finally, prefer Europe if it contains an 'E'
+        if region_bytes.contains(&b'E') {
+            return Some(GenesisRegion::Europe);
+        }
+
+        // If region code contains neither a 'U' nor a 'J', treat it as a hex char
+        let c = region_bytes[0] as char;
+        let value = u8::from_str_radix(&c.to_string(), 16).ok()?;
+        if value.bit(2) {
+            // Bit 2 = Americas
+            Some(GenesisRegion::Americas)
+        } else if value.bit(0) {
+            // Bit 0 = Asia
+            Some(GenesisRegion::Japan)
+        } else if value.bit(3) {
+            // Bit 3 = Europe
+            Some(GenesisRegion::Europe)
+        } else {
+            // Invalid
+            None
+        }
+    }
+
+    pub(crate) fn version_bit(self) -> bool {
+        self != Self::Japan
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct GenesisEmulatorConfig {
     pub forced_timing_mode: Option<GenesisTimingMode>,
+    pub forced_region: Option<GenesisRegion>,
     pub aspect_ratio: GenesisAspectRatio,
     pub adjust_aspect_ratio_in_2x_resolution: bool,
 }
@@ -136,13 +188,13 @@ impl GenesisEmulator {
         initial_ram: Option<Vec<u8>>,
         config: GenesisEmulatorConfig,
     ) -> Self {
-        let cartridge = Cartridge::from_rom(rom, initial_ram);
+        let cartridge = Cartridge::from_rom(rom, initial_ram, config.forced_region);
         let mut memory = Memory::new(cartridge);
 
         let timing_mode =
-            config.forced_timing_mode.unwrap_or_else(|| match memory.cartridge_region() {
-                HardwareRegion::Europe => GenesisTimingMode::Pal,
-                HardwareRegion::Americas | HardwareRegion::Japan => GenesisTimingMode::Ntsc,
+            config.forced_timing_mode.unwrap_or_else(|| match memory.hardware_region() {
+                GenesisRegion::Europe => GenesisTimingMode::Pal,
+                GenesisRegion::Americas | GenesisRegion::Japan => GenesisTimingMode::Ntsc,
             });
 
         log::info!("Using timing / display mode {timing_mode}");
@@ -320,6 +372,7 @@ impl Resettable for GenesisEmulator {
         let cartridge_ram = self.memory.take_cartridge_ram_if_persistent();
         let config = GenesisEmulatorConfig {
             forced_timing_mode: Some(self.timing_mode),
+            forced_region: Some(self.memory.hardware_region()),
             aspect_ratio: self.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
         };
