@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 genesis-core = { path = "../genesis-core", features = ["serde"] }
 jgenesis-native-driver = { path = "../jgenesis-native-driver" }
+jgenesis-renderer = { path = "../jgenesis-renderer" }
 jgenesis-traits = { path = "../jgenesis-traits" }
 smsgg-core = { path = "../smsgg-core", features = ["serde"] }
 

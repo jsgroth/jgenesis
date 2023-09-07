@@ -1,22 +1,17 @@
 [package]
-name = "jgenesis-native-driver"
+name = "jgenesis-renderer"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-genesis-core = { path = "../genesis-core" }
 jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
-jgenesis-renderer = { path = "../jgenesis-renderer" }
 jgenesis-traits = { path = "../jgenesis-traits" }
-smsgg-core = { path = "../smsgg-core" }
 
 anyhow = "1"
-bincode = "2.0.0-rc.3"
-bytemuck = "1"
+bytemuck = { version = "1.13", features = ["derive"] }
 log = "0.4"
-pollster = "0.3"
+raw-window-handle = "0.5"
 serde = { workspace = true }
-sdl2 = { workspace = true }
 wgpu = "0.17"
