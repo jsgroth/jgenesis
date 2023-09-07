@@ -1,26 +1,45 @@
+#![cfg(target_arch = "wasm32")]
+
+mod audio;
+
+use crate::audio::AudioQueue;
 use genesis_core::{GenesisAspectRatio, GenesisEmulator, GenesisEmulatorConfig, GenesisInputs};
 use jgenesis_renderer::config::{
     FilterMode, PrescaleFactor, RendererConfig, VSyncMode, WgpuBackend,
 };
 use jgenesis_renderer::renderer::WgpuRenderer;
 use jgenesis_traits::frontend::{AudioOutput, SaveWriter, TickEffect, TickableEmulator};
+use js_sys::Promise;
 use rfd::AsyncFileDialog;
 use wasm_bindgen::prelude::*;
+use web_sys::{AudioContext, AudioContextOptions};
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop, EventLoopBuilder};
 use winit::platform::web::WindowExtWebSys;
 use winit::window::{Window, WindowBuilder};
 
-struct Null;
+struct WebAudioOutput {
+    audio_queue: AudioQueue,
+}
 
-impl AudioOutput for Null {
-    type Err = ();
+impl WebAudioOutput {
+    fn new() -> Self {
+        Self { audio_queue: AudioQueue::new() }
+    }
+}
 
-    fn push_sample(&mut self, _sample_l: f64, _sample_r: f64) -> Result<(), Self::Err> {
+impl AudioOutput for WebAudioOutput {
+    type Err = JsValue;
+
+    fn push_sample(&mut self, sample_l: f64, sample_r: f64) -> Result<(), Self::Err> {
+        self.audio_queue.push_if_space(sample_l as f32)?;
+        self.audio_queue.push_if_space(sample_r as f32)?;
         Ok(())
     }
 }
+
+struct Null;
 
 impl SaveWriter for Null {
     type Err = ();
@@ -36,11 +55,17 @@ fn window_size_fn(window: &Window) -> (u32, u32) {
 }
 
 /// # Panics
+///
+/// This function will panic if it cannot initialize the console logger.
 #[wasm_bindgen(start)]
-pub async fn run() {
+pub fn init_logger() {
     std::panic::set_hook(Box::new(console_error_panic_hook::hook));
     console_log::init_with_level(log::Level::Info).expect("Unable to initialize logger");
+}
 
+/// # Panics
+#[wasm_bindgen]
+pub async fn run_emulator() {
     let event_loop = EventLoopBuilder::<()>::default().build();
     let window = WindowBuilder::new().build(&event_loop).expect("Unable to create window");
 
@@ -67,6 +92,14 @@ pub async fn run() {
         .await
         .expect("Unable to create wgpu renderer");
 
+    let audio_ctx =
+        AudioContext::new_with_context_options(AudioContextOptions::new().sample_rate(48000.0))
+            .expect("Unable to create audio context");
+    let audio_output = WebAudioOutput::new();
+    let _audio_worklet = audio::initialize_audio_worklet(&audio_ctx, &audio_output.audio_queue)
+        .await
+        .expect("Unable to initialize audio worklet");
+
     let file = AsyncFileDialog::new()
         .add_filter("md", &["md", "bin"])
         .pick_file()
@@ -85,20 +118,36 @@ pub async fn run() {
         },
     );
 
-    run_event_loop(event_loop, renderer, emulator);
+    run_event_loop(event_loop, renderer, audio_output, audio_ctx, emulator);
 }
+
+const AUDIO_SYNC_THRESHOLD: u32 = 2400;
 
 fn run_event_loop(
     event_loop: EventLoop<()>,
     mut renderer: WgpuRenderer<Window>,
+    mut audio_output: WebAudioOutput,
+    audio_ctx: AudioContext,
     mut emulator: GenesisEmulator,
 ) {
+    let mut audio_started = false;
     let mut inputs = GenesisInputs::default();
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::MainEventsCleared => {
+            if audio_output.audio_queue.len().expect("Unable to get audio queue len")
+                >= AUDIO_SYNC_THRESHOLD
+            {
+                return;
+            }
+
+            if !audio_started {
+                audio_started = true;
+                let _: Promise = audio_ctx.resume().expect("Unable to start audio playback");
+            }
+
             while emulator
-                .tick(&mut renderer, &mut Null, &inputs, &mut Null)
+                .tick(&mut renderer, &mut audio_output, &inputs, &mut Null)
                 .expect("Emulator error")
                 != TickEffect::FrameRendered
             {}

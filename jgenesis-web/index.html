@@ -12,8 +12,10 @@
     <body>
         <div id="jgenesis-wasm"></div>
         <script type="module">
-            import init from "./pkg/jgenesis_web.js";
+            import init, { run_emulator } from "./pkg/jgenesis_web.js";
             await init();
+
+            await run_emulator();
         </script>
     </body>
 </html>

@@ -16,7 +16,10 @@ jgenesis-traits = { path = "../jgenesis-traits" }
 base64 = "0.21"
 console_error_panic_hook = "0.1"
 console_log = "1"
+getrandom = { version = "0.2", features = ["js"] }
+js-sys = "0.3"
 log = "0.4"
+rand = "0.8"
 rfd = "0.11"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
@@ -29,4 +32,11 @@ features = [
     "Window",
     "Document",
     "Element",
+    "AudioContext",
+    "AudioContextOptions",
+    "AudioWorklet",
+    "AudioWorkletNode",
+    "AudioWorkletNodeOptions",
+    "AudioDestinationNode",
+    "ChannelCountMode",
 ]
