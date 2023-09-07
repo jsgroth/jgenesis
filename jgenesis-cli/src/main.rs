@@ -8,10 +8,11 @@ use jgenesis_native_driver::config::input::{
 use jgenesis_native_driver::config::{
     CommonConfig, GenesisConfig, GgAspectRatio, SmsAspectRatio, SmsGgConfig, WindowSize,
 };
-use jgenesis_native_driver::{
-    FilterMode, NativeTickEffect, PrescaleFactor, RendererConfig, VSyncMode, WgpuBackend,
-};
+use jgenesis_native_driver::NativeTickEffect;
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
+use jgenesis_renderer::config::{
+    FilterMode, PrescaleFactor, RendererConfig, VSyncMode, WgpuBackend,
+};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsRegion, VdpVersion};
 use std::ffi::OsStr;

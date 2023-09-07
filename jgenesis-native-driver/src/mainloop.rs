@@ -6,10 +6,10 @@ use crate::input::{
     GenesisButton, GetButtonField, Hotkey, HotkeyMapper, InputMapper, Joysticks, SmsGgButton,
 };
 use crate::mainloop::debug::{CramDebug, VramDebug};
-use crate::renderer::WgpuRenderer;
 use anyhow::{anyhow, Context};
 use bincode::{Decode, Encode};
 use genesis_core::{GenesisEmulator, GenesisInputs};
+use jgenesis_renderer::renderer::WgpuRenderer;
 use jgenesis_traits::frontend::{AudioOutput, EmulatorTrait, SaveWriter, TickEffect};
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::event::{Event, WindowEvent};
@@ -22,6 +22,37 @@ use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::{fs, thread};
+
+trait RendererExt {
+    fn focus(&mut self);
+
+    fn window_id(&self) -> u32;
+
+    fn toggle_fullscreen(&mut self) -> anyhow::Result<()>;
+}
+
+impl RendererExt for WgpuRenderer<Window> {
+    fn focus(&mut self) {
+        self.window_mut().raise();
+    }
+
+    fn window_id(&self) -> u32 {
+        self.window().id()
+    }
+
+    fn toggle_fullscreen(&mut self) -> anyhow::Result<()> {
+        let window = self.window_mut();
+        let new_fullscreen = match window.fullscreen_state() {
+            FullscreenType::Off => FullscreenType::Desktop,
+            FullscreenType::Desktop | FullscreenType::True => FullscreenType::Off,
+        };
+        window
+            .set_fullscreen(new_fullscreen)
+            .map_err(|err| anyhow!("Error toggling fullscreen: {err}"))?;
+
+        Ok(())
+    }
+}
 
 struct SdlAudioOutput {
     audio_queue: AudioQueue<f32>,
@@ -114,7 +145,7 @@ pub enum NativeTickEffect {
 
 pub struct NativeEmulator<Inputs, Button, Emulator> {
     emulator: Emulator,
-    renderer: WgpuRenderer,
+    renderer: WgpuRenderer<Window>,
     audio_output: SdlAudioOutput,
     input_mapper: InputMapper<Inputs, Button>,
     hotkey_mapper: HotkeyMapper,
@@ -321,7 +352,8 @@ pub fn create_smsgg(
 
     let emulator_config = config.to_emulator_config(vdp_version);
 
-    let renderer = pollster::block_on(WgpuRenderer::new(window, config.common.renderer_config))?;
+    let renderer =
+        pollster::block_on(WgpuRenderer::new(window, Window::size, config.common.renderer_config))?;
     let audio_output = SdlAudioOutput::create_and_init(&audio, config.common.audio_sync)?;
     let input_mapper = InputMapper::new_smsgg(
         joystick,
@@ -395,7 +427,8 @@ pub fn create_genesis(
         config.common.launch_in_fullscreen,
     )?;
 
-    let renderer = pollster::block_on(WgpuRenderer::new(window, config.common.renderer_config))?;
+    let renderer =
+        pollster::block_on(WgpuRenderer::new(window, Window::size, config.common.renderer_config))?;
     let audio_output = SdlAudioOutput::create_and_init(&audio, config.common.audio_sync)?;
     let input_mapper = InputMapper::new_genesis(
         joystick,
@@ -480,7 +513,7 @@ fn handle_hotkeys<Inputs, Emulator, P>(
     hotkey_mapper: &HotkeyMapper,
     event: &Event,
     emulator: &mut Emulator,
-    renderer: &mut WgpuRenderer,
+    renderer: &mut WgpuRenderer<Window>,
     save_state_path: P,
     video: &VideoSubsystem,
     cram_debug: &mut Option<CramDebug>,
@@ -544,7 +577,7 @@ where
     Ok(HotkeyResult::None)
 }
 
-fn handle_window_event(win_event: WindowEvent, renderer: &mut WgpuRenderer) {
+fn handle_window_event(win_event: WindowEvent, renderer: &mut WgpuRenderer<Window>) {
     match win_event {
         WindowEvent::Resized(..) | WindowEvent::SizeChanged(..) | WindowEvent::Maximized => {
             renderer.handle_resize();

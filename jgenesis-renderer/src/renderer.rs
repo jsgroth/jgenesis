@@ -1,10 +1,7 @@
-pub mod config;
-
-use crate::WgpuBackend;
+use crate::config::{RendererConfig, WgpuBackend};
 use anyhow::anyhow;
-use config::RendererConfig;
 use jgenesis_traits::frontend::{Color, FrameSize, PixelAspectRatio, Renderer};
-use sdl2::video::{FullscreenType, Window};
+use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::{cmp, iter, mem};
 use wgpu::util::DeviceExt;
 
@@ -428,7 +425,9 @@ fn scale_vertex_position(
     position as f32
 }
 
-pub struct WgpuRenderer {
+pub type WindowSizeFn<Window> = fn(&Window) -> (u32, u32);
+
+pub struct WgpuRenderer<Window> {
     surface: wgpu::Surface,
     surface_config: wgpu::SurfaceConfiguration,
     device: wgpu::Device,
@@ -439,10 +438,20 @@ pub struct WgpuRenderer {
     // SAFETY: The surface must not outlive the window it was created from, thus the window must be
     // declared after the surface
     window: Window,
+    window_size_fn: WindowSizeFn<Window>,
 }
 
-impl WgpuRenderer {
-    pub async fn new(window: Window, config: RendererConfig) -> anyhow::Result<Self> {
+impl<Window: HasRawDisplayHandle + HasRawWindowHandle> WgpuRenderer<Window> {
+    /// Construct a wgpu renderer from the given window and config.
+    ///
+    /// # Errors
+    ///
+    /// This function will return any errors encountered while initializing wgpu.
+    pub async fn new(
+        window: Window,
+        window_size_fn: WindowSizeFn<Window>,
+        config: RendererConfig,
+    ) -> anyhow::Result<Self> {
         let backends = match config.wgpu_backend {
             WgpuBackend::Auto => wgpu::Backends::PRIMARY,
             WgpuBackend::Vulkan => wgpu::Backends::VULKAN,
@@ -501,7 +510,7 @@ impl WgpuRenderer {
                 surface_capabilities.formats[0]
             });
 
-        let (window_width, window_height) = window.size();
+        let (window_width, window_height) = window_size_fn(&window);
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
@@ -528,9 +537,12 @@ impl WgpuRenderer {
             renderer_config: config,
             pipeline: None,
             window,
+            window_size_fn,
         })
     }
+}
 
+impl<Window> WgpuRenderer<Window> {
     pub fn reload_config(&mut self, config: RendererConfig) {
         self.renderer_config = config;
         self.surface_config.present_mode = config.vsync_mode.to_wgpu_present_mode();
@@ -540,30 +552,14 @@ impl WgpuRenderer {
         self.pipeline = None;
     }
 
-    pub fn focus(&mut self) {
-        self.window.raise();
-    }
-
-    pub fn toggle_fullscreen(&mut self) -> Result<(), String> {
-        let new_fullscreen = match self.window.fullscreen_state() {
-            FullscreenType::Off => FullscreenType::Desktop,
-            FullscreenType::Desktop | FullscreenType::True => FullscreenType::Off,
-        };
-        self.window.set_fullscreen(new_fullscreen)
-    }
-
     pub fn handle_resize(&mut self) {
-        let (window_width, window_height) = self.window.size();
+        let (window_width, window_height) = (self.window_size_fn)(&self.window);
         self.surface_config.width = window_width;
         self.surface_config.height = window_height;
         self.surface.configure(&self.device, &self.surface_config);
 
         // Force render pipeline to be recreated on the next render_frame() call
         self.pipeline = None;
-    }
-
-    pub fn window_id(&self) -> u32 {
-        self.window.id()
     }
 
     fn ensure_pipeline(
@@ -581,9 +577,10 @@ impl WgpuRenderer {
                 "Creating render pipeline for frame size {frame_size:?} and pixel aspect ratio {pixel_aspect_ratio:?}"
             );
 
+            let window_size = (self.window_size_fn)(&self.window);
             self.pipeline = Some(RenderingPipeline::create(
                 &self.device,
-                self.window.size(),
+                window_size,
                 frame_size,
                 pixel_aspect_ratio,
                 self.texture_format,
@@ -592,9 +589,17 @@ impl WgpuRenderer {
             ));
         }
     }
+
+    pub fn window(&self) -> &Window {
+        &self.window
+    }
+
+    pub fn window_mut(&mut self) -> &mut Window {
+        &mut self.window
+    }
 }
 
-impl Renderer for WgpuRenderer {
+impl<Window> Renderer for WgpuRenderer<Window> {
     type Err = anyhow::Error;
 
     fn render_frame(

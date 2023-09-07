@@ -3,9 +3,9 @@ pub mod input;
 use crate::config::input::{
     GenesisInputConfig, HotkeyConfig, JoystickInput, KeyboardInput, SmsGgInputConfig,
 };
-use crate::RendererConfig;
 use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig, GenesisRegion, GenesisTimingMode};
 use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay, EnumFromStr};
+use jgenesis_renderer::config::RendererConfig;
 use jgenesis_traits::frontend::PixelAspectRatio;
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;

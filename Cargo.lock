@@ -1705,6 +1705,7 @@ dependencies = [
  "genesis-core",
  "jgenesis-native-driver",
  "jgenesis-proc-macros",
+ "jgenesis-renderer",
  "log",
  "smsgg-core",
 ]
@@ -1721,6 +1722,7 @@ dependencies = [
  "env_logger",
  "genesis-core",
  "jgenesis-native-driver",
+ "jgenesis-renderer",
  "jgenesis-traits",
  "log",
  "rfd",
@@ -1739,6 +1741,7 @@ dependencies = [
  "bytemuck",
  "genesis-core",
  "jgenesis-proc-macros",
+ "jgenesis-renderer",
  "jgenesis-traits",
  "log",
  "pollster",
@@ -1754,6 +1757,20 @@ version = "0.1.0"
 dependencies = [
  "quote",
  "syn 2.0.29",
+]
+
+[[package]]
+name = "jgenesis-renderer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytemuck",
+ "jgenesis-proc-macros",
+ "jgenesis-traits",
+ "log",
+ "raw-window-handle",
+ "serde",
+ "wgpu",
 ]
 
 [[package]]

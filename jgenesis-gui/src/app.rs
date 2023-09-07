@@ -16,7 +16,9 @@ use genesis_core::{GenesisAspectRatio, GenesisRegion, GenesisTimingMode};
 use jgenesis_native_driver::config::{
     CommonConfig, GenesisConfig, GgAspectRatio, SmsAspectRatio, SmsGgConfig, WindowSize,
 };
-use jgenesis_native_driver::{FilterMode, PrescaleFactor, RendererConfig, VSyncMode, WgpuBackend};
+use jgenesis_renderer::config::{
+    FilterMode, PrescaleFactor, RendererConfig, VSyncMode, WgpuBackend,
+};
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
