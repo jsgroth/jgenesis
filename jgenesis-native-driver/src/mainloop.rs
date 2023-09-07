@@ -382,9 +382,14 @@ pub fn create_genesis(
 
     let WindowSize { width: window_width, height: window_height } =
         config.common.window_size.unwrap_or(config::DEFAULT_GENESIS_WINDOW_SIZE);
+    let mut cartridge_title = emulator.cartridge_title();
+    // Remove non-printable characters
+    cartridge_title.retain(|c| {
+        c.is_ascii_alphanumeric() || c.is_ascii_whitespace() || c.is_ascii_punctuation()
+    });
     let window = create_window(
         &video,
-        &format!("genesis - {}", emulator.cartridge_title()),
+        &format!("genesis - {cartridge_title}"),
         window_width,
         window_height,
         config.common.launch_in_fullscreen,
