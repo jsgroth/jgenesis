@@ -1047,8 +1047,7 @@ impl Vdp {
         let interlaced_odd =
             self.registers.interlacing_mode.is_interlaced() && self.state.frame_count % 2 == 1;
         let status = 0x0200
-            | (u16::from(self.state.v_interrupt_pending && self.registers.v_interrupt_enabled)
-                << 7)
+            | (u16::from(self.state.v_interrupt_pending) << 7)
             | (u16::from(self.state.sprite_overflow) << 6)
             | (u16::from(self.state.sprite_collision) << 5)
             | (u16::from(interlaced_odd) << 4)
@@ -1153,22 +1152,14 @@ impl Vdp {
                 if self.state.h_interrupt_counter == 0 {
                     self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
 
-                    if self.registers.h_interrupt_enabled {
-                        log::trace!("Generating H interrupt (scanline {})", self.state.scanline);
-                        self.state.h_interrupt_pending = true;
-                    }
+                    log::trace!("Generating H interrupt (scanline {})", self.state.scanline);
+                    self.state.h_interrupt_pending = true;
                 } else {
                     self.state.h_interrupt_counter -= 1;
                 }
             } else {
                 // H interrupt counter is constantly refreshed during VBlank
                 self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
-
-                // Trigger V interrupt if this is the first scanline of VBlank
-                if self.state.scanline == active_scanlines && self.registers.v_interrupt_enabled {
-                    log::trace!("Generating V interrupt (scanline {})", self.state.scanline);
-                    self.state.v_interrupt_pending = true;
-                }
             }
         }
 
@@ -1182,6 +1173,10 @@ impl Vdp {
             }
 
             if self.state.scanline == active_scanlines && !self.state.frame_completed {
+                // Trigger V interrupt if this is the first scanline of VBlank
+                log::trace!("Generating V interrupt (scanline {})", self.state.scanline);
+                self.state.v_interrupt_pending = true;
+
                 self.state.frame_completed = true;
                 return VdpTickEffect::FrameComplete;
             }
@@ -1333,8 +1328,12 @@ impl Vdp {
 
     pub fn acknowledge_m68k_interrupt(&mut self) {
         log::trace!("M68K interrupt acknowledged");
-        self.state.v_interrupt_pending = false;
-        self.state.h_interrupt_pending = false;
+        let interrupt_level = self.m68k_interrupt_level();
+        if interrupt_level == 6 {
+            self.state.v_interrupt_pending = false;
+        } else if interrupt_level == 4 {
+            self.state.h_interrupt_pending = false;
+        }
     }
 
     pub fn z80_interrupt_line(&self) -> InterruptLine {
