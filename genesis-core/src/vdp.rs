@@ -250,6 +250,7 @@ struct InternalState {
     v_interrupt_pending: bool,
     h_interrupt_pending: bool,
     h_interrupt_counter: u16,
+    latched_hv_counter: Option<u16>,
     sprite_overflow: bool,
     dot_overflow_on_prev_line: bool,
     sprite_collision: bool,
@@ -274,6 +275,7 @@ impl InternalState {
             v_interrupt_pending: false,
             h_interrupt_pending: false,
             h_interrupt_counter: 0,
+            latched_hv_counter: None,
             sprite_overflow: false,
             dot_overflow_on_prev_line: false,
             sprite_collision: false,
@@ -290,7 +292,6 @@ impl InternalState {
 struct Registers {
     // Register #0
     h_interrupt_enabled: bool,
-    // TODO handle HV latching and interrupts
     hv_counter_stopped: bool,
     // Register #1
     display_enabled: bool,
@@ -897,6 +898,15 @@ impl Vdp {
                     let register_number = ((value >> 8) & 0x1F) as u8;
                     self.registers.write_internal_register(register_number, value as u8);
 
+                    if self.registers.hv_counter_stopped && self.state.latched_hv_counter.is_none()
+                    {
+                        self.state.latched_hv_counter = Some(self.hv_counter());
+                    } else if !self.registers.hv_counter_stopped
+                        && self.state.latched_hv_counter.is_some()
+                    {
+                        self.state.latched_hv_counter = None;
+                    }
+
                     // Re-render the next scanline if display enabled status or background color changed
                     if self.in_hblank()
                         && (prev_display_enabled != self.registers.display_enabled
@@ -1084,6 +1094,10 @@ impl Vdp {
     }
 
     pub fn hv_counter(&self) -> u16 {
+        if let Some(latched_hv_counter) = self.state.latched_hv_counter {
+            return latched_hv_counter;
+        }
+
         let scanline_mclk = self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE;
 
         let h_counter = self.h_counter(scanline_mclk);
@@ -1096,6 +1110,7 @@ impl Vdp {
 
     #[inline]
     fn h_counter(&self, scanline_mclk: u64) -> u8 {
+        // Values from https://gendev.spritesmind.net/forum/viewtopic.php?t=768
         match self.registers.horizontal_display_size {
             HorizontalDisplaySize::ThirtyTwoCell => {
                 let h = (scanline_mclk / 20) as u8;
@@ -1110,6 +1125,8 @@ impl Vdp {
 
     #[inline]
     fn v_counter(&self, scanline_mclk: u64) -> u8 {
+        // Values from https://gendev.spritesmind.net/forum/viewtopic.php?t=768
+
         // V counter increments shortly after the start of HBlank; simulate this by only
         let in_hblank = scanline_mclk >= ACTIVE_MCLK_CYCLES_PER_SCANLINE;
         let scanline = if in_hblank {
