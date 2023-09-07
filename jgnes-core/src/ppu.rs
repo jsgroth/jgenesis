@@ -7,7 +7,7 @@
 //! PAL is (mostly) the same except the vertical blanking period lasts for 70 scanlines instead of 20,
 //! for a total of 312 scanlines.
 
-use crate::bus::{PpuBus, PpuTrackedRegister, PpuWriteToggle, TimingMode};
+use crate::bus::{PpuBus, PpuRegisters, PpuTrackedRegister, PpuWriteToggle, TimingMode};
 use crate::num::GetBit;
 use crate::EmulatorConfig;
 use bincode::{Decode, Encode};
@@ -336,9 +336,6 @@ pub fn render_pal_black_border(state: &mut PpuState) {
     }
 }
 
-// NES colors are only 6 bits
-const COLOR_MASK: u8 = 0x3F;
-
 /// Run the PPU for one PPU cycle. Pixels will be written to `PpuState`'s frame buffer as appropriate.
 pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>, config: &EmulatorConfig) {
     let rendering_enabled =
@@ -357,6 +354,7 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>, config: &EmulatorConfig)
         bus.get_ppu_registers_mut().set_vblank_flag(true);
     }
 
+    let color_mask = get_color_mask(bus.get_ppu_registers());
     if rendering_enabled {
         state.rendering_disabled_backdrop_color = None;
         process_scanline(state, bus, config.remove_sprite_limit);
@@ -366,7 +364,7 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>, config: &EmulatorConfig)
         if !VISIBLE_SCANLINES.contains(&state.scanline) {
             // The backdrop color always resets to color 0 when rendering is disabled outside of
             // active display
-            state.rendering_disabled_backdrop_color = Some(bus.get_palette_ram()[0] & COLOR_MASK);
+            state.rendering_disabled_backdrop_color = Some(bus.get_palette_ram()[0] & color_mask);
         }
 
         // When rendering is disabled, pixels should use whatever the backdrop color was set to
@@ -380,7 +378,7 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>, config: &EmulatorConfig)
             } else {
                 0
             };
-            bus.get_palette_ram()[palette_ram_addr as usize] & COLOR_MASK
+            bus.get_palette_ram()[palette_ram_addr as usize] & color_mask
         });
 
         if VISIBLE_SCANLINES.contains(&state.scanline) && RENDERING_DOTS.contains(&state.dot) {
@@ -408,6 +406,11 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>, config: &EmulatorConfig)
             state.odd_frame = !state.odd_frame;
         }
     }
+}
+
+fn get_color_mask(registers: &PpuRegisters) -> u8 {
+    // NES colors are 6 bits normally, and greyscale mode masks out the lower 4 bits
+    if registers.greyscale() { 0x30 } else { 0x3F }
 }
 
 /// Reset the PPU, as if the console's reset button was pressed.
@@ -763,8 +766,7 @@ fn render_pixel(state: &mut PpuState, bus: &PpuBus<'_>) {
         backdrop_color
     };
 
-    // Discard the highest two bits, colors range from 0 to 63
-    let pixel_color = pixel_color & COLOR_MASK;
+    let pixel_color = pixel_color & get_color_mask(bus.get_ppu_registers());
 
     // Render the pixel to the frame buffer
     state.frame_buffer[state.scanline as usize][pixel as usize] = pixel_color;

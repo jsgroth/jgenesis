@@ -208,6 +208,10 @@ impl PpuRegisters {
         }
     }
 
+    pub fn greyscale(&self) -> bool {
+        self.ppu_mask.bit(0)
+    }
+
     pub fn sprites_enabled(&self) -> bool {
         self.ppu_mask.bit(4)
     }
