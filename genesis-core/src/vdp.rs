@@ -246,10 +246,12 @@ struct InternalState {
     data_port_mode: DataPortMode,
     data_port_location: DataPortLocation,
     data_address: u16,
+    latched_high_address_bits: u16,
     v_interrupt_pending: bool,
     h_interrupt_pending: bool,
     h_interrupt_counter: u16,
     sprite_overflow: bool,
+    dot_overflow_on_prev_line: bool,
     sprite_collision: bool,
     scanline: u16,
     active_dma: Option<ActiveDma>,
@@ -268,10 +270,12 @@ impl InternalState {
             data_port_mode: DataPortMode::Write,
             data_port_location: DataPortLocation::Vram,
             data_address: 0,
+            latched_high_address_bits: 0,
             v_interrupt_pending: false,
             h_interrupt_pending: false,
             h_interrupt_counter: 0,
             sprite_overflow: false,
+            dot_overflow_on_prev_line: false,
             sprite_collision: false,
             scanline: 0,
             active_dma: None,
@@ -595,6 +599,26 @@ impl Registers {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
+struct CachedSpriteData {
+    v_position: u16,
+    h_size_cells: u8,
+    v_size_cells: u8,
+    link_data: u8,
+}
+
+impl CachedSpriteData {
+    fn update_first_word(&mut self, msb: u8, lsb: u8) {
+        self.v_position = u16::from_be_bytes([msb & 0x03, lsb]);
+    }
+
+    fn update_second_word(&mut self, msb: u8, lsb: u8) {
+        self.h_size_cells = ((msb >> 2) & 0x03) + 1;
+        self.v_size_cells = (msb & 0x03) + 1;
+        self.link_data = lsb & 0x7F;
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 struct SpriteData {
     pattern_generator: u16,
@@ -607,39 +631,35 @@ struct SpriteData {
     horizontal_flip: bool,
     priority: bool,
     link_data: u8,
+    // Set if this sprite gets cut off because of the pixels-per-scanline limit
+    partial_width: Option<u16>,
 }
 
 impl SpriteData {
-    fn from_attribute_table(sprite_bytes: &[u8]) -> Self {
-        // 1st word
-        let v_position = u16::from_be_bytes([sprite_bytes[0] & 0x03, sprite_bytes[1]]);
-
-        // 2nd word
-        let h_size_cells = ((sprite_bytes[2] >> 2) & 0x03) + 1;
-        let v_size_cells = (sprite_bytes[2] & 0x03) + 1;
-        let link_data = sprite_bytes[3] & 0x7F;
-
+    fn create(cached_data: CachedSpriteData, uncached_bytes: &[u8]) -> Self {
         // 3rd word
-        let priority = sprite_bytes[4].bit(7);
-        let palette = (sprite_bytes[4] >> 5) & 0x03;
-        let vertical_flip = sprite_bytes[4].bit(4);
-        let horizontal_flip = sprite_bytes[4].bit(3);
-        let pattern_generator = u16::from_be_bytes([sprite_bytes[4] & 0x07, sprite_bytes[5]]);
+        let priority = uncached_bytes[0].bit(7);
+        let palette = (uncached_bytes[0] >> 5) & 0x03;
+        let vertical_flip = uncached_bytes[0].bit(4);
+        let horizontal_flip = uncached_bytes[0].bit(3);
+        let pattern_generator = u16::from_be_bytes([uncached_bytes[0] & 0x07, uncached_bytes[1]]);
 
         // 4th word
-        let h_position = u16::from_be_bytes([sprite_bytes[6] & 0x01, sprite_bytes[7]]);
+        let h_position = u16::from_be_bytes([uncached_bytes[2] & 0x01, uncached_bytes[3]]);
 
         Self {
             pattern_generator,
-            v_position,
+            v_position: cached_data.v_position,
             h_position,
-            h_size_cells,
-            v_size_cells,
+            h_size_cells: cached_data.h_size_cells,
+            v_size_cells: cached_data.v_size_cells,
             palette,
             vertical_flip,
             horizontal_flip,
             priority,
-            link_data,
+            link_data: cached_data.link_data,
+            // Will maybe get set later
+            partial_width: None,
         }
     }
 }
@@ -798,6 +818,7 @@ pub struct Vdp {
     timing_mode: GenesisTimingMode,
     state: InternalState,
     registers: Registers,
+    cached_sprite_attributes: Vec<CachedSpriteData>,
     sprite_buffer: Vec<SpriteData>,
     sprite_bit_set: SpriteBitSet,
     // Cache of CRAM in u16 form
@@ -815,7 +836,7 @@ const FRAME_BUFFER_LEN: usize = MAX_SCREEN_WIDTH * MAX_SCREEN_HEIGHT * 2;
 const MCLK_CYCLES_PER_SCANLINE: u64 = 3420;
 const ACTIVE_MCLK_CYCLES_PER_SCANLINE: u64 = 2560;
 const NTSC_SCANLINES_PER_FRAME: u16 = 262;
-const PAL_SCANLINES_PER_FRAME: u16 = 312;
+const PAL_SCANLINES_PER_FRAME: u16 = 313;
 
 const MAX_SPRITES_PER_FRAME: usize = 80;
 
@@ -838,6 +859,7 @@ impl Vdp {
             timing_mode,
             state: InternalState::new(),
             registers: Registers::new(),
+            cached_sprite_attributes: vec![CachedSpriteData::default(); MAX_SPRITES_PER_FRAME],
             sprite_buffer: Vec::with_capacity(MAX_SPRITES_PER_FRAME),
             sprite_bit_set: SpriteBitSet::new(),
             color_buffer: [0; CRAM_LEN / 2],
@@ -885,13 +907,16 @@ impl Vdp {
                     }
                 } else {
                     // First word of command write
-                    self.state.data_address = (self.state.data_address & 0xC000) | (value & 0x3FFF);
+                    self.state.data_address =
+                        (self.state.latched_high_address_bits) | (value & 0x3FFF);
 
                     self.state.control_write_flag = ControlWriteFlag::Second;
                 }
             }
             ControlWriteFlag::Second => {
-                self.state.data_address = (self.state.data_address & 0x3FFF) | (value << 14);
+                let high_address_bits = value << 14;
+                self.state.latched_high_address_bits = high_address_bits;
+                self.state.data_address = (self.state.data_address & 0x3FFF) | high_address_bits;
                 self.state.control_write_flag = ControlWriteFlag::First;
 
                 self.state.code = (((value >> 2) & 0x3C) as u8) | (self.state.code & 0x03);
@@ -942,6 +967,9 @@ impl Vdp {
             return 0xFFFF;
         }
 
+        // Reset write flag
+        self.state.control_write_flag = ControlWriteFlag::First;
+
         let data = match self.state.data_port_location {
             DataPortLocation::Vram => {
                 // VRAM reads/writes ignore A0
@@ -969,6 +997,9 @@ impl Vdp {
         if self.state.data_port_mode != DataPortMode::Write {
             return;
         }
+
+        // Reset write flag
+        self.state.control_write_flag = ControlWriteFlag::First;
 
         if self.state.active_dma.is_some() {
             self.state.pending_writes.push(PendingWrite::Data(value));
@@ -1028,10 +1059,15 @@ impl Vdp {
         self.state.sprite_overflow = false;
         self.state.sprite_collision = false;
 
+        // Reset control write flag
+        self.state.control_write_flag = ControlWriteFlag::First;
+
         status
     }
 
     pub fn hv_counter(&self) -> u16 {
+        log::trace!("HV counter read");
+
         let v_counter = match self.registers.interlacing_mode {
             InterlacingMode::Progressive | InterlacingMode::Interlaced => self.state.scanline as u8,
             InterlacingMode::InterlacedDouble => {
@@ -1118,6 +1154,7 @@ impl Vdp {
                     self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
 
                     if self.registers.h_interrupt_enabled {
+                        log::trace!("Generating H interrupt (scanline {})", self.state.scanline);
                         self.state.h_interrupt_pending = true;
                     }
                 } else {
@@ -1129,6 +1166,7 @@ impl Vdp {
 
                 // Trigger V interrupt if this is the first scanline of VBlank
                 if self.state.scanline == active_scanlines && self.registers.v_interrupt_enabled {
+                    log::trace!("Generating V interrupt (scanline {})", self.state.scanline);
                     self.state.v_interrupt_pending = true;
                 }
             }
@@ -1209,6 +1247,8 @@ impl Vdp {
                 let [msb, _] = fill_data.to_be_bytes();
                 for _ in 0..self.registers.dma_length() {
                     self.vram[(self.state.data_address ^ 0x01) as usize] = msb;
+                    self.maybe_update_sprite_cache(self.state.data_address);
+
                     self.increment_data_address();
                 }
             }
@@ -1225,6 +1265,7 @@ impl Vdp {
                 for _ in 0..self.registers.dma_length() {
                     let dest_addr = self.state.data_address;
                     self.vram[dest_addr as usize] = self.vram[source_addr as usize];
+                    self.maybe_update_sprite_cache(dest_addr);
 
                     source_addr = source_addr.wrapping_add(1);
                     self.increment_data_address();
@@ -1247,10 +1288,32 @@ impl Vdp {
         let [msb, lsb] = value.to_be_bytes();
         self.vram[address as usize] = msb;
         self.vram[(address ^ 0x01) as usize] = lsb;
+
+        self.maybe_update_sprite_cache(address);
+    }
+
+    #[inline]
+    fn maybe_update_sprite_cache(&mut self, address: u16) {
+        let sprite_table_addr = self.registers.sprite_attribute_table_base_addr;
+        let h_size = self.registers.horizontal_display_size;
+        if !address.bit(2)
+            && (sprite_table_addr..sprite_table_addr + 8 * h_size.sprite_table_len())
+                .contains(&address)
+        {
+            let idx = ((address - sprite_table_addr) / 8) as usize;
+            let msb = self.vram[(address & !0x01) as usize];
+            let lsb = self.vram[(address | 0x01) as usize];
+            if !address.bit(1) {
+                self.cached_sprite_attributes[idx].update_first_word(msb, lsb);
+            } else {
+                self.cached_sprite_attributes[idx].update_second_word(msb, lsb);
+            }
+        }
     }
 
     fn in_vblank(&self) -> bool {
         self.state.scanline >= self.registers.vertical_display_size.active_scanlines()
+            && self.state.scanline < self.timing_mode.scanlines_per_frame() - 1
     }
 
     fn in_hblank(&self) -> bool {
@@ -1269,6 +1332,7 @@ impl Vdp {
     }
 
     pub fn acknowledge_m68k_interrupt(&mut self) {
+        log::trace!("M68K interrupt acknowledged");
         self.state.v_interrupt_pending = false;
         self.state.h_interrupt_pending = false;
     }
@@ -1359,19 +1423,23 @@ impl Vdp {
         let sprite_table_addr = self.registers.sprite_attribute_table_base_addr;
 
         // Sprite 0 is always populated
-        let sprite_0 = SpriteData::from_attribute_table(
-            &self.vram[sprite_table_addr as usize..sprite_table_addr as usize + 8],
+        let sprite_0 = SpriteData::create(
+            self.cached_sprite_attributes[0],
+            &self.vram[sprite_table_addr as usize + 4..sprite_table_addr as usize + 8],
         );
         let mut sprite_idx: u16 = sprite_0.link_data.into();
         self.sprite_buffer.push(sprite_0);
 
         for _ in 0..h_size.sprite_table_len() {
-            if sprite_idx == 0 {
+            if sprite_idx == 0 || sprite_idx >= h_size.sprite_table_len() {
                 break;
             }
 
             let sprite_addr = sprite_table_addr.wrapping_add(8 * sprite_idx) as usize;
-            let sprite = SpriteData::from_attribute_table(&self.vram[sprite_addr..sprite_addr + 8]);
+            let sprite = SpriteData::create(
+                self.cached_sprite_attributes[sprite_idx as usize],
+                &self.vram[sprite_addr + 4..sprite_addr + 8],
+            );
             sprite_idx = sprite.link_data.into();
             self.sprite_buffer.push(sprite);
         }
@@ -1384,15 +1452,6 @@ impl Vdp {
             (sprite.v_position..sprite_bottom).contains(&sprite_scanline)
         });
 
-        // Sprites with H position 0 mask all lower priority sprites on the same scanline, unless
-        // it's the highest priority sprite on the scanline (so skip the first sprite here)
-        for i in 1..self.sprite_buffer.len() {
-            if self.sprite_buffer[i].h_position == 0 {
-                self.sprite_buffer.truncate(i);
-                break;
-            }
-        }
-
         // Apply max sprite per scanline limit
         let max_sprites_per_line = h_size.max_sprites_per_line() as usize;
         if self.sprite_buffer.len() > max_sprites_per_line {
@@ -1401,15 +1460,38 @@ impl Vdp {
         }
 
         // Apply max sprite pixel per scanline limit
-        let mut pixels = 0;
+        let mut line_pixels = 0;
+        let mut dot_overflow = false;
         for i in 0..self.sprite_buffer.len() {
-            pixels += 8 * u16::from(self.sprite_buffer[i].h_size_cells);
-            if pixels >= h_size.max_sprite_pixels_per_line() {
+            let sprite_pixels = 8 * u16::from(self.sprite_buffer[i].h_size_cells);
+            line_pixels += sprite_pixels;
+            if line_pixels > h_size.max_sprite_pixels_per_line() {
+                let overflow_pixels = line_pixels - h_size.max_sprite_pixels_per_line();
+                self.sprite_buffer[i].partial_width = Some(sprite_pixels - overflow_pixels);
+
                 self.sprite_buffer.truncate(i + 1);
                 self.state.sprite_overflow = true;
+                dot_overflow = true;
                 break;
             }
         }
+
+        // Sprites with H position 0 mask all lower priority sprites on the same scanline...with
+        // some quirks. There must be at least one sprite with H != 0 before the H=0 sprite, unless
+        // there was a sprite pixel overflow on the previous scanline.
+        let mut found_non_zero = self.state.dot_overflow_on_prev_line;
+        for i in 0..self.sprite_buffer.len() {
+            if self.sprite_buffer[i].h_position != 0 {
+                found_non_zero = true;
+                continue;
+            }
+
+            if found_non_zero && self.sprite_buffer[i].h_position == 0 {
+                self.sprite_buffer.truncate(i);
+                break;
+            }
+        }
+        self.state.dot_overflow_on_prev_line = dot_overflow;
 
         // Fill in bit set
         self.sprite_bit_set.clear();
@@ -1605,7 +1687,8 @@ impl Vdp {
 
         let mut found_sprite: Option<(&SpriteData, u8)> = None;
         for sprite in &self.sprite_buffer {
-            let sprite_right = sprite.h_position + 8 * u16::from(sprite.h_size_cells);
+            let sprite_width = sprite.partial_width.unwrap_or(8 * u16::from(sprite.h_size_cells));
+            let sprite_right = sprite.h_position + sprite_width;
             if !(sprite.h_position..sprite_right).contains(&sprite_pixel) {
                 continue;
             }
