@@ -1046,12 +1046,31 @@ impl Vdp {
         // DMA busy (bit 1) hardcoded to false
         let interlaced_odd =
             self.registers.interlacing_mode.is_interlaced() && self.state.frame_count % 2 == 1;
+
+        let scanline_mclk = self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE;
+        let v_counter: u16 = self.v_counter(scanline_mclk).into();
+        let vblank_flag = match self.timing_mode {
+            GenesisTimingMode::Ntsc => {
+                v_counter >= VerticalDisplaySize::TwentyEightCell.active_scanlines()
+                    && v_counter != 0xFF
+            }
+            GenesisTimingMode::Pal => {
+                let active_scanlines = self.registers.vertical_display_size.active_scanlines();
+                // This OR is mecessary because the PAL V counter briefly wraps around to $00-$0A
+                // during VBlank.
+                // >300 comparison is because the V counter hits 0xFF twice, once at scanline 255
+                // and again at scanline 312.
+                (v_counter >= active_scanlines || self.state.scanline > active_scanlines)
+                    && !(v_counter == 0xFF && self.state.scanline > 300)
+            }
+        };
+
         let status = 0x0200
             | (u16::from(self.state.v_interrupt_pending) << 7)
             | (u16::from(self.state.sprite_overflow) << 6)
             | (u16::from(self.state.sprite_collision) << 5)
             | (u16::from(interlaced_odd) << 4)
-            | (u16::from(self.in_vblank()) << 3)
+            | (u16::from(vblank_flag) << 3)
             | (u16::from(self.in_hblank()) << 2)
             | u16::from(self.timing_mode == GenesisTimingMode::Pal);
 
@@ -1065,28 +1084,74 @@ impl Vdp {
     }
 
     pub fn hv_counter(&self) -> u16 {
-        log::trace!("HV counter read");
-
-        let v_counter = match self.registers.interlacing_mode {
-            InterlacingMode::Progressive | InterlacingMode::Interlaced => self.state.scanline as u8,
-            InterlacingMode::InterlacedDouble => {
-                let scanline = self.state.scanline << 1;
-                ((scanline & !0x01) as u8) | u8::from(scanline.bit(8))
-            }
-        };
-
         let scanline_mclk = self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE;
-        let h_counter = if scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE {
-            let divider = match self.registers.horizontal_display_size {
-                HorizontalDisplaySize::ThirtyTwoCell => 10,
-                HorizontalDisplaySize::FortyCell => 8,
-            };
-            (scanline_mclk / divider) as u8
-        } else {
-            0
-        };
+
+        let h_counter = self.h_counter(scanline_mclk);
+        let v_counter = self.v_counter(scanline_mclk);
+
+        log::trace!("HV counter read; H={h_counter:02X}, V={v_counter:02X}");
 
         u16::from_be_bytes([v_counter, h_counter])
+    }
+
+    #[inline]
+    fn h_counter(&self, scanline_mclk: u64) -> u8 {
+        match self.registers.horizontal_display_size {
+            HorizontalDisplaySize::ThirtyTwoCell => {
+                let h = (scanline_mclk / 20) as u8;
+                if h <= 0x93 { h } else { h.saturating_add(0xE9 - 0x94) }
+            }
+            HorizontalDisplaySize::FortyCell => {
+                let h = (scanline_mclk / 16) as u8;
+                if h <= 0xB6 { h } else { h.saturating_add(0xE4 - 0xB7) }
+            }
+        }
+    }
+
+    #[inline]
+    fn v_counter(&self, scanline_mclk: u64) -> u8 {
+        // V counter increments shortly after the start of HBlank; simulate this by only
+        let in_hblank = scanline_mclk >= ACTIVE_MCLK_CYCLES_PER_SCANLINE;
+        let scanline = if in_hblank {
+            self.state.scanline
+        } else if self.state.scanline == 0 {
+            self.timing_mode.scanlines_per_frame() - 1
+        } else {
+            self.state.scanline - 1
+        };
+
+        match self.registers.interlacing_mode {
+            InterlacingMode::Progressive | InterlacingMode::Interlaced => {
+                match (self.timing_mode, self.registers.vertical_display_size) {
+                    (GenesisTimingMode::Ntsc, _) => {
+                        if scanline <= 0xEA {
+                            scanline as u8
+                        } else {
+                            (scanline - 6) as u8
+                        }
+                    }
+                    (GenesisTimingMode::Pal, VerticalDisplaySize::TwentyEightCell) => {
+                        if scanline <= 0x102 {
+                            scanline as u8
+                        } else {
+                            (scanline - (0x103 - 0xCA)) as u8
+                        }
+                    }
+                    (GenesisTimingMode::Pal, VerticalDisplaySize::ThirtyCell) => {
+                        if scanline <= 0x10A {
+                            scanline as u8
+                        } else {
+                            (scanline - (0x10B - 0xD2)) as u8
+                        }
+                    }
+                }
+            }
+            InterlacingMode::InterlacedDouble => {
+                // TODO this is not accurate
+                let scanline = scanline << 1;
+                (scanline as u8) | u8::from(scanline.bit(8))
+            }
+        }
     }
 
     #[must_use]
