@@ -158,6 +158,7 @@ impl AppConfig {
                 vsync_mode: self.common.vsync_mode,
                 prescale_factor: self.common.prescale_factor,
                 filter_mode: self.common.filter_mode,
+                use_webgl2_limits: false,
             },
             launch_in_fullscreen: self.common.launch_in_fullscreen,
             keyboard_inputs,

@@ -134,7 +134,7 @@ impl RenderingPipeline {
         let input_texture_view = input_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let prescale_factor_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: "prescale_factor_buffer".into(),
-            contents: bytemuck::cast_slice(&[renderer_config.prescale_factor.get()]),
+            contents: bytemuck::cast_slice(&[renderer_config.prescale_factor.get(), 0, 0, 0]),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
         });
         let prescale_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -484,7 +484,11 @@ impl<Window: HasRawDisplayHandle + HasRawWindowHandle> WgpuRenderer<Window> {
                 &wgpu::DeviceDescriptor {
                     label: "device".into(),
                     features: wgpu::Features::empty(),
-                    limits: wgpu::Limits::default(),
+                    limits: if config.use_webgl2_limits {
+                        wgpu::Limits::downlevel_webgl2_defaults()
+                    } else {
+                        wgpu::Limits::default()
+                    },
                 },
                 None,
             )

@@ -7,6 +7,7 @@ members = [
     "jgenesis-proc-macros",
     "jgenesis-renderer",
     "jgenesis-traits",
+    "jgenesis-web",
     "m68000-emu",
     "m68000-test-runner",
     "smsgg-core",

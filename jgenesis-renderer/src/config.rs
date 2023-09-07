@@ -106,4 +106,5 @@ pub struct RendererConfig {
     pub vsync_mode: VSyncMode,
     pub prescale_factor: PrescaleFactor,
     pub filter_mode: FilterMode,
+    pub use_webgl2_limits: bool,
 }

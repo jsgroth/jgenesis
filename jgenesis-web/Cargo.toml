@@ -1,0 +1,32 @@
+[package]
+name = "jgenesis-web"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+crate-type = ["cdylib"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+genesis-core = { path = "../genesis-core" }
+jgenesis-renderer = { path = "../jgenesis-renderer" }
+jgenesis-traits = { path = "../jgenesis-traits" }
+
+base64 = "0.21"
+console_error_panic_hook = "0.1"
+console_log = "1"
+log = "0.4"
+rfd = "0.11"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+wgpu = { version = "0.17", features = ["webgl"] }
+winit = { version = "0.28" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies.web-sys]
+version = "0.3"
+features = [
+    "Window",
+    "Document",
+    "Element",
+]
