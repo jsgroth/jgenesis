@@ -11,6 +11,7 @@ Major TODOs:
 * Improve Genesis performance (there are some low-hanging fruit in the VDP and YM2612 implementations)
 
 Minor TODOs:
+* Emulate the Genesis VDP FIFO; a few games depend on it to function correctly, and a few other games have graphical glitches if it's not emulated (e.g. the EA logo flickering for a single frame in EA's games)
 * Support 24C64 EEPROM chips (used only in _Frank Thomas Big Hurt Baseball_ and _College Slam_)
 
 ## Dependencies
