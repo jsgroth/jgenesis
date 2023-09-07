@@ -59,6 +59,32 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: test
+  build-web:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install latest nightly Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          components: rust-src, clippy
+
+      - name: Install wasm-pack and cranky
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
+          toolchain: nightly
+          args: wasm-pack cargo-cranky
+
+      - name: Build web
+        run: |
+          cd jgenesis-web && ./build.sh
+
+      - name: Check Clippy warnings for web
+        run: |
+          cd jgenesis-web && cargo +nightly cranky --target wasm32-unknown-unknown
   linux-release:
     runs-on: ubuntu-latest
 
