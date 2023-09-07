@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>jgenesis web</title>
+        <meta charset="UTF-8">
+        <style>
+            body {
+                background-color: black;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="jgenesis-wasm"></div>
+        <script type="module">
+            import init from "./pkg/jgenesis_web.js";
+            await init();
+        </script>
+    </body>
+</html>

@@ -222,6 +222,7 @@ impl Args {
             vsync_mode: self.vsync_mode,
             prescale_factor,
             filter_mode: self.filter_mode,
+            use_webgl2_limits: false,
         }
     }
 
