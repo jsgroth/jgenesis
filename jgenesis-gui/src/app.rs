@@ -162,7 +162,7 @@ impl AppConfig {
             },
             launch_in_fullscreen: self.common.launch_in_fullscreen,
             keyboard_inputs,
-            axis_deadzone: 8000,
+            axis_deadzone: self.inputs.axis_deadzone,
             joystick_inputs,
             hotkeys: self.inputs.hotkeys.clone(),
         }
