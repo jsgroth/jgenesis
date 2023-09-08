@@ -1892,13 +1892,12 @@ fn determine_pixel_color(
         shadow_highlight_flag,
     }: PixelColorArgs,
 ) -> (u16, ColorModifier) {
-    let mut modifier =
-        if shadow_highlight_flag && !sprite_priority && !scroll_a_priority && !scroll_b_priority {
-            // If shadow/highlight bit is set and all priority flags are 0, default modifier to shadow
-            ColorModifier::Shadow
-        } else {
-            ColorModifier::None
-        };
+    let mut modifier = if shadow_highlight_flag && !scroll_a_priority && !scroll_b_priority {
+        // If shadow/highlight bit is set and all priority flags are 0, default modifier to shadow
+        ColorModifier::Shadow
+    } else {
+        ColorModifier::None
+    };
 
     let sprite =
         UnresolvedColor { palette: sprite_palette, color_id: sprite_color_id, is_sprite: true };
