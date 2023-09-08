@@ -46,6 +46,7 @@ impl Index<u32> for Rom {
 pub struct Cartridge {
     rom: Rom,
     external_memory: ExternalMemory,
+    ram_mapped: bool,
     rom_address_mask: u32,
     region: GenesisRegion,
 }
@@ -67,33 +68,45 @@ impl Cartridge {
 
         let external_memory = ExternalMemory::from_rom(&rom_bytes, initial_ram_bytes);
 
+        // Initialize ram_mapped to true if external memory is present
+        // Only one game ever unmaps RAM (Phantasy Star 4)
+        let ram_mapped = !matches!(external_memory, ExternalMemory::None);
+
         // TODO parse more stuff out of header
         let rom_address_mask = (rom_bytes.len() - 1) as u32;
-        Self { rom: Rom(rom_bytes), external_memory, rom_address_mask, region }
+        Self { rom: Rom(rom_bytes), external_memory, ram_mapped, rom_address_mask, region }
     }
 
     fn read_byte(&self, address: u32) -> u8 {
-        if let Some(byte) = self.external_memory.read_byte(address) {
-            return byte;
+        if self.ram_mapped {
+            if let Some(byte) = self.external_memory.read_byte(address) {
+                return byte;
+            }
         }
 
         self.rom.get(address as usize).unwrap_or(0xFF)
     }
 
     fn read_word(&self, address: u32) -> u16 {
-        if let Some(word) = self.external_memory.read_word(address) {
-            return word;
+        if self.ram_mapped {
+            if let Some(word) = self.external_memory.read_word(address) {
+                return word;
+            }
         }
 
         u16::from_be_bytes([self.read_byte(address), self.read_byte(address.wrapping_add(1))])
     }
 
     fn write_byte(&mut self, address: u32, value: u8) {
-        self.external_memory.write_byte(address, value);
+        if self.ram_mapped {
+            self.external_memory.write_byte(address, value);
+        }
     }
 
     fn write_word(&mut self, address: u32, value: u16) {
-        self.external_memory.write_word(address, value);
+        if self.ram_mapped {
+            self.external_memory.write_word(address, value);
+        }
     }
 }
 
@@ -305,6 +318,14 @@ impl<'a> MainBus<'a> {
             _ => unreachable!("address & 0x1F is always <= 0x1F"),
         }
     }
+
+    fn write_cartridge_register(&mut self, address: u32, value: u8) {
+        if address == 0xA130F1 {
+            self.memory.cartridge.ram_mapped = value.bit(0);
+        } else {
+            panic!("unsupported cartridge register: address={address:06X} value={value:02X}");
+        }
+    }
 }
 
 // The Genesis has a 24-bit bus, not 32-bit
@@ -325,7 +346,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
             0xA10000..=0xA1001F => self.read_io_register(address),
             0xA11100..=0xA11101 => (!self.z80_stalled).into(),
             0xA13000..=0xA130FF => {
-                todo!("timer register")
+                todo!("read cartridge register")
             }
             0xC00000..=0xC0001F => self.read_vdp_byte(address),
             0xE00000..=0xFFFFFF => self.memory.main_ram[(address & 0xFFFF) as usize],
@@ -351,7 +372,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
                 u16::from_le_bytes([byte, byte])
             }
             0xA13000..=0xA130FF => {
-                todo!("timer register")
+                todo!("read cartridge register")
             }
             0xC00000..=0xC00003 => self.vdp.read_data(),
             0xC00004..=0xC00007 => self.vdp.read_status(),
@@ -398,7 +419,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
                 log::trace!("Set Z80 RESET to {}", self.memory.signals.z80_reset);
             }
             0xA13000..=0xA130FF => {
-                todo!("timer register")
+                self.write_cartridge_register(address, value);
             }
             0xC00000..=0xC0001F => {
                 self.write_vdp_byte(address, value);
@@ -436,7 +457,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
                 log::trace!("Set Z80 RESET to {}", self.memory.signals.z80_reset);
             }
             0xA13000..=0xA130FF => {
-                todo!("timer register")
+                self.write_byte(address + 1, value as u8);
             }
             0xC00000..=0xC00003 => {
                 self.vdp.write_data(value);
