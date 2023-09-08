@@ -12,9 +12,9 @@ use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use jgenesis_traits::num::GetBit;
 use regex::Regex;
 use smsgg_core::psg::Psg;
-use std::mem;
 use std::ops::Index;
 use std::sync::OnceLock;
+use std::{array, mem};
 use z80_emu::traits::InterruptLine;
 
 #[derive(Debug, Clone, Default, FakeEncode, FakeDecode)]
@@ -42,12 +42,39 @@ impl Index<u32> for Rom {
     }
 }
 
+#[derive(Debug, Clone, Copy, Encode, Decode)]
+struct SegaMapper {
+    bank_numbers: [u8; 7],
+}
+
+impl SegaMapper {
+    fn new() -> Self {
+        Self { bank_numbers: array::from_fn(|i| (i + 1) as u8) }
+    }
+
+    fn write(&mut self, address: u32, value: u8) {
+        let idx = ((address >> 1) & 0x07) - 1;
+        self.bank_numbers[idx as usize] = value;
+    }
+
+    fn map_address(self, address: u32) -> u32 {
+        if address <= 0x07FFFF {
+            // $000000-$07FFFF is not banked
+            return address;
+        }
+
+        let idx = (address - 0x080000) >> 19;
+        let bank_number: u32 = self.bank_numbers[idx as usize].into();
+        (bank_number << 19) | (address & 0x07FFFF)
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Cartridge {
     rom: Rom,
     external_memory: ExternalMemory,
     ram_mapped: bool,
-    rom_address_mask: u32,
+    mapper: Option<SegaMapper>,
     region: GenesisRegion,
 }
 
@@ -72,9 +99,15 @@ impl Cartridge {
         // Only one game ever unmaps RAM (Phantasy Star 4)
         let ram_mapped = !matches!(external_memory, ExternalMemory::None);
 
-        // TODO parse more stuff out of header
-        let rom_address_mask = (rom_bytes.len() - 1) as u32;
-        Self { rom: Rom(rom_bytes), external_memory, ram_mapped, rom_address_mask, region }
+        // Only one game uses the sega mapper, Super Street Fighter 2
+        let serial_number: String = rom_bytes[0x183..0x18B].iter().map(|&b| b as char).collect();
+        let mapper = (serial_number.as_str() == "T-12056 "
+            || serial_number.as_str() == "MK-12056"
+            || serial_number.as_str() == "T-12043 ")
+            .then(SegaMapper::new);
+        log::info!("Using Sega banked mapper: {}", mapper.is_some());
+
+        Self { rom: Rom(rom_bytes), external_memory, ram_mapped, mapper, region }
     }
 
     fn read_byte(&self, address: u32) -> u8 {
@@ -84,7 +117,8 @@ impl Cartridge {
             }
         }
 
-        self.rom.get(address as usize).unwrap_or(0xFF)
+        let rom_addr = self.mapper.map_or(address, |mapper| mapper.map_address(address));
+        self.rom.get(rom_addr as usize).unwrap_or(0xFF)
     }
 
     fn read_word(&self, address: u32) -> u16 {
@@ -94,7 +128,10 @@ impl Cartridge {
             }
         }
 
-        u16::from_be_bytes([self.read_byte(address), self.read_byte(address.wrapping_add(1))])
+        let rom_addr = self.mapper.map_or(address, |mapper| mapper.map_address(address));
+        let msb = self.rom.get(rom_addr as usize).unwrap_or(0xFF);
+        let lsb = self.rom.get((rom_addr + 1) as usize).unwrap_or(0xFF);
+        u16::from_be_bytes([msb, lsb])
     }
 
     fn write_byte(&mut self, address: u32, value: u8) {
@@ -320,10 +357,18 @@ impl<'a> MainBus<'a> {
     }
 
     fn write_cartridge_register(&mut self, address: u32, value: u8) {
-        if address == 0xA130F1 {
-            self.memory.cartridge.ram_mapped = value.bit(0);
-        } else {
-            panic!("unsupported cartridge register: address={address:06X} value={value:02X}");
+        match address {
+            0xA130F1 => {
+                self.memory.cartridge.ram_mapped = value.bit(0);
+            }
+            0xA130F3..=0xA130FF => {
+                if let Some(mapper) = &mut self.memory.cartridge.mapper {
+                    mapper.write(address, value);
+                }
+            }
+            _ => panic!(
+                "unexpected cartridge register write; address={address:06X}, value={value:02X}"
+            ),
         }
     }
 }

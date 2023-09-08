@@ -7,7 +7,6 @@ Major TODOs:
   * Volume levels also sound slightly off in some games
 * Support 6-button Genesis controllers
 * Support the SMS optional YM2413 FM sound chip
-* Support for specific Genesis games that do weird things with cartridge hardware (e.g. _Phantasy Star 4_ and _Super Street Fighter 2_)
 * Improve Genesis performance (there are some low-hanging fruit in the VDP and YM2612 implementations)
 
 Minor TODOs:
