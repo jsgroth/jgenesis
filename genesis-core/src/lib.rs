@@ -9,4 +9,4 @@ pub use api::{
     GenesisAspectRatio, GenesisEmulator, GenesisEmulatorConfig, GenesisError, GenesisRegion,
     GenesisResult, GenesisTimingMode,
 };
-pub use input::{GenesisInputs, GenesisJoypadState};
+pub use input::{GenesisControllerType, GenesisInputs, GenesisJoypadState};

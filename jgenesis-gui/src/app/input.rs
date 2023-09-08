@@ -1,6 +1,7 @@
 use crate::app::{App, OpenWindow};
 use crate::emuthread::{EmuThreadCommand, GenericInput, InputType};
 use egui::{Color32, Context, Grid, TextEdit, Ui, Widget, Window};
+use genesis_core::GenesisControllerType;
 use jgenesis_native_driver::config::input::{
     GenesisControllerConfig, GenesisInputConfig, HotkeyConfig, JoystickInput, KeyboardInput,
     SmsGgControllerConfig, SmsGgInputConfig,
@@ -25,6 +26,10 @@ pub struct InputAppConfig {
     pub smsgg_p1_joystick: SmsGgControllerConfig<JoystickInput>,
     #[serde(default)]
     pub smsgg_p2_joystick: SmsGgControllerConfig<JoystickInput>,
+    #[serde(default)]
+    pub genesis_p1_type: GenesisControllerType,
+    #[serde(default)]
+    pub genesis_p2_type: GenesisControllerType,
     #[serde(default = "default_genesis_p1_keyboard_config")]
     pub genesis_p1_keyboard: GenesisControllerConfig<String>,
     #[serde(default)]
@@ -138,12 +143,24 @@ impl InputAppConfig {
                 GenesisButton::C(Player::One) => {
                     set_input!(input, self.genesis_p1_keyboard.c, self.genesis_p1_joystick.c);
                 }
+                GenesisButton::X(Player::One) => {
+                    set_input!(input, self.genesis_p1_keyboard.x, self.genesis_p1_joystick.x);
+                }
+                GenesisButton::Y(Player::One) => {
+                    set_input!(input, self.genesis_p1_keyboard.y, self.genesis_p1_joystick.y);
+                }
+                GenesisButton::Z(Player::One) => {
+                    set_input!(input, self.genesis_p1_keyboard.z, self.genesis_p1_joystick.z);
+                }
                 GenesisButton::Start(Player::One) => {
                     set_input!(
                         input,
                         self.genesis_p1_keyboard.start,
                         self.genesis_p1_joystick.start
                     );
+                }
+                GenesisButton::Mode(Player::One) => {
+                    set_input!(input, self.genesis_p1_keyboard.mode, self.genesis_p1_joystick.mode);
                 }
                 GenesisButton::Up(Player::Two) => {
                     set_input!(input, self.genesis_p2_keyboard.up, self.genesis_p2_joystick.up);
@@ -170,12 +187,24 @@ impl InputAppConfig {
                 GenesisButton::C(Player::Two) => {
                     set_input!(input, self.genesis_p2_keyboard.c, self.genesis_p2_joystick.c);
                 }
+                GenesisButton::X(Player::Two) => {
+                    set_input!(input, self.genesis_p2_keyboard.x, self.genesis_p2_joystick.x);
+                }
+                GenesisButton::Y(Player::Two) => {
+                    set_input!(input, self.genesis_p2_keyboard.y, self.genesis_p2_joystick.y);
+                }
+                GenesisButton::Z(Player::Two) => {
+                    set_input!(input, self.genesis_p2_keyboard.z, self.genesis_p2_joystick.z);
+                }
                 GenesisButton::Start(Player::Two) => {
                     set_input!(
                         input,
                         self.genesis_p2_keyboard.start,
                         self.genesis_p2_joystick.start
                     );
+                }
+                GenesisButton::Mode(Player::Two) => {
+                    set_input!(input, self.genesis_p2_keyboard.mode, self.genesis_p2_joystick.mode);
                 }
             },
             GenericButton::Hotkey(hotkey) => {
@@ -238,7 +267,7 @@ impl InputAppConfig {
 }
 
 macro_rules! to_keyboard_input_config {
-    ($config:expr, $t:ident, [$($field:ident),*$(,)?]) => {
+    ($config:expr, $t:ident, [$($field:ident),* $(,)?]) => {
         $t {
             $(
                 $field: $config.$field.map(to_keyboard_input),
@@ -263,7 +292,7 @@ fn convert_genesis_keyboard_config(
     to_keyboard_input_config!(
         config,
         GenesisControllerConfig,
-        [up, left, right, down, a, b, c, start]
+        [up, left, right, down, a, b, c, x, y, z, start, mode]
     )
 }
 
@@ -300,7 +329,11 @@ fn default_genesis_p1_keyboard_config() -> GenesisControllerConfig<String> {
         a: default.a.map(|key| key.keycode),
         b: default.b.map(|key| key.keycode),
         c: default.c.map(|key| key.keycode),
+        x: default.x.map(|key| key.keycode),
+        y: default.y.map(|key| key.keycode),
+        z: default.z.map(|key| key.keycode),
         start: default.start.map(|key| key.keycode),
+        mode: default.mode.map(|key| key.keycode),
     }
 }
 
@@ -339,7 +372,11 @@ macro_rules! render_genesis_input {
             a: "A" -> GenericButton::Genesis(GenesisButton::A($player)),
             b: "B" -> GenericButton::Genesis(GenesisButton::B($player)),
             c: "C" -> GenericButton::Genesis(GenesisButton::C($player)),
+            x: "X" -> GenericButton::Genesis(GenesisButton::X($player)),
+            y: "Y" -> GenericButton::Genesis(GenesisButton::Y($player)),
+            z: "Z" -> GenericButton::Genesis(GenesisButton::Z($player)),
             start: "Start" -> GenericButton::Genesis(GenesisButton::Start($player)),
+            mode: "Mode" -> GenericButton::Genesis(GenesisButton::Mode($player)),
         ], $ui);
     }
 }
@@ -350,28 +387,34 @@ impl App {
         Window::new("SMS/GG Keyboard Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.set_enabled(self.state.waiting_for_input.is_none());
 
-            ui.heading("Player 1");
-            Grid::new("smsgg_p1_keyboard_grid").show(ui, |ui| {
-                render_smsgg_input!(
-                    self,
-                    keyboard_input_button,
-                    self.config.inputs.smsgg_p1_keyboard,
-                    Player::One,
-                    ui
-                );
-            });
+            Grid::new("smsgg_keyboard_grid").show(ui, |ui| {
+                Grid::new("smsgg_p1_keyboard_grid").show(ui, |ui| {
+                    ui.heading("Player 1");
+                    ui.end_row();
 
-            ui.add_space(20.0);
+                    render_smsgg_input!(
+                        self,
+                        keyboard_input_button,
+                        self.config.inputs.smsgg_p1_keyboard,
+                        Player::One,
+                        ui
+                    );
+                });
 
-            ui.heading("Player 2");
-            Grid::new("smsgg_p2_keyboard_grid").show(ui, |ui| {
-                render_smsgg_input!(
-                    self,
-                    keyboard_input_button,
-                    self.config.inputs.smsgg_p2_keyboard,
-                    Player::Two,
-                    ui
-                );
+                ui.add_space(20.0);
+
+                Grid::new("smsgg_p2_keyboard_grid").show(ui, |ui| {
+                    ui.heading("Player 2");
+                    ui.end_row();
+
+                    render_smsgg_input!(
+                        self,
+                        keyboard_input_button,
+                        self.config.inputs.smsgg_p2_keyboard,
+                        Player::Two,
+                        ui
+                    );
+                });
             });
 
             ui.add_space(20.0);
@@ -395,28 +438,34 @@ impl App {
         Window::new("SMS/GG Gamepad Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.set_enabled(self.state.waiting_for_input.is_none());
 
-            ui.heading("Player 1");
-            Grid::new("smsgg_p1_gamepad_grid").show(ui, |ui| {
-                render_smsgg_input!(
-                    self,
-                    gamepad_input_button,
-                    self.config.inputs.smsgg_p1_joystick,
-                    Player::One,
-                    ui
-                );
-            });
+            Grid::new("smsgg_gamepad_grid").show(ui, |ui| {
+                Grid::new("smsgg_p1_gamepad_grid").show(ui, |ui| {
+                    ui.heading("Player 1");
+                    ui.end_row();
 
-            ui.add_space(20.0);
+                    render_smsgg_input!(
+                        self,
+                        gamepad_input_button,
+                        self.config.inputs.smsgg_p1_joystick,
+                        Player::One,
+                        ui
+                    );
+                });
 
-            ui.heading("Player 2");
-            Grid::new("smsgg_p2_gamepad_grid").show(ui, |ui| {
-                render_smsgg_input!(
-                    self,
-                    gamepad_input_button,
-                    self.config.inputs.smsgg_p2_joystick,
-                    Player::Two,
-                    ui
-                );
+                ui.add_space(20.0);
+
+                Grid::new("smsgg_p2_gamepad_grid").show(ui, |ui| {
+                    ui.heading("Player 2");
+                    ui.end_row();
+
+                    render_smsgg_input!(
+                        self,
+                        gamepad_input_button,
+                        self.config.inputs.smsgg_p2_joystick,
+                        Player::Two,
+                        ui
+                    );
+                });
             });
 
             ui.add_space(20.0);
@@ -443,29 +492,40 @@ impl App {
         Window::new("Genesis Keyboard Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.set_enabled(self.state.waiting_for_input.is_none());
 
-            ui.heading("Player 1");
-            Grid::new("genesis_p1_keyboard_grid").show(ui, |ui| {
-                render_genesis_input!(
-                    self,
-                    keyboard_input_button,
-                    self.config.inputs.genesis_p1_keyboard,
-                    Player::One,
-                    ui
-                );
+            Grid::new("genesis_keyboard_grid").show(ui, |ui| {
+                Grid::new("genesis_p1_keyboard_grid").show(ui, |ui| {
+                    ui.heading("Player 1");
+                    ui.end_row();
+
+                    render_genesis_input!(
+                        self,
+                        keyboard_input_button,
+                        self.config.inputs.genesis_p1_keyboard,
+                        Player::One,
+                        ui
+                    );
+                });
+
+                ui.add_space(50.0);
+
+                Grid::new("genesis_p2_keyboard_grid").show(ui, |ui| {
+                    ui.heading("Player 2");
+                    ui.end_row();
+
+                    render_genesis_input!(
+                        self,
+                        keyboard_input_button,
+                        self.config.inputs.genesis_p2_keyboard,
+                        Player::Two,
+                        ui
+                    );
+                });
             });
 
-            ui.add_space(20.0);
+            ui.add_space(30.0);
 
-            ui.heading("Player 2");
-            Grid::new("genesis_p2_keyboard_grid").show(ui, |ui| {
-                render_genesis_input!(
-                    self,
-                    keyboard_input_button,
-                    self.config.inputs.genesis_p2_keyboard,
-                    Player::Two,
-                    ui
-                );
-            });
+            self.controller_type_input("Player 1 controller", Player::One, ui);
+            self.controller_type_input("Player 2 controller", Player::Two, ui);
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::GenesisKeyboard);
@@ -477,33 +537,44 @@ impl App {
         Window::new("Genesis Gamepad Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.set_enabled(self.state.waiting_for_input.is_none());
 
-            ui.heading("Player 1");
-            Grid::new("genesis_p1_gamepad_grid").show(ui, |ui| {
-                render_genesis_input!(
-                    self,
-                    gamepad_input_button,
-                    self.config.inputs.genesis_p1_joystick,
-                    Player::One,
-                    ui
-                );
+            Grid::new("genesis_gamepad_grid").show(ui, |ui| {
+                Grid::new("genesis_p1_gamepad_grid").show(ui, |ui| {
+                    ui.heading("Player 1");
+                    ui.end_row();
+
+                    render_genesis_input!(
+                        self,
+                        gamepad_input_button,
+                        self.config.inputs.genesis_p1_joystick,
+                        Player::One,
+                        ui
+                    );
+                });
+
+                ui.add_space(50.0);
+
+                Grid::new("genesis_p2_gamepad_grid").show(ui, |ui| {
+                    ui.heading("Player 2");
+                    ui.end_row();
+
+                    render_genesis_input!(
+                        self,
+                        gamepad_input_button,
+                        self.config.inputs.genesis_p2_joystick,
+                        Player::Two,
+                        ui
+                    );
+                });
             });
 
-            ui.add_space(20.0);
-
-            ui.heading("Player 2");
-            Grid::new("genesis_p2_gamepad_grid").show(ui, |ui| {
-                render_genesis_input!(
-                    self,
-                    gamepad_input_button,
-                    self.config.inputs.genesis_p2_joystick,
-                    Player::Two,
-                    ui
-                );
-            });
-
-            ui.add_space(20.0);
+            ui.add_space(30.0);
 
             self.render_axis_deadzone_input(ui);
+
+            ui.add_space(20.0);
+
+            self.controller_type_input("Player 1 controller", Player::One, ui);
+            self.controller_type_input("Player 2 controller", Player::Two, ui);
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::GenesisGamepad);
@@ -712,6 +783,26 @@ impl App {
         }
     }
 
+    fn controller_type_input(&mut self, label: &str, player: Player, ui: &mut Ui) {
+        ui.group(|ui| {
+            ui.label(label);
+
+            let controller_type_field = match player {
+                Player::One => &mut self.config.inputs.genesis_p1_type,
+                Player::Two => &mut self.config.inputs.genesis_p2_type,
+            };
+
+            ui.horizontal(|ui| {
+                ui.radio_value(
+                    controller_type_field,
+                    GenesisControllerType::ThreeButton,
+                    "3-button",
+                );
+                ui.radio_value(controller_type_field, GenesisControllerType::SixButton, "6-button");
+            });
+        });
+    }
+
     fn hotkey_button(
         &mut self,
         current_value: Option<KeyboardInput>,
@@ -770,7 +861,11 @@ fn clear_genesis_button<T>(config: &mut GenesisControllerConfig<T>, button: Gene
         GenesisButton::A(_) => &mut config.a,
         GenesisButton::B(_) => &mut config.b,
         GenesisButton::C(_) => &mut config.c,
+        GenesisButton::X(_) => &mut config.x,
+        GenesisButton::Y(_) => &mut config.y,
+        GenesisButton::Z(_) => &mut config.z,
         GenesisButton::Start(_) => &mut config.start,
+        GenesisButton::Mode(_) => &mut config.mode,
     };
 
     *field = None;

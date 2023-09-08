@@ -4,7 +4,6 @@ Cross-platform multi-console Sega emulator that supports the Sega Genesis / Mega
 
 Major TODOs:
 * Implement a few remaining YM2612 features (CSM and SSG-EG, they're obscure but some games did use them)
-* Support 6-button Genesis controllers
 * Support the SMS optional YM2413 FM sound chip
 
 Minor TODOs:

@@ -27,7 +27,6 @@ rev = "819ab438ac971a922d6ee1da558822002d343b4e"
 features = ["raw-window-handle"]
 
 [profile.dev]
-opt-level = 1
 
 [profile.release-lto]
 inherits = "release"

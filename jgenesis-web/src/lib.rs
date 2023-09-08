@@ -1,6 +1,7 @@
 #![cfg(target_arch = "wasm32")]
 
 mod audio;
+mod js;
 
 use crate::audio::AudioQueue;
 use genesis_core::{GenesisAspectRatio, GenesisEmulator, GenesisEmulatorConfig, GenesisInputs};
@@ -118,6 +119,8 @@ pub async fn run_emulator() {
         },
     );
 
+    js::focusCanvas();
+
     run_event_loop(event_loop, renderer, audio_output, audio_ctx, emulator);
 }
 
@@ -187,8 +190,20 @@ fn run_event_loop(
                         VirtualKeyCode::D => {
                             inputs.p1.c = pressed;
                         }
+                        VirtualKeyCode::Q => {
+                            inputs.p1.x = pressed;
+                        }
+                        VirtualKeyCode::W => {
+                            inputs.p1.y = pressed;
+                        }
+                        VirtualKeyCode::E => {
+                            inputs.p1.z = pressed;
+                        }
                         VirtualKeyCode::Return => {
                             inputs.p1.start = pressed;
+                        }
+                        VirtualKeyCode::RShift => {
+                            inputs.p1.mode = pressed;
                         }
                         _ => {}
                     }

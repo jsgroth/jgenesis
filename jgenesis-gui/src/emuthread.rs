@@ -4,7 +4,9 @@ use jgenesis_native_driver::config::input::{
     AxisDirection, HatDirection, JoystickAction, JoystickInput, KeyboardInput,
 };
 use jgenesis_native_driver::config::{GenesisConfig, SmsGgConfig};
-use jgenesis_native_driver::input::{GenesisButton, GetButtonField, Joysticks, SmsGgButton};
+use jgenesis_native_driver::input::{
+    Clearable, GenesisButton, GetButtonField, Joysticks, SmsGgButton,
+};
 use jgenesis_native_driver::{NativeEmulator, NativeTickEffect};
 use jgenesis_traits::frontend::EmulatorTrait;
 use sdl2::event::Event;
@@ -42,10 +44,10 @@ impl EmuThreadStatus {
 
 #[derive(Debug, Clone)]
 pub enum EmuThreadCommand {
-    RunSms(SmsGgConfig),
-    RunGenesis(GenesisConfig),
-    ReloadSmsGgConfig(SmsGgConfig),
-    ReloadGenesisConfig(GenesisConfig),
+    RunSms(Box<SmsGgConfig>),
+    RunGenesis(Box<GenesisConfig>),
+    ReloadSmsGgConfig(Box<SmsGgConfig>),
+    ReloadGenesisConfig(Box<GenesisConfig>),
     StopEmulator,
     CollectInput { input_type: InputType, axis_deadzone: i16 },
     SoftReset,
@@ -100,7 +102,11 @@ impl EmuThreadHandle {
         }
     }
 
-    pub fn reload_config(&self, smsgg_config: SmsGgConfig, genesis_config: GenesisConfig) {
+    pub fn reload_config(
+        &self,
+        smsgg_config: Box<SmsGgConfig>,
+        genesis_config: Box<GenesisConfig>,
+    ) {
         match self.status() {
             EmuThreadStatus::RunningSmsGg => {
                 self.send(EmuThreadCommand::ReloadSmsGgConfig(smsgg_config));
@@ -208,8 +214,8 @@ pub fn spawn() -> EmuThreadHandle {
 
 #[derive(Debug, Clone)]
 enum GenericConfig {
-    SmsGg(SmsGgConfig),
-    Genesis(GenesisConfig),
+    SmsGg(Box<SmsGgConfig>),
+    Genesis(Box<GenesisConfig>),
 }
 
 fn smsgg_reload_handler(
@@ -238,7 +244,7 @@ fn run_emulator<Inputs, Button, Emulator>(
     emulator_error: &Arc<Mutex<Option<anyhow::Error>>>,
     config_reload_handler: fn(&mut NativeEmulator<Inputs, Button, Emulator>, GenericConfig),
 ) where
-    Inputs: Default + GetButtonField<Button>,
+    Inputs: Clearable + GetButtonField<Button>,
     Button: Copy,
     Emulator: EmulatorTrait<Inputs>,
     anyhow::Error: From<Emulator::Err<anyhow::Error, anyhow::Error, anyhow::Error>>,
@@ -333,14 +339,22 @@ fn collect_input_not_running(
 
     let mut joysticks = Joysticks::new();
 
-    Ok(collect_input(
+    let input = collect_input(
         input_type,
         &mut event_pump,
         &mut joysticks,
         &joystick_subsystem,
         axis_deadzone,
-    ))
+    );
+
+    for _ in event_pump.poll_iter() {}
+
+    Ok(input)
 }
+
+// Some gamepads report phantom inputs right after connecting; use a timestamp threshold to avoid
+// collecting those
+const TIMESTAMP_THRESHOLD: u32 = 1000;
 
 fn collect_input(
     input_type: InputType,
@@ -368,8 +382,8 @@ fn collect_input(
                 Event::JoyDeviceRemoved { which: instance_id, .. } => {
                     joysticks.device_removed(instance_id);
                 }
-                Event::JoyButtonDown { which: instance_id, button_idx, .. }
-                    if input_type == InputType::Joystick =>
+                Event::JoyButtonDown { which: instance_id, button_idx, timestamp }
+                    if timestamp > TIMESTAMP_THRESHOLD && input_type == InputType::Joystick =>
                 {
                     if let Some(device_id) = joysticks.device_id_for(instance_id) {
                         if let Some(joystick_id) = joysticks.get_joystick_id(device_id) {
@@ -380,8 +394,9 @@ fn collect_input(
                         }
                     }
                 }
-                Event::JoyAxisMotion { which: instance_id, axis_idx, value, .. }
-                    if input_type == InputType::Joystick
+                Event::JoyAxisMotion { which: instance_id, axis_idx, value, timestamp }
+                    if timestamp > TIMESTAMP_THRESHOLD
+                        && input_type == InputType::Joystick
                         && value.saturating_abs() > axis_deadzone =>
                 {
                     if let Some(device_id) = joysticks.device_id_for(instance_id) {
@@ -398,8 +413,8 @@ fn collect_input(
                         }
                     }
                 }
-                Event::JoyHatMotion { which: instance_id, hat_idx, state, .. }
-                    if input_type == InputType::Joystick =>
+                Event::JoyHatMotion { which: instance_id, hat_idx, state, timestamp }
+                    if timestamp > TIMESTAMP_THRESHOLD && input_type == InputType::Joystick =>
                 {
                     if let Some(direction) = hat_direction_for(state) {
                         if let Some(device_id) = joysticks.device_id_for(instance_id) {

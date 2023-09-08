@@ -3,7 +3,7 @@ use crate::config::input::{
     JoystickDeviceId, JoystickInput, KeyboardInput, SmsGgInputConfig,
 };
 use anyhow::anyhow;
-use genesis_core::GenesisInputs;
+use genesis_core::{GenesisControllerType, GenesisInputs, GenesisJoypadState};
 use sdl2::event::Event;
 use sdl2::joystick::{HatState, Joystick};
 use sdl2::keyboard::Keycode;
@@ -52,7 +52,11 @@ pub enum GenesisButton {
     A(Player),
     B(Player),
     C(Player),
+    X(Player),
+    Y(Player),
+    Z(Player),
     Start(Player),
+    Mode(Player),
 }
 
 impl GenesisButton {
@@ -66,8 +70,29 @@ impl GenesisButton {
             | Self::A(player)
             | Self::B(player)
             | Self::C(player)
-            | Self::Start(player) => player,
+            | Self::X(player)
+            | Self::Y(player)
+            | Self::Z(player)
+            | Self::Start(player)
+            | Self::Mode(player) => player,
         }
+    }
+}
+
+pub trait Clearable {
+    fn clear(&mut self);
+}
+
+impl Clearable for SmsGgInputs {
+    fn clear(&mut self) {
+        *self = Self::default();
+    }
+}
+
+impl Clearable for GenesisInputs {
+    fn clear(&mut self) {
+        self.p1 = GenesisJoypadState::default();
+        self.p2 = GenesisJoypadState::default();
     }
 }
 
@@ -108,7 +133,11 @@ impl GetButtonField<GenesisButton> for GenesisInputs {
             GenesisButton::A(Player::One) => &mut self.p1.a,
             GenesisButton::B(Player::One) => &mut self.p1.b,
             GenesisButton::C(Player::One) => &mut self.p1.c,
+            GenesisButton::X(Player::One) => &mut self.p1.x,
+            GenesisButton::Y(Player::One) => &mut self.p1.y,
+            GenesisButton::Z(Player::One) => &mut self.p1.z,
             GenesisButton::Start(Player::One) => &mut self.p1.start,
+            GenesisButton::Mode(Player::One) => &mut self.p1.mode,
             GenesisButton::Up(Player::Two) => &mut self.p2.up,
             GenesisButton::Left(Player::Two) => &mut self.p2.left,
             GenesisButton::Right(Player::Two) => &mut self.p2.right,
@@ -116,7 +145,11 @@ impl GetButtonField<GenesisButton> for GenesisInputs {
             GenesisButton::A(Player::Two) => &mut self.p2.a,
             GenesisButton::B(Player::Two) => &mut self.p2.b,
             GenesisButton::C(Player::Two) => &mut self.p2.c,
+            GenesisButton::X(Player::Two) => &mut self.p2.x,
+            GenesisButton::Y(Player::Two) => &mut self.p2.y,
+            GenesisButton::Z(Player::Two) => &mut self.p2.z,
             GenesisButton::Start(Player::Two) => &mut self.p2.start,
+            GenesisButton::Mode(Player::Two) => &mut self.p2.mode,
         }
     }
 }
@@ -217,15 +250,16 @@ impl<Inputs, Button> InputMapper<Inputs, Button> {
     }
 }
 
-impl<Inputs: Default, Button> InputMapper<Inputs, Button> {
+impl<Inputs, Button> InputMapper<Inputs, Button> {
     fn new(
+        inputs: Inputs,
         joystick_subsystem: JoystickSubsystem,
         keyboard_mapping: HashMap<Keycode, Vec<Button>>,
         joystick_mapping: HashMap<JoystickInput, Vec<Button>>,
         axis_deadzone: i16,
     ) -> Self {
         Self {
-            inputs: Inputs::default(),
+            inputs,
             joystick_subsystem,
             joysticks: Joysticks::new(),
             axis_deadzone,
@@ -270,7 +304,13 @@ impl InputMapper<SmsGgInputs, SmsGgButton> {
         let keyboard_mapping = generate_smsgg_keyboard_mapping(keyboard_inputs)?;
         let joystick_mapping = generate_smsgg_joystick_mapping(joystick_inputs);
 
-        Ok(Self::new(joystick_subsystem, keyboard_mapping, joystick_mapping, axis_deadzone))
+        Ok(Self::new(
+            SmsGgInputs::default(),
+            joystick_subsystem,
+            keyboard_mapping,
+            joystick_mapping,
+            axis_deadzone,
+        ))
     }
 
     pub(crate) fn reload_config(
@@ -335,13 +375,19 @@ macro_rules! genesis_input_array {
             a -> GenesisButton::A,
             b -> GenesisButton::B,
             c -> GenesisButton::C,
+            x -> GenesisButton::X,
+            y -> GenesisButton::Y,
+            z -> GenesisButton::Z,
             start -> GenesisButton::Start,
+            mode -> GenesisButton::Mode,
         ])
     }
 }
 
 impl InputMapper<GenesisInputs, GenesisButton> {
     pub(crate) fn new_genesis(
+        p1_type: GenesisControllerType,
+        p2_type: GenesisControllerType,
         joystick_subsystem: JoystickSubsystem,
         keyboard_inputs: GenesisInputConfig<KeyboardInput>,
         joystick_inputs: GenesisInputConfig<JoystickInput>,
@@ -350,14 +396,24 @@ impl InputMapper<GenesisInputs, GenesisButton> {
         let keyboard_mapping = generate_genesis_keyboard_mapping(keyboard_inputs)?;
         let joystick_mapping = generate_genesis_joystick_mapping(joystick_inputs);
 
-        Ok(Self::new(joystick_subsystem, keyboard_mapping, joystick_mapping, axis_deadzone))
+        let inputs = GenesisInputs {
+            p1_type,
+            p1: GenesisJoypadState::default(),
+            p2_type,
+            p2: GenesisJoypadState::default(),
+        };
+        Ok(Self::new(inputs, joystick_subsystem, keyboard_mapping, joystick_mapping, axis_deadzone))
     }
 
     pub(crate) fn reload_config(
         &mut self,
+        p1_type: GenesisControllerType,
+        p2_type: GenesisControllerType,
         keyboard_inputs: GenesisInputConfig<KeyboardInput>,
         joystick_inputs: GenesisInputConfig<JoystickInput>,
     ) -> anyhow::Result<()> {
+        self.inputs.p1_type = p1_type;
+        self.inputs.p2_type = p2_type;
         self.keyboard_mapping = generate_genesis_keyboard_mapping(keyboard_inputs)?;
         self.raw_joystick_mapping = generate_genesis_joystick_mapping(joystick_inputs);
 
@@ -397,7 +453,7 @@ fn generate_genesis_joystick_mapping(
 
 impl<Inputs, Button> InputMapper<Inputs, Button>
 where
-    Inputs: Default + GetButtonField<Button>,
+    Inputs: Clearable + GetButtonField<Button>,
     Button: Copy,
 {
     pub(crate) fn device_added(&mut self, device_id: u32) -> anyhow::Result<()> {
@@ -414,7 +470,7 @@ where
 
     fn update_input_mapping(&mut self) {
         self.joystick_mapping.clear();
-        self.inputs = Inputs::default();
+        self.inputs.clear();
 
         for (input, buttons) in &self.raw_joystick_mapping {
             if let Some(device_ids) = self.joysticks.name_to_device_ids.get(&input.device.name) {

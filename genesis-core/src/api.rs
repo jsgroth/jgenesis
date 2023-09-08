@@ -293,6 +293,8 @@ impl TickableEmulator for GenesisEmulator {
             self.z80.tick(&mut bus);
         }
 
+        self.input.tick(m68k_cycles);
+
         // The PSG uses the same master clock divider as the Z80, but it needs to be ticked in a
         // separate loop because MainBus holds a mutable reference to the PSG
         for _ in 0..z80_cycles {

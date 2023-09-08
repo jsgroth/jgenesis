@@ -168,7 +168,7 @@ impl AppConfig {
         }
     }
 
-    fn smsgg_config(&self, path: String) -> SmsGgConfig {
+    fn smsgg_config(&self, path: String) -> Box<SmsGgConfig> {
         let vdp_version = if Path::new(&path).extension().and_then(OsStr::to_str) == Some("sms") {
             match self.smsgg.sms_timing_mode {
                 TimingMode::Ntsc => Some(VdpVersion::NtscMasterSystem2),
@@ -178,7 +178,7 @@ impl AppConfig {
             None
         };
 
-        SmsGgConfig {
+        Box::new(SmsGgConfig {
             common: self.common_config(
                 path,
                 self.inputs.to_smsgg_keyboard_config(),
@@ -192,21 +192,23 @@ impl AppConfig {
             sms_region: self.smsgg.sms_region,
             sms_crop_vertical_border: self.smsgg.sms_crop_vertical_border,
             sms_crop_left_border: self.smsgg.sms_crop_left_border,
-        }
+        })
     }
 
-    fn genesis_config(&self, path: String) -> GenesisConfig {
-        GenesisConfig {
+    fn genesis_config(&self, path: String) -> Box<GenesisConfig> {
+        Box::new(GenesisConfig {
             common: self.common_config(
                 path,
                 self.inputs.to_genesis_keyboard_config(),
                 self.inputs.to_genesis_joystick_config(),
             ),
+            p1_controller_type: self.inputs.genesis_p1_type,
+            p2_controller_type: self.inputs.genesis_p2_type,
             forced_timing_mode: self.genesis.forced_timing_mode,
             forced_region: self.genesis.forced_region,
             aspect_ratio: self.genesis.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: self.genesis.adjust_aspect_ratio_in_2x_resolution,
-        }
+        })
     }
 }
 

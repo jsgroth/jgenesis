@@ -3,7 +3,8 @@ mod debug;
 use crate::config;
 use crate::config::{CommonConfig, GenesisConfig, SmsGgConfig, WindowSize};
 use crate::input::{
-    GenesisButton, GetButtonField, Hotkey, HotkeyMapper, InputMapper, Joysticks, SmsGgButton,
+    Clearable, GenesisButton, GetButtonField, Hotkey, HotkeyMapper, InputMapper, Joysticks,
+    SmsGgButton,
 };
 use crate::mainloop::debug::{CramDebug, VramDebug};
 use anyhow::{anyhow, Context};
@@ -200,7 +201,7 @@ impl<Inputs, Button, Emulator> NativeEmulator<Inputs, Button, Emulator> {
 }
 
 impl NativeEmulator<SmsGgInputs, SmsGgButton, SmsGgEmulator> {
-    pub fn reload_smsgg_config(&mut self, config: SmsGgConfig) {
+    pub fn reload_smsgg_config(&mut self, config: Box<SmsGgConfig>) {
         log::info!("Reloading config: {config}");
 
         self.reload_common_config(&config.common);
@@ -218,16 +219,18 @@ impl NativeEmulator<SmsGgInputs, SmsGgButton, SmsGgEmulator> {
 }
 
 impl NativeEmulator<GenesisInputs, GenesisButton, GenesisEmulator> {
-    pub fn reload_genesis_config(&mut self, config: GenesisConfig) {
+    pub fn reload_genesis_config(&mut self, config: Box<GenesisConfig>) {
         log::info!("Reloading config: {config}");
 
         self.reload_common_config(&config.common);
         self.emulator.reload_config(config.to_emulator_config());
 
-        if let Err(err) = self
-            .input_mapper
-            .reload_config(config.common.keyboard_inputs, config.common.joystick_inputs)
-        {
+        if let Err(err) = self.input_mapper.reload_config(
+            config.p1_controller_type,
+            config.p2_controller_type,
+            config.common.keyboard_inputs,
+            config.common.joystick_inputs,
+        ) {
             log::error!("Error reloading input config: {err}");
         }
     }
@@ -236,7 +239,7 @@ impl NativeEmulator<GenesisInputs, GenesisButton, GenesisEmulator> {
 // TODO simplify or generalize these trait bounds
 impl<Inputs, Button, Emulator> NativeEmulator<Inputs, Button, Emulator>
 where
-    Inputs: Default + GetButtonField<Button>,
+    Inputs: Clearable + GetButtonField<Button>,
     Button: Copy,
     Emulator: EmulatorTrait<Inputs>,
     anyhow::Error: From<Emulator::Err<anyhow::Error, anyhow::Error, anyhow::Error>>,
@@ -329,7 +332,7 @@ where
 ///
 /// This function will propagate any video, audio, or disk errors encountered.
 pub fn create_smsgg(
-    config: SmsGgConfig,
+    config: Box<SmsGgConfig>,
 ) -> anyhow::Result<NativeEmulator<SmsGgInputs, SmsGgButton, SmsGgEmulator>> {
     log::info!("Running with config: {config}");
 
@@ -408,7 +411,7 @@ pub fn create_smsgg(
 ///
 /// This function will return an error upon encountering any video, audio, or I/O error.
 pub fn create_genesis(
-    config: GenesisConfig,
+    config: Box<GenesisConfig>,
 ) -> anyhow::Result<NativeEmulator<GenesisInputs, GenesisButton, GenesisEmulator>> {
     log::info!("Running with config: {config}");
 
@@ -446,6 +449,8 @@ pub fn create_genesis(
         pollster::block_on(WgpuRenderer::new(window, Window::size, config.common.renderer_config))?;
     let audio_output = SdlAudioOutput::create_and_init(&audio, config.common.audio_sync)?;
     let input_mapper = InputMapper::new_genesis(
+        config.p1_controller_type,
+        config.p2_controller_type,
         joystick,
         config.common.keyboard_inputs,
         config.common.joystick_inputs,

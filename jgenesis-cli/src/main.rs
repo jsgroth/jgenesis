@@ -1,6 +1,6 @@
 use clap::Parser;
 use env_logger::Env;
-use genesis_core::{GenesisAspectRatio, GenesisRegion, GenesisTimingMode};
+use genesis_core::{GenesisAspectRatio, GenesisControllerType, GenesisRegion, GenesisTimingMode};
 use jgenesis_native_driver::config::input::{
     GenesisControllerConfig, GenesisInputConfig, HotkeyConfig, KeyboardInput,
     SmsGgControllerConfig, SmsGgInputConfig,
@@ -118,6 +118,10 @@ struct Args {
     #[arg(long, default_value_t = FilterMode::Linear)]
     filter_mode: FilterMode,
 
+    /// P1 Genesis controller type (ThreeButton / SixButton)
+    #[arg(long, default_value_t)]
+    input_p1_type: GenesisControllerType,
+
     /// P1 up key
     #[arg(long)]
     input_p1_up: Option<String>,
@@ -154,9 +158,25 @@ struct Args {
     #[arg(long)]
     input_p1_c: Option<String>,
 
+    /// P1 X button key (Genesis)
+    #[arg(long)]
+    input_p1_x: Option<String>,
+
+    /// P1 Y button key (Genesis)
+    #[arg(long)]
+    input_p1_y: Option<String>,
+
+    /// P1 Z button key (Genesis)
+    #[arg(long)]
+    input_p1_z: Option<String>,
+
     /// P1 start/pause key
     #[arg(long)]
     input_p1_start: Option<String>,
+
+    /// P1 mode key (Genesis)
+    #[arg(long)]
+    input_p1_mode: Option<String>,
 
     /// Joystick axis deadzone
     #[arg(long, default_value_t = 8000)]
@@ -261,7 +281,11 @@ impl Args {
                 a: self.input_p1_a.as_ref().map(keyboard_input).or(default.p1.a),
                 b: self.input_p1_b.as_ref().map(keyboard_input).or(default.p1.b),
                 c: self.input_p1_c.as_ref().map(keyboard_input).or(default.p1.c),
+                x: self.input_p1_x.as_ref().map(keyboard_input).or(default.p1.x),
+                y: self.input_p1_x.as_ref().map(keyboard_input).or(default.p1.y),
+                z: self.input_p1_x.as_ref().map(keyboard_input).or(default.p1.z),
                 start: self.input_p1_start.as_ref().map(keyboard_input).or(default.p1.start),
+                mode: self.input_p1_mode.as_ref().map(keyboard_input).or(default.p1.mode),
             },
             p2: default.p2,
         }
@@ -347,7 +371,7 @@ fn run_sms(args: Args) -> anyhow::Result<()> {
         sms_crop_left_border: args.sms_crop_left_border,
     };
 
-    let mut emulator = jgenesis_native_driver::create_smsgg(config)?;
+    let mut emulator = jgenesis_native_driver::create_smsgg(config.into())?;
     while emulator.render_frame()? != NativeTickEffect::Exit {}
 
     Ok(())
@@ -360,11 +384,13 @@ fn run_genesis(args: Args) -> anyhow::Result<()> {
         common,
         forced_timing_mode: args.genesis_timing_mode,
         forced_region: args.genesis_region,
+        p1_controller_type: args.input_p1_type,
+        p2_controller_type: GenesisControllerType::default(),
         aspect_ratio: args.genesis_aspect_ratio,
         adjust_aspect_ratio_in_2x_resolution: args.genesis_adjust_aspect_ratio,
     };
 
-    let mut emulator = jgenesis_native_driver::create_genesis(config)?;
+    let mut emulator = jgenesis_native_driver::create_genesis(config.into())?;
     while emulator.render_frame()? != NativeTickEffect::Exit {}
 
     Ok(())

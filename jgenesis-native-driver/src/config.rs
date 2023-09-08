@@ -3,7 +3,10 @@ pub mod input;
 use crate::config::input::{
     GenesisInputConfig, HotkeyConfig, JoystickInput, KeyboardInput, SmsGgInputConfig,
 };
-use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig, GenesisRegion, GenesisTimingMode};
+use genesis_core::{
+    GenesisAspectRatio, GenesisControllerType, GenesisEmulatorConfig, GenesisRegion,
+    GenesisTimingMode,
+};
 use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::RendererConfig;
 use jgenesis_traits::frontend::PixelAspectRatio;
@@ -140,6 +143,8 @@ pub(crate) fn default_smsgg_window_size(vdp_version: VdpVersion) -> WindowSize {
 pub struct GenesisConfig {
     #[indent_nested]
     pub common: CommonConfig<GenesisInputConfig<KeyboardInput>, GenesisInputConfig<JoystickInput>>,
+    pub p1_controller_type: GenesisControllerType,
+    pub p2_controller_type: GenesisControllerType,
     pub forced_timing_mode: Option<GenesisTimingMode>,
     pub forced_region: Option<GenesisRegion>,
     pub aspect_ratio: GenesisAspectRatio,

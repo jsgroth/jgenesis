@@ -179,7 +179,11 @@ pub struct GenesisControllerConfig<Input> {
     pub a: Option<Input>,
     pub b: Option<Input>,
     pub c: Option<Input>,
+    pub x: Option<Input>,
+    pub y: Option<Input>,
+    pub z: Option<Input>,
     pub start: Option<Input>,
+    pub mode: Option<Input>,
 }
 
 impl<Input> Default for GenesisControllerConfig<Input> {
@@ -192,7 +196,11 @@ impl<Input> Default for GenesisControllerConfig<Input> {
             a: None,
             b: None,
             c: None,
+            x: None,
+            y: None,
+            z: None,
             start: None,
+            mode: None,
         }
     }
 }
@@ -201,7 +209,7 @@ impl<Input: Display> Display for GenesisControllerConfig<Input> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{{ up: {}, left: {}, right: {}, down: {}, a: {}, b: {}, c: {}, start: {} }}",
+            "{{ up: {}, left: {}, right: {}, down: {}, a: {}, b: {}, c: {}, x: {}, y: {}, z: {}, start: {}, mode: {} }}",
             fmt_option(self.up.as_ref()),
             fmt_option(self.left.as_ref()),
             fmt_option(self.right.as_ref()),
@@ -209,7 +217,11 @@ impl<Input: Display> Display for GenesisControllerConfig<Input> {
             fmt_option(self.a.as_ref()),
             fmt_option(self.b.as_ref()),
             fmt_option(self.c.as_ref()),
-            fmt_option(self.start.as_ref())
+            fmt_option(self.x.as_ref()),
+            fmt_option(self.y.as_ref()),
+            fmt_option(self.z.as_ref()),
+            fmt_option(self.start.as_ref()),
+            fmt_option(self.mode.as_ref())
         )
     }
 }
@@ -231,7 +243,11 @@ impl Default for GenesisInputConfig<KeyboardInput> {
                 a: key_input!(A),
                 b: key_input!(S),
                 c: key_input!(D),
+                x: key_input!(Q),
+                y: key_input!(W),
+                z: key_input!(E),
                 start: key_input!(Return),
+                mode: key_input!(RShift),
             },
             p2: GenesisControllerConfig::default(),
         }
