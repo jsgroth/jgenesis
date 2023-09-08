@@ -1240,6 +1240,12 @@ impl Vdp {
                     self.state.h_interrupt_counter -= 1;
                 }
             } else {
+                // Trigger V interrupt if this is the first scanline of VBlank
+                if self.state.scanline == self.registers.vertical_display_size.active_scanlines() {
+                    log::trace!("Generating V interrupt (scanline {})", self.state.scanline);
+                    self.state.v_interrupt_pending = true;
+                }
+
                 // H interrupt counter is constantly refreshed during VBlank
                 self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
             }
@@ -1255,10 +1261,6 @@ impl Vdp {
             }
 
             if self.state.scanline == active_scanlines && !self.state.frame_completed {
-                // Trigger V interrupt if this is the first scanline of VBlank
-                log::trace!("Generating V interrupt (scanline {})", self.state.scanline);
-                self.state.v_interrupt_pending = true;
-
                 self.state.frame_completed = true;
                 return VdpTickEffect::FrameComplete;
             }
