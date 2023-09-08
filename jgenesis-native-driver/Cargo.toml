@@ -20,3 +20,6 @@ pollster = "0.3"
 serde = { workspace = true }
 sdl2 = { workspace = true }
 wgpu = "0.17"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.48", features = ["Win32_Media"] }

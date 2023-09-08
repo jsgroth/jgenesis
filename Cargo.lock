@@ -1777,6 +1777,7 @@ dependencies = [
  "serde",
  "smsgg-core",
  "wgpu",
+ "windows 0.48.0",
 ]
 
 [[package]]

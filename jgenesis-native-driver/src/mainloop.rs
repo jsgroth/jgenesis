@@ -89,7 +89,7 @@ impl AudioOutput for SdlAudioOutput {
             if self.audio_sync {
                 // Wait until audio queue is not full
                 while self.audio_queue.size() >= MAX_AUDIO_QUEUE_SIZE {
-                    thread::sleep(Duration::from_micros(250));
+                    sleep(Duration::from_micros(250));
                 }
             } else if self.audio_queue.size() >= MAX_AUDIO_QUEUE_SIZE {
                 // Audio queue is full; drop samples
@@ -105,6 +105,21 @@ impl AudioOutput for SdlAudioOutput {
 
         Ok(())
     }
+}
+
+#[cfg(target_os = "windows")]
+fn sleep(duration: Duration) {
+    // SAFETY: thread::sleep cannot panic, so timeEndPeriod will always be called after timeBeginPeriod.
+    unsafe {
+        windows::Win32::Media::timeBeginPeriod(1);
+        thread::sleep(duration);
+        windows::Win32::Media::timeEndPeriod(1);
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn sleep(duration: Duration) {
+    thread::sleep(duration);
 }
 
 struct FsSaveWriter {
