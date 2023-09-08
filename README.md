@@ -7,7 +7,6 @@ Major TODOs:
   * Volume levels also sound slightly off in some games
 * Support 6-button Genesis controllers
 * Support the SMS optional YM2413 FM sound chip
-* Improve Genesis performance (there are some low-hanging fruit in the VDP and YM2612 implementations)
 
 Minor TODOs:
 * Emulate the Genesis VDP FIFO; a few games depend on it to function correctly (e.g. _The Chaos Engine_, _Double Clutch_, _Sol-Deace_), and a few other games have graphical glitches if it's not emulated (e.g. the EA logo flickering for a single frame)
