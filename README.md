@@ -1,15 +1,14 @@
 # jgenesis
 
-WIP multi-console Sega emulator. Currently mostly supports the Sega Master System, the Game Gear, and the Sega Genesis / Mega Drive.
+Cross-platform multi-console Sega emulator that supports the Sega Genesis / Mega Drive, the Sega Master System / Mark III, and the Game Gear.
 
 Major TODOs:
 * Implement a few remaining YM2612 features (CSM and SSG-EG, they're obscure but some games did use them)
-  * Volume levels also sound slightly off in some games
 * Support 6-button Genesis controllers
 * Support the SMS optional YM2413 FM sound chip
 
 Minor TODOs:
-* Emulate the Genesis VDP FIFO; a few games depend on it to function correctly (e.g. _The Chaos Engine_, _Double Clutch_, _Sol-Deace_), and a few other games have graphical glitches if it's not emulated (e.g. the EA logo flickering for a single frame)
+* Emulate the Genesis VDP FIFO, in particular the fact that the CPU stalls if it performs VRAM writes too rapidly during active display. A few games depend on this to function correctly (e.g. _The Chaos Engine_, _Double Clutch_, _Sol-Deace_), and a few other games have graphical glitches if it's not emulated (e.g. the EA logo flickering for a single frame)
 * Support 24C64 EEPROM chips (used only in _Frank Thomas Big Hurt Baseball_ and _College Slam_)
 
 ## Dependencies
