@@ -490,6 +490,10 @@ impl<R: Renderer, A: AudioPlayer, I: InputPoller, S: SaveWriter> Emulator<R, A, 
         })
         .expect("hard reset should never fail cartridge validation")
     }
+
+    pub fn timing_mode(&self) -> TimingMode {
+        self.bus.mapper().timing_mode()
+    }
 }
 
 impl<R: Renderer, A, I, S> Emulator<R, A, I, S> {
