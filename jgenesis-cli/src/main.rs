@@ -86,6 +86,10 @@ struct Args {
     #[arg(long, default_value_t)]
     sms_crop_left_border: bool,
 
+    /// Enable SMS FM sound unit
+    #[arg(long = "enable-sms-fm-unit", default_value_t)]
+    sms_fm_unit_enabled: bool,
+
     /// Disable audio sync
     #[arg(long = "no-audio-sync", default_value_t = true, action = clap::ArgAction::SetFalse)]
     audio_sync: bool,
@@ -369,6 +373,7 @@ fn run_sms(args: Args) -> anyhow::Result<()> {
         sms_region: args.sms_region,
         sms_crop_vertical_border: args.sms_crop_vertical_border,
         sms_crop_left_border: args.sms_crop_left_border,
+        fm_sound_unit_enabled: args.sms_fm_unit_enabled,
     };
 
     let mut emulator = jgenesis_native_driver::create_smsgg(config.into())?;

@@ -12,6 +12,7 @@ const SMS_BATTERY_BACKUP_GAMES_CRC32: &[u32] = &[
     0x00bef1d7, // Phantasy Star (U/E) (Rev A)
     0x6605d36a, // Phantasy Star (J)
     0x07301f83, // Phantasy Star (J) (Virtual Console)
+    0xdea82d8e, // Phantasy Star (J) (SMS Power! Retranslation Patch 2.3.1)
     0x75971bef, // Phantasy Star (B)
     0xa1e090b9, // Phantasy Star (World) (Sega Ages)
     0xdf96f194, // Phantasy Star (J) (Sega Ages)

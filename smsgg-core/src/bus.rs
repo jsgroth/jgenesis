@@ -2,6 +2,7 @@ use crate::input::InputState;
 use crate::memory::Memory;
 use crate::psg::Psg;
 use crate::vdp::Vdp;
+use crate::ym2413::Ym2413;
 use crate::VdpVersion;
 use jgenesis_traits::num::GetBit;
 use z80_emu::traits::{BusInterface, InterruptLine};
@@ -11,6 +12,7 @@ pub struct Bus<'a> {
     memory: &'a mut Memory,
     vdp: &'a mut Vdp,
     psg: &'a mut Psg,
+    ym2413: Option<&'a mut Ym2413>,
     input: &'a mut InputState,
 }
 
@@ -20,9 +22,10 @@ impl<'a> Bus<'a> {
         memory: &'a mut Memory,
         vdp: &'a mut Vdp,
         psg: &'a mut Psg,
+        ym2413: Option<&'a mut Ym2413>,
         input: &'a mut InputState,
     ) -> Self {
-        Self { version, memory, vdp, psg, input }
+        Self { version, memory, vdp, psg, ym2413, input }
     }
 }
 
@@ -46,6 +49,10 @@ impl<'a> BusInterface for Bus<'a> {
                 0x03 | 0x05 => 0x00,
                 _ => unreachable!("value is <= 0x06"),
             };
+        }
+
+        if self.ym2413.is_some() && address == 0xF2 {
+            return self.memory.read_audio_control();
         }
 
         match (address.bit(7), address.bit(6), address.bit(0)) {
@@ -88,6 +95,24 @@ impl<'a> BusInterface for Bus<'a> {
                 self.psg.write_stereo_control(value);
             }
             return;
+        }
+
+        if let Some(ym2413) = &mut self.ym2413 {
+            match address {
+                0xF0 => {
+                    ym2413.select_register(value);
+                    return;
+                }
+                0xF1 => {
+                    ym2413.write_data(value);
+                    return;
+                }
+                0xF2 => {
+                    self.memory.write_audio_control(value);
+                    return;
+                }
+                _ => {}
+            }
         }
 
         match (address.bit(7), address.bit(6), address.bit(0)) {

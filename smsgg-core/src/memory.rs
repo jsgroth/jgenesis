@@ -177,17 +177,34 @@ impl Cartridge {
     }
 }
 
+#[derive(Debug, Clone, Copy, Encode, Decode)]
+struct AudioControl {
+    fm_enabled: bool,
+    psg_enabled: bool,
+}
+
+impl Default for AudioControl {
+    fn default() -> Self {
+        Self { fm_enabled: false, psg_enabled: true }
+    }
+}
+
 const SYSTEM_RAM_SIZE: usize = 8 * 1024;
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Memory {
     cartridge: Cartridge,
     ram: [u8; SYSTEM_RAM_SIZE],
+    audio_control: AudioControl,
 }
 
 impl Memory {
     pub fn new(rom: Vec<u8>, initial_cartridge_ram: Option<Vec<u8>>) -> Self {
-        Self { cartridge: Cartridge::new(rom, initial_cartridge_ram), ram: [0; SYSTEM_RAM_SIZE] }
+        Self {
+            cartridge: Cartridge::new(rom, initial_cartridge_ram),
+            ram: [0; SYSTEM_RAM_SIZE],
+            audio_control: AudioControl::default(),
+        }
     }
 
     pub fn read(&self, address: u16) -> u8 {
@@ -267,5 +284,28 @@ impl Memory {
         let rom = mem::take(&mut self.cartridge.rom);
         let ram = mem::take(&mut self.cartridge.ram);
         (rom.0, ram)
+    }
+
+    pub fn fm_enabled(&self) -> bool {
+        self.audio_control.fm_enabled
+    }
+
+    pub fn psg_enabled(&self) -> bool {
+        self.audio_control.psg_enabled
+    }
+
+    pub fn read_audio_control(&self) -> u8 {
+        match (self.audio_control.fm_enabled, self.audio_control.psg_enabled) {
+            (false, true) => 0x00,
+            (true, false) => 0x01,
+            (false, false) => 0x02,
+            (true, true) => 0x03,
+        }
+    }
+
+    pub fn write_audio_control(&mut self, value: u8) {
+        let control_bits = value & 0x03;
+        self.audio_control.fm_enabled = control_bits.bit(0);
+        self.audio_control.psg_enabled = control_bits == 0 || control_bits == 3;
     }
 }

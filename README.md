@@ -4,7 +4,6 @@ Cross-platform multi-console Sega emulator that supports the Sega Genesis / Mega
 
 Major TODOs:
 * Implement a few remaining YM2612 features (CSM and SSG-EG, they're obscure but some games did use them)
-* Support the SMS optional YM2413 FM sound chip
 
 Minor TODOs:
 * Emulate the Genesis VDP FIFO, in particular the fact that the CPU stalls if it performs VRAM writes too rapidly during active display. A few games depend on this to function correctly (e.g. _The Chaos Engine_, _Double Clutch_, _Sol-Deace_), and a few other games have graphical glitches if it's not emulated (e.g. the EA logo flickering for a single frame)
