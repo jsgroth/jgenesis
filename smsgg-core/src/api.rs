@@ -1,8 +1,10 @@
+use crate::audio::LowPassFilter;
 use crate::bus::Bus;
 use crate::input::InputState;
 use crate::memory::Memory;
 use crate::psg::{Psg, PsgTickEffect, PsgVersion};
 use crate::vdp::{Vdp, VdpBuffer, VdpTickEffect};
+use crate::ym2413::Ym2413;
 use crate::{vdp, SmsGgInputs, VdpVersion};
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
@@ -104,6 +106,7 @@ pub struct SmsGgEmulatorConfig {
     pub sms_region: SmsRegion,
     pub sms_crop_vertical_border: bool,
     pub sms_crop_left_border: bool,
+    pub fm_sound_unit_enabled: bool,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -114,7 +117,9 @@ pub struct SmsGgEmulator {
     vdp_version: VdpVersion,
     pixel_aspect_ratio: Option<PixelAspectRatio>,
     psg: Psg,
+    ym2413: Option<Ym2413>,
     input: InputState,
+    low_pass_filter: LowPassFilter,
     frame_buffer: FrameBuffer,
     sms_crop_vertical_border: bool,
     sms_crop_left_border: bool,
@@ -141,6 +146,8 @@ impl SmsGgEmulator {
         let mut z80 = Z80::new();
         init_z80(&mut z80);
 
+        let ym2413 = config.fm_sound_unit_enabled.then(Ym2413::new);
+
         Self {
             memory,
             z80,
@@ -148,7 +155,9 @@ impl SmsGgEmulator {
             vdp_version,
             pixel_aspect_ratio: config.pixel_aspect_ratio,
             psg,
+            ym2413,
             input,
+            low_pass_filter: LowPassFilter::new(),
             frame_buffer: FrameBuffer::new(),
             sms_crop_vertical_border: config.sms_crop_vertical_border,
             sms_crop_left_border: config.sms_crop_left_border,
@@ -218,6 +227,7 @@ impl TickableEmulator for SmsGgEmulator {
             &mut self.memory,
             &mut self.vdp,
             &mut self.psg,
+            self.ym2413.as_mut(),
             &mut self.input,
         ));
 
@@ -226,14 +236,30 @@ impl TickableEmulator for SmsGgEmulator {
             VdpVersion::NtscMasterSystem2 | VdpVersion::GameGear => NTSC_DOWNSAMPLING_RATIO,
         };
         for _ in 0..t_cycles {
+            if let Some(ym2413) = &mut self.ym2413 {
+                ym2413.tick();
+            }
             if self.psg.tick() == PsgTickEffect::Clocked {
+                let (psg_sample_l, psg_sample_r) =
+                    if self.memory.psg_enabled() { self.psg.sample() } else { (0.0, 0.0) };
+                let ym_sample = if self.memory.fm_enabled() {
+                    self.ym2413.as_ref().map_or(0.0, Ym2413::sample)
+                } else {
+                    0.0
+                };
+
+                let sample_l = psg_sample_l + ym_sample;
+                let sample_r = psg_sample_r + ym_sample;
+
+                self.low_pass_filter.collect_sample(sample_l, sample_r);
+
                 let prev_count = self.sample_count;
                 self.sample_count += 1;
 
                 if (prev_count as f64 / downsampling_ratio).round() as u64
                     != (self.sample_count as f64 / downsampling_ratio).round() as u64
                 {
-                    let (sample_l, sample_r) = self.psg.sample();
+                    let (sample_l, sample_r) = self.low_pass_filter.output_sample();
                     audio_output.push_sample(sample_l, sample_r).map_err(SmsGgError::Audio)?;
                 }
             }

@@ -94,6 +94,7 @@ pub struct SmsGgConfig {
     pub sms_region: SmsRegion,
     pub sms_crop_vertical_border: bool,
     pub sms_crop_left_border: bool,
+    pub fm_sound_unit_enabled: bool,
 }
 
 impl SmsGgConfig {
@@ -109,6 +110,7 @@ impl SmsGgConfig {
             sms_region: self.sms_region,
             sms_crop_vertical_border: self.sms_crop_vertical_border,
             sms_crop_left_border: self.sms_crop_left_border,
+            fm_sound_unit_enabled: self.fm_sound_unit_enabled,
         }
     }
 }

@@ -94,6 +94,8 @@ struct SmsGgAppConfig {
     sms_crop_vertical_border: bool,
     #[serde(default)]
     sms_crop_left_border: bool,
+    #[serde(default)]
+    fm_sound_unit_enabled: bool,
 }
 
 impl Default for SmsGgAppConfig {
@@ -192,6 +194,7 @@ impl AppConfig {
             sms_region: self.smsgg.sms_region,
             sms_crop_vertical_border: self.smsgg.sms_crop_vertical_border,
             sms_crop_left_border: self.smsgg.sms_crop_left_border,
+            fm_sound_unit_enabled: self.smsgg.fm_sound_unit_enabled,
         })
     }
 
@@ -693,6 +696,12 @@ impl App {
                     .on_hover_text("SMS1 and Game Gear PSGs correctly play high volumes");
                 });
             });
+
+            ui.set_enabled(self.emu_thread.status() != EmuThreadStatus::RunningSmsGg);
+            ui.checkbox(
+                &mut self.config.smsgg.fm_sound_unit_enabled,
+                "Sega Master System FM sound unit enabled",
+            );
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::CommonAudio);
