@@ -56,6 +56,12 @@ GUI:
 cargo run --release --bin jgenesis-gui
 ```
 
+To build with maximum optimizations (better runtime performance + smaller binary size at the cost of long compile time):
+```
+RUSTFLAGS="-Ctarget-cpu=native" cargo build --profile release-lto
+```
+...After which the executables will be in `target/release-lto/`.
+
 ## Screenshots
 
 ![Screenshot from 2023-08-27 22-45-06](https://github.com/jsgroth/jgenesis/assets/1137683/7d1567ce-39ba-4645-9aff-3c6d6e0afb80)
