@@ -690,8 +690,6 @@ macro_rules! impl_sub_fn {
                 operand_l & $overflow_mask < (operand_r & $overflow_mask) + extend_operand;
             let overflow = bit_m1_borrow != borrow;
 
-            log::trace!("{operand_l} - {operand_r} = {difference}");
-
             (difference, borrow, overflow)
         }
     };

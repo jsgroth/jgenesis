@@ -1075,13 +1075,20 @@ impl Vdp {
             }
         };
 
+        // HBlank flag is based on the H counter crossing specific values, not on mclk being >= 2560
+        let h_counter = self.h_counter(scanline_mclk);
+        let hblank_flag = match self.registers.horizontal_display_size {
+            HorizontalDisplaySize::ThirtyTwoCell => h_counter <= 0x04 || h_counter >= 0x93,
+            HorizontalDisplaySize::FortyCell => h_counter <= 0x05 || h_counter >= 0xB3,
+        };
+
         let status = 0x0200
             | (u16::from(self.state.v_interrupt_pending) << 7)
             | (u16::from(self.state.sprite_overflow) << 6)
             | (u16::from(self.state.sprite_collision) << 5)
             | (u16::from(interlaced_odd) << 4)
             | (u16::from(vblank_flag) << 3)
-            | (u16::from(self.in_hblank()) << 2)
+            | (u16::from(hblank_flag) << 2)
             | u16::from(self.timing_mode == GenesisTimingMode::Pal);
 
         self.state.sprite_overflow = false;
@@ -1103,7 +1110,10 @@ impl Vdp {
         let h_counter = self.h_counter(scanline_mclk);
         let v_counter = self.v_counter(scanline_mclk);
 
-        log::trace!("HV counter read; H={h_counter:02X}, V={v_counter:02X}");
+        log::trace!(
+            "HV counter read on scanline {}; H={h_counter:02X}, V={v_counter:02X}",
+            self.state.scanline
+        );
 
         u16::from_be_bytes([v_counter, h_counter])
     }
@@ -1114,11 +1124,33 @@ impl Vdp {
         match self.registers.horizontal_display_size {
             HorizontalDisplaySize::ThirtyTwoCell => {
                 let h = (scanline_mclk / 20) as u8;
-                if h <= 0x93 { h } else { h.saturating_add(0xE9 - 0x94) }
+                if h <= 0x93 { h } else { h + (0xE9 - 0x94) }
             }
             HorizontalDisplaySize::FortyCell => {
-                let h = (scanline_mclk / 16) as u8;
-                if h <= 0xB6 { h } else { h.saturating_add(0xE4 - 0xB7) }
+                // Special cases due to pixel clock varying during HSYNC in H40 mode
+                // https://gendev.spritesmind.net/forum/viewtopic.php?t=3221
+                // TODO turn this into a lookup table
+                match scanline_mclk {
+                    // 320 pixels of active display + 25 pixels of border + 1 pixel of HSYNC, all at mclk/8
+                    0..=2767 => (scanline_mclk / 16) as u8,
+                    // 8 pixels of HSYNC at mclk/10
+                    2768..=2847 => 173 + ((scanline_mclk - 2768) / 20) as u8,
+                    // 2 pixels of HSYNC at mclk/9
+                    2848..=2865 => 177 + ((scanline_mclk - 2848) / 18) as u8,
+                    // 8 pixels of HSYNC at mclk/10
+                    2866..=2945 => 178 + ((scanline_mclk - 2866) / 20) as u8,
+                    // 1 pixel of HSYNC at mclk/8 followed by 1 pixel of HSYNC at mclk/10
+                    2946..=2963 => 182,
+                    // 7 pixels of HSYNC at mclk/10, wrapping around to $E4
+                    2964..=3033 => ((2 * 0xE4 + 1 + (scanline_mclk - 2964) / 10) / 2) as u8,
+                    // 2 pixels of HSYNC at mclk/9
+                    3034..=3051 => ((2 * 0xE8 + 1 + (scanline_mclk - 3034) / 9) / 2) as u8,
+                    // 8 pixels of HSYNC at mclk/10
+                    3052..=3131 => ((2 * 0xE9 + 1 + (scanline_mclk - 3052) / 10) / 2) as u8,
+                    // Remaining border pixels at mclk/8
+                    3132..=3419 => ((2 * 0xED + 1 + (scanline_mclk - 3132) / 8) / 2) as u8,
+                    _ => panic!("scanline mclk must be < 3420"),
+                }
             }
         }
     }
@@ -1127,7 +1159,8 @@ impl Vdp {
     fn v_counter(&self, scanline_mclk: u64) -> u8 {
         // Values from https://gendev.spritesmind.net/forum/viewtopic.php?t=768
 
-        // V counter increments shortly after the start of HBlank; simulate this by only
+        // V counter increments shortly after the start of HBlank; simulate this by subtracting 1
+        // if not in HBlank
         let in_hblank = scanline_mclk >= ACTIVE_MCLK_CYCLES_PER_SCANLINE;
         let scanline = if in_hblank {
             self.state.scanline
@@ -1218,16 +1251,24 @@ impl Vdp {
         let prev_mclk_cycles = self.master_clock_cycles;
         self.master_clock_cycles += master_clock_cycles;
 
-        // Check if the VDP just entered the HBlank period
+        // H interrupts occur a set number of mclk cycles after the end of the active display,
+        // not right at the start of HBlank
+        let h_interrupt_delay = match self.registers.horizontal_display_size {
+            // 12 pixels after active display
+            HorizontalDisplaySize::ThirtyTwoCell => 120,
+            // 16 pixels after active display
+            HorizontalDisplaySize::FortyCell => 128,
+        };
         let prev_scanline_mclk = prev_mclk_cycles % MCLK_CYCLES_PER_SCANLINE;
-        if prev_scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE
-            && master_clock_cycles >= ACTIVE_MCLK_CYCLES_PER_SCANLINE - prev_scanline_mclk
+        if prev_scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE + h_interrupt_delay
+            && master_clock_cycles
+                >= ACTIVE_MCLK_CYCLES_PER_SCANLINE + h_interrupt_delay - prev_scanline_mclk
         {
-            // Render scanlines at the start of HBlank so that mid-HBlank writes will not affect
+            // Render scanlines when HINT is triggered so that mid-HBlank writes will not affect
             // the next scanline
             self.render_next_scanline();
 
-            // Check if an H/V interrupt has occurred
+            // Check if an H interrupt has occurred
             if self.state.scanline < active_scanlines
                 || self.state.scanline == scanlines_per_frame - 1
             {
@@ -1240,12 +1281,6 @@ impl Vdp {
                     self.state.h_interrupt_counter -= 1;
                 }
             } else {
-                // Trigger V interrupt if this is the first scanline of VBlank
-                if self.state.scanline == self.registers.vertical_display_size.active_scanlines() {
-                    log::trace!("Generating V interrupt (scanline {})", self.state.scanline);
-                    self.state.v_interrupt_pending = true;
-                }
-
                 // H interrupt counter is constantly refreshed during VBlank
                 self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
             }
@@ -1261,6 +1296,9 @@ impl Vdp {
             }
 
             if self.state.scanline == active_scanlines && !self.state.frame_completed {
+                log::trace!("Generating V interrupt");
+                self.state.v_interrupt_pending = true;
+
                 self.state.frame_completed = true;
                 return VdpTickEffect::FrameComplete;
             }
@@ -1411,8 +1449,8 @@ impl Vdp {
     }
 
     pub fn acknowledge_m68k_interrupt(&mut self) {
-        log::trace!("M68K interrupt acknowledged");
         let interrupt_level = self.m68k_interrupt_level();
+        log::trace!("M68K interrupt acknowledged; level {interrupt_level}");
         if interrupt_level == 6 {
             self.state.v_interrupt_pending = false;
         } else if interrupt_level == 4 {
@@ -1934,14 +1972,19 @@ fn determine_pixel_color(
                 continue;
             } else if color_id == 15 {
                 // Palette 3 + color 15 = shadow; sprite is transparent, underlying pixel is shadowed
-                modifier += ColorModifier::Shadow;
+                modifier = ColorModifier::Shadow;
                 continue;
             }
         }
 
         let color = color_buffer[((palette << 4) | color_id) as usize];
-        // Sprite color id 14 is never shadowed/highlighted
-        let modifier = if is_sprite && color_id == 14 { ColorModifier::None } else { modifier };
+        // Sprite color id 14 is never shadowed/highlighted, and neither is a sprite with the priority
+        // bit set
+        let modifier = if is_sprite && (color_id == 14 || sprite_priority) {
+            ColorModifier::None
+        } else {
+            modifier
+        };
         return (color, modifier);
     }
 
@@ -2098,4 +2141,53 @@ fn gen_color_to_rgb(r: u8, g: u8, b: u8, modifier: ColorModifier) -> Color {
         ColorModifier::Highlight => HIGHLIGHTED_RGB_COLORS,
     };
     Color::rgb(colors[r as usize], colors[g as usize], colors[b as usize])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn h_counter_basic_functionality() {
+        let mut vdp = Vdp::new(GenesisTimingMode::Ntsc);
+
+        vdp.registers.horizontal_display_size = HorizontalDisplaySize::ThirtyTwoCell;
+        assert_eq!(vdp.h_counter(0), 0);
+        assert_eq!(vdp.h_counter(80), 4);
+        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE - 1), 0x7F);
+
+        vdp.registers.horizontal_display_size = HorizontalDisplaySize::FortyCell;
+        assert_eq!(vdp.h_counter(0), 0);
+        assert_eq!(vdp.h_counter(80), 5);
+        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE - 1), 0x9F);
+    }
+
+    #[test]
+    fn h_counter_hblank_h32() {
+        let mut vdp = Vdp::new(GenesisTimingMode::Ntsc);
+
+        vdp.registers.horizontal_display_size = HorizontalDisplaySize::ThirtyTwoCell;
+        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE), 0x80);
+        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 80), 0x84);
+        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 380), 0x93);
+        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 400), 0xE9);
+        assert_eq!(vdp.h_counter(MCLK_CYCLES_PER_SCANLINE - 41), 0xFD);
+        assert_eq!(vdp.h_counter(MCLK_CYCLES_PER_SCANLINE - 21), 0xFE);
+        assert_eq!(vdp.h_counter(MCLK_CYCLES_PER_SCANLINE - 1), 0xFF);
+    }
+
+    #[test]
+    fn h_counter_hblank_h40() {
+        let mut vdp = Vdp::new(GenesisTimingMode::Ntsc);
+
+        vdp.registers.horizontal_display_size = HorizontalDisplaySize::FortyCell;
+        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE), 0xA0);
+        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 200), 0xAC);
+        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 208), 0xAD);
+        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 288), 0xB1);
+        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 386), 0xB6);
+        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 404), 0xE4);
+        assert_eq!(vdp.h_counter(MCLK_CYCLES_PER_SCANLINE - 16), 0xFE);
+        assert_eq!(vdp.h_counter(MCLK_CYCLES_PER_SCANLINE - 1), 0xFF);
+    }
 }
