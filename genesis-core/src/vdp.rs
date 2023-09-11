@@ -721,8 +721,11 @@ impl DmaTracker {
         Self { in_progress: false, bytes_remaining: 0.0 }
     }
 
-    fn init(&mut self, dma_length: u32) {
-        self.bytes_remaining = f64::from(2 * dma_length);
+    fn init(&mut self, dma_length: u32, data_port_location: DataPortLocation) {
+        self.bytes_remaining = f64::from(match data_port_location {
+            DataPortLocation::Vram => 2 * dma_length,
+            DataPortLocation::Cram | DataPortLocation::Vsram => dma_length,
+        });
         self.in_progress = true;
     }
 
@@ -1309,7 +1312,7 @@ impl Vdp {
         match active_dma {
             ActiveDma::MemoryToVram => {
                 let dma_length = self.registers.dma_length();
-                self.dma_tracker.init(dma_length);
+                self.dma_tracker.init(dma_length, self.state.data_port_location);
 
                 let mut source_addr = self.registers.dma_source_address;
 
