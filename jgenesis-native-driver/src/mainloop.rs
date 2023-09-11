@@ -34,7 +34,10 @@ trait RendererExt {
 
 impl RendererExt for WgpuRenderer<Window> {
     fn focus(&mut self) {
-        self.window_mut().raise();
+        // SAFETY: This is not reassigning the window
+        unsafe {
+            self.window_mut().raise();
+        }
     }
 
     fn window_id(&self) -> u32 {
@@ -42,16 +45,19 @@ impl RendererExt for WgpuRenderer<Window> {
     }
 
     fn toggle_fullscreen(&mut self) -> anyhow::Result<()> {
-        let window = self.window_mut();
-        let new_fullscreen = match window.fullscreen_state() {
-            FullscreenType::Off => FullscreenType::Desktop,
-            FullscreenType::Desktop | FullscreenType::True => FullscreenType::Off,
-        };
-        window
-            .set_fullscreen(new_fullscreen)
-            .map_err(|err| anyhow!("Error toggling fullscreen: {err}"))?;
+        // SAFETY: This is not reassigning the window
+        unsafe {
+            let window = self.window_mut();
+            let new_fullscreen = match window.fullscreen_state() {
+                FullscreenType::Off => FullscreenType::Desktop,
+                FullscreenType::Desktop | FullscreenType::True => FullscreenType::Off,
+            };
+            window
+                .set_fullscreen(new_fullscreen)
+                .map_err(|err| anyhow!("Error toggling fullscreen: {err}"))?;
 
-        Ok(())
+            Ok(())
+        }
     }
 }
 

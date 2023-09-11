@@ -594,11 +594,19 @@ impl<Window> WgpuRenderer<Window> {
         }
     }
 
+    /// Obtain a shared reference to the window.
     pub fn window(&self) -> &Window {
         &self.window
     }
 
-    pub fn window_mut(&mut self) -> &mut Window {
+    /// Obtain a mutable reference to the window.
+    ///
+    /// # Safety
+    ///
+    /// You must not reassign the window. You can freely mutate it and call any methods
+    /// that require `&mut self`, but you must not do anything that will deallocate the existing
+    /// window.
+    pub unsafe fn window_mut(&mut self) -> &mut Window {
         &mut self.window
     }
 }
