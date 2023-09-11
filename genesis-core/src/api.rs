@@ -205,7 +205,8 @@ impl GenesisEmulator {
         let mut ym2612 = Ym2612::new();
         let mut input = InputState::new();
 
-        let mut m68k = M68000::new();
+        // The Genesis does not allow TAS to lock the bus, so don't allow TAS writes
+        let mut m68k = M68000::builder().allow_tas_writes(false).build();
         m68k.reset(&mut MainBus::new(
             &mut memory,
             &mut vdp,

@@ -183,7 +183,7 @@ fn main() {
 }
 
 fn init_test_state(state: &State, bus: &mut InMemoryBus) -> M68000 {
-    let mut m68000 = M68000::new();
+    let mut m68000 = M68000::default();
 
     m68000.set_data_registers([
         state.d0, state.d1, state.d2, state.d3, state.d4, state.d5, state.d6, state.d7,

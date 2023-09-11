@@ -416,6 +416,7 @@ impl ResolvedAddress {
 struct InstructionExecutor<'registers, 'bus, B> {
     registers: &'registers mut Registers,
     bus: &'bus mut B,
+    allow_tas_writes: bool,
     opcode: u16,
     instruction: Option<Instruction>,
 }
@@ -427,8 +428,8 @@ const CHECK_REGISTER_VECTOR: u32 = 6;
 const AUTO_VECTORED_INTERRUPT_BASE_ADDRESS: u32 = 0x60;
 
 impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
-    fn new(registers: &'registers mut Registers, bus: &'bus mut B) -> Self {
-        Self { registers, bus, opcode: 0, instruction: None }
+    fn new(registers: &'registers mut Registers, bus: &'bus mut B, allow_tas_writes: bool) -> Self {
+        Self { registers, bus, allow_tas_writes, opcode: 0, instruction: None }
     }
 
     // Read a word from the bus; returns an address error if address is odd
@@ -950,16 +951,56 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 }
 
 #[derive(Debug, Clone)]
+pub struct M68000Builder {
+    allow_tas_writes: bool,
+}
+
+impl Default for M68000Builder {
+    fn default() -> Self {
+        Self { allow_tas_writes: true }
+    }
+}
+
+impl M68000Builder {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn allow_tas_writes(mut self, allow_tas_writes: bool) -> Self {
+        self.allow_tas_writes = allow_tas_writes;
+        self
+    }
+
+    #[must_use]
+    pub fn build(self) -> M68000 {
+        M68000 {
+            registers: Registers::new(),
+            halted: false,
+            allow_tas_writes: self.allow_tas_writes,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
 pub struct M68000 {
     registers: Registers,
     halted: bool,
+    allow_tas_writes: bool,
+}
+
+impl Default for M68000 {
+    fn default() -> Self {
+        M68000Builder::default().build()
+    }
 }
 
 impl M68000 {
     #[must_use]
-    pub fn new() -> Self {
-        Self { registers: Registers::new(), halted: false }
+    pub fn builder() -> M68000Builder {
+        M68000Builder::default()
     }
 
     pub fn reset<B: BusInterface>(&mut self, bus: &mut B) {
@@ -1048,12 +1089,6 @@ impl M68000 {
             return 4;
         }
 
-        InstructionExecutor::new(&mut self.registers, bus).execute()
-    }
-}
-
-impl Default for M68000 {
-    fn default() -> Self {
-        Self::new()
+        InstructionExecutor::new(&mut self.registers, bus, self.allow_tas_writes).execute()
     }
 }

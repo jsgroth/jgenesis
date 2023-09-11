@@ -628,7 +628,9 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             ..self.registers.ccr
         };
 
-        self.write_byte_resolved(dest_resolved, value | 0x80);
+        if self.allow_tas_writes {
+            self.write_byte_resolved(dest_resolved, value | 0x80);
+        }
 
         Ok(if dest.is_data_direct() {
             4
