@@ -1,14 +1,30 @@
 # jgenesis
 
-Cross-platform multi-console Sega emulator that supports the Sega Genesis / Mega Drive, the Sega Master System / Mark III, and the Game Gear.
+Cross-platform multi-console Sega emulator that supports the Sega Genesis / Mega Drive, the Sega Master System, and the Game Gear.
+
+## Features
+
+* Emulation for the following consoles:
+  * Sega Genesis / Mega Drive (NTSC and PAL)
+  * Sega Master System / Mark III (NTSC and PAL)
+  * Game Gear
+* GPU-based renderer with integer prescaling and optional linear interpolation
+* Configurable pixel aspect ratio for each console with several different options: accurate to original hardware/TVs, square pixels, and stretched to fill the window
+* Support for the Sega Master System FM sound unit expansion
+* Support for both 3-button and 6-button Genesis controllers
+* Support for keyboard controls and DirectInput gamepad controls
+* Save states
 
 Major TODOs:
+* Support fast forward and rewind
+* Build out web UI
 * Implement a few remaining YM2612 features (CSM and SSG-EG, they're obscure but some games did use them)
 
 Minor TODOs:
-* Emulate the Genesis VDP FIFO, in particular the fact that the CPU stalls if it performs VRAM writes too rapidly during active display. A few games depend on this to function correctly (e.g. _The Chaos Engine_, _Double Clutch_, _Sol-Deace_), and a few other games have graphical glitches if it's not emulated (e.g. the EA logo flickering for a single frame)
+* Emulate the Genesis VDP FIFO, in particular the fact that the CPU stalls if it writes to VRAM too rapidly during active display. A few games depend on this to function correctly (e.g. _The Chaos Engine_, _Double Clutch_, _Sol-Deace_), and a few other games have graphical glitches if it's not emulated (e.g. the EA logo flickering for a single frame)
+* Emulate the 68000 TAS instruction not working as intended on the model 1 and 2 Genesis, which is required for _Gargoyles_ to work correctly (Because of this, this game interestingly does not work on the model 3 Genesis even on actual hardware)
 * Support 24C64 EEPROM chips (used only in _Frank Thomas Big Hurt Baseball_ and _College Slam_)
-* Support the Sega Master System's additional graphics modes (Mode 0-3); only one officially released game used any of them, _F-16 Fighter_ (which uses Mode 2)
+* Support the Sega Master System's additional graphics modes (Modes 0-3); only one officially released game used any of them, _F-16 Fighter_ (which uses Mode 2)
 
 ## Dependencies
 
