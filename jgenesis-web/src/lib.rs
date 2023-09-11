@@ -4,7 +4,9 @@ mod audio;
 mod js;
 
 use crate::audio::AudioQueue;
-use genesis_core::{GenesisAspectRatio, GenesisEmulator, GenesisEmulatorConfig, GenesisInputs};
+use genesis_core::{
+    GenesisAspectRatio, GenesisEmulator, GenesisEmulatorConfig, GenesisInputs, GenesisTimingMode,
+};
 use jgenesis_renderer::config::{
     FilterMode, PrescaleFactor, RendererConfig, VSyncMode, WgpuBackend,
 };
@@ -124,8 +126,6 @@ pub async fn run_emulator() {
     run_event_loop(event_loop, renderer, audio_output, audio_ctx, emulator);
 }
 
-const AUDIO_SYNC_THRESHOLD: u32 = 2400;
-
 fn run_event_loop(
     event_loop: EventLoop<()>,
     mut renderer: WgpuRenderer<Window>,
@@ -136,12 +136,25 @@ fn run_event_loop(
     let mut audio_started = false;
     let mut inputs = GenesisInputs::default();
 
+    let performance = web_sys::window()
+        .and_then(|window| window.performance())
+        .expect("Unable to get window.performance");
+    let mut next_frame_time = performance.now();
+
     event_loop.run(move |event, _, control_flow| match event {
         Event::MainEventsCleared => {
-            if audio_output.audio_queue.len().expect("Unable to get audio queue len")
-                >= AUDIO_SYNC_THRESHOLD
-            {
+            let now = performance.now();
+            if now < next_frame_time {
+                *control_flow = ControlFlow::Poll;
                 return;
+            }
+
+            let fps = match emulator.timing_mode() {
+                GenesisTimingMode::Ntsc => 60.0,
+                GenesisTimingMode::Pal => 50.0,
+            };
+            while now >= next_frame_time {
+                next_frame_time += 1000.0 / fps;
             }
 
             if !audio_started {

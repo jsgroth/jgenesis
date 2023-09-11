@@ -241,6 +241,11 @@ impl GenesisEmulator {
     pub fn cartridge_title(&self) -> String {
         self.memory.cartridge_title()
     }
+
+    #[must_use]
+    pub fn timing_mode(&self) -> GenesisTimingMode {
+        self.timing_mode
+    }
 }
 
 impl TakeRomFrom for GenesisEmulator {

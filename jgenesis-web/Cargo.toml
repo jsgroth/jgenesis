@@ -39,4 +39,5 @@ features = [
     "AudioWorkletNodeOptions",
     "AudioDestinationNode",
     "ChannelCountMode",
+    "Performance",
 ]
