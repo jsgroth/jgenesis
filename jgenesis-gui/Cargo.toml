@@ -23,3 +23,6 @@ rfd = "0.11"
 serde = { workspace = true }
 sdl2 = { workspace = true }
 toml = "0.7"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+xrandr = "0.2"

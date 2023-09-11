@@ -12,6 +12,7 @@ use jgenesis_traits::frontend::EmulatorTrait;
 use sdl2::event::Event;
 use sdl2::joystick::HatState;
 use sdl2::pixels::Color;
+use sdl2::render::WindowCanvas;
 use sdl2::{EventPump, JoystickSubsystem};
 use smsgg_core::{SmsGgEmulator, SmsGgInputs};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -283,6 +284,7 @@ fn run_emulator<Inputs, Button, Emulator>(
                                     joysticks,
                                     joystick_subsystem,
                                     axis_deadzone,
+                                    None,
                                 );
 
                                 let is_none = input.is_none();
@@ -345,6 +347,7 @@ fn collect_input_not_running(
         &mut joysticks,
         &joystick_subsystem,
         axis_deadzone,
+        Some(&mut canvas),
     );
 
     for _ in event_pump.poll_iter() {}
@@ -362,6 +365,7 @@ fn collect_input(
     joysticks: &mut Joysticks,
     joystick_subsystem: &JoystickSubsystem,
     axis_deadzone: i16,
+    mut canvas: Option<&mut WindowCanvas>,
 ) -> Option<GenericInput> {
     loop {
         for event in event_pump.poll_iter() {
@@ -429,6 +433,11 @@ fn collect_input(
                 }
                 _ => {}
             }
+        }
+
+        if let Some(canvas) = &mut canvas {
+            canvas.clear();
+            canvas.present();
         }
 
         thread::sleep(Duration::from_millis(1));
