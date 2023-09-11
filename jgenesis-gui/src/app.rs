@@ -230,6 +230,7 @@ enum OpenWindow {
     SmsGgVideo,
     GenesisVideo,
     CommonAudio,
+    SmsGgAudio,
     SmsGgKeyboard,
     SmsGgGamepad,
     GenesisKeyboard,
@@ -674,6 +675,20 @@ impl App {
         let mut open = true;
         Window::new("General Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.checkbox(&mut self.config.common.audio_sync, "Audio sync enabled");
+        });
+        if !open {
+            self.state.open_windows.remove(&OpenWindow::CommonAudio);
+        }
+    }
+
+    fn render_smsgg_audio_settings(&mut self, ctx: &Context) {
+        let mut open = true;
+        Window::new("SMS/GG Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.set_enabled(self.emu_thread.status() != EmuThreadStatus::RunningSmsGg);
+            ui.checkbox(
+                &mut self.config.smsgg.fm_sound_unit_enabled,
+                "Sega Master System FM sound unit enabled",
+            );
 
             ui.group(|ui| {
                 ui.label("SMS/GG PSG version");
@@ -696,15 +711,9 @@ impl App {
                     .on_hover_text("SMS1 and Game Gear PSGs correctly play high volumes");
                 });
             });
-
-            ui.set_enabled(self.emu_thread.status() != EmuThreadStatus::RunningSmsGg);
-            ui.checkbox(
-                &mut self.config.smsgg.fm_sound_unit_enabled,
-                "Sega Master System FM sound unit enabled",
-            );
         });
         if !open {
-            self.state.open_windows.remove(&OpenWindow::CommonAudio);
+            self.state.open_windows.remove(&OpenWindow::SmsGgAudio);
         }
     }
 
@@ -816,6 +825,11 @@ impl App {
                 ui.menu_button("Audio", |ui| {
                     if ui.button("General").clicked() {
                         self.state.open_windows.insert(OpenWindow::CommonAudio);
+                        ui.close_menu();
+                    }
+
+                    if ui.button("SMS/GG").clicked() {
+                        self.state.open_windows.insert(OpenWindow::SmsGgAudio);
                         ui.close_menu();
                     }
                 });
@@ -1008,6 +1022,9 @@ impl eframe::App for App {
                 }
                 OpenWindow::CommonAudio => {
                     self.render_audio_settings(ctx);
+                }
+                OpenWindow::SmsGgAudio => {
+                    self.render_smsgg_audio_settings(ctx);
                 }
                 OpenWindow::SmsGgKeyboard => {
                     self.render_smsgg_keyboard_settings(ctx);
