@@ -86,8 +86,8 @@ struct Args {
     #[arg(long, default_value_t)]
     sms_crop_left_border: bool,
 
-    /// Enable SMS FM sound unit
-    #[arg(long = "enable-sms-fm-unit", default_value_t)]
+    /// Disable SMS FM sound unit
+    #[arg(long = "disable-sms-fm-unit", default_value_t = true, action = clap::ArgAction::SetFalse)]
     sms_fm_unit_enabled: bool,
 
     /// Disable audio sync

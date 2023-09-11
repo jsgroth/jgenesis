@@ -94,7 +94,7 @@ struct SmsGgAppConfig {
     sms_crop_vertical_border: bool,
     #[serde(default)]
     sms_crop_left_border: bool,
-    #[serde(default)]
+    #[serde(default = "true_fn")]
     fm_sound_unit_enabled: bool,
 }
 
