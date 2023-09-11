@@ -1159,15 +1159,12 @@ impl Vdp {
     fn v_counter(&self, scanline_mclk: u64) -> u8 {
         // Values from https://gendev.spritesmind.net/forum/viewtopic.php?t=768
 
-        // V counter increments shortly after the start of HBlank; simulate this by subtracting 1
-        // if not in HBlank
+        // V counter increments for the next line shortly after the start of HBlank
         let in_hblank = scanline_mclk >= ACTIVE_MCLK_CYCLES_PER_SCANLINE;
         let scanline = if in_hblank {
-            self.state.scanline
-        } else if self.state.scanline == 0 {
-            self.timing_mode.scanlines_per_frame() - 1
+            (self.state.scanline + 1) % self.timing_mode.scanlines_per_frame()
         } else {
-            self.state.scanline - 1
+            self.state.scanline
         };
 
         match self.registers.interlacing_mode {
