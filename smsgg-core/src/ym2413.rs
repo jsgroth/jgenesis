@@ -712,6 +712,15 @@ impl Ym2413 {
         match self.selected_register {
             register @ 0x00..=0x07 => {
                 self.custom_instrument_patch[register as usize] = value;
+
+                // Immediately reload any channels using custom instrument
+                let end_idx = if self.rhythm_mode_enabled { 6 } else { 9 };
+                for channel in &mut self.channels[..end_idx] {
+                    if channel.settings.instrument == 0 {
+                        channel
+                            .load_instrument(Instrument::from_patch(self.custom_instrument_patch));
+                    }
+                }
             }
             0x0E => {
                 self.handle_rhythm_register_write(value);
