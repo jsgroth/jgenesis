@@ -435,6 +435,8 @@ pub struct WgpuRenderer<Window> {
     texture_format: wgpu::TextureFormat,
     renderer_config: RendererConfig,
     pipeline: Option<RenderingPipeline>,
+    frame_count: u64,
+    speed_multiplier: u64,
     // SAFETY: The surface must not outlive the window it was created from, thus the window must be
     // declared after the surface
     window: Window,
@@ -540,6 +542,8 @@ impl<Window: HasRawDisplayHandle + HasRawWindowHandle> WgpuRenderer<Window> {
             texture_format,
             renderer_config: config,
             pipeline: None,
+            frame_count: 0,
+            speed_multiplier: 1,
             window,
             window_size_fn,
         })
@@ -554,6 +558,9 @@ impl<Window> WgpuRenderer<Window> {
 
         // Force render pipeline to be recreated on the next render_frame() call
         self.pipeline = None;
+
+        // Reset speed multiplier in case the fast forward hotkey changed
+        self.speed_multiplier = 1;
     }
 
     pub fn handle_resize(&mut self) {
@@ -609,6 +616,16 @@ impl<Window> WgpuRenderer<Window> {
     pub unsafe fn window_mut(&mut self) -> &mut Window {
         &mut self.window
     }
+
+    /// Set the speed multiplier. For a multiplier of N, only 1 out of every N frames will be rendered.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if `speed_multiplier` is 0.
+    pub fn set_speed_multiplier(&mut self, speed_multiplier: u64) {
+        assert_ne!(speed_multiplier, 0, "speed multiplier must be non-negative");
+        self.speed_multiplier = speed_multiplier;
+    }
 }
 
 impl<Window> Renderer for WgpuRenderer<Window> {
@@ -620,6 +637,11 @@ impl<Window> Renderer for WgpuRenderer<Window> {
         frame_size: FrameSize,
         pixel_aspect_ratio: Option<PixelAspectRatio>,
     ) -> Result<(), Self::Err> {
+        self.frame_count += 1;
+        if self.frame_count % self.speed_multiplier != 0 {
+            return Ok(());
+        }
+
         self.ensure_pipeline(frame_size, pixel_aspect_ratio);
         self.pipeline.as_ref().unwrap().render(
             &self.device,

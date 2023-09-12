@@ -72,6 +72,7 @@ pub struct CommonConfig<KeyboardConfig, JoystickConfig> {
     pub window_size: Option<WindowSize>,
     #[indent_nested]
     pub renderer_config: RendererConfig,
+    pub fast_forward_multiplier: u64,
     pub launch_in_fullscreen: bool,
     #[indent_nested]
     pub keyboard_inputs: KeyboardConfig,

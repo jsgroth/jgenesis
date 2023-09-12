@@ -3,8 +3,8 @@ mod debug;
 use crate::config;
 use crate::config::{CommonConfig, GenesisConfig, SmsGgConfig, WindowSize};
 use crate::input::{
-    Clearable, GenesisButton, GetButtonField, Hotkey, HotkeyMapper, InputMapper, Joysticks,
-    SmsGgButton,
+    Clearable, GenesisButton, GetButtonField, Hotkey, HotkeyMapResult, HotkeyMapper, InputMapper,
+    Joysticks, SmsGgButton,
 };
 use crate::mainloop::debug::{CramDebug, VramDebug};
 use anyhow::{anyhow, Context};
@@ -65,6 +65,8 @@ struct SdlAudioOutput {
     audio_queue: AudioQueue<f32>,
     audio_buffer: Vec<f32>,
     audio_sync: bool,
+    sample_count: u64,
+    speed_multiplier: u64,
 }
 
 impl SdlAudioOutput {
@@ -77,7 +79,13 @@ impl SdlAudioOutput {
             .map_err(|err| anyhow!("Error opening SDL2 audio queue: {err}"))?;
         audio_queue.resume();
 
-        Ok(Self { audio_queue, audio_buffer: Vec::with_capacity(64), audio_sync })
+        Ok(Self {
+            audio_queue,
+            audio_buffer: Vec::with_capacity(64),
+            audio_sync,
+            sample_count: 0,
+            speed_multiplier: 1,
+        })
     }
 }
 
@@ -89,6 +97,11 @@ impl AudioOutput for SdlAudioOutput {
 
     #[inline]
     fn push_sample(&mut self, sample_l: f64, sample_r: f64) -> Result<(), Self::Err> {
+        self.sample_count += 1;
+        if self.sample_count % self.speed_multiplier != 0 {
+            return Ok(());
+        }
+
         self.audio_buffer.push(sample_l as f32);
         self.audio_buffer.push(sample_r as f32);
 
@@ -174,6 +187,7 @@ pub struct NativeEmulator<Inputs, Button, Emulator> {
     save_writer: FsSaveWriter,
     event_pump: EventPump,
     save_state_path: PathBuf,
+    fast_forward_multiplier: u64,
     video: VideoSubsystem,
     cram_debug: Option<CramDebug>,
     vram_debug: Option<VramDebug>,
@@ -183,6 +197,10 @@ impl<Inputs, Button, Emulator> NativeEmulator<Inputs, Button, Emulator> {
     fn reload_common_config<KC, JC>(&mut self, config: &CommonConfig<KC, JC>) {
         self.renderer.reload_config(config.renderer_config);
         self.audio_output.audio_sync = config.audio_sync;
+
+        self.fast_forward_multiplier = config.fast_forward_multiplier;
+        // Reset speed multiplier in case the fast forward hotkey changed
+        self.audio_output.speed_multiplier = 1;
 
         match HotkeyMapper::from_config(&config.hotkeys) {
             Ok(hotkey_mapper) => {
@@ -272,7 +290,9 @@ where
                         &event,
                         &mut self.emulator,
                         &mut self.renderer,
+                        &mut self.audio_output,
                         &self.save_state_path,
+                        self.fast_forward_multiplier,
                         &self.video,
                         &mut self.cram_debug,
                         &mut self.vram_debug,
@@ -405,6 +425,7 @@ pub fn create_smsgg(
         save_writer,
         event_pump,
         save_state_path,
+        fast_forward_multiplier: config.common.fast_forward_multiplier,
         video,
         cram_debug: None,
         vram_debug: None,
@@ -474,6 +495,7 @@ pub fn create_genesis(
         save_writer,
         event_pump,
         save_state_path,
+        fast_forward_multiplier: config.common.fast_forward_multiplier,
         video,
         cram_debug: None,
         vram_debug: None,
@@ -540,7 +562,9 @@ fn handle_hotkeys<Inputs, Emulator, P>(
     event: &Event,
     emulator: &mut Emulator,
     renderer: &mut WgpuRenderer<Window>,
+    audio_output: &mut SdlAudioOutput,
     save_state_path: P,
+    fast_forward_multiplier: u64,
     video: &VideoSubsystem,
     cram_debug: &mut Option<CramDebug>,
     vram_debug: &mut Option<VramDebug>,
@@ -551,53 +575,101 @@ where
 {
     let save_state_path = save_state_path.as_ref();
 
-    for &hotkey in hotkey_mapper.check_for_hotkeys(event) {
-        match hotkey {
-            Hotkey::Quit => {
-                return Ok(HotkeyResult::Quit);
-            }
-            Hotkey::ToggleFullscreen => {
-                renderer
-                    .toggle_fullscreen()
-                    .map_err(|err| anyhow!("Error toggling fullscreen: {err}"))?;
-            }
-            Hotkey::SaveState => {
-                save_state(emulator, save_state_path)?;
-            }
-            Hotkey::LoadState => {
-                let mut loaded_emulator: Emulator = match load_state(save_state_path) {
-                    Ok(emulator) => emulator,
-                    Err(err) => {
-                        log::error!(
-                            "Error loading save state from {}: {err}",
-                            save_state_path.display()
-                        );
-                        return Ok(HotkeyResult::None);
-                    }
-                };
-                loaded_emulator.take_rom_from(emulator);
-                *emulator = loaded_emulator;
-            }
-            Hotkey::SoftReset => {
-                emulator.soft_reset();
-            }
-            Hotkey::HardReset => {
-                emulator.hard_reset();
-            }
-            Hotkey::OpenCramDebug => {
-                if cram_debug.is_none() {
-                    *cram_debug = Some(CramDebug::new::<Emulator>(video)?);
+    match hotkey_mapper.check_for_hotkeys(event) {
+        HotkeyMapResult::Pressed(hotkeys) => {
+            for &hotkey in hotkeys {
+                if handle_hotkey_pressed(
+                    hotkey,
+                    emulator,
+                    renderer,
+                    audio_output,
+                    fast_forward_multiplier,
+                    video,
+                    cram_debug,
+                    vram_debug,
+                    save_state_path,
+                )? == HotkeyResult::Quit
+                {
+                    return Ok(HotkeyResult::Quit);
                 }
             }
-            Hotkey::OpenVramDebug => match vram_debug {
-                Some(vram_debug) => {
-                    vram_debug.toggle_palette()?;
-                }
-                None => {
-                    *vram_debug = Some(VramDebug::new::<Emulator>(video)?);
-                }
-            },
         }
+        HotkeyMapResult::Released(hotkeys) => {
+            if hotkeys.contains(&Hotkey::FastForward) {
+                renderer.set_speed_multiplier(1);
+                audio_output.speed_multiplier = 1;
+            }
+        }
+        HotkeyMapResult::None => {}
+    }
+
+    Ok(HotkeyResult::None)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_hotkey_pressed<Inputs, Emulator>(
+    hotkey: Hotkey,
+    emulator: &mut Emulator,
+    renderer: &mut WgpuRenderer<Window>,
+    audio_output: &mut SdlAudioOutput,
+    fast_forward_multiplier: u64,
+    video: &VideoSubsystem,
+    cram_debug: &mut Option<CramDebug>,
+    vram_debug: &mut Option<VramDebug>,
+    save_state_path: &Path,
+) -> anyhow::Result<HotkeyResult>
+where
+    Emulator: EmulatorTrait<Inputs>,
+{
+    match hotkey {
+        Hotkey::Quit => {
+            return Ok(HotkeyResult::Quit);
+        }
+        Hotkey::ToggleFullscreen => {
+            renderer
+                .toggle_fullscreen()
+                .map_err(|err| anyhow!("Error toggling fullscreen: {err}"))?;
+        }
+        Hotkey::SaveState => {
+            save_state(emulator, save_state_path)?;
+        }
+        Hotkey::LoadState => {
+            let mut loaded_emulator: Emulator = match load_state(save_state_path) {
+                Ok(emulator) => emulator,
+                Err(err) => {
+                    log::error!(
+                        "Error loading save state from {}: {err}",
+                        save_state_path.display()
+                    );
+                    return Ok(HotkeyResult::None);
+                }
+            };
+            loaded_emulator.take_rom_from(emulator);
+            *emulator = loaded_emulator;
+        }
+        Hotkey::SoftReset => {
+            emulator.soft_reset();
+        }
+        Hotkey::HardReset => {
+            emulator.hard_reset();
+        }
+        Hotkey::FastForward => {
+            renderer.set_speed_multiplier(fast_forward_multiplier);
+            audio_output.speed_multiplier = fast_forward_multiplier;
+        }
+        Hotkey::OpenCramDebug => {
+            if cram_debug.is_none() {
+                *cram_debug = Some(CramDebug::new::<Emulator>(video)?);
+            }
+        }
+        Hotkey::OpenVramDebug => match vram_debug {
+            Some(vram_debug) => {
+                vram_debug.toggle_palette()?;
+            }
+            None => {
+                *vram_debug = Some(VramDebug::new::<Emulator>(video)?);
+            }
+        },
     }
 
     Ok(HotkeyResult::None)

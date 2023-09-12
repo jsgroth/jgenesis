@@ -45,6 +45,8 @@ struct CommonAppConfig {
     prescale_factor: PrescaleFactor,
     #[serde(default)]
     filter_mode: FilterMode,
+    #[serde(default = "default_fast_forward_multiplier")]
+    fast_forward_multiplier: u64,
 }
 
 impl CommonAppConfig {
@@ -68,6 +70,10 @@ fn true_fn() -> bool {
 
 fn default_prescale_factor() -> PrescaleFactor {
     PrescaleFactor::from(NonZeroU32::new(3).unwrap())
+}
+
+fn default_fast_forward_multiplier() -> u64 {
+    2
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -162,6 +168,7 @@ impl AppConfig {
                 filter_mode: self.common.filter_mode,
                 use_webgl2_limits: false,
             },
+            fast_forward_multiplier: self.common.fast_forward_multiplier,
             launch_in_fullscreen: self.common.launch_in_fullscreen,
             keyboard_inputs,
             axis_deadzone: self.inputs.axis_deadzone,
@@ -247,6 +254,8 @@ struct AppState {
     prescale_factor_invalid: bool,
     axis_deadzone_text: String,
     axis_deadzone_invalid: bool,
+    ff_multiplier_text: String,
+    ff_multiplier_invalid: bool,
     waiting_for_input: Option<GenericButton>,
     rom_list: Vec<RomMetadata>,
 }
@@ -262,6 +271,8 @@ impl AppState {
             prescale_factor_invalid: false,
             axis_deadzone_text: config.inputs.axis_deadzone.to_string(),
             axis_deadzone_invalid: false,
+            ff_multiplier_text: config.common.fast_forward_multiplier.to_string(),
+            ff_multiplier_invalid: false,
             waiting_for_input: None,
             rom_list,
         }

@@ -122,6 +122,10 @@ struct Args {
     #[arg(long, default_value_t = FilterMode::Linear)]
     filter_mode: FilterMode,
 
+    /// Fast forward multiplier
+    #[arg(long, default_value_t = 2)]
+    fast_forward_multiplier: u64,
+
     /// P1 Genesis controller type (ThreeButton / SixButton)
     #[arg(long, default_value_t)]
     input_p1_type: GenesisControllerType,
@@ -209,6 +213,10 @@ struct Args {
     /// Hard reset hotkey
     #[arg(long, default_value_t = String::from("F2"))]
     hotkey_hard_reset: String,
+
+    /// Fast forward hotkey
+    #[arg(long, default_value_t = String::from("Tab"))]
+    hotkey_fast_forward: String,
 
     /// CRAM debug window hotkey
     #[arg(long, default_value_t = String::from(";"))]
@@ -303,6 +311,7 @@ impl Args {
             load_state: Some(keyboard_input(&self.hotkey_load_state)),
             soft_reset: Some(keyboard_input(&self.hotkey_soft_reset)),
             hard_reset: Some(keyboard_input(&self.hotkey_hard_reset)),
+            fast_forward: Some(keyboard_input(&self.hotkey_fast_forward)),
             open_cram_debug: Some(keyboard_input(&self.hotkey_cram_debug)),
             open_vram_debug: Some(keyboard_input(&self.hotkey_vram_debug)),
         }
@@ -313,11 +322,14 @@ impl Args {
         keyboard_inputs: KC,
         joystick_inputs: JC,
     ) -> CommonConfig<KC, JC> {
+        assert_ne!(self.fast_forward_multiplier, 0, "Fast forward multiplier must not be 0");
+
         CommonConfig {
             rom_file_path: self.file_path.clone(),
             audio_sync: self.audio_sync,
             window_size: self.window_size(),
             renderer_config: self.renderer_config(),
+            fast_forward_multiplier: self.fast_forward_multiplier,
             launch_in_fullscreen: self.fullscreen,
             keyboard_inputs,
             axis_deadzone: self.joy_axis_deadzone,

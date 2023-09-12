@@ -60,182 +60,169 @@ macro_rules! set_input {
 impl InputAppConfig {
     pub fn set_input(&mut self, input: GenericInput, button: GenericButton) {
         match button {
-            GenericButton::SmsGg(smsgg_button) => match smsgg_button {
-                SmsGgButton::Up(Player::One) => {
-                    set_input!(input, self.smsgg_p1_keyboard.up, self.smsgg_p1_joystick.up);
-                }
-                SmsGgButton::Left(Player::One) => {
-                    set_input!(input, self.smsgg_p1_keyboard.left, self.smsgg_p1_joystick.left);
-                }
-                SmsGgButton::Right(Player::One) => {
-                    set_input!(input, self.smsgg_p1_keyboard.right, self.smsgg_p1_joystick.right);
-                }
-                SmsGgButton::Down(Player::One) => {
-                    set_input!(input, self.smsgg_p1_keyboard.down, self.smsgg_p1_joystick.down);
-                }
-                SmsGgButton::Button1(Player::One) => {
-                    set_input!(
-                        input,
-                        self.smsgg_p1_keyboard.button_1,
-                        self.smsgg_p1_joystick.button_1
-                    );
-                }
-                SmsGgButton::Button2(Player::One) => {
-                    set_input!(
-                        input,
-                        self.smsgg_p1_keyboard.button_2,
-                        self.smsgg_p1_joystick.button_2
-                    );
-                }
-                SmsGgButton::Up(Player::Two) => {
-                    set_input!(input, self.smsgg_p2_keyboard.up, self.smsgg_p2_joystick.up);
-                }
-                SmsGgButton::Left(Player::Two) => {
-                    set_input!(input, self.smsgg_p2_keyboard.left, self.smsgg_p2_joystick.left);
-                }
-                SmsGgButton::Right(Player::Two) => {
-                    set_input!(input, self.smsgg_p2_keyboard.right, self.smsgg_p2_joystick.right);
-                }
-                SmsGgButton::Down(Player::Two) => {
-                    set_input!(input, self.smsgg_p2_keyboard.down, self.smsgg_p2_joystick.down);
-                }
-                SmsGgButton::Button1(Player::Two) => {
-                    set_input!(
-                        input,
-                        self.smsgg_p2_keyboard.button_1,
-                        self.smsgg_p2_joystick.button_1
-                    );
-                }
-                SmsGgButton::Button2(Player::Two) => {
-                    set_input!(
-                        input,
-                        self.smsgg_p2_keyboard.button_2,
-                        self.smsgg_p2_joystick.button_2
-                    );
-                }
-                SmsGgButton::Pause => {
-                    set_input!(input, self.smsgg_p1_keyboard.pause, self.smsgg_p1_joystick.pause);
-                }
-            },
-            GenericButton::Genesis(genesis_button) => match genesis_button {
-                GenesisButton::Up(Player::One) => {
-                    set_input!(input, self.genesis_p1_keyboard.up, self.genesis_p1_joystick.up);
-                }
-                GenesisButton::Left(Player::One) => {
-                    set_input!(input, self.genesis_p1_keyboard.left, self.genesis_p1_joystick.left);
-                }
-                GenesisButton::Right(Player::One) => {
-                    set_input!(
-                        input,
-                        self.genesis_p1_keyboard.right,
-                        self.genesis_p1_joystick.right
-                    );
-                }
-                GenesisButton::Down(Player::One) => {
-                    set_input!(input, self.genesis_p1_keyboard.down, self.genesis_p1_joystick.down);
-                }
-                GenesisButton::A(Player::One) => {
-                    set_input!(input, self.genesis_p1_keyboard.a, self.genesis_p1_joystick.a);
-                }
-                GenesisButton::B(Player::One) => {
-                    set_input!(input, self.genesis_p1_keyboard.b, self.genesis_p1_joystick.b);
-                }
-                GenesisButton::C(Player::One) => {
-                    set_input!(input, self.genesis_p1_keyboard.c, self.genesis_p1_joystick.c);
-                }
-                GenesisButton::X(Player::One) => {
-                    set_input!(input, self.genesis_p1_keyboard.x, self.genesis_p1_joystick.x);
-                }
-                GenesisButton::Y(Player::One) => {
-                    set_input!(input, self.genesis_p1_keyboard.y, self.genesis_p1_joystick.y);
-                }
-                GenesisButton::Z(Player::One) => {
-                    set_input!(input, self.genesis_p1_keyboard.z, self.genesis_p1_joystick.z);
-                }
-                GenesisButton::Start(Player::One) => {
-                    set_input!(
-                        input,
-                        self.genesis_p1_keyboard.start,
-                        self.genesis_p1_joystick.start
-                    );
-                }
-                GenesisButton::Mode(Player::One) => {
-                    set_input!(input, self.genesis_p1_keyboard.mode, self.genesis_p1_joystick.mode);
-                }
-                GenesisButton::Up(Player::Two) => {
-                    set_input!(input, self.genesis_p2_keyboard.up, self.genesis_p2_joystick.up);
-                }
-                GenesisButton::Left(Player::Two) => {
-                    set_input!(input, self.genesis_p2_keyboard.left, self.genesis_p2_joystick.left);
-                }
-                GenesisButton::Right(Player::Two) => {
-                    set_input!(
-                        input,
-                        self.genesis_p2_keyboard.right,
-                        self.genesis_p2_joystick.right
-                    );
-                }
-                GenesisButton::Down(Player::Two) => {
-                    set_input!(input, self.genesis_p2_keyboard.down, self.genesis_p2_joystick.down);
-                }
-                GenesisButton::A(Player::Two) => {
-                    set_input!(input, self.genesis_p2_keyboard.a, self.genesis_p2_joystick.a);
-                }
-                GenesisButton::B(Player::Two) => {
-                    set_input!(input, self.genesis_p2_keyboard.b, self.genesis_p2_joystick.b);
-                }
-                GenesisButton::C(Player::Two) => {
-                    set_input!(input, self.genesis_p2_keyboard.c, self.genesis_p2_joystick.c);
-                }
-                GenesisButton::X(Player::Two) => {
-                    set_input!(input, self.genesis_p2_keyboard.x, self.genesis_p2_joystick.x);
-                }
-                GenesisButton::Y(Player::Two) => {
-                    set_input!(input, self.genesis_p2_keyboard.y, self.genesis_p2_joystick.y);
-                }
-                GenesisButton::Z(Player::Two) => {
-                    set_input!(input, self.genesis_p2_keyboard.z, self.genesis_p2_joystick.z);
-                }
-                GenesisButton::Start(Player::Two) => {
-                    set_input!(
-                        input,
-                        self.genesis_p2_keyboard.start,
-                        self.genesis_p2_joystick.start
-                    );
-                }
-                GenesisButton::Mode(Player::Two) => {
-                    set_input!(input, self.genesis_p2_keyboard.mode, self.genesis_p2_joystick.mode);
-                }
-            },
+            GenericButton::SmsGg(smsgg_button) => {
+                self.set_smsgg_button(input, smsgg_button);
+            }
+            GenericButton::Genesis(genesis_button) => {
+                self.set_genesis_button(input, genesis_button);
+            }
             GenericButton::Hotkey(hotkey) => {
                 if let GenericInput::Keyboard(input) = input {
-                    match hotkey {
-                        Hotkey::Quit => {
-                            self.hotkeys.quit = Some(input);
-                        }
-                        Hotkey::ToggleFullscreen => {
-                            self.hotkeys.toggle_fullscreen = Some(input);
-                        }
-                        Hotkey::SaveState => {
-                            self.hotkeys.save_state = Some(input);
-                        }
-                        Hotkey::LoadState => {
-                            self.hotkeys.load_state = Some(input);
-                        }
-                        Hotkey::SoftReset => {
-                            self.hotkeys.soft_reset = Some(input);
-                        }
-                        Hotkey::HardReset => {
-                            self.hotkeys.hard_reset = Some(input);
-                        }
-                        Hotkey::OpenCramDebug => {
-                            self.hotkeys.open_cram_debug = Some(input);
-                        }
-                        Hotkey::OpenVramDebug => {
-                            self.hotkeys.open_vram_debug = Some(input);
-                        }
-                    }
+                    self.set_hotkey(input, hotkey);
                 }
+            }
+        }
+    }
+
+    fn set_smsgg_button(&mut self, input: GenericInput, smsgg_button: SmsGgButton) {
+        match smsgg_button {
+            SmsGgButton::Up(Player::One) => {
+                set_input!(input, self.smsgg_p1_keyboard.up, self.smsgg_p1_joystick.up);
+            }
+            SmsGgButton::Left(Player::One) => {
+                set_input!(input, self.smsgg_p1_keyboard.left, self.smsgg_p1_joystick.left);
+            }
+            SmsGgButton::Right(Player::One) => {
+                set_input!(input, self.smsgg_p1_keyboard.right, self.smsgg_p1_joystick.right);
+            }
+            SmsGgButton::Down(Player::One) => {
+                set_input!(input, self.smsgg_p1_keyboard.down, self.smsgg_p1_joystick.down);
+            }
+            SmsGgButton::Button1(Player::One) => {
+                set_input!(input, self.smsgg_p1_keyboard.button_1, self.smsgg_p1_joystick.button_1);
+            }
+            SmsGgButton::Button2(Player::One) => {
+                set_input!(input, self.smsgg_p1_keyboard.button_2, self.smsgg_p1_joystick.button_2);
+            }
+            SmsGgButton::Up(Player::Two) => {
+                set_input!(input, self.smsgg_p2_keyboard.up, self.smsgg_p2_joystick.up);
+            }
+            SmsGgButton::Left(Player::Two) => {
+                set_input!(input, self.smsgg_p2_keyboard.left, self.smsgg_p2_joystick.left);
+            }
+            SmsGgButton::Right(Player::Two) => {
+                set_input!(input, self.smsgg_p2_keyboard.right, self.smsgg_p2_joystick.right);
+            }
+            SmsGgButton::Down(Player::Two) => {
+                set_input!(input, self.smsgg_p2_keyboard.down, self.smsgg_p2_joystick.down);
+            }
+            SmsGgButton::Button1(Player::Two) => {
+                set_input!(input, self.smsgg_p2_keyboard.button_1, self.smsgg_p2_joystick.button_1);
+            }
+            SmsGgButton::Button2(Player::Two) => {
+                set_input!(input, self.smsgg_p2_keyboard.button_2, self.smsgg_p2_joystick.button_2);
+            }
+            SmsGgButton::Pause => {
+                set_input!(input, self.smsgg_p1_keyboard.pause, self.smsgg_p1_joystick.pause);
+            }
+        }
+    }
+
+    fn set_genesis_button(&mut self, input: GenericInput, genesis_button: GenesisButton) {
+        match genesis_button {
+            GenesisButton::Up(Player::One) => {
+                set_input!(input, self.genesis_p1_keyboard.up, self.genesis_p1_joystick.up);
+            }
+            GenesisButton::Left(Player::One) => {
+                set_input!(input, self.genesis_p1_keyboard.left, self.genesis_p1_joystick.left);
+            }
+            GenesisButton::Right(Player::One) => {
+                set_input!(input, self.genesis_p1_keyboard.right, self.genesis_p1_joystick.right);
+            }
+            GenesisButton::Down(Player::One) => {
+                set_input!(input, self.genesis_p1_keyboard.down, self.genesis_p1_joystick.down);
+            }
+            GenesisButton::A(Player::One) => {
+                set_input!(input, self.genesis_p1_keyboard.a, self.genesis_p1_joystick.a);
+            }
+            GenesisButton::B(Player::One) => {
+                set_input!(input, self.genesis_p1_keyboard.b, self.genesis_p1_joystick.b);
+            }
+            GenesisButton::C(Player::One) => {
+                set_input!(input, self.genesis_p1_keyboard.c, self.genesis_p1_joystick.c);
+            }
+            GenesisButton::X(Player::One) => {
+                set_input!(input, self.genesis_p1_keyboard.x, self.genesis_p1_joystick.x);
+            }
+            GenesisButton::Y(Player::One) => {
+                set_input!(input, self.genesis_p1_keyboard.y, self.genesis_p1_joystick.y);
+            }
+            GenesisButton::Z(Player::One) => {
+                set_input!(input, self.genesis_p1_keyboard.z, self.genesis_p1_joystick.z);
+            }
+            GenesisButton::Start(Player::One) => {
+                set_input!(input, self.genesis_p1_keyboard.start, self.genesis_p1_joystick.start);
+            }
+            GenesisButton::Mode(Player::One) => {
+                set_input!(input, self.genesis_p1_keyboard.mode, self.genesis_p1_joystick.mode);
+            }
+            GenesisButton::Up(Player::Two) => {
+                set_input!(input, self.genesis_p2_keyboard.up, self.genesis_p2_joystick.up);
+            }
+            GenesisButton::Left(Player::Two) => {
+                set_input!(input, self.genesis_p2_keyboard.left, self.genesis_p2_joystick.left);
+            }
+            GenesisButton::Right(Player::Two) => {
+                set_input!(input, self.genesis_p2_keyboard.right, self.genesis_p2_joystick.right);
+            }
+            GenesisButton::Down(Player::Two) => {
+                set_input!(input, self.genesis_p2_keyboard.down, self.genesis_p2_joystick.down);
+            }
+            GenesisButton::A(Player::Two) => {
+                set_input!(input, self.genesis_p2_keyboard.a, self.genesis_p2_joystick.a);
+            }
+            GenesisButton::B(Player::Two) => {
+                set_input!(input, self.genesis_p2_keyboard.b, self.genesis_p2_joystick.b);
+            }
+            GenesisButton::C(Player::Two) => {
+                set_input!(input, self.genesis_p2_keyboard.c, self.genesis_p2_joystick.c);
+            }
+            GenesisButton::X(Player::Two) => {
+                set_input!(input, self.genesis_p2_keyboard.x, self.genesis_p2_joystick.x);
+            }
+            GenesisButton::Y(Player::Two) => {
+                set_input!(input, self.genesis_p2_keyboard.y, self.genesis_p2_joystick.y);
+            }
+            GenesisButton::Z(Player::Two) => {
+                set_input!(input, self.genesis_p2_keyboard.z, self.genesis_p2_joystick.z);
+            }
+            GenesisButton::Start(Player::Two) => {
+                set_input!(input, self.genesis_p2_keyboard.start, self.genesis_p2_joystick.start);
+            }
+            GenesisButton::Mode(Player::Two) => {
+                set_input!(input, self.genesis_p2_keyboard.mode, self.genesis_p2_joystick.mode);
+            }
+        }
+    }
+
+    fn set_hotkey(&mut self, input: KeyboardInput, hotkey: Hotkey) {
+        match hotkey {
+            Hotkey::Quit => {
+                self.hotkeys.quit = Some(input);
+            }
+            Hotkey::ToggleFullscreen => {
+                self.hotkeys.toggle_fullscreen = Some(input);
+            }
+            Hotkey::SaveState => {
+                self.hotkeys.save_state = Some(input);
+            }
+            Hotkey::LoadState => {
+                self.hotkeys.load_state = Some(input);
+            }
+            Hotkey::SoftReset => {
+                self.hotkeys.soft_reset = Some(input);
+            }
+            Hotkey::HardReset => {
+                self.hotkeys.hard_reset = Some(input);
+            }
+            Hotkey::FastForward => {
+                self.hotkeys.fast_forward = Some(input);
+            }
+            Hotkey::OpenCramDebug => {
+                self.hotkeys.open_cram_debug = Some(input);
+            }
+            Hotkey::OpenVramDebug => {
+                self.hotkeys.open_vram_debug = Some(input);
             }
         }
     }
@@ -624,6 +611,12 @@ impl App {
                     ui,
                 );
                 self.hotkey_button(
+                    self.config.inputs.hotkeys.fast_forward.clone(),
+                    "Fast forward",
+                    Hotkey::FastForward,
+                    ui,
+                );
+                self.hotkey_button(
                     self.config.inputs.hotkeys.open_cram_debug.clone(),
                     "CRAM debug window",
                     Hotkey::OpenCramDebug,
@@ -636,6 +629,34 @@ impl App {
                     ui,
                 );
             });
+
+            ui.add_space(20.0);
+
+            ui.horizontal(|ui| {
+                if TextEdit::singleline(&mut self.state.ff_multiplier_text)
+                    .desired_width(30.0)
+                    .ui(ui)
+                    .changed()
+                {
+                    match self.state.ff_multiplier_text.parse::<u64>() {
+                        Ok(ff_multiplier) if ff_multiplier != 0 => {
+                            self.config.common.fast_forward_multiplier = ff_multiplier;
+                            self.state.ff_multiplier_invalid = false;
+                        }
+                        _ => {
+                            self.state.ff_multiplier_invalid = true;
+                        }
+                    }
+                }
+
+                ui.label("Fast forward multiplier");
+            });
+            if self.state.ff_multiplier_invalid {
+                ui.colored_label(
+                    Color32::RED,
+                    "Fast forward multiplier must be a positive integer",
+                );
+            }
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::Hotkeys);
@@ -772,6 +793,9 @@ impl App {
                 }
                 Hotkey::HardReset => {
                     self.config.inputs.hotkeys.hard_reset = None;
+                }
+                Hotkey::FastForward => {
+                    self.config.inputs.hotkeys.fast_forward = None;
                 }
                 Hotkey::OpenCramDebug => {
                     self.config.inputs.hotkeys.open_cram_debug = None;

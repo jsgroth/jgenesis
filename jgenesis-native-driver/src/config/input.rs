@@ -274,6 +274,8 @@ pub struct HotkeyConfig {
     pub soft_reset: Option<KeyboardInput>,
     #[serde(default = "default_hard_reset")]
     pub hard_reset: Option<KeyboardInput>,
+    #[serde(default = "default_fast_forward")]
+    pub fast_forward: Option<KeyboardInput>,
     #[serde(default = "default_cram_debug")]
     pub open_cram_debug: Option<KeyboardInput>,
     #[serde(default = "default_vram_debug")]
@@ -289,6 +291,7 @@ impl Default for HotkeyConfig {
             load_state: default_load_state(),
             soft_reset: default_soft_reset(),
             hard_reset: default_hard_reset(),
+            fast_forward: default_fast_forward(),
             open_cram_debug: default_cram_debug(),
             open_vram_debug: default_vram_debug(),
         }
@@ -317,6 +320,10 @@ fn default_soft_reset() -> Option<KeyboardInput> {
 
 fn default_hard_reset() -> Option<KeyboardInput> {
     key_input!(F2)
+}
+
+fn default_fast_forward() -> Option<KeyboardInput> {
+    key_input!(Tab)
 }
 
 fn default_cram_debug() -> Option<KeyboardInput> {

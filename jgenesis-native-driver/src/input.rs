@@ -609,8 +609,15 @@ pub enum Hotkey {
     LoadState,
     SoftReset,
     HardReset,
+    FastForward,
     OpenCramDebug,
     OpenVramDebug,
+}
+
+pub(crate) enum HotkeyMapResult<'a> {
+    None,
+    Pressed(&'a Vec<Hotkey>),
+    Released(&'a Vec<Hotkey>),
 }
 
 pub(crate) struct HotkeyMapper {
@@ -634,6 +641,7 @@ impl HotkeyMapper {
             (&config.load_state, Hotkey::LoadState),
             (&config.soft_reset, Hotkey::SoftReset),
             (&config.hard_reset, Hotkey::HardReset),
+            (&config.fast_forward, Hotkey::FastForward),
             (&config.open_cram_debug, Hotkey::OpenCramDebug),
             (&config.open_vram_debug, Hotkey::OpenVramDebug),
         ] {
@@ -648,12 +656,15 @@ impl HotkeyMapper {
     }
 
     #[must_use]
-    pub fn check_for_hotkeys(&self, event: &Event) -> &Vec<Hotkey> {
+    pub fn check_for_hotkeys(&self, event: &Event) -> HotkeyMapResult<'_> {
         match event {
             Event::KeyDown { keycode: Some(keycode), .. } => {
-                self.mapping.get(keycode).unwrap_or(EMPTY_VEC)
+                HotkeyMapResult::Pressed(self.mapping.get(keycode).unwrap_or(EMPTY_VEC))
             }
-            _ => EMPTY_VEC,
+            Event::KeyUp { keycode: Some(keycode), .. } => {
+                HotkeyMapResult::Released(self.mapping.get(keycode).unwrap_or(EMPTY_VEC))
+            }
+            _ => HotkeyMapResult::None,
         }
     }
 }
