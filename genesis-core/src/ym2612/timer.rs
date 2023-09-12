@@ -32,7 +32,7 @@ impl<const INTERVAL: u32, const MAX: u32> Timer<INTERVAL, MAX> {
 
     #[inline]
     pub fn tick(&mut self) {
-        if !self.enabled || self.overflow_flag {
+        if !self.enabled {
             return;
         }
 
