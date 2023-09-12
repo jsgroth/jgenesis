@@ -1,20 +1,18 @@
 use anyhow::anyhow;
-use genesis_core::{GenesisEmulator, GenesisInputs};
 use jgenesis_native_driver::config::input::{
     AxisDirection, HatDirection, JoystickAction, JoystickInput, KeyboardInput,
 };
 use jgenesis_native_driver::config::{GenesisConfig, SmsGgConfig};
-use jgenesis_native_driver::input::{
-    Clearable, GenesisButton, GetButtonField, Joysticks, SmsGgButton,
+use jgenesis_native_driver::input::{Clearable, GetButtonField, Joysticks};
+use jgenesis_native_driver::{
+    NativeEmulator, NativeGenesisEmulator, NativeSmsGgEmulator, NativeTickEffect,
 };
-use jgenesis_native_driver::{NativeEmulator, NativeTickEffect};
 use jgenesis_traits::frontend::EmulatorTrait;
 use sdl2::event::Event;
 use sdl2::joystick::HatState;
 use sdl2::pixels::Color;
 use sdl2::render::WindowCanvas;
 use sdl2::{EventPump, JoystickSubsystem};
-use smsgg_core::{SmsGgEmulator, SmsGgInputs};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::sync::{mpsc, Arc, Mutex, MutexGuard};
@@ -219,35 +217,29 @@ enum GenericConfig {
     Genesis(Box<GenesisConfig>),
 }
 
-fn smsgg_reload_handler(
-    emulator: &mut NativeEmulator<SmsGgInputs, SmsGgButton, SmsGgEmulator>,
-    config: GenericConfig,
-) {
+fn smsgg_reload_handler(emulator: &mut NativeSmsGgEmulator, config: GenericConfig) {
     if let GenericConfig::SmsGg(config) = config {
         emulator.reload_smsgg_config(config);
     }
 }
 
-fn genesis_reload_handler(
-    emulator: &mut NativeEmulator<GenesisInputs, GenesisButton, GenesisEmulator>,
-    config: GenericConfig,
-) {
+fn genesis_reload_handler(emulator: &mut NativeGenesisEmulator, config: GenericConfig) {
     if let GenericConfig::Genesis(config) = config {
         emulator.reload_genesis_config(config);
     }
 }
 
-fn run_emulator<Inputs, Button, Emulator>(
-    mut emulator: NativeEmulator<Inputs, Button, Emulator>,
+fn run_emulator<Inputs, Button, Config, Emulator>(
+    mut emulator: NativeEmulator<Inputs, Button, Config, Emulator>,
     command_receiver: &Receiver<EmuThreadCommand>,
     command_read_signal: &Arc<AtomicBool>,
     input_sender: &Sender<Option<GenericInput>>,
     emulator_error: &Arc<Mutex<Option<anyhow::Error>>>,
-    config_reload_handler: fn(&mut NativeEmulator<Inputs, Button, Emulator>, GenericConfig),
+    config_reload_handler: fn(&mut NativeEmulator<Inputs, Button, Config, Emulator>, GenericConfig),
 ) where
     Inputs: Clearable + GetButtonField<Button>,
     Button: Copy,
-    Emulator: EmulatorTrait<Inputs>,
+    Emulator: EmulatorTrait<Inputs, Config>,
     anyhow::Error: From<Emulator::Err<anyhow::Error, anyhow::Error, anyhow::Error>>,
 {
     loop {

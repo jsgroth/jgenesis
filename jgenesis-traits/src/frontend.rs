@@ -120,6 +120,12 @@ pub trait SaveWriter {
     fn persist_save(&mut self, save_bytes: &[u8]) -> Result<(), Self::Err>;
 }
 
+pub trait ConfigReload {
+    type Config;
+
+    fn reload_config(&mut self, config: &Self::Config);
+}
+
 pub trait TakeRomFrom {
     fn take_rom_from(&mut self, other: &mut Self);
 }
@@ -176,7 +182,13 @@ pub trait EmulatorDebug {
 }
 
 // Trait that simply combines useful trait bounds
-pub trait EmulatorTrait<Inputs>:
-    TickableEmulator<Inputs = Inputs> + Encode + Decode + TakeRomFrom + Resettable + EmulatorDebug
+pub trait EmulatorTrait<Inputs, Config>:
+    TickableEmulator<Inputs = Inputs>
+    + Encode
+    + Decode
+    + ConfigReload<Config = Config>
+    + TakeRomFrom
+    + Resettable
+    + EmulatorDebug
 {
 }

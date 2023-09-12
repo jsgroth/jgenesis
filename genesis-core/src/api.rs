@@ -7,8 +7,8 @@ use crate::ym2612::{Ym2612, YmTickEffect};
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_traits::frontend::{
-    AudioOutput, Color, EmulatorDebug, EmulatorTrait, FrameSize, PixelAspectRatio, Renderer,
-    Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
+    AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, FrameSize, PixelAspectRatio,
+    Renderer, Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
 };
 use jgenesis_traits::num::GetBit;
 use m68000_emu::M68000;
@@ -152,7 +152,7 @@ impl GenesisRegion {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct GenesisEmulatorConfig {
     pub forced_timing_mode: Option<GenesisTimingMode>,
     pub forced_region: Option<GenesisRegion>,
@@ -233,11 +233,6 @@ impl GenesisEmulator {
         }
     }
 
-    pub fn reload_config(&mut self, config: GenesisEmulatorConfig) {
-        self.aspect_ratio = config.aspect_ratio;
-        self.adjust_aspect_ratio_in_2x_resolution = config.adjust_aspect_ratio_in_2x_resolution;
-    }
-
     #[must_use]
     pub fn cartridge_title(&self) -> String {
         self.memory.cartridge_title()
@@ -246,6 +241,15 @@ impl GenesisEmulator {
     #[must_use]
     pub fn timing_mode(&self) -> GenesisTimingMode {
         self.timing_mode
+    }
+}
+
+impl ConfigReload for GenesisEmulator {
+    type Config = GenesisEmulatorConfig;
+
+    fn reload_config(&mut self, config: &Self::Config) {
+        self.aspect_ratio = config.aspect_ratio;
+        self.adjust_aspect_ratio_in_2x_resolution = config.adjust_aspect_ratio_in_2x_resolution;
     }
 }
 
@@ -405,4 +409,4 @@ impl EmulatorDebug for GenesisEmulator {
     }
 }
 
-impl EmulatorTrait<GenesisInputs> for GenesisEmulator {}
+impl EmulatorTrait<GenesisInputs, GenesisEmulatorConfig> for GenesisEmulator {}

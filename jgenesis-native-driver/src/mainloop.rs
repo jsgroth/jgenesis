@@ -9,15 +9,15 @@ use crate::input::{
 use crate::mainloop::debug::{CramDebug, VramDebug};
 use anyhow::{anyhow, Context};
 use bincode::{Decode, Encode};
-use genesis_core::{GenesisEmulator, GenesisInputs};
+use genesis_core::{GenesisEmulator, GenesisEmulatorConfig, GenesisInputs};
 use jgenesis_renderer::renderer::WgpuRenderer;
-use jgenesis_traits::frontend::{AudioOutput, EmulatorTrait, SaveWriter, TickEffect};
+use jgenesis_traits::frontend::{AudioOutput, ConfigReload, EmulatorTrait, SaveWriter, TickEffect};
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::event::{Event, WindowEvent};
 use sdl2::video::{FullscreenType, Window};
 use sdl2::{AudioSubsystem, EventPump, JoystickSubsystem, VideoSubsystem};
 use smsgg_core::psg::PsgVersion;
-use smsgg_core::{SmsGgEmulator, SmsGgInputs};
+use smsgg_core::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgInputs};
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
@@ -179,8 +179,9 @@ pub enum NativeTickEffect {
     Exit,
 }
 
-pub struct NativeEmulator<Inputs, Button, Emulator> {
+pub struct NativeEmulator<Inputs, Button, Config, Emulator> {
     emulator: Emulator,
+    config: Config,
     renderer: WgpuRenderer<Window>,
     audio_output: SdlAudioOutput,
     input_mapper: InputMapper<Inputs, Button>,
@@ -194,7 +195,7 @@ pub struct NativeEmulator<Inputs, Button, Emulator> {
     vram_debug: Option<VramDebug>,
 }
 
-impl<Inputs, Button, Emulator> NativeEmulator<Inputs, Button, Emulator> {
+impl<Inputs, Button, Config, Emulator> NativeEmulator<Inputs, Button, Config, Emulator> {
     fn reload_common_config<KC, JC>(&mut self, config: &CommonConfig<KC, JC>) {
         self.renderer.reload_config(config.renderer_config);
         self.audio_output.audio_sync = config.audio_sync;
@@ -226,7 +227,10 @@ impl<Inputs, Button, Emulator> NativeEmulator<Inputs, Button, Emulator> {
     }
 }
 
-impl NativeEmulator<SmsGgInputs, SmsGgButton, SmsGgEmulator> {
+pub type NativeSmsGgEmulator =
+    NativeEmulator<SmsGgInputs, SmsGgButton, SmsGgEmulatorConfig, SmsGgEmulator>;
+
+impl NativeSmsGgEmulator {
     pub fn reload_smsgg_config(&mut self, config: Box<SmsGgConfig>) {
         log::info!("Reloading config: {config}");
 
@@ -240,8 +244,10 @@ impl NativeEmulator<SmsGgInputs, SmsGgButton, SmsGgEmulator> {
                 PsgVersion::Standard
             }
         });
+
         let emulator_config = config.to_emulator_config(vdp_version, psg_version);
-        self.emulator.reload_config(emulator_config);
+        self.emulator.reload_config(&emulator_config);
+        self.config = emulator_config;
 
         if let Err(err) = self
             .input_mapper
@@ -252,12 +258,18 @@ impl NativeEmulator<SmsGgInputs, SmsGgButton, SmsGgEmulator> {
     }
 }
 
-impl NativeEmulator<GenesisInputs, GenesisButton, GenesisEmulator> {
+pub type NativeGenesisEmulator =
+    NativeEmulator<GenesisInputs, GenesisButton, GenesisEmulatorConfig, GenesisEmulator>;
+
+impl NativeGenesisEmulator {
     pub fn reload_genesis_config(&mut self, config: Box<GenesisConfig>) {
         log::info!("Reloading config: {config}");
 
         self.reload_common_config(&config.common);
-        self.emulator.reload_config(config.to_emulator_config());
+
+        let emulator_config = config.to_emulator_config();
+        self.emulator.reload_config(&emulator_config);
+        self.config = emulator_config;
 
         if let Err(err) = self.input_mapper.reload_config(
             config.p1_controller_type,
@@ -271,11 +283,11 @@ impl NativeEmulator<GenesisInputs, GenesisButton, GenesisEmulator> {
 }
 
 // TODO simplify or generalize these trait bounds
-impl<Inputs, Button, Emulator> NativeEmulator<Inputs, Button, Emulator>
+impl<Inputs, Button, Config, Emulator> NativeEmulator<Inputs, Button, Config, Emulator>
 where
     Inputs: Clearable + GetButtonField<Button>,
     Button: Copy,
-    Emulator: EmulatorTrait<Inputs>,
+    Emulator: EmulatorTrait<Inputs, Config>,
     anyhow::Error: From<Emulator::Err<anyhow::Error, anyhow::Error, anyhow::Error>>,
 {
     /// Run the emulator until a frame is rendered.
@@ -299,6 +311,7 @@ where
                         &self.hotkey_mapper,
                         &event,
                         &mut self.emulator,
+                        &self.config,
                         &mut self.renderer,
                         &mut self.audio_output,
                         &self.save_state_path,
@@ -367,9 +380,7 @@ where
 /// # Errors
 ///
 /// This function will propagate any video, audio, or disk errors encountered.
-pub fn create_smsgg(
-    config: Box<SmsGgConfig>,
-) -> anyhow::Result<NativeEmulator<SmsGgInputs, SmsGgButton, SmsGgEmulator>> {
+pub fn create_smsgg(config: Box<SmsGgConfig>) -> anyhow::Result<NativeSmsGgEmulator> {
     log::info!("Running with config: {config}");
 
     let rom_file_path = Path::new(&config.common.rom_file_path);
@@ -422,6 +433,7 @@ pub fn create_smsgg(
 
     Ok(NativeEmulator {
         emulator,
+        config: emulator_config,
         renderer,
         audio_output,
         input_mapper,
@@ -441,9 +453,7 @@ pub fn create_smsgg(
 /// # Errors
 ///
 /// This function will return an error upon encountering any video, audio, or I/O error.
-pub fn create_genesis(
-    config: Box<GenesisConfig>,
-) -> anyhow::Result<NativeEmulator<GenesisInputs, GenesisButton, GenesisEmulator>> {
+pub fn create_genesis(config: Box<GenesisConfig>) -> anyhow::Result<NativeGenesisEmulator> {
     log::info!("Running with config: {config}");
 
     let rom_file_path = Path::new(&config.common.rom_file_path);
@@ -457,7 +467,8 @@ pub fn create_genesis(
         log::info!("Loaded save file from {}", save_path.display());
     }
 
-    let emulator = GenesisEmulator::create(rom, initial_ram, config.to_emulator_config());
+    let emulator_config = config.to_emulator_config();
+    let emulator = GenesisEmulator::create(rom, initial_ram, emulator_config);
 
     let (video, audio, joystick, event_pump) = init_sdl()?;
 
@@ -492,6 +503,7 @@ pub fn create_genesis(
 
     Ok(NativeEmulator {
         emulator,
+        config: emulator_config,
         renderer,
         audio_output,
         input_mapper,
@@ -561,10 +573,11 @@ enum HotkeyResult {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn handle_hotkeys<Inputs, Emulator, P>(
+fn handle_hotkeys<Inputs, Config, Emulator, P>(
     hotkey_mapper: &HotkeyMapper,
     event: &Event,
     emulator: &mut Emulator,
+    config: &Config,
     renderer: &mut WgpuRenderer<Window>,
     audio_output: &mut SdlAudioOutput,
     save_state_path: P,
@@ -574,7 +587,7 @@ fn handle_hotkeys<Inputs, Emulator, P>(
     vram_debug: &mut Option<VramDebug>,
 ) -> anyhow::Result<HotkeyResult>
 where
-    Emulator: EmulatorTrait<Inputs>,
+    Emulator: EmulatorTrait<Inputs, Config>,
     P: AsRef<Path>,
 {
     let save_state_path = save_state_path.as_ref();
@@ -585,6 +598,7 @@ where
                 if handle_hotkey_pressed(
                     hotkey,
                     emulator,
+                    config,
                     renderer,
                     audio_output,
                     fast_forward_multiplier,
@@ -611,9 +625,10 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-fn handle_hotkey_pressed<Inputs, Emulator>(
+fn handle_hotkey_pressed<Inputs, Config, Emulator>(
     hotkey: Hotkey,
     emulator: &mut Emulator,
+    config: &Config,
     renderer: &mut WgpuRenderer<Window>,
     audio_output: &mut SdlAudioOutput,
     fast_forward_multiplier: u64,
@@ -623,7 +638,7 @@ fn handle_hotkey_pressed<Inputs, Emulator>(
     save_state_path: &Path,
 ) -> anyhow::Result<HotkeyResult>
 where
-    Emulator: EmulatorTrait<Inputs>,
+    Emulator: EmulatorTrait<Inputs, Config>,
 {
     match hotkey {
         Hotkey::Quit => {
@@ -649,6 +664,10 @@ where
                 }
             };
             loaded_emulator.take_rom_from(emulator);
+
+            // Force a config reload because the emulator will contain some config fields
+            loaded_emulator.reload_config(config);
+
             *emulator = loaded_emulator;
         }
         Hotkey::SoftReset => {

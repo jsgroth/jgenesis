@@ -9,8 +9,8 @@ use crate::{vdp, SmsGgInputs, VdpVersion};
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
 use jgenesis_traits::frontend::{
-    AudioOutput, Color, EmulatorDebug, EmulatorTrait, FrameSize, PixelAspectRatio, Renderer,
-    Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
+    AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, FrameSize, PixelAspectRatio,
+    Renderer, Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
 };
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
@@ -177,8 +177,18 @@ impl SmsGgEmulator {
     pub fn vdp_version(&self) -> VdpVersion {
         self.vdp_version
     }
+}
 
-    pub fn reload_config(&mut self, config: SmsGgEmulatorConfig) {
+fn init_z80(z80: &mut Z80) {
+    z80.set_pc(0x0000);
+    z80.set_sp(0xDFFF);
+    z80.set_interrupt_mode(InterruptMode::Mode1);
+}
+
+impl ConfigReload for SmsGgEmulator {
+    type Config = SmsGgEmulatorConfig;
+
+    fn reload_config(&mut self, config: &Self::Config) {
         self.psg.set_version(config.psg_version);
         self.pixel_aspect_ratio = config.pixel_aspect_ratio;
         self.vdp.set_remove_sprite_limit(config.remove_sprite_limit);
@@ -187,12 +197,6 @@ impl SmsGgEmulator {
         self.sms_crop_left_border = config.sms_crop_left_border;
         self.overclock_z80 = config.overclock_z80;
     }
-}
-
-fn init_z80(z80: &mut Z80) {
-    z80.set_pc(0x0000);
-    z80.set_sp(0xDFFF);
-    z80.set_interrupt_mode(InterruptMode::Mode1);
 }
 
 impl TakeRomFrom for SmsGgEmulator {
@@ -378,7 +382,7 @@ impl EmulatorDebug for SmsGgEmulator {
     }
 }
 
-impl EmulatorTrait<SmsGgInputs> for SmsGgEmulator {}
+impl EmulatorTrait<SmsGgInputs, SmsGgEmulatorConfig> for SmsGgEmulator {}
 
 fn populate_frame_buffer(
     vdp_buffer: &VdpBuffer,
