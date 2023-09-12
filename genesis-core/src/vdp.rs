@@ -844,6 +844,9 @@ const PAL_SCANLINES_PER_FRAME: u16 = 313;
 
 const MAX_SPRITES_PER_FRAME: usize = 80;
 
+// Sprites with X = $080 display at the left edge of the screen
+const SPRITE_H_DISPLAY_START: u16 = 0x080;
+
 impl GenesisTimingMode {
     fn scanlines_per_frame(self) -> u16 {
         match self {
@@ -1228,21 +1231,7 @@ impl Vdp {
         m68k.set_halted(self.dma_tracker.in_progress);
 
         if !self.dma_tracker.in_progress && !self.state.pending_writes.is_empty() {
-            let mut pending_writes = [PendingWrite::default(); 10];
-            let pending_writes_len = self.state.pending_writes.len();
-            pending_writes[..pending_writes_len].copy_from_slice(&self.state.pending_writes);
-            self.state.pending_writes.clear();
-
-            for &pending_write in &pending_writes[..pending_writes_len] {
-                match pending_write {
-                    PendingWrite::Control(value) => {
-                        self.write_control(value);
-                    }
-                    PendingWrite::Data(value) => {
-                        self.write_data(value);
-                    }
-                }
-            }
+            self.apply_pending_writes();
         }
 
         let scanlines_per_frame = self.timing_mode.scanlines_per_frame();
@@ -1305,6 +1294,24 @@ impl Vdp {
         }
 
         VdpTickEffect::None
+    }
+
+    fn apply_pending_writes(&mut self) {
+        let mut pending_writes = [PendingWrite::default(); 10];
+        let pending_writes_len = self.state.pending_writes.len();
+        pending_writes[..pending_writes_len].copy_from_slice(&self.state.pending_writes);
+        self.state.pending_writes.clear();
+
+        for &pending_write in &pending_writes[..pending_writes_len] {
+            match pending_write {
+                PendingWrite::Control(value) => {
+                    self.write_control(value);
+                }
+                PendingWrite::Data(value) => {
+                    self.write_data(value);
+                }
+            }
+        }
     }
 
     // TODO maybe do this piecemeal instead of all at once
@@ -1618,7 +1625,7 @@ impl Vdp {
         self.sprite_bit_set.clear();
         for sprite in &self.sprite_buffer {
             for x in sprite.h_position..sprite.h_position + 8 * u16::from(sprite.h_size_cells) {
-                let pixel = x.wrapping_sub(0x080);
+                let pixel = x.wrapping_sub(SPRITE_H_DISPLAY_START);
                 if pixel < SpriteBitSet::LEN {
                     self.sprite_bit_set.set(pixel);
                 }
@@ -1803,8 +1810,7 @@ impl Vdp {
         let sprite_display_top = self.registers.interlacing_mode.sprite_display_top();
         let cell_height = self.registers.interlacing_mode.cell_height();
 
-        // Sprite horizontal display area starts at $080
-        let sprite_pixel = 0x080 + pixel;
+        let sprite_pixel = SPRITE_H_DISPLAY_START + pixel;
 
         let mut found_sprite: Option<(&SpriteData, u8)> = None;
         for sprite in &self.sprite_buffer {
@@ -1824,7 +1830,7 @@ impl Vdp {
                 sprite_row
             };
 
-            let sprite_col = 0x080 + pixel - sprite.h_position;
+            let sprite_col = sprite_pixel - sprite.h_position;
             let sprite_col =
                 if sprite.horizontal_flip { 8 * h_size_cells - 1 - sprite_col } else { sprite_col };
 
