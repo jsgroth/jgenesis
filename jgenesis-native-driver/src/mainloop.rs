@@ -200,6 +200,7 @@ impl<Inputs, Button, Emulator> NativeEmulator<Inputs, Button, Emulator> {
 
         self.fast_forward_multiplier = config.fast_forward_multiplier;
         // Reset speed multiplier in case the fast forward hotkey changed
+        self.renderer.set_speed_multiplier(1);
         self.audio_output.speed_multiplier = 1;
 
         match HotkeyMapper::from_config(&config.hotkeys) {

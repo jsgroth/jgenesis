@@ -558,9 +558,6 @@ impl<Window> WgpuRenderer<Window> {
 
         // Force render pipeline to be recreated on the next render_frame() call
         self.pipeline = None;
-
-        // Reset speed multiplier in case the fast forward hotkey changed
-        self.speed_multiplier = 1;
     }
 
     pub fn handle_resize(&mut self) {
@@ -623,7 +620,7 @@ impl<Window> WgpuRenderer<Window> {
     ///
     /// This method will panic if `speed_multiplier` is 0.
     pub fn set_speed_multiplier(&mut self, speed_multiplier: u64) {
-        assert_ne!(speed_multiplier, 0, "speed multiplier must be non-negative");
+        assert_ne!(speed_multiplier, 0, "speed multiplier must be non-zero");
         self.speed_multiplier = speed_multiplier;
     }
 }
