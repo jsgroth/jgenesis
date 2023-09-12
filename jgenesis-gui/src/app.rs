@@ -703,12 +703,6 @@ impl App {
     fn render_smsgg_audio_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("SMS/GG Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.set_enabled(self.emu_thread.status() != EmuThreadStatus::RunningSmsGg);
-            ui.checkbox(
-                &mut self.config.smsgg.fm_sound_unit_enabled,
-                "Sega Master System FM sound unit enabled",
-            );
-
             ui.group(|ui| {
                 ui.label("SMS/GG PSG version");
 
@@ -730,6 +724,12 @@ impl App {
                     .on_hover_text("SMS1 and Game Gear PSGs correctly play high volumes");
                 });
             });
+
+            ui.set_enabled(self.emu_thread.status() != EmuThreadStatus::RunningSmsGg);
+            ui.checkbox(
+                &mut self.config.smsgg.fm_sound_unit_enabled,
+                "Sega Master System FM sound unit enabled",
+            );
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::SmsGgAudio);

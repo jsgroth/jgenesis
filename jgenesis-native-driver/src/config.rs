@@ -100,13 +100,18 @@ pub struct SmsGgConfig {
 }
 
 impl SmsGgConfig {
-    pub(crate) fn to_emulator_config(&self, vdp_version: VdpVersion) -> SmsGgEmulatorConfig {
+    pub(crate) fn to_emulator_config(
+        &self,
+        vdp_version: VdpVersion,
+        psg_version: PsgVersion,
+    ) -> SmsGgEmulatorConfig {
         let pixel_aspect_ratio = if vdp_version.is_master_system() {
             self.sms_aspect_ratio.to_pixel_aspect_ratio()
         } else {
             self.gg_aspect_ratio.to_pixel_aspect_ratio()
         };
         SmsGgEmulatorConfig {
+            psg_version,
             pixel_aspect_ratio,
             remove_sprite_limit: self.remove_sprite_limit,
             sms_region: self.sms_region,

@@ -16,6 +16,7 @@ use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::event::{Event, WindowEvent};
 use sdl2::video::{FullscreenType, Window};
 use sdl2::{AudioSubsystem, EventPump, JoystickSubsystem, VideoSubsystem};
+use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgEmulator, SmsGgInputs};
 use std::ffi::OsStr;
 use std::fs::File;
@@ -231,8 +232,16 @@ impl NativeEmulator<SmsGgInputs, SmsGgButton, SmsGgEmulator> {
 
         self.reload_common_config(&config.common);
 
-        let emulator_config = config.to_emulator_config(self.emulator.vdp_version());
-        self.emulator.reload_config(config.psg_version, emulator_config);
+        let vdp_version = self.emulator.vdp_version();
+        let psg_version = config.psg_version.unwrap_or_else(|| {
+            if vdp_version.is_master_system() {
+                PsgVersion::MasterSystem2
+            } else {
+                PsgVersion::Standard
+            }
+        });
+        let emulator_config = config.to_emulator_config(vdp_version, psg_version);
+        self.emulator.reload_config(emulator_config);
 
         if let Err(err) = self
             .input_mapper
@@ -395,7 +404,7 @@ pub fn create_smsgg(
         config.common.launch_in_fullscreen,
     )?;
 
-    let emulator_config = config.to_emulator_config(vdp_version);
+    let emulator_config = config.to_emulator_config(vdp_version, psg_version);
 
     let renderer =
         pollster::block_on(WgpuRenderer::new(window, Window::size, config.common.renderer_config))?;
@@ -409,13 +418,7 @@ pub fn create_smsgg(
     let hotkey_mapper = HotkeyMapper::from_config(&config.common.hotkeys)?;
     let save_writer = FsSaveWriter::new(save_path);
 
-    let emulator = SmsGgEmulator::create(
-        rom,
-        initial_cartridge_ram,
-        vdp_version,
-        psg_version,
-        emulator_config,
-    );
+    let emulator = SmsGgEmulator::create(rom, initial_cartridge_ram, vdp_version, emulator_config);
 
     Ok(NativeEmulator {
         emulator,
