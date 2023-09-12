@@ -610,6 +610,7 @@ pub enum Hotkey {
     SoftReset,
     HardReset,
     FastForward,
+    Rewind,
     OpenCramDebug,
     OpenVramDebug,
 }
@@ -642,6 +643,7 @@ impl HotkeyMapper {
             (&config.soft_reset, Hotkey::SoftReset),
             (&config.hard_reset, Hotkey::HardReset),
             (&config.fast_forward, Hotkey::FastForward),
+            (&config.rewind, Hotkey::Rewind),
             (&config.open_cram_debug, Hotkey::OpenCramDebug),
             (&config.open_vram_debug, Hotkey::OpenVramDebug),
         ] {

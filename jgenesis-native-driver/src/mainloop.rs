@@ -1,4 +1,5 @@
 mod debug;
+mod rewind;
 
 use crate::config;
 use crate::config::{CommonConfig, GenesisConfig, SmsGgConfig, WindowSize};
@@ -7,11 +8,14 @@ use crate::input::{
     Joysticks, SmsGgButton,
 };
 use crate::mainloop::debug::{CramDebug, VramDebug};
+use crate::mainloop::rewind::Rewinder;
 use anyhow::{anyhow, Context};
 use bincode::{Decode, Encode};
 use genesis_core::{GenesisEmulator, GenesisEmulatorConfig, GenesisInputs};
 use jgenesis_renderer::renderer::WgpuRenderer;
-use jgenesis_traits::frontend::{AudioOutput, ConfigReload, EmulatorTrait, SaveWriter, TickEffect};
+use jgenesis_traits::frontend::{
+    AudioOutput, ConfigReload, EmulatorTrait, LightClone, SaveWriter, TickEffect,
+};
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::event::{Event, WindowEvent};
 use sdl2::video::{FullscreenType, Window};
@@ -179,7 +183,7 @@ pub enum NativeTickEffect {
     Exit,
 }
 
-pub struct NativeEmulator<Inputs, Button, Config, Emulator> {
+pub struct NativeEmulator<Inputs, Button, Config, Emulator: LightClone> {
     emulator: Emulator,
     config: Config,
     renderer: WgpuRenderer<Window>,
@@ -190,12 +194,15 @@ pub struct NativeEmulator<Inputs, Button, Config, Emulator> {
     event_pump: EventPump,
     save_state_path: PathBuf,
     fast_forward_multiplier: u64,
+    rewinder: Rewinder<Emulator>,
     video: VideoSubsystem,
     cram_debug: Option<CramDebug>,
     vram_debug: Option<VramDebug>,
 }
 
-impl<Inputs, Button, Config, Emulator> NativeEmulator<Inputs, Button, Config, Emulator> {
+impl<Inputs, Button, Config, Emulator: LightClone>
+    NativeEmulator<Inputs, Button, Config, Emulator>
+{
     fn reload_common_config<KC, JC>(&mut self, config: &CommonConfig<KC, JC>) {
         self.renderer.reload_config(config.renderer_config);
         self.audio_output.audio_sync = config.audio_sync;
@@ -204,6 +211,8 @@ impl<Inputs, Button, Config, Emulator> NativeEmulator<Inputs, Button, Config, Em
         // Reset speed multiplier in case the fast forward hotkey changed
         self.renderer.set_speed_multiplier(1);
         self.audio_output.speed_multiplier = 1;
+
+        self.rewinder.set_buffer_duration(Duration::from_secs(config.rewind_buffer_length_seconds));
 
         match HotkeyMapper::from_config(&config.hotkeys) {
             Ok(hotkey_mapper) => {
@@ -298,13 +307,16 @@ where
     /// samples, or writing save files.
     pub fn render_frame(&mut self) -> anyhow::Result<NativeTickEffect> {
         loop {
-            if self.emulator.tick(
-                &mut self.renderer,
-                &mut self.audio_output,
-                self.input_mapper.inputs(),
-                &mut self.save_writer,
-            )? == TickEffect::FrameRendered
-            {
+            let rewinding = self.rewinder.is_rewinding();
+            let frame_rendered = !rewinding
+                && self.emulator.tick(
+                    &mut self.renderer,
+                    &mut self.audio_output,
+                    self.input_mapper.inputs(),
+                    &mut self.save_writer,
+                )? == TickEffect::FrameRendered;
+
+            if rewinding || frame_rendered {
                 for event in self.event_pump.poll_iter() {
                     self.input_mapper.handle_event(&event)?;
                     if handle_hotkeys(
@@ -316,6 +328,7 @@ where
                         &mut self.audio_output,
                         &self.save_state_path,
                         self.fast_forward_multiplier,
+                        &mut self.rewinder,
                         &self.video,
                         &mut self.cram_debug,
                         &mut self.vram_debug,
@@ -359,6 +372,15 @@ where
 
                 if let Some(vram_debug) = &mut self.vram_debug {
                     vram_debug.render(&self.emulator)?;
+                }
+
+                if frame_rendered {
+                    self.rewinder.record_frame(&self.emulator);
+                }
+
+                if rewinding {
+                    self.rewinder.tick(&mut self.emulator, &mut self.renderer)?;
+                    sleep(Duration::from_millis(1));
                 }
 
                 return Ok(NativeTickEffect::None);
@@ -442,6 +464,7 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> anyhow::Result<NativeSmsGgEmula
         event_pump,
         save_state_path,
         fast_forward_multiplier: config.common.fast_forward_multiplier,
+        rewinder: Rewinder::new(Duration::from_secs(config.common.rewind_buffer_length_seconds)),
         video,
         cram_debug: None,
         vram_debug: None,
@@ -512,6 +535,7 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> anyhow::Result<NativeGenesi
         event_pump,
         save_state_path,
         fast_forward_multiplier: config.common.fast_forward_multiplier,
+        rewinder: Rewinder::new(Duration::from_secs(config.common.rewind_buffer_length_seconds)),
         video,
         cram_debug: None,
         vram_debug: None,
@@ -582,6 +606,7 @@ fn handle_hotkeys<Inputs, Config, Emulator, P>(
     audio_output: &mut SdlAudioOutput,
     save_state_path: P,
     fast_forward_multiplier: u64,
+    rewinder: &mut Rewinder<Emulator>,
     video: &VideoSubsystem,
     cram_debug: &mut Option<CramDebug>,
     vram_debug: &mut Option<VramDebug>,
@@ -602,6 +627,7 @@ where
                     renderer,
                     audio_output,
                     fast_forward_multiplier,
+                    rewinder,
                     video,
                     cram_debug,
                     vram_debug,
@@ -613,9 +639,17 @@ where
             }
         }
         HotkeyMapResult::Released(hotkeys) => {
-            if hotkeys.contains(&Hotkey::FastForward) {
-                renderer.set_speed_multiplier(1);
-                audio_output.speed_multiplier = 1;
+            for &hotkey in hotkeys {
+                match hotkey {
+                    Hotkey::FastForward => {
+                        renderer.set_speed_multiplier(1);
+                        audio_output.speed_multiplier = 1;
+                    }
+                    Hotkey::Rewind => {
+                        rewinder.stop_rewinding();
+                    }
+                    _ => {}
+                }
             }
         }
         HotkeyMapResult::None => {}
@@ -632,6 +666,7 @@ fn handle_hotkey_pressed<Inputs, Config, Emulator>(
     renderer: &mut WgpuRenderer<Window>,
     audio_output: &mut SdlAudioOutput,
     fast_forward_multiplier: u64,
+    rewinder: &mut Rewinder<Emulator>,
     video: &VideoSubsystem,
     cram_debug: &mut Option<CramDebug>,
     vram_debug: &mut Option<VramDebug>,
@@ -679,6 +714,9 @@ where
         Hotkey::FastForward => {
             renderer.set_speed_multiplier(fast_forward_multiplier);
             audio_output.speed_multiplier = fast_forward_multiplier;
+        }
+        Hotkey::Rewind => {
+            rewinder.start_rewinding();
         }
         Hotkey::OpenCramDebug => {
             if cram_debug.is_none() {

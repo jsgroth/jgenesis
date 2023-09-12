@@ -7,8 +7,8 @@ use crate::ym2612::{Ym2612, YmTickEffect};
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_traits::frontend::{
-    AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, FrameSize, PixelAspectRatio,
-    Renderer, Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
+    AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, FrameSize, LightClone,
+    PixelAspectRatio, Renderer, Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
 };
 use jgenesis_traits::num::GetBit;
 use m68000_emu::M68000;
@@ -242,6 +242,18 @@ impl GenesisEmulator {
     pub fn timing_mode(&self) -> GenesisTimingMode {
         self.timing_mode
     }
+
+    fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
+        let frame_width = self.vdp.screen_width();
+        let frame_height = self.vdp.screen_height();
+
+        let frame_size = FrameSize { width: frame_width, height: frame_height };
+        let pixel_aspect_ratio = self
+            .aspect_ratio
+            .to_pixel_aspect_ratio(frame_size, self.adjust_aspect_ratio_in_2x_resolution);
+
+        renderer.render_frame(self.vdp.frame_buffer(), frame_size, pixel_aspect_ratio)
+    }
 }
 
 impl ConfigReload for GenesisEmulator {
@@ -250,6 +262,34 @@ impl ConfigReload for GenesisEmulator {
     fn reload_config(&mut self, config: &Self::Config) {
         self.aspect_ratio = config.aspect_ratio;
         self.adjust_aspect_ratio_in_2x_resolution = config.adjust_aspect_ratio_in_2x_resolution;
+    }
+}
+
+pub struct GenesisEmulatorClone(GenesisEmulator);
+
+impl LightClone for GenesisEmulator {
+    type Clone = GenesisEmulatorClone;
+
+    fn light_clone(&self) -> Self::Clone {
+        GenesisEmulatorClone(Self {
+            memory: self.memory.clone_without_rom(),
+            m68k: self.m68k.clone(),
+            z80: self.z80.clone(),
+            vdp: self.vdp.clone(),
+            psg: self.psg.clone(),
+            ym2612: self.ym2612.clone(),
+            input: self.input.clone(),
+            timing_mode: self.timing_mode,
+            aspect_ratio: self.aspect_ratio,
+            adjust_aspect_ratio_in_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
+            audio_downsampler: self.audio_downsampler.clone(),
+            master_clock_cycles: self.master_clock_cycles,
+        })
+    }
+
+    fn reconstruct_from(&mut self, mut clone: Self::Clone) {
+        clone.0.memory.take_rom_from(&mut self.memory);
+        *self = clone.0;
     }
 }
 
@@ -331,17 +371,7 @@ impl TickableEmulator for GenesisEmulator {
         if self.vdp.tick(elapsed_mclk_cycles, &self.memory, &mut self.m68k)
             == VdpTickEffect::FrameComplete
         {
-            let frame_width = self.vdp.screen_width();
-            let frame_height = self.vdp.screen_height();
-
-            let frame_size = FrameSize { width: frame_width, height: frame_height };
-            let pixel_aspect_ratio = self
-                .aspect_ratio
-                .to_pixel_aspect_ratio(frame_size, self.adjust_aspect_ratio_in_2x_resolution);
-
-            renderer
-                .render_frame(self.vdp.frame_buffer(), frame_size, pixel_aspect_ratio)
-                .map_err(GenesisError::Render)?;
+            self.render_frame(renderer).map_err(GenesisError::Render)?;
 
             self.input.set_inputs(inputs);
 
@@ -358,6 +388,13 @@ impl TickableEmulator for GenesisEmulator {
         }
 
         Ok(TickEffect::None)
+    }
+
+    fn force_render<R>(&mut self, renderer: &mut R) -> Result<(), R::Err>
+    where
+        R: Renderer,
+    {
+        self.render_frame(renderer)
     }
 }
 

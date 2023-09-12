@@ -47,6 +47,8 @@ struct CommonAppConfig {
     filter_mode: FilterMode,
     #[serde(default = "default_fast_forward_multiplier")]
     fast_forward_multiplier: u64,
+    #[serde(default = "default_rewind_buffer_length")]
+    rewind_buffer_length_seconds: u64,
 }
 
 impl CommonAppConfig {
@@ -74,6 +76,10 @@ fn default_prescale_factor() -> PrescaleFactor {
 
 fn default_fast_forward_multiplier() -> u64 {
     2
+}
+
+fn default_rewind_buffer_length() -> u64 {
+    10
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -171,6 +177,7 @@ impl AppConfig {
                 use_webgl2_limits: false,
             },
             fast_forward_multiplier: self.common.fast_forward_multiplier,
+            rewind_buffer_length_seconds: self.common.rewind_buffer_length_seconds,
             launch_in_fullscreen: self.common.launch_in_fullscreen,
             keyboard_inputs,
             axis_deadzone: self.inputs.axis_deadzone,
@@ -259,6 +266,8 @@ struct AppState {
     axis_deadzone_invalid: bool,
     ff_multiplier_text: String,
     ff_multiplier_invalid: bool,
+    rewind_buffer_len_text: String,
+    rewind_buffer_len_invalid: bool,
     waiting_for_input: Option<GenericButton>,
     rom_list: Vec<RomMetadata>,
 }
@@ -276,6 +285,8 @@ impl AppState {
             axis_deadzone_invalid: false,
             ff_multiplier_text: config.common.fast_forward_multiplier.to_string(),
             ff_multiplier_invalid: false,
+            rewind_buffer_len_text: config.common.rewind_buffer_length_seconds.to_string(),
+            rewind_buffer_len_invalid: false,
             waiting_for_input: None,
             rom_list,
         }

@@ -175,6 +175,21 @@ impl Cartridge {
             self.ram_dirty = true;
         }
     }
+
+    fn clone_without_rom(&self) -> Self {
+        Self {
+            rom: Rom(vec![]),
+            ram: self.ram.clone(),
+            mapper: self.mapper,
+            has_battery: self.has_battery,
+            rom_bank_0: self.rom_bank_0,
+            rom_bank_1: self.rom_bank_1,
+            rom_bank_2: self.rom_bank_2,
+            ram_mapped: self.ram_mapped,
+            ram_bank: self.ram_bank,
+            ram_dirty: self.ram_dirty,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]
@@ -274,6 +289,14 @@ impl Memory {
 
     pub fn clear_cartridge_ram_dirty(&mut self) {
         self.cartridge.ram_dirty = false;
+    }
+
+    pub fn clone_without_rom(&self) -> Self {
+        Self {
+            cartridge: self.cartridge.clone_without_rom(),
+            ram: self.ram,
+            audio_control: self.audio_control,
+        }
     }
 
     pub fn take_rom_from(&mut self, other: &mut Self) {

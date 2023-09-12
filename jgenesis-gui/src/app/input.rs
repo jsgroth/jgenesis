@@ -218,6 +218,9 @@ impl InputAppConfig {
             Hotkey::FastForward => {
                 self.hotkeys.fast_forward = Some(input);
             }
+            Hotkey::Rewind => {
+                self.hotkeys.rewind = Some(input);
+            }
             Hotkey::OpenCramDebug => {
                 self.hotkeys.open_cram_debug = Some(input);
             }
@@ -617,6 +620,12 @@ impl App {
                     ui,
                 );
                 self.hotkey_button(
+                    self.config.inputs.hotkeys.rewind.clone(),
+                    "Rewind",
+                    Hotkey::Rewind,
+                    ui,
+                );
+                self.hotkey_button(
                     self.config.inputs.hotkeys.open_cram_debug.clone(),
                     "CRAM debug window",
                     Hotkey::OpenCramDebug,
@@ -655,6 +664,32 @@ impl App {
                 ui.colored_label(
                     Color32::RED,
                     "Fast forward multiplier must be a positive integer",
+                );
+            }
+
+            ui.horizontal(|ui| {
+                if TextEdit::singleline(&mut self.state.rewind_buffer_len_text)
+                    .desired_width(30.0)
+                    .ui(ui)
+                    .changed()
+                {
+                    match self.state.rewind_buffer_len_text.parse::<u64>() {
+                        Ok(rewind_buffer_len) => {
+                            self.config.common.rewind_buffer_length_seconds = rewind_buffer_len;
+                            self.state.rewind_buffer_len_invalid = false;
+                        }
+                        Err(_) => {
+                            self.state.rewind_buffer_len_invalid = true;
+                        }
+                    }
+                }
+
+                ui.label("Rewind buffer length in seconds");
+            });
+            if self.state.rewind_buffer_len_invalid {
+                ui.colored_label(
+                    Color32::RED,
+                    "Rewind buffer length must be a non-negative integer",
                 );
             }
         });
@@ -796,6 +831,9 @@ impl App {
                 }
                 Hotkey::FastForward => {
                     self.config.inputs.hotkeys.fast_forward = None;
+                }
+                Hotkey::Rewind => {
+                    self.config.inputs.hotkeys.rewind = None;
                 }
                 Hotkey::OpenCramDebug => {
                     self.config.inputs.hotkeys.open_cram_debug = None;

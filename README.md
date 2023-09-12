@@ -13,10 +13,9 @@ Cross-platform multi-console Sega emulator that supports the Sega Genesis / Mega
 * Support for the Sega Master System FM sound unit expansion
 * Support for both 3-button and 6-button Genesis controllers
 * Support for keyboard controls and DirectInput gamepad controls
-* Save states and fast forward
+* Save states, fast forward, and rewind
 
 Major TODOs:
-* Support rewind
 * Build out web UI
 * Implement a few remaining YM2612 features (CSM and SSG-EG, they're obscure but some games did use them)
 

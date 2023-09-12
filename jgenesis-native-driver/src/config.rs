@@ -73,6 +73,7 @@ pub struct CommonConfig<KeyboardConfig, JoystickConfig> {
     #[indent_nested]
     pub renderer_config: RendererConfig,
     pub fast_forward_multiplier: u64,
+    pub rewind_buffer_length_seconds: u64,
     pub launch_in_fullscreen: bool,
     #[indent_nested]
     pub keyboard_inputs: KeyboardConfig,

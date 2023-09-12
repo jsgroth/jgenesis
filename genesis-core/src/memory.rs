@@ -145,6 +145,16 @@ impl Cartridge {
             self.external_memory.write_word(address, value);
         }
     }
+
+    fn clone_without_rom(&self) -> Self {
+        Self {
+            rom: Rom(vec![]),
+            external_memory: self.external_memory.clone(),
+            ram_mapped: self.ram_mapped,
+            mapper: self.mapper,
+            region: self.region,
+        }
+    }
 }
 
 const MAIN_RAM_LEN: usize = 64 * 1024;
@@ -168,7 +178,7 @@ impl Z80BankRegister {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Encode, Decode)]
 struct Signals {
     z80_busreq: bool,
     z80_reset: bool,
@@ -211,6 +221,16 @@ impl Memory {
                 ])
             }
             _ => 0xFF,
+        }
+    }
+
+    pub fn clone_without_rom(&self) -> Self {
+        Self {
+            cartridge: self.cartridge.clone_without_rom(),
+            main_ram: self.main_ram.clone(),
+            audio_ram: self.audio_ram.clone(),
+            z80_bank_register: self.z80_bank_register,
+            signals: self.signals,
         }
     }
 

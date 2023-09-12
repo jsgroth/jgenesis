@@ -9,8 +9,8 @@ use crate::{vdp, SmsGgInputs, VdpVersion};
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
 use jgenesis_traits::frontend::{
-    AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, FrameSize, PixelAspectRatio,
-    Renderer, Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
+    AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, FrameSize, LightClone,
+    PixelAspectRatio, Renderer, Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
 };
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
@@ -177,6 +177,34 @@ impl SmsGgEmulator {
     pub fn vdp_version(&self) -> VdpVersion {
         self.vdp_version
     }
+
+    fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
+        let crop_vertical_border =
+            self.vdp_version.is_master_system() && self.sms_crop_vertical_border;
+        let crop_left_border = self.vdp_version.is_master_system() && self.sms_crop_left_border;
+        populate_frame_buffer(
+            self.vdp.frame_buffer(),
+            self.vdp_version,
+            crop_vertical_border,
+            crop_left_border,
+            &mut self.frame_buffer,
+        );
+
+        let viewport = self.vdp_version.viewport_size();
+        let frame_width = if crop_left_border {
+            viewport.width_without_border().into()
+        } else {
+            viewport.width.into()
+        };
+        let frame_height = if crop_vertical_border {
+            viewport.height_without_border().into()
+        } else {
+            viewport.height.into()
+        };
+
+        let frame_size = FrameSize { width: frame_width, height: frame_height };
+        renderer.render_frame(&self.frame_buffer, frame_size, self.pixel_aspect_ratio)
+    }
 }
 
 fn init_z80(z80: &mut Z80) {
@@ -196,6 +224,40 @@ impl ConfigReload for SmsGgEmulator {
         self.sms_crop_vertical_border = config.sms_crop_vertical_border;
         self.sms_crop_left_border = config.sms_crop_left_border;
         self.overclock_z80 = config.overclock_z80;
+    }
+}
+
+pub struct SmsGgEmulatorClone(SmsGgEmulator);
+
+impl LightClone for SmsGgEmulator {
+    type Clone = SmsGgEmulatorClone;
+
+    fn light_clone(&self) -> Self::Clone {
+        SmsGgEmulatorClone(Self {
+            memory: self.memory.clone_without_rom(),
+            z80: self.z80.clone(),
+            vdp: self.vdp.clone(),
+            vdp_version: self.vdp_version,
+            pixel_aspect_ratio: self.pixel_aspect_ratio,
+            psg: self.psg.clone(),
+            ym2413: self.ym2413.clone(),
+            input: self.input.clone(),
+            low_pass_filter: self.low_pass_filter.clone(),
+            frame_buffer: self.frame_buffer.clone(),
+            sms_crop_vertical_border: self.sms_crop_vertical_border,
+            sms_crop_left_border: self.sms_crop_left_border,
+            overclock_z80: self.overclock_z80,
+            z80_cycles_remainder: self.z80_cycles_remainder,
+            vdp_cycles_remainder: self.vdp_cycles_remainder,
+            sample_count: self.sample_count,
+            frame_count: self.frame_count,
+            reset_frames_remaining: self.reset_frames_remaining,
+        })
+    }
+
+    fn reconstruct_from(&mut self, mut clone: Self::Clone) {
+        clone.0.memory.take_rom_from(&mut self.memory);
+        *self = clone.0;
     }
 }
 
@@ -288,34 +350,7 @@ impl TickableEmulator for SmsGgEmulator {
         let vdp_cycles = t_cycles_plus_leftover / 2 * 3;
         for _ in 0..vdp_cycles {
             if self.vdp.tick() == VdpTickEffect::FrameComplete {
-                let crop_vertical_border =
-                    self.vdp_version.is_master_system() && self.sms_crop_vertical_border;
-                let crop_left_border =
-                    self.vdp_version.is_master_system() && self.sms_crop_left_border;
-                populate_frame_buffer(
-                    self.vdp.frame_buffer(),
-                    self.vdp_version,
-                    crop_vertical_border,
-                    crop_left_border,
-                    &mut self.frame_buffer,
-                );
-
-                let viewport = self.vdp_version.viewport_size();
-                let frame_width = if crop_left_border {
-                    viewport.width_without_border().into()
-                } else {
-                    viewport.width.into()
-                };
-                let frame_height = if crop_vertical_border {
-                    viewport.height_without_border().into()
-                } else {
-                    viewport.height.into()
-                };
-
-                let frame_size = FrameSize { width: frame_width, height: frame_height };
-                renderer
-                    .render_frame(&self.frame_buffer, frame_size, self.pixel_aspect_ratio)
-                    .map_err(SmsGgError::Render)?;
+                self.render_frame(renderer).map_err(SmsGgError::Render)?;
                 frame_rendered = true;
 
                 self.input.set_inputs(inputs);
@@ -336,6 +371,13 @@ impl TickableEmulator for SmsGgEmulator {
         }
 
         Ok(if frame_rendered { TickEffect::FrameRendered } else { TickEffect::None })
+    }
+
+    fn force_render<R>(&mut self, renderer: &mut R) -> Result<(), R::Err>
+    where
+        R: Renderer,
+    {
+        self.render_frame(renderer)
     }
 }
 

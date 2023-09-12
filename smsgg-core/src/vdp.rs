@@ -531,13 +531,13 @@ pub const FRAME_BUFFER_LEN: usize = SCREEN_WIDTH as usize * SCREEN_HEIGHT as usi
 
 #[derive(Debug, Clone)]
 pub struct VdpBuffer {
-    buffer: [u16; FRAME_BUFFER_LEN],
+    buffer: Vec<u16>,
     viewport: ViewportSize,
 }
 
 impl VdpBuffer {
     fn new(version: VdpVersion) -> Self {
-        Self { buffer: [0; FRAME_BUFFER_LEN], viewport: version.viewport_size() }
+        Self { buffer: vec![0; FRAME_BUFFER_LEN], viewport: version.viewport_size() }
     }
 
     #[inline]
@@ -572,14 +572,14 @@ impl Encode for VdpBuffer {
 impl Decode for VdpBuffer {
     fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError> {
         let viewport = ViewportSize::decode(decoder)?;
-        Ok(Self { buffer: [0; FRAME_BUFFER_LEN], viewport })
+        Ok(Self { buffer: vec![0; FRAME_BUFFER_LEN], viewport })
     }
 }
 
 impl<'de> BorrowDecode<'de> for VdpBuffer {
     fn borrow_decode<D: BorrowDecoder<'de>>(decoder: &mut D) -> Result<Self, DecodeError> {
         let viewport = ViewportSize::borrow_decode(decoder)?;
-        Ok(Self { buffer: [0; FRAME_BUFFER_LEN], viewport })
+        Ok(Self { buffer: vec![0; FRAME_BUFFER_LEN], viewport })
     }
 }
 

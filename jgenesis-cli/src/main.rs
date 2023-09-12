@@ -130,6 +130,10 @@ struct Args {
     #[arg(long, default_value_t = 2)]
     fast_forward_multiplier: u64,
 
+    /// Rewind buffer length in seconds
+    #[arg(long, default_value_t = 10)]
+    rewind_buffer_length_seconds: u64,
+
     /// P1 Genesis controller type (ThreeButton / SixButton)
     #[arg(long, default_value_t)]
     input_p1_type: GenesisControllerType,
@@ -221,6 +225,10 @@ struct Args {
     /// Fast forward hotkey
     #[arg(long, default_value_t = String::from("Tab"))]
     hotkey_fast_forward: String,
+
+    /// Rewind hotkey
+    #[arg(long, default_value_t = String::from("`"))]
+    hotkey_rewind: String,
 
     /// CRAM debug window hotkey
     #[arg(long, default_value_t = String::from(";"))]
@@ -316,6 +324,7 @@ impl Args {
             soft_reset: Some(keyboard_input(&self.hotkey_soft_reset)),
             hard_reset: Some(keyboard_input(&self.hotkey_hard_reset)),
             fast_forward: Some(keyboard_input(&self.hotkey_fast_forward)),
+            rewind: Some(keyboard_input(&self.hotkey_rewind)),
             open_cram_debug: Some(keyboard_input(&self.hotkey_cram_debug)),
             open_vram_debug: Some(keyboard_input(&self.hotkey_vram_debug)),
         }
@@ -334,6 +343,7 @@ impl Args {
             window_size: self.window_size(),
             renderer_config: self.renderer_config(),
             fast_forward_multiplier: self.fast_forward_multiplier,
+            rewind_buffer_length_seconds: self.rewind_buffer_length_seconds,
             launch_in_fullscreen: self.fullscreen,
             keyboard_inputs,
             axis_deadzone: self.joy_axis_deadzone,

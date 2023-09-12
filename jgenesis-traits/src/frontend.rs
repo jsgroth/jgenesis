@@ -126,6 +126,14 @@ pub trait ConfigReload {
     fn reload_config(&mut self, config: &Self::Config);
 }
 
+pub trait LightClone {
+    type Clone;
+
+    fn light_clone(&self) -> Self::Clone;
+
+    fn reconstruct_from(&mut self, clone: Self::Clone);
+}
+
 pub trait TakeRomFrom {
     fn take_rom_from(&mut self, other: &mut Self);
 }
@@ -158,6 +166,15 @@ pub trait TickableEmulator {
         R: Renderer,
         A: AudioOutput,
         S: SaveWriter;
+
+    /// Forcibly render the current frame buffer.
+    ///
+    /// # Errors
+    ///
+    /// This method can propagate any error returned by the renderer.
+    fn force_render<R>(&mut self, renderer: &mut R) -> Result<(), R::Err>
+    where
+        R: Renderer;
 }
 
 pub trait Resettable {
@@ -187,6 +204,7 @@ pub trait EmulatorTrait<Inputs, Config>:
     + Encode
     + Decode
     + ConfigReload<Config = Config>
+    + LightClone
     + TakeRomFrom
     + Resettable
     + EmulatorDebug
