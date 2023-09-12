@@ -107,6 +107,7 @@ pub struct SmsGgEmulatorConfig {
     pub sms_crop_vertical_border: bool,
     pub sms_crop_left_border: bool,
     pub fm_sound_unit_enabled: bool,
+    pub overclock_z80: bool,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -123,7 +124,9 @@ pub struct SmsGgEmulator {
     frame_buffer: FrameBuffer,
     sms_crop_vertical_border: bool,
     sms_crop_left_border: bool,
-    leftover_vdp_cycles: u32,
+    overclock_z80: bool,
+    z80_cycles_remainder: u32,
+    vdp_cycles_remainder: u32,
     sample_count: u64,
     frame_count: u64,
     reset_frames_remaining: u32,
@@ -161,7 +164,9 @@ impl SmsGgEmulator {
             frame_buffer: FrameBuffer::new(),
             sms_crop_vertical_border: config.sms_crop_vertical_border,
             sms_crop_left_border: config.sms_crop_left_border,
-            leftover_vdp_cycles: 0,
+            overclock_z80: config.overclock_z80,
+            z80_cycles_remainder: 0,
+            vdp_cycles_remainder: 0,
             sample_count: 0,
             frame_count: 0,
             reset_frames_remaining: 0,
@@ -183,6 +188,7 @@ impl SmsGgEmulator {
         self.input.set_region(config.sms_region);
         self.sms_crop_vertical_border = config.sms_crop_vertical_border;
         self.sms_crop_left_border = config.sms_crop_left_border;
+        self.overclock_z80 = config.overclock_z80;
     }
 }
 
@@ -230,6 +236,15 @@ impl TickableEmulator for SmsGgEmulator {
             self.ym2413.as_mut(),
             &mut self.input,
         ));
+        let (t_cycles, remainder) = if self.overclock_z80 {
+            // Emulate a Z80 running at 2x speed by only ticking the rest of the components for
+            // half as many cycles
+            let t_cycles = t_cycles + self.z80_cycles_remainder;
+            (t_cycles / 2, t_cycles % 2)
+        } else {
+            (t_cycles, 0)
+        };
+        self.z80_cycles_remainder = remainder;
 
         let downsampling_ratio = match self.vdp_version {
             VdpVersion::PalMasterSystem2 => PAL_DOWNSAMPLING_RATIO,
@@ -265,8 +280,8 @@ impl TickableEmulator for SmsGgEmulator {
             }
         }
 
-        let t_cycles_plus_leftover = t_cycles + self.leftover_vdp_cycles;
-        self.leftover_vdp_cycles = t_cycles_plus_leftover % 2;
+        let t_cycles_plus_leftover = t_cycles + self.vdp_cycles_remainder;
+        self.vdp_cycles_remainder = t_cycles_plus_leftover % 2;
 
         let mut frame_rendered = false;
         let vdp_cycles = t_cycles_plus_leftover / 2 * 3;
@@ -345,7 +360,7 @@ impl Resettable for SmsGgEmulator {
         self.psg = Psg::new(self.psg.version());
         self.input = InputState::new(self.input.region());
 
-        self.leftover_vdp_cycles = 0;
+        self.vdp_cycles_remainder = 0;
         self.sample_count = 0;
         self.frame_count = 0;
     }

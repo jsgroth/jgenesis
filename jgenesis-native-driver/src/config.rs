@@ -96,6 +96,7 @@ pub struct SmsGgConfig {
     pub sms_crop_vertical_border: bool,
     pub sms_crop_left_border: bool,
     pub fm_sound_unit_enabled: bool,
+    pub overclock_z80: bool,
 }
 
 impl SmsGgConfig {
@@ -112,6 +113,7 @@ impl SmsGgConfig {
             sms_crop_vertical_border: self.sms_crop_vertical_border,
             sms_crop_left_border: self.sms_crop_left_border,
             fm_sound_unit_enabled: self.fm_sound_unit_enabled,
+            overclock_z80: self.overclock_z80,
         }
     }
 }

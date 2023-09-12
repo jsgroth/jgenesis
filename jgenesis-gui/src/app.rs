@@ -102,6 +102,8 @@ struct SmsGgAppConfig {
     sms_crop_left_border: bool,
     #[serde(default = "true_fn")]
     fm_sound_unit_enabled: bool,
+    #[serde(default)]
+    overclock_z80: bool,
 }
 
 impl Default for SmsGgAppConfig {
@@ -202,6 +204,7 @@ impl AppConfig {
             sms_crop_vertical_border: self.smsgg.sms_crop_vertical_border,
             sms_crop_left_border: self.smsgg.sms_crop_left_border,
             fm_sound_unit_enabled: self.smsgg.fm_sound_unit_enabled,
+            overclock_z80: self.smsgg.overclock_z80,
         })
     }
 
@@ -376,6 +379,11 @@ impl App {
                     );
                 });
             });
+
+            ui.checkbox(&mut self.config.smsgg.overclock_z80, "Double Z80 CPU speed")
+                .on_hover_text(
+                    "Can reduce slowdown in some games but can also cause major glitches",
+                );
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::SmsGgGeneral);

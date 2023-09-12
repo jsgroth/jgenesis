@@ -90,6 +90,10 @@ struct Args {
     #[arg(long = "disable-sms-fm-unit", default_value_t = true, action = clap::ArgAction::SetFalse)]
     sms_fm_unit_enabled: bool,
 
+    /// Overclock the SMS/GG Z80 CPU to 2x speed
+    #[arg(long, default_value_t)]
+    smsgg_overclock_z80: bool,
+
     /// Disable audio sync
     #[arg(long = "no-audio-sync", default_value_t = true, action = clap::ArgAction::SetFalse)]
     audio_sync: bool,
@@ -386,6 +390,7 @@ fn run_sms(args: Args) -> anyhow::Result<()> {
         sms_crop_vertical_border: args.sms_crop_vertical_border,
         sms_crop_left_border: args.sms_crop_left_border,
         fm_sound_unit_enabled: args.sms_fm_unit_enabled,
+        overclock_z80: args.smsgg_overclock_z80,
     };
 
     let mut emulator = jgenesis_native_driver::create_smsgg(config.into())?;
