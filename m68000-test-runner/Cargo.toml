@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 m68000-emu = { path = "../m68000-emu", features = ["memorybus"] }
 
+clap = { version = "4", features = ["derive"] }
 env_logger = "0.10"
 flate2 = "1"
 log = "0.4"

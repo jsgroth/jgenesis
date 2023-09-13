@@ -1,16 +1,18 @@
 //! Designed to run the 68000 tests from <https://github.com/TomHarte/ProcessorTests>
 
+use clap::Parser;
 use env_logger::Env;
 use flate2::read::GzDecoder;
 use m68000_emu::bus::InMemoryBus;
 use m68000_emu::traits::BusInterface;
 use m68000_emu::M68000;
 use serde::{Deserialize, Serialize};
-use std::env;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::Path;
+use std::sync::mpsc;
+use std::thread;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct State {
@@ -120,13 +122,35 @@ struct TestDescription {
     length: u32,
 }
 
+#[derive(Debug, Parser)]
+struct Args {
+    /// Path to a single test file to run.
+    #[arg(short = 'f', long)]
+    file_path: Option<String>,
+
+    /// Path to a directory of tests to run.
+    #[arg(short = 'd', long)]
+    dir_path: Option<String>,
+}
+
 fn main() {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
-    let mut args = env::args();
-    args.next();
+    let args = Args::parse();
+    match (args.file_path, args.dir_path) {
+        (Some(file_path), None) => {
+            run_file_test(&file_path);
+        }
+        (None, Some(dir_path)) => {
+            run_directory_of_tests(&dir_path);
+        }
+        (Some(_), Some(_)) | (None, None) => {
+            panic!("exactly one of file_path and dir_path must be set");
+        }
+    }
+}
 
-    let file_path = args.next().unwrap();
+fn run_file_test(file_path: &str) {
     let file_path = Path::new(&file_path);
 
     let file_ext = file_path.extension().and_then(OsStr::to_str).unwrap();
@@ -142,14 +166,73 @@ fn main() {
     log::info!("Loaded {} tests", test_descriptions.len());
 
     let mut bus = InMemoryBus::new();
+    run_single_test(&test_descriptions, &mut bus, file_path);
+}
+
+struct ParseResult {
+    file_path: String,
+    test_descriptions: Vec<TestDescription>,
+}
+
+fn run_directory_of_tests(dir_path: &str) {
+    let mut receivers = vec![];
+    let read_dir = Path::new(dir_path).read_dir().expect("Unable to read directory");
+    for dir_entry in read_dir {
+        let dir_entry = dir_entry.expect("Unable to read directory entry");
+        let metadata = dir_entry.metadata().expect("Unable to read file metadata");
+
+        if metadata.is_file() && dir_entry.file_name().to_string_lossy().ends_with(".json.gz") {
+            let (sender, receiver) = mpsc::channel();
+            receivers.push(receiver);
+
+            let file_path = dir_entry.path().to_string_lossy().to_string();
+            thread::spawn(move || {
+                let file = GzDecoder::new(BufReader::new(
+                    File::open(Path::new(&file_path)).expect("Unable to open file"),
+                ));
+
+                log::info!("Reading test descriptions from '{file_path}'");
+
+                let test_descriptions: Vec<TestDescription> = match serde_json::from_reader(file) {
+                    Ok(descriptions) => descriptions,
+                    Err(err) => {
+                        log::error!("Unable to parse JSON at '{file_path}': {err}");
+                        panic!("JSON parse error");
+                    }
+                };
+
+                sender.send(ParseResult { file_path, test_descriptions }).unwrap();
+            });
+        }
+    }
+
+    let mut parse_results = vec![];
+    for receiver in receivers {
+        let parse_result = receiver.recv().unwrap();
+        parse_results.push(parse_result);
+    }
+
+    parse_results.sort_by(|a, b| a.file_path.cmp(&b.file_path));
+
+    let mut bus = InMemoryBus::new();
+    for ParseResult { file_path, test_descriptions } in parse_results {
+        run_single_test(&test_descriptions, &mut bus, Path::new(&file_path));
+    }
+}
+
+fn run_single_test<P: AsRef<Path>>(
+    test_descriptions: &[TestDescription],
+    bus: &mut InMemoryBus,
+    file_path: P,
+) {
     let mut failure_count = 0_u32;
     let mut timing_failure_count = 0_u32;
     let mut address_error_count = 0_u32;
-    for test_description in &test_descriptions {
-        let mut m68000 = init_test_state(&test_description.initial, &mut bus);
-        let cycles = m68000.execute_instruction(&mut bus);
+    for test_description in test_descriptions {
+        let mut m68000 = init_test_state(&test_description.initial, bus);
+        let cycles = m68000.execute_instruction(bus);
 
-        let state = State::from(&m68000, &mut bus, &test_description.final_state);
+        let state = State::from(&m68000, bus, &test_description.final_state);
         if state != test_description.final_state {
             log::info!("Failed test '{}'", test_description.name);
             state.diff(&test_description.final_state);
@@ -173,7 +256,7 @@ fn main() {
     }
 
     let num_tests = test_descriptions.len();
-    let display_path = file_path.display();
+    let display_path = file_path.as_ref().display();
     log::info!("{failure_count} failed out of {num_tests} tests in {display_path}");
 
     let num_tests_without_address_errors = num_tests as u32 - address_error_count;

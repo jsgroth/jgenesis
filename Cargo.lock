@@ -1984,6 +1984,7 @@ dependencies = [
 name = "m68000-test-runner"
 version = "0.2.0"
 dependencies = [
+ "clap",
  "env_logger",
  "flate2",
  "log",
