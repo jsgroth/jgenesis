@@ -14,6 +14,7 @@ Cross-platform multi-console Sega emulator that supports the Sega Genesis / Mega
 * Support for both 3-button and 6-button Genesis controllers
 * Support for keyboard controls and DirectInput gamepad controls
 * Save states, fast forward, and rewind
+* Optional 2x CPU overclocking for Sega Master System and Game Gear emulation
 
 Major TODOs:
 * Build out web UI
