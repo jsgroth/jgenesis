@@ -1639,7 +1639,15 @@ impl Vdp {
                 continue;
             }
 
-            if found_non_zero && self.sprite_buffer[i].h_position == 0 {
+            // HACK: Actual hardware doesn't work this way, but this fixes some visual glitches in
+            // Mickey Mania's 3D stages and is much easier to implement than actual HW behavior.
+            //
+            // Mickey Mania disables display for a short time during HBlank which reduces the number
+            // of sprites and sprite pixels that will be displayed on the next line. Instead of
+            // emulating this behavior, take advantage of the fact that on the lines where Mickey
+            // Mania does this, the first 5 sprites in the sprite list are all H=0 sprites. Thus,
+            // if we see 5 H=0 sprites in a row, apply a sprite mask.
+            if self.sprite_buffer[i].h_position == 0 && (found_non_zero || i == 4) {
                 self.sprite_buffer.truncate(i);
                 break;
             }
