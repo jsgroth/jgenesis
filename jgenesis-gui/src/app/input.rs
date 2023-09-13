@@ -764,11 +764,6 @@ impl App {
                 input_type,
                 axis_deadzone: self.config.inputs.axis_deadzone,
             });
-            if self.emu_thread.status().is_running() {
-                log::debug!("Setting read signal");
-                self.emu_thread.set_command_read_signal();
-            }
-
             self.state.waiting_for_input = Some(button);
         }
 
@@ -884,11 +879,6 @@ impl App {
                 input_type: InputType::Keyboard,
                 axis_deadzone: self.config.inputs.axis_deadzone,
             });
-            if self.emu_thread.status().is_running() {
-                log::debug!("Setting read signal");
-                self.emu_thread.set_command_read_signal();
-            }
-
             self.state.waiting_for_input = Some(GenericButton::Hotkey(hotkey));
         }
 

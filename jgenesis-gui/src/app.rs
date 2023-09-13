@@ -829,17 +829,14 @@ impl App {
 
                     if ui.button("Soft Reset").clicked() {
                         self.emu_thread.send(EmuThreadCommand::SoftReset);
-                        self.emu_thread.set_command_read_signal();
                     }
 
                     if ui.button("Hard Reset").clicked() {
                         self.emu_thread.send(EmuThreadCommand::HardReset);
-                        self.emu_thread.set_command_read_signal();
                     }
 
                     if ui.button("Power Off").clicked() {
                         self.emu_thread.send(EmuThreadCommand::StopEmulator);
-                        self.emu_thread.set_command_read_signal();
                     }
                 });
 

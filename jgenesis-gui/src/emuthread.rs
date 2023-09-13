@@ -13,7 +13,7 @@ use sdl2::joystick::HatState;
 use sdl2::pixels::Color;
 use sdl2::render::WindowCanvas;
 use sdl2::{EventPump, JoystickSubsystem};
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::sync::{mpsc, Arc, Mutex, MutexGuard};
 use std::thread;
@@ -68,7 +68,6 @@ pub enum GenericInput {
 pub struct EmuThreadHandle {
     status: Arc<AtomicU8>,
     command_sender: Sender<EmuThreadCommand>,
-    command_read_signal: Arc<AtomicBool>,
     input_receiver: Receiver<Option<GenericInput>>,
     emulator_error: Arc<Mutex<Option<anyhow::Error>>>,
 }
@@ -76,10 +75,6 @@ pub struct EmuThreadHandle {
 impl EmuThreadHandle {
     pub fn send(&self, command: EmuThreadCommand) {
         self.command_sender.send(command).unwrap();
-    }
-
-    pub fn set_command_read_signal(&self) {
-        self.command_read_signal.store(true, Ordering::Relaxed);
     }
 
     pub fn status(&self) -> EmuThreadStatus {
@@ -97,7 +92,6 @@ impl EmuThreadHandle {
     pub fn stop_emulator_if_running(&self) {
         if self.status().is_running() {
             self.send(EmuThreadCommand::StopEmulator);
-            self.command_read_signal.store(true, Ordering::Relaxed);
         }
     }
 
@@ -109,11 +103,9 @@ impl EmuThreadHandle {
         match self.status() {
             EmuThreadStatus::RunningSmsGg => {
                 self.send(EmuThreadCommand::ReloadSmsGgConfig(smsgg_config));
-                self.command_read_signal.store(true, Ordering::Relaxed);
             }
             EmuThreadStatus::RunningGenesis => {
                 self.send(EmuThreadCommand::ReloadGenesisConfig(genesis_config));
-                self.command_read_signal.store(true, Ordering::Relaxed);
             }
             EmuThreadStatus::Idle => {}
         }
@@ -124,11 +116,9 @@ pub fn spawn() -> EmuThreadHandle {
     let status_arc = Arc::new(AtomicU8::new(EmuThreadStatus::Idle as u8));
     let (command_sender, command_receiver) = mpsc::channel();
     let (input_sender, input_receiver) = mpsc::channel();
-    let command_read_signal_arc = Arc::new(AtomicBool::new(false));
     let emulator_error_arc = Arc::new(Mutex::new(None));
 
     let status = Arc::clone(&status_arc);
-    let command_read_signal = Arc::clone(&command_read_signal_arc);
     let emulator_error = Arc::clone(&emulator_error_arc);
     thread::spawn(move || {
         loop {
@@ -149,7 +139,6 @@ pub fn spawn() -> EmuThreadHandle {
                     run_emulator(
                         emulator,
                         &command_receiver,
-                        &command_read_signal,
                         &input_sender,
                         &emulator_error,
                         smsgg_reload_handler,
@@ -169,7 +158,6 @@ pub fn spawn() -> EmuThreadHandle {
                     run_emulator(
                         emulator,
                         &command_receiver,
-                        &command_read_signal,
                         &input_sender,
                         &emulator_error,
                         genesis_reload_handler,
@@ -205,7 +193,6 @@ pub fn spawn() -> EmuThreadHandle {
     EmuThreadHandle {
         command_sender,
         status: status_arc,
-        command_read_signal: command_read_signal_arc,
         input_receiver,
         emulator_error: emulator_error_arc,
     }
@@ -232,7 +219,6 @@ fn genesis_reload_handler(emulator: &mut NativeGenesisEmulator, config: GenericC
 fn run_emulator<Inputs, Button, Config, Emulator>(
     mut emulator: NativeEmulator<Inputs, Button, Config, Emulator>,
     command_receiver: &Receiver<EmuThreadCommand>,
-    command_read_signal: &Arc<AtomicBool>,
     input_sender: &Sender<Option<GenericInput>>,
     emulator_error: &Arc<Mutex<Option<anyhow::Error>>>,
     config_reload_handler: fn(&mut NativeEmulator<Inputs, Button, Config, Emulator>, GenericConfig),
@@ -245,58 +231,50 @@ fn run_emulator<Inputs, Button, Config, Emulator>(
     loop {
         match emulator.render_frame() {
             Ok(NativeTickEffect::None) => {
-                if command_read_signal.load(Ordering::Relaxed) {
-                    command_read_signal.store(false, Ordering::Relaxed);
+                while let Ok(command) = command_receiver.try_recv() {
+                    match command {
+                        EmuThreadCommand::ReloadSmsGgConfig(config) => {
+                            config_reload_handler(&mut emulator, GenericConfig::SmsGg(config));
+                        }
+                        EmuThreadCommand::ReloadGenesisConfig(config) => {
+                            config_reload_handler(&mut emulator, GenericConfig::Genesis(config));
+                        }
+                        EmuThreadCommand::StopEmulator => {
+                            log::info!("Stopping emulator");
+                            return;
+                        }
+                        EmuThreadCommand::CollectInput { input_type, axis_deadzone } => {
+                            log::debug!("Received collect input command");
 
-                    while let Ok(command) = command_receiver.recv_timeout(Duration::from_millis(1))
-                    {
-                        match command {
-                            EmuThreadCommand::ReloadSmsGgConfig(config) => {
-                                config_reload_handler(&mut emulator, GenericConfig::SmsGg(config));
-                            }
-                            EmuThreadCommand::ReloadGenesisConfig(config) => {
-                                config_reload_handler(
-                                    &mut emulator,
-                                    GenericConfig::Genesis(config),
-                                );
-                            }
-                            EmuThreadCommand::StopEmulator => {
-                                log::info!("Stopping emulator");
+                            emulator.focus();
+                            let (event_pump, joysticks, joystick_subsystem) =
+                                emulator.event_pump_and_joysticks_mut();
+                            let input = collect_input(
+                                input_type,
+                                event_pump,
+                                joysticks,
+                                joystick_subsystem,
+                                axis_deadzone,
+                                None,
+                            );
+
+                            let is_none = input.is_none();
+
+                            log::debug!("Sending collect input result {input:?}");
+                            input_sender.send(input).unwrap();
+
+                            if is_none {
+                                // Window was closed
                                 return;
                             }
-                            EmuThreadCommand::CollectInput { input_type, axis_deadzone } => {
-                                log::debug!("Received collect input command");
-
-                                emulator.focus();
-                                let (event_pump, joysticks, joystick_subsystem) =
-                                    emulator.event_pump_and_joysticks_mut();
-                                let input = collect_input(
-                                    input_type,
-                                    event_pump,
-                                    joysticks,
-                                    joystick_subsystem,
-                                    axis_deadzone,
-                                    None,
-                                );
-
-                                let is_none = input.is_none();
-
-                                log::debug!("Sending collect input result {input:?}");
-                                input_sender.send(input).unwrap();
-
-                                if is_none {
-                                    // Window was closed
-                                    return;
-                                }
-                            }
-                            EmuThreadCommand::SoftReset => {
-                                emulator.soft_reset();
-                            }
-                            EmuThreadCommand::HardReset => {
-                                emulator.hard_reset();
-                            }
-                            _ => {}
                         }
+                        EmuThreadCommand::SoftReset => {
+                            emulator.soft_reset();
+                        }
+                        EmuThreadCommand::HardReset => {
+                            emulator.hard_reset();
+                        }
+                        _ => {}
                     }
                 }
             }
