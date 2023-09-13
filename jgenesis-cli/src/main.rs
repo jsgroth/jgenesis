@@ -37,7 +37,7 @@ struct Args {
     #[arg(long)]
     hardware: Option<Hardware>,
 
-    /// Force SMS/GG VDP version (NtscMasterSystem2 / PalMasterSystem2 / GameGear)
+    /// Force SMS/GG VDP version (NtscMasterSystem2 / NtscMasterSystem1 / PalMasterSystem2 / PalMasterSystem1 / GameGear)
     #[arg(long)]
     vdp_version: Option<VdpVersion>,
 

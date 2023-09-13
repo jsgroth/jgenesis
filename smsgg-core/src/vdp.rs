@@ -59,9 +59,17 @@ impl ViewportSize {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimingMode {
+    Ntsc,
+    Pal,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum VdpVersion {
+    NtscMasterSystem1,
+    PalMasterSystem1,
     #[default]
     NtscMasterSystem2,
     PalMasterSystem2,
@@ -71,12 +79,33 @@ pub enum VdpVersion {
 impl VdpVersion {
     #[must_use]
     pub fn is_master_system(self) -> bool {
-        matches!(self, Self::NtscMasterSystem2 | Self::PalMasterSystem2)
+        matches!(
+            self,
+            Self::NtscMasterSystem1
+                | Self::NtscMasterSystem2
+                | Self::PalMasterSystem1
+                | Self::PalMasterSystem2
+        )
+    }
+
+    fn is_sms1(self) -> bool {
+        matches!(self, Self::NtscMasterSystem1 | Self::PalMasterSystem1)
+    }
+
+    #[must_use]
+    pub fn timing_mode(self) -> TimingMode {
+        match self {
+            Self::NtscMasterSystem1 | Self::NtscMasterSystem2 | Self::GameGear => TimingMode::Ntsc,
+            Self::PalMasterSystem1 | Self::PalMasterSystem2 => TimingMode::Pal,
+        }
     }
 
     const fn cram_address_mask(self) -> u16 {
         match self {
-            Self::NtscMasterSystem2 | Self::PalMasterSystem2 => 0x001F,
+            Self::NtscMasterSystem1
+            | Self::PalMasterSystem1
+            | Self::NtscMasterSystem2
+            | Self::PalMasterSystem2 => 0x001F,
             Self::GameGear => 0x003F,
         }
     }
@@ -84,8 +113,8 @@ impl VdpVersion {
     #[must_use]
     pub const fn viewport_size(self) -> ViewportSize {
         match self {
-            Self::NtscMasterSystem2 => ViewportSize::NTSC_SMS2,
-            Self::PalMasterSystem2 => ViewportSize::PAL_SMS2,
+            Self::NtscMasterSystem1 | Self::NtscMasterSystem2 => ViewportSize::NTSC_SMS2,
+            Self::PalMasterSystem1 | Self::PalMasterSystem2 => ViewportSize::PAL_SMS2,
             Self::GameGear => ViewportSize::GAME_GEAR,
         }
     }
@@ -180,6 +209,7 @@ struct Registers {
     double_sprite_height: bool,
     double_sprite_size: bool,
     base_name_table_address: u16,
+    name_table_address_mask: u16,
     base_sprite_table_address: u16,
     base_sprite_pattern_address: u16,
     backdrop_color: u8,
@@ -216,6 +246,7 @@ impl Registers {
             double_sprite_height: false,
             double_sprite_size: false,
             base_name_table_address: 0x3800,
+            name_table_address_mask: 0xFFFF,
             base_sprite_table_address: 0x3F00,
             base_sprite_pattern_address: 0x2000,
             backdrop_color: 0,
@@ -360,8 +391,14 @@ impl Registers {
             }
             2 => {
                 // Base name table address
-                // TODO SMS1 hardware quirk - bit 0 is ANDed with A10 when doing name table lookups
                 self.base_name_table_address = u16::from(value & 0x0E) << 10;
+
+                // On the SMS1, bit 0 of register #2 is ANDed with A10 when doing nametable lookups
+                self.name_table_address_mask = if self.version.is_sms1() {
+                    0xFBFF | (u16::from(value & 0x01) << 10)
+                } else {
+                    0xFFFF
+                };
             }
             // Registers 3 and 4 are effectively unused outside of SMS1 quirks
             5 => {
@@ -663,14 +700,14 @@ impl Vdp {
     }
 
     fn read_color_ram_word(&self, address: u8) -> u16 {
-        match self.registers.version {
-            VdpVersion::NtscMasterSystem2 | VdpVersion::PalMasterSystem2 => {
-                self.color_ram[address as usize].into()
-            }
-            VdpVersion::GameGear => u16::from_le_bytes([
+        if self.registers.version.is_master_system() {
+            self.color_ram[address as usize].into()
+        } else {
+            // Game Gear
+            u16::from_le_bytes([
                 self.color_ram[(2 * address) as usize],
                 self.color_ram[(2 * address + 1) as usize],
-            ]),
+            ])
         }
     }
 
@@ -680,7 +717,8 @@ impl Vdp {
             // Mask out bit 10 and offset by $0700
             Mode::Four224Line => (self.registers.base_name_table_address & 0xF000) | 0x0700,
         };
-        let name_table_addr = base_name_table_addr + (row << 6) + (col << 1);
+        let name_table_addr = (base_name_table_addr + (row << 6) + (col << 1))
+            & self.registers.name_table_address_mask;
         let low_byte = self.vram[name_table_addr as usize];
         let high_byte = self.vram[(name_table_addr + 1) as usize];
 
@@ -889,9 +927,9 @@ impl Vdp {
             self.scanline += 1;
             self.dot = 0;
 
-            let scanlines_per_frame = match self.registers.version {
-                VdpVersion::NtscMasterSystem2 | VdpVersion::GameGear => NTSC_SCANLINES_PER_FRAME,
-                VdpVersion::PalMasterSystem2 => PAL_SCANLINES_PER_FRAME,
+            let scanlines_per_frame = match self.registers.version.timing_mode() {
+                TimingMode::Ntsc => NTSC_SCANLINES_PER_FRAME,
+                TimingMode::Pal => PAL_SCANLINES_PER_FRAME,
             };
             if self.scanline == scanlines_per_frame {
                 self.scanline = 0;
@@ -945,21 +983,29 @@ impl Vdp {
     }
 
     pub fn v_counter(&self) -> u8 {
-        match (self.registers.version, self.registers.mode) {
-            (VdpVersion::NtscMasterSystem2 | VdpVersion::GameGear, Mode::Four) => {
-                if self.scanline <= 0xDA { self.scanline as u8 } else { (self.scanline - 6) as u8 }
+        match (self.registers.version.timing_mode(), self.registers.mode) {
+            (TimingMode::Ntsc, Mode::Four) => {
+                if self.scanline <= 0xDA {
+                    self.scanline as u8
+                } else {
+                    (self.scanline - 6) as u8
+                }
             }
-            (VdpVersion::PalMasterSystem2, Mode::Four) => {
+            (TimingMode::Pal, Mode::Four) => {
                 if self.scanline <= 0xF2 {
                     self.scanline as u8
                 } else {
                     (self.scanline - 57) as u8
                 }
             }
-            (VdpVersion::NtscMasterSystem2 | VdpVersion::GameGear, Mode::Four224Line) => {
-                if self.scanline <= 0xEA { self.scanline as u8 } else { (self.scanline - 6) as u8 }
+            (TimingMode::Ntsc, Mode::Four224Line) => {
+                if self.scanline <= 0xEA {
+                    self.scanline as u8
+                } else {
+                    (self.scanline - 6) as u8
+                }
             }
-            (VdpVersion::PalMasterSystem2, Mode::Four224Line) => {
+            (TimingMode::Pal, Mode::Four224Line) => {
                 if self.scanline <= 0xFF {
                     self.scanline as u8
                 } else if self.scanline <= 0x102 {

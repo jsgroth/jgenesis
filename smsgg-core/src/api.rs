@@ -3,7 +3,7 @@ use crate::bus::Bus;
 use crate::input::InputState;
 use crate::memory::Memory;
 use crate::psg::{Psg, PsgTickEffect, PsgVersion};
-use crate::vdp::{Vdp, VdpBuffer, VdpTickEffect};
+use crate::vdp::{TimingMode, Vdp, VdpBuffer, VdpTickEffect};
 use crate::ym2413::Ym2413;
 use crate::{vdp, SmsGgInputs, VdpVersion};
 use bincode::{Decode, Encode};
@@ -309,9 +309,9 @@ impl TickableEmulator for SmsGgEmulator {
         };
         self.z80_cycles_remainder = remainder;
 
-        let downsampling_ratio = match self.vdp_version {
-            VdpVersion::PalMasterSystem2 => PAL_DOWNSAMPLING_RATIO,
-            VdpVersion::NtscMasterSystem2 | VdpVersion::GameGear => NTSC_DOWNSAMPLING_RATIO,
+        let downsampling_ratio = match self.vdp_version.timing_mode() {
+            TimingMode::Ntsc => NTSC_DOWNSAMPLING_RATIO,
+            TimingMode::Pal => PAL_DOWNSAMPLING_RATIO,
         };
         for _ in 0..t_cycles {
             if let Some(ym2413) = &mut self.ym2413 {
@@ -448,17 +448,18 @@ fn populate_frame_buffer(
 
     for (i, row) in vdp_buffer.iter().skip(row_skip).take(row_take).enumerate() {
         for (j, color) in row.iter().copied().skip(col_skip).enumerate() {
-            let (r, g, b) = match vdp_version {
-                VdpVersion::NtscMasterSystem2 | VdpVersion::PalMasterSystem2 => (
+            let (r, g, b) = if vdp_version.is_master_system() {
+                (
                     vdp::convert_sms_color(color & 0x03),
                     vdp::convert_sms_color((color >> 2) & 0x03),
                     vdp::convert_sms_color((color >> 4) & 0x03),
-                ),
-                VdpVersion::GameGear => (
+                )
+            } else {
+                (
                     vdp::convert_gg_color(color & 0x0F),
                     vdp::convert_gg_color((color >> 4) & 0x0F),
                     vdp::convert_gg_color((color >> 8) & 0x0F),
-                ),
+                )
             };
 
             frame_buffer[i * screen_width + j] = Color::rgb(r, g, b);

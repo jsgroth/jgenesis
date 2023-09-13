@@ -144,8 +144,12 @@ pub(crate) fn default_psg_version_for_ext(file_ext: &str) -> PsgVersion {
 
 pub(crate) fn default_smsgg_window_size(vdp_version: VdpVersion) -> WindowSize {
     match vdp_version {
-        VdpVersion::NtscMasterSystem2 => WindowSize { width: 940, height: 720 },
-        VdpVersion::PalMasterSystem2 => WindowSize { width: 1056, height: 720 },
+        VdpVersion::NtscMasterSystem1 | VdpVersion::NtscMasterSystem2 => {
+            WindowSize { width: 940, height: 720 }
+        }
+        VdpVersion::PalMasterSystem1 | VdpVersion::PalMasterSystem2 => {
+            WindowSize { width: 1056, height: 720 }
+        }
         VdpVersion::GameGear => WindowSize { width: 576, height: 432 },
     }
 }

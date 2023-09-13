@@ -89,6 +89,13 @@ enum TimingMode {
     Pal,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+enum SmsModel {
+    Sms1,
+    #[default]
+    Sms2,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct SmsGgAppConfig {
     psg_version: Option<PsgVersion>,
@@ -102,6 +109,8 @@ struct SmsGgAppConfig {
     sms_region: SmsRegion,
     #[serde(default)]
     sms_timing_mode: TimingMode,
+    #[serde(default)]
+    sms_model: SmsModel,
     #[serde(default)]
     sms_crop_vertical_border: bool,
     #[serde(default)]
@@ -188,9 +197,11 @@ impl AppConfig {
 
     fn smsgg_config(&self, path: String) -> Box<SmsGgConfig> {
         let vdp_version = if Path::new(&path).extension().and_then(OsStr::to_str) == Some("sms") {
-            match self.smsgg.sms_timing_mode {
-                TimingMode::Ntsc => Some(VdpVersion::NtscMasterSystem2),
-                TimingMode::Pal => Some(VdpVersion::PalMasterSystem2),
+            match (self.smsgg.sms_timing_mode, self.smsgg.sms_model) {
+                (TimingMode::Ntsc, SmsModel::Sms2) => Some(VdpVersion::NtscMasterSystem2),
+                (TimingMode::Pal, SmsModel::Sms2) => Some(VdpVersion::PalMasterSystem2),
+                (TimingMode::Ntsc, SmsModel::Sms1) => Some(VdpVersion::NtscMasterSystem1),
+                (TimingMode::Pal, SmsModel::Sms1) => Some(VdpVersion::PalMasterSystem1),
             }
         } else {
             None
@@ -361,9 +372,10 @@ impl App {
         let mut open = true;
         Window::new("SMS/GG General Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.group(|ui| {
-                ui.label("SMS timing / display mode");
-
                 ui.set_enabled(self.emu_thread.status() != EmuThreadStatus::RunningSmsGg);
+
+                ui.label("Sega Master System timing / display mode");
+
                 ui.horizontal(|ui| {
                     ui.radio_value(
                         &mut self.config.smsgg.sms_timing_mode,
@@ -375,7 +387,20 @@ impl App {
             });
 
             ui.group(|ui| {
-                ui.label("SMS region");
+                ui.set_enabled(self.emu_thread.status() != EmuThreadStatus::RunningSmsGg);
+
+                ui.label("Sega Master System VDP version");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(&mut self.config.smsgg.sms_model, SmsModel::Sms2, "SMS2");
+
+                    ui.radio_value(&mut self.config.smsgg.sms_model, SmsModel::Sms1, "SMS1")
+                        .on_hover_text("Emulates an SMS1 quirk that is required for the Japanese version of Ys");
+                });
+            });
+
+            ui.group(|ui| {
+                ui.label("Sega Master System region");
 
                 ui.horizontal(|ui| {
                     ui.radio_value(
@@ -586,7 +611,7 @@ impl App {
         let mut open = true;
         Window::new("SMS/GG Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.group(|ui| {
-                ui.label("SMS aspect ratio");
+                ui.label("Sega Master System aspect ratio");
 
                 ui.horizontal(|ui| {
                     ui.radio_value(
@@ -715,7 +740,7 @@ impl App {
         let mut open = true;
         Window::new("SMS/GG Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.group(|ui| {
-                ui.label("SMS/GG PSG version");
+                ui.label("PSG version");
 
                 ui.horizontal(|ui| {
                     ui.radio_value(&mut self.config.smsgg.psg_version, None, "Auto").on_hover_text(
