@@ -335,6 +335,9 @@ pub enum YmTickEffect {
     OutputSample,
 }
 
+// The YM2612 always raises the BUSY line for exactly 32 internal cycles after a register write
+const WRITE_BUSY_CYCLES: u8 = 32;
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Ym2612 {
     channels: [FmChannel; 6],
@@ -345,6 +348,7 @@ pub struct Ym2612 {
     group_2_register: u8,
     clock_divider: u8,
     sample_divider: u8,
+    busy_cycles_remaining: u8,
     timer_a: TimerA,
     timer_b: TimerB,
 }
@@ -360,6 +364,7 @@ impl Ym2612 {
             group_2_register: 0,
             clock_divider: FM_CLOCK_DIVIDER,
             sample_divider: FM_SAMPLE_DIVIDER,
+            busy_cycles_remaining: 0,
             timer_a: TimerA::new(),
             timer_b: TimerB::new(),
         }
@@ -379,6 +384,8 @@ impl Ym2612 {
         if self.group_1_register != 0x2A {
             log::trace!("G1: Wrote {value:02X} to {:02X}", self.group_1_register);
         }
+
+        self.busy_cycles_remaining = WRITE_BUSY_CYCLES;
 
         let register = self.group_1_register;
         match register {
@@ -480,6 +487,8 @@ impl Ym2612 {
     pub fn write_data_2(&mut self, value: u8) {
         log::trace!("G2: Wrote {value:02X} to {:02X}", self.group_2_register);
 
+        self.busy_cycles_remaining = WRITE_BUSY_CYCLES;
+
         let register = self.group_2_register;
         match register {
             0x30..=0x9F => {
@@ -494,8 +503,9 @@ impl Ym2612 {
 
     #[allow(clippy::unused_self)]
     pub fn read_register(&self) -> u8 {
-        // TODO busy bit
-        (u8::from(self.timer_b.overflow_flag()) << 1) | u8::from(self.timer_a.overflow_flag())
+        (u8::from(self.busy_cycles_remaining != 0) << 7)
+            | (u8::from(self.timer_b.overflow_flag()) << 1)
+            | u8::from(self.timer_a.overflow_flag())
     }
 
     #[inline]
@@ -508,6 +518,7 @@ impl Ym2612 {
         if self.clock_divider == 0 {
             self.clock_divider = FM_CLOCK_DIVIDER;
             self.clock(self.lfo.counter());
+            self.busy_cycles_remaining = self.busy_cycles_remaining.saturating_sub(1);
 
             self.sample_divider -= 1;
             if self.sample_divider == 0 {

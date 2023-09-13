@@ -54,8 +54,11 @@ impl<const INTERVAL: u32, const MAX: u32> Timer<INTERVAL, MAX> {
         self.overflow_flag = false;
     }
 
-    pub fn set_enabled(&mut self, value: bool) {
-        self.enabled = value;
+    pub fn set_enabled(&mut self, enabled: bool) {
+        if !self.enabled && enabled {
+            self.counter = Self::counter_reload_value(self.interval);
+        }
+        self.enabled = enabled;
     }
 
     pub fn set_overflow_flag_enabled(&mut self, value: bool) {
