@@ -929,6 +929,16 @@ impl Vdp {
                             || prev_bg_color_id != self.registers.background_color_id)
                     {
                         self.render_next_scanline();
+                    } else if !self.in_vblank()
+                        && prev_display_enabled
+                        && !self.registers.display_enabled
+                    {
+                        // Blank out the current scanline if display is disabled near the start of a
+                        // scanline during active display.
+                        // 150 chosen fairly arbitrarily (15 pixels in H32 mode or 18-19 pixels in H40 mode)
+                        if self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE < 150 {
+                            self.clear_scanline(self.state.scanline);
+                        }
                     }
                 } else {
                     // First word of command write
@@ -1500,15 +1510,7 @@ impl Vdp {
     fn render_scanline(&mut self, scanline: u16) {
         if !self.registers.display_enabled {
             if scanline < self.registers.vertical_display_size.active_scanlines() {
-                match self.registers.interlacing_mode {
-                    InterlacingMode::Progressive | InterlacingMode::Interlaced => {
-                        self.clear_scanline(scanline);
-                    }
-                    InterlacingMode::InterlacedDouble => {
-                        self.clear_scanline(2 * scanline);
-                        self.clear_scanline(2 * scanline + 1);
-                    }
-                }
+                self.clear_scanline(scanline);
             }
 
             return;
@@ -1538,6 +1540,18 @@ impl Vdp {
     }
 
     fn clear_scanline(&mut self, scanline: u16) {
+        match self.registers.interlacing_mode {
+            InterlacingMode::Progressive | InterlacingMode::Interlaced => {
+                self.clear_scanline_in_buffer(scanline);
+            }
+            InterlacingMode::InterlacedDouble => {
+                self.clear_scanline_in_buffer(2 * scanline);
+                self.clear_scanline_in_buffer(2 * scanline + 1);
+            }
+        }
+    }
+
+    fn clear_scanline_in_buffer(&mut self, scanline: u16) {
         let scanline = scanline.into();
         let screen_width = self.registers.horizontal_display_size.to_pixels().into();
         let bg_color = resolve_color(
