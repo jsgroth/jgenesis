@@ -105,6 +105,7 @@ pub struct RendererConfig {
     pub wgpu_backend: WgpuBackend,
     pub vsync_mode: VSyncMode,
     pub prescale_factor: PrescaleFactor,
+    pub force_integer_height_scaling: bool,
     pub filter_mode: FilterMode,
     pub use_webgl2_limits: bool,
 }

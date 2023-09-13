@@ -88,6 +88,7 @@ pub async fn run_emulator() {
         wgpu_backend: WgpuBackend::OpenGl,
         vsync_mode: VSyncMode::Enabled,
         prescale_factor: PrescaleFactor::try_from(3).unwrap(),
+        force_integer_height_scaling: false,
         filter_mode: FilterMode::Linear,
         use_webgl2_limits: true,
     };

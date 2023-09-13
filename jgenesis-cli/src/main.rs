@@ -122,6 +122,10 @@ struct Args {
     #[arg(long, default_value_t = 3)]
     prescale_factor: u32,
 
+    /// Force display area height to be an integer multiple of native console resolution
+    #[arg(long, default_value_t)]
+    force_integer_height_scaling: bool,
+
     /// Filter mode (Nearest / Linear)
     #[arg(long, default_value_t = FilterMode::Linear)]
     filter_mode: FilterMode,
@@ -265,6 +269,7 @@ impl Args {
             wgpu_backend: self.wgpu_backend,
             vsync_mode: self.vsync_mode,
             prescale_factor,
+            force_integer_height_scaling: self.force_integer_height_scaling,
             filter_mode: self.filter_mode,
             use_webgl2_limits: false,
         }

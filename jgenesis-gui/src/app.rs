@@ -44,6 +44,8 @@ struct CommonAppConfig {
     #[serde(default = "default_prescale_factor")]
     prescale_factor: PrescaleFactor,
     #[serde(default)]
+    force_integer_height_scaling: bool,
+    #[serde(default)]
     filter_mode: FilterMode,
     #[serde(default = "default_fast_forward_multiplier")]
     fast_forward_multiplier: u64,
@@ -182,6 +184,7 @@ impl AppConfig {
                 wgpu_backend: self.common.wgpu_backend,
                 vsync_mode: self.common.vsync_mode,
                 prescale_factor: self.common.prescale_factor,
+                force_integer_height_scaling: self.common.force_integer_height_scaling,
                 filter_mode: self.common.filter_mode,
                 use_webgl2_limits: false,
             },
@@ -601,6 +604,11 @@ impl App {
                     ),
                 );
             }
+
+            ui.checkbox(
+                &mut self.config.common.force_integer_height_scaling,
+                "Force integer height scaling",
+            ).on_hover_text("Display area will be the largest possible integer multiple of native height that preserves aspect ratio");
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::CommonVideo);

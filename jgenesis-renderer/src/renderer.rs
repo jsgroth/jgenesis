@@ -97,7 +97,12 @@ impl RenderingPipeline {
             ..wgpu::SamplerDescriptor::default()
         });
 
-        let vertices = compute_vertices(window_size, frame_size, pixel_aspect_ratio);
+        let vertices = compute_vertices(
+            window_size,
+            frame_size,
+            pixel_aspect_ratio,
+            renderer_config.force_integer_height_scaling,
+        );
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: "vertex_buffer".into(),
             contents: bytemuck::cast_slice(&vertices),
@@ -380,6 +385,7 @@ fn compute_vertices(
     (window_width, window_height): (u32, u32),
     frame_size: FrameSize,
     pixel_aspect_ratio: Option<PixelAspectRatio>,
+    force_integer_height_scaling: bool,
 ) -> Vec<Vertex> {
     let Some(pixel_aspect_ratio) = pixel_aspect_ratio else {
         return VERTICES.into();
@@ -389,10 +395,27 @@ fn compute_vertices(
     let frame_aspect_ratio = f64::from(frame_size.width) / f64::from(frame_size.height);
     let screen_aspect_ratio = pixel_aspect_ratio * frame_aspect_ratio;
 
+    let display_height = if force_integer_height_scaling && window_height >= frame_size.height {
+        let scale_factor = window_height / frame_size.height;
+        scale_factor * frame_size.height
+    } else {
+        window_height
+    };
     let screen_width =
-        cmp::min(window_width, (f64::from(window_height) * screen_aspect_ratio).round() as u32);
+        cmp::min(window_width, (f64::from(display_height) * screen_aspect_ratio).round() as u32);
     let screen_height =
-        cmp::min(window_height, (f64::from(screen_width) / screen_aspect_ratio).round() as u32);
+        cmp::min(display_height, (f64::from(screen_width) / screen_aspect_ratio).round() as u32);
+
+    // Apply integer height scaling
+    let (screen_width, screen_height) =
+        if force_integer_height_scaling && screen_height >= frame_size.height {
+            let scale_factor = screen_height / frame_size.height;
+            let scaled_height = scale_factor * frame_size.height;
+            let scaled_width = (f64::from(scaled_height) * screen_aspect_ratio).round() as u32;
+            (scaled_width, scaled_height)
+        } else {
+            (screen_width, screen_height)
+        };
 
     let x = (window_width - screen_width) / 2;
     let y = (window_height - screen_height) / 2;
