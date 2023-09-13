@@ -609,14 +609,8 @@ struct CachedSpriteData {
 }
 
 impl CachedSpriteData {
-    fn update_first_word(&mut self, msb: u8, lsb: u8, interlacing_mode: InterlacingMode) {
-        // Sprite V positions are 9 bits in progressive and interlaced mode 1, and 10 bits in
-        // interlaced mode 2
-        let masked_msb = match interlacing_mode {
-            InterlacingMode::Progressive | InterlacingMode::Interlaced => msb & 0x01,
-            InterlacingMode::InterlacedDouble => msb & 0x03,
-        };
-        self.v_position = u16::from_be_bytes([masked_msb, lsb]);
+    fn update_first_word(&mut self, msb: u8, lsb: u8) {
+        self.v_position = u16::from_be_bytes([msb & 0x03, lsb]);
     }
 
     fn update_second_word(&mut self, msb: u8, lsb: u8) {
@@ -667,6 +661,15 @@ impl SpriteData {
             link_data: cached_data.link_data,
             // Will maybe get set later
             partial_width: None,
+        }
+    }
+
+    fn v_position(&self, interlacing_mode: InterlacingMode) -> u16 {
+        // V position is 9 bits in progressive mode and interlaced mode 1, and 10 bits in
+        // interlaced mode 2
+        match interlacing_mode {
+            InterlacingMode::Progressive | InterlacingMode::Interlaced => self.v_position & 0x1FF,
+            InterlacingMode::InterlacedDouble => self.v_position & 0x3FF,
         }
     }
 }
@@ -1426,8 +1429,6 @@ impl Vdp {
     fn maybe_update_sprite_cache(&mut self, address: u16) {
         let sprite_table_addr = self.registers.sprite_attribute_table_base_addr;
         let h_size = self.registers.horizontal_display_size;
-        let interlacing_mode = self.registers.interlacing_mode;
-
         if !address.bit(2)
             && (sprite_table_addr..sprite_table_addr + 8 * h_size.sprite_table_len())
                 .contains(&address)
@@ -1436,7 +1437,7 @@ impl Vdp {
             let msb = self.vram[(address & !0x01) as usize];
             let lsb = self.vram[(address | 0x01) as usize];
             if !address.bit(1) {
-                self.cached_sprite_attributes[idx].update_first_word(msb, lsb, interlacing_mode);
+                self.cached_sprite_attributes[idx].update_first_word(msb, lsb);
             } else {
                 self.cached_sprite_attributes[idx].update_second_word(msb, lsb);
             }
@@ -1581,11 +1582,13 @@ impl Vdp {
         }
 
         // Remove sprites that don't fall on this scanline
-        let sprite_scanline = self.registers.interlacing_mode.sprite_display_top() + scanline;
-        let cell_height = self.registers.interlacing_mode.cell_height();
+        let interlacing_mode = self.registers.interlacing_mode;
+        let sprite_scanline = interlacing_mode.sprite_display_top() + scanline;
+        let cell_height = interlacing_mode.cell_height();
         self.sprite_buffer.retain(|sprite| {
-            let sprite_bottom = sprite.v_position + cell_height * u16::from(sprite.v_size_cells);
-            (sprite.v_position..sprite_bottom).contains(&sprite_scanline)
+            let sprite_top = sprite.v_position(interlacing_mode);
+            let sprite_bottom = sprite_top + cell_height * u16::from(sprite.v_size_cells);
+            (sprite_top..sprite_bottom).contains(&sprite_scanline)
         });
 
         // Apply max sprite per scanline limit
@@ -1815,8 +1818,9 @@ impl Vdp {
             return None;
         }
 
-        let sprite_display_top = self.registers.interlacing_mode.sprite_display_top();
-        let cell_height = self.registers.interlacing_mode.cell_height();
+        let interlacing_mode = self.registers.interlacing_mode;
+        let sprite_display_top = interlacing_mode.sprite_display_top();
+        let cell_height = interlacing_mode.cell_height();
 
         let sprite_pixel = SPRITE_H_DISPLAY_START + pixel;
 
@@ -1831,7 +1835,7 @@ impl Vdp {
             let v_size_cells: u16 = sprite.v_size_cells.into();
             let h_size_cells: u16 = sprite.h_size_cells.into();
 
-            let sprite_row = sprite_display_top + scanline - sprite.v_position;
+            let sprite_row = sprite_display_top + scanline - sprite.v_position(interlacing_mode);
             let sprite_row = if sprite.vertical_flip {
                 cell_height * v_size_cells - 1 - sprite_row
             } else {
