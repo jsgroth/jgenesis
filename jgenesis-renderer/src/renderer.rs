@@ -395,16 +395,10 @@ fn compute_vertices(
     let frame_aspect_ratio = f64::from(frame_size.width) / f64::from(frame_size.height);
     let screen_aspect_ratio = pixel_aspect_ratio * frame_aspect_ratio;
 
-    let display_height = if force_integer_height_scaling && window_height >= frame_size.height {
-        let scale_factor = window_height / frame_size.height;
-        scale_factor * frame_size.height
-    } else {
-        window_height
-    };
     let screen_width =
-        cmp::min(window_width, (f64::from(display_height) * screen_aspect_ratio).round() as u32);
+        cmp::min(window_width, (f64::from(window_height) * screen_aspect_ratio).round() as u32);
     let screen_height =
-        cmp::min(display_height, (f64::from(screen_width) / screen_aspect_ratio).round() as u32);
+        cmp::min(window_height, (f64::from(screen_width) / screen_aspect_ratio).round() as u32);
 
     // Apply integer height scaling
     let (screen_width, screen_height) =
