@@ -609,8 +609,14 @@ struct CachedSpriteData {
 }
 
 impl CachedSpriteData {
-    fn update_first_word(&mut self, msb: u8, lsb: u8) {
-        self.v_position = u16::from_be_bytes([msb & 0x03, lsb]);
+    fn update_first_word(&mut self, msb: u8, lsb: u8, interlacing_mode: InterlacingMode) {
+        // Sprite V positions are 9 bits in progressive and interlaced mode 1, and 10 bits in
+        // interlaced mode 2
+        let masked_msb = match interlacing_mode {
+            InterlacingMode::Progressive | InterlacingMode::Interlaced => msb & 0x01,
+            InterlacingMode::InterlacedDouble => msb & 0x03,
+        };
+        self.v_position = u16::from_be_bytes([masked_msb, lsb]);
     }
 
     fn update_second_word(&mut self, msb: u8, lsb: u8) {
@@ -1420,6 +1426,8 @@ impl Vdp {
     fn maybe_update_sprite_cache(&mut self, address: u16) {
         let sprite_table_addr = self.registers.sprite_attribute_table_base_addr;
         let h_size = self.registers.horizontal_display_size;
+        let interlacing_mode = self.registers.interlacing_mode;
+
         if !address.bit(2)
             && (sprite_table_addr..sprite_table_addr + 8 * h_size.sprite_table_len())
                 .contains(&address)
@@ -1428,7 +1436,7 @@ impl Vdp {
             let msb = self.vram[(address & !0x01) as usize];
             let lsb = self.vram[(address | 0x01) as usize];
             if !address.bit(1) {
-                self.cached_sprite_attributes[idx].update_first_word(msb, lsb);
+                self.cached_sprite_attributes[idx].update_first_word(msb, lsb, interlacing_mode);
             } else {
                 self.cached_sprite_attributes[idx].update_second_word(msb, lsb);
             }
