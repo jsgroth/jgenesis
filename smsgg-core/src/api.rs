@@ -430,7 +430,7 @@ impl EmulatorTrait for SmsGgEmulator {
     type EmulatorConfig = SmsGgEmulatorConfig;
 
     fn timing_mode(&self) -> TimingMode {
-        todo!()
+        self.vdp.timing_mode()
     }
 }
 

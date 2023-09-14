@@ -1021,6 +1021,10 @@ impl Vdp {
             InterruptLine::High
         }
     }
+
+    pub fn timing_mode(&self) -> TimingMode {
+        self.registers.version.timing_mode()
+    }
 }
 
 fn get_color_id(tile: &[u8], tile_row: u16, tile_col: u16, horizontal_flip: bool) -> u8 {

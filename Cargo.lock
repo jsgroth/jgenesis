@@ -1839,6 +1839,7 @@ dependencies = [
 name = "jgenesis-web"
 version = "0.3.0"
 dependencies = [
+ "anyhow",
  "base64",
  "console_error_panic_hook",
  "console_log",
@@ -1850,6 +1851,7 @@ dependencies = [
  "log",
  "rand",
  "rfd",
+ "smsgg-core",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",

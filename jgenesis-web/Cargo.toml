@@ -12,7 +12,9 @@ crate-type = ["cdylib"]
 genesis-core = { path = "../genesis-core" }
 jgenesis-renderer = { path = "../jgenesis-renderer" }
 jgenesis-traits = { path = "../jgenesis-traits" }
+smsgg-core = { path = "../smsgg-core" }
 
+anyhow = "1"
 base64 = "0.21"
 console_error_panic_hook = "0.1"
 console_log = "1"

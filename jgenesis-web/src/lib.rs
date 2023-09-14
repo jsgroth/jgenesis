@@ -10,10 +10,15 @@ use jgenesis_renderer::config::{
 };
 use jgenesis_renderer::renderer::WgpuRenderer;
 use jgenesis_traits::frontend::{
-    AudioOutput, EmulatorTrait, SaveWriter, TickEffect, TickableEmulator, TimingMode,
+    AudioOutput, EmulatorTrait, PixelAspectRatio, Renderer, SaveWriter, TickEffect,
+    TickableEmulator, TimingMode,
 };
 use js_sys::Promise;
 use rfd::AsyncFileDialog;
+use smsgg_core::psg::PsgVersion;
+use smsgg_core::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgInputs, SmsRegion, VdpVersion};
+use std::fmt::Debug;
+use std::path::Path;
 use wasm_bindgen::prelude::*;
 use web_sys::{AudioContext, AudioContextOptions};
 use winit::dpi::LogicalSize;
@@ -66,6 +71,147 @@ pub fn init_logger() {
     console_log::init_with_level(log::Level::Info).expect("Unable to initialize logger");
 }
 
+#[allow(clippy::large_enum_variant)]
+enum Emulator {
+    SmsGg(SmsGgEmulator, SmsGgInputs),
+    Genesis(GenesisEmulator, GenesisInputs),
+}
+
+impl Emulator {
+    fn render_frame<R: Renderer, A: AudioOutput, S: SaveWriter>(
+        &mut self,
+        renderer: &mut R,
+        audio_output: &mut A,
+        save_writer: &mut S,
+    ) where
+        R::Err: Debug,
+        A::Err: Debug,
+        S::Err: Debug,
+    {
+        match self {
+            Self::SmsGg(emulator, inputs) => {
+                while emulator
+                    .tick(renderer, audio_output, inputs, save_writer)
+                    .expect("Emulator error")
+                    != TickEffect::FrameRendered
+                {}
+            }
+            Self::Genesis(emulator, inputs) => {
+                while emulator
+                    .tick(renderer, audio_output, inputs, save_writer)
+                    .expect("Emulator error")
+                    != TickEffect::FrameRendered
+                {}
+            }
+        }
+    }
+
+    fn timing_mode(&self) -> TimingMode {
+        match self {
+            Self::SmsGg(emulator, ..) => emulator.timing_mode(),
+            Self::Genesis(emulator, ..) => emulator.timing_mode(),
+        }
+    }
+
+    fn handle_window_event(&mut self, event: &WindowEvent<'_>) {
+        match self {
+            Self::SmsGg(_, inputs) => {
+                handle_smsgg_input(inputs, event);
+            }
+            Self::Genesis(_, inputs) => {
+                handle_genesis_input(inputs, event);
+            }
+        }
+    }
+}
+
+fn handle_smsgg_input(inputs: &mut SmsGgInputs, event: &WindowEvent<'_>) {
+    let WindowEvent::KeyboardInput {
+        input: KeyboardInput { virtual_keycode: Some(keycode), state, .. },
+        ..
+    } = event
+    else {
+        return;
+    };
+    let pressed = *state == ElementState::Pressed;
+
+    match keycode {
+        VirtualKeyCode::Up => {
+            inputs.p1.up = pressed;
+        }
+        VirtualKeyCode::Left => {
+            inputs.p1.left = pressed;
+        }
+        VirtualKeyCode::Right => {
+            inputs.p1.right = pressed;
+        }
+        VirtualKeyCode::Down => {
+            inputs.p1.down = pressed;
+        }
+        VirtualKeyCode::A => {
+            inputs.p1.button_2 = pressed;
+        }
+        VirtualKeyCode::S => {
+            inputs.p1.button_1 = pressed;
+        }
+        VirtualKeyCode::Return => {
+            inputs.pause = pressed;
+        }
+        _ => {}
+    }
+}
+
+fn handle_genesis_input(inputs: &mut GenesisInputs, event: &WindowEvent<'_>) {
+    let WindowEvent::KeyboardInput {
+        input: KeyboardInput { virtual_keycode: Some(keycode), state, .. },
+        ..
+    } = event
+    else {
+        return;
+    };
+    let pressed = *state == ElementState::Pressed;
+
+    match keycode {
+        VirtualKeyCode::Up => {
+            inputs.p1.up = pressed;
+        }
+        VirtualKeyCode::Left => {
+            inputs.p1.left = pressed;
+        }
+        VirtualKeyCode::Right => {
+            inputs.p1.right = pressed;
+        }
+        VirtualKeyCode::Down => {
+            inputs.p1.down = pressed;
+        }
+        VirtualKeyCode::A => {
+            inputs.p1.a = pressed;
+        }
+        VirtualKeyCode::S => {
+            inputs.p1.b = pressed;
+        }
+        VirtualKeyCode::D => {
+            inputs.p1.c = pressed;
+        }
+        VirtualKeyCode::Q => {
+            inputs.p1.x = pressed;
+        }
+        VirtualKeyCode::W => {
+            inputs.p1.y = pressed;
+        }
+        VirtualKeyCode::E => {
+            inputs.p1.z = pressed;
+        }
+        VirtualKeyCode::Return => {
+            inputs.p1.start = pressed;
+        }
+        VirtualKeyCode::RShift => {
+            inputs.p1.mode = pressed;
+        }
+        _ => {}
+    }
+}
+
 /// # Panics
 #[wasm_bindgen]
 pub async fn run_emulator() {
@@ -105,22 +251,57 @@ pub async fn run_emulator() {
         .expect("Unable to initialize audio worklet");
 
     let file = AsyncFileDialog::new()
-        .add_filter("md", &["md", "bin"])
+        .add_filter("sms/gg/md", &["sms", "gg", "md", "bin"])
         .pick_file()
         .await
         .expect("No file selected");
     let rom = file.read().await;
 
-    let emulator = GenesisEmulator::create(
-        rom,
-        None,
-        GenesisEmulatorConfig {
-            forced_timing_mode: None,
-            forced_region: None,
-            aspect_ratio: GenesisAspectRatio::Ntsc,
-            adjust_aspect_ratio_in_2x_resolution: true,
-        },
-    );
+    #[allow(clippy::map_unwrap_or)]
+    let file_ext = Path::new(&file.file_name()).extension().map(|ext| ext.to_string_lossy().to_string()).unwrap_or_else(|| {
+        log::warn!("Unable to determine file extension of uploaded file; defaulting to Genesis emulator");
+        "md".into()
+    });
+
+    let emulator = match file_ext.as_str() {
+        "sms" | "gg" => {
+            let (vdp_version, psg_version) = if file_ext == "sms" {
+                (VdpVersion::NtscMasterSystem2, PsgVersion::MasterSystem2)
+            } else {
+                (VdpVersion::GameGear, PsgVersion::Standard)
+            };
+            let emulator = SmsGgEmulator::create(
+                rom,
+                None,
+                vdp_version,
+                SmsGgEmulatorConfig {
+                    psg_version,
+                    pixel_aspect_ratio: Some(PixelAspectRatio::try_from(8.0 / 7.0).unwrap()),
+                    remove_sprite_limit: false,
+                    sms_region: SmsRegion::International,
+                    sms_crop_vertical_border: false,
+                    sms_crop_left_border: false,
+                    fm_sound_unit_enabled: true,
+                    overclock_z80: false,
+                },
+            );
+            Emulator::SmsGg(emulator, SmsGgInputs::default())
+        }
+        "md" | "bin" => {
+            let emulator = GenesisEmulator::create(
+                rom,
+                None,
+                GenesisEmulatorConfig {
+                    forced_timing_mode: None,
+                    forced_region: None,
+                    aspect_ratio: GenesisAspectRatio::Ntsc,
+                    adjust_aspect_ratio_in_2x_resolution: true,
+                },
+            );
+            Emulator::Genesis(emulator, GenesisInputs::default())
+        }
+        _ => panic!("Unsupported extension: {file_ext}"),
+    };
 
     js::focusCanvas();
 
@@ -132,10 +313,9 @@ fn run_event_loop(
     mut renderer: WgpuRenderer<Window>,
     mut audio_output: WebAudioOutput,
     audio_ctx: AudioContext,
-    mut emulator: GenesisEmulator,
+    mut emulator: Emulator,
 ) {
     let mut audio_started = false;
-    let mut inputs = GenesisInputs::default();
 
     let performance = web_sys::window()
         .and_then(|window| window.performance())
@@ -163,66 +343,15 @@ fn run_event_loop(
                 let _: Promise = audio_ctx.resume().expect("Unable to start audio playback");
             }
 
-            while emulator
-                .tick(&mut renderer, &mut audio_output, &inputs, &mut Null)
-                .expect("Emulator error")
-                != TickEffect::FrameRendered
-            {}
+            emulator.render_frame(&mut renderer, &mut audio_output, &mut Null);
         }
         Event::WindowEvent { event: window_event, window_id }
             if window_id == renderer.window().id() =>
         {
-            match window_event {
-                WindowEvent::CloseRequested => {
-                    *control_flow = ControlFlow::Exit;
-                }
-                WindowEvent::KeyboardInput {
-                    input: KeyboardInput { virtual_keycode: Some(keycode), state, .. },
-                    ..
-                } => {
-                    let pressed = state == ElementState::Pressed;
+            emulator.handle_window_event(&window_event);
 
-                    match keycode {
-                        VirtualKeyCode::Up => {
-                            inputs.p1.up = pressed;
-                        }
-                        VirtualKeyCode::Left => {
-                            inputs.p1.left = pressed;
-                        }
-                        VirtualKeyCode::Right => {
-                            inputs.p1.right = pressed;
-                        }
-                        VirtualKeyCode::Down => {
-                            inputs.p1.down = pressed;
-                        }
-                        VirtualKeyCode::A => {
-                            inputs.p1.a = pressed;
-                        }
-                        VirtualKeyCode::S => {
-                            inputs.p1.b = pressed;
-                        }
-                        VirtualKeyCode::D => {
-                            inputs.p1.c = pressed;
-                        }
-                        VirtualKeyCode::Q => {
-                            inputs.p1.x = pressed;
-                        }
-                        VirtualKeyCode::W => {
-                            inputs.p1.y = pressed;
-                        }
-                        VirtualKeyCode::E => {
-                            inputs.p1.z = pressed;
-                        }
-                        VirtualKeyCode::Return => {
-                            inputs.p1.start = pressed;
-                        }
-                        VirtualKeyCode::RShift => {
-                            inputs.p1.mode = pressed;
-                        }
-                        _ => {}
-                    }
-                }
-                _ => {}
+            if let WindowEvent::CloseRequested = window_event {
+                *control_flow = ControlFlow::Exit;
             }
         }
         _ => {}
