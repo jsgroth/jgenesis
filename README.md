@@ -86,3 +86,18 @@ RUSTFLAGS="-Ctarget-cpu=native" cargo build --profile release-lto
 ![Screenshot from 2023-08-27 22-47-13](https://github.com/jsgroth/jgenesis/assets/1137683/d2ec2bc6-de7d-4ff1-98c5-10a0c4db7391)
 
 ![Screenshot from 2023-08-27 22-53-09](https://github.com/jsgroth/jgenesis/assets/1137683/05a7c309-0706-4627-9b45-313f259cc494)
+
+## Sources
+
+* Mega Drive official documentation: https://segaretro.org/Mega_Drive_official_documentation
+* Mega Drive / Genesis architecture: https://www.copetti.org/writings/consoles/mega-drive-genesis/
+* Sega Master System / Game Gear documentation: https://www.smspower.org/Development/Documents
+* Sega Master System architecture: https://www.copetti.org/writings/consoles/master-system/
+* Sega Genesis hardware notes by Charles MacDonald: https://gendev.spritesmind.net/mirrors/cmd/gen-hw.txt
+* Mega Drive video timings: https://gendev.spritesmind.net/forum/viewtopic.php?f=22&t=519
+* Genesis ROM header reference: https://plutiedev.com/rom-header
+* Genesis - Going beyond 4MB: https://plutiedev.com/beyond-4mb
+* Huge thread discussing and detailing the YM2612: https://gendev.spritesmind.net/forum/viewtopic.php?f=24&t=386
+* Genesis EEPROM games: https://gendev.spritesmind.net/forum/viewtopic.php?f=25&t=206
+* YM2413 application manual: https://www.smspower.org/maxim/Documents/YM2413ApplicationManual
+* Reverse engineering of the YM2413: https://github.com/andete/ym2413
