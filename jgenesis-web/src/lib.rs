@@ -4,14 +4,14 @@ mod audio;
 mod js;
 
 use crate::audio::AudioQueue;
-use genesis_core::{
-    GenesisAspectRatio, GenesisEmulator, GenesisEmulatorConfig, GenesisInputs, GenesisTimingMode,
-};
+use genesis_core::{GenesisAspectRatio, GenesisEmulator, GenesisEmulatorConfig, GenesisInputs};
 use jgenesis_renderer::config::{
     FilterMode, PrescaleFactor, RendererConfig, VSyncMode, WgpuBackend,
 };
 use jgenesis_renderer::renderer::WgpuRenderer;
-use jgenesis_traits::frontend::{AudioOutput, SaveWriter, TickEffect, TickableEmulator};
+use jgenesis_traits::frontend::{
+    AudioOutput, EmulatorTrait, SaveWriter, TickEffect, TickableEmulator, TimingMode,
+};
 use js_sys::Promise;
 use rfd::AsyncFileDialog;
 use wasm_bindgen::prelude::*;
@@ -151,8 +151,8 @@ fn run_event_loop(
             }
 
             let fps = match emulator.timing_mode() {
-                GenesisTimingMode::Ntsc => 60.0,
-                GenesisTimingMode::Pal => 50.0,
+                TimingMode::Ntsc => 60.0,
+                TimingMode::Pal => 50.0,
             };
             while now >= next_frame_time {
                 next_frame_time += 1000.0 / fps;

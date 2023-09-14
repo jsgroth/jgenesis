@@ -1755,6 +1755,7 @@ dependencies = [
  "jgenesis-native-driver",
  "jgenesis-proc-macros",
  "jgenesis-renderer",
+ "jgenesis-traits",
  "log",
  "smsgg-core",
 ]
@@ -1830,6 +1831,8 @@ version = "0.3.0"
 dependencies = [
  "bincode",
  "bytemuck",
+ "jgenesis-proc-macros",
+ "serde",
 ]
 
 [[package]]

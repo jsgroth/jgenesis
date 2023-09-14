@@ -9,7 +9,7 @@ edition = "2021"
 genesis-core = { path = "../genesis-core", features = ["serde"] }
 jgenesis-native-driver = { path = "../jgenesis-native-driver" }
 jgenesis-renderer = { path = "../jgenesis-renderer" }
-jgenesis-traits = { path = "../jgenesis-traits" }
+jgenesis-traits = { path = "../jgenesis-traits", features = ["serde"] }
 smsgg-core = { path = "../smsgg-core", features = ["serde"] }
 
 anyhow = "1"

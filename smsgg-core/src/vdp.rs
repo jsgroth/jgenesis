@@ -5,6 +5,7 @@ use bincode::enc::Encoder;
 use bincode::error::{DecodeError, EncodeError};
 use bincode::{BorrowDecode, Decode, Encode};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
+use jgenesis_traits::frontend::TimingMode;
 use jgenesis_traits::num::GetBit;
 use z80_emu::traits::InterruptLine;
 
@@ -57,12 +58,6 @@ impl ViewportSize {
     pub fn width_without_border(self) -> u16 {
         self.width - self.left_border_width
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TimingMode {
-    Ntsc,
-    Pal,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]

@@ -3,7 +3,7 @@ use crate::bus::Bus;
 use crate::input::InputState;
 use crate::memory::Memory;
 use crate::psg::{Psg, PsgTickEffect, PsgVersion};
-use crate::vdp::{TimingMode, Vdp, VdpBuffer, VdpTickEffect};
+use crate::vdp::{Vdp, VdpBuffer, VdpTickEffect};
 use crate::ym2413::Ym2413;
 use crate::{vdp, SmsGgInputs, VdpVersion};
 use bincode::{Decode, Encode};
@@ -11,6 +11,7 @@ use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
 use jgenesis_traits::frontend::{
     AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, FrameSize, LightClone,
     PixelAspectRatio, Renderer, Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
+    TimingMode,
 };
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
@@ -427,6 +428,10 @@ impl EmulatorDebug for SmsGgEmulator {
 impl EmulatorTrait for SmsGgEmulator {
     type EmulatorInputs = SmsGgInputs;
     type EmulatorConfig = SmsGgEmulatorConfig;
+
+    fn timing_mode(&self) -> TimingMode {
+        todo!()
+    }
 }
 
 fn populate_frame_buffer(

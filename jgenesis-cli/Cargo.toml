@@ -10,6 +10,7 @@ genesis-core = { path = "../genesis-core" }
 jgenesis-native-driver = { path = "../jgenesis-native-driver" }
 jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
 jgenesis-renderer = { path = "../jgenesis-renderer" }
+jgenesis-traits = { path = "../jgenesis-traits" }
 smsgg-core = { path = "../smsgg-core" }
 
 anyhow = "1"

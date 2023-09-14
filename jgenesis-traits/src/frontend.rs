@@ -1,18 +1,9 @@
 use bincode::{Decode, Encode};
+use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use std::num::NonZeroU32;
 
 #[repr(C)]
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    bytemuck::Pod,
-    bytemuck::Zeroable,
-    bincode::Encode,
-    bincode::Decode,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable, Encode, Decode)]
 pub struct Color {
     pub r: u8,
     pub g: u8,
@@ -41,7 +32,7 @@ pub struct FrameSize {
     pub height: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, bincode::Encode, bincode::Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Encode, Decode)]
 pub struct PixelAspectRatio(f64);
 
 impl PixelAspectRatio {
@@ -198,7 +189,14 @@ pub trait EmulatorDebug {
     fn debug_vram(&self, out: &mut [Color], palette: u8);
 }
 
-// Trait that simply combines useful trait bounds
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumDisplay, EnumFromStr, Encode, Decode)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum TimingMode {
+    #[default]
+    Ntsc,
+    Pal,
+}
+
 pub trait EmulatorTrait:
     TickableEmulator<Inputs = Self::EmulatorInputs>
     + Encode
@@ -211,4 +209,6 @@ pub trait EmulatorTrait:
 {
     type EmulatorInputs;
     type EmulatorConfig;
+
+    fn timing_mode(&self) -> TimingMode;
 }

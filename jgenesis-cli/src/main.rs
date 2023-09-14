@@ -1,6 +1,6 @@
 use clap::Parser;
 use env_logger::Env;
-use genesis_core::{GenesisAspectRatio, GenesisControllerType, GenesisRegion, GenesisTimingMode};
+use genesis_core::{GenesisAspectRatio, GenesisControllerType, GenesisRegion};
 use jgenesis_native_driver::config::input::{
     GenesisControllerConfig, GenesisInputConfig, HotkeyConfig, KeyboardInput,
     SmsGgControllerConfig, SmsGgInputConfig,
@@ -13,6 +13,7 @@ use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::{
     FilterMode, PrescaleFactor, RendererConfig, VSyncMode, WgpuBackend,
 };
+use jgenesis_traits::frontend::TimingMode;
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsRegion, VdpVersion};
 use std::ffi::OsStr;
@@ -47,7 +48,7 @@ struct Args {
 
     /// Force Genesis timing mode (Ntsc / Pal)
     #[arg(long)]
-    genesis_timing_mode: Option<GenesisTimingMode>,
+    genesis_timing_mode: Option<TimingMode>,
 
     /// Remove SMS/GG 8-sprite-per-scanline limit which disables sprite flickering
     #[arg(long)]

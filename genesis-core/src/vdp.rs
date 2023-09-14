@@ -1,10 +1,9 @@
 mod debug;
 
-use crate::api::GenesisTimingMode;
 use crate::memory::Memory;
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
-use jgenesis_traits::frontend::Color;
+use jgenesis_traits::frontend::{Color, TimingMode};
 use jgenesis_traits::num::GetBit;
 use m68000_emu::M68000;
 use std::ops::{Add, AddAssign, Deref, DerefMut};
@@ -828,7 +827,7 @@ pub struct Vdp {
     vram: Vec<u8>,
     cram: [u8; CRAM_LEN],
     vsram: [u8; VSRAM_LEN],
-    timing_mode: GenesisTimingMode,
+    timing_mode: TimingMode,
     state: InternalState,
     registers: Registers,
     cached_sprite_attributes: Vec<CachedSpriteData>,
@@ -856,7 +855,11 @@ const MAX_SPRITES_PER_FRAME: usize = 80;
 // Sprites with X = $080 display at the left edge of the screen
 const SPRITE_H_DISPLAY_START: u16 = 0x080;
 
-impl GenesisTimingMode {
+trait TimingModeExt: Copy {
+    fn scanlines_per_frame(self) -> u16;
+}
+
+impl TimingModeExt for TimingMode {
     fn scanlines_per_frame(self) -> u16 {
         match self {
             Self::Ntsc => NTSC_SCANLINES_PER_FRAME,
@@ -866,7 +869,7 @@ impl GenesisTimingMode {
 }
 
 impl Vdp {
-    pub fn new(timing_mode: GenesisTimingMode) -> Self {
+    pub fn new(timing_mode: TimingMode) -> Self {
         Self {
             frame_buffer: FrameBuffer::new(),
             vram: vec![0; VRAM_LEN],
@@ -1085,11 +1088,11 @@ impl Vdp {
         let scanline_mclk = self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE;
         let v_counter: u16 = self.v_counter(scanline_mclk).into();
         let vblank_flag = match self.timing_mode {
-            GenesisTimingMode::Ntsc => {
+            TimingMode::Ntsc => {
                 v_counter >= VerticalDisplaySize::TwentyEightCell.active_scanlines()
                     && v_counter != 0xFF
             }
-            GenesisTimingMode::Pal => {
+            TimingMode::Pal => {
                 let active_scanlines = self.registers.vertical_display_size.active_scanlines();
                 // This OR is mecessary because the PAL V counter briefly wraps around to $00-$0A
                 // during VBlank.
@@ -1114,7 +1117,7 @@ impl Vdp {
             | (u16::from(interlaced_odd) << 4)
             | (u16::from(vblank_flag) << 3)
             | (u16::from(hblank_flag) << 2)
-            | u16::from(self.timing_mode == GenesisTimingMode::Pal);
+            | u16::from(self.timing_mode == TimingMode::Pal);
 
         self.state.sprite_overflow = false;
         self.state.sprite_collision = false;
@@ -1195,21 +1198,21 @@ impl Vdp {
         match self.registers.interlacing_mode {
             InterlacingMode::Progressive | InterlacingMode::Interlaced => {
                 match (self.timing_mode, self.registers.vertical_display_size) {
-                    (GenesisTimingMode::Ntsc, _) => {
+                    (TimingMode::Ntsc, _) => {
                         if scanline <= 0xEA {
                             scanline as u8
                         } else {
                             (scanline - 6) as u8
                         }
                     }
-                    (GenesisTimingMode::Pal, VerticalDisplaySize::TwentyEightCell) => {
+                    (TimingMode::Pal, VerticalDisplaySize::TwentyEightCell) => {
                         if scanline <= 0x102 {
                             scanline as u8
                         } else {
                             (scanline - (0x103 - 0xCA)) as u8
                         }
                     }
-                    (GenesisTimingMode::Pal, VerticalDisplaySize::ThirtyCell) => {
+                    (TimingMode::Pal, VerticalDisplaySize::ThirtyCell) => {
                         if scanline <= 0x10A {
                             scanline as u8
                         } else {
@@ -1496,7 +1499,7 @@ impl Vdp {
     #[inline]
     fn render_next_scanline(&mut self) {
         match (self.timing_mode, self.registers.vertical_display_size, self.state.scanline) {
-            (GenesisTimingMode::Ntsc, _, 261) | (GenesisTimingMode::Pal, _, 311) => {
+            (TimingMode::Ntsc, _, 261) | (TimingMode::Pal, _, 311) => {
                 self.render_scanline(0);
             }
             (_, VerticalDisplaySize::TwentyEightCell, scanline @ 0..=222)
@@ -2187,9 +2190,13 @@ fn gen_color_to_rgb(r: u8, g: u8, b: u8, modifier: ColorModifier) -> Color {
 mod tests {
     use super::*;
 
+    fn new_vdp() -> Vdp {
+        Vdp::new(TimingMode::Ntsc)
+    }
+
     #[test]
     fn h_counter_basic_functionality() {
-        let mut vdp = Vdp::new(GenesisTimingMode::Ntsc);
+        let mut vdp = new_vdp();
 
         vdp.registers.horizontal_display_size = HorizontalDisplaySize::ThirtyTwoCell;
         assert_eq!(vdp.h_counter(0), 0);
@@ -2204,7 +2211,7 @@ mod tests {
 
     #[test]
     fn h_counter_hblank_h32() {
-        let mut vdp = Vdp::new(GenesisTimingMode::Ntsc);
+        let mut vdp = new_vdp();
 
         vdp.registers.horizontal_display_size = HorizontalDisplaySize::ThirtyTwoCell;
         assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE), 0x80);
@@ -2218,7 +2225,7 @@ mod tests {
 
     #[test]
     fn h_counter_hblank_h40() {
-        let mut vdp = Vdp::new(GenesisTimingMode::Ntsc);
+        let mut vdp = new_vdp();
 
         vdp.registers.horizontal_display_size = HorizontalDisplaySize::FortyCell;
         assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE), 0xA0);

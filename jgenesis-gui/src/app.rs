@@ -12,13 +12,14 @@ use egui::{
     TextEdit, TopBottomPanel, Vec2, Widget, Window,
 };
 use egui_extras::{Column, TableBuilder};
-use genesis_core::{GenesisAspectRatio, GenesisRegion, GenesisTimingMode};
+use genesis_core::{GenesisAspectRatio, GenesisRegion};
 use jgenesis_native_driver::config::{
     CommonConfig, GenesisConfig, GgAspectRatio, SmsAspectRatio, SmsGgConfig, WindowSize,
 };
 use jgenesis_renderer::config::{
     FilterMode, PrescaleFactor, RendererConfig, VSyncMode, WgpuBackend,
 };
+use jgenesis_traits::frontend::TimingMode;
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
@@ -85,13 +86,6 @@ fn default_rewind_buffer_length() -> u64 {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-enum TimingMode {
-    #[default]
-    Ntsc,
-    Pal,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 enum SmsModel {
     Sms1,
     #[default]
@@ -132,7 +126,7 @@ impl Default for SmsGgAppConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct GenesisAppConfig {
     #[serde(default)]
-    forced_timing_mode: Option<GenesisTimingMode>,
+    forced_timing_mode: Option<TimingMode>,
     #[serde(default)]
     forced_region: Option<GenesisRegion>,
     #[serde(default)]
@@ -441,12 +435,12 @@ impl App {
                     ui.radio_value(&mut self.config.genesis.forced_timing_mode, None, "Auto");
                     ui.radio_value(
                         &mut self.config.genesis.forced_timing_mode,
-                        Some(GenesisTimingMode::Ntsc),
+                        Some(TimingMode::Ntsc),
                         "NTSC",
                     );
                     ui.radio_value(
                         &mut self.config.genesis.forced_timing_mode,
-                        Some(GenesisTimingMode::Pal),
+                        Some(TimingMode::Pal),
                         "PAL",
                     );
                 });

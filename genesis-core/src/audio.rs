@@ -1,6 +1,5 @@
-use crate::api::GenesisTimingMode;
 use bincode::{Decode, Encode};
-use jgenesis_traits::frontend::AudioOutput;
+use jgenesis_traits::frontend::{AudioOutput, TimingMode};
 use std::collections::VecDeque;
 
 // 53_693_175 / 7 / 6 / 24 * 3 / 48000
@@ -10,7 +9,11 @@ const NTSC_DOWNSAMPLING_RATIO: f64 = 3.329189918154762;
 // 53_203_424 / 7 / 6 / 24 * 3 / 48000
 const PAL_DOWNSAMPLING_RATIO: f64 = 3.298823412698413;
 
-impl GenesisTimingMode {
+trait TimingModeExt: Copy {
+    fn downsampling_ratio(self) -> f64;
+}
+
+impl TimingModeExt for TimingMode {
     fn downsampling_ratio(self) -> f64 {
         match self {
             Self::Ntsc => NTSC_DOWNSAMPLING_RATIO,
@@ -59,7 +62,7 @@ pub struct AudioDownsampler {
 }
 
 impl AudioDownsampler {
-    pub fn new(timing_mode: GenesisTimingMode) -> Self {
+    pub fn new(timing_mode: TimingMode) -> Self {
         let downsampling_ratio = timing_mode.downsampling_ratio();
         Self {
             full_buffer_l: VecDeque::new(),

@@ -5,11 +5,10 @@ use crate::config::input::{
 };
 use genesis_core::{
     GenesisAspectRatio, GenesisControllerType, GenesisEmulatorConfig, GenesisRegion,
-    GenesisTimingMode,
 };
 use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::RendererConfig;
-use jgenesis_traits::frontend::PixelAspectRatio;
+use jgenesis_traits::frontend::{PixelAspectRatio, TimingMode};
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgEmulatorConfig, SmsRegion, VdpVersion};
@@ -160,7 +159,7 @@ pub struct GenesisConfig {
     pub common: CommonConfig<GenesisInputConfig<KeyboardInput>, GenesisInputConfig<JoystickInput>>,
     pub p1_controller_type: GenesisControllerType,
     pub p2_controller_type: GenesisControllerType,
-    pub forced_timing_mode: Option<GenesisTimingMode>,
+    pub forced_timing_mode: Option<TimingMode>,
     pub forced_region: Option<GenesisRegion>,
     pub aspect_ratio: GenesisAspectRatio,
     // Whether or not to automatically double the pixel aspect ratio when the VDP is in interlaced

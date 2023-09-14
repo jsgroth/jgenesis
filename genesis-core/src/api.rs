@@ -9,6 +9,7 @@ use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_traits::frontend::{
     AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, FrameSize, LightClone,
     PixelAspectRatio, Renderer, Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
+    TimingMode,
 };
 use jgenesis_traits::num::GetBit;
 use m68000_emu::M68000;
@@ -97,13 +98,6 @@ impl GenesisAspectRatio {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumDisplay, EnumFromStr, Encode, Decode)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum GenesisTimingMode {
-    Ntsc,
-    Pal,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumDisplay, EnumFromStr, Encode, Decode)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum GenesisRegion {
     Americas,
     Japan,
@@ -154,7 +148,7 @@ impl GenesisRegion {
 
 #[derive(Debug, Clone, Copy)]
 pub struct GenesisEmulatorConfig {
-    pub forced_timing_mode: Option<GenesisTimingMode>,
+    pub forced_timing_mode: Option<TimingMode>,
     pub forced_region: Option<GenesisRegion>,
     pub aspect_ratio: GenesisAspectRatio,
     pub adjust_aspect_ratio_in_2x_resolution: bool,
@@ -169,7 +163,7 @@ pub struct GenesisEmulator {
     psg: Psg,
     ym2612: Ym2612,
     input: InputState,
-    timing_mode: GenesisTimingMode,
+    timing_mode: TimingMode,
     aspect_ratio: GenesisAspectRatio,
     adjust_aspect_ratio_in_2x_resolution: bool,
     audio_downsampler: AudioDownsampler,
@@ -193,8 +187,8 @@ impl GenesisEmulator {
 
         let timing_mode =
             config.forced_timing_mode.unwrap_or_else(|| match memory.hardware_region() {
-                GenesisRegion::Europe => GenesisTimingMode::Pal,
-                GenesisRegion::Americas | GenesisRegion::Japan => GenesisTimingMode::Ntsc,
+                GenesisRegion::Europe => TimingMode::Pal,
+                GenesisRegion::Americas | GenesisRegion::Japan => TimingMode::Ntsc,
             });
 
         log::info!("Using timing / display mode {timing_mode}");
@@ -236,11 +230,6 @@ impl GenesisEmulator {
     #[must_use]
     pub fn cartridge_title(&self) -> String {
         self.memory.cartridge_title()
-    }
-
-    #[must_use]
-    pub fn timing_mode(&self) -> GenesisTimingMode {
-        self.timing_mode
     }
 
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
@@ -449,4 +438,8 @@ impl EmulatorDebug for GenesisEmulator {
 impl EmulatorTrait for GenesisEmulator {
     type EmulatorInputs = GenesisInputs;
     type EmulatorConfig = GenesisEmulatorConfig;
+
+    fn timing_mode(&self) -> TimingMode {
+        self.timing_mode
+    }
 }

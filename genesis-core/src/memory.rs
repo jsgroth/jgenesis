@@ -6,9 +6,9 @@ use crate::input::InputState;
 use crate::memory::external::ExternalMemory;
 use crate::vdp::Vdp;
 use crate::ym2612::Ym2612;
-use crate::GenesisTimingMode;
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
+use jgenesis_traits::frontend::TimingMode;
 use jgenesis_traits::num::GetBit;
 use regex::Regex;
 use smsgg_core::psg::Psg;
@@ -287,7 +287,7 @@ pub struct MainBus<'a> {
     psg: &'a mut Psg,
     ym2612: &'a mut Ym2612,
     input: &'a mut InputState,
-    timing_mode: GenesisTimingMode,
+    timing_mode: TimingMode,
     z80_stalled: bool,
 }
 
@@ -298,7 +298,7 @@ impl<'a> MainBus<'a> {
         psg: &'a mut Psg,
         ym2612: &'a mut Ym2612,
         input: &'a mut InputState,
-        timing_mode: GenesisTimingMode,
+        timing_mode: TimingMode,
         z80_stalled: bool,
     ) -> Self {
         Self { memory, vdp, psg, ym2612, input, timing_mode, z80_stalled }
@@ -311,7 +311,7 @@ impl<'a> MainBus<'a> {
             // Version register
             0xA10000 | 0xA10001 => {
                 0x20 | (u8::from(self.memory.cartridge.region.version_bit()) << 7)
-                    | (u8::from(self.timing_mode == GenesisTimingMode::Pal) << 6)
+                    | (u8::from(self.timing_mode == TimingMode::Pal) << 6)
             }
             0xA10002 | 0xA10003 => self.input.read_p1_data(),
             0xA10004 | 0xA10005 => self.input.read_p2_data(),
