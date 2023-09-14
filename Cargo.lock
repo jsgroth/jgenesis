@@ -1346,7 +1346,7 @@ dependencies = [
 
 [[package]]
 name = "genesis-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bincode",
  "crc",
@@ -1746,7 +1746,7 @@ checksum = "af150ab688ff2122fcef229be89cb50dd66af9e01a4ff320cc137eecc9bacc38"
 
 [[package]]
 name = "jgenesis-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1761,7 +1761,7 @@ dependencies = [
 
 [[package]]
 name = "jgenesis-gui"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "bincode",
@@ -1784,7 +1784,7 @@ dependencies = [
 
 [[package]]
 name = "jgenesis-native-driver"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "bincode",
@@ -1804,7 +1804,7 @@ dependencies = [
 
 [[package]]
 name = "jgenesis-proc-macros"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "quote",
  "syn 2.0.29",
@@ -1812,7 +1812,7 @@ dependencies = [
 
 [[package]]
 name = "jgenesis-renderer"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -1826,7 +1826,7 @@ dependencies = [
 
 [[package]]
 name = "jgenesis-traits"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bincode",
  "bytemuck",
@@ -1834,7 +1834,7 @@ dependencies = [
 
 [[package]]
 name = "jgenesis-web"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "base64",
  "console_error_panic_hook",
@@ -1973,7 +1973,7 @@ checksum = "b5e6163cb8c49088c2c36f57875e58ccd8c87c7427f7fbd50ea6710b2f3f2e8f"
 
 [[package]]
 name = "m68000-emu"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bincode",
  "jgenesis-traits",
@@ -1982,7 +1982,7 @@ dependencies = [
 
 [[package]]
 name = "m68000-test-runner"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "clap",
  "env_logger",
@@ -2860,7 +2860,7 @@ dependencies = [
 
 [[package]]
 name = "smsgg-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bincode",
  "crc",
@@ -3875,7 +3875,7 @@ dependencies = [
 
 [[package]]
 name = "z80-emu"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bincode",
  "jgenesis-traits",
@@ -3885,7 +3885,7 @@ dependencies = [
 
 [[package]]
 name = "z80-test-runner"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "env_logger",
  "z80-emu",
