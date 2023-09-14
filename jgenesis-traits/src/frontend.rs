@@ -199,14 +199,16 @@ pub trait EmulatorDebug {
 }
 
 // Trait that simply combines useful trait bounds
-pub trait EmulatorTrait<Inputs, Config>:
-    TickableEmulator<Inputs = Inputs>
+pub trait EmulatorTrait:
+    TickableEmulator<Inputs = Self::EmulatorInputs>
     + Encode
     + Decode
-    + ConfigReload<Config = Config>
+    + ConfigReload<Config = Self::EmulatorConfig>
     + LightClone
     + TakeRomFrom
     + Resettable
     + EmulatorDebug
 {
+    type EmulatorInputs;
+    type EmulatorConfig;
 }

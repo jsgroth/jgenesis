@@ -296,7 +296,7 @@ impl<Inputs, Button, Config, Emulator> NativeEmulator<Inputs, Button, Config, Em
 where
     Inputs: Clearable + GetButtonField<Button>,
     Button: Copy,
-    Emulator: EmulatorTrait<Inputs, Config>,
+    Emulator: EmulatorTrait<EmulatorInputs = Inputs, EmulatorConfig = Config>,
     anyhow::Error: From<Emulator::Err<anyhow::Error, anyhow::Error, anyhow::Error>>,
 {
     /// Run the emulator until a frame is rendered.
@@ -597,11 +597,11 @@ enum HotkeyResult {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn handle_hotkeys<Inputs, Config, Emulator, P>(
+fn handle_hotkeys<Emulator, P>(
     hotkey_mapper: &HotkeyMapper,
     event: &Event,
     emulator: &mut Emulator,
-    config: &Config,
+    config: &Emulator::EmulatorConfig,
     renderer: &mut WgpuRenderer<Window>,
     audio_output: &mut SdlAudioOutput,
     save_state_path: P,
@@ -612,7 +612,7 @@ fn handle_hotkeys<Inputs, Config, Emulator, P>(
     vram_debug: &mut Option<VramDebug>,
 ) -> anyhow::Result<HotkeyResult>
 where
-    Emulator: EmulatorTrait<Inputs, Config>,
+    Emulator: EmulatorTrait,
     P: AsRef<Path>,
 {
     let save_state_path = save_state_path.as_ref();
@@ -659,10 +659,10 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-fn handle_hotkey_pressed<Inputs, Config, Emulator>(
+fn handle_hotkey_pressed<Emulator>(
     hotkey: Hotkey,
     emulator: &mut Emulator,
-    config: &Config,
+    config: &Emulator::EmulatorConfig,
     renderer: &mut WgpuRenderer<Window>,
     audio_output: &mut SdlAudioOutput,
     fast_forward_multiplier: u64,
@@ -673,7 +673,7 @@ fn handle_hotkey_pressed<Inputs, Config, Emulator>(
     save_state_path: &Path,
 ) -> anyhow::Result<HotkeyResult>
 where
-    Emulator: EmulatorTrait<Inputs, Config>,
+    Emulator: EmulatorTrait,
 {
     match hotkey {
         Hotkey::Quit => {

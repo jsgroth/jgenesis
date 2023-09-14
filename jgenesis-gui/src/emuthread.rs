@@ -225,7 +225,7 @@ fn run_emulator<Inputs, Button, Config, Emulator>(
 ) where
     Inputs: Clearable + GetButtonField<Button>,
     Button: Copy,
-    Emulator: EmulatorTrait<Inputs, Config>,
+    Emulator: EmulatorTrait<EmulatorInputs = Inputs, EmulatorConfig = Config>,
     anyhow::Error: From<Emulator::Err<anyhow::Error, anyhow::Error, anyhow::Error>>,
 {
     loop {

@@ -424,7 +424,10 @@ impl EmulatorDebug for SmsGgEmulator {
     }
 }
 
-impl EmulatorTrait<SmsGgInputs, SmsGgEmulatorConfig> for SmsGgEmulator {}
+impl EmulatorTrait for SmsGgEmulator {
+    type EmulatorInputs = SmsGgInputs;
+    type EmulatorConfig = SmsGgEmulatorConfig;
+}
 
 fn populate_frame_buffer(
     vdp_buffer: &VdpBuffer,

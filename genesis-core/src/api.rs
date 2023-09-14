@@ -446,4 +446,7 @@ impl EmulatorDebug for GenesisEmulator {
     }
 }
 
-impl EmulatorTrait<GenesisInputs, GenesisEmulatorConfig> for GenesisEmulator {}
+impl EmulatorTrait for GenesisEmulator {
+    type EmulatorInputs = GenesisInputs;
+    type EmulatorConfig = GenesisEmulatorConfig;
+}
