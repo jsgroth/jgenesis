@@ -855,6 +855,11 @@ const MAX_SPRITES_PER_FRAME: usize = 80;
 // Sprites with X = $080 display at the left edge of the screen
 const SPRITE_H_DISPLAY_START: u16 = 0x080;
 
+// Master clock cycle on which to trigger VINT on scanline 224/240.
+// Actual hardware triggers it a little earlier in the scanline, but setting this value much lower
+// seems to break the music tempo in Earthworm Jim
+const V_INTERRUPT_DELAY: u64 = 144;
+
 trait TimingModeExt: Copy {
     fn scanlines_per_frame(self) -> u16;
 }
@@ -1297,6 +1302,15 @@ impl Vdp {
             }
         }
 
+        // Check if a V interrupt has triggered
+        if self.state.scanline == active_scanlines
+            && prev_scanline_mclk < V_INTERRUPT_DELAY
+            && prev_scanline_mclk + master_clock_cycles >= V_INTERRUPT_DELAY
+        {
+            log::trace!("Generating V interrupt");
+            self.state.v_interrupt_pending = true;
+        }
+
         // Check if the VDP has advanced to a new scanline
         if prev_scanline_mclk + master_clock_cycles >= MCLK_CYCLES_PER_SCANLINE {
             self.state.scanline += 1;
@@ -1306,10 +1320,16 @@ impl Vdp {
                 self.state.frame_completed = false;
             }
 
-            if self.state.scanline == active_scanlines && !self.state.frame_completed {
+            // Check if we already passed the VINT threshold
+            if self.state.scanline == active_scanlines
+                && prev_scanline_mclk + master_clock_cycles - MCLK_CYCLES_PER_SCANLINE
+                    >= V_INTERRUPT_DELAY
+            {
                 log::trace!("Generating V interrupt");
                 self.state.v_interrupt_pending = true;
+            }
 
+            if self.state.scanline == active_scanlines && !self.state.frame_completed {
                 self.state.frame_completed = true;
                 return VdpTickEffect::FrameComplete;
             }
