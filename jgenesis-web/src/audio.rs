@@ -10,7 +10,7 @@ const HEADER_LEN_BYTES: u32 = HEADER_LEN * 4;
 const START_INDEX: u32 = 0;
 const END_INDEX: u32 = 1;
 
-const BUFFER_LEN: u32 = 16384;
+const BUFFER_LEN: u32 = 8192;
 const BUFFER_LEN_BYTES: u32 = BUFFER_LEN * 4;
 const BUFFER_INDEX_MASK: u32 = BUFFER_LEN - 1;
 

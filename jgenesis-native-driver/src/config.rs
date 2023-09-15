@@ -35,8 +35,12 @@ pub enum SmsAspectRatio {
 impl SmsAspectRatio {
     pub(crate) fn to_pixel_aspect_ratio(self) -> Option<PixelAspectRatio> {
         match self {
-            Self::Ntsc => Some(PixelAspectRatio::try_from(8.0 / 7.0).unwrap()),
-            Self::Pal => Some(PixelAspectRatio::try_from(11.0 / 8.0).unwrap()),
+            Self::Ntsc => {
+                Some(PixelAspectRatio::try_from(smsgg_core::SMS_NTSC_ASPECT_RATIO).unwrap())
+            }
+            Self::Pal => {
+                Some(PixelAspectRatio::try_from(smsgg_core::SMS_PAL_ASPECT_RATIO).unwrap())
+            }
             Self::SquarePixels => Some(PixelAspectRatio::SQUARE),
             Self::Stretched => None,
         }
@@ -56,7 +60,9 @@ pub enum GgAspectRatio {
 impl GgAspectRatio {
     pub(crate) fn to_pixel_aspect_ratio(self) -> Option<PixelAspectRatio> {
         match self {
-            Self::GgLcd => Some(PixelAspectRatio::try_from(6.0 / 5.0).unwrap()),
+            Self::GgLcd => {
+                Some(PixelAspectRatio::try_from(smsgg_core::GAME_GEAR_LCD_ASPECT_RATIO).unwrap())
+            }
             Self::SquarePixels => Some(PixelAspectRatio::SQUARE),
             Self::Stretched => None,
         }

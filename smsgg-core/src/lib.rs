@@ -10,3 +10,12 @@ mod ym2413;
 pub use api::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgError, SmsGgResult, SmsRegion};
 pub use input::{SmsGgInputs, SmsGgJoypadState};
 pub use vdp::VdpVersion;
+
+// 8:7
+pub const SMS_NTSC_ASPECT_RATIO: f64 = 1.1428571428571428;
+
+// 11:8
+pub const SMS_PAL_ASPECT_RATIO: f64 = 1.375;
+
+// 6:5
+pub const GAME_GEAR_LCD_ASPECT_RATIO: f64 = 1.2;

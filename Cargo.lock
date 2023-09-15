@@ -1845,6 +1845,7 @@ dependencies = [
  "console_log",
  "genesis-core",
  "getrandom",
+ "jgenesis-proc-macros",
  "jgenesis-renderer",
  "jgenesis-traits",
  "js-sys",

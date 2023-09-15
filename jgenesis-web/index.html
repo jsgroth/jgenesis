@@ -4,18 +4,226 @@
         <title>jgenesis web</title>
         <meta charset="UTF-8">
         <style>
+            .hidden {
+                visibility: hidden;
+            }
+
             body {
                 background-color: black;
+                color: white;
+                font-family: sans-serif;
+            }
+
+            /* File dialog has a white background, so font color needs to be not white */
+            #rfd-card {
+                color: black;
+            }
+
+            #loading-text {
+                font-size: 60px;
+                text-align: center;
+            }
+
+            #jgenesis {
+                display: flex;
+                flex-direction: row;
+            }
+
+            #jgenesis-controls {
+                text-align: center;
+                margin-top: 10px;
+            }
+
+            #jgenesis-controls > input {
+                margin-left: auto;
+                margin-right: auto;
+            }
+
+            #jgenesis-config {
+                margin-left: 30px;
+            }
+
+            #footer {
+                text-align: center;
             }
         </style>
     </head>
     <body>
-        <div id="jgenesis-wasm"></div>
+        <div id="loading-text">Loading...</div>
+        <div id="jgenesis" class="hidden">
+            <div id="jgenesis-wasm-and-controls">
+                <div id="jgenesis-wasm"></div>
+                <div id="jgenesis-controls">
+                    <input type="button" id="open-file" value="Open ROM file">
+                    <input type="button" id="reset-emulator" value="Reset">
+                </div>
+            </div>
+            <div id="jgenesis-config">
+                <div id="smsgg-config" hidden>
+                    <fieldset>
+                        <legend>Timing / display mode (requires reset)</legend>
+
+                        <input type="radio" id="sms-timing-mode-ntsc" name="sms-timing-mode" value="Ntsc" checked>
+                        <label for="sms-timing-mode-ntsc">NTSC</label>
+
+                        <input type="radio" id="sms-timing-mode-pal" name="sms-timing-mode" value="Pal">
+                        <label for="sms-timing-mode-pal">PAL</label>
+                    </fieldset>
+
+                    <fieldset style="margin-top: 10px;">
+                        <legend>Console region</legend>
+
+                        <input type="radio" id="sms-region-international" name="sms-region" value="International" checked>
+                        <label for="sms-region-international">International</label>
+
+                        <input type="radio" id="sms-region-domestic" name="sms-region" value="Domestic">
+                        <label for="sms-region-domestic">Japan</label>
+                    </fieldset>
+
+                    <fieldset style="margin-top: 10px;">
+                        <legend>Sega Master System aspect ratio</legend>
+
+                        <input type="radio" id="sms-aspect-ratio-ntsc" name="sms-aspect-ratio" value="Ntsc" checked>
+                        <label for="sms-aspect-ratio-ntsc">NTSC</label>
+
+                        <input type="radio" id="sms-aspect-ratio-pal" name="sms-aspect-ratio" value="Pal">
+                        <label for="sms-aspect-ratio-pal">PAL</label>
+
+                        <input type="radio" id="sms-aspect-ratio-square-pixels" name="sms-aspect-ratio" value="SquarePixels">
+                        <label for="sms-aspect-ratio-square-pixels">Square pixels</label>
+                    </fieldset>
+
+                    <fieldset style="margin-top: 10px;">
+                        <legend>Game Gear aspect ratio</legend>
+
+                        <input type="radio" id="gg-aspect-ratio-lcd" name="gg-aspect-ratio" value="GameGearLcd" checked>
+                        <label for="gg-aspect-ratio-lcd">Game Gear LCD</label>
+
+                        <input type="radio" id="gg-aspect-ratio-square-pixels" name="gg-aspect-ratio" value="SquarePixels">
+                        <label for="gg-aspect-ratio-square-pixels">Square pixels</label>
+                    </fieldset>
+
+                    <div>
+                        <input style="margin-top: 20px;" type="checkbox" id="sms-crop-vertical-border">
+                        <label for="sms-crop-vertical-border">Crop SMS vertical border</label>
+                    </div>
+
+                    <div>
+                        <input style="margin-top: 20px;" type="checkbox" id="sms-crop-left-border">
+                        <label for="sms-crop-left-border">Crop SMS left border</label>
+                    </div>
+
+                    <div>
+                        <input style="margin-top: 20px;" type="checkbox" id="sms-fm-enabled" checked>
+                        <label for="sms-fm-enabled">FM sound unit enabled (requires reset)</label>
+                    </div>
+
+                    <div>
+                        <input style="margin-top: 20px;" type="checkbox" id="sms-remove-sprite-limit">
+                        <label for="sms-remove-sprite-limit">Remove sprite-per-scanline limit</label>
+                    </div>
+
+                    <p>Controls</p>
+                    <ul>
+                        <li>Up/Left/Right/Down: Arrow keys</li>
+                        <li>Button 1: S key</li>
+                        <li>Button 2: A key</li>
+                        <li>Start/Pause: Return key</li>
+                    </ul>
+                </div>
+                <div id="genesis-config" hidden>
+                    <fieldset>
+                        <legend>Aspect ratio</legend>
+
+                        <input type="radio" id="gen-aspect-ntsc" name="gen-aspect-ratio" value="Ntsc" checked>
+                        <label for="gen-aspect-ntsc">NTSC</label>
+
+                        <input type="radio" id="gen-aspect-pal" name="gen-aspect-ratio" value="Pal">
+                        <label for="gen-aspect-pal">PAL</label>
+
+                        <input type="radio" id="gen-aspect-square-pixels" name="gen-aspect-ratio" value="SquarePixels">
+                        <label for="gen-aspect-square-pixels">Square pixels</label>
+                    </fieldset>
+                    <p>Controls</p>
+                    <ul>
+                        <li>Up/Left/Right/Down: Arrow keys</li>
+                        <li>A: A key</li>
+                        <li>B: S key</li>
+                        <li>C: D key</li>
+                        <li>X: Q key</li>
+                        <li>Y: W key</li>
+                        <li>Z: E key</li>
+                        <li>Start: Return key</li>
+                        <li>Mode: Right Shift key</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <div id="footer" hidden>
+            <p>Source and native version: <a href="https://github.com/jsgroth/jgenesis">https://github.com/jsgroth/jgenesis</a></p>
+        </div>
         <script type="module">
-            import init, { run_emulator } from "./pkg/jgenesis_web.js";
+            import init, { EmulatorChannel, WebConfigRef, run_emulator } from "./pkg/jgenesis_web.js";
             await init();
 
-            await run_emulator();
+            let config = new WebConfigRef();
+            let channel = new EmulatorChannel();
+
+            document.getElementById("open-file").addEventListener("click", () => {
+                channel.request_open_file();
+            });
+
+            document.getElementById("reset-emulator").addEventListener("click", () => {
+                channel.request_reset();
+            });
+
+            document.querySelectorAll("input[name='sms-timing-mode']").forEach((element) => {
+                element.addEventListener("click", (event) => {
+                    config.set_sms_timing_mode(event.target.value);
+                });
+            });
+
+            document.querySelectorAll("input[name='sms-region']").forEach((element) => {
+                element.addEventListener("click", (event) => {
+                    config.set_sms_region(event.target.value);
+                });
+            });
+
+            document.querySelectorAll("input[name='sms-aspect-ratio']").forEach((element) => {
+                element.addEventListener("click", (event) => {
+                    config.set_sms_aspect_ratio(event.target.value);
+                });
+            });
+
+            document.querySelectorAll("input[name='gg-aspect-ratio']").forEach((element) => {
+                element.addEventListener("click", (event) => {
+                    config.set_gg_aspect_ratio(event.target.value);
+                });
+            });
+
+            document.getElementById("sms-crop-vertical-border").addEventListener("click", (event) => {
+                config.set_sms_crop_vertical_border(event.target.checked);
+            });
+
+            document.getElementById("sms-crop-left-border").addEventListener("click", (event) => {
+                config.set_sms_crop_left_border(event.target.checked);
+            });
+
+            document.getElementById("sms-fm-enabled").addEventListener("click", (event) => {
+                config.set_sms_fm_enabled(event.target.checked);
+            });
+
+            document.getElementById("sms-remove-sprite-limit").addEventListener("click", (event) => {
+                config.set_sms_remove_sprite_limit(event.target.checked);
+            });
+
+            document.querySelectorAll("input[name='gen-aspect-ratio']").forEach((element) => {
+                element.addEventListener("click", (event) => {
+                    config.set_genesis_aspect_ratio(event.target.value);
+                });
+            });
+
+            run_emulator(config.clone(), channel.clone());
         </script>
     </body>
 </html>
