@@ -50,7 +50,7 @@ struct Args {
     #[arg(long)]
     genesis_timing_mode: Option<TimingMode>,
 
-    /// Remove SMS/GG 8-sprite-per-scanline limit which disables sprite flickering
+    /// Remove sprite-per-scanline and sprite-pixel-per-scanlines limits which reduces sprite flickering
     #[arg(long)]
     remove_sprite_limit: bool,
 
@@ -436,6 +436,7 @@ fn run_genesis(args: Args) -> anyhow::Result<()> {
         p2_controller_type: GenesisControllerType::default(),
         aspect_ratio: args.genesis_aspect_ratio,
         adjust_aspect_ratio_in_2x_resolution: args.genesis_adjust_aspect_ratio,
+        remove_sprite_limits: args.remove_sprite_limit,
     };
 
     let mut emulator = jgenesis_native_driver::create_genesis(config.into())?;

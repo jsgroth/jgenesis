@@ -171,6 +171,7 @@ pub struct GenesisConfig {
     // Whether or not to automatically double the pixel aspect ratio when the VDP is in interlaced
     // double resolution mode
     pub adjust_aspect_ratio_in_2x_resolution: bool,
+    pub remove_sprite_limits: bool,
 }
 
 impl GenesisConfig {
@@ -180,6 +181,7 @@ impl GenesisConfig {
             forced_region: self.forced_region,
             aspect_ratio: self.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
+            remove_sprite_limits: self.remove_sprite_limits,
         }
     }
 }

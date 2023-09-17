@@ -137,6 +137,8 @@ struct GenesisAppConfig {
     aspect_ratio: GenesisAspectRatio,
     #[serde(default = "true_fn")]
     adjust_aspect_ratio_in_2x_resolution: bool,
+    #[serde(default)]
+    remove_sprite_limits: bool,
 }
 
 impl Default for GenesisAppConfig {
@@ -242,6 +244,7 @@ impl AppConfig {
             forced_region: self.genesis.forced_region,
             aspect_ratio: self.genesis.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: self.genesis.adjust_aspect_ratio_in_2x_resolution,
+            remove_sprite_limits: self.genesis.remove_sprite_limits,
         })
     }
 }
@@ -786,6 +789,12 @@ impl App {
                 &mut self.config.genesis.adjust_aspect_ratio_in_2x_resolution,
                 "Automatically double pixel aspect ratio in double vertical resolution mode",
             );
+
+            ui.checkbox(
+                &mut self.config.genesis.remove_sprite_limits,
+                "Remove sprite-per-scanline and sprite-pixel-per-scanline limits",
+            )
+            .on_hover_text("Can reduce sprite flickering, but can also cause visual glitches");
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::GenesisVideo);
