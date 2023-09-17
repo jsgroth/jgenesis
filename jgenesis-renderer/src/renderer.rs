@@ -53,7 +53,8 @@ impl PreprocessPipeline {
             PreprocessShader::None => Self::None(input_texture),
             PreprocessShader::HorizontalBlurTwoPixels
             | PreprocessShader::HorizontalBlurThreePixels
-            | PreprocessShader::AntiDither => create_horizontal_blur_pipeline(
+            | PreprocessShader::AntiDitherWeak
+            | PreprocessShader::AntiDitherStrong => create_horizontal_blur_pipeline(
                 preprocess_shader,
                 device,
                 input_texture,
@@ -185,7 +186,8 @@ fn create_horizontal_blur_pipeline(
     let fs_main = match preprocess_shader {
         PreprocessShader::HorizontalBlurTwoPixels => "hblur_2px",
         PreprocessShader::HorizontalBlurThreePixels => "hblur_3px",
-        PreprocessShader::AntiDither => "anti_dither",
+        PreprocessShader::AntiDitherWeak => "anti_dither_weak",
+        PreprocessShader::AntiDitherStrong => "anti_dither_strong",
         PreprocessShader::None => panic!("Not a horizontal blur shader: {preprocess_shader:?}"),
     };
     let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {

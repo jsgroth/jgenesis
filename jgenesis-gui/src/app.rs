@@ -569,12 +569,14 @@ impl App {
 
             ui.group(|ui| {
                 ui.label("Preprocess shader");
+
+                ui.radio_value(
+                    &mut self.config.common.preprocess_shader,
+                    PreprocessShader::None,
+                    "None",
+                );
+
                 ui.horizontal(|ui| {
-                    ui.radio_value(
-                        &mut self.config.common.preprocess_shader,
-                        PreprocessShader::None,
-                        "None",
-                    );
                     ui.radio_value(
                         &mut self.config.common.preprocess_shader,
                         PreprocessShader::HorizontalBlurTwoPixels,
@@ -585,10 +587,18 @@ impl App {
                         PreprocessShader::HorizontalBlurThreePixels,
                         "Horizontal blur (3px)",
                     );
+                });
+
+                ui.horizontal(|ui| {
                     ui.radio_value(
                         &mut self.config.common.preprocess_shader,
-                        PreprocessShader::AntiDither,
-                        "Anti-dither"
+                        PreprocessShader::AntiDitherWeak,
+                        "Anti-dither (conservative)"
+                    );
+                    ui.radio_value(
+                        &mut self.config.common.preprocess_shader,
+                        PreprocessShader::AntiDitherStrong,
+                        "Anti-dither (aggressive)"
                     );
                 });
             });

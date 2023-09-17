@@ -108,7 +108,8 @@ pub enum PreprocessShader {
     None,
     HorizontalBlurTwoPixels,
     HorizontalBlurThreePixels,
-    AntiDither,
+    AntiDitherWeak,
+    AntiDitherStrong,
 }
 
 #[derive(Debug, Clone, Copy, ConfigDisplay)]

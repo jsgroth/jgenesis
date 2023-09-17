@@ -131,7 +131,7 @@ struct Args {
     #[arg(long, default_value_t = FilterMode::Linear)]
     filter_mode: FilterMode,
 
-    /// Preprocess shader (None / HorizontalBlurTwoPixels / HorizontalBlurThreePixels / AntiDither)
+    /// Preprocess shader (None / HorizontalBlurTwoPixels / HorizontalBlurThreePixels / AntiDitherWeak / AntiDitherStrong)
     #[arg(long, default_value_t)]
     preprocess_shader: PreprocessShader,
 
