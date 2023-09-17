@@ -1,7 +1,15 @@
+struct TextureWidth {
+    value: u32,
+    // Uniform values must be padded to a multiple of 16 bytes for WebGL
+    _padding0: u32,
+    _padding1: u32,
+    _padding2: u32,
+}
+
 @group(0) @binding(0)
 var texture_in: texture_2d<f32>;
 @group(0) @binding(1)
-var<uniform> texture_width: u32;
+var<uniform> texture_width: TextureWidth;
 
 fn to_texture_position(fragment_position: vec4f) -> vec2u {
     let texture_position = round(fragment_position.xy - vec2f(0.5));
@@ -16,7 +24,7 @@ fn hblur_2px(@builtin(position) position: vec4f) -> @location(0) vec4f {
     let right = select(
         left,
         textureLoad(texture_in, t_position + vec2u(1u, 0u), 0).rgb,
-        t_position.x != texture_width - 1u,
+        t_position.x != texture_width.value - 1u,
     );
 
     let color = (left + right) / 2.0;
@@ -36,7 +44,7 @@ fn hblur_3px(@builtin(position) position: vec4f) -> @location(0) vec4f {
     let right = select(
         textureLoad(texture_in, t_position - vec2u(1u, 0u), 0).rgb,
         textureLoad(texture_in, t_position + vec2u(1u, 0u), 0).rgb,
-        t_position.x != texture_width - 1u,
+        t_position.x != texture_width.value - 1u,
     );
 
     let color = (2.0 * center + left + right) / 4.0;
@@ -60,7 +68,7 @@ fn shift_right(position: vec2u, shift: u32) -> vec2u {
     return select(
         position - vec2u(shift, 0u),
         position + vec2u(shift, 0u),
-        position.x < texture_width - shift,
+        position.x < texture_width.value - shift,
     );
 }
 

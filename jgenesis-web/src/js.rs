@@ -9,4 +9,6 @@ extern "C" {
     pub fn showSmsGgConfig();
 
     pub fn showGenesisConfig();
+
+    pub fn setCursorVisible(visible: bool);
 }

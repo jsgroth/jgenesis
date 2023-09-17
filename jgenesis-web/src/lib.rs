@@ -7,9 +7,6 @@ mod js;
 use crate::audio::AudioQueue;
 use crate::config::{EmulatorChannel, EmulatorCommand, WebConfig, WebConfigRef};
 use genesis_core::{GenesisEmulator, GenesisInputs};
-use jgenesis_renderer::config::{
-    FilterMode, PreprocessShader, PrescaleFactor, RendererConfig, Scanlines, VSyncMode, WgpuBackend,
-};
 use jgenesis_renderer::renderer::WgpuRenderer;
 use jgenesis_traits::frontend::{
     AudioOutput, Color, ConfigReload, EmulatorTrait, FrameSize, Renderer, SaveWriter, TickEffect,
@@ -26,7 +23,7 @@ use winit::dpi::LogicalSize;
 use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy};
 use winit::platform::web::WindowExtWebSys;
-use winit::window::{Window, WindowBuilder};
+use winit::window::{Fullscreen, Window, WindowBuilder};
 
 struct WebAudioOutput {
     audio_queue: AudioQueue,
@@ -252,16 +249,7 @@ pub async fn run_emulator(config_ref: WebConfigRef, emulator_channel: EmulatorCh
         })
         .expect("Unable to append canvas to document");
 
-    let renderer_config = RendererConfig {
-        wgpu_backend: WgpuBackend::OpenGl,
-        vsync_mode: VSyncMode::Enabled,
-        prescale_factor: PrescaleFactor::try_from(3).unwrap(),
-        scanlines: Scanlines::None,
-        force_integer_height_scaling: false,
-        filter_mode: FilterMode::Linear,
-        preprocess_shader: PreprocessShader::None,
-        use_webgl2_limits: true,
-    };
+    let renderer_config = config_ref.borrow().common.to_renderer_config();
     let mut renderer = WgpuRenderer::new(window, window_size_fn, renderer_config)
         .await
         .expect("Unable to create wgpu renderer");
@@ -340,6 +328,7 @@ fn run_event_loop(
 
             let config = config_ref.borrow().clone();
             if config != current_config {
+                renderer.reload_config(config.common.to_renderer_config());
                 emulator.reload_config(&config);
                 current_config = config;
             }
@@ -363,8 +352,36 @@ fn run_event_loop(
         {
             emulator.handle_window_event(&window_event);
 
-            if let WindowEvent::CloseRequested = window_event {
-                *control_flow = ControlFlow::Exit;
+            match window_event {
+                WindowEvent::CloseRequested => {
+                    *control_flow = ControlFlow::Exit;
+                }
+                WindowEvent::Resized(_) => {
+                    renderer.handle_resize();
+
+                    // Show cursor only when not fullscreen
+                    js::setCursorVisible(renderer.window().fullscreen().is_none());
+                }
+                WindowEvent::KeyboardInput {
+                    input:
+                        KeyboardInput {
+                            virtual_keycode: Some(VirtualKeyCode::F8),
+                            state: ElementState::Pressed,
+                            ..
+                        },
+                    ..
+                } => {
+                    // Toggle fullscreen
+                    let new_fullscreen = match renderer.window().fullscreen() {
+                        None => Some(Fullscreen::Borderless(None)),
+                        Some(_) => None,
+                    };
+                    // SAFETY: Not reassigning the window
+                    unsafe {
+                        renderer.window_mut().set_fullscreen(new_fullscreen);
+                    }
+                }
+                _ => {}
             }
         }
         _ => {}

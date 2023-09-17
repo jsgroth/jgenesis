@@ -8,6 +8,10 @@
                 visibility: hidden;
             }
 
+            .cursor-hidden {
+                cursor: none;
+            }
+
             body {
                 background-color: black;
                 color: white;
@@ -19,9 +23,26 @@
                 color: black;
             }
 
+            canvas {
+                margin-top: 15px;
+            }
+
+            fieldset {
+                margin-top: 10px;
+            }
+
+            input[type="checkbox"] {
+                margin-top: 15px;
+            }
+
             #loading-text {
                 font-size: 60px;
                 text-align: center;
+            }
+
+            #header-text {
+                font-size: 24px;
+                margin-left: 50px;
             }
 
             #jgenesis {
@@ -50,6 +71,9 @@
     </head>
     <body>
         <div id="loading-text">Loading...</div>
+        <div id="header-text" class="hidden">
+            jgenesis - Sega Genesis / Master System / Game Gear emulator
+        </div>
         <div id="jgenesis" class="hidden">
             <div id="jgenesis-wasm-and-controls">
                 <div id="jgenesis-wasm"></div>
@@ -59,6 +83,52 @@
                 </div>
             </div>
             <div id="jgenesis-config">
+                <div id="common-config">
+                    <fieldset>
+                        <legend>Image filtering</legend>
+
+                        <input type="radio" id="image-filter-nearest" name="image-filter" value="Nearest">
+                        <label for="image-filter-nearest">Nearest neighbor</label>
+
+                        <input type="radio" id="image-filter-linear" name="image-filter" value="Linear" checked>
+                        <label for="image-filter-linear">Linear interpolation</label>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>Blending shader</legend>
+
+                        <input type="radio" id="blend-shader-none" name="blend-shader" value="None" checked>
+                        <label for="blend-shader-none">None</label>
+
+                        <input type="radio" id="blend-shader-hblur-2px" name="blend-shader" value="HorizontalBlurTwoPixels">
+                        <label for="blend-shader-hblur-2px">2-pixel horizontal blur</label>
+
+                        <input type="radio" id="blend-shader-hblur-3px" name="blend-shader" value="HorizontalBlurThreePixels">
+                        <label for="blend-shader-hblur-3px">3-pixel horizontal blur</label>
+
+                        <input type="radio" id="blend-shader-anti-dither-weak" name="blend-shader" value="AntiDitherWeak">
+                        <label for="blend-shader-anti-dither-weak">Conservative anti-dither</label>
+
+                        <input type="radio" id="blend-shader-anti-dither-strong" name="blend-shader" value="AntiDitherStrong">
+                        <label for="blend-shader-anti-dither-strong">Aggressive anti-dither</label>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>Prescale factor</legend>
+
+                        <input type="radio" id="prescale-factor-one" name="prescale-factor" value="1">
+                        <label for="prescale-factor-one">1x</label>
+
+                        <input type="radio" id="prescale-factor-two" name="prescale-factor" value="2">
+                        <label for="prescale-factor-two">2x</label>
+
+                        <input type="radio" id="prescale-factor-three" name="prescale-factor" value="3" checked>
+                        <label for="prescale-factor-three">3x</label>
+
+                        <input type="radio" id="prescale-factor-four" name="prescale-factor" value="4">
+                        <label for="prescale-factor-four">4x</label>
+                    </fieldset>
+                </div>
                 <div id="smsgg-config" hidden>
                     <fieldset>
                         <legend>Timing / display mode (requires reset)</legend>
@@ -70,7 +140,7 @@
                         <label for="sms-timing-mode-pal">PAL</label>
                     </fieldset>
 
-                    <fieldset style="margin-top: 10px;">
+                    <fieldset>
                         <legend>Console region</legend>
 
                         <input type="radio" id="sms-region-international" name="sms-region" value="International" checked>
@@ -80,7 +150,7 @@
                         <label for="sms-region-domestic">Japan</label>
                     </fieldset>
 
-                    <fieldset style="margin-top: 10px;">
+                    <fieldset>
                         <legend>Sega Master System aspect ratio</legend>
 
                         <input type="radio" id="sms-aspect-ratio-ntsc" name="sms-aspect-ratio" value="Ntsc" checked>
@@ -93,7 +163,7 @@
                         <label for="sms-aspect-ratio-square-pixels">Square pixels</label>
                     </fieldset>
 
-                    <fieldset style="margin-top: 10px;">
+                    <fieldset>
                         <legend>Game Gear aspect ratio</legend>
 
                         <input type="radio" id="gg-aspect-ratio-lcd" name="gg-aspect-ratio" value="GameGearLcd" checked>
@@ -109,17 +179,17 @@
                     </div>
 
                     <div>
-                        <input style="margin-top: 20px;" type="checkbox" id="sms-crop-left-border">
+                        <input type="checkbox" id="sms-crop-left-border">
                         <label for="sms-crop-left-border">Crop SMS left border</label>
                     </div>
 
                     <div>
-                        <input style="margin-top: 20px;" type="checkbox" id="sms-fm-enabled" checked>
+                        <input type="checkbox" id="sms-fm-enabled" checked>
                         <label for="sms-fm-enabled">FM sound unit enabled (requires reset)</label>
                     </div>
 
                     <div>
-                        <input style="margin-top: 20px;" type="checkbox" id="sms-remove-sprite-limit">
+                        <input type="checkbox" id="sms-remove-sprite-limit">
                         <label for="sms-remove-sprite-limit">Remove sprite-per-scanline limit</label>
                     </div>
 
@@ -129,6 +199,7 @@
                         <li>Button 1: S key</li>
                         <li>Button 2: A key</li>
                         <li>Start/Pause: Return key</li>
+                        <li>F8: Toggle fullscreen</li>
                     </ul>
                 </div>
                 <div id="genesis-config" hidden>
@@ -155,6 +226,7 @@
                         <li>Z: E key</li>
                         <li>Start: Return key</li>
                         <li>Mode: Right Shift key</li>
+                        <li>F8: Toggle fullscreen</li>
                     </ul>
                 </div>
             </div>
@@ -175,6 +247,24 @@
 
             document.getElementById("reset-emulator").addEventListener("click", () => {
                 channel.request_reset();
+            });
+
+            document.querySelectorAll("input[name='image-filter']").forEach((element) => {
+                element.addEventListener("click", (event) => {
+                    config.set_filter_mode(event.target.value);
+                });
+            });
+
+            document.querySelectorAll("input[name='blend-shader']").forEach((element) => {
+                element.addEventListener("click", (event) => {
+                    config.set_preprocess_shader(event.target.value);
+                });
+            });
+
+            document.querySelectorAll("input[name='prescale-factor']").forEach((element) => {
+                element.addEventListener("click", (event) => {
+                    config.set_prescale_factor(parseInt(event.target.value));
+                });
             });
 
             document.querySelectorAll("input[name='sms-timing-mode']").forEach((element) => {

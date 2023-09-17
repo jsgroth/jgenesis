@@ -154,7 +154,7 @@ fn create_horizontal_blur_pipeline(
 
     let texture_width_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: "hblur_texture_width_buffer".into(),
-        contents: bytemuck::cast_slice(&[input_texture.size().width]),
+        contents: bytemuck::cast_slice(&padded_u32(input_texture.size().width)),
         usage: wgpu::BufferUsages::UNIFORM,
     });
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -227,6 +227,11 @@ fn create_horizontal_blur_pipeline(
         bind_groups: vec![bind_group],
         pipeline,
     }
+}
+
+// WebGL requires all uniforms to be padded to a multiple of 16 bytes
+fn padded_u32(value: u32) -> [u32; 4] {
+    [value, 0, 0, 0]
 }
 
 struct RenderingPipeline {
@@ -349,7 +354,7 @@ impl RenderingPipeline {
             preprocess_output_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let prescale_factor_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: "prescale_factor_buffer".into(),
-            contents: bytemuck::cast_slice(&[renderer_config.prescale_factor.get(), 0, 0, 0]),
+            contents: bytemuck::cast_slice(&padded_u32(prescale_factor)),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
         });
 
