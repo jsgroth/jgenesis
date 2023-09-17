@@ -22,4 +22,4 @@ sdl2 = { workspace = true }
 wgpu = "0.17"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.48", features = ["Win32_Media"] }
+windows = { version = "0.51", features = ["Win32_Media"] }

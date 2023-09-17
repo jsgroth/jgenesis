@@ -23,7 +23,7 @@ getrandom = { version = "0.2", features = ["js"] }
 js-sys = "0.3"
 log = "0.4"
 rand = "0.8"
-rfd = "0.11"
+rfd = "0.12"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 wgpu = { version = "0.17", features = ["webgl"] }
