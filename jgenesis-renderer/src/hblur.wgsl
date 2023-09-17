@@ -79,7 +79,7 @@ fn anti_dither(@builtin(position) position: vec4f) -> @location(0) vec4f {
     let color = select(
         center,
         (2.0 * center + left + right) / 4.0,
-        diff(left, right) < 0.05 && (diff(left2, left) >= 0.05 || diff(right2, right) >= 0.05),
+        diff(left, right) < 0.001 && (diff(left2, left) >= 0.001 || diff(right2, right) >= 0.001),
     );
     return vec4f(color, 1.0);
 }
