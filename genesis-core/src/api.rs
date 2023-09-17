@@ -195,7 +195,7 @@ impl GenesisEmulator {
         log::info!("Using timing / display mode {timing_mode}");
 
         let z80 = Z80::new();
-        let mut vdp = Vdp::new(timing_mode, config.remove_sprite_limits);
+        let mut vdp = Vdp::new(timing_mode, !config.remove_sprite_limits);
         let mut psg = Psg::new(PsgVersion::Standard);
         let mut ym2612 = Ym2612::new();
         let mut input = InputState::new();
@@ -252,7 +252,7 @@ impl ConfigReload for GenesisEmulator {
     fn reload_config(&mut self, config: &Self::Config) {
         self.aspect_ratio = config.aspect_ratio;
         self.adjust_aspect_ratio_in_2x_resolution = config.adjust_aspect_ratio_in_2x_resolution;
-        self.vdp.set_remove_sprite_limits(config.remove_sprite_limits);
+        self.vdp.set_enforce_sprite_limits(!config.remove_sprite_limits);
     }
 }
 
@@ -416,7 +416,7 @@ impl Resettable for GenesisEmulator {
             forced_region: Some(self.memory.hardware_region()),
             aspect_ratio: self.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
-            remove_sprite_limits: self.vdp.get_remove_sprite_limits(),
+            remove_sprite_limits: !self.vdp.get_enforce_sprite_limits(),
         };
 
         *self = GenesisEmulator::create(rom, cartridge_ram, config);

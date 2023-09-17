@@ -833,7 +833,7 @@ pub struct Vdp {
     cached_sprite_attributes: Vec<CachedSpriteData>,
     sprite_buffer: Vec<SpriteData>,
     sprite_bit_set: SpriteBitSet,
-    remove_sprite_limits: bool,
+    enforce_sprite_limits: bool,
     // Cache of CRAM in u16 form
     color_buffer: [u16; CRAM_LEN / 2],
     master_clock_cycles: u64,
@@ -875,7 +875,7 @@ impl TimingModeExt for TimingMode {
 }
 
 impl Vdp {
-    pub fn new(timing_mode: TimingMode, remove_sprite_limits: bool) -> Self {
+    pub fn new(timing_mode: TimingMode, enforce_sprite_limits: bool) -> Self {
         Self {
             frame_buffer: FrameBuffer::new(),
             vram: vec![0; VRAM_LEN],
@@ -887,7 +887,7 @@ impl Vdp {
             cached_sprite_attributes: vec![CachedSpriteData::default(); MAX_SPRITES_PER_FRAME],
             sprite_buffer: Vec::with_capacity(MAX_SPRITES_PER_FRAME),
             sprite_bit_set: SpriteBitSet::new(),
-            remove_sprite_limits,
+            enforce_sprite_limits,
             color_buffer: [0; CRAM_LEN / 2],
             master_clock_cycles: 0,
             dma_tracker: DmaTracker::new(),
@@ -1633,7 +1633,7 @@ impl Vdp {
         // Apply max sprite per scanline limit
         let max_sprites_per_line = h_size.max_sprites_per_line() as usize;
         if self.sprite_buffer.len() > max_sprites_per_line {
-            if !self.remove_sprite_limits {
+            if self.enforce_sprite_limits {
                 self.sprite_buffer.truncate(max_sprites_per_line);
             }
             self.state.sprite_overflow = true;
@@ -1646,7 +1646,7 @@ impl Vdp {
             let sprite_pixels = 8 * u16::from(self.sprite_buffer[i].h_size_cells);
             line_pixels += sprite_pixels;
             if line_pixels > h_size.max_sprite_pixels_per_line() {
-                if !self.remove_sprite_limits {
+                if self.enforce_sprite_limits {
                     let overflow_pixels = line_pixels - h_size.max_sprite_pixels_per_line();
                     self.sprite_buffer[i].partial_width = Some(sprite_pixels - overflow_pixels);
 
@@ -1950,12 +1950,12 @@ impl Vdp {
         }
     }
 
-    pub fn get_remove_sprite_limits(&self) -> bool {
-        self.remove_sprite_limits
+    pub fn get_enforce_sprite_limits(&self) -> bool {
+        self.enforce_sprite_limits
     }
 
-    pub fn set_remove_sprite_limits(&mut self, remove_sprite_limits: bool) {
-        self.remove_sprite_limits = remove_sprite_limits;
+    pub fn set_enforce_sprite_limits(&mut self, enforce_sprite_limits: bool) {
+        self.enforce_sprite_limits = enforce_sprite_limits;
     }
 
     fn set_in_frame_buffer(&mut self, row: u32, col: u32, value: u16, modifier: ColorModifier) {
