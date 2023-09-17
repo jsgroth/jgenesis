@@ -1,4 +1,4 @@
-use crate::config::{PreprocessShader, RendererConfig, WgpuBackend};
+use crate::config::{PreprocessShader, RendererConfig, Scanlines, WgpuBackend};
 use anyhow::anyhow;
 use jgenesis_traits::frontend::{Color, FrameSize, PixelAspectRatio, Renderer};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
@@ -302,6 +302,7 @@ impl RenderingPipeline {
             pixel_aspect_ratio,
             renderer_config.force_integer_height_scaling,
         );
+        log::info!("Vertices: {vertices:?}");
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: "vertex_buffer".into(),
             contents: bytemuck::cast_slice(&vertices),
@@ -379,6 +380,11 @@ impl RenderingPipeline {
             });
 
         let prescale_shader = device.create_shader_module(wgpu::include_wgsl!("prescale.wgsl"));
+        let prescale_fs_main = match renderer_config.scanlines {
+            Scanlines::None => "basic_prescale",
+            Scanlines::Dim => "dim_scanlines",
+            Scanlines::Black => "black_scanlines",
+        };
         let prescale_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: "prescale_pipeline".into(),
             layout: Some(&prescale_pipeline_layout),
@@ -404,7 +410,7 @@ impl RenderingPipeline {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &prescale_shader,
-                entry_point: "fs_main",
+                entry_point: prescale_fs_main,
                 targets: &[Some(wgpu::ColorTargetState {
                     format: scaled_texture.format(),
                     blend: Some(wgpu::BlendState::REPLACE),

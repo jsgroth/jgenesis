@@ -8,7 +8,7 @@ use crate::audio::AudioQueue;
 use crate::config::{EmulatorChannel, EmulatorCommand, WebConfig, WebConfigRef};
 use genesis_core::{GenesisEmulator, GenesisInputs};
 use jgenesis_renderer::config::{
-    FilterMode, PreprocessShader, PrescaleFactor, RendererConfig, VSyncMode, WgpuBackend,
+    FilterMode, PreprocessShader, PrescaleFactor, RendererConfig, Scanlines, VSyncMode, WgpuBackend,
 };
 use jgenesis_renderer::renderer::WgpuRenderer;
 use jgenesis_traits::frontend::{
@@ -256,6 +256,7 @@ pub async fn run_emulator(config_ref: WebConfigRef, emulator_channel: EmulatorCh
         wgpu_backend: WgpuBackend::OpenGl,
         vsync_mode: VSyncMode::Enabled,
         prescale_factor: PrescaleFactor::try_from(3).unwrap(),
+        scanlines: Scanlines::None,
         force_integer_height_scaling: false,
         filter_mode: FilterMode::Linear,
         preprocess_shader: PreprocessShader::None,

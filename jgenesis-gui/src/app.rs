@@ -17,7 +17,7 @@ use jgenesis_native_driver::config::{
     CommonConfig, GenesisConfig, GgAspectRatio, SmsAspectRatio, SmsGgConfig, WindowSize,
 };
 use jgenesis_renderer::config::{
-    FilterMode, PreprocessShader, PrescaleFactor, RendererConfig, VSyncMode, WgpuBackend,
+    FilterMode, PreprocessShader, PrescaleFactor, RendererConfig, Scanlines, VSyncMode, WgpuBackend,
 };
 use jgenesis_traits::frontend::TimingMode;
 use rfd::FileDialog;
@@ -44,6 +44,8 @@ struct CommonAppConfig {
     vsync_mode: VSyncMode,
     #[serde(default = "default_prescale_factor")]
     prescale_factor: PrescaleFactor,
+    #[serde(default)]
+    scanlines: Scanlines,
     #[serde(default)]
     force_integer_height_scaling: bool,
     #[serde(default)]
@@ -180,6 +182,7 @@ impl AppConfig {
                 wgpu_backend: self.common.wgpu_backend,
                 vsync_mode: self.common.vsync_mode,
                 prescale_factor: self.common.prescale_factor,
+                scanlines: self.common.scanlines,
                 force_integer_height_scaling: self.common.force_integer_height_scaling,
                 filter_mode: self.common.filter_mode,
                 preprocess_shader: self.common.preprocess_shader,
@@ -279,6 +282,7 @@ struct AppState {
     ff_multiplier_invalid: bool,
     rewind_buffer_len_text: String,
     rewind_buffer_len_invalid: bool,
+    display_scanlines_warning: bool,
     waiting_for_input: Option<GenericButton>,
     rom_list: Vec<RomMetadata>,
 }
@@ -298,10 +302,17 @@ impl AppState {
             ff_multiplier_invalid: false,
             rewind_buffer_len_text: config.common.rewind_buffer_length_seconds.to_string(),
             rewind_buffer_len_invalid: false,
+            display_scanlines_warning: should_display_scanlines_warning(config),
             waiting_for_input: None,
             rom_list,
         }
     }
+}
+
+fn should_display_scanlines_warning(config: &AppConfig) -> bool {
+    config.common.scanlines != Scanlines::None
+        && (config.common.prescale_factor.get() % 2 != 0
+            || !config.common.force_integer_height_scaling)
 }
 
 pub struct App {
@@ -603,6 +614,16 @@ impl App {
                 });
             });
 
+            ui.group(|ui| {
+                ui.label("Scanlines");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(&mut self.config.common.scanlines, Scanlines::None, "None");
+                    ui.radio_value(&mut self.config.common.scanlines, Scanlines::Dim, "Dim");
+                    ui.radio_value(&mut self.config.common.scanlines, Scanlines::Black, "Black");
+                });
+            });
+
             ui.horizontal(|ui| {
                 if TextEdit::singleline(&mut self.state.prescale_factor_text)
                     .desired_width(30.0)
@@ -642,6 +663,10 @@ impl App {
                 &mut self.config.common.force_integer_height_scaling,
                 "Force integer height scaling",
             ).on_hover_text("Display area will be the largest possible integer multiple of native height that preserves aspect ratio");
+
+            if self.state.display_scanlines_warning {
+                ui.colored_label(Color32::RED, "Integer height scaling + even-numbered prescale factor strongly recommended when scanlines are enabled");
+            }
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::CommonVideo);
@@ -1141,6 +1166,8 @@ impl eframe::App for App {
         }
 
         if prev_config != self.config {
+            self.state.display_scanlines_warning = should_display_scanlines_warning(&self.config);
+
             self.emu_thread.reload_config(
                 self.config.smsgg_config(self.state.current_file_path.clone()),
                 self.config.genesis_config(self.state.current_file_path.clone()),

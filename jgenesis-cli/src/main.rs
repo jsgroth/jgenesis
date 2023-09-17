@@ -11,7 +11,7 @@ use jgenesis_native_driver::config::{
 use jgenesis_native_driver::NativeTickEffect;
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::{
-    FilterMode, PreprocessShader, PrescaleFactor, RendererConfig, VSyncMode, WgpuBackend,
+    FilterMode, PreprocessShader, PrescaleFactor, RendererConfig, Scanlines, VSyncMode, WgpuBackend,
 };
 use jgenesis_traits::frontend::TimingMode;
 use smsgg_core::psg::PsgVersion;
@@ -122,6 +122,10 @@ struct Args {
     /// Prescale factor; must be a positive integer
     #[arg(long, default_value_t = 3)]
     prescale_factor: u32,
+
+    /// Scanlines (None / Dim / Black)
+    #[arg(long, default_value_t)]
+    scanlines: Scanlines,
 
     /// Force display area height to be an integer multiple of native console resolution
     #[arg(long, default_value_t)]
@@ -274,6 +278,7 @@ impl Args {
             wgpu_backend: self.wgpu_backend,
             vsync_mode: self.vsync_mode,
             prescale_factor,
+            scanlines: self.scanlines,
             force_integer_height_scaling: self.force_integer_height_scaling,
             filter_mode: self.filter_mode,
             preprocess_shader: self.preprocess_shader,

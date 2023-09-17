@@ -85,6 +85,16 @@ impl Display for PrescaleFactor {
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
 )]
+pub enum Scanlines {
+    #[default]
+    None,
+    Dim,
+    Black,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
+)]
 pub enum FilterMode {
     Nearest,
     #[default]
@@ -117,6 +127,7 @@ pub struct RendererConfig {
     pub wgpu_backend: WgpuBackend,
     pub vsync_mode: VSyncMode,
     pub prescale_factor: PrescaleFactor,
+    pub scanlines: Scanlines,
     pub force_integer_height_scaling: bool,
     pub filter_mode: FilterMode,
     pub preprocess_shader: PreprocessShader,
