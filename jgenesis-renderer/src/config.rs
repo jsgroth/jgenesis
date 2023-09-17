@@ -100,6 +100,17 @@ impl FilterMode {
     }
 }
 
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
+)]
+pub enum PreprocessShader {
+    #[default]
+    None,
+    HorizontalBlurTwoPixels,
+    HorizontalBlurThreePixels,
+    AntiDither,
+}
+
 #[derive(Debug, Clone, Copy, ConfigDisplay)]
 pub struct RendererConfig {
     pub wgpu_backend: WgpuBackend,
@@ -107,5 +118,6 @@ pub struct RendererConfig {
     pub prescale_factor: PrescaleFactor,
     pub force_integer_height_scaling: bool,
     pub filter_mode: FilterMode,
+    pub preprocess_shader: PreprocessShader,
     pub use_webgl2_limits: bool,
 }

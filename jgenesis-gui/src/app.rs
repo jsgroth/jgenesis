@@ -17,7 +17,7 @@ use jgenesis_native_driver::config::{
     CommonConfig, GenesisConfig, GgAspectRatio, SmsAspectRatio, SmsGgConfig, WindowSize,
 };
 use jgenesis_renderer::config::{
-    FilterMode, PrescaleFactor, RendererConfig, VSyncMode, WgpuBackend,
+    FilterMode, PreprocessShader, PrescaleFactor, RendererConfig, VSyncMode, WgpuBackend,
 };
 use jgenesis_traits::frontend::TimingMode;
 use rfd::FileDialog;
@@ -48,6 +48,8 @@ struct CommonAppConfig {
     force_integer_height_scaling: bool,
     #[serde(default)]
     filter_mode: FilterMode,
+    #[serde(default)]
+    preprocess_shader: PreprocessShader,
     #[serde(default = "default_fast_forward_multiplier")]
     fast_forward_multiplier: u64,
     #[serde(default = "default_rewind_buffer_length")]
@@ -180,6 +182,7 @@ impl AppConfig {
                 prescale_factor: self.common.prescale_factor,
                 force_integer_height_scaling: self.common.force_integer_height_scaling,
                 filter_mode: self.common.filter_mode,
+                preprocess_shader: self.common.preprocess_shader,
                 use_webgl2_limits: false,
             },
             fast_forward_multiplier: self.common.fast_forward_multiplier,
@@ -560,6 +563,32 @@ impl App {
                         &mut self.config.common.filter_mode,
                         FilterMode::Linear,
                         "Linear interpolation",
+                    );
+                });
+            });
+
+            ui.group(|ui| {
+                ui.label("Preprocess shader");
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.config.common.preprocess_shader,
+                        PreprocessShader::None,
+                        "None",
+                    );
+                    ui.radio_value(
+                        &mut self.config.common.preprocess_shader,
+                        PreprocessShader::HorizontalBlurTwoPixels,
+                        "Horizontal blur (2px)",
+                    );
+                    ui.radio_value(
+                        &mut self.config.common.preprocess_shader,
+                        PreprocessShader::HorizontalBlurThreePixels,
+                        "Horizontal blur (3px)",
+                    );
+                    ui.radio_value(
+                        &mut self.config.common.preprocess_shader,
+                        PreprocessShader::AntiDither,
+                        "Anti-dither"
                     );
                 });
             });

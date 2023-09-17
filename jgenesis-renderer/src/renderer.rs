@@ -1,4 +1,4 @@
-use crate::config::{RendererConfig, WgpuBackend};
+use crate::config::{PreprocessShader, RendererConfig, WgpuBackend};
 use anyhow::anyhow;
 use jgenesis_traits::frontend::{Color, FrameSize, PixelAspectRatio, Renderer};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
@@ -32,12 +32,207 @@ const VERTICES: [Vertex; 4] = [
     Vertex { position: [1.0, 1.0], texture_coords: [1.0, 0.0] },
 ];
 
+enum PreprocessPipeline {
+    None(wgpu::Texture),
+    PreprocessShader {
+        input: wgpu::Texture,
+        output: wgpu::Texture,
+        bind_groups: Vec<wgpu::BindGroup>,
+        pipeline: wgpu::RenderPipeline,
+    },
+}
+
+impl PreprocessPipeline {
+    fn create(
+        preprocess_shader: PreprocessShader,
+        device: &wgpu::Device,
+        input_texture: wgpu::Texture,
+        identity_shader: &wgpu::ShaderModule,
+    ) -> Self {
+        match preprocess_shader {
+            PreprocessShader::None => Self::None(input_texture),
+            PreprocessShader::HorizontalBlurTwoPixels
+            | PreprocessShader::HorizontalBlurThreePixels
+            | PreprocessShader::AntiDither => create_horizontal_blur_pipeline(
+                preprocess_shader,
+                device,
+                input_texture,
+                identity_shader,
+            ),
+        }
+    }
+
+    fn input_texture(&self) -> &wgpu::Texture {
+        match self {
+            Self::None(texture) => texture,
+            Self::PreprocessShader { input, .. } => input,
+        }
+    }
+
+    fn output_texture(&self) -> &wgpu::Texture {
+        match self {
+            Self::None(texture) => texture,
+            Self::PreprocessShader { output, .. } => output,
+        }
+    }
+
+    fn draw(&self, encoder: &mut wgpu::CommandEncoder) {
+        match self {
+            Self::None(..) => {}
+            Self::PreprocessShader { output, bind_groups, pipeline, .. } => {
+                let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
+
+                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: "preprocess_render_pass".into(),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &output_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: true,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                });
+
+                for (i, bind_group) in bind_groups.iter().enumerate() {
+                    render_pass.set_bind_group(i as u32, bind_group, &[]);
+                }
+                render_pass.set_pipeline(pipeline);
+
+                render_pass.draw(0..VERTICES.len() as u32, 0..1);
+            }
+        }
+    }
+}
+
+fn create_horizontal_blur_pipeline(
+    preprocess_shader: PreprocessShader,
+    device: &wgpu::Device,
+    input_texture: wgpu::Texture,
+    identity_shader: &wgpu::ShaderModule,
+) -> PreprocessPipeline {
+    let input_texture_view = input_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+    let output_texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: "preprocess_output_texture".into(),
+        size: input_texture.size(),
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: input_texture.format(),
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+
+    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: "hblur_bind_group_layout".into(),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+        ],
+    });
+
+    let texture_width_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: "hblur_texture_width_buffer".into(),
+        contents: bytemuck::cast_slice(&[input_texture.size().width]),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: "hblur_bind_group".into(),
+        layout: &bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&input_texture_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &texture_width_buffer,
+                    offset: 0,
+                    size: None,
+                }),
+            },
+        ],
+    });
+
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: "hblur_pipeline_layout".into(),
+        bind_group_layouts: &[&bind_group_layout],
+        push_constant_ranges: &[],
+    });
+
+    let hblur_shader = device.create_shader_module(wgpu::include_wgsl!("hblur.wgsl"));
+    let fs_main = match preprocess_shader {
+        PreprocessShader::HorizontalBlurTwoPixels => "hblur_2px",
+        PreprocessShader::HorizontalBlurThreePixels => "hblur_3px",
+        PreprocessShader::AntiDither => "anti_dither",
+        PreprocessShader::None => panic!("Not a horizontal blur shader: {preprocess_shader:?}"),
+    };
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: "hblur_pipeline".into(),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState { module: identity_shader, entry_point: "vs_main", buffers: &[] },
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleStrip,
+            strip_index_format: None,
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode: None,
+            unclipped_depth: false,
+            polygon_mode: wgpu::PolygonMode::Fill,
+            conservative: false,
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState {
+            count: 1,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &hblur_shader,
+            entry_point: fs_main,
+            targets: &[Some(wgpu::ColorTargetState {
+                format: output_texture.format(),
+                blend: Some(wgpu::BlendState::REPLACE),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        multiview: None,
+    });
+
+    PreprocessPipeline::PreprocessShader {
+        input: input_texture,
+        output: output_texture,
+        bind_groups: vec![bind_group],
+        pipeline,
+    }
+}
+
 struct RenderingPipeline {
     frame_size: FrameSize,
     pixel_aspect_ratio: Option<PixelAspectRatio>,
-    input_texture: wgpu::Texture,
     scaled_texture: wgpu::Texture,
     vertex_buffer: wgpu::Buffer,
+    preprocess_pipeline: PreprocessPipeline,
     prescale_bind_group: wgpu::BindGroup,
     prescale_pipeline: wgpu::RenderPipeline,
     render_bind_group: wgpu::BindGroup,
@@ -84,6 +279,8 @@ impl RenderingPipeline {
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
+        let scaled_texture_view =
+            scaled_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let filter_mode = renderer_config.filter_mode.to_wgpu_filter_mode();
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -108,6 +305,14 @@ impl RenderingPipeline {
             contents: bytemuck::cast_slice(&vertices),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::VERTEX,
         });
+
+        let identity_shader = device.create_shader_module(wgpu::include_wgsl!("identity.wgsl"));
+        let preprocess_pipeline = PreprocessPipeline::create(
+            renderer_config.preprocess_shader,
+            device,
+            input_texture,
+            &identity_shader,
+        );
 
         let prescale_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -136,19 +341,22 @@ impl RenderingPipeline {
                 ],
             });
 
-        let input_texture_view = input_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let preprocess_output_texture = preprocess_pipeline.output_texture();
+        let preprocess_output_view =
+            preprocess_output_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let prescale_factor_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: "prescale_factor_buffer".into(),
             contents: bytemuck::cast_slice(&[renderer_config.prescale_factor.get(), 0, 0, 0]),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
         });
+
         let prescale_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: "prescale_bind_group".into(),
             layout: &prescale_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&input_texture_view),
+                    resource: wgpu::BindingResource::TextureView(&preprocess_output_view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -173,7 +381,7 @@ impl RenderingPipeline {
             label: "prescale_pipeline".into(),
             layout: Some(&prescale_pipeline_layout),
             vertex: wgpu::VertexState {
-                module: &prescale_shader,
+                module: &identity_shader,
                 entry_point: "vs_main",
                 buffers: &[],
             },
@@ -227,8 +435,6 @@ impl RenderingPipeline {
                 ],
             });
 
-        let scaled_texture_view =
-            scaled_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: "render_bind_group".into(),
             layout: &render_bind_group_layout,
@@ -290,9 +496,9 @@ impl RenderingPipeline {
         Self {
             frame_size,
             pixel_aspect_ratio,
-            input_texture,
             scaled_texture,
             vertex_buffer,
+            preprocess_pipeline,
             prescale_bind_group,
             prescale_pipeline,
             render_bind_group,
@@ -311,9 +517,10 @@ impl RenderingPipeline {
         let output_texture_view =
             output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+        let input_texture = self.preprocess_pipeline.input_texture();
         queue.write_texture(
             wgpu::ImageCopyTexture {
-                texture: &self.input_texture,
+                texture: input_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -324,11 +531,13 @@ impl RenderingPipeline {
                 bytes_per_row: Some(self.frame_size.width * 4),
                 rows_per_image: Some(self.frame_size.height),
             },
-            self.input_texture.size(),
+            input_texture.size(),
         );
 
         let mut encoder = device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: "encoder".into() });
+
+        self.preprocess_pipeline.draw(&mut encoder);
 
         let scaled_texture_view =
             self.scaled_texture.create_view(&wgpu::TextureViewDescriptor::default());

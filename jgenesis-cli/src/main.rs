@@ -11,7 +11,7 @@ use jgenesis_native_driver::config::{
 use jgenesis_native_driver::NativeTickEffect;
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::{
-    FilterMode, PrescaleFactor, RendererConfig, VSyncMode, WgpuBackend,
+    FilterMode, PreprocessShader, PrescaleFactor, RendererConfig, VSyncMode, WgpuBackend,
 };
 use jgenesis_traits::frontend::TimingMode;
 use smsgg_core::psg::PsgVersion;
@@ -130,6 +130,10 @@ struct Args {
     /// Filter mode (Nearest / Linear)
     #[arg(long, default_value_t = FilterMode::Linear)]
     filter_mode: FilterMode,
+
+    /// Preprocess shader (None / HorizontalBlurTwoPixels / HorizontalBlurThreePixels / AntiDither)
+    #[arg(long, default_value_t)]
+    preprocess_shader: PreprocessShader,
 
     /// Fast forward multiplier
     #[arg(long, default_value_t = 2)]
@@ -272,6 +276,7 @@ impl Args {
             prescale_factor,
             force_integer_height_scaling: self.force_integer_height_scaling,
             filter_mode: self.filter_mode,
+            preprocess_shader: self.preprocess_shader,
             use_webgl2_limits: false,
         }
     }

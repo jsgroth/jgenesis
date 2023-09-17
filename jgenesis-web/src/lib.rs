@@ -8,7 +8,7 @@ use crate::audio::AudioQueue;
 use crate::config::{EmulatorChannel, EmulatorCommand, WebConfig, WebConfigRef};
 use genesis_core::{GenesisEmulator, GenesisInputs};
 use jgenesis_renderer::config::{
-    FilterMode, PrescaleFactor, RendererConfig, VSyncMode, WgpuBackend,
+    FilterMode, PreprocessShader, PrescaleFactor, RendererConfig, VSyncMode, WgpuBackend,
 };
 use jgenesis_renderer::renderer::WgpuRenderer;
 use jgenesis_traits::frontend::{
@@ -258,6 +258,7 @@ pub async fn run_emulator(config_ref: WebConfigRef, emulator_channel: EmulatorCh
         prescale_factor: PrescaleFactor::try_from(3).unwrap(),
         force_integer_height_scaling: false,
         filter_mode: FilterMode::Linear,
+        preprocess_shader: PreprocessShader::None,
         use_webgl2_limits: true,
     };
     let mut renderer = WgpuRenderer::new(window, window_size_fn, renderer_config)
