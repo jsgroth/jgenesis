@@ -43,8 +43,9 @@ fn hblur_3px(@builtin(position) position: vec4f) -> @location(0) vec4f {
     return vec4f(color, 1.0);
 }
 
+// Returns a value in the range [0.0, 3.0]
 fn diff(a: vec3f, b: vec3f) -> f32 {
-    return dot(abs(a - b), vec3f(1.0, 1.0, 1.0));
+    return dot(abs(a - b), vec3f(1.0));
 }
 
 @fragment
@@ -78,7 +79,7 @@ fn anti_dither(@builtin(position) position: vec4f) -> @location(0) vec4f {
     let color = select(
         center,
         (2.0 * center + left + right) / 4.0,
-        left == right && (left2 != left || right2 != right),
+        diff(left, right) < 0.05 && (diff(left2, left) >= 0.05 || diff(right2, right) >= 0.05),
     );
     return vec4f(color, 1.0);
 }
