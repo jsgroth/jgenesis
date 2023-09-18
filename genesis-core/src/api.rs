@@ -157,7 +157,7 @@ pub struct GenesisEmulatorConfig {
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct GenesisEmulator {
-    memory: Memory,
+    memory: Memory<Cartridge>,
     m68k: M68000,
     z80: Z80,
     vdp: Vdp,
@@ -230,7 +230,7 @@ impl GenesisEmulator {
 
     #[must_use]
     pub fn cartridge_title(&self) -> String {
-        self.memory.cartridge_title()
+        self.memory.game_title()
     }
 
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
@@ -359,17 +359,17 @@ impl TickableEmulator for GenesisEmulator {
             }
         }
 
-        if self.vdp.tick(elapsed_mclk_cycles, &self.memory, &mut self.m68k)
+        if self.vdp.tick(elapsed_mclk_cycles, &mut self.memory, &mut self.m68k)
             == VdpTickEffect::FrameComplete
         {
             self.render_frame(renderer).map_err(GenesisError::Render)?;
 
             self.input.set_inputs(inputs);
 
-            if self.memory.cartridge_ram_persistent()
-                && self.memory.get_and_clear_cartridge_ram_dirty()
+            if self.memory.is_external_ram_persistent()
+                && self.memory.get_and_clear_external_ram_dirty()
             {
-                let ram = self.memory.cartridge_ram();
+                let ram = self.memory.external_ram();
                 if !ram.is_empty() {
                     save_writer.persist_save(ram).map_err(GenesisError::Save)?;
                 }
@@ -410,7 +410,7 @@ impl Resettable for GenesisEmulator {
         log::info!("Hard resetting console");
 
         let rom = self.memory.take_rom();
-        let cartridge_ram = self.memory.take_cartridge_ram_if_persistent();
+        let cartridge_ram = self.memory.take_external_ram_if_persistent();
         let config = GenesisEmulatorConfig {
             forced_timing_mode: Some(self.timing_mode),
             forced_region: Some(self.memory.hardware_region()),

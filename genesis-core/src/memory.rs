@@ -110,7 +110,58 @@ impl Cartridge {
         Self { rom: Rom(rom_bytes), external_memory, ram_mapped, mapper, region }
     }
 
-    fn read_byte(&self, address: u32) -> u8 {
+    fn write_cartridge_register(&mut self, address: u32, value: u8) {
+        match address {
+            0xA130F1 => {
+                self.ram_mapped = value.bit(0);
+            }
+            0xA130F3..=0xA130FF => {
+                if let Some(mapper) = &mut self.mapper {
+                    mapper.write(address, value);
+                }
+            }
+            _ => panic!(
+                "unexpected cartridge register write; address={address:06X}, value={value:02X}"
+            ),
+        }
+    }
+}
+
+pub trait PhysicalMedium {
+    type Rom;
+
+    fn read_byte(&mut self, address: u32) -> u8;
+
+    fn read_word(&mut self, address: u32) -> u16;
+
+    fn write_byte(&mut self, address: u32, value: u8);
+
+    fn write_word(&mut self, address: u32, value: u16);
+
+    #[must_use]
+    fn clone_without_rom(&self) -> Self;
+
+    fn take_rom(&mut self) -> Self::Rom;
+
+    fn take_rom_from(&mut self, other: &mut Self);
+
+    fn external_ram(&self) -> &[u8];
+
+    fn is_ram_persistent(&self) -> bool;
+
+    fn take_ram_if_persistent(&mut self) -> Option<Vec<u8>>;
+
+    fn get_and_clear_ram_dirty(&mut self) -> bool;
+
+    fn program_title(&self) -> String;
+
+    fn region(&self) -> GenesisRegion;
+}
+
+impl PhysicalMedium for Cartridge {
+    type Rom = Vec<u8>;
+
+    fn read_byte(&mut self, address: u32) -> u8 {
         if self.ram_mapped {
             if let Some(byte) = self.external_memory.read_byte(address) {
                 return byte;
@@ -121,7 +172,7 @@ impl Cartridge {
         self.rom.get(rom_addr as usize).unwrap_or(0xFF)
     }
 
-    fn read_word(&self, address: u32) -> u16 {
+    fn read_word(&mut self, address: u32) -> u16 {
         if self.ram_mapped {
             if let Some(word) = self.external_memory.read_word(address) {
                 return word;
@@ -135,14 +186,30 @@ impl Cartridge {
     }
 
     fn write_byte(&mut self, address: u32, value: u8) {
-        if self.ram_mapped {
-            self.external_memory.write_byte(address, value);
+        match address {
+            0x000000..=0x3FFFFF => {
+                if self.ram_mapped {
+                    self.external_memory.write_byte(address, value);
+                }
+            }
+            0xA13000..=0xA130FF => {
+                self.write_cartridge_register(address, value);
+            }
+            _ => {}
         }
     }
 
     fn write_word(&mut self, address: u32, value: u16) {
-        if self.ram_mapped {
-            self.external_memory.write_word(address, value);
+        match address {
+            0x000000..=0x3FFFFF => {
+                if self.ram_mapped {
+                    self.external_memory.write_word(address, value);
+                }
+            }
+            0xA13000..=0xA130FF => {
+                self.write_cartridge_register(address + 1, value as u8);
+            }
+            _ => {}
         }
     }
 
@@ -154,6 +221,48 @@ impl Cartridge {
             mapper: self.mapper,
             region: self.region,
         }
+    }
+
+    fn take_rom(&mut self) -> Self::Rom {
+        mem::take(&mut self.rom).0
+    }
+
+    fn take_rom_from(&mut self, other: &mut Self) {
+        self.rom = mem::take(&mut other.rom);
+    }
+
+    fn external_ram(&self) -> &[u8] {
+        self.external_memory.get_memory()
+    }
+
+    fn is_ram_persistent(&self) -> bool {
+        self.external_memory.is_persistent()
+    }
+
+    fn take_ram_if_persistent(&mut self) -> Option<Vec<u8>> {
+        self.external_memory.take_if_persistent()
+    }
+
+    fn get_and_clear_ram_dirty(&mut self) -> bool {
+        self.external_memory.get_and_clear_dirty_bit()
+    }
+
+    fn program_title(&self) -> String {
+        static RE: OnceLock<Regex> = OnceLock::new();
+
+        let addr = match self.region {
+            GenesisRegion::Americas | GenesisRegion::Europe => 0x0150,
+            GenesisRegion::Japan => 0x0120,
+        };
+        let bytes = &self.rom.0[addr..addr + 48];
+        let title = bytes.iter().copied().map(|b| b as char).collect::<String>();
+
+        let re = RE.get_or_init(|| Regex::new(r" +").unwrap());
+        re.replace_all(title.trim(), " ").into()
+    }
+
+    fn region(&self) -> GenesisRegion {
+        self.region
     }
 }
 
@@ -191,18 +300,19 @@ impl Default for Signals {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
-pub struct Memory {
-    cartridge: Cartridge,
+pub struct Memory<Medium> {
+    physical_medium: Medium,
     main_ram: Box<[u8; MAIN_RAM_LEN]>,
     audio_ram: Box<[u8; AUDIO_RAM_LEN]>,
     z80_bank_register: Z80BankRegister,
     signals: Signals,
 }
 
-impl Memory {
-    pub fn new(cartridge: Cartridge) -> Self {
+impl<Medium: PhysicalMedium> Memory<Medium> {
+    #[must_use]
+    pub fn new(physical_medium: Medium) -> Self {
         Self {
-            cartridge,
+            physical_medium,
             main_ram: vec![0; MAIN_RAM_LEN].into_boxed_slice().try_into().unwrap(),
             audio_ram: vec![0; AUDIO_RAM_LEN].into_boxed_slice().try_into().unwrap(),
             z80_bank_register: Z80BankRegister::default(),
@@ -210,9 +320,10 @@ impl Memory {
         }
     }
 
-    pub fn read_word_for_dma(&self, address: u32) -> u16 {
+    #[must_use]
+    pub(crate) fn read_word_for_dma(&mut self, address: u32) -> u16 {
         match address {
-            0x000000..=0x3FFFFF => self.cartridge.read_word(address),
+            0x000000..=0x3FFFFF => self.physical_medium.read_word(address),
             0xE00000..=0xFFFFFF => {
                 let addr = (address & 0xFFFF) as usize;
                 u16::from_be_bytes([
@@ -224,9 +335,10 @@ impl Memory {
         }
     }
 
+    #[must_use]
     pub fn clone_without_rom(&self) -> Self {
         Self {
-            cartridge: self.cartridge.clone_without_rom(),
+            physical_medium: self.physical_medium.clone_without_rom(),
             main_ram: self.main_ram.clone(),
             audio_ram: self.audio_ram.clone(),
             z80_bank_register: self.z80_bank_register,
@@ -234,46 +346,43 @@ impl Memory {
         }
     }
 
-    pub fn take_rom(&mut self) -> Vec<u8> {
-        mem::take(&mut self.cartridge.rom).0
+    #[must_use]
+    pub fn take_rom(&mut self) -> Medium::Rom {
+        self.physical_medium.take_rom()
     }
 
     pub fn take_rom_from(&mut self, other: &mut Self) {
-        self.cartridge.rom = mem::take(&mut other.cartridge.rom);
+        self.physical_medium.take_rom_from(&mut other.physical_medium);
     }
 
-    pub fn take_cartridge_ram_if_persistent(&mut self) -> Option<Vec<u8>> {
-        self.cartridge.external_memory.take_if_persistent()
+    #[must_use]
+    pub fn take_external_ram_if_persistent(&mut self) -> Option<Vec<u8>> {
+        self.physical_medium.take_ram_if_persistent()
     }
 
-    pub fn cartridge_title(&self) -> String {
-        static RE: OnceLock<Regex> = OnceLock::new();
-
-        let addr = match self.cartridge.region {
-            GenesisRegion::Americas | GenesisRegion::Europe => 0x0150,
-            GenesisRegion::Japan => 0x0120,
-        };
-        let bytes = &self.cartridge.rom.0[addr..addr + 48];
-        let title = bytes.iter().copied().map(|b| b as char).collect::<String>();
-
-        let re = RE.get_or_init(|| Regex::new(r" +").unwrap());
-        re.replace_all(title.trim(), " ").into()
+    #[must_use]
+    pub fn game_title(&self) -> String {
+        self.physical_medium.program_title()
     }
 
+    #[must_use]
     pub fn hardware_region(&self) -> GenesisRegion {
-        self.cartridge.region
+        self.physical_medium.region()
     }
 
-    pub fn cartridge_ram(&self) -> &[u8] {
-        self.cartridge.external_memory.get_memory()
+    #[must_use]
+    pub fn external_ram(&self) -> &[u8] {
+        self.physical_medium.external_ram()
     }
 
-    pub fn cartridge_ram_persistent(&self) -> bool {
-        self.cartridge.external_memory.is_persistent()
+    #[must_use]
+    pub fn is_external_ram_persistent(&self) -> bool {
+        self.physical_medium.is_ram_persistent()
     }
 
-    pub fn get_and_clear_cartridge_ram_dirty(&mut self) -> bool {
-        self.cartridge.external_memory.get_and_clear_dirty_bit()
+    #[must_use]
+    pub fn get_and_clear_external_ram_dirty(&mut self) -> bool {
+        self.physical_medium.get_and_clear_ram_dirty()
     }
 
     pub fn reset_z80_signals(&mut self) {
@@ -281,8 +390,8 @@ impl Memory {
     }
 }
 
-pub struct MainBus<'a> {
-    memory: &'a mut Memory,
+pub struct MainBus<'a, Medium> {
+    memory: &'a mut Memory<Medium>,
     vdp: &'a mut Vdp,
     psg: &'a mut Psg,
     ym2612: &'a mut Ym2612,
@@ -291,9 +400,9 @@ pub struct MainBus<'a> {
     z80_stalled: bool,
 }
 
-impl<'a> MainBus<'a> {
+impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
     pub fn new(
-        memory: &'a mut Memory,
+        memory: &'a mut Memory<Medium>,
         vdp: &'a mut Vdp,
         psg: &'a mut Psg,
         ym2612: &'a mut Ym2612,
@@ -310,7 +419,7 @@ impl<'a> MainBus<'a> {
         match address {
             // Version register
             0xA10000 | 0xA10001 => {
-                0x20 | (u8::from(self.memory.cartridge.region.version_bit()) << 7)
+                0x20 | (u8::from(self.memory.hardware_region().version_bit()) << 7)
                     | (u8::from(self.timing_mode == TimingMode::Pal) << 6)
             }
             0xA10002 | 0xA10003 => self.input.read_p1_data(),
@@ -375,34 +484,18 @@ impl<'a> MainBus<'a> {
             _ => unreachable!("address & 0x1F is always <= 0x1F"),
         }
     }
-
-    fn write_cartridge_register(&mut self, address: u32, value: u8) {
-        match address {
-            0xA130F1 => {
-                self.memory.cartridge.ram_mapped = value.bit(0);
-            }
-            0xA130F3..=0xA130FF => {
-                if let Some(mapper) = &mut self.memory.cartridge.mapper {
-                    mapper.write(address, value);
-                }
-            }
-            _ => panic!(
-                "unexpected cartridge register write; address={address:06X}, value={value:02X}"
-            ),
-        }
-    }
 }
 
 // The Genesis has a 24-bit bus, not 32-bit
 const ADDRESS_MASK: u32 = 0xFFFFFF;
 
-impl<'a> m68000_emu::BusInterface for MainBus<'a> {
+impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium> {
     #[inline]
     fn read_byte(&mut self, address: u32) -> u8 {
         let address = address & ADDRESS_MASK;
         log::trace!("Main bus byte read, address={address:06X}");
         match address {
-            0x000000..=0x3FFFFF => self.memory.cartridge.read_byte(address),
+            0x000000..=0x3FFFFF => self.memory.physical_medium.read_byte(address),
             0xA00000..=0xA0FFFF => {
                 // Z80 memory map
                 // For 68k access, $8000-$FFFF mirrors $0000-$7FFF
@@ -424,7 +517,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
         let address = address & ADDRESS_MASK;
         log::trace!("Main bus word read, address={address:06X}");
         match address {
-            0x000000..=0x3FFFFF => self.memory.cartridge.read_word(address),
+            0x000000..=0x3FFFFF => self.memory.physical_medium.read_word(address),
             0xA00000..=0xA0FFFF => {
                 // All Z80 access is byte-size; word reads mirror the byte in both MSB and LSB
                 let byte = self.read_byte(address);
@@ -460,8 +553,8 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
         let address = address & ADDRESS_MASK;
         log::trace!("Main bus byte write: address={address:06X}, value={value:02X}");
         match address {
-            0x000000..=0x3FFFFF => {
-                self.memory.cartridge.write_byte(address, value);
+            0x000000..=0x3FFFFF | 0xA13000..=0xA130FF => {
+                self.memory.physical_medium.write_byte(address, value);
             }
             0xA00000..=0xA0FFFF => {
                 // Z80 memory map
@@ -483,9 +576,6 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
                 self.memory.signals.z80_reset = !value.bit(0);
                 log::trace!("Set Z80 RESET to {}", self.memory.signals.z80_reset);
             }
-            0xA13000..=0xA130FF => {
-                self.write_cartridge_register(address, value);
-            }
             0xC00000..=0xC0001F => {
                 self.write_vdp_byte(address, value);
             }
@@ -504,7 +594,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
         log::trace!("Main bus word write: address={address:06X}, value={value:02X}");
         match address {
             0x000000..=0x3FFFFF => {
-                self.memory.cartridge.write_word(address, value);
+                self.memory.physical_medium.write_word(address, value);
             }
             0xA00000..=0xA0FFFF => {
                 // Z80 memory map; word-size writes write the MSB as a byte-size write
@@ -522,7 +612,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
                 log::trace!("Set Z80 RESET to {}", self.memory.signals.z80_reset);
             }
             0xA13000..=0xA130FF => {
-                self.write_byte(address + 1, value as u8);
+                self.memory.physical_medium.write_byte(address + 1, value as u8);
             }
             0xC00000..=0xC00003 => {
                 self.vdp.write_data(value);
@@ -550,7 +640,7 @@ impl<'a> m68000_emu::BusInterface for MainBus<'a> {
     }
 }
 
-impl<'a> z80_emu::BusInterface for MainBus<'a> {
+impl<'a, Medium: PhysicalMedium> z80_emu::BusInterface for MainBus<'a, Medium> {
     #[inline]
     // TODO remove
     #[allow(clippy::match_same_arms)]

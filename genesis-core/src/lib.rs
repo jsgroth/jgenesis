@@ -1,9 +1,9 @@
 mod api;
 mod audio;
-mod input;
-mod memory;
-mod vdp;
-mod ym2612;
+pub mod input;
+pub mod memory;
+pub mod vdp;
+pub mod ym2612;
 
 pub use api::{
     GenesisAspectRatio, GenesisEmulator, GenesisEmulatorConfig, GenesisError, GenesisRegion,

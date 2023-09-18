@@ -170,6 +170,7 @@ pub struct InputState {
 }
 
 impl InputState {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -178,10 +179,12 @@ impl InputState {
         self.inputs = inputs.clone();
     }
 
+    #[must_use]
     pub fn read_p1_data(&self) -> u8 {
         self.p1_pin_directions.to_data_byte(self.inputs.p1)
     }
 
+    #[must_use]
     pub fn read_p2_data(&self) -> u8 {
         self.p2_pin_directions.to_data_byte(self.inputs.p2)
     }
@@ -194,10 +197,12 @@ impl InputState {
         self.p2_pin_directions.write_data(value, self.inputs.p2_type);
     }
 
+    #[must_use]
     pub fn read_p1_ctrl(&self) -> u8 {
         self.p1_pin_directions.to_ctrl_byte()
     }
 
+    #[must_use]
     pub fn read_p2_ctrl(&self) -> u8 {
         self.p2_pin_directions.to_ctrl_byte()
     }

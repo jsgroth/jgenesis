@@ -10,6 +10,7 @@ members = [
     "jgenesis-web",
     "m68000-emu",
     "m68000-test-runner",
+    "segacd-core",
     "smsgg-core",
     "z80-emu",
     "z80-test-runner",
