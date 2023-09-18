@@ -1,6 +1,6 @@
 mod debug;
 
-use crate::memory::Memory;
+use crate::memory::{Memory, PhysicalMedium};
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use jgenesis_traits::frontend::{Color, TimingMode};
@@ -875,6 +875,7 @@ impl TimingModeExt for TimingMode {
 }
 
 impl Vdp {
+    #[must_use]
     pub fn new(timing_mode: TimingMode, enforce_sprite_limits: bool) -> Self {
         Self {
             frame_buffer: FrameBuffer::new(),
@@ -1138,6 +1139,7 @@ impl Vdp {
         status
     }
 
+    #[must_use]
     pub fn hv_counter(&self) -> u16 {
         if let Some(latched_hv_counter) = self.state.latched_hv_counter {
             return latched_hv_counter;
@@ -1239,11 +1241,12 @@ impl Vdp {
         }
     }
 
+    #[allow(clippy::missing_panics_doc)]
     #[must_use]
-    pub fn tick(
+    pub fn tick<Medium: PhysicalMedium>(
         &mut self,
         master_clock_cycles: u64,
-        memory: &Memory,
+        memory: &mut Memory<Medium>,
         m68k: &mut M68000,
     ) -> VdpTickEffect {
         // The longest 68k instruction (DIVS) takes at most around 150 68k cycles
@@ -1362,7 +1365,11 @@ impl Vdp {
     }
 
     // TODO maybe do this piecemeal instead of all at once
-    fn run_dma(&mut self, memory: &Memory, active_dma: ActiveDma) {
+    fn run_dma<Medium: PhysicalMedium>(
+        &mut self,
+        memory: &mut Memory<Medium>,
+        active_dma: ActiveDma,
+    ) {
         match active_dma {
             ActiveDma::MemoryToVram => {
                 let dma_length = self.registers.dma_length();
@@ -1491,6 +1498,7 @@ impl Vdp {
         self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE >= ACTIVE_MCLK_CYCLES_PER_SCANLINE
     }
 
+    #[must_use]
     pub fn m68k_interrupt_level(&self) -> u8 {
         // TODO external interrupts at level 2
         if self.state.v_interrupt_pending && self.registers.v_interrupt_enabled {
@@ -1512,6 +1520,7 @@ impl Vdp {
         }
     }
 
+    #[must_use]
     pub fn z80_interrupt_line(&self) -> InterruptLine {
         // Z80 INT line is low only during the first scanline of VBlank
         if self.state.scanline == self.registers.vertical_display_size.active_scanlines() {
@@ -1937,14 +1946,17 @@ impl Vdp {
         found_sprite
     }
 
+    #[must_use]
     pub fn frame_buffer(&self) -> &[Color; FRAME_BUFFER_LEN] {
         &self.frame_buffer
     }
 
+    #[must_use]
     pub fn screen_width(&self) -> u32 {
         self.registers.horizontal_display_size.to_pixels().into()
     }
 
+    #[must_use]
     pub fn screen_height(&self) -> u32 {
         let screen_height: u32 = self.registers.vertical_display_size.active_scanlines().into();
         match self.registers.interlacing_mode {
@@ -1953,6 +1965,7 @@ impl Vdp {
         }
     }
 
+    #[must_use]
     pub fn get_enforce_sprite_limits(&self) -> bool {
         self.enforce_sprite_limits
     }

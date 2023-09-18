@@ -354,6 +354,7 @@ pub struct Ym2612 {
 }
 
 impl Ym2612 {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             channels: array::from_fn(|_| FmChannel::default()),
@@ -502,6 +503,7 @@ impl Ym2612 {
     }
 
     #[allow(clippy::unused_self)]
+    #[must_use]
     pub fn read_register(&self) -> u8 {
         (u8::from(self.busy_cycles_remaining != 0) << 7)
             | (u8::from(self.timer_b.overflow_flag()) << 1)
@@ -530,6 +532,7 @@ impl Ym2612 {
         YmTickEffect::None
     }
 
+    #[must_use]
     pub fn sample(&self) -> (f64, f64) {
         let mut sum_l = 0;
         let mut sum_r = 0;
@@ -751,5 +754,11 @@ impl Ym2612 {
         for channel in &mut self.channels {
             channel.fm_clock(lfo_counter);
         }
+    }
+}
+
+impl Default for Ym2612 {
+    fn default() -> Self {
+        Self::new()
     }
 }

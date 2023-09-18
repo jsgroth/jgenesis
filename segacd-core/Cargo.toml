@@ -1,0 +1,15 @@
+[package]
+name = "segacd-core"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+genesis-core = { path = "../genesis-core" }
+jgenesis-traits = { path = "../jgenesis-traits" }
+m68000-emu = { path = "../m68000-emu" }
+smsgg-core = { path = "../smsgg-core" }
+z80-emu = { path = "../z80-emu" }
+
+log = "0.4"

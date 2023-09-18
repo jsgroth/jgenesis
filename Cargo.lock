@@ -2722,6 +2722,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "segacd-core"
+version = "0.1.0"
+dependencies = [
+ "genesis-core",
+ "jgenesis-traits",
+ "log",
+ "m68000-emu",
+ "smsgg-core",
+ "z80-emu",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.188"
 source = "registry+https://github.com/rust-lang/crates.io-index"
