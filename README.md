@@ -14,6 +14,7 @@ Cross-platform multi-console Sega emulator that supports the Sega Genesis / Mega
 * Support for both 3-button and 6-button Genesis controllers
 * Support for keyboard controls and DirectInput gamepad controls
 * Save states, fast forward, and rewind
+* Some simple horizontal blur and naive anti-dither shaders for blending dithered pixel patterns, which were extremely common on these consoles due to limited color palettes and lack of hardware-supported transparency
 * Optional 2x CPU overclocking for Sega Master System and Game Gear emulation
 
 Major TODOs:
@@ -86,6 +87,8 @@ RUSTFLAGS="-Ctarget-cpu=native" cargo build --profile release-lto
 ![Screenshot from 2023-08-27 22-47-13](https://github.com/jsgroth/jgenesis/assets/1137683/d2ec2bc6-de7d-4ff1-98c5-10a0c4db7391)
 
 ![Screenshot from 2023-08-27 22-53-09](https://github.com/jsgroth/jgenesis/assets/1137683/05a7c309-0706-4627-9b45-313f259cc494)
+
+![Screenshot from 2023-09-18 15-44-28](https://github.com/jsgroth/jgenesis/assets/1137683/d70b708c-c1dc-4a9e-adda-11d2b1b8fa00)
 
 ## Sources
 
