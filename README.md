@@ -106,3 +106,6 @@ RUSTFLAGS="-Ctarget-cpu=native" cargo build --profile release-lto
 * Genesis EEPROM games: https://gendev.spritesmind.net/forum/viewtopic.php?f=25&t=206
 * YM2413 application manual: https://www.smspower.org/maxim/Documents/YM2413ApplicationManual
 * Reverse engineering of the YM2413: https://github.com/andete/ym2413
+* Mega CD official documentation: https://segaretro.org/Mega-CD_official_documentation
+* ECMA-130 standard: https://www.ecma-international.org/publications-and-standards/standards/ecma-130/
+* Thread discussing details of Mega CD emulation: https://gendev.spritesmind.net/forum/viewtopic.php?t=3020

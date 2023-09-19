@@ -2725,10 +2725,16 @@ dependencies = [
 name = "segacd-core"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "bincode",
+ "crc",
+ "env_logger",
  "genesis-core",
+ "jgenesis-proc-macros",
  "jgenesis-traits",
  "log",
  "m68000-emu",
+ "regex",
  "smsgg-core",
  "z80-emu",
 ]

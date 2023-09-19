@@ -5,7 +5,6 @@ use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use jgenesis_traits::frontend::{Color, TimingMode};
 use jgenesis_traits::num::GetBit;
-use m68000_emu::M68000;
 use std::ops::{Add, AddAssign, Deref, DerefMut};
 use z80_emu::traits::InterruptLine;
 
@@ -1247,7 +1246,6 @@ impl Vdp {
         &mut self,
         master_clock_cycles: u64,
         memory: &mut Memory<Medium>,
-        m68k: &mut M68000,
     ) -> VdpTickEffect {
         // The longest 68k instruction (DIVS) takes at most around 150 68k cycles
         assert!(master_clock_cycles < 1100);
@@ -1263,7 +1261,6 @@ impl Vdp {
             self.registers.horizontal_display_size,
             line_type,
         );
-        m68k.set_halted(self.dma_tracker.in_progress);
 
         if !self.dma_tracker.in_progress && !self.state.pending_writes.is_empty() {
             self.apply_pending_writes();
@@ -1518,6 +1515,11 @@ impl Vdp {
         } else if interrupt_level == 4 {
             self.state.h_interrupt_pending = false;
         }
+    }
+
+    #[must_use]
+    pub fn dma_in_progress(&self) -> bool {
+        self.dma_tracker.in_progress
     }
 
     #[must_use]

@@ -29,4 +29,8 @@ pub trait BusInterface {
     fn interrupt_level(&self) -> u8;
 
     fn acknowledge_interrupt(&mut self);
+
+    fn halt(&self) -> bool;
+
+    fn reset(&self) -> bool;
 }

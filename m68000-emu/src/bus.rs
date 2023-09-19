@@ -38,6 +38,14 @@ impl BusInterface for InMemoryBus {
     }
 
     fn acknowledge_interrupt(&mut self) {}
+
+    fn halt(&self) -> bool {
+        false
+    }
+
+    fn reset(&self) -> bool {
+        false
+    }
 }
 
 impl Default for InMemoryBus {
