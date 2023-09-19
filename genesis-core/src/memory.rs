@@ -388,6 +388,22 @@ impl<Medium: PhysicalMedium> Memory<Medium> {
     pub fn reset_z80_signals(&mut self) {
         self.signals = Signals::default();
     }
+
+    #[must_use]
+    pub fn medium(&self) -> &Medium {
+        &self.physical_medium
+    }
+
+    #[must_use]
+    pub fn medium_mut(&mut self) -> &mut Medium {
+        &mut self.physical_medium
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MainBusSignals {
+    pub z80_busack: bool,
+    pub m68k_reset: bool,
 }
 
 pub struct MainBus<'a, Medium> {
@@ -397,7 +413,7 @@ pub struct MainBus<'a, Medium> {
     ym2612: &'a mut Ym2612,
     input: &'a mut InputState,
     timing_mode: TimingMode,
-    z80_stalled: bool,
+    signals: MainBusSignals,
 }
 
 impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
@@ -408,9 +424,9 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
         ym2612: &'a mut Ym2612,
         input: &'a mut InputState,
         timing_mode: TimingMode,
-        z80_stalled: bool,
+        signals: MainBusSignals,
     ) -> Self {
-        Self { memory, vdp, psg, ym2612, input, timing_mode, z80_stalled }
+        Self { memory, vdp, psg, ym2612, input, timing_mode, signals }
     }
 
     // TODO remove
@@ -495,17 +511,16 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
         let address = address & ADDRESS_MASK;
         log::trace!("Main bus byte read, address={address:06X}");
         match address {
-            0x000000..=0x3FFFFF => self.memory.physical_medium.read_byte(address),
+            0x000000..=0x3FFFFF | 0xA12000..=0xA130FF => {
+                self.memory.physical_medium.read_byte(address)
+            }
             0xA00000..=0xA0FFFF => {
                 // Z80 memory map
                 // For 68k access, $8000-$FFFF mirrors $0000-$7FFF
                 <Self as z80_emu::BusInterface>::read_memory(self, (address & 0x7FFF) as u16)
             }
             0xA10000..=0xA1001F => self.read_io_register(address),
-            0xA11100..=0xA11101 => (!self.z80_stalled).into(),
-            0xA13000..=0xA130FF => {
-                todo!("read cartridge register")
-            }
+            0xA11100..=0xA11101 => (!self.signals.z80_busack).into(),
             0xC00000..=0xC0001F => self.read_vdp_byte(address),
             0xE00000..=0xFFFFFF => self.memory.main_ram[(address & 0xFFFF) as usize],
             _ => 0xFF,
@@ -517,7 +532,9 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
         let address = address & ADDRESS_MASK;
         log::trace!("Main bus word read, address={address:06X}");
         match address {
-            0x000000..=0x3FFFFF => self.memory.physical_medium.read_word(address),
+            0x000000..=0x3FFFFF | 0xA12000..=0xA130FF => {
+                self.memory.physical_medium.read_word(address)
+            }
             0xA00000..=0xA0FFFF => {
                 // All Z80 access is byte-size; word reads mirror the byte in both MSB and LSB
                 let byte = self.read_byte(address);
@@ -526,11 +543,8 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
             0xA10000..=0xA1001F => self.read_io_register(address).into(),
             0xA11100..=0xA11101 => {
                 // Word reads of Z80 BUSREQ signal mirror the byte in both MSB and LSB
-                let byte: u8 = (!self.z80_stalled).into();
+                let byte: u8 = (!self.signals.z80_busack).into();
                 u16::from_le_bytes([byte, byte])
-            }
-            0xA13000..=0xA130FF => {
-                todo!("read cartridge register")
             }
             0xC00000..=0xC00003 => self.vdp.read_data(),
             0xC00004..=0xC00007 => self.vdp.read_status(),
@@ -553,7 +567,7 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
         let address = address & ADDRESS_MASK;
         log::trace!("Main bus byte write: address={address:06X}, value={value:02X}");
         match address {
-            0x000000..=0x3FFFFF | 0xA13000..=0xA130FF => {
+            0x000000..=0x3FFFFF | 0xA12000..=0xA130FF => {
                 self.memory.physical_medium.write_byte(address, value);
             }
             0xA00000..=0xA0FFFF => {
@@ -593,7 +607,7 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
         let address = address & ADDRESS_MASK;
         log::trace!("Main bus word write: address={address:06X}, value={value:02X}");
         match address {
-            0x000000..=0x3FFFFF => {
+            0x000000..=0x3FFFFF | 0xA12000..=0xA130FF => {
                 self.memory.physical_medium.write_word(address, value);
             }
             0xA00000..=0xA0FFFF => {
@@ -610,9 +624,6 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
             0xA11200..=0xA11201 => {
                 self.memory.signals.z80_reset = !value.bit(8);
                 log::trace!("Set Z80 RESET to {}", self.memory.signals.z80_reset);
-            }
-            0xA13000..=0xA130FF => {
-                self.memory.physical_medium.write_byte(address + 1, value as u8);
             }
             0xC00000..=0xC00003 => {
                 self.vdp.write_data(value);
@@ -637,6 +648,14 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
     #[inline]
     fn acknowledge_interrupt(&mut self) {
         self.vdp.acknowledge_m68k_interrupt();
+    }
+
+    fn halt(&self) -> bool {
+        self.vdp.dma_in_progress()
+    }
+
+    fn reset(&self) -> bool {
+        self.signals.m68k_reset
     }
 }
 

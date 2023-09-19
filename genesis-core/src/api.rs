@@ -1,7 +1,7 @@
 use crate::audio;
 use crate::audio::AudioDownsampler;
 use crate::input::{GenesisInputs, InputState};
-use crate::memory::{Cartridge, MainBus, Memory};
+use crate::memory::{Cartridge, MainBus, MainBusSignals, Memory};
 use crate::vdp::{Vdp, VdpTickEffect};
 use crate::ym2612::{Ym2612, YmTickEffect};
 use bincode::{Decode, Encode};
@@ -202,14 +202,14 @@ impl GenesisEmulator {
 
         // The Genesis does not allow TAS to lock the bus, so don't allow TAS writes
         let mut m68k = M68000::builder().allow_tas_writes(false).build();
-        m68k.reset(&mut MainBus::new(
+        m68k.execute_instruction(&mut MainBus::new(
             &mut memory,
             &mut vdp,
             &mut psg,
             &mut ym2612,
             &mut input,
             timing_mode,
-            z80.stalled(),
+            MainBusSignals { z80_busack: false, m68k_reset: true },
         ));
 
         Self {
@@ -321,7 +321,7 @@ impl TickableEmulator for GenesisEmulator {
             &mut self.ym2612,
             &mut self.input,
             self.timing_mode,
-            self.z80.stalled(),
+            MainBusSignals { z80_busack: self.z80.stalled(), m68k_reset: false },
         );
         let m68k_cycles = self.m68k.execute_instruction(&mut bus);
 
@@ -359,9 +359,7 @@ impl TickableEmulator for GenesisEmulator {
             }
         }
 
-        if self.vdp.tick(elapsed_mclk_cycles, &mut self.memory, &mut self.m68k)
-            == VdpTickEffect::FrameComplete
-        {
+        if self.vdp.tick(elapsed_mclk_cycles, &mut self.memory) == VdpTickEffect::FrameComplete {
             self.render_frame(renderer).map_err(GenesisError::Render)?;
 
             self.input.set_inputs(inputs);
@@ -393,14 +391,14 @@ impl Resettable for GenesisEmulator {
     fn soft_reset(&mut self) {
         log::info!("Soft resetting console");
 
-        self.m68k.reset(&mut MainBus::new(
+        self.m68k.execute_instruction(&mut MainBus::new(
             &mut self.memory,
             &mut self.vdp,
             &mut self.psg,
             &mut self.ym2612,
             &mut self.input,
             self.timing_mode,
-            false,
+            MainBusSignals { z80_busack: false, m68k_reset: true },
         ));
         self.memory.reset_z80_signals();
         self.ym2612.reset();

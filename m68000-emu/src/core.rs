@@ -983,6 +983,8 @@ impl M68000Builder {
     }
 }
 
+const RESET_CYCLES: u32 = 132;
+
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
 pub struct M68000 {
@@ -1003,7 +1005,7 @@ impl M68000 {
         M68000Builder::default()
     }
 
-    pub fn reset<B: BusInterface>(&mut self, bus: &mut B) {
+    fn reset<B: BusInterface>(&mut self, bus: &mut B) {
         // Reset the upper word of the status register
         self.registers.supervisor_mode = true;
         self.registers.trace_enabled = false;
@@ -1073,19 +1075,14 @@ impl M68000 {
         self.registers.address_error
     }
 
-    #[must_use]
-    pub fn halted(&self) -> bool {
-        self.halted
-    }
-
-    #[inline]
-    pub fn set_halted(&mut self, halted: bool) {
-        self.halted = halted;
-    }
-
     #[inline]
     pub fn execute_instruction<B: BusInterface>(&mut self, bus: &mut B) -> u32 {
-        if self.halted {
+        if bus.reset() {
+            self.reset(bus);
+            return RESET_CYCLES;
+        }
+
+        if bus.halt() {
             return 4;
         }
 
