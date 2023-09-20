@@ -1796,6 +1796,7 @@ dependencies = [
  "log",
  "pollster",
  "sdl2",
+ "segacd-core",
  "serde",
  "smsgg-core",
  "wgpu",

@@ -4,11 +4,16 @@ use crate::graphics::GraphicsCoprocessor;
 use crate::memory::{SegaCd, SubBus};
 use crate::rf5c164::Rf5c164;
 use anyhow::anyhow;
+use bincode::{Decode, Encode};
 use genesis_core::input::InputState;
 use genesis_core::memory::{MainBus, MainBusSignals, Memory};
 use genesis_core::vdp::{Vdp, VdpTickEffect};
 use genesis_core::ym2612::{Ym2612, YmTickEffect};
-use jgenesis_traits::frontend::TimingMode;
+use genesis_core::{GenesisAspectRatio, GenesisEmulator, GenesisError, GenesisInputs};
+use jgenesis_traits::frontend::{
+    AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, LightClone, Renderer,
+    Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator, TimingMode,
+};
 use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgTickEffect, PsgVersion};
 use std::fs;
@@ -23,7 +28,10 @@ const NTSC_GENESIS_MASTER_CLOCK_RATE: u64 = 53_693_175;
 const PAL_GENESIS_MASTER_CLOCK_RATE: u64 = 53_203_424;
 const SEGA_CD_MASTER_CLOCK_RATE: u64 = 50_000_000;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct SegaCdEmulatorConfig;
+
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct SegaCdEmulator {
     memory: Memory<SegaCd>,
     main_cpu: M68000,
@@ -106,7 +114,39 @@ impl SegaCdEmulator {
         })
     }
 
-    pub fn tick(&mut self) {
+    fn tick_sub_cpu(&mut self, sub_cpu_cycles: u64) {
+        if sub_cpu_cycles >= self.sub_cpu_wait_cycles {
+            let wait_cycles = self.sub_cpu_wait_cycles;
+            let mut bus =
+                SubBus::new(&mut self.memory, &mut self.graphics_coprocessor, &mut self.pcm);
+            self.sub_cpu_wait_cycles = self.sub_cpu.execute_instruction(&mut bus).into();
+            self.tick_sub_cpu(sub_cpu_cycles - wait_cycles);
+        } else {
+            self.sub_cpu_wait_cycles -= sub_cpu_cycles;
+        }
+    }
+
+    fn render_frame<R: Renderer>(&self, renderer: &mut R) -> Result<(), R::Err> {
+        genesis_core::render_frame(&self.vdp, GenesisAspectRatio::Ntsc, true, renderer)
+    }
+}
+
+impl TickableEmulator for SegaCdEmulator {
+    type Inputs = GenesisInputs;
+    type Err<RErr, AErr, SErr> = GenesisError<RErr, AErr, SErr>;
+
+    fn tick<R, A, S>(
+        &mut self,
+        renderer: &mut R,
+        audio_output: &mut A,
+        inputs: &Self::Inputs,
+        save_writer: &mut S,
+    ) -> Result<TickEffect, Self::Err<R::Err, A::Err, S::Err>>
+    where
+        R: Renderer,
+        A: AudioOutput,
+        S: SaveWriter,
+    {
         let mut main_bus = MainBus::new(
             &mut self.memory,
             &mut self.vdp,
@@ -159,19 +199,77 @@ impl SegaCdEmulator {
         }
 
         if self.vdp.tick(genesis_mclk_elapsed, &mut self.memory) == VdpTickEffect::FrameComplete {
-            // TODO
+            self.render_frame(renderer).map_err(GenesisError::Render)?;
+
+            self.input.set_inputs(inputs);
         }
+
+        Ok(TickEffect::None)
     }
 
-    fn tick_sub_cpu(&mut self, sub_cpu_cycles: u64) {
-        if sub_cpu_cycles >= self.sub_cpu_wait_cycles {
-            let wait_cycles = self.sub_cpu_wait_cycles;
-            let mut bus =
-                SubBus::new(&mut self.memory, &mut self.graphics_coprocessor, &mut self.pcm);
-            self.sub_cpu_wait_cycles = self.sub_cpu.execute_instruction(&mut bus).into();
-            self.tick_sub_cpu(sub_cpu_cycles - wait_cycles);
-        } else {
-            self.sub_cpu_wait_cycles -= sub_cpu_cycles;
-        }
+    fn force_render<R>(&mut self, renderer: &mut R) -> Result<(), R::Err>
+    where
+        R: Renderer,
+    {
+        self.render_frame(renderer)
+    }
+}
+
+impl Resettable for SegaCdEmulator {
+    fn soft_reset(&mut self) {
+        todo!("soft reset")
+    }
+
+    fn hard_reset(&mut self) {
+        todo!("hard reset")
+    }
+}
+
+impl ConfigReload for SegaCdEmulator {
+    type Config = SegaCdEmulatorConfig;
+
+    fn reload_config(&mut self, config: &Self::Config) {
+        todo!("reload config")
+    }
+}
+
+impl LightClone for SegaCdEmulator {
+    type Clone = ();
+
+    fn light_clone(&self) -> Self::Clone {
+        todo!("light clone")
+    }
+
+    fn reconstruct_from(&mut self, clone: Self::Clone) {
+        todo!("reconstruct from light clone")
+    }
+}
+
+impl TakeRomFrom for SegaCdEmulator {
+    fn take_rom_from(&mut self, other: &mut Self) {
+        todo!("take ROM from")
+    }
+}
+
+impl EmulatorDebug for SegaCdEmulator {
+    const NUM_PALETTES: u32 = GenesisEmulator::NUM_PALETTES;
+    const PALETTE_LEN: u32 = GenesisEmulator::PALETTE_LEN;
+    const PATTERN_TABLE_LEN: u32 = GenesisEmulator::PATTERN_TABLE_LEN;
+
+    fn debug_cram(&self, out: &mut [Color]) {
+        self.vdp.debug_cram(out);
+    }
+
+    fn debug_vram(&self, out: &mut [Color], palette: u8) {
+        self.vdp.debug_vram(out, palette);
+    }
+}
+
+impl EmulatorTrait for SegaCdEmulator {
+    type EmulatorInputs = GenesisInputs;
+    type EmulatorConfig = SegaCdEmulatorConfig;
+
+    fn timing_mode(&self) -> TimingMode {
+        self.timing_mode
     }
 }

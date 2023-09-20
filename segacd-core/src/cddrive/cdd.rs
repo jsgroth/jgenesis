@@ -1,6 +1,7 @@
 use crate::cdrom::reader::CdRom;
+use bincode::{Decode, Encode};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct CdDrive {
     disc: Option<CdRom>,
 }

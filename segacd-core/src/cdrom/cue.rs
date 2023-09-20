@@ -1,10 +1,11 @@
 use anyhow::anyhow;
+use bincode::{Decode, Encode};
 use regex::Regex;
 use std::ops::{Add, Sub};
 use std::str::FromStr;
 use std::sync::OnceLock;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Encode, Decode)]
 pub struct CdTime {
     pub minutes: u8,
     pub seconds: u8,
@@ -100,14 +101,14 @@ impl FromStr for TrackType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct DataTrack {
     pub number: u8,
     pub file: String,
     pub time: CdTime,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct AudioTrack {
     pub number: u8,
     pub file: String,
@@ -121,7 +122,7 @@ pub enum Track {
     Audio(AudioTrack),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Encode, Decode)]
 pub enum Pregap {
     None,
     StartTime(CdTime),

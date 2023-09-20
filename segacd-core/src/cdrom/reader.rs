@@ -1,5 +1,6 @@
 use crate::cdrom::cue::{AudioTrack, DataTrack, Track};
 use anyhow::anyhow;
+use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -70,7 +71,7 @@ impl CdRomFiles {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct CdRom {
     data_track: DataTrack,
     audio_tracks: Vec<Option<AudioTrack>>,

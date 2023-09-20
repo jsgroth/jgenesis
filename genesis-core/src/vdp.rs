@@ -874,6 +874,7 @@ impl TimingModeExt for TimingMode {
 }
 
 impl Vdp {
+    #[allow(clippy::missing_panics_doc)]
     #[must_use]
     pub fn new(timing_mode: TimingMode, enforce_sprite_limits: bool) -> Self {
         Self {

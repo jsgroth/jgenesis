@@ -6,7 +6,8 @@ use jgenesis_native_driver::config::input::{
     SmsGgControllerConfig, SmsGgInputConfig,
 };
 use jgenesis_native_driver::config::{
-    CommonConfig, GenesisConfig, GgAspectRatio, SmsAspectRatio, SmsGgConfig, WindowSize,
+    CommonConfig, GenesisConfig, GgAspectRatio, SegaCdConfig, SmsAspectRatio, SmsGgConfig,
+    WindowSize,
 };
 use jgenesis_native_driver::NativeTickEffect;
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
@@ -23,6 +24,7 @@ use std::path::Path;
 enum Hardware {
     MasterSystem,
     Genesis,
+    SegaCd,
 }
 
 #[derive(Parser)]
@@ -30,6 +32,10 @@ struct Args {
     /// ROM file path
     #[arg(short = 'f', long)]
     file_path: String,
+
+    /// Sega CD BIOS path (required for Sega CD emulation)
+    #[arg(short = 'b', long)]
+    bios_path: Option<String>,
 
     /// Hardware (MasterSystem / Genesis)
     ///
@@ -387,6 +393,7 @@ fn main() -> anyhow::Result<()> {
         match file_ext {
             "sms" | "gg" => Hardware::MasterSystem,
             "md" | "bin" => Hardware::Genesis,
+            "cue" => Hardware::SegaCd,
             _ => {
                 log::warn!("Unrecognized file extension: {file_ext} defaulting to SMS");
                 Hardware::MasterSystem
@@ -399,6 +406,7 @@ fn main() -> anyhow::Result<()> {
     match hardware {
         Hardware::MasterSystem => run_sms(args),
         Hardware::Genesis => run_genesis(args),
+        Hardware::SegaCd => run_sega_cd(args),
     }
 }
 
@@ -440,6 +448,29 @@ fn run_genesis(args: Args) -> anyhow::Result<()> {
     };
 
     let mut emulator = jgenesis_native_driver::create_genesis(config.into())?;
+    while emulator.render_frame()? != NativeTickEffect::Exit {}
+
+    Ok(())
+}
+
+fn run_sega_cd(args: Args) -> anyhow::Result<()> {
+    let bios_file_path = args
+        .bios_path
+        .clone()
+        .expect("BIOS file path (-b / --bios-path) is required for Sega CD emulation");
+
+    let keyboard_inputs = args.genesis_keyboard_config();
+    let common = args.common_config(keyboard_inputs, GenesisInputConfig::default());
+    let cue_file_path = common.rom_file_path.clone();
+    let config = SegaCdConfig {
+        common,
+        p1_controller_type: args.input_p1_type,
+        p2_controller_type: GenesisControllerType::default(),
+        bios_file_path,
+        cue_file_path,
+    };
+
+    let mut emulator = jgenesis_native_driver::create_sega_cd(config.into())?;
     while emulator.render_frame()? != NativeTickEffect::Exit {}
 
     Ok(())

@@ -10,6 +10,7 @@ genesis-core = { path = "../genesis-core" }
 jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
 jgenesis-renderer = { path = "../jgenesis-renderer" }
 jgenesis-traits = { path = "../jgenesis-traits" }
+segacd-core = { path = "../segacd-core" }
 smsgg-core = { path = "../smsgg-core" }
 
 anyhow = "1"
