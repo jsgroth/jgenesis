@@ -193,8 +193,8 @@ impl Default for Signals {
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Memory {
     cartridge: Cartridge,
-    main_ram: Vec<u8>,
-    audio_ram: Vec<u8>,
+    main_ram: Box<[u8; MAIN_RAM_LEN]>,
+    audio_ram: Box<[u8; AUDIO_RAM_LEN]>,
     z80_bank_register: Z80BankRegister,
     signals: Signals,
 }
@@ -203,8 +203,8 @@ impl Memory {
     pub fn new(cartridge: Cartridge) -> Self {
         Self {
             cartridge,
-            main_ram: vec![0; MAIN_RAM_LEN],
-            audio_ram: vec![0; AUDIO_RAM_LEN],
+            main_ram: vec![0; MAIN_RAM_LEN].into_boxed_slice().try_into().unwrap(),
+            audio_ram: vec![0; AUDIO_RAM_LEN].into_boxed_slice().try_into().unwrap(),
             z80_bank_register: Z80BankRegister::default(),
             signals: Signals::default(),
         }

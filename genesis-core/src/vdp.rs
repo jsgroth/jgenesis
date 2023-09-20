@@ -793,11 +793,11 @@ pub enum VdpTickEffect {
 }
 
 #[derive(Debug, Clone, FakeEncode, FakeDecode)]
-struct FrameBuffer(Vec<Color>);
+struct FrameBuffer(Box<[Color; FRAME_BUFFER_LEN]>);
 
 impl FrameBuffer {
     fn new() -> Self {
-        Self(vec![Color::default(); FRAME_BUFFER_LEN])
+        Self(vec![Color::default(); FRAME_BUFFER_LEN].into_boxed_slice().try_into().unwrap())
     }
 }
 
@@ -808,7 +808,7 @@ impl Default for FrameBuffer {
 }
 
 impl Deref for FrameBuffer {
-    type Target = Vec<Color>;
+    type Target = Box<[Color; FRAME_BUFFER_LEN]>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -824,13 +824,13 @@ impl DerefMut for FrameBuffer {
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Vdp {
     frame_buffer: FrameBuffer,
-    vram: Vec<u8>,
+    vram: Box<[u8; VRAM_LEN]>,
     cram: [u8; CRAM_LEN],
     vsram: [u8; VSRAM_LEN],
     timing_mode: TimingMode,
     state: InternalState,
     registers: Registers,
-    cached_sprite_attributes: Vec<CachedSpriteData>,
+    cached_sprite_attributes: Box<[CachedSpriteData; MAX_SPRITES_PER_FRAME]>,
     sprite_buffer: Vec<SpriteData>,
     sprite_bit_set: SpriteBitSet,
     enforce_sprite_limits: bool,
@@ -878,13 +878,16 @@ impl Vdp {
     pub fn new(timing_mode: TimingMode, enforce_sprite_limits: bool) -> Self {
         Self {
             frame_buffer: FrameBuffer::new(),
-            vram: vec![0; VRAM_LEN],
+            vram: vec![0; VRAM_LEN].into_boxed_slice().try_into().unwrap(),
             cram: [0; CRAM_LEN],
             vsram: [0; VSRAM_LEN],
             timing_mode,
             state: InternalState::new(),
             registers: Registers::new(),
-            cached_sprite_attributes: vec![CachedSpriteData::default(); MAX_SPRITES_PER_FRAME],
+            cached_sprite_attributes: vec![CachedSpriteData::default(); MAX_SPRITES_PER_FRAME]
+                .into_boxed_slice()
+                .try_into()
+                .unwrap(),
             sprite_buffer: Vec::with_capacity(MAX_SPRITES_PER_FRAME),
             sprite_bit_set: SpriteBitSet::new(),
             enforce_sprite_limits,
@@ -1934,7 +1937,7 @@ impl Vdp {
         found_sprite
     }
 
-    pub fn frame_buffer(&self) -> &[Color] {
+    pub fn frame_buffer(&self) -> &[Color; FRAME_BUFFER_LEN] {
         &self.frame_buffer
     }
 
@@ -2069,13 +2072,13 @@ fn determine_pixel_color(
     (bg_color, modifier)
 }
 
-fn resolve_color(cram: &[u8], palette: u8, color_id: u8) -> u16 {
+fn resolve_color(cram: &[u8; CRAM_LEN], palette: u8, color_id: u8) -> u16 {
     let addr = (32 * palette + 2 * color_id) as usize;
     u16::from_be_bytes([cram[addr], cram[addr + 1]])
 }
 
 fn read_v_scroll(
-    vsram: &[u8],
+    vsram: &[u8; VSRAM_LEN],
     v_scroll_mode: VerticalScrollMode,
     interlacing_mode: InterlacingMode,
     h_cell: u16,
@@ -2099,7 +2102,7 @@ fn read_v_scroll(
 }
 
 fn read_h_scroll(
-    vram: &[u8],
+    vram: &[u8; VRAM_LEN],
     h_scroll_table_addr: u16,
     h_scroll_mode: HorizontalScrollMode,
     scanline: u16,
@@ -2152,7 +2155,7 @@ struct NameTableWord {
 }
 
 fn read_name_table_word(
-    vram: &[u8],
+    vram: &[u8; VRAM_LEN],
     base_addr: u16,
     name_table_width: u16,
     row: u16,
@@ -2183,7 +2186,7 @@ struct PatternGeneratorArgs {
 
 #[inline]
 fn read_pattern_generator(
-    vram: &[u8],
+    vram: &[u8; VRAM_LEN],
     PatternGeneratorArgs {
         vertical_flip,
         horizontal_flip,
