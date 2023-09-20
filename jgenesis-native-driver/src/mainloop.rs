@@ -2,7 +2,7 @@ mod debug;
 mod rewind;
 
 use crate::config;
-use crate::config::{CommonConfig, GenesisConfig, SmsGgConfig, WindowSize};
+use crate::config::{CommonConfig, GenesisConfig, SegaCdConfig, SmsGgConfig, WindowSize};
 use crate::input::{
     Clearable, GenesisButton, GetButtonField, Hotkey, HotkeyMapResult, HotkeyMapper, InputMapper,
     Joysticks, SmsGgButton,
@@ -20,6 +20,7 @@ use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::event::{Event, WindowEvent};
 use sdl2::video::{FullscreenType, Window};
 use sdl2::{AudioSubsystem, EventPump, JoystickSubsystem, VideoSubsystem};
+use segacd_core::api::{SegaCdEmulator, SegaCdEmulatorConfig};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgInputs};
 use std::ffi::OsStr;
@@ -291,6 +292,9 @@ impl NativeGenesisEmulator {
     }
 }
 
+pub type NativeSegaCdEmulator =
+    NativeEmulator<GenesisInputs, GenesisButton, SegaCdEmulatorConfig, SegaCdEmulator>;
+
 // TODO simplify or generalize these trait bounds
 impl<Inputs, Button, Config, Emulator> NativeEmulator<Inputs, Button, Config, Emulator>
 where
@@ -527,6 +531,67 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> anyhow::Result<NativeGenesi
     Ok(NativeEmulator {
         emulator,
         config: emulator_config,
+        renderer,
+        audio_output,
+        input_mapper,
+        hotkey_mapper,
+        save_writer,
+        event_pump,
+        save_state_path,
+        fast_forward_multiplier: config.common.fast_forward_multiplier,
+        rewinder: Rewinder::new(Duration::from_secs(config.common.rewind_buffer_length_seconds)),
+        video,
+        cram_debug: None,
+        vram_debug: None,
+    })
+}
+
+/// Create an emulator with the Sega CD core with the given config.
+///
+/// # Errors
+///
+/// This function will return an error upon encountering any video, audio, or I/O error, including
+/// any error encountered loading the Sega CD game disc.
+pub fn create_sega_cd(config: Box<SegaCdConfig>) -> anyhow::Result<NativeSegaCdEmulator> {
+    log::info!("Running with config: {config}");
+
+    let cue_path = Path::new(&config.cue_file_path);
+    let save_path = cue_path.with_extension("sav");
+    let save_state_path = cue_path.with_extension("ss0");
+
+    let bios = fs::read(Path::new(&config.bios_file_path))?;
+    let emulator = SegaCdEmulator::create(bios, Path::new(&config.cue_file_path))?;
+
+    let (video, audio, joystick, event_pump) = init_sdl()?;
+
+    let WindowSize { width: window_width, height: window_height } =
+        config.common.window_size.unwrap_or(config::DEFAULT_GENESIS_WINDOW_SIZE);
+
+    let window = create_window(
+        &video,
+        "sega cd",
+        window_width,
+        window_height,
+        config.common.launch_in_fullscreen,
+    )?;
+
+    let renderer =
+        pollster::block_on(WgpuRenderer::new(window, Window::size, config.common.renderer_config))?;
+    let audio_output = SdlAudioOutput::create_and_init(&audio, config.common.audio_sync)?;
+    let input_mapper = InputMapper::new_genesis(
+        config.p1_controller_type,
+        config.p2_controller_type,
+        joystick,
+        config.common.keyboard_inputs,
+        config.common.joystick_inputs,
+        config.common.axis_deadzone,
+    )?;
+    let hotkey_mapper = HotkeyMapper::from_config(&config.common.hotkeys)?;
+    let save_writer = FsSaveWriter::new(save_path);
+
+    Ok(NativeEmulator {
+        emulator,
+        config: SegaCdEmulatorConfig,
         renderer,
         audio_output,
         input_mapper,

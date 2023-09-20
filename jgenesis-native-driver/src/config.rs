@@ -185,3 +185,12 @@ impl GenesisConfig {
         }
     }
 }
+
+#[derive(Debug, Clone, ConfigDisplay)]
+pub struct SegaCdConfig {
+    pub common: CommonConfig<GenesisInputConfig<KeyboardInput>, GenesisInputConfig<JoystickInput>>,
+    pub p1_controller_type: GenesisControllerType,
+    pub p2_controller_type: GenesisControllerType,
+    pub bios_file_path: String,
+    pub cue_file_path: String,
+}

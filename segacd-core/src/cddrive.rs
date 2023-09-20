@@ -1,10 +1,11 @@
 pub mod cdd;
 
 use crate::cddrive::cdd::CdDrive;
+use bincode::{Decode, Encode};
 
 const BUFFER_RAM_LEN: usize = 16 * 1024;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct CdController {
     drive: CdDrive,
     buffer_ram: Vec<u8>,

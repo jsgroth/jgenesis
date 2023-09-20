@@ -3,6 +3,7 @@ use crate::cddrive::CdController;
 use crate::cdrom::reader::CdRom;
 use crate::graphics::GraphicsCoprocessor;
 use crate::rf5c164::Rf5c164;
+use bincode::{Decode, Encode};
 use genesis_core::memory::{Memory, PhysicalMedium};
 use genesis_core::GenesisRegion;
 use jgenesis_traits::num::GetBit;
@@ -14,7 +15,7 @@ const WORD_RAM_LEN: usize = 256 * 1024;
 const PCM_RAM_LEN: usize = 16 * 1024;
 const BACKUP_RAM_LEN: usize = 8 * 1024;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum WordRamMode {
     TwoM,
     OneM,
@@ -30,14 +31,14 @@ impl WordRamMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum WordRamPriorityMode {
     Off,
     Overwrite,
     Underwrite,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum CdcDeviceDestination {
     MainCpuRead,
     SubCpuRead,
@@ -46,7 +47,7 @@ enum CdcDeviceDestination {
     WordRamDma,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 struct SegaCdRegisters {
     // $FF8000/$A12000: Reset / BUSREQ
     software_interrupt_pending: bool,
@@ -117,7 +118,7 @@ impl SegaCdRegisters {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct SegaCd {
     bios: Vec<u8>,
     disc_drive: CdController,

@@ -309,6 +309,7 @@ pub struct Memory<Medium> {
 }
 
 impl<Medium: PhysicalMedium> Memory<Medium> {
+    #[allow(clippy::missing_panics_doc)]
     #[must_use]
     pub fn new(physical_medium: Medium) -> Self {
         Self {

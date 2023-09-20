@@ -234,16 +234,34 @@ impl GenesisEmulator {
     }
 
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
-        let frame_width = self.vdp.screen_width();
-        let frame_height = self.vdp.screen_height();
-
-        let frame_size = FrameSize { width: frame_width, height: frame_height };
-        let pixel_aspect_ratio = self
-            .aspect_ratio
-            .to_pixel_aspect_ratio(frame_size, self.adjust_aspect_ratio_in_2x_resolution);
-
-        renderer.render_frame(self.vdp.frame_buffer(), frame_size, pixel_aspect_ratio)
+        render_frame(
+            &self.vdp,
+            self.aspect_ratio,
+            self.adjust_aspect_ratio_in_2x_resolution,
+            renderer,
+        )
     }
+}
+
+/// Render the current VDP frame buffer.
+///
+/// # Errors
+///
+/// This function will propagate any error returned by the renderer.
+pub fn render_frame<R: Renderer>(
+    vdp: &Vdp,
+    aspect_ratio: GenesisAspectRatio,
+    adjust_aspect_ratio_in_2x_resolution: bool,
+    renderer: &mut R,
+) -> Result<(), R::Err> {
+    let frame_width = vdp.screen_width();
+    let frame_height = vdp.screen_height();
+
+    let frame_size = FrameSize { width: frame_width, height: frame_height };
+    let pixel_aspect_ratio =
+        aspect_ratio.to_pixel_aspect_ratio(frame_size, adjust_aspect_ratio_in_2x_resolution);
+
+    renderer.render_frame(vdp.frame_buffer(), frame_size, pixel_aspect_ratio)
 }
 
 impl ConfigReload for GenesisEmulator {

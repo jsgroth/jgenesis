@@ -307,7 +307,6 @@ impl RenderingPipeline {
             pixel_aspect_ratio,
             renderer_config.force_integer_height_scaling,
         );
-        log::info!("Vertices: {vertices:?}");
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: "vertex_buffer".into(),
             contents: bytemuck::cast_slice(&vertices),
