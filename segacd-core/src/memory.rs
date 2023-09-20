@@ -82,6 +82,8 @@ struct SegaCdRegisters {
     timer_interrupt_enabled: bool,
     software_interrupt_enabled: bool,
     graphics_interrupt_enabled: bool,
+    // $FF8036: CDD control
+    cdd_host_clock_on: bool,
 }
 
 impl SegaCdRegisters {
@@ -110,6 +112,7 @@ impl SegaCdRegisters {
             timer_interrupt_enabled: false,
             software_interrupt_enabled: false,
             graphics_interrupt_enabled: false,
+            cdd_host_clock_on: false,
         }
     }
 
@@ -145,6 +148,7 @@ impl SegaCd {
     }
 
     fn read_main_cpu_register_byte(&mut self, address: u32) -> u8 {
+        log::trace!("Main CPU register byte read: {address:06X}");
         match address {
             0xA12000 => {
                 // Initialization / reset, high byte
@@ -162,18 +166,20 @@ impl SegaCd {
             }
             0xA12003 => {
                 // Memory mode / write protect, low byte
-                // TODO fix DMNA / RET
+                // TODO properly handle DMNA / RET
                 (self.registers.prg_ram_bank << 6)
                     | (u8::from(self.registers.word_ram_mode.to_bit()) << 2)
                     | (u8::from(self.registers.dmna) << 1)
                     | u8::from(self.registers.ret)
             }
-            0xA12006..=0xA12007 => panic!("byte-wide read of HINT vector register"),
+            0xA12006 => (self.registers.h_interrupt_vector >> 8) as u8,
+            0xA12007 => self.registers.h_interrupt_vector as u8,
             _ => todo!("main CPU byte register read at {address:06X}"),
         }
     }
 
     fn read_main_cpu_register_word(&mut self, address: u32) -> u16 {
+        log::trace!("Main CPU register word read: {address:06X}");
         match address {
             0xA12000 | 0xA12002 => u16::from_be_bytes([
                 self.read_main_cpu_register_byte(address),
@@ -185,26 +191,37 @@ impl SegaCd {
     }
 
     fn write_main_cpu_register_byte(&mut self, address: u32, value: u8) {
+        log::trace!("Main CPU register byte write: {address:06X}");
         match address {
             0xA12000 => {
                 // Initialization / reset, high byte
                 self.registers.software_interrupt_pending = value.bit(0);
+
+                log::trace!("  INT2 pending write: {}", self.registers.software_interrupt_pending);
             }
             0xA12001 => {
                 // Initialization / reset, low byte
                 self.registers.sub_cpu_busreq = value.bit(1);
                 self.registers.sub_cpu_reset = !value.bit(0);
+
+                log::trace!("  Sub CPU BUSREQ: {}", self.registers.sub_cpu_busreq);
+                log::trace!("  Sub CPU RESET: {}", self.registers.sub_cpu_reset);
             }
             0xA12002 => {
                 // Memory mode / write protect, high byte
                 self.registers.prg_ram_write_protect = value;
+
+                log::trace!("  PRG RAM protect write: {value:02X}");
             }
             0xA12003 => {
                 // Memory mode / write protect, low byte
                 self.registers.prg_ram_bank = value >> 6;
-                self.registers.word_ram_mode = WordRamMode::from_bit(value.bit(2));
-                // TODO handle DMNA / RET
+                // TODO properly handle DMNA / RET
                 self.registers.dmna = value.bit(1);
+
+                log::trace!("  PRG RAM bank: {}", self.registers.prg_ram_bank);
+                log::trace!("  Word RAM mode: {:?}", self.registers.word_ram_mode);
+                log::trace!("  DMNA: {}", self.registers.dmna);
             }
             0xA12006..=0xA12007 => panic!("byte-wide write to HINT vector register"),
             _ => todo!("main CPU register write at {address:06X}, value {value:02X}"),
@@ -212,6 +229,7 @@ impl SegaCd {
     }
 
     fn write_main_cpu_register_word(&mut self, address: u32, value: u16) {
+        log::trace!("Main CPU register word write: {address:06X}");
         match address {
             0xA12000 | 0xA12002 => {
                 let [msb, lsb] = value.to_be_bytes();
@@ -220,6 +238,8 @@ impl SegaCd {
             }
             0xA12006 => {
                 self.registers.h_interrupt_vector = value;
+
+                log::trace!("  HINT vector set to {value:04X}");
             }
             _ => todo!("main CPU word register write at {address:06X}, value {value:04X}"),
         }
@@ -392,13 +412,117 @@ impl<'a> SubBus<'a> {
     }
 }
 
+impl<'a> SubBus<'a> {
+    fn read_register_byte(&mut self, address: u32) -> u8 {
+        log::trace!("Sub CPU register byte read: {address:06X}");
+        match address {
+            0xFF8032 => {
+                // Interrupt mask control, high byte (unused)
+                0x00
+            }
+            0xFF8033 => {
+                // Interrupt mask control, low byte
+                let sega_cd = self.memory.medium();
+                (u8::from(sega_cd.registers.subcode_interrupt_enabled) << 6)
+                    | (u8::from(sega_cd.registers.cdc_interrupt_enabled) << 5)
+                    | (u8::from(sega_cd.registers.cdd_interrupt_enabled) << 4)
+                    | (u8::from(sega_cd.registers.timer_interrupt_enabled) << 3)
+                    | (u8::from(sega_cd.registers.software_interrupt_enabled) << 2)
+                    | (u8::from(sega_cd.registers.graphics_interrupt_enabled) << 1)
+            }
+            0xFF8036 => {
+                // CDD control, high byte
+                todo!("CDD control high byte")
+            }
+            0xFF8037 => {
+                // CDD control, low byte
+                // TODO DRS/DTS bits
+                let sega_cd = self.memory.medium();
+                u8::from(sega_cd.registers.cdd_host_clock_on) << 2
+            }
+            _ => todo!("read sub register byte {address:06X}"),
+        }
+    }
+
+    fn read_register_word(&mut self, address: u32) -> u16 {
+        log::trace!("Sub CPU register word read: {address:06X}");
+        match address {
+            0xFF8032 => {
+                // Interrupt mask control
+                self.read_register_byte(address + 1).into()
+            }
+            0xFF8036 => {
+                // CDD control
+                let msb = self.read_register_byte(address);
+                let lsb = self.read_register_byte(address + 1);
+                u16::from_be_bytes([msb, lsb])
+            }
+            _ => todo!("read sub register word {address:06X}"),
+        }
+    }
+
+    fn write_register_byte(&mut self, address: u32, value: u8) {
+        log::trace!("Sub CPU register byte write: {address:06X}");
+        match address {
+            0xFF8032 => {
+                // Interrupt mask control, high byte (unused)
+            }
+            0xFF8033 => {
+                // Interrupt mask control, low byte
+                let sega_cd = self.memory.medium_mut();
+                sega_cd.registers.subcode_interrupt_enabled = value.bit(6);
+                sega_cd.registers.cdc_interrupt_enabled = value.bit(5);
+                sega_cd.registers.cdd_interrupt_enabled = value.bit(4);
+                sega_cd.registers.timer_interrupt_enabled = value.bit(3);
+                sega_cd.registers.software_interrupt_enabled = value.bit(2);
+                sega_cd.registers.graphics_interrupt_enabled = value.bit(1);
+
+                log::trace!("  Interrupt mask write: {value:08b}");
+            }
+            0xFF8036 => {
+                // CDD control, high byte (writes do nothing)
+            }
+            0xFF8037 => {
+                // CDD control, low byte
+                self.memory.medium_mut().registers.cdd_host_clock_on = value.bit(2);
+
+                log::trace!("  CDD control write: {value:02X}");
+            }
+            _ => todo!("write sub register byte {address:06X} {value:02X}"),
+        }
+    }
+
+    fn write_register_word(&mut self, address: u32, value: u16) {
+        log::trace!("Sub CPU word write: {address:06X}");
+        match address {
+            0xFF8032 => {
+                // Interrupt mask control
+                self.write_register_byte(address + 1, value as u8);
+            }
+            0xFF8036 => {
+                // CDD control
+                self.write_register_byte(address + 1, value as u8);
+            }
+            _ => todo!("write sub register word {address:06X} {value:04X}"),
+        }
+    }
+}
+
+// Sega CD / 68000 only has a 24-bit address bus
+const ADDRESS_MASK: u32 = 0xFFFFFF;
+
 impl<'a> BusInterface for SubBus<'a> {
     #[inline]
     fn read_byte(&mut self, address: u32) -> u8 {
+        let address = address & ADDRESS_MASK;
         match address {
             0x000000..=0x07FFFF => {
                 // PRG RAM
                 self.memory.medium().prg_ram[address as usize]
+            }
+            0xFF0000..=0xFFFFFF => {
+                // Sub CPU registers
+                self.read_register_byte(address)
             }
             _ => todo!("sub bus read byte {address:06X}"),
         }
@@ -406,6 +530,7 @@ impl<'a> BusInterface for SubBus<'a> {
 
     #[inline]
     fn read_word(&mut self, address: u32) -> u16 {
+        let address = address & ADDRESS_MASK;
         match address {
             0x000000..=0x07FFFF => {
                 // PRG RAM
@@ -414,23 +539,60 @@ impl<'a> BusInterface for SubBus<'a> {
                 let lsb = sega_cd.prg_ram[(address + 1) as usize];
                 u16::from_be_bytes([msb, lsb])
             }
+            0xFF0000..=0xFFFFFF => {
+                // Sub CPU registers
+                self.read_register_word(address)
+            }
             _ => todo!("sub bus read word {address:06X}"),
         }
     }
 
     #[inline]
     fn write_byte(&mut self, address: u32, value: u8) {
-        todo!("sub bus read byte {address:06X} {value:02X}")
+        let address = address & ADDRESS_MASK;
+        match address {
+            0x000000..=0x07FFFF => {
+                // PRG RAM
+                self.memory.medium_mut().write_prg_ram(address, value);
+            }
+            0xFF0000..=0xFFFFFF => {
+                // Sub CPU registers
+                self.write_register_byte(address, value);
+            }
+            _ => todo!("sub bus read byte {address:06X} {value:02X}"),
+        }
     }
 
     #[inline]
     fn write_word(&mut self, address: u32, value: u16) {
-        todo!("sub bus read word {address:06X} {value:04X}")
+        let address = address & ADDRESS_MASK;
+        match address {
+            0x000000..=0x07FFFF => {
+                // PRG RAM
+                let [msb, lsb] = value.to_be_bytes();
+                let sega_cd = self.memory.medium_mut();
+                sega_cd.write_prg_ram(address, msb);
+                sega_cd.write_prg_ram(address + 1, lsb);
+            }
+            0xFF0000..=0xFFFFFF => {
+                // Sub CPU registers
+                self.write_register_word(address, value);
+            }
+            _ => todo!("sub bus read word {address:06X} {value:04X}"),
+        }
     }
 
     #[inline]
     fn interrupt_level(&self) -> u8 {
-        todo!("sub bus interrupt level")
+        // TODO other interrupts
+        let sega_cd = self.memory.medium();
+        if sega_cd.registers.software_interrupt_enabled
+            && sega_cd.registers.software_interrupt_pending
+        {
+            2
+        } else {
+            0
+        }
     }
 
     #[inline]

@@ -2729,7 +2729,6 @@ dependencies = [
  "anyhow",
  "bincode",
  "crc",
- "env_logger",
  "genesis-core",
  "jgenesis-proc-macros",
  "jgenesis-traits",
