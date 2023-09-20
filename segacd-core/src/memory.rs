@@ -223,11 +223,18 @@ impl SegaCd {
             _ => todo!("main CPU word register write at {address:06X}, value {value:04X}"),
         }
     }
+
+    fn write_prg_ram(&mut self, address: u32, value: u8) {
+        if address >= u32::from(self.registers.prg_ram_write_protect) * 0x200 {
+            self.prg_ram[address as usize] = value;
+        }
+    }
 }
 
 impl PhysicalMedium for SegaCd {
     type Rom = CdRom;
 
+    #[inline]
     fn read_byte(&mut self, address: u32) -> u8 {
         match address {
             0x000000..=0x01FFFF => {
@@ -248,6 +255,7 @@ impl PhysicalMedium for SegaCd {
         }
     }
 
+    #[inline]
     fn read_word(&mut self, address: u32) -> u16 {
         match address {
             0x000000..=0x01FFFF => {
@@ -279,6 +287,7 @@ impl PhysicalMedium for SegaCd {
         }
     }
 
+    #[inline]
     fn write_byte(&mut self, address: u32, value: u8) {
         match address {
             0x000000..=0x01FFFF => {
@@ -287,7 +296,7 @@ impl PhysicalMedium for SegaCd {
             0x020000..=0x03FFFF => {
                 // PRG RAM
                 let prg_ram_addr = self.registers.prg_ram_addr(address);
-                self.prg_ram[prg_ram_addr as usize] = value;
+                self.write_prg_ram(prg_ram_addr, value);
             }
             0x200000..=0x23FFFF => todo!("word RAM byte write {address:06X} {value:02X}"),
             0xA12000..=0xA1202F => {
@@ -297,6 +306,7 @@ impl PhysicalMedium for SegaCd {
         }
     }
 
+    #[inline]
     fn write_word(&mut self, address: u32, value: u16) {
         match address {
             0x000000..=0x01FFFF => {
@@ -306,8 +316,8 @@ impl PhysicalMedium for SegaCd {
                 // PRG RAM
                 let prg_ram_addr = self.registers.prg_ram_addr(address);
                 let [msb, lsb] = value.to_be_bytes();
-                self.prg_ram[prg_ram_addr as usize] = msb;
-                self.prg_ram[(prg_ram_addr + 1) as usize] = lsb;
+                self.write_prg_ram(prg_ram_addr, msb);
+                self.write_prg_ram(prg_ram_addr + 1, lsb);
             }
             0x200000..=0x23FFFF => todo!("word RAM word write {address:06X} {value:04X}"),
             0xA12000..=0xA1202F => {
@@ -329,10 +339,12 @@ impl PhysicalMedium for SegaCd {
         todo!("take ROM from")
     }
 
+    #[inline]
     fn external_ram(&self) -> &[u8] {
         self.backup_ram.as_slice()
     }
 
+    #[inline]
     fn is_ram_persistent(&self) -> bool {
         true
     }
@@ -345,6 +357,7 @@ impl PhysicalMedium for SegaCd {
         Some(<[u8]>::into_vec(ram_box))
     }
 
+    #[inline]
     fn get_and_clear_ram_dirty(&mut self) -> bool {
         let dirty = self.backup_ram_dirty;
         self.backup_ram_dirty = false;
@@ -379,6 +392,7 @@ impl<'a> SubBus<'a> {
 }
 
 impl<'a> BusInterface for SubBus<'a> {
+    #[inline]
     fn read_byte(&mut self, address: u32) -> u8 {
         match address {
             0x000000..=0x07FFFF => {
@@ -389,6 +403,7 @@ impl<'a> BusInterface for SubBus<'a> {
         }
     }
 
+    #[inline]
     fn read_word(&mut self, address: u32) -> u16 {
         match address {
             0x000000..=0x07FFFF => {
@@ -402,26 +417,32 @@ impl<'a> BusInterface for SubBus<'a> {
         }
     }
 
+    #[inline]
     fn write_byte(&mut self, address: u32, value: u8) {
         todo!("sub bus read byte {address:06X} {value:02X}")
     }
 
+    #[inline]
     fn write_word(&mut self, address: u32, value: u16) {
         todo!("sub bus read word {address:06X} {value:04X}")
     }
 
+    #[inline]
     fn interrupt_level(&self) -> u8 {
         todo!("sub bus interrupt level")
     }
 
+    #[inline]
     fn acknowledge_interrupt(&mut self) {
         todo!("sub bus acknowledge interrupt")
     }
 
+    #[inline]
     fn halt(&self) -> bool {
         self.memory.medium().registers.sub_cpu_busreq
     }
 
+    #[inline]
     fn reset(&self) -> bool {
         self.memory.medium().registers.sub_cpu_reset
     }
