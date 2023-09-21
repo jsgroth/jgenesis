@@ -22,6 +22,7 @@ impl TimingModeExt for TimingMode {
     }
 }
 
+// Low-pass filter coefficients
 const FIR_COEFFICIENT_0: f64 = -0.001478342773457343;
 const FIR_COEFFICIENTS: &[f64] = &[
     -0.001478342773457343,
@@ -59,6 +60,8 @@ pub struct AudioDownsampler {
     next_sample: u64,
     next_sample_float: f64,
     downsampling_ratio: f64,
+    hpf_capacitor_l: f64,
+    hpf_capacitor_r: f64,
 }
 
 impl AudioDownsampler {
@@ -71,6 +74,8 @@ impl AudioDownsampler {
             next_sample: downsampling_ratio.round() as u64,
             next_sample_float: downsampling_ratio,
             downsampling_ratio,
+            hpf_capacitor_l: 0.0,
+            hpf_capacitor_r: 0.0,
         }
     }
 
@@ -109,6 +114,9 @@ impl AudioDownsampler {
         sample_r: f64,
         audio_output: &mut A,
     ) -> Result<(), A::Err> {
+        let sample_l = high_pass_filter(sample_l, &mut self.hpf_capacitor_l);
+        let sample_r = high_pass_filter(sample_r, &mut self.hpf_capacitor_r);
+
         // Zero pad each actual sample with 2 zeros because otherwise the source sample rate is
         // too close to the target sample rate for downsampling to work well
         self.buffer_sample(sample_l, sample_r, audio_output)?;
@@ -117,6 +125,14 @@ impl AudioDownsampler {
 
         Ok(())
     }
+}
+
+const HPF_CHARGE_FACTOR: f64 = 0.9966982656608827;
+
+fn high_pass_filter(sample: f64, capacitor: &mut f64) -> f64 {
+    let filtered_sample = sample - *capacitor;
+    *capacitor = sample - HPF_CHARGE_FACTOR * filtered_sample;
+    filtered_sample
 }
 
 fn output_sample(buffer: &VecDeque<f64>) -> f64 {
