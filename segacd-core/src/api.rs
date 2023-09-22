@@ -114,16 +114,17 @@ impl SegaCdEmulator {
         })
     }
 
-    fn tick_sub_cpu(&mut self, sub_cpu_cycles: u64) {
-        if sub_cpu_cycles >= self.sub_cpu_wait_cycles {
+    #[inline]
+    fn tick_sub_cpu(&mut self, mut sub_cpu_cycles: u64) {
+        while sub_cpu_cycles >= self.sub_cpu_wait_cycles {
             let wait_cycles = self.sub_cpu_wait_cycles;
             let mut bus =
                 SubBus::new(&mut self.memory, &mut self.graphics_coprocessor, &mut self.pcm);
             self.sub_cpu_wait_cycles = self.sub_cpu.execute_instruction(&mut bus).into();
-            self.tick_sub_cpu(sub_cpu_cycles - wait_cycles);
-        } else {
-            self.sub_cpu_wait_cycles -= sub_cpu_cycles;
+            sub_cpu_cycles -= wait_cycles;
         }
+
+        self.sub_cpu_wait_cycles -= sub_cpu_cycles;
     }
 
     fn render_frame<R: Renderer>(&self, renderer: &mut R) -> Result<(), R::Err> {
@@ -202,6 +203,8 @@ impl TickableEmulator for SegaCdEmulator {
             self.render_frame(renderer).map_err(GenesisError::Render)?;
 
             self.input.set_inputs(inputs);
+
+            return Ok(TickEffect::FrameRendered);
         }
 
         Ok(TickEffect::None)

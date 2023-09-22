@@ -156,7 +156,7 @@ impl SegaCd {
             }
             0xA12006 => (self.registers.h_interrupt_vector >> 8) as u8,
             0xA12007 => self.registers.h_interrupt_vector as u8,
-            _ => todo!("main CPU byte register read at {address:06X}"),
+            _ => 0,
         }
     }
 
@@ -168,7 +168,7 @@ impl SegaCd {
                 self.read_main_cpu_register_byte(address | 1),
             ]),
             0xA12006 => self.registers.h_interrupt_vector,
-            _ => todo!("main CPU word register read at {address:06X}"),
+            _ => 0,
         }
     }
 
@@ -205,7 +205,7 @@ impl SegaCd {
                 log::trace!("  DMNA: {}", self.registers.dmna);
             }
             0xA12006..=0xA12007 => panic!("byte-wide write to HINT vector register"),
-            _ => todo!("main CPU register write at {address:06X}, value {value:02X}"),
+            _ => {}
         }
     }
 
@@ -222,7 +222,7 @@ impl SegaCd {
 
                 log::trace!("  HINT vector set to {value:04X}");
             }
-            _ => todo!("main CPU word register write at {address:06X}, value {value:04X}"),
+            _ => {}
         }
     }
 
@@ -431,7 +431,7 @@ impl<'a> SubBus<'a> {
                 let sega_cd = self.memory.medium();
                 u8::from(sega_cd.registers.cdd_host_clock_on) << 2
             }
-            _ => todo!("read sub register byte {address:06X}"),
+            _ => 0,
         }
     }
 
@@ -448,7 +448,7 @@ impl<'a> SubBus<'a> {
                 let lsb = self.read_register_byte(address + 1);
                 u16::from_be_bytes([msb, lsb])
             }
-            _ => todo!("read sub register word {address:06X}"),
+            _ => 0,
         }
     }
 
@@ -479,7 +479,7 @@ impl<'a> SubBus<'a> {
 
                 log::trace!("  CDD control write: {value:02X}");
             }
-            _ => todo!("write sub register byte {address:06X} {value:02X}"),
+            _ => {}
         }
     }
 
@@ -494,7 +494,7 @@ impl<'a> SubBus<'a> {
                 // CDD control
                 self.write_register_byte(address + 1, value as u8);
             }
-            _ => todo!("write sub register word {address:06X} {value:04X}"),
+            _ => {}
         }
     }
 }
