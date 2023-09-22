@@ -1,3 +1,5 @@
+mod wordram;
+
 use crate::cddrive::cdd::CdDrive;
 use crate::cddrive::CdController;
 use crate::cdrom::reader::CdRom;
@@ -9,27 +11,11 @@ use genesis_core::GenesisRegion;
 use jgenesis_traits::num::GetBit;
 use m68000_emu::BusInterface;
 use std::mem;
+use wordram::{WordRam, WordRamMode};
 
 const PRG_RAM_LEN: usize = 512 * 1024;
-const WORD_RAM_LEN: usize = 256 * 1024;
 const PCM_RAM_LEN: usize = 16 * 1024;
 const BACKUP_RAM_LEN: usize = 8 * 1024;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum WordRamMode {
-    TwoM,
-    OneM,
-}
-
-impl WordRamMode {
-    fn to_bit(self) -> bool {
-        self == Self::OneM
-    }
-
-    fn from_bit(bit: bool) -> Self {
-        if bit { Self::OneM } else { Self::TwoM }
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum WordRamPriorityMode {
@@ -126,7 +112,7 @@ pub struct SegaCd {
     bios: Vec<u8>,
     disc_drive: CdController,
     prg_ram: Box<[u8; PRG_RAM_LEN]>,
-    word_ram: Box<[u8; WORD_RAM_LEN]>,
+    word_ram: WordRam,
     pcm_ram: Box<[u8; PCM_RAM_LEN]>,
     backup_ram: Box<[u8; BACKUP_RAM_LEN]>,
     backup_ram_dirty: bool,
@@ -139,7 +125,7 @@ impl SegaCd {
             bios,
             disc_drive: CdController::new(CdDrive::new(Some(disc))),
             prg_ram: vec![0; PRG_RAM_LEN].into_boxed_slice().try_into().unwrap(),
-            word_ram: vec![0; WORD_RAM_LEN].into_boxed_slice().try_into().unwrap(),
+            word_ram: WordRam::new(),
             pcm_ram: vec![0; PCM_RAM_LEN].into_boxed_slice().try_into().unwrap(),
             backup_ram: vec![0; BACKUP_RAM_LEN].into_boxed_slice().try_into().unwrap(),
             backup_ram_dirty: false,
@@ -166,11 +152,7 @@ impl SegaCd {
             }
             0xA12003 => {
                 // Memory mode / write protect, low byte
-                // TODO properly handle DMNA / RET
-                (self.registers.prg_ram_bank << 6)
-                    | (u8::from(self.registers.word_ram_mode.to_bit()) << 2)
-                    | (u8::from(self.registers.dmna) << 1)
-                    | u8::from(self.registers.ret)
+                (self.registers.prg_ram_bank << 6) | self.word_ram.control_read()
             }
             0xA12006 => (self.registers.h_interrupt_vector >> 8) as u8,
             0xA12007 => self.registers.h_interrupt_vector as u8,
@@ -216,8 +198,7 @@ impl SegaCd {
             0xA12003 => {
                 // Memory mode / write protect, low byte
                 self.registers.prg_ram_bank = value >> 6;
-                // TODO properly handle DMNA / RET
-                self.registers.dmna = value.bit(1);
+                self.word_ram.main_cpu_control_write(value);
 
                 log::trace!("  PRG RAM bank: {}", self.registers.prg_ram_bank);
                 log::trace!("  Word RAM mode: {:?}", self.registers.word_ram_mode);
@@ -267,7 +248,7 @@ impl PhysicalMedium for SegaCd {
                 let prg_ram_addr = self.registers.prg_ram_addr(address);
                 self.prg_ram[prg_ram_addr as usize]
             }
-            0x200000..=0x23FFFF => todo!("word RAM byte read {address:06X}"),
+            0x200000..=0x23FFFF => self.word_ram.main_cpu_ram_read(address),
             0xA12000..=0xA1202F => {
                 // Sega CD registers
                 self.read_main_cpu_register_byte(address)
@@ -299,7 +280,11 @@ impl PhysicalMedium for SegaCd {
                 let lsb = self.prg_ram[(prg_ram_addr + 1) as usize];
                 u16::from_be_bytes([msb, lsb])
             }
-            0x200000..=0x23FFFF => todo!("word RAM word read {address:06X}"),
+            0x200000..=0x23FFFF => {
+                let msb = self.word_ram.main_cpu_ram_read(address);
+                let lsb = self.word_ram.main_cpu_ram_read(address | 1);
+                u16::from_be_bytes([msb, lsb])
+            }
             0xA12000..=0xA1202F => {
                 // Sega CD registers
                 self.read_main_cpu_register_word(address)
@@ -319,7 +304,9 @@ impl PhysicalMedium for SegaCd {
                 let prg_ram_addr = self.registers.prg_ram_addr(address);
                 self.write_prg_ram(prg_ram_addr, value);
             }
-            0x200000..=0x23FFFF => todo!("word RAM byte write {address:06X} {value:02X}"),
+            0x200000..=0x23FFFF => {
+                self.word_ram.main_cpu_ram_write(address, value);
+            }
             0xA12000..=0xA1202F => {
                 self.write_main_cpu_register_byte(address, value);
             }
@@ -340,7 +327,11 @@ impl PhysicalMedium for SegaCd {
                 self.write_prg_ram(prg_ram_addr, msb);
                 self.write_prg_ram(prg_ram_addr + 1, lsb);
             }
-            0x200000..=0x23FFFF => todo!("word RAM word write {address:06X} {value:04X}"),
+            0x200000..=0x23FFFF => {
+                let [msb, lsb] = value.to_be_bytes();
+                self.word_ram.main_cpu_ram_write(address, msb);
+                self.word_ram.main_cpu_ram_write(address | 1, lsb);
+            }
             0xA12000..=0xA1202F => {
                 self.write_main_cpu_register_word(address, value);
             }
@@ -520,6 +511,19 @@ impl<'a> BusInterface for SubBus<'a> {
                 // PRG RAM
                 self.memory.medium().prg_ram[address as usize]
             }
+            0x080000..=0x0DFFFF => {
+                // Word RAM
+                self.memory.medium().word_ram.sub_cpu_ram_read(address)
+            }
+            0xFE0000..=0xFE3FFF => {
+                // Backup RAM (odd addresses)
+                if address.bit(0) {
+                    let backup_ram_addr = (address & 0x3FFF) >> 1;
+                    self.memory.medium().backup_ram[backup_ram_addr as usize]
+                } else {
+                    0x00
+                }
+            }
             0xFF0000..=0xFFFFFF => {
                 // Sub CPU registers
                 self.read_register_byte(address)
@@ -539,6 +543,18 @@ impl<'a> BusInterface for SubBus<'a> {
                 let lsb = sega_cd.prg_ram[(address + 1) as usize];
                 u16::from_be_bytes([msb, lsb])
             }
+            0x080000..=0x0DFFFF => {
+                // Word RAM
+                let word_ram = &self.memory.medium().word_ram;
+                let msb = word_ram.sub_cpu_ram_read(address);
+                let lsb = word_ram.sub_cpu_ram_read(address | 1);
+                u16::from_be_bytes([msb, lsb])
+            }
+            0xFE0000..=0xFE3FFF => {
+                // Backup RAM (odd addresses)
+                let backup_ram_addr = (address & 0x3FFF) >> 1;
+                self.memory.medium().backup_ram[backup_ram_addr as usize].into()
+            }
             0xFF0000..=0xFFFFFF => {
                 // Sub CPU registers
                 self.read_register_word(address)
@@ -554,6 +570,19 @@ impl<'a> BusInterface for SubBus<'a> {
             0x000000..=0x07FFFF => {
                 // PRG RAM
                 self.memory.medium_mut().write_prg_ram(address, value);
+            }
+            0x080000..=0x0DFFFF => {
+                // Word RAM
+                self.memory.medium_mut().word_ram.sub_cpu_ram_write(address, value);
+            }
+            0xFE0000..=0xFE3FFF => {
+                // Backup RAM (odd addresses)
+                if address.bit(0) {
+                    let backup_ram_addr = (address & 0x3FFF) >> 1;
+                    let sega_cd = self.memory.medium_mut();
+                    sega_cd.backup_ram[backup_ram_addr as usize] = value;
+                    sega_cd.backup_ram_dirty = true;
+                }
             }
             0xFF0000..=0xFFFFFF => {
                 // Sub CPU registers
@@ -573,6 +602,20 @@ impl<'a> BusInterface for SubBus<'a> {
                 let sega_cd = self.memory.medium_mut();
                 sega_cd.write_prg_ram(address, msb);
                 sega_cd.write_prg_ram(address + 1, lsb);
+            }
+            0x080000..=0x0DFFFF => {
+                // Word RAM
+                let [msb, lsb] = value.to_be_bytes();
+                let word_ram = &mut self.memory.medium_mut().word_ram;
+                word_ram.sub_cpu_ram_write(address, msb);
+                word_ram.sub_cpu_ram_write(address | 1, lsb);
+            }
+            0xFE0000..=0xFE3FFF => {
+                // Backup RAM (odd addresses)
+                let backup_ram_addr = (address & 0x3FFF) >> 1;
+                let sega_cd = self.memory.medium_mut();
+                sega_cd.backup_ram[backup_ram_addr as usize] = value as u8;
+                sega_cd.backup_ram_dirty = true;
             }
             0xFF0000..=0xFFFFFF => {
                 // Sub CPU registers
