@@ -189,9 +189,15 @@ pub enum OpSize {
 impl OpSize {
     fn increment_step_for(self, register: AddressRegister) -> u32 {
         match self {
-            Self::Byte => u8::increment_step_for(register),
-            Self::Word => u16::increment_step_for(register),
-            Self::LongWord => u32::increment_step_for(register),
+            Self::Byte => {
+                if register.is_stack_pointer() {
+                    2
+                } else {
+                    1
+                }
+            }
+            Self::Word => 2,
+            Self::LongWord => 4,
         }
     }
 
@@ -203,28 +209,6 @@ impl OpSize {
             0x00C0 => Err(Exception::IllegalInstruction(opcode)),
             _ => unreachable!("value & 0x00C0 is always 0x0000/0x0040/0x0080/0x00C0"),
         }
-    }
-}
-
-trait IncrementStep: Copy {
-    fn increment_step_for(register: AddressRegister) -> u32;
-}
-
-impl IncrementStep for u8 {
-    fn increment_step_for(register: AddressRegister) -> u32 {
-        if register.is_stack_pointer() { 2 } else { 1 }
-    }
-}
-
-impl IncrementStep for u16 {
-    fn increment_step_for(_register: AddressRegister) -> u32 {
-        2
-    }
-}
-
-impl IncrementStep for u32 {
-    fn increment_step_for(_register: AddressRegister) -> u32 {
-        4
     }
 }
 
