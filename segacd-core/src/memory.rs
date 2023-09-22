@@ -133,6 +133,7 @@ impl SegaCd {
         }
     }
 
+    #[allow(clippy::match_same_arms)]
     fn read_main_cpu_register_byte(&mut self, address: u32) -> u8 {
         log::trace!("Main CPU register byte read: {address:06X}");
         match address {
@@ -154,12 +155,59 @@ impl SegaCd {
                 // Memory mode / write protect, low byte
                 (self.registers.prg_ram_bank << 6) | self.word_ram.control_read()
             }
-            0xA12006 => (self.registers.h_interrupt_vector >> 8) as u8,
-            0xA12007 => self.registers.h_interrupt_vector as u8,
+            0xA12004 => {
+                // TODO CDC mode
+                0
+            }
+            0xA12006 => {
+                // HINT vector, high byte
+                (self.registers.h_interrupt_vector >> 8) as u8
+            }
+            0xA12007 => {
+                // HINT vector, low byte
+                self.registers.h_interrupt_vector as u8
+            }
+            0xA12008 => {
+                // TODO CDC host data, high byte
+                0
+            }
+            0xA12009 => {
+                // TODO CDC host data, low byte
+                0
+            }
+            0xA1200C => {
+                // Stopwatch, high byte
+                (self.registers.stopwatch_counter >> 8) as u8
+            }
+            0xA1200D => {
+                // Stopwatch, low byte
+                self.registers.stopwatch_counter as u8
+            }
+            0xA1200E => {
+                // Communication flags, high byte (main CPU)
+                self.registers.main_cpu_communication_flags
+            }
+            0xA1200F => {
+                // Communication flags, low byte (sub CPU)
+                self.registers.sub_cpu_communication_flags
+            }
+            0xA12010..=0xA1201F => {
+                // Communication command buffers
+                let idx = (address & 0xF) >> 1;
+                let word = self.registers.communication_commands[idx as usize];
+                if address.bit(0) { word as u8 } else { (word >> 8) as u8 }
+            }
+            0xA12020..=0xA1202F => {
+                // Communication status buffers
+                let idx = (address & 0xF) >> 1;
+                let word = self.registers.communication_statuses[idx as usize];
+                if address.bit(0) { word as u8 } else { (word >> 8) as u8 }
+            }
             _ => 0,
         }
     }
 
+    #[allow(clippy::match_same_arms)]
     fn read_main_cpu_register_word(&mut self, address: u32) -> u16 {
         log::trace!("Main CPU register word read: {address:06X}");
         match address {
@@ -167,11 +215,38 @@ impl SegaCd {
                 self.read_main_cpu_register_byte(address),
                 self.read_main_cpu_register_byte(address | 1),
             ]),
+            0xA12004 => {
+                // CDC mode, only high byte has any data
+                u16::from(self.read_main_cpu_register_byte(address)) << 8
+            }
             0xA12006 => self.registers.h_interrupt_vector,
+            0xA12008 => {
+                // TODO CDC host data
+                0
+            }
+            0xA1200C => self.registers.stopwatch_counter,
+            0xA1200E => {
+                // Communication flags
+                u16::from_be_bytes([
+                    self.registers.main_cpu_communication_flags,
+                    self.registers.sub_cpu_communication_flags,
+                ])
+            }
+            0xA12010..=0xA1201F => {
+                // Communication command buffers
+                let idx = (address & 0xF) >> 1;
+                self.registers.communication_commands[idx as usize]
+            }
+            0xA12020..=0xA1202F => {
+                // Communication status buffers
+                let idx = (address & 0xF) >> 1;
+                self.registers.communication_statuses[idx as usize]
+            }
             _ => 0,
         }
     }
 
+    #[allow(clippy::match_same_arms)]
     fn write_main_cpu_register_byte(&mut self, address: u32, value: u8) {
         log::trace!("Main CPU register byte write: {address:06X}");
         match address {
@@ -204,11 +279,28 @@ impl SegaCd {
                 log::trace!("  Word RAM mode: {:?}", self.registers.word_ram_mode);
                 log::trace!("  DMNA: {}", self.registers.dmna);
             }
-            0xA12006..=0xA12007 => panic!("byte-wide write to HINT vector register"),
+            0xA12006..=0xA12007 => {
+                self.registers.h_interrupt_vector = u16::from_le_bytes([value, value]);
+            }
+            0xA1200E => {
+                self.registers.main_cpu_communication_flags = value;
+            }
+            0xA12010..=0xA1201F => {
+                // Communication command buffers
+                let idx = (address & 0xF) >> 1;
+                let commands = &mut self.registers.communication_commands;
+                let existing_word = commands[idx as usize];
+                if address.bit(1) {
+                    commands[idx as usize] = (existing_word & 0xFF00) | u16::from(value);
+                } else {
+                    commands[idx as usize] = (existing_word & 0x00FF) | (u16::from(value) << 8);
+                }
+            }
             _ => {}
         }
     }
 
+    #[allow(clippy::match_same_arms)]
     fn write_main_cpu_register_word(&mut self, address: u32, value: u16) {
         log::trace!("Main CPU register word write: {address:06X}");
         match address {
@@ -221,6 +313,15 @@ impl SegaCd {
                 self.registers.h_interrupt_vector = value;
 
                 log::trace!("  HINT vector set to {value:04X}");
+            }
+            0xA1200E => {
+                // Communication flags; only main CPU flags are writable
+                self.registers.main_cpu_communication_flags = (value >> 8) as u8;
+            }
+            0xA12010..=0xA1201F => {
+                // Communication command buffers
+                let idx = (address & 0xF) >> 1;
+                self.registers.communication_commands[idx as usize] = value;
             }
             _ => {}
         }
@@ -404,15 +505,82 @@ impl<'a> SubBus<'a> {
 }
 
 impl<'a> SubBus<'a> {
+    #[allow(clippy::match_same_arms)]
     fn read_register_byte(&mut self, address: u32) -> u8 {
         log::trace!("Sub CPU register byte read: {address:06X}");
         match address {
-            0xFF8032 => {
-                // Interrupt mask control, high byte (unused)
+            0xFF8000 => {
+                // TODO LEDs
+                0
+            }
+            0xFF8001 => {
+                // Reset
+                // TODO version
+                0x01
+            }
+            0xFF8002 => {
+                // PRG RAM write protect
+                self.memory.medium().registers.prg_ram_write_protect
+            }
+            0xFF8003 => {
+                // Memory mode
+                // TODO word RAM graphics write priority
+                self.memory.medium().word_ram.control_read()
+            }
+            0xFF8004 => {
+                // TODO CDC mode
                 0x00
             }
+            0xFF8005 => {
+                // TODO CDC register address
+                0x00
+            }
+            0xFF8007 => {
+                // TODO CDC register data
+                0x00
+            }
+            0xFF8008 => {
+                // TODO CDC host data, high byte
+                0x00
+            }
+            0xFF8009 => {
+                // TODO CDC host data, low byte
+                0x00
+            }
+            0xFF800C => {
+                // Stopwatch, high byte
+                (self.memory.medium().registers.stopwatch_counter >> 8) as u8
+            }
+            0xFF800D => {
+                // Stopwatch, low byte
+                self.memory.medium().registers.stopwatch_counter as u8
+            }
+            0xFF800E => {
+                // Communication flags, high byte (main CPU)
+                self.memory.medium().registers.main_cpu_communication_flags
+            }
+            0xFF800F => {
+                // Communication flags, low byte (sub CPU)
+                self.memory.medium().registers.sub_cpu_communication_flags
+            }
+            0xFF8010..=0xFF801F => {
+                // Communication command buffers
+                let idx = (address & 0xF) >> 1;
+                let word = self.memory.medium().registers.communication_commands[idx as usize];
+                if address.bit(1) { word as u8 } else { (word >> 8) as u8 }
+            }
+            0xFF8020..=0xFF802F => {
+                // Communication status buffers
+                let idx = (address & 0xF) >> 1;
+                let word = self.memory.medium().registers.communication_statuses[idx as usize];
+                if address.bit(1) { word as u8 } else { (word >> 8) as u8 }
+            }
+            0xFF8031 => {
+                // Timer
+                self.memory.medium().registers.timer_counter
+            }
             0xFF8033 => {
-                // Interrupt mask control, low byte
+                // Interrupt mask control
                 let sega_cd = self.memory.medium();
                 (u8::from(sega_cd.registers.subcode_interrupt_enabled) << 6)
                     | (u8::from(sega_cd.registers.cdc_interrupt_enabled) << 5)
@@ -421,9 +589,17 @@ impl<'a> SubBus<'a> {
                     | (u8::from(sega_cd.registers.software_interrupt_enabled) << 2)
                     | (u8::from(sega_cd.registers.graphics_interrupt_enabled) << 1)
             }
+            0xFF8034 => {
+                // TODO CDD fader, high byte
+                0x00
+            }
+            0xFF8035 => {
+                // TODO CDD fader, low byte
+                0x00
+            }
             0xFF8036 => {
-                // CDD control, high byte
-                todo!("CDD control high byte")
+                // TODO CDD control, high byte
+                0x00
             }
             0xFF8037 => {
                 // CDD control, low byte
@@ -431,35 +607,125 @@ impl<'a> SubBus<'a> {
                 let sega_cd = self.memory.medium();
                 u8::from(sega_cd.registers.cdd_host_clock_on) << 2
             }
+            0xFF8038..=0xFF804B => {
+                // TODO CDD communication buffers
+                0x00
+            }
+            0xFF804C..=0xFF8067 => {
+                // TODO graphics registers
+                0x00
+            }
             _ => 0,
         }
     }
 
+    #[allow(clippy::match_same_arms)]
     fn read_register_word(&mut self, address: u32) -> u16 {
         log::trace!("Sub CPU register word read: {address:06X}");
         match address {
-            0xFF8032 => {
-                // Interrupt mask control
-                self.read_register_byte(address + 1).into()
-            }
-            0xFF8036 => {
-                // CDD control
+            0xFF8000 | 0xFF8002 | 0xFF8004 | 0xFF8036 => {
                 let msb = self.read_register_byte(address);
-                let lsb = self.read_register_byte(address + 1);
+                let lsb = self.read_register_byte(address | 1);
                 u16::from_be_bytes([msb, lsb])
+            }
+            0xFF8006 => {
+                // CDC register data; stored in low byte
+                self.read_register_byte(address | 1).into()
+            }
+            0xFF8008 => {
+                // TODO CDC host data
+                0x0000
+            }
+            0xFF800C => self.memory.medium().registers.stopwatch_counter,
+            0xFF800E => {
+                // Communication flags
+                let registers = &self.memory.medium().registers;
+                u16::from_be_bytes([
+                    registers.main_cpu_communication_flags,
+                    registers.sub_cpu_communication_flags,
+                ])
+            }
+            0xFF8010..=0xFF801F => {
+                // Communication command buffers
+                let idx = (address & 0xF) >> 1;
+                self.memory.medium().registers.communication_commands[idx as usize]
+            }
+            0xFF8020..=0xFF802F => {
+                // Communication status buffers
+                let idx = (address & 0xF) >> 1;
+                self.memory.medium().registers.communication_statuses[idx as usize]
+            }
+            0xFF8030 => {
+                // Timer
+                self.memory.medium().registers.timer_counter.into()
+            }
+            0xFF8032 => {
+                // Interrupt mask control; all bits in low byte
+                self.read_register_byte(address | 1).into()
+            }
+            0xFF8034 => {
+                // TODO CDD fader
+                0x0000
+            }
+            0xFF8038..=0xFF804B => {
+                // TODO CDD communication buffers
+                0x0000
+            }
+            0xFF804C..=0xFF8067 => {
+                // TODO graphics registers
+                0x0000
             }
             _ => 0,
         }
     }
 
+    #[allow(clippy::match_same_arms)]
     fn write_register_byte(&mut self, address: u32, value: u8) {
         log::trace!("Sub CPU register byte write: {address:06X}");
         match address {
-            0xFF8032 => {
-                // Interrupt mask control, high byte (unused)
+            0xFF8003 => {
+                // Memory mode
+                // TODO word RAM graphics priority mode
+                self.memory.medium_mut().word_ram.sub_cpu_control_write(value);
+            }
+            0xFF8004 => {
+                // TODO CDC mode
+            }
+            0xFF8005 => {
+                // TODO CDC register address
+            }
+            0xFF8007 => {
+                // TODO CDC register data
+            }
+            0xFF800A => {
+                // TODO CDC DMA address
+            }
+            0xFF800C..=0xFF800D => {
+                // Stopwatch (12 bits)
+                self.memory.medium_mut().registers.stopwatch_counter =
+                    u16::from_be_bytes([value, value]) & 0x0FFF;
+            }
+            0xFF800F => {
+                // Communication flags, low byte (sub CPU)
+                self.memory.medium_mut().registers.sub_cpu_communication_flags = value;
+            }
+            0xFF8020..=0xFF802F => {
+                // Communication status buffers
+                let idx = (address & 0xF) >> 1;
+                let statuses = &mut self.memory.medium_mut().registers.communication_statuses;
+                let existing_word = statuses[idx as usize];
+                if address.bit(1) {
+                    statuses[idx as usize] = (existing_word & 0xFF00) | u16::from(value);
+                } else {
+                    statuses[idx as usize] = (existing_word & 0x00FF) | (u16::from(value) << 8);
+                }
+            }
+            0xFF8031 => {
+                // Timer
+                self.memory.medium_mut().registers.timer_counter = value;
             }
             0xFF8033 => {
-                // Interrupt mask control, low byte
+                // Interrupt mask control
                 let sega_cd = self.memory.medium_mut();
                 sega_cd.registers.subcode_interrupt_enabled = value.bit(6);
                 sega_cd.registers.cdc_interrupt_enabled = value.bit(5);
@@ -470,29 +736,78 @@ impl<'a> SubBus<'a> {
 
                 log::trace!("  Interrupt mask write: {value:08b}");
             }
-            0xFF8036 => {
-                // CDD control, high byte (writes do nothing)
+            0xFF8034..=0xFF8035 => {
+                // TODO CDD fader
             }
             0xFF8037 => {
-                // CDD control, low byte
+                // CDD control
                 self.memory.medium_mut().registers.cdd_host_clock_on = value.bit(2);
 
                 log::trace!("  CDD control write: {value:02X}");
+            }
+            0xFF8038..=0xFF804B => {
+                // TODO CDD communication buffers
+            }
+            0xFF804C..=0xFF8067 => {
+                // TODO graphics registers
             }
             _ => {}
         }
     }
 
+    #[allow(clippy::match_same_arms)]
     fn write_register_word(&mut self, address: u32, value: u16) {
         log::trace!("Sub CPU word write: {address:06X}");
         match address {
+            0xFF8004 => {
+                let [msb, lsb] = value.to_be_bytes();
+                self.write_register_byte(address, msb);
+                self.write_register_byte(address | 1, lsb);
+            }
+            0xFF8002 => {
+                // Memory mode, only low byte is writable
+                self.write_register_byte(address | 1, value as u8);
+            }
+            0xFF8006 => {
+                // CDC data, only low byte is writable
+                self.write_register_byte(address | 1, value as u8);
+            }
+            0xFF800A => {
+                // TODO CDC DMA address
+            }
+            0xFF800C => {
+                // Stopwatch (12 bits)
+                self.memory.medium_mut().registers.stopwatch_counter = value & 0x0FFF;
+            }
+            0xFF800E => {
+                // Communication flags, only low byte (sub CPU) is writable
+                self.memory.medium_mut().registers.sub_cpu_communication_flags = value as u8;
+            }
+            0xFF8020..=0xFF802F => {
+                // Communication status buffers
+                let idx = (address & 0xF) >> 1;
+                self.memory.medium_mut().registers.communication_statuses[idx as usize] = value;
+            }
+            0xFF8030 => {
+                // Timer, only low byte is writable
+                self.memory.medium_mut().registers.timer_counter = value as u8;
+            }
             0xFF8032 => {
-                // Interrupt mask control
-                self.write_register_byte(address + 1, value as u8);
+                // Interrupt mask control, only low byte is writable
+                self.write_register_byte(address | 1, value as u8);
+            }
+            0xFF8034 => {
+                // TODO CDD fader
             }
             0xFF8036 => {
-                // CDD control
-                self.write_register_byte(address + 1, value as u8);
+                // CDD control, only low byte is writable
+                self.write_register_byte(address | 1, value as u8);
+            }
+            0xFF8038..=0xFF804B => {
+                // TODO CDD communication buffers
+            }
+            0xFF804C..=0xFF8067 => {
+                // TODO graphics registers
             }
             _ => {}
         }
@@ -640,7 +955,10 @@ impl<'a> BusInterface for SubBus<'a> {
 
     #[inline]
     fn acknowledge_interrupt(&mut self) {
-        todo!("sub bus acknowledge interrupt")
+        // TODO other interrupts
+        if self.interrupt_level() == 2 {
+            self.memory.medium_mut().registers.software_interrupt_pending = false;
+        }
     }
 
     #[inline]
