@@ -99,6 +99,7 @@ impl CdRom {
         Ok(Self { data_track, audio_tracks, files })
     }
 
+    // Read a 2352-byte sector from the data track
     pub fn read_data_sector(&mut self, sector_number: u32, out: &mut [u8]) -> anyhow::Result<()> {
         // TODO cache sectors
         let data_track_file = self

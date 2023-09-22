@@ -1,6 +1,5 @@
 mod wordram;
 
-use crate::cddrive::cdd::CdDrive;
 use crate::cddrive::CdController;
 use crate::cdrom::reader::CdRom;
 use crate::graphics::GraphicsCoprocessor;
@@ -130,7 +129,7 @@ impl SegaCd {
     pub fn new(bios: Vec<u8>, disc: CdRom) -> Self {
         Self {
             bios,
-            disc_drive: CdController::new(CdDrive::new(Some(disc))),
+            disc_drive: CdController::new(Some(disc)),
             prg_ram: vec![0; PRG_RAM_LEN].into_boxed_slice().try_into().unwrap(),
             word_ram: WordRam::new(),
             pcm_ram: vec![0; PCM_RAM_LEN].into_boxed_slice().try_into().unwrap(),
