@@ -60,7 +60,7 @@ impl WordRam {
         }
     }
 
-    pub fn control_read(&self) -> u8 {
+    pub fn read_control(&self) -> u8 {
         let (dmna, ret) = match self.mode {
             WordRamMode::TwoM => {
                 let dmna = self.owner_2m == WordRamOwner::Sub;
@@ -77,7 +77,7 @@ impl WordRam {
         (u8::from(self.mode.to_bit()) << 2) | (u8::from(dmna) << 1) | u8::from(ret)
     }
 
-    pub fn main_cpu_control_write(&mut self, value: u8) {
+    pub fn main_cpu_write_control(&mut self, value: u8) {
         let dmna = value.bit(1);
 
         // DMNA=1 always returns 2M word RAM to sub CPU, regardless of mode
@@ -91,7 +91,7 @@ impl WordRam {
         }
     }
 
-    pub fn sub_cpu_control_write(&mut self, value: u8) {
+    pub fn sub_cpu_write_control(&mut self, value: u8) {
         self.mode = WordRamMode::from_bit(value.bit(2));
         let ret = value.bit(0);
 
@@ -169,14 +169,14 @@ impl WordRam {
         }
     }
 
-    pub fn main_cpu_ram_read(&self, address: u32) -> u8 {
+    pub fn main_cpu_read_ram(&self, address: u32) -> u8 {
         match self.main_cpu_map_address(address) {
             None => 0x00,
             Some(addr) => self.ram[addr as usize],
         }
     }
 
-    pub fn main_cpu_ram_write(&mut self, address: u32, value: u8) {
+    pub fn main_cpu_write_ram(&mut self, address: u32, value: u8) {
         match self.main_cpu_map_address(address) {
             None => {}
             Some(addr) => {
@@ -207,7 +207,7 @@ impl WordRam {
         }
     }
 
-    pub fn sub_cpu_ram_read(&self, address: u32) -> u8 {
+    pub fn sub_cpu_read_ram(&self, address: u32) -> u8 {
         match self.sub_cpu_map_address(address) {
             WordRamSubMapResult::None => 0,
             WordRamSubMapResult::Byte(addr) => self.ram[addr as usize],
@@ -222,7 +222,7 @@ impl WordRam {
         }
     }
 
-    pub fn sub_cpu_ram_write(&mut self, address: u32, value: u8) {
+    pub fn sub_cpu_write_ram(&mut self, address: u32, value: u8) {
         match self.sub_cpu_map_address(address) {
             WordRamSubMapResult::None => {}
             WordRamSubMapResult::Byte(addr) => {
