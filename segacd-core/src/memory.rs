@@ -17,6 +17,8 @@ const PRG_RAM_LEN: usize = 512 * 1024;
 const PCM_RAM_LEN: usize = 16 * 1024;
 const BACKUP_RAM_LEN: usize = 8 * 1024;
 
+const TIMER_DIVIDER: u64 = 1536;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum WordRamPriorityMode {
     Off,
@@ -61,6 +63,8 @@ struct SegaCdRegisters {
     communication_statuses: [u16; 8],
     // $FF8030: General-purpose timer w/ INT3
     timer_counter: u8,
+    timer_interval: u8,
+    timer_interrupt_pending: bool,
     // $FF8032: Interrupt mask control
     subcode_interrupt_enabled: bool,
     cdc_interrupt_enabled: bool,
@@ -92,6 +96,8 @@ impl SegaCdRegisters {
             communication_commands: [0; 8],
             communication_statuses: [0; 8],
             timer_counter: 0,
+            timer_interval: 0,
+            timer_interrupt_pending: false,
             subcode_interrupt_enabled: false,
             cdc_interrupt_enabled: false,
             cdd_interrupt_enabled: false,
@@ -117,6 +123,7 @@ pub struct SegaCd {
     backup_ram: Box<[u8; BACKUP_RAM_LEN]>,
     backup_ram_dirty: bool,
     registers: SegaCdRegisters,
+    timer_divider: u64,
 }
 
 impl SegaCd {
@@ -130,6 +137,7 @@ impl SegaCd {
             backup_ram: vec![0; BACKUP_RAM_LEN].into_boxed_slice().try_into().unwrap(),
             backup_ram_dirty: false,
             registers: SegaCdRegisters::new(),
+            timer_divider: TIMER_DIVIDER,
         }
     }
 
@@ -331,6 +339,28 @@ impl SegaCd {
         if address >= u32::from(self.registers.prg_ram_write_protect) * 0x200 {
             self.prg_ram[address as usize] = value;
         }
+    }
+
+    pub fn tick(&mut self, master_clock_cycles: u64) {
+        if master_clock_cycles >= self.timer_divider {
+            self.clock_timers();
+            self.timer_divider = TIMER_DIVIDER - (master_clock_cycles - self.timer_divider);
+        } else {
+            self.timer_divider -= master_clock_cycles;
+        }
+    }
+
+    fn clock_timers(&mut self) {
+        if self.registers.timer_counter == 1 {
+            self.registers.timer_interrupt_pending = true;
+            self.registers.timer_counter = 0;
+        } else if self.registers.timer_counter == 0 {
+            self.registers.timer_counter = self.registers.timer_interval;
+        } else {
+            self.registers.timer_counter -= 1;
+        }
+
+        self.registers.stopwatch_counter = (self.registers.stopwatch_counter + 1) & 0x0FFF;
     }
 }
 
@@ -577,7 +607,7 @@ impl<'a> SubBus<'a> {
             }
             0xFF8031 => {
                 // Timer
-                self.memory.medium().registers.timer_counter
+                self.memory.medium().registers.timer_interval
             }
             0xFF8033 => {
                 // Interrupt mask control
@@ -657,7 +687,7 @@ impl<'a> SubBus<'a> {
             }
             0xFF8030 => {
                 // Timer
-                self.memory.medium().registers.timer_counter.into()
+                self.memory.medium().registers.timer_interval.into()
             }
             0xFF8032 => {
                 // Interrupt mask control; all bits in low byte
@@ -681,7 +711,7 @@ impl<'a> SubBus<'a> {
 
     #[allow(clippy::match_same_arms)]
     fn write_register_byte(&mut self, address: u32, value: u8) {
-        log::trace!("Sub CPU register byte write: {address:06X}");
+        log::trace!("Sub CPU register byte write: {address:06X} {value:02X}");
         match address {
             0xFF8003 => {
                 // Memory mode
@@ -722,7 +752,9 @@ impl<'a> SubBus<'a> {
             }
             0xFF8031 => {
                 // Timer
-                self.memory.medium_mut().registers.timer_counter = value;
+                let registers = &mut self.memory.medium_mut().registers;
+                registers.timer_interval = value;
+                registers.timer_counter = value;
             }
             0xFF8033 => {
                 // Interrupt mask control
@@ -757,7 +789,7 @@ impl<'a> SubBus<'a> {
 
     #[allow(clippy::match_same_arms)]
     fn write_register_word(&mut self, address: u32, value: u16) {
-        log::trace!("Sub CPU word write: {address:06X}");
+        log::trace!("Sub CPU register word write: {address:06X} {value:04X}");
         match address {
             0xFF8004 => {
                 let [msb, lsb] = value.to_be_bytes();
@@ -790,7 +822,9 @@ impl<'a> SubBus<'a> {
             }
             0xFF8030 => {
                 // Timer, only low byte is writable
-                self.memory.medium_mut().registers.timer_counter = value as u8;
+                let registers = &mut self.memory.medium_mut().registers;
+                registers.timer_interval = value as u8;
+                registers.timer_counter = value as u8;
             }
             0xFF8032 => {
                 // Interrupt mask control, only low byte is writable
@@ -944,7 +978,9 @@ impl<'a> BusInterface for SubBus<'a> {
     fn interrupt_level(&self) -> u8 {
         // TODO other interrupts
         let sega_cd = self.memory.medium();
-        if sega_cd.registers.software_interrupt_enabled
+        if sega_cd.registers.timer_interrupt_enabled && sega_cd.registers.timer_interrupt_pending {
+            3
+        } else if sega_cd.registers.software_interrupt_enabled
             && sega_cd.registers.software_interrupt_pending
         {
             2
@@ -956,8 +992,14 @@ impl<'a> BusInterface for SubBus<'a> {
     #[inline]
     fn acknowledge_interrupt(&mut self) {
         // TODO other interrupts
-        if self.interrupt_level() == 2 {
-            self.memory.medium_mut().registers.software_interrupt_pending = false;
+        match self.interrupt_level() {
+            2 => {
+                self.memory.medium_mut().registers.software_interrupt_pending = false;
+            }
+            3 => {
+                self.memory.medium_mut().registers.timer_interrupt_pending = false;
+            }
+            _ => {}
         }
     }
 

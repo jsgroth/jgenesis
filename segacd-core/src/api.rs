@@ -183,6 +183,7 @@ impl TickableEmulator for SegaCdEmulator {
 
         let sub_cpu_cycles =
             self.sega_cd_mclk_cycles / SUB_CPU_DIVIDER - prev_scd_mclk_cycles / SUB_CPU_DIVIDER;
+        self.memory.medium_mut().tick(self.sega_cd_mclk_cycles - prev_scd_mclk_cycles);
         self.tick_sub_cpu(sub_cpu_cycles);
 
         self.input.tick(main_cpu_cycles);
