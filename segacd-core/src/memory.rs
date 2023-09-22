@@ -161,7 +161,7 @@ impl SegaCd {
             }
             0xA12003 => {
                 // Memory mode / write protect, low byte
-                (self.registers.prg_ram_bank << 6) | self.word_ram.control_read()
+                (self.registers.prg_ram_bank << 6) | self.word_ram.read_control()
             }
             0xA12004 => {
                 // TODO CDC mode
@@ -281,7 +281,7 @@ impl SegaCd {
             0xA12003 => {
                 // Memory mode / write protect, low byte
                 self.registers.prg_ram_bank = value >> 6;
-                self.word_ram.main_cpu_control_write(value);
+                self.word_ram.main_cpu_write_control(value);
 
                 log::trace!("  PRG RAM bank: {}", self.registers.prg_ram_bank);
                 log::trace!("  Word RAM mode: {:?}", self.registers.word_ram_mode);
@@ -379,7 +379,7 @@ impl PhysicalMedium for SegaCd {
                 let prg_ram_addr = self.registers.prg_ram_addr(address);
                 self.prg_ram[prg_ram_addr as usize]
             }
-            0x200000..=0x23FFFF => self.word_ram.main_cpu_ram_read(address),
+            0x200000..=0x23FFFF => self.word_ram.main_cpu_read_ram(address),
             0xA12000..=0xA1202F => {
                 // Sega CD registers
                 self.read_main_cpu_register_byte(address)
@@ -412,8 +412,8 @@ impl PhysicalMedium for SegaCd {
                 u16::from_be_bytes([msb, lsb])
             }
             0x200000..=0x23FFFF => {
-                let msb = self.word_ram.main_cpu_ram_read(address);
-                let lsb = self.word_ram.main_cpu_ram_read(address | 1);
+                let msb = self.word_ram.main_cpu_read_ram(address);
+                let lsb = self.word_ram.main_cpu_read_ram(address | 1);
                 u16::from_be_bytes([msb, lsb])
             }
             0xA12000..=0xA1202F => {
@@ -436,7 +436,7 @@ impl PhysicalMedium for SegaCd {
                 self.write_prg_ram(prg_ram_addr, value);
             }
             0x200000..=0x23FFFF => {
-                self.word_ram.main_cpu_ram_write(address, value);
+                self.word_ram.main_cpu_write_ram(address, value);
             }
             0xA12000..=0xA1202F => {
                 self.write_main_cpu_register_byte(address, value);
@@ -460,8 +460,8 @@ impl PhysicalMedium for SegaCd {
             }
             0x200000..=0x23FFFF => {
                 let [msb, lsb] = value.to_be_bytes();
-                self.word_ram.main_cpu_ram_write(address, msb);
-                self.word_ram.main_cpu_ram_write(address | 1, lsb);
+                self.word_ram.main_cpu_write_ram(address, msb);
+                self.word_ram.main_cpu_write_ram(address | 1, lsb);
             }
             0xA12000..=0xA1202F => {
                 self.write_main_cpu_register_word(address, value);
@@ -555,7 +555,7 @@ impl<'a> SubBus<'a> {
             0xFF8003 => {
                 // Memory mode
                 // TODO word RAM graphics write priority
-                self.memory.medium().word_ram.control_read()
+                self.memory.medium().word_ram.read_control()
             }
             0xFF8004 => {
                 // TODO CDC mode
@@ -716,7 +716,7 @@ impl<'a> SubBus<'a> {
             0xFF8003 => {
                 // Memory mode
                 // TODO word RAM graphics priority mode
-                self.memory.medium_mut().word_ram.sub_cpu_control_write(value);
+                self.memory.medium_mut().word_ram.sub_cpu_write_control(value);
             }
             0xFF8004 => {
                 // TODO CDC mode
@@ -862,7 +862,7 @@ impl<'a> BusInterface for SubBus<'a> {
             }
             0x080000..=0x0DFFFF => {
                 // Word RAM
-                self.memory.medium().word_ram.sub_cpu_ram_read(address)
+                self.memory.medium().word_ram.sub_cpu_read_ram(address)
             }
             0xFE0000..=0xFE3FFF => {
                 // Backup RAM (odd addresses)
@@ -895,8 +895,8 @@ impl<'a> BusInterface for SubBus<'a> {
             0x080000..=0x0DFFFF => {
                 // Word RAM
                 let word_ram = &self.memory.medium().word_ram;
-                let msb = word_ram.sub_cpu_ram_read(address);
-                let lsb = word_ram.sub_cpu_ram_read(address | 1);
+                let msb = word_ram.sub_cpu_read_ram(address);
+                let lsb = word_ram.sub_cpu_read_ram(address | 1);
                 u16::from_be_bytes([msb, lsb])
             }
             0xFE0000..=0xFE3FFF => {
@@ -922,7 +922,7 @@ impl<'a> BusInterface for SubBus<'a> {
             }
             0x080000..=0x0DFFFF => {
                 // Word RAM
-                self.memory.medium_mut().word_ram.sub_cpu_ram_write(address, value);
+                self.memory.medium_mut().word_ram.sub_cpu_write_ram(address, value);
             }
             0xFE0000..=0xFE3FFF => {
                 // Backup RAM (odd addresses)
@@ -956,8 +956,8 @@ impl<'a> BusInterface for SubBus<'a> {
                 // Word RAM
                 let [msb, lsb] = value.to_be_bytes();
                 let word_ram = &mut self.memory.medium_mut().word_ram;
-                word_ram.sub_cpu_ram_write(address, msb);
-                word_ram.sub_cpu_ram_write(address | 1, lsb);
+                word_ram.sub_cpu_write_ram(address, msb);
+                word_ram.sub_cpu_write_ram(address | 1, lsb);
             }
             0xFE0000..=0xFE3FFF => {
                 // Backup RAM (odd addresses)
