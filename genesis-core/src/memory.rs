@@ -182,6 +182,10 @@ pub trait PhysicalMedium {
 
     fn read_word(&mut self, address: u32) -> u16;
 
+    // This exists as a separate method because of a Sega CD "feature" where DMA reads from word RAM
+    // are delayed by a cycle, effectively meaning this should read (address - 2) instead of address
+    fn read_word_for_dma(&mut self, address: u32) -> u16;
+
     fn write_byte(&mut self, address: u32, value: u8);
 
     fn write_word(&mut self, address: u32, value: u16);
@@ -214,6 +218,10 @@ impl PhysicalMedium for Cartridge {
         let msb = self.rom.get(rom_addr as usize).unwrap_or(0xFF);
         let lsb = self.rom.get((rom_addr + 1) as usize).unwrap_or(0xFF);
         u16::from_be_bytes([msb, lsb])
+    }
+
+    fn read_word_for_dma(&mut self, address: u32) -> u16 {
+        self.read_word(address)
     }
 
     fn write_byte(&mut self, address: u32, value: u8) {
@@ -307,7 +315,7 @@ impl<Medium: PhysicalMedium> Memory<Medium> {
     #[must_use]
     pub(crate) fn read_word_for_dma(&mut self, address: u32) -> u16 {
         match address {
-            0x000000..=0x3FFFFF => self.physical_medium.read_word(address),
+            0x000000..=0x3FFFFF => self.physical_medium.read_word_for_dma(address),
             0xE00000..=0xFFFFFF => {
                 let addr = (address & 0xFFFF) as usize;
                 u16::from_be_bytes([

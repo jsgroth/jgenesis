@@ -9,7 +9,7 @@ use genesis_core::memory::{Memory, PhysicalMedium};
 use genesis_core::GenesisRegion;
 use jgenesis_traits::num::GetBit;
 use m68000_emu::BusInterface;
-use std::io;
+use std::{array, io};
 use wordram::{WordRam, WordRamMode};
 
 const PRG_RAM_LEN: usize = 512 * 1024;
@@ -73,6 +73,8 @@ struct SegaCdRegisters {
     graphics_interrupt_enabled: bool,
     // $FF8036: CDD control
     cdd_host_clock_on: bool,
+    // $FF8042-$FF804B: CDD command buffer
+    cdd_command: [u8; 10],
 }
 
 impl SegaCdRegisters {
@@ -104,6 +106,7 @@ impl SegaCdRegisters {
             software_interrupt_enabled: false,
             graphics_interrupt_enabled: false,
             cdd_host_clock_on: false,
+            cdd_command: array::from_fn(|_| 0),
         }
     }
 
@@ -341,6 +344,8 @@ impl SegaCd {
     }
 
     pub fn tick(&mut self, master_clock_cycles: u64) {
+        self.disc_drive.tick(master_clock_cycles);
+
         if master_clock_cycles >= self.timer_divider {
             self.clock_timers();
             self.timer_divider = TIMER_DIVIDER - (master_clock_cycles - self.timer_divider);
@@ -415,6 +420,7 @@ impl PhysicalMedium for SegaCd {
                 u16::from_be_bytes([msb, lsb])
             }
             0x200000..=0x23FFFF => {
+                // Word RAM
                 let msb = self.word_ram.main_cpu_read_ram(address);
                 let lsb = self.word_ram.main_cpu_read_ram(address | 1);
                 u16::from_be_bytes([msb, lsb])
@@ -424,6 +430,15 @@ impl PhysicalMedium for SegaCd {
                 self.read_main_cpu_register_word(address)
             }
             _ => todo!("read word: {address:06X}"),
+        }
+    }
+
+    fn read_word_for_dma(&mut self, address: u32) -> u16 {
+        // VDP DMA reads from word RAM are delayed by a cycle, effectively meaning the read should
+        // be from (address - 2)
+        match address & ADDRESS_MASK {
+            address @ 0x200000..=0x23FFFF => self.read_word(address.wrapping_sub(2)),
+            address => self.read_word(address),
         }
     }
 
@@ -598,9 +613,15 @@ impl<'a> SubBus<'a> {
                 let sega_cd = self.memory.medium();
                 u8::from(sega_cd.registers.cdd_host_clock_on) << 2
             }
-            0xFF8038..=0xFF804B => {
-                // TODO CDD communication buffers
-                0x00
+            0xFF8038..=0xFF8041 => {
+                // CDD status
+                let relative_addr = (address - 8) & 0xF;
+                self.memory.medium().disc_drive.cdd_status()[relative_addr as usize]
+            }
+            0xFF8042..=0xFF804B => {
+                // CDD command
+                let relative_addr = (address - 2) & 0xF;
+                self.memory.medium().registers.cdd_command[relative_addr as usize]
             }
             0xFF804C..=0xFF8067 => {
                 // TODO graphics registers
@@ -658,9 +679,23 @@ impl<'a> SubBus<'a> {
                 // TODO CDD fader
                 0x0000
             }
-            0xFF8038..=0xFF804B => {
-                // TODO CDD communication buffers
-                0x0000
+            0xFF8038..=0xFF8041 => {
+                // CDD status
+                let relative_addr = (address - 8) & 0xF;
+                let cdd_status = self.memory.medium().disc_drive.cdd_status();
+                u16::from_be_bytes([
+                    cdd_status[relative_addr as usize],
+                    cdd_status[(relative_addr + 1) as usize],
+                ])
+            }
+            0xFF8042..=0xFF804B => {
+                // CDD command
+                let relative_addr = (address - 2) & 0xF;
+                let cdd_command = self.memory.medium().registers.cdd_command;
+                u16::from_be_bytes([
+                    cdd_command[relative_addr as usize],
+                    cdd_command[(relative_addr + 1) as usize],
+                ])
             }
             0xFF804C..=0xFF8067 => {
                 // TODO graphics registers
@@ -738,8 +773,17 @@ impl<'a> SubBus<'a> {
 
                 log::trace!("  CDD control write: {value:02X}");
             }
-            0xFF8038..=0xFF804B => {
-                // TODO CDD communication buffers
+            0xFF8042..=0xFF804B => {
+                // CDD command
+                let relative_addr = (address - 2) & 0xF;
+
+                let sega_cd = self.memory.medium_mut();
+                sega_cd.registers.cdd_command[relative_addr as usize] = value & 0x0F;
+
+                // Byte-size writes to $FF804B trigger a CDD command send
+                if address == 0xFF804B {
+                    sega_cd.disc_drive.send_cdd_command(sega_cd.registers.cdd_command);
+                }
             }
             0xFF804C..=0xFF8067 => {
                 // TODO graphics registers
@@ -798,8 +842,19 @@ impl<'a> SubBus<'a> {
                 // CDD control, only low byte is writable
                 self.write_register_byte(address | 1, value as u8);
             }
-            0xFF8038..=0xFF804B => {
-                // TODO CDD communication buffers
+            0xFF8042..=0xFF804B => {
+                // CDD command
+                let relative_addr = (address - 2) & 0xF;
+
+                let sega_cd = self.memory.medium_mut();
+                let [msb, lsb] = value.to_be_bytes();
+                sega_cd.registers.cdd_command[relative_addr as usize] = msb & 0x0F;
+                sega_cd.registers.cdd_command[(relative_addr + 1) as usize] = lsb & 0x0F;
+
+                // Word-size writes to $FF804A trigger a CDD command send
+                if address == 0xFF804A {
+                    sega_cd.disc_drive.send_cdd_command(sega_cd.registers.cdd_command);
+                }
             }
             0xFF804C..=0xFF8067 => {
                 // TODO graphics registers
@@ -939,7 +994,14 @@ impl<'a> BusInterface for SubBus<'a> {
     fn interrupt_level(&self) -> u8 {
         // TODO other interrupts
         let sega_cd = self.memory.medium();
-        if sega_cd.registers.timer_interrupt_enabled && sega_cd.registers.timer_interrupt_pending {
+        if sega_cd.registers.cdd_interrupt_enabled
+            && sega_cd.registers.cdd_host_clock_on
+            && sega_cd.disc_drive.cdd_interrupt_pending()
+        {
+            4
+        } else if sega_cd.registers.timer_interrupt_enabled
+            && sega_cd.registers.timer_interrupt_pending
+        {
             3
         } else if sega_cd.registers.software_interrupt_enabled
             && sega_cd.registers.software_interrupt_pending
@@ -959,6 +1021,9 @@ impl<'a> BusInterface for SubBus<'a> {
             }
             3 => {
                 self.memory.medium_mut().registers.timer_interrupt_pending = false;
+            }
+            4 => {
+                self.memory.medium_mut().disc_drive.acknowledge_cdd_interrupt();
             }
             _ => {}
         }
