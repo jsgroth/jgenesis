@@ -559,8 +559,11 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> anyhow::Result<NativeSegaCdE
     let save_path = cue_path.with_extension("sav");
     let save_state_path = cue_path.with_extension("ss0");
 
+    let initial_backup_ram = fs::read(&save_path).ok();
+
     let bios = fs::read(Path::new(&config.bios_file_path))?;
-    let emulator = SegaCdEmulator::create(bios, Path::new(&config.cue_file_path))?;
+    let emulator =
+        SegaCdEmulator::create(bios, Path::new(&config.cue_file_path), initial_backup_ram)?;
 
     let (video, audio, joystick, event_pump) = init_sdl()?;
 

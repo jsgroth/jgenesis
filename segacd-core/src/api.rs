@@ -59,7 +59,11 @@ impl SegaCdEmulator {
     /// * Unable to read the given CUE file
     /// * Unable to read every BIN file that is referenced in the CUE
     /// * Unable to read boot information from the beginning of the data track
-    pub fn create<P: AsRef<Path>>(bios: Vec<u8>, cue_path: P) -> anyhow::Result<Self> {
+    pub fn create<P: AsRef<Path>>(
+        bios: Vec<u8>,
+        cue_path: P,
+        initial_backup_ram: Option<Vec<u8>>,
+    ) -> anyhow::Result<Self> {
         let cue_path = cue_path.as_ref();
         let cue_parent_dir = cue_path.parent().ok_or_else(|| {
             anyhow!("Unable to determine parent directory of CUE file '{}'", cue_path.display())
@@ -69,7 +73,7 @@ impl SegaCdEmulator {
         let disc = CdRom::open(cue_sheet, cue_parent_dir)?;
 
         // TODO read header information from disc
-        let mut sega_cd = SegaCd::new(bios, disc);
+        let mut sega_cd = SegaCd::new(bios, disc, initial_backup_ram);
         let disc_title = sega_cd.disc_title()?.unwrap_or("(no disc)".into());
 
         let timing_mode = TimingMode::Ntsc;
@@ -150,7 +154,7 @@ impl TickableEmulator for SegaCdEmulator {
         renderer: &mut R,
         audio_output: &mut A,
         inputs: &Self::Inputs,
-        _save_writer: &mut S,
+        save_writer: &mut S,
     ) -> Result<TickEffect, Self::Err<R::Err, A::Err, S::Err>>
     where
         R: Renderer,
@@ -217,6 +221,12 @@ impl TickableEmulator for SegaCdEmulator {
             self.render_frame(renderer).map_err(GenesisError::Render)?;
 
             self.input.set_inputs(inputs);
+
+            if self.memory.medium_mut().get_and_clear_backup_ram_dirty_bit() {
+                save_writer
+                    .persist_save(self.memory.medium().backup_ram())
+                    .map_err(GenesisError::Save)?;
+            }
 
             return Ok(TickEffect::FrameRendered);
         }
