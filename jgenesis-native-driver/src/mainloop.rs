@@ -569,7 +569,7 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> anyhow::Result<NativeSegaCdE
 
     let window = create_window(
         &video,
-        "sega cd",
+        &format!("sega cd - {}", emulator.disc_title()),
         window_width,
         window_height,
         config.common.launch_in_fullscreen,
