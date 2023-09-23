@@ -1,4 +1,4 @@
-use crate::cdrom::cue::CueParser;
+use crate::cdrom::cue;
 use crate::cdrom::reader::CdRom;
 use crate::graphics::GraphicsCoprocessor;
 use crate::memory::{SegaCd, SubBus};
@@ -16,7 +16,6 @@ use jgenesis_traits::frontend::{
 };
 use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgTickEffect, PsgVersion};
-use std::fs;
 use std::path::Path;
 use z80_emu::Z80;
 
@@ -63,10 +62,8 @@ impl SegaCdEmulator {
             anyhow!("Unable to determine parent directory of CUE file '{}'", cue_path.display())
         })?;
 
-        let cue_contents = fs::read_to_string(cue_path)?;
-
-        let track_list = CueParser::new().parse(&cue_contents)?;
-        let disc = CdRom::open(track_list, cue_parent_dir)?;
+        let cue_sheet = cue::parse(cue_path)?;
+        let disc = CdRom::open(cue_sheet, cue_parent_dir)?;
 
         // TODO read header information from disc
 
