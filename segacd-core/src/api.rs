@@ -1,3 +1,4 @@
+use crate::audio::AudioDownsampler;
 use crate::cdrom::cue;
 use crate::cdrom::reader::CdRom;
 use crate::graphics::GraphicsCoprocessor;
@@ -42,6 +43,7 @@ pub struct SegaCdEmulator {
     psg: Psg,
     pcm: Rf5c164,
     input: InputState,
+    audio_downsampler: AudioDownsampler,
     timing_mode: TimingMode,
     disc_title: String,
     genesis_mclk_cycles: u64,
@@ -94,6 +96,7 @@ impl SegaCdEmulator {
             MainBusSignals { z80_busack: false, m68k_reset: true },
         ));
 
+        let audio_downsampler = AudioDownsampler::new(timing_mode);
         Ok(Self {
             memory,
             main_cpu,
@@ -105,6 +108,7 @@ impl SegaCdEmulator {
             psg,
             pcm,
             input,
+            audio_downsampler,
             timing_mode,
             disc_title,
             genesis_mclk_cycles: 0,
@@ -195,18 +199,22 @@ impl TickableEmulator for SegaCdEmulator {
 
         for _ in 0..z80_cycles {
             if self.psg.tick() == PsgTickEffect::Clocked {
-                // TODO
+                let (psg_sample_l, psg_sample_r) = self.psg.sample();
+                self.audio_downsampler.collect_psg_sample(psg_sample_l, psg_sample_r);
             }
         }
 
         for _ in 0..main_cpu_cycles {
             if self.ym2612.tick() == YmTickEffect::OutputSample {
-                // TODO
+                let (ym2612_sample_l, ym2612_sample_r) = self.ym2612.sample();
+                self.audio_downsampler.collect_ym2612_sample(ym2612_sample_l, ym2612_sample_r);
             }
         }
 
         if self.vdp.tick(genesis_mclk_elapsed, &mut self.memory) == VdpTickEffect::FrameComplete {
             self.render_frame(renderer).map_err(GenesisError::Render)?;
+
+            self.audio_downsampler.output_samples(audio_output).map_err(GenesisError::Audio)?;
 
             self.input.set_inputs(inputs);
 

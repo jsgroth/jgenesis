@@ -1,3 +1,5 @@
+// TODO remove all this and use the Sega CD downsampling code for better handling of PSG signal
+
 use bincode::{Decode, Encode};
 use jgenesis_traits::frontend::{AudioOutput, TimingMode};
 use std::collections::VecDeque;
