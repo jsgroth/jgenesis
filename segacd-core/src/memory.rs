@@ -2,7 +2,7 @@ mod wordram;
 
 use crate::cddrive::CdController;
 use crate::cdrom::reader::CdRom;
-use crate::graphics::GraphicsCoprocessor;
+use crate::graphics::{GraphicsCoprocessor, GraphicsWritePriorityMode};
 use crate::rf5c164::Rf5c164;
 use bincode::{Decode, Encode};
 use genesis_core::memory::{Memory, PhysicalMedium};
@@ -17,13 +17,6 @@ const PCM_RAM_LEN: usize = 16 * 1024;
 const BACKUP_RAM_LEN: usize = 8 * 1024;
 
 const TIMER_DIVIDER: u64 = 1536;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum WordRamPriorityMode {
-    Off,
-    Overwrite,
-    Underwrite,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum CdcDeviceDestination {
@@ -43,7 +36,6 @@ struct SegaCdRegisters {
     // $FF8002/$A12002: Memory mode / PRG RAM bank select
     prg_ram_write_protect: u8,
     prg_ram_bank: u8,
-    word_ram_priority_mode: WordRamPriorityMode,
     word_ram_mode: WordRamMode,
     dmna: bool,
     ret: bool,
@@ -85,7 +77,6 @@ impl SegaCdRegisters {
             sub_cpu_reset: true,
             prg_ram_write_protect: 0,
             prg_ram_bank: 0,
-            word_ram_priority_mode: WordRamPriorityMode::Off,
             word_ram_mode: WordRamMode::TwoM,
             dmna: false,
             ret: true,
@@ -544,8 +535,8 @@ impl<'a> SubBus<'a> {
             }
             0xFF8003 => {
                 // Memory mode
-                // TODO word RAM graphics write priority
                 self.memory.medium().word_ram.read_control()
+                    | (self.graphics_coprocessor.write_priority_mode().to_bits() << 3)
             }
             0xFF8004 => {
                 // TODO CDC mode
@@ -637,11 +628,12 @@ impl<'a> SubBus<'a> {
                 let relative_addr = (address - 2) & 0xF;
                 self.memory.medium().registers.cdd_command[relative_addr as usize]
             }
-            0xFF804C..=0xFF8067 => {
-                // TODO graphics registers
+            0xFF804C..=0xFF8057 => {
+                // TODO color calculation registers
                 0x00
             }
-            _ => 0,
+            0xFF8058..=0xFF8067 => self.graphics_coprocessor.read_register_byte(address),
+            _ => 0x00,
         }
     }
 
@@ -711,11 +703,12 @@ impl<'a> SubBus<'a> {
                     cdd_command[(relative_addr + 1) as usize],
                 ])
             }
-            0xFF804C..=0xFF8067 => {
-                // TODO graphics registers
+            0xFF804C..=0xFF8057 => {
+                // TODO color calculation registers
                 0x0000
             }
-            _ => 0,
+            0xFF8058..=0xFF8067 => self.graphics_coprocessor.read_register_word(address),
+            _ => 0x0000,
         }
     }
 
@@ -725,8 +718,10 @@ impl<'a> SubBus<'a> {
         match address {
             0xFF8003 => {
                 // Memory mode
-                // TODO word RAM graphics priority mode
                 self.memory.medium_mut().word_ram.sub_cpu_write_control(value);
+
+                let graphics_write_priority_mode = GraphicsWritePriorityMode::from_bits(value >> 3);
+                self.graphics_coprocessor.set_write_priority_mode(graphics_write_priority_mode);
             }
             0xFF8004 => {
                 // TODO CDC mode
@@ -799,8 +794,11 @@ impl<'a> SubBus<'a> {
                     sega_cd.disc_drive.send_cdd_command(sega_cd.registers.cdd_command);
                 }
             }
-            0xFF804C..=0xFF8067 => {
-                // TODO graphics registers
+            0xFF804C..=0xFF8057 => {
+                // TODO color calculation registers
+            }
+            0xFF8058..=0xFF8067 => {
+                self.graphics_coprocessor.write_register_byte(address, value);
             }
             _ => {}
         }
@@ -870,8 +868,11 @@ impl<'a> SubBus<'a> {
                     sega_cd.disc_drive.send_cdd_command(sega_cd.registers.cdd_command);
                 }
             }
-            0xFF804C..=0xFF8067 => {
-                // TODO graphics registers
+            0xFF804C..=0xFF8057 => {
+                // TODO color calculation registers
+            }
+            0xFF8058..=0xFF8067 => {
+                self.graphics_coprocessor.write_register_word(address, value);
             }
             _ => {}
         }

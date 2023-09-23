@@ -83,7 +83,7 @@ impl SegaCdEmulator {
         let sub_cpu = M68000::default();
         let z80 = Z80::new();
         let mut vdp = Vdp::new(timing_mode, true);
-        let graphics_coprocessor = GraphicsCoprocessor;
+        let graphics_coprocessor = GraphicsCoprocessor::new();
         let mut ym2612 = Ym2612::new();
         let mut psg = Psg::new(PsgVersion::Standard);
         let pcm = Rf5c164;
