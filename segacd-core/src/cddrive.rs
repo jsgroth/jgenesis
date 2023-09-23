@@ -4,8 +4,8 @@ use crate::cdrom::reader::CdRom;
 use bincode::{Decode, Encode};
 use genesis_core::GenesisRegion;
 use regex::Regex;
-use std::io;
 use std::sync::OnceLock;
+use std::{array, io};
 
 const BUFFER_RAM_LEN: usize = 16 * 1024;
 
@@ -13,7 +13,7 @@ const BUFFER_RAM_LEN: usize = 16 * 1024;
 pub struct CdController {
     disc: Option<CdRom>,
     buffer_ram: Box<[u8; BUFFER_RAM_LEN]>,
-    sector_buffer: Box<[u8; cdrom::BYTES_PER_SECTOR as usize]>,
+    sector_buffer: [u8; cdrom::BYTES_PER_SECTOR as usize],
 }
 
 impl CdController {
@@ -21,10 +21,7 @@ impl CdController {
         Self {
             disc,
             buffer_ram: vec![0; BUFFER_RAM_LEN].into_boxed_slice().try_into().unwrap(),
-            sector_buffer: vec![0; cdrom::BYTES_PER_SECTOR as usize]
-                .into_boxed_slice()
-                .try_into()
-                .unwrap(),
+            sector_buffer: array::from_fn(|_| 0),
         }
     }
 
@@ -34,7 +31,7 @@ impl CdController {
         let Some(disc) = &mut self.disc else { return Ok(None) };
 
         // Title information is always stored in the first sector of track 1
-        disc.read_sector(1, CdTime::ZERO, self.sector_buffer.as_mut_slice())?;
+        disc.read_sector(1, CdTime::ZERO, &mut self.sector_buffer)?;
 
         let title_bytes = match region {
             GenesisRegion::Japan => &self.sector_buffer[0x120..0x150],
