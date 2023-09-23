@@ -129,14 +129,18 @@ pub struct SegaCd {
 }
 
 impl SegaCd {
-    pub fn new(bios: Vec<u8>, disc: CdRom) -> Self {
+    pub fn new(bios: Vec<u8>, disc: CdRom, initial_backup_ram: Option<Vec<u8>>) -> Self {
+        let backup_ram = match initial_backup_ram {
+            Some(backup_ram) if backup_ram.len() == BACKUP_RAM_LEN => backup_ram,
+            _ => vec![0; BACKUP_RAM_LEN],
+        };
         Self {
             bios,
             disc_drive: CdController::new(Some(disc)),
             prg_ram: vec![0; PRG_RAM_LEN].into_boxed_slice().try_into().unwrap(),
             word_ram: WordRam::new(),
             pcm_ram: vec![0; PCM_RAM_LEN].into_boxed_slice().try_into().unwrap(),
-            backup_ram: vec![0; BACKUP_RAM_LEN].into_boxed_slice().try_into().unwrap(),
+            backup_ram: backup_ram.into_boxed_slice().try_into().unwrap(),
             backup_ram_dirty: false,
             registers: SegaCdRegisters::new(),
             timer_divider: TIMER_DIVIDER,
@@ -369,6 +373,16 @@ impl SegaCd {
 
     pub fn disc_title(&mut self) -> io::Result<Option<String>> {
         self.disc_drive.disc_title(self.region())
+    }
+
+    pub fn backup_ram(&self) -> &[u8] {
+        self.backup_ram.as_slice()
+    }
+
+    pub fn get_and_clear_backup_ram_dirty_bit(&mut self) -> bool {
+        let dirty = self.backup_ram_dirty;
+        self.backup_ram_dirty = false;
+        dirty
     }
 }
 
