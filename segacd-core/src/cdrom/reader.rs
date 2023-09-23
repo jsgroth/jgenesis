@@ -1,9 +1,13 @@
+use crate::cdrom;
+use crate::cdrom::cdtime::CdTime;
 use crate::cdrom::cue::CueSheet;
 use anyhow::anyhow;
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
+use std::io;
+use std::io::{Read, Seek, SeekFrom};
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
 
@@ -71,8 +75,36 @@ impl CdRom {
         Ok(Self { cue_sheet, files })
     }
 
-    // Read a 2352-byte sector from the data track
-    pub fn read_data_sector(&mut self, sector_number: u32, out: &mut [u8]) -> anyhow::Result<()> {
-        todo!()
+    pub fn cue(&self) -> &CueSheet {
+        &self.cue_sheet
+    }
+
+    /// Read a 2352-byte sector from the given track into a buffer.
+    ///
+    /// # Errors
+    ///
+    /// This method will propagate any I/O error encountered while reading from disk.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if `out`'s length is less than 2352 or if `relative_time` is past the
+    /// end of the track file.
+    pub fn read_sector(
+        &mut self,
+        track_number: u8,
+        relative_time: CdTime,
+        out: &mut [u8],
+    ) -> io::Result<()> {
+        let track_metadata = &self.cue_sheet.track(track_number).metadata;
+        let track_file = self
+            .files
+            .get_mut(&track_metadata.file_name)
+            .expect("Track file was not opened on load; this is a bug");
+
+        let sector_number = relative_time.to_sector_number();
+        track_file.seek(SeekFrom::Start(u64::from(sector_number) * cdrom::BYTES_PER_SECTOR))?;
+        track_file.read_exact(&mut out[..cdrom::BYTES_PER_SECTOR as usize])?;
+
+        Ok(())
     }
 }

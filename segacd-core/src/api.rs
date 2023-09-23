@@ -43,6 +43,7 @@ pub struct SegaCdEmulator {
     pcm: Rf5c164,
     input: InputState,
     timing_mode: TimingMode,
+    disc_title: String,
     genesis_mclk_cycles: u64,
     sega_cd_mclk_cycles: u64,
     sega_cd_mclk_cycles_float: f64,
@@ -66,11 +67,12 @@ impl SegaCdEmulator {
         let disc = CdRom::open(cue_sheet, cue_parent_dir)?;
 
         // TODO read header information from disc
+        let mut sega_cd = SegaCd::new(bios, disc);
+        let disc_title = sega_cd.disc_title()?.unwrap_or("(no disc)".into());
 
-        // TODO
         let timing_mode = TimingMode::Ntsc;
 
-        let mut memory = Memory::new(SegaCd::new(bios, disc));
+        let mut memory = Memory::new(sega_cd);
         let mut main_cpu = M68000::default();
         let sub_cpu = M68000::default();
         let z80 = Z80::new();
@@ -104,6 +106,7 @@ impl SegaCdEmulator {
             pcm,
             input,
             timing_mode,
+            disc_title,
             genesis_mclk_cycles: 0,
             sega_cd_mclk_cycles: 0,
             sega_cd_mclk_cycles_float: 0.0,
@@ -126,6 +129,11 @@ impl SegaCdEmulator {
 
     fn render_frame<R: Renderer>(&self, renderer: &mut R) -> Result<(), R::Err> {
         genesis_core::render_frame(&self.vdp, GenesisAspectRatio::Ntsc, true, renderer)
+    }
+
+    #[must_use]
+    pub fn disc_title(&self) -> &str {
+        &self.disc_title
     }
 }
 

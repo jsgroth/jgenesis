@@ -125,6 +125,54 @@ impl Cartridge {
             ),
         }
     }
+
+    fn clone_without_rom(&self) -> Self {
+        Self {
+            rom: Rom(vec![]),
+            external_memory: self.external_memory.clone(),
+            ram_mapped: self.ram_mapped,
+            mapper: self.mapper,
+            region: self.region,
+        }
+    }
+
+    fn take_rom(&mut self) -> Vec<u8> {
+        mem::take(&mut self.rom).0
+    }
+
+    fn take_rom_from(&mut self, other: &mut Self) {
+        self.rom = mem::take(&mut other.rom);
+    }
+
+    fn external_ram(&self) -> &[u8] {
+        self.external_memory.get_memory()
+    }
+
+    fn is_ram_persistent(&self) -> bool {
+        self.external_memory.is_persistent()
+    }
+
+    fn take_ram_if_persistent(&mut self) -> Option<Vec<u8>> {
+        self.external_memory.take_if_persistent()
+    }
+
+    fn get_and_clear_ram_dirty(&mut self) -> bool {
+        self.external_memory.get_and_clear_dirty_bit()
+    }
+
+    fn program_title(&self) -> String {
+        static RE: OnceLock<Regex> = OnceLock::new();
+
+        let addr = match self.region {
+            GenesisRegion::Americas | GenesisRegion::Europe => 0x0150,
+            GenesisRegion::Japan => 0x0120,
+        };
+        let bytes = &self.rom.0[addr..addr + 48];
+        let title = bytes.iter().copied().map(|b| b as char).collect::<String>();
+
+        let re = RE.get_or_init(|| Regex::new(r" +").unwrap());
+        re.replace_all(title.trim(), " ").into()
+    }
 }
 
 pub trait PhysicalMedium {
@@ -137,23 +185,6 @@ pub trait PhysicalMedium {
     fn write_byte(&mut self, address: u32, value: u8);
 
     fn write_word(&mut self, address: u32, value: u16);
-
-    #[must_use]
-    fn clone_without_rom(&self) -> Self;
-
-    fn take_rom(&mut self) -> Self::Rom;
-
-    fn take_rom_from(&mut self, other: &mut Self);
-
-    fn external_ram(&self) -> &[u8];
-
-    fn is_ram_persistent(&self) -> bool;
-
-    fn take_ram_if_persistent(&mut self) -> Option<Vec<u8>>;
-
-    fn get_and_clear_ram_dirty(&mut self) -> bool;
-
-    fn program_title(&self) -> String;
 
     fn region(&self) -> GenesisRegion;
 }
@@ -211,54 +242,6 @@ impl PhysicalMedium for Cartridge {
             }
             _ => {}
         }
-    }
-
-    fn clone_without_rom(&self) -> Self {
-        Self {
-            rom: Rom(vec![]),
-            external_memory: self.external_memory.clone(),
-            ram_mapped: self.ram_mapped,
-            mapper: self.mapper,
-            region: self.region,
-        }
-    }
-
-    fn take_rom(&mut self) -> Self::Rom {
-        mem::take(&mut self.rom).0
-    }
-
-    fn take_rom_from(&mut self, other: &mut Self) {
-        self.rom = mem::take(&mut other.rom);
-    }
-
-    fn external_ram(&self) -> &[u8] {
-        self.external_memory.get_memory()
-    }
-
-    fn is_ram_persistent(&self) -> bool {
-        self.external_memory.is_persistent()
-    }
-
-    fn take_ram_if_persistent(&mut self) -> Option<Vec<u8>> {
-        self.external_memory.take_if_persistent()
-    }
-
-    fn get_and_clear_ram_dirty(&mut self) -> bool {
-        self.external_memory.get_and_clear_dirty_bit()
-    }
-
-    fn program_title(&self) -> String {
-        static RE: OnceLock<Regex> = OnceLock::new();
-
-        let addr = match self.region {
-            GenesisRegion::Americas | GenesisRegion::Europe => 0x0150,
-            GenesisRegion::Japan => 0x0120,
-        };
-        let bytes = &self.rom.0[addr..addr + 48];
-        let title = bytes.iter().copied().map(|b| b as char).collect::<String>();
-
-        let re = RE.get_or_init(|| Regex::new(r" +").unwrap());
-        re.replace_all(title.trim(), " ").into()
     }
 
     fn region(&self) -> GenesisRegion {
@@ -337,6 +320,23 @@ impl<Medium: PhysicalMedium> Memory<Medium> {
     }
 
     #[must_use]
+    pub fn hardware_region(&self) -> GenesisRegion {
+        self.physical_medium.region()
+    }
+
+    #[must_use]
+    pub fn medium(&self) -> &Medium {
+        &self.physical_medium
+    }
+
+    #[must_use]
+    pub fn medium_mut(&mut self) -> &mut Medium {
+        &mut self.physical_medium
+    }
+}
+
+impl Memory<Cartridge> {
+    #[must_use]
     pub fn clone_without_rom(&self) -> Self {
         Self {
             physical_medium: self.physical_medium.clone_without_rom(),
@@ -348,7 +348,7 @@ impl<Medium: PhysicalMedium> Memory<Medium> {
     }
 
     #[must_use]
-    pub fn take_rom(&mut self) -> Medium::Rom {
+    pub fn take_rom(&mut self) -> Vec<u8> {
         self.physical_medium.take_rom()
     }
 
@@ -364,11 +364,6 @@ impl<Medium: PhysicalMedium> Memory<Medium> {
     #[must_use]
     pub fn game_title(&self) -> String {
         self.physical_medium.program_title()
-    }
-
-    #[must_use]
-    pub fn hardware_region(&self) -> GenesisRegion {
-        self.physical_medium.region()
     }
 
     #[must_use]
@@ -388,16 +383,6 @@ impl<Medium: PhysicalMedium> Memory<Medium> {
 
     pub fn reset_z80_signals(&mut self) {
         self.signals = Signals::default();
-    }
-
-    #[must_use]
-    pub fn medium(&self) -> &Medium {
-        &self.physical_medium
-    }
-
-    #[must_use]
-    pub fn medium_mut(&mut self) -> &mut Medium {
-        &mut self.physical_medium
     }
 }
 

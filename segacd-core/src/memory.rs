@@ -9,7 +9,7 @@ use genesis_core::memory::{Memory, PhysicalMedium};
 use genesis_core::GenesisRegion;
 use jgenesis_traits::num::GetBit;
 use m68000_emu::BusInterface;
-use std::mem;
+use std::io;
 use wordram::{WordRam, WordRamMode};
 
 const PRG_RAM_LEN: usize = 512 * 1024;
@@ -361,6 +361,10 @@ impl SegaCd {
 
         self.registers.stopwatch_counter = (self.registers.stopwatch_counter + 1) & 0x0FFF;
     }
+
+    pub fn disc_title(&mut self) -> io::Result<Option<String>> {
+        self.disc_drive.disc_title(self.region())
+    }
 }
 
 impl PhysicalMedium for SegaCd {
@@ -467,48 +471,6 @@ impl PhysicalMedium for SegaCd {
             }
             _ => todo!("write word: {address:06X}, {value:04X}"),
         }
-    }
-
-    fn clone_without_rom(&self) -> Self {
-        todo!("clone without ROM")
-    }
-
-    fn take_rom(&mut self) -> Self::Rom {
-        todo!("take ROM")
-    }
-
-    fn take_rom_from(&mut self, other: &mut Self) {
-        todo!("take ROM from")
-    }
-
-    #[inline]
-    fn external_ram(&self) -> &[u8] {
-        self.backup_ram.as_slice()
-    }
-
-    #[inline]
-    fn is_ram_persistent(&self) -> bool {
-        true
-    }
-
-    fn take_ram_if_persistent(&mut self) -> Option<Vec<u8>> {
-        let ram_box = mem::replace(
-            &mut self.backup_ram,
-            vec![0; BACKUP_RAM_LEN].into_boxed_slice().try_into().unwrap(),
-        );
-        Some(<[u8]>::into_vec(ram_box))
-    }
-
-    #[inline]
-    fn get_and_clear_ram_dirty(&mut self) -> bool {
-        let dirty = self.backup_ram_dirty;
-        self.backup_ram_dirty = false;
-        dirty
-    }
-
-    fn program_title(&self) -> String {
-        // TODO
-        "PLACEHOLDER".into()
     }
 
     fn region(&self) -> GenesisRegion {
