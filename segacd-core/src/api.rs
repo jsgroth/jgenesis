@@ -150,7 +150,7 @@ impl TickableEmulator for SegaCdEmulator {
         renderer: &mut R,
         audio_output: &mut A,
         inputs: &Self::Inputs,
-        save_writer: &mut S,
+        _save_writer: &mut S,
     ) -> Result<TickEffect, Self::Err<R::Err, A::Err, S::Err>>
     where
         R: Renderer,
@@ -171,16 +171,16 @@ impl TickableEmulator for SegaCdEmulator {
         let genesis_mclk_elapsed = u64::from(main_cpu_cycles) * MAIN_CPU_DIVIDER;
         let z80_cycles = (self.genesis_mclk_cycles + genesis_mclk_elapsed) / Z80_DIVIDER
             - self.genesis_mclk_cycles / Z80_DIVIDER;
-
-        let genesis_master_clock_rate = match self.timing_mode {
-            TimingMode::Ntsc => NTSC_GENESIS_MASTER_CLOCK_RATE,
-            TimingMode::Pal => PAL_GENESIS_MASTER_CLOCK_RATE,
-        };
         self.genesis_mclk_cycles += genesis_mclk_elapsed;
 
         for _ in 0..z80_cycles {
             self.z80.tick(&mut main_bus);
         }
+
+        let genesis_master_clock_rate = match self.timing_mode {
+            TimingMode::Ntsc => NTSC_GENESIS_MASTER_CLOCK_RATE,
+            TimingMode::Pal => PAL_GENESIS_MASTER_CLOCK_RATE,
+        };
 
         // TODO avoid floating point
         let sega_cd_mclk_elapsed_float = genesis_mclk_elapsed as f64
@@ -211,10 +211,10 @@ impl TickableEmulator for SegaCdEmulator {
             }
         }
 
+        self.audio_downsampler.output_samples(audio_output).map_err(GenesisError::Audio)?;
+
         if self.vdp.tick(genesis_mclk_elapsed, &mut self.memory) == VdpTickEffect::FrameComplete {
             self.render_frame(renderer).map_err(GenesisError::Render)?;
-
-            self.audio_downsampler.output_samples(audio_output).map_err(GenesisError::Audio)?;
 
             self.input.set_inputs(inputs);
 
@@ -245,7 +245,7 @@ impl Resettable for SegaCdEmulator {
 impl ConfigReload for SegaCdEmulator {
     type Config = SegaCdEmulatorConfig;
 
-    fn reload_config(&mut self, config: &Self::Config) {
+    fn reload_config(&mut self, _config: &Self::Config) {
         todo!("reload config")
     }
 }
@@ -257,13 +257,13 @@ impl LightClone for SegaCdEmulator {
         todo!("light clone")
     }
 
-    fn reconstruct_from(&mut self, clone: Self::Clone) {
+    fn reconstruct_from(&mut self, _clone: Self::Clone) {
         todo!("reconstruct from light clone")
     }
 }
 
 impl TakeRomFrom for SegaCdEmulator {
-    fn take_rom_from(&mut self, other: &mut Self) {
+    fn take_rom_from(&mut self, _other: &mut Self) {
         todo!("take ROM from")
     }
 }

@@ -1404,8 +1404,6 @@ impl Vdp {
                     source_addr = source_addr.wrapping_add(2);
                     self.increment_data_address();
                 }
-
-                self.registers.dma_source_address = source_addr;
             }
             ActiveDma::VramFill(fill_data) => {
                 log::trace!(
@@ -1446,8 +1444,6 @@ impl Vdp {
                     source_addr = source_addr.wrapping_add(1);
                     self.increment_data_address();
                 }
-
-                self.registers.dma_source_address = u32::from(source_addr) << 1;
             }
         }
 

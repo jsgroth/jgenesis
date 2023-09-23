@@ -246,6 +246,7 @@ impl AudioDownsampler {
 
             let sample_l = (ym2612_l + PSG_COEFFICIENT * psg_l).clamp(-1.0, 1.0);
             let sample_r = (ym2612_r + PSG_COEFFICIENT * psg_r).clamp(-1.0, 1.0);
+
             audio_output.push_sample(sample_l, sample_r)?;
         }
 
