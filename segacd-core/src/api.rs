@@ -4,7 +4,6 @@ use crate::cdrom::reader::CdRom;
 use crate::graphics::GraphicsCoprocessor;
 use crate::memory::{SegaCd, SubBus};
 use crate::rf5c164::{PcmTickEffect, Rf5c164};
-use anyhow::anyhow;
 use bincode::{Decode, Encode};
 use genesis_core::input::InputState;
 use genesis_core::memory::{MainBus, MainBusSignals, Memory};
@@ -17,7 +16,10 @@ use jgenesis_traits::frontend::{
 };
 use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgTickEffect, PsgVersion};
+use std::fmt::{Debug, Display};
+use std::io;
 use std::path::Path;
+use thiserror::Error;
 use z80_emu::Z80;
 
 const MAIN_CPU_DIVIDER: u64 = 7;
@@ -30,6 +32,56 @@ const SEGA_CD_MASTER_CLOCK_RATE: u64 = 50_000_000;
 
 #[derive(Debug, Clone)]
 pub struct SegaCdEmulatorConfig;
+
+#[derive(Debug, Error)]
+pub enum DiscError {
+    #[error("Unable to determine parent directory of CUE file '{0}'")]
+    CueParentDir(String),
+    #[error("Error parsing CUE file: {0}")]
+    CueParse(String),
+    #[error("Invalid/unsupported FILE line in CUE file: {0}")]
+    CueInvalidFileLine(String),
+    #[error("Invalid/unsupported TRACK line in CUE file: {0}")]
+    CueInvalidTrackLine(String),
+    #[error("Invalid/unsupported INDEX line in CUE file: {0}")]
+    CueInvalidIndexLine(String),
+    #[error("Invalid/unsupported PREGAP line in CUE file: {0}")]
+    CueInvalidPregapLine(String),
+    #[error("Unable to get file metadata for file '{path}': {source}")]
+    FsMetadata {
+        path: String,
+        #[source]
+        source: io::Error,
+    },
+    #[error("Error opening CUE file '{path}': {source}")]
+    CueOpen {
+        path: String,
+        #[source]
+        source: io::Error,
+    },
+    #[error("Error opening BIN file '{path}': {source}")]
+    BinOpen {
+        path: String,
+        #[source]
+        source: io::Error,
+    },
+    #[error("Error reading disc title from header: {0}")]
+    DiscTitle(#[source] io::Error),
+}
+
+pub type DiscResult<T> = Result<T, DiscError>;
+
+#[derive(Debug, Error)]
+pub enum SegaCdError<RErr, AErr, SErr> {
+    #[error("Rendering error: {0}")]
+    Render(RErr),
+    #[error("Audio output error: {0}")]
+    Audio(AErr),
+    #[error("Save write error: {0}")]
+    SaveWrite(SErr),
+}
+
+pub type SegaCdResult<T, RErr, AErr, SErr> = Result<T, SegaCdError<RErr, AErr, SErr>>;
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct SegaCdEmulator {
@@ -63,11 +115,11 @@ impl SegaCdEmulator {
         bios: Vec<u8>,
         cue_path: P,
         initial_backup_ram: Option<Vec<u8>>,
-    ) -> anyhow::Result<Self> {
+    ) -> DiscResult<Self> {
         let cue_path = cue_path.as_ref();
-        let cue_parent_dir = cue_path.parent().ok_or_else(|| {
-            anyhow!("Unable to determine parent directory of CUE file '{}'", cue_path.display())
-        })?;
+        let cue_parent_dir = cue_path
+            .parent()
+            .ok_or_else(|| DiscError::CueParentDir(cue_path.display().to_string()))?;
 
         let cue_sheet = cue::parse(cue_path)?;
         let disc = CdRom::open(cue_sheet, cue_parent_dir)?;
@@ -147,7 +199,11 @@ impl SegaCdEmulator {
 
 impl TickableEmulator for SegaCdEmulator {
     type Inputs = GenesisInputs;
-    type Err<RErr, AErr, SErr> = GenesisError<RErr, AErr, SErr>;
+    type Err<
+        RErr: Debug + Display + Send + Sync + 'static,
+        AErr: Debug + Display + Send + Sync + 'static,
+        SErr: Debug + Display + Send + Sync + 'static,
+    > = GenesisError<RErr, AErr, SErr>;
 
     fn tick<R, A, S>(
         &mut self,
@@ -158,8 +214,11 @@ impl TickableEmulator for SegaCdEmulator {
     ) -> Result<TickEffect, Self::Err<R::Err, A::Err, S::Err>>
     where
         R: Renderer,
+        R::Err: Debug + Display + Send + Sync + 'static,
         A: AudioOutput,
+        A::Err: Debug + Display + Send + Sync + 'static,
         S: SaveWriter,
+        S::Err: Debug + Display + Send + Sync + 'static,
     {
         let mut main_bus = MainBus::new(
             &mut self.memory,

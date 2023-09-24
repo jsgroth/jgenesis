@@ -2,7 +2,7 @@ use crate::config::input::{
     AxisDirection, GenesisInputConfig, HatDirection, HotkeyConfig, JoystickAction,
     JoystickDeviceId, JoystickInput, KeyboardInput, SmsGgInputConfig,
 };
-use anyhow::anyhow;
+use crate::mainloop::{NativeEmulatorError, NativeEmulatorResult};
 use genesis_core::{GenesisControllerType, GenesisInputs, GenesisJoypadState};
 use sdl2::event::Event;
 use sdl2::joystick::{HatState, Joystick};
@@ -176,8 +176,10 @@ impl Joysticks {
         &mut self,
         device_id: u32,
         joystick_subsystem: &JoystickSubsystem,
-    ) -> anyhow::Result<()> {
-        let joystick = joystick_subsystem.open(device_id)?;
+    ) -> NativeEmulatorResult<()> {
+        let joystick = joystick_subsystem
+            .open(device_id)
+            .map_err(|source| NativeEmulatorError::SdlJoystickOpen { device_id, source })?;
         let name = joystick.name();
         log::info!("Opened joystick id {device_id}: {name}");
 
@@ -300,7 +302,7 @@ impl InputMapper<SmsGgInputs, SmsGgButton> {
         keyboard_inputs: SmsGgInputConfig<KeyboardInput>,
         joystick_inputs: SmsGgInputConfig<JoystickInput>,
         axis_deadzone: i16,
-    ) -> anyhow::Result<Self> {
+    ) -> NativeEmulatorResult<Self> {
         let keyboard_mapping = generate_smsgg_keyboard_mapping(keyboard_inputs)?;
         let joystick_mapping = generate_smsgg_joystick_mapping(joystick_inputs);
 
@@ -317,7 +319,7 @@ impl InputMapper<SmsGgInputs, SmsGgButton> {
         &mut self,
         keyboard_inputs: SmsGgInputConfig<KeyboardInput>,
         joystick_inputs: SmsGgInputConfig<JoystickInput>,
-    ) -> anyhow::Result<()> {
+    ) -> NativeEmulatorResult<()> {
         self.keyboard_mapping = generate_smsgg_keyboard_mapping(keyboard_inputs)?;
         self.raw_joystick_mapping = generate_smsgg_joystick_mapping(joystick_inputs);
 
@@ -329,19 +331,19 @@ impl InputMapper<SmsGgInputs, SmsGgButton> {
 
 fn generate_smsgg_keyboard_mapping(
     keyboard_inputs: SmsGgInputConfig<KeyboardInput>,
-) -> anyhow::Result<HashMap<Keycode, Vec<SmsGgButton>>> {
+) -> NativeEmulatorResult<HashMap<Keycode, Vec<SmsGgButton>>> {
     let mut keyboard_mapping: HashMap<Keycode, Vec<SmsGgButton>> = HashMap::new();
     for (input, button) in smsgg_input_array!(keyboard_inputs.p1, keyboard_inputs.p2) {
         if let Some(KeyboardInput { keycode }) = input {
             let keycode = Keycode::from_name(&keycode)
-                .ok_or_else(|| anyhow!("invalid SDL2 keycode: {keycode}"))?;
+                .ok_or_else(|| NativeEmulatorError::InvalidKeycode(keycode))?;
             keyboard_mapping.entry(keycode).or_default().push(button);
         }
     }
 
     if let Some(KeyboardInput { keycode }) = keyboard_inputs.p1.pause {
         let keycode = Keycode::from_name(&keycode)
-            .ok_or_else(|| anyhow!("invalid SDL2 keycode: {keycode}"))?;
+            .ok_or_else(|| NativeEmulatorError::InvalidKeycode(keycode))?;
         keyboard_mapping.entry(keycode).or_default().push(SmsGgButton::Pause);
     }
 
@@ -392,7 +394,7 @@ impl InputMapper<GenesisInputs, GenesisButton> {
         keyboard_inputs: GenesisInputConfig<KeyboardInput>,
         joystick_inputs: GenesisInputConfig<JoystickInput>,
         axis_deadzone: i16,
-    ) -> anyhow::Result<Self> {
+    ) -> NativeEmulatorResult<Self> {
         let keyboard_mapping = generate_genesis_keyboard_mapping(keyboard_inputs)?;
         let joystick_mapping = generate_genesis_joystick_mapping(joystick_inputs);
 
@@ -411,7 +413,7 @@ impl InputMapper<GenesisInputs, GenesisButton> {
         p2_type: GenesisControllerType,
         keyboard_inputs: GenesisInputConfig<KeyboardInput>,
         joystick_inputs: GenesisInputConfig<JoystickInput>,
-    ) -> anyhow::Result<()> {
+    ) -> NativeEmulatorResult<()> {
         self.inputs.p1_type = p1_type;
         self.inputs.p2_type = p2_type;
         self.keyboard_mapping = generate_genesis_keyboard_mapping(keyboard_inputs)?;
@@ -425,12 +427,12 @@ impl InputMapper<GenesisInputs, GenesisButton> {
 
 fn generate_genesis_keyboard_mapping(
     keyboard_inputs: GenesisInputConfig<KeyboardInput>,
-) -> anyhow::Result<HashMap<Keycode, Vec<GenesisButton>>> {
+) -> NativeEmulatorResult<HashMap<Keycode, Vec<GenesisButton>>> {
     let mut keyboard_mapping: HashMap<Keycode, Vec<GenesisButton>> = HashMap::new();
     for (input, button) in genesis_input_array!(keyboard_inputs.p1, keyboard_inputs.p2) {
         if let Some(KeyboardInput { keycode }) = input {
             let keycode = Keycode::from_name(&keycode)
-                .ok_or_else(|| anyhow!("invalid SDL2 keycode: {keycode}"))?;
+                .ok_or_else(|| NativeEmulatorError::InvalidKeycode(keycode))?;
             keyboard_mapping.entry(keycode).or_default().push(button);
         }
     }
@@ -456,7 +458,7 @@ where
     Inputs: Clearable + GetButtonField<Button>,
     Button: Copy,
 {
-    pub(crate) fn device_added(&mut self, device_id: u32) -> anyhow::Result<()> {
+    pub(crate) fn device_added(&mut self, device_id: u32) -> NativeEmulatorResult<()> {
         self.joysticks.device_added(device_id, &self.joystick_subsystem)?;
         self.update_input_mapping();
 
@@ -564,7 +566,7 @@ where
         }
     }
 
-    pub(crate) fn handle_event(&mut self, event: &Event) -> anyhow::Result<()> {
+    pub(crate) fn handle_event(&mut self, event: &Event) -> NativeEmulatorResult<()> {
         match *event {
             Event::KeyDown { keycode: Some(keycode), .. } => {
                 self.key_down(keycode);
@@ -633,7 +635,7 @@ impl HotkeyMapper {
     /// # Errors
     ///
     /// This function will return an error if the given config contains any invalid keycodes.
-    pub fn from_config(config: &HotkeyConfig) -> anyhow::Result<Self> {
+    pub fn from_config(config: &HotkeyConfig) -> NativeEmulatorResult<Self> {
         let mut mapping: HashMap<Keycode, Vec<Hotkey>> = HashMap::new();
         for (input, hotkey) in [
             (&config.quit, Hotkey::Quit),
@@ -649,7 +651,7 @@ impl HotkeyMapper {
         ] {
             if let Some(input) = input {
                 let keycode = Keycode::from_name(&input.keycode)
-                    .ok_or_else(|| anyhow!("Invalid SDL2 keycode: {}", input.keycode))?;
+                    .ok_or_else(|| NativeEmulatorError::InvalidKeycode(input.keycode.clone()))?;
                 mapping.entry(keycode).or_default().push(hotkey);
             }
         }

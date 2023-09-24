@@ -1,6 +1,6 @@
+use crate::api::{DiscError, DiscResult};
 use crate::cdrom;
 use crate::cdrom::cdtime::CdTime;
-use anyhow::anyhow;
 use bincode::{Decode, Encode};
 use regex::Regex;
 use std::path::Path;
@@ -115,7 +115,7 @@ impl CueParser {
         }
     }
 
-    fn parse(mut self, file: &str) -> anyhow::Result<Vec<ParsedFile>> {
+    fn parse(mut self, file: &str) -> DiscResult<Vec<ParsedFile>> {
         for line in file.lines() {
             if line.starts_with("FILE ") {
                 self.parse_file_line(line)?;
@@ -131,62 +131,65 @@ impl CueParser {
         self.push_file()?;
 
         if self.files.is_empty() {
-            return Err(anyhow!("CUE file has no tracks"));
+            return Err(DiscError::CueParse("CUE file has no tracks".into()));
         }
 
         Ok(self.files)
     }
 
-    fn parse_file_line(&mut self, line: &str) -> anyhow::Result<()> {
+    fn parse_file_line(&mut self, line: &str) -> DiscResult<()> {
         static RE: OnceLock<Regex> = OnceLock::new();
 
         self.push_file()?;
 
         let re = RE.get_or_init(|| Regex::new(r#"FILE "(.*)" BINARY"#).unwrap());
-        let captures = re.captures(line).ok_or_else(|| anyhow!("Invalid file line: '{line}'"))?;
+        let captures =
+            re.captures(line).ok_or_else(|| DiscError::CueInvalidFileLine(line.into()))?;
         let file_name = captures.get(1).unwrap();
         self.current_file = Some(file_name.as_str().into());
 
         Ok(())
     }
 
-    fn parse_track_line(&mut self, line: &str) -> anyhow::Result<()> {
+    fn parse_track_line(&mut self, line: &str) -> DiscResult<()> {
         static RE: OnceLock<Regex> = OnceLock::new();
 
         self.push_track()?;
 
         let re = RE.get_or_init(|| Regex::new(r"TRACK ([^ ]*) ([^ ]*)").unwrap());
-        let captures = re.captures(line).ok_or_else(|| anyhow!("Invalid track line: '{line}'"))?;
+        let captures =
+            re.captures(line).ok_or_else(|| DiscError::CueInvalidTrackLine(line.into()))?;
         let track_number = captures
             .get(1)
             .unwrap()
             .as_str()
             .parse::<u8>()
-            .map_err(|err| anyhow!("Invalid track number in line: '{line}': {err}"))?;
+            .map_err(|_| DiscError::CueInvalidTrackLine(line.into()))?;
         let mode = captures
             .get(2)
             .unwrap()
             .as_str()
             .parse::<TrackType>()
-            .map_err(|err| anyhow!("Invalid track mode in line: '{line}': {err}"))?;
+            .map_err(|_| DiscError::CueInvalidTrackLine(line.into()))?;
 
         self.current_track = Some((track_number, mode));
 
         Ok(())
     }
 
-    fn parse_index_line(&mut self, line: &str) -> anyhow::Result<()> {
+    fn parse_index_line(&mut self, line: &str) -> DiscResult<()> {
         static RE: OnceLock<Regex> = OnceLock::new();
 
         let re = RE.get_or_init(|| Regex::new(r"INDEX ([^ ]*) ([^ ]*)").unwrap());
-        let captures = re.captures(line).ok_or_else(|| anyhow!("Invalid index line: '{line}'"))?;
+        let captures =
+            re.captures(line).ok_or_else(|| DiscError::CueInvalidIndexLine(line.into()))?;
         let index_number = captures.get(1).unwrap();
         let start_time = captures
             .get(2)
             .unwrap()
             .as_str()
             .parse::<CdTime>()
-            .map_err(|err| anyhow!("Invalid start time in index line: '{line}': {err}"))?;
+            .map_err(|_| DiscError::CueInvalidIndexLine(line.into()))?;
 
         match index_number.as_str() {
             "00" => {
@@ -196,37 +199,38 @@ impl CueParser {
                 self.track_start = Some(start_time);
             }
             _ => {
-                return Err(anyhow!("Invalid index number in line: '{line}'"));
+                return Err(DiscError::CueInvalidIndexLine(line.into()));
             }
         }
 
         Ok(())
     }
 
-    fn parse_pregap_line(&mut self, line: &str) -> anyhow::Result<()> {
+    fn parse_pregap_line(&mut self, line: &str) -> DiscResult<()> {
         static RE: OnceLock<Regex> = OnceLock::new();
 
         let re = RE.get_or_init(|| Regex::new(r"PREGAP ([^ ]*)").unwrap());
-        let captures = re.captures(line).ok_or_else(|| anyhow!("Invalid pregap line: '{line}'"))?;
+        let captures =
+            re.captures(line).ok_or_else(|| DiscError::CueInvalidPregapLine(line.into()))?;
         let pregap_len = captures
             .get(1)
             .unwrap()
             .as_str()
             .parse::<CdTime>()
-            .map_err(|err| anyhow!("Invalid length in pregap line: '{line}': {err}"))?;
+            .map_err(|_| DiscError::CueInvalidPregapLine(line.into()))?;
 
         self.pregap_len = Some(pregap_len);
 
         Ok(())
     }
 
-    fn push_file(&mut self) -> anyhow::Result<()> {
+    fn push_file(&mut self) -> DiscResult<()> {
         self.push_track()?;
 
         let Some(current_file) = self.current_file.take() else { return Ok(()) };
 
         if self.tracks.is_empty() {
-            return Err(anyhow!("No tracks listed for file '{current_file}'"));
+            return Err(DiscError::CueParse(format!("No tracks listed for file '{current_file}'")));
         }
 
         self.files
@@ -235,26 +239,30 @@ impl CueParser {
         Ok(())
     }
 
-    fn push_track(&mut self) -> anyhow::Result<()> {
+    fn push_track(&mut self) -> DiscResult<()> {
         if let Some((track_number, track_type)) = self.current_track.take() {
             match self.last_track_number {
                 None => {
                     if track_number != 1 {
-                        return Err(anyhow!("Expected first track to be 01, was {track_number}"));
+                        return Err(DiscError::CueParse(format!(
+                            "Expected first track to be 01, was {track_number}"
+                        )));
                     }
                 }
                 Some(last_track_number) => {
                     if track_number != last_track_number + 1 {
-                        return Err(anyhow!(
+                        return Err(DiscError::CueParse(format!(
                             "Tracks out of order; track {track_number} after {last_track_number}"
-                        ));
+                        )));
                     }
                 }
             }
             self.last_track_number = Some(track_number);
 
             let Some(track_start) = self.track_start.take() else {
-                return Err(anyhow!("No start time found for track {track_number}"));
+                return Err(DiscError::CueParse(format!(
+                    "No start time found for track {track_number}"
+                )));
             };
 
             self.tracks.push(ParsedTrack {
@@ -270,19 +278,19 @@ impl CueParser {
     }
 }
 
-pub fn parse<P: AsRef<Path>>(cue_path: P) -> anyhow::Result<CueSheet> {
+pub fn parse<P: AsRef<Path>>(cue_path: P) -> DiscResult<CueSheet> {
     let cue_path = cue_path.as_ref();
 
-    let cue_file = fs::read_to_string(cue_path)?;
+    let cue_file = fs::read_to_string(cue_path)
+        .map_err(|source| DiscError::CueOpen { path: cue_path.display().to_string(), source })?;
     let parsed_files = CueParser::new().parse(&cue_file)?;
 
     to_cue_sheet(parsed_files, cue_path)
 }
 
-fn to_cue_sheet(parsed_files: Vec<ParsedFile>, cue_path: &Path) -> anyhow::Result<CueSheet> {
-    let cue_parent_dir = cue_path.parent().ok_or_else(|| {
-        anyhow!("Unable to determine parent directory of CUE path: {}", cue_path.display())
-    })?;
+fn to_cue_sheet(parsed_files: Vec<ParsedFile>, cue_path: &Path) -> DiscResult<CueSheet> {
+    let cue_parent_dir =
+        cue_path.parent().ok_or_else(|| DiscError::CueParentDir(cue_path.display().to_string()))?;
 
     let mut absolute_start_time = CdTime::ZERO;
     let mut tracks = Vec::new();
@@ -290,8 +298,9 @@ fn to_cue_sheet(parsed_files: Vec<ParsedFile>, cue_path: &Path) -> anyhow::Resul
     for ParsedFile { file_name, tracks: parsed_tracks } in parsed_files {
         let bin_path = cue_parent_dir.join(&file_name);
 
-        let file_metadata = fs::metadata(&bin_path).map_err(|err| {
-            anyhow!("Unable to get file metadata for file: '{}': {err}", bin_path.display())
+        let file_metadata = fs::metadata(&bin_path).map_err(|source| DiscError::FsMetadata {
+            path: bin_path.display().to_string(),
+            source,
         })?;
         let file_len_bytes = file_metadata.len();
         let file_len_sectors = (file_len_bytes / cdrom::BYTES_PER_SECTOR) as u32;

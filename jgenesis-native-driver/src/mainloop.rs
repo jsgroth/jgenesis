@@ -9,33 +9,36 @@ use crate::input::{
 };
 use crate::mainloop::debug::{CramDebug, VramDebug};
 use crate::mainloop::rewind::Rewinder;
-use anyhow::{anyhow, Context};
+use bincode::error::{DecodeError, EncodeError};
 use bincode::{Decode, Encode};
 use genesis_core::{GenesisEmulator, GenesisEmulatorConfig, GenesisInputs};
-use jgenesis_renderer::renderer::WgpuRenderer;
+use jgenesis_renderer::renderer::{RendererError, WgpuRenderer};
 use jgenesis_traits::frontend::{
     AudioOutput, ConfigReload, EmulatorTrait, LightClone, SaveWriter, TickEffect,
 };
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::event::{Event, WindowEvent};
-use sdl2::video::{FullscreenType, Window};
-use sdl2::{AudioSubsystem, EventPump, JoystickSubsystem, VideoSubsystem};
-use segacd_core::api::{SegaCdEmulator, SegaCdEmulatorConfig};
+use sdl2::render::TextureValueError;
+use sdl2::video::{FullscreenType, Window, WindowBuildError};
+use sdl2::{AudioSubsystem, EventPump, IntegerOrSdlError, JoystickSubsystem, VideoSubsystem};
+use segacd_core::api::{DiscError, SegaCdEmulator, SegaCdEmulatorConfig};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgInputs};
-use std::ffi::OsStr;
+use std::error::Error;
+use std::ffi::{NulError, OsStr};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use std::{fs, thread};
+use std::{fs, io, thread};
+use thiserror::Error;
 
 trait RendererExt {
     fn focus(&mut self);
 
     fn window_id(&self) -> u32;
 
-    fn toggle_fullscreen(&mut self) -> anyhow::Result<()>;
+    fn toggle_fullscreen(&mut self) -> Result<(), String>;
 }
 
 impl RendererExt for WgpuRenderer<Window> {
@@ -50,7 +53,7 @@ impl RendererExt for WgpuRenderer<Window> {
         self.window().id()
     }
 
-    fn toggle_fullscreen(&mut self) -> anyhow::Result<()> {
+    fn toggle_fullscreen(&mut self) -> Result<(), String> {
         // SAFETY: This is not reassigning the window
         unsafe {
             let window = self.window_mut();
@@ -58,13 +61,17 @@ impl RendererExt for WgpuRenderer<Window> {
                 FullscreenType::Off => FullscreenType::Desktop,
                 FullscreenType::Desktop | FullscreenType::True => FullscreenType::Off,
             };
-            window
-                .set_fullscreen(new_fullscreen)
-                .map_err(|err| anyhow!("Error toggling fullscreen: {err}"))?;
-
-            Ok(())
+            window.set_fullscreen(new_fullscreen)
         }
     }
+}
+
+#[derive(Debug, Error)]
+pub enum AudioError {
+    #[error("Error opening SDL2 audio queue: {0}")]
+    OpenQueue(String),
+    #[error("Error pushing audio samples to SDL2 audio queue: {0}")]
+    QueueAudio(String),
 }
 
 struct SdlAudioOutput {
@@ -76,13 +83,13 @@ struct SdlAudioOutput {
 }
 
 impl SdlAudioOutput {
-    fn create_and_init(audio: &AudioSubsystem, audio_sync: bool) -> anyhow::Result<Self> {
+    fn create_and_init(audio: &AudioSubsystem, audio_sync: bool) -> Result<Self, AudioError> {
         let audio_queue = audio
             .open_queue(
                 None,
                 &AudioSpecDesired { freq: Some(48000), channels: Some(2), samples: Some(64) },
             )
-            .map_err(|err| anyhow!("Error opening SDL2 audio queue: {err}"))?;
+            .map_err(AudioError::OpenQueue)?;
         audio_queue.resume();
 
         Ok(Self {
@@ -99,7 +106,7 @@ impl SdlAudioOutput {
 const MAX_AUDIO_QUEUE_SIZE: u32 = 1024 * 4;
 
 impl AudioOutput for SdlAudioOutput {
-    type Err = anyhow::Error;
+    type Err = AudioError;
 
     #[inline]
     fn push_sample(&mut self, sample_l: f64, sample_r: f64) -> Result<(), Self::Err> {
@@ -123,9 +130,7 @@ impl AudioOutput for SdlAudioOutput {
                 return Ok(());
             }
 
-            self.audio_queue
-                .queue_audio(&self.audio_buffer)
-                .map_err(|err| anyhow!("Error pushing audio samples: {err}"))?;
+            self.audio_queue.queue_audio(&self.audio_buffer).map_err(AudioError::QueueAudio)?;
             self.audio_buffer.clear();
         }
 
@@ -148,6 +153,14 @@ fn sleep(duration: Duration) {
     thread::sleep(duration);
 }
 
+#[derive(Debug, Error)]
+#[error("Error writing save file to '{path}': {source}")]
+pub struct SaveWriteError {
+    path: String,
+    #[source]
+    source: io::Error,
+}
+
 struct FsSaveWriter {
     path: PathBuf,
 }
@@ -159,21 +172,14 @@ impl FsSaveWriter {
 }
 
 impl SaveWriter for FsSaveWriter {
-    type Err = anyhow::Error;
+    type Err = SaveWriteError;
 
     #[inline]
     fn persist_save(&mut self, save_bytes: &[u8]) -> Result<(), Self::Err> {
-        fs::write(&self.path, save_bytes)?;
-        Ok(())
-    }
-}
-
-struct NullSaveWriter;
-
-impl SaveWriter for NullSaveWriter {
-    type Err = anyhow::Error;
-
-    fn persist_save(&mut self, _save_bytes: &[u8]) -> Result<(), Self::Err> {
+        fs::write(&self.path, save_bytes).map_err(|source| SaveWriteError {
+            path: self.path.to_string_lossy().to_string(),
+            source,
+        })?;
         Ok(())
     }
 }
@@ -312,13 +318,91 @@ impl NativeSegaCdEmulator {
     }
 }
 
+#[derive(Debug, Error)]
+pub enum NativeEmulatorError {
+    #[error("{0}")]
+    Render(#[from] RendererError),
+    #[error("{0}")]
+    Audio(#[from] AudioError),
+    #[error("{0}")]
+    SaveWrite(#[from] SaveWriteError),
+    #[error("Error initializing SDL2: {0}")]
+    SdlInit(String),
+    #[error("Error initializing SDL2 video subsystem: {0}")]
+    SdlVideoInit(String),
+    #[error("Error initializing SDL2 audio subsystem: {0}")]
+    SdlAudioInit(String),
+    #[error("Error initializing SDL2 joystick subsystem: {0}")]
+    SdlJoystickInit(String),
+    #[error("Error initializing SDL2 event pump: {0}")]
+    SdlEventPumpInit(String),
+    #[error("Error creating SDL2 window: {0}")]
+    SdlCreateWindow(#[from] WindowBuildError),
+    #[error("Error changing window title to '{title}': {source}")]
+    SdlSetWindowTitle {
+        title: String,
+        #[source]
+        source: NulError,
+    },
+    #[error("Error creating SDL2 canvas/renderer: {0}")]
+    SdlCreateCanvas(#[source] IntegerOrSdlError),
+    #[error("Error creating SDL2 texture: {0}")]
+    SdlCreateTexture(#[from] TextureValueError),
+    #[error("Error toggling window fullscreen: {0}")]
+    SdlSetFullscreen(String),
+    #[error("Error opening joystick {device_id}: {source}")]
+    SdlJoystickOpen {
+        device_id: u32,
+        #[source]
+        source: IntegerOrSdlError,
+    },
+    #[error("SDL2 error rendering CRAM debug window: {0}")]
+    SdlCramDebug(String),
+    #[error("SDL2 error rendering VRAM debug window: {0}")]
+    SdlVramDebug(String),
+    #[error("Invalid SDL2 keycode: '{0}'")]
+    InvalidKeycode(String),
+    #[error("Unable to determine file name for path: '{0}'")]
+    ParseFileName(String),
+    #[error("Unable to determine file extension for path: '{0}'")]
+    ParseFileExtension(String),
+    #[error("Failed to read ROM file at '{path}': {source}")]
+    RomRead {
+        path: String,
+        #[source]
+        source: io::Error,
+    },
+    #[error("Error opening BIOS file at '{path}': {source}")]
+    SegaCdBios {
+        path: String,
+        #[source]
+        source: io::Error,
+    },
+    #[error("{0}")]
+    SegaCdDisc(#[from] DiscError),
+    #[error("I/O error opening save state file '{path}': {source}")]
+    StateFileOpen {
+        path: String,
+        #[source]
+        source: io::Error,
+    },
+    #[error("Error saving state: {0}")]
+    SaveState(#[from] EncodeError),
+    #[error("Error loading state: {0}")]
+    LoadState(#[from] DecodeError),
+    #[error("Error in emulation core: {0}")]
+    Emulator(#[source] Box<dyn Error + Send + Sync + 'static>),
+}
+
+pub type NativeEmulatorResult<T> = Result<T, NativeEmulatorError>;
+
 // TODO simplify or generalize these trait bounds
 impl<Inputs, Button, Config, Emulator> NativeEmulator<Inputs, Button, Config, Emulator>
 where
     Inputs: Clearable + GetButtonField<Button>,
     Button: Copy,
     Emulator: EmulatorTrait<EmulatorInputs = Inputs, EmulatorConfig = Config>,
-    anyhow::Error: From<Emulator::Err<anyhow::Error, anyhow::Error, anyhow::Error>>,
+    Emulator::Err<RendererError, AudioError, SaveWriteError>: Error + Send + Sync + 'static,
 {
     /// Run the emulator until a frame is rendered.
     ///
@@ -326,16 +410,20 @@ where
     ///
     /// This method will propagate any errors encountered when rendering frames, pushing audio
     /// samples, or writing save files.
-    pub fn render_frame(&mut self) -> anyhow::Result<NativeTickEffect> {
+    pub fn render_frame(&mut self) -> NativeEmulatorResult<NativeTickEffect> {
         loop {
             let rewinding = self.rewinder.is_rewinding();
             let frame_rendered = !rewinding
-                && self.emulator.tick(
-                    &mut self.renderer,
-                    &mut self.audio_output,
-                    self.input_mapper.inputs(),
-                    &mut self.save_writer,
-                )? == TickEffect::FrameRendered;
+                && self
+                    .emulator
+                    .tick(
+                        &mut self.renderer,
+                        &mut self.audio_output,
+                        self.input_mapper.inputs(),
+                        &mut self.save_writer,
+                    )
+                    .map_err(|err| NativeEmulatorError::Emulator(err.into()))?
+                    == TickEffect::FrameRendered;
 
             if rewinding || frame_rendered {
                 for event in self.event_pump.poll_iter() {
@@ -423,7 +511,7 @@ where
 /// # Errors
 ///
 /// This function will propagate any video, audio, or disk errors encountered.
-pub fn create_smsgg(config: Box<SmsGgConfig>) -> anyhow::Result<NativeSmsGgEmulator> {
+pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsGgEmulator> {
     log::info!("Running with config: {config}");
 
     let rom_file_path = Path::new(&config.common.rom_file_path);
@@ -432,8 +520,10 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> anyhow::Result<NativeSmsGgEmula
 
     let save_state_path = rom_file_path.with_extension("ss0");
 
-    let rom = fs::read(rom_file_path)
-        .with_context(|| format!("Failed to read ROM file at {}", rom_file_path.display()))?;
+    let rom = fs::read(rom_file_path).map_err(|source| NativeEmulatorError::RomRead {
+        path: rom_file_path.display().to_string(),
+        source,
+    })?;
 
     let save_path = rom_file_path.with_extension("sav");
     let initial_cartridge_ram = fs::read(&save_path).ok();
@@ -497,11 +587,14 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> anyhow::Result<NativeSmsGgEmula
 /// # Errors
 ///
 /// This function will return an error upon encountering any video, audio, or I/O error.
-pub fn create_genesis(config: Box<GenesisConfig>) -> anyhow::Result<NativeGenesisEmulator> {
+pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<NativeGenesisEmulator> {
     log::info!("Running with config: {config}");
 
     let rom_file_path = Path::new(&config.common.rom_file_path);
-    let rom = fs::read(rom_file_path)?;
+    let rom = fs::read(rom_file_path).map_err(|source| NativeEmulatorError::RomRead {
+        path: rom_file_path.display().to_string(),
+        source,
+    })?;
 
     let save_path = rom_file_path.with_extension("sav");
     let save_state_path = rom_file_path.with_extension("ss0");
@@ -569,7 +662,7 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> anyhow::Result<NativeGenesi
 ///
 /// This function will return an error upon encountering any video, audio, or I/O error, including
 /// any error encountered loading the Sega CD game disc.
-pub fn create_sega_cd(config: Box<SegaCdConfig>) -> anyhow::Result<NativeSegaCdEmulator> {
+pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeSegaCdEmulator> {
     log::info!("Running with config: {config}");
 
     let cue_path = Path::new(&config.cue_file_path);
@@ -578,8 +671,9 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> anyhow::Result<NativeSegaCdE
 
     let initial_backup_ram = fs::read(&save_path).ok();
 
-    let bios = fs::read(Path::new(&config.bios_file_path))
-        .map_err(|err| anyhow!("Error opening BIOS file '{}': {err}", config.bios_file_path))?;
+    let bios = fs::read(Path::new(&config.bios_file_path)).map_err(|source| {
+        NativeEmulatorError::SegaCdBios { path: config.bios_file_path.clone(), source }
+    })?;
     let emulator =
         SegaCdEmulator::create(bios, Path::new(&config.cue_file_path), initial_backup_ram)?;
 
@@ -628,30 +722,26 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> anyhow::Result<NativeSegaCdE
     })
 }
 
-fn parse_file_name(path: &Path) -> anyhow::Result<&str> {
+fn parse_file_name(path: &Path) -> NativeEmulatorResult<&str> {
     path.file_name()
         .and_then(OsStr::to_str)
-        .ok_or_else(|| anyhow!("Unable to determine file name for path: {}", path.display()))
+        .ok_or_else(|| NativeEmulatorError::ParseFileName(path.display().to_string()))
 }
 
-fn parse_file_ext(path: &Path) -> anyhow::Result<&str> {
+fn parse_file_ext(path: &Path) -> NativeEmulatorResult<&str> {
     path.extension()
         .and_then(OsStr::to_str)
-        .ok_or_else(|| anyhow!("Unable to determine extension for path: {}", path.display()))
+        .ok_or_else(|| NativeEmulatorError::ParseFileExtension(path.display().to_string()))
 }
 
 // Initialize SDL2 and hide the mouse cursor
-fn init_sdl() -> anyhow::Result<(VideoSubsystem, AudioSubsystem, JoystickSubsystem, EventPump)> {
-    let sdl = sdl2::init().map_err(|err| anyhow!("Error initializing SDL2: {err}"))?;
-    let video =
-        sdl.video().map_err(|err| anyhow!("Error initializing SDL2 video subsystem: {err}"))?;
-    let audio =
-        sdl.audio().map_err(|err| anyhow!("Error initializing SDL2 audio subsystem: {err}"))?;
-    let joystick = sdl
-        .joystick()
-        .map_err(|err| anyhow!("Error initializing SDL2 joystick subsystem: {err}"))?;
-    let event_pump =
-        sdl.event_pump().map_err(|err| anyhow!("Error initializing SDL2 event pump: {err}"))?;
+fn init_sdl() -> NativeEmulatorResult<(VideoSubsystem, AudioSubsystem, JoystickSubsystem, EventPump)>
+{
+    let sdl = sdl2::init().map_err(NativeEmulatorError::SdlInit)?;
+    let video = sdl.video().map_err(NativeEmulatorError::SdlVideoInit)?;
+    let audio = sdl.audio().map_err(NativeEmulatorError::SdlAudioInit)?;
+    let joystick = sdl.joystick().map_err(NativeEmulatorError::SdlJoystickInit)?;
+    let event_pump = sdl.event_pump().map_err(NativeEmulatorError::SdlEventPumpInit)?;
 
     sdl.mouse().show_cursor(false);
 
@@ -664,13 +754,13 @@ fn create_window(
     width: u32,
     height: u32,
     fullscreen: bool,
-) -> anyhow::Result<Window> {
+) -> NativeEmulatorResult<Window> {
     let mut window = video.window(title, width, height).resizable().build()?;
 
     if fullscreen {
         window
             .set_fullscreen(FullscreenType::Desktop)
-            .map_err(|err| anyhow!("Error setting fullscreen: {err}"))?;
+            .map_err(NativeEmulatorError::SdlSetFullscreen)?;
     }
 
     Ok(window)
@@ -696,7 +786,7 @@ fn handle_hotkeys<Emulator, P>(
     video: &VideoSubsystem,
     cram_debug: &mut Option<CramDebug>,
     vram_debug: &mut Option<VramDebug>,
-) -> anyhow::Result<HotkeyResult>
+) -> NativeEmulatorResult<HotkeyResult>
 where
     Emulator: EmulatorTrait,
     P: AsRef<Path>,
@@ -757,7 +847,7 @@ fn handle_hotkey_pressed<Emulator>(
     cram_debug: &mut Option<CramDebug>,
     vram_debug: &mut Option<VramDebug>,
     save_state_path: &Path,
-) -> anyhow::Result<HotkeyResult>
+) -> NativeEmulatorResult<HotkeyResult>
 where
     Emulator: EmulatorTrait,
 {
@@ -766,9 +856,7 @@ where
             return Ok(HotkeyResult::Quit);
         }
         Hotkey::ToggleFullscreen => {
-            renderer
-                .toggle_fullscreen()
-                .map_err(|err| anyhow!("Error toggling fullscreen: {err}"))?;
+            renderer.toggle_fullscreen().map_err(NativeEmulatorError::SdlSetFullscreen)?;
         }
         Hotkey::SaveState => {
             save_state(emulator, save_state_path)?;
@@ -837,14 +925,16 @@ macro_rules! bincode_config {
     };
 }
 
-fn save_state<E, P>(emulator: &E, path: P) -> anyhow::Result<()>
+fn save_state<E, P>(emulator: &E, path: P) -> NativeEmulatorResult<()>
 where
     E: Encode,
     P: AsRef<Path>,
 {
     let path = path.as_ref();
 
-    let mut file = BufWriter::new(File::create(path)?);
+    let mut file = BufWriter::new(File::create(path).map_err(|source| {
+        NativeEmulatorError::StateFileOpen { path: path.display().to_string(), source }
+    })?);
 
     let conf = bincode_config!();
     bincode::encode_into_std_write(emulator, &mut file, conf)?;
@@ -854,14 +944,16 @@ where
     Ok(())
 }
 
-fn load_state<D, P>(path: P) -> anyhow::Result<D>
+fn load_state<D, P>(path: P) -> NativeEmulatorResult<D>
 where
     D: Decode,
     P: AsRef<Path>,
 {
     let path = path.as_ref();
 
-    let mut file = BufReader::new(File::open(path)?);
+    let mut file = BufReader::new(File::open(path).map_err(|source| {
+        NativeEmulatorError::StateFileOpen { path: path.display().to_string(), source }
+    })?);
 
     let conf = bincode_config!();
     let emulator = bincode::decode_from_std_read(&mut file, conf)?;

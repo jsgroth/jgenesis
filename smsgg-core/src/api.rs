@@ -13,9 +13,9 @@ use jgenesis_traits::frontend::{
     PixelAspectRatio, Renderer, Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
     TimingMode,
 };
-use std::error::Error;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Display};
 use std::ops::{Deref, DerefMut};
+use thiserror::Error;
 use z80_emu::{InterruptMode, Z80};
 
 // 53_693_175 / 15 / 16 / 48000
@@ -24,41 +24,14 @@ const NTSC_DOWNSAMPLING_RATIO: f64 = 4.6608658854166665;
 // 53_203_424 / 15 / 16 / 48000
 const PAL_DOWNSAMPLING_RATIO: f64 = 4.618352777777777;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum SmsGgError<RErr, AErr, SErr> {
+    #[error("Rendering error: {0}")]
     Render(RErr),
+    #[error("Audio output error: {0}")]
     Audio(AErr),
+    #[error("Save write error: {0}")]
     SaveWrite(SErr),
-}
-
-impl<RErr, AErr, SErr> Display for SmsGgError<RErr, AErr, SErr>
-where
-    RErr: Display,
-    AErr: Display,
-    SErr: Display,
-{
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Render(err) => write!(f, "Rendering error: {err}"),
-            Self::Audio(err) => write!(f, "Audio error: {err}"),
-            Self::SaveWrite(err) => write!(f, "Error writing save file: {err}"),
-        }
-    }
-}
-
-impl<RErr, AErr, SErr> Error for SmsGgError<RErr, AErr, SErr>
-where
-    RErr: Debug + Display + AsRef<dyn Error + 'static>,
-    AErr: Debug + Display + AsRef<dyn Error + 'static>,
-    SErr: Debug + Display + AsRef<dyn Error + 'static>,
-{
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Render(err) => Some(err.as_ref()),
-            Self::Audio(err) => Some(err.as_ref()),
-            Self::SaveWrite(err) => Some(err.as_ref()),
-        }
-    }
 }
 
 pub type SmsGgResult<RErr, AErr, SErr> = Result<TickEffect, SmsGgError<RErr, AErr, SErr>>;
@@ -270,7 +243,11 @@ impl TakeRomFrom for SmsGgEmulator {
 
 impl TickableEmulator for SmsGgEmulator {
     type Inputs = SmsGgInputs;
-    type Err<RErr, AErr, SErr> = SmsGgError<RErr, AErr, SErr>;
+    type Err<
+        RErr: Debug + Display + Send + Sync + 'static,
+        AErr: Debug + Display + Send + Sync + 'static,
+        SErr: Debug + Display + Send + Sync + 'static,
+    > = SmsGgError<RErr, AErr, SErr>;
 
     /// Execute a single CPU instruction and run the rest of the components for the corresponding
     /// number of cycles.

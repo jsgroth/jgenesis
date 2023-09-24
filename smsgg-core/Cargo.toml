@@ -18,3 +18,4 @@ bincode = { version = "2.0.0-rc.3", features = ["derive"] }
 crc = "3"
 log = "0.4"
 serde = { workspace = true, optional = true }
+thiserror = "1"
