@@ -20,6 +20,7 @@ struct Channel {
     master_volume: u8,
     l_volume: u8,
     r_volume: u8,
+    current_sample: u8,
     // Fixed point 16.11
     current_address: u32,
     // Fixed point 5.11
@@ -30,6 +31,7 @@ impl Channel {
     fn enable(&mut self) {
         if !self.enabled {
             self.current_address = u32::from(self.start_address) << ADDRESS_DECIMAL_BITS;
+            self.current_sample = 0;
             self.enabled = true;
         }
     }
@@ -50,19 +52,26 @@ impl Channel {
         if sample == 0xFF {
             // Loop signal
             self.current_address = u32::from(self.loop_address) << ADDRESS_DECIMAL_BITS;
+
+            let loop_start_sample =
+                waveform_ram[(self.current_address >> ADDRESS_DECIMAL_BITS) as usize];
+            if loop_start_sample == 0xFF {
+                // Infinite loop
+                self.current_sample = 0;
+            } else {
+                self.current_sample = loop_start_sample;
+            }
+        } else {
+            self.current_sample = sample;
         }
     }
 
-    fn sample(&self, waveform_ram: &WaveformRam) -> (f64, f64) {
+    fn sample(&self) -> (f64, f64) {
         if !self.enabled {
             return (0.0, 0.0);
         }
 
-        let sample = waveform_ram[(self.current_address >> ADDRESS_DECIMAL_BITS) as usize];
-        if sample == 0xFF {
-            // Stuck in an infinite loop; return 0
-            return (0.0, 0.0);
-        }
+        let sample = self.current_sample;
 
         // RF5C164 samples have a sign bit and a 7-bit magnitude
         // Sign bit 1 = Positive, 0 = Negative
@@ -274,7 +283,7 @@ impl Rf5c164 {
         let (sample_l, sample_r) = self
             .channels
             .iter()
-            .map(|channel| channel.sample(&self.waveform_ram))
+            .map(Channel::sample)
             .fold((0.0, 0.0), |(sum_l, sum_r), (sample_l, sample_r)| {
                 (sum_l + sample_l, sum_r + sample_r)
             });
