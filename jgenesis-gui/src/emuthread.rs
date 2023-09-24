@@ -2,10 +2,11 @@ use anyhow::anyhow;
 use jgenesis_native_driver::config::input::{
     AxisDirection, HatDirection, JoystickAction, JoystickInput, KeyboardInput,
 };
-use jgenesis_native_driver::config::{GenesisConfig, SmsGgConfig};
+use jgenesis_native_driver::config::{GenesisConfig, SegaCdConfig, SmsGgConfig};
 use jgenesis_native_driver::input::{Clearable, GetButtonField, Joysticks};
 use jgenesis_native_driver::{
-    NativeEmulator, NativeGenesisEmulator, NativeSmsGgEmulator, NativeTickEffect,
+    NativeEmulator, NativeGenesisEmulator, NativeSegaCdEmulator, NativeSmsGgEmulator,
+    NativeTickEffect,
 };
 use jgenesis_traits::frontend::EmulatorTrait;
 use sdl2::event::Event;
@@ -24,6 +25,7 @@ pub enum EmuThreadStatus {
     Idle = 0,
     RunningSmsGg = 1,
     RunningGenesis = 2,
+    RunningSegaCd = 3,
 }
 
 impl EmuThreadStatus {
@@ -32,12 +34,13 @@ impl EmuThreadStatus {
             0 => Self::Idle,
             1 => Self::RunningSmsGg,
             2 => Self::RunningGenesis,
+            3 => Self::RunningSegaCd,
             _ => panic!("invalid status discriminant: {discriminant}"),
         }
     }
 
     pub fn is_running(self) -> bool {
-        matches!(self, Self::RunningSmsGg | Self::RunningGenesis)
+        matches!(self, Self::RunningSmsGg | Self::RunningGenesis | Self::RunningSegaCd)
     }
 }
 
@@ -45,8 +48,10 @@ impl EmuThreadStatus {
 pub enum EmuThreadCommand {
     RunSms(Box<SmsGgConfig>),
     RunGenesis(Box<GenesisConfig>),
+    RunSegaCd(Box<SegaCdConfig>),
     ReloadSmsGgConfig(Box<SmsGgConfig>),
     ReloadGenesisConfig(Box<GenesisConfig>),
+    ReloadSegaCdConfig(Box<SegaCdConfig>),
     StopEmulator,
     CollectInput { input_type: InputType, axis_deadzone: i16 },
     SoftReset,
@@ -99,6 +104,7 @@ impl EmuThreadHandle {
         &self,
         smsgg_config: Box<SmsGgConfig>,
         genesis_config: Box<GenesisConfig>,
+        sega_cd_config: Box<SegaCdConfig>,
     ) {
         match self.status() {
             EmuThreadStatus::RunningSmsGg => {
@@ -106,6 +112,9 @@ impl EmuThreadHandle {
             }
             EmuThreadStatus::RunningGenesis => {
                 self.send(EmuThreadCommand::ReloadGenesisConfig(genesis_config));
+            }
+            EmuThreadStatus::RunningSegaCd => {
+                self.send(EmuThreadCommand::ReloadSegaCdConfig(sega_cd_config));
             }
             EmuThreadStatus::Idle => {}
         }
@@ -163,6 +172,25 @@ pub fn spawn() -> EmuThreadHandle {
                         genesis_reload_handler,
                     );
                 }
+                Ok(EmuThreadCommand::RunSegaCd(config)) => {
+                    status.store(EmuThreadStatus::RunningSegaCd as u8, Ordering::Relaxed);
+
+                    let emulator = match jgenesis_native_driver::create_sega_cd(config) {
+                        Ok(emulator) => emulator,
+                        Err(err) => {
+                            log::error!("Error initializing Sega CD emulator: {err}");
+                            *emulator_error.lock().unwrap() = Some(err);
+                            continue;
+                        }
+                    };
+                    run_emulator(
+                        emulator,
+                        &command_receiver,
+                        &input_sender,
+                        &emulator_error,
+                        sega_cd_reload_handler,
+                    );
+                }
                 Ok(EmuThreadCommand::CollectInput { input_type, axis_deadzone }) => {
                     match collect_input_not_running(input_type, axis_deadzone) {
                         Ok(input) => {
@@ -177,6 +205,7 @@ pub fn spawn() -> EmuThreadHandle {
                     EmuThreadCommand::StopEmulator
                     | EmuThreadCommand::ReloadSmsGgConfig(_)
                     | EmuThreadCommand::ReloadGenesisConfig(_)
+                    | EmuThreadCommand::ReloadSegaCdConfig(_)
                     | EmuThreadCommand::SoftReset
                     | EmuThreadCommand::HardReset,
                 ) => {}
@@ -202,6 +231,7 @@ pub fn spawn() -> EmuThreadHandle {
 enum GenericConfig {
     SmsGg(Box<SmsGgConfig>),
     Genesis(Box<GenesisConfig>),
+    SegaCd(Box<SegaCdConfig>),
 }
 
 fn smsgg_reload_handler(emulator: &mut NativeSmsGgEmulator, config: GenericConfig) {
@@ -213,6 +243,12 @@ fn smsgg_reload_handler(emulator: &mut NativeSmsGgEmulator, config: GenericConfi
 fn genesis_reload_handler(emulator: &mut NativeGenesisEmulator, config: GenericConfig) {
     if let GenericConfig::Genesis(config) = config {
         emulator.reload_genesis_config(config);
+    }
+}
+
+fn sega_cd_reload_handler(emulator: &mut NativeSegaCdEmulator, config: GenericConfig) {
+    if let GenericConfig::SegaCd(config) = config {
+        emulator.reload_sega_cd_config(config);
     }
 }
 
@@ -238,6 +274,9 @@ fn run_emulator<Inputs, Button, Config, Emulator>(
                         }
                         EmuThreadCommand::ReloadGenesisConfig(config) => {
                             config_reload_handler(&mut emulator, GenericConfig::Genesis(config));
+                        }
+                        EmuThreadCommand::ReloadSegaCdConfig(config) => {
+                            config_reload_handler(&mut emulator, GenericConfig::SegaCd(config));
                         }
                         EmuThreadCommand::StopEmulator => {
                             log::info!("Stopping emulator");

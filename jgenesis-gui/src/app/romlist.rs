@@ -7,6 +7,7 @@ pub enum Console {
     MasterSystem,
     GameGear,
     Genesis,
+    SegaCd,
 }
 
 impl Console {
@@ -14,7 +15,8 @@ impl Console {
         match extension {
             "sms" => Some(Self::MasterSystem),
             "gg" => Some(Self::GameGear),
-            "md" | "bin" => Some(Self::Genesis),
+            "md" => Some(Self::Genesis),
+            "cue" => Some(Self::SegaCd),
             _ => None,
         }
     }
@@ -24,6 +26,7 @@ impl Console {
             Self::MasterSystem => "Master System",
             Self::GameGear => "Game Gear",
             Self::Genesis => "Genesis",
+            Self::SegaCd => "Sega CD",
         }
     }
 }

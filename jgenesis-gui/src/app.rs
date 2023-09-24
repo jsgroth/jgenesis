@@ -14,7 +14,8 @@ use egui::{
 use egui_extras::{Column, TableBuilder};
 use genesis_core::{GenesisAspectRatio, GenesisRegion};
 use jgenesis_native_driver::config::{
-    CommonConfig, GenesisConfig, GgAspectRatio, SmsAspectRatio, SmsGgConfig, WindowSize,
+    CommonConfig, GenesisConfig, GgAspectRatio, SegaCdConfig, SmsAspectRatio, SmsGgConfig,
+    WindowSize,
 };
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, RendererConfig, Scanlines, VSyncMode, WgpuBackend,
@@ -148,6 +149,17 @@ impl Default for GenesisAppConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct SegaCdAppConfig {
+    bios_path: Option<String>,
+}
+
+impl Default for SegaCdAppConfig {
+    fn default() -> Self {
+        toml::from_str("").unwrap()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default)]
     common: CommonAppConfig,
@@ -155,6 +167,8 @@ pub struct AppConfig {
     smsgg: SmsGgAppConfig,
     #[serde(default)]
     genesis: GenesisAppConfig,
+    #[serde(default)]
+    sega_cd: SegaCdAppConfig,
     #[serde(default)]
     inputs: InputAppConfig,
     rom_search_dir: Option<String>,
@@ -245,6 +259,21 @@ impl AppConfig {
             aspect_ratio: self.genesis.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: self.genesis.adjust_aspect_ratio_in_2x_resolution,
             remove_sprite_limits: self.genesis.remove_sprite_limits,
+        })
+    }
+
+    fn sega_cd_config(&self, path: String) -> Box<SegaCdConfig> {
+        let cue_file_path = path.clone();
+        Box::new(SegaCdConfig {
+            common: self.common_config(
+                path,
+                self.inputs.to_genesis_keyboard_config(),
+                self.inputs.to_genesis_joystick_config(),
+            ),
+            p1_controller_type: self.inputs.genesis_p1_type,
+            p2_controller_type: self.inputs.genesis_p2_type,
+            bios_file_path: self.sega_cd.bios_path.clone().unwrap_or(String::new()),
+            cue_file_path,
         })
     }
 }
@@ -343,7 +372,7 @@ impl App {
         }
 
         let mut file_dialog =
-            FileDialog::new().add_filter("sms/gg/md", &["sms", "gg", "md", "bin"]);
+            FileDialog::new().add_filter("sms/gg/md/cue", &["sms", "gg", "md", "bin", "cue"]);
         if let Some(dir) = &self.config.rom_search_dir {
             file_dialog = file_dialog.set_directory(Path::new(dir));
         }
@@ -368,6 +397,12 @@ impl App {
 
                 let config = self.config.genesis_config(path);
                 self.emu_thread.send(EmuThreadCommand::RunGenesis(config));
+            }
+            Some("cue") => {
+                self.emu_thread.stop_emulator_if_running();
+
+                let config = self.config.sega_cd_config(path);
+                self.emu_thread.send(EmuThreadCommand::RunSegaCd(config));
             }
             Some(_) => todo!("unrecognized file extension"),
             None => {}
@@ -443,9 +478,13 @@ impl App {
     fn render_genesis_general_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("Genesis General Settings").open(&mut open).resizable(true).show(ctx, |ui| {
-            ui.set_enabled(self.emu_thread.status() != EmuThreadStatus::RunningGenesis);
+            let emu_thread_status = self.emu_thread.status();
+            let running_genesis = emu_thread_status != EmuThreadStatus::RunningGenesis
+                && emu_thread_status != EmuThreadStatus::RunningSegaCd;
 
             ui.group(|ui| {
+                ui.set_enabled(running_genesis);
+
                 ui.label("Timing / display mode");
 
                 ui.horizontal(|ui| {
@@ -464,6 +503,8 @@ impl App {
             });
 
             ui.group(|ui| {
+                ui.set_enabled(running_genesis);
+
                 ui.label("Region");
 
                 ui.horizontal(|ui| {
@@ -484,6 +525,21 @@ impl App {
                         "Europe",
                     );
                 });
+            });
+
+            ui.horizontal(|ui| {
+                let bios_path_str =
+                    self.config.sega_cd.bios_path.as_ref().map_or("<None>", String::as_str);
+                if ui.button(bios_path_str).clicked() {
+                    if let Some(bios_path) =
+                        FileDialog::new().add_filter("bin", &["bin"]).pick_file()
+                    {
+                        self.config.sega_cd.bios_path =
+                            Some(bios_path.to_string_lossy().to_string());
+                    }
+                }
+
+                ui.label("Sega CD BIOS path");
             });
         });
         if !open {
@@ -916,12 +972,12 @@ impl App {
                 });
 
                 ui.menu_button("Settings", |ui| {
-                    if ui.button("SMS/GG").clicked() {
+                    if ui.button("SMS / GG").clicked() {
                         self.state.open_windows.insert(OpenWindow::SmsGgGeneral);
                         ui.close_menu();
                     }
 
-                    if ui.button("Genesis").clicked() {
+                    if ui.button("Genesis / Sega CD").clicked() {
                         self.state.open_windows.insert(OpenWindow::GenesisGeneral);
                         ui.close_menu();
                     }
@@ -938,7 +994,7 @@ impl App {
                         ui.close_menu();
                     }
 
-                    if ui.button("SMS/GG").clicked() {
+                    if ui.button("SMS / GG").clicked() {
                         self.state.open_windows.insert(OpenWindow::SmsGgVideo);
                         ui.close_menu();
                     }
@@ -955,19 +1011,19 @@ impl App {
                         ui.close_menu();
                     }
 
-                    if ui.button("SMS/GG").clicked() {
+                    if ui.button("SMS / GG").clicked() {
                         self.state.open_windows.insert(OpenWindow::SmsGgAudio);
                         ui.close_menu();
                     }
                 });
 
                 ui.menu_button("Input", |ui| {
-                    if ui.button("SMS/GG Keyboard").clicked() {
+                    if ui.button("SMS / GG Keyboard").clicked() {
                         self.state.open_windows.insert(OpenWindow::SmsGgKeyboard);
                         ui.close_menu();
                     }
 
-                    if ui.button("SMS/GG Gamepad").clicked() {
+                    if ui.button("SMS / GG Gamepad").clicked() {
                         self.state.open_windows.insert(OpenWindow::SmsGgGamepad);
                         ui.close_menu();
                     }
@@ -1105,6 +1161,7 @@ impl App {
                         self.emu_thread.reload_config(
                             self.config.smsgg_config(self.state.current_file_path.clone()),
                             self.config.genesis_config(self.state.current_file_path.clone()),
+                            self.config.sega_cd_config(self.state.current_file_path.clone()),
                         );
                     }
                 }
@@ -1180,6 +1237,7 @@ impl eframe::App for App {
             self.emu_thread.reload_config(
                 self.config.smsgg_config(self.state.current_file_path.clone()),
                 self.config.genesis_config(self.state.current_file_path.clone()),
+                self.config.sega_cd_config(self.state.current_file_path.clone()),
             );
 
             let config_str = toml::to_string_pretty(&self.config).unwrap();
