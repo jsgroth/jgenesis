@@ -1,4 +1,3 @@
-use jgenesis_traits::num::GetBit;
 use std::ops::{Add, AddAssign};
 
 // 13 integer bits + 11 fractional bits

@@ -1,3 +1,6 @@
+// TODO remove
+#![allow(dead_code)]
+
 use crate::cdrom;
 use crate::cdrom::cdtime::CdTime;
 use crate::cdrom::reader::CdRom;
@@ -78,6 +81,8 @@ impl CdController {
     }
 
     pub fn send_cdd_command(&mut self, command_buffer: [u8; 10]) {
+        // TODO remove
+        #[allow(clippy::match_same_arms)]
         match command_buffer[0] {
             0x00 => {
                 // No-op; return current status
@@ -164,6 +169,14 @@ impl CdController {
         let whitespace_re = WHITESPACE_RE.get_or_init(|| Regex::new(r" +").unwrap());
 
         Ok(Some(whitespace_re.replace_all(title.trim(), " ").to_string()))
+    }
+
+    pub fn take_disc_from(&mut self, other: &mut Self) {
+        self.disc = other.disc.take();
+    }
+
+    pub fn clone_without_disc(&self) -> Self {
+        Self { disc: None, ..self.clone() }
     }
 }
 

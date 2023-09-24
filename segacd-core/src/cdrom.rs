@@ -1,3 +1,6 @@
+// TODO remove
+#![allow(dead_code)]
+
 pub mod cdtime;
 pub mod cue;
 pub mod reader;

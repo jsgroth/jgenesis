@@ -126,16 +126,6 @@ impl Cartridge {
         }
     }
 
-    fn clone_without_rom(&self) -> Self {
-        Self {
-            rom: Rom(vec![]),
-            external_memory: self.external_memory.clone(),
-            ram_mapped: self.ram_mapped,
-            mapper: self.mapper,
-            region: self.region,
-        }
-    }
-
     fn take_rom(&mut self) -> Vec<u8> {
         mem::take(&mut self.rom).0
     }
@@ -176,8 +166,6 @@ impl Cartridge {
 }
 
 pub trait PhysicalMedium {
-    type Rom;
-
     fn read_byte(&mut self, address: u32) -> u8;
 
     fn read_word(&mut self, address: u32) -> u16;
@@ -194,8 +182,6 @@ pub trait PhysicalMedium {
 }
 
 impl PhysicalMedium for Cartridge {
-    type Rom = Vec<u8>;
-
     fn read_byte(&mut self, address: u32) -> u8 {
         if self.ram_mapped {
             if let Some(byte) = self.external_memory.read_byte(address) {
@@ -343,7 +329,25 @@ impl<Medium: PhysicalMedium> Memory<Medium> {
     }
 }
 
-impl Memory<Cartridge> {
+pub trait CloneWithoutRom {
+    #[must_use]
+    fn clone_without_rom(&self) -> Self;
+}
+
+impl CloneWithoutRom for Cartridge {
+    #[must_use]
+    fn clone_without_rom(&self) -> Self {
+        Self {
+            rom: Rom(vec![]),
+            external_memory: self.external_memory.clone(),
+            ram_mapped: self.ram_mapped,
+            mapper: self.mapper,
+            region: self.region,
+        }
+    }
+}
+
+impl<Medium: CloneWithoutRom> Memory<Medium> {
     #[must_use]
     pub fn clone_without_rom(&self) -> Self {
         Self {
@@ -354,7 +358,9 @@ impl Memory<Cartridge> {
             signals: self.signals,
         }
     }
+}
 
+impl Memory<Cartridge> {
     #[must_use]
     pub fn take_rom(&mut self) -> Vec<u8> {
         self.physical_medium.take_rom()
