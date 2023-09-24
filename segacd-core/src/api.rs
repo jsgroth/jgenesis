@@ -277,26 +277,28 @@ impl Resettable for SegaCdEmulator {
 impl ConfigReload for SegaCdEmulator {
     type Config = SegaCdEmulatorConfig;
 
-    fn reload_config(&mut self, _config: &Self::Config) {
-        todo!("reload config")
-    }
+    fn reload_config(&mut self, _config: &Self::Config) {}
 }
 
+#[derive(Debug, Clone)]
+pub struct EmulatorClone(SegaCdEmulator);
+
 impl LightClone for SegaCdEmulator {
-    type Clone = ();
+    type Clone = EmulatorClone;
 
     fn light_clone(&self) -> Self::Clone {
-        todo!("light clone")
+        EmulatorClone(Self { memory: self.memory.clone_without_rom(), ..self.clone() })
     }
 
-    fn reconstruct_from(&mut self, _clone: Self::Clone) {
-        todo!("reconstruct from light clone")
+    fn reconstruct_from(&mut self, mut clone: Self::Clone) {
+        clone.0.memory.medium_mut().take_rom_from(self.memory.medium_mut());
+        *self = clone.0;
     }
 }
 
 impl TakeRomFrom for SegaCdEmulator {
-    fn take_rom_from(&mut self, _other: &mut Self) {
-        todo!("take ROM from")
+    fn take_rom_from(&mut self, other: &mut Self) {
+        self.memory.medium_mut().take_rom_from(other.memory.medium_mut());
     }
 }
 

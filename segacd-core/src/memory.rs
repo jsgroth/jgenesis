@@ -5,12 +5,14 @@ use crate::cdrom::reader::CdRom;
 use crate::graphics::{GraphicsCoprocessor, GraphicsWritePriorityMode};
 use crate::rf5c164::Rf5c164;
 use bincode::{Decode, Encode};
-use genesis_core::memory::{Memory, PhysicalMedium};
+use genesis_core::memory::{CloneWithoutRom, Memory, PhysicalMedium};
 use genesis_core::GenesisRegion;
+use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use jgenesis_traits::num::GetBit;
 use m68000_emu::BusInterface;
-use std::{array, io};
-use wordram::{WordRam, WordRamMode};
+use std::ops::Deref;
+use std::{array, io, mem};
+use wordram::WordRam;
 
 const PRG_RAM_LEN: usize = 512 * 1024;
 const PCM_RAM_LEN: usize = 16 * 1024;
@@ -100,9 +102,20 @@ impl SegaCdRegisters {
     }
 }
 
+#[derive(Debug, Clone, Default, FakeEncode, FakeDecode)]
+struct Bios(Vec<u8>);
+
+impl Deref for Bios {
+    type Target = Vec<u8>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct SegaCd {
-    bios: Vec<u8>,
+    bios: Bios,
     disc_drive: CdController,
     prg_ram: Box<[u8; PRG_RAM_LEN]>,
     word_ram: WordRam,
@@ -120,7 +133,7 @@ impl SegaCd {
             _ => vec![0; BACKUP_RAM_LEN],
         };
         Self {
-            bios,
+            bios: Bios(bios),
             disc_drive: CdController::new(Some(disc)),
             prg_ram: vec![0; PRG_RAM_LEN].into_boxed_slice().try_into().unwrap(),
             word_ram: WordRam::new(),
@@ -375,11 +388,14 @@ impl SegaCd {
         self.backup_ram_dirty = false;
         dirty
     }
+
+    pub fn take_rom_from(&mut self, other: &mut Self) {
+        self.bios = mem::take(&mut other.bios);
+        self.disc_drive.take_disc_from(&mut other.disc_drive);
+    }
 }
 
 impl PhysicalMedium for SegaCd {
-    type Rom = CdRom;
-
     #[inline]
     fn read_byte(&mut self, address: u32) -> u8 {
         match address {
@@ -499,10 +515,20 @@ impl PhysicalMedium for SegaCd {
     }
 }
 
+impl CloneWithoutRom for SegaCd {
+    fn clone_without_rom(&self) -> Self {
+        Self {
+            bios: Bios(vec![]),
+            disc_drive: self.disc_drive.clone_without_disc(),
+            ..self.clone()
+        }
+    }
+}
+
 pub struct SubBus<'a> {
     memory: &'a mut Memory<SegaCd>,
     graphics_coprocessor: &'a mut GraphicsCoprocessor,
-    pcm: &'a mut Rf5c164,
+    _pcm: &'a mut Rf5c164,
 }
 
 impl<'a> SubBus<'a> {
@@ -511,7 +537,7 @@ impl<'a> SubBus<'a> {
         graphics_coprocessor: &'a mut GraphicsCoprocessor,
         pcm: &'a mut Rf5c164,
     ) -> Self {
-        Self { memory, graphics_coprocessor, pcm }
+        Self { memory, graphics_coprocessor, _pcm: pcm }
     }
 }
 
