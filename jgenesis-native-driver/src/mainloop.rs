@@ -295,6 +295,23 @@ impl NativeGenesisEmulator {
 pub type NativeSegaCdEmulator =
     NativeEmulator<GenesisInputs, GenesisButton, SegaCdEmulatorConfig, SegaCdEmulator>;
 
+impl NativeSegaCdEmulator {
+    pub fn reload_sega_cd_config(&mut self, config: Box<SegaCdConfig>) {
+        log::info!("Reloading config: {config}");
+
+        self.reload_common_config(&config.common);
+
+        if let Err(err) = self.input_mapper.reload_config(
+            config.p1_controller_type,
+            config.p2_controller_type,
+            config.common.keyboard_inputs,
+            config.common.joystick_inputs,
+        ) {
+            log::error!("Error reloading input config: {err}");
+        }
+    }
+}
+
 // TODO simplify or generalize these trait bounds
 impl<Inputs, Button, Config, Emulator> NativeEmulator<Inputs, Button, Config, Emulator>
 where
@@ -561,7 +578,8 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> anyhow::Result<NativeSegaCdE
 
     let initial_backup_ram = fs::read(&save_path).ok();
 
-    let bios = fs::read(Path::new(&config.bios_file_path))?;
+    let bios = fs::read(Path::new(&config.bios_file_path))
+        .map_err(|err| anyhow!("Error opening BIOS file '{}': {err}", config.bios_file_path))?;
     let emulator =
         SegaCdEmulator::create(bios, Path::new(&config.cue_file_path), initial_backup_ram)?;
 
