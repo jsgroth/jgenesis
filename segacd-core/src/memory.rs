@@ -1,4 +1,4 @@
-mod wordram;
+pub(crate) mod wordram;
 
 use crate::cddrive::CdController;
 use crate::cdrom::reader::CdRom;
@@ -36,9 +36,6 @@ struct SegaCdRegisters {
     // $FF8002/$A12002: Memory mode / PRG RAM bank select
     prg_ram_write_protect: u8,
     prg_ram_bank: u8,
-    word_ram_mode: WordRamMode,
-    dmna: bool,
-    ret: bool,
     // $FF8004: CDC mode & register address
     cdc_device_destination: CdcDeviceDestination,
     // $A12006: HINT vector
@@ -77,9 +74,6 @@ impl SegaCdRegisters {
             sub_cpu_reset: true,
             prg_ram_write_protect: 0,
             prg_ram_bank: 0,
-            word_ram_mode: WordRamMode::TwoM,
-            dmna: false,
-            ret: true,
             cdc_device_destination: CdcDeviceDestination::MainCpuRead,
             h_interrupt_vector: 0xFFFF,
             stopwatch_counter: 0,
@@ -281,8 +275,6 @@ impl SegaCd {
                 self.word_ram.main_cpu_write_control(value);
 
                 log::trace!("  PRG RAM bank: {}", self.registers.prg_ram_bank);
-                log::trace!("  Word RAM mode: {:?}", self.registers.word_ram_mode);
-                log::trace!("  DMNA: {}", self.registers.dmna);
             }
             0xA12006..=0xA12007 => {
                 self.registers.h_interrupt_vector = u16::from_le_bytes([value, value]);
@@ -366,8 +358,16 @@ impl SegaCd {
         self.disc_drive.disc_title(self.region())
     }
 
+    pub fn word_ram_mut(&mut self) -> &mut WordRam {
+        &mut self.word_ram
+    }
+
     pub fn backup_ram(&self) -> &[u8] {
         self.backup_ram.as_slice()
+    }
+
+    pub fn graphics_interrupt_enabled(&self) -> bool {
+        self.registers.graphics_interrupt_enabled
     }
 
     pub fn get_and_clear_backup_ram_dirty_bit(&mut self) -> bool {
@@ -771,6 +771,11 @@ impl<'a> SubBus<'a> {
                 sega_cd.registers.software_interrupt_enabled = value.bit(2);
                 sega_cd.registers.graphics_interrupt_enabled = value.bit(1);
 
+                // Disabling the graphics interrupt should clear any pending interrupt
+                if !sega_cd.registers.graphics_interrupt_enabled {
+                    self.graphics_coprocessor.acknowledge_interrupt();
+                }
+
                 log::trace!("  Interrupt mask write: {value:08b}");
             }
             0xFF8034..=0xFF8035 => {
@@ -1005,6 +1010,7 @@ impl<'a> BusInterface for SubBus<'a> {
         }
     }
 
+    #[allow(clippy::bool_to_int_with_if)]
     #[inline]
     fn interrupt_level(&self) -> u8 {
         // TODO other interrupts
@@ -1013,15 +1019,23 @@ impl<'a> BusInterface for SubBus<'a> {
             && sega_cd.registers.cdd_host_clock_on
             && sega_cd.disc_drive.cdd_interrupt_pending()
         {
+            // INT4: CDD interrupt
             4
         } else if sega_cd.registers.timer_interrupt_enabled
             && sega_cd.registers.timer_interrupt_pending
         {
+            // INT3: Timer interrupt
             3
         } else if sega_cd.registers.software_interrupt_enabled
             && sega_cd.registers.software_interrupt_pending
         {
+            // INT2: Software interrupt from main CPU
             2
+        } else if sega_cd.registers.graphics_interrupt_enabled
+            && self.graphics_coprocessor.interrupt_pending()
+        {
+            // INT1: Graphics interrupt
+            1
         } else {
             0
         }
@@ -1031,6 +1045,9 @@ impl<'a> BusInterface for SubBus<'a> {
     fn acknowledge_interrupt(&mut self) {
         // TODO other interrupts
         match self.interrupt_level() {
+            1 => {
+                self.graphics_coprocessor.acknowledge_interrupt();
+            }
             2 => {
                 self.memory.medium_mut().registers.software_interrupt_pending = false;
             }
