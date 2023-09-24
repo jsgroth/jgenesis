@@ -21,7 +21,7 @@ use sdl2::event::{Event, WindowEvent};
 use sdl2::render::TextureValueError;
 use sdl2::video::{FullscreenType, Window, WindowBuildError};
 use sdl2::{AudioSubsystem, EventPump, IntegerOrSdlError, JoystickSubsystem, VideoSubsystem};
-use segacd_core::api::{DiscError, SegaCdEmulator, SegaCdEmulatorConfig};
+use segacd_core::api::{DiscError, SegaCdEmulator};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgInputs};
 use std::error::Error;
@@ -299,19 +299,20 @@ impl NativeGenesisEmulator {
 }
 
 pub type NativeSegaCdEmulator =
-    NativeEmulator<GenesisInputs, GenesisButton, SegaCdEmulatorConfig, SegaCdEmulator>;
+    NativeEmulator<GenesisInputs, GenesisButton, GenesisEmulatorConfig, SegaCdEmulator>;
 
 impl NativeSegaCdEmulator {
     pub fn reload_sega_cd_config(&mut self, config: Box<SegaCdConfig>) {
         log::info!("Reloading config: {config}");
 
-        self.reload_common_config(&config.common);
+        self.reload_common_config(&config.genesis.common);
+        self.emulator.reload_config(&config.genesis.to_emulator_config());
 
         if let Err(err) = self.input_mapper.reload_config(
-            config.p1_controller_type,
-            config.p2_controller_type,
-            config.common.keyboard_inputs,
-            config.common.joystick_inputs,
+            config.genesis.p1_controller_type,
+            config.genesis.p2_controller_type,
+            config.genesis.common.keyboard_inputs,
+            config.genesis.common.joystick_inputs,
         ) {
             log::error!("Error reloading input config: {err}");
         }
@@ -372,12 +373,15 @@ pub enum NativeEmulatorError {
         #[source]
         source: io::Error,
     },
+    #[error("BIOS is required for Sega CD emulation")]
+    SegaCdNoBios,
     #[error("Error opening BIOS file at '{path}': {source}")]
-    SegaCdBios {
+    SegaCdBiosRead {
         path: String,
         #[source]
         source: io::Error,
     },
+
     #[error("{0}")]
     SegaCdDisc(#[from] DiscError),
     #[error("I/O error opening save state file '{path}': {source}")]
@@ -665,48 +669,54 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
 pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeSegaCdEmulator> {
     log::info!("Running with config: {config}");
 
-    let cue_path = Path::new(&config.cue_file_path);
+    let cue_path = Path::new(&config.genesis.common.rom_file_path);
     let save_path = cue_path.with_extension("sav");
     let save_state_path = cue_path.with_extension("ss0");
 
     let initial_backup_ram = fs::read(&save_path).ok();
 
-    let bios = fs::read(Path::new(&config.bios_file_path)).map_err(|source| {
-        NativeEmulatorError::SegaCdBios { path: config.bios_file_path.clone(), source }
+    let bios_file_path = config.bios_file_path.as_ref().ok_or(NativeEmulatorError::SegaCdNoBios)?;
+    let bios = fs::read(bios_file_path).map_err(|source| NativeEmulatorError::SegaCdBiosRead {
+        path: bios_file_path.clone(),
+        source,
     })?;
-    let emulator =
-        SegaCdEmulator::create(bios, Path::new(&config.cue_file_path), initial_backup_ram)?;
+
+    let emulator_config = config.genesis.to_emulator_config();
+    let emulator = SegaCdEmulator::create(bios, cue_path, initial_backup_ram, emulator_config)?;
 
     let (video, audio, joystick, event_pump) = init_sdl()?;
 
     let WindowSize { width: window_width, height: window_height } =
-        config.common.window_size.unwrap_or(config::DEFAULT_GENESIS_WINDOW_SIZE);
+        config.genesis.common.window_size.unwrap_or(config::DEFAULT_GENESIS_WINDOW_SIZE);
 
     let window = create_window(
         &video,
         &format!("sega cd - {}", emulator.disc_title()),
         window_width,
         window_height,
-        config.common.launch_in_fullscreen,
+        config.genesis.common.launch_in_fullscreen,
     )?;
 
-    let renderer =
-        pollster::block_on(WgpuRenderer::new(window, Window::size, config.common.renderer_config))?;
-    let audio_output = SdlAudioOutput::create_and_init(&audio, config.common.audio_sync)?;
+    let renderer = pollster::block_on(WgpuRenderer::new(
+        window,
+        Window::size,
+        config.genesis.common.renderer_config,
+    ))?;
+    let audio_output = SdlAudioOutput::create_and_init(&audio, config.genesis.common.audio_sync)?;
     let input_mapper = InputMapper::new_genesis(
-        config.p1_controller_type,
-        config.p2_controller_type,
+        config.genesis.p1_controller_type,
+        config.genesis.p2_controller_type,
         joystick,
-        config.common.keyboard_inputs,
-        config.common.joystick_inputs,
-        config.common.axis_deadzone,
+        config.genesis.common.keyboard_inputs,
+        config.genesis.common.joystick_inputs,
+        config.genesis.common.axis_deadzone,
     )?;
-    let hotkey_mapper = HotkeyMapper::from_config(&config.common.hotkeys)?;
+    let hotkey_mapper = HotkeyMapper::from_config(&config.genesis.common.hotkeys)?;
     let save_writer = FsSaveWriter::new(save_path);
 
     Ok(NativeEmulator {
         emulator,
-        config: SegaCdEmulatorConfig,
+        config: emulator_config,
         renderer,
         audio_output,
         input_mapper,
@@ -714,8 +724,10 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
         save_writer,
         event_pump,
         save_state_path,
-        fast_forward_multiplier: config.common.fast_forward_multiplier,
-        rewinder: Rewinder::new(Duration::from_secs(config.common.rewind_buffer_length_seconds)),
+        fast_forward_multiplier: config.genesis.common.fast_forward_multiplier,
+        rewinder: Rewinder::new(Duration::from_secs(
+            config.genesis.common.rewind_buffer_length_seconds,
+        )),
         video,
         cram_debug: None,
         vram_debug: None,
