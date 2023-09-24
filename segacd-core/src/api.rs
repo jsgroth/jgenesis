@@ -2,6 +2,7 @@ use crate::audio::AudioDownsampler;
 use crate::cdrom::cue;
 use crate::cdrom::reader::CdRom;
 use crate::graphics::GraphicsCoprocessor;
+use crate::memory;
 use crate::memory::{SegaCd, SubBus};
 use crate::rf5c164::{PcmTickEffect, Rf5c164};
 use bincode::{Decode, Encode};
@@ -9,7 +10,9 @@ use genesis_core::input::InputState;
 use genesis_core::memory::{MainBus, MainBusSignals, Memory};
 use genesis_core::vdp::{Vdp, VdpTickEffect};
 use genesis_core::ym2612::{Ym2612, YmTickEffect};
-use genesis_core::{GenesisAspectRatio, GenesisEmulator, GenesisError, GenesisInputs};
+use genesis_core::{
+    GenesisAspectRatio, GenesisEmulator, GenesisEmulatorConfig, GenesisError, GenesisInputs,
+};
 use jgenesis_traits::frontend::{
     AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, LightClone, Renderer,
     Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator, TimingMode,
@@ -30,11 +33,14 @@ const NTSC_GENESIS_MASTER_CLOCK_RATE: u64 = 53_693_175;
 const PAL_GENESIS_MASTER_CLOCK_RATE: u64 = 53_203_424;
 const SEGA_CD_MASTER_CLOCK_RATE: u64 = 50_000_000;
 
-#[derive(Debug, Clone)]
-pub struct SegaCdEmulatorConfig;
+const BIOS_LEN: usize = memory::BIOS_LEN;
 
 #[derive(Debug, Error)]
 pub enum DiscError {
+    #[error("BIOS is required for Sega CD emulation")]
+    MissingBios,
+    #[error("BIOS must be {BIOS_LEN} bytes, was {bios_len} bytes")]
+    InvalidBios { bios_len: usize },
     #[error("Unable to determine parent directory of CUE file '{0}'")]
     CueParentDir(String),
     #[error("Error parsing CUE file: {0}")]
@@ -97,6 +103,8 @@ pub struct SegaCdEmulator {
     input: InputState,
     audio_downsampler: AudioDownsampler,
     timing_mode: TimingMode,
+    aspect_ratio: GenesisAspectRatio,
+    adjust_aspect_ratio_in_2x_resolution: bool,
     disc_title: String,
     genesis_mclk_cycles: u64,
     sega_cd_mclk_cycles: u64,
@@ -115,7 +123,12 @@ impl SegaCdEmulator {
         bios: Vec<u8>,
         cue_path: P,
         initial_backup_ram: Option<Vec<u8>>,
+        emulator_config: GenesisEmulatorConfig,
     ) -> DiscResult<Self> {
+        if bios.len() != BIOS_LEN {
+            return Err(DiscError::InvalidBios { bios_len: bios.len() });
+        }
+
         let cue_path = cue_path.as_ref();
         let cue_parent_dir = cue_path
             .parent()
@@ -125,16 +138,18 @@ impl SegaCdEmulator {
         let disc = CdRom::open(cue_sheet, cue_parent_dir)?;
 
         // TODO read header information from disc
-        let mut sega_cd = SegaCd::new(bios, disc, initial_backup_ram);
+        let mut sega_cd =
+            SegaCd::new(bios, disc, initial_backup_ram, emulator_config.forced_region);
         let disc_title = sega_cd.disc_title()?.unwrap_or("(no disc)".into());
 
-        let timing_mode = TimingMode::Ntsc;
+        // TODO auto-detect PAL discs
+        let timing_mode = emulator_config.forced_timing_mode.unwrap_or(TimingMode::Ntsc);
 
         let mut memory = Memory::new(sega_cd);
         let mut main_cpu = M68000::default();
         let sub_cpu = M68000::default();
         let z80 = Z80::new();
-        let mut vdp = Vdp::new(timing_mode, true);
+        let mut vdp = Vdp::new(timing_mode, !emulator_config.remove_sprite_limits);
         let graphics_coprocessor = GraphicsCoprocessor::new();
         let mut ym2612 = Ym2612::new();
         let mut psg = Psg::new(PsgVersion::Standard);
@@ -166,6 +181,9 @@ impl SegaCdEmulator {
             input,
             audio_downsampler,
             timing_mode,
+            aspect_ratio: emulator_config.aspect_ratio,
+            adjust_aspect_ratio_in_2x_resolution: emulator_config
+                .adjust_aspect_ratio_in_2x_resolution,
             disc_title,
             genesis_mclk_cycles: 0,
             sega_cd_mclk_cycles: 0,
@@ -188,7 +206,12 @@ impl SegaCdEmulator {
     }
 
     fn render_frame<R: Renderer>(&self, renderer: &mut R) -> Result<(), R::Err> {
-        genesis_core::render_frame(&self.vdp, GenesisAspectRatio::Ntsc, true, renderer)
+        genesis_core::render_frame(
+            &self.vdp,
+            self.aspect_ratio,
+            self.adjust_aspect_ratio_in_2x_resolution,
+            renderer,
+        )
     }
 
     #[must_use]
@@ -340,9 +363,14 @@ impl Resettable for SegaCdEmulator {
 }
 
 impl ConfigReload for SegaCdEmulator {
-    type Config = SegaCdEmulatorConfig;
+    type Config = GenesisEmulatorConfig;
 
-    fn reload_config(&mut self, _config: &Self::Config) {}
+    fn reload_config(&mut self, config: &Self::Config) {
+        self.aspect_ratio = config.aspect_ratio;
+        self.adjust_aspect_ratio_in_2x_resolution = config.adjust_aspect_ratio_in_2x_resolution;
+        self.vdp.set_enforce_sprite_limits(!config.remove_sprite_limits);
+        self.memory.medium_mut().set_forced_region(config.forced_region);
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -383,7 +411,7 @@ impl EmulatorDebug for SegaCdEmulator {
 
 impl EmulatorTrait for SegaCdEmulator {
     type EmulatorInputs = GenesisInputs;
-    type EmulatorConfig = SegaCdEmulatorConfig;
+    type EmulatorConfig = GenesisEmulatorConfig;
 
     fn timing_mode(&self) -> TimingMode {
         self.timing_mode

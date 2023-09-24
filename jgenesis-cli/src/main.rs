@@ -373,6 +373,21 @@ impl Args {
             hotkeys: self.hotkey_config(),
         }
     }
+
+    fn genesis_config(&self) -> GenesisConfig {
+        let keyboard_inputs = self.genesis_keyboard_config();
+        let common = self.common_config(keyboard_inputs, GenesisInputConfig::default());
+        GenesisConfig {
+            common,
+            forced_timing_mode: self.genesis_timing_mode,
+            forced_region: self.genesis_region,
+            p1_controller_type: self.input_p1_type,
+            p2_controller_type: GenesisControllerType::default(),
+            aspect_ratio: self.genesis_aspect_ratio,
+            adjust_aspect_ratio_in_2x_resolution: self.genesis_adjust_aspect_ratio,
+            remove_sprite_limits: self.remove_sprite_limit,
+        }
+    }
 }
 
 fn keyboard_input(s: &String) -> KeyboardInput {
@@ -434,18 +449,7 @@ fn run_sms(args: Args) -> anyhow::Result<()> {
 }
 
 fn run_genesis(args: Args) -> anyhow::Result<()> {
-    let keyboard_inputs = args.genesis_keyboard_config();
-    let common = args.common_config(keyboard_inputs, GenesisInputConfig::default());
-    let config = GenesisConfig {
-        common,
-        forced_timing_mode: args.genesis_timing_mode,
-        forced_region: args.genesis_region,
-        p1_controller_type: args.input_p1_type,
-        p2_controller_type: GenesisControllerType::default(),
-        aspect_ratio: args.genesis_aspect_ratio,
-        adjust_aspect_ratio_in_2x_resolution: args.genesis_adjust_aspect_ratio,
-        remove_sprite_limits: args.remove_sprite_limit,
-    };
+    let config = args.genesis_config();
 
     let mut emulator = jgenesis_native_driver::create_genesis(config.into())?;
     while emulator.render_frame()? != NativeTickEffect::Exit {}
@@ -459,16 +463,8 @@ fn run_sega_cd(args: Args) -> anyhow::Result<()> {
         .clone()
         .expect("BIOS file path (-b / --bios-path) is required for Sega CD emulation");
 
-    let keyboard_inputs = args.genesis_keyboard_config();
-    let common = args.common_config(keyboard_inputs, GenesisInputConfig::default());
-    let cue_file_path = common.rom_file_path.clone();
-    let config = SegaCdConfig {
-        common,
-        p1_controller_type: args.input_p1_type,
-        p2_controller_type: GenesisControllerType::default(),
-        bios_file_path,
-        cue_file_path,
-    };
+    let config =
+        SegaCdConfig { genesis: args.genesis_config(), bios_file_path: Some(bios_file_path) };
 
     let mut emulator = jgenesis_native_driver::create_sega_cd(config.into())?;
     while emulator.render_frame()? != NativeTickEffect::Exit {}

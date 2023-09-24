@@ -15,6 +15,7 @@ use std::ops::Deref;
 use std::{array, mem};
 use wordram::WordRam;
 
+pub const BIOS_LEN: usize = 128 * 1024;
 const PRG_RAM_LEN: usize = 512 * 1024;
 const PCM_RAM_LEN: usize = 16 * 1024;
 const BACKUP_RAM_LEN: usize = 8 * 1024;
@@ -124,15 +125,24 @@ pub struct SegaCd {
     backup_ram: Box<[u8; BACKUP_RAM_LEN]>,
     backup_ram_dirty: bool,
     registers: SegaCdRegisters,
+    forced_region: Option<GenesisRegion>,
     timer_divider: u64,
 }
 
 impl SegaCd {
-    pub fn new(bios: Vec<u8>, disc: CdRom, initial_backup_ram: Option<Vec<u8>>) -> Self {
+    pub fn new(
+        bios: Vec<u8>,
+        disc: CdRom,
+        initial_backup_ram: Option<Vec<u8>>,
+        forced_region: Option<GenesisRegion>,
+    ) -> Self {
         let backup_ram = match initial_backup_ram {
             Some(backup_ram) if backup_ram.len() == BACKUP_RAM_LEN => backup_ram,
             _ => vec![0; BACKUP_RAM_LEN],
         };
+
+        // TODO auto-detect disc region
+
         Self {
             bios: Bios(bios),
             disc_drive: CdController::new(Some(disc)),
@@ -142,6 +152,7 @@ impl SegaCd {
             backup_ram: backup_ram.into_boxed_slice().try_into().unwrap(),
             backup_ram_dirty: false,
             registers: SegaCdRegisters::new(),
+            forced_region,
             timer_divider: TIMER_DIVIDER,
         }
     }
@@ -394,6 +405,10 @@ impl SegaCd {
         self.bios = mem::take(&mut other.bios);
         self.disc_drive.take_disc_from(&mut other.disc_drive);
     }
+
+    pub fn set_forced_region(&mut self, forced_region: Option<GenesisRegion>) {
+        self.forced_region = forced_region;
+    }
 }
 
 impl PhysicalMedium for SegaCd {
@@ -511,8 +526,8 @@ impl PhysicalMedium for SegaCd {
     }
 
     fn region(&self) -> GenesisRegion {
-        // TODO
-        GenesisRegion::Americas
+        // TODO use disc region
+        self.forced_region.unwrap_or(GenesisRegion::Americas)
     }
 }
 
@@ -553,7 +568,8 @@ impl<'a> SubBus<'a> {
             }
             0xFF8001 => {
                 // Reset
-                // TODO version
+                // TODO version in bits 7-4
+                // Bit 0 (CD drive operable) hardcoded to 1
                 0x01
             }
             0xFF8002 => {

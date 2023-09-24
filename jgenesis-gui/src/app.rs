@@ -263,17 +263,9 @@ impl AppConfig {
     }
 
     fn sega_cd_config(&self, path: String) -> Box<SegaCdConfig> {
-        let cue_file_path = path.clone();
         Box::new(SegaCdConfig {
-            common: self.common_config(
-                path,
-                self.inputs.to_genesis_keyboard_config(),
-                self.inputs.to_genesis_joystick_config(),
-            ),
-            p1_controller_type: self.inputs.genesis_p1_type,
-            p2_controller_type: self.inputs.genesis_p2_type,
-            bios_file_path: self.sega_cd.bios_path.clone().unwrap_or_default(),
-            cue_file_path,
+            genesis: *self.genesis_config(path),
+            bios_file_path: self.sega_cd.bios_path.clone(),
         })
     }
 }
@@ -999,7 +991,7 @@ impl App {
                         ui.close_menu();
                     }
 
-                    if ui.button("Genesis").clicked() {
+                    if ui.button("Genesis / Sega CD").clicked() {
                         self.state.open_windows.insert(OpenWindow::GenesisVideo);
                         ui.close_menu();
                     }

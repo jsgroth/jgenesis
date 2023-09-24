@@ -114,7 +114,8 @@ impl GenesisRegion {
         }
     }
 
-    pub(crate) fn version_bit(self) -> bool {
+    #[must_use]
+    pub fn version_bit(self) -> bool {
         self != Self::Japan
     }
 }
