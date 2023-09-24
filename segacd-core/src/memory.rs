@@ -528,7 +528,7 @@ impl CloneWithoutRom for SegaCd {
 pub struct SubBus<'a> {
     memory: &'a mut Memory<SegaCd>,
     graphics_coprocessor: &'a mut GraphicsCoprocessor,
-    _pcm: &'a mut Rf5c164,
+    pcm: &'a mut Rf5c164,
 }
 
 impl<'a> SubBus<'a> {
@@ -537,7 +537,7 @@ impl<'a> SubBus<'a> {
         graphics_coprocessor: &'a mut GraphicsCoprocessor,
         pcm: &'a mut Rf5c164,
     ) -> Self {
-        Self { memory, graphics_coprocessor, _pcm: pcm }
+        Self { memory, graphics_coprocessor, pcm }
     }
 }
 
@@ -935,7 +935,11 @@ impl<'a> BusInterface for SubBus<'a> {
                     0x00
                 }
             }
-            0xFF0000..=0xFFFFFF => {
+            0xFF0000..=0xFF3FFF => {
+                // PCM sound chip (odd addresses)
+                if address.bit(0) { self.pcm.read((address & 0x3FFF) >> 1) } else { 0x00 }
+            }
+            0xFF8000..=0xFF81FF => {
                 // Sub CPU registers
                 self.read_register_byte(address)
             }
@@ -966,7 +970,11 @@ impl<'a> BusInterface for SubBus<'a> {
                 let backup_ram_addr = (address & 0x3FFF) >> 1;
                 self.memory.medium().backup_ram[backup_ram_addr as usize].into()
             }
-            0xFF0000..=0xFFFFFF => {
+            0xFF0000..=0xFF3FFF => {
+                // PCM sound chip (odd addresses)
+                self.pcm.read((address & 0x3FFF) >> 1).into()
+            }
+            0xFF8000..=0xFF81FF => {
                 // Sub CPU registers
                 self.read_register_word(address)
             }
@@ -995,7 +1003,13 @@ impl<'a> BusInterface for SubBus<'a> {
                     sega_cd.backup_ram_dirty = true;
                 }
             }
-            0xFF0000..=0xFFFFFF => {
+            0xFF0000..=0xFF3FFF => {
+                // PCM sound chip (odd addresses)
+                if address.bit(0) {
+                    self.pcm.write((address & 0x3FFF) >> 1, value);
+                }
+            }
+            0xFF8000..=0xFF81FF => {
                 // Sub CPU registers
                 self.write_register_byte(address, value);
             }
@@ -1028,7 +1042,11 @@ impl<'a> BusInterface for SubBus<'a> {
                 sega_cd.backup_ram[backup_ram_addr as usize] = value as u8;
                 sega_cd.backup_ram_dirty = true;
             }
-            0xFF0000..=0xFFFFFF => {
+            0xFF0000..=0xFF3FFF => {
+                // PCM sound chip (odd addresses)
+                self.pcm.write((address & 0x3FFF) >> 1, value as u8);
+            }
+            0xFF8000..=0xFF81FF => {
                 // Sub CPU registers
                 self.write_register_word(address, value);
             }

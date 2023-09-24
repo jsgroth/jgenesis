@@ -3,7 +3,7 @@ use crate::cdrom::cue;
 use crate::cdrom::reader::CdRom;
 use crate::graphics::GraphicsCoprocessor;
 use crate::memory::{SegaCd, SubBus};
-use crate::rf5c164::Rf5c164;
+use crate::rf5c164::{PcmTickEffect, Rf5c164};
 use anyhow::anyhow;
 use bincode::{Decode, Encode};
 use genesis_core::input::InputState;
@@ -86,7 +86,7 @@ impl SegaCdEmulator {
         let graphics_coprocessor = GraphicsCoprocessor::new();
         let mut ym2612 = Ym2612::new();
         let mut psg = Psg::new(PsgVersion::Standard);
-        let pcm = Rf5c164;
+        let pcm = Rf5c164::new();
         let mut input = InputState::new();
 
         // Reset main CPU
@@ -233,6 +233,12 @@ impl TickableEmulator for SegaCdEmulator {
                 let (ym2612_sample_l, ym2612_sample_r) = self.ym2612.sample();
                 self.audio_downsampler.collect_ym2612_sample(ym2612_sample_l, ym2612_sample_r);
             }
+        }
+
+        // RF5C164
+        if self.pcm.tick(sub_cpu_cycles) == PcmTickEffect::Clocked {
+            let (pcm_sample_l, pcm_sample_r) = self.pcm.sample();
+            self.audio_downsampler.collect_pcm_sample(pcm_sample_l, pcm_sample_r);
         }
 
         // Output any audio samples that are queued up

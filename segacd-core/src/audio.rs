@@ -7,6 +7,7 @@ use std::collections::VecDeque;
 
 const NTSC_GENESIS_MCLK_FREQUENCY: f64 = 53_693_175.0;
 const PAL_GENESIS_MCLK_FREQUENCY: f64 = 53_203_424.0;
+const SEGA_CD_MCLK_FREQUENCY: f64 = 50_000_000.0;
 
 const YM2612_LPF_COEFFICIENT_0: f64 = -0.001478342773457343;
 const YM2612_LPF_COEFFICIENTS: [f64; 25] = [
@@ -83,6 +84,36 @@ const PSG_HPF_CHARGE_FACTOR: f64 = 0.999212882632514;
 // -8dB (10 ^ -8/20)
 // PSG is too loud if it's given the same volume level as the YM2612
 const PSG_COEFFICIENT: f64 = 0.3981071705534972;
+
+const PCM_LPF_COEFFICIENT_0: f64 = -0.001032167331725023;
+const PCM_LPF_COEFFICIENTS: [f64; 21] = [
+    -0.001032167331725023,
+    -0.00337362854293201,
+    -0.002300741105977643,
+    0.007438828683983638,
+    0.01718256624704002,
+    0.002040390827841266,
+    -0.04030652783842427,
+    -0.05506118523737572,
+    0.02814357569062969,
+    0.2004791993149999,
+    0.3467896892919401,
+    0.3467896892919402,
+    0.2004791993149999,
+    0.02814357569062969,
+    -0.05506118523737575,
+    -0.04030652783842429,
+    0.002040390827841267,
+    0.01718256624704001,
+    0.00743882868398364,
+    -0.002300741105977646,
+    -0.003373628542932013,
+];
+
+const PCM_HPF_CHARGE_FACTOR: f64 = 0.9946028448191855;
+
+// -4.5 dB (10 ^ -4.5/20)
+const PCM_COEFFICIENT: f64 = 0.5956621435290105;
 
 #[derive(Debug, Clone, Encode, Decode)]
 struct SignalDownsampler<const LPF_TAPS: usize, const ZERO_PADDING: usize> {
@@ -197,11 +228,13 @@ fn output_sample<const N: usize>(
 
 type Ym2612Downsampler = SignalDownsampler<25, 2>;
 type PsgDownsampler = SignalDownsampler<35, 0>;
+type PcmDownsampler = SignalDownsampler<21, 3>;
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct AudioDownsampler {
     ym2612_downsampler: Ym2612Downsampler,
     psg_downsampler: PsgDownsampler,
+    pcm_downsampler: PcmDownsampler,
 }
 
 impl AudioDownsampler {
@@ -212,6 +245,7 @@ impl AudioDownsampler {
         };
         let ym2612_frequency = genesis_mclk_frequency / 7.0 / 6.0 / 24.0;
         let psg_frequency = genesis_mclk_frequency / 15.0 / 16.0;
+        let pcm_frequency = SEGA_CD_MCLK_FREQUENCY / 4.0 / 384.0;
 
         let ym2612_downsampler = Ym2612Downsampler::new(
             ym2612_frequency,
@@ -225,8 +259,14 @@ impl AudioDownsampler {
             PSG_LPF_COEFFICIENTS,
             PSG_HPF_CHARGE_FACTOR,
         );
+        let pcm_downsampler = PcmDownsampler::new(
+            pcm_frequency,
+            PCM_LPF_COEFFICIENT_0,
+            PCM_LPF_COEFFICIENTS,
+            PCM_HPF_CHARGE_FACTOR,
+        );
 
-        Self { ym2612_downsampler, psg_downsampler }
+        Self { ym2612_downsampler, psg_downsampler, pcm_downsampler }
     }
 
     pub fn collect_ym2612_sample(&mut self, sample_l: f64, sample_r: f64) {
@@ -237,15 +277,24 @@ impl AudioDownsampler {
         self.psg_downsampler.collect_sample(sample_l, sample_r);
     }
 
+    pub fn collect_pcm_sample(&mut self, sample_l: f64, sample_r: f64) {
+        self.pcm_downsampler.collect_sample(sample_l, sample_r);
+    }
+
     pub fn output_samples<A: AudioOutput>(&mut self, audio_output: &mut A) -> Result<(), A::Err> {
-        let sample_count =
-            cmp::min(self.ym2612_downsampler.output.len(), self.psg_downsampler.output.len());
+        let sample_count = cmp::min(
+            cmp::min(self.ym2612_downsampler.output.len(), self.psg_downsampler.output.len()),
+            self.pcm_downsampler.output.len(),
+        );
         for _ in 0..sample_count {
             let (ym2612_l, ym2612_r) = self.ym2612_downsampler.output.pop_front().unwrap();
             let (psg_l, psg_r) = self.psg_downsampler.output.pop_front().unwrap();
+            let (pcm_l, pcm_r) = self.pcm_downsampler.output.pop_front().unwrap();
 
-            let sample_l = (ym2612_l + PSG_COEFFICIENT * psg_l).clamp(-1.0, 1.0);
-            let sample_r = (ym2612_r + PSG_COEFFICIENT * psg_r).clamp(-1.0, 1.0);
+            let sample_l =
+                (ym2612_l + PSG_COEFFICIENT * psg_l + PCM_COEFFICIENT * pcm_l).clamp(-1.0, 1.0);
+            let sample_r =
+                (ym2612_r + PSG_COEFFICIENT * psg_r + PCM_COEFFICIENT * pcm_r).clamp(-1.0, 1.0);
 
             audio_output.push_sample(sample_l, sample_r)?;
         }
