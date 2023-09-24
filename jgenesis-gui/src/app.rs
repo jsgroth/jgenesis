@@ -266,6 +266,7 @@ impl AppConfig {
         Box::new(SegaCdConfig {
             genesis: *self.genesis_config(path),
             bios_file_path: self.sega_cd.bios_path.clone(),
+            run_without_disc: false,
         })
     }
 }

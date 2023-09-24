@@ -119,23 +119,29 @@ impl SegaCdEmulator {
     /// * Unable to read the given CUE file
     /// * Unable to read every BIN file that is referenced in the CUE
     /// * Unable to read boot information from the beginning of the data track
+    #[allow(clippy::if_then_some_else_none)]
     pub fn create<P: AsRef<Path>>(
         bios: Vec<u8>,
         cue_path: P,
         initial_backup_ram: Option<Vec<u8>>,
+        run_without_disc: bool,
         emulator_config: GenesisEmulatorConfig,
     ) -> DiscResult<Self> {
         if bios.len() != BIOS_LEN {
             return Err(DiscError::InvalidBios { bios_len: bios.len() });
         }
 
-        let cue_path = cue_path.as_ref();
-        let cue_parent_dir = cue_path
-            .parent()
-            .ok_or_else(|| DiscError::CueParentDir(cue_path.display().to_string()))?;
+        let disc = if !run_without_disc {
+            let cue_path = cue_path.as_ref();
+            let cue_parent_dir = cue_path
+                .parent()
+                .ok_or_else(|| DiscError::CueParentDir(cue_path.display().to_string()))?;
 
-        let cue_sheet = cue::parse(cue_path)?;
-        let disc = CdRom::open(cue_sheet, cue_parent_dir)?;
+            let cue_sheet = cue::parse(cue_path)?;
+            Some(CdRom::open(cue_sheet, cue_parent_dir)?)
+        } else {
+            None
+        };
 
         // TODO read header information from disc
         let mut sega_cd =

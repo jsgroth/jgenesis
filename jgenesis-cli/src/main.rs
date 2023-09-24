@@ -37,6 +37,10 @@ struct Args {
     #[arg(short = 'b', long)]
     bios_path: Option<String>,
 
+    /// Run the Sega CD emulator with no disc
+    #[arg(long, default_value_t)]
+    scd_no_disc: bool,
+
     /// Hardware (MasterSystem / Genesis)
     ///
     /// Will default based on file extension if not set. MasterSystem is appropriate for both SMS
@@ -463,8 +467,11 @@ fn run_sega_cd(args: Args) -> anyhow::Result<()> {
         .clone()
         .expect("BIOS file path (-b / --bios-path) is required for Sega CD emulation");
 
-    let config =
-        SegaCdConfig { genesis: args.genesis_config(), bios_file_path: Some(bios_file_path) };
+    let config = SegaCdConfig {
+        genesis: args.genesis_config(),
+        bios_file_path: Some(bios_file_path),
+        run_without_disc: args.scd_no_disc,
+    };
 
     let mut emulator = jgenesis_native_driver::create_sega_cd(config.into())?;
     while emulator.render_frame()? != NativeTickEffect::Exit {}

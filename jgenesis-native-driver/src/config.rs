@@ -191,4 +191,5 @@ pub struct SegaCdConfig {
     #[indent_nested]
     pub genesis: GenesisConfig,
     pub bios_file_path: Option<String>,
+    pub run_without_disc: bool,
 }
