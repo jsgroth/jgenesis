@@ -170,6 +170,8 @@ impl TickableEmulator for SegaCdEmulator {
             self.timing_mode,
             MainBusSignals { z80_busack: self.z80.stalled(), m68k_reset: false },
         );
+
+        // Main 68000
         let main_cpu_cycles = self.main_cpu.execute_instruction(&mut main_bus);
 
         let genesis_mclk_elapsed = u64::from(main_cpu_cycles) * MAIN_CPU_DIVIDER;
@@ -177,6 +179,7 @@ impl TickableEmulator for SegaCdEmulator {
             - self.genesis_mclk_cycles / Z80_DIVIDER;
         self.genesis_mclk_cycles += genesis_mclk_elapsed;
 
+        // Z80
         for _ in 0..z80_cycles {
             self.z80.tick(&mut main_bus);
         }
@@ -196,11 +199,27 @@ impl TickableEmulator for SegaCdEmulator {
 
         let sub_cpu_cycles =
             self.sega_cd_mclk_cycles / SUB_CPU_DIVIDER - prev_scd_mclk_cycles / SUB_CPU_DIVIDER;
-        self.memory.medium_mut().tick(self.sega_cd_mclk_cycles - prev_scd_mclk_cycles);
+        let elapsed_scd_mclk_cycles = self.sega_cd_mclk_cycles - prev_scd_mclk_cycles;
+
+        // Disc drive and timer/stopwatch
+        let sega_cd = self.memory.medium_mut();
+        sega_cd.tick(elapsed_scd_mclk_cycles);
+
+        // Graphics ASIC
+        let graphics_interrupt_enabled = sega_cd.graphics_interrupt_enabled();
+        self.graphics_coprocessor.tick(
+            elapsed_scd_mclk_cycles,
+            sega_cd.word_ram_mut(),
+            graphics_interrupt_enabled,
+        );
+
+        // Sub 68000
         self.tick_sub_cpu(sub_cpu_cycles);
 
+        // Input state (for 6-button controller reset)
         self.input.tick(main_cpu_cycles);
 
+        // PSG
         for _ in 0..z80_cycles {
             if self.psg.tick() == PsgTickEffect::Clocked {
                 let (psg_sample_l, psg_sample_r) = self.psg.sample();
@@ -208,6 +227,7 @@ impl TickableEmulator for SegaCdEmulator {
             }
         }
 
+        // YM2612
         for _ in 0..main_cpu_cycles {
             if self.ym2612.tick() == YmTickEffect::OutputSample {
                 let (ym2612_sample_l, ym2612_sample_r) = self.ym2612.sample();
@@ -215,8 +235,10 @@ impl TickableEmulator for SegaCdEmulator {
             }
         }
 
+        // Output any audio samples that are queued up
         self.audio_downsampler.output_samples(audio_output).map_err(GenesisError::Audio)?;
 
+        // VDP
         if self.vdp.tick(genesis_mclk_elapsed, &mut self.memory) == VdpTickEffect::FrameComplete {
             self.render_frame(renderer).map_err(GenesisError::Render)?;
 

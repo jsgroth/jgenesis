@@ -1,6 +1,12 @@
 use bincode::{Decode, Encode};
 use jgenesis_traits::num::GetBit;
 
+// Word RAM is 256KB
+pub const ADDRESS_MASK: u32 = 0x03FFFF;
+
+// Word RAM is mapped to $080000-$0BFFFF in sub CPU memory map
+pub const SUB_BASE_ADDRESS: u32 = 0x080000;
+
 const WORD_RAM_LEN: usize = 256 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -189,7 +195,7 @@ impl WordRam {
         match (self.mode, address) {
             (WordRamMode::TwoM, 0x080000..=0x0BFFFF) => {
                 if self.owner_2m == WordRamOwner::Sub {
-                    WordRamSubMapResult::Byte(address & 0x03FFFF)
+                    WordRamSubMapResult::Byte(address & ADDRESS_MASK)
                 } else {
                     WordRamSubMapResult::None
                 }
