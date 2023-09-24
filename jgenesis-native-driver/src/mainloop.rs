@@ -682,7 +682,13 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
     })?;
 
     let emulator_config = config.genesis.to_emulator_config();
-    let emulator = SegaCdEmulator::create(bios, cue_path, initial_backup_ram, emulator_config)?;
+    let emulator = SegaCdEmulator::create(
+        bios,
+        cue_path,
+        initial_backup_ram,
+        config.run_without_disc,
+        emulator_config,
+    )?;
 
     let (video, audio, joystick, event_pump) = init_sdl()?;
 
