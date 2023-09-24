@@ -1,8 +1,8 @@
 use crate::config::{PreprocessShader, RendererConfig, Scanlines, WgpuBackend};
-use anyhow::anyhow;
 use jgenesis_traits::frontend::{Color, FrameSize, PixelAspectRatio, Renderer};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::{cmp, iter, mem};
+use thiserror::Error;
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
@@ -524,7 +524,7 @@ impl RenderingPipeline {
         queue: &wgpu::Queue,
         surface: &wgpu::Surface,
         frame_buffer: &[Color],
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), RendererError> {
         let output = surface.get_current_texture()?;
         let output_texture_view =
             output.texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -663,6 +663,22 @@ fn scale_vertex_position(
     position as f32
 }
 
+#[derive(Debug, Error)]
+pub enum RendererError {
+    #[error("Error creating wgpu surface: {0}")]
+    WgpuCreateSurface(#[from] wgpu::CreateSurfaceError),
+    #[error("Error requesting wgpu device: {0}")]
+    WgpuRequestDevice(#[from] wgpu::RequestDeviceError),
+    #[error("Error getting handle to wgpu output surface: {0}")]
+    WgpuSurface(#[from] wgpu::SurfaceError),
+    #[error("Failed to obtain wgpu adapter")]
+    NoWgpuAdapter,
+    #[error(
+        "wgpu adapter does not support present mode {desired:?}; supported modes are {available:?}"
+    )]
+    UnsupportedPresentMode { desired: wgpu::PresentMode, available: Vec<wgpu::PresentMode> },
+}
+
 pub type WindowSizeFn<Window> = fn(&Window) -> (u32, u32);
 
 pub struct WgpuRenderer<Window> {
@@ -691,7 +707,7 @@ impl<Window: HasRawDisplayHandle + HasRawWindowHandle> WgpuRenderer<Window> {
         window: Window,
         window_size_fn: WindowSizeFn<Window>,
         config: RendererConfig,
-    ) -> anyhow::Result<Self> {
+    ) -> Result<Self, RendererError> {
         let backends = match config.wgpu_backend {
             WgpuBackend::Auto => wgpu::Backends::PRIMARY,
             WgpuBackend::Vulkan => wgpu::Backends::VULKAN,
@@ -715,7 +731,7 @@ impl<Window: HasRawDisplayHandle + HasRawWindowHandle> WgpuRenderer<Window> {
                 force_fallback_adapter: false,
             })
             .await
-            .ok_or_else(|| anyhow!("Unable to obtain wgpu adapter"))?;
+            .ok_or(RendererError::NoWgpuAdapter)?;
 
         log::info!("Obtained wgpu adapter with backend {:?}", adapter.get_info().backend);
 
@@ -738,10 +754,10 @@ impl<Window: HasRawDisplayHandle + HasRawWindowHandle> WgpuRenderer<Window> {
 
         let present_mode = config.vsync_mode.to_wgpu_present_mode();
         if !surface_capabilities.present_modes.contains(&present_mode) {
-            return Err(anyhow!(
-                "wgpu adapter does not support present mode {present_mode:?}; supported modes are {:?}",
-                surface_capabilities.present_modes
-            ));
+            return Err(RendererError::UnsupportedPresentMode {
+                desired: present_mode,
+                available: surface_capabilities.present_modes.clone(),
+            });
         }
 
         let surface_format = surface_capabilities
@@ -864,7 +880,7 @@ impl<Window> WgpuRenderer<Window> {
 }
 
 impl<Window> Renderer for WgpuRenderer<Window> {
-    type Err = anyhow::Error;
+    type Err = RendererError;
 
     fn render_frame(
         &mut self,

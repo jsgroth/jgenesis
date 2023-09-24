@@ -14,48 +14,21 @@ use jgenesis_traits::frontend::{
 use jgenesis_traits::num::GetBit;
 use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgVersion};
-use std::error::Error;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Display};
+use thiserror::Error;
 use z80_emu::Z80;
 
 const M68K_MCLK_DIVIDER: u64 = 7;
 const Z80_MCLK_DIVIDER: u64 = 15;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum GenesisError<RErr, AErr, SErr> {
+    #[error("Rendering error: {0}")]
     Render(RErr),
+    #[error("Audio output error: {0}")]
     Audio(AErr),
+    #[error("Save write error: {0}")]
     Save(SErr),
-}
-
-impl<RErr, AErr, SErr> Display for GenesisError<RErr, AErr, SErr>
-where
-    RErr: Display,
-    AErr: Display,
-    SErr: Display,
-{
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Render(err) => write!(f, "Rendering error: {err}"),
-            Self::Audio(err) => write!(f, "Audio error: {err}"),
-            Self::Save(err) => write!(f, "Save error: {err}"),
-        }
-    }
-}
-
-impl<RErr, AErr, SErr> Error for GenesisError<RErr, AErr, SErr>
-where
-    RErr: Debug + Display + AsRef<dyn Error + 'static>,
-    AErr: Debug + Display + AsRef<dyn Error + 'static>,
-    SErr: Debug + Display + AsRef<dyn Error + 'static>,
-{
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Render(err) => Some(err.as_ref()),
-            Self::Audio(err) => Some(err.as_ref()),
-            Self::Save(err) => Some(err.as_ref()),
-        }
-    }
 }
 
 pub type GenesisResult<RErr, AErr, SErr> = Result<TickEffect, GenesisError<RErr, AErr, SErr>>;
@@ -310,7 +283,11 @@ impl TakeRomFrom for GenesisEmulator {
 
 impl TickableEmulator for GenesisEmulator {
     type Inputs = GenesisInputs;
-    type Err<RErr, AErr, SErr> = GenesisError<RErr, AErr, SErr>;
+    type Err<
+        RErr: Debug + Display + Send + Sync + 'static,
+        AErr: Debug + Display + Send + Sync + 'static,
+        SErr: Debug + Display + Send + Sync + 'static,
+    > = GenesisError<RErr, AErr, SErr>;
 
     /// Execute one 68000 CPU instruction and run the rest of the components for the appropriate
     /// number of cycles.
@@ -329,8 +306,11 @@ impl TickableEmulator for GenesisEmulator {
     ) -> GenesisResult<R::Err, A::Err, S::Err>
     where
         R: Renderer,
+        R::Err: Debug + Display + Send + Sync + 'static,
         A: AudioOutput,
+        A::Err: Debug + Display + Send + Sync + 'static,
         S: SaveWriter,
+        S::Err: Debug + Display + Send + Sync + 'static,
     {
         let mut bus = MainBus::new(
             &mut self.memory,

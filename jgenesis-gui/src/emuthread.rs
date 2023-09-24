@@ -5,15 +5,17 @@ use jgenesis_native_driver::config::input::{
 use jgenesis_native_driver::config::{GenesisConfig, SegaCdConfig, SmsGgConfig};
 use jgenesis_native_driver::input::{Clearable, GetButtonField, Joysticks};
 use jgenesis_native_driver::{
-    NativeEmulator, NativeGenesisEmulator, NativeSegaCdEmulator, NativeSmsGgEmulator,
-    NativeTickEffect,
+    AudioError, NativeEmulator, NativeGenesisEmulator, NativeSegaCdEmulator, NativeSmsGgEmulator,
+    NativeTickEffect, SaveWriteError,
 };
+use jgenesis_renderer::renderer::RendererError;
 use jgenesis_traits::frontend::EmulatorTrait;
 use sdl2::event::Event;
 use sdl2::joystick::HatState;
 use sdl2::pixels::Color;
 use sdl2::render::WindowCanvas;
 use sdl2::{EventPump, JoystickSubsystem};
+use std::error::Error;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::sync::{mpsc, Arc, Mutex, MutexGuard};
@@ -141,7 +143,7 @@ pub fn spawn() -> EmuThreadHandle {
                         Ok(emulator) => emulator,
                         Err(err) => {
                             log::error!("Error initializing SMS/GG emulator: {err}");
-                            *emulator_error.lock().unwrap() = Some(err);
+                            *emulator_error.lock().unwrap() = Some(err.into());
                             continue;
                         }
                     };
@@ -160,7 +162,7 @@ pub fn spawn() -> EmuThreadHandle {
                         Ok(emulator) => emulator,
                         Err(err) => {
                             log::error!("Error initializing Genesis emulator: {err}");
-                            *emulator_error.lock().unwrap() = Some(err);
+                            *emulator_error.lock().unwrap() = Some(err.into());
                             continue;
                         }
                     };
@@ -179,7 +181,7 @@ pub fn spawn() -> EmuThreadHandle {
                         Ok(emulator) => emulator,
                         Err(err) => {
                             log::error!("Error initializing Sega CD emulator: {err}");
-                            *emulator_error.lock().unwrap() = Some(err);
+                            *emulator_error.lock().unwrap() = Some(err.into());
                             continue;
                         }
                     };
@@ -262,7 +264,7 @@ fn run_emulator<Inputs, Button, Config, Emulator>(
     Inputs: Clearable + GetButtonField<Button>,
     Button: Copy,
     Emulator: EmulatorTrait<EmulatorInputs = Inputs, EmulatorConfig = Config>,
-    anyhow::Error: From<Emulator::Err<anyhow::Error, anyhow::Error, anyhow::Error>>,
+    Emulator::Err<RendererError, AudioError, SaveWriteError>: Error + Send + Sync + 'static,
 {
     loop {
         match emulator.render_frame() {
@@ -322,7 +324,7 @@ fn run_emulator<Inputs, Button, Config, Emulator>(
             }
             Err(err) => {
                 log::error!("Emulator terminated with an error: {err}");
-                *emulator_error.lock().unwrap() = Some(err);
+                *emulator_error.lock().unwrap() = Some(err.into());
                 return;
             }
         }

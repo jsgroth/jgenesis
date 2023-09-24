@@ -1,7 +1,7 @@
+use crate::api::{DiscError, DiscResult};
 use crate::cdrom;
 use crate::cdrom::cdtime::CdTime;
 use crate::cdrom::cue::CueSheet;
-use anyhow::anyhow;
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::collections::{HashMap, HashSet};
@@ -46,7 +46,7 @@ impl Clone for CdRomFiles {
 }
 
 impl CdRomFiles {
-    fn create<P: AsRef<Path>>(cue_sheet: &CueSheet, directory: P) -> anyhow::Result<Self> {
+    fn create<P: AsRef<Path>>(cue_sheet: &CueSheet, directory: P) -> DiscResult<Self> {
         let file_names: HashSet<_> =
             cue_sheet.tracks().map(|track| track.metadata.file_name.clone()).collect();
 
@@ -54,8 +54,10 @@ impl CdRomFiles {
         let mut files = HashMap::with_capacity(file_names.len());
         for file_name in file_names {
             let file_path = directory.join(Path::new(&file_name));
-            let file = File::open(&file_path)
-                .map_err(|err| anyhow!("Error opening file '{file_name}': {err}"))?;
+            let file = File::open(&file_path).map_err(|source| DiscError::BinOpen {
+                path: file_path.display().to_string(),
+                source,
+            })?;
             files.insert(file_name, file);
         }
 
@@ -70,7 +72,7 @@ pub struct CdRom {
 }
 
 impl CdRom {
-    pub fn open<P: AsRef<Path>>(cue_sheet: CueSheet, directory: P) -> anyhow::Result<Self> {
+    pub fn open<P: AsRef<Path>>(cue_sheet: CueSheet, directory: P) -> DiscResult<Self> {
         let files = CdRomFiles::create(&cue_sheet, directory)?;
         Ok(Self { cue_sheet, files })
     }

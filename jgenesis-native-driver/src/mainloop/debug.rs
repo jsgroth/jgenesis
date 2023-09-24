@@ -1,4 +1,4 @@
-use anyhow::anyhow;
+use crate::mainloop::{NativeEmulatorError, NativeEmulatorResult};
 use jgenesis_traits::frontend;
 use jgenesis_traits::frontend::{Color, EmulatorDebug};
 use sdl2::pixels::PixelFormatEnum;
@@ -12,7 +12,7 @@ pub struct CramDebug {
 }
 
 impl CramDebug {
-    pub fn new<Emulator: EmulatorDebug>(video: &VideoSubsystem) -> anyhow::Result<Self> {
+    pub fn new<Emulator: EmulatorDebug>(video: &VideoSubsystem) -> NativeEmulatorResult<Self> {
         use sdl2::pixels::Color as SdlColor;
 
         let window_width = 30 * Emulator::PALETTE_LEN;
@@ -20,7 +20,11 @@ impl CramDebug {
         let window = video.window("CRAM Debug", window_width, window_height).build()?;
         // Force software renderer because the hardware renderer will randomly segfault when multiple
         // windows are involved
-        let mut canvas = window.into_canvas().software().build()?;
+        let mut canvas = window
+            .into_canvas()
+            .software()
+            .build()
+            .map_err(NativeEmulatorError::SdlCreateCanvas)?;
 
         canvas.set_draw_color(SdlColor::RGB(0, 0, 0));
         canvas.clear();
@@ -35,7 +39,10 @@ impl CramDebug {
         self.canvas.window().id()
     }
 
-    pub fn render<Emulator: EmulatorDebug>(&mut self, emulator: &Emulator) -> anyhow::Result<()> {
+    pub fn render<Emulator: EmulatorDebug>(
+        &mut self,
+        emulator: &Emulator,
+    ) -> NativeEmulatorResult<()> {
         emulator.debug_cram(&mut self.buffer);
 
         let texture_creator = self.canvas.texture_creator();
@@ -54,12 +61,10 @@ impl CramDebug {
                     pixels[start + 2] = color.b;
                 }
             })
-            .map_err(|err| anyhow!("Error populating CRAM debug texture: {err}"))?;
+            .map_err(NativeEmulatorError::SdlCramDebug)?;
 
         self.canvas.clear();
-        self.canvas
-            .copy(&texture, None, None)
-            .map_err(|err| anyhow!("Error copying CRAM debug texture to window canvas: {err}"))?;
+        self.canvas.copy(&texture, None, None).map_err(NativeEmulatorError::SdlCramDebug)?;
         self.canvas.present();
 
         Ok(())
@@ -75,7 +80,7 @@ pub struct VramDebug {
 }
 
 impl VramDebug {
-    pub fn new<Emulator: EmulatorDebug>(video: &VideoSubsystem) -> anyhow::Result<Self> {
+    pub fn new<Emulator: EmulatorDebug>(video: &VideoSubsystem) -> NativeEmulatorResult<Self> {
         use sdl2::pixels::Color as SdlColor;
 
         let rows = Emulator::PATTERN_TABLE_LEN / frontend::VRAM_DEBUG_ROW_LEN;
@@ -84,7 +89,11 @@ impl VramDebug {
         let window = video.window("VRAM Debug - Palette 0", window_width, window_height).build()?;
         // Force software renderer because the hardware renderer will randomly segfault when multiple
         // windows are involved
-        let mut canvas = window.into_canvas().software().build()?;
+        let mut canvas = window
+            .into_canvas()
+            .software()
+            .build()
+            .map_err(NativeEmulatorError::SdlCreateCanvas)?;
 
         canvas.set_draw_color(SdlColor::RGB(0, 0, 0));
         canvas.clear();
@@ -104,19 +113,26 @@ impl VramDebug {
         self.canvas.window().id()
     }
 
-    pub fn toggle_palette(&mut self) -> anyhow::Result<()> {
+    pub fn toggle_palette(&mut self) -> NativeEmulatorResult<()> {
         // Prevent the input from triggering twice immediately after the window oppens
         if Instant::now().duration_since(self.open_time) < Duration::from_millis(300) {
             return Ok(());
         }
 
         self.palette = (self.palette + 1) % self.num_palettes;
-        self.canvas.window_mut().set_title(&format!("VRAM Debug - Palette {}", self.palette))?;
+        let title = format!("VRAM Debug - Palette {}", self.palette);
+        self.canvas
+            .window_mut()
+            .set_title(&title)
+            .map_err(|source| NativeEmulatorError::SdlSetWindowTitle { title, source })?;
 
         Ok(())
     }
 
-    pub fn render<Emulator: EmulatorDebug>(&mut self, emulator: &Emulator) -> anyhow::Result<()> {
+    pub fn render<Emulator: EmulatorDebug>(
+        &mut self,
+        emulator: &Emulator,
+    ) -> NativeEmulatorResult<()> {
         emulator.debug_vram(&mut self.buffer, self.palette);
 
         let texture_creator = self.canvas.texture_creator();
@@ -135,12 +151,10 @@ impl VramDebug {
                     pixels[start + 2] = color.b;
                 }
             })
-            .map_err(|err| anyhow!("Error populating VRAM debug texture: {err}"))?;
+            .map_err(NativeEmulatorError::SdlVramDebug)?;
 
         self.canvas.clear();
-        self.canvas
-            .copy(&texture, None, None)
-            .map_err(|err| anyhow!("Error copying VRAM debug texture to canvas: {err}"))?;
+        self.canvas.copy(&texture, None, None).map_err(NativeEmulatorError::SdlVramDebug)?;
         self.canvas.present();
 
         Ok(())

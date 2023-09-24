@@ -1,6 +1,9 @@
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
+use std::error::Error;
+use std::fmt::{Debug, Display};
 use std::num::NonZeroU32;
+use thiserror::Error;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable, Encode, Decode)]
@@ -135,10 +138,20 @@ pub enum TickEffect {
     FrameRendered,
 }
 
+#[derive(Debug, Error)]
+pub enum EmulatorError<RErr, AErr, SErr> {
+    #[error("Rendering error: {0}")]
+    Render(RErr),
+    #[error("Audio error: {0}")]
+    Audio(AErr),
+    #[error("Save write error: {0}")]
+    SaveWrite(SErr),
+}
+
 #[allow(clippy::type_complexity)]
 pub trait TickableEmulator {
     type Inputs;
-    type Err<RErr, AErr, SErr>;
+    type Err<RErr: Debug + Display + Send + Sync + 'static, AErr: Debug + Display + Send + Sync + 'static, SErr: Debug + Display + Send + Sync + 'static>: Error + Send + Sync + 'static;
 
     /// Tick the emulator for a small amount of time, e.g. a single CPU instruction.
     ///
@@ -155,8 +168,11 @@ pub trait TickableEmulator {
     ) -> Result<TickEffect, Self::Err<R::Err, A::Err, S::Err>>
     where
         R: Renderer,
+        R::Err: Debug + Display + Send + Sync + 'static,
         A: AudioOutput,
-        S: SaveWriter;
+        A::Err: Debug + Display + Send + Sync + 'static,
+        S: SaveWriter,
+        S::Err: Debug + Display + Send + Sync + 'static;
 
     /// Forcibly render the current frame buffer.
     ///

@@ -15,7 +15,7 @@ use jgenesis_traits::frontend::{
 use js_sys::Promise;
 use rfd::AsyncFileDialog;
 use smsgg_core::{SmsGgEmulator, SmsGgInputs};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
 use std::path::Path;
 use wasm_bindgen::prelude::*;
 use web_sys::{AudioContext, AudioContextOptions};
@@ -36,22 +36,29 @@ impl WebAudioOutput {
 }
 
 impl AudioOutput for WebAudioOutput {
-    type Err = JsValue;
+    type Err = String;
 
     fn push_sample(&mut self, sample_l: f64, sample_r: f64) -> Result<(), Self::Err> {
-        self.audio_queue.push_if_space(sample_l as f32)?;
-        self.audio_queue.push_if_space(sample_r as f32)?;
+        self.audio_queue.push_if_space(sample_l as f32).map_err(|err| format!("{err:?}"))?;
+        self.audio_queue.push_if_space(sample_r as f32).map_err(|err| format!("{err:?}"))?;
         Ok(())
     }
 }
 
+#[derive(Debug)]
 struct Null;
 
 impl SaveWriter for Null {
-    type Err = ();
+    type Err = String;
 
     fn persist_save(&mut self, _save_bytes: &[u8]) -> Result<(), Self::Err> {
         Ok(())
+    }
+}
+
+impl Display for Null {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "")
     }
 }
 
@@ -83,9 +90,9 @@ impl Emulator {
         audio_output: &mut A,
         save_writer: &mut S,
     ) where
-        R::Err: Debug,
-        A::Err: Debug,
-        S::Err: Debug,
+        R::Err: Debug + Display + Send + Sync + 'static,
+        A::Err: Debug + Display + Send + Sync + 'static,
+        S::Err: Debug + Display + Send + Sync + 'static,
     {
         match self {
             Self::None => {}

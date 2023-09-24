@@ -1358,6 +1358,7 @@ dependencies = [
  "serde",
  "smsgg-core",
  "test-log",
+ "thiserror",
  "z80-emu",
 ]
 
@@ -1786,7 +1787,6 @@ dependencies = [
 name = "jgenesis-native-driver"
 version = "0.3.0"
 dependencies = [
- "anyhow",
  "bincode",
  "bytemuck",
  "genesis-core",
@@ -1799,6 +1799,7 @@ dependencies = [
  "segacd-core",
  "serde",
  "smsgg-core",
+ "thiserror",
  "wgpu",
  "windows 0.51.1",
 ]
@@ -1815,13 +1816,13 @@ dependencies = [
 name = "jgenesis-renderer"
 version = "0.3.0"
 dependencies = [
- "anyhow",
  "bytemuck",
  "jgenesis-proc-macros",
  "jgenesis-traits",
  "log",
  "raw-window-handle",
  "serde",
+ "thiserror",
  "wgpu",
 ]
 
@@ -1833,6 +1834,7 @@ dependencies = [
  "bytemuck",
  "jgenesis-proc-macros",
  "serde",
+ "thiserror",
 ]
 
 [[package]]
@@ -2726,7 +2728,6 @@ dependencies = [
 name = "segacd-core"
 version = "0.3.0"
 dependencies = [
- "anyhow",
  "bincode",
  "crc",
  "genesis-core",
@@ -2736,6 +2737,7 @@ dependencies = [
  "m68000-emu",
  "regex",
  "smsgg-core",
+ "thiserror",
  "z80-emu",
 ]
 
@@ -2889,6 +2891,7 @@ dependencies = [
  "jgenesis-traits",
  "log",
  "serde",
+ "thiserror",
  "z80-emu",
 ]
 

@@ -272,7 +272,7 @@ impl AppConfig {
             ),
             p1_controller_type: self.inputs.genesis_p1_type,
             p2_controller_type: self.inputs.genesis_p2_type,
-            bios_file_path: self.sega_cd.bios_path.clone().unwrap_or(String::new()),
+            bios_file_path: self.sega_cd.bios_path.clone().unwrap_or_default(),
             cue_file_path,
         })
     }

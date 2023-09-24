@@ -1,5 +1,6 @@
 pub(crate) mod wordram;
 
+use crate::api::{DiscError, DiscResult};
 use crate::cddrive::CdController;
 use crate::cdrom::reader::CdRom;
 use crate::graphics::{GraphicsCoprocessor, GraphicsWritePriorityMode};
@@ -11,7 +12,7 @@ use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use jgenesis_traits::num::GetBit;
 use m68000_emu::BusInterface;
 use std::ops::Deref;
-use std::{array, io, mem};
+use std::{array, mem};
 use wordram::WordRam;
 
 const PRG_RAM_LEN: usize = 512 * 1024;
@@ -367,8 +368,8 @@ impl SegaCd {
         self.registers.stopwatch_counter = (self.registers.stopwatch_counter + 1) & 0x0FFF;
     }
 
-    pub fn disc_title(&mut self) -> io::Result<Option<String>> {
-        self.disc_drive.disc_title(self.region())
+    pub fn disc_title(&mut self) -> DiscResult<Option<String>> {
+        self.disc_drive.disc_title(self.region()).map_err(DiscError::DiscTitle)
     }
 
     pub fn word_ram_mut(&mut self) -> &mut WordRam {

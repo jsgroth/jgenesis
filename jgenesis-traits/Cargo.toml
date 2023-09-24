@@ -15,3 +15,4 @@ jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
 bincode = { version = "2.0.0-rc.3" }
 bytemuck = { version = "1", features = ["derive"] }
 serde = { workspace = true, optional = true }
+thiserror = "1"
