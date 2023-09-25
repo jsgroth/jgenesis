@@ -137,11 +137,12 @@ impl CdDrive {
             }
             0x03 => {
                 // Seek and play
-                todo!("Seek and play")
+                self.execute_seek(command, ReaderStatus::Playing);
             }
             0x04 => {
                 // Seek
-                self.execute_seek(command);
+                // TODO should seek during playback continue playing after seek?
+                self.execute_seek(command, ReaderStatus::Paused);
             }
             0x06 => {
                 // Pause
@@ -212,19 +213,36 @@ impl CdDrive {
         match command[3] {
             0x00 => {
                 // Get absolute position
-                todo!("Get absolute position")
+                let current_time = self.state.current_time();
+                write_time_to_status(current_time, &mut self.status);
             }
             0x01 => {
                 // Get relative position
-                todo!("Get relative position")
+                let current_time = self.state.current_time();
+                let relative_time = match cue.find_track_by_time(current_time) {
+                    Some(track) => current_time - track.start_time,
+                    None => {
+                        // Past end of disc
+                        CdTime::ZERO
+                    }
+                };
+
+                write_time_to_status(relative_time, &mut self.status);
             }
             0x02 => {
                 // Get current track number
-                todo!("Get current track number")
+                let current_time = self.state.current_time();
+                let track_number = match cue.find_track_by_time(current_time) {
+                    Some(track) => track.number,
+                    None => cue.num_tracks(),
+                };
+
+                // Write track number to Status 2-3
+                self.status[2] = track_number / 10;
+                self.status[3] = track_number % 10;
             }
             0x03 => {
                 // Get CD length
-                // TODO add a 2-second postgap?
                 write_time_to_status(cue.last_track().end_time, &mut self.status);
             }
             0x04 => {
@@ -247,7 +265,7 @@ impl CdDrive {
                 let track = cue.track(track_number);
 
                 // Write track time to Status 2-7
-                write_time_to_status(track.start_time, &mut self.status);
+                write_time_to_status(track.effective_start_time(), &mut self.status);
 
                 // Status 6 is always set to $08 for data tracks
                 if track.track_type == TrackType::Data {
@@ -261,7 +279,7 @@ impl CdDrive {
         }
     }
 
-    fn execute_seek(&mut self, command: [u8; 10]) {
+    fn execute_seek(&mut self, command: [u8; 10], next_status: ReaderStatus) {
         let Some(seek_time) = read_time_from_command(command) else {
             self.state = CddState::InvalidCommand(self.state.current_time());
             return;
@@ -279,7 +297,7 @@ impl CdDrive {
         self.state = CddState::Seeking {
             current_time,
             seek_time,
-            next_status: ReaderStatus::Paused,
+            next_status,
             clocks_remaining: seek_clocks,
         };
     }
