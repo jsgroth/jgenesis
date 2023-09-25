@@ -71,8 +71,12 @@ pub enum DiscError {
         #[source]
         source: io::Error,
     },
-    #[error("Error reading disc title from header: {0}")]
-    DiscTitle(#[source] io::Error),
+    #[error("I/O error reading from disc: {0}")]
+    DiscReadIo(#[source] io::Error),
+    #[error(
+        "CD-ROM error detection check failed for track {track_number} sector {sector_number}; expected={expected:08X}, actual={actual:08X}"
+    )]
+    DiscReadInvalidChecksum { track_number: u8, sector_number: u32, expected: u32, actual: u32 },
 }
 
 pub type DiscResult<T> = Result<T, DiscError>;
