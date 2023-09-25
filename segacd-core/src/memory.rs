@@ -664,7 +664,7 @@ impl<'a> SubBus<'a> {
             0xFF8038..=0xFF8041 => {
                 // CDD status
                 let relative_addr = (address - 8) & 0xF;
-                self.memory.medium().disc_drive.cdd_status()[relative_addr as usize]
+                self.memory.medium().disc_drive.cdd().status()[relative_addr as usize]
             }
             0xFF8042..=0xFF804B => {
                 // CDD command
@@ -731,7 +731,7 @@ impl<'a> SubBus<'a> {
             0xFF8038..=0xFF8041 => {
                 // CDD status
                 let relative_addr = (address - 8) & 0xF;
-                let cdd_status = self.memory.medium().disc_drive.cdd_status();
+                let cdd_status = self.memory.medium().disc_drive.cdd().status();
                 u16::from_be_bytes([
                     cdd_status[relative_addr as usize],
                     cdd_status[(relative_addr + 1) as usize],
@@ -839,7 +839,7 @@ impl<'a> SubBus<'a> {
 
                 // Byte-size writes to $FF804B trigger a CDD command send
                 if address == 0xFF804B {
-                    sega_cd.disc_drive.send_cdd_command(sega_cd.registers.cdd_command);
+                    sega_cd.disc_drive.cdd_mut().send_command(sega_cd.registers.cdd_command);
                 }
             }
             0xFF804C..=0xFF8057 => {
@@ -913,7 +913,7 @@ impl<'a> SubBus<'a> {
 
                 // Word-size writes to $FF804A trigger a CDD command send
                 if address == 0xFF804A {
-                    sega_cd.disc_drive.send_cdd_command(sega_cd.registers.cdd_command);
+                    sega_cd.disc_drive.cdd_mut().send_command(sega_cd.registers.cdd_command);
                 }
             }
             0xFF804C..=0xFF8057 => {
@@ -1078,7 +1078,7 @@ impl<'a> BusInterface for SubBus<'a> {
         let sega_cd = self.memory.medium();
         if sega_cd.registers.cdd_interrupt_enabled
             && sega_cd.registers.cdd_host_clock_on
-            && sega_cd.disc_drive.cdd_interrupt_pending()
+            && sega_cd.disc_drive.cdd().interrupt_pending()
         {
             // INT4: CDD interrupt
             4
@@ -1116,7 +1116,7 @@ impl<'a> BusInterface for SubBus<'a> {
                 self.memory.medium_mut().registers.timer_interrupt_pending = false;
             }
             4 => {
-                self.memory.medium_mut().disc_drive.acknowledge_cdd_interrupt();
+                self.memory.medium_mut().disc_drive.cdd_mut().acknowledge_interrupt();
             }
             _ => {}
         }

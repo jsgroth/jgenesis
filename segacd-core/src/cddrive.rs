@@ -53,44 +53,34 @@ impl InterruptPrescaler {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
-pub struct CdController {
+pub struct CdDrive {
     disc: Option<CdRom>,
-    buffer_ram: Box<[u8; BUFFER_RAM_LEN]>,
     sector_buffer: [u8; cdrom::BYTES_PER_SECTOR as usize],
-    interrupt_prescaler: InterruptPrescaler,
-    cdd_interrupt_pending: bool,
-    cdd_status_buffer: [u8; 10],
+    interrupt_pending: bool,
+    status: [u8; 10],
 }
 
-impl CdController {
-    pub fn new(disc: Option<CdRom>) -> Self {
+impl CdDrive {
+    fn new(disc: Option<CdRom>) -> Self {
         Self {
             disc,
-            buffer_ram: vec![0; BUFFER_RAM_LEN].into_boxed_slice().try_into().unwrap(),
             sector_buffer: array::from_fn(|_| 0),
-            interrupt_prescaler: InterruptPrescaler::new(),
-            cdd_interrupt_pending: false,
-            cdd_status_buffer: INITIAL_STATUS,
+            interrupt_pending: false,
+            status: INITIAL_STATUS,
         }
     }
 
-    pub fn tick(&mut self, mclk_cycles: u64) {
-        if self.interrupt_prescaler.tick(mclk_cycles) == PrescalerTickResult::Clocked {
-            self.cdd_interrupt_pending = true;
-        }
-    }
-
-    pub fn send_cdd_command(&mut self, command_buffer: [u8; 10]) {
+    pub fn send_command(&mut self, command: [u8; 10]) {
         // TODO remove
         #[allow(clippy::match_same_arms)]
-        match command_buffer[0] {
+        match command[0] {
             0x00 => {
                 // No-op; return current status
-                self.cdd_status_buffer = NO_DISC_STATUS;
+                self.status = NO_DISC_STATUS;
             }
             0x01 => {
                 // Stop motor
-                self.cdd_status_buffer = STOP_MOTOR_STATUS;
+                self.status = STOP_MOTOR_STATUS;
             }
             0x02 => {
                 // Read TOC
@@ -130,24 +120,59 @@ impl CdController {
             }
             _ => {}
         }
+
+        compute_cdd_checksum(&mut self.status);
     }
 
-    pub fn cdd_status(&self) -> [u8; 10] {
-        self.cdd_status_buffer
+    pub fn status(&self) -> [u8; 10] {
+        self.status
     }
 
-    pub fn cdd_interrupt_pending(&self) -> bool {
-        self.cdd_interrupt_pending
+    pub fn interrupt_pending(&self) -> bool {
+        self.interrupt_pending
     }
 
-    pub fn acknowledge_cdd_interrupt(&mut self) {
-        self.cdd_interrupt_pending = false;
+    pub fn acknowledge_interrupt(&mut self) {
+        self.interrupt_pending = false;
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct CdController {
+    drive: CdDrive,
+    sector_buffer: [u8; cdrom::BYTES_PER_SECTOR as usize],
+    interrupt_prescaler: InterruptPrescaler,
+}
+
+impl CdController {
+    pub fn new(disc: Option<CdRom>) -> Self {
+        Self {
+            drive: CdDrive::new(disc),
+            sector_buffer: array::from_fn(|_| 0),
+            interrupt_prescaler: InterruptPrescaler::new(),
+        }
+    }
+
+    pub fn tick(&mut self, mclk_cycles: u64) {
+        if self.interrupt_prescaler.tick(mclk_cycles) == PrescalerTickResult::Clocked {
+            self.drive.interrupt_pending = true;
+        }
+
+        // TODO CDC interrupts
+    }
+
+    pub fn cdd(&self) -> &CdDrive {
+        &self.drive
+    }
+
+    pub fn cdd_mut(&mut self) -> &mut CdDrive {
+        &mut self.drive
     }
 
     pub fn disc_title(&mut self, region: GenesisRegion) -> io::Result<Option<String>> {
         static WHITESPACE_RE: OnceLock<Regex> = OnceLock::new();
 
-        let Some(disc) = &mut self.disc else { return Ok(None) };
+        let Some(disc) = &mut self.drive.disc else { return Ok(None) };
 
         // Title information is always stored in the first sector of track 1
         disc.read_sector(1, CdTime::ZERO, &mut self.sector_buffer)?;
@@ -172,16 +197,18 @@ impl CdController {
     }
 
     pub fn take_disc_from(&mut self, other: &mut Self) {
-        self.disc = other.disc.take();
+        self.drive.disc = other.drive.disc.take();
     }
 
     pub fn clone_without_disc(&self) -> Self {
-        Self { disc: None, ..self.clone() }
+        Self { drive: CdDrive { disc: None, ..self.drive.clone() }, ..self.clone() }
     }
 }
 
-// Checksum is the first 9 nibbles summed and then inverted
-fn compute_cdd_checksum(cdd_status: [u8; 10]) -> u8 {
-    let sum = cdd_status[0..9].iter().copied().sum::<u8>();
-    !sum & 0x0F
+// Checksum is the first 8 nibbles summed and then inverted
+// Status 8 is always set to 0
+fn compute_cdd_checksum(cdd_status: &mut [u8; 10]) {
+    let sum = cdd_status[0..8].iter().copied().sum::<u8>();
+    cdd_status[8] = 0x00;
+    cdd_status[9] = !sum & 0x0F;
 }
