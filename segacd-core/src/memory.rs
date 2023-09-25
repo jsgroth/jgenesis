@@ -1,6 +1,6 @@
 pub(crate) mod wordram;
 
-use crate::api::{DiscError, DiscResult};
+use crate::api::DiscResult;
 use crate::cddrive::{CdController, DeviceDestination};
 use crate::cdrom::reader::CdRom;
 use crate::graphics::{GraphicsCoprocessor, GraphicsWritePriorityMode};
@@ -375,7 +375,7 @@ impl SegaCd {
     }
 
     pub fn disc_title(&mut self) -> DiscResult<Option<String>> {
-        self.disc_drive.disc_title(self.region()).map_err(DiscError::DiscTitle)
+        self.disc_drive.disc_title(self.region())
     }
 
     pub fn word_ram_mut(&mut self) -> &mut WordRam {

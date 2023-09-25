@@ -1,6 +1,4 @@
-// TODO remove
-#![allow(dead_code)]
-
+use crate::api::DiscResult;
 use crate::cdrom;
 use crate::cdrom::cdtime::CdTime;
 use crate::cdrom::cue::TrackType;
@@ -11,13 +9,11 @@ use genesis_core::GenesisRegion;
 use jgenesis_traits::num::GetBit;
 use regex::Regex;
 use std::sync::OnceLock;
-use std::{array, cmp, io};
+use std::{array, cmp};
 
 const BUFFER_RAM_LEN: usize = 16 * 1024;
 
 const INITIAL_STATUS: [u8; 10] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0F];
-const STOP_MOTOR_STATUS: [u8; 10] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0F];
-const NO_DISC_STATUS: [u8; 10] = [0x0B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PrescalerTickResult {
@@ -100,6 +96,12 @@ impl CddState {
     }
 }
 
+impl Default for CddState {
+    fn default() -> Self {
+        Self::MotorStopped
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct CdDrive {
     disc: Option<CdRom>,
@@ -114,7 +116,7 @@ impl CdDrive {
         Self {
             disc,
             sector_buffer: array::from_fn(|_| 0),
-            state: CddState::MotorStopped,
+            state: CddState::default(),
             interrupt_pending: false,
             status: INITIAL_STATUS,
         }
@@ -581,7 +583,7 @@ impl CdController {
         &mut self.rchip
     }
 
-    pub fn disc_title(&mut self, region: GenesisRegion) -> io::Result<Option<String>> {
+    pub fn disc_title(&mut self, region: GenesisRegion) -> DiscResult<Option<String>> {
         static WHITESPACE_RE: OnceLock<Regex> = OnceLock::new();
 
         let Some(disc) = &mut self.drive.disc else { return Ok(None) };

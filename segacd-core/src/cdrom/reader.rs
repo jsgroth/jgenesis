@@ -1,19 +1,22 @@
 use crate::api::{DiscError, DiscResult};
 use crate::cdrom;
 use crate::cdrom::cdtime::CdTime;
-use crate::cdrom::cue::CueSheet;
+use crate::cdrom::cue::{CueSheet, TrackType};
 use bincode::{Decode, Encode};
+use crc::Crc;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io;
 use std::io::{Read, Seek, SeekFrom};
-use std::ops::{Deref, DerefMut};
+use std::ops::{Deref, DerefMut, Range};
 use std::path::Path;
 
-const SECTOR_HEADER_LEN: u64 = 16;
 const SECTOR_DATA_LEN: u64 = 2048;
-// 16 header bytes + 2048 data bytes + 288 error detection/correction bytes
+const SECTOR_HEADER_LEN: u64 = 16;
+
+const CD_ROM_CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_CD_ROM_EDC);
+const CRC32_DIGEST_RANGE: Range<usize> = 0..2064;
+const CRC32_CHECKSUM_LOCATION: Range<usize> = 2064..2068;
 
 #[derive(Debug, Default, FakeEncode, FakeDecode)]
 struct CdRomFiles(HashMap<String, File>);
@@ -96,16 +99,41 @@ impl CdRom {
         track_number: u8,
         relative_time: CdTime,
         out: &mut [u8],
-    ) -> io::Result<()> {
-        let track_metadata = &self.cue_sheet.track(track_number).metadata;
+    ) -> DiscResult<()> {
+        let track = self.cue_sheet.track(track_number);
         let track_file = self
             .files
-            .get_mut(&track_metadata.file_name)
+            .get_mut(&track.metadata.file_name)
             .expect("Track file was not opened on load; this is a bug");
 
         let sector_number = relative_time.to_sector_number();
-        track_file.seek(SeekFrom::Start(u64::from(sector_number) * cdrom::BYTES_PER_SECTOR))?;
-        track_file.read_exact(&mut out[..cdrom::BYTES_PER_SECTOR as usize])?;
+        track_file
+            .seek(SeekFrom::Start(u64::from(sector_number) * cdrom::BYTES_PER_SECTOR))
+            .map_err(DiscError::DiscReadIo)?;
+        track_file
+            .read_exact(&mut out[..cdrom::BYTES_PER_SECTOR as usize])
+            .map_err(DiscError::DiscReadIo)?;
+
+        if track.track_type == TrackType::Data {
+            // Perform error detection check
+            let mut digest = CD_ROM_CRC.digest();
+            digest.update(&out[CRC32_DIGEST_RANGE]);
+            let checksum = digest.finalize();
+
+            let edc_bytes: [u8; 4] = out[CRC32_CHECKSUM_LOCATION].try_into().unwrap();
+            let edc = u32::from_le_bytes(edc_bytes);
+
+            if checksum != edc {
+                return Err(DiscError::DiscReadInvalidChecksum {
+                    track_number,
+                    sector_number,
+                    expected: edc,
+                    actual: checksum,
+                });
+            }
+        }
+
+        // TODO check P/Q ECC?
 
         Ok(())
     }
