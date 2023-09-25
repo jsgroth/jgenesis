@@ -5,8 +5,10 @@ use crate::cdrom;
 use crate::cdrom::cdtime::CdTime;
 use crate::cdrom::cue::TrackType;
 use crate::cdrom::reader::CdRom;
+use crate::memory::ScdCpu;
 use bincode::{Decode, Encode};
 use genesis_core::GenesisRegion;
+use jgenesis_traits::num::GetBit;
 use regex::Regex;
 use std::sync::OnceLock;
 use std::{array, cmp, io};
@@ -24,12 +26,12 @@ enum PrescalerTickResult {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
-struct InterruptPrescaler {
+struct FramePrescaler {
     mclk_cycles: u64,
     prescaler_cycle: u8,
 }
 
-impl InterruptPrescaler {
+impl FramePrescaler {
     fn new() -> Self {
         Self { mclk_cycles: 0, prescaler_cycle: 0 }
     }
@@ -353,24 +355,210 @@ impl CdDrive {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+pub enum DeviceDestination {
+    #[default]
+    MainCpuRegister,
+    SubCpuRegister,
+    Pcm,
+    PrgRam,
+    WordRam,
+}
+
+impl DeviceDestination {
+    pub fn to_bits(self) -> u8 {
+        match self {
+            Self::MainCpuRegister => 0b010,
+            Self::SubCpuRegister => 0b011,
+            Self::Pcm => 0b100,
+            Self::PrgRam => 0b101,
+            Self::WordRam => 0b111,
+        }
+    }
+
+    pub fn from_bits(bits: u8) -> Self {
+        match bits & 0x07 {
+            0b010 => Self::MainCpuRegister,
+            0b011 => Self::SubCpuRegister,
+            0b100 => Self::Pcm,
+            0b101 => Self::PrgRam,
+            0b111 => Self::WordRam,
+            0b000 | 0b001 | 0b110 => {
+                // Prohibited; just default to main CPU register
+                log::warn!("Prohibited CDC device destination set: {:03b}", bits & 0x07);
+                Self::MainCpuRegister
+            }
+            _ => unreachable!("value & 0x07 is always <= 0x07"),
+        }
+    }
+}
+
+// The LC8951, which the documentation describes as a "Real-Time Error Correction and Host Interface
+// Processor".
+//
+// Sega CD documentation refers to this chip as the CDC.
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct Rchip {
+    buffer_ram: Box<[u8; BUFFER_RAM_LEN]>,
+    device_destination: DeviceDestination,
+    register_address: u8,
+    dma_address: u32,
+    transfer_end_interrupt_enabled: bool,
+    decoder_interrupt_enabled: bool,
+    data_out_enabled: bool,
+    write_address: u16,
+    block_pointer: u16,
+}
+
+impl Rchip {
+    fn new() -> Self {
+        Self {
+            buffer_ram: vec![0; BUFFER_RAM_LEN].into_boxed_slice().try_into().unwrap(),
+            device_destination: DeviceDestination::default(),
+            register_address: 0,
+            dma_address: 0,
+            transfer_end_interrupt_enabled: true,
+            decoder_interrupt_enabled: true,
+            data_out_enabled: false,
+            write_address: 0,
+            block_pointer: 0,
+        }
+    }
+
+    pub fn device_destination(&self) -> DeviceDestination {
+        self.device_destination
+    }
+
+    pub fn set_device_destination(&mut self, device_destination: DeviceDestination) {
+        // Changing device destination resets DMA controller
+        if device_destination != self.device_destination {
+            // TODO cancel any in-progress DMA
+            self.dma_address = 0;
+        }
+
+        self.device_destination = device_destination;
+    }
+
+    pub fn read_host_data(&mut self, cpu: ScdCpu) -> u16 {
+        if (cpu == ScdCpu::Main && self.device_destination != DeviceDestination::MainCpuRegister)
+            || (cpu == ScdCpu::Sub && self.device_destination != DeviceDestination::SubCpuRegister)
+        {
+            // Invalid host data read
+            return 0x0000;
+        }
+
+        todo!("read host data ({cpu:?})")
+    }
+
+    pub fn register_address(&self) -> u8 {
+        self.register_address
+    }
+
+    pub fn set_register_address(&mut self, register_address: u8) {
+        self.register_address = register_address;
+    }
+
+    pub fn read_register(&mut self) -> u8 {
+        todo!("CDC read register")
+    }
+
+    pub fn write_register(&mut self, value: u8) {
+        match self.register_address {
+            1 => {
+                // IFCTRL (Host Interface Control)
+                // Intentionally ignoring CMDIEN, CMDBK, DTWAI, STWAI, SOUTEN bits
+
+                log::trace!("IFCTRL write: {value:02X}");
+
+                // Interrupt enable bits are active low
+                self.transfer_end_interrupt_enabled = !value.bit(6);
+                self.decoder_interrupt_enabled = !value.bit(5);
+
+                self.data_out_enabled = value.bit(1);
+
+                log::trace!("  DTEIEN: {}", self.transfer_end_interrupt_enabled);
+                log::trace!("  DECIEN: {}", self.decoder_interrupt_enabled);
+                log::trace!("  DOUTEN: {}", self.data_out_enabled);
+            }
+            8 => {
+                // WAL (Write Address, Low Byte)
+
+                log::trace!("WAL write: {value:02X}");
+
+                self.write_address = (self.write_address & 0xFF00) | u16::from(value);
+
+                log::trace!("  WA: {:04X}", self.write_address);
+            }
+            9 => {
+                // WAH (Write Address, High Byte)
+
+                log::trace!("WAH write: {value:02X}");
+
+                self.write_address = (self.write_address & 0x00FF) | (u16::from(value) << 8);
+
+                log::trace!("  WA: {:04X}", self.write_address);
+            }
+            12 => {
+                // PTL (Block Pointer, Low Byte)
+
+                log::trace!("PTL write: {value:02X}");
+
+                self.block_pointer = (self.block_pointer & 0xFF00) | u16::from(value);
+
+                log::trace!("  PT: {:04X}", self.block_pointer);
+            }
+            13 => {
+                // PTH (Block Pointer, High Byte)
+
+                log::trace!("PTH write: {value:02X}");
+
+                self.block_pointer = (self.block_pointer & 0x00FF) | (u16::from(value) << 8);
+
+                log::trace!("  PT: {:04X}", self.block_pointer);
+            }
+            14 => {
+                // Unused, do nothing
+            }
+            15 => {
+                // RESET
+
+                self.transfer_end_interrupt_enabled = true;
+                self.decoder_interrupt_enabled = true;
+                self.data_out_enabled = false;
+                // TODO reset chip; clear IFCTRL, CTRL0, and CTRL1
+            }
+            0 | 2 | 3 | 4 | 5 | 6 | 7 | 10 | 11 => {
+                todo!("write CDC register {}", self.register_address)
+            }
+            _ => panic!("CDC register address should always be <= 15"),
+        }
+    }
+
+    pub fn set_dma_address(&mut self, dma_address: u32) {
+        self.dma_address = dma_address;
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct CdController {
     drive: CdDrive,
+    rchip: Rchip,
     sector_buffer: [u8; cdrom::BYTES_PER_SECTOR as usize],
-    interrupt_prescaler: InterruptPrescaler,
+    prescaler_75hz: FramePrescaler,
 }
 
 impl CdController {
     pub fn new(disc: Option<CdRom>) -> Self {
         Self {
             drive: CdDrive::new(disc),
+            rchip: Rchip::new(),
             sector_buffer: array::from_fn(|_| 0),
-            interrupt_prescaler: InterruptPrescaler::new(),
+            prescaler_75hz: FramePrescaler::new(),
         }
     }
 
     pub fn tick(&mut self, mclk_cycles: u64) {
-        if self.interrupt_prescaler.tick(mclk_cycles) == PrescalerTickResult::Clocked {
+        if self.prescaler_75hz.tick(mclk_cycles) == PrescalerTickResult::Clocked {
             self.drive.clock();
         }
 
@@ -383,6 +571,14 @@ impl CdController {
 
     pub fn cdd_mut(&mut self) -> &mut CdDrive {
         &mut self.drive
+    }
+
+    pub fn cdc(&self) -> &Rchip {
+        &self.rchip
+    }
+
+    pub fn cdc_mut(&mut self) -> &mut Rchip {
+        &mut self.rchip
     }
 
     pub fn disc_title(&mut self, region: GenesisRegion) -> io::Result<Option<String>> {

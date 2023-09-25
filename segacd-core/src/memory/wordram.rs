@@ -1,3 +1,4 @@
+use crate::memory::ScdCpu;
 use bincode::{Decode, Encode};
 use jgenesis_traits::num::GetBit;
 
@@ -25,12 +26,6 @@ impl WordRamMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum WordRamOwner {
-    Main,
-    Sub,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WordRamSubMapResult {
     None,
@@ -42,8 +37,8 @@ enum WordRamSubMapResult {
 pub struct WordRam {
     ram: Box<[u8; WORD_RAM_LEN]>,
     mode: WordRamMode,
-    owner_2m: WordRamOwner,
-    bank_0_owner_1m: WordRamOwner,
+    owner_2m: ScdCpu,
+    bank_0_owner_1m: ScdCpu,
     swap_request: bool,
 }
 
@@ -60,8 +55,8 @@ impl WordRam {
         Self {
             ram: vec![0; WORD_RAM_LEN].into_boxed_slice().try_into().unwrap(),
             mode: WordRamMode::TwoM,
-            owner_2m: WordRamOwner::Main,
-            bank_0_owner_1m: WordRamOwner::Main,
+            owner_2m: ScdCpu::Main,
+            bank_0_owner_1m: ScdCpu::Main,
             swap_request: false,
         }
     }
@@ -69,13 +64,13 @@ impl WordRam {
     pub fn read_control(&self) -> u8 {
         let (dmna, ret) = match self.mode {
             WordRamMode::TwoM => {
-                let dmna = self.owner_2m == WordRamOwner::Sub;
+                let dmna = self.owner_2m == ScdCpu::Sub;
                 let ret = !dmna;
                 (dmna, ret)
             }
             WordRamMode::OneM => {
                 let dmna = self.swap_request;
-                let ret = self.bank_0_owner_1m == WordRamOwner::Sub;
+                let ret = self.bank_0_owner_1m == ScdCpu::Sub;
                 (dmna, ret)
             }
         };
@@ -88,7 +83,7 @@ impl WordRam {
 
         // DMNA=1 always returns 2M word RAM to sub CPU, regardless of mode
         if dmna {
-            self.owner_2m = WordRamOwner::Sub;
+            self.owner_2m = ScdCpu::Sub;
         }
 
         // In 1M mode, setting DMNA=0 sends a swap request to the sub CPU
@@ -103,13 +98,13 @@ impl WordRam {
 
         // RET=1 always returns 2M word RAM to main CPU, regardless of mode
         if ret {
-            self.owner_2m = WordRamOwner::Main;
+            self.owner_2m = ScdCpu::Main;
         }
 
         // In 1M mode, RET returns the given bank to the main CPU
         // RET=0 -> main owns bank 0, sub owns bank 1
         // RET=1 -> main owns bank 1, sub owns bank 0
-        self.bank_0_owner_1m = if ret { WordRamOwner::Sub } else { WordRamOwner::Main };
+        self.bank_0_owner_1m = if ret { ScdCpu::Sub } else { ScdCpu::Main };
 
         self.swap_request = false;
     }
@@ -117,10 +112,10 @@ impl WordRam {
     fn main_cpu_map_address(&self, address: u32) -> Option<u32> {
         let address = address & 0x3FFFF;
         match self.mode {
-            WordRamMode::TwoM => (self.owner_2m == WordRamOwner::Main).then_some(address),
+            WordRamMode::TwoM => (self.owner_2m == ScdCpu::Main).then_some(address),
             WordRamMode::OneM => {
                 if address <= 0x1FFFF {
-                    Some((address << 1) | u32::from(self.bank_0_owner_1m == WordRamOwner::Sub))
+                    Some((address << 1) | u32::from(self.bank_0_owner_1m == ScdCpu::Sub))
                 } else {
                     match address & 0x1FFFF {
                         address @ 0x00000..=0x0FFFF => {
@@ -194,7 +189,7 @@ impl WordRam {
     fn sub_cpu_map_address(&self, address: u32) -> WordRamSubMapResult {
         match (self.mode, address) {
             (WordRamMode::TwoM, 0x080000..=0x0BFFFF) => {
-                if self.owner_2m == WordRamOwner::Sub {
+                if self.owner_2m == ScdCpu::Sub {
                     WordRamSubMapResult::Byte(address & ADDRESS_MASK)
                 } else {
                     WordRamSubMapResult::None
@@ -203,11 +198,11 @@ impl WordRam {
             (WordRamMode::TwoM, 0x0C0000..=0x0DFFFF) => WordRamSubMapResult::None,
             (WordRamMode::OneM, 0x080000..=0x0BFFFF) => {
                 let byte_addr =
-                    (address & 0x03FFFE) | u32::from(self.bank_0_owner_1m == WordRamOwner::Main);
+                    (address & 0x03FFFE) | u32::from(self.bank_0_owner_1m == ScdCpu::Main);
                 WordRamSubMapResult::Pixel((byte_addr << 1) | (address & 0x000001))
             }
             (WordRamMode::OneM, 0x0C0000..=0x0DFFFF) => WordRamSubMapResult::Byte(
-                ((address & 0x01FFFF) << 1) | u32::from(self.bank_0_owner_1m == WordRamOwner::Main),
+                ((address & 0x01FFFF) << 1) | u32::from(self.bank_0_owner_1m == ScdCpu::Main),
             ),
             _ => panic!("Invalid sub CPU word RAM address: {address:06X}"),
         }
@@ -250,7 +245,7 @@ impl WordRam {
 fn map_cell_image_address(
     masked_address: u32,
     v_size_bytes: u32,
-    bank_0_owner: WordRamOwner,
+    bank_0_owner: ScdCpu,
     base_word_ram_addr: u32,
 ) -> u32 {
     let row = (masked_address & (v_size_bytes - 1)) >> 2;
@@ -258,7 +253,7 @@ fn map_cell_image_address(
 
     let byte_addr =
         base_word_ram_addr | (row * CELL_IMAGE_H_SIZE_BYTES) | (col << 2) | (masked_address & 0x03);
-    (byte_addr << 1) | u32::from(bank_0_owner == WordRamOwner::Sub)
+    (byte_addr << 1) | u32::from(bank_0_owner == ScdCpu::Sub)
 }
 
 #[cfg(test)]
@@ -270,11 +265,11 @@ mod tests {
         let mut word_ram = WordRam::new();
         word_ram.mode = WordRamMode::TwoM;
 
-        word_ram.owner_2m = WordRamOwner::Main;
+        word_ram.owner_2m = ScdCpu::Main;
         assert_eq!(Some(0x000000), word_ram.main_cpu_map_address(0x200000));
         assert_eq!(Some(0x03FFFF), word_ram.main_cpu_map_address(0x23FFFF));
 
-        word_ram.owner_2m = WordRamOwner::Sub;
+        word_ram.owner_2m = ScdCpu::Sub;
         assert_eq!(None, word_ram.main_cpu_map_address(0x200000));
         assert_eq!(None, word_ram.main_cpu_map_address(0x23FFFF));
     }
@@ -284,12 +279,12 @@ mod tests {
         let mut word_ram = WordRam::new();
         word_ram.mode = WordRamMode::OneM;
 
-        word_ram.bank_0_owner_1m = WordRamOwner::Main;
+        word_ram.bank_0_owner_1m = ScdCpu::Main;
         assert_eq!(Some(0x000000), word_ram.main_cpu_map_address(0x200000));
         assert_eq!(Some(0x020002), word_ram.main_cpu_map_address(0x210001));
         assert_eq!(Some(0x03FFFE), word_ram.main_cpu_map_address(0x21FFFF));
 
-        word_ram.bank_0_owner_1m = WordRamOwner::Sub;
+        word_ram.bank_0_owner_1m = ScdCpu::Sub;
         assert_eq!(Some(0x000001), word_ram.main_cpu_map_address(0x200000));
         assert_eq!(Some(0x020003), word_ram.main_cpu_map_address(0x210001));
         assert_eq!(Some(0x03FFFF), word_ram.main_cpu_map_address(0x21FFFF));
@@ -301,7 +296,7 @@ mod tests {
         word_ram.mode = WordRamMode::OneM;
 
         // V32-cell
-        word_ram.bank_0_owner_1m = WordRamOwner::Main;
+        word_ram.bank_0_owner_1m = ScdCpu::Main;
         assert_eq!(Some(0x000000), word_ram.main_cpu_map_address(0x220000));
         assert_eq!(Some(0x000002), word_ram.main_cpu_map_address(0x220001));
         assert_eq!(Some(0x000004), word_ram.main_cpu_map_address(0x220002));
@@ -377,7 +372,7 @@ mod tests {
         assert_eq!(Some(0x03FFFE), word_ram.main_cpu_map_address(0x23FFFF));
 
         // Test with main CPU having bank 1
-        word_ram.bank_0_owner_1m = WordRamOwner::Sub;
+        word_ram.bank_0_owner_1m = ScdCpu::Sub;
         assert_eq!(Some(0x000001), word_ram.main_cpu_map_address(0x220000));
         assert_eq!(Some(0x03FFFF), word_ram.main_cpu_map_address(0x23FFFF));
     }
@@ -389,13 +384,13 @@ mod tests {
         let mut word_ram = WordRam::new();
         word_ram.mode = WordRamMode::TwoM;
 
-        word_ram.owner_2m = WordRamOwner::Sub;
+        word_ram.owner_2m = ScdCpu::Sub;
         assert_eq!(R::Byte(0x000000), word_ram.sub_cpu_map_address(0x080000));
         assert_eq!(R::Byte(0x03FFFF), word_ram.sub_cpu_map_address(0x0BFFFF));
         assert_eq!(R::None, word_ram.sub_cpu_map_address(0x0C0000));
         assert_eq!(R::None, word_ram.sub_cpu_map_address(0x0DFFFF));
 
-        word_ram.owner_2m = WordRamOwner::Main;
+        word_ram.owner_2m = ScdCpu::Main;
         assert_eq!(R::None, word_ram.sub_cpu_map_address(0x080000));
         assert_eq!(R::None, word_ram.sub_cpu_map_address(0x0BFFFF));
         assert_eq!(R::None, word_ram.sub_cpu_map_address(0x0C0000));
@@ -409,12 +404,12 @@ mod tests {
         let mut word_ram = WordRam::new();
         word_ram.mode = WordRamMode::OneM;
 
-        word_ram.bank_0_owner_1m = WordRamOwner::Sub;
+        word_ram.bank_0_owner_1m = ScdCpu::Sub;
         assert_eq!(R::Byte(0x000000), word_ram.sub_cpu_map_address(0x0C0000));
         assert_eq!(R::Byte(0x010000), word_ram.sub_cpu_map_address(0x0C8000));
         assert_eq!(R::Byte(0x03FFFE), word_ram.sub_cpu_map_address(0x0DFFFF));
 
-        word_ram.bank_0_owner_1m = WordRamOwner::Main;
+        word_ram.bank_0_owner_1m = ScdCpu::Main;
         assert_eq!(R::Byte(0x000001), word_ram.sub_cpu_map_address(0x0C0000));
         assert_eq!(R::Byte(0x010001), word_ram.sub_cpu_map_address(0x0C8000));
         assert_eq!(R::Byte(0x03FFFF), word_ram.sub_cpu_map_address(0x0DFFFF));
@@ -427,7 +422,7 @@ mod tests {
         let mut word_ram = WordRam::new();
         word_ram.mode = WordRamMode::OneM;
 
-        word_ram.bank_0_owner_1m = WordRamOwner::Sub;
+        word_ram.bank_0_owner_1m = ScdCpu::Sub;
         assert_eq!(R::Pixel(0x000000), word_ram.sub_cpu_map_address(0x080000));
         assert_eq!(R::Pixel(0x000001), word_ram.sub_cpu_map_address(0x080001));
         assert_eq!(R::Pixel(0x000004), word_ram.sub_cpu_map_address(0x080002));
@@ -435,7 +430,7 @@ mod tests {
         assert_eq!(R::Pixel(0x07FFFC), word_ram.sub_cpu_map_address(0x0BFFFE));
         assert_eq!(R::Pixel(0x07FFFD), word_ram.sub_cpu_map_address(0x0BFFFF));
 
-        word_ram.bank_0_owner_1m = WordRamOwner::Main;
+        word_ram.bank_0_owner_1m = ScdCpu::Main;
         assert_eq!(R::Pixel(0x000002), word_ram.sub_cpu_map_address(0x080000));
         assert_eq!(R::Pixel(0x000003), word_ram.sub_cpu_map_address(0x080001));
         assert_eq!(R::Pixel(0x000006), word_ram.sub_cpu_map_address(0x080002));
