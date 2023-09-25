@@ -1,7 +1,7 @@
 pub(crate) mod wordram;
 
 use crate::api::{DiscError, DiscResult};
-use crate::cddrive::CdController;
+use crate::cddrive::{CdController, DeviceDestination};
 use crate::cdrom::reader::CdRom;
 use crate::graphics::{GraphicsCoprocessor, GraphicsWritePriorityMode};
 use crate::rf5c164::Rf5c164;
@@ -23,12 +23,9 @@ const BACKUP_RAM_LEN: usize = 8 * 1024;
 const TIMER_DIVIDER: u64 = 1536;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum CdcDeviceDestination {
-    MainCpuRead,
-    SubCpuRead,
-    PcmRamDma,
-    PrgRamDma,
-    WordRamDma,
+pub enum ScdCpu {
+    Main,
+    Sub,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -40,8 +37,6 @@ struct SegaCdRegisters {
     // $FF8002/$A12002: Memory mode / PRG RAM bank select
     prg_ram_write_protect: u8,
     prg_ram_bank: u8,
-    // $FF8004: CDC mode & register address
-    cdc_device_destination: CdcDeviceDestination,
     // $A12006: HINT vector
     h_interrupt_vector: u16,
     // $FF800C: Stopwatch
@@ -78,7 +73,6 @@ impl SegaCdRegisters {
             sub_cpu_reset: true,
             prg_ram_write_protect: 0,
             prg_ram_bank: 0,
-            cdc_device_destination: CdcDeviceDestination::MainCpuRead,
             h_interrupt_vector: 0xFFFF,
             stopwatch_counter: 0,
             sub_cpu_communication_flags: 0,
@@ -181,7 +175,8 @@ impl SegaCd {
             }
             0xA12004 => {
                 log::trace!("  CDC mode read (main CPU)");
-                0
+                // TODO EDT and DSR
+                self.disc_drive.cdc().device_destination().to_bits()
             }
             0xA12006 => {
                 // HINT vector, high byte
@@ -192,12 +187,12 @@ impl SegaCd {
                 self.registers.h_interrupt_vector as u8
             }
             0xA12008 => {
-                // TODO CDC host data, high byte
-                0
+                // CDC host data, high byte
+                (self.disc_drive.cdc_mut().read_host_data(ScdCpu::Main) >> 8) as u8
             }
             0xA12009 => {
-                // TODO CDC host data, low byte
-                0
+                // CDC host data, low byte
+                self.disc_drive.cdc_mut().read_host_data(ScdCpu::Main) as u8
             }
             0xA1200C => {
                 // Stopwatch, high byte
@@ -246,7 +241,7 @@ impl SegaCd {
             0xA12006 => self.registers.h_interrupt_vector,
             0xA12008 => {
                 log::trace!("  CDC host data read (main CPU)");
-                0
+                self.disc_drive.cdc_mut().read_host_data(ScdCpu::Main)
             }
             0xA1200C => self.registers.stopwatch_counter,
             0xA1200E => {
@@ -582,24 +577,30 @@ impl<'a> SubBus<'a> {
                     | (self.graphics_coprocessor.write_priority_mode().to_bits() << 3)
             }
             0xFF8004 => {
+                // CDC mode
                 log::trace!("  CDC mode read (sub CPU)");
-                0x00
+                // TODO EDT and DSR
+                self.memory.medium().disc_drive.cdc().device_destination().to_bits()
             }
             0xFF8005 => {
-                log::trace!("  CDC device destination read");
-                0x00
+                // CDC register address
+                log::trace!("  CDC register address read");
+                self.memory.medium().disc_drive.cdc().register_address()
             }
             0xFF8007 => {
+                // CDC register data
                 log::trace!("  CDC register data read");
-                0x00
+                self.memory.medium_mut().disc_drive.cdc_mut().read_register()
             }
             0xFF8008 => {
-                // TODO CDC host data, high byte
-                0x00
+                // CDC host data, high byte
+                let word =
+                    self.memory.medium_mut().disc_drive.cdc_mut().read_host_data(ScdCpu::Sub);
+                (word >> 8) as u8
             }
             0xFF8009 => {
-                // TODO CDC host data, low byte
-                0x00
+                // CDC host data, low byte
+                self.memory.medium_mut().disc_drive.cdc_mut().read_host_data(ScdCpu::Sub) as u8
             }
             0xFF800C => {
                 // Stopwatch, high byte
@@ -694,9 +695,9 @@ impl<'a> SubBus<'a> {
                 self.read_register_byte(address | 1).into()
             }
             0xFF8008 => {
-                // TODO CDC host data
+                // CDC host data
                 log::trace!("  CDC host data read (sub CPU)");
-                0x0000
+                self.memory.medium_mut().disc_drive.cdc_mut().read_host_data(ScdCpu::Sub)
             }
             0xFF800C => self.memory.medium().registers.stopwatch_counter,
             0xFF800E => {
@@ -760,6 +761,9 @@ impl<'a> SubBus<'a> {
     fn write_register_byte(&mut self, address: u32, value: u8) {
         log::trace!("Sub CPU register byte write: {address:06X} {value:02X}");
         match address {
+            0xFF8001 => {
+                // TODO reset CDD/CDC
+            }
             0xFF8003 => {
                 // Memory mode
                 self.memory.medium_mut().word_ram.sub_cpu_write_control(value);
@@ -768,19 +772,36 @@ impl<'a> SubBus<'a> {
                 self.graphics_coprocessor.set_write_priority_mode(graphics_write_priority_mode);
             }
             0xFF8004 => {
+                // CDC mode
                 log::trace!("  CDC mode write: {value:02X}");
-                // TODO CDC mode
+                let device_destination = DeviceDestination::from_bits(value & 0x07);
+                self.memory
+                    .medium_mut()
+                    .disc_drive
+                    .cdc_mut()
+                    .set_device_destination(device_destination);
             }
             0xFF8005 => {
+                // CDC register address
                 log::trace!("  CDC register address write: {value:02X}");
-                // TODO CDC register address
+                let register_address = value & 0x0F;
+                self.memory
+                    .medium_mut()
+                    .disc_drive
+                    .cdc_mut()
+                    .set_register_address(register_address);
             }
             0xFF8007 => {
+                // CDC register data
                 log::trace!("  CDC register data write: {value:02X}");
-                // TODO CDC register data
+                self.memory.medium_mut().disc_drive.cdc_mut().write_register(value);
             }
-            0xFF800A => {
-                // TODO CDC DMA address
+            0xFF800A..=0xFF800B => {
+                // CDC DMA address (bits 18-3)
+                // Byte-size writes to this register are erroneous
+                let word = u16::from_le_bytes([value, value]);
+                let dma_address = u32::from(word) << 3;
+                self.memory.medium_mut().disc_drive.cdc_mut().set_dma_address(dma_address);
             }
             0xFF800C..=0xFF800D => {
                 // Stopwatch (12 bits)
@@ -861,22 +882,28 @@ impl<'a> SubBus<'a> {
     fn write_register_word(&mut self, address: u32, value: u16) {
         log::trace!("Sub CPU register word write: {address:06X} {value:04X}");
         match address {
-            0xFF8004 => {
-                let [msb, lsb] = value.to_be_bytes();
-                self.write_register_byte(address, msb);
-                self.write_register_byte(address | 1, lsb);
+            0xFF8000 => {
+                // TODO reset CDD/CDC
             }
             0xFF8002 => {
                 // Memory mode, only low byte is writable
                 self.write_register_byte(address | 1, value as u8);
+            }
+            0xFF8004 => {
+                // CDC mode & register address
+                let [msb, lsb] = value.to_be_bytes();
+                self.write_register_byte(address, msb);
+                self.write_register_byte(address | 1, lsb);
             }
             0xFF8006 => {
                 // CDC data, only low byte is writable
                 self.write_register_byte(address | 1, value as u8);
             }
             0xFF800A => {
+                // CDC DMA address (bits 18-3)
                 log::trace!("  CDC DMA address write: {value:04X}");
-                // TODO CDC DMA address
+                let dma_address = u32::from(value) << 3;
+                self.memory.medium_mut().disc_drive.cdc_mut().set_dma_address(dma_address);
             }
             0xFF800C => {
                 // Stopwatch (12 bits)
@@ -1125,6 +1152,8 @@ impl<'a> BusInterface for SubBus<'a> {
             4 => {
                 self.memory.medium_mut().disc_drive.cdd_mut().acknowledge_interrupt();
             }
+            // Intentionally do nothing for level 5 - CDC interrupts must be acknowledged through
+            // CDC registers, which the BIOS does in its INT5 handler
             _ => {}
         }
     }
