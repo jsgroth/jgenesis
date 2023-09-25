@@ -29,8 +29,7 @@ impl FromStr for TrackType {
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct TrackMetadata {
     pub file_name: String,
-    pub relative_start_time: CdTime,
-    pub relative_end_time: CdTime,
+    pub time_in_file: CdTime,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -39,7 +38,16 @@ pub struct Track {
     pub track_type: TrackType,
     pub start_time: CdTime,
     pub end_time: CdTime,
+    pub pregap_len: CdTime,
+    pub pause_len: CdTime,
+    pub postgap_len: CdTime,
     pub metadata: TrackMetadata,
+}
+
+impl Track {
+    pub fn effective_start_time(&self) -> CdTime {
+        self.start_time + self.pregap_len + self.pause_len
+    }
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -326,54 +334,58 @@ fn to_cue_sheet(parsed_files: Vec<ParsedFile>, cue_path: &Path) -> DiscResult<Cu
 
         for i in 0..parsed_tracks.len() {
             let track = &parsed_tracks[i];
-            let relative_start_time = track.track_start;
-            let pregap_len = if let Some(pregap_len) = track.pregap_len {
-                pregap_len
-            } else if let Some(pause_start) = track.pause_start {
-                track.track_start - pause_start
-            } else {
-                // Default to 2-second pregap if not specified
-                CdTime::new(0, 2, 0)
-            };
-            let postgap_len = match track.track_type {
-                // Data tracks always have a 2-second postgap
-                TrackType::Data => CdTime::new(0, 2, 0),
-                TrackType::Audio => CdTime::ZERO,
-            };
+
+            let pregap_len = track.pregap_len.unwrap_or(CdTime::ZERO);
+            let pause_len = track
+                .pause_start
+                .map_or(CdTime::ZERO, |pause_start| track.track_start - pause_start);
 
             let is_last_track_in_file = i == parsed_tracks.len() - 1;
-            let relative_end_time = if is_last_track_in_file {
+            let data_end_time = if is_last_track_in_file {
                 CdTime::from_sector_number(file_len_sectors)
             } else {
                 let next_track = &parsed_tracks[i + 1];
                 next_track.pause_start.unwrap_or(next_track.track_start)
             };
 
+            let postgap_len = match track.track_type {
+                // Data tracks always have a 2-second postgap
+                TrackType::Data => CdTime::new(0, 2, 0),
+                TrackType::Audio => CdTime::ZERO,
+            };
+
+            let padded_track_len =
+                pregap_len + pause_len + (data_end_time - track.track_start) + postgap_len;
             tracks.push(Track {
                 number: track.number,
                 track_type: track.track_type,
                 start_time: absolute_start_time,
-                end_time: absolute_start_time
-                    + (relative_end_time - relative_start_time)
-                    + postgap_len,
+                end_time: absolute_start_time + padded_track_len,
+                pregap_len,
+                pause_len,
+                postgap_len,
                 metadata: TrackMetadata {
                     file_name: file_name.clone(),
-                    relative_start_time,
-                    relative_end_time,
+                    time_in_file: track.pause_start.unwrap_or(track.track_start),
                 },
             });
-            absolute_start_time +=
-                pregap_len + (relative_end_time - relative_start_time) + postgap_len;
+            absolute_start_time += padded_track_len;
         }
+    }
+
+    // The final track always has a 2-second postgap
+    let last_track = tracks.last_mut().unwrap();
+    if last_track.postgap_len == CdTime::ZERO {
+        last_track.postgap_len = CdTime::new(0, 2, 0);
+        last_track.end_time += CdTime::new(0, 2, 0);
     }
 
     log::trace!("Parsed cue sheet:\n{tracks:#?}");
 
-    if !tracks_are_continuous(&tracks) {
-        return Err(DiscError::CueParse(
-            "Resulting CUE sheet does not have completely continuous tracks".into(),
-        ));
-    }
+    assert!(
+        tracks_are_continuous(&tracks),
+        "Tracks in parsed CUE sheet are not continuous; this is a bug"
+    );
 
     Ok(CueSheet::new(tracks))
 }
