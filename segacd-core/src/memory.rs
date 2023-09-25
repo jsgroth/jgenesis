@@ -180,7 +180,7 @@ impl SegaCd {
                 (self.registers.prg_ram_bank << 6) | self.word_ram.read_control()
             }
             0xA12004 => {
-                // TODO CDC mode
+                log::trace!("  CDC mode read (main CPU)");
                 0
             }
             0xA12006 => {
@@ -245,7 +245,7 @@ impl SegaCd {
             }
             0xA12006 => self.registers.h_interrupt_vector,
             0xA12008 => {
-                // TODO CDC host data
+                log::trace!("  CDC host data read (main CPU)");
                 0
             }
             0xA1200C => self.registers.stopwatch_counter,
@@ -582,15 +582,15 @@ impl<'a> SubBus<'a> {
                     | (self.graphics_coprocessor.write_priority_mode().to_bits() << 3)
             }
             0xFF8004 => {
-                // TODO CDC mode
+                log::trace!("  CDC mode read (sub CPU)");
                 0x00
             }
             0xFF8005 => {
-                // TODO CDC register address
+                log::trace!("  CDC device destination read");
                 0x00
             }
             0xFF8007 => {
-                // TODO CDC register data
+                log::trace!("  CDC register data read");
                 0x00
             }
             0xFF8008 => {
@@ -652,7 +652,7 @@ impl<'a> SubBus<'a> {
                 0x00
             }
             0xFF8036 => {
-                // TODO CDD control, high byte
+                log::trace!("  CDD control read");
                 0x00
             }
             0xFF8037 => {
@@ -695,6 +695,7 @@ impl<'a> SubBus<'a> {
             }
             0xFF8008 => {
                 // TODO CDC host data
+                log::trace!("  CDC host data read (sub CPU)");
                 0x0000
             }
             0xFF800C => self.memory.medium().registers.stopwatch_counter,
@@ -725,7 +726,7 @@ impl<'a> SubBus<'a> {
                 self.read_register_byte(address | 1).into()
             }
             0xFF8034 => {
-                // TODO CDD fader
+                log::trace!("  CDD fader read");
                 0x0000
             }
             0xFF8038..=0xFF8041 => {
@@ -767,12 +768,15 @@ impl<'a> SubBus<'a> {
                 self.graphics_coprocessor.set_write_priority_mode(graphics_write_priority_mode);
             }
             0xFF8004 => {
+                log::trace!("  CDC mode write: {value:02X}");
                 // TODO CDC mode
             }
             0xFF8005 => {
+                log::trace!("  CDC register address write: {value:02X}");
                 // TODO CDC register address
             }
             0xFF8007 => {
+                log::trace!("  CDC register data write: {value:02X}");
                 // TODO CDC register data
             }
             0xFF800A => {
@@ -822,6 +826,7 @@ impl<'a> SubBus<'a> {
                 log::trace!("  Interrupt mask write: {value:08b}");
             }
             0xFF8034..=0xFF8035 => {
+                log::trace!("  CDD fader write: {value:02X}");
                 // TODO CDD fader
             }
             0xFF8037 => {
@@ -870,6 +875,7 @@ impl<'a> SubBus<'a> {
                 self.write_register_byte(address | 1, value as u8);
             }
             0xFF800A => {
+                log::trace!("  CDC DMA address write: {value:04X}");
                 // TODO CDC DMA address
             }
             0xFF800C => {
@@ -896,6 +902,7 @@ impl<'a> SubBus<'a> {
                 self.write_register_byte(address | 1, value as u8);
             }
             0xFF8034 => {
+                log::trace!("  CDD fader write: {value:04X}");
                 // TODO CDD fader
             }
             0xFF8036 => {

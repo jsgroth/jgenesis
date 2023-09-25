@@ -8,7 +8,7 @@ use std::str::FromStr;
 use std::sync::OnceLock;
 use std::{fs, mem};
 
-#[derive(Debug, Clone, Copy, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum TrackType {
     Data,
     Audio,
@@ -45,12 +45,16 @@ pub struct Track {
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct CueSheet {
     tracks: Vec<Track>,
+    track_start_times: Vec<CdTime>,
 }
 
 impl CueSheet {
     fn new(tracks: Vec<Track>) -> Self {
         assert!(!tracks.is_empty(), "track list must not be empty");
-        Self { tracks }
+
+        let track_start_times = tracks.iter().map(|track| track.start_time).collect();
+
+        Self { tracks, track_start_times }
     }
 
     pub fn track(&self, track_number: u8) -> &Track {
@@ -67,6 +71,21 @@ impl CueSheet {
 
     pub fn last_track(&self) -> &Track {
         self.tracks.last().unwrap()
+    }
+
+    // Returns None if `time` is past the end of the disc
+    pub fn find_track_by_time(&self, time: CdTime) -> Option<&Track> {
+        match self.track_start_times.binary_search(&time) {
+            Ok(i) => Some(&self.tracks[i]),
+            Err(i) => {
+                if i < self.tracks.len() {
+                    Some(&self.tracks[i - 1])
+                } else {
+                    let last_track = self.last_track();
+                    (time <= last_track.end_time).then_some(last_track)
+                }
+            }
+        }
     }
 
     pub fn num_tracks(&self) -> u8 {
@@ -330,21 +349,46 @@ fn to_cue_sheet(parsed_files: Vec<ParsedFile>, cue_path: &Path) -> DiscResult<Cu
                 next_track.pause_start.unwrap_or(next_track.track_start)
             };
 
-            absolute_start_time += pregap_len;
             tracks.push(Track {
                 number: track.number,
                 track_type: track.track_type,
                 start_time: absolute_start_time,
-                end_time: absolute_start_time + (relative_end_time - relative_start_time),
+                end_time: absolute_start_time
+                    + (relative_end_time - relative_start_time)
+                    + postgap_len,
                 metadata: TrackMetadata {
                     file_name: file_name.clone(),
                     relative_start_time,
                     relative_end_time,
                 },
             });
-            absolute_start_time += relative_end_time - relative_start_time + postgap_len;
+            absolute_start_time +=
+                pregap_len + (relative_end_time - relative_start_time) + postgap_len;
         }
     }
 
-    Ok(CueSheet { tracks })
+    log::trace!("Parsed cue sheet:\n{tracks:#?}");
+
+    if !tracks_are_continuous(&tracks) {
+        return Err(DiscError::CueParse(
+            "Resulting CUE sheet does not have completely continuous tracks".into(),
+        ));
+    }
+
+    Ok(CueSheet::new(tracks))
+}
+
+fn tracks_are_continuous(tracks: &[Track]) -> bool {
+    if tracks[0].start_time != CdTime::ZERO {
+        return false;
+    }
+
+    for window in tracks.windows(2) {
+        let [track, next] = window else { unreachable!("windows(2)") };
+        if next.start_time != track.end_time {
+            return false;
+        }
+    }
+
+    true
 }

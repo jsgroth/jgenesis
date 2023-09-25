@@ -1,5 +1,6 @@
 use bincode::{Decode, Encode};
 use std::cmp::Ordering;
+use std::fmt::{Display, Formatter};
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::str::FromStr;
 
@@ -12,6 +13,7 @@ pub struct CdTime {
 
 impl CdTime {
     pub const ZERO: Self = Self { minutes: 0, seconds: 0, frames: 0 };
+    pub const DISC_END: Self = Self { minutes: 60, seconds: 3, frames: 74 };
 
     pub const MAX_MINUTES: u8 = 61;
     pub const SECONDS_PER_MINUTE: u8 = 60;
@@ -33,6 +35,13 @@ impl CdTime {
         Self { minutes, seconds, frames }
     }
 
+    pub fn new_checked(minutes: u8, seconds: u8, frames: u8) -> Option<Self> {
+        (minutes < Self::MAX_MINUTES
+            && seconds < Self::SECONDS_PER_MINUTE
+            && frames < Self::FRAMES_PER_SECOND)
+            .then_some(Self { minutes, seconds, frames })
+    }
+
     pub fn to_sector_number(self) -> u32 {
         (u32::from(Self::SECONDS_PER_MINUTE) * u32::from(self.minutes) + u32::from(self.seconds))
             * u32::from(Self::FRAMES_PER_SECOND)
@@ -48,6 +57,27 @@ impl CdTime {
             % u32::from(Self::SECONDS_PER_MINUTE);
         let minutes = sector_number
             / (u32::from(Self::FRAMES_PER_SECOND) * u32::from(Self::SECONDS_PER_MINUTE));
+
+        Self::new(minutes as u8, seconds as u8, frames as u8)
+    }
+
+    pub fn to_frames(self) -> u32 {
+        let seconds: u32 = self.seconds.into();
+        let minutes: u32 = self.minutes.into();
+        let frames: u32 = self.frames.into();
+
+        let frames_per_second: u32 = Self::FRAMES_PER_SECOND.into();
+        let seconds_per_minute: u32 = Self::SECONDS_PER_MINUTE.into();
+
+        frames + frames_per_second * (seconds + seconds_per_minute * minutes)
+    }
+
+    pub fn from_frames(frames: u32) -> Self {
+        let minutes =
+            frames / (u32::from(Self::FRAMES_PER_SECOND) * u32::from(Self::SECONDS_PER_MINUTE));
+        let seconds =
+            (frames / u32::from(Self::FRAMES_PER_SECOND)) % u32::from(Self::SECONDS_PER_MINUTE);
+        let frames = frames % u32::from(Self::FRAMES_PER_SECOND);
 
         Self::new(minutes as u8, seconds as u8, frames as u8)
     }
@@ -134,6 +164,12 @@ impl FromStr for CdTime {
         let frames: u8 = s[6..8].parse().map_err(err_fn)?;
 
         Ok(CdTime { minutes, seconds, frames })
+    }
+}
+
+impl Display for CdTime {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}:{}", self.minutes, self.seconds, self.frames)
     }
 }
 
