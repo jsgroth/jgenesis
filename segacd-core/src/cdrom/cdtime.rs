@@ -169,7 +169,7 @@ impl FromStr for CdTime {
 
 impl Display for CdTime {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}:{}", self.minutes, self.seconds, self.frames)
+        write!(f, "{:02}:{:02}:{:02}", self.minutes, self.seconds, self.frames)
     }
 }
 
