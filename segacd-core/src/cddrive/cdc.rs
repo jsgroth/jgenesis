@@ -113,6 +113,12 @@ impl Rchip {
 
         log::trace!("CDC device destination set to {device_destination:?}");
 
+        if device_destination != DeviceDestination::MainCpuRegister
+            && device_destination != DeviceDestination::SubCpuRegister
+        {
+            todo!("unsupported device destination: {device_destination:?}")
+        }
+
         self.device_destination = device_destination;
     }
 
