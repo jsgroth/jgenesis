@@ -578,8 +578,9 @@ fn sample_stamp(
     let stamp_number = match stamp_size {
         StampSizeDots::Sixteen => stamp.stamp_number,
         StampSizeDots::ThirtyTwo => {
-            // Lowest 2 bits are ignored in 32x32 stamp mode
-            stamp.stamp_number & !0x03
+            // Lowest 2 bits are ignored in 32x32 stamp mode; treat the remaining bits as a stamp
+            // number for 32x32 tiles (4x the byte size of 16x16 tiles)
+            stamp.stamp_number >> 2
         }
     };
     let stamp_number: u32 = stamp_number.into();
