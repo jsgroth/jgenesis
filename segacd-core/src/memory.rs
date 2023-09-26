@@ -176,8 +176,12 @@ impl SegaCd {
             }
             0xA12004 => {
                 log::trace!("  CDC mode read (main CPU)");
-                // TODO EDT and DSR
-                self.disc_drive.cdc().device_destination().to_bits()
+                // TODO EDT
+                let cdc = self.disc_drive.cdc();
+                let data_ready = cdc.data_ready();
+                let dd_bits = cdc.device_destination().to_bits();
+
+                (u8::from(data_ready) << 6) | dd_bits
             }
             0xA12006 => {
                 // HINT vector, high byte
@@ -582,8 +586,10 @@ impl<'a> SubBus<'a> {
             0xFF8004 => {
                 // CDC mode
                 log::trace!("  CDC mode read (sub CPU)");
-                // TODO EDT and DSR
-                self.memory.medium().disc_drive.cdc().device_destination().to_bits()
+                let cdc = self.memory.medium().disc_drive.cdc();
+                let data_ready = cdc.data_ready();
+                let dd_bits = cdc.device_destination().to_bits();
+                (u8::from(!data_ready) << 7) | (u8::from(data_ready) << 6) | dd_bits
             }
             0xFF8005 => {
                 // CDC register address
@@ -676,8 +682,7 @@ impl<'a> SubBus<'a> {
                 self.memory.medium().registers.cdd_command[relative_addr as usize]
             }
             0xFF804C..=0xFF8057 => {
-                // TODO color calculation registers
-                0x00
+                todo!("font registers")
             }
             0xFF8058..=0xFF8067 => self.graphics_coprocessor.read_register_byte(address),
             _ => 0x00,
@@ -752,8 +757,7 @@ impl<'a> SubBus<'a> {
                 ])
             }
             0xFF804C..=0xFF8057 => {
-                // TODO color calculation registers
-                0x0000
+                todo!("font registers")
             }
             0xFF8058..=0xFF8067 => self.graphics_coprocessor.read_register_word(address),
             _ => 0x0000,
@@ -872,7 +876,7 @@ impl<'a> SubBus<'a> {
                 }
             }
             0xFF804C..=0xFF8057 => {
-                // TODO color calculation registers
+                todo!("font registers")
             }
             0xFF8058..=0xFF8067 => {
                 self.graphics_coprocessor.write_register_byte(address, value);
@@ -954,7 +958,7 @@ impl<'a> SubBus<'a> {
                 }
             }
             0xFF804C..=0xFF8057 => {
-                // TODO color calculation registers
+                todo!("font registers")
             }
             0xFF8058..=0xFF8067 => {
                 self.graphics_coprocessor.write_register_word(address, value);

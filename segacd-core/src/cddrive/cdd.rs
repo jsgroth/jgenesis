@@ -1,6 +1,6 @@
 use crate::api::DiscResult;
 use crate::cddrive::cdc;
-use crate::cddrive::cdc::{Rchip, PLAY_DELAY_CLOCKS};
+use crate::cddrive::cdc::Rchip;
 use crate::cdrom;
 use crate::cdrom::cdtime::CdTime;
 use crate::cdrom::cue::TrackType;
@@ -12,6 +12,8 @@ use std::array;
 use std::sync::OnceLock;
 
 const INITIAL_STATUS: [u8; 10] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0F];
+
+const PLAY_DELAY_CLOCKS: u8 = 10;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -279,8 +281,8 @@ impl CdDrive {
                     self.status[6] = 0x08;
                 }
 
-                // Status 8 is always set to the lowest 4 bits of the track number
-                self.status[8] = track_number & 0x0F;
+                // Status 8 is always set to the lower digit of track number
+                self.status[8] = track_number % 10;
             }
             _ => {}
         }
@@ -302,6 +304,13 @@ impl CdDrive {
         let seek_time = raw_seek_time.saturating_sub(CdTime::new(0, 0, 3));
 
         let current_time = self.state.current_time();
+
+        if seek_time == current_time {
+            log::trace!("Already at desired seek time {seek_time}; preparing to play");
+            self.state =
+                CddState::PreparingToPlay { time: seek_time, clocks_remaining: PLAY_DELAY_CLOCKS };
+            return;
+        }
 
         let seek_clocks = cdc::estimate_seek_clocks(current_time, seek_time);
 
@@ -383,9 +392,10 @@ impl CdDrive {
                 };
 
                 let relative_time = time - track.start_time;
+                let track_type = track.track_type;
                 disc.read_sector(track.number, relative_time, &mut self.sector_buffer)?;
 
-                rchip.decode_block(&self.sector_buffer);
+                rchip.decode_block(track_type, &self.sector_buffer);
 
                 self.state = CddState::Playing(time + CdTime::new(0, 0, 1));
             }
