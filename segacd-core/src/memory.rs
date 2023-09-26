@@ -1,7 +1,8 @@
 pub(crate) mod wordram;
 
 use crate::api::DiscResult;
-use crate::cddrive::{CdController, DeviceDestination};
+use crate::cddrive::cdc::DeviceDestination;
+use crate::cddrive::CdController;
 use crate::cdrom::reader::CdRom;
 use crate::graphics::{GraphicsCoprocessor, GraphicsWritePriorityMode};
 use crate::rf5c164::Rf5c164;
@@ -350,8 +351,8 @@ impl SegaCd {
         }
     }
 
-    pub fn tick(&mut self, master_clock_cycles: u64) {
-        self.disc_drive.tick(master_clock_cycles);
+    pub fn tick(&mut self, master_clock_cycles: u64) -> DiscResult<()> {
+        self.disc_drive.tick(master_clock_cycles)?;
 
         if master_clock_cycles >= self.timer_divider {
             self.clock_timers();
@@ -359,6 +360,8 @@ impl SegaCd {
         } else {
             self.timer_divider -= master_clock_cycles;
         }
+
+        Ok(())
     }
 
     fn clock_timers(&mut self) {
@@ -1110,7 +1113,10 @@ impl<'a> BusInterface for SubBus<'a> {
     fn interrupt_level(&self) -> u8 {
         // TODO other interrupts
         let sega_cd = self.memory.medium();
-        if sega_cd.registers.cdd_interrupt_enabled
+        if sega_cd.registers.cdc_interrupt_enabled && sega_cd.disc_drive.cdc().interrupt_pending() {
+            // INT5: CDC interrupt
+            5
+        } else if sega_cd.registers.cdd_interrupt_enabled
             && sega_cd.registers.cdd_host_clock_on
             && sega_cd.disc_drive.cdd().interrupt_pending()
         {

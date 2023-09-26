@@ -10,9 +10,7 @@ use genesis_core::input::InputState;
 use genesis_core::memory::{MainBus, MainBusSignals, Memory};
 use genesis_core::vdp::{Vdp, VdpTickEffect};
 use genesis_core::ym2612::{Ym2612, YmTickEffect};
-use genesis_core::{
-    GenesisAspectRatio, GenesisEmulator, GenesisEmulatorConfig, GenesisError, GenesisInputs,
-};
+use genesis_core::{GenesisAspectRatio, GenesisEmulator, GenesisEmulatorConfig, GenesisInputs};
 use jgenesis_traits::frontend::{
     AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, LightClone, Renderer,
     Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator, TimingMode,
@@ -83,6 +81,8 @@ pub type DiscResult<T> = Result<T, DiscError>;
 
 #[derive(Debug, Error)]
 pub enum SegaCdError<RErr, AErr, SErr> {
+    #[error("Disc-related error: {0}")]
+    Disc(#[from] DiscError),
     #[error("Rendering error: {0}")]
     Render(RErr),
     #[error("Audio output error: {0}")]
@@ -236,7 +236,7 @@ impl TickableEmulator for SegaCdEmulator {
         RErr: Debug + Display + Send + Sync + 'static,
         AErr: Debug + Display + Send + Sync + 'static,
         SErr: Debug + Display + Send + Sync + 'static,
-    > = GenesisError<RErr, AErr, SErr>;
+    > = SegaCdError<RErr, AErr, SErr>;
 
     fn tick<R, A, S>(
         &mut self,
@@ -295,7 +295,7 @@ impl TickableEmulator for SegaCdEmulator {
 
         // Disc drive and timer/stopwatch
         let sega_cd = self.memory.medium_mut();
-        sega_cd.tick(elapsed_scd_mclk_cycles);
+        sega_cd.tick(elapsed_scd_mclk_cycles)?;
 
         // Graphics ASIC
         let graphics_interrupt_enabled = sega_cd.graphics_interrupt_enabled();
@@ -334,18 +334,18 @@ impl TickableEmulator for SegaCdEmulator {
         }
 
         // Output any audio samples that are queued up
-        self.audio_downsampler.output_samples(audio_output).map_err(GenesisError::Audio)?;
+        self.audio_downsampler.output_samples(audio_output).map_err(SegaCdError::Audio)?;
 
         // VDP
         if self.vdp.tick(genesis_mclk_elapsed, &mut self.memory) == VdpTickEffect::FrameComplete {
-            self.render_frame(renderer).map_err(GenesisError::Render)?;
+            self.render_frame(renderer).map_err(SegaCdError::Render)?;
 
             self.input.set_inputs(inputs);
 
             if self.memory.medium_mut().get_and_clear_backup_ram_dirty_bit() {
                 save_writer
                     .persist_save(self.memory.medium().backup_ram())
-                    .map_err(GenesisError::Save)?;
+                    .map_err(SegaCdError::SaveWrite)?;
             }
 
             return Ok(TickEffect::FrameRendered);

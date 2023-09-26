@@ -11,7 +11,6 @@ use std::io::{Read, Seek, SeekFrom};
 use std::ops::{Deref, DerefMut, Range};
 use std::path::Path;
 
-const SECTOR_DATA_LEN: u64 = 2048;
 const SECTOR_HEADER_LEN: u64 = 16;
 
 const CD_ROM_CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_CD_ROM_EDC);
@@ -101,12 +100,28 @@ impl CdRom {
         out: &mut [u8],
     ) -> DiscResult<()> {
         let track = self.cue_sheet.track(track_number);
+        if relative_time < track.pregap_len {
+            // Reading data that does not exist in the file
+            match track.track_type {
+                TrackType::Data => {
+                    write_fake_data_pregap(relative_time, out);
+                }
+                TrackType::Audio => {
+                    // Fill with all 0s
+                    out[..cdrom::BYTES_PER_SECTOR as usize].fill(0);
+                }
+            }
+            return Ok(());
+        }
+
+        // TODO correctly handle postgap
+
         let track_file = self
             .files
             .get_mut(&track.metadata.file_name)
             .expect("Track file was not opened on load; this is a bug");
 
-        let sector_number = relative_time.to_sector_number();
+        let sector_number = (relative_time - track.pregap_len).to_sector_number();
         track_file
             .seek(SeekFrom::Start(u64::from(sector_number) * cdrom::BYTES_PER_SECTOR))
             .map_err(DiscError::DiscReadIo)?;
@@ -137,4 +152,36 @@ impl CdRom {
 
         Ok(())
     }
+}
+
+fn write_fake_data_pregap(time: CdTime, out: &mut [u8]) {
+    // Make up a header; 12 sync bytes, then minutes, then seconds, then frames, then mode (always 1)
+    let bcd_minutes = time_component_to_bcd(time.minutes);
+    let bcd_seconds = time_component_to_bcd(time.seconds);
+    let bcd_frames = time_component_to_bcd(time.frames);
+    out[..SECTOR_HEADER_LEN as usize].copy_from_slice(&[
+        0x00,
+        0x11,
+        0x11,
+        0x11,
+        0x11,
+        0x11,
+        0x11,
+        0x11,
+        0x11,
+        0x11,
+        0x11,
+        0x00,
+        bcd_minutes,
+        bcd_seconds,
+        bcd_frames,
+        0x01,
+    ]);
+    out[SECTOR_HEADER_LEN as usize..cdrom::BYTES_PER_SECTOR as usize].fill(0);
+}
+
+fn time_component_to_bcd(component: u8) -> u8 {
+    let msb = component / 10;
+    let lsb = component % 10;
+    (msb << 4) | lsb
 }
