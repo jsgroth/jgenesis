@@ -28,6 +28,55 @@ enum CddStatus {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+enum ReportType {
+    AbsoluteTime,
+    RelativeTime,
+    CurrentTrack,
+    DiscLength,
+    StartAndEndTracks,
+    TrackNStartTime(u8),
+}
+
+impl ReportType {
+    fn to_byte(self) -> u8 {
+        match self {
+            Self::AbsoluteTime => 0x00,
+            Self::RelativeTime => 0x01,
+            Self::CurrentTrack => 0x02,
+            Self::DiscLength => 0x03,
+            Self::StartAndEndTracks => 0x04,
+            Self::TrackNStartTime(..) => 0x05,
+        }
+    }
+
+    fn from_command(command: [u8; 10]) -> Self {
+        // Report type is always stored in Command 3 for Read TOC commands
+        match command[3] {
+            0x00 => Self::AbsoluteTime,
+            0x01 => Self::RelativeTime,
+            0x02 => Self::CurrentTrack,
+            0x03 => Self::DiscLength,
+            0x04 => Self::StartAndEndTracks,
+            0x05 => {
+                // Track number (BCD) is at Command 4-5
+                let track_number = 10 * command[4] + command[5];
+                Self::TrackNStartTime(track_number)
+            }
+            _ => {
+                log::warn!("Invalid CDD report type byte: {}; defaulting to absolute", command[3]);
+                Self::AbsoluteTime
+            }
+        }
+    }
+}
+
+impl Default for ReportType {
+    fn default() -> Self {
+        Self::AbsoluteTime
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum ReaderStatus {
     Playing,
     Paused,
@@ -77,6 +126,7 @@ pub struct CdDrive {
     disc: Option<CdRom>,
     sector_buffer: [u8; cdrom::BYTES_PER_SECTOR as usize],
     state: CddState,
+    report_type: ReportType,
     interrupt_pending: bool,
     status: [u8; 10],
 }
@@ -87,6 +137,7 @@ impl CdDrive {
             disc,
             sector_buffer: array::from_fn(|_| 0),
             state: CddState::default(),
+            report_type: ReportType::default(),
             interrupt_pending: false,
             status: INITIAL_STATUS,
         }
@@ -123,7 +174,6 @@ impl CdDrive {
                 // Seek
                 log::trace!("  Command: Seek");
 
-                // TODO should seek during playback continue playing after seek?
                 self.execute_seek(command, ReaderStatus::Paused);
             }
             0x06 => {
@@ -151,6 +201,15 @@ impl CdDrive {
                 // Rewind
                 todo!("Rewind")
             }
+            0x0A => {
+                // Start track skipping
+                // todo!("Start track skipping")
+            }
+            0x0B => {
+                // Start track cueing
+
+                // todo!("Start track cueing")
+            }
             0x0C => {
                 // Close tray
                 todo!("Close tray")
@@ -162,24 +221,93 @@ impl CdDrive {
             _ => {}
         }
 
+        // Executing any command other than Read TOC cancels the TOCN report; default to absolute time
+        if command[0] != 0x02 && matches!(self.report_type, ReportType::TrackNStartTime(..)) {
+            self.report_type = ReportType::AbsoluteTime;
+        }
+
+        self.update_status();
+
+        log::trace!("CDD status: {:02X?}", self.status);
+    }
+
+    fn update_status(&mut self) {
+        self.status.fill(0);
+
+        // Status 0 is always drive status
         self.status[0] = self.current_cdd_status() as u8;
 
-        match command[0] {
-            0x02 => {
-                self.status[1] = command[3];
-            }
-            0x03 | 0x07 => {
-                self.status[1] = 0x02;
-            }
-            0x00 => {}
-            _ => {
-                self.status[1] = 0x00;
+        // Status 1 is always report type
+        self.status[1] = self.report_type.to_byte();
+
+        // Only update other status bytes if there is a disc
+        if let Some(disc) = &self.disc {
+            // Status 2-8 depend on report type
+            match self.report_type {
+                ReportType::AbsoluteTime => {
+                    // Write current absolute time in minutes/seconds/frames (BCD) to Status 2-7
+                    let current_time = self.state.current_time();
+                    write_time_to_status(current_time, &mut self.status);
+                }
+                ReportType::RelativeTime => {
+                    // Write current relative time in minutes/seconds/frames (BCD) to Status 2-7
+                    let current_time = self.state.current_time();
+                    let track_start_time = disc
+                        .cue()
+                        .find_track_by_time(current_time)
+                        .map_or(CdTime::ZERO, |track| track.start_time);
+                    write_time_to_status(current_time - track_start_time, &mut self.status);
+                }
+                ReportType::CurrentTrack => {
+                    // Write current track number (BCD) to Status 2-3
+                    let current_time = self.state.current_time();
+                    let track_number =
+                        disc.cue().find_track_by_time(current_time).map_or(0, |track| track.number);
+                    self.status[2] = track_number / 10;
+                    self.status[3] = track_number % 10;
+                }
+                ReportType::DiscLength => {
+                    // Write disc length in minutes/seconds/frames (BCD) to Status 2-7
+                    let disc_end_time = disc.cue().last_track().end_time;
+                    write_time_to_status(disc_end_time, &mut self.status);
+                }
+                ReportType::StartAndEndTracks => {
+                    // Write start track number to Status 2-3 and end track number to Status 4-5, both in BCD
+                    // Assume start track number is always 1
+                    self.status[2] = 0x00;
+                    self.status[3] = 0x01;
+
+                    let end_track_number = disc.cue().last_track().number;
+                    self.status[4] = end_track_number / 10;
+                    self.status[5] = end_track_number % 10;
+                }
+                ReportType::TrackNStartTime(track_number) => {
+                    let track = if track_number <= disc.cue().last_track().number {
+                        disc.cue().track(track_number)
+                    } else {
+                        // ??? Invalid track number
+                        disc.cue().last_track()
+                    };
+
+                    let track_start_time = track.effective_start_time();
+                    let track_type = track.track_type;
+
+                    // Write track start time in minutes/seconds/frames (BCD) to Status 2-7
+                    write_time_to_status(track_start_time, &mut self.status);
+
+                    // If this is a data track, OR Status 6 with $08
+                    if track_type == TrackType::Data {
+                        self.status[6] |= 0x08;
+                    }
+
+                    // Write the lower digit of track number to Status 8
+                    self.status[8] = track_number % 10;
+                }
             }
         }
 
+        // Update checksum in Status 9
         update_cdd_checksum(&mut self.status);
-
-        log::trace!("CDD status: {:02X?}", self.status);
     }
 
     fn current_cdd_status(&self) -> CddStatus {
@@ -195,97 +323,20 @@ impl CdDrive {
     }
 
     fn execute_read_toc(&mut self, command: [u8; 10]) {
-        if let CddState::MotorStopped = self.state {
-            self.state = match &self.disc {
-                Some(_) => CddState::Paused(CdTime::ZERO),
-                None => CddState::NoDisc,
-            };
-        }
+        let report_type = ReportType::from_command(command);
+        self.report_type = report_type;
 
-        let Some(disc) = &self.disc else {
-            write_time_to_status(CdTime::ZERO, &mut self.status);
-            return;
+        log::trace!("  Report type changed to {report_type:?}");
+
+        self.state = match (self.state, &self.disc, report_type) {
+            (CddState::MotorStopped, None, _) => CddState::NoDisc,
+            (CddState::MotorStopped, Some(_), _) => CddState::Paused(CdTime::ZERO),
+            (_, Some(_), ReportType::TrackNStartTime(..)) => {
+                // TOCN requires reading the TOC; move back to start of disc
+                CddState::Paused(CdTime::ZERO)
+            }
+            _ => self.state,
         };
-        let cue = disc.cue();
-
-        // Command 3 contains the subcommand to execute
-        match command[3] {
-            0x00 => {
-                // Get absolute position
-                log::trace!("  Subcommand: Get absolute position");
-
-                let current_time = self.state.current_time();
-                write_time_to_status(current_time, &mut self.status);
-            }
-            0x01 => {
-                // Get relative position
-                log::trace!("  Subcommand: Get relative position");
-
-                let current_time = self.state.current_time();
-                let relative_time = match cue.find_track_by_time(current_time) {
-                    Some(track) => current_time - track.start_time,
-                    None => {
-                        // Past end of disc
-                        CdTime::ZERO
-                    }
-                };
-
-                write_time_to_status(relative_time, &mut self.status);
-            }
-            0x02 => {
-                // Get current track number
-                log::trace!("  Subcommand: Get current track number");
-
-                let current_time = self.state.current_time();
-                let track_number = match cue.find_track_by_time(current_time) {
-                    Some(track) => track.number,
-                    None => cue.num_tracks(),
-                };
-
-                // Write track number to Status 2-3
-                self.status[2] = track_number / 10;
-                self.status[3] = track_number % 10;
-            }
-            0x03 => {
-                // Get CD length
-                log::trace!("  Subcommand: Get CD length");
-
-                write_time_to_status(cue.last_track().end_time, &mut self.status);
-            }
-            0x04 => {
-                // Get number of tracks
-                log::trace!("  Subcommand: Get number of tracks");
-
-                // Write start track number (always 1) to Status 2-3
-                self.status[2] = 0x00;
-                self.status[3] = 0x01;
-
-                // Write end track number to Status 4-5
-                let last_track_number = cue.num_tracks();
-                self.status[4] = last_track_number / 10;
-                self.status[5] = last_track_number % 10;
-            }
-            0x05 => {
-                // Get track start time
-                log::trace!("  Subcommand: Get track start time");
-
-                // Track number is stored in commands 4-5
-                let track_number = 10 * command[4] + command[5];
-                let track = cue.track(track_number);
-
-                // Write track time to Status 2-7
-                write_time_to_status(track.effective_start_time(), &mut self.status);
-
-                // Status 6 is always set to $08 for data tracks
-                if track.track_type == TrackType::Data {
-                    self.status[6] = 0x08;
-                }
-
-                // Status 8 is always set to the lower digit of track number
-                self.status[8] = track_number % 10;
-            }
-            _ => {}
-        }
     }
 
     fn execute_seek(&mut self, command: [u8; 10], next_status: ReaderStatus) {

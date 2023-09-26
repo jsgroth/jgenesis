@@ -91,10 +91,6 @@ impl CueSheet {
             }
         }
     }
-
-    pub fn num_tracks(&self) -> u8 {
-        self.tracks.len() as u8
-    }
 }
 
 #[derive(Debug, Clone)]
