@@ -1,5 +1,6 @@
 use crate::cdrom;
 use crate::cdrom::cdtime::CdTime;
+use crate::cdrom::cue::TrackType;
 use crate::memory::ScdCpu;
 use bincode::{Decode, Encode};
 use jgenesis_traits::num::GetBit;
@@ -8,7 +9,7 @@ use std::cmp;
 const BUFFER_RAM_LEN: usize = 16 * 1024;
 const BUFFER_RAM_ADDRESS_MASK: u16 = (1 << 14) - 1;
 
-pub const PLAY_DELAY_CLOCKS: u8 = 10;
+const DATA_TRACK_HEADER_LEN: u16 = 12;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum DeviceDestination {
@@ -62,6 +63,7 @@ pub struct Rchip {
     decoder_writes_enabled: bool,
     decoded_first_written_block: bool,
     data_out_enabled: bool,
+    data_transfer_in_progress: bool,
     subheader_data_enabled: bool,
     header_data: [u8; 4],
     subheader_data: [u8; 4],
@@ -86,6 +88,7 @@ impl Rchip {
             decoder_writes_enabled: false,
             decoded_first_written_block: false,
             data_out_enabled: false,
+            data_transfer_in_progress: false,
             subheader_data_enabled: false,
             header_data: [0; 4],
             subheader_data: [0; 4],
@@ -105,10 +108,11 @@ impl Rchip {
     }
 
     pub fn set_device_destination(&mut self, device_destination: DeviceDestination) {
-        // Changing device destination resets DMA controller
         if device_destination != self.device_destination {
-            // TODO cancel any in-progress DMA
+            // Abort any in-progress data transfer and reset DMA controller
+            self.data_transfer_in_progress = false;
             self.dma_address = 0;
+            // TODO cancel any in-progress DMA
         }
 
         log::trace!("CDC device destination set to {device_destination:?}");
@@ -123,14 +127,35 @@ impl Rchip {
     }
 
     pub fn read_host_data(&mut self, cpu: ScdCpu) -> u16 {
-        if (cpu == ScdCpu::Main && self.device_destination != DeviceDestination::MainCpuRegister)
+        if !self.data_transfer_in_progress
+            || (cpu == ScdCpu::Main
+                && self.device_destination != DeviceDestination::MainCpuRegister)
             || (cpu == ScdCpu::Sub && self.device_destination != DeviceDestination::SubCpuRegister)
         {
             // Invalid host data read
             return 0x0000;
         }
 
-        todo!("read host data ({cpu:?})")
+        let msb_addr = self.data_address_counter;
+        let lsb_addr = (self.data_address_counter + 1) & BUFFER_RAM_ADDRESS_MASK;
+        let host_data = u16::from_be_bytes([
+            self.buffer_ram[msb_addr as usize],
+            self.buffer_ram[lsb_addr as usize],
+        ]);
+        self.data_address_counter = (self.data_address_counter + 2) & BUFFER_RAM_ADDRESS_MASK;
+
+        let (new_byte_counter, overflowed) = self.data_byte_counter.overflowing_sub(2);
+        self.data_byte_counter = new_byte_counter;
+        if overflowed {
+            self.data_transfer_in_progress = false;
+            self.transfer_end_interrupt_pending = true;
+        }
+
+        log::trace!(
+            "Host data read performed; data={host_data:04X}, DBC={new_byte_counter:04X}, ended={overflowed}"
+        );
+
+        host_data
     }
 
     pub fn register_address(&self) -> u8 {
@@ -143,15 +168,23 @@ impl Rchip {
 
     pub fn read_register(&mut self) -> u8 {
         let value = match self.register_address {
+            0 => {
+                // COMIN (Command Input)
+                log::trace!("COMIN read");
+
+                // Not used by Sega CD; return a dummy value
+                0x00
+            }
             1 => {
                 // IFSTAT (Host Interface Status)
-                // Hardcode CMDI, STBSY, STEI, and bit 4 (unused) to 1
+                // Hardcode CMDI, STBSY, STEN, and bit 4 (unused) to 1
                 log::trace!("IFSTAT read");
 
-                // TODO DTBSY and DTEN bits; currently hardcoded to 1
-                0x95 | 0x0A
-                    | (u8::from(!self.transfer_end_interrupt_pending) << 6)
+                // TODO do DTBSY and DTEN need to be different values?
+                0x95 | (u8::from(!self.transfer_end_interrupt_pending) << 6)
                     | (u8::from(!self.decoder_interrupt_pending) << 5)
+                    | (u8::from(!self.data_transfer_in_progress) << 3)
+                    | (u8::from(!self.data_transfer_in_progress) << 1)
             }
             4..=7 => {
                 // HEAD0-3 (Header/Subheader Data)
@@ -213,7 +246,7 @@ impl Rchip {
                 // Hardcode WLONG and CBLK to 0; bits 4-0 are unused
                 value
             }
-            0 | 2 | 3 | 10 | 11 => todo!("CDC register read {}", self.register_address),
+            2 | 3 | 10 | 11 => todo!("CDC register read {}", self.register_address),
             _ => panic!("CDC register address should always be <= 15"),
         };
 
@@ -224,19 +257,18 @@ impl Rchip {
 
     pub fn write_register(&mut self, value: u8) {
         match self.register_address {
+            0 => {
+                // SBOUT (Status Byte Output)
+                log::trace!("SBOUT write: {value:02X}");
+
+                // Not used by Sega CD; do nothing
+            }
             1 => {
                 // IFCTRL (Host Interface Control)
                 // Intentionally ignoring CMDIEN, CMDBK, DTWAI, STWAI, SOUTEN bits
                 log::trace!("IFCTRL write: {value:02X}");
 
-                self.transfer_end_interrupt_enabled = value.bit(6);
-                self.decoder_interrupt_enabled = value.bit(5);
-
-                self.data_out_enabled = value.bit(1);
-
-                log::trace!("  DTEIEN: {}", self.transfer_end_interrupt_enabled);
-                log::trace!("  DECIEN: {}", self.decoder_interrupt_enabled);
-                log::trace!("  DOUTEN: {}", self.data_out_enabled);
+                self.write_ifctrl(value);
             }
             2 => {
                 // DBCL (Data Byte Counter, Low Byte)
@@ -273,6 +305,20 @@ impl Rchip {
 
                 log::trace!("  DAC: {:04X}", self.data_address_counter);
             }
+            6 => {
+                // DTTRG (Data Transfer Trigger)
+                log::trace!("DTTRG write");
+
+                // Writing any value to this register initiates a data transfer if DOUTEN=1
+                self.data_transfer_in_progress = self.data_out_enabled;
+            }
+            7 => {
+                // DTACK (Data Transfer End Acknowledge)
+                log::trace!("DTACK write");
+
+                // Writing any value to this register clears the DTEI interrupt
+                self.transfer_end_interrupt_pending = false;
+            }
             8 => {
                 // WAL (Write Address, Low Byte)
                 log::trace!("WAL write: {value:02X}");
@@ -295,28 +341,13 @@ impl Rchip {
                 // to error detection and correction settings
                 log::trace!("CTRL0 write: {value:02X}");
 
-                self.decoder_enabled = value.bit(7);
-                self.decoder_writes_enabled = value.bit(2);
-
-                // Disabling the decoder also disables any pending interrupt
-                if !self.decoder_enabled {
-                    self.decoder_interrupt_pending = false;
-                }
-
-                if !self.decoder_enabled || !self.decoder_writes_enabled {
-                    self.decoded_first_written_block = false;
-                }
-
-                log::trace!("  DECEN: {}", self.decoder_enabled);
-                log::trace!("  WRRQ: {}", self.decoder_writes_enabled);
+                self.write_ctrl0(value);
             }
             11 => {
                 // CTRL1 (Control 1)
                 log::trace!("CTRL1 write: {value:02X}");
 
-                self.subheader_data_enabled = value.bit(0);
-
-                log::trace!("  SHDREN: {}", self.subheader_data_enabled);
+                self.write_ctrl1(value);
             }
             12 => {
                 // PTL (Block Pointer, Low Byte)
@@ -341,22 +372,54 @@ impl Rchip {
                 // RESET
                 log::trace!("RESET write");
 
-                self.transfer_end_interrupt_enabled = true;
+                // Clear all values from IFCTRL, CTRL0, and CTRL1, as well as interrupt flags
+                self.write_ifctrl(0x00);
+                self.write_ctrl0(0x00);
+                self.write_ctrl1(0x00);
                 self.transfer_end_interrupt_pending = false;
-                self.decoder_interrupt_enabled = true;
                 self.decoder_interrupt_pending = false;
-                self.data_out_enabled = false;
-                self.decoder_enabled = false;
-                self.decoder_writes_enabled = false;
-                self.subheader_data_enabled = false;
-            }
-            0 | 6 | 7 => {
-                todo!("write CDC register {}", self.register_address)
             }
             _ => panic!("CDC register address should always be <= 15"),
         }
 
         self.increment_register_address();
+    }
+
+    fn write_ifctrl(&mut self, value: u8) {
+        self.transfer_end_interrupt_enabled = value.bit(6);
+        self.decoder_interrupt_enabled = value.bit(5);
+
+        self.data_out_enabled = value.bit(1);
+        if !self.data_out_enabled {
+            // Abort any in-progress data transfer
+            self.data_transfer_in_progress = false;
+        }
+
+        log::trace!("  DTEIEN: {}", self.transfer_end_interrupt_enabled);
+        log::trace!("  DECIEN: {}", self.decoder_interrupt_enabled);
+        log::trace!("  DOUTEN: {}", self.data_out_enabled);
+    }
+
+    fn write_ctrl0(&mut self, value: u8) {
+        self.decoder_enabled = value.bit(7);
+        self.decoder_writes_enabled = value.bit(2);
+
+        // Disabling the decoder also disables any pending interrupt
+        if !self.decoder_enabled {
+            self.decoder_interrupt_pending = false;
+        }
+
+        if !self.decoder_enabled || !self.decoder_writes_enabled {
+            self.decoded_first_written_block = false;
+        }
+
+        log::trace!("  DECEN: {}", self.decoder_enabled);
+        log::trace!("  WRRQ: {}", self.decoder_writes_enabled);
+    }
+
+    fn write_ctrl1(&mut self, value: u8) {
+        self.subheader_data_enabled = value.bit(0);
+        log::trace!("  SHDREN: {}", self.subheader_data_enabled);
     }
 
     fn increment_register_address(&mut self) {
@@ -371,12 +434,20 @@ impl Rchip {
         self.dma_address = dma_address;
     }
 
+    pub fn data_ready(&self) -> bool {
+        self.data_transfer_in_progress
+    }
+
     pub fn interrupt_pending(&self) -> bool {
         (self.decoder_interrupt_enabled && self.decoder_interrupt_pending)
             || (self.transfer_end_interrupt_enabled && self.transfer_end_interrupt_pending)
     }
 
-    pub(super) fn decode_block(&mut self, sector_buffer: &[u8; cdrom::BYTES_PER_SECTOR as usize]) {
+    pub(super) fn decode_block(
+        &mut self,
+        track_type: TrackType,
+        sector_buffer: &[u8; cdrom::BYTES_PER_SECTOR as usize],
+    ) {
         if !self.decoder_enabled {
             return;
         }
@@ -385,7 +456,9 @@ impl Rchip {
         self.header_data.copy_from_slice(&sector_buffer[12..16]);
         self.subheader_data.copy_from_slice(&sector_buffer[16..20]);
 
-        self.decoder_interrupt_pending = true;
+        if track_type == TrackType::Data {
+            self.decoder_interrupt_pending = true;
+        }
 
         if self.decoder_writes_enabled {
             for &byte in sector_buffer {
@@ -398,7 +471,8 @@ impl Rchip {
                     (self.block_pointer + cdrom::BYTES_PER_SECTOR as u16) & BUFFER_RAM_ADDRESS_MASK;
             } else {
                 // Decoded blocks start at the header, skipping the 12-byte sync
-                self.block_pointer = (self.block_pointer + 12) & BUFFER_RAM_ADDRESS_MASK;
+                self.block_pointer =
+                    (self.block_pointer + DATA_TRACK_HEADER_LEN) & BUFFER_RAM_ADDRESS_MASK;
 
                 self.decoded_first_written_block = true;
             }
