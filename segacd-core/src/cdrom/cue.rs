@@ -73,10 +73,6 @@ impl CueSheet {
         self.tracks.iter()
     }
 
-    pub fn first_track(&self) -> &Track {
-        &self.tracks[0]
-    }
-
     pub fn last_track(&self) -> &Track {
         self.tracks.last().unwrap()
     }
@@ -335,7 +331,13 @@ fn to_cue_sheet(parsed_files: Vec<ParsedFile>, cue_path: &Path) -> DiscResult<Cu
         for i in 0..parsed_tracks.len() {
             let track = &parsed_tracks[i];
 
-            let pregap_len = track.pregap_len.unwrap_or(CdTime::ZERO);
+            let pregap_len = match track.track_type {
+                TrackType::Data => {
+                    // Data tracks always have a 2-second pregap
+                    CdTime::new(0, 2, 0)
+                }
+                TrackType::Audio => track.pregap_len.unwrap_or(CdTime::ZERO),
+            };
             let pause_len = track
                 .pause_start
                 .map_or(CdTime::ZERO, |pause_start| track.track_start - pause_start);
