@@ -308,7 +308,7 @@ impl SegaCd {
                 let idx = (address & 0xF) >> 1;
                 let commands = &mut self.registers.communication_commands;
                 let existing_word = commands[idx as usize];
-                if address.bit(1) {
+                if address.bit(0) {
                     commands[idx as usize] = (existing_word & 0xFF00) | u16::from(value);
                 } else {
                     commands[idx as usize] = (existing_word & 0x00FF) | (u16::from(value) << 8);
@@ -625,13 +625,13 @@ impl<'a> SubBus<'a> {
                 // Communication command buffers
                 let idx = (address & 0xF) >> 1;
                 let word = self.memory.medium().registers.communication_commands[idx as usize];
-                if address.bit(1) { word as u8 } else { (word >> 8) as u8 }
+                if address.bit(0) { word as u8 } else { (word >> 8) as u8 }
             }
             0xFF8020..=0xFF802F => {
                 // Communication status buffers
                 let idx = (address & 0xF) >> 1;
                 let word = self.memory.medium().registers.communication_statuses[idx as usize];
-                if address.bit(1) { word as u8 } else { (word >> 8) as u8 }
+                if address.bit(0) { word as u8 } else { (word >> 8) as u8 }
             }
             0xFF8031 => {
                 // Timer
@@ -820,7 +820,7 @@ impl<'a> SubBus<'a> {
                 let idx = (address & 0xF) >> 1;
                 let statuses = &mut self.memory.medium_mut().registers.communication_statuses;
                 let existing_word = statuses[idx as usize];
-                if address.bit(1) {
+                if address.bit(0) {
                     statuses[idx as usize] = (existing_word & 0xFF00) | u16::from(value);
                 } else {
                     statuses[idx as usize] = (existing_word & 0x00FF) | (u16::from(value) << 8);
