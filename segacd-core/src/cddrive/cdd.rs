@@ -1,5 +1,4 @@
 use crate::api::DiscResult;
-use crate::cddrive::cdc;
 use crate::cddrive::cdc::Rchip;
 use crate::cdrom;
 use crate::cdrom::cdtime::CdTime;
@@ -8,8 +7,8 @@ use crate::cdrom::reader::CdRom;
 use bincode::{Decode, Encode};
 use genesis_core::GenesisRegion;
 use regex::Regex;
-use std::array;
 use std::sync::OnceLock;
+use std::{array, cmp};
 
 const INITIAL_STATUS: [u8; 10] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0F];
 
@@ -23,6 +22,7 @@ enum CddStatus {
     Seeking = 0x02,
     Paused = 0x04,
     InvalidCommand = 0x07,
+    TrackSkipping = 0x0A,
     NoDisc = 0x0B,
     DiscEnd = 0x0C,
 }
@@ -98,6 +98,11 @@ enum CddState {
         next_status: ReaderStatus,
         clocks_remaining: u8,
     },
+    TrackSkipping {
+        current_time: CdTime,
+        skip_time: CdTime,
+        clocks_remaining: u8,
+    },
     DiscEnd,
     InvalidCommand(CdTime),
 }
@@ -110,7 +115,9 @@ impl CddState {
             | Self::Playing(time)
             | Self::Paused(time)
             | Self::InvalidCommand(time) => time,
-            Self::Seeking { current_time, .. } => current_time,
+            Self::Seeking { current_time, .. } | Self::TrackSkipping { current_time, .. } => {
+                current_time
+            }
         }
     }
 }
@@ -203,12 +210,13 @@ impl CdDrive {
             }
             0x0A => {
                 // Start track skipping
-                // todo!("Start track skipping")
+                log::trace!("  Command: Track Skip");
+
+                self.execute_track_skip(command);
             }
             0x0B => {
                 // Start track cueing
-
-                // todo!("Start track cueing")
+                todo!("Start track cueing")
             }
             0x0C => {
                 // Close tray
@@ -221,8 +229,11 @@ impl CdDrive {
             _ => {}
         }
 
-        // Executing any command other than Read TOC cancels the TOCN report; default to absolute time
-        if command[0] != 0x02 && matches!(self.report_type, ReportType::TrackNStartTime(..)) {
+        // Executing any command other than No-op or Read TOC cancels the TOCN report; default to absolute time
+        if command[0] != 0x00
+            && command[0] != 0x02
+            && matches!(self.report_type, ReportType::TrackNStartTime(..))
+        {
             self.report_type = ReportType::AbsoluteTime;
         }
 
@@ -317,6 +328,7 @@ impl CdDrive {
             CddState::PreparingToPlay { .. } | CddState::Paused(..) => CddStatus::Paused,
             CddState::Playing(..) => CddStatus::Playing,
             CddState::Seeking { .. } => CddStatus::Seeking,
+            CddState::TrackSkipping { .. } => CddStatus::TrackSkipping,
             CddState::DiscEnd => CddStatus::DiscEnd,
             CddState::InvalidCommand(..) => CddStatus::InvalidCommand,
         }
@@ -363,19 +375,63 @@ impl CdDrive {
             return;
         }
 
-        let seek_clocks = cdc::estimate_seek_clocks(current_time, seek_time);
+        let seek_clocks = estimate_seek_clocks(current_time, seek_time);
 
         log::trace!(
             "Seeking from {current_time} to {seek_time}; estimated time {seek_clocks} 75Hz clocks"
         );
 
-        // TODO preserve state when playing?
         self.state = CddState::Seeking {
             current_time,
             seek_time,
             next_status,
             clocks_remaining: seek_clocks,
         };
+    }
+
+    fn execute_track_skip(&mut self, command: [u8; 10]) {
+        let Some(disc) = &self.disc else {
+            self.state = CddState::NoDisc;
+            return;
+        };
+
+        // Number of "tracks" to skip is in Command 4-7, as a 16-bit value stored across 4 nibbles
+        let skip_tracks = (u32::from(command[4] & 0x0F) << 12)
+            | (u32::from(command[5] & 0x0F) << 8)
+            | (u32::from(command[6] & 0x0F) << 4)
+            | u32::from(command[7] & 0x0F);
+
+        // Treat a "track" as 15 blocks. This isn't completely accurate but it doesn't need to be.
+        // The BIOS will often issue a Track Skip command before a Seek or Read command.
+        let skip_blocks = 15 * skip_tracks;
+
+        let current_time = self.state.current_time();
+
+        // Command 3 holds direction; treat 0 as positive, non-0 as negative
+        let skip_time = if command[3] == 0 {
+            // Skip forwards
+            let skip_sector = current_time.to_sector_number() + skip_blocks;
+            let disc_end_time = disc.cue().last_track().end_time;
+
+            if skip_sector >= disc_end_time.to_sector_number() {
+                disc_end_time
+            } else {
+                CdTime::from_sector_number(skip_sector)
+            }
+        } else {
+            // Skip backwards
+            let skip_sector = current_time.to_sector_number().saturating_sub(skip_blocks);
+            CdTime::from_sector_number(skip_sector)
+        };
+
+        let clocks_required = estimate_skip_clocks(current_time, skip_time);
+
+        log::trace!(
+            "Skipping from {current_time} to {skip_time}; estimated {clocks_required} 75Hz cycles"
+        );
+
+        self.state =
+            CddState::TrackSkipping { current_time, skip_time, clocks_remaining: clocks_required };
     }
 
     pub fn status(&self) -> [u8; 10] {
@@ -399,12 +455,13 @@ impl CdDrive {
                         },
                     };
                 } else {
-                    // Estimate current time based on clocks remaining
-                    let diff_frames = f64::from(clocks_remaining - 1) / 113.0
-                        * f64::from(CdTime::DISC_END.to_frames());
-                    let diff = CdTime::from_frames(diff_frames.round() as u32);
-                    let new_time =
-                        if current_time < seek_time { seek_time - diff } else { seek_time + diff };
+                    // 113 clocks to seek across the entire disc
+                    let new_time = estimate_intermediate_seek_time(
+                        current_time,
+                        seek_time,
+                        clocks_remaining - 1,
+                        113.0,
+                    );
 
                     log::trace!(
                         "Current seek status: prev_time={current_time}, new_time={new_time}, seek_time={seek_time}, clocks_remaining={}",
@@ -415,6 +472,32 @@ impl CdDrive {
                         current_time: new_time,
                         seek_time,
                         next_status,
+                        clocks_remaining: clocks_remaining - 1,
+                    };
+                }
+            }
+            CddState::TrackSkipping { current_time, skip_time, clocks_remaining } => {
+                if clocks_remaining == 1 {
+                    log::trace!("Skip to {skip_time} complete");
+
+                    self.state = CddState::Paused(skip_time);
+                } else {
+                    // 56 clocks to skip across the entire desc
+                    let new_time = estimate_intermediate_seek_time(
+                        current_time,
+                        skip_time,
+                        clocks_remaining - 1,
+                        56.0,
+                    );
+
+                    log::trace!(
+                        "Current skip status: prev_time={current_time}, new_time={new_time}, skip_time={skip_time}, clocks_remaining={}",
+                        clocks_remaining - 1
+                    );
+
+                    self.state = CddState::TrackSkipping {
+                        current_time: new_time,
+                        skip_time,
                         clocks_remaining: clocks_remaining - 1,
                     };
                 }
@@ -531,4 +614,36 @@ fn write_time_to_status(time: CdTime, status: &mut [u8; 10]) {
     // Frames stored in Status 6-7
     status[6] = time.frames / 10;
     status[7] = time.frames % 10;
+}
+
+fn estimate_seek_clocks(current_time: CdTime, seek_time: CdTime) -> u8 {
+    let diff =
+        if current_time >= seek_time { current_time - seek_time } else { seek_time - current_time };
+
+    // It supposedly takes roughly 1.5 seconds / 113 frames to seek from one end of the disc to the
+    // other, so scale based on that
+    let seek_cycles = (113.0 * f64::from(diff.to_frames())
+        / f64::from(CdTime::DISC_END.to_frames()))
+    .round() as u8;
+
+    // Require seek to always take at least 1 cycle
+    cmp::max(1, seek_cycles)
+}
+
+fn estimate_skip_clocks(current_time: CdTime, seek_time: CdTime) -> u8 {
+    // Arbitrarily assume that a skip will take roughly half as long as a seek
+    cmp::max(1, estimate_seek_clocks(current_time, seek_time) / 2)
+}
+
+fn estimate_intermediate_seek_time(
+    current_time: CdTime,
+    seek_time: CdTime,
+    clocks_remaining: u8,
+    clocks_per_disc: f64,
+) -> CdTime {
+    let diff_frames =
+        f64::from(clocks_remaining) / clocks_per_disc * f64::from(CdTime::DISC_END.to_frames());
+    let diff = CdTime::from_frames(diff_frames.round() as u32);
+
+    if current_time < seek_time { seek_time - diff } else { seek_time + diff }
 }

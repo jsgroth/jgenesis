@@ -1,10 +1,8 @@
 use crate::cdrom;
-use crate::cdrom::cdtime::CdTime;
 use crate::cdrom::cue::TrackType;
 use crate::memory::ScdCpu;
 use bincode::{Decode, Encode};
 use jgenesis_traits::num::GetBit;
-use std::cmp;
 
 const BUFFER_RAM_LEN: usize = 16 * 1024;
 const BUFFER_RAM_ADDRESS_MASK: u16 = (1 << 14) - 1;
@@ -484,18 +482,4 @@ impl Rchip {
             );
         }
     }
-}
-
-pub fn estimate_seek_clocks(current_time: CdTime, seek_time: CdTime) -> u8 {
-    let diff =
-        if current_time >= seek_time { current_time - seek_time } else { seek_time - current_time };
-
-    // It supposedly takes roughly 1.5 seconds / 113 frames to seek from one end of the disc to the
-    // other, so scale based on that
-    let seek_cycles = (113.0 * f64::from(diff.to_frames())
-        / f64::from(CdTime::DISC_END.to_frames()))
-    .round() as u8;
-
-    // Require seek to always take at least 1 cycle
-    cmp::max(1, seek_cycles)
 }
