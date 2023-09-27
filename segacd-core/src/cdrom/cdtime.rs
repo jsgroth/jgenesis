@@ -19,6 +19,8 @@ impl CdTime {
     pub const SECONDS_PER_MINUTE: u8 = 60;
     pub const FRAMES_PER_SECOND: u8 = 75;
 
+    pub const MAX_SECTORS: u32 = 270000;
+
     pub fn new(minutes: u8, seconds: u8, frames: u8) -> Self {
         assert!(minutes < Self::MAX_MINUTES, "Minutes must be less than {}", Self::MAX_MINUTES);
         assert!(
@@ -50,7 +52,7 @@ impl CdTime {
 
     pub fn from_sector_number(sector_number: u32) -> Self {
         // All Sega CD sector numbers are less than 270,000
-        assert!(sector_number < 270000, "Invalid sector number: {sector_number}");
+        assert!(sector_number < Self::MAX_SECTORS, "Invalid sector number: {sector_number}");
 
         let frames = sector_number % u32::from(Self::FRAMES_PER_SECOND);
         let seconds = (sector_number / u32::from(Self::FRAMES_PER_SECOND))
