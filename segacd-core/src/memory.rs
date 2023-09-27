@@ -1,3 +1,4 @@
+mod font;
 pub(crate) mod wordram;
 
 use crate::api::DiscResult;
@@ -5,6 +6,7 @@ use crate::cddrive::cdc::DeviceDestination;
 use crate::cddrive::CdController;
 use crate::cdrom::reader::CdRom;
 use crate::graphics::{GraphicsCoprocessor, GraphicsWritePriorityMode};
+use crate::memory::font::FontRegisters;
 use crate::rf5c164::Rf5c164;
 use bincode::{Decode, Encode};
 use genesis_core::memory::{CloneWithoutRom, Memory, PhysicalMedium};
@@ -120,6 +122,7 @@ pub struct SegaCd {
     backup_ram: Box<[u8; BACKUP_RAM_LEN]>,
     backup_ram_dirty: bool,
     registers: SegaCdRegisters,
+    font_registers: FontRegisters,
     forced_region: Option<GenesisRegion>,
     timer_divider: u64,
 }
@@ -147,6 +150,7 @@ impl SegaCd {
             backup_ram: backup_ram.into_boxed_slice().try_into().unwrap(),
             backup_ram_dirty: false,
             registers: SegaCdRegisters::new(),
+            font_registers: FontRegisters::new(),
             forced_region,
             timer_divider: TIMER_DIVIDER,
         }
@@ -681,8 +685,22 @@ impl<'a> SubBus<'a> {
                 let relative_addr = (address - 2) & 0xF;
                 self.memory.medium().registers.cdd_command[relative_addr as usize]
             }
-            0xFF804C..=0xFF8057 => {
-                todo!("font registers")
+            0xFF804D => {
+                // Font color
+                self.memory.medium().font_registers.read_color()
+            }
+            0xFF804E => {
+                // Font bits, high byte
+                (self.memory.medium().font_registers.font_bits() >> 8) as u8
+            }
+            0xFF804F => {
+                // Font bits, low byte
+                self.memory.medium().font_registers.font_bits() as u8
+            }
+            0xFF8050..=0xFF8057 => {
+                // Font data
+                let font_data_word = self.memory.medium().font_registers.read_font_data(address);
+                if address.bit(0) { font_data_word as u8 } else { (font_data_word >> 8) as u8 }
             }
             0xFF8058..=0xFF8067 => self.graphics_coprocessor.read_register_byte(address),
             _ => 0x00,
@@ -756,8 +774,17 @@ impl<'a> SubBus<'a> {
                     cdd_command[(relative_addr + 1) as usize],
                 ])
             }
-            0xFF804C..=0xFF8057 => {
-                todo!("font registers")
+            0xFF804C => {
+                // Font color (all bits in low byte)
+                self.memory.medium().font_registers.read_color().into()
+            }
+            0xFF804E => {
+                // Font bits
+                self.memory.medium().font_registers.font_bits()
+            }
+            0xFF8050..=0xFF8057 => {
+                // Font data registers
+                self.memory.medium().font_registers.read_font_data(address)
             }
             0xFF8058..=0xFF8067 => self.graphics_coprocessor.read_register_word(address),
             _ => 0x0000,
@@ -875,8 +902,17 @@ impl<'a> SubBus<'a> {
                     sega_cd.disc_drive.cdd_mut().send_command(sega_cd.registers.cdd_command);
                 }
             }
-            0xFF804C..=0xFF8057 => {
-                todo!("font registers")
+            0xFF804D => {
+                // Font color
+                self.memory.medium_mut().font_registers.write_color(value);
+            }
+            0xFF804E => {
+                // Font bits, high byte
+                self.memory.medium_mut().font_registers.write_font_bits_msb(value);
+            }
+            0xFF804F => {
+                // Font bits, low byte
+                self.memory.medium_mut().font_registers.write_font_bits_lsb(value);
             }
             0xFF8058..=0xFF8067 => {
                 self.graphics_coprocessor.write_register_byte(address, value);
@@ -957,8 +993,13 @@ impl<'a> SubBus<'a> {
                     sega_cd.disc_drive.cdd_mut().send_command(sega_cd.registers.cdd_command);
                 }
             }
-            0xFF804C..=0xFF8057 => {
-                todo!("font registers")
+            0xFF804C => {
+                // Font color, only low byte is writable
+                self.write_register_byte(address | 1, value as u8);
+            }
+            0xFF804E => {
+                // Font bits
+                self.memory.medium_mut().font_registers.write_font_bits(value);
             }
             0xFF8058..=0xFF8067 => {
                 self.graphics_coprocessor.write_register_word(address, value);
