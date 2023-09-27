@@ -31,6 +31,9 @@ const NTSC_GENESIS_MASTER_CLOCK_RATE: u64 = 53_693_175;
 const PAL_GENESIS_MASTER_CLOCK_RATE: u64 = 53_203_424;
 const SEGA_CD_MASTER_CLOCK_RATE: u64 = 50_000_000;
 
+// Arbitrary value to keep mclk counts low-ish for better floating-point precision
+const SEGA_CD_MCLK_MODULO: u64 = 100_000_000;
+
 const BIOS_LEN: usize = memory::BIOS_LEN;
 
 #[derive(Debug, Error)]
@@ -292,6 +295,9 @@ impl TickableEmulator for SegaCdEmulator {
         let sub_cpu_cycles =
             self.sega_cd_mclk_cycles / SUB_CPU_DIVIDER - prev_scd_mclk_cycles / SUB_CPU_DIVIDER;
         let elapsed_scd_mclk_cycles = self.sega_cd_mclk_cycles - prev_scd_mclk_cycles;
+
+        self.sega_cd_mclk_cycles_float %= SEGA_CD_MCLK_MODULO;
+        self.sega_cd_mclk_cycles = self.sega_cd_mclk_cycles_float.round() as u64;
 
         // Disc drive and timer/stopwatch
         let sega_cd = self.memory.medium_mut();
