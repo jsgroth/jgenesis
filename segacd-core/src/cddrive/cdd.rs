@@ -326,8 +326,8 @@ impl CdDrive {
         match self.state {
             CddState::MotorStopped => CddStatus::Stopped,
             CddState::NoDisc => CddStatus::NoDisc,
-            CddState::PreparingToPlay { .. } | CddState::Paused(..) => CddStatus::Paused,
-            CddState::Playing(..) => CddStatus::Playing,
+            CddState::Paused(..) => CddStatus::Paused,
+            CddState::PreparingToPlay { .. } | CddState::Playing(..) => CddStatus::Playing,
             CddState::Seeking { .. } => CddStatus::Seeking,
             CddState::TrackSkipping { .. } => CddStatus::TrackSkipping,
             CddState::DiscEnd => CddStatus::DiscEnd,
@@ -358,14 +358,10 @@ impl CdDrive {
             return;
         }
 
-        let Some(raw_seek_time) = read_time_from_command(command) else {
+        let Some(seek_time) = read_time_from_command(command) else {
             self.state = CddState::InvalidCommand(self.state.current_time());
             return;
         };
-
-        // Seek to 3 frames prior to the specified time; otherwise the BIOS might miss the starting
-        // block
-        let seek_time = raw_seek_time.saturating_sub(CdTime::new(0, 0, 3));
 
         let current_time = self.state.current_time();
 

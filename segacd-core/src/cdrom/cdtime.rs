@@ -83,10 +83,6 @@ impl CdTime {
 
         Self::new(minutes as u8, seconds as u8, frames as u8)
     }
-
-    pub fn saturating_sub(self, other: Self) -> Self {
-        if self <= other { Self::ZERO } else { self - other }
-    }
 }
 
 impl Add for CdTime {
