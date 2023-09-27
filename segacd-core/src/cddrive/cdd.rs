@@ -1,9 +1,10 @@
 use crate::api::DiscResult;
 use crate::cddrive::cdc::Rchip;
-use crate::cdrom;
 use crate::cdrom::cdtime::CdTime;
 use crate::cdrom::cue::TrackType;
 use crate::cdrom::reader::CdRom;
+use crate::memory::wordram::WordRam;
+use crate::{cdrom, memory};
 use bincode::{Decode, Encode};
 use genesis_core::GenesisRegion;
 use regex::Regex;
@@ -438,7 +439,12 @@ impl CdDrive {
         self.status
     }
 
-    pub fn clock(&mut self, rchip: &mut Rchip) -> DiscResult<()> {
+    pub fn clock(
+        &mut self,
+        rchip: &mut Rchip,
+        word_ram: &mut WordRam,
+        prg_ram: &mut [u8; memory::PRG_RAM_LEN],
+    ) -> DiscResult<()> {
         // CDD interrupt fires once every 1/75 of a second
         self.interrupt_pending = true;
 
@@ -529,7 +535,7 @@ impl CdDrive {
                 let track_type = track.track_type;
                 disc.read_sector(track.number, relative_time, &mut self.sector_buffer)?;
 
-                rchip.decode_block(track_type, &self.sector_buffer);
+                rchip.decode_block(track_type, &self.sector_buffer, word_ram, prg_ram);
 
                 self.state = CddState::Playing(time + CdTime::new(0, 0, 1));
             }

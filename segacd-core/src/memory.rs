@@ -17,7 +17,7 @@ use std::{array, mem};
 use wordram::WordRam;
 
 pub const BIOS_LEN: usize = 128 * 1024;
-const PRG_RAM_LEN: usize = 512 * 1024;
+pub const PRG_RAM_LEN: usize = 512 * 1024;
 const PCM_RAM_LEN: usize = 16 * 1024;
 const BACKUP_RAM_LEN: usize = 8 * 1024;
 
@@ -356,7 +356,7 @@ impl SegaCd {
     }
 
     pub fn tick(&mut self, master_clock_cycles: u64) -> DiscResult<()> {
-        self.disc_drive.tick(master_clock_cycles)?;
+        self.disc_drive.tick(master_clock_cycles, &mut self.word_ram, &mut self.prg_ram)?;
 
         if master_clock_cycles >= self.timer_divider {
             self.clock_timers();

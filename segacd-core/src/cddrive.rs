@@ -2,8 +2,9 @@ pub mod cdc;
 pub mod cdd;
 
 use crate::api::DiscResult;
-use crate::cdrom;
 use crate::cdrom::reader::CdRom;
+use crate::memory::wordram::WordRam;
+use crate::{cdrom, memory};
 use bincode::{Decode, Encode};
 use cdc::Rchip;
 use cdd::CdDrive;
@@ -64,9 +65,14 @@ impl CdController {
         }
     }
 
-    pub fn tick(&mut self, mclk_cycles: u64) -> DiscResult<()> {
+    pub fn tick(
+        &mut self,
+        mclk_cycles: u64,
+        word_ram: &mut WordRam,
+        prg_ram: &mut [u8; memory::PRG_RAM_LEN],
+    ) -> DiscResult<()> {
         if self.prescaler_75hz.tick(mclk_cycles) == PrescalerTickResult::Clocked {
-            self.drive.clock(&mut self.rchip)?;
+            self.drive.clock(&mut self.rchip, word_ram, prg_ram)?;
         }
 
         // TODO CDC interrupts
