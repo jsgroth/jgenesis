@@ -115,6 +115,9 @@ const PCM_HPF_CHARGE_FACTOR: f64 = 0.9946028448191855;
 // -4.5 dB (10 ^ -4.5/20)
 const PCM_COEFFICIENT: f64 = 0.5956621435290105;
 
+// Arbitrary power of 2 to keep total sample count small-ish for better f64 precision
+const SAMPLE_COUNT_MODULO: u64 = 1 << 27;
+
 #[derive(Debug, Clone, Encode, Decode)]
 struct SignalDownsampler<const LPF_TAPS: usize, const ZERO_PADDING: usize> {
     samples_l: VecDeque<f64>,
@@ -168,9 +171,10 @@ impl<const LPF_TAPS: usize, const ZERO_PADDING: usize> SignalDownsampler<LPF_TAP
             self.samples_r.pop_front();
         }
 
-        self.sample_count += 1;
+        self.sample_count = (self.sample_count + 1) % SAMPLE_COUNT_MODULO;
         if self.sample_count == self.next_sample {
-            self.next_sample_float += self.downsampling_ratio;
+            self.next_sample_float =
+                (self.next_sample_float + self.downsampling_ratio) % SAMPLE_COUNT_MODULO as f64;
             self.next_sample = self.next_sample_float.round() as u64;
 
             let sample_l = output_sample(

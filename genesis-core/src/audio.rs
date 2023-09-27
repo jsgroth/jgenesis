@@ -11,6 +11,9 @@ const NTSC_DOWNSAMPLING_RATIO: f64 = 3.329189918154762;
 // 53_203_424 / 7 / 6 / 24 * 3 / 48000
 const PAL_DOWNSAMPLING_RATIO: f64 = 3.298823412698413;
 
+// Arbitrary power of 2 to keep total sample count small-ish for better f64 precision
+const SAMPLE_COUNT_MODULO: u64 = 1 << 27;
+
 trait TimingModeExt: Copy {
     fn downsampling_ratio(self) -> f64;
 }
@@ -97,9 +100,10 @@ impl AudioDownsampler {
             self.full_buffer_r.pop_front();
         }
 
-        self.sample_count += 1;
+        self.sample_count = (self.sample_count + 1) % SAMPLE_COUNT_MODULO;
         if self.sample_count == self.next_sample {
-            self.next_sample_float += self.downsampling_ratio;
+            self.next_sample_float =
+                (self.next_sample_float + self.downsampling_ratio) % SAMPLE_COUNT_MODULO as f64;
             self.next_sample = self.next_sample_float.round() as u64;
 
             let sample_l = output_sample(&self.full_buffer_l);
