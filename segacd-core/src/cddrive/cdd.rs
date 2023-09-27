@@ -165,6 +165,7 @@ impl CdDrive {
                 log::trace!("  Command: Stop motor");
 
                 self.state = CddState::MotorStopped;
+                self.report_type = ReportType::AbsoluteTime;
             }
             0x02 => {
                 // Read TOC
@@ -248,6 +249,16 @@ impl CdDrive {
 
         // Status 0 is always drive status
         self.status[0] = self.current_cdd_status() as u8;
+
+        // If seeking/skipping/stopped, return "not ready" status; not doing this causes Lunar to randomly freeze
+        if matches!(
+            self.state,
+            CddState::Seeking { .. } | CddState::TrackSkipping { .. } | CddState::MotorStopped
+        ) {
+            self.status[1] = 0x0F;
+            update_cdd_checksum(&mut self.status);
+            return;
+        }
 
         // Status 1 is always report type
         self.status[1] = self.report_type.to_byte();
