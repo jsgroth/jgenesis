@@ -61,6 +61,10 @@ impl WordRam {
         }
     }
 
+    pub fn mode(&self) -> WordRamMode {
+        self.mode
+    }
+
     pub fn read_control(&self) -> u8 {
         let (dmna, ret) = match self.mode {
             WordRamMode::TwoM => {
@@ -238,6 +242,23 @@ impl WordRam {
                 }
             }
         }
+    }
+
+    pub fn dma_write(&mut self, address: u32, value: u8) {
+        // Word RAM DMA writes should go to $080000 in 2M mode and $0C0000 in 1M mode
+        // In 1M mode, $080000-$0BFFFF is a dot image of word RAM, and the raw bytes are at $0C0000-$0DFFFF
+        let base_address = match self.mode {
+            WordRamMode::TwoM => {
+                assert!(address <= 0x03FFFF);
+                SUB_BASE_ADDRESS
+            }
+            WordRamMode::OneM => {
+                assert!(address <= 0x01FFFF);
+                0x0C0000
+            }
+        };
+
+        self.sub_cpu_write_ram(base_address | address, value);
     }
 }
 

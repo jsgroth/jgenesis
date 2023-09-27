@@ -1,6 +1,7 @@
-use crate::cdrom;
 use crate::cdrom::cue::TrackType;
+use crate::memory::wordram::{WordRam, WordRamMode};
 use crate::memory::ScdCpu;
+use crate::{cdrom, memory};
 use bincode::{Decode, Encode};
 use jgenesis_traits::num::GetBit;
 
@@ -44,6 +45,10 @@ impl DeviceDestination {
             }
             _ => unreachable!("value & 0x07 is always <= 0x07"),
         }
+    }
+
+    fn is_dma_destination(self) -> bool {
+        matches!(self, Self::Pcm | Self::PrgRam | Self::WordRam)
     }
 }
 
@@ -115,9 +120,7 @@ impl Rchip {
 
         log::trace!("CDC device destination set to {device_destination:?}");
 
-        if device_destination != DeviceDestination::MainCpuRegister
-            && device_destination != DeviceDestination::SubCpuRegister
-        {
+        if device_destination == DeviceDestination::Pcm {
             todo!("unsupported device destination: {device_destination:?}")
         }
 
@@ -445,6 +448,8 @@ impl Rchip {
         &mut self,
         track_type: TrackType,
         sector_buffer: &[u8; cdrom::BYTES_PER_SECTOR as usize],
+        word_ram: &mut WordRam,
+        prg_ram: &mut [u8; memory::PRG_RAM_LEN],
     ) {
         if !self.decoder_enabled {
             return;
@@ -458,7 +463,7 @@ impl Rchip {
             self.decoder_interrupt_pending = true;
         }
 
-        if self.decoder_writes_enabled {
+        if track_type == TrackType::Data && self.decoder_writes_enabled {
             for &byte in sector_buffer {
                 self.buffer_ram[self.write_address as usize] = byte;
                 self.write_address = (self.write_address + 1) & BUFFER_RAM_ADDRESS_MASK;
@@ -467,6 +472,11 @@ impl Rchip {
             if self.decoded_first_written_block {
                 self.block_pointer =
                     (self.block_pointer + cdrom::BYTES_PER_SECTOR as u16) & BUFFER_RAM_ADDRESS_MASK;
+
+                // Progress DMA if applicable
+                if self.data_transfer_in_progress && self.device_destination.is_dma_destination() {
+                    self.progress_dma(word_ram, prg_ram);
+                }
             } else {
                 // Decoded blocks start at the header, skipping the 12-byte sync
                 self.block_pointer =
@@ -481,5 +491,51 @@ impl Rchip {
                 self.block_pointer
             );
         }
+    }
+
+    fn progress_dma(&mut self, word_ram: &mut WordRam, prg_ram: &mut [u8; memory::PRG_RAM_LEN]) {
+        let dma_address_mask = match self.device_destination {
+            // All 19 bits of DMA address are used for PRG RAM
+            DeviceDestination::PrgRam => (1 << 19) - 1,
+            // DMA address is 18 bits in 2M mode (256KB), 17 bits in 1M mode (128KB)
+            DeviceDestination::WordRam => match word_ram.mode() {
+                WordRamMode::TwoM => (1 << 18) - 1,
+                WordRamMode::OneM => (1 << 17) - 1,
+            },
+            _ => panic!("Invalid DMA destination: {:?}", self.device_destination),
+        };
+        let mut dma_address = self.dma_address & dma_address_mask;
+
+        log::trace!(
+            "Progressing DMA transfer to {:?} starting at {dma_address:06X}; {} bytes remaining",
+            self.device_destination,
+            self.data_byte_counter + 1
+        );
+
+        for _ in 0..cdrom::BYTES_PER_SECTOR {
+            let byte = self.buffer_ram[self.data_address_counter as usize];
+            match self.device_destination {
+                DeviceDestination::PrgRam => {
+                    prg_ram[self.dma_address as usize] = byte;
+                }
+                DeviceDestination::WordRam => {
+                    word_ram.dma_write(self.dma_address, byte);
+                }
+                _ => unreachable!("device destination checked earlier in the function"),
+            }
+
+            self.data_address_counter = (self.data_address_counter + 1) & BUFFER_RAM_ADDRESS_MASK;
+            dma_address = (dma_address + 1) & dma_address_mask;
+
+            let (new_byte_counter, overflowed) = self.data_byte_counter.overflowing_sub(1);
+            self.data_byte_counter = new_byte_counter;
+            if overflowed {
+                self.data_transfer_in_progress = false;
+                self.transfer_end_interrupt_pending = true;
+                break;
+            }
+        }
+
+        self.dma_address = dma_address;
     }
 }
