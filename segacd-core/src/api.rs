@@ -1,4 +1,5 @@
 use crate::audio::AudioDownsampler;
+use crate::cddrive::CdTickEffect;
 use crate::cdrom::cue;
 use crate::cdrom::reader::CdRom;
 use crate::graphics::GraphicsCoprocessor;
@@ -32,7 +33,7 @@ const PAL_GENESIS_MASTER_CLOCK_RATE: u64 = 53_203_424;
 const SEGA_CD_MASTER_CLOCK_RATE: u64 = 50_000_000;
 
 // Arbitrary value to keep mclk counts low-ish for better floating-point precision
-const SEGA_CD_MCLK_MODULO: u64 = 100_000_000;
+const SEGA_CD_MCLK_MODULO: f64 = 100_000_000.0;
 
 const BIOS_LEN: usize = memory::BIOS_LEN;
 
@@ -301,7 +302,11 @@ impl TickableEmulator for SegaCdEmulator {
 
         // Disc drive and timer/stopwatch
         let sega_cd = self.memory.medium_mut();
-        sega_cd.tick(elapsed_scd_mclk_cycles)?;
+        if let CdTickEffect::OutputAudioSample(sample_l, sample_r) =
+            sega_cd.tick(elapsed_scd_mclk_cycles)?
+        {
+            self.audio_downsampler.collect_cd_sample(sample_l, sample_r);
+        }
 
         // Graphics ASIC
         let graphics_interrupt_enabled = sega_cd.graphics_interrupt_enabled();
