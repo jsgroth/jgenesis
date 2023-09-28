@@ -9,6 +9,7 @@ use crate::core::{
 };
 use crate::traits::BusInterface;
 use jgenesis_traits::num::GetBit;
+use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -61,6 +62,15 @@ impl ShiftCount {
         match self {
             Self::Constant(count) => count,
             Self::Register(register) => register.read_from(registers) as u8,
+        }
+    }
+}
+
+impl Display for ShiftCount {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Constant(n) => write!(f, "#<{n}>"),
+            Self::Register(register) => write!(f, "D{}", register.0),
         }
     }
 }
@@ -364,14 +374,14 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     pub(super) fn do_execute(&mut self) -> ExecuteResult<u32> {
         use Instruction::*;
 
-        log::trace!("Beginning instruction execution, PC={:08X}", self.registers.pc);
+        let initial_pc = self.registers.pc;
 
         let opcode = self.fetch_operand()?;
         self.opcode = opcode;
 
         let instruction = decode_opcode(opcode, self.registers.supervisor_mode)?;
         self.instruction = Some(instruction);
-        log::trace!("Decoded instruction: {instruction:?}");
+        log::trace!("[{}] Decoded instruction (PC={initial_pc:06X}): {instruction}", self.name);
 
         match instruction {
             Add { size: OpSize::Byte, source, dest, with_extend } => {
@@ -728,4 +738,234 @@ fn binary_op_cycles(size: OpSize, source: AddressingMode, dest: AddressingMode) 
     }
 
     cycles
+}
+
+impl Display for Instruction {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Add { size, source, dest, with_extend: false } => {
+                write!(f, "ADD.{size} {source}, {dest}")
+            }
+            Self::Add { size, source, dest, with_extend: true } => {
+                write!(f, "ADDX.{size} {source}, {dest}")
+            }
+            Self::AddDecimal { source, dest } => {
+                write!(f, "ABCD {source}, {dest}")
+            }
+            Self::And { size, source, dest } => {
+                write!(f, "AND.{size} {source}, {dest}")
+            }
+            Self::AndToCcr => write!(f, "AND to CCR #<d>"),
+            Self::AndToSr => write!(f, "AND to SR #<d>"),
+            Self::ArithmeticShiftMemory(ShiftDirection::Left, dest) => {
+                write!(f, "ASL.w {dest}")
+            }
+            Self::ArithmeticShiftMemory(ShiftDirection::Right, dest) => {
+                write!(f, "ASR.w {dest}")
+            }
+            Self::ArithmeticShiftRegister(size, ShiftDirection::Left, register, count) => {
+                write!(f, "ASL.{size} {count}, D{}", register.0)
+            }
+            Self::ArithmeticShiftRegister(size, ShiftDirection::Right, register, count) => {
+                write!(f, "ASR.{size} {count}, D{}", register.0)
+            }
+            Self::BitTest { source, dest } => {
+                write!(f, "BTST {source}, {dest}")
+            }
+            Self::BitTestAndChange { source, dest } => {
+                write!(f, "BCHG {source}, {dest}")
+            }
+            Self::BitTestAndClear { source, dest } => {
+                write!(f, "BCLR {source}, {dest}")
+            }
+            Self::BitTestAndSet { source, dest } => {
+                write!(f, "BSET {source}, {dest}")
+            }
+            Self::Branch(BranchCondition::True, displacement) => {
+                write!(f, "BRA {displacement}")
+            }
+            Self::Branch(condition, displacement) => {
+                write!(f, "Bcc {displacement} (cc = {condition:?})")
+            }
+            Self::BranchDecrement(condition, register) => {
+                write!(f, "DBcc D{}, #<d> (cc = {condition:?})", register.0)
+            }
+            Self::BranchToSubroutine(displacement) => {
+                write!(f, "BSR {displacement}")
+            }
+            Self::CheckRegister(register, addressing_mode) => {
+                write!(f, "CHK {addressing_mode}, D{}", register.0)
+            }
+            Self::Clear(size, dest) => {
+                write!(f, "CLR.{size} {dest}")
+            }
+            Self::Compare { size, source, dest } => {
+                write!(f, "CMP.{size} {source}, {dest}")
+            }
+            Self::DivideSigned(register, addressing_mode) => {
+                write!(f, "DIVS {addressing_mode}, D{}", register.0)
+            }
+            Self::DivideUnsigned(register, addressing_mode) => {
+                write!(f, "DIVU {addressing_mode}, D{}", register.0)
+            }
+            Self::ExchangeAddress(a, b) => {
+                write!(f, "EXG A{}, A{}", a.0, b.0)
+            }
+            Self::ExchangeData(a, b) => {
+                write!(f, "EXG D{}, D{}", a.0, b.0)
+            }
+            Self::ExchangeDataAddress(data, address) => {
+                write!(f, "EXG D{}, A{}", data.0, address.0)
+            }
+            Self::ExclusiveOr { size, source, dest } => {
+                write!(f, "EOR.{size} {source}, {dest}")
+            }
+            Self::ExclusiveOrToCcr => write!(f, "EOR to CCR"),
+            Self::ExclusiveOrToSr => write!(f, "EOR to SR"),
+            Self::Extend(size, register) => {
+                write!(f, "EXT.{size} D{}", register.0)
+            }
+            Self::Jump(dest) => {
+                write!(f, "JMP {dest}")
+            }
+            Self::JumpToSubroutine(dest) => {
+                write!(f, "JSR {dest}")
+            }
+            Self::Link(register) => {
+                write!(f, "LINK A{}, #<d>", register.0)
+            }
+            Self::LoadEffectiveAddress(addressing_mode, register) => {
+                write!(f, "LEA {addressing_mode}, A{}", register.0)
+            }
+            Self::LogicalShiftMemory(ShiftDirection::Left, dest) => {
+                write!(f, "LSL.w {dest}")
+            }
+            Self::LogicalShiftMemory(ShiftDirection::Right, dest) => {
+                write!(f, "LSR.w {dest}")
+            }
+            Self::LogicalShiftRegister(size, ShiftDirection::Left, register, count) => {
+                write!(f, "LSL.{size} {count}, D{}", register.0)
+            }
+            Self::LogicalShiftRegister(size, ShiftDirection::Right, register, count) => {
+                write!(f, "LSR.{size} {count}, D{}", register.0)
+            }
+            Self::Move { size, source, dest } => {
+                write!(f, "MOVE.{size} {source}, {dest}")
+            }
+            Self::MoveFromSr(dest) => write!(f, "MOVE from SR {dest}"),
+            Self::MoveMultiple(size, addressing_mode, Direction::MemoryToRegister) => {
+                write!(f, "MOVEM.{size} {addressing_mode}, registers")
+            }
+            Self::MoveMultiple(size, addressing_mode, Direction::RegisterToMemory) => {
+                write!(f, "MOVEM.{size} registers, {addressing_mode}")
+            }
+            Self::MovePeripheral(size, data, address, Direction::MemoryToRegister) => {
+                write!(f, "MOVEP.{size} (d, A{}), D{}", address.0, data.0)
+            }
+            Self::MovePeripheral(size, data, address, Direction::RegisterToMemory) => {
+                write!(f, "MOVEP.{size} D{}, (d, A{})", data.0, address.0)
+            }
+            Self::MoveQuick(value, register) => {
+                write!(f, "MOVEQ #<{value}>, D{}", register.0)
+            }
+            Self::MoveToCcr(source) => {
+                write!(f, "MOVE to CCR {source}")
+            }
+            Self::MoveToSr(source) => {
+                write!(f, "MOVE to SR {source}")
+            }
+            Self::MoveUsp(UspDirection::RegisterToUsp, register) => {
+                write!(f, "MOVE to USP A{}", register.0)
+            }
+            Self::MoveUsp(UspDirection::UspToRegister, register) => {
+                write!(f, "MOVE from USP A{}", register.0)
+            }
+            Self::MultiplySigned(register, addressing_mode) => {
+                write!(f, "MULS {addressing_mode}, D{}", register.0)
+            }
+            Self::MultiplyUnsigned(register, addressing_mode) => {
+                write!(f, "MULU {addressing_mode}, D{}", register.0)
+            }
+            Self::Negate { size, dest, with_extend: false } => {
+                write!(f, "NEG.{size} {dest}")
+            }
+            Self::Negate { size, dest, with_extend: true } => {
+                write!(f, "NEGX.{size} {dest}")
+            }
+            Self::NegateDecimal(dest) => {
+                write!(f, "NBCD {dest}")
+            }
+            Self::NoOp => write!(f, "NOP"),
+            Self::Not(size, dest) => {
+                write!(f, "NOT.{size} {dest}")
+            }
+            Self::Or { size, source, dest } => {
+                write!(f, "OR.{size} {source}, {dest}")
+            }
+            Self::OrToCcr => write!(f, "OR to CCR #<d>"),
+            Self::OrToSr => write!(f, "OR to SR #<d>"),
+            Self::PushEffectiveAddress(source) => {
+                write!(f, "PEA {source}")
+            }
+            Self::Reset => write!(f, "RESET"),
+            Self::Return { restore_ccr: false } => write!(f, "RTS"),
+            Self::Return { restore_ccr: true } => write!(f, "RTR"),
+            Self::ReturnFromException => write!(f, "RTE"),
+            Self::RotateMemory(ShiftDirection::Left, dest) => {
+                write!(f, "ROL.w {dest}")
+            }
+            Self::RotateMemory(ShiftDirection::Right, dest) => {
+                write!(f, "ROR.w {dest}")
+            }
+            Self::RotateRegister(size, ShiftDirection::Left, register, count) => {
+                write!(f, "ROL.{size} {count}, D{}", register.0)
+            }
+            Self::RotateRegister(size, ShiftDirection::Right, register, count) => {
+                write!(f, "ROR.{size} {count}, D{}", register.0)
+            }
+            Self::RotateThruExtendMemory(ShiftDirection::Left, dest) => {
+                write!(f, "ROXL.w {dest}")
+            }
+            Self::RotateThruExtendMemory(ShiftDirection::Right, dest) => {
+                write!(f, "ROXR.w {dest}")
+            }
+            Self::RotateThruExtendRegister(size, ShiftDirection::Left, register, count) => {
+                write!(f, "ROXL.{size} {count}, D{}", register.0)
+            }
+            Self::RotateThruExtendRegister(size, ShiftDirection::Right, register, count) => {
+                write!(f, "ROXR.{size} {count}, D{}", register.0)
+            }
+            Self::Set(condition, dest) => {
+                write!(f, "Scc {dest} (cc = {condition:?})")
+            }
+            Self::Subtract { size, source, dest, with_extend: false } => {
+                write!(f, "SUB.{size} {source}, {dest}")
+            }
+            Self::Subtract { size, source, dest, with_extend: true } => {
+                write!(f, "SUBX.{size} {source}, {dest}")
+            }
+            Self::SubtractDecimal { source, dest } => {
+                write!(f, "SBCD {source}, {dest}")
+            }
+            Self::Swap(register) => {
+                write!(f, "SWAP D{}", register.0)
+            }
+            Self::Stop => write!(f, "STOP"),
+            Self::Test(size, source) => {
+                write!(f, "TST.{size} {source}")
+            }
+            Self::TestAndSet(dest) => {
+                write!(f, "TAS {dest}")
+            }
+            Self::Trap(vector) => {
+                write!(f, "TRAP #<{vector}>")
+            }
+            Self::TrapOnOverflow => {
+                write!(f, "TRAPV")
+            }
+            Self::Unlink(register) => {
+                write!(f, "UNLK A{}", register.0)
+            }
+        }
+    }
 }

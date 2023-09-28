@@ -3,6 +3,7 @@ mod instructions;
 use crate::core::instructions::Instruction;
 use crate::traits::BusInterface;
 use jgenesis_traits::num::GetBit;
+use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
@@ -212,6 +213,16 @@ impl OpSize {
     }
 }
 
+impl Display for OpSize {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Byte => write!(f, "b"),
+            Self::Word => write!(f, "w"),
+            Self::LongWord => write!(f, "l"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum IndexRegister {
     Data(DataRegister),
@@ -379,6 +390,26 @@ impl AddressingMode {
     }
 }
 
+impl Display for AddressingMode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DataDirect(register) => write!(f, "D{}", register.0),
+            Self::AddressDirect(register) => write!(f, "A{}", register.0),
+            Self::AddressIndirect(register) => write!(f, "(A{})", register.0),
+            Self::AddressIndirectPostincrement(register) => write!(f, "(A{})+", register.0),
+            Self::AddressIndirectPredecrement(register) => write!(f, "-(A{})", register.0),
+            Self::AddressIndirectDisplacement(register) => write!(f, "(d, A{})", register.0),
+            Self::AddressIndirectIndexed(register) => write!(f, "(d, A{}, X)", register.0),
+            Self::PcRelativeDisplacement => write!(f, "(d, PC)"),
+            Self::PcRelativeIndexed => write!(f, "(d, PC, X)"),
+            Self::AbsoluteShort => write!(f, "(xxx).w"),
+            Self::AbsoluteLong => write!(f, "(xxx).l"),
+            Self::Immediate => write!(f, "#<d>"),
+            Self::Quick(n) => write!(f, "#<{n}>"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ResolvedAddress {
     DataRegister(DataRegister),
@@ -396,6 +427,19 @@ impl ResolvedAddress {
     }
 }
 
+impl Display for ResolvedAddress {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DataRegister(register) => write!(f, "D{}", register.0),
+            Self::AddressRegister(register) => write!(f, "A{}", register.0),
+            Self::Memory(address) | Self::MemoryPostincrement { address, .. } => {
+                write!(f, "(${address:06X})")
+            }
+            Self::Immediate(value) => write!(f, "#<${value:08X}>"),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct InstructionExecutor<'registers, 'bus, B> {
     registers: &'registers mut Registers,
@@ -403,6 +447,7 @@ struct InstructionExecutor<'registers, 'bus, B> {
     allow_tas_writes: bool,
     opcode: u16,
     instruction: Option<Instruction>,
+    name: &'registers str,
 }
 
 const ADDRESS_ERROR_VECTOR: u32 = 3;
@@ -412,8 +457,13 @@ const CHECK_REGISTER_VECTOR: u32 = 6;
 const AUTO_VECTORED_INTERRUPT_BASE_ADDRESS: u32 = 0x60;
 
 impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
-    fn new(registers: &'registers mut Registers, bus: &'bus mut B, allow_tas_writes: bool) -> Self {
-        Self { registers, bus, allow_tas_writes, opcode: 0, instruction: None }
+    fn new(
+        registers: &'registers mut Registers,
+        bus: &'bus mut B,
+        allow_tas_writes: bool,
+        name: &'registers str,
+    ) -> Self {
+        Self { registers, bus, allow_tas_writes, opcode: 0, instruction: None, name }
     }
 
     // Read a word from the bus; returns an address error if address is odd
@@ -471,8 +521,6 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         addressing_mode: AddressingMode,
         size: OpSize,
     ) -> ExecuteResult<ResolvedAddress> {
-        log::trace!("Resolving addressing mode {addressing_mode:?}");
-
         let resolved_address = match addressing_mode {
             AddressingMode::DataDirect(register) => ResolvedAddress::DataRegister(register),
             AddressingMode::AddressDirect(register) => ResolvedAddress::AddressRegister(register),
@@ -551,7 +599,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             AddressingMode::Quick(value) => ResolvedAddress::Immediate(value.into()),
         };
 
-        log::trace!("Resolved to {resolved_address:08X?}");
+        log::trace!("[{}] {addressing_mode} resolved to {resolved_address}", self.name);
 
         Ok(resolved_address)
     }
@@ -866,7 +914,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         // TODO properly handle non-maskable level 7 interrupts?
         let interrupt_level = self.bus.interrupt_level() & 0x07;
         if interrupt_level > self.registers.interrupt_priority_mask {
-            log::trace!("Handling interrupt of level {interrupt_level}");
+            log::trace!("[{}] Handling interrupt of level {interrupt_level}", self.name);
             self.bus.acknowledge_interrupt();
             self.registers.stopped = false;
             return self
@@ -937,11 +985,12 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 #[derive(Debug, Clone)]
 pub struct M68000Builder {
     allow_tas_writes: bool,
+    name: Option<String>,
 }
 
 impl Default for M68000Builder {
     fn default() -> Self {
-        Self { allow_tas_writes: true }
+        Self { allow_tas_writes: true, name: None }
     }
 }
 
@@ -958,11 +1007,18 @@ impl M68000Builder {
     }
 
     #[must_use]
+    pub fn name(mut self, name: String) -> Self {
+        self.name = Some(name);
+        self
+    }
+
+    #[must_use]
     pub fn build(self) -> M68000 {
         M68000 {
             registers: Registers::new(),
             halted: false,
             allow_tas_writes: self.allow_tas_writes,
+            name: self.name.unwrap_or_default(),
         }
     }
 }
@@ -975,6 +1031,8 @@ pub struct M68000 {
     registers: Registers,
     halted: bool,
     allow_tas_writes: bool,
+    // Used only for trace logging
+    name: String,
 }
 
 impl Default for M68000 {
@@ -1070,6 +1128,7 @@ impl M68000 {
             return 4;
         }
 
-        InstructionExecutor::new(&mut self.registers, bus, self.allow_tas_writes).execute()
+        InstructionExecutor::new(&mut self.registers, bus, self.allow_tas_writes, &self.name)
+            .execute()
     }
 }

@@ -169,8 +169,8 @@ impl SegaCdEmulator {
         let timing_mode = emulator_config.forced_timing_mode.unwrap_or(TimingMode::Ntsc);
 
         let mut memory = Memory::new(sega_cd);
-        let mut main_cpu = M68000::default();
-        let sub_cpu = M68000::default();
+        let mut main_cpu = M68000::builder().allow_tas_writes(false).name("Main".into()).build();
+        let sub_cpu = M68000::builder().allow_tas_writes(false).name("Sub".into()).build();
         let z80 = Z80::new();
         let mut vdp = Vdp::new(timing_mode, !emulator_config.remove_sprite_limits);
         let graphics_coprocessor = GraphicsCoprocessor::new();
