@@ -639,12 +639,24 @@ impl CdDrive {
         Ok(Some(whitespace_re.replace_all(title.trim(), " ").to_string()))
     }
 
+    pub fn take_disc(&mut self) -> Option<CdRom> {
+        self.disc.take()
+    }
+
     pub fn take_disc_from(&mut self, other: &mut Self) {
         self.disc = other.disc.take();
     }
 
     pub fn clone_without_disc(&self) -> Self {
         Self { disc: None, ..self.clone() }
+    }
+
+    pub fn reset(&mut self) {
+        self.state = CddState::default();
+        self.report_type = ReportType::default();
+        self.status = INITIAL_STATUS;
+        self.current_audio_sample = (0.0, 0.0);
+        self.interrupt_pending = false;
     }
 }
 

@@ -158,6 +158,10 @@ impl Rf5c164 {
         }
     }
 
+    pub fn disable(&mut self) {
+        self.enabled = false;
+    }
+
     fn read_channel_on_register(&self) -> u8 {
         self.channels
             .iter()
