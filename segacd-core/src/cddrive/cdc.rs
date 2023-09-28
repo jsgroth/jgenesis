@@ -372,13 +372,7 @@ impl Rchip {
             15 => {
                 // RESET
                 log::trace!("RESET write");
-
-                // Clear all values from IFCTRL, CTRL0, and CTRL1, as well as interrupt flags
-                self.write_ifctrl(0x00);
-                self.write_ctrl0(0x00);
-                self.write_ctrl1(0x00);
-                self.transfer_end_interrupt_pending = false;
-                self.decoder_interrupt_pending = false;
+                self.reset();
             }
             _ => panic!("CDC register address should always be <= 15"),
         }
@@ -537,5 +531,14 @@ impl Rchip {
         }
 
         self.dma_address = dma_address;
+    }
+
+    pub fn reset(&mut self) {
+        // Clear all values from IFCTRL, CTRL0, and CTRL1, as well as interrupt flags
+        self.write_ifctrl(0x00);
+        self.write_ctrl0(0x00);
+        self.write_ctrl1(0x00);
+        self.transfer_end_interrupt_pending = false;
+        self.decoder_interrupt_pending = false;
     }
 }

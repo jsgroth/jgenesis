@@ -327,6 +327,10 @@ impl<Medium: PhysicalMedium> Memory<Medium> {
     pub fn medium_mut(&mut self) -> &mut Medium {
         &mut self.physical_medium
     }
+
+    pub fn reset_z80_signals(&mut self) {
+        self.signals = Signals::default();
+    }
 }
 
 pub trait CloneWithoutRom {
@@ -393,10 +397,6 @@ impl Memory<Cartridge> {
     #[must_use]
     pub fn get_and_clear_external_ram_dirty(&mut self) -> bool {
         self.physical_medium.get_and_clear_ram_dirty()
-    }
-
-    pub fn reset_z80_signals(&mut self) {
-        self.signals = Signals::default();
     }
 }
 

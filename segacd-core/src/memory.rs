@@ -394,6 +394,10 @@ impl SegaCd {
         &mut self.word_ram
     }
 
+    pub fn bios(&self) -> &[u8] {
+        self.bios.0.as_slice()
+    }
+
     pub fn backup_ram(&self) -> &[u8] {
         self.backup_ram.as_slice()
     }
@@ -408,13 +412,26 @@ impl SegaCd {
         dirty
     }
 
+    pub fn take_cdrom(&mut self) -> Option<CdRom> {
+        self.disc_drive.take_disc()
+    }
+
     pub fn take_rom_from(&mut self, other: &mut Self) {
         self.bios = mem::take(&mut other.bios);
         self.disc_drive.take_disc_from(&mut other.disc_drive);
     }
 
+    pub fn forced_region(&self) -> Option<GenesisRegion> {
+        self.forced_region
+    }
+
     pub fn set_forced_region(&mut self, forced_region: Option<GenesisRegion>) {
         self.forced_region = forced_region;
+    }
+
+    pub fn reset(&mut self) {
+        self.disc_drive.reset();
+        self.registers = SegaCdRegisters::new();
     }
 }
 

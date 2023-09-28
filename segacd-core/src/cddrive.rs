@@ -145,11 +145,20 @@ impl CdController {
         self.drive.disc_title(region)
     }
 
+    pub fn take_disc(&mut self) -> Option<CdRom> {
+        self.drive.take_disc()
+    }
+
     pub fn take_disc_from(&mut self, other: &mut Self) {
         self.drive.take_disc_from(&mut other.drive);
     }
 
     pub fn clone_without_disc(&self) -> Self {
         Self { drive: self.drive.clone_without_disc(), ..self.clone() }
+    }
+
+    pub fn reset(&mut self) {
+        self.drive.reset();
+        self.rchip.reset();
     }
 }

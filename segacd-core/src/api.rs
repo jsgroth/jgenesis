@@ -151,6 +151,15 @@ impl SegaCdEmulator {
             None
         };
 
+        Self::create_from_disc(bios, initial_backup_ram, disc, emulator_config)
+    }
+
+    fn create_from_disc(
+        bios: Vec<u8>,
+        initial_backup_ram: Option<Vec<u8>>,
+        disc: Option<CdRom>,
+        emulator_config: GenesisEmulatorConfig,
+    ) -> DiscResult<Self> {
         // TODO read header information from disc
         let mut sega_cd =
             SegaCd::new(bios, disc, initial_backup_ram, emulator_config.forced_region);
@@ -375,11 +384,44 @@ impl TickableEmulator for SegaCdEmulator {
 
 impl Resettable for SegaCdEmulator {
     fn soft_reset(&mut self) {
-        todo!("soft reset")
+        // Reset main CPU
+        self.main_cpu.execute_instruction(&mut MainBus::new(
+            &mut self.memory,
+            &mut self.vdp,
+            &mut self.psg,
+            &mut self.ym2612,
+            &mut self.input,
+            self.timing_mode,
+            MainBusSignals { z80_busack: false, m68k_reset: true },
+        ));
+        self.memory.reset_z80_signals();
+
+        self.ym2612.reset();
+        self.pcm.disable();
+
+        self.memory.medium_mut().reset();
     }
 
     fn hard_reset(&mut self) {
-        todo!("hard reset")
+        let sega_cd = self.memory.medium_mut();
+        let bios = Vec::from(sega_cd.bios());
+        let disc = sega_cd.take_cdrom();
+        let backup_ram = Vec::from(sega_cd.backup_ram());
+        let forced_region = sega_cd.forced_region();
+
+        *self = Self::create_from_disc(
+            bios,
+            Some(backup_ram),
+            disc,
+            GenesisEmulatorConfig {
+                forced_timing_mode: Some(self.timing_mode),
+                forced_region,
+                aspect_ratio: self.aspect_ratio,
+                adjust_aspect_ratio_in_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
+                remove_sprite_limits: !self.vdp.get_enforce_sprite_limits(),
+            },
+        )
+        .expect("Hard reset should not cause an I/O error");
     }
 }
 
