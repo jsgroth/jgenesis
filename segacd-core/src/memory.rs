@@ -1,3 +1,4 @@
+mod backupram;
 mod font;
 pub(crate) mod wordram;
 
@@ -135,8 +136,10 @@ impl SegaCd {
         forced_region: Option<GenesisRegion>,
     ) -> Self {
         let backup_ram = match initial_backup_ram {
-            Some(backup_ram) if backup_ram.len() == BACKUP_RAM_LEN => backup_ram,
-            _ => vec![0; BACKUP_RAM_LEN],
+            Some(backup_ram) if backup_ram.len() == BACKUP_RAM_LEN => {
+                backup_ram.into_boxed_slice().try_into().unwrap()
+            }
+            _ => backupram::new_formatted_backup_ram(),
         };
 
         // TODO auto-detect disc region
@@ -147,7 +150,7 @@ impl SegaCd {
             prg_ram: vec![0; PRG_RAM_LEN].into_boxed_slice().try_into().unwrap(),
             word_ram: WordRam::new(),
             pcm_ram: vec![0; PCM_RAM_LEN].into_boxed_slice().try_into().unwrap(),
-            backup_ram: backup_ram.into_boxed_slice().try_into().unwrap(),
+            backup_ram,
             backup_ram_dirty: false,
             registers: SegaCdRegisters::new(),
             font_registers: FontRegisters::new(),
