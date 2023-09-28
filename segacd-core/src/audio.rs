@@ -8,6 +8,7 @@ use std::collections::VecDeque;
 const NTSC_GENESIS_MCLK_FREQUENCY: f64 = 53_693_175.0;
 const PAL_GENESIS_MCLK_FREQUENCY: f64 = 53_203_424.0;
 const SEGA_CD_MCLK_FREQUENCY: f64 = 50_000_000.0;
+const CD_DA_FREQUENCY: f64 = 44_100.0;
 
 const YM2612_LPF_COEFFICIENT_0: f64 = -0.001478342773457343;
 const YM2612_LPF_COEFFICIENTS: [f64; 25] = [
@@ -82,7 +83,6 @@ const PSG_LPF_COEFFICIENTS: [f64; 35] = [
 const PSG_HPF_CHARGE_FACTOR: f64 = 0.999212882632514;
 
 // -8dB (10 ^ -8/20)
-// PSG is too loud if it's given the same volume level as the YM2612
 const PSG_COEFFICIENT: f64 = 0.3981071705534972;
 
 const PCM_LPF_COEFFICIENT_0: f64 = -0.001032167331725023;
@@ -112,8 +112,40 @@ const PCM_LPF_COEFFICIENTS: [f64; 21] = [
 
 const PCM_HPF_CHARGE_FACTOR: f64 = 0.9946028448191855;
 
-// -4.5 dB (10 ^ -4.5/20)
-const PCM_COEFFICIENT: f64 = 0.5956621435290105;
+// -3 dB (10 ^ -3/20)
+const PCM_COEFFICIENT: f64 = 0.7079457843841379;
+
+const CD_LPF_COEFFICIENT_0: f64 = 0.001074119844470324;
+const CD_LPF_COEFFICIENTS: [f64; 23] = [
+    0.001074119844470324,
+    -0.00173597616545656,
+    -0.004832665407973518,
+    -0.001992823915686409,
+    0.0109179929840003,
+    0.01955265022534506,
+    -0.001029754702410328,
+    -0.04519730177754978,
+    -0.05443102244415676,
+    0.03374428630870474,
+    0.2024522203986207,
+    0.3414782746520921,
+    0.3414782746520921,
+    0.2024522203986207,
+    0.03374428630870474,
+    -0.05443102244415674,
+    -0.0451973017775498,
+    -0.001029754702410327,
+    0.01955265022534507,
+    0.01091799298400031,
+    -0.001992823915686409,
+    -0.004832665407973518,
+    -0.001735976165456563,
+];
+
+const CD_HPF_CHARGE_FACTOR: f64 = 0.9960133089108504;
+
+// -7 dB (10 ^ -7/20)
+const CD_COEFFICIENT: f64 = 0.44668359215096315;
 
 // Arbitrary power of 2 to keep total sample count small-ish for better f64 precision
 const SAMPLE_COUNT_MODULO: u64 = 1 << 27;
@@ -233,12 +265,14 @@ fn output_sample<const N: usize>(
 type Ym2612Downsampler = SignalDownsampler<25, 2>;
 type PsgDownsampler = SignalDownsampler<35, 0>;
 type PcmDownsampler = SignalDownsampler<21, 3>;
+type CdDownsampler = SignalDownsampler<23, 2>;
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct AudioDownsampler {
     ym2612_downsampler: Ym2612Downsampler,
     psg_downsampler: PsgDownsampler,
     pcm_downsampler: PcmDownsampler,
+    cd_downsampler: CdDownsampler,
 }
 
 impl AudioDownsampler {
@@ -269,8 +303,14 @@ impl AudioDownsampler {
             PCM_LPF_COEFFICIENTS,
             PCM_HPF_CHARGE_FACTOR,
         );
+        let cd_downsampler = CdDownsampler::new(
+            CD_DA_FREQUENCY,
+            CD_LPF_COEFFICIENT_0,
+            CD_LPF_COEFFICIENTS,
+            CD_HPF_CHARGE_FACTOR,
+        );
 
-        Self { ym2612_downsampler, psg_downsampler, pcm_downsampler }
+        Self { ym2612_downsampler, psg_downsampler, pcm_downsampler, cd_downsampler }
     }
 
     pub fn collect_ym2612_sample(&mut self, sample_l: f64, sample_r: f64) {
@@ -285,20 +325,34 @@ impl AudioDownsampler {
         self.pcm_downsampler.collect_sample(sample_l, sample_r);
     }
 
+    pub fn collect_cd_sample(&mut self, sample_l: f64, sample_r: f64) {
+        self.cd_downsampler.collect_sample(sample_l, sample_r);
+    }
+
     pub fn output_samples<A: AudioOutput>(&mut self, audio_output: &mut A) -> Result<(), A::Err> {
         let sample_count = cmp::min(
-            cmp::min(self.ym2612_downsampler.output.len(), self.psg_downsampler.output.len()),
-            self.pcm_downsampler.output.len(),
+            cmp::min(
+                cmp::min(self.ym2612_downsampler.output.len(), self.psg_downsampler.output.len()),
+                self.pcm_downsampler.output.len(),
+            ),
+            self.cd_downsampler.output.len(),
         );
         for _ in 0..sample_count {
             let (ym2612_l, ym2612_r) = self.ym2612_downsampler.output.pop_front().unwrap();
             let (psg_l, psg_r) = self.psg_downsampler.output.pop_front().unwrap();
             let (pcm_l, pcm_r) = self.pcm_downsampler.output.pop_front().unwrap();
+            let (cd_l, cd_r) = self.cd_downsampler.output.pop_front().unwrap();
 
-            let sample_l =
-                (ym2612_l + PSG_COEFFICIENT * psg_l + PCM_COEFFICIENT * pcm_l).clamp(-1.0, 1.0);
-            let sample_r =
-                (ym2612_r + PSG_COEFFICIENT * psg_r + PCM_COEFFICIENT * pcm_r).clamp(-1.0, 1.0);
+            let sample_l = (ym2612_l
+                + PSG_COEFFICIENT * psg_l
+                + PCM_COEFFICIENT * pcm_l
+                + CD_COEFFICIENT * cd_l)
+                .clamp(-1.0, 1.0);
+            let sample_r = (ym2612_r
+                + PSG_COEFFICIENT * psg_r
+                + PCM_COEFFICIENT * pcm_r
+                + CD_COEFFICIENT * cd_r)
+                .clamp(-1.0, 1.0);
 
             audio_output.push_sample(sample_l, sample_r)?;
         }

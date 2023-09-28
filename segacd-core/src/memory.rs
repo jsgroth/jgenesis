@@ -3,7 +3,7 @@ pub(crate) mod wordram;
 
 use crate::api::DiscResult;
 use crate::cddrive::cdc::DeviceDestination;
-use crate::cddrive::CdController;
+use crate::cddrive::{CdController, CdTickEffect};
 use crate::cdrom::reader::CdRom;
 use crate::graphics::{GraphicsCoprocessor, GraphicsWritePriorityMode};
 use crate::memory::font::FontRegisters;
@@ -359,8 +359,9 @@ impl SegaCd {
         }
     }
 
-    pub fn tick(&mut self, master_clock_cycles: u64) -> DiscResult<()> {
-        self.disc_drive.tick(master_clock_cycles, &mut self.word_ram, &mut self.prg_ram)?;
+    pub fn tick(&mut self, master_clock_cycles: u64) -> DiscResult<CdTickEffect> {
+        let cd_tick_effect =
+            self.disc_drive.tick(master_clock_cycles, &mut self.word_ram, &mut self.prg_ram)?;
 
         if master_clock_cycles >= self.timer_divider {
             self.clock_timers();
@@ -369,7 +370,7 @@ impl SegaCd {
             self.timer_divider -= master_clock_cycles;
         }
 
-        Ok(())
+        Ok(cd_tick_effect)
     }
 
     fn clock_timers(&mut self) {

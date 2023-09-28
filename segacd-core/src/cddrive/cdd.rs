@@ -15,6 +15,9 @@ const INITIAL_STATUS: [u8; 10] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 
 const PLAY_DELAY_CLOCKS: u8 = 10;
 
+// 2x signed 16-bit PCM samples, one per stereo channel
+const BYTES_PER_AUDIO_SAMPLE: u16 = 4;
+
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CddStatus {
@@ -137,6 +140,9 @@ pub struct CdDrive {
     report_type: ReportType,
     interrupt_pending: bool,
     status: [u8; 10],
+    audio_sample_idx: u16,
+    loaded_audio_sector: bool,
+    current_audio_sample: (f64, f64),
 }
 
 impl CdDrive {
@@ -148,6 +154,9 @@ impl CdDrive {
             report_type: ReportType::default(),
             interrupt_pending: false,
             status: INITIAL_STATUS,
+            audio_sample_idx: 0,
+            loaded_audio_sector: false,
+            current_audio_sample: (0.0, 0.0),
         }
     }
 
@@ -432,7 +441,7 @@ impl CdDrive {
             CdTime::from_sector_number(skip_sector)
         };
 
-        let clocks_required = estimate_skip_clocks(current_time, skip_time);
+        let clocks_required = estimate_seek_clocks(current_time, skip_time);
 
         log::trace!(
             "Skipping from {current_time} to {skip_time}; estimated {clocks_required} 75Hz cycles"
@@ -446,12 +455,55 @@ impl CdDrive {
         self.status
     }
 
+    pub fn playing_audio(&self) -> bool {
+        match self.state {
+            CddState::Playing(current_time) => {
+                let is_audio_track = self.disc.as_ref().is_some_and(|disc| {
+                    disc.cue()
+                        .find_track_by_time(current_time)
+                        .is_some_and(|track| track.track_type == TrackType::Audio)
+                });
+                is_audio_track && self.loaded_audio_sector
+            }
+            _ => false,
+        }
+    }
+
+    pub fn update_audio_sample(&mut self) -> (f64, f64) {
+        self.current_audio_sample = if self.playing_audio() {
+            let idx = self.audio_sample_idx as usize;
+
+            let sample_l =
+                i16::from_le_bytes([self.sector_buffer[idx], self.sector_buffer[idx + 1]]);
+            let sample_r =
+                i16::from_le_bytes([self.sector_buffer[idx + 2], self.sector_buffer[idx + 3]]);
+
+            // TODO fader
+
+            let sample_l = f64::from(sample_l) / -f64::from(i16::MIN);
+            let sample_r = f64::from(sample_r) / -f64::from(i16::MIN);
+
+            (sample_l, sample_r)
+        } else {
+            (0.0, 0.0)
+        };
+
+        self.audio_sample_idx =
+            (self.audio_sample_idx + BYTES_PER_AUDIO_SAMPLE) % cdrom::BYTES_PER_SECTOR as u16;
+
+        self.current_audio_sample
+    }
+
     pub fn clock(
         &mut self,
         rchip: &mut Rchip,
         word_ram: &mut WordRam,
         prg_ram: &mut [u8; memory::PRG_RAM_LEN],
     ) -> DiscResult<()> {
+        // It is a bug if clock() is called when audio index is not 0; update_audio_sample() must
+        // be called before clock() on the cycle when both are called
+        assert_eq!(self.audio_sample_idx, 0);
+
         // CDD interrupt fires once every 1/75 of a second
         self.interrupt_pending = true;
 
@@ -473,7 +525,6 @@ impl CdDrive {
                         current_time,
                         seek_time,
                         clocks_remaining - 1,
-                        113.0,
                     );
 
                     log::trace!(
@@ -500,7 +551,6 @@ impl CdDrive {
                         current_time,
                         skip_time,
                         clocks_remaining - 1,
-                        56.0,
                     );
 
                     log::trace!(
@@ -541,6 +591,8 @@ impl CdDrive {
                 let relative_time = time - track.start_time;
                 let track_type = track.track_type;
                 disc.read_sector(track.number, relative_time, &mut self.sector_buffer)?;
+
+                self.loaded_audio_sector = track_type == TrackType::Audio;
 
                 rchip.decode_block(track_type, &self.sector_buffer, word_ram, prg_ram);
 
@@ -643,19 +695,12 @@ fn estimate_seek_clocks(current_time: CdTime, seek_time: CdTime) -> u8 {
     cmp::max(1, seek_cycles)
 }
 
-fn estimate_skip_clocks(current_time: CdTime, seek_time: CdTime) -> u8 {
-    // Arbitrarily assume that a skip will take roughly half as long as a seek
-    cmp::max(1, estimate_seek_clocks(current_time, seek_time) / 2)
-}
-
 fn estimate_intermediate_seek_time(
     current_time: CdTime,
     seek_time: CdTime,
     clocks_remaining: u8,
-    clocks_per_disc: f64,
 ) -> CdTime {
-    let diff_frames =
-        f64::from(clocks_remaining) / clocks_per_disc * f64::from(CdTime::DISC_END.to_frames());
+    let diff_frames = f64::from(clocks_remaining) / 113.0 * f64::from(CdTime::DISC_END.to_frames());
     let diff = CdTime::from_frames(diff_frames.round() as u32);
 
     if current_time < seek_time { seek_time - diff } else { seek_time + diff }
