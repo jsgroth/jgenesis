@@ -1,4 +1,3 @@
-use crate::cdrom::cue::TrackType;
 use crate::memory::wordram::{WordRam, WordRamMode};
 use crate::memory::ScdCpu;
 use crate::{cdrom, memory};
@@ -440,7 +439,6 @@ impl Rchip {
 
     pub(super) fn decode_block(
         &mut self,
-        track_type: TrackType,
         sector_buffer: &[u8; cdrom::BYTES_PER_SECTOR as usize],
         word_ram: &mut WordRam,
         prg_ram: &mut [u8; memory::PRG_RAM_LEN],
@@ -453,11 +451,9 @@ impl Rchip {
         self.header_data.copy_from_slice(&sector_buffer[12..16]);
         self.subheader_data.copy_from_slice(&sector_buffer[16..20]);
 
-        if track_type == TrackType::Data {
-            self.decoder_interrupt_pending = true;
-        }
+        self.decoder_interrupt_pending = true;
 
-        if track_type == TrackType::Data && self.decoder_writes_enabled {
+        if self.decoder_writes_enabled {
             for &byte in sector_buffer {
                 self.buffer_ram[self.write_address as usize] = byte;
                 self.write_address = (self.write_address + 1) & BUFFER_RAM_ADDRESS_MASK;

@@ -600,7 +600,7 @@ impl CdDrive {
 
                 self.loaded_audio_sector = track_type == TrackType::Audio;
 
-                rchip.decode_block(track_type, &self.sector_buffer, word_ram, prg_ram);
+                rchip.decode_block(&self.sector_buffer, word_ram, prg_ram);
 
                 self.state = CddState::Playing(time + CdTime::new(0, 0, 1));
             }
