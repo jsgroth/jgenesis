@@ -1,10 +1,9 @@
 use crate::api::DiscResult;
 use crate::cddrive::cdc::Rchip;
+use crate::cdrom;
 use crate::cdrom::cdtime::CdTime;
 use crate::cdrom::cue::{Track, TrackType};
 use crate::cdrom::reader::CdRom;
-use crate::memory::wordram::WordRam;
-use crate::{cdrom, memory};
 use bincode::{Decode, Encode};
 use genesis_core::GenesisRegion;
 use regex::Regex;
@@ -500,12 +499,7 @@ impl CdDrive {
         self.current_audio_sample
     }
 
-    pub fn clock(
-        &mut self,
-        rchip: &mut Rchip,
-        word_ram: &mut WordRam,
-        prg_ram: &mut [u8; memory::PRG_RAM_LEN],
-    ) -> DiscResult<()> {
+    pub fn clock(&mut self, rchip: &mut Rchip) -> DiscResult<()> {
         // It is a bug if clock() is called when audio index is not 0; update_audio_sample() must
         // be called before clock() on the cycle when both are called
         assert_eq!(self.audio_sample_idx, 0);
@@ -600,7 +594,7 @@ impl CdDrive {
 
                 self.loaded_audio_sector = track_type == TrackType::Audio;
 
-                rchip.decode_block(&self.sector_buffer, word_ram, prg_ram);
+                rchip.decode_block(&self.sector_buffer);
 
                 self.state = CddState::Playing(time + CdTime::new(0, 0, 1));
             }

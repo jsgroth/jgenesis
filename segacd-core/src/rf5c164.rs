@@ -158,6 +158,11 @@ impl Rf5c164 {
         }
     }
 
+    pub fn dma_write(&mut self, address: u32, value: u8) {
+        let waveform_ram_addr = (u32::from(self.waveform_ram_bank) << 12) | address;
+        self.waveform_ram[waveform_ram_addr as usize] = value;
+    }
+
     pub fn disable(&mut self) {
         self.enabled = false;
     }
@@ -238,6 +243,8 @@ impl Rf5c164 {
                 } else {
                     // Change waveform RAM bank (4 bits)
                     self.waveform_ram_bank = value & 0x0F;
+
+                    log::trace!("PCM waveform RAM bank set to {:X}", self.waveform_ram_bank);
                 }
             }
             0x0008 => {

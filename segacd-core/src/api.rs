@@ -312,7 +312,7 @@ impl TickableEmulator for SegaCdEmulator {
         // Disc drive and timer/stopwatch
         let sega_cd = self.memory.medium_mut();
         if let CdTickEffect::OutputAudioSample(sample_l, sample_r) =
-            sega_cd.tick(elapsed_scd_mclk_cycles)?
+            sega_cd.tick(elapsed_scd_mclk_cycles, &mut self.pcm)?
         {
             self.audio_downsampler.collect_cd_sample(sample_l, sample_r);
         }
