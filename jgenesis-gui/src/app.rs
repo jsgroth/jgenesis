@@ -171,7 +171,8 @@ pub struct AppConfig {
     sega_cd: SegaCdAppConfig,
     #[serde(default)]
     inputs: InputAppConfig,
-    rom_search_dir: Option<String>,
+    #[serde(default)]
+    rom_search_dirs: Vec<String>,
 }
 
 impl AppConfig {
@@ -314,7 +315,7 @@ struct AppState {
 
 impl AppState {
     fn from_config(config: &AppConfig) -> Self {
-        let rom_list = romlist::build(config.rom_search_dir.as_ref());
+        let rom_list = romlist::build(&config.rom_search_dirs);
         Self {
             current_file_path: String::new(),
             open_windows: HashSet::new(),
@@ -366,7 +367,7 @@ impl App {
 
         let mut file_dialog =
             FileDialog::new().add_filter("sms/gg/md/cue", &["sms", "gg", "md", "bin", "cue"]);
-        if let Some(dir) = &self.config.rom_search_dir {
+        if let Some(dir) = self.config.rom_search_dirs.get(0) {
             file_dialog = file_dialog.set_directory(Path::new(dir));
         }
         let Some(path) = file_dialog.pick_file() else { return };
@@ -402,12 +403,12 @@ impl App {
         }
     }
 
-    fn configure_rom_search_directory(&mut self) {
+    fn add_rom_search_directory(&mut self) {
         let Some(dir) = FileDialog::new().pick_folder() else { return };
         let Some(dir) = dir.to_str() else { return };
 
-        self.config.rom_search_dir = Some(dir.into());
-        self.state.rom_list = romlist::build(self.config.rom_search_dir.as_ref());
+        self.config.rom_search_dirs.push(dir.into());
+        self.state.rom_list = romlist::build(&self.config.rom_search_dirs);
     }
 
     fn render_smsgg_general_settings(&mut self, ctx: &Context) {
@@ -543,17 +544,26 @@ impl App {
     fn render_interface_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("UI Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            let rom_search_dir = self.config.rom_search_dir.clone().unwrap_or("<None>".into());
-            ui.horizontal(|ui| {
-                if ui.button(&rom_search_dir).clicked() {
-                    self.configure_rom_search_directory();
+            ui.label("ROM search directories:");
+
+            ui.add_space(5.0);
+
+            ui.group(|ui| {
+                for (i, rom_search_dir) in
+                    self.config.rom_search_dirs.clone().into_iter().enumerate()
+                {
+                    ui.horizontal(|ui| {
+                        ui.label(&rom_search_dir);
+
+                        if ui.button("Remove").clicked() {
+                            self.config.rom_search_dirs.remove(i);
+                            self.state.rom_list = romlist::build(&self.config.rom_search_dirs);
+                        }
+                    });
                 }
 
-                ui.label("ROM search directory");
-
-                if ui.button("Clear").clicked() {
-                    self.config.rom_search_dir = None;
-                    self.state.rom_list = Vec::new();
+                if ui.button("Add").clicked() {
+                    self.add_rom_search_directory();
                 }
             });
         });
@@ -1054,7 +1064,7 @@ impl App {
             if self.state.rom_list.is_empty() {
                 ui.centered_and_justified(|ui| {
                     if ui.selectable_label(false, "Configure ROM search directory").clicked() {
-                        self.configure_rom_search_directory();
+                        self.add_rom_search_directory();
                     }
                 });
             } else {
@@ -1112,8 +1122,13 @@ impl App {
 
                                 row.col(|ui| {
                                     ui.centered_and_justified(|ui| {
-                                        let size_kb = metadata.file_size / 1024;
-                                        ui.label(format!("{size_kb}KB"));
+                                        if metadata.file_size < 1024 * 1024 {
+                                            let file_size_kb = metadata.file_size / 1024;
+                                            ui.label(format!("{file_size_kb}KB"));
+                                        } else {
+                                            let file_size_mb = metadata.file_size / 1024 / 1024;
+                                            ui.label(format!("{file_size_mb}MB"));
+                                        }
                                     });
                                 });
 
