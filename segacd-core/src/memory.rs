@@ -359,9 +359,17 @@ impl SegaCd {
         }
     }
 
-    pub fn tick(&mut self, master_clock_cycles: u64) -> DiscResult<CdTickEffect> {
-        let cd_tick_effect =
-            self.disc_drive.tick(master_clock_cycles, &mut self.word_ram, &mut self.prg_ram)?;
+    pub fn tick(
+        &mut self,
+        master_clock_cycles: u64,
+        pcm: &mut Rf5c164,
+    ) -> DiscResult<CdTickEffect> {
+        let cd_tick_effect = self.disc_drive.tick(
+            master_clock_cycles,
+            &mut self.word_ram,
+            &mut self.prg_ram,
+            pcm,
+        )?;
 
         if master_clock_cycles >= self.timer_divider {
             self.clock_timers();

@@ -1,5 +1,6 @@
 use crate::memory::wordram::{WordRam, WordRamMode};
 use crate::memory::ScdCpu;
+use crate::rf5c164::Rf5c164;
 use crate::{cdrom, memory};
 use bincode::{Decode, Encode};
 use jgenesis_traits::num::GetBit;
@@ -14,9 +15,9 @@ pub enum DeviceDestination {
     #[default]
     MainCpuRegister,
     SubCpuRegister,
-    Pcm,
     PrgRam,
     WordRam,
+    Pcm,
 }
 
 impl DeviceDestination {
@@ -46,7 +47,7 @@ impl DeviceDestination {
         }
     }
 
-    fn is_dma_destination(self) -> bool {
+    fn is_dma(self) -> bool {
         matches!(self, Self::Pcm | Self::PrgRam | Self::WordRam)
     }
 }
@@ -114,14 +115,9 @@ impl Rchip {
             // Abort any in-progress data transfer and reset DMA controller
             self.data_transfer_in_progress = false;
             self.dma_address = 0;
-            // TODO cancel any in-progress DMA
         }
 
         log::trace!("CDC device destination set to {device_destination:?}");
-
-        if device_destination == DeviceDestination::Pcm {
-            todo!("unsupported device destination: {device_destination:?}")
-        }
 
         self.device_destination = device_destination;
     }
@@ -265,7 +261,6 @@ impl Rchip {
             }
             1 => {
                 // IFCTRL (Host Interface Control)
-                // Intentionally ignoring CMDIEN, CMDBK, DTWAI, STWAI, SOUTEN bits
                 log::trace!("IFCTRL write: {value:02X}");
 
                 self.write_ifctrl(value);
@@ -292,7 +287,9 @@ impl Rchip {
                 // DACL (Data Address Counter, Low Byte)
                 log::trace!("DACL write: {value:02X}");
 
-                self.data_address_counter = (self.data_address_counter & 0xFF00) | u16::from(value);
+                self.data_address_counter = ((self.data_address_counter & 0xFF00)
+                    | u16::from(value))
+                    & BUFFER_RAM_ADDRESS_MASK;
 
                 log::trace!("  DAC: {:04X}", self.data_address_counter);
             }
@@ -300,8 +297,9 @@ impl Rchip {
                 // DACH (Data Address Counter, High Byte)
                 log::trace!("DACH write: {value:02X}");
 
-                self.data_address_counter =
-                    (self.data_address_counter & 0x00FF) | (u16::from(value) << 8);
+                self.data_address_counter = ((self.data_address_counter & 0x00FF)
+                    | (u16::from(value) << 8))
+                    & BUFFER_RAM_ADDRESS_MASK;
 
                 log::trace!("  DAC: {:04X}", self.data_address_counter);
             }
@@ -323,7 +321,8 @@ impl Rchip {
                 // WAL (Write Address, Low Byte)
                 log::trace!("WAL write: {value:02X}");
 
-                self.write_address = (self.write_address & 0xFF00) | u16::from(value);
+                self.write_address =
+                    ((self.write_address & 0xFF00) | u16::from(value)) & BUFFER_RAM_ADDRESS_MASK;
 
                 log::trace!("  WA: {:04X}", self.write_address);
             }
@@ -331,7 +330,8 @@ impl Rchip {
                 // WAH (Write Address, High Byte)
                 log::trace!("WAH write: {value:02X}");
 
-                self.write_address = (self.write_address & 0x00FF) | (u16::from(value) << 8);
+                self.write_address = ((self.write_address & 0x00FF) | (u16::from(value) << 8))
+                    & BUFFER_RAM_ADDRESS_MASK;
 
                 log::trace!("  WA: {:04X}", self.write_address);
             }
@@ -353,7 +353,8 @@ impl Rchip {
                 // PTL (Block Pointer, Low Byte)
                 log::trace!("PTL write: {value:02X}");
 
-                self.block_pointer = (self.block_pointer & 0xFF00) | u16::from(value);
+                self.block_pointer =
+                    ((self.block_pointer & 0xFF00) | u16::from(value)) & BUFFER_RAM_ADDRESS_MASK;
 
                 log::trace!("  PT: {:04X}", self.block_pointer);
             }
@@ -361,7 +362,8 @@ impl Rchip {
                 // PTH (Block Pointer, High Byte)
                 log::trace!("PTH write: {value:02X}");
 
-                self.block_pointer = (self.block_pointer & 0x00FF) | (u16::from(value) << 8);
+                self.block_pointer = ((self.block_pointer & 0x00FF) | (u16::from(value) << 8))
+                    & BUFFER_RAM_ADDRESS_MASK;
 
                 log::trace!("  PT: {:04X}", self.block_pointer);
             }
@@ -380,6 +382,8 @@ impl Rchip {
     }
 
     fn write_ifctrl(&mut self, value: u8) {
+        // Intentionally ignoring CMDIEN, CMDBK, DTWAI, STWAI, SOUTEN bits
+
         self.transfer_end_interrupt_enabled = value.bit(6);
         self.decoder_interrupt_enabled = value.bit(5);
 
@@ -437,12 +441,7 @@ impl Rchip {
             || (self.transfer_end_interrupt_enabled && self.transfer_end_interrupt_pending)
     }
 
-    pub(super) fn decode_block(
-        &mut self,
-        sector_buffer: &[u8; cdrom::BYTES_PER_SECTOR as usize],
-        word_ram: &mut WordRam,
-        prg_ram: &mut [u8; memory::PRG_RAM_LEN],
-    ) {
+    pub(super) fn decode_block(&mut self, sector_buffer: &[u8; cdrom::BYTES_PER_SECTOR as usize]) {
         if !self.decoder_enabled {
             return;
         }
@@ -462,11 +461,6 @@ impl Rchip {
             if self.decoded_first_written_block {
                 self.block_pointer =
                     (self.block_pointer + cdrom::BYTES_PER_SECTOR as u16) & BUFFER_RAM_ADDRESS_MASK;
-
-                // Progress DMA if applicable
-                if self.data_transfer_in_progress && self.device_destination.is_dma_destination() {
-                    self.progress_dma(word_ram, prg_ram);
-                }
             } else {
                 // Decoded blocks start at the header, skipping the 12-byte sync
                 self.block_pointer =
@@ -483,7 +477,23 @@ impl Rchip {
         }
     }
 
-    fn progress_dma(&mut self, word_ram: &mut WordRam, prg_ram: &mut [u8; memory::PRG_RAM_LEN]) {
+    pub fn clock(
+        &mut self,
+        word_ram: &mut WordRam,
+        prg_ram: &mut [u8; memory::PRG_RAM_LEN],
+        pcm: &mut Rf5c164,
+    ) {
+        if self.data_transfer_in_progress && self.device_destination.is_dma() {
+            self.progress_dma(word_ram, prg_ram, pcm);
+        }
+    }
+
+    fn progress_dma(
+        &mut self,
+        word_ram: &mut WordRam,
+        prg_ram: &mut [u8; memory::PRG_RAM_LEN],
+        pcm: &mut Rf5c164,
+    ) {
         let dma_address_mask = match self.device_destination {
             // All 19 bits of DMA address are used for PRG RAM
             DeviceDestination::PrgRam => (1 << 19) - 1,
@@ -492,9 +502,20 @@ impl Rchip {
                 WordRamMode::TwoM => (1 << 18) - 1,
                 WordRamMode::OneM => (1 << 17) - 1,
             },
+            // PCM address is 13 bits in the register, but it's effectively a 12-bit address
+            DeviceDestination::Pcm => (1 << 12) - 1,
             _ => panic!("Invalid DMA destination: {:?}", self.device_destination),
         };
-        let mut dma_address = self.dma_address & dma_address_mask;
+
+        // PCM DMA confusingly shifts the effective address bits down by 1, treating the register
+        // as A11-A2 instead of A12-A3
+        let dma_address_shift = match self.device_destination {
+            DeviceDestination::Pcm => 1,
+            DeviceDestination::PrgRam | DeviceDestination::WordRam => 0,
+            _ => panic!("Invalid DMA destination: {:?}", self.device_destination),
+        };
+
+        let mut dma_address = (self.dma_address >> dma_address_shift) & dma_address_mask;
 
         log::trace!(
             "Progressing DMA transfer to {:?} starting at {dma_address:06X}; {} bytes remaining",
@@ -502,14 +523,19 @@ impl Rchip {
             self.data_byte_counter + 1
         );
 
-        for _ in 0..cdrom::BYTES_PER_SECTOR {
+        // 128 is arbitrary; CDC DMA seems to always be in chunks of 2048 bytes so this will get the
+        // DMA done fairly quickly
+        for _ in 0..128 {
             let byte = self.buffer_ram[self.data_address_counter as usize];
             match self.device_destination {
                 DeviceDestination::PrgRam => {
-                    prg_ram[self.dma_address as usize] = byte;
+                    prg_ram[dma_address as usize] = byte;
                 }
                 DeviceDestination::WordRam => {
-                    word_ram.dma_write(self.dma_address, byte);
+                    word_ram.dma_write(dma_address, byte);
+                }
+                DeviceDestination::Pcm => {
+                    pcm.dma_write(dma_address, byte);
                 }
                 _ => unreachable!("device destination checked earlier in the function"),
             }
@@ -520,13 +546,16 @@ impl Rchip {
             let (new_byte_counter, overflowed) = self.data_byte_counter.overflowing_sub(1);
             self.data_byte_counter = new_byte_counter;
             if overflowed {
+                log::trace!("DMA transfer complete");
+
                 self.data_transfer_in_progress = false;
                 self.transfer_end_interrupt_pending = true;
+
                 break;
             }
         }
 
-        self.dma_address = dma_address;
+        self.dma_address = dma_address << dma_address_shift;
     }
 
     pub fn reset(&mut self) {

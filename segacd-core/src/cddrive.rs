@@ -4,6 +4,7 @@ pub mod cdd;
 use crate::api::DiscResult;
 use crate::cdrom::reader::CdRom;
 use crate::memory::wordram::WordRam;
+use crate::rf5c164::Rf5c164;
 use crate::{cdrom, memory};
 use bincode::{Decode, Encode};
 use cdc::Rchip;
@@ -108,17 +109,20 @@ impl CdController {
         mclk_cycles: u64,
         word_ram: &mut WordRam,
         prg_ram: &mut [u8; memory::PRG_RAM_LEN],
+        pcm: &mut Rf5c164,
     ) -> DiscResult<CdTickEffect> {
         match self.prescaler.tick(mclk_cycles) {
             PrescalerTickEffect::None => Ok(CdTickEffect::None),
             PrescalerTickEffect::SampleAudio => {
                 let (sample_l, sample_r) = self.drive.update_audio_sample();
 
+                self.rchip.clock(word_ram, prg_ram, pcm);
+
                 Ok(CdTickEffect::OutputAudioSample(sample_l, sample_r))
             }
             PrescalerTickEffect::SampleAudioAndClockCdd => {
                 let (sample_l, sample_r) = self.drive.update_audio_sample();
-                self.drive.clock(&mut self.rchip, word_ram, prg_ram)?;
+                self.drive.clock(&mut self.rchip)?;
 
                 Ok(CdTickEffect::OutputAudioSample(sample_l, sample_r))
             }
