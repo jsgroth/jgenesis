@@ -19,6 +19,7 @@ egui = "0.22"
 egui_extras = "0.22"
 env_logger = "0.10"
 log = "0.4"
+regex = "1"
 rfd = "0.12"
 serde = { workspace = true }
 sdl2 = { workspace = true }
