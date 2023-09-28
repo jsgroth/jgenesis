@@ -26,6 +26,7 @@ enum CddStatus {
     Seeking = 0x02,
     Paused = 0x04,
     InvalidCommand = 0x07,
+    ReadingToc = 0x09,
     TrackSkipping = 0x0A,
     NoDisc = 0x0B,
     DiscEnd = 0x0C,
@@ -109,12 +110,13 @@ enum CddState {
     },
     DiscEnd,
     InvalidCommand(CdTime),
+    ReadingToc,
 }
 
 impl CddState {
     fn current_time(self) -> CdTime {
         match self {
-            Self::MotorStopped | Self::NoDisc | Self::DiscEnd => CdTime::ZERO,
+            Self::MotorStopped | Self::NoDisc | Self::DiscEnd | Self::ReadingToc => CdTime::ZERO,
             Self::PreparingToPlay { time, .. }
             | Self::Playing(time)
             | Self::Paused(time)
@@ -352,6 +354,7 @@ impl CdDrive {
             CddState::TrackSkipping { .. } => CddStatus::TrackSkipping,
             CddState::DiscEnd => CddStatus::DiscEnd,
             CddState::InvalidCommand(..) => CddStatus::InvalidCommand,
+            CddState::ReadingToc => CddStatus::ReadingToc,
         }
     }
 
@@ -364,9 +367,9 @@ impl CdDrive {
         self.state = match (self.state, &self.disc, report_type) {
             (CddState::MotorStopped, None, _) => CddState::NoDisc,
             (CddState::MotorStopped, Some(_), _) => CddState::Paused(CdTime::ZERO),
-            (_, Some(_), ReportType::TrackNStartTime(..)) => {
-                // TOCN requires reading the TOC; move back to start of disc
-                CddState::Paused(CdTime::ZERO)
+            (_, Some(_), ReportType::DiscLength | ReportType::TrackNStartTime(..)) => {
+                // TOCT and TOCN reports require reading the TOC; move back to start of disc
+                CddState::ReadingToc
             }
             _ => self.state,
         };
