@@ -1,7 +1,7 @@
 use crate::api::DiscResult;
 use crate::cddrive::cdc::Rchip;
 use crate::cdrom::cdtime::CdTime;
-use crate::cdrom::cue::TrackType;
+use crate::cdrom::cue::{Track, TrackType};
 use crate::cdrom::reader::CdRom;
 use crate::memory::wordram::WordRam;
 use crate::{cdrom, memory};
@@ -289,8 +289,11 @@ impl CdDrive {
                     let track_start_time = disc
                         .cue()
                         .find_track_by_time(current_time)
-                        .map_or(CdTime::ZERO, |track| track.start_time);
-                    write_time_to_status(current_time - track_start_time, &mut self.status);
+                        .map_or(CdTime::ZERO, Track::effective_start_time);
+                    write_time_to_status(
+                        current_time.saturating_sub(track_start_time),
+                        &mut self.status,
+                    );
                 }
                 ReportType::CurrentTrack => {
                     // Write current track number (BCD) to Status 2-3
