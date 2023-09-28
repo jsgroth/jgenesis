@@ -601,6 +601,11 @@ impl CdDrive {
 
                 self.state = CddState::Playing(time + CdTime::new(0, 0, 1));
             }
+            CddState::MotorStopped => {
+                // Always transition to Reading TOC one clock after the motor is stopped; this fixes
+                // the EU BIOS freezing after leaving the options menu
+                self.state = CddState::ReadingToc;
+            }
             _ => {}
         }
 
