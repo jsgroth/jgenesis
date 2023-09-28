@@ -168,6 +168,8 @@ impl Rf5c164 {
     }
 
     fn read_channel_on_register(&self) -> u8 {
+        log::trace!("Channel on/off register read");
+
         self.channels
             .iter()
             .enumerate()
@@ -178,8 +180,15 @@ impl Rf5c164 {
 
     fn read_channel_address(&self, address: u32) -> u8 {
         let channel_idx = (address & 0xF) >> 1;
-        let channel_address =
-            self.channels[channel_idx as usize].current_address >> ADDRESS_DECIMAL_BITS;
+        let channel = &self.channels[channel_idx as usize];
+        let channel_address = if channel.enabled {
+            channel.current_address >> ADDRESS_DECIMAL_BITS
+        } else {
+            channel.start_address.into()
+        };
+
+        log::trace!("Channel {channel_idx} address read; current address = {channel_address:04X}");
+
         if address.bit(0) {
             // High byte
             (channel_address >> 8) as u8
@@ -199,52 +208,74 @@ impl Rf5c164 {
             0x0000 => {
                 // Envelope
                 self.channels[self.selected_channel as usize].master_volume = value;
+
+                log::trace!("  Master volume = {value:02X}");
             }
             0x0001 => {
                 // Pan
                 let channel = &mut self.channels[self.selected_channel as usize];
                 channel.l_volume = value & 0x0F;
                 channel.r_volume = value >> 4;
+
+                log::trace!(
+                    "  L volume = {:02X}, R volume = {:02X}",
+                    channel.l_volume,
+                    channel.r_volume
+                );
             }
             0x0002 => {
                 // Address increment, low byte
                 let channel = &mut self.channels[self.selected_channel as usize];
                 channel.address_increment = (channel.address_increment & 0xFF00) | u32::from(value);
+
+                log::trace!("  Address increment = {:04X}", channel.address_increment);
             }
             0x0003 => {
                 // Address increment, high byte
                 let channel = &mut self.channels[self.selected_channel as usize];
                 channel.address_increment =
                     (channel.address_increment & 0x00FF) | (u32::from(value) << 8);
+
+                log::trace!("  Address increment = {:04X}", channel.address_increment);
             }
             0x0004 => {
                 // Loop address, low byte
                 let channel = &mut self.channels[self.selected_channel as usize];
                 channel.loop_address = (channel.loop_address & 0xFF00) | u16::from(value);
+
+                log::trace!("  Loop address = {:04X}", channel.loop_address);
             }
             0x0005 => {
                 // Loop address, high byte
                 let channel = &mut self.channels[self.selected_channel as usize];
                 channel.loop_address = (channel.loop_address & 0x00FF) | (u16::from(value) << 8);
+
+                log::trace!("  Loop address = {:04X}", channel.loop_address);
             }
             0x0006 => {
                 // Start address (low byte is always $00)
                 self.channels[self.selected_channel as usize].start_address =
                     u16::from_be_bytes([value, 0x00]);
+
+                log::trace!("  Start address = {value:02X}00");
             }
             0x0007 => {
                 // Control register
                 self.enabled = value.bit(7);
 
+                log::trace!("Chip enabled = {}", self.enabled);
+
                 // Bits 3-0 have different effects depending on the value of bit 6
                 if value.bit(6) {
                     // Change selected channel (3 bits)
                     self.selected_channel = value & 0x07;
+
+                    log::trace!("  Selected channel = {}", self.selected_channel);
                 } else {
                     // Change waveform RAM bank (4 bits)
                     self.waveform_ram_bank = value & 0x0F;
 
-                    log::trace!("PCM waveform RAM bank set to {:X}", self.waveform_ram_bank);
+                    log::trace!("  PCM waveform RAM bank = {:X}", self.waveform_ram_bank);
                 }
             }
             0x0008 => {
