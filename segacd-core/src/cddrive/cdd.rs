@@ -7,6 +7,7 @@ use crate::cdrom::reader::CdRom;
 use bincode::{Decode, Encode};
 use genesis_core::GenesisRegion;
 use regex::Regex;
+use std::cmp::Ordering;
 use std::sync::OnceLock;
 use std::{array, cmp};
 
@@ -16,6 +17,8 @@ const PLAY_DELAY_CLOCKS: u8 = 10;
 
 // 2x signed 16-bit PCM samples, one per stereo channel
 const BYTES_PER_AUDIO_SAMPLE: u16 = 4;
+
+const MAX_FADER_VOLUME: u16 = 1 << 10;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -143,7 +146,8 @@ pub struct CdDrive {
     status: [u8; 10],
     audio_sample_idx: u16,
     loaded_audio_sector: bool,
-    current_audio_sample: (f64, f64),
+    fader_volume: u16,
+    current_volume: u16,
 }
 
 impl CdDrive {
@@ -157,7 +161,8 @@ impl CdDrive {
             status: INITIAL_STATUS,
             audio_sample_idx: 0,
             loaded_audio_sector: false,
-            current_audio_sample: (0.0, 0.0),
+            fader_volume: 0,
+            current_volume: 0,
         }
     }
 
@@ -505,8 +510,25 @@ impl CdDrive {
         }
     }
 
+    pub fn set_fader_volume(&mut self, fader_volume: u16) {
+        self.fader_volume = cmp::min(MAX_FADER_VOLUME, fader_volume);
+
+        log::trace!("Fader volume set to {:3X}", self.fader_volume);
+    }
+
     pub fn update_audio_sample(&mut self) -> (f64, f64) {
-        self.current_audio_sample = if self.playing_audio() {
+        // Adjust current volume towards fader volume
+        match self.current_volume.cmp(&self.fader_volume) {
+            Ordering::Less => {
+                self.current_volume += 1;
+            }
+            Ordering::Greater => {
+                self.current_volume -= 1;
+            }
+            Ordering::Equal => {}
+        }
+
+        let (sample_l, sample_r) = if self.playing_audio() {
             let idx = self.audio_sample_idx as usize;
 
             let sample_l =
@@ -514,10 +536,10 @@ impl CdDrive {
             let sample_r =
                 i16::from_le_bytes([self.sector_buffer[idx + 2], self.sector_buffer[idx + 3]]);
 
-            // TODO fader
+            let fader_multiplier = fader_volume_multiplier(self.current_volume);
 
-            let sample_l = f64::from(sample_l) / -f64::from(i16::MIN);
-            let sample_r = f64::from(sample_r) / -f64::from(i16::MIN);
+            let sample_l = fader_multiplier * f64::from(sample_l) / -f64::from(i16::MIN);
+            let sample_r = fader_multiplier * f64::from(sample_r) / -f64::from(i16::MIN);
 
             (sample_l, sample_r)
         } else {
@@ -527,7 +549,7 @@ impl CdDrive {
         self.audio_sample_idx =
             (self.audio_sample_idx + BYTES_PER_AUDIO_SAMPLE) % cdrom::BYTES_PER_SECTOR as u16;
 
-        self.current_audio_sample
+        (sample_l, sample_r)
     }
 
     pub fn clock(&mut self, rchip: &mut Rchip) -> DiscResult<()> {
@@ -694,9 +716,26 @@ impl CdDrive {
         self.state = CddState::default();
         self.report_type = ReportType::default();
         self.status = INITIAL_STATUS;
-        self.current_audio_sample = (0.0, 0.0);
         self.interrupt_pending = false;
     }
+}
+
+fn fader_volume_multiplier(volume: u16) -> f64 {
+    // Yes, 1025; fader volumes range from 0 to 1024 inclusive
+    static LOOKUP_TABLE: OnceLock<[f64; 1025]> = OnceLock::new();
+
+    let lookup_table = LOOKUP_TABLE.get_or_init(|| {
+        let mut lookup_table = [0.0; 1025];
+
+        // For every volume, multiplier is (Bits 9-2)/256
+        // The fader appears to use a linear scale, not logarithmic
+        for (i, value) in lookup_table.iter_mut().enumerate() {
+            *value = (i >> 2) as f64 / 256.0;
+        }
+
+        lookup_table
+    });
+    lookup_table[volume as usize]
 }
 
 // Checksum is the first 9 nibbles summed and then inverted
