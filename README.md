@@ -5,11 +5,11 @@ Cross-platform multi-console Sega emulator that supports the Sega Genesis / Mega
 ## Features
 
 * Emulation for the following consoles:
-  * Sega Genesis / Mega Drive (NTSC and PAL)
-  * Sega Master System / Mark III (NTSC and PAL)
-  * Game Gear
-  * Sega CD / Mega CD (NTSC and PAL)
+  * Sega Genesis / Mega Drive
+  * Sega CD / Mega CD
     * The JP Model 1 BIOS does not currently work, and several games freeze shortly after boot (e.g. _Snatcher_ and _Batman Returns_)
+  * Sega Master System / Mark III
+  * Game Gear
 * GPU-based renderer with integer prescaling and optional linear interpolation
 * Configurable pixel aspect ratio for each console with several different options: accurate to original hardware/TVs, square pixels, and stretched to fill the window
 * Support for the Sega Master System FM sound unit expansion
