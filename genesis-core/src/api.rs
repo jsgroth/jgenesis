@@ -78,7 +78,8 @@ pub enum GenesisRegion {
 }
 
 impl GenesisRegion {
-    pub(crate) fn from_rom(rom: &[u8]) -> Option<Self> {
+    #[must_use]
+    pub fn from_rom(rom: &[u8]) -> Option<Self> {
         let region_bytes = &rom[0x1F0..0x1F3];
 
         // Prefer Americas if region code contains a 'U'

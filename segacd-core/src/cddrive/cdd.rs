@@ -732,8 +732,8 @@ impl CdDrive {
 
         let Some(disc) = &mut self.disc else { return Ok(None) };
 
-        // Title information is always stored in the first sector of track 1, which is located at 00:02:00
-        disc.read_sector(1, CdTime::new(0, 2, 0), &mut self.sector_buffer)?;
+        // Title information is always stored in the first sector of track 1
+        disc.read_sector(1, CdTime::SECTOR_0_START, &mut self.sector_buffer)?;
 
         let title_bytes = match region {
             GenesisRegion::Japan => &self.sector_buffer[0x130..0x160],

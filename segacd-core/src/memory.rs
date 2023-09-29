@@ -5,6 +5,8 @@ pub(crate) mod wordram;
 use crate::api::DiscResult;
 use crate::cddrive::cdc::DeviceDestination;
 use crate::cddrive::{CdController, CdTickEffect};
+use crate::cdrom;
+use crate::cdrom::cdtime::CdTime;
 use crate::cdrom::reader::CdRom;
 use crate::graphics::{GraphicsCoprocessor, GraphicsWritePriorityMode};
 use crate::memory::font::FontRegisters;
@@ -124,6 +126,7 @@ pub struct SegaCd {
     backup_ram_dirty: bool,
     registers: SegaCdRegisters,
     font_registers: FontRegisters,
+    disc_region: GenesisRegion,
     forced_region: Option<GenesisRegion>,
     timer_divider: u64,
 }
@@ -131,10 +134,10 @@ pub struct SegaCd {
 impl SegaCd {
     pub fn new(
         bios: Vec<u8>,
-        disc: Option<CdRom>,
+        mut disc: Option<CdRom>,
         initial_backup_ram: Option<Vec<u8>>,
         forced_region: Option<GenesisRegion>,
-    ) -> Self {
+    ) -> DiscResult<Self> {
         let backup_ram = match initial_backup_ram {
             Some(backup_ram) if backup_ram.len() == BACKUP_RAM_LEN => {
                 backup_ram.into_boxed_slice().try_into().unwrap()
@@ -142,9 +145,27 @@ impl SegaCd {
             _ => backupram::new_formatted_backup_ram(),
         };
 
-        // TODO auto-detect disc region
+        let disc_region = match &mut disc {
+            Some(disc) => {
+                // Parse disc region from ROM header, which is always located in sector 0
+                let mut sector_buffer = [0; cdrom::BYTES_PER_SECTOR as usize];
+                disc.read_sector(1, CdTime::SECTOR_0_START, &mut sector_buffer)?;
 
-        Self {
+                // Sega CD ROM header starts at $010 because the first 16 bytes are sync + CD-ROM data track header
+                GenesisRegion::from_rom(&sector_buffer[0x010..]).unwrap_or_else(|| {
+                    log::warn!("Unable to determine disc region from ROM header; defaulting to US");
+                    GenesisRegion::Americas
+                })
+            }
+            None => {
+                // Default to US if no disc provided
+                GenesisRegion::Americas
+            }
+        };
+
+        log::info!("Region parsed from disc header: {disc_region:?}");
+
+        Ok(Self {
             bios: Bios(bios),
             disc_drive: CdController::new(disc),
             prg_ram: vec![0; PRG_RAM_LEN].into_boxed_slice().try_into().unwrap(),
@@ -154,9 +175,10 @@ impl SegaCd {
             backup_ram_dirty: false,
             registers: SegaCdRegisters::new(),
             font_registers: FontRegisters::new(),
+            disc_region,
             forced_region,
             timer_divider: TIMER_DIVIDER,
-        }
+        })
     }
 
     #[allow(clippy::match_same_arms)]
@@ -566,8 +588,7 @@ impl PhysicalMedium for SegaCd {
     }
 
     fn region(&self) -> GenesisRegion {
-        // TODO use disc region
-        self.forced_region.unwrap_or(GenesisRegion::Americas)
+        self.forced_region.unwrap_or(self.disc_region)
     }
 }
 

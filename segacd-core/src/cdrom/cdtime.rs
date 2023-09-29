@@ -13,6 +13,7 @@ pub struct CdTime {
 
 impl CdTime {
     pub const ZERO: Self = Self { minutes: 0, seconds: 0, frames: 0 };
+    pub const SECTOR_0_START: Self = Self { minutes: 0, seconds: 2, frames: 0 };
     pub const DISC_END: Self = Self { minutes: 60, seconds: 3, frames: 74 };
 
     pub const MAX_MINUTES: u8 = 75;
