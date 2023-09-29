@@ -100,7 +100,9 @@ impl CdRom {
         out: &mut [u8],
     ) -> DiscResult<()> {
         let track = self.cue_sheet.track(track_number);
-        if relative_time < track.pregap_len {
+        if relative_time < track.pregap_len
+            || relative_time >= (track.end_time - (track.start_time + track.pregap_len))
+        {
             // Reading data that does not exist in the file
             match track.track_type {
                 TrackType::Data => {
