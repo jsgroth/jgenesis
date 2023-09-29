@@ -31,10 +31,12 @@ use std::fs;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct CommonAppConfig {
     #[serde(default = "true_fn")]
     audio_sync: bool,
+    #[serde(default)]
+    audio_gain_db: f64,
     window_width: Option<u32>,
     window_height: Option<u32>,
     #[serde(default)]
@@ -159,7 +161,7 @@ impl Default for SegaCdAppConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default)]
     common: CommonAppConfig,
@@ -194,6 +196,7 @@ impl AppConfig {
         CommonConfig {
             rom_file_path: path,
             audio_sync: self.common.audio_sync,
+            audio_gain_db: self.common.audio_gain_db,
             window_size: self.common.window_size(),
             renderer_config: RendererConfig {
                 wgpu_backend: self.common.wgpu_backend,
@@ -308,6 +311,8 @@ struct AppState {
     ff_multiplier_invalid: bool,
     rewind_buffer_len_text: String,
     rewind_buffer_len_invalid: bool,
+    audio_gain_text: String,
+    audio_gain_invalid: bool,
     display_scanlines_warning: bool,
     waiting_for_input: Option<GenericButton>,
     rom_list: Vec<RomMetadata>,
@@ -328,6 +333,8 @@ impl AppState {
             ff_multiplier_invalid: false,
             rewind_buffer_len_text: config.common.rewind_buffer_length_seconds.to_string(),
             rewind_buffer_len_invalid: false,
+            audio_gain_text: format!("{:.1}", config.common.audio_gain_db),
+            audio_gain_invalid: false,
             display_scanlines_warning: should_display_scanlines_warning(config),
             waiting_for_input: None,
             rom_list,
@@ -866,6 +873,29 @@ impl App {
         let mut open = true;
         Window::new("General Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.checkbox(&mut self.config.common.audio_sync, "Audio sync enabled");
+
+            ui.horizontal(|ui| {
+                if TextEdit::singleline(&mut self.state.audio_gain_text)
+                    .desired_width(40.0)
+                    .ui(ui)
+                    .changed()
+                {
+                    match self.state.audio_gain_text.parse::<f64>() {
+                        Ok(value) if value.is_finite() => {
+                            self.config.common.audio_gain_db = value;
+                            self.state.audio_gain_invalid = false;
+                        }
+                        _ => {
+                            self.state.audio_gain_invalid = true;
+                        }
+                    }
+                }
+
+                ui.label("Audio gain (dB) (+/-)");
+            });
+            if self.state.audio_gain_invalid {
+                ui.colored_label(Color32::RED, "Audio gain must be a finite decimal number");
+            }
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::CommonAudio);

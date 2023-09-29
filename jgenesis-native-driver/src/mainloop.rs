@@ -78,12 +78,17 @@ struct SdlAudioOutput {
     audio_queue: AudioQueue<f32>,
     audio_buffer: Vec<f32>,
     audio_sync: bool,
+    audio_gain_multiplier: f64,
     sample_count: u64,
     speed_multiplier: u64,
 }
 
 impl SdlAudioOutput {
-    fn create_and_init(audio: &AudioSubsystem, audio_sync: bool) -> Result<Self, AudioError> {
+    fn create_and_init(
+        audio: &AudioSubsystem,
+        audio_sync: bool,
+        audio_gain_db: f64,
+    ) -> Result<Self, AudioError> {
         let audio_queue = audio
             .open_queue(
                 None,
@@ -96,10 +101,20 @@ impl SdlAudioOutput {
             audio_queue,
             audio_buffer: Vec::with_capacity(64),
             audio_sync,
+            audio_gain_multiplier: decibels_to_multiplier(audio_gain_db),
             sample_count: 0,
             speed_multiplier: 1,
         })
     }
+
+    fn reload_config(&mut self, audio_sync: bool, audio_gain_db: f64) {
+        self.audio_sync = audio_sync;
+        self.audio_gain_multiplier = decibels_to_multiplier(audio_gain_db);
+    }
+}
+
+fn decibels_to_multiplier(decibels: f64) -> f64 {
+    10.0_f64.powf(decibels / 20.0)
 }
 
 // 1024 4-byte samples
@@ -115,8 +130,8 @@ impl AudioOutput for SdlAudioOutput {
             return Ok(());
         }
 
-        self.audio_buffer.push(sample_l as f32);
-        self.audio_buffer.push(sample_r as f32);
+        self.audio_buffer.push((sample_l * self.audio_gain_multiplier) as f32);
+        self.audio_buffer.push((sample_r * self.audio_gain_multiplier) as f32);
 
         if self.audio_buffer.len() == 64 {
             if self.audio_sync {
@@ -212,7 +227,7 @@ impl<Inputs, Button, Config, Emulator: LightClone>
 {
     fn reload_common_config<KC, JC>(&mut self, config: &CommonConfig<KC, JC>) {
         self.renderer.reload_config(config.renderer_config);
-        self.audio_output.audio_sync = config.audio_sync;
+        self.audio_output.reload_config(config.audio_sync, config.audio_gain_db);
 
         self.fast_forward_multiplier = config.fast_forward_multiplier;
         // Reset speed multiplier in case the fast forward hotkey changed
@@ -556,7 +571,11 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
 
     let renderer =
         pollster::block_on(WgpuRenderer::new(window, Window::size, config.common.renderer_config))?;
-    let audio_output = SdlAudioOutput::create_and_init(&audio, config.common.audio_sync)?;
+    let audio_output = SdlAudioOutput::create_and_init(
+        &audio,
+        config.common.audio_sync,
+        config.common.audio_gain_db,
+    )?;
     let input_mapper = InputMapper::new_smsgg(
         joystick,
         config.common.keyboard_inputs,
@@ -630,7 +649,11 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
 
     let renderer =
         pollster::block_on(WgpuRenderer::new(window, Window::size, config.common.renderer_config))?;
-    let audio_output = SdlAudioOutput::create_and_init(&audio, config.common.audio_sync)?;
+    let audio_output = SdlAudioOutput::create_and_init(
+        &audio,
+        config.common.audio_sync,
+        config.common.audio_gain_db,
+    )?;
     let input_mapper = InputMapper::new_genesis(
         config.p1_controller_type,
         config.p2_controller_type,
@@ -708,7 +731,11 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
         Window::size,
         config.genesis.common.renderer_config,
     ))?;
-    let audio_output = SdlAudioOutput::create_and_init(&audio, config.genesis.common.audio_sync)?;
+    let audio_output = SdlAudioOutput::create_and_init(
+        &audio,
+        config.genesis.common.audio_sync,
+        config.genesis.common.audio_gain_db,
+    )?;
     let input_mapper = InputMapper::new_genesis(
         config.genesis.p1_controller_type,
         config.genesis.p2_controller_type,

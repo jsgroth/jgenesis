@@ -41,10 +41,7 @@ struct Args {
     #[arg(long, default_value_t)]
     scd_no_disc: bool,
 
-    /// Hardware (MasterSystem / Genesis)
-    ///
-    /// Will default based on file extension if not set. MasterSystem is appropriate for both SMS
-    /// and Game Gear games.
+    /// Hardware (MasterSystem / Genesis / SegaCd), will default based on file extension if not set
     #[arg(long)]
     hardware: Option<Hardware>,
 
@@ -108,6 +105,10 @@ struct Args {
     /// Disable audio sync
     #[arg(long = "no-audio-sync", default_value_t = true, action = clap::ArgAction::SetFalse)]
     audio_sync: bool,
+
+    /// Audio gain in decibels; can be positive or negative
+    #[arg(long, default_value_t = 0.0)]
+    audio_gain_db: f64,
 
     /// Window width in pixels; height must also be set
     #[arg(long)]
@@ -366,6 +367,7 @@ impl Args {
         CommonConfig {
             rom_file_path: self.file_path.clone(),
             audio_sync: self.audio_sync,
+            audio_gain_db: self.audio_gain_db,
             window_size: self.window_size(),
             renderer_config: self.renderer_config(),
             fast_forward_multiplier: self.fast_forward_multiplier,
