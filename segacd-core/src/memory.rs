@@ -356,8 +356,13 @@ impl SegaCd {
         }
     }
 
-    fn write_prg_ram(&mut self, address: u32, value: u8) {
-        if address >= u32::from(self.registers.prg_ram_write_protect) * 0x200 {
+    fn write_prg_ram(&mut self, address: u32, value: u8, cpu: ScdCpu) {
+        // PRG RAM write protection applies in multiples of $200
+        let write_protection_boundary = u32::from(self.registers.prg_ram_write_protect) * 0x200;
+
+        // PRG RAM write protection only applies to the Sub CPU.
+        // The JP V2.00 BIOS freezes if Main CPU writes to PRG RAM are not always allowed through
+        if cpu == ScdCpu::Main || address >= write_protection_boundary {
             self.prg_ram[address as usize] = value;
         }
     }
@@ -523,7 +528,7 @@ impl PhysicalMedium for SegaCd {
             0x020000..=0x03FFFF => {
                 // PRG RAM
                 let prg_ram_addr = self.registers.prg_ram_addr(address);
-                self.write_prg_ram(prg_ram_addr, value);
+                self.write_prg_ram(prg_ram_addr, value, ScdCpu::Main);
             }
             0x200000..=0x23FFFF => {
                 self.word_ram.main_cpu_write_ram(address, value);
@@ -545,8 +550,8 @@ impl PhysicalMedium for SegaCd {
                 // PRG RAM
                 let prg_ram_addr = self.registers.prg_ram_addr(address);
                 let [msb, lsb] = value.to_be_bytes();
-                self.write_prg_ram(prg_ram_addr, msb);
-                self.write_prg_ram(prg_ram_addr + 1, lsb);
+                self.write_prg_ram(prg_ram_addr, msb, ScdCpu::Main);
+                self.write_prg_ram(prg_ram_addr + 1, lsb, ScdCpu::Main);
             }
             0x200000..=0x23FFFF => {
                 let [msb, lsb] = value.to_be_bytes();
@@ -1116,7 +1121,7 @@ impl<'a> BusInterface for SubBus<'a> {
         match address {
             0x000000..=0x07FFFF => {
                 // PRG RAM
-                self.memory.medium_mut().write_prg_ram(address, value);
+                self.memory.medium_mut().write_prg_ram(address, value, ScdCpu::Sub);
             }
             0x080000..=0x0DFFFF => {
                 // Word RAM
@@ -1153,8 +1158,8 @@ impl<'a> BusInterface for SubBus<'a> {
                 // PRG RAM
                 let [msb, lsb] = value.to_be_bytes();
                 let sega_cd = self.memory.medium_mut();
-                sega_cd.write_prg_ram(address, msb);
-                sega_cd.write_prg_ram(address + 1, lsb);
+                sega_cd.write_prg_ram(address, msb, ScdCpu::Sub);
+                sega_cd.write_prg_ram(address + 1, lsb, ScdCpu::Sub);
             }
             0x080000..=0x0DFFFF => {
                 // Word RAM
