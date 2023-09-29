@@ -696,7 +696,7 @@ impl<'a> SubBus<'a> {
             }
             0xFF8036 => {
                 log::trace!("  CDD control read");
-                0x00
+                u8::from(!self.memory.medium().disc_drive.cdd().playing_audio())
             }
             0xFF8037 => {
                 // CDD control, low byte
