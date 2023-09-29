@@ -400,8 +400,8 @@ impl CdDrive {
         self.state = match (self.state, &self.disc, report_type) {
             (CddState::MotorStopped, None, _) => CddState::NoDisc,
             (CddState::MotorStopped, Some(_), _) => CddState::Paused(CdTime::ZERO),
-            (_, Some(_), ReportType::DiscLength | ReportType::TrackNStartTime(..)) => {
-                // TOCT and TOCN reports require reading the TOC; move back to start of disc
+            (_, Some(_), ReportType::TrackNStartTime(..)) => {
+                // TOCN reports require reading the TOC; move back to start of disc
                 CddState::ReadingToc
             }
             _ => self.state,
