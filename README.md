@@ -32,6 +32,7 @@ Minor TODOs:
 * Support the Sega Virtua Processor (SVP) chip; used only by _Virtua Racing_
 * Support 24C64 EEPROM chips (used only in _Frank Thomas Big Hurt Baseball_ and _College Slam_)
 * Support the Sega Master System's additional graphics modes (Modes 0-3); only one officially released game used any of them, _F-16 Fighter_ (which uses Mode 2)
+* Support the Sega CD's 128KB backup RAM cartridge; _Shining Force CD_ in particular benefits from this
 * Support multiple Sega CD BIOS versions in GUI and automatically use the correct one based on disc region
 * Support CHD files for Sega CD in addition to BIN/CUE
 
