@@ -210,7 +210,12 @@ impl CdDrive {
             }
             0x07 => {
                 // Play
-                todo!("Play")
+                log::trace!("  Command: Play");
+
+                if let CddState::Paused(time) = self.state {
+                    self.state =
+                        CddState::PreparingToPlay { time, clocks_remaining: PLAY_DELAY_CLOCKS };
+                }
             }
             0x08 => {
                 // Fast-forward
@@ -263,7 +268,10 @@ impl CdDrive {
         // If seeking/skipping/stopped, return "not ready" status; not doing this causes Lunar to randomly freeze
         if matches!(
             self.state,
-            CddState::Seeking { .. } | CddState::TrackSkipping { .. } | CddState::MotorStopped
+            CddState::Seeking { .. }
+                | CddState::TrackSkipping { .. }
+                | CddState::MotorStopped
+                | CddState::ReadingToc
         ) {
             self.status[1] = 0x0F;
             update_cdd_checksum(&mut self.status);
@@ -625,6 +633,9 @@ impl CdDrive {
                 // Always transition to Reading TOC one clock after the motor is stopped; this fixes
                 // the EU BIOS freezing after leaving the options menu
                 self.state = CddState::ReadingToc;
+            }
+            CddState::ReadingToc => {
+                self.state = CddState::Paused(CdTime::ZERO);
             }
             _ => {}
         }
