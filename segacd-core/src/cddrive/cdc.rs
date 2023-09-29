@@ -13,6 +13,7 @@ const DATA_TRACK_HEADER_LEN: u16 = 12;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum DeviceDestination {
     #[default]
+    None,
     MainCpuRegister,
     SubCpuRegister,
     PrgRam,
@@ -23,6 +24,7 @@ pub enum DeviceDestination {
 impl DeviceDestination {
     pub fn to_bits(self) -> u8 {
         match self {
+            Self::None => 0b000,
             Self::MainCpuRegister => 0b010,
             Self::SubCpuRegister => 0b011,
             Self::Pcm => 0b100,
@@ -39,9 +41,8 @@ impl DeviceDestination {
             0b101 => Self::PrgRam,
             0b111 => Self::WordRam,
             0b000 | 0b001 | 0b110 => {
-                // Prohibited; just default to main CPU register
-                log::warn!("Prohibited CDC device destination set: {:03b}", bits & 0x07);
-                Self::MainCpuRegister
+                // Prohibited patterns; unset destination
+                Self::None
             }
             _ => unreachable!("value & 0x07 is always <= 0x07"),
         }
