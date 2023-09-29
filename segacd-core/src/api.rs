@@ -173,6 +173,8 @@ impl SegaCdEmulator {
                 GenesisRegion::Europe => TimingMode::Pal,
             });
 
+        log::info!("Running with timing/display mode: {timing_mode}");
+
         let mut main_cpu = M68000::builder().allow_tas_writes(false).name("Main".into()).build();
         let sub_cpu = M68000::builder().allow_tas_writes(false).name("Sub".into()).build();
         let z80 = Z80::new();

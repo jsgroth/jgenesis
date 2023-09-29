@@ -32,12 +32,14 @@ enum CddStatus {
     Seeking = 0x02,
     Scanning = 0x03,
     Paused = 0x04,
+    TrayOpen = 0x05,
     InvalidCommand = 0x07,
     ReadingToc = 0x09,
     TrackSkipping = 0x0A,
     NoDisc = 0x0B,
     DiscEnd = 0x0C,
     DiscStart = 0x0D,
+    TrayMoving = 0x0E,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -120,6 +122,9 @@ enum CddState {
     Rewinding(CdTime),
     DiscStart,
     DiscEnd(CdTime),
+    TrayOpening,
+    TrayOpen,
+    TrayClosing,
     InvalidCommand(CdTime),
     ReadingToc,
 }
@@ -127,7 +132,13 @@ enum CddState {
 impl CddState {
     fn current_time(self) -> CdTime {
         match self {
-            Self::MotorStopped | Self::NoDisc | Self::DiscStart | Self::ReadingToc => CdTime::ZERO,
+            Self::MotorStopped
+            | Self::NoDisc
+            | Self::DiscStart
+            | Self::ReadingToc
+            | Self::TrayOpening
+            | Self::TrayOpen
+            | Self::TrayClosing => CdTime::ZERO,
             Self::PreparingToPlay { time, .. }
             | Self::Playing(time)
             | Self::Paused(time)
@@ -263,15 +274,20 @@ impl CdDrive {
             }
             0x0B => {
                 // Start track cueing
-                todo!("Start track cueing")
+                // This command does not appear to be used by any official BIOS version
+                log::error!("Ignoring unimplemented CDD command: Cue Track");
             }
             0x0C => {
                 // Close tray
-                todo!("Close tray")
+                log::trace!("  Command: Close Tray");
+                if matches!(self.state, CddState::TrayOpening | CddState::TrayOpen) {
+                    self.state = CddState::TrayClosing;
+                }
             }
             0x0D => {
                 // Open tray
-                todo!("Open tray")
+                log::trace!("  Command: Open Tray");
+                self.state = CddState::TrayOpening;
             }
             _ => {}
         }
@@ -301,7 +317,9 @@ impl CdDrive {
             CddState::Seeking { .. }
                 | CddState::TrackSkipping { .. }
                 | CddState::MotorStopped
-                | CddState::ReadingToc
+                | CddState::TrayOpening
+                | CddState::TrayOpen
+                | CddState::TrayClosing
         ) {
             self.status[1] = 0x0F;
             update_cdd_checksum(&mut self.status);
@@ -418,6 +436,8 @@ impl CdDrive {
             CddState::FastForwarding(..) | CddState::Rewinding(..) => CddStatus::Scanning,
             CddState::DiscStart => CddStatus::DiscStart,
             CddState::DiscEnd(..) => CddStatus::DiscEnd,
+            CddState::TrayOpening | CddState::TrayClosing => CddStatus::TrayMoving,
+            CddState::TrayOpen => CddStatus::TrayOpen,
             CddState::InvalidCommand(..) => CddStatus::InvalidCommand,
             CddState::ReadingToc => CddStatus::ReadingToc,
         }
@@ -540,7 +560,7 @@ impl CdDrive {
     pub fn set_fader_volume(&mut self, fader_volume: u16) {
         self.fader_volume = cmp::min(MAX_FADER_VOLUME, fader_volume);
 
-        log::trace!("Fader volume set to {:3X}", self.fader_volume);
+        log::trace!("Fader volume set to {:03X}", self.fader_volume);
     }
 
     pub fn update_audio_sample(&mut self) -> (f64, f64) {
@@ -710,8 +730,12 @@ impl CdDrive {
                 // the EU BIOS freezing after leaving the options menu
                 self.state = CddState::ReadingToc;
             }
-            CddState::ReadingToc => {
-                self.state = CddState::Paused(CdTime::ZERO);
+            CddState::TrayOpening => {
+                self.state = CddState::TrayOpen;
+            }
+            CddState::TrayClosing => {
+                self.state = CddState::MotorStopped;
+                self.report_type = ReportType::AbsoluteTime;
             }
             _ => {}
         }
