@@ -691,12 +691,9 @@ impl<'a> SubBus<'a> {
                     | (u8::from(sega_cd.registers.software_interrupt_enabled) << 2)
                     | (u8::from(sega_cd.registers.graphics_interrupt_enabled) << 1)
             }
-            0xFF8034 => {
-                // TODO CDD fader, high byte
-                0x00
-            }
-            0xFF8035 => {
-                // TODO CDD fader, low byte
+            0xFF8034..=0xFF8035 => {
+                // CDD fader, only bit 15 (fader processing) is readable and it's fine to always
+                // set it to 0
                 0x00
             }
             0xFF8036 => {
@@ -787,7 +784,8 @@ impl<'a> SubBus<'a> {
                 self.read_register_byte(address | 1).into()
             }
             0xFF8034 => {
-                log::trace!("  CDD fader read");
+                // CDD fader, only bit 15 (fader processing) is significant and it's fine to always
+                // set it to 0
                 0x0000
             }
             0xFF8038..=0xFF8041 => {
@@ -915,8 +913,15 @@ impl<'a> SubBus<'a> {
                 log::trace!("  Interrupt mask write: {value:08b}");
             }
             0xFF8034..=0xFF8035 => {
+                // CDD fader; word access only, byte access is erroneous
+
+                self.memory
+                    .medium_mut()
+                    .disc_drive
+                    .cdd_mut()
+                    .set_fader_volume(u16::from_le_bytes([value, value]));
+
                 log::trace!("  CDD fader write: {value:02X}");
-                // TODO CDD fader
             }
             0xFF8037 => {
                 // CDD control
@@ -1006,8 +1011,12 @@ impl<'a> SubBus<'a> {
                 self.write_register_byte(address | 1, value as u8);
             }
             0xFF8034 => {
+                // CDD fader
+                // Bits 14-4 are volume bits 10-0
+                let fader_volume = (value >> 4) & 0x7FF;
+                self.memory.medium_mut().disc_drive.cdd_mut().set_fader_volume(fader_volume);
+
                 log::trace!("  CDD fader write: {value:04X}");
-                // TODO CDD fader
             }
             0xFF8036 => {
                 // CDD control, only low byte is writable
