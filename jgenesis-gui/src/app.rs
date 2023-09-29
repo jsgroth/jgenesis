@@ -522,6 +522,8 @@ impl App {
             });
 
             ui.horizontal(|ui| {
+                ui.set_enabled(self.emu_thread.status() != EmuThreadStatus::RunningSegaCd);
+
                 let bios_path_str =
                     self.config.sega_cd.bios_path.as_ref().map_or("<None>", String::as_str);
                 if ui.button(bios_path_str).clicked() {
