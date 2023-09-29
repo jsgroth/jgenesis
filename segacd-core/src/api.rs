@@ -11,7 +11,9 @@ use genesis_core::input::InputState;
 use genesis_core::memory::{MainBus, MainBusSignals, Memory};
 use genesis_core::vdp::{Vdp, VdpTickEffect};
 use genesis_core::ym2612::{Ym2612, YmTickEffect};
-use genesis_core::{GenesisAspectRatio, GenesisEmulator, GenesisEmulatorConfig, GenesisInputs};
+use genesis_core::{
+    GenesisAspectRatio, GenesisEmulator, GenesisEmulatorConfig, GenesisInputs, GenesisRegion,
+};
 use jgenesis_traits::frontend::{
     AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, LightClone, Renderer,
     Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator, TimingMode,
@@ -160,15 +162,17 @@ impl SegaCdEmulator {
         disc: Option<CdRom>,
         emulator_config: GenesisEmulatorConfig,
     ) -> DiscResult<Self> {
-        // TODO read header information from disc
         let mut sega_cd =
             SegaCd::new(bios, disc, initial_backup_ram, emulator_config.forced_region)?;
         let disc_title = sega_cd.disc_title()?.unwrap_or("(no disc)".into());
 
-        // TODO auto-detect PAL discs
-        let timing_mode = emulator_config.forced_timing_mode.unwrap_or(TimingMode::Ntsc);
-
         let mut memory = Memory::new(sega_cd);
+        let timing_mode =
+            emulator_config.forced_timing_mode.unwrap_or_else(|| match memory.hardware_region() {
+                GenesisRegion::Americas | GenesisRegion::Japan => TimingMode::Ntsc,
+                GenesisRegion::Europe => TimingMode::Pal,
+            });
+
         let mut main_cpu = M68000::builder().allow_tas_writes(false).name("Main".into()).build();
         let sub_cpu = M68000::builder().allow_tas_writes(false).name("Sub".into()).build();
         let z80 = Z80::new();
