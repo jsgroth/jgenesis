@@ -162,7 +162,7 @@ impl SegaCdEmulator {
     ) -> DiscResult<Self> {
         // TODO read header information from disc
         let mut sega_cd =
-            SegaCd::new(bios, disc, initial_backup_ram, emulator_config.forced_region);
+            SegaCd::new(bios, disc, initial_backup_ram, emulator_config.forced_region)?;
         let disc_title = sega_cd.disc_title()?.unwrap_or("(no disc)".into());
 
         // TODO auto-detect PAL discs
