@@ -8,6 +8,8 @@ Cross-platform multi-console Sega emulator that supports the Sega Genesis / Mega
   * Sega Genesis / Mega Drive (NTSC and PAL)
   * Sega Master System / Mark III (NTSC and PAL)
   * Game Gear
+  * Sega CD / Mega CD (NTSC and PAL)
+    * The JP Model 1 BIOS does not currently work, and several games freeze shortly after boot (e.g. _Snatcher_ and _Batman Returns_)
 * GPU-based renderer with integer prescaling and optional linear interpolation
 * Configurable pixel aspect ratio for each console with several different options: accurate to original hardware/TVs, square pixels, and stretched to fill the window
 * Support for the Sega Master System FM sound unit expansion
@@ -18,15 +20,20 @@ Cross-platform multi-console Sega emulator that supports the Sega Genesis / Mega
 * Optional 2x CPU overclocking for Sega Master System and Game Gear emulation
 
 Major TODOs:
-* Build out web UI
 * Implement a few remaining YM2612 features (CSM and SSG-EG, they're obscure but some games did use them)
-* Support Sega CD / Mega CD
+* Fix remaining Sega CD emulation bugs
+  * JP V1.00 BIOS freezes after loading the music player menu, which in this BIOS version is required to boot any games
+  * _Snatcher_ crashes after the Konami logo
+  * _Batman Returns_ freezes during boot
+  * _Shadow of the Beast II_ freezes after the title screen
 
 Minor TODOs:
 * Emulate the Genesis VDP FIFO, in particular the fact that the CPU stalls if it writes to VRAM too rapidly during active display. A few games depend on this to function correctly (e.g. _The Chaos Engine_, _Double Clutch_, _Sol-Deace_), and a few other games have graphical glitches if it's not emulated (e.g. the EA logo flickering for a single frame)
 * Support the Sega Virtua Processor (SVP) chip; used only by _Virtua Racing_
 * Support 24C64 EEPROM chips (used only in _Frank Thomas Big Hurt Baseball_ and _College Slam_)
 * Support the Sega Master System's additional graphics modes (Modes 0-3); only one officially released game used any of them, _F-16 Fighter_ (which uses Mode 2)
+* Support multiple Sega CD BIOS versions in GUI and automatically use the correct one based on disc region
+* Support CHD files for Sega CD in addition to BIN/CUE
 
 ## Dependencies
 
