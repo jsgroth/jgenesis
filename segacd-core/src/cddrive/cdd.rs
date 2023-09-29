@@ -281,6 +281,7 @@ impl CdDrive {
                     // Write current absolute time in minutes/seconds/frames (BCD) to Status 2-7
                     let current_time = self.state.current_time();
                     write_time_to_status(current_time, &mut self.status);
+                    self.status[8] = self.status_flags();
                 }
                 ReportType::RelativeTime => {
                     // Write current relative time in minutes/seconds/frames (BCD) to Status 2-7
@@ -293,6 +294,7 @@ impl CdDrive {
                         current_time.saturating_sub(track_start_time),
                         &mut self.status,
                     );
+                    self.status[8] = self.status_flags();
                 }
                 ReportType::CurrentTrack => {
                     // Write current track number (BCD) to Status 2-3
@@ -301,11 +303,14 @@ impl CdDrive {
                         disc.cue().find_track_by_time(current_time).map_or(0, |track| track.number);
                     self.status[2] = track_number / 10;
                     self.status[3] = track_number % 10;
+
+                    self.status[8] = self.status_flags();
                 }
                 ReportType::DiscLength => {
                     // Write disc length in minutes/seconds/frames (BCD) to Status 2-7
                     let disc_end_time = disc.cue().last_track().end_time;
                     write_time_to_status(disc_end_time, &mut self.status);
+                    self.status[8] = self.status_flags();
                 }
                 ReportType::StartAndEndTracks => {
                     // Write start track number to Status 2-3 and end track number to Status 4-5, both in BCD
@@ -316,6 +321,8 @@ impl CdDrive {
                     let end_track_number = disc.cue().last_track().number;
                     self.status[4] = end_track_number / 10;
                     self.status[5] = end_track_number % 10;
+
+                    self.status[8] = self.status_flags();
                 }
                 ReportType::TrackNStartTime(track_number) => {
                     let track = if track_number <= disc.cue().last_track().number {
@@ -344,6 +351,22 @@ impl CdDrive {
 
         // Update checksum in Status 9
         update_cdd_checksum(&mut self.status);
+    }
+
+    fn status_flags(&self) -> u8 {
+        // $04 if playing a data track, $00 otherwise
+        let playing_data_track = match self.state {
+            CddState::Playing(time) | CddState::PreparingToPlay { time, .. } => {
+                self.disc.as_ref().is_some_and(|disc| {
+                    disc.cue()
+                        .find_track_by_time(time)
+                        .is_some_and(|track| track.track_type == TrackType::Data)
+                })
+            }
+            _ => false,
+        };
+
+        if playing_data_track { 0x04 } else { 0x00 }
     }
 
     fn current_cdd_status(&self) -> CddStatus {
