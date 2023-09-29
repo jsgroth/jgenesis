@@ -15,7 +15,7 @@ impl CdTime {
     pub const ZERO: Self = Self { minutes: 0, seconds: 0, frames: 0 };
     pub const DISC_END: Self = Self { minutes: 60, seconds: 3, frames: 74 };
 
-    pub const MAX_MINUTES: u8 = 61;
+    pub const MAX_MINUTES: u8 = 75;
     pub const SECONDS_PER_MINUTE: u8 = 60;
     pub const FRAMES_PER_SECOND: u8 = 75;
 
