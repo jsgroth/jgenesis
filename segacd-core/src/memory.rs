@@ -279,7 +279,7 @@ impl SegaCd {
 
     #[allow(clippy::match_same_arms)]
     fn write_main_cpu_register_byte(&mut self, address: u32, value: u8) {
-        log::trace!("Main CPU register byte write: {address:06X}");
+        log::trace!("Main CPU register byte write: {address:06X} {value:02X}");
         match address {
             0xA12000 => {
                 // Initialization / reset, high byte
@@ -331,7 +331,7 @@ impl SegaCd {
 
     #[allow(clippy::match_same_arms)]
     fn write_main_cpu_register_word(&mut self, address: u32, value: u16) {
-        log::trace!("Main CPU register word write: {address:06X}");
+        log::trace!("Main CPU register word write: {address:06X} {value:04X}");
         match address {
             0xA12000 | 0xA12002 => {
                 let [msb, lsb] = value.to_be_bytes();
