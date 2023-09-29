@@ -20,18 +20,24 @@ const BYTES_PER_AUDIO_SAMPLE: u16 = 4;
 
 const MAX_FADER_VOLUME: u16 = 1 << 10;
 
+// Fast-forward / rewind should skip at roughly 100x playback speed
+const FAST_FORWARD_SECONDS: u8 = 1;
+const FAST_FORWARD_FRAMES: u8 = 25;
+
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CddStatus {
     Stopped = 0x00,
     Playing = 0x01,
     Seeking = 0x02,
+    Scanning = 0x03,
     Paused = 0x04,
     InvalidCommand = 0x07,
     ReadingToc = 0x09,
     TrackSkipping = 0x0A,
     NoDisc = 0x0B,
     DiscEnd = 0x0C,
+    DiscStart = 0x0D,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -110,7 +116,10 @@ enum CddState {
         skip_time: CdTime,
         clocks_remaining: u8,
     },
-    DiscEnd,
+    FastForwarding(CdTime),
+    Rewinding(CdTime),
+    DiscStart,
+    DiscEnd(CdTime),
     InvalidCommand(CdTime),
     ReadingToc,
 }
@@ -118,10 +127,13 @@ enum CddState {
 impl CddState {
     fn current_time(self) -> CdTime {
         match self {
-            Self::MotorStopped | Self::NoDisc | Self::DiscEnd | Self::ReadingToc => CdTime::ZERO,
+            Self::MotorStopped | Self::NoDisc | Self::DiscStart | Self::ReadingToc => CdTime::ZERO,
             Self::PreparingToPlay { time, .. }
             | Self::Playing(time)
             | Self::Paused(time)
+            | Self::FastForwarding(time)
+            | Self::Rewinding(time)
+            | Self::DiscEnd(time)
             | Self::InvalidCommand(time) => time,
             Self::Seeking { current_time, .. } | Self::TrackSkipping { current_time, .. } => {
                 current_time
@@ -217,18 +229,31 @@ impl CdDrive {
                 // Play
                 log::trace!("  Command: Play");
 
-                if let CddState::Paused(time) = self.state {
-                    self.state =
-                        CddState::PreparingToPlay { time, clocks_remaining: PLAY_DELAY_CLOCKS };
+                match self.state {
+                    CddState::Paused(time)
+                    | CddState::FastForwarding(time)
+                    | CddState::Rewinding(time) => {
+                        self.state =
+                            CddState::PreparingToPlay { time, clocks_remaining: PLAY_DELAY_CLOCKS };
+                    }
+                    _ => {}
                 }
             }
             0x08 => {
                 // Fast-forward
-                todo!("Fast-forward")
+                log::trace!("  Command: Fast-forward");
+
+                if self.disc.is_some() {
+                    self.state = CddState::FastForwarding(self.state.current_time());
+                }
             }
             0x09 => {
                 // Rewind
-                todo!("Rewind")
+                log::trace!("  Command: Rewind");
+
+                if self.disc.is_some() {
+                    self.state = CddState::Rewinding(self.state.current_time());
+                }
             }
             0x0A => {
                 // Start track skipping
@@ -390,7 +415,9 @@ impl CdDrive {
             CddState::PreparingToPlay { .. } | CddState::Playing(..) => CddStatus::Playing,
             CddState::Seeking { .. } => CddStatus::Seeking,
             CddState::TrackSkipping { .. } => CddStatus::TrackSkipping,
-            CddState::DiscEnd => CddStatus::DiscEnd,
+            CddState::FastForwarding(..) | CddState::Rewinding(..) => CddStatus::Scanning,
+            CddState::DiscStart => CddStatus::DiscStart,
+            CddState::DiscEnd(..) => CddStatus::DiscEnd,
             CddState::InvalidCommand(..) => CddStatus::InvalidCommand,
             CddState::ReadingToc => CddStatus::ReadingToc,
         }
@@ -618,6 +645,33 @@ impl CdDrive {
                     };
                 }
             }
+            CddState::FastForwarding(time) => {
+                let new_time = time + CdTime::new(0, FAST_FORWARD_SECONDS, FAST_FORWARD_FRAMES);
+                self.state = if let Some(disc) = &self.disc {
+                    let disc_end_time = disc.cue().last_track().end_time;
+                    if new_time >= disc_end_time {
+                        log::trace!("Fast-forwarded to end of disc");
+                        CddState::DiscEnd(disc_end_time)
+                    } else {
+                        log::trace!("Fast-forwarded to {new_time}");
+                        CddState::FastForwarding(new_time)
+                    }
+                } else {
+                    log::trace!("Fast-forwarded to {new_time}");
+                    CddState::FastForwarding(new_time)
+                };
+            }
+            CddState::Rewinding(time) => {
+                let new_time =
+                    time.saturating_sub(CdTime::new(0, FAST_FORWARD_SECONDS, FAST_FORWARD_FRAMES));
+                if new_time == CdTime::ZERO {
+                    log::trace!("Rewound to beginning of disc");
+                    self.state = CddState::DiscStart;
+                } else {
+                    log::trace!("Rewound to {new_time}");
+                    self.state = CddState::Rewinding(new_time);
+                }
+            }
             CddState::PreparingToPlay { time, clocks_remaining } => {
                 if clocks_remaining == 1 {
                     log::trace!("Beginning to play at {time}");
@@ -637,7 +691,7 @@ impl CdDrive {
                 };
 
                 let Some(track) = disc.cue().find_track_by_time(time) else {
-                    self.state = CddState::DiscEnd;
+                    self.state = CddState::DiscEnd(disc.cue().last_track().end_time);
                     return Ok(());
                 };
 
