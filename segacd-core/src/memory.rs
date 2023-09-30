@@ -4,11 +4,11 @@ pub(crate) mod wordram;
 
 use crate::api::DiscResult;
 use crate::cddrive::cdc::DeviceDestination;
-use crate::cddrive::{CdController, CdTickEffect};
+use crate::cddrive::{cdc, CdController, CdTickEffect};
 use crate::cdrom;
 use crate::cdrom::cdtime::CdTime;
 use crate::cdrom::reader::CdRom;
-use crate::graphics::{GraphicsCoprocessor, GraphicsWritePriorityMode};
+use crate::graphics::GraphicsCoprocessor;
 use crate::memory::font::FontRegisters;
 use crate::rf5c164::Rf5c164;
 use bincode::{Decode, Encode};
@@ -40,6 +40,8 @@ struct SegaCdRegisters {
     software_interrupt_pending: bool,
     sub_cpu_busreq: bool,
     sub_cpu_reset: bool,
+    led_green: bool,
+    led_red: bool,
     // $FF8002/$A12002: Memory mode / PRG RAM bank select
     prg_ram_write_protect: u8,
     prg_ram_bank: u8,
@@ -77,6 +79,8 @@ impl SegaCdRegisters {
             software_interrupt_pending: false,
             sub_cpu_busreq: true,
             sub_cpu_reset: true,
+            led_green: true,
+            led_red: false,
             prg_ram_write_protect: 0,
             prg_ram_bank: 0,
             h_interrupt_vector: 0xFFFF,
@@ -204,10 +208,11 @@ impl SegaCd {
             0xA12004 => {
                 log::trace!("  CDC mode read (main CPU)");
                 let cdc = self.disc_drive.cdc();
+                let end_of_data_transfer = cdc.end_of_data_transfer();
                 let data_ready = cdc.data_ready();
                 let dd_bits = cdc.device_destination().to_bits();
 
-                (u8::from(!data_ready) << 7) | (u8::from(data_ready) << 6) | dd_bits
+                (u8::from(end_of_data_transfer) << 7) | (u8::from(data_ready) << 6) | dd_bits
             }
             0xA12006 => {
                 // HINT vector, high byte
@@ -330,7 +335,7 @@ impl SegaCd {
             0xA12006..=0xA12007 => {
                 self.registers.h_interrupt_vector = u16::from_le_bytes([value, value]);
             }
-            0xA1200E => {
+            0xA1200E..=0xA1200F => {
                 self.registers.main_cpu_communication_flags = value;
             }
             0xA12010..=0xA1201F => {
@@ -484,7 +489,15 @@ impl PhysicalMedium for SegaCd {
         match address {
             0x000000..=0x01FFFF => {
                 // BIOS
-                self.bios[address as usize]
+
+                // Hack: The BIOS reads the custom HINT vector from $000070-$000072, which it expects to
+                // return $FFFF and the current value of $A12006 respectively
+                match address {
+                    0x000070 | 0x000071 => 0xFF,
+                    0x000072 => (self.registers.h_interrupt_vector >> 8) as u8,
+                    0x000073 => self.registers.h_interrupt_vector as u8,
+                    _ => self.bios[address as usize],
+                }
             }
             0x020000..=0x03FFFF => {
                 // PRG RAM
@@ -506,14 +519,16 @@ impl PhysicalMedium for SegaCd {
             0x000000..=0x01FFFF => {
                 // BIOS
 
-                // Hack: If reading the second word of the interrupt vector for level 2 (HINT),
-                // ignore what's in BIOS and return the current contents of $A12006
-                if address == 0x000072 {
-                    self.registers.h_interrupt_vector
-                } else {
-                    let msb = self.bios[address as usize];
-                    let lsb = self.bios[(address + 1) as usize];
-                    u16::from_be_bytes([msb, lsb])
+                // Hack: The BIOS reads the custom HINT vector from $000070-$000072, which it expects to
+                // return $FFFF and the current value of $A12006 respectively
+                match address {
+                    0x000070 => 0xFFFF,
+                    0x000072 => self.registers.h_interrupt_vector,
+                    _ => {
+                        let msb = self.bios[address as usize];
+                        let lsb = self.bios[(address + 1) as usize];
+                        u16::from_be_bytes([msb, lsb])
+                    }
                 }
             }
             0x020000..=0x03FFFF => {
@@ -629,8 +644,8 @@ impl<'a> SubBus<'a> {
         log::trace!("Sub CPU register byte read: {address:06X}");
         match address {
             0xFF8000 => {
-                // TODO LEDs
-                0
+                let registers = &self.memory.medium().registers;
+                (u8::from(registers.led_green) << 1) | u8::from(registers.led_red)
             }
             0xFF8001 => {
                 // Reset
@@ -644,16 +659,17 @@ impl<'a> SubBus<'a> {
             }
             0xFF8003 => {
                 // Memory mode
-                self.memory.medium().word_ram.read_control()
-                    | (self.graphics_coprocessor.write_priority_mode().to_bits() << 3)
+                let word_ram = &self.memory.medium().word_ram;
+                word_ram.read_control() | (word_ram.priority_mode().to_bits() << 3)
             }
             0xFF8004 => {
                 // CDC mode
                 log::trace!("  CDC mode read (sub CPU)");
                 let cdc = self.memory.medium().disc_drive.cdc();
+                let end_of_data_transfer = cdc.end_of_data_transfer();
                 let data_ready = cdc.data_ready();
                 let dd_bits = cdc.device_destination().to_bits();
-                (u8::from(!data_ready) << 7) | (u8::from(data_ready) << 6) | dd_bits
+                (u8::from(end_of_data_transfer) << 7) | (u8::from(data_ready) << 6) | dd_bits
             }
             0xFF8005 => {
                 // CDC register address
@@ -742,7 +758,7 @@ impl<'a> SubBus<'a> {
                 let relative_addr = (address - 2) & 0xF;
                 self.memory.medium().registers.cdd_command[relative_addr as usize]
             }
-            0xFF804D => {
+            0xFF804C..=0xFF804D => {
                 // Font color
                 self.memory.medium().font_registers.read_color()
             }
@@ -853,15 +869,17 @@ impl<'a> SubBus<'a> {
     fn write_register_byte(&mut self, address: u32, value: u8) {
         log::trace!("Sub CPU register byte write: {address:06X} {value:02X}");
         match address {
+            0xFF8000 => {
+                let registers = &mut self.memory.medium_mut().registers;
+                registers.led_green = value.bit(1);
+                registers.led_red = value.bit(0);
+            }
             0xFF8001 => {
                 // TODO reset CDD/CDC
             }
-            0xFF8003 => {
+            0xFF8002..=0xFF8003 => {
                 // Memory mode
                 self.memory.medium_mut().word_ram.sub_cpu_write_control(value);
-
-                let graphics_write_priority_mode = GraphicsWritePriorityMode::from_bits(value >> 3);
-                self.graphics_coprocessor.set_write_priority_mode(graphics_write_priority_mode);
             }
             0xFF8004 => {
                 // CDC mode
@@ -876,7 +894,7 @@ impl<'a> SubBus<'a> {
             0xFF8005 => {
                 // CDC register address
                 log::trace!("  CDC register address write: {value:02X}");
-                let register_address = value & 0x0F;
+                let register_address = value & cdc::REGISTER_ADDRESS_MASK;
                 self.memory
                     .medium_mut()
                     .disc_drive
@@ -900,8 +918,8 @@ impl<'a> SubBus<'a> {
                 self.memory.medium_mut().registers.stopwatch_counter =
                     u16::from_be_bytes([value, value]) & 0x0FFF;
             }
-            0xFF800F => {
-                // Communication flags, low byte (sub CPU)
+            0xFF800E..=0xFF800F => {
+                // Communication flags
                 self.memory.medium_mut().registers.sub_cpu_communication_flags = value;
             }
             0xFF8020..=0xFF802F => {
@@ -915,7 +933,7 @@ impl<'a> SubBus<'a> {
                     statuses[idx as usize] = (existing_word & 0x00FF) | (u16::from(value) << 8);
                 }
             }
-            0xFF8031 => {
+            0xFF8030..=0xFF8031 => {
                 // Timer
                 let registers = &mut self.memory.medium_mut().registers;
                 registers.timer_interval = value;
@@ -967,7 +985,7 @@ impl<'a> SubBus<'a> {
                     sega_cd.disc_drive.cdd_mut().send_command(sega_cd.registers.cdd_command);
                 }
             }
-            0xFF804D => {
+            0xFF804C..=0xFF804D => {
                 // Font color
                 self.memory.medium_mut().font_registers.write_color(value);
             }
@@ -991,7 +1009,10 @@ impl<'a> SubBus<'a> {
         log::trace!("Sub CPU register word write: {address:06X} {value:04X}");
         match address {
             0xFF8000 => {
-                // TODO reset CDD/CDC
+                // LEDs / CD drive reset
+                let [msb, lsb] = value.to_be_bytes();
+                self.write_register_byte(address, msb);
+                self.write_register_byte(address | 1, lsb);
             }
             0xFF8002 => {
                 // Memory mode, only low byte is writable
@@ -1094,7 +1115,7 @@ impl<'a> BusInterface for SubBus<'a> {
                 // Word RAM
                 self.memory.medium().word_ram.sub_cpu_read_ram(address)
             }
-            0xFE0000..=0xFE3FFF => {
+            0xFE0000..=0xFEFFFF => {
                 // Backup RAM (odd addresses)
                 if address.bit(0) {
                     let backup_ram_addr = (address & 0x3FFF) >> 1;
@@ -1133,7 +1154,7 @@ impl<'a> BusInterface for SubBus<'a> {
                 let lsb = word_ram.sub_cpu_read_ram(address | 1);
                 u16::from_be_bytes([msb, lsb])
             }
-            0xFE0000..=0xFE3FFF => {
+            0xFE0000..=0xFEFFFF => {
                 // Backup RAM (odd addresses)
                 let backup_ram_addr = (address & 0x3FFF) >> 1;
                 self.memory.medium().backup_ram[backup_ram_addr as usize].into()
@@ -1162,7 +1183,7 @@ impl<'a> BusInterface for SubBus<'a> {
                 // Word RAM
                 self.memory.medium_mut().word_ram.sub_cpu_write_ram(address, value);
             }
-            0xFE0000..=0xFE3FFF => {
+            0xFE0000..=0xFEFFFF => {
                 // Backup RAM (odd addresses)
                 if address.bit(0) {
                     let backup_ram_addr = (address & 0x3FFF) >> 1;
@@ -1203,7 +1224,7 @@ impl<'a> BusInterface for SubBus<'a> {
                 word_ram.sub_cpu_write_ram(address, msb);
                 word_ram.sub_cpu_write_ram(address | 1, lsb);
             }
-            0xFE0000..=0xFE3FFF => {
+            0xFE0000..=0xFEFFFF => {
                 // Backup RAM (odd addresses)
                 let backup_ram_addr = (address & 0x3FFF) >> 1;
                 let sega_cd = self.memory.medium_mut();

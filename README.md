@@ -25,7 +25,6 @@ Major TODOs:
   * JP V1.00 BIOS freezes after loading the music player menu, which in this BIOS version is required to boot any games
   * _Snatcher_ crashes after the Konami logo
   * _Batman Returns_ freezes during boot
-  * _Shadow of the Beast II_ freezes after the title screen
   * _Robo Aleste_ freezes after booting
 
 Minor TODOs:

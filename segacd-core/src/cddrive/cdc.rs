@@ -5,15 +5,18 @@ use crate::{cdrom, memory};
 use bincode::{Decode, Encode};
 use jgenesis_traits::num::GetBit;
 
+// The register address is supposedly 4 bits, but internally it's actually 5 bits
+// Values $10-$1F are effectively unused
+pub const REGISTER_ADDRESS_MASK: u8 = 0x1F;
+
 const BUFFER_RAM_LEN: usize = 16 * 1024;
 const BUFFER_RAM_ADDRESS_MASK: u16 = (1 << 14) - 1;
 
 const DATA_TRACK_HEADER_LEN: u16 = 12;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum DeviceDestination {
-    #[default]
-    None,
+    None(u8),
     MainCpuRegister,
     SubCpuRegister,
     PrgRam,
@@ -24,7 +27,7 @@ pub enum DeviceDestination {
 impl DeviceDestination {
     pub fn to_bits(self) -> u8 {
         match self {
-            Self::None => 0b000,
+            Self::None(bits) => bits,
             Self::MainCpuRegister => 0b010,
             Self::SubCpuRegister => 0b011,
             Self::Pcm => 0b100,
@@ -40,9 +43,9 @@ impl DeviceDestination {
             0b100 => Self::Pcm,
             0b101 => Self::PrgRam,
             0b111 => Self::WordRam,
-            0b000 | 0b001 | 0b110 => {
+            bits @ (0b000 | 0b001 | 0b110) => {
                 // Prohibited patterns; unset destination
-                Self::None
+                Self::None(bits)
             }
             _ => unreachable!("value & 0x07 is always <= 0x07"),
         }
@@ -50,6 +53,12 @@ impl DeviceDestination {
 
     fn is_dma(self) -> bool {
         matches!(self, Self::Pcm | Self::PrgRam | Self::WordRam)
+    }
+}
+
+impl Default for DeviceDestination {
+    fn default() -> Self {
+        Self::None(0b000)
     }
 }
 
@@ -68,6 +77,7 @@ pub struct Rchip {
     decoded_first_written_block: bool,
     data_out_enabled: bool,
     data_transfer_in_progress: bool,
+    end_of_data_transfer: bool,
     subheader_data_enabled: bool,
     header_data: [u8; 4],
     subheader_data: [u8; 4],
@@ -93,6 +103,7 @@ impl Rchip {
             decoded_first_written_block: false,
             data_out_enabled: false,
             data_transfer_in_progress: false,
+            end_of_data_transfer: true,
             subheader_data_enabled: false,
             header_data: [0; 4],
             subheader_data: [0; 4],
@@ -112,11 +123,12 @@ impl Rchip {
     }
 
     pub fn set_device_destination(&mut self, device_destination: DeviceDestination) {
-        if device_destination != self.device_destination {
-            // Abort any in-progress data transfer and reset DMA controller
-            self.data_transfer_in_progress = false;
-            self.dma_address = 0;
-        }
+        // Abort any in-progress data transfer and reset DMA controller
+        self.data_transfer_in_progress = false;
+        self.dma_address = 0;
+
+        // Writing device destination always clears EDT
+        self.end_of_data_transfer = false;
 
         log::trace!("CDC device destination set to {device_destination:?}");
 
@@ -145,6 +157,7 @@ impl Rchip {
         self.data_byte_counter = new_byte_counter;
         if overflowed {
             self.data_transfer_in_progress = false;
+            self.end_of_data_transfer = true;
             self.transfer_end_interrupt_pending = true;
         }
 
@@ -183,6 +196,20 @@ impl Rchip {
                     | (u8::from(!self.data_transfer_in_progress) << 3)
                     | (u8::from(!self.data_transfer_in_progress) << 1)
             }
+            2 => {
+                // DBCL (Data Byte Counter, Low Byte)
+                log::trace!("DBCL read");
+                self.data_byte_counter as u8
+            }
+            3 => {
+                // DBCH (Data Byte Counter, High Byte)
+                log::trace!("DBCH read");
+
+                // DBC is only a 12-bit counter; the high 4 bytes of DBCH always read as DTEI
+                let dtei = u8::from(self.transfer_end_interrupt_pending);
+                let dbc_high_bits = ((self.data_byte_counter >> 8) & 0x0F) as u8;
+                (dtei << 7) | (dtei << 6) | (dtei << 5) | (dtei << 4) | dbc_high_bits
+            }
             4..=7 => {
                 // HEAD0-3 (Header/Subheader Data)
 
@@ -206,6 +233,16 @@ impl Rchip {
                 log::trace!("PTH read");
 
                 (self.block_pointer >> 8) as u8
+            }
+            10 => {
+                // WAL (Write Address, Low Byte)
+                log::trace!("WAL read");
+                self.write_address as u8
+            }
+            11 => {
+                // WAH (Write Address, High Byte)
+                log::trace!("WAH read");
+                (self.write_address >> 8) as u8
             }
             12 => {
                 // STAT0 (Status 0)
@@ -243,7 +280,10 @@ impl Rchip {
                 // Hardcode WLONG and CBLK to 0; bits 4-0 are unused
                 value
             }
-            2 | 3 | 10 | 11 => todo!("CDC register read {}", self.register_address),
+            16..=31 => {
+                // Invalid addresses
+                0x00
+            }
             _ => panic!("CDC register address should always be <= 15"),
         };
 
@@ -368,13 +408,13 @@ impl Rchip {
 
                 log::trace!("  PT: {:04X}", self.block_pointer);
             }
-            14 => {
-                // Unused, do nothing
-            }
             15 => {
                 // RESET
                 log::trace!("RESET write");
                 self.reset();
+            }
+            14 | 16..=31 => {
+                // Unused, do nothing
             }
             _ => panic!("CDC register address should always be <= 15"),
         }
@@ -392,6 +432,7 @@ impl Rchip {
         if !self.data_out_enabled {
             // Abort any in-progress data transfer
             self.data_transfer_in_progress = false;
+            self.end_of_data_transfer = true;
         }
 
         log::trace!("  DTEIEN: {}", self.transfer_end_interrupt_enabled);
@@ -424,7 +465,7 @@ impl Rchip {
     fn increment_register_address(&mut self) {
         // Register address automatically increments on each access when it is not 0
         if self.register_address != 0 {
-            self.register_address = (self.register_address + 1) & 0x0F;
+            self.register_address = (self.register_address + 1) & REGISTER_ADDRESS_MASK;
         }
     }
 
@@ -435,6 +476,10 @@ impl Rchip {
 
     pub fn data_ready(&self) -> bool {
         self.data_transfer_in_progress
+    }
+
+    pub fn end_of_data_transfer(&self) -> bool {
+        self.end_of_data_transfer
     }
 
     pub fn interrupt_pending(&self) -> bool {
@@ -550,6 +595,7 @@ impl Rchip {
                 log::trace!("DMA transfer complete");
 
                 self.data_transfer_in_progress = false;
+                self.end_of_data_transfer = true;
                 self.transfer_end_interrupt_pending = true;
 
                 break;

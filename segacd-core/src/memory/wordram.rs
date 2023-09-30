@@ -10,8 +10,9 @@ pub const SUB_BASE_ADDRESS: u32 = 0x080000;
 
 const WORD_RAM_LEN: usize = 256 * 1024;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum WordRamMode {
+    #[default]
     TwoM,
     OneM,
 }
@@ -26,6 +27,42 @@ impl WordRamMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+pub enum WordRamPriorityMode {
+    #[default]
+    Off,
+    Underwrite,
+    Overwrite,
+    Invalid,
+}
+
+impl WordRamPriorityMode {
+    pub fn to_bits(self) -> u8 {
+        match self {
+            Self::Off => 0x00,
+            Self::Underwrite => 0x01,
+            Self::Overwrite => 0x02,
+            Self::Invalid => 0x03,
+        }
+    }
+
+    pub fn from_bits(bits: u8) -> Self {
+        match bits & 0x03 {
+            0x00 => Self::Off,
+            0x01 => Self::Underwrite,
+            0x02 => Self::Overwrite,
+            0x03 => Self::Invalid,
+            _ => unreachable!("value & 0x03 is always <= 0x03"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Nibble {
+    High,
+    Low,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WordRamSubMapResult {
     None,
@@ -37,6 +74,7 @@ enum WordRamSubMapResult {
 pub struct WordRam {
     ram: Box<[u8; WORD_RAM_LEN]>,
     mode: WordRamMode,
+    priority_mode: WordRamPriorityMode,
     owner_2m: ScdCpu,
     bank_0_owner_1m: ScdCpu,
     swap_request: bool,
@@ -54,7 +92,8 @@ impl WordRam {
     pub fn new() -> Self {
         Self {
             ram: vec![0; WORD_RAM_LEN].into_boxed_slice().try_into().unwrap(),
-            mode: WordRamMode::TwoM,
+            mode: WordRamMode::default(),
+            priority_mode: WordRamPriorityMode::default(),
             owner_2m: ScdCpu::Main,
             bank_0_owner_1m: ScdCpu::Main,
             swap_request: false,
@@ -105,12 +144,18 @@ impl WordRam {
             self.owner_2m = ScdCpu::Main;
         }
 
+        let prev_bank_0_owner = self.bank_0_owner_1m;
         // In 1M mode, RET returns the given bank to the main CPU
         // RET=0 -> main owns bank 0, sub owns bank 1
         // RET=1 -> main owns bank 1, sub owns bank 0
         self.bank_0_owner_1m = if ret { ScdCpu::Sub } else { ScdCpu::Main };
 
-        self.swap_request = false;
+        // Only clear swap request if 1M bank 0 owner changed
+        if prev_bank_0_owner != self.bank_0_owner_1m {
+            self.swap_request = false;
+        }
+
+        self.priority_mode = WordRamPriorityMode::from_bits(value >> 3);
     }
 
     fn main_cpu_map_address(&self, address: u32) -> Option<u32> {
@@ -119,7 +164,7 @@ impl WordRam {
             WordRamMode::TwoM => (self.owner_2m == ScdCpu::Main).then_some(address),
             WordRamMode::OneM => {
                 if address <= 0x1FFFF {
-                    Some((address << 1) | u32::from(self.bank_0_owner_1m == ScdCpu::Sub))
+                    Some(determine_1m_address(address, ScdCpu::Main, self.bank_0_owner_1m))
                 } else {
                     match address & 0x1FFFF {
                         address @ 0x00000..=0x0FFFF => {
@@ -201,12 +246,15 @@ impl WordRam {
             }
             (WordRamMode::TwoM, 0x0C0000..=0x0DFFFF) => WordRamSubMapResult::None,
             (WordRamMode::OneM, 0x080000..=0x0BFFFF) => {
-                let byte_addr =
-                    (address & 0x03FFFE) | u32::from(self.bank_0_owner_1m == ScdCpu::Main);
+                let byte_addr = determine_1m_address(
+                    (address & 0x3FFFF) >> 1,
+                    ScdCpu::Sub,
+                    self.bank_0_owner_1m,
+                );
                 WordRamSubMapResult::Pixel((byte_addr << 1) | (address & 0x000001))
             }
             (WordRamMode::OneM, 0x0C0000..=0x0DFFFF) => WordRamSubMapResult::Byte(
-                ((address & 0x01FFFF) << 1) | u32::from(self.bank_0_owner_1m == ScdCpu::Main),
+                determine_1m_address(address & 0x1FFFF, ScdCpu::Sub, self.bank_0_owner_1m),
             ),
             _ => panic!("Invalid sub CPU word RAM address: {address:06X}"),
         }
@@ -234,13 +282,63 @@ impl WordRam {
                 self.ram[addr as usize] = value;
             }
             WordRamSubMapResult::Pixel(pixel_addr) => {
-                let byte_addr = (pixel_addr >> 1) as usize;
-                if pixel_addr.bit(0) {
-                    self.ram[byte_addr] = (self.ram[byte_addr] & 0xF0) | (value & 0x0F);
-                } else {
-                    self.ram[byte_addr] = (self.ram[byte_addr] & 0x0F) | (value << 4);
+                self.write_1m_pixel(pixel_addr, value & 0x0F);
+            }
+        }
+    }
+
+    pub fn graphics_write_ram(&mut self, address: u32, nibble: Nibble, pixel: u8) {
+        match self.sub_cpu_map_address(address) {
+            WordRamSubMapResult::None => {}
+            WordRamSubMapResult::Byte(addr) => {
+                let current_value = self.ram[addr as usize];
+                let current_nibble = match nibble {
+                    Nibble::High => current_value >> 4,
+                    Nibble::Low => current_value & 0x0F,
+                };
+
+                let should_write = match self.priority_mode {
+                    WordRamPriorityMode::Off | WordRamPriorityMode::Invalid => true,
+                    WordRamPriorityMode::Underwrite => current_nibble == 0,
+                    WordRamPriorityMode::Overwrite => pixel != 0,
+                };
+
+                if should_write {
+                    let new_value = match nibble {
+                        Nibble::High => (pixel << 4) | (current_value & 0x0F),
+                        Nibble::Low => pixel | (current_value & 0xF0),
+                    };
+                    self.ram[addr as usize] = new_value;
                 }
             }
+            WordRamSubMapResult::Pixel(addr) => {
+                // High nibble is ignored for pixel writes
+                if nibble == Nibble::Low {
+                    self.write_1m_pixel(addr, pixel);
+                }
+            }
+        }
+    }
+
+    fn write_1m_pixel(&mut self, pixel_addr: u32, pixel: u8) {
+        let byte_addr = (pixel_addr >> 1) as usize;
+        let current_byte = self.ram[byte_addr];
+        let current_nibble =
+            if pixel_addr.bit(0) { current_byte & 0x0F } else { current_byte >> 4 };
+
+        let should_write = match self.priority_mode {
+            WordRamPriorityMode::Off | WordRamPriorityMode::Invalid => true,
+            WordRamPriorityMode::Underwrite => current_nibble == 0,
+            WordRamPriorityMode::Overwrite => pixel != 0,
+        };
+
+        if should_write {
+            let new_value = if pixel_addr.bit(0) {
+                pixel | (current_byte & 0xF0)
+            } else {
+                (pixel << 4) | (current_byte & 0x0F)
+            };
+            self.ram[byte_addr] = new_value;
         }
     }
 
@@ -260,6 +358,14 @@ impl WordRam {
 
         self.sub_cpu_write_ram(base_address | address, value);
     }
+
+    pub fn priority_mode(&self) -> WordRamPriorityMode {
+        self.priority_mode
+    }
+}
+
+fn determine_1m_address(address: u32, cpu: ScdCpu, bank_0_owner: ScdCpu) -> u32 {
+    ((address & !0x01) << 1) | (u32::from(cpu != bank_0_owner) << 1) | (address & 0x01)
 }
 
 #[inline]
@@ -274,7 +380,7 @@ fn map_cell_image_address(
 
     let byte_addr =
         base_word_ram_addr | (row * CELL_IMAGE_H_SIZE_BYTES) | (col << 2) | (masked_address & 0x03);
-    (byte_addr << 1) | u32::from(bank_0_owner == ScdCpu::Sub)
+    determine_1m_address(byte_addr, ScdCpu::Main, bank_0_owner)
 }
 
 #[cfg(test)]

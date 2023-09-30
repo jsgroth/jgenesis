@@ -2,7 +2,7 @@ mod fixedpoint;
 
 use crate::graphics::fixedpoint::FixedPointDecimal;
 use crate::memory::wordram;
-use crate::memory::wordram::WordRam;
+use crate::memory::wordram::{Nibble, WordRam};
 use bincode::{Decode, Encode};
 use jgenesis_traits::num::GetBit;
 use std::array;
@@ -52,32 +52,6 @@ impl StampMapSizeScreens {
         match self {
             Self::One => 256,
             Self::Sixteen => 4096,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-pub enum GraphicsWritePriorityMode {
-    Off,
-    Underwrite,
-    Overwrite,
-}
-
-impl GraphicsWritePriorityMode {
-    pub fn to_bits(self) -> u8 {
-        match self {
-            Self::Off => 0x00,
-            Self::Underwrite => 0x01,
-            Self::Overwrite => 0x02,
-        }
-    }
-
-    pub fn from_bits(bits: u8) -> Self {
-        match bits & 0x03 {
-            0x00 | 0x03 => Self::Off,
-            0x01 => Self::Underwrite,
-            0x02 => Self::Overwrite,
-            _ => unreachable!("value & 0x03 is always <= 0x03"),
         }
     }
 }
@@ -149,7 +123,6 @@ pub struct GraphicsCoprocessor {
     stamp_map_size: StampMapSizeScreens,
     stamp_map_repeats: bool,
     stamp_map_base_address: u32,
-    write_priority_mode: GraphicsWritePriorityMode,
     image_buffer_v_cell_size: u32,
     image_buffer_start_address: u32,
     image_buffer_v_offset: u32,
@@ -168,7 +141,6 @@ impl GraphicsCoprocessor {
             stamp_map_size: StampMapSizeScreens::default(),
             stamp_map_repeats: false,
             stamp_map_base_address: 0,
-            write_priority_mode: GraphicsWritePriorityMode::Off,
             image_buffer_v_cell_size: 1,
             image_buffer_start_address: 0,
             image_buffer_v_offset: 0,
@@ -362,14 +334,6 @@ impl GraphicsCoprocessor {
         }
     }
 
-    pub fn write_priority_mode(&self) -> GraphicsWritePriorityMode {
-        self.write_priority_mode
-    }
-
-    pub fn set_write_priority_mode(&mut self, write_priority_mode: GraphicsWritePriorityMode) {
-        self.write_priority_mode = write_priority_mode;
-    }
-
     pub fn tick(
         &mut self,
         mclk_cycles: u64,
@@ -427,8 +391,6 @@ impl GraphicsCoprocessor {
         let image_buffer_h_dot_size = self.image_buffer_h_dot_size;
         let image_buffer_h_offset = self.image_buffer_h_offset;
 
-        let write_priority_mode = self.write_priority_mode;
-
         let mut image_buffer_start_address = self.image_buffer_start_address;
         let mut image_buffer_line = self.image_buffer_v_offset;
         for line in 0..image_buffer_v_dot_size {
@@ -478,24 +440,8 @@ impl GraphicsCoprocessor {
                         image_buffer_line,
                     );
 
-                let current_byte = read_word_ram(word_ram, image_buffer_addr);
-                let current_pixel =
-                    if image_buffer_dot.bit(0) { current_byte & 0x0F } else { current_byte >> 4 };
-
-                let should_write = match write_priority_mode {
-                    GraphicsWritePriorityMode::Off => true,
-                    GraphicsWritePriorityMode::Underwrite => current_pixel == 0,
-                    GraphicsWritePriorityMode::Overwrite => sample != 0,
-                };
-
-                if should_write {
-                    let new_pixel = if image_buffer_dot.bit(0) {
-                        (current_byte & 0xF0) | sample
-                    } else {
-                        (current_byte & 0x0F) | (sample << 4)
-                    };
-                    write_word_ram(word_ram, image_buffer_addr, new_pixel);
-                }
+                let nibble = if image_buffer_dot.bit(0) { Nibble::Low } else { Nibble::High };
+                write_word_ram(word_ram, image_buffer_addr, nibble, sample);
 
                 trace_x_position += trace_vector.delta_x;
                 trace_y_position += trace_vector.delta_y;
@@ -545,8 +491,8 @@ fn read_word_ram(word_ram: &WordRam, address: u32) -> u8 {
     word_ram.sub_cpu_read_ram(wordram::SUB_BASE_ADDRESS | address)
 }
 
-fn write_word_ram(word_ram: &mut WordRam, address: u32, value: u8) {
-    word_ram.sub_cpu_write_ram(wordram::SUB_BASE_ADDRESS | address, value);
+fn write_word_ram(word_ram: &mut WordRam, address: u32, nibble: Nibble, value: u8) {
+    word_ram.graphics_write_ram(wordram::SUB_BASE_ADDRESS | address, nibble, value);
 }
 
 fn compute_stamp_map_address(
