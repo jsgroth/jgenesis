@@ -206,12 +206,11 @@ impl SegaCd {
             }
             0xA12004 => {
                 log::trace!("  CDC mode read (main CPU)");
-                // TODO EDT
                 let cdc = self.disc_drive.cdc();
                 let data_ready = cdc.data_ready();
                 let dd_bits = cdc.device_destination().to_bits();
 
-                (u8::from(data_ready) << 6) | dd_bits
+                (u8::from(!data_ready) << 7) | (u8::from(data_ready) << 6) | dd_bits
             }
             0xA12006 => {
                 // HINT vector, high byte
