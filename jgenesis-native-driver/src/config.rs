@@ -73,6 +73,9 @@ impl GgAspectRatio {
 pub struct CommonConfig<KeyboardConfig, JoystickConfig> {
     pub rom_file_path: String,
     pub audio_sync: bool,
+    pub audio_device_queue_size: u16,
+    pub internal_audio_buffer_size: u32,
+    pub audio_sync_threshold: u32,
     pub audio_gain_db: f64,
     #[debug_fmt]
     pub window_size: Option<WindowSize>,

@@ -236,30 +236,50 @@ enum GenericConfig {
     SegaCd(Box<SegaCdConfig>),
 }
 
-fn smsgg_reload_handler(emulator: &mut NativeSmsGgEmulator, config: GenericConfig) {
+fn smsgg_reload_handler(
+    emulator: &mut NativeSmsGgEmulator,
+    config: GenericConfig,
+) -> Result<(), AudioError> {
     if let GenericConfig::SmsGg(config) = config {
-        emulator.reload_smsgg_config(config);
+        emulator.reload_smsgg_config(config)?;
     }
+
+    Ok(())
 }
 
-fn genesis_reload_handler(emulator: &mut NativeGenesisEmulator, config: GenericConfig) {
+fn genesis_reload_handler(
+    emulator: &mut NativeGenesisEmulator,
+    config: GenericConfig,
+) -> Result<(), AudioError> {
     if let GenericConfig::Genesis(config) = config {
-        emulator.reload_genesis_config(config);
+        emulator.reload_genesis_config(config)?;
     }
+
+    Ok(())
 }
 
-fn sega_cd_reload_handler(emulator: &mut NativeSegaCdEmulator, config: GenericConfig) {
+fn sega_cd_reload_handler(
+    emulator: &mut NativeSegaCdEmulator,
+    config: GenericConfig,
+) -> Result<(), AudioError> {
     if let GenericConfig::SegaCd(config) = config {
-        emulator.reload_sega_cd_config(config);
+        emulator.reload_sega_cd_config(config)?;
     }
+
+    Ok(())
 }
+
+type ConfigReloadHandler<Inputs, Button, Config, Emulator> = fn(
+    &mut NativeEmulator<Inputs, Button, Config, Emulator>,
+    GenericConfig,
+) -> Result<(), AudioError>;
 
 fn run_emulator<Inputs, Button, Config, Emulator>(
     mut emulator: NativeEmulator<Inputs, Button, Config, Emulator>,
     command_receiver: &Receiver<EmuThreadCommand>,
     input_sender: &Sender<Option<GenericInput>>,
     emulator_error: &Arc<Mutex<Option<anyhow::Error>>>,
-    config_reload_handler: fn(&mut NativeEmulator<Inputs, Button, Config, Emulator>, GenericConfig),
+    config_reload_handler: ConfigReloadHandler<Inputs, Button, Config, Emulator>,
 ) where
     Inputs: Clearable + GetButtonField<Button>,
     Button: Copy,
@@ -272,13 +292,28 @@ fn run_emulator<Inputs, Button, Config, Emulator>(
                 while let Ok(command) = command_receiver.try_recv() {
                     match command {
                         EmuThreadCommand::ReloadSmsGgConfig(config) => {
-                            config_reload_handler(&mut emulator, GenericConfig::SmsGg(config));
+                            if let Err(err) =
+                                config_reload_handler(&mut emulator, GenericConfig::SmsGg(config))
+                            {
+                                *emulator_error.lock().unwrap() = Some(err.into());
+                                return;
+                            }
                         }
                         EmuThreadCommand::ReloadGenesisConfig(config) => {
-                            config_reload_handler(&mut emulator, GenericConfig::Genesis(config));
+                            if let Err(err) =
+                                config_reload_handler(&mut emulator, GenericConfig::Genesis(config))
+                            {
+                                *emulator_error.lock().unwrap() = Some(err.into());
+                                return;
+                            }
                         }
                         EmuThreadCommand::ReloadSegaCdConfig(config) => {
-                            config_reload_handler(&mut emulator, GenericConfig::SegaCd(config));
+                            if let Err(err) =
+                                config_reload_handler(&mut emulator, GenericConfig::SegaCd(config))
+                            {
+                                *emulator_error.lock().unwrap() = Some(err.into());
+                                return;
+                            }
                         }
                         EmuThreadCommand::StopEmulator => {
                             log::info!("Stopping emulator");

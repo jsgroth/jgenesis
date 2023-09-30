@@ -78,47 +78,75 @@ struct SdlAudioOutput {
     audio_queue: AudioQueue<f32>,
     audio_buffer: Vec<f32>,
     audio_sync: bool,
+    internal_audio_buffer_len: u32,
+    audio_sync_threshold: u32,
     audio_gain_multiplier: f64,
     sample_count: u64,
     speed_multiplier: u64,
 }
 
 impl SdlAudioOutput {
-    fn create_and_init(
+    fn create_and_init<KC, JC>(
         audio: &AudioSubsystem,
-        audio_sync: bool,
-        audio_gain_db: f64,
+        config: &CommonConfig<KC, JC>,
     ) -> Result<Self, AudioError> {
         let audio_queue = audio
             .open_queue(
                 None,
-                &AudioSpecDesired { freq: Some(48000), channels: Some(2), samples: Some(64) },
+                &AudioSpecDesired {
+                    freq: Some(48000),
+                    channels: Some(2),
+                    samples: Some(config.audio_device_queue_size),
+                },
             )
             .map_err(AudioError::OpenQueue)?;
         audio_queue.resume();
 
         Ok(Self {
             audio_queue,
-            audio_buffer: Vec::with_capacity(64),
-            audio_sync,
-            audio_gain_multiplier: decibels_to_multiplier(audio_gain_db),
+            audio_buffer: Vec::with_capacity(config.internal_audio_buffer_size as usize),
+            audio_sync: config.audio_sync,
+            internal_audio_buffer_len: config.internal_audio_buffer_size,
+            audio_sync_threshold: config.audio_sync_threshold,
+            audio_gain_multiplier: decibels_to_multiplier(config.audio_gain_db),
             sample_count: 0,
             speed_multiplier: 1,
         })
     }
 
-    fn reload_config(&mut self, audio_sync: bool, audio_gain_db: f64) {
-        self.audio_sync = audio_sync;
-        self.audio_gain_multiplier = decibels_to_multiplier(audio_gain_db);
+    fn reload_config<KC, JC>(&mut self, config: &CommonConfig<KC, JC>) -> Result<(), AudioError> {
+        self.audio_sync = config.audio_sync;
+        self.internal_audio_buffer_len = config.internal_audio_buffer_size;
+        self.audio_sync_threshold = config.audio_sync_threshold;
+        self.audio_gain_multiplier = decibels_to_multiplier(config.audio_gain_db);
+
+        if config.audio_device_queue_size != self.audio_queue.spec().samples {
+            log::info!("Recreating SDL audio queue with size {}", config.audio_device_queue_size);
+            self.audio_queue.pause();
+
+            let new_audio_queue = self
+                .audio_queue
+                .subsystem()
+                .open_queue(
+                    None,
+                    &AudioSpecDesired {
+                        freq: Some(48000),
+                        channels: Some(2),
+                        samples: Some(config.audio_device_queue_size),
+                    },
+                )
+                .map_err(AudioError::OpenQueue)?;
+            self.audio_queue = new_audio_queue;
+            self.audio_queue.resume();
+        }
+
+        Ok(())
     }
 }
 
 fn decibels_to_multiplier(decibels: f64) -> f64 {
     10.0_f64.powf(decibels / 20.0)
 }
-
-// 1024 4-byte samples
-const MAX_AUDIO_QUEUE_SIZE: u32 = 1024 * 4;
 
 impl AudioOutput for SdlAudioOutput {
     type Err = AudioError;
@@ -133,13 +161,13 @@ impl AudioOutput for SdlAudioOutput {
         self.audio_buffer.push((sample_l * self.audio_gain_multiplier) as f32);
         self.audio_buffer.push((sample_r * self.audio_gain_multiplier) as f32);
 
-        if self.audio_buffer.len() == 64 {
+        if self.audio_buffer.len() >= self.internal_audio_buffer_len as usize {
             if self.audio_sync {
                 // Wait until audio queue is not full
-                while self.audio_queue.size() >= MAX_AUDIO_QUEUE_SIZE {
+                while self.audio_queue.size() >= self.audio_sync_threshold {
                     sleep(Duration::from_micros(250));
                 }
-            } else if self.audio_queue.size() >= MAX_AUDIO_QUEUE_SIZE {
+            } else if self.audio_queue.size() >= self.audio_sync_threshold {
                 // Audio queue is full; drop samples
                 self.audio_buffer.clear();
                 return Ok(());
@@ -225,9 +253,12 @@ pub struct NativeEmulator<Inputs, Button, Config, Emulator: LightClone> {
 impl<Inputs, Button, Config, Emulator: LightClone>
     NativeEmulator<Inputs, Button, Config, Emulator>
 {
-    fn reload_common_config<KC, JC>(&mut self, config: &CommonConfig<KC, JC>) {
+    fn reload_common_config<KC, JC>(
+        &mut self,
+        config: &CommonConfig<KC, JC>,
+    ) -> Result<(), AudioError> {
         self.renderer.reload_config(config.renderer_config);
-        self.audio_output.reload_config(config.audio_sync, config.audio_gain_db);
+        self.audio_output.reload_config(config)?;
 
         self.fast_forward_multiplier = config.fast_forward_multiplier;
         // Reset speed multiplier in case the fast forward hotkey changed
@@ -244,6 +275,8 @@ impl<Inputs, Button, Config, Emulator: LightClone>
                 log::error!("Error reloading hotkey config: {err}");
             }
         }
+
+        Ok(())
     }
 
     pub fn focus(&mut self) {
@@ -262,10 +295,13 @@ pub type NativeSmsGgEmulator =
     NativeEmulator<SmsGgInputs, SmsGgButton, SmsGgEmulatorConfig, SmsGgEmulator>;
 
 impl NativeSmsGgEmulator {
-    pub fn reload_smsgg_config(&mut self, config: Box<SmsGgConfig>) {
+    /// # Errors
+    ///
+    /// This method will return an error if it is unable to reload audio config.
+    pub fn reload_smsgg_config(&mut self, config: Box<SmsGgConfig>) -> Result<(), AudioError> {
         log::info!("Reloading config: {config}");
 
-        self.reload_common_config(&config.common);
+        self.reload_common_config(&config.common)?;
 
         let vdp_version = self.emulator.vdp_version();
         let psg_version = config.psg_version.unwrap_or_else(|| {
@@ -286,6 +322,8 @@ impl NativeSmsGgEmulator {
         {
             log::error!("Error reloading input config: {err}");
         }
+
+        Ok(())
     }
 }
 
@@ -293,10 +331,13 @@ pub type NativeGenesisEmulator =
     NativeEmulator<GenesisInputs, GenesisButton, GenesisEmulatorConfig, GenesisEmulator>;
 
 impl NativeGenesisEmulator {
-    pub fn reload_genesis_config(&mut self, config: Box<GenesisConfig>) {
+    /// # Errors
+    ///
+    /// This method will return an error if it is unable to reload audio config.
+    pub fn reload_genesis_config(&mut self, config: Box<GenesisConfig>) -> Result<(), AudioError> {
         log::info!("Reloading config: {config}");
 
-        self.reload_common_config(&config.common);
+        self.reload_common_config(&config.common)?;
 
         let emulator_config = config.to_emulator_config();
         self.emulator.reload_config(&emulator_config);
@@ -310,6 +351,8 @@ impl NativeGenesisEmulator {
         ) {
             log::error!("Error reloading input config: {err}");
         }
+
+        Ok(())
     }
 }
 
@@ -317,10 +360,13 @@ pub type NativeSegaCdEmulator =
     NativeEmulator<GenesisInputs, GenesisButton, GenesisEmulatorConfig, SegaCdEmulator>;
 
 impl NativeSegaCdEmulator {
-    pub fn reload_sega_cd_config(&mut self, config: Box<SegaCdConfig>) {
+    /// # Errors
+    ///
+    /// This method will return an error if it is unable to reload audio config.
+    pub fn reload_sega_cd_config(&mut self, config: Box<SegaCdConfig>) -> Result<(), AudioError> {
         log::info!("Reloading config: {config}");
 
-        self.reload_common_config(&config.genesis.common);
+        self.reload_common_config(&config.genesis.common)?;
         self.emulator.reload_config(&config.genesis.to_emulator_config());
 
         if let Err(err) = self.input_mapper.reload_config(
@@ -331,6 +377,8 @@ impl NativeSegaCdEmulator {
         ) {
             log::error!("Error reloading input config: {err}");
         }
+
+        Ok(())
     }
 }
 
@@ -571,11 +619,7 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
 
     let renderer =
         pollster::block_on(WgpuRenderer::new(window, Window::size, config.common.renderer_config))?;
-    let audio_output = SdlAudioOutput::create_and_init(
-        &audio,
-        config.common.audio_sync,
-        config.common.audio_gain_db,
-    )?;
+    let audio_output = SdlAudioOutput::create_and_init(&audio, &config.common)?;
     let input_mapper = InputMapper::new_smsgg(
         joystick,
         config.common.keyboard_inputs,
@@ -649,11 +693,7 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
 
     let renderer =
         pollster::block_on(WgpuRenderer::new(window, Window::size, config.common.renderer_config))?;
-    let audio_output = SdlAudioOutput::create_and_init(
-        &audio,
-        config.common.audio_sync,
-        config.common.audio_gain_db,
-    )?;
+    let audio_output = SdlAudioOutput::create_and_init(&audio, &config.common)?;
     let input_mapper = InputMapper::new_genesis(
         config.p1_controller_type,
         config.p2_controller_type,
@@ -731,11 +771,7 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
         Window::size,
         config.genesis.common.renderer_config,
     ))?;
-    let audio_output = SdlAudioOutput::create_and_init(
-        &audio,
-        config.genesis.common.audio_sync,
-        config.genesis.common.audio_gain_db,
-    )?;
+    let audio_output = SdlAudioOutput::create_and_init(&audio, &config.genesis.common)?;
     let input_mapper = InputMapper::new_genesis(
         config.genesis.p1_controller_type,
         config.genesis.p2_controller_type,

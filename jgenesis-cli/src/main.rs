@@ -106,6 +106,18 @@ struct Args {
     #[arg(long = "no-audio-sync", default_value_t = true, action = clap::ArgAction::SetFalse)]
     audio_sync: bool,
 
+    /// Audio device queue size in samples
+    #[arg(long, default_value_t = 512)]
+    audio_device_queue_size: u16,
+
+    /// Internal audio buffer size in samples
+    #[arg(long, default_value_t = 64)]
+    internal_audio_buffer_size: u32,
+
+    /// Audio sync threshold in bytes (1 sample = 2x4 bytes)
+    #[arg(long, default_value_t = 8192)]
+    audio_sync_threshold: u32,
+
     /// Audio gain in decibels; can be positive or negative
     #[arg(long, default_value_t = 0.0)]
     audio_gain_db: f64,
@@ -367,6 +379,9 @@ impl Args {
         CommonConfig {
             rom_file_path: self.file_path.clone(),
             audio_sync: self.audio_sync,
+            audio_device_queue_size: self.audio_device_queue_size,
+            internal_audio_buffer_size: self.internal_audio_buffer_size,
+            audio_sync_threshold: self.audio_sync_threshold,
             audio_gain_db: self.audio_gain_db,
             window_size: self.window_size(),
             renderer_config: self.renderer_config(),

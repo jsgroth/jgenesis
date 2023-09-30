@@ -35,6 +35,12 @@ use std::path::{Path, PathBuf};
 struct CommonAppConfig {
     #[serde(default = "true_fn")]
     audio_sync: bool,
+    #[serde(default = "default_audio_device_queue_size")]
+    audio_device_queue_size: u16,
+    #[serde(default = "default_internal_audio_buffer_size")]
+    internal_audio_buffer_size: u32,
+    #[serde(default = "default_audio_sync_threshold")]
+    audio_sync_threshold: u32,
     #[serde(default)]
     audio_gain_db: f64,
     window_width: Option<u32>,
@@ -78,6 +84,18 @@ impl Default for CommonAppConfig {
 
 fn true_fn() -> bool {
     true
+}
+
+fn default_audio_device_queue_size() -> u16 {
+    512
+}
+
+fn default_internal_audio_buffer_size() -> u32 {
+    64
+}
+
+fn default_audio_sync_threshold() -> u32 {
+    8192
 }
 
 fn default_prescale_factor() -> PrescaleFactor {
@@ -196,6 +214,9 @@ impl AppConfig {
         CommonConfig {
             rom_file_path: path,
             audio_sync: self.common.audio_sync,
+            audio_device_queue_size: self.common.audio_device_queue_size,
+            internal_audio_buffer_size: self.common.internal_audio_buffer_size,
+            audio_sync_threshold: self.common.audio_sync_threshold,
             audio_gain_db: self.common.audio_gain_db,
             window_size: self.common.window_size(),
             renderer_config: RendererConfig {
@@ -311,6 +332,12 @@ struct AppState {
     ff_multiplier_invalid: bool,
     rewind_buffer_len_text: String,
     rewind_buffer_len_invalid: bool,
+    audio_device_queue_size_text: String,
+    audio_device_queue_size_invalid: bool,
+    internal_audio_buffer_size_text: String,
+    internal_audio_buffer_size_invalid: bool,
+    audio_sync_threshold_text: String,
+    audio_sync_threshold_invalid: bool,
     audio_gain_text: String,
     audio_gain_invalid: bool,
     display_scanlines_warning: bool,
@@ -333,6 +360,12 @@ impl AppState {
             ff_multiplier_invalid: false,
             rewind_buffer_len_text: config.common.rewind_buffer_length_seconds.to_string(),
             rewind_buffer_len_invalid: false,
+            audio_device_queue_size_text: config.common.audio_device_queue_size.to_string(),
+            audio_device_queue_size_invalid: false,
+            internal_audio_buffer_size_text: config.common.internal_audio_buffer_size.to_string(),
+            internal_audio_buffer_size_invalid: false,
+            audio_sync_threshold_text: config.common.audio_sync_threshold.to_string(),
+            audio_sync_threshold_invalid: false,
             audio_gain_text: format!("{:.1}", config.common.audio_gain_db),
             audio_gain_invalid: false,
             display_scanlines_warning: should_display_scanlines_warning(config),
@@ -869,14 +902,95 @@ impl App {
         }
     }
 
-    fn render_audio_settings(&mut self, ctx: &Context) {
+    fn render_common_audio_settings(&mut self, ctx: &Context) {
+        const TEXT_EDIT_WIDTH: f32 = 50.0;
+        const MIN_DEVICE_QUEUE_SIZE: u16 = 8;
+        const MIN_AUDIO_SYNC_THRESHOLD: u32 = 64;
+
         let mut open = true;
         Window::new("General Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.checkbox(&mut self.config.common.audio_sync, "Audio sync enabled");
 
+            ui.add_space(10.0);
+
+            ui.horizontal(|ui| {
+                if TextEdit::singleline(&mut self.state.audio_device_queue_size_text)
+                    .desired_width(TEXT_EDIT_WIDTH)
+                    .ui(ui)
+                    .changed()
+                {
+                    match self.state.audio_device_queue_size_text.parse::<u16>() {
+                        Ok(value) if value.is_power_of_two() && value >= MIN_DEVICE_QUEUE_SIZE => {
+                            self.config.common.audio_device_queue_size = value;
+                            self.state.audio_device_queue_size_invalid = false;
+                        }
+                        _ => {
+                            self.state.audio_device_queue_size_invalid = true;
+                        }
+                    }
+                }
+
+                ui.label("Audio device queue size (samples)");
+            });
+            if self.state.audio_device_queue_size_invalid {
+                ui.colored_label(Color32::RED, format!("Audio device queue size must be a power of 2 and must be at least {MIN_DEVICE_QUEUE_SIZE}"));
+            }
+
+            ui.horizontal(|ui| {
+                if TextEdit::singleline(&mut self.state.internal_audio_buffer_size_text)
+                    .desired_width(TEXT_EDIT_WIDTH)
+                    .ui(ui)
+                    .changed()
+                {
+                    match self.state.internal_audio_buffer_size_text.parse::<u32>() {
+                        Ok(value) if value > 0 => {
+                            self.config.common.internal_audio_buffer_size = value;
+                            self.state.internal_audio_buffer_size_invalid = false;
+                        }
+                        _ => {
+                            self.state.internal_audio_buffer_size_invalid = true;
+                        }
+                    }
+                }
+
+                ui.label("Internal audio buffer size (samples)");
+            });
+            if self.state.internal_audio_buffer_size_invalid {
+                ui.colored_label(
+                    Color32::RED,
+                    "Internal audio buffer size must be a positive integer",
+                );
+            }
+
+            ui.horizontal(|ui| {
+                if TextEdit::singleline(&mut self.state.audio_sync_threshold_text)
+                    .desired_width(TEXT_EDIT_WIDTH)
+                    .ui(ui)
+                    .changed()
+                {
+                    match self.state.audio_sync_threshold_text.parse::<u32>() {
+                        Ok(value) if value >= MIN_AUDIO_SYNC_THRESHOLD => {
+                            self.config.common.audio_sync_threshold = value;
+                            self.state.audio_sync_threshold_invalid = false;
+                        }
+                        _ => {
+                            self.state.audio_sync_threshold_invalid = true;
+                        }
+                    }
+                }
+
+                ui.label("Audio sync threshold (bytes)");
+            });
+            if self.state.audio_sync_threshold_invalid {
+                ui.colored_label(
+                    Color32::RED,
+                    format!("Audio sync threshold must be at least {MIN_AUDIO_SYNC_THRESHOLD}"),
+                );
+            }
+
             ui.horizontal(|ui| {
                 if TextEdit::singleline(&mut self.state.audio_gain_text)
-                    .desired_width(40.0)
+                    .desired_width(TEXT_EDIT_WIDTH)
                     .ui(ui)
                     .changed()
                 {
@@ -1245,7 +1359,7 @@ impl eframe::App for App {
                     self.render_genesis_video_settings(ctx);
                 }
                 OpenWindow::CommonAudio => {
-                    self.render_audio_settings(ctx);
+                    self.render_common_audio_settings(ctx);
                 }
                 OpenWindow::SmsGgAudio => {
                     self.render_smsgg_audio_settings(ctx);
