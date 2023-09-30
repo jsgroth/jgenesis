@@ -697,6 +697,9 @@ impl CdDrive {
                     log::trace!("Beginning to play at {time}");
 
                     self.state = CddState::Playing(time);
+
+                    // Ensure that leftover data in the buffer doesn't get played until the buffer is refilled
+                    self.loaded_audio_sector = false;
                 } else {
                     self.state =
                         CddState::PreparingToPlay { time, clocks_remaining: clocks_remaining - 1 };

@@ -116,14 +116,13 @@ impl CdRom {
             return Ok(());
         }
 
-        // TODO correctly handle postgap
-
         let track_file = self
             .files
             .get_mut(&track.metadata.file_name)
             .expect("Track file was not opened on load; this is a bug");
 
-        let sector_number = (relative_time - track.pregap_len).to_sector_number();
+        let relative_sector_number = (relative_time - track.pregap_len).to_sector_number();
+        let sector_number = track.metadata.time_in_file.to_sector_number() + relative_sector_number;
         track_file
             .seek(SeekFrom::Start(u64::from(sector_number) * cdrom::BYTES_PER_SECTOR))
             .map_err(DiscError::DiscReadIo)?;
