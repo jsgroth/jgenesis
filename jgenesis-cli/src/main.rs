@@ -425,14 +425,14 @@ fn main() -> anyhow::Result<()> {
     args.validate();
 
     let hardware = args.hardware.unwrap_or_else(|| {
-        let file_ext = Path::new(&args.file_path).extension().and_then(OsStr::to_str).unwrap();
+        let file_ext = Path::new(&args.file_path).extension().and_then(OsStr::to_str).unwrap_or("");
         match file_ext {
             "sms" | "gg" => Hardware::MasterSystem,
             "md" | "bin" => Hardware::Genesis,
             "cue" => Hardware::SegaCd,
             _ => {
-                log::warn!("Unrecognized file extension: {file_ext} defaulting to SMS");
-                Hardware::MasterSystem
+                log::warn!("Unrecognized file extension: '{file_ext}' defaulting to Genesis");
+                Hardware::Genesis
             }
         }
     });
