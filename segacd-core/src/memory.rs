@@ -24,7 +24,6 @@ use wordram::WordRam;
 
 pub const BIOS_LEN: usize = 128 * 1024;
 pub const PRG_RAM_LEN: usize = 512 * 1024;
-const PCM_RAM_LEN: usize = 16 * 1024;
 const BACKUP_RAM_LEN: usize = 8 * 1024;
 
 const TIMER_DIVIDER: u64 = 1536;
@@ -122,7 +121,6 @@ pub struct SegaCd {
     disc_drive: CdController,
     prg_ram: Box<[u8; PRG_RAM_LEN]>,
     word_ram: WordRam,
-    pcm_ram: Box<[u8; PCM_RAM_LEN]>,
     backup_ram: Box<[u8; BACKUP_RAM_LEN]>,
     backup_ram_dirty: bool,
     registers: SegaCdRegisters,
@@ -171,7 +169,6 @@ impl SegaCd {
             disc_drive: CdController::new(disc),
             prg_ram: vec![0; PRG_RAM_LEN].into_boxed_slice().try_into().unwrap(),
             word_ram: WordRam::new(),
-            pcm_ram: vec![0; PCM_RAM_LEN].into_boxed_slice().try_into().unwrap(),
             backup_ram,
             backup_ram_dirty: false,
             registers: SegaCdRegisters::new(),
