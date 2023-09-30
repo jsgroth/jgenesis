@@ -1778,6 +1778,7 @@ dependencies = [
  "regex",
  "rfd",
  "sdl2",
+ "segacd-core",
  "serde",
  "smsgg-core",
  "toml 0.8.0",

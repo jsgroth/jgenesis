@@ -15,7 +15,9 @@ use sdl2::joystick::HatState;
 use sdl2::pixels::Color;
 use sdl2::render::WindowCanvas;
 use sdl2::{EventPump, JoystickSubsystem};
+use segacd_core::api::DiscResult;
 use std::error::Error;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::sync::{mpsc, Arc, Mutex, MutexGuard};
@@ -58,6 +60,8 @@ pub enum EmuThreadCommand {
     CollectInput { input_type: InputType, axis_deadzone: i16 },
     SoftReset,
     HardReset,
+    SegaCdRemoveDisc,
+    SegaCdChangeDisc(PathBuf),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,6 +127,18 @@ impl EmuThreadHandle {
     }
 }
 
+macro_rules! noop_remove_disc_handler {
+    () => {
+        |_emulator| {}
+    };
+}
+
+macro_rules! noop_change_disc_handler {
+    () => {
+        |_emulator, _path| Ok(())
+    };
+}
+
 pub fn spawn() -> EmuThreadHandle {
     let status_arc = Arc::new(AtomicU8::new(EmuThreadStatus::Idle as u8));
     let (command_sender, command_receiver) = mpsc::channel();
@@ -153,6 +169,8 @@ pub fn spawn() -> EmuThreadHandle {
                         &input_sender,
                         &emulator_error,
                         smsgg_reload_handler,
+                        noop_remove_disc_handler!(),
+                        noop_change_disc_handler!(),
                     );
                 }
                 Ok(EmuThreadCommand::RunGenesis(config)) => {
@@ -172,6 +190,8 @@ pub fn spawn() -> EmuThreadHandle {
                         &input_sender,
                         &emulator_error,
                         genesis_reload_handler,
+                        noop_remove_disc_handler!(),
+                        noop_change_disc_handler!(),
                     );
                 }
                 Ok(EmuThreadCommand::RunSegaCd(config)) => {
@@ -191,6 +211,8 @@ pub fn spawn() -> EmuThreadHandle {
                         &input_sender,
                         &emulator_error,
                         sega_cd_reload_handler,
+                        sega_cd_remove_disc_handler,
+                        sega_cd_change_disc_handler,
                     );
                 }
                 Ok(EmuThreadCommand::CollectInput { input_type, axis_deadzone }) => {
@@ -209,7 +231,9 @@ pub fn spawn() -> EmuThreadHandle {
                     | EmuThreadCommand::ReloadGenesisConfig(_)
                     | EmuThreadCommand::ReloadSegaCdConfig(_)
                     | EmuThreadCommand::SoftReset
-                    | EmuThreadCommand::HardReset,
+                    | EmuThreadCommand::HardReset
+                    | EmuThreadCommand::SegaCdRemoveDisc
+                    | EmuThreadCommand::SegaCdChangeDisc(_),
                 ) => {}
                 Err(err) => {
                     log::info!(
@@ -227,6 +251,17 @@ pub fn spawn() -> EmuThreadHandle {
         input_receiver,
         emulator_error: emulator_error_arc,
     }
+}
+
+fn sega_cd_remove_disc_handler(emulator: &mut NativeSegaCdEmulator) {
+    emulator.remove_disc();
+}
+
+fn sega_cd_change_disc_handler(
+    emulator: &mut NativeSegaCdEmulator,
+    path: PathBuf,
+) -> DiscResult<()> {
+    emulator.change_disc(path)
 }
 
 #[derive(Debug, Clone)]
@@ -274,12 +309,20 @@ type ConfigReloadHandler<Inputs, Button, Config, Emulator> = fn(
     GenericConfig,
 ) -> Result<(), AudioError>;
 
+type RemoveDiscHandler<Inputs, Button, Config, Emulator> =
+    fn(&mut NativeEmulator<Inputs, Button, Config, Emulator>);
+
+type ChangeDiscHandler<Inputs, Button, Config, Emulator> =
+    fn(&mut NativeEmulator<Inputs, Button, Config, Emulator>, PathBuf) -> DiscResult<()>;
+
 fn run_emulator<Inputs, Button, Config, Emulator>(
     mut emulator: NativeEmulator<Inputs, Button, Config, Emulator>,
     command_receiver: &Receiver<EmuThreadCommand>,
     input_sender: &Sender<Option<GenericInput>>,
     emulator_error: &Arc<Mutex<Option<anyhow::Error>>>,
     config_reload_handler: ConfigReloadHandler<Inputs, Button, Config, Emulator>,
+    remove_disc_handler: RemoveDiscHandler<Inputs, Button, Config, Emulator>,
+    change_disc_handler: ChangeDiscHandler<Inputs, Button, Config, Emulator>,
 ) where
     Inputs: Clearable + GetButtonField<Button>,
     Button: Copy,
@@ -349,6 +392,15 @@ fn run_emulator<Inputs, Button, Config, Emulator>(
                         }
                         EmuThreadCommand::HardReset => {
                             emulator.hard_reset();
+                        }
+                        EmuThreadCommand::SegaCdRemoveDisc => {
+                            remove_disc_handler(&mut emulator);
+                        }
+                        EmuThreadCommand::SegaCdChangeDisc(path) => {
+                            if let Err(err) = change_disc_handler(&mut emulator, path) {
+                                *emulator_error.lock().unwrap() = Some(err.into());
+                                return;
+                            }
                         }
                         _ => {}
                     }

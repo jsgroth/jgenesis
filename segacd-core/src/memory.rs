@@ -18,6 +18,7 @@ use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use jgenesis_traits::num::GetBit;
 use m68000_emu::BusInterface;
 use std::ops::Deref;
+use std::path::Path;
 use std::{array, mem};
 use wordram::WordRam;
 
@@ -470,6 +471,14 @@ impl SegaCd {
     pub fn reset(&mut self) {
         self.disc_drive.reset();
         self.registers = SegaCdRegisters::new();
+    }
+
+    pub fn remove_disc(&mut self) {
+        self.disc_drive.cdd_mut().remove_disc();
+    }
+
+    pub fn change_disc<P: AsRef<Path>>(&mut self, cue_path: P) -> DiscResult<()> {
+        self.disc_drive.cdd_mut().change_disc(cue_path)
     }
 }
 

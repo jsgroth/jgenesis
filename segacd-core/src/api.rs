@@ -247,6 +247,22 @@ impl SegaCdEmulator {
     pub fn disc_title(&self) -> &str {
         &self.disc_title
     }
+
+    pub fn remove_disc(&mut self) {
+        self.memory.medium_mut().remove_disc();
+        self.disc_title = "(no disc)".into();
+    }
+
+    /// # Errors
+    ///
+    /// This method will return an error if the disc drive is unable to load the disc.
+    pub fn change_disc<P: AsRef<Path>>(&mut self, cue_path: P) -> DiscResult<()> {
+        let sega_cd = self.memory.medium_mut();
+        sega_cd.change_disc(cue_path)?;
+        self.disc_title = sega_cd.disc_title()?.unwrap_or_else(|| "(no disc)".into());
+
+        Ok(())
+    }
 }
 
 impl TickableEmulator for SegaCdEmulator {

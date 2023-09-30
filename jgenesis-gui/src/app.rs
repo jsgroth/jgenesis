@@ -1109,14 +1109,34 @@ impl App {
 
                     if ui.button("Soft Reset").clicked() {
                         self.emu_thread.send(EmuThreadCommand::SoftReset);
+                        ui.close_menu();
                     }
 
                     if ui.button("Hard Reset").clicked() {
                         self.emu_thread.send(EmuThreadCommand::HardReset);
+                        ui.close_menu();
                     }
 
                     if ui.button("Power Off").clicked() {
                         self.emu_thread.send(EmuThreadCommand::StopEmulator);
+                        ui.close_menu();
+                    }
+
+                    ui.set_enabled(self.emu_thread.status() == EmuThreadStatus::RunningSegaCd);
+
+                    if ui.button("Remove Disc").clicked() {
+                        self.emu_thread.send(EmuThreadCommand::SegaCdRemoveDisc);
+                        ui.close_menu();
+                    }
+
+                    if ui.button("Change Disc").clicked() {
+                        if let Some(path) =
+                            FileDialog::new().add_filter("cue", &["cue"]).pick_file()
+                        {
+                            self.emu_thread.send(EmuThreadCommand::SegaCdChangeDisc(path));
+                        }
+
+                        ui.close_menu();
                     }
                 });
 

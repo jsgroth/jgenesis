@@ -21,7 +21,7 @@ use sdl2::event::{Event, WindowEvent};
 use sdl2::render::TextureValueError;
 use sdl2::video::{FullscreenType, Window, WindowBuildError};
 use sdl2::{AudioSubsystem, EventPump, IntegerOrSdlError, JoystickSubsystem, VideoSubsystem};
-use segacd_core::api::{DiscError, SegaCdEmulator};
+use segacd_core::api::{DiscError, DiscResult, SegaCdEmulator};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgInputs};
 use std::error::Error;
@@ -376,6 +376,39 @@ impl NativeSegaCdEmulator {
             config.genesis.common.joystick_inputs,
         ) {
             log::error!("Error reloading input config: {err}");
+        }
+
+        Ok(())
+    }
+
+    #[allow(clippy::missing_panics_doc)]
+    pub fn remove_disc(&mut self) {
+        self.emulator.remove_disc();
+
+        // SAFETY: This is not reassigning the window
+        unsafe {
+            self.renderer
+                .window_mut()
+                .set_title("sega cd - (no disc)")
+                .expect("Given string literal will never contain a null character");
+        }
+    }
+
+    /// # Errors
+    ///
+    /// This method will return an error if the disc drive is unable to load the disc.
+    #[allow(clippy::missing_panics_doc)]
+    pub fn change_disc<P: AsRef<Path>>(&mut self, cue_path: P) -> DiscResult<()> {
+        self.emulator.change_disc(cue_path)?;
+
+        let title = format!("sega cd - {}", self.emulator.disc_title());
+
+        // SAFETY: This is not reassigning the window
+        unsafe {
+            self.renderer
+                .window_mut()
+                .set_title(&title)
+                .expect("Disc title should have non-printable characters already removed");
         }
 
         Ok(())

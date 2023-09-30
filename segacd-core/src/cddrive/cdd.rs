@@ -1,13 +1,15 @@
-use crate::api::DiscResult;
+use crate::api::{DiscError, DiscResult};
 use crate::cddrive::cdc::Rchip;
 use crate::cdrom;
 use crate::cdrom::cdtime::CdTime;
+use crate::cdrom::cue;
 use crate::cdrom::cue::{Track, TrackType};
 use crate::cdrom::reader::CdRom;
 use bincode::{Decode, Encode};
 use genesis_core::GenesisRegion;
 use regex::Regex;
 use std::cmp::Ordering;
+use std::path::Path;
 use std::sync::OnceLock;
 use std::{array, cmp};
 
@@ -122,8 +124,12 @@ enum State {
     Rewinding(CdTime),
     DiscStart,
     DiscEnd(CdTime),
-    TrayOpening,
-    TrayOpen,
+    TrayOpening {
+        auto_close: bool,
+    },
+    TrayOpen {
+        auto_close: bool,
+    },
     TrayClosing,
     InvalidCommand(CdTime),
     ReadingToc,
@@ -136,8 +142,8 @@ impl State {
             | Self::NoDisc
             | Self::DiscStart
             | Self::ReadingToc
-            | Self::TrayOpening
-            | Self::TrayOpen
+            | Self::TrayOpening { .. }
+            | Self::TrayOpen { .. }
             | Self::TrayClosing => CdTime::ZERO,
             Self::PreparingToPlay { time, .. }
             | Self::Playing(time)
@@ -278,14 +284,14 @@ impl CdDrive {
             0x0C => {
                 // Close tray
                 log::trace!("  Command: Close Tray");
-                if matches!(self.state, State::TrayOpening | State::TrayOpen) {
+                if matches!(self.state, State::TrayOpening { .. } | State::TrayOpen { .. }) {
                     self.state = State::TrayClosing;
                 }
             }
             0x0D => {
                 // Open tray
                 log::trace!("  Command: Open Tray");
-                self.state = State::TrayOpening;
+                self.state = State::TrayOpening { auto_close: false };
             }
             _ => {}
         }
@@ -315,8 +321,8 @@ impl CdDrive {
             State::Seeking { .. }
                 | State::TrackSkipping { .. }
                 | State::MotorStopped
-                | State::TrayOpening
-                | State::TrayOpen
+                | State::TrayOpening { .. }
+                | State::TrayOpen { .. }
                 | State::TrayClosing
                 | State::NoDisc
         ) {
@@ -435,8 +441,8 @@ impl CdDrive {
             State::FastForwarding(..) | State::Rewinding(..) => Status::Scanning,
             State::DiscStart => Status::DiscStart,
             State::DiscEnd(..) => Status::DiscEnd,
-            State::TrayOpening | State::TrayClosing => Status::TrayMoving,
-            State::TrayOpen => Status::TrayOpen,
+            State::TrayOpening { .. } | State::TrayClosing => Status::TrayMoving,
+            State::TrayOpen { .. } => Status::TrayOpen,
             State::InvalidCommand(..) => Status::InvalidCommand,
             State::ReadingToc => Status::ReadingToc,
         }
@@ -735,12 +741,15 @@ impl CdDrive {
                     }
                 }
             }
-            State::TrayOpening => {
-                self.state = State::TrayOpen;
+            State::TrayOpening { auto_close } => {
+                self.state = State::TrayOpen { auto_close };
             }
             State::TrayClosing => {
                 self.state = State::MotorStopped;
                 self.report_type = ReportType::AbsoluteTime;
+            }
+            State::TrayOpen { auto_close: true } => {
+                self.state = State::TrayClosing;
             }
             _ => {}
         }
@@ -800,6 +809,30 @@ impl CdDrive {
         self.report_type = ReportType::default();
         self.status = INITIAL_STATUS;
         self.interrupt_pending = false;
+    }
+
+    pub fn remove_disc(&mut self) {
+        log::info!("Removing disc");
+
+        self.disc = None;
+        self.state = State::TrayOpening { auto_close: true };
+    }
+
+    pub fn change_disc<P: AsRef<Path>>(&mut self, cue_path: P) -> DiscResult<()> {
+        let cue_path = cue_path.as_ref();
+
+        log::info!("Changing disc to '{}'", cue_path.display());
+
+        let cue_sheet = cue::parse(cue_path)?;
+
+        let Some(cue_directory) = cue_path.parent() else {
+            return Err(DiscError::CueParentDir(cue_path.display().to_string()));
+        };
+
+        self.disc = Some(CdRom::open(cue_sheet, cue_directory)?);
+        self.state = State::TrayOpening { auto_close: true };
+
+        Ok(())
     }
 }
 
