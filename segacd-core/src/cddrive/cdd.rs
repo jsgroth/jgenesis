@@ -320,6 +320,7 @@ impl CdDrive {
                 | CddState::TrayOpening
                 | CddState::TrayOpen
                 | CddState::TrayClosing
+                | CddState::NoDisc
         ) {
             self.status[1] = 0x0F;
             update_cdd_checksum(&mut self.status);
@@ -729,9 +730,16 @@ impl CdDrive {
                 self.state = CddState::Playing(time + CdTime::new(0, 0, 1));
             }
             CddState::MotorStopped => {
-                // Always transition to Reading TOC one clock after the motor is stopped; this fixes
-                // the EU BIOS freezing after leaving the options menu
-                self.state = CddState::ReadingToc;
+                match &self.disc {
+                    Some(_) => {
+                        // Always transition to Reading TOC one clock after the motor is stopped; this fixes
+                        // the EU BIOS freezing after leaving the options menu
+                        self.state = CddState::ReadingToc;
+                    }
+                    None => {
+                        self.state = CddState::NoDisc;
+                    }
+                }
             }
             CddState::TrayOpening => {
                 self.state = CddState::TrayOpen;
