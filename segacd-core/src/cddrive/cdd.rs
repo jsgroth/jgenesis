@@ -26,7 +26,7 @@ const FAST_FORWARD_FRAMES: u8 = 25;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CddStatus {
+enum Status {
     Stopped = 0x00,
     Playing = 0x01,
     Seeking = 0x02,
@@ -98,7 +98,7 @@ enum ReaderStatus {
 }
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]
-enum CddState {
+enum State {
     MotorStopped,
     NoDisc,
     PreparingToPlay {
@@ -129,7 +129,7 @@ enum CddState {
     ReadingToc,
 }
 
-impl CddState {
+impl State {
     fn current_time(self) -> CdTime {
         match self {
             Self::MotorStopped
@@ -153,7 +153,7 @@ impl CddState {
     }
 }
 
-impl Default for CddState {
+impl Default for State {
     fn default() -> Self {
         Self::MotorStopped
     }
@@ -163,7 +163,7 @@ impl Default for CddState {
 pub struct CdDrive {
     disc: Option<CdRom>,
     sector_buffer: [u8; cdrom::BYTES_PER_SECTOR as usize],
-    state: CddState,
+    state: State,
     report_type: ReportType,
     interrupt_pending: bool,
     status: [u8; 10],
@@ -178,7 +178,7 @@ impl CdDrive {
         Self {
             disc,
             sector_buffer: array::from_fn(|_| 0),
-            state: CddState::default(),
+            state: State::default(),
             report_type: ReportType::default(),
             interrupt_pending: false,
             status: INITIAL_STATUS,
@@ -202,7 +202,7 @@ impl CdDrive {
                 // Stop motor
                 log::trace!("  Command: Stop motor");
 
-                self.state = CddState::MotorStopped;
+                self.state = State::MotorStopped;
                 self.report_type = ReportType::AbsoluteTime;
             }
             0x02 => {
@@ -229,10 +229,10 @@ impl CdDrive {
 
                 match &self.disc {
                     Some(_) => {
-                        self.state = CddState::Paused(self.state.current_time());
+                        self.state = State::Paused(self.state.current_time());
                     }
                     None => {
-                        self.state = CddState::NoDisc;
+                        self.state = State::NoDisc;
                     }
                 }
             }
@@ -241,11 +241,9 @@ impl CdDrive {
                 log::trace!("  Command: Play");
 
                 match self.state {
-                    CddState::Paused(time)
-                    | CddState::FastForwarding(time)
-                    | CddState::Rewinding(time) => {
+                    State::Paused(time) | State::FastForwarding(time) | State::Rewinding(time) => {
                         self.state =
-                            CddState::PreparingToPlay { time, clocks_remaining: PLAY_DELAY_CLOCKS };
+                            State::PreparingToPlay { time, clocks_remaining: PLAY_DELAY_CLOCKS };
                     }
                     _ => {}
                 }
@@ -255,7 +253,7 @@ impl CdDrive {
                 log::trace!("  Command: Fast-forward");
 
                 if self.disc.is_some() {
-                    self.state = CddState::FastForwarding(self.state.current_time());
+                    self.state = State::FastForwarding(self.state.current_time());
                 }
             }
             0x09 => {
@@ -263,7 +261,7 @@ impl CdDrive {
                 log::trace!("  Command: Rewind");
 
                 if self.disc.is_some() {
-                    self.state = CddState::Rewinding(self.state.current_time());
+                    self.state = State::Rewinding(self.state.current_time());
                 }
             }
             0x0A => {
@@ -280,14 +278,14 @@ impl CdDrive {
             0x0C => {
                 // Close tray
                 log::trace!("  Command: Close Tray");
-                if matches!(self.state, CddState::TrayOpening | CddState::TrayOpen) {
-                    self.state = CddState::TrayClosing;
+                if matches!(self.state, State::TrayOpening | State::TrayOpen) {
+                    self.state = State::TrayClosing;
                 }
             }
             0x0D => {
                 // Open tray
                 log::trace!("  Command: Open Tray");
-                self.state = CddState::TrayOpening;
+                self.state = State::TrayOpening;
             }
             _ => {}
         }
@@ -314,13 +312,13 @@ impl CdDrive {
         // If seeking/skipping/stopped, return "not ready" status; not doing this causes Lunar to randomly freeze
         if matches!(
             self.state,
-            CddState::Seeking { .. }
-                | CddState::TrackSkipping { .. }
-                | CddState::MotorStopped
-                | CddState::TrayOpening
-                | CddState::TrayOpen
-                | CddState::TrayClosing
-                | CddState::NoDisc
+            State::Seeking { .. }
+                | State::TrackSkipping { .. }
+                | State::MotorStopped
+                | State::TrayOpening
+                | State::TrayOpen
+                | State::TrayClosing
+                | State::NoDisc
         ) {
             self.status[1] = 0x0F;
             update_cdd_checksum(&mut self.status);
@@ -413,7 +411,7 @@ impl CdDrive {
     fn status_flags(&self) -> u8 {
         // $04 if playing a data track, $00 otherwise
         let playing_data_track = match self.state {
-            CddState::Playing(time) | CddState::PreparingToPlay { time, .. } => {
+            State::Playing(time) | State::PreparingToPlay { time, .. } => {
                 self.disc.as_ref().is_some_and(|disc| {
                     disc.cue()
                         .find_track_by_time(time)
@@ -426,21 +424,21 @@ impl CdDrive {
         if playing_data_track { 0x04 } else { 0x00 }
     }
 
-    fn current_cdd_status(&self) -> CddStatus {
+    fn current_cdd_status(&self) -> Status {
         match self.state {
-            CddState::MotorStopped => CddStatus::Stopped,
-            CddState::NoDisc => CddStatus::NoDisc,
-            CddState::Paused(..) => CddStatus::Paused,
-            CddState::PreparingToPlay { .. } | CddState::Playing(..) => CddStatus::Playing,
-            CddState::Seeking { .. } => CddStatus::Seeking,
-            CddState::TrackSkipping { .. } => CddStatus::TrackSkipping,
-            CddState::FastForwarding(..) | CddState::Rewinding(..) => CddStatus::Scanning,
-            CddState::DiscStart => CddStatus::DiscStart,
-            CddState::DiscEnd(..) => CddStatus::DiscEnd,
-            CddState::TrayOpening | CddState::TrayClosing => CddStatus::TrayMoving,
-            CddState::TrayOpen => CddStatus::TrayOpen,
-            CddState::InvalidCommand(..) => CddStatus::InvalidCommand,
-            CddState::ReadingToc => CddStatus::ReadingToc,
+            State::MotorStopped => Status::Stopped,
+            State::NoDisc => Status::NoDisc,
+            State::Paused(..) => Status::Paused,
+            State::PreparingToPlay { .. } | State::Playing(..) => Status::Playing,
+            State::Seeking { .. } => Status::Seeking,
+            State::TrackSkipping { .. } => Status::TrackSkipping,
+            State::FastForwarding(..) | State::Rewinding(..) => Status::Scanning,
+            State::DiscStart => Status::DiscStart,
+            State::DiscEnd(..) => Status::DiscEnd,
+            State::TrayOpening | State::TrayClosing => Status::TrayMoving,
+            State::TrayOpen => Status::TrayOpen,
+            State::InvalidCommand(..) => Status::InvalidCommand,
+            State::ReadingToc => Status::ReadingToc,
         }
     }
 
@@ -451,11 +449,11 @@ impl CdDrive {
         log::trace!("  Report type changed to {report_type:?}");
 
         self.state = match (self.state, &self.disc, report_type) {
-            (CddState::MotorStopped, None, _) => CddState::NoDisc,
-            (CddState::MotorStopped, Some(_), _) => CddState::Paused(CdTime::ZERO),
+            (State::MotorStopped, None, _) => State::NoDisc,
+            (State::MotorStopped, Some(_), _) => State::Paused(CdTime::ZERO),
             (_, Some(_), ReportType::TrackNStartTime(..)) => {
                 // TOCN reports require reading the TOC; move back to start of disc
-                CddState::ReadingToc
+                State::ReadingToc
             }
             _ => self.state,
         };
@@ -463,12 +461,12 @@ impl CdDrive {
 
     fn execute_seek(&mut self, command: [u8; 10], next_status: ReaderStatus) {
         if self.disc.is_none() {
-            self.state = CddState::NoDisc;
+            self.state = State::NoDisc;
             return;
         }
 
         let Some(seek_time) = read_time_from_command(command) else {
-            self.state = CddState::InvalidCommand(self.state.current_time());
+            self.state = State::InvalidCommand(self.state.current_time());
             return;
         };
 
@@ -477,7 +475,7 @@ impl CdDrive {
         if seek_time == current_time {
             log::trace!("Already at desired seek time {seek_time}; preparing to play");
             self.state =
-                CddState::PreparingToPlay { time: seek_time, clocks_remaining: PLAY_DELAY_CLOCKS };
+                State::PreparingToPlay { time: seek_time, clocks_remaining: PLAY_DELAY_CLOCKS };
             return;
         }
 
@@ -487,17 +485,13 @@ impl CdDrive {
             "Seeking from {current_time} to {seek_time}; estimated time {seek_clocks} 75Hz clocks"
         );
 
-        self.state = CddState::Seeking {
-            current_time,
-            seek_time,
-            next_status,
-            clocks_remaining: seek_clocks,
-        };
+        self.state =
+            State::Seeking { current_time, seek_time, next_status, clocks_remaining: seek_clocks };
     }
 
     fn execute_track_skip(&mut self, command: [u8; 10]) {
         let Some(disc) = &self.disc else {
-            self.state = CddState::NoDisc;
+            self.state = State::NoDisc;
             return;
         };
 
@@ -537,7 +531,7 @@ impl CdDrive {
         );
 
         self.state =
-            CddState::TrackSkipping { current_time, skip_time, clocks_remaining: clocks_required };
+            State::TrackSkipping { current_time, skip_time, clocks_remaining: clocks_required };
     }
 
     pub fn status(&self) -> [u8; 10] {
@@ -546,7 +540,7 @@ impl CdDrive {
 
     pub fn playing_audio(&self) -> bool {
         match self.state {
-            CddState::Playing(current_time) => {
+            State::Playing(current_time) => {
                 let is_audio_track = self.disc.as_ref().is_some_and(|disc| {
                     disc.cue()
                         .find_track_by_time(current_time)
@@ -609,13 +603,13 @@ impl CdDrive {
         self.interrupt_pending = true;
 
         match self.state {
-            CddState::Seeking { current_time, seek_time, next_status, clocks_remaining } => {
+            State::Seeking { current_time, seek_time, next_status, clocks_remaining } => {
                 if clocks_remaining == 1 {
                     log::trace!("Seek to {seek_time} complete");
 
                     self.state = match next_status {
-                        ReaderStatus::Paused => CddState::Paused(seek_time),
-                        ReaderStatus::Playing => CddState::PreparingToPlay {
+                        ReaderStatus::Paused => State::Paused(seek_time),
+                        ReaderStatus::Playing => State::PreparingToPlay {
                             time: seek_time,
                             clocks_remaining: PLAY_DELAY_CLOCKS,
                         },
@@ -633,7 +627,7 @@ impl CdDrive {
                         clocks_remaining - 1
                     );
 
-                    self.state = CddState::Seeking {
+                    self.state = State::Seeking {
                         current_time: new_time,
                         seek_time,
                         next_status,
@@ -641,11 +635,11 @@ impl CdDrive {
                     };
                 }
             }
-            CddState::TrackSkipping { current_time, skip_time, clocks_remaining } => {
+            State::TrackSkipping { current_time, skip_time, clocks_remaining } => {
                 if clocks_remaining == 1 {
                     log::trace!("Skip to {skip_time} complete");
 
-                    self.state = CddState::Paused(skip_time);
+                    self.state = State::Paused(skip_time);
                 } else {
                     // 56 clocks to skip across the entire desc
                     let new_time = estimate_intermediate_seek_time(
@@ -659,63 +653,63 @@ impl CdDrive {
                         clocks_remaining - 1
                     );
 
-                    self.state = CddState::TrackSkipping {
+                    self.state = State::TrackSkipping {
                         current_time: new_time,
                         skip_time,
                         clocks_remaining: clocks_remaining - 1,
                     };
                 }
             }
-            CddState::FastForwarding(time) => {
+            State::FastForwarding(time) => {
                 let new_time = time + CdTime::new(0, FAST_FORWARD_SECONDS, FAST_FORWARD_FRAMES);
                 self.state = if let Some(disc) = &self.disc {
                     let disc_end_time = disc.cue().last_track().end_time;
                     if new_time >= disc_end_time {
                         log::trace!("Fast-forwarded to end of disc");
-                        CddState::DiscEnd(disc_end_time)
+                        State::DiscEnd(disc_end_time)
                     } else {
                         log::trace!("Fast-forwarded to {new_time}");
-                        CddState::FastForwarding(new_time)
+                        State::FastForwarding(new_time)
                     }
                 } else {
                     log::trace!("Fast-forwarded to {new_time}");
-                    CddState::FastForwarding(new_time)
+                    State::FastForwarding(new_time)
                 };
             }
-            CddState::Rewinding(time) => {
+            State::Rewinding(time) => {
                 let new_time =
                     time.saturating_sub(CdTime::new(0, FAST_FORWARD_SECONDS, FAST_FORWARD_FRAMES));
                 if new_time == CdTime::ZERO {
                     log::trace!("Rewound to beginning of disc");
-                    self.state = CddState::DiscStart;
+                    self.state = State::DiscStart;
                 } else {
                     log::trace!("Rewound to {new_time}");
-                    self.state = CddState::Rewinding(new_time);
+                    self.state = State::Rewinding(new_time);
                 }
             }
-            CddState::PreparingToPlay { time, clocks_remaining } => {
+            State::PreparingToPlay { time, clocks_remaining } => {
                 if clocks_remaining == 1 {
                     log::trace!("Beginning to play at {time}");
 
-                    self.state = CddState::Playing(time);
+                    self.state = State::Playing(time);
 
                     // Ensure that leftover data in the buffer doesn't get played until the buffer is refilled
                     self.loaded_audio_sector = false;
                 } else {
                     self.state =
-                        CddState::PreparingToPlay { time, clocks_remaining: clocks_remaining - 1 };
+                        State::PreparingToPlay { time, clocks_remaining: clocks_remaining - 1 };
                 }
             }
-            CddState::Playing(time) => {
+            State::Playing(time) => {
                 log::trace!("Playing at {time}");
 
                 let Some(disc) = &mut self.disc else {
-                    self.state = CddState::NoDisc;
+                    self.state = State::NoDisc;
                     return Ok(());
                 };
 
                 let Some(track) = disc.cue().find_track_by_time(time) else {
-                    self.state = CddState::DiscEnd(disc.cue().last_track().end_time);
+                    self.state = State::DiscEnd(disc.cue().last_track().end_time);
                     return Ok(());
                 };
 
@@ -727,25 +721,25 @@ impl CdDrive {
 
                 rchip.decode_block(&self.sector_buffer);
 
-                self.state = CddState::Playing(time + CdTime::new(0, 0, 1));
+                self.state = State::Playing(time + CdTime::new(0, 0, 1));
             }
-            CddState::MotorStopped => {
+            State::MotorStopped => {
                 match &self.disc {
                     Some(_) => {
                         // Always transition to Reading TOC one clock after the motor is stopped; this fixes
                         // the EU BIOS freezing after leaving the options menu
-                        self.state = CddState::ReadingToc;
+                        self.state = State::ReadingToc;
                     }
                     None => {
-                        self.state = CddState::NoDisc;
+                        self.state = State::NoDisc;
                     }
                 }
             }
-            CddState::TrayOpening => {
-                self.state = CddState::TrayOpen;
+            State::TrayOpening => {
+                self.state = State::TrayOpen;
             }
-            CddState::TrayClosing => {
-                self.state = CddState::MotorStopped;
+            State::TrayClosing => {
+                self.state = State::MotorStopped;
                 self.report_type = ReportType::AbsoluteTime;
             }
             _ => {}
@@ -802,7 +796,7 @@ impl CdDrive {
     }
 
     pub fn reset(&mut self) {
-        self.state = CddState::default();
+        self.state = State::default();
         self.report_type = ReportType::default();
         self.status = INITIAL_STATUS;
         self.interrupt_pending = false;
