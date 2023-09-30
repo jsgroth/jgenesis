@@ -26,6 +26,7 @@ Major TODOs:
   * _Snatcher_ crashes after the Konami logo
   * _Batman Returns_ freezes during boot
   * _Shadow of the Beast II_ freezes after the title screen
+  * _Robo Aleste_ freezes after booting
 
 Minor TODOs:
 * Emulate the Genesis VDP FIFO, in particular the fact that the CPU stalls if it writes to VRAM too rapidly during active display. A few games depend on this to function correctly (e.g. _The Chaos Engine_, _Double Clutch_, _Sol-Deace_), and a few other games have graphical glitches if it's not emulated (e.g. the EA logo flickering for a single frame)
