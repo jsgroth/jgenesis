@@ -408,11 +408,12 @@ mod tests {
 
         word_ram.bank_0_owner_1m = ScdCpu::Main;
         assert_eq!(Some(0x000000), word_ram.main_cpu_map_address(0x200000));
-        assert_eq!(Some(0x020002), word_ram.main_cpu_map_address(0x210001));
-        assert_eq!(Some(0x03FFFE), word_ram.main_cpu_map_address(0x21FFFF));
+        assert_eq!(Some(0x020001), word_ram.main_cpu_map_address(0x210001));
+        assert_eq!(Some(0x020004), word_ram.main_cpu_map_address(0x210002));
+        assert_eq!(Some(0x03FFFD), word_ram.main_cpu_map_address(0x21FFFF));
 
         word_ram.bank_0_owner_1m = ScdCpu::Sub;
-        assert_eq!(Some(0x000001), word_ram.main_cpu_map_address(0x200000));
+        assert_eq!(Some(0x000002), word_ram.main_cpu_map_address(0x200000));
         assert_eq!(Some(0x020003), word_ram.main_cpu_map_address(0x210001));
         assert_eq!(Some(0x03FFFF), word_ram.main_cpu_map_address(0x21FFFF));
     }
@@ -425,82 +426,83 @@ mod tests {
         // V32-cell
         word_ram.bank_0_owner_1m = ScdCpu::Main;
         assert_eq!(Some(0x000000), word_ram.main_cpu_map_address(0x220000));
-        assert_eq!(Some(0x000002), word_ram.main_cpu_map_address(0x220001));
+        assert_eq!(Some(0x000001), word_ram.main_cpu_map_address(0x220001));
         assert_eq!(Some(0x000004), word_ram.main_cpu_map_address(0x220002));
-        assert_eq!(Some(0x000006), word_ram.main_cpu_map_address(0x220003));
+        assert_eq!(Some(0x000005), word_ram.main_cpu_map_address(0x220003));
 
         assert_eq!(Some(0x000200), word_ram.main_cpu_map_address(0x220004));
-        assert_eq!(Some(0x000202), word_ram.main_cpu_map_address(0x220005));
-        assert_eq!(Some(0x000206), word_ram.main_cpu_map_address(0x220007));
+        assert_eq!(Some(0x000201), word_ram.main_cpu_map_address(0x220005));
+        assert_eq!(Some(0x000205), word_ram.main_cpu_map_address(0x220007));
 
         assert_eq!(Some(0x000008), word_ram.main_cpu_map_address(0x220400));
-        assert_eq!(Some(0x00000A), word_ram.main_cpu_map_address(0x220401));
+        assert_eq!(Some(0x000009), word_ram.main_cpu_map_address(0x220401));
         assert_eq!(Some(0x00000C), word_ram.main_cpu_map_address(0x220402));
         assert_eq!(Some(0x000208), word_ram.main_cpu_map_address(0x220404));
 
         assert_eq!(Some(0x000010), word_ram.main_cpu_map_address(0x220800));
 
-        assert_eq!(Some(0x01FFFE), word_ram.main_cpu_map_address(0x22FFFF));
+        assert_eq!(Some(0x01FFFD), word_ram.main_cpu_map_address(0x22FFFF));
 
         // V16-cell
         assert_eq!(Some(0x020000), word_ram.main_cpu_map_address(0x230000));
-        assert_eq!(Some(0x020002), word_ram.main_cpu_map_address(0x230001));
+        assert_eq!(Some(0x020001), word_ram.main_cpu_map_address(0x230001));
+        assert_eq!(Some(0x020004), word_ram.main_cpu_map_address(0x230002));
 
         assert_eq!(Some(0x020200), word_ram.main_cpu_map_address(0x230004));
-        assert_eq!(Some(0x020202), word_ram.main_cpu_map_address(0x230005));
+        assert_eq!(Some(0x020201), word_ram.main_cpu_map_address(0x230005));
 
         assert_eq!(Some(0x020008), word_ram.main_cpu_map_address(0x230200));
-        assert_eq!(Some(0x02000A), word_ram.main_cpu_map_address(0x230201));
+        assert_eq!(Some(0x020009), word_ram.main_cpu_map_address(0x230201));
 
         assert_eq!(Some(0x020010), word_ram.main_cpu_map_address(0x230400));
 
-        assert_eq!(Some(0x02FFFE), word_ram.main_cpu_map_address(0x237FFF));
+        assert_eq!(Some(0x02FFFD), word_ram.main_cpu_map_address(0x237FFF));
 
         // V8-cell
         assert_eq!(Some(0x030000), word_ram.main_cpu_map_address(0x238000));
-        assert_eq!(Some(0x030002), word_ram.main_cpu_map_address(0x238001));
+        assert_eq!(Some(0x030001), word_ram.main_cpu_map_address(0x238001));
 
         assert_eq!(Some(0x030200), word_ram.main_cpu_map_address(0x238004));
-        assert_eq!(Some(0x030202), word_ram.main_cpu_map_address(0x238005));
+        assert_eq!(Some(0x030201), word_ram.main_cpu_map_address(0x238005));
 
         assert_eq!(Some(0x030008), word_ram.main_cpu_map_address(0x238100));
-        assert_eq!(Some(0x03000A), word_ram.main_cpu_map_address(0x238101));
+        assert_eq!(Some(0x030009), word_ram.main_cpu_map_address(0x238101));
 
         assert_eq!(Some(0x030010), word_ram.main_cpu_map_address(0x238200));
 
-        assert_eq!(Some(0x037FFE), word_ram.main_cpu_map_address(0x23BFFF));
+        assert_eq!(Some(0x037FFD), word_ram.main_cpu_map_address(0x23BFFF));
 
         // V4-cell #1
         assert_eq!(Some(0x038000), word_ram.main_cpu_map_address(0x23C000));
-        assert_eq!(Some(0x038002), word_ram.main_cpu_map_address(0x23C001));
+        assert_eq!(Some(0x038001), word_ram.main_cpu_map_address(0x23C001));
 
         assert_eq!(Some(0x038200), word_ram.main_cpu_map_address(0x23C004));
-        assert_eq!(Some(0x038202), word_ram.main_cpu_map_address(0x23C005));
+        assert_eq!(Some(0x038201), word_ram.main_cpu_map_address(0x23C005));
 
         assert_eq!(Some(0x038008), word_ram.main_cpu_map_address(0x23C080));
-        assert_eq!(Some(0x03800A), word_ram.main_cpu_map_address(0x23C081));
+        assert_eq!(Some(0x038009), word_ram.main_cpu_map_address(0x23C081));
 
         assert_eq!(Some(0x038010), word_ram.main_cpu_map_address(0x23C100));
 
-        assert_eq!(Some(0x03BFFE), word_ram.main_cpu_map_address(0x23DFFF));
+        assert_eq!(Some(0x03BFFD), word_ram.main_cpu_map_address(0x23DFFF));
 
         // V4-cell #2
         assert_eq!(Some(0x03C000), word_ram.main_cpu_map_address(0x23E000));
-        assert_eq!(Some(0x03C002), word_ram.main_cpu_map_address(0x23E001));
+        assert_eq!(Some(0x03C001), word_ram.main_cpu_map_address(0x23E001));
 
         assert_eq!(Some(0x03C200), word_ram.main_cpu_map_address(0x23E004));
-        assert_eq!(Some(0x03C202), word_ram.main_cpu_map_address(0x23E005));
+        assert_eq!(Some(0x03C201), word_ram.main_cpu_map_address(0x23E005));
 
         assert_eq!(Some(0x03C008), word_ram.main_cpu_map_address(0x23E080));
-        assert_eq!(Some(0x03C00A), word_ram.main_cpu_map_address(0x23E081));
+        assert_eq!(Some(0x03C009), word_ram.main_cpu_map_address(0x23E081));
 
         assert_eq!(Some(0x03C010), word_ram.main_cpu_map_address(0x23E100));
 
-        assert_eq!(Some(0x03FFFE), word_ram.main_cpu_map_address(0x23FFFF));
+        assert_eq!(Some(0x03FFFD), word_ram.main_cpu_map_address(0x23FFFF));
 
         // Test with main CPU having bank 1
         word_ram.bank_0_owner_1m = ScdCpu::Sub;
-        assert_eq!(Some(0x000001), word_ram.main_cpu_map_address(0x220000));
+        assert_eq!(Some(0x000002), word_ram.main_cpu_map_address(0x220000));
         assert_eq!(Some(0x03FFFF), word_ram.main_cpu_map_address(0x23FFFF));
     }
 
@@ -534,11 +536,11 @@ mod tests {
         word_ram.bank_0_owner_1m = ScdCpu::Sub;
         assert_eq!(R::Byte(0x000000), word_ram.sub_cpu_map_address(0x0C0000));
         assert_eq!(R::Byte(0x010000), word_ram.sub_cpu_map_address(0x0C8000));
-        assert_eq!(R::Byte(0x03FFFE), word_ram.sub_cpu_map_address(0x0DFFFF));
+        assert_eq!(R::Byte(0x03FFFD), word_ram.sub_cpu_map_address(0x0DFFFF));
 
         word_ram.bank_0_owner_1m = ScdCpu::Main;
-        assert_eq!(R::Byte(0x000001), word_ram.sub_cpu_map_address(0x0C0000));
-        assert_eq!(R::Byte(0x010001), word_ram.sub_cpu_map_address(0x0C8000));
+        assert_eq!(R::Byte(0x000002), word_ram.sub_cpu_map_address(0x0C0000));
+        assert_eq!(R::Byte(0x010002), word_ram.sub_cpu_map_address(0x0C8000));
         assert_eq!(R::Byte(0x03FFFF), word_ram.sub_cpu_map_address(0x0DFFFF));
     }
 
@@ -552,16 +554,20 @@ mod tests {
         word_ram.bank_0_owner_1m = ScdCpu::Sub;
         assert_eq!(R::Pixel(0x000000), word_ram.sub_cpu_map_address(0x080000));
         assert_eq!(R::Pixel(0x000001), word_ram.sub_cpu_map_address(0x080001));
-        assert_eq!(R::Pixel(0x000004), word_ram.sub_cpu_map_address(0x080002));
-        assert_eq!(R::Pixel(0x000005), word_ram.sub_cpu_map_address(0x080003));
-        assert_eq!(R::Pixel(0x07FFFC), word_ram.sub_cpu_map_address(0x0BFFFE));
-        assert_eq!(R::Pixel(0x07FFFD), word_ram.sub_cpu_map_address(0x0BFFFF));
+        assert_eq!(R::Pixel(0x000002), word_ram.sub_cpu_map_address(0x080002));
+        assert_eq!(R::Pixel(0x000003), word_ram.sub_cpu_map_address(0x080003));
+        assert_eq!(R::Pixel(0x000008), word_ram.sub_cpu_map_address(0x080004));
+        assert_eq!(R::Pixel(0x000009), word_ram.sub_cpu_map_address(0x080005));
+        assert_eq!(R::Pixel(0x07FFFA), word_ram.sub_cpu_map_address(0x0BFFFE));
+        assert_eq!(R::Pixel(0x07FFFB), word_ram.sub_cpu_map_address(0x0BFFFF));
 
         word_ram.bank_0_owner_1m = ScdCpu::Main;
-        assert_eq!(R::Pixel(0x000002), word_ram.sub_cpu_map_address(0x080000));
-        assert_eq!(R::Pixel(0x000003), word_ram.sub_cpu_map_address(0x080001));
+        assert_eq!(R::Pixel(0x000004), word_ram.sub_cpu_map_address(0x080000));
+        assert_eq!(R::Pixel(0x000005), word_ram.sub_cpu_map_address(0x080001));
         assert_eq!(R::Pixel(0x000006), word_ram.sub_cpu_map_address(0x080002));
         assert_eq!(R::Pixel(0x000007), word_ram.sub_cpu_map_address(0x080003));
+        assert_eq!(R::Pixel(0x00000C), word_ram.sub_cpu_map_address(0x080004));
+        assert_eq!(R::Pixel(0x00000D), word_ram.sub_cpu_map_address(0x080005));
         assert_eq!(R::Pixel(0x07FFFE), word_ram.sub_cpu_map_address(0x0BFFFE));
         assert_eq!(R::Pixel(0x07FFFF), word_ram.sub_cpu_map_address(0x0BFFFF));
     }
