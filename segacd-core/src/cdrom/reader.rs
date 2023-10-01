@@ -17,11 +17,23 @@ const CD_ROM_CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_CD_ROM_EDC);
 const CRC32_DIGEST_RANGE: Range<usize> = 0..2064;
 const CRC32_CHECKSUM_LOCATION: Range<usize> = 2064..2068;
 
+#[derive(Debug)]
+struct CdRomFile {
+    file: File,
+    position: u64,
+}
+
+impl CdRomFile {
+    fn new(file: File) -> Self {
+        Self { file, position: 0 }
+    }
+}
+
 #[derive(Debug, Default, FakeEncode, FakeDecode)]
-struct CdRomFiles(HashMap<String, File>);
+struct CdRomFiles(HashMap<String, CdRomFile>);
 
 impl Deref for CdRomFiles {
-    type Target = HashMap<String, File>;
+    type Target = HashMap<String, CdRomFile>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -47,7 +59,7 @@ impl CdRomFiles {
                 path: file_path.display().to_string(),
                 source,
             })?;
-            files.insert(file_name, file);
+            files.insert(file_name, CdRomFile::new(file));
         }
 
         Ok(Self(files))
@@ -103,19 +115,26 @@ impl CdRom {
             return Ok(());
         }
 
-        let track_file = self
+        let CdRomFile { file: track_file, position } = self
             .files
             .get_mut(&track.metadata.file_name)
             .expect("Track file was not opened on load; this is a bug");
 
         let relative_sector_number = (relative_time - track.pregap_len).to_sector_number();
         let sector_number = track.metadata.time_in_file.to_sector_number() + relative_sector_number;
-        track_file
-            .seek(SeekFrom::Start(u64::from(sector_number) * cdrom::BYTES_PER_SECTOR))
-            .map_err(DiscError::DiscReadIo)?;
+        let sector_addr = u64::from(sector_number) + cdrom::BYTES_PER_SECTOR;
+
+        // Only seek if the file descriptor is not already at the desired position
+        if *position != sector_addr {
+            track_file
+                .seek(SeekFrom::Start(u64::from(sector_number) * cdrom::BYTES_PER_SECTOR))
+                .map_err(DiscError::DiscReadIo)?;
+        }
+
         track_file
             .read_exact(&mut out[..cdrom::BYTES_PER_SECTOR as usize])
             .map_err(DiscError::DiscReadIo)?;
+        *position = sector_addr + cdrom::BYTES_PER_SECTOR;
 
         if track.track_type == TrackType::Data {
             // Perform error detection check
