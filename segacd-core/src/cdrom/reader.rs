@@ -126,9 +126,7 @@ impl CdRom {
 
         // Only seek if the file descriptor is not already at the desired position
         if *position != sector_addr {
-            track_file
-                .seek(SeekFrom::Start(u64::from(sector_number) * cdrom::BYTES_PER_SECTOR))
-                .map_err(DiscError::DiscReadIo)?;
+            track_file.seek(SeekFrom::Start(sector_addr)).map_err(DiscError::DiscReadIo)?;
         }
 
         track_file
