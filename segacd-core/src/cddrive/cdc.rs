@@ -89,6 +89,10 @@ pub struct Rchip {
     transfer_end_interrupt_pending: bool,
     decoder_interrupt_enabled: bool,
     decoder_interrupt_pending: bool,
+    // There needs to be a separate flag specifically for sub CPU INT5 because some games will fail
+    // to boot if the sub CPU acknowledging a level 5 interrupt does not clear INT5; these include
+    // Snatcher, Batman Returns, and Robo Aleste
+    scd_interrupt_flag: bool,
 }
 
 impl Rchip {
@@ -115,6 +119,7 @@ impl Rchip {
             transfer_end_interrupt_pending: false,
             decoder_interrupt_enabled: true,
             decoder_interrupt_pending: false,
+            scd_interrupt_flag: false,
         }
     }
 
@@ -159,6 +164,9 @@ impl Rchip {
             self.data_transfer_in_progress = false;
             self.end_of_data_transfer = true;
             self.transfer_end_interrupt_pending = true;
+            if self.transfer_end_interrupt_enabled {
+                self.scd_interrupt_flag = true;
+            }
         }
 
         log::trace!(
@@ -425,8 +433,21 @@ impl Rchip {
     fn write_ifctrl(&mut self, value: u8) {
         // Intentionally ignoring CMDIEN, CMDBK, DTWAI, STWAI, SOUTEN bits
 
+        let prev_dtei_enabled = self.transfer_end_interrupt_enabled;
+        let prev_deci_enabled = self.decoder_interrupt_enabled;
+
         self.transfer_end_interrupt_enabled = value.bit(6);
         self.decoder_interrupt_enabled = value.bit(5);
+
+        if (!prev_dtei_enabled
+            && self.transfer_end_interrupt_enabled
+            && self.transfer_end_interrupt_pending)
+            || (!prev_deci_enabled
+                && self.decoder_interrupt_enabled
+                && self.decoder_interrupt_pending)
+        {
+            self.scd_interrupt_flag = true;
+        }
 
         self.data_out_enabled = value.bit(1);
         if !self.data_out_enabled {
@@ -483,8 +504,7 @@ impl Rchip {
     }
 
     pub fn interrupt_pending(&self) -> bool {
-        (self.decoder_interrupt_enabled && self.decoder_interrupt_pending)
-            || (self.transfer_end_interrupt_enabled && self.transfer_end_interrupt_pending)
+        self.scd_interrupt_flag
     }
 
     pub(super) fn decode_block(&mut self, sector_buffer: &[u8; cdrom::BYTES_PER_SECTOR as usize]) {
@@ -497,6 +517,9 @@ impl Rchip {
         self.subheader_data.copy_from_slice(&sector_buffer[16..20]);
 
         self.decoder_interrupt_pending = true;
+        if self.decoder_interrupt_enabled {
+            self.scd_interrupt_flag = true;
+        }
 
         if self.decoder_writes_enabled {
             for &byte in sector_buffer {
@@ -597,6 +620,9 @@ impl Rchip {
                 self.data_transfer_in_progress = false;
                 self.end_of_data_transfer = true;
                 self.transfer_end_interrupt_pending = true;
+                if self.transfer_end_interrupt_enabled {
+                    self.scd_interrupt_flag = true;
+                }
 
                 break;
             }
@@ -612,5 +638,9 @@ impl Rchip {
         self.write_ctrl1(0x00);
         self.transfer_end_interrupt_pending = false;
         self.decoder_interrupt_pending = false;
+    }
+
+    pub fn acknowledge_interrupt(&mut self) {
+        self.scd_interrupt_flag = false;
     }
 }

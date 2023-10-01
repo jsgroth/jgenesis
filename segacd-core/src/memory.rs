@@ -1246,7 +1246,6 @@ impl<'a> BusInterface for SubBus<'a> {
     #[allow(clippy::bool_to_int_with_if)]
     #[inline]
     fn interrupt_level(&self) -> u8 {
-        // TODO other interrupts
         let sega_cd = self.memory.medium();
         if sega_cd.registers.cdc_interrupt_enabled && sega_cd.disc_drive.cdc().interrupt_pending() {
             // INT5: CDC interrupt
@@ -1279,7 +1278,6 @@ impl<'a> BusInterface for SubBus<'a> {
 
     #[inline]
     fn acknowledge_interrupt(&mut self) {
-        // TODO other interrupts
         match self.interrupt_level() {
             1 => {
                 self.graphics_coprocessor.acknowledge_interrupt();
@@ -1293,8 +1291,9 @@ impl<'a> BusInterface for SubBus<'a> {
             4 => {
                 self.memory.medium_mut().disc_drive.cdd_mut().acknowledge_interrupt();
             }
-            // Intentionally do nothing for level 5 - CDC interrupts must be acknowledged through
-            // CDC registers, which the BIOS does in its INT5 handler
+            5 => {
+                self.memory.medium_mut().disc_drive.cdc_mut().acknowledge_interrupt();
+            }
             _ => {}
         }
     }
