@@ -104,7 +104,7 @@ impl AudioDownsampler {
         if self.sample_count == self.next_sample {
             self.next_sample_float =
                 (self.next_sample_float + self.downsampling_ratio) % SAMPLE_COUNT_MODULO as f64;
-            self.next_sample = self.next_sample_float.round() as u64;
+            self.next_sample = (self.next_sample_float.round() as u64) % SAMPLE_COUNT_MODULO;
 
             let sample_l = output_sample(&self.full_buffer_l);
             let sample_r = output_sample(&self.full_buffer_r);
