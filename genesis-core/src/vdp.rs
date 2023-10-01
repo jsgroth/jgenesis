@@ -1472,10 +1472,16 @@ impl Vdp {
     fn maybe_update_sprite_cache(&mut self, address: u16) {
         let sprite_table_addr = self.registers.sprite_attribute_table_base_addr;
         let h_size = self.registers.horizontal_display_size;
-        if !address.bit(2)
-            && (sprite_table_addr..sprite_table_addr + 8 * h_size.sprite_table_len())
-                .contains(&address)
-        {
+
+        let sprite_table_end = sprite_table_addr.wrapping_add(8 * h_size.sprite_table_len());
+        let is_in_sprite_table = if sprite_table_end < sprite_table_addr {
+            // Address overflowed; this can happen if a game puts the SAT at the very end of VRAM (e.g. Snatcher)
+            address >= sprite_table_addr || address < sprite_table_end
+        } else {
+            (sprite_table_addr..sprite_table_end).contains(&address)
+        };
+
+        if !address.bit(2) && is_in_sprite_table {
             let idx = ((address - sprite_table_addr) / 8) as usize;
             let msb = self.vram[(address & !0x01) as usize];
             let lsb = self.vram[(address | 0x01) as usize];
