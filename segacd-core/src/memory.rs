@@ -487,24 +487,26 @@ impl PhysicalMedium for SegaCd {
     #[inline]
     fn read_byte(&mut self, address: u32) -> u8 {
         match address {
-            0x000000..=0x01FFFF => {
-                // BIOS
+            0x000000..=0x1FFFFF => {
+                // Mirrors of BIOS at $000000-$01FFFF and PRG RAM at $020000-$03FFFF
+                if !address.bit(17) {
+                    // BIOS
 
-                // Hack: The BIOS reads the custom HINT vector from $000070-$000072, which it expects to
-                // return $FFFF and the current value of $A12006 respectively
-                match address {
-                    0x000070 | 0x000071 => 0xFF,
-                    0x000072 => (self.registers.h_interrupt_vector >> 8) as u8,
-                    0x000073 => self.registers.h_interrupt_vector as u8,
-                    _ => self.bios[address as usize],
+                    // Hack: The BIOS reads the custom HINT vector from $000070-$000072, which it expects to
+                    // return $FFFF and the current value of $A12006 respectively
+                    match address {
+                        0x000070 | 0x000071 => 0xFF,
+                        0x000072 => (self.registers.h_interrupt_vector >> 8) as u8,
+                        0x000073 => self.registers.h_interrupt_vector as u8,
+                        _ => self.bios[(address & 0x1FFFF) as usize],
+                    }
+                } else {
+                    // PRG RAM
+                    let prg_ram_addr = self.registers.prg_ram_addr(address);
+                    self.prg_ram[prg_ram_addr as usize]
                 }
             }
-            0x020000..=0x03FFFF => {
-                // PRG RAM
-                let prg_ram_addr = self.registers.prg_ram_addr(address);
-                self.prg_ram[prg_ram_addr as usize]
-            }
-            0x200000..=0x23FFFF => self.word_ram.main_cpu_read_ram(address),
+            0x200000..=0x3FFFFF => self.word_ram.main_cpu_read_ram(address),
             0xA12000..=0xA1202F => {
                 // Sega CD registers
                 self.read_main_cpu_register_byte(address)
@@ -516,30 +518,33 @@ impl PhysicalMedium for SegaCd {
     #[inline]
     fn read_word(&mut self, address: u32) -> u16 {
         match address {
-            0x000000..=0x01FFFF => {
-                // BIOS
+            0x000000..=0x1FFFFF => {
+                // Mirrors of BIOS at $000000-$01FFFF and PRG RAM at $020000-$03FFFF
+                if !address.bit(17) {
+                    // BIOS
 
-                // Hack: The BIOS reads the custom HINT vector from $000070-$000072, which it expects to
-                // return $FFFF and the current value of $A12006 respectively
-                match address {
-                    0x000070 => 0xFFFF,
-                    0x000072 => self.registers.h_interrupt_vector,
-                    _ => {
-                        let msb = self.bios[address as usize];
-                        let lsb = self.bios[(address + 1) as usize];
-                        u16::from_be_bytes([msb, lsb])
+                    // Hack: The BIOS reads the custom HINT vector from $000070-$000072, which it expects to
+                    // return $FFFF and the current value of $A12006 respectively
+                    match address {
+                        0x000070 => 0xFFFF,
+                        0x000072 => self.registers.h_interrupt_vector,
+                        _ => {
+                            let address = address & 0x1FFFF;
+                            let msb = self.bios[address as usize];
+                            let lsb = self.bios[(address + 1) as usize];
+                            u16::from_be_bytes([msb, lsb])
+                        }
                     }
+                } else {
+                    // PRG RAM
+                    let prg_ram_addr = self.registers.prg_ram_addr(address);
+                    let msb = self.prg_ram[prg_ram_addr as usize];
+                    let lsb = self.prg_ram[(prg_ram_addr + 1) as usize];
+                    u16::from_be_bytes([msb, lsb])
                 }
             }
-            0x020000..=0x03FFFF => {
-                // PRG RAM
-                let prg_ram_addr = self.registers.prg_ram_addr(address);
-                let msb = self.prg_ram[prg_ram_addr as usize];
-                let lsb = self.prg_ram[(prg_ram_addr + 1) as usize];
-                u16::from_be_bytes([msb, lsb])
-            }
-            0x200000..=0x23FFFF => {
-                // Word RAM
+            0x200000..=0x3FFFFF => {
+                // Word RAM; located at $200000-$23FFFF, mirrors at $240000-$3FFFFF
                 let msb = self.word_ram.main_cpu_read_ram(address);
                 let lsb = self.word_ram.main_cpu_read_ram(address | 1);
                 u16::from_be_bytes([msb, lsb])
@@ -564,15 +569,17 @@ impl PhysicalMedium for SegaCd {
     #[inline]
     fn write_byte(&mut self, address: u32, value: u8) {
         match address {
-            0x000000..=0x01FFFF => {
-                // BIOS, ignore
+            0x000000..=0x1FFFFF => {
+                // Mirrors of BIOS at $000000-$01FFFF and PRG RAM at $020000-$03FFFF
+                if address.bit(17) {
+                    // PRG RAM
+                    let prg_ram_addr = self.registers.prg_ram_addr(address);
+                    self.write_prg_ram(prg_ram_addr, value, ScdCpu::Main);
+                } else {
+                    // BIOS, ignore
+                }
             }
-            0x020000..=0x03FFFF => {
-                // PRG RAM
-                let prg_ram_addr = self.registers.prg_ram_addr(address);
-                self.write_prg_ram(prg_ram_addr, value, ScdCpu::Main);
-            }
-            0x200000..=0x23FFFF => {
+            0x200000..=0x3FFFFF => {
                 self.word_ram.main_cpu_write_ram(address, value);
             }
             0xA12000..=0xA1202F => {
@@ -585,17 +592,19 @@ impl PhysicalMedium for SegaCd {
     #[inline]
     fn write_word(&mut self, address: u32, value: u16) {
         match address {
-            0x000000..=0x01FFFF => {
-                // BIOS, ignore
+            0x000000..=0x1FFFFF => {
+                // Mirrors of BIOS at $000000-$01FFFF and PRG RAM at $020000-$03FFFF
+                if address.bit(17) {
+                    // PRG RAM
+                    let prg_ram_addr = self.registers.prg_ram_addr(address);
+                    let [msb, lsb] = value.to_be_bytes();
+                    self.write_prg_ram(prg_ram_addr, msb, ScdCpu::Main);
+                    self.write_prg_ram(prg_ram_addr + 1, lsb, ScdCpu::Main);
+                } else {
+                    // BIOS, ignore
+                }
             }
-            0x020000..=0x03FFFF => {
-                // PRG RAM
-                let prg_ram_addr = self.registers.prg_ram_addr(address);
-                let [msb, lsb] = value.to_be_bytes();
-                self.write_prg_ram(prg_ram_addr, msb, ScdCpu::Main);
-                self.write_prg_ram(prg_ram_addr + 1, lsb, ScdCpu::Main);
-            }
-            0x200000..=0x23FFFF => {
+            0x200000..=0x3FFFFF => {
                 let [msb, lsb] = value.to_be_bytes();
                 self.word_ram.main_cpu_write_ram(address, msb);
                 self.word_ram.main_cpu_write_ram(address | 1, lsb);
@@ -622,6 +631,8 @@ impl CloneWithoutRom for SegaCd {
     }
 }
 
+const SUB_REGISTER_ADDRESS_MASK: u32 = 0x1FF;
+
 pub struct SubBus<'a> {
     memory: &'a mut Memory<SegaCd>,
     graphics_coprocessor: &'a mut GraphicsCoprocessor,
@@ -642,27 +653,27 @@ impl<'a> SubBus<'a> {
     #[allow(clippy::match_same_arms)]
     fn read_register_byte(&mut self, address: u32) -> u8 {
         log::trace!("Sub CPU register byte read: {address:06X}");
-        match address {
-            0xFF8000 => {
+        match address & SUB_REGISTER_ADDRESS_MASK {
+            0x0000 => {
                 let registers = &self.memory.medium().registers;
                 (u8::from(registers.led_green) << 1) | u8::from(registers.led_red)
             }
-            0xFF8001 => {
+            0x0001 => {
                 // Reset
                 // TODO version in bits 7-4
                 // Bit 0 (CD drive operable) hardcoded to 1
                 0x01
             }
-            0xFF8002 => {
+            0x0002 => {
                 // PRG RAM write protect
                 self.memory.medium().registers.prg_ram_write_protect
             }
-            0xFF8003 => {
+            0x0003 => {
                 // Memory mode
                 let word_ram = &self.memory.medium().word_ram;
                 word_ram.read_control() | (word_ram.priority_mode().to_bits() << 3)
             }
-            0xFF8004 => {
+            0x0004 => {
                 // CDC mode
                 log::trace!("  CDC mode read (sub CPU)");
                 let cdc = self.memory.medium().disc_drive.cdc();
@@ -671,59 +682,59 @@ impl<'a> SubBus<'a> {
                 let dd_bits = cdc.device_destination().to_bits();
                 (u8::from(end_of_data_transfer) << 7) | (u8::from(data_ready) << 6) | dd_bits
             }
-            0xFF8005 => {
+            0x0005 => {
                 // CDC register address
                 log::trace!("  CDC register address read");
                 self.memory.medium().disc_drive.cdc().register_address()
             }
-            0xFF8007 => {
+            0x0007 => {
                 // CDC register data
                 log::trace!("  CDC register data read");
                 self.memory.medium_mut().disc_drive.cdc_mut().read_register()
             }
-            0xFF8008 => {
+            0x0008 => {
                 // CDC host data, high byte
                 let word =
                     self.memory.medium_mut().disc_drive.cdc_mut().read_host_data(ScdCpu::Sub);
                 (word >> 8) as u8
             }
-            0xFF8009 => {
+            0x0009 => {
                 // CDC host data, low byte
                 self.memory.medium_mut().disc_drive.cdc_mut().read_host_data(ScdCpu::Sub) as u8
             }
-            0xFF800C => {
+            0x000C => {
                 // Stopwatch, high byte
                 (self.memory.medium().registers.stopwatch_counter >> 8) as u8
             }
-            0xFF800D => {
+            0x000D => {
                 // Stopwatch, low byte
                 self.memory.medium().registers.stopwatch_counter as u8
             }
-            0xFF800E => {
+            0x000E => {
                 // Communication flags, high byte (main CPU)
                 self.memory.medium().registers.main_cpu_communication_flags
             }
-            0xFF800F => {
+            0x000F => {
                 // Communication flags, low byte (sub CPU)
                 self.memory.medium().registers.sub_cpu_communication_flags
             }
-            0xFF8010..=0xFF801F => {
+            0x0010..=0x001F => {
                 // Communication command buffers
                 let idx = (address & 0xF) >> 1;
                 let word = self.memory.medium().registers.communication_commands[idx as usize];
                 if address.bit(0) { word as u8 } else { (word >> 8) as u8 }
             }
-            0xFF8020..=0xFF802F => {
+            0x0020..=0x002F => {
                 // Communication status buffers
                 let idx = (address & 0xF) >> 1;
                 let word = self.memory.medium().registers.communication_statuses[idx as usize];
                 if address.bit(0) { word as u8 } else { (word >> 8) as u8 }
             }
-            0xFF8031 => {
+            0x0031 => {
                 // Timer
                 self.memory.medium().registers.timer_interval
             }
-            0xFF8033 => {
+            0x0033 => {
                 // Interrupt mask control
                 let sega_cd = self.memory.medium();
                 (u8::from(sega_cd.registers.subcode_interrupt_enabled) << 6)
@@ -733,49 +744,49 @@ impl<'a> SubBus<'a> {
                     | (u8::from(sega_cd.registers.software_interrupt_enabled) << 2)
                     | (u8::from(sega_cd.registers.graphics_interrupt_enabled) << 1)
             }
-            0xFF8034..=0xFF8035 => {
+            0x0034..=0x0035 => {
                 // CDD fader, only bit 15 (fader processing) is readable and it's fine to always
                 // set it to 0
                 0x00
             }
-            0xFF8036 => {
+            0x0036 => {
                 log::trace!("  CDD control read");
                 u8::from(!self.memory.medium().disc_drive.cdd().playing_audio())
             }
-            0xFF8037 => {
+            0x0037 => {
                 // CDD control, low byte
                 // TODO DRS/DTS bits
                 let sega_cd = self.memory.medium();
                 u8::from(sega_cd.registers.cdd_host_clock_on) << 2
             }
-            0xFF8038..=0xFF8041 => {
+            0x0038..=0x0041 => {
                 // CDD status
                 let relative_addr = (address - 8) & 0xF;
                 self.memory.medium().disc_drive.cdd().status()[relative_addr as usize]
             }
-            0xFF8042..=0xFF804B => {
+            0x0042..=0x004B => {
                 // CDD command
                 let relative_addr = (address - 2) & 0xF;
                 self.memory.medium().registers.cdd_command[relative_addr as usize]
             }
-            0xFF804C..=0xFF804D => {
+            0x004C..=0x004D => {
                 // Font color
                 self.memory.medium().font_registers.read_color()
             }
-            0xFF804E => {
+            0x004E => {
                 // Font bits, high byte
                 (self.memory.medium().font_registers.font_bits() >> 8) as u8
             }
-            0xFF804F => {
+            0x004F => {
                 // Font bits, low byte
                 self.memory.medium().font_registers.font_bits() as u8
             }
-            0xFF8050..=0xFF8057 => {
+            0x0050..=0x0057 => {
                 // Font data
                 let font_data_word = self.memory.medium().font_registers.read_font_data(address);
                 if address.bit(0) { font_data_word as u8 } else { (font_data_word >> 8) as u8 }
             }
-            0xFF8058..=0xFF8067 => self.graphics_coprocessor.read_register_byte(address),
+            0x0058..=0x0067 => self.graphics_coprocessor.read_register_byte(address),
             _ => 0x00,
         }
     }
@@ -783,23 +794,23 @@ impl<'a> SubBus<'a> {
     #[allow(clippy::match_same_arms)]
     fn read_register_word(&mut self, address: u32) -> u16 {
         log::trace!("Sub CPU register word read: {address:06X}");
-        match address {
-            0xFF8000 | 0xFF8002 | 0xFF8004 | 0xFF8036 => {
+        match address & SUB_REGISTER_ADDRESS_MASK {
+            0x0000 | 0x0002 | 0x0004 | 0x0036 => {
                 let msb = self.read_register_byte(address);
                 let lsb = self.read_register_byte(address | 1);
                 u16::from_be_bytes([msb, lsb])
             }
-            0xFF8006 => {
+            0x0006 => {
                 // CDC register data; stored in low byte
                 self.read_register_byte(address | 1).into()
             }
-            0xFF8008 => {
+            0x0008 => {
                 // CDC host data
                 log::trace!("  CDC host data read (sub CPU)");
                 self.memory.medium_mut().disc_drive.cdc_mut().read_host_data(ScdCpu::Sub)
             }
-            0xFF800C => self.memory.medium().registers.stopwatch_counter,
-            0xFF800E => {
+            0x000C => self.memory.medium().registers.stopwatch_counter,
+            0x000E => {
                 // Communication flags
                 let registers = &self.memory.medium().registers;
                 u16::from_be_bytes([
@@ -807,30 +818,30 @@ impl<'a> SubBus<'a> {
                     registers.sub_cpu_communication_flags,
                 ])
             }
-            0xFF8010..=0xFF801F => {
+            0x0010..=0x001F => {
                 // Communication command buffers
                 let idx = (address & 0xF) >> 1;
                 self.memory.medium().registers.communication_commands[idx as usize]
             }
-            0xFF8020..=0xFF802F => {
+            0x0020..=0x002F => {
                 // Communication status buffers
                 let idx = (address & 0xF) >> 1;
                 self.memory.medium().registers.communication_statuses[idx as usize]
             }
-            0xFF8030 => {
+            0x0030 => {
                 // Timer
                 self.memory.medium().registers.timer_interval.into()
             }
-            0xFF8032 => {
+            0x0032 => {
                 // Interrupt mask control; all bits in low byte
                 self.read_register_byte(address | 1).into()
             }
-            0xFF8034 => {
+            0x0034 => {
                 // CDD fader, only bit 15 (fader processing) is significant and it's fine to always
                 // set it to 0
                 0x0000
             }
-            0xFF8038..=0xFF8041 => {
+            0x0038..=0x0041 => {
                 // CDD status
                 let relative_addr = (address - 8) & 0xF;
                 let cdd_status = self.memory.medium().disc_drive.cdd().status();
@@ -839,7 +850,7 @@ impl<'a> SubBus<'a> {
                     cdd_status[(relative_addr + 1) as usize],
                 ])
             }
-            0xFF8042..=0xFF804B => {
+            0x0042..=0x004B => {
                 // CDD command
                 let relative_addr = (address - 2) & 0xF;
                 let cdd_command = self.memory.medium().registers.cdd_command;
@@ -848,19 +859,19 @@ impl<'a> SubBus<'a> {
                     cdd_command[(relative_addr + 1) as usize],
                 ])
             }
-            0xFF804C => {
+            0x004C => {
                 // Font color (all bits in low byte)
                 self.memory.medium().font_registers.read_color().into()
             }
-            0xFF804E => {
+            0x004E => {
                 // Font bits
                 self.memory.medium().font_registers.font_bits()
             }
-            0xFF8050..=0xFF8057 => {
+            0x0050..=0x0057 => {
                 // Font data registers
                 self.memory.medium().font_registers.read_font_data(address)
             }
-            0xFF8058..=0xFF8067 => self.graphics_coprocessor.read_register_word(address),
+            0x0058..=0x0067 => self.graphics_coprocessor.read_register_word(address),
             _ => 0x0000,
         }
     }
@@ -868,20 +879,20 @@ impl<'a> SubBus<'a> {
     #[allow(clippy::match_same_arms)]
     fn write_register_byte(&mut self, address: u32, value: u8) {
         log::trace!("Sub CPU register byte write: {address:06X} {value:02X}");
-        match address {
-            0xFF8000 => {
+        match address & SUB_REGISTER_ADDRESS_MASK {
+            0x0000 => {
                 let registers = &mut self.memory.medium_mut().registers;
                 registers.led_green = value.bit(1);
                 registers.led_red = value.bit(0);
             }
-            0xFF8001 => {
+            0x0001 => {
                 // TODO reset CDD/CDC
             }
-            0xFF8002..=0xFF8003 => {
+            0x0002..=0x0003 => {
                 // Memory mode
                 self.memory.medium_mut().word_ram.sub_cpu_write_control(value);
             }
-            0xFF8004 => {
+            0x0004 => {
                 // CDC mode
                 log::trace!("  CDC mode write: {value:02X}");
                 let device_destination = DeviceDestination::from_bits(value & 0x07);
@@ -891,7 +902,7 @@ impl<'a> SubBus<'a> {
                     .cdc_mut()
                     .set_device_destination(device_destination);
             }
-            0xFF8005 => {
+            0x0005 => {
                 // CDC register address
                 log::trace!("  CDC register address write: {value:02X}");
                 let register_address = value & cdc::REGISTER_ADDRESS_MASK;
@@ -901,28 +912,28 @@ impl<'a> SubBus<'a> {
                     .cdc_mut()
                     .set_register_address(register_address);
             }
-            0xFF8007 => {
+            0x0007 => {
                 // CDC register data
                 log::trace!("  CDC register data write: {value:02X}");
                 self.memory.medium_mut().disc_drive.cdc_mut().write_register(value);
             }
-            0xFF800A..=0xFF800B => {
+            0x000A..=0x000B => {
                 // CDC DMA address (bits 18-3)
                 // Byte-size writes to this register are erroneous
                 let word = u16::from_le_bytes([value, value]);
                 let dma_address = u32::from(word) << 3;
                 self.memory.medium_mut().disc_drive.cdc_mut().set_dma_address(dma_address);
             }
-            0xFF800C..=0xFF800D => {
+            0x000C..=0x000D => {
                 // Stopwatch (12 bits)
                 self.memory.medium_mut().registers.stopwatch_counter =
                     u16::from_be_bytes([value, value]) & 0x0FFF;
             }
-            0xFF800E..=0xFF800F => {
+            0x000E..=0x000F => {
                 // Communication flags
                 self.memory.medium_mut().registers.sub_cpu_communication_flags = value;
             }
-            0xFF8020..=0xFF802F => {
+            0x0020..=0x002F => {
                 // Communication status buffers
                 let idx = (address & 0xF) >> 1;
                 let statuses = &mut self.memory.medium_mut().registers.communication_statuses;
@@ -933,13 +944,13 @@ impl<'a> SubBus<'a> {
                     statuses[idx as usize] = (existing_word & 0x00FF) | (u16::from(value) << 8);
                 }
             }
-            0xFF8030..=0xFF8031 => {
+            0x0030..=0x0031 => {
                 // Timer
                 let registers = &mut self.memory.medium_mut().registers;
                 registers.timer_interval = value;
                 registers.timer_counter = value;
             }
-            0xFF8033 => {
+            0x0033 => {
                 // Interrupt mask control
                 let sega_cd = self.memory.medium_mut();
                 sega_cd.registers.subcode_interrupt_enabled = value.bit(6);
@@ -956,7 +967,7 @@ impl<'a> SubBus<'a> {
 
                 log::trace!("  Interrupt mask write: {value:08b}");
             }
-            0xFF8034..=0xFF8035 => {
+            0x0034..=0x0035 => {
                 // CDD fader; word access only, byte access is erroneous
 
                 self.memory
@@ -967,13 +978,13 @@ impl<'a> SubBus<'a> {
 
                 log::trace!("  CDD fader write: {value:02X}");
             }
-            0xFF8037 => {
+            0x0037 => {
                 // CDD control
                 self.memory.medium_mut().registers.cdd_host_clock_on = value.bit(2);
 
                 log::trace!("  CDD control write: {value:02X}");
             }
-            0xFF8042..=0xFF804B => {
+            0x0042..=0x004B => {
                 // CDD command
                 let relative_addr = (address - 2) & 0xF;
 
@@ -985,19 +996,19 @@ impl<'a> SubBus<'a> {
                     sega_cd.disc_drive.cdd_mut().send_command(sega_cd.registers.cdd_command);
                 }
             }
-            0xFF804C..=0xFF804D => {
+            0x004C..=0x004D => {
                 // Font color
                 self.memory.medium_mut().font_registers.write_color(value);
             }
-            0xFF804E => {
+            0x004E => {
                 // Font bits, high byte
                 self.memory.medium_mut().font_registers.write_font_bits_msb(value);
             }
-            0xFF804F => {
+            0x004F => {
                 // Font bits, low byte
                 self.memory.medium_mut().font_registers.write_font_bits_lsb(value);
             }
-            0xFF8058..=0xFF8067 => {
+            0x0058..=0x0067 => {
                 self.graphics_coprocessor.write_register_byte(address, value);
             }
             _ => {}
@@ -1007,57 +1018,57 @@ impl<'a> SubBus<'a> {
     #[allow(clippy::match_same_arms)]
     fn write_register_word(&mut self, address: u32, value: u16) {
         log::trace!("Sub CPU register word write: {address:06X} {value:04X}");
-        match address {
-            0xFF8000 => {
+        match address & SUB_REGISTER_ADDRESS_MASK {
+            0x0000 => {
                 // LEDs / CD drive reset
                 let [msb, lsb] = value.to_be_bytes();
                 self.write_register_byte(address, msb);
                 self.write_register_byte(address | 1, lsb);
             }
-            0xFF8002 => {
+            0x0002 => {
                 // Memory mode, only low byte is writable
                 self.write_register_byte(address | 1, value as u8);
             }
-            0xFF8004 => {
+            0x0004 => {
                 // CDC mode & register address
                 let [msb, lsb] = value.to_be_bytes();
                 self.write_register_byte(address, msb);
                 self.write_register_byte(address | 1, lsb);
             }
-            0xFF8006 => {
+            0x0006 => {
                 // CDC data, only low byte is writable
                 self.write_register_byte(address | 1, value as u8);
             }
-            0xFF800A => {
+            0x000A => {
                 // CDC DMA address (bits 18-3)
                 log::trace!("  CDC DMA address write: {value:04X}");
                 let dma_address = u32::from(value) << 3;
                 self.memory.medium_mut().disc_drive.cdc_mut().set_dma_address(dma_address);
             }
-            0xFF800C => {
+            0x000C => {
                 // Stopwatch (12 bits)
                 self.memory.medium_mut().registers.stopwatch_counter = value & 0x0FFF;
             }
-            0xFF800E => {
+            0x000E => {
                 // Communication flags, only low byte (sub CPU) is writable
                 self.memory.medium_mut().registers.sub_cpu_communication_flags = value as u8;
             }
-            0xFF8020..=0xFF802F => {
+            0x0020..=0x002F => {
                 // Communication status buffers
                 let idx = (address & 0xF) >> 1;
                 self.memory.medium_mut().registers.communication_statuses[idx as usize] = value;
             }
-            0xFF8030 => {
+            0x0030 => {
                 // Timer, only low byte is writable
                 let registers = &mut self.memory.medium_mut().registers;
                 registers.timer_interval = value as u8;
                 registers.timer_counter = value as u8;
             }
-            0xFF8032 => {
+            0x0032 => {
                 // Interrupt mask control, only low byte is writable
                 self.write_register_byte(address | 1, value as u8);
             }
-            0xFF8034 => {
+            0x0034 => {
                 // CDD fader
                 // Bits 14-4 are volume bits 10-0
                 let fader_volume = (value >> 4) & 0x7FF;
@@ -1065,11 +1076,11 @@ impl<'a> SubBus<'a> {
 
                 log::trace!("  CDD fader write: {value:04X}");
             }
-            0xFF8036 => {
+            0x0036 => {
                 // CDD control, only low byte is writable
                 self.write_register_byte(address | 1, value as u8);
             }
-            0xFF8042..=0xFF804B => {
+            0x0042..=0x004B => {
                 // CDD command
                 let relative_addr = (address - 2) & 0xF;
 
@@ -1083,15 +1094,15 @@ impl<'a> SubBus<'a> {
                     sega_cd.disc_drive.cdd_mut().send_command(sega_cd.registers.cdd_command);
                 }
             }
-            0xFF804C => {
+            0x004C => {
                 // Font color, only low byte is writable
                 self.write_register_byte(address | 1, value as u8);
             }
-            0xFF804E => {
+            0x004E => {
                 // Font bits
                 self.memory.medium_mut().font_registers.write_font_bits(value);
             }
-            0xFF8058..=0xFF8067 => {
+            0x0058..=0x0067 => {
                 self.graphics_coprocessor.write_register_word(address, value);
             }
             _ => {}
@@ -1124,12 +1135,12 @@ impl<'a> BusInterface for SubBus<'a> {
                     0x00
                 }
             }
-            0xFF0000..=0xFF3FFF => {
-                // PCM sound chip (odd addresses)
+            0xFF0000..=0xFF7FFF => {
+                // PCM sound chip (odd addresses); canonically located at $FF0000-$FF3FFF and mirrored at $FF4000-$FF7FFF
                 if address.bit(0) { self.pcm.read((address & 0x3FFF) >> 1) } else { 0x00 }
             }
-            0xFF8000..=0xFF81FF => {
-                // Sub CPU registers
+            0xFF8000..=0xFFFFFF => {
+                // Sub CPU registers; canonically located at $FF8000-$FF81FF, but mirrored throughout the range
                 self.read_register_byte(address)
             }
             _ => todo!("sub bus read byte {address:06X}"),
@@ -1159,12 +1170,12 @@ impl<'a> BusInterface for SubBus<'a> {
                 let backup_ram_addr = (address & 0x3FFF) >> 1;
                 self.memory.medium().backup_ram[backup_ram_addr as usize].into()
             }
-            0xFF0000..=0xFF3FFF => {
-                // PCM sound chip (odd addresses)
+            0xFF0000..=0xFF7FFF => {
+                // PCM sound chip (odd addresses); canonically located at $FF0000-$FF3FFF and mirrored at $FF4000-$FF7FFF
                 self.pcm.read((address & 0x3FFF) >> 1).into()
             }
-            0xFF8000..=0xFF81FF => {
-                // Sub CPU registers
+            0xFF8000..=0xFFFFFF => {
+                // Sub CPU registers; canonically located at $FF8000-$FF81FF, but mirrored throughout the range
                 self.read_register_word(address)
             }
             _ => todo!("sub bus read word {address:06X}"),
@@ -1192,14 +1203,14 @@ impl<'a> BusInterface for SubBus<'a> {
                     sega_cd.backup_ram_dirty = true;
                 }
             }
-            0xFF0000..=0xFF3FFF => {
-                // PCM sound chip (odd addresses)
+            0xFF0000..=0xFF7FFF => {
+                // PCM sound chip (odd addresses); canonically located at $FF0000-$FF3FFF and mirrored at $FF4000-$FF7FFF
                 if address.bit(0) {
                     self.pcm.write((address & 0x3FFF) >> 1, value);
                 }
             }
-            0xFF8000..=0xFF81FF => {
-                // Sub CPU registers
+            0xFF8000..=0xFFFFFF => {
+                // Sub CPU registers; canonically located at $FF8000-$FF81FF, but mirrored throughout the range
                 self.write_register_byte(address, value);
             }
             _ => todo!("sub bus read byte {address:06X} {value:02X}"),
@@ -1231,12 +1242,12 @@ impl<'a> BusInterface for SubBus<'a> {
                 sega_cd.backup_ram[backup_ram_addr as usize] = value as u8;
                 sega_cd.backup_ram_dirty = true;
             }
-            0xFF0000..=0xFF3FFF => {
-                // PCM sound chip (odd addresses)
+            0xFF0000..=0xFF7FFF => {
+                // PCM sound chip (odd addresses); canonically located at $FF0000-$FF3FFF and mirrored at $FF4000-$FF7FFF
                 self.pcm.write((address & 0x3FFF) >> 1, value as u8);
             }
-            0xFF8000..=0xFF81FF => {
-                // Sub CPU registers
+            0xFF8000..=0xFFFFFF => {
+                // Sub CPU registers; canonically located at $FF8000-$FF81FF, but mirrored throughout the range
                 self.write_register_word(address, value);
             }
             _ => todo!("sub bus read word {address:06X} {value:04X}"),
