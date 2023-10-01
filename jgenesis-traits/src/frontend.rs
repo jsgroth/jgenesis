@@ -120,13 +120,14 @@ pub trait ConfigReload {
     fn reload_config(&mut self, config: &Self::Config);
 }
 
-pub trait LightClone {
-    type Clone;
-
-    fn light_clone(&self) -> Self::Clone;
-
-    fn reconstruct_from(&mut self, clone: Self::Clone);
+pub trait PartialClone {
+    /// Create a partial clone of `self`, which clones all emulation state but may not clone
+    /// read-only fields such as ROMs and frame buffers.
+    #[must_use]
+    fn partial_clone(&self) -> Self;
 }
+
+pub use jgenesis_proc_macros::PartialClone;
 
 pub trait TakeRomFrom {
     fn take_rom_from(&mut self, other: &mut Self);
@@ -218,7 +219,7 @@ pub trait EmulatorTrait:
     + Encode
     + Decode
     + ConfigReload<Config = Self::EmulatorConfig>
-    + LightClone
+    + PartialClone
     + TakeRomFrom
     + Resettable
     + EmulatorDebug

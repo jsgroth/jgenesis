@@ -12,9 +12,9 @@ use crate::graphics::GraphicsCoprocessor;
 use crate::memory::font::FontRegisters;
 use crate::rf5c164::Rf5c164;
 use bincode::{Decode, Encode};
-use genesis_core::memory::{CloneWithoutRom, Memory, PhysicalMedium};
+use genesis_core::memory::{Memory, PhysicalMedium};
 use genesis_core::GenesisRegion;
-use jgenesis_proc_macros::{FakeDecode, FakeEncode};
+use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use jgenesis_traits::num::GetBit;
 use m68000_emu::BusInterface;
 use std::ops::Deref;
@@ -119,9 +119,11 @@ impl Deref for Bios {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Encode, Decode, PartialClone)]
 pub struct SegaCd {
+    #[partial_clone(default)]
     bios: Bios,
+    #[partial_clone(partial)]
     disc_drive: CdController,
     prg_ram: Box<[u8; PRG_RAM_LEN]>,
     word_ram: WordRam,
@@ -618,16 +620,6 @@ impl PhysicalMedium for SegaCd {
 
     fn region(&self) -> GenesisRegion {
         self.forced_region.unwrap_or(self.disc_region)
-    }
-}
-
-impl CloneWithoutRom for SegaCd {
-    fn clone_without_rom(&self) -> Self {
-        Self {
-            bios: Bios(vec![]),
-            disc_drive: self.disc_drive.clone_without_disc(),
-            ..self.clone()
-        }
     }
 }
 

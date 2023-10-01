@@ -7,6 +7,7 @@ use crate::cdrom::cue::{Track, TrackType};
 use crate::cdrom::reader::CdRom;
 use bincode::{Decode, Encode};
 use genesis_core::GenesisRegion;
+use jgenesis_proc_macros::PartialClone;
 use regex::Regex;
 use std::cmp::Ordering;
 use std::path::Path;
@@ -165,8 +166,9 @@ impl Default for State {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Encode, Decode, PartialClone)]
 pub struct CdDrive {
+    #[partial_clone(default)]
     disc: Option<CdRom>,
     sector_buffer: [u8; cdrom::BYTES_PER_SECTOR as usize],
     state: State,
@@ -798,10 +800,6 @@ impl CdDrive {
 
     pub fn take_disc_from(&mut self, other: &mut Self) {
         self.disc = other.disc.take();
-    }
-
-    pub fn clone_without_disc(&self) -> Self {
-        Self { disc: None, ..self.clone() }
     }
 
     pub fn reset(&mut self) {

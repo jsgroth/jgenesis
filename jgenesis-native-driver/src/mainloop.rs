@@ -14,7 +14,7 @@ use bincode::{Decode, Encode};
 use genesis_core::{GenesisEmulator, GenesisEmulatorConfig, GenesisInputs};
 use jgenesis_renderer::renderer::{RendererError, WgpuRenderer};
 use jgenesis_traits::frontend::{
-    AudioOutput, ConfigReload, EmulatorTrait, LightClone, SaveWriter, TickEffect,
+    AudioOutput, ConfigReload, EmulatorTrait, PartialClone, SaveWriter, TickEffect,
 };
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::event::{Event, WindowEvent};
@@ -233,7 +233,7 @@ pub enum NativeTickEffect {
     Exit,
 }
 
-pub struct NativeEmulator<Inputs, Button, Config, Emulator: LightClone> {
+pub struct NativeEmulator<Inputs, Button, Config, Emulator: PartialClone> {
     emulator: Emulator,
     config: Config,
     renderer: WgpuRenderer<Window>,
@@ -250,7 +250,7 @@ pub struct NativeEmulator<Inputs, Button, Config, Emulator: LightClone> {
     vram_debug: Option<VramDebug>,
 }
 
-impl<Inputs, Button, Config, Emulator: LightClone>
+impl<Inputs, Button, Config, Emulator: PartialClone>
     NativeEmulator<Inputs, Button, Config, Emulator>
 {
     fn reload_common_config<KC, JC>(

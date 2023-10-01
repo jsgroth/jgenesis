@@ -1,17 +1,17 @@
-use jgenesis_traits::frontend::{LightClone, Renderer, TickableEmulator};
+use jgenesis_traits::frontend::{PartialClone, Renderer, TakeRomFrom, TickableEmulator};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 const FRAME_DIVIDER: u64 = 10;
 
-pub struct Rewinder<Emulator: LightClone> {
-    previous_states: VecDeque<Emulator::Clone>,
+pub struct Rewinder<Emulator: PartialClone> {
+    previous_states: VecDeque<Emulator>,
     buffer_len: usize,
     frame_count: u64,
     last_rewind_time: Option<Instant>,
 }
 
-impl<Emulator: LightClone> Rewinder<Emulator> {
+impl<Emulator: PartialClone> Rewinder<Emulator> {
     pub fn new(buffer_duration: Duration) -> Self {
         let buffer_len = duration_to_buffer_len(buffer_duration);
         Self {
@@ -30,7 +30,7 @@ impl<Emulator: LightClone> Rewinder<Emulator> {
         self.frame_count += 1;
 
         if self.frame_count % FRAME_DIVIDER == 0 {
-            self.previous_states.push_back(emulator.light_clone());
+            self.previous_states.push_back(emulator.partial_clone());
 
             while self.previous_states.len() > self.buffer_len {
                 self.previous_states.pop_front();
@@ -54,7 +54,7 @@ impl<Emulator: LightClone> Rewinder<Emulator> {
 
     pub fn tick<R>(&mut self, emulator: &mut Emulator, renderer: &mut R) -> Result<(), R::Err>
     where
-        Emulator: TickableEmulator,
+        Emulator: TickableEmulator + TakeRomFrom,
         R: Renderer,
     {
         let Some(last_rewind_time) = self.last_rewind_time else { return Ok(()) };
@@ -64,8 +64,10 @@ impl<Emulator: LightClone> Rewinder<Emulator> {
 
         let now = Instant::now();
         if now.duration_since(last_rewind_time) >= Duration::from_secs_f64(rewind_interval_secs) {
-            let Some(clone) = self.previous_states.pop_back() else { return Ok(()) };
-            emulator.reconstruct_from(clone);
+            let Some(mut clone) = self.previous_states.pop_back() else { return Ok(()) };
+            clone.take_rom_from(emulator);
+            *emulator = clone;
+
             emulator.force_render(renderer)?;
 
             self.last_rewind_time = Some(now);

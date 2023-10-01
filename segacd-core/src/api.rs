@@ -15,7 +15,7 @@ use genesis_core::{
     GenesisAspectRatio, GenesisEmulator, GenesisEmulatorConfig, GenesisInputs, GenesisRegion,
 };
 use jgenesis_traits::frontend::{
-    AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, LightClone, Renderer,
+    AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, PartialClone, Renderer,
     Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator, TimingMode,
 };
 use m68000_emu::M68000;
@@ -99,8 +99,9 @@ pub enum SegaCdError<RErr, AErr, SErr> {
 
 pub type SegaCdResult<T, RErr, AErr, SErr> = Result<T, SegaCdError<RErr, AErr, SErr>>;
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Encode, Decode, PartialClone)]
 pub struct SegaCdEmulator {
+    #[partial_clone(partial)]
     memory: Memory<SegaCd>,
     main_cpu: M68000,
     sub_cpu: M68000,
@@ -455,22 +456,6 @@ impl ConfigReload for SegaCdEmulator {
         self.adjust_aspect_ratio_in_2x_resolution = config.adjust_aspect_ratio_in_2x_resolution;
         self.vdp.set_enforce_sprite_limits(!config.remove_sprite_limits);
         self.memory.medium_mut().set_forced_region(config.forced_region);
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct EmulatorClone(SegaCdEmulator);
-
-impl LightClone for SegaCdEmulator {
-    type Clone = EmulatorClone;
-
-    fn light_clone(&self) -> Self::Clone {
-        EmulatorClone(Self { memory: self.memory.clone_without_rom(), ..self.clone() })
-    }
-
-    fn reconstruct_from(&mut self, mut clone: Self::Clone) {
-        clone.0.memory.medium_mut().take_rom_from(self.memory.medium_mut());
-        *self = clone.0;
     }
 }
 

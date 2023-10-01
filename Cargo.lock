@@ -1845,6 +1845,7 @@ dependencies = [
 name = "jgenesis-proc-macros"
 version = "0.3.0"
 dependencies = [
+ "jgenesis-traits",
  "quote",
  "syn 2.0.37",
 ]

@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_quote, Data, DeriveInput, Type};
+use syn::{parse_quote, Data, DeriveInput, Field, Fields, Type};
 
 /// Implement the `std::fmt::Display` trait for the given enum. Only supports enums which have only
 /// fieldless variants.
@@ -364,4 +364,212 @@ pub fn fake_decode(input: TokenStream) -> TokenStream {
     };
 
     gen.into()
+}
+
+/// Implement the `jgenesis_traits::frontend::PartialClone` trait for a given struct.
+///
+/// This macro should be imported through `jgenesis_traits` instead of directly from this crate so
+/// that both the macro and the trait are imported.
+///
+/// Fields that are not marked with a `#[partial_clone]` attribute will be cloned using that type's
+/// implementation of the `Clone` trait.
+///
+/// Fields that are marked with `#[partial_clone(default)]` will not be cloned, and instead the
+/// partial clone will contain the default value for that type (via the `Default` trait).
+///
+/// Fields that are marked with `#[partial_clone(partial)]` will be cloned using that type's
+/// implementation of the `PartialClone` trait.
+///
+/// If the struct has any generic type parameters, the `PartialClone` trait will only be implemented
+/// where all of the generic types implement `PartialClone`.
+///
+/// Examples/tests:
+/// ```
+/// use jgenesis_traits::frontend::PartialClone;
+///
+/// #[derive(Debug, PartialEq, PartialClone)]
+/// struct UnitStruct;
+///
+/// assert_eq!(UnitStruct, UnitStruct.partial_clone());
+/// ```
+///
+/// ```
+/// use jgenesis_traits::frontend::PartialClone;
+///
+/// #[derive(Debug, PartialEq, PartialClone)]
+/// struct Nested(Vec<u8>, #[partial_clone(default)] Vec<u16>, String);
+///
+/// #[derive(Debug, PartialEq, PartialClone)]
+/// struct UnnamedFields(Vec<u8>, #[partial_clone(default)] Vec<u16>, #[partial_clone(partial)] Nested);
+///
+/// let inner = Nested(vec![1, 2, 3], vec![4, 5, 6], "hello".into());
+/// let outer = UnnamedFields(vec![7, 8, 9], vec![10, 11, 12], inner);
+///
+/// let expected = UnnamedFields(vec![7, 8, 9], vec![], Nested(vec![1, 2, 3], vec![], "hello".into()));
+/// assert_eq!(outer.partial_clone(), expected);
+/// ```
+///
+/// ```
+/// use jgenesis_traits::frontend::PartialClone;
+///
+/// #[derive(Debug, PartialEq, PartialClone)]
+/// struct Nested {
+///     a: Vec<u8>,
+///     #[partial_clone(default)]
+///     b: Vec<u16>,
+///     c: String,
+/// }
+///
+/// #[derive(Debug, PartialEq, PartialClone)]
+/// struct NamedFields {
+///     d: Vec<u8>,
+///     #[partial_clone(default)]
+///     e: Vec<u16>,
+///     #[partial_clone(partial)]
+///     f: Nested,
+/// }
+///
+/// let inner = Nested { a: vec![1, 2, 3], b: vec![4, 5, 6], c: "hello".into() };
+/// let outer = NamedFields { d: vec![7, 8, 9], e: vec![10, 11, 12], f: inner };
+///
+/// let expected = NamedFields {
+///     d: vec![7, 8, 9],
+///     e: vec![],
+///     f: Nested { a: vec![1, 2, 3], b: vec![], c: "hello".into() },
+/// };
+/// assert_eq!(outer.partial_clone(), expected);
+/// ```
+///
+/// ```
+/// use jgenesis_traits::frontend::PartialClone;
+///
+/// #[derive(Debug, PartialEq, PartialClone)]
+/// struct Nested(Vec<u8>, #[partial_clone(default)] String);
+///
+/// #[derive(Debug, PartialEq, PartialClone)]
+/// struct GenericStruct<T>(#[partial_clone(partial)] T, Vec<u8>);
+///
+/// let inner = Nested(vec![1, 2, 3], "hello".into());
+/// let outer = GenericStruct(inner, vec![4, 5, 6]);
+///
+/// let expected_inner = Nested(vec![1, 2, 3], String::new());
+/// let expected_outer = GenericStruct(expected_inner, vec![4, 5, 6]);
+/// assert_eq!(outer.partial_clone(), expected_outer);
+/// ```
+/// # Panics
+///
+/// This macro currently only supports structs, and it will panic if applied to an enum or union.
+#[proc_macro_derive(PartialClone, attributes(partial_clone))]
+pub fn partial_clone(input: TokenStream) -> TokenStream {
+    let input: DeriveInput = syn::parse(input).expect("Unable to parse input");
+
+    let type_ident = &input.ident;
+    let Data::Struct(data) = &input.data else {
+        panic!("PartialClone currently only supports structs; {type_ident} is not a struct");
+    };
+
+    let constructor = match &data.fields {
+        Fields::Unit => quote! { Self },
+        Fields::Unnamed(fields) => {
+            let constructor_fields: Vec<_> = fields
+                .unnamed
+                .iter()
+                .enumerate()
+                .map(|(i, field)| match parse_partial_clone_attr(field) {
+                    PartialCloneAttr::None => quote! {
+                        self.#i.clone()
+                    },
+                    PartialCloneAttr::PartialClone => quote! {
+                        self.#i.partial_clone()
+                    },
+                    PartialCloneAttr::Default => quote! {
+                        ::std::default::Default::default()
+                    },
+                })
+                .collect();
+
+            quote! {
+                Self(#(#constructor_fields,)*)
+            }
+        }
+        Fields::Named(fields) => {
+            let constructor_fields: Vec<_> = fields
+                .named
+                .iter()
+                .map(|field| {
+                    let field_ident =
+                        field.ident.as_ref().expect("Nested inside Fields::Named match arm");
+                    match parse_partial_clone_attr(field) {
+                        PartialCloneAttr::None => quote! {
+                            #field_ident: self.#field_ident.clone()
+                        },
+                        PartialCloneAttr::PartialClone => quote! {
+                            #field_ident: self.#field_ident.partial_clone()
+                        },
+                        PartialCloneAttr::Default => quote! {
+                            #field_ident: ::std::default::Default::default()
+                        },
+                    }
+                })
+                .collect();
+
+            quote! {
+                Self {
+                    #(#constructor_fields,)*
+                }
+            }
+        }
+    };
+
+    let mut generics = input.generics.clone();
+    for type_param in generics.type_params_mut() {
+        type_param.bounds.push(parse_quote!(::jgenesis_traits::frontend::PartialClone));
+    }
+    let (impl_generics, type_generics, where_clause) = generics.split_for_impl();
+
+    let gen = quote! {
+        impl #impl_generics ::jgenesis_traits::frontend::PartialClone for #type_ident #type_generics #where_clause {
+            fn partial_clone(&self) -> Self {
+                #constructor
+            }
+        }
+    };
+
+    gen.into()
+}
+
+enum PartialCloneAttr {
+    None,
+    PartialClone,
+    Default,
+}
+
+fn parse_partial_clone_attr(field: &Field) -> PartialCloneAttr {
+    field.attrs.iter().find_map(|attr| {
+        attr.path().is_ident("partial_clone").then(|| {
+            let mut partial = false;
+            let mut default = false;
+            attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("partial") {
+                    partial = true;
+                    Ok(())
+                } else if meta.path.is_ident("default") {
+                    default = true;
+                    Ok(())
+                } else {
+                    Err(meta.error("nested partial_clone attribute must be 'partial' or 'default'"))
+                }
+            }).expect("partial_clone attribute missing nested attribute of 'partial' or 'default'");
+
+            if partial && default {
+                panic!("partial_clone has both 'partial' and 'default' attributes, expected exactly one");
+            } else if partial {
+                PartialCloneAttr::PartialClone
+            } else if default {
+                PartialCloneAttr::Default
+            } else {
+                panic!("partial_clone attribute must have nested attribute of either 'partial' or 'default'");
+            }
+        })
+    }).unwrap_or(PartialCloneAttr::None)
 }

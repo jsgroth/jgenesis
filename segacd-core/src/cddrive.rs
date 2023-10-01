@@ -10,6 +10,7 @@ use bincode::{Decode, Encode};
 use cdc::Rchip;
 use cdd::CdDrive;
 use genesis_core::GenesisRegion;
+use jgenesis_proc_macros::PartialClone;
 use std::array;
 
 const SEGA_CD_MCLK_FREQUENCY: f64 = 50_000_000.0;
@@ -86,8 +87,9 @@ pub enum CdTickEffect {
     OutputAudioSample(f64, f64),
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Encode, Decode, PartialClone)]
 pub struct CdController {
+    #[partial_clone(partial)]
     drive: CdDrive,
     rchip: Rchip,
     sector_buffer: [u8; cdrom::BYTES_PER_SECTOR as usize],
@@ -155,10 +157,6 @@ impl CdController {
 
     pub fn take_disc_from(&mut self, other: &mut Self) {
         self.drive.take_disc_from(&mut other.drive);
-    }
-
-    pub fn clone_without_disc(&self) -> Self {
-        Self { drive: self.drive.clone_without_disc(), ..self.clone() }
     }
 
     pub fn reset(&mut self) {

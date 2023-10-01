@@ -34,19 +34,6 @@ impl DerefMut for CdRomFiles {
     }
 }
 
-impl Clone for CdRomFiles {
-    fn clone(&self) -> Self {
-        let mut files = HashMap::with_capacity(self.0.len());
-
-        for (file_name, file) in &self.0 {
-            let file = file.try_clone().expect("Unable to clone file descriptor");
-            files.insert(file_name.clone(), file);
-        }
-
-        Self(files)
-    }
-}
-
 impl CdRomFiles {
     fn create<P: AsRef<Path>>(cue_sheet: &CueSheet, directory: P) -> DiscResult<Self> {
         let file_names: HashSet<_> =
@@ -67,7 +54,7 @@ impl CdRomFiles {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Encode, Decode)]
 pub struct CdRom {
     cue_sheet: CueSheet,
     files: CdRomFiles,

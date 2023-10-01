@@ -7,7 +7,7 @@ use crate::memory::external::ExternalMemory;
 use crate::vdp::Vdp;
 use crate::ym2612::Ym2612;
 use bincode::{Decode, Encode};
-use jgenesis_proc_macros::{FakeDecode, FakeEncode};
+use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use jgenesis_traits::frontend::TimingMode;
 use jgenesis_traits::num::GetBit;
 use regex::Regex;
@@ -69,8 +69,9 @@ impl SegaMapper {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, PartialClone)]
 pub struct Cartridge {
+    #[partial_clone(default)]
     rom: Rom,
     external_memory: ExternalMemory,
     ram_mapped: bool,
@@ -276,8 +277,9 @@ impl Default for Signals {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Encode, Decode, PartialClone)]
 pub struct Memory<Medium> {
+    #[partial_clone(partial)]
     physical_medium: Medium,
     main_ram: Box<[u8; MAIN_RAM_LEN]>,
     audio_ram: Box<[u8; AUDIO_RAM_LEN]>,
@@ -330,37 +332,6 @@ impl<Medium: PhysicalMedium> Memory<Medium> {
 
     pub fn reset_z80_signals(&mut self) {
         self.signals = Signals::default();
-    }
-}
-
-pub trait CloneWithoutRom {
-    #[must_use]
-    fn clone_without_rom(&self) -> Self;
-}
-
-impl CloneWithoutRom for Cartridge {
-    #[must_use]
-    fn clone_without_rom(&self) -> Self {
-        Self {
-            rom: Rom(vec![]),
-            external_memory: self.external_memory.clone(),
-            ram_mapped: self.ram_mapped,
-            mapper: self.mapper,
-            region: self.region,
-        }
-    }
-}
-
-impl<Medium: CloneWithoutRom> Memory<Medium> {
-    #[must_use]
-    pub fn clone_without_rom(&self) -> Self {
-        Self {
-            physical_medium: self.physical_medium.clone_without_rom(),
-            main_ram: self.main_ram.clone(),
-            audio_ram: self.audio_ram.clone(),
-            z80_bank_register: self.z80_bank_register,
-            signals: self.signals,
-        }
     }
 }
 

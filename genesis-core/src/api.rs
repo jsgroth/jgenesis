@@ -7,7 +7,7 @@ use crate::ym2612::{Ym2612, YmTickEffect};
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_traits::frontend::{
-    AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, FrameSize, LightClone,
+    AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, FrameSize, PartialClone,
     PixelAspectRatio, Renderer, Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
     TimingMode,
 };
@@ -130,8 +130,9 @@ pub struct GenesisEmulatorConfig {
     pub remove_sprite_limits: bool,
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Encode, Decode, PartialClone)]
 pub struct GenesisEmulator {
+    #[partial_clone(partial)]
     memory: Memory<Cartridge>,
     m68k: M68000,
     z80: Z80,
@@ -246,34 +247,6 @@ impl ConfigReload for GenesisEmulator {
         self.aspect_ratio = config.aspect_ratio;
         self.adjust_aspect_ratio_in_2x_resolution = config.adjust_aspect_ratio_in_2x_resolution;
         self.vdp.set_enforce_sprite_limits(!config.remove_sprite_limits);
-    }
-}
-
-pub struct GenesisEmulatorClone(GenesisEmulator);
-
-impl LightClone for GenesisEmulator {
-    type Clone = GenesisEmulatorClone;
-
-    fn light_clone(&self) -> Self::Clone {
-        GenesisEmulatorClone(Self {
-            memory: self.memory.clone_without_rom(),
-            m68k: self.m68k.clone(),
-            z80: self.z80.clone(),
-            vdp: self.vdp.clone(),
-            psg: self.psg.clone(),
-            ym2612: self.ym2612.clone(),
-            input: self.input.clone(),
-            timing_mode: self.timing_mode,
-            aspect_ratio: self.aspect_ratio,
-            adjust_aspect_ratio_in_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
-            audio_downsampler: self.audio_downsampler.clone(),
-            master_clock_cycles: self.master_clock_cycles,
-        })
-    }
-
-    fn reconstruct_from(&mut self, mut clone: Self::Clone) {
-        clone.0.memory.take_rom_from(&mut self.memory);
-        *self = clone.0;
     }
 }
 

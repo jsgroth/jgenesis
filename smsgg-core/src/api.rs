@@ -9,7 +9,7 @@ use crate::{vdp, SmsGgInputs, VdpVersion};
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
 use jgenesis_traits::frontend::{
-    AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, FrameSize, LightClone,
+    AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, FrameSize, PartialClone,
     PixelAspectRatio, Renderer, Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
     TimingMode,
 };
@@ -85,8 +85,9 @@ pub struct SmsGgEmulatorConfig {
     pub overclock_z80: bool,
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, PartialClone)]
 pub struct SmsGgEmulator {
+    #[partial_clone(partial)]
     memory: Memory,
     z80: Z80,
     vdp: Vdp,
@@ -198,40 +199,6 @@ impl ConfigReload for SmsGgEmulator {
         self.sms_crop_vertical_border = config.sms_crop_vertical_border;
         self.sms_crop_left_border = config.sms_crop_left_border;
         self.overclock_z80 = config.overclock_z80;
-    }
-}
-
-pub struct SmsGgEmulatorClone(SmsGgEmulator);
-
-impl LightClone for SmsGgEmulator {
-    type Clone = SmsGgEmulatorClone;
-
-    fn light_clone(&self) -> Self::Clone {
-        SmsGgEmulatorClone(Self {
-            memory: self.memory.clone_without_rom(),
-            z80: self.z80.clone(),
-            vdp: self.vdp.clone(),
-            vdp_version: self.vdp_version,
-            pixel_aspect_ratio: self.pixel_aspect_ratio,
-            psg: self.psg.clone(),
-            ym2413: self.ym2413.clone(),
-            input: self.input.clone(),
-            low_pass_filter: self.low_pass_filter.clone(),
-            frame_buffer: self.frame_buffer.clone(),
-            sms_crop_vertical_border: self.sms_crop_vertical_border,
-            sms_crop_left_border: self.sms_crop_left_border,
-            overclock_z80: self.overclock_z80,
-            z80_cycles_remainder: self.z80_cycles_remainder,
-            vdp_cycles_remainder: self.vdp_cycles_remainder,
-            sample_count: self.sample_count,
-            frame_count: self.frame_count,
-            reset_frames_remaining: self.reset_frames_remaining,
-        })
-    }
-
-    fn reconstruct_from(&mut self, mut clone: Self::Clone) {
-        clone.0.memory.take_rom_from(&mut self.memory);
-        *self = clone.0;
     }
 }
 
