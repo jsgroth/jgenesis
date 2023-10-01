@@ -122,7 +122,7 @@ impl CdRom {
 
         let relative_sector_number = (relative_time - track.pregap_len).to_sector_number();
         let sector_number = track.metadata.time_in_file.to_sector_number() + relative_sector_number;
-        let sector_addr = u64::from(sector_number) + cdrom::BYTES_PER_SECTOR;
+        let sector_addr = u64::from(sector_number) * cdrom::BYTES_PER_SECTOR;
 
         // Only seek if the file descriptor is not already at the desired position
         if *position != sector_addr {
