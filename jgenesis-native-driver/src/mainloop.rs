@@ -243,6 +243,7 @@ pub struct NativeEmulator<Inputs, Button, Config, Emulator: PartialClone> {
     save_writer: FsSaveWriter,
     event_pump: EventPump,
     save_state_path: PathBuf,
+    paused: bool,
     fast_forward_multiplier: u64,
     rewinder: Rewinder<Emulator>,
     video: VideoSubsystem,
@@ -514,6 +515,7 @@ where
         loop {
             let rewinding = self.rewinder.is_rewinding();
             let frame_rendered = !rewinding
+                && !self.paused
                 && self
                     .emulator
                     .tick(
@@ -525,7 +527,7 @@ where
                     .map_err(|err| NativeEmulatorError::Emulator(err.into()))?
                     == TickEffect::FrameRendered;
 
-            if rewinding || frame_rendered {
+            if rewinding || self.paused || frame_rendered {
                 for event in self.event_pump.poll_iter() {
                     self.input_mapper.handle_event(&event)?;
                     if handle_hotkeys(
@@ -536,6 +538,7 @@ where
                         &mut self.renderer,
                         &mut self.audio_output,
                         &self.save_state_path,
+                        &mut self.paused,
                         self.fast_forward_multiplier,
                         &mut self.rewinder,
                         &self.video,
@@ -674,6 +677,7 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
         save_writer,
         event_pump,
         save_state_path,
+        paused: false,
         fast_forward_multiplier: config.common.fast_forward_multiplier,
         rewinder: Rewinder::new(Duration::from_secs(config.common.rewind_buffer_length_seconds)),
         video,
@@ -748,6 +752,7 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
         save_writer,
         event_pump,
         save_state_path,
+        paused: false,
         fast_forward_multiplier: config.common.fast_forward_multiplier,
         rewinder: Rewinder::new(Duration::from_secs(config.common.rewind_buffer_length_seconds)),
         video,
@@ -826,6 +831,7 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
         save_writer,
         event_pump,
         save_state_path,
+        paused: false,
         fast_forward_multiplier: config.genesis.common.fast_forward_multiplier,
         rewinder: Rewinder::new(Duration::from_secs(
             config.genesis.common.rewind_buffer_length_seconds,
@@ -895,6 +901,7 @@ fn handle_hotkeys<Emulator, P>(
     renderer: &mut WgpuRenderer<Window>,
     audio_output: &mut SdlAudioOutput,
     save_state_path: P,
+    paused: &mut bool,
     fast_forward_multiplier: u64,
     rewinder: &mut Rewinder<Emulator>,
     video: &VideoSubsystem,
@@ -916,6 +923,7 @@ where
                     config,
                     renderer,
                     audio_output,
+                    paused,
                     fast_forward_multiplier,
                     rewinder,
                     video,
@@ -955,6 +963,7 @@ fn handle_hotkey_pressed<Emulator>(
     config: &Emulator::EmulatorConfig,
     renderer: &mut WgpuRenderer<Window>,
     audio_output: &mut SdlAudioOutput,
+    paused: &mut bool,
     fast_forward_multiplier: u64,
     rewinder: &mut Rewinder<Emulator>,
     video: &VideoSubsystem,
@@ -998,6 +1007,9 @@ where
         }
         Hotkey::HardReset => {
             emulator.hard_reset();
+        }
+        Hotkey::Pause => {
+            *paused = !(*paused);
         }
         Hotkey::FastForward => {
             renderer.set_speed_multiplier(fast_forward_multiplier);

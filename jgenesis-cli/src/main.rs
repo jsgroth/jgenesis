@@ -258,6 +258,10 @@ struct Args {
     #[arg(long, default_value_t = String::from("F2"))]
     hotkey_hard_reset: String,
 
+    /// Pause hotkey
+    #[arg(long, default_value_t = String::from("P"))]
+    hotkey_pause: String,
+
     /// Fast forward hotkey
     #[arg(long, default_value_t = String::from("Tab"))]
     hotkey_fast_forward: String,
@@ -362,6 +366,7 @@ impl Args {
             load_state: Some(keyboard_input(&self.hotkey_load_state)),
             soft_reset: Some(keyboard_input(&self.hotkey_soft_reset)),
             hard_reset: Some(keyboard_input(&self.hotkey_hard_reset)),
+            pause: Some(keyboard_input(&self.hotkey_pause)),
             fast_forward: Some(keyboard_input(&self.hotkey_fast_forward)),
             rewind: Some(keyboard_input(&self.hotkey_rewind)),
             open_cram_debug: Some(keyboard_input(&self.hotkey_cram_debug)),

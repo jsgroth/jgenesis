@@ -215,6 +215,9 @@ impl InputAppConfig {
             Hotkey::HardReset => {
                 self.hotkeys.hard_reset = Some(input);
             }
+            Hotkey::Pause => {
+                self.hotkeys.pause = Some(input);
+            }
             Hotkey::FastForward => {
                 self.hotkeys.fast_forward = Some(input);
             }
@@ -614,6 +617,12 @@ impl App {
                     ui,
                 );
                 self.hotkey_button(
+                    self.config.inputs.hotkeys.pause.clone(),
+                    "Pause/Unpause",
+                    Hotkey::Pause,
+                    ui,
+                );
+                self.hotkey_button(
                     self.config.inputs.hotkeys.fast_forward.clone(),
                     "Fast forward",
                     Hotkey::FastForward,
@@ -823,6 +832,9 @@ impl App {
                 }
                 Hotkey::HardReset => {
                     self.config.inputs.hotkeys.hard_reset = None;
+                }
+                Hotkey::Pause => {
+                    self.config.inputs.hotkeys.pause = None;
                 }
                 Hotkey::FastForward => {
                     self.config.inputs.hotkeys.fast_forward = None;
