@@ -1,5 +1,5 @@
 mod api;
-mod audio;
+pub mod audio;
 pub mod input;
 pub mod memory;
 pub mod vdp;

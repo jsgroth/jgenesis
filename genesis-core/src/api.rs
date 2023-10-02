@@ -1,5 +1,4 @@
-use crate::audio;
-use crate::audio::AudioDownsampler;
+use crate::audio::GenesisAudioDownsampler;
 use crate::input::{GenesisInputs, InputState};
 use crate::memory::{Cartridge, MainBus, MainBusSignals, Memory};
 use crate::vdp::{Vdp, VdpTickEffect};
@@ -13,7 +12,7 @@ use jgenesis_traits::frontend::{
 };
 use jgenesis_traits::num::GetBit;
 use m68000_emu::M68000;
-use smsgg_core::psg::{Psg, PsgVersion};
+use smsgg_core::psg::{Psg, PsgTickEffect, PsgVersion};
 use std::fmt::{Debug, Display};
 use thiserror::Error;
 use z80_emu::Z80;
@@ -143,7 +142,7 @@ pub struct GenesisEmulator {
     timing_mode: TimingMode,
     aspect_ratio: GenesisAspectRatio,
     adjust_aspect_ratio_in_2x_resolution: bool,
-    audio_downsampler: AudioDownsampler,
+    audio_downsampler: GenesisAudioDownsampler,
     master_clock_cycles: u64,
 }
 
@@ -198,7 +197,7 @@ impl GenesisEmulator {
             input,
             aspect_ratio: config.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: config.adjust_aspect_ratio_in_2x_resolution,
-            audio_downsampler: AudioDownsampler::new(timing_mode),
+            audio_downsampler: GenesisAudioDownsampler::new(timing_mode),
             master_clock_cycles: 0,
             timing_mode,
         }
@@ -312,28 +311,24 @@ impl TickableEmulator for GenesisEmulator {
         // The PSG uses the same master clock divider as the Z80, but it needs to be ticked in a
         // separate loop because MainBus holds a mutable reference to the PSG
         for _ in 0..z80_cycles {
-            self.psg.tick();
+            if self.psg.tick() == PsgTickEffect::Clocked {
+                let (psg_sample_l, psg_sample_r) = self.psg.sample();
+                self.audio_downsampler.collect_psg_sample(psg_sample_l, psg_sample_r);
+            }
         }
 
         // The YM2612 uses the same master clock divider as the 68000
         for _ in 0..m68k_cycles {
             if self.ym2612.tick() == YmTickEffect::OutputSample {
                 let (ym_sample_l, ym_sample_r) = self.ym2612.sample();
-                let (psg_sample_l, psg_sample_r) = self.psg.sample();
-
-                // TODO more intelligent PSG mixing
-                let sample_l =
-                    (ym_sample_l + audio::PSG_COEFFICIENT * psg_sample_l).clamp(-1.0, 1.0);
-                let sample_r =
-                    (ym_sample_r + audio::PSG_COEFFICIENT * psg_sample_r).clamp(-1.0, 1.0);
-                self.audio_downsampler
-                    .collect_sample(sample_l, sample_r, audio_output)
-                    .map_err(GenesisError::Audio)?;
+                self.audio_downsampler.collect_ym2612_sample(ym_sample_l, ym_sample_r);
             }
         }
 
         if self.vdp.tick(elapsed_mclk_cycles, &mut self.memory) == VdpTickEffect::FrameComplete {
             self.render_frame(renderer).map_err(GenesisError::Render)?;
+
+            self.audio_downsampler.output_samples(audio_output).map_err(GenesisError::Audio)?;
 
             self.input.set_inputs(inputs);
 
