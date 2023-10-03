@@ -29,8 +29,10 @@ impl FixedPointDecimal {
 impl Add for FixedPointDecimal {
     type Output = Self;
 
+    // Clippy doesn't like the bitwise AND in here for some reason
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn add(self, rhs: Self) -> Self::Output {
-        Self((self.0 + rhs.0) & MASK)
+        Self(self.0.wrapping_add(rhs.0) & MASK)
     }
 }
 
