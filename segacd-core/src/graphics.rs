@@ -324,7 +324,7 @@ impl GraphicsCoprocessor {
 
                 // Pretty much a complete guess on timing; the documentation is extremely unclear
                 let estimated_mclk_cycles =
-                    8 * self.image_buffer_v_dot_size * self.image_buffer_h_dot_size;
+                    11 * self.image_buffer_v_dot_size * self.image_buffer_h_dot_size / 2;
                 self.state = State::Processing {
                     mclk_cycles_remaining: estimated_mclk_cycles.into(),
                     operation_performed: false,
