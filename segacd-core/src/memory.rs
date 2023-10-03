@@ -151,17 +151,7 @@ impl SegaCd {
         };
 
         let disc_region = match &mut disc {
-            Some(disc) => {
-                // Parse disc region from ROM header, which is always located in sector 0
-                let mut sector_buffer = [0; cdrom::BYTES_PER_SECTOR as usize];
-                disc.read_sector(1, CdTime::SECTOR_0_START, &mut sector_buffer)?;
-
-                // Sega CD ROM header starts at $010 because the first 16 bytes are sync + CD-ROM data track header
-                GenesisRegion::from_rom(&sector_buffer[0x010..]).unwrap_or_else(|| {
-                    log::warn!("Unable to determine disc region from ROM header; defaulting to US");
-                    GenesisRegion::Americas
-                })
-            }
+            Some(disc) => parse_disc_region(disc)?,
             None => {
                 // Default to US if no disc provided
                 GenesisRegion::Americas
@@ -483,6 +473,32 @@ impl SegaCd {
     pub fn change_disc<P: AsRef<Path>>(&mut self, cue_path: P) -> DiscResult<()> {
         self.disc_drive.cdd_mut().change_disc(cue_path)
     }
+}
+
+fn parse_disc_region(disc: &mut CdRom) -> DiscResult<GenesisRegion> {
+    // ROM header is always located at track 1 sector 0
+    let mut rom_header = [0; cdrom::BYTES_PER_SECTOR as usize];
+    disc.read_sector(1, CdTime::SECTOR_0_START, &mut rom_header)?;
+
+    // Sega CD ROM header starts at $010 because the first 16 bytes are sync + CD-ROM data track header
+    let region = GenesisRegion::from_rom(&rom_header[0x010..]).unwrap_or_else(|| {
+        log::warn!("Unable to determine region from ROM header; defaulting to US");
+        GenesisRegion::Americas
+    });
+
+    // Hack to fix Snatcher (US/EU), which incorrectly reports its region as J in the header
+    let serial_number = &rom_header[0x190..0x1A0];
+    if region == GenesisRegion::Japan && serial_number == "GM T-95035 -00  ".as_bytes() {
+        let console_name = &rom_header[0x110..0x120];
+        if console_name == "SEGA GENESIS    ".as_bytes() {
+            return Ok(GenesisRegion::Americas);
+        } else if console_name == "SEGA MEGA DRIVE ".as_bytes() {
+            return Ok(GenesisRegion::Europe);
+        }
+        // Any other console name is unexpected, leave region as-is
+    }
+
+    Ok(region)
 }
 
 impl PhysicalMedium for SegaCd {
