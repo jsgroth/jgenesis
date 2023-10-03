@@ -492,7 +492,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         self.registers.ccr = ConditionCodes {
             carry: false,
             overflow: false,
-            zero: value == 0,
+            zero: quotient == 0,
             negative: quotient < 0,
             ..self.registers.ccr
         };
@@ -529,7 +529,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         self.registers.ccr = ConditionCodes {
             carry: false,
             overflow: false,
-            zero: value == 0,
+            zero: quotient == 0,
             negative: quotient.bit(15),
             ..self.registers.ccr
         };
