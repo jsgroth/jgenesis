@@ -592,6 +592,10 @@ where
 
                 if rewinding {
                     self.rewinder.tick(&mut self.emulator, &mut self.renderer)?;
+                }
+
+                if rewinding || self.paused {
+                    // Don't spin loop when the emulator is not actively running
                     sleep(Duration::from_millis(1));
                 }
 
