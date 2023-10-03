@@ -7,7 +7,7 @@ Cross-platform multi-console Sega emulator that supports the Sega Genesis / Mega
 * Emulation for the following consoles:
   * Sega Genesis / Mega Drive
   * Sega CD / Mega CD
-    * The JP Model 1 BIOS does not currently work, and several games freeze shortly after boot (e.g. _Snatcher_ and _Batman Returns_)
+    * The JP Model 1 BIOS does not currently work
   * Sega Master System / Mark III
   * Game Gear
 * GPU-based renderer with integer prescaling and optional linear interpolation
