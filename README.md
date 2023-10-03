@@ -21,9 +21,8 @@ Cross-platform multi-console Sega emulator that supports the Sega Genesis / Mega
 
 Major TODOs:
 * Implement a few remaining YM2612 features (CSM and SSG-EG, they're obscure but some games did use them)
-* Fix remaining Sega CD emulation bugs
+* Fix remaining major Sega CD emulation bugs
   * JP V1.00 BIOS freezes after loading the music player menu, which in this BIOS version is required to boot any games
-  * _Batman Returns_ boots but has major glitches and is not playable
   * _Silpheed_ randomly freezes during gameplay
 
 Minor TODOs:
