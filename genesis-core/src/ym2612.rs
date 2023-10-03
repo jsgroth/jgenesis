@@ -6,7 +6,7 @@ mod timer;
 use crate::ym2612::envelope::EnvelopeGenerator;
 use crate::ym2612::lfo::LowFrequencyOscillator;
 use crate::ym2612::phase::PhaseGenerator;
-use crate::ym2612::timer::{TimerA, TimerB};
+use crate::ym2612::timer::{TimerA, TimerB, TimerTickEffect};
 use bincode::{Decode, Encode};
 use jgenesis_traits::num::GetBit;
 use std::array;
@@ -351,6 +351,7 @@ pub struct Ym2612 {
     busy_cycles_remaining: u8,
     timer_a: TimerA,
     timer_b: TimerB,
+    csm_enabled: bool,
     quantize_output: bool,
 }
 
@@ -369,6 +370,7 @@ impl Ym2612 {
             busy_cycles_remaining: 0,
             timer_a: TimerA::new(),
             timer_b: TimerB::new(),
+            csm_enabled: false,
             quantize_output,
         }
     }
@@ -427,6 +429,7 @@ impl Ym2612 {
                 // Channel 3 mode + timer control
                 let mode =
                     if value & 0xC0 != 0 { FrequencyMode::Multiple } else { FrequencyMode::Single };
+                self.csm_enabled = value & 0xC0 == 0x80;
 
                 // Mode applies only to channel 3
                 let channel = &mut self.channels[2];
@@ -446,6 +449,7 @@ impl Ym2612 {
                 }
 
                 log::trace!("Channel 3 frequency mode: {mode:?}");
+                log::trace!("CSM enabled: {}", self.csm_enabled);
                 log::trace!("Timer A state: {:?}", self.timer_a);
                 log::trace!("Timer B state: {:?}", self.timer_b);
             }
@@ -515,8 +519,20 @@ impl Ym2612 {
     #[inline]
     pub fn tick(&mut self) -> YmTickEffect {
         self.lfo.tick();
-        self.timer_a.tick();
+
+        let timer_a_effect = self.timer_a.tick();
         self.timer_b.tick();
+
+        if self.csm_enabled && timer_a_effect == TimerTickEffect::Overflowed {
+            // CSM: Whenever Timer A overflows, instantaneously key on & off all operators in
+            // channel 3 that are not already keyed on
+            for operator in &mut self.channels[2].operators {
+                if !operator.envelope.is_key_on() {
+                    operator.key_on_or_off(true);
+                    operator.key_on_or_off(false);
+                }
+            }
+        }
 
         self.clock_divider -= 1;
         if self.clock_divider == 0 {

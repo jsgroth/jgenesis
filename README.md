@@ -20,7 +20,7 @@ Cross-platform multi-console Sega emulator that supports the Sega Genesis / Mega
 * Optional 2x CPU overclocking for Sega Master System and Game Gear emulation
 
 Major TODOs:
-* Implement a few remaining YM2612 features (CSM and SSG-EG, they're obscure but some games did use them)
+* Implement one remaining YM2612 feature (SSG-EG, it's obscure but some games did use it)
 * Fix remaining major Sega CD emulation bugs
   * JP V1.00 BIOS freezes after loading the music player menu, which in this BIOS version is required to boot any games
 

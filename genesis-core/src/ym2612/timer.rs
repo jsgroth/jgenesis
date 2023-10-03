@@ -1,5 +1,11 @@
 use bincode::{Decode, Encode};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimerTickEffect {
+    None,
+    Overflowed,
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Timer<const INTERVAL: u32, const MAX: u32> {
     enabled: bool,
@@ -31,9 +37,9 @@ impl<const INTERVAL: u32, const MAX: u32> Timer<INTERVAL, MAX> {
     }
 
     #[inline]
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self) -> TimerTickEffect {
         if !self.enabled {
-            return;
+            return TimerTickEffect::None;
         }
 
         self.counter -= 1;
@@ -43,6 +49,10 @@ impl<const INTERVAL: u32, const MAX: u32> Timer<INTERVAL, MAX> {
             if self.overflow_flag_enabled {
                 self.overflow_flag = true;
             }
+
+            TimerTickEffect::Overflowed
+        } else {
+            TimerTickEffect::None
         }
     }
 
