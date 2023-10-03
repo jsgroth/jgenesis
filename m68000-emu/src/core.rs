@@ -929,11 +929,12 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         match self.do_execute() {
             Ok(cycles) => cycles,
             Err(Exception::AddressError(address, op_type)) => {
-                self.registers.address_error = true;
-
-                log::trace!(
-                    "Encountered address error; address={address:08X}, op_type={op_type:?}"
+                log::error!(
+                    "[{}] Encountered 68000 address error; address={address:08X}, op_type={op_type:?}",
+                    self.name
                 );
+
+                self.registers.address_error = true;
                 if self.handle_address_error(address, op_type).is_err() {
                     todo!("halt CPU")
                 }
@@ -943,7 +944,11 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             }
             Err(Exception::PrivilegeViolation) => todo!("privilege violation"),
             Err(Exception::IllegalInstruction(opcode)) => {
-                log::error!("Illegal opcode executed: {opcode:04X} / {opcode:016b}");
+                log::error!(
+                    "[{}] Illegal opcode executed: {opcode:04X} / {opcode:016b}",
+                    self.name
+                );
+
                 if self
                     .handle_trap(ILLEGAL_OPCODE_VECTOR, self.registers.pc.wrapping_sub(2))
                     .is_err()
@@ -955,6 +960,8 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 34
             }
             Err(Exception::DivisionByZero { cycles }) => {
+                log::error!("[{}] Encountered 68000 divide by zero error", self.name);
+
                 if self
                     .handle_trap(DIVIDE_BY_ZERO_VECTOR, self.registers.pc.wrapping_sub(4))
                     .is_err()

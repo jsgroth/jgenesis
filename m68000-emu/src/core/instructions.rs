@@ -381,7 +381,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         let instruction = decode_opcode(opcode, self.registers.supervisor_mode)?;
         self.instruction = Some(instruction);
-        log::trace!("[{}] Decoded instruction (PC={initial_pc:06X}): {instruction}", self.name);
+        log::trace!(
+            "[{}] Decoded opcode {opcode:04X} (PC={initial_pc:06X}): {instruction}",
+            self.name
+        );
 
         match instruction {
             Add { size: OpSize::Byte, source, dest, with_extend } => {
