@@ -1259,17 +1259,18 @@ impl Vdp {
         // The longest 68k instruction (DIVS) takes at most around 150 68k cycles
         assert!(master_clock_cycles < 1100);
 
-        if let Some(active_dma) = self.state.active_dma {
-            // TODO accurate DMA timing
-            self.run_dma(memory, active_dma);
-        }
-
+        // Count down DMA time before checking if a DMA was initiated in the last CPU instruction
         let line_type = LineType::from_vdp(self);
         self.dma_tracker.tick(
             master_clock_cycles,
             self.registers.horizontal_display_size,
             line_type,
         );
+
+        if let Some(active_dma) = self.state.active_dma {
+            // TODO accurate DMA timing
+            self.run_dma(memory, active_dma);
+        }
 
         if !self.dma_tracker.in_progress && !self.state.pending_writes.is_empty() {
             self.apply_pending_writes();
