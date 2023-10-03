@@ -181,7 +181,7 @@ impl SegaCdEmulator {
         let z80 = Z80::new();
         let mut vdp = Vdp::new(timing_mode, emulator_config.to_vdp_config());
         let graphics_coprocessor = GraphicsCoprocessor::new();
-        let mut ym2612 = Ym2612::new();
+        let mut ym2612 = Ym2612::new(emulator_config.quantize_ym2612_output);
         let mut psg = Psg::new(PsgVersion::Standard);
         let pcm = Rf5c164::new();
         let mut input = InputState::new();
@@ -444,6 +444,7 @@ impl Resettable for SegaCdEmulator {
                 adjust_aspect_ratio_in_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
                 remove_sprite_limits: !vdp_config.enforce_sprite_limits,
                 emulate_non_linear_vdp_dac: vdp_config.emulate_non_linear_dac,
+                quantize_ym2612_output: self.ym2612.get_quantize_output(),
             },
         )
         .expect("Hard reset should not cause an I/O error");
@@ -458,6 +459,7 @@ impl ConfigReload for SegaCdEmulator {
         self.adjust_aspect_ratio_in_2x_resolution = config.adjust_aspect_ratio_in_2x_resolution;
         self.vdp.reload_config(config.to_vdp_config());
         self.memory.medium_mut().set_forced_region(config.forced_region);
+        self.ym2612.set_quantize_output(config.quantize_ym2612_output);
     }
 }
 

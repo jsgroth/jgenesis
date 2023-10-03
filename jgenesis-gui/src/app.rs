@@ -164,6 +164,8 @@ struct GenesisAppConfig {
     remove_sprite_limits: bool,
     #[serde(default)]
     emulate_non_linear_vdp_dac: bool,
+    #[serde(default = "true_fn")]
+    quantize_ym2612_output: bool,
 }
 
 impl Default for GenesisAppConfig {
@@ -289,6 +291,7 @@ impl AppConfig {
             adjust_aspect_ratio_in_2x_resolution: self.genesis.adjust_aspect_ratio_in_2x_resolution,
             remove_sprite_limits: self.genesis.remove_sprite_limits,
             emulate_non_linear_vdp_dac: self.genesis.emulate_non_linear_vdp_dac,
+            quantize_ym2612_output: self.genesis.quantize_ym2612_output,
         })
     }
 
@@ -317,6 +320,7 @@ enum OpenWindow {
     GenesisVideo,
     CommonAudio,
     SmsGgAudio,
+    GenesisAudio,
     SmsGgKeyboard,
     SmsGgGamepad,
     GenesisKeyboard,
@@ -1064,6 +1068,17 @@ impl App {
         }
     }
 
+    fn render_genesis_audio_settings(&mut self, ctx: &Context) {
+        let mut open = true;
+        Window::new("Genesis Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.checkbox(&mut self.config.genesis.quantize_ym2612_output, "Quantize YM2612 operator output")
+                .on_hover_text("Quantize operator outputs from 14 bits to 9 bits to emulate the YM2612's 9-bit DAC");
+        });
+        if !open {
+            self.state.open_windows.remove(&OpenWindow::GenesisAudio);
+        }
+    }
+
     fn render_about(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("About").open(&mut open).resizable(false).show(ctx, |ui| {
@@ -1194,6 +1209,11 @@ impl App {
 
                     if ui.button("SMS / GG").clicked() {
                         self.state.open_windows.insert(OpenWindow::SmsGgAudio);
+                        ui.close_menu();
+                    }
+
+                    if ui.button("Genesis / Sega CD").clicked() {
+                        self.state.open_windows.insert(OpenWindow::GenesisAudio);
                         ui.close_menu();
                     }
                 });
@@ -1396,6 +1416,9 @@ impl eframe::App for App {
                 }
                 OpenWindow::SmsGgAudio => {
                     self.render_smsgg_audio_settings(ctx);
+                }
+                OpenWindow::GenesisAudio => {
+                    self.render_genesis_audio_settings(ctx);
                 }
                 OpenWindow::SmsGgKeyboard => {
                     self.render_smsgg_keyboard_settings(ctx);

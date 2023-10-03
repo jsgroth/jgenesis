@@ -351,11 +351,12 @@ pub struct Ym2612 {
     busy_cycles_remaining: u8,
     timer_a: TimerA,
     timer_b: TimerB,
+    quantize_output: bool,
 }
 
 impl Ym2612 {
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(quantize_output: bool) -> Self {
         Self {
             channels: array::from_fn(|_| FmChannel::default()),
             pcm_enabled: false,
@@ -368,11 +369,12 @@ impl Ym2612 {
             busy_cycles_remaining: 0,
             timer_a: TimerA::new(),
             timer_b: TimerB::new(),
+            quantize_output,
         }
     }
 
     pub fn reset(&mut self) {
-        *self = Self::new();
+        *self = Self::new(self.quantize_output);
     }
 
     // Set the address register for group 1 (system registers + channels 1-3)
@@ -534,12 +536,14 @@ impl Ym2612 {
 
     #[must_use]
     pub fn sample(&self) -> (f64, f64) {
+        let quantization_mask = self.quantization_mask();
+
         let mut sum_l = 0;
         let mut sum_r = 0;
         for channel in &self.channels[0..5] {
             let (sample_l, sample_r) = channel.current_output;
-            sum_l += i32::from(sample_l);
-            sum_r += i32::from(sample_r);
+            sum_l += i32::from(sample_l & quantization_mask);
+            sum_r += i32::from(sample_r & quantization_mask);
         }
 
         let (ch6_sample_l, ch6_sample_r) = if self.pcm_enabled {
@@ -554,6 +558,15 @@ impl Ym2612 {
 
         // Each channel has a range of [-8192, 8191], so divide the sums by 6*8192 to convert to [-1.0, 1.0]
         (f64::from(sum_l) / 49152.0, f64::from(sum_r) / 49152.0)
+    }
+
+    fn quantization_mask(&self) -> i16 {
+        if self.quantize_output {
+            // Simulate a 9-bit DAC by masking out the lowest 5 bits of the 14-bit operator outputs
+            !((1 << 5) - 1)
+        } else {
+            !0
+        }
     }
 
     fn write_operator_level_register(&mut self, register: u8, value: u8, base_channel_idx: usize) {
@@ -755,10 +768,13 @@ impl Ym2612 {
             channel.fm_clock(lfo_counter);
         }
     }
-}
 
-impl Default for Ym2612 {
-    fn default() -> Self {
-        Self::new()
+    #[must_use]
+    pub fn get_quantize_output(&self) -> bool {
+        self.quantize_output
+    }
+
+    pub fn set_quantize_output(&mut self, quantize_output: bool) {
+        self.quantize_output = quantize_output;
     }
 }

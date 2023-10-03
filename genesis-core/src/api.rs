@@ -128,6 +128,7 @@ pub struct GenesisEmulatorConfig {
     pub adjust_aspect_ratio_in_2x_resolution: bool,
     pub remove_sprite_limits: bool,
     pub emulate_non_linear_vdp_dac: bool,
+    pub quantize_ym2612_output: bool,
 }
 
 impl GenesisEmulatorConfig {
@@ -183,7 +184,7 @@ impl GenesisEmulator {
         let z80 = Z80::new();
         let mut vdp = Vdp::new(timing_mode, config.to_vdp_config());
         let mut psg = Psg::new(PsgVersion::Standard);
-        let mut ym2612 = Ym2612::new();
+        let mut ym2612 = Ym2612::new(config.quantize_ym2612_output);
         let mut input = InputState::new();
 
         // The Genesis does not allow TAS to lock the bus, so don't allow TAS writes
@@ -257,6 +258,7 @@ impl ConfigReload for GenesisEmulator {
         self.aspect_ratio = config.aspect_ratio;
         self.adjust_aspect_ratio_in_2x_resolution = config.adjust_aspect_ratio_in_2x_resolution;
         self.vdp.reload_config(config.to_vdp_config());
+        self.ym2612.set_quantize_output(config.quantize_ym2612_output);
     }
 }
 
@@ -396,6 +398,7 @@ impl Resettable for GenesisEmulator {
             adjust_aspect_ratio_in_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
             remove_sprite_limits: !vdp_config.enforce_sprite_limits,
             emulate_non_linear_vdp_dac: vdp_config.emulate_non_linear_dac,
+            quantize_ym2612_output: self.ym2612.get_quantize_output(),
         };
 
         *self = GenesisEmulator::create(rom, cartridge_ram, config);

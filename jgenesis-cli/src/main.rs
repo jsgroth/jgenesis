@@ -65,6 +65,10 @@ struct Args {
     #[arg(long, default_value_t)]
     emulate_non_linear_vdp_dac: bool,
 
+    /// Disable YM2612 output quantization, letting outputs cover the full 14-bit range instead of only using the highest 9 bits
+    #[arg(long = "no-ym2612-quantization", default_value_t = true)]
+    quantize_ym2612_output: bool,
+
     /// SMS aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
     #[arg(long, default_value_t)]
     sms_aspect_ratio: SmsAspectRatio,
@@ -417,6 +421,7 @@ impl Args {
             adjust_aspect_ratio_in_2x_resolution: self.genesis_adjust_aspect_ratio,
             remove_sprite_limits: self.remove_sprite_limit,
             emulate_non_linear_vdp_dac: self.emulate_non_linear_vdp_dac,
+            quantize_ym2612_output: self.quantize_ym2612_output,
         }
     }
 }

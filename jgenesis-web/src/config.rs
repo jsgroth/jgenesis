@@ -155,6 +155,7 @@ impl GenesisWebConfig {
             adjust_aspect_ratio_in_2x_resolution: true,
             remove_sprite_limits: self.remove_sprite_limits,
             emulate_non_linear_vdp_dac: self.emulate_non_linear_vdp_dac,
+            quantize_ym2612_output: true,
         }
     }
 }
