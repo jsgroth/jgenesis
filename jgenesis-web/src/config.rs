@@ -142,6 +142,8 @@ impl SmsGgWebConfig {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GenesisWebConfig {
     aspect_ratio: GenesisAspectRatio,
+    remove_sprite_limits: bool,
+    emulate_non_linear_vdp_dac: bool,
 }
 
 impl GenesisWebConfig {
@@ -151,7 +153,8 @@ impl GenesisWebConfig {
             forced_region: None,
             aspect_ratio: self.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: true,
-            remove_sprite_limits: false,
+            remove_sprite_limits: self.remove_sprite_limits,
+            emulate_non_linear_vdp_dac: self.emulate_non_linear_vdp_dac,
         }
     }
 }
@@ -227,6 +230,14 @@ impl WebConfigRef {
     pub fn set_genesis_aspect_ratio(&self, aspect_ratio: &str) {
         let Ok(aspect_ratio) = aspect_ratio.parse() else { return };
         self.borrow_mut().genesis.aspect_ratio = aspect_ratio;
+    }
+
+    pub fn set_genesis_remove_sprite_limits(&self, remove_sprite_limits: bool) {
+        self.borrow_mut().genesis.remove_sprite_limits = remove_sprite_limits;
+    }
+
+    pub fn set_genesis_emulate_non_linear_dac(&self, emulate_non_linear_dac: bool) {
+        self.borrow_mut().genesis.emulate_non_linear_vdp_dac = emulate_non_linear_dac;
     }
 
     pub fn clone(&self) -> Self {

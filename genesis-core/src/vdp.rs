@@ -833,6 +833,7 @@ pub struct Vdp {
     sprite_buffer: Vec<SpriteData>,
     sprite_bit_set: SpriteBitSet,
     enforce_sprite_limits: bool,
+    emulate_non_linear_dac: bool,
     // Cache of CRAM in u16 form
     color_buffer: [u16; CRAM_LEN / 2],
     master_clock_cycles: u64,
@@ -873,10 +874,16 @@ impl TimingModeExt for TimingMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VdpConfig {
+    pub enforce_sprite_limits: bool,
+    pub emulate_non_linear_dac: bool,
+}
+
 impl Vdp {
     #[allow(clippy::missing_panics_doc)]
     #[must_use]
-    pub fn new(timing_mode: TimingMode, enforce_sprite_limits: bool) -> Self {
+    pub fn new(timing_mode: TimingMode, config: VdpConfig) -> Self {
         Self {
             frame_buffer: FrameBuffer::new(),
             vram: vec![0; VRAM_LEN].into_boxed_slice().try_into().unwrap(),
@@ -891,7 +898,8 @@ impl Vdp {
                 .unwrap(),
             sprite_buffer: Vec::with_capacity(MAX_SPRITES_PER_FRAME),
             sprite_bit_set: SpriteBitSet::new(),
-            enforce_sprite_limits,
+            enforce_sprite_limits: config.enforce_sprite_limits,
+            emulate_non_linear_dac: config.emulate_non_linear_dac,
             color_buffer: [0; CRAM_LEN / 2],
             master_clock_cycles: 0,
             dma_tracker: DmaTracker::new(),
@@ -1975,19 +1983,23 @@ impl Vdp {
     }
 
     #[must_use]
-    pub fn get_enforce_sprite_limits(&self) -> bool {
-        self.enforce_sprite_limits
+    pub fn config(&self) -> VdpConfig {
+        VdpConfig {
+            enforce_sprite_limits: self.enforce_sprite_limits,
+            emulate_non_linear_dac: self.emulate_non_linear_dac,
+        }
     }
 
-    pub fn set_enforce_sprite_limits(&mut self, enforce_sprite_limits: bool) {
-        self.enforce_sprite_limits = enforce_sprite_limits;
+    pub fn reload_config(&mut self, config: VdpConfig) {
+        self.enforce_sprite_limits = config.enforce_sprite_limits;
+        self.emulate_non_linear_dac = config.emulate_non_linear_dac;
     }
 
     fn set_in_frame_buffer(&mut self, row: u32, col: u32, value: u16, modifier: ColorModifier) {
         let r = ((value >> 1) & 0x07) as u8;
         let g = ((value >> 5) & 0x07) as u8;
         let b = ((value >> 9) & 0x07) as u8;
-        let color = gen_color_to_rgb(r, g, b, modifier);
+        let color = gen_color_to_rgb(r, g, b, modifier, self.emulate_non_linear_dac);
 
         let screen_width = self.screen_width();
         self.frame_buffer[(row * screen_width + col) as usize] = color;
@@ -2228,20 +2240,34 @@ fn read_pattern_generator(
 }
 
 // i * 255 / 7
-const NORMAL_RGB_COLORS: [u8; 8] = [0, 36, 73, 109, 146, 182, 219, 255];
+const NORMAL_RGB_COLORS_LINEAR: [u8; 8] = [0, 36, 73, 109, 146, 182, 219, 255];
 
 // i * 255 / 7 / 2
-const SHADOWED_RGB_COLORS: [u8; 8] = [0, 18, 36, 55, 73, 91, 109, 128];
+const SHADOWED_RGB_COLORS_LINEAR: [u8; 8] = [0, 18, 36, 55, 73, 91, 109, 128];
 
 // 255 / 2 + i * 255 / 7 / 2
-const HIGHLIGHTED_RGB_COLORS: [u8; 8] = [128, 146, 164, 182, 200, 219, 237, 255];
+const HIGHLIGHTED_RGB_COLORS_LINEAR: [u8; 8] = [128, 146, 164, 182, 200, 219, 237, 255];
+
+// Values from http://gendev.spritesmind.net/forum/viewtopic.php?f=22&t=2188
+const NORMAL_RGB_COLORS_NON_LINEAR: [u8; 8] = [0, 52, 87, 116, 144, 172, 206, 255];
+const SHADOWED_RGB_COLORS_NON_LINEAR: [u8; 8] = [0, 29, 52, 70, 87, 101, 116, 130];
+const HIGHLIGHTED_RGB_COLORS_NON_LINEAR: [u8; 8] = [130, 144, 158, 172, 187, 206, 228, 255];
 
 #[inline]
-fn gen_color_to_rgb(r: u8, g: u8, b: u8, modifier: ColorModifier) -> Color {
-    let colors = match modifier {
-        ColorModifier::None => NORMAL_RGB_COLORS,
-        ColorModifier::Shadow => SHADOWED_RGB_COLORS,
-        ColorModifier::Highlight => HIGHLIGHTED_RGB_COLORS,
+fn gen_color_to_rgb(
+    r: u8,
+    g: u8,
+    b: u8,
+    modifier: ColorModifier,
+    emulate_non_linear_dac: bool,
+) -> Color {
+    let colors = match (modifier, emulate_non_linear_dac) {
+        (ColorModifier::None, false) => NORMAL_RGB_COLORS_LINEAR,
+        (ColorModifier::Shadow, false) => SHADOWED_RGB_COLORS_LINEAR,
+        (ColorModifier::Highlight, false) => HIGHLIGHTED_RGB_COLORS_LINEAR,
+        (ColorModifier::None, true) => NORMAL_RGB_COLORS_NON_LINEAR,
+        (ColorModifier::Shadow, true) => SHADOWED_RGB_COLORS_NON_LINEAR,
+        (ColorModifier::Highlight, true) => HIGHLIGHTED_RGB_COLORS_NON_LINEAR,
     };
     Color::rgb(colors[r as usize], colors[g as usize], colors[b as usize])
 }
@@ -2251,7 +2277,10 @@ mod tests {
     use super::*;
 
     fn new_vdp() -> Vdp {
-        Vdp::new(TimingMode::Ntsc, false)
+        Vdp::new(
+            TimingMode::Ntsc,
+            VdpConfig { enforce_sprite_limits: true, emulate_non_linear_dac: false },
+        )
     }
 
     #[test]

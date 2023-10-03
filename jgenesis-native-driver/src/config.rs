@@ -176,6 +176,7 @@ pub struct GenesisConfig {
     // double resolution mode
     pub adjust_aspect_ratio_in_2x_resolution: bool,
     pub remove_sprite_limits: bool,
+    pub emulate_non_linear_vdp_dac: bool,
 }
 
 impl GenesisConfig {
@@ -186,6 +187,7 @@ impl GenesisConfig {
             aspect_ratio: self.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
             remove_sprite_limits: self.remove_sprite_limits,
+            emulate_non_linear_vdp_dac: self.emulate_non_linear_vdp_dac,
         }
     }
 }

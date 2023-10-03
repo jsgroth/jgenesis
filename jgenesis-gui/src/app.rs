@@ -160,6 +160,8 @@ struct GenesisAppConfig {
     adjust_aspect_ratio_in_2x_resolution: bool,
     #[serde(default)]
     remove_sprite_limits: bool,
+    #[serde(default)]
+    emulate_non_linear_vdp_dac: bool,
 }
 
 impl Default for GenesisAppConfig {
@@ -284,6 +286,7 @@ impl AppConfig {
             aspect_ratio: self.genesis.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: self.genesis.adjust_aspect_ratio_in_2x_resolution,
             remove_sprite_limits: self.genesis.remove_sprite_limits,
+            emulate_non_linear_vdp_dac: self.genesis.emulate_non_linear_vdp_dac,
         })
     }
 
@@ -896,6 +899,12 @@ impl App {
                 "Remove sprite-per-scanline and sprite-pixel-per-scanline limits",
             )
             .on_hover_text("Can reduce sprite flickering, but can also cause visual glitches");
+
+            ui.checkbox(
+                &mut self.config.genesis.emulate_non_linear_vdp_dac,
+                "Emulate the VDP's non-linear color DAC",
+            )
+            .on_hover_text("Tends to brighten darker colors and darken brighter colors");
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::GenesisVideo);

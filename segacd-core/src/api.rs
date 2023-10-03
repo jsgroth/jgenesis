@@ -179,7 +179,7 @@ impl SegaCdEmulator {
         let mut main_cpu = M68000::builder().allow_tas_writes(false).name("Main".into()).build();
         let sub_cpu = M68000::builder().name("Sub".into()).build();
         let z80 = Z80::new();
-        let mut vdp = Vdp::new(timing_mode, !emulator_config.remove_sprite_limits);
+        let mut vdp = Vdp::new(timing_mode, emulator_config.to_vdp_config());
         let graphics_coprocessor = GraphicsCoprocessor::new();
         let mut ym2612 = Ym2612::new();
         let mut psg = Psg::new(PsgVersion::Standard);
@@ -431,6 +431,7 @@ impl Resettable for SegaCdEmulator {
         let disc = sega_cd.take_cdrom();
         let backup_ram = Vec::from(sega_cd.backup_ram());
         let forced_region = sega_cd.forced_region();
+        let vdp_config = self.vdp.config();
 
         *self = Self::create_from_disc(
             bios,
@@ -441,7 +442,8 @@ impl Resettable for SegaCdEmulator {
                 forced_region,
                 aspect_ratio: self.aspect_ratio,
                 adjust_aspect_ratio_in_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
-                remove_sprite_limits: !self.vdp.get_enforce_sprite_limits(),
+                remove_sprite_limits: !vdp_config.enforce_sprite_limits,
+                emulate_non_linear_vdp_dac: vdp_config.emulate_non_linear_dac,
             },
         )
         .expect("Hard reset should not cause an I/O error");
@@ -454,7 +456,7 @@ impl ConfigReload for SegaCdEmulator {
     fn reload_config(&mut self, config: &Self::Config) {
         self.aspect_ratio = config.aspect_ratio;
         self.adjust_aspect_ratio_in_2x_resolution = config.adjust_aspect_ratio_in_2x_resolution;
-        self.vdp.set_enforce_sprite_limits(!config.remove_sprite_limits);
+        self.vdp.reload_config(config.to_vdp_config());
         self.memory.medium_mut().set_forced_region(config.forced_region);
     }
 }

@@ -58,8 +58,12 @@ struct Args {
     genesis_timing_mode: Option<TimingMode>,
 
     /// Remove sprite-per-scanline and sprite-pixel-per-scanlines limits which reduces sprite flickering
-    #[arg(long)]
+    #[arg(long, default_value_t)]
     remove_sprite_limit: bool,
+
+    /// Emulate the Genesis VDP's non-linear DAC, which tends to brighten darker colors and darken brighter colors
+    #[arg(long, default_value_t)]
+    emulate_non_linear_vdp_dac: bool,
 
     /// SMS aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
     #[arg(long, default_value_t)]
@@ -412,6 +416,7 @@ impl Args {
             aspect_ratio: self.genesis_aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: self.genesis_adjust_aspect_ratio,
             remove_sprite_limits: self.remove_sprite_limit,
+            emulate_non_linear_vdp_dac: self.emulate_non_linear_vdp_dac,
         }
     }
 }

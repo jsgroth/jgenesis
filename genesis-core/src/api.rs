@@ -1,7 +1,7 @@
 use crate::audio::GenesisAudioDownsampler;
 use crate::input::{GenesisInputs, InputState};
 use crate::memory::{Cartridge, MainBus, MainBusSignals, Memory};
-use crate::vdp::{Vdp, VdpTickEffect};
+use crate::vdp::{Vdp, VdpConfig, VdpTickEffect};
 use crate::ym2612::{Ym2612, YmTickEffect};
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
@@ -127,6 +127,17 @@ pub struct GenesisEmulatorConfig {
     pub aspect_ratio: GenesisAspectRatio,
     pub adjust_aspect_ratio_in_2x_resolution: bool,
     pub remove_sprite_limits: bool,
+    pub emulate_non_linear_vdp_dac: bool,
+}
+
+impl GenesisEmulatorConfig {
+    #[must_use]
+    pub fn to_vdp_config(self) -> VdpConfig {
+        VdpConfig {
+            enforce_sprite_limits: !self.remove_sprite_limits,
+            emulate_non_linear_dac: self.emulate_non_linear_vdp_dac,
+        }
+    }
 }
 
 #[derive(Debug, Encode, Decode, PartialClone)]
@@ -170,7 +181,7 @@ impl GenesisEmulator {
         log::info!("Using timing / display mode {timing_mode}");
 
         let z80 = Z80::new();
-        let mut vdp = Vdp::new(timing_mode, !config.remove_sprite_limits);
+        let mut vdp = Vdp::new(timing_mode, config.to_vdp_config());
         let mut psg = Psg::new(PsgVersion::Standard);
         let mut ym2612 = Ym2612::new();
         let mut input = InputState::new();
@@ -245,7 +256,7 @@ impl ConfigReload for GenesisEmulator {
     fn reload_config(&mut self, config: &Self::Config) {
         self.aspect_ratio = config.aspect_ratio;
         self.adjust_aspect_ratio_in_2x_resolution = config.adjust_aspect_ratio_in_2x_resolution;
-        self.vdp.set_enforce_sprite_limits(!config.remove_sprite_limits);
+        self.vdp.reload_config(config.to_vdp_config());
     }
 }
 
@@ -377,12 +388,14 @@ impl Resettable for GenesisEmulator {
 
         let rom = self.memory.take_rom();
         let cartridge_ram = self.memory.take_external_ram_if_persistent();
+        let vdp_config = self.vdp.config();
         let config = GenesisEmulatorConfig {
             forced_timing_mode: Some(self.timing_mode),
             forced_region: Some(self.memory.hardware_region()),
             aspect_ratio: self.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
-            remove_sprite_limits: !self.vdp.get_enforce_sprite_limits(),
+            remove_sprite_limits: !vdp_config.enforce_sprite_limits,
+            emulate_non_linear_vdp_dac: vdp_config.emulate_non_linear_dac,
         };
 
         *self = GenesisEmulator::create(rom, cartridge_ram, config);

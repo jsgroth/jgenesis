@@ -215,6 +215,17 @@
                         <input type="radio" id="gen-aspect-square-pixels" name="gen-aspect-ratio" value="SquarePixels">
                         <label for="gen-aspect-square-pixels">Square pixels</label>
                     </fieldset>
+
+                    <div>
+                        <input type="checkbox" id="genesis-remove-sprite-limits">
+                        <label for="genesis-remove-sprite-limits">Remove sprite-per-scanline and sprite-pixel-per-scanline limits</label>
+                    </div>
+
+                    <div>
+                        <input type="checkbox" id="genesis-emulate-non-linear-dac">
+                        <label for="genesis-emulate-non-linear-dac">Emulate non-linear color DAC</label>
+                    </div>
+
                     <p>Controls</p>
                     <ul>
                         <li>Up/Left/Right/Down: Arrow keys</li>
@@ -311,6 +322,14 @@
                 element.addEventListener("click", (event) => {
                     config.set_genesis_aspect_ratio(event.target.value);
                 });
+            });
+
+            document.getElementById("genesis-remove-sprite-limits").addEventListener("click", (event) => {
+                config.set_genesis_remove_sprite_limits(event.target.checked);
+            });
+
+            document.getElementById("genesis-emulate-non-linear-dac").addEventListener("click", (event) => {
+                config.set_genesis_emulate_non_linear_dac(event.target.checked);
             });
 
             run_emulator(config.clone(), channel.clone());
