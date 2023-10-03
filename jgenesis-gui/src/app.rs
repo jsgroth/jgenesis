@@ -25,11 +25,13 @@ use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsRegion, VdpVersion};
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fs;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct CommonAppConfig {
@@ -345,7 +347,7 @@ struct AppState {
     audio_gain_invalid: bool,
     display_scanlines_warning: bool,
     waiting_for_input: Option<GenericButton>,
-    rom_list: Vec<RomMetadata>,
+    rom_list: Rc<RefCell<Vec<RomMetadata>>>,
 }
 
 impl AppState {
@@ -373,7 +375,7 @@ impl AppState {
             audio_gain_invalid: false,
             display_scanlines_warning: should_display_scanlines_warning(config),
             waiting_for_input: None,
-            rom_list,
+            rom_list: Rc::new(RefCell::new(rom_list)),
         }
     }
 }
@@ -451,7 +453,7 @@ impl App {
         let Some(dir) = dir.to_str() else { return };
 
         self.config.rom_search_dirs.push(dir.into());
-        self.state.rom_list = romlist::build(&self.config.rom_search_dirs);
+        *self.state.rom_list.borrow_mut() = romlist::build(&self.config.rom_search_dirs);
     }
 
     fn render_smsgg_general_settings(&mut self, ctx: &Context) {
@@ -602,7 +604,8 @@ impl App {
 
                         if ui.button("Remove").clicked() {
                             self.config.rom_search_dirs.remove(i);
-                            self.state.rom_list = romlist::build(&self.config.rom_search_dirs);
+                            *self.state.rom_list.borrow_mut() =
+                                romlist::build(&self.config.rom_search_dirs);
                         }
                     });
                 }
@@ -1236,7 +1239,7 @@ impl App {
         CentralPanel::default().show(ctx, |ui| {
             ui.set_enabled(!self.state.error_window_open);
 
-            if self.state.rom_list.is_empty() {
+            if self.state.rom_list.borrow().is_empty() {
                 ui.centered_and_justified(|ui| {
                     if ui.selectable_label(false, "Configure ROM search directory").clicked() {
                         self.add_rom_search_directory();
@@ -1275,7 +1278,8 @@ impl App {
                         row.col(|_ui| {});
                     })
                     .body(|mut body| {
-                        for metadata in self.state.rom_list.clone() {
+                        let rom_list = Rc::clone(&self.state.rom_list);
+                        for metadata in rom_list.borrow().iter() {
                             body.row(40.0, |mut row| {
                                 row.col(|ui| {
                                     if Button::new(&metadata.file_name_no_ext)
