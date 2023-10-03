@@ -24,6 +24,7 @@ Major TODOs:
 * Fix remaining Sega CD emulation bugs
   * JP V1.00 BIOS freezes after loading the music player menu, which in this BIOS version is required to boot any games
   * _Batman Returns_ boots but has major glitches and is not playable
+  * _Silpheed_ randomly freezes during gameplay
 
 Minor TODOs:
 * Emulate the Genesis VDP FIFO, in particular the fact that the CPU stalls if it writes to VRAM too rapidly during active display. A few games depend on this to function correctly (e.g. _The Chaos Engine_, _Double Clutch_, _Sol-Deace_), and a few other games have graphical glitches if it's not emulated (e.g. the EA logo flickering for a single frame)
