@@ -1071,8 +1071,13 @@ impl App {
     fn render_genesis_audio_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("Genesis Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.checkbox(&mut self.config.genesis.quantize_ym2612_output, "Quantize YM2612 operator output")
-                .on_hover_text("Quantize operator outputs from 14 bits to 9 bits to emulate the YM2612's 9-bit DAC");
+            ui.checkbox(
+                &mut self.config.genesis.quantize_ym2612_output,
+                "Quantize YM2612 channel output",
+            )
+            .on_hover_text(
+                "Quantize channel outputs from 14 bits to 9 bits to emulate the YM2612's 9-bit DAC",
+            );
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::GenesisAudio);

@@ -562,7 +562,7 @@ impl Ym2612 {
 
     fn quantization_mask(&self) -> i16 {
         if self.quantize_output {
-            // Simulate a 9-bit DAC by masking out the lowest 5 bits of the 14-bit operator outputs
+            // Simulate a 9-bit DAC by masking out the lowest 5 bits of the 14-bit channel outputs
             !((1 << 5) - 1)
         } else {
             !0
