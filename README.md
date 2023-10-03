@@ -26,7 +26,7 @@ Major TODOs:
   * _Silpheed_ randomly freezes during gameplay (may be a Genesis timing issue rather than a Sega CD emulation issue)
 
 Minor TODOs:
-* Emulate the Genesis VDP FIFO, in particular the fact that the CPU stalls if it writes to VRAM too rapidly during active display. A few games depend on this to function correctly (e.g. _The Chaos Engine_, _Double Clutch_, _Sol-Deace_), and a few other games have graphical glitches if it's not emulated (e.g. the EA logo flickering for a single frame)
+* Emulate the Genesis VDP FIFO, in particular the fact that the CPU stalls if it writes to VRAM too rapidly during active display. A few games depend on this to function correctly (e.g. _The Chaos Engine_, _Double Clutch_, _Sol-Deace_), and a few other games have graphical glitches if it's not emulated (e.g. the EA logo flickering for a single frame, parts of the _Batman Returns_ intro running too fast)
 * Support the Sega Virtua Processor (SVP) chip; used only by _Virtua Racing_
 * Support 24C64 EEPROM chips (used only in _Frank Thomas Big Hurt Baseball_ and _College Slam_)
 * Support the Sega Master System's additional graphics modes (Modes 0-3); only one officially released game used any of them, _F-16 Fighter_ (which uses Mode 2)
