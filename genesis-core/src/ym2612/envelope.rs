@@ -1,7 +1,15 @@
+use crate::ym2612::phase::PhaseGenerator;
 use bincode::{Decode, Encode};
+use jgenesis_traits::num::GetBit;
 use std::cmp;
 
 const ENVELOPE_DIVIDER: u8 = 72;
+
+// SSG-EG updates 3x as fast as the envelope generator
+const SSG_UPDATE_1: u8 = 24;
+const SSG_UPDATE_2: u8 = 48;
+
+const SSG_ATTENUATION_THRESHOLD: u16 = 0x200;
 
 // Attenuation is 10 bits
 pub(super) const ATTENUATION_MASK: u16 = 0x03FF;
@@ -99,6 +107,11 @@ pub(super) struct EnvelopeGenerator {
     pub(super) key_scale_rate: u8,
     cycle_count: u32,
     divider: u8,
+    ssg_enabled: bool,
+    ssg_attack: bool,
+    ssg_alternate: bool,
+    ssg_hold: bool,
+    ssg_invert_output: bool,
 }
 
 impl EnvelopeGenerator {
@@ -116,15 +129,28 @@ impl EnvelopeGenerator {
             key_scale_rate: 0,
             cycle_count: 0,
             divider: ENVELOPE_DIVIDER,
+            ssg_enabled: false,
+            ssg_attack: false,
+            ssg_alternate: false,
+            ssg_hold: false,
+            ssg_invert_output: false,
         }
     }
 
     #[inline]
-    pub(super) fn fm_clock(&mut self) {
+    pub(super) fn fm_clock(&mut self, phase_generator: &mut PhaseGenerator) {
         self.divider -= 1;
         if self.divider == 0 {
             self.divider = ENVELOPE_DIVIDER;
+
+            if self.ssg_enabled {
+                self.ssg_clock(phase_generator);
+            }
+
             self.envelope_clock();
+        } else if self.ssg_enabled && (self.divider == SSG_UPDATE_1 || self.divider == SSG_UPDATE_2)
+        {
+            self.ssg_clock(phase_generator);
         }
     }
 
@@ -182,13 +208,64 @@ impl EnvelopeGenerator {
                             & ATTENUATION_MASK;
                     }
                 }
-                EnvelopePhase::Decay => {
-                    self.attenuation = cmp::min(sustain_level, self.attenuation + increment);
-                }
-                EnvelopePhase::Sustain | EnvelopePhase::Release => {
-                    self.attenuation = cmp::min(MAX_ATTENUATION, self.attenuation + increment);
+                EnvelopePhase::Decay | EnvelopePhase::Sustain | EnvelopePhase::Release => {
+                    if self.ssg_enabled {
+                        // Attenuation increments 4x as fast in SSG-EG mode, but only if current
+                        // attenuation is below 0x200
+                        if self.attenuation < SSG_ATTENUATION_THRESHOLD {
+                            self.attenuation =
+                                cmp::min(MAX_ATTENUATION, self.attenuation + 4 * increment);
+                        }
+                    } else {
+                        self.attenuation = cmp::min(MAX_ATTENUATION, self.attenuation + increment);
+                    }
                 }
             }
+        }
+    }
+
+    #[inline]
+    fn ssg_clock(&mut self, phase_generator: &mut PhaseGenerator) {
+        // SSG-EG implementation pretty much entirely based on this:
+        // https://gendev.spritesmind.net/forum/viewtopic.php?t=386&start=405
+
+        // SSG-EG updates only apply when attenuation is greater than or equal to 0x200
+        if self.attenuation < SSG_ATTENUATION_THRESHOLD {
+            return;
+        }
+
+        // Alternate flag causes the output to invert after each attack-decay-sustain pass
+        if self.ssg_alternate {
+            if self.ssg_hold {
+                // If holding, the output is always inverted once the hold begins
+                self.ssg_invert_output = true;
+            } else {
+                // If not holding, flip the invert output flag
+                self.ssg_invert_output = !self.ssg_invert_output;
+            }
+        }
+
+        if !self.ssg_alternate && !self.ssg_hold {
+            // When not alternating and not holding, the phase counter is held at 0 until
+            // attenuation drops below 0x200
+            phase_generator.reset();
+        }
+
+        if matches!(self.phase, EnvelopePhase::Decay | EnvelopePhase::Sustain) && !self.ssg_hold {
+            // If in decay or sustain phase and not holding, start a new attack-decay-sustain pass
+            if 2 * self.attack_rate + self.key_scale_rate >= 62 {
+                // Skip attack phase
+                self.attenuation = 0;
+                self.phase = EnvelopePhase::Decay;
+            } else {
+                self.phase = EnvelopePhase::Attack;
+            }
+        } else if self.phase == EnvelopePhase::Release
+            || (self.phase != EnvelopePhase::Attack && self.ssg_invert_output == self.ssg_attack)
+        {
+            // If in release phase _or_ in decay/sustain phase with invert output flag matching attack flag,
+            // force attenuation to max
+            self.attenuation = MAX_ATTENUATION;
         }
     }
 
@@ -212,10 +289,22 @@ impl EnvelopeGenerator {
             self.phase = EnvelopePhase::Attack;
         }
 
+        self.ssg_invert_output = false;
+
         log::trace!("State at key on: {self:?}");
     }
 
     pub(super) fn key_off(&mut self) {
+        if self.ssg_enabled
+            && self.phase != EnvelopePhase::Release
+            && self.ssg_invert_output != self.ssg_attack
+        {
+            // If SSG-EG is on and output is inverted, keying off applies the inversion to stored
+            // attenuation
+            self.attenuation =
+                SSG_ATTENUATION_THRESHOLD.wrapping_sub(self.attenuation) & ATTENUATION_MASK;
+        }
+
         self.phase = EnvelopePhase::Release;
     }
 
@@ -225,8 +314,33 @@ impl EnvelopeGenerator {
     }
 
     pub(super) fn current_attenuation(&self) -> u16 {
+        let attenuation = if self.ssg_enabled
+            && self.phase != EnvelopePhase::Release
+            && self.ssg_invert_output != self.ssg_attack
+        {
+            // Apply SSG output inversion, which centers around 0x200
+            SSG_ATTENUATION_THRESHOLD.wrapping_sub(self.attenuation) & ATTENUATION_MASK
+        } else {
+            self.attenuation
+        };
+
         let total_level = u16::from(self.total_level) << 3;
-        cmp::min(MAX_ATTENUATION, self.attenuation + total_level)
+        cmp::min(MAX_ATTENUATION, attenuation + total_level)
+    }
+
+    pub(super) fn write_ssg_register(&mut self, value: u8) {
+        self.ssg_enabled = value.bit(3);
+        self.ssg_attack = value.bit(2);
+        self.ssg_alternate = value.bit(1);
+        self.ssg_hold = value.bit(0);
+
+        log::trace!(
+            "SSG-EG register write; enabled={}, attack={}, alternate={}, hold={}",
+            self.ssg_enabled,
+            self.ssg_attack,
+            self.ssg_alternate,
+            self.ssg_hold
+        );
     }
 }
 

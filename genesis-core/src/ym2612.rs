@@ -183,7 +183,7 @@ impl FmChannel {
     fn fm_clock(&mut self, lfo_counter: u8) {
         for operator in &mut self.operators {
             operator.phase.fm_clock(lfo_counter, self.fm_sensitivity);
-            operator.envelope.fm_clock();
+            operator.envelope.fm_clock(&mut operator.phase);
 
             operator.lfo_counter = lfo_counter;
             operator.am_sensitivity = self.am_sensitivity;
@@ -658,7 +658,7 @@ impl Ym2612 {
                 );
             }
             0x09 => {
-                // TODO SSG-EG
+                operator.envelope.write_ssg_register(value);
             }
             _ => unreachable!("register is in 0x30..=0x9F"),
         }
