@@ -21,8 +21,8 @@ use jgenesis_traits::frontend::{
 use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgTickEffect, PsgVersion};
 use std::fmt::{Debug, Display};
+use std::io;
 use std::path::Path;
-use std::{io, iter};
 use thiserror::Error;
 use z80_emu::Z80;
 
@@ -99,6 +99,12 @@ pub enum SegaCdError<RErr, AErr, SErr> {
 
 pub type SegaCdResult<T, RErr, AErr, SErr> = Result<T, SegaCdError<RErr, AErr, SErr>>;
 
+#[derive(Debug, Clone, Copy)]
+pub struct SegaCdEmulatorConfig {
+    pub genesis: GenesisEmulatorConfig,
+    pub enable_ram_cartridge: bool,
+}
+
 #[derive(Debug, Encode, Decode, PartialClone)]
 pub struct SegaCdEmulator {
     #[partial_clone(partial)]
@@ -136,7 +142,7 @@ impl SegaCdEmulator {
         cue_path: P,
         initial_backup_ram: Option<Vec<u8>>,
         run_without_disc: bool,
-        emulator_config: GenesisEmulatorConfig,
+        emulator_config: SegaCdEmulatorConfig,
     ) -> DiscResult<Self> {
         if bios.len() != BIOS_LEN {
             return Err(DiscError::InvalidBios { bios_len: bios.len() });
@@ -161,17 +167,24 @@ impl SegaCdEmulator {
         bios: Vec<u8>,
         initial_backup_ram: Option<Vec<u8>>,
         disc: Option<CdRom>,
-        emulator_config: GenesisEmulatorConfig,
+        emulator_config: SegaCdEmulatorConfig,
     ) -> DiscResult<Self> {
-        let mut sega_cd =
-            SegaCd::new(bios, disc, initial_backup_ram, emulator_config.forced_region)?;
+        let mut sega_cd = SegaCd::new(
+            bios,
+            disc,
+            initial_backup_ram,
+            emulator_config.enable_ram_cartridge,
+            emulator_config.genesis.forced_region,
+        )?;
         let disc_title = sega_cd.disc_title()?.unwrap_or("(no disc)".into());
 
         let mut memory = Memory::new(sega_cd);
         let timing_mode =
-            emulator_config.forced_timing_mode.unwrap_or_else(|| match memory.hardware_region() {
-                GenesisRegion::Americas | GenesisRegion::Japan => TimingMode::Ntsc,
-                GenesisRegion::Europe => TimingMode::Pal,
+            emulator_config.genesis.forced_timing_mode.unwrap_or_else(|| {
+                match memory.hardware_region() {
+                    GenesisRegion::Americas | GenesisRegion::Japan => TimingMode::Ntsc,
+                    GenesisRegion::Europe => TimingMode::Pal,
+                }
             });
 
         log::info!("Running with timing/display mode: {timing_mode}");
@@ -179,9 +192,9 @@ impl SegaCdEmulator {
         let mut main_cpu = M68000::builder().allow_tas_writes(false).name("Main".into()).build();
         let sub_cpu = M68000::builder().name("Sub".into()).build();
         let z80 = Z80::new();
-        let mut vdp = Vdp::new(timing_mode, emulator_config.to_vdp_config());
+        let mut vdp = Vdp::new(timing_mode, emulator_config.genesis.to_vdp_config());
         let graphics_coprocessor = GraphicsCoprocessor::new();
-        let mut ym2612 = Ym2612::new(emulator_config.quantize_ym2612_output);
+        let mut ym2612 = Ym2612::new(emulator_config.genesis.quantize_ym2612_output);
         let mut psg = Psg::new(PsgVersion::Standard);
         let pcm = Rf5c164::new();
         let mut input = InputState::new();
@@ -211,8 +224,9 @@ impl SegaCdEmulator {
             input,
             audio_downsampler,
             timing_mode,
-            aspect_ratio: emulator_config.aspect_ratio,
+            aspect_ratio: emulator_config.genesis.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: emulator_config
+                .genesis
                 .adjust_aspect_ratio_in_2x_resolution,
             disc_title,
             genesis_mclk_cycles: 0,
@@ -386,8 +400,11 @@ impl TickableEmulator for SegaCdEmulator {
             self.input.set_inputs(inputs);
 
             if self.memory.medium_mut().get_and_clear_backup_ram_dirty_bit() {
+                let sega_cd = self.memory.medium();
+                let save_bytes = [sega_cd.backup_ram(), sega_cd.ram_cartridge()];
+
                 save_writer
-                    .persist_save(iter::once(self.memory.medium().backup_ram()))
+                    .persist_save(save_bytes.iter().copied())
                     .map_err(SegaCdError::SaveWrite)?;
             }
 
@@ -431,20 +448,24 @@ impl Resettable for SegaCdEmulator {
         let disc = sega_cd.take_cdrom();
         let backup_ram = Vec::from(sega_cd.backup_ram());
         let forced_region = sega_cd.forced_region();
+        let enable_ram_cartridge = sega_cd.get_enable_ram_cartridge();
         let vdp_config = self.vdp.config();
 
         *self = Self::create_from_disc(
             bios,
             Some(backup_ram),
             disc,
-            GenesisEmulatorConfig {
-                forced_timing_mode: Some(self.timing_mode),
-                forced_region,
-                aspect_ratio: self.aspect_ratio,
-                adjust_aspect_ratio_in_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
-                remove_sprite_limits: !vdp_config.enforce_sprite_limits,
-                emulate_non_linear_vdp_dac: vdp_config.emulate_non_linear_dac,
-                quantize_ym2612_output: self.ym2612.get_quantize_output(),
+            SegaCdEmulatorConfig {
+                genesis: GenesisEmulatorConfig {
+                    forced_timing_mode: Some(self.timing_mode),
+                    forced_region,
+                    aspect_ratio: self.aspect_ratio,
+                    adjust_aspect_ratio_in_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
+                    remove_sprite_limits: !vdp_config.enforce_sprite_limits,
+                    emulate_non_linear_vdp_dac: vdp_config.emulate_non_linear_dac,
+                    quantize_ym2612_output: self.ym2612.get_quantize_output(),
+                },
+                enable_ram_cartridge,
             },
         )
         .expect("Hard reset should not cause an I/O error");
@@ -452,14 +473,18 @@ impl Resettable for SegaCdEmulator {
 }
 
 impl ConfigReload for SegaCdEmulator {
-    type Config = GenesisEmulatorConfig;
+    type Config = SegaCdEmulatorConfig;
 
     fn reload_config(&mut self, config: &Self::Config) {
-        self.aspect_ratio = config.aspect_ratio;
-        self.adjust_aspect_ratio_in_2x_resolution = config.adjust_aspect_ratio_in_2x_resolution;
-        self.vdp.reload_config(config.to_vdp_config());
-        self.memory.medium_mut().set_forced_region(config.forced_region);
-        self.ym2612.set_quantize_output(config.quantize_ym2612_output);
+        self.aspect_ratio = config.genesis.aspect_ratio;
+        self.adjust_aspect_ratio_in_2x_resolution =
+            config.genesis.adjust_aspect_ratio_in_2x_resolution;
+        self.vdp.reload_config(config.genesis.to_vdp_config());
+        self.ym2612.set_quantize_output(config.genesis.quantize_ym2612_output);
+
+        let sega_cd = self.memory.medium_mut();
+        sega_cd.set_forced_region(config.genesis.forced_region);
+        sega_cd.set_enable_ram_cartridge(config.enable_ram_cartridge);
     }
 }
 
@@ -485,7 +510,7 @@ impl EmulatorDebug for SegaCdEmulator {
 
 impl EmulatorTrait for SegaCdEmulator {
     type EmulatorInputs = GenesisInputs;
-    type EmulatorConfig = GenesisEmulatorConfig;
+    type EmulatorConfig = SegaCdEmulatorConfig;
 
     fn timing_mode(&self) -> TimingMode {
         self.timing_mode

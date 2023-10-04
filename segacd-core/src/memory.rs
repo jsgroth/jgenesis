@@ -25,6 +25,11 @@ use wordram::WordRam;
 pub const BIOS_LEN: usize = 128 * 1024;
 pub const PRG_RAM_LEN: usize = 512 * 1024;
 const BACKUP_RAM_LEN: usize = 8 * 1024;
+const RAM_CARTRIDGE_LEN: usize = 128 * 1024;
+
+// RAM cartridge size byte is N in the formula 8KB * 2^N
+// N=4 signals 128KB
+const RAM_CARTRIDGE_SIZE_BYTE: u8 = 0x04;
 
 const TIMER_DIVIDER: u64 = 1536;
 
@@ -128,6 +133,9 @@ pub struct SegaCd {
     prg_ram: Box<[u8; PRG_RAM_LEN]>,
     word_ram: WordRam,
     backup_ram: Box<[u8; BACKUP_RAM_LEN]>,
+    enable_ram_cartridge: bool,
+    ram_cartridge: Box<[u8; RAM_CARTRIDGE_LEN]>,
+    ram_cartridge_writes_enabled: bool,
     backup_ram_dirty: bool,
     registers: SegaCdRegisters,
     font_registers: FontRegisters,
@@ -141,14 +149,11 @@ impl SegaCd {
         bios: Vec<u8>,
         mut disc: Option<CdRom>,
         initial_backup_ram: Option<Vec<u8>>,
+        enable_ram_cartridge: bool,
         forced_region: Option<GenesisRegion>,
     ) -> DiscResult<Self> {
-        let backup_ram = match initial_backup_ram {
-            Some(backup_ram) if backup_ram.len() == BACKUP_RAM_LEN => {
-                backup_ram.into_boxed_slice().try_into().unwrap()
-            }
-            _ => backupram::new_formatted_backup_ram(),
-        };
+        let (backup_ram, ram_cartridge) =
+            backupram::load_initial_backup_ram(initial_backup_ram.as_ref());
 
         let disc_region = match &mut disc {
             Some(disc) => parse_disc_region(disc)?,
@@ -166,6 +171,9 @@ impl SegaCd {
             prg_ram: vec![0; PRG_RAM_LEN].into_boxed_slice().try_into().unwrap(),
             word_ram: WordRam::new(),
             backup_ram,
+            enable_ram_cartridge,
+            ram_cartridge,
+            ram_cartridge_writes_enabled: true,
             backup_ram_dirty: false,
             registers: SegaCdRegisters::new(),
             font_registers: FontRegisters::new(),
@@ -372,6 +380,66 @@ impl SegaCd {
         }
     }
 
+    fn read_ram_cartridge_byte(&self, address: u32) -> u8 {
+        if !self.enable_ram_cartridge {
+            return 0xFF;
+        }
+
+        if !address.bit(0) {
+            // RAM cartridge is mapped to odd addresses only
+            return 0x00;
+        }
+
+        match address {
+            0x400000..=0x4FFFFF => {
+                // RAM cartridge size
+                RAM_CARTRIDGE_SIZE_BYTE
+            }
+            0x500000..=0x5FFFFF | 0x640000..=0x6FFFFF => {
+                // Unused; $640000-$6FFFFF would hold additional memory for cartridges >128KB
+                0x00
+            }
+            0x600000..=0x63FFFF => {
+                // RAM cartridge data
+                self.ram_cartridge[((address & 0x3FFFF) >> 1) as usize]
+            }
+            0x700000..=0x7FFFFF => {
+                // RAM cartridge writes enabled bit
+                self.ram_cartridge_writes_enabled.into()
+            }
+            _ => panic!("Invalid RAM cartridge address: {address:06X}"),
+        }
+    }
+
+    fn write_ram_cartridge_byte(&mut self, address: u32, value: u8) {
+        if !self.enable_ram_cartridge {
+            return;
+        }
+
+        if !address.bit(0) {
+            // RAM cartridge is mapped to odd addresses only
+            return;
+        }
+
+        match address {
+            0x400000..=0x5FFFFF | 0x640000..=0x6FFFFF => {
+                // Unused or not writable; do nothing
+            }
+            0x600000..=0x63FFFF => {
+                // RAM cartridge data
+                if self.ram_cartridge_writes_enabled {
+                    self.ram_cartridge[((address & 0x3FFFF) >> 1) as usize] = value;
+                    self.backup_ram_dirty = true;
+                }
+            }
+            0x700000..=0x7FFFFF => {
+                // RAM cartridge writes enabled bit
+                self.ram_cartridge_writes_enabled = value.bit(0);
+            }
+            _ => panic!("Invalid RAM cartridge address: {address:06X}"),
+        }
+    }
+
     fn write_prg_ram(&mut self, address: u32, value: u8, cpu: ScdCpu) {
         // PRG RAM write protection applies in multiples of $200
         let write_protection_boundary = u32::from(self.registers.prg_ram_write_protect) * 0x200;
@@ -434,6 +502,10 @@ impl SegaCd {
         self.backup_ram.as_slice()
     }
 
+    pub fn ram_cartridge(&self) -> &[u8] {
+        self.ram_cartridge.as_slice()
+    }
+
     pub fn graphics_interrupt_enabled(&self) -> bool {
         self.registers.graphics_interrupt_enabled
     }
@@ -459,6 +531,14 @@ impl SegaCd {
 
     pub fn set_forced_region(&mut self, forced_region: Option<GenesisRegion>) {
         self.forced_region = forced_region;
+    }
+
+    pub fn get_enable_ram_cartridge(&self) -> bool {
+        self.enable_ram_cartridge
+    }
+
+    pub fn set_enable_ram_cartridge(&mut self, enable_ram_cartridge: bool) {
+        self.enable_ram_cartridge = enable_ram_cartridge;
     }
 
     pub fn reset(&mut self) {
@@ -525,6 +605,7 @@ impl PhysicalMedium for SegaCd {
                 }
             }
             0x200000..=0x3FFFFF => self.word_ram.main_cpu_read_ram(address),
+            0x400000..=0x7FFFFF => self.read_ram_cartridge_byte(address),
             0xA12000..=0xA1202F => {
                 // Sega CD registers
                 self.read_main_cpu_register_byte(address)
@@ -567,6 +648,10 @@ impl PhysicalMedium for SegaCd {
                 let lsb = self.word_ram.main_cpu_read_ram(address | 1);
                 u16::from_be_bytes([msb, lsb])
             }
+            0x400000..=0x7FFFFF => {
+                // RAM cartridge; only odd addresses are mapped
+                self.read_ram_cartridge_byte(address | 1).into()
+            }
             0xA12000..=0xA1202F => {
                 // Sega CD registers
                 self.read_main_cpu_register_word(address)
@@ -600,6 +685,9 @@ impl PhysicalMedium for SegaCd {
             0x200000..=0x3FFFFF => {
                 self.word_ram.main_cpu_write_ram(address, value);
             }
+            0x400000..=0x7FFFFF => {
+                self.write_ram_cartridge_byte(address, value);
+            }
             0xA12000..=0xA1202F => {
                 self.write_main_cpu_register_byte(address, value);
             }
@@ -626,6 +714,10 @@ impl PhysicalMedium for SegaCd {
                 let [msb, lsb] = value.to_be_bytes();
                 self.word_ram.main_cpu_write_ram(address, msb);
                 self.word_ram.main_cpu_write_ram(address | 1, lsb);
+            }
+            0x400000..=0x7FFFFF => {
+                // RAM cartridge; only odd addresses are mapped
+                self.write_ram_cartridge_byte(address | 1, value as u8);
             }
             0xA12000..=0xA1202F => {
                 self.write_main_cpu_register_word(address, value);

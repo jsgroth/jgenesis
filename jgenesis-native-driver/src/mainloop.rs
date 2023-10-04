@@ -21,7 +21,7 @@ use sdl2::event::{Event, WindowEvent};
 use sdl2::render::TextureValueError;
 use sdl2::video::{FullscreenType, Window, WindowBuildError};
 use sdl2::{AudioSubsystem, EventPump, IntegerOrSdlError, JoystickSubsystem, VideoSubsystem};
-use segacd_core::api::{DiscError, DiscResult, SegaCdEmulator};
+use segacd_core::api::{DiscError, DiscResult, SegaCdEmulator, SegaCdEmulatorConfig};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgInputs};
 use std::error::Error;
@@ -366,7 +366,7 @@ impl NativeGenesisEmulator {
 }
 
 pub type NativeSegaCdEmulator =
-    NativeEmulator<GenesisInputs, GenesisButton, GenesisEmulatorConfig, SegaCdEmulator>;
+    NativeEmulator<GenesisInputs, GenesisButton, SegaCdEmulatorConfig, SegaCdEmulator>;
 
 impl NativeSegaCdEmulator {
     /// # Errors
@@ -376,7 +376,7 @@ impl NativeSegaCdEmulator {
         log::info!("Reloading config: {config}");
 
         self.reload_common_config(&config.genesis.common)?;
-        self.emulator.reload_config(&config.genesis.to_emulator_config());
+        self.emulator.reload_config(&config.to_emulator_config());
 
         if let Err(err) = self.input_mapper.reload_config(
             config.genesis.p1_controller_type,
@@ -794,7 +794,7 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
         source,
     })?;
 
-    let emulator_config = config.genesis.to_emulator_config();
+    let emulator_config = config.to_emulator_config();
     let emulator = SegaCdEmulator::create(
         bios,
         cue_path,

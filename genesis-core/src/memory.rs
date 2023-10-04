@@ -482,7 +482,7 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
         let address = address & ADDRESS_MASK;
         log::trace!("Main bus byte read, address={address:06X}");
         match address {
-            0x000000..=0x3FFFFF | 0xA12000..=0xA130FF => {
+            0x000000..=0x7FFFFF | 0xA12000..=0xA130FF => {
                 self.memory.physical_medium.read_byte(address)
             }
             0xA00000..=0xA0FFFF => {
@@ -503,7 +503,7 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
         let address = address & ADDRESS_MASK;
         log::trace!("Main bus word read, address={address:06X}");
         match address {
-            0x000000..=0x3FFFFF | 0xA12000..=0xA130FF => {
+            0x000000..=0x7FFFFF | 0xA12000..=0xA130FF => {
                 self.memory.physical_medium.read_word(address)
             }
             0xA00000..=0xA0FFFF => {
@@ -538,7 +538,7 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
         let address = address & ADDRESS_MASK;
         log::trace!("Main bus byte write: address={address:06X}, value={value:02X}");
         match address {
-            0x000000..=0x3FFFFF | 0xA12000..=0xA130FF => {
+            0x000000..=0x7FFFFF | 0xA12000..=0xA130FF => {
                 self.memory.physical_medium.write_byte(address, value);
             }
             0xA00000..=0xA0FFFF => {
@@ -578,7 +578,7 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
         let address = address & ADDRESS_MASK;
         log::trace!("Main bus word write: address={address:06X}, value={value:02X}");
         match address {
-            0x000000..=0x3FFFFF | 0xA12000..=0xA130FF => {
+            0x000000..=0x7FFFFF | 0xA12000..=0xA130FF => {
                 self.memory.physical_medium.write_word(address, value);
             }
             0xA00000..=0xA0FFFF => {

@@ -9,6 +9,7 @@ use genesis_core::{
 use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::RendererConfig;
 use jgenesis_traits::frontend::{PixelAspectRatio, TimingMode};
+use segacd_core::api::SegaCdEmulatorConfig;
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgEmulatorConfig, SmsRegion, VdpVersion};
@@ -199,5 +200,15 @@ pub struct SegaCdConfig {
     #[indent_nested]
     pub genesis: GenesisConfig,
     pub bios_file_path: Option<String>,
+    pub enable_ram_cartridge: bool,
     pub run_without_disc: bool,
+}
+
+impl SegaCdConfig {
+    pub(crate) fn to_emulator_config(&self) -> SegaCdEmulatorConfig {
+        SegaCdEmulatorConfig {
+            genesis: self.genesis.to_emulator_config(),
+            enable_ram_cartridge: self.enable_ram_cartridge,
+        }
+    }
 }

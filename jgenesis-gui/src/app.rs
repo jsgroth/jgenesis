@@ -177,6 +177,8 @@ impl Default for GenesisAppConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct SegaCdAppConfig {
     bios_path: Option<String>,
+    #[serde(default = "true_fn")]
+    enable_ram_cartridge: bool,
 }
 
 impl Default for SegaCdAppConfig {
@@ -299,6 +301,7 @@ impl AppConfig {
         Box::new(SegaCdConfig {
             genesis: *self.genesis_config(path),
             bios_file_path: self.sega_cd.bios_path.clone(),
+            enable_ram_cartridge: self.sega_cd.enable_ram_cartridge,
             run_without_disc: false,
         })
     }
@@ -570,6 +573,7 @@ impl App {
                 });
             });
 
+            ui.add_space(5.0);
             ui.horizontal(|ui| {
                 ui.set_enabled(self.emu_thread.status() != EmuThreadStatus::RunningSegaCd);
 
@@ -586,6 +590,12 @@ impl App {
 
                 ui.label("Sega CD BIOS path");
             });
+
+            ui.add_space(5.0);
+            ui.checkbox(
+                &mut self.config.sega_cd.enable_ram_cartridge,
+                "Enable Sega CD RAM cartridge",
+            );
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::GenesisGeneral);

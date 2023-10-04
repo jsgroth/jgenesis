@@ -37,6 +37,10 @@ struct Args {
     #[arg(short = 'b', long)]
     bios_path: Option<String>,
 
+    /// Disable Sega CD RAM cartridge mapping
+    #[arg(long = "disable-ram-cartridge", default_value_t = true, action = clap::ArgAction::SetFalse)]
+    enable_ram_cartridge: bool,
+
     /// Run the Sega CD emulator with no disc
     #[arg(long, default_value_t)]
     scd_no_disc: bool,
@@ -66,7 +70,7 @@ struct Args {
     emulate_non_linear_vdp_dac: bool,
 
     /// Disable YM2612 output quantization, letting outputs cover the full 14-bit range instead of only using the highest 9 bits
-    #[arg(long = "no-ym2612-quantization", default_value_t = true)]
+    #[arg(long = "no-ym2612-quantization", default_value_t = true, action = clap::ArgAction::SetFalse)]
     quantize_ym2612_output: bool,
 
     /// SMS aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
@@ -502,6 +506,7 @@ fn run_sega_cd(args: Args) -> anyhow::Result<()> {
     let config = SegaCdConfig {
         genesis: args.genesis_config(),
         bios_file_path: Some(bios_file_path),
+        enable_ram_cartridge: args.enable_ram_cartridge,
         run_without_disc: args.scd_no_disc,
     };
 
