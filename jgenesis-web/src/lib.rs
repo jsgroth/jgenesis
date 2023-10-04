@@ -51,7 +51,10 @@ struct Null;
 impl SaveWriter for Null {
     type Err = String;
 
-    fn persist_save(&mut self, _save_bytes: &[u8]) -> Result<(), Self::Err> {
+    fn persist_save<'a>(
+        &mut self,
+        _save_bytes: impl Iterator<Item = &'a [u8]>,
+    ) -> Result<(), Self::Err> {
         Ok(())
     }
 }

@@ -14,6 +14,7 @@ use jgenesis_traits::num::GetBit;
 use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgTickEffect, PsgVersion};
 use std::fmt::{Debug, Display};
+use std::iter;
 use thiserror::Error;
 use z80_emu::Z80;
 
@@ -350,7 +351,7 @@ impl TickableEmulator for GenesisEmulator {
             {
                 let ram = self.memory.external_ram();
                 if !ram.is_empty() {
-                    save_writer.persist_save(ram).map_err(GenesisError::Save)?;
+                    save_writer.persist_save(iter::once(ram)).map_err(GenesisError::Save)?;
                 }
             }
 

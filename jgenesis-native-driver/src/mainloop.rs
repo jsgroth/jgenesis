@@ -27,7 +27,7 @@ use smsgg_core::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgInputs};
 use std::error::Error;
 use std::ffi::{NulError, OsStr};
 use std::fs::File;
-use std::io::{BufReader, BufWriter};
+use std::io::{BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::{fs, io, thread};
@@ -218,11 +218,19 @@ impl SaveWriter for FsSaveWriter {
     type Err = SaveWriteError;
 
     #[inline]
-    fn persist_save(&mut self, save_bytes: &[u8]) -> Result<(), Self::Err> {
-        fs::write(&self.path, save_bytes).map_err(|source| SaveWriteError {
-            path: self.path.to_string_lossy().to_string(),
-            source,
-        })?;
+    fn persist_save<'a>(
+        &mut self,
+        save_bytes: impl Iterator<Item = &'a [u8]>,
+    ) -> Result<(), Self::Err> {
+        let err_fn = |source| SaveWriteError { path: self.path.display().to_string(), source };
+
+        let file = File::create(&self.path).map_err(err_fn)?;
+        let mut writer = BufWriter::new(file);
+
+        for save_slice in save_bytes {
+            writer.write_all(save_slice).map_err(err_fn)?;
+        }
+
         Ok(())
     }
 }

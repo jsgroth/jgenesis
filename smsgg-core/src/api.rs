@@ -14,6 +14,7 @@ use jgenesis_traits::frontend::{
     TimingMode,
 };
 use std::fmt::{Debug, Display};
+use std::iter;
 use std::ops::{Deref, DerefMut};
 use thiserror::Error;
 use z80_emu::{InterruptMode, Z80};
@@ -309,7 +310,7 @@ impl TickableEmulator for SmsGgEmulator {
                 {
                     self.memory.clear_cartridge_ram_dirty();
                     save_writer
-                        .persist_save(self.memory.cartridge_ram())
+                        .persist_save(iter::once(self.memory.cartridge_ram()))
                         .map_err(SmsGgError::SaveWrite)?;
                 }
             }

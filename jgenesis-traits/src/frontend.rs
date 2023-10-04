@@ -106,12 +106,18 @@ pub trait AudioOutput {
 pub trait SaveWriter {
     type Err;
 
-    /// Persist cartridge SRAM.
+    /// Persist any save data that should be persistent, such as cartridge SRAM.
+    ///
+    /// `save_bytes` is an iterator to enable concatenating multiple arrays
+    /// if desired, such as with the Sega CD (internal backup RAM + RAM cartridge).
     ///
     /// # Errors
     ///
     /// This method will return an error if it is unable to persist the given save bytes.
-    fn persist_save(&mut self, save_bytes: &[u8]) -> Result<(), Self::Err>;
+    fn persist_save<'a>(
+        &mut self,
+        save_bytes: impl Iterator<Item = &'a [u8]>,
+    ) -> Result<(), Self::Err>;
 }
 
 pub trait ConfigReload {

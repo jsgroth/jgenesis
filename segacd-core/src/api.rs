@@ -21,8 +21,8 @@ use jgenesis_traits::frontend::{
 use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgTickEffect, PsgVersion};
 use std::fmt::{Debug, Display};
-use std::io;
 use std::path::Path;
+use std::{io, iter};
 use thiserror::Error;
 use z80_emu::Z80;
 
@@ -387,7 +387,7 @@ impl TickableEmulator for SegaCdEmulator {
 
             if self.memory.medium_mut().get_and_clear_backup_ram_dirty_bit() {
                 save_writer
-                    .persist_save(self.memory.medium().backup_ram())
+                    .persist_save(iter::once(self.memory.medium().backup_ram()))
                     .map_err(SegaCdError::SaveWrite)?;
             }
 
