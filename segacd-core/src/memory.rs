@@ -395,11 +395,11 @@ impl SegaCd {
                 // RAM cartridge size
                 RAM_CARTRIDGE_SIZE_BYTE
             }
-            0x500000..=0x5FFFFF | 0x640000..=0x6FFFFF => {
+            0x500000..=0x5FFFFF => {
                 // Unused; $640000-$6FFFFF would hold additional memory for cartridges >128KB
                 0x00
             }
-            0x600000..=0x63FFFF => {
+            0x600000..=0x6FFFFF => {
                 // RAM cartridge data
                 self.ram_cartridge[((address & 0x3FFFF) >> 1) as usize]
             }
@@ -422,10 +422,10 @@ impl SegaCd {
         }
 
         match address {
-            0x400000..=0x5FFFFF | 0x640000..=0x6FFFFF => {
+            0x400000..=0x5FFFFF => {
                 // Unused or not writable; do nothing
             }
-            0x600000..=0x63FFFF => {
+            0x600000..=0x6FFFFF => {
                 // RAM cartridge data
                 if self.ram_cartridge_writes_enabled {
                     self.ram_cartridge[((address & 0x3FFFF) >> 1) as usize] = value;
