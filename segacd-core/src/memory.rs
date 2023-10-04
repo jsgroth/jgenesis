@@ -396,11 +396,11 @@ impl SegaCd {
                 RAM_CARTRIDGE_SIZE_BYTE
             }
             0x500000..=0x5FFFFF => {
-                // Unused; $640000-$6FFFFF would hold additional memory for cartridges >128KB
+                // Unused
                 0x00
             }
             0x600000..=0x6FFFFF => {
-                // RAM cartridge data
+                // RAM cartridge data, mirrored every 256KB
                 self.ram_cartridge[((address & 0x3FFFF) >> 1) as usize]
             }
             0x700000..=0x7FFFFF => {
