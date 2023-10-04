@@ -100,10 +100,9 @@ impl CdRom {
     ) -> DiscResult<()> {
         let track = self.cue_sheet.track(track_number);
         if relative_time < track.pregap_len
-            || relative_time
-                >= (track.end_time - track.postgap_len) - (track.start_time + track.pregap_len)
+            || relative_time >= track.end_time - track.postgap_len - track.start_time
         {
-            // Reading data that does not exist in the file
+            // Reading data in pregap or postgap that does not exist in the file
             match track.track_type {
                 TrackType::Data => {
                     write_fake_data_pregap(relative_time, out);
