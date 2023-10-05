@@ -327,7 +327,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let opcode = self.fetch_operand()?;
         self.opcode = opcode;
 
-        let instruction = table::decode(opcode); //decode_opcode(opcode, self.registers.supervisor_mode)?;
+        let instruction = table::decode(opcode);
         self.instruction = Some(instruction);
         log::trace!(
             "[{}] Decoded opcode {opcode:04X} (PC={initial_pc:06X}): {instruction}",
