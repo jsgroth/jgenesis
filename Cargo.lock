@@ -2022,6 +2022,7 @@ name = "m68000-emu"
 version = "0.4.1"
 dependencies = [
  "bincode",
+ "jgenesis-proc-macros",
  "jgenesis-traits",
  "log",
 ]

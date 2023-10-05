@@ -1,7 +1,7 @@
 use crate::core::instructions::{Direction, UspDirection};
 use crate::core::{
     AddressRegister, AddressingMode, ConditionCodes, DataRegister, Exception, ExecuteResult,
-    Instruction, InstructionExecutor, OpSize, Registers, ResolvedAddress,
+    InstructionExecutor, OpSize, Registers, ResolvedAddress,
 };
 use crate::traits::BusInterface;
 use jgenesis_traits::num::{GetBit, SignBit};
@@ -100,6 +100,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     }
 
     pub(super) fn move_to_sr(&mut self, source: AddressingMode) -> ExecuteResult<u32> {
+        if !self.registers.supervisor_mode {
+            return Err(Exception::PrivilegeViolation);
+        }
+
         let value = self.read_word(source)?;
 
         self.registers.set_status_register(value);
@@ -121,7 +125,15 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         4
     }
 
-    pub(super) fn move_usp(&mut self, direction: UspDirection, register: AddressRegister) -> u32 {
+    pub(super) fn move_usp(
+        &mut self,
+        direction: UspDirection,
+        register: AddressRegister,
+    ) -> ExecuteResult<u32> {
+        if !self.registers.supervisor_mode {
+            return Err(Exception::PrivilegeViolation);
+        }
+
         match direction {
             UspDirection::RegisterToUsp => {
                 let value = register.read_from(self.registers);
@@ -132,7 +144,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             }
         }
 
-        4
+        Ok(4)
     }
 
     pub(super) fn movem(
@@ -406,136 +418,4 @@ impl Iterator for MultipleRegisterIter {
 
 fn to_register(i: u8) -> Register {
     if i < 8 { Register::Data(DataRegister(i)) } else { Register::Address(AddressRegister(i - 8)) }
-}
-
-pub(super) fn decode_move(opcode: u16) -> ExecuteResult<Instruction> {
-    let size = match opcode & 0xF000 {
-        0x1000 => OpSize::Byte,
-        0x2000 => OpSize::LongWord,
-        0x3000 => OpSize::Word,
-        _ => unreachable!("nested match expressions"),
-    };
-
-    let source = AddressingMode::parse_from_opcode(opcode)?;
-
-    let dest_mode = (opcode >> 6) as u8;
-    let dest_register = (opcode >> 9) as u8;
-    let dest = AddressingMode::parse_from(dest_mode, dest_register)?;
-
-    if !dest.is_writable() || (dest.is_address_direct() && size == OpSize::Byte) {
-        return Err(Exception::IllegalInstruction(opcode));
-    }
-
-    Ok(Instruction::Move { size, source, dest })
-}
-
-pub(super) fn decode_movq(opcode: u16) -> ExecuteResult<Instruction> {
-    if opcode.bit(8) {
-        Err(Exception::IllegalInstruction(opcode))
-    } else {
-        // MOVEQ
-        let data = opcode as i8;
-        let register = ((opcode >> 9) & 0x07) as u8;
-        Ok(Instruction::MoveQuick(data, register.into()))
-    }
-}
-
-pub(super) fn decode_move_from_sr(opcode: u16) -> ExecuteResult<Instruction> {
-    let dest = AddressingMode::parse_from_opcode(opcode)?;
-
-    if !dest.is_writable() || dest.is_address_direct() {
-        return Err(Exception::IllegalInstruction(opcode));
-    }
-
-    Ok(Instruction::MoveFromSr(dest))
-}
-
-pub(super) fn decode_move_to_ccr(opcode: u16) -> ExecuteResult<Instruction> {
-    let source = AddressingMode::parse_from_opcode(opcode)?;
-
-    if source.is_address_direct() {
-        return Err(Exception::IllegalInstruction(opcode));
-    }
-
-    Ok(Instruction::MoveToCcr(source))
-}
-
-pub(super) fn decode_move_to_sr(opcode: u16, supervisor_mode: bool) -> ExecuteResult<Instruction> {
-    if !supervisor_mode {
-        return Err(Exception::PrivilegeViolation);
-    }
-
-    let source = AddressingMode::parse_from_opcode(opcode)?;
-
-    if source.is_address_direct() {
-        return Err(Exception::IllegalInstruction(opcode));
-    }
-
-    Ok(Instruction::MoveToSr(source))
-}
-
-pub(super) fn decode_move_usp(opcode: u16, supervisor_mode: bool) -> ExecuteResult<Instruction> {
-    if !supervisor_mode {
-        return Err(Exception::PrivilegeViolation);
-    }
-
-    let register = (opcode & 0x07) as u8;
-    let direction =
-        if opcode.bit(3) { UspDirection::UspToRegister } else { UspDirection::RegisterToUsp };
-
-    Ok(Instruction::MoveUsp(direction, register.into()))
-}
-
-pub(super) fn decode_movem(opcode: u16) -> ExecuteResult<Instruction> {
-    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
-    let size = if opcode.bit(6) { OpSize::LongWord } else { OpSize::Word };
-    let direction =
-        if opcode.bit(10) { Direction::MemoryToRegister } else { Direction::RegisterToMemory };
-
-    if matches!(
-        addressing_mode,
-        AddressingMode::DataDirect(..)
-            | AddressingMode::AddressDirect(..)
-            | AddressingMode::Immediate
-    ) {
-        return Err(Exception::IllegalInstruction(opcode));
-    }
-
-    if direction == Direction::MemoryToRegister
-        && matches!(addressing_mode, AddressingMode::AddressIndirectPredecrement(..))
-    {
-        return Err(Exception::IllegalInstruction(opcode));
-    }
-
-    if direction == Direction::RegisterToMemory
-        && (!addressing_mode.is_writable()
-            || matches!(addressing_mode, AddressingMode::AddressIndirectPostincrement(..)))
-    {
-        return Err(Exception::IllegalInstruction(opcode));
-    }
-
-    Ok(Instruction::MoveMultiple(size, addressing_mode, direction))
-}
-
-pub(super) fn decode_movep(opcode: u16) -> Instruction {
-    let a_register = (opcode & 0x07) as u8;
-    let d_register = ((opcode >> 9) & 0x07) as u8;
-
-    let size = if opcode.bit(6) { OpSize::LongWord } else { OpSize::Word };
-    let direction =
-        if opcode.bit(7) { Direction::RegisterToMemory } else { Direction::MemoryToRegister };
-
-    Instruction::MovePeripheral(size, d_register.into(), a_register.into(), direction)
-}
-
-pub(super) fn decode_exg(opcode: u16) -> ExecuteResult<Instruction> {
-    let ry = (opcode & 0x07) as u8;
-    let rx = ((opcode >> 9) & 0x07) as u8;
-
-    match opcode & 0b1100_1000 {
-        0b0100_0000 => Ok(Instruction::ExchangeData(rx.into(), ry.into())),
-        0b0100_1000 => Ok(Instruction::ExchangeAddress(rx.into(), ry.into())),
-        0b1000_1000 => Ok(Instruction::ExchangeDataAddress(DataRegister(rx), AddressRegister(ry))),
-        _ => Err(Exception::IllegalInstruction(opcode)),
-    }
 }

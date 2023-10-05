@@ -11,6 +11,7 @@ bincode = ["dep:bincode"]
 memorybus = []
 
 [dependencies]
+jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
 jgenesis-traits = { path = "../jgenesis-traits" }
 
 bincode = { version = "2.0.0-rc.3", optional = true }

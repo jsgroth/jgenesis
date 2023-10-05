@@ -2,25 +2,20 @@ mod arithmetic;
 mod bits;
 mod controlflow;
 mod load;
+mod table;
 
 use crate::core::{
     AddressRegister, AddressingMode, ConditionCodes, DataRegister, Exception, ExecuteResult,
     InstructionExecutor, OpSize, Registers,
 };
 use crate::traits::BusInterface;
-use jgenesis_traits::num::GetBit;
+use jgenesis_proc_macros::EnumAll;
 use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
     RegisterToMemory,
     MemoryToRegister,
-}
-
-impl Direction {
-    fn parse_from_opcode(opcode: u16) -> Self {
-        if opcode.bit(8) { Self::RegisterToMemory } else { Self::MemoryToRegister }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,12 +30,6 @@ pub enum ShiftDirection {
     Right,
 }
 
-impl ShiftDirection {
-    fn parse_from_opcode(opcode: u16) -> Self {
-        if opcode.bit(8) { Self::Left } else { Self::Right }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShiftCount {
     Constant(u8),
@@ -48,16 +37,6 @@ pub enum ShiftCount {
 }
 
 impl ShiftCount {
-    fn parse_from_opcode(opcode: u16) -> Self {
-        let value = ((opcode >> 9) & 0x07) as u8;
-        if opcode.bit(5) {
-            Self::Register(value.into())
-        } else {
-            let shift = if value == 0 { 8 } else { value };
-            Self::Constant(shift)
-        }
-    }
-
     fn get(self, registers: &Registers) -> u8 {
         match self {
             Self::Constant(count) => count,
@@ -75,19 +54,7 @@ impl Display for ShiftCount {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ExtendOpMode {
-    DataDirect,
-    AddressIndirectPredecrement,
-}
-
-impl ExtendOpMode {
-    fn parse_from_opcode(opcode: u16) -> Self {
-        if opcode.bit(3) { Self::AddressIndirectPredecrement } else { Self::DataDirect }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumAll)]
 pub enum BranchCondition {
     True,
     False,
@@ -108,28 +75,6 @@ pub enum BranchCondition {
 }
 
 impl BranchCondition {
-    fn parse_from_opcode(opcode: u16) -> Self {
-        match opcode & 0x0F00 {
-            0x0000 => BranchCondition::True,
-            0x0100 => BranchCondition::False,
-            0x0200 => BranchCondition::Higher,
-            0x0300 => BranchCondition::LowerOrSame,
-            0x0400 => BranchCondition::CarryClear,
-            0x0500 => BranchCondition::CarrySet,
-            0x0600 => BranchCondition::NotEqual,
-            0x0700 => BranchCondition::Equal,
-            0x0800 => BranchCondition::OverflowClear,
-            0x0900 => BranchCondition::OverflowSet,
-            0x0A00 => BranchCondition::Plus,
-            0x0B00 => BranchCondition::Minus,
-            0x0C00 => BranchCondition::GreaterOrEqual,
-            0x0D00 => BranchCondition::LessThan,
-            0x0E00 => BranchCondition::GreaterThan,
-            0x0F00 => BranchCondition::LessOrEqual,
-            _ => unreachable!("value & 0x0F00 is always one of the above values"),
-        }
-    }
-
     fn check(self, ccr: ConditionCodes) -> bool {
         match self {
             Self::True => true,
@@ -180,6 +125,7 @@ pub enum Instruction {
     ExclusiveOrToCcr,
     ExclusiveOrToSr,
     Extend(OpSize, DataRegister),
+    Illegal { opcode: u16 },
     Jump(AddressingMode),
     JumpToSubroutine(AddressingMode),
     Link(AddressRegister),
@@ -268,6 +214,7 @@ impl Instruction {
             | Self::ExclusiveOrToCcr
             | Self::ExclusiveOrToSr
             | Self::Extend(..)
+            | Self::Illegal { .. }
             | Self::Link(..)
             | Self::LogicalShiftRegister(..)
             | Self::MoveFromSr(..)
@@ -333,6 +280,7 @@ impl Instruction {
             | Self::ExclusiveOrToCcr
             | Self::ExclusiveOrToSr
             | Self::Extend(..)
+            | Self::Illegal { .. }
             | Self::Jump(..)
             | Self::JumpToSubroutine(..)
             | Self::Link(..)
@@ -379,7 +327,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let opcode = self.fetch_operand()?;
         self.opcode = opcode;
 
-        let instruction = decode_opcode(opcode, self.registers.supervisor_mode)?;
+        let instruction = table::decode(opcode); //decode_opcode(opcode, self.registers.supervisor_mode)?;
         self.instruction = Some(instruction);
         log::trace!(
             "[{}] Decoded opcode {opcode:04X} (PC={initial_pc:06X}): {instruction}",
@@ -433,6 +381,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             ExclusiveOrToCcr => self.eori_to_ccr(),
             ExclusiveOrToSr => self.eori_to_sr(),
             Extend(size, register) => Ok(self.ext(size, register)),
+            Illegal { opcode } => Err(Exception::IllegalInstruction(opcode)),
             Jump(source) => self.jmp(source),
             JumpToSubroutine(source) => self.jsr(source),
             Link(register) => self.link(register),
@@ -454,7 +403,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             MoveQuick(data, register) => Ok(self.moveq(data, register)),
             MoveToCcr(source) => self.move_to_ccr(source),
             MoveToSr(source) => self.move_to_sr(source),
-            MoveUsp(direction, register) => Ok(self.move_usp(direction, register)),
+            MoveUsp(direction, register) => self.move_usp(direction, register),
             MultiplySigned(register, source) => self.muls(register, source),
             MultiplyUnsigned(register, source) => self.mulu(register, source),
             Negate { size: OpSize::Byte, dest, with_extend } => self.neg_byte(dest, with_extend),
@@ -508,185 +457,6 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             TrapOnOverflow => self.trapv(),
             Unlink(register) => self.unlk(register),
         }
-    }
-}
-
-fn decode_opcode(opcode: u16, supervisor_mode: bool) -> ExecuteResult<Instruction> {
-    match opcode & 0xF000 {
-        0x0000 => match opcode & 0b0000_1111_0000_0000 {
-            0b0000_0000_0000_0000 => bits::decode_ori(opcode, supervisor_mode),
-            0b0000_0010_0000_0000 => bits::decode_andi(opcode, supervisor_mode),
-            0b0000_0100_0000_0000 => arithmetic::decode_subi(opcode),
-            0b0000_0110_0000_0000 => arithmetic::decode_addi(opcode),
-            0b0000_1010_0000_0000 => bits::decode_eori(opcode, supervisor_mode),
-            0b0000_1100_0000_0000 => arithmetic::decode_cmpi(opcode),
-            0b0000_1000_0000_0000 => match opcode & 0b0000_0000_1100_0000 {
-                0b0000_0000_0000_0000 => bits::decode_btst_static(opcode),
-                0b0000_0000_0100_0000 => bits::decode_bchg_static(opcode),
-                0b0000_0000_1000_0000 => bits::decode_bclr_static(opcode),
-                0b0000_0000_1100_0000 => bits::decode_bset_static(opcode),
-                _ => unreachable!("match after bit mask"),
-            },
-            _ => {
-                if opcode.bit(8) {
-                    if opcode & 0b0000_0000_0011_1000 == 0b0000_0000_0000_1000 {
-                        Ok(load::decode_movep(opcode))
-                    } else {
-                        match opcode & 0b0000_0000_1100_0000 {
-                            0b0000_0000_0000_0000 => bits::decode_btst_dynamic(opcode),
-                            0b0000_0000_0100_0000 => bits::decode_bchg_dynamic(opcode),
-                            0b0000_0000_1000_0000 => bits::decode_bclr_dynamic(opcode),
-                            0b0000_0000_1100_0000 => bits::decode_bset_dynamic(opcode),
-                            _ => unreachable!("match after bit mask"),
-                        }
-                    }
-                } else {
-                    Err(Exception::IllegalInstruction(opcode))
-                }
-            }
-        },
-        0x1000 | 0x2000 | 0x3000 => load::decode_move(opcode),
-        0x4000 => match opcode & 0b0000_1111_1100_0000 {
-            0b0000_0000_1100_0000 => load::decode_move_from_sr(opcode),
-            0b0000_0100_1100_0000 => load::decode_move_to_ccr(opcode),
-            0b0000_0110_1100_0000 => load::decode_move_to_sr(opcode, supervisor_mode),
-            0b0000_0000_0000_0000 | 0b0000_0000_0100_0000 | 0b0000_0000_1000_0000 => {
-                arithmetic::decode_negx(opcode)
-            }
-            0b0000_0010_0000_0000 | 0b0000_0010_0100_0000 | 0b0000_0010_1000_0000 => {
-                bits::decode_clr(opcode)
-            }
-            0b0000_0100_0000_0000 | 0b0000_0100_0100_0000 | 0b0000_0100_1000_0000 => {
-                arithmetic::decode_neg(opcode)
-            }
-            0b0000_0110_0000_0000 | 0b0000_0110_0100_0000 | 0b0000_0110_1000_0000 => {
-                bits::decode_not(opcode)
-            }
-            0b0000_1000_1000_0000
-            | 0b0000_1000_1100_0000
-            | 0b0000_1100_1000_0000
-            | 0b0000_1100_1100_0000 => {
-                if opcode & 0b0000_0000_0011_1000 == 0 {
-                    Ok(bits::decode_ext(opcode))
-                } else {
-                    load::decode_movem(opcode)
-                }
-            }
-            0b0000_1000_0000_0000 => arithmetic::decode_nbcd(opcode),
-            0b0000_1000_0100_0000 => {
-                if opcode & 0b0000_0000_0011_1000 == 0 {
-                    Ok(bits::decode_swap(opcode))
-                } else {
-                    controlflow::decode_pea(opcode)
-                }
-            }
-            0b0000_1010_1100_0000 => {
-                if opcode & 0b0000_0000_0011_1111 == 0b0000_0000_0011_1100 {
-                    Err(Exception::IllegalInstruction(opcode))
-                } else {
-                    bits::decode_tas(opcode)
-                }
-            }
-            0b0000_1010_0000_0000 | 0b0000_1010_0100_0000 | 0b0000_1010_1000_0000 => {
-                bits::decode_tst(opcode)
-            }
-            0b0000_1110_0100_0000 => match opcode & 0b0000_0000_0011_1111 {
-                0b0000_0000_0011_0000 => {
-                    if supervisor_mode {
-                        Ok(Instruction::Reset)
-                    } else {
-                        Err(Exception::PrivilegeViolation)
-                    }
-                }
-                0b0000_0000_0011_0001 => Ok(Instruction::NoOp),
-                0b0000_0000_0011_0010 => Ok(Instruction::Stop),
-                0b0000_0000_0011_0011 => controlflow::decode_rte(opcode, supervisor_mode),
-                0b0000_0000_0011_0101 => Ok(Instruction::Return { restore_ccr: false }),
-                0b0000_0000_0011_0110 => Ok(Instruction::TrapOnOverflow),
-                0b0000_0000_0011_0111 => Ok(Instruction::Return { restore_ccr: true }),
-                _ => match opcode & 0b0000_0000_0011_1000 {
-                    0b0000_0000_0000_0000 | 0b0000_0000_0000_1000 => {
-                        Ok(controlflow::decode_trap(opcode))
-                    }
-                    0b0000_0000_0001_0000 => Ok(controlflow::decode_link(opcode)),
-                    0b0000_0000_0001_1000 => Ok(controlflow::decode_unlk(opcode)),
-                    0b0000_0000_0010_0000 | 0b0000_0000_0010_1000 => {
-                        load::decode_move_usp(opcode, supervisor_mode)
-                    }
-                    _ => Err(Exception::IllegalInstruction(opcode)),
-                },
-            },
-            0b0000_1110_1000_0000 => controlflow::decode_jsr(opcode),
-            0b0000_1110_1100_0000 => controlflow::decode_jmp(opcode),
-            _ => {
-                if opcode.bit(6) {
-                    controlflow::decode_lea(opcode)
-                } else {
-                    controlflow::decode_chk(opcode)
-                }
-            }
-        },
-        0x5000 => match OpSize::parse_from_opcode(opcode) {
-            Ok(size) => arithmetic::decode_addq_subq(opcode, size),
-            Err(_) => {
-                if opcode & 0b0000_0000_0011_1000 == 0b0000_0000_0000_1000 {
-                    Ok(controlflow::decode_dbcc(opcode))
-                } else {
-                    controlflow::decode_scc(opcode)
-                }
-            }
-        },
-        0x6000 => Ok(controlflow::decode_branch(opcode)),
-        0x7000 => load::decode_movq(opcode),
-        0x8000 => match opcode & 0b0000_0001_1111_0000 {
-            0b0000_0001_0000_0000 => Ok(arithmetic::decode_sbcd(opcode)),
-            _ => match opcode & 0b0000_0001_1100_0000 {
-                0b0000_0000_1100_0000 => arithmetic::decode_divu(opcode),
-                0b0000_0001_1100_0000 => arithmetic::decode_divs(opcode),
-                _ => bits::decode_or(opcode),
-            },
-        },
-        0x9000 => arithmetic::decode_sub(opcode),
-        0xB000 => match opcode & 0b0000_0000_1100_0000 {
-            0b0000_0000_1100_0000 => arithmetic::decode_cmpa(opcode),
-            _ => {
-                if opcode.bit(8) {
-                    match opcode & 0b0000_0000_0011_1000 {
-                        0b0000_0000_0000_1000 => arithmetic::decode_cmpm(opcode),
-                        _ => bits::decode_eor(opcode),
-                    }
-                } else {
-                    arithmetic::decode_cmp(opcode)
-                }
-            }
-        },
-        0xC000 => match opcode & 0b0000_0001_1111_0000 {
-            0b0000_0001_0000_0000 => Ok(arithmetic::decode_abcd(opcode)),
-            0b0000_0001_0100_0000 | 0b0000_0001_1000_0000 => load::decode_exg(opcode),
-            _ => match opcode & 0b0000_0001_1100_0000 {
-                0b0000_0001_1100_0000 => arithmetic::decode_muls(opcode),
-                0b0000_0000_1100_0000 => arithmetic::decode_mulu(opcode),
-                _ => bits::decode_and(opcode),
-            },
-        },
-        0xD000 => arithmetic::decode_add(opcode),
-        0xE000 => match opcode & 0b0000_0000_1100_0000 {
-            0b0000_0000_1100_0000 => match opcode & 0b0000_1110_0000_0000 {
-                0b0000_0000_0000_0000 => bits::decode_asd_memory(opcode),
-                0b0000_0010_0000_0000 => bits::decode_lsd_memory(opcode),
-                0b0000_0100_0000_0000 => bits::decode_roxd_memory(opcode),
-                0b0000_0110_0000_0000 => bits::decode_rod_memory(opcode),
-                _ => Err(Exception::IllegalInstruction(opcode)),
-            },
-            _ => match opcode & 0b0000_0000_0001_1000 {
-                0b0000_0000_0000_0000 => bits::decode_asd_register(opcode),
-                0b0000_0000_0000_1000 => bits::decode_lsd_register(opcode),
-                0b0000_0000_0001_0000 => bits::decode_roxd_register(opcode),
-                0b0000_0000_0001_1000 => bits::decode_rod_register(opcode),
-                _ => unreachable!("match after bit mask"),
-            },
-        },
-        _ => Err(Exception::IllegalInstruction(opcode)),
     }
 }
 
@@ -828,6 +598,7 @@ impl Display for Instruction {
             Self::Extend(size, register) => {
                 write!(f, "EXT.{size} D{}", register.0)
             }
+            Self::Illegal { .. } => write!(f, "ILLEGAL"),
             Self::Jump(dest) => {
                 write!(f, "JMP {dest}")
             }

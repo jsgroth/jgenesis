@@ -1,4 +1,4 @@
-use crate::core::instructions::{BranchCondition, Instruction};
+use crate::core::instructions::BranchCondition;
 use crate::core::{
     AddressRegister, AddressingMode, BusOpType, ConditionCodes, DataRegister, Exception,
     ExecuteResult, InstructionExecutor, OpSize, ResolvedAddress,
@@ -102,6 +102,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     }
 
     pub(super) fn rte(&mut self) -> ExecuteResult<u32> {
+        if !self.registers.supervisor_mode {
+            return Err(Exception::PrivilegeViolation);
+        }
+
         let sr = self.pop_stack_u16()?;
 
         let pc = self.pop_stack_u32()?;
@@ -261,111 +265,4 @@ pub(super) const fn nop() -> u32 {
 
 pub(super) fn trap(vector: u32) -> ExecuteResult<u32> {
     Err(Exception::Trap(TRAP_VECTOR_OFFSET + vector))
-}
-
-fn is_effective_address_mode(addressing_mode: AddressingMode) -> bool {
-    !matches!(
-        addressing_mode,
-        AddressingMode::DataDirect(..)
-            | AddressingMode::AddressDirect(..)
-            | AddressingMode::AddressIndirectPostincrement(..)
-            | AddressingMode::AddressIndirectPredecrement(..)
-            | AddressingMode::Immediate
-    )
-}
-
-pub(super) fn decode_jmp(opcode: u16) -> ExecuteResult<Instruction> {
-    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
-
-    if !is_effective_address_mode(addressing_mode) {
-        return Err(Exception::IllegalInstruction(opcode));
-    }
-
-    Ok(Instruction::Jump(addressing_mode))
-}
-
-pub(super) fn decode_lea(opcode: u16) -> ExecuteResult<Instruction> {
-    let source = AddressingMode::parse_from_opcode(opcode)?;
-    let register = ((opcode >> 9) & 0x07) as u8;
-
-    if !is_effective_address_mode(source) {
-        return Err(Exception::IllegalInstruction(opcode));
-    }
-
-    Ok(Instruction::LoadEffectiveAddress(source, register.into()))
-}
-
-pub(super) fn decode_pea(opcode: u16) -> ExecuteResult<Instruction> {
-    let source = AddressingMode::parse_from_opcode(opcode)?;
-
-    if !is_effective_address_mode(source) {
-        return Err(Exception::IllegalInstruction(opcode));
-    }
-
-    Ok(Instruction::PushEffectiveAddress(source))
-}
-
-pub(super) fn decode_jsr(opcode: u16) -> ExecuteResult<Instruction> {
-    let source = AddressingMode::parse_from_opcode(opcode)?;
-
-    if !is_effective_address_mode(source) {
-        return Err(Exception::IllegalInstruction(opcode));
-    }
-
-    Ok(Instruction::JumpToSubroutine(source))
-}
-
-pub(super) fn decode_link(opcode: u16) -> Instruction {
-    let register = (opcode & 0x07) as u8;
-    Instruction::Link(register.into())
-}
-
-pub(super) fn decode_unlk(opcode: u16) -> Instruction {
-    let register = (opcode & 0x07) as u8;
-    Instruction::Unlink(register.into())
-}
-
-pub(super) fn decode_rte(opcode: u16, supervisor_mode: bool) -> ExecuteResult<Instruction> {
-    if !supervisor_mode {
-        return Err(Exception::IllegalInstruction(opcode));
-    }
-
-    Ok(Instruction::ReturnFromException)
-}
-
-pub(super) fn decode_trap(opcode: u16) -> Instruction {
-    let vector = opcode & 0x000F;
-
-    Instruction::Trap(vector.into())
-}
-
-pub(super) fn decode_chk(opcode: u16) -> ExecuteResult<Instruction> {
-    let source = AddressingMode::parse_from_opcode(opcode)?;
-    let register = ((opcode >> 9) & 0x07) as u8;
-
-    Ok(Instruction::CheckRegister(register.into(), source))
-}
-
-pub(super) fn decode_branch(opcode: u16) -> Instruction {
-    let condition = BranchCondition::parse_from_opcode(opcode);
-    let displacement = opcode as i8;
-
-    match condition {
-        BranchCondition::False => Instruction::BranchToSubroutine(displacement),
-        _ => Instruction::Branch(condition, displacement),
-    }
-}
-
-pub(super) fn decode_dbcc(opcode: u16) -> Instruction {
-    let condition = BranchCondition::parse_from_opcode(opcode);
-    let register = (opcode & 0x07) as u8;
-
-    Instruction::BranchDecrement(condition, register.into())
-}
-
-pub(super) fn decode_scc(opcode: u16) -> ExecuteResult<Instruction> {
-    let condition = BranchCondition::parse_from_opcode(opcode);
-    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
-
-    Ok(Instruction::Set(condition, addressing_mode))
 }

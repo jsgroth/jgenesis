@@ -1,7 +1,7 @@
-use crate::core::instructions::{Direction, ShiftCount, ShiftDirection};
+use crate::core::instructions::{ShiftCount, ShiftDirection};
 use crate::core::{
-    AddressingMode, ConditionCodes, DataRegister, Exception, ExecuteResult, Instruction,
-    InstructionExecutor, OpSize,
+    AddressingMode, ConditionCodes, DataRegister, Exception, ExecuteResult, InstructionExecutor,
+    OpSize,
 };
 use crate::traits::BusInterface;
 use jgenesis_traits::num::{GetBit, SignBit};
@@ -75,6 +75,10 @@ macro_rules! impl_bit_op_to_ccr {
 macro_rules! impl_bit_op_to_sr {
     ($name:ident, $operator:tt) => {
         pub(super) fn $name(&mut self) -> ExecuteResult<u32> {
+            if !self.registers.supervisor_mode {
+                return Err(Exception::PrivilegeViolation);
+            }
+
             let word = self.read_word(AddressingMode::Immediate)?;
             let value = word $operator self.registers.status_register();
             self.registers.set_status_register(value);
@@ -650,193 +654,4 @@ fn shift_register_cycles(size: OpSize, shifts: u32) -> u32 {
 
 fn shift_memory_cycles(dest: AddressingMode) -> u32 {
     8 + dest.address_calculation_cycles(OpSize::Word)
-}
-
-macro_rules! impl_decode_bit_op {
-    ($name:ident, $instruction:ident) => {
-        pub(super) fn $name(opcode: u16) -> ExecuteResult<Instruction> {
-            let register = ((opcode >> 9) & 0x07) as u8;
-            let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
-            let direction = Direction::parse_from_opcode(opcode);
-            let size = OpSize::parse_from_opcode(opcode)?;
-
-            if addressing_mode.is_address_direct()
-                || (direction == Direction::RegisterToMemory && !addressing_mode.is_writable())
-            {
-                return Err(Exception::IllegalInstruction(opcode));
-            }
-
-            let register_am = AddressingMode::DataDirect(register.into());
-            let (source, dest) = match direction {
-                Direction::RegisterToMemory => (register_am, addressing_mode),
-                Direction::MemoryToRegister => (addressing_mode, register_am),
-            };
-
-            Ok(Instruction::$instruction { size, source, dest })
-        }
-    };
-}
-
-impl_decode_bit_op!(decode_and, And);
-impl_decode_bit_op!(decode_or, Or);
-impl_decode_bit_op!(decode_eor, ExclusiveOr);
-
-macro_rules! impl_decode_bit_op_immediate {
-    ($name:ident, $instruction:ident, $ccr_instruction:ident, $sr_instruction:ident) => {
-        pub(super) fn $name(opcode: u16, supervisor_mode: bool) -> ExecuteResult<Instruction> {
-            let size = OpSize::parse_from_opcode(opcode)?;
-            let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
-            if addressing_mode == AddressingMode::Immediate {
-                return match size {
-                    OpSize::Byte => Ok(Instruction::$ccr_instruction),
-                    OpSize::Word => {
-                        if supervisor_mode {
-                            Ok(Instruction::$sr_instruction)
-                        } else {
-                            Err(Exception::PrivilegeViolation)
-                        }
-                    }
-                    _ => Err(Exception::IllegalInstruction(opcode)),
-                };
-            }
-
-            if addressing_mode.is_address_direct() || !addressing_mode.is_writable() {
-                return Err(Exception::IllegalInstruction(opcode));
-            }
-
-            Ok(Instruction::$instruction {
-                size,
-                source: AddressingMode::Immediate,
-                dest: addressing_mode,
-            })
-        }
-    };
-}
-impl_decode_bit_op_immediate!(decode_andi, And, AndToCcr, AndToSr);
-impl_decode_bit_op_immediate!(decode_ori, Or, OrToCcr, OrToSr);
-impl_decode_bit_op_immediate!(decode_eori, ExclusiveOr, ExclusiveOrToCcr, ExclusiveOrToSr);
-
-pub(super) fn decode_not(opcode: u16) -> ExecuteResult<Instruction> {
-    let size = OpSize::parse_from_opcode(opcode)?;
-    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
-
-    if addressing_mode.is_address_direct() || !addressing_mode.is_writable() {
-        return Err(Exception::IllegalInstruction(opcode));
-    }
-
-    Ok(Instruction::Not(size, addressing_mode))
-}
-
-pub(super) fn decode_clr(opcode: u16) -> ExecuteResult<Instruction> {
-    let size = OpSize::parse_from_opcode(opcode)?;
-    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
-
-    if addressing_mode.is_address_direct() || !addressing_mode.is_writable() {
-        return Err(Exception::IllegalInstruction(opcode));
-    }
-
-    Ok(Instruction::Clear(size, addressing_mode))
-}
-
-pub(super) fn decode_ext(opcode: u16) -> Instruction {
-    let register = (opcode & 0x07) as u8;
-    let size = if opcode.bit(6) { OpSize::LongWord } else { OpSize::Word };
-
-    Instruction::Extend(size, register.into())
-}
-
-pub(super) fn decode_swap(opcode: u16) -> Instruction {
-    let register = (opcode & 0x07) as u8;
-
-    Instruction::Swap(register.into())
-}
-
-macro_rules! impl_decode_single_bit_static {
-    ($name:ident, $instruction:ident) => {
-        pub(super) fn $name(opcode: u16) -> ExecuteResult<Instruction> {
-            let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
-
-            Ok(Instruction::$instruction {
-                source: AddressingMode::Immediate,
-                dest: addressing_mode,
-            })
-        }
-    };
-}
-
-macro_rules! impl_decode_single_bit_dynamic {
-    ($name:ident, $instruction:ident) => {
-        pub(super) fn $name(opcode: u16) -> ExecuteResult<Instruction> {
-            let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
-            let register = ((opcode >> 9) & 0x07) as u8;
-
-            Ok(Instruction::$instruction {
-                source: AddressingMode::DataDirect(register.into()),
-                dest: addressing_mode,
-            })
-        }
-    };
-}
-
-impl_decode_single_bit_static!(decode_btst_static, BitTest);
-impl_decode_single_bit_dynamic!(decode_btst_dynamic, BitTest);
-
-impl_decode_single_bit_static!(decode_bchg_static, BitTestAndChange);
-impl_decode_single_bit_dynamic!(decode_bchg_dynamic, BitTestAndChange);
-
-impl_decode_single_bit_static!(decode_bclr_static, BitTestAndClear);
-impl_decode_single_bit_dynamic!(decode_bclr_dynamic, BitTestAndClear);
-
-impl_decode_single_bit_static!(decode_bset_static, BitTestAndSet);
-impl_decode_single_bit_dynamic!(decode_bset_dynamic, BitTestAndSet);
-
-macro_rules! impl_decode_shift_memory {
-    ($name:ident, $instruction:ident) => {
-        pub(super) fn $name(opcode: u16) -> ExecuteResult<Instruction> {
-            let direction = ShiftDirection::parse_from_opcode(opcode);
-            let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
-
-            Ok(Instruction::$instruction(direction, addressing_mode))
-        }
-    };
-}
-
-impl_decode_shift_memory!(decode_asd_memory, ArithmeticShiftMemory);
-impl_decode_shift_memory!(decode_lsd_memory, LogicalShiftMemory);
-impl_decode_shift_memory!(decode_rod_memory, RotateMemory);
-impl_decode_shift_memory!(decode_roxd_memory, RotateThruExtendMemory);
-
-macro_rules! impl_decode_shift_register {
-    ($name:ident, $instruction:ident) => {
-        pub(super) fn $name(opcode: u16) -> ExecuteResult<Instruction> {
-            let size = OpSize::parse_from_opcode(opcode)?;
-            let direction = ShiftDirection::parse_from_opcode(opcode);
-            let register = (opcode & 0x07) as u8;
-            let count = ShiftCount::parse_from_opcode(opcode);
-
-            Ok(Instruction::$instruction(size, direction, register.into(), count))
-        }
-    };
-}
-
-impl_decode_shift_register!(decode_asd_register, ArithmeticShiftRegister);
-impl_decode_shift_register!(decode_lsd_register, LogicalShiftRegister);
-impl_decode_shift_register!(decode_rod_register, RotateRegister);
-impl_decode_shift_register!(decode_roxd_register, RotateThruExtendRegister);
-
-pub(super) fn decode_tst(opcode: u16) -> ExecuteResult<Instruction> {
-    let size = OpSize::parse_from_opcode(opcode)?;
-    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
-
-    Ok(Instruction::Test(size, addressing_mode))
-}
-
-pub(super) fn decode_tas(opcode: u16) -> ExecuteResult<Instruction> {
-    let addressing_mode = AddressingMode::parse_from_opcode(opcode)?;
-
-    if addressing_mode.is_address_direct() || !addressing_mode.is_writable() {
-        return Err(Exception::IllegalInstruction(opcode));
-    }
-
-    Ok(Instruction::TestAndSet(addressing_mode))
 }

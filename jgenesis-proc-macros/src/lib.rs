@@ -95,6 +95,68 @@ pub fn enum_from_str(input: TokenStream) -> TokenStream {
     gen.into()
 }
 
+/// On an enum with only fieldless variants, add an `ALL` constant of type `[Self; N]` that contains
+/// every variant of the enum. The variant order in `ALL` will equal the variant declaration order.
+///
+/// Examples:
+/// ```
+/// use jgenesis_proc_macros::EnumAll;
+///
+/// #[derive(Debug, PartialEq, EnumAll)]
+/// enum Foo {
+///     A,
+///     B,
+///     C,
+/// }
+///
+/// // Explicit type for clarity
+/// let expected: [Foo; 3] = [Foo::A, Foo::B, Foo::C];
+/// assert_eq!(Foo::ALL, expected);
+/// ```
+///
+/// ```
+/// use jgenesis_proc_macros::EnumAll;
+///
+/// #[derive(Debug, PartialEq, EnumAll)]
+/// enum Unit {}
+///
+/// assert_eq!(Unit::ALL, []);
+/// ```
+///
+/// # Panics
+///
+/// This macro will panic if applied to a struct, a union, or an enum with non-fieldless variants.
+#[proc_macro_derive(EnumAll)]
+pub fn enum_all(input: TokenStream) -> TokenStream {
+    let input: DeriveInput = syn::parse(input).expect("Unable to parse input");
+
+    let type_ident = &input.ident;
+    let Data::Enum(data) = &input.data else {
+        panic!("EnumAll only supports enums; {type_ident} is not an enum");
+    };
+
+    let variant_constructors: Vec<_> = data.variants.iter().map(|variant| {
+        let variant_ident = &variant.ident;
+        assert!(
+            matches!(variant.fields, Fields::Unit),
+            "EnumAll only supports enums with fieldless variants; {type_ident}::{variant_ident} is not a fieldless variant",
+        );
+
+        quote! {
+            Self::#variant_ident
+        }
+    }).collect();
+
+    let num_variants = data.variants.len();
+    let gen = quote! {
+        impl #type_ident {
+            pub const ALL: [Self; #num_variants] = [#(#variant_constructors,)*];
+        }
+    };
+
+    gen.into()
+}
+
 /// Implement the `std::fmt::Display` trait for a struct, with an implementation meant for
 /// pretty-printing configs. By default all fields are printed using their own `std::fmt::Display`
 /// implementation.

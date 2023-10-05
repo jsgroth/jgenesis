@@ -2,6 +2,7 @@ mod instructions;
 
 use crate::core::instructions::Instruction;
 use crate::traits::BusInterface;
+use jgenesis_proc_macros::EnumAll;
 use jgenesis_traits::num::GetBit;
 use std::fmt::{Display, Formatter};
 
@@ -108,6 +109,8 @@ impl Registers {
 pub struct DataRegister(u8);
 
 impl DataRegister {
+    const ALL: [Self; 8] = [Self(0), Self(1), Self(2), Self(3), Self(4), Self(5), Self(6), Self(7)];
+
     fn read_from(self, registers: &Registers) -> u32 {
         registers.data[self.0 as usize]
     }
@@ -137,6 +140,8 @@ impl From<u8> for DataRegister {
 pub struct AddressRegister(u8);
 
 impl AddressRegister {
+    const ALL: [Self; 8] = [Self(0), Self(1), Self(2), Self(3), Self(4), Self(5), Self(6), Self(7)];
+
     fn is_stack_pointer(self) -> bool {
         self.0 == 7
     }
@@ -180,7 +185,7 @@ impl From<u8> for AddressRegister {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumAll)]
 pub enum OpSize {
     Byte,
     Word,
@@ -199,16 +204,6 @@ impl OpSize {
             }
             Self::Word => 2,
             Self::LongWord => 4,
-        }
-    }
-
-    fn parse_from_opcode(opcode: u16) -> ExecuteResult<Self> {
-        match opcode & 0x00C0 {
-            0x0000 => Ok(Self::Byte),
-            0x0040 => Ok(Self::Word),
-            0x0080 => Ok(Self::LongWord),
-            0x00C0 => Err(Exception::IllegalInstruction(opcode)),
-            _ => unreachable!("value & 0x00C0 is always 0x0000/0x0040/0x0080/0x00C0"),
         }
     }
 }
@@ -299,33 +294,6 @@ pub enum AddressingMode {
 }
 
 impl AddressingMode {
-    fn parse_from(mode: u8, register: u8) -> ExecuteResult<Self> {
-        match (mode & 0x07, register & 0x07) {
-            (0x00, register) => Ok(Self::DataDirect(register.into())),
-            (0x01, register) => Ok(Self::AddressDirect(register.into())),
-            (0x02, register) => Ok(Self::AddressIndirect(register.into())),
-            (0x03, register) => Ok(Self::AddressIndirectPostincrement(register.into())),
-            (0x04, register) => Ok(Self::AddressIndirectPredecrement(register.into())),
-            (0x05, register) => Ok(Self::AddressIndirectDisplacement(register.into())),
-            (0x06, register) => Ok(Self::AddressIndirectIndexed(register.into())),
-            (0x07, 0x00) => Ok(Self::AbsoluteShort),
-            (0x07, 0x01) => Ok(Self::AbsoluteLong),
-            (0x07, 0x02) => Ok(Self::PcRelativeDisplacement),
-            (0x07, 0x03) => Ok(Self::PcRelativeIndexed),
-            (0x07, 0x04) => Ok(Self::Immediate),
-            (0x07, 0x05..=0x07) => {
-                Err(Exception::IllegalInstruction(((mode << 3) | register).into()))
-            }
-            _ => unreachable!("value & 0x07 is always <= 0x07"),
-        }
-    }
-
-    fn parse_from_opcode(opcode: u16) -> ExecuteResult<Self> {
-        let mode = (opcode >> 3) as u8;
-        let register = opcode as u8;
-        Self::parse_from(mode, register)
-    }
-
     fn is_data_direct(self) -> bool {
         matches!(self, Self::DataDirect(..))
     }
@@ -346,16 +314,6 @@ impl AddressingMode {
                 | Self::PcRelativeIndexed
                 | Self::AbsoluteShort
                 | Self::AbsoluteLong
-        )
-    }
-
-    fn is_writable(self) -> bool {
-        !matches!(
-            self,
-            Self::PcRelativeDisplacement
-                | Self::PcRelativeIndexed
-                | Self::Immediate
-                | Self::Quick(..)
         )
     }
 
@@ -1025,7 +983,7 @@ impl M68000Builder {
             registers: Registers::new(),
             halted: false,
             allow_tas_writes: self.allow_tas_writes,
-            name: self.name.unwrap_or_default(),
+            name: self.name.unwrap_or_else(|| "(Unnamed)".into()),
         }
     }
 }
