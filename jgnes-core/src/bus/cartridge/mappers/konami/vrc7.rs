@@ -689,7 +689,7 @@ pub struct Vrc7AudioUnit {
     divider: u8,
 }
 
-// VRC7 has its own oscillator, but the frequency is almost an exact multiple of the NES CPU clock speed
+// VRC7 has its own oscillator, but the frequency is almost an exact division of the NES CPU clock speed
 const AUDIO_DIVIDER: u8 = 36;
 
 const MAX_CARRIER_OUTPUT: f64 = 255.0;
