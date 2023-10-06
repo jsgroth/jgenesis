@@ -3,6 +3,10 @@
 //! This board has a full-blown FM synthesizer chip as expansion audio, and as such the vast
 //! majority of this module is dedicated to audio chip emulation. The mapper excluding audio is
 //! a bit less complicated than MMC3.
+//!
+//! The audio chip implementation is almost entirely lifted from the YM2413 implementation in my
+//! Sega Master System emulator:
+//! <https://github.com/jsgroth/jgenesis/blob/master/smsgg-core/src/ym2413.rs>
 
 use crate::bus;
 use crate::bus::cartridge::mappers::konami::irq::VrcIrqCounter;
@@ -12,11 +16,8 @@ use crate::bus::cartridge::mappers::{
 use crate::bus::cartridge::{HasBasicPpuMapping, MapperImpl};
 use crate::num::GetBit;
 use bincode::{Decode, Encode};
-use std::ops::{Add, Sub};
+use std::sync::OnceLock;
 use std::{array, cmp};
-
-const MULTIPLIER_LOOKUP_TABLE: [f64; 16] =
-    [0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 10.0, 12.0, 12.0, 15.0, 15.0];
 
 // From https://www.nesdev.org/wiki/VRC7_audio#Internal_patch_set
 // Indexed into using (instrument # - 1) since 0 is custom instrument
@@ -53,170 +54,263 @@ const ROM_PATCHES: [[u8; 8]; 15] = [
     [0x21, 0x72, 0x0D, 0x00, 0xC1, 0xD5, 0x56, 0x06],
 ];
 
-const KEY_SCALE_ATTENUATION_LOOKUP_TABLE: [f64; 16] = [
-    0.0, 18.0, 24.0, 27.75, 30.0, 32.25, 33.75, 35.25, 36.0, 37.5, 38.25, 39.0, 39.75, 40.5, 41.25,
-    42.0,
+// Tables from https://www.smspower.org/Development/YM2413ReverseEngineeringNotes2015-03-20
+const ENVELOPE_INCREMENT_TABLES: [[u8; 8]; 4] = [
+    [0, 1, 0, 1, 0, 1, 0, 1],
+    [0, 1, 0, 1, 1, 1, 0, 1],
+    [0, 1, 1, 1, 0, 1, 1, 1],
+    [0, 1, 1, 1, 1, 1, 1, 1],
 ];
 
-// 2^20
-const MODULATION_BASE: f64 = 1048576.0;
+// Numbers are multiplied by 2 here - need to divide by 2 after multiplying
+const MULTIPLIER_TABLE: [u32; 16] = [1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 20, 24, 24, 30, 30];
 
-// 2^17
-const WAVE_PHASE_SCALE: f64 = 131072.0;
+// Numbers for key_scale_level=3; need to be shifted down for key_scale_level=1 or 2
+const KEY_SCALE_TABLE: [u8; 16] =
+    [0, 48, 64, 74, 80, 86, 90, 94, 96, 100, 102, 104, 106, 108, 110, 112];
 
-// 2^18 - 1
-const PHASE_MASK: u32 = 0x0003FFFF;
-
-// 2^23 - 1
-const ENVELOPE_COUNTER_MASK: u32 = 0x007FFFFF;
-
-// The audio chip has an external oscillator that is almost exactly 2x the NES CPU clock speed, and
-// the oscillator clocks the chip every 72 cycles, so clocking the chip every 36 CPU cycles is a
-// close enough approximation
-const AUDIO_DIVIDER: u8 = 36;
-
-const EPSILON: f64 = 1e-9;
-
-// 2^23 / 48
-const ENVELOPE_SCALE: f64 = 174762.66666666666;
-
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Encode, Decode)]
-struct Decibels(f64);
-
-impl Decibels {
-    const MAX_ATTENUATION: Self = Self(48.0);
-
-    fn from_linear(linear: f64) -> Self {
-        Self(-20.0 * linear.log10())
-    }
-
-    fn to_linear(self) -> f64 {
-        10.0_f64.powf(self.0 / -20.0)
-    }
-}
-
-impl Add for Decibels {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        Self(self.0 + rhs.0)
-    }
-}
-
-impl Sub for Decibels {
-    type Output = Self;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        Self(self.0 - rhs.0)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum FmSynthWaveform {
-    Sine,
-    ClippedHalfSine,
-}
-
-#[derive(Debug, Clone, Encode, Decode)]
-struct CommonPatchFields {
+#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
+struct OperatorSettings {
     tremolo: bool,
     vibrato: bool,
-    sustain_enabled: bool,
-    key_rate_scaling: bool,
-    multiplier: f64,
-    key_level_scaling: u8,
-    waveform: FmSynthWaveform,
-    attack: u8,
-    decay: u8,
-    sustain: u8,
-    release: u8,
+    sustained_tone: bool,
+    key_scale_rate: bool,
+    key_scale_level: u8,
+    multiple: u8,
+    wave_rectification: bool,
+    attack_rate: u8,
+    decay_rate: u8,
+    sustain_level: u8,
+    release_rate: u8,
+}
+
+#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
+struct ChannelSettings {
+    block: u8,
+    f_number: u16,
+    sustain: bool,
+    instrument: u8,
+    volume: u8,
+    modulator_feedback_level: u8,
+    modulator_total_level: u8,
+}
+
+#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
+struct PhaseGenerator {
+    counter: u32,
+}
+
+const PHASE_COUNTER_MASK: u32 = (1 << 19) - 1;
+const PHASE_MASK: u32 = (1 << 10) - 1;
+
+impl PhaseGenerator {
+    #[inline]
+    fn clock(&mut self, block: u8, f_number: u16, multiple: u8, fm_position: u8, vibrato: bool) {
+        let fm_shift = if vibrato { compute_fm_shift(fm_position, f_number) } else { 0 };
+
+        let phase_shift = (((2 * u32::from(f_number) + fm_shift as u32)
+            * MULTIPLIER_TABLE[multiple as usize])
+            << block)
+            >> 2;
+        self.counter = self.counter.wrapping_add(phase_shift) & PHASE_COUNTER_MASK;
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+enum EnvelopePhase {
+    Damp,
+    Attack,
+    Decay,
+    Sustain,
+    #[default]
+    Release,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
-struct ModulatorPatch {
-    common: CommonPatchFields,
-    output_level: u8,
-    feedback_level: u8,
+struct EnvelopeGenerator {
+    operator_type: OperatorType,
+    key_on: bool,
+    attenuation: u8,
+    phase: EnvelopePhase,
+    global_counter: u32,
 }
 
-type CarrierPatch = CommonPatchFields;
+const MAX_ATTENUATION: u8 = 127;
 
-#[derive(Debug, Clone, Encode, Decode)]
-struct FmSynthPatch {
-    modulator: ModulatorPatch,
-    carrier: CarrierPatch,
-}
-
-impl FmSynthPatch {
-    fn from_bytes(bytes: [u8; 8]) -> Self {
+impl EnvelopeGenerator {
+    fn new(operator_type: OperatorType) -> Self {
         Self {
-            modulator: ModulatorPatch {
-                common: CommonPatchFields {
-                    tremolo: bytes[0].bit(7),
-                    vibrato: bytes[0].bit(6),
-                    sustain_enabled: bytes[0].bit(5),
-                    key_rate_scaling: bytes[0].bit(4),
-                    multiplier: MULTIPLIER_LOOKUP_TABLE[(bytes[0] & 0x0F) as usize],
-                    key_level_scaling: bytes[2] >> 6,
-                    waveform: if bytes[3].bit(3) {
-                        FmSynthWaveform::ClippedHalfSine
-                    } else {
-                        FmSynthWaveform::Sine
-                    },
-                    attack: bytes[4] >> 4,
-                    decay: bytes[4] & 0x0F,
-                    sustain: bytes[6] >> 4,
-                    release: bytes[6] & 0x0F,
-                },
-                output_level: bytes[2] & 0x3F,
-                feedback_level: bytes[3] & 0x07,
-            },
-            carrier: CarrierPatch {
-                tremolo: bytes[1].bit(7),
-                vibrato: bytes[1].bit(6),
-                sustain_enabled: bytes[1].bit(5),
-                key_rate_scaling: bytes[1].bit(4),
-                multiplier: MULTIPLIER_LOOKUP_TABLE[(bytes[1] & 0x0F) as usize],
-                key_level_scaling: bytes[3] >> 6,
-                waveform: if bytes[3].bit(4) {
-                    FmSynthWaveform::ClippedHalfSine
+            operator_type,
+            key_on: false,
+            attenuation: MAX_ATTENUATION,
+            phase: EnvelopePhase::Release,
+            global_counter: 0,
+        }
+    }
+
+    fn set_key_on(&mut self, key_on: bool, sustained_tone: bool) {
+        if !self.key_on && key_on {
+            self.phase = EnvelopePhase::Damp;
+        } else if self.key_on && !key_on {
+            self.phase = match (self.operator_type, sustained_tone) {
+                (OperatorType::Carrier, _) | (OperatorType::Modulator, false) => {
+                    EnvelopePhase::Release
+                }
+                (OperatorType::Modulator, true) => EnvelopePhase::Sustain,
+            };
+        }
+        self.key_on = key_on;
+    }
+
+    fn clock(
+        &mut self,
+        operator: OperatorSettings,
+        channel: ChannelSettings,
+        phase_generator: &mut PhaseGenerator,
+        modulator: Option<&mut Operator>,
+    ) {
+        self.global_counter = self.global_counter.wrapping_add(1);
+
+        let sustain_level = operator.sustain_level << 3;
+        let rks = compute_rks(channel.block, channel.f_number, operator.key_scale_rate);
+
+        if self.phase == EnvelopePhase::Damp
+            && self.attenuation >= ENVELOPE_END
+            && self.operator_type == OperatorType::Carrier
+        {
+            if 4 * operator.attack_rate + rks >= 60 {
+                // Skip attack phase if rate is 60-63
+                self.attenuation = 0;
+                self.phase = EnvelopePhase::Decay;
+            } else {
+                self.phase = EnvelopePhase::Attack;
+            };
+            phase_generator.counter = 0;
+
+            if let Some(modulator) = modulator {
+                let modulator_rks =
+                    compute_rks(channel.block, channel.f_number, modulator.settings.key_scale_rate);
+                if 4 * modulator.settings.attack_rate + modulator_rks >= 60 {
+                    modulator.envelope.attenuation = 0;
+                    modulator.envelope.phase = EnvelopePhase::Decay;
                 } else {
-                    FmSynthWaveform::Sine
-                },
-                attack: bytes[5] >> 4,
-                decay: bytes[5] & 0x0F,
-                sustain: bytes[7] >> 4,
-                release: bytes[7] & 0x0F,
-            },
+                    modulator.envelope.phase = EnvelopePhase::Attack;
+                }
+                modulator.phase.counter = 0;
+            }
+        }
+
+        if self.phase == EnvelopePhase::Attack && self.attenuation == 0 {
+            self.phase = EnvelopePhase::Decay;
+        }
+
+        if self.phase == EnvelopePhase::Decay && self.attenuation >= sustain_level {
+            self.phase = EnvelopePhase::Sustain;
+        }
+
+        let r = match self.phase {
+            EnvelopePhase::Damp => 12,
+            EnvelopePhase::Attack => operator.attack_rate,
+            EnvelopePhase::Decay => operator.decay_rate,
+            EnvelopePhase::Sustain => {
+                if operator.sustained_tone {
+                    0
+                } else {
+                    operator.release_rate
+                }
+            }
+            EnvelopePhase::Release => {
+                if channel.sustain {
+                    5
+                } else if !operator.sustained_tone {
+                    7
+                } else {
+                    operator.release_rate
+                }
+            }
+        };
+
+        let rate = if r == 0 { 0 } else { cmp::min(63, 4 * r + rks) };
+
+        // Envelope behaviors from:
+        // https://www.smspower.org/Development/YM2413ReverseEngineeringNotes2015-03-20
+        // https://www.smspower.org/Development/YM2413ReverseEngineeringNotes2015-03-27
+        match self.phase {
+            EnvelopePhase::Attack => {
+                match rate {
+                    0..=3 | 60..=63 => {
+                        // Do nothing
+                    }
+                    4..=47 => {
+                        let shift = 13 - (rate >> 2);
+                        let mask = ((1 << shift) - 1) & !0x03;
+                        if self.global_counter & mask == 0 {
+                            let table_idx = (rate & 0x03) as usize;
+                            let increment_idx = ((self.global_counter >> shift) & 0x07) as usize;
+                            let increment = ENVELOPE_INCREMENT_TABLES[table_idx][increment_idx];
+                            if increment == 1 {
+                                self.attenuation -= (self.attenuation >> 4) + 1;
+                            }
+                        }
+                    }
+                    48..=59 => {
+                        let table_idx = (rate & 0x03) as usize;
+                        let increment_idx = ((self.global_counter >> 1) & 0x06) as usize;
+                        let increment = ENVELOPE_INCREMENT_TABLES[table_idx][increment_idx];
+                        let shift = 16 - (rate >> 2) - increment;
+                        self.attenuation -= (self.attenuation >> shift) + 1;
+                    }
+                    _ => panic!("rate must be <= 63"),
+                }
+            }
+            EnvelopePhase::Damp
+            | EnvelopePhase::Decay
+            | EnvelopePhase::Sustain
+            | EnvelopePhase::Release => {
+                match rate {
+                    0..=3 => {
+                        // Do nothing
+                    }
+                    4..=51 => {
+                        let shift = 13 - (rate >> 2);
+                        if self.global_counter & ((1 << shift) - 1) == 0 {
+                            let table_idx = (rate & 0x03) as usize;
+                            let increment_idx = ((self.global_counter >> shift) & 0x07) as usize;
+                            let increment = ENVELOPE_INCREMENT_TABLES[table_idx][increment_idx];
+                            self.attenuation =
+                                cmp::min(MAX_ATTENUATION, self.attenuation + increment);
+                        }
+                    }
+                    52..=55 => {
+                        // Rates 52-55 increment every clock, and each pair of increments gets
+                        // repeated once before moving on to the next pair
+                        let table_idx = (rate & 0x03) as usize;
+                        let increment_idx = (((self.global_counter >> 1) & 0x06)
+                            | (self.global_counter & 0x01))
+                            as usize;
+                        let increment = ENVELOPE_INCREMENT_TABLES[table_idx][increment_idx];
+                        self.attenuation = cmp::min(MAX_ATTENUATION, self.attenuation + increment);
+                    }
+                    56..=59 => {
+                        // Rates 56-59 increment every clock, only use even columns from the table,
+                        // and increment by 1 higher than what's in the table
+                        let table_idx = (rate & 0x03) as usize;
+                        let increment_idx = ((self.global_counter >> 1) & 0x06) as usize;
+                        let increment = ENVELOPE_INCREMENT_TABLES[table_idx][increment_idx] + 1;
+                        self.attenuation = cmp::min(MAX_ATTENUATION, self.attenuation + increment);
+                    }
+                    60..=63 => {
+                        // Always increment by 2
+                        self.attenuation = cmp::min(MAX_ATTENUATION, self.attenuation + 2);
+                    }
+                    _ => panic!("rate should always be <= 63"),
+                }
+            }
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum Instrument {
-    Custom,
-    Fixed(u8),
-}
-
-#[derive(Debug, Clone, Encode, Decode)]
-struct ChannelControl {
-    frequency: u16,
-    // This bit is really badly named - if set, it overrides the envelope release rate in both
-    // operators to 5, ignoring the release rates specified by the current instrument
-    sustain: bool,
-    key_on: bool,
-    octave: u8,
-    instrument: Instrument,
-    attenuation: u8,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum EnvelopeState {
-    Attack,
-    Decay,
-    Sustain,
-    Release,
-    Idle,
+fn compute_rks(block: u8, f_number: u16, key_scale_rate: bool) -> u8 {
+    ((block << 1) | u8::from(f_number.bit(8))) >> (2 * u8::from(!key_scale_rate))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -226,534 +320,453 @@ enum OperatorType {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
-struct EnvelopeGenerator {
-    counter: u32,
-    state: EnvelopeState,
-    operator_type: OperatorType,
-    sustain_enabled: bool,
-    key_rate_scaling: bool,
-    attack: u8,
-    decay: u8,
-    sustain: u8,
-    release: u8,
-}
-
-impl EnvelopeGenerator {
-    fn new_idle() -> Self {
-        Self {
-            counter: 0,
-            state: EnvelopeState::Idle,
-            operator_type: OperatorType::Carrier,
-            sustain_enabled: false,
-            key_rate_scaling: false,
-            attack: 0,
-            decay: 0,
-            sustain: 0,
-            release: 0,
-        }
-    }
-
-    fn from_patch(operator_type: OperatorType, patch: &CommonPatchFields) -> Self {
-        Self {
-            counter: 0,
-            state: EnvelopeState::Attack,
-            operator_type,
-            sustain_enabled: patch.sustain_enabled,
-            key_rate_scaling: patch.key_rate_scaling,
-            attack: patch.attack,
-            decay: patch.decay,
-            sustain: patch.sustain,
-            release: patch.release,
-        }
-    }
-
-    fn clock(&mut self, frequency: u16, octave: u8, channel_sustain_on: bool) {
-        let freq_rate = (octave << 1) | (frequency >> 8) as u8;
-        let key_scale_offset = if self.key_rate_scaling { freq_rate } else { freq_rate >> 2 };
-
-        let rate = match self.state {
-            EnvelopeState::Attack => self.attack,
-            EnvelopeState::Decay => self.decay,
-            EnvelopeState::Sustain => {
-                if !self.sustain_enabled {
-                    self.release
-                } else {
-                    0
-                }
-            }
-            EnvelopeState::Release => {
-                if channel_sustain_on {
-                    5
-                } else if !self.sustain_enabled {
-                    7
-                } else {
-                    self.release
-                }
-            }
-            EnvelopeState::Idle => 0,
-        };
-
-        if rate == 0 {
-            return;
-        }
-
-        let scaled_rate = (rate << 2) + key_scale_offset;
-        let shift = cmp::min(15, scaled_rate >> 2);
-        let base = u32::from(scaled_rate & 0x03);
-
-        match self.state {
-            EnvelopeState::Attack => {
-                self.counter += (12 * (base + 4)) << shift;
-                if self.counter > ENVELOPE_COUNTER_MASK {
-                    self.counter = 0;
-                    self.state = EnvelopeState::Decay;
-                }
-            }
-            EnvelopeState::Decay => {
-                self.counter += (base + 4) << shift.saturating_sub(1);
-
-                let sustain_level = 3 * u32::from(self.sustain) * (1 << 23) / 48;
-                if self.counter >= sustain_level {
-                    self.counter = sustain_level;
-                    self.state = EnvelopeState::Sustain;
-                }
-            }
-            EnvelopeState::Sustain | EnvelopeState::Release => {
-                self.counter += (base + 4) << shift.saturating_sub(1);
-
-                if self.counter >= 1 << 23 {
-                    self.counter = 1 << 23;
-                    self.state = EnvelopeState::Idle;
-                }
-            }
-            EnvelopeState::Idle => {}
-        }
-    }
-
-    fn key_off(&mut self) {
-        if self.state == EnvelopeState::Attack {
-            self.counter = (self.output().0 * ENVELOPE_SCALE).round() as u32;
-        }
-
-        self.state = match (self.operator_type, self.sustain_enabled) {
-            (OperatorType::Carrier, _) | (OperatorType::Modulator, false) => EnvelopeState::Release,
-            (OperatorType::Modulator, true) => EnvelopeState::Sustain,
-        };
-    }
-
-    fn output(&self) -> Decibels {
-        match self.state {
-            EnvelopeState::Attack => {
-                let volume = Decibels(
-                    Decibels::MAX_ATTENUATION.0 * f64::from(self.counter).ln()
-                        / f64::from(1 << 23).ln(),
-                );
-                Decibels::MAX_ATTENUATION - volume
-            }
-            EnvelopeState::Decay | EnvelopeState::Sustain | EnvelopeState::Release => {
-                Decibels(f64::from(self.counter) / ENVELOPE_SCALE)
-            }
-            EnvelopeState::Idle => Decibels::MAX_ATTENUATION,
-        }
-    }
-}
-
-trait WaveGeneratorBehavior: Copy {
-    fn adjust_phase(self, phase: u32, current_modulator_output: i32) -> u32;
-
-    fn base_attenuation(self, channel_attenuation: u8) -> Decibels;
-}
-
-#[derive(Debug, Clone, Copy, Encode, Decode)]
-struct ModulatorWaveBehavior {
-    feedback_level: u8,
-    output_level: u8,
-}
-
-impl WaveGeneratorBehavior for ModulatorWaveBehavior {
-    fn adjust_phase(self, phase: u32, current_modulator_output: i32) -> u32 {
-        match self.feedback_level {
-            0 => phase,
-            _ => {
-                ((phase as i32 + (current_modulator_output >> (8 - self.feedback_level))) as u32)
-                    & PHASE_MASK
-            }
-        }
-    }
-
-    fn base_attenuation(self, _channel_attenuation: u8) -> Decibels {
-        Decibels(0.75 * f64::from(self.output_level))
-    }
-}
-
-#[derive(Debug, Clone, Copy, Encode, Decode)]
-struct CarrierWaveBehavior;
-
-impl WaveGeneratorBehavior for CarrierWaveBehavior {
-    fn adjust_phase(self, phase: u32, current_modulator_output: i32) -> u32 {
-        ((phase as i32 + current_modulator_output) as u32) & PHASE_MASK
-    }
-
-    fn base_attenuation(self, channel_attenuation: u8) -> Decibels {
-        Decibels(3.0 * f64::from(channel_attenuation))
-    }
-}
-
-#[derive(Debug, Clone, Encode, Decode)]
-struct WaveGenerator<WaveType> {
-    phase_counter: u32,
-    adjusted_phase: u32,
-    tremolo: bool,
-    vibrato: bool,
-    waveform: FmSynthWaveform,
-    freq_multiplier: f64,
-    key_scale_level: u8,
+struct Operator {
+    settings: OperatorSettings,
+    phase: PhaseGenerator,
     envelope: EnvelopeGenerator,
     current_output: i32,
-    behavior: WaveType,
+    prev_output: i32,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct WaveGeneratorClockArgs {
-    frequency: u16,
-    octave: u8,
-    channel_sustain_on: bool,
-    channel_attenuation: u8,
-    am_output: Decibels,
-    fm_output: f64,
-    modulator_output: i32,
-}
+// Operators start outputting 0 once attenuation is >= 124 (out of 127)
+const ENVELOPE_END: u8 = 124;
 
-impl<WaveType: WaveGeneratorBehavior> WaveGenerator<WaveType> {
-    fn new(behavior: WaveType) -> Self {
+impl Operator {
+    fn new(operator_type: OperatorType) -> Self {
         Self {
-            phase_counter: 0,
-            adjusted_phase: 0,
-            tremolo: false,
-            vibrato: false,
-            waveform: FmSynthWaveform::Sine,
-            freq_multiplier: 0.0,
-            key_scale_level: 0,
-            envelope: EnvelopeGenerator::new_idle(),
+            settings: OperatorSettings::default(),
+            phase: PhaseGenerator::default(),
+            envelope: EnvelopeGenerator::new(operator_type),
             current_output: 0,
-            behavior,
+            prev_output: 0,
         }
+    }
+
+    fn set_key_on(&mut self, key_on: bool) {
+        self.envelope.set_key_on(key_on, self.settings.sustained_tone);
     }
 
     fn clock(
         &mut self,
-        WaveGeneratorClockArgs {
-            frequency,
-            octave,
-            channel_sustain_on,
-            channel_attenuation,
-            am_output,
-            fm_output,
-            modulator_output,
-        }: WaveGeneratorClockArgs,
-    ) {
-        // Frequency
-        let fm_multiplier = if self.vibrato { fm_output } else { 1.0 };
-        let delta = f64::from(frequency)
-            * 2.0_f64.powi(i32::from(octave) - 1)
-            * self.freq_multiplier
-            * fm_multiplier;
-        self.phase_counter = (self.phase_counter + delta.round() as u32) & PHASE_MASK;
-        self.adjusted_phase = self.behavior.adjust_phase(self.phase_counter, modulator_output);
+        channel: ChannelSettings,
+        modulation_input: u32,
+        base_attenuation: u8,
+        am_output: u8,
+        fm_position: u8,
+        modulator: Option<&mut Operator>,
+    ) -> i32 {
+        let block = channel.block;
+        let f_number = channel.f_number;
 
-        // Clock envelope before computing amplitude
-        self.envelope.clock(frequency, octave, channel_sustain_on);
+        self.phase.clock(
+            block,
+            f_number,
+            self.settings.multiple,
+            fm_position,
+            self.settings.vibrato,
+        );
+        self.envelope.clock(self.settings, channel, &mut self.phase, modulator);
 
-        // Amplitude
-        // Compute sine using the last 17 bits of phase
-        let sin_output = (std::f64::consts::PI * f64::from(self.adjusted_phase & 0x0001FFFF)
-            / WAVE_PHASE_SCALE)
-            .sin();
-        let sin_output_db = Decibels::from_linear(sin_output);
-
-        let base_attenuation = self.behavior.base_attenuation(channel_attenuation);
-
-        let key_scale_attenuation = if self.key_scale_level != 0 {
-            let freq_high_bits = frequency >> 5;
-            let attenuation = KEY_SCALE_ATTENUATION_LOOKUP_TABLE[freq_high_bits as usize];
-            let attenuation = attenuation - 6.0 * f64::from(7 - octave);
-            if attenuation <= EPSILON {
-                0.0
-            } else {
-                attenuation / 2.0_f64.powi(3 - i32::from(self.key_scale_level))
-            }
-        } else {
-            0.0
-        };
-        let key_scale_attenuation = Decibels(key_scale_attenuation);
-
-        let am_additive = if self.tremolo { am_output } else { Decibels(0.0) };
-
-        let output_db = sin_output_db
-            + base_attenuation
-            + key_scale_attenuation
-            + self.envelope.output()
-            + am_additive;
-        let output_linear = output_db.to_linear();
-        // Clamp to [0, 1]
-        let current_output_linear = if output_linear < EPSILON {
-            0.0
-        } else if output_linear > 1.0 {
-            1.0
-        } else {
-            output_linear
-        };
-
-        let scaled_output = (current_output_linear * 2.0_f64.powi(20)).round() as i32;
-
-        let negative_half = self.adjusted_phase.bit(17);
-        let negated_output = match (negative_half, self.waveform) {
-            (false, _) => scaled_output,
-            (true, FmSynthWaveform::Sine) => -scaled_output,
-            (true, FmSynthWaveform::ClippedHalfSine) => 0,
-        };
-
-        self.current_output = (self.current_output + negated_output) / 2;
-    }
-
-    fn update_from_patch(&mut self, patch: &CommonPatchFields) {
-        self.waveform = patch.waveform;
-        self.tremolo = patch.tremolo;
-        self.vibrato = patch.vibrato;
-        self.freq_multiplier = patch.multiplier;
-        self.key_scale_level = patch.key_level_scaling;
-    }
-}
-
-impl WaveGenerator<ModulatorWaveBehavior> {
-    fn update_from_modulator_patch(&mut self, patch: &ModulatorPatch) {
-        self.update_from_patch(&patch.common);
-
-        self.behavior.output_level = patch.output_level;
-        self.behavior.feedback_level = patch.feedback_level;
-    }
-}
-
-type Modulator = WaveGenerator<ModulatorWaveBehavior>;
-type Carrier = WaveGenerator<CarrierWaveBehavior>;
-
-#[derive(Debug, Clone, Encode, Decode)]
-struct AmplitudeModulationUnit {
-    // 20-bit counter
-    counter: u32,
-}
-
-impl AmplitudeModulationUnit {
-    const RATE: u32 = 78;
-
-    fn clock(&mut self) {
-        self.counter = (self.counter + Self::RATE) & 0x000FFFFF;
-    }
-
-    fn output(&self) -> Decibels {
-        Decibels((1.0 + scaled_sin(self.counter.into(), MODULATION_BASE)) * 0.6)
-    }
-}
-
-#[derive(Debug, Clone, Encode, Decode)]
-struct FrequencyModulationUnit {
-    // 20-bit counter
-    counter: u32,
-}
-
-impl FrequencyModulationUnit {
-    const RATE: u32 = 105;
-
-    fn clock(&mut self) {
-        self.counter = (self.counter + Self::RATE) & 0x000FFFFF;
-    }
-
-    fn output(&self) -> f64 {
-        2.0_f64.powf(13.75 / 1200.0 * scaled_sin(self.counter.into(), MODULATION_BASE))
-    }
-}
-
-fn scaled_sin(value: f64, base: f64) -> f64 {
-    (2.0 * std::f64::consts::PI * value / base).sin()
-}
-
-#[derive(Debug, Clone, Encode, Decode)]
-struct FmSynthChannel {
-    modulator: Modulator,
-    carrier: Carrier,
-    control: ChannelControl,
-}
-
-impl FmSynthChannel {
-    fn new() -> Self {
-        Self {
-            modulator: Modulator::new(ModulatorWaveBehavior { output_level: 0, feedback_level: 0 }),
-            carrier: Carrier::new(CarrierWaveBehavior),
-            control: ChannelControl {
-                frequency: 0,
-                sustain: false,
-                key_on: false,
-                octave: 0,
-                instrument: Instrument::Custom,
-                attenuation: 0,
-            },
+        if self.envelope.attenuation >= ENVELOPE_END {
+            self.prev_output = self.current_output;
+            self.current_output = 0;
+            return 0;
         }
-    }
 
-    fn handle_register_1_write(&mut self, value: u8) {
-        // All 8 bits are the lowest 8 bits of frequency
-        self.control.frequency = (self.control.frequency & 0xFF00) | u16::from(value);
-    }
+        // Phase counter is 19 bits, log-sin table is a 10-bit loookup
+        let adjusted_phase = (self.phase.counter >> 9).wrapping_add(modulation_input) & PHASE_MASK;
+        let (sine_attenuation, sign) = log_sine_lookup(adjusted_phase);
 
-    fn handle_register_2_write(&mut self, value: u8, custom_instrument: [u8; 8]) {
-        // Bits 7-6: Unused
-        // Bit 5: Sustain
-        // Bit 4: Key on/off
-        // Bits 3-1: Octave
-        // Bit 0: Highest bit of frequency
-        self.control.sustain = value.bit(5);
-        self.control.octave = (value & 0x0E) >> 1;
-        self.control.frequency = (self.control.frequency & 0x00FF) | (u16::from(value & 0x01) << 8);
-
-        let key_on = value.bit(4);
-        match (self.control.key_on, key_on) {
-            (false, true) => {
-                let patch = match self.control.instrument {
-                    Instrument::Custom => FmSynthPatch::from_bytes(custom_instrument),
-                    Instrument::Fixed(index) => {
-                        FmSynthPatch::from_bytes(ROM_PATCHES[index as usize])
-                    }
-                };
-
-                self.modulator.envelope =
-                    EnvelopeGenerator::from_patch(OperatorType::Modulator, &patch.modulator.common);
-                self.carrier.envelope =
-                    EnvelopeGenerator::from_patch(OperatorType::Carrier, &patch.carrier);
-
-                self.modulator.update_from_modulator_patch(&patch.modulator);
-                self.carrier.update_from_patch(&patch.carrier);
-            }
-            (true, false) => {
-                self.modulator.envelope.key_off();
-                self.carrier.envelope.key_off();
-            }
-            (true, true) | (false, false) => {}
-        }
-        self.control.key_on = key_on;
-    }
-
-    fn handle_register_3_write(&mut self, value: u8) {
-        // Bits 7-4: Instrument
-        // Bits 3-0: Attenuation
-        let instrument_index = value >> 4;
-        self.control.instrument = match instrument_index {
-            0 => Instrument::Custom,
-            _ => Instrument::Fixed(instrument_index - 1),
-        };
-        self.control.attenuation = value & 0x0F;
-    }
-
-    fn clock(&mut self, am_output: Decibels, fm_output: f64) {
-        let clock_args = WaveGeneratorClockArgs {
-            frequency: self.control.frequency,
-            octave: self.control.octave,
-            channel_sustain_on: self.control.sustain,
-            channel_attenuation: self.control.attenuation,
-            am_output,
-            fm_output,
-            modulator_output: self.modulator.current_output,
+        let key_scale_level = self.settings.key_scale_level;
+        let key_scale_attenuation = if key_scale_level != 0 {
+            KEY_SCALE_TABLE[(f_number >> 5) as usize].saturating_sub((7 - block) << 4)
+                >> (3 - key_scale_level)
+        } else {
+            0
         };
 
-        self.modulator.clock(clock_args);
-        self.carrier.clock(WaveGeneratorClockArgs {
-            modulator_output: self.modulator.current_output,
-            ..clock_args
+        let am_attenuation = if self.settings.tremolo { am_output } else { 0 };
+
+        let total_attenuation = cmp::min(
+            u16::from(MAX_ATTENUATION),
+            u16::from(base_attenuation)
+                + u16::from(key_scale_attenuation)
+                + u16::from(self.envelope.attenuation)
+                + u16::from(am_attenuation),
+        );
+        let amplitude_magnitude = exp2_lookup(sine_attenuation + 16 * total_attenuation);
+
+        let amplitude = match (sign, self.settings.wave_rectification) {
+            (Sign::Positive, _) => i32::from(amplitude_magnitude),
+            (Sign::Negative, false) => -i32::from(amplitude_magnitude),
+            (Sign::Negative, true) => 0,
+        };
+
+        self.prev_output = self.current_output;
+        self.current_output = amplitude;
+        amplitude
+    }
+}
+
+fn compute_fm_shift(fm_position: u8, f_number: u16) -> i16 {
+    // Based on https://www.smspower.org/Development/YM2413ReverseEngineeringNotes2015-12-01
+    let f_num_high_bits = f_number >> 6;
+    let magnitude = match fm_position & 0x03 {
+        0 => 0,
+        1 | 3 => (f_num_high_bits >> 1) as i16,
+        2 => f_num_high_bits as i16,
+        _ => unreachable!("value & 0x03 is always <= 3"),
+    };
+    let sign = if fm_position.bit(3) { -1 } else { 1 };
+    sign * magnitude
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Sign {
+    Positive,
+    Negative,
+}
+
+// Returns the *attenuation* for the given phase, in log2 decibels units
+//   log-sin[i] = -log2(sin((i + 0.5) / 256 * PI/2)) * 256
+// Output range is 0..=2137
+// Source: https://www.smspower.org/Development/YM2413ReverseEngineeringNotes2015-04-09
+fn log_sine_lookup(phase: u32) -> (u16, Sign) {
+    static LOOKUP_TABLE: OnceLock<[(u16, Sign); 1024]> = OnceLock::new();
+    let lookup_table = LOOKUP_TABLE.get_or_init(|| {
+        let quarter_table: [u16; 256] = array::from_fn(|i| {
+            let sine = ((i as f64 + 0.5) / 256.0 * std::f64::consts::PI / 2.0).sin();
+            (-1.0 * sine.log2() * 256.0).round() as u16
         });
+
+        array::from_fn(|i| match i {
+            0..=255 => (quarter_table[i], Sign::Positive),
+            256..=511 => (quarter_table[255 - (i & 0xFF)], Sign::Positive),
+            512..=767 => (quarter_table[i & 0xFF], Sign::Negative),
+            768..=1023 => (quarter_table[255 - (i & 0xFF)], Sign::Negative),
+            _ => unreachable!("array::from_fn with array of size 1024"),
+        })
+    });
+    lookup_table[phase as usize]
+}
+
+// Returns a 12-bit unsigned amplitude, assuming the input is an attenuation in log2 decibels units
+// Output range is 0..=4084
+// Source: https://www.smspower.org/Development/YM2413ReverseEngineeringNotes2015-04-09
+#[allow(clippy::items_after_statements)]
+fn exp2_lookup(attenuation: u16) -> u16 {
+    let [attenuation_lsb, attenuation_msb] = attenuation.to_le_bytes();
+
+    if attenuation_msb >= 16 {
+        return 0;
+    }
+
+    static LOOKUP_TABLE: OnceLock<[u16; 256]> = OnceLock::new();
+    let lookup_table = LOOKUP_TABLE.get_or_init(|| {
+        array::from_fn(|i| (2.0_f64.powf((255 - i) as f64 / 256.0) * 1024.0).round() as u16 - 1024)
+    });
+    ((lookup_table[attenuation_lsb as usize] + 1024) << 1) >> attenuation_msb
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+struct Channel {
+    modulator: Operator,
+    carrier: Operator,
+    settings: ChannelSettings,
+    // Used for tom-tom
+    modulator_volume_override: Option<u8>,
+}
+
+impl Default for Channel {
+    fn default() -> Self {
+        Self {
+            modulator: Operator::new(OperatorType::Modulator),
+            carrier: Operator::new(OperatorType::Carrier),
+            settings: ChannelSettings::default(),
+            modulator_volume_override: None,
+        }
+    }
+}
+
+impl Channel {
+    fn write_register_1(&mut self, value: u8) {
+        self.settings.f_number = (self.settings.f_number & 0xFF00) | u16::from(value);
+
+        log::trace!("F-number: {:03X}", self.settings.f_number);
+    }
+
+    fn write_register_2(&mut self, value: u8) {
+        self.settings.f_number = (self.settings.f_number & 0x00FF) | (u16::from(value & 0x01) << 8);
+        self.settings.block = (value >> 1) & 0x07;
+        self.settings.sustain = value.bit(5);
+
+        log::trace!(
+            "F-number: {:03X}, Block: {}, Channel Sustain: {}",
+            self.settings.f_number,
+            self.settings.block,
+            self.settings.sustain
+        );
+
+        self.set_key_on(value.bit(4));
+    }
+
+    fn write_register_3(&mut self, value: u8) {
+        self.settings.volume = value & 0x0F;
+        self.settings.instrument = value >> 4;
+
+        log::trace!(
+            "Volume: {:02X}, Instrument: {}",
+            self.settings.volume,
+            self.settings.instrument
+        );
+    }
+
+    fn set_key_on(&mut self, key_on: bool) {
+        if self.modulator.envelope.key_on != key_on {
+            log::trace!("State at key on ({key_on}): {self:?}");
+        }
+
+        self.modulator.set_key_on(key_on);
+        self.carrier.set_key_on(key_on);
+    }
+
+    fn reload_instrument(&mut self, custom_instrument_patch: [u8; 8]) {
+        let instrument_idx = self.settings.instrument;
+        let instrument = match instrument_idx {
+            0 => Instrument::from_patch(custom_instrument_patch),
+            _ => Instrument::from_patch(ROM_PATCHES[(instrument_idx - 1) as usize]),
+        };
+
+        self.load_instrument(instrument);
+    }
+
+    fn load_instrument(&mut self, instrument: Instrument) {
+        self.modulator.settings = instrument.modulator;
+        self.carrier.settings = instrument.carrier;
+        self.settings.modulator_feedback_level = instrument.modulator_feedback_level;
+        self.settings.modulator_total_level = instrument.modulator_total_level;
+    }
+
+    fn clock(&mut self, am_output: u8, fm_position: u8) {
+        let modulation_feedback = match self.settings.modulator_feedback_level {
+            0 => 0,
+            feedback_level => {
+                (self.modulator.prev_output + self.modulator.current_output) >> (9 - feedback_level)
+            }
+        };
+        let modulator_base_attenuation =
+            self.modulator_volume_override.unwrap_or(self.settings.modulator_total_level << 1);
+        let modulator_output = self.modulator.clock(
+            self.settings,
+            modulation_feedback as u32,
+            modulator_base_attenuation,
+            am_output,
+            fm_position,
+            None,
+        );
+
+        self.carrier.clock(
+            self.settings,
+            modulator_output as u32,
+            self.settings.volume << 3,
+            am_output,
+            fm_position,
+            Some(&mut self.modulator),
+        );
+    }
+
+    fn sample(&self) -> i32 {
+        self.carrier.current_output >> 4
+    }
+}
+
+struct Instrument {
+    modulator: OperatorSettings,
+    carrier: OperatorSettings,
+    modulator_feedback_level: u8,
+    modulator_total_level: u8,
+}
+
+impl Instrument {
+    fn from_patch(patch: [u8; 8]) -> Self {
+        Self {
+            modulator: OperatorSettings {
+                tremolo: patch[0].bit(7),
+                vibrato: patch[0].bit(6),
+                sustained_tone: patch[0].bit(5),
+                key_scale_rate: patch[0].bit(4),
+                key_scale_level: patch[2] >> 6,
+                multiple: patch[0] & 0x0F,
+                wave_rectification: patch[3].bit(3),
+                attack_rate: patch[4] >> 4,
+                decay_rate: patch[4] & 0x0F,
+                sustain_level: patch[6] >> 4,
+                release_rate: patch[6] & 0x0F,
+            },
+            carrier: OperatorSettings {
+                tremolo: patch[1].bit(7),
+                vibrato: patch[1].bit(6),
+                sustained_tone: patch[1].bit(5),
+                key_scale_rate: patch[1].bit(4),
+                key_scale_level: patch[3] >> 6,
+                multiple: patch[1] & 0x0F,
+                wave_rectification: patch[3].bit(4),
+                attack_rate: patch[5] >> 4,
+                decay_rate: patch[5] & 0x0F,
+                sustain_level: patch[7] >> 4,
+                release_rate: patch[7] & 0x0F,
+            },
+            modulator_feedback_level: patch[3] & 0x07,
+            modulator_total_level: patch[2] & 0x3F,
+        }
     }
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
-struct Vrc7AudioUnit {
-    enabled: bool,
-    channels: [FmSynthChannel; 6],
-    am: AmplitudeModulationUnit,
-    fm: FrequencyModulationUnit,
-    selected_register: u8,
-    custom_instrument_patch: [u8; 8],
-    current_output: f64,
+struct AmUnit {
+    position: u8,
     divider: u8,
 }
 
-impl Vrc7AudioUnit {
+const AM_DIVIDER: u8 = 64;
+const AM_POSITIONS: u8 = 210;
+
+impl AmUnit {
     fn new() -> Self {
+        Self { position: 0, divider: AM_DIVIDER }
+    }
+
+    fn clock(&mut self) {
+        self.divider -= 1;
+        if self.divider == 0 {
+            self.divider = AM_DIVIDER;
+            self.position = (self.position + 1) % AM_POSITIONS;
+        }
+    }
+
+    fn output(&self) -> u8 {
+        // Based on https://www.smspower.org/Development/YM2413ReverseEngineeringNotes2015-11-28
+        match self.position {
+            0..=2 => 0,
+            3..=109 => (self.position - 3) >> 3,
+            110..=209 => 12 - ((self.position - 110) >> 3),
+            _ => panic!("AM position must be <= 209"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+struct FmUnit {
+    position: u8,
+    divider: u16,
+}
+
+const FM_DIVIDER: u16 = 1024;
+const FM_POSITIONS: u8 = 8;
+
+impl FmUnit {
+    fn new() -> Self {
+        Self { position: 0, divider: FM_DIVIDER }
+    }
+
+    fn clock(&mut self) {
+        self.divider -= 1;
+        if self.divider == 0 {
+            self.divider = FM_DIVIDER;
+            self.position = (self.position + 1) % FM_POSITIONS;
+        }
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct Vrc7AudioUnit {
+    enabled: bool,
+    channels: [Channel; 6],
+    am_unit: AmUnit,
+    fm_unit: FmUnit,
+    selected_register: u8,
+    custom_instrument_patch: [u8; 8],
+    divider: u8,
+}
+
+// VRC7 has its own oscillator, but the frequency is almost an exact multiple of the NES CPU clock speed
+const AUDIO_DIVIDER: u8 = 36;
+
+const MAX_CARRIER_OUTPUT: f64 = 255.0;
+
+impl Vrc7AudioUnit {
+    pub fn new() -> Self {
         Self {
             enabled: false,
-            channels: array::from_fn(|_| FmSynthChannel::new()),
-            am: AmplitudeModulationUnit { counter: 0 },
-            fm: FrequencyModulationUnit { counter: 0 },
+            channels: array::from_fn(|_| Channel::default()),
+            am_unit: AmUnit::new(),
+            fm_unit: FmUnit::new(),
             selected_register: 0,
             custom_instrument_patch: [0; 8],
-            current_output: 0.0,
             divider: AUDIO_DIVIDER,
         }
     }
 
-    fn handle_register_write(&mut self, value: u8) {
+    pub fn select_register(&mut self, register: u8) {
+        self.selected_register = register;
+    }
+
+    pub fn write_data(&mut self, value: u8) {
+        log::trace!("Write to register {:02X}: {value:02X}", self.selected_register);
+
         match self.selected_register {
-            0x00..=0x07 => {
-                self.custom_instrument_patch[self.selected_register as usize] = value;
+            register @ 0x00..=0x07 => {
+                self.custom_instrument_patch[register as usize] = value;
+
+                // Immediately reload any channels using custom instrument
+                for channel in &mut self.channels {
+                    if channel.settings.instrument == 0 {
+                        channel
+                            .load_instrument(Instrument::from_patch(self.custom_instrument_patch));
+                    }
+                }
             }
-            0x10..=0x15 => {
-                let channel_index = (self.selected_register & 0x07) as usize;
-                self.channels[channel_index].handle_register_1_write(value);
+            register @ 0x10..=0x15 => {
+                let channel = register & 0x0F;
+                self.channels[channel as usize].write_register_1(value);
             }
-            0x20..=0x25 => {
-                let channel_index = (self.selected_register & 0x07) as usize;
-                self.channels[channel_index]
-                    .handle_register_2_write(value, self.custom_instrument_patch);
+            register @ 0x20..=0x25 => {
+                let channel = register & 0x0F;
+                self.channels[channel as usize].write_register_2(value);
             }
-            0x30..=0x35 => {
-                let channel_index = (self.selected_register & 0x07) as usize;
-                self.channels[channel_index].handle_register_3_write(value);
+            register @ 0x30..=0x35 => {
+                let channel = register & 0x0F;
+                self.channels[channel as usize].write_register_3(value);
+                self.channels[channel as usize].reload_instrument(self.custom_instrument_patch);
             }
             _ => {}
         }
     }
 
-    fn clock(&mut self) {
-        if !self.enabled {
-            return;
-        }
-
-        self.am.clock();
-        self.fm.clock();
-
-        let am_output = self.am.output();
-        let fm_output = self.fm.output();
-
-        for channel in &mut self.channels {
-            channel.clock(am_output, fm_output);
-        }
-
-        let output_20_bit = self
-            .channels
-            .iter()
-            .map(|channel| f64::from(channel.carrier.current_output))
-            .sum::<f64>()
-            / 6.0;
-        self.current_output = output_20_bit / f64::from(1 << 20);
-    }
-
-    fn tick_cpu(&mut self) {
+    pub fn tick(&mut self) {
         self.divider -= 1;
         if self.divider == 0 {
-            self.clock();
             self.divider = AUDIO_DIVIDER;
+
+            self.am_unit.clock();
+            self.fm_unit.clock();
+
+            let am_output = self.am_unit.output();
+            let fm_position = self.fm_unit.position;
+            for channel in &mut self.channels {
+                channel.clock(am_output, fm_position);
+            }
         }
     }
 
-    fn sample(&self) -> f64 {
-        self.current_output
+    pub fn sample(&self) -> f64 {
+        let sample = self
+            .channels
+            .iter()
+            .map(|channel| f64::from(channel.sample()) / MAX_CARRIER_OUTPUT)
+            .sum::<f64>();
+
+        (sample / 6.0).clamp(-1.0, 1.0)
     }
 }
 
@@ -860,13 +873,11 @@ impl MapperImpl<Vrc7> {
                     self.data.prg_bank_2 = value & 0x3F;
                 }
                 (Variant::Vrc7a | Variant::Unknown, 0x9010) => {
-                    if self.data.audio.enabled {
-                        self.data.audio.selected_register = value;
-                    }
+                    self.data.audio.select_register(value);
                 }
                 (Variant::Vrc7a | Variant::Unknown, 0x9030) => {
                     if self.data.audio.enabled {
-                        self.data.audio.handle_register_write(value);
+                        self.data.audio.write_data(value);
                     }
                 }
                 (_, 0xA000..=0xD010) => {
@@ -913,7 +924,7 @@ impl MapperImpl<Vrc7> {
 
     pub(crate) fn tick_cpu(&mut self) {
         self.data.irq.tick_cpu();
-        self.data.audio.tick_cpu();
+        self.data.audio.tick();
     }
 
     pub(crate) fn interrupt_flag(&self) -> bool {
