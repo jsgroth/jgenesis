@@ -720,20 +720,29 @@ impl LineType {
 struct DmaTracker {
     // TODO avoid floating point arithmetic?
     in_progress: bool,
+    mode: DmaMode,
     bytes_remaining: f64,
+    data_port_read: bool,
 }
 
 impl DmaTracker {
     fn new() -> Self {
-        Self { in_progress: false, bytes_remaining: 0.0 }
+        Self {
+            in_progress: false,
+            mode: DmaMode::MemoryToVram,
+            bytes_remaining: 0.0,
+            data_port_read: false,
+        }
     }
 
-    fn init(&mut self, dma_length: u32, data_port_location: DataPortLocation) {
+    fn init(&mut self, mode: DmaMode, dma_length: u32, data_port_location: DataPortLocation) {
+        self.mode = mode;
         self.bytes_remaining = f64::from(match data_port_location {
             DataPortLocation::Vram => 2 * dma_length,
             DataPortLocation::Cram | DataPortLocation::Vsram => dma_length,
         });
         self.in_progress = true;
+        self.data_port_read = false;
     }
 
     #[inline]
@@ -747,11 +756,19 @@ impl DmaTracker {
             return;
         }
 
-        let bytes_per_line: u32 = match (h_display_size, line_type) {
-            (HorizontalDisplaySize::ThirtyTwoCell, LineType::Active) => 16,
-            (HorizontalDisplaySize::FortyCell, LineType::Active) => 18,
-            (HorizontalDisplaySize::ThirtyTwoCell, LineType::Blanked) => 167,
-            (HorizontalDisplaySize::FortyCell, LineType::Blanked) => 205,
+        let bytes_per_line: u32 = match (self.mode, h_display_size, line_type) {
+            (DmaMode::MemoryToVram, HorizontalDisplaySize::ThirtyTwoCell, LineType::Active) => 16,
+            (DmaMode::MemoryToVram, HorizontalDisplaySize::FortyCell, LineType::Active) => 18,
+            (DmaMode::MemoryToVram, HorizontalDisplaySize::ThirtyTwoCell, LineType::Blanked) => 167,
+            (DmaMode::MemoryToVram, HorizontalDisplaySize::FortyCell, LineType::Blanked) => 205,
+            (DmaMode::VramFill, HorizontalDisplaySize::ThirtyTwoCell, LineType::Active) => 15,
+            (DmaMode::VramFill, HorizontalDisplaySize::FortyCell, LineType::Active) => 17,
+            (DmaMode::VramFill, HorizontalDisplaySize::ThirtyTwoCell, LineType::Blanked) => 166,
+            (DmaMode::VramFill, HorizontalDisplaySize::FortyCell, LineType::Blanked) => 204,
+            (DmaMode::VramCopy, HorizontalDisplaySize::ThirtyTwoCell, LineType::Active) => 8,
+            (DmaMode::VramCopy, HorizontalDisplaySize::FortyCell, LineType::Active) => 9,
+            (DmaMode::VramCopy, HorizontalDisplaySize::ThirtyTwoCell, LineType::Blanked) => 83,
+            (DmaMode::VramCopy, HorizontalDisplaySize::FortyCell, LineType::Blanked) => 102,
         };
         let bytes_per_line: f64 = bytes_per_line.into();
         self.bytes_remaining -=
@@ -759,6 +776,15 @@ impl DmaTracker {
         if self.bytes_remaining <= 0.0 {
             self.in_progress = false;
         }
+    }
+
+    fn should_halt_cpu(&self, pending_writes: &[PendingWrite]) -> bool {
+        // Memory-to-VRAM DMA always halts the CPU; VRAM fill & VRAM copy only halt the CPU if it
+        // writes to either VDP port or reads from the VDP data port during the DMA
+        self.in_progress
+            && (self.mode == DmaMode::MemoryToVram
+                || self.data_port_read
+                || !pending_writes.is_empty())
     }
 }
 
@@ -914,8 +940,7 @@ impl Vdp {
             self.registers.dma_enabled
         );
 
-        if self.state.active_dma.is_some() {
-            self.state.pending_writes.push(PendingWrite::Control(value));
+        if self.maybe_push_pending_write(PendingWrite::Control(value)) {
             return;
         }
 
@@ -1020,6 +1045,8 @@ impl Vdp {
     pub fn read_data(&mut self) -> u16 {
         log::trace!("VDP data read");
 
+        self.dma_tracker.data_port_read = true;
+
         if self.state.data_port_mode != DataPortMode::Read {
             return 0xFFFF;
         }
@@ -1058,8 +1085,7 @@ impl Vdp {
         // Reset write flag
         self.state.control_write_flag = ControlWriteFlag::First;
 
-        if self.state.active_dma.is_some() {
-            self.state.pending_writes.push(PendingWrite::Data(value));
+        if self.maybe_push_pending_write(PendingWrite::Data(value)) {
             return;
         }
 
@@ -1095,6 +1121,15 @@ impl Vdp {
         }
 
         self.increment_data_address();
+    }
+
+    fn maybe_push_pending_write(&mut self, write: PendingWrite) -> bool {
+        if self.state.active_dma.is_some() || self.dma_tracker.in_progress {
+            self.state.pending_writes.push(write);
+            true
+        } else {
+            false
+        }
     }
 
     pub fn read_status(&mut self) -> u16 {
@@ -1380,7 +1415,11 @@ impl Vdp {
         match active_dma {
             ActiveDma::MemoryToVram => {
                 let dma_length = self.registers.dma_length();
-                self.dma_tracker.init(dma_length, self.state.data_port_location);
+                self.dma_tracker.init(
+                    DmaMode::MemoryToVram,
+                    dma_length,
+                    self.state.data_port_location,
+                );
 
                 let mut source_addr = self.registers.dma_source_address;
 
@@ -1417,6 +1456,12 @@ impl Vdp {
                 self.registers.dma_source_address = source_addr;
             }
             ActiveDma::VramFill(fill_data) => {
+                self.dma_tracker.init(
+                    DmaMode::VramFill,
+                    self.registers.dma_length(),
+                    DataPortLocation::Vram,
+                );
+
                 log::trace!(
                     "Running VRAM fill with addr {:04X} and length {}",
                     self.state.data_address,
@@ -1438,6 +1483,12 @@ impl Vdp {
                 }
             }
             ActiveDma::VramCopy => {
+                self.dma_tracker.init(
+                    DmaMode::VramFill,
+                    self.registers.dma_length(),
+                    DataPortLocation::Vram,
+                );
+
                 log::trace!(
                     "Running VRAM copy with source addr {:04X}, dest addr {:04X}, and length {}",
                     self.registers.dma_source_address,
@@ -1534,8 +1585,8 @@ impl Vdp {
     }
 
     #[must_use]
-    pub fn dma_in_progress(&self) -> bool {
-        self.dma_tracker.in_progress
+    pub fn should_halt_cpu(&self) -> bool {
+        self.dma_tracker.should_halt_cpu(&self.state.pending_writes)
     }
 
     #[must_use]

@@ -622,7 +622,7 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
     }
 
     fn halt(&self) -> bool {
-        self.vdp.dma_in_progress()
+        self.vdp.should_halt_cpu()
     }
 
     fn reset(&self) -> bool {

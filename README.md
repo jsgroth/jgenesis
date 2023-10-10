@@ -7,7 +7,6 @@ Cross-platform multi-console Sega emulator that supports the Sega Genesis / Mega
 * Emulation for the following consoles:
   * Sega Genesis / Mega Drive
   * Sega CD / Mega CD
-    * The JP Model 1 BIOS does not currently work
   * Sega Master System / Mark III
   * Game Gear
 * GPU-based renderer with integer prescaling and optional linear interpolation
@@ -19,11 +18,7 @@ Cross-platform multi-console Sega emulator that supports the Sega Genesis / Mega
 * Some simple horizontal blur and naive anti-dither shaders for blending dithered pixel patterns, which were extremely common on these consoles due to limited color palettes and lack of hardware-supported transparency
 * Optional 2x CPU overclocking for Sega Master System and Game Gear emulation
 
-Major TODOs:
-* Fix remaining major Sega CD emulation bugs
-  * JP V1.00 BIOS freezes after loading the music player menu, which in this BIOS version is required to boot any games
-
-Minor TODOs:
+TODOs:
 * Emulate the Genesis VDP FIFO, in particular the fact that the CPU stalls if it writes to VRAM too rapidly during active display. A few games depend on this to function correctly (e.g. _The Chaos Engine_, _Double Clutch_, _Sol-Deace_), and a few other games have graphical glitches if it's not emulated (e.g. the EA logo flickering for a single frame, parts of the _Batman Returns_ intro running too fast)
 * Support the Sega Virtua Processor (SVP) chip; used only by _Virtua Racing_
 * Support 24C64 EEPROM chips (used only in _Frank Thomas Big Hurt Baseball_ and _College Slam_)
