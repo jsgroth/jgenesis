@@ -2,6 +2,7 @@ mod api;
 pub mod audio;
 pub mod input;
 pub mod memory;
+mod svp;
 pub mod vdp;
 pub mod ym2612;
 
