@@ -4,6 +4,7 @@ mod external;
 use crate::api::GenesisRegion;
 use crate::input::InputState;
 use crate::memory::external::ExternalMemory;
+use crate::svp::Svp;
 use crate::vdp::Vdp;
 use crate::ym2612::Ym2612;
 use bincode::{Decode, Encode};
@@ -76,6 +77,7 @@ pub struct Cartridge {
     external_memory: ExternalMemory,
     ram_mapped: bool,
     mapper: Option<SegaMapper>,
+    svp: Option<Svp>,
     region: GenesisRegion,
 }
 
@@ -108,7 +110,17 @@ impl Cartridge {
             .then(SegaMapper::new);
         log::info!("Using Sega banked mapper: {}", mapper.is_some());
 
-        Self { rom: Rom(rom_bytes), external_memory, ram_mapped, mapper, region }
+        // Only one game uses the SVP, Virtua Racing
+        let svp = (serial_number.as_str() == "MK-1229 " || serial_number.as_str() == "G-7001  ")
+            .then(Svp::new);
+
+        Self { rom: Rom(rom_bytes), external_memory, ram_mapped, mapper, svp, region }
+    }
+
+    pub fn tick(&mut self, m68k_cycles: u32) {
+        if let Some(svp) = &mut self.svp {
+            svp.tick(&self.rom.0, m68k_cycles);
+        }
     }
 
     fn write_cartridge_register(&mut self, address: u32, value: u8) {
@@ -184,6 +196,11 @@ pub trait PhysicalMedium {
 
 impl PhysicalMedium for Cartridge {
     fn read_byte(&mut self, address: u32) -> u8 {
+        if let Some(svp) = &mut self.svp {
+            let word = svp.m68k_read(address & !1, &self.rom.0);
+            return if address.bit(0) { word as u8 } else { (word >> 8) as u8 };
+        }
+
         if self.ram_mapped {
             if let Some(byte) = self.external_memory.read_byte(address) {
                 return byte;
@@ -195,6 +212,10 @@ impl PhysicalMedium for Cartridge {
     }
 
     fn read_word(&mut self, address: u32) -> u16 {
+        if let Some(svp) = &mut self.svp {
+            return svp.m68k_read(address, &self.rom.0);
+        }
+
         if self.ram_mapped {
             if let Some(word) = self.external_memory.read_word(address) {
                 return word;
@@ -208,10 +229,21 @@ impl PhysicalMedium for Cartridge {
     }
 
     fn read_word_for_dma(&mut self, address: u32) -> u16 {
-        self.read_word(address)
+        if self.svp.is_some() {
+            // SVP cartridge memory has the same delay issue as Sega CD word RAM; Virtua Racing sets
+            // DMA source address 2 higher than the "correct" address
+            self.read_word(address.wrapping_sub(2))
+        } else {
+            self.read_word(address)
+        }
     }
 
     fn write_byte(&mut self, address: u32, value: u8) {
+        if let Some(svp) = &mut self.svp {
+            svp.m68k_write_byte(address, value);
+            return;
+        }
+
         match address {
             0x000000..=0x3FFFFF => {
                 if self.ram_mapped {
@@ -226,6 +258,11 @@ impl PhysicalMedium for Cartridge {
     }
 
     fn write_word(&mut self, address: u32, value: u16) {
+        if let Some(svp) = &mut self.svp {
+            svp.m68k_write_word(address, value);
+            return;
+        }
+
         match address {
             0x000000..=0x3FFFFF => {
                 if self.ram_mapped {
@@ -482,7 +519,7 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
         let address = address & ADDRESS_MASK;
         log::trace!("Main bus byte read, address={address:06X}");
         match address {
-            0x000000..=0x7FFFFF | 0xA12000..=0xA130FF => {
+            0x000000..=0x7FFFFF | 0xA12000..=0xA1500F => {
                 self.memory.physical_medium.read_byte(address)
             }
             0xA00000..=0xA0FFFF => {
@@ -503,7 +540,7 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
         let address = address & ADDRESS_MASK;
         log::trace!("Main bus word read, address={address:06X}");
         match address {
-            0x000000..=0x7FFFFF | 0xA12000..=0xA130FF => {
+            0x000000..=0x7FFFFF | 0xA12000..=0xA1500F => {
                 self.memory.physical_medium.read_word(address)
             }
             0xA00000..=0xA0FFFF => {
@@ -538,7 +575,7 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
         let address = address & ADDRESS_MASK;
         log::trace!("Main bus byte write: address={address:06X}, value={value:02X}");
         match address {
-            0x000000..=0x7FFFFF | 0xA12000..=0xA130FF => {
+            0x000000..=0x7FFFFF | 0xA12000..=0xA1500F => {
                 self.memory.physical_medium.write_byte(address, value);
             }
             0xA00000..=0xA0FFFF => {
@@ -578,7 +615,7 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
         let address = address & ADDRESS_MASK;
         log::trace!("Main bus word write: address={address:06X}, value={value:02X}");
         match address {
-            0x000000..=0x7FFFFF | 0xA12000..=0xA130FF => {
+            0x000000..=0x7FFFFF | 0xA12000..=0xA1500F => {
                 self.memory.physical_medium.write_word(address, value);
             }
             0xA00000..=0xA0FFFF => {

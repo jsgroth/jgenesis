@@ -20,7 +20,6 @@ Cross-platform multi-console Sega emulator that supports the Sega Genesis / Mega
 
 TODOs:
 * Emulate the Genesis VDP FIFO, in particular the fact that the CPU stalls if it writes to VRAM too rapidly during active display. A few games depend on this to function correctly (e.g. _The Chaos Engine_, _Double Clutch_, _Sol-Deace_), and a few other games have graphical glitches if it's not emulated (e.g. the EA logo flickering for a single frame, parts of the _Batman Returns_ intro running too fast)
-* Support the Sega Virtua Processor (SVP) chip; used only by _Virtua Racing_
 * Support 24C64 EEPROM chips (used only in _Frank Thomas Big Hurt Baseball_ and _College Slam_)
 * Support the Sega Master System's additional graphics modes (Modes 0-3); only one officially released game used any of them, _F-16 Fighter_ (which uses Mode 2)
 * Support multiple Sega CD BIOS versions in GUI and automatically use the correct one based on disc region
@@ -111,3 +110,4 @@ RUSTFLAGS="-Ctarget-cpu=native" cargo build --profile release-lto
 * Mega CD official documentation: https://segaretro.org/Mega-CD_official_documentation
 * ECMA-130 standard: https://www.ecma-international.org/publications-and-standards/standards/ecma-130/
 * Thread discussing details of Mega CD emulation: https://gendev.spritesmind.net/forum/viewtopic.php?t=3020
+* SVP documentation by notaz, as well as earlier documentation work by Tasco Deluxe: https://notaz.gp2x.de/docs/svpdoc.txt
