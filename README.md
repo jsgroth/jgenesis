@@ -12,6 +12,7 @@ Cross-platform multi-console Sega emulator that supports the Sega Genesis / Mega
 * GPU-based renderer with integer prescaling and optional linear interpolation
 * Configurable pixel aspect ratio for each console with several different options: accurate to original hardware/TVs, square pixels, and stretched to fill the window
 * Support for the Sega Master System FM sound unit expansion
+* Support for the Sega Genesis SVP chip, used in _Virtua Racing_
 * Support for both 3-button and 6-button Genesis controllers
 * Support for keyboard controls and DirectInput gamepad controls
 * Save states, fast forward, and rewind
