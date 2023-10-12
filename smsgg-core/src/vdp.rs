@@ -494,6 +494,15 @@ impl SpriteBuffer {
     }
 }
 
+impl<'a> IntoIterator for &'a SpriteBuffer {
+    type Item = SpriteData;
+    type IntoIter = BufferIter<'a, SpriteData>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 #[derive(Debug, Clone)]
 struct BufferIter<'a, T> {
     buffer: &'a [T],
@@ -801,7 +810,7 @@ impl Vdp {
 
                 let sprite_dot = if self.registers.shift_sprites_left { dot + 8 } else { dot };
                 let mut found_sprite_color_id = None;
-                for sprite in self.sprite_buffer.iter() {
+                for sprite in &self.sprite_buffer {
                     let sprite_left: u16 = sprite.x.into();
                     let sprite_right = sprite_left + sprite_width;
                     if !(sprite_left..sprite_right).contains(&sprite_dot) {
