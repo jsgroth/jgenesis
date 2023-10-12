@@ -27,7 +27,7 @@ impl AluOp {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MultiplyOp {
+enum AccumulateOp {
     Zero,
     Add,
     Subtract,
@@ -36,16 +36,20 @@ enum MultiplyOp {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Condition {
     True,
-    Zero(bool),
-    Negative(bool),
+    Zero,
+    NotZero,
+    Negative,
+    NotNegative,
 }
 
 impl Condition {
     fn from_opcode(opcode: u16) -> Self {
-        match opcode & 0x00F0 {
+        match opcode & 0x01F0 {
             0x0000 => Self::True,
-            0x0050 => Self::Zero(opcode.bit(8)),
-            0x0070 => Self::Negative(opcode.bit(8)),
+            0x0050 => Self::NotZero,
+            0x0150 => Self::Zero,
+            0x0070 => Self::NotNegative,
+            0x0170 => Self::Negative,
             _ => panic!("Invalid SVP opcode (invalid condition): {opcode:04X}"),
         }
     }
@@ -53,8 +57,10 @@ impl Condition {
     fn check(self, status: StatusRegister) -> bool {
         match self {
             Self::True => true,
-            Self::Zero(value) => status.zero == value,
-            Self::Negative(value) => status.negative == value,
+            Self::Zero => status.zero,
+            Self::NotZero => !status.zero,
+            Self::Negative => status.negative,
+            Self::NotNegative => !status.negative,
         }
     }
 }
@@ -82,13 +88,21 @@ impl Display for RamBank {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AddressingMode {
+    // d / s
     GeneralRegister(u16),
+    // ri / rj
     PointerRegister(RamBank, u16),
+    // (ri) / (rj)
     Indirect { bank: RamBank, pointer: u16, modifier: u16 },
+    // ((ri)) / ((rj))
     DoubleIndirect { bank: RamBank, pointer: u16, modifier: u16 },
+    // addr
     Direct { bank: RamBank, address: u8 },
+    // imm
     Immediate,
+    // simm
     ShortImmediate(u8),
+    // (A)
     AccumulatorIndirect,
 }
 
@@ -183,7 +197,7 @@ pub fn execute_instruction(svp: &mut Svp, rom: &[u8]) {
         }
         0x3700 => {
             // mpys (rj), (ri)
-            execute_multiply(svp, opcode, MultiplyOp::Subtract);
+            execute_multiply_accumulate(svp, opcode, AccumulateOp::Subtract);
         }
         0x4800 | 0x4900 => {
             // call cond, addr
@@ -198,16 +212,16 @@ pub fn execute_instruction(svp: &mut Svp, rom: &[u8]) {
             execute_bra(svp, rom, opcode);
         }
         0x9000 | 0x9100 => {
-            // Accumulator-only ALU ops (right shift, left shift, negate, absolute value)
-            execute_accumulator_modify(svp, opcode);
+            // mod cond, op
+            execute_mod(svp, opcode);
         }
         0x9700 => {
             // mpya (rj), (ri)
-            execute_multiply(svp, opcode, MultiplyOp::Add);
+            execute_multiply_accumulate(svp, opcode, AccumulateOp::Add);
         }
         0xB700 => {
             // mld (rj), (ri)
-            execute_multiply(svp, opcode, MultiplyOp::Zero);
+            execute_multiply_accumulate(svp, opcode, AccumulateOp::Zero);
         }
         0xFF00 => {
             // Treat as a no-op; do nothing
@@ -240,18 +254,22 @@ fn execute_load(svp: &mut Svp, rom: &[u8], source: AddressingMode, dest: Address
         ) => {
             // Blind write; program PM register (if applicable) and reset PMC state
             log::trace!("Blind write to register {register}");
+
             if register <= 12 {
                 let pm_idx = (register - 8) as usize;
                 svp.registers.pm_write[pm_idx]
                     .initialize(svp.registers.pmc.address, svp.registers.pmc.mode);
+
                 log::trace!(
                     "Initialized PM{pm_idx} for writes: {:X?}",
                     svp.registers.pm_write[pm_idx]
                 );
             }
+
             if register != 14 {
                 svp.registers.pmc.waiting_for = PmcWaitingFor::Address;
             } else {
+                // Blind writes to PMC toggle state instead of resetting
                 svp.registers.pmc.waiting_for = svp.registers.pmc.waiting_for.toggle();
             }
         }
@@ -261,26 +279,31 @@ fn execute_load(svp: &mut Svp, rom: &[u8], source: AddressingMode, dest: Address
         ) => {
             // Blind read; program PM register (if applicable) and reset PMC state
             log::trace!("Blind read to register {register}");
+
             if register <= 12 {
                 let pm_idx = (register - 8) as usize;
                 svp.registers.pm_read[pm_idx]
                     .initialize(svp.registers.pmc.address, svp.registers.pmc.mode);
+
                 log::trace!(
                     "Initialized PM{pm_idx} for reads: {:X?}",
                     svp.registers.pm_read[pm_idx]
                 );
             }
+
             if register != 14 {
                 svp.registers.pmc.waiting_for = PmcWaitingFor::Address;
             } else {
+                // Blind reads to PMC toggle state instead of resetting
                 svp.registers.pmc.waiting_for = svp.registers.pmc.waiting_for.toggle();
             }
         }
         _ => {
             // Normal 16-bit load
             let value = read_addressing_mode(svp, rom, source);
-            log::trace!("  Writing value {value:04X}");
             write_addressing_mode(svp, dest, value);
+
+            log::trace!("  Wrote value {value:04X}");
         }
     }
 }
@@ -294,6 +317,9 @@ fn execute_alu(svp: &mut Svp, rom: &[u8], opcode: u16) {
 
     log::trace!("  ALU op={op:?}, source={source}");
 
+    // ALU operations are 32-bit, but most sources are 16-bit.
+    // If A or P is the source, use all 32 bits; otherwise shift the 16-bit value into the high
+    // word of a 32-bit value
     let operand = match source {
         AddressingMode::GeneralRegister(3) => svp.registers.accumulator,
         AddressingMode::GeneralRegister(7) => svp.registers.product(),
@@ -310,12 +336,11 @@ fn execute_alu(svp: &mut Svp, rom: &[u8], opcode: u16) {
     };
 
     update_flags(svp, result);
-
-    log::trace!("  Op result = {result:08X}");
-
     if op != AluOp::Compare {
         svp.registers.accumulator = result;
     }
+
+    log::trace!("  ALU result {result:08X}");
 }
 
 fn update_flags(svp: &mut Svp, accumulator: u32) {
@@ -323,7 +348,7 @@ fn update_flags(svp: &mut Svp, accumulator: u32) {
     svp.registers.status.negative = accumulator.bit(31);
 }
 
-fn execute_accumulator_modify(svp: &mut Svp, opcode: u16) {
+fn execute_mod(svp: &mut Svp, opcode: u16) {
     let condition = Condition::from_opcode(opcode);
     if !condition.check(svp.registers.status) {
         log::trace!("  MODIFY cond={condition:?}, condition false");
@@ -335,21 +360,25 @@ fn execute_accumulator_modify(svp: &mut Svp, opcode: u16) {
         0x0002 => {
             // Arithmetic right shift
             log::trace!("  ASR cond={condition:?}");
+
             svp.registers.accumulator = ((svp.registers.accumulator as i32) >> 1) as u32;
         }
         0x0003 => {
             // Left shift
             log::trace!("  SL cond={condition:?}");
+
             svp.registers.accumulator <<= 1;
         }
         0x0006 => {
             // Negate
             log::trace!("  NEG cond={condition:?}");
+
             svp.registers.accumulator = (!svp.registers.accumulator).wrapping_add(1);
         }
         0x0007 => {
             // Absolute value
             log::trace!("  ABS cond={condition:?}");
+
             if svp.registers.accumulator.bit(31) {
                 svp.registers.accumulator = (!svp.registers.accumulator).wrapping_add(1);
             }
@@ -383,16 +412,17 @@ fn execute_bra(svp: &mut Svp, rom: &[u8], opcode: u16) {
     }
 }
 
-fn execute_multiply(svp: &mut Svp, opcode: u16, op: MultiplyOp) {
+fn execute_multiply_accumulate(svp: &mut Svp, opcode: u16, op: AccumulateOp) {
+    // Accumulation is performed before changing the multiply result via X and Y
     match op {
-        MultiplyOp::Zero => {
+        AccumulateOp::Zero => {
             svp.registers.accumulator = 0;
         }
-        MultiplyOp::Add => {
+        AccumulateOp::Add => {
             svp.registers.accumulator =
                 svp.registers.accumulator.wrapping_add(svp.registers.product());
         }
-        MultiplyOp::Subtract => {
+        AccumulateOp::Subtract => {
             svp.registers.accumulator =
                 svp.registers.accumulator.wrapping_sub(svp.registers.product());
         }
@@ -400,11 +430,13 @@ fn execute_multiply(svp: &mut Svp, opcode: u16, op: MultiplyOp) {
 
     update_flags(svp, svp.registers.accumulator);
 
+    // X is always set to a value from RAM0
     let x_pointer = opcode & 0x03;
     let x_modifier = (opcode >> 2) & 0x03;
     let ram0_addr = read_pointer(svp, RamBank::Zero, x_pointer, x_modifier);
     svp.registers.x = svp.ram0[ram0_addr as usize];
 
+    // Y is always set to a value from RAM1
     let y_pointer = (opcode >> 4) & 0x03;
     let y_modifier = (opcode >> 6) & 0x03;
     let ram1_addr = read_pointer(svp, RamBank::One, y_pointer, y_modifier);
@@ -583,6 +615,7 @@ fn read_addressing_mode(svp: &mut Svp, rom: &[u8], source: AddressingMode) -> u1
             _ => panic!("invalid pointer register: {register}"),
         },
         AddressingMode::Indirect { bank, pointer, modifier } => {
+            // Read a value from internal RAM using a pointer register
             let ram_addr = read_pointer(svp, bank, pointer, modifier);
             match bank {
                 RamBank::Zero => svp.ram0[ram_addr as usize],
@@ -590,6 +623,8 @@ fn read_addressing_mode(svp: &mut Svp, rom: &[u8], source: AddressingMode) -> u1
             }
         }
         AddressingMode::DoubleIndirect { bank, pointer, modifier } => {
+            // Read a value from program memory, with the address determined by an indirect read
+            // The address stored in internal RAM is incremented after the read
             let ram_addr = read_pointer(svp, bank, pointer, modifier);
             let ram = match bank {
                 RamBank::Zero => &mut svp.ram0,
@@ -604,16 +639,22 @@ fn read_addressing_mode(svp: &mut Svp, rom: &[u8], source: AddressingMode) -> u1
             svp.read_program_memory(indirect_addr, rom)
         }
         AddressingMode::Direct { bank, address } => match bank {
+            // Read a value from internal RAM using a direct address
             RamBank::Zero => svp.ram0[address as usize],
             RamBank::One => svp.ram1[address as usize],
         },
         AddressingMode::Immediate => {
+            // 16-bit immediate value, specified in the next word in program memory
             let value = fetch_operand(svp, rom);
             log::trace!("  Immediate value: {value:04X}");
             value
         }
-        AddressingMode::ShortImmediate(value) => value.into(),
+        AddressingMode::ShortImmediate(value) => {
+            // 8-bit immediate value embedded in the opcode, zero extended to 16 bits
+            value.into()
+        }
         AddressingMode::AccumulatorIndirect => {
+            // Read program memory, using the high word of the accumulator as the address
             let address = (svp.registers.accumulator >> 16) as u16;
             svp.read_program_memory(address, rom)
         }
@@ -626,6 +667,7 @@ fn write_addressing_mode(svp: &mut Svp, dest: AddressingMode, value: u16) {
             write_register(svp, register, value);
         }
         AddressingMode::PointerRegister(bank, pointer) => {
+            // Pointer registers 3/7 are not writable
             if pointer < 3 {
                 match bank {
                     RamBank::Zero => {
@@ -638,6 +680,7 @@ fn write_addressing_mode(svp: &mut Svp, dest: AddressingMode, value: u16) {
             }
         }
         AddressingMode::Indirect { bank, pointer, modifier } => {
+            // Write a value to internal RAM using a pointer register
             let ram_addr = read_pointer(svp, bank, pointer, modifier);
             match bank {
                 RamBank::Zero => {
@@ -649,6 +692,7 @@ fn write_addressing_mode(svp: &mut Svp, dest: AddressingMode, value: u16) {
             }
         }
         AddressingMode::Direct { bank, address } => match bank {
+            // Write a value to internal RAM using a direct address
             RamBank::Zero => {
                 svp.ram0[address as usize] = value;
             }
@@ -667,7 +711,7 @@ fn write_addressing_mode(svp: &mut Svp, dest: AddressingMode, value: u16) {
 fn read_register(svp: &mut Svp, rom: &[u8], register: u16) -> u16 {
     match register {
         0 => {
-            // Dummy register; always reads $FFFF
+            // Dummy/null register; always reads $FFFF
             0xFFFF
         }
         1 => {
@@ -751,7 +795,7 @@ fn read_register(svp: &mut Svp, rom: &[u8], register: u16) -> u16 {
 fn write_register(svp: &mut Svp, register: u16, value: u16) {
     match register {
         0 => {
-            // Dummy register; writes do nothing
+            // Dummy/null register; writes do nothing
         }
         1 => {
             // X register
@@ -784,9 +828,10 @@ fn write_register(svp: &mut Svp, register: u16, value: u16) {
         8 => {
             // PM0 / XST status
             if svp.registers.status.st_bits_set() {
+                // PM0
                 pm_write(svp, 0, value);
             } else {
-                // is this even writable?
+                // XST status; is this even writable? SVP code seems to write to it
                 svp.registers.xst.m68k_written = value.bit(1);
                 svp.registers.xst.ssp_written = value.bit(0);
             }
@@ -805,6 +850,7 @@ fn write_register(svp: &mut Svp, register: u16, value: u16) {
                 // PM3
                 pm_write(svp, 3, value);
             } else {
+                // XST register
                 svp.registers.xst.ssp_write(value);
             }
         }
@@ -818,6 +864,7 @@ fn write_register(svp: &mut Svp, register: u16, value: u16) {
         14 => {
             // PMC
             log::trace!("PMC write: {value:04X}");
+
             svp.registers.pmc.write(value);
         }
         15 => {
@@ -835,6 +882,7 @@ fn pm_read(svp: &mut Svp, rom: &[u8], pm_idx: usize) -> u16 {
     let pm_register = &mut svp.registers.pm_read[pm_idx];
     let address = pm_register.get_and_increment_address();
 
+    // Reading a PM register always updates the address/mode words stored in PMC
     svp.registers.pmc.update_from(pm_register);
 
     svp.read_external_memory(address, rom)
@@ -847,6 +895,7 @@ fn pm_write(svp: &mut Svp, pm_idx: usize, value: u16) {
     let address = pm_register.get_and_increment_address();
     let overwrite_mode = pm_register.overwrite_mode;
 
+    // Writing a PM register always updates the address/mode words stored in PMC
     svp.registers.pmc.update_from(pm_register);
 
     if overwrite_mode {
@@ -854,6 +903,7 @@ fn pm_write(svp: &mut Svp, pm_idx: usize, value: u16) {
         if !(0x000000..=0x0FFFFF).contains(&address) {
             let existing_value = svp.read_external_memory(address, &[]);
 
+            // Overwrite mode splits words into 4 nibbles and only writes the non-0 nibbles
             let new_value = [0x000F, 0x00F0, 0x0F00, 0xF000]
                 .into_iter()
                 .map(|mask| if value & mask != 0 { value & mask } else { existing_value & mask })
@@ -868,6 +918,7 @@ fn pm_write(svp: &mut Svp, pm_idx: usize, value: u16) {
 
 fn read_pointer(svp: &mut Svp, bank: RamBank, pointer: u16, modifier: u16) -> u8 {
     if pointer < 3 {
+        // Pointer register
         let registers = match bank {
             RamBank::Zero => &mut svp.registers.ram0_pointers,
             RamBank::One => &mut svp.registers.ram1_pointers,
@@ -881,20 +932,27 @@ fn read_pointer(svp: &mut Svp, bank: RamBank, pointer: u16, modifier: u16) -> u8
         );
         ram_addr
     } else {
+        // "Fake" pointer register (p3/p7) used for access to internal RAM addresses 0-3
+        // Modifier bits are used as the address
         modifier as u8
     }
 }
 
 fn increment_pointer_register(register: &mut u8, modifier: u16, loop_modulo: u8) {
     match modifier {
-        0 => {}
+        0 => {
+            // No auto-increment/decrement; do nothing
+        }
         1 => {
+            // Auto-increment with no modulo
             *register = (*register).wrapping_add(1);
         }
         2 => {
+            // Modulo decrement
             *register = modulo_decrement(*register, loop_modulo);
         }
         3 => {
+            // Modulo increment
             *register = modulo_increment(*register, loop_modulo);
         }
         _ => panic!("invalid pointer register modifier: {modifier}"),

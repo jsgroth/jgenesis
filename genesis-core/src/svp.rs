@@ -10,7 +10,7 @@ const DRAM_LEN: usize = 128 * 1024;
 const IRAM_LEN_WORDS: usize = 1024;
 const INTERNAL_RAM_LEN_WORDS: usize = 256;
 
-const STACK_LEN: usize = 6;
+const STACK_LEN: u8 = 6;
 
 // External memory addresses are 21-bit
 const EXTERNAL_MEMORY_MASK: u32 = (1 << 21) - 1;
@@ -19,11 +19,14 @@ type Dram = [u8; DRAM_LEN];
 type Iram = [u16; IRAM_LEN_WORDS];
 type InternalRam = [u16; INTERNAL_RAM_LEN_WORDS];
 
+// ST register, control and status bits
 #[derive(Debug, Clone, Copy, Default, Encode, Decode)]
 struct StatusRegister {
+    // Control bits
     loop_size: u8,
     st5: bool,
     st6: bool,
+    // Status bits
     zero: bool,
     negative: bool,
 }
@@ -33,6 +36,9 @@ impl StatusRegister {
         if self.loop_size != 0 { 1 << self.loop_size } else { 0 }
     }
 
+    // The ST5 and ST6 bits control whether register 8 maps to PM0 or XST status.
+    // They also supposedly control whether register 11 maps to PM3 or XST, but Virtua Racing never
+    // accesses register 11 with the bits set
     fn st_bits_set(self) -> bool {
         self.st5 || self.st6
     }
@@ -56,24 +62,28 @@ impl From<StatusRegister> for u16 {
     }
 }
 
+// STACK register, port to a 6-level hardware stack
 #[derive(Debug, Clone, Default, Encode, Decode)]
 struct StackRegister {
-    stack: [u16; STACK_LEN],
+    stack: [u16; STACK_LEN as usize],
     pointer: u8,
 }
 
 impl StackRegister {
     fn push(&mut self, value: u16) {
         self.stack[self.pointer as usize] = value;
-        self.pointer += 1;
+        self.pointer = (self.pointer + 1) % STACK_LEN;
     }
 
     fn pop(&mut self) -> u16 {
-        self.pointer -= 1;
+        self.pointer = if self.pointer == 0 { STACK_LEN - 1 } else { self.pointer - 1 };
         self.stack[self.pointer as usize]
     }
 }
 
+// PM0-4 registers, which are ports used by the DSP to access external memory.
+// Each PM register can be individually configured with an external memory address, auto-increment
+// settings, and an overwrite mode for writes
 #[derive(Debug, Clone, Default, Encode, Decode)]
 struct ProgrammableMemoryRegister {
     address: u32,
@@ -91,7 +101,9 @@ impl ProgrammableMemoryRegister {
 
         self.overwrite_mode = mode.bit(10);
 
-        // Auto increment bits of 0 indicate 0, 7 indicate 128, and other values indicate 2^(N-1)
+        // Auto increment bits of 0 indicate 0, 7 indicate 128, and other values indicate 2^(N-1).
+        // 7 actually indicates a custom auto-increment value instead of 128, but Virtua Racing
+        // always uses a custom value of 128 when it sets the auto-increment bits to 7
         let auto_increment_bits = (mode >> 11) & 0x07;
         self.auto_increment_bits = auto_increment_bits;
         self.auto_increment = match auto_increment_bits {
@@ -144,6 +156,7 @@ impl PmcWaitingFor {
     }
 }
 
+// PMC register, used to program the PM registers
 #[derive(Debug, Clone, Default, Encode, Decode)]
 struct ProgrammableMemoryControlRegister {
     waiting_for: PmcWaitingFor,
@@ -157,7 +170,7 @@ impl ProgrammableMemoryControlRegister {
             PmcWaitingFor::Address => self.address,
             PmcWaitingFor::Mode => {
                 // If waiting for mode, return address but rotated by 4; direction doesn't matter
-                // since SVP always does this with both bytes equal
+                // because SVP always does this with both bytes equal
                 (self.address << 4) | (self.address >> 12)
             }
         };
@@ -192,6 +205,7 @@ impl ProgrammableMemoryControlRegister {
     }
 }
 
+// XST register, an R/W register used for communication between the DSP and the 68000
 #[derive(Debug, Clone, Default, Encode, Decode)]
 struct ExternalStatusRegister {
     value: u16,
@@ -237,6 +251,7 @@ struct Registers {
     stack: StackRegister,
     pc: u16,
     // External registers (8-15)
+    // PM registers are programmed separately for reads and for writes
     pm_read: [ProgrammableMemoryRegister; 5],
     pm_write: [ProgrammableMemoryRegister; 5],
     pmc: ProgrammableMemoryControlRegister,
@@ -274,23 +289,25 @@ impl Registers {
 pub struct Svp {
     registers: Registers,
     dram: Box<Dram>,
-    dram_dirty: bool,
     iram: Box<Iram>,
     ram0: Box<InternalRam>,
     ram1: Box<InternalRam>,
     halted: bool,
+    // Flag marking whether the 68000 has written to specific addresses in DRAM that are used for
+    // communication; used for idle loop detection
+    dram_dirty: bool,
 }
 
 impl Svp {
     pub fn new() -> Self {
         Self {
             registers: Registers::new(),
-            dram_dirty: false,
             dram: vec![0; DRAM_LEN].into_boxed_slice().try_into().unwrap(),
             iram: vec![0; IRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             ram0: vec![0; INTERNAL_RAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             ram1: vec![0; INTERNAL_RAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             halted: false,
+            dram_dirty: false,
         }
     }
 
@@ -315,7 +332,7 @@ impl Svp {
 
             // At startup, the SVP spins until the 68000 writes to the XST; don't execute until that
             // happens
-            if self.registers.pc == 0x0400 && !self.registers.xst.m68k_written {
+            if self.registers.pc == SVP_ENTRY_POINT && !self.registers.xst.m68k_written {
                 return;
             }
 
@@ -332,7 +349,7 @@ impl Svp {
                 u16::from_be_bytes([msb, lsb])
             }
             0x300000..=0x37FFFF => {
-                // DRAM
+                // DRAM, mirrored every 128KB / $1FFFF
                 let address = address & 0x1FFFF;
                 let msb = self.dram[address as usize];
                 let lsb = self.dram[(address + 1) as usize];
@@ -356,9 +373,10 @@ impl Svp {
     pub fn m68k_write_byte(&mut self, address: u32, value: u8) {
         match address {
             0x300000..=0x37FFFF => {
-                // DRAM
+                // DRAM, mirrored every 128KB / $1FFFF
                 self.dram[(address & 0x1FFFF) as usize] = value;
 
+                // Specific DRAM addresses used for communication between the 68000 and DSP
                 if (0xFE06..0xFE0A).contains(&address) {
                     self.dram_dirty = true;
                 }
@@ -377,12 +395,13 @@ impl Svp {
     pub fn m68k_write_word(&mut self, address: u32, value: u16) {
         match address {
             0x300000..=0x37FFFF => {
-                // DRAM
+                // DRAM, mirrored every 128KB / $1FFFF
                 let address = address & 0x1FFFF;
                 let [msb, lsb] = value.to_be_bytes();
                 self.dram[address as usize] = msb;
                 self.dram[(address + 1) as usize] = lsb;
 
+                // Specific DRAM addresses used for communication between the 68000 and DSP
                 if address == 0xFE06 || address == 0xFE08 {
                     self.dram_dirty = true;
                 }
@@ -408,7 +427,7 @@ impl Svp {
                 self.iram[address as usize]
             }
             0x0400..=0xFFFF => {
-                // ROM; program memory address maps to the same address in ROM
+                // ROM (first 128KB); program memory address maps to the same address in ROM
                 let byte_addr = u32::from(address) << 1;
                 let msb = rom[byte_addr as usize];
                 let lsb = rom[(byte_addr + 1) as usize];
