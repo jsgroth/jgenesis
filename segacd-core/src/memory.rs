@@ -3,7 +3,8 @@ mod font;
 pub(crate) mod wordram;
 
 use crate::api::DiscResult;
-use crate::cddrive::cdc::DeviceDestination;
+use crate::cddrive::cdc::{DeviceDestination, Rchip};
+use crate::cddrive::cdd::CdDrive;
 use crate::cddrive::{cdc, CdController, CdTickEffect};
 use crate::cdrom;
 use crate::cdrom::cdtime::CdTime;
@@ -207,7 +208,7 @@ impl SegaCd {
             }
             0xA12004 => {
                 log::trace!("  CDC mode read (main CPU)");
-                let cdc = self.disc_drive.cdc();
+                let cdc = self.cdc();
                 let end_of_data_transfer = cdc.end_of_data_transfer();
                 let data_ready = cdc.data_ready();
                 let dd_bits = cdc.device_destination().to_bits();
@@ -224,11 +225,11 @@ impl SegaCd {
             }
             0xA12008 => {
                 // CDC host data, high byte
-                (self.disc_drive.cdc_mut().read_host_data(ScdCpu::Main) >> 8) as u8
+                (self.cdc_mut().read_host_data(ScdCpu::Main) >> 8) as u8
             }
             0xA12009 => {
                 // CDC host data, low byte
-                self.disc_drive.cdc_mut().read_host_data(ScdCpu::Main) as u8
+                self.cdc_mut().read_host_data(ScdCpu::Main) as u8
             }
             0xA1200C => {
                 // Stopwatch, high byte
@@ -277,7 +278,7 @@ impl SegaCd {
             0xA12006 => self.registers.h_interrupt_vector,
             0xA12008 => {
                 log::trace!("  CDC host data read (main CPU)");
-                self.disc_drive.cdc_mut().read_host_data(ScdCpu::Main)
+                self.cdc_mut().read_host_data(ScdCpu::Main)
             }
             0xA1200C => self.registers.stopwatch_counter,
             0xA1200E => {
@@ -451,6 +452,22 @@ impl SegaCd {
         }
     }
 
+    fn cdc(&self) -> &Rchip {
+        self.disc_drive.cdc()
+    }
+
+    fn cdc_mut(&mut self) -> &mut Rchip {
+        self.disc_drive.cdc_mut()
+    }
+
+    fn cdd(&self) -> &CdDrive {
+        self.disc_drive.cdd()
+    }
+
+    fn cdd_mut(&mut self) -> &mut CdDrive {
+        self.disc_drive.cdd_mut()
+    }
+
     pub fn tick(
         &mut self,
         master_clock_cycles: u64,
@@ -547,11 +564,11 @@ impl SegaCd {
     }
 
     pub fn remove_disc(&mut self) {
-        self.disc_drive.cdd_mut().remove_disc();
+        self.cdd_mut().remove_disc();
     }
 
     pub fn change_disc<P: AsRef<Path>>(&mut self, cue_path: P) -> DiscResult<()> {
-        self.disc_drive.cdd_mut().change_disc(cue_path)
+        self.cdd_mut().change_disc(cue_path)
     }
 }
 
@@ -747,6 +764,14 @@ impl<'a> SubBus<'a> {
     ) -> Self {
         Self { memory, graphics_coprocessor, pcm }
     }
+
+    fn sega_cd(&self) -> &SegaCd {
+        self.memory.medium()
+    }
+
+    fn sega_cd_mut(&mut self) -> &mut SegaCd {
+        self.memory.medium_mut()
+    }
 }
 
 impl<'a> SubBus<'a> {
@@ -755,7 +780,7 @@ impl<'a> SubBus<'a> {
         log::trace!("Sub CPU register byte read: {address:06X}");
         match address & SUB_REGISTER_ADDRESS_MASK {
             0x0000 => {
-                let registers = &self.memory.medium().registers;
+                let registers = &self.sega_cd().registers;
                 (u8::from(registers.led_green) << 1) | u8::from(registers.led_red)
             }
             0x0001 => {
@@ -766,17 +791,17 @@ impl<'a> SubBus<'a> {
             }
             0x0002 => {
                 // PRG RAM write protect
-                self.memory.medium().registers.prg_ram_write_protect
+                self.sega_cd().registers.prg_ram_write_protect
             }
             0x0003 => {
                 // Memory mode
-                let word_ram = &self.memory.medium().word_ram;
+                let word_ram = &self.sega_cd().word_ram;
                 word_ram.read_control() | (word_ram.priority_mode().to_bits() << 3)
             }
             0x0004 => {
                 // CDC mode
                 log::trace!("  CDC mode read (sub CPU)");
-                let cdc = self.memory.medium().disc_drive.cdc();
+                let cdc = self.sega_cd().cdc();
                 let end_of_data_transfer = cdc.end_of_data_transfer();
                 let data_ready = cdc.data_ready();
                 let dd_bits = cdc.device_destination().to_bits();
@@ -785,58 +810,57 @@ impl<'a> SubBus<'a> {
             0x0005 => {
                 // CDC register address
                 log::trace!("  CDC register address read");
-                self.memory.medium().disc_drive.cdc().register_address()
+                self.sega_cd().cdc().register_address()
             }
             0x0007 => {
                 // CDC register data
                 log::trace!("  CDC register data read");
-                self.memory.medium_mut().disc_drive.cdc_mut().read_register()
+                self.sega_cd_mut().cdc_mut().read_register()
             }
             0x0008 => {
                 // CDC host data, high byte
-                let word =
-                    self.memory.medium_mut().disc_drive.cdc_mut().read_host_data(ScdCpu::Sub);
+                let word = self.sega_cd_mut().cdc_mut().read_host_data(ScdCpu::Sub);
                 (word >> 8) as u8
             }
             0x0009 => {
                 // CDC host data, low byte
-                self.memory.medium_mut().disc_drive.cdc_mut().read_host_data(ScdCpu::Sub) as u8
+                self.sega_cd_mut().cdc_mut().read_host_data(ScdCpu::Sub) as u8
             }
             0x000C => {
                 // Stopwatch, high byte
-                (self.memory.medium().registers.stopwatch_counter >> 8) as u8
+                (self.sega_cd().registers.stopwatch_counter >> 8) as u8
             }
             0x000D => {
                 // Stopwatch, low byte
-                self.memory.medium().registers.stopwatch_counter as u8
+                self.sega_cd().registers.stopwatch_counter as u8
             }
             0x000E => {
                 // Communication flags, high byte (main CPU)
-                self.memory.medium().registers.main_cpu_communication_flags
+                self.sega_cd().registers.main_cpu_communication_flags
             }
             0x000F => {
                 // Communication flags, low byte (sub CPU)
-                self.memory.medium().registers.sub_cpu_communication_flags
+                self.sega_cd().registers.sub_cpu_communication_flags
             }
             0x0010..=0x001F => {
                 // Communication command buffers
                 let idx = (address & 0xF) >> 1;
-                let word = self.memory.medium().registers.communication_commands[idx as usize];
+                let word = self.sega_cd().registers.communication_commands[idx as usize];
                 if address.bit(0) { word as u8 } else { (word >> 8) as u8 }
             }
             0x0020..=0x002F => {
                 // Communication status buffers
                 let idx = (address & 0xF) >> 1;
-                let word = self.memory.medium().registers.communication_statuses[idx as usize];
+                let word = self.sega_cd().registers.communication_statuses[idx as usize];
                 if address.bit(0) { word as u8 } else { (word >> 8) as u8 }
             }
             0x0031 => {
                 // Timer
-                self.memory.medium().registers.timer_interval
+                self.sega_cd().registers.timer_interval
             }
             0x0033 => {
                 // Interrupt mask control
-                let sega_cd = self.memory.medium();
+                let sega_cd = self.sega_cd();
                 (u8::from(sega_cd.registers.subcode_interrupt_enabled) << 6)
                     | (u8::from(sega_cd.registers.cdc_interrupt_enabled) << 5)
                     | (u8::from(sega_cd.registers.cdd_interrupt_enabled) << 4)
@@ -851,39 +875,38 @@ impl<'a> SubBus<'a> {
             }
             0x0036 => {
                 log::trace!("  CDD control read");
-                u8::from(!self.memory.medium().disc_drive.cdd().playing_audio())
+                u8::from(!self.sega_cd().cdd().playing_audio())
             }
             0x0037 => {
                 // CDD control, low byte
                 // TODO DRS/DTS bits
-                let sega_cd = self.memory.medium();
-                u8::from(sega_cd.registers.cdd_host_clock_on) << 2
+                u8::from(self.sega_cd().registers.cdd_host_clock_on) << 2
             }
             0x0038..=0x0041 => {
                 // CDD status
                 let relative_addr = (address - 8) & 0xF;
-                self.memory.medium().disc_drive.cdd().status()[relative_addr as usize]
+                self.sega_cd().cdd().status()[relative_addr as usize]
             }
             0x0042..=0x004B => {
                 // CDD command
                 let relative_addr = (address - 2) & 0xF;
-                self.memory.medium().registers.cdd_command[relative_addr as usize]
+                self.sega_cd().registers.cdd_command[relative_addr as usize]
             }
             0x004C..=0x004D => {
                 // Font color
-                self.memory.medium().font_registers.read_color()
+                self.sega_cd().font_registers.read_color()
             }
             0x004E => {
                 // Font bits, high byte
-                (self.memory.medium().font_registers.font_bits() >> 8) as u8
+                (self.sega_cd().font_registers.font_bits() >> 8) as u8
             }
             0x004F => {
                 // Font bits, low byte
-                self.memory.medium().font_registers.font_bits() as u8
+                self.sega_cd().font_registers.font_bits() as u8
             }
             0x0050..=0x0057 => {
                 // Font data
-                let font_data_word = self.memory.medium().font_registers.read_font_data(address);
+                let font_data_word = self.sega_cd().font_registers.read_font_data(address);
                 if address.bit(0) { font_data_word as u8 } else { (font_data_word >> 8) as u8 }
             }
             0x0058..=0x0067 => self.graphics_coprocessor.read_register_byte(address),
@@ -907,12 +930,12 @@ impl<'a> SubBus<'a> {
             0x0008 => {
                 // CDC host data
                 log::trace!("  CDC host data read (sub CPU)");
-                self.memory.medium_mut().disc_drive.cdc_mut().read_host_data(ScdCpu::Sub)
+                self.sega_cd_mut().cdc_mut().read_host_data(ScdCpu::Sub)
             }
-            0x000C => self.memory.medium().registers.stopwatch_counter,
+            0x000C => self.sega_cd().registers.stopwatch_counter,
             0x000E => {
                 // Communication flags
-                let registers = &self.memory.medium().registers;
+                let registers = &self.sega_cd().registers;
                 u16::from_be_bytes([
                     registers.main_cpu_communication_flags,
                     registers.sub_cpu_communication_flags,
@@ -921,16 +944,16 @@ impl<'a> SubBus<'a> {
             0x0010..=0x001F => {
                 // Communication command buffers
                 let idx = (address & 0xF) >> 1;
-                self.memory.medium().registers.communication_commands[idx as usize]
+                self.sega_cd().registers.communication_commands[idx as usize]
             }
             0x0020..=0x002F => {
                 // Communication status buffers
                 let idx = (address & 0xF) >> 1;
-                self.memory.medium().registers.communication_statuses[idx as usize]
+                self.sega_cd().registers.communication_statuses[idx as usize]
             }
             0x0030 => {
                 // Timer
-                self.memory.medium().registers.timer_interval.into()
+                self.sega_cd().registers.timer_interval.into()
             }
             0x0032 => {
                 // Interrupt mask control; all bits in low byte
@@ -944,7 +967,7 @@ impl<'a> SubBus<'a> {
             0x0038..=0x0041 => {
                 // CDD status
                 let relative_addr = (address - 8) & 0xF;
-                let cdd_status = self.memory.medium().disc_drive.cdd().status();
+                let cdd_status = self.sega_cd().cdd().status();
                 u16::from_be_bytes([
                     cdd_status[relative_addr as usize],
                     cdd_status[(relative_addr + 1) as usize],
@@ -953,7 +976,7 @@ impl<'a> SubBus<'a> {
             0x0042..=0x004B => {
                 // CDD command
                 let relative_addr = (address - 2) & 0xF;
-                let cdd_command = self.memory.medium().registers.cdd_command;
+                let cdd_command = self.sega_cd().registers.cdd_command;
                 u16::from_be_bytes([
                     cdd_command[relative_addr as usize],
                     cdd_command[(relative_addr + 1) as usize],
@@ -961,15 +984,15 @@ impl<'a> SubBus<'a> {
             }
             0x004C => {
                 // Font color (all bits in low byte)
-                self.memory.medium().font_registers.read_color().into()
+                self.sega_cd().font_registers.read_color().into()
             }
             0x004E => {
                 // Font bits
-                self.memory.medium().font_registers.font_bits()
+                self.sega_cd().font_registers.font_bits()
             }
             0x0050..=0x0057 => {
                 // Font data registers
-                self.memory.medium().font_registers.read_font_data(address)
+                self.sega_cd().font_registers.read_font_data(address)
             }
             0x0058..=0x0067 => self.graphics_coprocessor.read_register_word(address),
             _ => 0x0000,
@@ -981,7 +1004,7 @@ impl<'a> SubBus<'a> {
         log::trace!("Sub CPU register byte write: {address:06X} {value:02X}");
         match address & SUB_REGISTER_ADDRESS_MASK {
             0x0000 => {
-                let registers = &mut self.memory.medium_mut().registers;
+                let registers = &mut self.sega_cd_mut().registers;
                 registers.led_green = value.bit(1);
                 registers.led_red = value.bit(0);
             }
@@ -990,53 +1013,45 @@ impl<'a> SubBus<'a> {
             }
             0x0002..=0x0003 => {
                 // Memory mode
-                self.memory.medium_mut().word_ram.sub_cpu_write_control(value);
+                self.sega_cd_mut().word_ram.sub_cpu_write_control(value);
             }
             0x0004 => {
                 // CDC mode
                 log::trace!("  CDC mode write: {value:02X}");
                 let device_destination = DeviceDestination::from_bits(value & 0x07);
-                self.memory
-                    .medium_mut()
-                    .disc_drive
-                    .cdc_mut()
-                    .set_device_destination(device_destination);
+                self.sega_cd_mut().cdc_mut().set_device_destination(device_destination);
             }
             0x0005 => {
                 // CDC register address
                 log::trace!("  CDC register address write: {value:02X}");
                 let register_address = value & cdc::REGISTER_ADDRESS_MASK;
-                self.memory
-                    .medium_mut()
-                    .disc_drive
-                    .cdc_mut()
-                    .set_register_address(register_address);
+                self.sega_cd_mut().cdc_mut().set_register_address(register_address);
             }
             0x0007 => {
                 // CDC register data
                 log::trace!("  CDC register data write: {value:02X}");
-                self.memory.medium_mut().disc_drive.cdc_mut().write_register(value);
+                self.sega_cd_mut().cdc_mut().write_register(value);
             }
             0x000A..=0x000B => {
                 // CDC DMA address (bits 18-3)
                 // Byte-size writes to this register are erroneous
                 let word = u16::from_le_bytes([value, value]);
                 let dma_address = u32::from(word) << 3;
-                self.memory.medium_mut().disc_drive.cdc_mut().set_dma_address(dma_address);
+                self.sega_cd_mut().cdc_mut().set_dma_address(dma_address);
             }
             0x000C..=0x000D => {
                 // Stopwatch (12 bits)
-                self.memory.medium_mut().registers.stopwatch_counter =
+                self.sega_cd_mut().registers.stopwatch_counter =
                     u16::from_be_bytes([value, value]) & 0x0FFF;
             }
             0x000E..=0x000F => {
                 // Communication flags
-                self.memory.medium_mut().registers.sub_cpu_communication_flags = value;
+                self.sega_cd_mut().registers.sub_cpu_communication_flags = value;
             }
             0x0020..=0x002F => {
                 // Communication status buffers
                 let idx = (address & 0xF) >> 1;
-                let statuses = &mut self.memory.medium_mut().registers.communication_statuses;
+                let statuses = &mut self.sega_cd_mut().registers.communication_statuses;
                 let existing_word = statuses[idx as usize];
                 if address.bit(0) {
                     statuses[idx as usize] = (existing_word & 0xFF00) | u16::from(value);
@@ -1046,13 +1061,13 @@ impl<'a> SubBus<'a> {
             }
             0x0030..=0x0031 => {
                 // Timer
-                let registers = &mut self.memory.medium_mut().registers;
+                let registers = &mut self.sega_cd_mut().registers;
                 registers.timer_interval = value;
                 registers.timer_counter = value;
             }
             0x0033 => {
                 // Interrupt mask control
-                let sega_cd = self.memory.medium_mut();
+                let sega_cd = self.sega_cd_mut();
                 sega_cd.registers.subcode_interrupt_enabled = value.bit(6);
                 sega_cd.registers.cdc_interrupt_enabled = value.bit(5);
                 sega_cd.registers.cdd_interrupt_enabled = value.bit(4);
@@ -1070,17 +1085,13 @@ impl<'a> SubBus<'a> {
             0x0034..=0x0035 => {
                 // CDD fader; word access only, byte access is erroneous
 
-                self.memory
-                    .medium_mut()
-                    .disc_drive
-                    .cdd_mut()
-                    .set_fader_volume(u16::from_le_bytes([value, value]));
+                self.sega_cd_mut().cdd_mut().set_fader_volume(u16::from_le_bytes([value, value]));
 
                 log::trace!("  CDD fader write: {value:02X}");
             }
             0x0037 => {
                 // CDD control
-                self.memory.medium_mut().registers.cdd_host_clock_on = value.bit(2);
+                self.sega_cd_mut().registers.cdd_host_clock_on = value.bit(2);
 
                 log::trace!("  CDD control write: {value:02X}");
             }
@@ -1088,7 +1099,7 @@ impl<'a> SubBus<'a> {
                 // CDD command
                 let relative_addr = (address - 2) & 0xF;
 
-                let sega_cd = self.memory.medium_mut();
+                let sega_cd = self.sega_cd_mut();
                 sega_cd.registers.cdd_command[relative_addr as usize] = value & 0x0F;
 
                 // Byte-size writes to $FF804B trigger a CDD command send
@@ -1098,15 +1109,15 @@ impl<'a> SubBus<'a> {
             }
             0x004C..=0x004D => {
                 // Font color
-                self.memory.medium_mut().font_registers.write_color(value);
+                self.sega_cd_mut().font_registers.write_color(value);
             }
             0x004E => {
                 // Font bits, high byte
-                self.memory.medium_mut().font_registers.write_font_bits_msb(value);
+                self.sega_cd_mut().font_registers.write_font_bits_msb(value);
             }
             0x004F => {
                 // Font bits, low byte
-                self.memory.medium_mut().font_registers.write_font_bits_lsb(value);
+                self.sega_cd_mut().font_registers.write_font_bits_lsb(value);
             }
             0x0058..=0x0067 => {
                 self.graphics_coprocessor.write_register_byte(address, value);
@@ -1143,24 +1154,24 @@ impl<'a> SubBus<'a> {
                 // CDC DMA address (bits 18-3)
                 log::trace!("  CDC DMA address write: {value:04X}");
                 let dma_address = u32::from(value) << 3;
-                self.memory.medium_mut().disc_drive.cdc_mut().set_dma_address(dma_address);
+                self.sega_cd_mut().cdc_mut().set_dma_address(dma_address);
             }
             0x000C => {
                 // Stopwatch (12 bits)
-                self.memory.medium_mut().registers.stopwatch_counter = value & 0x0FFF;
+                self.sega_cd_mut().registers.stopwatch_counter = value & 0x0FFF;
             }
             0x000E => {
                 // Communication flags, only low byte (sub CPU) is writable
-                self.memory.medium_mut().registers.sub_cpu_communication_flags = value as u8;
+                self.sega_cd_mut().registers.sub_cpu_communication_flags = value as u8;
             }
             0x0020..=0x002F => {
                 // Communication status buffers
                 let idx = (address & 0xF) >> 1;
-                self.memory.medium_mut().registers.communication_statuses[idx as usize] = value;
+                self.sega_cd_mut().registers.communication_statuses[idx as usize] = value;
             }
             0x0030 => {
                 // Timer, only low byte is writable
-                let registers = &mut self.memory.medium_mut().registers;
+                let registers = &mut self.sega_cd_mut().registers;
                 registers.timer_interval = value as u8;
                 registers.timer_counter = value as u8;
             }
@@ -1172,7 +1183,7 @@ impl<'a> SubBus<'a> {
                 // CDD fader
                 // Bits 14-4 are volume bits 10-0
                 let fader_volume = (value >> 4) & 0x7FF;
-                self.memory.medium_mut().disc_drive.cdd_mut().set_fader_volume(fader_volume);
+                self.sega_cd_mut().cdd_mut().set_fader_volume(fader_volume);
 
                 log::trace!("  CDD fader write: {value:04X}");
             }
@@ -1184,7 +1195,7 @@ impl<'a> SubBus<'a> {
                 // CDD command
                 let relative_addr = (address - 2) & 0xF;
 
-                let sega_cd = self.memory.medium_mut();
+                let sega_cd = self.sega_cd_mut();
                 let [msb, lsb] = value.to_be_bytes();
                 sega_cd.registers.cdd_command[relative_addr as usize] = msb & 0x0F;
                 sega_cd.registers.cdd_command[(relative_addr + 1) as usize] = lsb & 0x0F;
@@ -1200,7 +1211,7 @@ impl<'a> SubBus<'a> {
             }
             0x004E => {
                 // Font bits
-                self.memory.medium_mut().font_registers.write_font_bits(value);
+                self.sega_cd_mut().font_registers.write_font_bits(value);
             }
             0x0058..=0x0067 => {
                 self.graphics_coprocessor.write_register_word(address, value);
@@ -1220,17 +1231,17 @@ impl<'a> BusInterface for SubBus<'a> {
         match address {
             0x000000..=0x07FFFF => {
                 // PRG RAM
-                self.memory.medium().prg_ram[address as usize]
+                self.sega_cd().prg_ram[address as usize]
             }
             0x080000..=0x0DFFFF => {
                 // Word RAM
-                self.memory.medium().word_ram.sub_cpu_read_ram(address)
+                self.sega_cd().word_ram.sub_cpu_read_ram(address)
             }
             0xFE0000..=0xFEFFFF => {
                 // Backup RAM (odd addresses)
                 if address.bit(0) {
                     let backup_ram_addr = (address & 0x3FFF) >> 1;
-                    self.memory.medium().backup_ram[backup_ram_addr as usize]
+                    self.sega_cd().backup_ram[backup_ram_addr as usize]
                 } else {
                     0x00
                 }
@@ -1253,14 +1264,14 @@ impl<'a> BusInterface for SubBus<'a> {
         match address {
             0x000000..=0x07FFFF => {
                 // PRG RAM
-                let sega_cd = self.memory.medium();
+                let sega_cd = self.sega_cd();
                 let msb = sega_cd.prg_ram[address as usize];
                 let lsb = sega_cd.prg_ram[(address + 1) as usize];
                 u16::from_be_bytes([msb, lsb])
             }
             0x080000..=0x0DFFFF => {
                 // Word RAM
-                let word_ram = &self.memory.medium().word_ram;
+                let word_ram = &self.sega_cd().word_ram;
                 let msb = word_ram.sub_cpu_read_ram(address);
                 let lsb = word_ram.sub_cpu_read_ram(address | 1);
                 u16::from_be_bytes([msb, lsb])
@@ -1268,7 +1279,7 @@ impl<'a> BusInterface for SubBus<'a> {
             0xFE0000..=0xFEFFFF => {
                 // Backup RAM (odd addresses)
                 let backup_ram_addr = (address & 0x3FFF) >> 1;
-                self.memory.medium().backup_ram[backup_ram_addr as usize].into()
+                self.sega_cd().backup_ram[backup_ram_addr as usize].into()
             }
             0xFF0000..=0xFF7FFF => {
                 // PCM sound chip (odd addresses); canonically located at $FF0000-$FF3FFF and mirrored at $FF4000-$FF7FFF
@@ -1288,17 +1299,17 @@ impl<'a> BusInterface for SubBus<'a> {
         match address {
             0x000000..=0x07FFFF => {
                 // PRG RAM
-                self.memory.medium_mut().write_prg_ram(address, value, ScdCpu::Sub);
+                self.sega_cd_mut().write_prg_ram(address, value, ScdCpu::Sub);
             }
             0x080000..=0x0DFFFF => {
                 // Word RAM
-                self.memory.medium_mut().word_ram.sub_cpu_write_ram(address, value);
+                self.sega_cd_mut().word_ram.sub_cpu_write_ram(address, value);
             }
             0xFE0000..=0xFEFFFF => {
                 // Backup RAM (odd addresses)
                 if address.bit(0) {
                     let backup_ram_addr = (address & 0x3FFF) >> 1;
-                    let sega_cd = self.memory.medium_mut();
+                    let sega_cd = self.sega_cd_mut();
                     sega_cd.backup_ram[backup_ram_addr as usize] = value;
                     sega_cd.backup_ram_dirty = true;
                 }
@@ -1324,21 +1335,21 @@ impl<'a> BusInterface for SubBus<'a> {
             0x000000..=0x07FFFF => {
                 // PRG RAM
                 let [msb, lsb] = value.to_be_bytes();
-                let sega_cd = self.memory.medium_mut();
+                let sega_cd = self.sega_cd_mut();
                 sega_cd.write_prg_ram(address, msb, ScdCpu::Sub);
                 sega_cd.write_prg_ram(address + 1, lsb, ScdCpu::Sub);
             }
             0x080000..=0x0DFFFF => {
                 // Word RAM
                 let [msb, lsb] = value.to_be_bytes();
-                let word_ram = &mut self.memory.medium_mut().word_ram;
+                let word_ram = &mut self.sega_cd_mut().word_ram;
                 word_ram.sub_cpu_write_ram(address, msb);
                 word_ram.sub_cpu_write_ram(address | 1, lsb);
             }
             0xFE0000..=0xFEFFFF => {
                 // Backup RAM (odd addresses)
                 let backup_ram_addr = (address & 0x3FFF) >> 1;
-                let sega_cd = self.memory.medium_mut();
+                let sega_cd = self.sega_cd_mut();
                 sega_cd.backup_ram[backup_ram_addr as usize] = value as u8;
                 sega_cd.backup_ram_dirty = true;
             }
@@ -1357,13 +1368,13 @@ impl<'a> BusInterface for SubBus<'a> {
     #[allow(clippy::bool_to_int_with_if)]
     #[inline]
     fn interrupt_level(&self) -> u8 {
-        let sega_cd = self.memory.medium();
-        if sega_cd.registers.cdc_interrupt_enabled && sega_cd.disc_drive.cdc().interrupt_pending() {
+        let sega_cd = self.sega_cd();
+        if sega_cd.registers.cdc_interrupt_enabled && sega_cd.cdc().interrupt_pending() {
             // INT5: CDC interrupt
             5
         } else if sega_cd.registers.cdd_interrupt_enabled
             && sega_cd.registers.cdd_host_clock_on
-            && sega_cd.disc_drive.cdd().interrupt_pending()
+            && sega_cd.cdd().interrupt_pending()
         {
             // INT4: CDD interrupt
             4
@@ -1394,16 +1405,16 @@ impl<'a> BusInterface for SubBus<'a> {
                 self.graphics_coprocessor.acknowledge_interrupt();
             }
             2 => {
-                self.memory.medium_mut().registers.software_interrupt_pending = false;
+                self.sega_cd_mut().registers.software_interrupt_pending = false;
             }
             3 => {
-                self.memory.medium_mut().registers.timer_interrupt_pending = false;
+                self.sega_cd_mut().registers.timer_interrupt_pending = false;
             }
             4 => {
-                self.memory.medium_mut().disc_drive.cdd_mut().acknowledge_interrupt();
+                self.sega_cd_mut().cdd_mut().acknowledge_interrupt();
             }
             5 => {
-                self.memory.medium_mut().disc_drive.cdc_mut().acknowledge_interrupt();
+                self.sega_cd_mut().cdc_mut().acknowledge_interrupt();
             }
             _ => {}
         }
@@ -1411,11 +1422,11 @@ impl<'a> BusInterface for SubBus<'a> {
 
     #[inline]
     fn halt(&self) -> bool {
-        self.memory.medium().registers.sub_cpu_busreq
+        self.sega_cd().registers.sub_cpu_busreq
     }
 
     #[inline]
     fn reset(&self) -> bool {
-        self.memory.medium().registers.sub_cpu_reset
+        self.sega_cd().registers.sub_cpu_reset
     }
 }
