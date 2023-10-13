@@ -790,6 +790,90 @@ impl DmaTracker {
     }
 }
 
+const FIFO_CAPACITY: u8 = 4;
+
+#[derive(Debug, Clone, Encode, Decode)]
+struct FifoTracker {
+    // TODO avoid floating-point arithmetic?
+    word_count: u8,
+    mclk_elapsed: f64,
+}
+
+impl FifoTracker {
+    fn new() -> Self {
+        Self { word_count: 0, mclk_elapsed: 0.0 }
+    }
+
+    fn record_access(&mut self, line_type: LineType, data_port_location: DataPortLocation) {
+        // VRAM/CRAM/VSRAM accesses can only delay the CPU during active display
+        if line_type == LineType::Blanked {
+            return;
+        }
+
+        match data_port_location {
+            DataPortLocation::Vram => {
+                // VRAM accesses take 2 slots in the FIFO
+                self.word_count += 2;
+            }
+            DataPortLocation::Cram | DataPortLocation::Vsram => {
+                // CRAM and VSRAM accesses take 1 slot in the FIFO
+                self.word_count += 1;
+            }
+        }
+    }
+
+    fn tick(
+        &mut self,
+        master_clock_cycles: u64,
+        h_display_size: HorizontalDisplaySize,
+        line_type: LineType,
+    ) {
+        if self.word_count == 0 {
+            self.mclk_elapsed = 0.0;
+            return;
+        }
+
+        if line_type == LineType::Blanked {
+            // CPU never gets delayed during VBlank or when the display is off
+            self.word_count = 0;
+            self.mclk_elapsed = 0.0;
+            return;
+        }
+
+        let mclks_per_slot = match h_display_size {
+            HorizontalDisplaySize::ThirtyTwoCell => {
+                // 3420 mclks/line / 17 slots/line
+                // There are actually 16 slots/line in H32 mode, but using 3420/16 still creates a
+                // black bar on the planet in Sol-Deace's intro
+                201.1764705882353
+            }
+            HorizontalDisplaySize::FortyCell => {
+                // 3420 mclks/line / 18 slots/line
+                190.0
+            }
+        };
+
+        self.mclk_elapsed += master_clock_cycles as f64;
+        if self.mclk_elapsed >= mclks_per_slot {
+            let removed = (self.mclk_elapsed / mclks_per_slot).floor() as u8;
+            self.word_count = self.word_count.saturating_sub(removed);
+            self.mclk_elapsed %= master_clock_cycles as f64;
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.word_count == 0
+    }
+
+    fn is_full(&self) -> bool {
+        self.word_count >= FIFO_CAPACITY
+    }
+
+    fn should_halt_cpu(&self) -> bool {
+        self.word_count > FIFO_CAPACITY
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 struct SpriteBitSet([u64; 5]);
 
@@ -848,26 +932,6 @@ impl DerefMut for FrameBuffer {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
-pub struct Vdp {
-    frame_buffer: FrameBuffer,
-    vram: Box<[u8; VRAM_LEN]>,
-    cram: [u8; CRAM_LEN],
-    vsram: [u8; VSRAM_LEN],
-    timing_mode: TimingMode,
-    state: InternalState,
-    registers: Registers,
-    cached_sprite_attributes: Box<[CachedSpriteData; MAX_SPRITES_PER_FRAME]>,
-    sprite_buffer: Vec<SpriteData>,
-    sprite_bit_set: SpriteBitSet,
-    enforce_sprite_limits: bool,
-    emulate_non_linear_dac: bool,
-    // Cache of CRAM in u16 form
-    color_buffer: [u16; CRAM_LEN / 2],
-    master_clock_cycles: u64,
-    dma_tracker: DmaTracker,
-}
-
 const MAX_SCREEN_WIDTH: usize = 320;
 const MAX_SCREEN_HEIGHT: usize = 240;
 
@@ -908,6 +972,27 @@ pub struct VdpConfig {
     pub emulate_non_linear_dac: bool,
 }
 
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct Vdp {
+    frame_buffer: FrameBuffer,
+    vram: Box<[u8; VRAM_LEN]>,
+    cram: [u8; CRAM_LEN],
+    vsram: [u8; VSRAM_LEN],
+    timing_mode: TimingMode,
+    state: InternalState,
+    registers: Registers,
+    cached_sprite_attributes: Box<[CachedSpriteData; MAX_SPRITES_PER_FRAME]>,
+    sprite_buffer: Vec<SpriteData>,
+    sprite_bit_set: SpriteBitSet,
+    enforce_sprite_limits: bool,
+    emulate_non_linear_dac: bool,
+    // Cache of CRAM in u16 form
+    color_buffer: [u16; CRAM_LEN / 2],
+    master_clock_cycles: u64,
+    dma_tracker: DmaTracker,
+    fifo_tracker: FifoTracker,
+}
+
 impl Vdp {
     #[allow(clippy::missing_panics_doc)]
     #[must_use]
@@ -931,6 +1016,7 @@ impl Vdp {
             color_buffer: [0; CRAM_LEN / 2],
             master_clock_cycles: 0,
             dma_tracker: DmaTracker::new(),
+            fifo_tracker: FifoTracker::new(),
         }
     }
 
@@ -1056,7 +1142,8 @@ impl Vdp {
         // Reset write flag
         self.state.control_write_flag = ControlWriteFlag::First;
 
-        let data = match self.state.data_port_location {
+        let data_port_location = self.state.data_port_location;
+        let data = match data_port_location {
             DataPortLocation::Vram => {
                 // VRAM reads/writes ignore A0
                 let address = (self.state.data_address & !0x01) as usize;
@@ -1073,6 +1160,9 @@ impl Vdp {
         };
 
         self.increment_data_address();
+
+        let line_type = LineType::from_vdp(self);
+        self.fifo_tracker.record_access(line_type, data_port_location);
 
         data
     }
@@ -1100,7 +1190,8 @@ impl Vdp {
             return;
         }
 
-        match self.state.data_port_location {
+        let data_port_location = self.state.data_port_location;
+        match data_port_location {
             DataPortLocation::Vram => {
                 // VRAM reads/writes ignore A0
                 log::trace!("Writing to {:04X} in VRAM", self.state.data_address);
@@ -1123,6 +1214,9 @@ impl Vdp {
         }
 
         self.increment_data_address();
+
+        let line_type = LineType::from_vdp(self);
+        self.fifo_tracker.record_access(line_type, data_port_location);
     }
 
     fn maybe_push_pending_write(&mut self, write: PendingWrite) -> bool {
@@ -1167,13 +1261,15 @@ impl Vdp {
             HorizontalDisplaySize::FortyCell => h_counter <= 0x05 || h_counter >= 0xB3,
         };
 
-        let status = 0x0200
+        let status = (u16::from(self.fifo_tracker.is_empty()) << 9)
+            | (u16::from(self.fifo_tracker.is_full()) << 8)
             | (u16::from(self.state.v_interrupt_pending) << 7)
             | (u16::from(self.state.sprite_overflow) << 6)
             | (u16::from(self.state.sprite_collision) << 5)
             | (u16::from(interlaced_odd) << 4)
             | (u16::from(vblank_flag) << 3)
             | (u16::from(hblank_flag) << 2)
+            | (u16::from(self.dma_tracker.in_progress) << 1)
             | u16::from(self.timing_mode == TimingMode::Pal);
 
         self.state.sprite_overflow = false;
@@ -1299,11 +1395,9 @@ impl Vdp {
 
         // Count down DMA time before checking if a DMA was initiated in the last CPU instruction
         let line_type = LineType::from_vdp(self);
-        self.dma_tracker.tick(
-            master_clock_cycles,
-            self.registers.horizontal_display_size,
-            line_type,
-        );
+        let h_display_size = self.registers.horizontal_display_size;
+        self.dma_tracker.tick(master_clock_cycles, h_display_size, line_type);
+        self.fifo_tracker.tick(master_clock_cycles, h_display_size, line_type);
 
         if let Some(active_dma) = self.state.pending_dma {
             // TODO accurate DMA timing
@@ -1590,6 +1684,7 @@ impl Vdp {
     #[must_use]
     pub fn should_halt_cpu(&self) -> bool {
         self.dma_tracker.should_halt_cpu(&self.state.pending_writes)
+            || self.fifo_tracker.should_halt_cpu()
     }
 
     #[must_use]
