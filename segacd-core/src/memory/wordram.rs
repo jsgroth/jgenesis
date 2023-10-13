@@ -238,11 +238,11 @@ impl WordRam {
     fn sub_cpu_map_address(&self, address: u32) -> WordRamSubMapResult {
         match (self.mode, address) {
             (WordRamMode::TwoM, 0x080000..=0x0BFFFF) => {
-                if self.owner_2m == ScdCpu::Sub {
-                    WordRamSubMapResult::Byte(address & ADDRESS_MASK)
-                } else {
-                    WordRamSubMapResult::None
-                }
+                // Hack: On real hardware, the sub CPU accessing word RAM in 2M mode while it's
+                // owned by the main CPU causes the sub CPU to lock up.
+                // Allowing these accesses to go through fixes flickering / missing graphics in
+                // Batman Returns, possibly related to graphics ASIC timing issues
+                WordRamSubMapResult::Byte(address & ADDRESS_MASK)
             }
             (WordRamMode::TwoM, 0x0C0000..=0x0DFFFF) => WordRamSubMapResult::None,
             (WordRamMode::OneM, 0x080000..=0x0BFFFF) => {

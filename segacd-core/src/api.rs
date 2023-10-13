@@ -27,7 +27,7 @@ use thiserror::Error;
 use z80_emu::Z80;
 
 const MAIN_CPU_DIVIDER: u64 = 7;
-const SUB_CPU_DIVIDER: u64 = 4;
+pub(crate) const SUB_CPU_DIVIDER: u64 = 4;
 const Z80_DIVIDER: u64 = 15;
 
 const NTSC_GENESIS_MASTER_CLOCK_RATE: u64 = 53_693_175;

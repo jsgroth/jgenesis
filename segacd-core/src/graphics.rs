@@ -7,6 +7,8 @@ use bincode::{Decode, Encode};
 use jgenesis_traits::num::GetBit;
 use std::array;
 
+const SUB_CPU_DIVIDER: u32 = crate::api::SUB_CPU_DIVIDER as u32;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum StampSizeDots {
     #[default]
@@ -322,13 +324,25 @@ impl GraphicsCoprocessor {
                 // Trace vector base address / begin graphics operation
                 self.trace_vector_base_address = u32::from(value & 0xFFFE) << 2;
 
-                // Pretty much a complete guess on timing; the documentation is extremely unclear
+                // Mostly a guess at timing, based on this:
+                // https://gendev.spritesmind.net/forum/viewtopic.php?t=908
+                //
+                // Each word RAM access takes 3 sub CPU cycles / 12 MCLK cycles, and the ASIC has
+                // to perform the following accesses per image buffer line:
+                // - Read trace vector (4 words)
+                // - Read stamp map entry per pixel (1 word * H size)
+                // - Read stamp generator per pixel (1 word * H size)
+                // - Write to the image buffer (1 word * H size / 4)
+                //   - Divide by 4 because there are 4 pixels per image buffer word
+                let h_dot_size = self.image_buffer_h_dot_size;
+                let v_dot_size = self.image_buffer_v_dot_size;
+                let estimated_mclk_cycles_per_line = 4 + 2 * h_dot_size + h_dot_size / 4;
                 let estimated_mclk_cycles =
-                    11 * self.image_buffer_v_dot_size * self.image_buffer_h_dot_size / 2;
+                    SUB_CPU_DIVIDER * 3 * v_dot_size * estimated_mclk_cycles_per_line;
                 self.state = State::Processing {
                     mclk_cycles_remaining: estimated_mclk_cycles.into(),
                     operation_performed: false,
-                }
+                };
             }
             _ => {}
         }
