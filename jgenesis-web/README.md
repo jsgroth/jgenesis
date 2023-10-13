@@ -2,13 +2,15 @@
 
 Minimal web frontend that compiles to WASM and runs in the browser.
 
+This frontend does not currently support Sega CD / Mega CD due to that core's current dependency on the native file system.
+
 ## Dependencies
 
 ### Rust Nightly
 
 The web frontend's audio implementation requires sharing memory between the main thread and the
-audio worklet thread, which is not supported in stable Rust when compiling to WASM. (Even in nightly
-it requires rebuilding the standard library with atomics support.)
+audio worklet thread, which is not supported in stable Rust when compiling to WASM. Even in nightly,
+this requires rebuilding the standard library with atomics support.
 
 Assuming you already have the basic Rust toolchain installed:
 ```

@@ -27,4 +27,4 @@ This crate contains code for:
 * SMS/GG PSG
 * SMS/GG memory map
 * SMS FM sound unit expansion
-* Tying together all of the SMS/GG components
+* SMS/GG main loop

@@ -27,4 +27,5 @@ This crate contains code for the following:
 * Genesis VDP
 * Genesis FM sound chip
 * Genesis memory map
-* Tying together all of the Genesis components
+* SVP chip, an auxiliary processor used by _Virtua Racing_
+* Genesis main loop
