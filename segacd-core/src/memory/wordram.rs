@@ -507,7 +507,7 @@ mod tests {
     }
 
     #[test]
-    fn word_ram_sub_cpu_2m_mapping() {
+    fn word_ram_sub_cpu_2m_mapping_sub_owner() {
         use WordRamSubMapResult as R;
 
         let mut word_ram = WordRam::new();
@@ -519,16 +519,25 @@ mod tests {
 
         assert_eq!(R::None, word_ram.sub_cpu_map_address(0x0C0000));
         assert_eq!(R::None, word_ram.sub_cpu_map_address(0x0DFFFF));
+    }
 
-        // These assertions depend on restricting sub CPU access to 2M word RAM when it's owned by
-        // the main CPU, which seems to cause graphical issues in Batman Returns (most likely caused
-        // by a bug elsewhere in the emulator)
-        //
-        // word_ram.owner_2m = ScdCpu::Main;
-        // assert_eq!(R::None, word_ram.sub_cpu_map_address(0x080000));
-        // assert_eq!(R::None, word_ram.sub_cpu_map_address(0x0BFFFF));
-        // assert_eq!(R::None, word_ram.sub_cpu_map_address(0x0C0000));
-        // assert_eq!(R::None, word_ram.sub_cpu_map_address(0x0DFFFF));
+    // This test case depends on restricting sub CPU access to 2M word RAM when it's owned by
+    // the main CPU, which seems to cause graphical issues in Batman Returns (most likely caused
+    // by a bug elsewhere in the emulator)
+    #[ignore]
+    #[test]
+    fn word_ram_sub_cpu_2m_mapping_main_owner() {
+        use WordRamSubMapResult as R;
+
+        let mut word_ram = WordRam::new();
+        word_ram.mode = WordRamMode::TwoM;
+
+        word_ram.owner_2m = ScdCpu::Main;
+        assert_eq!(R::None, word_ram.sub_cpu_map_address(0x080000));
+        assert_eq!(R::None, word_ram.sub_cpu_map_address(0x0BFFFF));
+
+        assert_eq!(R::None, word_ram.sub_cpu_map_address(0x0C0000));
+        assert_eq!(R::None, word_ram.sub_cpu_map_address(0x0DFFFF));
     }
 
     #[test]
