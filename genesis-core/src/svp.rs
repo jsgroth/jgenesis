@@ -6,7 +6,7 @@ use std::array;
 
 const SVP_ENTRY_POINT: u16 = 0x400;
 
-const DRAM_LEN: usize = 128 * 1024;
+const DRAM_LEN_WORDS: usize = 128 * 1024 / 2;
 const IRAM_LEN_WORDS: usize = 1024;
 const INTERNAL_RAM_LEN_WORDS: usize = 256;
 
@@ -15,7 +15,7 @@ const STACK_LEN: u8 = 6;
 // External memory addresses are 21-bit
 const EXTERNAL_MEMORY_MASK: u32 = (1 << 21) - 1;
 
-type Dram = [u8; DRAM_LEN];
+type Dram = [u16; DRAM_LEN_WORDS];
 type Iram = [u16; IRAM_LEN_WORDS];
 type InternalRam = [u16; INTERNAL_RAM_LEN_WORDS];
 
@@ -302,7 +302,7 @@ impl Svp {
     pub fn new() -> Self {
         Self {
             registers: Registers::new(),
-            dram: vec![0; DRAM_LEN].into_boxed_slice().try_into().unwrap(),
+            dram: vec![0; DRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             iram: vec![0; IRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             ram0: vec![0; INTERNAL_RAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             ram1: vec![0; INTERNAL_RAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
@@ -350,10 +350,7 @@ impl Svp {
             }
             0x300000..=0x37FFFF => {
                 // DRAM, mirrored every 128KB / $1FFFF
-                let address = address & 0x1FFFF;
-                let msb = self.dram[address as usize];
-                let lsb = self.dram[(address + 1) as usize];
-                u16::from_be_bytes([msb, lsb])
+                self.dram[((address & 0x1FFFF) >> 1) as usize]
             }
             0xA15000 | 0xA15002 => {
                 // XST register
@@ -374,10 +371,17 @@ impl Svp {
         match address {
             0x300000..=0x37FFFF => {
                 // DRAM, mirrored every 128KB / $1FFFF
-                self.dram[(address & 0x1FFFF) as usize] = value;
+                let word_addr = ((address & 0x1FFFF) >> 1) as usize;
+                let existing_value = self.dram[word_addr];
+                let new_value = if address.bit(0) {
+                    (existing_value & 0xFF00) | u16::from(value)
+                } else {
+                    (existing_value & 0x00FF) | (u16::from(value) << 8)
+                };
+                self.dram[word_addr] = new_value;
 
                 // Specific DRAM addresses used for communication between the 68000 and DSP
-                if (0xFE06..0xFE0A).contains(&address) {
+                if word_addr == 0x7F03 || word_addr == 0x7F04 {
                     self.dram_dirty = true;
                 }
             }
@@ -396,13 +400,11 @@ impl Svp {
         match address {
             0x300000..=0x37FFFF => {
                 // DRAM, mirrored every 128KB / $1FFFF
-                let address = address & 0x1FFFF;
-                let [msb, lsb] = value.to_be_bytes();
-                self.dram[address as usize] = msb;
-                self.dram[(address + 1) as usize] = lsb;
+                let word_addr = (address & 0x1FFFF) >> 1;
+                self.dram[word_addr as usize] = value;
 
                 // Specific DRAM addresses used for communication between the 68000 and DSP
-                if address == 0xFE06 || address == 0xFE08 {
+                if word_addr == 0x7F03 || word_addr == 0x7F04 {
                     self.dram_dirty = true;
                 }
             }
@@ -449,10 +451,7 @@ impl Svp {
             }
             0x180000..=0x18FFFF => {
                 // DRAM
-                let byte_addr = (address & 0xFFFF) << 1;
-                let msb = self.dram[byte_addr as usize];
-                let lsb = self.dram[(byte_addr + 1) as usize];
-                u16::from_be_bytes([msb, lsb])
+                self.dram[(address & 0xFFFF) as usize]
             }
             0x1C8000..=0x1C83FF => {
                 // IRAM
@@ -471,10 +470,7 @@ impl Svp {
         match address {
             0x180000..=0x18FFFF => {
                 // DRAM
-                let byte_addr = (address & 0xFFFF) << 1;
-                let [msb, lsb] = value.to_be_bytes();
-                self.dram[byte_addr as usize] = msb;
-                self.dram[(byte_addr + 1) as usize] = lsb;
+                self.dram[(address & 0xFFFF) as usize] = value;
             }
             0x1C8000..=0x1C83FF => {
                 // IRAM
