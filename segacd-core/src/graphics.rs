@@ -349,6 +349,8 @@ impl GraphicsCoprocessor {
         }
 
         if mclk_cycles >= mclk_cycles_remaining {
+            log::trace!("Graphics operation completed");
+
             self.state = State::Idle;
             // In actual hardware V dot size is decremented as the operation goes; here, we're just
             // clearing at the end
@@ -400,10 +402,6 @@ impl GraphicsCoprocessor {
             let trace_vector = TraceVectorData::from_bytes(array::from_fn(|i| {
                 read_word_ram(word_ram, trace_vector_address + i as u32)
             }));
-
-            log::trace!(
-                "  line={line}, image_buffer_line={image_buffer_line}, trace_vector={trace_vector:08X?}"
-            );
 
             let mut trace_x_position = trace_vector.start_x;
             let mut trace_y_position = trace_vector.start_y;

@@ -1133,9 +1133,8 @@ impl Vdp {
     }
 
     pub fn read_status(&mut self) -> u16 {
-        // Queue empty (bit 9) hardcoded to true
-        // Queue full (bit 8) hardcoded to false
-        // DMA busy (bit 1) hardcoded to false
+        log::trace!("VDP status register read");
+
         let interlaced_odd =
             self.registers.interlacing_mode.is_interlaced() && self.state.frame_count % 2 == 1;
 

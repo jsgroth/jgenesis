@@ -983,7 +983,7 @@ impl M68000Builder {
             registers: Registers::new(),
             halted: false,
             allow_tas_writes: self.allow_tas_writes,
-            name: self.name.unwrap_or_else(|| "(Unnamed)".into()),
+            name: self.name.unwrap_or_default(),
         }
     }
 }
