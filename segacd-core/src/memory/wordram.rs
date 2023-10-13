@@ -516,14 +516,19 @@ mod tests {
         word_ram.owner_2m = ScdCpu::Sub;
         assert_eq!(R::Byte(0x000000), word_ram.sub_cpu_map_address(0x080000));
         assert_eq!(R::Byte(0x03FFFF), word_ram.sub_cpu_map_address(0x0BFFFF));
+
         assert_eq!(R::None, word_ram.sub_cpu_map_address(0x0C0000));
         assert_eq!(R::None, word_ram.sub_cpu_map_address(0x0DFFFF));
 
-        word_ram.owner_2m = ScdCpu::Main;
-        assert_eq!(R::None, word_ram.sub_cpu_map_address(0x080000));
-        assert_eq!(R::None, word_ram.sub_cpu_map_address(0x0BFFFF));
-        assert_eq!(R::None, word_ram.sub_cpu_map_address(0x0C0000));
-        assert_eq!(R::None, word_ram.sub_cpu_map_address(0x0DFFFF));
+        // These assertions depend on restricting sub CPU access to 2M word RAM when it's owned by
+        // the main CPU, which seems to cause graphical issues in Batman Returns (most likely caused
+        // by a bug elsewhere in the emulator)
+        //
+        // word_ram.owner_2m = ScdCpu::Main;
+        // assert_eq!(R::None, word_ram.sub_cpu_map_address(0x080000));
+        // assert_eq!(R::None, word_ram.sub_cpu_map_address(0x0BFFFF));
+        // assert_eq!(R::None, word_ram.sub_cpu_map_address(0x0C0000));
+        // assert_eq!(R::None, word_ram.sub_cpu_map_address(0x0DFFFF));
     }
 
     #[test]
