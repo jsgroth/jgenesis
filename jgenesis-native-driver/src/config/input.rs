@@ -276,6 +276,8 @@ pub struct HotkeyConfig {
     pub hard_reset: Option<KeyboardInput>,
     #[serde(default = "default_pause")]
     pub pause: Option<KeyboardInput>,
+    #[serde(default = "default_step_frame")]
+    pub step_frame: Option<KeyboardInput>,
     #[serde(default = "default_fast_forward")]
     pub fast_forward: Option<KeyboardInput>,
     #[serde(default = "default_rewind")]
@@ -296,6 +298,7 @@ impl Default for HotkeyConfig {
             soft_reset: default_soft_reset(),
             hard_reset: default_hard_reset(),
             pause: default_pause(),
+            step_frame: default_step_frame(),
             fast_forward: default_fast_forward(),
             rewind: default_rewind(),
             open_cram_debug: default_cram_debug(),
@@ -330,6 +333,10 @@ fn default_hard_reset() -> Option<KeyboardInput> {
 
 fn default_pause() -> Option<KeyboardInput> {
     key_input!(P)
+}
+
+fn default_step_frame() -> Option<KeyboardInput> {
+    key_input!(N)
 }
 
 fn default_fast_forward() -> Option<KeyboardInput> {

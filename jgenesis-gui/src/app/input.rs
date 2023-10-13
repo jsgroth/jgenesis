@@ -218,6 +218,9 @@ impl InputAppConfig {
             Hotkey::Pause => {
                 self.hotkeys.pause = Some(input);
             }
+            Hotkey::StepFrame => {
+                self.hotkeys.step_frame = Some(input);
+            }
             Hotkey::FastForward => {
                 self.hotkeys.fast_forward = Some(input);
             }
@@ -623,6 +626,12 @@ impl App {
                     ui,
                 );
                 self.hotkey_button(
+                    self.config.inputs.hotkeys.step_frame.clone(),
+                    "Step frame while paused",
+                    Hotkey::StepFrame,
+                    ui,
+                );
+                self.hotkey_button(
                     self.config.inputs.hotkeys.fast_forward.clone(),
                     "Fast forward",
                     Hotkey::FastForward,
@@ -835,6 +844,9 @@ impl App {
                 }
                 Hotkey::Pause => {
                     self.config.inputs.hotkeys.pause = None;
+                }
+                Hotkey::StepFrame => {
+                    self.config.inputs.hotkeys.step_frame = None;
                 }
                 Hotkey::FastForward => {
                     self.config.inputs.hotkeys.fast_forward = None;
