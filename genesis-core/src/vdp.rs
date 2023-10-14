@@ -255,7 +255,7 @@ struct InternalState {
     dot_overflow_on_prev_line: bool,
     sprite_collision: bool,
     scanline: u16,
-    active_dma: Option<ActiveDma>,
+    pending_dma: Option<ActiveDma>,
     pending_writes: Vec<PendingWrite>,
     frame_count: u64,
     // Marks whether a frame has been completed so that frames don't get double rendered if
@@ -280,7 +280,7 @@ impl InternalState {
             dot_overflow_on_prev_line: false,
             sprite_collision: false,
             scanline: 0,
-            active_dma: None,
+            pending_dma: None,
             pending_writes: Vec::with_capacity(10),
             frame_count: 0,
             frame_completed: false,
@@ -782,11 +782,11 @@ impl DmaTracker {
 
     fn should_halt_cpu(&self, pending_writes: &[PendingWrite]) -> bool {
         // Memory-to-VRAM DMA always halts the CPU; VRAM fill & VRAM copy only halt the CPU if it
-        // writes to either VDP port or reads from the VDP data port during the DMA
+        // accesses the VDP data port during the DMA
         self.in_progress
             && (self.mode == DmaMode::MemoryToVram
                 || self.data_port_read
-                || !pending_writes.is_empty())
+                || pending_writes.iter().any(|write| matches!(write, PendingWrite::Data(..))))
     }
 }
 
@@ -1012,7 +1012,7 @@ impl Vdp {
                 {
                     // This is a DMA initiation, not a normal control write
                     log::trace!("DMA transfer initiated, mode={:?}", self.registers.dma_mode);
-                    self.state.active_dma = match self.registers.dma_mode {
+                    self.state.pending_dma = match self.registers.dma_mode {
                         DmaMode::MemoryToVram => Some(ActiveDma::MemoryToVram),
                         DmaMode::VramCopy => Some(ActiveDma::VramCopy),
                         DmaMode::VramFill => unreachable!("dma_mode != VramFill"),
@@ -1096,7 +1096,7 @@ impl Vdp {
             && self.registers.dma_mode == DmaMode::VramFill
         {
             log::trace!("Initiated VRAM fill DMA with fill data = {value:04X}");
-            self.state.active_dma = Some(ActiveDma::VramFill(value));
+            self.state.pending_dma = Some(ActiveDma::VramFill(value));
             return;
         }
 
@@ -1126,7 +1126,9 @@ impl Vdp {
     }
 
     fn maybe_push_pending_write(&mut self, write: PendingWrite) -> bool {
-        if self.state.active_dma.is_some() || self.dma_tracker.in_progress {
+        if self.state.pending_dma.is_some()
+            || (self.dma_tracker.in_progress && matches!(write, PendingWrite::Data(..)))
+        {
             self.state.pending_writes.push(write);
             true
         } else {
@@ -1303,7 +1305,7 @@ impl Vdp {
             line_type,
         );
 
-        if let Some(active_dma) = self.state.active_dma {
+        if let Some(active_dma) = self.state.pending_dma {
             // TODO accurate DMA timing
             self.run_dma(memory, active_dma);
         }
@@ -1512,7 +1514,7 @@ impl Vdp {
             }
         }
 
-        self.state.active_dma = None;
+        self.state.pending_dma = None;
         self.registers.dma_length = 0;
     }
 
