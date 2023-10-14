@@ -1,3 +1,4 @@
+use crate::SmsGgConsole;
 use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::{
@@ -108,18 +109,16 @@ impl Default for SmsGgWebConfig {
 }
 
 impl SmsGgWebConfig {
-    pub fn vdp_version(&self, file_extension: &str) -> VdpVersion {
-        if file_extension == "gg" {
-            VdpVersion::GameGear
-        } else {
-            match self.timing_mode {
-                TimingMode::Ntsc => VdpVersion::NtscMasterSystem2,
-                TimingMode::Pal => VdpVersion::PalMasterSystem2,
-            }
+    fn vdp_version(&self, console: SmsGgConsole) -> VdpVersion {
+        match (console, self.timing_mode) {
+            (SmsGgConsole::GameGear, _) => VdpVersion::GameGear,
+            (SmsGgConsole::MasterSystem, TimingMode::Ntsc) => VdpVersion::NtscMasterSystem2,
+            (SmsGgConsole::MasterSystem, TimingMode::Pal) => VdpVersion::PalMasterSystem2,
         }
     }
 
-    pub fn to_emulator_config(&self, vdp_version: VdpVersion) -> SmsGgEmulatorConfig {
+    pub(crate) fn to_emulator_config(&self, console: SmsGgConsole) -> SmsGgEmulatorConfig {
+        let vdp_version = self.vdp_version(console);
         let (psg_version, pixel_aspect_ratio) = if vdp_version.is_master_system() {
             (PsgVersion::MasterSystem2, self.sms_aspect_ratio.to_pixel_aspect_ratio())
         } else {
@@ -127,6 +126,7 @@ impl SmsGgWebConfig {
         };
 
         SmsGgEmulatorConfig {
+            vdp_version,
             psg_version,
             pixel_aspect_ratio: Some(pixel_aspect_ratio),
             sms_region: self.region,

@@ -79,10 +79,16 @@ pub fn init_logger() {
     console_log::init_with_level(log::Level::Info).expect("Unable to initialize logger");
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SmsGgConsole {
+    MasterSystem,
+    GameGear,
+}
+
 #[allow(clippy::large_enum_variant)]
 enum Emulator {
     None,
-    SmsGg(SmsGgEmulator, SmsGgInputs),
+    SmsGg(SmsGgEmulator, SmsGgInputs, SmsGgConsole),
     Genesis(GenesisEmulator, GenesisInputs),
 }
 
@@ -99,7 +105,7 @@ impl Emulator {
     {
         match self {
             Self::None => {}
-            Self::SmsGg(emulator, inputs) => {
+            Self::SmsGg(emulator, inputs, _) => {
                 while emulator
                     .tick(renderer, audio_output, inputs, save_writer)
                     .expect("Emulator error")
@@ -127,7 +133,7 @@ impl Emulator {
     fn handle_window_event(&mut self, event: &WindowEvent<'_>) {
         match self {
             Self::None => {}
-            Self::SmsGg(_, inputs) => {
+            Self::SmsGg(_, inputs, _) => {
                 handle_smsgg_input(inputs, event);
             }
             Self::Genesis(_, inputs) => {
@@ -139,8 +145,8 @@ impl Emulator {
     fn reload_config(&mut self, config: &WebConfig) {
         match self {
             Self::None => {}
-            Self::SmsGg(emulator, ..) => {
-                emulator.reload_config(&config.smsgg.to_emulator_config(emulator.vdp_version()));
+            Self::SmsGg(emulator, _, console) => {
+                emulator.reload_config(&config.smsgg.to_emulator_config(*console));
             }
             Self::Genesis(emulator, ..) => {
                 emulator.reload_config(&config.genesis.to_emulator_config());
@@ -421,18 +427,20 @@ fn open_emulator(rom: Vec<u8>, file_name: &str, config_ref: &WebConfigRef) -> Em
     });
 
     match file_ext.as_str() {
-        "sms" | "gg" => {
+        file_ext @ ("sms" | "gg") => {
             js::showSmsGgConfig();
 
-            let config = config_ref.borrow();
-            let vdp_version = config.smsgg.vdp_version(&file_ext);
+            let console = match file_ext {
+                "sms" => SmsGgConsole::MasterSystem,
+                "gg" => SmsGgConsole::GameGear,
+                _ => unreachable!("nested match expressions"),
+            };
             let emulator = SmsGgEmulator::create(
                 rom,
                 None,
-                vdp_version,
-                config_ref.borrow().smsgg.to_emulator_config(vdp_version),
+                config_ref.borrow().smsgg.to_emulator_config(console),
             );
-            Emulator::SmsGg(emulator, SmsGgInputs::default())
+            Emulator::SmsGg(emulator, SmsGgInputs::default(), console)
         }
         "md" | "bin" => {
             js::showGenesisConfig();
