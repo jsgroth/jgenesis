@@ -78,6 +78,7 @@ pub enum SmsRegion {
 
 #[derive(Debug, Clone, Copy)]
 pub struct SmsGgEmulatorConfig {
+    pub vdp_version: VdpVersion,
     pub psg_version: PsgVersion,
     pub pixel_aspect_ratio: Option<PixelAspectRatio>,
     pub remove_sprite_limit: bool,
@@ -116,11 +117,10 @@ impl SmsGgEmulator {
     pub fn create(
         rom: Vec<u8>,
         cartridge_ram: Option<Vec<u8>>,
-        vdp_version: VdpVersion,
         config: SmsGgEmulatorConfig,
     ) -> Self {
         let memory = Memory::new(rom, cartridge_ram);
-        let vdp = Vdp::new(vdp_version, config.remove_sprite_limit);
+        let vdp = Vdp::new(config.vdp_version, config.remove_sprite_limit);
         let psg = Psg::new(config.psg_version);
         let input = InputState::new(config.sms_region);
 
@@ -133,7 +133,7 @@ impl SmsGgEmulator {
             memory,
             z80,
             vdp,
-            vdp_version,
+            vdp_version: config.vdp_version,
             pixel_aspect_ratio: config.pixel_aspect_ratio,
             psg,
             ym2413,
@@ -195,6 +195,8 @@ impl ConfigReload for SmsGgEmulator {
     type Config = SmsGgEmulatorConfig;
 
     fn reload_config(&mut self, config: &Self::Config) {
+        self.vdp_version = config.vdp_version;
+        self.vdp.set_version(config.vdp_version);
         self.psg.set_version(config.psg_version);
         self.pixel_aspect_ratio = config.pixel_aspect_ratio;
         self.vdp.set_remove_sprite_limit(config.remove_sprite_limit);

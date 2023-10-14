@@ -1040,6 +1040,11 @@ impl Vdp {
     pub fn timing_mode(&self) -> TimingMode {
         self.registers.version.timing_mode()
     }
+
+    pub fn set_version(&mut self, version: VdpVersion) {
+        self.registers.version = version;
+        self.frame_buffer.viewport = version.viewport_size();
+    }
 }
 
 fn get_color_id(tile: &[u8], tile_row: u16, tile_col: u16, horizontal_flip: bool) -> u8 {

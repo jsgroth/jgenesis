@@ -313,7 +313,7 @@ impl NativeSmsGgEmulator {
 
         self.reload_common_config(&config.common)?;
 
-        let vdp_version = self.emulator.vdp_version();
+        let vdp_version = config.vdp_version.unwrap_or_else(|| self.emulator.vdp_version());
         let psg_version = config.psg_version.unwrap_or_else(|| {
             if vdp_version.is_master_system() {
                 PsgVersion::MasterSystem2
@@ -681,7 +681,7 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
     let hotkey_mapper = HotkeyMapper::from_config(&config.common.hotkeys)?;
     let save_writer = FsSaveWriter::new(save_path);
 
-    let emulator = SmsGgEmulator::create(rom, initial_cartridge_ram, vdp_version, emulator_config);
+    let emulator = SmsGgEmulator::create(rom, initial_cartridge_ram, emulator_config);
 
     Ok(NativeEmulator {
         emulator,

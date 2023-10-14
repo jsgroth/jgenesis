@@ -122,6 +122,7 @@ impl SmsGgConfig {
             self.gg_aspect_ratio.to_pixel_aspect_ratio()
         };
         SmsGgEmulatorConfig {
+            vdp_version,
             psg_version,
             pixel_aspect_ratio,
             remove_sprite_limit: self.remove_sprite_limit,

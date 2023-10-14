@@ -467,8 +467,6 @@ impl App {
         let mut open = true;
         Window::new("SMS/GG General Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.group(|ui| {
-                ui.set_enabled(self.emu_thread.status() != EmuThreadStatus::RunningSmsGg);
-
                 ui.label("Sega Master System timing / display mode");
 
                 ui.horizontal(|ui| {
@@ -482,8 +480,6 @@ impl App {
             });
 
             ui.group(|ui| {
-                ui.set_enabled(self.emu_thread.status() != EmuThreadStatus::RunningSmsGg);
-
                 ui.label("Sega Master System VDP version");
 
                 ui.horizontal(|ui| {
