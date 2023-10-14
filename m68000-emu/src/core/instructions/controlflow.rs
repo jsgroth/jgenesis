@@ -263,6 +263,12 @@ pub(super) const fn nop() -> u32 {
     4
 }
 
+pub(super) const fn reset() -> u32 {
+    // The RESET instruction is intended to reset external devices, but this functionality isn't
+    // used in the Genesis, so treat it as an extremely long NOP
+    132
+}
+
 pub(super) fn trap(vector: u32) -> ExecuteResult<u32> {
     Err(Exception::Trap(TRAP_VECTOR_OFFSET + vector))
 }

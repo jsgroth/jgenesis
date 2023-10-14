@@ -25,5 +25,3 @@ Sample output (single test):
 
 * `ADD.l` / `SUB.l`: The test suite seems to expect `ADDQ.l #<d>, An` and `SUBQ.l #<d>, An` to take 6 cycles, when all documentation I can find suggests that these should take 8 cycles (same as `ADDQ.w` and `SUBQ.w` with an address direct destination)
 * `ASL.b` / `ASR.b` / `ASR.w` / `ASR.l`: The test cases have incorrect flag values, see https://github.com/TomHarte/ProcessorTests/issues/21
-* `DIVS` / `DIVU`: `m68000-emu` has not implemented accurate cycle counts for these instructions yet
-* `RESET`: Cycle count is not accurate

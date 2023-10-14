@@ -131,18 +131,23 @@ struct Args {
     /// Path to a directory of tests to run.
     #[arg(short = 'd', long)]
     dir_path: Option<String>,
+
+    /// Don't log details on individual test case failures
+    #[arg(short = 's', long = "no-individual-logs", default_value_t = true, action = clap::ArgAction::SetFalse)]
+    individual_logs: bool,
 }
 
 fn main() {
-    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+    env_logger::Builder::from_env(Env::default().default_filter_or("info,m68000_emu::core=off"))
+        .init();
 
     let args = Args::parse();
     match (args.file_path, args.dir_path) {
         (Some(file_path), None) => {
-            run_file_test(&file_path);
+            run_file_test(&file_path, args.individual_logs);
         }
         (None, Some(dir_path)) => {
-            run_directory_of_tests(&dir_path);
+            run_directory_of_tests(&dir_path, args.individual_logs);
         }
         (Some(_), Some(_)) | (None, None) => {
             panic!("exactly one of file_path and dir_path must be set");
@@ -150,7 +155,7 @@ fn main() {
     }
 }
 
-fn run_file_test(file_path: &str) {
+fn run_file_test(file_path: &str, individual_logs: bool) {
     let file_path = Path::new(&file_path);
 
     let file_ext = file_path.extension().and_then(OsStr::to_str).unwrap();
@@ -166,7 +171,7 @@ fn run_file_test(file_path: &str) {
     log::info!("Loaded {} tests", test_descriptions.len());
 
     let mut bus = InMemoryBus::new();
-    run_single_test(&test_descriptions, &mut bus, file_path);
+    run_single_test(&test_descriptions, &mut bus, file_path, individual_logs);
 }
 
 struct ParseResult {
@@ -174,7 +179,7 @@ struct ParseResult {
     test_descriptions: Vec<TestDescription>,
 }
 
-fn run_directory_of_tests(dir_path: &str) {
+fn run_directory_of_tests(dir_path: &str, individual_logs: bool) {
     let mut receivers = vec![];
     let read_dir = Path::new(dir_path).read_dir().expect("Unable to read directory");
     for dir_entry in read_dir {
@@ -190,8 +195,6 @@ fn run_directory_of_tests(dir_path: &str) {
                 let file = GzDecoder::new(BufReader::new(
                     File::open(Path::new(&file_path)).expect("Unable to open file"),
                 ));
-
-                log::info!("Reading test descriptions from '{file_path}'");
 
                 let test_descriptions: Vec<TestDescription> = match serde_json::from_reader(file) {
                     Ok(descriptions) => descriptions,
@@ -216,7 +219,7 @@ fn run_directory_of_tests(dir_path: &str) {
 
     let mut bus = InMemoryBus::new();
     for ParseResult { file_path, test_descriptions } in parse_results {
-        run_single_test(&test_descriptions, &mut bus, Path::new(&file_path));
+        run_single_test(&test_descriptions, &mut bus, Path::new(&file_path), individual_logs);
     }
 }
 
@@ -224,6 +227,7 @@ fn run_single_test<P: AsRef<Path>>(
     test_descriptions: &[TestDescription],
     bus: &mut InMemoryBus,
     file_path: P,
+    individual_logs: bool,
 ) {
     let mut failure_count = 0_u32;
     let mut timing_failure_count = 0_u32;
@@ -234,18 +238,22 @@ fn run_single_test<P: AsRef<Path>>(
 
         let state = State::from(&m68000, bus, &test_description.final_state);
         if state != test_description.final_state {
-            log::info!("Failed test '{}'", test_description.name);
-            state.diff(&test_description.final_state);
+            if individual_logs {
+                log::info!("Failed test '{}'", test_description.name);
+                state.diff(&test_description.final_state);
+            }
 
             failure_count += 1;
         }
 
         if cycles != test_description.length && !m68000.address_error() {
-            log::info!(
-                "Timing mismatch for test '{}'; actual={cycles}, expected={}",
-                test_description.name,
-                test_description.length
-            );
+            if individual_logs {
+                log::info!(
+                    "Timing mismatch for test '{}'; actual={cycles}, expected={}",
+                    test_description.name,
+                    test_description.length
+                );
+            }
 
             timing_failure_count += 1;
         }

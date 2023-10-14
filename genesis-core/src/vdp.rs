@@ -1292,8 +1292,8 @@ impl Vdp {
         master_clock_cycles: u64,
         memory: &mut Memory<Medium>,
     ) -> VdpTickEffect {
-        // The longest 68k instruction (DIVS) takes at most around 150 68k cycles
-        assert!(master_clock_cycles < 1100);
+        // The longest 68k instruction (DIVS (xxx).l, Dn) takes 172 68k cycles / 1204 mclk cycles
+        assert!(master_clock_cycles < 1250);
 
         // Count down DMA time before checking if a DMA was initiated in the last CPU instruction
         let line_type = LineType::from_vdp(self);

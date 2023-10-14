@@ -422,10 +422,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             OrToCcr => self.ori_to_ccr(),
             OrToSr => self.ori_to_sr(),
             PushEffectiveAddress(source) => self.pea(source),
-            Reset => {
-                // TODO RESET
-                Ok(controlflow::nop())
-            }
+            Reset => Ok(controlflow::reset()),
             Return { restore_ccr } => self.ret(restore_ccr),
             ReturnFromException => self.rte(),
             RotateMemory(direction, dest) => self.rod_memory(direction, dest),

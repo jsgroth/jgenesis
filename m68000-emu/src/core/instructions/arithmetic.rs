@@ -481,8 +481,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         if quotient > i16::MAX.into() || quotient < i16::MIN.into() {
             self.registers.ccr =
                 ConditionCodes { carry: false, overflow: true, ..self.registers.ccr };
-            // TODO this is the best case cycle count, not accurate
-            return Ok(120);
+
+            // Overflows take 16 cycles for non-negative dividend and 18 for negative dividend
+            let base_cycles = 16 + 2 * u32::from(operand_l < 0);
+            return Ok(base_cycles + source.address_calculation_cycles(OpSize::Word));
         }
 
         let value = ((quotient as u32) & 0x0000_FFFF) | ((remainder as u32) << 16);
@@ -496,8 +498,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             ..self.registers.ccr
         };
 
-        // TODO this is the best case cycle count, not accurate
-        Ok(120)
+        Ok(divs_cycle_count(operand_l, operand_r, quotient as i16, source))
     }
 
     pub(super) fn divu(
@@ -518,8 +519,9 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         if quotient > u16::MAX.into() {
             self.registers.ccr =
                 ConditionCodes { carry: false, overflow: true, ..self.registers.ccr };
-            // TODO this is the best case cycle count, not accurate
-            return Ok(76);
+
+            // Overflow is always 10 cycles plus the time to read the divisor
+            return Ok(10 + source.address_calculation_cycles(OpSize::Word));
         }
 
         let value = (quotient & 0x0000_FFFF) | (remainder << 16);
@@ -533,8 +535,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             ..self.registers.ccr
         };
 
-        // TODO this is the best case cycle count, not accurate
-        Ok(76)
+        Ok(divu_cycle_count(operand_l, operand_r, source))
     }
 
     pub(super) fn abcd(
@@ -651,6 +652,55 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
         corrected_difference
     }
+}
+
+fn divu_cycle_count(dividend: u32, divisor: u32, source: AddressingMode) -> u32 {
+    let shifted_divisor = divisor << 16;
+    let mut dividend = dividend;
+
+    let mut added_cycles = 0;
+    for _ in 0..15 {
+        let prev_msb = dividend.bit(31);
+        dividend <<= 1;
+
+        let negative = dividend < shifted_divisor;
+        if prev_msb || !negative {
+            // Subtract if there was a shift out (borrow) or the subtraction result was non-negative
+            dividend = dividend.wrapping_sub(shifted_divisor);
+        }
+
+        // Add 2 cycles if the bit shifted out was a 0
+        added_cycles += 2 * u32::from(!prev_msb);
+
+        // Add 2 cycles if the bit shifted out was a 0 and the subtraction result was negative
+        added_cycles += 2 * u32::from(!prev_msb && negative);
+    }
+
+    76 + added_cycles + source.address_calculation_cycles(OpSize::Word)
+}
+
+fn divs_cycle_count(dividend: i32, divisor: i32, quotient: i16, source: AddressingMode) -> u32 {
+    // All DIVS instructions take at least 120 cycles for a non-negative dividend and 122 for negative
+    let base_cycles = if dividend < 0 { 122 } else { 120 };
+
+    let mut added_cycles = 0;
+
+    // Add 2 cycles for each 0 in the quotient's absolute value's most significant 15 bits
+    let mut absolute_quotient = quotient.abs();
+    for _ in 0..15 {
+        added_cycles += 2 * u32::from(absolute_quotient >= 0);
+        absolute_quotient <<= 1;
+    }
+
+    if divisor < 0 {
+        // Add 2 cycles for a negative divisor
+        added_cycles += 2;
+    } else if dividend < 0 {
+        // Add 4 cycles for negative dividend + positive divisor
+        added_cycles += 4;
+    }
+
+    base_cycles + added_cycles + source.address_calculation_cycles(OpSize::Word)
 }
 
 macro_rules! impl_add_fn {
