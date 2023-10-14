@@ -1,3 +1,6 @@
+//! Code for handling word RAM, a 256KB block of RAM that can be exchanged between the main CPU
+//! and the sub CPU
+
 use crate::memory::ScdCpu;
 use bincode::{Decode, Encode};
 use jgenesis_traits::num::GetBit;

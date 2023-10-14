@@ -1,3 +1,5 @@
+//! Implementations for the 24C01, 24C02, 24C08, and 24C16 EEPROM chips
+
 #[cfg(test)]
 mod tests;
 

@@ -1,3 +1,5 @@
+//! [`CdTime`] type for more ergonomic handling of CD-ROM times and addresses
+
 use bincode::{Decode, Encode};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};

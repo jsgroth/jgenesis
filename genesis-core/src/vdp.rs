@@ -1,3 +1,5 @@
+//! Genesis VDP (video display processor)
+
 mod debug;
 
 use crate::memory::{Memory, PhysicalMedium};

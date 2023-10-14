@@ -1,3 +1,5 @@
+//! Sega CD public interface and main loop
+
 use crate::audio::AudioDownsampler;
 use crate::cddrive::CdTickEffect;
 use crate::cdrom::cue;

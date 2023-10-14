@@ -1,4 +1,7 @@
-// List of games from https://segaretro.org/Battery_backup
+//! List of Sega Master System / Game Gear games that have battery-backed SRAM in the cartridge.
+//! This is necessary because SMS/GG cartridges don't have a proper header
+//!
+//! List of games from <https://segaretro.org/Battery_backup>
 
 const SMS_BATTERY_BACKUP_GAMES_CRC32: &[u32] = &[
     0x48651325, // Golfamania (E/B)

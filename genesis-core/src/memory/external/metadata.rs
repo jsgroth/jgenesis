@@ -1,3 +1,9 @@
+//! Detection for games that are known to use EEPROM chips, which require knowing how the EEPROM
+//! chip is mapped into the cartridge's address space
+//!
+//! List of games and metadata from this thread:
+//! <https://gendev.spritesmind.net/forum/viewtopic.php?f=25&t=206>
+
 use crc::Crc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,3 +1,5 @@
+//! YM2612 low frequency oscillator (LFO)
+
 use bincode::{Decode, Encode};
 use jgenesis_traits::num::GetBit;
 

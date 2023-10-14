@@ -1,3 +1,5 @@
+//! FIR low-pass filter for resampling Sega Master System / Game Gear PSG output to 48 KHz
+
 use bincode::{Decode, Encode};
 use std::collections::VecDeque;
 

@@ -1,3 +1,9 @@
+//! Sega Master System / Game Gear VDP (video display processor)
+//!
+//! The SMS and GG VDPs are nearly identical, with only a few minor differences:
+//! * SMS VDP renders 256x192 frames; GG VDP also renders 256x192 but only displays the center 160x144
+//! * SMS VDP has 32 bytes of CRAM and uses 6-bit RGB color; GG VDP has 32 _words_ of CRAM and uses 12-bit RGB color
+
 mod debug;
 
 use bincode::de::{BorrowDecoder, Decoder};

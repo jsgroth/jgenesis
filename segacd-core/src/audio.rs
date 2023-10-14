@@ -1,3 +1,7 @@
+//! Sega CD audio resampling, filtering, and mixing code
+//!
+//! Reuses some resampling/filtering code from [`genesis_core::audio`]
+
 #![allow(clippy::excessive_precision)]
 
 use bincode::{Decode, Encode};

@@ -1,3 +1,5 @@
+//! Code for handling Genesis controller input I/O registers
+
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_traits::num::GetBit;

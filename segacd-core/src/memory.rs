@@ -1,3 +1,5 @@
+//! Sega CD memory map and sub CPU bus interface
+
 mod backupram;
 mod font;
 pub(crate) mod wordram;

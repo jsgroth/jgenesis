@@ -1,3 +1,8 @@
+//! Sega Virtua Processor (SVP), auxiliary cartridge hardware used exclusively in Virtua Racing
+//!
+//! Implementation based on documentation and reverse engineering work by notaz and Tasco Deluxe:
+//! <https://notaz.gp2x.de/docs/svpdoc.txt>
+
 mod ssp1601;
 
 use bincode::{Decode, Encode};

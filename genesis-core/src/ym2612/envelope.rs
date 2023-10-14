@@ -1,3 +1,5 @@
+//! YM2612 envelope generator
+
 use crate::ym2612::phase::PhaseGenerator;
 use bincode::{Decode, Encode};
 use jgenesis_traits::num::GetBit;

@@ -1,3 +1,5 @@
+//! Code for parsing and representing CUE files
+
 use crate::api::{DiscError, DiscResult};
 use crate::cdrom;
 use crate::cdrom::cdtime::CdTime;

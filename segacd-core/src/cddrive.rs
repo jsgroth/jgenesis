@@ -1,3 +1,5 @@
+//! Sega CD CD-ROM drive
+
 pub mod cdc;
 pub mod cdd;
 

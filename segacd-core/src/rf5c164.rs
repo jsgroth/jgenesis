@@ -1,3 +1,5 @@
+//! Ricoh RF5C164 PCM sound chip
+
 use bincode::{Decode, Encode};
 use jgenesis_traits::num::GetBit;
 use std::array;

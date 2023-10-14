@@ -1,3 +1,8 @@
+//! YM2612 FM synthesis sound chip, also known as the OPN2
+//!
+//! This implementation is mostly based on community research documented here:
+//! <http://gendev.spritesmind.net/forum/viewtopic.php?f=24&t=386>
+
 mod envelope;
 mod lfo;
 mod phase;

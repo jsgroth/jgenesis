@@ -1,3 +1,5 @@
+//! Sega Master System / Game Gear public interface and main loop
+
 use crate::audio::LowPassFilter;
 use crate::bus::Bus;
 use crate::input::InputState;

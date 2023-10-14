@@ -1,3 +1,5 @@
+//! Sega CD's graphics ASIC, which can perform hardware-accelerated image scaling and rotation
+
 mod fixedpoint;
 
 use crate::graphics::fixedpoint::FixedPointDecimal;

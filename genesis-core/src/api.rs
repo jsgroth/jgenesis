@@ -1,3 +1,5 @@
+//! Genesis public interface and main loop
+
 use crate::audio::GenesisAudioDownsampler;
 use crate::input::{GenesisInputs, InputState};
 use crate::memory::{Cartridge, MainBus, MainBusSignals, Memory};

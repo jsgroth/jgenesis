@@ -1,3 +1,5 @@
+//! Sega Master System / Game Gear memory map
+
 mod metadata;
 
 use bincode::{Decode, Encode};

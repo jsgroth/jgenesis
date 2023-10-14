@@ -1,3 +1,5 @@
+//! Code for reading CD-ROM CUE/BIN files
+
 use crate::api::{DiscError, DiscResult};
 use crate::cdrom;
 use crate::cdrom::cdtime::CdTime;

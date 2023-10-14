@@ -1,3 +1,5 @@
+//! Sega CD's physical drive, which documentation refers to as the CDD
+
 use crate::api::{DiscError, DiscResult};
 use crate::cddrive::cdc::Rchip;
 use crate::cdrom;

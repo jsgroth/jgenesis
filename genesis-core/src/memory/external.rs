@@ -1,3 +1,5 @@
+//! Implementation for external memory on the cartridge, which can be SRAM or EEPROM
+
 mod metadata;
 
 use crate::memory::eeprom::{X24C01Chip, X24C02Chip, X24C08Chip, X24C16Chip};

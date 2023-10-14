@@ -1,3 +1,5 @@
+//! YM2612 timers
+
 use bincode::{Decode, Encode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

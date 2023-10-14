@@ -1,3 +1,5 @@
+//! Implementation of the Z80's bus interface, which connects it to all other components
+
 use crate::input::InputState;
 use crate::memory::Memory;
 use crate::psg::Psg;

@@ -1,3 +1,9 @@
+//! YM2413 FM synthesis sound chip, also known as the OPLL. Used in the Sega Master System FM sound
+//! unit expansion
+//!
+//! This implementation is largely based on reverse engineering work by andete:
+//! <https://github.com/andete/ym2413>
+
 use bincode::{Decode, Encode};
 use jgenesis_traits::num::GetBit;
 use std::sync::OnceLock;

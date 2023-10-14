@@ -1,3 +1,5 @@
+//! Code for handling Sega Master System / Game Gear controller input I/O registers
+
 use crate::api::SmsRegion;
 use bincode::{Decode, Encode};
 use jgenesis_traits::num::GetBit;

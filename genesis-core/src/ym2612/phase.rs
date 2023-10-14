@@ -1,3 +1,5 @@
+//! YM2612 phase generator
+
 use crate::ym2612::lfo;
 use bincode::{Decode, Encode};
 use jgenesis_traits::num::GetBit;

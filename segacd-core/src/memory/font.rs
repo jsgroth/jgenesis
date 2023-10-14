@@ -1,3 +1,5 @@
+//! Sega CD font rendering / color calculation registers
+
 use bincode::{Decode, Encode};
 use jgenesis_traits::num::GetBit;
 

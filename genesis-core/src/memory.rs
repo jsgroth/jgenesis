@@ -1,3 +1,5 @@
+//! Genesis memory map and 68000 + Z80 bus interfaces
+
 mod eeprom;
 mod external;
 

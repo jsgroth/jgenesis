@@ -1,3 +1,5 @@
+//! Genesis audio resampling, filtering, and mixing code
+
 #![allow(clippy::excessive_precision)]
 
 use bincode::{Decode, Encode};
