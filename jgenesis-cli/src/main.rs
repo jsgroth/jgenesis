@@ -19,6 +19,7 @@ use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsRegion, VdpVersion};
 use std::ffi::OsStr;
 use std::path::Path;
+use std::process;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumDisplay, EnumFromStr)]
 enum Hardware {
@@ -27,271 +28,279 @@ enum Hardware {
     SegaCd,
 }
 
+const SMSGG_OPTIONS_HEADING: &str = "Master System / Game Gear Options";
+const GENESIS_OPTIONS_HEADING: &str = "Genesis / Sega CD Options";
+const SCD_OPTIONS_HEADING: &str = "Sega CD Options";
+const VIDEO_OPTIONS_HEADING: &str = "Video Options";
+const AUDIO_OPTIONS_HEADING: &str = "Audio Options";
+const INPUT_OPTIONS_HEADING: &str = "Input Options";
+const HOTKEY_OPTIONS_HEADING: &str = "Hotkey Options";
+
 #[derive(Parser)]
 struct Args {
     /// ROM file path
     #[arg(short = 'f', long)]
     file_path: String,
 
-    /// Sega CD BIOS path (required for Sega CD emulation)
-    #[arg(short = 'b', long)]
-    bios_path: Option<String>,
-
-    /// Disable Sega CD RAM cartridge mapping
-    #[arg(long = "disable-ram-cartridge", default_value_t = true, action = clap::ArgAction::SetFalse)]
-    enable_ram_cartridge: bool,
-
-    /// Run the Sega CD emulator with no disc
-    #[arg(long, default_value_t)]
-    scd_no_disc: bool,
-
     /// Hardware (MasterSystem / Genesis / SegaCd), will default based on file extension if not set
     #[arg(long)]
     hardware: Option<Hardware>,
-
-    /// Force SMS/GG VDP version (NtscMasterSystem2 / NtscMasterSystem1 / PalMasterSystem2 / PalMasterSystem1 / GameGear)
-    #[arg(long)]
-    vdp_version: Option<VdpVersion>,
-
-    /// Force SMS/GG PSG version (MasterSystem2 / Standard)
-    #[arg(long)]
-    psg_version: Option<PsgVersion>,
-
-    /// Force Genesis timing mode (Ntsc / Pal)
-    #[arg(long)]
-    genesis_timing_mode: Option<TimingMode>,
 
     /// Remove sprite-per-scanline and sprite-pixel-per-scanlines limits which reduces sprite flickering
     #[arg(long, default_value_t)]
     remove_sprite_limit: bool,
 
-    /// Emulate the Genesis VDP's non-linear DAC, which tends to brighten darker colors and darken brighter colors
-    #[arg(long, default_value_t)]
+    /// Force VDP version (NtscMasterSystem2 / NtscMasterSystem1 / PalMasterSystem2 / PalMasterSystem1 / GameGear)
+    #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
+    vdp_version: Option<VdpVersion>,
+
+    /// Force PSG version (MasterSystem2 / Standard)
+    #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
+    psg_version: Option<PsgVersion>,
+
+    /// Master System aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
+    #[arg(long, default_value_t, help_heading = SMSGG_OPTIONS_HEADING)]
+    sms_aspect_ratio: SmsAspectRatio,
+
+    /// Game Gear aspect ratio (GgLcd / SquarePixels / Stretched)
+    #[arg(long, default_value_t, help_heading = SMSGG_OPTIONS_HEADING)]
+    gg_aspect_ratio: GgAspectRatio,
+
+    /// Master System region (International / Domestic)
+    #[arg(long, default_value_t, help_heading = SMSGG_OPTIONS_HEADING)]
+    sms_region: SmsRegion,
+
+    /// Crop SMS top and bottom border; almost all games display only the background color in this area
+    #[arg(long, default_value_t, help_heading = SMSGG_OPTIONS_HEADING)]
+    sms_crop_vertical_border: bool,
+
+    /// Crop SMS left border; many games display only the background color in this area
+    #[arg(long, default_value_t, help_heading = SMSGG_OPTIONS_HEADING)]
+    sms_crop_left_border: bool,
+
+    /// Disable SMS FM sound unit
+    #[arg(long = "disable-sms-fm-unit", default_value_t = true, action = clap::ArgAction::SetFalse, help_heading = SMSGG_OPTIONS_HEADING)]
+    sms_fm_unit_enabled: bool,
+
+    /// Overclock the Z80 CPU to 2x speed
+    #[arg(long, default_value_t, help_heading = SMSGG_OPTIONS_HEADING)]
+    smsgg_overclock_z80: bool,
+
+    /// Force timing mode (Ntsc / Pal)
+    #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
+    genesis_timing_mode: Option<TimingMode>,
+
+    /// Emulate the VDP's non-linear DAC, which tends to brighten darker colors and darken brighter colors
+    #[arg(long, default_value_t, help_heading = GENESIS_OPTIONS_HEADING)]
     emulate_non_linear_vdp_dac: bool,
 
     /// Disable YM2612 output quantization, letting outputs cover the full 14-bit range instead of only using the highest 9 bits
-    #[arg(long = "no-ym2612-quantization", default_value_t = true, action = clap::ArgAction::SetFalse)]
+    #[arg(long = "no-ym2612-quantization", default_value_t = true, action = clap::ArgAction::SetFalse, help_heading = GENESIS_OPTIONS_HEADING)]
     quantize_ym2612_output: bool,
 
-    /// SMS aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
-    #[arg(long, default_value_t)]
-    sms_aspect_ratio: SmsAspectRatio,
-
-    /// GG aspect ratio (GgLcd / SquarePixels / Stretched)
-    #[arg(long, default_value_t)]
-    gg_aspect_ratio: GgAspectRatio,
-
-    /// Genesis aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
-    #[arg(long, default_value_t)]
+    /// Aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
+    #[arg(long, default_value_t, help_heading = GENESIS_OPTIONS_HEADING)]
     genesis_aspect_ratio: GenesisAspectRatio,
 
     /// Disable automatic pixel aspect ratio adjustment when Genesis interlacing double resolution mode
     /// is enabled
-    #[arg(long = "no-genesis-adjust-aspect-ratio", default_value_t = true, action = clap::ArgAction::SetFalse)]
+    #[arg(long = "no-genesis-adjust-aspect-ratio", default_value_t = true, action = clap::ArgAction::SetFalse, help_heading = GENESIS_OPTIONS_HEADING)]
     genesis_adjust_aspect_ratio: bool,
 
-    /// SMS region (International / Domestic)
-    #[arg(long, default_value_t)]
-    sms_region: SmsRegion,
-
-    /// Force Genesis region (Americas / Japan / Europe)
-    #[arg(long)]
+    /// Force region (Americas / Japan / Europe)
+    #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
     genesis_region: Option<GenesisRegion>,
 
-    /// Crop SMS top and bottom border; almost all games display only the background color in this area
-    #[arg(long, default_value_t)]
-    sms_crop_vertical_border: bool,
+    /// Sega CD BIOS path (required for Sega CD emulation)
+    #[arg(short = 'b', long, help_heading = SCD_OPTIONS_HEADING)]
+    bios_path: Option<String>,
 
-    /// Crop SMS left border; many games display only the background color in this area
-    #[arg(long, default_value_t)]
-    sms_crop_left_border: bool,
+    /// Disable Sega CD RAM cartridge mapping
+    #[arg(long = "disable-ram-cartridge", default_value_t = true, action = clap::ArgAction::SetFalse, help_heading = SCD_OPTIONS_HEADING)]
+    enable_ram_cartridge: bool,
 
-    /// Disable SMS FM sound unit
-    #[arg(long = "disable-sms-fm-unit", default_value_t = true, action = clap::ArgAction::SetFalse)]
-    sms_fm_unit_enabled: bool,
-
-    /// Overclock the SMS/GG Z80 CPU to 2x speed
-    #[arg(long, default_value_t)]
-    smsgg_overclock_z80: bool,
-
-    /// Disable audio sync
-    #[arg(long = "no-audio-sync", default_value_t = true, action = clap::ArgAction::SetFalse)]
-    audio_sync: bool,
-
-    /// Audio device queue size in samples
-    #[arg(long, default_value_t = 512)]
-    audio_device_queue_size: u16,
-
-    /// Internal audio buffer size in samples
-    #[arg(long, default_value_t = 64)]
-    internal_audio_buffer_size: u32,
-
-    /// Audio sync threshold in bytes (1 sample = 2x4 bytes)
-    #[arg(long, default_value_t = 8192)]
-    audio_sync_threshold: u32,
-
-    /// Audio gain in decibels; can be positive or negative
-    #[arg(long, default_value_t = 0.0)]
-    audio_gain_db: f64,
+    /// Run the Sega CD emulator with no disc
+    #[arg(long, default_value_t, help_heading = SCD_OPTIONS_HEADING)]
+    scd_no_disc: bool,
 
     /// Window width in pixels; height must also be set
-    #[arg(long)]
+    #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     window_width: Option<u32>,
 
     /// Window height in pixels; width must also be set
-    #[arg(long)]
+    #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     window_height: Option<u32>,
 
     /// Launch in fullscreen
-    #[arg(long)]
+    #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     fullscreen: bool,
 
     /// wgpu backend (Auto / Vulkan / DirectX12 / Metal / OpenGl)
-    #[arg(long, default_value_t)]
+    #[arg(long, default_value_t, help_heading = VIDEO_OPTIONS_HEADING)]
     wgpu_backend: WgpuBackend,
 
     /// VSync mode (Enabled / Disabled / Fast)
-    #[arg(long, default_value_t = VSyncMode::Enabled)]
+    #[arg(long, default_value_t = VSyncMode::Enabled, help_heading = VIDEO_OPTIONS_HEADING)]
     vsync_mode: VSyncMode,
 
     /// Prescale factor; must be a positive integer
-    #[arg(long, default_value_t = 3)]
+    #[arg(long, default_value_t = 3, help_heading = VIDEO_OPTIONS_HEADING)]
     prescale_factor: u32,
 
     /// Scanlines (None / Dim / Black)
-    #[arg(long, default_value_t)]
+    #[arg(long, default_value_t, help_heading = VIDEO_OPTIONS_HEADING)]
     scanlines: Scanlines,
 
     /// Force display area height to be an integer multiple of native console resolution
-    #[arg(long, default_value_t)]
+    #[arg(long, default_value_t, help_heading = VIDEO_OPTIONS_HEADING)]
     force_integer_height_scaling: bool,
 
     /// Filter mode (Nearest / Linear)
-    #[arg(long, default_value_t = FilterMode::Linear)]
+    #[arg(long, default_value_t = FilterMode::Linear, help_heading = VIDEO_OPTIONS_HEADING)]
     filter_mode: FilterMode,
 
     /// Preprocess shader (None / HorizontalBlurTwoPixels / HorizontalBlurThreePixels / AntiDitherWeak / AntiDitherStrong)
-    #[arg(long, default_value_t)]
+    #[arg(long, default_value_t, help_heading = VIDEO_OPTIONS_HEADING)]
     preprocess_shader: PreprocessShader,
 
-    /// Fast forward multiplier
-    #[arg(long, default_value_t = 2)]
-    fast_forward_multiplier: u64,
+    /// Disable audio sync
+    #[arg(long = "no-audio-sync", default_value_t = true, action = clap::ArgAction::SetFalse, help_heading = AUDIO_OPTIONS_HEADING)]
+    audio_sync: bool,
 
-    /// Rewind buffer length in seconds
-    #[arg(long, default_value_t = 10)]
-    rewind_buffer_length_seconds: u64,
+    /// Audio device queue size in samples
+    #[arg(long, default_value_t = 512, help_heading = AUDIO_OPTIONS_HEADING)]
+    audio_device_queue_size: u16,
+
+    /// Internal audio buffer size in samples
+    #[arg(long, default_value_t = 64, help_heading = AUDIO_OPTIONS_HEADING)]
+    internal_audio_buffer_size: u32,
+
+    /// Audio sync threshold in bytes (1 sample = 2x4 bytes)
+    #[arg(long, default_value_t = 8192, help_heading = AUDIO_OPTIONS_HEADING)]
+    audio_sync_threshold: u32,
+
+    /// Audio gain in decibels; can be positive or negative
+    #[arg(long, default_value_t = 0.0, help_heading = AUDIO_OPTIONS_HEADING)]
+    audio_gain_db: f64,
 
     /// P1 Genesis controller type (ThreeButton / SixButton)
-    #[arg(long, default_value_t)]
+    #[arg(long, default_value_t, help_heading = INPUT_OPTIONS_HEADING)]
     input_p1_type: GenesisControllerType,
 
     /// P1 up key
-    #[arg(long)]
+    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
     input_p1_up: Option<String>,
 
     /// P1 left key
-    #[arg(long)]
+    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
     input_p1_left: Option<String>,
 
     /// P1 right key
-    #[arg(long)]
+    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
     input_p1_right: Option<String>,
 
     /// P1 down key
-    #[arg(long)]
+    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
     input_p1_down: Option<String>,
 
     /// P1 button 1 key (SMS/GG)
-    #[arg(long)]
+    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
     input_p1_button_1: Option<String>,
 
     /// P1 button 2 key (SMS/GG)
-    #[arg(long)]
+    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
     input_p1_button_2: Option<String>,
 
     /// P1 A button key (Genesis)
-    #[arg(long)]
+    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
     input_p1_a: Option<String>,
 
     /// P1 B button key (Genesis)
-    #[arg(long)]
+    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
     input_p1_b: Option<String>,
 
     /// P1 C button key (Genesis)
-    #[arg(long)]
+    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
     input_p1_c: Option<String>,
 
     /// P1 X button key (Genesis)
-    #[arg(long)]
+    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
     input_p1_x: Option<String>,
 
     /// P1 Y button key (Genesis)
-    #[arg(long)]
+    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
     input_p1_y: Option<String>,
 
     /// P1 Z button key (Genesis)
-    #[arg(long)]
+    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
     input_p1_z: Option<String>,
 
     /// P1 start/pause key
-    #[arg(long)]
+    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
     input_p1_start: Option<String>,
 
     /// P1 mode key (Genesis)
-    #[arg(long)]
+    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
     input_p1_mode: Option<String>,
 
     /// Joystick axis deadzone
-    #[arg(long, default_value_t = 8000)]
+    #[arg(long, default_value_t = 8000, help_heading = INPUT_OPTIONS_HEADING)]
     joy_axis_deadzone: i16,
 
+    /// Fast forward multiplier
+    #[arg(long, default_value_t = 2, help_heading = HOTKEY_OPTIONS_HEADING)]
+    fast_forward_multiplier: u64,
+
+    /// Rewind buffer length in seconds
+    #[arg(long, default_value_t = 10, help_heading = HOTKEY_OPTIONS_HEADING)]
+    rewind_buffer_length_seconds: u64,
+
     /// Quit hotkey
-    #[arg(long, default_value_t = String::from("Escape"))]
+    #[arg(long, default_value_t = String::from("Escape"), help_heading = HOTKEY_OPTIONS_HEADING)]
     hotkey_quit: String,
 
     /// Toggle fullscreen hotkey
-    #[arg(long, default_value_t = String::from("F9"))]
+    #[arg(long, default_value_t = String::from("F9"), help_heading = HOTKEY_OPTIONS_HEADING)]
     hotkey_toggle_fullscreen: String,
 
     /// Save state hotkey
-    #[arg(long, default_value_t = String::from("F5"))]
+    #[arg(long, default_value_t = String::from("F5"), help_heading = HOTKEY_OPTIONS_HEADING)]
     hotkey_save_state: String,
 
     /// Load state hotkey
-    #[arg(long, default_value_t = String::from("F6"))]
+    #[arg(long, default_value_t = String::from("F6"), help_heading = HOTKEY_OPTIONS_HEADING)]
     hotkey_load_state: String,
 
     /// Soft reset hotkey
-    #[arg(long, default_value_t = String::from("F1"))]
+    #[arg(long, default_value_t = String::from("F1"), help_heading = HOTKEY_OPTIONS_HEADING)]
     hotkey_soft_reset: String,
 
     /// Hard reset hotkey
-    #[arg(long, default_value_t = String::from("F2"))]
+    #[arg(long, default_value_t = String::from("F2"), help_heading = HOTKEY_OPTIONS_HEADING)]
     hotkey_hard_reset: String,
 
     /// Pause hotkey
-    #[arg(long, default_value_t = String::from("P"))]
+    #[arg(long, default_value_t = String::from("P"), help_heading = HOTKEY_OPTIONS_HEADING)]
     hotkey_pause: String,
 
     /// Step frame hotkey
-    #[arg(long, default_value_t = String::from("N"))]
+    #[arg(long, default_value_t = String::from("N"), help_heading = HOTKEY_OPTIONS_HEADING)]
     hotkey_step_frame: String,
 
     /// Fast forward hotkey
-    #[arg(long, default_value_t = String::from("Tab"))]
+    #[arg(long, default_value_t = String::from("Tab"), help_heading = HOTKEY_OPTIONS_HEADING)]
     hotkey_fast_forward: String,
 
     /// Rewind hotkey
-    #[arg(long, default_value_t = String::from("`"))]
+    #[arg(long, default_value_t = String::from("`"), help_heading = HOTKEY_OPTIONS_HEADING)]
     hotkey_rewind: String,
 
     /// CRAM debug window hotkey
-    #[arg(long, default_value_t = String::from(";"))]
+    #[arg(long, default_value_t = String::from(";"), help_heading = HOTKEY_OPTIONS_HEADING)]
     hotkey_cram_debug: String,
 
     /// VRAM debug window hotkey
-    #[arg(long, default_value_t = String::from("'"))]
+    #[arg(long, default_value_t = String::from("'"), help_heading = HOTKEY_OPTIONS_HEADING)]
     hotkey_vram_debug: String,
 }
 
@@ -503,10 +512,12 @@ fn run_genesis(args: Args) -> anyhow::Result<()> {
 }
 
 fn run_sega_cd(args: Args) -> anyhow::Result<()> {
-    let bios_file_path = args
-        .bios_path
-        .clone()
-        .expect("BIOS file path (-b / --bios-path) is required for Sega CD emulation");
+    let bios_file_path = args.bios_path.clone().unwrap_or_else(|| {
+        eprintln!(
+            "ERROR: BIOS file path (-b / --bios-file-path) is required for Sega CD emulation"
+        );
+        process::exit(1);
+    });
 
     let config = SegaCdConfig {
         genesis: args.genesis_config(),
