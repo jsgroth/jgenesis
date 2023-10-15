@@ -683,7 +683,8 @@ impl PhysicalMedium for SegaCd {
         // VDP DMA reads from word RAM are delayed by a cycle, effectively meaning the read should
         // be from (address - 2)
         match address & ADDRESS_MASK {
-            address @ 0x200000..=0x23FFFF => self.read_word(address.wrapping_sub(2)),
+            // End range at $240000, one word past the last word address in word RAM
+            address @ 0x200000..=0x240000 => self.read_word(address.wrapping_sub(2)),
             address => self.read_word(address),
         }
     }
