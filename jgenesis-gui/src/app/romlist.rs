@@ -18,7 +18,7 @@ impl Console {
         match extension {
             "sms" => Some(Self::MasterSystem),
             "gg" => Some(Self::GameGear),
-            "md" => Some(Self::Genesis),
+            "md" | "bin" => Some(Self::Genesis),
             "cue" => Some(Self::SegaCd),
             _ => None,
         }
@@ -83,25 +83,38 @@ pub fn build(rom_search_dirs: &[String]) -> Vec<RomMetadata> {
         })
         .collect();
 
+    // Remove any files that are referenced in .cue files
+    let cd_bin_file_names = metadata
+        .iter()
+        .filter(|metadata| {
+            Path::new(&metadata.full_path).extension().and_then(OsStr::to_str) == Some("cue")
+        })
+        .filter_map(|metadata| {
+            let path = Path::new(&metadata.full_path);
+
+            let cue_directory = path.parent()?;
+            let cue_contents = fs::read_to_string(path).ok()?;
+
+            let file_names = parse_bin_file_names(&cue_contents)
+                .filter_map(|file_name| cue_directory.join(file_name).to_str().map(String::from))
+                .collect::<Vec<_>>();
+            Some(file_names)
+        })
+        .flatten()
+        .collect::<HashSet<_>>();
+
+    metadata.retain(|metadata| !cd_bin_file_names.contains(&metadata.full_path));
+
     metadata.sort_by(|a, b| a.file_name_no_ext.cmp(&b.file_name_no_ext));
     metadata
 }
 
 fn sega_cd_file_size(cue_path: &str) -> io::Result<u64> {
-    static LINE_RE: OnceLock<Regex> = OnceLock::new();
-
     let cue_contents = fs::read_to_string(cue_path)?;
     let cue_directory =
         Path::new(cue_path).parent().expect("Valid file should always have a parent dir");
 
-    let unique_file_names = cue_contents
-        .lines()
-        .filter_map(|line| {
-            let line_re = LINE_RE.get_or_init(|| Regex::new(r#"FILE "(.*)" BINARY"#).unwrap());
-
-            line_re.captures(line).map(|captures| captures.get(1).unwrap().as_str())
-        })
-        .collect::<HashSet<_>>();
+    let unique_file_names = parse_bin_file_names(&cue_contents).collect::<HashSet<_>>();
 
     unique_file_names
         .iter()
@@ -110,4 +123,14 @@ fn sega_cd_file_size(cue_path: &str) -> io::Result<u64> {
             fs::metadata(full_path).map(|metadata| metadata.len())
         })
         .sum()
+}
+
+fn parse_bin_file_names(cue_contents: &str) -> impl Iterator<Item = &str> {
+    static LINE_RE: OnceLock<Regex> = OnceLock::new();
+
+    cue_contents.lines().filter_map(|line| {
+        let line_re = LINE_RE.get_or_init(|| Regex::new(r#"FILE "(.*)" BINARY"#).unwrap());
+
+        line_re.captures(line).map(|captures| captures.get(1).unwrap().as_str())
+    })
 }
