@@ -483,9 +483,15 @@ impl CdDrive {
         let current_time = self.state.current_time();
 
         if seek_time == current_time {
-            log::trace!("Already at desired seek time {seek_time}; preparing to play");
-            self.state =
-                State::PreparingToPlay { time: seek_time, clocks_remaining: PLAY_DELAY_CLOCKS };
+            log::trace!(
+                "Already at desired seek time {seek_time}; changing status to {next_status:?}"
+            );
+            self.state = match next_status {
+                ReaderStatus::Paused => State::Paused(seek_time),
+                ReaderStatus::Playing => {
+                    State::PreparingToPlay { time: seek_time, clocks_remaining: PLAY_DELAY_CLOCKS }
+                }
+            };
             return;
         }
 
