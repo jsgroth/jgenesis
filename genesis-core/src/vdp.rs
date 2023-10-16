@@ -776,6 +776,7 @@ impl DmaTracker {
         self.bytes_remaining -=
             bytes_per_line * master_clock_cycles as f64 / MCLK_CYCLES_PER_SCANLINE as f64;
         if self.bytes_remaining <= 0.0 {
+            log::trace!("VDP DMA in mode {:?} complete", self.mode);
             self.in_progress = false;
         }
     }

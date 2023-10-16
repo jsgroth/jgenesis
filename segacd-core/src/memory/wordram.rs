@@ -136,6 +136,8 @@ impl WordRam {
         if self.mode == WordRamMode::OneM && !dmna {
             self.swap_request = true;
         }
+
+        log::trace!("Main CPU control write; DMNA={}, mode={:?}", u8::from(dmna), self.mode);
     }
 
     pub fn sub_cpu_write_control(&mut self, value: u8) {
@@ -159,6 +161,13 @@ impl WordRam {
         }
 
         self.priority_mode = WordRamPriorityMode::from_bits(value >> 3);
+
+        log::trace!(
+            "Sub CPU control write; RET={}, mode={:?}, priority_mode={:?}",
+            u8::from(ret),
+            self.mode,
+            self.priority_mode
+        );
     }
 
     fn main_cpu_map_address(&self, address: u32) -> Option<u32> {
