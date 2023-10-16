@@ -862,8 +862,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let vector_addr = AUTO_VECTORED_INTERRUPT_BASE_ADDRESS + 4 * u32::from(interrupt_level);
         self.registers.pc = self.bus.read_long_word(vector_addr);
 
-        // TODO this is maybe not correct
-        Ok(46)
+        Ok(44)
     }
 
     fn execute(mut self) -> u32 {
