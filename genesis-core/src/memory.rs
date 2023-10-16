@@ -119,6 +119,7 @@ impl Cartridge {
         Self { rom: Rom(rom_bytes), external_memory, ram_mapped, mapper, svp, region }
     }
 
+    #[inline]
     pub fn tick(&mut self, m68k_cycles: u32) {
         if let Some(svp) = &mut self.svp {
             svp.tick(&self.rom.0, m68k_cycles);
@@ -197,6 +198,7 @@ pub trait PhysicalMedium {
 }
 
 impl PhysicalMedium for Cartridge {
+    #[inline]
     fn read_byte(&mut self, address: u32) -> u8 {
         if let Some(svp) = &mut self.svp {
             let word = svp.m68k_read(address & !1, &self.rom.0);
@@ -213,6 +215,7 @@ impl PhysicalMedium for Cartridge {
         self.rom.get(rom_addr as usize).unwrap_or(0xFF)
     }
 
+    #[inline]
     fn read_word(&mut self, address: u32) -> u16 {
         if let Some(svp) = &mut self.svp {
             return svp.m68k_read(address, &self.rom.0);
@@ -230,6 +233,7 @@ impl PhysicalMedium for Cartridge {
         u16::from_be_bytes([msb, lsb])
     }
 
+    #[inline]
     fn read_word_for_dma(&mut self, address: u32) -> u16 {
         if self.svp.is_some() {
             // SVP cartridge memory has the same delay issue as Sega CD word RAM; Virtua Racing sets
@@ -240,6 +244,7 @@ impl PhysicalMedium for Cartridge {
         }
     }
 
+    #[inline]
     fn write_byte(&mut self, address: u32, value: u8) {
         if let Some(svp) = &mut self.svp {
             svp.m68k_write_byte(address, value);
@@ -259,6 +264,7 @@ impl PhysicalMedium for Cartridge {
         }
     }
 
+    #[inline]
     fn write_word(&mut self, address: u32, value: u16) {
         if let Some(svp) = &mut self.svp {
             svp.m68k_write_word(address, value);
@@ -278,6 +284,7 @@ impl PhysicalMedium for Cartridge {
         }
     }
 
+    #[inline]
     fn region(&self) -> GenesisRegion {
         self.region
     }
@@ -354,21 +361,25 @@ impl<Medium: PhysicalMedium> Memory<Medium> {
         }
     }
 
+    #[inline]
     #[must_use]
     pub fn hardware_region(&self) -> GenesisRegion {
         self.physical_medium.region()
     }
 
+    #[inline]
     #[must_use]
     pub fn medium(&self) -> &Medium {
         &self.physical_medium
     }
 
+    #[inline]
     #[must_use]
     pub fn medium_mut(&mut self) -> &mut Medium {
         &mut self.physical_medium
     }
 
+    #[inline]
     pub fn reset_z80_signals(&mut self) {
         self.signals = Signals::default();
     }
@@ -394,16 +405,19 @@ impl Memory<Cartridge> {
         self.physical_medium.program_title()
     }
 
+    #[inline]
     #[must_use]
     pub fn external_ram(&self) -> &[u8] {
         self.physical_medium.external_ram()
     }
 
+    #[inline]
     #[must_use]
     pub fn is_external_ram_persistent(&self) -> bool {
         self.physical_medium.is_ram_persistent()
     }
 
+    #[inline]
     #[must_use]
     pub fn get_and_clear_external_ram_dirty(&mut self) -> bool {
         self.physical_medium.get_and_clear_ram_dirty()
@@ -416,6 +430,25 @@ pub struct MainBusSignals {
     pub m68k_reset: bool,
 }
 
+#[derive(Debug, Clone, Default, Encode, Decode)]
+pub struct MainBusWrites {
+    byte: Vec<(u32, u8)>,
+    word: Vec<(u32, u16)>,
+}
+
+impl MainBusWrites {
+    #[inline]
+    #[must_use]
+    pub fn new() -> Self {
+        Self { byte: Vec::with_capacity(20), word: Vec::with_capacity(20) }
+    }
+
+    fn clear(&mut self) {
+        self.byte.clear();
+        self.word.clear();
+    }
+}
+
 pub struct MainBus<'a, Medium> {
     memory: &'a mut Memory<Medium>,
     vdp: &'a mut Vdp,
@@ -424,9 +457,12 @@ pub struct MainBus<'a, Medium> {
     input: &'a mut InputState,
     timing_mode: TimingMode,
     signals: MainBusSignals,
+    pending_writes: MainBusWrites,
 }
 
 impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
+    #[allow(clippy::too_many_arguments)]
+    #[inline]
     pub fn new(
         memory: &'a mut Memory<Medium>,
         vdp: &'a mut Vdp,
@@ -435,12 +471,11 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
         input: &'a mut InputState,
         timing_mode: TimingMode,
         signals: MainBusSignals,
+        pending_writes: MainBusWrites,
     ) -> Self {
-        Self { memory, vdp, psg, ym2612, input, timing_mode, signals }
+        Self { memory, vdp, psg, ym2612, input, timing_mode, signals, pending_writes }
     }
 
-    // TODO remove
-    #[allow(clippy::match_same_arms)]
     fn read_io_register(&self, address: u32) -> u8 {
         match address {
             // Version register
@@ -510,6 +545,105 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
             _ => unreachable!("address & 0x1F is always <= 0x1F"),
         }
     }
+
+    /// Take the pending writes Vecs without applying them
+    #[inline]
+    #[must_use]
+    pub fn take_writes(self) -> MainBusWrites {
+        self.pending_writes
+    }
+
+    /// Apply all pending writes, then clear and return the pending writes Vecs
+    #[inline]
+    #[must_use]
+    pub fn apply_writes(mut self) -> MainBusWrites {
+        let mut pending_writes = mem::take(&mut self.pending_writes);
+
+        for &(address, value) in &pending_writes.byte {
+            self.apply_byte_write(address, value);
+        }
+
+        for &(address, value) in &pending_writes.word {
+            self.apply_word_write(address, value);
+        }
+
+        pending_writes.clear();
+        pending_writes
+    }
+
+    fn apply_byte_write(&mut self, address: u32, value: u8) {
+        let address = address & ADDRESS_MASK;
+        log::trace!("Main bus byte write: address={address:06X}, value={value:02X}");
+        match address {
+            0x000000..=0x7FFFFF | 0xA12000..=0xA1500F => {
+                self.memory.physical_medium.write_byte(address, value);
+            }
+            0xA00000..=0xA0FFFF => {
+                // Z80 memory map
+                // For 68k access, $8000-$FFFF mirrors $0000-$7FFF
+                <Self as z80_emu::BusInterface>::write_memory(
+                    self,
+                    (address & 0x7FFF) as u16,
+                    value,
+                );
+            }
+            0xA10000..=0xA1001F => {
+                self.write_io_register(address, value);
+            }
+            0xA11100..=0xA11101 => {
+                self.memory.signals.z80_busreq = value.bit(0);
+                log::trace!("Set Z80 BUSREQ to {}", self.memory.signals.z80_busreq);
+            }
+            0xA11200..=0xA11201 => {
+                self.memory.signals.z80_reset = !value.bit(0);
+                log::trace!("Set Z80 RESET to {}", self.memory.signals.z80_reset);
+            }
+            0xC00000..=0xC0001F => {
+                self.write_vdp_byte(address, value);
+            }
+            0xE00000..=0xFFFFFF => {
+                self.memory.main_ram[(address & 0xFFFF) as usize] = value;
+            }
+            _ => {}
+        }
+    }
+
+    fn apply_word_write(&mut self, address: u32, value: u16) {
+        let address = address & ADDRESS_MASK;
+        log::trace!("Main bus word write: address={address:06X}, value={value:02X}");
+        match address {
+            0x000000..=0x7FFFFF | 0xA12000..=0xA1500F => {
+                self.memory.physical_medium.write_word(address, value);
+            }
+            0xA00000..=0xA0FFFF => {
+                // Z80 memory map; word-size writes write the MSB as a byte-size write
+                self.apply_byte_write(address, (value >> 8) as u8);
+            }
+            0xA10000..=0xA1001F => {
+                self.write_io_register(address, value as u8);
+            }
+            0xA11100..=0xA11101 => {
+                self.memory.signals.z80_busreq = value.bit(8);
+                log::trace!("Set Z80 BUSREQ to {}", self.memory.signals.z80_busreq);
+            }
+            0xA11200..=0xA11201 => {
+                self.memory.signals.z80_reset = !value.bit(8);
+                log::trace!("Set Z80 RESET to {}", self.memory.signals.z80_reset);
+            }
+            0xC00000..=0xC00003 => {
+                self.vdp.write_data(value);
+            }
+            0xC00004..=0xC00007 => {
+                self.vdp.write_control(value);
+            }
+            0xE00000..=0xFFFFFF => {
+                let ram_addr = (address & 0xFFFF) as usize;
+                self.memory.main_ram[ram_addr] = (value >> 8) as u8;
+                self.memory.main_ram[(ram_addr + 1) & 0xFFFF] = value as u8;
+            }
+            _ => {}
+        }
+    }
 }
 
 // The Genesis has a 24-bit bus, not 32-bit
@@ -571,83 +705,13 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
     }
 
     #[inline]
-    // TODO remove
-    #[allow(clippy::match_same_arms)]
     fn write_byte(&mut self, address: u32, value: u8) {
-        let address = address & ADDRESS_MASK;
-        log::trace!("Main bus byte write: address={address:06X}, value={value:02X}");
-        match address {
-            0x000000..=0x7FFFFF | 0xA12000..=0xA1500F => {
-                self.memory.physical_medium.write_byte(address, value);
-            }
-            0xA00000..=0xA0FFFF => {
-                // Z80 memory map
-                // For 68k access, $8000-$FFFF mirrors $0000-$7FFF
-                <Self as z80_emu::BusInterface>::write_memory(
-                    self,
-                    (address & 0x7FFF) as u16,
-                    value,
-                );
-            }
-            0xA10000..=0xA1001F => {
-                self.write_io_register(address, value);
-            }
-            0xA11100..=0xA11101 => {
-                self.memory.signals.z80_busreq = value.bit(0);
-                log::trace!("Set Z80 BUSREQ to {}", self.memory.signals.z80_busreq);
-            }
-            0xA11200..=0xA11201 => {
-                self.memory.signals.z80_reset = !value.bit(0);
-                log::trace!("Set Z80 RESET to {}", self.memory.signals.z80_reset);
-            }
-            0xC00000..=0xC0001F => {
-                self.write_vdp_byte(address, value);
-            }
-            0xE00000..=0xFFFFFF => {
-                self.memory.main_ram[(address & 0xFFFF) as usize] = value;
-            }
-            _ => {}
-        }
+        self.pending_writes.byte.push((address, value));
     }
 
     #[inline]
-    // TODO remove
-    #[allow(clippy::match_same_arms)]
     fn write_word(&mut self, address: u32, value: u16) {
-        let address = address & ADDRESS_MASK;
-        log::trace!("Main bus word write: address={address:06X}, value={value:02X}");
-        match address {
-            0x000000..=0x7FFFFF | 0xA12000..=0xA1500F => {
-                self.memory.physical_medium.write_word(address, value);
-            }
-            0xA00000..=0xA0FFFF => {
-                // Z80 memory map; word-size writes write the MSB as a byte-size write
-                self.write_byte(address, (value >> 8) as u8);
-            }
-            0xA10000..=0xA1001F => {
-                self.write_io_register(address, value as u8);
-            }
-            0xA11100..=0xA11101 => {
-                self.memory.signals.z80_busreq = value.bit(8);
-                log::trace!("Set Z80 BUSREQ to {}", self.memory.signals.z80_busreq);
-            }
-            0xA11200..=0xA11201 => {
-                self.memory.signals.z80_reset = !value.bit(8);
-                log::trace!("Set Z80 RESET to {}", self.memory.signals.z80_reset);
-            }
-            0xC00000..=0xC00003 => {
-                self.vdp.write_data(value);
-            }
-            0xC00004..=0xC00007 => {
-                self.vdp.write_control(value);
-            }
-            0xE00000..=0xFFFFFF => {
-                let ram_addr = (address & 0xFFFF) as usize;
-                self.memory.main_ram[ram_addr] = (value >> 8) as u8;
-                self.memory.main_ram[(ram_addr + 1) & 0xFFFF] = value as u8;
-            }
-            _ => {}
-        }
+        self.pending_writes.word.push((address, value));
     }
 
     #[inline]
@@ -660,10 +724,12 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
         self.vdp.acknowledge_m68k_interrupt();
     }
 
+    #[inline]
     fn halt(&self) -> bool {
         self.vdp.should_halt_cpu()
     }
 
+    #[inline]
     fn reset(&self) -> bool {
         self.signals.m68k_reset
     }
@@ -760,7 +826,7 @@ impl<'a, Medium: PhysicalMedium> z80_emu::BusInterface for MainBus<'a, Medium> {
             0x8000..=0xFFFF => {
                 let m68k_addr = self.memory.z80_bank_register.map_to_68k_address(address);
                 if !(0xA00000..=0xA0FFFF).contains(&m68k_addr) {
-                    <Self as m68000_emu::BusInterface>::write_byte(self, m68k_addr, value);
+                    self.apply_byte_write(m68k_addr, value);
                 } else {
                     // TODO this should lock up the system
                     panic!(

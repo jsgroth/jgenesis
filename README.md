@@ -19,10 +19,7 @@ Cross-platform multi-console Sega emulator that supports the Sega Genesis / Mega
 * Some simple horizontal blur and naive anti-dither shaders for blending dithered pixel patterns, which were extremely common on these consoles due to limited color palettes and lack of hardware-supported transparency
 * Optional 2x CPU overclocking for Sega Master System and Game Gear emulation
 
-Major TODOs:
-* Investigate and fix why _Silpheed_ randomly freezes during gameplay
-
-Minor TODOs:
+TODOs:
 * Support multiple Sega CD BIOS versions in GUI and automatically use the correct one based on disc region
 * Support CHD files for Sega CD in addition to BIN/CUE
 * Investigate and fix a few minor issues, like the EA logo flickering for a single frame in _Galahad_

@@ -760,6 +760,7 @@ pub struct SubBus<'a> {
 }
 
 impl<'a> SubBus<'a> {
+    #[inline]
     pub fn new(
         memory: &'a mut Memory<SegaCd>,
         graphics_coprocessor: &'a mut GraphicsCoprocessor,

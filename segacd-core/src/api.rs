@@ -10,7 +10,7 @@ use crate::memory::{SegaCd, SubBus};
 use crate::rf5c164::{PcmTickEffect, Rf5c164};
 use bincode::{Decode, Encode};
 use genesis_core::input::InputState;
-use genesis_core::memory::{MainBus, MainBusSignals, Memory};
+use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::vdp::{Vdp, VdpTickEffect};
 use genesis_core::ym2612::{Ym2612, YmTickEffect};
 use genesis_core::{
@@ -122,6 +122,7 @@ pub struct SegaCdEmulator {
     input: InputState,
     audio_downsampler: AudioDownsampler,
     timing_mode: TimingMode,
+    main_bus_writes: MainBusWrites,
     aspect_ratio: GenesisAspectRatio,
     adjust_aspect_ratio_in_2x_resolution: bool,
     disc_title: String,
@@ -129,6 +130,22 @@ pub struct SegaCdEmulator {
     sega_cd_mclk_cycles: u64,
     sega_cd_mclk_cycles_float: f64,
     sub_cpu_wait_cycles: u64,
+}
+
+// This is a macro instead of a function so that it only mutably borrows the needed fields
+macro_rules! new_main_bus {
+    ($self:expr, m68k_reset: $m68k_reset:expr) => {
+        MainBus::new(
+            &mut $self.memory,
+            &mut $self.vdp,
+            &mut $self.psg,
+            &mut $self.ym2612,
+            &mut $self.input,
+            $self.timing_mode,
+            MainBusSignals { z80_busack: $self.z80.stalled(), m68k_reset: $m68k_reset },
+            std::mem::take(&mut $self.main_bus_writes),
+        )
+    };
 }
 
 impl SegaCdEmulator {
@@ -210,6 +227,7 @@ impl SegaCdEmulator {
             &mut input,
             timing_mode,
             MainBusSignals { z80_busack: false, m68k_reset: true },
+            MainBusWrites::new(),
         ));
 
         let audio_downsampler = AudioDownsampler::new(timing_mode);
@@ -226,6 +244,7 @@ impl SegaCdEmulator {
             input,
             audio_downsampler,
             timing_mode,
+            main_bus_writes: MainBusWrites::new(),
             aspect_ratio: emulator_config.genesis.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: emulator_config
                 .genesis
@@ -305,15 +324,7 @@ impl TickableEmulator for SegaCdEmulator {
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
-        let mut main_bus = MainBus::new(
-            &mut self.memory,
-            &mut self.vdp,
-            &mut self.psg,
-            &mut self.ym2612,
-            &mut self.input,
-            self.timing_mode,
-            MainBusSignals { z80_busack: self.z80.stalled(), m68k_reset: false },
-        );
+        let mut main_bus = new_main_bus!(self, m68k_reset: false);
 
         // Main 68000
         let main_cpu_cycles = self.main_cpu.execute_instruction(&mut main_bus);
@@ -327,6 +338,8 @@ impl TickableEmulator for SegaCdEmulator {
         for _ in 0..z80_cycles {
             self.z80.tick(&mut main_bus);
         }
+
+        self.main_bus_writes = main_bus.take_writes();
 
         let genesis_master_clock_rate = match self.timing_mode {
             TimingMode::Ntsc => NTSC_GENESIS_MASTER_CLOCK_RATE,
@@ -366,6 +379,9 @@ impl TickableEmulator for SegaCdEmulator {
 
         // Sub 68000
         self.tick_sub_cpu(sub_cpu_cycles);
+
+        // Apply main CPU writes after ticking the sub CPU; this fixes random freezing in Silpheed
+        self.main_bus_writes = new_main_bus!(self, m68k_reset: false).apply_writes();
 
         // Input state (for 6-button controller reset)
         self.input.tick(main_cpu_cycles);
@@ -427,15 +443,7 @@ impl TickableEmulator for SegaCdEmulator {
 impl Resettable for SegaCdEmulator {
     fn soft_reset(&mut self) {
         // Reset main CPU
-        self.main_cpu.execute_instruction(&mut MainBus::new(
-            &mut self.memory,
-            &mut self.vdp,
-            &mut self.psg,
-            &mut self.ym2612,
-            &mut self.input,
-            self.timing_mode,
-            MainBusSignals { z80_busack: false, m68k_reset: true },
-        ));
+        self.main_cpu.execute_instruction(&mut new_main_bus!(self, m68k_reset: true));
         self.memory.reset_z80_signals();
 
         self.ym2612.reset();

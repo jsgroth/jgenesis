@@ -2,7 +2,7 @@
 
 use crate::audio::GenesisAudioDownsampler;
 use crate::input::{GenesisInputs, InputState};
-use crate::memory::{Cartridge, MainBus, MainBusSignals, Memory};
+use crate::memory::{Cartridge, MainBus, MainBusSignals, MainBusWrites, Memory};
 use crate::vdp::{Vdp, VdpConfig, VdpTickEffect};
 use crate::ym2612::{Ym2612, YmTickEffect};
 use bincode::{Decode, Encode};
@@ -155,10 +155,27 @@ pub struct GenesisEmulator {
     ym2612: Ym2612,
     input: InputState,
     timing_mode: TimingMode,
+    main_bus_writes: MainBusWrites,
     aspect_ratio: GenesisAspectRatio,
     adjust_aspect_ratio_in_2x_resolution: bool,
     audio_downsampler: GenesisAudioDownsampler,
     master_clock_cycles: u64,
+}
+
+// This is a macro instead of a function so that it only mutably borrows the needed fields
+macro_rules! new_main_bus {
+    ($self:expr, m68k_reset: $m68k_reset:expr) => {
+        MainBus::new(
+            &mut $self.memory,
+            &mut $self.vdp,
+            &mut $self.psg,
+            &mut $self.ym2612,
+            &mut $self.input,
+            $self.timing_mode,
+            MainBusSignals { z80_busack: $self.z80.stalled(), m68k_reset: $m68k_reset },
+            std::mem::take(&mut $self.main_bus_writes),
+        )
+    };
 }
 
 impl GenesisEmulator {
@@ -200,6 +217,7 @@ impl GenesisEmulator {
             &mut input,
             timing_mode,
             MainBusSignals { z80_busack: false, m68k_reset: true },
+            MainBusWrites::new(),
         ));
 
         Self {
@@ -210,11 +228,12 @@ impl GenesisEmulator {
             psg,
             ym2612,
             input,
+            timing_mode,
+            main_bus_writes: MainBusWrites::new(),
             aspect_ratio: config.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: config.adjust_aspect_ratio_in_2x_resolution,
             audio_downsampler: GenesisAudioDownsampler::new(timing_mode),
             master_clock_cycles: 0,
-            timing_mode,
         }
     }
 
@@ -302,15 +321,7 @@ impl TickableEmulator for GenesisEmulator {
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
-        let mut bus = MainBus::new(
-            &mut self.memory,
-            &mut self.vdp,
-            &mut self.psg,
-            &mut self.ym2612,
-            &mut self.input,
-            self.timing_mode,
-            MainBusSignals { z80_busack: self.z80.stalled(), m68k_reset: false },
-        );
+        let mut bus = new_main_bus!(self, m68k_reset: false);
         let m68k_cycles = self.m68k.execute_instruction(&mut bus);
 
         let elapsed_mclk_cycles = u64::from(m68k_cycles) * M68K_MCLK_DIVIDER;
@@ -321,6 +332,8 @@ impl TickableEmulator for GenesisEmulator {
         for _ in 0..z80_cycles {
             self.z80.tick(&mut bus);
         }
+
+        self.main_bus_writes = bus.apply_writes();
 
         self.memory.medium_mut().tick(m68k_cycles);
 
@@ -377,15 +390,7 @@ impl Resettable for GenesisEmulator {
     fn soft_reset(&mut self) {
         log::info!("Soft resetting console");
 
-        self.m68k.execute_instruction(&mut MainBus::new(
-            &mut self.memory,
-            &mut self.vdp,
-            &mut self.psg,
-            &mut self.ym2612,
-            &mut self.input,
-            self.timing_mode,
-            MainBusSignals { z80_busack: false, m68k_reset: true },
-        ));
+        self.m68k.execute_instruction(&mut new_main_bus!(self, m68k_reset: true));
         self.memory.reset_z80_signals();
         self.ym2612.reset();
     }
