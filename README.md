@@ -19,11 +19,14 @@ Cross-platform multi-console Sega emulator that supports the Sega Genesis / Mega
 * Some simple horizontal blur and naive anti-dither shaders for blending dithered pixel patterns, which were extremely common on these consoles due to limited color palettes and lack of hardware-supported transparency
 * Optional 2x CPU overclocking for Sega Master System and Game Gear emulation
 
-TODOs:
-* Support the Sega Master System's additional graphics modes (Modes 0-3); only one officially released game used any of them, _F-16 Fighter_ (which uses Mode 2)
+Major TODOs:
+* Investigate and fix why _Silpheed_ randomly freezes during gameplay
+
+Minor TODOs:
 * Support multiple Sega CD BIOS versions in GUI and automatically use the correct one based on disc region
 * Support CHD files for Sega CD in addition to BIN/CUE
 * Investigate and fix a few minor issues, like the EA logo flickering for a single frame in _Galahad_
+* Support the Sega Master System's additional graphics modes (Modes 0-3); only one officially released game used any of them, _F-16 Fighter_ (which uses Mode 2)
 * Support 24C64 EEPROM chips (used only in _Frank Thomas Big Hurt Baseball_ and _College Slam_)
 
 ## Dependencies
