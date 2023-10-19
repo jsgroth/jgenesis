@@ -206,12 +206,14 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
                 #[allow(unreachable_code)]
                 match self.registers.interrupt_mode {
-                    InterruptMode::Mode0 => {
-                        todo!("interrupt mode 0");
-
-                        13
-                    }
-                    InterruptMode::Mode1 => {
+                    // Modes 0 and 1 don't actually work the same way in actual hardware, but for
+                    // the purposes of emulating these consoles they do.
+                    // Mode 1 (used exclusively by the overwhelming majority of games) is defined to
+                    // always execute RST $38.
+                    // Mode 0 reads an opcode from the data bus, but on these consoles, the Z80
+                    // will always read $FF (RST $38) if it handles an interrupt while in mode 0.
+                    // Some games depend on this mode 0 behavior, e.g. Blaster Master 2
+                    InterruptMode::Mode0 | InterruptMode::Mode1 => {
                         self.push_stack(self.registers.pc);
                         self.registers.pc = 0x0038;
 
