@@ -539,10 +539,10 @@ pub fn partial_clone(input: TokenStream) -> TokenStream {
                 .enumerate()
                 .map(|(i, field)| match parse_partial_clone_attr(field) {
                     PartialCloneAttr::None => quote! {
-                        self.#i.clone()
+                        ::std::clone::Clone::clone(&self.#i)
                     },
                     PartialCloneAttr::PartialClone => quote! {
-                        self.#i.partial_clone()
+                        ::jgenesis_traits::frontend::PartialClone::partial_clone(&self.#i)
                     },
                     PartialCloneAttr::Default => quote! {
                         ::std::default::Default::default()
@@ -563,10 +563,10 @@ pub fn partial_clone(input: TokenStream) -> TokenStream {
                         field.ident.as_ref().expect("Nested inside Fields::Named match arm");
                     match parse_partial_clone_attr(field) {
                         PartialCloneAttr::None => quote! {
-                            #field_ident: self.#field_ident.clone()
+                            #field_ident: ::std::clone::Clone::clone(&self.#field_ident)
                         },
                         PartialCloneAttr::PartialClone => quote! {
-                            #field_ident: self.#field_ident.partial_clone()
+                            #field_ident: ::jgenesis_traits::frontend::PartialClone::partial_clone(&self.#field_ident)
                         },
                         PartialCloneAttr::Default => quote! {
                             #field_ident: ::std::default::Default::default()
