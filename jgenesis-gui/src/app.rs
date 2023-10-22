@@ -1179,7 +1179,7 @@ impl App {
                 });
 
                 ui.menu_button("Settings", |ui| {
-                    if ui.button("SMS / GG").clicked() {
+                    if ui.button("SMS / Game Gear").clicked() {
                         self.state.open_windows.insert(OpenWindow::SmsGgGeneral);
                         ui.close_menu();
                     }
@@ -1201,7 +1201,7 @@ impl App {
                         ui.close_menu();
                     }
 
-                    if ui.button("SMS / GG").clicked() {
+                    if ui.button("SMS / Game Gear").clicked() {
                         self.state.open_windows.insert(OpenWindow::SmsGgVideo);
                         ui.close_menu();
                     }
@@ -1218,7 +1218,7 @@ impl App {
                         ui.close_menu();
                     }
 
-                    if ui.button("SMS / GG").clicked() {
+                    if ui.button("SMS / Game Gear").clicked() {
                         self.state.open_windows.insert(OpenWindow::SmsGgAudio);
                         ui.close_menu();
                     }
