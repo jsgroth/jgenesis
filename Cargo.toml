@@ -12,6 +12,8 @@ members = [
     "m68000-test-runner",
     "segacd-core",
     "smsgg-core",
+    "wdc65816-emu",
+    "wdc65816-test-runner",
     "z80-emu",
     "z80-test-runner",
 ]

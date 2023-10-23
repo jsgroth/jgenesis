@@ -3537,6 +3537,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "wdc65816-emu"
+version = "0.4.2"
+dependencies = [
+ "bincode",
+ "jgenesis-traits",
+ "log",
+]
+
+[[package]]
+name = "wdc65816-test-runner"
+version = "0.4.2"
+dependencies = [
+ "clap",
+ "env_logger",
+ "log",
+ "serde",
+ "serde_json",
+ "wdc65816-emu",
+]
+
+[[package]]
 name = "web-sys"
 version = "0.3.64"
 source = "registry+https://github.com/rust-lang/crates.io-index"

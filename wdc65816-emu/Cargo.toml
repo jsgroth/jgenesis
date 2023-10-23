@@ -1,0 +1,12 @@
+[package]
+name = "wdc65816-emu"
+version = "0.4.2"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+jgenesis-traits = { path = "../jgenesis-traits" }
+
+bincode = "2.0.0-rc.3"
+log = "0.4"

@@ -5,19 +5,23 @@
 The crates can be broken up roughly into 4 categories:
 
 * Common libraries: `jgenesis-traits`, `jgenesis-proc-macros`
-* Emulation backend: `z80-emu`, `m68000-emu`, `smsgg-core`, `genesis-core`, `segacd-core`
+* Emulation backend: `z80-emu`, `m68000-emu`, `wdc65816-emu`, `smsgg-core`, `genesis-core`, `segacd-core`
 * Emulation frontend: `jgenesis-renderer`, `jgenesis-native-driver`, `jgenesis-cli`, `jgenesis-gui`, `jgenesis-web`
-* Test harnesses: `z80-test-runner`, `m68000-test-runner`
+* Test harnesses: `z80-test-runner`, `m68000-test-runner`, `wdc65816-test-runner`
 
 ## Crates
 
 ### `z80-emu`
 
-Instruction-based emulation core for the Zilog Z80 CPU, which is used in every console emulated in this project. Memory/bus interactions are abstracted using a `BusInterface` trait.
+Instruction-based emulation core for the Zilog Z80 CPU, which is used in the Master System, the Game Gear, and the Genesis (and by proxy the Sega CD). Memory/bus interactions are abstracted using a `BusInterface` trait.
 
 ### `m68000-emu`
 
 Instruction-based emulation core for the Motorola 68000 CPU, which is used in the Genesis and the Sega CD. Memory/bus interactions are abstracted using a `BusInterface` trait.
+
+### `wdc65816-emu`
+
+Cycle-based emulation core for the WDC 65C816 CPU (aka 65816), which is used in the SNES. Memory/bus interactions are abstracted using a `BusInterface` trait.
 
 ### `smsgg-core`
 
@@ -62,3 +66,7 @@ Test harness to test `z80-emu` against Z80 test suites that were assembled for o
 ### `m68000-test-runner`
 
 Test harness to test `m68000-emu` against [TomHarte's 68000 test suite](https://github.com/TomHarte/ProcessorTests/tree/main/680x0/68000/v1).
+
+### `wdc65816-test-runner`
+
+Test harness to test `wdc65816-emu` against [TomHarte's 65816 test suite](https://github.com/TomHarte/ProcessorTests/tree/main/65816).
