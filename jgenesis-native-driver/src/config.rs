@@ -2,6 +2,7 @@ pub mod input;
 
 use crate::config::input::{
     GenesisInputConfig, HotkeyConfig, JoystickInput, KeyboardInput, SmsGgInputConfig,
+    SnesInputConfig,
 };
 use genesis_core::{
     GenesisAspectRatio, GenesisControllerType, GenesisEmulatorConfig, GenesisRegion,
@@ -13,6 +14,7 @@ use segacd_core::api::SegaCdEmulatorConfig;
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgEmulatorConfig, SmsRegion, VdpVersion};
+use snes_core::api::SnesEmulatorConfig;
 
 pub(crate) const DEFAULT_GENESIS_WINDOW_SIZE: WindowSize = WindowSize { width: 878, height: 672 };
 
@@ -211,5 +213,18 @@ impl SegaCdConfig {
             genesis: self.genesis.to_emulator_config(),
             enable_ram_cartridge: self.enable_ram_cartridge,
         }
+    }
+}
+
+#[derive(Debug, Clone, ConfigDisplay)]
+pub struct SnesConfig {
+    #[indent_nested]
+    pub common: CommonConfig<SnesInputConfig<KeyboardInput>, SnesInputConfig<JoystickInput>>,
+    pub forced_timing_mode: Option<TimingMode>,
+}
+
+impl SnesConfig {
+    pub(crate) fn to_emulator_config(&self) -> SnesEmulatorConfig {
+        SnesEmulatorConfig { forced_timing_mode: self.forced_timing_mode }
     }
 }

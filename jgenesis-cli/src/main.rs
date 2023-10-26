@@ -3,11 +3,11 @@ use env_logger::Env;
 use genesis_core::{GenesisAspectRatio, GenesisControllerType, GenesisRegion};
 use jgenesis_native_driver::config::input::{
     GenesisControllerConfig, GenesisInputConfig, HotkeyConfig, KeyboardInput,
-    SmsGgControllerConfig, SmsGgInputConfig,
+    SmsGgControllerConfig, SmsGgInputConfig, SnesInputConfig,
 };
 use jgenesis_native_driver::config::{
     CommonConfig, GenesisConfig, GgAspectRatio, SegaCdConfig, SmsAspectRatio, SmsGgConfig,
-    WindowSize,
+    SnesConfig, WindowSize,
 };
 use jgenesis_native_driver::NativeTickEffect;
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
@@ -26,6 +26,7 @@ enum Hardware {
     MasterSystem,
     Genesis,
     SegaCd,
+    Snes,
 }
 
 const SMSGG_OPTIONS_HEADING: &str = "Master System / Game Gear Options";
@@ -463,6 +464,7 @@ fn main() -> anyhow::Result<()> {
             "sms" | "gg" => Hardware::MasterSystem,
             "md" | "bin" => Hardware::Genesis,
             "cue" => Hardware::SegaCd,
+            "sfc" => Hardware::Snes,
             _ => {
                 log::warn!("Unrecognized file extension: '{file_ext}' defaulting to Genesis");
                 Hardware::Genesis
@@ -476,6 +478,7 @@ fn main() -> anyhow::Result<()> {
         Hardware::MasterSystem => run_sms(args),
         Hardware::Genesis => run_genesis(args),
         Hardware::SegaCd => run_sega_cd(args),
+        Hardware::Snes => run_snes(args),
     }
 }
 
@@ -527,6 +530,18 @@ fn run_sega_cd(args: Args) -> anyhow::Result<()> {
     };
 
     let mut emulator = jgenesis_native_driver::create_sega_cd(config.into())?;
+    while emulator.render_frame()? != NativeTickEffect::Exit {}
+
+    Ok(())
+}
+
+fn run_snes(args: Args) -> anyhow::Result<()> {
+    let config = SnesConfig {
+        common: args.common_config(SnesInputConfig::default(), SnesInputConfig::default()),
+        forced_timing_mode: args.genesis_timing_mode,
+    };
+
+    let mut emulator = jgenesis_native_driver::create_snes(config.into())?;
     while emulator.render_frame()? != NativeTickEffect::Exit {}
 
     Ok(())

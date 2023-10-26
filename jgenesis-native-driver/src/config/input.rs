@@ -260,6 +260,96 @@ impl Default for GenesisInputConfig<JoystickInput> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SnesControllerConfig<Input> {
+    pub up: Option<Input>,
+    pub left: Option<Input>,
+    pub right: Option<Input>,
+    pub down: Option<Input>,
+    pub a: Option<Input>,
+    pub b: Option<Input>,
+    pub x: Option<Input>,
+    pub y: Option<Input>,
+    pub l: Option<Input>,
+    pub r: Option<Input>,
+    pub start: Option<Input>,
+    pub select: Option<Input>,
+}
+
+impl<Input> Default for SnesControllerConfig<Input> {
+    fn default() -> Self {
+        Self {
+            up: None,
+            left: None,
+            right: None,
+            down: None,
+            a: None,
+            b: None,
+            x: None,
+            y: None,
+            l: None,
+            r: None,
+            start: None,
+            select: None,
+        }
+    }
+}
+
+impl<Input: Display> Display for SnesControllerConfig<Input> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{{ up: {}, left: {}, right: {}, down: {}, a: {}, b: {}, x: {}, y: {}, l: {}, r: {}, start: {}, select: {} }}",
+            fmt_option(self.up.as_ref()),
+            fmt_option(self.left.as_ref()),
+            fmt_option(self.right.as_ref()),
+            fmt_option(self.down.as_ref()),
+            fmt_option(self.a.as_ref()),
+            fmt_option(self.b.as_ref()),
+            fmt_option(self.x.as_ref()),
+            fmt_option(self.y.as_ref()),
+            fmt_option(self.l.as_ref()),
+            fmt_option(self.r.as_ref()),
+            fmt_option(self.start.as_ref()),
+            fmt_option(self.select.as_ref())
+        )
+    }
+}
+
+#[derive(Debug, Clone, ConfigDisplay)]
+pub struct SnesInputConfig<Input> {
+    pub p1: SnesControllerConfig<Input>,
+    pub p2: SnesControllerConfig<Input>,
+}
+
+impl Default for SnesInputConfig<KeyboardInput> {
+    fn default() -> Self {
+        Self {
+            p1: SnesControllerConfig {
+                up: key_input!(Up),
+                left: key_input!(Left),
+                right: key_input!(Right),
+                down: key_input!(Down),
+                a: key_input!(S),
+                b: key_input!(X),
+                x: key_input!(A),
+                y: key_input!(Z),
+                l: key_input!(D),
+                r: key_input!(C),
+                start: key_input!(Return),
+                select: key_input!(RShift),
+            },
+            p2: SnesControllerConfig::default(),
+        }
+    }
+}
+
+impl Default for SnesInputConfig<JoystickInput> {
+    fn default() -> Self {
+        Self { p1: SnesControllerConfig::default(), p2: SnesControllerConfig::default() }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, ConfigDisplay, Serialize, Deserialize)]
 pub struct HotkeyConfig {
     #[serde(default = "default_quit")]

@@ -1856,6 +1856,7 @@ dependencies = [
  "segacd-core",
  "serde",
  "smsgg-core",
+ "snes-core",
  "thiserror",
  "wgpu",
  "windows 0.51.1",
@@ -2984,6 +2985,17 @@ dependencies = [
  "serde",
  "thiserror",
  "z80-emu",
+]
+
+[[package]]
+name = "snes-core"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "jgenesis-traits",
+ "log",
+ "thiserror",
+ "wdc65816-emu",
 ]
 
 [[package]]

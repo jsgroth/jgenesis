@@ -1,11 +1,12 @@
 mod instructions;
 
 use crate::traits::BusInterface;
+use bincode::{Decode, Encode};
 use jgenesis_traits::num::GetBit;
 
 const DEFAULT_STACK_POINTER: u16 = 0x0100;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum SizeBits {
     Eight,
     Sixteen,
@@ -21,7 +22,7 @@ impl SizeBits {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Encode, Decode)]
 pub struct StatusRegister {
     carry: bool,
     zero: bool,
@@ -76,7 +77,7 @@ impl From<u8> for StatusRegister {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct Registers {
     // Accumulator
     pub a: u16,
@@ -121,7 +122,7 @@ impl Registers {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Encode, Decode)]
 struct State {
     cycle: u8,
     opcode: u8,
@@ -140,7 +141,7 @@ struct State {
     t4: u8,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub(crate) enum InterruptType {
     Breakpoint,
     Coprocessor,
@@ -174,7 +175,7 @@ impl InterruptType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct Wdc65816 {
     registers: Registers,
     state: State,
