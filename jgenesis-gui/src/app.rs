@@ -653,11 +653,6 @@ impl App {
                     );
                     ui.radio_value(
                         &mut self.config.common.wgpu_backend,
-                        WgpuBackend::Metal,
-                        "Metal",
-                    );
-                    ui.radio_value(
-                        &mut self.config.common.wgpu_backend,
                         WgpuBackend::OpenGl,
                         "OpenGL",
                     );

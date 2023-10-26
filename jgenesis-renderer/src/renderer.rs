@@ -712,7 +712,6 @@ impl<Window: HasRawDisplayHandle + HasRawWindowHandle> WgpuRenderer<Window> {
             WgpuBackend::Auto => wgpu::Backends::PRIMARY,
             WgpuBackend::Vulkan => wgpu::Backends::VULKAN,
             WgpuBackend::DirectX12 => wgpu::Backends::DX12,
-            WgpuBackend::Metal => wgpu::Backends::METAL,
             WgpuBackend::OpenGl => wgpu::Backends::GL,
         };
 

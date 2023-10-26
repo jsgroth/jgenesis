@@ -11,7 +11,6 @@ pub enum WgpuBackend {
     Auto,
     Vulkan,
     DirectX12,
-    Metal,
     OpenGl,
 }
 

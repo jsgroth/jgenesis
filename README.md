@@ -41,10 +41,8 @@ Linux (Debian-based):
 sudo apt install libsdl2-dev
 ```
 
-macOS:
-```
-brew install sdl2
-```
+Windows:
+* https://github.com/libsdl-org/SDL/releases
 
 ### GTK3 (Linux GUI only)
 

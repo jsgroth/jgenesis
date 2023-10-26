@@ -135,7 +135,7 @@ struct Args {
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     fullscreen: bool,
 
-    /// wgpu backend (Auto / Vulkan / DirectX12 / Metal / OpenGl)
+    /// wgpu backend (Auto / Vulkan / DirectX12 / OpenGl)
     #[arg(long, default_value_t, help_heading = VIDEO_OPTIONS_HEADING)]
     wgpu_backend: WgpuBackend,
 
