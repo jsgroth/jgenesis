@@ -191,7 +191,7 @@ impl GenesisEmulator {
         config: GenesisEmulatorConfig,
     ) -> Self {
         let cartridge = Cartridge::from_rom(rom, initial_ram, config.forced_region);
-        let mut memory = Memory::new(cartridge);
+        let memory = Memory::new(cartridge);
 
         let timing_mode =
             config.forced_timing_mode.unwrap_or_else(|| match memory.hardware_region() {
@@ -202,25 +202,15 @@ impl GenesisEmulator {
         log::info!("Using timing / display mode {timing_mode}");
 
         let z80 = Z80::new();
-        let mut vdp = Vdp::new(timing_mode, config.to_vdp_config());
-        let mut psg = Psg::new(PsgVersion::Standard);
-        let mut ym2612 = Ym2612::new(config.quantize_ym2612_output);
-        let mut input = InputState::new();
+        let vdp = Vdp::new(timing_mode, config.to_vdp_config());
+        let psg = Psg::new(PsgVersion::Standard);
+        let ym2612 = Ym2612::new(config.quantize_ym2612_output);
+        let input = InputState::new();
 
         // The Genesis does not allow TAS to lock the bus, so don't allow TAS writes
-        let mut m68k = M68000::builder().allow_tas_writes(false).build();
-        m68k.execute_instruction(&mut MainBus::new(
-            &mut memory,
-            &mut vdp,
-            &mut psg,
-            &mut ym2612,
-            &mut input,
-            timing_mode,
-            MainBusSignals { z80_busack: false, m68k_reset: true },
-            MainBusWrites::new(),
-        ));
+        let m68k = M68000::builder().allow_tas_writes(false).build();
 
-        Self {
+        let mut emulator = Self {
             memory,
             m68k,
             z80,
@@ -234,7 +224,12 @@ impl GenesisEmulator {
             adjust_aspect_ratio_in_2x_resolution: config.adjust_aspect_ratio_in_2x_resolution,
             audio_downsampler: GenesisAudioDownsampler::new(timing_mode),
             master_clock_cycles: 0,
-        }
+        };
+
+        // Reset CPU so that execution will start from the right place
+        emulator.m68k.execute_instruction(&mut new_main_bus!(emulator, m68k_reset: true));
+
+        emulator
     }
 
     #[must_use]

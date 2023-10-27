@@ -197,7 +197,7 @@ impl SegaCdEmulator {
         )?;
         let disc_title = sega_cd.disc_title()?.unwrap_or("(no disc)".into());
 
-        let mut memory = Memory::new(sega_cd);
+        let memory = Memory::new(sega_cd);
         let timing_mode =
             emulator_config.genesis.forced_timing_mode.unwrap_or_else(|| {
                 match memory.hardware_region() {
@@ -208,30 +208,18 @@ impl SegaCdEmulator {
 
         log::info!("Running with timing/display mode: {timing_mode}");
 
-        let mut main_cpu = M68000::builder().allow_tas_writes(false).name("Main".into()).build();
+        let main_cpu = M68000::builder().allow_tas_writes(false).name("Main".into()).build();
         let sub_cpu = M68000::builder().name("Sub".into()).build();
         let z80 = Z80::new();
-        let mut vdp = Vdp::new(timing_mode, emulator_config.genesis.to_vdp_config());
+        let vdp = Vdp::new(timing_mode, emulator_config.genesis.to_vdp_config());
         let graphics_coprocessor = GraphicsCoprocessor::new();
-        let mut ym2612 = Ym2612::new(emulator_config.genesis.quantize_ym2612_output);
-        let mut psg = Psg::new(PsgVersion::Standard);
+        let ym2612 = Ym2612::new(emulator_config.genesis.quantize_ym2612_output);
+        let psg = Psg::new(PsgVersion::Standard);
         let pcm = Rf5c164::new();
-        let mut input = InputState::new();
-
-        // Reset main CPU
-        main_cpu.execute_instruction(&mut MainBus::new(
-            &mut memory,
-            &mut vdp,
-            &mut psg,
-            &mut ym2612,
-            &mut input,
-            timing_mode,
-            MainBusSignals { z80_busack: false, m68k_reset: true },
-            MainBusWrites::new(),
-        ));
+        let input = InputState::new();
 
         let audio_downsampler = AudioDownsampler::new(timing_mode);
-        Ok(Self {
+        let mut emulator = Self {
             memory,
             main_cpu,
             sub_cpu,
@@ -254,7 +242,12 @@ impl SegaCdEmulator {
             sega_cd_mclk_cycles: 0,
             sega_cd_mclk_cycles_float: 0.0,
             sub_cpu_wait_cycles: 0,
-        })
+        };
+
+        // Reset main CPU so that execution starts from the right place
+        emulator.main_cpu.execute_instruction(&mut new_main_bus!(emulator, m68k_reset: true));
+
+        Ok(emulator)
     }
 
     #[inline]
