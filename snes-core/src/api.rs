@@ -45,6 +45,7 @@ impl SnesEmulator {
         let mut memory = Memory::from_rom(rom);
         let mut ppu = Ppu::new();
 
+        // Reset CPU so that execution starts from the right place
         main_cpu.reset(&mut Bus { memory: &mut memory, ppu: &mut ppu });
 
         Self { main_cpu, memory, ppu }

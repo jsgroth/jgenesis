@@ -1,10 +1,14 @@
 use bincode::{Decode, Encode};
+use jgenesis_traits::num::GetBit;
 
-const VRAM_LEN: usize = 64 * 1024;
+const VRAM_LEN_WORDS: usize = 64 * 1024 / 2;
 const OAM_LEN: usize = 512 + 32;
 const CGRAM_LEN_WORDS: usize = 256;
 
-type Vram = [u8; VRAM_LEN];
+const VRAM_ADDRESS_MASK: u16 = (1 << 15) - 1;
+const OAM_ADDRESS_MASK: u16 = (1 << 10) - 1;
+
+type Vram = [u16; VRAM_LEN_WORDS];
 type Oam = [u8; OAM_LEN];
 type Cgram = [u16; CGRAM_LEN_WORDS];
 
@@ -36,11 +40,72 @@ enum BgMode {
     Seven,
 }
 
+impl BgMode {
+    fn from_byte(byte: u8) -> Self {
+        match byte & 0x07 {
+            0x00 => Self::Zero,
+            0x01 => Self::One,
+            0x02 => Self::Two,
+            0x03 => Self::Three,
+            0x04 => Self::Four,
+            0x05 => Self::Five,
+            0x06 => Self::Six,
+            0x07 => Self::Seven,
+            _ => unreachable!("value & 0x07 is always <= 0x07"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
-enum TileSize {
+enum BgTileSize {
+    // 8x8
     #[default]
     Small,
+    // 16x16
     Large,
+}
+
+impl BgTileSize {
+    fn from_bit(bit: bool) -> Self {
+        if bit { Self::Large } else { Self::Small }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+enum ObjTileSize {
+    // 0: 8x8 / 16x16
+    #[default]
+    Zero,
+    // 1: 8x8 / 32x32
+    One,
+    // 2: 8x8 / 64x64
+    Two,
+    // 3: 16x16 / 32x32
+    Three,
+    // 4: 16x16 / 64x64
+    Four,
+    // 5: 32x32 / 64x64
+    Five,
+    // 6: 16x32 / 32x64
+    Six,
+    // 7: 16x32 / 32x32
+    Seven,
+}
+
+impl ObjTileSize {
+    fn from_byte(byte: u8) -> Self {
+        match byte & 0xE0 {
+            0x00 => Self::Zero,
+            0x20 => Self::One,
+            0x40 => Self::Two,
+            0x60 => Self::Three,
+            0x80 => Self::Four,
+            0xA0 => Self::Five,
+            0xC0 => Self::Six,
+            0xE0 => Self::Seven,
+            _ => unreachable!("value & 0xE0 will always be one of the above values"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
@@ -52,12 +117,35 @@ enum BgScreenSize {
     FourScreen,
 }
 
+impl BgScreenSize {
+    fn from_byte(byte: u8) -> Self {
+        match byte & 0x03 {
+            0x00 => Self::OneScreen,
+            0x01 => Self::VerticalMirror,
+            0x02 => Self::HorizontalMirror,
+            0x03 => Self::FourScreen,
+            _ => unreachable!("value & 0x03 is always <= 0x03"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum WindowAreaMode {
     #[default]
     Disabled,
     Inside,
     Outside,
+}
+
+impl WindowAreaMode {
+    fn from_bits(bits: u8) -> Self {
+        match bits & 0x03 {
+            0x00 | 0x01 => Self::Disabled,
+            0x02 => Self::Inside,
+            0x03 => Self::Outside,
+            _ => unreachable!("value & 0x03 is always <= 0x03"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
@@ -67,6 +155,18 @@ enum WindowMaskLogic {
     And,
     Xor,
     Xnor,
+}
+
+impl WindowMaskLogic {
+    fn from_bits(bits: u8) -> Self {
+        match bits & 0x03 {
+            0x00 => Self::Or,
+            0x01 => Self::And,
+            0x02 => Self::Xor,
+            0x03 => Self::Xnor,
+            _ => unreachable!("value & 0x03 is always <= 0x03"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -93,6 +193,33 @@ enum VramAddressTranslation {
     TenBit,
 }
 
+impl VramAddressTranslation {
+    fn from_byte(byte: u8) -> Self {
+        match byte & 0x0C {
+            0x00 => Self::None,
+            0x04 => Self::EightBit,
+            0x08 => Self::NineBit,
+            0x0C => Self::TenBit,
+            _ => unreachable!("value & 0x0C is always one of the above values"),
+        }
+    }
+
+    fn apply(self, vram_addr: u16) -> u16 {
+        match self {
+            Self::None => vram_addr,
+            Self::EightBit => {
+                (vram_addr & 0xFF00) | ((vram_addr >> 5) & 0x0007) | ((vram_addr & 0x001F) << 3)
+            }
+            Self::NineBit => {
+                (vram_addr & 0xFE00) | ((vram_addr >> 6) & 0x0007) | ((vram_addr & 0x003F) << 3)
+            }
+            Self::TenBit => {
+                (vram_addr & 0xFC00) | ((vram_addr >> 7) & 0x0007) | ((vram_addr & 0x007F) << 3)
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum VramIncrementMode {
     #[default]
@@ -100,11 +227,23 @@ enum VramIncrementMode {
     High,
 }
 
+impl VramIncrementMode {
+    fn from_byte(byte: u8) -> Self {
+        if byte.bit(7) { Self::High } else { Self::Low }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum ObjPriorityMode {
     #[default]
     Normal,
     Reverse,
+}
+
+impl ObjPriorityMode {
+    fn from_byte(byte: u8) -> Self {
+        if byte.bit(7) { Self::Reverse } else { Self::Normal }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
@@ -115,6 +254,17 @@ enum Mode7OobBehavior {
     Tile0,
 }
 
+impl Mode7OobBehavior {
+    fn from_byte(byte: u8) -> Self {
+        match byte & 0xC0 {
+            0x00 | 0x40 => Self::Wrap,
+            0x80 => Self::Transparent,
+            0xC0 => Self::Tile0,
+            _ => unreachable!("value & 0xC0 is always one of the above values"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum AccessFlipflop {
     #[default]
@@ -123,6 +273,7 @@ enum AccessFlipflop {
 }
 
 impl AccessFlipflop {
+    #[must_use]
     fn toggle(self) -> Self {
         match self {
             Self::First => Self::Second,
@@ -151,7 +302,7 @@ struct Registers {
     // BGMODE
     bg_mode: BgMode,
     mode_1_bg3_priority: bool,
-    bg_tile_size: [TileSize; 4],
+    bg_tile_size: [BgTileSize; 4],
     // MOSAIC
     mosaic_size: u8,
     bg_mosaic_enabled: [bool; 4],
@@ -164,11 +315,11 @@ struct Registers {
     // BG1VOFS/BG2VOFS/BG3VOFS/BG4VOFS
     bg_h_scroll: [u16; 4],
     bg_v_scroll: [u16; 4],
-    bg_scroll_flipflop: AccessFlipflop,
+    bg_scroll_write_buffer: u8,
     // OBSEL
     obj_tile_base_address: u16,
     obj_tile_gap_size: u16,
-    obj_tile_size: TileSize,
+    obj_tile_size: ObjTileSize,
     // TMW
     main_bg_window_enabled: [bool; 4],
     main_obj_window_enabled: bool,
@@ -214,10 +365,11 @@ struct Registers {
     vram_prefetch_buffer: u16,
     // OAMADDL/OAMADDH
     oam_address: u16,
+    oam_address_reload_value: u16,
     obj_priority_mode: ObjPriorityMode,
-    oam_flipflop: AccessFlipflop,
+    oam_write_buffer: u8,
     // CGADD
-    cgram_address: u16,
+    cgram_address: u8,
     // CGDATA/RDCGRAM
     cgram_write_buffer: u8,
     cgram_flipflop: AccessFlipflop,
@@ -230,7 +382,7 @@ struct Registers {
     mode_7_parameter_b: u16,
     mode_7_parameter_c: u16,
     mode_7_parameter_d: u16,
-    mode_7_flipflop: AccessFlipflop,
+    mode_7_write_buffer: u8,
     // M7HOFS/M7VOFS
     mode_7_h_scroll: u16,
     mode_7_v_scroll: u16,
@@ -258,7 +410,7 @@ impl Registers {
             sub_obj_enabled: false,
             bg_mode: BgMode::default(),
             mode_1_bg3_priority: true,
-            bg_tile_size: [TileSize::default(); 4],
+            bg_tile_size: [BgTileSize::default(); 4],
             mosaic_size: 0,
             bg_mosaic_enabled: [false; 4],
             bg_screen_size: [BgScreenSize::default(); 4],
@@ -266,10 +418,10 @@ impl Registers {
             bg_tile_base_address: [0; 4],
             bg_h_scroll: [0; 4],
             bg_v_scroll: [0; 4],
-            bg_scroll_flipflop: AccessFlipflop::default(),
+            bg_scroll_write_buffer: 0,
             obj_tile_base_address: 0,
             obj_tile_gap_size: 0,
-            obj_tile_size: TileSize::default(),
+            obj_tile_size: ObjTileSize::default(),
             main_bg_window_enabled: [false; 4],
             main_obj_window_enabled: false,
             sub_bg_window_enabled: [false; 4],
@@ -297,14 +449,15 @@ impl Registers {
             obj_color_math_enabled: false,
             backdrop_color_math_enabled: false,
             sub_backdrop_color: 0,
-            vram_address_increment_step: 0,
+            vram_address_increment_step: 1,
             vram_address_translation: VramAddressTranslation::default(),
             vram_address_increment_mode: VramIncrementMode::default(),
             vram_address: 0,
             vram_prefetch_buffer: 0,
             oam_address: 0,
+            oam_address_reload_value: 0,
             obj_priority_mode: ObjPriorityMode::default(),
-            oam_flipflop: AccessFlipflop::default(),
+            oam_write_buffer: 0,
             cgram_address: 0,
             cgram_write_buffer: 0,
             cgram_flipflop: AccessFlipflop::default(),
@@ -315,7 +468,7 @@ impl Registers {
             mode_7_parameter_b: 0xFFFF,
             mode_7_parameter_c: 0,
             mode_7_parameter_d: 0,
-            mode_7_flipflop: AccessFlipflop::default(),
+            mode_7_write_buffer: 0,
             mode_7_h_scroll: 0,
             mode_7_v_scroll: 0,
             mode_7_center_x: 0,
@@ -338,7 +491,7 @@ impl Ppu {
     pub fn new() -> Self {
         Self {
             registers: Registers::new(),
-            vram: vec![0; VRAM_LEN].into_boxed_slice().try_into().unwrap(),
+            vram: vec![0; VRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             oam: vec![0; OAM_LEN].into_boxed_slice().try_into().unwrap(),
             cgram: vec![0; CGRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
         }
@@ -349,6 +502,397 @@ impl Ppu {
     }
 
     pub fn write_port(&mut self, address: u32, value: u8) {
-        todo!("PPU write {address:06X} {value:02X}")
+        match address & 0xFF {
+            0x00 => {
+                // INIDISP: Display control 1
+                self.registers.forced_blanking = value.bit(7);
+                self.registers.brightness = value & 0x0F;
+            }
+            0x01 => {
+                // OBSEL: Object size and base
+                self.registers.obj_tile_base_address = u16::from(value & 0x07) << 13;
+                self.registers.obj_tile_gap_size = u16::from(value & 0x18) << 9;
+                self.registers.obj_tile_size = ObjTileSize::from_byte(value);
+            }
+            0x02 => {
+                // OAMADDL: OAM address, low byte
+                let reload_value =
+                    (self.registers.oam_address_reload_value & 0xFF00) | u16::from(value);
+                self.registers.oam_address_reload_value = reload_value;
+                self.registers.oam_address = reload_value << 1;
+            }
+            0x03 => {
+                // OAMADDH: OAM address, high byte
+                let reload_value = (self.registers.oam_address_reload_value & 0x00FF)
+                    | (u16::from(value & 0x01) << 8);
+                self.registers.oam_address_reload_value = reload_value;
+                self.registers.oam_address = reload_value << 1;
+
+                self.registers.obj_priority_mode = ObjPriorityMode::from_byte(value);
+            }
+            0x04 => {
+                // OAMDATA: OAM data port (write)
+                self.write_oam_data_port(value);
+            }
+            0x05 => {
+                // BGMODE: BG mode and character size
+                self.registers.bg_mode = BgMode::from_byte(value);
+                self.registers.mode_1_bg3_priority = value.bit(3);
+
+                for (i, tile_size) in self.registers.bg_tile_size.iter_mut().enumerate() {
+                    *tile_size = BgTileSize::from_bit(value.bit(i as u8 + 4));
+                }
+            }
+            0x06 => {
+                // MOSAIC: Mosaic size and enable
+                self.registers.mosaic_size = value >> 4;
+
+                for (i, mosaic_enabled) in self.registers.bg_mosaic_enabled.iter_mut().enumerate() {
+                    *mosaic_enabled = value.bit(i as u8);
+                }
+            }
+            address @ 0x07..=0x0A => {
+                // BG1SC/BG2SC/BG3SC/BG4SC: BG1-4 screen base and size
+                let i = (address & 0x3) as usize;
+                self.registers.bg_screen_size[i] = BgScreenSize::from_byte(value);
+                self.registers.bg_base_address[i] = u16::from(value & 0xFC) << 8;
+            }
+            0x0B => {
+                // BG12NBA: BG 1/2 character data area designation
+                self.registers.bg_tile_base_address[0] = u16::from(value & 0x0F) << 12;
+                self.registers.bg_tile_base_address[1] = u16::from(value & 0xF0) << 8;
+            }
+            0x0C => {
+                // BG34NBA: BG 3/4 character data area designation
+                self.registers.bg_tile_base_address[2] = u16::from(value & 0x0F) << 12;
+                self.registers.bg_tile_base_address[3] = u16::from(value & 0xF0) << 8;
+            }
+            0x0D => {
+                // BG1HOFS: BG1 horizontal scroll / M7HOFS: Mode 7 horizontal scroll
+                self.write_bg_h_scroll(0, value);
+
+                self.registers.mode_7_h_scroll =
+                    u16::from_le_bytes([self.registers.mode_7_write_buffer, value]);
+                self.registers.mode_7_write_buffer = value;
+            }
+            0x0E => {
+                // BG1VOFS: BG1 vertical scroll / M7VOFS: Mode 7 vertical scroll
+                self.write_bg_v_scroll(0, value);
+
+                self.registers.mode_7_v_scroll =
+                    u16::from_le_bytes([self.registers.mode_7_write_buffer, value]);
+                self.registers.mode_7_write_buffer = value;
+            }
+            address @ (0x0F | 0x11 | 0x13) => {
+                // BG2HOFS/BG3HOFS/BG4HOFS: BG2-4 horizontal scroll
+                let i = ((address - 0x0F) >> 1) as usize;
+                self.write_bg_h_scroll(i, value);
+            }
+            address @ (0x10 | 0x12 | 0x14) => {
+                // BG2VOFS/BG3VOFS/BG4VOFS: BG2-4 vertical scroll
+                let i = ((address & 0x0F) >> 1) as usize;
+                self.write_bg_v_scroll(i, value);
+            }
+            0x15 => {
+                // VMAIN: VRAM address increment mode
+                self.registers.vram_address_increment_step = match value & 0x03 {
+                    0x00 => 1,
+                    0x01 => 32,
+                    0x02 | 0x03 => 128,
+                    _ => unreachable!("value & 0x03 is always <= 0x03"),
+                };
+                self.registers.vram_address_translation = VramAddressTranslation::from_byte(value);
+                self.registers.vram_address_increment_mode = VramIncrementMode::from_byte(value);
+            }
+            0x16 => {
+                // VMADDL: VRAM address, low byte
+                self.registers.vram_address =
+                    (self.registers.vram_address & 0xFF00) | u16::from(value);
+                self.fill_vram_prefetch();
+            }
+            0x17 => {
+                // VMADDH: VRAM address, high byte
+                self.registers.vram_address =
+                    (self.registers.vram_address & 0x00FF) | (u16::from(value) << 8);
+                self.fill_vram_prefetch();
+            }
+            0x18 => {
+                // VMDATAL: VRAM data port (write), low byte
+                self.write_vram_data_port_low(value);
+            }
+            0x19 => {
+                // VMDATAH: VRAM data port (write), high byte
+                self.write_vram_data_port_high(value);
+            }
+            0x1A => {
+                // M7SEL: Mode 7 settings
+                self.registers.mode_7_h_flip = value.bit(0);
+                self.registers.mode_7_v_flip = value.bit(1);
+                self.registers.mode_7_oob_behavior = Mode7OobBehavior::from_byte(value);
+            }
+            0x1B => {
+                // M7A: Mode 7 parameter A / multiply 16-bit operand
+                self.registers.mode_7_parameter_a =
+                    u16::from_le_bytes([self.registers.mode_7_write_buffer, value]);
+                self.registers.multiply_operand_l =
+                    i16::from_le_bytes([self.registers.mode_7_write_buffer, value]);
+                self.registers.mode_7_write_buffer = value;
+            }
+            0x1C => {
+                // M7B: Mode 7 parameter B / multiply 8-bit operand
+                self.registers.mode_7_parameter_b =
+                    u16::from_le_bytes([self.registers.mode_7_write_buffer, value]);
+                self.registers.multiply_operand_r = value as i8;
+                self.registers.mode_7_write_buffer = value;
+            }
+            0x1D => {
+                // M7C: Mode 7 parameter C
+                self.registers.mode_7_parameter_c =
+                    u16::from_le_bytes([self.registers.mode_7_write_buffer, value]);
+                self.registers.mode_7_write_buffer = value;
+            }
+            0x1E => {
+                // M7D: Mode 7 parameter D
+                self.registers.mode_7_parameter_d =
+                    u16::from_le_bytes([self.registers.mode_7_write_buffer, value]);
+                self.registers.mode_7_write_buffer = value;
+            }
+            0x1F => {
+                // M7X: Mode 7 center X coordinate
+                self.registers.mode_7_center_x =
+                    u16::from_le_bytes([self.registers.mode_7_write_buffer, value]) & 0x1FFF;
+                self.registers.mode_7_write_buffer = value;
+            }
+            0x20 => {
+                // M7Y: Mode 7 center Y coordinate
+                self.registers.mode_7_center_y =
+                    u16::from_le_bytes([self.registers.mode_7_write_buffer, value]) & 0x1FFF;
+                self.registers.mode_7_write_buffer = value;
+            }
+            0x21 => {
+                // CGADD: CGRAM address
+                self.registers.cgram_address = value;
+                self.registers.cgram_flipflop = AccessFlipflop::First;
+            }
+            0x22 => {
+                // CGDATA: CGRAM data port (write)
+                self.write_cgram_data_port(value);
+            }
+            0x23 => {
+                // W12SEL: Window BG1/2 mask settings
+                self.registers.bg_window_1_area[0] = WindowAreaMode::from_bits(value);
+                self.registers.bg_window_2_area[0] = WindowAreaMode::from_bits(value >> 2);
+                self.registers.bg_window_1_area[1] = WindowAreaMode::from_bits(value >> 4);
+                self.registers.bg_window_2_area[1] = WindowAreaMode::from_bits(value >> 6);
+            }
+            0x24 => {
+                // W23SEL: Window BG3/4 mask settings
+                self.registers.bg_window_1_area[2] = WindowAreaMode::from_bits(value);
+                self.registers.bg_window_2_area[2] = WindowAreaMode::from_bits(value >> 2);
+                self.registers.bg_window_1_area[3] = WindowAreaMode::from_bits(value >> 4);
+                self.registers.bg_window_2_area[3] = WindowAreaMode::from_bits(value >> 6);
+            }
+            0x25 => {
+                // WOBJSEL: Window OBJ/MATH mask settings
+                self.registers.obj_window_1_area = WindowAreaMode::from_bits(value);
+                self.registers.obj_window_2_area = WindowAreaMode::from_bits(value >> 2);
+                self.registers.math_window_1_area = WindowAreaMode::from_bits(value >> 4);
+                self.registers.math_window_2_area = WindowAreaMode::from_bits(value >> 6);
+            }
+            0x26 => {
+                // WHO: Window 1 left position
+                self.registers.window_1_left = value.into();
+            }
+            0x27 => {
+                // WH1: Window 1 right position
+                self.registers.window_1_right = value.into();
+            }
+            0x28 => {
+                // WH2: Window 2 left position
+                self.registers.window_2_left = value.into();
+            }
+            0x29 => {
+                // WH3: Window 2 right position
+                self.registers.window_2_right = value.into();
+            }
+            0x2A => {
+                // WBGLOG: Window BG mask logic
+                for (i, mask_logic) in self.registers.bg_window_mask_logic.iter_mut().enumerate() {
+                    *mask_logic = WindowMaskLogic::from_bits(value >> (2 * i));
+                }
+            }
+            0x2B => {
+                // WOBJLOG: Window OBJ/MATH mask logic
+                self.registers.obj_window_mask_logic = WindowMaskLogic::from_bits(value);
+                self.registers.math_window_mask_logic = WindowMaskLogic::from_bits(value >> 2);
+            }
+            0x2C => {
+                // TM: Main screen designation
+                for (i, bg_enabled) in self.registers.main_bg_enabled.iter_mut().enumerate() {
+                    *bg_enabled = value.bit(i as u8);
+                }
+                self.registers.main_obj_enabled = value.bit(4);
+            }
+            0x2D => {
+                // TS: Sub screen designation
+                for (i, bg_enabled) in self.registers.sub_bg_enabled.iter_mut().enumerate() {
+                    *bg_enabled = value.bit(i as u8);
+                }
+                self.registers.sub_obj_enabled = value.bit(4);
+            }
+            0x2E => {
+                // TMW: Window area main screen disable
+                for (i, bg_enabled) in self.registers.main_bg_window_enabled.iter_mut().enumerate()
+                {
+                    *bg_enabled = !value.bit(i as u8);
+                }
+                self.registers.main_obj_window_enabled = !value.bit(4);
+            }
+            0x2F => {
+                // TSW: Window area sub screen disable
+                for (i, bg_enabled) in self.registers.sub_bg_window_enabled.iter_mut().enumerate() {
+                    *bg_enabled = !value.bit(i as u8);
+                }
+                self.registers.sub_obj_window_enabled = !value.bit(4);
+            }
+            0x30 => {
+                // CGWSEL: Color math control register 1
+                self.registers.direct_color_mode_enabled = value.bit(0);
+                self.registers.sub_bg_obj_enabled = value.bit(1);
+
+                self.registers.color_math_enabled = match value & 0x30 {
+                    0x00 => ColorMathEnableMode::Always,
+                    0x10 => ColorMathEnableMode::MathWindow,
+                    0x20 => ColorMathEnableMode::NotMathWindow,
+                    0x30 => ColorMathEnableMode::Never,
+                    _ => unreachable!("value & 0x30 is always one of the above values"),
+                };
+                self.registers.force_main_screen_black = match value & 0xC0 {
+                    0x00 => ColorMathEnableMode::Never,
+                    0x40 => ColorMathEnableMode::NotMathWindow,
+                    0x80 => ColorMathEnableMode::MathWindow,
+                    0xC0 => ColorMathEnableMode::Always,
+                    _ => unreachable!("value & 0xC0 is always one of the above values"),
+                };
+            }
+            0x31 => {
+                // CGADSUB: Color math control register 2
+                for (i, enabled) in self.registers.bg_color_math_enabled.iter_mut().enumerate() {
+                    *enabled = value.bit(i as u8);
+                }
+
+                self.registers.obj_color_math_enabled = value.bit(4);
+                self.registers.backdrop_color_math_enabled = value.bit(5);
+                self.registers.color_math_divide_enabled = value.bit(6);
+                self.registers.color_math_operation = if value.bit(7) {
+                    ColorMathOperation::Subtract
+                } else {
+                    ColorMathOperation::Add
+                };
+            }
+            0x32 => {
+                // COLDATA: Sub screen backdrop color
+                let intensity = u16::from(value & 0x1F);
+                let b = (u16::from(value.bit(7)) * intensity) << 10;
+                let g = (u16::from(value.bit(6)) * intensity) << 5;
+                let r = u16::from(value.bit(5)) * intensity;
+                self.registers.sub_backdrop_color = b | g | r;
+            }
+            0x33 => {
+                // SETINI: Display control 2
+                self.registers.interlaced = value.bit(0);
+                self.registers.pseudo_obj_hi_res = value.bit(1);
+                self.registers.v_display_size = if value.bit(2) {
+                    VerticalDisplaySize::TwoThirtyNine
+                } else {
+                    VerticalDisplaySize::TwoTwentyFour
+                };
+                self.registers.pseudo_h_hi_res = value.bit(3);
+                self.registers.extbg_enabled = value.bit(6);
+            }
+            _ => {
+                // No other mappings are valid; do nothing
+            }
+        }
+    }
+
+    fn write_vram_data_port_low(&mut self, value: u8) {
+        let vram_addr = (self.registers.vram_address_translation.apply(self.registers.vram_address)
+            & VRAM_ADDRESS_MASK) as usize;
+        self.vram[vram_addr] = (self.vram[vram_addr] & 0xFF00) | u16::from(value);
+
+        if self.registers.vram_address_increment_mode == VramIncrementMode::Low {
+            self.increment_vram_address();
+        }
+    }
+
+    fn write_vram_data_port_high(&mut self, value: u8) {
+        let vram_addr = (self.registers.vram_address_translation.apply(self.registers.vram_address)
+            & VRAM_ADDRESS_MASK) as usize;
+        self.vram[vram_addr] = (self.vram[vram_addr] & 0x00FF) | (u16::from(value) << 8);
+
+        if self.registers.vram_address_increment_mode == VramIncrementMode::High {
+            self.increment_vram_address();
+        }
+    }
+
+    fn increment_vram_address(&mut self) {
+        self.registers.vram_address =
+            self.registers.vram_address.wrapping_add(self.registers.vram_address_increment_step);
+    }
+
+    fn write_oam_data_port(&mut self, value: u8) {
+        let oam_addr = self.registers.oam_address;
+        if oam_addr >= 0x200 {
+            // Writes to $200 or higher immediately go through
+            // $220-$3FF are mirrors of $200-$21F
+            self.oam[(0x200 | (oam_addr & 0x01F)) as usize] = value;
+        } else if !oam_addr.bit(0) {
+            // Even address < $200: latch LSB
+            self.registers.oam_write_buffer = value;
+        } else {
+            // Odd address < $200: Write word to OAM
+            self.oam[(oam_addr & !0x001) as usize] = self.registers.oam_write_buffer;
+            self.oam[oam_addr as usize] = value;
+        }
+
+        self.registers.oam_address = (oam_addr + 1) & OAM_ADDRESS_MASK;
+    }
+
+    fn write_cgram_data_port(&mut self, value: u8) {
+        match self.registers.cgram_flipflop {
+            AccessFlipflop::First => {
+                self.registers.cgram_write_buffer = value;
+                self.registers.cgram_flipflop = AccessFlipflop::Second;
+            }
+            AccessFlipflop::Second => {
+                self.cgram[self.registers.cgram_address as usize] =
+                    u16::from_le_bytes([self.registers.cgram_write_buffer, value]);
+                self.registers.cgram_flipflop = AccessFlipflop::First;
+
+                self.registers.cgram_address = self.registers.cgram_address.wrapping_add(1);
+            }
+        }
+    }
+
+    fn write_bg_h_scroll(&mut self, i: usize, value: u8) {
+        let current = self.registers.bg_h_scroll[i];
+        let prev = self.registers.bg_scroll_write_buffer;
+
+        self.registers.bg_h_scroll[i] =
+            ((u16::from(value) << 8) | u16::from(prev & !0x07) | ((current >> 8) & 0x07)) & 0x03FF;
+        self.registers.bg_scroll_write_buffer = value;
+    }
+
+    fn write_bg_v_scroll(&mut self, i: usize, value: u8) {
+        let prev = self.registers.bg_scroll_write_buffer;
+
+        self.registers.bg_v_scroll[i] = u16::from_le_bytes([prev, value]) & 0x03FF;
+        self.registers.bg_scroll_write_buffer = value;
+    }
+
+    fn fill_vram_prefetch(&mut self) {
+        self.registers.vram_prefetch_buffer =
+            self.vram[(self.registers.vram_address & VRAM_ADDRESS_MASK) as usize];
     }
 }
