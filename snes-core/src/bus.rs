@@ -2,29 +2,101 @@ use crate::memory::Memory;
 use crate::ppu::Ppu;
 use wdc65816_emu::traits::BusInterface;
 
-struct Bus<'a> {
-    memory: &'a mut Memory,
-    ppu: &'a mut Ppu,
+pub struct Bus<'a> {
+    pub memory: &'a mut Memory,
+    pub ppu: &'a mut Ppu,
+}
+
+impl<'a> Bus<'a> {
+    fn read_system_area(&mut self, address: u32) -> u8 {
+        match address & 0x7FFF {
+            0x0000..=0x1FFF => {
+                // First 8KB of WRAM
+                self.memory.read_wram(address)
+            }
+            0x2100..=0x213F => {
+                // PPU ports
+                self.ppu.read_port(address)
+            }
+            0x4000..=0x4FFF => {
+                // CPU I/O ports
+                self.memory.read_cpu_register(address)
+            }
+            _ => todo!("read system area {address:06X}"),
+        }
+    }
+
+    fn write_system_area(&mut self, address: u32, value: u8) {
+        match address & 0x7FFF {
+            0x0000..=0x1FFF => {
+                // First 8KB of WRAM
+                self.memory.write_wram(address, value);
+            }
+            0x2100..=0x213F => {
+                // PPU ports
+                self.ppu.write_port(address, value);
+            }
+            0x4000..=0x4FFF => {
+                // CPU I/O ports
+                self.memory.write_cpu_register(address, value);
+            }
+            _ => todo!("write system area {address:06X} {value:02X}"),
+        }
+    }
 }
 
 impl<'a> BusInterface for Bus<'a> {
     fn read(&mut self, address: u32) -> u8 {
-        todo!("read")
+        let bank = address >> 16;
+        let offset = address & 0xFFFF;
+        match (bank, offset) {
+            (0x00..=0x3F | 0x80..=0xBF, 0x0000..=0x7FFF) => {
+                // System area
+                self.read_system_area(address)
+            }
+            (0x00..=0x3F | 0x80..=0xBF, 0x8000..=0xFFFF) | (0x40..=0x7D | 0xC0..=0xFF, _) => {
+                // Cartridge
+                self.memory.read_cartridge(address)
+            }
+            (0x7E..=0x7F, _) => {
+                // WRAM
+                self.memory.read_wram(address)
+            }
+            _ => todo!("read address {address:06X}"),
+        }
     }
 
     fn write(&mut self, address: u32, value: u8) {
-        todo!("write")
+        let bank = address >> 16;
+        let offset = address & 0xFFFF;
+        match (bank, offset) {
+            (0x00..=0x3F | 0x80..=0xBF, 0x0000..=0x7FFF) => {
+                // System area
+                self.write_system_area(address, value);
+            }
+            (0x00..=0x3F | 0x80..=0xBF, 0x8000..=0xFFFF) | (0x40..=0x7D | 0xC0..=0xFF, _) => {
+                // Cartridge
+                self.memory.write_cartridge(address, value);
+            }
+            (0x7E..=0x7F, _) => {
+                // WRAM
+                self.memory.write_wram(address, value);
+            }
+            _ => todo!("write address {address:06X} {value:02X}"),
+        }
     }
 
     fn idle(&mut self) {
-        todo!("idle")
+        // TODO record that last cycle was an internal cycle
     }
 
     fn nmi(&self) -> bool {
-        todo!("nmi")
+        // TODO VBlank NMIs
+        false
     }
 
     fn irq(&self) -> bool {
-        todo!("irq")
+        // TODO H/V IRQs
+        false
     }
 }

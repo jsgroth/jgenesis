@@ -1,4 +1,7 @@
+use crate::bus::Bus;
 use crate::input::SnesInputs;
+use crate::memory::Memory;
+use crate::ppu::Ppu;
 use bincode::{Decode, Encode};
 use jgenesis_traits::frontend::{
     AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, PartialClone, Renderer,
@@ -23,14 +26,28 @@ pub enum SnesError<RErr, AErr, SErr> {
     SaveWrite(SErr),
 }
 
+macro_rules! new_bus {
+    ($self:expr) => {
+        Bus { memory: &mut $self.memory, ppu: &mut $self.ppu }
+    };
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct SnesEmulator {
     main_cpu: Wdc65816,
+    memory: Memory,
+    ppu: Ppu,
 }
 
 impl SnesEmulator {
-    pub fn create(rom: Vec<u8>, config: SnesEmulatorConfig) -> Self {
-        todo!("create SNES emulator")
+    pub fn create(rom: Vec<u8>, _config: SnesEmulatorConfig) -> Self {
+        let mut main_cpu = Wdc65816::new();
+        let mut memory = Memory::from_rom(rom);
+        let mut ppu = Ppu::new();
+
+        main_cpu.reset(&mut Bus { memory: &mut memory, ppu: &mut ppu });
+
+        Self { main_cpu, memory, ppu }
     }
 }
 
@@ -57,7 +74,11 @@ impl TickableEmulator for SnesEmulator {
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
-        todo!("tick")
+        self.main_cpu.tick(&mut new_bus!(self));
+
+        // TODO run other components
+
+        Ok(TickEffect::None)
     }
 
     fn force_render<R>(&mut self, renderer: &mut R) -> Result<(), R::Err>
