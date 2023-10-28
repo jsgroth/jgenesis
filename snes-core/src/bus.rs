@@ -115,6 +115,7 @@ impl<'a> Bus<'a> {
 }
 
 impl<'a> BusInterface for Bus<'a> {
+    #[inline]
     fn read(&mut self, address: u32) -> u8 {
         let bank = address >> 16;
         let offset = address & 0xFFFF;
@@ -145,6 +146,7 @@ impl<'a> BusInterface for Bus<'a> {
         }
     }
 
+    #[inline]
     fn write(&mut self, address: u32, value: u8) {
         let bank = address >> 16;
         let offset = address & 0xFFFF;
@@ -175,15 +177,18 @@ impl<'a> BusInterface for Bus<'a> {
         }
     }
 
+    #[inline]
     fn idle(&mut self) {
         self.access_master_cycles = FAST_MASTER_CYCLES;
     }
 
+    #[inline]
     fn nmi(&self) -> bool {
         // TODO VBlank NMIs
         false
     }
 
+    #[inline]
     fn irq(&self) -> bool {
         // TODO H/V IRQs
         false
