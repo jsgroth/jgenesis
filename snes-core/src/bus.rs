@@ -1,9 +1,10 @@
-use crate::memory::Memory;
+use crate::memory::{CpuInternalRegisters, Memory};
 use crate::ppu::Ppu;
 use wdc65816_emu::traits::BusInterface;
 
 pub struct Bus<'a> {
     pub memory: &'a mut Memory,
+    pub cpu_registers: &'a mut CpuInternalRegisters,
     pub ppu: &'a mut Ppu,
 }
 
@@ -18,9 +19,13 @@ impl<'a> Bus<'a> {
                 // PPU ports
                 self.ppu.read_port(address)
             }
+            0x2180 => {
+                // WMDATA: WRAM port in address bus B
+                self.memory.read_wram_port()
+            }
             0x4000..=0x4FFF => {
                 // CPU I/O ports
-                self.memory.read_cpu_register(address)
+                self.cpu_registers.read_register(address)
             }
             _ => todo!("read system area {address:06X}"),
         }
@@ -36,9 +41,25 @@ impl<'a> Bus<'a> {
                 // PPU ports
                 self.ppu.write_port(address, value);
             }
+            0x2180 => {
+                // WMDATA: WRAM port in address bus B
+                self.memory.write_wram_port(value);
+            }
+            0x2181 => {
+                // WMADDL: WRAM port address, low byte
+                self.memory.write_wram_port_address_low(value);
+            }
+            0x2182 => {
+                // WMADDM: WRAM port address, middle byte
+                self.memory.write_wram_port_address_mid(value);
+            }
+            0x2183 => {
+                // WMADDH: WRAM port address, high byte
+                self.memory.write_wram_port_address_high(value);
+            }
             0x4000..=0x4FFF => {
                 // CPU I/O ports
-                self.memory.write_cpu_register(address, value);
+                self.cpu_registers.write_register(address, value);
             }
             _ => todo!("write system area {address:06X} {value:02X}"),
         }

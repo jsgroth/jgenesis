@@ -1,6 +1,6 @@
 use crate::bus::Bus;
 use crate::input::SnesInputs;
-use crate::memory::Memory;
+use crate::memory::{CpuInternalRegisters, Memory};
 use crate::ppu::Ppu;
 use bincode::{Decode, Encode};
 use jgenesis_traits::frontend::{
@@ -28,27 +28,35 @@ pub enum SnesError<RErr, AErr, SErr> {
 
 macro_rules! new_bus {
     ($self:expr) => {
-        Bus { memory: &mut $self.memory, ppu: &mut $self.ppu }
+        Bus {
+            memory: &mut $self.memory,
+            cpu_registers: &mut $self.cpu_registers,
+            ppu: &mut $self.ppu,
+        }
     };
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct SnesEmulator {
     main_cpu: Wdc65816,
+    cpu_registers: CpuInternalRegisters,
     memory: Memory,
     ppu: Ppu,
 }
 
 impl SnesEmulator {
     pub fn create(rom: Vec<u8>, _config: SnesEmulatorConfig) -> Self {
-        let mut main_cpu = Wdc65816::new();
-        let mut memory = Memory::from_rom(rom);
-        let mut ppu = Ppu::new();
+        let main_cpu = Wdc65816::new();
+        let cpu_registers = CpuInternalRegisters::new();
+        let memory = Memory::from_rom(rom);
+        let ppu = Ppu::new();
+
+        let mut emulator = Self { main_cpu, cpu_registers, memory, ppu };
 
         // Reset CPU so that execution starts from the right place
-        main_cpu.reset(&mut Bus { memory: &mut memory, ppu: &mut ppu });
+        emulator.main_cpu.reset(&mut new_bus!(emulator));
 
-        Self { main_cpu, memory, ppu }
+        emulator
     }
 }
 
