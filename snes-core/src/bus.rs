@@ -2,8 +2,14 @@ use crate::memory::{CpuInternalRegisters, Memory, Memory2Speed};
 use crate::ppu::Ppu;
 use wdc65816_emu::traits::BusInterface;
 
+// Accesses to address bus B (PPU/APU/WRAM ports) and internal CPU registers are "fast" (no waitstates)
+// Accesses to the cartridge in the higher banks can also be fast depending on register $420D
 const FAST_MASTER_CYCLES: u64 = 6;
+
+// Accesses to WRAM and the cartridge are "slow" (+2 master cycles)
 const SLOW_MASTER_CYCLES: u64 = 8;
+
+// Accesses to the manual joypad read ports are "extra slow" (+6 master cycles)
 const XSLOW_MASTER_CYCLES: u64 = 12;
 
 impl Memory2Speed {

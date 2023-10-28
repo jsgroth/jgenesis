@@ -506,7 +506,7 @@ impl Ppu {
             // Don't log data port writes
             let address = address & 0xFF;
             if address != 0x04 && address != 0x18 && address != 0x19 && address != 0x22 {
-                log::trace!("PPU register write: {address:06X} {value:02X}");
+                log::trace!("PPU register write: 21{address:02X} {value:02X}");
             }
         }
 
