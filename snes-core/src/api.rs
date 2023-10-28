@@ -32,6 +32,7 @@ macro_rules! new_bus {
             memory: &mut $self.memory,
             cpu_registers: &mut $self.cpu_registers,
             ppu: &mut $self.ppu,
+            access_master_cycles: 0,
         }
     };
 }
@@ -83,7 +84,10 @@ impl TickableEmulator for SnesEmulator {
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
-        self.main_cpu.tick(&mut new_bus!(self));
+        let mut bus = new_bus!(self);
+        self.main_cpu.tick(&mut bus);
+        let master_cycles_elapsed = bus.access_master_cycles;
+        assert!(master_cycles_elapsed > 0);
 
         // TODO run other components
 
