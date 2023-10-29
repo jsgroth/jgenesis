@@ -104,6 +104,24 @@ impl Memory {
         }
     }
 
+    pub fn cartridge_title(&mut self) -> String {
+        // Cartridge title is always at $00FFC0-$00FFD4 (inclusive)
+        let mut title_bytes = [0; 0xFFD4 - 0xFFC0 + 1];
+        for (i, byte) in title_bytes.iter_mut().enumerate() {
+            *byte = self.read_cartridge(0xFFC0 + i as u32);
+        }
+
+        title_bytes
+            .into_iter()
+            .filter_map(|byte| {
+                (byte.is_ascii_whitespace()
+                    || byte.is_ascii_alphanumeric()
+                    || byte.is_ascii_punctuation())
+                .then_some(byte as char)
+            })
+            .collect()
+    }
+
     pub fn write_cartridge(&mut self, address: u32, value: u8) {
         todo!("write cartridge {address:06X} {value:02X}")
     }

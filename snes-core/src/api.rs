@@ -66,6 +66,10 @@ impl SnesEmulator {
 
         emulator
     }
+
+    pub fn cartridge_title(&mut self) -> String {
+        self.memory.cartridge_title()
+    }
 }
 
 impl TickableEmulator for SnesEmulator {

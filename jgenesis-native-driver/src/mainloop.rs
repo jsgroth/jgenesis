@@ -886,7 +886,7 @@ pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEm
     let save_state_path = rom_path.with_extension("ss0");
 
     let emulator_config = config.to_emulator_config();
-    let emulator = SnesEmulator::create(rom, emulator_config);
+    let mut emulator = SnesEmulator::create(rom, emulator_config);
 
     let (video, audio, joystick, event_pump) = init_sdl()?;
 
@@ -894,10 +894,10 @@ pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEm
     let WindowSize { width: window_width, height: window_height } =
         config.common.window_size.unwrap_or(config::DEFAULT_GENESIS_WINDOW_SIZE);
 
-    let file_name = rom_path.file_name().and_then(OsStr::to_str).unwrap_or("(unknown)");
+    let cartridge_title = emulator.cartridge_title();
     let window = create_window(
         &video,
-        &format!("snes - {file_name}"),
+        &format!("snes - {cartridge_title}"),
         window_width,
         window_height,
         config.common.launch_in_fullscreen,
