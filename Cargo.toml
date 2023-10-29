@@ -13,6 +13,8 @@ members = [
     "segacd-core",
     "smsgg-core",
     "snes-core",
+    "spc700-emu",
+    "spc700-test-runner",
     "wdc65816-emu",
     "wdc65816-test-runner",
     "z80-emu",

@@ -1,0 +1,15 @@
+[package]
+name = "spc700-test-runner"
+version = "0.4.2"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+spc700-emu = { path = "../spc700-emu" }
+
+clap = { version = "4", features = ["derive"] }
+env_logger = "0.10"
+log = "0.4"
+serde = { workspace = true }
+serde_json = "1"

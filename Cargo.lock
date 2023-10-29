@@ -3010,6 +3010,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "spc700-emu"
+version = "0.4.2"
+dependencies = [
+ "bincode",
+ "jgenesis-traits",
+ "log",
+]
+
+[[package]]
+name = "spc700-test-runner"
+version = "0.4.2"
+dependencies = [
+ "clap",
+ "env_logger",
+ "log",
+ "serde",
+ "serde_json",
+ "spc700-emu",
+]
+
+[[package]]
 name = "spirv"
 version = "0.2.0+1.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

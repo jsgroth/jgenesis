@@ -193,6 +193,7 @@ impl<'a> BusInterface for Bus<'a> {
         self.cpu_registers.nmi_pending()
     }
 
+    #[inline]
     fn acknowledge_nmi(&mut self) {
         self.cpu_registers.acknowledge_nmi();
     }

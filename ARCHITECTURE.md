@@ -2,12 +2,13 @@
 
 ## Overview
 
-The crates can be broken up roughly into 4 categories:
+The crates can be broken up roughly into 5 categories:
 
 * Common libraries: `jgenesis-traits`, `jgenesis-proc-macros`
-* Emulation backend: `z80-emu`, `m68000-emu`, `wdc65816-emu`, `smsgg-core`, `genesis-core`, `segacd-core`
+* CPU emulators: `z80-emu`, `m68000-emu`, `wdc65816-emu`, `spc700-emu`
+* Emulation backend: `smsgg-core`, `genesis-core`, `segacd-core`, `snes-core`
 * Emulation frontend: `jgenesis-renderer`, `jgenesis-native-driver`, `jgenesis-cli`, `jgenesis-gui`, `jgenesis-web`
-* Test harnesses: `z80-test-runner`, `m68000-test-runner`, `wdc65816-test-runner`
+* CPU emulator test harnesses: `z80-test-runner`, `m68000-test-runner`, `wdc65816-test-runner`, `spc700-test-runner`
 
 ## Crates
 
@@ -23,6 +24,10 @@ Instruction-based emulation core for the Motorola 68000 CPU, which is used in th
 
 Cycle-based emulation core for the WDC 65C816 CPU (aka 65816), which is used in the SNES. Memory/bus interactions are abstracted using a `BusInterface` trait.
 
+### `spc700-emu`
+
+Cycle-based emulation core for the Sony SPC700 CPU, which is used in the SNES as a dedicated audio processor.
+
 ### `smsgg-core`
 
 Emulation core for the Sega Master System and Game Gear, which are extremely similar hardware-wise.
@@ -34,6 +39,10 @@ Emulation core for the Sega Genesis / Mega Drive. Uses the PSG component from `s
 ### `segacd-core`
 
 Emulation core for the Sega CD / Mega CD. Uses many components from `genesis-core`, as the Genesis side of the system is virtually unchanged except for the parts of the memory map that the standalone Genesis maps to the cartridge.
+
+### `snes-core`
+
+Emulation core for the Super Nintendo Entertainment System (SNES) / Super Famicom.
 
 ### `jgenesis-traits`
 
@@ -70,3 +79,7 @@ Test harness to test `m68000-emu` against [TomHarte's 68000 test suite](https://
 ### `wdc65816-test-runner`
 
 Test harness to test `wdc65816-emu` against [TomHarte's 65816 test suite](https://github.com/TomHarte/ProcessorTests/tree/main/65816).
+
+### `spc700-test-runner`
+
+Test harness to test `spc700-emu` against [JSON SPC700 test suites](https://github.com/TomHarte/ProcessorTests/tree/main/spc700).
