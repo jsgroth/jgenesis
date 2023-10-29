@@ -2,6 +2,7 @@ use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use jgenesis_traits::frontend::{Color, FrameSize, TimingMode};
 use jgenesis_traits::num::GetBit;
+use std::array;
 use std::ops::{Deref, DerefMut};
 
 // TODO 512px for hi-res mode?
@@ -594,11 +595,54 @@ impl Ppu {
             }
 
             if self.state.scanline == self.registers.v_display_size.to_lines() + 1 {
+                self.dumb_render();
                 return PpuTickEffect::FrameComplete;
             }
         }
 
         PpuTickEffect::None
+    }
+
+    // Temporary rendering implementation that only renders BG1 and assumes 2bpp, 8x8 tiles, no scroll, etc.
+    fn dumb_render(&mut self) {
+        let bg_map_base_addr = self.registers.bg_base_address[0];
+        let bg_data_base_addr = self.registers.bg_tile_base_address[0];
+        let backdrop_color = convert_snes_color(self.cgram[0]);
+
+        for scanline in 0..224 {
+            for pixel in 0..256 {
+                let tile_row = scanline / 8;
+                let tile_col = pixel / 8;
+                let tile_map_addr = 32 * tile_row + tile_col;
+                let tile_map_entry =
+                    self.vram[((bg_map_base_addr + tile_map_addr) & VRAM_ADDRESS_MASK) as usize];
+
+                let tile_number = tile_map_entry & 0x3FF;
+                let palette = (tile_map_entry >> 10) & 0x07;
+
+                let tile_addr =
+                    ((bg_data_base_addr + 8 * tile_number) & VRAM_ADDRESS_MASK) as usize;
+                let tile_data = &self.vram[tile_addr..tile_addr + 8];
+
+                let cell_row = scanline % 8;
+                let cell_col = pixel % 8;
+
+                let word = tile_data[cell_row as usize];
+                let shift = 7 - cell_col;
+                let bit0 = (word >> shift) & 0x01;
+                let bit1 = (word >> (8 + shift)) & 0x01;
+                let color = (bit1 << 1) | bit0;
+
+                let fb_index = scanline * 256 + pixel;
+                if color != 0 {
+                    let cgram_index = (palette << 5) | color;
+                    self.frame_buffer[fb_index as usize] =
+                        convert_snes_color(self.cgram[cgram_index as usize]);
+                } else {
+                    self.frame_buffer[fb_index as usize] = backdrop_color;
+                }
+            }
+        }
     }
 
     fn scanlines_per_frame(&self) -> u16 {
@@ -1242,4 +1286,17 @@ impl Ppu {
         self.registers.vram_prefetch_buffer =
             self.vram[(self.registers.vram_address & VRAM_ADDRESS_MASK) as usize];
     }
+}
+
+// [round(i * 255 / 31) for i in range(32)]
+const COLOR_TABLE: [u8; 32] = [
+    0, 8, 16, 25, 33, 41, 49, 58, 66, 74, 82, 90, 99, 107, 115, 123, 132, 140, 148, 156, 165, 173,
+    181, 189, 197, 206, 214, 222, 230, 239, 247, 255,
+];
+
+fn convert_snes_color(snes_color: u16) -> Color {
+    let r = snes_color & 0x1F;
+    let g = (snes_color >> 5) & 0x1F;
+    let b = (snes_color >> 10) & 0x1F;
+    Color::rgb(COLOR_TABLE[r as usize], COLOR_TABLE[g as usize], COLOR_TABLE[b as usize])
 }
