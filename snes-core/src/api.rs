@@ -180,7 +180,9 @@ impl TakeRomFrom for SnesEmulator {
 
 impl Resettable for SnesEmulator {
     fn soft_reset(&mut self) {
-        todo!("soft reset")
+        self.main_cpu.reset(&mut new_bus!(self));
+
+        // TODO reset other processors and registers?
     }
 
     fn hard_reset(&mut self) {
