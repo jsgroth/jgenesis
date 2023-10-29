@@ -1771,9 +1771,16 @@ pub fn execute<B: BusInterface>(cpu: &mut Wdc65816, bus: &mut B) {
     }
 
     // If stopped, the CPU is halted until reset
+    if cpu.state.stopped {
+        bus.idle();
+        return;
+    }
+
     // If waiting, the CPU is halted until an NMI or IRQ triggers; check last_irq instead of irq_triggered
     // because IRQs will unhalt the CPU even if the I flag is set (though the IRQ won't be handled in that case)
-    if cpu.state.stopped || (cpu.state.waiting && !cpu.state.nmi_triggered && !cpu.state.last_irq) {
+    if cpu.state.waiting && !cpu.state.nmi_triggered && !cpu.state.last_irq {
+        poll_interrupt_lines(cpu, bus);
+        bus.idle();
         return;
     }
     cpu.state.waiting = false;
@@ -1806,9 +1813,7 @@ fn execute_cycle<B: BusInterface>(cpu: &mut Wdc65816, bus: &mut B) {
     if let Some(interrupt) = cpu.state.handling_interrupt {
         flow::handle_interrupt(cpu, bus, interrupt);
 
-        if cpu.state.cycle != 0 {
-            cpu.state.cycle += 1;
-        } else {
+        if cpu.state.cycle == 0 {
             cpu.state.handling_interrupt = None;
         }
 

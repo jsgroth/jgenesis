@@ -355,6 +355,7 @@ impl CpuInternalRegisters {
                     // Enabling NMIs while the VBlank NMI flag is set immediately triggers an NMI
                     self.nmi_pending = true;
                 }
+                self.nmi_enabled = nmi_enabled;
 
                 log::trace!("  Auto joypad read enabled: {}", self.auto_joypad_read_enabled);
                 log::trace!("  IRQ mode: {:?}", self.irq_mode);
