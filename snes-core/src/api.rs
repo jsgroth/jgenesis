@@ -11,6 +11,9 @@ use std::fmt::{Debug, Display};
 use thiserror::Error;
 use wdc65816_emu::core::Wdc65816;
 
+const MEMORY_REFRESH_MCLK: u64 = 536;
+const MEMORY_REFRESH_CYCLES: u64 = 40;
+
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 pub struct SnesEmulatorConfig {
     // TODO use timing mode instead of forcing NTSC
@@ -47,6 +50,7 @@ pub struct SnesEmulator {
     memory: Memory,
     ppu: Ppu,
     total_master_cycles: u64,
+    memory_refresh_pending: bool,
 }
 
 impl SnesEmulator {
@@ -58,8 +62,15 @@ impl SnesEmulator {
         // TODO support PAL
         let ppu = Ppu::new(TimingMode::Ntsc);
 
-        let mut emulator =
-            Self { main_cpu, cpu_registers, dma_unit, memory, ppu, total_master_cycles: 0 };
+        let mut emulator = Self {
+            main_cpu,
+            cpu_registers,
+            dma_unit,
+            memory,
+            ppu,
+            total_master_cycles: 0,
+            memory_refresh_pending: false,
+        };
 
         // Reset CPU so that execution starts from the right place
         emulator.main_cpu.reset(&mut new_bus!(emulator));
@@ -95,18 +106,26 @@ impl TickableEmulator for SnesEmulator {
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
-        let mut bus = new_bus!(self);
+        let master_cycles_elapsed = if self.memory_refresh_pending {
+            // The CPU (including DMA) halts for 40 cycles partway through every scanline so that
+            // the system can refresh DRAM (used for work RAM)
+            self.memory_refresh_pending = false;
+            MEMORY_REFRESH_CYCLES
+        } else {
+            let mut bus = new_bus!(self);
 
-        let master_cycles_elapsed = match self.dma_unit.tick(&mut bus, self.total_master_cycles) {
-            DmaStatus::None => {
-                // DMA not in progress, tick CPU
-                self.main_cpu.tick(&mut bus);
-                bus.access_master_cycles
+            match self.dma_unit.tick(&mut bus, self.total_master_cycles) {
+                DmaStatus::None => {
+                    // DMA not in progress, tick CPU
+                    self.main_cpu.tick(&mut bus);
+                    bus.access_master_cycles
+                }
+                DmaStatus::InProgress { master_cycles_elapsed } => master_cycles_elapsed,
             }
-            DmaStatus::InProgress { master_cycles_elapsed } => master_cycles_elapsed,
         };
         assert!(master_cycles_elapsed > 0);
 
+        let prev_scanline_mclk = self.ppu.scanline_master_cycles();
         let mut tick_effect = TickEffect::None;
         if self.ppu.tick(master_cycles_elapsed) == PpuTickEffect::FrameComplete {
             // TODO dynamic aspect ratio
@@ -128,6 +147,11 @@ impl TickableEmulator for SnesEmulator {
         // TODO run other components
 
         self.total_master_cycles += master_cycles_elapsed;
+        if prev_scanline_mclk < MEMORY_REFRESH_MCLK
+            && self.ppu.scanline_master_cycles() >= MEMORY_REFRESH_MCLK
+        {
+            self.memory_refresh_pending = true;
+        }
 
         Ok(tick_effect)
     }
