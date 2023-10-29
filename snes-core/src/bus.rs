@@ -190,8 +190,11 @@ impl<'a> BusInterface for Bus<'a> {
 
     #[inline]
     fn nmi(&self) -> bool {
-        // TODO VBlank NMIs
-        false
+        self.cpu_registers.nmi_pending()
+    }
+
+    fn acknowledge_nmi(&mut self) {
+        self.cpu_registers.acknowledge_nmi();
     }
 
     #[inline]

@@ -1,5 +1,13 @@
 use bincode::{Decode, Encode};
+use jgenesis_proc_macros::{FakeDecode, FakeEncode};
+use jgenesis_traits::frontend::{Color, FrameSize, TimingMode};
 use jgenesis_traits::num::GetBit;
+use std::ops::{Deref, DerefMut};
+
+// TODO 512px for hi-res mode?
+const SCREEN_WIDTH: usize = 256;
+const MAX_SCREEN_HEIGHT: usize = 239;
+const FRAME_BUFFER_LEN: usize = SCREEN_WIDTH * MAX_SCREEN_HEIGHT;
 
 const VRAM_LEN_WORDS: usize = 64 * 1024 / 2;
 const OAM_LEN: usize = 512 + 32;
@@ -7,6 +15,10 @@ const CGRAM_LEN_WORDS: usize = 256;
 
 const VRAM_ADDRESS_MASK: u16 = (1 << 15) - 1;
 const OAM_ADDRESS_MASK: u16 = (1 << 10) - 1;
+
+const MCLKS_PER_NORMAL_SCANLINE: u64 = 1364;
+const MCLKS_PER_SHORT_SCANLINE: u64 = 1360;
+const MCLKS_PER_LONG_SCANLINE: u64 = 1368;
 
 type Vram = [u16; VRAM_LEN_WORDS];
 type Oam = [u8; OAM_LEN];
@@ -17,6 +29,15 @@ enum VerticalDisplaySize {
     #[default]
     TwoTwentyFour,
     TwoThirtyNine,
+}
+
+impl VerticalDisplaySize {
+    fn to_lines(self) -> u16 {
+        match self {
+            Self::TwoTwentyFour => 224,
+            Self::TwoThirtyNine => 239,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
@@ -480,21 +501,160 @@ impl Registers {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
+struct State {
+    scanline: u16,
+    scanline_master_cycles: u64,
+    odd_frame: bool,
+}
+
+impl State {
+    fn new() -> Self {
+        Self { scanline: 0, scanline_master_cycles: 0, odd_frame: false }
+    }
+}
+
+#[derive(Debug, Clone, FakeEncode, FakeDecode)]
+struct FrameBuffer(Box<[Color; FRAME_BUFFER_LEN]>);
+
+impl FrameBuffer {
+    fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl Default for FrameBuffer {
+    fn default() -> Self {
+        Self(vec![Color::default(); FRAME_BUFFER_LEN].into_boxed_slice().try_into().unwrap())
+    }
+}
+
+impl Deref for FrameBuffer {
+    type Target = Box<[Color; FRAME_BUFFER_LEN]>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for FrameBuffer {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PpuTickEffect {
+    None,
+    FrameComplete,
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct Ppu {
+    timing_mode: TimingMode,
     registers: Registers,
+    state: State,
     vram: Box<Vram>,
     oam: Box<Oam>,
     cgram: Box<Cgram>,
+    frame_buffer: FrameBuffer,
 }
 
 impl Ppu {
-    pub fn new() -> Self {
+    pub fn new(timing_mode: TimingMode) -> Self {
         Self {
+            timing_mode,
             registers: Registers::new(),
+            state: State::new(),
             vram: vec![0; VRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             oam: vec![0; OAM_LEN].into_boxed_slice().try_into().unwrap(),
             cgram: vec![0; CGRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
+            frame_buffer: FrameBuffer::new(),
         }
+    }
+
+    #[must_use]
+    pub fn tick(&mut self, master_cycles: u64) -> PpuTickEffect {
+        let new_scanline_mclks = self.state.scanline_master_cycles + master_cycles;
+        self.state.scanline_master_cycles = new_scanline_mclks;
+
+        let mclks_per_scanline = self.mclks_per_current_scanline();
+        if new_scanline_mclks >= mclks_per_scanline {
+            self.state.scanline += 1;
+            self.state.scanline_master_cycles = new_scanline_mclks - mclks_per_scanline;
+
+            // Interlaced mode adds an extra scanline every other frame
+            let scanlines_per_frame = self.scanlines_per_frame();
+            if (self.state.scanline == scanlines_per_frame
+                && (!self.registers.interlaced || self.state.odd_frame))
+                || self.state.scanline == scanlines_per_frame + 1
+            {
+                self.state.scanline = 0;
+                // TODO wait until H=1?
+                self.state.odd_frame = !self.state.odd_frame;
+            }
+
+            if self.state.scanline == self.registers.v_display_size.to_lines() + 1 {
+                return PpuTickEffect::FrameComplete;
+            }
+        }
+
+        PpuTickEffect::None
+    }
+
+    fn scanlines_per_frame(&self) -> u16 {
+        match self.timing_mode {
+            TimingMode::Ntsc => 262,
+            TimingMode::Pal => 312,
+        }
+    }
+
+    fn mclks_per_current_scanline(&self) -> u64 {
+        if self.is_short_scanline() {
+            MCLKS_PER_SHORT_SCANLINE
+        } else if self.is_long_scanline() {
+            MCLKS_PER_LONG_SCANLINE
+        } else {
+            MCLKS_PER_NORMAL_SCANLINE
+        }
+    }
+
+    fn is_short_scanline(&self) -> bool {
+        self.state.scanline == 240
+            && self.timing_mode == TimingMode::Ntsc
+            && !self.registers.interlaced
+            && self.state.odd_frame
+    }
+
+    fn is_long_scanline(&self) -> bool {
+        self.state.scanline == 311
+            && self.timing_mode == TimingMode::Pal
+            && self.registers.interlaced
+            && self.state.odd_frame
+    }
+
+    pub fn vblank_flag(&self) -> bool {
+        self.state.scanline > self.registers.v_display_size.to_lines()
+    }
+
+    pub fn hblank_flag(&self) -> bool {
+        self.state.scanline_master_cycles < 4 || self.state.scanline_master_cycles >= 1096
+    }
+
+    pub fn scanline(&self) -> u16 {
+        self.state.scanline
+    }
+
+    pub fn scanline_master_cycles(&self) -> u64 {
+        self.state.scanline_master_cycles
+    }
+
+    pub fn frame_buffer(&self) -> &[Color] {
+        self.frame_buffer.as_ref()
+    }
+
+    pub fn frame_size(&self) -> FrameSize {
+        let screen_height = self.registers.v_display_size.to_lines();
+        FrameSize { width: SCREEN_WIDTH as u32, height: screen_height.into() }
     }
 
     pub fn read_port(&mut self, address: u32) -> u8 {

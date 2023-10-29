@@ -1780,6 +1780,7 @@ pub fn execute<B: BusInterface>(cpu: &mut Wdc65816, bus: &mut B) {
 
     if cpu.state.nmi_triggered {
         cpu.state.nmi_triggered = false;
+        bus.acknowledge_nmi();
 
         flow::handle_interrupt(cpu, bus, InterruptType::Nmi);
         cpu.state.handling_interrupt = Some(InterruptType::Nmi);

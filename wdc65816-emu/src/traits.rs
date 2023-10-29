@@ -9,5 +9,7 @@ pub trait BusInterface {
 
     fn nmi(&self) -> bool;
 
+    fn acknowledge_nmi(&mut self);
+
     fn irq(&self) -> bool;
 }

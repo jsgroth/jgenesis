@@ -39,6 +39,8 @@ impl BusInterface for RecordingBus {
         false
     }
 
+    fn acknowledge_nmi(&mut self) {}
+
     fn irq(&self) -> bool {
         false
     }

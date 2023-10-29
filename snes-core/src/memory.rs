@@ -1,7 +1,10 @@
 use crate::bus::Bus;
+use crate::ppu::Ppu;
 use bincode::{Decode, Encode};
+use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use jgenesis_traits::num::GetBit;
 use std::array;
+use std::ops::Deref;
 use wdc65816_emu::traits::BusInterface;
 
 const MAIN_RAM_LEN: usize = 128 * 1024;
@@ -35,9 +38,27 @@ impl Mapper {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, FakeEncode, FakeDecode)]
+struct Rom(Box<[u8]>);
+
+impl Default for Rom {
+    fn default() -> Self {
+        Rom(vec![].into_boxed_slice())
+    }
+}
+
+impl Deref for Rom {
+    type Target = Box<[u8]>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode, PartialClone)]
 struct Cartridge {
-    rom: Box<[u8]>,
+    #[partial_clone(default)]
+    rom: Rom,
     mapper: Mapper,
 }
 
@@ -54,8 +75,9 @@ impl Memory2Speed {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, PartialClone)]
 pub struct Memory {
+    #[partial_clone(partial)]
     cartridge: Cartridge,
     main_ram: Box<MainRam>,
     wram_port_address: u32,
@@ -64,7 +86,7 @@ pub struct Memory {
 impl Memory {
     pub fn from_rom(rom: Vec<u8>) -> Self {
         let mapper = Mapper::guess_from_rom(&rom).expect("unable to determine mapper");
-        let cartridge = Cartridge { rom: rom.into_boxed_slice(), mapper };
+        let cartridge = Cartridge { rom: Rom(rom.into_boxed_slice()), mapper };
 
         Self {
             cartridge,
@@ -201,6 +223,7 @@ impl DmaIncrementMode {
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct CpuInternalRegisters {
     nmi_enabled: bool,
+    nmi_pending: bool,
     irq_mode: IrqMode,
     auto_joypad_read_enabled: bool,
     irq_htime: u16,
@@ -226,14 +249,15 @@ pub struct CpuInternalRegisters {
     hdma_indirect_bank: [u8; 8],
     hdma_table_current_address: [u16; 8],
     vblank_flag: bool,
+    vblank_nmi_flag: bool,
     hblank_flag: bool,
-    last_h: u8,
 }
 
 impl CpuInternalRegisters {
     pub fn new() -> Self {
         Self {
             nmi_enabled: false,
+            nmi_pending: false,
             irq_mode: IrqMode::default(),
             auto_joypad_read_enabled: false,
             irq_htime: 0,
@@ -257,13 +281,23 @@ impl CpuInternalRegisters {
             hdma_indirect_bank: [0xFF; 8],
             hdma_table_current_address: [0xFFFF; 8],
             vblank_flag: false,
+            vblank_nmi_flag: false,
             hblank_flag: false,
-            last_h: 0,
         }
     }
 
     pub fn read_register(&mut self, address: u32) -> u8 {
         match address {
+            0x4210 => {
+                // RDNMI: VBlank NMI flag and CPU version number
+
+                // Reading this register clears the VBlank NMI flag
+                let vblank_nmi_flag = self.vblank_nmi_flag;
+                self.vblank_nmi_flag = false;
+
+                // Hardcode version number to 2
+                (u8::from(vblank_nmi_flag) << 7) | 0x02
+            }
             0x4214 => {
                 // RDDIVL: Division quotient, low byte
                 self.division_quotient as u8
@@ -298,11 +332,15 @@ impl CpuInternalRegisters {
                 // NMITIMEN: Interrupt enable and joypad request
                 self.auto_joypad_read_enabled = value.bit(0);
                 self.irq_mode = IrqMode::from_byte(value);
-                self.nmi_enabled = value.bit(7);
+                let nmi_enabled = value.bit(7);
+                if !self.nmi_enabled && nmi_enabled && self.vblank_nmi_flag {
+                    // Enabling NMIs while the VBlank NMI flag is set immediately triggers an NMI
+                    self.nmi_pending = true;
+                }
 
                 log::trace!("  Auto joypad read enabled: {}", self.auto_joypad_read_enabled);
                 log::trace!("  IRQ mode: {:?}", self.irq_mode);
-                log::trace!("  NMI enabled: {}", self.nmi_enabled);
+                log::trace!("  NMI enabled: {nmi_enabled}");
             }
             0x4201 => {
                 // WRIO: Joypad programmable I/O port (write)
@@ -517,6 +555,33 @@ impl CpuInternalRegisters {
 
     pub fn memory_2_speed(&self) -> Memory2Speed {
         self.memory_2_speed
+    }
+
+    pub fn update(&mut self, ppu: &Ppu) {
+        let vblank_flag = ppu.vblank_flag();
+        if !self.vblank_flag && vblank_flag {
+            // Start of VBlank
+            if self.nmi_enabled && !self.vblank_nmi_flag {
+                self.nmi_pending = true;
+            }
+            self.vblank_nmi_flag = true;
+        } else if self.vblank_flag && !vblank_flag {
+            // End of VBlank
+            self.vblank_nmi_flag = false;
+        }
+        self.vblank_flag = vblank_flag;
+
+        self.hblank_flag = ppu.hblank_flag();
+
+        // TODO H/V IRQs
+    }
+
+    pub fn nmi_pending(&self) -> bool {
+        self.nmi_pending
+    }
+
+    pub fn acknowledge_nmi(&mut self) {
+        self.nmi_pending = false;
     }
 }
 
