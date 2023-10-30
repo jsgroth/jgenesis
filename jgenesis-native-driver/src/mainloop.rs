@@ -432,6 +432,30 @@ impl NativeSegaCdEmulator {
 pub type NativeSnesEmulator =
     NativeEmulator<SnesInputs, SnesButton, SnesEmulatorConfig, SnesEmulator>;
 
+impl NativeSnesEmulator {
+    /// # Errors
+    ///
+    /// This method will return an error if it is unable to reload audio config.
+    pub fn reload_snes_config(&mut self, config: Box<SnesConfig>) -> Result<(), AudioError> {
+        log::info!("Reloading config: {config}");
+
+        self.reload_common_config(&config.common)?;
+
+        let emulator_config = config.to_emulator_config();
+        self.emulator.reload_config(&emulator_config);
+        self.config = emulator_config;
+
+        if let Err(err) = self
+            .input_mapper
+            .reload_config(config.common.keyboard_inputs, config.common.joystick_inputs)
+        {
+            log::error!("Error reloading input config: {err}");
+        }
+
+        Ok(())
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum NativeEmulatorError {
     #[error("{0}")]

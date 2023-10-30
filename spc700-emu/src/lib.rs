@@ -88,6 +88,7 @@ pub struct Spc700 {
 const RESET_VECTOR: u16 = 0xFFFE;
 
 impl Spc700 {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -118,10 +119,12 @@ impl Spc700 {
         u16::from_le_bytes([self.registers.sp, 0x01])
     }
 
+    #[must_use]
     pub fn is_mid_instruction(&self) -> bool {
         self.state.cycle != 0
     }
 
+    #[must_use]
     pub fn registers(&self) -> &Registers {
         &self.registers
     }

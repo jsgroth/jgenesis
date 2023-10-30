@@ -97,6 +97,7 @@ pub enum SnesButton {
 }
 
 impl SnesButton {
+    #[must_use]
     pub fn player(self) -> Player {
         match self {
             Self::Up(player)
@@ -539,7 +540,7 @@ impl InputMapper<SnesInputs, SnesButton> {
         axis_deadzone: i16,
     ) -> NativeEmulatorResult<Self> {
         let keyboard_mapping = generate_snes_keyboard_mapping(keyboard_inputs)?;
-        let joystick_mapping = generate_snes_joystick_mapping(joystick_inputs)?;
+        let joystick_mapping = generate_snes_joystick_mapping(joystick_inputs);
 
         let inputs = SnesInputs::default();
 
@@ -552,7 +553,7 @@ impl InputMapper<SnesInputs, SnesButton> {
         joystick_inputs: SnesInputConfig<JoystickInput>,
     ) -> NativeEmulatorResult<()> {
         self.keyboard_mapping = generate_snes_keyboard_mapping(keyboard_inputs)?;
-        self.raw_joystick_mapping = generate_snes_joystick_mapping(joystick_inputs)?;
+        self.raw_joystick_mapping = generate_snes_joystick_mapping(joystick_inputs);
 
         self.update_input_mapping();
 
@@ -577,7 +578,7 @@ fn generate_snes_keyboard_mapping(
 
 fn generate_snes_joystick_mapping(
     keyboard_inputs: SnesInputConfig<JoystickInput>,
-) -> NativeEmulatorResult<HashMap<JoystickInput, Vec<SnesButton>>> {
+) -> HashMap<JoystickInput, Vec<SnesButton>> {
     let mut joystick_mapping: HashMap<JoystickInput, Vec<SnesButton>> = HashMap::new();
     for (input, button) in snes_input_array!(keyboard_inputs.p1, keyboard_inputs.p2) {
         if let Some(input) = input {
@@ -585,7 +586,7 @@ fn generate_snes_joystick_mapping(
         }
     }
 
-    Ok(joystick_mapping)
+    joystick_mapping
 }
 
 impl<Inputs, Button> InputMapper<Inputs, Button>

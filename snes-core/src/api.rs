@@ -59,7 +59,8 @@ pub struct SnesEmulator {
 }
 
 impl SnesEmulator {
-    pub fn create(rom: Vec<u8>, config: SnesEmulatorConfig) -> Self {
+    #[must_use]
+    pub fn create(rom: Vec<u8>, _config: SnesEmulatorConfig) -> Self {
         let main_cpu = Wdc65816::new();
         let cpu_registers = CpuInternalRegisters::new();
         let dma_unit = DmaUnit::new();
@@ -103,8 +104,8 @@ impl TickableEmulator for SnesEmulator {
         &mut self,
         renderer: &mut R,
         audio_output: &mut A,
-        inputs: &Self::Inputs,
-        save_writer: &mut S,
+        _inputs: &Self::Inputs,
+        _save_writer: &mut S,
     ) -> Result<TickEffect, Self::Err<R::Err, A::Err, S::Err>>
     where
         R: Renderer,
@@ -172,7 +173,7 @@ impl TickableEmulator for SnesEmulator {
         Ok(tick_effect)
     }
 
-    fn force_render<R>(&mut self, renderer: &mut R) -> Result<(), R::Err>
+    fn force_render<R>(&mut self, _renderer: &mut R) -> Result<(), R::Err>
     where
         R: Renderer,
     {
@@ -183,13 +184,13 @@ impl TickableEmulator for SnesEmulator {
 impl ConfigReload for SnesEmulator {
     type Config = SnesEmulatorConfig;
 
-    fn reload_config(&mut self, config: &Self::Config) {
+    fn reload_config(&mut self, _config: &Self::Config) {
         todo!("reload config")
     }
 }
 
 impl TakeRomFrom for SnesEmulator {
-    fn take_rom_from(&mut self, other: &mut Self) {
+    fn take_rom_from(&mut self, _other: &mut Self) {
         todo!("take ROM from")
     }
 }
@@ -212,11 +213,11 @@ impl EmulatorDebug for SnesEmulator {
     const PALETTE_LEN: u32 = 0;
     const PATTERN_TABLE_LEN: u32 = 0;
 
-    fn debug_cram(&self, out: &mut [Color]) {
+    fn debug_cram(&self, _out: &mut [Color]) {
         todo!("CRAM debug")
     }
 
-    fn debug_vram(&self, out: &mut [Color], palette: u8) {
+    fn debug_vram(&self, _out: &mut [Color], _palette: u8) {
         todo!("VRAM debug")
     }
 }

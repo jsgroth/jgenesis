@@ -293,16 +293,6 @@ enum AccessFlipflop {
     Second,
 }
 
-impl AccessFlipflop {
-    #[must_use]
-    fn toggle(self) -> Self {
-        match self {
-            Self::First => Self::Second,
-            Self::Second => Self::First,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Encode, Decode)]
 struct Registers {
     // INIDISP
@@ -681,10 +671,6 @@ impl Ppu {
 
     pub fn hblank_flag(&self) -> bool {
         self.state.scanline_master_cycles < 4 || self.state.scanline_master_cycles >= 1096
-    }
-
-    pub fn scanline(&self) -> u16 {
-        self.state.scanline
     }
 
     pub fn scanline_master_cycles(&self) -> u64 {

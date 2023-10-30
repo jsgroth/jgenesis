@@ -22,6 +22,7 @@ enum Mapper {
 }
 
 impl Mapper {
+    #[allow(clippy::unnecessary_wraps)]
     fn guess_from_rom(_rom: &[u8]) -> Option<Self> {
         // TODO actually try to guess the mapper
         Some(Mapper::LoRom)
@@ -681,7 +682,7 @@ impl DmaUnit {
                         // Include the 8-cycle overhead for starting the new channel
                         16
                     }
-                    _ => panic!("next GPDMA state should never be pending"),
+                    GpDmaState::Pending => panic!("next GPDMA state should never be pending"),
                 };
 
                 self.gpdma_state = next_state;
