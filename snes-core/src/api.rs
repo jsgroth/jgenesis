@@ -153,7 +153,7 @@ impl TickableEmulator for SnesEmulator {
             tick_effect = TickEffect::FrameRendered;
         }
 
-        self.cpu_registers.tick(master_cycles_elapsed, &self.ppu, inputs);
+        self.cpu_registers.tick(master_cycles_elapsed, &self.ppu, prev_scanline_mclk, inputs);
 
         if let ApuTickEffect::OutputSample(sample_l, sample_r) =
             self.apu.tick(master_cycles_elapsed)

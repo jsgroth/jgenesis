@@ -673,6 +673,10 @@ impl Ppu {
         self.state.scanline_master_cycles < 4 || self.state.scanline_master_cycles >= 1096
     }
 
+    pub fn scanline(&self) -> u16 {
+        self.state.scanline
+    }
+
     pub fn is_first_vblank_scanline(&self) -> bool {
         self.state.scanline == self.registers.v_display_size.to_lines() + 1
     }

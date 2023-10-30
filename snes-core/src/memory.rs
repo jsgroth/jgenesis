@@ -14,6 +14,9 @@ const MAIN_RAM_LEN: usize = 128 * 1024;
 const AUTO_JOYPAD_START_MCLK: u64 = 130;
 const AUTO_JOYPAD_DURATION_MCLK: u64 = 4224;
 
+// Scanline MCLK at which to generate V IRQ
+const V_IRQ_H_MCLK: u64 = 10;
+
 type MainRam = [u8; MAIN_RAM_LEN];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -298,6 +301,7 @@ pub struct CpuInternalRegisters {
     nmi_enabled: bool,
     nmi_pending: bool,
     irq_mode: IrqMode,
+    irq_pending: bool,
     auto_joypad_read_enabled: bool,
     irq_htime: u16,
     irq_vtime: u16,
@@ -333,6 +337,7 @@ impl CpuInternalRegisters {
             nmi_enabled: false,
             nmi_pending: false,
             irq_mode: IrqMode::default(),
+            irq_pending: false,
             auto_joypad_read_enabled: false,
             irq_htime: 0,
             irq_vtime: 0,
@@ -381,6 +386,15 @@ impl CpuInternalRegisters {
 
                 // Hardcode version number to 2
                 (u8::from(vblank_nmi_flag) << 7) | 0x02
+            }
+            0x4211 => {
+                // TIMEUP: H/V IRQ flag
+
+                // Reading this register clears the IRQ flag
+                let irq_pending = self.irq_pending;
+                self.irq_pending = false;
+
+                u8::from(irq_pending) << 7
             }
             0x4212 => {
                 // HVBJOY: H/V blank flags and auto joypad in-progress flag
@@ -670,11 +684,41 @@ impl CpuInternalRegisters {
         self.memory_2_speed
     }
 
-    pub fn tick(&mut self, master_cycles_elapsed: u64, ppu: &Ppu, inputs: &SnesInputs) {
+    pub fn tick(
+        &mut self,
+        master_cycles_elapsed: u64,
+        ppu: &Ppu,
+        prev_scanline_mclk: u64,
+        inputs: &SnesInputs,
+    ) {
         // Progress auto joypad read if it's running
         self.input_state.tick(master_cycles_elapsed, inputs);
 
         // Update VBlank, HBlank, and NMI flags
+        self.update_hv_blank_flags(ppu);
+
+        // Check H/V IRQs
+        self.check_irq(master_cycles_elapsed, prev_scanline_mclk, ppu);
+
+        // Check if auto joypad read should start
+        if self.auto_joypad_read_enabled
+            && ppu.is_first_vblank_scanline()
+            && ppu.scanline_master_cycles() >= AUTO_JOYPAD_START_MCLK
+            && (ppu.scanline_master_cycles() - master_cycles_elapsed) < AUTO_JOYPAD_START_MCLK
+        {
+            self.input_state.joypad_read_cycles_remaining = AUTO_JOYPAD_DURATION_MCLK;
+        }
+
+        // Check if manual joypad input registers need to be updated
+        if self.input_state.should_update_manual_inputs {
+            self.input_state.should_update_manual_inputs = false;
+
+            self.input_state.manual_joypad_p1_inputs = inputs.p1.to_register_word();
+            self.input_state.manual_joypad_p2_inputs = inputs.p2.to_register_word();
+        }
+    }
+
+    fn update_hv_blank_flags(&mut self, ppu: &Ppu) {
         let vblank_flag = ppu.vblank_flag();
         if !self.vblank_flag && vblank_flag {
             // Start of VBlank
@@ -689,23 +733,48 @@ impl CpuInternalRegisters {
         self.vblank_flag = vblank_flag;
 
         self.hblank_flag = ppu.hblank_flag();
+    }
 
-        // TODO H/V IRQs
+    fn check_irq(&mut self, master_cycles_elapsed: u64, prev_scanline_mclk: u64, ppu: &Ppu) {
+        match self.irq_mode {
+            IrqMode::Off => {}
+            IrqMode::H => {
+                // Generate H IRQ at H=HTIME+3.5, every line (mclks: 4*HTIME + 14)
+                if check_htime_passed(
+                    prev_scanline_mclk,
+                    ppu.scanline_master_cycles(),
+                    self.irq_htime,
+                ) {
+                    self.irq_pending = true;
+                }
+            }
+            IrqMode::V => {
+                // Generate V IRQ at V=VTIME and H=2.5 (10 mclks into scanline)
+                if ppu.scanline() == self.irq_vtime
+                    && check_v_irq(ppu.scanline_master_cycles(), master_cycles_elapsed)
+                {
+                    self.irq_pending = true;
+                }
+            }
+            IrqMode::HV => {
+                // Generate HV IRQ at V=VTIME and H=HTIME+3.5 (mclks: 4*HTIME + 14)
+                // Unless HTIME=0, then generate at V=VTIME and H=2.5 (same as V IRQ)
+                if ppu.scanline() == self.irq_vtime {
+                    let htime_passed = if self.irq_htime == 0 {
+                        check_v_irq(ppu.scanline_master_cycles(), master_cycles_elapsed)
+                    } else {
+                        check_htime_passed(
+                            prev_scanline_mclk,
+                            ppu.scanline_master_cycles(),
+                            self.irq_htime,
+                        )
+                    };
 
-        // Check if auto joypad read should start
-        if self.auto_joypad_read_enabled
-            && ppu.is_first_vblank_scanline()
-            && ppu.scanline_master_cycles() >= AUTO_JOYPAD_START_MCLK
-            && (ppu.scanline_master_cycles() - master_cycles_elapsed) < AUTO_JOYPAD_START_MCLK
-        {
-            self.input_state.joypad_read_cycles_remaining = AUTO_JOYPAD_DURATION_MCLK;
-        }
-
-        // Check if manual joypad inputs need to be updated
-        if self.input_state.should_update_manual_inputs {
-            self.input_state.should_update_manual_inputs = false;
-            self.input_state.manual_joypad_p1_inputs = inputs.p1.to_register_word();
-            self.input_state.manual_joypad_p2_inputs = inputs.p2.to_register_word();
+                    if htime_passed {
+                        self.irq_pending = true;
+                    }
+                }
+            }
         }
     }
 
@@ -716,6 +785,23 @@ impl CpuInternalRegisters {
     pub fn acknowledge_nmi(&mut self) {
         self.nmi_pending = false;
     }
+
+    pub fn irq_pending(&self) -> bool {
+        self.irq_pending
+    }
+}
+
+fn check_v_irq(scanline_mclk: u64, master_cycles_elapsed: u64) -> bool {
+    scanline_mclk >= V_IRQ_H_MCLK
+        && scanline_mclk.saturating_sub(master_cycles_elapsed) < V_IRQ_H_MCLK
+}
+
+fn check_htime_passed(prev_scanline_mclk: u64, scanline_mclk: u64, htime: u16) -> bool {
+    // H IRQs and HV IRQs should trigger at H=HTIME+3.5, or mclks=4*(HTIME+3.5)
+    // Allow the +3.5 to go past the end of the scanline, but also take care not to miss low HTIMEs
+    let htime_mclk: u64 = (4 * htime + 14).into();
+    scanline_mclk >= htime_mclk
+        && (prev_scanline_mclk < htime_mclk || scanline_mclk < prev_scanline_mclk)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]

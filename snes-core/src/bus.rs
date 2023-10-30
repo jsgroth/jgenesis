@@ -214,7 +214,6 @@ impl<'a> BusInterface for Bus<'a> {
 
     #[inline]
     fn irq(&self) -> bool {
-        // TODO H/V IRQs
-        false
+        self.cpu_registers.irq_pending()
     }
 }
