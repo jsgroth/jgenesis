@@ -104,7 +104,7 @@ impl TickableEmulator for SnesEmulator {
         &mut self,
         renderer: &mut R,
         audio_output: &mut A,
-        _inputs: &Self::Inputs,
+        inputs: &Self::Inputs,
         _save_writer: &mut S,
     ) -> Result<TickEffect, Self::Err<R::Err, A::Err, S::Err>>
     where
@@ -153,7 +153,7 @@ impl TickableEmulator for SnesEmulator {
             tick_effect = TickEffect::FrameRendered;
         }
 
-        self.cpu_registers.update(&self.ppu);
+        self.cpu_registers.tick(master_cycles_elapsed, &self.ppu, inputs);
 
         if let ApuTickEffect::OutputSample(sample_l, sample_r) =
             self.apu.tick(master_cycles_elapsed)

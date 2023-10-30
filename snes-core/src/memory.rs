@@ -1,4 +1,5 @@
 use crate::bus::Bus;
+use crate::input::{SnesInputs, SnesJoypadState};
 use crate::ppu::Ppu;
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
@@ -8,6 +9,10 @@ use std::ops::Deref;
 use wdc65816_emu::traits::BusInterface;
 
 const MAIN_RAM_LEN: usize = 128 * 1024;
+
+// H=32.5
+const AUTO_JOYPAD_START_MCLK: u64 = 130;
+const AUTO_JOYPAD_DURATION_MCLK: u64 = 4224;
 
 type MainRam = [u8; MAIN_RAM_LEN];
 
@@ -238,6 +243,55 @@ impl DmaIncrementMode {
     }
 }
 
+#[derive(Debug, Clone, Encode, Decode)]
+struct InputState {
+    joypad_read_cycles_remaining: u64,
+    auto_joypad_p1_inputs: u16,
+    auto_joypad_p2_inputs: u16,
+    manual_joypad_strobe: bool,
+    should_update_manual_inputs: bool,
+    manual_joypad_p1_inputs: u16,
+    manual_joypad_p2_inputs: u16,
+}
+
+impl InputState {
+    fn new() -> Self {
+        Self {
+            joypad_read_cycles_remaining: 0,
+            auto_joypad_p1_inputs: SnesJoypadState::default().to_register_word(),
+            auto_joypad_p2_inputs: SnesJoypadState::default().to_register_word(),
+            manual_joypad_strobe: false,
+            should_update_manual_inputs: false,
+            manual_joypad_p1_inputs: SnesJoypadState::default().to_register_word(),
+            manual_joypad_p2_inputs: SnesJoypadState::default().to_register_word(),
+        }
+    }
+
+    fn tick(&mut self, master_cycles_elapsed: u64, inputs: &SnesInputs) {
+        if self.joypad_read_cycles_remaining > 0 {
+            self.joypad_read_cycles_remaining =
+                self.joypad_read_cycles_remaining.saturating_sub(master_cycles_elapsed);
+
+            if self.joypad_read_cycles_remaining == 0 {
+                self.auto_joypad_p1_inputs = inputs.p1.to_register_word();
+                self.auto_joypad_p2_inputs = inputs.p2.to_register_word();
+            }
+        }
+    }
+
+    fn next_manual_p1_bit(&mut self) -> bool {
+        let bit = self.manual_joypad_p1_inputs.bit(15);
+        self.manual_joypad_p1_inputs <<= 1;
+        bit
+    }
+
+    fn next_manual_p2_bit(&mut self) -> bool {
+        let bit = self.manual_joypad_p2_inputs.bit(15);
+        self.manual_joypad_p2_inputs <<= 1;
+        bit
+    }
+}
+
 // Registers/ports that are on the 5A22 chip but are not part of the 65816
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct CpuInternalRegisters {
@@ -270,6 +324,7 @@ pub struct CpuInternalRegisters {
     vblank_flag: bool,
     vblank_nmi_flag: bool,
     hblank_flag: bool,
+    input_state: InputState,
 }
 
 impl CpuInternalRegisters {
@@ -302,11 +357,21 @@ impl CpuInternalRegisters {
             vblank_flag: false,
             vblank_nmi_flag: false,
             hblank_flag: false,
+            input_state: InputState::new(),
         }
     }
 
     pub fn read_register(&mut self, address: u32) -> u8 {
         match address {
+            0x4016 => {
+                // JOYA: Manual joypad register A
+                u8::from(self.input_state.next_manual_p1_bit())
+            }
+            0x4017 => {
+                // JOYB: Manual joypad register B
+                // Bits 2-4 always set
+                0x1C | u8::from(self.input_state.next_manual_p2_bit())
+            }
             0x4210 => {
                 // RDNMI: VBlank NMI flag and CPU version number
 
@@ -316,6 +381,12 @@ impl CpuInternalRegisters {
 
                 // Hardcode version number to 2
                 (u8::from(vblank_nmi_flag) << 7) | 0x02
+            }
+            0x4212 => {
+                // HVBJOY: H/V blank flags and auto joypad in-progress flag
+                (u8::from(self.vblank_flag) << 7)
+                    | (u8::from(self.hblank_flag) << 6)
+                    | u8::from(self.input_state.joypad_read_cycles_remaining > 0)
             }
             0x4214 => {
                 // RDDIVL: Division quotient, low byte
@@ -333,6 +404,26 @@ impl CpuInternalRegisters {
                 // RDMPYH: Multiply product / division remainder, high byte
                 (self.multiply_product >> 8) as u8
             }
+            0x4218 => {
+                // JOY1L: Joypad 1, low byte (auto read)
+                self.input_state.auto_joypad_p1_inputs as u8
+            }
+            0x4219 => {
+                // JOY1H: Joypad 1, high byte (auto read)
+                (self.input_state.auto_joypad_p1_inputs >> 8) as u8
+            }
+            0x421A => {
+                // JOY2L: Joypad 2, low byte (auto read)
+                self.input_state.auto_joypad_p2_inputs as u8
+            }
+            0x421B => {
+                // JOY2H: Joypad 2, high byte (auto read)
+                (self.input_state.auto_joypad_p2_inputs >> 8) as u8
+            }
+            0x421C..=0x421F => {
+                // JOY3L/JOY3H/JOY4L/JOY4H: Joypad 3/4 (not implemented)
+                0x00
+            }
             _ => todo!("read register {address:06X}"),
         }
     }
@@ -343,9 +434,11 @@ impl CpuInternalRegisters {
         match address & 0xFFFF {
             0x4016 => {
                 // JOYWR: Joypad output
-                // TODO handle strobe in bit 0
-
-                log::warn!("Unhandled JOYWR write: {value:02X}");
+                let joypad_strobe = value.bit(0);
+                if !self.input_state.manual_joypad_strobe && joypad_strobe {
+                    self.input_state.should_update_manual_inputs = true;
+                }
+                self.input_state.manual_joypad_strobe = joypad_strobe;
             }
             0x4200 => {
                 // NMITIMEN: Interrupt enable and joypad request
@@ -577,7 +670,11 @@ impl CpuInternalRegisters {
         self.memory_2_speed
     }
 
-    pub fn update(&mut self, ppu: &Ppu) {
+    pub fn tick(&mut self, master_cycles_elapsed: u64, ppu: &Ppu, inputs: &SnesInputs) {
+        // Progress auto joypad read if it's running
+        self.input_state.tick(master_cycles_elapsed, inputs);
+
+        // Update VBlank, HBlank, and NMI flags
         let vblank_flag = ppu.vblank_flag();
         if !self.vblank_flag && vblank_flag {
             // Start of VBlank
@@ -594,6 +691,22 @@ impl CpuInternalRegisters {
         self.hblank_flag = ppu.hblank_flag();
 
         // TODO H/V IRQs
+
+        // Check if auto joypad read should start
+        if self.auto_joypad_read_enabled
+            && ppu.is_first_vblank_scanline()
+            && ppu.scanline_master_cycles() >= AUTO_JOYPAD_START_MCLK
+            && (ppu.scanline_master_cycles() - master_cycles_elapsed) < AUTO_JOYPAD_START_MCLK
+        {
+            self.input_state.joypad_read_cycles_remaining = AUTO_JOYPAD_DURATION_MCLK;
+        }
+
+        // Check if manual joypad inputs need to be updated
+        if self.input_state.should_update_manual_inputs {
+            self.input_state.should_update_manual_inputs = false;
+            self.input_state.manual_joypad_p1_inputs = inputs.p1.to_register_word();
+            self.input_state.manual_joypad_p2_inputs = inputs.p2.to_register_word();
+        }
     }
 
     pub fn nmi_pending(&self) -> bool {
