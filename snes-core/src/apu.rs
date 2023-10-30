@@ -16,6 +16,9 @@ const PAL_MASTER_CLOCK_FREQUENCY: u64 = 21_281_370;
 
 const APU_MASTER_CLOCK_FREQUENCY: u64 = 24_576_000;
 
+// APU outputs a sample every 24 * 32 master clocks
+const SAMPLE_DIVIDER: u8 = 32;
+
 type AudioRam = [u8; AUDIO_RAM_LEN];
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -181,6 +184,12 @@ impl<'a> BusInterface for Spc700Bus<'a> {
     fn idle(&mut self) {}
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ApuTickEffect {
+    None,
+    OutputSample(f64, f64),
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Apu {
     spc700: Spc700,
@@ -188,6 +197,7 @@ pub struct Apu {
     registers: ApuRegisters,
     main_master_clock_frequency: u64,
     master_cycles_product: u64,
+    sample_divider: u8,
 }
 
 macro_rules! new_spc700_bus {
@@ -209,6 +219,7 @@ impl Apu {
             registers: ApuRegisters::new(),
             main_master_clock_frequency,
             master_cycles_product: 0,
+            sample_divider: SAMPLE_DIVIDER,
         };
 
         apu.spc700.reset(&mut new_spc700_bus!(apu));
@@ -216,13 +227,23 @@ impl Apu {
         apu
     }
 
-    pub fn tick(&mut self, main_master_cycles: u64) {
+    #[must_use]
+    pub fn tick(&mut self, main_master_cycles: u64) -> ApuTickEffect {
         self.master_cycles_product += main_master_cycles * APU_MASTER_CLOCK_FREQUENCY;
 
         while self.master_cycles_product >= 24 * self.main_master_clock_frequency {
-            self.clock();
             self.master_cycles_product -= 24 * self.main_master_clock_frequency;
+            self.clock();
+
+            self.sample_divider -= 1;
+            if self.sample_divider == 0 {
+                self.sample_divider = SAMPLE_DIVIDER;
+                // TODO output real samples
+                return ApuTickEffect::OutputSample(0.0, 0.0);
+            }
         }
+
+        ApuTickEffect::None
     }
 
     fn clock(&mut self) {

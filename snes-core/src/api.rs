@@ -1,4 +1,5 @@
-use crate::apu::Apu;
+use crate::apu::{Apu, ApuTickEffect};
+use crate::audio::AudioDownsampler;
 use crate::bus::Bus;
 use crate::input::SnesInputs;
 use crate::memory::{CpuInternalRegisters, DmaStatus, DmaUnit, Memory};
@@ -52,6 +53,7 @@ pub struct SnesEmulator {
     memory: Memory,
     ppu: Ppu,
     apu: Apu,
+    audio_downsampler: AudioDownsampler,
     total_master_cycles: u64,
     memory_refresh_pending: bool,
 }
@@ -73,6 +75,7 @@ impl SnesEmulator {
             memory,
             ppu,
             apu,
+            audio_downsampler: AudioDownsampler::new(),
             total_master_cycles: 0,
             memory_refresh_pending: false,
         };
@@ -142,6 +145,8 @@ impl TickableEmulator for SnesEmulator {
                 )
                 .map_err(SnesError::Render)?;
 
+            self.audio_downsampler.output_samples(audio_output).map_err(SnesError::AudioOutput)?;
+
             // TODO other once-per-frame events
 
             tick_effect = TickEffect::FrameRendered;
@@ -149,7 +154,11 @@ impl TickableEmulator for SnesEmulator {
 
         self.cpu_registers.update(&self.ppu);
 
-        self.apu.tick(master_cycles_elapsed);
+        if let ApuTickEffect::OutputSample(sample_l, sample_r) =
+            self.apu.tick(master_cycles_elapsed)
+        {
+            self.audio_downsampler.collect_sample(sample_l, sample_r);
+        }
 
         // TODO run other components
 

@@ -6,6 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+# TODO move audio resampling code elsewhere so the genesis-core dependency isn't necessary
+genesis-core = { path = "../genesis-core" }
 jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
 jgenesis-traits = { path = "../jgenesis-traits" }
 spc700-emu = { path = "../spc700-emu" }
