@@ -2,7 +2,6 @@ use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use jgenesis_traits::frontend::{Color, FrameSize, TimingMode};
 use jgenesis_traits::num::GetBit;
-use std::array;
 use std::ops::{Deref, DerefMut};
 
 // TODO 512px for hi-res mode?

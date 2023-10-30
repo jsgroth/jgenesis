@@ -2995,6 +2995,7 @@ dependencies = [
  "jgenesis-proc-macros",
  "jgenesis-traits",
  "log",
+ "spc700-emu",
  "thiserror",
  "wdc65816-emu",
 ]

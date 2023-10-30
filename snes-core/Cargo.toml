@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
 jgenesis-traits = { path = "../jgenesis-traits" }
+spc700-emu = { path = "../spc700-emu" }
 wdc65816-emu = { path = "../wdc65816-emu" }
 
 bincode = { workspace = true }

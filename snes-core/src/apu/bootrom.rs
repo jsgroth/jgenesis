@@ -1,0 +1,70 @@
+// From https://problemkaputt.github.io/fullsnes.htm#snesapumaincpucommunicationport
+#[rustfmt::skip]
+pub const SPC700_BOOT_ROM: &[u8; 64] = &[
+    // MOV X, $EF
+    0xCD, 0xEF,
+    // MOV SP, X
+    0xBD,
+    // MOV A, $00
+    0xE8, 0x00,
+    // MOV (X), A
+    0xC6,
+    // DEC X
+    0x1D,
+    // BNE -4
+    0xD0, 0xFC,
+    // MOV ($F4), $AA
+    0x8F, 0xAA, 0xF4,
+    // MOV ($F5), $BB
+    0x8F, 0xBB, 0xF5,
+    // CMP ($F4), $CC
+    0x78, 0xCC, 0xF4,
+    // BNE -5
+    0xD0, 0xFB,
+    // BRA 25
+    0x2F, 0x19,
+    // MOV Y, ($F4)
+    0xEB, 0xF4,
+    // BNE -4
+    0xD0, 0xFC,
+    // CMP Y, ($F4)
+    0x7E, 0xF4,
+    // BNE 11
+    0xD0, 0x0B,
+    // MOV A, ($F5)
+    0xE4, 0xF5,
+    // MOV ($F4), Y
+    0xCB, 0xF4,
+    // MOV (($00)+Y), A
+    0xD7, 0x00,
+    // INC Y
+    0xFC,
+    // BNE -13
+    0xD0, 0xF3,
+    // INC ($01)
+    0xAB, 0x01,
+    // BPL -17
+    0x10, 0xEF,
+    // CMP Y, ($F4)
+    0x7E, 0xF4,
+    // BPL -21
+    0x10, 0xEB,
+    // MOVW YA, ($F6)
+    0xBA, 0xF6,
+    // MOVW ($00), YA
+    0xDA, 0x00,
+    // MOVW YA, ($F4)
+    0xBA, 0xF4,
+    // MOV ($F4), A
+    0xC4, 0xF4,
+    // MOV A, Y
+    0xDD,
+    // MOV X, A
+    0x5D,
+    // BNE -37
+    0xD0, 0xDB,
+    // JMP ($0000+X)
+    0x1F, 0x00, 0x00,
+    // Reset vector ($FFC0)
+    0xC0, 0xFF,
+];

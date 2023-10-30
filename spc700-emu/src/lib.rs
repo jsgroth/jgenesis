@@ -1,9 +1,9 @@
+mod instructions;
+pub mod traits;
+
 use crate::traits::BusInterface;
 use bincode::{Decode, Encode};
 use jgenesis_traits::num::GetBit;
-
-mod instructions;
-pub mod traits;
 
 #[derive(Debug, Clone, Copy, Default, Encode, Decode)]
 pub struct StatusRegister {
@@ -85,6 +85,8 @@ pub struct Spc700 {
     state: State,
 }
 
+const RESET_VECTOR: u16 = 0xFFFE;
+
 impl Spc700 {
     pub fn new() -> Self {
         Self::default()
@@ -92,6 +94,15 @@ impl Spc700 {
 
     pub fn tick<B: BusInterface>(&mut self, bus: &mut B) {
         instructions::execute(self, bus);
+    }
+
+    pub fn reset<B: BusInterface>(&mut self, bus: &mut B) {
+        let pc_lsb = bus.read(RESET_VECTOR);
+        let pc_msb = bus.read(RESET_VECTOR + 1);
+        self.registers.pc = u16::from_le_bytes([pc_lsb, pc_msb]);
+
+        self.state.cycle = 0;
+        self.state.stopped = false;
     }
 
     fn final_cycle(&mut self) {

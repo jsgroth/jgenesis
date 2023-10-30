@@ -1,3 +1,4 @@
+use crate::apu::Apu;
 use crate::bus::Bus;
 use crate::input::SnesInputs;
 use crate::memory::{CpuInternalRegisters, DmaStatus, DmaUnit, Memory};
@@ -36,6 +37,7 @@ macro_rules! new_bus {
             memory: &mut $self.memory,
             cpu_registers: &mut $self.cpu_registers,
             ppu: &mut $self.ppu,
+            apu: &mut $self.apu,
             access_master_cycles: 0,
         }
     };
@@ -49,6 +51,7 @@ pub struct SnesEmulator {
     #[partial_clone(partial)]
     memory: Memory,
     ppu: Ppu,
+    apu: Apu,
     total_master_cycles: u64,
     memory_refresh_pending: bool,
 }
@@ -61,6 +64,7 @@ impl SnesEmulator {
         let memory = Memory::from_rom(rom);
         // TODO support PAL
         let ppu = Ppu::new(TimingMode::Ntsc);
+        let apu = Apu::new(TimingMode::Ntsc);
 
         let mut emulator = Self {
             main_cpu,
@@ -68,6 +72,7 @@ impl SnesEmulator {
             dma_unit,
             memory,
             ppu,
+            apu,
             total_master_cycles: 0,
             memory_refresh_pending: false,
         };
@@ -144,6 +149,8 @@ impl TickableEmulator for SnesEmulator {
 
         self.cpu_registers.update(&self.ppu);
 
+        self.apu.tick(master_cycles_elapsed);
+
         // TODO run other components
 
         self.total_master_cycles += master_cycles_elapsed;
@@ -181,6 +188,7 @@ impl TakeRomFrom for SnesEmulator {
 impl Resettable for SnesEmulator {
     fn soft_reset(&mut self) {
         self.main_cpu.reset(&mut new_bus!(self));
+        self.apu.reset();
 
         // TODO reset other processors and registers?
     }

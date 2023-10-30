@@ -1,3 +1,4 @@
+use crate::apu::Apu;
 use crate::memory::{CpuInternalRegisters, Memory, Memory2Speed};
 use crate::ppu::Ppu;
 use wdc65816_emu::traits::BusInterface;
@@ -25,6 +26,7 @@ pub struct Bus<'a> {
     pub memory: &'a mut Memory,
     pub cpu_registers: &'a mut CpuInternalRegisters,
     pub ppu: &'a mut Ppu,
+    pub apu: &'a mut Apu,
     pub access_master_cycles: u64,
 }
 
@@ -42,6 +44,12 @@ impl<'a> Bus<'a> {
 
                 // PPU ports
                 self.ppu.read_port(address)
+            }
+            0x2140..=0x217F => {
+                self.access_master_cycles = FAST_MASTER_CYCLES;
+
+                // APU ports
+                self.apu.read_port(address)
             }
             0x2180 => {
                 self.access_master_cycles = FAST_MASTER_CYCLES;
@@ -78,6 +86,12 @@ impl<'a> Bus<'a> {
 
                 // PPU ports
                 self.ppu.write_port(address, value);
+            }
+            0x2140..=0x217F => {
+                self.access_master_cycles = FAST_MASTER_CYCLES;
+
+                // APU ports
+                self.apu.write_port(address, value);
             }
             0x2180 => {
                 self.access_master_cycles = FAST_MASTER_CYCLES;
