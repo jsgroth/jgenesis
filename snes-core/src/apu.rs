@@ -1,7 +1,10 @@
 mod bootrom;
+mod timer;
 
+use crate::apu::timer::{FastTimer, SlowTimer};
 use bincode::{Decode, Encode};
 use jgenesis_traits::frontend::TimingMode;
+use jgenesis_traits::num::GetBit;
 use spc700_emu::traits::BusInterface;
 use spc700_emu::Spc700;
 
@@ -20,28 +23,89 @@ struct ApuRegisters {
     boot_rom_mapped: bool,
     main_cpu_communication: [u8; 4],
     spc700_communication: [u8; 4],
+    timer_0: SlowTimer,
+    timer_1: SlowTimer,
+    timer_2: FastTimer,
+    auxio4: u8,
+    auxio5: u8,
 }
 
 impl ApuRegisters {
     fn new() -> Self {
-        Self { boot_rom_mapped: true, main_cpu_communication: [0; 4], spc700_communication: [0; 4] }
+        Self {
+            boot_rom_mapped: true,
+            main_cpu_communication: [0; 4],
+            spc700_communication: [0; 4],
+            timer_0: SlowTimer::new(),
+            timer_1: SlowTimer::new(),
+            timer_2: FastTimer::new(),
+            auxio4: 0,
+            auxio5: 0,
+        }
     }
 
     fn read(&mut self, register: u16) -> u8 {
+        log::trace!("SPC700 register read: {register}");
+
         match register {
+            0 => {
+                todo!("APU test register read")
+            }
+            1 => {
+                // Control register
+                u8::from(self.timer_0.enabled())
+                    | (u8::from(self.timer_1.enabled()) << 1)
+                    | (u8::from(self.timer_2.enabled()) << 2)
+                    | (u8::from(self.boot_rom_mapped) << 7)
+            }
+            2 | 3 => {
+                // TODO DSP registers
+                0xFF
+            }
             4 => self.main_cpu_communication[0],
             5 => self.main_cpu_communication[1],
             6 => self.main_cpu_communication[2],
             7 => self.main_cpu_communication[3],
-            _ => {
-                // TODO other registers
-                0xFF
-            }
+            8 => self.auxio4,
+            9 => self.auxio5,
+            10 => self.timer_0.divider(),
+            11 => self.timer_1.divider(),
+            12 => self.timer_2.divider(),
+            13 => self.timer_0.read_output(),
+            14 => self.timer_1.read_output(),
+            15 => self.timer_2.read_output(),
+            _ => panic!("invalid APU register: {register}"),
         }
     }
 
     fn write(&mut self, register: u16, value: u8) {
+        log::trace!("SPC700 register write: {register} {value:02X}");
+
         match register {
+            0 => {
+                todo!("APU test register write")
+            }
+            1 => {
+                // Control register
+                self.timer_0.set_enabled(value.bit(0));
+                self.timer_1.set_enabled(value.bit(1));
+                self.timer_2.set_enabled(value.bit(2));
+
+                if value.bit(4) {
+                    self.main_cpu_communication[0] = 0;
+                    self.main_cpu_communication[1] = 0;
+                }
+
+                if value.bit(5) {
+                    self.main_cpu_communication[2] = 0;
+                    self.main_cpu_communication[3] = 0;
+                }
+
+                self.boot_rom_mapped = value.bit(7);
+            }
+            2 | 3 => {
+                // TODO DSP registers
+            }
             4 => {
                 self.spc700_communication[0] = value;
             }
@@ -54,9 +118,27 @@ impl ApuRegisters {
             7 => {
                 self.spc700_communication[3] = value;
             }
-            _ => {
-                // TODO other registers
+            8 => {
+                // AUXIO4 register; acts as R/W memory
+                self.auxio4 = value;
             }
+            9 => {
+                // AUXIO5 register; acts as R/W memory
+                self.auxio5 = value;
+            }
+            10 => {
+                self.timer_0.set_divider(value);
+            }
+            11 => {
+                self.timer_1.set_divider(value);
+            }
+            12 => {
+                self.timer_2.set_divider(value);
+            }
+            13..=15 => {
+                // Timer outputs; writes do nothing
+            }
+            _ => panic!("invalid APU register: {register}"),
         }
     }
 }
@@ -85,16 +167,12 @@ impl<'a> BusInterface for Spc700Bus<'a> {
     #[inline]
     fn write(&mut self, address: u16, value: u8) {
         match address {
-            0x0000..=0x00EF | 0x0100..=0xFFBF => {
+            0x0000..=0x00EF | 0x0100..=0xFFFF => {
                 self.audio_ram[address as usize] = value;
             }
             0x00F0..=0x00FF => {
                 self.registers.write(address & 0xF, value);
-            }
-            0xFFC0..=0xFFFF => {
-                if !self.registers.boot_rom_mapped {
-                    self.audio_ram[address as usize] = value;
-                }
+                self.audio_ram[address as usize] = value;
             }
         }
     }
@@ -133,8 +211,7 @@ impl Apu {
             master_cycles_product: 0,
         };
 
-        let mut bus = new_spc700_bus!(apu);
-        apu.spc700.reset(&mut bus);
+        apu.spc700.reset(&mut new_spc700_bus!(apu));
 
         apu
     }
@@ -150,6 +227,10 @@ impl Apu {
 
     fn clock(&mut self) {
         self.spc700.tick(&mut new_spc700_bus!(self));
+
+        self.registers.timer_0.tick();
+        self.registers.timer_1.tick();
+        self.registers.timer_2.tick();
     }
 
     pub fn read_port(&mut self, address: u32) -> u8 {
