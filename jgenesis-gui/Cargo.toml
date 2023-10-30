@@ -13,18 +13,18 @@ jgenesis-traits = { path = "../jgenesis-traits", features = ["serde"] }
 segacd-core = { path = "../segacd-core" }
 smsgg-core = { path = "../smsgg-core", features = ["serde"] }
 
-anyhow = "1"
-bincode = "2.0.0-rc.3"
+anyhow = { workspace = true }
+bincode = { workspace = true }
 eframe = "0.23"
 egui = "0.23"
 egui_extras = "0.23"
-env_logger = "0.10"
-log = "0.4"
-regex = "1"
-rfd = "0.12"
+env_logger = { workspace = true }
+log = { workspace = true }
+regex = { workspace = true }
+rfd = { workspace = true }
 serde = { workspace = true }
 sdl2 = { workspace = true }
-toml = "0.8"
+toml = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 xrandr = "0.2"

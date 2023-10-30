@@ -8,5 +8,5 @@ edition = "2021"
 [dependencies]
 jgenesis-traits = { path = "../jgenesis-traits" }
 
-bincode = "2.0.0-rc.3"
-log = "0.4"
+bincode = { workspace = true }
+log = { workspace = true }

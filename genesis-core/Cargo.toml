@@ -16,13 +16,13 @@ m68000-emu = { path = "../m68000-emu", features = ["bincode"] }
 smsgg-core = { path = "../smsgg-core" }
 z80-emu = { path = "../z80-emu", features = ["bincode"] }
 
-bincode = "2.0.0-rc.3"
-crc = "3"
-log = "0.4"
-regex = "1"
+bincode = { workspace = true }
+crc = { workspace = true }
+log = { workspace = true }
+regex = { workspace = true }
 serde = { workspace = true, optional = true }
-thiserror = "1"
+thiserror = { workspace = true }
 
 [dev-dependencies]
-env_logger = "0.10"
-test-log = "0.2"
+env_logger = { workspace = true }
+test-log = { workspace = true }

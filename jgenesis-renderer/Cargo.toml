@@ -9,9 +9,9 @@ edition = "2021"
 jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
 jgenesis-traits = { path = "../jgenesis-traits" }
 
-bytemuck = { version = "1.13", features = ["derive"] }
-log = "0.4"
-raw-window-handle = "0.5"
+bytemuck = { workspace = true }
+log = { workspace = true }
+raw-window-handle = { workspace = true }
 serde = { workspace = true }
-thiserror = "1"
-wgpu = "0.17"
+thiserror = { workspace = true }
+wgpu = { workspace = true }

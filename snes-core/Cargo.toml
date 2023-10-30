@@ -10,6 +10,6 @@ jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
 jgenesis-traits = { path = "../jgenesis-traits" }
 wdc65816-emu = { path = "../wdc65816-emu" }
 
-bincode = "2.0.0-rc.3"
-log = "0.4"
-thiserror = "1"
+bincode = { workspace = true }
+log = { workspace = true }
+thiserror = { workspace = true }

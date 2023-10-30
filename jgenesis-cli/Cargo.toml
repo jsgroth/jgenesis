@@ -13,7 +13,7 @@ jgenesis-renderer = { path = "../jgenesis-renderer" }
 jgenesis-traits = { path = "../jgenesis-traits" }
 smsgg-core = { path = "../smsgg-core" }
 
-anyhow = "1"
-clap = { version = "4", features = ["derive"] }
-env_logger = "0.10"
-log = "0.4"
+anyhow = { workspace = true }
+clap = { workspace = true }
+env_logger = { workspace = true }
+log = { workspace = true }

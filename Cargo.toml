@@ -23,7 +23,27 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
+anyhow = "1"
+base64 = "0.21"
+bincode = "2.0.0-rc.3"
+bytemuck = "1"
+clap = { version = "4", features = ["derive"] }
+crc = "3"
+env_logger = "0.10"
+flate2 = "1"
+log = "0.4"
+pollster = "0.3"
+rand = "0.8"
+raw-window-handle = "0.5"
+regex = "1"
+rfd = "0.12"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+test-log = "0.2"
+thiserror = "1"
+toml = "0.8"
+windows = "0.51"
+wgpu = "0.17"
 
 # This is necessary because the latest published version of rust-sdl2 (0.35.2) uses raw-window-handle 0.4 which is
 # incompatible with wgpu using raw-window-handle 0.5
