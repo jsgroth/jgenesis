@@ -2,7 +2,8 @@ use crate::apu::{Apu, ApuTickEffect};
 use crate::audio::AudioDownsampler;
 use crate::bus::Bus;
 use crate::input::SnesInputs;
-use crate::memory::{CpuInternalRegisters, DmaStatus, DmaUnit, Memory};
+use crate::memory::dma::{DmaStatus, DmaUnit};
+use crate::memory::{CpuInternalRegisters, Memory};
 use crate::ppu::{Ppu, PpuTickEffect};
 use bincode::{Decode, Encode};
 use jgenesis_traits::frontend::{

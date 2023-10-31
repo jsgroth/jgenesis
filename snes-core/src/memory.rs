@@ -1,4 +1,5 @@
-use crate::bus::Bus;
+pub(crate) mod dma;
+
 use crate::input::{SnesInputs, SnesJoypadState};
 use crate::ppu::Ppu;
 use bincode::{Decode, Encode};
@@ -6,7 +7,6 @@ use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use jgenesis_traits::num::GetBit;
 use std::array;
 use std::ops::Deref;
-use wdc65816_emu::traits::BusInterface;
 
 const MAIN_RAM_LEN: usize = 128 * 1024;
 
@@ -313,6 +313,7 @@ pub struct CpuInternalRegisters {
     division_quotient: u16,
     memory_2_speed: Memory2Speed,
     active_gpdma_channels: [bool; 8],
+    active_hdma_channels: [bool; 8],
     dma_direction: [DmaDirection; 8],
     hdma_addressing_mode: [HdmaAddressingMode; 8],
     dma_increment_mode: [DmaIncrementMode; 8],
@@ -325,6 +326,7 @@ pub struct CpuInternalRegisters {
     gpdma_byte_counter: [u16; 8],
     hdma_indirect_bank: [u8; 8],
     hdma_table_current_address: [u16; 8],
+    hdma_line_counter: [u8; 8],
     vblank_flag: bool,
     vblank_nmi_flag: bool,
     hblank_flag: bool,
@@ -349,6 +351,7 @@ impl CpuInternalRegisters {
             division_quotient: 0,
             memory_2_speed: Memory2Speed::default(),
             active_gpdma_channels: [false; 8],
+            active_hdma_channels: [false; 8],
             dma_direction: [DmaDirection::default(); 8],
             hdma_addressing_mode: [HdmaAddressingMode::default(); 8],
             dma_increment_mode: [DmaIncrementMode::default(); 8],
@@ -359,6 +362,7 @@ impl CpuInternalRegisters {
             gpdma_byte_counter: [0xFFFF; 8],
             hdma_indirect_bank: [0xFF; 8],
             hdma_table_current_address: [0xFFFF; 8],
+            hdma_line_counter: [0x00; 8],
             vblank_flag: false,
             vblank_nmi_flag: false,
             hblank_flag: false,
@@ -558,10 +562,10 @@ impl CpuInternalRegisters {
                 log::trace!("  GPDMA active channels: {value:02X}");
             }
             0x420C => {
-                // HDMAEN: Select HBlank DMA channels + start transfer
-                if value != 0 {
-                    todo!("HDMA: {value:02X}")
-                }
+                // HDMAEN: Select HBlank DMA channels
+                self.active_hdma_channels = array::from_fn(|i| value.bit(i as u8));
+
+                log::trace!("  HDMA active channels: {value:02X}");
             }
             0x420D => {
                 // MEMSEL: Memory-2 waitstate control
@@ -802,209 +806,4 @@ fn check_htime_passed(prev_scanline_mclk: u64, scanline_mclk: u64, htime: u16) -
     let htime_mclk: u64 = (4 * htime + 14).into();
     scanline_mclk >= htime_mclk
         && (prev_scanline_mclk < htime_mclk || scanline_mclk < prev_scanline_mclk)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum GpDmaState {
-    Idle,
-    Pending,
-    Copying { channel: u8, bytes_copied: u16 },
-}
-
-impl Default for GpDmaState {
-    fn default() -> Self {
-        Self::Idle
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DmaStatus {
-    None,
-    InProgress { master_cycles_elapsed: u64 },
-}
-
-#[derive(Debug, Clone, Encode, Decode)]
-pub struct DmaUnit {
-    gpdma_state: GpDmaState,
-}
-
-impl DmaUnit {
-    pub fn new() -> Self {
-        Self { gpdma_state: GpDmaState::default() }
-    }
-
-    #[must_use]
-    pub fn tick(&mut self, bus: &mut Bus<'_>, total_master_cycles: u64) -> DmaStatus {
-        // TODO HDMA
-        match self.gpdma_state {
-            GpDmaState::Idle => {
-                if bus.cpu_registers.active_gpdma_channels.iter().copied().any(|active| active) {
-                    self.gpdma_state = GpDmaState::Pending;
-                }
-                DmaStatus::None
-            }
-            GpDmaState::Pending => {
-                let Some(first_active_channel) = bus
-                    .cpu_registers
-                    .active_gpdma_channels
-                    .iter()
-                    .copied()
-                    .position(|active| active)
-                else {
-                    log::warn!("GPDMA somehow started with no active channels; not running DMA");
-
-                    self.gpdma_state = GpDmaState::Idle;
-                    return DmaStatus::None;
-                };
-
-                if log::log_enabled!(log::Level::Trace) {
-                    gpdma_start_log(bus);
-                }
-
-                self.gpdma_state =
-                    GpDmaState::Copying { channel: first_active_channel as u8, bytes_copied: 0 };
-
-                let initial_wait_cycles = compute_gpdma_initial_wait_cycles(total_master_cycles);
-                DmaStatus::InProgress { master_cycles_elapsed: initial_wait_cycles }
-            }
-            GpDmaState::Copying { channel, bytes_copied } => {
-                let next_state = gpdma_copy_byte(bus, channel, bytes_copied);
-
-                let master_cycles_elapsed = match next_state {
-                    GpDmaState::Idle => 8,
-                    GpDmaState::Copying { channel: next_channel, .. }
-                        if channel == next_channel =>
-                    {
-                        8
-                    }
-                    GpDmaState::Copying { .. } => {
-                        // Include the 8-cycle overhead for starting the new channel
-                        16
-                    }
-                    GpDmaState::Pending => panic!("next GPDMA state should never be pending"),
-                };
-
-                self.gpdma_state = next_state;
-                DmaStatus::InProgress { master_cycles_elapsed }
-            }
-        }
-    }
-}
-
-fn compute_gpdma_initial_wait_cycles(total_master_cycles: u64) -> u64 {
-    // Wait until a multiple of 8 master cycles, waiting at least 1 cycle
-    let alignment_cycles = 8 - (total_master_cycles & 0x07);
-
-    // Overhead of 8 cycles for GPDMA init, plus 8 cycles for first channel init
-    8 + 8 + alignment_cycles
-}
-
-fn gpdma_copy_byte(bus: &mut Bus<'_>, channel: u8, bytes_copied: u16) -> GpDmaState {
-    let channel = channel as usize;
-
-    let bus_a_bank = bus.cpu_registers.dma_bank[channel];
-    let bus_a_address = bus.cpu_registers.gpdma_current_address[channel];
-    let bus_a_full_address = (u32::from(bus_a_bank) << 16) | u32::from(bus_a_address);
-
-    // Transfer units (0-7):
-    //   0: 1 byte, 1 register
-    //   1: 2 bytes, 2 registers
-    //   2: 2 bytes, 1 register
-    //   3: 4 bytes, 2 registers (xx, xx, xx+1, xx+1)
-    //   4: 4 bytes, 4 registers
-    //   5: 4 bytes, 2 registers alternating (xx, xx+1, xx, xx+1)
-    //   6: Same as 2
-    //   7: Same as 3
-    let transfer_unit = bus.cpu_registers.dma_transfer_unit[channel];
-    let bus_b_adjustment = match transfer_unit {
-        0 | 2 | 6 => 0,
-        1 | 5 => (bytes_copied & 0x01) as u8,
-        3 | 7 => ((bytes_copied >> 1) & 0x01) as u8,
-        4 => (bytes_copied & 0x03) as u8,
-        _ => panic!("invalid transfer unit: {transfer_unit}"),
-    };
-
-    let bus_b_address = 0x002100
-        | u32::from(bus.cpu_registers.dma_bus_b_address[channel].wrapping_add(bus_b_adjustment));
-
-    // TODO handle disallowed accesses, e.g. CPU internal registers and WRAM-to-WRAM DMA
-    match bus.cpu_registers.dma_direction[channel] {
-        DmaDirection::AtoB => {
-            let byte = bus.read(bus_a_full_address);
-            bus.write(bus_b_address, byte);
-        }
-        DmaDirection::BtoA => {
-            let byte = bus.read(bus_b_address);
-            bus.write(bus_a_full_address, byte);
-        }
-    }
-
-    match bus.cpu_registers.dma_increment_mode[channel] {
-        DmaIncrementMode::Fixed => {}
-        DmaIncrementMode::Increment => {
-            bus.cpu_registers.gpdma_current_address[channel] = bus_a_address.wrapping_add(1);
-        }
-        DmaIncrementMode::Decrement => {
-            bus.cpu_registers.gpdma_current_address[channel] = bus_a_address.wrapping_sub(1);
-        }
-    }
-
-    let byte_counter = bus.cpu_registers.gpdma_byte_counter[channel];
-    bus.cpu_registers.gpdma_byte_counter[channel] = byte_counter.wrapping_sub(1);
-
-    // Channel is done when byte counter decrements to 0
-    if byte_counter == 1 {
-        bus.cpu_registers.active_gpdma_channels[channel] = false;
-
-        return match bus.cpu_registers.active_gpdma_channels[channel + 1..]
-            .iter()
-            .copied()
-            .position(|active| active)
-        {
-            Some(next_active_channel) => {
-                let next_active_channel = (channel + 1 + next_active_channel) as u8;
-                GpDmaState::Copying { channel: next_active_channel, bytes_copied: 0 }
-            }
-            None => GpDmaState::Idle,
-        };
-    }
-
-    GpDmaState::Copying { channel: channel as u8, bytes_copied: bytes_copied.wrapping_add(1) }
-}
-
-fn gpdma_start_log(bus: &Bus<'_>) {
-    log::trace!("  GPDMA started");
-    for (i, active) in bus.cpu_registers.active_gpdma_channels.iter().copied().enumerate() {
-        if !active {
-            continue;
-        }
-
-        log::trace!("  Channel {} bus A bank: {:02X}", i + 1, bus.cpu_registers.dma_bank[i]);
-        log::trace!(
-            "  Channel {} bus A address: {:04X}",
-            i + 1,
-            bus.cpu_registers.gpdma_current_address[i]
-        );
-        log::trace!(
-            "  Channel {} bus B address: {:02X}",
-            i + 1,
-            bus.cpu_registers.dma_bus_b_address[i]
-        );
-        log::trace!(
-            "  Channel {} byte counter: {:04X}",
-            i + 1,
-            bus.cpu_registers.gpdma_byte_counter[i]
-        );
-        log::trace!("  Channel {} direction: {:?}", i + 1, bus.cpu_registers.dma_direction[i]);
-        log::trace!(
-            "  Channel {} transfer unit: {}",
-            i + 1,
-            bus.cpu_registers.dma_transfer_unit[i]
-        );
-        log::trace!(
-            "  Channel {} increment mode: {:?}",
-            i + 1,
-            bus.cpu_registers.dma_increment_mode[i]
-        );
-    }
 }
