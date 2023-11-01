@@ -216,6 +216,32 @@ impl BgScreenSize {
             _ => unreachable!("value & 0x03 is always <= 0x03"),
         }
     }
+
+    fn x_mask(self) -> u16 {
+        match self {
+            Self::OneScreen | Self::HorizontalMirror => {
+                // 32 tiles horizontally = 256 pixels
+                0x00FF
+            }
+            Self::VerticalMirror | Self::FourScreen => {
+                // 64 tiles horizontally = 512 pixels
+                0x01FF
+            }
+        }
+    }
+
+    fn y_mask(self) -> u16 {
+        match self {
+            Self::OneScreen | Self::VerticalMirror => {
+                // 32 tiles vertically = 256 pixels
+                0x00FF
+            }
+            Self::HorizontalMirror | Self::FourScreen => {
+                // 64 tiles vertically = 512 pixels
+                0x01FF
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
@@ -853,10 +879,15 @@ impl Ppu {
     fn resolve_bg_color(&self, bg: usize, bpp: BitsPerPixel, scanline: u16, pixel: u16) -> Pixel {
         let bg_map_base_addr = self.registers.bg_base_address[bg];
         let bg_data_base_addr = self.registers.bg_tile_base_address[bg];
+        let h_scroll = self.registers.bg_h_scroll[bg];
+        let v_scroll = self.registers.bg_v_scroll[bg];
+        let bg_screen_size = self.registers.bg_screen_size[bg];
 
-        // TODO scroll and mirroring
-        let tile_row = scanline / 8;
-        let tile_col = pixel / 8;
+        let x = pixel.wrapping_add(h_scroll) & bg_screen_size.x_mask();
+        let y = scanline.wrapping_add(v_scroll) & bg_screen_size.y_mask();
+
+        let tile_row = y / 8;
+        let tile_col = x / 8;
         let tile_map_addr = 32 * tile_row + tile_col;
         let tile_map_entry =
             self.vram[((bg_map_base_addr + tile_map_addr) & VRAM_ADDRESS_MASK) as usize];
@@ -864,6 +895,8 @@ impl Ppu {
         let tile_number = tile_map_entry & 0x3FF;
         let palette = ((tile_map_entry >> 10) & 0x07) as u8;
         let priority = tile_map_entry.bit(13);
+        let x_flip = tile_map_entry.bit(14);
+        let y_flip = tile_map_entry.bit(15);
 
         // TODO 16x16 tiles
         let tile_size_words = bpp.tile_size_words();
@@ -871,9 +904,8 @@ impl Ppu {
             ((bg_data_base_addr + tile_number * tile_size_words) & VRAM_ADDRESS_MASK) as usize;
         let tile_data = &self.vram[tile_addr..tile_addr + tile_size_words as usize];
 
-        // TODO X/Y flip
-        let cell_row = scanline % 8;
-        let cell_col = pixel % 8;
+        let cell_row = if y_flip { 7 - (y % 8) } else { y % 8 };
+        let cell_col = if x_flip { 7 - (x % 8) } else { x % 8 };
         let bit_index = (7 - cell_col) as u8;
 
         let mut color = 0_u8;
@@ -1533,8 +1565,9 @@ impl Ppu {
         let current = self.registers.bg_h_scroll[i];
         let prev = self.registers.bg_scroll_write_buffer;
 
+        // H scroll formula from https://wiki.superfamicom.org/backgrounds
         self.registers.bg_h_scroll[i] =
-            ((u16::from(value) << 8) | u16::from(prev & !0x07) | ((current >> 8) & 0x07)) & 0x03FF;
+            (u16::from(value) << 8) | u16::from(prev & !0x07) | ((current >> 8) & 0x07);
         self.registers.bg_scroll_write_buffer = value;
 
         log::trace!("  BG{} H scroll: {:04X}", i + 1, self.registers.bg_h_scroll[i]);
@@ -1543,7 +1576,7 @@ impl Ppu {
     fn write_bg_v_scroll(&mut self, i: usize, value: u8) {
         let prev = self.registers.bg_scroll_write_buffer;
 
-        self.registers.bg_v_scroll[i] = u16::from_le_bytes([prev, value]) & 0x03FF;
+        self.registers.bg_v_scroll[i] = u16::from_le_bytes([prev, value]);
         self.registers.bg_scroll_write_buffer = value;
 
         log::trace!("  BG{} V scroll: {:04X}", i + 1, self.registers.bg_v_scroll[i]);
