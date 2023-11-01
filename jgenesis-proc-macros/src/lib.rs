@@ -537,16 +537,19 @@ pub fn partial_clone(input: TokenStream) -> TokenStream {
                 .unnamed
                 .iter()
                 .enumerate()
-                .map(|(i, field)| match parse_partial_clone_attr(field) {
-                    PartialCloneAttr::None => quote! {
-                        ::std::clone::Clone::clone(&self.#i)
-                    },
-                    PartialCloneAttr::PartialClone => quote! {
-                        ::jgenesis_traits::frontend::PartialClone::partial_clone(&self.#i)
-                    },
-                    PartialCloneAttr::Default => quote! {
-                        ::std::default::Default::default()
-                    },
+                .map(|(i, field)| {
+                    let i = syn::Index::from(i);
+                    match parse_partial_clone_attr(field) {
+                        PartialCloneAttr::None => quote! {
+                            ::std::clone::Clone::clone(&self.#i)
+                        },
+                        PartialCloneAttr::PartialClone => quote! {
+                            ::jgenesis_traits::frontend::PartialClone::partial_clone(&self.#i)
+                        },
+                        PartialCloneAttr::Default => quote! {
+                            ::std::default::Default::default()
+                        },
+                    }
                 })
                 .collect();
 
