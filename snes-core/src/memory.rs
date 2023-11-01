@@ -5,8 +5,8 @@ use crate::ppu::Ppu;
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use jgenesis_traits::num::GetBit;
-use std::array;
 use std::ops::Deref;
+use std::{array, mem};
 
 const MAIN_RAM_LEN: usize = 128 * 1024;
 
@@ -173,6 +173,10 @@ impl Memory {
         self.wram_port_address =
             (self.wram_port_address & 0x00FFFF) | (u32::from(value & 0x01) << 16);
         log::trace!("WRAM port address: {:06X}", self.wram_port_address);
+    }
+
+    pub fn take_rom_from(&mut self, other: &mut Self) {
+        self.cartridge.rom.0 = mem::take(&mut other.cartridge.rom.0);
     }
 }
 

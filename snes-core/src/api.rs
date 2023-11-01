@@ -174,11 +174,16 @@ impl TickableEmulator for SnesEmulator {
         Ok(tick_effect)
     }
 
-    fn force_render<R>(&mut self, _renderer: &mut R) -> Result<(), R::Err>
+    fn force_render<R>(&mut self, renderer: &mut R) -> Result<(), R::Err>
     where
         R: Renderer,
     {
-        todo!("force render")
+        // TODO dynamic aspect ratio
+        renderer.render_frame(
+            self.ppu.frame_buffer(),
+            self.ppu.frame_size(),
+            Some(PixelAspectRatio::try_from(1.1428571428571428).unwrap()),
+        )
     }
 }
 
@@ -191,8 +196,8 @@ impl ConfigReload for SnesEmulator {
 }
 
 impl TakeRomFrom for SnesEmulator {
-    fn take_rom_from(&mut self, _other: &mut Self) {
-        todo!("take ROM from")
+    fn take_rom_from(&mut self, other: &mut Self) {
+        self.memory.take_rom_from(&mut other.memory);
     }
 }
 
