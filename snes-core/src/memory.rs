@@ -1,12 +1,13 @@
+mod cartridge;
 pub(crate) mod dma;
 
 use crate::input::{SnesInputs, SnesJoypadState};
+use crate::memory::cartridge::Cartridge;
 use crate::ppu::Ppu;
 use bincode::{Decode, Encode};
-use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
+use jgenesis_proc_macros::PartialClone;
 use jgenesis_traits::num::GetBit;
-use std::ops::Deref;
-use std::{array, mem};
+use std::array;
 
 const MAIN_RAM_LEN: usize = 128 * 1024;
 
@@ -18,58 +19,6 @@ const AUTO_JOYPAD_DURATION_MCLK: u64 = 4224;
 const V_IRQ_H_MCLK: u64 = 10;
 
 type MainRam = [u8; MAIN_RAM_LEN];
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CartridgeLocation {
-    Rom(u32),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum Mapper {
-    LoRom,
-}
-
-impl Mapper {
-    #[allow(clippy::unnecessary_wraps)]
-    fn guess_from_rom(_rom: &[u8]) -> Option<Self> {
-        // TODO actually try to guess the mapper
-        Some(Mapper::LoRom)
-    }
-
-    fn map_address(self, address: u32) -> CartridgeLocation {
-        match self {
-            Self::LoRom => {
-                // TODO handle SRAM
-                let rom_addr = ((address & 0xFF0000) >> 1) | (address & 0x007FFF);
-                CartridgeLocation::Rom(rom_addr)
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, FakeEncode, FakeDecode)]
-struct Rom(Box<[u8]>);
-
-impl Default for Rom {
-    fn default() -> Self {
-        Rom(vec![].into_boxed_slice())
-    }
-}
-
-impl Deref for Rom {
-    type Target = Box<[u8]>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-#[derive(Debug, Clone, Encode, Decode, PartialClone)]
-struct Cartridge {
-    #[partial_clone(default)]
-    rom: Rom,
-    mapper: Mapper,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum Memory2Speed {
@@ -93,9 +42,8 @@ pub struct Memory {
 }
 
 impl Memory {
-    pub fn from_rom(rom: Vec<u8>) -> Self {
-        let mapper = Mapper::guess_from_rom(&rom).expect("unable to determine mapper");
-        let cartridge = Cartridge { rom: Rom(rom.into_boxed_slice()), mapper };
+    pub fn create(rom: Vec<u8>, initial_sram: Option<Vec<u8>>) -> Self {
+        let cartridge = Cartridge::create(rom.into_boxed_slice(), initial_sram);
 
         Self {
             cartridge,
@@ -105,12 +53,11 @@ impl Memory {
     }
 
     pub fn read_cartridge(&mut self, address: u32) -> u8 {
-        match self.cartridge.mapper.map_address(address) {
-            CartridgeLocation::Rom(rom_addr) => {
-                // TODO figure out mirroring for unusual ROM sizes
-                self.cartridge.rom[(rom_addr as usize) % self.cartridge.rom.len()]
-            }
-        }
+        self.cartridge.read(address)
+    }
+
+    pub fn write_cartridge(&mut self, address: u32, value: u8) {
+        self.cartridge.write(address, value);
     }
 
     pub fn cartridge_title(&mut self) -> String {
@@ -129,10 +76,6 @@ impl Memory {
                 .then_some(byte as char)
             })
             .collect()
-    }
-
-    pub fn write_cartridge(&mut self, address: u32, value: u8) {
-        todo!("write cartridge {address:06X} {value:02X}")
     }
 
     pub fn read_wram(&self, address: u32) -> u8 {
@@ -176,7 +119,11 @@ impl Memory {
     }
 
     pub fn take_rom_from(&mut self, other: &mut Self) {
-        self.cartridge.rom.0 = mem::take(&mut other.cartridge.rom.0);
+        self.cartridge.take_rom_from(&mut other.cartridge);
+    }
+
+    pub fn sram(&self) -> Option<&[u8]> {
+        self.cartridge.sram()
     }
 }
 

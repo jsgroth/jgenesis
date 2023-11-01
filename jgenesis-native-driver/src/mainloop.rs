@@ -909,8 +909,13 @@ pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEm
     let save_path = rom_path.with_extension("sav");
     let save_state_path = rom_path.with_extension("ss0");
 
+    let initial_sram = fs::read(&save_path).ok();
+    if initial_sram.as_ref().is_some_and(|sram| !sram.is_empty()) {
+        log::info!("Loaded save file from '{}'", save_path.display());
+    }
+
     let emulator_config = config.to_emulator_config();
-    let mut emulator = SnesEmulator::create(rom, emulator_config);
+    let mut emulator = SnesEmulator::create(rom, initial_sram, emulator_config);
 
     let (video, audio, joystick, event_pump) = init_sdl()?;
 

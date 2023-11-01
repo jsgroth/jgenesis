@@ -11,6 +11,7 @@ use jgenesis_traits::frontend::{
     Renderer, Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator, TimingMode,
 };
 use std::fmt::{Debug, Display};
+use std::iter;
 use thiserror::Error;
 use wdc65816_emu::core::Wdc65816;
 
@@ -61,11 +62,15 @@ pub struct SnesEmulator {
 
 impl SnesEmulator {
     #[must_use]
-    pub fn create(rom: Vec<u8>, _config: SnesEmulatorConfig) -> Self {
+    pub fn create(
+        rom: Vec<u8>,
+        initial_sram: Option<Vec<u8>>,
+        _config: SnesEmulatorConfig,
+    ) -> Self {
         let main_cpu = Wdc65816::new();
         let cpu_registers = CpuInternalRegisters::new();
         let dma_unit = DmaUnit::new();
-        let memory = Memory::from_rom(rom);
+        let memory = Memory::create(rom, initial_sram);
         // TODO support PAL
         let ppu = Ppu::new(TimingMode::Ntsc);
         let apu = Apu::new(TimingMode::Ntsc);
@@ -106,7 +111,7 @@ impl TickableEmulator for SnesEmulator {
         renderer: &mut R,
         audio_output: &mut A,
         inputs: &Self::Inputs,
-        _save_writer: &mut S,
+        save_writer: &mut S,
     ) -> Result<TickEffect, Self::Err<R::Err, A::Err, S::Err>>
     where
         R: Renderer,
@@ -148,6 +153,10 @@ impl TickableEmulator for SnesEmulator {
                 .map_err(SnesError::Render)?;
 
             self.audio_downsampler.output_samples(audio_output).map_err(SnesError::AudioOutput)?;
+
+            if let Some(sram) = self.memory.sram() {
+                save_writer.persist_save(iter::once(sram)).map_err(SnesError::SaveWrite)?;
+            }
 
             // TODO other once-per-frame events
 
