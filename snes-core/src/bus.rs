@@ -32,7 +32,8 @@ pub struct Bus<'a> {
 
 impl<'a> Bus<'a> {
     fn read_system_area(&mut self, address: u32) -> u8 {
-        match address & 0x7FFF {
+        let address = address & 0x7FFF;
+        match address {
             0x0000..=0x1FFF => {
                 self.access_master_cycles = SLOW_MASTER_CYCLES;
 
@@ -74,7 +75,8 @@ impl<'a> Bus<'a> {
     }
 
     fn write_system_area(&mut self, address: u32, value: u8) {
-        match address & 0x7FFF {
+        let address = address & 0x7FFF;
+        match address {
             0x0000..=0x1FFF => {
                 self.access_master_cycles = SLOW_MASTER_CYCLES;
 
