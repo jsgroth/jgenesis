@@ -40,6 +40,38 @@ impl VerticalDisplaySize {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BitsPerPixel {
+    // 4-color
+    Two,
+    // 16-color
+    Four,
+    // 256-color
+    Eight,
+}
+
+impl BitsPerPixel {
+    const fn bitplanes(self) -> usize {
+        match self {
+            Self::Two => 2,
+            Self::Four => 4,
+            Self::Eight => 8,
+        }
+    }
+
+    const fn tile_size_words(self) -> u16 {
+        match self {
+            Self::Two => 8,
+            Self::Four => 16,
+            Self::Eight => 32,
+        }
+    }
+}
+
+// BG3 and BG4 are always 2bpp
+const BG3_BPP: BitsPerPixel = BitsPerPixel::Two;
+const BG4_BPP: BitsPerPixel = BitsPerPixel::Two;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum BgMode {
     // Mode 0: 4x 2bpp background layers
@@ -56,7 +88,7 @@ enum BgMode {
     Five,
     // Mode 6: 1x 4bpp background layer in 512px hi-res with offset-per-tile
     Six,
-    // Mode 7: 1x 8bpp background layer with rotation/scaling, with support for an optional external background layer
+    // Mode 7: 1x 8bpp background layer with rotation/scaling
     #[default]
     Seven,
 }
@@ -74,6 +106,42 @@ impl BgMode {
             0x07 => Self::Seven,
             _ => unreachable!("value & 0x07 is always <= 0x07"),
         }
+    }
+
+    fn bg1_bpp(self) -> BitsPerPixel {
+        use BitsPerPixel as BPP;
+
+        match self {
+            Self::Zero => BPP::Two,
+            Self::One | Self::Two | Self::Five | Self::Six => BPP::Four,
+            Self::Three | Self::Four | Self::Seven => BPP::Eight,
+        }
+    }
+
+    fn bg2_enabled(self) -> bool {
+        // BG2 is enabled in all modes except 6 and 7
+        !matches!(self, Self::Six | Self::Seven)
+    }
+
+    fn bg2_bpp(self) -> BitsPerPixel {
+        use BitsPerPixel as BPP;
+
+        match self {
+            Self::Zero | Self::Four | Self::Five => BPP::Two,
+            Self::One | Self::Two | Self::Three => BPP::Four,
+            // BG2 is not rendered in mode 6 or 7; return value doesn't matter
+            Self::Six | Self::Seven => BPP::Eight,
+        }
+    }
+
+    fn bg3_enabled(self) -> bool {
+        // BG3 is only _really_ enabled in modes 0 and 1; modes 2/4/6 use it for offset-per-tile
+        matches!(self, Self::Zero | Self::One)
+    }
+
+    fn bg4_enabled(self) -> bool {
+        // BG4 is only enabled in mode 0
+        self == Self::Zero
     }
 }
 
@@ -538,6 +606,99 @@ pub enum PpuTickEffect {
     FrameComplete,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct Pixel {
+    palette: u8,
+    color: u8,
+    priority: bool,
+}
+
+impl Pixel {
+    const TRANSPARENT: Self = Self { palette: 0, color: 0, priority: false };
+
+    fn is_transparent(self) -> bool {
+        self.color == 0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Layer {
+    Bg1,
+    Bg2,
+    Bg3,
+    Bg4,
+    Obj,
+}
+
+#[derive(Debug, Clone)]
+struct PriorityResolver {
+    mode: BgMode,
+    layers: [Option<Color>; 12],
+}
+
+impl PriorityResolver {
+    fn new(mode: BgMode) -> Self {
+        Self { mode, layers: [None; 12] }
+    }
+
+    fn add(&mut self, layer: Layer, priority: u8, color: Color) {
+        let idx = match self.mode {
+            BgMode::Zero | BgMode::One => match (layer, priority) {
+                // Modes 0-1:
+                // OBJ.3 > BG1.1 > BG2.1 > OBJ.2 > BG1.0 > BG2.0 > OBJ.1 > BG3.1 > BG4.1 > OBJ.0 > BG3.0 > BG4.0
+                (Layer::Obj, 3) => 0,
+                (Layer::Bg1, 1) => 1,
+                (Layer::Bg2, 1) => 2,
+                (Layer::Obj, 2) => 3,
+                (Layer::Bg1, 0) => 4,
+                (Layer::Bg2, 0) => 5,
+                (Layer::Obj, 1) => 6,
+                (Layer::Bg3, 1) => 7,
+                (Layer::Bg4, 1) => 8,
+                (Layer::Obj, 0) => 9,
+                (Layer::Bg3, 0) => 10,
+                (Layer::Bg4, 0) => 11,
+                _ => panic!(
+                    "invalid mode/layer/priority combination: {:?} / {layer:?} / {priority}",
+                    self.mode
+                ),
+            },
+            _ => match (layer, priority) {
+                // Modes 2-7:
+                // OBJ.3 > BG1.1 > OBJ.2 > BG2.1 > OBJ.1 > BG1.0 > OBJ.0 > BG2.0
+                (Layer::Obj, 3) => 0,
+                (Layer::Bg1, 1) => 1,
+                (Layer::Obj, 2) => 2,
+                (Layer::Bg2, 1) => 3,
+                (Layer::Obj, 1) => 4,
+                (Layer::Bg1, 0) => 5,
+                (Layer::Obj, 0) => 6,
+                (Layer::Bg2, 0) => 7,
+                _ => panic!(
+                    "invalid mode/layer/priority combination: {:?} / {layer:?} / {priority}",
+                    self.mode
+                ),
+            },
+        };
+        self.layers[idx] = Some(color);
+    }
+
+    fn get(&self, bg3_high_priority: bool) -> Option<Color> {
+        if bg3_high_priority {
+            // BG3.1 is at idx 7 in Mode 1
+            if let Some(color) = self.layers[7] {
+                return Some(color);
+            }
+        }
+
+        self.layers.iter().copied().find_map(|color| color)
+    }
+
+    fn clear(&mut self) {
+        self.layers.fill(None);
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Ppu {
     timing_mode: TimingMode,
@@ -583,8 +744,12 @@ impl Ppu {
                 self.state.odd_frame = !self.state.odd_frame;
             }
 
-            if self.state.scanline == self.registers.v_display_size.to_lines() + 1 {
-                self.dumb_render();
+            let v_display_size = self.registers.v_display_size.to_lines();
+            if self.state.scanline >= 1 && self.state.scanline <= v_display_size {
+                self.render_current_line();
+            }
+
+            if self.state.scanline == v_display_size + 1 {
                 return PpuTickEffect::FrameComplete;
             }
         }
@@ -592,46 +757,140 @@ impl Ppu {
         PpuTickEffect::None
     }
 
-    // Temporary rendering implementation that only renders BG1 and assumes 2bpp, 8x8 tiles, no scroll, etc.
-    fn dumb_render(&mut self) {
-        let bg_map_base_addr = self.registers.bg_base_address[0];
-        let bg_data_base_addr = self.registers.bg_tile_base_address[0];
-        let backdrop_color = convert_snes_color(self.cgram[0]);
+    fn render_current_line(&mut self) {
+        let scanline = self.state.scanline;
 
-        for scanline in 0..224 {
+        if self.registers.forced_blanking {
+            // Forced blanking always draws black
             for pixel in 0..256 {
-                let tile_row = scanline / 8;
-                let tile_col = pixel / 8;
-                let tile_map_addr = 32 * tile_row + tile_col;
-                let tile_map_entry =
-                    self.vram[((bg_map_base_addr + tile_map_addr) & VRAM_ADDRESS_MASK) as usize];
+                self.set_in_frame_buffer(scanline, pixel, Color::rgb(0, 0, 0));
+            }
+            return;
+        }
 
-                let tile_number = tile_map_entry & 0x3FF;
-                let palette = (tile_map_entry >> 10) & 0x07;
+        let backdrop_color = convert_snes_color(self.cgram[0]);
+        let mode = self.registers.bg_mode;
 
-                let tile_addr =
-                    ((bg_data_base_addr + 8 * tile_number) & VRAM_ADDRESS_MASK) as usize;
-                let tile_data = &self.vram[tile_addr..tile_addr + 8];
+        let mut priority_resolver = PriorityResolver::new(mode);
 
-                let cell_row = scanline % 8;
-                let cell_col = pixel % 8;
+        for pixel in 0..256 {
+            priority_resolver.clear();
 
-                let word = tile_data[cell_row as usize];
-                let shift = 7 - cell_col;
-                let bit0 = (word >> shift) & 0x01;
-                let bit1 = (word >> (8 + shift)) & 0x01;
-                let color = (bit1 << 1) | bit0;
+            let bg1_enabled = self.registers.main_bg_enabled[0];
+            if bg1_enabled {
+                let bg1_bpp = mode.bg1_bpp();
+                let pixel = self.resolve_bg_color(0, bg1_bpp, scanline, pixel);
+                if !pixel.is_transparent() {
+                    let color =
+                        resolve_pixel_color(&self.cgram, bg1_bpp, 0x00, pixel.palette, pixel.color);
+                    priority_resolver.add(Layer::Bg1, pixel.priority.into(), color);
+                }
+            }
 
-                let fb_index = scanline * 256 + pixel;
-                if color != 0 {
-                    let cgram_index = (palette << 5) | color;
-                    self.frame_buffer[fb_index as usize] =
-                        convert_snes_color(self.cgram[cgram_index as usize]);
-                } else {
-                    self.frame_buffer[fb_index as usize] = backdrop_color;
+            let bg2_enabled = mode.bg2_enabled() && self.registers.main_bg_enabled[1];
+            if bg2_enabled {
+                let bg2_bpp = mode.bg2_bpp();
+                let pixel = self.resolve_bg_color(1, bg2_bpp, scanline, pixel);
+                if !pixel.is_transparent() {
+                    let two_bpp_offset = if mode == BgMode::Zero { 0x20 } else { 0x00 };
+                    let color = resolve_pixel_color(
+                        &self.cgram,
+                        bg2_bpp,
+                        two_bpp_offset,
+                        pixel.palette,
+                        pixel.color,
+                    );
+                    priority_resolver.add(Layer::Bg2, pixel.priority.into(), color);
+                }
+            }
+
+            let bg3_enabled = mode.bg3_enabled() && self.registers.main_bg_enabled[2];
+            if bg3_enabled {
+                // BG3 is always 2bpp when rendered
+                let pixel = self.resolve_bg_color(2, BG3_BPP, scanline, pixel);
+                if !pixel.is_transparent() {
+                    let two_bpp_offset = if mode == BgMode::Zero { 0x40 } else { 0x00 };
+                    let color = resolve_pixel_color(
+                        &self.cgram,
+                        BG3_BPP,
+                        two_bpp_offset,
+                        pixel.palette,
+                        pixel.color,
+                    );
+                    priority_resolver.add(Layer::Bg3, pixel.priority.into(), color);
+                }
+            }
+
+            let bg4_enabled = mode.bg4_enabled() && self.registers.main_bg_enabled[3];
+            if bg4_enabled {
+                // BG4 is always 2bpp
+                let pixel = self.resolve_bg_color(3, BG4_BPP, scanline, pixel);
+                if !pixel.is_transparent() {
+                    let two_bpp_offset = if mode == BgMode::Zero { 0x60 } else { 0x00 };
+                    let color = resolve_pixel_color(
+                        &self.cgram,
+                        BG4_BPP,
+                        two_bpp_offset,
+                        pixel.palette,
+                        pixel.color,
+                    );
+                    priority_resolver.add(Layer::Bg4, pixel.priority.into(), color);
+                }
+            }
+
+            let bg3_high_priority = mode == BgMode::One && self.registers.mode_1_bg3_priority;
+            match priority_resolver.get(bg3_high_priority) {
+                Some(color) => {
+                    self.set_in_frame_buffer(scanline, pixel, color);
+                }
+                None => {
+                    self.set_in_frame_buffer(scanline, pixel, backdrop_color);
                 }
             }
         }
+    }
+
+    fn resolve_bg_color(&self, bg: usize, bpp: BitsPerPixel, scanline: u16, pixel: u16) -> Pixel {
+        let bg_map_base_addr = self.registers.bg_base_address[bg];
+        let bg_data_base_addr = self.registers.bg_tile_base_address[bg];
+
+        // TODO scroll and mirroring
+        let tile_row = scanline / 8;
+        let tile_col = pixel / 8;
+        let tile_map_addr = 32 * tile_row + tile_col;
+        let tile_map_entry =
+            self.vram[((bg_map_base_addr + tile_map_addr) & VRAM_ADDRESS_MASK) as usize];
+
+        let tile_number = tile_map_entry & 0x3FF;
+        let palette = ((tile_map_entry >> 10) & 0x07) as u8;
+        let priority = tile_map_entry.bit(13);
+
+        // TODO 16x16 tiles
+        let tile_size_words = bpp.tile_size_words();
+        let tile_addr =
+            ((bg_data_base_addr + tile_number * tile_size_words) & VRAM_ADDRESS_MASK) as usize;
+        let tile_data = &self.vram[tile_addr..tile_addr + tile_size_words as usize];
+
+        // TODO X/Y flip
+        let cell_row = scanline % 8;
+        let cell_col = pixel % 8;
+        let bit_index = (7 - cell_col) as u8;
+
+        let mut color = 0_u8;
+        for i in (0..bpp.bitplanes()).step_by(2) {
+            let word_index = cell_row as usize + 4 * i;
+            let word = tile_data[word_index];
+
+            color |= u8::from(word.bit(bit_index)) << i;
+            color |= u8::from(word.bit(bit_index + 8)) << (i + 1);
+        }
+
+        Pixel { palette, color, priority }
+    }
+
+    fn set_in_frame_buffer(&mut self, scanline: u16, pixel: u16, color: Color) {
+        let index = (scanline - 1) * 256 + pixel;
+        self.frame_buffer[index as usize] = color;
     }
 
     fn scanlines_per_frame(&self) -> u16 {
@@ -1279,6 +1538,22 @@ impl Ppu {
         self.registers.vram_prefetch_buffer =
             self.vram[(self.registers.vram_address & VRAM_ADDRESS_MASK) as usize];
     }
+}
+
+fn resolve_pixel_color(
+    cgram: &Box<Cgram>,
+    bpp: BitsPerPixel,
+    two_bpp_offset: u8,
+    palette: u8,
+    color: u8,
+) -> Color {
+    // TODO direct color mode for 8bpp
+    let cgram_index = match bpp {
+        BitsPerPixel::Two => two_bpp_offset | (palette << 2) | color,
+        BitsPerPixel::Four => (palette << 4) | color,
+        BitsPerPixel::Eight => color,
+    };
+    convert_snes_color(cgram[cgram_index as usize])
 }
 
 // [round(i * 255 / 31) for i in range(32)]
