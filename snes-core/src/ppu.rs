@@ -1423,13 +1423,28 @@ impl Ppu {
             }
             0x32 => {
                 // COLDATA: Sub screen backdrop color
-                let intensity = u16::from(value & 0x1F);
-                let b = (u16::from(value.bit(7)) * intensity) << 10;
-                let g = (u16::from(value.bit(6)) * intensity) << 5;
-                let r = u16::from(value.bit(5)) * intensity;
-                self.registers.sub_backdrop_color = b | g | r;
+                let intensity: u16 = (value & 0x1F).into();
 
-                log::trace!("  Sub screen backdrop color: r={r}, g={g}, b={b}");
+                let mut sub_backdrop_color = self.registers.sub_backdrop_color;
+
+                if value.bit(7) {
+                    // Update B
+                    sub_backdrop_color = (sub_backdrop_color & 0x03FF) | (intensity << 10);
+                }
+
+                if value.bit(6) {
+                    // Update G
+                    sub_backdrop_color = (sub_backdrop_color & 0xFC1F) | (intensity << 5);
+                }
+
+                if value.bit(5) {
+                    // Update R
+                    sub_backdrop_color = (sub_backdrop_color & 0xFFE0) | intensity;
+                }
+
+                self.registers.sub_backdrop_color = sub_backdrop_color;
+
+                log::trace!("  Sub screen backdrop color: {sub_backdrop_color:04X}");
             }
             0x33 => {
                 // SETINI: Display control 2
