@@ -1020,6 +1020,24 @@ impl Registers {
 
         log::trace!("  CGRAM data port address: {value:02X}");
     }
+
+    fn read_mpyl(&self) -> u8 {
+        // MPYL: PPU multiply result, low byte
+        let mpy_result = i32::from(self.multiply_operand_l) * i32::from(self.multiply_operand_r);
+        mpy_result as u8
+    }
+
+    fn read_mpym(&self) -> u8 {
+        // MPYM: PPU multiply result, middle byte
+        let mpy_result = i32::from(self.multiply_operand_l) * i32::from(self.multiply_operand_r);
+        (mpy_result >> 8) as u8
+    }
+
+    fn read_mpyh(&self) -> u8 {
+        // MPYH: PPU multiply result, high byte
+        let mpy_result = i32::from(self.multiply_operand_l) * i32::from(self.multiply_operand_r);
+        (mpy_result >> 16) as u8
+    }
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -1561,7 +1579,28 @@ impl Ppu {
     }
 
     pub fn read_port(&mut self, address: u32) -> u8 {
-        todo!("PPU read {address:06X}")
+        match address & 0xFF {
+            0x34 => self.registers.read_mpyl(),
+            0x35 => self.registers.read_mpym(),
+            0x36 => self.registers.read_mpyh(),
+            0x38 => {
+                // RDOAM: OAM data port, read
+                self.read_oam_data_port()
+            }
+            0x39 => {
+                // RDVRAML: VRAM data port, read, low byte
+                self.read_vram_data_port_low()
+            }
+            0x3A => {
+                // RDVRAMH: VRAM data port, read, high byte
+                self.read_vram_data_port_high()
+            }
+            0x3B => {
+                // RDCGRAM: CGRAM data port, read
+                self.read_cgram_data_port()
+            }
+            _ => todo!("PPU read {address:06X}"),
+        }
     }
 
     pub fn write_port(&mut self, address: u32, value: u8) {
@@ -1668,9 +1707,39 @@ impl Ppu {
         }
     }
 
+    fn read_vram_data_port_low(&mut self) -> u8 {
+        let vram_byte = self.registers.vram_prefetch_buffer as u8;
+
+        if self.registers.vram_address_increment_mode == VramIncrementMode::Low {
+            // Fill prefetch buffer *before* address increment
+            self.fill_vram_prefetch_buffer();
+            self.increment_vram_address();
+        }
+
+        vram_byte
+    }
+
+    fn read_vram_data_port_high(&mut self) -> u8 {
+        let vram_byte = (self.registers.vram_prefetch_buffer >> 8) as u8;
+
+        if self.registers.vram_address_increment_mode == VramIncrementMode::High {
+            // Fill prefetch buffer *before* address increment
+            self.fill_vram_prefetch_buffer();
+            self.increment_vram_address();
+        }
+
+        vram_byte
+    }
+
     fn increment_vram_address(&mut self) {
         self.registers.vram_address =
             self.registers.vram_address.wrapping_add(self.registers.vram_address_increment_step);
+    }
+
+    fn fill_vram_prefetch_buffer(&mut self) {
+        let vram_addr = self.registers.vram_address_translation.apply(self.registers.vram_address)
+            & VRAM_ADDRESS_MASK;
+        self.registers.vram_prefetch_buffer = self.vram[vram_addr as usize];
     }
 
     fn write_oam_data_port(&mut self, value: u8) {
@@ -1691,6 +1760,20 @@ impl Ppu {
         self.registers.oam_address = (oam_addr + 1) & OAM_ADDRESS_MASK;
     }
 
+    fn read_oam_data_port(&mut self) -> u8 {
+        let oam_addr = self.registers.oam_address;
+        let oam_byte = if oam_addr >= 0x200 {
+            // $220-$3FF are mirrors of $200-$21F
+            self.oam[(0x200 | (oam_addr & 0x01F)) as usize]
+        } else {
+            self.oam[oam_addr as usize]
+        };
+
+        self.registers.oam_address = (oam_addr + 1) & OAM_ADDRESS_MASK;
+
+        oam_byte
+    }
+
     fn write_cgram_data_port(&mut self, value: u8) {
         match self.registers.cgram_flipflop {
             AccessFlipflop::First => {
@@ -1703,6 +1786,26 @@ impl Ppu {
                 self.registers.cgram_flipflop = AccessFlipflop::First;
 
                 self.registers.cgram_address = self.registers.cgram_address.wrapping_add(1);
+            }
+        }
+    }
+
+    fn read_cgram_data_port(&mut self) -> u8 {
+        let word = self.cgram[self.registers.cgram_address as usize];
+
+        match self.registers.cgram_flipflop {
+            AccessFlipflop::First => {
+                // Low byte
+                self.registers.cgram_flipflop = AccessFlipflop::Second;
+
+                word as u8
+            }
+            AccessFlipflop::Second => {
+                // High byte
+                self.registers.cgram_flipflop = AccessFlipflop::First;
+                self.registers.cgram_address = self.registers.cgram_address.wrapping_add(1);
+
+                (word >> 8) as u8
             }
         }
     }
