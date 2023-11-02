@@ -15,7 +15,7 @@ use egui_extras::{Column, TableBuilder};
 use genesis_core::{GenesisAspectRatio, GenesisRegion};
 use jgenesis_native_driver::config::{
     CommonConfig, GenesisConfig, GgAspectRatio, SegaCdConfig, SmsAspectRatio, SmsGgConfig,
-    WindowSize,
+    SnesConfig, WindowSize,
 };
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, RendererConfig, Scanlines, VSyncMode, WgpuBackend,
@@ -305,6 +305,18 @@ impl AppConfig {
             run_without_disc: false,
         })
     }
+
+    fn snes_config(&self, path: String) -> Box<SnesConfig> {
+        Box::new(SnesConfig {
+            common: self.common_config(
+                path,
+                self.inputs.to_snes_keyboard_config(),
+                self.inputs.to_snes_joystick_config(),
+            ),
+            // TODO configurable timing mode
+            forced_timing_mode: None,
+        })
+    }
 }
 
 impl Default for AppConfig {
@@ -328,6 +340,8 @@ enum OpenWindow {
     SmsGgGamepad,
     GenesisKeyboard,
     GenesisGamepad,
+    SnesKeyboard,
+    SnesGamepad,
     Hotkeys,
     About,
 }
@@ -417,8 +431,8 @@ impl App {
             return;
         }
 
-        let mut file_dialog =
-            FileDialog::new().add_filter("sms/gg/md/cue", &["sms", "gg", "md", "bin", "cue"]);
+        let mut file_dialog = FileDialog::new()
+            .add_filter("sms/gg/md/cue", &["sms", "gg", "md", "bin", "cue", "sfc"]);
         if let Some(dir) = self.config.rom_search_dirs.get(0) {
             file_dialog = file_dialog.set_directory(Path::new(dir));
         }
@@ -449,6 +463,12 @@ impl App {
 
                 let config = self.config.sega_cd_config(path);
                 self.emu_thread.send(EmuThreadCommand::RunSegaCd(config));
+            }
+            Some("sfc") => {
+                self.emu_thread.stop_emulator_if_running();
+
+                let config = self.config.snes_config(path);
+                self.emu_thread.send(EmuThreadCommand::RunSnes(config));
             }
             Some(_) => todo!("unrecognized file extension"),
             None => {}
@@ -1245,6 +1265,16 @@ impl App {
                         ui.close_menu();
                     }
 
+                    if ui.button("SNES Keyboard").clicked() {
+                        self.state.open_windows.insert(OpenWindow::SnesKeyboard);
+                        ui.close_menu();
+                    }
+
+                    if ui.button("SNES Gamepad").clicked() {
+                        self.state.open_windows.insert(OpenWindow::SnesGamepad);
+                        ui.close_menu();
+                    }
+
                     if ui.button("Hotkeys").clicked() {
                         self.state.open_windows.insert(OpenWindow::Hotkeys);
                         ui.close_menu();
@@ -1375,6 +1405,7 @@ impl App {
                             self.config.smsgg_config(self.state.current_file_path.clone()),
                             self.config.genesis_config(self.state.current_file_path.clone()),
                             self.config.sega_cd_config(self.state.current_file_path.clone()),
+                            self.config.snes_config(self.state.current_file_path.clone()),
                         );
                     }
                 }
@@ -1438,6 +1469,12 @@ impl eframe::App for App {
                 OpenWindow::GenesisGamepad => {
                     self.render_genesis_gamepad_settings(ctx);
                 }
+                OpenWindow::SnesKeyboard => {
+                    self.render_snes_keyboard_settings(ctx);
+                }
+                OpenWindow::SnesGamepad => {
+                    self.render_snes_gamepad_settings(ctx);
+                }
                 OpenWindow::Hotkeys => {
                     self.render_hotkey_settings(ctx);
                 }
@@ -1454,6 +1491,7 @@ impl eframe::App for App {
                 self.config.smsgg_config(self.state.current_file_path.clone()),
                 self.config.genesis_config(self.state.current_file_path.clone()),
                 self.config.sega_cd_config(self.state.current_file_path.clone()),
+                self.config.snes_config(self.state.current_file_path.clone()),
             );
 
             let config_str = toml::to_string_pretty(&self.config).unwrap();

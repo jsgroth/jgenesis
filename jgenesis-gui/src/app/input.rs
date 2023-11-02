@@ -4,15 +4,16 @@ use egui::{Color32, Context, Grid, TextEdit, Ui, Widget, Window};
 use genesis_core::GenesisControllerType;
 use jgenesis_native_driver::config::input::{
     GenesisControllerConfig, GenesisInputConfig, HotkeyConfig, JoystickInput, KeyboardInput,
-    SmsGgControllerConfig, SmsGgInputConfig,
+    SmsGgControllerConfig, SmsGgInputConfig, SnesControllerConfig, SnesInputConfig,
 };
-use jgenesis_native_driver::input::{GenesisButton, Hotkey, Player, SmsGgButton};
+use jgenesis_native_driver::input::{GenesisButton, Hotkey, Player, SmsGgButton, SnesButton};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GenericButton {
     SmsGg(SmsGgButton),
     Genesis(GenesisButton),
+    Snes(SnesButton),
     Hotkey(Hotkey),
 }
 
@@ -38,6 +39,14 @@ pub struct InputAppConfig {
     pub genesis_p1_joystick: GenesisControllerConfig<JoystickInput>,
     #[serde(default)]
     pub genesis_p2_joystick: GenesisControllerConfig<JoystickInput>,
+    #[serde(default = "default_snes_p1_keyboard_config")]
+    pub snes_p1_keyboard: SnesControllerConfig<String>,
+    #[serde(default)]
+    pub snes_p2_keyboard: SnesControllerConfig<String>,
+    #[serde(default)]
+    pub snes_p1_joystick: SnesControllerConfig<JoystickInput>,
+    #[serde(default)]
+    pub snes_p2_joystick: SnesControllerConfig<JoystickInput>,
     #[serde(default = "default_axis_deadzone")]
     pub axis_deadzone: i16,
     #[serde(default)]
@@ -65,6 +74,9 @@ impl InputAppConfig {
             }
             GenericButton::Genesis(genesis_button) => {
                 self.set_genesis_button(input, genesis_button);
+            }
+            GenericButton::Snes(snes_button) => {
+                self.set_snes_button(input, snes_button);
             }
             GenericButton::Hotkey(hotkey) => {
                 if let GenericInput::Keyboard(input) = input {
@@ -195,6 +207,52 @@ impl InputAppConfig {
         }
     }
 
+    fn set_snes_button(&mut self, input: GenericInput, snes_button: SnesButton) {
+        let (keyboard, joystick) = match snes_button.player() {
+            Player::One => (&mut self.snes_p1_keyboard, &mut self.snes_p1_joystick),
+            Player::Two => (&mut self.snes_p2_keyboard, &mut self.snes_p2_joystick),
+        };
+
+        match snes_button {
+            SnesButton::Up(_) => {
+                set_input!(input, keyboard.up, joystick.up);
+            }
+            SnesButton::Left(_) => {
+                set_input!(input, keyboard.left, joystick.left);
+            }
+            SnesButton::Right(_) => {
+                set_input!(input, keyboard.right, joystick.right);
+            }
+            SnesButton::Down(_) => {
+                set_input!(input, keyboard.down, joystick.down);
+            }
+            SnesButton::A(_) => {
+                set_input!(input, keyboard.a, joystick.a);
+            }
+            SnesButton::B(_) => {
+                set_input!(input, keyboard.b, joystick.b);
+            }
+            SnesButton::X(_) => {
+                set_input!(input, keyboard.x, joystick.x);
+            }
+            SnesButton::Y(_) => {
+                set_input!(input, keyboard.y, joystick.y);
+            }
+            SnesButton::L(_) => {
+                set_input!(input, keyboard.l, joystick.l);
+            }
+            SnesButton::R(_) => {
+                set_input!(input, keyboard.r, joystick.r);
+            }
+            SnesButton::Start(_) => {
+                set_input!(input, keyboard.start, joystick.start);
+            }
+            SnesButton::Select(_) => {
+                set_input!(input, keyboard.select, joystick.select);
+            }
+        }
+    }
+
     fn set_hotkey(&mut self, input: KeyboardInput, hotkey: Hotkey) {
         match hotkey {
             Hotkey::Quit => {
@@ -260,6 +318,17 @@ impl InputAppConfig {
             p2: self.genesis_p2_joystick.clone(),
         }
     }
+
+    pub fn to_snes_keyboard_config(&self) -> SnesInputConfig<KeyboardInput> {
+        SnesInputConfig {
+            p1: convert_snes_keyboard_config(self.snes_p1_keyboard.clone()),
+            p2: convert_snes_keyboard_config(self.snes_p2_keyboard.clone()),
+        }
+    }
+
+    pub fn to_snes_joystick_config(&self) -> SnesInputConfig<JoystickInput> {
+        SnesInputConfig { p1: self.snes_p1_joystick.clone(), p2: self.snes_p2_joystick.clone() }
+    }
 }
 
 macro_rules! to_keyboard_input_config {
@@ -289,6 +358,16 @@ fn convert_genesis_keyboard_config(
         config,
         GenesisControllerConfig,
         [up, left, right, down, a, b, c, x, y, z, start, mode]
+    )
+}
+
+fn convert_snes_keyboard_config(
+    config: SnesControllerConfig<String>,
+) -> SnesControllerConfig<KeyboardInput> {
+    to_keyboard_input_config!(
+        config,
+        SnesControllerConfig,
+        [up, left, right, down, a, b, x, y, l, r, start, select]
     )
 }
 
@@ -333,6 +412,25 @@ fn default_genesis_p1_keyboard_config() -> GenesisControllerConfig<String> {
     }
 }
 
+fn default_snes_p1_keyboard_config() -> SnesControllerConfig<String> {
+    let default = SnesInputConfig::<KeyboardInput>::default().p1;
+    let keycode_fn = |key: KeyboardInput| key.keycode;
+    SnesControllerConfig {
+        up: default.up.map(keycode_fn),
+        left: default.left.map(keycode_fn),
+        right: default.right.map(keycode_fn),
+        down: default.down.map(keycode_fn),
+        a: default.a.map(keycode_fn),
+        b: default.b.map(keycode_fn),
+        x: default.x.map(keycode_fn),
+        y: default.y.map(keycode_fn),
+        l: default.l.map(keycode_fn),
+        r: default.r.map(keycode_fn),
+        start: default.start.map(keycode_fn),
+        select: default.select.map(keycode_fn),
+    }
+}
+
 fn default_axis_deadzone() -> i16 {
     8000
 }
@@ -373,6 +471,25 @@ macro_rules! render_genesis_input {
             z: "Z" -> GenericButton::Genesis(GenesisButton::Z($player)),
             start: "Start" -> GenericButton::Genesis(GenesisButton::Start($player)),
             mode: "Mode" -> GenericButton::Genesis(GenesisButton::Mode($player)),
+        ], $ui);
+    }
+}
+
+macro_rules! render_snes_input {
+    ($self:expr, $button_fn:ident, $config:expr, $player:expr, $ui:expr) => {
+        render_buttons!($self, $button_fn, $config, [
+            up: "Up" -> GenericButton::Snes(SnesButton::Up($player)),
+            left: "Left" -> GenericButton::Snes(SnesButton::Left($player)),
+            right: "Right" -> GenericButton::Snes(SnesButton::Right($player)),
+            down: "Down" -> GenericButton::Snes(SnesButton::Down($player)),
+            a: "A" -> GenericButton::Snes(SnesButton::A($player)),
+            b: "B" -> GenericButton::Snes(SnesButton::B($player)),
+            x: "X" -> GenericButton::Snes(SnesButton::X($player)),
+            y: "Y" -> GenericButton::Snes(SnesButton::Y($player)),
+            l: "L" -> GenericButton::Snes(SnesButton::L($player)),
+            r: "R" -> GenericButton::Snes(SnesButton::R($player)),
+            start: "Start" -> GenericButton::Snes(SnesButton::Start($player)),
+            select: "Select" -> GenericButton::Snes(SnesButton::Select($player)),
         ], $ui);
     }
 }
@@ -574,6 +691,90 @@ impl App {
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::GenesisGamepad);
+        }
+    }
+
+    pub(super) fn render_snes_keyboard_settings(&mut self, ctx: &Context) {
+        let mut open = true;
+        Window::new("SNES Keyboard Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.set_enabled(self.state.waiting_for_input.is_none());
+
+            Grid::new("snes_keyboard_grid").show(ui, |ui| {
+                Grid::new("snes_p1_keyboard_grid").show(ui, |ui| {
+                    ui.heading("Player 1");
+                    ui.end_row();
+
+                    render_snes_input!(
+                        self,
+                        keyboard_input_button,
+                        self.config.inputs.snes_p1_keyboard,
+                        Player::One,
+                        ui
+                    );
+                });
+
+                ui.add_space(50.0);
+
+                Grid::new("snes_p2_keyboard_grid").show(ui, |ui| {
+                    ui.heading("Player 2");
+                    ui.end_row();
+
+                    render_snes_input!(
+                        self,
+                        keyboard_input_button,
+                        self.config.inputs.snes_p2_keyboard,
+                        Player::Two,
+                        ui
+                    );
+                });
+            });
+        });
+        if !open {
+            self.state.open_windows.remove(&OpenWindow::SnesKeyboard);
+        }
+    }
+
+    pub(super) fn render_snes_gamepad_settings(&mut self, ctx: &Context) {
+        let mut open = true;
+        Window::new("SNES Gamepad Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.set_enabled(self.state.waiting_for_input.is_none());
+
+            Grid::new("snes_gamepad_grid").show(ui, |ui| {
+                Grid::new("snes_p1_gamepad_grid").show(ui, |ui| {
+                    ui.heading("Player 1");
+                    ui.end_row();
+
+                    render_snes_input!(
+                        self,
+                        gamepad_input_button,
+                        self.config.inputs.snes_p1_joystick,
+                        Player::One,
+                        ui
+                    );
+                });
+
+                ui.add_space(50.0);
+
+                Grid::new("snes_p2_gamepad_grid").show(ui, |ui| {
+                    ui.heading("Player 2");
+                    ui.end_row();
+
+                    render_snes_input!(
+                        self,
+                        gamepad_input_button,
+                        self.config.inputs.snes_p2_joystick,
+                        Player::Two,
+                        ui
+                    );
+                });
+            });
+
+            ui.add_space(30.0);
+
+            self.render_axis_deadzone_input(ui);
+        });
+        if !open {
+            self.state.open_windows.remove(&OpenWindow::SnesGamepad);
         }
     }
 
@@ -823,6 +1024,20 @@ impl App {
                     clear_genesis_button(&mut self.config.inputs.genesis_p2_joystick, button);
                 }
             },
+            GenericButton::Snes(button) => match (input_type, button.player()) {
+                (InputType::Keyboard, Player::One) => {
+                    clear_snes_button(&mut self.config.inputs.snes_p1_keyboard, button);
+                }
+                (InputType::Joystick, Player::One) => {
+                    clear_snes_button(&mut self.config.inputs.snes_p1_joystick, button);
+                }
+                (InputType::Keyboard, Player::Two) => {
+                    clear_snes_button(&mut self.config.inputs.snes_p2_keyboard, button);
+                }
+                (InputType::Joystick, Player::Two) => {
+                    clear_snes_button(&mut self.config.inputs.snes_p2_joystick, button);
+                }
+            },
             GenericButton::Hotkey(hotkey) => match hotkey {
                 Hotkey::Quit => {
                     self.config.inputs.hotkeys.quit = None;
@@ -942,6 +1157,25 @@ fn clear_genesis_button<T>(config: &mut GenesisControllerConfig<T>, button: Gene
         GenesisButton::Z(_) => &mut config.z,
         GenesisButton::Start(_) => &mut config.start,
         GenesisButton::Mode(_) => &mut config.mode,
+    };
+
+    *field = None;
+}
+
+fn clear_snes_button<T>(config: &mut SnesControllerConfig<T>, button: SnesButton) {
+    let field = match button {
+        SnesButton::Up(_) => &mut config.up,
+        SnesButton::Left(_) => &mut config.left,
+        SnesButton::Right(_) => &mut config.right,
+        SnesButton::Down(_) => &mut config.down,
+        SnesButton::A(_) => &mut config.a,
+        SnesButton::B(_) => &mut config.b,
+        SnesButton::X(_) => &mut config.x,
+        SnesButton::Y(_) => &mut config.y,
+        SnesButton::L(_) => &mut config.l,
+        SnesButton::R(_) => &mut config.r,
+        SnesButton::Start(_) => &mut config.start,
+        SnesButton::Select(_) => &mut config.select,
     };
 
     *field = None;

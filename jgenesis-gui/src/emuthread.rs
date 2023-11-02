@@ -2,11 +2,11 @@ use anyhow::anyhow;
 use jgenesis_native_driver::config::input::{
     AxisDirection, HatDirection, JoystickAction, JoystickInput, KeyboardInput,
 };
-use jgenesis_native_driver::config::{GenesisConfig, SegaCdConfig, SmsGgConfig};
+use jgenesis_native_driver::config::{GenesisConfig, SegaCdConfig, SmsGgConfig, SnesConfig};
 use jgenesis_native_driver::input::{Clearable, GetButtonField, Joysticks};
 use jgenesis_native_driver::{
     AudioError, NativeEmulator, NativeGenesisEmulator, NativeSegaCdEmulator, NativeSmsGgEmulator,
-    NativeTickEffect, SaveWriteError,
+    NativeSnesEmulator, NativeTickEffect, SaveWriteError,
 };
 use jgenesis_renderer::renderer::RendererError;
 use jgenesis_traits::frontend::EmulatorTrait;
@@ -30,6 +30,7 @@ pub enum EmuThreadStatus {
     RunningSmsGg = 1,
     RunningGenesis = 2,
     RunningSegaCd = 3,
+    RunningSnes = 4,
 }
 
 impl EmuThreadStatus {
@@ -39,12 +40,16 @@ impl EmuThreadStatus {
             1 => Self::RunningSmsGg,
             2 => Self::RunningGenesis,
             3 => Self::RunningSegaCd,
+            4 => Self::RunningSnes,
             _ => panic!("invalid status discriminant: {discriminant}"),
         }
     }
 
     pub fn is_running(self) -> bool {
-        matches!(self, Self::RunningSmsGg | Self::RunningGenesis | Self::RunningSegaCd)
+        matches!(
+            self,
+            Self::RunningSmsGg | Self::RunningGenesis | Self::RunningSegaCd | Self::RunningSnes
+        )
     }
 }
 
@@ -53,9 +58,11 @@ pub enum EmuThreadCommand {
     RunSms(Box<SmsGgConfig>),
     RunGenesis(Box<GenesisConfig>),
     RunSegaCd(Box<SegaCdConfig>),
+    RunSnes(Box<SnesConfig>),
     ReloadSmsGgConfig(Box<SmsGgConfig>),
     ReloadGenesisConfig(Box<GenesisConfig>),
     ReloadSegaCdConfig(Box<SegaCdConfig>),
+    ReloadSnesConfig(Box<SnesConfig>),
     StopEmulator,
     CollectInput { input_type: InputType, axis_deadzone: i16 },
     SoftReset,
@@ -111,6 +118,7 @@ impl EmuThreadHandle {
         smsgg_config: Box<SmsGgConfig>,
         genesis_config: Box<GenesisConfig>,
         sega_cd_config: Box<SegaCdConfig>,
+        snes_config: Box<SnesConfig>,
     ) {
         match self.status() {
             EmuThreadStatus::RunningSmsGg => {
@@ -121,6 +129,9 @@ impl EmuThreadHandle {
             }
             EmuThreadStatus::RunningSegaCd => {
                 self.send(EmuThreadCommand::ReloadSegaCdConfig(sega_cd_config));
+            }
+            EmuThreadStatus::RunningSnes => {
+                self.send(EmuThreadCommand::ReloadSnesConfig(snes_config));
             }
             EmuThreadStatus::Idle => {}
         }
@@ -215,6 +226,27 @@ pub fn spawn() -> EmuThreadHandle {
                         sega_cd_change_disc_handler,
                     );
                 }
+                Ok(EmuThreadCommand::RunSnes(config)) => {
+                    status.store(EmuThreadStatus::RunningSnes as u8, Ordering::Relaxed);
+
+                    let emulator = match jgenesis_native_driver::create_snes(config) {
+                        Ok(emulator) => emulator,
+                        Err(err) => {
+                            log::error!("Error initializing SNES emulator: {err}");
+                            *emulator_error.lock().unwrap() = Some(err.into());
+                            continue;
+                        }
+                    };
+                    run_emulator(
+                        emulator,
+                        &command_receiver,
+                        &input_sender,
+                        &emulator_error,
+                        snes_reload_handler,
+                        noop_remove_disc_handler!(),
+                        noop_change_disc_handler!(),
+                    );
+                }
                 Ok(EmuThreadCommand::CollectInput { input_type, axis_deadzone }) => {
                     match collect_input_not_running(input_type, axis_deadzone) {
                         Ok(input) => {
@@ -230,6 +262,7 @@ pub fn spawn() -> EmuThreadHandle {
                     | EmuThreadCommand::ReloadSmsGgConfig(_)
                     | EmuThreadCommand::ReloadGenesisConfig(_)
                     | EmuThreadCommand::ReloadSegaCdConfig(_)
+                    | EmuThreadCommand::ReloadSnesConfig(_)
                     | EmuThreadCommand::SoftReset
                     | EmuThreadCommand::HardReset
                     | EmuThreadCommand::SegaCdRemoveDisc
@@ -269,6 +302,7 @@ enum GenericConfig {
     SmsGg(Box<SmsGgConfig>),
     Genesis(Box<GenesisConfig>),
     SegaCd(Box<SegaCdConfig>),
+    Snes(Box<SnesConfig>),
 }
 
 fn smsgg_reload_handler(
@@ -299,6 +333,17 @@ fn sega_cd_reload_handler(
 ) -> Result<(), AudioError> {
     if let GenericConfig::SegaCd(config) = config {
         emulator.reload_sega_cd_config(config)?;
+    }
+
+    Ok(())
+}
+
+fn snes_reload_handler(
+    emulator: &mut NativeSnesEmulator,
+    config: GenericConfig,
+) -> Result<(), AudioError> {
+    if let GenericConfig::Snes(config) = config {
+        emulator.reload_snes_config(config)?;
     }
 
     Ok(())
@@ -353,6 +398,14 @@ fn run_emulator<Inputs, Button, Config, Emulator>(
                         EmuThreadCommand::ReloadSegaCdConfig(config) => {
                             if let Err(err) =
                                 config_reload_handler(&mut emulator, GenericConfig::SegaCd(config))
+                            {
+                                *emulator_error.lock().unwrap() = Some(err.into());
+                                return;
+                            }
+                        }
+                        EmuThreadCommand::ReloadSnesConfig(config) => {
+                            if let Err(err) =
+                                config_reload_handler(&mut emulator, GenericConfig::Snes(config))
                             {
                                 *emulator_error.lock().unwrap() = Some(err.into());
                                 return;

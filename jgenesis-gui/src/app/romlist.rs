@@ -11,6 +11,7 @@ pub enum Console {
     GameGear,
     Genesis,
     SegaCd,
+    Snes,
 }
 
 impl Console {
@@ -20,6 +21,7 @@ impl Console {
             "gg" => Some(Self::GameGear),
             "md" | "bin" => Some(Self::Genesis),
             "cue" => Some(Self::SegaCd),
+            "sfc" => Some(Self::Snes),
             _ => None,
         }
     }
@@ -30,6 +32,7 @@ impl Console {
             Self::GameGear => "Game Gear",
             Self::Genesis => "Genesis",
             Self::SegaCd => "Sega CD",
+            Self::Snes => "SNES",
         }
     }
 }
