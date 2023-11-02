@@ -2010,6 +2010,19 @@ impl Ppu {
                 // RDCGRAM: CGRAM data port, read
                 self.read_cgram_data_port()
             }
+            0x3E => {
+                // STAT77: PPU1 status and version number
+                // TODO overflow bits; currently just version number, hardcoded to 1
+                0x01
+            }
+            0x3F => {
+                // STAT78: PPU2 status and version number
+                // TODO H/V-counter latch bit
+                // Version number hardcoded to 1
+                (u8::from(self.state.odd_frame) << 7)
+                    | (u8::from(self.timing_mode == TimingMode::Pal) << 1)
+                    | 0x01
+            }
             _ => todo!("PPU read {address:06X}"),
         }
     }
