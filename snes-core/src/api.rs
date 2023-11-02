@@ -199,9 +199,7 @@ impl TickableEmulator for SnesEmulator {
 impl ConfigReload for SnesEmulator {
     type Config = SnesEmulatorConfig;
 
-    fn reload_config(&mut self, _config: &Self::Config) {
-        todo!("reload config")
-    }
+    fn reload_config(&mut self, _config: &Self::Config) {}
 }
 
 impl TakeRomFrom for SnesEmulator {
