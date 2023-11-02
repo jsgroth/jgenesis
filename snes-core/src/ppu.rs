@@ -2,6 +2,7 @@ use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use jgenesis_traits::frontend::{Color, FrameSize, TimingMode};
 use jgenesis_traits::num::GetBit;
+use std::cmp;
 use std::ops::{Deref, DerefMut};
 
 // TODO 512px for hi-res mode?
@@ -282,6 +283,14 @@ impl WindowAreaMode {
             _ => unreachable!("value & 0x03 is always <= 0x03"),
         }
     }
+
+    fn to_optional_bool(self, inside: bool) -> Option<bool> {
+        match self {
+            Self::Disabled => None,
+            Self::Inside => Some(inside),
+            Self::Outside => Some(!inside),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
@@ -303,6 +312,18 @@ impl WindowMaskLogic {
             _ => unreachable!("value & 0x03 is always <= 0x03"),
         }
     }
+
+    fn apply(self, window_1: Option<bool>, window_2: Option<bool>) -> bool {
+        match (self, window_1, window_2) {
+            (Self::Or, Some(window_1), Some(window_2)) => window_1 || window_2,
+            (Self::And, Some(window_1), Some(window_2)) => window_1 && window_2,
+            (Self::Xor, Some(window_1), Some(window_2)) => window_1 ^ window_2,
+            (Self::Xnor, Some(window_1), Some(window_2)) => !(window_1 ^ window_2),
+            (_, Some(window_1), None) => window_1,
+            (_, None, Some(window_2)) => window_2,
+            (_, None, None) => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -313,11 +334,53 @@ enum ColorMathEnableMode {
     Always,
 }
 
+impl ColorMathEnableMode {
+    fn enabled(self, in_color_window: bool) -> bool {
+        match self {
+            Self::Always => true,
+            Self::InsideColorWindow => in_color_window,
+            Self::OutsideColorWindow => !in_color_window,
+            Self::Never => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum ColorMathOperation {
     #[default]
     Add,
     Subtract,
+}
+
+impl ColorMathOperation {
+    fn apply(self, a: u16, b: u16, divide: bool) -> u16 {
+        let (r, g, b) = match self {
+            Self::Add => {
+                let r = (a & 0x1F) + (b & 0x1F);
+                let g = ((a >> 5) & 0x1F) + ((b >> 5) & 0x1F);
+                let b = ((a >> 10) & 0x1F) + ((b >> 10) & 0x1F);
+                (r, g, b)
+            }
+            Self::Subtract => {
+                let r = (a & 0x1F).saturating_sub(b & 0x1F);
+                let g = ((a >> 5) & 0x1F).saturating_sub((b >> 5) & 0x1F);
+                let b = ((a >> 10) & 0x1F).saturating_sub((b >> 10) & 0x1F);
+                (r, g, b)
+            }
+        };
+
+        if divide {
+            let r = r >> 1;
+            let g = g >> 1;
+            let b = b >> 1;
+            r | (g << 5) | (b << 10)
+        } else {
+            let r = cmp::min(r, 0x1F);
+            let g = cmp::min(g, 0x1F);
+            let b = cmp::min(b, 0x1F);
+            r | (g << 5) | (b << 10)
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
@@ -447,11 +510,11 @@ struct Registers {
     obj_tile_gap_size: u16,
     obj_tile_size: ObjTileSize,
     // TMW
-    main_bg_window_enabled: [bool; 4],
-    main_obj_window_enabled: bool,
+    main_bg_disabled_in_window: [bool; 4],
+    main_obj_disabled_in_window: bool,
     // TSW
-    sub_bg_window_enabled: [bool; 4],
-    sub_obj_window_enabled: bool,
+    sub_bg_disabled_in_window: [bool; 4],
+    sub_obj_disabled_in_window: bool,
     // WH0/WH1/WH2/WH3
     window_1_left: u16,
     window_1_right: u16,
@@ -548,10 +611,10 @@ impl Registers {
             obj_tile_base_address: 0,
             obj_tile_gap_size: 0,
             obj_tile_size: ObjTileSize::default(),
-            main_bg_window_enabled: [false; 4],
-            main_obj_window_enabled: false,
-            sub_bg_window_enabled: [false; 4],
-            sub_obj_window_enabled: false,
+            main_bg_disabled_in_window: [false; 4],
+            main_obj_disabled_in_window: false,
+            sub_bg_disabled_in_window: [false; 4],
+            sub_obj_disabled_in_window: false,
             window_1_left: 0,
             window_1_right: 0,
             window_2_left: 0,
@@ -826,10 +889,10 @@ impl Registers {
         self.bg_window_1_area[base_bg + 1] = WindowAreaMode::from_bits(value >> 4);
         self.bg_window_2_area[base_bg + 1] = WindowAreaMode::from_bits(value >> 6);
 
-        log::trace!("  BG1 window 1 mask: {:?}", self.bg_window_1_area[base_bg]);
-        log::trace!("  BG1 window 2 mask: {:?}", self.bg_window_2_area[base_bg]);
-        log::trace!("  BG2 window 1 mask: {:?}", self.bg_window_1_area[base_bg + 1]);
-        log::trace!("  BG2 window 2 mask: {:?}", self.bg_window_2_area[base_bg + 1]);
+        log::trace!("  BG{} window 1 mask: {:?}", base_bg + 1, self.bg_window_1_area[base_bg]);
+        log::trace!("  BG{} window 2 mask: {:?}", base_bg + 1, self.bg_window_2_area[base_bg]);
+        log::trace!("  BG{} window 1 mask: {:?}", base_bg + 2, self.bg_window_1_area[base_bg + 1]);
+        log::trace!("  BG{} window 2 mask: {:?}", base_bg + 2, self.bg_window_2_area[base_bg + 1]);
     }
 
     fn write_wobjsel(&mut self, value: u8) {
@@ -889,24 +952,30 @@ impl Registers {
 
     fn write_tmw(&mut self, value: u8) {
         // TMW: Window area main screen disable
-        for (i, bg_enabled) in self.main_bg_window_enabled.iter_mut().enumerate() {
-            *bg_enabled = !value.bit(i as u8);
+        for (i, bg_disabled) in self.main_bg_disabled_in_window.iter_mut().enumerate() {
+            *bg_disabled = value.bit(i as u8);
         }
-        self.main_obj_window_enabled = !value.bit(4);
+        self.main_obj_disabled_in_window = value.bit(4);
 
-        log::trace!("  Main screen BG enabled inside window: {:?}", self.main_bg_window_enabled);
-        log::trace!("  Main screen OBJ enabled inside window: {}", self.main_obj_window_enabled);
+        log::trace!(
+            "  Main screen BG disabled inside window: {:?}",
+            self.main_bg_disabled_in_window
+        );
+        log::trace!(
+            "  Main screen OBJ disabled inside window: {}",
+            self.main_obj_disabled_in_window
+        );
     }
 
     fn write_tsw(&mut self, value: u8) {
         // TSW: Window area sub screen disable
-        for (i, bg_enabled) in self.sub_bg_window_enabled.iter_mut().enumerate() {
-            *bg_enabled = !value.bit(i as u8);
+        for (i, bg_disabled) in self.sub_bg_disabled_in_window.iter_mut().enumerate() {
+            *bg_disabled = value.bit(i as u8);
         }
-        self.sub_obj_window_enabled = !value.bit(4);
+        self.sub_obj_disabled_in_window = value.bit(4);
 
-        log::trace!("  Sub screen BG window enabled: {:?}", self.sub_bg_window_enabled);
-        log::trace!("  Sub screen OBJ window enabled: {}", self.sub_obj_window_enabled);
+        log::trace!("  Sub screen BG disabled inside window: {:?}", self.sub_bg_disabled_in_window);
+        log::trace!("  Sub screen OBJ disabled inside window: {}", self.sub_obj_disabled_in_window);
     }
 
     fn write_cgwsel(&mut self, value: u8) {
@@ -1059,6 +1128,23 @@ impl Registers {
         let mpy_result = i32::from(self.multiply_operand_l) * i32::from(self.multiply_operand_r);
         (mpy_result >> 16) as u8
     }
+
+    fn is_inside_window_1(&self, pixel: u16) -> bool {
+        self.window_1_left <= self.window_1_right
+            && (self.window_1_left..=self.window_1_right).contains(&pixel)
+    }
+
+    fn is_inside_window_2(&self, pixel: u16) -> bool {
+        self.window_2_left <= self.window_2_right
+            && (self.window_2_left..=self.window_2_right).contains(&pixel)
+    }
+
+    fn bg_in_window(&self, bg: usize, in_window_1: bool, in_window_2: bool) -> bool {
+        self.bg_window_mask_logic[bg].apply(
+            self.bg_window_1_area[bg].to_optional_bool(in_window_1),
+            self.bg_window_2_area[bg].to_optional_bool(in_window_2),
+        )
+    }
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -1131,20 +1217,46 @@ enum Layer {
     Bg3,
     Bg4,
     Obj,
+    Backdrop,
 }
 
 #[derive(Debug, Clone)]
 struct PriorityResolver {
     mode: BgMode,
-    layers: [Option<Color>; 12],
+    layers: [Option<(u16, u8)>; 12],
 }
 
 impl PriorityResolver {
+    const MODE_01_LAYERS: [Layer; 12] = [
+        Layer::Obj,
+        Layer::Bg1,
+        Layer::Bg2,
+        Layer::Obj,
+        Layer::Bg1,
+        Layer::Bg2,
+        Layer::Obj,
+        Layer::Bg3,
+        Layer::Bg4,
+        Layer::Obj,
+        Layer::Bg3,
+        Layer::Bg4,
+    ];
+    const OTHER_MODE_LAYERS: [Layer; 8] = [
+        Layer::Obj,
+        Layer::Bg1,
+        Layer::Obj,
+        Layer::Bg2,
+        Layer::Obj,
+        Layer::Bg1,
+        Layer::Obj,
+        Layer::Bg2,
+    ];
+
     fn new(mode: BgMode) -> Self {
         Self { mode, layers: [None; 12] }
     }
 
-    fn add(&mut self, layer: Layer, priority: u8, color: Color) {
+    fn add(&mut self, layer: Layer, priority: u8, color: u16, palette: u8) {
         let idx = match self.mode {
             BgMode::Zero | BgMode::One => match (layer, priority) {
                 // Modes 0-1:
@@ -1183,22 +1295,23 @@ impl PriorityResolver {
                 ),
             },
         };
-        self.layers[idx] = Some(color);
+        self.layers[idx] = Some((color, palette));
     }
 
-    fn get(&self, bg3_high_priority: bool) -> Option<Color> {
+    fn get(&self, bg3_high_priority: bool) -> Option<(u16, u8, Layer)> {
         if bg3_high_priority {
             // BG3.1 is at idx 7 in Mode 1
-            if let Some(color) = self.layers[7] {
-                return Some(color);
+            if let Some((color, palette)) = self.layers[7] {
+                return Some((color, palette, Layer::Bg3));
             }
         }
 
-        self.layers.iter().copied().find_map(|color| color)
-    }
-
-    fn clear(&mut self) {
-        self.layers.fill(None);
+        self.layers.iter().copied().enumerate().find_map(|(i, color)| {
+            color.map(|(color, palette)| match self.mode {
+                BgMode::Zero | BgMode::One => (color, palette, Self::MODE_01_LAYERS[i]),
+                _ => (color, palette, Self::OTHER_MODE_LAYERS[i]),
+            })
+        })
     }
 }
 
@@ -1212,6 +1325,12 @@ struct SpriteData {
     x_flip: bool,
     y_flip: bool,
     size: TileSize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Screen {
+    Main,
+    Sub,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -1287,120 +1406,197 @@ impl Ppu {
 
         self.populate_sprite_buffer(scanline);
 
-        let backdrop_color = convert_snes_color(self.cgram[0]);
-        let mode = self.registers.bg_mode;
-
-        let mut priority_resolver = PriorityResolver::new(mode);
+        let main_backdrop_color = self.cgram[0];
+        let sub_backdrop_color = self.registers.sub_backdrop_color;
 
         for pixel in 0..256 {
-            priority_resolver.clear();
+            let (mut main_screen_color, main_screen_palette, main_screen_layer) = self
+                .resolve_screen_color(scanline, pixel, Screen::Main)
+                .unwrap_or((main_backdrop_color, 0, Layer::Backdrop));
 
-            let bg1_enabled = self.registers.main_bg_enabled[0];
-            if bg1_enabled {
-                if mode == BgMode::Seven {
-                    let pixel = self.resolve_mode_7_color(scanline, pixel);
-                    if !pixel.is_transparent() {
-                        let color = resolve_pixel_color(
-                            &self.cgram,
-                            BitsPerPixel::Eight,
-                            0x00,
-                            pixel.palette,
-                            pixel.color,
-                        );
-                        priority_resolver.add(Layer::Bg1, pixel.priority, color);
-                    }
+            let in_color_window = self.registers.math_window_mask_logic.apply(
+                self.registers
+                    .math_window_1_area
+                    .to_optional_bool(self.registers.is_inside_window_1(pixel)),
+                self.registers
+                    .math_window_2_area
+                    .to_optional_bool(self.registers.is_inside_window_2(pixel)),
+            );
+
+            let force_main_screen_black =
+                self.registers.force_main_screen_black.enabled(in_color_window);
+            if force_main_screen_black {
+                main_screen_color = 0;
+            }
+
+            let color_math_enabled_global =
+                self.registers.color_math_enabled.enabled(in_color_window);
+
+            let color_math_enabled_layer = match main_screen_layer {
+                Layer::Bg1 => self.registers.bg_color_math_enabled[0],
+                Layer::Bg2 => self.registers.bg_color_math_enabled[1],
+                Layer::Bg3 => self.registers.bg_color_math_enabled[2],
+                Layer::Bg4 => self.registers.bg_color_math_enabled[3],
+                Layer::Obj => self.registers.obj_color_math_enabled && main_screen_palette >= 4,
+                Layer::Backdrop => self.registers.backdrop_color_math_enabled,
+            };
+
+            let final_color = if color_math_enabled_global && color_math_enabled_layer {
+                let (sub_screen_color, sub_transparent) = if self.registers.sub_bg_obj_enabled {
+                    self.resolve_screen_color(scanline, pixel, Screen::Sub)
+                        .map_or((sub_backdrop_color, true), |(color, _, _)| (color, false))
                 } else {
-                    let bg1_bpp = mode.bg1_bpp();
-                    let pixel = self.resolve_bg_color(0, bg1_bpp, scanline, pixel);
-                    if !pixel.is_transparent() {
-                        let color = resolve_pixel_color(
-                            &self.cgram,
-                            bg1_bpp,
-                            0x00,
-                            pixel.palette,
-                            pixel.color,
-                        );
-                        priority_resolver.add(Layer::Bg1, pixel.priority, color);
-                    }
-                }
-            }
+                    (sub_backdrop_color, false)
+                };
 
-            let bg2_enabled = mode.bg2_enabled() && self.registers.main_bg_enabled[1];
-            if bg2_enabled {
-                let bg2_bpp = mode.bg2_bpp();
-                let pixel = self.resolve_bg_color(1, bg2_bpp, scanline, pixel);
-                if !pixel.is_transparent() {
-                    let two_bpp_offset = if mode == BgMode::Zero { 0x20 } else { 0x00 };
-                    let color = resolve_pixel_color(
-                        &self.cgram,
-                        bg2_bpp,
-                        two_bpp_offset,
-                        pixel.palette,
-                        pixel.color,
-                    );
-                    priority_resolver.add(Layer::Bg2, pixel.priority, color);
-                }
-            }
+                let divide = self.registers.color_math_divide_enabled
+                    && !force_main_screen_black
+                    && !sub_transparent;
+                self.registers.color_math_operation.apply(
+                    main_screen_color,
+                    sub_screen_color,
+                    divide,
+                )
+            } else {
+                main_screen_color
+            };
 
-            let bg3_enabled = mode.bg3_enabled() && self.registers.main_bg_enabled[2];
-            if bg3_enabled {
-                // BG3 is always 2bpp when rendered
-                let pixel = self.resolve_bg_color(2, BG3_BPP, scanline, pixel);
-                if !pixel.is_transparent() {
-                    let two_bpp_offset = if mode == BgMode::Zero { 0x40 } else { 0x00 };
-                    let color = resolve_pixel_color(
-                        &self.cgram,
-                        BG3_BPP,
-                        two_bpp_offset,
-                        pixel.palette,
-                        pixel.color,
-                    );
-                    priority_resolver.add(Layer::Bg3, pixel.priority, color);
-                }
-            }
+            self.set_in_frame_buffer(scanline, pixel, convert_snes_color(final_color));
+        }
+    }
 
-            let bg4_enabled = mode.bg4_enabled() && self.registers.main_bg_enabled[3];
-            if bg4_enabled {
-                // BG4 is always 2bpp
-                let pixel = self.resolve_bg_color(3, BG4_BPP, scanline, pixel);
-                if !pixel.is_transparent() {
-                    let two_bpp_offset = if mode == BgMode::Zero { 0x60 } else { 0x00 };
-                    let color = resolve_pixel_color(
-                        &self.cgram,
-                        BG4_BPP,
-                        two_bpp_offset,
-                        pixel.palette,
-                        pixel.color,
-                    );
-                    priority_resolver.add(Layer::Bg4, pixel.priority, color);
-                }
-            }
+    fn resolve_screen_color(
+        &self,
+        scanline: u16,
+        pixel: u16,
+        screen: Screen,
+    ) -> Option<(u16, u8, Layer)> {
+        let mode = self.registers.bg_mode;
+        let mut priority_resolver = PriorityResolver::new(mode);
 
-            let obj_enabled = self.registers.main_obj_enabled;
-            if obj_enabled {
-                let pixel = self.resolve_sprite_color(scanline, pixel);
+        let (bg_enabled, bg_disabled_in_window) = match screen {
+            Screen::Main => {
+                (self.registers.main_bg_enabled, self.registers.main_bg_disabled_in_window)
+            }
+            Screen::Sub => {
+                (self.registers.sub_bg_enabled, self.registers.sub_bg_disabled_in_window)
+            }
+        };
+
+        let in_window_1 = self.registers.is_inside_window_1(pixel);
+        let in_window_2 = self.registers.is_inside_window_2(pixel);
+
+        let bg1_in_window = self.registers.bg_in_window(0, in_window_1, in_window_2);
+        let bg1_enabled = bg_enabled[0] && !(bg1_in_window && bg_disabled_in_window[0]);
+        if bg1_enabled {
+            if mode == BgMode::Seven {
+                let pixel = self.resolve_mode_7_color(scanline, pixel);
                 if !pixel.is_transparent() {
                     let color = resolve_pixel_color(
                         &self.cgram,
-                        OBJ_BPP,
+                        BitsPerPixel::Eight,
                         0x00,
-                        pixel.palette | 0x08, // OBJ palettes use the second half of CGRAM
+                        pixel.palette,
                         pixel.color,
                     );
-                    priority_resolver.add(Layer::Obj, pixel.priority, color);
+                    priority_resolver.add(Layer::Bg1, pixel.priority, color, pixel.palette);
                 }
-            }
-
-            let bg3_high_priority = mode == BgMode::One && self.registers.mode_1_bg3_priority;
-            match priority_resolver.get(bg3_high_priority) {
-                Some(color) => {
-                    self.set_in_frame_buffer(scanline, pixel, color);
-                }
-                None => {
-                    self.set_in_frame_buffer(scanline, pixel, backdrop_color);
+            } else {
+                let bg1_bpp = mode.bg1_bpp();
+                let pixel = self.resolve_bg_color(0, bg1_bpp, scanline, pixel);
+                if !pixel.is_transparent() {
+                    let color =
+                        resolve_pixel_color(&self.cgram, bg1_bpp, 0x00, pixel.palette, pixel.color);
+                    priority_resolver.add(Layer::Bg1, pixel.priority, color, pixel.palette);
                 }
             }
         }
+
+        let bg2_in_window = self.registers.bg_in_window(1, in_window_1, in_window_2);
+        let bg2_enabled =
+            mode.bg2_enabled() && bg_enabled[1] && !(bg2_in_window && bg_disabled_in_window[1]);
+        if bg2_enabled {
+            let bg2_bpp = mode.bg2_bpp();
+            let pixel = self.resolve_bg_color(1, bg2_bpp, scanline, pixel);
+            if !pixel.is_transparent() {
+                let two_bpp_offset = if mode == BgMode::Zero { 0x20 } else { 0x00 };
+                let color = resolve_pixel_color(
+                    &self.cgram,
+                    bg2_bpp,
+                    two_bpp_offset,
+                    pixel.palette,
+                    pixel.color,
+                );
+                priority_resolver.add(Layer::Bg2, pixel.priority, color, pixel.palette);
+            }
+        }
+
+        let bg3_in_window = self.registers.bg_in_window(2, in_window_1, in_window_2);
+        let bg3_enabled =
+            mode.bg3_enabled() && bg_enabled[2] && !(bg3_in_window && bg_disabled_in_window[2]);
+        if bg3_enabled {
+            // BG3 is always 2bpp when rendered
+            let pixel = self.resolve_bg_color(2, BG3_BPP, scanline, pixel);
+            if !pixel.is_transparent() {
+                let two_bpp_offset = if mode == BgMode::Zero { 0x40 } else { 0x00 };
+                let color = resolve_pixel_color(
+                    &self.cgram,
+                    BG3_BPP,
+                    two_bpp_offset,
+                    pixel.palette,
+                    pixel.color,
+                );
+                priority_resolver.add(Layer::Bg3, pixel.priority, color, pixel.palette);
+            }
+        }
+
+        let bg4_in_window = self.registers.bg_in_window(3, in_window_1, in_window_2);
+        let bg4_enabled =
+            mode.bg4_enabled() && bg_enabled[3] && !(bg4_in_window && bg_disabled_in_window[3]);
+        if bg4_enabled {
+            // BG4 is always 2bpp
+            let pixel = self.resolve_bg_color(3, BG4_BPP, scanline, pixel);
+            if !pixel.is_transparent() {
+                let two_bpp_offset = if mode == BgMode::Zero { 0x60 } else { 0x00 };
+                let color = resolve_pixel_color(
+                    &self.cgram,
+                    BG4_BPP,
+                    two_bpp_offset,
+                    pixel.palette,
+                    pixel.color,
+                );
+                priority_resolver.add(Layer::Bg4, pixel.priority, color, pixel.palette);
+            }
+        }
+
+        let (obj_enabled, obj_disabled_in_window) = match screen {
+            Screen::Main => {
+                (self.registers.main_obj_enabled, self.registers.main_obj_disabled_in_window)
+            }
+            Screen::Sub => {
+                (self.registers.sub_obj_enabled, self.registers.sub_obj_disabled_in_window)
+            }
+        };
+        let obj_in_window = self.registers.obj_window_mask_logic.apply(
+            self.registers.obj_window_1_area.to_optional_bool(in_window_1),
+            self.registers.obj_window_2_area.to_optional_bool(in_window_2),
+        );
+        if obj_enabled && !(obj_in_window && obj_disabled_in_window) {
+            let pixel = self.resolve_sprite_color(scanline, pixel);
+            if !pixel.is_transparent() {
+                let color = resolve_pixel_color(
+                    &self.cgram,
+                    OBJ_BPP,
+                    0x00,
+                    pixel.palette | 0x08, // OBJ palettes use the second half of CGRAM
+                    pixel.color,
+                );
+                priority_resolver.add(Layer::Obj, pixel.priority, color, pixel.palette);
+            }
+        }
+
+        let bg3_high_priority = mode == BgMode::One && self.registers.mode_1_bg3_priority;
+        priority_resolver.get(bg3_high_priority)
     }
 
     fn resolve_bg_color(&self, bg: usize, bpp: BitsPerPixel, scanline: u16, pixel: u16) -> Pixel {
@@ -1583,7 +1779,7 @@ impl Ppu {
         for oam_idx in 0..OAM_LEN {
             let oam_addr = oam_idx << 2;
             let x_lsb = self.oam[oam_addr];
-            // Sprites at y=0 should display on scanline=1, and so on
+            // Sprites at y=0 should display on scanline=1, and so on; add 1 to correct for this
             let y = self.oam[oam_addr + 1].wrapping_add(1);
             let tile_number_lsb = self.oam[oam_addr + 2];
             let attributes = self.oam[oam_addr + 3];
@@ -1632,7 +1828,7 @@ impl Ppu {
         }
     }
 
-    fn resolve_sprite_color(&mut self, scanline: u16, pixel: u16) -> Pixel {
+    fn resolve_sprite_color(&self, scanline: u16, pixel: u16) -> Pixel {
         let (small_width, small_height) = self.registers.obj_tile_size.small_size();
         let (large_width, large_height) = self.registers.obj_tile_size.large_size();
 
@@ -2023,14 +2219,14 @@ fn resolve_pixel_color(
     two_bpp_offset: u8,
     palette: u8,
     color: u8,
-) -> Color {
+) -> u16 {
     // TODO direct color mode for 8bpp
     let cgram_index = match bpp {
         BitsPerPixel::Two => two_bpp_offset | (palette << 2) | color,
         BitsPerPixel::Four => (palette << 4) | color,
         BitsPerPixel::Eight => color,
     };
-    convert_snes_color(cgram[cgram_index as usize])
+    cgram[cgram_index as usize]
 }
 
 // [round(i * 255 / 31) for i in range(32)]
