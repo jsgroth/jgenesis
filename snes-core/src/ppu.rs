@@ -1205,7 +1205,7 @@ impl PriorityResolver {
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 struct SpriteData {
     x: u16,
-    y: u16,
+    y: u8,
     tile_number: u16,
     palette: u8,
     priority: u8,
@@ -1582,7 +1582,7 @@ impl Ppu {
         for oam_idx in 0..OAM_LEN {
             let oam_addr = oam_idx << 2;
             let x_lsb = self.oam[oam_addr];
-            let y: u16 = self.oam[oam_addr + 1].into();
+            let y = self.oam[oam_addr + 1];
             let tile_number_lsb = self.oam[oam_addr + 2];
             let attributes = self.oam[oam_addr + 3];
 
@@ -1597,8 +1597,7 @@ impl Ppu {
                 TileSize::Large => large_height,
             };
 
-            if !(y..y + sprite_height).contains(&scanline) {
-                // Sprite does not overlap scanline
+            if !line_overlaps_sprite(y, sprite_height, scanline) {
                 continue;
             }
 
@@ -1643,14 +1642,14 @@ impl Ppu {
                     TileSize::Large => (large_width, large_height),
                 };
 
-                if !(sprite.x..sprite.x + sprite_width).contains(&pixel) {
+                if !pixel_overlaps_sprite(sprite.x, sprite_width, pixel) {
                     return None;
                 }
 
                 let sprite_line = if sprite.y_flip {
-                    sprite_height - 1 - (scanline - sprite.y)
+                    sprite_height as u8 - 1 - (scanline as u8).wrapping_sub(sprite.y)
                 } else {
-                    scanline - sprite.y
+                    (scanline as u8).wrapping_sub(sprite.y)
                 };
                 let sprite_pixel = if sprite.x_flip {
                     sprite_width - 1 - (pixel - sprite.x)
@@ -1659,7 +1658,7 @@ impl Ppu {
                 };
 
                 let tile_x_offset = sprite_pixel / 8;
-                let tile_y_offset = sprite_line / 8;
+                let tile_y_offset: u16 = (sprite_line / 8).into();
 
                 // Unlike BG tiles in 16x16 mode, overflows in large OBJ tiles do not carry to the next nibble
                 let mut tile_number = sprite.tile_number;
@@ -1677,7 +1676,7 @@ impl Ppu {
 
                 let tile_data = &self.vram[tile_addr..tile_addr + tile_size_words as usize];
 
-                let tile_row = sprite_line % 8;
+                let tile_row: u16 = (sprite_line % 8).into();
                 let tile_col = sprite_pixel % 8;
                 let bit_index = (7 - tile_col) as u8;
 
@@ -1992,6 +1991,25 @@ impl Ppu {
                 (word >> 8) as u8
             }
         }
+    }
+}
+
+fn line_overlaps_sprite(sprite_y: u8, sprite_height: u16, scanline: u16) -> bool {
+    let scanline = scanline as u8;
+    let sprite_bottom = sprite_y.wrapping_add(sprite_height as u8);
+    if sprite_bottom > sprite_y {
+        (sprite_y..sprite_bottom).contains(&scanline)
+    } else {
+        scanline >= sprite_y || scanline < sprite_bottom
+    }
+}
+
+fn pixel_overlaps_sprite(sprite_x: u16, sprite_width: u16, pixel: u16) -> bool {
+    let sprite_right = (sprite_x + sprite_width) & 0x01FF;
+    if sprite_right > sprite_x {
+        (sprite_x..sprite_right).contains(&pixel)
+    } else {
+        pixel >= sprite_x || pixel < sprite_right
     }
 }
 
