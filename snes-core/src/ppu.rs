@@ -436,12 +436,12 @@ impl VramIncrementMode {
 enum ObjPriorityMode {
     #[default]
     Normal,
-    Reverse,
+    Rotate,
 }
 
 impl ObjPriorityMode {
     fn from_byte(byte: u8) -> Self {
-        if byte.bit(7) { Self::Reverse } else { Self::Normal }
+        if byte.bit(7) { Self::Rotate } else { Self::Normal }
     }
 }
 
@@ -1317,6 +1317,7 @@ impl PriorityResolver {
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 struct SpriteData {
+    oam_idx: u8,
     x: u16,
     y: u8,
     tile_number: u16,
@@ -1776,7 +1777,15 @@ impl Ppu {
         let (_, small_height) = self.registers.obj_tile_size.small_size();
         let (_, large_height) = self.registers.obj_tile_size.large_size();
 
-        for oam_idx in 0..OAM_LEN {
+        // If priority rotate mode is set, start iteration at the current OAM address instead of
+        // index 0
+        let oam_offset = match self.registers.obj_priority_mode {
+            ObjPriorityMode::Normal => 0,
+            ObjPriorityMode::Rotate => (((self.registers.oam_address) >> 1) & 0x7F) as usize,
+        };
+        for i in 0..OAM_LEN {
+            let oam_idx = (i + oam_offset) & 0x7F;
+
             let oam_addr = oam_idx << 2;
             let x_lsb = self.oam[oam_addr];
             // Sprites at y=0 should display on scanline=1, and so on; add 1 to correct for this
@@ -1807,6 +1816,7 @@ impl Ppu {
             let y_flip = attributes.bit(7);
 
             self.sprite_buffer.push(SpriteData {
+                oam_idx: oam_idx as u8,
                 x,
                 y,
                 tile_number,
@@ -1821,10 +1831,6 @@ impl Ppu {
                 // TODO set overflow flag
                 break;
             }
-        }
-
-        if self.registers.obj_priority_mode == ObjPriorityMode::Reverse {
-            self.sprite_buffer.reverse();
         }
     }
 
