@@ -1648,14 +1648,16 @@ impl Ppu {
                 }
 
                 let sprite_line = if sprite.y_flip {
-                    sprite_height as u8 - 1 - (scanline as u8).wrapping_sub(sprite.y)
+                    sprite_height as u8
+                        - 1
+                        - ((scanline as u8).wrapping_sub(sprite.y) & ((sprite_height - 1) as u8))
                 } else {
-                    (scanline as u8).wrapping_sub(sprite.y)
+                    (scanline as u8).wrapping_sub(sprite.y) & ((sprite_height - 1) as u8)
                 };
                 let sprite_pixel = if sprite.x_flip {
-                    sprite_width - 1 - (pixel - sprite.x)
+                    sprite_width - 1 - (pixel.wrapping_sub(sprite.x) & (sprite_width - 1))
                 } else {
-                    pixel - sprite.x
+                    pixel.wrapping_sub(sprite.x) & (sprite_width - 1)
                 };
 
                 let tile_x_offset = sprite_pixel / 8;
