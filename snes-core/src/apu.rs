@@ -84,6 +84,7 @@ impl ApuRegisters {
     fn write(&mut self, register: u16, value: u8) {
         log::trace!("SPC700 register write: {register} {value:02X}");
 
+        #[allow(clippy::match_same_arms)]
         match register {
             0 => {
                 todo!("APU test register write")

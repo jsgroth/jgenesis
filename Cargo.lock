@@ -2990,7 +2990,7 @@ dependencies = [
 
 [[package]]
 name = "snes-core"
-version = "0.1.0"
+version = "0.4.2"
 dependencies = [
  "bincode",
  "genesis-core",

@@ -1483,6 +1483,7 @@ impl Ppu {
     }
 
     // TODO make this more efficient
+    #[allow(clippy::items_after_statements)]
     fn resolve_mode_7_color(&self, scanline: u16, pixel: u16) -> Pixel {
         // Mode 7 tile map is always 128x128
         const TILE_MAP_SIZE_PIXELS: i32 = 128 * 8;
