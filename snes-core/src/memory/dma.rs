@@ -270,8 +270,9 @@ impl DmaUnit {
             .iter()
             .copied()
             .enumerate()
-            .find(|&(i, active)| active && bus.cpu_registers.hdma_line_counter[i] != 0)
-        {
+            .find(|&(i, active)| {
+                active && bus.cpu_registers.hdma_line_counter[channel + 1 + i] != 0
+            }) {
             Some((next_channel_offset, _)) => {
                 let next_channel = channel + 1 + next_channel_offset;
                 HDmaState::Copying { channel: next_channel as u8 }
