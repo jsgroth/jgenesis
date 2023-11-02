@@ -1607,6 +1607,8 @@ impl Ppu {
     }
 
     fn resolve_bg_color(&self, bg: usize, bpp: BitsPerPixel, scanline: u16, pixel: u16) -> Pixel {
+        let (scanline, pixel) = self.apply_mosaic(bg, scanline, pixel);
+
         let mut bg_map_base_addr = self.registers.bg_base_address[bg];
         let bg_data_base_addr = self.registers.bg_tile_base_address[bg];
         let h_scroll = self.registers.bg_h_scroll[bg];
@@ -1691,6 +1693,8 @@ impl Ppu {
         // Mode 7 tile map is always 128x128
         const TILE_MAP_SIZE_PIXELS: i32 = 128 * 8;
 
+        let (scanline, pixel) = self.apply_mosaic(0, scanline, pixel);
+
         let m7a: i32 = (self.registers.mode_7_parameter_a as i16).into();
         let m7b: i32 = (self.registers.mode_7_parameter_b as i16).into();
         let m7c: i32 = (self.registers.mode_7_parameter_c as i16).into();
@@ -1772,6 +1776,18 @@ impl Ppu {
         let color = (self.vram[pixel_addr as usize] >> 8) as u8;
 
         Pixel { palette: 0, color, priority: 0 }
+    }
+
+    fn apply_mosaic(&self, bg: usize, scanline: u16, pixel: u16) -> (u16, u16) {
+        let mosaic_size = self.registers.mosaic_size;
+        let mosaic_enabled = self.registers.bg_mosaic_enabled[bg];
+        if !mosaic_enabled || mosaic_size == 0 {
+            return (scanline, pixel);
+        }
+
+        // Mosaic size of N fills each (N+1)x(N+1) square with the pixel in the top-left corner
+        let mosaic_size: u16 = (mosaic_size + 1).into();
+        (scanline / mosaic_size * mosaic_size, pixel / mosaic_size * mosaic_size)
     }
 
     fn populate_sprite_buffer(&mut self, scanline: u16) {
