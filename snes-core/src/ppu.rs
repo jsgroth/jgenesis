@@ -1421,10 +1421,10 @@ impl Ppu {
 
         if y.bit(8) {
             bg_map_base_addr += match bg_screen_size {
-                BgScreenSize::VerticalMirror => 32 * 32,
+                BgScreenSize::HorizontalMirror => 32 * 32,
                 BgScreenSize::FourScreen => 2 * 32 * 32,
                 _ => panic!(
-                    "y should always be <= 0xFF in OneScreen and HorizontalMirror sizes; was 0x{y:04X}"
+                    "y should always be <= 0xFF in OneScreen and VerticalMirror sizes; was 0x{y:04X}"
                 ),
             };
             y &= 0x00FF;
