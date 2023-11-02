@@ -804,12 +804,31 @@ impl Ppu {
 
             let bg1_enabled = self.registers.main_bg_enabled[0];
             if bg1_enabled {
-                let bg1_bpp = mode.bg1_bpp();
-                let pixel = self.resolve_bg_color(0, bg1_bpp, scanline, pixel);
-                if !pixel.is_transparent() {
-                    let color =
-                        resolve_pixel_color(&self.cgram, bg1_bpp, 0x00, pixel.palette, pixel.color);
-                    priority_resolver.add(Layer::Bg1, pixel.priority.into(), color);
+                if mode == BgMode::Seven {
+                    let pixel = self.resolve_mode_7_color(scanline, pixel);
+                    if !pixel.is_transparent() {
+                        let color = resolve_pixel_color(
+                            &self.cgram,
+                            BitsPerPixel::Eight,
+                            0x00,
+                            pixel.palette,
+                            pixel.color,
+                        );
+                        priority_resolver.add(Layer::Bg1, pixel.priority.into(), color);
+                    }
+                } else {
+                    let bg1_bpp = mode.bg1_bpp();
+                    let pixel = self.resolve_bg_color(0, bg1_bpp, scanline, pixel);
+                    if !pixel.is_transparent() {
+                        let color = resolve_pixel_color(
+                            &self.cgram,
+                            bg1_bpp,
+                            0x00,
+                            pixel.palette,
+                            pixel.color,
+                        );
+                        priority_resolver.add(Layer::Bg1, pixel.priority.into(), color);
+                    }
                 }
             }
 
@@ -937,6 +956,94 @@ impl Ppu {
         }
 
         Pixel { palette, color, priority }
+    }
+
+    // TODO make this more efficient
+    fn resolve_mode_7_color(&self, scanline: u16, pixel: u16) -> Pixel {
+        // Mode 7 tile map is always 128x128
+        const TILE_MAP_SIZE_PIXELS: i32 = 128 * 8;
+
+        let m7a: i32 = (self.registers.mode_7_parameter_a as i16).into();
+        let m7b: i32 = (self.registers.mode_7_parameter_b as i16).into();
+        let m7c: i32 = (self.registers.mode_7_parameter_c as i16).into();
+        let m7d: i32 = (self.registers.mode_7_parameter_d as i16).into();
+
+        let m7x = self.registers.mode_7_center_x;
+        let m7y = self.registers.mode_7_center_y;
+
+        let h_scroll = self.registers.mode_7_h_scroll;
+        let v_scroll = self.registers.mode_7_v_scroll;
+
+        let h_flip = self.registers.mode_7_h_flip;
+        let v_flip = self.registers.mode_7_v_flip;
+
+        let oob_behavior = self.registers.mode_7_oob_behavior;
+
+        let screen_x = if h_flip { 255 - pixel } else { pixel };
+        let screen_y = if v_flip { 255 - scanline } else { scanline };
+
+        // Convert screen coordinates to 1/256 pixel units
+        let screen_x = i32::from(screen_x) << 8;
+        let screen_y = i32::from(screen_y) << 8;
+
+        // Convert center coordinates and scroll values (signed 13-bit integer) to 1/256 pixel units
+        fn extend_signed_13_bit(value: u16) -> i32 {
+            i32::from((value << 3) as i16) << 5
+        }
+
+        let m7x = extend_signed_13_bit(m7x);
+        let m7y = extend_signed_13_bit(m7y);
+        let h_scroll = extend_signed_13_bit(h_scroll);
+        let v_scroll = extend_signed_13_bit(v_scroll);
+
+        let shifted_x = screen_x.wrapping_add(h_scroll).wrapping_sub(m7x);
+        let shifted_y = screen_y.wrapping_add(v_scroll).wrapping_sub(m7y);
+
+        let mut tile_map_x = m7a
+            .wrapping_mul(shifted_x >> 8)
+            .wrapping_add(m7b.wrapping_mul(shifted_y >> 8))
+            .wrapping_add(m7x);
+        let mut tile_map_y = m7c
+            .wrapping_mul(shifted_x >> 8)
+            .wrapping_add(m7d.wrapping_mul(shifted_y >> 8))
+            .wrapping_add(m7y);
+
+        // Convert back to pixel units
+        tile_map_x >>= 8;
+        tile_map_y >>= 8;
+
+        if tile_map_x < 0
+            || tile_map_y < 0
+            || tile_map_x >= TILE_MAP_SIZE_PIXELS
+            || tile_map_y >= TILE_MAP_SIZE_PIXELS
+        {
+            match oob_behavior {
+                Mode7OobBehavior::Wrap => {
+                    tile_map_x &= TILE_MAP_SIZE_PIXELS - 1;
+                    tile_map_y &= TILE_MAP_SIZE_PIXELS - 1;
+                }
+                Mode7OobBehavior::Transparent => {
+                    return Pixel::TRANSPARENT;
+                }
+                Mode7OobBehavior::Tile0 => {
+                    tile_map_x &= 0x07;
+                    tile_map_y &= 0x07;
+                }
+            }
+        }
+
+        // Mode 7 tile map is always located at $0000
+        let tile_map_row = tile_map_y / 8;
+        let tile_map_col = tile_map_x / 8;
+        let tile_map_addr = tile_map_row * TILE_MAP_SIZE_PIXELS / 8 + tile_map_col;
+        let tile_number = self.vram[tile_map_addr as usize] & 0x00FF;
+
+        let tile_row = (tile_map_y % 8) as u16;
+        let tile_col = (tile_map_x % 8) as u16;
+        let pixel_addr = 64 * tile_number + 8 * tile_row + tile_col;
+        let color = (self.vram[pixel_addr as usize] >> 8) as u8;
+
+        Pixel { palette: 0, color, priority: false }
     }
 
     fn set_in_frame_buffer(&mut self, scanline: u16, pixel: u16, color: Color) {
