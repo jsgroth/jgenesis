@@ -479,7 +479,7 @@ fn gpdma_copy_byte(bus: &mut Bus<'_>, channel: u8, bytes_copied: u16) -> GpDmaSt
     }
 
     match bus.cpu_registers.dma_increment_mode[channel] {
-        DmaIncrementMode::Fixed => {}
+        DmaIncrementMode::Fixed0 | DmaIncrementMode::Fixed1 => {}
         DmaIncrementMode::Increment => {
             bus.cpu_registers.gpdma_current_address[channel] = bus_a_address.wrapping_add(1);
         }

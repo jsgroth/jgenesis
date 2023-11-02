@@ -163,6 +163,10 @@ impl DmaDirection {
     fn from_byte(byte: u8) -> Self {
         if byte.bit(7) { Self::BtoA } else { Self::AtoB }
     }
+
+    fn to_byte(self) -> u8 {
+        u8::from(self == Self::BtoA) << 7
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
@@ -176,12 +180,17 @@ impl HdmaAddressingMode {
     fn from_byte(byte: u8) -> Self {
         if byte.bit(6) { Self::Indirect } else { Self::Direct }
     }
+
+    fn to_byte(self) -> u8 {
+        u8::from(self == Self::Indirect) << 6
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum DmaIncrementMode {
     #[default]
-    Fixed,
+    Fixed0,
+    Fixed1,
     Increment,
     Decrement,
 }
@@ -191,8 +200,18 @@ impl DmaIncrementMode {
         match byte & 0x18 {
             0x00 => Self::Increment,
             0x10 => Self::Decrement,
-            0x08 | 0x18 => Self::Fixed,
+            0x08 => Self::Fixed0,
+            0x18 => Self::Fixed1,
             _ => unreachable!("value & 0x18 is always one of the above values"),
+        }
+    }
+
+    fn to_byte(self) -> u8 {
+        match self {
+            Self::Increment => 0x00,
+            Self::Decrement => 0x10,
+            Self::Fixed0 => 0x08,
+            Self::Fixed1 => 0x18,
         }
     }
 }
@@ -269,6 +288,7 @@ pub struct CpuInternalRegisters {
     hdma_addressing_mode: [HdmaAddressingMode; 8],
     dma_increment_mode: [DmaIncrementMode; 8],
     dma_transfer_unit: [u8; 8],
+    dmap_unused_bit: [bool; 8],
     dma_bus_b_address: [u8; 8],
     // GPDMA current address is also used as HDMA table start address
     gpdma_current_address: [u16; 8],
@@ -278,6 +298,7 @@ pub struct CpuInternalRegisters {
     hdma_indirect_bank: [u8; 8],
     hdma_table_current_address: [u16; 8],
     hdma_line_counter: [u8; 8],
+    unused_dma_register: [u8; 8],
     vblank_flag: bool,
     vblank_nmi_flag: bool,
     hblank_flag: bool,
@@ -307,13 +328,15 @@ impl CpuInternalRegisters {
             hdma_addressing_mode: [HdmaAddressingMode::default(); 8],
             dma_increment_mode: [DmaIncrementMode::default(); 8],
             dma_transfer_unit: [0x07; 8],
+            dmap_unused_bit: [true; 8],
             dma_bus_b_address: [0xFF; 8],
             gpdma_current_address: [0xFFFF; 8],
             dma_bank: [0xFF; 8],
             gpdma_byte_counter: [0xFFFF; 8],
             hdma_indirect_bank: [0xFF; 8],
             hdma_table_current_address: [0xFFFF; 8],
-            hdma_line_counter: [0x00; 8],
+            hdma_line_counter: [0xFF; 8],
+            unused_dma_register: [0xFF; 8],
             vblank_flag: false,
             vblank_nmi_flag: false,
             hblank_flag: false,
@@ -392,6 +415,10 @@ impl CpuInternalRegisters {
             0x421C..=0x421F => {
                 // JOY3L/JOY3H/JOY4L/JOY4H: Joypad 3/4 (not implemented)
                 0x00
+            }
+            0x4300..=0x437F => {
+                // DMA registers
+                self.read_dma_register(address)
             }
             _ => todo!("read register {address:06X}"),
         }
@@ -532,6 +559,71 @@ impl CpuInternalRegisters {
         }
     }
 
+    fn read_dma_register(&self, address: u32) -> u8 {
+        // Second-least significant nibble is channel
+        let channel = ((address >> 4) & 0x7) as usize;
+
+        match address & 0xFF0F {
+            0x4300 => {
+                // DMAPx: DMA parameters 0-7
+                self.dma_transfer_unit[channel]
+                    | self.dma_increment_mode[channel].to_byte()
+                    | (u8::from(self.dmap_unused_bit[channel]) << 5)
+                    | self.hdma_addressing_mode[channel].to_byte()
+                    | self.dma_direction[channel].to_byte()
+            }
+            0x4301 => {
+                // BBADx: DMA bus B address
+                self.dma_bus_b_address[channel]
+            }
+            0x4302 => {
+                // A1TxL: GPDMA current address / HDMA table start address, low byte
+                self.gpdma_current_address[channel] as u8
+            }
+            0x4303 => {
+                // A1TxH: GPDMA current address / HDMA table start address, high byte
+                (self.gpdma_current_address[channel] >> 8) as u8
+            }
+            0x4304 => {
+                // A1Bx: GPDMA current address / HDMA table start address, bank
+                self.dma_bank[channel]
+            }
+            0x4305 => {
+                // DASxL: GPDMA byte counter / HDMA indirect address, low byte
+                self.gpdma_byte_counter[channel] as u8
+            }
+            0x4306 => {
+                // DASxH: GPDMA byte counter / HDMA indirect address, high byte
+                (self.gpdma_byte_counter[channel] >> 8) as u8
+            }
+            0x4307 => {
+                // DASBx: HDMA indirect address, bank
+                self.hdma_indirect_bank[channel]
+            }
+            0x4308 => {
+                // A2AxL: HDMA current table address, low byte
+                self.hdma_table_current_address[channel] as u8
+            }
+            0x4309 => {
+                // A2AxH: HDMA current table address, high byte
+                (self.hdma_table_current_address[channel] >> 8) as u8
+            }
+            0x430A => {
+                // NTRLx: HDMA line counter
+                self.hdma_line_counter[channel]
+            }
+            0x430B | 0x430F => {
+                // Unused DMA registers; R/W byte
+                self.unused_dma_register[channel]
+            }
+            0x430C..=0x430E => {
+                // TODO open bus
+                0xFF
+            }
+            _ => todo!("read DMA register {address:06X}"),
+        }
+    }
+
     fn write_dma_register(&mut self, address: u32, value: u8) {
         // Second-least significant nibble is channel
         let channel = ((address >> 4) & 0x7) as usize;
@@ -543,6 +635,7 @@ impl CpuInternalRegisters {
                 // DMAPx: DMA parameters 0-7
                 self.dma_transfer_unit[channel] = value & 0x07;
                 self.dma_increment_mode[channel] = DmaIncrementMode::from_byte(value);
+                self.dmap_unused_bit[channel] = value.bit(5);
                 self.hdma_addressing_mode[channel] = HdmaAddressingMode::from_byte(value);
                 self.dma_direction[channel] = DmaDirection::from_byte(value);
 
@@ -630,6 +723,21 @@ impl CpuInternalRegisters {
                     "  HDMA table current address: {:04X}",
                     self.hdma_table_current_address[channel]
                 );
+            }
+            0x430A => {
+                // NTRLx: HDMA line counter
+                self.hdma_line_counter[channel] = value;
+
+                log::trace!("  HDMA line counter: {value:02X}");
+            }
+            0x430B | 0x430F => {
+                // Unused DMA registers; R/W byte
+                self.unused_dma_register[channel] = value;
+
+                log::trace!("  Unused DMA register: {value:02X}");
+            }
+            0x430C..=0x430E => {
+                // Open bus; do nothing
             }
             _ => todo!("write DMA register {address:06X} {value:02X}"),
         }
