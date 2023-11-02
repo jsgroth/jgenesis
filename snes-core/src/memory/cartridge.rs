@@ -87,7 +87,7 @@ impl Cartridge {
     pub fn sram(&self) -> Option<&[u8]> {
         match self {
             Self::LoRom { sram, .. } if !sram.is_empty() => Some(sram),
-            _ => None,
+            Self::LoRom { .. } => None,
         }
     }
 }

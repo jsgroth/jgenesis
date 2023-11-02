@@ -287,8 +287,8 @@ impl WindowMaskLogic {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum ColorMathEnableMode {
     Never,
-    NotMathWindow,
-    MathWindow,
+    OutsideColorWindow,
+    InsideColorWindow,
     Always,
 }
 
@@ -581,6 +581,444 @@ impl Registers {
             multiply_operand_l: !0,
             multiply_operand_r: !0,
         }
+    }
+
+    fn write_inidisp(&mut self, value: u8) {
+        // INIDISP: Display control 1
+        self.forced_blanking = value.bit(7);
+        self.brightness = value & 0x0F;
+
+        log::trace!("  Forced blanking: {}", self.forced_blanking);
+        log::trace!("  Brightness: {}", self.brightness);
+    }
+
+    fn write_setini(&mut self, value: u8) {
+        // SETINI: Display control 2
+        self.interlaced = value.bit(0);
+        self.pseudo_obj_hi_res = value.bit(1);
+        self.v_display_size = if value.bit(2) {
+            VerticalDisplaySize::TwoThirtyNine
+        } else {
+            VerticalDisplaySize::TwoTwentyFour
+        };
+        self.pseudo_h_hi_res = value.bit(3);
+        self.extbg_enabled = value.bit(6);
+
+        log::trace!("  Interlaced: {}", self.interlaced);
+        log::trace!("  Pseudo H hi-res: {}", self.pseudo_h_hi_res);
+        log::trace!("  Smaller OBJs: {}", self.pseudo_obj_hi_res);
+        log::trace!("  EXTBG enabled: {}", self.extbg_enabled);
+        log::trace!("  V display size: {:?}", self.v_display_size);
+    }
+
+    fn write_tm(&mut self, value: u8) {
+        // TM: Main screen designation
+        for (i, bg_enabled) in self.main_bg_enabled.iter_mut().enumerate() {
+            *bg_enabled = value.bit(i as u8);
+        }
+        self.main_obj_enabled = value.bit(4);
+
+        log::trace!("  Main screen BG enabled: {:?}", self.main_bg_enabled);
+        log::trace!("  Main screen OBJ enabled: {}", self.main_obj_enabled);
+    }
+
+    fn write_ts(&mut self, value: u8) {
+        // TS: Sub screen designation
+        for (i, bg_enabled) in self.sub_bg_enabled.iter_mut().enumerate() {
+            *bg_enabled = value.bit(i as u8);
+        }
+        self.sub_obj_enabled = value.bit(4);
+
+        log::trace!("  Sub screen BG enabled: {:?}", self.sub_bg_enabled);
+        log::trace!("  Sub screen OBJ enabled: {:?}", self.sub_obj_enabled);
+    }
+
+    fn write_bgmode(&mut self, value: u8) {
+        // BGMODE: BG mode and character size
+        self.bg_mode = BgMode::from_byte(value);
+        self.mode_1_bg3_priority = value.bit(3);
+
+        for (i, tile_size) in self.bg_tile_size.iter_mut().enumerate() {
+            *tile_size = BgTileSize::from_bit(value.bit(i as u8 + 4));
+        }
+
+        log::trace!("  BG mode: {:?}", self.bg_mode);
+        log::trace!("  Mode 1 BG3 priority: {}", self.mode_1_bg3_priority);
+        log::trace!("  BG tile sizes: {:?}", self.bg_tile_size);
+    }
+
+    fn write_mosaic(&mut self, value: u8) {
+        // MOSAIC: Mosaic size and enable
+        self.mosaic_size = value >> 4;
+
+        for (i, mosaic_enabled) in self.bg_mosaic_enabled.iter_mut().enumerate() {
+            *mosaic_enabled = value.bit(i as u8);
+        }
+
+        log::trace!("  Mosaic size: {}", self.mosaic_size);
+        log::trace!("  Mosaic enabled: {:?}", self.bg_mosaic_enabled);
+    }
+
+    fn write_bg1234sc(&mut self, bg: usize, value: u8) {
+        // BG1SC/BG2SC/BG3SC/BG4SC: BG1-4 screen base and size
+        self.bg_screen_size[bg] = BgScreenSize::from_byte(value);
+        self.bg_base_address[bg] = u16::from(value & 0xFC) << 8;
+
+        log::trace!("  BG{} screen size: {:?}", bg + 1, self.bg_screen_size[bg]);
+        log::trace!("  BG{} base address: {:04X}", bg + 1, self.bg_base_address[bg]);
+    }
+
+    fn write_bg1234nba(&mut self, base_bg: usize, value: u8) {
+        // BG12NBA/BG34NBA: BG 1/2/3/4 character data area designation
+        self.bg_tile_base_address[base_bg] = u16::from(value & 0x0F) << 12;
+        self.bg_tile_base_address[base_bg + 1] = u16::from(value & 0xF0) << 8;
+
+        log::trace!(
+            "  BG{} tile base address: {:04X}",
+            base_bg + 1,
+            self.bg_tile_base_address[base_bg]
+        );
+        log::trace!(
+            "  BG{} tile base address: {:04X}",
+            base_bg + 2,
+            self.bg_tile_base_address[base_bg + 1],
+        );
+    }
+
+    fn write_bg1hofs(&mut self, value: u8) {
+        // BG1HOFS: BG1 horizontal scroll / M7HOFS: Mode 7 horizontal scroll
+        self.write_bg_h_scroll(0, value);
+
+        self.mode_7_h_scroll = u16::from_le_bytes([self.mode_7_write_buffer, value]);
+        self.mode_7_write_buffer = value;
+
+        log::trace!("  Mode 7 H scroll: {:04X}", self.mode_7_h_scroll);
+    }
+
+    fn write_bg1vofs(&mut self, value: u8) {
+        // BG1VOFS: BG1 vertical scroll / M7VOFS: Mode 7 vertical scroll
+        self.write_bg_v_scroll(0, value);
+
+        self.mode_7_v_scroll = u16::from_le_bytes([self.mode_7_write_buffer, value]);
+        self.mode_7_write_buffer = value;
+
+        log::trace!("  Mode 7 V scroll: {:04X}", self.mode_7_v_scroll);
+    }
+
+    fn write_bg_h_scroll(&mut self, i: usize, value: u8) {
+        let current = self.bg_h_scroll[i];
+        let prev = self.bg_scroll_write_buffer;
+
+        // H scroll formula from https://wiki.superfamicom.org/backgrounds
+        self.bg_h_scroll[i] =
+            (u16::from(value) << 8) | u16::from(prev & !0x07) | ((current >> 8) & 0x07);
+        self.bg_scroll_write_buffer = value;
+
+        log::trace!("  BG{} H scroll: {:04X}", i + 1, self.bg_h_scroll[i]);
+    }
+
+    fn write_bg_v_scroll(&mut self, i: usize, value: u8) {
+        let prev = self.bg_scroll_write_buffer;
+
+        self.bg_v_scroll[i] = u16::from_le_bytes([prev, value]);
+        self.bg_scroll_write_buffer = value;
+
+        log::trace!("  BG{} V scroll: {:04X}", i + 1, self.bg_v_scroll[i]);
+    }
+
+    fn write_m7sel(&mut self, value: u8) {
+        // M7SEL: Mode 7 settings
+        self.mode_7_h_flip = value.bit(0);
+        self.mode_7_v_flip = value.bit(1);
+        self.mode_7_oob_behavior = Mode7OobBehavior::from_byte(value);
+
+        log::trace!("  Mode 7 H flip: {}", self.mode_7_h_flip);
+        log::trace!("  Mode 7 V flip: {}", self.mode_7_v_flip);
+        log::trace!("  Mode 7 OOB behavior: {:?}", self.mode_7_oob_behavior);
+    }
+
+    fn write_m7a(&mut self, value: u8) {
+        // M7A: Mode 7 parameter A / multiply 16-bit operand
+        self.mode_7_parameter_a = u16::from_le_bytes([self.mode_7_write_buffer, value]);
+        self.multiply_operand_l = i16::from_le_bytes([self.mode_7_write_buffer, value]);
+        self.mode_7_write_buffer = value;
+
+        log::trace!("  Mode 7 parameter A: {:04X}", self.mode_7_parameter_a);
+    }
+
+    fn write_m7b(&mut self, value: u8) {
+        // M7B: Mode 7 parameter B / multiply 8-bit operand
+        self.mode_7_parameter_b = u16::from_le_bytes([self.mode_7_write_buffer, value]);
+        self.multiply_operand_r = value as i8;
+        self.mode_7_write_buffer = value;
+
+        log::trace!("  Mode 7 parameter B: {:04X}", self.mode_7_parameter_b);
+    }
+
+    fn write_m7c(&mut self, value: u8) {
+        // M7C: Mode 7 parameter C
+        self.mode_7_parameter_c = u16::from_le_bytes([self.mode_7_write_buffer, value]);
+        self.mode_7_write_buffer = value;
+
+        log::trace!("  Mode 7 parameter C: {:04X}", self.mode_7_parameter_c);
+    }
+
+    fn write_m7d(&mut self, value: u8) {
+        // M7D: Mode 7 parameter D
+        self.mode_7_parameter_d = u16::from_le_bytes([self.mode_7_write_buffer, value]);
+        self.mode_7_write_buffer = value;
+
+        log::trace!("  Mode 7 parameter D: {:04X}", self.mode_7_parameter_d);
+    }
+
+    fn write_m7x(&mut self, value: u8) {
+        // M7X: Mode 7 center X coordinate
+        self.mode_7_center_x = u16::from_le_bytes([self.mode_7_write_buffer, value]) & 0x1FFF;
+        self.mode_7_write_buffer = value;
+
+        log::trace!("  Mode 7 center X: {:04X}", self.mode_7_center_x);
+    }
+
+    fn write_m7y(&mut self, value: u8) {
+        // M7Y: Mode 7 center Y coordinate
+        self.mode_7_center_y = u16::from_le_bytes([self.mode_7_write_buffer, value]) & 0x1FFF;
+        self.mode_7_write_buffer = value;
+
+        log::trace!("  Mode 7 center Y: {:04X}", self.mode_7_center_y);
+    }
+
+    fn write_obsel(&mut self, value: u8) {
+        // OBSEL: Object size and base
+        self.obj_tile_base_address = u16::from(value & 0x07) << 13;
+        self.obj_tile_gap_size = u16::from(value & 0x18) << 9;
+        self.obj_tile_size = ObjTileSize::from_byte(value);
+
+        log::trace!("  OBJ tile base address: {:04X}", self.obj_tile_base_address);
+        log::trace!("  OBJ tile gap size: {:04X}", self.obj_tile_gap_size);
+        log::trace!("  OBJ tile size: {:?}", self.obj_tile_size);
+    }
+
+    fn write_w1234sel(&mut self, base_bg: usize, value: u8) {
+        // W12SEL/W34SEL: Window BG1/2/3/4 mask settings
+        self.bg_window_1_area[base_bg] = WindowAreaMode::from_bits(value);
+        self.bg_window_2_area[base_bg] = WindowAreaMode::from_bits(value >> 2);
+        self.bg_window_1_area[base_bg + 1] = WindowAreaMode::from_bits(value >> 4);
+        self.bg_window_2_area[base_bg + 1] = WindowAreaMode::from_bits(value >> 6);
+
+        log::trace!("  BG1 window 1 mask: {:?}", self.bg_window_1_area[base_bg]);
+        log::trace!("  BG1 window 2 mask: {:?}", self.bg_window_2_area[base_bg]);
+        log::trace!("  BG2 window 1 mask: {:?}", self.bg_window_1_area[base_bg + 1]);
+        log::trace!("  BG2 window 2 mask: {:?}", self.bg_window_2_area[base_bg + 1]);
+    }
+
+    fn write_wobjsel(&mut self, value: u8) {
+        // WOBJSEL: Window OBJ/MATH mask settings
+        self.obj_window_1_area = WindowAreaMode::from_bits(value);
+        self.obj_window_2_area = WindowAreaMode::from_bits(value >> 2);
+        self.math_window_1_area = WindowAreaMode::from_bits(value >> 4);
+        self.math_window_2_area = WindowAreaMode::from_bits(value >> 6);
+
+        log::trace!("  OBJ window 1 mask: {:?}", self.obj_window_1_area);
+        log::trace!("  OBJ window 2 mask: {:?}", self.obj_window_2_area);
+        log::trace!("  MATH window 1 mask: {:?}", self.math_window_1_area);
+        log::trace!("  MATH window 2 mask: {:?}", self.math_window_2_area);
+    }
+
+    fn write_wh0(&mut self, value: u8) {
+        // WH0: Window 1 left position
+        self.window_1_left = value.into();
+        log::trace!("  Window 1 left: {value:02X}");
+    }
+
+    fn write_wh1(&mut self, value: u8) {
+        // WH1: Window 1 right position
+        self.window_1_right = value.into();
+        log::trace!("  Window 1 right: {value:02X}");
+    }
+
+    fn write_wh2(&mut self, value: u8) {
+        // WH2: Window 2 left position
+        self.window_2_left = value.into();
+        log::trace!("  Window 2 left: {value:02X}");
+    }
+
+    fn write_wh3(&mut self, value: u8) {
+        // WH3: Window 2 right position
+        self.window_2_right = value.into();
+        log::trace!("  Window 2 right: {value:02X}");
+    }
+
+    fn write_wbglog(&mut self, value: u8) {
+        // WBGLOG: Window BG mask logic
+        for (i, mask_logic) in self.bg_window_mask_logic.iter_mut().enumerate() {
+            *mask_logic = WindowMaskLogic::from_bits(value >> (2 * i));
+        }
+
+        log::trace!("  BG window mask logic: {:?}", self.bg_window_mask_logic);
+    }
+
+    fn write_wobjlog(&mut self, value: u8) {
+        // WOBJLOG: Window OBJ/MATH mask logic
+        self.obj_window_mask_logic = WindowMaskLogic::from_bits(value);
+        self.math_window_mask_logic = WindowMaskLogic::from_bits(value >> 2);
+
+        log::trace!("  OBJ window mask logic: {:?}", self.obj_window_mask_logic);
+        log::trace!("  MATH window mask logic: {:?}", self.math_window_mask_logic);
+    }
+
+    fn write_tmw(&mut self, value: u8) {
+        // TMW: Window area main screen disable
+        for (i, bg_enabled) in self.main_bg_window_enabled.iter_mut().enumerate() {
+            *bg_enabled = !value.bit(i as u8);
+        }
+        self.main_obj_window_enabled = !value.bit(4);
+
+        log::trace!("  Main screen BG enabled inside window: {:?}", self.main_bg_window_enabled);
+        log::trace!("  Main screen OBJ enabled inside window: {}", self.main_obj_window_enabled);
+    }
+
+    fn write_tsw(&mut self, value: u8) {
+        // TSW: Window area sub screen disable
+        for (i, bg_enabled) in self.sub_bg_window_enabled.iter_mut().enumerate() {
+            *bg_enabled = !value.bit(i as u8);
+        }
+        self.sub_obj_window_enabled = !value.bit(4);
+
+        log::trace!("  Sub screen BG window enabled: {:?}", self.sub_bg_window_enabled);
+        log::trace!("  Sub screen OBJ window enabled: {}", self.sub_obj_window_enabled);
+    }
+
+    fn write_cgwsel(&mut self, value: u8) {
+        // CGWSEL: Color math control register 1
+        self.direct_color_mode_enabled = value.bit(0);
+        self.sub_bg_obj_enabled = value.bit(1);
+
+        self.color_math_enabled = match value & 0x30 {
+            0x00 => ColorMathEnableMode::Always,
+            0x10 => ColorMathEnableMode::InsideColorWindow,
+            0x20 => ColorMathEnableMode::OutsideColorWindow,
+            0x30 => ColorMathEnableMode::Never,
+            _ => unreachable!("value & 0x30 is always one of the above values"),
+        };
+        self.force_main_screen_black = match value & 0xC0 {
+            0x00 => ColorMathEnableMode::Never,
+            0x40 => ColorMathEnableMode::OutsideColorWindow,
+            0x80 => ColorMathEnableMode::InsideColorWindow,
+            0xC0 => ColorMathEnableMode::Always,
+            _ => unreachable!("value & 0xC0 is always one of the above values"),
+        };
+
+        log::trace!("  Direct color mode enabled: {}", self.direct_color_mode_enabled);
+        log::trace!("  Sub screen BG/OBJ enabled: {}", self.sub_bg_obj_enabled);
+        log::trace!("  Color math enabled: {:?}", self.color_math_enabled);
+        log::trace!("  Force main screen black: {:?}", self.force_main_screen_black);
+    }
+
+    fn write_cgadsub(&mut self, value: u8) {
+        // CGADSUB: Color math control register 2
+        for (i, enabled) in self.bg_color_math_enabled.iter_mut().enumerate() {
+            *enabled = value.bit(i as u8);
+        }
+
+        self.obj_color_math_enabled = value.bit(4);
+        self.backdrop_color_math_enabled = value.bit(5);
+        self.color_math_divide_enabled = value.bit(6);
+        self.color_math_operation =
+            if value.bit(7) { ColorMathOperation::Subtract } else { ColorMathOperation::Add };
+
+        log::trace!("  Color math operation: {:?}", self.color_math_operation);
+        log::trace!("  Color math divide: {}", self.color_math_divide_enabled);
+        log::trace!("  BG color math enabled: {:?}", self.bg_color_math_enabled);
+        log::trace!("  OBJ color math enabled: {}", self.obj_color_math_enabled);
+        log::trace!("  Backdrop color math enabled: {}", self.backdrop_color_math_enabled);
+    }
+
+    fn write_coldata(&mut self, value: u8) {
+        // COLDATA: Sub screen backdrop color
+        let intensity: u16 = (value & 0x1F).into();
+
+        let mut sub_backdrop_color = self.sub_backdrop_color;
+
+        if value.bit(7) {
+            // Update B
+            sub_backdrop_color = (sub_backdrop_color & 0x03FF) | (intensity << 10);
+        }
+
+        if value.bit(6) {
+            // Update G
+            sub_backdrop_color = (sub_backdrop_color & 0xFC1F) | (intensity << 5);
+        }
+
+        if value.bit(5) {
+            // Update R
+            sub_backdrop_color = (sub_backdrop_color & 0xFFE0) | intensity;
+        }
+
+        self.sub_backdrop_color = sub_backdrop_color;
+
+        log::trace!("  Sub screen backdrop color: {sub_backdrop_color:04X}");
+    }
+
+    fn write_oamaddl(&mut self, value: u8) {
+        // OAMADDL: OAM address, low byte
+        let reload_value = (self.oam_address_reload_value & 0xFF00) | u16::from(value);
+        self.oam_address_reload_value = reload_value;
+        self.oam_address = reload_value << 1;
+
+        log::trace!("  OAM address reload value: {:04X}", self.oam_address_reload_value);
+    }
+
+    fn write_oamaddh(&mut self, value: u8) {
+        // OAMADDH: OAM address, high byte
+        let reload_value =
+            (self.oam_address_reload_value & 0x00FF) | (u16::from(value & 0x01) << 8);
+        self.oam_address_reload_value = reload_value;
+        self.oam_address = reload_value << 1;
+
+        self.obj_priority_mode = ObjPriorityMode::from_byte(value);
+
+        log::trace!("  OAM address reload value: {:04X}", self.oam_address_reload_value);
+        log::trace!("  OBJ priority mode: {:?}", self.obj_priority_mode);
+    }
+
+    fn write_vmain(&mut self, value: u8) {
+        // VMAIN: VRAM address increment mode
+        self.vram_address_increment_step = match value & 0x03 {
+            0x00 => 1,
+            0x01 => 32,
+            0x02 | 0x03 => 128,
+            _ => unreachable!("value & 0x03 is always <= 0x03"),
+        };
+        self.vram_address_translation = VramAddressTranslation::from_byte(value);
+        self.vram_address_increment_mode = VramIncrementMode::from_byte(value);
+
+        log::trace!("  VRAM data port increment step: {}", self.vram_address_increment_step);
+        log::trace!("  VRAM data port address translation: {:?}", self.vram_address_translation);
+        log::trace!("  VRAM data port increment on byte: {:?}", self.vram_address_increment_mode);
+    }
+
+    fn write_vmaddl(&mut self, value: u8, vram: &Vram) {
+        // VMADDL: VRAM address, low byte
+        self.vram_address = (self.vram_address & 0xFF00) | u16::from(value);
+        self.vram_prefetch_buffer = vram[(self.vram_address & VRAM_ADDRESS_MASK) as usize];
+
+        log::trace!("  VRAM data port address: {:04X}", self.vram_address);
+    }
+
+    fn write_vmaddh(&mut self, value: u8, vram: &Vram) {
+        // VMADDH: VRAM address, high byte
+        self.vram_address = (self.vram_address & 0x00FF) | (u16::from(value) << 8);
+        self.vram_prefetch_buffer = vram[(self.vram_address & VRAM_ADDRESS_MASK) as usize];
+
+        log::trace!("  VRAM data port address: {:04X}", self.vram_address);
+    }
+
+    fn write_cgadd(&mut self, value: u8) {
+        // CGADD: CGRAM address
+        self.cgram_address = value;
+        self.cgram_flipflop = AccessFlipflop::First;
+
+        log::trace!("  CGRAM data port address: {value:02X}");
     }
 }
 
@@ -1136,193 +1574,37 @@ impl Ppu {
         }
 
         match address & 0xFF {
-            0x00 => {
-                // INIDISP: Display control 1
-                self.registers.forced_blanking = value.bit(7);
-                self.registers.brightness = value & 0x0F;
-
-                log::trace!("  Forced blanking: {}", self.registers.forced_blanking);
-                log::trace!("  Brightness: {}", self.registers.brightness);
-            }
-            0x01 => {
-                // OBSEL: Object size and base
-                self.registers.obj_tile_base_address = u16::from(value & 0x07) << 13;
-                self.registers.obj_tile_gap_size = u16::from(value & 0x18) << 9;
-                self.registers.obj_tile_size = ObjTileSize::from_byte(value);
-
-                log::trace!(
-                    "  OBJ tile base address: {:04X}",
-                    self.registers.obj_tile_base_address
-                );
-                log::trace!("  OBJ tile gap size: {:04X}", self.registers.obj_tile_gap_size);
-                log::trace!("  OBJ tile size: {:?}", self.registers.obj_tile_size);
-            }
-            0x02 => {
-                // OAMADDL: OAM address, low byte
-                let reload_value =
-                    (self.registers.oam_address_reload_value & 0xFF00) | u16::from(value);
-                self.registers.oam_address_reload_value = reload_value;
-                self.registers.oam_address = reload_value << 1;
-
-                log::trace!(
-                    "  OAM address reload value: {:04X}",
-                    self.registers.oam_address_reload_value
-                );
-            }
-            0x03 => {
-                // OAMADDH: OAM address, high byte
-                let reload_value = (self.registers.oam_address_reload_value & 0x00FF)
-                    | (u16::from(value & 0x01) << 8);
-                self.registers.oam_address_reload_value = reload_value;
-                self.registers.oam_address = reload_value << 1;
-
-                self.registers.obj_priority_mode = ObjPriorityMode::from_byte(value);
-
-                log::trace!(
-                    "  OAM address reload value: {:04X}",
-                    self.registers.oam_address_reload_value
-                );
-                log::trace!("  OBJ priority mode: {:?}", self.registers.obj_priority_mode);
-            }
+            0x00 => self.registers.write_inidisp(value),
+            0x01 => self.registers.write_obsel(value),
+            0x02 => self.registers.write_oamaddl(value),
+            0x03 => self.registers.write_oamaddh(value),
             0x04 => {
                 // OAMDATA: OAM data port (write)
                 self.write_oam_data_port(value);
             }
-            0x05 => {
-                // BGMODE: BG mode and character size
-                self.registers.bg_mode = BgMode::from_byte(value);
-                self.registers.mode_1_bg3_priority = value.bit(3);
-
-                for (i, tile_size) in self.registers.bg_tile_size.iter_mut().enumerate() {
-                    *tile_size = BgTileSize::from_bit(value.bit(i as u8 + 4));
-                }
-
-                log::trace!("  BG mode: {:?}", self.registers.bg_mode);
-                log::trace!("  Mode 1 BG3 priority: {}", self.registers.mode_1_bg3_priority);
-                log::trace!("  BG tile sizes: {:?}", self.registers.bg_tile_size);
+            0x05 => self.registers.write_bgmode(value),
+            0x06 => self.registers.write_mosaic(value),
+            0x07..=0x0A => {
+                let bg = ((address + 1) & 0x3) as usize;
+                self.registers.write_bg1234sc(bg, value);
             }
-            0x06 => {
-                // MOSAIC: Mosaic size and enable
-                self.registers.mosaic_size = value >> 4;
-
-                for (i, mosaic_enabled) in self.registers.bg_mosaic_enabled.iter_mut().enumerate() {
-                    *mosaic_enabled = value.bit(i as u8);
-                }
-
-                log::trace!("  Mosaic size: {}", self.registers.mosaic_size);
-                log::trace!("  Mosaic enabled: {:?}", self.registers.bg_mosaic_enabled);
-            }
-            address @ 0x07..=0x0A => {
-                // BG1SC/BG2SC/BG3SC/BG4SC: BG1-4 screen base and size
-                let i = ((address + 1) & 0x3) as usize;
-                self.registers.bg_screen_size[i] = BgScreenSize::from_byte(value);
-                self.registers.bg_base_address[i] = u16::from(value & 0xFC) << 8;
-
-                log::trace!("  BG{} screen size: {:?}", i + 1, self.registers.bg_screen_size[i]);
-                log::trace!(
-                    "  BG{} base address: {:04X}",
-                    i + 1,
-                    self.registers.bg_base_address[i]
-                );
-            }
-            0x0B => {
-                // BG12NBA: BG 1/2 character data area designation
-                self.registers.bg_tile_base_address[0] = u16::from(value & 0x0F) << 12;
-                self.registers.bg_tile_base_address[1] = u16::from(value & 0xF0) << 8;
-
-                log::trace!(
-                    "  BG1 tile base address: {:04X}",
-                    self.registers.bg_tile_base_address[0]
-                );
-                log::trace!(
-                    "  BG2 tile base address: {:04X}",
-                    self.registers.bg_tile_base_address[1]
-                );
-            }
-            0x0C => {
-                // BG34NBA: BG 3/4 character data area designation
-                self.registers.bg_tile_base_address[2] = u16::from(value & 0x0F) << 12;
-                self.registers.bg_tile_base_address[3] = u16::from(value & 0xF0) << 8;
-
-                log::trace!(
-                    "  BG3 tile base address: {:04X}",
-                    self.registers.bg_tile_base_address[2]
-                );
-                log::trace!(
-                    "  BG4 tile base address: {:04X}",
-                    self.registers.bg_tile_base_address[3]
-                );
-            }
-            0x0D => {
-                // BG1HOFS: BG1 horizontal scroll / M7HOFS: Mode 7 horizontal scroll
-                self.write_bg_h_scroll(0, value);
-
-                self.registers.mode_7_h_scroll =
-                    u16::from_le_bytes([self.registers.mode_7_write_buffer, value]);
-                self.registers.mode_7_write_buffer = value;
-
-                log::trace!("  Mode 7 H scroll: {:04X}", self.registers.mode_7_h_scroll);
-            }
-            0x0E => {
-                // BG1VOFS: BG1 vertical scroll / M7VOFS: Mode 7 vertical scroll
-                self.write_bg_v_scroll(0, value);
-
-                self.registers.mode_7_v_scroll =
-                    u16::from_le_bytes([self.registers.mode_7_write_buffer, value]);
-                self.registers.mode_7_write_buffer = value;
-
-                log::trace!("  Mode 7 V scroll: {:04X}", self.registers.mode_7_v_scroll);
-            }
+            0x0B => self.registers.write_bg1234nba(0, value),
+            0x0C => self.registers.write_bg1234nba(2, value),
+            0x0D => self.registers.write_bg1hofs(value),
+            0x0E => self.registers.write_bg1vofs(value),
             address @ (0x0F | 0x11 | 0x13) => {
                 // BG2HOFS/BG3HOFS/BG4HOFS: BG2-4 horizontal scroll
-                let i = (((address - 0x0F) >> 1) + 1) as usize;
-                self.write_bg_h_scroll(i, value);
+                let bg = (((address - 0x0F) >> 1) + 1) as usize;
+                self.registers.write_bg_h_scroll(bg, value);
             }
             address @ (0x10 | 0x12 | 0x14) => {
                 // BG2VOFS/BG3VOFS/BG4VOFS: BG2-4 vertical scroll
-                let i = (((address & 0x0F) >> 1) + 1) as usize;
-                self.write_bg_v_scroll(i, value);
+                let bg = (((address & 0x0F) >> 1) + 1) as usize;
+                self.registers.write_bg_v_scroll(bg, value);
             }
-            0x15 => {
-                // VMAIN: VRAM address increment mode
-                self.registers.vram_address_increment_step = match value & 0x03 {
-                    0x00 => 1,
-                    0x01 => 32,
-                    0x02 | 0x03 => 128,
-                    _ => unreachable!("value & 0x03 is always <= 0x03"),
-                };
-                self.registers.vram_address_translation = VramAddressTranslation::from_byte(value);
-                self.registers.vram_address_increment_mode = VramIncrementMode::from_byte(value);
-
-                log::trace!(
-                    "  VRAM data port increment step: {}",
-                    self.registers.vram_address_increment_step
-                );
-                log::trace!(
-                    "  VRAM data port address translation: {:?}",
-                    self.registers.vram_address_translation
-                );
-                log::trace!(
-                    "  VRAM data port increment on byte: {:?}",
-                    self.registers.vram_address_increment_mode
-                );
-            }
-            0x16 => {
-                // VMADDL: VRAM address, low byte
-                self.registers.vram_address =
-                    (self.registers.vram_address & 0xFF00) | u16::from(value);
-                self.fill_vram_prefetch();
-
-                log::trace!("  VRAM data port address: {:04X}", self.registers.vram_address);
-            }
-            0x17 => {
-                // VMADDH: VRAM address, high byte
-                self.registers.vram_address =
-                    (self.registers.vram_address & 0x00FF) | (u16::from(value) << 8);
-                self.fill_vram_prefetch();
-
-                log::trace!("  VRAM data port address: {:04X}", self.registers.vram_address);
-            }
+            0x15 => self.registers.write_vmain(value),
+            0x16 => self.registers.write_vmaddl(value, &self.vram),
+            0x17 => self.registers.write_vmaddh(value, &self.vram),
             0x18 => {
                 // VMDATAL: VRAM data port (write), low byte
                 self.write_vram_data_port_low(value);
@@ -1331,308 +1613,35 @@ impl Ppu {
                 // VMDATAH: VRAM data port (write), high byte
                 self.write_vram_data_port_high(value);
             }
-            0x1A => {
-                // M7SEL: Mode 7 settings
-                self.registers.mode_7_h_flip = value.bit(0);
-                self.registers.mode_7_v_flip = value.bit(1);
-                self.registers.mode_7_oob_behavior = Mode7OobBehavior::from_byte(value);
-
-                log::trace!("  Mode 7 H flip: {}", self.registers.mode_7_h_flip);
-                log::trace!("  Mode 7 V flip: {}", self.registers.mode_7_v_flip);
-                log::trace!("  Mode 7 OOB behavior: {:?}", self.registers.mode_7_oob_behavior);
-            }
-            0x1B => {
-                // M7A: Mode 7 parameter A / multiply 16-bit operand
-                self.registers.mode_7_parameter_a =
-                    u16::from_le_bytes([self.registers.mode_7_write_buffer, value]);
-                self.registers.multiply_operand_l =
-                    i16::from_le_bytes([self.registers.mode_7_write_buffer, value]);
-                self.registers.mode_7_write_buffer = value;
-
-                log::trace!("  Mode 7 parameter A: {:04X}", self.registers.mode_7_parameter_a);
-            }
-            0x1C => {
-                // M7B: Mode 7 parameter B / multiply 8-bit operand
-                self.registers.mode_7_parameter_b =
-                    u16::from_le_bytes([self.registers.mode_7_write_buffer, value]);
-                self.registers.multiply_operand_r = value as i8;
-                self.registers.mode_7_write_buffer = value;
-
-                log::trace!("  Mode 7 parameter B: {:04X}", self.registers.mode_7_parameter_b);
-            }
-            0x1D => {
-                // M7C: Mode 7 parameter C
-                self.registers.mode_7_parameter_c =
-                    u16::from_le_bytes([self.registers.mode_7_write_buffer, value]);
-                self.registers.mode_7_write_buffer = value;
-
-                log::trace!("  Mode 7 parameter C: {:04X}", self.registers.mode_7_parameter_c);
-            }
-            0x1E => {
-                // M7D: Mode 7 parameter D
-                self.registers.mode_7_parameter_d =
-                    u16::from_le_bytes([self.registers.mode_7_write_buffer, value]);
-                self.registers.mode_7_write_buffer = value;
-
-                log::trace!("  Mode 7 parameter D: {:04X}", self.registers.mode_7_parameter_d);
-            }
-            0x1F => {
-                // M7X: Mode 7 center X coordinate
-                self.registers.mode_7_center_x =
-                    u16::from_le_bytes([self.registers.mode_7_write_buffer, value]) & 0x1FFF;
-                self.registers.mode_7_write_buffer = value;
-
-                log::trace!("  Mode 7 center X: {:04X}", self.registers.mode_7_center_x);
-            }
-            0x20 => {
-                // M7Y: Mode 7 center Y coordinate
-                self.registers.mode_7_center_y =
-                    u16::from_le_bytes([self.registers.mode_7_write_buffer, value]) & 0x1FFF;
-                self.registers.mode_7_write_buffer = value;
-
-                log::trace!("  Mode 7 center Y: {:04X}", self.registers.mode_7_center_y);
-            }
-            0x21 => {
-                // CGADD: CGRAM address
-                self.registers.cgram_address = value;
-                self.registers.cgram_flipflop = AccessFlipflop::First;
-
-                log::trace!("  CGRAM data port address: {value:02X}");
-            }
+            0x1A => self.registers.write_m7sel(value),
+            0x1B => self.registers.write_m7a(value),
+            0x1C => self.registers.write_m7b(value),
+            0x1D => self.registers.write_m7c(value),
+            0x1E => self.registers.write_m7d(value),
+            0x1F => self.registers.write_m7x(value),
+            0x20 => self.registers.write_m7y(value),
+            0x21 => self.registers.write_cgadd(value),
             0x22 => {
                 // CGDATA: CGRAM data port (write)
                 self.write_cgram_data_port(value);
             }
-            0x23 => {
-                // W12SEL: Window BG1/2 mask settings
-                self.registers.bg_window_1_area[0] = WindowAreaMode::from_bits(value);
-                self.registers.bg_window_2_area[0] = WindowAreaMode::from_bits(value >> 2);
-                self.registers.bg_window_1_area[1] = WindowAreaMode::from_bits(value >> 4);
-                self.registers.bg_window_2_area[1] = WindowAreaMode::from_bits(value >> 6);
-
-                log::trace!("  BG1 window 1 mask: {:?}", self.registers.bg_window_1_area[0]);
-                log::trace!("  BG1 window 2 mask: {:?}", self.registers.bg_window_2_area[0]);
-                log::trace!("  BG2 window 1 mask: {:?}", self.registers.bg_window_1_area[1]);
-                log::trace!("  BG2 window 2 mask: {:?}", self.registers.bg_window_2_area[1]);
-            }
-            0x24 => {
-                // W23SEL: Window BG3/4 mask settings
-                self.registers.bg_window_1_area[2] = WindowAreaMode::from_bits(value);
-                self.registers.bg_window_2_area[2] = WindowAreaMode::from_bits(value >> 2);
-                self.registers.bg_window_1_area[3] = WindowAreaMode::from_bits(value >> 4);
-                self.registers.bg_window_2_area[3] = WindowAreaMode::from_bits(value >> 6);
-
-                log::trace!("  BG3 window 1 mask: {:?}", self.registers.bg_window_1_area[2]);
-                log::trace!("  BG3 window 2 mask: {:?}", self.registers.bg_window_2_area[2]);
-                log::trace!("  BG4 window 1 mask: {:?}", self.registers.bg_window_1_area[3]);
-                log::trace!("  BG4 window 2 mask: {:?}", self.registers.bg_window_2_area[3]);
-            }
-            0x25 => {
-                // WOBJSEL: Window OBJ/MATH mask settings
-                self.registers.obj_window_1_area = WindowAreaMode::from_bits(value);
-                self.registers.obj_window_2_area = WindowAreaMode::from_bits(value >> 2);
-                self.registers.math_window_1_area = WindowAreaMode::from_bits(value >> 4);
-                self.registers.math_window_2_area = WindowAreaMode::from_bits(value >> 6);
-
-                log::trace!("  OBJ window 1 mask: {:?}", self.registers.obj_window_1_area);
-                log::trace!("  OBJ window 2 mask: {:?}", self.registers.obj_window_2_area);
-                log::trace!("  MATH window 1 mask: {:?}", self.registers.math_window_1_area);
-                log::trace!("  MATH window 2 mask: {:?}", self.registers.math_window_2_area);
-            }
-            0x26 => {
-                // WHO: Window 1 left position
-                self.registers.window_1_left = value.into();
-
-                log::trace!("  Window 1 left: {value:02X}");
-            }
-            0x27 => {
-                // WH1: Window 1 right position
-                self.registers.window_1_right = value.into();
-
-                log::trace!("  Window 1 right: {value:02X}");
-            }
-            0x28 => {
-                // WH2: Window 2 left position
-                self.registers.window_2_left = value.into();
-
-                log::trace!("  Window 2 left: {value:02X}");
-            }
-            0x29 => {
-                // WH3: Window 2 right position
-                self.registers.window_2_right = value.into();
-
-                log::trace!("  Window 2 right: {value:02X}");
-            }
-            0x2A => {
-                // WBGLOG: Window BG mask logic
-                for (i, mask_logic) in self.registers.bg_window_mask_logic.iter_mut().enumerate() {
-                    *mask_logic = WindowMaskLogic::from_bits(value >> (2 * i));
-                }
-
-                log::trace!("  BG window mask logic: {:?}", self.registers.bg_window_mask_logic);
-            }
-            0x2B => {
-                // WOBJLOG: Window OBJ/MATH mask logic
-                self.registers.obj_window_mask_logic = WindowMaskLogic::from_bits(value);
-                self.registers.math_window_mask_logic = WindowMaskLogic::from_bits(value >> 2);
-
-                log::trace!("  OBJ window mask logic: {:?}", self.registers.obj_window_mask_logic);
-                log::trace!(
-                    "  MATH window mask logic: {:?}",
-                    self.registers.math_window_mask_logic
-                );
-            }
-            0x2C => {
-                // TM: Main screen designation
-                for (i, bg_enabled) in self.registers.main_bg_enabled.iter_mut().enumerate() {
-                    *bg_enabled = value.bit(i as u8);
-                }
-                self.registers.main_obj_enabled = value.bit(4);
-
-                log::trace!("  Main screen BG enabled: {:?}", self.registers.main_bg_enabled);
-                log::trace!("  Main screen OBJ enabled: {}", self.registers.main_obj_enabled);
-            }
-            0x2D => {
-                // TS: Sub screen designation
-                for (i, bg_enabled) in self.registers.sub_bg_enabled.iter_mut().enumerate() {
-                    *bg_enabled = value.bit(i as u8);
-                }
-                self.registers.sub_obj_enabled = value.bit(4);
-
-                log::trace!("  Sub screen BG enabled: {:?}", self.registers.sub_bg_enabled);
-                log::trace!("  Sub screen OBJ enabled: {:?}", self.registers.sub_obj_enabled);
-            }
-            0x2E => {
-                // TMW: Window area main screen disable
-                for (i, bg_enabled) in self.registers.main_bg_window_enabled.iter_mut().enumerate()
-                {
-                    *bg_enabled = !value.bit(i as u8);
-                }
-                self.registers.main_obj_window_enabled = !value.bit(4);
-
-                log::trace!(
-                    "  Main screen BG window enabled: {:?}",
-                    self.registers.main_bg_window_enabled
-                );
-                log::trace!(
-                    "  Main screen OBJ window enabled: {}",
-                    self.registers.main_obj_window_enabled
-                );
-            }
-            0x2F => {
-                // TSW: Window area sub screen disable
-                for (i, bg_enabled) in self.registers.sub_bg_window_enabled.iter_mut().enumerate() {
-                    *bg_enabled = !value.bit(i as u8);
-                }
-                self.registers.sub_obj_window_enabled = !value.bit(4);
-
-                log::trace!(
-                    "  Sub screen BG window enabled: {:?}",
-                    self.registers.sub_bg_window_enabled
-                );
-                log::trace!(
-                    "  Sub screen OBJ window enabled: {}",
-                    self.registers.sub_obj_window_enabled
-                );
-            }
-            0x30 => {
-                // CGWSEL: Color math control register 1
-                self.registers.direct_color_mode_enabled = value.bit(0);
-                self.registers.sub_bg_obj_enabled = value.bit(1);
-
-                self.registers.color_math_enabled = match value & 0x30 {
-                    0x00 => ColorMathEnableMode::Always,
-                    0x10 => ColorMathEnableMode::MathWindow,
-                    0x20 => ColorMathEnableMode::NotMathWindow,
-                    0x30 => ColorMathEnableMode::Never,
-                    _ => unreachable!("value & 0x30 is always one of the above values"),
-                };
-                self.registers.force_main_screen_black = match value & 0xC0 {
-                    0x00 => ColorMathEnableMode::Never,
-                    0x40 => ColorMathEnableMode::NotMathWindow,
-                    0x80 => ColorMathEnableMode::MathWindow,
-                    0xC0 => ColorMathEnableMode::Always,
-                    _ => unreachable!("value & 0xC0 is always one of the above values"),
-                };
-
-                log::trace!(
-                    "  Direct color mode enabled: {}",
-                    self.registers.direct_color_mode_enabled
-                );
-                log::trace!("  Sub screen BG/OBJ enabled: {}", self.registers.sub_bg_obj_enabled);
-                log::trace!("  Color math enabled: {:?}", self.registers.color_math_enabled);
-                log::trace!(
-                    "  Force main screen black: {:?}",
-                    self.registers.force_main_screen_black
-                );
-            }
-            0x31 => {
-                // CGADSUB: Color math control register 2
-                for (i, enabled) in self.registers.bg_color_math_enabled.iter_mut().enumerate() {
-                    *enabled = value.bit(i as u8);
-                }
-
-                self.registers.obj_color_math_enabled = value.bit(4);
-                self.registers.backdrop_color_math_enabled = value.bit(5);
-                self.registers.color_math_divide_enabled = value.bit(6);
-                self.registers.color_math_operation = if value.bit(7) {
-                    ColorMathOperation::Subtract
-                } else {
-                    ColorMathOperation::Add
-                };
-
-                log::trace!("  Color math operation: {:?}", self.registers.color_math_operation);
-                log::trace!("  Color math divide: {}", self.registers.color_math_divide_enabled);
-                log::trace!("  BG color math enabled: {:?}", self.registers.bg_color_math_enabled);
-                log::trace!("  OBJ color math enabled: {}", self.registers.obj_color_math_enabled);
-                log::trace!(
-                    "  Backdrop color math enabled: {}",
-                    self.registers.backdrop_color_math_enabled
-                );
-            }
-            0x32 => {
-                // COLDATA: Sub screen backdrop color
-                let intensity: u16 = (value & 0x1F).into();
-
-                let mut sub_backdrop_color = self.registers.sub_backdrop_color;
-
-                if value.bit(7) {
-                    // Update B
-                    sub_backdrop_color = (sub_backdrop_color & 0x03FF) | (intensity << 10);
-                }
-
-                if value.bit(6) {
-                    // Update G
-                    sub_backdrop_color = (sub_backdrop_color & 0xFC1F) | (intensity << 5);
-                }
-
-                if value.bit(5) {
-                    // Update R
-                    sub_backdrop_color = (sub_backdrop_color & 0xFFE0) | intensity;
-                }
-
-                self.registers.sub_backdrop_color = sub_backdrop_color;
-
-                log::trace!("  Sub screen backdrop color: {sub_backdrop_color:04X}");
-            }
-            0x33 => {
-                // SETINI: Display control 2
-                self.registers.interlaced = value.bit(0);
-                self.registers.pseudo_obj_hi_res = value.bit(1);
-                self.registers.v_display_size = if value.bit(2) {
-                    VerticalDisplaySize::TwoThirtyNine
-                } else {
-                    VerticalDisplaySize::TwoTwentyFour
-                };
-                self.registers.pseudo_h_hi_res = value.bit(3);
-                self.registers.extbg_enabled = value.bit(6);
-
-                log::trace!("  Interlaced: {}", self.registers.interlaced);
-                log::trace!("  Pseudo H hi-res: {}", self.registers.pseudo_h_hi_res);
-                log::trace!("  Smaller OBJs: {}", self.registers.pseudo_obj_hi_res);
-                log::trace!("  EXTBG enabled: {}", self.registers.extbg_enabled);
-                log::trace!("  V display size: {:?}", self.registers.v_display_size);
-            }
+            0x23 => self.registers.write_w1234sel(0, value),
+            0x24 => self.registers.write_w1234sel(2, value),
+            0x25 => self.registers.write_wobjsel(value),
+            0x26 => self.registers.write_wh0(value),
+            0x27 => self.registers.write_wh1(value),
+            0x28 => self.registers.write_wh2(value),
+            0x29 => self.registers.write_wh3(value),
+            0x2A => self.registers.write_wbglog(value),
+            0x2B => self.registers.write_wobjlog(value),
+            0x2C => self.registers.write_tm(value),
+            0x2D => self.registers.write_ts(value),
+            0x2E => self.registers.write_tmw(value),
+            0x2F => self.registers.write_tsw(value),
+            0x30 => self.registers.write_cgwsel(value),
+            0x31 => self.registers.write_cgadsub(value),
+            0x32 => self.registers.write_coldata(value),
+            0x33 => self.registers.write_setini(value),
             _ => {
                 // No other mappings are valid; do nothing
             }
@@ -1697,36 +1706,10 @@ impl Ppu {
             }
         }
     }
-
-    fn write_bg_h_scroll(&mut self, i: usize, value: u8) {
-        let current = self.registers.bg_h_scroll[i];
-        let prev = self.registers.bg_scroll_write_buffer;
-
-        // H scroll formula from https://wiki.superfamicom.org/backgrounds
-        self.registers.bg_h_scroll[i] =
-            (u16::from(value) << 8) | u16::from(prev & !0x07) | ((current >> 8) & 0x07);
-        self.registers.bg_scroll_write_buffer = value;
-
-        log::trace!("  BG{} H scroll: {:04X}", i + 1, self.registers.bg_h_scroll[i]);
-    }
-
-    fn write_bg_v_scroll(&mut self, i: usize, value: u8) {
-        let prev = self.registers.bg_scroll_write_buffer;
-
-        self.registers.bg_v_scroll[i] = u16::from_le_bytes([prev, value]);
-        self.registers.bg_scroll_write_buffer = value;
-
-        log::trace!("  BG{} V scroll: {:04X}", i + 1, self.registers.bg_v_scroll[i]);
-    }
-
-    fn fill_vram_prefetch(&mut self) {
-        self.registers.vram_prefetch_buffer =
-            self.vram[(self.registers.vram_address & VRAM_ADDRESS_MASK) as usize];
-    }
 }
 
 fn resolve_pixel_color(
-    cgram: &Box<Cgram>,
+    cgram: &Cgram,
     bpp: BitsPerPixel,
     two_bpp_offset: u8,
     palette: u8,
