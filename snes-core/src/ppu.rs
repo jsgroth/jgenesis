@@ -896,15 +896,26 @@ impl Ppu {
     }
 
     fn resolve_bg_color(&self, bg: usize, bpp: BitsPerPixel, scanline: u16, pixel: u16) -> Pixel {
-        let bg_map_base_addr = self.registers.bg_base_address[bg];
+        let mut bg_map_base_addr = self.registers.bg_base_address[bg];
         let bg_data_base_addr = self.registers.bg_tile_base_address[bg];
         let h_scroll = self.registers.bg_h_scroll[bg];
         let v_scroll = self.registers.bg_v_scroll[bg];
         let bg_screen_size = self.registers.bg_screen_size[bg];
         let bg_tile_size = self.registers.bg_tile_size[bg];
 
-        let x = pixel.wrapping_add(h_scroll) & bg_screen_size.x_mask();
-        let y = scanline.wrapping_add(v_scroll) & bg_screen_size.y_mask();
+        let mut x = pixel.wrapping_add(h_scroll) & bg_screen_size.x_mask();
+        let mut y = scanline.wrapping_add(v_scroll) & bg_screen_size.y_mask();
+
+        if x.bit(8) {
+            bg_map_base_addr += 32 * 32;
+            x &= 0x00FF;
+        }
+
+        if y.bit(8) {
+            // TODO is this right for vertical mirroring?
+            bg_map_base_addr += 2 * 32 * 32;
+            y &= 0x00FF;
+        }
 
         let bg_tile_size_pixels = match bg_tile_size {
             BgTileSize::Small => 8,
