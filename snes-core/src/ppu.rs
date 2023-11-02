@@ -1,3 +1,5 @@
+mod colortable;
+
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use jgenesis_traits::frontend::{Color, FrameSize, TimingMode};
@@ -1462,7 +1464,11 @@ impl Ppu {
                 main_screen_color
             };
 
-            self.set_in_frame_buffer(scanline, pixel, convert_snes_color(final_color));
+            self.set_in_frame_buffer(
+                scanline,
+                pixel,
+                convert_snes_color(final_color, self.registers.brightness),
+            );
         }
     }
 
@@ -2235,15 +2241,11 @@ fn resolve_pixel_color(
     cgram[cgram_index as usize]
 }
 
-// [round(i * 255 / 31) for i in range(32)]
-const COLOR_TABLE: [u8; 32] = [
-    0, 8, 16, 25, 33, 41, 49, 58, 66, 74, 82, 90, 99, 107, 115, 123, 132, 140, 148, 156, 165, 173,
-    181, 189, 197, 206, 214, 222, 230, 239, 247, 255,
-];
+fn convert_snes_color(snes_color: u16, brightness: u8) -> Color {
+    let color_table = &colortable::TABLE[brightness as usize];
 
-fn convert_snes_color(snes_color: u16) -> Color {
-    let r = snes_color & 0x1F;
-    let g = (snes_color >> 5) & 0x1F;
-    let b = (snes_color >> 10) & 0x1F;
-    Color::rgb(COLOR_TABLE[r as usize], COLOR_TABLE[g as usize], COLOR_TABLE[b as usize])
+    let r = color_table[(snes_color & 0x1F) as usize];
+    let g = color_table[((snes_color >> 5) & 0x1F) as usize];
+    let b = color_table[((snes_color >> 10) & 0x1F) as usize];
+    Color::rgb(r, g, b)
 }
