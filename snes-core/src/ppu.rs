@@ -882,23 +882,42 @@ impl Ppu {
         let h_scroll = self.registers.bg_h_scroll[bg];
         let v_scroll = self.registers.bg_v_scroll[bg];
         let bg_screen_size = self.registers.bg_screen_size[bg];
+        let bg_tile_size = self.registers.bg_tile_size[bg];
 
         let x = pixel.wrapping_add(h_scroll) & bg_screen_size.x_mask();
         let y = scanline.wrapping_add(v_scroll) & bg_screen_size.y_mask();
 
-        let tile_row = y / 8;
-        let tile_col = x / 8;
+        let bg_tile_size_pixels = match bg_tile_size {
+            BgTileSize::Small => 8,
+            BgTileSize::Large => 16,
+        };
+
+        let tile_row = y / bg_tile_size_pixels;
+        let tile_col = x / bg_tile_size_pixels;
         let tile_map_addr = 32 * tile_row + tile_col;
         let tile_map_entry =
             self.vram[((bg_map_base_addr + tile_map_addr) & VRAM_ADDRESS_MASK) as usize];
 
-        let tile_number = tile_map_entry & 0x3FF;
+        let raw_tile_number = tile_map_entry & 0x3FF;
         let palette = ((tile_map_entry >> 10) & 0x07) as u8;
         let priority = tile_map_entry.bit(13);
         let x_flip = tile_map_entry.bit(14);
         let y_flip = tile_map_entry.bit(15);
 
-        // TODO 16x16 tiles
+        let tile_number = match bg_tile_size {
+            BgTileSize::Small => raw_tile_number,
+            BgTileSize::Large => {
+                let x_shift = if x_flip { x % 16 < 8 } else { x % 16 >= 8 };
+                let y_shift = if y_flip { y % 16 < 8 } else { y % 16 >= 8 };
+                match (x_shift, y_shift) {
+                    (false, false) => raw_tile_number,
+                    (true, false) => raw_tile_number + 1,
+                    (false, true) => raw_tile_number + 16,
+                    (true, true) => raw_tile_number + 17,
+                }
+            }
+        };
+
         let tile_size_words = bpp.tile_size_words();
         let tile_addr =
             ((bg_data_base_addr + tile_number * tile_size_words) & VRAM_ADDRESS_MASK) as usize;
