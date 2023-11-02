@@ -1583,7 +1583,8 @@ impl Ppu {
         for oam_idx in 0..OAM_LEN {
             let oam_addr = oam_idx << 2;
             let x_lsb = self.oam[oam_addr];
-            let y = self.oam[oam_addr + 1];
+            // Sprites at y=0 should display on scanline=1, and so on
+            let y = self.oam[oam_addr + 1].wrapping_add(1);
             let tile_number_lsb = self.oam[oam_addr + 2];
             let attributes = self.oam[oam_addr + 3];
 
