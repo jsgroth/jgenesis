@@ -72,6 +72,9 @@ impl BitsPerPixel {
 const BG3_BPP: BitsPerPixel = BitsPerPixel::Two;
 const BG4_BPP: BitsPerPixel = BitsPerPixel::Two;
 
+// OBJ is always 4bpp
+const OBJ_BPP: BitsPerPixel = BitsPerPixel::Four;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum BgMode {
     // Mode 0: 4x 2bpp background layers
@@ -146,7 +149,7 @@ impl BgMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
-enum BgTileSize {
+enum TileSize {
     // 8x8
     #[default]
     Small,
@@ -154,7 +157,7 @@ enum BgTileSize {
     Large,
 }
 
-impl BgTileSize {
+impl TileSize {
     fn from_bit(bit: bool) -> Self {
         if bit { Self::Large } else { Self::Small }
     }
@@ -193,6 +196,24 @@ impl ObjTileSize {
             0xC0 => Self::Six,
             0xE0 => Self::Seven,
             _ => unreachable!("value & 0xE0 will always be one of the above values"),
+        }
+    }
+
+    fn small_size(self) -> (u16, u16) {
+        match self {
+            Self::Zero | Self::One | Self::Two => (8, 8),
+            Self::Three | Self::Four => (16, 16),
+            Self::Five => (32, 32),
+            Self::Six | Self::Seven => (16, 32),
+        }
+    }
+
+    fn large_size(self) -> (u16, u16) {
+        match self {
+            Self::Zero => (16, 16),
+            Self::One | Self::Three | Self::Seven => (32, 32),
+            Self::Two | Self::Four | Self::Five => (64, 64),
+            Self::Six => (32, 64),
         }
     }
 }
@@ -407,7 +428,7 @@ struct Registers {
     // BGMODE
     bg_mode: BgMode,
     mode_1_bg3_priority: bool,
-    bg_tile_size: [BgTileSize; 4],
+    bg_tile_size: [TileSize; 4],
     // MOSAIC
     mosaic_size: u8,
     bg_mosaic_enabled: [bool; 4],
@@ -515,7 +536,7 @@ impl Registers {
             sub_obj_enabled: false,
             bg_mode: BgMode::default(),
             mode_1_bg3_priority: true,
-            bg_tile_size: [BgTileSize::default(); 4],
+            bg_tile_size: [TileSize::default(); 4],
             mosaic_size: 0,
             bg_mosaic_enabled: [false; 4],
             bg_screen_size: [BgScreenSize::default(); 4],
@@ -639,7 +660,7 @@ impl Registers {
         self.mode_1_bg3_priority = value.bit(3);
 
         for (i, tile_size) in self.bg_tile_size.iter_mut().enumerate() {
-            *tile_size = BgTileSize::from_bit(value.bit(i as u8 + 4));
+            *tile_size = TileSize::from_bit(value.bit(i as u8 + 4));
         }
 
         log::trace!("  BG mode: {:?}", self.bg_mode);
@@ -1092,11 +1113,11 @@ pub enum PpuTickEffect {
 struct Pixel {
     palette: u8,
     color: u8,
-    priority: bool,
+    priority: u8,
 }
 
 impl Pixel {
-    const TRANSPARENT: Self = Self { palette: 0, color: 0, priority: false };
+    const TRANSPARENT: Self = Self { palette: 0, color: 0, priority: 0 };
 
     fn is_transparent(self) -> bool {
         self.color == 0
@@ -1181,6 +1202,18 @@ impl PriorityResolver {
     }
 }
 
+#[derive(Debug, Clone, Copy, Encode, Decode)]
+struct SpriteData {
+    x: u16,
+    y: u16,
+    tile_number: u16,
+    palette: u8,
+    priority: u8,
+    x_flip: bool,
+    y_flip: bool,
+    size: TileSize,
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Ppu {
     timing_mode: TimingMode,
@@ -1190,6 +1223,7 @@ pub struct Ppu {
     oam: Box<Oam>,
     cgram: Box<Cgram>,
     frame_buffer: FrameBuffer,
+    sprite_buffer: Vec<SpriteData>,
 }
 
 impl Ppu {
@@ -1202,6 +1236,7 @@ impl Ppu {
             oam: vec![0; OAM_LEN].into_boxed_slice().try_into().unwrap(),
             cgram: vec![0; CGRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             frame_buffer: FrameBuffer::new(),
+            sprite_buffer: Vec::with_capacity(32),
         }
     }
 
@@ -1250,6 +1285,8 @@ impl Ppu {
             return;
         }
 
+        self.populate_sprite_buffer(scanline);
+
         let backdrop_color = convert_snes_color(self.cgram[0]);
         let mode = self.registers.bg_mode;
 
@@ -1270,7 +1307,7 @@ impl Ppu {
                             pixel.palette,
                             pixel.color,
                         );
-                        priority_resolver.add(Layer::Bg1, pixel.priority.into(), color);
+                        priority_resolver.add(Layer::Bg1, pixel.priority, color);
                     }
                 } else {
                     let bg1_bpp = mode.bg1_bpp();
@@ -1283,7 +1320,7 @@ impl Ppu {
                             pixel.palette,
                             pixel.color,
                         );
-                        priority_resolver.add(Layer::Bg1, pixel.priority.into(), color);
+                        priority_resolver.add(Layer::Bg1, pixel.priority, color);
                     }
                 }
             }
@@ -1301,7 +1338,7 @@ impl Ppu {
                         pixel.palette,
                         pixel.color,
                     );
-                    priority_resolver.add(Layer::Bg2, pixel.priority.into(), color);
+                    priority_resolver.add(Layer::Bg2, pixel.priority, color);
                 }
             }
 
@@ -1318,7 +1355,7 @@ impl Ppu {
                         pixel.palette,
                         pixel.color,
                     );
-                    priority_resolver.add(Layer::Bg3, pixel.priority.into(), color);
+                    priority_resolver.add(Layer::Bg3, pixel.priority, color);
                 }
             }
 
@@ -1335,7 +1372,22 @@ impl Ppu {
                         pixel.palette,
                         pixel.color,
                     );
-                    priority_resolver.add(Layer::Bg4, pixel.priority.into(), color);
+                    priority_resolver.add(Layer::Bg4, pixel.priority, color);
+                }
+            }
+
+            let obj_enabled = self.registers.main_obj_enabled;
+            if obj_enabled {
+                let pixel = self.resolve_sprite_color(scanline, pixel);
+                if !pixel.is_transparent() {
+                    let color = resolve_pixel_color(
+                        &self.cgram,
+                        OBJ_BPP,
+                        0x00,
+                        pixel.palette | 0x08, // OBJ palettes use the second half of CGRAM
+                        pixel.color,
+                    );
+                    priority_resolver.add(Layer::Obj, pixel.priority, color);
                 }
             }
 
@@ -1379,8 +1431,8 @@ impl Ppu {
         }
 
         let bg_tile_size_pixels = match bg_tile_size {
-            BgTileSize::Small => 8,
-            BgTileSize::Large => 16,
+            TileSize::Small => 8,
+            TileSize::Large => 16,
         };
 
         let tile_row = y / bg_tile_size_pixels;
@@ -1396,8 +1448,8 @@ impl Ppu {
         let y_flip = tile_map_entry.bit(15);
 
         let tile_number = match bg_tile_size {
-            BgTileSize::Small => raw_tile_number,
-            BgTileSize::Large => {
+            TileSize::Small => raw_tile_number,
+            TileSize::Large => {
                 let x_shift = if x_flip { x % 16 < 8 } else { x % 16 >= 8 };
                 let y_shift = if y_flip { y % 16 < 8 } else { y % 16 >= 8 };
                 match (x_shift, y_shift) {
@@ -1427,7 +1479,7 @@ impl Ppu {
             color |= u8::from(word.bit(bit_index + 8)) << (i + 1);
         }
 
-        Pixel { palette, color, priority }
+        Pixel { palette, color, priority: priority.into() }
     }
 
     // TODO make this more efficient
@@ -1515,7 +1567,134 @@ impl Ppu {
         let pixel_addr = 64 * tile_number + 8 * tile_row + tile_col;
         let color = (self.vram[pixel_addr as usize] >> 8) as u8;
 
-        Pixel { palette: 0, color, priority: false }
+        Pixel { palette: 0, color, priority: 0 }
+    }
+
+    fn populate_sprite_buffer(&mut self, scanline: u16) {
+        const OAM_LEN: usize = 128;
+        const MAX_SPRITES_PER_LINE: usize = 32;
+
+        self.sprite_buffer.clear();
+
+        let (_, small_height) = self.registers.obj_tile_size.small_size();
+        let (_, large_height) = self.registers.obj_tile_size.large_size();
+
+        for oam_idx in 0..OAM_LEN {
+            let oam_addr = oam_idx << 2;
+            let x_lsb = self.oam[oam_addr];
+            let y: u16 = self.oam[oam_addr + 1].into();
+            let tile_number_lsb = self.oam[oam_addr + 2];
+            let attributes = self.oam[oam_addr + 3];
+
+            let additional_bits_addr = 512 + (oam_idx >> 2);
+            let additional_bits_shift = 2 * (oam_idx & 0x03);
+            let additional_bits = self.oam[additional_bits_addr] >> additional_bits_shift;
+            let x_msb = additional_bits.bit(0);
+            let size = if additional_bits.bit(1) { TileSize::Large } else { TileSize::Small };
+
+            let sprite_height = match size {
+                TileSize::Small => small_height,
+                TileSize::Large => large_height,
+            };
+
+            if !(y..y + sprite_height).contains(&scanline) {
+                // Sprite does not overlap scanline
+                continue;
+            }
+
+            let x = u16::from_le_bytes([x_lsb, u8::from(x_msb)]);
+            let tile_number = u16::from_le_bytes([tile_number_lsb, u8::from(attributes.bit(0))]);
+            let palette = (attributes >> 1) & 0x07;
+            let priority = (attributes >> 4) & 0x03;
+            let x_flip = attributes.bit(6);
+            let y_flip = attributes.bit(7);
+
+            self.sprite_buffer.push(SpriteData {
+                x,
+                y,
+                tile_number,
+                palette,
+                priority,
+                x_flip,
+                y_flip,
+                size,
+            });
+
+            if self.sprite_buffer.len() == MAX_SPRITES_PER_LINE {
+                // TODO set overflow flag
+                break;
+            }
+        }
+
+        if self.registers.obj_priority_mode == ObjPriorityMode::Reverse {
+            self.sprite_buffer.reverse();
+        }
+    }
+
+    fn resolve_sprite_color(&mut self, scanline: u16, pixel: u16) -> Pixel {
+        let (small_width, small_height) = self.registers.obj_tile_size.small_size();
+        let (large_width, large_height) = self.registers.obj_tile_size.large_size();
+
+        self.sprite_buffer
+            .iter()
+            .find_map(|sprite| {
+                let (sprite_width, sprite_height) = match sprite.size {
+                    TileSize::Small => (small_width, small_height),
+                    TileSize::Large => (large_width, large_height),
+                };
+
+                if !(sprite.x..sprite.x + sprite_width).contains(&pixel) {
+                    return None;
+                }
+
+                let sprite_line = if sprite.y_flip {
+                    sprite_height - 1 - (scanline - sprite.y)
+                } else {
+                    scanline - sprite.y
+                };
+                let sprite_pixel = if sprite.x_flip {
+                    sprite_width - 1 - (pixel - sprite.x)
+                } else {
+                    pixel - sprite.x
+                };
+
+                let tile_x_offset = sprite_pixel / 8;
+                let tile_y_offset = sprite_line / 8;
+
+                // Unlike BG tiles in 16x16 mode, overflows in large OBJ tiles do not carry to the next nibble
+                let mut tile_number = sprite.tile_number;
+                tile_number =
+                    (tile_number & !0xF) | (tile_number.wrapping_add(tile_x_offset) & 0xF);
+                tile_number =
+                    (tile_number & !0xF0) | (tile_number.wrapping_add(tile_y_offset << 4) & 0xF0);
+
+                let tile_size_words = OBJ_BPP.tile_size_words();
+                let tile_base_addr = self.registers.obj_tile_base_address
+                    + u16::from(tile_number.bit(8))
+                        * (256 * tile_size_words + self.registers.obj_tile_gap_size);
+                let tile_addr =
+                    (tile_base_addr + (tile_number & 0x00FF) * tile_size_words) as usize;
+
+                let tile_data = &self.vram[tile_addr..tile_addr + tile_size_words as usize];
+
+                let tile_row = sprite_line % 8;
+                let tile_col = sprite_pixel % 8;
+                let bit_index = (7 - tile_col) as u8;
+
+                let mut color = 0_u8;
+                for i in 0..2 {
+                    let tile_word = tile_data[(tile_row + 8 * i) as usize];
+                    color |= u8::from(tile_word.bit(bit_index)) << (2 * i);
+                    color |= u8::from(tile_word.bit(bit_index + 8)) << (2 * i + 1);
+                }
+
+                (color != 0).then_some(Pixel {
+                    palette: sprite.palette,
+                    color,
+                    priority: sprite.priority,
+                })
+            })
+            .unwrap_or(Pixel::TRANSPARENT)
     }
 
     fn set_in_frame_buffer(&mut self, scanline: u16, pixel: u16, color: Color) {
