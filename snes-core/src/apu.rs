@@ -1,6 +1,8 @@
 mod bootrom;
+mod dsp;
 mod timer;
 
+use crate::apu::dsp::AudioDsp;
 use crate::apu::timer::{FastTimer, SlowTimer};
 use bincode::{Decode, Encode};
 use jgenesis_traits::frontend::TimingMode;
@@ -47,7 +49,7 @@ impl ApuRegisters {
         }
     }
 
-    fn read(&mut self, register: u16) -> u8 {
+    fn read(&mut self, register: u16, dsp: &AudioDsp) -> u8 {
         log::trace!("SPC700 register read: {register}");
 
         match register {
@@ -61,10 +63,8 @@ impl ApuRegisters {
                     | (u8::from(self.timer_2.enabled()) << 2)
                     | (u8::from(self.boot_rom_mapped) << 7)
             }
-            2 | 3 => {
-                // TODO DSP registers
-                0xFF
-            }
+            2 => dsp.read_address(),
+            3 => dsp.read_register(),
             4 => self.main_cpu_communication[0],
             5 => self.main_cpu_communication[1],
             6 => self.main_cpu_communication[2],
@@ -81,7 +81,7 @@ impl ApuRegisters {
         }
     }
 
-    fn write(&mut self, register: u16, value: u8) {
+    fn write(&mut self, register: u16, value: u8, dsp: &mut AudioDsp) {
         log::trace!("SPC700 register write: {register} {value:02X}");
 
         #[allow(clippy::match_same_arms)]
@@ -107,8 +107,11 @@ impl ApuRegisters {
 
                 self.boot_rom_mapped = value.bit(7);
             }
-            2 | 3 => {
-                // TODO DSP registers
+            2 => {
+                dsp.write_address(value);
+            }
+            3 => {
+                dsp.write_register(value);
             }
             4 => {
                 self.spc700_communication[0] = value;
@@ -148,6 +151,7 @@ impl ApuRegisters {
 }
 
 struct Spc700Bus<'a> {
+    dsp: &'a mut AudioDsp,
     audio_ram: &'a mut Box<AudioRam>,
     registers: &'a mut ApuRegisters,
 }
@@ -157,7 +161,7 @@ impl<'a> BusInterface for Spc700Bus<'a> {
     fn read(&mut self, address: u16) -> u8 {
         match address {
             0x0000..=0x00EF | 0x0100..=0xFFBF => self.audio_ram[address as usize],
-            0x00F0..=0x00FF => self.registers.read(address & 0xF),
+            0x00F0..=0x00FF => self.registers.read(address & 0xF, self.dsp),
             0xFFC0..=0xFFFF => {
                 if self.registers.boot_rom_mapped {
                     bootrom::SPC700_BOOT_ROM[(address & 0x003F) as usize]
@@ -175,7 +179,7 @@ impl<'a> BusInterface for Spc700Bus<'a> {
                 self.audio_ram[address as usize] = value;
             }
             0x00F0..=0x00FF => {
-                self.registers.write(address & 0xF, value);
+                self.registers.write(address & 0xF, value, self.dsp);
                 self.audio_ram[address as usize] = value;
             }
         }
@@ -194,6 +198,7 @@ pub enum ApuTickEffect {
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Apu {
     spc700: Spc700,
+    dsp: AudioDsp,
     audio_ram: Box<AudioRam>,
     registers: ApuRegisters,
     main_master_clock_frequency: u64,
@@ -203,7 +208,11 @@ pub struct Apu {
 
 macro_rules! new_spc700_bus {
     ($self:expr) => {
-        Spc700Bus { audio_ram: &mut $self.audio_ram, registers: &mut $self.registers }
+        Spc700Bus {
+            dsp: &mut $self.dsp,
+            audio_ram: &mut $self.audio_ram,
+            registers: &mut $self.registers,
+        }
     };
 }
 
@@ -216,6 +225,7 @@ impl Apu {
 
         let mut apu = Self {
             spc700: Spc700::new(),
+            dsp: AudioDsp::new(),
             audio_ram: vec![0; AUDIO_RAM_LEN].into_boxed_slice().try_into().unwrap(),
             registers: ApuRegisters::new(),
             main_master_clock_frequency,
@@ -239,8 +249,11 @@ impl Apu {
             self.sample_divider -= 1;
             if self.sample_divider == 0 {
                 self.sample_divider = SAMPLE_DIVIDER;
-                // TODO output real samples
-                return ApuTickEffect::OutputSample(0.0, 0.0);
+
+                let (sample_l, sample_r) = self.dsp.clock(&mut self.audio_ram);
+                let sample_l = f64::from(sample_l) / -f64::from(i16::MIN);
+                let sample_r = f64::from(sample_r) / -f64::from(i16::MIN);
+                return ApuTickEffect::OutputSample(sample_l, sample_r);
             }
         }
 
