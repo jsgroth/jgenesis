@@ -14,19 +14,19 @@ The crates can be broken up roughly into 5 categories:
 
 ### `z80-emu`
 
-Instruction-based emulation core for the Zilog Z80 CPU, which is used in the Master System, the Game Gear, and the Genesis (and by proxy the Sega CD). Memory/bus interactions are abstracted using a `BusInterface` trait.
+Instruction-based emulation core for the Zilog Z80 CPU, which is used in the Master System, the Game Gear, and the Genesis (and by proxy the Sega CD).
 
 ### `m68000-emu`
 
-Instruction-based emulation core for the Motorola 68000 CPU, which is used in the Genesis and the Sega CD. Memory/bus interactions are abstracted using a `BusInterface` trait.
+Instruction-based emulation core for the Motorola 68000 CPU, which is used in the Genesis and the Sega CD.
 
 ### `wdc65816-emu`
 
-Cycle-based emulation core for the WDC 65C816 CPU (aka 65816), which is used in the SNES. Memory/bus interactions are abstracted using a `BusInterface` trait.
+Cycle-based emulation core for the WDC 65C816 CPU (aka 65816), which is used in the SNES.
 
 ### `spc700-emu`
 
-Cycle-based emulation core for the Sony SPC700 CPU, which is used in the SNES as a dedicated audio processor.
+Cycle-based emulation core for the Sony SPC700 CPU, which is used in the SNES as a dedicated audio processor embedded inside the APU.
 
 ### `smsgg-core`
 
