@@ -31,8 +31,8 @@ pub struct Bus<'a> {
 }
 
 impl<'a> Bus<'a> {
-    fn read_system_area(&mut self, address: u32) -> u8 {
-        let address = address & 0x7FFF;
+    fn read_system_area(&mut self, full_address: u32) -> u8 {
+        let address = full_address & 0x7FFF;
         match address {
             0x0000..=0x1FFF => {
                 self.access_master_cycles = SLOW_MASTER_CYCLES;
@@ -74,7 +74,7 @@ impl<'a> Bus<'a> {
                 self.access_master_cycles = SLOW_MASTER_CYCLES;
 
                 // Cartridge expansion
-                self.memory.read_cartridge(address)
+                self.memory.read_cartridge(full_address)
             }
             _ => {
                 self.access_master_cycles = SLOW_MASTER_CYCLES;
@@ -85,8 +85,8 @@ impl<'a> Bus<'a> {
         }
     }
 
-    fn write_system_area(&mut self, address: u32, value: u8) {
-        let address = address & 0x7FFF;
+    fn write_system_area(&mut self, full_address: u32, value: u8) {
+        let address = full_address & 0x7FFF;
         match address {
             0x0000..=0x1FFF => {
                 self.access_master_cycles = SLOW_MASTER_CYCLES;
@@ -146,7 +146,7 @@ impl<'a> Bus<'a> {
                 self.access_master_cycles = SLOW_MASTER_CYCLES;
 
                 // Cartridge expansion
-                self.memory.write_cartridge(address, value);
+                self.memory.write_cartridge(full_address, value);
             }
             _ => {
                 self.access_master_cycles = SLOW_MASTER_CYCLES;
