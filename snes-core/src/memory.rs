@@ -248,19 +248,24 @@ impl InputState {
             if self.joypad_read_cycles_remaining == 0 {
                 self.auto_joypad_p1_inputs = inputs.p1.to_register_word();
                 self.auto_joypad_p2_inputs = inputs.p2.to_register_word();
+
+                // Fill the manual joypad input registers with all 1s so that it looks like auto
+                // joypad read drained them serially; Donkey Kong Country depends on this
+                self.manual_joypad_p1_inputs = !0;
+                self.manual_joypad_p2_inputs = !0;
             }
         }
     }
 
     fn next_manual_p1_bit(&mut self) -> bool {
         let bit = self.manual_joypad_p1_inputs.bit(15);
-        self.manual_joypad_p1_inputs <<= 1;
+        self.manual_joypad_p1_inputs = (self.manual_joypad_p1_inputs << 1) | 0x0001;
         bit
     }
 
     fn next_manual_p2_bit(&mut self) -> bool {
         let bit = self.manual_joypad_p2_inputs.bit(15);
-        self.manual_joypad_p2_inputs <<= 1;
+        self.manual_joypad_p2_inputs = (self.manual_joypad_p2_inputs << 1) | 0x0001;
         bit
     }
 }
