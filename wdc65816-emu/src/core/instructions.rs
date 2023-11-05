@@ -1794,6 +1794,8 @@ pub fn execute<B: BusInterface>(cpu: &mut Wdc65816, bus: &mut B) {
     cpu.state.waiting = false;
 
     if cpu.state.nmi_triggered {
+        log::trace!("Handling NMI");
+
         cpu.state.nmi_triggered = false;
         bus.acknowledge_nmi();
 
@@ -1804,6 +1806,8 @@ pub fn execute<B: BusInterface>(cpu: &mut Wdc65816, bus: &mut B) {
     }
 
     if cpu.state.irq_triggered {
+        log::trace!("Handling IRQ");
+
         flow::handle_interrupt(cpu, bus, InterruptType::Irq);
         cpu.state.handling_interrupt = Some(InterruptType::Irq);
         cpu.state.cycle = 1;
