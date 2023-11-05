@@ -156,14 +156,14 @@ fn guess_cartridge_type(rom: &[u8]) -> Option<CartridgeType> {
         return None;
     }
 
-    let lorom_type_byte = rom[0x7FD5] & 0x3F;
+    let lorom_type_byte = rom[0x7FD5];
     if lorom_type_byte == 0x20 || lorom_type_byte == 0x30 {
         // Very likely LoROM
         return Some(CartridgeType::LoRom);
     }
 
     if rom.len() >= 0x10000 {
-        let hirom_type_byte = rom[0xFFD5] & 0x3F;
+        let hirom_type_byte = rom[0xFFD5];
         if hirom_type_byte == 0x21 || hirom_type_byte == 0x31 {
             // Very likely HiROM
             return Some(CartridgeType::HiRom);
