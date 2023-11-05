@@ -1,5 +1,6 @@
 mod alu;
 mod bits;
+mod disassemble;
 mod flags;
 mod flow;
 mod load;
@@ -15,6 +16,13 @@ fn u24_address(bank: u8, address: u16) -> u32 {
 fn fetch_operand<B: BusInterface>(cpu: &mut Wdc65816, bus: &mut B) -> u8 {
     let operand = bus.read(u24_address(cpu.registers.pbr, cpu.registers.pc));
     cpu.registers.pc = cpu.registers.pc.wrapping_add(1);
+
+    log::trace!(
+        "Fetched operand {operand:02X} from PBR {:02X} / PC {:04X}",
+        cpu.registers.pbr,
+        cpu.registers.pc.wrapping_sub(1)
+    );
+
     operand
 }
 
@@ -1805,6 +1813,19 @@ pub fn execute<B: BusInterface>(cpu: &mut Wdc65816, bus: &mut B) {
     // Cycle 0 and not handling an interrupt is always opcode fetch
     cpu.state.opcode = fetch_operand(cpu, bus);
     cpu.state.cycle = 1;
+
+    if log::log_enabled!(log::Level::Trace) {
+        let instr_name = disassemble::instruction_str(cpu.state.opcode);
+        log::trace!(
+            "Fetched opcode from PBR={:02X} / PC={:04X}: {:02X} ({instr_name}); m={}, x={}, e={}",
+            cpu.registers.pbr,
+            cpu.registers.pc.wrapping_sub(1),
+            cpu.state.opcode,
+            u8::from(cpu.registers.p.accumulator_size == SizeBits::Eight),
+            u8::from(cpu.registers.p.index_size == SizeBits::Eight),
+            u8::from(cpu.registers.emulation_mode),
+        );
+    }
 }
 
 fn execute_cycle<B: BusInterface>(cpu: &mut Wdc65816, bus: &mut B) {

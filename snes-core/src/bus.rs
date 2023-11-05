@@ -160,6 +160,8 @@ impl<'a> Bus<'a> {
 impl<'a> BusInterface for Bus<'a> {
     #[inline]
     fn read(&mut self, address: u32) -> u8 {
+        log::trace!("Bus read {address:06X}");
+
         let bank = address >> 16;
         let offset = address & 0xFFFF;
         match (bank, offset) {
@@ -196,6 +198,8 @@ impl<'a> BusInterface for Bus<'a> {
 
     #[inline]
     fn write(&mut self, address: u32, value: u8) {
+        log::trace!("Bus write {address:06X} {value:02X}");
+
         let bank = address >> 16;
         let offset = address & 0xFFFF;
         match (bank, offset) {
