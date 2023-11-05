@@ -289,7 +289,13 @@ impl Voice {
         self.envelope_level = 0;
     }
 
-    fn clock(&mut self, registers: &DspRegisters, audio_ram: &AudioRam, prev_voice_sample: i16) {
+    fn clock(
+        &mut self,
+        registers: &DspRegisters,
+        audio_ram: &AudioRam,
+        prev_voice_sample: i16,
+        noise_generator_output: i16,
+    ) {
         if self.restart_pending {
             self.restart_pending = false;
             self.restart(registers, audio_ram);
@@ -319,16 +325,21 @@ impl Voice {
             return;
         }
 
-        let interpolate_idx = self.pitch_counter >> 12;
-        let interpolated_sample = apply_gaussian_filter(GaussArgs {
-            pitch_counter: self.pitch_counter,
-            oldest: self.brr_buffer[interpolate_idx],
-            older: self.brr_buffer[interpolate_idx + 1],
-            old: self.brr_buffer[interpolate_idx + 2],
-            sample: self.brr_buffer[interpolate_idx + 3],
-        });
-
-        // TODO noise
+        let interpolated_sample = if self.output_noise {
+            // Turning on noise for a voice replaces the output with the noise generator output,
+            // but envelope is still used and all of the BRR decoding continues to run in the
+            // background
+            noise_generator_output
+        } else {
+            let interpolate_idx = self.pitch_counter >> 12;
+            apply_gaussian_filter(GaussArgs {
+                pitch_counter: self.pitch_counter,
+                oldest: self.brr_buffer[interpolate_idx],
+                older: self.brr_buffer[interpolate_idx + 1],
+                old: self.brr_buffer[interpolate_idx + 2],
+                sample: self.brr_buffer[interpolate_idx + 3],
+            })
+        };
 
         // TODO do this after multiplying by sample?
         self.clock_envelope(registers.global_counter);
@@ -595,6 +606,31 @@ fn compute_exp_decay(current_value: i32) -> i32 {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
+struct NoiseGenerator {
+    output: i16,
+}
+
+impl NoiseGenerator {
+    fn new() -> Self {
+        Self { output: i16::MIN >> 1 }
+    }
+
+    fn clock(&mut self, noise_frequency: u8, global_counter: u16) {
+        // Noise generator uses the same rate/offset tables as the envelopes
+        let rate = noise_frequency as usize;
+        if rate != 0
+            && (global_counter + ENVELOPE_OFFSET_TABLE[rate]) % ENVELOPE_RATE_TABLE[rate] != 0
+        {
+            let new_bit = self.output.bit(0) ^ self.output.bit(1);
+            self.output = ((self.output >> 1) & 0x3FFF) | (i16::from(new_bit) << 14);
+
+            // Clip to 15 bits
+            self.output = (self.output << 1) >> 1;
+        }
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
 struct EchoFilter {
     echo_enabled: [bool; 8],
     buffer_start_address: u16,
@@ -828,6 +864,7 @@ impl DspRegisters {
 pub struct AudioDsp {
     voices: [Voice; 8],
     registers: DspRegisters,
+    noise_generator: NoiseGenerator,
     echo_filter: EchoFilter,
     register_address: u8,
 }
@@ -837,6 +874,7 @@ impl AudioDsp {
         Self {
             voices: array::from_fn(|_| Voice::default()),
             registers: DspRegisters::new(),
+            noise_generator: NoiseGenerator::new(),
             echo_filter: EchoFilter::new(),
             register_address: 0,
         }
@@ -1085,9 +1123,16 @@ impl AudioDsp {
             self.registers.global_counter -= 1;
         }
 
+        self.noise_generator.clock(self.registers.noise_frequency, self.registers.global_counter);
+
         for i in 0..8 {
             let prev_voice_output = if i != 0 { self.voices[i - 1].current_sample } else { 0 };
-            self.voices[i].clock(&self.registers, audio_ram, prev_voice_output);
+            self.voices[i].clock(
+                &self.registers,
+                audio_ram,
+                prev_voice_output,
+                self.noise_generator.output,
+            );
         }
 
         self.sample(audio_ram)
