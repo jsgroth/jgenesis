@@ -619,7 +619,7 @@ impl NoiseGenerator {
         // Noise generator uses the same rate/offset tables as the envelopes
         let rate = noise_frequency as usize;
         if rate != 0
-            && (global_counter + ENVELOPE_OFFSET_TABLE[rate]) % ENVELOPE_RATE_TABLE[rate] != 0
+            && (global_counter + ENVELOPE_OFFSET_TABLE[rate]) % ENVELOPE_RATE_TABLE[rate] == 0
         {
             let new_bit = self.output.bit(0) ^ self.output.bit(1);
             self.output = ((self.output >> 1) & 0x3FFF) | (i16::from(new_bit) << 14);
