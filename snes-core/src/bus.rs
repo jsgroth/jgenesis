@@ -70,6 +70,12 @@ impl<'a> Bus<'a> {
                 // CPU I/O ports (everything except manual joypad ports)
                 self.cpu_registers.read_register(address)
             }
+            0x6000..=0x7FFF => {
+                self.access_master_cycles = SLOW_MASTER_CYCLES;
+
+                // Cartridge expansion
+                self.memory.read_cartridge(address)
+            }
             _ => todo!("read system area {address:06X}"),
         }
     }
@@ -130,6 +136,12 @@ impl<'a> Bus<'a> {
 
                 // CPU I/O ports (everything except manual joypad ports)
                 self.cpu_registers.write_register(address, value);
+            }
+            0x6000..=0x7FFF => {
+                self.access_master_cycles = SLOW_MASTER_CYCLES;
+
+                // Cartridge expansion
+                self.memory.write_cartridge(address, value);
             }
             _ => todo!("write system area {address:06X} {value:02X}"),
         }
