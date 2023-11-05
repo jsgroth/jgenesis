@@ -347,6 +347,8 @@ impl CpuInternalRegisters {
     }
 
     pub fn read_register(&mut self, address: u32) -> u8 {
+        log::trace!("Read CPU register: {address:06X}");
+
         match address {
             0x4016 => {
                 // JOYA: Manual joypad register A

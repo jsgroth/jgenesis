@@ -2052,6 +2052,8 @@ impl Ppu {
     }
 
     pub fn read_port(&mut self, address: u32) -> u8 {
+        log::trace!("Read PPU register: {address:06X}");
+
         match address & 0xFF {
             0x34 => self.registers.read_mpyl(),
             0x35 => self.registers.read_mpym(),
