@@ -1869,8 +1869,8 @@ impl Ppu {
 
         self.sprite_buffer.clear();
 
-        let (_, small_height) = self.registers.obj_tile_size.small_size();
-        let (_, large_height) = self.registers.obj_tile_size.large_size();
+        let (small_width, small_height) = self.registers.obj_tile_size.small_size();
+        let (large_width, large_height) = self.registers.obj_tile_size.large_size();
 
         // If priority rotate mode is set, start iteration at the current OAM address instead of
         // index 0
@@ -1894,16 +1894,21 @@ impl Ppu {
             let x_msb = additional_bits.bit(0);
             let size = if additional_bits.bit(1) { TileSize::Large } else { TileSize::Small };
 
-            let sprite_height = match size {
-                TileSize::Small => small_height,
-                TileSize::Large => large_height,
+            let (sprite_width, sprite_height) = match size {
+                TileSize::Small => (small_width, small_height),
+                TileSize::Large => (large_width, large_height),
             };
 
             if !line_overlaps_sprite(y, sprite_height, scanline) {
                 continue;
             }
 
+            // Only sprites with pixels in the range [0, 256) are scanned into the sprite buffer
             let x = u16::from_le_bytes([x_lsb, u8::from(x_msb)]);
+            if x >= 256 && x + sprite_width <= 512 {
+                continue;
+            }
+
             let tile_number = u16::from_le_bytes([tile_number_lsb, u8::from(attributes.bit(0))]);
             let palette = (attributes >> 1) & 0x07;
             let priority = (attributes >> 4) & 0x03;
