@@ -140,6 +140,9 @@ impl TickableEmulator for SnesEmulator {
         };
         assert!(master_cycles_elapsed > 0);
 
+        // Copy WRIO from CPU to PPU for possible H/V counter latching
+        self.ppu.update_wrio(self.cpu_registers.wrio_register());
+
         let prev_scanline_mclk = self.ppu.scanline_master_cycles();
         let mut tick_effect = TickEffect::None;
         if self.ppu.tick(master_cycles_elapsed) == PpuTickEffect::FrameComplete {

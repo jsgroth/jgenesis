@@ -302,6 +302,7 @@ pub struct CpuInternalRegisters {
     vblank_flag: bool,
     vblank_nmi_flag: bool,
     hblank_flag: bool,
+    programmable_joypad_port: u8,
     input_state: InputState,
 }
 
@@ -340,6 +341,7 @@ impl CpuInternalRegisters {
             vblank_flag: false,
             vblank_nmi_flag: false,
             hblank_flag: false,
+            programmable_joypad_port: 0xFF,
             input_state: InputState::new(),
         }
     }
@@ -379,6 +381,10 @@ impl CpuInternalRegisters {
                 (u8::from(self.vblank_flag) << 7)
                     | (u8::from(self.hblank_flag) << 6)
                     | u8::from(self.input_state.joypad_read_cycles_remaining > 0)
+            }
+            0x4213 => {
+                // RDIO: Programmable joypad I/O port (read)
+                0xFF & self.programmable_joypad_port
             }
             0x4214 => {
                 // RDDIVL: Division quotient, low byte
@@ -453,9 +459,9 @@ impl CpuInternalRegisters {
             }
             0x4201 => {
                 // WRIO: Joypad programmable I/O port (write)
-                // TODO implement this?
+                self.programmable_joypad_port = value;
 
-                log::warn!("Unhandled WRIO write: {value:02X}");
+                log::trace!("  Programmable joypad I/O port write: {value:02X}");
             }
             0x4202 => {
                 // WRMPYA: Multiplication 8-bit operand A
@@ -745,6 +751,10 @@ impl CpuInternalRegisters {
 
     pub fn memory_2_speed(&self) -> Memory2Speed {
         self.memory_2_speed
+    }
+
+    pub fn wrio_register(&self) -> u8 {
+        self.programmable_joypad_port
     }
 
     pub fn tick(

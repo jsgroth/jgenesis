@@ -473,6 +473,16 @@ enum AccessFlipflop {
     Second,
 }
 
+impl AccessFlipflop {
+    #[must_use]
+    fn toggle(self) -> Self {
+        match self {
+            Self::First => Self::Second,
+            Self::Second => Self::First,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 struct Registers {
     // INIDISP
@@ -583,6 +593,14 @@ struct Registers {
     // PPU multiply unit (M7A/M7B)
     multiply_operand_l: i16,
     multiply_operand_r: i8,
+    // OPHCT/OPVCT
+    latched_h_counter: u16,
+    latched_v_counter: u16,
+    new_hv_latched: bool,
+    h_counter_flipflop: AccessFlipflop,
+    v_counter_flipflop: AccessFlipflop,
+    // Copied from WRIO CPU register (needed for H/V counter latching)
+    programmable_joypad_port: u8,
 }
 
 impl Registers {
@@ -666,6 +684,12 @@ impl Registers {
             mode_7_center_y: 0,
             multiply_operand_l: !0,
             multiply_operand_r: !0,
+            latched_h_counter: 0,
+            latched_v_counter: 0,
+            new_hv_latched: false,
+            h_counter_flipflop: AccessFlipflop::default(),
+            v_counter_flipflop: AccessFlipflop::default(),
+            programmable_joypad_port: 0xFF,
         }
     }
 
@@ -1129,6 +1153,44 @@ impl Registers {
         // MPYH: PPU multiply result, high byte
         let mpy_result = i32::from(self.multiply_operand_l) * i32::from(self.multiply_operand_r);
         (mpy_result >> 16) as u8
+    }
+
+    fn read_slhv(&mut self, h_counter: u16, v_counter: u16) {
+        if self.programmable_joypad_port.bit(7) {
+            self.latched_h_counter = h_counter;
+            self.latched_v_counter = v_counter;
+        }
+    }
+
+    fn read_ophct(&mut self) -> u8 {
+        let value = match self.h_counter_flipflop {
+            AccessFlipflop::First => self.latched_h_counter as u8,
+            AccessFlipflop::Second => (self.latched_h_counter >> 8) as u8,
+        };
+        self.h_counter_flipflop = self.h_counter_flipflop.toggle();
+        value
+    }
+
+    fn read_opvct(&mut self) -> u8 {
+        let value = match self.v_counter_flipflop {
+            AccessFlipflop::First => self.latched_v_counter as u8,
+            AccessFlipflop::Second => (self.latched_v_counter >> 8) as u8,
+        };
+        self.v_counter_flipflop = self.v_counter_flipflop.toggle();
+        value
+    }
+
+    fn reset_hv_counter_flipflops(&mut self) {
+        self.h_counter_flipflop = AccessFlipflop::First;
+        self.v_counter_flipflop = AccessFlipflop::First;
+    }
+
+    fn update_wrio(&mut self, wrio: u8, h_counter: u16, v_counter: u16) {
+        if self.programmable_joypad_port.bit(7) & !wrio.bit(7) {
+            self.latched_h_counter = h_counter;
+            self.latched_v_counter = v_counter;
+        }
+        self.programmable_joypad_port = wrio;
     }
 
     fn is_inside_window_1(&self, pixel: u16) -> bool {
@@ -1994,6 +2056,15 @@ impl Ppu {
             0x34 => self.registers.read_mpyl(),
             0x35 => self.registers.read_mpym(),
             0x36 => self.registers.read_mpyh(),
+            0x37 => {
+                // SLHV: Latch H/V counter
+                let h_counter = (self.state.scanline_master_cycles >> 2) as u16;
+                let v_counter = self.state.scanline;
+                self.registers.read_slhv(h_counter, v_counter);
+
+                // TODO reads should return open bus; hardcoding a common open bus value for this address
+                0x21
+            }
             0x38 => {
                 // RDOAM: OAM data port, read
                 self.read_oam_data_port()
@@ -2010,6 +2081,8 @@ impl Ppu {
                 // RDCGRAM: CGRAM data port, read
                 self.read_cgram_data_port()
             }
+            0x3C => self.registers.read_ophct(),
+            0x3D => self.registers.read_opvct(),
             0x3E => {
                 // STAT77: PPU1 status and version number
                 // TODO overflow bits; currently just version number, hardcoded to 1
@@ -2017,11 +2090,16 @@ impl Ppu {
             }
             0x3F => {
                 // STAT78: PPU2 status and version number
-                // TODO H/V-counter latch bit
                 // Version number hardcoded to 1
-                (u8::from(self.state.odd_frame) << 7)
+                let value = (u8::from(self.state.odd_frame) << 7)
+                    | (u8::from(self.registers.new_hv_latched) << 6)
                     | (u8::from(self.timing_mode == TimingMode::Pal) << 1)
-                    | 0x01
+                    | 0x01;
+
+                self.registers.new_hv_latched = false;
+                self.registers.reset_hv_counter_flipflops();
+
+                value
             }
             _ => todo!("PPU read {address:06X}"),
         }
@@ -2032,7 +2110,10 @@ impl Ppu {
             // Don't log data port writes
             let address = address & 0xFF;
             if address != 0x04 && address != 0x18 && address != 0x19 && address != 0x22 {
-                log::trace!("PPU register write: 21{address:02X} {value:02X}");
+                log::trace!(
+                    "PPU register write: 21{address:02X} {value:02X} (scanline {})",
+                    self.state.scanline
+                );
             }
         }
 
@@ -2231,6 +2312,14 @@ impl Ppu {
 
                 (word >> 8) as u8
             }
+        }
+    }
+
+    pub fn update_wrio(&mut self, wrio: u8) {
+        if wrio != self.registers.programmable_joypad_port {
+            let h_counter = (self.state.scanline_master_cycles >> 2) as u16;
+            let v_counter = self.state.scanline;
+            self.registers.update_wrio(wrio, h_counter, v_counter);
         }
     }
 }
