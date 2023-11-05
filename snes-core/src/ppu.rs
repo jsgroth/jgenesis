@@ -2101,7 +2101,10 @@ impl Ppu {
 
                 value
             }
-            _ => todo!("PPU read {address:06X}"),
+            _ => {
+                log::warn!("Unmapped PPU read {address:06X}");
+                0x00
+            }
         }
     }
 

@@ -426,7 +426,10 @@ impl CpuInternalRegisters {
                 // DMA registers
                 self.read_dma_register(address)
             }
-            _ => todo!("read register {address:06X}"),
+            _ => {
+                log::warn!("Unmapped read register {address:06X}");
+                0x00
+            }
         }
     }
 
@@ -561,7 +564,7 @@ impl CpuInternalRegisters {
                 // DMA registers
                 self.write_dma_register(address, value);
             }
-            _ => todo!("write register {address:06X} {value:02X}"),
+            _ => log::warn!("Unmapped write register {address:06X} {value:02X}"),
         }
     }
 
@@ -626,7 +629,10 @@ impl CpuInternalRegisters {
                 // TODO open bus
                 0xFF
             }
-            _ => todo!("read DMA register {address:06X}"),
+            _ => {
+                log::warn!("Unmapped read DMA register {address:06X}");
+                0x00
+            }
         }
     }
 
@@ -745,7 +751,7 @@ impl CpuInternalRegisters {
             0x430C..=0x430E => {
                 // Open bus; do nothing
             }
-            _ => todo!("write DMA register {address:06X} {value:02X}"),
+            _ => log::warn!("Unmapped write DMA register {address:06X} {value:02X}"),
         }
     }
 

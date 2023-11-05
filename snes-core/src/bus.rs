@@ -76,7 +76,12 @@ impl<'a> Bus<'a> {
                 // Cartridge expansion
                 self.memory.read_cartridge(address)
             }
-            _ => todo!("read system area {address:06X}"),
+            _ => {
+                self.access_master_cycles = SLOW_MASTER_CYCLES;
+
+                log::warn!("Unmapped read system area {address:06X}");
+                0x00
+            }
         }
     }
 
@@ -143,7 +148,11 @@ impl<'a> Bus<'a> {
                 // Cartridge expansion
                 self.memory.write_cartridge(address, value);
             }
-            _ => todo!("write system area {address:06X} {value:02X}"),
+            _ => {
+                self.access_master_cycles = SLOW_MASTER_CYCLES;
+
+                log::warn!("Unmapped write system area {address:06X} {value:02X}")
+            }
         }
     }
 }
@@ -176,7 +185,12 @@ impl<'a> BusInterface for Bus<'a> {
                 // WRAM
                 self.memory.read_wram(address)
             }
-            _ => todo!("read address {address:06X}"),
+            _ => {
+                self.access_master_cycles = SLOW_MASTER_CYCLES;
+
+                log::warn!("Unmapped read address {address:06X}");
+                0x00
+            }
         }
     }
 
@@ -207,7 +221,11 @@ impl<'a> BusInterface for Bus<'a> {
                 // WRAM
                 self.memory.write_wram(address, value);
             }
-            _ => todo!("write address {address:06X} {value:02X}"),
+            _ => {
+                self.access_master_cycles = SLOW_MASTER_CYCLES;
+
+                log::warn!("Unmapped write address {address:06X} {value:02X}")
+            }
         }
     }
 
