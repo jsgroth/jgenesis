@@ -463,6 +463,11 @@ impl CpuInternalRegisters {
                 }
                 self.nmi_enabled = nmi_enabled;
 
+                // Disabling IRQs acknowledges any pending IRQ
+                if self.irq_mode == IrqMode::Off {
+                    self.irq_pending = false;
+                }
+
                 log::trace!("  Auto joypad read enabled: {}", self.auto_joypad_read_enabled);
                 log::trace!("  IRQ mode: {:?}", self.irq_mode);
                 log::trace!("  NMI enabled: {nmi_enabled}");
