@@ -1037,9 +1037,11 @@ impl AudioDsp {
                 }
                 0x2C => {
                     self.echo_filter.volume_l = value as i8;
+                    log::trace!("  Echo volume L: {}", self.echo_filter.volume_l);
                 }
                 0x3C => {
                     self.echo_filter.volume_r = value as i8;
+                    log::trace!("  Echo volume R: {}", self.echo_filter.volume_r);
                 }
                 0x4C => {
                     // Key on flags
@@ -1073,6 +1075,8 @@ impl AudioDsp {
                 }
                 0x0D => {
                     self.echo_filter.feedback_volume = value as i8;
+
+                    log::trace!("  Echo feedback volume: {}", self.echo_filter.feedback_volume);
                 }
                 0x1D => {
                     self.registers.unused_1d_register = value;
@@ -1093,6 +1097,8 @@ impl AudioDsp {
                 }
                 0x4D => {
                     self.echo_filter.write_echo_enabled(value);
+
+                    log::trace!("  Echo enabled: {value:02X}");
                 }
                 0x5D => {
                     // Sample table address is in 256-byte steps
@@ -1105,9 +1111,14 @@ impl AudioDsp {
                 0x6D => {
                     // Echo ring buffer address is in 256-byte steps
                     self.echo_filter.buffer_start_address = u16::from_le_bytes([0x00, value]);
+                    log::trace!(
+                        "Echo buffer start address: {:04X}",
+                        self.echo_filter.buffer_start_address
+                    );
                 }
                 0x7D => {
                     self.echo_filter.write_echo_buffer_size(value);
+                    log::trace!("  Echo buffer size: {value:02X}");
                 }
                 _ => unreachable!("all $xC and $xD addresses covered"),
             },
