@@ -1,6 +1,6 @@
 # jgenesis
 
-Cross-platform multi-console Sega emulator that supports the Sega Genesis / Mega Drive, the Sega CD / Mega CD, the Sega Master System, and the Game Gear.
+Cross-platform multi-console emulator that supports the Sega Genesis / Mega Drive, the Sega CD / Mega CD, the Sega Master System, and the Game Gear.
 
 ## Features
 
@@ -9,6 +9,8 @@ Cross-platform multi-console Sega emulator that supports the Sega Genesis / Mega
   * Sega CD / Mega CD
   * Sega Master System / Mark III
   * Game Gear
+  * Super Nintendo Entertainment System (SNES) / Super Famicom
+    * Still a work in progress; some games may not work or may have major bugs
 * GPU-based renderer with integer prescaling and optional linear interpolation
 * Configurable pixel aspect ratio for each console with several different options: accurate to original hardware/TVs, square pixels, and stretched to fill the window
 * Support for the Sega Master System FM sound unit expansion
