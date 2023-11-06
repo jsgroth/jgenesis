@@ -889,6 +889,8 @@ impl AudioDsp {
     }
 
     pub fn read_register(&self) -> u8 {
+        log::trace!("DSP register read: {:02X}", self.register_address);
+
         // Addresses $80-$FF mirror $00-$7F
         let address = self.register_address & 0x7F;
 
