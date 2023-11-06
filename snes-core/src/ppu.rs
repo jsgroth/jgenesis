@@ -1789,12 +1789,13 @@ impl Ppu {
 
         let h_offset_entry = get_bg_map_entry(&self.vram, &self.registers, 2, bg3_x, bg3_v_scroll);
 
+        let offset_entry_mask = if bg == 0 { 0x2000 } else { 0x4000 };
+
         match self.registers.bg_mode {
             BgMode::Four => {
-                // Check BG1 bit (BG2 is not rendered in Mode 4)
-                if h_offset_entry & 0x2000 != 0 {
-                    // In Mode 4, instead of loading the second entry, the PPU uses the highest bit
-                    // to determine whether to apply the offset to H or V
+                // In Mode 4, instead of loading the second entry, the PPU uses the highest bit
+                // to determine whether to apply the offset to H or V
+                if h_offset_entry & offset_entry_mask != 0 {
                     if h_offset_entry & 0x8000 != 0 {
                         (h_scroll, h_offset_entry & 0x03FF)
                     } else {
@@ -1808,15 +1809,13 @@ impl Ppu {
                 let v_offset_entry =
                     get_bg_map_entry(&self.vram, &self.registers, 2, bg3_x, bg3_v_scroll + 8);
 
-                let entry_mask = if bg == 0 { 0x2000 } else { 0x4000 };
-
-                let h_offset = if h_offset_entry & entry_mask != 0 {
+                let h_offset = if h_offset_entry & offset_entry_mask != 0 {
                     h_offset_entry & 0x03FF
                 } else {
                     h_scroll
                 };
 
-                let v_offset = if v_offset_entry & entry_mask != 0 {
+                let v_offset = if v_offset_entry & offset_entry_mask != 0 {
                     v_offset_entry & 0x03FF
                 } else {
                     v_scroll
