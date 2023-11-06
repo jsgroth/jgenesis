@@ -220,7 +220,11 @@ impl Resettable for SnesEmulator {
     }
 
     fn hard_reset(&mut self) {
-        todo!("hard reset")
+        let rom = self.memory.take_rom();
+        let sram = self.memory.sram().map(Vec::from);
+
+        // TODO properly clone config
+        *self = Self::create(rom, sram, SnesEmulatorConfig { forced_timing_mode: None });
     }
 }
 

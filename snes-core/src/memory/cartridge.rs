@@ -126,6 +126,12 @@ impl Cartridge {
         }
     }
 
+    pub fn take_rom(&mut self) -> Vec<u8> {
+        match self {
+            Self::LoRom { rom, .. } | Self::HiRom { rom, .. } => mem::take(&mut rom.0).into_vec(),
+        }
+    }
+
     pub fn take_rom_from(&mut self, other: &mut Self) {
         let other_rom = match other {
             Self::LoRom { rom, .. } => rom,

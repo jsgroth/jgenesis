@@ -118,6 +118,10 @@ impl Memory {
         log::trace!("WRAM port address: {:06X}", self.wram_port_address);
     }
 
+    pub fn take_rom(&mut self) -> Vec<u8> {
+        self.cartridge.take_rom()
+    }
+
     pub fn take_rom_from(&mut self, other: &mut Self) {
         self.cartridge.take_rom_from(&mut other.cartridge);
     }
