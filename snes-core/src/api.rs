@@ -147,12 +147,15 @@ impl TickableEmulator for SnesEmulator {
         let mut tick_effect = TickEffect::None;
         if self.ppu.tick(master_cycles_elapsed) == PpuTickEffect::FrameComplete {
             // TODO dynamic aspect ratio
+            let frame_size = self.ppu.frame_size();
+            let aspect_ratio = match (frame_size.width, frame_size.height) {
+                (256, _) | (512, 448 | 478) => PixelAspectRatio::try_from(8.0 / 7.0).unwrap(),
+                (512, 224 | 239) => PixelAspectRatio::try_from(4.0 / 7.0).unwrap(),
+                _ => panic!("unexpected SNES frame size: {frame_size:?}"),
+            };
+
             renderer
-                .render_frame(
-                    self.ppu.frame_buffer(),
-                    self.ppu.frame_size(),
-                    Some(PixelAspectRatio::try_from(1.1428571428571428).unwrap()),
-                )
+                .render_frame(self.ppu.frame_buffer(), self.ppu.frame_size(), Some(aspect_ratio))
                 .map_err(SnesError::Render)?;
 
             self.audio_downsampler.output_samples(audio_output).map_err(SnesError::AudioOutput)?;

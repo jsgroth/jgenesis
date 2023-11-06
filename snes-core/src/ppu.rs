@@ -8,7 +8,7 @@ use std::cmp;
 use std::ops::{Deref, DerefMut};
 
 // TODO 512px for hi-res mode?
-const SCREEN_WIDTH: usize = 256;
+const SCREEN_WIDTH: usize = 512;
 const MAX_SCREEN_HEIGHT: usize = 239;
 const FRAME_BUFFER_LEN: usize = SCREEN_WIDTH * MAX_SCREEN_HEIGHT;
 
@@ -1502,7 +1502,7 @@ impl Ppu {
 
         if self.registers.forced_blanking {
             // Forced blanking always draws black
-            for pixel in 0..256 {
+            for pixel in 0..SCREEN_WIDTH as u16 {
                 self.set_in_frame_buffer(scanline, pixel, Color::rgb(0, 0, 0));
             }
             return;
@@ -1510,66 +1510,63 @@ impl Ppu {
 
         self.populate_sprite_buffer(scanline);
 
-        let main_backdrop_color = self.cgram[0];
-        let sub_backdrop_color = self.registers.sub_backdrop_color;
-
+        let brightness = self.registers.brightness;
         for pixel in 0..256 {
-            let (mut main_screen_color, main_screen_palette, main_screen_layer) = self
-                .resolve_screen_color(scanline, pixel, Screen::Main)
-                .unwrap_or((main_backdrop_color, 0, Layer::Backdrop));
+            let snes_color = self.resolve_overall_color(scanline, pixel);
+            let color = convert_snes_color(snes_color, brightness);
 
-            let in_color_window = self.registers.math_window_mask_logic.apply(
-                self.registers
-                    .math_window_1_area
-                    .to_optional_bool(self.registers.is_inside_window_1(pixel)),
-                self.registers
-                    .math_window_2_area
-                    .to_optional_bool(self.registers.is_inside_window_2(pixel)),
-            );
+            self.set_in_frame_buffer(scanline, 2 * pixel, color);
+            self.set_in_frame_buffer(scanline, 2 * pixel + 1, color);
+        }
+    }
 
-            let force_main_screen_black =
-                self.registers.force_main_screen_black.enabled(in_color_window);
-            if force_main_screen_black {
-                main_screen_color = 0;
-            }
+    fn resolve_overall_color(&self, scanline: u16, pixel: u16) -> u16 {
+        let main_backdrop_color = self.cgram[0];
+        let (mut main_screen_color, main_screen_palette, main_screen_layer) = self
+            .resolve_screen_color(scanline, pixel, Screen::Main)
+            .unwrap_or((main_backdrop_color, 0, Layer::Backdrop));
 
-            let color_math_enabled_global =
-                self.registers.color_math_enabled.enabled(in_color_window);
+        let in_color_window = self.registers.math_window_mask_logic.apply(
+            self.registers
+                .math_window_1_area
+                .to_optional_bool(self.registers.is_inside_window_1(pixel)),
+            self.registers
+                .math_window_2_area
+                .to_optional_bool(self.registers.is_inside_window_2(pixel)),
+        );
 
-            let color_math_enabled_layer = match main_screen_layer {
-                Layer::Bg1 => self.registers.bg_color_math_enabled[0],
-                Layer::Bg2 => self.registers.bg_color_math_enabled[1],
-                Layer::Bg3 => self.registers.bg_color_math_enabled[2],
-                Layer::Bg4 => self.registers.bg_color_math_enabled[3],
-                Layer::Obj => self.registers.obj_color_math_enabled && main_screen_palette >= 4,
-                Layer::Backdrop => self.registers.backdrop_color_math_enabled,
-            };
+        let force_main_screen_black =
+            self.registers.force_main_screen_black.enabled(in_color_window);
+        if force_main_screen_black {
+            main_screen_color = 0;
+        }
 
-            let final_color = if color_math_enabled_global && color_math_enabled_layer {
-                let (sub_screen_color, sub_transparent) = if self.registers.sub_bg_obj_enabled {
-                    self.resolve_screen_color(scanline, pixel, Screen::Sub)
-                        .map_or((sub_backdrop_color, true), |(color, _, _)| (color, false))
-                } else {
-                    (sub_backdrop_color, false)
-                };
+        let color_math_enabled_global = self.registers.color_math_enabled.enabled(in_color_window);
 
-                let divide = self.registers.color_math_divide_enabled
-                    && !force_main_screen_black
-                    && !sub_transparent;
-                self.registers.color_math_operation.apply(
-                    main_screen_color,
-                    sub_screen_color,
-                    divide,
-                )
+        let color_math_enabled_layer = match main_screen_layer {
+            Layer::Bg1 => self.registers.bg_color_math_enabled[0],
+            Layer::Bg2 => self.registers.bg_color_math_enabled[1],
+            Layer::Bg3 => self.registers.bg_color_math_enabled[2],
+            Layer::Bg4 => self.registers.bg_color_math_enabled[3],
+            Layer::Obj => self.registers.obj_color_math_enabled && main_screen_palette >= 4,
+            Layer::Backdrop => self.registers.backdrop_color_math_enabled,
+        };
+
+        let sub_backdrop_color = self.registers.sub_backdrop_color;
+        if color_math_enabled_global && color_math_enabled_layer {
+            let (sub_screen_color, sub_transparent) = if self.registers.sub_bg_obj_enabled {
+                self.resolve_screen_color(scanline, pixel, Screen::Sub)
+                    .map_or((sub_backdrop_color, true), |(color, _, _)| (color, false))
             } else {
-                main_screen_color
+                (sub_backdrop_color, false)
             };
 
-            self.set_in_frame_buffer(
-                scanline,
-                pixel,
-                convert_snes_color(final_color, self.registers.brightness),
-            );
+            let divide = self.registers.color_math_divide_enabled
+                && !force_main_screen_black
+                && !sub_transparent;
+            self.registers.color_math_operation.apply(main_screen_color, sub_screen_color, divide)
+        } else {
+            main_screen_color
         }
     }
 
@@ -2080,7 +2077,7 @@ impl Ppu {
     }
 
     fn set_in_frame_buffer(&mut self, scanline: u16, pixel: u16, color: Color) {
-        let index = (scanline - 1) * 256 + pixel;
+        let index = u32::from(scanline - 1) * SCREEN_WIDTH as u32 + u32::from(pixel);
         self.frame_buffer[index as usize] = color;
     }
 
