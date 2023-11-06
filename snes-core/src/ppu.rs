@@ -2171,14 +2171,33 @@ impl Ppu {
                     self.sprite_bit_set.set(sprite_pixel_x);
                 }
             }
+        }
 
-            // Sprite pixel overflow occurs when there are more than 34 tiles' worth of sprite pixels
-            // on a single line
-            if total_pixels > 34 * 8 {
-                // TODO truncate overflow pixels
-                self.registers.sprite_pixel_overflow = true;
-                break;
+        // Sprite pixel overflow occurs when there are more than 34 tiles' worth of sprite pixels
+        // on a single line
+        if total_pixels > 34 * 8 {
+            self.registers.sprite_pixel_overflow = true;
+
+            // TODO properly truncate overflow pixels if the last sprite is larger than 8px wide
+            // Sprites in range are processed from last-to-first
+            self.sprite_buffer.reverse();
+
+            let mut pixel_count = 0;
+            for i in 0..self.sprite_buffer.len() {
+                let sprite_width = match self.sprite_buffer[i].size {
+                    TileSize::Small => small_width,
+                    TileSize::Large => large_width,
+                };
+                pixel_count += sprite_width;
+
+                // Truncate after passing *or reaching* 272 pixels
+                if pixel_count >= 34 * 8 {
+                    self.sprite_buffer.truncate(i + 1);
+                    break;
+                }
             }
+
+            self.sprite_buffer.reverse();
         }
     }
 
