@@ -159,6 +159,8 @@ struct Spc700Bus<'a> {
 impl<'a> BusInterface for Spc700Bus<'a> {
     #[inline]
     fn read(&mut self, address: u16) -> u8 {
+        log::trace!("SPC700 bus read: {address:04X}");
+
         match address {
             0x0000..=0x00EF | 0x0100..=0xFFBF => self.audio_ram[address as usize],
             0x00F0..=0x00FF => self.registers.read(address & 0xF, self.dsp),
@@ -174,6 +176,8 @@ impl<'a> BusInterface for Spc700Bus<'a> {
 
     #[inline]
     fn write(&mut self, address: u16, value: u8) {
+        log::trace!("SPC700 bus write: {address:04X} {value:02X}");
+
         match address {
             0x0000..=0x00EF | 0x0100..=0xFFFF => {
                 self.audio_ram[address as usize] = value;

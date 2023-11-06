@@ -1,5 +1,6 @@
 mod alu;
 mod bits;
+mod disassemble;
 mod flags;
 mod flow;
 mod load;
@@ -11,6 +12,9 @@ use jgenesis_traits::num::{GetBit, SignBit};
 fn fetch_operand<B: BusInterface>(cpu: &mut Spc700, bus: &mut B) -> u8 {
     let operand = bus.read(cpu.registers.pc);
     cpu.registers.pc = cpu.registers.pc.wrapping_add(1);
+
+    log::trace!("Fetched operand from PC={:04X}: {operand:02X}", cpu.registers.pc.wrapping_sub(1));
+
     operand
 }
 
@@ -640,6 +644,15 @@ pub fn execute<B: BusInterface>(cpu: &mut Spc700, bus: &mut B) {
     // Cycle 0: Fetch operand
     cpu.state.opcode = fetch_operand(cpu, bus);
     cpu.state.cycle = 1;
+
+    if log::log_enabled!(log::Level::Trace) {
+        let instr_str = disassemble::instruction_str(cpu.state.opcode);
+        log::trace!(
+            "Fetched opcode from PC={:04X}: {:02X} ({instr_str})",
+            cpu.registers.pc.wrapping_sub(1),
+            cpu.state.opcode
+        );
+    }
 }
 
 macro_rules! opcode_table {
