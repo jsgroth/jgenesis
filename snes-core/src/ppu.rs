@@ -1594,6 +1594,8 @@ impl Ppu {
         let in_window_1 = self.registers.is_inside_window_1(pixel);
         let in_window_2 = self.registers.is_inside_window_2(pixel);
 
+        let direct_color_mode = self.registers.direct_color_mode_enabled;
+
         let bg1_in_window = self.registers.bg_in_window(0, in_window_1, in_window_2);
         let bg1_enabled = bg_enabled[0] && !(bg1_in_window && bg_disabled_in_window[0]);
         if bg1_enabled {
@@ -1603,6 +1605,7 @@ impl Ppu {
                     let color = resolve_pixel_color(
                         &self.cgram,
                         BitsPerPixel::Eight,
+                        direct_color_mode,
                         0x00,
                         pixel.palette,
                         pixel.color,
@@ -1617,6 +1620,7 @@ impl Ppu {
                             let bg2_color = resolve_pixel_color(
                                 &self.cgram,
                                 BitsPerPixel::Eight,
+                                direct_color_mode,
                                 0x00,
                                 pixel.palette,
                                 bg2_pixel_color,
@@ -1635,8 +1639,14 @@ impl Ppu {
                 let bg1_bpp = mode.bg1_bpp();
                 let pixel = self.resolve_bg_color(0, bg1_bpp, scanline, pixel);
                 if !pixel.is_transparent() {
-                    let color =
-                        resolve_pixel_color(&self.cgram, bg1_bpp, 0x00, pixel.palette, pixel.color);
+                    let color = resolve_pixel_color(
+                        &self.cgram,
+                        bg1_bpp,
+                        direct_color_mode,
+                        0x00,
+                        pixel.palette,
+                        pixel.color,
+                    );
                     priority_resolver.add(Layer::Bg1, pixel.priority, color, pixel.palette);
                 }
             }
@@ -1653,6 +1663,7 @@ impl Ppu {
                 let color = resolve_pixel_color(
                     &self.cgram,
                     bg2_bpp,
+                    direct_color_mode,
                     two_bpp_offset,
                     pixel.palette,
                     pixel.color,
@@ -1672,6 +1683,7 @@ impl Ppu {
                 let color = resolve_pixel_color(
                     &self.cgram,
                     BG3_BPP,
+                    direct_color_mode,
                     two_bpp_offset,
                     pixel.palette,
                     pixel.color,
@@ -1691,6 +1703,7 @@ impl Ppu {
                 let color = resolve_pixel_color(
                     &self.cgram,
                     BG4_BPP,
+                    direct_color_mode,
                     two_bpp_offset,
                     pixel.palette,
                     pixel.color,
@@ -1717,6 +1730,7 @@ impl Ppu {
                 let color = resolve_pixel_color(
                     &self.cgram,
                     OBJ_BPP,
+                    direct_color_mode,
                     0x00,
                     pixel.palette | 0x08, // OBJ palettes use the second half of CGRAM
                     pixel.color,
@@ -2523,17 +2537,35 @@ fn pixel_overlaps_sprite(sprite_x: u16, sprite_width: u16, pixel: u16) -> bool {
 fn resolve_pixel_color(
     cgram: &Cgram,
     bpp: BitsPerPixel,
+    direct_color_mode: bool,
     two_bpp_offset: u8,
     palette: u8,
     color: u8,
 ) -> u16 {
-    // TODO direct color mode for 8bpp
-    let cgram_index = match bpp {
-        BitsPerPixel::Two => two_bpp_offset | (palette << 2) | color,
-        BitsPerPixel::Four => (palette << 4) | color,
-        BitsPerPixel::Eight => color,
-    };
-    cgram[cgram_index as usize]
+    match bpp {
+        BitsPerPixel::Two => cgram[(two_bpp_offset | (palette << 2) | color) as usize],
+        BitsPerPixel::Four => cgram[((palette << 4) | color) as usize],
+        BitsPerPixel::Eight => {
+            if direct_color_mode {
+                resolve_direct_color(palette, color)
+            } else {
+                cgram[color as usize]
+            }
+        }
+    }
+}
+
+fn resolve_direct_color(palette: u8, color: u8) -> u16 {
+    let color: u16 = color.into();
+    let palette: u16 = palette.into();
+
+    // Color (8-bit) interpreted as BBGGGRRR
+    // Palette (3-bit) interpreted as bgr
+    // Result (16-bit): 0 BBb00 GGGg0 RRRr0
+    let r_component = ((color & 0b00_000_111) << 2) | ((palette & 0b001) << 1);
+    let g_component = ((color & 0b00_111_000) << 4) | ((palette & 0b010) << 5);
+    let b_component = ((color & 0b11_000_000) << 7) | ((palette & 0b100) << 10);
+    r_component | g_component | b_component
 }
 
 fn convert_snes_color(snes_color: u16, brightness: u8) -> Color {
@@ -2543,4 +2575,23 @@ fn convert_snes_color(snes_color: u16, brightness: u8) -> Color {
     let g = color_table[((snes_color >> 5) & 0x1F) as usize];
     let b = color_table[((snes_color >> 10) & 0x1F) as usize];
     Color::rgb(r, g, b)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn direct_color() {
+        assert_eq!(0b00000_00000_11100, resolve_direct_color(0b000, 0b00_000_111));
+        assert_eq!(0b00000_00000_11110, resolve_direct_color(0b001, 0b00_000_111));
+
+        assert_eq!(0b00000_11100_00000, resolve_direct_color(0b000, 0b00_111_000));
+        assert_eq!(0b00000_11110_00000, resolve_direct_color(0b010, 0b00_111_000));
+
+        assert_eq!(0b11000_00000_00000, resolve_direct_color(0b000, 0b11_000_000));
+        assert_eq!(0b11100_00000_00000, resolve_direct_color(0b100, 0b11_000_000));
+
+        assert_eq!(0b11100_11110_11110, resolve_direct_color(0b111, 0b11_111_111));
+    }
 }
