@@ -587,6 +587,9 @@ struct Registers {
     new_hv_latched: bool,
     h_counter_flipflop: AccessFlipflop,
     v_counter_flipflop: AccessFlipflop,
+    // Sprite overflow flags (readable in STAT77)
+    sprite_overflow: bool,
+    sprite_pixel_overflow: bool,
     // Copied from WRIO CPU register (needed for H/V counter latching)
     programmable_joypad_port: u8,
 }
@@ -677,6 +680,8 @@ impl Registers {
             new_hv_latched: false,
             h_counter_flipflop: AccessFlipflop::default(),
             v_counter_flipflop: AccessFlipflop::default(),
+            sprite_overflow: false,
+            sprite_pixel_overflow: false,
             programmable_joypad_port: 0xFF,
         }
     }
@@ -1210,11 +1215,17 @@ struct State {
     scanline: u16,
     scanline_master_cycles: u64,
     odd_frame: bool,
+    pending_sprite_pixel_overflow: bool,
 }
 
 impl State {
     fn new() -> Self {
-        Self { scanline: 0, scanline_master_cycles: 0, odd_frame: false }
+        Self {
+            scanline: 0,
+            scanline_master_cycles: 0,
+            odd_frame: false,
+            pending_sprite_pixel_overflow: false,
+        }
     }
 }
 
@@ -1433,6 +1444,11 @@ impl Ppu {
             self.state.scanline += 1;
             self.state.scanline_master_cycles = new_scanline_mclks - mclks_per_scanline;
 
+            if self.state.pending_sprite_pixel_overflow {
+                self.state.pending_sprite_pixel_overflow = false;
+                self.registers.sprite_pixel_overflow = true;
+            }
+
             // Interlaced mode adds an extra scanline every other frame
             let scanlines_per_frame = self.scanlines_per_frame();
             if (self.state.scanline == scanlines_per_frame
@@ -1442,6 +1458,11 @@ impl Ppu {
                 self.state.scanline = 0;
                 // TODO wait until H=1?
                 self.state.odd_frame = !self.state.odd_frame;
+
+                if !self.registers.forced_blanking {
+                    self.registers.sprite_overflow = false;
+                    self.registers.sprite_pixel_overflow = false;
+                }
             }
 
             let v_display_size = self.registers.v_display_size.to_lines();
@@ -1885,6 +1906,7 @@ impl Ppu {
             ObjPriorityMode::Normal => 0,
             ObjPriorityMode::Rotate => (((self.registers.oam_address) >> 1) & 0x7F) as usize,
         };
+        let mut total_pixels = 0;
         for i in 0..OAM_LEN {
             let oam_idx = (i + oam_offset) & 0x7F;
 
@@ -1916,6 +1938,12 @@ impl Ppu {
                 continue;
             }
 
+            if self.sprite_buffer.len() == MAX_SPRITES_PER_LINE {
+                // TODO more accurate timing - this flag should get set partway through the previous line
+                self.registers.sprite_overflow = true;
+                break;
+            }
+
             let tile_number = u16::from_le_bytes([tile_number_lsb, u8::from(attributes.bit(0))]);
             let palette = (attributes >> 1) & 0x07;
             let priority = (attributes >> 4) & 0x03;
@@ -1933,9 +1961,13 @@ impl Ppu {
                 y_flip,
                 size,
             });
+            total_pixels += sprite_width;
 
-            if self.sprite_buffer.len() == MAX_SPRITES_PER_LINE {
-                // TODO set overflow flag
+            // Sprite pixel overflow occurs when there are more than 34 tiles' worth of sprite pixels
+            // on a single line
+            if total_pixels > 34 * 8 {
+                // TODO truncate overflow pixels
+                self.registers.sprite_pixel_overflow = true;
                 break;
             }
         }
@@ -2110,8 +2142,10 @@ impl Ppu {
             0x3D => self.registers.read_opvct(),
             0x3E => {
                 // STAT77: PPU1 status and version number
-                // TODO overflow bits; currently just version number, hardcoded to 1
-                0x01
+                // Version number hardcoded to 1
+                (u8::from(self.registers.sprite_pixel_overflow) << 7)
+                    | (u8::from(self.registers.sprite_overflow) << 6)
+                    | 0x01
             }
             0x3F => {
                 // STAT78: PPU2 status and version number
