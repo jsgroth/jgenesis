@@ -1608,6 +1608,28 @@ impl Ppu {
                         pixel.color,
                     );
                     priority_resolver.add(Layer::Bg1, pixel.priority, color, pixel.palette);
+
+                    if self.registers.extbg_enabled {
+                        // When EXTBG is enabled in Mode 7, BG1 pixels are duplicated into BG2
+                        // but use the highest color bit as priority
+                        let bg2_pixel_color = pixel.color & 0x7F;
+                        if bg2_pixel_color != 0 {
+                            let bg2_color = resolve_pixel_color(
+                                &self.cgram,
+                                BitsPerPixel::Eight,
+                                0x00,
+                                pixel.palette,
+                                bg2_pixel_color,
+                            );
+                            let bg2_priority = pixel.color >> 7;
+                            priority_resolver.add(
+                                Layer::Bg2,
+                                bg2_priority,
+                                bg2_color,
+                                pixel.palette,
+                            );
+                        }
+                    }
                 }
             } else {
                 let bg1_bpp = mode.bg1_bpp();
