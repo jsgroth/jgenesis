@@ -1705,72 +1705,14 @@ impl Ppu {
     fn resolve_bg_color(&self, bg: usize, bpp: BitsPerPixel, scanline: u16, pixel: u16) -> Pixel {
         let (scanline, pixel) = self.apply_mosaic(bg, scanline, pixel);
 
-        let mut bg_map_base_addr = self.registers.bg_base_address[bg];
-        let bg_data_base_addr = self.registers.bg_tile_base_address[bg];
         let h_scroll = self.registers.bg_h_scroll[bg];
         let v_scroll = self.registers.bg_v_scroll[bg];
-        let bg_screen_size = self.registers.bg_screen_size[bg];
-        let bg_tile_size = self.registers.bg_tile_size[bg];
 
-        let bg_tile_size_pixels = match bg_tile_size {
-            TileSize::Small => 8,
-            TileSize::Large => 16,
-        };
-        let screen_width_pixels = bg_screen_size.width_tiles() * bg_tile_size_pixels;
-        let screen_height_pixels = bg_screen_size.height_tiles() * bg_tile_size_pixels;
+        let x = pixel.wrapping_add(h_scroll);
+        let y = scanline.wrapping_add(v_scroll);
 
-        let mut x = pixel.wrapping_add(h_scroll) & (screen_width_pixels - 1);
-        let mut y = scanline.wrapping_add(v_scroll) & (screen_height_pixels - 1);
-
-        // The larger BG screen is made up of 1-4 smaller 32x32 tile screens
-        let single_screen_size_pixels = 32 * bg_tile_size_pixels;
-
-        if x >= single_screen_size_pixels {
-            bg_map_base_addr += 32 * 32;
-            x &= single_screen_size_pixels - 1;
-        }
-
-        if y >= single_screen_size_pixels {
-            bg_map_base_addr += match bg_screen_size {
-                BgScreenSize::HorizontalMirror => 32 * 32,
-                BgScreenSize::FourScreen => 2 * 32 * 32,
-                _ => panic!(
-                    "y should always be <= 256/512 in OneScreen and VerticalMirror sizes; was {y}"
-                ),
-            };
-            y &= single_screen_size_pixels - 1;
-        }
-
-        let tile_row = y / bg_tile_size_pixels;
-        let tile_col = x / bg_tile_size_pixels;
-        let tile_map_addr = 32 * tile_row + tile_col;
-        let tile_map_entry =
-            self.vram[((bg_map_base_addr + tile_map_addr) & VRAM_ADDRESS_MASK) as usize];
-
-        let raw_tile_number = tile_map_entry & 0x3FF;
-        let palette = ((tile_map_entry >> 10) & 0x07) as u8;
-        let priority = tile_map_entry.bit(13);
-        let x_flip = tile_map_entry.bit(14);
-        let y_flip = tile_map_entry.bit(15);
-
-        let tile_number = match bg_tile_size {
-            TileSize::Small => raw_tile_number,
-            TileSize::Large => {
-                let x_shift = if x_flip { x % 16 < 8 } else { x % 16 >= 8 };
-                let y_shift = if y_flip { y % 16 < 8 } else { y % 16 >= 8 };
-                match (x_shift, y_shift) {
-                    (false, false) => raw_tile_number,
-                    (true, false) => raw_tile_number + 1,
-                    (false, true) => raw_tile_number + 16,
-                    (true, true) => raw_tile_number + 17,
-                }
-            }
-        };
-
-        let tile_size_words = bpp.tile_size_words();
-        let tile_addr =
-            ((bg_data_base_addr + tile_number * tile_size_words) & VRAM_ADDRESS_MASK) as usize;
-        let tile_data = &self.vram[tile_addr..tile_addr + tile_size_words as usize];
+        let TileData { tile_data, palette, priority, x_flip, y_flip } =
+            get_bg_tile(&self.vram, &self.registers, bg, x, y, bpp);
 
         let cell_row = if y_flip { 7 - (y % 8) } else { y % 8 };
         let cell_col = if x_flip { 7 - (x % 8) } else { x % 8 };
@@ -2384,6 +2326,96 @@ impl Ppu {
             self.registers.update_wrio(wrio, h_counter, v_counter);
         }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TileData<'vram> {
+    tile_data: &'vram [u16],
+    palette: u8,
+    priority: bool,
+    x_flip: bool,
+    y_flip: bool,
+}
+
+fn get_bg_tile<'vram>(
+    vram: &'vram Vram,
+    registers: &Registers,
+    bg: usize,
+    x: u16,
+    y: u16,
+    bpp: BitsPerPixel,
+) -> TileData<'vram> {
+    let tile_map_entry = get_bg_map_entry(vram, registers, bg, x, y);
+
+    let raw_tile_number = tile_map_entry & 0x3FF;
+    let palette = ((tile_map_entry >> 10) & 0x07) as u8;
+    let priority = tile_map_entry.bit(13);
+    let x_flip = tile_map_entry.bit(14);
+    let y_flip = tile_map_entry.bit(15);
+
+    let bg_tile_size = registers.bg_tile_size[bg];
+    let tile_number = match bg_tile_size {
+        TileSize::Small => raw_tile_number,
+        TileSize::Large => {
+            let x_shift = if x_flip { x % 16 < 8 } else { x % 16 >= 8 };
+            let y_shift = if y_flip { y % 16 < 8 } else { y % 16 >= 8 };
+            match (x_shift, y_shift) {
+                (false, false) => raw_tile_number,
+                (true, false) => raw_tile_number + 1,
+                (false, true) => raw_tile_number + 16,
+                (true, true) => raw_tile_number + 17,
+            }
+        }
+    };
+
+    let bg_data_base_addr = registers.bg_tile_base_address[bg];
+    let tile_size_words = bpp.tile_size_words();
+    let tile_addr = (bg_data_base_addr.wrapping_add(tile_number * tile_size_words)
+        & VRAM_ADDRESS_MASK) as usize;
+    let tile_data = &vram[tile_addr..tile_addr + tile_size_words as usize];
+
+    TileData { tile_data, palette, priority, x_flip, y_flip }
+}
+
+fn get_bg_map_entry(vram: &Vram, registers: &Registers, bg: usize, x: u16, y: u16) -> u16 {
+    let bg_tile_size = registers.bg_tile_size[bg];
+    let bg_tile_size_pixels = match bg_tile_size {
+        TileSize::Small => 8,
+        TileSize::Large => 16,
+    };
+
+    let bg_screen_size = registers.bg_screen_size[bg];
+    let screen_width_pixels = bg_screen_size.width_tiles() * bg_tile_size_pixels;
+    let screen_height_pixels = bg_screen_size.height_tiles() * bg_tile_size_pixels;
+
+    let mut bg_map_base_addr = registers.bg_base_address[bg];
+    let mut x = x & (screen_width_pixels - 1);
+    let mut y = y & (screen_height_pixels - 1);
+
+    // The larger BG screen is made up of 1-4 smaller 32x32 tile screens
+    let single_screen_size_pixels = 32 * bg_tile_size_pixels;
+
+    if x >= single_screen_size_pixels {
+        bg_map_base_addr += 32 * 32;
+        x &= single_screen_size_pixels - 1;
+    }
+
+    if y >= single_screen_size_pixels {
+        bg_map_base_addr += match bg_screen_size {
+            BgScreenSize::HorizontalMirror => 32 * 32,
+            BgScreenSize::FourScreen => 2 * 32 * 32,
+            _ => panic!(
+                "y should always be <= 256/512 in OneScreen and VerticalMirror sizes; was {y}"
+            ),
+        };
+        y &= single_screen_size_pixels - 1;
+    }
+
+    let tile_row = y / bg_tile_size_pixels;
+    let tile_col = x / bg_tile_size_pixels;
+    let tile_map_addr = 32 * tile_row + tile_col;
+
+    vram[(bg_map_base_addr.wrapping_add(tile_map_addr) & VRAM_ADDRESS_MASK) as usize]
 }
 
 fn line_overlaps_sprite(sprite_y: u8, sprite_height: u16, scanline: u16) -> bool {
