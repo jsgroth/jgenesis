@@ -7,8 +7,9 @@ use crate::memory::{CpuInternalRegisters, Memory};
 use crate::ppu::{Ppu, PpuTickEffect};
 use bincode::{Decode, Encode};
 use jgenesis_traits::frontend::{
-    AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, PartialClone, PixelAspectRatio,
-    Renderer, Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator, TimingMode,
+    AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, FrameSize, PartialClone,
+    PixelAspectRatio, Renderer, Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
+    TimingMode,
 };
 use std::fmt::{Debug, Display};
 use std::iter;
@@ -148,11 +149,7 @@ impl TickableEmulator for SnesEmulator {
         if self.ppu.tick(master_cycles_elapsed) == PpuTickEffect::FrameComplete {
             // TODO dynamic aspect ratio
             let frame_size = self.ppu.frame_size();
-            let aspect_ratio = match (frame_size.width, frame_size.height) {
-                (256, _) | (512, 448 | 478) => PixelAspectRatio::try_from(8.0 / 7.0).unwrap(),
-                (512, 224 | 239) => PixelAspectRatio::try_from(4.0 / 7.0).unwrap(),
-                _ => panic!("unexpected SNES frame size: {frame_size:?}"),
-            };
+            let aspect_ratio = determine_aspect_ratio(frame_size);
 
             renderer
                 .render_frame(self.ppu.frame_buffer(), self.ppu.frame_size(), Some(aspect_ratio))
@@ -194,11 +191,17 @@ impl TickableEmulator for SnesEmulator {
         R: Renderer,
     {
         // TODO dynamic aspect ratio
-        renderer.render_frame(
-            self.ppu.frame_buffer(),
-            self.ppu.frame_size(),
-            Some(PixelAspectRatio::try_from(1.1428571428571428).unwrap()),
-        )
+        let frame_size = self.ppu.frame_size();
+        let aspect_ratio = determine_aspect_ratio(frame_size);
+        renderer.render_frame(self.ppu.frame_buffer(), frame_size, Some(aspect_ratio))
+    }
+}
+
+fn determine_aspect_ratio(frame_size: FrameSize) -> PixelAspectRatio {
+    match (frame_size.width, frame_size.height) {
+        (256, _) | (512, 448 | 478) => PixelAspectRatio::try_from(8.0 / 7.0).unwrap(),
+        (512, 224 | 239) => PixelAspectRatio::try_from(4.0 / 7.0).unwrap(),
+        _ => panic!("unexpected SNES frame size: {frame_size:?}"),
     }
 }
 

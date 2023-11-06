@@ -7,9 +7,8 @@ use jgenesis_traits::num::GetBit;
 use std::cmp;
 use std::ops::{Deref, DerefMut};
 
-// TODO 512px for hi-res mode?
 const SCREEN_WIDTH: usize = 512;
-const MAX_SCREEN_HEIGHT: usize = 239;
+const MAX_SCREEN_HEIGHT: usize = 478;
 const FRAME_BUFFER_LEN: usize = SCREEN_WIDTH * MAX_SCREEN_HEIGHT;
 
 const VRAM_LEN_WORDS: usize = 64 * 1024 / 2;
@@ -153,6 +152,10 @@ impl BgMode {
     fn is_offset_per_tile(self) -> bool {
         // Modes 2/4/6 use BG3 map entries as offsets for BG1/BG2 tiles
         matches!(self, Self::Two | Self::Four | Self::Six)
+    }
+
+    fn is_hi_res(self) -> bool {
+        matches!(self, Self::Five | Self::Six)
     }
 }
 
@@ -1408,6 +1411,19 @@ enum Screen {
     Sub,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HiResMode {
+    None,
+    Pseudo,
+    True,
+}
+
+impl HiResMode {
+    fn is_hi_res(self) -> bool {
+        matches!(self, Self::Pseudo | Self::True)
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Ppu {
     timing_mode: TimingMode,
@@ -1508,31 +1524,69 @@ impl Ppu {
             return;
         }
 
+        let hi_res_mode = if self.registers.bg_mode.is_hi_res() {
+            HiResMode::True
+        } else if self.registers.pseudo_h_hi_res {
+            HiResMode::Pseudo
+        } else {
+            HiResMode::None
+        };
+
         self.populate_sprite_buffer(scanline);
 
-        let brightness = self.registers.brightness;
-        for pixel in 0..256 {
-            let snes_color = self.resolve_overall_color(scanline, pixel);
-            let color = convert_snes_color(snes_color, brightness);
-
-            self.set_in_frame_buffer(scanline, 2 * pixel, color);
-            self.set_in_frame_buffer(scanline, 2 * pixel + 1, color);
+        if hi_res_mode == HiResMode::True && self.registers.interlaced {
+            self.render_scanline(2 * scanline, hi_res_mode);
+            self.render_scanline(2 * scanline + 1, hi_res_mode);
+        } else {
+            self.render_scanline(scanline, hi_res_mode);
         }
     }
 
-    fn resolve_overall_color(&self, scanline: u16, pixel: u16) -> u16 {
+    fn render_scanline(&mut self, scanline: u16, hi_res_mode: HiResMode) {
+        let brightness = self.registers.brightness;
+        if hi_res_mode.is_hi_res() {
+            for pixel in 0..512 {
+                let snes_color = self.resolve_overall_color(scanline, pixel, hi_res_mode);
+                let color = convert_snes_color(snes_color, brightness);
+                self.set_in_frame_buffer(scanline, pixel, color);
+            }
+        } else {
+            for pixel in 0..256 {
+                let snes_color = self.resolve_overall_color(scanline, pixel, HiResMode::None);
+                let color = convert_snes_color(snes_color, brightness);
+
+                self.set_in_frame_buffer(scanline, 2 * pixel, color);
+                self.set_in_frame_buffer(scanline, 2 * pixel + 1, color);
+            }
+        }
+    }
+
+    fn resolve_overall_color(&self, scanline: u16, pixel: u16, hi_res_mode: HiResMode) -> u16 {
+        let main_screen = if hi_res_mode.is_hi_res() && !pixel.bit(0) {
+            // Even pixels draw the sub screen in hi-res mode
+            Screen::Sub
+        } else {
+            Screen::Main
+        };
+
+        let (main_x, window_x) = match hi_res_mode {
+            HiResMode::None => (pixel, pixel),
+            HiResMode::Pseudo => (pixel / 2, (pixel / 2).wrapping_sub((pixel & 0x01) ^ 0x01)),
+            HiResMode::True => (pixel, (pixel / 2).wrapping_sub((pixel & 0x01) ^ 0x01)),
+        };
+
         let main_backdrop_color = self.cgram[0];
         let (mut main_screen_color, main_screen_palette, main_screen_layer) = self
-            .resolve_screen_color(scanline, pixel, Screen::Main)
+            .resolve_screen_color(scanline, main_x, main_screen, hi_res_mode)
             .unwrap_or((main_backdrop_color, 0, Layer::Backdrop));
 
         let in_color_window = self.registers.math_window_mask_logic.apply(
             self.registers
                 .math_window_1_area
-                .to_optional_bool(self.registers.is_inside_window_1(pixel)),
+                .to_optional_bool(self.registers.is_inside_window_1(window_x)),
             self.registers
                 .math_window_2_area
-                .to_optional_bool(self.registers.is_inside_window_2(pixel)),
+                .to_optional_bool(self.registers.is_inside_window_2(window_x)),
         );
 
         let force_main_screen_black =
@@ -1554,8 +1608,9 @@ impl Ppu {
 
         let sub_backdrop_color = self.registers.sub_backdrop_color;
         if color_math_enabled_global && color_math_enabled_layer {
+            let sub_x = if hi_res_mode.is_hi_res() { pixel / 2 } else { pixel };
             let (sub_screen_color, sub_transparent) = if self.registers.sub_bg_obj_enabled {
-                self.resolve_screen_color(scanline, pixel, Screen::Sub)
+                self.resolve_screen_color(scanline, sub_x, Screen::Sub, HiResMode::None)
                     .map_or((sub_backdrop_color, true), |(color, _, _)| (color, false))
             } else {
                 (sub_backdrop_color, false)
@@ -1575,6 +1630,7 @@ impl Ppu {
         scanline: u16,
         pixel: u16,
         screen: Screen,
+        hi_res_mode: HiResMode,
     ) -> Option<(u16, u8, Layer)> {
         let mode = self.registers.bg_mode;
         let mut priority_resolver = PriorityResolver::new(mode);
@@ -1634,7 +1690,7 @@ impl Ppu {
                 }
             } else {
                 let bg1_bpp = mode.bg1_bpp();
-                let pixel = self.resolve_bg_color(0, bg1_bpp, scanline, pixel);
+                let pixel = self.resolve_bg_color(0, bg1_bpp, scanline, pixel, hi_res_mode);
                 if !pixel.is_transparent() {
                     let color = resolve_pixel_color(
                         &self.cgram,
@@ -1654,7 +1710,7 @@ impl Ppu {
             mode.bg2_enabled() && bg_enabled[1] && !(bg2_in_window && bg_disabled_in_window[1]);
         if bg2_enabled {
             let bg2_bpp = mode.bg2_bpp();
-            let pixel = self.resolve_bg_color(1, bg2_bpp, scanline, pixel);
+            let pixel = self.resolve_bg_color(1, bg2_bpp, scanline, pixel, hi_res_mode);
             if !pixel.is_transparent() {
                 let two_bpp_offset = if mode == BgMode::Zero { 0x20 } else { 0x00 };
                 let color = resolve_pixel_color(
@@ -1674,7 +1730,7 @@ impl Ppu {
             mode.bg3_enabled() && bg_enabled[2] && !(bg3_in_window && bg_disabled_in_window[2]);
         if bg3_enabled {
             // BG3 is always 2bpp when rendered
-            let pixel = self.resolve_bg_color(2, BG3_BPP, scanline, pixel);
+            let pixel = self.resolve_bg_color(2, BG3_BPP, scanline, pixel, hi_res_mode);
             if !pixel.is_transparent() {
                 let two_bpp_offset = if mode == BgMode::Zero { 0x40 } else { 0x00 };
                 let color = resolve_pixel_color(
@@ -1694,7 +1750,7 @@ impl Ppu {
             mode.bg4_enabled() && bg_enabled[3] && !(bg4_in_window && bg_disabled_in_window[3]);
         if bg4_enabled {
             // BG4 is always 2bpp
-            let pixel = self.resolve_bg_color(3, BG4_BPP, scanline, pixel);
+            let pixel = self.resolve_bg_color(3, BG4_BPP, scanline, pixel, hi_res_mode);
             if !pixel.is_transparent() {
                 let two_bpp_offset = if mode == BgMode::Zero { 0x60 } else { 0x00 };
                 let color = resolve_pixel_color(
@@ -1722,7 +1778,14 @@ impl Ppu {
             self.registers.obj_window_2_area.to_optional_bool(in_window_2),
         );
         if obj_enabled && !(obj_in_window && obj_disabled_in_window) {
-            let pixel = self.resolve_sprite_color(scanline, pixel);
+            let obj_x = if hi_res_mode == HiResMode::True { pixel / 2 } else { pixel };
+            let obj_y = if hi_res_mode == HiResMode::True && self.registers.interlaced {
+                scanline / 2
+            } else {
+                scanline
+            };
+
+            let pixel = self.resolve_sprite_color(obj_y, obj_x);
             if !pixel.is_transparent() {
                 let color = resolve_pixel_color(
                     &self.cgram,
@@ -1740,14 +1803,26 @@ impl Ppu {
         priority_resolver.get(bg3_high_priority)
     }
 
-    fn resolve_bg_color(&self, bg: usize, bpp: BitsPerPixel, scanline: u16, pixel: u16) -> Pixel {
-        let (scanline, pixel) = self.apply_mosaic(bg, scanline, pixel);
+    fn resolve_bg_color(
+        &self,
+        bg: usize,
+        bpp: BitsPerPixel,
+        scanline: u16,
+        pixel: u16,
+        hi_res_mode: HiResMode,
+    ) -> Pixel {
+        let (scanline, pixel) = self.apply_mosaic(bg, scanline, pixel, hi_res_mode);
 
-        let (h_scroll, v_scroll) = if self.registers.bg_mode.is_offset_per_tile() {
+        let (mut h_scroll, v_scroll) = if self.registers.bg_mode.is_offset_per_tile() {
             self.resolve_offset_per_tile(bg, pixel)
         } else {
             (self.registers.bg_h_scroll[bg], self.registers.bg_v_scroll[bg])
         };
+
+        if hi_res_mode == HiResMode::True {
+            // Scroll values are effectively doubled in true hi-res mode
+            h_scroll *= 2;
+        }
 
         let x = pixel.wrapping_add(h_scroll);
         let y = scanline.wrapping_add(v_scroll);
@@ -1829,7 +1904,7 @@ impl Ppu {
         // Mode 7 tile map is always 128x128
         const TILE_MAP_SIZE_PIXELS: i32 = 128 * 8;
 
-        let (scanline, pixel) = self.apply_mosaic(0, scanline, pixel);
+        let (scanline, pixel) = self.apply_mosaic(0, scanline, pixel, HiResMode::None);
 
         let m7a: i32 = (self.registers.mode_7_parameter_a as i16).into();
         let m7b: i32 = (self.registers.mode_7_parameter_b as i16).into();
@@ -1914,16 +1989,32 @@ impl Ppu {
         Pixel { palette: 0, color, priority: 0 }
     }
 
-    fn apply_mosaic(&self, bg: usize, scanline: u16, pixel: u16) -> (u16, u16) {
+    fn apply_mosaic(
+        &self,
+        bg: usize,
+        scanline: u16,
+        pixel: u16,
+        hi_res_mode: HiResMode,
+    ) -> (u16, u16) {
         let mosaic_size = self.registers.mosaic_size;
         let mosaic_enabled = self.registers.bg_mosaic_enabled[bg];
-        if !mosaic_enabled || mosaic_size == 0 {
+        if !mosaic_enabled {
             return (scanline, pixel);
         }
 
         // Mosaic size of N fills each (N+1)x(N+1) square with the pixel in the top-left corner
+        // Mosaic sizes are doubled in true hi-res mode
         let mosaic_size: u16 = (mosaic_size + 1).into();
-        (scanline / mosaic_size * mosaic_size, pixel / mosaic_size * mosaic_size)
+        let mosaic_width = match hi_res_mode {
+            HiResMode::True => 2 * mosaic_size,
+            _ => mosaic_size,
+        };
+        let mosaic_height = match hi_res_mode {
+            HiResMode::True if self.registers.interlaced => 2 * mosaic_size,
+            _ => mosaic_size,
+        };
+
+        (scanline / mosaic_height * mosaic_height, pixel / mosaic_width * mosaic_width)
     }
 
     fn populate_sprite_buffer(&mut self, scanline: u16) {
@@ -2137,8 +2228,16 @@ impl Ppu {
     }
 
     pub fn frame_size(&self) -> FrameSize {
-        let screen_height = self.registers.v_display_size.to_lines();
+        let mut screen_height = self.registers.v_display_size.to_lines();
+        if self.is_v_hi_res() {
+            screen_height *= 2;
+        }
+
         FrameSize { width: SCREEN_WIDTH as u32, height: screen_height.into() }
+    }
+
+    fn is_v_hi_res(&self) -> bool {
+        self.registers.bg_mode.is_hi_res() && self.registers.interlaced
     }
 
     pub fn read_port(&mut self, address: u32) -> u8 {
@@ -2446,18 +2545,19 @@ fn get_bg_tile<'vram>(
     let x_flip = tile_map_entry.bit(14);
     let y_flip = tile_map_entry.bit(15);
 
+    let bg_mode = registers.bg_mode;
     let bg_tile_size = registers.bg_tile_size[bg];
-    let tile_number = match bg_tile_size {
-        TileSize::Small => raw_tile_number,
-        TileSize::Large => {
-            let x_shift = if x_flip { x % 16 < 8 } else { x % 16 >= 8 };
-            let y_shift = if y_flip { y % 16 < 8 } else { y % 16 >= 8 };
-            match (x_shift, y_shift) {
-                (false, false) => raw_tile_number,
-                (true, false) => raw_tile_number + 1,
-                (false, true) => raw_tile_number + 16,
-                (true, true) => raw_tile_number + 17,
-            }
+    let (bg_tile_width_pixels, bg_tile_height_pixels) = get_bg_tile_size(bg_mode, bg_tile_size);
+
+    let tile_number = {
+        let x_shift = bg_tile_width_pixels == 16 && (if x_flip { x % 16 < 8 } else { x % 16 >= 8 });
+        let y_shift =
+            bg_tile_height_pixels == 16 && (if y_flip { y % 16 < 8 } else { y % 16 >= 8 });
+        match (x_shift, y_shift) {
+            (false, false) => raw_tile_number,
+            (true, false) => raw_tile_number + 1,
+            (false, true) => raw_tile_number + 16,
+            (true, true) => raw_tile_number + 17,
         }
     };
 
@@ -2471,29 +2571,28 @@ fn get_bg_tile<'vram>(
 }
 
 fn get_bg_map_entry(vram: &Vram, registers: &Registers, bg: usize, x: u16, y: u16) -> u16 {
+    let bg_mode = registers.bg_mode;
     let bg_tile_size = registers.bg_tile_size[bg];
-    let bg_tile_size_pixels = match bg_tile_size {
-        TileSize::Small => 8,
-        TileSize::Large => 16,
-    };
+    let (bg_tile_width_pixels, bg_tile_height_pixels) = get_bg_tile_size(bg_mode, bg_tile_size);
 
     let bg_screen_size = registers.bg_screen_size[bg];
-    let screen_width_pixels = bg_screen_size.width_tiles() * bg_tile_size_pixels;
-    let screen_height_pixels = bg_screen_size.height_tiles() * bg_tile_size_pixels;
+    let screen_width_pixels = bg_screen_size.width_tiles() * bg_tile_width_pixels;
+    let screen_height_pixels = bg_screen_size.height_tiles() * bg_tile_height_pixels;
 
     let mut bg_map_base_addr = registers.bg_base_address[bg];
     let mut x = x & (screen_width_pixels - 1);
     let mut y = y & (screen_height_pixels - 1);
 
     // The larger BG screen is made up of 1-4 smaller 32x32 tile screens
-    let single_screen_size_pixels = 32 * bg_tile_size_pixels;
+    let single_screen_width_pixels = 32 * bg_tile_width_pixels;
+    let single_screen_height_pixels = 32 * bg_tile_height_pixels;
 
-    if x >= single_screen_size_pixels {
+    if x >= single_screen_width_pixels {
         bg_map_base_addr += 32 * 32;
-        x &= single_screen_size_pixels - 1;
+        x &= single_screen_width_pixels - 1;
     }
 
-    if y >= single_screen_size_pixels {
+    if y >= single_screen_height_pixels {
         bg_map_base_addr += match bg_screen_size {
             BgScreenSize::HorizontalMirror => 32 * 32,
             BgScreenSize::FourScreen => 2 * 32 * 32,
@@ -2501,14 +2600,22 @@ fn get_bg_map_entry(vram: &Vram, registers: &Registers, bg: usize, x: u16, y: u1
                 "y should always be <= 256/512 in OneScreen and VerticalMirror sizes; was {y}"
             ),
         };
-        y &= single_screen_size_pixels - 1;
+        y &= single_screen_height_pixels - 1;
     }
 
-    let tile_row = y / bg_tile_size_pixels;
-    let tile_col = x / bg_tile_size_pixels;
+    let tile_row = y / bg_tile_height_pixels;
+    let tile_col = x / bg_tile_width_pixels;
     let tile_map_addr = 32 * tile_row + tile_col;
 
     vram[(bg_map_base_addr.wrapping_add(tile_map_addr) & VRAM_ADDRESS_MASK) as usize]
+}
+
+fn get_bg_tile_size(bg_mode: BgMode, tile_size: TileSize) -> (u16, u16) {
+    match (bg_mode, tile_size) {
+        (BgMode::Six, _) | (BgMode::Five, TileSize::Small) => (16, 8),
+        (_, TileSize::Small) => (8, 8),
+        (_, TileSize::Large) => (16, 16),
+    }
 }
 
 fn line_overlaps_sprite(sprite_y: u8, sprite_height: u16, scanline: u16) -> bool {
