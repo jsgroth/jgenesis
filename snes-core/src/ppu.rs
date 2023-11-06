@@ -1237,6 +1237,53 @@ impl State {
     }
 }
 
+#[derive(Debug, Clone, Copy, Encode, Decode)]
+struct CachedBgMapEntry {
+    map_x: u16,
+    map_y: u16,
+    tile_number: u16,
+    palette: u8,
+    priority: bool,
+    x_flip: bool,
+    y_flip: bool,
+}
+
+impl Default for CachedBgMapEntry {
+    fn default() -> Self {
+        Self {
+            map_x: u16::MAX,
+            map_y: u16::MAX,
+            tile_number: 0,
+            palette: 0,
+            priority: false,
+            x_flip: false,
+            y_flip: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+struct Cache {
+    bg_map_entries: [CachedBgMapEntry; 4],
+}
+
+impl Cache {
+    fn new() -> Self {
+        Self { bg_map_entries: [CachedBgMapEntry::default(); 4] }
+    }
+
+    fn clear(&mut self) {
+        self.bg_map_entries.fill(CachedBgMapEntry::default());
+    }
+
+    fn get(&self, bg: usize, x: u16, y: u16) -> Option<CachedBgMapEntry> {
+        let map_x = x / 8;
+        let map_y = y / 8;
+        (self.bg_map_entries[bg].map_x == map_x && self.bg_map_entries[bg].map_y == map_y)
+            .then_some(self.bg_map_entries[bg])
+    }
+}
+
 #[derive(Debug, Clone, FakeEncode, FakeDecode)]
 struct FrameBuffer(Box<[Color; FRAME_BUFFER_LEN]>);
 
@@ -1425,15 +1472,40 @@ impl HiResMode {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
+struct SpriteBitSet([u64; 4]);
+
+impl SpriteBitSet {
+    fn new() -> Self {
+        Self([0; 4])
+    }
+
+    fn get(&self, i: u16) -> bool {
+        let idx = i >> 6;
+        self.0[idx as usize] & (1 << (i & 0x3F)) != 0
+    }
+
+    fn set(&mut self, i: u16) {
+        let idx = i >> 6;
+        self.0[idx as usize] |= 1 << (i & 0x3F);
+    }
+
+    fn clear(&mut self) {
+        self.0.fill(0);
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct Ppu {
     timing_mode: TimingMode,
     registers: Registers,
     state: State,
+    cache: Cache,
     vram: Box<Vram>,
     oam: Box<Oam>,
     cgram: Box<Cgram>,
     frame_buffer: FrameBuffer,
     sprite_buffer: Vec<SpriteData>,
+    sprite_bit_set: SpriteBitSet,
 }
 
 // PPU starts rendering pixels at H=22
@@ -1446,11 +1518,13 @@ impl Ppu {
             timing_mode,
             registers: Registers::new(),
             state: State::new(),
+            cache: Cache::new(),
             vram: vec![0; VRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             oam: vec![0; OAM_LEN].into_boxed_slice().try_into().unwrap(),
             cgram: vec![0; CGRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             frame_buffer: FrameBuffer::new(),
             sprite_buffer: Vec::with_capacity(32),
+            sprite_bit_set: SpriteBitSet::new(),
         }
     }
 
@@ -1533,6 +1607,7 @@ impl Ppu {
         };
 
         self.populate_sprite_buffer(scanline);
+        self.cache.clear();
 
         if hi_res_mode == HiResMode::True && self.registers.interlaced {
             self.render_scanline(2 * scanline, hi_res_mode);
@@ -1561,7 +1636,7 @@ impl Ppu {
         }
     }
 
-    fn resolve_overall_color(&self, scanline: u16, pixel: u16, hi_res_mode: HiResMode) -> u16 {
+    fn resolve_overall_color(&mut self, scanline: u16, pixel: u16, hi_res_mode: HiResMode) -> u16 {
         let main_screen = if hi_res_mode.is_hi_res() && !pixel.bit(0) {
             // Even pixels draw the sub screen in hi-res mode
             Screen::Sub
@@ -1626,7 +1701,7 @@ impl Ppu {
     }
 
     fn resolve_screen_color(
-        &self,
+        &mut self,
         scanline: u16,
         pixel: u16,
         screen: Screen,
@@ -1804,7 +1879,7 @@ impl Ppu {
     }
 
     fn resolve_bg_color(
-        &self,
+        &mut self,
         bg: usize,
         bpp: BitsPerPixel,
         scanline: u16,
@@ -1828,7 +1903,7 @@ impl Ppu {
         let y = scanline.wrapping_add(v_scroll);
 
         let TileData { tile_data, palette, priority, x_flip, y_flip } =
-            get_bg_tile(&self.vram, &self.registers, bg, x, y, bpp);
+            get_bg_tile(&self.vram, &self.registers, &mut self.cache, bg, x, y, bpp);
 
         let cell_row = if y_flip { 7 - (y % 8) } else { y % 8 };
         let cell_col = if x_flip { 7 - (x % 8) } else { x % 8 };
@@ -2022,6 +2097,7 @@ impl Ppu {
         const MAX_SPRITES_PER_LINE: usize = 32;
 
         self.sprite_buffer.clear();
+        self.sprite_bit_set.clear();
 
         let (small_width, small_height) = self.registers.obj_tile_size.small_size();
         let (large_width, large_height) = self.registers.obj_tile_size.large_size();
@@ -2089,6 +2165,13 @@ impl Ppu {
             });
             total_pixels += sprite_width;
 
+            for i in 0..sprite_width {
+                let sprite_pixel_x = x.wrapping_add(i) & 0x1FF;
+                if sprite_pixel_x < 256 {
+                    self.sprite_bit_set.set(sprite_pixel_x);
+                }
+            }
+
             // Sprite pixel overflow occurs when there are more than 34 tiles' worth of sprite pixels
             // on a single line
             if total_pixels > 34 * 8 {
@@ -2100,6 +2183,10 @@ impl Ppu {
     }
 
     fn resolve_sprite_color(&self, scanline: u16, pixel: u16) -> Pixel {
+        if !self.sprite_bit_set.get(pixel) {
+            return Pixel::TRANSPARENT;
+        }
+
         let (small_width, small_height) = self.registers.obj_tile_size.small_size();
         let (large_width, large_height) = self.registers.obj_tile_size.large_size();
 
@@ -2532,18 +2619,35 @@ struct TileData<'vram> {
 fn get_bg_tile<'vram>(
     vram: &'vram Vram,
     registers: &Registers,
+    cache: &mut Cache,
     bg: usize,
     x: u16,
     y: u16,
     bpp: BitsPerPixel,
 ) -> TileData<'vram> {
-    let tile_map_entry = get_bg_map_entry(vram, registers, bg, x, y);
+    let CachedBgMapEntry {
+        tile_number: raw_tile_number, palette, priority, x_flip, y_flip, ..
+    } = cache.get(bg, x, y).unwrap_or_else(|| {
+        let tile_map_entry = get_bg_map_entry(vram, registers, bg, x, y);
 
-    let raw_tile_number = tile_map_entry & 0x3FF;
-    let palette = ((tile_map_entry >> 10) & 0x07) as u8;
-    let priority = tile_map_entry.bit(13);
-    let x_flip = tile_map_entry.bit(14);
-    let y_flip = tile_map_entry.bit(15);
+        let tile_number = tile_map_entry & 0x3FF;
+        let palette = ((tile_map_entry >> 10) & 0x07) as u8;
+        let priority = tile_map_entry.bit(13);
+        let x_flip = tile_map_entry.bit(14);
+        let y_flip = tile_map_entry.bit(15);
+
+        let entry = CachedBgMapEntry {
+            map_x: x / 8,
+            map_y: y / 8,
+            tile_number,
+            palette,
+            priority,
+            x_flip,
+            y_flip,
+        };
+        cache.bg_map_entries[bg] = entry;
+        entry
+    });
 
     let bg_mode = registers.bg_mode;
     let bg_tile_size = registers.bg_tile_size[bg];
