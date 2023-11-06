@@ -149,6 +149,11 @@ impl BgMode {
         // BG4 is only enabled in mode 0
         self == Self::Zero
     }
+
+    fn is_offset_per_tile(self) -> bool {
+        // Modes 2/4/6 use BG3 map entries as offsets for BG1/BG2 tiles
+        matches!(self, Self::Two | Self::Four | Self::Six)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
@@ -1705,8 +1710,11 @@ impl Ppu {
     fn resolve_bg_color(&self, bg: usize, bpp: BitsPerPixel, scanline: u16, pixel: u16) -> Pixel {
         let (scanline, pixel) = self.apply_mosaic(bg, scanline, pixel);
 
-        let h_scroll = self.registers.bg_h_scroll[bg];
-        let v_scroll = self.registers.bg_v_scroll[bg];
+        let (h_scroll, v_scroll) = if self.registers.bg_mode.is_offset_per_tile() {
+            self.resolve_offset_per_tile(bg, pixel)
+        } else {
+            (self.registers.bg_h_scroll[bg], self.registers.bg_v_scroll[bg])
+        };
 
         let x = pixel.wrapping_add(h_scroll);
         let y = scanline.wrapping_add(v_scroll);
@@ -1728,6 +1736,59 @@ impl Ppu {
         }
 
         Pixel { palette, color, priority: priority.into() }
+    }
+
+    fn resolve_offset_per_tile(&self, bg: usize, pixel: u16) -> (u16, u16) {
+        // Offset-per-tile only applies to the 2nd visible tile and onwards
+        let h_scroll = self.registers.bg_h_scroll[bg];
+        let v_scroll = self.registers.bg_v_scroll[bg];
+        if pixel + (h_scroll & 0x07) < 8 {
+            return (h_scroll, v_scroll);
+        }
+
+        let bg3_h_scroll = self.registers.bg_h_scroll[2];
+        let bg3_v_scroll = self.registers.bg_v_scroll[2];
+
+        let bg3_x = (pixel.wrapping_sub(8) & !0x7).wrapping_add(bg3_h_scroll & !0x7);
+
+        let h_offset_entry = get_bg_map_entry(&self.vram, &self.registers, 2, bg3_x, bg3_v_scroll);
+
+        match self.registers.bg_mode {
+            BgMode::Four => {
+                // Check BG1 bit (BG2 is not rendered in Mode 4)
+                if h_offset_entry & 0x2000 != 0 {
+                    // In Mode 4, instead of loading the second entry, the PPU uses the highest bit
+                    // to determine whether to apply the offset to H or V
+                    if h_offset_entry & 0x8000 != 0 {
+                        (h_scroll, h_offset_entry & 0x03FF)
+                    } else {
+                        (h_offset_entry & 0x03FF, v_scroll)
+                    }
+                } else {
+                    (h_scroll, v_scroll)
+                }
+            }
+            _ => {
+                let v_offset_entry =
+                    get_bg_map_entry(&self.vram, &self.registers, 2, bg3_x, bg3_v_scroll + 8);
+
+                let entry_mask = if bg == 0 { 0x2000 } else { 0x4000 };
+
+                let h_offset = if h_offset_entry & entry_mask != 0 {
+                    h_offset_entry & 0x03FF
+                } else {
+                    h_scroll
+                };
+
+                let v_offset = if v_offset_entry & entry_mask != 0 {
+                    v_offset_entry & 0x03FF
+                } else {
+                    v_scroll
+                };
+
+                (h_offset, v_offset)
+            }
+        }
     }
 
     // TODO make this more efficient
