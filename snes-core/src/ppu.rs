@@ -241,29 +241,17 @@ impl BgScreenSize {
         }
     }
 
-    fn x_mask(self) -> u16 {
+    fn width_tiles(self) -> u16 {
         match self {
-            Self::OneScreen | Self::HorizontalMirror => {
-                // 32 tiles horizontally = 256 pixels
-                0x00FF
-            }
-            Self::VerticalMirror | Self::FourScreen => {
-                // 64 tiles horizontally = 512 pixels
-                0x01FF
-            }
+            Self::OneScreen | Self::HorizontalMirror => 32,
+            Self::VerticalMirror | Self::FourScreen => 64,
         }
     }
 
-    fn y_mask(self) -> u16 {
+    fn height_tiles(self) -> u16 {
         match self {
-            Self::OneScreen | Self::VerticalMirror => {
-                // 32 tiles vertically = 256 pixels
-                0x00FF
-            }
-            Self::HorizontalMirror | Self::FourScreen => {
-                // 64 tiles vertically = 512 pixels
-                0x01FF
-            }
+            Self::OneScreen | Self::VerticalMirror => 32,
+            Self::HorizontalMirror | Self::FourScreen => 64,
         }
     }
 }
@@ -1689,29 +1677,34 @@ impl Ppu {
         let bg_screen_size = self.registers.bg_screen_size[bg];
         let bg_tile_size = self.registers.bg_tile_size[bg];
 
-        let mut x = pixel.wrapping_add(h_scroll) & bg_screen_size.x_mask();
-        let mut y = scanline.wrapping_add(v_scroll) & bg_screen_size.y_mask();
-
-        if x.bit(8) {
-            bg_map_base_addr += 32 * 32;
-            x &= 0x00FF;
-        }
-
-        if y.bit(8) {
-            bg_map_base_addr += match bg_screen_size {
-                BgScreenSize::HorizontalMirror => 32 * 32,
-                BgScreenSize::FourScreen => 2 * 32 * 32,
-                _ => panic!(
-                    "y should always be <= 0xFF in OneScreen and VerticalMirror sizes; was 0x{y:04X}"
-                ),
-            };
-            y &= 0x00FF;
-        }
-
         let bg_tile_size_pixels = match bg_tile_size {
             TileSize::Small => 8,
             TileSize::Large => 16,
         };
+        let screen_width_pixels = bg_screen_size.width_tiles() * bg_tile_size_pixels;
+        let screen_height_pixels = bg_screen_size.height_tiles() * bg_tile_size_pixels;
+
+        let mut x = pixel.wrapping_add(h_scroll) & (screen_width_pixels - 1);
+        let mut y = scanline.wrapping_add(v_scroll) & (screen_height_pixels - 1);
+
+        // The larger BG screen is made up of 1-4 smaller 32x32 tile screens
+        let single_screen_size_pixels = 32 * bg_tile_size_pixels;
+
+        if x >= single_screen_size_pixels {
+            bg_map_base_addr += 32 * 32;
+            x &= single_screen_size_pixels - 1;
+        }
+
+        if y >= single_screen_size_pixels {
+            bg_map_base_addr += match bg_screen_size {
+                BgScreenSize::HorizontalMirror => 32 * 32,
+                BgScreenSize::FourScreen => 2 * 32 * 32,
+                _ => panic!(
+                    "y should always be <= 256/512 in OneScreen and VerticalMirror sizes; was {y}"
+                ),
+            };
+            y &= single_screen_size_pixels - 1;
+        }
 
         let tile_row = y / bg_tile_size_pixels;
         let tile_col = x / bg_tile_size_pixels;
