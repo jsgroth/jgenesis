@@ -14,7 +14,7 @@ use segacd_core::api::SegaCdEmulatorConfig;
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgEmulatorConfig, SmsRegion, VdpVersion};
-use snes_core::api::SnesEmulatorConfig;
+use snes_core::api::{SnesAspectRatio, SnesEmulatorConfig};
 
 pub(crate) const DEFAULT_GENESIS_WINDOW_SIZE: WindowSize = WindowSize { width: 878, height: 672 };
 
@@ -221,10 +221,14 @@ pub struct SnesConfig {
     #[indent_nested]
     pub common: CommonConfig<SnesInputConfig<KeyboardInput>, SnesInputConfig<JoystickInput>>,
     pub forced_timing_mode: Option<TimingMode>,
+    pub aspect_ratio: SnesAspectRatio,
 }
 
 impl SnesConfig {
     pub(crate) fn to_emulator_config(&self) -> SnesEmulatorConfig {
-        SnesEmulatorConfig { forced_timing_mode: self.forced_timing_mode }
+        SnesEmulatorConfig {
+            forced_timing_mode: self.forced_timing_mode,
+            aspect_ratio: self.aspect_ratio,
+        }
     }
 }

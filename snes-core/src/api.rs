@@ -6,6 +6,7 @@ use crate::memory::dma::{DmaStatus, DmaUnit};
 use crate::memory::{CpuInternalRegisters, Memory};
 use crate::ppu::{Ppu, PpuTickEffect};
 use bincode::{Decode, Encode};
+use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_traits::frontend::{
     AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, FrameSize, PartialClone,
     PixelAspectRatio, Renderer, Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
@@ -19,10 +20,41 @@ use wdc65816_emu::core::Wdc65816;
 const MEMORY_REFRESH_MCLK: u64 = 536;
 const MEMORY_REFRESH_CYCLES: u64 = 40;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum SnesAspectRatio {
+    #[default]
+    Ntsc,
+    Pal,
+    SquarePixels,
+    Stretched,
+}
+
+impl SnesAspectRatio {
+    fn to_pixel_aspect_ratio(self, frame_size: FrameSize) -> Option<PixelAspectRatio> {
+        let mut pixel_aspect_ratio = match self {
+            Self::Ntsc => 8.0 / 7.0,
+            Self::Pal => 11.0 / 8.0,
+            Self::SquarePixels => 1.0,
+            Self::Stretched => {
+                return None;
+            }
+        };
+
+        if frame_size.width == 512 && (frame_size.height == 224 || frame_size.height == 239) {
+            // Cut pixel aspect ratio in half to account for the screen being squished horizontally
+            pixel_aspect_ratio /= 2.0;
+        }
+
+        Some(PixelAspectRatio::try_from(pixel_aspect_ratio).unwrap())
+    }
+}
+
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 pub struct SnesEmulatorConfig {
     // TODO use timing mode instead of forcing NTSC
     pub forced_timing_mode: Option<TimingMode>,
+    pub aspect_ratio: SnesAspectRatio,
 }
 
 #[derive(Debug, Error)]
@@ -59,15 +91,12 @@ pub struct SnesEmulator {
     audio_downsampler: AudioDownsampler,
     total_master_cycles: u64,
     memory_refresh_pending: bool,
+    aspect_ratio: SnesAspectRatio,
 }
 
 impl SnesEmulator {
     #[must_use]
-    pub fn create(
-        rom: Vec<u8>,
-        initial_sram: Option<Vec<u8>>,
-        _config: SnesEmulatorConfig,
-    ) -> Self {
+    pub fn create(rom: Vec<u8>, initial_sram: Option<Vec<u8>>, config: SnesEmulatorConfig) -> Self {
         let main_cpu = Wdc65816::new();
         let cpu_registers = CpuInternalRegisters::new();
         let dma_unit = DmaUnit::new();
@@ -86,6 +115,7 @@ impl SnesEmulator {
             audio_downsampler: AudioDownsampler::new(),
             total_master_cycles: 0,
             memory_refresh_pending: false,
+            aspect_ratio: config.aspect_ratio,
         };
 
         // Reset CPU so that execution starts from the right place
@@ -147,12 +177,11 @@ impl TickableEmulator for SnesEmulator {
         let prev_scanline_mclk = self.ppu.scanline_master_cycles();
         let mut tick_effect = TickEffect::None;
         if self.ppu.tick(master_cycles_elapsed) == PpuTickEffect::FrameComplete {
-            // TODO dynamic aspect ratio
             let frame_size = self.ppu.frame_size();
-            let aspect_ratio = determine_aspect_ratio(frame_size);
+            let aspect_ratio = self.aspect_ratio.to_pixel_aspect_ratio(frame_size);
 
             renderer
-                .render_frame(self.ppu.frame_buffer(), self.ppu.frame_size(), Some(aspect_ratio))
+                .render_frame(self.ppu.frame_buffer(), self.ppu.frame_size(), aspect_ratio)
                 .map_err(SnesError::Render)?;
 
             self.audio_downsampler.output_samples(audio_output).map_err(SnesError::AudioOutput)?;
@@ -190,25 +219,18 @@ impl TickableEmulator for SnesEmulator {
     where
         R: Renderer,
     {
-        // TODO dynamic aspect ratio
         let frame_size = self.ppu.frame_size();
-        let aspect_ratio = determine_aspect_ratio(frame_size);
-        renderer.render_frame(self.ppu.frame_buffer(), frame_size, Some(aspect_ratio))
-    }
-}
-
-fn determine_aspect_ratio(frame_size: FrameSize) -> PixelAspectRatio {
-    match (frame_size.width, frame_size.height) {
-        (256, _) | (512, 448 | 478) => PixelAspectRatio::try_from(8.0 / 7.0).unwrap(),
-        (512, 224 | 239) => PixelAspectRatio::try_from(4.0 / 7.0).unwrap(),
-        _ => panic!("unexpected SNES frame size: {frame_size:?}"),
+        let aspect_ratio = self.aspect_ratio.to_pixel_aspect_ratio(frame_size);
+        renderer.render_frame(self.ppu.frame_buffer(), frame_size, aspect_ratio)
     }
 }
 
 impl ConfigReload for SnesEmulator {
     type Config = SnesEmulatorConfig;
 
-    fn reload_config(&mut self, _config: &Self::Config) {}
+    fn reload_config(&mut self, config: &Self::Config) {
+        self.aspect_ratio = config.aspect_ratio;
+    }
 }
 
 impl TakeRomFrom for SnesEmulator {
@@ -230,7 +252,11 @@ impl Resettable for SnesEmulator {
         let sram = self.memory.sram().map(Vec::from);
 
         // TODO properly clone config
-        *self = Self::create(rom, sram, SnesEmulatorConfig { forced_timing_mode: None });
+        *self = Self::create(
+            rom,
+            sram,
+            SnesEmulatorConfig { forced_timing_mode: None, aspect_ratio: self.aspect_ratio },
+        );
     }
 }
 

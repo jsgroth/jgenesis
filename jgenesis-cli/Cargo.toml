@@ -7,11 +7,13 @@ edition = "2021"
 
 [dependencies]
 genesis-core = { path = "../genesis-core" }
+smsgg-core = { path = "../smsgg-core" }
+snes-core = { path = "../snes-core" }
+
 jgenesis-native-driver = { path = "../jgenesis-native-driver" }
 jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
 jgenesis-renderer = { path = "../jgenesis-renderer" }
 jgenesis-traits = { path = "../jgenesis-traits" }
-smsgg-core = { path = "../smsgg-core" }
 
 anyhow = { workspace = true }
 clap = { workspace = true }

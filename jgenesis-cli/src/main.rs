@@ -17,6 +17,7 @@ use jgenesis_renderer::config::{
 use jgenesis_traits::frontend::TimingMode;
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsRegion, VdpVersion};
+use snes_core::api::SnesAspectRatio;
 use std::ffi::OsStr;
 use std::path::Path;
 use std::process;
@@ -32,6 +33,7 @@ enum Hardware {
 const SMSGG_OPTIONS_HEADING: &str = "Master System / Game Gear Options";
 const GENESIS_OPTIONS_HEADING: &str = "Genesis / Sega CD Options";
 const SCD_OPTIONS_HEADING: &str = "Sega CD Options";
+const SNES_OPTIONS_HEADING: &str = "SNES Options";
 const VIDEO_OPTIONS_HEADING: &str = "Video Options";
 const AUDIO_OPTIONS_HEADING: &str = "Audio Options";
 const INPUT_OPTIONS_HEADING: &str = "Input Options";
@@ -123,6 +125,10 @@ struct Args {
     /// Run the Sega CD emulator with no disc
     #[arg(long, default_value_t, help_heading = SCD_OPTIONS_HEADING)]
     scd_no_disc: bool,
+
+    /// SNES aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
+    #[arg(long, default_value_t, help_heading = SNES_OPTIONS_HEADING)]
+    snes_aspect_ratio: SnesAspectRatio,
 
     /// Window width in pixels; height must also be set
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
@@ -539,6 +545,7 @@ fn run_snes(args: Args) -> anyhow::Result<()> {
     let config = SnesConfig {
         common: args.common_config(SnesInputConfig::default(), SnesInputConfig::default()),
         forced_timing_mode: args.genesis_timing_mode,
+        aspect_ratio: args.snes_aspect_ratio,
     };
 
     let mut emulator = jgenesis_native_driver::create_snes(config.into())?;

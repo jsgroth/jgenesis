@@ -25,6 +25,7 @@ use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsRegion, VdpVersion};
+use snes_core::api::SnesAspectRatio;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::ffi::OsStr;
@@ -187,6 +188,18 @@ impl Default for SegaCdAppConfig {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct SnesAppConfig {
+    #[serde(default)]
+    aspect_ratio: SnesAspectRatio,
+}
+
+impl Default for SnesAppConfig {
+    fn default() -> Self {
+        toml::from_str("").unwrap()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default)]
@@ -197,6 +210,8 @@ pub struct AppConfig {
     genesis: GenesisAppConfig,
     #[serde(default)]
     sega_cd: SegaCdAppConfig,
+    #[serde(default)]
+    snes: SnesAppConfig,
     #[serde(default)]
     inputs: InputAppConfig,
     #[serde(default)]
@@ -315,6 +330,7 @@ impl AppConfig {
             ),
             // TODO configurable timing mode
             forced_timing_mode: None,
+            aspect_ratio: self.snes.aspect_ratio,
         })
     }
 }
@@ -333,6 +349,7 @@ enum OpenWindow {
     CommonVideo,
     SmsGgVideo,
     GenesisVideo,
+    SnesVideo,
     CommonAudio,
     SmsGgAudio,
     GenesisAudio,
@@ -939,6 +956,41 @@ impl App {
         }
     }
 
+    fn render_snes_video_settings(&mut self, ctx: &Context) {
+        let mut open = true;
+        Window::new("SNES Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.group(|ui| {
+                ui.label("Aspect ratio");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.config.snes.aspect_ratio,
+                        SnesAspectRatio::Ntsc,
+                        "NTSC",
+                    )
+                    .on_hover_text("8:7 pixel aspect ratio");
+                    ui.radio_value(&mut self.config.snes.aspect_ratio, SnesAspectRatio::Pal, "PAL")
+                        .on_hover_text("11:8 pixel aspect ratio");
+                    ui.radio_value(
+                        &mut self.config.snes.aspect_ratio,
+                        SnesAspectRatio::SquarePixels,
+                        "Square pixels",
+                    )
+                    .on_hover_text("1:1 pixel aspect ratio");
+                    ui.radio_value(
+                        &mut self.config.snes.aspect_ratio,
+                        SnesAspectRatio::Stretched,
+                        "Stretched",
+                    )
+                    .on_hover_text("Stretched to fill the window");
+                });
+            });
+        });
+        if !open {
+            self.state.open_windows.remove(&OpenWindow::SnesVideo);
+        }
+    }
+
     fn render_common_audio_settings(&mut self, ctx: &Context) {
         const TEXT_EDIT_WIDTH: f32 = 50.0;
         const MIN_DEVICE_QUEUE_SIZE: u16 = 8;
@@ -1225,6 +1277,11 @@ impl App {
                         self.state.open_windows.insert(OpenWindow::GenesisVideo);
                         ui.close_menu();
                     }
+
+                    if ui.button("SNES").clicked() {
+                        self.state.open_windows.insert(OpenWindow::SnesVideo);
+                        ui.close_menu();
+                    }
                 });
 
                 ui.menu_button("Audio", |ui| {
@@ -1447,6 +1504,9 @@ impl eframe::App for App {
                 }
                 OpenWindow::GenesisVideo => {
                     self.render_genesis_video_settings(ctx);
+                }
+                OpenWindow::SnesVideo => {
+                    self.render_snes_video_settings(ctx);
                 }
                 OpenWindow::CommonAudio => {
                     self.render_common_audio_settings(ctx);

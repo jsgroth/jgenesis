@@ -1813,6 +1813,7 @@ dependencies = [
  "jgenesis-traits",
  "log",
  "smsgg-core",
+ "snes-core",
 ]
 
 [[package]]
@@ -1836,6 +1837,7 @@ dependencies = [
  "segacd-core",
  "serde",
  "smsgg-core",
+ "snes-core",
  "toml",
  "xrandr",
 ]
@@ -2997,6 +2999,7 @@ dependencies = [
  "jgenesis-proc-macros",
  "jgenesis-traits",
  "log",
+ "serde",
  "spc700-emu",
  "thiserror",
  "wdc65816-emu",

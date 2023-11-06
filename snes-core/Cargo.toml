@@ -5,6 +5,10 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = []
+serde = ["dep:serde"]
+
 [dependencies]
 # TODO move audio resampling code elsewhere so the genesis-core dependency isn't necessary
 genesis-core = { path = "../genesis-core" }
@@ -15,4 +19,5 @@ wdc65816-emu = { path = "../wdc65816-emu" }
 
 bincode = { workspace = true }
 log = { workspace = true }
+serde = { workspace = true, optional = true }
 thiserror = { workspace = true }
