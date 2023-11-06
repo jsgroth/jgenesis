@@ -395,7 +395,7 @@ impl CpuInternalRegisters {
             }
             0x4213 => {
                 // RDIO: Programmable joypad I/O port (read)
-                0xFF & self.programmable_joypad_port
+                self.programmable_joypad_port
             }
             0x4214 => {
                 // RDDIVL: Division quotient, low byte

@@ -151,7 +151,7 @@ impl<'a> Bus<'a> {
             _ => {
                 self.access_master_cycles = SLOW_MASTER_CYCLES;
 
-                log::warn!("Unmapped write system area {address:06X} {value:02X}")
+                log::warn!("Unmapped write system area {address:06X} {value:02X}");
             }
         }
     }
@@ -228,7 +228,7 @@ impl<'a> BusInterface for Bus<'a> {
             _ => {
                 self.access_master_cycles = SLOW_MASTER_CYCLES;
 
-                log::warn!("Unmapped write address {address:06X} {value:02X}")
+                log::warn!("Unmapped write address {address:06X} {value:02X}");
             }
         }
     }

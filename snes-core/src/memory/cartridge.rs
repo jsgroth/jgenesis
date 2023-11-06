@@ -134,15 +134,11 @@ impl Cartridge {
 
     pub fn take_rom_from(&mut self, other: &mut Self) {
         let other_rom = match other {
-            Self::LoRom { rom, .. } => rom,
-            Self::HiRom { rom, .. } => rom,
+            Self::LoRom { rom, .. } | Self::HiRom { rom, .. } => rom,
         };
 
         match self {
-            Self::LoRom { rom, .. } => {
-                *rom = mem::take(other_rom);
-            }
-            Self::HiRom { rom, .. } => {
+            Self::LoRom { rom, .. } | Self::HiRom { rom, .. } => {
                 *rom = mem::take(other_rom);
             }
         }
