@@ -634,7 +634,7 @@ impl NoiseGenerator {
 struct EchoFilter {
     echo_enabled: [bool; 8],
     buffer_start_address: u16,
-    buffer_current_address: u16,
+    buffer_current_offset: u16,
     buffer_samples_remaining: u16,
     buffer_size_samples: u16,
     volume_l: i8,
@@ -653,7 +653,7 @@ impl EchoFilter {
         Self {
             echo_enabled: [false; 8],
             buffer_start_address: 0,
-            buffer_current_address: 0,
+            buffer_current_offset: 0,
             buffer_samples_remaining: 1,
             buffer_size_samples: 1,
             volume_l: 0,
@@ -693,10 +693,12 @@ impl EchoFilter {
         voice_samples_l: &[i32; 8],
         voice_samples_r: &[i32; 8],
     ) -> (i32, i32) {
+        let current_buffer_addr =
+            self.buffer_start_address.wrapping_add(self.buffer_current_offset);
         self.sample_buffer_l[self.sample_buffer_idx] =
-            read_echo_sample(audio_ram, self.buffer_current_address);
+            read_echo_sample(audio_ram, current_buffer_addr);
         self.sample_buffer_r[self.sample_buffer_idx] =
-            read_echo_sample(audio_ram, self.buffer_current_address.wrapping_add(2));
+            read_echo_sample(audio_ram, current_buffer_addr.wrapping_add(2));
 
         // Add the 7 older samples with 16-bit wrapping behavior
         let mut fir_sample_l: i32 = 0;
@@ -745,10 +747,10 @@ impl EchoFilter {
 
         self.buffer_samples_remaining -= 1;
         if self.buffer_samples_remaining == 0 {
-            self.buffer_current_address = self.buffer_start_address;
+            self.buffer_current_offset = 0;
             self.buffer_samples_remaining = self.buffer_size_samples;
         } else {
-            self.buffer_current_address = self.buffer_current_address.wrapping_add(4);
+            self.buffer_current_offset = self.buffer_current_offset.wrapping_add(4);
         }
 
         let echo_out_l = (fir_sample_l * i32::from(self.volume_l)) >> 7;
@@ -784,12 +786,10 @@ impl EchoFilter {
         let echo_sample_r =
             (echo_voice_sum_r + echo_feedback_r).clamp(i16::MIN.into(), i16::MAX.into()) & !1;
 
-        write_echo_sample(audio_ram, self.buffer_current_address, echo_sample_l as i16);
-        write_echo_sample(
-            audio_ram,
-            self.buffer_current_address.wrapping_add(2),
-            echo_sample_r as i16,
-        );
+        let current_buffer_addr =
+            self.buffer_start_address.wrapping_add(self.buffer_current_offset);
+        write_echo_sample(audio_ram, current_buffer_addr, echo_sample_l as i16);
+        write_echo_sample(audio_ram, current_buffer_addr.wrapping_add(2), echo_sample_r as i16);
     }
 }
 
