@@ -1404,6 +1404,10 @@ pub struct Ppu {
     sprite_buffer: Vec<SpriteData>,
 }
 
+// PPU starts rendering pixels at H=22
+// Some games depend on this 88-cycle delay to finish HDMA before rendering starts, e.g. Final Fantasy 6
+const RENDER_LINE_MCLK: u64 = 88;
+
 impl Ppu {
     pub fn new(timing_mode: TimingMode) -> Self {
         Self {
@@ -1420,6 +1424,7 @@ impl Ppu {
 
     #[must_use]
     pub fn tick(&mut self, master_cycles: u64) -> PpuTickEffect {
+        let prev_scanline_mclks = self.state.scanline_master_cycles;
         let new_scanline_mclks = self.state.scanline_master_cycles + master_cycles;
         self.state.scanline_master_cycles = new_scanline_mclks;
 
@@ -1440,7 +1445,10 @@ impl Ppu {
             }
 
             let v_display_size = self.registers.v_display_size.to_lines();
-            if self.state.scanline >= 1 && self.state.scanline <= v_display_size {
+            if self.state.scanline >= 1
+                && self.state.scanline <= v_display_size
+                && self.state.scanline_master_cycles >= RENDER_LINE_MCLK
+            {
                 self.render_current_line();
             }
 
@@ -1452,6 +1460,12 @@ impl Ppu {
 
                 return PpuTickEffect::FrameComplete;
             }
+        } else if prev_scanline_mclks < RENDER_LINE_MCLK
+            && new_scanline_mclks >= RENDER_LINE_MCLK
+            && self.state.scanline >= 1
+            && self.state.scanline <= self.registers.v_display_size.to_lines()
+        {
+            self.render_current_line();
         }
 
         PpuTickEffect::None
