@@ -551,11 +551,11 @@ fn apply_brr_filter(sample: i16, filter: u8, old: i16, older: i16) -> i16 {
         // no filter
         0 => sample,
         // sample + 0.9375 * old
-        1 => sample + old - (old >> 4),
+        1 => sample + old + (-old >> 4),
         // sample + 1.90625 * old - 0.9375 * older
-        2 => sample + (old << 1) - ((3 * old) >> 5) - older + (older >> 4),
+        2 => sample + (old << 1) + (-(3 * old) >> 5) - older + (older >> 4),
         // sample + 1.796875 * old - 0.8125 * older
-        3 => sample + (old << 1) - ((13 * old) >> 6) - older + ((3 * older) >> 4),
+        3 => sample + (old << 1) + (-(13 * old) >> 6) - older + ((3 * older) >> 4),
         _ => panic!("invalid BRR filter value: {filter}"),
     };
 
