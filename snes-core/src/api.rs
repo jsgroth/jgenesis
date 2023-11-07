@@ -261,12 +261,12 @@ impl Resettable for SnesEmulator {
 }
 
 impl EmulatorDebug for SnesEmulator {
-    const NUM_PALETTES: u32 = 0;
-    const PALETTE_LEN: u32 = 0;
+    const NUM_PALETTES: u32 = 16;
+    const PALETTE_LEN: u32 = 16;
     const PATTERN_TABLE_LEN: u32 = 0;
 
-    fn debug_cram(&self, _out: &mut [Color]) {
-        todo!("CRAM debug")
+    fn debug_cram(&self, out: &mut [Color]) {
+        self.ppu.debug_cram(out);
     }
 
     fn debug_vram(&self, _out: &mut [Color], _palette: u8) {

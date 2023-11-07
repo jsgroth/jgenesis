@@ -1,4 +1,5 @@
 mod colortable;
+mod debug;
 
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
