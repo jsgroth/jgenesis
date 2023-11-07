@@ -91,6 +91,7 @@ pub struct SnesEmulator {
     audio_downsampler: AudioDownsampler,
     total_master_cycles: u64,
     memory_refresh_pending: bool,
+    timing_mode: TimingMode,
     aspect_ratio: SnesAspectRatio,
 }
 
@@ -101,9 +102,13 @@ impl SnesEmulator {
         let cpu_registers = CpuInternalRegisters::new();
         let dma_unit = DmaUnit::new();
         let memory = Memory::create(rom, initial_sram);
-        // TODO support PAL
-        let ppu = Ppu::new(TimingMode::Ntsc);
-        let apu = Apu::new(TimingMode::Ntsc);
+
+        let timing_mode =
+            config.forced_timing_mode.unwrap_or_else(|| memory.cartridge_timing_mode());
+        let ppu = Ppu::new(timing_mode);
+        let apu = Apu::new(timing_mode);
+
+        log::info!("Running with timing/display mode {timing_mode}");
 
         let mut emulator = Self {
             main_cpu,
@@ -115,6 +120,7 @@ impl SnesEmulator {
             audio_downsampler: AudioDownsampler::new(),
             total_master_cycles: 0,
             memory_refresh_pending: false,
+            timing_mode,
             aspect_ratio: config.aspect_ratio,
         };
 
@@ -279,6 +285,6 @@ impl EmulatorTrait for SnesEmulator {
     type EmulatorConfig = SnesEmulatorConfig;
 
     fn timing_mode(&self) -> TimingMode {
-        todo!("timing mode")
+        self.timing_mode
     }
 }

@@ -6,6 +6,7 @@ use crate::memory::cartridge::Cartridge;
 use crate::ppu::Ppu;
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::PartialClone;
+use jgenesis_traits::frontend::TimingMode;
 use jgenesis_traits::num::GetBit;
 use std::array;
 
@@ -52,7 +53,7 @@ impl Memory {
         }
     }
 
-    pub fn read_cartridge(&mut self, address: u32) -> u8 {
+    pub fn read_cartridge(&self, address: u32) -> u8 {
         self.cartridge.read(address)
     }
 
@@ -76,6 +77,23 @@ impl Memory {
                 .then_some(byte as char)
             })
             .collect()
+    }
+
+    pub fn cartridge_timing_mode(&self) -> TimingMode {
+        // Region byte is always at $00FFD9
+        let region_byte = self.read_cartridge(0xFFD9);
+        match region_byte {
+            // Japan / USA / South Korea / Canada / Brazil
+            0x00 | 0x01 | 0x0D | 0x0F | 0x10 => TimingMode::Ntsc,
+            // various European and Asian countries (other than Japan/Korea) + Australia
+            0x02..=0x0C | 0x11 => TimingMode::Pal,
+            _ => {
+                log::warn!(
+                    "Unrecognized region byte in ROM header, defaulting to NTSC: {region_byte:02X}"
+                );
+                TimingMode::Ntsc
+            }
+        }
     }
 
     pub fn read_wram(&self, address: u32) -> u8 {

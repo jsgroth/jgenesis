@@ -190,6 +190,7 @@ impl Default for SegaCdAppConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct SnesAppConfig {
+    forced_timing_mode: Option<TimingMode>,
     #[serde(default)]
     aspect_ratio: SnesAspectRatio,
 }
@@ -328,8 +329,7 @@ impl AppConfig {
                 self.inputs.to_snes_keyboard_config(),
                 self.inputs.to_snes_joystick_config(),
             ),
-            // TODO configurable timing mode
-            forced_timing_mode: None,
+            forced_timing_mode: self.snes.forced_timing_mode,
             aspect_ratio: self.snes.aspect_ratio,
         })
     }
@@ -345,6 +345,7 @@ impl Default for AppConfig {
 enum OpenWindow {
     SmsGgGeneral,
     GenesisGeneral,
+    SnesGeneral,
     Interface,
     CommonVideo,
     SmsGgVideo,
@@ -632,6 +633,34 @@ impl App {
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::GenesisGeneral);
+        }
+    }
+
+    fn render_snes_general_settings(&mut self, ctx: &Context) {
+        let mut open = true;
+        Window::new("SNES General Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.group(|ui| {
+                ui.set_enabled(self.emu_thread.status() != EmuThreadStatus::RunningSnes);
+
+                ui.label("Timing / display mode");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(&mut self.config.snes.forced_timing_mode, None, "Auto");
+                    ui.radio_value(
+                        &mut self.config.snes.forced_timing_mode,
+                        Some(TimingMode::Ntsc),
+                        "NTSC",
+                    );
+                    ui.radio_value(
+                        &mut self.config.snes.forced_timing_mode,
+                        Some(TimingMode::Pal),
+                        "PAL",
+                    );
+                });
+            });
+        });
+        if !open {
+            self.state.open_windows.remove(&OpenWindow::SnesGeneral);
         }
     }
 
@@ -1256,6 +1285,11 @@ impl App {
                         ui.close_menu();
                     }
 
+                    if ui.button("SNES").clicked() {
+                        self.state.open_windows.insert(OpenWindow::SnesGeneral);
+                        ui.close_menu();
+                    }
+
                     if ui.button("Interface").clicked() {
                         self.state.open_windows.insert(OpenWindow::Interface);
                         ui.close_menu();
@@ -1487,60 +1521,25 @@ impl eframe::App for App {
 
         for open_window in self.state.open_windows.clone() {
             match open_window {
-                OpenWindow::SmsGgGeneral => {
-                    self.render_smsgg_general_settings(ctx);
-                }
-                OpenWindow::GenesisGeneral => {
-                    self.render_genesis_general_settings(ctx);
-                }
-                OpenWindow::Interface => {
-                    self.render_interface_settings(ctx);
-                }
-                OpenWindow::CommonVideo => {
-                    self.render_common_video_settings(ctx);
-                }
-                OpenWindow::SmsGgVideo => {
-                    self.render_smsgg_video_settings(ctx);
-                }
-                OpenWindow::GenesisVideo => {
-                    self.render_genesis_video_settings(ctx);
-                }
-                OpenWindow::SnesVideo => {
-                    self.render_snes_video_settings(ctx);
-                }
-                OpenWindow::CommonAudio => {
-                    self.render_common_audio_settings(ctx);
-                }
-                OpenWindow::SmsGgAudio => {
-                    self.render_smsgg_audio_settings(ctx);
-                }
-                OpenWindow::GenesisAudio => {
-                    self.render_genesis_audio_settings(ctx);
-                }
-                OpenWindow::SmsGgKeyboard => {
-                    self.render_smsgg_keyboard_settings(ctx);
-                }
-                OpenWindow::SmsGgGamepad => {
-                    self.render_smsgg_gamepad_settings(ctx);
-                }
-                OpenWindow::GenesisKeyboard => {
-                    self.render_genesis_keyboard_settings(ctx);
-                }
-                OpenWindow::GenesisGamepad => {
-                    self.render_genesis_gamepad_settings(ctx);
-                }
-                OpenWindow::SnesKeyboard => {
-                    self.render_snes_keyboard_settings(ctx);
-                }
-                OpenWindow::SnesGamepad => {
-                    self.render_snes_gamepad_settings(ctx);
-                }
-                OpenWindow::Hotkeys => {
-                    self.render_hotkey_settings(ctx);
-                }
-                OpenWindow::About => {
-                    self.render_about(ctx);
-                }
+                OpenWindow::SmsGgGeneral => self.render_smsgg_general_settings(ctx),
+                OpenWindow::GenesisGeneral => self.render_genesis_general_settings(ctx),
+                OpenWindow::SnesGeneral => self.render_snes_general_settings(ctx),
+                OpenWindow::Interface => self.render_interface_settings(ctx),
+                OpenWindow::CommonVideo => self.render_common_video_settings(ctx),
+                OpenWindow::SmsGgVideo => self.render_smsgg_video_settings(ctx),
+                OpenWindow::GenesisVideo => self.render_genesis_video_settings(ctx),
+                OpenWindow::SnesVideo => self.render_snes_video_settings(ctx),
+                OpenWindow::CommonAudio => self.render_common_audio_settings(ctx),
+                OpenWindow::SmsGgAudio => self.render_smsgg_audio_settings(ctx),
+                OpenWindow::GenesisAudio => self.render_genesis_audio_settings(ctx),
+                OpenWindow::SmsGgKeyboard => self.render_smsgg_keyboard_settings(ctx),
+                OpenWindow::SmsGgGamepad => self.render_smsgg_gamepad_settings(ctx),
+                OpenWindow::GenesisKeyboard => self.render_genesis_keyboard_settings(ctx),
+                OpenWindow::GenesisGamepad => self.render_genesis_gamepad_settings(ctx),
+                OpenWindow::SnesKeyboard => self.render_snes_keyboard_settings(ctx),
+                OpenWindow::SnesGamepad => self.render_snes_gamepad_settings(ctx),
+                OpenWindow::Hotkeys => self.render_hotkey_settings(ctx),
+                OpenWindow::About => self.render_about(ctx),
             }
         }
 

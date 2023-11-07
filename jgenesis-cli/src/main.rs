@@ -126,6 +126,10 @@ struct Args {
     #[arg(long, default_value_t, help_heading = SCD_OPTIONS_HEADING)]
     scd_no_disc: bool,
 
+    /// Forced SNES timing/display mode (Ntsc / Pal); defaults based on ROM header if not set
+    #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
+    snes_timing_mode: Option<TimingMode>,
+
     /// SNES aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
     #[arg(long, default_value_t, help_heading = SNES_OPTIONS_HEADING)]
     snes_aspect_ratio: SnesAspectRatio,
@@ -544,7 +548,7 @@ fn run_sega_cd(args: Args) -> anyhow::Result<()> {
 fn run_snes(args: Args) -> anyhow::Result<()> {
     let config = SnesConfig {
         common: args.common_config(SnesInputConfig::default(), SnesInputConfig::default()),
-        forced_timing_mode: args.genesis_timing_mode,
+        forced_timing_mode: args.snes_timing_mode,
         aspect_ratio: args.snes_aspect_ratio,
     };
 
