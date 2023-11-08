@@ -1,6 +1,7 @@
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::PartialClone;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
+use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::mem;
 use std::ops::Deref;
@@ -54,7 +55,7 @@ impl Display for CartridgeType {
 impl Cartridge {
     pub fn create(rom: Box<[u8]>, initial_sram: Option<Vec<u8>>) -> Self {
         let cartridge_type = guess_cartridge_type(&rom).unwrap_or_else(|| {
-            log::error!("Unable to determine ROM type; defaulting to LoROM");
+            log::error!("Unable to confidently determine ROM type; defaulting to LoROM");
             CartridgeType::LoRom
         });
 
@@ -152,27 +153,66 @@ impl Cartridge {
     }
 }
 
+const LOROM_HEADER_ADDR: usize = 0x7FC0;
+const HIROM_HEADER_ADDR: usize = 0xFFC0;
+
+const HEADER_TYPE_OFFSET: usize = 0x15;
+
+const LOROM_RESET_VECTOR: usize = 0x7FFC;
+const HIROM_RESET_VECTOR: usize = 0xFFFC;
+
 fn guess_cartridge_type(rom: &[u8]) -> Option<CartridgeType> {
     if rom.len() < 0x8000 {
         log::error!("ROM is too small; all ROMs should be at least 32KB, was {} bytes", rom.len());
         return None;
     }
 
-    let lorom_type_byte = rom[0x7FD5];
-    if lorom_type_byte == 0x20 || lorom_type_byte == 0x30 {
-        // Very likely LoROM
+    if rom.len() < 0x10000 {
+        // Any ROM less than 64KB must be LoROM; HiROM <64KB wouldn't have anywhere to store
+        // the 65816 interrupt vectors
         return Some(CartridgeType::LoRom);
     }
 
-    if rom.len() >= 0x10000 {
-        let hirom_type_byte = rom[0xFFD5];
-        if hirom_type_byte == 0x21 || hirom_type_byte == 0x31 {
-            // Very likely HiROM
-            return Some(CartridgeType::HiRom);
-        }
+    let mut lorom_points = 0;
+    let mut hirom_points = 0;
+
+    let lorom_type_byte = rom[LOROM_HEADER_ADDR + HEADER_TYPE_OFFSET];
+    if lorom_type_byte == 0x20 || lorom_type_byte == 0x30 {
+        // $20 = LoROM, $30 = LoROM + FastROM
+        lorom_points += 1;
     }
 
-    None
+    let hirom_type_byte = rom[HIROM_HEADER_ADDR + HEADER_TYPE_OFFSET];
+    if hirom_type_byte == 0x21 || hirom_type_byte == 0x31 {
+        // $21 = HiROM, $31 = HiROM + FastROM
+        hirom_points += 1;
+    }
+
+    // All LoROM vectors should be in the range $8000-$FFFF, and A15 is ignored for mapping to ROM
+    let lorom_vector = u16::from_le_bytes([rom[LOROM_RESET_VECTOR], rom[LOROM_RESET_VECTOR + 1]]);
+    if lorom_vector >= 0x8000 && seems_like_valid_reset_vector(rom, lorom_vector & 0x7FFF) {
+        lorom_points += 1;
+    }
+
+    let hirom_vector = u16::from_le_bytes([rom[HIROM_RESET_VECTOR], rom[HIROM_RESET_VECTOR + 1]]);
+    if seems_like_valid_reset_vector(rom, hirom_vector) {
+        hirom_points += 1;
+    }
+
+    match lorom_points.cmp(&hirom_points) {
+        Ordering::Less => Some(CartridgeType::HiRom),
+        Ordering::Greater => Some(CartridgeType::LoRom),
+        Ordering::Equal => None,
+    }
+}
+
+const CLC_OPCODE: u8 = 0x18;
+const SEI_OPCODE: u8 = 0x78;
+
+fn seems_like_valid_reset_vector(rom: &[u8], vector: u16) -> bool {
+    // Nearly all games execute either SEI or CLC as the first instruction at the RESET vector
+    let vector = vector as usize;
+    vector < rom.len() && (rom[vector] == CLC_OPCODE || rom[vector] == SEI_OPCODE)
 }
 
 enum CartridgeAddress {
