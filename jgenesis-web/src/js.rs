@@ -10,5 +10,7 @@ extern "C" {
 
     pub fn showGenesisConfig();
 
+    pub fn showSnesConfig();
+
     pub fn setCursorVisible(visible: bool);
 }

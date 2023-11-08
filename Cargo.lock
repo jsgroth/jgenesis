@@ -1917,6 +1917,7 @@ dependencies = [
  "rand",
  "rfd",
  "smsgg-core",
+ "snes-core",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",

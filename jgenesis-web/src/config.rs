@@ -7,6 +7,7 @@ use jgenesis_renderer::config::{
 };
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgEmulatorConfig, SmsRegion, VdpVersion};
+use snes_core::api::{SnesAspectRatio, SnesEmulatorConfig};
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::ops::Deref;
@@ -161,10 +162,22 @@ impl GenesisWebConfig {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SnesWebConfig {
+    aspect_ratio: SnesAspectRatio,
+}
+
+impl SnesWebConfig {
+    pub fn to_emulator_config(&self) -> SnesEmulatorConfig {
+        SnesEmulatorConfig { forced_timing_mode: None, aspect_ratio: self.aspect_ratio }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct WebConfig {
     pub common: CommonWebConfig,
     pub smsgg: SmsGgWebConfig,
     pub genesis: GenesisWebConfig,
+    pub snes: SnesWebConfig,
 }
 
 #[wasm_bindgen]
@@ -239,6 +252,11 @@ impl WebConfigRef {
 
     pub fn set_genesis_emulate_non_linear_dac(&self, emulate_non_linear_dac: bool) {
         self.borrow_mut().genesis.emulate_non_linear_vdp_dac = emulate_non_linear_dac;
+    }
+
+    pub fn set_snes_aspect_ratio(&self, aspect_ratio: &str) {
+        let Ok(aspect_ratio) = aspect_ratio.parse() else { return };
+        self.borrow_mut().snes.aspect_ratio = aspect_ratio;
     }
 
     pub fn clone(&self) -> Self {

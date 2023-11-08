@@ -15,6 +15,8 @@ use jgenesis_renderer::renderer::WgpuRenderer;
 use js_sys::Promise;
 use rfd::AsyncFileDialog;
 use smsgg_core::{SmsGgEmulator, SmsGgInputs};
+use snes_core::api::SnesEmulator;
+use snes_core::input::SnesInputs;
 use std::fmt::{Debug, Display, Formatter};
 use std::path::Path;
 use wasm_bindgen::prelude::*;
@@ -90,6 +92,7 @@ enum Emulator {
     None,
     SmsGg(SmsGgEmulator, SmsGgInputs, SmsGgConsole),
     Genesis(GenesisEmulator, GenesisInputs),
+    Snes(SnesEmulator, SnesInputs),
 }
 
 impl Emulator {
@@ -119,6 +122,13 @@ impl Emulator {
                     != TickEffect::FrameRendered
                 {}
             }
+            Self::Snes(emulator, inputs) => {
+                while emulator
+                    .tick(renderer, audio_output, inputs, save_writer)
+                    .expect("Emulator error")
+                    != TickEffect::FrameRendered
+                {}
+            }
         }
     }
 
@@ -127,6 +137,7 @@ impl Emulator {
             Self::None => TimingMode::Ntsc,
             Self::SmsGg(emulator, ..) => emulator.timing_mode(),
             Self::Genesis(emulator, ..) => emulator.timing_mode(),
+            Self::Snes(emulator, ..) => emulator.timing_mode(),
         }
     }
 
@@ -139,6 +150,9 @@ impl Emulator {
             Self::Genesis(_, inputs) => {
                 handle_genesis_input(inputs, event);
             }
+            Self::Snes(_, inputs) => {
+                handle_snes_input(inputs, event);
+            }
         }
     }
 
@@ -150,6 +164,9 @@ impl Emulator {
             }
             Self::Genesis(emulator, ..) => {
                 emulator.reload_config(&config.genesis.to_emulator_config());
+            }
+            Self::Snes(emulator, ..) => {
+                emulator.reload_config(&config.snes.to_emulator_config());
             }
         }
     }
@@ -166,27 +183,13 @@ fn handle_smsgg_input(inputs: &mut SmsGgInputs, event: &WindowEvent<'_>) {
     let pressed = *state == ElementState::Pressed;
 
     match keycode {
-        VirtualKeyCode::Up => {
-            inputs.p1.up = pressed;
-        }
-        VirtualKeyCode::Left => {
-            inputs.p1.left = pressed;
-        }
-        VirtualKeyCode::Right => {
-            inputs.p1.right = pressed;
-        }
-        VirtualKeyCode::Down => {
-            inputs.p1.down = pressed;
-        }
-        VirtualKeyCode::A => {
-            inputs.p1.button_2 = pressed;
-        }
-        VirtualKeyCode::S => {
-            inputs.p1.button_1 = pressed;
-        }
-        VirtualKeyCode::Return => {
-            inputs.pause = pressed;
-        }
+        VirtualKeyCode::Up => inputs.p1.up = pressed,
+        VirtualKeyCode::Left => inputs.p1.left = pressed,
+        VirtualKeyCode::Right => inputs.p1.right = pressed,
+        VirtualKeyCode::Down => inputs.p1.down = pressed,
+        VirtualKeyCode::A => inputs.p1.button_2 = pressed,
+        VirtualKeyCode::S => inputs.p1.button_1 = pressed,
+        VirtualKeyCode::Return => inputs.pause = pressed,
         _ => {}
     }
 }
@@ -202,42 +205,45 @@ fn handle_genesis_input(inputs: &mut GenesisInputs, event: &WindowEvent<'_>) {
     let pressed = *state == ElementState::Pressed;
 
     match keycode {
-        VirtualKeyCode::Up => {
-            inputs.p1.up = pressed;
-        }
-        VirtualKeyCode::Left => {
-            inputs.p1.left = pressed;
-        }
-        VirtualKeyCode::Right => {
-            inputs.p1.right = pressed;
-        }
-        VirtualKeyCode::Down => {
-            inputs.p1.down = pressed;
-        }
-        VirtualKeyCode::A => {
-            inputs.p1.a = pressed;
-        }
-        VirtualKeyCode::S => {
-            inputs.p1.b = pressed;
-        }
-        VirtualKeyCode::D => {
-            inputs.p1.c = pressed;
-        }
-        VirtualKeyCode::Q => {
-            inputs.p1.x = pressed;
-        }
-        VirtualKeyCode::W => {
-            inputs.p1.y = pressed;
-        }
-        VirtualKeyCode::E => {
-            inputs.p1.z = pressed;
-        }
-        VirtualKeyCode::Return => {
-            inputs.p1.start = pressed;
-        }
-        VirtualKeyCode::RShift => {
-            inputs.p1.mode = pressed;
-        }
+        VirtualKeyCode::Up => inputs.p1.up = pressed,
+        VirtualKeyCode::Left => inputs.p1.left = pressed,
+        VirtualKeyCode::Right => inputs.p1.right = pressed,
+        VirtualKeyCode::Down => inputs.p1.down = pressed,
+        VirtualKeyCode::A => inputs.p1.a = pressed,
+        VirtualKeyCode::S => inputs.p1.b = pressed,
+        VirtualKeyCode::D => inputs.p1.c = pressed,
+        VirtualKeyCode::Q => inputs.p1.x = pressed,
+        VirtualKeyCode::W => inputs.p1.y = pressed,
+        VirtualKeyCode::E => inputs.p1.z = pressed,
+        VirtualKeyCode::Return => inputs.p1.start = pressed,
+        VirtualKeyCode::RShift => inputs.p1.mode = pressed,
+        _ => {}
+    }
+}
+
+fn handle_snes_input(inputs: &mut SnesInputs, event: &WindowEvent<'_>) {
+    let WindowEvent::KeyboardInput {
+        input: KeyboardInput { virtual_keycode: Some(keycode), state, .. },
+        ..
+    } = event
+    else {
+        return;
+    };
+    let pressed = *state == ElementState::Pressed;
+
+    match keycode {
+        VirtualKeyCode::Up => inputs.p1.up = pressed,
+        VirtualKeyCode::Left => inputs.p1.left = pressed,
+        VirtualKeyCode::Right => inputs.p1.right = pressed,
+        VirtualKeyCode::Down => inputs.p1.down = pressed,
+        VirtualKeyCode::S => inputs.p1.a = pressed,
+        VirtualKeyCode::X => inputs.p1.b = pressed,
+        VirtualKeyCode::A => inputs.p1.x = pressed,
+        VirtualKeyCode::Z => inputs.p1.y = pressed,
+        VirtualKeyCode::D => inputs.p1.l = pressed,
+        VirtualKeyCode::C => inputs.p1.r = pressed,
+        VirtualKeyCode::Return => inputs.p1.start = pressed,
+        VirtualKeyCode::RShift => inputs.p1.select = pressed,
         _ => {}
     }
 }
@@ -406,7 +412,7 @@ fn run_event_loop(
 
 async fn open_file(event_loop_proxy: EventLoopProxy<JgenesisUserEvent>) {
     let file = AsyncFileDialog::new()
-        .add_filter("sms/gg/md", &["sms", "gg", "md", "bin"])
+        .add_filter("sms/gg/md", &["sms", "gg", "md", "bin", "sfc"])
         .pick_file()
         .await;
     let Some(file) = file else { return };
@@ -451,6 +457,13 @@ fn open_emulator(rom: Vec<u8>, file_name: &str, config_ref: &WebConfigRef) -> Em
                 config_ref.borrow().genesis.to_emulator_config(),
             );
             Emulator::Genesis(emulator, GenesisInputs::default())
+        }
+        "sfc" => {
+            js::showSnesConfig();
+
+            let emulator =
+                SnesEmulator::create(rom, None, config_ref.borrow().snes.to_emulator_config());
+            Emulator::Snes(emulator, SnesInputs::default())
         }
         _ => panic!("Unsupported extension: {file_ext}"),
     }
