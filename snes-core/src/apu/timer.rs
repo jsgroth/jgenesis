@@ -5,8 +5,8 @@ pub struct Timer<const MCLK_DIVIDER: u8> {
     enabled: bool,
     mclk_divider: u8,
     timer_divider: u16,
-    timer_counter: u16,
-    timer_output: u8,
+    counter: u16,
+    output: u8,
 }
 
 impl<const MCLK_DIVIDER: u8> Timer<MCLK_DIVIDER> {
@@ -15,8 +15,8 @@ impl<const MCLK_DIVIDER: u8> Timer<MCLK_DIVIDER> {
             enabled: false,
             mclk_divider: MCLK_DIVIDER,
             timer_divider: 255,
-            timer_counter: 0,
-            timer_output: 0,
+            counter: 0,
+            output: 0,
         }
     }
 
@@ -29,10 +29,10 @@ impl<const MCLK_DIVIDER: u8> Timer<MCLK_DIVIDER> {
     }
 
     fn clock(&mut self) {
-        self.timer_counter += 1;
-        if self.timer_counter >= self.timer_divider {
-            self.timer_counter = 0;
-            self.timer_output = self.timer_output.wrapping_add(1);
+        self.counter += 1;
+        if self.counter >= self.timer_divider {
+            self.counter = 0;
+            self.output = self.output.wrapping_add(1);
         }
     }
 
@@ -43,8 +43,8 @@ impl<const MCLK_DIVIDER: u8> Timer<MCLK_DIVIDER> {
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
         if !enabled {
-            self.timer_counter = 0;
-            self.timer_output = 0;
+            self.counter = 0;
+            self.output = 0;
         }
     }
 
@@ -57,8 +57,8 @@ impl<const MCLK_DIVIDER: u8> Timer<MCLK_DIVIDER> {
     }
 
     pub fn read_output(&mut self) -> u8 {
-        let output = self.timer_output & 0x0F;
-        self.timer_output = 0;
+        let output = self.output & 0x0F;
+        self.output = 0;
         output
     }
 }
