@@ -72,18 +72,28 @@ impl DmaUnit {
     fn tick_hdma(&mut self, bus: &mut Bus<'_>) -> Option<DmaStatus> {
         let scanline_mclk = bus.ppu.scanline_master_cycles();
 
-        // Bail out early if no HDMA channels are active
-        if !bus.cpu_registers.active_hdma_channels.iter().copied().any(|active| active) {
-            return None;
-        }
+        let any_channels_active =
+            bus.cpu_registers.active_hdma_channels.iter().copied().any(|active| active);
 
         // Check if HDMA registers need to be reloaded (V=0 + H=6)
         if bus.ppu.scanline() == 0
             && scanline_mclk >= 24
             && (self.hdma_prev_scanline_mclk < 24 || self.hdma_prev_scanline_mclk > scanline_mclk)
         {
-            let master_cycles_elapsed = self.hdma_reload(bus);
-            return Some(DmaStatus::InProgress { master_cycles_elapsed });
+            return if any_channels_active {
+                let master_cycles_elapsed = self.hdma_reload(bus);
+                Some(DmaStatus::InProgress { master_cycles_elapsed })
+            } else {
+                // If no HDMA channels are active, clear all do_transfer flags at the end of VBlank;
+                // Super Ghouls 'n Ghosts depends on this to render graphics during gameplay
+                self.hdma_do_transfer.fill(false);
+                None
+            };
+        }
+
+        // Bail out early if no HDMA channels are active
+        if !any_channels_active {
+            return None;
         }
 
         match self.hdma_state {
@@ -183,7 +193,6 @@ impl DmaUnit {
 
         for channel in 0..8 {
             if !bus.cpu_registers.active_hdma_channels[channel] {
-                // TODO is this right? or should do_transfer retain its old value for inactive channels?
                 self.hdma_do_transfer[channel] = false;
                 continue;
             }
