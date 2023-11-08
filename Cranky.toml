@@ -1,6 +1,6 @@
 # https://github.com/ericseppanen/cargo-cranky
 # Install: cargo install cargo-cranky
-# Run: cargo cranky
+# Run: cargo +nightly cranky
 
 warn = [
     "clippy::all",
@@ -44,6 +44,7 @@ allow = [
     "clippy::single_match_else",
     "clippy::stable_sort_primitive",
     "clippy::struct_excessive_bools",
+    "clippy::struct_field_names",
     "clippy::too_many_lines",
     "clippy::unreadable_literal",
     "clippy::verbose_bit_mask",
