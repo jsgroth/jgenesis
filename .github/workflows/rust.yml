@@ -25,7 +25,7 @@ jobs:
       uses: actions-rs/toolchain@v1
       with:
         toolchain: nightly
-        components: rustfmt clippy
+        components: rustfmt, clippy
 
     - name: Install system library dependencies
       run: |
