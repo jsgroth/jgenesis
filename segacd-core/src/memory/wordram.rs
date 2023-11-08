@@ -3,7 +3,7 @@
 
 use crate::memory::ScdCpu;
 use bincode::{Decode, Encode};
-use jgenesis_traits::num::GetBit;
+use jgenesis_common::num::GetBit;
 
 // Word RAM is 256KB
 pub const ADDRESS_MASK: u32 = 0x03FFFF;

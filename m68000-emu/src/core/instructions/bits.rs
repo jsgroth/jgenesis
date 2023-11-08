@@ -4,7 +4,7 @@ use crate::core::{
     OpSize,
 };
 use crate::traits::BusInterface;
-use jgenesis_traits::num::{GetBit, SignBit};
+use jgenesis_common::num::{GetBit, SignBit};
 
 macro_rules! impl_bit_op {
     ($name:ident, $operator:tt, $read_method:ident, $read_resolved_method:ident, $write_method:ident, $size:expr) => {

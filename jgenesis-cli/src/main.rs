@@ -1,6 +1,7 @@
 use clap::Parser;
 use env_logger::Env;
 use genesis_core::{GenesisAspectRatio, GenesisControllerType, GenesisRegion};
+use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::config::input::{
     GenesisControllerConfig, GenesisInputConfig, HotkeyConfig, KeyboardInput,
     SmsGgControllerConfig, SmsGgInputConfig, SnesInputConfig,
@@ -14,7 +15,6 @@ use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, RendererConfig, Scanlines, VSyncMode, WgpuBackend,
 };
-use jgenesis_traits::frontend::TimingMode;
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsRegion, VdpVersion};
 use snes_core::api::SnesAspectRatio;

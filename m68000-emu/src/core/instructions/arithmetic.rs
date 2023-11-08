@@ -3,7 +3,7 @@ use crate::core::{
     InstructionExecutor, OpSize, ResolvedAddress,
 };
 use crate::traits::BusInterface;
-use jgenesis_traits::num::{GetBit, SignBit};
+use jgenesis_common::num::{GetBit, SignBit};
 
 macro_rules! impl_extend_op_method {
     ($name:ident, $read_method:ident, $write_method:ident, $op_fn:ident, $size:expr) => {

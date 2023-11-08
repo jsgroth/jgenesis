@@ -5,8 +5,8 @@ mod timer;
 use crate::apu::dsp::AudioDsp;
 use crate::apu::timer::{FastTimer, SlowTimer};
 use bincode::{Decode, Encode};
-use jgenesis_traits::frontend::TimingMode;
-use jgenesis_traits::num::GetBit;
+use jgenesis_common::frontend::TimingMode;
+use jgenesis_common::num::GetBit;
 use spc700_emu::traits::BusInterface;
 use spc700_emu::Spc700;
 

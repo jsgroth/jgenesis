@@ -2,7 +2,7 @@
 
 use crate::api::SmsRegion;
 use bincode::{Decode, Encode};
-use jgenesis_traits::num::GetBit;
+use jgenesis_common::num::GetBit;
 
 #[derive(Debug, Clone, Copy, Default, Encode, Decode)]
 pub struct SmsGgJoypadState {

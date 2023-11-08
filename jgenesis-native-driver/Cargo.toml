@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
 jgenesis-renderer = { path = "../jgenesis-renderer" }
-jgenesis-traits = { path = "../jgenesis-traits" }
+jgenesis-common = { path = "../jgenesis-common" }
 
 genesis-core = { path = "../genesis-core" }
 segacd-core = { path = "../segacd-core" }

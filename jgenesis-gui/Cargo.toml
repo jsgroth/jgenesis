@@ -13,7 +13,7 @@ snes-core = { path = "../snes-core", features = ["serde"] }
 
 jgenesis-native-driver = { path = "../jgenesis-native-driver" }
 jgenesis-renderer = { path = "../jgenesis-renderer" }
-jgenesis-traits = { path = "../jgenesis-traits", features = ["serde"] }
+jgenesis-common = { path = "../jgenesis-common", features = ["serde"] }
 
 anyhow = { workspace = true }
 bincode = { workspace = true }

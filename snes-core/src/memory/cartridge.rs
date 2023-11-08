@@ -1,6 +1,6 @@
 use bincode::{Decode, Encode};
+use jgenesis_common::frontend::PartialClone;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
-use jgenesis_traits::frontend::PartialClone;
 use std::fmt::{Display, Formatter};
 use std::mem;
 use std::ops::Deref;

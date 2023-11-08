@@ -13,6 +13,7 @@ use egui::{
 };
 use egui_extras::{Column, TableBuilder};
 use genesis_core::{GenesisAspectRatio, GenesisRegion};
+use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::config::{
     CommonConfig, GenesisConfig, GgAspectRatio, SegaCdConfig, SmsAspectRatio, SmsGgConfig,
     SnesConfig, WindowSize,
@@ -20,7 +21,6 @@ use jgenesis_native_driver::config::{
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, RendererConfig, Scanlines, VSyncMode, WgpuBackend,
 };
-use jgenesis_traits::frontend::TimingMode;
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;

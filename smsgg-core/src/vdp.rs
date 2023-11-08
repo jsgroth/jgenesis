@@ -10,9 +10,9 @@ use bincode::de::{BorrowDecoder, Decoder};
 use bincode::enc::Encoder;
 use bincode::error::{DecodeError, EncodeError};
 use bincode::{BorrowDecode, Decode, Encode};
+use jgenesis_common::frontend::TimingMode;
+use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
-use jgenesis_traits::frontend::TimingMode;
-use jgenesis_traits::num::GetBit;
 use z80_emu::traits::InterruptLine;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]

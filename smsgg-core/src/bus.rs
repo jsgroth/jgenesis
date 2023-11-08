@@ -6,7 +6,7 @@ use crate::psg::Psg;
 use crate::vdp::Vdp;
 use crate::ym2413::Ym2413;
 use crate::VdpVersion;
-use jgenesis_traits::num::GetBit;
+use jgenesis_common::num::GetBit;
 use z80_emu::traits::{BusInterface, InterruptLine};
 
 pub struct Bus<'a> {

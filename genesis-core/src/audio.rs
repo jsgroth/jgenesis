@@ -3,7 +3,7 @@
 #![allow(clippy::excessive_precision)]
 
 use bincode::{Decode, Encode};
-use jgenesis_traits::frontend::{AudioOutput, TimingMode};
+use jgenesis_common::frontend::{AudioOutput, TimingMode};
 use std::cmp;
 use std::collections::VecDeque;
 

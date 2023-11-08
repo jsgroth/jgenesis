@@ -1,6 +1,6 @@
-# jgenesis-traits
+# jgenesis-common
 
-Traits used across most of the other crates.
+Common code used across most of the other crates.
 
 `jgenesis_traits::num` contains traits useful for accessing specific bits in primitive integer values.
 

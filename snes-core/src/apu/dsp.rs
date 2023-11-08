@@ -1,6 +1,6 @@
 use crate::apu::AudioRam;
 use bincode::{Decode, Encode};
-use jgenesis_traits::num::GetBit;
+use jgenesis_common::num::GetBit;
 use std::array;
 use std::ops::Index;
 

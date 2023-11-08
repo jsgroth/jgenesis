@@ -1,6 +1,6 @@
 use crate::vdp::{convert_gg_color, convert_sms_color, get_color_id, Vdp};
-use jgenesis_traits::frontend;
-use jgenesis_traits::frontend::Color;
+use jgenesis_common::frontend;
+use jgenesis_common::frontend::Color;
 
 impl Vdp {
     pub fn debug_cram(&self, out: &mut [Color]) {

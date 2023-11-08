@@ -14,4 +14,4 @@ quote = "1"
 syn = "2"
 
 [dev-dependencies]
-jgenesis-traits = { path = "../jgenesis-traits" }
+jgenesis-common = { path = "../jgenesis-common" }

@@ -16,7 +16,7 @@ use genesis_core::ym2612::{Ym2612, YmTickEffect};
 use genesis_core::{
     GenesisAspectRatio, GenesisEmulator, GenesisEmulatorConfig, GenesisInputs, GenesisRegion,
 };
-use jgenesis_traits::frontend::{
+use jgenesis_common::frontend::{
     AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, PartialClone, Renderer,
     Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator, TimingMode,
 };

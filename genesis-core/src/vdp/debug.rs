@@ -2,8 +2,8 @@ use crate::vdp::{
     gen_color_to_rgb, read_pattern_generator, resolve_color, ColorModifier, PatternGeneratorArgs,
     Vdp,
 };
-use jgenesis_traits::frontend;
-use jgenesis_traits::frontend::Color;
+use jgenesis_common::frontend;
+use jgenesis_common::frontend::Color;
 
 impl Vdp {
     pub fn debug_cram(&self, out: &mut [Color]) {

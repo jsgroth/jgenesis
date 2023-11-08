@@ -6,7 +6,7 @@
 
 use bincode::{Decode, Encode};
 use genesis_core::audio::{PsgDownsampler, SignalDownsampler, Ym2612Downsampler};
-use jgenesis_traits::frontend::{AudioOutput, TimingMode};
+use jgenesis_common::frontend::{AudioOutput, TimingMode};
 use std::cmp;
 
 const NTSC_GENESIS_MCLK_FREQUENCY: f64 = genesis_core::audio::NTSC_GENESIS_MCLK_FREQUENCY;

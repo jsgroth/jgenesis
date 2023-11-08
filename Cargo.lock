@@ -1404,8 +1404,8 @@ dependencies = [
  "bincode",
  "crc",
  "env_logger",
+ "jgenesis-common",
  "jgenesis-proc-macros",
- "jgenesis-traits",
  "log",
  "m68000-emu",
  "regex",
@@ -1807,13 +1807,24 @@ dependencies = [
  "clap",
  "env_logger",
  "genesis-core",
+ "jgenesis-common",
  "jgenesis-native-driver",
  "jgenesis-proc-macros",
  "jgenesis-renderer",
- "jgenesis-traits",
  "log",
  "smsgg-core",
  "snes-core",
+]
+
+[[package]]
+name = "jgenesis-common"
+version = "0.4.2"
+dependencies = [
+ "bincode",
+ "bytemuck",
+ "jgenesis-proc-macros",
+ "serde",
+ "thiserror",
 ]
 
 [[package]]
@@ -1827,9 +1838,9 @@ dependencies = [
  "egui_extras",
  "env_logger",
  "genesis-core",
+ "jgenesis-common",
  "jgenesis-native-driver",
  "jgenesis-renderer",
- "jgenesis-traits",
  "log",
  "regex",
  "rfd",
@@ -1849,9 +1860,9 @@ dependencies = [
  "bincode",
  "bytemuck",
  "genesis-core",
+ "jgenesis-common",
  "jgenesis-proc-macros",
  "jgenesis-renderer",
- "jgenesis-traits",
  "log",
  "pollster",
  "sdl2",
@@ -1868,7 +1879,7 @@ dependencies = [
 name = "jgenesis-proc-macros"
 version = "0.4.2"
 dependencies = [
- "jgenesis-traits",
+ "jgenesis-common",
  "proc-macro2",
  "quote",
  "syn 2.0.38",
@@ -1879,24 +1890,13 @@ name = "jgenesis-renderer"
 version = "0.4.2"
 dependencies = [
  "bytemuck",
+ "jgenesis-common",
  "jgenesis-proc-macros",
- "jgenesis-traits",
  "log",
  "raw-window-handle",
  "serde",
  "thiserror",
  "wgpu",
-]
-
-[[package]]
-name = "jgenesis-traits"
-version = "0.4.2"
-dependencies = [
- "bincode",
- "bytemuck",
- "jgenesis-proc-macros",
- "serde",
- "thiserror",
 ]
 
 [[package]]
@@ -1909,9 +1909,9 @@ dependencies = [
  "console_log",
  "genesis-core",
  "getrandom",
+ "jgenesis-common",
  "jgenesis-proc-macros",
  "jgenesis-renderer",
- "jgenesis-traits",
  "js-sys",
  "log",
  "rand",
@@ -2046,8 +2046,8 @@ name = "m68000-emu"
 version = "0.4.2"
 dependencies = [
  "bincode",
+ "jgenesis-common",
  "jgenesis-proc-macros",
- "jgenesis-traits",
  "log",
 ]
 
@@ -2836,8 +2836,8 @@ dependencies = [
  "bincode",
  "crc",
  "genesis-core",
+ "jgenesis-common",
  "jgenesis-proc-macros",
- "jgenesis-traits",
  "log",
  "m68000-emu",
  "regex",
@@ -2982,8 +2982,8 @@ version = "0.4.2"
 dependencies = [
  "bincode",
  "crc",
+ "jgenesis-common",
  "jgenesis-proc-macros",
- "jgenesis-traits",
  "log",
  "serde",
  "thiserror",
@@ -2996,8 +2996,8 @@ version = "0.4.2"
 dependencies = [
  "bincode",
  "genesis-core",
+ "jgenesis-common",
  "jgenesis-proc-macros",
- "jgenesis-traits",
  "log",
  "serde",
  "spc700-emu",
@@ -3020,7 +3020,7 @@ name = "spc700-emu"
 version = "0.4.2"
 dependencies = [
  "bincode",
- "jgenesis-traits",
+ "jgenesis-common",
  "log",
 ]
 
@@ -3581,7 +3581,7 @@ name = "wdc65816-emu"
 version = "0.4.2"
 dependencies = [
  "bincode",
- "jgenesis-traits",
+ "jgenesis-common",
  "log",
 ]
 
@@ -4103,7 +4103,7 @@ name = "z80-emu"
 version = "0.4.2"
 dependencies = [
  "bincode",
- "jgenesis-traits",
+ "jgenesis-common",
  "log",
  "rand",
 ]

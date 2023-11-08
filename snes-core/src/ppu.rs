@@ -2,9 +2,9 @@ mod colortable;
 mod debug;
 
 use bincode::{Decode, Encode};
+use jgenesis_common::frontend::{Color, FrameSize, TimingMode};
+use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
-use jgenesis_traits::frontend::{Color, FrameSize, TimingMode};
-use jgenesis_traits::num::GetBit;
 use std::cmp;
 use std::ops::{Deref, DerefMut};
 

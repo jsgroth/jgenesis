@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use jgenesis_common::frontend::EmulatorTrait;
 use jgenesis_native_driver::config::input::{
     AxisDirection, HatDirection, JoystickAction, JoystickInput, KeyboardInput,
 };
@@ -9,7 +10,6 @@ use jgenesis_native_driver::{
     NativeSnesEmulator, NativeTickEffect, SaveWriteError,
 };
 use jgenesis_renderer::renderer::RendererError;
-use jgenesis_traits::frontend::EmulatorTrait;
 use sdl2::event::Event;
 use sdl2::joystick::HatState;
 use sdl2::pixels::Color;

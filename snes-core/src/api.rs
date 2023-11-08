@@ -6,12 +6,12 @@ use crate::memory::dma::{DmaStatus, DmaUnit};
 use crate::memory::{CpuInternalRegisters, Memory};
 use crate::ppu::{Ppu, PpuTickEffect};
 use bincode::{Decode, Encode};
-use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
-use jgenesis_traits::frontend::{
+use jgenesis_common::frontend::{
     AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, FrameSize, PartialClone,
     PixelAspectRatio, Renderer, Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
     TimingMode,
 };
+use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use std::fmt::{Debug, Display};
 use std::iter;
 use thiserror::Error;

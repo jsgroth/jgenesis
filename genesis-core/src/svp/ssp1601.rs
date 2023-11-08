@@ -1,7 +1,7 @@
 //! Samsung SSP1601 DSP, the primary component of the SVP
 
 use crate::svp::{PmcWaitingFor, StatusRegister, Svp};
-use jgenesis_traits::num::GetBit;
+use jgenesis_common::num::GetBit;
 use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

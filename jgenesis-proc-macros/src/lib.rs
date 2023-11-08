@@ -428,9 +428,9 @@ pub fn fake_decode(input: TokenStream) -> TokenStream {
     gen.into()
 }
 
-/// Implement the `jgenesis_traits::frontend::PartialClone` trait for a given struct or enum.
+/// Implement the `jgenesis_common::frontend::PartialClone` trait for a given struct or enum.
 ///
-/// This macro should be imported through `jgenesis_traits` instead of directly from this crate so
+/// This macro should be imported through `jgenesis_common` instead of directly from this crate so
 /// that both the macro and the trait are imported.
 ///
 /// Fields that are not marked with a `#[partial_clone]` attribute will be cloned using that type's
@@ -447,7 +447,7 @@ pub fn fake_decode(input: TokenStream) -> TokenStream {
 ///
 /// Examples/tests:
 /// ```
-/// use jgenesis_traits::frontend::PartialClone;
+/// use jgenesis_common::frontend::PartialClone;
 ///
 /// #[derive(Debug, PartialEq, PartialClone)]
 /// struct UnitStruct;
@@ -456,7 +456,7 @@ pub fn fake_decode(input: TokenStream) -> TokenStream {
 /// ```
 ///
 /// ```
-/// use jgenesis_traits::frontend::PartialClone;
+/// use jgenesis_common::frontend::PartialClone;
 ///
 /// #[derive(Debug, PartialEq, PartialClone)]
 /// struct Nested(Vec<u8>, #[partial_clone(default)] Vec<u16>, String);
@@ -472,7 +472,7 @@ pub fn fake_decode(input: TokenStream) -> TokenStream {
 /// ```
 ///
 /// ```
-/// use jgenesis_traits::frontend::PartialClone;
+/// use jgenesis_common::frontend::PartialClone;
 ///
 /// #[derive(Debug, PartialEq, PartialClone)]
 /// struct Nested {
@@ -503,7 +503,7 @@ pub fn fake_decode(input: TokenStream) -> TokenStream {
 /// ```
 ///
 /// ```
-/// use jgenesis_traits::frontend::PartialClone;
+/// use jgenesis_common::frontend::PartialClone;
 ///
 /// #[derive(Debug, PartialEq, PartialClone)]
 /// struct Nested(Vec<u8>, #[partial_clone(default)] String);
@@ -520,7 +520,7 @@ pub fn fake_decode(input: TokenStream) -> TokenStream {
 /// ```
 ///
 /// ```
-/// use jgenesis_traits::frontend::PartialClone;
+/// use jgenesis_common::frontend::PartialClone;
 ///
 /// #[derive(Debug, PartialEq, PartialClone)]
 /// struct Nested(Vec<u8>, #[partial_clone(default)] String);
@@ -563,12 +563,12 @@ pub fn partial_clone(input: TokenStream) -> TokenStream {
 
     let mut generics = input.generics.clone();
     for type_param in generics.type_params_mut() {
-        type_param.bounds.push(parse_quote!(::jgenesis_traits::frontend::PartialClone));
+        type_param.bounds.push(parse_quote!(::jgenesis_common::frontend::PartialClone));
     }
     let (impl_generics, type_generics, where_clause) = generics.split_for_impl();
 
     let gen = quote! {
-        impl #impl_generics ::jgenesis_traits::frontend::PartialClone for #type_ident #type_generics #where_clause {
+        impl #impl_generics ::jgenesis_common::frontend::PartialClone for #type_ident #type_generics #where_clause {
             fn partial_clone(&self) -> Self {
                 #body
             }
@@ -593,7 +593,7 @@ fn partial_clone_struct_body(data: &DataStruct) -> proc_macro2::TokenStream {
                             ::std::clone::Clone::clone(&self.#i)
                         },
                         PartialCloneAttr::PartialClone => quote! {
-                            ::jgenesis_traits::frontend::PartialClone::partial_clone(&self.#i)
+                            ::jgenesis_common::frontend::PartialClone::partial_clone(&self.#i)
                         },
                         PartialCloneAttr::Default => quote! {
                             ::std::default::Default::default()
@@ -618,7 +618,7 @@ fn partial_clone_struct_body(data: &DataStruct) -> proc_macro2::TokenStream {
                             #field_ident: ::std::clone::Clone::clone(&self.#field_ident)
                         },
                         PartialCloneAttr::PartialClone => quote! {
-                            #field_ident: ::jgenesis_traits::frontend::PartialClone::partial_clone(&self.#field_ident)
+                            #field_ident: ::jgenesis_common::frontend::PartialClone::partial_clone(&self.#field_ident)
                         },
                         PartialCloneAttr::Default => quote! {
                             #field_ident: ::std::default::Default::default()
@@ -655,7 +655,7 @@ fn partial_clone_enum_body(data: &DataEnum) -> proc_macro2::TokenStream {
                             ::std::clone::Clone::clone(#field_ident)
                         },
                         PartialCloneAttr::PartialClone => quote! {
-                            ::jgenesis_traits::frontend::PartialClone::partial_clone(#field_ident)
+                            ::jgenesis_common::frontend::PartialClone::partial_clone(#field_ident)
                         },
                         PartialCloneAttr::Default => quote! {
                             ::std::default::Default::default()
@@ -685,7 +685,7 @@ fn partial_clone_enum_body(data: &DataEnum) -> proc_macro2::TokenStream {
                             #field_ident: ::std::clone::Clone::clone(#field_ident)
                         },
                         PartialCloneAttr::PartialClone => quote! {
-                            #field_ident: ::jgenesis_traits::frontend::PartialClone::partial_clone(#field_ident)
+                            #field_ident: ::jgenesis_common::frontend::PartialClone::partial_clone(#field_ident)
                         },
                         PartialCloneAttr::Default => quote! {
                             #field_ident: ::std::default::Default::default()

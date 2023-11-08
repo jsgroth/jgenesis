@@ -1,4 +1,4 @@
-use jgenesis_traits::frontend::{PartialClone, Renderer, TakeRomFrom, TickableEmulator};
+use jgenesis_common::frontend::{PartialClone, Renderer, TakeRomFrom, TickableEmulator};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 

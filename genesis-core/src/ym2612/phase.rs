@@ -2,7 +2,7 @@
 
 use crate::ym2612::lfo;
 use bincode::{Decode, Encode};
-use jgenesis_traits::num::GetBit;
+use jgenesis_common::num::GetBit;
 
 const PHASE_DIVIDER: u8 = 144 / 6;
 

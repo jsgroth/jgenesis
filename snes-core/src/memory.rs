@@ -5,9 +5,9 @@ use crate::input::{SnesInputs, SnesJoypadState};
 use crate::memory::cartridge::Cartridge;
 use crate::ppu::Ppu;
 use bincode::{Decode, Encode};
+use jgenesis_common::frontend::TimingMode;
+use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::PartialClone;
-use jgenesis_traits::frontend::TimingMode;
-use jgenesis_traits::num::GetBit;
 use std::array;
 
 const MAIN_RAM_LEN: usize = 128 * 1024;

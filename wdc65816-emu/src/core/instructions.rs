@@ -7,7 +7,7 @@ mod load;
 
 use crate::core::{InterruptType, Registers, SizeBits, Wdc65816};
 use crate::traits::BusInterface;
-use jgenesis_traits::num::{GetBit, SignBit};
+use jgenesis_common::num::{GetBit, SignBit};
 
 fn u24_address(bank: u8, address: u16) -> u32 {
     (u32::from(bank) << 16) | u32::from(address)

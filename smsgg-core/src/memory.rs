@@ -4,8 +4,8 @@ mod metadata;
 
 use bincode::{Decode, Encode};
 use crc::Crc;
+use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
-use jgenesis_traits::num::GetBit;
 use std::mem;
 use std::ops::{Index, RangeInclusive};
 

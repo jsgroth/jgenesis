@@ -1,6 +1,6 @@
 use bincode::{Decode, Encode};
 use genesis_core::audio::SignalDownsampler;
-use jgenesis_traits::frontend::AudioOutput;
+use jgenesis_common::frontend::AudioOutput;
 
 const SNES_AUDIO_FREQUENCY: f64 = 32000.0;
 

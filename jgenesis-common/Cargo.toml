@@ -1,5 +1,5 @@
 [package]
-name = "jgenesis-traits"
+name = "jgenesis-common"
 version = "0.4.2"
 edition = "2021"
 

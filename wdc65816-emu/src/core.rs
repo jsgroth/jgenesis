@@ -2,7 +2,7 @@ mod instructions;
 
 use crate::traits::BusInterface;
 use bincode::{Decode, Encode};
-use jgenesis_traits::num::GetBit;
+use jgenesis_common::num::GetBit;
 
 const DEFAULT_STACK_POINTER: u16 = 0x0100;
 

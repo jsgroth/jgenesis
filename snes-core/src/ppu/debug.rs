@@ -1,5 +1,5 @@
 use crate::ppu::{convert_snes_color, Ppu};
-use jgenesis_traits::frontend::Color;
+use jgenesis_common::frontend::Color;
 
 impl Ppu {
     pub fn debug_cram(&self, out: &mut [Color]) {

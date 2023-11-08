@@ -1,7 +1,7 @@
 use crate::bus::Bus;
 use crate::memory::{DmaDirection, DmaIncrementMode, HdmaAddressingMode};
 use bincode::{Decode, Encode};
-use jgenesis_traits::num::GetBit;
+use jgenesis_common::num::GetBit;
 use wdc65816_emu::traits::BusInterface;
 
 // Bus B (8-bit) is mapped to $2100-$21FF in Bus A (24-bit)

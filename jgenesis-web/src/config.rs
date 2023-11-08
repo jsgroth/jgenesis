@@ -1,10 +1,10 @@
 use crate::SmsGgConsole;
 use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig};
+use jgenesis_common::frontend::{PixelAspectRatio, TimingMode};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, RendererConfig, Scanlines, VSyncMode, WgpuBackend,
 };
-use jgenesis_traits::frontend::{PixelAspectRatio, TimingMode};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgEmulatorConfig, SmsRegion, VdpVersion};
 use std::cell::RefCell;

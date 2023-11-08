@@ -1,6 +1,6 @@
 use crate::mainloop::{NativeEmulatorError, NativeEmulatorResult};
-use jgenesis_traits::frontend;
-use jgenesis_traits::frontend::{Color, EmulatorDebug};
+use jgenesis_common::frontend;
+use jgenesis_common::frontend::{Color, EmulatorDebug};
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::render::WindowCanvas;
 use sdl2::VideoSubsystem;

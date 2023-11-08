@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
-jgenesis-traits = { path = "../jgenesis-traits" }
+jgenesis-common = { path = "../jgenesis-common" }
 
 bytemuck = { workspace = true }
 log = { workspace = true }

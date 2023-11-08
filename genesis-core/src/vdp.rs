@@ -4,9 +4,9 @@ mod debug;
 
 use crate::memory::{Memory, PhysicalMedium};
 use bincode::{Decode, Encode};
+use jgenesis_common::frontend::{Color, TimingMode};
+use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
-use jgenesis_traits::frontend::{Color, TimingMode};
-use jgenesis_traits::num::GetBit;
 use std::ops::{Add, AddAssign, Deref, DerefMut};
 use z80_emu::traits::InterruptLine;
 

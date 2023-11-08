@@ -1,5 +1,5 @@
 use crate::traits::{BusInterface, InterruptLine};
-use jgenesis_traits::num::GetBit;
+use jgenesis_common::num::GetBit;
 
 mod instructions;
 

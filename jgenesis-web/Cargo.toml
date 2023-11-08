@@ -12,7 +12,7 @@ crate-type = ["cdylib"]
 genesis-core = { path = "../genesis-core" }
 jgenesis-renderer = { path = "../jgenesis-renderer" }
 jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
-jgenesis-traits = { path = "../jgenesis-traits" }
+jgenesis-common = { path = "../jgenesis-common" }
 smsgg-core = { path = "../smsgg-core" }
 
 anyhow = { workspace = true }

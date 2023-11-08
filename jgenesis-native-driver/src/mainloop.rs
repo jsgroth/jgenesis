@@ -14,10 +14,10 @@ use crate::mainloop::rewind::Rewinder;
 use bincode::error::{DecodeError, EncodeError};
 use bincode::{Decode, Encode};
 use genesis_core::{GenesisEmulator, GenesisEmulatorConfig, GenesisInputs};
-use jgenesis_renderer::renderer::{RendererError, WgpuRenderer};
-use jgenesis_traits::frontend::{
+use jgenesis_common::frontend::{
     AudioOutput, ConfigReload, EmulatorTrait, PartialClone, SaveWriter, TickEffect,
 };
+use jgenesis_renderer::renderer::{RendererError, WgpuRenderer};
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::event::{Event, WindowEvent};
 use sdl2::render::TextureValueError;

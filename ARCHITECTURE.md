@@ -4,7 +4,7 @@
 
 The crates can be broken up roughly into 5 categories:
 
-* Common libraries: `jgenesis-traits`, `jgenesis-proc-macros`
+* Common libraries: `jgenesis-common`, `jgenesis-proc-macros`
 * CPU emulators: `z80-emu`, `m68000-emu`, `wdc65816-emu`, `spc700-emu`
 * Emulation backend: `smsgg-core`, `genesis-core`, `segacd-core`, `snes-core`
 * Emulation frontend: `jgenesis-renderer`, `jgenesis-native-driver`, `jgenesis-cli`, `jgenesis-gui`, `jgenesis-web`
@@ -44,9 +44,9 @@ Emulation core for the Sega CD / Mega CD. Uses many components from `genesis-cor
 
 Emulation core for the Super Nintendo Entertainment System (SNES) / Super Famicom.
 
-### `jgenesis-traits`
+### `jgenesis-common`
 
-Traits that define the interface between the emulation backends and the emulation frontends, as well as a few helper extension traits used across many of the other crates.
+Contains traits that define the interface between the emulation backends and the emulation frontends, as well as some dependency-light common code that is used across many of the other crates (e.g. helper extension traits).
 
 ### `jgenesis-proc-macros`
 
