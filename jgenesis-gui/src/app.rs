@@ -419,7 +419,7 @@ impl App {
 
         let mut file_dialog =
             FileDialog::new().add_filter("sms/gg/md/cue", &["sms", "gg", "md", "bin", "cue"]);
-        if let Some(dir) = self.config.rom_search_dirs.get(0) {
+        if let Some(dir) = self.config.rom_search_dirs.first() {
             file_dialog = file_dialog.set_directory(Path::new(dir));
         }
         let Some(path) = file_dialog.pick_file() else { return };

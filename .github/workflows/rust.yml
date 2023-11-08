@@ -25,7 +25,7 @@ jobs:
       uses: actions-rs/toolchain@v1
       with:
         toolchain: nightly
-        components: rustfmt
+        components: rustfmt clippy
 
     - name: Install system library dependencies
       run: |
@@ -53,6 +53,7 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: cranky
+        toolchain: nightly
         args: -- -D warnings
 
     - name: Run tests
