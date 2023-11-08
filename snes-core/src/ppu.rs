@@ -2249,8 +2249,8 @@ impl Ppu {
                 let tile_base_addr = self.registers.obj_tile_base_address
                     + u16::from(tile_number.bit(8))
                         * (256 * tile_size_words + self.registers.obj_tile_gap_size);
-                let tile_addr =
-                    (tile_base_addr + (tile_number & 0x00FF) * tile_size_words) as usize;
+                let tile_addr = ((tile_base_addr + (tile_number & 0x00FF) * tile_size_words)
+                    & VRAM_ADDRESS_MASK) as usize;
 
                 let tile_data = &self.vram[tile_addr..tile_addr + tile_size_words as usize];
 
