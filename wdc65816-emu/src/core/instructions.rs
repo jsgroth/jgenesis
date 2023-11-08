@@ -1821,13 +1821,19 @@ pub fn execute<B: BusInterface>(cpu: &mut Wdc65816, bus: &mut B) {
     if log::log_enabled!(log::Level::Trace) {
         let instr_name = disassemble::instruction_str(cpu.state.opcode);
         log::trace!(
-            "Fetched opcode from PBR={:02X} / PC={:04X}: {:02X} ({instr_name}); m={}, x={}, e={}",
+            "Fetched opcode from PBR={:02X} / PC={:04X}: {:02X} ({instr_name}); m={}, x={}, e={}, A={:04X}, X={:04X}, Y={:04X}, D={:04X}, S={:04X}, DBR={:02X}",
             cpu.registers.pbr,
             cpu.registers.pc.wrapping_sub(1),
             cpu.state.opcode,
             u8::from(cpu.registers.p.accumulator_size == SizeBits::Eight),
             u8::from(cpu.registers.p.index_size == SizeBits::Eight),
             u8::from(cpu.registers.emulation_mode),
+            cpu.registers.a,
+            cpu.registers.x,
+            cpu.registers.y,
+            cpu.registers.d,
+            cpu.registers.s,
+            cpu.registers.dbr
         );
     }
 }
