@@ -247,17 +247,25 @@ impl TakeRomFrom for SnesEmulator {
 
 impl Resettable for SnesEmulator {
     fn soft_reset(&mut self) {
+        log::info!("Soft resetting");
+
         self.main_cpu.reset(&mut new_bus!(self));
+        self.cpu_registers.reset();
+        self.ppu.reset();
         self.apu.reset();
 
-        // TODO reset other processors and registers?
+        // Reset WRAM port address
+        self.memory.write_wram_port_address_low(0);
+        self.memory.write_wram_port_address_mid(0);
+        self.memory.write_wram_port_address_high(0);
     }
 
     fn hard_reset(&mut self) {
+        log::info!("Hard resetting");
+
         let rom = self.memory.take_rom();
         let sram = self.memory.sram().map(Vec::from);
 
-        // TODO properly clone config
         *self = Self::create(
             rom,
             sram,

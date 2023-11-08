@@ -2625,6 +2625,14 @@ impl Ppu {
             self.registers.update_wrio(wrio, h_counter, v_counter);
         }
     }
+
+    pub fn reset(&mut self) {
+        // Enable forced blanking
+        self.registers.write_inidisp(0x80);
+
+        // Return to default rendering mode (224-line, non-interlaced, no pseudo-hi-res or smaller OBJs)
+        self.registers.write_setini(0x00);
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

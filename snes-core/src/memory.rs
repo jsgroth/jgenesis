@@ -902,6 +902,25 @@ impl CpuInternalRegisters {
     pub fn irq_pending(&self) -> bool {
         self.irq_pending
     }
+
+    pub fn reset(&mut self) {
+        // Reset NMITIMEN and clear any pending NMI
+        self.write_register(0x4200, 0x00);
+        self.vblank_nmi_flag = false;
+        self.nmi_pending = false;
+
+        // Reset WRIO
+        self.write_register(0x4201, 0xFF);
+
+        // Reset MDMAEN
+        self.write_register(0x420B, 0x00);
+
+        // Reset HDMAEN
+        self.write_register(0x420C, 0x00);
+
+        // Reset MEMSEL
+        self.write_register(0x420D, 0x00);
+    }
 }
 
 fn check_v_irq(scanline_mclk: u64, master_cycles_elapsed: u64) -> bool {
