@@ -1170,19 +1170,21 @@ impl Registers {
         }
     }
 
-    fn read_ophct(&mut self) -> u8 {
+    fn read_ophct(&mut self, ppu2_open_bus: u8) -> u8 {
+        // Bits 1-7 of high byte are PPU2 open bus
         let value = match self.h_counter_flipflop {
             AccessFlipflop::First => self.latched_h_counter as u8,
-            AccessFlipflop::Second => (self.latched_h_counter >> 8) as u8,
+            AccessFlipflop::Second => (ppu2_open_bus & 0xFE) | (self.latched_h_counter >> 8) as u8,
         };
         self.h_counter_flipflop = self.h_counter_flipflop.toggle();
         value
     }
 
-    fn read_opvct(&mut self) -> u8 {
+    fn read_opvct(&mut self, ppu2_open_bus: u8) -> u8 {
+        // Bits 1-7 of high byte are PPU2 open bus
         let value = match self.v_counter_flipflop {
             AccessFlipflop::First => self.latched_v_counter as u8,
-            AccessFlipflop::Second => (self.latched_v_counter >> 8) as u8,
+            AccessFlipflop::Second => (ppu2_open_bus & 0xFE) | (self.latched_v_counter >> 8) as u8,
         };
         self.v_counter_flipflop = self.v_counter_flipflop.toggle();
         value
@@ -1225,6 +1227,8 @@ struct State {
     scanline_master_cycles: u64,
     odd_frame: bool,
     pending_sprite_pixel_overflow: bool,
+    ppu1_open_bus: u8,
+    ppu2_open_bus: u8,
 }
 
 impl State {
@@ -1234,6 +1238,8 @@ impl State {
             scanline_master_cycles: 0,
             odd_frame: false,
             pending_sprite_pixel_overflow: false,
+            ppu1_open_bus: 0,
+            ppu2_open_bus: 0,
         }
     }
 }
@@ -2350,7 +2356,8 @@ impl Ppu {
     pub fn read_port(&mut self, address: u32) -> u8 {
         log::trace!("Read PPU register: {address:06X}");
 
-        match address & 0xFF {
+        let address_lsb = address & 0xFF;
+        let value = match address_lsb {
             0x34 => self.registers.read_mpyl(),
             0x35 => self.registers.read_mpym(),
             0x36 => self.registers.read_mpyh(),
@@ -2379,21 +2386,25 @@ impl Ppu {
                 // RDCGRAM: CGRAM data port, read
                 self.read_cgram_data_port()
             }
-            0x3C => self.registers.read_ophct(),
-            0x3D => self.registers.read_opvct(),
+            0x3C => self.registers.read_ophct(self.state.ppu2_open_bus),
+            0x3D => self.registers.read_opvct(self.state.ppu2_open_bus),
             0x3E => {
                 // STAT77: PPU1 status and version number
                 // Version number hardcoded to 1
+                // Bit 4 is PPU1 open bus
                 (u8::from(self.registers.sprite_pixel_overflow) << 7)
                     | (u8::from(self.registers.sprite_overflow) << 6)
+                    | (self.state.ppu1_open_bus & 0x10)
                     | 0x01
             }
             0x3F => {
                 // STAT78: PPU2 status and version number
                 // Version number hardcoded to 1
+                // Bit 5 is PPU2 open bus
                 let value = (u8::from(self.state.odd_frame) << 7)
                     | (u8::from(self.registers.new_hv_latched) << 6)
-                    | (u8::from(self.timing_mode == TimingMode::Pal) << 1)
+                    | (self.state.ppu2_open_bus & 0x20)
+                    | (u8::from(self.timing_mode == TimingMode::Pal) << 4)
                     | 0x01;
 
                 self.registers.new_hv_latched = false;
@@ -2401,11 +2412,29 @@ impl Ppu {
 
                 value
             }
+            0x04 | 0x05 | 0x06 | 0x08 | 0x09 | 0x0A | 0x14 | 0x15 | 0x16 | 0x18 | 0x19 | 0x1A
+            | 0x24 | 0x25 | 0x26 | 0x28 | 0x29 | 0x2A => {
+                // PPU1 open bus (all 8 bits)
+                self.state.ppu1_open_bus
+            }
             _ => {
                 log::warn!("Unmapped PPU read {address:06X}");
                 0x00
             }
+        };
+
+        if (0x34..0x37).contains(&address_lsb)
+            || (0x38..0x3B).contains(&address_lsb)
+            || address_lsb == 0x3E
+        {
+            // Reading $2134-$2136, $2138-$213A, or $213E sets PPU1 open bus
+            self.state.ppu1_open_bus = value;
+        } else if (0x3B..0x3E).contains(&address_lsb) || address_lsb == 0x3F {
+            // Reading $213B-$213D or $213F sets PPU2 open bus
+            self.state.ppu2_open_bus = value;
         }
+
+        value
     }
 
     pub fn write_port(&mut self, address: u32, value: u8) {
@@ -2589,8 +2618,9 @@ impl Ppu {
                 self.registers.cgram_flipflop = AccessFlipflop::Second;
             }
             AccessFlipflop::Second => {
+                // Only bits 6-0 of high byte are persisted
                 self.cgram[self.registers.cgram_address as usize] =
-                    u16::from_le_bytes([self.registers.cgram_write_buffer, value]);
+                    u16::from_le_bytes([self.registers.cgram_write_buffer, value & 0x7F]);
                 self.registers.cgram_flipflop = AccessFlipflop::First;
 
                 self.registers.cgram_address = self.registers.cgram_address.wrapping_add(1);
@@ -2609,11 +2639,11 @@ impl Ppu {
                 word as u8
             }
             AccessFlipflop::Second => {
-                // High byte
+                // High byte; bit 7 is PPU2 open bus
                 self.registers.cgram_flipflop = AccessFlipflop::First;
                 self.registers.cgram_address = self.registers.cgram_address.wrapping_add(1);
 
-                (word >> 8) as u8
+                (self.state.ppu2_open_bus & 0x80) | (word >> 8) as u8
             }
         }
     }
