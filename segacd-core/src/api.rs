@@ -501,6 +501,7 @@ impl EmulatorDebug for SegaCdEmulator {
     const NUM_PALETTES: u32 = GenesisEmulator::NUM_PALETTES;
     const PALETTE_LEN: u32 = GenesisEmulator::PALETTE_LEN;
     const PATTERN_TABLE_LEN: u32 = GenesisEmulator::PATTERN_TABLE_LEN;
+    const SUPPORTS_VRAM_DEBUG: bool = true;
 
     fn debug_cram(&self, out: &mut [Color]) {
         self.vdp.debug_cram(out);

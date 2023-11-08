@@ -207,6 +207,8 @@ pub trait EmulatorDebug {
     // VRAM size
     const PATTERN_TABLE_LEN: u32;
 
+    const SUPPORTS_VRAM_DEBUG: bool;
+
     fn debug_cram(&self, out: &mut [Color]);
 
     fn debug_vram(&self, out: &mut [Color], palette: u8);

@@ -413,8 +413,8 @@ impl Resettable for GenesisEmulator {
 impl EmulatorDebug for GenesisEmulator {
     const NUM_PALETTES: u32 = 4;
     const PALETTE_LEN: u32 = 16;
-
     const PATTERN_TABLE_LEN: u32 = 2048;
+    const SUPPORTS_VRAM_DEBUG: bool = true;
 
     fn debug_cram(&self, out: &mut [Color]) {
         self.vdp.debug_cram(out);

@@ -362,8 +362,8 @@ impl Resettable for SmsGgEmulator {
 impl EmulatorDebug for SmsGgEmulator {
     const NUM_PALETTES: u32 = 2;
     const PALETTE_LEN: u32 = 16;
-
     const PATTERN_TABLE_LEN: u32 = 512;
+    const SUPPORTS_VRAM_DEBUG: bool = true;
 
     fn debug_cram(&self, out: &mut [Color]) {
         self.vdp.debug_cram(out);

@@ -54,7 +54,8 @@ impl ApuRegisters {
 
         match register {
             0 => {
-                todo!("APU test register read")
+                log::warn!("Unimplemented APU test register was read");
+                0x00
             }
             1 => {
                 // Control register
@@ -87,7 +88,7 @@ impl ApuRegisters {
         #[allow(clippy::match_same_arms)]
         match register {
             0 => {
-                todo!("APU test register write")
+                log::warn!("Unimplemented APU test register was written with value {value:02X}");
             }
             1 => {
                 // Control register

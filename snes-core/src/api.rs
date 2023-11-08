@@ -278,6 +278,7 @@ impl EmulatorDebug for SnesEmulator {
     const NUM_PALETTES: u32 = 16;
     const PALETTE_LEN: u32 = 16;
     const PATTERN_TABLE_LEN: u32 = 0;
+    const SUPPORTS_VRAM_DEBUG: bool = false;
 
     fn debug_cram(&self, out: &mut [Color]) {
         self.ppu.debug_cram(out);

@@ -1157,7 +1157,11 @@ where
                 vram_debug.toggle_palette()?;
             }
             None => {
-                *vram_debug = Some(VramDebug::new::<Emulator>(video)?);
+                if Emulator::SUPPORTS_VRAM_DEBUG {
+                    *vram_debug = Some(VramDebug::new::<Emulator>(video)?);
+                } else {
+                    log::error!("Currently running console does not support VRAM debug window");
+                }
             }
         },
     }
