@@ -44,7 +44,7 @@ impl<'a> Bus<'a> {
                 self.access_master_cycles = FAST_MASTER_CYCLES;
 
                 // PPU ports
-                self.ppu.read_port(address)
+                self.ppu.read_port(address).unwrap_or(self.memory.cpu_open_bus())
             }
             0x2140..=0x217F => {
                 self.access_master_cycles = FAST_MASTER_CYCLES;
@@ -58,30 +58,41 @@ impl<'a> Bus<'a> {
                 // WMDATA: WRAM port in address bus B
                 self.memory.read_wram_port()
             }
-            0x4000..=0x40FF => {
+            0x4000..=0x41FF => {
                 self.access_master_cycles = XSLOW_MASTER_CYCLES;
 
-                // CPU I/O ports (manual joypad ports)
-                self.cpu_registers.read_register(address)
+                // $4016 and $4017 are CPU I/O ports (manual joypad ports)
+                // The rest of this range is CPU open bus with XSlow memory speed
+                let cpu_open_bus = self.memory.cpu_open_bus();
+                self.cpu_registers.read_register(address, cpu_open_bus).unwrap_or_else(|| {
+                    self.memory.read_cartridge(full_address).unwrap_or(cpu_open_bus)
+                })
             }
-            0x4100..=0x4FFF => {
+            0x4200..=0x5FFF => {
                 self.access_master_cycles = FAST_MASTER_CYCLES;
 
                 // CPU I/O ports (everything except manual joypad ports)
-                self.cpu_registers.read_register(address)
+                // $4220-$42FF and $4380-$5FFF are CPU open bus with Fast memory speed
+                let cpu_open_bus = self.memory.cpu_open_bus();
+                self.cpu_registers.read_register(address, cpu_open_bus).unwrap_or_else(|| {
+                    self.memory.read_cartridge(full_address).unwrap_or(cpu_open_bus)
+                })
+            }
+            0x2000..=0x20FF | 0x2181..=0x3FFF => {
+                self.access_master_cycles = FAST_MASTER_CYCLES;
+
+                // Open bus with Fast memory speed
+                // Send to the cartridge first because some cartridges respond to these addresses
+                self.memory.read_cartridge(full_address).unwrap_or(self.memory.cpu_open_bus())
             }
             0x6000..=0x7FFF => {
                 self.access_master_cycles = SLOW_MASTER_CYCLES;
 
-                // Cartridge expansion
-                self.memory.read_cartridge(full_address)
+                // Open bus with Slow memory speed
+                // Send to the cartridge first because some cartridges respond to these addresses
+                self.memory.read_cartridge(full_address).unwrap_or(self.memory.cpu_open_bus())
             }
-            _ => {
-                self.access_master_cycles = SLOW_MASTER_CYCLES;
-
-                log::warn!("Unmapped read system area {address:06X}");
-                0x00
-            }
+            _ => panic!("invalid system area address: {full_address:06X}"),
         }
     }
 
@@ -162,8 +173,8 @@ impl<'a> BusInterface for Bus<'a> {
     fn read(&mut self, address: u32) -> u8 {
         log::trace!("Bus read {address:06X}");
 
-        let bank = address >> 16;
-        let offset = address & 0xFFFF;
+        let bank = (address >> 16) as u8;
+        let offset = address as u16;
         match (bank, offset) {
             (0x00..=0x3F | 0x80..=0xBF, 0x0000..=0x7FFF) => {
                 // System area
@@ -173,25 +184,19 @@ impl<'a> BusInterface for Bus<'a> {
                 self.access_master_cycles = SLOW_MASTER_CYCLES;
 
                 // Cartridge (Memory-1)
-                self.memory.read_cartridge(address)
+                self.memory.read_cartridge(address).unwrap_or(self.memory.cpu_open_bus())
             }
             (0x80..=0xBF, 0x8000..=0xFFFF) | (0xC0..=0xFF, _) => {
                 self.access_master_cycles = self.cpu_registers.memory_2_speed().master_cycles();
 
                 // Cartridge (Memory-2)
-                self.memory.read_cartridge(address)
+                self.memory.read_cartridge(address).unwrap_or(self.memory.cpu_open_bus())
             }
             (0x7E..=0x7F, _) => {
                 self.access_master_cycles = SLOW_MASTER_CYCLES;
 
                 // WRAM
                 self.memory.read_wram(address)
-            }
-            _ => {
-                self.access_master_cycles = SLOW_MASTER_CYCLES;
-
-                log::warn!("Unmapped read address {address:06X}");
-                0x00
             }
         }
     }
@@ -200,8 +205,8 @@ impl<'a> BusInterface for Bus<'a> {
     fn write(&mut self, address: u32, value: u8) {
         log::trace!("Bus write {address:06X} {value:02X}");
 
-        let bank = address >> 16;
-        let offset = address & 0xFFFF;
+        let bank = (address >> 16) as u8;
+        let offset = address as u16;
         match (bank, offset) {
             (0x00..=0x3F | 0x80..=0xBF, 0x0000..=0x7FFF) => {
                 // System area
@@ -224,11 +229,6 @@ impl<'a> BusInterface for Bus<'a> {
 
                 // WRAM
                 self.memory.write_wram(address, value);
-            }
-            _ => {
-                self.access_master_cycles = SLOW_MASTER_CYCLES;
-
-                log::warn!("Unmapped write address {address:06X} {value:02X}");
             }
         }
     }

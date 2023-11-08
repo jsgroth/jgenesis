@@ -81,28 +81,20 @@ impl Cartridge {
         }
     }
 
-    pub fn read(&self, address: u32) -> u8 {
-        match self {
+    pub fn read(&self, address: u32) -> Option<u8> {
+        let (mapped_address, rom, sram) = match self {
             Self::LoRom { rom, sram } => {
-                match lorom_map_address(address, rom.len() as u32, sram.len() as u32) {
-                    CartridgeAddress::None => {
-                        // TODO open bus
-                        0x00
-                    }
-                    CartridgeAddress::Rom(rom_addr) => rom[rom_addr as usize],
-                    CartridgeAddress::Sram(sram_addr) => sram[sram_addr as usize],
-                }
+                (lorom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram)
             }
             Self::HiRom { rom, sram } => {
-                match hirom_map_address(address, rom.len() as u32, sram.len() as u32) {
-                    CartridgeAddress::None => {
-                        // TODO open bus
-                        0x00
-                    }
-                    CartridgeAddress::Rom(rom_addr) => rom[rom_addr as usize],
-                    CartridgeAddress::Sram(sram_addr) => sram[sram_addr as usize],
-                }
+                (hirom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram)
             }
+        };
+
+        match mapped_address {
+            CartridgeAddress::None => None,
+            CartridgeAddress::Rom(rom_addr) => Some(rom[rom_addr as usize]),
+            CartridgeAddress::Sram(sram_addr) => Some(sram[sram_addr as usize]),
         }
     }
 
@@ -243,7 +235,7 @@ fn lorom_map_address(address: u32, rom_len: u32, sram_len: u32) -> CartridgeAddr
                 CartridgeAddress::Rom(rom_addr)
             }
         }
-        _ => panic!("invalid cartridge address: {address:06X}"),
+        _ => CartridgeAddress::None,
     }
 }
 

@@ -40,6 +40,7 @@ pub struct Memory {
     cartridge: Cartridge,
     main_ram: Box<MainRam>,
     wram_port_address: u32,
+    cpu_open_bus: u8,
 }
 
 impl Memory {
@@ -50,11 +51,18 @@ impl Memory {
             cartridge,
             main_ram: vec![0; MAIN_RAM_LEN].into_boxed_slice().try_into().unwrap(),
             wram_port_address: 0,
+            cpu_open_bus: 0,
         }
     }
 
-    pub fn read_cartridge(&self, address: u32) -> u8 {
-        self.cartridge.read(address)
+    pub fn read_cartridge(&mut self, address: u32) -> Option<u8> {
+        match self.cartridge.read(address) {
+            Some(value) => {
+                self.cpu_open_bus = value;
+                Some(value)
+            }
+            None => None,
+        }
     }
 
     pub fn write_cartridge(&mut self, address: u32, value: u8) {
@@ -65,7 +73,7 @@ impl Memory {
         // Cartridge title is always at $00FFC0-$00FFD4 (inclusive)
         let mut title_bytes = [0; 0xFFD4 - 0xFFC0 + 1];
         for (i, byte) in title_bytes.iter_mut().enumerate() {
-            *byte = self.read_cartridge(0xFFC0 + i as u32);
+            *byte = self.read_cartridge(0xFFC0 + i as u32).unwrap_or(0);
         }
 
         title_bytes
@@ -79,9 +87,9 @@ impl Memory {
             .collect()
     }
 
-    pub fn cartridge_timing_mode(&self) -> TimingMode {
+    pub fn cartridge_timing_mode(&mut self) -> TimingMode {
         // Region byte is always at $00FFD9
-        let region_byte = self.read_cartridge(0xFFD9);
+        let region_byte = self.read_cartridge(0xFFD9).unwrap_or(0);
         match region_byte {
             // Japan / USA / South Korea / Canada / Brazil
             0x00 | 0x01 | 0x0D | 0x0F | 0x10 => TimingMode::Ntsc,
@@ -146,6 +154,10 @@ impl Memory {
 
     pub fn sram(&self) -> Option<&[u8]> {
         self.cartridge.sram()
+    }
+
+    pub fn cpu_open_bus(&self) -> u8 {
+        self.cpu_open_bus
     }
 }
 
@@ -373,18 +385,20 @@ impl CpuInternalRegisters {
         }
     }
 
-    pub fn read_register(&mut self, address: u32) -> u8 {
+    pub fn read_register(&mut self, address: u32, cpu_open_bus: u8) -> Option<u8> {
         log::trace!("Read CPU register: {address:06X}");
 
-        match address {
+        let value = match address {
             0x4016 => {
                 // JOYA: Manual joypad register A
-                u8::from(self.input_state.next_manual_p1_bit())
+                // Bits 7-2 are open bus
+                u8::from(self.input_state.next_manual_p1_bit()) | (cpu_open_bus & 0xFC)
             }
             0x4017 => {
                 // JOYB: Manual joypad register B
                 // Bits 2-4 always set
-                0x1C | u8::from(self.input_state.next_manual_p2_bit())
+                // Bits 7-5 are open bus
+                0x1C | u8::from(self.input_state.next_manual_p2_bit()) | (cpu_open_bus & 0xE0)
             }
             0x4210 => {
                 // RDNMI: VBlank NMI flag and CPU version number
@@ -394,7 +408,8 @@ impl CpuInternalRegisters {
                 self.vblank_nmi_flag = false;
 
                 // Hardcode version number to 2
-                (u8::from(vblank_nmi_flag) << 7) | 0x02
+                // Bits 6-4 are open bus
+                (u8::from(vblank_nmi_flag) << 7) | 0x02 | (cpu_open_bus & 0x70)
             }
             0x4211 => {
                 // TIMEUP: H/V IRQ flag
@@ -403,12 +418,15 @@ impl CpuInternalRegisters {
                 let irq_pending = self.irq_pending;
                 self.irq_pending = false;
 
-                u8::from(irq_pending) << 7
+                // Bits 6-0 are open bus
+                (u8::from(irq_pending) << 7) | (cpu_open_bus & 0x7F)
             }
             0x4212 => {
                 // HVBJOY: H/V blank flags and auto joypad in-progress flag
+                // Bits 5-1 are open bus
                 (u8::from(self.vblank_flag) << 7)
                     | (u8::from(self.hblank_flag) << 6)
+                    | (cpu_open_bus & 0x3E)
                     | u8::from(self.input_state.joypad_read_cycles_remaining > 0)
             }
             0x4213 => {
@@ -453,13 +471,15 @@ impl CpuInternalRegisters {
             }
             0x4300..=0x437F => {
                 // DMA registers
-                self.read_dma_register(address)
+                return self.read_dma_register(address);
             }
             _ => {
                 log::warn!("Unmapped read register {address:06X}");
-                0x00
+                return None;
             }
-        }
+        };
+
+        Some(value)
     }
 
     pub fn write_register(&mut self, address: u32, value: u8) {
@@ -602,11 +622,11 @@ impl CpuInternalRegisters {
         }
     }
 
-    fn read_dma_register(&self, address: u32) -> u8 {
+    fn read_dma_register(&self, address: u32) -> Option<u8> {
         // Second-least significant nibble is channel
         let channel = ((address >> 4) & 0x7) as usize;
 
-        match address & 0xFF0F {
+        let value = match address & 0xFF0F {
             0x4300 => {
                 // DMAPx: DMA parameters 0-7
                 self.dma_transfer_unit[channel]
@@ -659,15 +679,13 @@ impl CpuInternalRegisters {
                 // Unused DMA registers; R/W byte
                 self.unused_dma_register[channel]
             }
-            0x430C..=0x430E => {
-                // TODO open bus
-                0xFF
-            }
             _ => {
                 log::warn!("Unmapped read DMA register {address:06X}");
-                0x00
+                return None;
             }
-        }
+        };
+
+        Some(value)
     }
 
     fn write_dma_register(&mut self, address: u32, value: u8) {

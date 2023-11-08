@@ -2353,7 +2353,7 @@ impl Ppu {
         self.registers.bg_mode.is_hi_res() && self.registers.interlaced
     }
 
-    pub fn read_port(&mut self, address: u32) -> u8 {
+    pub fn read_port(&mut self, address: u32) -> Option<u8> {
         log::trace!("Read PPU register: {address:06X}");
 
         let address_lsb = address & 0xFF;
@@ -2367,8 +2367,8 @@ impl Ppu {
                 let v_counter = self.state.scanline;
                 self.registers.read_slhv(h_counter, v_counter);
 
-                // TODO reads should return open bus; hardcoding a common open bus value for this address
-                0x21
+                // Reading from this address returns CPU open bus
+                return None;
             }
             0x38 => {
                 // RDOAM: OAM data port, read
@@ -2419,7 +2419,7 @@ impl Ppu {
             }
             _ => {
                 log::warn!("Unmapped PPU read {address:06X}");
-                0x00
+                return None;
             }
         };
 
@@ -2434,7 +2434,7 @@ impl Ppu {
             self.state.ppu2_open_bus = value;
         }
 
-        value
+        Some(value)
     }
 
     pub fn write_port(&mut self, address: u32, value: u8) {

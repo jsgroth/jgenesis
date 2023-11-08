@@ -101,7 +101,7 @@ impl SnesEmulator {
         let main_cpu = Wdc65816::new();
         let cpu_registers = CpuInternalRegisters::new();
         let dma_unit = DmaUnit::new();
-        let memory = Memory::create(rom, initial_sram);
+        let mut memory = Memory::create(rom, initial_sram);
 
         let timing_mode =
             config.forced_timing_mode.unwrap_or_else(|| memory.cartridge_timing_mode());
