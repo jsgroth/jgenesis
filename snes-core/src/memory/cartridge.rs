@@ -234,5 +234,5 @@ fn hirom_map_address(address: u32, rom_len: u32, sram_len: u32) -> CartridgeAddr
 
 fn hirom_map_rom_address(address: u32, rom_len: u32) -> u32 {
     // TODO better handle unusual ROM sizes (and ExHiROM?)
-    address % rom_len
+    (address & 0x3FFFFF) % rom_len
 }
