@@ -2995,7 +2995,6 @@ name = "snes-core"
 version = "0.4.2"
 dependencies = [
  "bincode",
- "genesis-core",
  "jgenesis-common",
  "jgenesis-proc-macros",
  "log",

@@ -1,6 +1,6 @@
 //! Sega CD public interface and main loop
 
-use crate::audio::AudioDownsampler;
+use crate::audio::AudioResampler;
 use crate::cddrive::CdTickEffect;
 use crate::cdrom::cue;
 use crate::cdrom::reader::CdRom;
@@ -120,7 +120,7 @@ pub struct SegaCdEmulator {
     psg: Psg,
     pcm: Rf5c164,
     input: InputState,
-    audio_downsampler: AudioDownsampler,
+    audio_resampler: AudioResampler,
     timing_mode: TimingMode,
     main_bus_writes: MainBusWrites,
     aspect_ratio: GenesisAspectRatio,
@@ -218,7 +218,7 @@ impl SegaCdEmulator {
         let pcm = Rf5c164::new();
         let input = InputState::new();
 
-        let audio_downsampler = AudioDownsampler::new(timing_mode);
+        let audio_resampler = AudioResampler::new(timing_mode);
         let mut emulator = Self {
             memory,
             main_cpu,
@@ -230,7 +230,7 @@ impl SegaCdEmulator {
             psg,
             pcm,
             input,
-            audio_downsampler,
+            audio_resampler,
             timing_mode,
             main_bus_writes: MainBusWrites::new(),
             aspect_ratio: emulator_config.genesis.aspect_ratio,
@@ -359,7 +359,7 @@ impl TickableEmulator for SegaCdEmulator {
         if let CdTickEffect::OutputAudioSample(sample_l, sample_r) =
             sega_cd.tick(elapsed_scd_mclk_cycles, &mut self.pcm)?
         {
-            self.audio_downsampler.collect_cd_sample(sample_l, sample_r);
+            self.audio_resampler.collect_cd_sample(sample_l, sample_r);
         }
 
         // Graphics ASIC
@@ -383,7 +383,7 @@ impl TickableEmulator for SegaCdEmulator {
         for _ in 0..z80_cycles {
             if self.psg.tick() == PsgTickEffect::Clocked {
                 let (psg_sample_l, psg_sample_r) = self.psg.sample();
-                self.audio_downsampler.collect_psg_sample(psg_sample_l, psg_sample_r);
+                self.audio_resampler.collect_psg_sample(psg_sample_l, psg_sample_r);
             }
         }
 
@@ -391,18 +391,18 @@ impl TickableEmulator for SegaCdEmulator {
         for _ in 0..main_cpu_cycles {
             if self.ym2612.tick() == YmTickEffect::OutputSample {
                 let (ym2612_sample_l, ym2612_sample_r) = self.ym2612.sample();
-                self.audio_downsampler.collect_ym2612_sample(ym2612_sample_l, ym2612_sample_r);
+                self.audio_resampler.collect_ym2612_sample(ym2612_sample_l, ym2612_sample_r);
             }
         }
 
         // RF5C164
         if self.pcm.tick(sub_cpu_cycles) == PcmTickEffect::Clocked {
             let (pcm_sample_l, pcm_sample_r) = self.pcm.sample();
-            self.audio_downsampler.collect_pcm_sample(pcm_sample_l, pcm_sample_r);
+            self.audio_resampler.collect_pcm_sample(pcm_sample_l, pcm_sample_r);
         }
 
         // Output any audio samples that are queued up
-        self.audio_downsampler.output_samples(audio_output).map_err(SegaCdError::Audio)?;
+        self.audio_resampler.output_samples(audio_output).map_err(SegaCdError::Audio)?;
 
         // VDP
         if self.vdp.tick(genesis_mclk_elapsed, &mut self.memory) == VdpTickEffect::FrameComplete {

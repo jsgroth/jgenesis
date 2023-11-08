@@ -10,8 +10,6 @@ default = []
 serde = ["dep:serde"]
 
 [dependencies]
-# TODO move audio resampling code elsewhere so the genesis-core dependency isn't necessary
-genesis-core = { path = "../genesis-core" }
 jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
 jgenesis-common = { path = "../jgenesis-common" }
 spc700-emu = { path = "../spc700-emu" }

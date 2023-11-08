@@ -1,5 +1,5 @@
 use crate::apu::{Apu, ApuTickEffect};
-use crate::audio::AudioDownsampler;
+use crate::audio::AudioResampler;
 use crate::bus::Bus;
 use crate::input::SnesInputs;
 use crate::memory::dma::{DmaStatus, DmaUnit};
@@ -88,7 +88,7 @@ pub struct SnesEmulator {
     memory: Memory,
     ppu: Ppu,
     apu: Apu,
-    audio_downsampler: AudioDownsampler,
+    audio_downsampler: AudioResampler,
     total_master_cycles: u64,
     memory_refresh_pending: bool,
     timing_mode: TimingMode,
@@ -117,7 +117,7 @@ impl SnesEmulator {
             memory,
             ppu,
             apu,
-            audio_downsampler: AudioDownsampler::new(),
+            audio_downsampler: AudioResampler::new(),
             total_master_cycles: 0,
             memory_refresh_pending: false,
             timing_mode,

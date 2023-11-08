@@ -1,5 +1,5 @@
 use bincode::{Decode, Encode};
-use genesis_core::audio::SignalDownsampler;
+use jgenesis_common::audio::SignalResampler;
 use jgenesis_common::frontend::AudioOutput;
 
 const SNES_AUDIO_FREQUENCY: f64 = 32000.0;
@@ -31,23 +31,18 @@ const LPF_COEFFICIENTS: [f64; 21] = [
 
 const HPF_CHARGE_FACTOR: f64 = 0.9946028448191855;
 
-type SnesDownsampler = SignalDownsampler<21, 3>;
+type SnesResampler = SignalResampler<21, 3>;
 
 #[derive(Debug, Clone, Encode, Decode)]
-pub struct AudioDownsampler {
-    downsampler: SnesDownsampler,
+pub struct AudioResampler {
+    downsampler: SnesResampler,
 }
 
-fn new_snes_downsampler() -> SnesDownsampler {
-    SnesDownsampler::new(
-        SNES_AUDIO_FREQUENCY,
-        LPF_COEFFICIENT_0,
-        LPF_COEFFICIENTS,
-        HPF_CHARGE_FACTOR,
-    )
+fn new_snes_downsampler() -> SnesResampler {
+    SnesResampler::new(SNES_AUDIO_FREQUENCY, LPF_COEFFICIENT_0, LPF_COEFFICIENTS, HPF_CHARGE_FACTOR)
 }
 
-impl AudioDownsampler {
+impl AudioResampler {
     pub fn new() -> Self {
         Self { downsampler: new_snes_downsampler() }
     }
