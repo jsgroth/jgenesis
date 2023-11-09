@@ -360,6 +360,12 @@
                 config.set_genesis_emulate_non_linear_dac(event.target.checked);
             });
 
+            document.querySelectorAll("input[name='snes-aspect-ratio']").forEach((element) => {
+                element.addEventListener("click", (event) => {
+                    config.set_snes_aspect_ratio(event.target.value);
+                });
+            });
+
             run_emulator(config.clone(), channel.clone());
         </script>
     </body>
