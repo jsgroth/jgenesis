@@ -2,7 +2,7 @@
 
 use crate::ym2612::phase::PhaseGenerator;
 use bincode::{Decode, Encode};
-use jgenesis_traits::num::GetBit;
+use jgenesis_common::num::GetBit;
 use std::cmp;
 
 const ENVELOPE_DIVIDER: u8 = 72;

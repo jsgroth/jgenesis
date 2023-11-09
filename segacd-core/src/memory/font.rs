@@ -1,7 +1,7 @@
 //! Sega CD font rendering / color calculation registers
 
 use bincode::{Decode, Encode};
-use jgenesis_traits::num::GetBit;
+use jgenesis_common::num::GetBit;
 
 #[derive(Debug, Clone, Default, Encode, Decode)]
 pub struct FontRegisters {

@@ -11,11 +11,11 @@ serde = ["dep:serde"]
 
 [dependencies]
 jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
-jgenesis-traits = { path = "../jgenesis-traits" }
+jgenesis-common = { path = "../jgenesis-common" }
 z80-emu = { path = "../z80-emu", features = ["bincode"] }
 
-bincode = { version = "2.0.0-rc.3", features = ["derive"] }
-crc = "3"
-log = "0.4"
+bincode = { workspace = true }
+crc = { workspace = true }
+log = { workspace = true }
 serde = { workspace = true, optional = true }
-thiserror = "1"
+thiserror = { workspace = true }

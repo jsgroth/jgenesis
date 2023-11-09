@@ -2,8 +2,8 @@ mod instructions;
 
 use crate::core::instructions::Instruction;
 use crate::traits::BusInterface;
+use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::EnumAll;
-use jgenesis_traits::num::GetBit;
 use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Clone, Copy)]

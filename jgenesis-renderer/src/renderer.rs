@@ -1,5 +1,5 @@
 use crate::config::{PreprocessShader, RendererConfig, Scanlines, WgpuBackend};
-use jgenesis_traits::frontend::{Color, FrameSize, PixelAspectRatio, Renderer};
+use jgenesis_common::frontend::{Color, FrameSize, PixelAspectRatio, Renderer};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::{cmp, iter, mem};
 use thiserror::Error;

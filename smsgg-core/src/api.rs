@@ -9,12 +9,12 @@ use crate::vdp::{Vdp, VdpBuffer, VdpTickEffect};
 use crate::ym2413::Ym2413;
 use crate::{vdp, SmsGgInputs, VdpVersion};
 use bincode::{Decode, Encode};
-use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
-use jgenesis_traits::frontend::{
+use jgenesis_common::frontend::{
     AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, FrameSize, PartialClone,
     PixelAspectRatio, Renderer, Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
     TimingMode,
 };
+use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
 use std::fmt::{Debug, Display};
 use std::iter;
 use std::ops::{Deref, DerefMut};
@@ -362,8 +362,8 @@ impl Resettable for SmsGgEmulator {
 impl EmulatorDebug for SmsGgEmulator {
     const NUM_PALETTES: u32 = 2;
     const PALETTE_LEN: u32 = 16;
-
     const PATTERN_TABLE_LEN: u32 = 512;
+    const SUPPORTS_VRAM_DEBUG: bool = true;
 
     fn debug_cram(&self, out: &mut [Color]) {
         self.vdp.debug_cram(out);

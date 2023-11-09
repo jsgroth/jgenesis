@@ -10,23 +10,25 @@ crate-type = ["cdylib"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 genesis-core = { path = "../genesis-core" }
-jgenesis-renderer = { path = "../jgenesis-renderer" }
-jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
-jgenesis-traits = { path = "../jgenesis-traits" }
 smsgg-core = { path = "../smsgg-core" }
+snes-core = { path = "../snes-core" }
 
-anyhow = "1"
-base64 = "0.21"
+jgenesis-common = { path = "../jgenesis-common" }
+jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
+jgenesis-renderer = { path = "../jgenesis-renderer" }
+
+anyhow = { workspace = true }
+base64 = { workspace = true }
 console_error_panic_hook = "0.1"
 console_log = "1"
 getrandom = { version = "0.2", features = ["js"] }
 js-sys = "0.3"
-log = "0.4"
-rand = "0.8"
-rfd = "0.12"
+log = { workspace = true }
+rand = { workspace = true }
+rfd = { workspace = true }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-wgpu = { version = "0.17", features = ["webgl"] }
+wgpu = { workspace = true, features = ["webgl"] }
 winit = { version = "0.28" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.web-sys]

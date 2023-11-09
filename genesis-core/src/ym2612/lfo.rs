@@ -1,7 +1,7 @@
 //! YM2612 low frequency oscillator (LFO)
 
 use bincode::{Decode, Encode};
-use jgenesis_traits::num::GetBit;
+use jgenesis_common::num::GetBit;
 
 // LFO counter is 7 bits
 const LFO_COUNTER_MASK: u8 = 0x7F;

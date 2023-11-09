@@ -3,7 +3,7 @@ use crate::core::instructions::{
 };
 use crate::core::{Flags, IndexRegister, Register16};
 use crate::traits::BusInterface;
-use jgenesis_traits::num::GetBit;
+use jgenesis_common::num::GetBit;
 
 macro_rules! impl_a_r_add_op {
     ($name:ident, $op_fn:ident) => {

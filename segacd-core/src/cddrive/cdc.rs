@@ -6,7 +6,7 @@ use crate::memory::ScdCpu;
 use crate::rf5c164::Rf5c164;
 use crate::{cdrom, memory};
 use bincode::{Decode, Encode};
-use jgenesis_traits::num::GetBit;
+use jgenesis_common::num::GetBit;
 
 // The register address is supposedly 4 bits, but internally it's actually 5 bits
 // Values $10-$1F are effectively unused

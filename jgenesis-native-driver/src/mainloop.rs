@@ -2,20 +2,22 @@ mod debug;
 mod rewind;
 
 use crate::config;
-use crate::config::{CommonConfig, GenesisConfig, SegaCdConfig, SmsGgConfig, WindowSize};
+use crate::config::{
+    CommonConfig, GenesisConfig, SegaCdConfig, SmsGgConfig, SnesConfig, WindowSize,
+};
 use crate::input::{
     Clearable, GenesisButton, GetButtonField, Hotkey, HotkeyMapResult, HotkeyMapper, InputMapper,
-    Joysticks, SmsGgButton,
+    Joysticks, SmsGgButton, SnesButton,
 };
 use crate::mainloop::debug::{CramDebug, VramDebug};
 use crate::mainloop::rewind::Rewinder;
 use bincode::error::{DecodeError, EncodeError};
 use bincode::{Decode, Encode};
 use genesis_core::{GenesisEmulator, GenesisEmulatorConfig, GenesisInputs};
-use jgenesis_renderer::renderer::{RendererError, WgpuRenderer};
-use jgenesis_traits::frontend::{
+use jgenesis_common::frontend::{
     AudioOutput, ConfigReload, EmulatorTrait, PartialClone, SaveWriter, TickEffect,
 };
+use jgenesis_renderer::renderer::{RendererError, WgpuRenderer};
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::event::{Event, WindowEvent};
 use sdl2::render::TextureValueError;
@@ -24,6 +26,8 @@ use sdl2::{AudioSubsystem, EventPump, IntegerOrSdlError, JoystickSubsystem, Vide
 use segacd_core::api::{DiscError, DiscResult, SegaCdEmulator, SegaCdEmulatorConfig};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgInputs};
+use snes_core::api::{SnesEmulator, SnesEmulatorConfig};
+use snes_core::input::SnesInputs;
 use std::error::Error;
 use std::ffi::{NulError, OsStr};
 use std::fs::File;
@@ -419,6 +423,33 @@ impl NativeSegaCdEmulator {
                 .window_mut()
                 .set_title(&title)
                 .expect("Disc title should have non-printable characters already removed");
+        }
+
+        Ok(())
+    }
+}
+
+pub type NativeSnesEmulator =
+    NativeEmulator<SnesInputs, SnesButton, SnesEmulatorConfig, SnesEmulator>;
+
+impl NativeSnesEmulator {
+    /// # Errors
+    ///
+    /// This method will return an error if it is unable to reload audio config.
+    pub fn reload_snes_config(&mut self, config: Box<SnesConfig>) -> Result<(), AudioError> {
+        log::info!("Reloading config: {config}");
+
+        self.reload_common_config(&config.common)?;
+
+        let emulator_config = config.to_emulator_config();
+        self.emulator.reload_config(&emulator_config);
+        self.config = emulator_config;
+
+        if let Err(err) = self
+            .input_mapper
+            .reload_config(config.common.keyboard_inputs, config.common.joystick_inputs)
+        {
+            log::error!("Error reloading input config: {err}");
         }
 
         Ok(())
@@ -861,6 +892,79 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
     })
 }
 
+/// Create an emulator with the SNES core with the given config.
+///
+/// # Errors
+///
+/// This function will return an error if unable to initialize the emulator.
+pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEmulator> {
+    log::info!("Running with config: {config}");
+
+    let rom_path = Path::new(&config.common.rom_file_path);
+    let rom = fs::read(rom_path).map_err(|source| NativeEmulatorError::RomRead {
+        path: config.common.rom_file_path.clone(),
+        source,
+    })?;
+
+    let save_path = rom_path.with_extension("sav");
+    let save_state_path = rom_path.with_extension("ss0");
+
+    let initial_sram = fs::read(&save_path).ok();
+    if initial_sram.as_ref().is_some_and(|sram| !sram.is_empty()) {
+        log::info!("Loaded save file from '{}'", save_path.display());
+    }
+
+    let emulator_config = config.to_emulator_config();
+    let mut emulator = SnesEmulator::create(rom, initial_sram, emulator_config);
+
+    let (video, audio, joystick, event_pump) = init_sdl()?;
+
+    // Use same default window size as Genesis / Sega CD
+    let WindowSize { width: window_width, height: window_height } =
+        config.common.window_size.unwrap_or(config::DEFAULT_GENESIS_WINDOW_SIZE);
+
+    let cartridge_title = emulator.cartridge_title();
+    let window = create_window(
+        &video,
+        &format!("snes - {cartridge_title}"),
+        window_width,
+        window_height,
+        config.common.launch_in_fullscreen,
+    )?;
+
+    let renderer =
+        pollster::block_on(WgpuRenderer::new(window, Window::size, config.common.renderer_config))?;
+    let audio_output = SdlAudioOutput::create_and_init(&audio, &config.common)?;
+    let save_writer = FsSaveWriter::new(save_path);
+
+    let input_mapper = InputMapper::new_snes(
+        joystick,
+        config.common.keyboard_inputs,
+        config.common.joystick_inputs,
+        config.common.axis_deadzone,
+    )?;
+    let hotkey_mapper = HotkeyMapper::from_config(&config.common.hotkeys)?;
+
+    Ok(NativeEmulator {
+        emulator,
+        config: emulator_config,
+        renderer,
+        audio_output,
+        input_mapper,
+        hotkey_mapper,
+        save_writer,
+        event_pump,
+        save_state_path,
+        paused: false,
+        should_step_frame: false,
+        fast_forward_multiplier: config.common.fast_forward_multiplier,
+        rewinder: Rewinder::new(Duration::from_secs(config.common.rewind_buffer_length_seconds)),
+        video,
+        cram_debug: None,
+        vram_debug: None,
+    })
+}
+
 fn parse_file_name(path: &Path) -> NativeEmulatorResult<&str> {
     path.file_name()
         .and_then(OsStr::to_str)
@@ -1053,7 +1157,11 @@ where
                 vram_debug.toggle_palette()?;
             }
             None => {
-                *vram_debug = Some(VramDebug::new::<Emulator>(video)?);
+                if Emulator::SUPPORTS_VRAM_DEBUG {
+                    *vram_debug = Some(VramDebug::new::<Emulator>(video)?);
+                } else {
+                    log::error!("Currently running console does not support VRAM debug window");
+                }
             }
         },
     }

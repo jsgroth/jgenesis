@@ -1,18 +1,18 @@
 //! Genesis public interface and main loop
 
-use crate::audio::GenesisAudioDownsampler;
+use crate::audio::GenesisAudioResampler;
 use crate::input::{GenesisInputs, InputState};
 use crate::memory::{Cartridge, MainBus, MainBusSignals, MainBusWrites, Memory};
 use crate::vdp::{Vdp, VdpConfig, VdpTickEffect};
 use crate::ym2612::{Ym2612, YmTickEffect};
 use bincode::{Decode, Encode};
-use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
-use jgenesis_traits::frontend::{
+use jgenesis_common::frontend::{
     AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, FrameSize, PartialClone,
     PixelAspectRatio, Renderer, Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
     TimingMode,
 };
-use jgenesis_traits::num::GetBit;
+use jgenesis_common::num::GetBit;
+use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgTickEffect, PsgVersion};
 use std::fmt::{Debug, Display};
@@ -158,7 +158,7 @@ pub struct GenesisEmulator {
     main_bus_writes: MainBusWrites,
     aspect_ratio: GenesisAspectRatio,
     adjust_aspect_ratio_in_2x_resolution: bool,
-    audio_downsampler: GenesisAudioDownsampler,
+    audio_resampler: GenesisAudioResampler,
     master_clock_cycles: u64,
 }
 
@@ -222,7 +222,7 @@ impl GenesisEmulator {
             main_bus_writes: MainBusWrites::new(),
             aspect_ratio: config.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: config.adjust_aspect_ratio_in_2x_resolution,
-            audio_downsampler: GenesisAudioDownsampler::new(timing_mode),
+            audio_resampler: GenesisAudioResampler::new(timing_mode),
             master_clock_cycles: 0,
         };
 
@@ -339,7 +339,7 @@ impl TickableEmulator for GenesisEmulator {
         for _ in 0..z80_cycles {
             if self.psg.tick() == PsgTickEffect::Clocked {
                 let (psg_sample_l, psg_sample_r) = self.psg.sample();
-                self.audio_downsampler.collect_psg_sample(psg_sample_l, psg_sample_r);
+                self.audio_resampler.collect_psg_sample(psg_sample_l, psg_sample_r);
             }
         }
 
@@ -347,14 +347,14 @@ impl TickableEmulator for GenesisEmulator {
         for _ in 0..m68k_cycles {
             if self.ym2612.tick() == YmTickEffect::OutputSample {
                 let (ym_sample_l, ym_sample_r) = self.ym2612.sample();
-                self.audio_downsampler.collect_ym2612_sample(ym_sample_l, ym_sample_r);
+                self.audio_resampler.collect_ym2612_sample(ym_sample_l, ym_sample_r);
             }
         }
 
         if self.vdp.tick(elapsed_mclk_cycles, &mut self.memory) == VdpTickEffect::FrameComplete {
             self.render_frame(renderer).map_err(GenesisError::Render)?;
 
-            self.audio_downsampler.output_samples(audio_output).map_err(GenesisError::Audio)?;
+            self.audio_resampler.output_samples(audio_output).map_err(GenesisError::Audio)?;
 
             self.input.set_inputs(inputs);
 
@@ -413,8 +413,8 @@ impl Resettable for GenesisEmulator {
 impl EmulatorDebug for GenesisEmulator {
     const NUM_PALETTES: u32 = 4;
     const PALETTE_LEN: u32 = 16;
-
     const PATTERN_TABLE_LEN: u32 = 2048;
+    const SUPPORTS_VRAM_DEBUG: bool = true;
 
     fn debug_cram(&self, out: &mut [Color]) {
         self.vdp.debug_cram(out);

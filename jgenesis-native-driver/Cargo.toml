@@ -6,21 +6,23 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-genesis-core = { path = "../genesis-core" }
 jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
 jgenesis-renderer = { path = "../jgenesis-renderer" }
-jgenesis-traits = { path = "../jgenesis-traits" }
+jgenesis-common = { path = "../jgenesis-common" }
+
+genesis-core = { path = "../genesis-core" }
 segacd-core = { path = "../segacd-core" }
 smsgg-core = { path = "../smsgg-core" }
+snes-core = { path = "../snes-core" }
 
-bincode = "2.0.0-rc.3"
-bytemuck = "1"
-log = "0.4"
-pollster = "0.3"
+bincode = { workspace = true }
+bytemuck = { workspace = true }
+log = { workspace = true }
+pollster = { workspace = true }
 serde = { workspace = true }
 sdl2 = { workspace = true }
-thiserror = "1"
-wgpu = "0.17"
+thiserror = { workspace = true }
+wgpu = { workspace = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.51", features = ["Win32_Media"] }
+windows = { workspace = true, features = ["Win32_Media"] }

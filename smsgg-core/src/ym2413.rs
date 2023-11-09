@@ -5,7 +5,7 @@
 //! <https://github.com/andete/ym2413>
 
 use bincode::{Decode, Encode};
-use jgenesis_traits::num::GetBit;
+use jgenesis_common::num::GetBit;
 use std::sync::OnceLock;
 use std::{array, cmp};
 

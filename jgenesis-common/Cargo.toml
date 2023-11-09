@@ -1,5 +1,5 @@
 [package]
-name = "jgenesis-traits"
+name = "jgenesis-common"
 version = "0.4.2"
 edition = "2021"
 
@@ -12,7 +12,7 @@ serde = ["dep:serde"]
 [dependencies]
 jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
 
-bincode = { version = "2.0.0-rc.3" }
-bytemuck = { version = "1", features = ["derive"] }
+bincode = { workspace = true }
+bytemuck = { workspace = true }
 serde = { workspace = true, optional = true }
-thiserror = "1"
+thiserror = { workspace = true }

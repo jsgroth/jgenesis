@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
-use quote::quote;
-use syn::{parse_quote, Data, DeriveInput, Field, Fields, Type};
+use quote::{format_ident, quote};
+use syn::{parse_quote, Data, DataEnum, DataStruct, DeriveInput, Field, Fields, Type};
 
 /// Implement the `std::fmt::Display` trait for the given enum. Only supports enums which have only
 /// fieldless variants.
@@ -428,9 +428,9 @@ pub fn fake_decode(input: TokenStream) -> TokenStream {
     gen.into()
 }
 
-/// Implement the `jgenesis_traits::frontend::PartialClone` trait for a given struct.
+/// Implement the `jgenesis_common::frontend::PartialClone` trait for a given struct or enum.
 ///
-/// This macro should be imported through `jgenesis_traits` instead of directly from this crate so
+/// This macro should be imported through `jgenesis_common` instead of directly from this crate so
 /// that both the macro and the trait are imported.
 ///
 /// Fields that are not marked with a `#[partial_clone]` attribute will be cloned using that type's
@@ -447,7 +447,7 @@ pub fn fake_decode(input: TokenStream) -> TokenStream {
 ///
 /// Examples/tests:
 /// ```
-/// use jgenesis_traits::frontend::PartialClone;
+/// use jgenesis_common::frontend::PartialClone;
 ///
 /// #[derive(Debug, PartialEq, PartialClone)]
 /// struct UnitStruct;
@@ -456,7 +456,7 @@ pub fn fake_decode(input: TokenStream) -> TokenStream {
 /// ```
 ///
 /// ```
-/// use jgenesis_traits::frontend::PartialClone;
+/// use jgenesis_common::frontend::PartialClone;
 ///
 /// #[derive(Debug, PartialEq, PartialClone)]
 /// struct Nested(Vec<u8>, #[partial_clone(default)] Vec<u16>, String);
@@ -472,7 +472,7 @@ pub fn fake_decode(input: TokenStream) -> TokenStream {
 /// ```
 ///
 /// ```
-/// use jgenesis_traits::frontend::PartialClone;
+/// use jgenesis_common::frontend::PartialClone;
 ///
 /// #[derive(Debug, PartialEq, PartialClone)]
 /// struct Nested {
@@ -503,7 +503,7 @@ pub fn fake_decode(input: TokenStream) -> TokenStream {
 /// ```
 ///
 /// ```
-/// use jgenesis_traits::frontend::PartialClone;
+/// use jgenesis_common::frontend::PartialClone;
 ///
 /// #[derive(Debug, PartialEq, PartialClone)]
 /// struct Nested(Vec<u8>, #[partial_clone(default)] String);
@@ -518,35 +518,87 @@ pub fn fake_decode(input: TokenStream) -> TokenStream {
 /// let expected_outer = GenericStruct(expected_inner, vec![4, 5, 6]);
 /// assert_eq!(outer.partial_clone(), expected_outer);
 /// ```
+///
+/// ```
+/// use jgenesis_common::frontend::PartialClone;
+///
+/// #[derive(Debug, PartialEq, PartialClone)]
+/// struct Nested(Vec<u8>, #[partial_clone(default)] String);
+///
+/// #[derive(Debug, PartialEq, PartialClone)]
+/// enum Foo {
+///     Unit,
+///     Unnamed(Vec<u8>, #[partial_clone(default)] String, #[partial_clone(partial)] Nested),
+///     Named {
+///         a: Vec<u8>,
+///         #[partial_clone(default)]
+///         b: String,
+///         #[partial_clone(partial)]
+///         c: Nested,
+///     },
+/// }
+///
+/// assert_eq!(Foo::Unit, Foo::Unit.partial_clone());
+///
+/// let inner = Nested(vec![1, 2, 3], "hello".into());
+/// let outer = Foo::Unnamed(vec![4, 5, 6], "world".into(), inner);
+///
+/// let expected_inner = Nested(vec![1, 2, 3], String::new());
+/// let expected_outer = Foo::Unnamed(vec![4, 5, 6], String::new(), expected_inner);
+/// assert_eq!(outer.partial_clone(), expected_outer);
+/// ```
 /// # Panics
 ///
-/// This macro currently only supports structs, and it will panic if applied to an enum or union.
+/// This macro currently only supports structs and enums, and it will panic if applied to a union.
 #[proc_macro_derive(PartialClone, attributes(partial_clone))]
 pub fn partial_clone(input: TokenStream) -> TokenStream {
     let input: DeriveInput = syn::parse(input).expect("Unable to parse input");
 
     let type_ident = &input.ident;
-    let Data::Struct(data) = &input.data else {
-        panic!("PartialClone currently only supports structs; {type_ident} is not a struct");
+    let body = match &input.data {
+        Data::Struct(data) => partial_clone_struct_body(data),
+        Data::Enum(data) => partial_clone_enum_body(data),
+        Data::Union(_) => panic!("PartialClone does not support unions; {type_ident} is a union"),
     };
 
-    let constructor = match &data.fields {
+    let mut generics = input.generics.clone();
+    for type_param in generics.type_params_mut() {
+        type_param.bounds.push(parse_quote!(::jgenesis_common::frontend::PartialClone));
+    }
+    let (impl_generics, type_generics, where_clause) = generics.split_for_impl();
+
+    let gen = quote! {
+        impl #impl_generics ::jgenesis_common::frontend::PartialClone for #type_ident #type_generics #where_clause {
+            fn partial_clone(&self) -> Self {
+                #body
+            }
+        }
+    };
+
+    gen.into()
+}
+
+fn partial_clone_struct_body(data: &DataStruct) -> proc_macro2::TokenStream {
+    match &data.fields {
         Fields::Unit => quote! { Self },
         Fields::Unnamed(fields) => {
             let constructor_fields: Vec<_> = fields
                 .unnamed
                 .iter()
                 .enumerate()
-                .map(|(i, field)| match parse_partial_clone_attr(field) {
-                    PartialCloneAttr::None => quote! {
-                        ::std::clone::Clone::clone(&self.#i)
-                    },
-                    PartialCloneAttr::PartialClone => quote! {
-                        ::jgenesis_traits::frontend::PartialClone::partial_clone(&self.#i)
-                    },
-                    PartialCloneAttr::Default => quote! {
-                        ::std::default::Default::default()
-                    },
+                .map(|(i, field)| {
+                    let i = syn::Index::from(i);
+                    match parse_partial_clone_attr(field) {
+                        PartialCloneAttr::None => quote! {
+                            ::std::clone::Clone::clone(&self.#i)
+                        },
+                        PartialCloneAttr::PartialClone => quote! {
+                            ::jgenesis_common::frontend::PartialClone::partial_clone(&self.#i)
+                        },
+                        PartialCloneAttr::Default => quote! {
+                            ::std::default::Default::default()
+                        },
+                    }
                 })
                 .collect();
 
@@ -566,7 +618,7 @@ pub fn partial_clone(input: TokenStream) -> TokenStream {
                             #field_ident: ::std::clone::Clone::clone(&self.#field_ident)
                         },
                         PartialCloneAttr::PartialClone => quote! {
-                            #field_ident: ::jgenesis_traits::frontend::PartialClone::partial_clone(&self.#field_ident)
+                            #field_ident: ::jgenesis_common::frontend::PartialClone::partial_clone(&self.#field_ident)
                         },
                         PartialCloneAttr::Default => quote! {
                             #field_ident: ::std::default::Default::default()
@@ -581,23 +633,80 @@ pub fn partial_clone(input: TokenStream) -> TokenStream {
                 }
             }
         }
-    };
-
-    let mut generics = input.generics.clone();
-    for type_param in generics.type_params_mut() {
-        type_param.bounds.push(parse_quote!(::jgenesis_traits::frontend::PartialClone));
     }
-    let (impl_generics, type_generics, where_clause) = generics.split_for_impl();
+}
 
-    let gen = quote! {
-        impl #impl_generics ::jgenesis_traits::frontend::PartialClone for #type_ident #type_generics #where_clause {
-            fn partial_clone(&self) -> Self {
-                #constructor
+fn partial_clone_enum_body(data: &DataEnum) -> proc_macro2::TokenStream {
+    let match_arms: Vec<_> = data.variants.iter().map(|variant| {
+        let variant_ident = &variant.ident;
+        match &variant.fields {
+            Fields::Unit => quote! { Self::#variant_ident => Self::#variant_ident },
+            Fields::Unnamed(fields) => {
+                let (field_idents, field_constructors): (Vec<_>, Vec<_>) = fields.unnamed.iter().enumerate().map(|(i, field)| {
+                    let partial_clone_attr = parse_partial_clone_attr(field);
+
+                    let field_ident = match partial_clone_attr {
+                        PartialCloneAttr::Default => format_ident!("_"),
+                        _ => format_ident!("t{i}")
+                    };
+
+                    let field_constructor = match partial_clone_attr {
+                        PartialCloneAttr::None => quote! {
+                            ::std::clone::Clone::clone(#field_ident)
+                        },
+                        PartialCloneAttr::PartialClone => quote! {
+                            ::jgenesis_common::frontend::PartialClone::partial_clone(#field_ident)
+                        },
+                        PartialCloneAttr::Default => quote! {
+                            ::std::default::Default::default()
+                        },
+                    };
+
+                    (field_ident, field_constructor)
+                }).unzip();
+
+                quote! {
+                    Self::#variant_ident(#(#field_idents,)*) => Self::#variant_ident(#(#field_constructors,)*)
+                }
+            }
+            Fields::Named(fields) => {
+                let (field_bindings, field_constructors): (Vec<_>, Vec<_>) = fields.named.iter().map(|field| {
+                    let partial_clone_attr = parse_partial_clone_attr(field);
+
+                    let field_ident = &field.ident;
+
+                    let field_binding = match partial_clone_attr {
+                        PartialCloneAttr::Default => quote! { #field_ident: _ },
+                        _ => quote! { #field_ident }
+                    };
+
+                    let field_constructor = match partial_clone_attr {
+                        PartialCloneAttr::None => quote! {
+                            #field_ident: ::std::clone::Clone::clone(#field_ident)
+                        },
+                        PartialCloneAttr::PartialClone => quote! {
+                            #field_ident: ::jgenesis_common::frontend::PartialClone::partial_clone(#field_ident)
+                        },
+                        PartialCloneAttr::Default => quote! {
+                            #field_ident: ::std::default::Default::default()
+                        },
+                    };
+
+                    (field_binding, field_constructor)
+                }).unzip();
+
+                quote! {
+                    Self::#variant_ident { #(#field_bindings,)* } => Self::#variant_ident { #(#field_constructors,)* }
+                }
             }
         }
-    };
+    }).collect();
 
-    gen.into()
+    quote! {
+        match self {
+            #(#match_arms,)*
+        }
+    }
 }
 
 enum PartialCloneAttr {

@@ -8,13 +8,13 @@ edition = "2021"
 [dependencies]
 genesis-core = { path = "../genesis-core" }
 jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
-jgenesis-traits = { path = "../jgenesis-traits" }
+jgenesis-common = { path = "../jgenesis-common" }
 m68000-emu = { path = "../m68000-emu" }
 smsgg-core = { path = "../smsgg-core" }
 z80-emu = { path = "../z80-emu" }
 
-bincode = { version = "2.0.0-rc.3", features = ["derive"] }
-crc = "3"
-log = "0.4"
-regex = "1.9"
-thiserror = "1"
+bincode = { workspace = true }
+crc = { workspace = true }
+log = { workspace = true }
+regex = { workspace = true }
+thiserror = { workspace = true }

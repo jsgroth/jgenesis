@@ -4,7 +4,7 @@ use crate::core::{
     InstructionExecutor, OpSize, Registers, ResolvedAddress,
 };
 use crate::traits::BusInterface;
-use jgenesis_traits::num::{GetBit, SignBit};
+use jgenesis_common::num::{GetBit, SignBit};
 
 macro_rules! impl_move {
     ($name:ident, $read_method:ident, $write_method:ident, $size:expr) => {

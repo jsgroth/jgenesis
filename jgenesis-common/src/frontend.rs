@@ -17,7 +17,7 @@ pub struct Color {
 impl Color {
     #[must_use]
     #[inline]
-    pub fn rgb(r: u8, g: u8, b: u8) -> Self {
+    pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b, a: 255 }
     }
 }
@@ -206,6 +206,8 @@ pub trait EmulatorDebug {
 
     // VRAM size
     const PATTERN_TABLE_LEN: u32;
+
+    const SUPPORTS_VRAM_DEBUG: bool;
 
     fn debug_cram(&self, out: &mut [Color]);
 

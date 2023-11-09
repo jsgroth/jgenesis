@@ -1,7 +1,7 @@
 //! Ricoh RF5C164 PCM sound chip
 
 use bincode::{Decode, Encode};
-use jgenesis_traits::num::GetBit;
+use jgenesis_common::num::GetBit;
 use std::array;
 
 // Divider of sub CPU cycles

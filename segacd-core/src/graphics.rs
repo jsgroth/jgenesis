@@ -6,7 +6,7 @@ use crate::graphics::fixedpoint::FixedPointDecimal;
 use crate::memory::wordram;
 use crate::memory::wordram::{Nibble, WordRam};
 use bincode::{Decode, Encode};
-use jgenesis_traits::num::GetBit;
+use jgenesis_common::num::GetBit;
 use std::array;
 
 const SUB_CPU_DIVIDER: u32 = crate::api::SUB_CPU_DIVIDER as u32;

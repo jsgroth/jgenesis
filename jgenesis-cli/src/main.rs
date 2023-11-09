@@ -1,22 +1,23 @@
 use clap::Parser;
 use env_logger::Env;
 use genesis_core::{GenesisAspectRatio, GenesisControllerType, GenesisRegion};
+use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::config::input::{
     GenesisControllerConfig, GenesisInputConfig, HotkeyConfig, KeyboardInput,
-    SmsGgControllerConfig, SmsGgInputConfig,
+    SmsGgControllerConfig, SmsGgInputConfig, SnesInputConfig,
 };
 use jgenesis_native_driver::config::{
     CommonConfig, GenesisConfig, GgAspectRatio, SegaCdConfig, SmsAspectRatio, SmsGgConfig,
-    WindowSize,
+    SnesConfig, WindowSize,
 };
 use jgenesis_native_driver::NativeTickEffect;
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, RendererConfig, Scanlines, VSyncMode, WgpuBackend,
 };
-use jgenesis_traits::frontend::TimingMode;
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsRegion, VdpVersion};
+use snes_core::api::SnesAspectRatio;
 use std::ffi::OsStr;
 use std::path::Path;
 use std::process;
@@ -26,11 +27,13 @@ enum Hardware {
     MasterSystem,
     Genesis,
     SegaCd,
+    Snes,
 }
 
 const SMSGG_OPTIONS_HEADING: &str = "Master System / Game Gear Options";
 const GENESIS_OPTIONS_HEADING: &str = "Genesis / Sega CD Options";
 const SCD_OPTIONS_HEADING: &str = "Sega CD Options";
+const SNES_OPTIONS_HEADING: &str = "SNES Options";
 const VIDEO_OPTIONS_HEADING: &str = "Video Options";
 const AUDIO_OPTIONS_HEADING: &str = "Audio Options";
 const INPUT_OPTIONS_HEADING: &str = "Input Options";
@@ -122,6 +125,14 @@ struct Args {
     /// Run the Sega CD emulator with no disc
     #[arg(long, default_value_t, help_heading = SCD_OPTIONS_HEADING)]
     scd_no_disc: bool,
+
+    /// Forced SNES timing/display mode (Ntsc / Pal); defaults based on ROM header if not set
+    #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
+    snes_timing_mode: Option<TimingMode>,
+
+    /// SNES aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
+    #[arg(long, default_value_t, help_heading = SNES_OPTIONS_HEADING)]
+    snes_aspect_ratio: SnesAspectRatio,
 
     /// Window width in pixels; height must also be set
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
@@ -463,6 +474,7 @@ fn main() -> anyhow::Result<()> {
             "sms" | "gg" => Hardware::MasterSystem,
             "md" | "bin" => Hardware::Genesis,
             "cue" => Hardware::SegaCd,
+            "sfc" => Hardware::Snes,
             _ => {
                 log::warn!("Unrecognized file extension: '{file_ext}' defaulting to Genesis");
                 Hardware::Genesis
@@ -476,6 +488,7 @@ fn main() -> anyhow::Result<()> {
         Hardware::MasterSystem => run_sms(args),
         Hardware::Genesis => run_genesis(args),
         Hardware::SegaCd => run_sega_cd(args),
+        Hardware::Snes => run_snes(args),
     }
 }
 
@@ -527,6 +540,19 @@ fn run_sega_cd(args: Args) -> anyhow::Result<()> {
     };
 
     let mut emulator = jgenesis_native_driver::create_sega_cd(config.into())?;
+    while emulator.render_frame()? != NativeTickEffect::Exit {}
+
+    Ok(())
+}
+
+fn run_snes(args: Args) -> anyhow::Result<()> {
+    let config = SnesConfig {
+        common: args.common_config(SnesInputConfig::default(), SnesInputConfig::default()),
+        forced_timing_mode: args.snes_timing_mode,
+        aspect_ratio: args.snes_aspect_ratio,
+    };
+
+    let mut emulator = jgenesis_native_driver::create_snes(config.into())?;
     while emulator.render_frame()? != NativeTickEffect::Exit {}
 
     Ok(())

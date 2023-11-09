@@ -1404,8 +1404,8 @@ dependencies = [
  "bincode",
  "crc",
  "env_logger",
+ "jgenesis-common",
  "jgenesis-proc-macros",
- "jgenesis-traits",
  "log",
  "m68000-emu",
  "regex",
@@ -1807,12 +1807,24 @@ dependencies = [
  "clap",
  "env_logger",
  "genesis-core",
+ "jgenesis-common",
  "jgenesis-native-driver",
  "jgenesis-proc-macros",
  "jgenesis-renderer",
- "jgenesis-traits",
  "log",
  "smsgg-core",
+ "snes-core",
+]
+
+[[package]]
+name = "jgenesis-common"
+version = "0.4.2"
+dependencies = [
+ "bincode",
+ "bytemuck",
+ "jgenesis-proc-macros",
+ "serde",
+ "thiserror",
 ]
 
 [[package]]
@@ -1826,9 +1838,9 @@ dependencies = [
  "egui_extras",
  "env_logger",
  "genesis-core",
+ "jgenesis-common",
  "jgenesis-native-driver",
  "jgenesis-renderer",
- "jgenesis-traits",
  "log",
  "regex",
  "rfd",
@@ -1836,6 +1848,7 @@ dependencies = [
  "segacd-core",
  "serde",
  "smsgg-core",
+ "snes-core",
  "toml",
  "xrandr",
 ]
@@ -1847,15 +1860,16 @@ dependencies = [
  "bincode",
  "bytemuck",
  "genesis-core",
+ "jgenesis-common",
  "jgenesis-proc-macros",
  "jgenesis-renderer",
- "jgenesis-traits",
  "log",
  "pollster",
  "sdl2",
  "segacd-core",
  "serde",
  "smsgg-core",
+ "snes-core",
  "thiserror",
  "wgpu",
  "windows 0.51.1",
@@ -1865,7 +1879,8 @@ dependencies = [
 name = "jgenesis-proc-macros"
 version = "0.4.2"
 dependencies = [
- "jgenesis-traits",
+ "jgenesis-common",
+ "proc-macro2",
  "quote",
  "syn 2.0.38",
 ]
@@ -1875,24 +1890,13 @@ name = "jgenesis-renderer"
 version = "0.4.2"
 dependencies = [
  "bytemuck",
+ "jgenesis-common",
  "jgenesis-proc-macros",
- "jgenesis-traits",
  "log",
  "raw-window-handle",
  "serde",
  "thiserror",
  "wgpu",
-]
-
-[[package]]
-name = "jgenesis-traits"
-version = "0.4.2"
-dependencies = [
- "bincode",
- "bytemuck",
- "jgenesis-proc-macros",
- "serde",
- "thiserror",
 ]
 
 [[package]]
@@ -1905,14 +1909,15 @@ dependencies = [
  "console_log",
  "genesis-core",
  "getrandom",
+ "jgenesis-common",
  "jgenesis-proc-macros",
  "jgenesis-renderer",
- "jgenesis-traits",
  "js-sys",
  "log",
  "rand",
  "rfd",
  "smsgg-core",
+ "snes-core",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -2042,8 +2047,8 @@ name = "m68000-emu"
 version = "0.4.2"
 dependencies = [
  "bincode",
+ "jgenesis-common",
  "jgenesis-proc-macros",
- "jgenesis-traits",
  "log",
 ]
 
@@ -2832,8 +2837,8 @@ dependencies = [
  "bincode",
  "crc",
  "genesis-core",
+ "jgenesis-common",
  "jgenesis-proc-macros",
- "jgenesis-traits",
  "log",
  "m68000-emu",
  "regex",
@@ -2978,12 +2983,26 @@ version = "0.4.2"
 dependencies = [
  "bincode",
  "crc",
+ "jgenesis-common",
  "jgenesis-proc-macros",
- "jgenesis-traits",
  "log",
  "serde",
  "thiserror",
  "z80-emu",
+]
+
+[[package]]
+name = "snes-core"
+version = "0.4.2"
+dependencies = [
+ "bincode",
+ "jgenesis-common",
+ "jgenesis-proc-macros",
+ "log",
+ "serde",
+ "spc700-emu",
+ "thiserror",
+ "wdc65816-emu",
 ]
 
 [[package]]
@@ -2994,6 +3013,27 @@ checksum = "64a4a911eed85daf18834cfaa86a79b7d266ff93ff5ba14005426219480ed662"
 dependencies = [
  "libc",
  "winapi",
+]
+
+[[package]]
+name = "spc700-emu"
+version = "0.4.2"
+dependencies = [
+ "bincode",
+ "jgenesis-common",
+ "log",
+]
+
+[[package]]
+name = "spc700-test-runner"
+version = "0.4.2"
+dependencies = [
+ "clap",
+ "env_logger",
+ "log",
+ "serde",
+ "serde_json",
+ "spc700-emu",
 ]
 
 [[package]]
@@ -3537,6 +3577,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "wdc65816-emu"
+version = "0.4.2"
+dependencies = [
+ "bincode",
+ "jgenesis-common",
+ "log",
+]
+
+[[package]]
+name = "wdc65816-test-runner"
+version = "0.4.2"
+dependencies = [
+ "clap",
+ "env_logger",
+ "log",
+ "serde",
+ "serde_json",
+ "wdc65816-emu",
+]
+
+[[package]]
 name = "web-sys"
 version = "0.3.64"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4042,7 +4103,7 @@ name = "z80-emu"
 version = "0.4.2"
 dependencies = [
  "bincode",
- "jgenesis-traits",
+ "jgenesis-common",
  "log",
  "rand",
 ]

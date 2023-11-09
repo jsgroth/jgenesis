@@ -4,7 +4,7 @@
 mod tests;
 
 use bincode::{Decode, Encode};
-use jgenesis_traits::num::GetBit;
+use jgenesis_common::num::GetBit;
 use std::fmt::Debug;
 
 pub trait EepromState: Copy + Default {

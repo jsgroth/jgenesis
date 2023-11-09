@@ -1,8 +1,8 @@
 //! SN76498 PSG (programmable sound generator)
 
 use bincode::{Decode, Encode};
+use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
-use jgenesis_traits::num::GetBit;
 use std::array;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]

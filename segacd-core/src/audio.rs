@@ -5,8 +5,9 @@
 #![allow(clippy::excessive_precision)]
 
 use bincode::{Decode, Encode};
-use genesis_core::audio::{PsgDownsampler, SignalDownsampler, Ym2612Downsampler};
-use jgenesis_traits::frontend::{AudioOutput, TimingMode};
+use genesis_core::audio::{PsgResampler, Ym2612Resampler};
+use jgenesis_common::audio::SignalResampler;
+use jgenesis_common::frontend::{AudioOutput, TimingMode};
 use std::cmp;
 
 const NTSC_GENESIS_MCLK_FREQUENCY: f64 = genesis_core::audio::NTSC_GENESIS_MCLK_FREQUENCY;
@@ -79,12 +80,12 @@ const CD_HPF_CHARGE_FACTOR: f64 = 0.9960133089108504;
 // -7 dB (10 ^ -7/20)
 const CD_COEFFICIENT: f64 = 0.44668359215096315;
 
-type PcmDownsampler = SignalDownsampler<21, 3>;
-type CdDownsampler = SignalDownsampler<23, 2>;
+type PcmResampler = SignalResampler<21, 3>;
+type CdResampler = SignalResampler<23, 2>;
 
-fn new_pcm_downsampler() -> PcmDownsampler {
+fn new_pcm_resampler() -> PcmResampler {
     let pcm_frequency = SEGA_CD_MCLK_FREQUENCY / 4.0 / 384.0;
-    PcmDownsampler::new(
+    PcmResampler::new(
         pcm_frequency,
         PCM_LPF_COEFFICIENT_0,
         PCM_LPF_COEFFICIENTS,
@@ -92,8 +93,8 @@ fn new_pcm_downsampler() -> PcmDownsampler {
     )
 }
 
-fn new_cd_downsampler() -> CdDownsampler {
-    CdDownsampler::new(
+fn new_cd_resampler() -> CdResampler {
+    CdResampler::new(
         CD_DA_FREQUENCY,
         CD_LPF_COEFFICIENT_0,
         CD_LPF_COEFFICIENTS,
@@ -102,60 +103,60 @@ fn new_cd_downsampler() -> CdDownsampler {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
-pub struct AudioDownsampler {
-    ym2612_downsampler: Ym2612Downsampler,
-    psg_downsampler: PsgDownsampler,
-    pcm_downsampler: PcmDownsampler,
-    cd_downsampler: CdDownsampler,
+pub struct AudioResampler {
+    ym2612_resampler: Ym2612Resampler,
+    psg_resampler: PsgResampler,
+    pcm_resampler: PcmResampler,
+    cd_resampler: CdResampler,
 }
 
-impl AudioDownsampler {
+impl AudioResampler {
     pub fn new(timing_mode: TimingMode) -> Self {
         let genesis_mclk_frequency = match timing_mode {
             TimingMode::Ntsc => NTSC_GENESIS_MCLK_FREQUENCY,
             TimingMode::Pal => PAL_GENESIS_MCLK_FREQUENCY,
         };
 
-        let ym2612_downsampler = Ym2612Downsampler::new_ym2612(genesis_mclk_frequency);
-        let psg_downsampler = PsgDownsampler::new_psg(genesis_mclk_frequency);
-        let pcm_downsampler = new_pcm_downsampler();
-        let cd_downsampler = new_cd_downsampler();
+        let ym2612_resampler = genesis_core::audio::new_ym2612_resampler(genesis_mclk_frequency);
+        let psg_resampler = genesis_core::audio::new_psg_resampler(genesis_mclk_frequency);
+        let pcm_resampler = new_pcm_resampler();
+        let cd_resampler = new_cd_resampler();
 
-        Self { ym2612_downsampler, psg_downsampler, pcm_downsampler, cd_downsampler }
+        Self { ym2612_resampler, psg_resampler, pcm_resampler, cd_resampler }
     }
 
     pub fn collect_ym2612_sample(&mut self, sample_l: f64, sample_r: f64) {
-        self.ym2612_downsampler.collect_sample(sample_l, sample_r);
+        self.ym2612_resampler.collect_sample(sample_l, sample_r);
     }
 
     pub fn collect_psg_sample(&mut self, sample_l: f64, sample_r: f64) {
-        self.psg_downsampler.collect_sample(sample_l, sample_r);
+        self.psg_resampler.collect_sample(sample_l, sample_r);
     }
 
     pub fn collect_pcm_sample(&mut self, sample_l: f64, sample_r: f64) {
-        self.pcm_downsampler.collect_sample(sample_l, sample_r);
+        self.pcm_resampler.collect_sample(sample_l, sample_r);
     }
 
     pub fn collect_cd_sample(&mut self, sample_l: f64, sample_r: f64) {
-        self.cd_downsampler.collect_sample(sample_l, sample_r);
+        self.cd_resampler.collect_sample(sample_l, sample_r);
     }
 
     pub fn output_samples<A: AudioOutput>(&mut self, audio_output: &mut A) -> Result<(), A::Err> {
         let sample_count = cmp::min(
             cmp::min(
                 cmp::min(
-                    self.ym2612_downsampler.output_buffer_len(),
-                    self.psg_downsampler.output_buffer_len(),
+                    self.ym2612_resampler.output_buffer_len(),
+                    self.psg_resampler.output_buffer_len(),
                 ),
-                self.pcm_downsampler.output_buffer_len(),
+                self.pcm_resampler.output_buffer_len(),
             ),
-            self.cd_downsampler.output_buffer_len(),
+            self.cd_resampler.output_buffer_len(),
         );
         for _ in 0..sample_count {
-            let (ym2612_l, ym2612_r) = self.ym2612_downsampler.output_buffer_pop_front().unwrap();
-            let (psg_l, psg_r) = self.psg_downsampler.output_buffer_pop_front().unwrap();
-            let (pcm_l, pcm_r) = self.pcm_downsampler.output_buffer_pop_front().unwrap();
-            let (cd_l, cd_r) = self.cd_downsampler.output_buffer_pop_front().unwrap();
+            let (ym2612_l, ym2612_r) = self.ym2612_resampler.output_buffer_pop_front().unwrap();
+            let (psg_l, psg_r) = self.psg_resampler.output_buffer_pop_front().unwrap();
+            let (pcm_l, pcm_r) = self.pcm_resampler.output_buffer_pop_front().unwrap();
+            let (cd_l, cd_r) = self.cd_resampler.output_buffer_pop_front().unwrap();
 
             let sample_l = (ym2612_l
                 + PSG_COEFFICIENT * psg_l

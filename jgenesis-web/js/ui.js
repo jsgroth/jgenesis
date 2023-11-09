@@ -10,13 +10,24 @@ export function focusCanvas() {
 }
 
 export function showSmsGgConfig() {
-    document.getElementById("genesis-config").hidden = true;
     document.getElementById("smsgg-config").hidden = false;
+
+    document.getElementById("genesis-config").hidden = true;
+    document.getElementById("snes-config").hidden = true;
 }
 
 export function showGenesisConfig() {
-    document.getElementById("smsgg-config").hidden = true;
     document.getElementById("genesis-config").hidden = false;
+
+    document.getElementById("smsgg-config").hidden = true;
+    document.getElementById("snes-config").hidden = true;
+}
+
+export function showSnesConfig() {
+    document.getElementById("snes-config").hidden = false;
+
+    document.getElementById("smsgg-config").hidden = true;
+    document.getElementById("genesis-config").hidden = true;
 }
 
 /**

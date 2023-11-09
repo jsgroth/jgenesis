@@ -6,7 +6,7 @@
 mod ssp1601;
 
 use bincode::{Decode, Encode};
-use jgenesis_traits::num::GetBit;
+use jgenesis_common::num::GetBit;
 use std::array;
 
 const SVP_ENTRY_POINT: u16 = 0x400;

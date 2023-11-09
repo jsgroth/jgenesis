@@ -8,4 +8,4 @@ edition = "2021"
 [dependencies]
 z80-emu = { path = "../z80-emu" }
 
-env_logger = "0.10"
+env_logger = { workspace = true }

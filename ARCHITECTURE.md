@@ -2,22 +2,31 @@
 
 ## Overview
 
-The crates can be broken up roughly into 4 categories:
+The crates can be broken up roughly into 5 categories:
 
-* Common libraries: `jgenesis-traits`, `jgenesis-proc-macros`
-* Emulation backend: `z80-emu`, `m68000-emu`, `smsgg-core`, `genesis-core`, `segacd-core`
+* Common libraries: `jgenesis-common`, `jgenesis-proc-macros`
+* CPU emulators: `z80-emu`, `m68000-emu`, `wdc65816-emu`, `spc700-emu`
+* Emulation backend: `smsgg-core`, `genesis-core`, `segacd-core`, `snes-core`
 * Emulation frontend: `jgenesis-renderer`, `jgenesis-native-driver`, `jgenesis-cli`, `jgenesis-gui`, `jgenesis-web`
-* Test harnesses: `z80-test-runner`, `m68000-test-runner`
+* CPU emulator test harnesses: `z80-test-runner`, `m68000-test-runner`, `wdc65816-test-runner`, `spc700-test-runner`
 
 ## Crates
 
 ### `z80-emu`
 
-Instruction-based emulation core for the Zilog Z80 CPU, which is used in every console emulated in this project. Memory/bus interactions are abstracted using a `BusInterface` trait.
+Instruction-based emulation core for the Zilog Z80 CPU, which is used in the Master System, the Game Gear, and the Genesis (and by proxy the Sega CD).
 
 ### `m68000-emu`
 
-Instruction-based emulation core for the Motorola 68000 CPU, which is used in the Genesis and the Sega CD. Memory/bus interactions are abstracted using a `BusInterface` trait.
+Instruction-based emulation core for the Motorola 68000 CPU, which is used in the Genesis and the Sega CD.
+
+### `wdc65816-emu`
+
+Cycle-based emulation core for the WDC 65C816 CPU (aka 65816), which is used in the SNES.
+
+### `spc700-emu`
+
+Cycle-based emulation core for the Sony SPC700 CPU, which is used in the SNES as a dedicated audio processor embedded inside the APU.
 
 ### `smsgg-core`
 
@@ -31,9 +40,13 @@ Emulation core for the Sega Genesis / Mega Drive. Uses the PSG component from `s
 
 Emulation core for the Sega CD / Mega CD. Uses many components from `genesis-core`, as the Genesis side of the system is virtually unchanged except for the parts of the memory map that the standalone Genesis maps to the cartridge.
 
-### `jgenesis-traits`
+### `snes-core`
 
-Traits that define the interface between the emulation backends and the emulation frontends, as well as a few helper extension traits used across many of the other crates.
+Emulation core for the Super Nintendo Entertainment System (SNES) / Super Famicom.
+
+### `jgenesis-common`
+
+Contains traits that define the interface between the emulation backends and the emulation frontends, as well as some dependency-light common code that is used across many of the other crates (e.g. helper extension traits).
 
 ### `jgenesis-proc-macros`
 
@@ -62,3 +75,11 @@ Test harness to test `z80-emu` against Z80 test suites that were assembled for o
 ### `m68000-test-runner`
 
 Test harness to test `m68000-emu` against [TomHarte's 68000 test suite](https://github.com/TomHarte/ProcessorTests/tree/main/680x0/68000/v1).
+
+### `wdc65816-test-runner`
+
+Test harness to test `wdc65816-emu` against [TomHarte's 65816 test suite](https://github.com/TomHarte/ProcessorTests/tree/main/65816).
+
+### `spc700-test-runner`
+
+Test harness to test `spc700-emu` against [JSON SPC700 test suites](https://github.com/TomHarte/ProcessorTests/tree/main/spc700).

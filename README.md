@@ -1,6 +1,6 @@
 # jgenesis
 
-Cross-platform multi-console Sega emulator that supports the Sega Genesis / Mega Drive, the Sega CD / Mega CD, the Sega Master System, and the Game Gear.
+Cross-platform multi-console emulator that supports the Sega Genesis / Mega Drive, the Sega CD / Mega CD, the Sega Master System, and the Game Gear.
 
 ## Features
 
@@ -9,6 +9,8 @@ Cross-platform multi-console Sega emulator that supports the Sega Genesis / Mega
   * Sega CD / Mega CD
   * Sega Master System / Mark III
   * Game Gear
+  * Super Nintendo Entertainment System (SNES) / Super Famicom
+    * Still a work in progress; some games may not work or may have major bugs
 * GPU-based renderer with integer prescaling and optional linear interpolation
 * Configurable pixel aspect ratio for each console with several different options: accurate to original hardware/TVs, square pixels, and stretched to fill the window
 * Support for the Sega Master System FM sound unit expansion
@@ -110,3 +112,7 @@ RUSTFLAGS="-Ctarget-cpu=native" cargo build --profile release-lto
 * ECMA-130 standard: https://www.ecma-international.org/publications-and-standards/standards/ecma-130/
 * Thread discussing details of Mega CD emulation: https://gendev.spritesmind.net/forum/viewtopic.php?t=3020
 * SVP documentation by notaz, as well as earlier documentation work by Tasco Deluxe: https://notaz.gp2x.de/docs/svpdoc.txt
+* Super Nintendo architecture: https://www.copetti.org/writings/consoles/super-nintendo/
+* fullsnes - nocash SNES hardware specifications: https://problemkaputt.github.io/fullsnes.htm
+* Anomie's SNES documents: https://www.romhacking.net/?page=documents&category=&platform=&game=&author=&perpage=20&level=&title=anomie&docsearch=Go
+* SFC Development Wiki: https://wiki.superfamicom.org/
