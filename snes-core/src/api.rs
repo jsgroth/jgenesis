@@ -55,6 +55,7 @@ pub struct SnesEmulatorConfig {
     // TODO use timing mode instead of forcing NTSC
     pub forced_timing_mode: Option<TimingMode>,
     pub aspect_ratio: SnesAspectRatio,
+    pub audio_60hz_hack: bool,
 }
 
 #[derive(Debug, Error)]
@@ -106,7 +107,7 @@ impl SnesEmulator {
         let timing_mode =
             config.forced_timing_mode.unwrap_or_else(|| memory.cartridge_timing_mode());
         let ppu = Ppu::new(timing_mode);
-        let apu = Apu::new(timing_mode);
+        let apu = Apu::new(timing_mode, config.audio_60hz_hack);
 
         log::info!("Running with timing/display mode {timing_mode}");
 
@@ -236,6 +237,7 @@ impl ConfigReload for SnesEmulator {
 
     fn reload_config(&mut self, config: &Self::Config) {
         self.aspect_ratio = config.aspect_ratio;
+        self.apu.set_audio_60hz_hack(config.audio_60hz_hack);
     }
 }
 
@@ -269,7 +271,11 @@ impl Resettable for SnesEmulator {
         *self = Self::create(
             rom,
             sram,
-            SnesEmulatorConfig { forced_timing_mode: None, aspect_ratio: self.aspect_ratio },
+            SnesEmulatorConfig {
+                forced_timing_mode: None,
+                aspect_ratio: self.aspect_ratio,
+                audio_60hz_hack: self.apu.get_audio_60hz_hack(),
+            },
         );
     }
 }

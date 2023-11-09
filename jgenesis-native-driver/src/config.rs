@@ -222,6 +222,7 @@ pub struct SnesConfig {
     pub common: CommonConfig<SnesInputConfig<KeyboardInput>, SnesInputConfig<JoystickInput>>,
     pub forced_timing_mode: Option<TimingMode>,
     pub aspect_ratio: SnesAspectRatio,
+    pub audio_60hz_hack: bool,
 }
 
 impl SnesConfig {
@@ -229,6 +230,7 @@ impl SnesConfig {
         SnesEmulatorConfig {
             forced_timing_mode: self.forced_timing_mode,
             aspect_ratio: self.aspect_ratio,
+            audio_60hz_hack: self.audio_60hz_hack,
         }
     }
 }

@@ -134,6 +134,10 @@ struct Args {
     #[arg(long, default_value_t, help_heading = SNES_OPTIONS_HEADING)]
     snes_aspect_ratio: SnesAspectRatio,
 
+    /// Disable hack that times SNES audio signal to 60Hz instead of ~60.098Hz
+    #[arg(long, default_value_t = true, action = clap::ArgAction::SetFalse, help_heading = SNES_OPTIONS_HEADING)]
+    snes_audio_60hz_hack: bool,
+
     /// Window width in pixels; height must also be set
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     window_width: Option<u32>,
@@ -550,6 +554,7 @@ fn run_snes(args: Args) -> anyhow::Result<()> {
         common: args.common_config(SnesInputConfig::default(), SnesInputConfig::default()),
         forced_timing_mode: args.snes_timing_mode,
         aspect_ratio: args.snes_aspect_ratio,
+        audio_60hz_hack: args.snes_audio_60hz_hack,
     };
 
     let mut emulator = jgenesis_native_driver::create_snes(config.into())?;

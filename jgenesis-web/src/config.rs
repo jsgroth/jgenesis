@@ -168,7 +168,11 @@ pub struct SnesWebConfig {
 
 impl SnesWebConfig {
     pub fn to_emulator_config(&self) -> SnesEmulatorConfig {
-        SnesEmulatorConfig { forced_timing_mode: None, aspect_ratio: self.aspect_ratio }
+        SnesEmulatorConfig {
+            forced_timing_mode: None,
+            aspect_ratio: self.aspect_ratio,
+            audio_60hz_hack: true,
+        }
     }
 }
 

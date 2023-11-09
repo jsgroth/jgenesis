@@ -193,6 +193,8 @@ struct SnesAppConfig {
     forced_timing_mode: Option<TimingMode>,
     #[serde(default)]
     aspect_ratio: SnesAspectRatio,
+    #[serde(default = "true_fn")]
+    audio_60hz_hack: bool,
 }
 
 impl Default for SnesAppConfig {
@@ -331,6 +333,7 @@ impl AppConfig {
             ),
             forced_timing_mode: self.snes.forced_timing_mode,
             aspect_ratio: self.snes.aspect_ratio,
+            audio_60hz_hack: self.snes.audio_60hz_hack,
         })
     }
 }
@@ -354,6 +357,7 @@ enum OpenWindow {
     CommonAudio,
     SmsGgAudio,
     GenesisAudio,
+    SnesAudio,
     SmsGgKeyboard,
     SmsGgGamepad,
     GenesisKeyboard,
@@ -1186,6 +1190,17 @@ impl App {
         }
     }
 
+    fn render_snes_audio_settings(&mut self, ctx: &Context) {
+        let mut open = true;
+        Window::new("SNES Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.checkbox(&mut self.config.snes.audio_60hz_hack, "Enable audio 60Hz/50Hz hack")
+                .on_hover_text("Enabling this option will very slightly speed up the audio signal to time to 60Hz NTSC / 50Hz PAL");
+        });
+        if !open {
+            self.state.open_windows.remove(&OpenWindow::SnesAudio);
+        }
+    }
+
     fn render_about(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("About").open(&mut open).resizable(false).show(ctx, |ui| {
@@ -1331,6 +1346,11 @@ impl App {
 
                     if ui.button("Genesis / Sega CD").clicked() {
                         self.state.open_windows.insert(OpenWindow::GenesisAudio);
+                        ui.close_menu();
+                    }
+
+                    if ui.button("SNES").clicked() {
+                        self.state.open_windows.insert(OpenWindow::SnesAudio);
                         ui.close_menu();
                     }
                 });
@@ -1532,6 +1552,7 @@ impl eframe::App for App {
                 OpenWindow::CommonAudio => self.render_common_audio_settings(ctx),
                 OpenWindow::SmsGgAudio => self.render_smsgg_audio_settings(ctx),
                 OpenWindow::GenesisAudio => self.render_genesis_audio_settings(ctx),
+                OpenWindow::SnesAudio => self.render_snes_audio_settings(ctx),
                 OpenWindow::SmsGgKeyboard => self.render_smsgg_keyboard_settings(ctx),
                 OpenWindow::SmsGgGamepad => self.render_smsgg_gamepad_settings(ctx),
                 OpenWindow::GenesisKeyboard => self.render_genesis_keyboard_settings(ctx),

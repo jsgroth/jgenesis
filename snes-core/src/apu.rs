@@ -16,7 +16,10 @@ const AUDIO_RAM_LEN: usize = 64 * 1024;
 const NTSC_MASTER_CLOCK_FREQUENCY: u64 = 21_477_270;
 const PAL_MASTER_CLOCK_FREQUENCY: u64 = 21_281_370;
 
-const APU_MASTER_CLOCK_FREQUENCY: u64 = 24_576_000;
+const ACTUAL_APU_MASTER_CLOCK_FREQUENCY: u64 = 24_576_000;
+// APU master clock rate increased such that audio signal is timed to 60Hz for NTSC (and slightly under 50Hz for PAL)
+// Specifically, ceil(actual_mclk_rate * 60.099 / 60.0)
+const ADJUSTED_APU_MASTER_CLOCK_FREQUENCY: u64 = 24_616_551;
 
 // APU outputs a sample every 24 * 32 master clocks
 const SAMPLE_DIVIDER: u8 = 32;
@@ -209,6 +212,7 @@ pub struct Apu {
     main_master_clock_frequency: u64,
     master_cycles_product: u64,
     sample_divider: u8,
+    enable_audio_60hz_hack: bool,
 }
 
 macro_rules! new_spc700_bus {
@@ -222,7 +226,7 @@ macro_rules! new_spc700_bus {
 }
 
 impl Apu {
-    pub fn new(timing_mode: TimingMode) -> Self {
+    pub fn new(timing_mode: TimingMode, enable_audio_60hz_hack: bool) -> Self {
         let main_master_clock_frequency = match timing_mode {
             TimingMode::Ntsc => NTSC_MASTER_CLOCK_FREQUENCY,
             TimingMode::Pal => PAL_MASTER_CLOCK_FREQUENCY,
@@ -236,6 +240,7 @@ impl Apu {
             main_master_clock_frequency,
             master_cycles_product: 0,
             sample_divider: SAMPLE_DIVIDER,
+            enable_audio_60hz_hack,
         };
 
         apu.spc700.reset(&mut new_spc700_bus!(apu));
@@ -245,7 +250,12 @@ impl Apu {
 
     #[must_use]
     pub fn tick(&mut self, main_master_cycles: u64) -> ApuTickEffect {
-        self.master_cycles_product += main_master_cycles * APU_MASTER_CLOCK_FREQUENCY;
+        let apu_master_clock_frequency = if self.enable_audio_60hz_hack {
+            ADJUSTED_APU_MASTER_CLOCK_FREQUENCY
+        } else {
+            ACTUAL_APU_MASTER_CLOCK_FREQUENCY
+        };
+        self.master_cycles_product += main_master_cycles * apu_master_clock_frequency;
 
         while self.master_cycles_product >= 24 * self.main_master_clock_frequency {
             self.master_cycles_product -= 24 * self.main_master_clock_frequency;
@@ -284,5 +294,13 @@ impl Apu {
     pub fn reset(&mut self) {
         self.registers.boot_rom_mapped = true;
         self.spc700.reset(&mut new_spc700_bus!(self));
+    }
+
+    pub fn get_audio_60hz_hack(&self) -> bool {
+        self.enable_audio_60hz_hack
+    }
+
+    pub fn set_audio_60hz_hack(&mut self, audio_60hz_hack: bool) {
+        self.enable_audio_60hz_hack = audio_60hz_hack;
     }
 }

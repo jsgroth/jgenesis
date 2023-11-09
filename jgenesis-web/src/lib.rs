@@ -132,12 +132,26 @@ impl Emulator {
         }
     }
 
-    fn timing_mode(&self) -> TimingMode {
+    fn target_fps(&self) -> f64 {
+        // ~59.9 FPS
+        let sega_ntsc_fps = 53_693_175.0 / 896_040.0;
+        // ~49.7 FPS
+        let sega_pal_fps = 53_693_175.0 / 896_040.0;
+
         match self {
-            Self::None => TimingMode::Ntsc,
-            Self::SmsGg(emulator, ..) => emulator.timing_mode(),
-            Self::Genesis(emulator, ..) => emulator.timing_mode(),
-            Self::Snes(emulator, ..) => emulator.timing_mode(),
+            Self::None => 60.0,
+            Self::SmsGg(emulator, ..) => match emulator.timing_mode() {
+                TimingMode::Ntsc => sega_ntsc_fps,
+                TimingMode::Pal => sega_pal_fps,
+            },
+            Self::Genesis(emulator, ..) => match emulator.timing_mode() {
+                TimingMode::Ntsc => sega_ntsc_fps,
+                TimingMode::Pal => sega_pal_fps,
+            },
+            Self::Snes(emulator, ..) => match emulator.timing_mode() {
+                TimingMode::Ntsc => 60.0,
+                TimingMode::Pal => 50.0,
+            },
         }
     }
 
@@ -331,12 +345,7 @@ fn run_event_loop(
                 return;
             }
 
-            let fps = match emulator.timing_mode() {
-                // ~59.9 FPS
-                TimingMode::Ntsc => 53_693_175.0 / 896_040.0,
-                // ~49.7 FPS
-                TimingMode::Pal => 53_203_424.0 / 1_070_460.0,
-            };
+            let fps = emulator.target_fps();
             while now >= next_frame_time {
                 next_frame_time += 1000.0 / fps;
             }
