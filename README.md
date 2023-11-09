@@ -23,6 +23,7 @@ Cross-platform multi-console emulator that supports the Sega Genesis / Mega Driv
 
 TODOs:
 * Support multiple Sega CD BIOS versions in GUI and automatically use the correct one based on disc region
+* Implement SNES coprocessors, at least the ones that were used in popular games (e.g. Super FX)
 * Support CHD files for Sega CD in addition to BIN/CUE
 * Investigate and fix a few minor issues, like the EA logo flickering for a single frame in _Galahad_
 * Support the Sega Master System's additional graphics modes (Modes 0-3); only one officially released game used any of them, _F-16 Fighter_ (which uses Mode 2)
