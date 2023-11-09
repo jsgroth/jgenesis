@@ -1152,10 +1152,6 @@ impl AudioDsp {
     }
 
     fn sample(&mut self, audio_ram: &mut AudioRam) -> (i16, i16) {
-        if self.registers.mute_amplifier {
-            return (!0, !0);
-        }
-
         let mut voice_samples_l = [0; 8];
         let mut voice_samples_r = [0; 8];
         let mut voice_sum_l = 0_i32;
@@ -1187,8 +1183,14 @@ impl AudioDsp {
             &voice_samples_r,
         );
 
-        let out_l = (voice_sum_l + echo_l).clamp(i16::MIN.into(), i16::MAX.into());
-        let out_r = (voice_sum_r + echo_r).clamp(i16::MIN.into(), i16::MAX.into());
+        let (out_l, out_r) = if !self.registers.mute_amplifier {
+            let out_l = (voice_sum_l + echo_l).clamp(i16::MIN.into(), i16::MAX.into());
+            let out_r = (voice_sum_r + echo_r).clamp(i16::MIN.into(), i16::MAX.into());
+            (out_l, out_r)
+        } else {
+            // All processing continues while muted, but the DSP outputs silence
+            (0, 0)
+        };
 
         ((out_l as i16) ^ !0, (out_r as i16) ^ !0)
     }
