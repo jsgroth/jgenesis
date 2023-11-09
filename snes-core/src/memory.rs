@@ -474,7 +474,7 @@ impl CpuInternalRegisters {
                 return self.read_dma_register(address);
             }
             _ => {
-                log::warn!("Unmapped read register {address:06X}");
+                // Open bus
                 return None;
             }
         };
@@ -618,7 +618,9 @@ impl CpuInternalRegisters {
                 // DMA registers
                 self.write_dma_register(address, value);
             }
-            _ => log::warn!("Unmapped write register {address:06X} {value:02X}"),
+            _ => {
+                // Open bus; do nothing
+            }
         }
     }
 
@@ -680,7 +682,7 @@ impl CpuInternalRegisters {
                 self.unused_dma_register[channel]
             }
             _ => {
-                log::warn!("Unmapped read DMA register {address:06X}");
+                // Open bus
                 return None;
             }
         };
@@ -800,10 +802,9 @@ impl CpuInternalRegisters {
 
                 log::trace!("  Unused DMA register: {value:02X}");
             }
-            0x430C..=0x430E => {
+            _ => {
                 // Open bus; do nothing
             }
-            _ => log::warn!("Unmapped write DMA register {address:06X} {value:02X}"),
         }
     }
 

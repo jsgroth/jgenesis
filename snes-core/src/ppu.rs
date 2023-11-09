@@ -2418,7 +2418,7 @@ impl Ppu {
                 self.state.ppu1_open_bus
             }
             _ => {
-                log::warn!("Unmapped PPU read {address:06X}");
+                // CPU open bus
                 return None;
             }
         };
