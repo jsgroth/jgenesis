@@ -17,10 +17,13 @@ macro_rules! impl_get_bit {
 impl_get_bit!(u8, 8);
 impl_get_bit!(u16, 16);
 impl_get_bit!(u32, 32);
+impl_get_bit!(u64, 64);
+impl_get_bit!(usize, usize::BITS as u8);
 
 impl_get_bit!(i8, 8);
 impl_get_bit!(i16, 16);
 impl_get_bit!(i32, 32);
+impl_get_bit!(i64, 64);
 
 pub trait SignBit: Copy {
     fn sign_bit(self) -> bool;
@@ -40,7 +43,9 @@ macro_rules! impl_sign_bit {
 impl_sign_bit!(u8, 7);
 impl_sign_bit!(u16, 15);
 impl_sign_bit!(u32, 31);
+impl_sign_bit!(u64, 63);
 
 impl_sign_bit!(i8, 7);
 impl_sign_bit!(i16, 15);
 impl_sign_bit!(i32, 31);
+impl_sign_bit!(i64, 63);
