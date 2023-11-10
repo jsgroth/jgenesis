@@ -1,3 +1,6 @@
+mod cx4;
+
+use crate::memory::cartridge::cx4::Cx4;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::PartialClone;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
@@ -35,12 +38,14 @@ pub enum Cartridge {
         rom: Rom,
         sram: Box<[u8]>,
     },
+    Cx4(#[partial_clone(partial)] Cx4),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CartridgeType {
     LoRom,
     HiRom,
+    Cx4,
 }
 
 impl Display for CartridgeType {
@@ -48,6 +53,7 @@ impl Display for CartridgeType {
         match self {
             Self::LoRom => write!(f, "LoROM"),
             Self::HiRom => write!(f, "HiROM"),
+            Self::Cx4 => write!(f, "CX4"),
         }
     }
 }
@@ -60,7 +66,7 @@ impl Cartridge {
         });
 
         let rom_header_addr = match cartridge_type {
-            CartridgeType::LoRom => 0x7FC0,
+            CartridgeType::LoRom | CartridgeType::Cx4 => 0x7FC0,
             CartridgeType::HiRom => 0xFFC0,
         };
 
@@ -78,6 +84,7 @@ impl Cartridge {
         match cartridge_type {
             CartridgeType::LoRom => Self::LoRom { rom: Rom(rom), sram },
             CartridgeType::HiRom => Self::HiRom { rom: Rom(rom), sram },
+            CartridgeType::Cx4 => Self::Cx4(Cx4::new(Rom(rom))),
         }
     }
 
@@ -89,6 +96,7 @@ impl Cartridge {
             Self::HiRom { rom, sram } => {
                 (hirom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram)
             }
+            Self::Cx4(cx4) => return cx4.read(address),
         };
 
         match mapped_address {
@@ -116,23 +124,28 @@ impl Cartridge {
                     }
                 }
             }
+            Self::Cx4(cx4) => {
+                cx4.write(address, value);
+            }
         }
     }
 
     pub fn take_rom(&mut self) -> Vec<u8> {
         match self {
             Self::LoRom { rom, .. } | Self::HiRom { rom, .. } => mem::take(&mut rom.0).into_vec(),
+            Self::Cx4(cx4) => cx4.take_rom(),
         }
     }
 
     pub fn take_rom_from(&mut self, other: &mut Self) {
-        let other_rom = match other {
-            Self::LoRom { rom, .. } | Self::HiRom { rom, .. } => rom,
-        };
+        let other_rom = other.take_rom();
 
         match self {
             Self::LoRom { rom, .. } | Self::HiRom { rom, .. } => {
-                *rom = mem::take(other_rom);
+                *rom = Rom(other_rom.into_boxed_slice());
+            }
+            Self::Cx4(cx4) => {
+                cx4.set_rom(other_rom);
             }
         }
     }
@@ -140,7 +153,7 @@ impl Cartridge {
     pub fn sram(&self) -> Option<&[u8]> {
         match self {
             Self::LoRom { sram, .. } | Self::HiRom { sram, .. } if !sram.is_empty() => Some(sram),
-            Self::LoRom { .. } | Self::HiRom { .. } => None,
+            Self::LoRom { .. } | Self::HiRom { .. } | Self::Cx4 { .. } => None,
         }
     }
 }
@@ -157,6 +170,14 @@ fn guess_cartridge_type(rom: &[u8]) -> Option<CartridgeType> {
     if rom.len() < 0x8000 {
         log::error!("ROM is too small; all ROMs should be at least 32KB, was {} bytes", rom.len());
         return None;
+    }
+
+    // Check for CX4 (always LoROM); identified by type == $Fx and subtype == $10
+    if rom[LOROM_HEADER_ADDR + 0x1A] == 0x33
+        && rom[LOROM_HEADER_ADDR + 0x16] & 0xF0 == 0xF0
+        && rom[LOROM_HEADER_ADDR - 1] == 0x10
+    {
+        return Some(CartridgeType::Cx4);
     }
 
     if rom.len() < 0x10000 {
