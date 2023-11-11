@@ -154,6 +154,10 @@ impl Cx4Registers {
                 // Program ROM instruction pointer + execute instruction
                 // TODO set busy bit?
                 self.instruction_pointer = value;
+
+                // The DSP obviously takes some time to complete the requested function, but
+                // MMX2 and MMX3 seem to work fine if all function calls complete instantly from the
+                // game's perspective
                 functions::execute(self, rom, ram);
             }
             0x7F50 => {
@@ -244,7 +248,7 @@ impl Cx4Registers {
             + (u32::from(self.instruction_pointer) << 1)
     }
 
-    fn increment_ip(&mut self) {
+    fn increment_instruction_pointer(&mut self) {
         self.instruction_pointer = self.instruction_pointer.wrapping_add(1);
     }
 }
