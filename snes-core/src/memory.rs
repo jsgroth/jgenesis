@@ -1,4 +1,4 @@
-mod cartridge;
+pub(crate) mod cartridge;
 pub(crate) mod dma;
 
 use crate::input::{SnesInputs, SnesJoypadState};

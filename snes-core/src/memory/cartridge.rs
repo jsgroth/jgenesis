@@ -1,6 +1,4 @@
-mod cx4;
-
-use crate::memory::cartridge::cx4::Cx4;
+use crate::coprocessors::cx4::Cx4;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::PartialClone;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
@@ -10,7 +8,7 @@ use std::mem;
 use std::ops::Deref;
 
 #[derive(Debug, Clone, FakeEncode, FakeDecode)]
-pub struct Rom(Box<[u8]>);
+pub struct Rom(pub Box<[u8]>);
 
 impl Default for Rom {
     fn default() -> Self {
@@ -228,13 +226,13 @@ fn seems_like_valid_reset_vector(rom: &[u8], vector: u16) -> bool {
     vector < rom.len() && (rom[vector] == CLC_OPCODE || rom[vector] == SEI_OPCODE)
 }
 
-enum CartridgeAddress {
+pub(crate) enum CartridgeAddress {
     None,
     Rom(u32),
     Sram(u32),
 }
 
-fn lorom_map_address(address: u32, rom_len: u32, sram_len: u32) -> CartridgeAddress {
+pub(crate) fn lorom_map_address(address: u32, rom_len: u32, sram_len: u32) -> CartridgeAddress {
     let bank = address >> 16;
     let offset = address & 0xFFFF;
     match (bank, offset) {
@@ -260,7 +258,7 @@ fn lorom_map_address(address: u32, rom_len: u32, sram_len: u32) -> CartridgeAddr
     }
 }
 
-fn lorom_map_rom_address(address: u32, rom_len: u32) -> u32 {
+pub(crate) fn lorom_map_rom_address(address: u32, rom_len: u32) -> u32 {
     let rom_addr = ((address & 0x7F0000) >> 1) | (address & 0x007FFF);
     // TODO better handle unusual ROM sizes
     rom_addr % rom_len

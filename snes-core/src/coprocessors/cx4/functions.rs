@@ -1,7 +1,7 @@
 mod rom;
 
+use crate::coprocessors::cx4::{Cx4Ram, Cx4Registers};
 use crate::memory::cartridge;
-use crate::memory::cartridge::cx4::{Cx4Ram, Cx4Registers};
 use jgenesis_common::num::GetBit;
 
 #[derive(Debug, Clone, Default)]
