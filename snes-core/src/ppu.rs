@@ -2037,6 +2037,7 @@ impl Ppu {
         tile_map_x >>= 8;
         tile_map_y >>= 8;
 
+        let mut force_tile_0 = false;
         if tile_map_x < 0
             || tile_map_y < 0
             || tile_map_x >= TILE_MAP_SIZE_PIXELS
@@ -2053,15 +2054,20 @@ impl Ppu {
                 Mode7OobBehavior::Tile0 => {
                     tile_map_x &= 0x07;
                     tile_map_y &= 0x07;
+                    force_tile_0 = true;
                 }
             }
         }
 
-        // Mode 7 tile map is always located at $0000
-        let tile_map_row = tile_map_y / 8;
-        let tile_map_col = tile_map_x / 8;
-        let tile_map_addr = tile_map_row * TILE_MAP_SIZE_PIXELS / 8 + tile_map_col;
-        let tile_number = self.vram[tile_map_addr as usize] & 0x00FF;
+        let tile_number = if force_tile_0 {
+            0
+        } else {
+            // Mode 7 tile map is always located at $0000
+            let tile_map_row = tile_map_y / 8;
+            let tile_map_col = tile_map_x / 8;
+            let tile_map_addr = tile_map_row * TILE_MAP_SIZE_PIXELS / 8 + tile_map_col;
+            self.vram[tile_map_addr as usize] & 0x00FF
+        };
 
         let tile_row = (tile_map_y % 8) as u16;
         let tile_col = (tile_map_x % 8) as u16;
