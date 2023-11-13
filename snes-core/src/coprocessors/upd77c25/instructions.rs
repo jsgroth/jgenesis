@@ -105,38 +105,17 @@ fn execute_alu(cpu: &mut Upd77c25, opcode: u32) {
 
 fn or(accumulator: &mut i16, operand: i16, flags: &mut FlagsRegister) {
     *accumulator |= operand;
-    *flags = FlagsRegister {
-        z: *accumulator == 0,
-        c: false,
-        s0: *accumulator < 0,
-        s1: *accumulator < 0,
-        ov0: false,
-        ov1: false,
-    };
+    *flags = set_flags_bit_op(*accumulator);
 }
 
 fn and(accumulator: &mut i16, operand: i16, flags: &mut FlagsRegister) {
     *accumulator &= operand;
-    *flags = FlagsRegister {
-        z: *accumulator == 0,
-        c: false,
-        s0: *accumulator < 0,
-        s1: *accumulator < 0,
-        ov0: false,
-        ov1: false,
-    };
+    *flags = set_flags_bit_op(*accumulator);
 }
 
 fn xor(accumulator: &mut i16, operand: i16, flags: &mut FlagsRegister) {
     *accumulator ^= operand;
-    *flags = FlagsRegister {
-        z: *accumulator == 0,
-        c: false,
-        s0: *accumulator < 0,
-        s1: *accumulator < 0,
-        ov0: false,
-        ov1: false,
-    };
+    *flags = set_flags_bit_op(*accumulator);
 }
 
 fn sub(accumulator: &mut i16, operand: i16, borrow: bool, flags: &mut FlagsRegister) {
@@ -148,15 +127,7 @@ fn sub(accumulator: &mut i16, operand: i16, borrow: bool, flags: &mut FlagsRegis
     let overflow = signed_diff < i16::MIN.into() || signed_diff > i16::MAX.into();
 
     *accumulator = unsigned_diff as i16;
-    flags.z = *accumulator == 0;
-    flags.c = new_borrow;
-    flags.s0 = *accumulator < 0;
-    flags.ov0 = overflow;
-
-    if overflow {
-        flags.s1 = *accumulator < 0;
-        flags.ov1 = !flags.ov1;
-    }
+    set_flags_add_sub(*accumulator, new_borrow, overflow, flags);
 }
 
 fn add(accumulator: &mut i16, operand: i16, carry: bool, flags: &mut FlagsRegister) {
@@ -168,89 +139,73 @@ fn add(accumulator: &mut i16, operand: i16, carry: bool, flags: &mut FlagsRegist
     let overflow = signed_sum < i16::MIN.into() || signed_sum > i16::MAX.into();
 
     *accumulator = unsigned_sum as i16;
-    flags.z = *accumulator == 0;
-    flags.c = new_carry;
-    flags.s0 = *accumulator < 0;
-    flags.ov0 = overflow;
-
-    if overflow {
-        flags.s1 = *accumulator < 0;
-        flags.ov1 = !flags.ov1;
-    }
+    set_flags_add_sub(*accumulator, new_carry, overflow, flags);
 }
 
 fn not(accumulator: &mut i16, flags: &mut FlagsRegister) {
     *accumulator = !(*accumulator);
-    *flags = FlagsRegister {
-        z: *accumulator == 0,
-        c: false,
-        s0: *accumulator < 0,
-        s1: *accumulator < 0,
-        ov0: false,
-        ov1: false,
-    };
+    *flags = set_flags_bit_op(*accumulator);
 }
 
 fn sar1(accumulator: &mut i16, flags: &mut FlagsRegister) {
     let carry = accumulator.bit(0);
     *accumulator >>= 1;
-    *flags = FlagsRegister {
-        z: *accumulator == 0,
-        c: carry,
-        s0: *accumulator < 0,
-        s1: *accumulator < 0,
-        ov0: false,
-        ov1: false,
-    };
+    *flags = set_flags_shift_op(*accumulator, carry);
 }
 
 fn rcl1(accumulator: &mut i16, carry: bool, flags: &mut FlagsRegister) {
     let new_carry = accumulator.sign_bit();
     *accumulator = (*accumulator << 1) | i16::from(carry);
-    *flags = FlagsRegister {
-        z: *accumulator == 0,
-        c: new_carry,
-        s0: *accumulator < 0,
-        s1: *accumulator < 0,
-        ov0: false,
-        ov1: false,
-    };
+    *flags = set_flags_shift_op(*accumulator, new_carry);
 }
 
 fn sll2(accumulator: &mut i16, flags: &mut FlagsRegister) {
     *accumulator = (*accumulator << 2) | 0x03;
-    *flags = FlagsRegister {
-        z: *accumulator == 0,
-        c: false,
-        s0: *accumulator < 0,
-        s1: *accumulator < 0,
-        ov0: false,
-        ov1: false,
-    };
+    *flags = set_flags_bit_op(*accumulator);
 }
 
 fn sll4(accumulator: &mut i16, flags: &mut FlagsRegister) {
     *accumulator = (*accumulator << 4) | 0x0F;
-    *flags = FlagsRegister {
-        z: *accumulator == 0,
-        c: false,
-        s0: *accumulator < 0,
-        s1: *accumulator < 0,
-        ov0: false,
-        ov1: false,
-    };
+    *flags = set_flags_bit_op(*accumulator);
 }
 
 fn xchg(accumulator: &mut i16, flags: &mut FlagsRegister) {
     *accumulator = accumulator.swap_bytes();
-    *flags = FlagsRegister {
-        z: *accumulator == 0,
+    *flags = set_flags_bit_op(*accumulator);
+}
+
+fn set_flags_bit_op(accumulator: i16) -> FlagsRegister {
+    FlagsRegister {
+        z: accumulator == 0,
         c: false,
-        s0: *accumulator < 0,
-        s1: *accumulator < 0,
+        s0: accumulator < 0,
+        s1: accumulator < 0,
         ov0: false,
         ov1: false,
-    };
+    }
+}
+
+fn set_flags_shift_op(accumulator: i16, carry: bool) -> FlagsRegister {
+    FlagsRegister {
+        z: accumulator == 0,
+        c: carry,
+        s0: accumulator < 0,
+        s1: accumulator < 0,
+        ov0: false,
+        ov1: false,
+    }
+}
+
+fn set_flags_add_sub(accumulator: i16, carry: bool, overflow: bool, flags: &mut FlagsRegister) {
+    flags.z = accumulator == 0;
+    flags.c = carry;
+    flags.s0 = accumulator < 0;
+    flags.ov0 = overflow;
+
+    if overflow {
+        flags.s1 = accumulator < 0;
+        flags.ov1 = !flags.ov1;
+    }
 }
 
 fn execute_load(cpu: &mut Upd77c25, opcode: u32) {
