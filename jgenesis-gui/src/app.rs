@@ -196,6 +196,9 @@ struct SnesAppConfig {
     #[serde(default = "true_fn")]
     audio_60hz_hack: bool,
     dsp1_rom_path: Option<String>,
+    dsp2_rom_path: Option<String>,
+    dsp3_rom_path: Option<String>,
+    dsp4_rom_path: Option<String>,
 }
 
 impl Default for SnesAppConfig {
@@ -336,6 +339,9 @@ impl AppConfig {
             aspect_ratio: self.snes.aspect_ratio,
             audio_60hz_hack: self.snes.audio_60hz_hack,
             dsp1_rom_path: self.snes.dsp1_rom_path.clone(),
+            dsp2_rom_path: self.snes.dsp2_rom_path.clone(),
+            dsp3_rom_path: self.snes.dsp3_rom_path.clone(),
+            dsp4_rom_path: self.snes.dsp4_rom_path.clone(),
         })
     }
 }
@@ -668,24 +674,54 @@ impl App {
             ui.horizontal(|ui| {
                 let dsp1_rom_path = self.config.snes.dsp1_rom_path.as_deref();
                 if ui.button(dsp1_rom_path.unwrap_or("<None>")).clicked() {
-                    if let Some(path) = FileDialog::new().pick_file() {
-                        match path.to_str() {
-                            Some(path) => self.config.snes.dsp1_rom_path = Some(path.into()),
-                            None => {
-                                log::error!(
-                                    "Unable to convert path to string: '{}'",
-                                    path.display()
-                                );
-                            }
-                        }
-                    }
+                    Self::pick_coprocessor_rom_path(&mut self.config.snes.dsp1_rom_path);
                 }
 
                 ui.label("DSP-1 ROM path");
             });
+
+            ui.horizontal(|ui| {
+                let dsp2_rom_path = self.config.snes.dsp2_rom_path.as_deref();
+                if ui.button(dsp2_rom_path.unwrap_or("<None>")).clicked() {
+                    Self::pick_coprocessor_rom_path(&mut self.config.snes.dsp2_rom_path);
+                }
+
+                ui.label("DSP-2 ROM path");
+            });
+
+            ui.horizontal(|ui| {
+                let dsp3_rom_path = self.config.snes.dsp3_rom_path.as_deref();
+                if ui.button(dsp3_rom_path.unwrap_or("<None>")).clicked() {
+                    Self::pick_coprocessor_rom_path(&mut self.config.snes.dsp3_rom_path);
+                }
+
+                ui.label("DSP-3 ROM path");
+            });
+
+            ui.horizontal(|ui| {
+                let dsp4_rom_path = self.config.snes.dsp4_rom_path.as_deref();
+                if ui.button(dsp4_rom_path.unwrap_or("<None>")).clicked() {
+                    Self::pick_coprocessor_rom_path(&mut self.config.snes.dsp4_rom_path);
+                }
+
+                ui.label("DSP-4 ROM path");
+            });
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::SnesGeneral);
+        }
+    }
+
+    fn pick_coprocessor_rom_path(out_path: &mut Option<String>) {
+        let Some(path) = FileDialog::new().pick_file() else { return };
+
+        match path.to_str() {
+            Some(path) => {
+                *out_path = Some(path.into());
+            }
+            None => {
+                log::error!("Unable to convert path to string: '{}'", path.display());
+            }
         }
     }
 

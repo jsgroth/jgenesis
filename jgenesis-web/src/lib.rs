@@ -474,7 +474,7 @@ fn open_emulator(rom: Vec<u8>, file_name: &str, config_ref: &WebConfigRef) -> Em
                 rom,
                 None,
                 config_ref.borrow().snes.to_emulator_config(),
-                CoprocessorProgramRoms { dsp1: None },
+                CoprocessorProgramRoms { dsp1: None, dsp2: None, dsp3: None, dsp4: None },
             )
             .expect("Unable to create SNES emulator");
             Emulator::Snes(emulator, SnesInputs::default())

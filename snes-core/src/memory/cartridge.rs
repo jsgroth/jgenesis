@@ -2,6 +2,7 @@ use crate::api::{CoprocessorRoms, LoadError, LoadResult};
 use crate::coprocessors::cx4::Cx4;
 use crate::coprocessors::upd77c25::{Upd77c25, Upd77c25Variant};
 use bincode::{Decode, Encode};
+use crc::Crc;
 use jgenesis_common::frontend::PartialClone;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::cmp::Ordering;
@@ -60,6 +61,25 @@ impl Display for CartridgeType {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DspVariant {
+    Dsp1,
+    Dsp2,
+    Dsp3,
+    Dsp4,
+}
+
+impl Display for DspVariant {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Dsp1 => write!(f, "DSP-1"),
+            Self::Dsp2 => write!(f, "DSP-2"),
+            Self::Dsp3 => write!(f, "DSP-3"),
+            Self::Dsp4 => write!(f, "DSP-4"),
+        }
+    }
+}
+
 impl Cartridge {
     pub fn create(
         rom: Box<[u8]>,
@@ -87,15 +107,29 @@ impl Cartridge {
 
         log::info!("Using mapper {cartridge_type} with SRAM size {sram_len}");
 
-        // Check for DSP-1 coprocessor
+        // Check for DSP-1/2/3/4 coprocessor
         let chipset_byte = rom[rom_header_addr + 0x16];
         let upd77c25 = if (0x03..0x06).contains(&chipset_byte) {
-            log::info!("Detected DSP-1 coprocessor");
+            let dsp_variant = guess_dsp_variant(&rom);
 
-            let Some(dsp1_rom) = coprocessor_roms.dsp1.as_ref() else {
-                return Err(LoadError::MissingDsp1Rom);
+            log::info!("Detected DSP coprocessor of type {dsp_variant}");
+
+            let dsp_rom = match dsp_variant {
+                DspVariant::Dsp1 => {
+                    coprocessor_roms.dsp1.as_ref().ok_or(LoadError::MissingDsp1Rom)?
+                }
+                DspVariant::Dsp2 => {
+                    coprocessor_roms.dsp2.as_ref().ok_or(LoadError::MissingDsp2Rom)?
+                }
+                DspVariant::Dsp3 => {
+                    coprocessor_roms.dsp3.as_ref().ok_or(LoadError::MissingDsp3Rom)?
+                }
+                DspVariant::Dsp4 => {
+                    coprocessor_roms.dsp4.as_ref().ok_or(LoadError::MissingDsp4Rom)?
+                }
             };
-            Some(Upd77c25::new(dsp1_rom, Upd77c25Variant::Dsp))
+
+            Some(Upd77c25::new(dsp_rom, Upd77c25Variant::Dsp))
         } else {
             None
         };
@@ -279,6 +313,24 @@ fn guess_cartridge_type(rom: &[u8]) -> Option<CartridgeType> {
         Ordering::Less => Some(CartridgeType::HiRom),
         Ordering::Greater => Some(CartridgeType::LoRom),
         Ordering::Equal => None,
+    }
+}
+
+const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
+
+fn guess_dsp_variant(rom: &[u8]) -> DspVariant {
+    let mut digest = CRC.digest();
+    digest.update(rom);
+    let checksum = digest.finalize();
+
+    match checksum {
+        // Dungeon Master (U/J/E)
+        0x0DFD9CEB | 0xAA79FA33 | 0x89A67ADF => DspVariant::Dsp2,
+        // SD Gundam GX (J)
+        0x4DC3D903 => DspVariant::Dsp3,
+        // Top Gear 3000 (U/E) / The Planet's Champ TG 3000 (J)
+        0xA20BE998 | 0x493FDB13 | 0xB9B9DF06 => DspVariant::Dsp4,
+        _ => DspVariant::Dsp1,
     }
 }
 

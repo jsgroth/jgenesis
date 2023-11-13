@@ -142,6 +142,18 @@ struct Args {
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
     dsp1_rom_path: Option<String>,
 
+    /// Specify SNES DSP-2 ROM path (required for DSP-2 games)
+    #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
+    dsp2_rom_path: Option<String>,
+
+    /// Specify SNES DSP-3 ROM path (required for DSP-3 games)
+    #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
+    dsp3_rom_path: Option<String>,
+
+    /// Specify SNES DSP-4 ROM path (required for DSP-4 games)
+    #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
+    dsp4_rom_path: Option<String>,
+
     /// Window width in pixels; height must also be set
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     window_width: Option<u32>,
@@ -560,6 +572,9 @@ fn run_snes(args: Args) -> anyhow::Result<()> {
         aspect_ratio: args.snes_aspect_ratio,
         audio_60hz_hack: args.snes_audio_60hz_hack,
         dsp1_rom_path: args.dsp1_rom_path,
+        dsp2_rom_path: args.dsp2_rom_path,
+        dsp3_rom_path: args.dsp3_rom_path,
+        dsp4_rom_path: args.dsp4_rom_path,
     };
 
     let mut emulator = jgenesis_native_driver::create_snes(config.into())?;

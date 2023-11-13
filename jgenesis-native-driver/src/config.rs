@@ -225,6 +225,9 @@ pub struct SnesConfig {
     pub aspect_ratio: SnesAspectRatio,
     pub audio_60hz_hack: bool,
     pub dsp1_rom_path: Option<String>,
+    pub dsp2_rom_path: Option<String>,
+    pub dsp3_rom_path: Option<String>,
+    pub dsp4_rom_path: Option<String>,
 }
 
 impl SnesConfig {
@@ -237,11 +240,20 @@ impl SnesConfig {
     }
 
     pub(crate) fn to_coprocessor_roms(&self) -> Result<CoprocessorRoms, (io::Error, String)> {
-        let dsp1 = match &self.dsp1_rom_path {
-            Some(path) => Some(fs::read(path).map_err(|err| (err, path.clone()))?),
-            None => None,
-        };
+        let dsp1 = read_coprocessor_rom(self.dsp1_rom_path.as_ref())?;
+        let dsp2 = read_coprocessor_rom(self.dsp2_rom_path.as_ref())?;
+        let dsp3 = read_coprocessor_rom(self.dsp3_rom_path.as_ref())?;
+        let dsp4 = read_coprocessor_rom(self.dsp4_rom_path.as_ref())?;
 
-        Ok(CoprocessorRoms { dsp1 })
+        Ok(CoprocessorRoms { dsp1, dsp2, dsp3, dsp4 })
     }
+}
+
+fn read_coprocessor_rom(path: Option<&String>) -> Result<Option<Vec<u8>>, (io::Error, String)> {
+    let rom = match path {
+        Some(path) => Some(fs::read(path).map_err(|err| (err, path.clone()))?),
+        None => None,
+    };
+
+    Ok(rom)
 }
