@@ -69,6 +69,13 @@ pub struct CoprocessorRoms {
     pub st011: Option<Box<CoprocessorRomFn>>,
 }
 
+impl CoprocessorRoms {
+    #[must_use]
+    pub fn none() -> Self {
+        Self::default()
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum SnesError<RErr, AErr, SErr> {
     #[error("Error rendering frame: {0}")]
