@@ -65,6 +65,8 @@ pub struct CoprocessorRoms {
     pub dsp2: Option<Box<CoprocessorRomFn>>,
     pub dsp3: Option<Box<CoprocessorRomFn>>,
     pub dsp4: Option<Box<CoprocessorRomFn>>,
+    pub st010: Option<Box<CoprocessorRomFn>>,
+    pub st011: Option<Box<CoprocessorRomFn>>,
 }
 
 #[derive(Debug, Error)]
@@ -87,6 +89,10 @@ pub enum LoadError {
     MissingDsp3Rom,
     #[error("Cannot load DSP-4 cartridge because DSP-4 ROM is not configured")]
     MissingDsp4Rom,
+    #[error("Cannot load ST010 cartridge because ST010 ROM is not configured")]
+    MissingSt010Rom,
+    #[error("Cannot load ST011 cartridge because ST011 ROM is not configured")]
+    MissingSt011Rom,
     #[error("Failed to load required coprocessor ROM from '{path}': {source}")]
     CoprocessorRomLoad {
         #[source]
@@ -141,7 +147,8 @@ impl SnesEmulator {
         let main_cpu = Wdc65816::new();
         let cpu_registers = CpuInternalRegisters::new();
         let dma_unit = DmaUnit::new();
-        let mut memory = Memory::create(rom, initial_sram, &coprocessor_roms)?;
+        let mut memory =
+            Memory::create(rom, initial_sram, &coprocessor_roms, config.forced_timing_mode)?;
 
         let timing_mode =
             config.forced_timing_mode.unwrap_or_else(|| memory.cartridge_timing_mode());

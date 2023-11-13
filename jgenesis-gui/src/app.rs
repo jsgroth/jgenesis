@@ -199,6 +199,8 @@ struct SnesAppConfig {
     dsp2_rom_path: Option<String>,
     dsp3_rom_path: Option<String>,
     dsp4_rom_path: Option<String>,
+    st010_rom_path: Option<String>,
+    st011_rom_path: Option<String>,
 }
 
 impl Default for SnesAppConfig {
@@ -342,6 +344,8 @@ impl AppConfig {
             dsp2_rom_path: self.snes.dsp2_rom_path.clone(),
             dsp3_rom_path: self.snes.dsp3_rom_path.clone(),
             dsp4_rom_path: self.snes.dsp4_rom_path.clone(),
+            st010_rom_path: self.snes.st010_rom_path.clone(),
+            st011_rom_path: self.snes.st011_rom_path.clone(),
         })
     }
 }
@@ -705,6 +709,24 @@ impl App {
                 }
 
                 ui.label("DSP-4 ROM path");
+            });
+
+            ui.horizontal(|ui| {
+                let st010_rom_path = self.config.snes.st010_rom_path.as_deref();
+                if ui.button(st010_rom_path.unwrap_or("<None>")).clicked() {
+                    Self::pick_coprocessor_rom_path(&mut self.config.snes.st010_rom_path);
+                }
+
+                ui.label("ST010 ROM path");
+            });
+
+            ui.horizontal(|ui| {
+                let st011_rom_path = self.config.snes.st011_rom_path.as_deref();
+                if ui.button(st011_rom_path.unwrap_or("<None>")).clicked() {
+                    Self::pick_coprocessor_rom_path(&mut self.config.snes.st011_rom_path);
+                }
+
+                ui.label("ST011 ROM path");
             });
         });
         if !open {
