@@ -15,7 +15,7 @@ use jgenesis_renderer::renderer::WgpuRenderer;
 use js_sys::Promise;
 use rfd::AsyncFileDialog;
 use smsgg_core::{SmsGgEmulator, SmsGgInputs};
-use snes_core::api::{CoprocessorProgramRoms, SnesEmulator};
+use snes_core::api::{CoprocessorRoms, SnesEmulator};
 use snes_core::input::SnesInputs;
 use std::fmt::{Debug, Display, Formatter};
 use std::path::Path;
@@ -474,7 +474,7 @@ fn open_emulator(rom: Vec<u8>, file_name: &str, config_ref: &WebConfigRef) -> Em
                 rom,
                 None,
                 config_ref.borrow().snes.to_emulator_config(),
-                CoprocessorProgramRoms { dsp1: None, dsp2: None, dsp3: None, dsp4: None },
+                CoprocessorRoms { dsp1: None, dsp2: None, dsp3: None, dsp4: None },
             )
             .expect("Unable to create SNES emulator");
             Emulator::Snes(emulator, SnesInputs::default())
