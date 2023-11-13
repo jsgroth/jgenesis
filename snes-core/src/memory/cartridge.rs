@@ -1,4 +1,6 @@
+use crate::api::{CoprocessorRoms, LoadError, LoadResult};
 use crate::coprocessors::cx4::Cx4;
+use crate::coprocessors::upd77c25::{Upd77c25, Upd77c25Variant};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::PartialClone;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
@@ -30,11 +32,13 @@ pub enum Cartridge {
         #[partial_clone(default)]
         rom: Rom,
         sram: Box<[u8]>,
+        upd77c25: Option<Upd77c25>,
     },
     HiRom {
         #[partial_clone(default)]
         rom: Rom,
         sram: Box<[u8]>,
+        upd77c25: Option<Upd77c25>,
     },
     Cx4(#[partial_clone(partial)] Cx4),
 }
@@ -57,7 +61,11 @@ impl Display for CartridgeType {
 }
 
 impl Cartridge {
-    pub fn create(rom: Box<[u8]>, initial_sram: Option<Vec<u8>>) -> Self {
+    pub fn create(
+        rom: Box<[u8]>,
+        initial_sram: Option<Vec<u8>>,
+        coprocessor_roms: &CoprocessorRoms,
+    ) -> LoadResult<Self> {
         let cartridge_type = guess_cartridge_type(&rom).unwrap_or_else(|| {
             log::error!("Unable to confidently determine ROM type; defaulting to LoROM");
             CartridgeType::LoRom
@@ -79,19 +87,48 @@ impl Cartridge {
 
         log::info!("Using mapper {cartridge_type} with SRAM size {sram_len}");
 
-        match cartridge_type {
-            CartridgeType::LoRom => Self::LoRom { rom: Rom(rom), sram },
-            CartridgeType::HiRom => Self::HiRom { rom: Rom(rom), sram },
+        // Check for DSP-1 coprocessor
+        let chipset_byte = rom[rom_header_addr + 0x16];
+        let upd77c25 = if (0x03..0x06).contains(&chipset_byte) {
+            log::info!("Detected DSP-1 coprocessor");
+
+            let Some(dsp1_rom) = coprocessor_roms.dsp1.as_ref() else {
+                return Err(LoadError::MissingDsp1Rom);
+            };
+            Some(Upd77c25::new(dsp1_rom, Upd77c25Variant::Dsp))
+        } else {
+            None
+        };
+
+        Ok(match cartridge_type {
+            CartridgeType::LoRom => Self::LoRom { rom: Rom(rom), sram, upd77c25 },
+            CartridgeType::HiRom => Self::HiRom { rom: Rom(rom), sram, upd77c25 },
             CartridgeType::Cx4 => Self::Cx4(Cx4::new(Rom(rom))),
-        }
+        })
     }
 
-    pub fn read(&self, address: u32) -> Option<u8> {
+    pub fn read(&mut self, address: u32) -> Option<u8> {
+        let bank = (address >> 16) & 0xFF;
+        let offset = address & 0xFFFF;
         let (mapped_address, rom, sram) = match self {
-            Self::LoRom { rom, sram } => {
+            Self::LoRom { rom, sram, upd77c25: Some(upd77c25) } => match (bank, offset) {
+                (0x30..=0x3F | 0xC0..=0xCF, 0x8000..=0xBFFF) => return Some(upd77c25.read_data()),
+                (0x30..=0x3F | 0xC0..=0xCF, 0xC000..=0xFFFF) => {
+                    return Some(upd77c25.read_status());
+                }
+                _ => (lorom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram),
+            },
+            Self::LoRom { rom, sram, .. } => {
                 (lorom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram)
             }
-            Self::HiRom { rom, sram } => {
+            Self::HiRom { rom, sram, upd77c25: Some(upd77c25) } => match (bank, offset) {
+                (0x00..=0x0F | 0x80..=0x8F, 0x6000..=0x6FFF) => return Some(upd77c25.read_data()),
+                (0x00..=0x0F | 0x80..=0x8F, 0x7000..=0x7FFF) => {
+                    return Some(upd77c25.read_status());
+                }
+                _ => (hirom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram),
+            },
+            Self::HiRom { rom, sram, .. } => {
                 (hirom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram)
             }
             Self::Cx4(cx4) => return cx4.read(address),
@@ -105,23 +142,31 @@ impl Cartridge {
     }
 
     pub fn write(&mut self, address: u32, value: u8) {
+        let bank = (address >> 16) & 0xFF;
+        let offset = address & 0xFFFF;
         match self {
-            Self::LoRom { rom, sram } => {
-                match lorom_map_address(address, rom.len() as u32, sram.len() as u32) {
+            Self::LoRom { rom, sram, upd77c25 } => match (upd77c25, bank, offset) {
+                (Some(upd77c25), 0x30..=0x3F | 0xC0..=0xCF, 0x8000..=0xBFFF) => {
+                    upd77c25.write_data(value);
+                }
+                _ => match lorom_map_address(address, rom.len() as u32, sram.len() as u32) {
                     CartridgeAddress::Rom(_) | CartridgeAddress::None => {}
                     CartridgeAddress::Sram(sram_addr) => {
                         sram[sram_addr as usize] = value;
                     }
+                },
+            },
+            Self::HiRom { rom, sram, upd77c25 } => match (upd77c25, bank, offset) {
+                (Some(upd77c25), 0x00..=0x0F | 0x80..=0x8F, 0x6000..=0x6FFF) => {
+                    upd77c25.write_data(value);
                 }
-            }
-            Self::HiRom { rom, sram } => {
-                match hirom_map_address(address, rom.len() as u32, sram.len() as u32) {
+                _ => match hirom_map_address(address, rom.len() as u32, sram.len() as u32) {
                     CartridgeAddress::Rom(_) | CartridgeAddress::None => {}
                     CartridgeAddress::Sram(sram_addr) => {
                         sram[sram_addr as usize] = value;
                     }
-                }
-            }
+                },
+            },
             Self::Cx4(cx4) => {
                 cx4.write(address, value);
             }
@@ -152,6 +197,26 @@ impl Cartridge {
         match self {
             Self::LoRom { sram, .. } | Self::HiRom { sram, .. } if !sram.is_empty() => Some(sram),
             Self::LoRom { .. } | Self::HiRom { .. } | Self::Cx4 { .. } => None,
+        }
+    }
+
+    pub fn tick(&mut self, master_cycles_elapsed: u64) {
+        match self {
+            Self::LoRom { upd77c25: Some(upd77c25), .. }
+            | Self::HiRom { upd77c25: Some(upd77c25), .. } => {
+                upd77c25.tick(master_cycles_elapsed);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn reset(&mut self) {
+        match self {
+            Self::LoRom { upd77c25: Some(upd77c25), .. }
+            | Self::HiRom { upd77c25: Some(upd77c25), .. } => {
+                upd77c25.reset();
+            }
+            _ => {}
         }
     }
 }
