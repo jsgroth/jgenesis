@@ -60,6 +60,9 @@ pub struct SnesEmulatorConfig {
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct CoprocessorRoms {
     pub dsp1: Option<Vec<u8>>,
+    pub dsp2: Option<Vec<u8>>,
+    pub dsp3: Option<Vec<u8>>,
+    pub dsp4: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Error)]
@@ -74,8 +77,14 @@ pub enum SnesError<RErr, AErr, SErr> {
 
 #[derive(Debug, Error)]
 pub enum LoadError {
-    #[error("Cannot load DSP-1 cartridge because DSP-1 program ROM is not configured")]
+    #[error("Cannot load DSP-1 cartridge because DSP-1 ROM is not configured")]
     MissingDsp1Rom,
+    #[error("Cannot load DSP-2 cartridge because DSP-2 ROM is not configured")]
+    MissingDsp2Rom,
+    #[error("Cannot load DSP-3 cartridge because DSP-3 ROM is not configured")]
+    MissingDsp3Rom,
+    #[error("Cannot load DSP-4 cartridge because DSP-4 ROM is not configured")]
+    MissingDsp4Rom,
 }
 
 pub type LoadResult<T> = Result<T, LoadError>;
