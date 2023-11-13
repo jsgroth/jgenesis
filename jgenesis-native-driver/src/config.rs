@@ -14,7 +14,8 @@ use segacd_core::api::SegaCdEmulatorConfig;
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgEmulatorConfig, SmsRegion, VdpVersion};
-use snes_core::api::{SnesAspectRatio, SnesEmulatorConfig};
+use snes_core::api::{CoprocessorRoms, SnesAspectRatio, SnesEmulatorConfig};
+use std::{fs, io};
 
 pub(crate) const DEFAULT_GENESIS_WINDOW_SIZE: WindowSize = WindowSize { width: 878, height: 672 };
 
@@ -223,6 +224,7 @@ pub struct SnesConfig {
     pub forced_timing_mode: Option<TimingMode>,
     pub aspect_ratio: SnesAspectRatio,
     pub audio_60hz_hack: bool,
+    pub dsp1_rom_path: Option<String>,
 }
 
 impl SnesConfig {
@@ -232,5 +234,14 @@ impl SnesConfig {
             aspect_ratio: self.aspect_ratio,
             audio_60hz_hack: self.audio_60hz_hack,
         }
+    }
+
+    pub(crate) fn to_coprocessor_roms(&self) -> Result<CoprocessorRoms, (io::Error, String)> {
+        let dsp1 = match &self.dsp1_rom_path {
+            Some(path) => Some(fs::read(path).map_err(|err| (err, path.clone()))?),
+            None => None,
+        };
+
+        Ok(CoprocessorRoms { dsp1 })
     }
 }

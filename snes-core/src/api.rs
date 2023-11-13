@@ -52,10 +52,14 @@ impl SnesAspectRatio {
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 pub struct SnesEmulatorConfig {
-    // TODO use timing mode instead of forcing NTSC
     pub forced_timing_mode: Option<TimingMode>,
     pub aspect_ratio: SnesAspectRatio,
     pub audio_60hz_hack: bool,
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct CoprocessorRoms {
+    pub dsp1: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Error)]
@@ -67,6 +71,14 @@ pub enum SnesError<RErr, AErr, SErr> {
     #[error("Error persisting save file: {0}")]
     SaveWrite(SErr),
 }
+
+#[derive(Debug, Error)]
+pub enum LoadError {
+    #[error("Cannot load DSP-1 cartridge because DSP-1 program ROM is not configured")]
+    MissingDsp1Rom,
+}
+
+pub type LoadResult<T> = Result<T, LoadError>;
 
 macro_rules! new_bus {
     ($self:expr) => {
@@ -94,15 +106,24 @@ pub struct SnesEmulator {
     memory_refresh_pending: bool,
     timing_mode: TimingMode,
     aspect_ratio: SnesAspectRatio,
+    // Stored here to enable hard reset
+    coprocessor_roms: CoprocessorRoms,
 }
 
 impl SnesEmulator {
-    #[must_use]
-    pub fn create(rom: Vec<u8>, initial_sram: Option<Vec<u8>>, config: SnesEmulatorConfig) -> Self {
+    /// # Errors
+    ///
+    /// This function will return an error if it is unable to load the cartridge ROM for any reason.
+    pub fn create(
+        rom: Vec<u8>,
+        initial_sram: Option<Vec<u8>>,
+        config: SnesEmulatorConfig,
+        coprocessor_roms: CoprocessorRoms,
+    ) -> LoadResult<Self> {
         let main_cpu = Wdc65816::new();
         let cpu_registers = CpuInternalRegisters::new();
         let dma_unit = DmaUnit::new();
-        let mut memory = Memory::create(rom, initial_sram);
+        let mut memory = Memory::create(rom, initial_sram, &coprocessor_roms)?;
 
         let timing_mode =
             config.forced_timing_mode.unwrap_or_else(|| memory.cartridge_timing_mode());
@@ -123,12 +144,13 @@ impl SnesEmulator {
             memory_refresh_pending: false,
             timing_mode,
             aspect_ratio: config.aspect_ratio,
+            coprocessor_roms,
         };
 
         // Reset CPU so that execution starts from the right place
         emulator.main_cpu.reset(&mut new_bus!(emulator));
 
-        emulator
+        Ok(emulator)
     }
 
     pub fn cartridge_title(&mut self) -> String {
@@ -210,7 +232,7 @@ impl TickableEmulator for SnesEmulator {
             self.audio_downsampler.collect_sample(sample_l, sample_r);
         }
 
-        // TODO run other components
+        self.memory.tick(master_cycles_elapsed);
 
         self.total_master_cycles += master_cycles_elapsed;
         if prev_scanline_mclk < MEMORY_REFRESH_MCLK
@@ -256,7 +278,7 @@ impl Resettable for SnesEmulator {
         self.ppu.reset();
         self.apu.reset();
 
-        // Reset WRAM port address
+        self.memory.reset();
         self.memory.write_wram_port_address_low(0);
         self.memory.write_wram_port_address_mid(0);
         self.memory.write_wram_port_address_high(0);
@@ -276,7 +298,9 @@ impl Resettable for SnesEmulator {
                 aspect_ratio: self.aspect_ratio,
                 audio_60hz_hack: self.apu.get_audio_60hz_hack(),
             },
-        );
+            self.coprocessor_roms.clone(),
+        )
+        .expect("Hard resetting should never fail to load");
     }
 }
 

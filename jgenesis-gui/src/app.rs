@@ -195,6 +195,7 @@ struct SnesAppConfig {
     aspect_ratio: SnesAspectRatio,
     #[serde(default = "true_fn")]
     audio_60hz_hack: bool,
+    dsp1_rom_path: Option<String>,
 }
 
 impl Default for SnesAppConfig {
@@ -334,6 +335,7 @@ impl AppConfig {
             forced_timing_mode: self.snes.forced_timing_mode,
             aspect_ratio: self.snes.aspect_ratio,
             audio_60hz_hack: self.snes.audio_60hz_hack,
+            dsp1_rom_path: self.snes.dsp1_rom_path.clone(),
         })
     }
 }
@@ -661,6 +663,25 @@ impl App {
                         "PAL",
                     );
                 });
+            });
+
+            ui.horizontal(|ui| {
+                let dsp1_rom_path = self.config.snes.dsp1_rom_path.as_deref();
+                if ui.button(dsp1_rom_path.unwrap_or("<None>")).clicked() {
+                    if let Some(path) = FileDialog::new().pick_file() {
+                        match path.to_str() {
+                            Some(path) => self.config.snes.dsp1_rom_path = Some(path.into()),
+                            None => {
+                                log::error!(
+                                    "Unable to convert path to string: '{}'",
+                                    path.display()
+                                );
+                            }
+                        }
+                    }
+                }
+
+                ui.label("DSP-1 ROM path");
             });
         });
         if !open {

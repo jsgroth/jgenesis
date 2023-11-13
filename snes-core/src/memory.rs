@@ -1,6 +1,7 @@
 pub(crate) mod cartridge;
 pub(crate) mod dma;
 
+use crate::api::{CoprocessorRoms, LoadResult};
 use crate::input::{SnesInputs, SnesJoypadState};
 use crate::memory::cartridge::Cartridge;
 use crate::ppu::Ppu;
@@ -44,15 +45,19 @@ pub struct Memory {
 }
 
 impl Memory {
-    pub fn create(rom: Vec<u8>, initial_sram: Option<Vec<u8>>) -> Self {
-        let cartridge = Cartridge::create(rom.into_boxed_slice(), initial_sram);
+    pub fn create(
+        rom: Vec<u8>,
+        initial_sram: Option<Vec<u8>>,
+        coprocessor_roms: &CoprocessorRoms,
+    ) -> LoadResult<Self> {
+        let cartridge = Cartridge::create(rom.into_boxed_slice(), initial_sram, coprocessor_roms)?;
 
-        Self {
+        Ok(Self {
             cartridge,
             main_ram: vec![0; MAIN_RAM_LEN].into_boxed_slice().try_into().unwrap(),
             wram_port_address: 0,
             cpu_open_bus: 0,
-        }
+        })
     }
 
     pub fn read_cartridge(&mut self, address: u32) -> Option<u8> {
@@ -158,6 +163,15 @@ impl Memory {
 
     pub fn cpu_open_bus(&self) -> u8 {
         self.cpu_open_bus
+    }
+
+    pub fn tick(&mut self, master_cycles_elapsed: u64) {
+        self.cartridge.tick(master_cycles_elapsed);
+    }
+
+    pub fn reset(&mut self) {
+        self.wram_port_address = 0;
+        self.cartridge.reset();
     }
 }
 

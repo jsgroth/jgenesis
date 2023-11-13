@@ -135,8 +135,12 @@ struct Args {
     snes_aspect_ratio: SnesAspectRatio,
 
     /// Disable hack that times SNES audio signal to 60Hz instead of ~60.098Hz
-    #[arg(long, default_value_t = true, action = clap::ArgAction::SetFalse, help_heading = SNES_OPTIONS_HEADING)]
+    #[arg(long = "no-snes-audio-60hz-hack", default_value_t = true, action = clap::ArgAction::SetFalse, help_heading = SNES_OPTIONS_HEADING)]
     snes_audio_60hz_hack: bool,
+
+    /// Specify SNES DSP-1 ROM path (required for DSP-1 games)
+    #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
+    dsp1_rom_path: Option<String>,
 
     /// Window width in pixels; height must also be set
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
@@ -555,6 +559,7 @@ fn run_snes(args: Args) -> anyhow::Result<()> {
         forced_timing_mode: args.snes_timing_mode,
         aspect_ratio: args.snes_aspect_ratio,
         audio_60hz_hack: args.snes_audio_60hz_hack,
+        dsp1_rom_path: args.dsp1_rom_path,
     };
 
     let mut emulator = jgenesis_native_driver::create_snes(config.into())?;
