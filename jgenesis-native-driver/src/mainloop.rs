@@ -523,12 +523,6 @@ pub enum NativeEmulatorError {
     SegaCdDisc(#[from] DiscError),
     #[error("{0}")]
     SnesLoad(#[from] LoadError),
-    #[error("Error loading SNES coprocessor ROM file at '{path}': {source}")]
-    SnesCoprocessorRomOpen {
-        #[source]
-        source: io::Error,
-        path: String,
-    },
     #[error("I/O error opening save state file '{path}': {source}")]
     StateFileOpen {
         path: String,
@@ -923,9 +917,7 @@ pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEm
     }
 
     let emulator_config = config.to_emulator_config();
-    let coprocessor_roms = config
-        .to_coprocessor_roms()
-        .map_err(|(source, path)| NativeEmulatorError::SnesCoprocessorRomOpen { source, path })?;
+    let coprocessor_roms = config.to_coprocessor_roms();
     let mut emulator = SnesEmulator::create(rom, initial_sram, emulator_config, coprocessor_roms)?;
 
     let (video, audio, joystick, event_pump) = init_sdl()?;

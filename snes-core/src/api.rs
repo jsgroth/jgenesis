@@ -11,9 +11,9 @@ use jgenesis_common::frontend::{
     PixelAspectRatio, Renderer, Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
     TimingMode,
 };
-use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
+use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
 use std::fmt::{Debug, Display};
-use std::iter;
+use std::{io, iter, mem};
 use thiserror::Error;
 use wdc65816_emu::core::Wdc65816;
 
@@ -57,12 +57,14 @@ pub struct SnesEmulatorConfig {
     pub audio_60hz_hack: bool,
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+pub type CoprocessorRomFn = dyn Fn() -> Result<Vec<u8>, (io::Error, String)>;
+
+#[derive(Default, FakeEncode, FakeDecode)]
 pub struct CoprocessorRoms {
-    pub dsp1: Option<Vec<u8>>,
-    pub dsp2: Option<Vec<u8>>,
-    pub dsp3: Option<Vec<u8>>,
-    pub dsp4: Option<Vec<u8>>,
+    pub dsp1: Option<Box<CoprocessorRomFn>>,
+    pub dsp2: Option<Box<CoprocessorRomFn>>,
+    pub dsp3: Option<Box<CoprocessorRomFn>>,
+    pub dsp4: Option<Box<CoprocessorRomFn>>,
 }
 
 #[derive(Debug, Error)]
@@ -85,6 +87,12 @@ pub enum LoadError {
     MissingDsp3Rom,
     #[error("Cannot load DSP-4 cartridge because DSP-4 ROM is not configured")]
     MissingDsp4Rom,
+    #[error("Failed to load required coprocessor ROM from '{path}': {source}")]
+    CoprocessorRomLoad {
+        #[source]
+        source: io::Error,
+        path: String,
+    },
 }
 
 pub type LoadResult<T> = Result<T, LoadError>;
@@ -101,7 +109,7 @@ macro_rules! new_bus {
     };
 }
 
-#[derive(Debug, Clone, Encode, Decode, PartialClone)]
+#[derive(Encode, Decode, PartialClone)]
 pub struct SnesEmulator {
     main_cpu: Wdc65816,
     cpu_registers: CpuInternalRegisters,
@@ -116,6 +124,7 @@ pub struct SnesEmulator {
     timing_mode: TimingMode,
     aspect_ratio: SnesAspectRatio,
     // Stored here to enable hard reset
+    #[partial_clone(default)]
     coprocessor_roms: CoprocessorRoms,
 }
 
@@ -275,6 +284,7 @@ impl ConfigReload for SnesEmulator {
 impl TakeRomFrom for SnesEmulator {
     fn take_rom_from(&mut self, other: &mut Self) {
         self.memory.take_rom_from(&mut other.memory);
+        self.coprocessor_roms = mem::take(&mut other.coprocessor_roms);
     }
 }
 
@@ -299,6 +309,7 @@ impl Resettable for SnesEmulator {
         let rom = self.memory.take_rom();
         let sram = self.memory.sram().map(Vec::from);
 
+        let coprocessor_roms = mem::take(&mut self.coprocessor_roms);
         *self = Self::create(
             rom,
             sram,
@@ -307,7 +318,7 @@ impl Resettable for SnesEmulator {
                 aspect_ratio: self.aspect_ratio,
                 audio_60hz_hack: self.apu.get_audio_60hz_hack(),
             },
-            self.coprocessor_roms.clone(),
+            coprocessor_roms,
         )
         .expect("Hard resetting should never fail to load");
     }
