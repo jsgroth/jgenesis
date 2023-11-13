@@ -120,7 +120,7 @@ impl Registers {
             DataRegisterBits::Eight => {
                 self.sr.request_for_master = false;
 
-                (self.dr >> 8) as u8
+                self.dr as u8
             }
             DataRegisterBits::Sixteen => {
                 if self.sr.dr_busy {
