@@ -16,6 +16,7 @@ spc700-emu = { path = "../spc700-emu" }
 wdc65816-emu = { path = "../wdc65816-emu" }
 
 bincode = { workspace = true }
+bytemuck = { workspace = true }
 crc = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true, optional = true }

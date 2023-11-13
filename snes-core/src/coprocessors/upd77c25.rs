@@ -1,4 +1,4 @@
-//! NEC uPD77C25 CPU, used in the following SNES coprocessor chips:
+//! NEC µPD77C25 and µPD96050 CPUs, used in the following SNES coprocessor chips:
 //!   * DSP-1 (19 games, including Super Mario Kart and Pilotwings)
 //!   * DSP-2 (1 game, Dungeon Master)
 //!   * DSP-3 (1 game, SD Gundam GX)
@@ -8,11 +8,58 @@
 
 mod instructions;
 
+use crate::constants;
 use bincode::{Decode, Encode};
+use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::GetBit;
 
-const DSP_PROGRAM_ROM_LEN_OPCODES: usize = 2048;
-const DSP_RAM_LEN_WORDS: usize = 256;
+pub const ST01X_RAM_LEN_BYTES: usize = Upd77c25Variant::St011.ram_len_words() << 1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+pub enum Upd77c25Variant {
+    // DSP-1 / DSP-2 / DSP-3 / DSP-4
+    Dsp,
+    St010,
+    St011,
+}
+
+impl Upd77c25Variant {
+    const fn program_rom_len_opcodes(self) -> usize {
+        match self {
+            Self::Dsp => 1 << 11,
+            Self::St010 | Self::St011 => 1 << 14,
+        }
+    }
+
+    const fn data_rom_len_words(self) -> usize {
+        match self {
+            Self::Dsp => 1 << 10,
+            Self::St010 | Self::St011 => 1 << 11,
+        }
+    }
+
+    const fn ram_len_words(self) -> usize {
+        match self {
+            Self::Dsp => 1 << 8,
+            Self::St010 | Self::St011 => 1 << 11,
+        }
+    }
+
+    const fn stack_len(self) -> u8 {
+        match self {
+            Self::Dsp => 4,
+            Self::St010 | Self::St011 => 8,
+        }
+    }
+
+    const fn clock_speed(self) -> u64 {
+        match self {
+            Self::Dsp => 8_000_000,
+            Self::St010 => 10_000_000,
+            Self::St011 => 15_000_000,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, Default, Encode, Decode)]
 struct FlagsRegister {
@@ -87,13 +134,12 @@ struct Registers {
     trb: i16,
     sr: StatusRegister,
     dr: u16,
+    so: u16,
 }
 
 impl Registers {
     fn new(variant: Upd77c25Variant) -> Self {
-        let stack_len = match variant {
-            Upd77c25Variant::Dsp => 4,
-        };
+        let stack_len = variant.stack_len();
 
         Self {
             dp: 0,
@@ -112,6 +158,7 @@ impl Registers {
             trb: 0,
             sr: StatusRegister::default(),
             dr: 0,
+            so: 0,
         }
     }
 
@@ -191,12 +238,6 @@ impl Registers {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Upd77c25Variant {
-    // DSP-1 / DSP-2 / DSP-3 / DSP-4
-    Dsp,
-}
-
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Upd77c25 {
     program_rom: Box<[u32]>,
@@ -204,14 +245,30 @@ pub struct Upd77c25 {
     ram: Box<[u16]>,
     registers: Registers,
     idling: bool,
-    master_cycles_elapsed: u64,
+    pc_mask: u16,
+    dp_mask: u16,
+    rp_mask: u16,
+    variant: Upd77c25Variant,
+    clock_speed: u64,
+    snes_mclk_speed: u64,
+    master_cycles_product: u64,
 }
 
 impl Upd77c25 {
-    pub fn new(rom: &[u8], variant: Upd77c25Variant) -> Self {
-        let (program_rom, data_rom) = convert_rom(rom);
-        // TODO ST010/ST011
-        let ram = vec![0; DSP_RAM_LEN_WORDS];
+    pub fn new(rom: &[u8], variant: Upd77c25Variant, sram: &[u8], timing_mode: TimingMode) -> Self {
+        let (program_rom, data_rom) = convert_rom(rom, variant);
+
+        let ram = match variant {
+            Upd77c25Variant::Dsp => vec![0; variant.ram_len_words()],
+            Upd77c25Variant::St010 | Upd77c25Variant::St011 => {
+                convert_to_u16(sram, Endianness::Little)
+            }
+        };
+
+        let snes_mclk_speed = match timing_mode {
+            TimingMode::Ntsc => constants::NTSC_MASTER_CLOCK_FREQUENCY,
+            TimingMode::Pal => constants::PAL_MASTER_CLOCK_FREQUENCY,
+        };
 
         Self {
             program_rom: program_rom.into_boxed_slice(),
@@ -219,7 +276,13 @@ impl Upd77c25 {
             ram: ram.into_boxed_slice(),
             registers: Registers::new(variant),
             idling: false,
-            master_cycles_elapsed: 0,
+            pc_mask: (variant.program_rom_len_opcodes() - 1) as u16,
+            dp_mask: (variant.ram_len_words() - 1) as u16,
+            rp_mask: (variant.data_rom_len_words() - 1) as u16,
+            variant,
+            clock_speed: variant.clock_speed(),
+            snes_mclk_speed,
+            master_cycles_product: 0,
         }
     }
 
@@ -249,13 +312,34 @@ impl Upd77c25 {
         self.registers.sr.into()
     }
 
-    pub fn tick(&mut self, master_cycles_elapsed: u64) {
-        self.master_cycles_elapsed += master_cycles_elapsed;
+    pub fn read_ram(&self, address: u32) -> u8 {
+        let word = self.ram[((address >> 1) & 0x7FF) as usize];
+        if !address.bit(0) { word as u8 } else { (word >> 8) as u8 }
+    }
 
-        // TODO more accurate timing?
-        while self.master_cycles_elapsed >= 2 {
+    pub fn write_ram(&mut self, address: u32, value: u8) {
+        let word_addr = ((address >> 1) & 0x7FF) as usize;
+        let word = self.ram[word_addr];
+        self.ram[word_addr] = if !address.bit(0) {
+            (word & 0xFF00) | u16::from(value)
+        } else {
+            (word & 0x00FF) | (u16::from(value) << 8)
+        };
+    }
+
+    pub fn sram(&self) -> &[u8] {
+        bytemuck::cast_slice(self.ram.as_ref())
+    }
+
+    pub fn tick(&mut self, master_cycles_elapsed: u64) {
+        if self.idling {
+            return;
+        }
+
+        self.master_cycles_product += master_cycles_elapsed * self.clock_speed;
+        while self.master_cycles_product >= self.snes_mclk_speed {
             instructions::execute(self);
-            self.master_cycles_elapsed -= 2;
+            self.master_cycles_product -= self.snes_mclk_speed;
         }
     }
 
@@ -287,13 +371,14 @@ impl Endianness {
 }
 
 // Parse the ROM into program ROM and data ROM
-fn convert_rom(rom: &[u8]) -> (Vec<u32>, Vec<u16>) {
+fn convert_rom(rom: &[u8], variant: Upd77c25Variant) -> (Vec<u32>, Vec<u16>) {
     let endianness = detect_program_rom_endianness(rom);
     log::info!("Detected ROM endian-ness: {endianness:?}");
 
-    // TODO ST010/ST011
-    let program_rom = convert_program_rom(&rom[..3 * DSP_PROGRAM_ROM_LEN_OPCODES], endianness);
-    let data_rom = convert_data_rom(&rom[3 * DSP_PROGRAM_ROM_LEN_OPCODES..], endianness);
+    let program_rom_len = 3 * variant.program_rom_len_opcodes();
+
+    let program_rom = convert_program_rom(&rom[..program_rom_len], endianness);
+    let data_rom = convert_to_u16(&rom[program_rom_len..], endianness);
     (program_rom, data_rom)
 }
 
@@ -303,8 +388,8 @@ fn convert_program_rom(program_rom: &[u8], endianness: Endianness) -> Vec<u32> {
 }
 
 // Convert data ROM from bytes to 16-bit words
-fn convert_data_rom(data_rom: &[u8], endianness: Endianness) -> Vec<u16> {
-    data_rom.chunks_exact(2).map(|chunk| endianness.chunk_to_u16(chunk)).collect()
+fn convert_to_u16(bytes: &[u8], endianness: Endianness) -> Vec<u16> {
+    bytes.chunks_exact(2).map(|chunk| endianness.chunk_to_u16(chunk)).collect()
 }
 
 // All program ROMs used for this chip contain the opcode $97C00x in the first 4 opcodes, where

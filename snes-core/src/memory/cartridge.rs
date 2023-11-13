@@ -1,9 +1,10 @@
 use crate::api::{CoprocessorRoms, LoadError, LoadResult};
 use crate::coprocessors::cx4::Cx4;
+use crate::coprocessors::upd77c25;
 use crate::coprocessors::upd77c25::{Upd77c25, Upd77c25Variant};
 use bincode::{Decode, Encode};
 use crc::Crc;
-use jgenesis_common::frontend::PartialClone;
+use jgenesis_common::frontend::{PartialClone, TimingMode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
@@ -42,6 +43,11 @@ pub enum Cartridge {
         upd77c25: Option<Upd77c25>,
     },
     Cx4(#[partial_clone(partial)] Cx4),
+    St01x {
+        #[partial_clone(default)]
+        rom: Rom,
+        upd77c25: Upd77c25,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,11 +86,36 @@ impl Display for DspVariant {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum St01xVariant {
+    St010,
+    St011,
+}
+
+impl From<St01xVariant> for Upd77c25Variant {
+    fn from(value: St01xVariant) -> Self {
+        match value {
+            St01xVariant::St010 => Self::St010,
+            St01xVariant::St011 => Self::St011,
+        }
+    }
+}
+
+impl Display for St01xVariant {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::St010 => write!(f, "ST010"),
+            Self::St011 => write!(f, "ST011"),
+        }
+    }
+}
+
 impl Cartridge {
     pub fn create(
         rom: Box<[u8]>,
         initial_sram: Option<Vec<u8>>,
         coprocessor_roms: &CoprocessorRoms,
+        forced_timing_mode: Option<TimingMode>,
     ) -> LoadResult<Self> {
         let cartridge_type = guess_cartridge_type(&rom).unwrap_or_else(|| {
             log::error!("Unable to confidently determine ROM type; defaulting to LoROM");
@@ -96,9 +127,25 @@ impl Cartridge {
             CartridgeType::HiRom => 0xFFC0,
         };
 
-        // In LoROM, $007FD8 contains SRAM size as a kilobytes power of 2
+        // Determine NTSC/PAL
+        let region_byte = rom[rom_header_addr + 0x19];
+        let timing_mode = forced_timing_mode.unwrap_or_else(|| region_to_timing_mode(region_byte));
+
+        // Check if cartridge is ST010/ST011; these don't report RAM size in the header (always 4KB)
+        let chipset_byte = rom[rom_header_addr + 0x16];
+        let is_st01x = chipset_byte == 0xF6
+            && rom[rom_header_addr + 0x14] == 0x00
+            && rom[rom_header_addr - 1] == 0x01;
+
+        // $FFD8 contains SRAM size as a kilobytes power of 2
         let sram_header_byte = rom[rom_header_addr | 0x0018];
-        let sram_len = if sram_header_byte == 0 { 0 } else { 1 << (10 + sram_header_byte) };
+        let sram_len = if is_st01x {
+            upd77c25::ST01X_RAM_LEN_BYTES
+        } else if sram_header_byte == 0 {
+            0
+        } else {
+            1 << (10 + sram_header_byte)
+        };
 
         let sram = match initial_sram {
             Some(sram) if sram.len() == sram_len => sram.into_boxed_slice(),
@@ -106,6 +153,27 @@ impl Cartridge {
         };
 
         log::info!("Using mapper {cartridge_type} with SRAM size {sram_len}");
+
+        if is_st01x {
+            let st01x_variant = guess_st01x_variant(&rom);
+
+            log::info!("Detected {st01x_variant} coprocessor");
+
+            let st01x_rom_fn = match st01x_variant {
+                St01xVariant::St010 => {
+                    coprocessor_roms.st010.as_ref().ok_or(LoadError::MissingSt010Rom)?
+                }
+                St01xVariant::St011 => {
+                    coprocessor_roms.st011.as_ref().ok_or(LoadError::MissingSt011Rom)?
+                }
+            };
+
+            let st01x_rom = st01x_rom_fn()
+                .map_err(|(source, path)| LoadError::CoprocessorRomLoad { source, path })?;
+            let upd77c25 = Upd77c25::new(&st01x_rom, st01x_variant.into(), &sram, timing_mode);
+
+            return Ok(Self::St01x { rom: Rom(rom), upd77c25 });
+        }
 
         // Check for DSP-1/2/3/4 coprocessor
         let chipset_byte = rom[rom_header_addr + 0x16];
@@ -132,7 +200,7 @@ impl Cartridge {
             let dsp_rom = dsp_rom_fn()
                 .map_err(|(source, path)| LoadError::CoprocessorRomLoad { source, path })?;
 
-            Some(Upd77c25::new(&dsp_rom, Upd77c25Variant::Dsp))
+            Some(Upd77c25::new(&dsp_rom, Upd77c25Variant::Dsp, &sram, timing_mode))
         } else {
             None
         };
@@ -169,6 +237,20 @@ impl Cartridge {
                 (hirom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram)
             }
             Self::Cx4(cx4) => return cx4.read(address),
+            Self::St01x { rom, upd77c25 } => {
+                return match (bank, offset) {
+                    (0x60..=0x67, 0x0000) => Some(upd77c25.read_data()),
+                    (0x60..=0x67, 0x0001) => Some(upd77c25.read_status()),
+                    (0x68..=0x6F, 0x0000..=0x0FFF) => {
+                        let sram_addr = ((bank & 0x7) << 12) | (offset & 0xFFF);
+                        Some(upd77c25.read_ram(sram_addr))
+                    }
+                    _ => match lorom_map_address(address, rom.len() as u32, 0) {
+                        CartridgeAddress::Rom(rom_addr) => Some(rom[rom_addr as usize]),
+                        _ => None,
+                    },
+                };
+            }
         };
 
         match mapped_address {
@@ -207,12 +289,22 @@ impl Cartridge {
             Self::Cx4(cx4) => {
                 cx4.write(address, value);
             }
+            Self::St01x { upd77c25, .. } => match (bank, offset) {
+                (0x60..=0x67, 0x0000) => upd77c25.write_data(value),
+                (0x68..=0x6F, 0x0000..=0x0FFF) => {
+                    let sram_addr = ((bank & 0x7) << 12) | (offset & 0xFFF);
+                    upd77c25.write_ram(sram_addr, value);
+                }
+                _ => {}
+            },
         }
     }
 
     pub fn take_rom(&mut self) -> Vec<u8> {
         match self {
-            Self::LoRom { rom, .. } | Self::HiRom { rom, .. } => mem::take(&mut rom.0).into_vec(),
+            Self::LoRom { rom, .. } | Self::HiRom { rom, .. } | Self::St01x { rom, .. } => {
+                mem::take(&mut rom.0).into_vec()
+            }
             Self::Cx4(cx4) => cx4.take_rom(),
         }
     }
@@ -221,7 +313,7 @@ impl Cartridge {
         let other_rom = other.take_rom();
 
         match self {
-            Self::LoRom { rom, .. } | Self::HiRom { rom, .. } => {
+            Self::LoRom { rom, .. } | Self::HiRom { rom, .. } | Self::St01x { rom, .. } => {
                 *rom = Rom(other_rom.into_boxed_slice());
             }
             Self::Cx4(cx4) => {
@@ -234,13 +326,15 @@ impl Cartridge {
         match self {
             Self::LoRom { sram, .. } | Self::HiRom { sram, .. } if !sram.is_empty() => Some(sram),
             Self::LoRom { .. } | Self::HiRom { .. } | Self::Cx4 { .. } => None,
+            Self::St01x { upd77c25, .. } => Some(upd77c25.sram()),
         }
     }
 
     pub fn tick(&mut self, master_cycles_elapsed: u64) {
         match self {
             Self::LoRom { upd77c25: Some(upd77c25), .. }
-            | Self::HiRom { upd77c25: Some(upd77c25), .. } => {
+            | Self::HiRom { upd77c25: Some(upd77c25), .. }
+            | Self::St01x { upd77c25, .. } => {
                 upd77c25.tick(master_cycles_elapsed);
             }
             _ => {}
@@ -254,6 +348,21 @@ impl Cartridge {
                 upd77c25.reset();
             }
             _ => {}
+        }
+    }
+}
+
+pub fn region_to_timing_mode(region_byte: u8) -> TimingMode {
+    match region_byte {
+        // Japan / USA / South Korea / Canada / Brazil
+        0x00 | 0x01 | 0x0D | 0x0F | 0x10 => TimingMode::Ntsc,
+        // various European and Asian countries (other than Japan/Korea) + Australia
+        0x02..=0x0C | 0x11 => TimingMode::Pal,
+        _ => {
+            log::warn!(
+                "Unrecognized region byte in ROM header, defaulting to NTSC: {region_byte:02X}"
+            );
+            TimingMode::Ntsc
         }
     }
 }
@@ -335,6 +444,15 @@ fn guess_dsp_variant(rom: &[u8]) -> DspVariant {
         0xA20BE998 | 0x493FDB13 | 0xB9B9DF06 => DspVariant::Dsp4,
         _ => DspVariant::Dsp1,
     }
+}
+
+fn guess_st01x_variant(rom: &[u8]) -> St01xVariant {
+    let mut digest = CRC.digest();
+    digest.update(rom);
+    let checksum = digest.finalize();
+
+    // Hayazashi Nidan Morita Shogi (J)
+    if checksum == 0x81E822AD { St01xVariant::St011 } else { St01xVariant::St010 }
 }
 
 const CLC_OPCODE: u8 = 0x18;

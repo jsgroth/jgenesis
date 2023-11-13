@@ -1,4 +1,4 @@
-use crate::coprocessors::upd77c25::{FlagsRegister, Upd77c25};
+use crate::coprocessors::upd77c25::{FlagsRegister, Upd77c25, Upd77c25Variant};
 use jgenesis_common::num::{GetBit, SignBit};
 
 pub fn execute(cpu: &mut Upd77c25) {
@@ -8,8 +8,7 @@ pub fn execute(cpu: &mut Upd77c25) {
 
     let opcode = cpu.program_rom[cpu.registers.pc as usize];
     log::trace!("Got opcode {opcode:06X} from PC {:03X}", cpu.registers.pc);
-    // TODO higher bit width for ST010/ST011
-    cpu.registers.pc = (cpu.registers.pc + 1) & 0x7FF;
+    cpu.registers.pc = (cpu.registers.pc + 1) & cpu.pc_mask;
 
     match opcode & 0xC00000 {
         0x000000 | 0x400000 => execute_alu(cpu, opcode),
@@ -88,8 +87,7 @@ fn execute_alu(cpu: &mut Upd77c25, opcode: u32) {
 
     let rp_adjust = opcode.bit(8);
     if rp_adjust {
-        // TODO ST010/ST011 size
-        cpu.registers.rp = cpu.registers.rp.wrapping_sub(1) & 0x3FF;
+        cpu.registers.rp = cpu.registers.rp.wrapping_sub(1) & cpu.rp_mask;
     }
 
     let ret = opcode.bit(22);
@@ -219,8 +217,21 @@ fn execute_load(cpu: &mut Upd77c25, opcode: u32) {
 fn execute_jump(cpu: &mut Upd77c25, opcode: u32) {
     log::trace!("  Jump opcode: {:03X}", (opcode >> 13) & 0x1FF);
 
-    let jump_addr = ((opcode >> 2) & 0x7FF) as u16;
+    let opcode_u16 = opcode as u16;
+    let mut jump_addr = match cpu.variant {
+        Upd77c25Variant::Dsp => (opcode_u16 >> 2) & 0x7FF,
+        Upd77c25Variant::St010 | Upd77c25Variant::St011 => {
+            // Normal jumps can't touch the highest bit of address, and bits 1-0 are used as A11-A12
+            (cpu.registers.pc & 0x2000) | ((opcode_u16 >> 2) & 0x7FF) | ((opcode_u16 & 0x03) << 11)
+        }
+    };
+
     let should_jump = match (opcode >> 13) & 0x1FF {
+        // JMPSO
+        0x000 => {
+            jump_addr = cpu.registers.so & cpu.pc_mask;
+            true
+        }
         // JNCA / JCA
         0x080 => !cpu.registers.flags_a.c,
         0x082 => cpu.registers.flags_a.c,
@@ -272,9 +283,22 @@ fn execute_jump(cpu: &mut Upd77c25, opcode: u32) {
         0x0BC => !cpu.registers.sr.request_for_master,
         0x0BE => cpu.registers.sr.request_for_master,
         // JMP
-        0x100 => true,
+        0x100 => {
+            jump_addr &= 0x1FFF;
+            true
+        }
+        0x101 => {
+            jump_addr |= 0x2000;
+            true
+        }
         // CALL
         0x140 => {
+            jump_addr &= 0x1FFF;
+            cpu.registers.push_stack(cpu.registers.pc);
+            true
+        }
+        0x141 => {
+            jump_addr |= 0x2000;
             cpu.registers.push_stack(cpu.registers.pc);
             true
         }
@@ -284,8 +308,7 @@ fn execute_jump(cpu: &mut Upd77c25, opcode: u32) {
     if should_jump {
         log::trace!("  Jumping to {jump_addr:03X}");
 
-        // TODO ST010/ST011 PC size
-        if jump_addr == cpu.registers.pc.wrapping_sub(1) & 0x7FF {
+        if jump_addr == cpu.registers.pc.wrapping_sub(1) & cpu.pc_mask {
             log::trace!("  Detected idle loop; halting CPU until next SNES DR write");
             cpu.idling = true;
         }
@@ -316,10 +339,7 @@ fn read_register(cpu: &mut Upd77c25, register: u32) -> u16 {
             cpu.registers.dr
         }
         0x0A => u16::from(u8::from(cpu.registers.sr)) << 8,
-        0x0B | 0x0C => {
-            // Serial registers; not implemented
-            0x0000
-        }
+        0x0B | 0x0C => cpu.registers.so,
         0x0D => cpu.registers.k as u16,
         0x0E => cpu.registers.l as u16,
         0x0F => cpu.ram[cpu.registers.dp as usize],
@@ -336,15 +356,11 @@ fn write_register(cpu: &mut Upd77c25, register: u32, value: u16) {
         0x01 => cpu.registers.accumulator_a = value as i16,
         0x02 => cpu.registers.accumulator_b = value as i16,
         0x03 => cpu.registers.tr = value as i16,
-        // TODO ST010/ST011 size
-        0x04 => cpu.registers.dp = value & 0xFF,
-        // TODO ST010/ST011 size
-        0x05 => cpu.registers.rp = value & 0x3FF,
+        0x04 => cpu.registers.dp = value & cpu.dp_mask,
+        0x05 => cpu.registers.rp = value & cpu.rp_mask,
         0x06 => cpu.registers.upd_write_data(value),
         0x07 => cpu.registers.sr.write(value),
-        0x08 | 0x09 => {
-            // Serial registers; not implemented
-        }
+        0x08 | 0x09 => cpu.registers.so = value,
         0x0A => cpu.registers.k = value as i16,
         0x0B => {
             cpu.registers.k = value as i16;

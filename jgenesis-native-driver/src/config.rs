@@ -228,6 +228,8 @@ pub struct SnesConfig {
     pub dsp2_rom_path: Option<String>,
     pub dsp3_rom_path: Option<String>,
     pub dsp4_rom_path: Option<String>,
+    pub st010_rom_path: Option<String>,
+    pub st011_rom_path: Option<String>,
 }
 
 impl SnesConfig {
@@ -244,8 +246,10 @@ impl SnesConfig {
         let dsp2 = self.dsp2_rom_path.clone().map(coprocessor_read_fn);
         let dsp3 = self.dsp3_rom_path.clone().map(coprocessor_read_fn);
         let dsp4 = self.dsp4_rom_path.clone().map(coprocessor_read_fn);
+        let st010 = self.st010_rom_path.clone().map(coprocessor_read_fn);
+        let st011 = self.st011_rom_path.clone().map(coprocessor_read_fn);
 
-        CoprocessorRoms { dsp1, dsp2, dsp3, dsp4 }
+        CoprocessorRoms { dsp1, dsp2, dsp3, dsp4, st010, st011 }
     }
 }
 

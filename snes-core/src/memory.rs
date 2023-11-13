@@ -49,8 +49,14 @@ impl Memory {
         rom: Vec<u8>,
         initial_sram: Option<Vec<u8>>,
         coprocessor_roms: &CoprocessorRoms,
+        forced_timing_mode: Option<TimingMode>,
     ) -> LoadResult<Self> {
-        let cartridge = Cartridge::create(rom.into_boxed_slice(), initial_sram, coprocessor_roms)?;
+        let cartridge = Cartridge::create(
+            rom.into_boxed_slice(),
+            initial_sram,
+            coprocessor_roms,
+            forced_timing_mode,
+        )?;
 
         Ok(Self {
             cartridge,
@@ -95,18 +101,7 @@ impl Memory {
     pub fn cartridge_timing_mode(&mut self) -> TimingMode {
         // Region byte is always at $00FFD9
         let region_byte = self.read_cartridge(0xFFD9).unwrap_or(0);
-        match region_byte {
-            // Japan / USA / South Korea / Canada / Brazil
-            0x00 | 0x01 | 0x0D | 0x0F | 0x10 => TimingMode::Ntsc,
-            // various European and Asian countries (other than Japan/Korea) + Australia
-            0x02..=0x0C | 0x11 => TimingMode::Pal,
-            _ => {
-                log::warn!(
-                    "Unrecognized region byte in ROM header, defaulting to NTSC: {region_byte:02X}"
-                );
-                TimingMode::Ntsc
-            }
-        }
+        cartridge::region_to_timing_mode(region_byte)
     }
 
     pub fn read_wram(&self, address: u32) -> u8 {

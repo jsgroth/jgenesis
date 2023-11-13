@@ -4,6 +4,7 @@ mod timer;
 
 use crate::apu::dsp::AudioDsp;
 use crate::apu::timer::{FastTimer, SlowTimer};
+use crate::constants;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::GetBit;
@@ -11,10 +12,6 @@ use spc700_emu::traits::BusInterface;
 use spc700_emu::Spc700;
 
 const AUDIO_RAM_LEN: usize = 64 * 1024;
-
-// Main SNES master clock frequencies
-const NTSC_MASTER_CLOCK_FREQUENCY: u64 = 21_477_270;
-const PAL_MASTER_CLOCK_FREQUENCY: u64 = 21_281_370;
 
 const ACTUAL_APU_MASTER_CLOCK_FREQUENCY: u64 = 24_576_000;
 // APU master clock rate increased such that audio signal is timed to 60Hz for NTSC (and slightly under 50Hz for PAL)
@@ -228,8 +225,8 @@ macro_rules! new_spc700_bus {
 impl Apu {
     pub fn new(timing_mode: TimingMode, enable_audio_60hz_hack: bool) -> Self {
         let main_master_clock_frequency = match timing_mode {
-            TimingMode::Ntsc => NTSC_MASTER_CLOCK_FREQUENCY,
-            TimingMode::Pal => PAL_MASTER_CLOCK_FREQUENCY,
+            TimingMode::Ntsc => constants::NTSC_MASTER_CLOCK_FREQUENCY,
+            TimingMode::Pal => constants::PAL_MASTER_CLOCK_FREQUENCY,
         };
 
         let mut apu = Self {
