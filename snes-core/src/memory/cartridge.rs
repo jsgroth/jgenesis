@@ -114,7 +114,7 @@ impl Cartridge {
 
             log::info!("Detected DSP coprocessor of type {dsp_variant}");
 
-            let dsp_rom = match dsp_variant {
+            let dsp_rom_fn = match dsp_variant {
                 DspVariant::Dsp1 => {
                     coprocessor_roms.dsp1.as_ref().ok_or(LoadError::MissingDsp1Rom)?
                 }
@@ -129,7 +129,10 @@ impl Cartridge {
                 }
             };
 
-            Some(Upd77c25::new(dsp_rom, Upd77c25Variant::Dsp))
+            let dsp_rom = dsp_rom_fn()
+                .map_err(|(source, path)| LoadError::CoprocessorRomLoad { source, path })?;
+
+            Some(Upd77c25::new(&dsp_rom, Upd77c25Variant::Dsp))
         } else {
             None
         };

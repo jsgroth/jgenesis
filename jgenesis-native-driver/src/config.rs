@@ -14,8 +14,8 @@ use segacd_core::api::SegaCdEmulatorConfig;
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgEmulatorConfig, SmsRegion, VdpVersion};
-use snes_core::api::{CoprocessorRoms, SnesAspectRatio, SnesEmulatorConfig};
-use std::{fs, io};
+use snes_core::api::{CoprocessorRomFn, CoprocessorRoms, SnesAspectRatio, SnesEmulatorConfig};
+use std::fs;
 
 pub(crate) const DEFAULT_GENESIS_WINDOW_SIZE: WindowSize = WindowSize { width: 878, height: 672 };
 
@@ -239,21 +239,16 @@ impl SnesConfig {
         }
     }
 
-    pub(crate) fn to_coprocessor_roms(&self) -> Result<CoprocessorRoms, (io::Error, String)> {
-        let dsp1 = read_coprocessor_rom(self.dsp1_rom_path.as_ref())?;
-        let dsp2 = read_coprocessor_rom(self.dsp2_rom_path.as_ref())?;
-        let dsp3 = read_coprocessor_rom(self.dsp3_rom_path.as_ref())?;
-        let dsp4 = read_coprocessor_rom(self.dsp4_rom_path.as_ref())?;
+    pub(crate) fn to_coprocessor_roms(&self) -> CoprocessorRoms {
+        let dsp1 = self.dsp1_rom_path.clone().map(coprocessor_read_fn);
+        let dsp2 = self.dsp2_rom_path.clone().map(coprocessor_read_fn);
+        let dsp3 = self.dsp3_rom_path.clone().map(coprocessor_read_fn);
+        let dsp4 = self.dsp4_rom_path.clone().map(coprocessor_read_fn);
 
-        Ok(CoprocessorRoms { dsp1, dsp2, dsp3, dsp4 })
+        CoprocessorRoms { dsp1, dsp2, dsp3, dsp4 }
     }
 }
 
-fn read_coprocessor_rom(path: Option<&String>) -> Result<Option<Vec<u8>>, (io::Error, String)> {
-    let rom = match path {
-        Some(path) => Some(fs::read(path).map_err(|err| (err, path.clone()))?),
-        None => None,
-    };
-
-    Ok(rom)
+fn coprocessor_read_fn(path: String) -> Box<CoprocessorRomFn> {
+    Box::new(move || fs::read(&path).map_err(|err| (err, path.clone())))
 }
