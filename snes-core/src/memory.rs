@@ -168,6 +168,16 @@ impl Memory {
         self.wram_port_address = 0;
         self.cartridge.reset();
     }
+
+    // Called when GPDMA begins, or when it starts on a new channel
+    pub fn notify_dma_start(&mut self, channel: u8, source_address: u32) {
+        self.cartridge.notify_dma_start(channel, source_address);
+    }
+
+    // Called when GPDMA completes (all channels done)
+    pub fn notify_dma_end(&mut self) {
+        self.cartridge.notify_dma_end();
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]

@@ -160,6 +160,12 @@ impl DmaUnit {
                 self.gpdma_state =
                     GpDmaState::Copying { channel: first_active_channel as u8, bytes_copied: 0 };
 
+                let dma_start_address = u24_address(
+                    bus.cpu_registers.dma_bank[first_active_channel],
+                    bus.cpu_registers.gpdma_current_address[first_active_channel],
+                );
+                bus.memory.notify_dma_start(first_active_channel as u8, dma_start_address);
+
                 let initial_wait_cycles = compute_gpdma_initial_wait_cycles(total_master_cycles);
                 DmaStatus::InProgress { master_cycles_elapsed: initial_wait_cycles }
             }
@@ -511,9 +517,19 @@ fn gpdma_copy_byte(bus: &mut Bus<'_>, channel: u8, bytes_copied: u16) -> GpDmaSt
         {
             Some(next_active_channel) => {
                 let next_active_channel = (channel + 1 + next_active_channel) as u8;
+
+                let next_start_address = u24_address(
+                    bus.cpu_registers.dma_bank[next_active_channel as usize],
+                    bus.cpu_registers.gpdma_current_address[next_active_channel as usize],
+                );
+                bus.memory.notify_dma_start(next_active_channel, next_start_address);
+
                 GpDmaState::Copying { channel: next_active_channel, bytes_copied: 0 }
             }
-            None => GpDmaState::Idle,
+            None => {
+                bus.memory.notify_dma_end();
+                GpDmaState::Idle
+            }
         };
     }
 
