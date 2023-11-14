@@ -24,6 +24,7 @@ resolver = "2"
 
 [workspace.dependencies]
 anyhow = "1"
+arrayvec = "0.7"
 base64 = "0.21"
 bincode = "2.0.0-rc.3"
 bytemuck = { version = "1", features = ["derive"] }

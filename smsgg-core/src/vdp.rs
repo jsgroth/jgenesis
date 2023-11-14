@@ -5,6 +5,7 @@
 //! * SMS VDP has 32 bytes of CRAM and uses 6-bit RGB color; GG VDP has 32 _words_ of CRAM and uses 12-bit RGB color
 
 mod debug;
+mod tms9918;
 
 use bincode::de::{BorrowDecoder, Decoder};
 use bincode::enc::Encoder;
@@ -147,6 +148,8 @@ enum Mode {
     #[default]
     Four,
     Four224Line,
+    // TMS9918 mode 2
+    GraphicsII,
 }
 
 impl Mode {
@@ -156,6 +159,7 @@ impl Mode {
                 Self::Four
             }
             [true, true, false, true] => Self::Four224Line,
+            [false, true, false, false] => Self::GraphicsII,
             _ => {
                 log::warn!("Unsupported mode, defaulting to mode 4: {mode_bits:?}");
                 Self::Four
@@ -165,22 +169,22 @@ impl Mode {
 
     const fn name_table_rows(self) -> u16 {
         match self {
-            Self::Four => 28,
+            Self::Four | Self::GraphicsII => 28,
             Self::Four224Line => 32,
         }
     }
 
     const fn active_scanlines(self) -> u16 {
         match self {
-            Self::Four => 192,
+            Self::Four | Self::GraphicsII => 192,
             Self::Four224Line => 224,
         }
     }
 
-    // The number of scanlines to remove from each of the top and bottom borders when in this modet
+    // The number of scanlines to remove from each of the top and bottom borders when in this mode
     const fn vertical_border_offset(self) -> u16 {
         match self {
-            Self::Four => 0,
+            Self::Four | Self::GraphicsII => 0,
             Self::Four224Line => 16,
         }
     }
@@ -217,6 +221,9 @@ struct Registers {
     x_scroll: u8,
     y_scroll: u8,
     line_counter_reload_value: u8,
+    // Registers used only in legacy TMS9918 modes
+    color_table_address: u16,
+    pattern_generator_address: u16,
 }
 
 // Data address is 14 bits
@@ -254,6 +261,8 @@ impl Registers {
             x_scroll: 0,
             y_scroll: 0,
             line_counter_reload_value: 0,
+            color_table_address: 0,
+            pattern_generator_address: 0,
         }
     }
 
@@ -391,8 +400,8 @@ impl Registers {
                 self.double_sprite_size = value.bit(0);
             }
             2 => {
-                // Base name table address
-                self.base_name_table_address = u16::from(value & 0x0E) << 10;
+                // Base name table address (note: least significant bit is only used in legacy modes)
+                self.base_name_table_address = u16::from(value & 0x0F) << 10;
 
                 // On the SMS1, bit 0 of register #2 is ANDed with A10 when doing nametable lookups
                 self.name_table_address_mask = if self.version.is_sms1() {
@@ -401,17 +410,24 @@ impl Registers {
                     0xFFFF
                 };
             }
-            // Registers 3 and 4 are effectively unused outside of SMS1 quirks
+            3 => {
+                // Color table address (used only in TMS9918 modes)
+                self.color_table_address = u16::from(value) << 6;
+            }
+            4 => {
+                // Pattern generator start address (used only in TMS9918 modes)
+                self.pattern_generator_address = u16::from(value & 0x07) << 11;
+            }
             5 => {
-                // Sprite attribute table base address
+                // Sprite attribute table base address (note: LSB is only used in legacy modes)
                 // TODO SMS1 hardware quirk - if bit 0 is cleared then X position and tile index are
                 // fetched from the lower half of the table instead of the upper half
-                self.base_sprite_table_address = u16::from(value & 0x7E) << 7;
+                self.base_sprite_table_address = u16::from(value & 0x7F) << 7;
             }
             6 => {
-                // Sprite pattern table base address
+                // Sprite pattern table base address (note: bits 1 and 0 are only used in legacy modes)
                 // TODO SMS1 hardware quirk - bits 1 and 0 are ANDed with bits 8 and 6 of the tile index
-                self.base_sprite_pattern_address = u16::from(value.bit(2)) << 13;
+                self.base_sprite_pattern_address = u16::from(value & 0x07) << 11;
             }
             7 => {
                 // Backdrop color
@@ -542,7 +558,7 @@ fn find_sprites_on_scanline(
 
     let sprite_height = registers.sprite_height();
 
-    let base_sat_addr = registers.base_sprite_table_address;
+    let base_sat_addr = registers.base_sprite_table_address & 0xFF00;
     for i in 0..64 {
         let y = vram[(base_sat_addr | i) as usize];
         if registers.mode != Mode::Four224Line && y == 0xD0 {
@@ -723,8 +739,9 @@ impl Vdp {
 
     fn read_name_table_word(&self, row: u16, col: u16) -> BgTileData {
         let base_name_table_addr = match self.registers.mode {
-            Mode::Four => self.registers.base_name_table_address,
-            // Mask out bit 10 and offset by $0700
+            // Mask out bit 10 (only used by legacy modes)
+            Mode::Four | Mode::GraphicsII => self.registers.base_name_table_address & 0xF800,
+            // Mask out bit 11 and offset by $0700
             Mode::Four224Line => (self.registers.base_name_table_address & 0xF000) | 0x0700,
         };
         let name_table_addr = (base_name_table_addr + (row << 6) + (col << 1))
@@ -742,9 +759,13 @@ impl Vdp {
     }
 
     fn render_scanline(&mut self) {
+        if self.registers.mode == Mode::GraphicsII {
+            self.render_graphics_2_scanline();
+            return;
+        }
+
         let scanline = self.scanline;
-        let frame_buffer_row = scanline + self.frame_buffer.viewport.top_border_height
-            - self.registers.mode.vertical_border_offset();
+        let frame_buffer_row = self.frame_buffer_row();
 
         let (coarse_x_scroll, fine_x_scroll) =
             if scanline < 16 && self.registers.horizontal_scroll_lock {
@@ -773,6 +794,9 @@ impl Vdp {
 
         let sprite_width: u16 = self.registers.sprite_width().into();
         let sprite_pixel_size = if self.registers.double_sprite_size { 2 } else { 1 };
+
+        // Mask out bits 11-12 (only used in legacy modes)
+        let base_sprite_pattern_addr = self.registers.base_sprite_pattern_address & 0x2000;
 
         for column in 0..32 {
             let (coarse_y_scroll, fine_y_scroll) = if column >= 24
@@ -834,8 +858,7 @@ impl Vdp {
                         sprite.tile_index
                     };
 
-                    let sprite_tile_addr =
-                        (self.registers.base_sprite_pattern_address | (tile_index * 32)) as usize;
+                    let sprite_tile_addr = (base_sprite_pattern_addr | (tile_index * 32)) as usize;
                     let sprite_tile = &self.vram[sprite_tile_addr..sprite_tile_addr + 32];
 
                     let sprite_color_id =
@@ -864,6 +887,11 @@ impl Vdp {
                 self.frame_buffer.set(frame_buffer_row, dot, pixel_color);
             }
         }
+    }
+
+    fn frame_buffer_row(&self) -> u16 {
+        self.scanline + self.frame_buffer.viewport.top_border_height
+            - self.registers.mode.vertical_border_offset()
     }
 
     fn debug_log(&self) {
@@ -950,7 +978,14 @@ impl Vdp {
     }
 
     fn fill_vertical_border(&mut self) {
-        let backdrop_color = self.read_color_ram_word(0x10 | self.registers.backdrop_color);
+        let backdrop_color = match self.registers.mode {
+            Mode::Four | Mode::Four224Line => {
+                self.read_color_ram_word(0x10 | self.registers.backdrop_color)
+            }
+            Mode::GraphicsII => {
+                tms9918::TMS9918_COLOR_TO_SMS_COLOR[self.registers.backdrop_color as usize].into()
+            }
+        };
 
         let ViewportSize { top_border_height, height, bottom_border_height, .. } =
             self.frame_buffer.viewport;
@@ -994,14 +1029,14 @@ impl Vdp {
 
     pub fn v_counter(&self) -> u8 {
         match (self.registers.version.timing_mode(), self.registers.mode) {
-            (TimingMode::Ntsc, Mode::Four) => {
+            (TimingMode::Ntsc, Mode::Four | Mode::GraphicsII) => {
                 if self.scanline <= 0xDA {
                     self.scanline as u8
                 } else {
                     (self.scanline - 6) as u8
                 }
             }
-            (TimingMode::Pal, Mode::Four) => {
+            (TimingMode::Pal, Mode::Four | Mode::GraphicsII) => {
                 if self.scanline <= 0xF2 {
                     self.scanline as u8
                 } else {
@@ -1056,12 +1091,10 @@ fn get_color_id(tile: &[u8], tile_row: u16, tile_col: u16, horizontal_flip: bool
         | (((tile[(4 * tile_row + 3) as usize] & mask) >> shift) << 3)
 }
 
-#[inline]
 pub fn convert_sms_color(color: u16) -> u8 {
     [0, 85, 170, 255][color as usize]
 }
 
-#[inline]
 pub fn convert_gg_color(color: u16) -> u8 {
     [0, 17, 34, 51, 68, 85, 102, 119, 136, 153, 170, 187, 204, 221, 238, 255][color as usize]
 }

@@ -2981,6 +2981,7 @@ dependencies = [
 name = "smsgg-core"
 version = "0.5.1"
 dependencies = [
+ "arrayvec",
  "bincode",
  "crc",
  "jgenesis-common",
