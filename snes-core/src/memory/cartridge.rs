@@ -28,32 +28,11 @@ impl Deref for Rom {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode, PartialClone)]
-pub enum Cartridge {
-    LoRom {
-        #[partial_clone(default)]
-        rom: Rom,
-        sram: Box<[u8]>,
-        upd77c25: Option<Upd77c25>,
-    },
-    HiRom {
-        #[partial_clone(default)]
-        rom: Rom,
-        sram: Box<[u8]>,
-        upd77c25: Option<Upd77c25>,
-    },
-    Cx4(#[partial_clone(partial)] Cx4),
-    St01x {
-        #[partial_clone(default)]
-        rom: Rom,
-        upd77c25: Upd77c25,
-    },
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CartridgeType {
     LoRom,
     HiRom,
+    ExHiRom,
     Cx4,
 }
 
@@ -62,6 +41,7 @@ impl Display for CartridgeType {
         match self {
             Self::LoRom => write!(f, "LoROM"),
             Self::HiRom => write!(f, "HiROM"),
+            Self::ExHiRom => write!(f, "ExHiROM"),
             Self::Cx4 => write!(f, "CX4"),
         }
     }
@@ -110,6 +90,42 @@ impl Display for St01xVariant {
     }
 }
 
+const LOROM_HEADER_ADDR: usize = 0x007FC0;
+const HIROM_HEADER_ADDR: usize = 0x00FFC0;
+const EXHIROM_HEADER_ADDR: usize = 0x40FFC0;
+
+const HEADER_TYPE_OFFSET: usize = 0x15;
+
+const LOROM_RESET_VECTOR: usize = 0x7FFC;
+const HIROM_RESET_VECTOR: usize = 0xFFFC;
+
+#[derive(Debug, Clone, Encode, Decode, PartialClone)]
+pub enum Cartridge {
+    LoRom {
+        #[partial_clone(default)]
+        rom: Rom,
+        sram: Box<[u8]>,
+        upd77c25: Option<Upd77c25>,
+    },
+    HiRom {
+        #[partial_clone(default)]
+        rom: Rom,
+        sram: Box<[u8]>,
+        upd77c25: Option<Upd77c25>,
+    },
+    ExHiRom {
+        #[partial_clone(default)]
+        rom: Rom,
+        sram: Box<[u8]>,
+    },
+    Cx4(#[partial_clone(partial)] Cx4),
+    St01x {
+        #[partial_clone(default)]
+        rom: Rom,
+        upd77c25: Upd77c25,
+    },
+}
+
 impl Cartridge {
     pub fn create(
         rom: Box<[u8]>,
@@ -123,8 +139,9 @@ impl Cartridge {
         });
 
         let rom_header_addr = match cartridge_type {
-            CartridgeType::LoRom | CartridgeType::Cx4 => 0x7FC0,
-            CartridgeType::HiRom => 0xFFC0,
+            CartridgeType::LoRom | CartridgeType::Cx4 => LOROM_HEADER_ADDR,
+            CartridgeType::HiRom => HIROM_HEADER_ADDR,
+            CartridgeType::ExHiRom => EXHIROM_HEADER_ADDR,
         };
 
         // Determine NTSC/PAL
@@ -208,6 +225,7 @@ impl Cartridge {
         Ok(match cartridge_type {
             CartridgeType::LoRom => Self::LoRom { rom: Rom(rom), sram, upd77c25 },
             CartridgeType::HiRom => Self::HiRom { rom: Rom(rom), sram, upd77c25 },
+            CartridgeType::ExHiRom => Self::ExHiRom { rom: Rom(rom), sram },
             CartridgeType::Cx4 => Self::Cx4(Cx4::new(Rom(rom))),
         })
     }
@@ -235,6 +253,9 @@ impl Cartridge {
             },
             Self::HiRom { rom, sram, .. } => {
                 (hirom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram)
+            }
+            Self::ExHiRom { rom, sram } => {
+                (exhirom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram)
             }
             Self::Cx4(cx4) => return cx4.read(address),
             Self::St01x { rom, upd77c25 } => {
@@ -286,6 +307,14 @@ impl Cartridge {
                     }
                 },
             },
+            Self::ExHiRom { rom, sram } => {
+                match exhirom_map_address(address, rom.len() as u32, sram.len() as u32) {
+                    CartridgeAddress::Sram(sram_addr) => {
+                        sram[sram_addr as usize] = value;
+                    }
+                    CartridgeAddress::Rom(_) | CartridgeAddress::None => {}
+                }
+            }
             Self::Cx4(cx4) => {
                 cx4.write(address, value);
             }
@@ -302,9 +331,10 @@ impl Cartridge {
 
     pub fn take_rom(&mut self) -> Vec<u8> {
         match self {
-            Self::LoRom { rom, .. } | Self::HiRom { rom, .. } | Self::St01x { rom, .. } => {
-                mem::take(&mut rom.0).into_vec()
-            }
+            Self::LoRom { rom, .. }
+            | Self::HiRom { rom, .. }
+            | Self::ExHiRom { rom, .. }
+            | Self::St01x { rom, .. } => mem::take(&mut rom.0).into_vec(),
             Self::Cx4(cx4) => cx4.take_rom(),
         }
     }
@@ -313,7 +343,10 @@ impl Cartridge {
         let other_rom = other.take_rom();
 
         match self {
-            Self::LoRom { rom, .. } | Self::HiRom { rom, .. } | Self::St01x { rom, .. } => {
+            Self::LoRom { rom, .. }
+            | Self::HiRom { rom, .. }
+            | Self::ExHiRom { rom, .. }
+            | Self::St01x { rom, .. } => {
                 *rom = Rom(other_rom.into_boxed_slice());
             }
             Self::Cx4(cx4) => {
@@ -324,8 +357,14 @@ impl Cartridge {
 
     pub fn sram(&self) -> Option<&[u8]> {
         match self {
-            Self::LoRom { sram, .. } | Self::HiRom { sram, .. } if !sram.is_empty() => Some(sram),
-            Self::LoRom { .. } | Self::HiRom { .. } | Self::Cx4 { .. } => None,
+            Self::LoRom { sram, .. } | Self::HiRom { sram, .. } | Self::ExHiRom { sram, .. }
+                if !sram.is_empty() =>
+            {
+                Some(sram)
+            }
+            Self::LoRom { .. } | Self::HiRom { .. } | Self::ExHiRom { .. } | Self::Cx4 { .. } => {
+                None
+            }
             Self::St01x { upd77c25, .. } => Some(upd77c25.sram()),
         }
     }
@@ -367,14 +406,6 @@ pub fn region_to_timing_mode(region_byte: u8) -> TimingMode {
     }
 }
 
-const LOROM_HEADER_ADDR: usize = 0x7FC0;
-const HIROM_HEADER_ADDR: usize = 0xFFC0;
-
-const HEADER_TYPE_OFFSET: usize = 0x15;
-
-const LOROM_RESET_VECTOR: usize = 0x7FFC;
-const HIROM_RESET_VECTOR: usize = 0xFFFC;
-
 fn guess_cartridge_type(rom: &[u8]) -> Option<CartridgeType> {
     if rom.len() < 0x8000 {
         log::error!("ROM is too small; all ROMs should be at least 32KB, was {} bytes", rom.len());
@@ -393,6 +424,15 @@ fn guess_cartridge_type(rom: &[u8]) -> Option<CartridgeType> {
         // Any ROM less than 64KB must be LoROM; HiROM <64KB wouldn't have anywhere to store
         // the 65816 interrupt vectors
         return Some(CartridgeType::LoRom);
+    }
+
+    if rom.len() >= 0x410000 {
+        // $25 = ExHiROM, $35 = ExHiROM + FastROM
+        // A ROM >4MB with $25/$35 in the header is almost certainly ExHiROM
+        let exhirom_type_byte = rom[EXHIROM_HEADER_ADDR + HEADER_TYPE_OFFSET];
+        if exhirom_type_byte == 0x25 || exhirom_type_byte == 0x35 {
+            return Some(CartridgeType::ExHiRom);
+        }
     }
 
     let mut lorom_points = 0;
@@ -497,6 +537,7 @@ pub(crate) fn lorom_map_address(address: u32, rom_len: u32, sram_len: u32) -> Ca
 }
 
 pub(crate) fn lorom_map_rom_address(address: u32, rom_len: u32) -> u32 {
+    // LoROM mapping ignores A23 and A15, and A16-22 are shifted right 1
     let rom_addr = ((address & 0x7F0000) >> 1) | (address & 0x007FFF);
     // TODO better handle unusual ROM sizes
     rom_addr % rom_len
@@ -522,6 +563,33 @@ fn hirom_map_address(address: u32, rom_len: u32, sram_len: u32) -> CartridgeAddr
 }
 
 fn hirom_map_rom_address(address: u32, rom_len: u32) -> u32 {
-    // TODO better handle unusual ROM sizes (and ExHiROM?)
+    // HiROM mapping simply ignores A23 and A22
+    // TODO better handle unusual ROM size
     (address & 0x3FFFFF) % rom_len
+}
+
+fn exhirom_map_address(address: u32, rom_len: u32, sram_len: u32) -> CartridgeAddress {
+    let bank = address >> 16;
+    let offset = address & 0xFFFF;
+    match (bank, offset) {
+        (0x40..=0x7D | 0xC0..=0xFF, _) | (0x00..=0x3F | 0x80..=0xBF, 0x8000..=0xFFFF) => {
+            // ROM
+            let rom_addr = exhirom_map_rom_address(address, rom_len);
+            CartridgeAddress::Rom(rom_addr)
+        }
+        (0x80..=0xBF, 0x6000..=0x7FFF) if sram_len != 0 => {
+            // SRAM, if mapped (note bank range is different from regular HiROM)
+            let sram_bank = bank & 0x1F;
+            let sram_addr = ((sram_bank << 13) | (offset & 0x1FFF)) & (sram_len - 1);
+            CartridgeAddress::Sram(sram_addr)
+        }
+        _ => CartridgeAddress::None,
+    }
+}
+
+fn exhirom_map_rom_address(address: u32, rom_len: u32) -> u32 {
+    // ExHiROM mapping ignores A22, and A23 is inverted and shifted right 1
+    let rom_addr = (address & 0x3FFFFF) | (((address >> 1) & 0x400000) ^ 0x400000);
+    // TODO better handle unusual ROM size
+    rom_addr % rom_len
 }
