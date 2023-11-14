@@ -1,5 +1,6 @@
 use crate::api::{CoprocessorRoms, LoadError, LoadResult};
 use crate::coprocessors::cx4::Cx4;
+use crate::coprocessors::sdd1::Sdd1;
 use crate::coprocessors::upd77c25;
 use crate::coprocessors::upd77c25::{Upd77c25, Upd77c25Variant};
 use bincode::{Decode, Encode};
@@ -34,6 +35,7 @@ enum CartridgeType {
     HiRom,
     ExHiRom,
     Cx4,
+    Sdd1,
 }
 
 impl Display for CartridgeType {
@@ -43,6 +45,7 @@ impl Display for CartridgeType {
             Self::HiRom => write!(f, "HiROM"),
             Self::ExHiRom => write!(f, "ExHiROM"),
             Self::Cx4 => write!(f, "CX4"),
+            Self::Sdd1 => write!(f, "S-DD1"),
         }
     }
 }
@@ -94,7 +97,7 @@ const LOROM_HEADER_ADDR: usize = 0x007FC0;
 const HIROM_HEADER_ADDR: usize = 0x00FFC0;
 const EXHIROM_HEADER_ADDR: usize = 0x40FFC0;
 
-const HEADER_TYPE_OFFSET: usize = 0x15;
+const HEADER_MAP_OFFSET: usize = 0x15;
 
 const LOROM_RESET_VECTOR: usize = 0x7FFC;
 const HIROM_RESET_VECTOR: usize = 0xFFFC;
@@ -119,6 +122,7 @@ pub enum Cartridge {
         sram: Box<[u8]>,
     },
     Cx4(#[partial_clone(partial)] Cx4),
+    Sdd1(#[partial_clone(partial)] Sdd1),
     St01x {
         #[partial_clone(default)]
         rom: Rom,
@@ -139,7 +143,7 @@ impl Cartridge {
         });
 
         let rom_header_addr = match cartridge_type {
-            CartridgeType::LoRom | CartridgeType::Cx4 => LOROM_HEADER_ADDR,
+            CartridgeType::LoRom | CartridgeType::Cx4 | CartridgeType::Sdd1 => LOROM_HEADER_ADDR,
             CartridgeType::HiRom => HIROM_HEADER_ADDR,
             CartridgeType::ExHiRom => EXHIROM_HEADER_ADDR,
         };
@@ -227,6 +231,7 @@ impl Cartridge {
             CartridgeType::HiRom => Self::HiRom { rom: Rom(rom), sram, upd77c25 },
             CartridgeType::ExHiRom => Self::ExHiRom { rom: Rom(rom), sram },
             CartridgeType::Cx4 => Self::Cx4(Cx4::new(Rom(rom))),
+            CartridgeType::Sdd1 => Self::Sdd1(Sdd1::new(Rom(rom), sram)),
         })
     }
 
@@ -258,6 +263,7 @@ impl Cartridge {
                 (exhirom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram)
             }
             Self::Cx4(cx4) => return cx4.read(address),
+            Self::Sdd1(sdd1) => return sdd1.read(address),
             Self::St01x { rom, upd77c25 } => {
                 return match (bank, offset) {
                     (0x60..=0x67, 0x0000) => Some(upd77c25.read_data()),
@@ -318,6 +324,9 @@ impl Cartridge {
             Self::Cx4(cx4) => {
                 cx4.write(address, value);
             }
+            Self::Sdd1(sdd1) => {
+                sdd1.write(address, value);
+            }
             Self::St01x { upd77c25, .. } => match (bank, offset) {
                 (0x60..=0x67, 0x0000) => upd77c25.write_data(value),
                 (0x68..=0x6F, 0x0000..=0x0FFF) => {
@@ -336,6 +345,7 @@ impl Cartridge {
             | Self::ExHiRom { rom, .. }
             | Self::St01x { rom, .. } => mem::take(&mut rom.0).into_vec(),
             Self::Cx4(cx4) => cx4.take_rom(),
+            Self::Sdd1(sdd1) => sdd1.take_rom(),
         }
     }
 
@@ -352,6 +362,9 @@ impl Cartridge {
             Self::Cx4(cx4) => {
                 cx4.set_rom(other_rom);
             }
+            Self::Sdd1(sdd1) => {
+                sdd1.set_rom(other_rom);
+            }
         }
     }
 
@@ -365,6 +378,7 @@ impl Cartridge {
             Self::LoRom { .. } | Self::HiRom { .. } | Self::ExHiRom { .. } | Self::Cx4 { .. } => {
                 None
             }
+            Self::Sdd1(sdd1) => sdd1.sram(),
             Self::St01x { upd77c25, .. } => Some(upd77c25.sram()),
         }
     }
@@ -387,6 +401,18 @@ impl Cartridge {
                 upd77c25.reset();
             }
             _ => {}
+        }
+    }
+
+    pub fn notify_dma_start(&mut self, channel: u8, source_address: u32) {
+        if let Self::Sdd1(sdd1) = self {
+            sdd1.notify_dma_start(channel, source_address);
+        }
+    }
+
+    pub fn notify_dma_end(&mut self) {
+        if let Self::Sdd1(sdd1) = self {
+            sdd1.notify_dma_end();
         }
     }
 }
@@ -412,7 +438,7 @@ fn guess_cartridge_type(rom: &[u8]) -> Option<CartridgeType> {
         return None;
     }
 
-    // Check for CX4 (always LoROM); identified by type == $Fx and subtype == $10
+    // Check for CX4 (always LoROM); identified by chipset == $Fx and subtype == $10
     if rom[LOROM_HEADER_ADDR + 0x1A] == 0x33
         && rom[LOROM_HEADER_ADDR + 0x16] & 0xF0 == 0xF0
         && rom[LOROM_HEADER_ADDR - 1] == 0x10
@@ -428,9 +454,10 @@ fn guess_cartridge_type(rom: &[u8]) -> Option<CartridgeType> {
 
     if rom.len() >= 0x410000 {
         // $25 = ExHiROM, $35 = ExHiROM + FastROM
-        // A ROM >4MB with $25/$35 in the header is almost certainly ExHiROM
-        let exhirom_type_byte = rom[EXHIROM_HEADER_ADDR + HEADER_TYPE_OFFSET];
-        if exhirom_type_byte == 0x25 || exhirom_type_byte == 0x35 {
+        // A ROM >4MB with $25/$35 in the header is almost certainly ExHiROM; only 2 (?) non-ExHiROM
+        // games are larger than 4MB
+        let exhirom_map_byte = rom[EXHIROM_HEADER_ADDR + HEADER_MAP_OFFSET];
+        if exhirom_map_byte == 0x25 || exhirom_map_byte == 0x35 {
             return Some(CartridgeType::ExHiRom);
         }
     }
@@ -438,15 +465,15 @@ fn guess_cartridge_type(rom: &[u8]) -> Option<CartridgeType> {
     let mut lorom_points = 0;
     let mut hirom_points = 0;
 
-    let lorom_type_byte = rom[LOROM_HEADER_ADDR + HEADER_TYPE_OFFSET];
-    if lorom_type_byte == 0x20 || lorom_type_byte == 0x30 {
-        // $20 = LoROM, $30 = LoROM + FastROM
+    let lorom_map_byte = rom[LOROM_HEADER_ADDR + HEADER_MAP_OFFSET];
+    if lorom_map_byte == 0x20 || lorom_map_byte == 0x30 {
+        // $20 == LoROM, $30 == LoROM + FastROM
         lorom_points += 1;
     }
 
-    let hirom_type_byte = rom[HIROM_HEADER_ADDR + HEADER_TYPE_OFFSET];
-    if hirom_type_byte == 0x21 || hirom_type_byte == 0x31 {
-        // $21 = HiROM, $31 = HiROM + FastROM
+    let hirom_map_byte = rom[HIROM_HEADER_ADDR + HEADER_MAP_OFFSET];
+    if hirom_map_byte == 0x21 || hirom_map_byte == 0x31 {
+        // $21 == HiROM, $31 == HiROM + FastROM
         hirom_points += 1;
     }
 
@@ -459,6 +486,15 @@ fn guess_cartridge_type(rom: &[u8]) -> Option<CartridgeType> {
     let hirom_vector = u16::from_le_bytes([rom[HIROM_RESET_VECTOR], rom[HIROM_RESET_VECTOR + 1]]);
     if seems_like_valid_reset_vector(rom, hirom_vector) {
         hirom_points += 1;
+    }
+
+    // If this doesn't look like a HiROM cartridge, check for S-DD1
+    // Identified by map == $22/$32 and chipset == $4x in the LoROM header area
+    if hirom_points <= lorom_points
+        && (lorom_map_byte == 0x22 || lorom_map_byte == 0x32)
+        && (0x43..0x46).contains(&rom[LOROM_HEADER_ADDR + 0x16])
+    {
+        return Some(CartridgeType::Sdd1);
     }
 
     match lorom_points.cmp(&hirom_points) {
