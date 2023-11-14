@@ -5,6 +5,7 @@
 use bincode::{Decode, Encode};
 use jgenesis_common::audio::SignalResampler;
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
+use smsgg_core::audio::PsgResampler;
 use std::cmp;
 
 pub const NTSC_GENESIS_MCLK_FREQUENCY: f64 = 53_693_175.0;
@@ -41,52 +42,10 @@ const YM2612_LPF_COEFFICIENTS: [f64; 25] = [
 
 const YM2612_HPF_CHARGE_FACTOR: f64 = 0.9966982656608827;
 
-const PSG_LPF_COEFFICIENT_0: f64 = -0.001070923693774405;
-const PSG_LPF_COEFFICIENTS: [f64; 35] = [
-    -0.001070923693774405,
-    -0.001685350075225726,
-    -0.001863413379276681,
-    -0.0009568415472585112,
-    0.001640749268572869,
-    0.005567205576795833,
-    0.00885183238540499,
-    0.008348379350607549,
-    0.00146034668504318,
-    -0.0115355816923585,
-    -0.02594911574769958,
-    -0.03323373392428908,
-    -0.02401612130459429,
-    0.007419221555475174,
-    0.05927546269924155,
-    0.1211627893325687,
-    0.1768103438836072,
-    0.2097747506271597,
-    0.2097747506271597,
-    0.1768103438836073,
-    0.1211627893325687,
-    0.05927546269924156,
-    0.007419221555475176,
-    -0.02401612130459429,
-    -0.03323373392428909,
-    -0.02594911574769959,
-    -0.0115355816923585,
-    0.001460346685043181,
-    0.008348379350607551,
-    0.00885183238540499,
-    0.005567205576795835,
-    0.00164074926857287,
-    -0.0009568415472585116,
-    -0.001863413379276682,
-    -0.001685350075225726,
-];
-
-const PSG_HPF_CHARGE_FACTOR: f64 = 0.999212882632514;
-
 // -8dB (10 ^ -8/20)
 pub const PSG_COEFFICIENT: f64 = 0.3981071705534972;
 
 pub type Ym2612Resampler = SignalResampler<25, 2>;
-pub type PsgResampler = SignalResampler<35, 0>;
 
 #[must_use]
 pub fn new_ym2612_resampler(genesis_mclk_frequency: f64) -> Ym2612Resampler {
@@ -96,17 +55,6 @@ pub fn new_ym2612_resampler(genesis_mclk_frequency: f64) -> Ym2612Resampler {
         YM2612_LPF_COEFFICIENT_0,
         YM2612_LPF_COEFFICIENTS,
         YM2612_HPF_CHARGE_FACTOR,
-    )
-}
-
-#[must_use]
-pub fn new_psg_resampler(genesis_mclk_frequency: f64) -> PsgResampler {
-    let psg_frequency = genesis_mclk_frequency / 15.0 / 16.0;
-    PsgResampler::new(
-        psg_frequency,
-        PSG_LPF_COEFFICIENT_0,
-        PSG_LPF_COEFFICIENTS,
-        PSG_HPF_CHARGE_FACTOR,
     )
 }
 
@@ -125,7 +73,7 @@ impl GenesisAudioResampler {
         };
 
         let ym2612_resampler = new_ym2612_resampler(genesis_mclk_frequency);
-        let psg_resampler = new_psg_resampler(genesis_mclk_frequency);
+        let psg_resampler = smsgg_core::audio::new_psg_resampler(genesis_mclk_frequency);
 
         Self { ym2612_resampler, psg_resampler }
     }

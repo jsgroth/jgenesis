@@ -1,6 +1,6 @@
 //! Sega Master System / Game Gear public interface and main loop
 
-use crate::audio::LowPassFilter;
+use crate::audio::AudioResampler;
 use crate::bus::Bus;
 use crate::input::InputState;
 use crate::memory::Memory;
@@ -20,12 +20,6 @@ use std::iter;
 use std::ops::{Deref, DerefMut};
 use thiserror::Error;
 use z80_emu::{InterruptMode, Z80};
-
-// 53_693_175 / 15 / 16 / 48000
-const NTSC_DOWNSAMPLING_RATIO: f64 = 4.6608658854166665;
-
-// 53_203_424 / 15 / 16 / 48000
-const PAL_DOWNSAMPLING_RATIO: f64 = 4.618352777777777;
 
 #[derive(Debug, Error)]
 pub enum SmsGgError<RErr, AErr, SErr> {
@@ -100,14 +94,13 @@ pub struct SmsGgEmulator {
     psg: Psg,
     ym2413: Option<Ym2413>,
     input: InputState,
-    low_pass_filter: LowPassFilter,
+    audio_resampler: AudioResampler,
     frame_buffer: FrameBuffer,
     sms_crop_vertical_border: bool,
     sms_crop_left_border: bool,
     overclock_z80: bool,
     z80_cycles_remainder: u32,
     vdp_cycles_remainder: u32,
-    sample_count: u64,
     frame_count: u64,
     reset_frames_remaining: u32,
 }
@@ -129,6 +122,7 @@ impl SmsGgEmulator {
 
         let ym2413 = config.fm_sound_unit_enabled.then(Ym2413::new);
 
+        let timing_mode = vdp.timing_mode();
         Self {
             memory,
             z80,
@@ -138,14 +132,13 @@ impl SmsGgEmulator {
             psg,
             ym2413,
             input,
-            low_pass_filter: LowPassFilter::new(),
+            audio_resampler: AudioResampler::new(timing_mode),
             frame_buffer: FrameBuffer::new(),
             sms_crop_vertical_border: config.sms_crop_vertical_border,
             sms_crop_left_border: config.sms_crop_left_border,
             overclock_z80: config.overclock_z80,
             z80_cycles_remainder: 0,
             vdp_cycles_remainder: 0,
-            sample_count: 0,
             frame_count: 0,
             reset_frames_remaining: 0,
         }
@@ -204,6 +197,7 @@ impl ConfigReload for SmsGgEmulator {
         self.sms_crop_vertical_border = config.sms_crop_vertical_border;
         self.sms_crop_left_border = config.sms_crop_left_border;
         self.overclock_z80 = config.overclock_z80;
+        self.audio_resampler.update_timing_mode(self.vdp.timing_mode());
     }
 }
 
@@ -259,10 +253,6 @@ impl TickableEmulator for SmsGgEmulator {
         };
         self.z80_cycles_remainder = remainder;
 
-        let downsampling_ratio = match self.vdp_version.timing_mode() {
-            TimingMode::Ntsc => NTSC_DOWNSAMPLING_RATIO,
-            TimingMode::Pal => PAL_DOWNSAMPLING_RATIO,
-        };
         for _ in 0..t_cycles {
             if let Some(ym2413) = &mut self.ym2413 {
                 ym2413.tick();
@@ -278,18 +268,7 @@ impl TickableEmulator for SmsGgEmulator {
 
                 let sample_l = psg_sample_l + ym_sample;
                 let sample_r = psg_sample_r + ym_sample;
-
-                self.low_pass_filter.collect_sample(sample_l, sample_r);
-
-                let prev_count = self.sample_count;
-                self.sample_count += 1;
-
-                if (prev_count as f64 / downsampling_ratio).round() as u64
-                    != (self.sample_count as f64 / downsampling_ratio).round() as u64
-                {
-                    let (sample_l, sample_r) = self.low_pass_filter.output_sample();
-                    audio_output.push_sample(sample_l, sample_r).map_err(SmsGgError::Audio)?;
-                }
+                self.audio_resampler.collect_sample(sample_l, sample_r);
             }
         }
 
@@ -302,6 +281,8 @@ impl TickableEmulator for SmsGgEmulator {
             if self.vdp.tick() == VdpTickEffect::FrameComplete {
                 self.render_frame(renderer).map_err(SmsGgError::Render)?;
                 frame_rendered = true;
+
+                self.audio_resampler.output_samples(audio_output).map_err(SmsGgError::Audio)?;
 
                 self.input.set_inputs(inputs);
                 self.input.set_reset(self.reset_frames_remaining != 0);
@@ -354,7 +335,6 @@ impl Resettable for SmsGgEmulator {
         self.input = InputState::new(self.input.region());
 
         self.vdp_cycles_remainder = 0;
-        self.sample_count = 0;
         self.frame_count = 0;
     }
 }

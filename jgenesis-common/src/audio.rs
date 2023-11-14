@@ -30,7 +30,7 @@ impl<const LPF_TAPS: usize, const ZERO_PADDING: usize> SignalResampler<LPF_TAPS,
         lpf_coefficients: [f64; LPF_TAPS],
         hpf_charge_factor: f64,
     ) -> Self {
-        let downsampling_ratio = source_frequency * (ZERO_PADDING + 1) as f64 / OUTPUT_FREQUENCY;
+        let downsampling_ratio = Self::compute_downsampling_ratio(source_frequency);
         Self {
             samples_l: VecDeque::new(),
             samples_r: VecDeque::new(),
@@ -45,6 +45,10 @@ impl<const LPF_TAPS: usize, const ZERO_PADDING: usize> SignalResampler<LPF_TAPS,
             lpf_coefficient_0,
             lpf_coefficients,
         }
+    }
+
+    fn compute_downsampling_ratio(source_frequency: f64) -> f64 {
+        source_frequency * (ZERO_PADDING + 1) as f64 / OUTPUT_FREQUENCY
     }
 
     fn buffer_sample(&mut self, sample_l: f64, sample_r: f64) {
@@ -102,6 +106,10 @@ impl<const LPF_TAPS: usize, const ZERO_PADDING: usize> SignalResampler<LPF_TAPS,
     #[inline]
     pub fn output_buffer_pop_front(&mut self) -> Option<(f64, f64)> {
         self.output.pop_front()
+    }
+
+    pub fn update_source_frequency(&mut self, source_frequency: f64) {
+        self.downsampling_ratio = Self::compute_downsampling_ratio(source_frequency);
     }
 }
 

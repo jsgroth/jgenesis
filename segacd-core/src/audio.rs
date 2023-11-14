@@ -5,9 +5,10 @@
 #![allow(clippy::excessive_precision)]
 
 use bincode::{Decode, Encode};
-use genesis_core::audio::{PsgResampler, Ym2612Resampler};
+use genesis_core::audio::Ym2612Resampler;
 use jgenesis_common::audio::SignalResampler;
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
+use smsgg_core::audio::PsgResampler;
 use std::cmp;
 
 const NTSC_GENESIS_MCLK_FREQUENCY: f64 = genesis_core::audio::NTSC_GENESIS_MCLK_FREQUENCY;
@@ -118,7 +119,7 @@ impl AudioResampler {
         };
 
         let ym2612_resampler = genesis_core::audio::new_ym2612_resampler(genesis_mclk_frequency);
-        let psg_resampler = genesis_core::audio::new_psg_resampler(genesis_mclk_frequency);
+        let psg_resampler = smsgg_core::audio::new_psg_resampler(genesis_mclk_frequency);
         let pcm_resampler = new_pcm_resampler();
         let cd_resampler = new_cd_resampler();
 
