@@ -138,9 +138,7 @@ impl CdRom {
 
         if track.track_type == TrackType::Data {
             // Perform error detection check
-            let mut digest = CD_ROM_CRC.digest();
-            digest.update(&out[CRC32_DIGEST_RANGE]);
-            let checksum = digest.finalize();
+            let checksum = CD_ROM_CRC.checksum(&out[CRC32_DIGEST_RANGE]);
 
             let edc_bytes: [u8; 4] = out[CRC32_CHECKSUM_LOCATION].try_into().unwrap();
             let edc = u32::from_le_bytes(edc_bytes);

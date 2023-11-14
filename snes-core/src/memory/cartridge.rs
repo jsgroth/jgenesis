@@ -507,9 +507,7 @@ fn guess_cartridge_type(rom: &[u8]) -> Option<CartridgeType> {
 const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
 
 fn guess_dsp_variant(rom: &[u8]) -> DspVariant {
-    let mut digest = CRC.digest();
-    digest.update(rom);
-    let checksum = digest.finalize();
+    let checksum = CRC.checksum(rom);
 
     match checksum {
         // Dungeon Master (U/J/E)
@@ -523,9 +521,7 @@ fn guess_dsp_variant(rom: &[u8]) -> DspVariant {
 }
 
 fn guess_st01x_variant(rom: &[u8]) -> St01xVariant {
-    let mut digest = CRC.digest();
-    digest.update(rom);
-    let checksum = digest.finalize();
+    let checksum = CRC.checksum(rom);
 
     // Hayazashi Nidan Morita Shogi (J)
     if checksum == 0x81E822AD { St01xVariant::St011 } else { St01xVariant::St010 }

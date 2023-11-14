@@ -129,9 +129,7 @@ pub fn eeprom(rom: &[u8]) -> Option<EepromMetadata> {
                 return Some(CODEMASTERS_24C08_METADATA);
             }
 
-            let mut crc_digest = CRC.digest();
-            crc_digest.update(rom);
-            let checksum = crc_digest.finalize();
+            let checksum = CRC.checksum(rom);
             log::info!("ROM CRC32: {checksum:08X}");
 
             match checksum {

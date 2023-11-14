@@ -95,9 +95,7 @@ impl Cartridge {
         let mapper = Mapper::detect_from_rom(&rom);
         log::info!("Detected mapper {mapper:?} from ROM header");
 
-        let mut crc_digest = CRC.digest();
-        crc_digest.update(&rom);
-        let checksum = crc_digest.finalize();
+        let checksum = CRC.checksum(&rom);
         log::info!("ROM CRC32: {checksum:08X}");
 
         let has_battery = metadata::has_battery_backup(checksum);

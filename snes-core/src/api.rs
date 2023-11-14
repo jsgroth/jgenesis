@@ -21,6 +21,8 @@ use wdc65816_emu::core::Wdc65816;
 const MEMORY_REFRESH_MCLK: u64 = 536;
 const MEMORY_REFRESH_CYCLES: u64 = 40;
 
+const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SnesAspectRatio {
@@ -158,7 +160,7 @@ impl SnesEmulator {
         let cpu_registers = CpuInternalRegisters::new();
         let dma_unit = DmaUnit::new();
 
-        let sram_checksum = initial_sram.as_ref().map_or(0, |sram| compute_checksum(sram));
+        let sram_checksum = initial_sram.as_ref().map_or(0, |sram| CRC.checksum(sram));
         let mut memory =
             Memory::create(rom, initial_sram, &coprocessor_roms, config.forced_timing_mode)?;
 
@@ -195,14 +197,6 @@ impl SnesEmulator {
     pub fn cartridge_title(&mut self) -> String {
         self.memory.cartridge_title()
     }
-}
-
-const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
-
-fn compute_checksum(bytes: &[u8]) -> u32 {
-    let mut digest = CRC.digest();
-    digest.update(bytes);
-    digest.finalize()
 }
 
 impl TickableEmulator for SnesEmulator {
@@ -266,7 +260,7 @@ impl TickableEmulator for SnesEmulator {
             // second because of the checksum calculation
             if let Some(sram) = self.memory.sram() {
                 if self.frame_count % 30 == 0 {
-                    let checksum = compute_checksum(sram);
+                    let checksum = CRC.checksum(sram);
                     if checksum != self.last_sram_checksum {
                         save_writer.persist_save(iter::once(sram)).map_err(SnesError::SaveWrite)?;
                         self.last_sram_checksum = checksum;
