@@ -6,6 +6,7 @@ use crate::memory::dma::{DmaStatus, DmaUnit};
 use crate::memory::{CpuInternalRegisters, Memory};
 use crate::ppu::{Ppu, PpuTickEffect};
 use bincode::{Decode, Encode};
+use crc::Crc;
 use jgenesis_common::frontend::{
     AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, FrameSize, PartialClone,
     PixelAspectRatio, Renderer, Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
@@ -136,6 +137,8 @@ pub struct SnesEmulator {
     memory_refresh_pending: bool,
     timing_mode: TimingMode,
     aspect_ratio: SnesAspectRatio,
+    frame_count: u64,
+    last_sram_checksum: u32,
     // Stored here to enable hard reset
     #[partial_clone(default)]
     coprocessor_roms: CoprocessorRoms,
@@ -154,6 +157,8 @@ impl SnesEmulator {
         let main_cpu = Wdc65816::new();
         let cpu_registers = CpuInternalRegisters::new();
         let dma_unit = DmaUnit::new();
+
+        let sram_checksum = initial_sram.as_ref().map_or(0, |sram| compute_checksum(sram));
         let mut memory =
             Memory::create(rom, initial_sram, &coprocessor_roms, config.forced_timing_mode)?;
 
@@ -176,6 +181,8 @@ impl SnesEmulator {
             memory_refresh_pending: false,
             timing_mode,
             aspect_ratio: config.aspect_ratio,
+            frame_count: 0,
+            last_sram_checksum: sram_checksum,
             coprocessor_roms,
         };
 
@@ -188,6 +195,14 @@ impl SnesEmulator {
     pub fn cartridge_title(&mut self) -> String {
         self.memory.cartridge_title()
     }
+}
+
+const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
+
+fn compute_checksum(bytes: &[u8]) -> u32 {
+    let mut digest = CRC.digest();
+    digest.update(bytes);
+    digest.finalize()
 }
 
 impl TickableEmulator for SnesEmulator {
@@ -247,12 +262,19 @@ impl TickableEmulator for SnesEmulator {
 
             self.audio_downsampler.output_samples(audio_output).map_err(SnesError::AudioOutput)?;
 
+            // Only persist SRAM if it's changed since the last write, and only check ~twice per
+            // second because of the checksum calculation
             if let Some(sram) = self.memory.sram() {
-                save_writer.persist_save(iter::once(sram)).map_err(SnesError::SaveWrite)?;
+                if self.frame_count % 30 == 0 {
+                    let checksum = compute_checksum(sram);
+                    if checksum != self.last_sram_checksum {
+                        save_writer.persist_save(iter::once(sram)).map_err(SnesError::SaveWrite)?;
+                        self.last_sram_checksum = checksum;
+                    }
+                }
             }
 
-            // TODO other once-per-frame events
-
+            self.frame_count += 1;
             tick_effect = TickEffect::FrameRendered;
         }
 
