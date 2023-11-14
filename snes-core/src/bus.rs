@@ -96,6 +96,7 @@ impl<'a> Bus<'a> {
         }
     }
 
+    #[allow(clippy::match_same_arms)]
     fn write_system_area(&mut self, full_address: u32, value: u8) {
         let address = full_address & 0x7FFF;
         match address {
@@ -104,6 +105,11 @@ impl<'a> Bus<'a> {
 
                 // First 8KB of WRAM
                 self.memory.write_wram(address, value);
+            }
+            0x2000..=0x20FF => {
+                self.access_master_cycles = FAST_MASTER_CYCLES;
+
+                // Open bus; do nothing (no coprocessors use this range)
             }
             0x2100..=0x213F => {
                 self.access_master_cycles = FAST_MASTER_CYCLES;
@@ -141,17 +147,34 @@ impl<'a> Bus<'a> {
                 // WMADDH: WRAM port address, high byte
                 self.memory.write_wram_port_address_high(value);
             }
-            0x4000..=0x40FF => {
+            0x2184..=0x21FF => {
+                self.access_master_cycles = FAST_MASTER_CYCLES;
+
+                // Open bus in address bus B; do nothing
+            }
+            0x2200..=0x3FFF => {
+                self.access_master_cycles = FAST_MASTER_CYCLES;
+
+                // Normally open bus; some coprocessors map I/O ports or RAM to this range
+                self.memory.write_cartridge(full_address, value);
+            }
+            0x4000..=0x41FF => {
                 self.access_master_cycles = XSLOW_MASTER_CYCLES;
 
                 // CPU I/O ports (manual joypad ports)
                 self.cpu_registers.write_register(address, value);
             }
-            0x4100..=0x4FFF => {
+            0x4200..=0x43FF => {
                 self.access_master_cycles = FAST_MASTER_CYCLES;
 
                 // CPU I/O ports (everything except manual joypad ports)
                 self.cpu_registers.write_register(address, value);
+            }
+            0x4400..=0x5FFF => {
+                self.access_master_cycles = FAST_MASTER_CYCLES;
+
+                // Normally open bus; some coprocessors map I/O ports to this range
+                self.memory.write_cartridge(full_address, value);
             }
             0x6000..=0x7FFF => {
                 self.access_master_cycles = SLOW_MASTER_CYCLES;
@@ -159,9 +182,7 @@ impl<'a> Bus<'a> {
                 // Cartridge expansion
                 self.memory.write_cartridge(full_address, value);
             }
-            _ => {
-                self.access_master_cycles = SLOW_MASTER_CYCLES;
-            }
+            _ => unreachable!("value & 0x7FFF is always <= 0x7FFF"),
         }
     }
 }
