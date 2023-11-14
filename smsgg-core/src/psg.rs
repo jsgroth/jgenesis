@@ -3,7 +3,7 @@
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
-use std::array;
+use std::{array, cmp};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum WaveOutput {
@@ -26,8 +26,8 @@ impl From<WaveOutput> for f64 {
     fn from(value: WaveOutput) -> Self {
         match value {
             WaveOutput::Positive => 1.0,
-            WaveOutput::Negative => -1.0,
-            WaveOutput::Zero => 0.0,
+            WaveOutput::Negative => 0.0,
+            WaveOutput::Zero => 0.5,
         }
     }
 }
@@ -83,7 +83,7 @@ const SMS2_ATTENUATION_TO_VOLUME: [f64; 16] = [
 
 impl SquareWaveGenerator {
     fn new() -> Self {
-        Self { counter: 0, current_output: WaveOutput::Negative, tone: 0, attenuation: 0x0F }
+        Self { counter: 1, current_output: WaveOutput::Negative, tone: 0, attenuation: 0x0F }
     }
 
     fn update_tone_low_bits(&mut self, data: u8) {
@@ -95,17 +95,11 @@ impl SquareWaveGenerator {
     }
 
     fn clock(&mut self) {
+        self.counter -= 1;
         if self.counter == 0 {
-            self.counter = self.tone;
-        } else {
-            self.counter -= 1;
-            if self.counter == 0 {
-                self.counter = self.tone;
-                // TODO hack - don't oscillate the wave when the channel is at ultrasonic frequencies
-                if self.tone >= 5 {
-                    self.current_output = self.current_output.invert();
-                }
-            }
+            // Tone of 0 functions as 1, where the output inverts every PSG clock
+            self.counter = cmp::max(self.tone, 1);
+            self.current_output = self.current_output.invert();
         }
     }
 
@@ -173,7 +167,7 @@ impl NoiseGenerator {
 
     fn shift_lfsr(&mut self) {
         self.current_lfsr_output =
-            if self.lfsr.bit(0) { WaveOutput::Positive } else { WaveOutput::Zero };
+            if self.lfsr.bit(0) { WaveOutput::Negative } else { WaveOutput::Zero };
 
         let input_bit = match self.noise_type {
             NoiseType::Periodic => self.lfsr.bit(0),
@@ -412,9 +406,8 @@ impl Psg {
             PsgVersion::Standard => &ATTENUATION_TO_VOLUME,
         };
 
-        let square_samples =
-            self.square_wave_channels.map(|channel| channel.sample(volume_table) * 0.5);
-        let noise_sample = self.noise_channel.sample(volume_table);
+        let square_samples = self.square_wave_channels.map(|channel| channel.sample(volume_table));
+        let noise_sample = 2.0 * self.noise_channel.sample(volume_table);
 
         let sample_l = (f64::from(self.stereo_control.square_0_l) * square_samples[0]
             + f64::from(self.stereo_control.square_1_l) * square_samples[1]
