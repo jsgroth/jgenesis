@@ -10,7 +10,7 @@ Cross-platform multi-console emulator that supports the Sega Genesis / Mega Driv
   * Sega Master System / Mark III
   * Game Gear
   * Super Nintendo Entertainment System (SNES) / Super Famicom
-    * Most coprocessors are not currently implemented (Super FX, SA-1, etc.), and any games that used them will not currently work
+    * Some coprocessors are not currently implemented (Super FX, SA-1, etc.), and any games that used them will not currently work
 * GPU-based renderer with integer prescaling and optional linear interpolation
 * Configurable pixel aspect ratio for each console with several different options: accurate to original hardware/TVs, square pixels, and stretched to fill the window
 * Support for the Sega Master System FM sound unit expansion
