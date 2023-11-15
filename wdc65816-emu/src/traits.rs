@@ -12,4 +12,8 @@ pub trait BusInterface {
     fn acknowledge_nmi(&mut self);
 
     fn irq(&self) -> bool;
+
+    fn halt(&self) -> bool;
+
+    fn reset(&self) -> bool;
 }

@@ -19,6 +19,7 @@ bincode = { workspace = true }
 bytemuck = { workspace = true }
 crc = { workspace = true }
 log = { workspace = true }
+rand = { workspace = true }
 serde = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
