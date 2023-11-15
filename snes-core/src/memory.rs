@@ -80,6 +80,10 @@ impl Memory {
         self.cartridge.write(address, value);
     }
 
+    pub fn cartridge_irq(&self) -> bool {
+        self.cartridge.irq()
+    }
+
     pub fn cartridge_title(&mut self) -> String {
         // Cartridge title is always at $00FFC0-$00FFD4 (inclusive)
         let mut title_bytes = [0; 0xFFD4 - 0xFFC0 + 1];

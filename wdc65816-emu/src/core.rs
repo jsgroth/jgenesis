@@ -133,6 +133,7 @@ struct State {
     nmi_triggered: bool,
     last_irq: bool,
     irq_triggered: bool,
+    reset_pending: bool,
     // Temp values to store internal instruction state between cycles
     t0: u8,
     t1: u8,
@@ -201,7 +202,26 @@ impl Wdc65816 {
         self.state = State::default();
     }
 
+    #[inline]
     pub fn tick<B: BusInterface>(&mut self, bus: &mut B) {
+        if bus.reset() {
+            self.state.reset_pending = true;
+            bus.idle();
+            return;
+        }
+
+        if self.state.reset_pending {
+            // TODO timing? this does 2 bus reads and probably takes more internal cycles
+            self.reset(bus);
+            self.state.reset_pending = false;
+            return;
+        }
+
+        if bus.halt() {
+            bus.idle();
+            return;
+        }
+
         instructions::execute(self, bus);
     }
 

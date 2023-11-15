@@ -895,7 +895,7 @@ impl AudioDsp {
         let address = self.register_address & 0x7F;
 
         // High nibble of register address encodes the voice
-        let voice = (self.register_address >> 4) as usize;
+        let voice = (address >> 4) as usize;
 
         match address & 0x0F {
             0x00 => self.voices[voice].volume_l as u8,

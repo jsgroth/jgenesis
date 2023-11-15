@@ -44,4 +44,12 @@ impl BusInterface for RecordingBus {
     fn irq(&self) -> bool {
         false
     }
+
+    fn halt(&self) -> bool {
+        false
+    }
+
+    fn reset(&self) -> bool {
+        false
+    }
 }

@@ -1,5 +1,6 @@
 use crate::api::{CoprocessorRoms, LoadError, LoadResult};
 use crate::coprocessors::cx4::Cx4;
+use crate::coprocessors::sa1::Sa1;
 use crate::coprocessors::sdd1::Sdd1;
 use crate::coprocessors::upd77c25;
 use crate::coprocessors::upd77c25::{Upd77c25, Upd77c25Variant};
@@ -36,6 +37,7 @@ enum CartridgeType {
     ExHiRom,
     Cx4,
     Sdd1,
+    Sa1,
 }
 
 impl Display for CartridgeType {
@@ -46,6 +48,7 @@ impl Display for CartridgeType {
             Self::ExHiRom => write!(f, "ExHiROM"),
             Self::Cx4 => write!(f, "CX4"),
             Self::Sdd1 => write!(f, "S-DD1"),
+            Self::Sa1 => write!(f, "SA-1"),
         }
     }
 }
@@ -123,6 +126,7 @@ pub enum Cartridge {
     },
     Cx4(#[partial_clone(partial)] Cx4),
     Sdd1(#[partial_clone(partial)] Sdd1),
+    Sa1(#[partial_clone(partial)] Sa1),
     St01x {
         #[partial_clone(default)]
         rom: Rom,
@@ -143,7 +147,10 @@ impl Cartridge {
         });
 
         let rom_header_addr = match cartridge_type {
-            CartridgeType::LoRom | CartridgeType::Cx4 | CartridgeType::Sdd1 => LOROM_HEADER_ADDR,
+            CartridgeType::LoRom
+            | CartridgeType::Cx4
+            | CartridgeType::Sdd1
+            | CartridgeType::Sa1 => LOROM_HEADER_ADDR,
             CartridgeType::HiRom => HIROM_HEADER_ADDR,
             CartridgeType::ExHiRom => EXHIROM_HEADER_ADDR,
         };
@@ -232,6 +239,7 @@ impl Cartridge {
             CartridgeType::ExHiRom => Self::ExHiRom { rom: Rom(rom), sram },
             CartridgeType::Cx4 => Self::Cx4(Cx4::new(Rom(rom))),
             CartridgeType::Sdd1 => Self::Sdd1(Sdd1::new(Rom(rom), sram)),
+            CartridgeType::Sa1 => Self::Sa1(Sa1::new(Rom(rom), sram, timing_mode)),
         })
     }
 
@@ -264,6 +272,7 @@ impl Cartridge {
             }
             Self::Cx4(cx4) => return cx4.read(address),
             Self::Sdd1(sdd1) => return sdd1.read(address),
+            Self::Sa1(sa1) => return sa1.snes_read(address),
             Self::St01x { rom, upd77c25 } => {
                 return match (bank, offset) {
                     (0x60..=0x67, 0x0000) => Some(upd77c25.read_data()),
@@ -327,6 +336,9 @@ impl Cartridge {
             Self::Sdd1(sdd1) => {
                 sdd1.write(address, value);
             }
+            Self::Sa1(sa1) => {
+                sa1.snes_write(address, value);
+            }
             Self::St01x { upd77c25, .. } => match (bank, offset) {
                 (0x60..=0x67, 0x0000) => upd77c25.write_data(value),
                 (0x68..=0x6F, 0x0000..=0x0FFF) => {
@@ -338,6 +350,13 @@ impl Cartridge {
         }
     }
 
+    pub fn irq(&self) -> bool {
+        match self {
+            Self::Sa1(sa1) => sa1.snes_irq(),
+            _ => false,
+        }
+    }
+
     pub fn take_rom(&mut self) -> Vec<u8> {
         match self {
             Self::LoRom { rom, .. }
@@ -346,6 +365,7 @@ impl Cartridge {
             | Self::St01x { rom, .. } => mem::take(&mut rom.0).into_vec(),
             Self::Cx4(cx4) => cx4.take_rom(),
             Self::Sdd1(sdd1) => sdd1.take_rom(),
+            Self::Sa1(sa1) => sa1.take_rom(),
         }
     }
 
@@ -365,6 +385,9 @@ impl Cartridge {
             Self::Sdd1(sdd1) => {
                 sdd1.set_rom(other_rom);
             }
+            Self::Sa1(sa1) => {
+                sa1.set_rom(other_rom);
+            }
         }
     }
 
@@ -379,6 +402,7 @@ impl Cartridge {
                 None
             }
             Self::Sdd1(sdd1) => sdd1.sram(),
+            Self::Sa1(sa1) => sa1.sram(),
             Self::St01x { upd77c25, .. } => Some(upd77c25.sram()),
         }
     }
@@ -390,6 +414,9 @@ impl Cartridge {
             | Self::St01x { upd77c25, .. } => {
                 upd77c25.tick(master_cycles_elapsed);
             }
+            Self::Sa1(sa1) => {
+                sa1.tick(master_cycles_elapsed);
+            }
             _ => {}
         }
     }
@@ -400,19 +427,29 @@ impl Cartridge {
             | Self::HiRom { upd77c25: Some(upd77c25), .. } => {
                 upd77c25.reset();
             }
+            Self::Sdd1(sdd1) => {
+                sdd1.notify_dma_end();
+            }
+            Self::Sa1(sa1) => {
+                sa1.reset();
+            }
             _ => {}
         }
     }
 
     pub fn notify_dma_start(&mut self, channel: u8, source_address: u32) {
-        if let Self::Sdd1(sdd1) = self {
-            sdd1.notify_dma_start(channel, source_address);
+        match self {
+            Self::Sa1(sa1) => sa1.notify_dma_start(source_address),
+            Self::Sdd1(sdd1) => sdd1.notify_dma_start(channel, source_address),
+            _ => {}
         }
     }
 
     pub fn notify_dma_end(&mut self) {
-        if let Self::Sdd1(sdd1) = self {
-            sdd1.notify_dma_end();
+        match self {
+            Self::Sa1(sa1) => sa1.notify_dma_end(),
+            Self::Sdd1(sdd1) => sdd1.notify_dma_end(),
+            _ => {}
         }
     }
 }
@@ -436,14 +473,6 @@ fn guess_cartridge_type(rom: &[u8]) -> Option<CartridgeType> {
     if rom.len() < 0x8000 {
         log::error!("ROM is too small; all ROMs should be at least 32KB, was {} bytes", rom.len());
         return None;
-    }
-
-    // Check for CX4 (always LoROM); identified by chipset == $Fx and subtype == $10
-    if rom[LOROM_HEADER_ADDR + 0x1A] == 0x33
-        && rom[LOROM_HEADER_ADDR + 0x16] & 0xF0 == 0xF0
-        && rom[LOROM_HEADER_ADDR - 1] == 0x10
-    {
-        return Some(CartridgeType::Cx4);
     }
 
     if rom.len() < 0x10000 {
@@ -488,13 +517,31 @@ fn guess_cartridge_type(rom: &[u8]) -> Option<CartridgeType> {
         hirom_points += 1;
     }
 
-    // If this doesn't look like a HiROM cartridge, check for S-DD1
+    // Check for CX4 (always LoROM); identified by chipset == $Fx and subtype == $10
+    if hirom_points <= lorom_points
+        && rom[LOROM_HEADER_ADDR + 0x1A] == 0x33
+        && rom[LOROM_HEADER_ADDR + 0x16] & 0xF0 == 0xF0
+        && rom[LOROM_HEADER_ADDR - 1] == 0x10
+    {
+        return Some(CartridgeType::Cx4);
+    }
+
+    // Check for S-DD1
     // Identified by map == $22/$32 and chipset == $4x in the LoROM header area
     if hirom_points <= lorom_points
         && (lorom_map_byte == 0x22 || lorom_map_byte == 0x32)
         && (0x43..0x46).contains(&rom[LOROM_HEADER_ADDR + 0x16])
     {
         return Some(CartridgeType::Sdd1);
+    }
+
+    // Check for SA-1
+    // Identified by map == $23 and chipset == $3x in the LoROM header area
+    if hirom_points <= lorom_points
+        && lorom_map_byte == 0x23
+        && (0x33..0x36).contains(&rom[LOROM_HEADER_ADDR + 0x16])
+    {
+        return Some(CartridgeType::Sa1);
     }
 
     match lorom_points.cmp(&hirom_points) {

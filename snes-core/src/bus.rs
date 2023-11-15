@@ -269,6 +269,16 @@ impl<'a> BusInterface for Bus<'a> {
 
     #[inline]
     fn irq(&self) -> bool {
-        self.cpu_registers.irq_pending()
+        self.cpu_registers.irq_pending() || self.memory.cartridge_irq()
+    }
+
+    #[inline]
+    fn halt(&self) -> bool {
+        false
+    }
+
+    #[inline]
+    fn reset(&self) -> bool {
+        false
     }
 }
