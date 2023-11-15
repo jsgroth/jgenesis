@@ -8,9 +8,10 @@ use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::cmp;
 use std::ops::{Deref, DerefMut};
 
-const SCREEN_WIDTH: usize = 512;
+const NORMAL_SCREEN_WIDTH: usize = 256;
+const HIRES_SCREEN_WIDTH: usize = 512;
 const MAX_SCREEN_HEIGHT: usize = 478;
-const FRAME_BUFFER_LEN: usize = SCREEN_WIDTH * MAX_SCREEN_HEIGHT;
+const FRAME_BUFFER_LEN: usize = HIRES_SCREEN_WIDTH * MAX_SCREEN_HEIGHT;
 
 const VRAM_LEN_WORDS: usize = 64 * 1024 / 2;
 const OAM_LEN: usize = 512 + 32;
@@ -1219,6 +1220,10 @@ impl Registers {
             self.bg_window_2_area[bg].to_optional_bool(in_window_2),
         )
     }
+
+    fn in_hi_res_mode(&self) -> bool {
+        self.bg_mode.is_hi_res() || self.pseudo_h_hi_res
+    }
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -1229,6 +1234,9 @@ struct State {
     pending_sprite_pixel_overflow: bool,
     ppu1_open_bus: u8,
     ppu2_open_bus: u8,
+    last_rendered_scanline: Option<u16>,
+    // Tracks if Mode 5/6 or pseudo-hi-res was enabled at any point during active display
+    hi_res_frame: bool,
 }
 
 impl State {
@@ -1240,7 +1248,13 @@ impl State {
             pending_sprite_pixel_overflow: false,
             ppu1_open_bus: 0,
             ppu2_open_bus: 0,
+            last_rendered_scanline: None,
+            hi_res_frame: false,
         }
+    }
+
+    fn frame_screen_width(&self) -> u32 {
+        if self.hi_res_frame { HIRES_SCREEN_WIDTH as u32 } else { NORMAL_SCREEN_WIDTH as u32 }
     }
 }
 
@@ -1560,6 +1574,8 @@ impl Ppu {
                 self.state.scanline = 0;
                 // TODO wait until H=1?
                 self.state.odd_frame = !self.state.odd_frame;
+                self.state.last_rendered_scanline = None;
+                self.state.hi_res_frame = self.registers.in_hi_res_mode();
 
                 if !self.registers.forced_blanking {
                     self.registers.sprite_overflow = false;
@@ -1596,10 +1612,12 @@ impl Ppu {
 
     fn render_current_line(&mut self) {
         let scanline = self.state.scanline;
+        self.state.last_rendered_scanline = Some(scanline);
 
         if self.registers.forced_blanking {
             // Forced blanking always draws black
-            for pixel in 0..SCREEN_WIDTH as u16 {
+            let screen_width = self.state.frame_screen_width();
+            for pixel in 0..screen_width as u16 {
                 self.set_in_frame_buffer(scanline, pixel, Color::rgb(0, 0, 0));
             }
             return;
@@ -1637,8 +1655,14 @@ impl Ppu {
                 let snes_color = self.resolve_overall_color(scanline, pixel, HiResMode::None);
                 let color = convert_snes_color(snes_color, brightness);
 
-                self.set_in_frame_buffer(scanline, 2 * pixel, color);
-                self.set_in_frame_buffer(scanline, 2 * pixel + 1, color);
+                if self.state.hi_res_frame {
+                    // Hi-res mode is not currently enabled, but it was enabled earlier in the frame;
+                    // draw in 512px
+                    self.set_in_frame_buffer(scanline, 2 * pixel, color);
+                    self.set_in_frame_buffer(scanline, 2 * pixel + 1, color);
+                } else {
+                    self.set_in_frame_buffer(scanline, pixel, color);
+                }
             }
         }
     }
@@ -2286,8 +2310,28 @@ impl Ppu {
             .unwrap_or(Pixel::TRANSPARENT)
     }
 
+    fn enter_hi_res_mode(&mut self) {
+        if !self.vblank_flag() && !self.state.hi_res_frame {
+            // Hi-res mode enabled mid-frame; redraw previously rendered scanlines to 512x224 in-place
+            if let Some(last_rendered_scanline) = self.state.last_rendered_scanline {
+                for scanline in (1..=last_rendered_scanline).rev() {
+                    let src_line_addr = 256 * (scanline - 1);
+                    let dest_line_addr = 512 * (scanline - 1);
+                    for pixel in (0..256).rev() {
+                        let color = self.frame_buffer[(src_line_addr + pixel) as usize];
+                        self.frame_buffer[(dest_line_addr + 2 * pixel) as usize] = color;
+                        self.frame_buffer[(dest_line_addr + 2 * pixel + 1) as usize] = color;
+                    }
+                }
+            }
+        }
+
+        self.state.hi_res_frame = true;
+    }
+
     fn set_in_frame_buffer(&mut self, scanline: u16, pixel: u16, color: Color) {
-        let index = u32::from(scanline - 1) * SCREEN_WIDTH as u32 + u32::from(pixel);
+        let screen_width = self.state.frame_screen_width();
+        let index = u32::from(scanline - 1) * screen_width + u32::from(pixel);
         self.frame_buffer[index as usize] = color;
     }
 
@@ -2347,12 +2391,14 @@ impl Ppu {
     }
 
     pub fn frame_size(&self) -> FrameSize {
+        let screen_width = self.state.frame_screen_width();
+
         let mut screen_height = self.registers.v_display_size.to_lines();
         if self.is_v_hi_res() {
             screen_height *= 2;
         }
 
-        FrameSize { width: SCREEN_WIDTH as u32, height: screen_height.into() }
+        FrameSize { width: screen_width, height: screen_height.into() }
     }
 
     fn is_v_hi_res(&self) -> bool {
@@ -2464,7 +2510,12 @@ impl Ppu {
                 // OAMDATA: OAM data port (write)
                 self.write_oam_data_port(value);
             }
-            0x05 => self.registers.write_bgmode(value),
+            0x05 => {
+                self.registers.write_bgmode(value);
+                if self.registers.bg_mode.is_hi_res() {
+                    self.enter_hi_res_mode();
+                }
+            }
             0x06 => self.registers.write_mosaic(value),
             0x07..=0x0A => {
                 let bg = ((address + 1) & 0x3) as usize;
@@ -2523,7 +2574,12 @@ impl Ppu {
             0x30 => self.registers.write_cgwsel(value),
             0x31 => self.registers.write_cgadsub(value),
             0x32 => self.registers.write_coldata(value),
-            0x33 => self.registers.write_setini(value),
+            0x33 => {
+                self.registers.write_setini(value);
+                if self.registers.pseudo_h_hi_res {
+                    self.enter_hi_res_mode();
+                }
+            }
             _ => {
                 // No other mappings are valid; do nothing
             }
