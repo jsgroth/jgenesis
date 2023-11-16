@@ -60,25 +60,7 @@ pub fn build(rom_search_dirs: &[String]) -> Vec<RomMetadata> {
                             }
 
                             let file_name = dir_entry.file_name().to_string_lossy().to_string();
-                            let extension =
-                                Path::new(&file_name).extension().and_then(OsStr::to_str)?;
-                            let console = Console::from_extension(extension)?;
-
-                            let Some(full_path) = dir_entry.path().to_str().map(String::from)
-                            else {
-                                return None;
-                            };
-                            let file_name_no_ext = Path::new(&file_name)
-                                .with_extension("")
-                                .to_string_lossy()
-                                .to_string();
-
-                            let file_size = match console {
-                                Console::SegaCd => sega_cd_file_size(&full_path).ok()?,
-                                _ => metadata.len(),
-                            };
-
-                            Some(RomMetadata { full_path, file_name_no_ext, console, file_size })
+                            process_file(&file_name, &dir_entry.path(), metadata)
                         })
                         .collect::<Vec<_>>()
                 })
@@ -112,6 +94,23 @@ pub fn build(rom_search_dirs: &[String]) -> Vec<RomMetadata> {
     metadata
 }
 
+fn process_file(file_name: &str, path: &Path, metadata: fs::Metadata) -> Option<RomMetadata> {
+    let extension = Path::new(&file_name).extension().and_then(OsStr::to_str)?;
+    let console = Console::from_extension(extension)?;
+
+    let Some(full_path) = path.to_str().map(String::from) else {
+        return None;
+    };
+    let file_name_no_ext = Path::new(&file_name).with_extension("").to_string_lossy().to_string();
+
+    let file_size = match console {
+        Console::SegaCd => sega_cd_file_size(&full_path).ok()?,
+        _ => metadata.len(),
+    };
+
+    Some(RomMetadata { full_path, file_name_no_ext, console, file_size })
+}
+
 fn sega_cd_file_size(cue_path: &str) -> io::Result<u64> {
     let cue_contents = fs::read_to_string(cue_path)?;
     let cue_directory =
@@ -136,4 +135,17 @@ fn parse_bin_file_names(cue_contents: &str) -> impl Iterator<Item = &str> {
 
         line_re.captures(line).map(|captures| captures.get(1).unwrap().as_str())
     })
+}
+
+pub fn from_recent_opens(recent_opens: &[String]) -> Vec<RomMetadata> {
+    recent_opens
+        .iter()
+        .filter_map(|path| {
+            let path = Path::new(path);
+            let file_name = path.file_name()?.to_string_lossy();
+            let metadata = fs::metadata(path).ok()?;
+
+            process_file(&file_name, path, metadata)
+        })
+        .collect()
 }

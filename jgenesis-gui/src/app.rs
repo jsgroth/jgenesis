@@ -225,6 +225,8 @@ pub struct AppConfig {
     inputs: InputAppConfig,
     #[serde(default)]
     rom_search_dirs: Vec<String>,
+    #[serde(default)]
+    recent_opens: Vec<String>,
 }
 
 impl AppConfig {
@@ -403,11 +405,13 @@ struct AppState {
     display_scanlines_warning: bool,
     waiting_for_input: Option<GenericButton>,
     rom_list: Rc<RefCell<Vec<RomMetadata>>>,
+    recent_open_list: Vec<RomMetadata>,
 }
 
 impl AppState {
     fn from_config(config: &AppConfig) -> Self {
         let rom_list = romlist::build(&config.rom_search_dirs);
+        let recent_open_list = romlist::from_recent_opens(&config.recent_opens);
         Self {
             current_file_path: String::new(),
             open_windows: HashSet::new(),
@@ -431,6 +435,7 @@ impl AppState {
             display_scanlines_warning: should_display_scanlines_warning(config),
             waiting_for_input: None,
             rom_list: Rc::new(RefCell::new(rom_list)),
+            recent_open_list,
         }
     }
 }
@@ -466,7 +471,7 @@ impl App {
         }
 
         let mut file_dialog = FileDialog::new()
-            .add_filter("sms/gg/md/cue", &["sms", "gg", "md", "bin", "cue", "sfc"]);
+            .add_filter("sms/gg/md/cue/bin/sfc", &["sms", "gg", "md", "bin", "cue", "sfc"]);
         if let Some(dir) = self.config.rom_search_dirs.first() {
             file_dialog = file_dialog.set_directory(Path::new(dir));
         }
@@ -478,6 +483,12 @@ impl App {
 
     fn launch_emulator(&mut self, path: String) {
         self.state.current_file_path = path.clone();
+
+        // Update Open Recent contents
+        self.config.recent_opens.retain(|recent_open_path| recent_open_path != &path);
+        self.config.recent_opens.insert(0, path.clone());
+        self.config.recent_opens.truncate(10);
+        self.state.recent_open_list = romlist::from_recent_opens(&self.config.recent_opens);
 
         match Path::new(&path).extension().and_then(OsStr::to_str) {
             Some("sms" | "gg") => {
@@ -1324,6 +1335,19 @@ impl App {
                 ui.set_enabled(!self.state.error_window_open);
 
                 ui.menu_button("File", |ui| {
+                    ui.add_enabled_ui(!self.state.recent_open_list.is_empty(), |ui| {
+                        ui.menu_button("Open Recent", |ui| {
+                            for recent_open in self.state.recent_open_list.clone() {
+                                if ui.button(&recent_open.file_name_no_ext).clicked() {
+                                    self.launch_emulator(recent_open.full_path);
+                                    ui.close_menu();
+                                }
+
+                                ui.add_space(5.0);
+                            }
+                        });
+                    });
+
                     let open_button =
                         Button::new("Open").shortcut_text(ctx.format_shortcut(&open_shortcut));
                     if open_button.ui(ui).clicked() {
