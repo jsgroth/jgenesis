@@ -14,3 +14,6 @@ rand = "0.8"
 serde = { workspace = true }
 thiserror = "1"
 tinyvec = { version = "1", features = ["serde"] }
+
+[lints]
+workspace = true

@@ -12,3 +12,6 @@ proc-macro = true
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 quote = "1"
 syn = "2"
+
+[lints]
+workspace = true
