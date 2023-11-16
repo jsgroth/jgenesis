@@ -15,3 +15,6 @@ syn = "2"
 
 [dev-dependencies]
 jgenesis-common = { path = "../jgenesis-common" }
+
+[lints]
+workspace = true

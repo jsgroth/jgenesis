@@ -68,3 +68,52 @@ debug = true
 [profile.profiling-lto]
 inherits = "profiling"
 lto = true
+
+[workspace.lints.rust]
+rust_2018_idioms = "warn"
+
+[workspace.lints.clippy]
+# Warn broadly on all/pedantic, allowing the broad pedantic warn to be overridden
+all = "warn"
+pedantic = { level = "warn", priority = -1 }
+
+# Warn on a small selection of restriction lints
+clone_on_ref_ptr = "warn"
+dbg_macro = "warn"
+empty_drop = "warn"
+empty_structs_with_brackets = "warn"
+float_cmp_const = "warn"
+fn_to_numeric_cast_any = "warn"
+get_unwrap = "warn"
+if_then_some_else_none = "warn"
+mem_forget = "warn"
+mixed_read_write_in_expression = "warn"
+mod_module_files = "warn"
+mutex_atomic = "warn"
+rc_buffer = "warn"
+rc_mutex = "warn"
+rest_pat_in_fully_bound_structs = "warn"
+string_to_string = "warn"
+suspicious_xor_used_as_pow = "warn"
+try_err = "warn"
+unneeded_field_pattern = "warn"
+unseparated_literal_suffix = "warn"
+verbose_file_reads = "warn"
+
+# Allow pedantic lints that have a high false positive rate or that I disagree with
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+if_not_else = "allow"
+inline_always = "allow"
+module_name_repetitions = "allow"
+needless_pass_by_value = "allow"
+similar_names = "allow"
+single_match_else = "allow"
+stable_sort_primitive = "allow"
+struct_excessive_bools = "allow"
+struct_field_names = "allow"
+too_many_lines = "allow"
+unreadable_literal = "allow"
+verbose_bit_mask = "allow"

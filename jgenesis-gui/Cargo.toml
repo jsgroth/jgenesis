@@ -30,3 +30,6 @@ toml = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 xrandr = "0.2"
+
+[lints]
+workspace = true

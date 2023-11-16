@@ -20,3 +20,6 @@ crc = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true, optional = true }
 thiserror = { workspace = true }
+
+[lints]
+workspace = true

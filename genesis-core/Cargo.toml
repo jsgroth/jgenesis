@@ -26,3 +26,6 @@ thiserror = { workspace = true }
 [dev-dependencies]
 env_logger = { workspace = true }
 test-log = { workspace = true }
+
+[lints]
+workspace = true

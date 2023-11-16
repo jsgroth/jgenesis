@@ -43,17 +43,10 @@ jobs:
       with:
         command: build
 
-    - name: Install cranky
-      uses: actions-rs/cargo@v1
-      with:
-        command: install
-        args: cargo-cranky
-
     - name: Check Clippy warnings
       uses: actions-rs/cargo@v1
       with:
-        command: cranky
-        toolchain: nightly
+        command: clippy
         args: -- -D warnings
 
     - name: Run tests
@@ -72,12 +65,12 @@ jobs:
           toolchain: nightly
           components: rust-src, clippy
 
-      - name: Install wasm-pack and cranky
+      - name: Install wasm-pack
         uses: actions-rs/cargo@v1
         with:
           command: install
           toolchain: nightly
-          args: wasm-pack cargo-cranky
+          args: wasm-pack
 
       - name: Build web
         run: |
@@ -85,7 +78,7 @@ jobs:
 
       - name: Check Clippy warnings for web
         run: |
-          cd jgenesis-web && cargo +nightly cranky --target wasm32-unknown-unknown
+          cd jgenesis-web && cargo +nightly clippy --target wasm32-unknown-unknown
   linux-release:
     runs-on: ubuntu-latest
 

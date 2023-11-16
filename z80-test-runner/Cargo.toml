@@ -9,3 +9,6 @@ edition = "2021"
 z80-emu = { path = "../z80-emu" }
 
 env_logger = { workspace = true }
+
+[lints]
+workspace = true

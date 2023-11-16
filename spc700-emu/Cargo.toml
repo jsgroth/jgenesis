@@ -10,3 +10,6 @@ jgenesis-common = { path = "../jgenesis-common" }
 
 bincode = { workspace = true }
 log = { workspace = true }
+
+[lints]
+workspace = true

@@ -46,3 +46,6 @@ features = [
     "ChannelCountMode",
     "Performance",
 ]
+
+[lints]
+workspace = true

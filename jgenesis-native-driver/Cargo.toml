@@ -26,3 +26,6 @@ wgpu = { workspace = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { workspace = true, features = ["Win32_Media"] }
+
+[lints]
+workspace = true
