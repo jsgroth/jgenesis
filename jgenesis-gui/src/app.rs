@@ -31,6 +31,7 @@ use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fs;
 use std::num::NonZeroU32;
+use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -209,6 +210,33 @@ impl Default for SnesAppConfig {
     }
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct RecentOpens(Vec<String>);
+
+impl PartialEq for RecentOpens {
+    fn eq(&self, _other: &Self) -> bool {
+        // Intentionally always return true; this struct only exists to avoid recent open list
+        // changes causing config reloads
+        true
+    }
+}
+
+impl Eq for RecentOpens {}
+
+impl Deref for RecentOpens {
+    type Target = Vec<String>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for RecentOpens {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default)]
@@ -226,7 +254,7 @@ pub struct AppConfig {
     #[serde(default)]
     rom_search_dirs: Vec<String>,
     #[serde(default)]
-    recent_opens: Vec<String>,
+    recent_opens: RecentOpens,
 }
 
 impl AppConfig {
