@@ -198,7 +198,7 @@ struct Args {
     #[arg(long, default_value_t = FilterMode::Linear, help_heading = VIDEO_OPTIONS_HEADING)]
     filter_mode: FilterMode,
 
-    /// Preprocess shader (None / HorizontalBlurTwoPixels / HorizontalBlurThreePixels / AntiDitherWeak / AntiDitherStrong)
+    /// Preprocess shader (None / HorizontalBlurTwoPixels / HorizontalBlurThreePixels / HorizontalBlurSnesAdaptive / AntiDitherWeak / AntiDitherStrong)
     #[arg(long, default_value_t, help_heading = VIDEO_OPTIONS_HEADING)]
     preprocess_shader: PreprocessShader,
 

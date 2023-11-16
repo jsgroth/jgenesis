@@ -32,6 +32,19 @@ const VERTICES: [Vertex; 4] = [
     Vertex { position: [1.0, 1.0], texture_coords: [1.0, 0.0] },
 ];
 
+trait PreprocessShaderExt {
+    fn width_scale_factor(self, frame_width: u32) -> u32;
+}
+
+impl PreprocessShaderExt for PreprocessShader {
+    fn width_scale_factor(self, frame_width: u32) -> u32 {
+        match self {
+            Self::HorizontalBlurSnesAdaptive if frame_width == 256 => 2,
+            _ => 1,
+        }
+    }
+}
+
 enum PreprocessPipeline {
     None(wgpu::Texture),
     PreprocessShader {
@@ -53,6 +66,7 @@ impl PreprocessPipeline {
             PreprocessShader::None => Self::None(input_texture),
             PreprocessShader::HorizontalBlurTwoPixels
             | PreprocessShader::HorizontalBlurThreePixels
+            | PreprocessShader::HorizontalBlurSnesAdaptive
             | PreprocessShader::AntiDitherWeak
             | PreprocessShader::AntiDitherStrong => create_horizontal_blur_pipeline(
                 preprocess_shader,
@@ -115,9 +129,14 @@ fn create_horizontal_blur_pipeline(
 ) -> PreprocessPipeline {
     let input_texture_view = input_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+    let width_scale_factor = preprocess_shader.width_scale_factor(input_texture.width());
     let output_texture = device.create_texture(&wgpu::TextureDescriptor {
         label: "preprocess_output_texture".into(),
-        size: input_texture.size(),
+        size: wgpu::Extent3d {
+            width: input_texture.width() * width_scale_factor,
+            height: input_texture.height(),
+            depth_or_array_layers: 1,
+        },
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
@@ -186,6 +205,7 @@ fn create_horizontal_blur_pipeline(
     let fs_main = match preprocess_shader {
         PreprocessShader::HorizontalBlurTwoPixels => "hblur_2px",
         PreprocessShader::HorizontalBlurThreePixels => "hblur_3px",
+        PreprocessShader::HorizontalBlurSnesAdaptive => "hblur_snes",
         PreprocessShader::AntiDitherWeak => "anti_dither_weak",
         PreprocessShader::AntiDitherStrong => "anti_dither_strong",
         PreprocessShader::None => panic!("Not a horizontal blur shader: {preprocess_shader:?}"),
@@ -272,22 +292,6 @@ impl RenderingPipeline {
         });
 
         let prescale_factor = renderer_config.prescale_factor.get();
-        let scaled_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: "scaled_texture".into(),
-            size: wgpu::Extent3d {
-                width: prescale_factor * frame_size.width,
-                height: prescale_factor * frame_size.height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: texture_format,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
-        let scaled_texture_view =
-            scaled_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let filter_mode = renderer_config.filter_mode.to_wgpu_filter_mode();
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -382,6 +386,23 @@ impl RenderingPipeline {
                 bind_group_layouts: &[&prescale_bind_group_layout],
                 push_constant_ranges: &[],
             });
+
+        let scaled_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: "scaled_texture".into(),
+            size: wgpu::Extent3d {
+                width: prescale_factor * preprocess_output_texture.width(),
+                height: prescale_factor * preprocess_output_texture.height(),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: texture_format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let scaled_texture_view =
+            scaled_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let prescale_shader = device.create_shader_module(wgpu::include_wgsl!("prescale.wgsl"));
         let prescale_fs_main = match renderer_config.scanlines {

@@ -117,6 +117,7 @@ pub enum PreprocessShader {
     None,
     HorizontalBlurTwoPixels,
     HorizontalBlurThreePixels,
+    HorizontalBlurSnesAdaptive,
     AntiDitherWeak,
     AntiDitherStrong,
 }

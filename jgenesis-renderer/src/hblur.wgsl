@@ -34,7 +34,11 @@ fn hblur_2px(@builtin(position) position: vec4f) -> @location(0) vec4f {
 @fragment
 fn hblur_3px(@builtin(position) position: vec4f) -> @location(0) vec4f {
     let t_position = to_texture_position(position);
+    let color = compute_hblur_3px(t_position);
+    return vec4f(color, 1.0);
+}
 
+fn compute_hblur_3px(t_position: vec2u) -> vec3f {
     let center = textureLoad(texture_in, t_position, 0).rgb;
     let left = select(
         textureLoad(texture_in, t_position + vec2u(1u, 0u), 0).rgb,
@@ -47,8 +51,43 @@ fn hblur_3px(@builtin(position) position: vec4f) -> @location(0) vec4f {
         t_position.x != texture_width.value - 1u,
     );
 
-    let color = (2.0 * center + left + right) / 4.0;
+    return (2.0 * center + left + right) / 4.0;
+}
+
+@fragment
+fn hblur_snes(@builtin(position) position: vec4f) -> @location(0) vec4f {
+    let t_position = to_texture_position(position);
+
+    let color = select(
+        hblur_snes_256px(t_position),
+        compute_hblur_3px(t_position),
+        texture_width.value == 512u,
+    );
+
     return vec4f(color, 1.0);
+}
+
+fn hblur_snes_256px(out_t_position: vec2u) -> vec3f {
+    let in_t_position = out_t_position / vec2u(2u, 1u);
+
+    let center = textureLoad(texture_in, in_t_position, 0).rgb;
+
+    let left_x = select(
+        in_t_position.x,
+        in_t_position.x - 1u,
+        out_t_position.x % 2u == 0u && in_t_position.x != 0u,
+    );
+
+    let right_x = select(
+        in_t_position.x,
+        in_t_position.x + 1u,
+        out_t_position.x % 2u == 1u && in_t_position.x != texture_width.value - 1u,
+    );
+
+    let left = textureLoad(texture_in, vec2u(left_x, in_t_position.y), 0).rgb;
+    let right = textureLoad(texture_in, vec2u(right_x, in_t_position.y), 0).rgb;
+
+    return (2.0 * center + left + right) / 4.0;
 }
 
 // Returns a value in the range [0.0, 3.0]

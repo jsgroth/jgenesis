@@ -862,6 +862,12 @@ impl App {
                         PreprocessShader::HorizontalBlurThreePixels,
                         "Horizontal blur (3px)",
                     );
+                    ui.radio_value(
+                        &mut self.config.common.preprocess_shader,
+                        PreprocessShader::HorizontalBlurSnesAdaptive,
+                        "Horizontal blur (SNES adaptive)",
+                    )
+                        .on_hover_text("Always maintains the effect of blurring 3px horizontally at 512px horizontal resolution");
                 });
 
                 ui.horizontal(|ui| {
