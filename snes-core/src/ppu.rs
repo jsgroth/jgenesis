@@ -2315,8 +2315,8 @@ impl Ppu {
             // Hi-res mode enabled mid-frame; redraw previously rendered scanlines to 512x224 in-place
             if let Some(last_rendered_scanline) = self.state.last_rendered_scanline {
                 for scanline in (1..=last_rendered_scanline).rev() {
-                    let src_line_addr = 256 * (scanline - 1);
-                    let dest_line_addr = 512 * (scanline - 1);
+                    let src_line_addr = 256 * u32::from(scanline - 1);
+                    let dest_line_addr = 512 * u32::from(scanline - 1);
                     for pixel in (0..256).rev() {
                         let color = self.frame_buffer[(src_line_addr + pixel) as usize];
                         self.frame_buffer[(dest_line_addr + 2 * pixel) as usize] = color;
