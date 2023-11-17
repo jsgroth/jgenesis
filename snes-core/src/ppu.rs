@@ -1714,7 +1714,7 @@ impl Ppu {
 
         let sub_backdrop_color = self.registers.sub_backdrop_color;
         if color_math_enabled_global && color_math_enabled_layer {
-            let sub_x = if hi_res_mode == HiResMode::True { pixel } else { pixel / 2 };
+            let sub_x = if hi_res_mode == HiResMode::Pseudo { pixel / 2 } else { pixel };
             let (sub_screen_color, sub_transparent) = if self.registers.sub_bg_obj_enabled {
                 self.resolve_screen_color(scanline, sub_x, Screen::Sub, hi_res_mode)
                     .map_or((sub_backdrop_color, true), |(color, _, _)| (color, false))
