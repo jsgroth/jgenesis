@@ -595,7 +595,8 @@ pub(crate) fn lorom_map_address(address: u32, rom_len: u32, sram_len: u32) -> Ca
     let bank = address >> 16;
     let offset = address & 0xFFFF;
     match (bank, offset) {
-        (0x00..=0x6F | 0x80..=0xEF, _) | (0x70..=0x7D | 0xF0..=0xFF, 0x8000..=0xFFFF) => {
+        (0x00..=0x3F | 0x80..=0xBF | 0x70..=0x7D | 0xF0..=0xFF, 0x8000..=0xFFFF)
+        | (0x40..=0x6F | 0xC0..=0xEF, _) => {
             // ROM; typically at $8000-$FFFF and sometimes mirrored into $0000-$7FFF
             let rom_addr = lorom_map_rom_address(address, rom_len);
             CartridgeAddress::Rom(rom_addr)
