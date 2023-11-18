@@ -27,3 +27,7 @@ Data decompression chip with a compression algorithm tailored to SNES graphical 
 Both of these use a pre-programmed µPD96050 CPU (with different program and data ROMs), with the ST010 clocked at 10 MHz and the ST011 clocked at 15 MHz.
 
 Each of these was only used in 1 game: _F1 ROC II: Race of Champions_ (ST010) and _Hayazashi Nidan Morita Shogi_ (ST011).
+
+### Super FX
+
+Programmable custom-designed RISC-like CPU with hardware to automatically convert plotted bitmap graphics to the SNES bitplane graphics format. Used by 8 released games including _Star Fox_ and _Yoshi's Island_, as well as the (originally) unreleased _Star Fox 2_
