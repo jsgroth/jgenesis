@@ -1,0 +1,29 @@
+# snes-coprocessors
+
+Emulation of coprocessors used in SNES cartridges.
+
+## Supported
+
+### CX4
+
+Programmable Hitachi HG51B CPU clocked at 20 MHz. Used by 2 games, _Mega Man X2_ and _Mega Man X3_
+
+### DSP-1 / DSP-2 / DSP-3 / DSP-4
+
+All 4 of these use a pre-programmed NEC µPD77C25 CPU clocked at 8 MHz, but with different program and data ROMs.
+
+DSP-1 was used by 16 games, including _Super Mario Kart_ and _Pilotwings_. DSP-2, DSP-3, and DSP-4 were each only used in 1 game: _Dungeon Master_ (DSP-2), _SD Gundam GX_ (DSP-3), and _Top Gear 3000_ (DSP-4)
+
+### SA-1
+
+Programmable 65C816 CPU clocked at 10.74 MHz. Used by 35 games, including _Kirby Super Star_, _Kirby's Dream Land 3_, and _Super Mario RPG_
+
+### S-DD1
+
+Data decompression chip with a compression algorithm tailored to SNES graphical data. Used by 2 games, _Star Ocean_ and _Street Fighter Alpha 2_
+
+### ST010 / ST011
+
+Both of these use a pre-programmed µPD96050 CPU (with different program and data ROMs), with the ST010 clocked at 10 MHz and the ST011 clocked at 15 MHz.
+
+Each of these was only used in 1 game: _F1 ROC II: Race of Champions_ (ST010) and _Hayazashi Nidan Morita Shogi_ (ST011).
