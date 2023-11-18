@@ -1195,7 +1195,12 @@ impl AudioDsp {
         ((out_l as i16) ^ !0, (out_r as i16) ^ !0)
     }
 
-    pub fn set_soft_reset(&mut self) {
-        self.registers.soft_reset = true;
+    pub fn reset(&mut self) {
+        // Set soft reset flag, mute amplifier, and block echo buffer writes
+        self.registers.write_flg(0xE0);
+
+        for voice in &mut self.voices {
+            voice.soft_reset();
+        }
     }
 }
