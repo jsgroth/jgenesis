@@ -291,6 +291,7 @@ impl Apu {
     pub fn reset(&mut self) {
         self.registers.boot_rom_mapped = true;
         self.spc700.reset(&mut new_spc700_bus!(self));
+        self.dsp.set_soft_reset();
     }
 
     pub fn get_audio_60hz_hack(&self) -> bool {
