@@ -10,7 +10,7 @@ Cross-platform multi-console emulator that supports the Sega Genesis / Mega Driv
   * Sega Master System / Mark III
   * Game Gear
   * Super Nintendo Entertainment System (SNES) / Super Famicom
-    * Some coprocessors are not currently implemented (Super FX, SA-1, etc.), and any games that used them will not currently work
+    * A few obscure coprocessors are not currently implemented (SPC7110, OBJ-1, S-RTC, ST018)
 * GPU-based renderer with integer prescaling and optional linear interpolation
 * Configurable pixel aspect ratio for each console with several different options: accurate to original hardware/TVs, square pixels, and stretched to fill the window
 * Support for the Sega Master System FM sound unit expansion
@@ -23,7 +23,6 @@ Cross-platform multi-console emulator that supports the Sega Genesis / Mega Driv
 
 TODOs:
 * Support multiple Sega CD BIOS versions in GUI and automatically use the correct one based on disc region
-* Implement SNES coprocessors, at least the ones that were used in popular games (e.g. Super FX)
 * Support CHD files for Sega CD in addition to BIN/CUE
 * Investigate and fix a few minor issues, like the EA logo flickering for a single frame in _Galahad_
 * Support 24C64 EEPROM chips (used only in _Frank Thomas Big Hurt Baseball_ and _College Slam_)
