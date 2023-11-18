@@ -1,3 +1,5 @@
+//! SNES cartridge loading and mapping code
+
 use crate::api::{CoprocessorRoms, LoadError, LoadResult};
 use crate::coprocessors::cx4::Cx4;
 use crate::coprocessors::sa1::Sa1;

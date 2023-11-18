@@ -1,3 +1,5 @@
+//! SA-1 coprocessor, a second 65C816 CPU clocked at 10.74 MHz
+
 mod bus;
 mod mmc;
 mod registers;

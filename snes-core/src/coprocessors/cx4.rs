@@ -1,3 +1,5 @@
+//! CX4 coprocessor, a programmable Hitachi HG51B169 CPU clocked at 20 MHz
+
 mod functions;
 
 use crate::memory::cartridge;

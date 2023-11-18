@@ -1,3 +1,5 @@
+//! S-DD1 coprocessor, a data decompression chip with an algorithm designed for SNES tile data
+
 mod decompressor;
 
 use crate::coprocessors::sdd1::decompressor::Sdd1Decompressor;

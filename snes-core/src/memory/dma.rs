@@ -1,3 +1,5 @@
+//! SNES general-purpose DMA and HBlank DMA code
+
 use crate::bus::Bus;
 use crate::memory::{DmaDirection, DmaIncrementMode, HdmaAddressingMode};
 use bincode::{Decode, Encode};

@@ -1,3 +1,7 @@
+//! SNES APU (audio processing unit)
+//!
+//! The APU consists of two primary components: an SPC700 CPU and a DSP that can play back ADPCM samples
+
 mod bootrom;
 mod dsp;
 mod timer;

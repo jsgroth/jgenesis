@@ -1,3 +1,5 @@
+//! SNES S-DSP, responsible for audio playback
+
 use crate::apu::AudioRam;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;

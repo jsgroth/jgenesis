@@ -1,3 +1,5 @@
+//! SNES audio resampling code
+
 use bincode::{Decode, Encode};
 use jgenesis_common::audio::SignalResampler;
 use jgenesis_common::frontend::AudioOutput;

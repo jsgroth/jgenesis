@@ -1,3 +1,5 @@
+//! SNES public interface and main loop
+
 use crate::apu::{Apu, ApuTickEffect};
 use crate::audio::AudioResampler;
 use crate::bus::Bus;

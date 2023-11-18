@@ -1,3 +1,5 @@
+//! SNES PPU (picture processing unit)
+
 mod colortable;
 mod debug;
 

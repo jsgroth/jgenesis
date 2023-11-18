@@ -1,3 +1,5 @@
+//! SNES internal memory and on-chip CPU internal registers/ports
+
 pub(crate) mod cartridge;
 pub(crate) mod dma;
 

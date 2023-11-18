@@ -1,1 +1,1 @@
-doc-valid-idents = ["KHz", "µPD77C25", "µPD96050", ".."]
+doc-valid-idents = ["KHz", "MHz", "µPD77C25", "µPD96050", "HBlank", ".."]

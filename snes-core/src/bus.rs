@@ -1,3 +1,5 @@
+//! SNES memory mapping and bus interface code
+
 use crate::apu::Apu;
 use crate::memory::{CpuInternalRegisters, Memory, Memory2Speed};
 use crate::ppu::Ppu;
