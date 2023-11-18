@@ -1,28 +1,18 @@
 [package]
-name = "snes-core"
+name = "snes-coprocessors"
 version = "0.5.2"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[features]
-default = []
-serde = ["dep:serde"]
-
 [dependencies]
-jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
 jgenesis-common = { path = "../jgenesis-common" }
-snes-coprocessors = { path = "../snes-coprocessors" }
-spc700-emu = { path = "../spc700-emu" }
+jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
 wdc65816-emu = { path = "../wdc65816-emu" }
 
 bincode = { workspace = true }
 bytemuck = { workspace = true }
-crc = { workspace = true }
 log = { workspace = true }
-rand = { workspace = true }
-serde = { workspace = true, optional = true }
-thiserror = { workspace = true }
 
 [lints]
 workspace = true

@@ -5,11 +5,11 @@ mod mmc;
 mod registers;
 mod timer;
 
-use crate::coprocessors::sa1::bus::Sa1Bus;
-use crate::coprocessors::sa1::mmc::Sa1Mmc;
-use crate::coprocessors::sa1::registers::Sa1Registers;
-use crate::coprocessors::sa1::timer::Sa1Timer;
-use crate::memory::cartridge::Rom;
+use crate::common::Rom;
+use crate::sa1::bus::Sa1Bus;
+use crate::sa1::mmc::Sa1Mmc;
+use crate::sa1::registers::Sa1Registers;
+use crate::sa1::timer::Sa1Timer;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::PartialClone;
@@ -46,9 +46,11 @@ pub struct Sa1 {
 }
 
 impl Sa1 {
-    pub fn new(rom: Rom, sram: Box<[u8]>, timing_mode: TimingMode) -> Self {
+    #[allow(clippy::missing_panics_doc)]
+    #[must_use]
+    pub fn new(rom: Box<[u8]>, sram: Box<[u8]>, timing_mode: TimingMode) -> Self {
         Self {
-            rom,
+            rom: Rom(rom),
             iram: vec![0; IRAM_LEN].into_boxed_slice().try_into().unwrap(),
             bwram: sram,
             cpu: Wdc65816::new(),
@@ -58,6 +60,7 @@ impl Sa1 {
         }
     }
 
+    #[must_use]
     pub fn take_rom(&mut self) -> Vec<u8> {
         mem::take(&mut self.rom.0).into_vec()
     }
@@ -66,10 +69,16 @@ impl Sa1 {
         self.rom.0 = rom.into_boxed_slice();
     }
 
+    #[inline]
+    #[must_use]
     pub fn sram(&self) -> Option<&[u8]> {
         (!self.bwram.is_empty()).then_some(self.bwram.as_ref())
     }
 
+    #[inline]
+    /// # Panics
+    ///
+    /// This method will panic if `master_cycles_elapsed` is not a multiple of 2.
     pub fn tick(&mut self, master_cycles_elapsed: u64) {
         assert_eq!(master_cycles_elapsed % 2, 0);
 
@@ -84,6 +93,8 @@ impl Sa1 {
         }
     }
 
+    #[inline]
+    #[must_use]
     pub fn snes_irq(&self) -> bool {
         (self.registers.snes_irq_from_sa1_enabled && self.registers.snes_irq_from_sa1)
             || (self.registers.snes_irq_from_dma_enabled && self.registers.character_conversion_irq)
@@ -93,10 +104,12 @@ impl Sa1 {
         self.registers.reset(&mut self.timer, &mut self.mmc);
     }
 
+    #[inline]
     pub fn notify_dma_start(&mut self, source_address: u32) {
         self.registers.notify_snes_dma_start(source_address);
     }
 
+    #[inline]
     pub fn notify_dma_end(&mut self) {
         self.registers.notify_snes_dma_end();
     }

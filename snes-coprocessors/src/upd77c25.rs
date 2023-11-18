@@ -8,7 +8,7 @@
 
 mod instructions;
 
-use crate::constants;
+use crate::common;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::GetBit;
@@ -255,6 +255,7 @@ pub struct Upd77c25 {
 }
 
 impl Upd77c25 {
+    #[must_use]
     pub fn new(rom: &[u8], variant: Upd77c25Variant, sram: &[u8], timing_mode: TimingMode) -> Self {
         let (program_rom, data_rom) = convert_rom(rom, variant);
 
@@ -266,8 +267,8 @@ impl Upd77c25 {
         };
 
         let snes_mclk_speed = match timing_mode {
-            TimingMode::Ntsc => constants::NTSC_MASTER_CLOCK_FREQUENCY,
-            TimingMode::Pal => constants::PAL_MASTER_CLOCK_FREQUENCY,
+            TimingMode::Ntsc => common::NTSC_MASTER_CLOCK_FREQUENCY,
+            TimingMode::Pal => common::PAL_MASTER_CLOCK_FREQUENCY,
         };
 
         Self {
@@ -308,15 +309,20 @@ impl Upd77c25 {
         }
     }
 
+    #[inline]
+    #[must_use]
     pub fn read_status(&self) -> u8 {
         self.registers.sr.into()
     }
 
+    #[inline]
+    #[must_use]
     pub fn read_ram(&self, address: u32) -> u8 {
         let word = self.ram[((address >> 1) & 0x7FF) as usize];
         if !address.bit(0) { word as u8 } else { (word >> 8) as u8 }
     }
 
+    #[inline]
     pub fn write_ram(&mut self, address: u32, value: u8) {
         let word_addr = ((address >> 1) & 0x7FF) as usize;
         let word = self.ram[word_addr];
@@ -327,10 +333,13 @@ impl Upd77c25 {
         };
     }
 
+    #[inline]
+    #[must_use]
     pub fn sram(&self) -> &[u8] {
         bytemuck::cast_slice(self.ram.as_ref())
     }
 
+    #[inline]
     pub fn tick(&mut self, master_cycles_elapsed: u64) {
         if self.idling {
             return;

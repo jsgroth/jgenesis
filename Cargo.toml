@@ -12,6 +12,7 @@ members = [
     "m68000-test-runner",
     "segacd-core",
     "smsgg-core",
+    "snes-coprocessors",
     "snes-core",
     "spc700-emu",
     "spc700-test-runner",

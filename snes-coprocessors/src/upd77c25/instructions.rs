@@ -1,4 +1,4 @@
-use crate::coprocessors::upd77c25::{FlagsRegister, Upd77c25, Upd77c25Variant};
+use crate::upd77c25::{FlagsRegister, Upd77c25, Upd77c25Variant};
 use jgenesis_common::num::{GetBit, SignBit};
 
 pub fn execute(cpu: &mut Upd77c25) {

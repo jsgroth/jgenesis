@@ -4,7 +4,7 @@
 //! The algorithm is also described in English here:
 //! <https://wiki.superfamicom.org/s-dd1>
 
-use crate::coprocessors::sdd1::Sdd1Mmc;
+use crate::sdd1::Sdd1Mmc;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 
@@ -67,7 +67,7 @@ impl Sdd1Decompressor {
         Self::default()
     }
 
-    pub(super) fn init(&mut self, source_address: u32, mmc: &Sdd1Mmc, rom: &[u8]) {
+    pub fn init(&mut self, source_address: u32, mmc: &Sdd1Mmc, rom: &[u8]) {
         self.input = read_byte(source_address, mmc, rom).into();
         self.source_addr = source_address + 1;
 
@@ -114,7 +114,7 @@ impl Sdd1Decompressor {
         self.y_location = 0;
     }
 
-    pub(super) fn next_byte(&mut self, mmc: &Sdd1Mmc, rom: &[u8]) -> u8 {
+    pub fn next_byte(&mut self, mmc: &Sdd1Mmc, rom: &[u8]) -> u8 {
         if self.num_planes == 0 {
             // For miscellaneous data, simply output the next 8 bits
             let mut byte = 0;

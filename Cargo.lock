@@ -2993,6 +2993,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "snes-coprocessors"
+version = "0.5.2"
+dependencies = [
+ "bincode",
+ "bytemuck",
+ "jgenesis-common",
+ "jgenesis-proc-macros",
+ "log",
+ "wdc65816-emu",
+]
+
+[[package]]
 name = "snes-core"
 version = "0.5.2"
 dependencies = [
@@ -3004,6 +3016,7 @@ dependencies = [
  "log",
  "rand",
  "serde",
+ "snes-coprocessors",
  "spc700-emu",
  "thiserror",
  "wdc65816-emu",

@@ -1,3 +1,4 @@
+mod common;
 pub mod cx4;
 pub mod sa1;
 pub mod sdd1;

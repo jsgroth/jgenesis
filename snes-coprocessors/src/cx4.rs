@@ -2,8 +2,8 @@
 
 mod functions;
 
-use crate::memory::cartridge;
-use crate::memory::cartridge::{CartridgeAddress, Rom};
+use crate::common;
+use crate::common::Rom;
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::PartialClone;
 use std::{cmp, mem};
@@ -236,7 +236,7 @@ impl Cx4Registers {
         let dma_len = cmp::min(0x0C00 - dest_addr, self.dma_length.into());
 
         for _ in 0..dma_len {
-            let rom_addr = cartridge::lorom_map_rom_address(src_addr, rom.len() as u32);
+            let rom_addr = common::lorom_map_rom_address(src_addr, rom.len() as u32);
             ram[dest_addr as usize] = rom[rom_addr as usize];
 
             src_addr = (src_addr + 1) & 0xFFFFFF;
@@ -264,11 +264,19 @@ pub struct Cx4 {
 }
 
 impl Cx4 {
-    pub fn new(rom: Rom) -> Self {
+    #[allow(clippy::missing_panics_doc)]
+    #[must_use]
+    pub fn new(rom: Box<[u8]>) -> Self {
         let registers = Cx4Registers::new(&rom);
-        Self { rom, ram: vec![0; RAM_LEN].into_boxed_slice().try_into().unwrap(), registers }
+        Self {
+            rom: Rom(rom),
+            ram: vec![0; RAM_LEN].into_boxed_slice().try_into().unwrap(),
+            registers,
+        }
     }
 
+    #[inline]
+    #[must_use]
     pub fn read(&self, address: u32) -> Option<u8> {
         let bank = (address >> 16) as u8;
         let offset = address as u16;
@@ -288,13 +296,12 @@ impl Cx4 {
             // SRAM range, which is unmapped in all CX4 games and always reads $00
             (0x70..=0x77, _) => Some(0x00),
             // Treat other addresses as LoROM
-            _ => match cartridge::lorom_map_address(address, self.rom.len() as u32, 0) {
-                CartridgeAddress::Rom(rom_addr) => Some(self.rom[rom_addr as usize]),
-                CartridgeAddress::None | CartridgeAddress::Sram(..) => None,
-            },
+            _ => map_rom_address(address, self.rom.len() as u32)
+                .map(|rom_addr| self.rom[rom_addr as usize]),
         }
     }
 
+    #[inline]
     pub fn write(&mut self, address: u32, value: u8) {
         let bank = (address >> 16) as u8;
         let offset = address as u16;
@@ -319,5 +326,16 @@ impl Cx4 {
 
     pub fn set_rom(&mut self, rom: Vec<u8>) {
         self.rom.0 = rom.into_boxed_slice();
+    }
+}
+
+fn map_rom_address(address: u32, rom_len: u32) -> Option<u32> {
+    let bank = (address >> 16) & 0xFF;
+    let offset = address & 0xFFFF;
+    match (bank, offset) {
+        (0x00..=0x3F | 0x80..=0xBF, 0x8000..=0xFFFF) | (0x40..=0x7D | 0xC0..=0xFF, _) => {
+            Some(common::lorom_map_rom_address(address, rom_len))
+        }
+        _ => None,
     }
 }

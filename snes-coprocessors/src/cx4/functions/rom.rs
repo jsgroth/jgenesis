@@ -6,7 +6,7 @@ const PI: f64 = std::f64::consts::PI;
 
 type Cx4Rom = [u32; 1024];
 
-pub(super) fn read(address: u32) -> u32 {
+pub fn read(address: u32) -> u32 {
     static ROM: OnceLock<Box<Cx4Rom>> = OnceLock::new();
 
     let rom = ROM.get_or_init(|| {

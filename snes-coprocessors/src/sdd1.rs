@@ -2,9 +2,9 @@
 
 mod decompressor;
 
-use crate::coprocessors::sdd1::decompressor::Sdd1Decompressor;
-use crate::memory::cartridge;
-use crate::memory::cartridge::Rom;
+use crate::common;
+use crate::common::Rom;
+use crate::sdd1::decompressor::Sdd1Decompressor;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::PartialClone;
@@ -35,7 +35,7 @@ impl Sdd1Mmc {
             (0x00..=0x3F | 0x80..=0xBF, 0x8000..=0xFFFF) => {
                 // Banks $00-$3F and $80-$BF are mapped as if the cartridge were LoROM, except
                 // with $80-$BF explicitly mirroring $00-$3F
-                Some(cartridge::lorom_map_rom_address(address & 0x7FFFFF, rom_len))
+                Some(common::lorom_map_rom_address(address & 0x7FFFFF, rom_len))
             }
             (0xC0..=0xCF, _) => {
                 // MMC bank C
@@ -71,9 +71,10 @@ pub struct Sdd1 {
 }
 
 impl Sdd1 {
-    pub fn new(rom: Rom, sram: Box<[u8]>) -> Self {
+    #[must_use]
+    pub fn new(rom: Box<[u8]>, sram: Box<[u8]>) -> Self {
         Self {
-            rom,
+            rom: Rom(rom),
             sram,
             mmc: Sdd1Mmc::new(),
             decompressor: Sdd1Decompressor::new(),
@@ -83,6 +84,8 @@ impl Sdd1 {
         }
     }
 
+    #[inline]
+    #[must_use]
     pub fn read(&mut self, address: u32) -> Option<u8> {
         if self.dma_in_progress {
             // TODO check address?
@@ -129,6 +132,7 @@ impl Sdd1 {
         }
     }
 
+    #[inline]
     pub fn write(&mut self, address: u32, value: u8) {
         let bank = (address >> 16) & 0xFF;
         let offset = address & 0xFFFF;
@@ -183,6 +187,7 @@ impl Sdd1 {
         }
     }
 
+    #[must_use]
     pub fn take_rom(&mut self) -> Vec<u8> {
         mem::take(&mut self.rom.0).into_vec()
     }
@@ -191,10 +196,13 @@ impl Sdd1 {
         self.rom.0 = rom.into_boxed_slice();
     }
 
+    #[inline]
+    #[must_use]
     pub fn sram(&self) -> Option<&[u8]> {
         (!self.sram.is_empty()).then_some(self.sram.as_ref())
     }
 
+    #[inline]
     pub fn notify_dma_start(&mut self, channel: u8, source_address: u32) {
         if !self.dma_enabled_1[channel as usize]
             || !self.dma_enabled_2[channel as usize]
@@ -211,6 +219,7 @@ impl Sdd1 {
         self.decompressor.init(source_address, &self.mmc, &self.rom);
     }
 
+    #[inline]
     pub fn notify_dma_end(&mut self) {
         self.dma_in_progress = false;
     }

@@ -1,7 +1,7 @@
-use crate::coprocessors::sa1::mmc::{BwramBitmapBits, BwramMapSource, Sa1Mmc};
-use crate::coprocessors::sa1::registers::{InterruptVectorSource, Sa1Registers};
-use crate::coprocessors::sa1::timer::Sa1Timer;
-use crate::coprocessors::sa1::{Iram, Sa1};
+use crate::sa1::mmc::{BwramBitmapBits, BwramMapSource, Sa1Mmc};
+use crate::sa1::registers::{InterruptVectorSource, Sa1Registers};
+use crate::sa1::timer::Sa1Timer;
+use crate::sa1::{Iram, Sa1};
 use wdc65816_emu::traits::BusInterface;
 
 impl Sa1 {
@@ -99,13 +99,13 @@ impl Sa1 {
     }
 }
 
-pub(super) struct Sa1Bus<'a> {
-    pub(super) rom: &'a [u8],
-    pub(super) iram: &'a mut Iram,
-    pub(super) bwram: &'a mut [u8],
-    pub(super) mmc: &'a mut Sa1Mmc,
-    pub(super) registers: &'a mut Sa1Registers,
-    pub(super) timer: &'a mut Sa1Timer,
+pub struct Sa1Bus<'a> {
+    pub rom: &'a [u8],
+    pub iram: &'a mut Iram,
+    pub bwram: &'a mut [u8],
+    pub mmc: &'a mut Sa1Mmc,
+    pub registers: &'a mut Sa1Registers,
+    pub timer: &'a mut Sa1Timer,
 }
 
 impl<'a> BusInterface for Sa1Bus<'a> {

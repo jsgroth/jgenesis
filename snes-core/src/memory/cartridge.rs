@@ -1,15 +1,15 @@
 //! SNES cartridge loading and mapping code
 
 use crate::api::{CoprocessorRoms, LoadError, LoadResult};
-use crate::coprocessors::cx4::Cx4;
-use crate::coprocessors::sa1::Sa1;
-use crate::coprocessors::sdd1::Sdd1;
-use crate::coprocessors::upd77c25;
-use crate::coprocessors::upd77c25::{Upd77c25, Upd77c25Variant};
 use bincode::{Decode, Encode};
 use crc::Crc;
 use jgenesis_common::frontend::{PartialClone, TimingMode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
+use snes_coprocessors::cx4::Cx4;
+use snes_coprocessors::sa1::Sa1;
+use snes_coprocessors::sdd1::Sdd1;
+use snes_coprocessors::upd77c25;
+use snes_coprocessors::upd77c25::{Upd77c25, Upd77c25Variant};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::mem;
@@ -239,9 +239,9 @@ impl Cartridge {
             CartridgeType::LoRom => Self::LoRom { rom: Rom(rom), sram, upd77c25 },
             CartridgeType::HiRom => Self::HiRom { rom: Rom(rom), sram, upd77c25 },
             CartridgeType::ExHiRom => Self::ExHiRom { rom: Rom(rom), sram },
-            CartridgeType::Cx4 => Self::Cx4(Cx4::new(Rom(rom))),
-            CartridgeType::Sdd1 => Self::Sdd1(Sdd1::new(Rom(rom), sram)),
-            CartridgeType::Sa1 => Self::Sa1(Sa1::new(Rom(rom), sram, timing_mode)),
+            CartridgeType::Cx4 => Self::Cx4(Cx4::new(rom)),
+            CartridgeType::Sdd1 => Self::Sdd1(Sdd1::new(rom, sram)),
+            CartridgeType::Sa1 => Self::Sa1(Sa1::new(rom, sram, timing_mode)),
         })
     }
 

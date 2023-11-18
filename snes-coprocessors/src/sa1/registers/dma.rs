@@ -1,8 +1,8 @@
-use crate::coprocessors::sa1::mmc::Sa1Mmc;
-use crate::coprocessors::sa1::registers::{
+use crate::sa1::mmc::Sa1Mmc;
+use crate::sa1::registers::{
     CharacterConversionColorBits, DmaDestinationDevice, DmaSourceDevice, DmaState, Sa1Registers,
 };
-use crate::coprocessors::sa1::Iram;
+use crate::sa1::Iram;
 use jgenesis_common::num::GetBit;
 
 impl Sa1Registers {
@@ -39,7 +39,7 @@ impl Sa1Registers {
         next_byte
     }
 
-    pub(super) fn progress_normal_dma(
+    pub fn progress_normal_dma(
         &mut self,
         mmc: &Sa1Mmc,
         rom: &[u8],
@@ -91,7 +91,7 @@ impl Sa1Registers {
         }
     }
 
-    pub(super) fn character_conversion_2(
+    pub fn character_conversion_2(
         &mut self,
         base_idx: usize,
         buffer_idx: u8,
@@ -127,7 +127,7 @@ impl Sa1Registers {
         self.dma_state = DmaState::CharacterConversion2 { buffer_idx, rows_copied }
     }
 
-    pub(super) fn start_ccdma_type_1(&mut self, iram: &mut Iram, bwram: &[u8]) {
+    pub fn start_ccdma_type_1(&mut self, iram: &mut Iram, bwram: &[u8]) {
         let source_addr =
             self.dma_source_address & (bwram.len() as u32 - 1) & self.ccdma_source_addr_mask();
         let dest_addr = self.dma_destination_address & self.ccdma_dest_addr_mask();

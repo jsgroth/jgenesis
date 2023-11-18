@@ -1,7 +1,7 @@
 mod rom;
 
-use crate::coprocessors::cx4::{Cx4Ram, Cx4Registers};
-use crate::memory::cartridge;
+use crate::common;
+use crate::cx4::{Cx4Ram, Cx4Registers};
 use jgenesis_common::num::GetBit;
 
 #[derive(Debug, Clone, Default)]
@@ -42,7 +42,7 @@ impl RiscRegisters {
 }
 
 #[allow(clippy::match_same_arms)]
-pub(super) fn execute(cx4_registers: &mut Cx4Registers, rom: &[u8], ram: &mut Cx4Ram) {
+pub fn execute(cx4_registers: &mut Cx4Registers, rom: &[u8], ram: &mut Cx4Ram) {
     let mut risc_registers = RiscRegisters::default();
 
     log::trace!(
@@ -53,7 +53,7 @@ pub(super) fn execute(cx4_registers: &mut Cx4Registers, rom: &[u8], ram: &mut Cx
 
     loop {
         let opcode_addr = cx4_registers.risc_pc();
-        let rom_addr = cartridge::lorom_map_rom_address(opcode_addr, rom.len() as u32);
+        let rom_addr = common::lorom_map_rom_address(opcode_addr, rom.len() as u32);
         let opcode = u16::from_le_bytes([rom[rom_addr as usize], rom[(rom_addr + 1) as usize]]);
         cx4_registers.increment_instruction_pointer();
 
@@ -163,8 +163,7 @@ fn mov_mbr_op(
     let value = if opcode & 0xFF == 0x2E {
         // $612E seems to be the only opcode that reads "register" $2E, which reads a byte from
         // cartridge ROM using the current pointer
-        let rom_addr =
-            cartridge::lorom_map_rom_address(risc_registers.ext_pointer, rom.len() as u32);
+        let rom_addr = common::lorom_map_rom_address(risc_registers.ext_pointer, rom.len() as u32);
         rom[rom_addr as usize]
     } else {
         read_register(cx4_registers, risc_registers, opcode) as u8
