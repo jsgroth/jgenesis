@@ -14,6 +14,7 @@ use snes_coprocessors::{superfx, upd77c25};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::mem;
+use std::num::NonZeroU64;
 use std::ops::Deref;
 
 #[derive(Debug, Clone, FakeEncode, FakeDecode)]
@@ -146,6 +147,7 @@ impl Cartridge {
         initial_sram: Option<Vec<u8>>,
         coprocessor_roms: &CoprocessorRoms,
         forced_timing_mode: Option<TimingMode>,
+        gsu_overclock_factor: NonZeroU64,
     ) -> LoadResult<Self> {
         let cartridge_type = guess_cartridge_type(&rom).unwrap_or_else(|| {
             log::error!("Unable to confidently determine ROM type; defaulting to LoROM");
@@ -249,7 +251,7 @@ impl Cartridge {
             CartridgeType::Cx4 => Self::Cx4(Cx4::new(rom)),
             CartridgeType::Sa1 => Self::Sa1(Sa1::new(rom, sram, timing_mode)),
             CartridgeType::Sdd1 => Self::Sdd1(Sdd1::new(rom, sram)),
-            CartridgeType::SuperFx => Self::SuperFx(SuperFx::new(rom, sram)),
+            CartridgeType::SuperFx => Self::SuperFx(SuperFx::new(rom, sram, gsu_overclock_factor)),
         })
     }
 
@@ -476,6 +478,12 @@ impl Cartridge {
             Self::Sa1(sa1) => sa1.notify_dma_end(),
             Self::Sdd1(sdd1) => sdd1.notify_dma_end(),
             _ => {}
+        }
+    }
+
+    pub fn update_gsu_overclock_factor(&mut self, overclock_factor: NonZeroU64) {
+        if let Self::SuperFx(sfx) = self {
+            sfx.update_gsu_overclock_factor(overclock_factor);
         }
     }
 }

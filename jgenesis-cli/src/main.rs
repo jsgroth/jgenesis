@@ -19,6 +19,7 @@ use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsRegion, VdpVersion};
 use snes_core::api::SnesAspectRatio;
 use std::ffi::OsStr;
+use std::num::NonZeroU64;
 use std::path::Path;
 use std::process;
 
@@ -137,6 +138,10 @@ struct Args {
     /// Disable hack that times SNES audio signal to 60Hz instead of ~60.098Hz
     #[arg(long = "no-snes-audio-60hz-hack", default_value_t = true, action = clap::ArgAction::SetFalse, help_heading = SNES_OPTIONS_HEADING)]
     snes_audio_60hz_hack: bool,
+
+    /// Speed multiplier for the Super FX GSU
+    #[arg(long, default_value_t = NonZeroU64::new(1).unwrap(), help_heading = SNES_OPTIONS_HEADING)]
+    gsu_overclock_factor: NonZeroU64,
 
     /// Specify SNES DSP-1 ROM path (required for DSP-1 games)
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
@@ -579,6 +584,7 @@ fn run_snes(args: Args) -> anyhow::Result<()> {
         forced_timing_mode: args.snes_timing_mode,
         aspect_ratio: args.snes_aspect_ratio,
         audio_60hz_hack: args.snes_audio_60hz_hack,
+        gsu_overclock_factor: args.gsu_overclock_factor,
         dsp1_rom_path: args.dsp1_rom_path,
         dsp2_rom_path: args.dsp2_rom_path,
         dsp3_rom_path: args.dsp3_rom_path,

@@ -16,6 +16,7 @@ use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgEmulatorConfig, SmsRegion, VdpVersion};
 use snes_core::api::{CoprocessorRomFn, CoprocessorRoms, SnesAspectRatio, SnesEmulatorConfig};
 use std::fs;
+use std::num::NonZeroU64;
 
 pub(crate) const DEFAULT_GENESIS_WINDOW_SIZE: WindowSize = WindowSize { width: 878, height: 672 };
 
@@ -224,6 +225,7 @@ pub struct SnesConfig {
     pub forced_timing_mode: Option<TimingMode>,
     pub aspect_ratio: SnesAspectRatio,
     pub audio_60hz_hack: bool,
+    pub gsu_overclock_factor: NonZeroU64,
     pub dsp1_rom_path: Option<String>,
     pub dsp2_rom_path: Option<String>,
     pub dsp3_rom_path: Option<String>,
@@ -238,6 +240,7 @@ impl SnesConfig {
             forced_timing_mode: self.forced_timing_mode,
             aspect_ratio: self.aspect_ratio,
             audio_60hz_hack: self.audio_60hz_hack,
+            gsu_overclock_factor: self.gsu_overclock_factor,
         }
     }
 

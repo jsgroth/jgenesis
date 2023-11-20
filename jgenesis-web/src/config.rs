@@ -10,6 +10,7 @@ use smsgg_core::{SmsGgEmulatorConfig, SmsRegion, VdpVersion};
 use snes_core::api::{SnesAspectRatio, SnesEmulatorConfig};
 use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::num::NonZeroU64;
 use std::ops::Deref;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
@@ -172,6 +173,7 @@ impl SnesWebConfig {
             forced_timing_mode: None,
             aspect_ratio: self.aspect_ratio,
             audio_60hz_hack: true,
+            gsu_overclock_factor: NonZeroU64::new(1).unwrap(),
         }
     }
 }
