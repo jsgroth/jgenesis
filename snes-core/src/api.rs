@@ -336,12 +336,9 @@ impl Resettable for SnesEmulator {
     fn soft_reset(&mut self) {
         log::info!("Soft resetting");
 
-        // Reset memory before CPU because some coprocessors (Super FX) block access to interrupt
-        // vectors while the coprocessor is running
+        // Reset memory before CPU because some coprocessors (Super FX) block access to the
+        // RESET interrupt vector while the coprocessor is running
         self.memory.reset();
-        self.memory.write_wram_port_address_low(0);
-        self.memory.write_wram_port_address_mid(0);
-        self.memory.write_wram_port_address_high(0);
 
         self.main_cpu.reset(&mut new_bus!(self));
         self.cpu_registers.reset();
