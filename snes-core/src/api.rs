@@ -143,12 +143,12 @@ pub struct SnesEmulator {
     memory_refresh_pending: bool,
     timing_mode: TimingMode,
     aspect_ratio: SnesAspectRatio,
-    gsu_overclock_factor: NonZeroU64,
     frame_count: u64,
     last_sram_checksum: u32,
-    // Stored here to enable hard reset
+    // Following fields only stored here to enable hard reset
     #[partial_clone(default)]
     coprocessor_roms: CoprocessorRoms,
+    emulator_config: SnesEmulatorConfig,
 }
 
 impl SnesEmulator {
@@ -193,10 +193,10 @@ impl SnesEmulator {
             memory_refresh_pending: false,
             timing_mode,
             aspect_ratio: config.aspect_ratio,
-            gsu_overclock_factor: config.gsu_overclock_factor,
             frame_count: 0,
             last_sram_checksum: sram_checksum,
             coprocessor_roms,
+            emulator_config: config,
         };
 
         // Reset CPU so that execution starts from the right place
@@ -320,6 +320,8 @@ impl ConfigReload for SnesEmulator {
         self.aspect_ratio = config.aspect_ratio;
         self.apu.set_audio_60hz_hack(config.audio_60hz_hack);
         self.memory.update_gsu_overclock_factor(config.gsu_overclock_factor);
+
+        self.emulator_config = *config;
     }
 }
 
@@ -354,18 +356,8 @@ impl Resettable for SnesEmulator {
         let sram = self.memory.sram().map(Vec::from);
 
         let coprocessor_roms = mem::take(&mut self.coprocessor_roms);
-        *self = Self::create(
-            rom,
-            sram,
-            SnesEmulatorConfig {
-                forced_timing_mode: None,
-                aspect_ratio: self.aspect_ratio,
-                audio_60hz_hack: self.apu.get_audio_60hz_hack(),
-                gsu_overclock_factor: self.gsu_overclock_factor,
-            },
-            coprocessor_roms,
-        )
-        .expect("Hard resetting should never fail to load");
+        *self = Self::create(rom, sram, self.emulator_config, coprocessor_roms)
+            .expect("Hard resetting should never fail to load");
     }
 }
 

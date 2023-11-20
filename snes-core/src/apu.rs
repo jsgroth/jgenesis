@@ -298,10 +298,6 @@ impl Apu {
         self.dsp.reset();
     }
 
-    pub fn get_audio_60hz_hack(&self) -> bool {
-        self.enable_audio_60hz_hack
-    }
-
     pub fn set_audio_60hz_hack(&mut self, audio_60hz_hack: bool) {
         self.enable_audio_60hz_hack = audio_60hz_hack;
     }
