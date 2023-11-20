@@ -1180,13 +1180,11 @@ impl Registers {
     }
 
     pub fn is_inside_window_1(&self, pixel: u16) -> bool {
-        self.window_1_left <= self.window_1_right
-            && (self.window_1_left..=self.window_1_right).contains(&pixel)
+        (self.window_1_left..self.window_1_right + 1).contains(&pixel)
     }
 
     pub fn is_inside_window_2(&self, pixel: u16) -> bool {
-        self.window_2_left <= self.window_2_right
-            && (self.window_2_left..=self.window_2_right).contains(&pixel)
+        (self.window_2_left..self.window_2_right + 1).contains(&pixel)
     }
 
     pub fn bg_in_window(&self, bg: usize, in_window_1: bool, in_window_2: bool) -> bool {
