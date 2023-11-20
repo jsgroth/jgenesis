@@ -16,6 +16,7 @@ use jgenesis_common::frontend::{
 };
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
 use std::fmt::{Debug, Display};
+use std::num::NonZeroU64;
 use std::{io, iter, mem};
 use thiserror::Error;
 use wdc65816_emu::core::Wdc65816;
@@ -60,6 +61,7 @@ pub struct SnesEmulatorConfig {
     pub forced_timing_mode: Option<TimingMode>,
     pub aspect_ratio: SnesAspectRatio,
     pub audio_60hz_hack: bool,
+    pub gsu_overclock_factor: NonZeroU64,
 }
 
 pub type CoprocessorRomFn = dyn Fn() -> Result<Vec<u8>, (io::Error, String)>;
@@ -141,6 +143,7 @@ pub struct SnesEmulator {
     memory_refresh_pending: bool,
     timing_mode: TimingMode,
     aspect_ratio: SnesAspectRatio,
+    gsu_overclock_factor: NonZeroU64,
     frame_count: u64,
     last_sram_checksum: u32,
     // Stored here to enable hard reset
@@ -163,8 +166,13 @@ impl SnesEmulator {
         let dma_unit = DmaUnit::new();
 
         let sram_checksum = initial_sram.as_ref().map_or(0, |sram| CRC.checksum(sram));
-        let mut memory =
-            Memory::create(rom, initial_sram, &coprocessor_roms, config.forced_timing_mode)?;
+        let mut memory = Memory::create(
+            rom,
+            initial_sram,
+            &coprocessor_roms,
+            config.forced_timing_mode,
+            config.gsu_overclock_factor,
+        )?;
 
         let timing_mode =
             config.forced_timing_mode.unwrap_or_else(|| memory.cartridge_timing_mode());
@@ -185,6 +193,7 @@ impl SnesEmulator {
             memory_refresh_pending: false,
             timing_mode,
             aspect_ratio: config.aspect_ratio,
+            gsu_overclock_factor: config.gsu_overclock_factor,
             frame_count: 0,
             last_sram_checksum: sram_checksum,
             coprocessor_roms,
@@ -310,6 +319,7 @@ impl ConfigReload for SnesEmulator {
     fn reload_config(&mut self, config: &Self::Config) {
         self.aspect_ratio = config.aspect_ratio;
         self.apu.set_audio_60hz_hack(config.audio_60hz_hack);
+        self.memory.update_gsu_overclock_factor(config.gsu_overclock_factor);
     }
 }
 
@@ -351,6 +361,7 @@ impl Resettable for SnesEmulator {
                 forced_timing_mode: None,
                 aspect_ratio: self.aspect_ratio,
                 audio_60hz_hack: self.apu.get_audio_60hz_hack(),
+                gsu_overclock_factor: self.gsu_overclock_factor,
             },
             coprocessor_roms,
         )

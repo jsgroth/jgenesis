@@ -12,6 +12,7 @@ use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::PartialClone;
 use std::array;
+use std::num::NonZeroU64;
 
 const MAIN_RAM_LEN: usize = 128 * 1024;
 
@@ -52,12 +53,14 @@ impl Memory {
         initial_sram: Option<Vec<u8>>,
         coprocessor_roms: &CoprocessorRoms,
         forced_timing_mode: Option<TimingMode>,
+        gsu_overclock_factor: NonZeroU64,
     ) -> LoadResult<Self> {
         let cartridge = Cartridge::create(
             rom.into_boxed_slice(),
             initial_sram,
             coprocessor_roms,
             forced_timing_mode,
+            gsu_overclock_factor,
         )?;
 
         Ok(Self {
@@ -183,6 +186,10 @@ impl Memory {
     // Called when GPDMA completes (all channels done)
     pub fn notify_dma_end(&mut self) {
         self.cartridge.notify_dma_end();
+    }
+
+    pub fn update_gsu_overclock_factor(&mut self, overclock_factor: NonZeroU64) {
+        self.cartridge.update_gsu_overclock_factor(overclock_factor);
     }
 }
 

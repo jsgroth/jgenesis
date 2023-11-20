@@ -30,7 +30,7 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fs;
-use std::num::NonZeroU32;
+use std::num::{NonZeroU32, NonZeroU64};
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -196,12 +196,18 @@ struct SnesAppConfig {
     aspect_ratio: SnesAspectRatio,
     #[serde(default = "true_fn")]
     audio_60hz_hack: bool,
+    #[serde(default = "default_gsu_overclock")]
+    gsu_overclock_factor: NonZeroU64,
     dsp1_rom_path: Option<String>,
     dsp2_rom_path: Option<String>,
     dsp3_rom_path: Option<String>,
     dsp4_rom_path: Option<String>,
     st010_rom_path: Option<String>,
     st011_rom_path: Option<String>,
+}
+
+fn default_gsu_overclock() -> NonZeroU64 {
+    NonZeroU64::new(1).unwrap()
 }
 
 impl Default for SnesAppConfig {
@@ -370,6 +376,7 @@ impl AppConfig {
             forced_timing_mode: self.snes.forced_timing_mode,
             aspect_ratio: self.snes.aspect_ratio,
             audio_60hz_hack: self.snes.audio_60hz_hack,
+            gsu_overclock_factor: self.snes.gsu_overclock_factor,
             dsp1_rom_path: self.snes.dsp1_rom_path.clone(),
             dsp2_rom_path: self.snes.dsp2_rom_path.clone(),
             dsp3_rom_path: self.snes.dsp3_rom_path.clone(),
@@ -710,6 +717,33 @@ impl App {
                         &mut self.config.snes.forced_timing_mode,
                         Some(TimingMode::Pal),
                         "PAL",
+                    );
+                });
+            });
+
+            ui.group(|ui| {
+                ui.label("Super FX GSU overclock factor");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.config.snes.gsu_overclock_factor,
+                        NonZeroU64::new(1).unwrap(),
+                        "None",
+                    );
+                    ui.radio_value(
+                        &mut self.config.snes.gsu_overclock_factor,
+                        NonZeroU64::new(2).unwrap(),
+                        "2x",
+                    );
+                    ui.radio_value(
+                        &mut self.config.snes.gsu_overclock_factor,
+                        NonZeroU64::new(3).unwrap(),
+                        "3x",
+                    );
+                    ui.radio_value(
+                        &mut self.config.snes.gsu_overclock_factor,
+                        NonZeroU64::new(4).unwrap(),
+                        "4x",
                     );
                 });
             });

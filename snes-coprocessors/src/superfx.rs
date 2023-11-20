@@ -16,6 +16,7 @@ use crate::superfx::gsu::{BusAccess, GraphicsSupportUnit};
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::PartialClone;
 use std::mem;
+use std::num::NonZeroU64;
 
 #[derive(Debug, Clone, Encode, Decode, PartialClone)]
 pub struct SuperFx {
@@ -23,12 +24,18 @@ pub struct SuperFx {
     rom: Rom,
     ram: Box<[u8]>,
     gsu: GraphicsSupportUnit,
+    gsu_overclock_factor: u64,
 }
 
 impl SuperFx {
     #[must_use]
-    pub fn new(rom: Box<[u8]>, ram: Box<[u8]>) -> Self {
-        Self { rom: Rom(rom), ram, gsu: GraphicsSupportUnit::new() }
+    pub fn new(rom: Box<[u8]>, ram: Box<[u8]>, gsu_overclock_factor: NonZeroU64) -> Self {
+        Self {
+            rom: Rom(rom),
+            ram,
+            gsu: GraphicsSupportUnit::new(),
+            gsu_overclock_factor: gsu_overclock_factor.get(),
+        }
     }
 
     #[inline]
@@ -110,7 +117,7 @@ impl SuperFx {
 
     #[inline]
     pub fn tick(&mut self, master_cycles_elapsed: u64) {
-        self.gsu.tick(master_cycles_elapsed, &self.rom, &mut self.ram);
+        self.gsu.tick(self.gsu_overclock_factor * master_cycles_elapsed, &self.rom, &mut self.ram);
     }
 
     #[inline]
@@ -136,6 +143,10 @@ impl SuperFx {
 
     pub fn set_rom(&mut self, rom: Vec<u8>) {
         self.rom.0 = rom.into_boxed_slice();
+    }
+
+    pub fn update_gsu_overclock_factor(&mut self, overclock_factor: NonZeroU64) {
+        self.gsu_overclock_factor = overclock_factor.get();
     }
 }
 
