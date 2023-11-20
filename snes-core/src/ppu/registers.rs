@@ -1179,10 +1179,12 @@ impl Registers {
         self.programmable_joypad_port = wrio;
     }
 
+    #[allow(clippy::range_plus_one)]
     pub fn is_inside_window_1(&self, pixel: u16) -> bool {
         (self.window_1_left..self.window_1_right + 1).contains(&pixel)
     }
 
+    #[allow(clippy::range_plus_one)]
     pub fn is_inside_window_2(&self, pixel: u16) -> bool {
         (self.window_2_left..self.window_2_right + 1).contains(&pixel)
     }

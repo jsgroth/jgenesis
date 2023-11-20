@@ -267,7 +267,6 @@ pub struct Sa1Registers {
     pub ccdma_transfer_in_progress: bool,
     pub character_conversion_irq: bool,
     pub sa1_dma_irq: bool,
-    pub arithmetic_cycles_remaining: u16,
 }
 
 impl Sa1Registers {
@@ -321,7 +320,6 @@ impl Sa1Registers {
             ccdma_transfer_in_progress: false,
             character_conversion_irq: false,
             sa1_dma_irq: false,
-            arithmetic_cycles_remaining: 0,
         }
     }
 
@@ -805,10 +803,7 @@ impl Sa1Registers {
         self.arithmetic_param_b = (self.arithmetic_param_b & 0x00FF) | (u16::from(value) << 8);
 
         // Writing MB high byte begins arithmetic operation
-        self.arithmetic_cycles_remaining = match self.arithmetic_op {
-            ArithmeticOp::Multiply | ArithmeticOp::Divide => 5,
-            ArithmeticOp::MultiplyAccumulate => 6,
-        };
+        self.perform_arithmetic_op();
 
         log::trace!("  Arithmetic parameter B: {:04X}", self.arithmetic_param_b);
     }
@@ -899,14 +894,6 @@ impl Sa1Registers {
             DmaState::Idle
             | DmaState::CharacterConversion2 { .. }
             | DmaState::CharacterConversion1Active { .. } => {}
-        }
-
-        // Progress arithmetic operation
-        if self.arithmetic_cycles_remaining != 0 {
-            self.arithmetic_cycles_remaining -= 1;
-            if self.arithmetic_cycles_remaining == 0 {
-                self.perform_arithmetic_op();
-            }
         }
     }
 
