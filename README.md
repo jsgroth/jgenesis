@@ -79,10 +79,6 @@ RUSTFLAGS="-Ctarget-cpu=native" cargo build --profile release-lto
 
 ## Screenshots
 
-![Screenshot from 2023-08-27 22-45-06](https://github.com/jsgroth/jgenesis/assets/1137683/7d1567ce-39ba-4645-9aff-3c6d6e0afb80)
-
-![Screenshot from 2023-08-27 22-45-32](https://github.com/jsgroth/jgenesis/assets/1137683/90d96e18-57a8-4327-8d9d-385f55a718b3)
-
 ![Screenshot from 2023-08-27 22-47-13](https://github.com/jsgroth/jgenesis/assets/1137683/d2ec2bc6-de7d-4ff1-98c5-10a0c4db7391)
 
 ![Screenshot from 2023-08-27 22-53-09](https://github.com/jsgroth/jgenesis/assets/1137683/05a7c309-0706-4627-9b45-313f259cc494)
@@ -90,6 +86,12 @@ RUSTFLAGS="-Ctarget-cpu=native" cargo build --profile release-lto
 ![Screenshot from 2023-09-27 19-36-19](https://github.com/jsgroth/jgenesis/assets/1137683/2684be78-c2db-4af3-81dc-4325eb25f440)
 
 ![Screenshot from 2023-09-29 17-12-35](https://github.com/jsgroth/jgenesis/assets/1137683/69ab2eb5-1a5f-42e3-abac-c660b5c359e7)
+
+![Screenshot from 2023-11-06 21-42-49](https://github.com/jsgroth/jgenesis/assets/1137683/437bd22f-f1ec-43a2-9340-62c042d489de)
+
+![Screenshot from 2023-08-27 22-45-06](https://github.com/jsgroth/jgenesis/assets/1137683/7d1567ce-39ba-4645-9aff-3c6d6e0afb80)
+
+![Screenshot from 2023-08-27 22-45-32](https://github.com/jsgroth/jgenesis/assets/1137683/90d96e18-57a8-4327-8d9d-385f55a718b3)
 
 ![Screenshot from 2023-09-18 15-44-28](https://github.com/jsgroth/jgenesis/assets/1137683/d70b708c-c1dc-4a9e-adda-11d2b1b8fa00)
 
