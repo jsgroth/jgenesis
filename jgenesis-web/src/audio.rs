@@ -36,22 +36,18 @@ impl Default for AudioQueue {
     }
 }
 
-impl TryFrom<JsValue> for AudioQueue {
-    type Error = JsValue;
-
-    fn try_from(value: JsValue) -> Result<Self, Self::Error> {
-        let array = value.dyn_into::<Array>()?;
-        let header = array.get(0).dyn_into::<SharedArrayBuffer>()?;
-        let buffer = array.get(1).dyn_into::<SharedArrayBuffer>()?;
-        Ok(Self::from_buffers(header, buffer))
-    }
-}
-
 impl AudioQueue {
     pub fn new() -> Self {
         let header = SharedArrayBuffer::new(HEADER_LEN_BYTES);
         let buffer = SharedArrayBuffer::new(BUFFER_LEN_BYTES);
         Self::from_buffers(header, buffer)
+    }
+
+    pub fn try_from_js_value(value: JsValue) -> Result<Self, JsValue> {
+        let array = value.dyn_into::<Array>()?;
+        let header = array.get(0).dyn_into::<SharedArrayBuffer>()?;
+        let buffer = array.get(1).dyn_into::<SharedArrayBuffer>()?;
+        Ok(Self::from_buffers(header, buffer))
     }
 
     pub fn from_buffers(header: SharedArrayBuffer, buffer: SharedArrayBuffer) -> Self {
@@ -121,7 +117,8 @@ pub struct AudioProcessor {
 impl AudioProcessor {
     #[wasm_bindgen(constructor)]
     pub fn new(audio_queue: JsValue) -> AudioProcessor {
-        let audio_queue = AudioQueue::try_from(audio_queue).unwrap();
+        let audio_queue = AudioQueue::try_from_js_value(audio_queue)
+            .expect("Unable to initialize audio queue in audio worklet processor");
 
         AudioProcessor { audio_queue, buffer: Vec::with_capacity(BUFFER_LEN as usize) }
     }
