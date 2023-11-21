@@ -4,6 +4,7 @@ use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::{cmp, iter, mem};
 use thiserror::Error;
 use wgpu::util::DeviceExt;
+use wgpu::Gles3MinorVersion;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -104,10 +105,12 @@ impl PreprocessPipeline {
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                            store: true,
+                            store: wgpu::StoreOp::Store,
                         },
                     })],
                     depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
                 });
 
                 for (i, bind_group) in bind_groups.iter().enumerate() {
@@ -583,10 +586,12 @@ impl RenderingPipeline {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: true,
+                        store: wgpu::StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
             });
 
             prescale_pass.set_bind_group(0, &self.prescale_bind_group, &[]);
@@ -603,10 +608,12 @@ impl RenderingPipeline {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: true,
+                        store: wgpu::StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
             });
 
             render_pass.set_bind_group(0, &self.render_bind_group, &[]);
@@ -738,7 +745,9 @@ impl<Window: HasRawDisplayHandle + HasRawWindowHandle> WgpuRenderer<Window> {
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends,
+            flags: wgpu::InstanceFlags::default(),
             dx12_shader_compiler: wgpu::Dx12Compiler::default(),
+            gles_minor_version: Gles3MinorVersion::default(),
         });
 
         // SAFETY: The surface must not outlive the window it was created from

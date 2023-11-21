@@ -44,8 +44,8 @@ serde_json = "1"
 test-log = "0.2"
 thiserror = "1"
 toml = "0.8"
-windows = "0.51"
-wgpu = "0.17"
+windows = "0.52"
+wgpu = "0.18"
 
 # This is necessary because the latest published version of rust-sdl2 (0.35.2) uses raw-window-handle 0.4 which is
 # incompatible with wgpu using raw-window-handle 0.5
