@@ -616,7 +616,7 @@ impl Ppu {
 
             // Perform the following matrix transformation:
             //   [ vram_x ] = [ m7a  m7b ] * [ screen_x + m7hofs - m7x ] + [ m7x ]
-            //   [ vram_y ]   [ m7c  m7c ]   [ screen_y + m7vofs - m7y ]   [ m7y ]
+            //   [ vram_y ]   [ m7c  m7d ]   [ screen_y + m7vofs - m7y ]   [ m7y ]
             // m7a/m7b/m7c/m7d are in 1/256 pixel units, so the multiplication result is also in
             // 1/256 pixel units, and m7x/m7y need to be converted for the addition
             let scrolled_x = screen_x + h_scroll - m7x;
