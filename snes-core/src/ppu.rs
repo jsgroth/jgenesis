@@ -107,16 +107,20 @@ impl Pixel {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
-struct Cache {
+struct Buffers {
     bg_pixels: [[Pixel; HIRES_SCREEN_WIDTH]; 4],
     obj_pixels: [Pixel; NORMAL_SCREEN_WIDTH],
+    offset_per_tile_h_scroll: [[u16; HIRES_SCREEN_WIDTH]; 2],
+    offset_per_tile_v_scroll: [[u16; HIRES_SCREEN_WIDTH]; 2],
 }
 
-impl Cache {
+impl Buffers {
     fn new() -> Self {
         Self {
             bg_pixels: [[Pixel::TRANSPARENT; HIRES_SCREEN_WIDTH]; 4],
             obj_pixels: [Pixel::TRANSPARENT; NORMAL_SCREEN_WIDTH],
+            offset_per_tile_h_scroll: [[0; HIRES_SCREEN_WIDTH]; 2],
+            offset_per_tile_v_scroll: [[0; HIRES_SCREEN_WIDTH]; 2],
         }
     }
 }
@@ -321,7 +325,7 @@ pub struct Ppu {
     timing_mode: TimingMode,
     registers: Registers,
     state: State,
-    cache: Box<Cache>,
+    buffers: Box<Buffers>,
     vram: Box<Vram>,
     oam: Box<Oam>,
     cgram: Box<Cgram>,
@@ -340,7 +344,7 @@ impl Ppu {
             timing_mode,
             registers: Registers::new(),
             state: State::new(),
-            cache: Box::new(Cache::new()),
+            buffers: Box::new(Buffers::new()),
             vram: vec![0; VRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             oam: vec![0; OAM_LEN].into_boxed_slice().try_into().unwrap(),
             cgram: vec![0; CGRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
@@ -433,21 +437,21 @@ impl Ppu {
         };
 
         self.populate_sprite_buffer(scanline);
-        self.render_obj_layer_to_cache(scanline);
+        self.render_obj_layer_to_buffer(scanline);
 
         if hi_res_mode == HiResMode::True && self.registers.interlaced {
-            self.render_bg_layers_to_cache(2 * scanline, hi_res_mode);
+            self.render_bg_layers_to_buffer(2 * scanline, hi_res_mode);
             self.render_scanline(2 * scanline, hi_res_mode);
 
-            self.render_bg_layers_to_cache(2 * scanline + 1, hi_res_mode);
+            self.render_bg_layers_to_buffer(2 * scanline + 1, hi_res_mode);
             self.render_scanline(2 * scanline + 1, hi_res_mode);
         } else {
-            self.render_bg_layers_to_cache(scanline, hi_res_mode);
+            self.render_bg_layers_to_buffer(scanline, hi_res_mode);
             self.render_scanline(scanline, hi_res_mode);
         }
     }
 
-    fn render_bg_layers_to_cache(&mut self, scanline: u16, hi_res_mode: HiResMode) {
+    fn render_bg_layers_to_buffer(&mut self, scanline: u16, hi_res_mode: HiResMode) {
         let mode = self.registers.bg_mode;
 
         let bg1_enabled = self.registers.main_bg_enabled[0] || self.registers.sub_bg_enabled[0];
@@ -458,38 +462,32 @@ impl Ppu {
         let bg4_enabled = mode.bg4_enabled()
             && (self.registers.main_bg_enabled[3] || self.registers.sub_bg_enabled[3]);
 
+        if mode.is_offset_per_tile() && (bg1_enabled || bg2_enabled) {
+            // Populate offset-per-tile buffers before rendering BG1 or BG2
+            self.populate_offset_per_tile_buffers(hi_res_mode);
+        }
+
         if bg1_enabled {
             match mode {
-                BgMode::Seven => self.render_mode_7_to_cache(scanline),
-                _ => self.render_bg_to_cache(0, scanline, hi_res_mode),
+                BgMode::Seven => self.render_mode_7_to_buffer(scanline),
+                _ => self.render_bg_to_buffer(0, scanline, hi_res_mode),
             }
         }
 
         if bg2_enabled {
-            self.render_bg_to_cache(1, scanline, hi_res_mode);
+            self.render_bg_to_buffer(1, scanline, hi_res_mode);
         }
 
         if bg3_enabled {
-            self.render_bg_to_cache(2, scanline, hi_res_mode);
+            self.render_bg_to_buffer(2, scanline, hi_res_mode);
         }
 
         if bg4_enabled {
-            self.render_bg_to_cache(3, scanline, hi_res_mode);
+            self.render_bg_to_buffer(3, scanline, hi_res_mode);
         }
     }
 
-    fn render_obj_layer_to_cache(&mut self, scanline: u16) {
-        if !(self.registers.main_obj_enabled || self.registers.sub_obj_enabled) {
-            return;
-        }
-
-        for pixel_idx in 0..NORMAL_SCREEN_WIDTH as u16 {
-            let pixel = self.resolve_sprite_color(scanline, pixel_idx);
-            self.cache.obj_pixels[pixel_idx as usize] = pixel;
-        }
-    }
-
-    fn render_bg_to_cache(&mut self, bg: usize, scanline: u16, hi_res_mode: HiResMode) {
+    fn render_bg_to_buffer(&mut self, bg: usize, scanline: u16, hi_res_mode: HiResMode) {
         let screen_width =
             if hi_res_mode == HiResMode::True { HIRES_SCREEN_WIDTH } else { NORMAL_SCREEN_WIDTH };
 
@@ -512,15 +510,17 @@ impl Ppu {
             let (base_y, mosaic_x) = self.apply_mosaic(bg, scanline, pixel_idx, hi_res_mode);
             if mosaic_x != pixel_idx {
                 // Mosaic is enabled and this is not the far left pixel; copy last pixel and move on
-                self.cache.bg_pixels[bg][pixel_idx as usize] =
-                    self.cache.bg_pixels[bg][(pixel_idx - 1) as usize];
+                self.buffers.bg_pixels[bg][pixel_idx as usize] =
+                    self.buffers.bg_pixels[bg][(pixel_idx - 1) as usize];
                 continue;
             }
 
             // Account for offset-per-tile if in mode 2/4/6
-            // TODO make this more efficient
             let (mut h_scroll, v_scroll) = if mode.is_offset_per_tile() {
-                self.resolve_offset_per_tile(bg, pixel_idx)
+                (
+                    self.buffers.offset_per_tile_h_scroll[bg][pixel_idx as usize],
+                    self.buffers.offset_per_tile_v_scroll[bg][pixel_idx as usize],
+                )
             } else {
                 (bg_h_scroll, bg_v_scroll)
             };
@@ -582,14 +582,167 @@ impl Ppu {
                 color,
                 priority: bg_map_entry.priority.into(),
             };
-            self.cache.bg_pixels[bg][pixel_idx as usize] = pixel;
+            self.buffers.bg_pixels[bg][pixel_idx as usize] = pixel;
         }
     }
 
-    fn render_mode_7_to_cache(&mut self, scanline: u16) {
-        // TODO more efficient implementation
-        for pixel in 0..256 {
-            self.cache.bg_pixels[0][pixel as usize] = self.resolve_mode_7_color(scanline, pixel);
+    fn render_mode_7_to_buffer(&mut self, scanline: u16) {
+        // Mode 7 tile map is always 128x128
+        const TILE_MAP_SIZE_PIXELS: i32 = 128 * 8;
+
+        // Affine transformation parameters (fixed point, 1/256 pixel units)
+        let m7a: i32 = (self.registers.mode_7_parameter_a as i16).into();
+        let m7b: i32 = (self.registers.mode_7_parameter_b as i16).into();
+        let m7c: i32 = (self.registers.mode_7_parameter_c as i16).into();
+        let m7d: i32 = (self.registers.mode_7_parameter_d as i16).into();
+
+        // Center of rotation
+        let m7x = sign_extend_13_bit(self.registers.mode_7_center_x);
+        let m7y = sign_extend_13_bit(self.registers.mode_7_center_y);
+
+        let h_scroll = sign_extend_13_bit(self.registers.mode_7_h_scroll);
+        let v_scroll = sign_extend_13_bit(self.registers.mode_7_v_scroll);
+
+        let h_flip = self.registers.mode_7_h_flip;
+        let v_flip = self.registers.mode_7_v_flip;
+
+        let oob_behavior = self.registers.mode_7_oob_behavior;
+
+        for pixel in 0..NORMAL_SCREEN_WIDTH as u16 {
+            let (scanline, pixel) = self.apply_mosaic(0, scanline, pixel, HiResMode::None);
+
+            let screen_x: i32 = (if h_flip { 255 - pixel } else { pixel }).into();
+            let screen_y: i32 = (if v_flip { 255 - scanline } else { scanline }).into();
+
+            // Perform the following matrix transformation:
+            //   [ vram_x ] = [ m7a  m7b ] * [ screen_x + m7hofs - m7x ] + [ m7x ]
+            //   [ vram_y ]   [ m7c  m7c ]   [ screen_y + m7vofs - m7y ]   [ m7y ]
+            // m7a/m7b/m7c/m7d are in 1/256 pixel units, so the multiplication result is also in
+            // 1/256 pixel units, and m7x/m7y need to be converted for the addition
+            let scrolled_x = screen_x + h_scroll - m7x;
+            let scrolled_y = screen_y + v_scroll - m7y;
+
+            let mut tile_map_x = m7a * scrolled_x + m7b * scrolled_y + (m7x << 8);
+            let mut tile_map_y = m7c * scrolled_x + m7d * scrolled_y + (m7y << 8);
+
+            // Convert back from 1/256 pixel units to pixel units
+            tile_map_x >>= 8;
+            tile_map_y >>= 8;
+
+            let mut force_tile_0 = false;
+            if tile_map_x < 0
+                || tile_map_y < 0
+                || tile_map_x >= TILE_MAP_SIZE_PIXELS
+                || tile_map_y >= TILE_MAP_SIZE_PIXELS
+            {
+                match oob_behavior {
+                    Mode7OobBehavior::Wrap => {
+                        tile_map_x &= TILE_MAP_SIZE_PIXELS - 1;
+                        tile_map_y &= TILE_MAP_SIZE_PIXELS - 1;
+                    }
+                    Mode7OobBehavior::Transparent => {
+                        self.buffers.bg_pixels[0][pixel as usize] = Pixel::TRANSPARENT;
+                        continue;
+                    }
+                    Mode7OobBehavior::Tile0 => {
+                        tile_map_x &= 0x07;
+                        tile_map_y &= 0x07;
+                        force_tile_0 = true;
+                    }
+                }
+            }
+
+            let tile_number = if force_tile_0 {
+                0
+            } else {
+                // Mode 7 tile map is always located at $0000
+                let tile_map_row = tile_map_y / 8;
+                let tile_map_col = tile_map_x / 8;
+                let tile_map_addr = tile_map_row * TILE_MAP_SIZE_PIXELS / 8 + tile_map_col;
+                self.vram[tile_map_addr as usize] & 0x00FF
+            };
+
+            let tile_row = (tile_map_y % 8) as u16;
+            let tile_col = (tile_map_x % 8) as u16;
+            let pixel_addr = 64 * tile_number + 8 * tile_row + tile_col;
+            let color = (self.vram[pixel_addr as usize] >> 8) as u8;
+
+            self.buffers.bg_pixels[0][pixel as usize] = Pixel { palette: 0, color, priority: 0 };
+        }
+    }
+
+    fn render_obj_layer_to_buffer(&mut self, scanline: u16) {
+        if !(self.registers.main_obj_enabled || self.registers.sub_obj_enabled) {
+            return;
+        }
+
+        for pixel_idx in 0..NORMAL_SCREEN_WIDTH as u16 {
+            let pixel = self.resolve_sprite_color(scanline, pixel_idx);
+            self.buffers.obj_pixels[pixel_idx as usize] = pixel;
+        }
+    }
+
+    fn populate_offset_per_tile_buffers(&mut self, hi_res_mode: HiResMode) {
+        let screen_width =
+            if hi_res_mode == HiResMode::True { HIRES_SCREEN_WIDTH } else { NORMAL_SCREEN_WIDTH };
+
+        let mode = self.registers.bg_mode;
+        let bg3_h_scroll = self.registers.bg_h_scroll[2];
+        let bg3_v_scroll = self.registers.bg_v_scroll[2];
+
+        for pixel in 0..screen_width as u16 {
+            // Lowest 3 bits of BG3 H scroll do not apply in offset-per-tile
+            let bg3_x = (pixel.wrapping_sub(8) & !0x7).wrapping_add(bg3_h_scroll & !0x7);
+
+            let (h_offset_entry, v_offset_entry) = match mode {
+                BgMode::Four => {
+                    // In Mode 4, instead of loading both map entries, the PPU uses the highest bit
+                    // of the first entry to determine whether to apply offset to H or V
+                    let bg3_entry =
+                        get_bg_map_entry(&self.vram, &self.registers, 2, bg3_x, bg3_v_scroll);
+                    if bg3_entry.bit(15) {
+                        // Apply to V scroll
+                        (0, bg3_entry)
+                    } else {
+                        // Apply to H scroll
+                        (bg3_entry, 0)
+                    }
+                }
+                _ => {
+                    let h_offset_entry =
+                        get_bg_map_entry(&self.vram, &self.registers, 2, bg3_x, bg3_v_scroll);
+                    let v_offset_entry =
+                        get_bg_map_entry(&self.vram, &self.registers, 2, bg3_x, bg3_v_scroll + 8);
+                    (h_offset_entry, v_offset_entry)
+                }
+            };
+
+            // Offset-per-tile can only apply to BG1 and BG2
+            for bg in 0..2 {
+                let bg_h_scroll = self.registers.bg_h_scroll[bg];
+                let bg_v_scroll = self.registers.bg_v_scroll[bg];
+                if pixel + (bg_h_scroll & 0x07) < 8 {
+                    // Offset-per-tile only applies to the 2nd visible tile and onwards
+                    self.buffers.offset_per_tile_h_scroll[bg][pixel as usize] = bg_h_scroll;
+                    self.buffers.offset_per_tile_v_scroll[bg][pixel as usize] = bg_v_scroll;
+                    continue;
+                }
+
+                // BG1 uses bit 13 to determine whether to apply offset-per-tile, while BG2 uses bit 14
+                let bg_offset_bit = if bg == 0 { 13 } else { 14 };
+                self.buffers.offset_per_tile_h_scroll[bg][pixel as usize] =
+                    if h_offset_entry.bit(bg_offset_bit) {
+                        h_offset_entry & 0x03FF
+                    } else {
+                        bg_h_scroll
+                    };
+                self.buffers.offset_per_tile_v_scroll[bg][pixel as usize] =
+                    if v_offset_entry.bit(bg_offset_bit) {
+                        v_offset_entry & 0x03FF
+                    } else {
+                        bg_v_scroll
+                    };
+            }
         }
     }
 
@@ -740,7 +893,7 @@ impl Ppu {
             && !(bg_disabled_in_window[0]
                 && self.registers.bg_in_window(0, in_window_1, in_window_2))
         {
-            let bg1_pixel = self.cache.bg_pixels[0][x as usize];
+            let bg1_pixel = self.buffers.bg_pixels[0][x as usize];
             if !bg1_pixel.is_transparent() {
                 priority_resolver.add(Layer::Bg1, bg1_pixel);
 
@@ -768,7 +921,7 @@ impl Ppu {
             && !(bg_disabled_in_window[1]
                 && self.registers.bg_in_window(1, in_window_1, in_window_2))
         {
-            let bg2_pixel = self.cache.bg_pixels[1][x as usize];
+            let bg2_pixel = self.buffers.bg_pixels[1][x as usize];
             if !bg2_pixel.is_transparent() {
                 priority_resolver.add(Layer::Bg2, bg2_pixel);
             }
@@ -779,7 +932,7 @@ impl Ppu {
             && !(bg_disabled_in_window[2]
                 && self.registers.bg_in_window(2, in_window_1, in_window_2))
         {
-            let bg3_pixel = self.cache.bg_pixels[2][x as usize];
+            let bg3_pixel = self.buffers.bg_pixels[2][x as usize];
             if !bg3_pixel.is_transparent() {
                 priority_resolver.add(Layer::Bg3, bg3_pixel);
             }
@@ -790,7 +943,7 @@ impl Ppu {
             && !(bg_disabled_in_window[3]
                 && self.registers.bg_in_window(3, in_window_1, in_window_2))
         {
-            let bg4_pixel = self.cache.bg_pixels[3][x as usize];
+            let bg4_pixel = self.buffers.bg_pixels[3][x as usize];
             if !bg4_pixel.is_transparent() {
                 priority_resolver.add(Layer::Bg4, bg4_pixel);
             }
@@ -810,7 +963,7 @@ impl Ppu {
         );
         if obj_enabled && !(obj_in_window && obj_disabled_in_window) {
             let obj_x = if hi_res_mode == HiResMode::True { x / 2 } else { x };
-            let obj_pixel = self.cache.obj_pixels[obj_x as usize];
+            let obj_pixel = self.buffers.obj_pixels[obj_x as usize];
             if !obj_pixel.is_transparent() {
                 priority_resolver.add(Layer::Obj, obj_pixel);
             }
@@ -819,155 +972,6 @@ impl Ppu {
         // In mode 1, non-transparent high-priority BG3 pixels display over all other layers
         let bg3_high_priority = mode == BgMode::One && self.registers.mode_1_bg3_priority;
         priority_resolver.get(bg3_high_priority)
-    }
-
-    fn resolve_offset_per_tile(&self, bg: usize, pixel: u16) -> (u16, u16) {
-        // Offset-per-tile only applies to the 2nd visible tile and onwards
-        let h_scroll = self.registers.bg_h_scroll[bg];
-        let v_scroll = self.registers.bg_v_scroll[bg];
-        if pixel + (h_scroll & 0x07) < 8 {
-            return (h_scroll, v_scroll);
-        }
-
-        let bg3_h_scroll = self.registers.bg_h_scroll[2];
-        let bg3_v_scroll = self.registers.bg_v_scroll[2];
-
-        let bg3_x = (pixel.wrapping_sub(8) & !0x7).wrapping_add(bg3_h_scroll & !0x7);
-
-        let h_offset_entry = get_bg_map_entry(&self.vram, &self.registers, 2, bg3_x, bg3_v_scroll);
-
-        let offset_entry_mask = if bg == 0 { 0x2000 } else { 0x4000 };
-
-        match self.registers.bg_mode {
-            BgMode::Four => {
-                // In Mode 4, instead of loading the second entry, the PPU uses the highest bit
-                // to determine whether to apply the offset to H or V
-                if h_offset_entry & offset_entry_mask != 0 {
-                    if h_offset_entry & 0x8000 != 0 {
-                        (h_scroll, h_offset_entry & 0x03FF)
-                    } else {
-                        (h_offset_entry & 0x03FF, v_scroll)
-                    }
-                } else {
-                    (h_scroll, v_scroll)
-                }
-            }
-            _ => {
-                let v_offset_entry =
-                    get_bg_map_entry(&self.vram, &self.registers, 2, bg3_x, bg3_v_scroll + 8);
-
-                let h_offset = if h_offset_entry & offset_entry_mask != 0 {
-                    h_offset_entry & 0x03FF
-                } else {
-                    h_scroll
-                };
-
-                let v_offset = if v_offset_entry & offset_entry_mask != 0 {
-                    v_offset_entry & 0x03FF
-                } else {
-                    v_scroll
-                };
-
-                (h_offset, v_offset)
-            }
-        }
-    }
-
-    // TODO make this more efficient
-    #[allow(clippy::items_after_statements)]
-    fn resolve_mode_7_color(&self, scanline: u16, pixel: u16) -> Pixel {
-        // Mode 7 tile map is always 128x128
-        const TILE_MAP_SIZE_PIXELS: i32 = 128 * 8;
-
-        let (scanline, pixel) = self.apply_mosaic(0, scanline, pixel, HiResMode::None);
-
-        let m7a: i32 = (self.registers.mode_7_parameter_a as i16).into();
-        let m7b: i32 = (self.registers.mode_7_parameter_b as i16).into();
-        let m7c: i32 = (self.registers.mode_7_parameter_c as i16).into();
-        let m7d: i32 = (self.registers.mode_7_parameter_d as i16).into();
-
-        let m7x = self.registers.mode_7_center_x;
-        let m7y = self.registers.mode_7_center_y;
-
-        let h_scroll = self.registers.mode_7_h_scroll;
-        let v_scroll = self.registers.mode_7_v_scroll;
-
-        let h_flip = self.registers.mode_7_h_flip;
-        let v_flip = self.registers.mode_7_v_flip;
-
-        let oob_behavior = self.registers.mode_7_oob_behavior;
-
-        let screen_x = if h_flip { 255 - pixel } else { pixel };
-        let screen_y = if v_flip { 255 - scanline } else { scanline };
-
-        // Convert screen coordinates to 1/256 pixel units
-        let screen_x = i32::from(screen_x) << 8;
-        let screen_y = i32::from(screen_y) << 8;
-
-        // Convert center coordinates and scroll values (signed 13-bit integer) to 1/256 pixel units
-        fn extend_signed_13_bit(value: u16) -> i32 {
-            i32::from((value << 3) as i16) << 5
-        }
-
-        let m7x = extend_signed_13_bit(m7x);
-        let m7y = extend_signed_13_bit(m7y);
-        let h_scroll = extend_signed_13_bit(h_scroll);
-        let v_scroll = extend_signed_13_bit(v_scroll);
-
-        let shifted_x = screen_x.wrapping_add(h_scroll).wrapping_sub(m7x);
-        let shifted_y = screen_y.wrapping_add(v_scroll).wrapping_sub(m7y);
-
-        let mut tile_map_x = m7a
-            .wrapping_mul(shifted_x >> 8)
-            .wrapping_add(m7b.wrapping_mul(shifted_y >> 8))
-            .wrapping_add(m7x);
-        let mut tile_map_y = m7c
-            .wrapping_mul(shifted_x >> 8)
-            .wrapping_add(m7d.wrapping_mul(shifted_y >> 8))
-            .wrapping_add(m7y);
-
-        // Convert back to pixel units
-        tile_map_x >>= 8;
-        tile_map_y >>= 8;
-
-        let mut force_tile_0 = false;
-        if tile_map_x < 0
-            || tile_map_y < 0
-            || tile_map_x >= TILE_MAP_SIZE_PIXELS
-            || tile_map_y >= TILE_MAP_SIZE_PIXELS
-        {
-            match oob_behavior {
-                Mode7OobBehavior::Wrap => {
-                    tile_map_x &= TILE_MAP_SIZE_PIXELS - 1;
-                    tile_map_y &= TILE_MAP_SIZE_PIXELS - 1;
-                }
-                Mode7OobBehavior::Transparent => {
-                    return Pixel::TRANSPARENT;
-                }
-                Mode7OobBehavior::Tile0 => {
-                    tile_map_x &= 0x07;
-                    tile_map_y &= 0x07;
-                    force_tile_0 = true;
-                }
-            }
-        }
-
-        let tile_number = if force_tile_0 {
-            0
-        } else {
-            // Mode 7 tile map is always located at $0000
-            let tile_map_row = tile_map_y / 8;
-            let tile_map_col = tile_map_x / 8;
-            let tile_map_addr = tile_map_row * TILE_MAP_SIZE_PIXELS / 8 + tile_map_col;
-            self.vram[tile_map_addr as usize] & 0x00FF
-        };
-
-        let tile_row = (tile_map_y % 8) as u16;
-        let tile_col = (tile_map_x % 8) as u16;
-        let pixel_addr = 64 * tile_number + 8 * tile_row + tile_col;
-        let color = (self.vram[pixel_addr as usize] >> 8) as u8;
-
-        Pixel { palette: 0, color, priority: 0 }
     }
 
     fn apply_mosaic(
@@ -1594,6 +1598,10 @@ impl Ppu {
         // Return to default rendering mode (224-line, non-interlaced, no pseudo-hi-res or smaller OBJs)
         self.registers.write_setini(0x00);
     }
+}
+
+fn sign_extend_13_bit(value: u16) -> i32 {
+    (((value as i16) << 3) >> 3).into()
 }
 
 #[allow(clippy::too_many_arguments)]
