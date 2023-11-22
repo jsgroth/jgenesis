@@ -39,6 +39,7 @@ rand = "0.8"
 raw-window-handle = "0.5"
 regex = "1"
 rfd = "0.12"
+sdl2 = { version = "0.36", features = ["raw-window-handle"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 test-log = "0.2"
@@ -46,13 +47,6 @@ thiserror = "1"
 toml = "0.8"
 windows = "0.52"
 wgpu = "0.18"
-
-# This is necessary because the latest published version of rust-sdl2 (0.35.2) uses raw-window-handle 0.4 which is
-# incompatible with wgpu using raw-window-handle 0.5
-[workspace.dependencies.sdl2]
-git = "https://github.com/Rust-SDL2/rust-sdl2.git"
-rev = "819ab438ac971a922d6ee1da558822002d343b4e"
-features = ["raw-window-handle"]
 
 [profile.dev]
 
