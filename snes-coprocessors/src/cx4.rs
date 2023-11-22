@@ -334,7 +334,21 @@ fn map_rom_address(address: u32, rom_len: u32) -> Option<u32> {
     let offset = address & 0xFFFF;
     match (bank, offset) {
         (0x00..=0x3F | 0x80..=0xBF, 0x8000..=0xFFFF) | (0x40..=0x7D | 0xC0..=0xFF, _) => {
-            Some(common::lorom_map_rom_address(address, rom_len))
+            // The only games that use this coprocessor are Mega Man X2 and Mega Man X3,
+            // which respectively have ROM sizes of 1.5MB and 2MB
+            // Both use LoROM address mapping
+            let rom_addr = ((address & 0x7F0000) >> 1) | (address & 0x007FFF);
+            Some(if rom_len == 1 << 21 {
+                // 2MB ROM
+                rom_addr & (rom_len - 1)
+            } else {
+                // 1.5MB ROM; mirror the last 0.5MB throughout $20-$7D and $A0-$FF
+                if rom_addr < rom_len {
+                    rom_addr
+                } else {
+                    (rom_addr & (1 << 20)) | (rom_addr & ((1 << 19) - 1))
+                }
+            })
         }
         _ => None,
     }
