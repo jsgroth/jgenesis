@@ -136,10 +136,10 @@ impl RomAddressMask {
         match self {
             Self::PowerOfTwo { mask } => rom_addr & mask,
             Self::NonPowerOfTwo { primary_mask, secondary_mask } => {
-                if rom_addr < primary_mask {
-                    rom_addr
+                if rom_addr & primary_mask == 0 {
+                    rom_addr & (primary_mask - 1)
                 } else {
-                    (rom_addr & primary_mask) | (rom_addr & secondary_mask)
+                    primary_mask | (rom_addr & secondary_mask)
                 }
             }
         }
