@@ -112,7 +112,9 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      SDL_VERSION: 2.28.3
+      SDL_VERSION: 2.28.5
+      DXC_RELEASE_TAG: v1.7.2308
+      DXC_ZIP_FILE: dxc_2023_08_14.zip
 
     steps:
       - uses: actions/checkout@v3
@@ -137,6 +139,13 @@ jobs:
           tar -xzvf SDL2-devel-$SDL_VERSION-mingw.tar.gz && \
           unzip SDL2-$SDL_VERSION-win32-x64.zip
 
+      - name: Download & extract DirectX shader compiler
+        run: |
+          mkdir dxcompiler && \
+          cd dxcompiler && \
+          wget https://github.com/microsoft/DirectXShaderCompiler/releases/download/$DXC_RELEASE_TAG/$DXC_ZIP_FILE && \
+          unzip $DXC_ZIP_FILE
+
       - name: Build release
         run: |
           RUSTFLAGS="-Clink-arg=-ISDL2-$SDL_VERSION/x86_64-w64-mingw32/include -Clink-arg=-LSDL2-$SDL_VERSION/x86_64-w64-mingw32/lib" \
@@ -144,8 +153,11 @@ jobs:
 
       - name: Compress binaries
         run: |
+          mv LICENSE LICENSE-jgenesis.txt && \
           mv target/x86_64-pc-windows-gnu/release-lto/*.exe ./ && \
-          zip -r jgenesis-windows.zip LICENSE README-SDL.txt SDL2.dll jgenesis-cli.exe jgenesis-gui.exe
+          mv dxcompiler/bin/x64/*.dll ./ && \
+          mv dxcompiler/LICENSE* ./ && \
+          zip -r jgenesis-windows.zip LICENSE* README-SDL.txt *.dll jgenesis-cli.exe jgenesis-gui.exe
 
       - name: Upload binaries
         uses: actions/upload-artifact@v3
