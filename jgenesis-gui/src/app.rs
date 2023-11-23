@@ -31,7 +31,6 @@ use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fs;
 use std::num::{NonZeroU32, NonZeroU64};
-use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -216,33 +215,6 @@ impl Default for SnesAppConfig {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct RecentOpens(Vec<String>);
-
-impl PartialEq for RecentOpens {
-    fn eq(&self, _other: &Self) -> bool {
-        // Intentionally always return true; this struct only exists to avoid recent open list
-        // changes causing config reloads
-        true
-    }
-}
-
-impl Eq for RecentOpens {}
-
-impl Deref for RecentOpens {
-    type Target = Vec<String>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for RecentOpens {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default)]
@@ -260,7 +232,7 @@ pub struct AppConfig {
     #[serde(default)]
     rom_search_dirs: Vec<String>,
     #[serde(default)]
-    recent_opens: RecentOpens,
+    recent_opens: Vec<String>,
 }
 
 impl AppConfig {
@@ -1738,12 +1710,14 @@ impl eframe::App for App {
         if prev_config != self.config {
             self.state.display_scanlines_warning = should_display_scanlines_warning(&self.config);
 
-            self.emu_thread.reload_config(
-                self.config.smsgg_config(self.state.current_file_path.clone()),
-                self.config.genesis_config(self.state.current_file_path.clone()),
-                self.config.sega_cd_config(self.state.current_file_path.clone()),
-                self.config.snes_config(self.state.current_file_path.clone()),
-            );
+            if should_reload_config(&prev_config, &self.config) {
+                self.emu_thread.reload_config(
+                    self.config.smsgg_config(self.state.current_file_path.clone()),
+                    self.config.genesis_config(self.state.current_file_path.clone()),
+                    self.config.sega_cd_config(self.state.current_file_path.clone()),
+                    self.config.snes_config(self.state.current_file_path.clone()),
+                );
+            }
 
             let config_str = toml::to_string_pretty(&self.config).unwrap();
             if let Err(err) = fs::write(&self.config_path, config_str) {
@@ -1751,6 +1725,14 @@ impl eframe::App for App {
             }
         }
     }
+}
+
+fn should_reload_config(prev_config: &AppConfig, new_config: &AppConfig) -> bool {
+    let prev_no_recent_opens = AppConfig { recent_opens: vec![], ..prev_config.clone() };
+
+    let new_no_recent_opens = AppConfig { recent_opens: vec![], ..new_config.clone() };
+
+    prev_no_recent_opens != new_no_recent_opens
 }
 
 #[cfg(test)]
