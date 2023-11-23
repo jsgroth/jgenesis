@@ -809,6 +809,11 @@ impl Sa1Registers {
     }
 
     fn write_vbd(&mut self, value: u8, mmc: &Sa1Mmc, rom: &[u8]) {
+        if self.varlen_bits_remaining == 0 {
+            // Variable-length bit data reading not initialized; do nothing
+            return;
+        }
+
         let shift = if value & 0x0F == 0 { 16 } else { value & 0x0F };
         self.varlen_bit_data >>= shift;
         self.varlen_bits_remaining -= shift;
