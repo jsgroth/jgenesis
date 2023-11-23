@@ -1460,9 +1460,13 @@ impl Ppu {
     }
 
     fn write_vram_data_port_low(&mut self, value: u8) {
-        let vram_addr = (self.registers.vram_address_translation.apply(self.registers.vram_address)
-            & VRAM_ADDRESS_MASK) as usize;
-        self.vram[vram_addr] = (self.vram[vram_addr] & 0xFF00) | u16::from(value);
+        if self.vblank_flag() || self.registers.forced_blanking {
+            // VRAM writes only allowed during VBlank and forced blanking
+            let vram_addr =
+                (self.registers.vram_address_translation.apply(self.registers.vram_address)
+                    & VRAM_ADDRESS_MASK) as usize;
+            self.vram[vram_addr] = (self.vram[vram_addr] & 0xFF00) | u16::from(value);
+        }
 
         if self.registers.vram_address_increment_mode == VramIncrementMode::Low {
             self.increment_vram_address();
@@ -1470,9 +1474,13 @@ impl Ppu {
     }
 
     fn write_vram_data_port_high(&mut self, value: u8) {
-        let vram_addr = (self.registers.vram_address_translation.apply(self.registers.vram_address)
-            & VRAM_ADDRESS_MASK) as usize;
-        self.vram[vram_addr] = (self.vram[vram_addr] & 0x00FF) | (u16::from(value) << 8);
+        if self.vblank_flag() || self.registers.forced_blanking {
+            // VRAM writes only allowed during VBlank and forced blanking
+            let vram_addr =
+                (self.registers.vram_address_translation.apply(self.registers.vram_address)
+                    & VRAM_ADDRESS_MASK) as usize;
+            self.vram[vram_addr] = (self.vram[vram_addr] & 0x00FF) | (u16::from(value) << 8);
+        }
 
         if self.registers.vram_address_increment_mode == VramIncrementMode::High {
             self.increment_vram_address();
