@@ -199,6 +199,13 @@ impl Wdc65816 {
         self.registers.p.decimal_mode = false;
         self.registers.emulation_mode = true;
 
+        // Emulation mode forces on m and x flags and forces the stack to page 1
+        self.registers.p.accumulator_size = SizeBits::Eight;
+        self.registers.p.index_size = SizeBits::Eight;
+        self.registers.x &= 0x00FF;
+        self.registers.y &= 0x00FF;
+        self.registers.s = 0x0100 | (self.registers.s & 0x00FF);
+
         self.state = State::default();
     }
 
