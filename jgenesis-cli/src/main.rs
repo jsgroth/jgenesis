@@ -494,7 +494,7 @@ fn keyboard_input(s: &String) -> KeyboardInput {
 
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(
-        Env::default().default_filter_or("info,wgpu_core::device::global=warn"),
+        Env::default().default_filter_or("info,wgpu_core=warn,wgpu_hal=warn"),
     )
     .init();
 
