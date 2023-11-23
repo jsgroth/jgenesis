@@ -18,7 +18,7 @@ jgenesis-common = { path = "../jgenesis-common" }
 anyhow = { workspace = true }
 clap = { workspace = true }
 env_logger = { workspace = true }
-log = { workspace = true }
+log = { workspace = true, features = ["release_max_level_info"] }
 
 [lints]
 workspace = true

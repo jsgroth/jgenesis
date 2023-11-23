@@ -49,6 +49,13 @@ windows = "0.52"
 wgpu = "0.18"
 
 [profile.dev]
+# Set opt-level=1 because most of the emulators are unusably slow without optimizations
+opt-level = 1
+
+[profile.dev-fast]
+# dev profile with debug symbols disabled, which results in significantly faster compile times
+inherits = "dev"
+debug = false
 
 [profile.release-lto]
 inherits = "release"

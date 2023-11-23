@@ -23,7 +23,7 @@ console_error_panic_hook = "0.1"
 console_log = "1"
 getrandom = { version = "0.2", features = ["js"] }
 js-sys = "0.3"
-log = { workspace = true }
+log = { workspace = true, features = ["release_max_level_info"] }
 rand = { workspace = true }
 rfd = { workspace = true }
 wasm-bindgen = "0.2"
