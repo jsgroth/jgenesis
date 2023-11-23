@@ -61,7 +61,7 @@ impl PreprocessPipeline {
         preprocess_shader: PreprocessShader,
         device: &wgpu::Device,
         input_texture: wgpu::Texture,
-        identity_shader: &wgpu::ShaderModule,
+        shaders: &Shaders,
     ) -> Self {
         match preprocess_shader {
             PreprocessShader::None => Self::None(input_texture),
@@ -69,12 +69,9 @@ impl PreprocessPipeline {
             | PreprocessShader::HorizontalBlurThreePixels
             | PreprocessShader::HorizontalBlurSnesAdaptive
             | PreprocessShader::AntiDitherWeak
-            | PreprocessShader::AntiDitherStrong => create_horizontal_blur_pipeline(
-                preprocess_shader,
-                device,
-                input_texture,
-                identity_shader,
-            ),
+            | PreprocessShader::AntiDitherStrong => {
+                create_horizontal_blur_pipeline(preprocess_shader, device, input_texture, shaders)
+            }
         }
     }
 
@@ -128,7 +125,7 @@ fn create_horizontal_blur_pipeline(
     preprocess_shader: PreprocessShader,
     device: &wgpu::Device,
     input_texture: wgpu::Texture,
-    identity_shader: &wgpu::ShaderModule,
+    shaders: &Shaders,
 ) -> PreprocessPipeline {
     let input_texture_view = input_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -204,7 +201,6 @@ fn create_horizontal_blur_pipeline(
         push_constant_ranges: &[],
     });
 
-    let hblur_shader = device.create_shader_module(wgpu::include_wgsl!("hblur.wgsl"));
     let fs_main = match preprocess_shader {
         PreprocessShader::HorizontalBlurTwoPixels => "hblur_2px",
         PreprocessShader::HorizontalBlurThreePixels => "hblur_3px",
@@ -216,7 +212,11 @@ fn create_horizontal_blur_pipeline(
     let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: "hblur_pipeline".into(),
         layout: Some(&pipeline_layout),
-        vertex: wgpu::VertexState { module: identity_shader, entry_point: "vs_main", buffers: &[] },
+        vertex: wgpu::VertexState {
+            module: &shaders.identity,
+            entry_point: "vs_main",
+            buffers: &[],
+        },
         primitive: wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::TriangleStrip,
             strip_index_format: None,
@@ -233,7 +233,7 @@ fn create_horizontal_blur_pipeline(
             alpha_to_coverage_enabled: false,
         },
         fragment: Some(wgpu::FragmentState {
-            module: &hblur_shader,
+            module: &shaders.hblur,
             entry_point: fs_main,
             targets: &[Some(wgpu::ColorTargetState {
                 format: output_texture.format(),
@@ -270,8 +270,10 @@ struct RenderingPipeline {
 }
 
 impl RenderingPipeline {
+    #[allow(clippy::too_many_arguments)]
     fn create(
         device: &wgpu::Device,
+        shaders: &Shaders,
         window_size: (u32, u32),
         frame_size: FrameSize,
         pixel_aspect_ratio: Option<PixelAspectRatio>,
@@ -320,12 +322,11 @@ impl RenderingPipeline {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::VERTEX,
         });
 
-        let identity_shader = device.create_shader_module(wgpu::include_wgsl!("identity.wgsl"));
         let preprocess_pipeline = PreprocessPipeline::create(
             renderer_config.preprocess_shader,
             device,
             input_texture,
-            &identity_shader,
+            shaders,
         );
 
         let prescale_bind_group_layout =
@@ -407,7 +408,6 @@ impl RenderingPipeline {
         let scaled_texture_view =
             scaled_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let prescale_shader = device.create_shader_module(wgpu::include_wgsl!("prescale.wgsl"));
         let prescale_fs_main = match renderer_config.scanlines {
             Scanlines::None => "basic_prescale",
             Scanlines::Dim => "dim_scanlines",
@@ -417,7 +417,7 @@ impl RenderingPipeline {
             label: "prescale_pipeline".into(),
             layout: Some(&prescale_pipeline_layout),
             vertex: wgpu::VertexState {
-                module: &identity_shader,
+                module: &shaders.identity,
                 entry_point: "vs_main",
                 buffers: &[],
             },
@@ -437,7 +437,7 @@ impl RenderingPipeline {
                 alpha_to_coverage_enabled: false,
             },
             fragment: Some(wgpu::FragmentState {
-                module: &prescale_shader,
+                module: &shaders.prescale,
                 entry_point: prescale_fs_main,
                 targets: &[Some(wgpu::ColorTargetState {
                     format: scaled_texture.format(),
@@ -493,12 +493,11 @@ impl RenderingPipeline {
                 push_constant_ranges: &[],
             });
 
-        let render_shader = device.create_shader_module(wgpu::include_wgsl!("render.wgsl"));
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: "render_pipeline".into(),
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
-                module: &render_shader,
+                module: &shaders.render,
                 entry_point: "vs_main",
                 buffers: &[Vertex::buffer_layout()],
             },
@@ -518,7 +517,7 @@ impl RenderingPipeline {
                 alpha_to_coverage_enabled: false,
             },
             fragment: Some(wgpu::FragmentState {
-                module: &render_shader,
+                module: &shaders.render,
                 entry_point: "fs_main",
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_config.format,
@@ -707,6 +706,24 @@ pub enum RendererError {
     UnsupportedPresentMode { desired: wgpu::PresentMode, available: Vec<wgpu::PresentMode> },
 }
 
+struct Shaders {
+    render: wgpu::ShaderModule,
+    prescale: wgpu::ShaderModule,
+    identity: wgpu::ShaderModule,
+    hblur: wgpu::ShaderModule,
+}
+
+impl Shaders {
+    fn create(device: &wgpu::Device) -> Self {
+        let render = device.create_shader_module(wgpu::include_wgsl!("render.wgsl"));
+        let prescale = device.create_shader_module(wgpu::include_wgsl!("prescale.wgsl"));
+        let identity = device.create_shader_module(wgpu::include_wgsl!("identity.wgsl"));
+        let hblur = device.create_shader_module(wgpu::include_wgsl!("hblur.wgsl"));
+
+        Self { render, prescale, identity, hblur }
+    }
+}
+
 pub type WindowSizeFn<Window> = fn(&Window) -> (u32, u32);
 
 pub struct WgpuRenderer<Window> {
@@ -714,6 +731,7 @@ pub struct WgpuRenderer<Window> {
     surface_config: wgpu::SurfaceConfiguration,
     device: wgpu::Device,
     queue: wgpu::Queue,
+    shaders: Shaders,
     texture_format: wgpu::TextureFormat,
     renderer_config: RendererConfig,
     pipeline: Option<RenderingPipeline>,
@@ -817,11 +835,14 @@ impl<Window: HasRawDisplayHandle + HasRawWindowHandle> WgpuRenderer<Window> {
             wgpu::TextureFormat::Rgba8Unorm
         };
 
+        let shaders = Shaders::create(&device);
+
         Ok(Self {
             surface,
             surface_config,
             device,
             queue,
+            shaders,
             texture_format,
             renderer_config: config,
             pipeline: None,
@@ -871,6 +892,7 @@ impl<Window> WgpuRenderer<Window> {
             let window_size = (self.window_size_fn)(&self.window);
             self.pipeline = Some(RenderingPipeline::create(
                 &self.device,
+                &self.shaders,
                 window_size,
                 frame_size,
                 pixel_aspect_ratio,
