@@ -1,22 +1,19 @@
 use anyhow::anyhow;
-use jgenesis_common::frontend::EmulatorTrait;
 use jgenesis_native_driver::config::input::{
     AxisDirection, HatDirection, JoystickAction, JoystickInput, KeyboardInput,
 };
 use jgenesis_native_driver::config::{GenesisConfig, SegaCdConfig, SmsGgConfig, SnesConfig};
-use jgenesis_native_driver::input::{Clearable, GetButtonField, Joysticks};
+use jgenesis_native_driver::input::Joysticks;
 use jgenesis_native_driver::{
-    AudioError, NativeEmulator, NativeGenesisEmulator, NativeSegaCdEmulator, NativeSmsGgEmulator,
-    NativeSnesEmulator, NativeTickEffect, SaveWriteError,
+    AudioError, NativeEmulatorResult, NativeGenesisEmulator, NativeSegaCdEmulator,
+    NativeSmsGgEmulator, NativeSnesEmulator, NativeTickEffect,
 };
-use jgenesis_renderer::renderer::RendererError;
 use sdl2::event::Event;
 use sdl2::joystick::HatState;
 use sdl2::pixels::Color;
 use sdl2::render::WindowCanvas;
 use sdl2::{EventPump, JoystickSubsystem};
 use segacd_core::api::DiscResult;
-use std::error::Error;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
@@ -138,18 +135,6 @@ impl EmuThreadHandle {
     }
 }
 
-macro_rules! noop_remove_disc_handler {
-    () => {
-        |_emulator| {}
-    };
-}
-
-macro_rules! noop_change_disc_handler {
-    () => {
-        |_emulator, _path| Ok(())
-    };
-}
-
 pub fn spawn() -> EmuThreadHandle {
     let status_arc = Arc::new(AtomicU8::new(EmuThreadStatus::Idle as u8));
     let (command_sender, command_receiver) = mpsc::channel();
@@ -175,13 +160,10 @@ pub fn spawn() -> EmuThreadHandle {
                         }
                     };
                     run_emulator(
-                        emulator,
+                        GenericEmulator::SmsGg(emulator),
                         &command_receiver,
                         &input_sender,
                         &emulator_error,
-                        smsgg_reload_handler,
-                        noop_remove_disc_handler!(),
-                        noop_change_disc_handler!(),
                     );
                 }
                 Ok(EmuThreadCommand::RunGenesis(config)) => {
@@ -196,13 +178,10 @@ pub fn spawn() -> EmuThreadHandle {
                         }
                     };
                     run_emulator(
-                        emulator,
+                        GenericEmulator::Genesis(emulator),
                         &command_receiver,
                         &input_sender,
                         &emulator_error,
-                        genesis_reload_handler,
-                        noop_remove_disc_handler!(),
-                        noop_change_disc_handler!(),
                     );
                 }
                 Ok(EmuThreadCommand::RunSegaCd(config)) => {
@@ -217,13 +196,10 @@ pub fn spawn() -> EmuThreadHandle {
                         }
                     };
                     run_emulator(
-                        emulator,
+                        GenericEmulator::SegaCd(emulator),
                         &command_receiver,
                         &input_sender,
                         &emulator_error,
-                        sega_cd_reload_handler,
-                        sega_cd_remove_disc_handler,
-                        sega_cd_change_disc_handler,
                     );
                 }
                 Ok(EmuThreadCommand::RunSnes(config)) => {
@@ -238,13 +214,10 @@ pub fn spawn() -> EmuThreadHandle {
                         }
                     };
                     run_emulator(
-                        emulator,
+                        GenericEmulator::Snes(emulator),
                         &command_receiver,
                         &input_sender,
                         &emulator_error,
-                        snes_reload_handler,
-                        noop_remove_disc_handler!(),
-                        noop_change_disc_handler!(),
                     );
                 }
                 Ok(EmuThreadCommand::CollectInput { input_type, axis_deadzone }) => {
@@ -286,127 +259,125 @@ pub fn spawn() -> EmuThreadHandle {
     }
 }
 
-fn sega_cd_remove_disc_handler(emulator: &mut NativeSegaCdEmulator) {
-    emulator.remove_disc();
+enum GenericEmulator {
+    SmsGg(NativeSmsGgEmulator),
+    Genesis(NativeGenesisEmulator),
+    SegaCd(NativeSegaCdEmulator),
+    Snes(NativeSnesEmulator),
 }
 
-fn sega_cd_change_disc_handler(
-    emulator: &mut NativeSegaCdEmulator,
-    path: PathBuf,
-) -> DiscResult<()> {
-    emulator.change_disc(path)
+macro_rules! match_each_emulator_variant {
+    ($value:expr, $emulator:ident => $expr:expr) => {
+        match $value {
+            GenericEmulator::SmsGg($emulator) => $expr,
+            GenericEmulator::Genesis($emulator) => $expr,
+            GenericEmulator::SegaCd($emulator) => $expr,
+            GenericEmulator::Snes($emulator) => $expr,
+        }
+    };
 }
 
-#[derive(Debug, Clone)]
-enum GenericConfig {
-    SmsGg(Box<SmsGgConfig>),
-    Genesis(Box<GenesisConfig>),
-    SegaCd(Box<SegaCdConfig>),
-    Snes(Box<SnesConfig>),
-}
+impl GenericEmulator {
+    fn reload_smsgg_config(&mut self, config: Box<SmsGgConfig>) -> Result<(), AudioError> {
+        if let Self::SmsGg(emulator) = self {
+            emulator.reload_smsgg_config(config)?;
+        }
 
-fn smsgg_reload_handler(
-    emulator: &mut NativeSmsGgEmulator,
-    config: GenericConfig,
-) -> Result<(), AudioError> {
-    if let GenericConfig::SmsGg(config) = config {
-        emulator.reload_smsgg_config(config)?;
+        Ok(())
     }
 
-    Ok(())
-}
+    fn reload_genesis_config(&mut self, config: Box<GenesisConfig>) -> Result<(), AudioError> {
+        if let Self::Genesis(emulator) = self {
+            emulator.reload_genesis_config(config)?;
+        }
 
-fn genesis_reload_handler(
-    emulator: &mut NativeGenesisEmulator,
-    config: GenericConfig,
-) -> Result<(), AudioError> {
-    if let GenericConfig::Genesis(config) = config {
-        emulator.reload_genesis_config(config)?;
+        Ok(())
     }
 
-    Ok(())
-}
+    fn reload_sega_cd_config(&mut self, config: Box<SegaCdConfig>) -> Result<(), AudioError> {
+        if let Self::SegaCd(emulator) = self {
+            emulator.reload_sega_cd_config(config)?;
+        }
 
-fn sega_cd_reload_handler(
-    emulator: &mut NativeSegaCdEmulator,
-    config: GenericConfig,
-) -> Result<(), AudioError> {
-    if let GenericConfig::SegaCd(config) = config {
-        emulator.reload_sega_cd_config(config)?;
+        Ok(())
     }
 
-    Ok(())
-}
+    fn reload_snes_config(&mut self, config: Box<SnesConfig>) -> Result<(), AudioError> {
+        if let Self::Snes(emulator) = self {
+            emulator.reload_snes_config(config)?;
+        }
 
-fn snes_reload_handler(
-    emulator: &mut NativeSnesEmulator,
-    config: GenericConfig,
-) -> Result<(), AudioError> {
-    if let GenericConfig::Snes(config) = config {
-        emulator.reload_snes_config(config)?;
+        Ok(())
     }
 
-    Ok(())
+    fn remove_disc(&mut self) {
+        if let Self::SegaCd(emulator) = self {
+            emulator.remove_disc();
+        }
+    }
+
+    fn change_disc(&mut self, path: PathBuf) -> DiscResult<()> {
+        if let Self::SegaCd(emulator) = self {
+            emulator.change_disc(path)?;
+        }
+
+        Ok(())
+    }
+
+    fn render_frame(&mut self) -> NativeEmulatorResult<NativeTickEffect> {
+        match_each_emulator_variant!(self, emulator => emulator.render_frame())
+    }
+
+    fn soft_reset(&mut self) {
+        match_each_emulator_variant!(self, emulator => emulator.soft_reset());
+    }
+
+    fn hard_reset(&mut self) {
+        match_each_emulator_variant!(self, emulator => emulator.hard_reset());
+    }
+
+    fn focus(&mut self) {
+        match_each_emulator_variant!(self, emulator => emulator.focus());
+    }
+
+    fn event_pump_and_joysticks_mut(
+        &mut self,
+    ) -> (&mut EventPump, &mut Joysticks, &JoystickSubsystem) {
+        match_each_emulator_variant!(self, emulator => emulator.event_pump_and_joysticks_mut())
+    }
 }
 
-type ConfigReloadHandler<Inputs, Button, Config, Emulator> = fn(
-    &mut NativeEmulator<Inputs, Button, Config, Emulator>,
-    GenericConfig,
-) -> Result<(), AudioError>;
-
-type RemoveDiscHandler<Inputs, Button, Config, Emulator> =
-    fn(&mut NativeEmulator<Inputs, Button, Config, Emulator>);
-
-type ChangeDiscHandler<Inputs, Button, Config, Emulator> =
-    fn(&mut NativeEmulator<Inputs, Button, Config, Emulator>, PathBuf) -> DiscResult<()>;
-
-fn run_emulator<Inputs, Button, Config, Emulator>(
-    mut emulator: NativeEmulator<Inputs, Button, Config, Emulator>,
+fn run_emulator(
+    mut emulator: GenericEmulator,
     command_receiver: &Receiver<EmuThreadCommand>,
     input_sender: &Sender<Option<GenericInput>>,
     emulator_error: &Arc<Mutex<Option<anyhow::Error>>>,
-    config_reload_handler: ConfigReloadHandler<Inputs, Button, Config, Emulator>,
-    remove_disc_handler: RemoveDiscHandler<Inputs, Button, Config, Emulator>,
-    change_disc_handler: ChangeDiscHandler<Inputs, Button, Config, Emulator>,
-) where
-    Inputs: Clearable + GetButtonField<Button>,
-    Button: Copy,
-    Emulator: EmulatorTrait<Inputs = Inputs, Config = Config>,
-    Emulator::Err<RendererError, AudioError, SaveWriteError>: Error + Send + Sync + 'static,
-{
+) {
     loop {
         match emulator.render_frame() {
             Ok(NativeTickEffect::None) => {
                 while let Ok(command) = command_receiver.try_recv() {
                     match command {
                         EmuThreadCommand::ReloadSmsGgConfig(config) => {
-                            if let Err(err) =
-                                config_reload_handler(&mut emulator, GenericConfig::SmsGg(config))
-                            {
+                            if let Err(err) = emulator.reload_smsgg_config(config) {
                                 *emulator_error.lock().unwrap() = Some(err.into());
                                 return;
                             }
                         }
                         EmuThreadCommand::ReloadGenesisConfig(config) => {
-                            if let Err(err) =
-                                config_reload_handler(&mut emulator, GenericConfig::Genesis(config))
-                            {
+                            if let Err(err) = emulator.reload_genesis_config(config) {
                                 *emulator_error.lock().unwrap() = Some(err.into());
                                 return;
                             }
                         }
                         EmuThreadCommand::ReloadSegaCdConfig(config) => {
-                            if let Err(err) =
-                                config_reload_handler(&mut emulator, GenericConfig::SegaCd(config))
-                            {
+                            if let Err(err) = emulator.reload_sega_cd_config(config) {
                                 *emulator_error.lock().unwrap() = Some(err.into());
                                 return;
                             }
                         }
                         EmuThreadCommand::ReloadSnesConfig(config) => {
-                            if let Err(err) =
-                                config_reload_handler(&mut emulator, GenericConfig::Snes(config))
-                            {
+                            if let Err(err) = emulator.reload_snes_config(config) {
                                 *emulator_error.lock().unwrap() = Some(err.into());
                                 return;
                             }
@@ -447,10 +418,10 @@ fn run_emulator<Inputs, Button, Config, Emulator>(
                             emulator.hard_reset();
                         }
                         EmuThreadCommand::SegaCdRemoveDisc => {
-                            remove_disc_handler(&mut emulator);
+                            emulator.remove_disc();
                         }
                         EmuThreadCommand::SegaCdChangeDisc(path) => {
-                            if let Err(err) = change_disc_handler(&mut emulator, path) {
+                            if let Err(err) = emulator.change_disc(path) {
                                 *emulator_error.lock().unwrap() = Some(err.into());
                                 return;
                             }
