@@ -1,4 +1,4 @@
-use jgenesis_common::frontend::{PartialClone, Renderer, TakeRomFrom, TickableEmulator};
+use jgenesis_common::frontend::{EmulatorTrait, PartialClone, Renderer};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
@@ -54,7 +54,7 @@ impl<Emulator: PartialClone> Rewinder<Emulator> {
 
     pub fn tick<R>(&mut self, emulator: &mut Emulator, renderer: &mut R) -> Result<(), R::Err>
     where
-        Emulator: TickableEmulator + TakeRomFrom,
+        Emulator: EmulatorTrait,
         R: Renderer,
     {
         let Some(last_rewind_time) = self.last_rewind_time else { return Ok(()) };

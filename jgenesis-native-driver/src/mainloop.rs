@@ -14,9 +14,7 @@ use crate::mainloop::rewind::Rewinder;
 use bincode::error::{DecodeError, EncodeError};
 use bincode::{Decode, Encode};
 use genesis_core::{GenesisEmulator, GenesisEmulatorConfig, GenesisInputs};
-use jgenesis_common::frontend::{
-    AudioOutput, ConfigReload, EmulatorTrait, PartialClone, SaveWriter, TickEffect,
-};
+use jgenesis_common::frontend::{AudioOutput, EmulatorTrait, PartialClone, SaveWriter, TickEffect};
 use jgenesis_renderer::renderer::{RendererError, WgpuRenderer};
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::event::{Event, WindowEvent};
@@ -544,7 +542,7 @@ impl<Inputs, Button, Config, Emulator> NativeEmulator<Inputs, Button, Config, Em
 where
     Inputs: Clearable + GetButtonField<Button>,
     Button: Copy,
-    Emulator: EmulatorTrait<EmulatorInputs = Inputs, EmulatorConfig = Config>,
+    Emulator: EmulatorTrait<Inputs = Inputs, Config = Config>,
     Emulator::Err<RendererError, AudioError, SaveWriteError>: Error + Send + Sync + 'static,
 {
     /// Run the emulator until a frame is rendered.
@@ -1023,7 +1021,7 @@ fn handle_hotkeys<Emulator, P>(
     hotkey_mapper: &HotkeyMapper,
     event: &Event,
     emulator: &mut Emulator,
-    config: &Emulator::EmulatorConfig,
+    config: &Emulator::Config,
     renderer: &mut WgpuRenderer<Window>,
     audio_output: &mut SdlAudioOutput,
     save_state_path: P,
@@ -1088,7 +1086,7 @@ where
 fn handle_hotkey_pressed<Emulator>(
     hotkey: Hotkey,
     emulator: &mut Emulator,
-    config: &Emulator::EmulatorConfig,
+    config: &Emulator::Config,
     renderer: &mut WgpuRenderer<Window>,
     audio_output: &mut SdlAudioOutput,
     paused: &mut bool,

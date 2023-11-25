@@ -15,7 +15,6 @@ jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
 bincode = { workspace = true }
 bytemuck = { workspace = true }
 serde = { workspace = true, optional = true }
-thiserror = { workspace = true }
 
 [lints]
 workspace = true

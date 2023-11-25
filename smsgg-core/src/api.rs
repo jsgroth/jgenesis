@@ -10,9 +10,8 @@ use crate::ym2413::Ym2413;
 use crate::{vdp, SmsGgInputs, VdpVersion};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, FrameSize, PartialClone,
-    PixelAspectRatio, Renderer, Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
-    TimingMode,
+    AudioOutput, Color, EmulatorDebug, EmulatorTrait, FrameSize, PartialClone, PixelAspectRatio,
+    Renderer, SaveWriter, TickEffect, TimingMode,
 };
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
 use std::fmt::{Debug, Display};
@@ -184,31 +183,25 @@ fn init_z80(z80: &mut Z80) {
     z80.set_interrupt_mode(InterruptMode::Mode1);
 }
 
-impl ConfigReload for SmsGgEmulator {
+impl EmulatorDebug for SmsGgEmulator {
+    const NUM_PALETTES: u32 = 2;
+    const PALETTE_LEN: u32 = 16;
+    const PATTERN_TABLE_LEN: u32 = 512;
+    const SUPPORTS_VRAM_DEBUG: bool = true;
+
+    fn debug_cram(&self, out: &mut [Color]) {
+        self.vdp.debug_cram(out);
+    }
+
+    fn debug_vram(&self, out: &mut [Color], palette: u8) {
+        self.vdp.debug_vram(out, palette);
+    }
+}
+
+impl EmulatorTrait for SmsGgEmulator {
+    type Inputs = SmsGgInputs;
     type Config = SmsGgEmulatorConfig;
 
-    fn reload_config(&mut self, config: &Self::Config) {
-        self.vdp_version = config.vdp_version;
-        self.vdp.set_version(config.vdp_version);
-        self.psg.set_version(config.psg_version);
-        self.pixel_aspect_ratio = config.pixel_aspect_ratio;
-        self.vdp.set_remove_sprite_limit(config.remove_sprite_limit);
-        self.input.set_region(config.sms_region);
-        self.sms_crop_vertical_border = config.sms_crop_vertical_border;
-        self.sms_crop_left_border = config.sms_crop_left_border;
-        self.overclock_z80 = config.overclock_z80;
-        self.audio_resampler.update_timing_mode(self.vdp.timing_mode());
-    }
-}
-
-impl TakeRomFrom for SmsGgEmulator {
-    fn take_rom_from(&mut self, other: &mut Self) {
-        self.memory.take_rom_from(&mut other.memory);
-    }
-}
-
-impl TickableEmulator for SmsGgEmulator {
-    type Inputs = SmsGgInputs;
     type Err<
         RErr: Debug + Display + Send + Sync + 'static,
         AErr: Debug + Display + Send + Sync + 'static,
@@ -310,9 +303,24 @@ impl TickableEmulator for SmsGgEmulator {
     {
         self.render_frame(renderer)
     }
-}
 
-impl Resettable for SmsGgEmulator {
+    fn reload_config(&mut self, config: &Self::Config) {
+        self.vdp_version = config.vdp_version;
+        self.vdp.set_version(config.vdp_version);
+        self.psg.set_version(config.psg_version);
+        self.pixel_aspect_ratio = config.pixel_aspect_ratio;
+        self.vdp.set_remove_sprite_limit(config.remove_sprite_limit);
+        self.input.set_region(config.sms_region);
+        self.sms_crop_vertical_border = config.sms_crop_vertical_border;
+        self.sms_crop_left_border = config.sms_crop_left_border;
+        self.overclock_z80 = config.overclock_z80;
+        self.audio_resampler.update_timing_mode(self.vdp.timing_mode());
+    }
+
+    fn take_rom_from(&mut self, other: &mut Self) {
+        self.memory.take_rom_from(&mut other.memory);
+    }
+
     fn soft_reset(&mut self) {
         log::info!("Soft resetting console");
 
@@ -337,26 +345,6 @@ impl Resettable for SmsGgEmulator {
         self.vdp_cycles_remainder = 0;
         self.frame_count = 0;
     }
-}
-
-impl EmulatorDebug for SmsGgEmulator {
-    const NUM_PALETTES: u32 = 2;
-    const PALETTE_LEN: u32 = 16;
-    const PATTERN_TABLE_LEN: u32 = 512;
-    const SUPPORTS_VRAM_DEBUG: bool = true;
-
-    fn debug_cram(&self, out: &mut [Color]) {
-        self.vdp.debug_cram(out);
-    }
-
-    fn debug_vram(&self, out: &mut [Color], palette: u8) {
-        self.vdp.debug_vram(out, palette);
-    }
-}
-
-impl EmulatorTrait for SmsGgEmulator {
-    type EmulatorInputs = SmsGgInputs;
-    type EmulatorConfig = SmsGgEmulatorConfig;
 
     fn timing_mode(&self) -> TimingMode {
         self.vdp.timing_mode()

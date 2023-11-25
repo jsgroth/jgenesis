@@ -7,9 +7,8 @@ use crate::vdp::{Vdp, VdpConfig, VdpTickEffect};
 use crate::ym2612::{Ym2612, YmTickEffect};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, FrameSize, PartialClone,
-    PixelAspectRatio, Renderer, Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
-    TimingMode,
+    AudioOutput, Color, EmulatorDebug, EmulatorTrait, FrameSize, PartialClone, PixelAspectRatio,
+    Renderer, SaveWriter, TickEffect, TimingMode,
 };
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
@@ -268,25 +267,25 @@ pub fn render_frame<R: Renderer>(
     renderer.render_frame(vdp.frame_buffer(), frame_size, pixel_aspect_ratio)
 }
 
-impl ConfigReload for GenesisEmulator {
+impl EmulatorDebug for GenesisEmulator {
+    const NUM_PALETTES: u32 = 4;
+    const PALETTE_LEN: u32 = 16;
+    const PATTERN_TABLE_LEN: u32 = 2048;
+    const SUPPORTS_VRAM_DEBUG: bool = true;
+
+    fn debug_cram(&self, out: &mut [Color]) {
+        self.vdp.debug_cram(out);
+    }
+
+    fn debug_vram(&self, out: &mut [Color], palette: u8) {
+        self.vdp.debug_vram(out, palette);
+    }
+}
+
+impl EmulatorTrait for GenesisEmulator {
+    type Inputs = GenesisInputs;
     type Config = GenesisEmulatorConfig;
 
-    fn reload_config(&mut self, config: &Self::Config) {
-        self.aspect_ratio = config.aspect_ratio;
-        self.adjust_aspect_ratio_in_2x_resolution = config.adjust_aspect_ratio_in_2x_resolution;
-        self.vdp.reload_config(config.to_vdp_config());
-        self.ym2612.set_quantize_output(config.quantize_ym2612_output);
-    }
-}
-
-impl TakeRomFrom for GenesisEmulator {
-    fn take_rom_from(&mut self, other: &mut Self) {
-        self.memory.take_rom_from(&mut other.memory);
-    }
-}
-
-impl TickableEmulator for GenesisEmulator {
-    type Inputs = GenesisInputs;
     type Err<
         RErr: Debug + Display + Send + Sync + 'static,
         AErr: Debug + Display + Send + Sync + 'static,
@@ -379,9 +378,18 @@ impl TickableEmulator for GenesisEmulator {
     {
         self.render_frame(renderer)
     }
-}
 
-impl Resettable for GenesisEmulator {
+    fn reload_config(&mut self, config: &Self::Config) {
+        self.aspect_ratio = config.aspect_ratio;
+        self.adjust_aspect_ratio_in_2x_resolution = config.adjust_aspect_ratio_in_2x_resolution;
+        self.vdp.reload_config(config.to_vdp_config());
+        self.ym2612.set_quantize_output(config.quantize_ym2612_output);
+    }
+
+    fn take_rom_from(&mut self, other: &mut Self) {
+        self.memory.take_rom_from(&mut other.memory);
+    }
+
     fn soft_reset(&mut self) {
         log::info!("Soft resetting console");
 
@@ -408,26 +416,6 @@ impl Resettable for GenesisEmulator {
 
         *self = GenesisEmulator::create(rom, cartridge_ram, config);
     }
-}
-
-impl EmulatorDebug for GenesisEmulator {
-    const NUM_PALETTES: u32 = 4;
-    const PALETTE_LEN: u32 = 16;
-    const PATTERN_TABLE_LEN: u32 = 2048;
-    const SUPPORTS_VRAM_DEBUG: bool = true;
-
-    fn debug_cram(&self, out: &mut [Color]) {
-        self.vdp.debug_cram(out);
-    }
-
-    fn debug_vram(&self, out: &mut [Color], palette: u8) {
-        self.vdp.debug_vram(out, palette);
-    }
-}
-
-impl EmulatorTrait for GenesisEmulator {
-    type EmulatorInputs = GenesisInputs;
-    type EmulatorConfig = GenesisEmulatorConfig;
 
     fn timing_mode(&self) -> TimingMode {
         self.timing_mode

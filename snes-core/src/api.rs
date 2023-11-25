@@ -10,9 +10,8 @@ use crate::ppu::{Ppu, PpuTickEffect};
 use bincode::{Decode, Encode};
 use crc::Crc;
 use jgenesis_common::frontend::{
-    AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, FrameSize, PartialClone,
-    PixelAspectRatio, Renderer, Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator,
-    TimingMode,
+    AudioOutput, Color, EmulatorDebug, EmulatorTrait, FrameSize, PartialClone, PixelAspectRatio,
+    Renderer, SaveWriter, TickEffect, TimingMode,
 };
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
 use std::fmt::{Debug, Display};
@@ -210,8 +209,25 @@ impl SnesEmulator {
     }
 }
 
-impl TickableEmulator for SnesEmulator {
+impl EmulatorDebug for SnesEmulator {
+    const NUM_PALETTES: u32 = 16;
+    const PALETTE_LEN: u32 = 16;
+    const PATTERN_TABLE_LEN: u32 = 0;
+    const SUPPORTS_VRAM_DEBUG: bool = false;
+
+    fn debug_cram(&self, out: &mut [Color]) {
+        self.ppu.debug_cram(out);
+    }
+
+    fn debug_vram(&self, _out: &mut [Color], _palette: u8) {
+        todo!("VRAM debug")
+    }
+}
+
+impl EmulatorTrait for SnesEmulator {
     type Inputs = SnesInputs;
+    type Config = SnesEmulatorConfig;
+
     type Err<
         RErr: Debug + Display + Send + Sync + 'static,
         AErr: Debug + Display + Send + Sync + 'static,
@@ -311,10 +327,6 @@ impl TickableEmulator for SnesEmulator {
         let aspect_ratio = self.aspect_ratio.to_pixel_aspect_ratio(frame_size);
         renderer.render_frame(self.ppu.frame_buffer(), frame_size, aspect_ratio)
     }
-}
-
-impl ConfigReload for SnesEmulator {
-    type Config = SnesEmulatorConfig;
 
     fn reload_config(&mut self, config: &Self::Config) {
         self.aspect_ratio = config.aspect_ratio;
@@ -323,16 +335,12 @@ impl ConfigReload for SnesEmulator {
 
         self.emulator_config = *config;
     }
-}
 
-impl TakeRomFrom for SnesEmulator {
     fn take_rom_from(&mut self, other: &mut Self) {
         self.memory.take_rom_from(&mut other.memory);
         self.coprocessor_roms = mem::take(&mut other.coprocessor_roms);
     }
-}
 
-impl Resettable for SnesEmulator {
     fn soft_reset(&mut self) {
         log::info!("Soft resetting");
 
@@ -356,26 +364,6 @@ impl Resettable for SnesEmulator {
         *self = Self::create(rom, sram, self.emulator_config, coprocessor_roms)
             .expect("Hard resetting should never fail to load");
     }
-}
-
-impl EmulatorDebug for SnesEmulator {
-    const NUM_PALETTES: u32 = 16;
-    const PALETTE_LEN: u32 = 16;
-    const PATTERN_TABLE_LEN: u32 = 0;
-    const SUPPORTS_VRAM_DEBUG: bool = false;
-
-    fn debug_cram(&self, out: &mut [Color]) {
-        self.ppu.debug_cram(out);
-    }
-
-    fn debug_vram(&self, _out: &mut [Color], _palette: u8) {
-        todo!("VRAM debug")
-    }
-}
-
-impl EmulatorTrait for SnesEmulator {
-    type EmulatorInputs = SnesInputs;
-    type EmulatorConfig = SnesEmulatorConfig;
 
     fn timing_mode(&self) -> TimingMode {
         self.timing_mode

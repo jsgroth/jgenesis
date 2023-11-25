@@ -3,7 +3,6 @@ use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::num::NonZeroU32;
-use thiserror::Error;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable, Encode, Decode)]
@@ -120,12 +119,6 @@ pub trait SaveWriter {
     ) -> Result<(), Self::Err>;
 }
 
-pub trait ConfigReload {
-    type Config;
-
-    fn reload_config(&mut self, config: &Self::Config);
-}
-
 pub trait PartialClone {
     /// Create a partial clone of `self`, which clones all emulation state but may not clone
     /// read-only fields such as ROMs and frame buffers.
@@ -134,68 +127,6 @@ pub trait PartialClone {
 }
 
 pub use jgenesis_proc_macros::PartialClone;
-
-pub trait TakeRomFrom {
-    fn take_rom_from(&mut self, other: &mut Self);
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TickEffect {
-    None,
-    FrameRendered,
-}
-
-#[derive(Debug, Error)]
-pub enum EmulatorError<RErr, AErr, SErr> {
-    #[error("Rendering error: {0}")]
-    Render(RErr),
-    #[error("Audio error: {0}")]
-    Audio(AErr),
-    #[error("Save write error: {0}")]
-    SaveWrite(SErr),
-}
-
-#[allow(clippy::type_complexity)]
-pub trait TickableEmulator {
-    type Inputs;
-    type Err<RErr: Debug + Display + Send + Sync + 'static, AErr: Debug + Display + Send + Sync + 'static, SErr: Debug + Display + Send + Sync + 'static>: Error + Send + Sync + 'static;
-
-    /// Tick the emulator for a small amount of time, e.g. a single CPU instruction.
-    ///
-    /// # Errors
-    ///
-    /// This method should propagate any errors encountered while rendering frames, pushing audio
-    /// samples, or persisting save files.
-    fn tick<R, A, S>(
-        &mut self,
-        renderer: &mut R,
-        audio_output: &mut A,
-        inputs: &Self::Inputs,
-        save_writer: &mut S,
-    ) -> Result<TickEffect, Self::Err<R::Err, A::Err, S::Err>>
-    where
-        R: Renderer,
-        R::Err: Debug + Display + Send + Sync + 'static,
-        A: AudioOutput,
-        A::Err: Debug + Display + Send + Sync + 'static,
-        S: SaveWriter,
-        S::Err: Debug + Display + Send + Sync + 'static;
-
-    /// Forcibly render the current frame buffer.
-    ///
-    /// # Errors
-    ///
-    /// This method can propagate any error returned by the renderer.
-    fn force_render<R>(&mut self, renderer: &mut R) -> Result<(), R::Err>
-    where
-        R: Renderer;
-}
-
-pub trait Resettable {
-    fn soft_reset(&mut self);
-
-    fn hard_reset(&mut self);
-}
 
 pub const VRAM_DEBUG_ROW_LEN: u32 = 64;
 
@@ -222,18 +153,58 @@ pub enum TimingMode {
     Pal,
 }
 
-pub trait EmulatorTrait:
-    TickableEmulator<Inputs = Self::EmulatorInputs>
-    + Encode
-    + Decode
-    + ConfigReload<Config = Self::EmulatorConfig>
-    + PartialClone
-    + TakeRomFrom
-    + Resettable
-    + EmulatorDebug
-{
-    type EmulatorInputs;
-    type EmulatorConfig;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TickEffect {
+    None,
+    FrameRendered,
+}
+
+pub type TickResult<Err> = Result<TickEffect, Err>;
+
+pub trait EmulatorTrait: Encode + Decode + PartialClone + EmulatorDebug {
+    type Inputs;
+    type Config;
+
+    type Err<RErr: Debug + Display + Send + Sync + 'static, AErr: Debug + Display + Send + Sync + 'static, SErr: Debug + Display + Send + Sync + 'static>: Error + Send + Sync + 'static;
+
+    /// Tick the emulator for a small amount of time, e.g. a single CPU instruction.
+    ///
+    /// # Errors
+    ///
+    /// This method should propagate any errors encountered while rendering frames, pushing audio
+    /// samples, or persisting save files.
+    #[allow(clippy::type_complexity)]
+    fn tick<R, A, S>(
+        &mut self,
+        renderer: &mut R,
+        audio_output: &mut A,
+        inputs: &Self::Inputs,
+        save_writer: &mut S,
+    ) -> TickResult<Self::Err<R::Err, A::Err, S::Err>>
+    where
+        R: Renderer,
+        R::Err: Debug + Display + Send + Sync + 'static,
+        A: AudioOutput,
+        A::Err: Debug + Display + Send + Sync + 'static,
+        S: SaveWriter,
+        S::Err: Debug + Display + Send + Sync + 'static;
+
+    /// Forcibly render the current frame buffer.
+    ///
+    /// # Errors
+    ///
+    /// This method can propagate any error returned by the renderer.
+    fn force_render<R>(&mut self, renderer: &mut R) -> Result<(), R::Err>
+    where
+        R: Renderer;
+
+    fn reload_config(&mut self, config: &Self::Config);
+
+    fn take_rom_from(&mut self, other: &mut Self);
+
+    fn soft_reset(&mut self);
+
+    fn hard_reset(&mut self);
 
     fn timing_mode(&self) -> TimingMode;
 }

@@ -371,7 +371,7 @@ fn run_emulator<Inputs, Button, Config, Emulator>(
 ) where
     Inputs: Clearable + GetButtonField<Button>,
     Button: Copy,
-    Emulator: EmulatorTrait<EmulatorInputs = Inputs, EmulatorConfig = Config>,
+    Emulator: EmulatorTrait<Inputs = Inputs, Config = Config>,
     Emulator::Err<RendererError, AudioError, SaveWriteError>: Error + Send + Sync + 'static,
 {
     loop {

@@ -17,8 +17,8 @@ use genesis_core::{
     GenesisAspectRatio, GenesisEmulator, GenesisEmulatorConfig, GenesisInputs, GenesisRegion,
 };
 use jgenesis_common::frontend::{
-    AudioOutput, Color, ConfigReload, EmulatorDebug, EmulatorTrait, PartialClone, Renderer,
-    Resettable, SaveWriter, TakeRomFrom, TickEffect, TickableEmulator, TimingMode,
+    AudioOutput, Color, EmulatorDebug, EmulatorTrait, PartialClone, Renderer, SaveWriter,
+    TickEffect, TimingMode,
 };
 use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgTickEffect, PsgVersion};
@@ -294,8 +294,25 @@ impl SegaCdEmulator {
     }
 }
 
-impl TickableEmulator for SegaCdEmulator {
+impl EmulatorDebug for SegaCdEmulator {
+    const NUM_PALETTES: u32 = GenesisEmulator::NUM_PALETTES;
+    const PALETTE_LEN: u32 = GenesisEmulator::PALETTE_LEN;
+    const PATTERN_TABLE_LEN: u32 = GenesisEmulator::PATTERN_TABLE_LEN;
+    const SUPPORTS_VRAM_DEBUG: bool = true;
+
+    fn debug_cram(&self, out: &mut [Color]) {
+        self.vdp.debug_cram(out);
+    }
+
+    fn debug_vram(&self, out: &mut [Color], palette: u8) {
+        self.vdp.debug_vram(out, palette);
+    }
+}
+
+impl EmulatorTrait for SegaCdEmulator {
     type Inputs = GenesisInputs;
+    type Config = SegaCdEmulatorConfig;
+
     type Err<
         RErr: Debug + Display + Send + Sync + 'static,
         AErr: Debug + Display + Send + Sync + 'static,
@@ -431,9 +448,23 @@ impl TickableEmulator for SegaCdEmulator {
     {
         self.render_frame(renderer)
     }
-}
 
-impl Resettable for SegaCdEmulator {
+    fn reload_config(&mut self, config: &Self::Config) {
+        self.aspect_ratio = config.genesis.aspect_ratio;
+        self.adjust_aspect_ratio_in_2x_resolution =
+            config.genesis.adjust_aspect_ratio_in_2x_resolution;
+        self.vdp.reload_config(config.genesis.to_vdp_config());
+        self.ym2612.set_quantize_output(config.genesis.quantize_ym2612_output);
+
+        let sega_cd = self.memory.medium_mut();
+        sega_cd.set_forced_region(config.genesis.forced_region);
+        sega_cd.set_enable_ram_cartridge(config.enable_ram_cartridge);
+    }
+
+    fn take_rom_from(&mut self, other: &mut Self) {
+        self.memory.medium_mut().take_rom_from(other.memory.medium_mut());
+    }
+
     fn soft_reset(&mut self) {
         // Reset main CPU
         self.main_cpu.execute_instruction(&mut new_main_bus!(self, m68k_reset: true));
@@ -473,48 +504,6 @@ impl Resettable for SegaCdEmulator {
         )
         .expect("Hard reset should not cause an I/O error");
     }
-}
-
-impl ConfigReload for SegaCdEmulator {
-    type Config = SegaCdEmulatorConfig;
-
-    fn reload_config(&mut self, config: &Self::Config) {
-        self.aspect_ratio = config.genesis.aspect_ratio;
-        self.adjust_aspect_ratio_in_2x_resolution =
-            config.genesis.adjust_aspect_ratio_in_2x_resolution;
-        self.vdp.reload_config(config.genesis.to_vdp_config());
-        self.ym2612.set_quantize_output(config.genesis.quantize_ym2612_output);
-
-        let sega_cd = self.memory.medium_mut();
-        sega_cd.set_forced_region(config.genesis.forced_region);
-        sega_cd.set_enable_ram_cartridge(config.enable_ram_cartridge);
-    }
-}
-
-impl TakeRomFrom for SegaCdEmulator {
-    fn take_rom_from(&mut self, other: &mut Self) {
-        self.memory.medium_mut().take_rom_from(other.memory.medium_mut());
-    }
-}
-
-impl EmulatorDebug for SegaCdEmulator {
-    const NUM_PALETTES: u32 = GenesisEmulator::NUM_PALETTES;
-    const PALETTE_LEN: u32 = GenesisEmulator::PALETTE_LEN;
-    const PATTERN_TABLE_LEN: u32 = GenesisEmulator::PATTERN_TABLE_LEN;
-    const SUPPORTS_VRAM_DEBUG: bool = true;
-
-    fn debug_cram(&self, out: &mut [Color]) {
-        self.vdp.debug_cram(out);
-    }
-
-    fn debug_vram(&self, out: &mut [Color], palette: u8) {
-        self.vdp.debug_vram(out, palette);
-    }
-}
-
-impl EmulatorTrait for SegaCdEmulator {
-    type EmulatorInputs = GenesisInputs;
-    type EmulatorConfig = SegaCdEmulatorConfig;
 
     fn timing_mode(&self) -> TimingMode {
         self.timing_mode

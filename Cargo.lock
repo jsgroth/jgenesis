@@ -1927,7 +1927,6 @@ dependencies = [
  "bytemuck",
  "jgenesis-proc-macros",
  "serde",
- "thiserror",
 ]
 
 [[package]]
