@@ -1,4 +1,5 @@
 use crate::SmsGgConsole;
+use genesis_core::input::GenesisControllerType;
 use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig};
 use jgenesis_common::frontend::{PixelAspectRatio, TimingMode};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
@@ -158,6 +159,8 @@ impl GenesisWebConfig {
             remove_sprite_limits: self.remove_sprite_limits,
             emulate_non_linear_vdp_dac: self.emulate_non_linear_vdp_dac,
             quantize_ym2612_output: true,
+            p1_controller_type: GenesisControllerType::default(),
+            p2_controller_type: GenesisControllerType::default(),
         }
     }
 }

@@ -5,6 +5,7 @@ use crate::input::{GenesisInputs, InputState};
 use crate::memory::{Cartridge, MainBus, MainBusSignals, MainBusWrites, Memory};
 use crate::vdp::{Vdp, VdpConfig, VdpTickEffect};
 use crate::ym2612::{Ym2612, YmTickEffect};
+use crate::GenesisControllerType;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorDebug, EmulatorTrait, FrameSize, PartialClone, PixelAspectRatio,
@@ -124,6 +125,8 @@ impl GenesisRegion {
 
 #[derive(Debug, Clone, Copy)]
 pub struct GenesisEmulatorConfig {
+    pub p1_controller_type: GenesisControllerType,
+    pub p2_controller_type: GenesisControllerType,
     pub forced_timing_mode: Option<TimingMode>,
     pub forced_region: Option<GenesisRegion>,
     pub aspect_ratio: GenesisAspectRatio,
@@ -384,6 +387,7 @@ impl EmulatorTrait for GenesisEmulator {
         self.adjust_aspect_ratio_in_2x_resolution = config.adjust_aspect_ratio_in_2x_resolution;
         self.vdp.reload_config(config.to_vdp_config());
         self.ym2612.set_quantize_output(config.quantize_ym2612_output);
+        self.input.reload_config(*config);
     }
 
     fn take_rom_from(&mut self, other: &mut Self) {
@@ -404,6 +408,8 @@ impl EmulatorTrait for GenesisEmulator {
         let rom = self.memory.take_rom();
         let cartridge_ram = self.memory.take_external_ram_if_persistent();
         let vdp_config = self.vdp.config();
+        let (p1_controller_type, p2_controller_type) = self.input.controller_types();
+
         let config = GenesisEmulatorConfig {
             forced_timing_mode: Some(self.timing_mode),
             forced_region: Some(self.memory.hardware_region()),
@@ -412,6 +418,8 @@ impl EmulatorTrait for GenesisEmulator {
             remove_sprite_limits: !vdp_config.enforce_sprite_limits,
             emulate_non_linear_vdp_dac: vdp_config.emulate_non_linear_dac,
             quantize_ym2612_output: self.ym2612.get_quantize_output(),
+            p1_controller_type,
+            p2_controller_type,
         };
 
         *self = GenesisEmulator::create(rom, cartridge_ram, config);

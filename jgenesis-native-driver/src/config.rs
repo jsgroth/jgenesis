@@ -196,6 +196,8 @@ impl GenesisConfig {
             remove_sprite_limits: self.remove_sprite_limits,
             emulate_non_linear_vdp_dac: self.emulate_non_linear_vdp_dac,
             quantize_ym2612_output: self.quantize_ym2612_output,
+            p1_controller_type: self.p1_controller_type,
+            p2_controller_type: self.p2_controller_type,
         }
     }
 }

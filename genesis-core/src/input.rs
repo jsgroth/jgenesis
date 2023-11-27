@@ -1,5 +1,6 @@
 //! Code for handling Genesis controller input I/O registers
 
+use crate::GenesisEmulatorConfig;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
@@ -30,9 +31,7 @@ pub enum GenesisControllerType {
 
 #[derive(Debug, Clone, Default, Encode, Decode)]
 pub struct GenesisInputs {
-    pub p1_type: GenesisControllerType,
     pub p1: GenesisJoypadState,
-    pub p2_type: GenesisControllerType,
     pub p2: GenesisJoypadState,
 }
 
@@ -167,6 +166,8 @@ impl PinDirections {
 #[derive(Debug, Clone, Default, Encode, Decode)]
 pub struct InputState {
     inputs: GenesisInputs,
+    p1_controller_type: GenesisControllerType,
+    p2_controller_type: GenesisControllerType,
     p1_pin_directions: PinDirections,
     p2_pin_directions: PinDirections,
 }
@@ -181,6 +182,16 @@ impl InputState {
         self.inputs = inputs.clone();
     }
 
+    pub fn reload_config(&mut self, config: GenesisEmulatorConfig) {
+        self.p1_controller_type = config.p1_controller_type;
+        self.p2_controller_type = config.p2_controller_type;
+    }
+
+    #[must_use]
+    pub fn controller_types(&self) -> (GenesisControllerType, GenesisControllerType) {
+        (self.p1_controller_type, self.p2_controller_type)
+    }
+
     #[must_use]
     pub fn read_p1_data(&self) -> u8 {
         self.p1_pin_directions.to_data_byte(self.inputs.p1)
@@ -192,11 +203,11 @@ impl InputState {
     }
 
     pub fn write_p1_data(&mut self, value: u8) {
-        self.p1_pin_directions.write_data(value, self.inputs.p1_type);
+        self.p1_pin_directions.write_data(value, self.p1_controller_type);
     }
 
     pub fn write_p2_data(&mut self, value: u8) {
-        self.p2_pin_directions.write_data(value, self.inputs.p2_type);
+        self.p2_pin_directions.write_data(value, self.p2_controller_type);
     }
 
     #[must_use]

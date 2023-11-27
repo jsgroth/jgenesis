@@ -6,8 +6,8 @@ use crate::config::{
     CommonConfig, GenesisConfig, SegaCdConfig, SmsGgConfig, SnesConfig, WindowSize,
 };
 use crate::input::{
-    Clearable, GenesisButton, GetButtonField, Hotkey, HotkeyMapResult, HotkeyMapper, InputMapper,
-    Joysticks, SmsGgButton, SnesButton,
+    GenesisButton, GetButtonField, Hotkey, HotkeyMapResult, HotkeyMapper, InputMapper, Joysticks,
+    SmsGgButton, SnesButton,
 };
 use crate::mainloop::debug::{CramDebug, VramDebug};
 use crate::mainloop::rewind::Rewinder;
@@ -355,12 +355,10 @@ impl NativeGenesisEmulator {
         self.emulator.reload_config(&emulator_config);
         self.config = emulator_config;
 
-        if let Err(err) = self.input_mapper.reload_config(
-            config.p1_controller_type,
-            config.p2_controller_type,
-            config.common.keyboard_inputs,
-            config.common.joystick_inputs,
-        ) {
+        if let Err(err) = self
+            .input_mapper
+            .reload_config(config.common.keyboard_inputs, config.common.joystick_inputs)
+        {
             log::error!("Error reloading input config: {err}");
         }
 
@@ -382,8 +380,6 @@ impl NativeSegaCdEmulator {
         self.emulator.reload_config(&config.to_emulator_config());
 
         if let Err(err) = self.input_mapper.reload_config(
-            config.genesis.p1_controller_type,
-            config.genesis.p2_controller_type,
             config.genesis.common.keyboard_inputs,
             config.genesis.common.joystick_inputs,
         ) {
@@ -540,7 +536,7 @@ pub type NativeEmulatorResult<T> = Result<T, NativeEmulatorError>;
 // TODO simplify or generalize these trait bounds
 impl<Inputs, Button, Config, Emulator> NativeEmulator<Inputs, Button, Config, Emulator>
 where
-    Inputs: Clearable + GetButtonField<Button>,
+    Inputs: Default + GetButtonField<Button>,
     Button: Copy,
     Emulator: EmulatorTrait<Inputs = Inputs, Config = Config>,
     Emulator::Err<RendererError, AudioError, SaveWriteError>: Error + Send + Sync + 'static,
@@ -780,8 +776,6 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
         pollster::block_on(WgpuRenderer::new(window, Window::size, config.common.renderer_config))?;
     let audio_output = SdlAudioOutput::create_and_init(&audio, &config.common)?;
     let input_mapper = InputMapper::new_genesis(
-        config.p1_controller_type,
-        config.p2_controller_type,
         joystick,
         config.common.keyboard_inputs,
         config.common.joystick_inputs,
@@ -860,8 +854,6 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
     ))?;
     let audio_output = SdlAudioOutput::create_and_init(&audio, &config.genesis.common)?;
     let input_mapper = InputMapper::new_genesis(
-        config.genesis.p1_controller_type,
-        config.genesis.p2_controller_type,
         joystick,
         config.genesis.common.keyboard_inputs,
         config.genesis.common.joystick_inputs,

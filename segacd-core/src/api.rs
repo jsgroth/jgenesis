@@ -455,6 +455,7 @@ impl EmulatorTrait for SegaCdEmulator {
             config.genesis.adjust_aspect_ratio_in_2x_resolution;
         self.vdp.reload_config(config.genesis.to_vdp_config());
         self.ym2612.set_quantize_output(config.genesis.quantize_ym2612_output);
+        self.input.reload_config(config.genesis);
 
         let sega_cd = self.memory.medium_mut();
         sega_cd.set_forced_region(config.genesis.forced_region);
@@ -484,6 +485,7 @@ impl EmulatorTrait for SegaCdEmulator {
         let forced_region = sega_cd.forced_region();
         let enable_ram_cartridge = sega_cd.get_enable_ram_cartridge();
         let vdp_config = self.vdp.config();
+        let (p1_controller_type, p2_controller_type) = self.input.controller_types();
 
         *self = Self::create_from_disc(
             bios,
@@ -498,6 +500,8 @@ impl EmulatorTrait for SegaCdEmulator {
                     remove_sprite_limits: !vdp_config.enforce_sprite_limits,
                     emulate_non_linear_vdp_dac: vdp_config.emulate_non_linear_dac,
                     quantize_ym2612_output: self.ym2612.get_quantize_output(),
+                    p1_controller_type,
+                    p2_controller_type,
                 },
                 enable_ram_cartridge,
             },
