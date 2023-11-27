@@ -259,14 +259,14 @@ impl Joysticks {
     }
 
     pub fn device_removed(&mut self, instance_id: u32) {
-        if let Some(device_id) = self.instance_id_to_device_id.remove(&instance_id) {
-            if let Some(joystick) = self.joysticks.remove(&device_id) {
-                log::info!("Disconnected joystick id {device_id}: {}", joystick.name());
-            }
+        let Some(device_id) = self.instance_id_to_device_id.remove(&instance_id) else { return };
 
-            for device_ids in self.name_to_device_ids.values_mut() {
-                device_ids.retain(|&id| id != device_id);
-            }
+        if let Some(joystick) = self.joysticks.remove(&device_id) {
+            log::info!("Disconnected joystick id {device_id}: {}", joystick.name());
+        }
+
+        for device_ids in self.name_to_device_ids.values_mut() {
+            device_ids.retain(|&id| id != device_id);
         }
     }
 
@@ -628,10 +628,10 @@ where
     }
 
     fn key(&mut self, keycode: Keycode, value: bool) {
-        if let Some(buttons) = self.keyboard_mapping.get(&keycode) {
-            for &button in buttons {
-                *self.inputs.get_field(button) = value;
-            }
+        let Some(buttons) = self.keyboard_mapping.get(&keycode) else { return };
+
+        for &button in buttons {
+            *self.inputs.get_field(button) = value;
         }
     }
 
@@ -644,9 +644,31 @@ where
     }
 
     fn button(&mut self, instance_id: u32, button_idx: u8, value: bool) {
-        if let Some(device_id) = self.joysticks.device_id_for(instance_id) {
-            if let Some(buttons) =
-                self.joystick_mapping.get(&(device_id, JoystickAction::Button { button_idx }))
+        let Some(device_id) = self.joysticks.device_id_for(instance_id) else { return };
+
+        let Some(buttons) =
+            self.joystick_mapping.get(&(device_id, JoystickAction::Button { button_idx }))
+        else {
+            return;
+        };
+
+        for &button in buttons {
+            *self.inputs.get_field(button) = value;
+        }
+    }
+
+    pub(crate) fn axis_motion(&mut self, instance_id: u32, axis_idx: u8, value: i16) {
+        let Some(device_id) = self.joysticks.device_id_for(instance_id) else { return };
+
+        let negative_down = value < -self.axis_deadzone;
+        let positive_down = value > self.axis_deadzone;
+
+        for (direction, value) in
+            [(AxisDirection::Positive, positive_down), (AxisDirection::Negative, negative_down)]
+        {
+            if let Some(buttons) = self
+                .joystick_mapping
+                .get(&(device_id, JoystickAction::Axis { axis_idx, direction }))
             {
                 for &button in buttons {
                     *self.inputs.get_field(button) = value;
@@ -655,27 +677,9 @@ where
         }
     }
 
-    pub(crate) fn axis_motion(&mut self, instance_id: u32, axis_idx: u8, value: i16) {
-        let negative_down = value < -self.axis_deadzone;
-        let positive_down = value > self.axis_deadzone;
-
-        if let Some(device_id) = self.joysticks.device_id_for(instance_id) {
-            for (direction, value) in
-                [(AxisDirection::Positive, positive_down), (AxisDirection::Negative, negative_down)]
-            {
-                if let Some(buttons) = self
-                    .joystick_mapping
-                    .get(&(device_id, JoystickAction::Axis { axis_idx, direction }))
-                {
-                    for &button in buttons {
-                        *self.inputs.get_field(button) = value;
-                    }
-                }
-            }
-        }
-    }
-
     pub(crate) fn hat_motion(&mut self, instance_id: u32, hat_idx: u8, state: HatState) {
+        let Some(device_id) = self.joysticks.device_id_for(instance_id) else { return };
+
         let up_pressed = matches!(state, HatState::LeftUp | HatState::Up | HatState::RightUp);
         let left_pressed = matches!(state, HatState::LeftUp | HatState::Left | HatState::LeftDown);
         let down_pressed =
@@ -683,20 +687,17 @@ where
         let right_pressed =
             matches!(state, HatState::RightUp | HatState::Right | HatState::RightDown);
 
-        if let Some(device_id) = self.joysticks.device_id_for(instance_id) {
-            for (direction, value) in [
-                (HatDirection::Up, up_pressed),
-                (HatDirection::Left, left_pressed),
-                (HatDirection::Down, down_pressed),
-                (HatDirection::Right, right_pressed),
-            ] {
-                if let Some(buttons) = self
-                    .joystick_mapping
-                    .get(&(device_id, JoystickAction::Hat { hat_idx, direction }))
-                {
-                    for &button in buttons {
-                        *self.inputs.get_field(button) = value;
-                    }
+        for (direction, value) in [
+            (HatDirection::Up, up_pressed),
+            (HatDirection::Left, left_pressed),
+            (HatDirection::Down, down_pressed),
+            (HatDirection::Right, right_pressed),
+        ] {
+            if let Some(buttons) =
+                self.joystick_mapping.get(&(device_id, JoystickAction::Hat { hat_idx, direction }))
+            {
+                for &button in buttons {
+                    *self.inputs.get_field(button) = value;
                 }
             }
         }
