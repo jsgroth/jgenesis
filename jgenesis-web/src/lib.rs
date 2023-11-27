@@ -8,8 +8,7 @@ use crate::audio::AudioQueue;
 use crate::config::{EmulatorChannel, EmulatorCommand, WebConfig, WebConfigRef};
 use genesis_core::{GenesisEmulator, GenesisInputs};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, ConfigReload, EmulatorTrait, FrameSize, Renderer, SaveWriter, TickEffect,
-    TickableEmulator, TimingMode,
+    AudioOutput, Color, EmulatorTrait, FrameSize, Renderer, SaveWriter, TickEffect, TimingMode,
 };
 use jgenesis_renderer::renderer::WgpuRenderer;
 use js_sys::Promise;
