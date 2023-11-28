@@ -92,7 +92,8 @@ impl AudioResampler {
     }
 
     pub fn update_timing_mode(&mut self, timing_mode: TimingMode) {
-        self.psg_resampler.update_source_frequency(timing_mode.mclk_frequency());
+        let psg_frequency = compute_psg_frequency(timing_mode.mclk_frequency());
+        self.psg_resampler.update_source_frequency(psg_frequency);
     }
 
     pub fn collect_sample(&mut self, sample_l: f64, sample_r: f64) {
