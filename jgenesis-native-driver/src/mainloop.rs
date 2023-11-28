@@ -237,6 +237,16 @@ impl SaveWriter for FsSaveWriter {
     }
 }
 
+struct HotkeyState<Emulator: PartialClone> {
+    save_state_path: PathBuf,
+    paused: bool,
+    should_step_frame: bool,
+    fast_forward_multiplier: u64,
+    rewinder: Rewinder<Emulator>,
+    cram_debug: Option<CramDebug>,
+    vram_debug: Option<VramDebug>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeTickEffect {
     None,
@@ -252,14 +262,8 @@ pub struct NativeEmulator<Inputs, Button, Config, Emulator: PartialClone> {
     hotkey_mapper: HotkeyMapper,
     save_writer: FsSaveWriter,
     event_pump: EventPump,
-    save_state_path: PathBuf,
-    paused: bool,
-    should_step_frame: bool,
-    fast_forward_multiplier: u64,
-    rewinder: Rewinder<Emulator>,
     video: VideoSubsystem,
-    cram_debug: Option<CramDebug>,
-    vram_debug: Option<VramDebug>,
+    hotkey_state: HotkeyState<Emulator>,
 }
 
 impl<Inputs, Button, Config, Emulator: PartialClone>
@@ -272,12 +276,14 @@ impl<Inputs, Button, Config, Emulator: PartialClone>
         self.renderer.reload_config(config.renderer_config);
         self.audio_output.reload_config(config)?;
 
-        self.fast_forward_multiplier = config.fast_forward_multiplier;
+        self.hotkey_state.fast_forward_multiplier = config.fast_forward_multiplier;
         // Reset speed multiplier in case the fast forward hotkey changed
         self.renderer.set_speed_multiplier(1);
         self.audio_output.speed_multiplier = 1;
 
-        self.rewinder.set_buffer_duration(Duration::from_secs(config.rewind_buffer_length_seconds));
+        self.hotkey_state
+            .rewinder
+            .set_buffer_duration(Duration::from_secs(config.rewind_buffer_length_seconds));
 
         match HotkeyMapper::from_config(&config.hotkeys) {
             Ok(hotkey_mapper) => {
@@ -549,8 +555,9 @@ where
     /// samples, or writing save files.
     pub fn render_frame(&mut self) -> NativeEmulatorResult<NativeTickEffect> {
         loop {
-            let rewinding = self.rewinder.is_rewinding();
-            let should_tick_emulator = !rewinding && (!self.paused || self.should_step_frame);
+            let rewinding = self.hotkey_state.rewinder.is_rewinding();
+            let should_tick_emulator =
+                !rewinding && (!self.hotkey_state.paused || self.hotkey_state.should_step_frame);
             let frame_rendered = should_tick_emulator
                 && self
                     .emulator
@@ -564,26 +571,20 @@ where
                     == TickEffect::FrameRendered;
 
             if !should_tick_emulator || frame_rendered {
-                self.should_step_frame = false;
+                self.hotkey_state.should_step_frame = false;
 
                 for event in self.event_pump.poll_iter() {
                     self.input_mapper.handle_event(&event)?;
-                    if handle_hotkeys(
-                        &self.hotkey_mapper,
-                        &event,
-                        &mut self.emulator,
-                        &self.config,
-                        &mut self.renderer,
-                        &mut self.audio_output,
-                        &self.save_state_path,
-                        &mut self.paused,
-                        &mut self.should_step_frame,
-                        self.fast_forward_multiplier,
-                        &mut self.rewinder,
-                        &self.video,
-                        &mut self.cram_debug,
-                        &mut self.vram_debug,
-                    )? == HotkeyResult::Quit
+                    if handle_hotkeys(HandleHotkeysArgs {
+                        hotkey_mapper: &self.hotkey_mapper,
+                        event: &event,
+                        emulator: &mut self.emulator,
+                        config: &self.config,
+                        renderer: &mut self.renderer,
+                        audio_output: &mut self.audio_output,
+                        video: &self.video,
+                        hotkey_state: &mut self.hotkey_state,
+                    })? == HotkeyResult::Quit
                     {
                         return Ok(NativeTickEffect::Exit);
                     }
@@ -596,20 +597,22 @@ where
                             if window_id == self.renderer.window_id() {
                                 handle_window_event(win_event, &mut self.renderer);
                             } else if self
+                                .hotkey_state
                                 .cram_debug
                                 .as_ref()
                                 .is_some_and(|cram_debug| cram_debug.window_id() == window_id)
                             {
                                 if let WindowEvent::Close = win_event {
-                                    self.cram_debug = None;
+                                    self.hotkey_state.cram_debug = None;
                                 }
                             } else if self
+                                .hotkey_state
                                 .vram_debug
                                 .as_ref()
                                 .is_some_and(|vram_debug| vram_debug.window_id() == window_id)
                             {
                                 if let WindowEvent::Close = win_event {
-                                    self.vram_debug = None;
+                                    self.hotkey_state.vram_debug = None;
                                 }
                             }
                         }
@@ -617,23 +620,23 @@ where
                     }
                 }
 
-                if let Some(cram_debug) = &mut self.cram_debug {
+                if let Some(cram_debug) = &mut self.hotkey_state.cram_debug {
                     cram_debug.render(&self.emulator)?;
                 }
 
-                if let Some(vram_debug) = &mut self.vram_debug {
+                if let Some(vram_debug) = &mut self.hotkey_state.vram_debug {
                     vram_debug.render(&self.emulator)?;
                 }
 
                 if frame_rendered {
-                    self.rewinder.record_frame(&self.emulator);
+                    self.hotkey_state.rewinder.record_frame(&self.emulator);
                 }
 
                 if rewinding {
-                    self.rewinder.tick(&mut self.emulator, &mut self.renderer)?;
+                    self.hotkey_state.rewinder.tick(&mut self.emulator, &mut self.renderer)?;
                 }
 
-                if rewinding || self.paused {
+                if rewinding || self.hotkey_state.paused {
                     // Don't spin loop when the emulator is not actively running
                     sleep(Duration::from_millis(1));
                 }
@@ -719,14 +722,18 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
         hotkey_mapper,
         save_writer,
         event_pump,
-        save_state_path,
-        paused: false,
-        should_step_frame: false,
-        fast_forward_multiplier: config.common.fast_forward_multiplier,
-        rewinder: Rewinder::new(Duration::from_secs(config.common.rewind_buffer_length_seconds)),
         video,
-        cram_debug: None,
-        vram_debug: None,
+        hotkey_state: HotkeyState {
+            save_state_path,
+            paused: false,
+            should_step_frame: false,
+            fast_forward_multiplier: config.common.fast_forward_multiplier,
+            rewinder: Rewinder::new(Duration::from_secs(
+                config.common.rewind_buffer_length_seconds,
+            )),
+            cram_debug: None,
+            vram_debug: None,
+        },
     })
 }
 
@@ -793,14 +800,18 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
         hotkey_mapper,
         save_writer,
         event_pump,
-        save_state_path,
-        paused: false,
-        should_step_frame: false,
-        fast_forward_multiplier: config.common.fast_forward_multiplier,
-        rewinder: Rewinder::new(Duration::from_secs(config.common.rewind_buffer_length_seconds)),
         video,
-        cram_debug: None,
-        vram_debug: None,
+        hotkey_state: HotkeyState {
+            save_state_path,
+            paused: false,
+            should_step_frame: false,
+            fast_forward_multiplier: config.common.fast_forward_multiplier,
+            rewinder: Rewinder::new(Duration::from_secs(
+                config.common.rewind_buffer_length_seconds,
+            )),
+            cram_debug: None,
+            vram_debug: None,
+        },
     })
 }
 
@@ -871,16 +882,18 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
         hotkey_mapper,
         save_writer,
         event_pump,
-        save_state_path,
-        paused: false,
-        should_step_frame: false,
-        fast_forward_multiplier: config.genesis.common.fast_forward_multiplier,
-        rewinder: Rewinder::new(Duration::from_secs(
-            config.genesis.common.rewind_buffer_length_seconds,
-        )),
         video,
-        cram_debug: None,
-        vram_debug: None,
+        hotkey_state: HotkeyState {
+            save_state_path,
+            paused: false,
+            should_step_frame: false,
+            fast_forward_multiplier: config.genesis.common.fast_forward_multiplier,
+            rewinder: Rewinder::new(Duration::from_secs(
+                config.genesis.common.rewind_buffer_length_seconds,
+            )),
+            cram_debug: None,
+            vram_debug: None,
+        },
     })
 }
 
@@ -947,14 +960,18 @@ pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEm
         hotkey_mapper,
         save_writer,
         event_pump,
-        save_state_path,
-        paused: false,
-        should_step_frame: false,
-        fast_forward_multiplier: config.common.fast_forward_multiplier,
-        rewinder: Rewinder::new(Duration::from_secs(config.common.rewind_buffer_length_seconds)),
         video,
-        cram_debug: None,
-        vram_debug: None,
+        hotkey_state: HotkeyState {
+            save_state_path,
+            paused: false,
+            should_step_frame: false,
+            fast_forward_multiplier: config.common.fast_forward_multiplier,
+            rewinder: Rewinder::new(Duration::from_secs(
+                config.common.rewind_buffer_length_seconds,
+            )),
+            cram_debug: None,
+            vram_debug: None,
+        },
     })
 }
 
@@ -1008,48 +1025,27 @@ enum HotkeyResult {
     Quit,
 }
 
-#[allow(clippy::too_many_arguments)]
-fn handle_hotkeys<Emulator, P>(
-    hotkey_mapper: &HotkeyMapper,
-    event: &Event,
-    emulator: &mut Emulator,
-    config: &Emulator::Config,
-    renderer: &mut WgpuRenderer<Window>,
-    audio_output: &mut SdlAudioOutput,
-    save_state_path: P,
-    paused: &mut bool,
-    should_step_frame: &mut bool,
-    fast_forward_multiplier: u64,
-    rewinder: &mut Rewinder<Emulator>,
-    video: &VideoSubsystem,
-    cram_debug: &mut Option<CramDebug>,
-    vram_debug: &mut Option<VramDebug>,
+struct HandleHotkeysArgs<'a, Emulator: EmulatorTrait> {
+    hotkey_mapper: &'a HotkeyMapper,
+    event: &'a Event,
+    emulator: &'a mut Emulator,
+    config: &'a Emulator::Config,
+    renderer: &'a mut WgpuRenderer<Window>,
+    audio_output: &'a mut SdlAudioOutput,
+    video: &'a VideoSubsystem,
+    hotkey_state: &'a mut HotkeyState<Emulator>,
+}
+
+fn handle_hotkeys<Emulator>(
+    mut args: HandleHotkeysArgs<'_, Emulator>,
 ) -> NativeEmulatorResult<HotkeyResult>
 where
     Emulator: EmulatorTrait,
-    P: AsRef<Path>,
 {
-    let save_state_path = save_state_path.as_ref();
-
-    match hotkey_mapper.check_for_hotkeys(event) {
+    match args.hotkey_mapper.check_for_hotkeys(args.event) {
         HotkeyMapResult::Pressed(hotkeys) => {
             for &hotkey in hotkeys {
-                if handle_hotkey_pressed(
-                    hotkey,
-                    emulator,
-                    config,
-                    renderer,
-                    audio_output,
-                    paused,
-                    should_step_frame,
-                    fast_forward_multiplier,
-                    rewinder,
-                    video,
-                    cram_debug,
-                    vram_debug,
-                    save_state_path,
-                )? == HotkeyResult::Quit
-                {
+                if handle_hotkey_pressed(hotkey, &mut args)? == HotkeyResult::Quit {
                     return Ok(HotkeyResult::Quit);
                 }
             }
@@ -1058,11 +1054,11 @@ where
             for &hotkey in hotkeys {
                 match hotkey {
                     Hotkey::FastForward => {
-                        renderer.set_speed_multiplier(1);
-                        audio_output.speed_multiplier = 1;
+                        args.renderer.set_speed_multiplier(1);
+                        args.audio_output.speed_multiplier = 1;
                     }
                     Hotkey::Rewind => {
-                        rewinder.stop_rewinding();
+                        args.hotkey_state.rewinder.stop_rewinding();
                     }
                     _ => {}
                 }
@@ -1077,31 +1073,22 @@ where
 #[allow(clippy::too_many_arguments)]
 fn handle_hotkey_pressed<Emulator>(
     hotkey: Hotkey,
-    emulator: &mut Emulator,
-    config: &Emulator::Config,
-    renderer: &mut WgpuRenderer<Window>,
-    audio_output: &mut SdlAudioOutput,
-    paused: &mut bool,
-    should_step_frame: &mut bool,
-    fast_forward_multiplier: u64,
-    rewinder: &mut Rewinder<Emulator>,
-    video: &VideoSubsystem,
-    cram_debug: &mut Option<CramDebug>,
-    vram_debug: &mut Option<VramDebug>,
-    save_state_path: &Path,
+    args: &mut HandleHotkeysArgs<'_, Emulator>,
 ) -> NativeEmulatorResult<HotkeyResult>
 where
     Emulator: EmulatorTrait,
 {
+    let save_state_path = &args.hotkey_state.save_state_path;
+
     match hotkey {
         Hotkey::Quit => {
             return Ok(HotkeyResult::Quit);
         }
         Hotkey::ToggleFullscreen => {
-            renderer.toggle_fullscreen().map_err(NativeEmulatorError::SdlSetFullscreen)?;
+            args.renderer.toggle_fullscreen().map_err(NativeEmulatorError::SdlSetFullscreen)?;
         }
         Hotkey::SaveState => {
-            save_state(emulator, save_state_path)?;
+            save_state(args.emulator, save_state_path)?;
         }
         Hotkey::LoadState => {
             let mut loaded_emulator: Emulator = match load_state(save_state_path) {
@@ -1114,44 +1101,44 @@ where
                     return Ok(HotkeyResult::None);
                 }
             };
-            loaded_emulator.take_rom_from(emulator);
+            loaded_emulator.take_rom_from(args.emulator);
 
             // Force a config reload because the emulator will contain some config fields
-            loaded_emulator.reload_config(config);
+            loaded_emulator.reload_config(args.config);
 
-            *emulator = loaded_emulator;
+            *args.emulator = loaded_emulator;
         }
         Hotkey::SoftReset => {
-            emulator.soft_reset();
+            args.emulator.soft_reset();
         }
         Hotkey::HardReset => {
-            emulator.hard_reset();
+            args.emulator.hard_reset();
         }
         Hotkey::Pause => {
-            *paused = !(*paused);
+            args.hotkey_state.paused = !args.hotkey_state.paused;
         }
         Hotkey::StepFrame => {
-            *should_step_frame = true;
+            args.hotkey_state.should_step_frame = true;
         }
         Hotkey::FastForward => {
-            renderer.set_speed_multiplier(fast_forward_multiplier);
-            audio_output.speed_multiplier = fast_forward_multiplier;
+            args.renderer.set_speed_multiplier(args.hotkey_state.fast_forward_multiplier);
+            args.audio_output.speed_multiplier = args.hotkey_state.fast_forward_multiplier;
         }
         Hotkey::Rewind => {
-            rewinder.start_rewinding();
+            args.hotkey_state.rewinder.start_rewinding();
         }
         Hotkey::OpenCramDebug => {
-            if cram_debug.is_none() {
-                *cram_debug = Some(CramDebug::new::<Emulator>(video)?);
+            if args.hotkey_state.cram_debug.is_none() {
+                args.hotkey_state.cram_debug = Some(CramDebug::new::<Emulator>(args.video)?);
             }
         }
-        Hotkey::OpenVramDebug => match vram_debug {
+        Hotkey::OpenVramDebug => match &mut args.hotkey_state.vram_debug {
             Some(vram_debug) => {
                 vram_debug.toggle_palette()?;
             }
             None => {
                 if Emulator::SUPPORTS_VRAM_DEBUG {
-                    *vram_debug = Some(VramDebug::new::<Emulator>(video)?);
+                    args.hotkey_state.vram_debug = Some(VramDebug::new::<Emulator>(args.video)?);
                 } else {
                     log::error!("Currently running console does not support VRAM debug window");
                 }
