@@ -1480,7 +1480,7 @@ dependencies = [
 
 [[package]]
 name = "genesis-core"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "bincode",
  "crc",
@@ -1904,7 +1904,7 @@ checksum = "af150ab688ff2122fcef229be89cb50dd66af9e01a4ff320cc137eecc9bacc38"
 
 [[package]]
 name = "jgenesis-cli"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "anyhow",
  "clap",
@@ -1921,7 +1921,7 @@ dependencies = [
 
 [[package]]
 name = "jgenesis-common"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "bincode",
  "bytemuck",
@@ -1931,7 +1931,7 @@ dependencies = [
 
 [[package]]
 name = "jgenesis-gui"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "anyhow",
  "bincode",
@@ -1957,7 +1957,7 @@ dependencies = [
 
 [[package]]
 name = "jgenesis-native-driver"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "bincode",
  "bytemuck",
@@ -1979,7 +1979,7 @@ dependencies = [
 
 [[package]]
 name = "jgenesis-proc-macros"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "jgenesis-common",
  "proc-macro2",
@@ -1989,7 +1989,7 @@ dependencies = [
 
 [[package]]
 name = "jgenesis-renderer"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "bytemuck",
  "jgenesis-common",
@@ -2003,7 +2003,7 @@ dependencies = [
 
 [[package]]
 name = "jgenesis-web"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "anyhow",
  "base64",
@@ -2157,7 +2157,7 @@ checksum = "b5e6163cb8c49088c2c36f57875e58ccd8c87c7427f7fbd50ea6710b2f3f2e8f"
 
 [[package]]
 name = "m68000-emu"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "bincode",
  "jgenesis-common",
@@ -2167,7 +2167,7 @@ dependencies = [
 
 [[package]]
 name = "m68000-test-runner"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "clap",
  "env_logger",
@@ -2976,7 +2976,7 @@ dependencies = [
 
 [[package]]
 name = "segacd-core"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "bincode",
  "crc",
@@ -3123,7 +3123,7 @@ dependencies = [
 
 [[package]]
 name = "smsgg-core"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "arrayvec",
  "bincode",
@@ -3138,7 +3138,7 @@ dependencies = [
 
 [[package]]
 name = "snes-coprocessors"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "bincode",
  "bytemuck",
@@ -3150,7 +3150,7 @@ dependencies = [
 
 [[package]]
 name = "snes-core"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "bincode",
  "bytemuck",
@@ -3178,7 +3178,7 @@ dependencies = [
 
 [[package]]
 name = "spc700-emu"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "bincode",
  "jgenesis-common",
@@ -3187,7 +3187,7 @@ dependencies = [
 
 [[package]]
 name = "spc700-test-runner"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "clap",
  "env_logger",
@@ -3748,7 +3748,7 @@ dependencies = [
 
 [[package]]
 name = "wdc65816-emu"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "bincode",
  "jgenesis-common",
@@ -3757,7 +3757,7 @@ dependencies = [
 
 [[package]]
 name = "wdc65816-test-runner"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "clap",
  "env_logger",
@@ -4340,7 +4340,7 @@ dependencies = [
 
 [[package]]
 name = "z80-emu"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "bincode",
  "jgenesis-common",
@@ -4350,7 +4350,7 @@ dependencies = [
 
 [[package]]
 name = "z80-test-runner"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "env_logger",
  "z80-emu",
