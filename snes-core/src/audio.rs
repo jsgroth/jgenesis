@@ -37,24 +37,24 @@ type SnesResampler = SignalResampler<21, 3>;
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct AudioResampler {
-    downsampler: SnesResampler,
+    resampler: SnesResampler,
 }
 
-fn new_snes_downsampler() -> SnesResampler {
+fn new_snes_resampler() -> SnesResampler {
     SnesResampler::new(SNES_AUDIO_FREQUENCY, LPF_COEFFICIENT_0, LPF_COEFFICIENTS, HPF_CHARGE_FACTOR)
 }
 
 impl AudioResampler {
     pub fn new() -> Self {
-        Self { downsampler: new_snes_downsampler() }
+        Self { resampler: new_snes_resampler() }
     }
 
     pub fn collect_sample(&mut self, sample_l: f64, sample_r: f64) {
-        self.downsampler.collect_sample(sample_l, sample_r);
+        self.resampler.collect_sample(sample_l, sample_r);
     }
 
     pub fn output_samples<A: AudioOutput>(&mut self, audio_output: &mut A) -> Result<(), A::Err> {
-        while let Some((sample_l, sample_r)) = self.downsampler.output_buffer_pop_front() {
+        while let Some((sample_l, sample_r)) = self.resampler.output_buffer_pop_front() {
             audio_output.push_sample(sample_l, sample_r)?;
         }
 
