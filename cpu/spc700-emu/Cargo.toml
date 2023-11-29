@@ -1,12 +1,12 @@
 [package]
-name = "wdc65816-emu"
+name = "spc700-emu"
 version = "0.5.5"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-jgenesis-common = { path = "../jgenesis-common" }
+jgenesis-common = { path = "../../jgenesis-common" }
 
 bincode = { workspace = true }
 log = { workspace = true }

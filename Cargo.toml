@@ -1,25 +1,10 @@
 [workspace]
 members = [
-    "genesis-core",
-    "jgenesis-cli",
     "jgenesis-common",
-    "jgenesis-gui",
-    "jgenesis-native-driver",
     "jgenesis-proc-macros",
-    "jgenesis-renderer",
-    "jgenesis-web",
-    "m68000-emu",
-    "m68000-test-runner",
-    "segacd-core",
-    "smsgg-core",
-    "snes-coprocessors",
-    "snes-core",
-    "spc700-emu",
-    "spc700-test-runner",
-    "wdc65816-emu",
-    "wdc65816-test-runner",
-    "z80-emu",
-    "z80-test-runner",
+    "cpu/*",
+    "backend/*",
+    "frontend/*",
 ]
 resolver = "2"
 

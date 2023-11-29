@@ -6,14 +6,14 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-genesis-core = { path = "../genesis-core", features = ["serde"] }
-segacd-core = { path = "../segacd-core" }
-smsgg-core = { path = "../smsgg-core", features = ["serde"] }
-snes-core = { path = "../snes-core", features = ["serde"] }
+genesis-core = { path = "../../backend/genesis-core", features = ["serde"] }
+segacd-core = { path = "../../backend/segacd-core" }
+smsgg-core = { path = "../../backend/smsgg-core", features = ["serde"] }
+snes-core = { path = "../../backend/snes-core", features = ["serde"] }
 
 jgenesis-native-driver = { path = "../jgenesis-native-driver" }
 jgenesis-renderer = { path = "../jgenesis-renderer" }
-jgenesis-common = { path = "../jgenesis-common", features = ["serde"] }
+jgenesis-common = { path = "../../jgenesis-common", features = ["serde"] }
 
 anyhow = { workspace = true }
 bincode = { workspace = true }

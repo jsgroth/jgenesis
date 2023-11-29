@@ -1,14 +1,17 @@
 [package]
-name = "spc700-emu"
+name = "snes-coprocessors"
 version = "0.5.5"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-jgenesis-common = { path = "../jgenesis-common" }
+jgenesis-common = { path = "../../jgenesis-common" }
+jgenesis-proc-macros = { path = "../../jgenesis-proc-macros" }
+wdc65816-emu = { path = "../../cpu/wdc65816-emu" }
 
 bincode = { workspace = true }
+bytemuck = { workspace = true }
 log = { workspace = true }
 
 [lints]

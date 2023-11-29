@@ -9,12 +9,12 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-genesis-core = { path = "../genesis-core" }
-smsgg-core = { path = "../smsgg-core" }
-snes-core = { path = "../snes-core" }
+genesis-core = { path = "../../backend/genesis-core" }
+smsgg-core = { path = "../../backend/smsgg-core" }
+snes-core = { path = "../../backend/snes-core" }
 
-jgenesis-common = { path = "../jgenesis-common" }
-jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
+jgenesis-common = { path = "../../jgenesis-common" }
+jgenesis-proc-macros = { path = "../../jgenesis-proc-macros" }
 jgenesis-renderer = { path = "../jgenesis-renderer" }
 
 anyhow = { workspace = true }

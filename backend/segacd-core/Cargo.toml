@@ -7,11 +7,11 @@ edition = "2021"
 
 [dependencies]
 genesis-core = { path = "../genesis-core" }
-jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
-jgenesis-common = { path = "../jgenesis-common" }
-m68000-emu = { path = "../m68000-emu" }
+jgenesis-proc-macros = { path = "../../jgenesis-proc-macros" }
+jgenesis-common = { path = "../../jgenesis-common" }
+m68000-emu = { path = "../../cpu/m68000-emu" }
 smsgg-core = { path = "../smsgg-core" }
-z80-emu = { path = "../z80-emu" }
+z80-emu = { path = "../../cpu/z80-emu" }
 
 bincode = { workspace = true }
 crc = { workspace = true }
