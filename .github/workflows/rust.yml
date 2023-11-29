@@ -74,11 +74,11 @@ jobs:
 
       - name: Build web
         run: |
-          cd jgenesis-web && ./build.sh
+          cd frontend/jgenesis-web && ./build.sh
 
       - name: Check Clippy warnings for web
         run: |
-          cd jgenesis-web && cargo +nightly clippy --target wasm32-unknown-unknown
+          cd frontend/jgenesis-web && cargo +nightly clippy --target wasm32-unknown-unknown
   linux-release:
     runs-on: ubuntu-latest
 
