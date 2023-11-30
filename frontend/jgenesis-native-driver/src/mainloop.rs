@@ -237,7 +237,7 @@ impl SaveWriter for FsSaveWriter {
     }
 }
 
-struct HotkeyState<Emulator: PartialClone> {
+struct HotkeyState<Emulator> {
     save_state_path: PathBuf,
     paused: bool,
     should_step_frame: bool,
@@ -253,7 +253,7 @@ pub enum NativeTickEffect {
     Exit,
 }
 
-pub struct NativeEmulator<Inputs, Button, Config, Emulator: PartialClone> {
+pub struct NativeEmulator<Inputs, Button, Config, Emulator> {
     emulator: Emulator,
     config: Config,
     renderer: WgpuRenderer<Window>,

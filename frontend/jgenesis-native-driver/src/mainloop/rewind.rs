@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 const FRAME_DIVIDER: u64 = 10;
 
-pub struct Rewinder<Emulator: PartialClone> {
+pub struct Rewinder<Emulator> {
     previous_states: VecDeque<Emulator>,
     buffer_len: usize,
     frame_count: u64,
