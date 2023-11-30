@@ -734,8 +734,7 @@ pub enum Hotkey {
     StepFrame,
     FastForward,
     Rewind,
-    OpenCramDebug,
-    OpenVramDebug,
+    OpenDebugger,
 }
 
 pub(crate) enum HotkeyMapResult<'a> {
@@ -769,8 +768,7 @@ impl HotkeyMapper {
             (&config.step_frame, Hotkey::StepFrame),
             (&config.fast_forward, Hotkey::FastForward),
             (&config.rewind, Hotkey::Rewind),
-            (&config.open_cram_debug, Hotkey::OpenCramDebug),
-            (&config.open_vram_debug, Hotkey::OpenVramDebug),
+            (&config.open_debugger, Hotkey::OpenDebugger),
         ] {
             if let Some(input) = input {
                 let keycode = Keycode::from_name(&input.keycode)

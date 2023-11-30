@@ -1121,6 +1121,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "egui_wgpu_backend"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e687fc7969872e5924ffe0f3bde4219e2ab73d2e31ab0b95f1d5d0ff43c0fed8"
+dependencies = [
+ "bytemuck",
+ "egui",
+ "wgpu",
+]
+
+[[package]]
 name = "either"
 version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1959,8 +1970,11 @@ dependencies = [
 name = "jgenesis-native-driver"
 version = "0.5.5"
 dependencies = [
+ "anyhow",
  "bincode",
  "bytemuck",
+ "egui",
+ "egui_wgpu_backend",
  "genesis-core",
  "jgenesis-common",
  "jgenesis-proc-macros",

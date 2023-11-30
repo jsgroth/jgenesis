@@ -10,8 +10,8 @@ use crate::ym2413::Ym2413;
 use crate::{vdp, SmsGgInputs, VdpVersion};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorDebug, EmulatorTrait, FrameSize, PartialClone, PixelAspectRatio,
-    Renderer, SaveWriter, TickEffect, TimingMode,
+    AudioOutput, Color, EmulatorTrait, FrameSize, PartialClone, PixelAspectRatio, Renderer,
+    SaveWriter, TickEffect, TimingMode,
 };
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
 use std::fmt::{Debug, Display};
@@ -175,27 +175,20 @@ impl SmsGgEmulator {
         let frame_size = FrameSize { width: frame_width, height: frame_height };
         renderer.render_frame(&self.frame_buffer, frame_size, self.pixel_aspect_ratio)
     }
+
+    pub fn copy_cram(&self, out: &mut [Color]) {
+        self.vdp.copy_cram(out);
+    }
+
+    pub fn copy_vram(&self, out: &mut [Color], palette: u8, row_len: usize) {
+        self.vdp.copy_vram(out, palette, row_len);
+    }
 }
 
 fn init_z80(z80: &mut Z80) {
     z80.set_pc(0x0000);
     z80.set_sp(0xDFFF);
     z80.set_interrupt_mode(InterruptMode::Mode1);
-}
-
-impl EmulatorDebug for SmsGgEmulator {
-    const NUM_PALETTES: u32 = 2;
-    const PALETTE_LEN: u32 = 16;
-    const PATTERN_TABLE_LEN: u32 = 512;
-    const SUPPORTS_VRAM_DEBUG: bool = true;
-
-    fn debug_cram(&self, out: &mut [Color]) {
-        self.vdp.debug_cram(out);
-    }
-
-    fn debug_vram(&self, out: &mut [Color], palette: u8) {
-        self.vdp.debug_vram(out, palette);
-    }
 }
 
 impl EmulatorTrait for SmsGgEmulator {

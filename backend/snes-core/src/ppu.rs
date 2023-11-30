@@ -14,6 +14,8 @@ use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::ops::{Deref, DerefMut};
 
+const MAX_BRIGHTNESS: u8 = 15;
+
 const NORMAL_SCREEN_WIDTH: usize = 256;
 const HIRES_SCREEN_WIDTH: usize = 512;
 const MAX_SCREEN_HEIGHT: usize = 478;

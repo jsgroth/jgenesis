@@ -17,9 +17,9 @@ jgenesis-common = { path = "../../jgenesis-common", features = ["serde"] }
 
 anyhow = { workspace = true }
 bincode = { workspace = true }
-eframe = "0.23"
-egui = "0.23"
-egui_extras = "0.23"
+eframe = { workspace = true }
+egui = { workspace = true }
+egui_extras = { workspace = true }
 env_logger = { workspace = true }
 log = { workspace = true, features = ["release_max_level_info"] }
 regex = { workspace = true }

@@ -8,8 +8,8 @@ use crate::ym2612::{Ym2612, YmTickEffect};
 use crate::GenesisControllerType;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorDebug, EmulatorTrait, FrameSize, PartialClone, PixelAspectRatio,
-    Renderer, SaveWriter, TickEffect, TimingMode,
+    AudioOutput, Color, EmulatorTrait, FrameSize, PartialClone, PixelAspectRatio, Renderer,
+    SaveWriter, TickEffect, TimingMode,
 };
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
@@ -247,6 +247,14 @@ impl GenesisEmulator {
             renderer,
         )
     }
+
+    pub fn copy_cram(&self, out: &mut [Color]) {
+        self.vdp.copy_cram(out);
+    }
+
+    pub fn copy_vram(&self, out: &mut [Color], palette: u8, row_len: usize) {
+        self.vdp.copy_vram(out, palette, row_len);
+    }
 }
 
 /// Render the current VDP frame buffer.
@@ -268,21 +276,6 @@ pub fn render_frame<R: Renderer>(
         aspect_ratio.to_pixel_aspect_ratio(frame_size, adjust_aspect_ratio_in_2x_resolution);
 
     renderer.render_frame(vdp.frame_buffer(), frame_size, pixel_aspect_ratio)
-}
-
-impl EmulatorDebug for GenesisEmulator {
-    const NUM_PALETTES: u32 = 4;
-    const PALETTE_LEN: u32 = 16;
-    const PATTERN_TABLE_LEN: u32 = 2048;
-    const SUPPORTS_VRAM_DEBUG: bool = true;
-
-    fn debug_cram(&self, out: &mut [Color]) {
-        self.vdp.debug_cram(out);
-    }
-
-    fn debug_vram(&self, out: &mut [Color], palette: u8) {
-        self.vdp.debug_vram(out, palette);
-    }
 }
 
 impl EmulatorTrait for GenesisEmulator {

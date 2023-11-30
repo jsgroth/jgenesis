@@ -9,7 +9,7 @@ mod ym2413;
 
 pub use api::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgError, SmsGgResult, SmsRegion};
 pub use input::{SmsGgInputs, SmsGgJoypadState};
-pub use vdp::VdpVersion;
+pub use vdp::{gg_color_to_rgb, sms_color_to_rgb, VdpVersion};
 
 // 8:7
 pub const SMS_NTSC_ASPECT_RATIO: f64 = 1.1428571428571428;

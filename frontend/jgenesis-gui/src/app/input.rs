@@ -285,11 +285,8 @@ impl InputAppConfig {
             Hotkey::Rewind => {
                 self.hotkeys.rewind = Some(input);
             }
-            Hotkey::OpenCramDebug => {
-                self.hotkeys.open_cram_debug = Some(input);
-            }
-            Hotkey::OpenVramDebug => {
-                self.hotkeys.open_vram_debug = Some(input);
+            Hotkey::OpenDebugger => {
+                self.hotkeys.open_debugger = Some(input);
             }
         }
     }
@@ -845,15 +842,9 @@ impl App {
                     ui,
                 );
                 self.hotkey_button(
-                    self.config.inputs.hotkeys.open_cram_debug.clone(),
-                    "CRAM debug window",
-                    Hotkey::OpenCramDebug,
-                    ui,
-                );
-                self.hotkey_button(
-                    self.config.inputs.hotkeys.open_vram_debug.clone(),
-                    "VRAM debug window",
-                    Hotkey::OpenVramDebug,
+                    self.config.inputs.hotkeys.open_debugger.clone(),
+                    "Open memory viewer",
+                    Hotkey::OpenDebugger,
                     ui,
                 );
             });
@@ -1069,11 +1060,8 @@ impl App {
                 Hotkey::Rewind => {
                     self.config.inputs.hotkeys.rewind = None;
                 }
-                Hotkey::OpenCramDebug => {
-                    self.config.inputs.hotkeys.open_cram_debug = None;
-                }
-                Hotkey::OpenVramDebug => {
-                    self.config.inputs.hotkeys.open_vram_debug = None;
+                Hotkey::OpenDebugger => {
+                    self.config.inputs.hotkeys.open_debugger = None;
                 }
             },
         }

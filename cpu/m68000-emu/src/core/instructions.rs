@@ -318,7 +318,6 @@ impl Instruction {
 }
 
 impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
-    #[allow(clippy::enum_glob_use)]
     pub(super) fn do_execute(&mut self) -> ExecuteResult<u32> {
         use Instruction::*;
 

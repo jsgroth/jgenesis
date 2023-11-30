@@ -372,10 +372,8 @@ pub struct HotkeyConfig {
     pub fast_forward: Option<KeyboardInput>,
     #[serde(default = "default_rewind")]
     pub rewind: Option<KeyboardInput>,
-    #[serde(default = "default_cram_debug")]
-    pub open_cram_debug: Option<KeyboardInput>,
-    #[serde(default = "default_vram_debug")]
-    pub open_vram_debug: Option<KeyboardInput>,
+    #[serde(default = "default_open_debugger")]
+    pub open_debugger: Option<KeyboardInput>,
 }
 
 impl Default for HotkeyConfig {
@@ -391,8 +389,7 @@ impl Default for HotkeyConfig {
             step_frame: default_step_frame(),
             fast_forward: default_fast_forward(),
             rewind: default_rewind(),
-            open_cram_debug: default_cram_debug(),
-            open_vram_debug: default_vram_debug(),
+            open_debugger: default_open_debugger(),
         }
     }
 }
@@ -437,10 +434,6 @@ fn default_rewind() -> Option<KeyboardInput> {
     key_input!(Backquote)
 }
 
-fn default_cram_debug() -> Option<KeyboardInput> {
-    key_input!(Semicolon)
-}
-
-fn default_vram_debug() -> Option<KeyboardInput> {
+fn default_open_debugger() -> Option<KeyboardInput> {
     key_input!(Quote)
 }

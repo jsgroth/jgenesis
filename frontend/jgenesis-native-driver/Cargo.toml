@@ -15,8 +15,11 @@ segacd-core = { path = "../../backend/segacd-core" }
 smsgg-core = { path = "../../backend/smsgg-core" }
 snes-core = { path = "../../backend/snes-core" }
 
+anyhow = { workspace = true }
 bincode = { workspace = true }
 bytemuck = { workspace = true }
+egui = { workspace = true }
+egui_wgpu_backend = { workspace = true }
 log = { workspace = true }
 pollster = { workspace = true }
 serde = { workspace = true }

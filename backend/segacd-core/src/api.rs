@@ -13,12 +13,9 @@ use genesis_core::input::InputState;
 use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::vdp::{Vdp, VdpTickEffect};
 use genesis_core::ym2612::{Ym2612, YmTickEffect};
-use genesis_core::{
-    GenesisAspectRatio, GenesisEmulator, GenesisEmulatorConfig, GenesisInputs, GenesisRegion,
-};
+use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorDebug, EmulatorTrait, PartialClone, Renderer, SaveWriter,
-    TickEffect, TimingMode,
+    AudioOutput, Color, EmulatorTrait, PartialClone, Renderer, SaveWriter, TickEffect, TimingMode,
 };
 use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgTickEffect, PsgVersion};
@@ -292,20 +289,13 @@ impl SegaCdEmulator {
 
         Ok(())
     }
-}
 
-impl EmulatorDebug for SegaCdEmulator {
-    const NUM_PALETTES: u32 = GenesisEmulator::NUM_PALETTES;
-    const PALETTE_LEN: u32 = GenesisEmulator::PALETTE_LEN;
-    const PATTERN_TABLE_LEN: u32 = GenesisEmulator::PATTERN_TABLE_LEN;
-    const SUPPORTS_VRAM_DEBUG: bool = true;
-
-    fn debug_cram(&self, out: &mut [Color]) {
-        self.vdp.debug_cram(out);
+    pub fn copy_cram(&self, out: &mut [Color]) {
+        self.vdp.copy_cram(out);
     }
 
-    fn debug_vram(&self, out: &mut [Color], palette: u8) {
-        self.vdp.debug_vram(out, palette);
+    pub fn copy_vram(&self, out: &mut [Color], palette: u8, row_len: usize) {
+        self.vdp.copy_vram(out, palette, row_len);
     }
 }
 

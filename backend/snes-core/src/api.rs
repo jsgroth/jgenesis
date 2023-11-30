@@ -10,8 +10,8 @@ use crate::ppu::{Ppu, PpuTickEffect};
 use bincode::{Decode, Encode};
 use crc::Crc;
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorDebug, EmulatorTrait, FrameSize, PartialClone, PixelAspectRatio,
-    Renderer, SaveWriter, TickEffect, TimingMode,
+    AudioOutput, Color, EmulatorTrait, FrameSize, PartialClone, PixelAspectRatio, Renderer,
+    SaveWriter, TickEffect, TimingMode,
 };
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
 use std::fmt::{Debug, Display};
@@ -207,20 +207,25 @@ impl SnesEmulator {
     pub fn cartridge_title(&mut self) -> String {
         self.memory.cartridge_title()
     }
-}
 
-impl EmulatorDebug for SnesEmulator {
-    const NUM_PALETTES: u32 = 16;
-    const PALETTE_LEN: u32 = 16;
-    const PATTERN_TABLE_LEN: u32 = 0;
-    const SUPPORTS_VRAM_DEBUG: bool = false;
-
-    fn debug_cram(&self, out: &mut [Color]) {
-        self.ppu.debug_cram(out);
+    pub fn copy_cgram(&self, out: &mut [Color]) {
+        self.ppu.copy_cgram(out);
     }
 
-    fn debug_vram(&self, _out: &mut [Color], _palette: u8) {
-        todo!("VRAM debug")
+    pub fn copy_vram_2bpp(&self, out: &mut [Color], palette: u8, row_len: usize) {
+        self.ppu.copy_vram_2bpp(out, palette, row_len);
+    }
+
+    pub fn copy_vram_4bpp(&self, out: &mut [Color], palette: u8, row_len: usize) {
+        self.ppu.copy_vram_4bpp(out, palette, row_len);
+    }
+
+    pub fn copy_vram_8bpp(&self, out: &mut [Color], row_len: usize) {
+        self.ppu.copy_vram_8bpp(out, row_len);
+    }
+
+    pub fn copy_vram_mode7(&self, out: &mut [Color], row_len: usize) {
+        self.ppu.copy_vram_mode7(out, row_len);
     }
 }
 

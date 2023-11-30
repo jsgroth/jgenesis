@@ -1,162 +1,292 @@
-use crate::mainloop::{NativeEmulatorError, NativeEmulatorResult};
-use jgenesis_common::frontend;
-use jgenesis_common::frontend::{Color, EmulatorDebug};
-use sdl2::pixels::PixelFormatEnum;
-use sdl2::render::WindowCanvas;
+mod eguisdl;
+pub mod genesis;
+pub mod smsgg;
+pub mod snes;
+
+use egui_wgpu_backend::ScreenDescriptor;
+
+use sdl2::event::{Event, WindowEvent};
+
+use egui::{Button, Response, Ui, Widget, WidgetText};
+use sdl2::video::{Window, WindowBuildError};
 use sdl2::VideoSubsystem;
-use std::time::{Duration, Instant};
+use std::iter;
+use std::time::SystemTime;
+use thiserror::Error;
 
-pub struct CramDebug {
-    canvas: WindowCanvas,
-    buffer: Vec<Color>,
+#[derive(Debug, Error)]
+pub enum DebuggerError {
+    #[error("Failed to create SDL2 window: {0}")]
+    SdlWindowCreateFailed(#[from] WindowBuildError),
+    #[error("Failed to create wgpu surface: {0}")]
+    CreateSurfaceFailed(#[from] wgpu::CreateSurfaceError),
+    #[error("Failed to obtain wgpu surface output texture: {0}")]
+    SurfaceCurrentTexture(#[from] wgpu::SurfaceError),
+    #[error("Failed to obtain wgpu adapter")]
+    RequestAdapterFailed,
+    #[error("Failed to obtain wgpu device: {0}")]
+    RequestDeviceFailed(#[from] wgpu::RequestDeviceError),
+    #[error("Error in egui wgpu backend: {0}")]
+    WgpuBackendError(#[from] egui_wgpu_backend::BackendError),
 }
 
-impl CramDebug {
-    pub fn new<Emulator: EmulatorDebug>(video: &VideoSubsystem) -> NativeEmulatorResult<Self> {
-        use sdl2::pixels::Color as SdlColor;
+pub type DebugRenderFn<Emulator> = dyn FnMut(
+    &egui::Context,
+    &Emulator,
+    &wgpu::Device,
+    &wgpu::Queue,
+    &mut egui_wgpu_backend::RenderPass,
+) -> Result<(), DebuggerError>;
 
-        let window_width = 30 * Emulator::PALETTE_LEN;
-        let window_height = 30 * Emulator::NUM_PALETTES;
-        let window = video.window("CRAM Debug", window_width, window_height).build()?;
-        // Force software renderer because the hardware renderer will randomly segfault when multiple
-        // windows are involved
-        let mut canvas = window
-            .into_canvas()
-            .software()
-            .build()
-            .map_err(NativeEmulatorError::SdlCreateCanvas)?;
-
-        canvas.set_draw_color(SdlColor::RGB(0, 0, 0));
-        canvas.clear();
-        canvas.present();
-
-        let buffer =
-            vec![Color::default(); (Emulator::PALETTE_LEN * Emulator::NUM_PALETTES) as usize];
-        Ok(Self { canvas, buffer })
-    }
-
-    pub fn window_id(&self) -> u32 {
-        self.canvas.window().id()
-    }
-
-    pub fn render<Emulator: EmulatorDebug>(
-        &mut self,
-        emulator: &Emulator,
-    ) -> NativeEmulatorResult<()> {
-        emulator.debug_cram(&mut self.buffer);
-
-        let texture_creator = self.canvas.texture_creator();
-        let mut texture = texture_creator.create_texture_streaming(
-            PixelFormatEnum::RGB24,
-            Emulator::PALETTE_LEN,
-            Emulator::NUM_PALETTES,
-        )?;
-
-        texture
-            .with_lock(None, |pixels, _pitch| {
-                for (i, color) in self.buffer.iter().copied().enumerate() {
-                    let start = 3 * i;
-                    pixels[start] = color.r;
-                    pixels[start + 1] = color.g;
-                    pixels[start + 2] = color.b;
-                }
-            })
-            .map_err(NativeEmulatorError::SdlCramDebug)?;
-
-        self.canvas.clear();
-        self.canvas.copy(&texture, None, None).map_err(NativeEmulatorError::SdlCramDebug)?;
-        self.canvas.present();
-
-        Ok(())
-    }
+pub struct DebuggerWindow<Emulator> {
+    surface: wgpu::Surface,
+    surface_config: wgpu::SurfaceConfiguration,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    platform: eguisdl::Platform,
+    egui_pass: egui_wgpu_backend::RenderPass,
+    start_time: SystemTime,
+    render_fn: Box<DebugRenderFn<Emulator>>,
+    // SAFETY: The window must be dropped after the surface
+    window: Window,
+    scale_factor: f32,
 }
 
-pub struct VramDebug {
-    canvas: WindowCanvas,
-    buffer: Vec<Color>,
-    palette: u8,
-    num_palettes: u8,
-    open_time: Instant,
-}
+impl<Emulator> DebuggerWindow<Emulator> {
+    pub fn new(
+        video: &VideoSubsystem,
+        render_fn: Box<DebugRenderFn<Emulator>>,
+    ) -> Result<Self, DebuggerError> {
+        let window = video.window("Memory Viewer", 800, 600).resizable().build()?;
+        let (width, height) = window.size();
 
-impl VramDebug {
-    pub fn new<Emulator: EmulatorDebug>(video: &VideoSubsystem) -> NativeEmulatorResult<Self> {
-        use sdl2::pixels::Color as SdlColor;
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
 
-        let rows = Emulator::PATTERN_TABLE_LEN / frontend::VRAM_DEBUG_ROW_LEN;
-        let window_width = frontend::VRAM_DEBUG_ROW_LEN * 8 * 2;
-        let window_height = rows * 8 * 2;
-        let window = video.window("VRAM Debug - Palette 0", window_width, window_height).build()?;
-        // Force software renderer because the hardware renderer will randomly segfault when multiple
-        // windows are involved
-        let mut canvas = window
-            .into_canvas()
-            .software()
-            .build()
-            .map_err(NativeEmulatorError::SdlCreateCanvas)?;
+        // SAFETY: The surface must not outlive the window
+        let surface = unsafe { instance.create_surface(&window) }?;
 
-        canvas.set_draw_color(SdlColor::RGB(0, 0, 0));
-        canvas.clear();
-        canvas.present();
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            force_fallback_adapter: false,
+            compatible_surface: Some(&surface),
+        }))
+        .ok_or(DebuggerError::RequestAdapterFailed)?;
 
-        let buffer = vec![Color::default(); (Emulator::PATTERN_TABLE_LEN * 64) as usize];
+        let (device, queue) = pollster::block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                label: "debugger_device".into(),
+                features: wgpu::Features::default(),
+                limits: wgpu::Limits::default(),
+            },
+            None,
+        ))?;
+
+        let surface_format = surface.get_capabilities(&adapter).formats[0];
+        let surface_config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_DST,
+            format: surface_format,
+            width,
+            height,
+            present_mode: wgpu::PresentMode::AutoVsync,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            view_formats: vec![],
+        };
+        surface.configure(&device, &surface_config);
+
+        let scale_factor = determine_scale_factor(&window, video);
+        log::info!("Guessed scale factor {scale_factor}");
+
+        let platform = eguisdl::Platform::new(&window, scale_factor);
+        let start_time = SystemTime::now();
+
+        let egui_pass = egui_wgpu_backend::RenderPass::new(&device, surface_format, 1);
+
         Ok(Self {
-            canvas,
-            buffer,
-            palette: 0,
-            num_palettes: Emulator::NUM_PALETTES as u8,
-            open_time: Instant::now(),
+            surface,
+            surface_config,
+            device,
+            queue,
+            platform,
+            egui_pass,
+            start_time,
+            render_fn,
+            window,
+            scale_factor,
         })
     }
 
-    pub fn window_id(&self) -> u32 {
-        self.canvas.window().id()
-    }
+    pub fn update(&mut self, emulator: &Emulator) -> Result<(), DebuggerError> {
+        self.platform.update_time(
+            SystemTime::now().duration_since(self.start_time).unwrap_or_default().as_secs_f64(),
+        );
 
-    pub fn toggle_palette(&mut self) -> NativeEmulatorResult<()> {
-        // Prevent the input from triggering twice immediately after the window oppens
-        if Instant::now().duration_since(self.open_time) < Duration::from_millis(300) {
-            return Ok(());
-        }
+        self.platform.begin_frame();
+        let ctx = self.platform.context();
 
-        self.palette = (self.palette + 1) % self.num_palettes;
-        let title = format!("VRAM Debug - Palette {}", self.palette);
-        self.canvas
-            .window_mut()
-            .set_title(&title)
-            .map_err(|source| NativeEmulatorError::SdlSetWindowTitle { title, source })?;
+        (self.render_fn)(ctx, emulator, &self.device, &self.queue, &mut self.egui_pass)?;
 
-        Ok(())
-    }
+        let output = self.surface.get_current_texture()?;
+        let output_view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-    pub fn render<Emulator: EmulatorDebug>(
-        &mut self,
-        emulator: &Emulator,
-    ) -> NativeEmulatorResult<()> {
-        emulator.debug_vram(&mut self.buffer, self.palette);
+        let full_output = self.platform.end_frame();
+        let paint_jobs = ctx.tessellate(full_output.shapes);
 
-        let texture_creator = self.canvas.texture_creator();
-        let mut texture = texture_creator.create_texture_streaming(
-            PixelFormatEnum::RGB24,
-            frontend::VRAM_DEBUG_ROW_LEN * 8,
-            Emulator::PATTERN_TABLE_LEN / frontend::VRAM_DEBUG_ROW_LEN * 8,
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: "debugger_encoder".into(),
+        });
+
+        let screen_descriptor = ScreenDescriptor {
+            physical_width: self.surface_config.width,
+            physical_height: self.surface_config.height,
+            scale_factor: self.scale_factor,
+        };
+
+        let tdelta = full_output.textures_delta;
+        self.egui_pass.add_textures(&self.device, &self.queue, &tdelta)?;
+        self.egui_pass.update_buffers(&self.device, &self.queue, &paint_jobs, &screen_descriptor);
+        self.egui_pass.execute(
+            &mut encoder,
+            &output_view,
+            &paint_jobs,
+            &screen_descriptor,
+            Some(wgpu::Color::BLACK),
         )?;
 
-        texture
-            .with_lock(None, |pixels, _pitch| {
-                for (i, color) in self.buffer.iter().copied().enumerate() {
-                    let start = 3 * i;
-                    pixels[start] = color.r;
-                    pixels[start + 1] = color.g;
-                    pixels[start + 2] = color.b;
-                }
-            })
-            .map_err(NativeEmulatorError::SdlVramDebug)?;
+        self.queue.submit(iter::once(encoder.finish()));
+        output.present();
 
-        self.canvas.clear();
-        self.canvas.copy(&texture, None, None).map_err(NativeEmulatorError::SdlVramDebug)?;
-        self.canvas.present();
+        self.egui_pass.remove_textures(tdelta)?;
 
         Ok(())
     }
+
+    pub fn handle_sdl_event(&mut self, event: &Event) {
+        match event {
+            Event::Window { window_id, win_event, .. } if *window_id == self.window.id() => {
+                match win_event {
+                    WindowEvent::Resized(..) | WindowEvent::SizeChanged(..) => {
+                        let (width, height) = self.window.size();
+                        self.surface_config.width = width;
+                        self.surface_config.height = height;
+                        self.surface.configure(&self.device, &self.surface_config);
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+
+        self.platform.handle_event(event);
+    }
+
+    pub fn window_id(&self) -> u32 {
+        self.window.id()
+    }
+}
+
+fn determine_scale_factor(window: &Window, video: &VideoSubsystem) -> f32 {
+    let scale_factor = window
+        .display_index()
+        .ok()
+        .and_then(|idx| video.display_dpi(idx).ok())
+        .and_then(|(_, hdpi, vdpi)| {
+            // Set scale factor to DPI/96 if HDPI and VDPI are equal and non-zero
+            let delta = (hdpi - vdpi).abs();
+            (delta < 1e-3 && hdpi > 0.0).then(|| {
+                let doubled_scale_factor = (hdpi / 96.0 * 2.0).round() as u32;
+                doubled_scale_factor as f32 / 2.0
+            })
+        })
+        .unwrap_or(1.0);
+
+    // Arbitrary threshold; egui will panic if pixels_per_point is too high
+    if (0.5..=10.0).contains(&scale_factor) { scale_factor } else { 1.0 }
+}
+
+fn screen_width(ctx: &egui::Context) -> f32 {
+    let window_margin = ctx.style().spacing.window_margin;
+    ctx.available_rect().width() - window_margin.left - window_margin.right
+}
+
+fn create_texture(
+    label: &str,
+    width: u32,
+    height: u32,
+    device: &wgpu::Device,
+    rpass: &mut egui_wgpu_backend::RenderPass,
+) -> (wgpu::Texture, egui::TextureId) {
+    let wgpu_texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(label),
+        size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let texture_view = wgpu_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+    let egui_texture =
+        rpass.egui_texture_from_wgpu_texture(device, &texture_view, wgpu::FilterMode::Nearest);
+
+    (wgpu_texture, egui_texture)
+}
+
+struct SelectableButton<'a, T> {
+    label: WidgetText,
+    current_value: &'a mut T,
+    alternative: T,
+}
+
+impl<'a, T> SelectableButton<'a, T> {
+    fn new(label: impl Into<WidgetText>, current_value: &'a mut T, alternative: T) -> Self {
+        Self { label: label.into(), current_value, alternative }
+    }
+}
+
+impl<'a, T: Copy + PartialEq> Widget for SelectableButton<'a, T> {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let response =
+            Button::new(self.label).selected(*self.current_value == self.alternative).ui(ui);
+        if response.clicked() {
+            *self.current_value = self.alternative;
+        }
+        response
+    }
+}
+
+fn write_textures(
+    wgpu_texture: &wgpu::Texture,
+    egui_texture: egui::TextureId,
+    data: &[u8],
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    rpass: &mut egui_wgpu_backend::RenderPass,
+) -> Result<(), DebuggerError> {
+    queue.write_texture(
+        wgpu::ImageCopyTexture {
+            texture: wgpu_texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        data,
+        wgpu::ImageDataLayout {
+            offset: 0,
+            bytes_per_row: Some(wgpu_texture.width() * 4),
+            rows_per_image: None,
+        },
+        wgpu_texture.size(),
+    );
+
+    let texture_view = wgpu_texture.create_view(&wgpu::TextureViewDescriptor::default());
+    rpass.update_egui_texture_from_wgpu_texture(
+        device,
+        &texture_view,
+        wgpu::FilterMode::Nearest,
+        egui_texture,
+    )?;
+
+    Ok(())
 }

@@ -11,7 +11,7 @@ use bincode::de::{BorrowDecoder, Decoder};
 use bincode::enc::Encoder;
 use bincode::error::{DecodeError, EncodeError};
 use bincode::{BorrowDecode, Decode, Encode};
-use jgenesis_common::frontend::TimingMode;
+use jgenesis_common::frontend::{Color, TimingMode};
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use z80_emu::traits::InterruptLine;
@@ -1095,6 +1095,22 @@ pub fn convert_sms_color(color: u16) -> u8 {
     [0, 85, 170, 255][color as usize]
 }
 
+#[must_use]
+pub fn sms_color_to_rgb(color: u16) -> Color {
+    let r = convert_sms_color(color & 0x03);
+    let g = convert_sms_color((color >> 2) & 0x03);
+    let b = convert_sms_color((color >> 4) & 0x03);
+    Color::rgb(r, g, b)
+}
+
 pub fn convert_gg_color(color: u16) -> u8 {
     [0, 17, 34, 51, 68, 85, 102, 119, 136, 153, 170, 187, 204, 221, 238, 255][color as usize]
+}
+
+#[must_use]
+pub fn gg_color_to_rgb(color: u16) -> Color {
+    let r = convert_gg_color(color & 0x0F);
+    let g = convert_gg_color((color >> 4) & 0x0F);
+    let b = convert_gg_color((color >> 8) & 0x0F);
+    Color::rgb(r, g, b)
 }

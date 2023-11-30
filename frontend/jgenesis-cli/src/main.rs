@@ -339,13 +339,9 @@ struct Args {
     #[arg(long, default_value_t = String::from("`"), help_heading = HOTKEY_OPTIONS_HEADING)]
     hotkey_rewind: String,
 
-    /// CRAM debug window hotkey
-    #[arg(long, default_value_t = String::from(";"), help_heading = HOTKEY_OPTIONS_HEADING)]
-    hotkey_cram_debug: String,
-
-    /// VRAM debug window hotkey
+    /// Open memory viewer window hotkey
     #[arg(long, default_value_t = String::from("'"), help_heading = HOTKEY_OPTIONS_HEADING)]
-    hotkey_vram_debug: String,
+    hotkey_open_debugger: String,
 }
 
 impl Args {
@@ -439,8 +435,7 @@ impl Args {
             step_frame: Some(keyboard_input(&self.hotkey_step_frame)),
             fast_forward: Some(keyboard_input(&self.hotkey_fast_forward)),
             rewind: Some(keyboard_input(&self.hotkey_rewind)),
-            open_cram_debug: Some(keyboard_input(&self.hotkey_cram_debug)),
-            open_vram_debug: Some(keyboard_input(&self.hotkey_vram_debug)),
+            open_debugger: Some(keyboard_input(&self.hotkey_open_debugger)),
         }
     }
 

@@ -9,7 +9,7 @@ use crate::input::{
     GenesisButton, GetButtonField, Hotkey, HotkeyMapResult, HotkeyMapper, InputMapper, Joysticks,
     SmsGgButton, SnesButton,
 };
-use crate::mainloop::debug::{CramDebug, VramDebug};
+use crate::mainloop::debug::{DebugRenderFn, DebuggerWindow};
 use crate::mainloop::rewind::Rewinder;
 use bincode::error::{DecodeError, EncodeError};
 use bincode::{Decode, Encode};
@@ -243,8 +243,8 @@ struct HotkeyState<Emulator> {
     should_step_frame: bool,
     fast_forward_multiplier: u64,
     rewinder: Rewinder<Emulator>,
-    cram_debug: Option<CramDebug>,
-    vram_debug: Option<VramDebug>,
+    debugger_window: Option<DebuggerWindow<Emulator>>,
+    debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -573,8 +573,19 @@ where
             if !should_tick_emulator || frame_rendered {
                 self.hotkey_state.should_step_frame = false;
 
+                if let Some(debugger_window) = &mut self.hotkey_state.debugger_window {
+                    if let Err(err) = debugger_window.update(&self.emulator) {
+                        log::error!("Debugger window error: {err}");
+                    }
+                }
+
                 for event in self.event_pump.poll_iter() {
                     self.input_mapper.handle_event(&event)?;
+
+                    if let Some(debugger_window) = &mut self.hotkey_state.debugger_window {
+                        debugger_window.handle_sdl_event(&event);
+                    }
+
                     if handle_hotkeys(HandleHotkeysArgs {
                         hotkey_mapper: &self.hotkey_mapper,
                         event: &event,
@@ -594,38 +605,27 @@ where
                             return Ok(NativeTickEffect::Exit);
                         }
                         Event::Window { win_event, window_id, .. } => {
+                            if win_event == WindowEvent::Close {
+                                if window_id == self.renderer.window_id() {
+                                    return Ok(NativeTickEffect::Exit);
+                                }
+
+                                if self
+                                    .hotkey_state
+                                    .debugger_window
+                                    .as_ref()
+                                    .is_some_and(|debugger| window_id == debugger.window_id())
+                                {
+                                    self.hotkey_state.debugger_window = None;
+                                }
+                            }
+
                             if window_id == self.renderer.window_id() {
                                 handle_window_event(win_event, &mut self.renderer);
-                            } else if self
-                                .hotkey_state
-                                .cram_debug
-                                .as_ref()
-                                .is_some_and(|cram_debug| cram_debug.window_id() == window_id)
-                            {
-                                if let WindowEvent::Close = win_event {
-                                    self.hotkey_state.cram_debug = None;
-                                }
-                            } else if self
-                                .hotkey_state
-                                .vram_debug
-                                .as_ref()
-                                .is_some_and(|vram_debug| vram_debug.window_id() == window_id)
-                            {
-                                if let WindowEvent::Close = win_event {
-                                    self.hotkey_state.vram_debug = None;
-                                }
                             }
                         }
                         _ => {}
                     }
-                }
-
-                if let Some(cram_debug) = &mut self.hotkey_state.cram_debug {
-                    cram_debug.render(&self.emulator)?;
-                }
-
-                if let Some(vram_debug) = &mut self.hotkey_state.vram_debug {
-                    vram_debug.render(&self.emulator)?;
                 }
 
                 if frame_rendered {
@@ -731,8 +731,8 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
             rewinder: Rewinder::new(Duration::from_secs(
                 config.common.rewind_buffer_length_seconds,
             )),
-            cram_debug: None,
-            vram_debug: None,
+            debugger_window: None,
+            debug_render_fn: debug::smsgg::render_fn,
         },
     })
 }
@@ -809,8 +809,8 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
             rewinder: Rewinder::new(Duration::from_secs(
                 config.common.rewind_buffer_length_seconds,
             )),
-            cram_debug: None,
-            vram_debug: None,
+            debugger_window: None,
+            debug_render_fn: debug::genesis::render_fn,
         },
     })
 }
@@ -891,8 +891,8 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
             rewinder: Rewinder::new(Duration::from_secs(
                 config.genesis.common.rewind_buffer_length_seconds,
             )),
-            cram_debug: None,
-            vram_debug: None,
+            debugger_window: None,
+            debug_render_fn: debug::genesis::render_fn,
         },
     })
 }
@@ -969,8 +969,8 @@ pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEm
             rewinder: Rewinder::new(Duration::from_secs(
                 config.common.rewind_buffer_length_seconds,
             )),
-            cram_debug: None,
-            vram_debug: None,
+            debugger_window: None,
+            debug_render_fn: debug::snes::render_fn,
         },
     })
 }
@@ -995,8 +995,6 @@ fn init_sdl() -> NativeEmulatorResult<(VideoSubsystem, AudioSubsystem, JoystickS
     let audio = sdl.audio().map_err(NativeEmulatorError::SdlAudioInit)?;
     let joystick = sdl.joystick().map_err(NativeEmulatorError::SdlJoystickInit)?;
     let event_pump = sdl.event_pump().map_err(NativeEmulatorError::SdlEventPumpInit)?;
-
-    sdl.mouse().show_cursor(false);
 
     Ok((video, audio, joystick, event_pump))
 }
@@ -1127,23 +1125,19 @@ where
         Hotkey::Rewind => {
             args.hotkey_state.rewinder.start_rewinding();
         }
-        Hotkey::OpenCramDebug => {
-            if args.hotkey_state.cram_debug.is_none() {
-                args.hotkey_state.cram_debug = Some(CramDebug::new::<Emulator>(args.video)?);
-            }
-        }
-        Hotkey::OpenVramDebug => match &mut args.hotkey_state.vram_debug {
-            Some(vram_debug) => {
-                vram_debug.toggle_palette()?;
-            }
-            None => {
-                if Emulator::SUPPORTS_VRAM_DEBUG {
-                    args.hotkey_state.vram_debug = Some(VramDebug::new::<Emulator>(args.video)?);
-                } else {
-                    log::error!("Currently running console does not support VRAM debug window");
+        Hotkey::OpenDebugger => {
+            if args.hotkey_state.debugger_window.is_none() {
+                let debug_render_fn = (args.hotkey_state.debug_render_fn)();
+                match DebuggerWindow::new(args.video, debug_render_fn) {
+                    Ok(debugger_window) => {
+                        args.hotkey_state.debugger_window = Some(debugger_window);
+                    }
+                    Err(err) => {
+                        log::error!("Error opening debugger window: {err}");
+                    }
                 }
             }
-        },
+        }
     }
 
     Ok(HotkeyResult::None)

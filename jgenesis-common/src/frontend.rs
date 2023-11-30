@@ -128,23 +128,6 @@ pub trait PartialClone {
 
 pub use jgenesis_proc_macros::PartialClone;
 
-pub const VRAM_DEBUG_ROW_LEN: u32 = 64;
-
-pub trait EmulatorDebug {
-    // CRAM size
-    const NUM_PALETTES: u32;
-    const PALETTE_LEN: u32;
-
-    // VRAM size
-    const PATTERN_TABLE_LEN: u32;
-
-    const SUPPORTS_VRAM_DEBUG: bool;
-
-    fn debug_cram(&self, out: &mut [Color]);
-
-    fn debug_vram(&self, out: &mut [Color], palette: u8);
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumDisplay, EnumFromStr, Encode, Decode)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum TimingMode {
@@ -161,7 +144,7 @@ pub enum TickEffect {
 
 pub type TickResult<Err> = Result<TickEffect, Err>;
 
-pub trait EmulatorTrait: Encode + Decode + PartialClone + EmulatorDebug {
+pub trait EmulatorTrait: Encode + Decode + PartialClone {
     type Inputs;
     type Config;
 
