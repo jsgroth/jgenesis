@@ -945,12 +945,22 @@ impl<Window> Renderer for WgpuRenderer<Window> {
         }
 
         self.ensure_pipeline(frame_size, pixel_aspect_ratio);
-        self.pipeline.as_ref().unwrap().render(
+        match self.pipeline.as_ref().unwrap().render(
             &self.device,
             &self.queue,
             &self.surface,
             frame_buffer,
-        )?;
+        ) {
+            Ok(()) => {}
+            Err(RendererError::WgpuSurface(wgpu::SurfaceError::Outdated)) => {
+                // This can sometimes happen on Windows with the Vulkan backend while the window is minimized
+                log::warn!(
+                    "Skipping frame because wgpu surface has changed and swap chain is outdated"
+                );
+                self.surface.configure(&self.device, &self.surface_config);
+            }
+            Err(err) => return Err(err),
+        }
 
         Ok(())
     }
