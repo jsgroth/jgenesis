@@ -686,7 +686,7 @@ fn divs_cycle_count(dividend: i32, divisor: i32, quotient: i16, source: Addressi
     let mut added_cycles = 0;
 
     // Add 2 cycles for each 0 in the quotient's absolute value's most significant 15 bits
-    let mut absolute_quotient = quotient.abs();
+    let mut absolute_quotient = quotient.wrapping_abs();
     for _ in 0..15 {
         added_cycles += 2 * u32::from(absolute_quotient >= 0);
         absolute_quotient <<= 1;
