@@ -125,7 +125,15 @@ impl<Emulator> DebuggerWindow<Emulator> {
 
         (self.render_fn)(ctx, emulator, &self.device, &self.queue, &mut self.egui_pass)?;
 
-        let output = self.surface.get_current_texture()?;
+        let output = match self.surface.get_current_texture() {
+            Ok(output) => output,
+            Err(wgpu::SurfaceError::Outdated) => {
+                log::warn!("Skipping debug frame because wgpu surface has changed");
+                self.platform.end_frame();
+                return Ok(());
+            }
+            Err(err) => return Err(err.into()),
+        };
         let output_view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let full_output = self.platform.end_frame();
