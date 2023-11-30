@@ -60,7 +60,12 @@ impl<Emulator> DebuggerWindow<Emulator> {
         let window = video.window("Memory Viewer", 800, 600).resizable().build()?;
         let (width, height) = window.size();
 
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            flags: wgpu::InstanceFlags::default(),
+            dx12_shader_compiler: wgpu::Dx12Compiler::Dxc { dxil_path: None, dxc_path: None },
+            gles_minor_version: wgpu::Gles3MinorVersion::default(),
+        });
 
         // SAFETY: The surface must not outlive the window
         let surface = unsafe { instance.create_surface(&window) }?;
