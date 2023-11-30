@@ -1740,7 +1740,7 @@ fn resolve_pixel_color(
             Layer::Bg1 | Layer::Obj => 0x00,
             Layer::Bg2 => 0x20,
             Layer::Bg3 => 0x40,
-            Layer::Bg4 => 0x80,
+            Layer::Bg4 => 0x60,
             Layer::Backdrop => unreachable!("above match checks layer is not backdrop"),
         }
     } else {
