@@ -22,7 +22,7 @@ base64 = { workspace = true }
 console_error_panic_hook = "0.1"
 console_log = "1"
 getrandom = { version = "0.2", features = ["js"] }
-js-sys = "0.3"
+js-sys = { workspace = true }
 log = { workspace = true, features = ["release_max_level_info"] }
 rand = { workspace = true }
 rfd = { workspace = true }

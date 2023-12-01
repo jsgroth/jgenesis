@@ -7,6 +7,7 @@ use crate::input::SnesInputs;
 use crate::memory::dma::{DmaStatus, DmaUnit};
 use crate::memory::{CpuInternalRegisters, Memory};
 use crate::ppu::{Ppu, PpuTickEffect};
+use bincode::error::EncodeError;
 use bincode::{Decode, Encode};
 use crc::Crc;
 use jgenesis_common::frontend::{
@@ -90,6 +91,8 @@ pub enum SnesError<RErr, AErr, SErr> {
     AudioOutput(AErr),
     #[error("Error persisting save file: {0}")]
     SaveWrite(SErr),
+    #[error("Error encoding save file bytes: {0}")]
+    SaveEncode(#[from] EncodeError),
 }
 
 #[derive(Debug, Error)]
@@ -290,7 +293,7 @@ impl EmulatorTrait for SnesEmulator {
 
             // Only persist SRAM if it's changed since the last write, and only check ~twice per
             // second because of the checksum calculation
-            if let Some(sram) = self.memory.sram() {
+            if let Some(sram) = self.memory.sram()? {
                 if self.frame_count % 30 == 0 {
                     let checksum = CRC.checksum(sram);
                     if checksum != self.last_sram_checksum {
@@ -363,7 +366,7 @@ impl EmulatorTrait for SnesEmulator {
         log::info!("Hard resetting");
 
         let rom = self.memory.take_rom();
-        let sram = self.memory.sram().map(Vec::from);
+        let sram = self.memory.sram().ok().flatten().map(Vec::from);
 
         let coprocessor_roms = mem::take(&mut self.coprocessor_roms);
         *self = Self::create(rom, sram, self.emulator_config, coprocessor_roms)

@@ -1,6 +1,7 @@
 //! SNES cartridge loading and mapping code
 
 use crate::api::{CoprocessorRoms, LoadError, LoadResult};
+use bincode::error::EncodeError;
 use bincode::{Decode, Encode};
 use crc::Crc;
 use jgenesis_common::frontend::{PartialClone, TimingMode};
@@ -8,6 +9,7 @@ use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use snes_coprocessors::cx4::Cx4;
 use snes_coprocessors::sa1::Sa1;
 use snes_coprocessors::sdd1::Sdd1;
+use snes_coprocessors::spc7110::Spc7110;
 use snes_coprocessors::superfx::SuperFx;
 use snes_coprocessors::upd77c25::{Upd77c25, Upd77c25Variant};
 use snes_coprocessors::{superfx, upd77c25};
@@ -42,6 +44,7 @@ enum CartridgeType {
     Cx4,
     Sa1,
     Sdd1,
+    Spc7110,
     SuperFx,
 }
 
@@ -54,6 +57,7 @@ impl Display for CartridgeType {
             Self::Cx4 => write!(f, "CX4"),
             Self::Sa1 => write!(f, "SA-1"),
             Self::Sdd1 => write!(f, "S-DD1"),
+            Self::Spc7110 => write!(f, "SPC7110"),
             Self::SuperFx => write!(f, "Super FX"),
         }
     }
@@ -182,6 +186,7 @@ pub enum Cartridge {
     },
     Sa1(#[partial_clone(partial)] Sa1),
     Sdd1(#[partial_clone(partial)] Sdd1),
+    Spc7110(#[partial_clone(partial)] Spc7110),
     SuperFx(#[partial_clone(partial)] SuperFx),
     St01x {
         #[partial_clone(default)]
@@ -210,7 +215,7 @@ impl Cartridge {
             | CartridgeType::Sa1
             | CartridgeType::Sdd1
             | CartridgeType::SuperFx => LOROM_HEADER_ADDR,
-            CartridgeType::HiRom => HIROM_HEADER_ADDR,
+            CartridgeType::HiRom | CartridgeType::Spc7110 => HIROM_HEADER_ADDR,
             CartridgeType::ExHiRom => EXHIROM_HEADER_ADDR,
         };
 
@@ -237,8 +242,12 @@ impl Cartridge {
             1 << (10 + sram_header_byte)
         };
 
-        let sram = match initial_sram {
-            Some(sram) if sram.len() == sram_len => sram.into_boxed_slice(),
+        let sram = match (initial_sram, cartridge_type) {
+            (Some(sram), _) if sram.len() == sram_len => sram.into_boxed_slice(),
+            (Some(sram), CartridgeType::Spc7110) => {
+                // SPC7110 may serialize both SRAM + RTC state; let the coprocessor figure out if it's valid
+                sram.into_boxed_slice()
+            }
             _ => vec![0; sram_len].into_boxed_slice(),
         };
 
@@ -314,6 +323,7 @@ impl Cartridge {
             CartridgeType::Cx4 => Self::Cx4(Cx4::new(rom)),
             CartridgeType::Sa1 => Self::Sa1(Sa1::new(rom, sram, timing_mode)),
             CartridgeType::Sdd1 => Self::Sdd1(Sdd1::new(rom, sram)),
+            CartridgeType::Spc7110 => Self::Spc7110(Spc7110::new(rom, sram)),
             CartridgeType::SuperFx => Self::SuperFx(SuperFx::new(rom, sram, gsu_overclock_factor)),
         })
     }
@@ -348,6 +358,7 @@ impl Cartridge {
             Self::Cx4(cx4) => return cx4.read(address),
             Self::Sa1(sa1) => return sa1.snes_read(address),
             Self::Sdd1(sdd1) => return sdd1.read(address),
+            Self::Spc7110(spc7110) => return spc7110.read(address),
             Self::SuperFx(sfx) => return sfx.read(address),
             Self::St01x { rom, upd77c25, mask } => {
                 return match (bank, offset) {
@@ -431,6 +442,9 @@ impl Cartridge {
             Self::Sdd1(sdd1) => {
                 sdd1.write(address, value);
             }
+            Self::Spc7110(spc7110) => {
+                spc7110.write(address, value);
+            }
             Self::SuperFx(sfx) => {
                 sfx.write(address, value);
             }
@@ -464,6 +478,7 @@ impl Cartridge {
             Self::Cx4(cx4) => cx4.take_rom(),
             Self::Sa1(sa1) => sa1.take_rom(),
             Self::Sdd1(sdd1) => sdd1.take_rom(),
+            Self::Spc7110(spc7110) => spc7110.take_rom(),
             Self::SuperFx(sfx) => sfx.take_rom(),
         }
     }
@@ -489,14 +504,17 @@ impl Cartridge {
             Self::Sdd1(sdd1) => {
                 sdd1.set_rom(other_rom);
             }
+            Self::Spc7110(spc7110) => {
+                spc7110.set_rom(other_rom);
+            }
             Self::SuperFx(sfx) => {
                 sfx.set_rom(other_rom);
             }
         }
     }
 
-    pub fn sram(&self) -> Option<&[u8]> {
-        match self {
+    pub fn sram(&mut self) -> Result<Option<&[u8]>, EncodeError> {
+        Ok(match self {
             Self::LoRom { sram, .. }
             | Self::HiRom { sram, .. }
             | Self::ExHiRom { sram, .. }
@@ -514,9 +532,10 @@ impl Cartridge {
             | Self::Cx4 { .. } => None,
             Self::Sa1(sa1) => sa1.sram(),
             Self::Sdd1(sdd1) => sdd1.sram(),
+            Self::Spc7110(spc7110) => Some(spc7110.sram_and_rtc()?),
             Self::SuperFx(sfx) => Some(sfx.sram()),
             Self::St01x { upd77c25, .. } => Some(upd77c25.sram()),
-        }
+        })
     }
 
     pub fn tick(&mut self, master_cycles_elapsed: u64) {
@@ -667,6 +686,17 @@ fn guess_cartridge_type(rom: &[u8]) -> Option<CartridgeType> {
         && (0x33..0x36).contains(&rom[LOROM_HEADER_ADDR + 0x16])
     {
         return Some(CartridgeType::Sa1);
+    }
+
+    // Check for SPC7110
+    // Identified by chipset == $F5/$F9 and sub-chipset == $00 in HiROM header area
+    let hirom_chipset_byte = rom[HIROM_HEADER_ADDR + 0x16];
+    if hirom_points >= lorom_points
+        && rom[HIROM_HEADER_ADDR + 0x1A] == 0x33
+        && (hirom_chipset_byte == 0xF5 || hirom_chipset_byte == 0xF9)
+        && rom[HIROM_HEADER_ADDR - 1] == 0x00
+    {
+        return Some(CartridgeType::Spc7110);
     }
 
     // Check for Super FX
