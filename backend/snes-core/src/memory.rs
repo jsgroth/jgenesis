@@ -7,6 +7,7 @@ use crate::api::{CoprocessorRoms, LoadResult};
 use crate::input::{SnesInputs, SnesJoypadState};
 use crate::memory::cartridge::Cartridge;
 use crate::ppu::Ppu;
+use bincode::error::EncodeError;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::{GetBit, U16Ext, U24Ext};
@@ -160,7 +161,7 @@ impl Memory {
         self.cartridge.take_rom_from(&mut other.cartridge);
     }
 
-    pub fn sram(&self) -> Option<&[u8]> {
+    pub fn sram(&mut self) -> Result<Option<&[u8]>, EncodeError> {
         self.cartridge.sram()
     }
 

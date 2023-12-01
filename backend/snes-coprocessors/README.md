@@ -22,11 +22,15 @@ Programmable 65C816 CPU clocked at 10.74 MHz. Used by 35 games, including _Kirby
 
 Data decompression chip with a compression algorithm tailored to SNES graphical data. Used by 2 games, _Star Ocean_ and _Street Fighter Alpha 2_
 
+### SPC7110
+
+Data decompression chip with a compression algorithm tailored to SNES graphical data, similar to S-DD1 but different algorithm. Used by 3 games, all by Hudson: _Tengai Makyou Zero_ (which also includes a real-time clock), _Momotarou Dentsetsu Happy_, and _Super Power League 4_
+
 ### ST010 / ST011
 
-Both of these use a pre-programmed µPD96050 CPU (with different program and data ROMs), with the ST010 clocked at 10 MHz and the ST011 clocked at 15 MHz.
+Both of these use a pre-programmed NEC µPD96050 CPU (with different program and data ROMs), with the ST010 clocked at 10 MHz and the ST011 clocked at 15 MHz.
 
-Each of these was only used in 1 game: _F1 ROC II: Race of Champions_ (ST010) and _Hayazashi Nidan Morita Shogi_ (ST011).
+Each of these was only used in 1 game: _F1 ROC II: Race of Champions_ (ST010) and _Hayazashi Nidan Morita Shogi_ (ST011)
 
 ### Super FX
 

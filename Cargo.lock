@@ -3156,8 +3156,10 @@ version = "0.5.6"
 dependencies = [
  "bincode",
  "bytemuck",
+ "cfg-if",
  "jgenesis-common",
  "jgenesis-proc-macros",
+ "js-sys",
  "log",
  "wdc65816-emu",
 ]

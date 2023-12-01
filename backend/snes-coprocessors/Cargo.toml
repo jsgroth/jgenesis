@@ -12,7 +12,11 @@ wdc65816-emu = { path = "../../cpu/wdc65816-emu" }
 
 bincode = { workspace = true }
 bytemuck = { workspace = true }
+cfg-if = { workspace = true }
 log = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = { workspace = true }
 
 [lints]
 workspace = true
