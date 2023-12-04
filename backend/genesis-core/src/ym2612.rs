@@ -13,7 +13,7 @@ use crate::ym2612::lfo::LowFrequencyOscillator;
 use crate::ym2612::phase::PhaseGenerator;
 use crate::ym2612::timer::{TimerA, TimerB, TimerTickEffect};
 use bincode::{Decode, Encode};
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext};
 use std::array;
 use std::sync::OnceLock;
 
@@ -677,7 +677,7 @@ impl Ym2612 {
                 // F-number low bits
                 let channel_idx = base_channel_idx + (register & 0x03) as usize;
                 let channel = &mut self.channels[channel_idx];
-                channel.channel_f_number = (channel.channel_f_number & 0xFF00) | u16::from(value);
+                channel.channel_f_number.set_lsb(value);
                 channel.update_phase_generators();
 
                 log::trace!("Channel {}: F-num={:04X}", channel_idx + 1, channel.channel_f_number);
@@ -686,8 +686,7 @@ impl Ym2612 {
                 // F-number high bits and block
                 let channel_idx = base_channel_idx + (register & 0x03) as usize;
                 let channel = &mut self.channels[channel_idx];
-                channel.channel_f_number =
-                    (channel.channel_f_number & 0x00FF) | (u16::from(value & 0x07) << 8);
+                channel.channel_f_number.set_msb(value & 0x07);
                 channel.channel_block = (value >> 3) & 0x07;
                 channel.update_phase_generators();
 
@@ -708,8 +707,7 @@ impl Ym2612 {
                     _ => unreachable!("nested match expressions"),
                 };
                 let channel = &mut self.channels[channel_idx];
-                channel.operator_f_numbers[operator_idx] =
-                    (channel.operator_f_numbers[operator_idx] & 0xFF00) | u16::from(value);
+                channel.operator_f_numbers[operator_idx].set_lsb(value);
                 if channel.mode == FrequencyMode::Multiple {
                     channel.update_phase_generators();
                 }
@@ -731,9 +729,7 @@ impl Ym2612 {
                     _ => unreachable!("nested match expressions"),
                 };
                 let channel = &mut self.channels[channel_idx];
-                channel.operator_f_numbers[operator_idx] =
-                    (channel.operator_f_numbers[operator_idx] & 0x00FF)
-                        | (u16::from(value & 0x07) << 8);
+                channel.operator_f_numbers[operator_idx].set_msb(value & 0x07);
                 channel.operator_blocks[operator_idx] = (value >> 3) & 0x07;
                 if channel.mode == FrequencyMode::Multiple {
                     channel.update_phase_generators();

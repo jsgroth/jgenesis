@@ -1,6 +1,6 @@
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum TimerMode {
@@ -90,19 +90,19 @@ impl Sa1Timer {
         self.latched_h = self.h_cpu_ticks >> 1;
         self.latched_v = self.v;
 
-        self.latched_h as u8
+        self.latched_h.lsb()
     }
 
     pub fn read_hcr_high(&self) -> u8 {
-        (self.latched_h >> 8) as u8
+        self.latched_h.msb()
     }
 
     pub fn read_vcr_low(&self) -> u8 {
-        self.latched_v as u8
+        self.latched_v.lsb()
     }
 
     pub fn read_vcr_high(&self) -> u8 {
-        (self.latched_v >> 8) as u8
+        self.latched_v.msb()
     }
 
     pub fn write_tmc(&mut self, value: u8) {

@@ -4,7 +4,7 @@ use crate::sa1::mmc::Sa1Mmc;
 use crate::sa1::timer::Sa1Timer;
 use crate::sa1::Iram;
 use bincode::{Decode, Encode};
-use jgenesis_common::num::{GetBit, SignBit};
+use jgenesis_common::num::{GetBit, SignBit, U16Ext, U24Ext};
 use std::ops::Range;
 use std::{array, cmp};
 
@@ -459,11 +459,11 @@ impl Sa1Registers {
     }
 
     fn read_vdp_low(&self) -> u8 {
-        self.varlen_bit_data as u8
+        (self.varlen_bit_data as u16).lsb()
     }
 
     fn read_vdp_high(&self) -> u8 {
-        (self.varlen_bit_data >> 8) as u8
+        (self.varlen_bit_data as u16).msb()
     }
 
     fn write_ccnt(&mut self, value: u8) {
@@ -544,61 +544,61 @@ impl Sa1Registers {
     }
 
     fn write_crv_low(&mut self, value: u8) {
-        self.sa1_reset_vector = (self.sa1_reset_vector & 0xFF00) | u16::from(value);
+        self.sa1_reset_vector.set_lsb(value);
 
         log::trace!("  SA-1 RESET vector: {:04X}", self.sa1_reset_vector);
     }
 
     fn write_crv_high(&mut self, value: u8) {
-        self.sa1_reset_vector = (self.sa1_reset_vector & 0x00FF) | (u16::from(value) << 8);
+        self.sa1_reset_vector.set_msb(value);
 
         log::trace!("  SA-1 RESET vector: {:04X}", self.sa1_reset_vector);
     }
 
     fn write_cnv_low(&mut self, value: u8) {
-        self.sa1_nmi_vector = (self.sa1_nmi_vector & 0xFF00) | u16::from(value);
+        self.sa1_nmi_vector.set_lsb(value);
 
         log::trace!("  SA-1 NMI vector: {:04X}", self.sa1_nmi_vector);
     }
 
     fn write_cnv_high(&mut self, value: u8) {
-        self.sa1_nmi_vector = (self.sa1_nmi_vector & 0x00FF) | (u16::from(value) << 8);
+        self.sa1_nmi_vector.set_msb(value);
 
         log::trace!("  SA-1 NMI vector: {:04X}", self.sa1_nmi_vector);
     }
 
     fn write_civ_low(&mut self, value: u8) {
-        self.sa1_irq_vector = (self.sa1_irq_vector & 0xFF00) | u16::from(value);
+        self.sa1_irq_vector.set_lsb(value);
 
         log::trace!("  SA-1 IRQ vector: {:04X}", self.sa1_irq_vector);
     }
 
     fn write_civ_high(&mut self, value: u8) {
-        self.sa1_irq_vector = (self.sa1_irq_vector & 0x00FF) | (u16::from(value) << 8);
+        self.sa1_irq_vector.set_msb(value);
 
         log::trace!("  SA-1 IRQ vector: {:04X}", self.sa1_irq_vector);
     }
 
     fn write_snv_low(&mut self, value: u8) {
-        self.snes_nmi_vector = (self.snes_nmi_vector & 0xFF00) | u16::from(value);
+        self.snes_nmi_vector.set_lsb(value);
 
         log::trace!("  SNES NMI vector: {:04X}", self.snes_nmi_vector);
     }
 
     fn write_snv_high(&mut self, value: u8) {
-        self.snes_nmi_vector = (self.snes_nmi_vector & 0x00FF) | (u16::from(value) << 8);
+        self.snes_nmi_vector.set_msb(value);
 
         log::trace!("  SNES NMI vector: {:04X}", self.snes_nmi_vector);
     }
 
     fn write_siv_low(&mut self, value: u8) {
-        self.snes_irq_vector = (self.snes_irq_vector & 0xFF00) | u16::from(value);
+        self.snes_irq_vector.set_lsb(value);
 
         log::trace!("  SNES IRQ vector: {:04X}", self.snes_irq_vector);
     }
 
     fn write_siv_high(&mut self, value: u8) {
-        self.snes_irq_vector = (self.snes_irq_vector & 0x00FF) | (u16::from(value) << 8);
+        self.snes_irq_vector.set_msb(value);
 
         log::trace!("  SNES IRQ vector: {:04X}", self.snes_irq_vector);
     }
@@ -678,32 +678,31 @@ impl Sa1Registers {
     }
 
     fn write_sda_low(&mut self, value: u8) {
-        self.dma_source_address = (self.dma_source_address & 0xFFFF00) | u32::from(value);
+        self.dma_source_address.set_low_byte(value);
 
         log::trace!("  DMA source address: {:06X}", self.dma_source_address);
     }
 
     fn write_sda_mid(&mut self, value: u8) {
-        self.dma_source_address = (self.dma_source_address & 0xFF00FF) | (u32::from(value) << 8);
+        self.dma_source_address.set_mid_byte(value);
 
         log::trace!("  DMA source address: {:06X}", self.dma_source_address);
     }
 
     fn write_sda_high(&mut self, value: u8) {
-        self.dma_source_address = (self.dma_source_address & 0x00FFFF) | (u32::from(value) << 16);
+        self.dma_source_address.set_high_byte(value);
 
         log::trace!("  DMA source address: {:06X}", self.dma_source_address);
     }
 
     fn write_dda_low(&mut self, value: u8) {
-        self.dma_destination_address = (self.dma_destination_address & 0xFFFF00) | u32::from(value);
+        self.dma_destination_address.set_low_byte(value);
 
         log::trace!("  DMA destination address: {:06X}", self.dma_destination_address);
     }
 
     fn write_dda_mid(&mut self, value: u8) {
-        self.dma_destination_address =
-            (self.dma_destination_address & 0xFF00FF) | (u32::from(value) << 8);
+        self.dma_destination_address.set_mid_byte(value);
 
         log::trace!("  DMA destination address: {:06X}", self.dma_destination_address);
 
@@ -728,8 +727,7 @@ impl Sa1Registers {
     }
 
     fn write_dda_high(&mut self, value: u8) {
-        self.dma_destination_address =
-            (self.dma_destination_address & 0x00FFFF) | (u32::from(value) << 16);
+        self.dma_destination_address.set_high_byte(value);
 
         log::trace!("  DMA destination address: {:06X}", self.dma_destination_address);
 
@@ -743,13 +741,13 @@ impl Sa1Registers {
     }
 
     fn write_dtc_low(&mut self, value: u8) {
-        self.dma_terminal_counter = (self.dma_terminal_counter & 0xFF00) | u16::from(value);
+        self.dma_terminal_counter.set_lsb(value);
 
         log::trace!("  DMA terminal counter: {:04X}", self.dma_terminal_counter);
     }
 
     fn write_dtc_high(&mut self, value: u8) {
-        self.dma_terminal_counter = (self.dma_terminal_counter & 0x00FF) | (u16::from(value) << 8);
+        self.dma_terminal_counter.set_msb(value);
 
         log::trace!("  DMA terminal counter: {:04X}", self.dma_terminal_counter);
     }
@@ -782,25 +780,25 @@ impl Sa1Registers {
     }
 
     fn write_ma_low(&mut self, value: u8) {
-        self.arithmetic_param_a = (self.arithmetic_param_a & 0xFF00) | u16::from(value);
+        self.arithmetic_param_a.set_lsb(value);
 
         log::trace!("  Arithmetic parameter A: {:04X}", self.arithmetic_param_a);
     }
 
     fn write_ma_high(&mut self, value: u8) {
-        self.arithmetic_param_a = (self.arithmetic_param_a & 0x00FF) | (u16::from(value) << 8);
+        self.arithmetic_param_a.set_msb(value);
 
         log::trace!("  Arithmetic parameter A: {:04X}", self.arithmetic_param_a);
     }
 
     fn write_mb_low(&mut self, value: u8) {
-        self.arithmetic_param_b = (self.arithmetic_param_b & 0xFF00) | u16::from(value);
+        self.arithmetic_param_b.set_lsb(value);
 
         log::trace!("  Arithmetic parameter B: {:04X}", self.arithmetic_param_b);
     }
 
     fn write_mb_high(&mut self, value: u8) {
-        self.arithmetic_param_b = (self.arithmetic_param_b & 0x00FF) | (u16::from(value) << 8);
+        self.arithmetic_param_b.set_msb(value);
 
         // Writing MB high byte begins arithmetic operation
         self.perform_arithmetic_op();
@@ -836,8 +834,7 @@ impl Sa1Registers {
     }
 
     fn write_vda_low(&mut self, value: u8) {
-        self.varlen_bit_start_address =
-            (self.varlen_bit_start_address & 0xFFFF00) | u32::from(value);
+        self.varlen_bit_start_address.set_low_byte(value);
 
         log::trace!(
             "  Variable-length bit data ROM start address: {:06X}",
@@ -846,8 +843,7 @@ impl Sa1Registers {
     }
 
     fn write_vda_mid(&mut self, value: u8) {
-        self.varlen_bit_start_address =
-            (self.varlen_bit_start_address & 0xFF00FF) | (u32::from(value) << 8);
+        self.varlen_bit_start_address.set_mid_byte(value);
 
         log::trace!(
             "  Variable-length bit data ROM start address: {:06X}",
@@ -856,8 +852,7 @@ impl Sa1Registers {
     }
 
     fn write_vda_high(&mut self, value: u8, mmc: &Sa1Mmc, rom: &[u8]) {
-        self.varlen_bit_start_address =
-            (self.varlen_bit_start_address & 0x00FFFF) | (u32::from(value) << 16);
+        self.varlen_bit_start_address.set_high_byte(value);
 
         // Writing MSB starts the variable-length bit data read
         if let Some(rom_addr) = mmc.map_rom_address(self.varlen_bit_start_address) {

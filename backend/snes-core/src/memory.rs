@@ -9,7 +9,7 @@ use crate::memory::cartridge::Cartridge;
 use crate::ppu::Ppu;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext, U24Ext};
 use jgenesis_proc_macros::PartialClone;
 use std::array;
 use std::num::NonZeroU64;
@@ -137,19 +137,18 @@ impl Memory {
     }
 
     pub fn write_wram_port_address_low(&mut self, value: u8) {
-        self.wram_port_address = (self.wram_port_address & 0xFFFF00) | u32::from(value);
+        self.wram_port_address.set_low_byte(value);
         log::trace!("WRAM port address: {:06X}", self.wram_port_address);
     }
 
     pub fn write_wram_port_address_mid(&mut self, value: u8) {
-        self.wram_port_address = (self.wram_port_address & 0xFF00FF) | (u32::from(value) << 8);
+        self.wram_port_address.set_mid_byte(value);
         log::trace!("WRAM port address: {:06X}", self.wram_port_address);
     }
 
     pub fn write_wram_port_address_high(&mut self, value: u8) {
         // Only 1 bit used from high byte
-        self.wram_port_address =
-            (self.wram_port_address & 0x00FFFF) | (u32::from(value & 0x01) << 16);
+        self.wram_port_address.set_high_byte(value & 0x01);
         log::trace!("WRAM port address: {:06X}", self.wram_port_address);
     }
 
@@ -467,35 +466,35 @@ impl CpuInternalRegisters {
             }
             0x4214 => {
                 // RDDIVL: Division quotient, low byte
-                self.division_quotient as u8
+                self.division_quotient.lsb()
             }
             0x4215 => {
                 // RDDIVH: Division quotient, high byte
-                (self.division_quotient >> 8) as u8
+                self.division_quotient.msb()
             }
             0x4216 => {
                 // RDMPYL: Multiply product / division remainder, low byte
-                self.multiply_product as u8
+                self.multiply_product.lsb()
             }
             0x4217 => {
                 // RDMPYH: Multiply product / division remainder, high byte
-                (self.multiply_product >> 8) as u8
+                self.multiply_product.msb()
             }
             0x4218 => {
                 // JOY1L: Joypad 1, low byte (auto read)
-                self.input_state.auto_joypad_p1_inputs as u8
+                self.input_state.auto_joypad_p1_inputs.lsb()
             }
             0x4219 => {
                 // JOY1H: Joypad 1, high byte (auto read)
-                (self.input_state.auto_joypad_p1_inputs >> 8) as u8
+                self.input_state.auto_joypad_p1_inputs.msb()
             }
             0x421A => {
                 // JOY2L: Joypad 2, low byte (auto read)
-                self.input_state.auto_joypad_p2_inputs as u8
+                self.input_state.auto_joypad_p2_inputs.lsb()
             }
             0x421B => {
                 // JOY2H: Joypad 2, high byte (auto read)
-                (self.input_state.auto_joypad_p2_inputs >> 8) as u8
+                self.input_state.auto_joypad_p2_inputs.msb()
             }
             0x421C..=0x421F => {
                 // JOY3L/JOY3H/JOY4L/JOY4H: Joypad 3/4 (not implemented)
@@ -573,14 +572,13 @@ impl CpuInternalRegisters {
             }
             0x4204 => {
                 // WRDIVL: Division 16-bit dividend, low byte
-                self.division_dividend = (self.division_dividend & 0xFF00) | u16::from(value);
+                self.division_dividend.set_lsb(value);
 
                 log::trace!("  Unsigned divide dividend: {:04X}", self.division_dividend);
             }
             0x4205 => {
                 // WRDIVH: Division 16-bit dividend, high byte
-                self.division_dividend =
-                    (self.division_dividend & 0x00FF) | (u16::from(value) << 8);
+                self.division_dividend.set_msb(value);
 
                 log::trace!("  Unsigned divide dividend: {:04X}", self.division_dividend);
             }
@@ -606,25 +604,25 @@ impl CpuInternalRegisters {
             }
             0x4207 => {
                 // HTIMEL: H-count timer setting, low byte
-                self.irq_htime = (self.irq_htime & 0xFF00) | u16::from(value);
+                self.irq_htime.set_lsb(value);
 
                 log::trace!("  HTIME: {:04X}", self.irq_htime);
             }
             0x4208 => {
                 // HTIMEH: H-count timer setting, high byte (really just highest bit)
-                self.irq_htime = (self.irq_htime & 0x00FF) | (u16::from(value & 0x01) << 8);
+                self.irq_htime.set_msb(value & 0x01);
 
                 log::trace!("  HTIME: {:04X}", self.irq_htime);
             }
             0x4209 => {
                 // VTIMEL: V-count timer setting, low byte
-                self.irq_vtime = (self.irq_vtime & 0xFF00) | u16::from(value);
+                self.irq_vtime.set_lsb(value);
 
                 log::trace!("  VTIME: {:04X}", self.irq_vtime);
             }
             0x420A => {
                 // VTIMEH: V-count timer setting, high byte (really just highest bit)
-                self.irq_vtime = (self.irq_vtime & 0x00FF) | (u16::from(value & 0x01) << 8);
+                self.irq_vtime.set_msb(value & 0x01);
 
                 log::trace!("  VTIME: {:04X}", self.irq_vtime);
             }
@@ -675,11 +673,11 @@ impl CpuInternalRegisters {
             }
             0x4302 => {
                 // A1TxL: GPDMA current address / HDMA table start address, low byte
-                self.gpdma_current_address[channel] as u8
+                self.gpdma_current_address[channel].lsb()
             }
             0x4303 => {
                 // A1TxH: GPDMA current address / HDMA table start address, high byte
-                (self.gpdma_current_address[channel] >> 8) as u8
+                self.gpdma_current_address[channel].msb()
             }
             0x4304 => {
                 // A1Bx: GPDMA current address / HDMA table start address, bank
@@ -687,11 +685,11 @@ impl CpuInternalRegisters {
             }
             0x4305 => {
                 // DASxL: GPDMA byte counter / HDMA indirect address, low byte
-                self.gpdma_byte_counter[channel] as u8
+                self.gpdma_byte_counter[channel].lsb()
             }
             0x4306 => {
                 // DASxH: GPDMA byte counter / HDMA indirect address, high byte
-                (self.gpdma_byte_counter[channel] >> 8) as u8
+                self.gpdma_byte_counter[channel].msb()
             }
             0x4307 => {
                 // DASBx: HDMA indirect address, bank
@@ -699,11 +697,11 @@ impl CpuInternalRegisters {
             }
             0x4308 => {
                 // A2AxL: HDMA current table address, low byte
-                self.hdma_table_current_address[channel] as u8
+                self.hdma_table_current_address[channel].lsb()
             }
             0x4309 => {
                 // A2AxH: HDMA current table address, high byte
-                (self.hdma_table_current_address[channel] >> 8) as u8
+                self.hdma_table_current_address[channel].msb()
             }
             0x430A => {
                 // NTRLx: HDMA line counter
@@ -750,8 +748,7 @@ impl CpuInternalRegisters {
             }
             0x4302 => {
                 // A1TxL: GPDMA current address / HDMA table start address, low byte
-                self.gpdma_current_address[channel] =
-                    (self.gpdma_current_address[channel] & 0xFF00) | u16::from(value);
+                self.gpdma_current_address[channel].set_lsb(value);
 
                 log::trace!(
                     "  GPDMA current address / HDMA table start address: {:04X}",
@@ -760,8 +757,7 @@ impl CpuInternalRegisters {
             }
             0x4303 => {
                 // A1TxH: GPDMA current address / HDMA table start address, high byte
-                self.gpdma_current_address[channel] =
-                    (self.gpdma_current_address[channel] & 0x00FF) | (u16::from(value) << 8);
+                self.gpdma_current_address[channel].set_msb(value);
 
                 log::trace!(
                     "  GPDMA current address / HDMA table start address: {:04X}",
@@ -778,8 +774,7 @@ impl CpuInternalRegisters {
             }
             0x4305 => {
                 // DASxL: GPDMA byte counter / HDMA indirect address, low byte
-                self.gpdma_byte_counter[channel] =
-                    (self.gpdma_byte_counter[channel] & 0xFF00) | u16::from(value);
+                self.gpdma_byte_counter[channel].set_lsb(value);
 
                 log::trace!(
                     "  GPDMA byte counter / HDMA indirect address: {:04X}",
@@ -788,8 +783,7 @@ impl CpuInternalRegisters {
             }
             0x4306 => {
                 // DASxH: GPDMA byte counter / HDMA indirect address, high byte
-                self.gpdma_byte_counter[channel] =
-                    (self.gpdma_byte_counter[channel] & 0x00FF) | (u16::from(value) << 8);
+                self.gpdma_byte_counter[channel].set_msb(value);
 
                 log::trace!(
                     "  GPDMA byte counter / HDMA indirect address: {:04X}",
@@ -804,8 +798,7 @@ impl CpuInternalRegisters {
             }
             0x4308 => {
                 // A2AxL: HDMA table current address, low byte
-                self.hdma_table_current_address[channel] =
-                    (self.hdma_table_current_address[channel] & 0xFF00) | u16::from(value);
+                self.hdma_table_current_address[channel].set_lsb(value);
 
                 log::trace!(
                     "  HDMA table current address: {:04X}",
@@ -814,8 +807,7 @@ impl CpuInternalRegisters {
             }
             0x4309 => {
                 // A2AxH: HDMA table current address, high byte
-                self.hdma_table_current_address[channel] =
-                    (self.hdma_table_current_address[channel] & 0x00FF) | (u16::from(value) << 8);
+                self.hdma_table_current_address[channel].set_msb(value);
 
                 log::trace!(
                     "  HDMA table current address: {:04X}",

@@ -10,7 +10,7 @@ use crate::ppu::registers::{
 };
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{Color, FrameSize, TimingMode};
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::ops::{Deref, DerefMut};
 
@@ -667,7 +667,7 @@ impl Ppu {
             let tile_row = (tile_map_y % 8) as u16;
             let tile_col = (tile_map_x % 8) as u16;
             let pixel_addr = 64 * tile_number + 8 * tile_row + tile_col;
-            let color = (self.vram[pixel_addr as usize] >> 8) as u8;
+            let color = self.vram[pixel_addr as usize].msb();
 
             self.buffers.bg_pixels[0][pixel as usize] = Pixel { palette: 0, color, priority: 0 };
         }
@@ -1467,7 +1467,7 @@ impl Ppu {
             let vram_addr =
                 (self.registers.vram_address_translation.apply(self.registers.vram_address)
                     & VRAM_ADDRESS_MASK) as usize;
-            self.vram[vram_addr] = (self.vram[vram_addr] & 0xFF00) | u16::from(value);
+            self.vram[vram_addr].set_lsb(value);
         }
 
         if self.registers.vram_address_increment_mode == VramIncrementMode::Low {
@@ -1481,7 +1481,7 @@ impl Ppu {
             let vram_addr =
                 (self.registers.vram_address_translation.apply(self.registers.vram_address)
                     & VRAM_ADDRESS_MASK) as usize;
-            self.vram[vram_addr] = (self.vram[vram_addr] & 0x00FF) | (u16::from(value) << 8);
+            self.vram[vram_addr].set_msb(value);
         }
 
         if self.registers.vram_address_increment_mode == VramIncrementMode::High {
@@ -1490,7 +1490,7 @@ impl Ppu {
     }
 
     fn read_vram_data_port_low(&mut self) -> u8 {
-        let vram_byte = self.registers.vram_prefetch_buffer as u8;
+        let vram_byte = self.registers.vram_prefetch_buffer.lsb();
 
         if self.registers.vram_address_increment_mode == VramIncrementMode::Low {
             // Fill prefetch buffer *before* address increment
@@ -1502,7 +1502,7 @@ impl Ppu {
     }
 
     fn read_vram_data_port_high(&mut self) -> u8 {
-        let vram_byte = (self.registers.vram_prefetch_buffer >> 8) as u8;
+        let vram_byte = self.registers.vram_prefetch_buffer.msb();
 
         if self.registers.vram_address_increment_mode == VramIncrementMode::High {
             // Fill prefetch buffer *before* address increment
@@ -1581,14 +1581,14 @@ impl Ppu {
                 // Low byte
                 self.registers.cgram_flipflop = AccessFlipflop::Second;
 
-                word as u8
+                word.lsb()
             }
             AccessFlipflop::Second => {
                 // High byte; bit 7 is PPU2 open bus
                 self.registers.cgram_flipflop = AccessFlipflop::First;
                 self.registers.cgram_address = self.registers.cgram_address.wrapping_add(1);
 
-                (self.state.ppu2_open_bus & 0x80) | (word >> 8) as u8
+                (self.state.ppu2_open_bus & 0x80) | word.msb()
             }
         }
     }

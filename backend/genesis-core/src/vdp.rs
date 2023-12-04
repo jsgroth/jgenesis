@@ -5,7 +5,7 @@ mod debug;
 use crate::memory::{Memory, PhysicalMedium};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{Color, TimingMode};
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::ops::{Add, AddAssign, Deref, DerefMut};
 use z80_emu::traits::InterruptLine;
@@ -537,13 +537,13 @@ impl Registers {
             }
             19 => {
                 // Register #19: DMA length counter (bits 7-0)
-                self.dma_length = (self.dma_length & 0xFF00) | u16::from(value);
+                self.dma_length.set_lsb(value);
 
                 log::trace!("  DMA length: {}", self.dma_length);
             }
             20 => {
                 // Register #20: DMA length counter (bits 15-8)
-                self.dma_length = (self.dma_length & 0x00FF) | (u16::from(value) << 8);
+                self.dma_length.set_msb(value);
 
                 log::trace!("  DMA length: {}", self.dma_length);
             }
@@ -1537,13 +1537,14 @@ impl Vdp {
                         }
                         DataPortLocation::Cram => {
                             let addr = self.state.data_address as usize;
-                            self.cram[addr & 0x7F] = (word >> 8) as u8;
-                            self.cram[(addr + 1) & 0x7F] = word as u8;
+                            self.cram[addr & 0x7F] = word.msb();
+                            self.cram[(addr + 1) & 0x7F] = word.lsb();
                         }
                         DataPortLocation::Vsram => {
                             let addr = self.state.data_address as usize;
-                            self.vsram[addr % VSRAM_LEN] = (word >> 8) as u8;
-                            self.vsram[(addr + 1) % VSRAM_LEN] = word as u8;
+                            // TODO fix VSRAM wrapping
+                            self.vsram[addr % VSRAM_LEN] = word.msb();
+                            self.vsram[(addr + 1) % VSRAM_LEN] = word.lsb();
                         }
                     }
 

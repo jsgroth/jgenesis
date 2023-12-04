@@ -2,7 +2,7 @@ use crate::superfx::gsu::instructions::{
     clear_prefix_flags, fetch_opcode, read_register, write_register, MemoryType,
 };
 use crate::superfx::gsu::GraphicsSupportUnit;
-use jgenesis_common::num::SignBit;
+use jgenesis_common::num::{SignBit, U16Ext};
 
 pub(super) fn ldb(
     opcode: u8,
@@ -352,8 +352,8 @@ pub(super) fn getb(
 
     let value = match (gsu.alt1, gsu.alt2) {
         (false, false) => u16::from(byte),
-        (true, false) => u16::from_le_bytes([source as u8, byte]),
-        (false, true) => u16::from_le_bytes([byte, (source >> 8) as u8]),
+        (true, false) => u16::from_le_bytes([source.lsb(), byte]),
+        (false, true) => u16::from_le_bytes([byte, source.msb()]),
         (true, true) => byte as i8 as u16,
     };
 
@@ -374,7 +374,7 @@ pub(super) fn hib(
 ) -> u8 {
     // HIB: High byte of register
     let source = read_register(gsu, gsu.sreg);
-    let source_msb = (source >> 8) as u8;
+    let source_msb = source.msb();
     let cycles = write_register(gsu, gsu.dreg, source_msb.into(), rom, ram);
 
     gsu.zero_flag = source_msb == 0;

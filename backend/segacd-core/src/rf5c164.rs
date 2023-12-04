@@ -1,7 +1,7 @@
 //! Ricoh RF5C164 PCM sound chip
 
 use bincode::{Decode, Encode};
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext};
 use std::array;
 
 // Divider of sub CPU cycles
@@ -26,7 +26,7 @@ struct Channel {
     // Fixed point 16.11
     current_address: u32,
     // Fixed point 5.11
-    address_increment: u32,
+    address_increment: u16,
 }
 
 impl Channel {
@@ -47,8 +47,8 @@ impl Channel {
             return;
         }
 
-        self.current_address =
-            (self.current_address + self.address_increment) & ADDRESS_DECIMAL_MASK;
+        let address_increment: u32 = self.address_increment.into();
+        self.current_address = (self.current_address + address_increment) & ADDRESS_DECIMAL_MASK;
 
         let sample = waveform_ram[(self.current_address >> ADDRESS_DECIMAL_BITS) as usize];
         if sample == 0xFF {
@@ -184,19 +184,19 @@ impl Rf5c164 {
         let channel_idx = (address & 0xF) >> 1;
         let channel = &self.channels[channel_idx as usize];
         let channel_address = if channel.enabled {
-            channel.current_address >> ADDRESS_DECIMAL_BITS
+            (channel.current_address >> ADDRESS_DECIMAL_BITS) as u16
         } else {
-            channel.start_address.into()
+            channel.start_address
         };
 
         log::trace!("Channel {channel_idx} address read; current address = {channel_address:04X}");
 
         if address.bit(0) {
             // High byte
-            (channel_address >> 8) as u8
+            channel_address.msb()
         } else {
             // Low byte
-            channel_address as u8
+            channel_address.lsb()
         }
     }
 
@@ -228,29 +228,28 @@ impl Rf5c164 {
             0x0002 => {
                 // Address increment, low byte
                 let channel = &mut self.channels[self.selected_channel as usize];
-                channel.address_increment = (channel.address_increment & 0xFF00) | u32::from(value);
+                channel.address_increment.set_lsb(value);
 
                 log::trace!("  Address increment = {:04X}", channel.address_increment);
             }
             0x0003 => {
                 // Address increment, high byte
                 let channel = &mut self.channels[self.selected_channel as usize];
-                channel.address_increment =
-                    (channel.address_increment & 0x00FF) | (u32::from(value) << 8);
+                channel.address_increment.set_msb(value);
 
                 log::trace!("  Address increment = {:04X}", channel.address_increment);
             }
             0x0004 => {
                 // Loop address, low byte
                 let channel = &mut self.channels[self.selected_channel as usize];
-                channel.loop_address = (channel.loop_address & 0xFF00) | u16::from(value);
+                channel.loop_address.set_lsb(value);
 
                 log::trace!("  Loop address = {:04X}", channel.loop_address);
             }
             0x0005 => {
                 // Loop address, high byte
                 let channel = &mut self.channels[self.selected_channel as usize];
-                channel.loop_address = (channel.loop_address & 0x00FF) | (u16::from(value) << 8);
+                channel.loop_address.set_msb(value);
 
                 log::trace!("  Loop address = {:04X}", channel.loop_address);
             }

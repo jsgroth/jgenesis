@@ -7,7 +7,7 @@ mod load;
 
 use crate::core::{InterruptType, Registers, SizeBits, Wdc65816};
 use crate::traits::BusInterface;
-use jgenesis_common::num::{GetBit, SignBit};
+use jgenesis_common::num::{GetBit, SignBit, U16Ext};
 
 fn u24_address(bank: u8, address: u16) -> u32 {
     (u32::from(bank) << 16) | u32::from(address)
@@ -1265,7 +1265,7 @@ macro_rules! impl_modify_accumulator_u8 {
             let $value = cpu.registers.a as u8;
             let $registers = &mut cpu.registers;
             let value = $body;
-            cpu.registers.set_a_u8(value);
+            cpu.registers.a.set_lsb(value);
         }
     };
 }

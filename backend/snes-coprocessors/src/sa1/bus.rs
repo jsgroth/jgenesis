@@ -2,6 +2,7 @@ use crate::sa1::mmc::{BwramBitmapBits, BwramMapSource, Sa1Mmc};
 use crate::sa1::registers::{InterruptVectorSource, Sa1Registers};
 use crate::sa1::timer::Sa1Timer;
 use crate::sa1::{Iram, Sa1};
+use jgenesis_common::num::U16Ext;
 use wdc65816_emu::traits::BusInterface;
 
 impl Sa1 {
@@ -17,16 +18,16 @@ impl Sa1 {
                 let irq_vector_source = self.registers.snes_irq_vector_source;
                 match (bank, offset) {
                     (0x00, 0xFFEA) if nmi_vector_source == InterruptVectorSource::IoPorts => {
-                        Some(self.registers.snes_nmi_vector as u8)
+                        Some(self.registers.snes_nmi_vector.lsb())
                     }
                     (0x00, 0xFFEB) if nmi_vector_source == InterruptVectorSource::IoPorts => {
-                        Some((self.registers.snes_nmi_vector >> 8) as u8)
+                        Some(self.registers.snes_nmi_vector.msb())
                     }
                     (0x00, 0xFFEE) if irq_vector_source == InterruptVectorSource::IoPorts => {
-                        Some(self.registers.snes_irq_vector as u8)
+                        Some(self.registers.snes_irq_vector.lsb())
                     }
                     (0x00, 0xFFEF) if irq_vector_source == InterruptVectorSource::IoPorts => {
-                        Some((self.registers.snes_irq_vector >> 8) as u8)
+                        Some(self.registers.snes_irq_vector.msb())
                     }
                     _ => self
                         .mmc
@@ -119,12 +120,12 @@ impl<'a> BusInterface for Sa1Bus<'a> {
 
                 // Check for NMI/IRQ/RESET vector reads first
                 match (bank, offset) {
-                    (0x00, 0xFFEA) => self.registers.sa1_nmi_vector as u8,
-                    (0x00, 0xFFEB) => (self.registers.sa1_nmi_vector >> 8) as u8,
-                    (0x00, 0xFFEE) => self.registers.sa1_irq_vector as u8,
-                    (0x00, 0xFFEF) => (self.registers.sa1_irq_vector >> 8) as u8,
-                    (0x00, 0xFFFC) => self.registers.sa1_reset_vector as u8,
-                    (0x00, 0xFFFD) => (self.registers.sa1_reset_vector >> 8) as u8,
+                    (0x00, 0xFFEA) => self.registers.sa1_nmi_vector.lsb(),
+                    (0x00, 0xFFEB) => self.registers.sa1_nmi_vector.msb(),
+                    (0x00, 0xFFEE) => self.registers.sa1_irq_vector.lsb(),
+                    (0x00, 0xFFEF) => self.registers.sa1_irq_vector.msb(),
+                    (0x00, 0xFFFC) => self.registers.sa1_reset_vector.lsb(),
+                    (0x00, 0xFFFD) => self.registers.sa1_reset_vector.msb(),
                     _ => self
                         .mmc
                         .map_rom_address(address)

@@ -6,7 +6,7 @@
 mod ssp1601;
 
 use bincode::{Decode, Encode};
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext};
 use std::array;
 
 const SVP_ENTRY_POINT: u16 = 0x400;
@@ -377,13 +377,11 @@ impl Svp {
             0x300000..=0x37FFFF => {
                 // DRAM, mirrored every 128KB / $1FFFF
                 let word_addr = ((address & 0x1FFFF) >> 1) as usize;
-                let existing_value = self.dram[word_addr];
-                let new_value = if address.bit(0) {
-                    (existing_value & 0xFF00) | u16::from(value)
+                if address.bit(0) {
+                    self.dram[word_addr].set_lsb(value);
                 } else {
-                    (existing_value & 0x00FF) | (u16::from(value) << 8)
+                    self.dram[word_addr].set_msb(value);
                 };
-                self.dram[word_addr] = new_value;
 
                 // Specific DRAM addresses used for communication between the 68000 and DSP
                 if word_addr == 0x7F03 || word_addr == 0x7F04 {

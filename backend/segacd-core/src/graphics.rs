@@ -6,7 +6,7 @@ use crate::graphics::fixedpoint::FixedPointDecimal;
 use crate::memory::wordram;
 use crate::memory::wordram::{Nibble, WordRam};
 use bincode::{Decode, Encode};
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext};
 use std::array;
 
 const SUB_CPU_DIVIDER: u32 = crate::api::SUB_CPU_DIVIDER as u32;
@@ -197,11 +197,11 @@ impl GraphicsCoprocessor {
             }
             0x0062 => {
                 // Image buffer H dot size, high byte
-                (self.image_buffer_h_dot_size >> 8) as u8
+                (self.image_buffer_h_dot_size as u16).msb()
             }
             0x0063 => {
                 // Image buffer H dot size, low byte
-                self.image_buffer_h_dot_size as u8
+                (self.image_buffer_h_dot_size as u16).lsb()
             }
             0x0065 => {
                 // Image buffer V dot size

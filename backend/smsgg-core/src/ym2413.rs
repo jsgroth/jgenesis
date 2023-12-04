@@ -5,7 +5,7 @@
 //! <https://github.com/andete/ym2413>
 
 use bincode::{Decode, Encode};
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext};
 use std::sync::OnceLock;
 use std::{array, cmp};
 
@@ -477,13 +477,13 @@ impl Default for Channel {
 
 impl Channel {
     fn write_register_1(&mut self, value: u8) {
-        self.settings.f_number = (self.settings.f_number & 0xFF00) | u16::from(value);
+        self.settings.f_number.set_lsb(value);
 
         log::trace!("F-number: {:03X}", self.settings.f_number);
     }
 
     fn write_register_2(&mut self, value: u8) {
-        self.settings.f_number = (self.settings.f_number & 0x00FF) | (u16::from(value & 0x01) << 8);
+        self.settings.f_number.set_msb(value & 0x01);
         self.settings.block = (value >> 1) & 0x07;
         self.settings.sustain = value.bit(5);
 

@@ -4,7 +4,7 @@ mod instructions;
 use crate::superfx::gsu::codecache::CodeCache;
 use crate::superfx::gsu::instructions::PlotState;
 use bincode::{Decode, Encode};
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::EnumDisplay;
 use std::fmt::{Display, Formatter};
 
@@ -300,8 +300,8 @@ impl GraphicsSupportUnit {
             0x24 | 0x34 => Some(self.pbr),
             0x26 | 0x36 => Some(self.rombr),
             0x2B | 0x3B => Some(VERSION_REGISTER),
-            0x2E | 0x3E => Some((self.code_cache.cbr() >> 8) as u8),
-            0x2F | 0x3F => Some(self.code_cache.cbr() as u8),
+            0x2E | 0x3E => Some(self.code_cache.cbr().msb()),
+            0x2F | 0x3F => Some(self.code_cache.cbr().lsb()),
             _ => Some(0x00),
         }
     }
@@ -395,7 +395,7 @@ impl GraphicsSupportUnit {
 
     fn read_r(&self, address: u32) -> u8 {
         let idx = (address & 0x1F) >> 1;
-        if !address.bit(0) { self.r[idx as usize] as u8 } else { (self.r[idx as usize] >> 8) as u8 }
+        if !address.bit(0) { self.r[idx as usize].lsb() } else { self.r[idx as usize].msb() }
     }
 
     fn read_sfr_low(&self) -> u8 {

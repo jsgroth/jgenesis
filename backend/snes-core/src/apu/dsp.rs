@@ -2,7 +2,7 @@
 
 use crate::apu::AudioRam;
 use bincode::{Decode, Encode};
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext};
 use std::array;
 use std::ops::Index;
 
@@ -199,12 +199,12 @@ struct Voice {
 
 impl Voice {
     fn write_pitch_low(&mut self, value: u8) {
-        self.sample_rate = (self.sample_rate & 0xFF00) | u16::from(value);
+        self.sample_rate.set_lsb(value);
     }
 
     fn write_pitch_high(&mut self, value: u8) {
         // Sample rate is 14 bits; drop the highest 2
-        self.sample_rate = (self.sample_rate & 0x00FF) | (u16::from(value & 0x3F) << 8);
+        self.sample_rate.set_msb(value & 0x3F);
 
         // Preserve original value for register reads
         self.last_pitch_h_write = value;
@@ -902,7 +902,7 @@ impl AudioDsp {
         match address & 0x0F {
             0x00 => self.voices[voice].volume_l as u8,
             0x01 => self.voices[voice].volume_r as u8,
-            0x02 => (self.voices[voice].sample_rate >> 8) as u8,
+            0x02 => self.voices[voice].sample_rate.lsb(),
             0x03 => self.voices[voice].last_pitch_h_write,
             0x04 => self.voices[voice].instrument_number,
             0x05 => self.voices[voice].read_adsr_low(),

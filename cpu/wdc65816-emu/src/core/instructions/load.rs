@@ -21,7 +21,7 @@ impl_read_op_u8!(
         stack_relative_indirect_indexed -> lda_stack_relative_indirect_indexed_u8,
     ]
     (|registers, value| {
-        registers.set_a_u8(value);
+        registers.a.set_lsb(value);
 
         registers.p.zero = value == 0;
         registers.p.negative = value.sign_bit();
@@ -127,7 +127,7 @@ macro_rules! impl_transfer_op {
     (u8: $u8_name:ident, u16: $u16_name:ident, $from:ident -> $to:ident) => {
         impl_registers_op!($u8_name, |registers| {
             let value = registers.$from as u8;
-            registers.$to = (registers.$to & 0xFF00) | u16::from(value);
+            registers.$to.set_lsb(value);
 
             registers.p.zero = value == 0;
             registers.p.negative = value.sign_bit();
@@ -284,14 +284,14 @@ macro_rules! impl_store_direct_page_u16 {
                 3 => {
                     let address = cpu.registers.d.wrapping_add(cpu.state.t0.into());
                     let value = store_register!(cpu.registers, $register);
-                    bus.write(address.into(), value as u8);
+                    bus.write(address.into(), value.lsb());
                 }
                 4 => {
                     final_cycle(cpu, bus);
 
                     let address = cpu.registers.d.wrapping_add(cpu.state.t0.into()).wrapping_add(1);
                     let value = store_register!(cpu.registers, $register);
-                    bus.write(address.into(), (value >> 8) as u8);
+                    bus.write(address.into(), value.msb());
                 }
                 _ => invalid_cycle!(cpu),
             }
@@ -347,14 +347,14 @@ macro_rules! impl_store_direct_page_indexed_u16 {
                 4 => {
                     let address = index_direct_page(cpu, cpu.state.t0, cpu.registers.$index);
                     let value = store_register!(cpu.registers, $register);
-                    bus.write(address.into(), value as u8);
+                    bus.write(address.into(), value.lsb());
                 }
                 5 => {
                     final_cycle(cpu, bus);
 
                     let address = index_direct_page(cpu, cpu.state.t0, cpu.registers.$index);
                     let value = store_register!(cpu.registers, $register);
-                    bus.write(address.wrapping_add(1).into(), (value >> 8) as u8);
+                    bus.write(address.wrapping_add(1).into(), value.msb());
                 }
                 _ => invalid_cycle!(cpu),
             }
@@ -400,7 +400,7 @@ macro_rules! impl_store_absolute_u16 {
                     let address =
                         u32::from_le_bytes([cpu.state.t0, cpu.state.t1, cpu.registers.dbr, 0]);
                     let value = store_register!(cpu.registers, $register);
-                    bus.write(address, value as u8);
+                    bus.write(address, value.lsb());
                 }
                 4 => {
                     final_cycle(cpu, bus);
@@ -409,7 +409,7 @@ macro_rules! impl_store_absolute_u16 {
                         u32::from_le_bytes([cpu.state.t0, cpu.state.t1, cpu.registers.dbr, 0]);
                     let address = (base_addr + 1) & B::ADDRESS_MASK;
                     let value = store_register!(cpu.registers, $register);
-                    bus.write(address, (value >> 8) as u8);
+                    bus.write(address, value.msb());
                 }
                 _ => invalid_cycle!(cpu),
             }
@@ -467,7 +467,7 @@ macro_rules! impl_store_absolute_indexed_u16 {
                     let index: u32 = cpu.registers.$index.into();
                     let address = (base_addr + index) & B::ADDRESS_MASK;
                     let value = store_register!(cpu.registers, $register);
-                    bus.write(address, value as u8);
+                    bus.write(address, value.lsb());
                 }
                 5 => {
                     final_cycle(cpu, bus);
@@ -477,7 +477,7 @@ macro_rules! impl_store_absolute_indexed_u16 {
                     let index: u32 = cpu.registers.$index.into();
                     let address = (base_addr + index + 1) & B::ADDRESS_MASK;
                     let value = store_register!(cpu.registers, $register);
-                    bus.write(address, (value >> 8) as u8);
+                    bus.write(address, value.msb());
                 }
                 _ => invalid_cycle!(cpu),
             }
@@ -547,13 +547,13 @@ pub(crate) fn sta_direct_page_indirect_u16<B: BusInterface>(cpu: &mut Wdc65816, 
         }
         5 => {
             let address = u32::from_le_bytes([cpu.state.t1, cpu.state.t2, cpu.registers.dbr, 0]);
-            bus.write(address, cpu.registers.a as u8);
+            bus.write(address, cpu.registers.a.lsb());
         }
         6 => {
             final_cycle(cpu, bus);
 
             let address = u32::from_le_bytes([cpu.state.t1, cpu.state.t2, cpu.registers.dbr, 0]);
-            bus.write((address + 1) & B::ADDRESS_MASK, (cpu.registers.a >> 8) as u8);
+            bus.write((address + 1) & B::ADDRESS_MASK, cpu.registers.a.msb());
         }
         _ => invalid_cycle!(cpu),
     }
@@ -613,13 +613,13 @@ pub(crate) fn sta_direct_page_indexed_indirect_u16<B: BusInterface>(
         }
         6 => {
             let address = u32::from_le_bytes([cpu.state.t1, cpu.state.t2, cpu.registers.dbr, 0]);
-            bus.write(address, cpu.registers.a as u8);
+            bus.write(address, cpu.registers.a.lsb());
         }
         7 => {
             final_cycle(cpu, bus);
 
             let address = u32::from_le_bytes([cpu.state.t1, cpu.state.t2, cpu.registers.dbr, 0]);
-            bus.write((address + 1) & B::ADDRESS_MASK, (cpu.registers.a >> 8) as u8);
+            bus.write((address + 1) & B::ADDRESS_MASK, cpu.registers.a.msb());
         }
         _ => invalid_cycle!(cpu),
     }
@@ -681,14 +681,14 @@ pub(crate) fn sta_direct_page_indirect_indexed_u16<B: BusInterface>(
         6 => {
             let base_addr = u32::from_le_bytes([cpu.state.t1, cpu.state.t2, cpu.registers.dbr, 0]);
             let address = (base_addr + u32::from(cpu.registers.y)) & B::ADDRESS_MASK;
-            bus.write(address, cpu.registers.a as u8);
+            bus.write(address, cpu.registers.a.lsb());
         }
         7 => {
             final_cycle(cpu, bus);
 
             let base_addr = u32::from_le_bytes([cpu.state.t1, cpu.state.t2, cpu.registers.dbr, 0]);
             let address = (base_addr + u32::from(cpu.registers.y) + 1) & B::ADDRESS_MASK;
-            bus.write(address, (cpu.registers.a >> 8) as u8);
+            bus.write(address, cpu.registers.a.msb());
         }
         _ => invalid_cycle!(cpu),
     }
@@ -750,13 +750,13 @@ pub(crate) fn sta_direct_page_indirect_long_u16<B: BusInterface>(cpu: &mut Wdc65
         }
         6 => {
             let address = u32::from_le_bytes([cpu.state.t1, cpu.state.t2, cpu.state.t3, 0]);
-            bus.write(address, cpu.registers.a as u8);
+            bus.write(address, cpu.registers.a.lsb());
         }
         7 => {
             final_cycle(cpu, bus);
 
             let address = u32::from_le_bytes([cpu.state.t1, cpu.state.t2, cpu.state.t3, 0]);
-            bus.write((address + 1) & B::ADDRESS_MASK, (cpu.registers.a >> 8) as u8);
+            bus.write((address + 1) & B::ADDRESS_MASK, cpu.registers.a.msb());
         }
         _ => invalid_cycle!(cpu),
     }
@@ -826,14 +826,14 @@ pub(crate) fn sta_direct_page_indirect_long_indexed_u16<B: BusInterface>(
         6 => {
             let base_addr = u32::from_le_bytes([cpu.state.t1, cpu.state.t2, cpu.state.t3, 0]);
             let address = (base_addr + u32::from(cpu.registers.y)) & B::ADDRESS_MASK;
-            bus.write(address, cpu.registers.a as u8);
+            bus.write(address, cpu.registers.a.lsb());
         }
         7 => {
             final_cycle(cpu, bus);
 
             let base_addr = u32::from_le_bytes([cpu.state.t1, cpu.state.t2, cpu.state.t3, 0]);
             let address = (base_addr + u32::from(cpu.registers.y) + 1) & B::ADDRESS_MASK;
-            bus.write(address, (cpu.registers.a >> 8) as u8);
+            bus.write(address, cpu.registers.a.msb());
         }
         _ => invalid_cycle!(cpu),
     }
@@ -873,14 +873,14 @@ pub(crate) fn sta_absolute_long_u16<B: BusInterface>(cpu: &mut Wdc65816, bus: &m
         }
         4 => {
             let address = u32::from_le_bytes([cpu.state.t0, cpu.state.t1, cpu.state.t2, 0]);
-            bus.write(address, cpu.registers.a as u8);
+            bus.write(address, cpu.registers.a.lsb());
         }
         5 => {
             final_cycle(cpu, bus);
 
             let base_addr = u32::from_le_bytes([cpu.state.t0, cpu.state.t1, cpu.state.t2, 0]);
             let address = (base_addr + 1) & B::ADDRESS_MASK;
-            bus.write(address, (cpu.registers.a >> 8) as u8);
+            bus.write(address, cpu.registers.a.msb());
         }
         _ => invalid_cycle!(cpu),
     }
@@ -924,7 +924,7 @@ pub(crate) fn sta_absolute_long_x_u16<B: BusInterface>(cpu: &mut Wdc65816, bus: 
             let base_addr = u32::from_le_bytes([cpu.state.t0, cpu.state.t1, cpu.state.t2, 0]);
             let index: u32 = cpu.registers.x.into();
             let address = (base_addr + index) & B::ADDRESS_MASK;
-            bus.write(address, cpu.registers.a as u8);
+            bus.write(address, cpu.registers.a.lsb());
         }
         5 => {
             final_cycle(cpu, bus);
@@ -932,7 +932,7 @@ pub(crate) fn sta_absolute_long_x_u16<B: BusInterface>(cpu: &mut Wdc65816, bus: 
             let base_addr = u32::from_le_bytes([cpu.state.t0, cpu.state.t1, cpu.state.t2, 0]);
             let index: u32 = cpu.registers.x.into();
             let address = (base_addr + index + 1) & B::ADDRESS_MASK;
-            bus.write(address, (cpu.registers.a >> 8) as u8);
+            bus.write(address, cpu.registers.a.msb());
         }
         _ => invalid_cycle!(cpu),
     }
@@ -968,13 +968,13 @@ pub(crate) fn sta_stack_relative_u16<B: BusInterface>(cpu: &mut Wdc65816, bus: &
         }
         3 => {
             let address = cpu.registers.s.wrapping_add(cpu.state.t0.into());
-            bus.write(address.into(), cpu.registers.a as u8);
+            bus.write(address.into(), cpu.registers.a.lsb());
         }
         4 => {
             final_cycle(cpu, bus);
 
             let address = cpu.registers.s.wrapping_add(cpu.state.t0.into());
-            bus.write(address.wrapping_add(1).into(), (cpu.registers.a >> 8) as u8);
+            bus.write(address.wrapping_add(1).into(), cpu.registers.a.msb());
         }
         _ => invalid_cycle!(cpu),
     }
@@ -1034,14 +1034,14 @@ pub(crate) fn sta_stack_relative_indirect_indexed_u16<B: BusInterface>(
         6 => {
             let base_addr = u32::from_le_bytes([cpu.state.t1, cpu.state.t2, cpu.registers.dbr, 0]);
             let address = (base_addr + u32::from(cpu.registers.y)) & B::ADDRESS_MASK;
-            bus.write(address, cpu.registers.a as u8);
+            bus.write(address, cpu.registers.a.lsb());
         }
         7 => {
             final_cycle(cpu, bus);
 
             let base_addr = u32::from_le_bytes([cpu.state.t1, cpu.state.t2, cpu.registers.dbr, 0]);
             let address = (base_addr + u32::from(cpu.registers.y) + 1) & B::ADDRESS_MASK;
-            bus.write(address, (cpu.registers.a >> 8) as u8);
+            bus.write(address, cpu.registers.a.msb());
         }
         _ => invalid_cycle!(cpu),
     }
@@ -1104,7 +1104,7 @@ macro_rules! impl_push_u16 {
                     bus.idle();
                 }
                 2 => {
-                    bus.write(cpu.registers.s.into(), (cpu.registers.$register >> 8) as u8);
+                    bus.write(cpu.registers.s.into(), cpu.registers.$register.msb());
                     cpu.registers.s = cpu.registers.s.wrapping_sub(1);
                 }
                 3 => {
@@ -1172,7 +1172,7 @@ macro_rules! impl_pull_u8 {
         $registers.dbr = $value;
     };
     (@write $register:ident, $registers:expr, $value:expr) => {
-        $registers.$register = ($registers.$register & 0xFF00) | u16::from($value);
+        $registers.$register.set_lsb($value);
     };
     ($name:ident, $register:ident) => {
         pub(crate) fn $name<B: BusInterface>(cpu: &mut Wdc65816, bus: &mut B) {

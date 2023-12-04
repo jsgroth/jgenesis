@@ -1,5 +1,5 @@
 use crate::traits::{BusInterface, InterruptLine};
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext};
 
 mod instructions;
 
@@ -149,10 +149,10 @@ impl Register8 {
             Self::L => registers.l,
             Self::I => registers.i,
             Self::R => registers.r,
-            Self::IXHigh => (registers.ix >> 8) as u8,
-            Self::IXLow => registers.ix as u8,
-            Self::IYHigh => (registers.iy >> 8) as u8,
-            Self::IYLow => registers.iy as u8,
+            Self::IXHigh => registers.ix.msb(),
+            Self::IXLow => registers.ix.lsb(),
+            Self::IYHigh => registers.iy.msb(),
+            Self::IYLow => registers.iy.lsb(),
         }
     }
 
@@ -186,16 +186,16 @@ impl Register8 {
                 registers.r = value;
             }
             Self::IXHigh => {
-                registers.ix = (registers.ix & 0x00FF) | (u16::from(value) << 8);
+                registers.ix.set_msb(value);
             }
             Self::IXLow => {
-                registers.ix = (registers.ix & 0xFF00) | u16::from(value);
+                registers.ix.set_lsb(value);
             }
             Self::IYHigh => {
-                registers.iy = (registers.iy & 0x00FF) | (u16::from(value) << 8);
+                registers.iy.set_msb(value);
             }
             Self::IYLow => {
-                registers.iy = (registers.iy & 0xFF00) | u16::from(value);
+                registers.iy.set_lsb(value);
             }
         }
     }

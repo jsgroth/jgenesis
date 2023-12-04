@@ -17,7 +17,7 @@ use crate::rf5c164::Rf5c164;
 use bincode::{Decode, Encode};
 use genesis_core::memory::{Memory, PhysicalMedium};
 use genesis_core::GenesisRegion;
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use m68000_emu::BusInterface;
 use std::ops::Deref;
@@ -219,27 +219,27 @@ impl SegaCd {
             }
             0xA12006 => {
                 // HINT vector, high byte
-                (self.registers.h_interrupt_vector >> 8) as u8
+                self.registers.h_interrupt_vector.msb()
             }
             0xA12007 => {
                 // HINT vector, low byte
-                self.registers.h_interrupt_vector as u8
+                self.registers.h_interrupt_vector.lsb()
             }
             0xA12008 => {
                 // CDC host data, high byte
-                (self.cdc_mut().read_host_data(ScdCpu::Main) >> 8) as u8
+                self.cdc_mut().read_host_data(ScdCpu::Main).msb()
             }
             0xA12009 => {
                 // CDC host data, low byte
-                self.cdc_mut().read_host_data(ScdCpu::Main) as u8
+                self.cdc_mut().read_host_data(ScdCpu::Main).lsb()
             }
             0xA1200C => {
                 // Stopwatch, high byte
-                (self.registers.stopwatch_counter >> 8) as u8
+                self.registers.stopwatch_counter.msb()
             }
             0xA1200D => {
                 // Stopwatch, low byte
-                self.registers.stopwatch_counter as u8
+                self.registers.stopwatch_counter.lsb()
             }
             0xA1200E => {
                 // Communication flags, high byte (main CPU)
@@ -253,13 +253,13 @@ impl SegaCd {
                 // Communication command buffers
                 let idx = (address & 0xF) >> 1;
                 let word = self.registers.communication_commands[idx as usize];
-                if address.bit(0) { word as u8 } else { (word >> 8) as u8 }
+                if address.bit(0) { word.lsb() } else { word.msb() }
             }
             0xA12020..=0xA1202F => {
                 // Communication status buffers
                 let idx = (address & 0xF) >> 1;
                 let word = self.registers.communication_statuses[idx as usize];
-                if address.bit(0) { word as u8 } else { (word >> 8) as u8 }
+                if address.bit(0) { word.lsb() } else { word.msb() }
             }
             _ => 0,
         }
@@ -345,11 +345,10 @@ impl SegaCd {
                 // Communication command buffers
                 let idx = (address & 0xF) >> 1;
                 let commands = &mut self.registers.communication_commands;
-                let existing_word = commands[idx as usize];
                 if address.bit(0) {
-                    commands[idx as usize] = (existing_word & 0xFF00) | u16::from(value);
+                    commands[idx as usize].set_lsb(value);
                 } else {
-                    commands[idx as usize] = (existing_word & 0x00FF) | (u16::from(value) << 8);
+                    commands[idx as usize].set_msb(value);
                 }
             }
             _ => {}
@@ -372,7 +371,7 @@ impl SegaCd {
             }
             0xA1200E => {
                 // Communication flags; only main CPU flags are writable
-                self.registers.main_cpu_communication_flags = (value >> 8) as u8;
+                self.registers.main_cpu_communication_flags = value.msb();
             }
             0xA12010..=0xA1201F => {
                 // Communication command buffers
@@ -613,8 +612,8 @@ impl PhysicalMedium for SegaCd {
                     // return $FFFF and the current value of $A12006 respectively
                     match address {
                         0x000070 | 0x000071 => 0xFF,
-                        0x000072 => (self.registers.h_interrupt_vector >> 8) as u8,
-                        0x000073 => self.registers.h_interrupt_vector as u8,
+                        0x000072 => self.registers.h_interrupt_vector.msb(),
+                        0x000073 => self.registers.h_interrupt_vector.lsb(),
                         _ => self.bios[(address & 0x1FFFF) as usize],
                     }
                 } else {
@@ -823,20 +822,19 @@ impl<'a> SubBus<'a> {
             }
             0x0008 => {
                 // CDC host data, high byte
-                let word = self.sega_cd_mut().cdc_mut().read_host_data(ScdCpu::Sub);
-                (word >> 8) as u8
+                self.sega_cd_mut().cdc_mut().read_host_data(ScdCpu::Sub).msb()
             }
             0x0009 => {
                 // CDC host data, low byte
-                self.sega_cd_mut().cdc_mut().read_host_data(ScdCpu::Sub) as u8
+                self.sega_cd_mut().cdc_mut().read_host_data(ScdCpu::Sub).lsb()
             }
             0x000C => {
                 // Stopwatch, high byte
-                (self.sega_cd().registers.stopwatch_counter >> 8) as u8
+                self.sega_cd().registers.stopwatch_counter.msb()
             }
             0x000D => {
                 // Stopwatch, low byte
-                self.sega_cd().registers.stopwatch_counter as u8
+                self.sega_cd().registers.stopwatch_counter.lsb()
             }
             0x000E => {
                 // Communication flags, high byte (main CPU)
@@ -850,13 +848,13 @@ impl<'a> SubBus<'a> {
                 // Communication command buffers
                 let idx = (address & 0xF) >> 1;
                 let word = self.sega_cd().registers.communication_commands[idx as usize];
-                if address.bit(0) { word as u8 } else { (word >> 8) as u8 }
+                if address.bit(0) { word.lsb() } else { word.msb() }
             }
             0x0020..=0x002F => {
                 // Communication status buffers
                 let idx = (address & 0xF) >> 1;
                 let word = self.sega_cd().registers.communication_statuses[idx as usize];
-                if address.bit(0) { word as u8 } else { (word >> 8) as u8 }
+                if address.bit(0) { word.lsb() } else { word.msb() }
             }
             0x0031 => {
                 // Timer
@@ -902,16 +900,16 @@ impl<'a> SubBus<'a> {
             }
             0x004E => {
                 // Font bits, high byte
-                (self.sega_cd().font_registers.font_bits() >> 8) as u8
+                self.sega_cd().font_registers.font_bits().msb()
             }
             0x004F => {
                 // Font bits, low byte
-                self.sega_cd().font_registers.font_bits() as u8
+                self.sega_cd().font_registers.font_bits().lsb()
             }
             0x0050..=0x0057 => {
                 // Font data
                 let font_data_word = self.sega_cd().font_registers.read_font_data(address);
-                if address.bit(0) { font_data_word as u8 } else { (font_data_word >> 8) as u8 }
+                if address.bit(0) { font_data_word.lsb() } else { font_data_word.msb() }
             }
             0x0058..=0x0067 => self.graphics_coprocessor.read_register_byte(address),
             _ => 0x00,
@@ -1056,11 +1054,10 @@ impl<'a> SubBus<'a> {
                 // Communication status buffers
                 let idx = (address & 0xF) >> 1;
                 let statuses = &mut self.sega_cd_mut().registers.communication_statuses;
-                let existing_word = statuses[idx as usize];
                 if address.bit(0) {
-                    statuses[idx as usize] = (existing_word & 0xFF00) | u16::from(value);
+                    statuses[idx as usize].set_lsb(value);
                 } else {
-                    statuses[idx as usize] = (existing_word & 0x00FF) | (u16::from(value) << 8);
+                    statuses[idx as usize].set_msb(value);
                 }
             }
             0x0030..=0x0031 => {

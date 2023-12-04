@@ -1,7 +1,7 @@
 //! Sega CD font rendering / color calculation registers
 
 use bincode::{Decode, Encode};
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext};
 
 #[derive(Debug, Clone, Default, Encode, Decode)]
 pub struct FontRegisters {
@@ -33,11 +33,11 @@ impl FontRegisters {
     }
 
     pub fn write_font_bits_msb(&mut self, font_bits_msb: u8) {
-        self.font_bits = (self.font_bits & 0x00FF) | (u16::from(font_bits_msb) << 8);
+        self.font_bits.set_msb(font_bits_msb);
     }
 
     pub fn write_font_bits_lsb(&mut self, font_bits_lsb: u8) {
-        self.font_bits = (self.font_bits & 0xFF00) | u16::from(font_bits_lsb);
+        self.font_bits.set_lsb(font_bits_lsb);
     }
 
     pub fn read_font_data(&self, address: u32) -> u16 {

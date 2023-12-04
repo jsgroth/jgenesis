@@ -1,7 +1,7 @@
 use crate::ppu;
 use crate::ppu::Vram;
 use bincode::{Decode, Encode};
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext, U24Ext};
 use std::cmp;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
@@ -1061,19 +1061,16 @@ impl Registers {
 
     pub fn write_oamaddl(&mut self, value: u8) {
         // OAMADDL: OAM address, low byte
-        let reload_value = (self.oam_address_reload_value & 0xFF00) | u16::from(value);
-        self.oam_address_reload_value = reload_value;
-        self.oam_address = reload_value << 1;
+        self.oam_address_reload_value.set_lsb(value);
+        self.oam_address = self.oam_address_reload_value << 1;
 
         log::trace!("  OAM address reload value: {:04X}", self.oam_address_reload_value);
     }
 
     pub fn write_oamaddh(&mut self, value: u8) {
         // OAMADDH: OAM address, high byte
-        let reload_value =
-            (self.oam_address_reload_value & 0x00FF) | (u16::from(value & 0x01) << 8);
-        self.oam_address_reload_value = reload_value;
-        self.oam_address = reload_value << 1;
+        self.oam_address_reload_value.set_msb(value & 0x01);
+        self.oam_address = self.oam_address_reload_value << 1;
 
         self.obj_priority_mode = ObjPriorityMode::from_byte(value);
 
@@ -1099,7 +1096,7 @@ impl Registers {
 
     pub fn write_vmaddl(&mut self, value: u8, vram: &Vram) {
         // VMADDL: VRAM address, low byte
-        self.vram_address = (self.vram_address & 0xFF00) | u16::from(value);
+        self.vram_address.set_lsb(value);
         self.vram_prefetch_buffer = vram[(self.vram_address & ppu::VRAM_ADDRESS_MASK) as usize];
 
         log::trace!("  VRAM data port address: {:04X}", self.vram_address);
@@ -1107,7 +1104,7 @@ impl Registers {
 
     pub fn write_vmaddh(&mut self, value: u8, vram: &Vram) {
         // VMADDH: VRAM address, high byte
-        self.vram_address = (self.vram_address & 0x00FF) | (u16::from(value) << 8);
+        self.vram_address.set_msb(value);
         self.vram_prefetch_buffer = vram[(self.vram_address & ppu::VRAM_ADDRESS_MASK) as usize];
 
         log::trace!("  VRAM data port address: {:04X}", self.vram_address);
@@ -1124,19 +1121,19 @@ impl Registers {
     pub fn read_mpyl(&self) -> u8 {
         // MPYL: PPU multiply result, low byte
         let mpy_result = i32::from(self.multiply_operand_l) * i32::from(self.multiply_operand_r);
-        mpy_result as u8
+        mpy_result.low_byte()
     }
 
     pub fn read_mpym(&self) -> u8 {
         // MPYM: PPU multiply result, middle byte
         let mpy_result = i32::from(self.multiply_operand_l) * i32::from(self.multiply_operand_r);
-        (mpy_result >> 8) as u8
+        mpy_result.mid_byte()
     }
 
     pub fn read_mpyh(&self) -> u8 {
         // MPYH: PPU multiply result, high byte
         let mpy_result = i32::from(self.multiply_operand_l) * i32::from(self.multiply_operand_r);
-        (mpy_result >> 16) as u8
+        mpy_result.high_byte()
     }
 
     pub fn read_slhv(&mut self, h_counter: u16, v_counter: u16) {
@@ -1149,8 +1146,8 @@ impl Registers {
     pub fn read_ophct(&mut self, ppu2_open_bus: u8) -> u8 {
         // Bits 1-7 of high byte are PPU2 open bus
         let value = match self.h_counter_flipflop {
-            AccessFlipflop::First => self.latched_h_counter as u8,
-            AccessFlipflop::Second => (ppu2_open_bus & 0xFE) | (self.latched_h_counter >> 8) as u8,
+            AccessFlipflop::First => self.latched_h_counter.lsb(),
+            AccessFlipflop::Second => (ppu2_open_bus & 0xFE) | self.latched_h_counter.msb(),
         };
         self.h_counter_flipflop = self.h_counter_flipflop.toggle();
         value
@@ -1159,8 +1156,8 @@ impl Registers {
     pub fn read_opvct(&mut self, ppu2_open_bus: u8) -> u8 {
         // Bits 1-7 of high byte are PPU2 open bus
         let value = match self.v_counter_flipflop {
-            AccessFlipflop::First => self.latched_v_counter as u8,
-            AccessFlipflop::Second => (ppu2_open_bus & 0xFE) | (self.latched_v_counter >> 8) as u8,
+            AccessFlipflop::First => self.latched_v_counter.lsb(),
+            AccessFlipflop::Second => (ppu2_open_bus & 0xFE) | self.latched_v_counter.msb(),
         };
         self.v_counter_flipflop = self.v_counter_flipflop.toggle();
         value

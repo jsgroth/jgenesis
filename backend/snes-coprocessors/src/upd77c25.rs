@@ -11,7 +11,7 @@ mod instructions;
 use crate::common;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext};
 
 pub const ST01X_RAM_LEN_BYTES: usize = Upd77c25Variant::St011.ram_len_words() << 1;
 
@@ -167,18 +167,18 @@ impl Registers {
             DataRegisterBits::Eight => {
                 self.sr.request_for_master = false;
 
-                self.dr as u8
+                self.dr.lsb()
             }
             DataRegisterBits::Sixteen => {
                 if self.sr.dr_busy {
                     self.sr.dr_busy = false;
                     self.sr.request_for_master = false;
 
-                    (self.dr >> 8) as u8
+                    self.dr.msb()
                 } else {
                     self.sr.dr_busy = true;
 
-                    self.dr as u8
+                    self.dr.lsb()
                 }
             }
         }
@@ -196,11 +196,11 @@ impl Registers {
                     self.sr.dr_busy = false;
                     self.sr.request_for_master = false;
 
-                    self.dr = (self.dr & 0x00FF) | (u16::from(value) << 8);
+                    self.dr.set_msb(value);
                 } else {
                     self.sr.dr_busy = true;
 
-                    self.dr = (self.dr & 0xFF00) | u16::from(value);
+                    self.dr.set_lsb(value);
                 }
             }
         }
@@ -319,17 +319,16 @@ impl Upd77c25 {
     #[must_use]
     pub fn read_ram(&self, address: u32) -> u8 {
         let word = self.ram[((address >> 1) & 0x7FF) as usize];
-        if !address.bit(0) { word as u8 } else { (word >> 8) as u8 }
+        if !address.bit(0) { word.lsb() } else { word.msb() }
     }
 
     #[inline]
     pub fn write_ram(&mut self, address: u32, value: u8) {
         let word_addr = ((address >> 1) & 0x7FF) as usize;
-        let word = self.ram[word_addr];
-        self.ram[word_addr] = if !address.bit(0) {
-            (word & 0xFF00) | u16::from(value)
+        if !address.bit(0) {
+            self.ram[word_addr].set_lsb(value);
         } else {
-            (word & 0x00FF) | (u16::from(value) << 8)
+            self.ram[word_addr].set_msb(value);
         };
     }
 

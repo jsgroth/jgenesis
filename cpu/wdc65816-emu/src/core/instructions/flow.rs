@@ -134,7 +134,7 @@ pub(crate) fn jsr_absolute<B: BusInterface>(cpu: &mut Wdc65816, bus: &mut B) {
         }
         4 => {
             let push_pc = cpu.registers.pc.wrapping_sub(1);
-            bus.write(cpu.registers.s.into(), (push_pc >> 8) as u8);
+            bus.write(cpu.registers.s.into(), push_pc.msb());
             cpu.registers.s = cpu.registers.s.wrapping_sub(1);
 
             if cpu.registers.emulation_mode {
@@ -145,7 +145,7 @@ pub(crate) fn jsr_absolute<B: BusInterface>(cpu: &mut Wdc65816, bus: &mut B) {
             final_cycle(cpu, bus);
 
             let push_pc = cpu.registers.pc.wrapping_sub(1);
-            bus.write(cpu.registers.s.into(), push_pc as u8);
+            bus.write(cpu.registers.s.into(), push_pc.lsb());
             cpu.registers.s = cpu.registers.s.wrapping_sub(1);
 
             cpu.registers.pc = u16::from_le_bytes([cpu.state.t0, cpu.state.t1]);
@@ -164,7 +164,7 @@ pub(crate) fn jsr_indirect_indexed<B: BusInterface>(cpu: &mut Wdc65816, bus: &mu
             cpu.state.t0 = fetch_operand(cpu, bus);
         }
         2 => {
-            bus.write(cpu.registers.s.into(), (cpu.registers.pc >> 8) as u8);
+            bus.write(cpu.registers.s.into(), cpu.registers.pc.msb());
             cpu.registers.s = cpu.registers.s.wrapping_sub(1);
 
             if cpu.registers.emulation_mode {
@@ -172,7 +172,7 @@ pub(crate) fn jsr_indirect_indexed<B: BusInterface>(cpu: &mut Wdc65816, bus: &mu
             }
         }
         3 => {
-            bus.write(cpu.registers.s.into(), cpu.registers.pc as u8);
+            bus.write(cpu.registers.s.into(), cpu.registers.pc.lsb());
             cpu.registers.s = cpu.registers.s.wrapping_sub(1);
 
             if cpu.registers.emulation_mode {
@@ -226,14 +226,14 @@ pub(crate) fn jsl<B: BusInterface>(cpu: &mut Wdc65816, bus: &mut B) {
         }
         6 => {
             let push_pc = cpu.registers.pc.wrapping_sub(1);
-            bus.write(cpu.registers.s.into(), (push_pc >> 8) as u8);
+            bus.write(cpu.registers.s.into(), push_pc.msb());
             cpu.registers.s = cpu.registers.s.wrapping_sub(1);
         }
         7 => {
             final_cycle(cpu, bus);
 
             let push_pc = cpu.registers.pc.wrapping_sub(1);
-            bus.write(cpu.registers.s.into(), push_pc as u8);
+            bus.write(cpu.registers.s.into(), push_pc.lsb());
             cpu.registers.s = cpu.registers.s.wrapping_sub(1);
 
             cpu.registers.pc = u16::from_le_bytes([cpu.state.t0, cpu.state.t1]);
@@ -367,7 +367,7 @@ pub(crate) fn handle_interrupt<B: BusInterface>(
             cpu.registers.s = cpu.registers.s.wrapping_sub(1);
         }
         3 => {
-            bus.write(cpu.registers.s.into(), (cpu.registers.pc >> 8) as u8);
+            bus.write(cpu.registers.s.into(), cpu.registers.pc.msb());
             cpu.registers.s = cpu.registers.s.wrapping_sub(1);
 
             if cpu.registers.emulation_mode {
@@ -375,7 +375,7 @@ pub(crate) fn handle_interrupt<B: BusInterface>(
             }
         }
         4 => {
-            bus.write(cpu.registers.s.into(), cpu.registers.pc as u8);
+            bus.write(cpu.registers.s.into(), cpu.registers.pc.lsb());
             cpu.registers.s = cpu.registers.s.wrapping_sub(1);
 
             if cpu.registers.emulation_mode {
@@ -631,7 +631,7 @@ pub(crate) fn per<B: BusInterface>(cpu: &mut Wdc65816, bus: &mut B) {
         4 => {
             let offset = u16::from_le_bytes([cpu.state.t0, cpu.state.t1]);
             let address = cpu.registers.pc.wrapping_add(offset);
-            bus.write(cpu.registers.s.into(), (address >> 8) as u8);
+            bus.write(cpu.registers.s.into(), address.msb());
             cpu.registers.s = cpu.registers.s.wrapping_sub(1);
         }
         5 => {
@@ -639,7 +639,7 @@ pub(crate) fn per<B: BusInterface>(cpu: &mut Wdc65816, bus: &mut B) {
 
             let offset = u16::from_le_bytes([cpu.state.t0, cpu.state.t1]);
             let address = cpu.registers.pc.wrapping_add(offset);
-            bus.write(cpu.registers.s.into(), address as u8);
+            bus.write(cpu.registers.s.into(), address.lsb());
             cpu.registers.s = cpu.registers.s.wrapping_sub(1);
 
             if cpu.registers.emulation_mode {

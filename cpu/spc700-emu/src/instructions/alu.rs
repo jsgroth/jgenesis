@@ -1,6 +1,7 @@
 #[allow(clippy::wildcard_imports)]
 use super::*;
 use crate::StatusRegister;
+use jgenesis_common::num::U16Ext;
 
 fn adc(operand_l: u8, operand_r: u8, psw: &mut StatusRegister) -> u8 {
     let existing_carry: u8 = psw.carry.into();
@@ -437,7 +438,7 @@ macro_rules! impl_16bit_increment {
 
                     let address_lsb = cpu.state.t0.wrapping_add(1);
                     let address = u16::from_le_bytes([address_lsb, cpu.direct_page_msb()]);
-                    bus.write(address, (value >> 8) as u8);
+                    bus.write(address, value.msb());
 
                     cpu.registers.psw.zero = value == 0;
                     cpu.registers.psw.negative = value.sign_bit();

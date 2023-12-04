@@ -1,6 +1,6 @@
 #[allow(clippy::wildcard_imports)]
 use super::*;
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext};
 
 macro_rules! impl_branch {
     ($name:ident $(, $flag:ident == $value:expr)?) => {
@@ -257,11 +257,11 @@ pub(crate) fn call<B: BusInterface>(cpu: &mut Spc700, bus: &mut B) {
             bus.idle();
         }
         4 => {
-            bus.write(cpu.stack_pointer(), (cpu.registers.pc >> 8) as u8);
+            bus.write(cpu.stack_pointer(), cpu.registers.pc.msb());
             cpu.registers.sp = cpu.registers.sp.wrapping_sub(1);
         }
         5 => {
-            bus.write(cpu.stack_pointer(), cpu.registers.pc as u8);
+            bus.write(cpu.stack_pointer(), cpu.registers.pc.lsb());
             cpu.registers.sp = cpu.registers.sp.wrapping_sub(1);
         }
         // 6: Idle
@@ -284,11 +284,11 @@ pub(crate) fn pcall<B: BusInterface>(cpu: &mut Spc700, bus: &mut B) {
             bus.idle();
         }
         3 => {
-            bus.write(cpu.stack_pointer(), (cpu.registers.pc >> 8) as u8);
+            bus.write(cpu.stack_pointer(), cpu.registers.pc.msb());
             cpu.registers.sp = cpu.registers.sp.wrapping_sub(1);
         }
         4 => {
-            bus.write(cpu.stack_pointer(), cpu.registers.pc as u8);
+            bus.write(cpu.stack_pointer(), cpu.registers.pc.lsb());
             cpu.registers.sp = cpu.registers.sp.wrapping_sub(1);
         }
         5 => {
@@ -311,11 +311,11 @@ pub(crate) fn tcall<B: BusInterface>(cpu: &mut Spc700, bus: &mut B, n: u16) {
             bus.idle();
         }
         3 => {
-            bus.write(cpu.stack_pointer(), (cpu.registers.pc >> 8) as u8);
+            bus.write(cpu.stack_pointer(), cpu.registers.pc.msb());
             cpu.registers.sp = cpu.registers.sp.wrapping_sub(1);
         }
         4 => {
-            bus.write(cpu.stack_pointer(), cpu.registers.pc as u8);
+            bus.write(cpu.stack_pointer(), cpu.registers.pc.lsb());
             cpu.registers.sp = cpu.registers.sp.wrapping_sub(1);
         }
         // 5: Idle
@@ -386,11 +386,11 @@ pub(crate) fn brk<B: BusInterface>(cpu: &mut Spc700, bus: &mut B) {
             bus.idle();
         }
         2 => {
-            bus.write(cpu.stack_pointer(), (cpu.registers.pc >> 8) as u8);
+            bus.write(cpu.stack_pointer(), cpu.registers.pc.msb());
             cpu.registers.sp = cpu.registers.sp.wrapping_sub(1);
         }
         3 => {
-            bus.write(cpu.stack_pointer(), cpu.registers.pc as u8);
+            bus.write(cpu.stack_pointer(), cpu.registers.pc.lsb());
             cpu.registers.sp = cpu.registers.sp.wrapping_sub(1);
         }
         4 => {

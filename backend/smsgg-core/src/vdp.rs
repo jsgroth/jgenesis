@@ -12,7 +12,7 @@ use bincode::enc::Encoder;
 use bincode::error::{DecodeError, EncodeError};
 use bincode::{BorrowDecode, Decode, Encode};
 use jgenesis_common::frontend::{Color, TimingMode};
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use z80_emu::traits::InterruptLine;
 
@@ -291,10 +291,10 @@ impl Registers {
                 self.latched_control_byte = value;
 
                 // Set low byte of data address
-                self.data_address = (self.data_address & 0xFF00) | u16::from(value);
+                self.data_address.set_lsb(value);
             }
             ControlWriteFlag::Second => {
-                self.data_address = (self.data_address & 0x00FF) | (u16::from(value & 0x3F) << 8);
+                self.data_address.set_msb(value & 0x3F);
 
                 log::trace!("VRAM address set to {:04X?}", self.data_address);
 

@@ -11,7 +11,7 @@ use crate::vdp::Vdp;
 use crate::ym2612::Ym2612;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use regex::Regex;
 use smsgg_core::psg::Psg;
@@ -202,7 +202,7 @@ impl PhysicalMedium for Cartridge {
     fn read_byte(&mut self, address: u32) -> u8 {
         if let Some(svp) = &mut self.svp {
             let word = svp.m68k_read(address & !1, &self.rom.0);
-            return if address.bit(0) { word as u8 } else { (word >> 8) as u8 };
+            return if address.bit(0) { word.lsb() } else { word.msb() };
         }
 
         if self.ram_mapped {
@@ -514,12 +514,12 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
 
     fn read_vdp_byte(&mut self, address: u32) -> u8 {
         match address & 0x1F {
-            0x00 | 0x02 => (self.vdp.read_data() >> 8) as u8,
-            0x01 | 0x03 => self.vdp.read_data() as u8,
-            0x04 | 0x06 => (self.vdp.read_status() >> 8) as u8,
-            0x05 | 0x07 => self.vdp.read_status() as u8,
-            0x08 | 0x0A => (self.vdp.hv_counter() >> 8) as u8,
-            0x09 | 0x0B => self.vdp.hv_counter() as u8,
+            0x00 | 0x02 => self.vdp.read_data().msb(),
+            0x01 | 0x03 => self.vdp.read_data().lsb(),
+            0x04 | 0x06 => self.vdp.read_status().msb(),
+            0x05 | 0x07 => self.vdp.read_status().lsb(),
+            0x08 | 0x0A => self.vdp.hv_counter().msb(),
+            0x09 | 0x0B => self.vdp.hv_counter().lsb(),
             0x10..=0x1F => {
                 // PSG / unused space; PSG is not readable
                 0xFF
@@ -617,10 +617,10 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
             }
             0xA00000..=0xA0FFFF => {
                 // Z80 memory map; word-size writes write the MSB as a byte-size write
-                self.apply_byte_write(address, (value >> 8) as u8);
+                self.apply_byte_write(address, value.msb());
             }
             0xA10000..=0xA1001F => {
-                self.write_io_register(address, value as u8);
+                self.write_io_register(address, value.lsb());
             }
             0xA11100..=0xA11101 => {
                 self.memory.signals.z80_busreq = value.bit(8);
@@ -638,8 +638,8 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
             }
             0xE00000..=0xFFFFFF => {
                 let ram_addr = (address & 0xFFFF) as usize;
-                self.memory.main_ram[ram_addr] = (value >> 8) as u8;
-                self.memory.main_ram[(ram_addr + 1) & 0xFFFF] = value as u8;
+                self.memory.main_ram[ram_addr] = value.msb();
+                self.memory.main_ram[(ram_addr + 1) & 0xFFFF] = value.lsb();
             }
             _ => {}
         }

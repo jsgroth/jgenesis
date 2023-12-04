@@ -14,6 +14,7 @@ mod gsu;
 use crate::common::Rom;
 use crate::superfx::gsu::{BusAccess, GraphicsSupportUnit};
 use bincode::{Decode, Encode};
+use jgenesis_common::num::U16Ext;
 use jgenesis_proc_macros::PartialClone;
 use std::mem;
 use std::num::NonZeroU64;
@@ -171,16 +172,16 @@ fn fixed_sfx_interrupt_vector(address: u32) -> Option<u8> {
     // SNES CPU reads fixed values based on the last 4 bits of the address (intended to allow the
     // SNES to read interrupt vectors while the GSU is running)
     match address & 0xF {
-        0x4 => Some(SFX_COP_VECTOR as u8),
-        0x5 => Some((SFX_COP_VECTOR >> 8) as u8),
-        0x6 => Some(SFX_BRK_VECTOR as u8),
-        0x7 => Some((SFX_BRK_VECTOR >> 8) as u8),
-        0x8 => Some(SFX_ABORT_VECTOR as u8),
-        0x9 => Some((SFX_ABORT_VECTOR >> 8) as u8),
-        0xA => Some(SFX_NMI_VECTOR as u8),
-        0xB => Some((SFX_NMI_VECTOR >> 8) as u8),
-        0xE => Some(SFX_IRQ_VECTOR as u8),
-        0xF => Some((SFX_IRQ_VECTOR >> 8) as u8),
+        0x4 => Some(SFX_COP_VECTOR.lsb()),
+        0x5 => Some(SFX_COP_VECTOR.msb()),
+        0x6 => Some(SFX_BRK_VECTOR.lsb()),
+        0x7 => Some(SFX_BRK_VECTOR.msb()),
+        0x8 => Some(SFX_ABORT_VECTOR.lsb()),
+        0x9 => Some(SFX_ABORT_VECTOR.msb()),
+        0xA => Some(SFX_NMI_VECTOR.lsb()),
+        0xB => Some(SFX_NMI_VECTOR.msb()),
+        0xE => Some(SFX_IRQ_VECTOR.lsb()),
+        0xF => Some(SFX_IRQ_VECTOR.msb()),
         _ => None,
     }
 }

@@ -6,7 +6,7 @@ use crate::memory::ScdCpu;
 use crate::rf5c164::Rf5c164;
 use crate::{cdrom, memory};
 use bincode::{Decode, Encode};
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext};
 
 // The register address is supposedly 4 bits, but internally it's actually 5 bits
 // Values $10-$1F are effectively unused
@@ -237,23 +237,23 @@ impl Rchip {
                 // PTL (Block Pointer, Low Byte)
                 log::trace!("PTL read");
 
-                self.block_pointer as u8
+                self.block_pointer.lsb()
             }
             9 => {
                 // PTH (Block Pointer, High Byte)
                 log::trace!("PTH read");
 
-                (self.block_pointer >> 8) as u8
+                self.block_pointer.msb()
             }
             10 => {
                 // WAL (Write Address, Low Byte)
                 log::trace!("WAL read");
-                self.write_address as u8
+                self.write_address.lsb()
             }
             11 => {
                 // WAH (Write Address, High Byte)
                 log::trace!("WAH read");
-                (self.write_address >> 8) as u8
+                self.write_address.msb()
             }
             12 => {
                 // STAT0 (Status 0)
@@ -321,7 +321,7 @@ impl Rchip {
                 // DBCL (Data Byte Counter, Low Byte)
                 log::trace!("DBCL write: {value:02X}");
 
-                self.data_byte_counter = (self.data_byte_counter & 0xFF00) | u16::from(value);
+                self.data_byte_counter.set_lsb(value);
 
                 log::trace!("  DBC: {:04X}", self.data_byte_counter);
             }
@@ -330,8 +330,7 @@ impl Rchip {
                 log::trace!("DBCH write: {value:02X}");
 
                 // DBC is only a 12-bit counter; mask out the highest 4 bits
-                self.data_byte_counter =
-                    (self.data_byte_counter & 0x00FF) | (u16::from(value & 0x0F) << 8);
+                self.data_byte_counter.set_msb(value & 0x0F);
 
                 log::trace!("  DBC: {:04X}", self.data_byte_counter);
             }
@@ -339,9 +338,7 @@ impl Rchip {
                 // DACL (Data Address Counter, Low Byte)
                 log::trace!("DACL write: {value:02X}");
 
-                self.data_address_counter = ((self.data_address_counter & 0xFF00)
-                    | u16::from(value))
-                    & BUFFER_RAM_ADDRESS_MASK;
+                self.data_address_counter.set_lsb(value);
 
                 log::trace!("  DAC: {:04X}", self.data_address_counter);
             }
@@ -349,9 +346,8 @@ impl Rchip {
                 // DACH (Data Address Counter, High Byte)
                 log::trace!("DACH write: {value:02X}");
 
-                self.data_address_counter = ((self.data_address_counter & 0x00FF)
-                    | (u16::from(value) << 8))
-                    & BUFFER_RAM_ADDRESS_MASK;
+                self.data_address_counter.set_msb(value);
+                self.data_address_counter &= BUFFER_RAM_ADDRESS_MASK;
 
                 log::trace!("  DAC: {:04X}", self.data_address_counter);
             }
@@ -373,8 +369,7 @@ impl Rchip {
                 // WAL (Write Address, Low Byte)
                 log::trace!("WAL write: {value:02X}");
 
-                self.write_address =
-                    ((self.write_address & 0xFF00) | u16::from(value)) & BUFFER_RAM_ADDRESS_MASK;
+                self.write_address.set_lsb(value);
 
                 log::trace!("  WA: {:04X}", self.write_address);
             }
@@ -382,8 +377,8 @@ impl Rchip {
                 // WAH (Write Address, High Byte)
                 log::trace!("WAH write: {value:02X}");
 
-                self.write_address = ((self.write_address & 0x00FF) | (u16::from(value) << 8))
-                    & BUFFER_RAM_ADDRESS_MASK;
+                self.write_address.set_msb(value);
+                self.write_address &= BUFFER_RAM_ADDRESS_MASK;
 
                 log::trace!("  WA: {:04X}", self.write_address);
             }
@@ -405,8 +400,7 @@ impl Rchip {
                 // PTL (Block Pointer, Low Byte)
                 log::trace!("PTL write: {value:02X}");
 
-                self.block_pointer =
-                    ((self.block_pointer & 0xFF00) | u16::from(value)) & BUFFER_RAM_ADDRESS_MASK;
+                self.block_pointer.set_lsb(value);
 
                 log::trace!("  PT: {:04X}", self.block_pointer);
             }
@@ -414,8 +408,8 @@ impl Rchip {
                 // PTH (Block Pointer, High Byte)
                 log::trace!("PTH write: {value:02X}");
 
-                self.block_pointer = ((self.block_pointer & 0x00FF) | (u16::from(value) << 8))
-                    & BUFFER_RAM_ADDRESS_MASK;
+                self.block_pointer.set_msb(value);
+                self.block_pointer &= BUFFER_RAM_ADDRESS_MASK;
 
                 log::trace!("  PT: {:04X}", self.block_pointer);
             }

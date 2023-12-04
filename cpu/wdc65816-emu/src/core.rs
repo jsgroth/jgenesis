@@ -116,10 +116,6 @@ impl Registers {
             emulation_mode: true,
         }
     }
-
-    fn set_a_u8(&mut self, value: u8) {
-        self.a = (self.a & 0xFF00) | u16::from(value);
-    }
 }
 
 #[derive(Debug, Clone, Default, Encode, Decode)]

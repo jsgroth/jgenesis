@@ -5,6 +5,7 @@ mod functions;
 use crate::common;
 use crate::common::Rom;
 use bincode::{Decode, Encode};
+use jgenesis_common::num::{U16Ext, U24Ext};
 use jgenesis_proc_macros::PartialClone;
 use std::{cmp, mem};
 
@@ -57,11 +58,11 @@ impl Cx4Registers {
     fn read(&self, offset: u16) -> Option<u8> {
         let value = match offset {
             // Program ROM base, low byte
-            0x7F49 => self.program_rom_base as u8,
+            0x7F49 => self.program_rom_base.low_byte(),
             // Program ROM base, middle byte
-            0x7F4A => (self.program_rom_base >> 8) as u8,
+            0x7F4A => self.program_rom_base.mid_byte(),
             // Program ROM base, high byte
-            0x7F4B => (self.program_rom_base >> 16) as u8,
+            0x7F4B => self.program_rom_base.high_byte(),
             // R/W registers with unknown functionality
             0x7F50 => self.unknown_register_7f50,
             0x7F51 => self.unknown_register_7f51,
@@ -69,11 +70,11 @@ impl Cx4Registers {
             // TODO should return busy bit in bit 6 after writing to $7F47/$7F48/$7F4F
             0x7F5E => 0x00,
             // NMI vector
-            0x7F6A => self.nmi_vector as u8,
-            0x7F6B => (self.nmi_vector >> 8) as u8,
+            0x7F6A => self.nmi_vector.lsb(),
+            0x7F6B => self.nmi_vector.msb(),
             // IRQ vector
-            0x7F6E => self.irq_vector as u8,
-            0x7F6F => (self.irq_vector >> 8) as u8,
+            0x7F6E => self.irq_vector.lsb(),
+            0x7F6F => self.irq_vector.msb(),
             // CX4 24-bit registers
             0x7F80..=0x7FAF => self.read_24_bit_register(offset),
             _ => {
@@ -104,21 +105,19 @@ impl Cx4Registers {
             }
             0x7F43 => {
                 // DMA length, low byte
-                self.dma_length = (self.dma_length & 0xFF00) | u16::from(value);
+                self.dma_length.set_lsb(value);
             }
             0x7F44 => {
                 // DMA length, high byte
-                self.dma_length = (self.dma_length & 0x00FF) | (u16::from(value) << 8);
+                self.dma_length.set_msb(value);
             }
             0x7F45 => {
                 // DMA destination, low byte
-                self.dma_destination_address =
-                    (self.dma_destination_address & 0xFF00) | u16::from(value);
+                self.dma_destination_address.set_lsb(value);
             }
             0x7F46 => {
                 // DMA destination, high byte
-                self.dma_destination_address =
-                    (self.dma_destination_address & 0x00FF) | (u16::from(value) << 8);
+                self.dma_destination_address.set_msb(value);
             }
             0x7F47 => {
                 // Start ROM-to-CX4 DMA
@@ -146,11 +145,11 @@ impl Cx4Registers {
             }
             0x7F4D => {
                 // Program ROM instruction page, low byte
-                self.instruction_page = (self.instruction_page & 0xFF00) | u16::from(value);
+                self.instruction_page.set_lsb(value);
             }
             0x7F4E => {
                 // Program ROM instruction page, high byte
-                self.instruction_page = (self.instruction_page & 0x00FF) | (u16::from(value) << 8);
+                self.instruction_page.set_msb(value);
             }
             0x7F4F => {
                 // Program ROM instruction pointer + execute instruction
@@ -176,19 +175,19 @@ impl Cx4Registers {
             }
             0x7F6A => {
                 // NMI vector, low byte
-                self.nmi_vector = (self.nmi_vector & 0xFF00) | u16::from(value);
+                self.nmi_vector.set_lsb(value);
             }
             0x7F6B => {
                 // NMI vector, high byte
-                self.nmi_vector = (self.nmi_vector & 0x00FF) | (u16::from(value) << 8);
+                self.nmi_vector.set_msb(value);
             }
             0x7F6E => {
                 // IRQ vector, low byte
-                self.irq_vector = (self.irq_vector & 0xFF00) | u16::from(value);
+                self.irq_vector.set_lsb(value);
             }
             0x7F6F => {
                 // IRQ vector, high byte
-                self.irq_vector = (self.irq_vector & 0x00FF) | (u16::from(value) << 8);
+                self.irq_vector.set_msb(value);
             }
             0x7F80..=0x7FAF => {
                 // CX4 24-bit registers
@@ -282,11 +281,11 @@ impl Cx4 {
         let offset = address as u16;
         match (bank, offset) {
             // NMI vector
-            (0x00, 0xFFEA) => Some(self.registers.nmi_vector as u8),
-            (0x00, 0xFFEB) => Some((self.registers.nmi_vector >> 8) as u8),
+            (0x00, 0xFFEA) => Some(self.registers.nmi_vector.lsb()),
+            (0x00, 0xFFEB) => Some(self.registers.nmi_vector.msb()),
             // IRQ vector
-            (0x00, 0xFFEE) => Some(self.registers.irq_vector as u8),
-            (0x00, 0xFFEF) => Some((self.registers.irq_vector >> 8) as u8),
+            (0x00, 0xFFEE) => Some(self.registers.irq_vector.lsb()),
+            (0x00, 0xFFEF) => Some(self.registers.irq_vector.msb()),
             // CX4 RAM (3KB)
             (0x00..=0x3F | 0x80..=0xBF, 0x6000..=0x6BFF) => {
                 Some(self.ram[(address & 0xFFF) as usize])

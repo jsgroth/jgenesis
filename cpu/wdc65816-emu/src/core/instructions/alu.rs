@@ -23,7 +23,7 @@ fn adc_bcd(registers: &mut Registers, value: u8) {
     let overflow = !(-128..128).contains(&s);
 
     let result = a as u8;
-    registers.set_a_u8(result);
+    registers.a.set_lsb(result);
 
     registers.p.zero = result == 0;
     registers.p.carry = a >= 0x0100;
@@ -67,7 +67,7 @@ fn sbc_bcd(registers: &mut Registers, value: u8) {
     let overflow = bit_6_borrow != borrow;
 
     let result = a as u8;
-    registers.set_a_u8(result);
+    registers.a.set_lsb(result);
 
     registers.p.zero = result == 0;
     registers.p.negative = result.sign_bit();
@@ -121,7 +121,7 @@ impl_read_op_u8!(
         let bit_6_carry = (a & 0x7F) + (value & 0x7F) + existing_carry >= 0x80;
         let overflow = bit_6_carry != carry;
 
-        registers.set_a_u8(sum);
+        registers.a.set_lsb(sum);
 
         registers.p.zero = sum == 0;
         registers.p.negative = sum.sign_bit();
@@ -209,7 +209,7 @@ impl_read_op_u8!(
         let bit_6_borrow = a & 0x7F < (value & 0x7F) + existing_borrow;
         let overflow = bit_6_borrow != borrow;
 
-        registers.set_a_u8(difference);
+        registers.a.set_lsb(difference);
 
         registers.p.zero = difference == 0;
         registers.p.negative = difference.sign_bit();
@@ -403,7 +403,7 @@ impl_read_op_u8!(
     ]
     (|registers, value| {
         let result = (registers.a as u8) & value;
-        registers.set_a_u8(result);
+        registers.a.set_lsb(result);
 
         registers.p.zero = result == 0;
         registers.p.negative = result.sign_bit();
@@ -459,7 +459,7 @@ impl_read_op_u8!(
     ]
     (|registers, value| {
         let result = (registers.a as u8) ^ value;
-        registers.set_a_u8(result);
+        registers.a.set_lsb(result);
 
         registers.p.zero = result == 0;
         registers.p.negative = result.sign_bit();
@@ -515,7 +515,7 @@ impl_read_op_u8!(
     ]
     (|registers, value| {
         let result = (registers.a as u8) | value;
-        registers.set_a_u8(result);
+        registers.a.set_lsb(result);
 
         registers.p.zero = result == 0;
         registers.p.negative = result.sign_bit();

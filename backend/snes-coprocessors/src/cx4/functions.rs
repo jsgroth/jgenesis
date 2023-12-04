@@ -2,7 +2,7 @@ mod rom;
 
 use crate::common;
 use crate::cx4::{Cx4Ram, Cx4Registers};
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext, U24Ext};
 
 #[derive(Debug, Clone, Default)]
 struct RiscRegisters {
@@ -250,9 +250,9 @@ fn movb_ram_op(
     let ram_addr = (read_register(cx4_registers, risc_registers, opcode) & 0xFFF) as usize;
     if ram_addr < ram.len() {
         let value = match opcode & 0x0300 {
-            0x0000 => risc_registers.ram_buffer as u8,
-            0x0100 => (risc_registers.ram_buffer >> 8) as u8,
-            0x0200 => (risc_registers.ram_buffer >> 16) as u8,
+            0x0000 => risc_registers.ram_buffer.low_byte(),
+            0x0100 => risc_registers.ram_buffer.mid_byte(),
+            0x0200 => risc_registers.ram_buffer.high_byte(),
             _ => {
                 log::warn!("Unexpected movb RAM[..] opcode: {opcode:02X}");
                 0x00
@@ -268,9 +268,9 @@ fn movb_ram_ptr(registers: &RiscRegisters, ram: &mut Cx4Ram, opcode: u16) {
     let ram_addr = (registers.ram_pointer.wrapping_add(opcode & 0xFF) & 0xFFF) as usize;
     if ram_addr < ram.len() {
         let value = match opcode & 0x0300 {
-            0x0000 => registers.ram_buffer as u8,
-            0x0100 => (registers.ram_buffer >> 8) as u8,
-            0x0200 => (registers.ram_buffer >> 16) as u8,
+            0x0000 => registers.ram_buffer.low_byte(),
+            0x0100 => registers.ram_buffer.mid_byte(),
+            0x0200 => registers.ram_buffer.high_byte(),
             _ => {
                 log::warn!("Unexpected movb RAM[..] opcode: {opcode:02X}");
                 0x00
@@ -296,9 +296,9 @@ fn movb_page_imm(registers: &mut RiscRegisters, opcode: u16) {
 
 fn mov_page(registers: &mut RiscRegisters, opcode: u16, value: u8) {
     if !opcode.bit(8) {
-        registers.page = (registers.page & 0xFF00) | u16::from(value);
+        registers.page.set_lsb(value);
     } else {
-        registers.page = (registers.page & 0x00FF) | (u16::from(value) << 8);
+        registers.page.set_msb(value);
     }
 }
 
