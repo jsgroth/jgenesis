@@ -506,7 +506,9 @@ impl Rtc4513 {
         let irq = self.irq;
         self.irq = false;
 
-        u8::from(self.paused) | (u8::from(self.time.calendar_enabled) << 1) | (u8::from(irq) << 2)
+        u8::from(self.paused)
+            | (u8::from(self.time.calendar_enabled) << 1)
+            | (u8::from(irq && self.irq_enabled) << 2)
     }
 
     fn write_control_1(&mut self, value: u8) {
@@ -621,6 +623,7 @@ impl Rtc4513 {
 
         if now_nanos - self.last_irq_nanos >= self.irq_rate_nanos {
             if self.irq_enabled {
+                log::trace!("Flagging IRQ; now = {now_nanos}, last_irq = {}", self.last_irq_nanos);
                 self.irq = true;
             }
 
