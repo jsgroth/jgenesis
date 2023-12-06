@@ -10,11 +10,12 @@ Cross-platform multi-console emulator that supports the Sega Genesis / Mega Driv
   * Sega Master System / Mark III
   * Game Gear
   * Super Nintendo Entertainment System (SNES) / Super Famicom
-    * A few obscure coprocessors are not currently implemented (OBJ-1, S-RTC, ST018)
+    * A few obscure coprocessors are not currently implemented (OBC-1, S-RTC, ST018)
 * GPU-based renderer with integer prescaling and optional linear interpolation
 * Configurable pixel aspect ratio for each console with several different options: accurate to original hardware/TVs, square pixels, and stretched to fill the window
 * Support for the Sega Master System FM sound unit expansion
 * Support for the Sega Genesis SVP chip, used in _Virtua Racing_
+* Support for most SNES coprocessors (e.g. Super FX, SA-1, DSP-1, CX4, S-DD1, SPC7110)
 * Support for both 3-button and 6-button Genesis controllers
 * Support for keyboard controls and DirectInput gamepad controls
 * Save states, fast forward, and rewind
