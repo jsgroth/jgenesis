@@ -478,7 +478,7 @@ impl App {
         }
 
         let mut file_dialog = FileDialog::new()
-            .add_filter("sms/gg/md/cue/bin/sfc", &["sms", "gg", "md", "bin", "cue", "sfc"]);
+            .add_filter("sms/gg/md/cue/bin/sfc", &["sms", "gg", "md", "bin", "cue", "sfc", "smc"]);
         if let Some(dir) = self.config.rom_search_dirs.first() {
             file_dialog = file_dialog.set_directory(Path::new(dir));
         }
@@ -516,7 +516,7 @@ impl App {
                 let config = self.config.sega_cd_config(path);
                 self.emu_thread.send(EmuThreadCommand::RunSegaCd(config));
             }
-            Some("sfc") => {
+            Some("sfc" | "Smc") => {
                 self.emu_thread.stop_emulator_if_running();
 
                 let config = self.config.snes_config(path);

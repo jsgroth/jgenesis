@@ -502,7 +502,7 @@ fn main() -> anyhow::Result<()> {
             "sms" | "gg" => Hardware::MasterSystem,
             "md" | "bin" => Hardware::Genesis,
             "cue" => Hardware::SegaCd,
-            "sfc" => Hardware::Snes,
+            "sfc" | "smc" => Hardware::Snes,
             _ => {
                 log::warn!("Unrecognized file extension: '{file_ext}' defaulting to Genesis");
                 Hardware::Genesis

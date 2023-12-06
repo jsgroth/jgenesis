@@ -420,7 +420,7 @@ fn run_event_loop(
 
 async fn open_file(event_loop_proxy: EventLoopProxy<JgenesisUserEvent>) {
     let file = AsyncFileDialog::new()
-        .add_filter("sms/gg/md", &["sms", "gg", "md", "bin", "sfc"])
+        .add_filter("sms/gg/md", &["sms", "gg", "md", "bin", "sfc", "smc"])
         .pick_file()
         .await;
     let Some(file) = file else { return };
@@ -466,7 +466,7 @@ fn open_emulator(rom: Vec<u8>, file_name: &str, config_ref: &WebConfigRef) -> Em
             );
             Emulator::Genesis(emulator, GenesisInputs::default())
         }
-        "sfc" => {
+        "sfc" | "smc" => {
             js::showSnesConfig();
 
             let emulator = SnesEmulator::create(

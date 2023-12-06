@@ -204,6 +204,18 @@ impl Cartridge {
         forced_timing_mode: Option<TimingMode>,
         gsu_overclock_factor: NonZeroU64,
     ) -> LoadResult<Self> {
+        // Older SNES ROM images have an extra 512-byte header; check for that and strip it off
+        if rom.len() & 0x7FFF == 0x0200 {
+            let stripped_rom = rom[0x200..].to_vec().into_boxed_slice();
+            return Self::create(
+                stripped_rom,
+                initial_sram,
+                coprocessor_roms,
+                forced_timing_mode,
+                gsu_overclock_factor,
+            );
+        }
+
         let cartridge_type = guess_cartridge_type(&rom).unwrap_or_else(|| {
             log::error!("Unable to confidently determine ROM type; defaulting to LoROM");
             CartridgeType::LoRom

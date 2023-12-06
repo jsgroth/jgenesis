@@ -21,7 +21,7 @@ impl Console {
             "gg" => Some(Self::GameGear),
             "md" | "bin" => Some(Self::Genesis),
             "cue" => Some(Self::SegaCd),
-            "sfc" => Some(Self::Snes),
+            "sfc" | "smc" => Some(Self::Snes),
             _ => None,
         }
     }
