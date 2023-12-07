@@ -14,6 +14,7 @@ bincode = { workspace = true }
 bytemuck = { workspace = true }
 cfg-if = { workspace = true }
 log = { workspace = true }
+time = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = { workspace = true }

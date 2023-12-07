@@ -1,4 +1,5 @@
 use cfg_if::cfg_if;
+use time::{Date, Month, Weekday};
 
 pub fn current_time_nanos() -> u128 {
     cfg_if! {
@@ -25,6 +26,39 @@ pub fn days_in_month(month: u8, year: u8) -> u8 {
         _ => {
             log::error!("Invalid month: {month}, defaulting to 31 days in month");
             31
+        }
+    }
+}
+
+pub fn day_of_week(day: u8, month: u8, year: u16) -> Weekday {
+    match Date::from_calendar_date(year.into(), convert_month(month), day) {
+        Ok(date) => date.weekday(),
+        Err(err) => {
+            log::error!("Invalid date (day={day}, month={month}, year={year}): {err}");
+            Weekday::Sunday
+        }
+    }
+}
+
+fn convert_month(month: u8) -> Month {
+    use Month::*;
+
+    match month {
+        1 => January,
+        2 => February,
+        3 => March,
+        4 => April,
+        5 => May,
+        6 => June,
+        7 => July,
+        8 => August,
+        9 => September,
+        10 => October,
+        11 => November,
+        12 => December,
+        _ => {
+            log::error!("Invalid month: {month} defaulting to January");
+            January
         }
     }
 }

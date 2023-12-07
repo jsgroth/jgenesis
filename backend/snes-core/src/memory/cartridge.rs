@@ -10,6 +10,7 @@ use snes_coprocessors::cx4::Cx4;
 use snes_coprocessors::sa1::Sa1;
 use snes_coprocessors::sdd1::Sdd1;
 use snes_coprocessors::spc7110::Spc7110;
+use snes_coprocessors::srtc::SRtc;
 use snes_coprocessors::superfx::SuperFx;
 use snes_coprocessors::upd77c25::{Upd77c25, Upd77c25Variant};
 use snes_coprocessors::{superfx, upd77c25};
@@ -168,6 +169,8 @@ pub enum Cartridge {
         #[partial_clone(default)]
         rom: Rom,
         sram: Box<[u8]>,
+        srtc: Option<SRtc>,
+        serialization_buffer: Vec<u8>,
     },
     Cx4(#[partial_clone(partial)] Cx4),
     DspLoRom {
@@ -194,6 +197,15 @@ pub enum Cartridge {
         upd77c25: Upd77c25,
         mask: RomAddressMask,
     },
+}
+
+macro_rules! bincode_config {
+    () => {
+        bincode::config::standard()
+            .with_little_endian()
+            .with_fixed_int_encoding()
+            .with_limit::<{ 128 * 1024 }>()
+    };
 }
 
 impl Cartridge {
@@ -256,8 +268,9 @@ impl Cartridge {
 
         let sram = match (initial_sram, cartridge_type) {
             (Some(sram), _) if sram.len() == sram_len => sram.into_boxed_slice(),
-            (Some(sram), CartridgeType::Spc7110) => {
-                // SPC7110 may serialize both SRAM + RTC state; let the coprocessor figure out if it's valid
+            (Some(sram), CartridgeType::ExHiRom | CartridgeType::Spc7110) => {
+                // ExHiROM (S-RTC) and SPC7110 may serialize both SRAM + RTC state; let the
+                // coprocessor figure out if it's valid
                 sram.into_boxed_slice()
             }
             _ => vec![0; sram_len].into_boxed_slice(),
@@ -331,7 +344,7 @@ impl Cartridge {
                 let mask = RomAddressMask::from_rom_len(rom.len() as u32);
                 Self::HiRom { rom: Rom(rom), sram, mask }
             }
-            CartridgeType::ExHiRom => Self::ExHiRom { rom: Rom(rom), sram },
+            CartridgeType::ExHiRom => new_exhirom_cartridge(rom, sram, sram_len),
             CartridgeType::Cx4 => Self::Cx4(Cx4::new(rom)),
             CartridgeType::Sa1 => Self::Sa1(Sa1::new(rom, sram, timing_mode)),
             CartridgeType::Sdd1 => Self::Sdd1(Sdd1::new(rom, sram)),
@@ -364,7 +377,11 @@ impl Cartridge {
                 }
                 _ => (hirom_map_address(address, *mask, sram.len() as u32), rom, sram),
             },
-            Self::ExHiRom { rom, sram } => {
+            Self::ExHiRom { rom, sram, srtc: Some(srtc), .. } => match (bank, offset) {
+                (0x00..=0x3F | 0x80..=0xBF, 0x2800) => return Some(srtc.read()),
+                _ => (exhirom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram),
+            },
+            Self::ExHiRom { rom, sram, .. } => {
                 (exhirom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram)
             }
             Self::Cx4(cx4) => return cx4.read(address),
@@ -400,49 +417,58 @@ impl Cartridge {
         let offset = address & 0xFFFF;
         match self {
             Self::LoRom { sram, mask, .. } => {
-                match lorom_map_address(address, *mask, sram.len() as u32) {
-                    CartridgeAddress::Sram(sram_addr) => {
-                        sram[sram_addr as usize] = value;
-                    }
-                    CartridgeAddress::Rom(_) | CartridgeAddress::None => {}
+                if let CartridgeAddress::Sram(sram_addr) =
+                    lorom_map_address(address, *mask, sram.len() as u32)
+                {
+                    sram[sram_addr as usize] = value;
                 }
             }
             Self::DspLoRom { sram, upd77c25, mask, .. } => match (bank, offset) {
                 (0x30..=0x3F | 0xC0..=0xCF, 0x8000..=0xBFFF) => {
                     upd77c25.write_data(value);
                 }
-                _ => match lorom_map_address(address, *mask, sram.len() as u32) {
-                    CartridgeAddress::Sram(sram_addr) => {
+                _ => {
+                    if let CartridgeAddress::Sram(sram_addr) =
+                        lorom_map_address(address, *mask, sram.len() as u32)
+                    {
                         sram[sram_addr as usize] = value;
                     }
-                    CartridgeAddress::Rom(_) | CartridgeAddress::None => {}
-                },
+                }
             },
             Self::HiRom { sram, mask, .. } => {
-                match hirom_map_address(address, *mask, sram.len() as u32) {
-                    CartridgeAddress::Sram(sram_addr) => {
-                        sram[sram_addr as usize] = value;
-                    }
-                    CartridgeAddress::Rom(_) | CartridgeAddress::None => {}
+                if let CartridgeAddress::Sram(sram_addr) =
+                    hirom_map_address(address, *mask, sram.len() as u32)
+                {
+                    sram[sram_addr as usize] = value;
                 }
             }
             Self::DspHiRom { sram, upd77c25, mask, .. } => match (bank, offset) {
                 (0x00..=0x0F | 0x80..=0x8F, 0x6000..=0x6FFF) => {
                     upd77c25.write_data(value);
                 }
-                _ => match hirom_map_address(address, *mask, sram.len() as u32) {
-                    CartridgeAddress::Sram(sram_addr) => {
+                _ => {
+                    if let CartridgeAddress::Sram(sram_addr) =
+                        hirom_map_address(address, *mask, sram.len() as u32)
+                    {
                         sram[sram_addr as usize] = value;
                     }
-                    CartridgeAddress::Rom(_) | CartridgeAddress::None => {}
-                },
+                }
             },
-            Self::ExHiRom { rom, sram } => {
-                match exhirom_map_address(address, rom.len() as u32, sram.len() as u32) {
-                    CartridgeAddress::Sram(sram_addr) => {
+            Self::ExHiRom { rom, sram, srtc: Some(srtc), .. } => match (bank, offset) {
+                (0x00..=0x3F | 0x80..=0xBF, 0x2801) => srtc.write(value),
+                _ => {
+                    if let CartridgeAddress::Sram(sram_addr) =
+                        exhirom_map_address(address, rom.len() as u32, sram.len() as u32)
+                    {
                         sram[sram_addr as usize] = value;
                     }
-                    CartridgeAddress::Rom(_) | CartridgeAddress::None => {}
+                }
+            },
+            Self::ExHiRom { rom, sram, .. } => {
+                if let CartridgeAddress::Sram(sram_addr) =
+                    exhirom_map_address(address, rom.len() as u32, sram.len() as u32)
+                {
+                    sram[sram_addr as usize] = value;
                 }
             }
             Self::Cx4(cx4) => {
@@ -527,6 +553,15 @@ impl Cartridge {
 
     pub fn sram(&mut self) -> Result<Option<&[u8]>, EncodeError> {
         Ok(match self {
+            Self::ExHiRom { sram, srtc: Some(srtc), serialization_buffer, .. } => {
+                serialization_buffer[..sram.len()].copy_from_slice(sram);
+                let srtc_length = bincode::encode_into_slice(
+                    &*srtc,
+                    &mut serialization_buffer[sram.len()..],
+                    bincode_config!(),
+                )?;
+                Some(&serialization_buffer[..sram.len() + srtc_length])
+            }
             Self::LoRom { sram, .. }
             | Self::HiRom { sram, .. }
             | Self::ExHiRom { sram, .. }
@@ -569,6 +604,9 @@ impl Cartridge {
 
     pub fn reset(&mut self) {
         match self {
+            Self::ExHiRom { srtc: Some(srtc), .. } => {
+                srtc.reset_state();
+            }
             Self::DspLoRom { upd77c25, .. }
             | Self::DspHiRom { upd77c25, .. }
             | Self::St01x { upd77c25, .. } => {
@@ -608,6 +646,50 @@ impl Cartridge {
             sfx.update_gsu_overclock_factor(overclock_factor);
         }
     }
+}
+
+fn new_exhirom_cartridge(rom: Box<[u8]>, initial_sram: Box<[u8]>, sram_len: usize) -> Cartridge {
+    // Chipset byte of $55 indicates S-RTC present (only used by Daikaijuu Monogatari II)
+    let has_srtc = rom[EXHIROM_HEADER_ADDR + 0x16] == 0x55;
+
+    let (sram, srtc) = if has_srtc {
+        let sram = if initial_sram.len() >= sram_len {
+            initial_sram[..sram_len].to_vec().into_boxed_slice()
+        } else {
+            vec![0; sram_len].into_boxed_slice()
+        };
+
+        let mut srtc = if initial_sram.len() > sram_len {
+            match bincode::decode_from_slice(&initial_sram[sram_len..], bincode_config!()) {
+                Ok((srtc, _)) => srtc,
+                Err(err) => {
+                    log::error!("Error decoding S-RTC state: {err}");
+                    SRtc::new()
+                }
+            }
+        } else {
+            SRtc::new()
+        };
+
+        srtc.reset_state();
+
+        (sram, Some(srtc))
+    } else {
+        let sram = if initial_sram.len() == sram_len {
+            initial_sram
+        } else {
+            vec![0; sram_len].into_boxed_slice()
+        };
+
+        (sram, None)
+    };
+
+    // Doesn't need to be sized exactly right, only big enough
+    let serialization_buffer = vec![0; sram_len + 2 * mem::size_of::<SRtc>()];
+
+    log::info!("ExHiROM cartridge has S-RTC: {}", srtc.is_some());
+
+    Cartridge::ExHiRom { rom: Rom(rom), sram, srtc, serialization_buffer }
 }
 
 pub fn region_to_timing_mode(region_byte: u8) -> TimingMode {
@@ -849,6 +931,8 @@ fn exhirom_map_address(address: u32, rom_len: u32, sram_len: u32) -> CartridgeAd
 fn exhirom_map_rom_address(address: u32, rom_len: u32) -> u32 {
     // ExHiROM mapping ignores A22, and A23 is inverted and shifted right 1
     let rom_addr = (address & 0x3FFFFF) | (((address >> 1) & 0x400000) ^ 0x400000);
-    // TODO better handle unusual ROM size
+    // TODO more gracefully handle unusual ROM sizes
+    // The fan translated version of Daikaijuu Monogatari II is 5.5MB which breaks the usual masking
+    // scheme
     rom_addr % rom_len
 }

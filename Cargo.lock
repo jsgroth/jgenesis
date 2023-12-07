@@ -3161,6 +3161,7 @@ dependencies = [
  "jgenesis-proc-macros",
  "js-sys",
  "log",
+ "time",
  "wdc65816-emu",
 ]
 

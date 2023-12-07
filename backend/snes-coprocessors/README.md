@@ -24,7 +24,13 @@ Data decompression chip with a compression algorithm tailored to SNES graphical 
 
 ### SPC7110
 
-Data decompression chip with a compression algorithm tailored to SNES graphical data, similar to S-DD1 but different algorithm. Used by 3 games, all by Hudson: _Tengai Makyou Zero_ (which also includes a real-time clock), _Momotarou Dentsetsu Happy_, and _Super Power League 4_
+Data decompression chip with a compression algorithm tailored to SNES graphical data, similar to S-DD1 but different algorithm. Used by 3 games, all by Hudson: _Tengai Makyou Zero_, _Momotarou Dentsetsu Happy_, and _Super Power League 4_
+
+_Tengai Makyou Zero_ additionally included an Epson RTC-4513 real-time clock chip
+
+### S-RTC
+
+Sharp real-time clock chip used by 1 game, _Daikaijuu Monogatari II_ / _Super Shell Monsters Story II_
 
 ### ST010 / ST011
 

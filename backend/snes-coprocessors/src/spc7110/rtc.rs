@@ -1,6 +1,6 @@
 //! RTC-4513 real-time clock chip, used by Tengai Makyou Zero
 
-use crate::time;
+use crate::timeutils;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use std::cmp::Ordering;
@@ -155,7 +155,7 @@ impl RtcTime {
         self.day += 1;
         self.day_of_week = (self.day_of_week + 1) % 7;
 
-        if self.day > time::days_in_month(self.month, self.year) {
+        if self.day > timeutils::days_in_month(self.month, self.year) {
             self.day = 1;
             self.increment_month();
         }
@@ -224,7 +224,7 @@ pub struct Rtc4513 {
 
 impl Rtc4513 {
     pub fn new() -> Self {
-        let now_nanos = time::current_time_nanos();
+        let now_nanos = timeutils::current_time_nanos();
         Self {
             command: Command::default(),
             register: None,
@@ -599,11 +599,11 @@ impl Rtc4513 {
 
     fn update_time(&mut self) {
         if self.stopped || self.reset {
-            self.time.last_update_nanos = time::current_time_nanos();
+            self.time.last_update_nanos = timeutils::current_time_nanos();
             return;
         }
 
-        let now_nanos = time::current_time_nanos();
+        let now_nanos = timeutils::current_time_nanos();
         let elapsed = now_nanos.saturating_sub(self.time.last_update_nanos);
         let new_time_nanos = u128::from(self.time.nanos) + elapsed;
         self.time.nanos = (new_time_nanos % 1_000_000_000) as u32;
