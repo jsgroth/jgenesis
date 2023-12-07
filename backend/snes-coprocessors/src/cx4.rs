@@ -1,4 +1,6 @@
 //! CX4 coprocessor, a programmable Hitachi HG51B169 CPU clocked at 20 MHz
+//!
+//! Used by Mega Man X2 and Mega Man X3
 
 mod functions;
 

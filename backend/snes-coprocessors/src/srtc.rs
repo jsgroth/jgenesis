@@ -1,3 +1,7 @@
+//! S-RTC coprocessor, a Sharp real-time clock chip
+//!
+//! Used by Daikaijuu Monogatari II
+
 use crate::timeutils;
 use bincode::{Decode, Encode};
 use time::Weekday;

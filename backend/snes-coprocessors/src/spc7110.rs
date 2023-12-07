@@ -1,4 +1,6 @@
-//! SPC7110 coprocessor, a data decompression chip (optionally with an RTC chip)
+//! SPC7110 coprocessor, a data decompression chip (optionally with an Epson RTC-4513 real-time clock chip)
+//!
+//! Used by Tengai Makyou Zero, Momotarou Dentetsu Happy, and Super Power League 4
 
 mod decompressor;
 mod registers;

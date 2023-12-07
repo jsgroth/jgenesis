@@ -8,6 +8,8 @@
 //! Mario Chip 1 and GSU-1 apparently only supported up to 1MB of ROM, while GSU-2 supported up
 //! to 2MB of ROM. GSU-2 also supported "backup RAM" and "CPU ROM" but no released cartridges used
 //! these features.
+//!
+//! Used by 8 released games including Star Fox and Yoshi's Island, as well as the originally unreleased Star Fox 2
 
 mod gsu;
 

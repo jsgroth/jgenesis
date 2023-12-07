@@ -818,7 +818,7 @@ fn guess_dsp_variant(rom: &[u8]) -> DspVariant {
 fn guess_st01x_variant(rom: &[u8]) -> St01xVariant {
     let checksum = CRC.checksum(rom);
 
-    // Hayazashi Nidan Morita Shogi (J)
+    // Hayazashi Nidan Morita Shougi (J)
     if checksum == 0x81E822AD { St01xVariant::St011 } else { St01xVariant::St010 }
 }
 

@@ -1,10 +1,10 @@
 //! NEC µPD77C25 and µPD96050 CPUs, used in the following SNES coprocessor chips:
-//!   * DSP-1 (19 games, including Super Mario Kart and Pilotwings)
+//!   * DSP-1 (~16 games, including Super Mario Kart and Pilotwings)
 //!   * DSP-2 (1 game, Dungeon Master)
 //!   * DSP-3 (1 game, SD Gundam GX)
 //!   * DSP-4 (1 game, Top Gear 3000)
 //!   * ST010 (1 game, F1 ROC II: Race of Champions)
-//!   * ST011 (1 game, Hayazashi Nidan Morita Shogi)
+//!   * ST011 (1 game, Hayazashi Nidan Morita Shougi)
 
 mod instructions;
 

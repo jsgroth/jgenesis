@@ -1,4 +1,6 @@
 //! SA-1 coprocessor, a second 65C816 CPU clocked at 10.74 MHz
+//!
+//! Used by ~35 games including Kirby Super Star, Kirby's Dream Land 3, Super Mario RPG
 
 mod bus;
 mod mmc;

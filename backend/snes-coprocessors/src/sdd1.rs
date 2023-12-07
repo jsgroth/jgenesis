@@ -1,4 +1,6 @@
 //! S-DD1 coprocessor, a data decompression chip with an algorithm designed for SNES tile data
+//!
+//! Used by Star Ocean and Street Fighter Alpha 2
 
 mod decompressor;
 

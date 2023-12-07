@@ -36,7 +36,7 @@ Sharp real-time clock chip used by 1 game, _Daikaijuu Monogatari II_ / _Super Sh
 
 Both of these use a pre-programmed NEC µPD96050 CPU (with different program and data ROMs), with the ST010 clocked at 10 MHz and the ST011 clocked at 15 MHz.
 
-Each of these was only used in 1 game: _F1 ROC II: Race of Champions_ (ST010) and _Hayazashi Nidan Morita Shogi_ (ST011)
+Each of these was only used in 1 game: _F1 ROC II: Race of Champions_ (ST010) and _Hayazashi Nidan Morita Shougi_ (ST011)
 
 ### Super FX
 
