@@ -87,6 +87,29 @@ impl Display for KeyboardInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum KeyboardOrMouseInput {
+    Keyboard(String),
+    MouseLeft,
+    MouseRight,
+    MouseMiddle,
+    MouseX1,
+    MouseX2,
+}
+
+impl Display for KeyboardOrMouseInput {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Keyboard(keycode) => write!(f, "{keycode}"),
+            Self::MouseLeft => write!(f, "Mouse Left Button"),
+            Self::MouseRight => write!(f, "Mouse Right Button"),
+            Self::MouseMiddle => write!(f, "Mouse Middle Button"),
+            Self::MouseX1 => write!(f, "Mouse Extra Button 1"),
+            Self::MouseX2 => write!(f, "Mouse Extra Button 2"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SmsGgControllerConfig<Input> {
     pub up: Option<Input>,
     pub left: Option<Input>,
@@ -348,6 +371,32 @@ impl Default for SnesInputConfig<JoystickInput> {
     fn default() -> Self {
         Self { p1: SnesControllerConfig::default(), p2: SnesControllerConfig::default() }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
+pub struct SuperScopeConfig {
+    pub fire: Option<KeyboardOrMouseInput>,
+    pub cursor: Option<KeyboardOrMouseInput>,
+    pub pause: Option<KeyboardOrMouseInput>,
+    pub turbo_toggle: Option<KeyboardOrMouseInput>,
+}
+
+impl Default for SuperScopeConfig {
+    fn default() -> Self {
+        Self {
+            fire: Some(KeyboardOrMouseInput::MouseLeft),
+            cursor: Some(KeyboardOrMouseInput::MouseRight),
+            pause: Some(KeyboardOrMouseInput::MouseMiddle),
+            turbo_toggle: Some(KeyboardOrMouseInput::Keyboard("T".into())),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay)]
+pub enum SnesControllerType {
+    #[default]
+    Gamepad,
+    SuperScope,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, ConfigDisplay, Serialize, Deserialize)]

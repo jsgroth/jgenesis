@@ -4,9 +4,12 @@ use egui::{Color32, Context, Grid, TextEdit, Ui, Widget, Window};
 use genesis_core::GenesisControllerType;
 use jgenesis_native_driver::config::input::{
     GenesisControllerConfig, GenesisInputConfig, HotkeyConfig, JoystickInput, KeyboardInput,
-    SmsGgControllerConfig, SmsGgInputConfig, SnesControllerConfig, SnesInputConfig,
+    KeyboardOrMouseInput, SmsGgControllerConfig, SmsGgInputConfig, SnesControllerConfig,
+    SnesControllerType, SnesInputConfig, SuperScopeConfig,
 };
-use jgenesis_native_driver::input::{GenesisButton, Hotkey, Player, SmsGgButton, SnesButton};
+use jgenesis_native_driver::input::{
+    GenesisButton, Hotkey, Player, SmsGgButton, SnesButton, SuperScopeButton,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +50,10 @@ pub struct InputAppConfig {
     pub snes_p1_joystick: SnesControllerConfig<JoystickInput>,
     #[serde(default)]
     pub snes_p2_joystick: SnesControllerConfig<JoystickInput>,
+    #[serde(default)]
+    pub snes_p2_type: SnesControllerType,
+    #[serde(default)]
+    pub snes_super_scope: SuperScopeConfig,
     #[serde(default = "default_axis_deadzone")]
     pub axis_deadzone: i16,
     #[serde(default)]
@@ -61,6 +68,9 @@ macro_rules! set_input {
             }
             GenericInput::Joystick(input) => {
                 $joystick_field = Some(input);
+            }
+            GenericInput::KeyboardOrMouse(_) => {
+                panic!("keyboard/mouse input set through an unexpected code path")
             }
         }
     };
@@ -249,6 +259,18 @@ impl InputAppConfig {
             }
             SnesButton::Select(_) => {
                 set_input!(input, keyboard.select, joystick.select);
+            }
+            SnesButton::SuperScope(super_scope_button) => {
+                if let GenericInput::KeyboardOrMouse(input) = input {
+                    let config = &mut self.snes_super_scope;
+
+                    match super_scope_button {
+                        SuperScopeButton::Fire => config.fire = Some(input),
+                        SuperScopeButton::Cursor => config.cursor = Some(input),
+                        SuperScopeButton::Pause => config.pause = Some(input),
+                        SuperScopeButton::TurboToggle => config.turbo_toggle = Some(input),
+                    }
+                }
             }
         }
     }
@@ -775,6 +797,64 @@ impl App {
         }
     }
 
+    pub(super) fn render_snes_peripheral_settings(&mut self, ctx: &Context) {
+        let mut open = true;
+        Window::new("SNES Peripheral Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.set_enabled(self.state.waiting_for_input.is_none());
+
+            ui.group(|ui| {
+                ui.label("P2 input device");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.config.inputs.snes_p2_type,
+                        SnesControllerType::Gamepad,
+                        "Gamepad",
+                    );
+                    ui.radio_value(
+                        &mut self.config.inputs.snes_p2_type,
+                        SnesControllerType::SuperScope,
+                        "Super Scope",
+                    );
+                });
+            });
+
+            ui.add_space(10.0);
+
+            ui.heading("Super Scope");
+
+            Grid::new("super_scope_grid").show(ui, |ui| {
+                self.super_scope_button(
+                    self.config.inputs.snes_super_scope.fire.clone(),
+                    "Fire",
+                    SuperScopeButton::Fire,
+                    ui,
+                );
+                self.super_scope_button(
+                    self.config.inputs.snes_super_scope.cursor.clone(),
+                    "Cursor",
+                    SuperScopeButton::Cursor,
+                    ui,
+                );
+                self.super_scope_button(
+                    self.config.inputs.snes_super_scope.pause.clone(),
+                    "Pause",
+                    SuperScopeButton::Pause,
+                    ui,
+                );
+                self.super_scope_button(
+                    self.config.inputs.snes_super_scope.turbo_toggle.clone(),
+                    "Turbo (Toggle)",
+                    SuperScopeButton::TurboToggle,
+                    ui,
+                );
+            });
+        });
+        if !open {
+            self.state.open_windows.remove(&OpenWindow::SnesPeripherals);
+        }
+    }
+
     pub(super) fn render_hotkey_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("Hotkey Settings").open(&mut open).resizable(false).show(ctx, |ui| {
@@ -1000,6 +1080,7 @@ impl App {
                 (InputType::Joystick, Player::Two) => {
                     clear_smsgg_button(&mut self.config.inputs.smsgg_p2_joystick, button);
                 }
+                (InputType::KeyboardOrMouse, _) => {}
             },
             GenericButton::Genesis(button) => match (input_type, button.player()) {
                 (InputType::Keyboard, Player::One) => {
@@ -1014,6 +1095,7 @@ impl App {
                 (InputType::Joystick, Player::Two) => {
                     clear_genesis_button(&mut self.config.inputs.genesis_p2_joystick, button);
                 }
+                (InputType::KeyboardOrMouse, _) => {}
             },
             GenericButton::Snes(button) => match (input_type, button.player()) {
                 (InputType::Keyboard, Player::One) => {
@@ -1027,6 +1109,14 @@ impl App {
                 }
                 (InputType::Joystick, Player::Two) => {
                     clear_snes_button(&mut self.config.inputs.snes_p2_joystick, button);
+                }
+                (InputType::KeyboardOrMouse, _) => {
+                    if let SnesButton::SuperScope(super_scope_button) = button {
+                        clear_super_scope_button(
+                            &mut self.config.inputs.snes_super_scope,
+                            super_scope_button,
+                        );
+                    }
                 }
             },
             GenericButton::Hotkey(hotkey) => match hotkey {
@@ -1115,6 +1205,39 @@ impl App {
 
         ui.end_row();
     }
+
+    fn super_scope_button(
+        &mut self,
+        current_value: Option<KeyboardOrMouseInput>,
+        label: &str,
+        button: SuperScopeButton,
+        ui: &mut Ui,
+    ) {
+        ui.label(format!("{label}:"));
+
+        let text = match current_value {
+            Some(value) => value.to_string(),
+            None => "<None>".into(),
+        };
+        if ui.button(text).clicked() {
+            log::debug!("Sending collect input request for Super Scope button {button:?}");
+            self.emu_thread.send(EmuThreadCommand::CollectInput {
+                input_type: InputType::KeyboardOrMouse,
+                axis_deadzone: self.config.inputs.axis_deadzone,
+            });
+            self.state.waiting_for_input =
+                Some(GenericButton::Snes(SnesButton::SuperScope(button)));
+        }
+
+        if ui.button("Clear").clicked() {
+            self.clear_button_in_config(
+                GenericButton::Snes(SnesButton::SuperScope(button)),
+                InputType::KeyboardOrMouse,
+            );
+        }
+
+        ui.end_row();
+    }
 }
 
 fn clear_smsgg_button<T>(config: &mut SmsGgControllerConfig<T>, button: SmsGgButton) {
@@ -1164,7 +1287,17 @@ fn clear_snes_button<T>(config: &mut SnesControllerConfig<T>, button: SnesButton
         SnesButton::R(_) => &mut config.r,
         SnesButton::Start(_) => &mut config.start,
         SnesButton::Select(_) => &mut config.select,
+        SnesButton::SuperScope(_) => return,
     };
 
     *field = None;
+}
+
+fn clear_super_scope_button(config: &mut SuperScopeConfig, button: SuperScopeButton) {
+    match button {
+        SuperScopeButton::Fire => config.fire = None,
+        SuperScopeButton::Cursor => config.cursor = None,
+        SuperScopeButton::Pause => config.pause = None,
+        SuperScopeButton::TurboToggle => config.turbo_toggle = None,
+    }
 }

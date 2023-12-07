@@ -2,7 +2,7 @@ pub mod input;
 
 use crate::config::input::{
     GenesisInputConfig, HotkeyConfig, JoystickInput, KeyboardInput, SmsGgInputConfig,
-    SnesInputConfig,
+    SnesControllerType, SnesInputConfig, SuperScopeConfig,
 };
 use genesis_core::{
     GenesisAspectRatio, GenesisControllerType, GenesisEmulatorConfig, GenesisRegion,
@@ -224,6 +224,8 @@ impl SegaCdConfig {
 pub struct SnesConfig {
     #[indent_nested]
     pub common: CommonConfig<SnesInputConfig<KeyboardInput>, SnesInputConfig<JoystickInput>>,
+    pub p2_controller_type: SnesControllerType,
+    pub super_scope_config: SuperScopeConfig,
     pub forced_timing_mode: Option<TimingMode>,
     pub aspect_ratio: SnesAspectRatio,
     pub audio_60hz_hack: bool,

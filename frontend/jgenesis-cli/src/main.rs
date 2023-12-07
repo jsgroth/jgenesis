@@ -4,7 +4,7 @@ use genesis_core::{GenesisAspectRatio, GenesisControllerType, GenesisRegion};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::config::input::{
     GenesisControllerConfig, GenesisInputConfig, HotkeyConfig, KeyboardInput,
-    SmsGgControllerConfig, SmsGgInputConfig, SnesInputConfig,
+    SmsGgControllerConfig, SmsGgInputConfig, SnesControllerType, SnesInputConfig, SuperScopeConfig,
 };
 use jgenesis_native_driver::config::{
     CommonConfig, GenesisConfig, GgAspectRatio, SegaCdConfig, SmsAspectRatio, SmsGgConfig,
@@ -576,6 +576,8 @@ fn run_sega_cd(args: Args) -> anyhow::Result<()> {
 fn run_snes(args: Args) -> anyhow::Result<()> {
     let config = SnesConfig {
         common: args.common_config(SnesInputConfig::default(), SnesInputConfig::default()),
+        p2_controller_type: SnesControllerType::default(),
+        super_scope_config: SuperScopeConfig::default(),
         forced_timing_mode: args.snes_timing_mode,
         aspect_ratio: args.snes_aspect_ratio,
         audio_60hz_hack: args.snes_audio_60hz_hack,

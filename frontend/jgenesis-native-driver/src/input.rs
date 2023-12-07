@@ -9,7 +9,7 @@ use sdl2::joystick::{HatState, Joystick};
 use sdl2::keyboard::Keycode;
 use sdl2::JoystickSubsystem;
 use smsgg_core::SmsGgInputs;
-use snes_core::input::SnesInputs;
+use snes_core::input::{SnesInputDevice, SnesInputs};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,6 +81,14 @@ impl GenesisButton {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SuperScopeButton {
+    Fire,
+    Cursor,
+    Pause,
+    TurboToggle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SnesButton {
     Up(Player),
     Left(Player),
@@ -94,6 +102,7 @@ pub enum SnesButton {
     R(Player),
     Start(Player),
     Select(Player),
+    SuperScope(SuperScopeButton),
 }
 
 impl SnesButton {
@@ -112,80 +121,99 @@ impl SnesButton {
             | Self::R(player)
             | Self::Start(player)
             | Self::Select(player) => player,
+            Self::SuperScope(_) => Player::One,
         }
     }
 }
 
-pub trait GetButtonField<Button>
-where
-    Button: Copy,
-{
-    fn get_field(&mut self, button: Button) -> &mut bool;
+pub trait SetButtonField<Button> {
+    fn set_field(&mut self, button: Button, value: bool);
 }
 
-impl GetButtonField<SmsGgButton> for SmsGgInputs {
-    fn get_field(&mut self, button: SmsGgButton) -> &mut bool {
+impl SetButtonField<SmsGgButton> for SmsGgInputs {
+    fn set_field(&mut self, button: SmsGgButton, value: bool) {
         let joypad_state = match button.player() {
             Player::One => &mut self.p1,
             Player::Two => &mut self.p2,
         };
 
         match button {
-            SmsGgButton::Up(..) => &mut joypad_state.up,
-            SmsGgButton::Left(..) => &mut joypad_state.left,
-            SmsGgButton::Right(..) => &mut joypad_state.right,
-            SmsGgButton::Down(..) => &mut joypad_state.down,
-            SmsGgButton::Button1(..) => &mut joypad_state.button_1,
-            SmsGgButton::Button2(..) => &mut joypad_state.button_2,
-            SmsGgButton::Pause => &mut self.pause,
+            SmsGgButton::Up(..) => joypad_state.up = value,
+            SmsGgButton::Left(..) => joypad_state.left = value,
+            SmsGgButton::Right(..) => joypad_state.right = value,
+            SmsGgButton::Down(..) => joypad_state.down = value,
+            SmsGgButton::Button1(..) => joypad_state.button_1 = value,
+            SmsGgButton::Button2(..) => joypad_state.button_2 = value,
+            SmsGgButton::Pause => self.pause = value,
         }
     }
 }
 
-impl GetButtonField<GenesisButton> for GenesisInputs {
-    fn get_field(&mut self, button: GenesisButton) -> &mut bool {
+impl SetButtonField<GenesisButton> for GenesisInputs {
+    fn set_field(&mut self, button: GenesisButton, value: bool) {
         let joypad_state = match button.player() {
             Player::One => &mut self.p1,
             Player::Two => &mut self.p2,
         };
 
         match button {
-            GenesisButton::Up(..) => &mut joypad_state.up,
-            GenesisButton::Left(..) => &mut joypad_state.left,
-            GenesisButton::Right(..) => &mut joypad_state.right,
-            GenesisButton::Down(..) => &mut joypad_state.down,
-            GenesisButton::A(..) => &mut joypad_state.a,
-            GenesisButton::B(..) => &mut joypad_state.b,
-            GenesisButton::C(..) => &mut joypad_state.c,
-            GenesisButton::X(..) => &mut joypad_state.x,
-            GenesisButton::Y(..) => &mut joypad_state.y,
-            GenesisButton::Z(..) => &mut joypad_state.z,
-            GenesisButton::Start(..) => &mut joypad_state.start,
-            GenesisButton::Mode(..) => &mut joypad_state.mode,
+            GenesisButton::Up(..) => joypad_state.up = value,
+            GenesisButton::Left(..) => joypad_state.left = value,
+            GenesisButton::Right(..) => joypad_state.right = value,
+            GenesisButton::Down(..) => joypad_state.down = value,
+            GenesisButton::A(..) => joypad_state.a = value,
+            GenesisButton::B(..) => joypad_state.b = value,
+            GenesisButton::C(..) => joypad_state.c = value,
+            GenesisButton::X(..) => joypad_state.x = value,
+            GenesisButton::Y(..) => joypad_state.y = value,
+            GenesisButton::Z(..) => joypad_state.z = value,
+            GenesisButton::Start(..) => joypad_state.start = value,
+            GenesisButton::Mode(..) => joypad_state.mode = value,
         }
     }
 }
 
-impl GetButtonField<SnesButton> for SnesInputs {
-    fn get_field(&mut self, button: SnesButton) -> &mut bool {
+impl SetButtonField<SnesButton> for SnesInputs {
+    fn set_field(&mut self, button: SnesButton, value: bool) {
+        if let SnesButton::SuperScope(super_scope_button) = button {
+            let SnesInputDevice::SuperScope(super_scope_state) = &mut self.p2 else { return };
+
+            match super_scope_button {
+                SuperScopeButton::Fire => super_scope_state.fire = true,
+                SuperScopeButton::Cursor => super_scope_state.cursor = true,
+                SuperScopeButton::Pause => super_scope_state.pause = true,
+                SuperScopeButton::TurboToggle => {
+                    if value {
+                        super_scope_state.turbo = !super_scope_state.turbo;
+                    }
+                }
+            }
+
+            return;
+        }
+
         let joypad_state = match button.player() {
             Player::One => &mut self.p1,
-            Player::Two => &mut self.p2,
+            Player::Two => match &mut self.p2 {
+                SnesInputDevice::Controller(joypad_state) => joypad_state,
+                SnesInputDevice::SuperScope(..) => return,
+            },
         };
 
         match button {
-            SnesButton::Up(..) => &mut joypad_state.up,
-            SnesButton::Left(..) => &mut joypad_state.left,
-            SnesButton::Right(..) => &mut joypad_state.right,
-            SnesButton::Down(..) => &mut joypad_state.down,
-            SnesButton::A(..) => &mut joypad_state.a,
-            SnesButton::B(..) => &mut joypad_state.b,
-            SnesButton::X(..) => &mut joypad_state.x,
-            SnesButton::Y(..) => &mut joypad_state.y,
-            SnesButton::L(..) => &mut joypad_state.l,
-            SnesButton::R(..) => &mut joypad_state.r,
-            SnesButton::Start(..) => &mut joypad_state.start,
-            SnesButton::Select(..) => &mut joypad_state.select,
+            SnesButton::Up(..) => joypad_state.up = value,
+            SnesButton::Left(..) => joypad_state.left = value,
+            SnesButton::Right(..) => joypad_state.right = value,
+            SnesButton::Down(..) => joypad_state.down = value,
+            SnesButton::A(..) => joypad_state.a = value,
+            SnesButton::B(..) => joypad_state.b = value,
+            SnesButton::X(..) => joypad_state.x = value,
+            SnesButton::Y(..) => joypad_state.y = value,
+            SnesButton::L(..) => joypad_state.l = value,
+            SnesButton::R(..) => joypad_state.r = value,
+            SnesButton::Start(..) => joypad_state.start = value,
+            SnesButton::Select(..) => joypad_state.select = value,
+            SnesButton::SuperScope(..) => {}
         }
     }
 }
@@ -454,14 +482,12 @@ impl InputMapper<SmsGgInputs, SmsGgButton> {
         joystick_inputs: SmsGgInputConfig<JoystickInput>,
         axis_deadzone: i16,
     ) -> NativeEmulatorResult<Self> {
-        Self::new_generic(
+        Ok(Self::new_generic(
             joystick_subsystem,
-            keyboard_inputs,
-            joystick_inputs,
+            generate_smsgg_keyboard_mapping(keyboard_inputs)?,
+            generate_smsgg_joystick_mapping(joystick_inputs),
             axis_deadzone,
-            generate_smsgg_keyboard_mapping,
-            generate_smsgg_joystick_mapping,
-        )
+        ))
     }
 
     pub(crate) fn reload_config(
@@ -470,11 +496,11 @@ impl InputMapper<SmsGgInputs, SmsGgButton> {
         joystick_inputs: SmsGgInputConfig<JoystickInput>,
     ) -> NativeEmulatorResult<()> {
         self.reload_config_generic(
-            keyboard_inputs,
-            joystick_inputs,
-            generate_smsgg_keyboard_mapping,
-            generate_smsgg_joystick_mapping,
-        )
+            generate_smsgg_keyboard_mapping(keyboard_inputs)?,
+            generate_smsgg_joystick_mapping(joystick_inputs),
+        );
+
+        Ok(())
     }
 }
 
@@ -485,14 +511,12 @@ impl InputMapper<GenesisInputs, GenesisButton> {
         joystick_inputs: GenesisInputConfig<JoystickInput>,
         axis_deadzone: i16,
     ) -> NativeEmulatorResult<Self> {
-        Self::new_generic(
+        Ok(Self::new_generic(
             joystick_subsystem,
-            keyboard_inputs,
-            joystick_inputs,
+            generate_genesis_keyboard_mapping(keyboard_inputs)?,
+            generate_genesis_joystick_mapping(joystick_inputs),
             axis_deadzone,
-            generate_genesis_keyboard_mapping,
-            generate_genesis_joystick_mapping,
-        )
+        ))
     }
 
     pub(crate) fn reload_config(
@@ -501,11 +525,11 @@ impl InputMapper<GenesisInputs, GenesisButton> {
         joystick_inputs: GenesisInputConfig<JoystickInput>,
     ) -> NativeEmulatorResult<()> {
         self.reload_config_generic(
-            keyboard_inputs,
-            joystick_inputs,
-            generate_genesis_keyboard_mapping,
-            generate_genesis_joystick_mapping,
-        )
+            generate_genesis_keyboard_mapping(keyboard_inputs)?,
+            generate_genesis_joystick_mapping(joystick_inputs),
+        );
+
+        Ok(())
     }
 }
 
@@ -516,14 +540,12 @@ impl InputMapper<SnesInputs, SnesButton> {
         joystick_inputs: SnesInputConfig<JoystickInput>,
         axis_deadzone: i16,
     ) -> NativeEmulatorResult<Self> {
-        Self::new_generic(
+        Ok(Self::new_generic(
             joystick_subsystem,
-            keyboard_inputs,
-            joystick_inputs,
+            generate_snes_keyboard_mapping(keyboard_inputs)?,
+            generate_snes_joystick_mapping(joystick_inputs),
             axis_deadzone,
-            generate_snes_keyboard_mapping,
-            generate_snes_joystick_mapping,
-        )
+        ))
     }
 
     pub(crate) fn reload_config(
@@ -532,48 +554,43 @@ impl InputMapper<SnesInputs, SnesButton> {
         joystick_inputs: SnesInputConfig<JoystickInput>,
     ) -> NativeEmulatorResult<()> {
         self.reload_config_generic(
-            keyboard_inputs,
-            joystick_inputs,
-            generate_snes_keyboard_mapping,
-            generate_snes_joystick_mapping,
-        )
+            generate_snes_keyboard_mapping(keyboard_inputs)?,
+            generate_snes_joystick_mapping(joystick_inputs),
+        );
+
+        Ok(())
     }
 }
 
 impl<Inputs, Button> InputMapper<Inputs, Button>
 where
-    Inputs: Default + GetButtonField<Button>,
+    Inputs: Default + SetButtonField<Button>,
     Button: Copy,
 {
-    fn new_generic<KC, JC>(
+    fn new_generic(
         joystick_subsystem: JoystickSubsystem,
-        keyboard_inputs: KC,
-        joystick_inputs: JC,
+        keyboard_mapping: HashMap<Keycode, Vec<Button>>,
+        joystick_mapping: HashMap<JoystickInput, Vec<Button>>,
         axis_deadzone: i16,
-        keyboard_mapping_fn: impl FnOnce(KC) -> NativeEmulatorResult<HashMap<Keycode, Vec<Button>>>,
-        joystick_mapping_fn: impl FnOnce(JC) -> HashMap<JoystickInput, Vec<Button>>,
-    ) -> NativeEmulatorResult<Self> {
-        let keyboard_mapping = keyboard_mapping_fn(keyboard_inputs)?;
-        let joystick_mapping = joystick_mapping_fn(joystick_inputs);
-
-        let inputs = Inputs::default();
-
-        Ok(Self::new(inputs, joystick_subsystem, keyboard_mapping, joystick_mapping, axis_deadzone))
+    ) -> Self {
+        Self::new(
+            Inputs::default(),
+            joystick_subsystem,
+            keyboard_mapping,
+            joystick_mapping,
+            axis_deadzone,
+        )
     }
 
-    fn reload_config_generic<KC, JC>(
+    fn reload_config_generic(
         &mut self,
-        keyboard_inputs: KC,
-        joystick_inputs: JC,
-        keyboard_mapping_fn: impl FnOnce(KC) -> NativeEmulatorResult<HashMap<Keycode, Vec<Button>>>,
-        joystick_mapping_fn: impl FnOnce(JC) -> HashMap<JoystickInput, Vec<Button>>,
-    ) -> NativeEmulatorResult<()> {
-        self.keyboard_mapping = keyboard_mapping_fn(keyboard_inputs)?;
-        self.raw_joystick_mapping = joystick_mapping_fn(joystick_inputs);
+        keyboard_mapping: HashMap<Keycode, Vec<Button>>,
+        joystick_mapping: HashMap<JoystickInput, Vec<Button>>,
+    ) {
+        self.keyboard_mapping = keyboard_mapping;
+        self.raw_joystick_mapping = joystick_mapping;
 
         self.update_input_mapping();
-
-        Ok(())
     }
 
     pub(crate) fn device_added(&mut self, device_id: u32) -> NativeEmulatorResult<()> {
@@ -613,7 +630,7 @@ where
         let Some(buttons) = self.keyboard_mapping.get(&keycode) else { return };
 
         for &button in buttons {
-            *self.inputs.get_field(button) = value;
+            self.inputs.set_field(button, value);
         }
     }
 
@@ -635,7 +652,7 @@ where
         };
 
         for &button in buttons {
-            *self.inputs.get_field(button) = value;
+            self.inputs.set_field(button, value);
         }
     }
 
@@ -653,7 +670,7 @@ where
                 .get(&(device_id, JoystickAction::Axis { axis_idx, direction }))
             {
                 for &button in buttons {
-                    *self.inputs.get_field(button) = value;
+                    self.inputs.set_field(button, value);
                 }
             }
         }
@@ -679,7 +696,7 @@ where
                 self.joystick_mapping.get(&(device_id, JoystickAction::Hat { hat_idx, direction }))
             {
                 for &button in buttons {
-                    *self.inputs.get_field(button) = value;
+                    self.inputs.set_field(button, value);
                 }
             }
         }
