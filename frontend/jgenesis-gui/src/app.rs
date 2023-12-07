@@ -345,6 +345,8 @@ impl AppConfig {
                 self.inputs.to_snes_keyboard_config(),
                 self.inputs.to_snes_joystick_config(),
             ),
+            p2_controller_type: self.inputs.snes_p2_type,
+            super_scope_config: self.inputs.snes_super_scope.clone(),
             forced_timing_mode: self.snes.forced_timing_mode,
             aspect_ratio: self.snes.aspect_ratio,
             audio_60hz_hack: self.snes.audio_60hz_hack,
@@ -385,6 +387,7 @@ enum OpenWindow {
     GenesisGamepad,
     SnesKeyboard,
     SnesGamepad,
+    SnesPeripherals,
     Hotkeys,
     About,
 }
@@ -1529,6 +1532,11 @@ impl App {
                         ui.close_menu();
                     }
 
+                    if ui.button("SNES Peripherals").clicked() {
+                        self.state.open_windows.insert(OpenWindow::SnesPeripherals);
+                        ui.close_menu();
+                    }
+
                     if ui.button("Hotkeys").clicked() {
                         self.state.open_windows.insert(OpenWindow::Hotkeys);
                         ui.close_menu();
@@ -1702,6 +1710,7 @@ impl eframe::App for App {
                 OpenWindow::GenesisGamepad => self.render_genesis_gamepad_settings(ctx),
                 OpenWindow::SnesKeyboard => self.render_snes_keyboard_settings(ctx),
                 OpenWindow::SnesGamepad => self.render_snes_gamepad_settings(ctx),
+                OpenWindow::SnesPeripherals => self.render_snes_peripheral_settings(ctx),
                 OpenWindow::Hotkeys => self.render_hotkey_settings(ctx),
                 OpenWindow::About => self.render_about(ctx),
             }

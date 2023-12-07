@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use jgenesis_native_driver::config::input::{
-    AxisDirection, HatDirection, JoystickAction, JoystickInput, KeyboardInput,
+    AxisDirection, HatDirection, JoystickAction, JoystickInput, KeyboardInput, KeyboardOrMouseInput,
 };
 use jgenesis_native_driver::config::{GenesisConfig, SegaCdConfig, SmsGgConfig, SnesConfig};
 use jgenesis_native_driver::input::Joysticks;
@@ -10,6 +10,7 @@ use jgenesis_native_driver::{
 };
 use sdl2::event::Event;
 use sdl2::joystick::HatState;
+use sdl2::mouse::MouseButton;
 use sdl2::pixels::Color;
 use sdl2::render::WindowCanvas;
 use sdl2::{EventPump, JoystickSubsystem};
@@ -72,12 +73,20 @@ pub enum EmuThreadCommand {
 pub enum InputType {
     Keyboard,
     Joystick,
+    KeyboardOrMouse,
+}
+
+impl InputType {
+    fn accepts_keyboard(self) -> bool {
+        matches!(self, Self::Keyboard | Self::KeyboardOrMouse)
+    }
 }
 
 #[derive(Debug, Clone)]
 pub enum GenericInput {
     Keyboard(KeyboardInput),
     Joystick(JoystickInput),
+    KeyboardOrMouse(KeyboardOrMouseInput),
 }
 
 pub struct EmuThreadHandle {
@@ -495,10 +504,16 @@ fn collect_input(
                 Event::Quit { .. } => {
                     return None;
                 }
-                Event::KeyDown { keycode: Some(keycode), .. }
-                    if input_type == InputType::Keyboard =>
-                {
-                    return Some(GenericInput::Keyboard(KeyboardInput { keycode: keycode.name() }));
+                Event::KeyDown { keycode: Some(keycode), .. } if input_type.accepts_keyboard() => {
+                    return Some(match input_type {
+                        InputType::Keyboard => {
+                            GenericInput::Keyboard(KeyboardInput { keycode: keycode.name() })
+                        }
+                        InputType::KeyboardOrMouse => GenericInput::KeyboardOrMouse(
+                            KeyboardOrMouseInput::Keyboard(keycode.name()),
+                        ),
+                        InputType::Joystick => unreachable!("nested match arms"),
+                    });
                 }
                 Event::JoyDeviceAdded { which: device_id, .. } => {
                     if let Err(err) = joysticks.device_added(device_id, joystick_subsystem) {
@@ -551,6 +566,38 @@ fn collect_input(
                                 }));
                             }
                         }
+                    }
+                }
+                Event::MouseButtonDown { mouse_btn, .. }
+                    if input_type == InputType::KeyboardOrMouse =>
+                {
+                    match mouse_btn {
+                        MouseButton::Left => {
+                            return Some(GenericInput::KeyboardOrMouse(
+                                KeyboardOrMouseInput::MouseLeft,
+                            ));
+                        }
+                        MouseButton::Right => {
+                            return Some(GenericInput::KeyboardOrMouse(
+                                KeyboardOrMouseInput::MouseRight,
+                            ));
+                        }
+                        MouseButton::Middle => {
+                            return Some(GenericInput::KeyboardOrMouse(
+                                KeyboardOrMouseInput::MouseMiddle,
+                            ));
+                        }
+                        MouseButton::X1 => {
+                            return Some(GenericInput::KeyboardOrMouse(
+                                KeyboardOrMouseInput::MouseX1,
+                            ));
+                        }
+                        MouseButton::X2 => {
+                            return Some(GenericInput::KeyboardOrMouse(
+                                KeyboardOrMouseInput::MouseX2,
+                            ));
+                        }
+                        MouseButton::Unknown => {}
                     }
                 }
                 _ => {}

@@ -260,6 +260,7 @@ fn padded_u32(value: u32) -> [u32; 4] {
 struct RenderingPipeline {
     frame_size: FrameSize,
     pixel_aspect_ratio: Option<PixelAspectRatio>,
+    display_area: DisplayArea,
     scaled_texture: wgpu::Texture,
     vertex_buffer: wgpu::Buffer,
     preprocess_pipeline: PreprocessPipeline,
@@ -310,12 +311,18 @@ impl RenderingPipeline {
             ..wgpu::SamplerDescriptor::default()
         });
 
-        let vertices = compute_vertices(
-            window_size,
+        let display_area = determine_display_area(
+            window_size.0,
+            window_size.1,
             frame_size,
             pixel_aspect_ratio,
             renderer_config.force_integer_height_scaling,
         );
+
+        let vertices = match pixel_aspect_ratio {
+            Some(_) => compute_vertices(window_size.0, window_size.1, display_area),
+            None => VERTICES.into(),
+        };
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: "vertex_buffer".into(),
             contents: bytemuck::cast_slice(&vertices),
@@ -531,6 +538,7 @@ impl RenderingPipeline {
         Self {
             frame_size,
             pixel_aspect_ratio,
+            display_area,
             scaled_texture,
             vertex_buffer,
             preprocess_pipeline,
@@ -630,14 +638,59 @@ impl RenderingPipeline {
 }
 
 fn compute_vertices(
-    (window_width, window_height): (u32, u32),
+    window_width: u32,
+    window_height: u32,
+    display_area: DisplayArea,
+) -> Vec<Vertex> {
+    log::info!(
+        "Display area: width={}, height={}, left={}, top={}",
+        display_area.width,
+        display_area.height,
+        display_area.x,
+        display_area.y
+    );
+
+    VERTICES
+        .into_iter()
+        .map(|vertex| Vertex {
+            position: [
+                scale_vertex_position(
+                    vertex.position[0],
+                    window_width,
+                    display_area.width,
+                    display_area.x,
+                ),
+                scale_vertex_position(
+                    vertex.position[1],
+                    window_height,
+                    display_area.height,
+                    display_area.y,
+                ),
+            ],
+            texture_coords: vertex.texture_coords,
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DisplayArea {
+    pub width: u32,
+    pub height: u32,
+    pub x: u32,
+    pub y: u32,
+}
+
+fn determine_display_area(
+    window_width: u32,
+    window_height: u32,
     frame_size: FrameSize,
     pixel_aspect_ratio: Option<PixelAspectRatio>,
     force_integer_height_scaling: bool,
-) -> Vec<Vertex> {
+) -> DisplayArea {
     let Some(pixel_aspect_ratio) = pixel_aspect_ratio else {
-        return VERTICES.into();
+        return DisplayArea { width: window_width, height: window_height, x: 0, y: 0 };
     };
+
     let pixel_aspect_ratio: f64 = pixel_aspect_ratio.into();
 
     let frame_aspect_ratio = f64::from(frame_size.width) / f64::from(frame_size.height);
@@ -662,18 +715,7 @@ fn compute_vertices(
     let x = (window_width - screen_width) / 2;
     let y = (window_height - screen_height) / 2;
 
-    log::info!("Display area: width={screen_width}, height={screen_height}, left={x}, top={y}");
-
-    VERTICES
-        .into_iter()
-        .map(|vertex| Vertex {
-            position: [
-                scale_vertex_position(vertex.position[0], window_width, screen_width, x),
-                scale_vertex_position(vertex.position[1], window_height, screen_height, y),
-            ],
-            texture_coords: vertex.texture_coords,
-        })
-        .collect()
+    DisplayArea { width: screen_width, height: screen_height, x, y }
 }
 
 fn scale_vertex_position(
@@ -927,6 +969,15 @@ impl<Window> WgpuRenderer<Window> {
     pub fn set_speed_multiplier(&mut self, speed_multiplier: u64) {
         assert_ne!(speed_multiplier, 0, "speed multiplier must be non-zero");
         self.speed_multiplier = speed_multiplier;
+    }
+
+    /// Obtain the current display area within the window.
+    ///
+    /// May return None if rendering config was just changed or initialized and a frame has not yet been rendered with
+    /// the new config.
+    #[must_use]
+    pub fn current_display_area(&self) -> Option<DisplayArea> {
+        self.pipeline.as_ref().map(|pipeline| pipeline.display_area)
     }
 }
 

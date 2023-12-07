@@ -31,8 +31,41 @@ impl SnesJoypadState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SuperScopeState {
+    pub fire: bool,
+    pub cursor: bool,
+    pub pause: bool,
+    pub turbo: bool,
+    // X/Y position in SNES pixels starting from the top-left corner, or None if position is offscreen
+    // X should be in the range 0..=255 and Y should be in the range 0..=223 (or 238 if in 239-line mode); other values
+    // will be treated as offscreen
+    pub position: Option<(u16, u16)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SnesInputDevice {
+    Controller(SnesJoypadState),
+    SuperScope(SuperScopeState),
+}
+
+impl Default for SnesInputDevice {
+    fn default() -> Self {
+        Self::Controller(SnesJoypadState::default())
+    }
+}
+
+impl SnesInputDevice {
+    pub(crate) fn to_register_word(self) -> u16 {
+        match self {
+            Self::Controller(joypad_state) => joypad_state.to_register_word(),
+            Self::SuperScope(_) => todo!("super scope to register word"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SnesInputs {
     pub p1: SnesJoypadState,
-    pub p2: SnesJoypadState,
+    pub p2: SnesInputDevice,
 }

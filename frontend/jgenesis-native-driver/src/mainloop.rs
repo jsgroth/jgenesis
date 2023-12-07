@@ -6,7 +6,7 @@ use crate::config::{
     CommonConfig, GenesisConfig, SegaCdConfig, SmsGgConfig, SnesConfig, WindowSize,
 };
 use crate::input::{
-    GenesisButton, GetButtonField, Hotkey, HotkeyMapResult, HotkeyMapper, InputMapper, Joysticks,
+    GenesisButton, Hotkey, HotkeyMapResult, HotkeyMapper, InputMapper, Joysticks, SetButtonField,
     SmsGgButton, SnesButton,
 };
 use crate::mainloop::debug::{DebugRenderFn, DebuggerWindow};
@@ -542,7 +542,7 @@ pub type NativeEmulatorResult<T> = Result<T, NativeEmulatorError>;
 // TODO simplify or generalize these trait bounds
 impl<Inputs, Button, Config, Emulator> NativeEmulator<Inputs, Button, Config, Emulator>
 where
-    Inputs: Default + GetButtonField<Button>,
+    Inputs: Default + SetButtonField<Button>,
     Button: Copy,
     Emulator: EmulatorTrait<Inputs = Inputs, Config = Config>,
     Emulator::Err<RendererError, AudioError, SaveWriteError>: Error + Send + Sync + 'static,
