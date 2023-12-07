@@ -377,13 +377,10 @@ impl Cartridge {
                 }
                 _ => (hirom_map_address(address, *mask, sram.len() as u32), rom, sram),
             },
-            Self::ExHiRom { rom, sram, srtc: Some(srtc), .. } => match (bank, offset) {
-                (0x00..=0x3F | 0x80..=0xBF, 0x2800) => return Some(srtc.read()),
+            Self::ExHiRom { rom, sram, srtc, .. } => match (bank, offset, srtc) {
+                (0x00..=0x3F | 0x80..=0xBF, 0x2800, Some(srtc)) => return Some(srtc.read()),
                 _ => (exhirom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram),
             },
-            Self::ExHiRom { rom, sram, .. } => {
-                (exhirom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram)
-            }
             Self::Cx4(cx4) => return cx4.read(address),
             Self::Sa1(sa1) => return sa1.snes_read(address),
             Self::Sdd1(sdd1) => return sdd1.read(address),
@@ -454,8 +451,8 @@ impl Cartridge {
                     }
                 }
             },
-            Self::ExHiRom { rom, sram, srtc: Some(srtc), .. } => match (bank, offset) {
-                (0x00..=0x3F | 0x80..=0xBF, 0x2801) => srtc.write(value),
+            Self::ExHiRom { rom, sram, srtc, .. } => match (bank, offset, srtc) {
+                (0x00..=0x3F | 0x80..=0xBF, 0x2801, Some(srtc)) => srtc.write(value),
                 _ => {
                     if let CartridgeAddress::Sram(sram_addr) =
                         exhirom_map_address(address, rom.len() as u32, sram.len() as u32)
@@ -464,13 +461,6 @@ impl Cartridge {
                     }
                 }
             },
-            Self::ExHiRom { rom, sram, .. } => {
-                if let CartridgeAddress::Sram(sram_addr) =
-                    exhirom_map_address(address, rom.len() as u32, sram.len() as u32)
-                {
-                    sram[sram_addr as usize] = value;
-                }
-            }
             Self::Cx4(cx4) => {
                 cx4.write(address, value);
             }
