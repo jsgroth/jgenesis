@@ -611,10 +611,16 @@ impl Ppu {
         let oob_behavior = self.registers.mode_7_oob_behavior;
 
         for pixel in 0..NORMAL_SCREEN_WIDTH as u16 {
-            let (scanline, pixel) = self.apply_mosaic(0, scanline, pixel, HiResMode::None);
+            let (base_y, mosaic_x) = self.apply_mosaic(0, scanline, pixel, HiResMode::None);
+            if mosaic_x != pixel {
+                // Copy last pixel and move on
+                self.buffers.bg_pixels[0][pixel as usize] =
+                    self.buffers.bg_pixels[0][(pixel - 1) as usize];
+                continue;
+            }
 
             let screen_x: i32 = (if h_flip { 255 - pixel } else { pixel }).into();
-            let screen_y: i32 = (if v_flip { 255 - scanline } else { scanline }).into();
+            let screen_y: i32 = (if v_flip { 255 - base_y } else { base_y }).into();
 
             // Perform the following matrix transformation:
             //   [ vram_x ] = [ m7a  m7b ] * [ screen_x + m7hofs - m7x ] + [ m7x ]
