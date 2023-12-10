@@ -143,6 +143,10 @@ struct Args {
     #[arg(long, default_value_t = NonZeroU64::new(1).unwrap(), help_heading = SNES_OPTIONS_HEADING)]
     gsu_overclock_factor: NonZeroU64,
 
+    /// Player 2 input device (Gamepad / SuperScope)
+    #[arg(long, default_value_t, help_heading = SNES_OPTIONS_HEADING)]
+    snes_p2_controller_type: SnesControllerType,
+
     /// Specify SNES DSP-1 ROM path (required for DSP-1 games)
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
     dsp1_rom_path: Option<String>,
@@ -576,7 +580,7 @@ fn run_sega_cd(args: Args) -> anyhow::Result<()> {
 fn run_snes(args: Args) -> anyhow::Result<()> {
     let config = SnesConfig {
         common: args.common_config(SnesInputConfig::default(), SnesInputConfig::default()),
-        p2_controller_type: SnesControllerType::default(),
+        p2_controller_type: args.snes_p2_controller_type,
         super_scope_config: SuperScopeConfig::default(),
         forced_timing_mode: args.snes_timing_mode,
         aspect_ratio: args.snes_aspect_ratio,

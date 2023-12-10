@@ -279,6 +279,11 @@ impl EmulatorTrait for SnesEmulator {
         // Copy WRIO from CPU to PPU for possible H/V counter latching
         self.ppu.update_wrio(self.cpu_registers.wrio_register());
 
+        // Possibly latch H/V counter from the controller (e.g. Super Scope)
+        if let Some((h, v)) = self.cpu_registers.controller_hv_latch() {
+            self.ppu.update_controller_hv_latch(h, v, master_cycles_elapsed);
+        }
+
         let prev_scanline_mclk = self.ppu.scanline_master_cycles();
         let mut tick_effect = TickEffect::None;
         if self.ppu.tick(master_cycles_elapsed) == PpuTickEffect::FrameComplete {

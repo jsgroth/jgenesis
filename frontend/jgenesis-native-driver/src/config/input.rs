@@ -1,4 +1,4 @@
-use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay};
+use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay, EnumFromStr};
 use sdl2::keyboard::Keycode;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -392,7 +392,9 @@ impl Default for SuperScopeConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
+)]
 pub enum SnesControllerType {
     #[default]
     Gamepad,

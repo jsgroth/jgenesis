@@ -1,15 +1,19 @@
 use crate::config::input::{
     AxisDirection, GenesisInputConfig, HatDirection, HotkeyConfig, JoystickAction,
-    JoystickDeviceId, JoystickInput, KeyboardInput, SmsGgInputConfig, SnesInputConfig,
+    JoystickDeviceId, JoystickInput, KeyboardInput, KeyboardOrMouseInput, SmsGgInputConfig,
+    SnesControllerType, SnesInputConfig, SuperScopeConfig,
 };
 use crate::mainloop::{NativeEmulatorError, NativeEmulatorResult};
 use genesis_core::GenesisInputs;
-use sdl2::event::Event;
+use jgenesis_common::frontend::FrameSize;
+use jgenesis_renderer::renderer::DisplayArea;
+use sdl2::event::{Event, WindowEvent};
 use sdl2::joystick::{HatState, Joystick};
 use sdl2::keyboard::Keycode;
+use sdl2::mouse::MouseButton;
 use sdl2::JoystickSubsystem;
 use smsgg_core::SmsGgInputs;
-use snes_core::input::{SnesInputDevice, SnesInputs};
+use snes_core::input::{SnesInputDevice, SnesInputs, SnesJoypadState, SuperScopeState};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,11 +130,21 @@ impl SnesButton {
     }
 }
 
-pub trait SetButtonField<Button> {
+pub trait MappableInputs<Button> {
     fn set_field(&mut self, button: Button, value: bool);
+
+    fn handle_mouse_motion(
+        &mut self,
+        x: i32,
+        y: i32,
+        frame_size: FrameSize,
+        display_area: DisplayArea,
+    );
+
+    fn handle_mouse_leave(&mut self);
 }
 
-impl SetButtonField<SmsGgButton> for SmsGgInputs {
+impl MappableInputs<SmsGgButton> for SmsGgInputs {
     fn set_field(&mut self, button: SmsGgButton, value: bool) {
         let joypad_state = match button.player() {
             Player::One => &mut self.p1,
@@ -147,9 +161,20 @@ impl SetButtonField<SmsGgButton> for SmsGgInputs {
             SmsGgButton::Pause => self.pause = value,
         }
     }
+
+    fn handle_mouse_motion(
+        &mut self,
+        _x: i32,
+        _y: i32,
+        _frame_size: FrameSize,
+        _display_area: DisplayArea,
+    ) {
+    }
+
+    fn handle_mouse_leave(&mut self) {}
 }
 
-impl SetButtonField<GenesisButton> for GenesisInputs {
+impl MappableInputs<GenesisButton> for GenesisInputs {
     fn set_field(&mut self, button: GenesisButton, value: bool) {
         let joypad_state = match button.player() {
             Player::One => &mut self.p1,
@@ -171,17 +196,28 @@ impl SetButtonField<GenesisButton> for GenesisInputs {
             GenesisButton::Mode(..) => joypad_state.mode = value,
         }
     }
+
+    fn handle_mouse_motion(
+        &mut self,
+        _x: i32,
+        _y: i32,
+        _frame_size: FrameSize,
+        _display_area: DisplayArea,
+    ) {
+    }
+
+    fn handle_mouse_leave(&mut self) {}
 }
 
-impl SetButtonField<SnesButton> for SnesInputs {
+impl MappableInputs<SnesButton> for SnesInputs {
     fn set_field(&mut self, button: SnesButton, value: bool) {
         if let SnesButton::SuperScope(super_scope_button) = button {
             let SnesInputDevice::SuperScope(super_scope_state) = &mut self.p2 else { return };
 
             match super_scope_button {
-                SuperScopeButton::Fire => super_scope_state.fire = true,
-                SuperScopeButton::Cursor => super_scope_state.cursor = true,
-                SuperScopeButton::Pause => super_scope_state.pause = true,
+                SuperScopeButton::Fire => super_scope_state.fire = value,
+                SuperScopeButton::Cursor => super_scope_state.cursor = value,
+                SuperScopeButton::Pause => super_scope_state.pause = value,
                 SuperScopeButton::TurboToggle => {
                     if value {
                         super_scope_state.turbo = !super_scope_state.turbo;
@@ -213,7 +249,48 @@ impl SetButtonField<SnesButton> for SnesInputs {
             SnesButton::R(..) => joypad_state.r = value,
             SnesButton::Start(..) => joypad_state.start = value,
             SnesButton::Select(..) => joypad_state.select = value,
-            SnesButton::SuperScope(..) => {}
+            SnesButton::SuperScope(..) => unreachable!("early return if button is Super Scope"),
+        }
+    }
+
+    fn handle_mouse_motion(
+        &mut self,
+        x: i32,
+        y: i32,
+        frame_size: FrameSize,
+        display_area: DisplayArea,
+    ) {
+        let SnesInputDevice::SuperScope(super_scope_state) = &mut self.p2 else { return };
+
+        let display_left = display_area.x as i32;
+        let display_right = display_left + display_area.width as i32;
+        let display_top = display_area.y as i32;
+        let display_bottom = display_top + display_area.height as i32;
+
+        if !(display_left..display_right).contains(&x)
+            || !(display_top..display_bottom).contains(&y)
+        {
+            super_scope_state.position = None;
+            return;
+        }
+
+        let x: f64 = x.into();
+        let y: f64 = y.into();
+        let display_left: f64 = display_left.into();
+        let display_width: f64 = display_area.width.into();
+        let frame_width: f64 = frame_size.width.into();
+        let display_top: f64 = display_top.into();
+        let display_height: f64 = display_area.height.into();
+        let frame_height: f64 = frame_size.height.into();
+
+        let snes_x = ((x - display_left) * frame_width / display_width).round() as u16;
+        let snes_y = ((y - display_top) * frame_height / display_height).round() as u16;
+        super_scope_state.position = Some((snes_x, snes_y));
+    }
+
+    fn handle_mouse_leave(&mut self) {
+        if let SnesInputDevice::SuperScope(super_scope_state) = &mut self.p2 {
+            super_scope_state.position = None;
         }
     }
 }
@@ -300,6 +377,31 @@ impl Joysticks {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum KeycodeOrMouseButton {
+    Keycode(Keycode),
+    Mouse(MouseButton),
+}
+
+impl TryFrom<KeyboardOrMouseInput> for KeycodeOrMouseButton {
+    type Error = NativeEmulatorError;
+
+    fn try_from(value: KeyboardOrMouseInput) -> Result<Self, Self::Error> {
+        match value {
+            KeyboardOrMouseInput::Keyboard(keycode) => {
+                let keycode = Keycode::from_name(&keycode)
+                    .ok_or_else(|| NativeEmulatorError::InvalidKeycode(keycode))?;
+                Ok(Self::Keycode(keycode))
+            }
+            KeyboardOrMouseInput::MouseLeft => Ok(Self::Mouse(MouseButton::Left)),
+            KeyboardOrMouseInput::MouseRight => Ok(Self::Mouse(MouseButton::Right)),
+            KeyboardOrMouseInput::MouseMiddle => Ok(Self::Mouse(MouseButton::Middle)),
+            KeyboardOrMouseInput::MouseX1 => Ok(Self::Mouse(MouseButton::X1)),
+            KeyboardOrMouseInput::MouseX2 => Ok(Self::Mouse(MouseButton::X2)),
+        }
+    }
+}
+
 pub(crate) struct InputMapper<Inputs, Button> {
     inputs: Inputs,
     joystick_subsystem: JoystickSubsystem,
@@ -308,6 +410,7 @@ pub(crate) struct InputMapper<Inputs, Button> {
     keyboard_mapping: HashMap<Keycode, Vec<Button>>,
     raw_joystick_mapping: HashMap<JoystickInput, Vec<Button>>,
     joystick_mapping: HashMap<(u32, JoystickAction), Vec<Button>>,
+    key_or_mouse_mapping: HashMap<KeycodeOrMouseButton, Vec<Button>>,
 }
 
 impl<Inputs, Button> InputMapper<Inputs, Button> {
@@ -322,6 +425,7 @@ impl<Inputs, Button> InputMapper<Inputs, Button> {
         joystick_subsystem: JoystickSubsystem,
         keyboard_mapping: HashMap<Keycode, Vec<Button>>,
         joystick_mapping: HashMap<JoystickInput, Vec<Button>>,
+        key_or_mouse_mapping: HashMap<KeycodeOrMouseButton, Vec<Button>>,
         axis_deadzone: i16,
     ) -> Self {
         Self {
@@ -332,6 +436,7 @@ impl<Inputs, Button> InputMapper<Inputs, Button> {
             keyboard_mapping,
             raw_joystick_mapping: joystick_mapping,
             joystick_mapping: HashMap::new(),
+            key_or_mouse_mapping,
         }
     }
 }
@@ -486,6 +591,7 @@ impl InputMapper<SmsGgInputs, SmsGgButton> {
             joystick_subsystem,
             generate_smsgg_keyboard_mapping(keyboard_inputs)?,
             generate_smsgg_joystick_mapping(joystick_inputs),
+            HashMap::new(),
             axis_deadzone,
         ))
     }
@@ -494,10 +600,13 @@ impl InputMapper<SmsGgInputs, SmsGgButton> {
         &mut self,
         keyboard_inputs: SmsGgInputConfig<KeyboardInput>,
         joystick_inputs: SmsGgInputConfig<JoystickInput>,
+        axis_deadzone: i16,
     ) -> NativeEmulatorResult<()> {
         self.reload_config_generic(
             generate_smsgg_keyboard_mapping(keyboard_inputs)?,
             generate_smsgg_joystick_mapping(joystick_inputs),
+            HashMap::new(),
+            axis_deadzone,
         );
 
         Ok(())
@@ -515,6 +624,7 @@ impl InputMapper<GenesisInputs, GenesisButton> {
             joystick_subsystem,
             generate_genesis_keyboard_mapping(keyboard_inputs)?,
             generate_genesis_joystick_mapping(joystick_inputs),
+            HashMap::new(),
             axis_deadzone,
         ))
     }
@@ -523,54 +633,115 @@ impl InputMapper<GenesisInputs, GenesisButton> {
         &mut self,
         keyboard_inputs: GenesisInputConfig<KeyboardInput>,
         joystick_inputs: GenesisInputConfig<JoystickInput>,
+        axis_deadzone: i16,
     ) -> NativeEmulatorResult<()> {
         self.reload_config_generic(
             generate_genesis_keyboard_mapping(keyboard_inputs)?,
             generate_genesis_joystick_mapping(joystick_inputs),
+            HashMap::new(),
+            axis_deadzone,
         );
 
         Ok(())
     }
+}
+
+fn generate_snes_key_or_mouse_mapping(
+    super_scope_config: SuperScopeConfig,
+) -> NativeEmulatorResult<HashMap<KeycodeOrMouseButton, Vec<SnesButton>>> {
+    let mut map: HashMap<KeycodeOrMouseButton, Vec<SnesButton>> = HashMap::new();
+    for (input, button) in [
+        (super_scope_config.fire, SuperScopeButton::Fire),
+        (super_scope_config.cursor, SuperScopeButton::Cursor),
+        (super_scope_config.pause, SuperScopeButton::Pause),
+        (super_scope_config.turbo_toggle, SuperScopeButton::TurboToggle),
+    ] {
+        let Some(input) = input else { continue };
+        let key_or_mouse_button = input.try_into()?;
+        map.entry(key_or_mouse_button).or_default().push(SnesButton::SuperScope(button));
+    }
+
+    Ok(map)
 }
 
 impl InputMapper<SnesInputs, SnesButton> {
     pub(crate) fn new_snes(
         joystick_subsystem: JoystickSubsystem,
+        p2_controller_type: SnesControllerType,
         keyboard_inputs: SnesInputConfig<KeyboardInput>,
         joystick_inputs: SnesInputConfig<JoystickInput>,
+        super_scope_config: SuperScopeConfig,
         axis_deadzone: i16,
     ) -> NativeEmulatorResult<Self> {
-        Ok(Self::new_generic(
+        let mut mapper = Self::new_generic(
             joystick_subsystem,
             generate_snes_keyboard_mapping(keyboard_inputs)?,
             generate_snes_joystick_mapping(joystick_inputs),
+            generate_snes_key_or_mouse_mapping(super_scope_config)?,
             axis_deadzone,
-        ))
+        );
+        set_default_snes_inputs(
+            &mut mapper.inputs,
+            p2_controller_type,
+            SuperScopeState::default().turbo,
+        );
+
+        Ok(mapper)
     }
 
     pub(crate) fn reload_config(
         &mut self,
+        p2_controller_type: SnesControllerType,
         keyboard_inputs: SnesInputConfig<KeyboardInput>,
         joystick_inputs: SnesInputConfig<JoystickInput>,
+        super_scope_config: SuperScopeConfig,
+        axis_deadzone: i16,
     ) -> NativeEmulatorResult<()> {
+        let existing_super_scope_turbo = match self.inputs.p2 {
+            SnesInputDevice::SuperScope(super_scope_state) => super_scope_state.turbo,
+            SnesInputDevice::Controller(_) => SuperScopeState::default().turbo,
+        };
+
         self.reload_config_generic(
             generate_snes_keyboard_mapping(keyboard_inputs)?,
             generate_snes_joystick_mapping(joystick_inputs),
+            generate_snes_key_or_mouse_mapping(super_scope_config)?,
+            axis_deadzone,
         );
+        set_default_snes_inputs(&mut self.inputs, p2_controller_type, existing_super_scope_turbo);
 
         Ok(())
     }
 }
 
+fn set_default_snes_inputs(
+    inputs: &mut SnesInputs,
+    p2_controller_type: SnesControllerType,
+    super_scope_turbo: bool,
+) {
+    match p2_controller_type {
+        SnesControllerType::Gamepad => {
+            inputs.p2 = SnesInputDevice::Controller(SnesJoypadState::default());
+        }
+        SnesControllerType::SuperScope => {
+            inputs.p2 = SnesInputDevice::SuperScope(SuperScopeState {
+                turbo: super_scope_turbo,
+                ..SuperScopeState::default()
+            });
+        }
+    }
+}
+
 impl<Inputs, Button> InputMapper<Inputs, Button>
 where
-    Inputs: Default + SetButtonField<Button>,
+    Inputs: Default + MappableInputs<Button>,
     Button: Copy,
 {
     fn new_generic(
         joystick_subsystem: JoystickSubsystem,
         keyboard_mapping: HashMap<Keycode, Vec<Button>>,
         joystick_mapping: HashMap<JoystickInput, Vec<Button>>,
+        key_or_mouse_mapping: HashMap<KeycodeOrMouseButton, Vec<Button>>,
         axis_deadzone: i16,
     ) -> Self {
         Self::new(
@@ -578,6 +749,7 @@ where
             joystick_subsystem,
             keyboard_mapping,
             joystick_mapping,
+            key_or_mouse_mapping,
             axis_deadzone,
         )
     }
@@ -586,9 +758,13 @@ where
         &mut self,
         keyboard_mapping: HashMap<Keycode, Vec<Button>>,
         joystick_mapping: HashMap<JoystickInput, Vec<Button>>,
+        key_or_mouse_mapping: HashMap<KeycodeOrMouseButton, Vec<Button>>,
+        axis_deadzone: i16,
     ) {
         self.keyboard_mapping = keyboard_mapping;
         self.raw_joystick_mapping = joystick_mapping;
+        self.key_or_mouse_mapping = key_or_mouse_mapping;
+        self.axis_deadzone = axis_deadzone;
 
         self.update_input_mapping();
     }
@@ -627,10 +803,18 @@ where
     }
 
     fn key(&mut self, keycode: Keycode, value: bool) {
-        let Some(buttons) = self.keyboard_mapping.get(&keycode) else { return };
+        if let Some(buttons) = self.keyboard_mapping.get(&keycode) {
+            for &button in buttons {
+                self.inputs.set_field(button, value);
+            }
+        }
 
-        for &button in buttons {
-            self.inputs.set_field(button, value);
+        if let Some(buttons) =
+            self.key_or_mouse_mapping.get(&KeycodeOrMouseButton::Keycode(keycode))
+        {
+            for &button in buttons {
+                self.inputs.set_field(button, value);
+            }
         }
     }
 
@@ -702,7 +886,22 @@ where
         }
     }
 
-    pub(crate) fn handle_event(&mut self, event: &Event) -> NativeEmulatorResult<()> {
+    pub(crate) fn handle_mouse_button(&mut self, mouse_button: MouseButton, pressed: bool) {
+        if let Some(buttons) =
+            self.key_or_mouse_mapping.get(&KeycodeOrMouseButton::Mouse(mouse_button))
+        {
+            for &button in buttons {
+                self.inputs.set_field(button, pressed);
+            }
+        }
+    }
+
+    pub(crate) fn handle_event(
+        &mut self,
+        event: &Event,
+        emulator_window_id: u32,
+        display_info: Option<(FrameSize, DisplayArea)>,
+    ) -> NativeEmulatorResult<()> {
         match *event {
             Event::KeyDown { keycode: Some(keycode), .. } => {
                 self.key_down(keycode);
@@ -727,6 +926,26 @@ where
             }
             Event::JoyHatMotion { which: instance_id, hat_idx, state, .. } => {
                 self.hat_motion(instance_id, hat_idx, state);
+            }
+            Event::MouseButtonDown { mouse_btn, window_id, .. }
+                if window_id == emulator_window_id =>
+            {
+                self.handle_mouse_button(mouse_btn, true);
+            }
+            Event::MouseButtonUp { mouse_btn, window_id, .. }
+                if window_id == emulator_window_id =>
+            {
+                self.handle_mouse_button(mouse_btn, false);
+            }
+            Event::MouseMotion { x, y, window_id, .. } if window_id == emulator_window_id => {
+                if let Some((frame_size, display_area)) = display_info {
+                    self.inputs.handle_mouse_motion(x, y, frame_size, display_area);
+                }
+            }
+            Event::Window { win_event: WindowEvent::Leave, window_id, .. }
+                if window_id == emulator_window_id =>
+            {
+                self.inputs.handle_mouse_leave();
             }
             _ => {}
         }

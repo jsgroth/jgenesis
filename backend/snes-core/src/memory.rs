@@ -2,10 +2,12 @@
 
 pub(crate) mod cartridge;
 pub(crate) mod dma;
+mod inputs;
 
 use crate::api::{CoprocessorRoms, LoadResult};
-use crate::input::{SnesInputs, SnesJoypadState};
+use crate::input::SnesInputs;
 use crate::memory::cartridge::Cartridge;
+use crate::memory::inputs::InputState;
 use crate::ppu::Ppu;
 use bincode::error::EncodeError;
 use bincode::{Decode, Encode};
@@ -19,7 +21,6 @@ const MAIN_RAM_LEN: usize = 128 * 1024;
 
 // H=32.5
 const AUTO_JOYPAD_START_MCLK: u64 = 130;
-const AUTO_JOYPAD_DURATION_MCLK: u64 = 4224;
 
 // Scanline MCLK at which to generate V IRQ
 const V_IRQ_H_MCLK: u64 = 10;
@@ -282,60 +283,6 @@ impl DmaIncrementMode {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
-struct InputState {
-    joypad_read_cycles_remaining: u64,
-    auto_joypad_p1_inputs: u16,
-    auto_joypad_p2_inputs: u16,
-    manual_joypad_strobe: bool,
-    should_update_manual_inputs: bool,
-    manual_joypad_p1_inputs: u16,
-    manual_joypad_p2_inputs: u16,
-}
-
-impl InputState {
-    fn new() -> Self {
-        Self {
-            joypad_read_cycles_remaining: 0,
-            auto_joypad_p1_inputs: SnesJoypadState::default().to_register_word(),
-            auto_joypad_p2_inputs: SnesJoypadState::default().to_register_word(),
-            manual_joypad_strobe: false,
-            should_update_manual_inputs: false,
-            manual_joypad_p1_inputs: SnesJoypadState::default().to_register_word(),
-            manual_joypad_p2_inputs: SnesJoypadState::default().to_register_word(),
-        }
-    }
-
-    fn tick(&mut self, master_cycles_elapsed: u64, inputs: &SnesInputs) {
-        if self.joypad_read_cycles_remaining > 0 {
-            self.joypad_read_cycles_remaining =
-                self.joypad_read_cycles_remaining.saturating_sub(master_cycles_elapsed);
-
-            if self.joypad_read_cycles_remaining == 0 {
-                self.auto_joypad_p1_inputs = inputs.p1.to_register_word();
-                self.auto_joypad_p2_inputs = inputs.p2.to_register_word();
-
-                // Fill the manual joypad input registers with all 1s so that it looks like auto
-                // joypad read drained them serially; Donkey Kong Country depends on this
-                self.manual_joypad_p1_inputs = !0;
-                self.manual_joypad_p2_inputs = !0;
-            }
-        }
-    }
-
-    fn next_manual_p1_bit(&mut self) -> bool {
-        let bit = self.manual_joypad_p1_inputs.bit(15);
-        self.manual_joypad_p1_inputs = (self.manual_joypad_p1_inputs << 1) | 0x0001;
-        bit
-    }
-
-    fn next_manual_p2_bit(&mut self) -> bool {
-        let bit = self.manual_joypad_p2_inputs.bit(15);
-        self.manual_joypad_p2_inputs = (self.manual_joypad_p2_inputs << 1) | 0x0001;
-        bit
-    }
-}
-
 // Registers/ports that are on the 5A22 chip but are not part of the 65816
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct CpuInternalRegisters {
@@ -459,7 +406,7 @@ impl CpuInternalRegisters {
                 (u8::from(self.vblank_flag) << 7)
                     | (u8::from(self.hblank_flag) << 6)
                     | (cpu_open_bus & 0x3E)
-                    | u8::from(self.input_state.joypad_read_cycles_remaining > 0)
+                    | u8::from(self.input_state.auto_joypad_read_in_progress())
             }
             0x4213 => {
                 // RDIO: Programmable joypad I/O port (read)
@@ -483,19 +430,19 @@ impl CpuInternalRegisters {
             }
             0x4218 => {
                 // JOY1L: Joypad 1, low byte (auto read)
-                self.input_state.auto_joypad_p1_inputs.lsb()
+                self.input_state.auto_joypad_p1_inputs().lsb()
             }
             0x4219 => {
                 // JOY1H: Joypad 1, high byte (auto read)
-                self.input_state.auto_joypad_p1_inputs.msb()
+                self.input_state.auto_joypad_p1_inputs().msb()
             }
             0x421A => {
                 // JOY2L: Joypad 2, low byte (auto read)
-                self.input_state.auto_joypad_p2_inputs.lsb()
+                self.input_state.auto_joypad_p2_inputs().lsb()
             }
             0x421B => {
                 // JOY2H: Joypad 2, high byte (auto read)
-                self.input_state.auto_joypad_p2_inputs.msb()
+                self.input_state.auto_joypad_p2_inputs().msb()
             }
             0x421C..=0x421F => {
                 // JOY3L/JOY3H/JOY4L/JOY4H: Joypad 3/4 (not implemented)
@@ -520,11 +467,7 @@ impl CpuInternalRegisters {
         match address & 0xFFFF {
             0x4016 => {
                 // JOYWR: Joypad output
-                let joypad_strobe = value.bit(0);
-                if !self.input_state.manual_joypad_strobe && joypad_strobe {
-                    self.input_state.should_update_manual_inputs = true;
-                }
-                self.input_state.manual_joypad_strobe = joypad_strobe;
+                self.input_state.set_strobe(value.bit(0));
             }
             0x4200 => {
                 // NMITIMEN: Interrupt enable and joypad request
@@ -863,15 +806,7 @@ impl CpuInternalRegisters {
             && ppu.scanline_master_cycles() >= AUTO_JOYPAD_START_MCLK
             && (ppu.scanline_master_cycles() - master_cycles_elapsed) < AUTO_JOYPAD_START_MCLK
         {
-            self.input_state.joypad_read_cycles_remaining = AUTO_JOYPAD_DURATION_MCLK;
-        }
-
-        // Check if manual joypad input registers need to be updated
-        if self.input_state.should_update_manual_inputs {
-            self.input_state.should_update_manual_inputs = false;
-
-            self.input_state.manual_joypad_p1_inputs = inputs.p1.to_register_word();
-            self.input_state.manual_joypad_p2_inputs = inputs.p2.to_register_word();
+            self.input_state.start_auto_joypad_read();
         }
     }
 
@@ -964,6 +899,11 @@ impl CpuInternalRegisters {
 
         // Reset MEMSEL
         self.write_register(0x420D, 0x00);
+    }
+
+    pub fn controller_hv_latch(&self) -> Option<(u16, u16)> {
+        // Controllers can only latch H/V when WRIO bit 7 is set
+        self.programmable_joypad_port.bit(7).then_some(self.input_state.hv_latch()).flatten()
     }
 }
 

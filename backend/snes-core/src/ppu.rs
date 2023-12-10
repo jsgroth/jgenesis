@@ -1607,6 +1607,17 @@ impl Ppu {
         }
     }
 
+    pub fn update_controller_hv_latch(&mut self, h: u16, v: u16, master_cycles_elapsed: u64) {
+        if v == self.state.scanline
+            && h > (self.state.scanline_master_cycles / 4) as u16
+            && h <= ((self.state.scanline_master_cycles + master_cycles_elapsed) / 4) as u16
+        {
+            self.registers.latched_h_counter = h;
+            self.registers.latched_v_counter = v;
+            self.registers.new_hv_latched = true;
+        }
+    }
+
     pub fn reset(&mut self) {
         // Enable forced blanking
         self.registers.write_inidisp(0x80, self.is_first_vblank_scanline());

@@ -1,4 +1,6 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+use bincode::{Decode, Encode};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub struct SnesJoypadState {
     pub up: bool,
     pub left: bool,
@@ -31,7 +33,7 @@ impl SnesJoypadState {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub struct SuperScopeState {
     pub fire: bool,
     pub cursor: bool,
@@ -43,7 +45,7 @@ pub struct SuperScopeState {
     pub position: Option<(u16, u16)>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum SnesInputDevice {
     Controller(SnesJoypadState),
     SuperScope(SuperScopeState),
@@ -55,16 +57,7 @@ impl Default for SnesInputDevice {
     }
 }
 
-impl SnesInputDevice {
-    pub(crate) fn to_register_word(self) -> u16 {
-        match self {
-            Self::Controller(joypad_state) => joypad_state.to_register_word(),
-            Self::SuperScope(_) => todo!("super scope to register word"),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Encode, Decode)]
 pub struct SnesInputs {
     pub p1: SnesJoypadState,
     pub p2: SnesInputDevice,

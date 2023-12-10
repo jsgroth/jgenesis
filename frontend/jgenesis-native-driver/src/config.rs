@@ -225,6 +225,7 @@ pub struct SnesConfig {
     #[indent_nested]
     pub common: CommonConfig<SnesInputConfig<KeyboardInput>, SnesInputConfig<JoystickInput>>,
     pub p2_controller_type: SnesControllerType,
+    #[indent_nested]
     pub super_scope_config: SuperScopeConfig,
     pub forced_timing_mode: Option<TimingMode>,
     pub aspect_ratio: SnesAspectRatio,

@@ -971,13 +971,13 @@ impl<Window> WgpuRenderer<Window> {
         self.speed_multiplier = speed_multiplier;
     }
 
-    /// Obtain the current display area within the window.
+    /// Obtain the last rendered frame size and the current display area within the window.
     ///
     /// May return None if rendering config was just changed or initialized and a frame has not yet been rendered with
     /// the new config.
     #[must_use]
-    pub fn current_display_area(&self) -> Option<DisplayArea> {
-        self.pipeline.as_ref().map(|pipeline| pipeline.display_area)
+    pub fn current_display_info(&self) -> Option<(FrameSize, DisplayArea)> {
+        self.pipeline.as_ref().map(|pipeline| (pipeline.frame_size, pipeline.display_area))
     }
 }
 
