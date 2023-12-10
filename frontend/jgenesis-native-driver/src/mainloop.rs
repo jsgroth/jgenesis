@@ -6,7 +6,7 @@ use crate::config::{
     CommonConfig, GenesisConfig, SegaCdConfig, SmsGgConfig, SnesConfig, WindowSize,
 };
 use crate::input::{
-    GenesisButton, Hotkey, HotkeyMapResult, HotkeyMapper, InputMapper, Joysticks, SetButtonField,
+    GenesisButton, Hotkey, HotkeyMapResult, HotkeyMapper, InputMapper, Joysticks, MappableInputs,
     SmsGgButton, SnesButton,
 };
 use crate::mainloop::debug::{DebugRenderFn, DebuggerWindow};
@@ -334,10 +334,11 @@ impl NativeSmsGgEmulator {
         self.emulator.reload_config(&emulator_config);
         self.config = emulator_config;
 
-        if let Err(err) = self
-            .input_mapper
-            .reload_config(config.common.keyboard_inputs, config.common.joystick_inputs)
-        {
+        if let Err(err) = self.input_mapper.reload_config(
+            config.common.keyboard_inputs,
+            config.common.joystick_inputs,
+            config.common.axis_deadzone,
+        ) {
             log::error!("Error reloading input config: {err}");
         }
 
@@ -361,10 +362,11 @@ impl NativeGenesisEmulator {
         self.emulator.reload_config(&emulator_config);
         self.config = emulator_config;
 
-        if let Err(err) = self
-            .input_mapper
-            .reload_config(config.common.keyboard_inputs, config.common.joystick_inputs)
-        {
+        if let Err(err) = self.input_mapper.reload_config(
+            config.common.keyboard_inputs,
+            config.common.joystick_inputs,
+            config.common.axis_deadzone,
+        ) {
             log::error!("Error reloading input config: {err}");
         }
 
@@ -388,6 +390,7 @@ impl NativeSegaCdEmulator {
         if let Err(err) = self.input_mapper.reload_config(
             config.genesis.common.keyboard_inputs,
             config.genesis.common.joystick_inputs,
+            config.genesis.common.axis_deadzone,
         ) {
             log::error!("Error reloading input config: {err}");
         }
@@ -445,10 +448,13 @@ impl NativeSnesEmulator {
         self.emulator.reload_config(&emulator_config);
         self.config = emulator_config;
 
-        if let Err(err) = self
-            .input_mapper
-            .reload_config(config.common.keyboard_inputs, config.common.joystick_inputs)
-        {
+        if let Err(err) = self.input_mapper.reload_config(
+            config.p2_controller_type,
+            config.common.keyboard_inputs,
+            config.common.joystick_inputs,
+            config.super_scope_config,
+            config.common.axis_deadzone,
+        ) {
             log::error!("Error reloading input config: {err}");
         }
 
@@ -542,7 +548,7 @@ pub type NativeEmulatorResult<T> = Result<T, NativeEmulatorError>;
 // TODO simplify or generalize these trait bounds
 impl<Inputs, Button, Config, Emulator> NativeEmulator<Inputs, Button, Config, Emulator>
 where
-    Inputs: Default + SetButtonField<Button>,
+    Inputs: Default + MappableInputs<Button>,
     Button: Copy,
     Emulator: EmulatorTrait<Inputs = Inputs, Config = Config>,
     Emulator::Err<RendererError, AudioError, SaveWriteError>: Error + Send + Sync + 'static,
@@ -580,7 +586,11 @@ where
                 }
 
                 for event in self.event_pump.poll_iter() {
-                    self.input_mapper.handle_event(&event)?;
+                    self.input_mapper.handle_event(
+                        &event,
+                        self.renderer.window_id(),
+                        self.renderer.current_display_info(),
+                    )?;
 
                     if let Some(debugger_window) = &mut self.hotkey_state.debugger_window {
                         debugger_window.handle_sdl_event(&event);
@@ -945,8 +955,10 @@ pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEm
 
     let input_mapper = InputMapper::new_snes(
         joystick,
+        config.p2_controller_type,
         config.common.keyboard_inputs,
         config.common.joystick_inputs,
+        config.super_scope_config,
         config.common.axis_deadzone,
     )?;
     let hotkey_mapper = HotkeyMapper::from_config(&config.common.hotkeys)?;
