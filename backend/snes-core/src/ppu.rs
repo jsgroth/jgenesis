@@ -1377,7 +1377,7 @@ impl Ppu {
         }
 
         match address & 0xFF {
-            0x00 => self.registers.write_inidisp(value),
+            0x00 => self.registers.write_inidisp(value, self.is_first_vblank_scanline()),
             0x01 => self.registers.write_obsel(value),
             0x02 => self.registers.write_oamaddl(value),
             0x03 => self.registers.write_oamaddh(value),
@@ -1603,7 +1603,7 @@ impl Ppu {
 
     pub fn reset(&mut self) {
         // Enable forced blanking
-        self.registers.write_inidisp(0x80);
+        self.registers.write_inidisp(0x80, self.is_first_vblank_scanline());
 
         // Return to default rendering mode (224-line, non-interlaced, no pseudo-hi-res or smaller OBJs)
         self.registers.write_setini(0x00);

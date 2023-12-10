@@ -671,14 +671,14 @@ impl Registers {
         }
     }
 
-    pub fn write_inidisp(&mut self, value: u8) {
+    pub fn write_inidisp(&mut self, value: u8, first_vblank_scanline: bool) {
         // INIDISP: Display control 1
         let prev_forced_blanking = self.forced_blanking;
         self.forced_blanking = value.bit(7);
         self.brightness = value & 0x0F;
 
-        // Disabling forced blanking immediately reloads OAM address
-        if prev_forced_blanking && !self.forced_blanking {
+        // Disabling forced blanking during the first VBlank scanline immediately reloads OAM address
+        if prev_forced_blanking && !self.forced_blanking && first_vblank_scanline {
             self.oam_address = self.oam_address_reload_value << 1;
         }
 
