@@ -6,7 +6,7 @@ mod decompressor;
 mod registers;
 mod rtc;
 
-use crate::common::Rom;
+use crate::common::{impl_take_set_rom, Rom};
 use crate::spc7110::decompressor::Spc7110Decompressor;
 use crate::spc7110::registers::Registers;
 use crate::spc7110::rtc::Rtc4513;
@@ -165,14 +165,7 @@ impl Spc7110 {
         }
     }
 
-    #[must_use]
-    pub fn take_rom(&mut self) -> Vec<u8> {
-        mem::take(&mut self.rom.0).into_vec()
-    }
-
-    pub fn set_rom(&mut self, rom: Vec<u8>) {
-        self.rom.0 = rom.into_boxed_slice();
-    }
+    impl_take_set_rom!(rom);
 
     /// Return combined SRAM + RTC-4513 state to be written to the save file.
     ///

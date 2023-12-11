@@ -7,7 +7,7 @@ mod mmc;
 mod registers;
 mod timer;
 
-use crate::common::Rom;
+use crate::common::{impl_take_set_rom, Rom};
 use crate::sa1::bus::Sa1Bus;
 use crate::sa1::mmc::Sa1Mmc;
 use crate::sa1::registers::Sa1Registers;
@@ -15,7 +15,6 @@ use crate::sa1::timer::Sa1Timer;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::PartialClone;
-use std::mem;
 use wdc65816_emu::core::Wdc65816;
 
 const IRAM_LEN: usize = 2 * 1024;
@@ -62,14 +61,7 @@ impl Sa1 {
         }
     }
 
-    #[must_use]
-    pub fn take_rom(&mut self) -> Vec<u8> {
-        mem::take(&mut self.rom.0).into_vec()
-    }
-
-    pub fn set_rom(&mut self, rom: Vec<u8>) {
-        self.rom.0 = rom.into_boxed_slice();
-    }
+    impl_take_set_rom!(rom);
 
     #[inline]
     #[must_use]

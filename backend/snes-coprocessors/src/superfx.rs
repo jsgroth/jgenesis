@@ -13,12 +13,11 @@
 
 mod gsu;
 
-use crate::common::Rom;
+use crate::common::{impl_take_set_rom, Rom};
 use crate::superfx::gsu::{BusAccess, GraphicsSupportUnit};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::U16Ext;
 use jgenesis_proc_macros::PartialClone;
-use std::mem;
 use std::num::NonZeroU64;
 
 #[derive(Debug, Clone, Encode, Decode, PartialClone)]
@@ -139,14 +138,7 @@ impl SuperFx {
         self.ram.as_ref()
     }
 
-    #[must_use]
-    pub fn take_rom(&mut self) -> Vec<u8> {
-        mem::take(&mut self.rom.0).into_vec()
-    }
-
-    pub fn set_rom(&mut self, rom: Vec<u8>) {
-        self.rom.0 = rom.into_boxed_slice();
-    }
+    impl_take_set_rom!(rom);
 
     pub fn update_gsu_overclock_factor(&mut self, overclock_factor: NonZeroU64) {
         self.gsu_overclock_factor = overclock_factor.get();

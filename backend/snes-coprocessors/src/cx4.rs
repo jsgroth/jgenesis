@@ -5,11 +5,11 @@
 mod functions;
 
 use crate::common;
-use crate::common::Rom;
+use crate::common::{impl_take_set_rom, Rom};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::{U16Ext, U24Ext};
 use jgenesis_proc_macros::PartialClone;
-use std::{cmp, mem};
+use std::cmp;
 
 const RAM_LEN: usize = 3 * 1024;
 
@@ -321,13 +321,7 @@ impl Cx4 {
         }
     }
 
-    pub fn take_rom(&mut self) -> Vec<u8> {
-        mem::take(&mut self.rom.0).into_vec()
-    }
-
-    pub fn set_rom(&mut self, rom: Vec<u8>) {
-        self.rom.0 = rom.into_boxed_slice();
-    }
+    impl_take_set_rom!(rom);
 }
 
 fn map_rom_address(address: u32, rom_len: u32) -> Option<u32> {

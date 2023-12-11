@@ -5,12 +5,12 @@
 mod decompressor;
 
 use crate::common;
-use crate::common::Rom;
+use crate::common::{impl_take_set_rom, Rom};
 use crate::sdd1::decompressor::Sdd1Decompressor;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::PartialClone;
-use std::{array, mem};
+use std::array;
 
 #[derive(Debug, Clone, Encode, Decode)]
 struct Sdd1Mmc {
@@ -189,14 +189,7 @@ impl Sdd1 {
         }
     }
 
-    #[must_use]
-    pub fn take_rom(&mut self) -> Vec<u8> {
-        mem::take(&mut self.rom.0).into_vec()
-    }
-
-    pub fn set_rom(&mut self, rom: Vec<u8>) {
-        self.rom.0 = rom.into_boxed_slice();
-    }
+    impl_take_set_rom!(rom);
 
     #[inline]
     #[must_use]

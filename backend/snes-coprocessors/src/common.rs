@@ -22,3 +22,18 @@ pub fn lorom_map_rom_address(address: u32, rom_len: u32) -> u32 {
     // TODO better handle unusual ROM sizes
     rom_addr % rom_len
 }
+
+macro_rules! impl_take_set_rom {
+    ($rom:ident) => {
+        #[must_use]
+        pub fn take_rom(&mut self) -> ::std::vec::Vec<u8> {
+            ::std::mem::take(&mut self.$rom.0).into_vec()
+        }
+
+        pub fn set_rom(&mut self, rom: ::std::vec::Vec<u8>) {
+            self.$rom.0 = rom.into_boxed_slice();
+        }
+    };
+}
+
+pub(crate) use impl_take_set_rom;

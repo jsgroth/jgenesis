@@ -14,6 +14,10 @@ All 4 of these use a pre-programmed NEC µPD77C25 CPU clocked at 8 MHz, but with
 
 DSP-1 was used by 16 games, including _Super Mario Kart_ and _Pilotwings_. DSP-2, DSP-3, and DSP-4 were each only used in 1 game: _Dungeon Master_ (DSP-2), _SD Gundam GX_ (DSP-3), and _Top Gear 3000_ (DSP-4)
 
+### OBC1
+
+An OBJ controller chip that allows the one game that uses it to update the OAM sprite table slightly more efficiently. Used by 1 game, _Metal Combat: Falcon's Revenge_
+
 ### SA-1
 
 Programmable 65C816 CPU clocked at 10.74 MHz. Used by 35 games, including _Kirby Super Star_, _Kirby's Dream Land 3_, and _Super Mario RPG_

@@ -7,6 +7,7 @@ use crc::Crc;
 use jgenesis_common::frontend::{PartialClone, TimingMode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use snes_coprocessors::cx4::Cx4;
+use snes_coprocessors::obc1::Obc1;
 use snes_coprocessors::sa1::Sa1;
 use snes_coprocessors::sdd1::Sdd1;
 use snes_coprocessors::spc7110::Spc7110;
@@ -43,6 +44,7 @@ enum CartridgeType {
     HiRom,
     ExHiRom,
     Cx4,
+    Obc1,
     Sa1,
     Sdd1,
     Spc7110,
@@ -56,6 +58,7 @@ impl Display for CartridgeType {
             Self::HiRom => write!(f, "HiROM"),
             Self::ExHiRom => write!(f, "ExHiROM"),
             Self::Cx4 => write!(f, "CX4"),
+            Self::Obc1 => write!(f, "OBC1"),
             Self::Sa1 => write!(f, "SA-1"),
             Self::Sdd1 => write!(f, "S-DD1"),
             Self::Spc7110 => write!(f, "SPC7110"),
@@ -187,6 +190,7 @@ pub enum Cartridge {
         upd77c25: Upd77c25,
         mask: RomAddressMask,
     },
+    Obc1(#[partial_clone(partial)] Obc1),
     Sa1(#[partial_clone(partial)] Sa1),
     Sdd1(#[partial_clone(partial)] Sdd1),
     Spc7110(#[partial_clone(partial)] Spc7110),
@@ -236,6 +240,7 @@ impl Cartridge {
         let rom_header_addr = match cartridge_type {
             CartridgeType::LoRom
             | CartridgeType::Cx4
+            | CartridgeType::Obc1
             | CartridgeType::Sa1
             | CartridgeType::Sdd1
             | CartridgeType::SuperFx => LOROM_HEADER_ADDR,
@@ -346,6 +351,7 @@ impl Cartridge {
             }
             CartridgeType::ExHiRom => new_exhirom_cartridge(rom, sram, sram_len),
             CartridgeType::Cx4 => Self::Cx4(Cx4::new(rom)),
+            CartridgeType::Obc1 => Self::Obc1(Obc1::new(rom, sram)),
             CartridgeType::Sa1 => Self::Sa1(Sa1::new(rom, sram, timing_mode)),
             CartridgeType::Sdd1 => Self::Sdd1(Sdd1::new(rom, sram)),
             CartridgeType::Spc7110 => Self::Spc7110(Spc7110::new(rom, sram)),
@@ -382,6 +388,7 @@ impl Cartridge {
                 _ => (exhirom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram),
             },
             Self::Cx4(cx4) => return cx4.read(address),
+            Self::Obc1(obc1) => return obc1.read(address),
             Self::Sa1(sa1) => return sa1.snes_read(address),
             Self::Sdd1(sdd1) => return sdd1.read(address),
             Self::Spc7110(spc7110) => return spc7110.read(address),
@@ -464,6 +471,9 @@ impl Cartridge {
             Self::Cx4(cx4) => {
                 cx4.write(address, value);
             }
+            Self::Obc1(obc1) => {
+                obc1.write(address, value);
+            }
             Self::Sa1(sa1) => {
                 sa1.snes_write(address, value);
             }
@@ -504,6 +514,7 @@ impl Cartridge {
             | Self::DspHiRom { rom, .. }
             | Self::St01x { rom, .. } => mem::take(&mut rom.0).into_vec(),
             Self::Cx4(cx4) => cx4.take_rom(),
+            Self::Obc1(obc1) => obc1.take_rom(),
             Self::Sa1(sa1) => sa1.take_rom(),
             Self::Sdd1(sdd1) => sdd1.take_rom(),
             Self::Spc7110(spc7110) => spc7110.take_rom(),
@@ -525,6 +536,9 @@ impl Cartridge {
             }
             Self::Cx4(cx4) => {
                 cx4.set_rom(other_rom);
+            }
+            Self::Obc1(obc1) => {
+                obc1.set_rom(other_rom);
             }
             Self::Sa1(sa1) => {
                 sa1.set_rom(other_rom);
@@ -567,6 +581,7 @@ impl Cartridge {
             | Self::DspLoRom { .. }
             | Self::DspHiRom { .. }
             | Self::Cx4 { .. } => None,
+            Self::Obc1(obc1) => Some(obc1.sram()),
             Self::Sa1(sa1) => sa1.sram(),
             Self::Sdd1(sdd1) => sdd1.sram(),
             Self::Spc7110(spc7110) => Some(spc7110.sram_and_rtc()?),
@@ -790,6 +805,12 @@ fn guess_cartridge_type(rom: &[u8]) -> Option<CartridgeType> {
         && (0x13..0x1B).contains(&rom[LOROM_HEADER_ADDR + 0x16])
     {
         return Some(CartridgeType::SuperFx);
+    }
+
+    // Check for OBC1
+    // Identified by chipset $25 in the LoROM header area
+    if hirom_points <= lorom_points && rom[LOROM_HEADER_ADDR + 0x16] == 0x25 {
+        return Some(CartridgeType::Obc1);
     }
 
     match lorom_points.cmp(&hirom_points) {
