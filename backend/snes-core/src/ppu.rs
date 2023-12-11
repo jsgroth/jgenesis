@@ -340,6 +340,8 @@ pub struct Ppu {
 // Some games depend on this 88-cycle delay to finish HDMA before rendering starts, e.g. Final Fantasy 6
 const RENDER_LINE_MCLK: u64 = 88;
 
+const END_RENDER_LINE_MCLK: u64 = RENDER_LINE_MCLK + 256 * 4;
+
 impl Ppu {
     pub fn new(timing_mode: TimingMode) -> Self {
         Self {
@@ -362,7 +364,12 @@ impl Ppu {
         let new_scanline_mclks = self.state.scanline_master_cycles + master_cycles;
         self.state.scanline_master_cycles = new_scanline_mclks;
 
+        let v_display_size = self.registers.v_display_size.to_lines();
+        let is_active_scanline = (1..=v_display_size).contains(&self.state.scanline);
+
         let mclks_per_scanline = self.mclks_per_current_scanline();
+
+        let mut tick_effect = PpuTickEffect::None;
         if new_scanline_mclks >= mclks_per_scanline {
             self.state.scanline += 1;
             self.state.scanline_master_cycles = new_scanline_mclks - mclks_per_scanline;
@@ -390,12 +397,9 @@ impl Ppu {
                 }
             }
 
-            let v_display_size = self.registers.v_display_size.to_lines();
-            if self.state.scanline >= 1
-                && self.state.scanline <= v_display_size
-                && self.state.scanline_master_cycles >= RENDER_LINE_MCLK
-            {
-                self.render_current_line();
+            if is_active_scanline && self.state.scanline_master_cycles >= RENDER_LINE_MCLK {
+                // Crossed past H=22 on the next scanline; render line in full
+                self.render_current_line(0);
             }
 
             if self.state.scanline == v_display_size + 1 {
@@ -404,20 +408,30 @@ impl Ppu {
                     self.registers.oam_address = self.registers.oam_address_reload_value << 1;
                 }
 
-                return PpuTickEffect::FrameComplete;
+                tick_effect = PpuTickEffect::FrameComplete;
             }
-        } else if prev_scanline_mclks < RENDER_LINE_MCLK
+        } else if is_active_scanline
+            && prev_scanline_mclks < RENDER_LINE_MCLK
             && new_scanline_mclks >= RENDER_LINE_MCLK
-            && self.state.scanline >= 1
-            && self.state.scanline <= self.registers.v_display_size.to_lines()
         {
-            self.render_current_line();
+            // Just crossed H=22; render current line in full
+            self.render_current_line(0);
+        } else if self.registers.modified
+            && !self.registers.forced_blanking
+            && is_active_scanline
+            && (RENDER_LINE_MCLK..END_RENDER_LINE_MCLK).contains(&new_scanline_mclks)
+        {
+            // Between H=22 and H=276 and one of the scroll registers was just modified; partially render current line
+            let from_pixel = (new_scanline_mclks - RENDER_LINE_MCLK) / 4;
+            self.render_current_line(from_pixel as u16);
         }
 
-        PpuTickEffect::None
+        self.registers.modified = false;
+
+        tick_effect
     }
 
-    fn render_current_line(&mut self) {
+    fn render_current_line(&mut self, from_pixel: u16) {
         let scanline = self.state.scanline;
         self.state.last_rendered_scanline = Some(scanline);
 
@@ -438,22 +452,31 @@ impl Ppu {
             HiResMode::None
         };
 
-        self.populate_sprite_buffer(scanline);
-        self.render_obj_layer_to_buffer(scanline);
+        if from_pixel == 0 {
+            self.populate_sprite_buffer(scanline);
+            self.render_obj_layer_to_buffer(scanline);
+        }
 
+        let bg_from_pixel =
+            if hi_res_mode == HiResMode::True { 2 * from_pixel } else { from_pixel };
         if hi_res_mode == HiResMode::True && self.registers.interlaced {
-            self.render_bg_layers_to_buffer(2 * scanline, hi_res_mode);
+            self.render_bg_layers_to_buffer(2 * scanline, hi_res_mode, bg_from_pixel);
             self.render_scanline(2 * scanline, hi_res_mode);
 
-            self.render_bg_layers_to_buffer(2 * scanline + 1, hi_res_mode);
+            self.render_bg_layers_to_buffer(2 * scanline + 1, hi_res_mode, bg_from_pixel);
             self.render_scanline(2 * scanline + 1, hi_res_mode);
         } else {
-            self.render_bg_layers_to_buffer(scanline, hi_res_mode);
+            self.render_bg_layers_to_buffer(scanline, hi_res_mode, bg_from_pixel);
             self.render_scanline(scanline, hi_res_mode);
         }
     }
 
-    fn render_bg_layers_to_buffer(&mut self, scanline: u16, hi_res_mode: HiResMode) {
+    fn render_bg_layers_to_buffer(
+        &mut self,
+        scanline: u16,
+        hi_res_mode: HiResMode,
+        from_pixel: u16,
+    ) {
         let mode = self.registers.bg_mode;
 
         let bg1_enabled = self.registers.main_bg_enabled[0] || self.registers.sub_bg_enabled[0];
@@ -471,25 +494,31 @@ impl Ppu {
 
         if bg1_enabled {
             match mode {
-                BgMode::Seven => self.render_mode_7_to_buffer(scanline),
-                _ => self.render_bg_to_buffer(0, scanline, hi_res_mode),
+                BgMode::Seven => self.render_mode_7_to_buffer(scanline, from_pixel),
+                _ => self.render_bg_to_buffer(0, scanline, hi_res_mode, from_pixel),
             }
         }
 
         if bg2_enabled {
-            self.render_bg_to_buffer(1, scanline, hi_res_mode);
+            self.render_bg_to_buffer(1, scanline, hi_res_mode, from_pixel);
         }
 
         if bg3_enabled {
-            self.render_bg_to_buffer(2, scanline, hi_res_mode);
+            self.render_bg_to_buffer(2, scanline, hi_res_mode, from_pixel);
         }
 
         if bg4_enabled {
-            self.render_bg_to_buffer(3, scanline, hi_res_mode);
+            self.render_bg_to_buffer(3, scanline, hi_res_mode, from_pixel);
         }
     }
 
-    fn render_bg_to_buffer(&mut self, bg: usize, scanline: u16, hi_res_mode: HiResMode) {
+    fn render_bg_to_buffer(
+        &mut self,
+        bg: usize,
+        scanline: u16,
+        hi_res_mode: HiResMode,
+        from_pixel: u16,
+    ) {
         let screen_width =
             if hi_res_mode == HiResMode::True { HIRES_SCREEN_WIDTH } else { NORMAL_SCREEN_WIDTH };
 
@@ -507,7 +536,7 @@ impl Ppu {
 
         let mut bg_map_entry = CachedBgMapEntry::default();
 
-        for pixel_idx in 0..screen_width as u16 {
+        for pixel_idx in from_pixel..screen_width as u16 {
             // Apply mosaic if enabled
             let (base_y, mosaic_x) = self.apply_mosaic(bg, scanline, pixel_idx, hi_res_mode);
             if mosaic_x != pixel_idx {
@@ -588,7 +617,7 @@ impl Ppu {
         }
     }
 
-    fn render_mode_7_to_buffer(&mut self, scanline: u16) {
+    fn render_mode_7_to_buffer(&mut self, scanline: u16, from_pixel: u16) {
         // Mode 7 tile map is always 128x128
         const TILE_MAP_SIZE_PIXELS: i32 = 128 * 8;
 
@@ -610,7 +639,7 @@ impl Ppu {
 
         let oob_behavior = self.registers.mode_7_oob_behavior;
 
-        for pixel in 0..NORMAL_SCREEN_WIDTH as u16 {
+        for pixel in from_pixel..NORMAL_SCREEN_WIDTH as u16 {
             let (base_y, mosaic_x) = self.apply_mosaic(0, scanline, pixel, HiResMode::None);
             if mosaic_x != pixel {
                 // Copy last pixel and move on

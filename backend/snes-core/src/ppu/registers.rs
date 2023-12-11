@@ -575,6 +575,8 @@ pub struct Registers {
     // Sprite overflow flags (readable in STAT77)
     pub sprite_overflow: bool,
     pub sprite_pixel_overflow: bool,
+    // Tracks mid-scanline writes to certain registers (currently just scroll registers)
+    pub modified: bool,
     // Copied from WRIO CPU register (needed for H/V counter latching)
     pub programmable_joypad_port: u8,
 }
@@ -667,6 +669,7 @@ impl Registers {
             v_counter_flipflop: AccessFlipflop::default(),
             sprite_overflow: false,
             sprite_pixel_overflow: false,
+            modified: false,
             programmable_joypad_port: 0xFF,
         }
     }
@@ -808,6 +811,8 @@ impl Registers {
             (u16::from(value) << 8) | u16::from(prev & !0x07) | ((current >> 8) & 0x07);
         self.bg_scroll_write_buffer = value;
 
+        self.modified = true;
+
         log::trace!("  BG{} H scroll: {:04X}", i + 1, self.bg_h_scroll[i]);
     }
 
@@ -816,6 +821,8 @@ impl Registers {
 
         self.bg_v_scroll[i] = u16::from_le_bytes([prev, value]);
         self.bg_scroll_write_buffer = value;
+
+        self.modified = true;
 
         log::trace!("  BG{} V scroll: {:04X}", i + 1, self.bg_v_scroll[i]);
     }
