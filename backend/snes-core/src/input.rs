@@ -33,7 +33,7 @@ impl SnesJoypadState {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub struct SuperScopeState {
     pub fire: bool,
     pub cursor: bool,
@@ -43,6 +43,12 @@ pub struct SuperScopeState {
     // X should be in the range 0..=255 and Y should be in the range 0..=223 (or 238 if in 239-line mode); other values
     // will be treated as offscreen
     pub position: Option<(u16, u16)>,
+}
+
+impl Default for SuperScopeState {
+    fn default() -> Self {
+        Self { fire: false, cursor: false, pause: false, turbo: true, position: None }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
