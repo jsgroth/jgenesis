@@ -20,7 +20,7 @@ use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::event::{Event, WindowEvent};
 use sdl2::render::TextureValueError;
 use sdl2::video::{FullscreenType, Window, WindowBuildError};
-use sdl2::{AudioSubsystem, EventPump, IntegerOrSdlError, JoystickSubsystem, VideoSubsystem};
+use sdl2::{AudioSubsystem, EventPump, IntegerOrSdlError, JoystickSubsystem, Sdl, VideoSubsystem};
 use segacd_core::api::{DiscError, DiscResult, SegaCdEmulator, SegaCdEmulatorConfig};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgInputs};
@@ -261,6 +261,7 @@ pub struct NativeEmulator<Inputs, Button, Config, Emulator> {
     input_mapper: InputMapper<Inputs, Button>,
     hotkey_mapper: HotkeyMapper,
     save_writer: FsSaveWriter,
+    sdl: Sdl,
     event_pump: EventPump,
     video: VideoSubsystem,
     hotkey_state: HotkeyState<Emulator>,
@@ -293,6 +294,8 @@ impl<Inputs, Button, Config, Emulator: PartialClone>
                 log::error!("Error reloading hotkey config: {err}");
             }
         }
+
+        self.sdl.mouse().show_cursor(!config.hide_cursor_over_window);
 
         Ok(())
     }
@@ -695,7 +698,8 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
     log::info!("VDP version: {vdp_version:?}");
     log::info!("PSG version: {psg_version:?}");
 
-    let (video, audio, joystick, event_pump) = init_sdl()?;
+    let (sdl, video, audio, joystick, event_pump) =
+        init_sdl(config.common.hide_cursor_over_window)?;
 
     let WindowSize { width: window_width, height: window_height } =
         config.common.window_size.unwrap_or_else(|| config::default_smsgg_window_size(vdp_version));
@@ -731,6 +735,7 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
         input_mapper,
         hotkey_mapper,
         save_writer,
+        sdl,
         event_pump,
         video,
         hotkey_state: HotkeyState {
@@ -772,7 +777,8 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
     let emulator_config = config.to_emulator_config();
     let emulator = GenesisEmulator::create(rom, initial_ram, emulator_config);
 
-    let (video, audio, joystick, event_pump) = init_sdl()?;
+    let (sdl, video, audio, joystick, event_pump) =
+        init_sdl(config.common.hide_cursor_over_window)?;
 
     let WindowSize { width: window_width, height: window_height } =
         config.common.window_size.unwrap_or(config::DEFAULT_GENESIS_WINDOW_SIZE);
@@ -809,6 +815,7 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
         input_mapper,
         hotkey_mapper,
         save_writer,
+        sdl,
         event_pump,
         video,
         hotkey_state: HotkeyState {
@@ -855,7 +862,8 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
         emulator_config,
     )?;
 
-    let (video, audio, joystick, event_pump) = init_sdl()?;
+    let (sdl, video, audio, joystick, event_pump) =
+        init_sdl(config.genesis.common.hide_cursor_over_window)?;
 
     let WindowSize { width: window_width, height: window_height } =
         config.genesis.common.window_size.unwrap_or(config::DEFAULT_GENESIS_WINDOW_SIZE);
@@ -891,6 +899,7 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
         input_mapper,
         hotkey_mapper,
         save_writer,
+        sdl,
         event_pump,
         video,
         hotkey_state: HotkeyState {
@@ -933,7 +942,8 @@ pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEm
     let coprocessor_roms = config.to_coprocessor_roms();
     let mut emulator = SnesEmulator::create(rom, initial_sram, emulator_config, coprocessor_roms)?;
 
-    let (video, audio, joystick, event_pump) = init_sdl()?;
+    let (sdl, video, audio, joystick, event_pump) =
+        init_sdl(config.common.hide_cursor_over_window)?;
 
     // Use same default window size as Genesis / Sega CD
     let WindowSize { width: window_width, height: window_height } =
@@ -971,6 +981,7 @@ pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEm
         input_mapper,
         hotkey_mapper,
         save_writer,
+        sdl,
         event_pump,
         video,
         hotkey_state: HotkeyState {
@@ -999,16 +1010,19 @@ fn parse_file_ext(path: &Path) -> NativeEmulatorResult<&str> {
         .ok_or_else(|| NativeEmulatorError::ParseFileExtension(path.display().to_string()))
 }
 
-// Initialize SDL2 and hide the mouse cursor
-fn init_sdl() -> NativeEmulatorResult<(VideoSubsystem, AudioSubsystem, JoystickSubsystem, EventPump)>
-{
+// Initialize SDL2
+fn init_sdl(
+    hide_cursor_over_window: bool,
+) -> NativeEmulatorResult<(Sdl, VideoSubsystem, AudioSubsystem, JoystickSubsystem, EventPump)> {
     let sdl = sdl2::init().map_err(NativeEmulatorError::SdlInit)?;
     let video = sdl.video().map_err(NativeEmulatorError::SdlVideoInit)?;
     let audio = sdl.audio().map_err(NativeEmulatorError::SdlAudioInit)?;
     let joystick = sdl.joystick().map_err(NativeEmulatorError::SdlJoystickInit)?;
     let event_pump = sdl.event_pump().map_err(NativeEmulatorError::SdlEventPumpInit)?;
 
-    Ok((video, audio, joystick, event_pump))
+    sdl.mouse().show_cursor(!hide_cursor_over_window);
+
+    Ok((sdl, video, audio, joystick, event_pump))
 }
 
 fn create_window(

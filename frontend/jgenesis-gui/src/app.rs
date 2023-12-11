@@ -68,6 +68,8 @@ struct CommonAppConfig {
     fast_forward_multiplier: u64,
     #[serde(default = "default_rewind_buffer_length")]
     rewind_buffer_length_seconds: u64,
+    #[serde(default = "true_fn")]
+    hide_cursor_over_window: bool,
 }
 
 impl CommonAppConfig {
@@ -276,6 +278,7 @@ impl AppConfig {
             axis_deadzone: self.inputs.axis_deadzone,
             joystick_inputs,
             hotkeys: self.inputs.hotkeys.clone(),
+            hide_cursor_over_window: self.common.hide_cursor_over_window,
         }
     }
 
@@ -798,6 +801,11 @@ impl App {
     fn render_interface_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("UI Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.checkbox(
+                &mut self.config.common.hide_cursor_over_window,
+                "Hide mouse cursor over emulator window",
+            );
+
             ui.label("ROM search directories:");
 
             ui.add_space(5.0);

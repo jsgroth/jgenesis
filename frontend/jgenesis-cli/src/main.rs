@@ -54,6 +54,10 @@ struct Args {
     #[arg(long, default_value_t)]
     remove_sprite_limit: bool,
 
+    /// Show mouse cursor when over emulator window
+    #[arg(long = "show-cursor-over-window", default_value_t = true, action = clap::ArgAction::SetFalse)]
+    hide_cursor_over_window: bool,
+
     /// Force VDP version (NtscMasterSystem2 / NtscMasterSystem1 / PalMasterSystem2 / PalMasterSystem1 / GameGear)
     #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
     vdp_version: Option<VdpVersion>,
@@ -466,6 +470,7 @@ impl Args {
             axis_deadzone: self.joy_axis_deadzone,
             joystick_inputs,
             hotkeys: self.hotkey_config(),
+            hide_cursor_over_window: self.hide_cursor_over_window,
         }
     }
 

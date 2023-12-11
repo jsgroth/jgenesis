@@ -96,6 +96,7 @@ pub struct CommonConfig<KeyboardConfig, JoystickConfig> {
     pub joystick_inputs: JoystickConfig,
     #[indent_nested]
     pub hotkeys: HotkeyConfig,
+    pub hide_cursor_over_window: bool,
 }
 
 #[derive(Debug, Clone, ConfigDisplay)]
