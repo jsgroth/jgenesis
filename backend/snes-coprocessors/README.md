@@ -45,3 +45,9 @@ Each of these was only used in 1 game: _F1 ROC II: Race of Champions_ (ST010) an
 ### Super FX
 
 Programmable custom-designed RISC-like CPU with hardware to automatically convert plotted bitmap graphics to the SNES bitplane graphics format. Used by 8 released games including _Star Fox_ and _Yoshi's Island_, as well as the (originally) unreleased _Star Fox 2_
+
+## Not Supported
+
+### ST018
+
+Pre-programmed 32-bit ARMv3 CPU clocked at 21 MHz. Used by 1 game, _Hayazashi Nidan Morita Shougi 2_
