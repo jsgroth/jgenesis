@@ -1,4 +1,4 @@
-//! OBC1, an OBJ controller chip is designed to enable updating the OAM sprite table more efficiently
+//! OBC1, an OBJ controller chip that is designed to enable updating the OAM sprite table more efficiently
 //!
 //! Used by 1 game, Metal Combat: Falcon's Revenge
 
