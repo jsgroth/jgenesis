@@ -1,40 +1,8 @@
 #![allow(clippy::excessive_precision)]
 
-use crate::TimingMode;
 use bincode::{Decode, Encode};
-use std::collections::VecDeque;
-
-pub struct LowPassFilter {
-    samples: VecDeque<f64>,
-}
-
-impl LowPassFilter {
-    #[must_use]
-    pub fn new() -> Self {
-        Self { samples: VecDeque::with_capacity(FIR_COEFFICIENTS.len() + 1) }
-    }
-
-    #[inline]
-    pub fn collect_sample(&mut self, sample: f64) {
-        self.samples.push_back(sample);
-        if self.samples.len() > FIR_COEFFICIENTS.len() {
-            self.samples.pop_front();
-        }
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn output_sample(&self) -> f64 {
-        FIR_COEFFICIENT_0
-            + self.samples.iter().copied().zip(FIR_COEFFICIENTS).map(|(a, b)| a * b).sum::<f64>()
-    }
-}
-
-impl Default for LowPassFilter {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+use jgenesis_common::audio::SignalResampler;
+use jgenesis_common::frontend::{AudioOutput, TimingMode};
 
 // 236.25MHz / 11 / 12
 const NTSC_NES_AUDIO_FREQUENCY: f64 = 1789772.7272727272727273;
@@ -44,15 +12,23 @@ const NTSC_NES_NATIVE_DISPLAY_RATE: f64 = 60.0988;
 const PAL_NES_AUDIO_FREQUENCY: f64 = 1662607.03125;
 const PAL_NES_NATIVE_DISPLAY_RATE: f64 = 50.0070;
 
-impl TimingMode {
-    const fn nes_audio_frequency(self) -> f64 {
+trait TimingModeAudioExt {
+    fn nes_audio_frequency(self) -> f64;
+
+    fn nes_native_display_rate(self) -> f64;
+
+    fn refresh_rate_multiplier(self) -> f64;
+}
+
+impl TimingModeAudioExt for TimingMode {
+    fn nes_audio_frequency(self) -> f64 {
         match self {
             Self::Ntsc => NTSC_NES_AUDIO_FREQUENCY,
             Self::Pal => PAL_NES_AUDIO_FREQUENCY,
         }
     }
 
-    const fn nes_native_display_rate(self) -> f64 {
+    fn nes_native_display_rate(self) -> f64 {
         match self {
             Self::Ntsc => NTSC_NES_NATIVE_DISPLAY_RATE,
             Self::Pal => PAL_NES_NATIVE_DISPLAY_RATE,
@@ -67,95 +43,62 @@ impl TimingMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DownsampleAction {
-    None,
-    OutputSample,
+type NesResampler = SignalResampler<93, 0>;
+
+fn new_nes_resampler(timing_mode: TimingMode, apply_refresh_rate_adjustment: bool) -> NesResampler {
+    let source_frequency = compute_source_frequency(timing_mode, apply_refresh_rate_adjustment);
+    NesResampler::new(source_frequency, LPF_COEFFICIENT_0, LPF_COEFFICIENTS, HPF_CHARGE_FACTOR)
+}
+
+fn compute_source_frequency(timing_mode: TimingMode, apply_refresh_rate_adjustment: bool) -> f64 {
+    let refresh_rate_multiplier = if apply_refresh_rate_adjustment {
+        timing_mode.refresh_rate_multiplier() * 60.0 / timing_mode.nes_native_display_rate()
+    } else {
+        1.0
+    };
+
+    timing_mode.nes_audio_frequency() * refresh_rate_multiplier
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
-pub struct DownsampleCounter {
-    sample_count: u64,
-    next_output_count: u64,
-    next_output_count_float: f64,
-    output_count_increment: f64,
-    output_frequency: f64,
-    display_refresh_rate: f64,
-    apply_refresh_rate_adjustment: bool,
+pub struct AudioResampler {
+    timing_mode: TimingMode,
+    resampler: NesResampler,
 }
 
-impl DownsampleCounter {
-    fn compute_output_count_increment(
-        output_frequency: f64,
-        display_refresh_rate: f64,
-        apply_refresh_rate_adjustment: bool,
-        timing_mode: TimingMode,
-    ) -> f64 {
-        let refresh_rate_adjustment = if apply_refresh_rate_adjustment {
-            timing_mode.refresh_rate_multiplier() * display_refresh_rate
-                / timing_mode.nes_native_display_rate()
-        } else {
-            1.0
-        };
-
-        timing_mode.nes_audio_frequency() / output_frequency * refresh_rate_adjustment
-    }
-
-    #[must_use]
-    pub fn new(
-        output_frequency: f64,
-        display_refresh_rate: f64,
-        apply_refresh_rate_adjustment: bool,
-    ) -> Self {
-        let output_count_increment = Self::compute_output_count_increment(
-            output_frequency,
-            display_refresh_rate,
-            apply_refresh_rate_adjustment,
-            TimingMode::Ntsc,
-        );
+impl AudioResampler {
+    pub fn new(timing_mode: TimingMode, apply_refresh_rate_adjustment: bool) -> Self {
         Self {
-            sample_count: 0,
-            next_output_count: output_count_increment.round() as u64,
-            next_output_count_float: output_count_increment,
-            output_count_increment,
-            output_frequency,
-            display_refresh_rate,
-            apply_refresh_rate_adjustment,
-        }
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn increment(&mut self) -> DownsampleAction {
-        self.sample_count += 1;
-
-        if self.sample_count == self.next_output_count {
-            self.next_output_count_float += self.output_count_increment;
-            self.next_output_count = self.next_output_count_float.round() as u64;
-
-            DownsampleAction::OutputSample
-        } else {
-            DownsampleAction::None
-        }
-    }
-
-    pub fn set_timing_mode(&mut self, timing_mode: TimingMode) {
-        self.output_count_increment = Self::compute_output_count_increment(
-            self.output_frequency,
-            self.display_refresh_rate,
-            self.apply_refresh_rate_adjustment,
             timing_mode,
-        );
+            resampler: new_nes_resampler(timing_mode, apply_refresh_rate_adjustment),
+        }
     }
 
-    pub fn set_refresh_rate_adjustment(&mut self, apply_refresh_rate_adjustment: bool) {
-        self.apply_refresh_rate_adjustment = apply_refresh_rate_adjustment;
+    pub fn collect_sample(&mut self, sample: f64) {
+        self.resampler.collect_sample(sample, sample);
+    }
+
+    pub fn output_samples<A: AudioOutput>(&mut self, audio_output: &mut A) -> Result<(), A::Err> {
+        while let Some((sample_l, sample_r)) = self.resampler.output_buffer_pop_front() {
+            audio_output.push_sample(sample_l, sample_r)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn set_apply_refresh_rate_adjustment(&mut self, apply_refresh_rate_adjustment: bool) {
+        self.resampler.update_source_frequency(compute_source_frequency(
+            self.timing_mode,
+            apply_refresh_rate_adjustment,
+        ));
     }
 }
+
+const HPF_CHARGE_FACTOR: f64 = 0.9999015765;
 
 // Generated in Octave using `fir1(93, 24000 / (1789772.72727272 / 2), 'low')`
-const FIR_COEFFICIENT_0: f64 = -0.0003510245168949023;
-const FIR_COEFFICIENTS: [f64; 93] = [
+const LPF_COEFFICIENT_0: f64 = -0.0003510245168949023;
+const LPF_COEFFICIENTS: [f64; 93] = [
     -0.0003510245168949023,
     -0.0003222072340562825,
     -0.0002961513707638577,

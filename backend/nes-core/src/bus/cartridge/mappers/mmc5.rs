@@ -4,9 +4,10 @@ use crate::apu::pulse::{PulseChannel, SweepStatus};
 use crate::apu::FrameCounter;
 use crate::bus::cartridge::mappers::{BankSizeKb, CpuMapResult};
 use crate::bus::cartridge::{Cartridge, MapperImpl};
-use crate::num::GetBit;
-use crate::{apu, bus, TimingMode};
+use crate::{apu, bus};
 use bincode::{Decode, Encode};
+use jgenesis_common::frontend::TimingMode;
+use jgenesis_common::num::GetBit;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum PrgBankingMode {

@@ -3,8 +3,8 @@
 use crate::bus;
 use crate::bus::{CpuBus, PpuRegister};
 use crate::cpu::instructions::InstructionState;
-use crate::num::GetBit;
 use bincode::{Decode, Encode};
+use jgenesis_common::num::GetBit;
 
 mod instructions;
 

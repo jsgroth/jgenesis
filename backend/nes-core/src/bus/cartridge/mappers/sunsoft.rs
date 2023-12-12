@@ -4,8 +4,8 @@ use crate::bus::cartridge::mappers::{
     BankSizeKb, ChrType, CpuMapResult, NametableMirroring, PpuMapResult,
 };
 use crate::bus::cartridge::{HasBasicPpuMapping, MapperImpl};
-use crate::num::GetBit;
 use bincode::{Decode, Encode};
+use jgenesis_common::num::GetBit;
 use std::sync::OnceLock;
 
 #[allow(clippy::upper_case_acronyms)]

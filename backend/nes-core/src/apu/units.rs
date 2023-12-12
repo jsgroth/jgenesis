@@ -5,8 +5,8 @@
 //! * An envelope, which can automatically increase or decrease the channel's volume over time
 //! * A frequency timer which infinitely cycles through a set number of phase steps based on a divider of the CPU clock
 
-use crate::num::GetBit;
 use bincode::{Decode, Encode};
+use jgenesis_common::num::GetBit;
 
 const LENGTH_COUNTER_LOOKUP_TABLE: [u8; 32] = [
     10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20, 96, 22,

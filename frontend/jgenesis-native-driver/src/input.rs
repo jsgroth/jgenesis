@@ -1,12 +1,13 @@
 use crate::config::input::{
     AxisDirection, GenesisInputConfig, HatDirection, HotkeyConfig, JoystickAction,
-    JoystickDeviceId, JoystickInput, KeyboardInput, KeyboardOrMouseInput, SmsGgInputConfig,
-    SnesControllerType, SnesInputConfig, SuperScopeConfig,
+    JoystickDeviceId, JoystickInput, KeyboardInput, KeyboardOrMouseInput, NesInputConfig,
+    SmsGgInputConfig, SnesControllerType, SnesInputConfig, SuperScopeConfig,
 };
 use crate::mainloop::{NativeEmulatorError, NativeEmulatorResult};
 use genesis_core::GenesisInputs;
 use jgenesis_common::frontend::FrameSize;
 use jgenesis_renderer::renderer::DisplayArea;
+use nes_core::input::NesInputs;
 use sdl2::event::{Event, WindowEvent};
 use sdl2::joystick::{HatState, Joystick};
 use sdl2::keyboard::Keycode;
@@ -80,6 +81,34 @@ impl GenesisButton {
             | Self::Z(player)
             | Self::Start(player)
             | Self::Mode(player) => player,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NesButton {
+    Up(Player),
+    Left(Player),
+    Right(Player),
+    Down(Player),
+    A(Player),
+    B(Player),
+    Start(Player),
+    Select(Player),
+}
+
+impl NesButton {
+    #[must_use]
+    pub fn player(self) -> Player {
+        match self {
+            Self::Up(player)
+            | Self::Left(player)
+            | Self::Right(player)
+            | Self::Down(player)
+            | Self::A(player)
+            | Self::B(player)
+            | Self::Start(player)
+            | Self::Select(player) => player,
         }
     }
 }
@@ -194,6 +223,37 @@ impl MappableInputs<GenesisButton> for GenesisInputs {
             GenesisButton::Z(..) => joypad_state.z = value,
             GenesisButton::Start(..) => joypad_state.start = value,
             GenesisButton::Mode(..) => joypad_state.mode = value,
+        }
+    }
+
+    fn handle_mouse_motion(
+        &mut self,
+        _x: i32,
+        _y: i32,
+        _frame_size: FrameSize,
+        _display_area: DisplayArea,
+    ) {
+    }
+
+    fn handle_mouse_leave(&mut self) {}
+}
+
+impl MappableInputs<NesButton> for NesInputs {
+    fn set_field(&mut self, button: NesButton, value: bool) {
+        let joypad_state = match button.player() {
+            Player::One => &mut self.p1,
+            Player::Two => &mut self.p2,
+        };
+
+        match button {
+            NesButton::Up(_) => joypad_state.up = value,
+            NesButton::Left(_) => joypad_state.left = value,
+            NesButton::Right(_) => joypad_state.right = value,
+            NesButton::Down(_) => joypad_state.down = value,
+            NesButton::A(_) => joypad_state.a = value,
+            NesButton::B(_) => joypad_state.b = value,
+            NesButton::Start(_) => joypad_state.start = value,
+            NesButton::Select(_) => joypad_state.select = value,
         }
     }
 
@@ -492,6 +552,21 @@ macro_rules! genesis_input_array {
     }
 }
 
+macro_rules! nes_input_array {
+    ($p1_config:expr, $p2_config:expr) => {
+        inputs_array!($p1_config, $p2_config, [
+            up -> NesButton::Up,
+            left -> NesButton::Left,
+            right -> NesButton::Right,
+            down -> NesButton::Down,
+            a -> NesButton::A,
+            b -> NesButton::B,
+            start -> NesButton::Start,
+            select -> NesButton::Select,
+        ])
+    }
+}
+
 macro_rules! snes_input_array {
     ($p1_config:expr, $p2_config:expr) => {
         inputs_array!($p1_config, $p2_config, [
@@ -573,6 +648,14 @@ impl_generate_mapping_fns!(
 );
 
 impl_generate_mapping_fns!(
+    generate_nes_keyboard_mapping,
+    generate_nes_joystick_mapping,
+    NesInputConfig,
+    NesButton,
+    |config| nes_input_array!(config.p1, config.p2)
+);
+
+impl_generate_mapping_fns!(
     generate_snes_keyboard_mapping,
     generate_snes_joystick_mapping,
     SnesInputConfig,
@@ -638,6 +721,39 @@ impl InputMapper<GenesisInputs, GenesisButton> {
         self.reload_config_generic(
             generate_genesis_keyboard_mapping(keyboard_inputs)?,
             generate_genesis_joystick_mapping(joystick_inputs),
+            HashMap::new(),
+            axis_deadzone,
+        );
+
+        Ok(())
+    }
+}
+
+impl InputMapper<NesInputs, NesButton> {
+    pub(crate) fn new_nes(
+        joystick_subsystem: JoystickSubsystem,
+        keyboard_inputs: NesInputConfig<KeyboardInput>,
+        joystick_inputs: NesInputConfig<JoystickInput>,
+        axis_deadzone: i16,
+    ) -> NativeEmulatorResult<Self> {
+        Ok(Self::new_generic(
+            joystick_subsystem,
+            generate_nes_keyboard_mapping(keyboard_inputs)?,
+            generate_nes_joystick_mapping(joystick_inputs),
+            HashMap::new(),
+            axis_deadzone,
+        ))
+    }
+
+    pub(crate) fn reload_config(
+        &mut self,
+        keyboard_inputs: NesInputConfig<KeyboardInput>,
+        joystick_inputs: NesInputConfig<JoystickInput>,
+        axis_deadzone: i16,
+    ) -> NativeEmulatorResult<()> {
+        self.reload_config_generic(
+            generate_nes_keyboard_mapping(keyboard_inputs)?,
+            generate_nes_joystick_mapping(joystick_inputs),
             HashMap::new(),
             axis_deadzone,
         );

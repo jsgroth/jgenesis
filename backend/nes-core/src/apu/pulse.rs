@@ -7,8 +7,8 @@
 //! This code is also used in the MMC5 mapper's expansion audio implementation.
 
 use crate::apu::units::{Envelope, LengthCounter, LengthCounterChannel, PhaseTimer};
-use crate::num::GetBit;
 use bincode::{Decode, Encode};
+use jgenesis_common::num::GetBit;
 
 type PulsePhaseTimer = PhaseTimer<8, 2, 11, true>;
 

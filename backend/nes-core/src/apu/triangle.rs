@@ -7,8 +7,8 @@
 //! Channel output values are between 0 and 15 (inclusive).
 
 use crate::apu::units::{LengthCounter, LengthCounterChannel, PhaseTimer};
-use crate::num::GetBit;
 use bincode::{Decode, Encode};
+use jgenesis_common::num::GetBit;
 
 type TrianglePhaseTimer = PhaseTimer<32, 1, 11, false>;
 

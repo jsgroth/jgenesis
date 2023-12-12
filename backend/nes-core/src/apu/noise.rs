@@ -4,8 +4,8 @@
 //! Channel output values are between 0 and 15 (inclusive).
 
 use crate::apu::units::{Envelope, LengthCounter, LengthCounterChannel};
-use crate::num::GetBit;
 use bincode::{Decode, Encode};
+use jgenesis_common::num::GetBit;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum LfsrMode {

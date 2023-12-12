@@ -2,7 +2,7 @@ use crate::bus;
 use crate::bus::CpuBus;
 use crate::cpu::instructions::InstructionState;
 use crate::cpu::{CpuRegisters, StatusFlags, StatusReadContext};
-use crate::num::GetBit;
+use jgenesis_common::num::GetBit;
 
 #[inline]
 fn poll_interrupt_lines(

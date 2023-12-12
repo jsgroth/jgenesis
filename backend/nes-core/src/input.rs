@@ -1,7 +1,7 @@
 use bincode::{Decode, Encode};
 
-#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
-pub struct JoypadState {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+pub struct NesJoypadState {
     pub up: bool,
     pub down: bool,
     pub left: bool,
@@ -12,7 +12,7 @@ pub struct JoypadState {
     pub select: bool,
 }
 
-impl JoypadState {
+impl NesJoypadState {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -52,8 +52,14 @@ impl JoypadState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+pub struct NesInputs {
+    pub p1: NesJoypadState,
+    pub p2: NesJoypadState,
+}
+
 #[derive(Debug, Clone, Copy, Encode, Decode)]
-pub struct LatchedJoypadState(u8);
+pub(crate) struct LatchedJoypadState(u8);
 
 impl LatchedJoypadState {
     pub fn next_bit(self) -> u8 {

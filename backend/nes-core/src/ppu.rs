@@ -7,15 +7,16 @@
 //! PAL is (mostly) the same except the vertical blanking period lasts for 70 scanlines instead of 20,
 //! for a total of 312 scanlines.
 
-use crate::bus::{PpuBus, PpuRegisters, PpuTrackedRegister, PpuWriteToggle, TimingMode};
-use crate::num::GetBit;
-use crate::EmulatorConfig;
+use crate::api::NesEmulatorConfig;
+use crate::bus::{PpuBus, PpuRegisters, PpuTrackedRegister, PpuWriteToggle};
 use bincode::{Decode, Encode};
+use jgenesis_common::frontend::TimingMode;
+use jgenesis_common::num::GetBit;
+use std::fmt::{Display, Formatter};
 use std::ops::RangeInclusive;
 
 pub const SCREEN_WIDTH: u16 = 256;
-pub const SCREEN_HEIGHT: u16 = 240;
-const NTSC_VISIBLE_SCREEN_HEIGHT: u16 = 224;
+pub const MAX_SCREEN_HEIGHT: u16 = 240;
 
 const DOTS_PER_SCANLINE: u16 = 341;
 // Set/reset flags on dot 2 instead of 1 to resolve some CPU/PPU alignment issues that affect NMI
@@ -40,17 +41,54 @@ const PAL_PRE_RENDER_SCANLINE: u16 = 311;
 
 const BLACK_NES_COLOR: u8 = 0x0F;
 
-pub type FrameBuffer = [[u8; SCREEN_WIDTH as usize]; SCREEN_HEIGHT as usize];
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+pub struct ColorEmphasis(u8);
 
-impl TimingMode {
-    #[must_use]
-    pub const fn visible_screen_height(self) -> u16 {
-        match self {
-            Self::Ntsc => NTSC_VISIBLE_SCREEN_HEIGHT,
-            Self::Pal => SCREEN_HEIGHT,
-        }
+impl ColorEmphasis {
+    pub fn new(red: bool, green: bool, blue: bool) -> Self {
+        let emphasis_bits = u8::from(red) | (u8::from(green) << 1) | (u8::from(blue) << 2);
+        Self(emphasis_bits)
     }
 
+    pub fn get_current(bus: &PpuBus<'_>, timing_mode: TimingMode) -> Self {
+        let ppu_registers = bus.get_ppu_registers();
+        Self::new(
+            ppu_registers.emphasize_red(timing_mode),
+            ppu_registers.emphasize_green(timing_mode),
+            ppu_registers.emphasize_blue(),
+        )
+    }
+
+    pub fn red(self) -> bool {
+        self.0.bit(0)
+    }
+
+    pub fn green(self) -> bool {
+        self.0.bit(1)
+    }
+
+    pub fn blue(self) -> bool {
+        self.0.bit(2)
+    }
+}
+
+impl Display for ColorEmphasis {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ColorEmphasis[R={}, G={}, B={}]", (*self).red(), (*self).green(), (*self).blue())
+    }
+}
+
+pub type FrameBuffer = [[(u8, ColorEmphasis); SCREEN_WIDTH as usize]; MAX_SCREEN_HEIGHT as usize];
+
+trait TimingModePpuExt {
+    fn vblank_scanlines(self) -> RangeInclusive<u16>;
+
+    fn all_idle_scanlines(self) -> RangeInclusive<u16>;
+
+    fn pre_render_scanline(self) -> u16;
+}
+
+impl TimingModePpuExt for TimingMode {
     fn vblank_scanlines(self) -> RangeInclusive<u16> {
         match self {
             Self::Ntsc => NTSC_VBLANK_SCANLINES,
@@ -291,7 +329,8 @@ impl PpuState {
     pub fn new(timing_mode: TimingMode) -> Self {
         Self {
             timing_mode,
-            frame_buffer: [[0; SCREEN_WIDTH as usize]; SCREEN_HEIGHT as usize],
+            frame_buffer: [[(0, ColorEmphasis::default()); SCREEN_WIDTH as usize];
+                MAX_SCREEN_HEIGHT as usize],
             registers: InternalRegisters::new(),
             bg_buffers: BgBuffers::new(),
             sprite_buffers: SpriteBuffers::new(),
@@ -324,20 +363,21 @@ impl PpuState {
 
 pub fn render_pal_black_border(state: &mut PpuState) {
     // Clear top scanline
-    for value in &mut state.frame_buffer[0] {
-        *value = BLACK_NES_COLOR;
+    for (color, emphasis) in &mut state.frame_buffer[0] {
+        *color = BLACK_NES_COLOR;
+        *emphasis = ColorEmphasis::default();
     }
 
     // Clear leftmost two columns and rightmost two columns
     for col in [0, 1, (SCREEN_WIDTH - 2) as usize, (SCREEN_WIDTH - 1) as usize] {
-        for row in 1..SCREEN_HEIGHT as usize {
-            state.frame_buffer[row][col] = BLACK_NES_COLOR;
+        for row in 1..MAX_SCREEN_HEIGHT as usize {
+            state.frame_buffer[row][col] = (BLACK_NES_COLOR, ColorEmphasis::default());
         }
     }
 }
 
 /// Run the PPU for one PPU cycle. Pixels will be written to `PpuState`'s frame buffer as appropriate.
-pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>, config: &EmulatorConfig) {
+pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>, config: NesEmulatorConfig) {
     let rendering_enabled =
         bus.get_ppu_registers().bg_enabled() || bus.get_ppu_registers().sprites_enabled();
 
@@ -382,7 +422,9 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>, config: &EmulatorConfig)
         });
 
         if VISIBLE_SCANLINES.contains(&state.scanline) && RENDERING_DOTS.contains(&state.dot) {
-            state.frame_buffer[state.scanline as usize][(state.dot - 1) as usize] = backdrop_color;
+            let color_emphasis = ColorEmphasis::get_current(bus, state.timing_mode);
+            state.frame_buffer[state.scanline as usize][(state.dot - 1) as usize] =
+                (backdrop_color, color_emphasis);
         }
     }
 
@@ -767,9 +809,10 @@ fn render_pixel(state: &mut PpuState, bus: &PpuBus<'_>) {
     };
 
     let pixel_color = pixel_color & get_color_mask(bus.get_ppu_registers());
+    let color_emphasis = ColorEmphasis::get_current(bus, state.timing_mode);
 
     // Render the pixel to the frame buffer
-    state.frame_buffer[state.scanline as usize][pixel as usize] = pixel_color;
+    state.frame_buffer[state.scanline as usize][pixel as usize] = (pixel_color, color_emphasis);
 }
 
 fn fetch_bg_tile_data(state: &mut PpuState, bus: &mut PpuBus<'_>) {

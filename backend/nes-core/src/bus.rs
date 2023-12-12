@@ -36,12 +36,12 @@
 pub mod cartridge;
 
 use crate::bus::cartridge::Mapper;
-use crate::input::{JoypadState, LatchedJoypadState};
-use crate::num::GetBit;
+use crate::input::{LatchedJoypadState, NesJoypadState};
 use bincode::{Decode, Encode};
+use jgenesis_common::frontend::TimingMode;
+use jgenesis_common::num::GetBit;
+use jgenesis_proc_macros::PartialClone;
 use std::array;
-
-pub use cartridge::TimingMode;
 
 pub const CPU_RAM_START: u16 = 0x0000;
 pub const CPU_RAM_END: u16 = 0x1FFF;
@@ -387,8 +387,8 @@ pub struct IoRegisters {
     dma_dirty: bool,
     dirty_register: Option<IoRegister>,
     snd_chn_read: bool,
-    p1_joypad_state: JoypadState,
-    p2_joypad_state: JoypadState,
+    p1_joypad_state: NesJoypadState,
+    p2_joypad_state: NesJoypadState,
     latched_joypad_state: Option<(LatchedJoypadState, LatchedJoypadState)>,
 }
 
@@ -402,8 +402,8 @@ impl IoRegisters {
             dma_dirty: false,
             dirty_register: None,
             snd_chn_read: false,
-            p1_joypad_state: JoypadState::new(),
-            p2_joypad_state: JoypadState::new(),
+            p1_joypad_state: NesJoypadState::new(),
+            p2_joypad_state: NesJoypadState::new(),
             latched_joypad_state: None,
         }
     }
@@ -592,8 +592,9 @@ impl InterruptLines {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, PartialClone)]
 pub struct Bus {
+    #[partial_clone(partial)]
     mapper: Mapper,
     cpu_internal_ram: [u8; 2048],
     ppu_registers: PpuRegisters,
@@ -631,11 +632,11 @@ impl Bus {
         PpuBus(self)
     }
 
-    pub fn update_p1_joypad_state(&mut self, p1_joypad_state: JoypadState) {
+    pub fn update_p1_joypad_state(&mut self, p1_joypad_state: NesJoypadState) {
         self.io_registers.p1_joypad_state = p1_joypad_state;
     }
 
-    pub fn update_p2_joypad_state(&mut self, p2_joypad_state: JoypadState) {
+    pub fn update_p2_joypad_state(&mut self, p2_joypad_state: NesJoypadState) {
         self.io_registers.p2_joypad_state = p2_joypad_state;
     }
 
@@ -670,22 +671,6 @@ impl Bus {
 
     pub(crate) fn move_rom_from(&mut self, other: &mut Self) {
         self.mapper.move_rom_from(&mut other.mapper);
-    }
-
-    // Clone all internal state except for the cartridge ROM fields, which will be empty Vecs in the clone
-    pub fn clone_without_rom(&self) -> Self {
-        Self {
-            mapper: self.mapper.clone_without_rom(),
-            cpu_internal_ram: self.cpu_internal_ram,
-            ppu_registers: self.ppu_registers.clone(),
-            io_registers: self.io_registers.clone(),
-            ppu_vram: self.ppu_vram,
-            ppu_palette_ram: self.ppu_palette_ram,
-            ppu_oam: self.ppu_oam,
-            ppu_bus_address: self.ppu_bus_address,
-            interrupt_lines: self.interrupt_lines.clone(),
-            pending_write: self.pending_write,
-        }
     }
 }
 

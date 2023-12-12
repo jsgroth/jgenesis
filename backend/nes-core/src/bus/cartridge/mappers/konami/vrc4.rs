@@ -6,8 +6,8 @@ use crate::bus::cartridge::mappers::{
     konami, BankSizeKb, ChrType, NametableMirroring, PpuMapResult,
 };
 use crate::bus::cartridge::{HasBasicPpuMapping, MapperImpl};
-use crate::num::GetBit;
 use bincode::{Decode, Encode};
+use jgenesis_common::num::GetBit;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Type {

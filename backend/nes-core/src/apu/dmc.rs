@@ -7,8 +7,8 @@
 //! from memory.
 
 use crate::bus::CpuBus;
-use crate::num::GetBit;
 use bincode::{Decode, Encode};
+use jgenesis_common::num::GetBit;
 
 const DMC_PERIOD_LOOKUP_TABLE: [u16; 16] =
     [428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54];

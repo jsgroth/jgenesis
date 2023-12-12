@@ -3,18 +3,19 @@ use env_logger::Env;
 use genesis_core::{GenesisAspectRatio, GenesisControllerType, GenesisRegion};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::config::input::{
-    GenesisControllerConfig, GenesisInputConfig, HotkeyConfig, KeyboardInput,
+    GenesisControllerConfig, GenesisInputConfig, HotkeyConfig, KeyboardInput, NesInputConfig,
     SmsGgControllerConfig, SmsGgInputConfig, SnesControllerType, SnesInputConfig, SuperScopeConfig,
 };
 use jgenesis_native_driver::config::{
-    CommonConfig, GenesisConfig, GgAspectRatio, SegaCdConfig, SmsAspectRatio, SmsGgConfig,
-    SnesConfig, WindowSize,
+    CommonConfig, GenesisConfig, GgAspectRatio, NesConfig, SegaCdConfig, SmsAspectRatio,
+    SmsGgConfig, SnesConfig, WindowSize,
 };
 use jgenesis_native_driver::NativeTickEffect;
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, RendererConfig, Scanlines, VSyncMode, WgpuBackend,
 };
+use nes_core::api::NesAspectRatio;
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsRegion, VdpVersion};
 use snes_core::api::SnesAspectRatio;
@@ -28,12 +29,14 @@ enum Hardware {
     MasterSystem,
     Genesis,
     SegaCd,
+    Nes,
     Snes,
 }
 
 const SMSGG_OPTIONS_HEADING: &str = "Master System / Game Gear Options";
 const GENESIS_OPTIONS_HEADING: &str = "Genesis / Sega CD Options";
 const SCD_OPTIONS_HEADING: &str = "Sega CD Options";
+const NES_OPTIONS_HEADING: &str = "NES Options";
 const SNES_OPTIONS_HEADING: &str = "SNES Options";
 const VIDEO_OPTIONS_HEADING: &str = "Video Options";
 const AUDIO_OPTIONS_HEADING: &str = "Audio Options";
@@ -46,9 +49,13 @@ struct Args {
     #[arg(short = 'f', long)]
     file_path: String,
 
-    /// Hardware (MasterSystem / Genesis / SegaCd), will default based on file extension if not set
+    /// Hardware (MasterSystem / Genesis / SegaCd / Nes / Snes), will default based on file extension if not set
     #[arg(long)]
     hardware: Option<Hardware>,
+
+    /// Force timing mode (Ntsc / Pal)
+    #[arg(long)]
+    forced_timing_mode: Option<TimingMode>,
 
     /// Remove sprite-per-scanline and sprite-pixel-per-scanlines limits which reduces sprite flickering
     #[arg(long, default_value_t)]
@@ -94,10 +101,6 @@ struct Args {
     #[arg(long, default_value_t, help_heading = SMSGG_OPTIONS_HEADING)]
     smsgg_overclock_z80: bool,
 
-    /// Force timing mode (Ntsc / Pal)
-    #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
-    genesis_timing_mode: Option<TimingMode>,
-
     /// Emulate the VDP's non-linear DAC, which tends to brighten darker colors and darken brighter colors
     #[arg(long, default_value_t, help_heading = GENESIS_OPTIONS_HEADING)]
     emulate_non_linear_vdp_dac: bool,
@@ -131,15 +134,27 @@ struct Args {
     #[arg(long, default_value_t, help_heading = SCD_OPTIONS_HEADING)]
     scd_no_disc: bool,
 
-    /// Forced SNES timing/display mode (Ntsc / Pal); defaults based on ROM header if not set
-    #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
-    snes_timing_mode: Option<TimingMode>,
+    /// Aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
+    #[arg(long, default_value_t, help_heading = NES_OPTIONS_HEADING)]
+    nes_aspect_ratio: NesAspectRatio,
+
+    /// Render the PAL black border (top scanline + two columns on each side)
+    #[arg(long, default_value_t, help_heading = NES_OPTIONS_HEADING)]
+    nes_pal_black_border: bool,
+
+    /// Silence ultrasonic triangle channel output (less accurate but reduces audio popping)
+    #[arg(long, default_value_t, help_heading = NES_OPTIONS_HEADING)]
+    nes_silence_ultrasonic_triangle: bool,
+
+    /// Disable hack that times NES audio sync to 60Hz NTSC / 50Hz PAL instead of ~60.099Hz NTSC / ~50.007Hz PAL
+    #[arg(long = "no-nes-audio-60hz-hack", default_value_t = true, action = clap::ArgAction::SetFalse, help_heading = NES_OPTIONS_HEADING)]
+    nes_audio_60hz_hack: bool,
 
     /// SNES aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
     #[arg(long, default_value_t, help_heading = SNES_OPTIONS_HEADING)]
     snes_aspect_ratio: SnesAspectRatio,
 
-    /// Disable hack that times SNES audio signal to 60Hz instead of ~60.098Hz
+    /// Disable hack that times SNES audio sync to 60Hz instead of ~60.098Hz
     #[arg(long = "no-snes-audio-60hz-hack", default_value_t = true, action = clap::ArgAction::SetFalse, help_heading = SNES_OPTIONS_HEADING)]
     snes_audio_60hz_hack: bool,
 
@@ -479,7 +494,7 @@ impl Args {
         let common = self.common_config(keyboard_inputs, GenesisInputConfig::default());
         GenesisConfig {
             common,
-            forced_timing_mode: self.genesis_timing_mode,
+            forced_timing_mode: self.forced_timing_mode,
             forced_region: self.genesis_region,
             p1_controller_type: self.input_p1_type,
             p2_controller_type: GenesisControllerType::default(),
@@ -511,6 +526,7 @@ fn main() -> anyhow::Result<()> {
             "sms" | "gg" => Hardware::MasterSystem,
             "md" | "bin" => Hardware::Genesis,
             "cue" => Hardware::SegaCd,
+            "nes" => Hardware::Nes,
             "sfc" | "smc" => Hardware::Snes,
             _ => {
                 log::warn!("Unrecognized file extension: '{file_ext}' defaulting to Genesis");
@@ -525,6 +541,7 @@ fn main() -> anyhow::Result<()> {
         Hardware::MasterSystem => run_sms(args),
         Hardware::Genesis => run_genesis(args),
         Hardware::SegaCd => run_sega_cd(args),
+        Hardware::Nes => run_nes(args),
         Hardware::Snes => run_snes(args),
     }
 }
@@ -582,12 +599,29 @@ fn run_sega_cd(args: Args) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn run_nes(args: Args) -> anyhow::Result<()> {
+    let config = NesConfig {
+        common: args.common_config(NesInputConfig::default(), NesInputConfig::default()),
+        forced_timing_mode: args.forced_timing_mode,
+        aspect_ratio: args.nes_aspect_ratio,
+        remove_sprite_limit: args.remove_sprite_limit,
+        pal_black_border: args.nes_pal_black_border,
+        silence_ultrasonic_triangle_output: args.nes_silence_ultrasonic_triangle,
+        audio_refresh_rate_adjustment: args.nes_audio_60hz_hack,
+    };
+
+    let mut emulator = jgenesis_native_driver::create_nes(config.into())?;
+    while emulator.render_frame()? != NativeTickEffect::Exit {}
+
+    Ok(())
+}
+
 fn run_snes(args: Args) -> anyhow::Result<()> {
     let config = SnesConfig {
         common: args.common_config(SnesInputConfig::default(), SnesInputConfig::default()),
         p2_controller_type: args.snes_p2_controller_type,
         super_scope_config: SuperScopeConfig::default(),
-        forced_timing_mode: args.snes_timing_mode,
+        forced_timing_mode: args.forced_timing_mode,
         aspect_ratio: args.snes_aspect_ratio,
         audio_60hz_hack: args.snes_audio_60hz_hack,
         gsu_overclock_factor: args.gsu_overclock_factor,

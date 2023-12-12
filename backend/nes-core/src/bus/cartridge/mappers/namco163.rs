@@ -3,8 +3,8 @@
 use crate::bus;
 use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, PpuMapResult};
 use crate::bus::cartridge::{HasBasicPpuMapping, MapperImpl};
-use crate::num::GetBit;
 use bincode::{Decode, Encode};
+use jgenesis_common::num::GetBit;
 use std::array;
 
 #[derive(Debug, Clone, Encode, Decode)]

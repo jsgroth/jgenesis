@@ -14,8 +14,8 @@
 use crate::bus;
 use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring, PpuMapResult};
 use crate::bus::cartridge::{Cartridge, HasBasicPpuMapping, MapperImpl};
-use crate::num::GetBit;
 use bincode::{Decode, Encode};
+use jgenesis_common::num::GetBit;
 
 fn basic_read_cpu_address(address: u16, cartridge: &Cartridge) -> u8 {
     match address {

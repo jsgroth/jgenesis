@@ -6,8 +6,8 @@ use crate::bus;
 use crate::bus::cartridge::mappers::bandai::eeprom::{X24C01Chip, X24C02Chip};
 use crate::bus::cartridge::mappers::{BankSizeKb, ChrType, NametableMirroring, PpuMapResult};
 use crate::bus::cartridge::{HasBasicPpuMapping, MapperImpl};
-use crate::num::GetBit;
 use bincode::{Decode, Encode};
+use jgenesis_common::num::GetBit;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]

@@ -8,45 +8,25 @@ use bincode::de::{BorrowDecoder, Decoder};
 use bincode::enc::Encoder;
 use bincode::error::{DecodeError, EncodeError};
 use bincode::{BorrowDecode, Decode, Encode};
+use jgenesis_common::frontend::{PartialClone, TimingMode};
+use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::MatchEachVariantMacro;
-use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::{io, mem};
 use thiserror::Error;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
-pub enum TimingMode {
-    Ntsc,
-    Pal,
-}
-
-impl TimingMode {
-    #[must_use]
-    pub const fn all() -> &'static [TimingMode] {
-        &[TimingMode::Ntsc, TimingMode::Pal]
-    }
-}
-
-impl Display for TimingMode {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Ntsc => write!(f, "NTSC"),
-            Self::Pal => write!(f, "PAL"),
-        }
-    }
-}
-
-use crate::num::GetBit;
 #[cfg(test)]
 pub(crate) use mappers::new_mmc1;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialClone)]
 struct Cartridge {
     timing_mode: TimingMode,
+    #[partial_clone(default)]
     prg_rom: Vec<u8>,
     prg_ram: Vec<u8>,
     has_ram_battery: bool,
     prg_ram_dirty_bit: bool,
+    #[partial_clone(default)]
     chr_rom: Vec<u8>,
     chr_ram: Vec<u8>,
 }
@@ -145,24 +125,20 @@ impl Cartridge {
         self.prg_rom = mem::take(&mut other.prg_rom);
         self.chr_rom = mem::take(&mut other.chr_rom);
     }
-
-    fn clone_without_rom(&self) -> Self {
-        Self {
-            timing_mode: self.timing_mode,
-            prg_rom: vec![],
-            prg_ram: self.prg_ram.clone(),
-            has_ram_battery: self.has_ram_battery,
-            prg_ram_dirty_bit: self.prg_ram_dirty_bit,
-            chr_rom: vec![],
-            chr_ram: self.chr_ram.clone(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub(crate) struct MapperImpl<MapperData> {
     cartridge: Cartridge,
     data: MapperData,
+}
+
+// Not using derive macro because it only impls the trait when MapperData implements PartialClone, which is not a
+// necessary bound here
+impl<MapperData: Clone> PartialClone for MapperImpl<MapperData> {
+    fn partial_clone(&self) -> Self {
+        Self { cartridge: self.cartridge.partial_clone(), data: self.data.clone() }
+    }
 }
 
 pub(crate) trait HasBasicPpuMapping {
@@ -183,25 +159,25 @@ where
 }
 
 #[allow(clippy::large_enum_variant)]
-#[derive(Debug, Clone, Encode, Decode, MatchEachVariantMacro)]
+#[derive(Debug, Clone, Encode, Decode, PartialClone, MatchEachVariantMacro)]
 pub(crate) enum Mapper {
-    Axrom(MapperImpl<Axrom>),
-    BandaiFcg(MapperImpl<BandaiFcg>),
-    Bnrom(MapperImpl<Bnrom>),
-    Cnrom(MapperImpl<Cnrom>),
-    Gxrom(MapperImpl<Gxrom>),
-    Mmc1(MapperImpl<Mmc1>),
-    Mmc2(MapperImpl<Mmc2>),
-    Mmc3(MapperImpl<Mmc3>),
-    Mmc5(MapperImpl<Mmc5>),
-    Namco163(MapperImpl<Namco163>),
-    Namco175(MapperImpl<Namco175>),
-    Nrom(MapperImpl<Nrom>),
-    Sunsoft(MapperImpl<Sunsoft>),
-    Uxrom(MapperImpl<Uxrom>),
-    Vrc4(MapperImpl<Vrc4>),
-    Vrc6(MapperImpl<Vrc6>),
-    Vrc7(MapperImpl<Vrc7>),
+    Axrom(#[partial_clone(partial)] MapperImpl<Axrom>),
+    BandaiFcg(#[partial_clone(partial)] MapperImpl<BandaiFcg>),
+    Bnrom(#[partial_clone(partial)] MapperImpl<Bnrom>),
+    Cnrom(#[partial_clone(partial)] MapperImpl<Cnrom>),
+    Gxrom(#[partial_clone(partial)] MapperImpl<Gxrom>),
+    Mmc1(#[partial_clone(partial)] MapperImpl<Mmc1>),
+    Mmc2(#[partial_clone(partial)] MapperImpl<Mmc2>),
+    Mmc3(#[partial_clone(partial)] MapperImpl<Mmc3>),
+    Mmc5(#[partial_clone(partial)] MapperImpl<Mmc5>),
+    Namco163(#[partial_clone(partial)] MapperImpl<Namco163>),
+    Namco175(#[partial_clone(partial)] MapperImpl<Namco175>),
+    Nrom(#[partial_clone(partial)] MapperImpl<Nrom>),
+    Sunsoft(#[partial_clone(partial)] MapperImpl<Sunsoft>),
+    Uxrom(#[partial_clone(partial)] MapperImpl<Uxrom>),
+    Vrc4(#[partial_clone(partial)] MapperImpl<Vrc4>),
+    Vrc6(#[partial_clone(partial)] MapperImpl<Vrc6>),
+    Vrc7(#[partial_clone(partial)] MapperImpl<Vrc7>),
 }
 
 impl Mapper {
@@ -410,16 +386,6 @@ impl Mapper {
     pub(crate) fn move_rom_from(&mut self, other: &mut Self) {
         let other_cartridge = match_each_variant!(other, mapper => &mut mapper.cartridge);
         match_each_variant!(self, mapper => mapper.cartridge.move_rom_from(other_cartridge));
-    }
-
-    /// Clone all internal state except for the cartridge ROM fields, which will be set to empty
-    /// Vecs in the clone.
-    pub(crate) fn clone_without_rom(&self) -> Self {
-        let cartridge = match_each_variant!(self, mapper => &mapper.cartridge);
-        match_each_variant!(self, mapper => :variant(MapperImpl {
-            cartridge: cartridge.clone_without_rom(),
-            data: mapper.data.clone(),
-        }))
     }
 }
 

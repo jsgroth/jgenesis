@@ -1,8 +1,8 @@
 pub mod input;
 
 use crate::config::input::{
-    GenesisInputConfig, HotkeyConfig, JoystickInput, KeyboardInput, SmsGgInputConfig,
-    SnesControllerType, SnesInputConfig, SuperScopeConfig,
+    GenesisInputConfig, HotkeyConfig, JoystickInput, KeyboardInput, NesInputConfig,
+    SmsGgInputConfig, SnesControllerType, SnesInputConfig, SuperScopeConfig,
 };
 use genesis_core::{
     GenesisAspectRatio, GenesisControllerType, GenesisEmulatorConfig, GenesisRegion,
@@ -10,6 +10,7 @@ use genesis_core::{
 use jgenesis_common::frontend::{PixelAspectRatio, TimingMode};
 use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::RendererConfig;
+use nes_core::api::{NesAspectRatio, NesEmulatorConfig};
 use segacd_core::api::SegaCdEmulatorConfig;
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
@@ -217,6 +218,31 @@ impl SegaCdConfig {
         SegaCdEmulatorConfig {
             genesis: self.genesis.to_emulator_config(),
             enable_ram_cartridge: self.enable_ram_cartridge,
+        }
+    }
+}
+
+#[derive(Debug, Clone, ConfigDisplay)]
+pub struct NesConfig {
+    #[indent_nested]
+    pub common: CommonConfig<NesInputConfig<KeyboardInput>, NesInputConfig<JoystickInput>>,
+    pub forced_timing_mode: Option<TimingMode>,
+    pub aspect_ratio: NesAspectRatio,
+    pub remove_sprite_limit: bool,
+    pub pal_black_border: bool,
+    pub silence_ultrasonic_triangle_output: bool,
+    pub audio_refresh_rate_adjustment: bool,
+}
+
+impl NesConfig {
+    pub(crate) fn to_emulator_config(&self) -> NesEmulatorConfig {
+        NesEmulatorConfig {
+            forced_timing_mode: self.forced_timing_mode,
+            aspect_ratio: self.aspect_ratio,
+            remove_sprite_limit: self.remove_sprite_limit,
+            pal_black_border: self.pal_black_border,
+            silence_ultrasonic_triangle_output: self.silence_ultrasonic_triangle_output,
+            audio_refresh_rate_adjustment: self.audio_refresh_rate_adjustment,
         }
     }
 }

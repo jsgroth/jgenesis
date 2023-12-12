@@ -1,8 +1,8 @@
 //! Code for the IRQ counter that is used in the VRC4/VRC6/VRC7 boards. Behavior is identical on
 //! each board.
 
-use crate::num::GetBit;
 use bincode::{Decode, Encode};
+use jgenesis_common::num::GetBit;
 
 const PRESCALER_SEQUENCE: [u8; 3] = [114, 114, 113];
 
