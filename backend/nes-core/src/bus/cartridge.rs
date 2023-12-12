@@ -8,7 +8,7 @@ use bincode::de::{BorrowDecoder, Decoder};
 use bincode::enc::Encoder;
 use bincode::error::{DecodeError, EncodeError};
 use bincode::{BorrowDecode, Decode, Encode};
-use jgnes_proc_macros::MatchEachVariantMacro;
+use jgenesis_proc_macros::MatchEachVariantMacro;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::{io, mem};

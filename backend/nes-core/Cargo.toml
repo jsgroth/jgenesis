@@ -1,0 +1,20 @@
+[package]
+name = "nes-core"
+version = "0.6.2"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+jgenesis-common = { path = "../../jgenesis-common" }
+jgenesis-proc-macros = { path = "../../jgenesis-proc-macros" }
+
+bincode = { workspace = true, features = ["serde"] }
+log = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tinyvec = { workspace = true, features = ["serde"] }
+
+[lints]
+workspace = true
