@@ -1171,6 +1171,7 @@ impl App {
             self.emu_thread.send(EmuThreadCommand::CollectInput {
                 input_type,
                 axis_deadzone: self.config.inputs.axis_deadzone,
+                ctx: ui.ctx().clone(),
             });
             self.state.waiting_for_input = Some(button);
         }
@@ -1328,6 +1329,7 @@ impl App {
             self.emu_thread.send(EmuThreadCommand::CollectInput {
                 input_type: InputType::Keyboard,
                 axis_deadzone: self.config.inputs.axis_deadzone,
+                ctx: ui.ctx().clone(),
             });
             self.state.waiting_for_input = Some(GenericButton::Hotkey(hotkey));
         }
@@ -1357,6 +1359,7 @@ impl App {
             self.emu_thread.send(EmuThreadCommand::CollectInput {
                 input_type: InputType::KeyboardOrMouse,
                 axis_deadzone: self.config.inputs.axis_deadzone,
+                ctx: ui.ctx().clone(),
             });
             self.state.waiting_for_input =
                 Some(GenericButton::Snes(SnesButton::SuperScope(button)));

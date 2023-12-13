@@ -72,7 +72,7 @@ pub enum EmuThreadCommand {
     ReloadNesConfig(Box<NesConfig>),
     ReloadSnesConfig(Box<SnesConfig>),
     StopEmulator,
-    CollectInput { input_type: InputType, axis_deadzone: i16 },
+    CollectInput { input_type: InputType, axis_deadzone: i16, ctx: egui::Context },
     SoftReset,
     HardReset,
     SegaCdRemoveDisc,
@@ -261,10 +261,11 @@ pub fn spawn() -> EmuThreadHandle {
                         &emulator_error,
                     );
                 }
-                Ok(EmuThreadCommand::CollectInput { input_type, axis_deadzone }) => {
+                Ok(EmuThreadCommand::CollectInput { input_type, axis_deadzone, ctx }) => {
                     match collect_input_not_running(input_type, axis_deadzone) {
                         Ok(input) => {
                             input_sender.send(input).unwrap();
+                            ctx.request_repaint();
                         }
                         Err(err) => {
                             log::error!("Error collecting SDL2 input: {err}");
@@ -444,7 +445,7 @@ fn run_emulator(
                             log::info!("Stopping emulator");
                             return;
                         }
-                        EmuThreadCommand::CollectInput { input_type, axis_deadzone } => {
+                        EmuThreadCommand::CollectInput { input_type, axis_deadzone, ctx } => {
                             log::debug!("Received collect input command");
 
                             emulator.focus();
@@ -463,6 +464,7 @@ fn run_emulator(
 
                             log::debug!("Sending collect input result {input:?}");
                             input_sender.send(input).unwrap();
+                            ctx.request_repaint();
 
                             if is_none {
                                 // Window was closed
