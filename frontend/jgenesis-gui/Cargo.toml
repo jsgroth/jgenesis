@@ -7,13 +7,15 @@ edition = "2021"
 
 [dependencies]
 genesis-core = { path = "../../backend/genesis-core", features = ["serde"] }
+nes-core = { path = "../../backend/nes-core", features = ["serde"] }
 segacd-core = { path = "../../backend/segacd-core" }
 smsgg-core = { path = "../../backend/smsgg-core", features = ["serde"] }
 snes-core = { path = "../../backend/snes-core", features = ["serde"] }
 
-jgenesis-native-driver = { path = "../jgenesis-native-driver" }
-jgenesis-renderer = { path = "../jgenesis-renderer" }
 jgenesis-common = { path = "../../jgenesis-common", features = ["serde"] }
+jgenesis-native-driver = { path = "../jgenesis-native-driver" }
+jgenesis-proc-macros = { path = "../../jgenesis-proc-macros" }
+jgenesis-renderer = { path = "../jgenesis-renderer" }
 
 anyhow = { workspace = true }
 bincode = { workspace = true }

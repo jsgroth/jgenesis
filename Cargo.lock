@@ -1926,6 +1926,7 @@ dependencies = [
  "jgenesis-proc-macros",
  "jgenesis-renderer",
  "log",
+ "nes-core",
  "smsgg-core",
  "snes-core",
 ]
@@ -1953,8 +1954,10 @@ dependencies = [
  "genesis-core",
  "jgenesis-common",
  "jgenesis-native-driver",
+ "jgenesis-proc-macros",
  "jgenesis-renderer",
  "log",
+ "nes-core",
  "regex",
  "rfd",
  "sdl2",
@@ -1980,6 +1983,7 @@ dependencies = [
  "jgenesis-proc-macros",
  "jgenesis-renderer",
  "log",
+ "nes-core",
  "pollster",
  "sdl2",
  "segacd-core",
@@ -2349,6 +2353,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3cf2aae958bd232cac5069850591667ad422d263686d75b52a065f9badeee5a3"
 dependencies = [
  "jni-sys",
+]
+
+[[package]]
+name = "nes-core"
+version = "0.6.2"
+dependencies = [
+ "bincode",
+ "jgenesis-common",
+ "jgenesis-proc-macros",
+ "log",
+ "rand",
+ "serde",
+ "thiserror",
 ]
 
 [[package]]

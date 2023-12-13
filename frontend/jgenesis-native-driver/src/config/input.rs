@@ -109,268 +109,132 @@ impl Display for KeyboardOrMouseInput {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SmsGgControllerConfig<Input> {
-    pub up: Option<Input>,
-    pub left: Option<Input>,
-    pub right: Option<Input>,
-    pub down: Option<Input>,
-    pub button_1: Option<Input>,
-    pub button_2: Option<Input>,
-    // Pause is actually shared between the two controllers but it's simpler to map it this way
-    pub pause: Option<Input>,
-}
-
-impl<Input> Default for SmsGgControllerConfig<Input> {
-    fn default() -> Self {
-        Self {
-            up: None,
-            left: None,
-            right: None,
-            down: None,
-            button_1: None,
-            button_2: None,
-            pause: None,
-        }
-    }
-}
-
-impl<Input: Display> Display for SmsGgControllerConfig<Input> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{{ up: {}, left: {}, right: {}, down: {}, 1: {}, 2: {}, pause: {} }}",
-            fmt_option(self.up.as_ref()),
-            fmt_option(self.left.as_ref()),
-            fmt_option(self.right.as_ref()),
-            fmt_option(self.down.as_ref()),
-            fmt_option(self.button_1.as_ref()),
-            fmt_option(self.button_2.as_ref()),
-            fmt_option(self.pause.as_ref())
-        )
-    }
-}
-
-fn fmt_option<T: Display>(option: Option<&T>) -> String {
-    match option {
-        Some(value) => format!("{value}"),
-        None => "<None>".into(),
-    }
-}
-
-#[derive(Debug, Clone, ConfigDisplay)]
-pub struct SmsGgInputConfig<Input> {
-    pub p1: SmsGgControllerConfig<Input>,
-    pub p2: SmsGgControllerConfig<Input>,
-}
-
 macro_rules! key_input {
     ($key:ident) => {
         Some(KeyboardInput { keycode: Keycode::$key.name() })
     };
 }
 
-impl Default for SmsGgInputConfig<KeyboardInput> {
-    fn default() -> Self {
-        Self {
-            p1: SmsGgControllerConfig {
-                up: key_input!(Up),
-                left: key_input!(Left),
-                right: key_input!(Right),
-                down: key_input!(Down),
-                button_1: key_input!(S),
-                button_2: key_input!(A),
-                pause: key_input!(Return),
-            },
-            p2: SmsGgControllerConfig::default(),
+macro_rules! define_input_config {
+    (
+        controller_cfg_name: $controller_cfg_name:ident,
+        input_cfg_name: $input_cfg_name:ident,
+        buttons: [$($button:ident: default $keycode:ident),* $(,)?] $(,)?
+    ) => {
+        #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
+        pub struct $controller_cfg_name<Input> {
+            $(
+                pub $button: Option<Input>,
+            )*
+        }
+
+        impl<Input> Default for $controller_cfg_name<Input> {
+            fn default() -> Self {
+                Self {
+                    $(
+                        $button: None,
+                    )*
+                }
+            }
+        }
+
+        #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
+        pub struct $input_cfg_name<Input> {
+            #[indent_nested]
+            pub p1: $controller_cfg_name<Input>,
+            #[indent_nested]
+            pub p2: $controller_cfg_name<Input>,
+        }
+
+        impl Default for $input_cfg_name<KeyboardInput> {
+            fn default() -> Self {
+                Self {
+                    p1: $controller_cfg_name {
+                        $(
+                            $button: key_input!($keycode),
+                        )*
+                    },
+                    p2: $controller_cfg_name::default(),
+                }
+            }
+        }
+
+        impl Default for $input_cfg_name<JoystickInput> {
+            fn default() -> Self {
+                Self {
+                    p1: $controller_cfg_name::default(),
+                    p2: $controller_cfg_name::default(),
+                }
+            }
         }
     }
 }
 
-impl Default for SmsGgInputConfig<JoystickInput> {
-    fn default() -> Self {
-        Self { p1: SmsGgControllerConfig::default(), p2: SmsGgControllerConfig::default() }
-    }
+define_input_config! {
+    controller_cfg_name: SmsGgControllerConfig,
+    input_cfg_name: SmsGgInputConfig,
+    buttons: [
+        up: default Up,
+        left: default Left,
+        right: default Right,
+        down: default Down,
+        button_1: default S,
+        button_2: default A,
+        pause: default Return,
+    ],
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GenesisControllerConfig<Input> {
-    pub up: Option<Input>,
-    pub left: Option<Input>,
-    pub right: Option<Input>,
-    pub down: Option<Input>,
-    pub a: Option<Input>,
-    pub b: Option<Input>,
-    pub c: Option<Input>,
-    pub x: Option<Input>,
-    pub y: Option<Input>,
-    pub z: Option<Input>,
-    pub start: Option<Input>,
-    pub mode: Option<Input>,
+define_input_config! {
+    controller_cfg_name: GenesisControllerConfig,
+    input_cfg_name: GenesisInputConfig,
+    buttons: [
+        up: default Up,
+        left: default Left,
+        right: default Right,
+        down: default Down,
+        a: default A,
+        b: default S,
+        c: default D,
+        x: default Q,
+        y: default W,
+        z: default E,
+        start: default Return,
+        mode: default RShift,
+    ],
 }
 
-impl<Input> Default for GenesisControllerConfig<Input> {
-    fn default() -> Self {
-        Self {
-            up: None,
-            left: None,
-            right: None,
-            down: None,
-            a: None,
-            b: None,
-            c: None,
-            x: None,
-            y: None,
-            z: None,
-            start: None,
-            mode: None,
-        }
-    }
+define_input_config! {
+    controller_cfg_name: NesControllerConfig,
+    input_cfg_name: NesInputConfig,
+    buttons: [
+        up: default Up,
+        left: default Left,
+        right: default Right,
+        down: default Down,
+        a: default A,
+        b: default S,
+        start: default Return,
+        select: default RShift,
+    ],
 }
 
-impl<Input: Display> Display for GenesisControllerConfig<Input> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{{ up: {}, left: {}, right: {}, down: {}, a: {}, b: {}, c: {}, x: {}, y: {}, z: {}, start: {}, mode: {} }}",
-            fmt_option(self.up.as_ref()),
-            fmt_option(self.left.as_ref()),
-            fmt_option(self.right.as_ref()),
-            fmt_option(self.down.as_ref()),
-            fmt_option(self.a.as_ref()),
-            fmt_option(self.b.as_ref()),
-            fmt_option(self.c.as_ref()),
-            fmt_option(self.x.as_ref()),
-            fmt_option(self.y.as_ref()),
-            fmt_option(self.z.as_ref()),
-            fmt_option(self.start.as_ref()),
-            fmt_option(self.mode.as_ref())
-        )
-    }
-}
-
-#[derive(Debug, Clone, ConfigDisplay)]
-pub struct GenesisInputConfig<Input> {
-    pub p1: GenesisControllerConfig<Input>,
-    pub p2: GenesisControllerConfig<Input>,
-}
-
-impl Default for GenesisInputConfig<KeyboardInput> {
-    fn default() -> Self {
-        Self {
-            p1: GenesisControllerConfig {
-                up: key_input!(Up),
-                left: key_input!(Left),
-                right: key_input!(Right),
-                down: key_input!(Down),
-                a: key_input!(A),
-                b: key_input!(S),
-                c: key_input!(D),
-                x: key_input!(Q),
-                y: key_input!(W),
-                z: key_input!(E),
-                start: key_input!(Return),
-                mode: key_input!(RShift),
-            },
-            p2: GenesisControllerConfig::default(),
-        }
-    }
-}
-
-impl Default for GenesisInputConfig<JoystickInput> {
-    fn default() -> Self {
-        Self { p1: GenesisControllerConfig::default(), p2: GenesisControllerConfig::default() }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SnesControllerConfig<Input> {
-    pub up: Option<Input>,
-    pub left: Option<Input>,
-    pub right: Option<Input>,
-    pub down: Option<Input>,
-    pub a: Option<Input>,
-    pub b: Option<Input>,
-    pub x: Option<Input>,
-    pub y: Option<Input>,
-    pub l: Option<Input>,
-    pub r: Option<Input>,
-    pub start: Option<Input>,
-    pub select: Option<Input>,
-}
-
-impl<Input> Default for SnesControllerConfig<Input> {
-    fn default() -> Self {
-        Self {
-            up: None,
-            left: None,
-            right: None,
-            down: None,
-            a: None,
-            b: None,
-            x: None,
-            y: None,
-            l: None,
-            r: None,
-            start: None,
-            select: None,
-        }
-    }
-}
-
-impl<Input: Display> Display for SnesControllerConfig<Input> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{{ up: {}, left: {}, right: {}, down: {}, a: {}, b: {}, x: {}, y: {}, l: {}, r: {}, start: {}, select: {} }}",
-            fmt_option(self.up.as_ref()),
-            fmt_option(self.left.as_ref()),
-            fmt_option(self.right.as_ref()),
-            fmt_option(self.down.as_ref()),
-            fmt_option(self.a.as_ref()),
-            fmt_option(self.b.as_ref()),
-            fmt_option(self.x.as_ref()),
-            fmt_option(self.y.as_ref()),
-            fmt_option(self.l.as_ref()),
-            fmt_option(self.r.as_ref()),
-            fmt_option(self.start.as_ref()),
-            fmt_option(self.select.as_ref())
-        )
-    }
-}
-
-#[derive(Debug, Clone, ConfigDisplay)]
-pub struct SnesInputConfig<Input> {
-    pub p1: SnesControllerConfig<Input>,
-    pub p2: SnesControllerConfig<Input>,
-}
-
-impl Default for SnesInputConfig<KeyboardInput> {
-    fn default() -> Self {
-        Self {
-            p1: SnesControllerConfig {
-                up: key_input!(Up),
-                left: key_input!(Left),
-                right: key_input!(Right),
-                down: key_input!(Down),
-                a: key_input!(S),
-                b: key_input!(X),
-                x: key_input!(A),
-                y: key_input!(Z),
-                l: key_input!(D),
-                r: key_input!(C),
-                start: key_input!(Return),
-                select: key_input!(RShift),
-            },
-            p2: SnesControllerConfig::default(),
-        }
-    }
-}
-
-impl Default for SnesInputConfig<JoystickInput> {
-    fn default() -> Self {
-        Self { p1: SnesControllerConfig::default(), p2: SnesControllerConfig::default() }
-    }
+define_input_config! {
+    controller_cfg_name: SnesControllerConfig,
+    input_cfg_name: SnesInputConfig,
+    buttons: [
+        up: default Up,
+        left: default Left,
+        right: default Right,
+        down: default Down,
+        a: default S,
+        b: default X,
+        x: default A,
+        y: default Z,
+        l: default D,
+        r: default C,
+        start: default Return,
+        select: default RShift,
+    ],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]

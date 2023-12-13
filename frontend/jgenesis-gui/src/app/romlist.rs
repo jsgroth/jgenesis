@@ -1,3 +1,4 @@
+use jgenesis_proc_macros::EnumAll;
 use regex::Regex;
 use std::collections::HashSet;
 use std::ffi::OsStr;
@@ -5,12 +6,13 @@ use std::path::Path;
 use std::sync::OnceLock;
 use std::{fs, io};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumAll)]
 pub enum Console {
     MasterSystem,
     GameGear,
     Genesis,
     SegaCd,
+    Nes,
     Snes,
 }
 
@@ -21,6 +23,7 @@ impl Console {
             "gg" => Some(Self::GameGear),
             "md" | "bin" => Some(Self::Genesis),
             "cue" => Some(Self::SegaCd),
+            "nes" => Some(Self::Nes),
             "sfc" | "smc" => Some(Self::Snes),
             _ => None,
         }
@@ -32,6 +35,7 @@ impl Console {
             Self::GameGear => "Game Gear",
             Self::Genesis => "Genesis",
             Self::SegaCd => "Sega CD",
+            Self::Nes => "NES",
             Self::Snes => "SNES",
         }
     }

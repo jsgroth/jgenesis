@@ -308,7 +308,7 @@ mod tests {
         let mut slice = [0; SERIALIZATION_BUFFER_LEN];
 
         let rtc = Rtc4513::new();
-        let result = bincode::encode_into_slice(&rtc, &mut slice[SRAM_LEN..], bincode_config!());
+        let result = bincode::encode_into_slice(rtc, &mut slice[SRAM_LEN..], bincode_config!());
         assert!(result.is_ok());
         assert!(result.unwrap() < SERIALIZATION_BUFFER_LEN - SRAM_LEN);
     }

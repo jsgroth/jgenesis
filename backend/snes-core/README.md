@@ -4,7 +4,7 @@ Emulation core for the Super Nintendo Entertainment System (SNES) / Super Famico
 
 This system contains the following components:
 * 65C816 CPU clocked at 3.58 MHz
-  * The SNES augments this CPU with some additional components, including moderately fast multiplication and division units
+  * The SNES augments this CPU with some additional components, including multiplication and division units
 * Technically two PPUs (picture processing units), though they function as a single unit
   * Can render in 256x224, 256x239, 512x224, 512x239, 512x448, or 512x478
     * 512px resolutions were not commonly used due to memory usage and the quality of 90s TV setups

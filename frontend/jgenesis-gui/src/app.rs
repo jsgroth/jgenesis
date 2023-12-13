@@ -1,219 +1,79 @@
+mod common;
+mod genesis;
 mod input;
+mod nes;
 mod romlist;
+mod smsgg;
+mod snes;
 
+use crate::app::common::CommonAppConfig;
+use crate::app::genesis::{GenesisAppConfig, SegaCdAppConfig};
 use crate::app::input::{GenericButton, InputAppConfig};
-use crate::app::romlist::RomMetadata;
+use crate::app::nes::{NesAppConfig, OverscanState};
+use crate::app::romlist::{Console, RomMetadata};
+use crate::app::smsgg::SmsGgAppConfig;
+use crate::app::snes::SnesAppConfig;
 use crate::emuthread;
 use crate::emuthread::{EmuThreadCommand, EmuThreadHandle, EmuThreadStatus};
 use eframe::Frame;
 use egui::panel::TopBottomSide;
 use egui::{
     menu, Align, Button, CentralPanel, Color32, Context, Key, KeyboardShortcut, Layout, Modifiers,
-    TextEdit, TopBottomPanel, Vec2, Widget, Window,
+    Response, TextEdit, TopBottomPanel, Ui, Vec2, Widget, Window,
 };
 use egui_extras::{Column, TableBuilder};
-use genesis_core::{GenesisAspectRatio, GenesisRegion};
-use jgenesis_common::frontend::TimingMode;
-use jgenesis_native_driver::config::{
-    CommonConfig, GenesisConfig, GgAspectRatio, SegaCdConfig, SmsAspectRatio, SmsGgConfig,
-    SnesConfig, WindowSize,
-};
-use jgenesis_renderer::config::{
-    FilterMode, PreprocessShader, PrescaleFactor, RendererConfig, Scanlines, VSyncMode, WgpuBackend,
-};
+use jgenesis_renderer::config::Scanlines;
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
-use smsgg_core::psg::PsgVersion;
-use smsgg_core::{SmsRegion, VdpVersion};
-use snes_core::api::SnesAspectRatio;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fs;
-use std::num::{NonZeroU32, NonZeroU64};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::str::FromStr;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct CommonAppConfig {
-    #[serde(default = "true_fn")]
-    audio_sync: bool,
-    #[serde(default = "default_audio_device_queue_size")]
-    audio_device_queue_size: u16,
-    #[serde(default = "default_internal_audio_buffer_size")]
-    internal_audio_buffer_size: u32,
-    #[serde(default = "default_audio_sync_threshold")]
-    audio_sync_threshold: u32,
-    #[serde(default)]
-    audio_gain_db: f64,
-    window_width: Option<u32>,
-    window_height: Option<u32>,
-    #[serde(default)]
-    launch_in_fullscreen: bool,
-    #[serde(default)]
-    wgpu_backend: WgpuBackend,
-    #[serde(default)]
-    vsync_mode: VSyncMode,
-    #[serde(default = "default_prescale_factor")]
-    prescale_factor: PrescaleFactor,
-    #[serde(default)]
-    scanlines: Scanlines,
-    #[serde(default)]
-    force_integer_height_scaling: bool,
-    #[serde(default)]
-    filter_mode: FilterMode,
-    #[serde(default)]
-    preprocess_shader: PreprocessShader,
-    #[serde(default = "default_fast_forward_multiplier")]
-    fast_forward_multiplier: u64,
-    #[serde(default = "default_rewind_buffer_length")]
-    rewind_buffer_length_seconds: u64,
-    #[serde(default = "true_fn")]
-    hide_cursor_over_window: bool,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+struct ConsoleFilters {
+    master_system: bool,
+    game_gear: bool,
+    genesis: bool,
+    sega_cd: bool,
+    nes: bool,
+    snes: bool,
 }
 
-impl CommonAppConfig {
-    fn window_size(&self) -> Option<WindowSize> {
-        match (self.window_width, self.window_height) {
-            (Some(width), Some(height)) => Some(WindowSize { width, height }),
-            _ => None,
+impl Default for ConsoleFilters {
+    fn default() -> Self {
+        Self {
+            master_system: true,
+            game_gear: true,
+            genesis: true,
+            sega_cd: true,
+            nes: true,
+            snes: true,
         }
     }
 }
 
-impl Default for CommonAppConfig {
-    fn default() -> Self {
-        toml::from_str("").unwrap()
+impl ConsoleFilters {
+    fn to_vec(self) -> Vec<Console> {
+        [
+            self.master_system.then_some(Console::MasterSystem),
+            self.game_gear.then_some(Console::GameGear),
+            self.genesis.then_some(Console::Genesis),
+            self.sega_cd.then_some(Console::SegaCd),
+            self.nes.then_some(Console::Nes),
+            self.snes.then_some(Console::Snes),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
     }
-}
 
-fn true_fn() -> bool {
-    true
-}
-
-fn default_audio_device_queue_size() -> u16 {
-    512
-}
-
-fn default_internal_audio_buffer_size() -> u32 {
-    64
-}
-
-fn default_audio_sync_threshold() -> u32 {
-    8192
-}
-
-fn default_prescale_factor() -> PrescaleFactor {
-    PrescaleFactor::from(NonZeroU32::new(3).unwrap())
-}
-
-fn default_fast_forward_multiplier() -> u64 {
-    2
-}
-
-fn default_rewind_buffer_length() -> u64 {
-    10
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-enum SmsModel {
-    Sms1,
-    #[default]
-    Sms2,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct SmsGgAppConfig {
-    psg_version: Option<PsgVersion>,
-    #[serde(default)]
-    remove_sprite_limit: bool,
-    #[serde(default)]
-    sms_aspect_ratio: SmsAspectRatio,
-    #[serde(default)]
-    gg_aspect_ratio: GgAspectRatio,
-    #[serde(default)]
-    sms_region: SmsRegion,
-    #[serde(default)]
-    sms_timing_mode: TimingMode,
-    #[serde(default)]
-    sms_model: SmsModel,
-    #[serde(default)]
-    sms_crop_vertical_border: bool,
-    #[serde(default)]
-    sms_crop_left_border: bool,
-    #[serde(default = "true_fn")]
-    fm_sound_unit_enabled: bool,
-    #[serde(default)]
-    overclock_z80: bool,
-}
-
-impl Default for SmsGgAppConfig {
-    fn default() -> Self {
-        toml::from_str("").unwrap()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct GenesisAppConfig {
-    #[serde(default)]
-    forced_timing_mode: Option<TimingMode>,
-    #[serde(default)]
-    forced_region: Option<GenesisRegion>,
-    #[serde(default)]
-    aspect_ratio: GenesisAspectRatio,
-    #[serde(default = "true_fn")]
-    adjust_aspect_ratio_in_2x_resolution: bool,
-    #[serde(default)]
-    remove_sprite_limits: bool,
-    #[serde(default)]
-    emulate_non_linear_vdp_dac: bool,
-    #[serde(default = "true_fn")]
-    quantize_ym2612_output: bool,
-}
-
-impl Default for GenesisAppConfig {
-    fn default() -> Self {
-        toml::from_str("").unwrap()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct SegaCdAppConfig {
-    bios_path: Option<String>,
-    #[serde(default = "true_fn")]
-    enable_ram_cartridge: bool,
-}
-
-impl Default for SegaCdAppConfig {
-    fn default() -> Self {
-        toml::from_str("").unwrap()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct SnesAppConfig {
-    forced_timing_mode: Option<TimingMode>,
-    #[serde(default)]
-    aspect_ratio: SnesAspectRatio,
-    #[serde(default = "true_fn")]
-    audio_60hz_hack: bool,
-    #[serde(default = "default_gsu_overclock")]
-    gsu_overclock_factor: NonZeroU64,
-    dsp1_rom_path: Option<String>,
-    dsp2_rom_path: Option<String>,
-    dsp3_rom_path: Option<String>,
-    dsp4_rom_path: Option<String>,
-    st010_rom_path: Option<String>,
-    st011_rom_path: Option<String>,
-}
-
-fn default_gsu_overclock() -> NonZeroU64 {
-    NonZeroU64::new(1).unwrap()
-}
-
-impl Default for SnesAppConfig {
-    fn default() -> Self {
-        toml::from_str("").unwrap()
+    fn apply(self, rom_list: &[RomMetadata]) -> impl Iterator<Item = &RomMetadata> + '_ {
+        let filters = self.to_vec();
+        rom_list.iter().filter(move |metadata| filters.contains(&metadata.console))
     }
 }
 
@@ -228,9 +88,13 @@ pub struct AppConfig {
     #[serde(default)]
     sega_cd: SegaCdAppConfig,
     #[serde(default)]
+    nes: NesAppConfig,
+    #[serde(default)]
     snes: SnesAppConfig,
     #[serde(default)]
     inputs: InputAppConfig,
+    #[serde(default)]
+    console_filters: ConsoleFilters,
     #[serde(default)]
     rom_search_dirs: Vec<String>,
     #[serde(default)]
@@ -246,122 +110,6 @@ impl AppConfig {
             toml::from_str("").unwrap()
         })
     }
-
-    fn common_config<KC, JC>(
-        &self,
-        path: String,
-        keyboard_inputs: KC,
-        joystick_inputs: JC,
-    ) -> CommonConfig<KC, JC> {
-        CommonConfig {
-            rom_file_path: path,
-            audio_sync: self.common.audio_sync,
-            audio_device_queue_size: self.common.audio_device_queue_size,
-            internal_audio_buffer_size: self.common.internal_audio_buffer_size,
-            audio_sync_threshold: self.common.audio_sync_threshold,
-            audio_gain_db: self.common.audio_gain_db,
-            window_size: self.common.window_size(),
-            renderer_config: RendererConfig {
-                wgpu_backend: self.common.wgpu_backend,
-                vsync_mode: self.common.vsync_mode,
-                prescale_factor: self.common.prescale_factor,
-                scanlines: self.common.scanlines,
-                force_integer_height_scaling: self.common.force_integer_height_scaling,
-                filter_mode: self.common.filter_mode,
-                preprocess_shader: self.common.preprocess_shader,
-                use_webgl2_limits: false,
-            },
-            fast_forward_multiplier: self.common.fast_forward_multiplier,
-            rewind_buffer_length_seconds: self.common.rewind_buffer_length_seconds,
-            launch_in_fullscreen: self.common.launch_in_fullscreen,
-            keyboard_inputs,
-            axis_deadzone: self.inputs.axis_deadzone,
-            joystick_inputs,
-            hotkeys: self.inputs.hotkeys.clone(),
-            hide_cursor_over_window: self.common.hide_cursor_over_window,
-        }
-    }
-
-    fn smsgg_config(&self, path: String) -> Box<SmsGgConfig> {
-        let vdp_version = if Path::new(&path).extension().and_then(OsStr::to_str) == Some("sms") {
-            match (self.smsgg.sms_timing_mode, self.smsgg.sms_model) {
-                (TimingMode::Ntsc, SmsModel::Sms2) => Some(VdpVersion::NtscMasterSystem2),
-                (TimingMode::Pal, SmsModel::Sms2) => Some(VdpVersion::PalMasterSystem2),
-                (TimingMode::Ntsc, SmsModel::Sms1) => Some(VdpVersion::NtscMasterSystem1),
-                (TimingMode::Pal, SmsModel::Sms1) => Some(VdpVersion::PalMasterSystem1),
-            }
-        } else {
-            None
-        };
-
-        Box::new(SmsGgConfig {
-            common: self.common_config(
-                path,
-                self.inputs.to_smsgg_keyboard_config(),
-                self.inputs.to_smsgg_joystick_config(),
-            ),
-            vdp_version,
-            psg_version: self.smsgg.psg_version,
-            remove_sprite_limit: self.smsgg.remove_sprite_limit,
-            sms_aspect_ratio: self.smsgg.sms_aspect_ratio,
-            gg_aspect_ratio: self.smsgg.gg_aspect_ratio,
-            sms_region: self.smsgg.sms_region,
-            sms_crop_vertical_border: self.smsgg.sms_crop_vertical_border,
-            sms_crop_left_border: self.smsgg.sms_crop_left_border,
-            fm_sound_unit_enabled: self.smsgg.fm_sound_unit_enabled,
-            overclock_z80: self.smsgg.overclock_z80,
-        })
-    }
-
-    fn genesis_config(&self, path: String) -> Box<GenesisConfig> {
-        Box::new(GenesisConfig {
-            common: self.common_config(
-                path,
-                self.inputs.to_genesis_keyboard_config(),
-                self.inputs.to_genesis_joystick_config(),
-            ),
-            p1_controller_type: self.inputs.genesis_p1_type,
-            p2_controller_type: self.inputs.genesis_p2_type,
-            forced_timing_mode: self.genesis.forced_timing_mode,
-            forced_region: self.genesis.forced_region,
-            aspect_ratio: self.genesis.aspect_ratio,
-            adjust_aspect_ratio_in_2x_resolution: self.genesis.adjust_aspect_ratio_in_2x_resolution,
-            remove_sprite_limits: self.genesis.remove_sprite_limits,
-            emulate_non_linear_vdp_dac: self.genesis.emulate_non_linear_vdp_dac,
-            quantize_ym2612_output: self.genesis.quantize_ym2612_output,
-        })
-    }
-
-    fn sega_cd_config(&self, path: String) -> Box<SegaCdConfig> {
-        Box::new(SegaCdConfig {
-            genesis: *self.genesis_config(path),
-            bios_file_path: self.sega_cd.bios_path.clone(),
-            enable_ram_cartridge: self.sega_cd.enable_ram_cartridge,
-            run_without_disc: false,
-        })
-    }
-
-    fn snes_config(&self, path: String) -> Box<SnesConfig> {
-        Box::new(SnesConfig {
-            common: self.common_config(
-                path,
-                self.inputs.to_snes_keyboard_config(),
-                self.inputs.to_snes_joystick_config(),
-            ),
-            p2_controller_type: self.inputs.snes_p2_type,
-            super_scope_config: self.inputs.snes_super_scope.clone(),
-            forced_timing_mode: self.snes.forced_timing_mode,
-            aspect_ratio: self.snes.aspect_ratio,
-            audio_60hz_hack: self.snes.audio_60hz_hack,
-            gsu_overclock_factor: self.snes.gsu_overclock_factor,
-            dsp1_rom_path: self.snes.dsp1_rom_path.clone(),
-            dsp2_rom_path: self.snes.dsp2_rom_path.clone(),
-            dsp3_rom_path: self.snes.dsp3_rom_path.clone(),
-            dsp4_rom_path: self.snes.dsp4_rom_path.clone(),
-            st010_rom_path: self.snes.st010_rom_path.clone(),
-            st011_rom_path: self.snes.st011_rom_path.clone(),
-        })
-    }
 }
 
 impl Default for AppConfig {
@@ -374,20 +122,25 @@ impl Default for AppConfig {
 enum OpenWindow {
     SmsGgGeneral,
     GenesisGeneral,
+    NesGeneral,
     SnesGeneral,
     Interface,
     CommonVideo,
     SmsGgVideo,
     GenesisVideo,
+    NesVideo,
     SnesVideo,
     CommonAudio,
     SmsGgAudio,
     GenesisAudio,
+    NesAudio,
     SnesAudio,
     SmsGgKeyboard,
     SmsGgGamepad,
     GenesisKeyboard,
     GenesisGamepad,
+    NesKeyboard,
+    NesGamepad,
     SnesKeyboard,
     SnesGamepad,
     SnesPeripherals,
@@ -416,6 +169,7 @@ struct AppState {
     audio_gain_text: String,
     audio_gain_invalid: bool,
     display_scanlines_warning: bool,
+    overscan: OverscanState,
     waiting_for_input: Option<GenericButton>,
     rom_list: Rc<RefCell<Vec<RomMetadata>>>,
     recent_open_list: Vec<RomMetadata>,
@@ -445,6 +199,7 @@ impl AppState {
             audio_sync_threshold_invalid: false,
             audio_gain_text: format!("{:.1}", config.common.audio_gain_db),
             audio_gain_invalid: false,
+            overscan: config.nes.overscan().into(),
             display_scanlines_warning: should_display_scanlines_warning(config),
             waiting_for_input: None,
             rom_list: Rc::new(RefCell::new(rom_list)),
@@ -459,14 +214,60 @@ fn should_display_scanlines_warning(config: &AppConfig) -> bool {
             || !config.common.force_integer_height_scaling)
 }
 
+struct NumericTextEdit<'a, T> {
+    text: &'a mut String,
+    value: &'a mut T,
+    invalid: &'a mut bool,
+    validation_fn: Box<dyn Fn(T) -> bool>,
+    desired_width: Option<f32>,
+}
+
+impl<'a, T> NumericTextEdit<'a, T> {
+    fn new(text: &'a mut String, value: &'a mut T, invalid: &'a mut bool) -> Self {
+        Self { text, value, invalid, validation_fn: Box::new(|_| true), desired_width: None }
+    }
+
+    fn with_validation(mut self, validation_fn: impl Fn(T) -> bool + 'static) -> Self {
+        self.validation_fn = Box::new(validation_fn);
+        self
+    }
+
+    fn desired_width(mut self, desired_width: f32) -> Self {
+        self.desired_width = Some(desired_width);
+        self
+    }
+}
+
+impl<'a, T: Copy + FromStr> Widget for NumericTextEdit<'a, T> {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let mut text_edit = TextEdit::singleline(self.text);
+        if let Some(desired_width) = self.desired_width {
+            text_edit = text_edit.desired_width(desired_width);
+        }
+
+        let response = text_edit.ui(ui);
+        if response.changed() {
+            match self.text.parse::<T>() {
+                Ok(value) if (self.validation_fn)(value) => {
+                    *self.value = value;
+                    *self.invalid = false;
+                }
+                _ => {
+                    *self.invalid = true;
+                }
+            }
+        }
+
+        response
+    }
+}
+
 pub struct App {
     config: AppConfig,
     state: AppState,
     config_path: PathBuf,
     emu_thread: EmuThreadHandle,
 }
-
-const MAX_PRESCALE_FACTOR: u32 = 20;
 
 impl App {
     #[must_use]
@@ -483,8 +284,10 @@ impl App {
             return;
         }
 
-        let mut file_dialog = FileDialog::new()
-            .add_filter("sms/gg/md/cue/bin/sfc", &["sms", "gg", "md", "bin", "cue", "sfc", "smc"]);
+        let mut file_dialog = FileDialog::new().add_filter(
+            "Supported ROM files",
+            &["sms", "gg", "md", "bin", "cue", "nes", "sfc", "smc"],
+        );
         if let Some(dir) = self.config.rom_search_dirs.first() {
             file_dialog = file_dialog.set_directory(Path::new(dir));
         }
@@ -522,7 +325,13 @@ impl App {
                 let config = self.config.sega_cd_config(path);
                 self.emu_thread.send(EmuThreadCommand::RunSegaCd(config));
             }
-            Some("sfc" | "Smc") => {
+            Some("nes") => {
+                self.emu_thread.stop_emulator_if_running();
+
+                let config = self.config.nes_config(path);
+                self.emu_thread.send(EmuThreadCommand::RunNes(config));
+            }
+            Some("sfc" | "smc") => {
                 self.emu_thread.stop_emulator_if_running();
 
                 let config = self.config.snes_config(path);
@@ -541,263 +350,6 @@ impl App {
         *self.state.rom_list.borrow_mut() = romlist::build(&self.config.rom_search_dirs);
     }
 
-    fn render_smsgg_general_settings(&mut self, ctx: &Context) {
-        let mut open = true;
-        Window::new("SMS/GG General Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.group(|ui| {
-                ui.label("Sega Master System timing / display mode");
-
-                ui.horizontal(|ui| {
-                    ui.radio_value(
-                        &mut self.config.smsgg.sms_timing_mode,
-                        TimingMode::Ntsc,
-                        "NTSC",
-                    );
-                    ui.radio_value(&mut self.config.smsgg.sms_timing_mode, TimingMode::Pal, "PAL");
-                });
-            });
-
-            ui.group(|ui| {
-                ui.label("Sega Master System VDP version");
-
-                ui.horizontal(|ui| {
-                    ui.radio_value(&mut self.config.smsgg.sms_model, SmsModel::Sms2, "SMS2");
-
-                    ui.radio_value(&mut self.config.smsgg.sms_model, SmsModel::Sms1, "SMS1")
-                        .on_hover_text("Emulates an SMS1 quirk that is required for the Japanese version of Ys");
-                });
-            });
-
-            ui.group(|ui| {
-                ui.label("Sega Master System region");
-
-                ui.horizontal(|ui| {
-                    ui.radio_value(
-                        &mut self.config.smsgg.sms_region,
-                        SmsRegion::International,
-                        "International / Overseas",
-                    );
-                    ui.radio_value(
-                        &mut self.config.smsgg.sms_region,
-                        SmsRegion::Domestic,
-                        "Domestic (Japan)",
-                    );
-                });
-            });
-
-            ui.checkbox(&mut self.config.smsgg.overclock_z80, "Double Z80 CPU speed")
-                .on_hover_text(
-                    "Can reduce slowdown in some games but can also cause major glitches",
-                );
-        });
-        if !open {
-            self.state.open_windows.remove(&OpenWindow::SmsGgGeneral);
-        }
-    }
-
-    fn render_genesis_general_settings(&mut self, ctx: &Context) {
-        let mut open = true;
-        Window::new("Genesis General Settings").open(&mut open).resizable(true).show(ctx, |ui| {
-            let emu_thread_status = self.emu_thread.status();
-            let running_genesis = emu_thread_status != EmuThreadStatus::RunningGenesis
-                && emu_thread_status != EmuThreadStatus::RunningSegaCd;
-
-            ui.group(|ui| {
-                ui.set_enabled(running_genesis);
-
-                ui.label("Timing / display mode");
-
-                ui.horizontal(|ui| {
-                    ui.radio_value(&mut self.config.genesis.forced_timing_mode, None, "Auto");
-                    ui.radio_value(
-                        &mut self.config.genesis.forced_timing_mode,
-                        Some(TimingMode::Ntsc),
-                        "NTSC",
-                    );
-                    ui.radio_value(
-                        &mut self.config.genesis.forced_timing_mode,
-                        Some(TimingMode::Pal),
-                        "PAL",
-                    );
-                });
-            });
-
-            ui.group(|ui| {
-                ui.set_enabled(running_genesis);
-
-                ui.label("Region");
-
-                ui.horizontal(|ui| {
-                    ui.radio_value(&mut self.config.genesis.forced_region, None, "Auto");
-                    ui.radio_value(
-                        &mut self.config.genesis.forced_region,
-                        Some(GenesisRegion::Americas),
-                        "Americas",
-                    );
-                    ui.radio_value(
-                        &mut self.config.genesis.forced_region,
-                        Some(GenesisRegion::Japan),
-                        "Japan",
-                    );
-                    ui.radio_value(
-                        &mut self.config.genesis.forced_region,
-                        Some(GenesisRegion::Europe),
-                        "Europe",
-                    );
-                });
-            });
-
-            ui.add_space(5.0);
-            ui.horizontal(|ui| {
-                ui.set_enabled(self.emu_thread.status() != EmuThreadStatus::RunningSegaCd);
-
-                let bios_path_str =
-                    self.config.sega_cd.bios_path.as_ref().map_or("<None>", String::as_str);
-                if ui.button(bios_path_str).clicked() {
-                    if let Some(bios_path) =
-                        FileDialog::new().add_filter("bin", &["bin"]).pick_file()
-                    {
-                        self.config.sega_cd.bios_path =
-                            Some(bios_path.to_string_lossy().to_string());
-                    }
-                }
-
-                ui.label("Sega CD BIOS path");
-            });
-
-            ui.add_space(5.0);
-            ui.checkbox(
-                &mut self.config.sega_cd.enable_ram_cartridge,
-                "Enable Sega CD RAM cartridge",
-            );
-        });
-        if !open {
-            self.state.open_windows.remove(&OpenWindow::GenesisGeneral);
-        }
-    }
-
-    fn render_snes_general_settings(&mut self, ctx: &Context) {
-        let mut open = true;
-        Window::new("SNES General Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.group(|ui| {
-                ui.set_enabled(self.emu_thread.status() != EmuThreadStatus::RunningSnes);
-
-                ui.label("Timing / display mode");
-
-                ui.horizontal(|ui| {
-                    ui.radio_value(&mut self.config.snes.forced_timing_mode, None, "Auto");
-                    ui.radio_value(
-                        &mut self.config.snes.forced_timing_mode,
-                        Some(TimingMode::Ntsc),
-                        "NTSC",
-                    );
-                    ui.radio_value(
-                        &mut self.config.snes.forced_timing_mode,
-                        Some(TimingMode::Pal),
-                        "PAL",
-                    );
-                });
-            });
-
-            ui.group(|ui| {
-                ui.label("Super FX GSU overclock factor");
-
-                ui.horizontal(|ui| {
-                    ui.radio_value(
-                        &mut self.config.snes.gsu_overclock_factor,
-                        NonZeroU64::new(1).unwrap(),
-                        "None",
-                    );
-                    ui.radio_value(
-                        &mut self.config.snes.gsu_overclock_factor,
-                        NonZeroU64::new(2).unwrap(),
-                        "2x",
-                    );
-                    ui.radio_value(
-                        &mut self.config.snes.gsu_overclock_factor,
-                        NonZeroU64::new(3).unwrap(),
-                        "3x",
-                    );
-                    ui.radio_value(
-                        &mut self.config.snes.gsu_overclock_factor,
-                        NonZeroU64::new(4).unwrap(),
-                        "4x",
-                    );
-                });
-            });
-
-            ui.horizontal(|ui| {
-                let dsp1_rom_path = self.config.snes.dsp1_rom_path.as_deref();
-                if ui.button(dsp1_rom_path.unwrap_or("<None>")).clicked() {
-                    Self::pick_coprocessor_rom_path(&mut self.config.snes.dsp1_rom_path);
-                }
-
-                ui.label("DSP-1 ROM path");
-            });
-
-            ui.horizontal(|ui| {
-                let dsp2_rom_path = self.config.snes.dsp2_rom_path.as_deref();
-                if ui.button(dsp2_rom_path.unwrap_or("<None>")).clicked() {
-                    Self::pick_coprocessor_rom_path(&mut self.config.snes.dsp2_rom_path);
-                }
-
-                ui.label("DSP-2 ROM path");
-            });
-
-            ui.horizontal(|ui| {
-                let dsp3_rom_path = self.config.snes.dsp3_rom_path.as_deref();
-                if ui.button(dsp3_rom_path.unwrap_or("<None>")).clicked() {
-                    Self::pick_coprocessor_rom_path(&mut self.config.snes.dsp3_rom_path);
-                }
-
-                ui.label("DSP-3 ROM path");
-            });
-
-            ui.horizontal(|ui| {
-                let dsp4_rom_path = self.config.snes.dsp4_rom_path.as_deref();
-                if ui.button(dsp4_rom_path.unwrap_or("<None>")).clicked() {
-                    Self::pick_coprocessor_rom_path(&mut self.config.snes.dsp4_rom_path);
-                }
-
-                ui.label("DSP-4 ROM path");
-            });
-
-            ui.horizontal(|ui| {
-                let st010_rom_path = self.config.snes.st010_rom_path.as_deref();
-                if ui.button(st010_rom_path.unwrap_or("<None>")).clicked() {
-                    Self::pick_coprocessor_rom_path(&mut self.config.snes.st010_rom_path);
-                }
-
-                ui.label("ST010 ROM path");
-            });
-
-            ui.horizontal(|ui| {
-                let st011_rom_path = self.config.snes.st011_rom_path.as_deref();
-                if ui.button(st011_rom_path.unwrap_or("<None>")).clicked() {
-                    Self::pick_coprocessor_rom_path(&mut self.config.snes.st011_rom_path);
-                }
-
-                ui.label("ST011 ROM path");
-            });
-        });
-        if !open {
-            self.state.open_windows.remove(&OpenWindow::SnesGeneral);
-        }
-    }
-
-    fn pick_coprocessor_rom_path(out_path: &mut Option<String>) {
-        let Some(path) = FileDialog::new().pick_file() else { return };
-
-        match path.to_str() {
-            Some(path) => {
-                *out_path = Some(path.into());
-            }
-            None => {
-                log::error!("Unable to convert path to string: '{}'", path.display());
-            }
-        }
-    }
-
     fn render_interface_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("UI Settings").open(&mut open).resizable(false).show(ctx, |ui| {
@@ -806,11 +358,13 @@ impl App {
                 "Hide mouse cursor over emulator window",
             );
 
-            ui.label("ROM search directories:");
-
             ui.add_space(5.0);
 
             ui.group(|ui| {
+                ui.label("ROM search directories");
+
+                ui.add_space(5.0);
+
                 for (i, rom_search_dir) in
                     self.config.rom_search_dirs.clone().into_iter().enumerate()
                 {
@@ -829,516 +383,24 @@ impl App {
                     self.add_rom_search_directory();
                 }
             });
-        });
-        if !open {
-            self.state.open_windows.remove(&OpenWindow::Interface);
-        }
-    }
 
-    fn render_common_video_settings(&mut self, ctx: &Context) {
-        let mut open = true;
-        Window::new("General Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.checkbox(&mut self.config.common.launch_in_fullscreen, "Launch in fullscreen");
+            ui.add_space(5.0);
 
             ui.group(|ui| {
-                ui.set_enabled(!self.emu_thread.status().is_running());
-
-                ui.label("wgpu backend");
-                ui.horizontal(|ui| {
-                    ui.radio_value(&mut self.config.common.wgpu_backend, WgpuBackend::Auto, "Auto");
-                    ui.radio_value(
-                        &mut self.config.common.wgpu_backend,
-                        WgpuBackend::Vulkan,
-                        "Vulkan",
-                    );
-                    ui.radio_value(
-                        &mut self.config.common.wgpu_backend,
-                        WgpuBackend::DirectX12,
-                        "DirectX 12",
-                    );
-                    ui.radio_value(
-                        &mut self.config.common.wgpu_backend,
-                        WgpuBackend::OpenGl,
-                        "OpenGL",
-                    );
-                });
-            });
-
-            ui.group(|ui| {
-                ui.label("VSync mode");
+                ui.label("Consoles in ROM list");
 
                 ui.horizontal(|ui| {
-                    ui.radio_value(
-                        &mut self.config.common.vsync_mode,
-                        VSyncMode::Enabled,
-                        "Enabled",
-                    );
-                    ui.radio_value(
-                        &mut self.config.common.vsync_mode,
-                        VSyncMode::Disabled,
-                        "Disabled",
-                    );
-                    ui.radio_value(&mut self.config.common.vsync_mode, VSyncMode::Fast, "Fast");
-                });
-            });
-
-            ui.group(|ui| {
-                ui.label("Filter mode");
-                ui.horizontal(|ui| {
-                    ui.radio_value(
-                        &mut self.config.common.filter_mode,
-                        FilterMode::Nearest,
-                        "Nearest neighbor",
-                    );
-                    ui.radio_value(
-                        &mut self.config.common.filter_mode,
-                        FilterMode::Linear,
-                        "Linear interpolation",
-                    );
-                });
-            });
-
-            ui.group(|ui| {
-                ui.label("Preprocess shader");
-
-                ui.radio_value(
-                    &mut self.config.common.preprocess_shader,
-                    PreprocessShader::None,
-                    "None",
-                );
-
-                ui.horizontal(|ui| {
-                    ui.radio_value(
-                        &mut self.config.common.preprocess_shader,
-                        PreprocessShader::HorizontalBlurTwoPixels,
-                        "Horizontal blur (2px)",
-                    );
-                    ui.radio_value(
-                        &mut self.config.common.preprocess_shader,
-                        PreprocessShader::HorizontalBlurThreePixels,
-                        "Horizontal blur (3px)",
-                    );
-                    ui.radio_value(
-                        &mut self.config.common.preprocess_shader,
-                        PreprocessShader::HorizontalBlurSnesAdaptive,
-                        "Horizontal blur (SNES adaptive)",
-                    )
-                        .on_hover_text("Always maintains the effect of blurring 3px horizontally at 512px horizontal resolution");
-                });
-
-                ui.horizontal(|ui| {
-                    ui.radio_value(
-                        &mut self.config.common.preprocess_shader,
-                        PreprocessShader::AntiDitherWeak,
-                        "Anti-dither (conservative)"
-                    );
-                    ui.radio_value(
-                        &mut self.config.common.preprocess_shader,
-                        PreprocessShader::AntiDitherStrong,
-                        "Anti-dither (aggressive)"
-                    );
-                });
-            });
-
-            ui.group(|ui| {
-                ui.label("Scanlines");
-
-                ui.horizontal(|ui| {
-                    ui.radio_value(&mut self.config.common.scanlines, Scanlines::None, "None");
-                    ui.radio_value(&mut self.config.common.scanlines, Scanlines::Dim, "Dim");
-                    ui.radio_value(&mut self.config.common.scanlines, Scanlines::Black, "Black");
-                });
-            });
-
-            ui.horizontal(|ui| {
-                if TextEdit::singleline(&mut self.state.prescale_factor_text)
-                    .desired_width(30.0)
-                    .ui(ui)
-                    .changed()
-                {
-                    match self
-                        .state
-                        .prescale_factor_text
-                        .parse::<u32>()
-                        .ok()
-                        .filter(|&n| n <= MAX_PRESCALE_FACTOR)
-                        .and_then(|n| PrescaleFactor::try_from(n).ok())
-                    {
-                        Some(prescale_factor) => {
-                            self.config.common.prescale_factor = prescale_factor;
-                            self.state.prescale_factor_invalid = false;
-                        }
-                        None => {
-                            self.state.prescale_factor_invalid = true;
-                        }
-                    }
-                }
-
-                ui.label("Prescale factor");
-            });
-            if self.state.prescale_factor_invalid {
-                ui.colored_label(
-                    Color32::RED,
-                    format!(
-                        "Prescale factor must be a non-negative integer <= {MAX_PRESCALE_FACTOR}"
-                    ),
-                );
-            }
-
-            ui.checkbox(
-                &mut self.config.common.force_integer_height_scaling,
-                "Force integer height scaling",
-            ).on_hover_text("Display area will be the largest possible integer multiple of native height that preserves aspect ratio");
-
-            if self.state.display_scanlines_warning {
-                ui.colored_label(Color32::RED, "Integer height scaling + even-numbered prescale factor strongly recommended when scanlines are enabled");
-            }
-        });
-        if !open {
-            self.state.open_windows.remove(&OpenWindow::CommonVideo);
-        }
-    }
-
-    fn render_smsgg_video_settings(&mut self, ctx: &Context) {
-        let mut open = true;
-        Window::new("SMS/GG Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.group(|ui| {
-                ui.label("Sega Master System aspect ratio");
-
-                ui.horizontal(|ui| {
-                    ui.radio_value(
-                        &mut self.config.smsgg.sms_aspect_ratio,
-                        SmsAspectRatio::Ntsc,
-                        "NTSC",
-                    )
-                    .on_hover_text("8:7 pixel aspect ratio");
-                    ui.radio_value(
-                        &mut self.config.smsgg.sms_aspect_ratio,
-                        SmsAspectRatio::Pal,
-                        "PAL",
-                    )
-                    .on_hover_text("11:8 pixel aspect ratio");
-                    ui.radio_value(
-                        &mut self.config.smsgg.sms_aspect_ratio,
-                        SmsAspectRatio::SquarePixels,
-                        "Square pixels",
-                    )
-                    .on_hover_text("1:1 pixel aspect ratio");
-                    ui.radio_value(
-                        &mut self.config.smsgg.sms_aspect_ratio,
-                        SmsAspectRatio::Stretched,
-                        "Stretched",
-                    )
-                    .on_hover_text("Stretch image to fill the screen");
-                });
-            });
-
-            ui.group(|ui| {
-                ui.label("Game Gear aspect ratio");
-
-                ui.horizontal(|ui| {
-                    ui.radio_value(
-                        &mut self.config.smsgg.gg_aspect_ratio,
-                        GgAspectRatio::GgLcd,
-                        "Game Gear LCD",
-                    )
-                    .on_hover_text("6:5 pixel aspect ratio");
-                    ui.radio_value(
-                        &mut self.config.smsgg.gg_aspect_ratio,
-                        GgAspectRatio::SquarePixels,
-                        "Square pixels",
-                    )
-                    .on_hover_text("1:1 pixel aspect ratio");
-                    ui.radio_value(
-                        &mut self.config.smsgg.gg_aspect_ratio,
-                        GgAspectRatio::Stretched,
-                        "Stretched",
-                    )
-                    .on_hover_text("Stretch image to fill the screen");
-                });
-            });
-
-            ui.checkbox(
-                &mut self.config.smsgg.remove_sprite_limit,
-                "Remove sprite-per-scanline limit",
-            );
-
-            ui.checkbox(
-                &mut self.config.smsgg.sms_crop_vertical_border,
-                "(SMS) Crop vertical border",
-            );
-            ui.checkbox(&mut self.config.smsgg.sms_crop_left_border, "(SMS) Crop left border");
-        });
-        if !open {
-            self.state.open_windows.remove(&OpenWindow::SmsGgVideo);
-        }
-    }
-
-    fn render_genesis_video_settings(&mut self, ctx: &Context) {
-        let mut open = true;
-        Window::new("Genesis Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.group(|ui| {
-                ui.label("Aspect ratio");
-
-                ui.horizontal(|ui| {
-                    ui.radio_value(
-                        &mut self.config.genesis.aspect_ratio,
-                        GenesisAspectRatio::Ntsc,
-                        "NTSC",
-                    )
-                    .on_hover_text("32:35 pixel aspect ratio in 320px mode, 8:7 in 256px mode");
-                    ui.radio_value(
-                        &mut self.config.genesis.aspect_ratio,
-                        GenesisAspectRatio::Pal,
-                        "PAL",
-                    )
-                    .on_hover_text("11:10 pixel aspect ratio in 320px mode, 11:8 in 256px mode");
-                    ui.radio_value(
-                        &mut self.config.genesis.aspect_ratio,
-                        GenesisAspectRatio::SquarePixels,
-                        "Square pixels",
-                    )
-                    .on_hover_text("1:1 pixel aspect ratio");
-                    ui.radio_value(
-                        &mut self.config.genesis.aspect_ratio,
-                        GenesisAspectRatio::Stretched,
-                        "Stretched",
-                    )
-                    .on_hover_text("Stretch image to fill the screen");
-                });
-            });
-
-            ui.checkbox(
-                &mut self.config.genesis.adjust_aspect_ratio_in_2x_resolution,
-                "Automatically double pixel aspect ratio in double vertical resolution mode",
-            );
-
-            ui.checkbox(
-                &mut self.config.genesis.remove_sprite_limits,
-                "Remove sprite-per-scanline and sprite-pixel-per-scanline limits",
-            )
-            .on_hover_text("Can reduce sprite flickering, but can also cause visual glitches");
-
-            ui.checkbox(
-                &mut self.config.genesis.emulate_non_linear_vdp_dac,
-                "Emulate the VDP's non-linear color DAC",
-            )
-            .on_hover_text("Tends to brighten darker colors and darken brighter colors");
-        });
-        if !open {
-            self.state.open_windows.remove(&OpenWindow::GenesisVideo);
-        }
-    }
-
-    fn render_snes_video_settings(&mut self, ctx: &Context) {
-        let mut open = true;
-        Window::new("SNES Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.group(|ui| {
-                ui.label("Aspect ratio");
-
-                ui.horizontal(|ui| {
-                    ui.radio_value(
-                        &mut self.config.snes.aspect_ratio,
-                        SnesAspectRatio::Ntsc,
-                        "NTSC",
-                    )
-                    .on_hover_text("8:7 pixel aspect ratio");
-                    ui.radio_value(&mut self.config.snes.aspect_ratio, SnesAspectRatio::Pal, "PAL")
-                        .on_hover_text("11:8 pixel aspect ratio");
-                    ui.radio_value(
-                        &mut self.config.snes.aspect_ratio,
-                        SnesAspectRatio::SquarePixels,
-                        "Square pixels",
-                    )
-                    .on_hover_text("1:1 pixel aspect ratio");
-                    ui.radio_value(
-                        &mut self.config.snes.aspect_ratio,
-                        SnesAspectRatio::Stretched,
-                        "Stretched",
-                    )
-                    .on_hover_text("Stretched to fill the window");
+                    ui.checkbox(&mut self.config.console_filters.master_system, "Master System");
+                    ui.checkbox(&mut self.config.console_filters.game_gear, "Game Gear");
+                    ui.checkbox(&mut self.config.console_filters.genesis, "Genesis");
+                    ui.checkbox(&mut self.config.console_filters.sega_cd, "Sega CD");
+                    ui.checkbox(&mut self.config.console_filters.nes, "NES");
+                    ui.checkbox(&mut self.config.console_filters.snes, "SNES");
                 });
             });
         });
         if !open {
-            self.state.open_windows.remove(&OpenWindow::SnesVideo);
-        }
-    }
-
-    fn render_common_audio_settings(&mut self, ctx: &Context) {
-        const TEXT_EDIT_WIDTH: f32 = 50.0;
-        const MIN_DEVICE_QUEUE_SIZE: u16 = 8;
-        const MIN_AUDIO_SYNC_THRESHOLD: u32 = 64;
-
-        let mut open = true;
-        Window::new("General Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.checkbox(&mut self.config.common.audio_sync, "Audio sync enabled");
-
-            ui.add_space(10.0);
-
-            ui.horizontal(|ui| {
-                if TextEdit::singleline(&mut self.state.audio_device_queue_size_text)
-                    .desired_width(TEXT_EDIT_WIDTH)
-                    .ui(ui)
-                    .changed()
-                {
-                    match self.state.audio_device_queue_size_text.parse::<u16>() {
-                        Ok(value) if value.is_power_of_two() && value >= MIN_DEVICE_QUEUE_SIZE => {
-                            self.config.common.audio_device_queue_size = value;
-                            self.state.audio_device_queue_size_invalid = false;
-                        }
-                        _ => {
-                            self.state.audio_device_queue_size_invalid = true;
-                        }
-                    }
-                }
-
-                ui.label("Audio device queue size (samples)");
-            });
-            if self.state.audio_device_queue_size_invalid {
-                ui.colored_label(Color32::RED, format!("Audio device queue size must be a power of 2 and must be at least {MIN_DEVICE_QUEUE_SIZE}"));
-            }
-
-            ui.horizontal(|ui| {
-                if TextEdit::singleline(&mut self.state.internal_audio_buffer_size_text)
-                    .desired_width(TEXT_EDIT_WIDTH)
-                    .ui(ui)
-                    .changed()
-                {
-                    match self.state.internal_audio_buffer_size_text.parse::<u32>() {
-                        Ok(value) if value > 0 => {
-                            self.config.common.internal_audio_buffer_size = value;
-                            self.state.internal_audio_buffer_size_invalid = false;
-                        }
-                        _ => {
-                            self.state.internal_audio_buffer_size_invalid = true;
-                        }
-                    }
-                }
-
-                ui.label("Internal audio buffer size (samples)");
-            });
-            if self.state.internal_audio_buffer_size_invalid {
-                ui.colored_label(
-                    Color32::RED,
-                    "Internal audio buffer size must be a positive integer",
-                );
-            }
-
-            ui.horizontal(|ui| {
-                if TextEdit::singleline(&mut self.state.audio_sync_threshold_text)
-                    .desired_width(TEXT_EDIT_WIDTH)
-                    .ui(ui)
-                    .changed()
-                {
-                    match self.state.audio_sync_threshold_text.parse::<u32>() {
-                        Ok(value) if value >= MIN_AUDIO_SYNC_THRESHOLD => {
-                            self.config.common.audio_sync_threshold = value;
-                            self.state.audio_sync_threshold_invalid = false;
-                        }
-                        _ => {
-                            self.state.audio_sync_threshold_invalid = true;
-                        }
-                    }
-                }
-
-                ui.label("Audio sync threshold (bytes)");
-            });
-            if self.state.audio_sync_threshold_invalid {
-                ui.colored_label(
-                    Color32::RED,
-                    format!("Audio sync threshold must be at least {MIN_AUDIO_SYNC_THRESHOLD}"),
-                );
-            }
-
-            ui.horizontal(|ui| {
-                if TextEdit::singleline(&mut self.state.audio_gain_text)
-                    .desired_width(TEXT_EDIT_WIDTH)
-                    .ui(ui)
-                    .changed()
-                {
-                    match self.state.audio_gain_text.parse::<f64>() {
-                        Ok(value) if value.is_finite() => {
-                            self.config.common.audio_gain_db = value;
-                            self.state.audio_gain_invalid = false;
-                        }
-                        _ => {
-                            self.state.audio_gain_invalid = true;
-                        }
-                    }
-                }
-
-                ui.label("Audio gain (dB) (+/-)");
-            });
-            if self.state.audio_gain_invalid {
-                ui.colored_label(Color32::RED, "Audio gain must be a finite decimal number");
-            }
-        });
-        if !open {
-            self.state.open_windows.remove(&OpenWindow::CommonAudio);
-        }
-    }
-
-    fn render_smsgg_audio_settings(&mut self, ctx: &Context) {
-        let mut open = true;
-        Window::new("SMS/GG Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.group(|ui| {
-                ui.label("PSG version");
-
-                ui.horizontal(|ui| {
-                    ui.radio_value(&mut self.config.smsgg.psg_version, None, "Auto").on_hover_text(
-                        "SMS games will use SMS2 PSG, Game Gear games will use SMS1/GG PSG",
-                    );
-                    ui.radio_value(
-                        &mut self.config.smsgg.psg_version,
-                        Some(PsgVersion::MasterSystem2),
-                        "SMS2",
-                    )
-                    .on_hover_text("SMS2 PSG clips high volumes");
-                    ui.radio_value(
-                        &mut self.config.smsgg.psg_version,
-                        Some(PsgVersion::Standard),
-                        "SMS1 / Game Gear",
-                    )
-                    .on_hover_text("SMS1 and Game Gear PSGs correctly play high volumes");
-                });
-            });
-
-            ui.set_enabled(self.emu_thread.status() != EmuThreadStatus::RunningSmsGg);
-            ui.checkbox(
-                &mut self.config.smsgg.fm_sound_unit_enabled,
-                "Sega Master System FM sound unit enabled",
-            );
-        });
-        if !open {
-            self.state.open_windows.remove(&OpenWindow::SmsGgAudio);
-        }
-    }
-
-    fn render_genesis_audio_settings(&mut self, ctx: &Context) {
-        let mut open = true;
-        Window::new("Genesis Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.checkbox(
-                &mut self.config.genesis.quantize_ym2612_output,
-                "Quantize YM2612 channel output",
-            )
-            .on_hover_text(
-                "Quantize channel outputs from 14 bits to 9 bits to emulate the YM2612's 9-bit DAC",
-            );
-        });
-        if !open {
-            self.state.open_windows.remove(&OpenWindow::GenesisAudio);
-        }
-    }
-
-    fn render_snes_audio_settings(&mut self, ctx: &Context) {
-        let mut open = true;
-        Window::new("SNES Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.checkbox(&mut self.config.snes.audio_60hz_hack, "Enable audio 60Hz/50Hz hack")
-                .on_hover_text("Enabling this option will very slightly speed up the audio signal to time to 60Hz NTSC / 50Hz PAL");
-        });
-        if !open {
-            self.state.open_windows.remove(&OpenWindow::SnesAudio);
+            self.state.open_windows.remove(&OpenWindow::Interface);
         }
     }
 
@@ -1454,6 +516,11 @@ impl App {
                         ui.close_menu();
                     }
 
+                    if ui.button("NES").clicked() {
+                        self.state.open_windows.insert(OpenWindow::NesGeneral);
+                        ui.close_menu();
+                    }
+
                     if ui.button("SNES").clicked() {
                         self.state.open_windows.insert(OpenWindow::SnesGeneral);
                         ui.close_menu();
@@ -1481,6 +548,11 @@ impl App {
                         ui.close_menu();
                     }
 
+                    if ui.button("NES").clicked() {
+                        self.state.open_windows.insert(OpenWindow::NesVideo);
+                        ui.close_menu();
+                    }
+
                     if ui.button("SNES").clicked() {
                         self.state.open_windows.insert(OpenWindow::SnesVideo);
                         ui.close_menu();
@@ -1500,6 +572,11 @@ impl App {
 
                     if ui.button("Genesis / Sega CD").clicked() {
                         self.state.open_windows.insert(OpenWindow::GenesisAudio);
+                        ui.close_menu();
+                    }
+
+                    if ui.button("NES").clicked() {
+                        self.state.open_windows.insert(OpenWindow::NesAudio);
                         ui.close_menu();
                     }
 
@@ -1527,6 +604,16 @@ impl App {
 
                     if ui.button("Genesis Gamepad").clicked() {
                         self.state.open_windows.insert(OpenWindow::GenesisGamepad);
+                        ui.close_menu();
+                    }
+
+                    if ui.button("NES Keyboard").clicked() {
+                        self.state.open_windows.insert(OpenWindow::NesKeyboard);
+                        ui.close_menu();
+                    }
+
+                    if ui.button("NES Gamepad").clicked() {
+                        self.state.open_windows.insert(OpenWindow::NesGamepad);
                         ui.close_menu();
                     }
 
@@ -1605,7 +692,7 @@ impl App {
                     })
                     .body(|mut body| {
                         let rom_list = Rc::clone(&self.state.rom_list);
-                        for metadata in rom_list.borrow().iter() {
+                        for metadata in self.config.console_filters.apply(&rom_list.borrow()) {
                             body.row(40.0, |mut row| {
                                 row.col(|ui| {
                                     if Button::new(&metadata.file_name_no_ext)
@@ -1675,6 +762,7 @@ impl App {
                             self.config.smsgg_config(self.state.current_file_path.clone()),
                             self.config.genesis_config(self.state.current_file_path.clone()),
                             self.config.sega_cd_config(self.state.current_file_path.clone()),
+                            self.config.nes_config(self.state.current_file_path.clone()),
                             self.config.snes_config(self.state.current_file_path.clone()),
                         );
                     }
@@ -1702,20 +790,25 @@ impl eframe::App for App {
             match open_window {
                 OpenWindow::SmsGgGeneral => self.render_smsgg_general_settings(ctx),
                 OpenWindow::GenesisGeneral => self.render_genesis_general_settings(ctx),
+                OpenWindow::NesGeneral => self.render_nes_general_settings(ctx),
                 OpenWindow::SnesGeneral => self.render_snes_general_settings(ctx),
                 OpenWindow::Interface => self.render_interface_settings(ctx),
                 OpenWindow::CommonVideo => self.render_common_video_settings(ctx),
                 OpenWindow::SmsGgVideo => self.render_smsgg_video_settings(ctx),
                 OpenWindow::GenesisVideo => self.render_genesis_video_settings(ctx),
+                OpenWindow::NesVideo => self.render_nes_video_settings(ctx),
                 OpenWindow::SnesVideo => self.render_snes_video_settings(ctx),
                 OpenWindow::CommonAudio => self.render_common_audio_settings(ctx),
                 OpenWindow::SmsGgAudio => self.render_smsgg_audio_settings(ctx),
                 OpenWindow::GenesisAudio => self.render_genesis_audio_settings(ctx),
+                OpenWindow::NesAudio => self.render_nes_audio_settings(ctx),
                 OpenWindow::SnesAudio => self.render_snes_audio_settings(ctx),
                 OpenWindow::SmsGgKeyboard => self.render_smsgg_keyboard_settings(ctx),
                 OpenWindow::SmsGgGamepad => self.render_smsgg_gamepad_settings(ctx),
                 OpenWindow::GenesisKeyboard => self.render_genesis_keyboard_settings(ctx),
                 OpenWindow::GenesisGamepad => self.render_genesis_gamepad_settings(ctx),
+                OpenWindow::NesKeyboard => self.render_nes_keyboard_settings(ctx),
+                OpenWindow::NesGamepad => self.render_nes_joystick_settings(ctx),
                 OpenWindow::SnesKeyboard => self.render_snes_keyboard_settings(ctx),
                 OpenWindow::SnesGamepad => self.render_snes_gamepad_settings(ctx),
                 OpenWindow::SnesPeripherals => self.render_snes_peripheral_settings(ctx),
@@ -1732,6 +825,7 @@ impl eframe::App for App {
                     self.config.smsgg_config(self.state.current_file_path.clone()),
                     self.config.genesis_config(self.state.current_file_path.clone()),
                     self.config.sega_cd_config(self.state.current_file_path.clone()),
+                    self.config.nes_config(self.state.current_file_path.clone()),
                     self.config.snes_config(self.state.current_file_path.clone()),
                 );
             }

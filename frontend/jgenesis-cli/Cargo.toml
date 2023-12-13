@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 genesis-core = { path = "../../backend/genesis-core" }
+nes-core = { path = "../../backend/nes-core" }
 smsgg-core = { path = "../../backend/smsgg-core" }
 snes-core = { path = "../../backend/snes-core" }
 
