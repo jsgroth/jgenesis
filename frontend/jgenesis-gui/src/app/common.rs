@@ -42,7 +42,7 @@ pub struct CommonAppConfig {
     pub fast_forward_multiplier: u64,
     #[serde(default = "default_rewind_buffer_length")]
     pub rewind_buffer_length_seconds: u64,
-    #[serde(default = "true_fn")]
+    #[serde(default)]
     pub hide_cursor_over_window: bool,
 }
 

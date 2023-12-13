@@ -61,8 +61,8 @@ struct Args {
     #[arg(long, default_value_t)]
     remove_sprite_limit: bool,
 
-    /// Show mouse cursor when over emulator window
-    #[arg(long = "show-cursor-over-window", default_value_t = true, action = clap::ArgAction::SetFalse)]
+    /// Hide mouse cursor when over emulator window
+    #[arg(long, default_value_t)]
     hide_cursor_over_window: bool,
 
     /// Force VDP version (NtscMasterSystem2 / NtscMasterSystem1 / PalMasterSystem2 / PalMasterSystem1 / GameGear)
