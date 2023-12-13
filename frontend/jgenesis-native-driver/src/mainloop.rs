@@ -634,7 +634,7 @@ where
                 self.hotkey_state.should_step_frame = false;
 
                 if let Some(debugger_window) = &mut self.hotkey_state.debugger_window {
-                    if let Err(err) = debugger_window.update(&self.emulator) {
+                    if let Err(err) = debugger_window.update(&mut self.emulator) {
                         log::error!("Debugger window error: {err}");
                     }
                 }
@@ -1006,9 +1006,7 @@ pub fn create_nes(config: Box<NesConfig>) -> NativeEmulatorResult<NativeNesEmula
         sdl,
         event_pump,
         video,
-        hotkey_state: HotkeyState::new(&config.common, save_state_path, || {
-            Box::new(|_, _, _, _, _| Ok(()))
-        }),
+        hotkey_state: HotkeyState::new(&config.common, save_state_path, || Box::new(|_| Ok(()))),
     })
 }
 

@@ -30,13 +30,16 @@ pub enum DebuggerError {
     WgpuBackendError(#[from] egui_wgpu_backend::BackendError),
 }
 
-pub type DebugRenderFn<Emulator> = dyn FnMut(
-    &egui::Context,
-    &Emulator,
-    &wgpu::Device,
-    &wgpu::Queue,
-    &mut egui_wgpu_backend::RenderPass,
-) -> Result<(), DebuggerError>;
+pub struct DebugRenderContext<'a, Emulator> {
+    egui_ctx: &'a egui::Context,
+    emulator: &'a mut Emulator,
+    device: &'a wgpu::Device,
+    queue: &'a wgpu::Queue,
+    rpass: &'a mut egui_wgpu_backend::RenderPass,
+}
+
+pub type DebugRenderFn<Emulator> =
+    dyn FnMut(DebugRenderContext<'_, Emulator>) -> Result<(), DebuggerError>;
 
 pub struct DebuggerWindow<Emulator> {
     surface: wgpu::Surface,
@@ -120,15 +123,21 @@ impl<Emulator> DebuggerWindow<Emulator> {
         })
     }
 
-    pub fn update(&mut self, emulator: &Emulator) -> Result<(), DebuggerError> {
+    pub fn update(&mut self, emulator: &mut Emulator) -> Result<(), DebuggerError> {
         self.platform.update_time(
             SystemTime::now().duration_since(self.start_time).unwrap_or_default().as_secs_f64(),
         );
 
         self.platform.begin_frame();
-        let ctx = self.platform.context();
+        let egui_ctx = self.platform.context();
 
-        (self.render_fn)(ctx, emulator, &self.device, &self.queue, &mut self.egui_pass)?;
+        (self.render_fn)(DebugRenderContext {
+            egui_ctx,
+            emulator,
+            device: &self.device,
+            queue: &self.queue,
+            rpass: &mut self.egui_pass,
+        })?;
 
         let output = match self.surface.get_current_texture() {
             Ok(output) => output,
@@ -142,7 +151,7 @@ impl<Emulator> DebuggerWindow<Emulator> {
         let output_view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let full_output = self.platform.end_frame();
-        let paint_jobs = ctx.tessellate(full_output.shapes);
+        let paint_jobs = egui_ctx.tessellate(full_output.shapes);
 
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: "debugger_encoder".into(),
@@ -269,15 +278,13 @@ impl<'a, T: Copy + PartialEq> Widget for SelectableButton<'a, T> {
     }
 }
 
-fn write_textures(
+fn write_textures<Emulator>(
     wgpu_texture: &wgpu::Texture,
     egui_texture: egui::TextureId,
     data: &[u8],
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    rpass: &mut egui_wgpu_backend::RenderPass,
+    ctx: &mut DebugRenderContext<'_, Emulator>,
 ) -> Result<(), DebuggerError> {
-    queue.write_texture(
+    ctx.queue.write_texture(
         wgpu::ImageCopyTexture {
             texture: wgpu_texture,
             mip_level: 0,
@@ -294,8 +301,8 @@ fn write_textures(
     );
 
     let texture_view = wgpu_texture.create_view(&wgpu::TextureViewDescriptor::default());
-    rpass.update_egui_texture_from_wgpu_texture(
-        device,
+    ctx.rpass.update_egui_texture_from_wgpu_texture(
+        ctx.device,
         &texture_view,
         wgpu::FilterMode::Nearest,
         egui_texture,

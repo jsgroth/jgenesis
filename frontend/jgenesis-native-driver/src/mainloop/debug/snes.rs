@@ -1,5 +1,5 @@
 use crate::mainloop::debug;
-use crate::mainloop::debug::{DebugRenderFn, DebuggerError, SelectableButton};
+use crate::mainloop::debug::{DebugRenderContext, DebugRenderFn, DebuggerError, SelectableButton};
 use egui::{CentralPanel, ScrollArea, Vec2};
 use jgenesis_common::frontend::Color;
 use snes_core::api::SnesEmulator;
@@ -61,25 +61,19 @@ impl State {
 
 pub fn render_fn() -> Box<DebugRenderFn<SnesEmulator>> {
     let mut state = State::new();
-    Box::new(move |ctx, emulator, device, queue, rpass| {
-        render(ctx, emulator, device, queue, rpass, &mut state)
-    })
+    Box::new(move |ctx| render(ctx, &mut state))
 }
 
 fn render(
-    ctx: &egui::Context,
-    emulator: &SnesEmulator,
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    rpass: &mut egui_wgpu_backend::RenderPass,
+    mut ctx: DebugRenderContext<'_, SnesEmulator>,
     state: &mut State,
 ) -> Result<(), DebuggerError> {
-    update_cgram_texture(emulator, device, queue, rpass, state)?;
-    update_vram_texture(emulator, device, queue, rpass, state)?;
+    update_cgram_texture(&mut ctx, state)?;
+    update_vram_texture(&mut ctx, state)?;
 
-    let screen_width = debug::screen_width(ctx);
+    let screen_width = debug::screen_width(ctx.egui_ctx);
 
-    CentralPanel::default().show(ctx, |ui| {
+    CentralPanel::default().show(ctx.egui_ctx, |ui| {
         ui.horizontal(|ui| {
             ui.add(SelectableButton::new("VRAM", &mut state.tab, Tab::Vram));
             ui.add(SelectableButton::new("CGRAM", &mut state.tab, Tab::Cgram));
@@ -163,17 +157,14 @@ fn render(
 }
 
 fn update_cgram_texture(
-    emulator: &SnesEmulator,
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    rpass: &mut egui_wgpu_backend::RenderPass,
+    ctx: &mut DebugRenderContext<'_, SnesEmulator>,
     state: &mut State,
 ) -> Result<(), DebuggerError> {
-    emulator.copy_cgram(state.cgram_buffer.as_mut());
+    ctx.emulator.copy_cgram(state.cgram_buffer.as_mut());
 
     if state.cgram_texture.is_none() {
         let (wgpu_texture, egui_texture) =
-            debug::create_texture("debug_snes_cgram", 16, 16, device, rpass);
+            debug::create_texture("debug_snes_cgram", 16, 16, ctx.device, ctx.rpass);
         state.cgram_texture = Some((wgpu_texture, egui_texture));
     }
 
@@ -183,39 +174,31 @@ fn update_cgram_texture(
         wgpu_texture,
         *egui_texture,
         bytemuck::cast_slice(state.cgram_buffer.as_ref()),
-        device,
-        queue,
-        rpass,
+        ctx,
     )
 }
 
 fn update_vram_texture(
-    emulator: &SnesEmulator,
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    rpass: &mut egui_wgpu_backend::RenderPass,
+    ctx: &mut DebugRenderContext<'_, SnesEmulator>,
     state: &mut State,
 ) -> Result<(), DebuggerError> {
     match state.vram_mode {
-        VramMode::TwoBpp => update_vram_2bpp_texture(emulator, device, queue, rpass, state),
-        VramMode::FourBpp => update_vram_4bpp_texture(emulator, device, queue, rpass, state),
-        VramMode::EightBpp => update_vram_8bpp_texture(emulator, device, queue, rpass, state),
-        VramMode::Mode7 => update_vram_mode7_texture(emulator, device, queue, rpass, state),
+        VramMode::TwoBpp => update_vram_2bpp_texture(ctx, state),
+        VramMode::FourBpp => update_vram_4bpp_texture(ctx, state),
+        VramMode::EightBpp => update_vram_8bpp_texture(ctx, state),
+        VramMode::Mode7 => update_vram_mode7_texture(ctx, state),
     }
 }
 
 fn update_vram_2bpp_texture(
-    emulator: &SnesEmulator,
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    rpass: &mut egui_wgpu_backend::RenderPass,
+    ctx: &mut DebugRenderContext<'_, SnesEmulator>,
     state: &mut State,
 ) -> Result<(), DebuggerError> {
-    emulator.copy_vram_2bpp(state.vram_buffer.as_mut(), state.vram_palette, 64);
+    ctx.emulator.copy_vram_2bpp(state.vram_buffer.as_mut(), state.vram_palette, 64);
 
     if state.vram_2bpp_texture.is_none() {
         let (wgpu_texture, egui_texture) =
-            debug::create_texture("debug_snes_vram_2bpp", 64 * 8, 64 * 8, device, rpass);
+            debug::create_texture("debug_snes_vram_2bpp", 64 * 8, 64 * 8, ctx.device, ctx.rpass);
         state.vram_2bpp_texture = Some((wgpu_texture, egui_texture));
     }
 
@@ -225,24 +208,19 @@ fn update_vram_2bpp_texture(
         wgpu_texture,
         *egui_texture,
         bytemuck::cast_slice(state.vram_buffer.as_ref()),
-        device,
-        queue,
-        rpass,
+        ctx,
     )
 }
 
 fn update_vram_4bpp_texture(
-    emulator: &SnesEmulator,
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    rpass: &mut egui_wgpu_backend::RenderPass,
+    ctx: &mut DebugRenderContext<'_, SnesEmulator>,
     state: &mut State,
 ) -> Result<(), DebuggerError> {
-    emulator.copy_vram_4bpp(state.vram_buffer.as_mut(), state.vram_palette, 64);
+    ctx.emulator.copy_vram_4bpp(state.vram_buffer.as_mut(), state.vram_palette, 64);
 
     if state.vram_4bpp_texture.is_none() {
         let (wgpu_texture, egui_texture) =
-            debug::create_texture("debug_snes_vram_4bpp", 64 * 8, 32 * 8, device, rpass);
+            debug::create_texture("debug_snes_vram_4bpp", 64 * 8, 32 * 8, ctx.device, ctx.rpass);
         state.vram_4bpp_texture = Some((wgpu_texture, egui_texture));
     }
 
@@ -252,24 +230,19 @@ fn update_vram_4bpp_texture(
         wgpu_texture,
         *egui_texture,
         bytemuck::cast_slice(state.vram_buffer.as_ref()),
-        device,
-        queue,
-        rpass,
+        ctx,
     )
 }
 
 fn update_vram_8bpp_texture(
-    emulator: &SnesEmulator,
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    rpass: &mut egui_wgpu_backend::RenderPass,
+    ctx: &mut DebugRenderContext<'_, SnesEmulator>,
     state: &mut State,
 ) -> Result<(), DebuggerError> {
-    emulator.copy_vram_8bpp(state.vram_buffer.as_mut(), 32);
+    ctx.emulator.copy_vram_8bpp(state.vram_buffer.as_mut(), 32);
 
     if state.vram_8bpp_texture.is_none() {
         let (wgpu_texture, egui_texture) =
-            debug::create_texture("debug_snes_vram_8bpp", 32 * 8, 32 * 8, device, rpass);
+            debug::create_texture("debug_snes_vram_8bpp", 32 * 8, 32 * 8, ctx.device, ctx.rpass);
         state.vram_8bpp_texture = Some((wgpu_texture, egui_texture));
     }
 
@@ -279,24 +252,19 @@ fn update_vram_8bpp_texture(
         wgpu_texture,
         *egui_texture,
         bytemuck::cast_slice(state.vram_buffer.as_ref()),
-        device,
-        queue,
-        rpass,
+        ctx,
     )
 }
 
 fn update_vram_mode7_texture(
-    emulator: &SnesEmulator,
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    rpass: &mut egui_wgpu_backend::RenderPass,
+    ctx: &mut DebugRenderContext<'_, SnesEmulator>,
     state: &mut State,
 ) -> Result<(), DebuggerError> {
-    emulator.copy_vram_mode7(state.vram_buffer.as_mut(), 16);
+    ctx.emulator.copy_vram_mode7(state.vram_buffer.as_mut(), 16);
 
     if state.vram_mode7_texture.is_none() {
         let (wgpu_texture, egui_texture) =
-            debug::create_texture("debug_snes_vram_mode7", 16 * 8, 16 * 8, device, rpass);
+            debug::create_texture("debug_snes_vram_mode7", 16 * 8, 16 * 8, ctx.device, ctx.rpass);
         state.vram_mode7_texture = Some((wgpu_texture, egui_texture));
     }
 
@@ -306,8 +274,6 @@ fn update_vram_mode7_texture(
         wgpu_texture,
         *egui_texture,
         bytemuck::cast_slice(state.vram_buffer.as_ref()),
-        device,
-        queue,
-        rpass,
+        ctx,
     )
 }
