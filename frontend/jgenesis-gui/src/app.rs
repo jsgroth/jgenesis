@@ -10,7 +10,7 @@ use crate::app::common::CommonAppConfig;
 use crate::app::genesis::{GenesisAppConfig, SegaCdAppConfig};
 use crate::app::input::{GenericButton, InputAppConfig};
 use crate::app::nes::{NesAppConfig, OverscanState};
-use crate::app::romlist::RomMetadata;
+use crate::app::romlist::{Console, RomMetadata};
 use crate::app::smsgg::SmsGgAppConfig;
 use crate::app::snes::SnesAppConfig;
 use crate::emuthread;
@@ -33,6 +33,50 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::str::FromStr;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+struct ConsoleFilters {
+    master_system: bool,
+    game_gear: bool,
+    genesis: bool,
+    sega_cd: bool,
+    nes: bool,
+    snes: bool,
+}
+
+impl Default for ConsoleFilters {
+    fn default() -> Self {
+        Self {
+            master_system: true,
+            game_gear: true,
+            genesis: true,
+            sega_cd: true,
+            nes: true,
+            snes: true,
+        }
+    }
+}
+
+impl ConsoleFilters {
+    fn to_vec(self) -> Vec<Console> {
+        [
+            self.master_system.then_some(Console::MasterSystem),
+            self.game_gear.then_some(Console::GameGear),
+            self.genesis.then_some(Console::Genesis),
+            self.sega_cd.then_some(Console::SegaCd),
+            self.nes.then_some(Console::Nes),
+            self.snes.then_some(Console::Snes),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
+    }
+
+    fn apply(self, rom_list: &[RomMetadata]) -> impl Iterator<Item = &RomMetadata> + '_ {
+        let filters = self.to_vec();
+        rom_list.iter().filter(move |metadata| filters.contains(&metadata.console))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default)]
@@ -49,6 +93,8 @@ pub struct AppConfig {
     snes: SnesAppConfig,
     #[serde(default)]
     inputs: InputAppConfig,
+    #[serde(default)]
+    console_filters: ConsoleFilters,
     #[serde(default)]
     rom_search_dirs: Vec<String>,
     #[serde(default)]
@@ -312,11 +358,13 @@ impl App {
                 "Hide mouse cursor over emulator window",
             );
 
-            ui.label("ROM search directories:");
-
             ui.add_space(5.0);
 
             ui.group(|ui| {
+                ui.label("ROM search directories");
+
+                ui.add_space(5.0);
+
                 for (i, rom_search_dir) in
                     self.config.rom_search_dirs.clone().into_iter().enumerate()
                 {
@@ -334,6 +382,21 @@ impl App {
                 if ui.button("Add").clicked() {
                     self.add_rom_search_directory();
                 }
+            });
+
+            ui.add_space(5.0);
+
+            ui.group(|ui| {
+                ui.label("Consoles in ROM list");
+
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.config.console_filters.master_system, "Master System");
+                    ui.checkbox(&mut self.config.console_filters.game_gear, "Game Gear");
+                    ui.checkbox(&mut self.config.console_filters.genesis, "Genesis");
+                    ui.checkbox(&mut self.config.console_filters.sega_cd, "Sega CD");
+                    ui.checkbox(&mut self.config.console_filters.nes, "NES");
+                    ui.checkbox(&mut self.config.console_filters.snes, "SNES");
+                });
             });
         });
         if !open {
@@ -629,7 +692,7 @@ impl App {
                     })
                     .body(|mut body| {
                         let rom_list = Rc::clone(&self.state.rom_list);
-                        for metadata in rom_list.borrow().iter() {
+                        for metadata in self.config.console_filters.apply(&rom_list.borrow()) {
                             body.row(40.0, |mut row| {
                                 row.col(|ui| {
                                     if Button::new(&metadata.file_name_no_ext)

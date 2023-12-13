@@ -1,3 +1,4 @@
+use jgenesis_proc_macros::EnumAll;
 use regex::Regex;
 use std::collections::HashSet;
 use std::ffi::OsStr;
@@ -5,7 +6,7 @@ use std::path::Path;
 use std::sync::OnceLock;
 use std::{fs, io};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumAll)]
 pub enum Console {
     MasterSystem,
     GameGear,

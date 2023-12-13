@@ -1954,6 +1954,7 @@ dependencies = [
  "genesis-core",
  "jgenesis-common",
  "jgenesis-native-driver",
+ "jgenesis-proc-macros",
  "jgenesis-renderer",
  "log",
  "nes-core",
