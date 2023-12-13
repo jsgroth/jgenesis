@@ -15,12 +15,13 @@ use egui_extras::{Column, TableBuilder};
 use genesis_core::{GenesisAspectRatio, GenesisRegion};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::config::{
-    CommonConfig, GenesisConfig, GgAspectRatio, SegaCdConfig, SmsAspectRatio, SmsGgConfig,
-    SnesConfig, WindowSize,
+    CommonConfig, GenesisConfig, GgAspectRatio, NesConfig, SegaCdConfig, SmsAspectRatio,
+    SmsGgConfig, SnesConfig, WindowSize,
 };
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, RendererConfig, Scanlines, VSyncMode, WgpuBackend,
 };
+use nes_core::api::NesAspectRatio;
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
@@ -191,6 +192,27 @@ impl Default for SegaCdAppConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct NesAppConfig {
+    forced_timing_mode: Option<TimingMode>,
+    #[serde(default)]
+    aspect_ratio: NesAspectRatio,
+    #[serde(default)]
+    remove_sprite_limit: bool,
+    #[serde(default)]
+    pal_black_border: bool,
+    #[serde(default)]
+    silence_ultrasonic_triangle_output: bool,
+    #[serde(default = "true_fn")]
+    audio_60hz_hack: bool,
+}
+
+impl Default for NesAppConfig {
+    fn default() -> Self {
+        toml::from_str("").unwrap()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct SnesAppConfig {
     forced_timing_mode: Option<TimingMode>,
     #[serde(default)]
@@ -227,6 +249,8 @@ pub struct AppConfig {
     genesis: GenesisAppConfig,
     #[serde(default)]
     sega_cd: SegaCdAppConfig,
+    #[serde(default)]
+    nes: NesAppConfig,
     #[serde(default)]
     snes: SnesAppConfig,
     #[serde(default)]
@@ -341,6 +365,22 @@ impl AppConfig {
         })
     }
 
+    fn nes_config(&self, path: String) -> Box<NesConfig> {
+        Box::new(NesConfig {
+            common: self.common_config(
+                path,
+                self.inputs.to_nes_keyboard_config(),
+                self.inputs.to_nes_joystick_config(),
+            ),
+            forced_timing_mode: self.nes.forced_timing_mode,
+            aspect_ratio: self.nes.aspect_ratio,
+            remove_sprite_limit: self.nes.remove_sprite_limit,
+            pal_black_border: self.nes.pal_black_border,
+            silence_ultrasonic_triangle_output: self.nes.silence_ultrasonic_triangle_output,
+            audio_refresh_rate_adjustment: self.nes.audio_60hz_hack,
+        })
+    }
+
     fn snes_config(&self, path: String) -> Box<SnesConfig> {
         Box::new(SnesConfig {
             common: self.common_config(
@@ -374,20 +414,25 @@ impl Default for AppConfig {
 enum OpenWindow {
     SmsGgGeneral,
     GenesisGeneral,
+    NesGeneral,
     SnesGeneral,
     Interface,
     CommonVideo,
     SmsGgVideo,
     GenesisVideo,
+    NesVideo,
     SnesVideo,
     CommonAudio,
     SmsGgAudio,
     GenesisAudio,
+    NesAudio,
     SnesAudio,
     SmsGgKeyboard,
     SmsGgGamepad,
     GenesisKeyboard,
     GenesisGamepad,
+    NesKeyboard,
+    NesGamepad,
     SnesKeyboard,
     SnesGamepad,
     SnesPeripherals,
@@ -483,8 +528,10 @@ impl App {
             return;
         }
 
-        let mut file_dialog = FileDialog::new()
-            .add_filter("sms/gg/md/cue/bin/sfc", &["sms", "gg", "md", "bin", "cue", "sfc", "smc"]);
+        let mut file_dialog = FileDialog::new().add_filter(
+            "Supported ROM files",
+            &["sms", "gg", "md", "bin", "cue", "nes", "sfc", "smc"],
+        );
         if let Some(dir) = self.config.rom_search_dirs.first() {
             file_dialog = file_dialog.set_directory(Path::new(dir));
         }
@@ -522,7 +569,13 @@ impl App {
                 let config = self.config.sega_cd_config(path);
                 self.emu_thread.send(EmuThreadCommand::RunSegaCd(config));
             }
-            Some("sfc" | "Smc") => {
+            Some("nes") => {
+                self.emu_thread.stop_emulator_if_running();
+
+                let config = self.config.nes_config(path);
+                self.emu_thread.send(EmuThreadCommand::RunNes(config));
+            }
+            Some("sfc" | "smc") => {
                 self.emu_thread.stop_emulator_if_running();
 
                 let config = self.config.snes_config(path);
@@ -673,6 +726,34 @@ impl App {
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::GenesisGeneral);
+        }
+    }
+
+    fn render_nes_general_settings(&mut self, ctx: &Context) {
+        let mut open = true;
+        Window::new("NES General Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.group(|ui| {
+                ui.set_enabled(self.emu_thread.status() != EmuThreadStatus::RunningNes);
+
+                ui.label("Timing / display mode");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(&mut self.config.nes.forced_timing_mode, None, "Auto");
+                    ui.radio_value(
+                        &mut self.config.nes.forced_timing_mode,
+                        Some(TimingMode::Ntsc),
+                        "NTSC",
+                    );
+                    ui.radio_value(
+                        &mut self.config.nes.forced_timing_mode,
+                        Some(TimingMode::Pal),
+                        "PAL",
+                    );
+                });
+            });
+        });
+        if !open {
+            self.state.open_windows.remove(&OpenWindow::NesGeneral);
         }
     }
 
@@ -1130,6 +1211,46 @@ impl App {
         }
     }
 
+    fn render_nes_video_settings(&mut self, ctx: &Context) {
+        let mut open = true;
+        Window::new("NES Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.group(|ui| {
+                ui.label("Aspect ratio");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(&mut self.config.nes.aspect_ratio, NesAspectRatio::Ntsc, "NTSC")
+                        .on_hover_text("8:7 pixel aspect ratio");
+                    ui.radio_value(&mut self.config.nes.aspect_ratio, NesAspectRatio::Pal, "PAL")
+                        .on_hover_text("11:8 pixel aspect ratio");
+                    ui.radio_value(
+                        &mut self.config.nes.aspect_ratio,
+                        NesAspectRatio::SquarePixels,
+                        "Square pixels",
+                    )
+                    .on_hover_text("1:1 pixel aspect ratio");
+                    ui.radio_value(
+                        &mut self.config.nes.aspect_ratio,
+                        NesAspectRatio::Stretched,
+                        "Stretched",
+                    )
+                    .on_hover_text("Stretched to fill the window");
+                });
+            });
+
+            ui.checkbox(
+                &mut self.config.nes.remove_sprite_limit,
+                "Remove sprite-per-scanline limit",
+            )
+            .on_hover_text("Eliminates most sprite flickering but can cause visual glitches");
+
+            ui.checkbox(&mut self.config.nes.pal_black_border, "Render PAL black border")
+                .on_hover_text("Crops the image from 256x240 to 252x239");
+        });
+        if !open {
+            self.state.open_windows.remove(&OpenWindow::NesVideo);
+        }
+    }
+
     fn render_snes_video_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("SNES Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
@@ -1331,11 +1452,25 @@ impl App {
         }
     }
 
+    fn render_nes_audio_settings(&mut self, ctx: &Context) {
+        let mut open = true;
+        Window::new("NES Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.checkbox(&mut self.config.nes.silence_ultrasonic_triangle_output, "Silence ultrasonic triangle channel output")
+                .on_hover_text("Less accurate but can reduce audio popping in some games");
+
+            ui.checkbox(&mut self.config.nes.audio_60hz_hack, "Enable audio 60Hz/50Hz hack")
+                .on_hover_text("Enabling this option will very slightly increase the audio signal frequency to time to 60Hz NTSC / 50Hz PAL");
+        });
+        if !open {
+            self.state.open_windows.remove(&OpenWindow::NesAudio);
+        }
+    }
+
     fn render_snes_audio_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("SNES Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.checkbox(&mut self.config.snes.audio_60hz_hack, "Enable audio 60Hz/50Hz hack")
-                .on_hover_text("Enabling this option will very slightly speed up the audio signal to time to 60Hz NTSC / 50Hz PAL");
+                .on_hover_text("Enabling this option will very slightly increase the audio signal frequency to time to 60Hz NTSC / 50Hz PAL");
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::SnesAudio);
@@ -1454,6 +1589,11 @@ impl App {
                         ui.close_menu();
                     }
 
+                    if ui.button("NES").clicked() {
+                        self.state.open_windows.insert(OpenWindow::NesGeneral);
+                        ui.close_menu();
+                    }
+
                     if ui.button("SNES").clicked() {
                         self.state.open_windows.insert(OpenWindow::SnesGeneral);
                         ui.close_menu();
@@ -1481,6 +1621,11 @@ impl App {
                         ui.close_menu();
                     }
 
+                    if ui.button("NES").clicked() {
+                        self.state.open_windows.insert(OpenWindow::NesVideo);
+                        ui.close_menu();
+                    }
+
                     if ui.button("SNES").clicked() {
                         self.state.open_windows.insert(OpenWindow::SnesVideo);
                         ui.close_menu();
@@ -1500,6 +1645,11 @@ impl App {
 
                     if ui.button("Genesis / Sega CD").clicked() {
                         self.state.open_windows.insert(OpenWindow::GenesisAudio);
+                        ui.close_menu();
+                    }
+
+                    if ui.button("NES").clicked() {
+                        self.state.open_windows.insert(OpenWindow::NesAudio);
                         ui.close_menu();
                     }
 
@@ -1527,6 +1677,16 @@ impl App {
 
                     if ui.button("Genesis Gamepad").clicked() {
                         self.state.open_windows.insert(OpenWindow::GenesisGamepad);
+                        ui.close_menu();
+                    }
+
+                    if ui.button("NES Keyboard").clicked() {
+                        self.state.open_windows.insert(OpenWindow::NesKeyboard);
+                        ui.close_menu();
+                    }
+
+                    if ui.button("NES Gamepad").clicked() {
+                        self.state.open_windows.insert(OpenWindow::NesGamepad);
                         ui.close_menu();
                     }
 
@@ -1675,6 +1835,7 @@ impl App {
                             self.config.smsgg_config(self.state.current_file_path.clone()),
                             self.config.genesis_config(self.state.current_file_path.clone()),
                             self.config.sega_cd_config(self.state.current_file_path.clone()),
+                            self.config.nes_config(self.state.current_file_path.clone()),
                             self.config.snes_config(self.state.current_file_path.clone()),
                         );
                     }
@@ -1702,20 +1863,25 @@ impl eframe::App for App {
             match open_window {
                 OpenWindow::SmsGgGeneral => self.render_smsgg_general_settings(ctx),
                 OpenWindow::GenesisGeneral => self.render_genesis_general_settings(ctx),
+                OpenWindow::NesGeneral => self.render_nes_general_settings(ctx),
                 OpenWindow::SnesGeneral => self.render_snes_general_settings(ctx),
                 OpenWindow::Interface => self.render_interface_settings(ctx),
                 OpenWindow::CommonVideo => self.render_common_video_settings(ctx),
                 OpenWindow::SmsGgVideo => self.render_smsgg_video_settings(ctx),
                 OpenWindow::GenesisVideo => self.render_genesis_video_settings(ctx),
+                OpenWindow::NesVideo => self.render_nes_video_settings(ctx),
                 OpenWindow::SnesVideo => self.render_snes_video_settings(ctx),
                 OpenWindow::CommonAudio => self.render_common_audio_settings(ctx),
                 OpenWindow::SmsGgAudio => self.render_smsgg_audio_settings(ctx),
                 OpenWindow::GenesisAudio => self.render_genesis_audio_settings(ctx),
+                OpenWindow::NesAudio => self.render_nes_audio_settings(ctx),
                 OpenWindow::SnesAudio => self.render_snes_audio_settings(ctx),
                 OpenWindow::SmsGgKeyboard => self.render_smsgg_keyboard_settings(ctx),
                 OpenWindow::SmsGgGamepad => self.render_smsgg_gamepad_settings(ctx),
                 OpenWindow::GenesisKeyboard => self.render_genesis_keyboard_settings(ctx),
                 OpenWindow::GenesisGamepad => self.render_genesis_gamepad_settings(ctx),
+                OpenWindow::NesKeyboard => self.render_nes_keyboard_settings(ctx),
+                OpenWindow::NesGamepad => self.render_nes_joystick_settings(ctx),
                 OpenWindow::SnesKeyboard => self.render_snes_keyboard_settings(ctx),
                 OpenWindow::SnesGamepad => self.render_snes_gamepad_settings(ctx),
                 OpenWindow::SnesPeripherals => self.render_snes_peripheral_settings(ctx),
@@ -1732,6 +1898,7 @@ impl eframe::App for App {
                     self.config.smsgg_config(self.state.current_file_path.clone()),
                     self.config.genesis_config(self.state.current_file_path.clone()),
                     self.config.sega_cd_config(self.state.current_file_path.clone()),
+                    self.config.nes_config(self.state.current_file_path.clone()),
                     self.config.snes_config(self.state.current_file_path.clone()),
                 );
             }

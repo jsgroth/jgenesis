@@ -1956,6 +1956,7 @@ dependencies = [
  "jgenesis-native-driver",
  "jgenesis-renderer",
  "log",
+ "nes-core",
  "regex",
  "rfd",
  "sdl2",
