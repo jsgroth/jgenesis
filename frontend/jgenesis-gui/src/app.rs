@@ -472,6 +472,13 @@ impl App {
                 ui.menu_button("Emulation", |ui| {
                     ui.set_enabled(self.emu_thread.status().is_running());
 
+                    if ui.button("Open Memory Viewer").clicked() {
+                        self.emu_thread.send(EmuThreadCommand::OpenMemoryViewer);
+                        ui.close_menu();
+                    }
+
+                    ui.add_space(15.0);
+
                     if ui.button("Soft Reset").clicked() {
                         self.emu_thread.send(EmuThreadCommand::SoftReset);
                         ui.close_menu();
@@ -487,22 +494,27 @@ impl App {
                         ui.close_menu();
                     }
 
-                    ui.set_enabled(self.emu_thread.status() == EmuThreadStatus::RunningSegaCd);
+                    ui.add_space(15.0);
 
-                    if ui.button("Remove Disc").clicked() {
-                        self.emu_thread.send(EmuThreadCommand::SegaCdRemoveDisc);
-                        ui.close_menu();
-                    }
+                    ui.add_enabled_ui(
+                        self.emu_thread.status() == EmuThreadStatus::RunningSegaCd,
+                        |ui| {
+                            if ui.button("Remove Disc").clicked() {
+                                self.emu_thread.send(EmuThreadCommand::SegaCdRemoveDisc);
+                                ui.close_menu();
+                            }
 
-                    if ui.button("Change Disc").clicked() {
-                        if let Some(path) =
-                            FileDialog::new().add_filter("cue", &["cue"]).pick_file()
-                        {
-                            self.emu_thread.send(EmuThreadCommand::SegaCdChangeDisc(path));
-                        }
+                            if ui.button("Change Disc").clicked() {
+                                if let Some(path) =
+                                    FileDialog::new().add_filter("cue", &["cue"]).pick_file()
+                                {
+                                    self.emu_thread.send(EmuThreadCommand::SegaCdChangeDisc(path));
+                                }
 
-                        ui.close_menu();
-                    }
+                                ui.close_menu();
+                            }
+                        },
+                    );
                 });
 
                 ui.menu_button("Settings", |ui| {

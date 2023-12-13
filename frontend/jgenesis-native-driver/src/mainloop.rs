@@ -717,6 +717,13 @@ where
     pub fn hard_reset(&mut self) {
         self.emulator.hard_reset();
     }
+
+    pub fn open_memory_viewer(&mut self) {
+        if self.hotkey_state.debugger_window.is_none() {
+            self.hotkey_state.debugger_window =
+                open_debugger_window(&self.video, self.hotkey_state.debug_render_fn);
+        }
+    }
 }
 
 /// Create an emulator with the SMS/GG core with the given config.
@@ -1251,6 +1258,20 @@ where
     }
 
     Ok(HotkeyResult::None)
+}
+
+fn open_debugger_window<Emulator>(
+    video: &VideoSubsystem,
+    debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
+) -> Option<DebuggerWindow<Emulator>> {
+    let render_fn = debug_render_fn();
+    match DebuggerWindow::new(video, render_fn) {
+        Ok(debugger_window) => Some(debugger_window),
+        Err(err) => {
+            log::error!("Error opening debugger window: {err}");
+            None
+        }
+    }
 }
 
 fn handle_window_event(win_event: WindowEvent, renderer: &mut WgpuRenderer<Window>) {

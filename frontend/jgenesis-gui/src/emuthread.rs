@@ -75,6 +75,7 @@ pub enum EmuThreadCommand {
     CollectInput { input_type: InputType, axis_deadzone: i16, ctx: egui::Context },
     SoftReset,
     HardReset,
+    OpenMemoryViewer,
     SegaCdRemoveDisc,
     SegaCdChangeDisc(PathBuf),
 }
@@ -281,6 +282,7 @@ pub fn spawn() -> EmuThreadHandle {
                     | EmuThreadCommand::ReloadSnesConfig(_)
                     | EmuThreadCommand::SoftReset
                     | EmuThreadCommand::HardReset
+                    | EmuThreadCommand::OpenMemoryViewer
                     | EmuThreadCommand::SegaCdRemoveDisc
                     | EmuThreadCommand::SegaCdChangeDisc(_),
                 ) => {}
@@ -389,6 +391,10 @@ impl GenericEmulator {
         match_each_emulator_variant!(self, emulator => emulator.hard_reset());
     }
 
+    fn open_memory_viewer(&mut self) {
+        match_each_emulator_variant!(self, emulator => emulator.open_memory_viewer());
+    }
+
     fn focus(&mut self) {
         match_each_emulator_variant!(self, emulator => emulator.focus());
     }
@@ -476,6 +482,9 @@ fn run_emulator(
                         }
                         EmuThreadCommand::HardReset => {
                             emulator.hard_reset();
+                        }
+                        EmuThreadCommand::OpenMemoryViewer => {
+                            emulator.open_memory_viewer();
                         }
                         EmuThreadCommand::SegaCdRemoveDisc => {
                             emulator.remove_disc();
