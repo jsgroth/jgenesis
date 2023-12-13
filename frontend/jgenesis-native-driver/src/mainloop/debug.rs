@@ -1,5 +1,6 @@
 mod eguisdl;
 pub mod genesis;
+pub mod nes;
 pub mod smsgg;
 pub mod snes;
 

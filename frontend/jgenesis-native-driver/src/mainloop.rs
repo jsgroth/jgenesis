@@ -1013,7 +1013,7 @@ pub fn create_nes(config: Box<NesConfig>) -> NativeEmulatorResult<NativeNesEmula
         sdl,
         event_pump,
         video,
-        hotkey_state: HotkeyState::new(&config.common, save_state_path, || Box::new(|_| Ok(()))),
+        hotkey_state: HotkeyState::new(&config.common, save_state_path, debug::nes::render_fn),
     })
 }
 

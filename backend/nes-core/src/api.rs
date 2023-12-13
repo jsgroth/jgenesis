@@ -17,6 +17,8 @@ use std::fmt::{Debug, Display, Formatter};
 use std::{iter, mem};
 use thiserror::Error;
 
+pub use graphics::PatternTable;
+
 // The number of master clock ticks to run in one `Emulator::tick` call
 const PAL_MASTER_CLOCK_TICKS: u32 = 80;
 
@@ -244,6 +246,23 @@ impl NesEmulator {
         };
 
         self.audio_resampler.collect_sample(audio_sample);
+    }
+
+    pub fn copy_nametables(&mut self, pattern_table: PatternTable, out: &mut [Color]) {
+        graphics::copy_nametables(pattern_table, &mut self.bus.ppu(), out);
+    }
+
+    pub fn copy_oam(&mut self, pattern_table: PatternTable, out: &mut [Color]) {
+        graphics::copy_oam(pattern_table, &mut self.bus.ppu(), out);
+    }
+
+    pub fn copy_palette_ram(&mut self, out: &mut [Color]) {
+        graphics::copy_palette_ram(&self.bus.ppu(), out);
+    }
+
+    #[inline]
+    pub fn using_double_height_sprites(&mut self) -> bool {
+        self.bus.ppu().get_ppu_registers().double_height_sprites()
     }
 }
 

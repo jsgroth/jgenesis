@@ -1,3 +1,7 @@
+mod debug;
+
+pub use debug::{copy_nametables, copy_oam, copy_palette_ram, PatternTable};
+
 use crate::api::Overscan;
 use crate::ppu;
 use crate::ppu::{ColorEmphasis, FrameBuffer};
@@ -25,7 +29,7 @@ impl TimingModeGraphicsExt for TimingMode {
     }
 }
 
-const PALETTE: &[u8] = include_bytes!("nespalette.pal");
+const PALETTE: &[u8; 3 * 64 * 8] = include_bytes!("nespalette.pal");
 
 pub fn ppu_frame_buffer_to_rgba(
     ppu_frame_buffer: &FrameBuffer,
@@ -52,17 +56,20 @@ pub fn ppu_frame_buffer_to_rgba(
         for (col, &(nes_color, color_emphasis)) in
             scanline.iter().skip(overscan.left as usize).take(num_cols_rendered).enumerate()
         {
-            let color_emphasis_offset = get_color_emphasis_offset(color_emphasis);
-            let palette_idx = (color_emphasis_offset + 3 * u16::from(nes_color)) as usize;
-
-            let r = PALETTE[palette_idx];
-            let g = PALETTE[palette_idx + 1];
-            let b = PALETTE[palette_idx + 2];
-            let rgba_color = Color::rgb(r, g, b);
-
+            let rgba_color = nes_color_to_rgba(nes_color, color_emphasis);
             rgba_frame_buffer[row * num_cols_rendered + col] = rgba_color;
         }
     }
+}
+
+pub fn nes_color_to_rgba(nes_color: u8, color_emphasis: ColorEmphasis) -> Color {
+    let color_emphasis_offset = get_color_emphasis_offset(color_emphasis);
+    let palette_idx = (color_emphasis_offset + 3 * u16::from(nes_color)) as usize;
+
+    let r = PALETTE[palette_idx];
+    let g = PALETTE[palette_idx + 1];
+    let b = PALETTE[palette_idx + 2];
+    Color::rgb(r, g, b)
 }
 
 fn get_color_emphasis_offset(color_emphasis: ColorEmphasis) -> u16 {

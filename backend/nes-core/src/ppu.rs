@@ -45,6 +45,8 @@ const BLACK_NES_COLOR: u8 = 0x0F;
 pub struct ColorEmphasis(u8);
 
 impl ColorEmphasis {
+    pub const NONE: Self = Self(0);
+
     pub fn new(red: bool, green: bool, blue: bool) -> Self {
         let emphasis_bits = u8::from(red) | (u8::from(green) << 1) | (u8::from(blue) << 2);
         Self(emphasis_bits)
