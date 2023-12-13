@@ -13,7 +13,7 @@ use jgenesis_common::frontend::{
     TickEffect, TickResult, TimingMode,
 };
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, PartialClone};
-use std::fmt::{Debug, Display};
+use std::fmt::{Debug, Display, Formatter};
 use std::{iter, mem};
 use thiserror::Error;
 
@@ -44,6 +44,29 @@ impl NesAspectRatio {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Overscan {
+    pub top: u16,
+    pub bottom: u16,
+    pub left: u16,
+    pub right: u16,
+}
+
+impl Overscan {
+    pub const NONE: Self = Self { top: 0, bottom: 0, left: 0, right: 0 };
+}
+
+impl Display for Overscan {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Overscan {{ top={}, bottom={}, left={}, right={} }}",
+            self.top, self.bottom, self.left, self.right
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub struct NesEmulatorConfig {
     /// Force timing mode to NTSC/PAL if set
@@ -51,6 +74,8 @@ pub struct NesEmulatorConfig {
     pub forced_timing_mode: Option<TimingMode>,
     /// Aspect ratio
     pub aspect_ratio: NesAspectRatio,
+    /// Overscan in pixels
+    pub overscan: Overscan,
     /// If true, do not emulate the 8 sprite per scanline limit; this eliminates sprite flickering
     /// but can cause bugs in some games
     pub remove_sprite_limit: bool,
@@ -181,17 +206,32 @@ impl NesEmulator {
     }
 
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
+        let overscan = self.config.overscan;
         let timing_mode = self.bus.mapper().timing_mode();
         graphics::ppu_frame_buffer_to_rgba(
             self.ppu_state.frame_buffer(),
             &mut self.rgba_frame_buffer,
+            overscan,
             timing_mode,
         );
 
+        let visible_screen_height = timing_mode.visible_screen_height();
         let frame_size = FrameSize {
-            width: ppu::SCREEN_WIDTH.into(),
-            height: timing_mode.visible_screen_height().into(),
+            width: ppu::SCREEN_WIDTH
+                .saturating_sub(overscan.left)
+                .saturating_sub(overscan.right)
+                .into(),
+            height: visible_screen_height
+                .saturating_sub(overscan.top)
+                .saturating_sub(overscan.bottom)
+                .into(),
         };
+
+        if frame_size.width == 0 || frame_size.height == 0 {
+            log::error!("Overscan values are too large, entire frame was cropped: {overscan}");
+            return renderer.render_frame(&[Color::BLACK], FrameSize { width: 1, height: 1 }, None);
+        }
+
         let pixel_aspect_ratio = self.config.aspect_ratio.to_pixel_aspect_ratio();
 
         renderer.render_frame(&self.rgba_frame_buffer, frame_size, pixel_aspect_ratio)

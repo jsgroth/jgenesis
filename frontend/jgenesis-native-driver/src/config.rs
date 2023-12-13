@@ -10,7 +10,7 @@ use genesis_core::{
 use jgenesis_common::frontend::{PixelAspectRatio, TimingMode};
 use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::RendererConfig;
-use nes_core::api::{NesAspectRatio, NesEmulatorConfig};
+use nes_core::api::{NesAspectRatio, NesEmulatorConfig, Overscan};
 use segacd_core::api::SegaCdEmulatorConfig;
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
@@ -228,6 +228,7 @@ pub struct NesConfig {
     pub common: CommonConfig<NesInputConfig<KeyboardInput>, NesInputConfig<JoystickInput>>,
     pub forced_timing_mode: Option<TimingMode>,
     pub aspect_ratio: NesAspectRatio,
+    pub overscan: Overscan,
     pub remove_sprite_limit: bool,
     pub pal_black_border: bool,
     pub silence_ultrasonic_triangle_output: bool,
@@ -239,6 +240,7 @@ impl NesConfig {
         NesEmulatorConfig {
             forced_timing_mode: self.forced_timing_mode,
             aspect_ratio: self.aspect_ratio,
+            overscan: self.overscan,
             remove_sprite_limit: self.remove_sprite_limit,
             pal_black_border: self.pal_black_border,
             silence_ultrasonic_triangle_output: self.silence_ultrasonic_triangle_output,

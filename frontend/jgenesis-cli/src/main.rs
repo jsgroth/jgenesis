@@ -15,7 +15,7 @@ use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, RendererConfig, Scanlines, VSyncMode, WgpuBackend,
 };
-use nes_core::api::NesAspectRatio;
+use nes_core::api::{NesAspectRatio, Overscan};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsRegion, VdpVersion};
 use snes_core::api::SnesAspectRatio;
@@ -137,6 +137,22 @@ struct Args {
     /// Aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
     #[arg(long, default_value_t, help_heading = NES_OPTIONS_HEADING)]
     nes_aspect_ratio: NesAspectRatio,
+
+    /// Top overscan in pixels
+    #[arg(long, default_value_t, help_heading = NES_OPTIONS_HEADING)]
+    overscan_top: u16,
+
+    /// Bottom overscan in pixels
+    #[arg(long, default_value_t, help_heading = NES_OPTIONS_HEADING)]
+    overscan_bottom: u16,
+
+    /// Left overscan in pixels
+    #[arg(long, default_value_t, help_heading = NES_OPTIONS_HEADING)]
+    overscan_left: u16,
+
+    /// Right overscan in pixels
+    #[arg(long, default_value_t, help_heading = NES_OPTIONS_HEADING)]
+    overscan_right: u16,
 
     /// Render the PAL black border (top scanline + two columns on each side)
     #[arg(long, default_value_t, help_heading = NES_OPTIONS_HEADING)]
@@ -604,6 +620,12 @@ fn run_nes(args: Args) -> anyhow::Result<()> {
         common: args.common_config(NesInputConfig::default(), NesInputConfig::default()),
         forced_timing_mode: args.forced_timing_mode,
         aspect_ratio: args.nes_aspect_ratio,
+        overscan: Overscan {
+            top: args.overscan_top,
+            bottom: args.overscan_bottom,
+            left: args.overscan_left,
+            right: args.overscan_right,
+        },
         remove_sprite_limit: args.remove_sprite_limit,
         pal_black_border: args.nes_pal_black_border,
         silence_ultrasonic_triangle_output: args.nes_silence_ultrasonic_triangle,

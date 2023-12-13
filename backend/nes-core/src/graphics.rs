@@ -1,3 +1,4 @@
+use crate::api::Overscan;
 use crate::ppu;
 use crate::ppu::{ColorEmphasis, FrameBuffer};
 use jgenesis_common::frontend::{Color, TimingMode};
@@ -29,18 +30,28 @@ const PALETTE: &[u8] = include_bytes!("nespalette.pal");
 pub fn ppu_frame_buffer_to_rgba(
     ppu_frame_buffer: &FrameBuffer,
     rgba_frame_buffer: &mut [Color],
+    overscan: Overscan,
     timing_mode: TimingMode,
 ) {
+    rgba_frame_buffer.fill(Color::BLACK);
+
     let row_offset = timing_mode.starting_row();
     let visible_screen_height = timing_mode.visible_screen_height();
 
+    let num_rows_rendered =
+        visible_screen_height.saturating_sub(overscan.top).saturating_sub(overscan.bottom) as usize;
+    let num_cols_rendered =
+        ppu::SCREEN_WIDTH.saturating_sub(overscan.left).saturating_sub(overscan.right) as usize;
+
     for (row, scanline) in ppu_frame_buffer
         .iter()
-        .skip(row_offset as usize)
-        .take(visible_screen_height as usize)
+        .skip(row_offset as usize + overscan.top as usize)
+        .take(num_rows_rendered)
         .enumerate()
     {
-        for (col, &(nes_color, color_emphasis)) in scanline.iter().enumerate() {
+        for (col, &(nes_color, color_emphasis)) in
+            scanline.iter().skip(overscan.left as usize).take(num_cols_rendered).enumerate()
+        {
             let color_emphasis_offset = get_color_emphasis_offset(color_emphasis);
             let palette_idx = (color_emphasis_offset + 3 * u16::from(nes_color)) as usize;
 
@@ -49,7 +60,7 @@ pub fn ppu_frame_buffer_to_rgba(
             let b = PALETTE[palette_idx + 2];
             let rgba_color = Color::rgb(r, g, b);
 
-            rgba_frame_buffer[row * ppu::SCREEN_WIDTH as usize + col] = rgba_color;
+            rgba_frame_buffer[row * num_cols_rendered + col] = rgba_color;
         }
     }
 }

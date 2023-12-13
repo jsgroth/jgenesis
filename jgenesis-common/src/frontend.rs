@@ -14,6 +14,8 @@ pub struct Color {
 }
 
 impl Color {
+    pub const BLACK: Self = Self::rgb(0, 0, 0);
+
     #[must_use]
     #[inline]
     pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
@@ -24,7 +26,7 @@ impl Color {
 impl Default for Color {
     #[inline]
     fn default() -> Self {
-        Self::rgb(0, 0, 0)
+        Self::BLACK
     }
 }
 

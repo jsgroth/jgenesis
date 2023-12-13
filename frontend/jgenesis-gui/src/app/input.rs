@@ -1,6 +1,6 @@
-use crate::app::{App, OpenWindow};
+use crate::app::{App, NumericTextEdit, OpenWindow};
 use crate::emuthread::{EmuThreadCommand, GenericInput, InputType};
-use egui::{Color32, Context, Grid, TextEdit, Ui, Widget, Window};
+use egui::{Color32, Context, Grid, Ui, Window};
 use genesis_core::GenesisControllerType;
 use jgenesis_native_driver::config::input::{
     GenesisControllerConfig, GenesisInputConfig, HotkeyConfig, JoystickInput, KeyboardInput,
@@ -1069,21 +1069,15 @@ impl App {
             ui.add_space(20.0);
 
             ui.horizontal(|ui| {
-                if TextEdit::singleline(&mut self.state.ff_multiplier_text)
-                    .desired_width(30.0)
-                    .ui(ui)
-                    .changed()
-                {
-                    match self.state.ff_multiplier_text.parse::<u64>() {
-                        Ok(ff_multiplier) if ff_multiplier != 0 => {
-                            self.config.common.fast_forward_multiplier = ff_multiplier;
-                            self.state.ff_multiplier_invalid = false;
-                        }
-                        _ => {
-                            self.state.ff_multiplier_invalid = true;
-                        }
-                    }
-                }
+                ui.add(
+                    NumericTextEdit::new(
+                        &mut self.state.ff_multiplier_text,
+                        &mut self.config.common.fast_forward_multiplier,
+                        &mut self.state.ff_multiplier_invalid,
+                    )
+                    .with_validation(|value| value != 0)
+                    .desired_width(30.0),
+                );
 
                 ui.label("Fast forward multiplier");
             });
@@ -1095,21 +1089,14 @@ impl App {
             }
 
             ui.horizontal(|ui| {
-                if TextEdit::singleline(&mut self.state.rewind_buffer_len_text)
-                    .desired_width(30.0)
-                    .ui(ui)
-                    .changed()
-                {
-                    match self.state.rewind_buffer_len_text.parse::<u64>() {
-                        Ok(rewind_buffer_len) => {
-                            self.config.common.rewind_buffer_length_seconds = rewind_buffer_len;
-                            self.state.rewind_buffer_len_invalid = false;
-                        }
-                        Err(_) => {
-                            self.state.rewind_buffer_len_invalid = true;
-                        }
-                    }
-                }
+                ui.add(
+                    NumericTextEdit::new(
+                        &mut self.state.rewind_buffer_len_text,
+                        &mut self.config.common.rewind_buffer_length_seconds,
+                        &mut self.state.rewind_buffer_len_invalid,
+                    )
+                    .desired_width(30.0),
+                );
 
                 ui.label("Rewind buffer length in seconds");
             });
@@ -1127,21 +1114,15 @@ impl App {
 
     fn render_axis_deadzone_input(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
-            if TextEdit::singleline(&mut self.state.axis_deadzone_text)
-                .desired_width(50.0)
-                .ui(ui)
-                .changed()
-            {
-                match self.state.axis_deadzone_text.parse::<i16>() {
-                    Ok(value) if (0..=i16::MAX).contains(&value) => {
-                        self.config.inputs.axis_deadzone = value;
-                        self.state.axis_deadzone_invalid = false;
-                    }
-                    _ => {
-                        self.state.axis_deadzone_invalid = true;
-                    }
-                }
-            }
+            ui.add(
+                NumericTextEdit::new(
+                    &mut self.state.axis_deadzone_text,
+                    &mut self.config.inputs.axis_deadzone,
+                    &mut self.state.axis_deadzone_invalid,
+                )
+                .with_validation(|value| value >= 0)
+                .desired_width(50.0),
+            );
 
             ui.label("Joystick axis deadzone (0-32767)");
         });

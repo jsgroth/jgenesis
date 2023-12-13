@@ -9,7 +9,7 @@ use eframe::Frame;
 use egui::panel::TopBottomSide;
 use egui::{
     menu, Align, Button, CentralPanel, Color32, Context, Key, KeyboardShortcut, Layout, Modifiers,
-    TextEdit, TopBottomPanel, Vec2, Widget, Window,
+    Response, TextEdit, TopBottomPanel, Ui, Vec2, Widget, Window,
 };
 use egui_extras::{Column, TableBuilder};
 use genesis_core::{GenesisAspectRatio, GenesisRegion};
@@ -21,7 +21,7 @@ use jgenesis_native_driver::config::{
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, RendererConfig, Scanlines, VSyncMode, WgpuBackend,
 };
-use nes_core::api::NesAspectRatio;
+use nes_core::api::{NesAspectRatio, Overscan};
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
@@ -34,6 +34,7 @@ use std::fs;
 use std::num::{NonZeroU32, NonZeroU64};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct CommonAppConfig {
@@ -196,6 +197,8 @@ struct NesAppConfig {
     forced_timing_mode: Option<TimingMode>,
     #[serde(default)]
     aspect_ratio: NesAspectRatio,
+    #[serde(default)]
+    overscan: Overscan,
     #[serde(default)]
     remove_sprite_limit: bool,
     #[serde(default)]
@@ -374,6 +377,7 @@ impl AppConfig {
             ),
             forced_timing_mode: self.nes.forced_timing_mode,
             aspect_ratio: self.nes.aspect_ratio,
+            overscan: self.nes.overscan,
             remove_sprite_limit: self.nes.remove_sprite_limit,
             pal_black_border: self.nes.pal_black_border,
             silence_ultrasonic_triangle_output: self.nes.silence_ultrasonic_triangle_output,
@@ -440,6 +444,32 @@ enum OpenWindow {
     About,
 }
 
+struct OverscanState {
+    top_text: String,
+    top_invalid: bool,
+    bottom_text: String,
+    bottom_invalid: bool,
+    left_text: String,
+    left_invalid: bool,
+    right_text: String,
+    right_invalid: bool,
+}
+
+impl From<Overscan> for OverscanState {
+    fn from(value: Overscan) -> Self {
+        Self {
+            top_text: value.top.to_string(),
+            top_invalid: false,
+            bottom_text: value.bottom.to_string(),
+            bottom_invalid: false,
+            left_text: value.left.to_string(),
+            left_invalid: false,
+            right_text: value.right.to_string(),
+            right_invalid: false,
+        }
+    }
+}
+
 struct AppState {
     current_file_path: String,
     open_windows: HashSet<OpenWindow>,
@@ -461,6 +491,7 @@ struct AppState {
     audio_gain_text: String,
     audio_gain_invalid: bool,
     display_scanlines_warning: bool,
+    overscan: OverscanState,
     waiting_for_input: Option<GenericButton>,
     rom_list: Rc<RefCell<Vec<RomMetadata>>>,
     recent_open_list: Vec<RomMetadata>,
@@ -490,6 +521,7 @@ impl AppState {
             audio_sync_threshold_invalid: false,
             audio_gain_text: format!("{:.1}", config.common.audio_gain_db),
             audio_gain_invalid: false,
+            overscan: config.nes.overscan.into(),
             display_scanlines_warning: should_display_scanlines_warning(config),
             waiting_for_input: None,
             rom_list: Rc::new(RefCell::new(rom_list)),
@@ -502,6 +534,54 @@ fn should_display_scanlines_warning(config: &AppConfig) -> bool {
     config.common.scanlines != Scanlines::None
         && (config.common.prescale_factor.get() % 2 != 0
             || !config.common.force_integer_height_scaling)
+}
+
+struct NumericTextEdit<'a, T> {
+    text: &'a mut String,
+    value: &'a mut T,
+    invalid: &'a mut bool,
+    validation_fn: Box<dyn Fn(T) -> bool>,
+    desired_width: Option<f32>,
+}
+
+impl<'a, T> NumericTextEdit<'a, T> {
+    fn new(text: &'a mut String, value: &'a mut T, invalid: &'a mut bool) -> Self {
+        Self { text, value, invalid, validation_fn: Box::new(|_| true), desired_width: None }
+    }
+
+    fn with_validation(mut self, validation_fn: impl Fn(T) -> bool + 'static) -> Self {
+        self.validation_fn = Box::new(validation_fn);
+        self
+    }
+
+    fn desired_width(mut self, desired_width: f32) -> Self {
+        self.desired_width = Some(desired_width);
+        self
+    }
+}
+
+impl<'a, T: Copy + FromStr> Widget for NumericTextEdit<'a, T> {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let mut text_edit = TextEdit::singleline(self.text);
+        if let Some(desired_width) = self.desired_width {
+            text_edit = text_edit.desired_width(desired_width);
+        }
+
+        let response = text_edit.ui(ui);
+        if response.changed() {
+            match self.text.parse::<T>() {
+                Ok(value) if (self.validation_fn)(value) => {
+                    *self.value = value;
+                    *self.invalid = false;
+                }
+                _ => {
+                    *self.invalid = true;
+                }
+            }
+        }
+
+        response
+    }
 }
 
 pub struct App {
@@ -1245,6 +1325,72 @@ impl App {
 
             ui.checkbox(&mut self.config.nes.pal_black_border, "Render PAL black border")
                 .on_hover_text("Crops the image from 256x240 to 252x239");
+
+            ui.group(|ui| {
+                ui.label("Overscan in pixels");
+
+                ui.vertical_centered(|ui| {
+                    ui.label("Top");
+                    ui.add(
+                        NumericTextEdit::new(
+                            &mut self.state.overscan.top_text,
+                            &mut self.config.nes.overscan.top,
+                            &mut self.state.overscan.top_invalid,
+                        )
+                        .desired_width(30.0),
+                    );
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Left");
+                    ui.add(
+                        NumericTextEdit::new(
+                            &mut self.state.overscan.left_text,
+                            &mut self.config.nes.overscan.left,
+                            &mut self.state.overscan.left_invalid,
+                        )
+                        .desired_width(30.0),
+                    );
+
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label("Right");
+                        ui.add(
+                            NumericTextEdit::new(
+                                &mut self.state.overscan.right_text,
+                                &mut self.config.nes.overscan.right,
+                                &mut self.state.overscan.right_invalid,
+                            )
+                            .desired_width(30.0),
+                        );
+                    });
+                });
+
+                ui.vertical_centered(|ui| {
+                    ui.add(
+                        NumericTextEdit::new(
+                            &mut self.state.overscan.bottom_text,
+                            &mut self.config.nes.overscan.bottom,
+                            &mut self.state.overscan.bottom_invalid,
+                        )
+                        .desired_width(30.0),
+                    );
+                    ui.label("Bottom");
+                });
+
+                for (invalid, label) in [
+                    (self.state.overscan.top_invalid, "Top"),
+                    (self.state.overscan.bottom_invalid, "Bottom"),
+                    (self.state.overscan.left_invalid, "Left"),
+                    (self.state.overscan.right_invalid, "Right"),
+                ] {
+                    if invalid {
+                        ui.colored_label(
+                            Color32::RED,
+                            format!("{label} value must be a non-negative integer"),
+                        );
+                    }
+                }
+            });
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::NesVideo);
@@ -1298,21 +1444,15 @@ impl App {
             ui.add_space(10.0);
 
             ui.horizontal(|ui| {
-                if TextEdit::singleline(&mut self.state.audio_device_queue_size_text)
-                    .desired_width(TEXT_EDIT_WIDTH)
-                    .ui(ui)
-                    .changed()
-                {
-                    match self.state.audio_device_queue_size_text.parse::<u16>() {
-                        Ok(value) if value.is_power_of_two() && value >= MIN_DEVICE_QUEUE_SIZE => {
-                            self.config.common.audio_device_queue_size = value;
-                            self.state.audio_device_queue_size_invalid = false;
-                        }
-                        _ => {
-                            self.state.audio_device_queue_size_invalid = true;
-                        }
-                    }
-                }
+                ui.add(
+                    NumericTextEdit::new(
+                        &mut self.state.audio_device_queue_size_text,
+                        &mut self.config.common.audio_device_queue_size,
+                        &mut self.state.audio_device_queue_size_invalid,
+                    )
+                        .with_validation(|value| value.is_power_of_two() && value >= MIN_DEVICE_QUEUE_SIZE)
+                        .desired_width(TEXT_EDIT_WIDTH)
+                );
 
                 ui.label("Audio device queue size (samples)");
             });
@@ -1321,21 +1461,15 @@ impl App {
             }
 
             ui.horizontal(|ui| {
-                if TextEdit::singleline(&mut self.state.internal_audio_buffer_size_text)
-                    .desired_width(TEXT_EDIT_WIDTH)
-                    .ui(ui)
-                    .changed()
-                {
-                    match self.state.internal_audio_buffer_size_text.parse::<u32>() {
-                        Ok(value) if value > 0 => {
-                            self.config.common.internal_audio_buffer_size = value;
-                            self.state.internal_audio_buffer_size_invalid = false;
-                        }
-                        _ => {
-                            self.state.internal_audio_buffer_size_invalid = true;
-                        }
-                    }
-                }
+                ui.add(
+                    NumericTextEdit::new(
+                        &mut self.state.internal_audio_buffer_size_text,
+                        &mut self.config.common.internal_audio_buffer_size,
+                        &mut self.state.internal_audio_buffer_size_invalid,
+                    )
+                        .with_validation(|value| value != 0)
+                        .desired_width(TEXT_EDIT_WIDTH)
+                );
 
                 ui.label("Internal audio buffer size (samples)");
             });
@@ -1347,21 +1481,15 @@ impl App {
             }
 
             ui.horizontal(|ui| {
-                if TextEdit::singleline(&mut self.state.audio_sync_threshold_text)
-                    .desired_width(TEXT_EDIT_WIDTH)
-                    .ui(ui)
-                    .changed()
-                {
-                    match self.state.audio_sync_threshold_text.parse::<u32>() {
-                        Ok(value) if value >= MIN_AUDIO_SYNC_THRESHOLD => {
-                            self.config.common.audio_sync_threshold = value;
-                            self.state.audio_sync_threshold_invalid = false;
-                        }
-                        _ => {
-                            self.state.audio_sync_threshold_invalid = true;
-                        }
-                    }
-                }
+                ui.add(
+                    NumericTextEdit::new(
+                        &mut self.state.audio_sync_threshold_text,
+                        &mut self.config.common.audio_sync_threshold,
+                        &mut self.state.audio_sync_threshold_invalid,
+                    )
+                        .with_validation(|value| value >= MIN_AUDIO_SYNC_THRESHOLD)
+                        .desired_width(TEXT_EDIT_WIDTH)
+                );
 
                 ui.label("Audio sync threshold (bytes)");
             });
@@ -1373,21 +1501,15 @@ impl App {
             }
 
             ui.horizontal(|ui| {
-                if TextEdit::singleline(&mut self.state.audio_gain_text)
-                    .desired_width(TEXT_EDIT_WIDTH)
-                    .ui(ui)
-                    .changed()
-                {
-                    match self.state.audio_gain_text.parse::<f64>() {
-                        Ok(value) if value.is_finite() => {
-                            self.config.common.audio_gain_db = value;
-                            self.state.audio_gain_invalid = false;
-                        }
-                        _ => {
-                            self.state.audio_gain_invalid = true;
-                        }
-                    }
-                }
+                ui.add(
+                    NumericTextEdit::new(
+                        &mut self.state.audio_gain_text,
+                        &mut self.config.common.audio_gain_db,
+                        &mut self.state.audio_gain_invalid,
+                    )
+                        .with_validation(f64::is_finite)
+                        .desired_width(TEXT_EDIT_WIDTH)
+                );
 
                 ui.label("Audio gain (dB) (+/-)");
             });
