@@ -6,7 +6,7 @@ The crates can be broken up roughly into 5 categories:
 
 * Common libraries: `jgenesis-common`, `jgenesis-proc-macros`
 * CPU emulators: `z80-emu`, `m68000-emu`, `wdc65816-emu`, `spc700-emu`
-* Emulation backend: `smsgg-core`, `genesis-core`, `segacd-core`, `snes-core`, `snes-coprocessors`
+* Emulation backend: `smsgg-core`, `genesis-core`, `segacd-core`, `nes-core`, `snes-core`, `snes-coprocessors`
 * Emulation frontend: `jgenesis-renderer`, `jgenesis-native-driver`, `jgenesis-cli`, `jgenesis-gui`, `jgenesis-web`
 * CPU emulator test harnesses: `z80-test-runner`, `m68000-test-runner`, `wdc65816-test-runner`, `spc700-test-runner`
 
@@ -39,6 +39,10 @@ Emulation core for the Sega Genesis / Mega Drive. Uses the PSG component from `s
 ### `segacd-core`
 
 Emulation core for the Sega CD / Mega CD. Uses many components from `genesis-core`, as the Genesis side of the system is virtually unchanged except for the parts of the memory map that the standalone Genesis maps to the cartridge.
+
+### `nes-core`
+
+Emulation core for the Nintendo Entertainment System (NES) / Famicom.
 
 ### `snes-core`
 
