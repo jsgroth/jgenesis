@@ -55,9 +55,7 @@ impl ExpectedState {
             }
         }
 
-        if !errors.is_empty() {
-            panic!("Expected state mismatch: {}", errors.join(", "));
-        }
+        assert!(errors.is_empty(), "Expected state mismatch: {}", errors.join(", "));
     }
 }
 

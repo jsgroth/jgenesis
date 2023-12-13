@@ -489,9 +489,9 @@ mod tests {
         decompressor.target_offset = 0;
 
         let mut decompressed = Vec::with_capacity(64);
-        decompressor.initialize(&rom);
+        decompressor.initialize(rom);
         for _ in 0..64 {
-            decompressed.push(decompressor.next_byte(&rom));
+            decompressed.push(decompressor.next_byte(rom));
         }
 
         assert_eq!(decompressor.length_counter, 0);
