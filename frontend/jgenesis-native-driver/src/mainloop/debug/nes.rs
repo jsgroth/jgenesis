@@ -1,6 +1,6 @@
 use crate::mainloop::debug;
 use crate::mainloop::debug::{DebugRenderContext, DebugRenderFn, DebuggerError, SelectableButton};
-use egui::{CentralPanel, Vec2};
+use egui::{CentralPanel, ScrollArea, Vec2};
 use jgenesis_common::frontend::Color;
 use nes_core::api::{NesEmulator, PatternTable};
 
@@ -80,9 +80,14 @@ fn render(
 
                 ui.add_space(10.0);
 
-                ui.vertical_centered(|ui| {
-                    let egui_texture = state.nametables_texture.as_ref().unwrap().1;
-                    ui.image((egui_texture, Vec2::new(screen_width * 0.65, screen_width * 0.65)));
+                ScrollArea::vertical().show(ui, |ui| {
+                    ui.vertical_centered(|ui| {
+                        let egui_texture = state.nametables_texture.as_ref().unwrap().1;
+                        ui.image((
+                            egui_texture,
+                            Vec2::new(screen_width * 0.95, screen_width * 0.95),
+                        ));
+                    });
                 });
             }
             Tab::Oam => {
@@ -97,20 +102,22 @@ fn render(
 
                 ui.add_space(10.0);
 
-                ui.vertical_centered(|ui| {
-                    if ctx.emulator.using_double_height_sprites() {
-                        let egui_texture = state.oam_double_height_texture.as_ref().unwrap().1;
-                        ui.image((
-                            egui_texture,
-                            Vec2::new(screen_width * 0.325, screen_width * 0.65),
-                        ));
-                    } else {
-                        let egui_texture = state.oam_texture.as_ref().unwrap().1;
-                        ui.image((
-                            egui_texture,
-                            Vec2::new(screen_width * 0.65, screen_width * 0.65),
-                        ));
-                    }
+                ScrollArea::vertical().show(ui, |ui| {
+                    ui.vertical_centered(|ui| {
+                        if ctx.emulator.using_double_height_sprites() {
+                            let egui_texture = state.oam_double_height_texture.as_ref().unwrap().1;
+                            ui.image((
+                                egui_texture,
+                                Vec2::new(screen_width * 0.325, screen_width * 0.65),
+                            ));
+                        } else {
+                            let egui_texture = state.oam_texture.as_ref().unwrap().1;
+                            ui.image((
+                                egui_texture,
+                                Vec2::new(screen_width * 0.65, screen_width * 0.65),
+                            ));
+                        }
+                    });
                 });
             }
             Tab::PaletteRam => {
