@@ -89,12 +89,11 @@ impl Cartridge {
         initial_ram_bytes: Option<Vec<u8>>,
         forced_region: Option<GenesisRegion>,
     ) -> Self {
-        let region = forced_region.unwrap_or_else(|| match GenesisRegion::from_rom(&rom_bytes) {
-            Some(region) => region,
-            None => {
+        let region = forced_region.unwrap_or_else(|| {
+            GenesisRegion::from_rom(&rom_bytes).unwrap_or_else(|| {
                 log::warn!("Unable to determine cartridge region from ROM header; using Americas");
                 GenesisRegion::Americas
-            }
+            })
         });
         log::info!("Genesis hardware region: {region:?}");
 
@@ -104,17 +103,18 @@ impl Cartridge {
         // Only one game ever unmaps RAM (Phantasy Star 4)
         let ram_mapped = !matches!(external_memory, ExternalMemory::None);
 
-        // Only one game uses the sega mapper, Super Street Fighter 2
-        let serial_number: String = rom_bytes[0x183..0x18B].iter().map(|&b| b as char).collect();
-        let mapper = (serial_number.as_str() == "T-12056 "
-            || serial_number.as_str() == "MK-12056"
-            || serial_number.as_str() == "T-12043 ")
-            .then(SegaMapper::new);
+        // Only one game uses the bank switching Sega mapper, Super Street Fighter 2
+        let serial_number = &rom_bytes[0x183..0x18B];
+        let is_ssf2 = is_super_street_fighter_2(serial_number);
+
+        // Additionally enable the bank switching mapper for any cartridge that declares its system type as "SEGA SSF"
+        let is_ssf_system = &rom_bytes[0x100..0x110] == b"SEGA SSF        ";
+
+        let mapper = (is_ssf2 || is_ssf_system).then(SegaMapper::new);
         log::info!("Using Sega banked mapper: {}", mapper.is_some());
 
         // Only one game uses the SVP, Virtua Racing
-        let svp = (serial_number.as_str() == "MK-1229 " || serial_number.as_str() == "G-7001  ")
-            .then(Svp::new);
+        let svp = is_virtua_racing(serial_number).then(Svp::new);
 
         Self { rom: Rom(rom_bytes), external_memory, ram_mapped, mapper, svp, region }
     }
@@ -179,6 +179,14 @@ impl Cartridge {
         let re = RE.get_or_init(|| Regex::new(r" +").unwrap());
         re.replace_all(title.trim(), " ").into()
     }
+}
+
+fn is_super_street_fighter_2(serial_number: &[u8]) -> bool {
+    serial_number == b"T-12056 " || serial_number == b"MK-12056" || serial_number == b"T-12043 "
+}
+
+fn is_virtua_racing(serial_number: &[u8]) -> bool {
+    serial_number == b"MK-1229 " || serial_number == b"G-7001  "
 }
 
 pub trait PhysicalMedium {
