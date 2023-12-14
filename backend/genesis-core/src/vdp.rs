@@ -7,6 +7,7 @@ use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{Color, TimingMode};
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
+use std::collections::VecDeque;
 use std::ops::{Add, AddAssign, Deref, DerefMut};
 use z80_emu::traits::InterruptLine;
 
@@ -791,18 +792,17 @@ impl DmaTracker {
     }
 }
 
-const FIFO_CAPACITY: u8 = 4;
+const FIFO_CAPACITY: usize = 4;
 
 #[derive(Debug, Clone, Encode, Decode)]
 struct FifoTracker {
-    // TODO avoid floating-point arithmetic?
-    word_count: u8,
+    fifo: VecDeque<DataPortLocation>,
     mclk_elapsed: f64,
 }
 
 impl FifoTracker {
     fn new() -> Self {
-        Self { word_count: 0, mclk_elapsed: 0.0 }
+        Self { fifo: VecDeque::with_capacity(FIFO_CAPACITY + 1), mclk_elapsed: 0.0 }
     }
 
     fn record_access(&mut self, line_type: LineType, data_port_location: DataPortLocation) {
@@ -811,16 +811,7 @@ impl FifoTracker {
             return;
         }
 
-        match data_port_location {
-            DataPortLocation::Vram => {
-                // VRAM accesses take 2 slots in the FIFO
-                self.word_count += 2;
-            }
-            DataPortLocation::Cram | DataPortLocation::Vsram => {
-                // CRAM and VSRAM accesses take 1 slot in the FIFO
-                self.word_count += 1;
-            }
-        }
+        self.fifo.push_back(data_port_location);
     }
 
     fn tick(
@@ -829,24 +820,24 @@ impl FifoTracker {
         h_display_size: HorizontalDisplaySize,
         line_type: LineType,
     ) {
-        if self.word_count == 0 {
+        if self.fifo.is_empty() {
             self.mclk_elapsed = 0.0;
             return;
         }
 
         if line_type == LineType::Blanked {
             // CPU never gets delayed during VBlank or when the display is off
-            self.word_count = 0;
+            self.fifo.clear();
             self.mclk_elapsed = 0.0;
             return;
         }
 
+        // TODO track individual slot cycles instead of doing floating-point arithmetic?
+
         let mclks_per_slot = match h_display_size {
             HorizontalDisplaySize::ThirtyTwoCell => {
-                // 3420 mclks/line / 17 slots/line
-                // There are actually 16 slots/line in H32 mode, but using 3420/16 still creates a
-                // black bar on the planet in Sol-Deace's intro
-                201.1764705882353
+                // 3420 mclks/line / 16 slots/line
+                213.75
             }
             HorizontalDisplaySize::FortyCell => {
                 // 3420 mclks/line / 18 slots/line
@@ -855,23 +846,33 @@ impl FifoTracker {
         };
 
         self.mclk_elapsed += master_clock_cycles as f64;
-        if self.mclk_elapsed >= mclks_per_slot {
-            let removed = (self.mclk_elapsed / mclks_per_slot).floor() as u8;
-            self.word_count = self.word_count.saturating_sub(removed);
-            self.mclk_elapsed %= master_clock_cycles as f64;
+        while self.mclk_elapsed >= mclks_per_slot {
+            let Some(&data_port_location) = self.fifo.front() else { break };
+
+            let slots_required = match data_port_location {
+                DataPortLocation::Vram => 2.0,
+                DataPortLocation::Cram | DataPortLocation::Vsram => 1.0,
+            };
+
+            if self.mclk_elapsed < slots_required * mclks_per_slot {
+                break;
+            }
+
+            self.mclk_elapsed -= slots_required * mclks_per_slot;
+            self.fifo.pop_front();
         }
     }
 
     fn is_empty(&self) -> bool {
-        self.word_count == 0
+        self.fifo.is_empty()
     }
 
     fn is_full(&self) -> bool {
-        self.word_count >= FIFO_CAPACITY
+        self.fifo.len() >= FIFO_CAPACITY
     }
 
     fn should_halt_cpu(&self) -> bool {
-        self.word_count > FIFO_CAPACITY
+        self.fifo.len() > FIFO_CAPACITY
     }
 }
 
