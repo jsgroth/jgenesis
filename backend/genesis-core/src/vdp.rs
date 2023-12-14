@@ -1251,9 +1251,13 @@ impl Vdp {
                 // >300 comparison is because the V counter hits 0xFF twice, once at scanline 255
                 // and again at scanline 312.
                 (v_counter >= active_scanlines || self.state.scanline > active_scanlines)
-                    && !(v_counter == 0xFF && self.state.scanline > 300)
+                    && !((v_counter == 0x00 || v_counter == 0xFF) && self.state.scanline > 300)
             }
         };
+        println!(
+            "vblank_flag={vblank_flag}, v_counter={v_counter}, scanline={}",
+            self.state.scanline
+        );
 
         // HBlank flag is based on the H counter crossing specific values, not on mclk being >= 2560
         let h_counter = self.h_counter(scanline_mclk);
