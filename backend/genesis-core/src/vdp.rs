@@ -951,9 +951,7 @@ const MAX_SPRITES_PER_FRAME: usize = 80;
 const SPRITE_H_DISPLAY_START: u16 = 0x080;
 
 // Master clock cycle on which to trigger VINT on scanline 224/240.
-// Actual hardware triggers it a little earlier in the scanline, but setting this value much lower
-// seems to break the music tempo in Earthworm Jim
-const V_INTERRUPT_DELAY: u64 = 144;
+const V_INTERRUPT_DELAY: u64 = 48;
 
 trait TimingModeExt: Copy {
     fn scanlines_per_frame(self) -> u16;
