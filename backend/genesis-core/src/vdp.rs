@@ -1254,10 +1254,6 @@ impl Vdp {
                     && !((v_counter == 0x00 || v_counter == 0xFF) && self.state.scanline > 300)
             }
         };
-        println!(
-            "vblank_flag={vblank_flag}, v_counter={v_counter}, scanline={}",
-            self.state.scanline
-        );
 
         // HBlank flag is based on the H counter crossing specific values, not on mclk being >= 2560
         let h_counter = self.h_counter(scanline_mclk);
