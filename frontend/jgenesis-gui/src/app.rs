@@ -33,17 +33,18 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::str::FromStr;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-struct ConsoleFilters {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ListFilters {
     master_system: bool,
     game_gear: bool,
     genesis: bool,
     sega_cd: bool,
     nes: bool,
     snes: bool,
+    title_match: String,
 }
 
-impl Default for ConsoleFilters {
+impl Default for ListFilters {
     fn default() -> Self {
         Self {
             master_system: true,
@@ -52,12 +53,13 @@ impl Default for ConsoleFilters {
             sega_cd: true,
             nes: true,
             snes: true,
+            title_match: String::new(),
         }
     }
 }
 
-impl ConsoleFilters {
-    fn to_vec(self) -> Vec<Console> {
+impl ListFilters {
+    fn to_console_vec(&self) -> Vec<Console> {
         [
             self.master_system.then_some(Console::MasterSystem),
             self.game_gear.then_some(Console::GameGear),
@@ -71,9 +73,17 @@ impl ConsoleFilters {
         .collect()
     }
 
-    fn apply(self, rom_list: &[RomMetadata]) -> impl Iterator<Item = &RomMetadata> + '_ {
-        let filters = self.to_vec();
-        rom_list.iter().filter(move |metadata| filters.contains(&metadata.console))
+    fn apply<'metadata>(
+        &self,
+        rom_list: &'metadata [RomMetadata],
+    ) -> impl Iterator<Item = &'metadata RomMetadata> {
+        let filters = self.to_console_vec();
+        let title_match = self.title_match.to_lowercase();
+        rom_list.iter().filter(move |metadata| {
+            filters.contains(&metadata.console)
+                && (title_match.is_empty()
+                    || metadata.file_name_no_ext.to_lowercase().contains(&title_match))
+        })
     }
 }
 
@@ -94,7 +104,7 @@ pub struct AppConfig {
     #[serde(default)]
     inputs: InputAppConfig,
     #[serde(default)]
-    console_filters: ConsoleFilters,
+    list_filters: ListFilters,
     #[serde(default)]
     rom_search_dirs: Vec<String>,
     #[serde(default)]
@@ -383,21 +393,6 @@ impl App {
                     self.add_rom_search_directory();
                 }
             });
-
-            ui.add_space(5.0);
-
-            ui.group(|ui| {
-                ui.label("Consoles in ROM list");
-
-                ui.horizontal(|ui| {
-                    ui.checkbox(&mut self.config.console_filters.master_system, "Master System");
-                    ui.checkbox(&mut self.config.console_filters.game_gear, "Game Gear");
-                    ui.checkbox(&mut self.config.console_filters.genesis, "Genesis");
-                    ui.checkbox(&mut self.config.console_filters.sega_cd, "Sega CD");
-                    ui.checkbox(&mut self.config.console_filters.nes, "NES");
-                    ui.checkbox(&mut self.config.console_filters.snes, "SNES");
-                });
-            });
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::Interface);
@@ -673,6 +668,10 @@ impl App {
             } else {
                 ui.set_enabled(self.state.waiting_for_input.is_none());
 
+                self.render_central_panel_filters(ui);
+
+                ui.add_space(15.0);
+
                 TableBuilder::new(ui)
                     .auto_shrink([false; 2])
                     .striped(true)
@@ -704,7 +703,7 @@ impl App {
                     })
                     .body(|mut body| {
                         let rom_list = Rc::clone(&self.state.rom_list);
-                        for metadata in self.config.console_filters.apply(&rom_list.borrow()) {
+                        for metadata in self.config.list_filters.apply(&rom_list.borrow()) {
                             body.row(40.0, |mut row| {
                                 row.col(|ui| {
                                     if Button::new(&metadata.file_name_no_ext)
@@ -742,6 +741,28 @@ impl App {
                         }
                     });
             }
+        });
+    }
+
+    fn render_central_panel_filters(&mut self, ui: &mut Ui) {
+        ui.horizontal(|ui| {
+            ui.add(
+                TextEdit::singleline(&mut self.config.list_filters.title_match)
+                    .hint_text("Filter by name"),
+            );
+
+            if ui.button("Clear").clicked() {
+                self.config.list_filters.title_match.clear();
+            }
+
+            ui.add_space(30.0);
+
+            ui.checkbox(&mut self.config.list_filters.master_system, "SMS");
+            ui.checkbox(&mut self.config.list_filters.game_gear, "Game Gear");
+            ui.checkbox(&mut self.config.list_filters.genesis, "Genesis");
+            ui.checkbox(&mut self.config.list_filters.sega_cd, "Sega CD");
+            ui.checkbox(&mut self.config.list_filters.nes, "NES");
+            ui.checkbox(&mut self.config.list_filters.snes, "SNES");
         });
     }
 
@@ -851,11 +872,23 @@ impl eframe::App for App {
 }
 
 fn should_reload_config(prev_config: &AppConfig, new_config: &AppConfig) -> bool {
-    let prev_no_recent_opens = AppConfig { recent_opens: vec![], ..prev_config.clone() };
+    // UI-only settings changes should not trigger emulator config reloads
 
-    let new_no_recent_opens = AppConfig { recent_opens: vec![], ..new_config.clone() };
+    let prev_no_ui_settings = AppConfig {
+        list_filters: ListFilters::default(),
+        rom_search_dirs: vec![],
+        recent_opens: vec![],
+        ..prev_config.clone()
+    };
 
-    prev_no_recent_opens != new_no_recent_opens
+    let new_no_ui_settings = AppConfig {
+        list_filters: ListFilters::default(),
+        rom_search_dirs: vec![],
+        recent_opens: vec![],
+        ..new_config.clone()
+    };
+
+    prev_no_ui_settings != new_no_ui_settings
 }
 
 #[cfg(test)]
