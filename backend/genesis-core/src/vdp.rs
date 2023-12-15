@@ -87,6 +87,14 @@ impl HorizontalDisplaySize {
             Self::FortyCell => 64,
         }
     }
+
+    const fn sprite_attribute_table_mask(self) -> u16 {
+        // Sprite attribute table A9 is ignored in H40 mode
+        match self {
+            Self::ThirtyTwoCell => !0,
+            Self::FortyCell => !0x3FF,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -598,6 +606,11 @@ impl Registers {
             // DMA length of 0 is treated as 65536
             65536
         }
+    }
+
+    fn masked_sprite_attribute_table_addr(&self) -> u16 {
+        self.sprite_attribute_table_base_addr
+            & self.horizontal_display_size.sprite_attribute_table_mask()
     }
 }
 
@@ -1628,13 +1641,16 @@ impl Vdp {
 
     #[inline]
     fn maybe_update_sprite_cache(&mut self, address: u16) {
-        let sprite_table_addr = self.registers.sprite_attribute_table_base_addr;
+        let sprite_table_addr = self.registers.masked_sprite_attribute_table_addr();
         let h_size = self.registers.horizontal_display_size;
 
-        let sprite_table_end = sprite_table_addr.wrapping_add(8 * h_size.sprite_table_len());
-        let is_in_sprite_table = if sprite_table_end < sprite_table_addr {
+        let (sprite_table_end, overflowed) =
+            sprite_table_addr.overflowing_add(8 * h_size.sprite_table_len());
+        let is_in_sprite_table = if overflowed {
             // Address overflowed; this can happen if a game puts the SAT at the very end of VRAM (e.g. Snatcher)
-            address >= sprite_table_addr || address < sprite_table_end
+            // Address overflow is only possible in H32 mode when the table is located at $F800-$FFFF, so simply check
+            // if address is past start address
+            address >= sprite_table_addr
         } else {
             (sprite_table_addr..sprite_table_end).contains(&address)
         };
@@ -1776,7 +1792,7 @@ impl Vdp {
 
         // Populate buffer from the sprite attribute table
         let h_size = self.registers.horizontal_display_size;
-        let sprite_table_addr = self.registers.sprite_attribute_table_base_addr;
+        let sprite_table_addr = self.registers.masked_sprite_attribute_table_addr();
 
         // Sprite 0 is always populated
         let sprite_0 = SpriteData::create(
