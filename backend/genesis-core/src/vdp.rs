@@ -1648,7 +1648,7 @@ impl Vdp {
             sprite_table_addr.overflowing_add(8 * h_size.sprite_table_len());
         let is_in_sprite_table = if overflowed {
             // Address overflowed; this can happen if a game puts the SAT at the very end of VRAM (e.g. Snatcher)
-            // Address overflow is only possible in H32 mode when the table is located at $F800-$FFFF, so simply check
+            // Address overflow is only possible in H32 mode when the table is located at $FE00-$FFFF, so simply check
             // if address is past start address
             address >= sprite_table_addr
         } else {
