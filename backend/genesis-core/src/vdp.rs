@@ -1146,14 +1146,14 @@ impl Vdp {
     pub fn read_data(&mut self) -> u16 {
         log::trace!("VDP data read");
 
-        self.dma_tracker.data_port_read = true;
+        // Reset write flag
+        self.state.control_write_flag = ControlWriteFlag::First;
 
         if self.state.data_port_mode != DataPortMode::Read {
             return 0xFFFF;
         }
 
-        // Reset write flag
-        self.state.control_write_flag = ControlWriteFlag::First;
+        self.dma_tracker.data_port_read = true;
 
         let data_port_location = self.state.data_port_location;
         let data = match data_port_location {
@@ -1183,12 +1183,12 @@ impl Vdp {
     pub fn write_data(&mut self, value: u16) {
         log::trace!("VDP data write on scanline {}: {value:04X}", self.state.scanline);
 
+        // Reset write flag
+        self.state.control_write_flag = ControlWriteFlag::First;
+
         if self.state.data_port_mode != DataPortMode::Write {
             return;
         }
-
-        // Reset write flag
-        self.state.control_write_flag = ControlWriteFlag::First;
 
         if self.maybe_push_pending_write(PendingWrite::Data(value)) {
             return;
