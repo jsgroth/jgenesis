@@ -368,9 +368,9 @@ impl Vdp {
                         self.state.latched_hv_counter = None;
                     }
 
-                    // Re-render the next scanline if display enabled status or background color changed
+                    // Re-render the next scanline if display was disabled or background color changed
                     if self.in_hblank()
-                        && (prev_display_enabled != self.registers.display_enabled
+                        && (prev_display_enabled && !self.registers.display_enabled
                             || prev_bg_palette != self.registers.background_palette
                             || prev_bg_color_id != self.registers.background_color_id)
                     {
