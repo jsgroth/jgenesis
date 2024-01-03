@@ -1,3 +1,4 @@
+use crate::vdp::Cram;
 use jgenesis_common::frontend::Color;
 use std::ops::{Add, AddAssign};
 
@@ -64,4 +65,8 @@ pub fn gen_to_rgb(
         (ColorModifier::Highlight, true) => HIGHLIGHTED_RGB_COLORS_NON_LINEAR,
     };
     Color::rgb(colors[r as usize], colors[g as usize], colors[b as usize])
+}
+
+pub fn resolve_color(cram: &Cram, palette: u8, color_id: u8) -> u16 {
+    cram[((palette << 4) | color_id) as usize]
 }
