@@ -132,9 +132,7 @@ impl Vdp {
                             self.write_vram_word(self.state.data_address, word);
                         }
                         DataPortLocation::Cram => {
-                            let addr = self.state.data_address as usize;
-                            self.cram[addr & 0x7F] = word.msb();
-                            self.cram[(addr + 1) & 0x7F] = word.lsb();
+                            self.write_cram_word(self.state.data_address, word);
                         }
                         DataPortLocation::Vsram => {
                             let addr = self.state.data_address as usize;

@@ -22,7 +22,7 @@ use std::ops::{Deref, DerefMut};
 use z80_emu::traits::InterruptLine;
 
 const VRAM_LEN: usize = 64 * 1024;
-const CRAM_LEN: usize = 128;
+const CRAM_LEN_WORDS: usize = 64;
 const VSRAM_LEN: usize = 80;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -283,12 +283,16 @@ pub struct VdpConfig {
     pub emulate_non_linear_dac: bool,
 }
 
+type Vram = [u8; VRAM_LEN];
+type Cram = [u16; CRAM_LEN_WORDS];
+type Vsram = [u8; VSRAM_LEN];
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Vdp {
     frame_buffer: FrameBuffer,
-    vram: Box<[u8; VRAM_LEN]>,
-    cram: [u8; CRAM_LEN],
-    vsram: [u8; VSRAM_LEN],
+    vram: Box<Vram>,
+    cram: Box<Cram>,
+    vsram: Box<Vsram>,
     timing_mode: TimingMode,
     state: InternalState,
     registers: Registers,
@@ -297,8 +301,6 @@ pub struct Vdp {
     sprite_bit_set: SpriteBitSet,
     enforce_sprite_limits: bool,
     emulate_non_linear_dac: bool,
-    // Cache of CRAM in u16 form
-    color_buffer: [u16; CRAM_LEN / 2],
     master_clock_cycles: u64,
     dma_tracker: DmaTracker,
     fifo_tracker: FifoTracker,
@@ -311,8 +313,8 @@ impl Vdp {
         Self {
             frame_buffer: FrameBuffer::new(),
             vram: vec![0; VRAM_LEN].into_boxed_slice().try_into().unwrap(),
-            cram: [0; CRAM_LEN],
-            vsram: [0; VSRAM_LEN],
+            cram: vec![0; CRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
+            vsram: vec![0; VSRAM_LEN].into_boxed_slice().try_into().unwrap(),
             timing_mode,
             state: InternalState::new(),
             registers: Registers::new(),
@@ -324,7 +326,6 @@ impl Vdp {
             sprite_bit_set: SpriteBitSet::new(),
             enforce_sprite_limits: config.enforce_sprite_limits,
             emulate_non_linear_dac: config.emulate_non_linear_dac,
-            color_buffer: [0; CRAM_LEN / 2],
             master_clock_cycles: 0,
             dma_tracker: DmaTracker::new(),
             fifo_tracker: FifoTracker::new(),
@@ -463,7 +464,13 @@ impl Vdp {
             }
             DataPortLocation::Cram => {
                 let address = (self.state.data_address & 0x7F) as usize;
-                u16::from_be_bytes([self.cram[address], self.cram[(address + 1) & 0x7F]])
+                if !address.bit(0) {
+                    self.cram[address >> 1]
+                } else {
+                    let msb_in_low_byte = self.cram[address >> 1] & 0x00FF;
+                    let lsb_in_high_byte = self.cram[((address + 1) & 0x7F) >> 1] & 0xFF00;
+                    (msb_in_low_byte | lsb_in_high_byte).swap_bytes()
+                }
             }
             DataPortLocation::Vsram => {
                 let address = (self.state.data_address as usize) % VSRAM_LEN;
@@ -512,9 +519,7 @@ impl Vdp {
             DataPortLocation::Cram => {
                 let address = (self.state.data_address & 0x7F) as usize;
                 log::trace!("Writing to {address:02X} in CRAM");
-                let [msb, lsb] = value.to_be_bytes();
-                self.cram[address] = msb;
-                self.cram[(address + 1) & 0x7F] = lsb;
+                self.write_cram_word(self.state.data_address, value);
             }
             DataPortLocation::Vsram => {
                 let address = (self.state.data_address as usize) % VSRAM_LEN;
@@ -828,6 +833,18 @@ impl Vdp {
         self.maybe_update_sprite_cache(address);
     }
 
+    fn write_cram_word(&mut self, address: u16, value: u16) {
+        if !address.bit(0) {
+            self.cram[((address & 0x7F) >> 1) as usize] = value;
+        } else {
+            let msb_addr = ((address & 0x7F) >> 1) as usize;
+            self.cram[msb_addr] = (self.cram[msb_addr] & 0xFF00) | (value >> 8);
+
+            let lsb_addr = (((address + 1) & 0x7F) >> 1) as usize;
+            self.cram[lsb_addr] = (self.cram[lsb_addr] & 0x00FF) | (value << 8);
+        }
+    }
+
     #[inline]
     fn maybe_update_sprite_cache(&mut self, address: u16) {
         let sprite_table_addr = self.registers.masked_sprite_attribute_table_addr();
@@ -1082,12 +1099,6 @@ impl Vdp {
     }
 
     fn render_pixels_in_scanline(&mut self, bg_color: u16, scanline: u16) {
-        // Populate color buffer
-        for (i, chunk) in self.cram.chunks_exact(2).enumerate() {
-            let &[msb, lsb] = chunk else { unreachable!("chunks_exact(2)") };
-            self.color_buffer[i] = u16::from_be_bytes([msb, lsb]);
-        }
-
         let cell_height = self.registers.interlacing_mode.cell_height();
         let v_scroll_size = self.registers.vertical_scroll_size;
         let h_scroll_size = self.registers.horizontal_scroll_size;
@@ -1226,7 +1237,7 @@ impl Vdp {
             };
 
             let (pixel_color, color_modifier) = determine_pixel_color(
-                &self.color_buffer,
+                &self.cram,
                 PixelColorArgs {
                     sprite_priority,
                     sprite_palette,
@@ -1386,7 +1397,7 @@ struct PixelColorArgs {
 #[inline]
 #[allow(clippy::unnested_or_patterns)]
 fn determine_pixel_color(
-    color_buffer: &[u16],
+    cram: &Cram,
     PixelColorArgs {
         sprite_priority,
         sprite_palette,
@@ -1448,7 +1459,7 @@ fn determine_pixel_color(
             }
         }
 
-        let color = color_buffer[((palette << 4) | color_id) as usize];
+        let color = cram[((palette << 4) | color_id) as usize];
         // Sprite color id 14 is never shadowed/highlighted, and neither is a sprite with the priority
         // bit set
         let modifier = if is_sprite && (color_id == 14 || sprite_priority) {
@@ -1462,13 +1473,12 @@ fn determine_pixel_color(
     (bg_color, modifier)
 }
 
-fn resolve_color(cram: &[u8; CRAM_LEN], palette: u8, color_id: u8) -> u16 {
-    let addr = (32 * palette + 2 * color_id) as usize;
-    u16::from_be_bytes([cram[addr], cram[addr + 1]])
+fn resolve_color(cram: &Cram, palette: u8, color_id: u8) -> u16 {
+    cram[((palette << 4) | color_id) as usize]
 }
 
 fn read_v_scroll(
-    vsram: &[u8; VSRAM_LEN],
+    vsram: &Vsram,
     v_scroll_mode: VerticalScrollMode,
     interlacing_mode: InterlacingMode,
     h_cell: u16,
@@ -1492,7 +1502,7 @@ fn read_v_scroll(
 }
 
 fn read_h_scroll(
-    vram: &[u8; VRAM_LEN],
+    vram: &Vram,
     h_scroll_table_addr: u16,
     h_scroll_mode: HorizontalScrollMode,
     scanline: u16,
@@ -1545,7 +1555,7 @@ struct NameTableWord {
 }
 
 fn read_name_table_word(
-    vram: &[u8; VRAM_LEN],
+    vram: &Vram,
     base_addr: u16,
     name_table_width: u16,
     row: u16,
@@ -1576,7 +1586,7 @@ struct PatternGeneratorArgs {
 
 #[inline]
 fn read_pattern_generator(
-    vram: &[u8; VRAM_LEN],
+    vram: &Vram,
     PatternGeneratorArgs {
         vertical_flip,
         horizontal_flip,

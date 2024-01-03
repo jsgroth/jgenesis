@@ -7,10 +7,8 @@ use jgenesis_common::frontend::Color;
 
 impl Vdp {
     pub fn copy_cram(&self, out: &mut [Color]) {
-        for (color, chunk) in out.iter_mut().zip(self.cram.chunks_exact(2)) {
-            let &[msb, lsb] = chunk else { unreachable!("chunks_exact(2)") };
-            let gen_color = u16::from_be_bytes([msb, lsb]);
-            *color = parse_gen_color(gen_color);
+        for (out_color, &cram_color) in out.iter_mut().zip(self.cram.as_ref()) {
+            *out_color = parse_gen_color(cram_color);
         }
     }
 
