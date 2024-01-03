@@ -1,14 +1,24 @@
 //! Genesis VDP (video display processor)
 
+mod colors;
 mod debug;
+mod dma;
+mod fifo;
+mod registers;
 
 use crate::memory::{Memory, PhysicalMedium};
+use crate::vdp::colors::ColorModifier;
+use crate::vdp::dma::{DmaTracker, LineType};
+use crate::vdp::fifo::FifoTracker;
+use crate::vdp::registers::{
+    DmaMode, HorizontalDisplaySize, HorizontalScrollMode, InterlacingMode, Registers,
+    VerticalDisplaySize, VerticalScrollMode,
+};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{Color, TimingMode};
-use jgenesis_common::num::{GetBit, U16Ext};
+use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
-use std::collections::VecDeque;
-use std::ops::{Add, AddAssign, Deref, DerefMut};
+use std::ops::{Deref, DerefMut};
 use z80_emu::traits::InterruptLine;
 
 const VRAM_LEN: usize = 64 * 1024;
@@ -33,200 +43,6 @@ enum DataPortLocation {
     Vram,
     Cram,
     Vsram,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum VerticalScrollMode {
-    FullScreen,
-    TwoCell,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum HorizontalScrollMode {
-    FullScreen,
-    Cell,
-    Line,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum HorizontalDisplaySize {
-    ThirtyTwoCell,
-    FortyCell,
-}
-
-impl HorizontalDisplaySize {
-    const fn to_pixels(self) -> u16 {
-        match self {
-            Self::ThirtyTwoCell => 256,
-            Self::FortyCell => 320,
-        }
-    }
-
-    // Length in sprites
-    const fn sprite_table_len(self) -> u16 {
-        match self {
-            Self::ThirtyTwoCell => 64,
-            Self::FortyCell => 80,
-        }
-    }
-
-    const fn max_sprites_per_line(self) -> u16 {
-        match self {
-            Self::ThirtyTwoCell => 16,
-            Self::FortyCell => 20,
-        }
-    }
-
-    const fn max_sprite_pixels_per_line(self) -> u16 {
-        self.to_pixels()
-    }
-
-    const fn window_width_cells(self) -> u16 {
-        match self {
-            Self::ThirtyTwoCell => 32,
-            Self::FortyCell => 64,
-        }
-    }
-
-    const fn sprite_attribute_table_mask(self) -> u16 {
-        // Sprite attribute table A9 is ignored in H40 mode
-        match self {
-            Self::ThirtyTwoCell => !0,
-            Self::FortyCell => !0x3FF,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum VerticalDisplaySize {
-    TwentyEightCell,
-    ThirtyCell,
-}
-
-impl VerticalDisplaySize {
-    fn active_scanlines(self) -> u16 {
-        match self {
-            Self::TwentyEightCell => 224,
-            Self::ThirtyCell => 240,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum InterlacingMode {
-    Progressive,
-    Interlaced,
-    InterlacedDouble,
-}
-
-impl InterlacingMode {
-    const fn v_scroll_mask(self) -> u16 {
-        // V scroll values are 10 bits normally, 11 bits in interlaced 2x mode
-        match self {
-            Self::Progressive | Self::Interlaced => 0x03FF,
-            Self::InterlacedDouble => 0x07FF,
-        }
-    }
-
-    const fn sprite_display_top(self) -> u16 {
-        match self {
-            // The sprite display area starts at $080 normally, $100 in interlaced 2x mode
-            Self::Progressive | Self::Interlaced => 0x080,
-            Self::InterlacedDouble => 0x100,
-        }
-    }
-
-    const fn cell_height(self) -> u16 {
-        match self {
-            // Cells are 8x8 normally, 8x16 in interlaced 2x mode
-            Self::Progressive | Self::Interlaced => 8,
-            Self::InterlacedDouble => 16,
-        }
-    }
-
-    const fn is_interlaced(self) -> bool {
-        matches!(self, Self::Interlaced | Self::InterlacedDouble)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum ScrollSize {
-    ThirtyTwo,
-    SixtyFour,
-    OneTwentyEight,
-}
-
-impl ScrollSize {
-    fn from_bits(bits: u8) -> Self {
-        match bits & 0x03 {
-            0x00 => Self::ThirtyTwo,
-            0x01 => Self::SixtyFour,
-            0x03 => Self::OneTwentyEight,
-            0x02 => {
-                log::warn!("Prohibited scroll size set; defaulting to 32");
-                Self::ThirtyTwo
-            }
-            _ => unreachable!("value & 0x03 is always <= 0x03"),
-        }
-    }
-
-    // Used to mask line and pixel values; return value is equal to (size << 3) - 1
-    const fn pixel_bit_mask(self) -> u16 {
-        match self {
-            Self::ThirtyTwo => 0x00FF,
-            Self::SixtyFour => 0x01FF,
-            Self::OneTwentyEight => 0x03FF,
-        }
-    }
-}
-
-impl From<ScrollSize> for u16 {
-    fn from(value: ScrollSize) -> Self {
-        match value {
-            ScrollSize::ThirtyTwo => 32,
-            ScrollSize::SixtyFour => 64,
-            ScrollSize::OneTwentyEight => 128,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum WindowHorizontalMode {
-    LeftToCenter,
-    CenterToRight,
-}
-
-impl WindowHorizontalMode {
-    fn in_window(self, pixel: u16, window_x: u16) -> bool {
-        let cell = pixel / 8;
-        match self {
-            Self::LeftToCenter => cell < window_x,
-            Self::CenterToRight => cell >= window_x,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum WindowVerticalMode {
-    TopToCenter,
-    CenterToBottom,
-}
-
-impl WindowVerticalMode {
-    fn in_window(self, scanline: u16, window_y: u16) -> bool {
-        let cell = scanline / 8;
-        match self {
-            Self::TopToCenter => cell < window_y,
-            Self::CenterToBottom => cell >= window_y,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum DmaMode {
-    MemoryToVram,
-    VramFill,
-    VramCopy,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -294,323 +110,6 @@ impl InternalState {
             frame_count: 0,
             frame_completed: false,
         }
-    }
-}
-
-#[derive(Debug, Clone, Encode, Decode)]
-struct Registers {
-    // Register #0
-    h_interrupt_enabled: bool,
-    hv_counter_stopped: bool,
-    // Register #1
-    display_enabled: bool,
-    v_interrupt_enabled: bool,
-    dma_enabled: bool,
-    vertical_display_size: VerticalDisplaySize,
-    // Register #2
-    scroll_a_base_nt_addr: u16,
-    // Register #3
-    window_base_nt_addr: u16,
-    // Register #4
-    scroll_b_base_nt_addr: u16,
-    // Register #5
-    sprite_attribute_table_base_addr: u16,
-    // Register #7
-    background_palette: u8,
-    background_color_id: u8,
-    // Register #10
-    h_interrupt_interval: u16,
-    // Register #11
-    // TODO external interrupts enabled
-    vertical_scroll_mode: VerticalScrollMode,
-    horizontal_scroll_mode: HorizontalScrollMode,
-    // Register #12
-    horizontal_display_size: HorizontalDisplaySize,
-    shadow_highlight_flag: bool,
-    interlacing_mode: InterlacingMode,
-    // Register #13
-    h_scroll_table_base_addr: u16,
-    // Register #15
-    data_port_auto_increment: u16,
-    // Register #16
-    vertical_scroll_size: ScrollSize,
-    horizontal_scroll_size: ScrollSize,
-    // Register #17
-    window_horizontal_mode: WindowHorizontalMode,
-    window_x_position: u16,
-    // Register #18
-    window_vertical_mode: WindowVerticalMode,
-    window_y_position: u16,
-    // Registers #19 & #20
-    dma_length: u16,
-    // Registers #21, #22, & #23
-    dma_source_address: u32,
-    dma_mode: DmaMode,
-}
-
-impl Registers {
-    fn new() -> Self {
-        Self {
-            h_interrupt_enabled: false,
-            hv_counter_stopped: false,
-            display_enabled: false,
-            v_interrupt_enabled: false,
-            dma_enabled: false,
-            vertical_display_size: VerticalDisplaySize::TwentyEightCell,
-            scroll_a_base_nt_addr: 0,
-            window_base_nt_addr: 0,
-            scroll_b_base_nt_addr: 0,
-            sprite_attribute_table_base_addr: 0,
-            background_palette: 0,
-            background_color_id: 0,
-            h_interrupt_interval: 0,
-            vertical_scroll_mode: VerticalScrollMode::FullScreen,
-            horizontal_scroll_mode: HorizontalScrollMode::FullScreen,
-            horizontal_display_size: HorizontalDisplaySize::ThirtyTwoCell,
-            shadow_highlight_flag: false,
-            interlacing_mode: InterlacingMode::Progressive,
-            h_scroll_table_base_addr: 0,
-            data_port_auto_increment: 0,
-            vertical_scroll_size: ScrollSize::ThirtyTwo,
-            horizontal_scroll_size: ScrollSize::ThirtyTwo,
-            window_horizontal_mode: WindowHorizontalMode::LeftToCenter,
-            window_x_position: 0,
-            window_vertical_mode: WindowVerticalMode::TopToCenter,
-            window_y_position: 0,
-            dma_length: 0,
-            dma_source_address: 0,
-            dma_mode: DmaMode::MemoryToVram,
-        }
-    }
-
-    fn write_internal_register(&mut self, register: u8, value: u8) {
-        log::trace!("Wrote register #{register} with value {value:02X}");
-
-        match register {
-            0 => {
-                // Register #0: Mode set register 1
-                self.h_interrupt_enabled = value.bit(4);
-                self.hv_counter_stopped = value.bit(1);
-
-                log::trace!("  H interrupt enabled: {}", self.h_interrupt_enabled);
-                log::trace!("  HV counter stopped: {}", self.hv_counter_stopped);
-            }
-            1 => {
-                // Register #1: Mode set register 2
-                self.display_enabled = value.bit(6);
-                self.v_interrupt_enabled = value.bit(5);
-                self.dma_enabled = value.bit(4);
-                self.vertical_display_size = if value.bit(3) {
-                    VerticalDisplaySize::ThirtyCell
-                } else {
-                    VerticalDisplaySize::TwentyEightCell
-                };
-
-                log::trace!("  Display enabled: {}", self.display_enabled);
-                log::trace!("  V interrupt enabled: {}", self.v_interrupt_enabled);
-                log::trace!("  DMA enabled: {}", self.dma_enabled);
-            }
-            2 => {
-                // Register #2: Scroll A name table base address (bits 15-13)
-                self.scroll_a_base_nt_addr = u16::from(value & 0x38) << 10;
-
-                log::trace!(
-                    "  Scroll A base nametable address: {:04X}",
-                    self.scroll_a_base_nt_addr
-                );
-            }
-            3 => {
-                // Register #3: Window name table base address (bits 15-11)
-                self.window_base_nt_addr = u16::from(value & 0x3E) << 10;
-
-                log::trace!("  Window base nametable address: {:04X}", self.window_base_nt_addr);
-            }
-            4 => {
-                // Register #4: Scroll B name table base address (bits 15-13)
-                self.scroll_b_base_nt_addr = u16::from(value & 0x07) << 13;
-
-                log::trace!(
-                    "  Scroll B base nametable address: {:04X}",
-                    self.scroll_b_base_nt_addr
-                );
-            }
-            5 => {
-                // Register #5: Sprite attribute table base address (bits 15-9)
-                self.sprite_attribute_table_base_addr = u16::from(value & 0x7F) << 9;
-
-                log::trace!(
-                    "  Sprite attribute table base address: {:04X}",
-                    self.sprite_attribute_table_base_addr
-                );
-            }
-            7 => {
-                // Register #7: Background color
-                self.background_palette = (value >> 4) & 0x03;
-                self.background_color_id = value & 0x0F;
-
-                log::trace!("  BG palette: {}", self.background_palette);
-                log::trace!("  BG color id: {}", self.background_color_id);
-            }
-            10 => {
-                // Register #10: H interrupt interval
-                self.h_interrupt_interval = value.into();
-
-                log::trace!("  H interrupt interval: {}", self.h_interrupt_interval);
-            }
-            11 => {
-                // Register #11: Mode set register 3
-                // TODO external interrupt enable
-                self.vertical_scroll_mode = if value.bit(2) {
-                    VerticalScrollMode::TwoCell
-                } else {
-                    VerticalScrollMode::FullScreen
-                };
-                self.horizontal_scroll_mode = match value & 0x03 {
-                    0x00 => HorizontalScrollMode::FullScreen,
-                    0x02 => HorizontalScrollMode::Cell,
-                    0x03 => HorizontalScrollMode::Line,
-                    0x01 => {
-                        log::warn!(
-                            "Prohibited horizontal scroll mode set; defaulting to full scroll"
-                        );
-                        HorizontalScrollMode::FullScreen
-                    }
-                    _ => unreachable!("value & 0x03 is always <= 0x03"),
-                };
-
-                log::trace!("  Vertical scroll mode: {:?}", self.vertical_scroll_mode);
-                log::trace!("  Horizontal scroll mode: {:?}", self.horizontal_scroll_mode);
-            }
-            12 => {
-                // Register #12: Mode set register 4
-                self.horizontal_display_size = if value.bit(7) || value.bit(0) {
-                    HorizontalDisplaySize::FortyCell
-                } else {
-                    HorizontalDisplaySize::ThirtyTwoCell
-                };
-                self.shadow_highlight_flag = value.bit(3);
-                self.interlacing_mode = match value & 0x03 {
-                    0x00 | 0x02 => InterlacingMode::Progressive,
-                    0x01 => InterlacingMode::Interlaced,
-                    0x03 => InterlacingMode::InterlacedDouble,
-                    _ => unreachable!("value & 0x03 is always <= 0x03"),
-                };
-
-                log::trace!("  Horizontal display size: {:?}", self.horizontal_display_size);
-                log::trace!("  Shadow/highlight flag: {}", self.shadow_highlight_flag);
-                log::trace!("  Interlacing mode: {:?}", self.interlacing_mode);
-            }
-            13 => {
-                // Register #13: Horizontal scroll table base address (bits 15-10)
-                self.h_scroll_table_base_addr = u16::from(value & 0x3F) << 10;
-
-                log::trace!("  H scroll table base address: {:04X}", self.h_scroll_table_base_addr);
-            }
-            15 => {
-                // Register #15: VRAM address auto increment
-                self.data_port_auto_increment = value.into();
-
-                log::trace!("  Data port auto increment: {:02X}", value);
-            }
-            16 => {
-                // Register #16: Scroll size
-                self.vertical_scroll_size = ScrollSize::from_bits(value >> 4);
-                self.horizontal_scroll_size = ScrollSize::from_bits(value);
-
-                log::trace!("  Vertical scroll size: {:?}", self.vertical_scroll_size);
-                log::trace!("  Horizontal scroll size: {:?}", self.horizontal_scroll_size);
-            }
-            17 => {
-                // Register #17: Window horizontal position
-                self.window_horizontal_mode = if value.bit(7) {
-                    WindowHorizontalMode::CenterToRight
-                } else {
-                    WindowHorizontalMode::LeftToCenter
-                };
-                self.window_x_position = u16::from(value & 0x1F) << 1;
-
-                log::trace!("  Window horizontal mode: {:?}", self.window_horizontal_mode);
-                log::trace!("  Window X position: {}", self.window_x_position);
-            }
-            18 => {
-                // Register #18: Window vertical position
-                self.window_vertical_mode = if value.bit(7) {
-                    WindowVerticalMode::CenterToBottom
-                } else {
-                    WindowVerticalMode::TopToCenter
-                };
-                self.window_y_position = (value & 0x1F).into();
-
-                log::trace!("  Window vertical mode: {:?}", self.window_vertical_mode);
-                log::trace!("  Window Y position: {}", self.window_y_position);
-            }
-            19 => {
-                // Register #19: DMA length counter (bits 7-0)
-                self.dma_length.set_lsb(value);
-
-                log::trace!("  DMA length: {}", self.dma_length);
-            }
-            20 => {
-                // Register #20: DMA length counter (bits 15-8)
-                self.dma_length.set_msb(value);
-
-                log::trace!("  DMA length: {}", self.dma_length);
-            }
-            21 => {
-                // Register 21: DMA source address (bits 9-1)
-                self.dma_source_address =
-                    (self.dma_source_address & 0xFFFF_FE00) | (u32::from(value) << 1);
-
-                log::trace!("  DMA source address: {:06X}", self.dma_source_address);
-            }
-            22 => {
-                // Register 22: DMA source address (bits 16-9)
-                self.dma_source_address =
-                    (self.dma_source_address & 0xFFFE_01FF) | (u32::from(value) << 9);
-
-                log::trace!("  DMA source address: {:06X}", self.dma_source_address);
-            }
-            23 => {
-                // Register 23: DMA source address (bits 22-17) and mode
-                self.dma_source_address =
-                    (self.dma_source_address & 0x0001_FFFF) | (u32::from(value & 0x3F) << 17);
-                self.dma_mode = match value & 0xC0 {
-                    0x00 => DmaMode::MemoryToVram,
-                    0x40 => {
-                        // If DMD1=0, DMD0 is used as bit 23 in source address
-                        self.dma_source_address |= 1 << 23;
-
-                        DmaMode::MemoryToVram
-                    }
-                    0x80 => DmaMode::VramFill,
-                    0xC0 => DmaMode::VramCopy,
-                    _ => unreachable!("value & 0x0C is always 0x00/0x40/0x80/0xC0"),
-                };
-
-                log::trace!("  DMA source address: {:06X}", self.dma_source_address);
-                log::trace!("  DMA mode: {:?}", self.dma_mode);
-            }
-            _ => {}
-        }
-    }
-
-    fn is_in_window(&self, scanline: u16, pixel: u16) -> bool {
-        self.window_horizontal_mode.in_window(pixel, self.window_x_position)
-            || self.window_vertical_mode.in_window(scanline, self.window_y_position)
-    }
-
-    fn dma_length(&self) -> u32 {
-        if self.dma_length > 0 {
-            self.dma_length.into()
-        } else {
-            // DMA length of 0 is treated as 65536
-            65536
-        }
-    }
-
-    fn masked_sprite_attribute_table_addr(&self) -> u16 {
-        self.sprite_attribute_table_base_addr
-            & self.horizontal_display_size.sprite_attribute_table_mask()
     }
 }
 
@@ -685,207 +184,6 @@ impl SpriteData {
             InterlacingMode::Progressive | InterlacingMode::Interlaced => self.v_position & 0x1FF,
             InterlacingMode::InterlacedDouble => self.v_position & 0x3FF,
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ColorModifier {
-    None,
-    Shadow,
-    Highlight,
-}
-
-impl Add for ColorModifier {
-    type Output = Self;
-
-    #[allow(clippy::unnested_or_patterns)]
-    fn add(self, rhs: Self) -> Self::Output {
-        match (self, rhs) {
-            (Self::None, Self::None)
-            | (Self::Shadow, Self::Highlight)
-            | (Self::Highlight, Self::Shadow) => Self::None,
-            (Self::None, Self::Shadow)
-            | (Self::Shadow, Self::None)
-            | (Self::Shadow, Self::Shadow) => Self::Shadow,
-            (Self::None, Self::Highlight)
-            | (Self::Highlight, Self::None)
-            | (Self::Highlight, Self::Highlight) => Self::Highlight,
-        }
-    }
-}
-
-impl AddAssign for ColorModifier {
-    fn add_assign(&mut self, rhs: Self) {
-        *self = *self + rhs;
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LineType {
-    Active,
-    Blanked,
-}
-
-impl LineType {
-    fn from_vdp(vdp: &Vdp) -> Self {
-        if !vdp.registers.display_enabled || vdp.in_vblank() { Self::Blanked } else { Self::Active }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Encode, Decode)]
-struct DmaTracker {
-    // TODO avoid floating point arithmetic?
-    in_progress: bool,
-    mode: DmaMode,
-    bytes_remaining: f64,
-    data_port_read: bool,
-}
-
-impl DmaTracker {
-    fn new() -> Self {
-        Self {
-            in_progress: false,
-            mode: DmaMode::MemoryToVram,
-            bytes_remaining: 0.0,
-            data_port_read: false,
-        }
-    }
-
-    fn init(&mut self, mode: DmaMode, dma_length: u32, data_port_location: DataPortLocation) {
-        self.mode = mode;
-        self.bytes_remaining = f64::from(match data_port_location {
-            DataPortLocation::Vram => 2 * dma_length,
-            DataPortLocation::Cram | DataPortLocation::Vsram => dma_length,
-        });
-        self.in_progress = true;
-        self.data_port_read = false;
-    }
-
-    #[inline]
-    fn tick(
-        &mut self,
-        master_clock_cycles: u64,
-        h_display_size: HorizontalDisplaySize,
-        line_type: LineType,
-    ) {
-        if !self.in_progress {
-            return;
-        }
-
-        let bytes_per_line: u32 = match (self.mode, h_display_size, line_type) {
-            (DmaMode::MemoryToVram, HorizontalDisplaySize::ThirtyTwoCell, LineType::Active) => 16,
-            (DmaMode::MemoryToVram, HorizontalDisplaySize::FortyCell, LineType::Active) => 18,
-            (DmaMode::MemoryToVram, HorizontalDisplaySize::ThirtyTwoCell, LineType::Blanked) => 167,
-            (DmaMode::MemoryToVram, HorizontalDisplaySize::FortyCell, LineType::Blanked) => 205,
-            (DmaMode::VramFill, HorizontalDisplaySize::ThirtyTwoCell, LineType::Active) => 15,
-            (DmaMode::VramFill, HorizontalDisplaySize::FortyCell, LineType::Active) => 17,
-            (DmaMode::VramFill, HorizontalDisplaySize::ThirtyTwoCell, LineType::Blanked) => 166,
-            (DmaMode::VramFill, HorizontalDisplaySize::FortyCell, LineType::Blanked) => 204,
-            (DmaMode::VramCopy, HorizontalDisplaySize::ThirtyTwoCell, LineType::Active) => 8,
-            (DmaMode::VramCopy, HorizontalDisplaySize::FortyCell, LineType::Active) => 9,
-            (DmaMode::VramCopy, HorizontalDisplaySize::ThirtyTwoCell, LineType::Blanked) => 83,
-            (DmaMode::VramCopy, HorizontalDisplaySize::FortyCell, LineType::Blanked) => 102,
-        };
-        let bytes_per_line: f64 = bytes_per_line.into();
-        self.bytes_remaining -=
-            bytes_per_line * master_clock_cycles as f64 / MCLK_CYCLES_PER_SCANLINE as f64;
-        if self.bytes_remaining <= 0.0 {
-            log::trace!("VDP DMA in mode {:?} complete", self.mode);
-            self.in_progress = false;
-        }
-    }
-
-    fn should_halt_cpu(&self, pending_writes: &[PendingWrite]) -> bool {
-        // Memory-to-VRAM DMA always halts the CPU; VRAM fill & VRAM copy only halt the CPU if it
-        // accesses the VDP data port during the DMA
-        self.in_progress
-            && (self.mode == DmaMode::MemoryToVram
-                || self.data_port_read
-                || pending_writes.iter().any(|write| matches!(write, PendingWrite::Data(..))))
-    }
-}
-
-const FIFO_CAPACITY: usize = 4;
-
-#[derive(Debug, Clone, Encode, Decode)]
-struct FifoTracker {
-    fifo: VecDeque<DataPortLocation>,
-    mclk_elapsed: f64,
-}
-
-impl FifoTracker {
-    fn new() -> Self {
-        Self { fifo: VecDeque::with_capacity(FIFO_CAPACITY + 1), mclk_elapsed: 0.0 }
-    }
-
-    fn record_access(&mut self, line_type: LineType, data_port_location: DataPortLocation) {
-        // VRAM/CRAM/VSRAM accesses can only delay the CPU during active display
-        if line_type == LineType::Blanked {
-            return;
-        }
-
-        self.fifo.push_back(data_port_location);
-    }
-
-    fn tick(
-        &mut self,
-        master_clock_cycles: u64,
-        h_display_size: HorizontalDisplaySize,
-        line_type: LineType,
-    ) {
-        if self.fifo.is_empty() {
-            self.mclk_elapsed = 0.0;
-            return;
-        }
-
-        if line_type == LineType::Blanked {
-            // CPU never gets delayed during VBlank or when the display is off
-            self.fifo.clear();
-            self.mclk_elapsed = 0.0;
-            return;
-        }
-
-        // TODO track individual slot cycles instead of doing floating-point arithmetic?
-
-        let mclks_per_slot = match h_display_size {
-            HorizontalDisplaySize::ThirtyTwoCell => {
-                // 3420 mclks/line / 16 slots/line
-                213.75
-            }
-            HorizontalDisplaySize::FortyCell => {
-                // 3420 mclks/line / 18 slots/line
-                190.0
-            }
-        };
-
-        self.mclk_elapsed += master_clock_cycles as f64;
-        while self.mclk_elapsed >= mclks_per_slot {
-            let Some(&data_port_location) = self.fifo.front() else { break };
-
-            let slots_required = match data_port_location {
-                DataPortLocation::Vram => 2.0,
-                DataPortLocation::Cram | DataPortLocation::Vsram => 1.0,
-            };
-
-            if self.mclk_elapsed < slots_required * mclks_per_slot {
-                break;
-            }
-
-            self.mclk_elapsed -= slots_required * mclks_per_slot;
-            self.fifo.pop_front();
-        }
-    }
-
-    fn is_empty(&self) -> bool {
-        self.fifo.is_empty()
-    }
-
-    fn is_full(&self) -> bool {
-        self.fifo.len() >= FIFO_CAPACITY
-    }
-
-    fn should_halt_cpu(&self) -> bool {
-        self.fifo.len() > FIFO_CAPACITY
     }
 }
 
@@ -1153,7 +451,7 @@ impl Vdp {
             return 0xFFFF;
         }
 
-        self.dma_tracker.data_port_read = true;
+        self.dma_tracker.record_data_port_read();
 
         let data_port_location = self.state.data_port_location;
         let data = match data_port_location {
@@ -1234,7 +532,7 @@ impl Vdp {
 
     fn maybe_push_pending_write(&mut self, write: PendingWrite) -> bool {
         if self.state.pending_dma.is_some()
-            || (self.dma_tracker.in_progress && matches!(write, PendingWrite::Data(..)))
+            || (self.dma_tracker.is_in_progress() && matches!(write, PendingWrite::Data(..)))
         {
             self.state.pending_writes.push(write);
             true
@@ -1258,7 +556,7 @@ impl Vdp {
             }
             TimingMode::Pal => {
                 let active_scanlines = self.registers.vertical_display_size.active_scanlines();
-                // This OR is mecessary because the PAL V counter briefly wraps around to $00-$0A
+                // This OR is necessary because the PAL V counter briefly wraps around to $00-$0A
                 // during VBlank.
                 // >300 comparison is because the V counter hits 0xFF twice, once at scanline 255
                 // and again at scanline 312.
@@ -1282,7 +580,7 @@ impl Vdp {
             | (u16::from(interlaced_odd) << 4)
             | (u16::from(vblank_flag) << 3)
             | (u16::from(hblank_flag) << 2)
-            | (u16::from(self.dma_tracker.in_progress) << 1)
+            | (u16::from(self.dma_tracker.is_in_progress()) << 1)
             | u16::from(self.timing_mode == TimingMode::Pal);
 
         self.state.sprite_overflow = false;
@@ -1417,7 +715,7 @@ impl Vdp {
             self.run_dma(memory, active_dma);
         }
 
-        if !self.dma_tracker.in_progress && !self.state.pending_writes.is_empty() {
+        if !self.dma_tracker.is_in_progress() && !self.state.pending_writes.is_empty() {
             self.apply_pending_writes();
         }
 
@@ -1514,116 +812,6 @@ impl Vdp {
                 }
             }
         }
-    }
-
-    // TODO maybe do this piecemeal instead of all at once
-    fn run_dma<Medium: PhysicalMedium>(
-        &mut self,
-        memory: &mut Memory<Medium>,
-        active_dma: ActiveDma,
-    ) {
-        match active_dma {
-            ActiveDma::MemoryToVram => {
-                let dma_length = self.registers.dma_length();
-                self.dma_tracker.init(
-                    DmaMode::MemoryToVram,
-                    dma_length,
-                    self.state.data_port_location,
-                );
-
-                let mut source_addr = self.registers.dma_source_address;
-
-                log::trace!(
-                    "Copying {} words from {source_addr:06X} to {:04X}, write location={:?}; data_addr_increment={:04X}",
-                    dma_length,
-                    self.state.data_address,
-                    self.state.data_port_location,
-                    self.registers.data_port_auto_increment
-                );
-
-                for _ in 0..dma_length {
-                    let word = memory.read_word_for_dma(source_addr);
-                    match self.state.data_port_location {
-                        DataPortLocation::Vram => {
-                            self.write_vram_word(self.state.data_address, word);
-                        }
-                        DataPortLocation::Cram => {
-                            let addr = self.state.data_address as usize;
-                            self.cram[addr & 0x7F] = word.msb();
-                            self.cram[(addr + 1) & 0x7F] = word.lsb();
-                        }
-                        DataPortLocation::Vsram => {
-                            let addr = self.state.data_address as usize;
-                            // TODO fix VSRAM wrapping
-                            self.vsram[addr % VSRAM_LEN] = word.msb();
-                            self.vsram[(addr + 1) % VSRAM_LEN] = word.lsb();
-                        }
-                    }
-
-                    source_addr = source_addr.wrapping_add(2);
-                    self.increment_data_address();
-                }
-
-                self.registers.dma_source_address = source_addr;
-            }
-            ActiveDma::VramFill(fill_data) => {
-                self.dma_tracker.init(
-                    DmaMode::VramFill,
-                    self.registers.dma_length(),
-                    DataPortLocation::Vram,
-                );
-
-                log::trace!(
-                    "Running VRAM fill with addr {:04X} and length {}",
-                    self.state.data_address,
-                    self.registers.dma_length()
-                );
-
-                // VRAM fill is weird; it first performs a normal VRAM write with the given fill
-                // data, then it repeatedly writes the MSB only to (address ^ 1)
-
-                self.write_vram_word(self.state.data_address, fill_data);
-                self.increment_data_address();
-
-                let [msb, _] = fill_data.to_be_bytes();
-                for _ in 0..self.registers.dma_length() {
-                    self.vram[(self.state.data_address ^ 0x01) as usize] = msb;
-                    self.maybe_update_sprite_cache(self.state.data_address);
-
-                    self.increment_data_address();
-                }
-            }
-            ActiveDma::VramCopy => {
-                self.dma_tracker.init(
-                    DmaMode::VramFill,
-                    self.registers.dma_length(),
-                    DataPortLocation::Vram,
-                );
-
-                log::trace!(
-                    "Running VRAM copy with source addr {:04X}, dest addr {:04X}, and length {}",
-                    self.registers.dma_source_address,
-                    self.state.data_address,
-                    self.registers.dma_length()
-                );
-
-                // VRAM copy DMA treats the source address as A15-A0 instead of A23-A1
-                let mut source_addr = (self.registers.dma_source_address >> 1) as u16;
-                for _ in 0..self.registers.dma_length() {
-                    let dest_addr = self.state.data_address;
-                    self.vram[dest_addr as usize] = self.vram[source_addr as usize];
-                    self.maybe_update_sprite_cache(dest_addr);
-
-                    source_addr = source_addr.wrapping_add(1);
-                    self.increment_data_address();
-                }
-
-                self.registers.dma_source_address = u32::from(source_addr) << 1;
-            }
-        }
-
-        self.state.pending_dma = None;
-        self.registers.dma_length = 0;
     }
 
     fn increment_data_address(&mut self) {
@@ -2166,7 +1354,7 @@ impl Vdp {
         let r = ((value >> 1) & 0x07) as u8;
         let g = ((value >> 5) & 0x07) as u8;
         let b = ((value >> 9) & 0x07) as u8;
-        let color = gen_color_to_rgb(r, g, b, modifier, self.emulate_non_linear_dac);
+        let color = colors::gen_to_rgb(r, g, b, modifier, self.emulate_non_linear_dac);
 
         let screen_width = self.screen_width();
         self.frame_buffer[(row * screen_width + col) as usize] = color;
@@ -2404,39 +1592,6 @@ fn read_pattern_generator(
     let row_addr = (4 * cell_height).wrapping_mul(pattern_generator);
     let addr = (row_addr + 4 * cell_row + (cell_col >> 1)) as usize;
     (vram[addr] >> (4 - ((cell_col & 0x01) << 2))) & 0x0F
-}
-
-// i * 255 / 7
-const NORMAL_RGB_COLORS_LINEAR: [u8; 8] = [0, 36, 73, 109, 146, 182, 219, 255];
-
-// i * 255 / 7 / 2
-const SHADOWED_RGB_COLORS_LINEAR: [u8; 8] = [0, 18, 36, 55, 73, 91, 109, 128];
-
-// 255 / 2 + i * 255 / 7 / 2
-const HIGHLIGHTED_RGB_COLORS_LINEAR: [u8; 8] = [128, 146, 164, 182, 200, 219, 237, 255];
-
-// Values from http://gendev.spritesmind.net/forum/viewtopic.php?f=22&t=2188
-const NORMAL_RGB_COLORS_NON_LINEAR: [u8; 8] = [0, 52, 87, 116, 144, 172, 206, 255];
-const SHADOWED_RGB_COLORS_NON_LINEAR: [u8; 8] = [0, 29, 52, 70, 87, 101, 116, 130];
-const HIGHLIGHTED_RGB_COLORS_NON_LINEAR: [u8; 8] = [130, 144, 158, 172, 187, 206, 228, 255];
-
-#[inline]
-fn gen_color_to_rgb(
-    r: u8,
-    g: u8,
-    b: u8,
-    modifier: ColorModifier,
-    emulate_non_linear_dac: bool,
-) -> Color {
-    let colors = match (modifier, emulate_non_linear_dac) {
-        (ColorModifier::None, false) => NORMAL_RGB_COLORS_LINEAR,
-        (ColorModifier::Shadow, false) => SHADOWED_RGB_COLORS_LINEAR,
-        (ColorModifier::Highlight, false) => HIGHLIGHTED_RGB_COLORS_LINEAR,
-        (ColorModifier::None, true) => NORMAL_RGB_COLORS_NON_LINEAR,
-        (ColorModifier::Shadow, true) => SHADOWED_RGB_COLORS_NON_LINEAR,
-        (ColorModifier::Highlight, true) => HIGHLIGHTED_RGB_COLORS_NON_LINEAR,
-    };
-    Color::rgb(colors[r as usize], colors[g as usize], colors[b as usize])
 }
 
 #[cfg(test)]

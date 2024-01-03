@@ -1,7 +1,6 @@
 use crate::vdp;
 use crate::vdp::{
-    gen_color_to_rgb, read_pattern_generator, resolve_color, ColorModifier, PatternGeneratorArgs,
-    Vdp,
+    colors, read_pattern_generator, resolve_color, ColorModifier, PatternGeneratorArgs, Vdp,
 };
 
 use jgenesis_common::frontend::Color;
@@ -46,5 +45,5 @@ fn parse_gen_color(gen_color: u16) -> Color {
     let r = ((gen_color >> 1) & 0x07) as u8;
     let g = ((gen_color >> 5) & 0x07) as u8;
     let b = ((gen_color >> 9) & 0x07) as u8;
-    gen_color_to_rgb(r, g, b, ColorModifier::None, false)
+    colors::gen_to_rgb(r, g, b, ColorModifier::None, false)
 }
