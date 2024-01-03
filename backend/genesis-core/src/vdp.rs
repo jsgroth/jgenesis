@@ -333,8 +333,9 @@ impl Vdp {
 
     pub fn write_control(&mut self, value: u16) {
         log::trace!(
-            "VDP control write on scanline {}: {value:04X} (flag = {:?}, dma_enabled = {})",
+            "VDP control write on scanline {} / mclk {}: {value:04X} (flag = {:?}, dma_enabled = {})",
             self.state.scanline,
+            self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE,
             self.state.control_write_flag,
             self.registers.dma_enabled
         );
