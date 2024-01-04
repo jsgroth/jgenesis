@@ -648,29 +648,11 @@ impl Vdp {
                 if h <= 0x93 { h } else { h + (0xE9 - 0x94) }
             }
             HorizontalDisplaySize::FortyCell => {
-                // Special cases due to pixel clock varying during HSYNC in H40 mode
-                // https://gendev.spritesmind.net/forum/viewtopic.php?t=3221
-                // TODO turn this into a lookup table
-                match scanline_mclk {
-                    // 320 pixels of active display + 25 pixels of border + 1 pixel of HSYNC, all at mclk/8
-                    0..=2767 => (scanline_mclk / 16) as u8,
-                    // 8 pixels of HSYNC at mclk/10
-                    2768..=2847 => 173 + ((scanline_mclk - 2768) / 20) as u8,
-                    // 2 pixels of HSYNC at mclk/9
-                    2848..=2865 => 177 + ((scanline_mclk - 2848) / 18) as u8,
-                    // 8 pixels of HSYNC at mclk/10
-                    2866..=2945 => 178 + ((scanline_mclk - 2866) / 20) as u8,
-                    // 1 pixel of HSYNC at mclk/8 followed by 1 pixel of HSYNC at mclk/10
-                    2946..=2963 => 182,
-                    // 7 pixels of HSYNC at mclk/10, wrapping around to $E4
-                    2964..=3033 => ((2 * 0xE4 + 1 + (scanline_mclk - 2964) / 10) / 2) as u8,
-                    // 2 pixels of HSYNC at mclk/9
-                    3034..=3051 => ((2 * 0xE8 + 1 + (scanline_mclk - 3034) / 9) / 2) as u8,
-                    // 8 pixels of HSYNC at mclk/10
-                    3052..=3131 => ((2 * 0xE9 + 1 + (scanline_mclk - 3052) / 10) / 2) as u8,
-                    // Remaining border pixels at mclk/8
-                    3132..=3419 => ((2 * 0xED + 1 + (scanline_mclk - 3132) / 8) / 2) as u8,
-                    _ => panic!("scanline mclk must be < 3420"),
+                let pixel = scanline_mclk_to_pixel_h40(scanline_mclk);
+                match pixel {
+                    0..=364 => (pixel / 2) as u8,
+                    365..=419 => (0xE4 + (pixel - 364) / 2) as u8,
+                    _ => panic!("H40 pixel values should always be < 420"),
                 }
             }
         }
@@ -1021,6 +1003,36 @@ impl Vdp {
     }
 }
 
+fn scanline_mclk_to_pixel_h40(scanline_mclk: u64) -> u16 {
+    // Special cases due to pixel clock varying during HSYNC in H40 mode
+    // https://gendev.spritesmind.net/forum/viewtopic.php?t=3221
+    match scanline_mclk {
+        // 320 pixels of active display + 14 pixels of right border + 9 pixels of right blanking,
+        // all at mclk/8
+        0..=2743 => (scanline_mclk / 8) as u16,
+        // 34 pixels of HSYNC in a pattern of 1 mclk/8, 7 mclk/10, 2 mclk/9, 7 mclk/10
+        2744..=3075 => {
+            let hsync_mclk = scanline_mclk - 2744;
+            let pattern_pixel = match hsync_mclk % 166 {
+                0..=7 => 0,
+                pattern_mclk @ 8..=77 => 1 + (pattern_mclk - 8) / 10,
+                pattern_mclk @ 78..=95 => 8 + (pattern_mclk - 78) / 9,
+                pattern_cmlk @ 96..=165 => 10 + (pattern_cmlk - 96) / 10,
+                _ => unreachable!("value % 166 is always < 166"),
+            };
+
+            if hsync_mclk < 166 {
+                343 + pattern_pixel as u16
+            } else {
+                343 + 17 + pattern_pixel as u16
+            }
+        }
+        // 30 pixels of left blanking + 13 pixels of left border, all at mclk/8
+        3076..=3419 => (377 + (scanline_mclk - 3076) / 8) as u16,
+        _ => panic!("scanline mclk must be < 3420"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1068,11 +1080,13 @@ mod tests {
         vdp.registers.horizontal_display_size = HorizontalDisplaySize::FortyCell;
         assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE), 0xA0);
         assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 200), 0xAC);
-        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 208), 0xAD);
-        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 288), 0xB1);
-        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 386), 0xB6);
+        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 208), 0xAC);
+        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 218), 0xAD);
+        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 288), 0xB0);
+        assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 386), 0xB5);
         assert_eq!(vdp.h_counter(ACTIVE_MCLK_CYCLES_PER_SCANLINE + 404), 0xE4);
-        assert_eq!(vdp.h_counter(MCLK_CYCLES_PER_SCANLINE - 16), 0xFE);
+        assert_eq!(vdp.h_counter(MCLK_CYCLES_PER_SCANLINE - 17), 0xFE);
+        assert_eq!(vdp.h_counter(MCLK_CYCLES_PER_SCANLINE - 16), 0xFF);
         assert_eq!(vdp.h_counter(MCLK_CYCLES_PER_SCANLINE - 1), 0xFF);
     }
 }
