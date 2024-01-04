@@ -25,10 +25,10 @@ pub struct RenderingArgs<'a> {
     pub emulate_non_linear_dac: bool,
 }
 
-pub fn render_scanline(mut args: RenderingArgs<'_>, scanline: u16) {
+pub fn render_scanline(mut args: RenderingArgs<'_>, scanline: u16, starting_pixel: u16) {
     if !args.registers.display_enabled {
         if scanline < args.registers.vertical_display_size.active_scanlines() {
-            clear_scanline(&mut args, scanline);
+            clear_scanline(&mut args, scanline, starting_pixel);
         }
 
         return;
@@ -42,34 +42,36 @@ pub fn render_scanline(mut args: RenderingArgs<'_>, scanline: u16) {
 
     match args.registers.interlacing_mode {
         InterlacingMode::Progressive | InterlacingMode::Interlaced => {
-            populate_sprite_buffer(&mut args, scanline);
+            if starting_pixel == 0 {
+                populate_sprite_buffer(&mut args, scanline);
+            }
 
-            render_pixels_in_scanline(&mut args, scanline, bg_color);
+            render_pixels_in_scanline(&mut args, scanline, starting_pixel, bg_color);
         }
         InterlacingMode::InterlacedDouble => {
             // Render scanlines 2N and 2N+1 at the same time
             for scanline in [2 * scanline, 2 * scanline + 1] {
                 populate_sprite_buffer(&mut args, scanline);
 
-                render_pixels_in_scanline(&mut args, scanline, bg_color);
+                render_pixels_in_scanline(&mut args, scanline, starting_pixel, bg_color);
             }
         }
     }
 }
 
-fn clear_scanline(args: &mut RenderingArgs<'_>, scanline: u16) {
+fn clear_scanline(args: &mut RenderingArgs<'_>, scanline: u16, starting_pixel: u16) {
     match args.registers.interlacing_mode {
         InterlacingMode::Progressive | InterlacingMode::Interlaced => {
-            clear_frame_buffer_row(args, scanline.into());
+            clear_frame_buffer_row(args, scanline.into(), starting_pixel.into());
         }
         InterlacingMode::InterlacedDouble => {
-            clear_frame_buffer_row(args, (2 * scanline).into());
-            clear_frame_buffer_row(args, (2 * scanline + 1).into());
+            clear_frame_buffer_row(args, (2 * scanline).into(), starting_pixel.into());
+            clear_frame_buffer_row(args, (2 * scanline + 1).into(), starting_pixel.into());
         }
     }
 }
 
-fn clear_frame_buffer_row(args: &mut RenderingArgs<'_>, row: u32) {
+fn clear_frame_buffer_row(args: &mut RenderingArgs<'_>, row: u32, starting_col: u32) {
     let screen_width = args.registers.horizontal_display_size.to_pixels().into();
     let bg_color = colors::resolve_color(
         args.cram,
@@ -77,7 +79,7 @@ fn clear_frame_buffer_row(args: &mut RenderingArgs<'_>, row: u32) {
         args.registers.background_color_id,
     );
 
-    for pixel in 0..screen_width {
+    for pixel in starting_col..screen_width {
         set_in_frame_buffer(args, row, pixel, bg_color, ColorModifier::None);
     }
 }
@@ -281,7 +283,12 @@ fn find_first_overlapping_sprite<'sprites>(
     found_sprite
 }
 
-fn render_pixels_in_scanline(args: &mut RenderingArgs<'_>, scanline: u16, bg_color: u16) {
+fn render_pixels_in_scanline(
+    args: &mut RenderingArgs<'_>,
+    scanline: u16,
+    starting_pixel: u16,
+    bg_color: u16,
+) {
     let cell_height = args.registers.interlacing_mode.cell_height();
     let v_scroll_size = args.registers.vertical_scroll_size;
     let h_scroll_size = args.registers.horizontal_scroll_size;
@@ -312,7 +319,7 @@ fn render_pixels_in_scanline(args: &mut RenderingArgs<'_>, scanline: u16, bg_col
     let mut scroll_b_nt_col = u16::MAX;
     let mut scroll_b_nt_word = NameTableWord::default();
 
-    for pixel in 0..args.registers.horizontal_display_size.to_pixels() {
+    for pixel in starting_pixel..args.registers.horizontal_display_size.to_pixels() {
         let h_cell = pixel / 8;
         let (v_scroll_a, v_scroll_b) = read_v_scroll(args, h_cell);
 

@@ -28,6 +28,13 @@ impl HorizontalDisplaySize {
         }
     }
 
+    pub const fn mclk_cycles_per_pixel(self) -> u64 {
+        match self {
+            Self::ThirtyTwoCell => 10,
+            Self::FortyCell => 8,
+        }
+    }
+
     // Length in sprites
     pub const fn sprite_table_len(self) -> u16 {
         match self {

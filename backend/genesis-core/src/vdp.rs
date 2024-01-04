@@ -258,6 +258,9 @@ const ACTIVE_MCLK_CYCLES_PER_SCANLINE: u64 = 2560;
 const NTSC_SCANLINES_PER_FRAME: u16 = 262;
 const PAL_SCANLINES_PER_FRAME: u16 = 313;
 
+// 36 CPU cycles
+const REGISTER_LATCH_DELAY_MCLK: u64 = 36 * 7;
+
 const MAX_SPRITES_PER_FRAME: usize = 80;
 
 // Sprites with X = $080 display at the left edge of the screen
@@ -299,6 +302,8 @@ pub struct Vdp {
     state: InternalState,
     sprite_state: SpriteState,
     registers: Registers,
+    latched_registers: Registers,
+    latched_full_screen_v_scroll: (u16, u16),
     cached_sprite_attributes: Box<[CachedSpriteData; MAX_SPRITES_PER_FRAME]>,
     sprite_buffer: Vec<SpriteData>,
     sprite_bit_set: SpriteBitSet,
@@ -322,6 +327,8 @@ impl Vdp {
             state: InternalState::new(),
             sprite_state: SpriteState::default(),
             registers: Registers::new(),
+            latched_registers: Registers::new(),
+            latched_full_screen_v_scroll: (0, 0),
             cached_sprite_attributes: vec![CachedSpriteData::default(); MAX_SPRITES_PER_FRAME]
                 .into_boxed_slice()
                 .try_into()
@@ -370,7 +377,7 @@ impl Vdp {
                         self.state.latched_hv_counter = None;
                     }
 
-                    // TODO handle mid-frame register writes
+                    self.update_latched_registers_if_necessary(register_number);
                 } else {
                     // First word of command write
                     self.state.data_address =
@@ -401,6 +408,41 @@ impl Vdp {
                     }
                 }
             }
+        }
+    }
+
+    fn update_latched_registers_if_necessary(&mut self, register_number: u8) {
+        // Writing to register #2, #3, or #4 immediately updates the corresponding nametable address; these registers
+        // are not latched.
+        // Writing to register #1 immediately updates the display enabled flag.
+        // Other register writes do not take effect until the next scanline.
+        match register_number {
+            1 => {
+                self.latched_registers.display_enabled = self.registers.display_enabled;
+            }
+            2 => {
+                self.latched_registers.scroll_a_base_nt_addr = self.registers.scroll_a_base_nt_addr;
+            }
+            3 => {
+                self.latched_registers.window_base_nt_addr = self.registers.window_base_nt_addr;
+            }
+            4 => {
+                self.latched_registers.scroll_b_base_nt_addr = self.registers.scroll_b_base_nt_addr;
+            }
+            _ => return,
+        }
+
+        // If this write occurred during active display, re-render the current scanline starting from the current pixel
+        if self.state.scanline < self.latched_registers.vertical_display_size.active_scanlines()
+            && (self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE)
+                < ACTIVE_MCLK_CYCLES_PER_SCANLINE
+        {
+            let mclk_per_pixel =
+                self.latched_registers.horizontal_display_size.mclk_cycles_per_pixel();
+            self.render_scanline_from_pixel(
+                self.state.scanline,
+                ((self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE) / mclk_per_pixel) as u16,
+            );
         }
     }
 
@@ -714,6 +756,9 @@ impl Vdp {
         let prev_mclk_cycles = self.master_clock_cycles;
         self.master_clock_cycles += master_clock_cycles;
 
+        let prev_scanline_mclk = prev_mclk_cycles % MCLK_CYCLES_PER_SCANLINE;
+        let scanline_mclk = prev_scanline_mclk + master_clock_cycles;
+
         // H interrupts occur a set number of mclk cycles after the end of the active display,
         // not right at the start of HBlank
         let h_interrupt_delay = match self.registers.horizontal_display_size {
@@ -722,15 +767,9 @@ impl Vdp {
             // 16 pixels after active display
             HorizontalDisplaySize::FortyCell => 128,
         };
-        let prev_scanline_mclk = prev_mclk_cycles % MCLK_CYCLES_PER_SCANLINE;
         if prev_scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE + h_interrupt_delay
-            && master_clock_cycles
-                >= ACTIVE_MCLK_CYCLES_PER_SCANLINE + h_interrupt_delay - prev_scanline_mclk
+            && scanline_mclk >= ACTIVE_MCLK_CYCLES_PER_SCANLINE + h_interrupt_delay
         {
-            // Render scanlines when HINT is triggered so that mid-HBlank writes will not affect
-            // the next scanline
-            self.render_next_scanline();
-
             // Check if an H interrupt has occurred
             if self.state.scanline < active_scanlines
                 || self.state.scanline == scanlines_per_frame - 1
@@ -749,17 +788,36 @@ impl Vdp {
             }
         }
 
+        if prev_scanline_mclk
+            < ACTIVE_MCLK_CYCLES_PER_SCANLINE + h_interrupt_delay + REGISTER_LATCH_DELAY_MCLK
+            && scanline_mclk
+                >= ACTIVE_MCLK_CYCLES_PER_SCANLINE + h_interrupt_delay + REGISTER_LATCH_DELAY_MCLK
+        {
+            // Almost all VDP registers and the full screen V scroll values are latched within the 36 CPU cycles after
+            // HINT is generated. Changing values after this point will not take effect until after the next scanline
+            // is rendered.
+            // The only VDP registers that are not latched are the nametable addresses, the display enabled bit, and
+            // the background color.
+            self.latched_registers = self.registers.clone();
+            self.latched_full_screen_v_scroll = (
+                u16::from_be_bytes([self.vsram[0], self.vsram[1]]),
+                u16::from_be_bytes([self.vsram[2], self.vsram[3]]),
+            );
+        }
+
         // Check if a V interrupt has triggered
         if self.state.scanline == active_scanlines
             && prev_scanline_mclk < V_INTERRUPT_DELAY
-            && prev_scanline_mclk + master_clock_cycles >= V_INTERRUPT_DELAY
+            && scanline_mclk >= V_INTERRUPT_DELAY
         {
             log::trace!("Generating V interrupt");
             self.state.v_interrupt_pending = true;
         }
 
         // Check if the VDP has advanced to a new scanline
-        if prev_scanline_mclk + master_clock_cycles >= MCLK_CYCLES_PER_SCANLINE {
+        if scanline_mclk >= MCLK_CYCLES_PER_SCANLINE {
+            self.render_next_scanline();
+
             self.state.scanline += 1;
             if self.state.scanline == scanlines_per_frame {
                 self.state.scanline = 0;
@@ -903,18 +961,18 @@ impl Vdp {
     fn render_next_scanline(&mut self) {
         match (self.timing_mode, self.registers.vertical_display_size, self.state.scanline) {
             (TimingMode::Ntsc, _, 261) | (TimingMode::Pal, _, 311) => {
-                self.render_scanline(0);
+                self.render_scanline_from_pixel(0, 0);
             }
             (_, VerticalDisplaySize::TwentyEightCell, scanline @ 0..=222)
             | (_, VerticalDisplaySize::ThirtyCell, scanline @ 0..=238) => {
-                self.render_scanline(scanline + 1);
+                self.render_scanline_from_pixel(scanline + 1, 0);
             }
             _ => {}
         }
     }
 
     #[inline]
-    fn render_scanline(&mut self, scanline: u16) {
+    fn render_scanline_from_pixel(&mut self, scanline: u16, pixel: u16) {
         let rendering_args = RenderingArgs {
             frame_buffer: &mut self.frame_buffer,
             sprite_buffer: &mut self.sprite_buffer,
@@ -923,14 +981,14 @@ impl Vdp {
             vram: &self.vram,
             cram: &self.cram,
             vsram: &self.vsram,
-            registers: &self.registers,
+            registers: &self.latched_registers,
             cached_sprite_attributes: &self.cached_sprite_attributes,
-            full_screen_v_scroll_a: u16::from_be_bytes([self.vsram[0], self.vsram[1]]),
-            full_screen_v_scroll_b: u16::from_be_bytes([self.vsram[2], self.vsram[3]]),
+            full_screen_v_scroll_a: self.latched_full_screen_v_scroll.0,
+            full_screen_v_scroll_b: self.latched_full_screen_v_scroll.1,
             enforce_sprite_limits: self.enforce_sprite_limits,
             emulate_non_linear_dac: self.emulate_non_linear_dac,
         };
-        render::render_scanline(rendering_args, scanline);
+        render::render_scanline(rendering_args, scanline, pixel);
     }
 
     #[must_use]
