@@ -29,6 +29,9 @@ pub fn render_scanline(mut args: RenderingArgs<'_>, scanline: u16, starting_pixe
     if !args.registers.display_enabled {
         if scanline < args.registers.vertical_display_size.active_scanlines() {
             clear_scanline(&mut args, scanline, starting_pixel);
+
+            // Clear sprite buffer in case display is enabled during active display
+            args.sprite_buffer.clear();
         }
 
         return;
@@ -223,7 +226,7 @@ fn find_first_overlapping_sprite<'sprites>(
     let sprite_display_top = interlacing_mode.sprite_display_top();
     let cell_height = interlacing_mode.cell_height();
 
-    let sprite_pixel = crate::vdp::SPRITE_H_DISPLAY_START + pixel;
+    let sprite_pixel = SPRITE_H_DISPLAY_START + pixel;
 
     let mut found_sprite: Option<(&SpriteData, u8)> = None;
     for sprite in sprite_buffer {

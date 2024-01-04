@@ -263,9 +263,6 @@ const REGISTER_LATCH_DELAY_MCLK: u64 = 36 * 7;
 
 const MAX_SPRITES_PER_FRAME: usize = 80;
 
-// Sprites with X = $080 display at the left edge of the screen
-const SPRITE_H_DISPLAY_START: u16 = 0x080;
-
 // Master clock cycle on which to trigger VINT on scanline 224/240.
 const V_INTERRUPT_DELAY: u64 = 48;
 
