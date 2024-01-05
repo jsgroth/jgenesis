@@ -30,45 +30,37 @@ jobs:
         sudo apt update && sudo apt install -y libsdl2-dev libgtk-3-dev
 
     - name: Check formatting
-      uses: actions-rs/cargo@v1
-      with:
-        command: fmt
-        toolchain: nightly
-        args: --check
+      run: |
+        cargo +nightly fmt --check
 
     - name: Build
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
+      run: |
+        cargo build
 
     - name: Check Clippy warnings
-      uses: actions-rs/cargo@v1
-      with:
-        command: clippy
-        args: -- -D warnings
+      run: |
+        cargo clippy -- -D warnings
 
     - name: Run tests
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
+      run: |
+        cargo test
   build-web:
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v3
 
+      - name: Install latest stable Rust toolchain
+        run: |
+          rustup update
+
       - name: Install latest nightly Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-          components: rust-src, clippy
+        run: |
+          rustup toolchain add nightly --component rust-src --component clippy
 
       - name: Install wasm-pack
-        uses: actions-rs/cargo@v1
-        with:
-          command: install
-          toolchain: nightly
-          args: wasm-pack
+        run: |
+          cargo install wasm-pack
 
       - name: Build web
         run: |
@@ -84,9 +76,8 @@ jobs:
       - uses: actions/checkout@v3
 
       - name: Install latest stable Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
+        run: |
+          rustup update
 
       - name: Install libsdl2 and libgtk-3
         run: |
@@ -118,9 +109,8 @@ jobs:
       - uses: actions/checkout@v3
 
       - name: Install latest stable Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
+        run: |
+          rustup update
 
       - name: Install mingw32
         run: |
