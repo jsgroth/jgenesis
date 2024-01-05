@@ -14,7 +14,7 @@ use crate::vdp::fifo::FifoTracker;
 use crate::vdp::registers::{
     DmaMode, HorizontalDisplaySize, InterlacingMode, Registers, VerticalDisplaySize,
 };
-use crate::vdp::render::RenderingArgs;
+use crate::vdp::render::{RenderingArgs, SpriteState};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{Color, TimingMode};
 use jgenesis_common::num::GetBit;
@@ -63,13 +63,6 @@ impl Default for PendingWrite {
     fn default() -> Self {
         Self::Control(0)
     }
-}
-
-#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
-struct SpriteState {
-    overflow: bool,
-    collision: bool,
-    dot_overflow_on_prev_line: bool,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -342,9 +335,13 @@ impl Vdp {
 
     pub fn write_control(&mut self, value: u16) {
         log::trace!(
-            "VDP control write on scanline {} / mclk {}: {value:04X} (flag = {:?}, dma_enabled = {})",
+            "VDP control write on scanline {} / mclk {} / pixel {}: {value:04X} (flag = {:?}, dma_enabled = {})",
             self.state.scanline,
             self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE,
+            scanline_mclk_to_pixel(
+                self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE,
+                self.registers.horizontal_display_size
+            ),
             self.state.control_write_flag,
             self.registers.dma_enabled
         );
@@ -375,6 +372,16 @@ impl Vdp {
                     }
 
                     self.update_latched_registers_if_necessary(register_number);
+
+                    // Update enabled pixels in sprite state if register #1 was written
+                    if register_number == 1 {
+                        let pixel = scanline_mclk_to_pixel(
+                            self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE,
+                            self.registers.horizontal_display_size,
+                        );
+                        self.sprite_state
+                            .handle_display_enabled_write(self.registers.display_enabled, pixel);
+                    }
                 } else {
                     // First word of command write
                     self.state.data_address =
@@ -603,16 +610,16 @@ impl Vdp {
         let status = (u16::from(self.fifo_tracker.is_empty()) << 9)
             | (u16::from(self.fifo_tracker.is_full()) << 8)
             | (u16::from(self.state.v_interrupt_pending) << 7)
-            | (u16::from(self.sprite_state.overflow) << 6)
-            | (u16::from(self.sprite_state.collision) << 5)
+            | (u16::from(self.sprite_state.overflow_flag()) << 6)
+            | (u16::from(self.sprite_state.collision_flag()) << 5)
             | (u16::from(interlaced_odd) << 4)
             | (u16::from(vblank_flag) << 3)
             | (u16::from(hblank_flag) << 2)
             | (u16::from(self.dma_tracker.is_in_progress()) << 1)
             | u16::from(self.timing_mode == TimingMode::Pal);
 
-        self.sprite_state.overflow = false;
-        self.sprite_state.collision = false;
+        // Reading status register clears the sprite overflow and collision flags
+        self.sprite_state.clear_status_flags();
 
         // Reset control write flag
         self.state.control_write_flag = ControlWriteFlag::First;
@@ -738,6 +745,16 @@ impl Vdp {
         let prev_scanline_mclk = prev_mclk_cycles % MCLK_CYCLES_PER_SCANLINE;
         let scanline_mclk = prev_scanline_mclk + master_clock_cycles;
 
+        if prev_scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE
+            && scanline_mclk >= ACTIVE_MCLK_CYCLES_PER_SCANLINE
+        {
+            // HBlank start
+            self.sprite_state.handle_hblank_start(
+                self.registers.horizontal_display_size,
+                self.registers.display_enabled,
+            );
+        }
+
         // H interrupts occur a set number of mclk cycles after the end of the active display,
         // not right at the start of HBlank
         let h_interrupt_delay = match self.registers.horizontal_display_size {
@@ -795,6 +812,7 @@ impl Vdp {
 
         // Check if the VDP has advanced to a new scanline
         if scanline_mclk >= MCLK_CYCLES_PER_SCANLINE {
+            self.sprite_state.handle_line_end(self.registers.horizontal_display_size);
             self.render_next_scanline();
 
             self.state.scanline += 1;
@@ -977,7 +995,7 @@ impl Vdp {
 
     #[must_use]
     pub fn screen_width(&self) -> u32 {
-        self.registers.horizontal_display_size.to_pixels().into()
+        self.registers.horizontal_display_size.active_display_pixels().into()
     }
 
     #[must_use]
@@ -1001,6 +1019,17 @@ impl Vdp {
         self.enforce_sprite_limits = config.enforce_sprite_limits;
         self.emulate_non_linear_dac = config.emulate_non_linear_dac;
     }
+}
+
+fn scanline_mclk_to_pixel(scanline_mclk: u64, h_display_size: HorizontalDisplaySize) -> u16 {
+    match h_display_size {
+        HorizontalDisplaySize::ThirtyTwoCell => scanline_mclk_to_pixel_h32(scanline_mclk),
+        HorizontalDisplaySize::FortyCell => scanline_mclk_to_pixel_h40(scanline_mclk),
+    }
+}
+
+fn scanline_mclk_to_pixel_h32(scanline_mclk: u64) -> u16 {
+    (scanline_mclk / 10) as u16
 }
 
 fn scanline_mclk_to_pixel_h40(scanline_mclk: u64) -> u16 {

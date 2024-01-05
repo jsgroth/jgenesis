@@ -21,10 +21,17 @@ pub enum HorizontalDisplaySize {
 }
 
 impl HorizontalDisplaySize {
-    pub const fn to_pixels(self) -> u16 {
+    pub const fn active_display_pixels(self) -> u16 {
         match self {
             Self::ThirtyTwoCell => 256,
             Self::FortyCell => 320,
+        }
+    }
+
+    pub const fn pixels_including_hblank(self) -> u16 {
+        match self {
+            Self::ThirtyTwoCell => 342,
+            Self::FortyCell => 420,
         }
     }
 
@@ -51,7 +58,7 @@ impl HorizontalDisplaySize {
     }
 
     pub const fn max_sprite_pixels_per_line(self) -> u16 {
-        self.to_pixels()
+        self.active_display_pixels()
     }
 
     pub const fn window_width_cells(self) -> u16 {

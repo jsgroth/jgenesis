@@ -1,13 +1,75 @@
 use crate::vdp::colors::ColorModifier;
-use crate::vdp::registers::{HorizontalScrollMode, InterlacingMode, Registers, VerticalScrollMode};
-use crate::vdp::{
-    colors, CachedSpriteData, Cram, FrameBuffer, SpriteBitSet, SpriteData, SpriteState, Vram,
-    Vsram, MAX_SPRITES_PER_FRAME,
+use crate::vdp::registers::{
+    HorizontalDisplaySize, HorizontalScrollMode, InterlacingMode, Registers, VerticalScrollMode,
 };
+use crate::vdp::{
+    colors, CachedSpriteData, Cram, FrameBuffer, SpriteBitSet, SpriteData, Vram, Vsram,
+    MAX_SPRITES_PER_FRAME,
+};
+use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 
 // Sprites with X = $080 display at the left edge of the screen
 const SPRITE_H_DISPLAY_START: u16 = 0x080;
+
+#[derive(Debug, Clone, Default, Encode, Decode)]
+pub struct SpriteState {
+    overflow: bool,
+    collision: bool,
+    dot_overflow_on_prev_line: bool,
+    pixels_disabled_during_scan: u16,
+    pixels_disabled_during_tile_fetch: u16,
+    display_enabled: bool,
+    display_enabled_pixel: u16,
+}
+
+impl SpriteState {
+    pub fn overflow_flag(&self) -> bool {
+        self.overflow
+    }
+
+    pub fn collision_flag(&self) -> bool {
+        self.collision
+    }
+
+    pub fn clear_status_flags(&mut self) {
+        self.overflow = false;
+        self.collision = false;
+    }
+
+    pub fn handle_hblank_start(
+        &mut self,
+        h_display_size: HorizontalDisplaySize,
+        display_enabled: bool,
+    ) {
+        self.pixels_disabled_during_scan = self.pixels_disabled_during_tile_fetch;
+        self.pixels_disabled_during_tile_fetch = 0;
+
+        self.display_enabled = display_enabled;
+        self.display_enabled_pixel = h_display_size.active_display_pixels();
+    }
+
+    pub fn handle_display_enabled_write(&mut self, display_enabled: bool, pixel: u16) {
+        if pixel < self.display_enabled_pixel {
+            // Pre-HBlank write on the next scanline; ignore
+            return;
+        }
+
+        if !self.display_enabled {
+            self.pixels_disabled_during_tile_fetch += pixel - self.display_enabled_pixel;
+        }
+
+        self.display_enabled = display_enabled;
+        self.display_enabled_pixel = pixel;
+    }
+
+    pub fn handle_line_end(&mut self, h_display_size: HorizontalDisplaySize) {
+        if !self.display_enabled {
+            self.pixels_disabled_during_tile_fetch +=
+                h_display_size.pixels_including_hblank() - self.display_enabled_pixel;
+        }
+    }
+}
 
 pub struct RenderingArgs<'a> {
     pub frame_buffer: &'a mut FrameBuffer,
@@ -75,7 +137,7 @@ fn clear_scanline(args: &mut RenderingArgs<'_>, scanline: u16, starting_pixel: u
 }
 
 fn clear_frame_buffer_row(args: &mut RenderingArgs<'_>, row: u32, starting_col: u32) {
-    let screen_width = args.registers.horizontal_display_size.to_pixels().into();
+    let screen_width = args.registers.horizontal_display_size.active_display_pixels().into();
     let bg_color = colors::resolve_color(
         args.cram,
         args.registers.background_palette,
@@ -99,7 +161,7 @@ fn set_in_frame_buffer(
     let b = ((color >> 9) & 0x07) as u8;
     let rgb_color = colors::gen_to_rgb(r, g, b, modifier, args.emulate_non_linear_dac);
 
-    let screen_width: u32 = args.registers.horizontal_display_size.to_pixels().into();
+    let screen_width: u32 = args.registers.horizontal_display_size.active_display_pixels().into();
     args.frame_buffer[(row * screen_width + col) as usize] = rgb_color;
 }
 
@@ -119,8 +181,22 @@ fn populate_sprite_buffer(args: &mut RenderingArgs<'_>, scanline: u16) {
     let mut sprite_idx: u16 = sprite_0.link_data.into();
     args.sprite_buffer.push(sprite_0);
 
-    for _ in 0..h_size.sprite_table_len() {
-        if sprite_idx == 0 || sprite_idx >= h_size.sprite_table_len() {
+    // If display was disabled during part of HBlank on the scanline before the previous scanline,
+    // the number of sprites scanned for the current scanline is reduced roughly by the number of
+    // pixels that display was disabled for.
+    // Actual hardware doesn't work exactly this way (it depends on exactly which VRAM access slots
+    // display was disabled during), but this approximation works well enough for Mickey Mania's
+    // 3D stages and Titan Overdrive's "your emulator suxx" screen
+    let sprites_not_scanned = if args.sprite_state.pixels_disabled_during_scan != 0 {
+        // Not sure exactly why, but adding ~8 here is necessary to fully remove the "your emulator
+        // suxx" text from Titan Overdrive's 512-color screen
+        args.sprite_state.pixels_disabled_during_scan + 8
+    } else {
+        0
+    };
+    let max_sprites_to_scan = h_size.sprite_table_len().saturating_sub(sprites_not_scanned);
+    for _ in 0..max_sprites_to_scan {
+        if sprite_idx == 0 || sprite_idx >= max_sprites_to_scan {
             break;
         }
 
@@ -152,15 +228,23 @@ fn populate_sprite_buffer(args: &mut RenderingArgs<'_>, scanline: u16) {
         args.sprite_state.overflow = true;
     }
 
-    // Apply max sprite pixel per scanline limit
+    // Apply max sprite pixel per scanline limit.
+    //
+    // If display was disabled during HBlank on the previous scanline, the number of sprite pixels
+    // rendered is reduced roughly proportional to the number of pixels during which display was
+    // disabled.
+    // As above, this is an approximation; in actual hardware it depends on which VRAM access slots
+    // were skipped because display was disabled
+    let max_sprite_pixels_per_line =
+        h_size.max_sprite_pixels_per_line().saturating_sub(sprites_not_scanned * 4);
     let mut line_pixels = 0;
     let mut dot_overflow = false;
     for i in 0..args.sprite_buffer.len() {
         let sprite_pixels = 8 * u16::from(args.sprite_buffer[i].h_size_cells);
         line_pixels += sprite_pixels;
-        if line_pixels > h_size.max_sprite_pixels_per_line() {
+        if line_pixels > max_sprite_pixels_per_line {
             if args.enforce_sprite_limits {
-                let overflow_pixels = line_pixels - h_size.max_sprite_pixels_per_line();
+                let overflow_pixels = line_pixels - max_sprite_pixels_per_line;
                 args.sprite_buffer[i].partial_width = Some(sprite_pixels - overflow_pixels);
 
                 args.sprite_buffer.truncate(i + 1);
@@ -182,15 +266,7 @@ fn populate_sprite_buffer(args: &mut RenderingArgs<'_>, scanline: u16) {
             continue;
         }
 
-        // HACK: Actual hardware doesn't work this way, but this fixes some visual glitches in
-        // Mickey Mania's 3D stages and is much easier to implement than actual HW behavior.
-        //
-        // Mickey Mania disables display for a short time during HBlank which reduces the number
-        // of sprites and sprite pixels that will be displayed on the next line. Instead of
-        // emulating this behavior, take advantage of the fact that on the lines where Mickey
-        // Mania does this, the first 5 sprites in the sprite list are all H=0 sprites. Thus,
-        // if we see 5 H=0 sprites in a row, apply a sprite mask.
-        if args.sprite_buffer[i].h_position == 0 && (found_non_zero || i == 4) {
+        if args.sprite_buffer[i].h_position == 0 && found_non_zero {
             args.sprite_buffer.truncate(i);
             break;
         }
@@ -322,7 +398,7 @@ fn render_pixels_in_scanline(
     let mut scroll_b_nt_col = u16::MAX;
     let mut scroll_b_nt_word = NameTableWord::default();
 
-    for pixel in starting_pixel..args.registers.horizontal_display_size.to_pixels() {
+    for pixel in starting_pixel..args.registers.horizontal_display_size.active_display_pixels() {
         let h_cell = pixel / 8;
         let (v_scroll_a, v_scroll_b) = read_v_scroll(args, h_cell);
 
