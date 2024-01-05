@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  JGENESIS_VERSION: 0.6.0
 
 jobs:
   build:
@@ -100,13 +101,13 @@ jobs:
 
       - name: Compress binaries
         run: |
-          tar -czvf jgenesis-linux.tar.gz LICENSE -C target/release-lto jgenesis-cli jgenesis-gui
+          tar -czvf jgenesis-${JGENESIS_VERSION}-linux-x86_64.tar.gz LICENSE -C target/release-lto jgenesis-cli jgenesis-gui
 
       - name: Upload binaries
         uses: actions/upload-artifact@v3
         with:
           name: linux-x86_64-bin
-          path: jgenesis-linux.tar.gz
+          path: jgenesis-${{ env.JGENESIS_VERSION }}-linux-x86_64.tar.gz
           retention-days: 1
   windows-release:
     runs-on: ubuntu-latest
@@ -157,11 +158,11 @@ jobs:
           mv target/x86_64-pc-windows-gnu/release-lto/*.exe ./ && \
           mv dxcompiler/bin/x64/*.dll ./ && \
           mv dxcompiler/LICENSE* ./ && \
-          zip -r jgenesis-windows.zip LICENSE* README-SDL.txt *.dll jgenesis-cli.exe jgenesis-gui.exe
+          zip -r jgenesis-${JGENESIS_VERSION}-windows-x86_64.zip LICENSE* README-SDL.txt *.dll jgenesis-cli.exe jgenesis-gui.exe
 
       - name: Upload binaries
         uses: actions/upload-artifact@v3
         with:
           name: windows-x86_64-bin
-          path: jgenesis-windows.zip
+          path: jgenesis-${{ env.JGENESIS_VERSION }}-windows-x86_64.zip
           retention-days: 1
