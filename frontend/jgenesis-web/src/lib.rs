@@ -133,9 +133,9 @@ impl Emulator {
 
     fn target_fps(&self) -> f64 {
         // ~59.9 FPS
-        let sega_ntsc_fps = 53_693_175.0 / 896_040.0;
+        let sega_ntsc_fps = 53_693_175.0 / 3420.0 / 262.0;
         // ~49.7 FPS
-        let sega_pal_fps = 53_693_175.0 / 896_040.0;
+        let sega_pal_fps = 53_203_424.0 / 3420.0 / 313.0;
 
         match self {
             Self::None => 60.0,
