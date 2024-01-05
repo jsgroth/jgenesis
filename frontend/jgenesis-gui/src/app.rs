@@ -41,6 +41,7 @@ struct ListFilters {
     sega_cd: bool,
     nes: bool,
     snes: bool,
+    #[serde(skip)]
     title_match: String,
 }
 
