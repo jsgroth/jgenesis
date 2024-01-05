@@ -18,15 +18,12 @@ jobs:
     - uses: actions/checkout@v3
 
     - name: Install latest stable Rust toolchain
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
+      run: |
+        rustup update
 
     - name: Install latest nightly Rust toolchain
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: nightly
-        components: rustfmt, clippy
+      run: |
+        rustup toolchain add nightly --component rustfmt --component rust-src
 
     - name: Install system library dependencies
       run: |
