@@ -343,14 +343,23 @@ pub enum YmTickEffect {
 // The YM2612 always raises the BUSY line for exactly 32 internal cycles after a register write
 const WRITE_BUSY_CYCLES: u8 = 32;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+enum RegisterGroup {
+    // Channel 1-3 and global registers
+    #[default]
+    One,
+    // Channel 4-6 registers
+    Two,
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Ym2612 {
     channels: [FmChannel; 6],
     pcm_enabled: bool,
     pcm_sample: u8,
     lfo: LowFrequencyOscillator,
-    group_1_register: u8,
-    group_2_register: u8,
+    selected_register: u8,
+    selected_register_group: RegisterGroup,
     clock_divider: u8,
     sample_divider: u8,
     busy_cycles_remaining: u8,
@@ -368,8 +377,8 @@ impl Ym2612 {
             pcm_enabled: false,
             pcm_sample: 0,
             lfo: LowFrequencyOscillator::new(),
-            group_1_register: 0,
-            group_2_register: 0,
+            selected_register: 0,
+            selected_register_group: RegisterGroup::default(),
             clock_divider: FM_CLOCK_DIVIDER,
             sample_divider: FM_SAMPLE_DIVIDER,
             busy_cycles_remaining: 0,
@@ -384,20 +393,36 @@ impl Ym2612 {
         *self = Self::new(self.quantize_output);
     }
 
-    // Set the address register for group 1 (system registers + channels 1-3)
+    // Set the address register and set group to 1 (system registers + channels 1-3)
     pub fn write_address_1(&mut self, value: u8) {
-        self.group_1_register = value;
+        self.selected_register = value;
+        self.selected_register_group = RegisterGroup::One;
+    }
+
+    // Set the address register and set group to 2 (channels 4-6)
+    pub fn write_address_2(&mut self, value: u8) {
+        self.selected_register = value;
+        self.selected_register_group = RegisterGroup::Two;
+    }
+
+    // Write to the data port
+    // Whether this is a group 1 or 2 write depends solely on which address register was last written
+    pub fn write_data(&mut self, value: u8) {
+        match self.selected_register_group {
+            RegisterGroup::One => self.write_group_1_register(value),
+            RegisterGroup::Two => self.write_group_2_register(value),
+        }
     }
 
     // Write to the data port for group 1 (system registers + channels 1-3)
-    pub fn write_data_1(&mut self, value: u8) {
-        if self.group_1_register != 0x2A {
-            log::trace!("G1: Wrote {value:02X} to {:02X}", self.group_1_register);
+    fn write_group_1_register(&mut self, value: u8) {
+        if self.selected_register != 0x2A {
+            log::trace!("G1: Wrote {value:02X} to {:02X}", self.selected_register);
         }
 
         self.busy_cycles_remaining = WRITE_BUSY_CYCLES;
 
-        let register = self.group_1_register;
+        let register = self.selected_register;
         match register {
             0x22 => {
                 // LFO configuration register
@@ -490,18 +515,13 @@ impl Ym2612 {
         }
     }
 
-    // Set the address register for group 2 (channels 4-6)
-    pub fn write_address_2(&mut self, value: u8) {
-        self.group_2_register = value;
-    }
-
     // Write to the data port for group 2 (channels 4-6)
-    pub fn write_data_2(&mut self, value: u8) {
-        log::trace!("G2: Wrote {value:02X} to {:02X}", self.group_2_register);
+    fn write_group_2_register(&mut self, value: u8) {
+        log::trace!("G2: Wrote {value:02X} to {:02X}", self.selected_register);
 
         self.busy_cycles_remaining = WRITE_BUSY_CYCLES;
 
-        let register = self.group_2_register;
+        let register = self.selected_register;
         match register {
             0x30..=0x9F => {
                 self.write_operator_level_register(register, value, GROUP_2_BASE_CHANNEL);

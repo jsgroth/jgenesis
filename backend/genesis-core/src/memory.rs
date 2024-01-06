@@ -824,18 +824,9 @@ impl<'a, Medium: PhysicalMedium> z80_emu::BusInterface for MainBus<'a, Medium> {
             0x4000..=0x5FFF => {
                 // YM2612 registers/ports (mirrored every 4 addresses)
                 match address & 0x03 {
-                    0x00 => {
-                        self.ym2612.write_address_1(value);
-                    }
-                    0x01 => {
-                        self.ym2612.write_data_1(value);
-                    }
-                    0x02 => {
-                        self.ym2612.write_address_2(value);
-                    }
-                    0x03 => {
-                        self.ym2612.write_data_2(value);
-                    }
+                    0x00 => self.ym2612.write_address_1(value),
+                    0x02 => self.ym2612.write_address_2(value),
+                    0x01 | 0x03 => self.ym2612.write_data(value),
                     _ => unreachable!("value & 0x03 is always <= 0x03"),
                 }
             }
