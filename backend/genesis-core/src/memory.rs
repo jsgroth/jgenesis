@@ -466,6 +466,7 @@ pub struct MainBus<'a, Medium> {
     timing_mode: TimingMode,
     signals: MainBusSignals,
     pending_writes: MainBusWrites,
+    z80_accessed_68k_bus: bool,
 }
 
 impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
@@ -481,7 +482,17 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
         signals: MainBusSignals,
         pending_writes: MainBusWrites,
     ) -> Self {
-        Self { memory, vdp, psg, ym2612, input, timing_mode, signals, pending_writes }
+        Self {
+            memory,
+            vdp,
+            psg,
+            ym2612,
+            input,
+            timing_mode,
+            signals,
+            pending_writes,
+            z80_accessed_68k_bus: false,
+        }
     }
 
     fn read_io_register(&self, address: u32) -> u8 {
@@ -652,6 +663,12 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
             _ => {}
         }
     }
+
+    #[inline]
+    #[must_use]
+    pub fn z80_accessed_68k_bus(&self) -> bool {
+        self.z80_accessed_68k_bus
+    }
 }
 
 // The Genesis has a 24-bit bus, not 32-bit
@@ -779,6 +796,8 @@ impl<'a, Medium: PhysicalMedium> z80_emu::BusInterface for MainBus<'a, Medium> {
                 0xFF
             }
             0x8000..=0xFFFF => {
+                self.z80_accessed_68k_bus = true;
+
                 let m68k_addr = self.memory.z80_bank_register.map_to_68k_address(address);
                 if !(0xA00000..=0xA0FFFF).contains(&m68k_addr) {
                     <Self as m68000_emu::BusInterface>::read_byte(self, m68k_addr)
@@ -832,6 +851,8 @@ impl<'a, Medium: PhysicalMedium> z80_emu::BusInterface for MainBus<'a, Medium> {
                 self.write_vdp_byte(address.into(), value);
             }
             0x8000..=0xFFFF => {
+                self.z80_accessed_68k_bus = true;
+
                 let m68k_addr = self.memory.z80_bank_register.map_to_68k_address(address);
                 if !(0xA00000..=0xA0FFFF).contains(&m68k_addr) {
                     self.apply_byte_write(m68k_addr, value);
