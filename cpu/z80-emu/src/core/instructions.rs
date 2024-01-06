@@ -322,7 +322,10 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             0xB9 => self.compare_block(BlockMode::Decrement, true),
             0xBA => self.in_block(BlockMode::Decrement, true),
             0xBB => self.out_block(BlockMode::Decrement, true),
-            _ => todo!("unimplemented ED-prefixed opcode"),
+            _ => {
+                // Treat unused opcodes as NOPs
+                control::nop()
+            }
         }
     }
 
