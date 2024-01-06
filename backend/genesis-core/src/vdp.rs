@@ -419,6 +419,7 @@ impl Vdp {
         // Writing to register #2, #3, or #4 immediately updates the corresponding nametable address; these registers
         // are not latched.
         // Writing to register #1 immediately updates the display enabled flag.
+        // Writing to register #7 immediately updates the background color.
         // Other register writes do not take effect until the next scanline.
         match register_number {
             1 => {
@@ -432,6 +433,10 @@ impl Vdp {
             }
             4 => {
                 self.latched_registers.scroll_b_base_nt_addr = self.registers.scroll_b_base_nt_addr;
+            }
+            7 => {
+                self.latched_registers.background_palette = self.registers.background_palette;
+                self.latched_registers.background_color_id = self.registers.background_color_id;
             }
             _ => return,
         }
