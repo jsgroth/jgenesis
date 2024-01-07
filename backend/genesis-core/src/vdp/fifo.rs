@@ -1,5 +1,5 @@
 use crate::vdp::dma::LineType;
-use crate::vdp::registers::HorizontalDisplaySize;
+use crate::vdp::registers::{HorizontalDisplaySize, VramSizeKb};
 use crate::vdp::DataPortLocation;
 use bincode::{Decode, Encode};
 use std::collections::VecDeque;
@@ -8,7 +8,7 @@ const FIFO_CAPACITY: usize = 4;
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct FifoTracker {
-    fifo: VecDeque<DataPortLocation>,
+    fifo: VecDeque<(DataPortLocation, VramSizeKb)>,
     mclk_elapsed: f64,
 }
 
@@ -17,13 +17,18 @@ impl FifoTracker {
         Self { fifo: VecDeque::with_capacity(FIFO_CAPACITY + 1), mclk_elapsed: 0.0 }
     }
 
-    pub fn record_access(&mut self, line_type: LineType, data_port_location: DataPortLocation) {
+    pub fn record_access(
+        &mut self,
+        line_type: LineType,
+        data_port_location: DataPortLocation,
+        vram_size: VramSizeKb,
+    ) {
         // VRAM/CRAM/VSRAM accesses can only delay the CPU during active display
         if line_type == LineType::Blanked {
             return;
         }
 
-        self.fifo.push_back(data_port_location);
+        self.fifo.push_back((data_port_location, vram_size));
     }
 
     pub fn tick(
@@ -59,11 +64,12 @@ impl FifoTracker {
 
         self.mclk_elapsed += master_clock_cycles as f64;
         while self.mclk_elapsed >= mclks_per_slot {
-            let Some(&data_port_location) = self.fifo.front() else { break };
+            let Some(&(data_port_location, vram_size)) = self.fifo.front() else { break };
 
-            let slots_required = match data_port_location {
-                DataPortLocation::Vram => 2.0,
-                DataPortLocation::Cram | DataPortLocation::Vsram => 1.0,
+            let slots_required = match (data_port_location, vram_size) {
+                (DataPortLocation::Vram, VramSizeKb::SixtyFour) => 2.0,
+                (DataPortLocation::Vram, VramSizeKb::OneTwentyEight)
+                | (DataPortLocation::Cram | DataPortLocation::Vsram, _) => 1.0,
             };
 
             if self.mclk_elapsed < slots_required * mclks_per_slot {

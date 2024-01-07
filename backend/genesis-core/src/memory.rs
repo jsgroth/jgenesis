@@ -655,6 +655,9 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
             0xC00004..=0xC00007 => {
                 self.vdp.write_control(value);
             }
+            0xC0001C => {
+                log::info!("VDP debug register write {value:04X}");
+            }
             0xE00000..=0xFFFFFF => {
                 let ram_addr = (address & 0xFFFF) as usize;
                 self.memory.main_ram[ram_addr] = value.msb();

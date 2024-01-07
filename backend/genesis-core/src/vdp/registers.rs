@@ -1,21 +1,25 @@
 use bincode::{Decode, Encode};
 use jgenesis_common::num::{GetBit, U16Ext};
+use std::fmt::{Display, Formatter};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum VerticalScrollMode {
+    #[default]
     FullScreen,
     TwoCell,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum HorizontalScrollMode {
+    #[default]
     FullScreen,
     Cell,
     Line,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum HorizontalDisplaySize {
+    #[default]
     ThirtyTwoCell,
     FortyCell,
 }
@@ -77,8 +81,9 @@ impl HorizontalDisplaySize {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum VerticalDisplaySize {
+    #[default]
     TwentyEightCell,
     ThirtyCell,
 }
@@ -92,8 +97,9 @@ impl VerticalDisplaySize {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum InterlacingMode {
+    #[default]
     Progressive,
     Interlaced,
     InterlacedDouble,
@@ -129,8 +135,9 @@ impl InterlacingMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum ScrollSize {
+    #[default]
     ThirtyTwo,
     SixtyFour,
     OneTwentyEight,
@@ -170,8 +177,9 @@ impl From<ScrollSize> for u16 {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum WindowHorizontalMode {
+    #[default]
     LeftToCenter,
     CenterToRight,
 }
@@ -186,8 +194,9 @@ impl WindowHorizontalMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum WindowVerticalMode {
+    #[default]
     TopToCenter,
     CenterToBottom,
 }
@@ -202,11 +211,28 @@ impl WindowVerticalMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum DmaMode {
+    #[default]
     MemoryToVram,
     VramFill,
     VramCopy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+pub enum VramSizeKb {
+    #[default]
+    SixtyFour,
+    OneTwentyEight,
+}
+
+impl Display for VramSizeKb {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SixtyFour => write!(f, "64KB"),
+            Self::OneTwentyEight => write!(f, "128KB"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -219,6 +245,7 @@ pub struct Registers {
     pub v_interrupt_enabled: bool,
     pub dma_enabled: bool,
     pub vertical_display_size: VerticalDisplaySize,
+    pub vram_size: VramSizeKb,
     // Register #2
     pub scroll_a_base_nt_addr: u16,
     // Register #3
@@ -268,7 +295,8 @@ impl Registers {
             display_enabled: false,
             v_interrupt_enabled: false,
             dma_enabled: false,
-            vertical_display_size: VerticalDisplaySize::TwentyEightCell,
+            vertical_display_size: VerticalDisplaySize::default(),
+            vram_size: VramSizeKb::default(),
             scroll_a_base_nt_addr: 0,
             window_base_nt_addr: 0,
             scroll_b_base_nt_addr: 0,
@@ -276,22 +304,22 @@ impl Registers {
             background_palette: 0,
             background_color_id: 0,
             h_interrupt_interval: 0,
-            vertical_scroll_mode: VerticalScrollMode::FullScreen,
-            horizontal_scroll_mode: HorizontalScrollMode::FullScreen,
-            horizontal_display_size: HorizontalDisplaySize::ThirtyTwoCell,
+            vertical_scroll_mode: VerticalScrollMode::default(),
+            horizontal_scroll_mode: HorizontalScrollMode::default(),
+            horizontal_display_size: HorizontalDisplaySize::default(),
             shadow_highlight_flag: false,
-            interlacing_mode: InterlacingMode::Progressive,
+            interlacing_mode: InterlacingMode::default(),
             h_scroll_table_base_addr: 0,
             data_port_auto_increment: 0,
-            vertical_scroll_size: ScrollSize::ThirtyTwo,
-            horizontal_scroll_size: ScrollSize::ThirtyTwo,
-            window_horizontal_mode: WindowHorizontalMode::LeftToCenter,
+            vertical_scroll_size: ScrollSize::default(),
+            horizontal_scroll_size: ScrollSize::default(),
+            window_horizontal_mode: WindowHorizontalMode::default(),
             window_x_position: 0,
-            window_vertical_mode: WindowVerticalMode::TopToCenter,
+            window_vertical_mode: WindowVerticalMode::default(),
             window_y_position: 0,
             dma_length: 0,
             dma_source_address: 0,
-            dma_mode: DmaMode::MemoryToVram,
+            dma_mode: DmaMode::default(),
         }
     }
 
@@ -318,9 +346,15 @@ impl Registers {
                     VerticalDisplaySize::TwentyEightCell
                 };
 
+                // Undocumented: Register #1 bit 7 enables "128KB" VRAM mode, which effectively enables byte-size access
+                // to VRAM
+                self.vram_size =
+                    if value.bit(7) { VramSizeKb::OneTwentyEight } else { VramSizeKb::SixtyFour };
+
                 log::trace!("  Display enabled: {}", self.display_enabled);
                 log::trace!("  V interrupt enabled: {}", self.v_interrupt_enabled);
                 log::trace!("  DMA enabled: {}", self.dma_enabled);
+                log::trace!("  VRAM size: {}", self.vram_size);
             }
             2 => {
                 // Register #2: Scroll A name table base address (bits 15-13)

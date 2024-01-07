@@ -1,5 +1,5 @@
 use crate::memory::{Memory, PhysicalMedium};
-use crate::vdp::registers::{DmaMode, HorizontalDisplaySize};
+use crate::vdp::registers::{DmaMode, HorizontalDisplaySize, VramSizeKb};
 use crate::vdp::{
     ActiveDma, DataPortLocation, PendingWrite, Vdp, MCLK_CYCLES_PER_SCANLINE, VSRAM_LEN,
 };
@@ -37,11 +37,18 @@ impl DmaTracker {
         }
     }
 
-    pub fn init(&mut self, mode: DmaMode, dma_length: u32, data_port_location: DataPortLocation) {
+    pub fn init(
+        &mut self,
+        mode: DmaMode,
+        vram_size: VramSizeKb,
+        dma_length: u32,
+        data_port_location: DataPortLocation,
+    ) {
         self.mode = mode;
-        self.bytes_remaining = f64::from(match data_port_location {
-            DataPortLocation::Vram => 2 * dma_length,
-            DataPortLocation::Cram | DataPortLocation::Vsram => dma_length,
+        self.bytes_remaining = f64::from(match (data_port_location, vram_size) {
+            (DataPortLocation::Vram, VramSizeKb::SixtyFour) => 2 * dma_length,
+            (DataPortLocation::Vram, VramSizeKb::OneTwentyEight)
+            | (DataPortLocation::Cram | DataPortLocation::Vsram, _) => dma_length,
         });
         self.in_progress = true;
         self.data_port_read = false;
@@ -111,6 +118,7 @@ impl Vdp {
                 let dma_length = self.registers.dma_length();
                 self.dma_tracker.init(
                     DmaMode::MemoryToVram,
+                    self.registers.vram_size,
                     dma_length,
                     self.state.data_port_location,
                 );
@@ -151,6 +159,7 @@ impl Vdp {
             ActiveDma::VramFill(fill_data) => {
                 self.dma_tracker.init(
                     DmaMode::VramFill,
+                    self.registers.vram_size,
                     self.registers.dma_length(),
                     DataPortLocation::Vram,
                 );
@@ -169,15 +178,17 @@ impl Vdp {
 
                 let [msb, _] = fill_data.to_be_bytes();
                 for _ in 0..self.registers.dma_length() {
-                    self.vram[(self.state.data_address ^ 0x01) as usize] = msb;
-                    self.maybe_update_sprite_cache(self.state.data_address);
+                    let vram_addr = (self.state.data_address ^ 0x1) & 0xFFFF;
+                    self.vram[vram_addr as usize] = msb;
+                    self.maybe_update_sprite_cache(vram_addr as u16, msb);
 
                     self.increment_data_address();
                 }
             }
             ActiveDma::VramCopy => {
                 self.dma_tracker.init(
-                    DmaMode::VramFill,
+                    DmaMode::VramCopy,
+                    self.registers.vram_size,
                     self.registers.dma_length(),
                     DataPortLocation::Vram,
                 );
@@ -192,9 +203,10 @@ impl Vdp {
                 // VRAM copy DMA treats the source address as A15-A0 instead of A23-A1
                 let mut source_addr = (self.registers.dma_source_address >> 1) as u16;
                 for _ in 0..self.registers.dma_length() {
-                    let dest_addr = self.state.data_address;
-                    self.vram[dest_addr as usize] = self.vram[source_addr as usize];
-                    self.maybe_update_sprite_cache(dest_addr);
+                    let dest_addr = self.state.data_address & 0xFFFF;
+                    let byte = self.vram[source_addr as usize];
+                    self.vram[dest_addr as usize] = byte;
+                    self.maybe_update_sprite_cache(dest_addr as u16, byte);
 
                     source_addr = source_addr.wrapping_add(1);
                     self.increment_data_address();

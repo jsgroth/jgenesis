@@ -12,7 +12,7 @@ use crate::vdp::colors::ColorModifier;
 use crate::vdp::dma::{DmaTracker, LineType};
 use crate::vdp::fifo::FifoTracker;
 use crate::vdp::registers::{
-    DmaMode, HorizontalDisplaySize, InterlacingMode, Registers, VerticalDisplaySize,
+    DmaMode, HorizontalDisplaySize, InterlacingMode, Registers, VerticalDisplaySize, VramSizeKb,
 };
 use crate::vdp::render::{RenderingArgs, SpriteState};
 use bincode::{Decode, Encode};
@@ -71,8 +71,8 @@ struct InternalState {
     code: u8,
     data_port_mode: DataPortMode,
     data_port_location: DataPortLocation,
-    data_address: u16,
-    latched_high_address_bits: u16,
+    data_address: u32,
+    latched_high_address_bits: u32,
     v_interrupt_pending: bool,
     h_interrupt_pending: bool,
     h_interrupt_counter: u16,
@@ -117,13 +117,20 @@ struct CachedSpriteData {
 }
 
 impl CachedSpriteData {
-    fn update_first_word(&mut self, msb: u8, lsb: u8) {
-        self.v_position = u16::from_be_bytes([msb & 0x03, lsb]);
+    fn update_first_word_msb(&mut self, msb: u8) {
+        self.v_position = (self.v_position & 0x00FF) | (u16::from(msb & 0x03) << 8);
     }
 
-    fn update_second_word(&mut self, msb: u8, lsb: u8) {
+    fn update_first_word_lsb(&mut self, lsb: u8) {
+        self.v_position = (self.v_position & 0xFF00) | u16::from(lsb);
+    }
+
+    fn update_second_word_msb(&mut self, msb: u8) {
         self.h_size_cells = ((msb >> 2) & 0x03) + 1;
         self.v_size_cells = (msb & 0x03) + 1;
+    }
+
+    fn update_second_word_lsb(&mut self, lsb: u8) {
         self.link_data = lsb & 0x7F;
     }
 }
@@ -385,13 +392,13 @@ impl Vdp {
                 } else {
                     // First word of command write
                     self.state.data_address =
-                        (self.state.latched_high_address_bits) | (value & 0x3FFF);
+                        (self.state.latched_high_address_bits) | u32::from(value & 0x3FFF);
 
                     self.state.control_write_flag = ControlWriteFlag::Second;
                 }
             }
             ControlWriteFlag::Second => {
-                let high_address_bits = value << 14;
+                let high_address_bits = u32::from(value & 0x7) << 14;
                 self.state.latched_high_address_bits = high_address_bits;
                 self.state.data_address = (self.state.data_address & 0x3FFF) | high_address_bits;
                 self.state.control_write_flag = ControlWriteFlag::First;
@@ -492,9 +499,19 @@ impl Vdp {
         let data_port_location = self.state.data_port_location;
         let data = match data_port_location {
             DataPortLocation::Vram => {
-                // VRAM reads/writes ignore A0
-                let address = (self.state.data_address & !0x01) as usize;
-                u16::from_be_bytes([self.vram[address], self.vram[(address + 1) & 0xFFFF]])
+                match self.registers.vram_size {
+                    VramSizeKb::SixtyFour => {
+                        // VRAM reads/writes ignore A0
+                        let address = (self.state.data_address & 0xFFFE) as usize;
+                        u16::from_be_bytes([self.vram[address], self.vram[(address + 1) & 0xFFFF]])
+                    }
+                    VramSizeKb::OneTwentyEight => {
+                        // Reads in 128KB mode duplicate a single byte to both halves of the word
+                        let address = convert_128kb_vram_address(self.state.data_address);
+                        let byte = self.vram[address as usize];
+                        u16::from_be_bytes([byte, byte])
+                    }
+                }
             }
             DataPortLocation::Cram => {
                 let address = (self.state.data_address & 0x7F) as usize;
@@ -515,7 +532,7 @@ impl Vdp {
         self.increment_data_address();
 
         let line_type = LineType::from_vdp(self);
-        self.fifo_tracker.record_access(line_type, data_port_location);
+        self.fifo_tracker.record_access(line_type, data_port_location, self.registers.vram_size);
 
         data
     }
@@ -567,7 +584,7 @@ impl Vdp {
         self.increment_data_address();
 
         let line_type = LineType::from_vdp(self);
-        self.fifo_tracker.record_access(line_type, data_port_location);
+        self.fifo_tracker.record_access(line_type, data_port_location, self.registers.vram_size);
     }
 
     fn maybe_push_pending_write(&mut self, write: PendingWrite) -> bool {
@@ -865,18 +882,38 @@ impl Vdp {
 
     fn increment_data_address(&mut self) {
         self.state.data_address =
-            self.state.data_address.wrapping_add(self.registers.data_port_auto_increment);
+            self.state.data_address.wrapping_add(self.registers.data_port_auto_increment.into());
     }
 
-    fn write_vram_word(&mut self, address: u16, value: u16) {
+    fn write_vram_word(&mut self, address: u32, value: u16) {
         let [msb, lsb] = value.to_be_bytes();
-        self.vram[address as usize] = msb;
-        self.vram[(address ^ 0x01) as usize] = lsb;
 
-        self.maybe_update_sprite_cache(address);
+        match self.registers.vram_size {
+            VramSizeKb::SixtyFour => {
+                let vram_addr = address & 0xFFFF;
+                self.vram[vram_addr as usize] = msb;
+                self.vram[(vram_addr ^ 0x1) as usize] = lsb;
+
+                // Address bit 16 is always checked for sprite cache, even in 64KB mode
+                if !address.bit(16) {
+                    self.maybe_update_sprite_cache(vram_addr as u16, msb);
+                    self.maybe_update_sprite_cache((vram_addr ^ 0x1) as u16, lsb);
+                }
+            }
+            VramSizeKb::OneTwentyEight => {
+                // Formula from https://plutiedev.com/mirror/kabuto-hardware-notes#128k-abuse
+                // Only LSB is written in 128KB mode
+                let vram_addr = convert_128kb_vram_address(address);
+                self.vram[vram_addr as usize] = lsb;
+
+                // Both bytes are written to the sprite cache even in 128KB mode
+                self.maybe_update_sprite_cache(vram_addr as u16, lsb);
+                self.maybe_update_sprite_cache((vram_addr ^ 0x1) as u16, msb);
+            }
+        }
     }
 
-    fn write_cram_word(&mut self, address: u16, value: u16) {
+    fn write_cram_word(&mut self, address: u32, value: u16) {
         if !address.bit(0) {
             self.cram[((address & 0x7F) >> 1) as usize] = value;
         } else {
@@ -889,7 +926,7 @@ impl Vdp {
     }
 
     #[inline]
-    fn maybe_update_sprite_cache(&mut self, address: u16) {
+    fn maybe_update_sprite_cache(&mut self, address: u16, value: u8) {
         let sprite_table_addr = self.registers.masked_sprite_attribute_table_addr();
         let h_size = self.registers.horizontal_display_size;
 
@@ -906,12 +943,12 @@ impl Vdp {
 
         if !address.bit(2) && is_in_sprite_table {
             let idx = ((address - sprite_table_addr) / 8) as usize;
-            let msb = self.vram[(address & !0x01) as usize];
-            let lsb = self.vram[(address | 0x01) as usize];
-            if !address.bit(1) {
-                self.cached_sprite_attributes[idx].update_first_word(msb, lsb);
-            } else {
-                self.cached_sprite_attributes[idx].update_second_word(msb, lsb);
+            match address & 0x3 {
+                0x0 => self.cached_sprite_attributes[idx].update_first_word_msb(value),
+                0x1 => self.cached_sprite_attributes[idx].update_first_word_lsb(value),
+                0x2 => self.cached_sprite_attributes[idx].update_second_word_msb(value),
+                0x3 => self.cached_sprite_attributes[idx].update_second_word_lsb(value),
+                _ => unreachable!("value & 0x3 is always <= 0x3"),
             }
         }
     }
@@ -1024,6 +1061,13 @@ impl Vdp {
         self.enforce_sprite_limits = config.enforce_sprite_limits;
         self.emulate_non_linear_dac = config.emulate_non_linear_dac;
     }
+}
+
+fn convert_128kb_vram_address(address: u32) -> u32 {
+    (((address & 0x2) ^ 0x2) >> 1)
+        | ((address & 0x400) >> 9)
+        | (address & 0x3FC)
+        | ((address & 0x1F800) >> 1)
 }
 
 fn scanline_mclk_to_pixel(scanline_mclk: u64, h_display_size: HorizontalDisplaySize) -> u16 {
