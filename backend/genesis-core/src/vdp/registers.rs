@@ -15,6 +15,8 @@ pub enum HorizontalScrollMode {
     FullScreen,
     Cell,
     Line,
+    // Repeatedly uses the scroll values for the first 8 lines
+    Invalid,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
@@ -89,7 +91,7 @@ pub enum VerticalDisplaySize {
 }
 
 impl VerticalDisplaySize {
-    pub fn active_scanlines(self) -> u16 {
+    pub const fn active_scanlines(self) -> u16 {
         match self {
             Self::TwentyEightCell => 224,
             Self::ThirtyCell => 240,
@@ -352,6 +354,7 @@ impl Registers {
                 log::trace!("  Display enabled: {}", self.display_enabled);
                 log::trace!("  V interrupt enabled: {}", self.v_interrupt_enabled);
                 log::trace!("  DMA enabled: {}", self.dma_enabled);
+                log::trace!("  Vertical display size: {:?}", self.vertical_display_size);
                 log::trace!("  VRAM size: {}", self.vram_size);
             }
             2 => {
@@ -411,14 +414,9 @@ impl Registers {
                 };
                 self.horizontal_scroll_mode = match value & 0x03 {
                     0x00 => HorizontalScrollMode::FullScreen,
+                    0x01 => HorizontalScrollMode::Invalid,
                     0x02 => HorizontalScrollMode::Cell,
                     0x03 => HorizontalScrollMode::Line,
-                    0x01 => {
-                        log::warn!(
-                            "Prohibited horizontal scroll mode set; defaulting to full scroll"
-                        );
-                        HorizontalScrollMode::FullScreen
-                    }
                     _ => unreachable!("value & 0x03 is always <= 0x03"),
                 };
 
@@ -555,5 +553,37 @@ impl Registers {
     pub fn masked_sprite_attribute_table_addr(&self) -> u16 {
         self.sprite_attribute_table_base_addr
             & self.horizontal_display_size.sprite_attribute_table_mask()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+pub enum Plane {
+    #[default]
+    Background,
+    Sprite,
+    ScrollA,
+    ScrollB,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+pub struct DebugRegister {
+    pub display_disabled: bool,
+    pub forced_plane: Plane,
+}
+
+impl DebugRegister {
+    pub fn new() -> Self {
+        Self { display_disabled: false, forced_plane: Plane::default() }
+    }
+
+    pub fn write(&mut self, value: u16) {
+        self.display_disabled = value.bit(6);
+        self.forced_plane = match (value >> 7) & 0x3 {
+            0x0 => Plane::Background,
+            0x1 => Plane::Sprite,
+            0x2 => Plane::ScrollA,
+            0x3 => Plane::ScrollB,
+            _ => unreachable!("value & 0x3 is always <= 0x3"),
+        };
     }
 }

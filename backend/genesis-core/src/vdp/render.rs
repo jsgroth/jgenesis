@@ -1,7 +1,7 @@
 use crate::vdp::colors::ColorModifier;
 use crate::vdp::registers::{
-    HorizontalDisplaySize, HorizontalScrollMode, InterlacingMode, Registers, ScrollSize,
-    VerticalScrollMode,
+    DebugRegister, HorizontalDisplaySize, HorizontalScrollMode, InterlacingMode, Plane, Registers,
+    ScrollSize, VerticalScrollMode,
 };
 use crate::vdp::{
     colors, CachedSpriteData, Cram, FrameBuffer, SpriteBitSet, SpriteData, Vram, Vsram,
@@ -81,6 +81,7 @@ pub struct RenderingArgs<'a> {
     pub cram: &'a Cram,
     pub vsram: &'a Vsram,
     pub registers: &'a Registers,
+    pub debug_register: DebugRegister,
     pub cached_sprite_attributes: &'a [CachedSpriteData; MAX_SPRITES_PER_FRAME],
     pub full_screen_v_scroll_a: u16,
     pub full_screen_v_scroll_b: u16,
@@ -360,7 +361,10 @@ fn find_first_overlapping_sprite<'sprites>(
         }
     }
 
-    found_sprite
+    // If no non-transparent sprite pixel was found, return the last transparent sprite pixel (if any)
+    // Titan Overdrive 2 depends on this for the Overdrive 2 logo screen with the colored spinning rings; the effect
+    // needs the palettes from the transparent sprite pixels
+    found_sprite.or(sprite_buffer.last().map(|sprite| (sprite, 0)))
 }
 
 #[allow(clippy::identity_op)]
@@ -515,6 +519,7 @@ fn render_pixels_in_scanline(
 
         let (pixel_color, color_modifier) = determine_pixel_color(
             args.cram,
+            args.debug_register,
             PixelColorArgs {
                 sprite_priority,
                 sprite_palette,
@@ -557,40 +562,19 @@ fn read_h_scroll(
     h_scroll_mode: HorizontalScrollMode,
     scanline: u16,
 ) -> (u16, u16) {
-    let (h_scroll_a, h_scroll_b) = match h_scroll_mode {
-        HorizontalScrollMode::FullScreen => {
-            let h_scroll_a = u16::from_be_bytes([
-                vram[h_scroll_table_addr as usize],
-                vram[h_scroll_table_addr.wrapping_add(1) as usize],
-            ]);
-            let h_scroll_b = u16::from_be_bytes([
-                vram[h_scroll_table_addr.wrapping_add(2) as usize],
-                vram[h_scroll_table_addr.wrapping_add(3) as usize],
-            ]);
-            (h_scroll_a, h_scroll_b)
-        }
-        HorizontalScrollMode::Cell => {
-            let v_cell = scanline / 8;
-            let addr = h_scroll_table_addr.wrapping_add(32 * v_cell);
-            let h_scroll_a =
-                u16::from_be_bytes([vram[addr as usize], vram[addr.wrapping_add(1) as usize]]);
-            let h_scroll_b = u16::from_be_bytes([
-                vram[addr.wrapping_add(2) as usize],
-                vram[addr.wrapping_add(3) as usize],
-            ]);
-            (h_scroll_a, h_scroll_b)
-        }
-        HorizontalScrollMode::Line => {
-            let addr = h_scroll_table_addr.wrapping_add(4 * scanline);
-            let h_scroll_a =
-                u16::from_be_bytes([vram[addr as usize], vram[addr.wrapping_add(1) as usize]]);
-            let h_scroll_b = u16::from_be_bytes([
-                vram[addr.wrapping_add(2) as usize],
-                vram[addr.wrapping_add(3) as usize],
-            ]);
-            (h_scroll_a, h_scroll_b)
-        }
+    let h_scroll_addr = match h_scroll_mode {
+        HorizontalScrollMode::FullScreen => h_scroll_table_addr,
+        HorizontalScrollMode::Cell => h_scroll_table_addr.wrapping_add(32 * (scanline / 8)),
+        HorizontalScrollMode::Line => h_scroll_table_addr.wrapping_add(4 * scanline),
+        HorizontalScrollMode::Invalid => h_scroll_table_addr.wrapping_add(4 * (scanline & 0x7)),
     };
+
+    let h_scroll_a =
+        u16::from_be_bytes([vram[h_scroll_addr as usize], vram[(h_scroll_addr + 1) as usize]]);
+    let h_scroll_b = u16::from_be_bytes([
+        vram[(h_scroll_addr + 2) as usize],
+        vram[(h_scroll_addr + 3) as usize],
+    ]);
 
     (h_scroll_a & 0x03FF, h_scroll_b & 0x03FF)
 }
@@ -680,6 +664,7 @@ struct PixelColorArgs {
 #[allow(clippy::unnested_or_patterns)]
 fn determine_pixel_color(
     cram: &Cram,
+    debug_register: DebugRegister,
     PixelColorArgs {
         sprite_priority,
         sprite_palette,
@@ -694,6 +679,20 @@ fn determine_pixel_color(
         shadow_highlight_flag,
     }: PixelColorArgs,
 ) -> (u16, ColorModifier) {
+    let sprite_cram_idx = (sprite_palette << 4) | sprite_color_id;
+    let scroll_a_cram_idx = (scroll_a_palette << 4) | scroll_a_color_id;
+    let scroll_b_cram_idx = (scroll_b_palette << 4) | scroll_b_color_id;
+
+    if debug_register.display_disabled {
+        let color = match debug_register.forced_plane {
+            Plane::Background => bg_color,
+            Plane::Sprite => cram[sprite_cram_idx as usize],
+            Plane::ScrollA => cram[scroll_a_cram_idx as usize],
+            Plane::ScrollB => cram[scroll_b_cram_idx as usize],
+        };
+        return (color, ColorModifier::None);
+    };
+
     let mut modifier = if shadow_highlight_flag && !scroll_a_priority && !scroll_b_priority {
         // If shadow/highlight bit is set and all priority flags are 0, default modifier to shadow
         ColorModifier::Shadow
@@ -741,7 +740,15 @@ fn determine_pixel_color(
             }
         }
 
-        let color = cram[((palette << 4) | color_id) as usize];
+        let cram_idx_mask = match debug_register.forced_plane {
+            Plane::Background => 0x3F,
+            Plane::Sprite => sprite_cram_idx,
+            Plane::ScrollA => scroll_a_cram_idx,
+            Plane::ScrollB => scroll_b_cram_idx,
+        };
+        let cram_idx = ((palette << 4) | color_id) & cram_idx_mask;
+
+        let color = cram[cram_idx as usize];
         // Sprite color id 14 is never shadowed/highlighted, and neither is a sprite with the priority
         // bit set
         let modifier = if is_sprite && (color_id == 14 || sprite_priority) {
@@ -752,5 +759,12 @@ fn determine_pixel_color(
         return (color, modifier);
     }
 
-    (bg_color, modifier)
+    let fallback_color = match debug_register.forced_plane {
+        Plane::Background => bg_color,
+        Plane::Sprite => cram[sprite_cram_idx as usize],
+        Plane::ScrollA => cram[scroll_a_cram_idx as usize],
+        Plane::ScrollB => cram[scroll_b_cram_idx as usize],
+    };
+
+    (fallback_color, modifier)
 }

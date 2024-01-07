@@ -12,7 +12,8 @@ use crate::vdp::colors::ColorModifier;
 use crate::vdp::dma::{DmaTracker, LineType};
 use crate::vdp::fifo::FifoTracker;
 use crate::vdp::registers::{
-    DmaMode, HorizontalDisplaySize, InterlacingMode, Registers, VerticalDisplaySize, VramSizeKb,
+    DebugRegister, DmaMode, HorizontalDisplaySize, InterlacingMode, Registers, VerticalDisplaySize,
+    VramSizeKb,
 };
 use crate::vdp::render::{RenderingArgs, SpriteState};
 use bincode::{Decode, Encode};
@@ -77,6 +78,7 @@ struct InternalState {
     h_interrupt_pending: bool,
     h_interrupt_counter: u16,
     latched_hv_counter: Option<u16>,
+    v_border_forgotten: bool,
     scanline: u16,
     pending_dma: Option<ActiveDma>,
     pending_writes: Vec<PendingWrite>,
@@ -99,6 +101,7 @@ impl InternalState {
             h_interrupt_pending: false,
             h_interrupt_counter: 0,
             latched_hv_counter: None,
+            v_border_forgotten: false,
             scanline: 0,
             pending_dma: None,
             pending_writes: Vec::with_capacity(10),
@@ -299,6 +302,7 @@ pub struct Vdp {
     state: InternalState,
     sprite_state: SpriteState,
     registers: Registers,
+    debug_register: DebugRegister,
     latched_registers: Registers,
     latched_full_screen_v_scroll: (u16, u16),
     cached_sprite_attributes: Box<[CachedSpriteData; MAX_SPRITES_PER_FRAME]>,
@@ -324,6 +328,7 @@ impl Vdp {
             state: InternalState::new(),
             sprite_state: SpriteState::default(),
             registers: Registers::new(),
+            debug_register: DebugRegister::new(),
             latched_registers: Registers::new(),
             latched_full_screen_v_scroll: (0, 0),
             cached_sprite_attributes: vec![CachedSpriteData::default(); MAX_SPRITES_PER_FRAME]
@@ -380,14 +385,28 @@ impl Vdp {
 
                     self.update_latched_registers_if_necessary(register_number);
 
-                    // Update enabled pixels in sprite state if register #1 was written
                     if register_number == 1 {
+                        // Update enabled pixels in sprite state if register #1 was written
                         let pixel = scanline_mclk_to_pixel(
                             self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE,
                             self.registers.horizontal_display_size,
                         );
                         self.sprite_state
                             .handle_display_enabled_write(self.registers.display_enabled, pixel);
+
+                        // Mark vertical border "forgotten" if V size was switched from V30 to V28 between lines 224-239
+                        // This has a few effects:
+                        // - The HINT counter continues to tick down every line throughout VBlank instead of getting reset
+                        // - The VDP continues to display during the vertical border (not emulated here other than
+                        //   forcing V frame size to 240px)
+                        if !self.state.frame_completed
+                            && self.registers.vertical_display_size
+                                == VerticalDisplaySize::TwentyEightCell
+                            && self.state.scanline
+                                >= VerticalDisplaySize::TwentyEightCell.active_scanlines()
+                        {
+                            self.state.v_border_forgotten = true;
+                        }
                     }
                 } else {
                     // First word of command write
@@ -538,7 +557,15 @@ impl Vdp {
     }
 
     pub fn write_data(&mut self, value: u16) {
-        log::trace!("VDP data write on scanline {}: {value:04X}", self.state.scanline);
+        log::trace!(
+            "VDP data write on scanline {} / mclk {} / pixel {}: {value:04X}",
+            self.state.scanline,
+            self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE,
+            scanline_mclk_to_pixel(
+                self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE,
+                self.registers.horizontal_display_size
+            )
+        );
 
         // Reset write flag
         self.state.control_write_flag = ControlWriteFlag::First;
@@ -596,6 +623,12 @@ impl Vdp {
         } else {
             false
         }
+    }
+
+    pub fn write_debug_register(&mut self, value: u16) {
+        self.debug_register.write(value);
+
+        log::trace!("VDP debug register write: {:?}", self.debug_register);
     }
 
     pub fn read_status(&mut self) -> u16 {
@@ -791,6 +824,7 @@ impl Vdp {
             // Check if an H interrupt has occurred
             if self.state.scanline < active_scanlines
                 || self.state.scanline == scanlines_per_frame - 1
+                || self.state.v_border_forgotten
             {
                 if self.state.h_interrupt_counter == 0 {
                     self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
@@ -842,6 +876,7 @@ impl Vdp {
                 self.state.scanline = 0;
                 self.state.frame_count += 1;
                 self.state.frame_completed = false;
+                self.state.v_border_forgotten = false;
             }
 
             // Check if we already passed the VINT threshold
@@ -853,7 +888,12 @@ impl Vdp {
                 self.state.v_interrupt_pending = true;
             }
 
-            if self.state.scanline == active_scanlines && !self.state.frame_completed {
+            if !self.state.frame_completed
+                && (self.state.scanline == active_scanlines
+                    || (self.state.v_border_forgotten
+                        && self.state.scanline
+                            == VerticalDisplaySize::ThirtyCell.active_scanlines()))
+            {
                 self.state.frame_completed = true;
                 return VdpTickEffect::FrameComplete;
             }
@@ -901,7 +941,6 @@ impl Vdp {
                 }
             }
             VramSizeKb::OneTwentyEight => {
-                // Formula from https://plutiedev.com/mirror/kabuto-hardware-notes#128k-abuse
                 // Only LSB is written in 128KB mode
                 let vram_addr = convert_128kb_vram_address(address);
                 self.vram[vram_addr as usize] = lsb;
@@ -998,6 +1037,11 @@ impl Vdp {
 
     #[inline]
     fn render_next_scanline(&mut self) {
+        if self.state.v_border_forgotten && self.state.scanline < 239 {
+            self.render_scanline_from_pixel(self.state.scanline + 1, 0);
+            return;
+        }
+
         match (self.timing_mode, self.registers.vertical_display_size, self.state.scanline) {
             (TimingMode::Ntsc, _, 261) | (TimingMode::Pal, _, 311) => {
                 self.render_scanline_from_pixel(0, 0);
@@ -1021,6 +1065,7 @@ impl Vdp {
             cram: &self.cram,
             vsram: &self.vsram,
             registers: &self.latched_registers,
+            debug_register: self.debug_register,
             cached_sprite_attributes: &self.cached_sprite_attributes,
             full_screen_v_scroll_a: self.latched_full_screen_v_scroll.0,
             full_screen_v_scroll_b: self.latched_full_screen_v_scroll.1,
@@ -1042,7 +1087,11 @@ impl Vdp {
 
     #[must_use]
     pub fn screen_height(&self) -> u32 {
-        let screen_height: u32 = self.registers.vertical_display_size.active_scanlines().into();
+        let screen_height: u32 = if self.state.v_border_forgotten {
+            VerticalDisplaySize::ThirtyCell.active_scanlines().into()
+        } else {
+            self.registers.vertical_display_size.active_scanlines().into()
+        };
         match self.registers.interlacing_mode {
             InterlacingMode::Progressive | InterlacingMode::Interlaced => screen_height,
             InterlacingMode::InterlacedDouble => 2 * screen_height,
@@ -1064,6 +1113,7 @@ impl Vdp {
 }
 
 fn convert_128kb_vram_address(address: u32) -> u32 {
+    // Formula from https://plutiedev.com/mirror/kabuto-hardware-notes#128k-abuse
     (((address & 0x2) ^ 0x2) >> 1)
         | ((address & 0x400) >> 9)
         | (address & 0x3FC)
