@@ -1089,7 +1089,7 @@ impl M68000 {
         }
 
         if bus.halt() {
-            return 4;
+            return 1;
         }
 
         InstructionExecutor::new(&mut self.registers, bus, self.allow_tas_writes, &self.name)

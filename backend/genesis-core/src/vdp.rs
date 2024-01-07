@@ -585,6 +585,7 @@ impl Vdp {
 
     fn maybe_push_pending_write(&mut self, write: PendingWrite) -> bool {
         if self.state.pending_dma.is_some()
+            || self.fifo_tracker.should_halt_cpu()
             || (self.dma_tracker.is_in_progress() && matches!(write, PendingWrite::Data(..)))
         {
             self.state.pending_writes.push(write);
@@ -749,15 +750,10 @@ impl Vdp {
         let line_type = LineType::from_vdp(self);
         let h_display_size = self.registers.horizontal_display_size;
         self.dma_tracker.tick(master_clock_cycles, h_display_size, line_type);
-        self.fifo_tracker.tick(master_clock_cycles, h_display_size, line_type);
 
         if let Some(active_dma) = self.state.pending_dma {
             // TODO accurate DMA timing
             self.run_dma(memory, active_dma);
-        }
-
-        if !self.dma_tracker.is_in_progress() && !self.state.pending_writes.is_empty() {
-            self.apply_pending_writes();
         }
 
         let scanlines_per_frame = self.timing_mode.scanlines_per_frame();
@@ -840,6 +836,7 @@ impl Vdp {
         }
 
         // Check if the VDP has advanced to a new scanline
+        let mut tick_effect = VdpTickEffect::None;
         if scanline_mclk >= MCLK_CYCLES_PER_SCANLINE {
             self.sprite_state.handle_line_end(self.registers.horizontal_display_size);
 
@@ -870,11 +867,29 @@ impl Vdp {
                             == VerticalDisplaySize::ThirtyCell.active_scanlines()))
             {
                 self.state.frame_completed = true;
-                return VdpTickEffect::FrameComplete;
+                tick_effect = VdpTickEffect::FrameComplete;
             }
         }
 
-        VdpTickEffect::None
+        let pixel = scanline_mclk_to_pixel(
+            self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE,
+            self.registers.horizontal_display_size,
+        );
+        self.fifo_tracker.advance_to_pixel(
+            self.state.scanline,
+            pixel,
+            self.registers.horizontal_display_size,
+            line_type,
+        );
+
+        if !self.dma_tracker.is_in_progress()
+            && !self.fifo_tracker.should_halt_cpu()
+            && !self.state.pending_writes.is_empty()
+        {
+            self.apply_pending_writes();
+        }
+
+        tick_effect
     }
 
     fn apply_pending_writes(&mut self) {
