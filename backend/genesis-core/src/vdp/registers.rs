@@ -141,7 +141,6 @@ pub enum ScrollSize {
     ThirtyTwo,
     SixtyFour,
     OneTwentyEight,
-    // "Invalid" scroll size is effectively 1, repeatedly showing the first line/pixel
     Invalid,
 }
 
@@ -156,13 +155,11 @@ impl ScrollSize {
         }
     }
 
-    // Used to mask line and pixel values; return value is equal to (size << 3) - 1
-    pub const fn pixel_bit_mask(self) -> u16 {
+    pub fn to_pixels(self) -> u16 {
         match self {
-            Self::ThirtyTwo => 0x00FF,
-            Self::SixtyFour => 0x01FF,
-            Self::OneTwentyEight => 0x03FF,
-            Self::Invalid => 0x0000,
+            Self::ThirtyTwo | Self::Invalid => 32 * 8,
+            Self::SixtyFour => 64 * 8,
+            Self::OneTwentyEight => 128 * 8,
         }
     }
 }

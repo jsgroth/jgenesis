@@ -1,6 +1,7 @@
 use crate::vdp::colors::ColorModifier;
 use crate::vdp::registers::{
-    HorizontalDisplaySize, HorizontalScrollMode, InterlacingMode, Registers, VerticalScrollMode,
+    HorizontalDisplaySize, HorizontalScrollMode, InterlacingMode, Registers, ScrollSize,
+    VerticalScrollMode,
 };
 use crate::vdp::{
     colors, CachedSpriteData, Cram, FrameBuffer, SpriteBitSet, SpriteData, Vram, Vsram,
@@ -362,6 +363,7 @@ fn find_first_overlapping_sprite<'sprites>(
     found_sprite
 }
 
+#[allow(clippy::identity_op)]
 fn render_pixels_in_scanline(
     args: &mut RenderingArgs<'_>,
     scanline: u16,
@@ -372,11 +374,17 @@ fn render_pixels_in_scanline(
     let v_scroll_size = args.registers.vertical_scroll_size;
     let h_scroll_size = args.registers.horizontal_scroll_size;
 
+    let (h_scroll_size_pixels, v_scroll_size_pixels) = match (h_scroll_size, v_scroll_size) {
+        // An invalid H scroll size always produces 32x1 scroll planes
+        (ScrollSize::Invalid, _) => (32 * 8, 1 * 8),
+        // An invalid V scroll size with valid H scroll size functions as a size of 32
+        (_, ScrollSize::Invalid) => (h_scroll_size.to_pixels(), 32 * 8),
+        _ => (h_scroll_size.to_pixels(), v_scroll_size.to_pixels()),
+    };
+
     let scroll_line_bit_mask = match args.registers.interlacing_mode {
-        InterlacingMode::Progressive | InterlacingMode::Interlaced => {
-            v_scroll_size.pixel_bit_mask()
-        }
-        InterlacingMode::InterlacedDouble => (v_scroll_size.pixel_bit_mask() << 1) | 0x01,
+        InterlacingMode::Progressive | InterlacingMode::Interlaced => v_scroll_size_pixels - 1,
+        InterlacingMode::InterlacedDouble => ((v_scroll_size_pixels - 1) << 1) | 0x01,
     };
 
     let h_scroll_scanline = match args.registers.interlacing_mode {
@@ -408,10 +416,10 @@ fn render_pixels_in_scanline(
         let scrolled_scanline_b = scanline.wrapping_add(v_scroll_b) & scroll_line_bit_mask;
         let scroll_b_v_cell = scrolled_scanline_b / cell_height;
 
-        let scrolled_pixel_a = pixel.wrapping_sub(h_scroll_a) & h_scroll_size.pixel_bit_mask();
+        let scrolled_pixel_a = pixel.wrapping_sub(h_scroll_a) & (h_scroll_size_pixels - 1);
         let scroll_a_h_cell = scrolled_pixel_a / 8;
 
-        let scrolled_pixel_b = pixel.wrapping_sub(h_scroll_b) & h_scroll_size.pixel_bit_mask();
+        let scrolled_pixel_b = pixel.wrapping_sub(h_scroll_b) & (h_scroll_size_pixels - 1);
         let scroll_b_h_cell = scrolled_pixel_b / 8;
 
         if scroll_a_v_cell != scroll_a_nt_row || scroll_a_h_cell != scroll_a_nt_col {
