@@ -4,8 +4,7 @@ use crate::vdp::registers::{
     ScrollSize, VerticalScrollMode,
 };
 use crate::vdp::{
-    colors, CachedSpriteData, Cram, FrameBuffer, SpriteBitSet, SpriteData, Vram, Vsram,
-    MAX_SPRITES_PER_FRAME,
+    colors, CachedSpriteData, Cram, FrameBuffer, SpriteData, Vram, Vsram, MAX_SCREEN_WIDTH,
 };
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
@@ -18,8 +17,7 @@ pub struct SpriteState {
     overflow: bool,
     collision: bool,
     dot_overflow_on_prev_line: bool,
-    pixels_disabled_during_scan: u16,
-    pixels_disabled_during_tile_fetch: u16,
+    pixels_disabled_during_hblank: u16,
     display_enabled: bool,
     display_enabled_pixel: u16,
 }
@@ -43,8 +41,7 @@ impl SpriteState {
         h_display_size: HorizontalDisplaySize,
         display_enabled: bool,
     ) {
-        self.pixels_disabled_during_scan = self.pixels_disabled_during_tile_fetch;
-        self.pixels_disabled_during_tile_fetch = 0;
+        self.pixels_disabled_during_hblank = 0;
 
         self.display_enabled = display_enabled;
         self.display_enabled_pixel = h_display_size.active_display_pixels();
@@ -57,7 +54,7 @@ impl SpriteState {
         }
 
         if !self.display_enabled {
-            self.pixels_disabled_during_tile_fetch += pixel - self.display_enabled_pixel;
+            self.pixels_disabled_during_hblank += pixel - self.display_enabled_pixel;
         }
 
         self.display_enabled = display_enabled;
@@ -66,23 +63,275 @@ impl SpriteState {
 
     pub fn handle_line_end(&mut self, h_display_size: HorizontalDisplaySize) {
         if !self.display_enabled {
-            self.pixels_disabled_during_tile_fetch +=
+            self.pixels_disabled_during_hblank +=
                 h_display_size.pixels_including_hblank() - self.display_enabled_pixel;
         }
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
+struct SpritePixel {
+    palette: u8,
+    color_id: u8,
+    priority: bool,
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct SpriteBuffers {
+    scanned_ids: Vec<u8>,
+    sprites: Vec<SpriteData>,
+    pixels: Box<[SpritePixel; MAX_SCREEN_WIDTH]>,
+}
+
+impl SpriteBuffers {
+    pub fn new() -> Self {
+        Self {
+            scanned_ids: Vec::with_capacity(20),
+            sprites: Vec::with_capacity(20),
+            pixels: vec![SpritePixel::default(); MAX_SCREEN_WIDTH]
+                .into_boxed_slice()
+                .try_into()
+                .unwrap(),
+        }
+    }
+
+    pub fn clear_all(&mut self) {
+        self.scanned_ids.clear();
+        self.sprites.clear();
+        self.pixels.fill(SpritePixel::default());
+    }
+}
+
+// Scan sprites (Phase 1 according to Overdrive 2 documentation).
+//
+// This should be called at the end of HBlank 2 scanlines before the line to be rendered, with sprite attributes latched
+// from around when HINT is generated. Actual hardware does sprite scanning in parallel with sprite pixel fetching for
+// the next scanline, but here we want to know if there were any pixels where display was disabled during HBlank.
+pub fn scan_sprites(
+    scanline: u16,
+    registers: &Registers,
+    cached_sprite_attributes: &[CachedSpriteData],
+    buffers: &mut SpriteBuffers,
+    state: &mut SpriteState,
+    enforce_sprite_limits: bool,
+) {
+    buffers.scanned_ids.clear();
+
+    let h_size = registers.horizontal_display_size;
+
+    // If display was disabled during part of HBlank on the scanline before the previous scanline,
+    // the number of sprites scanned for the current scanline is reduced roughly by the number of
+    // pixels that display was disabled for.
+    // Actual hardware doesn't work exactly this way (it depends on exactly which VRAM access slots
+    // display was disabled during), but this approximation works well enough for Mickey Mania's
+    // 3D stages and Titan Overdrive's "your emulator suxx" screen
+    let sprites_not_scanned = if state.pixels_disabled_during_hblank != 0 {
+        // Not sure exactly why, but adding ~8 here is necessary to fully remove the "your emulator
+        // suxx" text from Titan Overdrive's 512-color screen
+        state.pixels_disabled_during_hblank + 8
+    } else {
+        0
+    };
+    let max_sprites_to_scan = h_size.sprite_table_len().saturating_sub(sprites_not_scanned);
+
+    let interlacing_mode = registers.interlacing_mode;
+    let sprite_scanline = interlacing_mode.sprite_display_top() + scanline;
+    let cell_height = interlacing_mode.cell_height();
+
+    let max_sprites_per_line = h_size.max_sprites_per_line() as usize;
+
+    // Sprite 0 is always populated
+    let mut sprite_idx = 0_u16;
+    for _ in 0..max_sprites_to_scan {
+        let CachedSpriteData { v_position, v_size_cells, link_data, .. } =
+            cached_sprite_attributes[sprite_idx as usize];
+
+        // Check if sprite falls on this scanline
+        let sprite_top = sprite_y_position(v_position, interlacing_mode);
+        let sprite_bottom = sprite_top + cell_height * u16::from(v_size_cells);
+        if (sprite_top..sprite_bottom).contains(&sprite_scanline) {
+            // Check if sprite-per-scanline limit has been hit
+            if buffers.scanned_ids.len() == max_sprites_per_line {
+                state.overflow = true;
+                if enforce_sprite_limits {
+                    break;
+                }
+            }
+
+            buffers.scanned_ids.push(sprite_idx as u8);
+        }
+
+        sprite_idx = link_data.into();
+        if sprite_idx == 0 || sprite_idx >= h_size.sprite_table_len() {
+            break;
+        }
+    }
+}
+
+// Fetch sprite attributes from VRAM (Phase 2 in the Overdrive 2 documentation), as well as re-fetch the cached Y
+// position and sprite size fields. Uses the sprite IDs that were scanned during Phase 1.
+//
+// This should be called at the start of HBlank on the scanline before the sprites are to be displayed. On actual
+// hardware, this occurs in parallel with rendering on the scanline before the sprites are to be displayed.
+pub fn fetch_sprite_attributes(
+    vram: &Vram,
+    registers: &Registers,
+    cached_sprite_attributes: &[CachedSpriteData],
+    buffers: &mut SpriteBuffers,
+) {
+    buffers.sprites.clear();
+
+    let sprite_table_addr = registers.masked_sprite_attribute_table_addr();
+
+    for &sprite_idx in &buffers.scanned_ids {
+        let sprite_addr = sprite_table_addr.wrapping_add(8 * u16::from(sprite_idx)) as usize;
+        let sprite = SpriteData::create(
+            cached_sprite_attributes[sprite_idx as usize],
+            &vram[sprite_addr + 4..sprite_addr + 8],
+        );
+        buffers.sprites.push(sprite);
+    }
+}
+
+// Fetch and render sprite pixels into the line buffer (Phase 3 in the Overdrive 2 documentation). Uses the sprite
+// attributes that were fetched from VRAM during Phase 2.
+//
+// Similar to Phase 1, in actual hardware this occurs throughout HBlank using latched registers. Here, it should be
+// called at the end of HBlank so that we know how many pixels the display was disabled during HBlank.
+fn render_sprite_pixels(
+    scanline: u16,
+    vram: &Vram,
+    registers: &Registers,
+    buffers: &mut SpriteBuffers,
+    state: &mut SpriteState,
+    enforce_sprite_limits: bool,
+) {
+    buffers.pixels.fill(SpritePixel::default());
+
+    let h_size = registers.horizontal_display_size;
+    let sprite_display_area =
+        SPRITE_H_DISPLAY_START..SPRITE_H_DISPLAY_START + h_size.active_display_pixels();
+
+    let half_tiles_not_fetched = if state.pixels_disabled_during_hblank != 0 {
+        state.pixels_disabled_during_hblank + 8
+    } else {
+        0
+    };
+
+    let interlacing_mode = registers.interlacing_mode;
+    let sprite_scanline = interlacing_mode.sprite_display_top() + scanline;
+    let cell_height = interlacing_mode.cell_height();
+
+    // Apply max sprite pixel per scanline limit.
+    //
+    // If display was disabled during HBlank on the previous scanline, the number of sprite pixels
+    // rendered is reduced roughly proportional to the number of pixels during which display was
+    // disabled.
+    // As above, this is an approximation; in actual hardware it depends on which VRAM access slots
+    // were skipped because display was disabled
+    let max_sprite_pixels_per_line =
+        h_size.max_sprite_pixels_per_line().saturating_sub(4 * half_tiles_not_fetched);
+
+    let mut line_pixels = 0;
+    let mut dot_overflow = false;
+
+    // Sprites with H position 0 mask all lower priority sprites on the same scanline...with
+    // some quirks. There must be at least one sprite with H != 0 before the H=0 sprite, unless
+    // there was a sprite pixel overflow on the previous scanline.
+    let mut found_non_zero = state.dot_overflow_on_prev_line;
+
+    'outer: for sprite in &buffers.sprites {
+        if sprite.h_position == 0 && found_non_zero {
+            // Sprite masking from H=0 sprite; no more sprites will display on this line
+            break;
+        } else if sprite.h_position != 0 {
+            found_non_zero = true;
+        }
+
+        let v_size_cells: u16 = sprite.v_size_cells.into();
+        let h_size_cells: u16 = sprite.h_size_cells.into();
+
+        // The lowest 5 bits of difference between sprite V position and scanline are considered, regardless of whether
+        // the sprite overlaps the current scanline.
+        //
+        // Sprite V position is not necessarily in range of the current line because V position can change between the
+        // sprite scan and tile fetching; Titan Overdrive 2's textured cube depends on handling this correctly
+        let sprite_row = sprite_scanline
+            .wrapping_sub(sprite_y_position(sprite.v_position, interlacing_mode))
+            & 0x1F;
+        let sprite_row = if sprite.vertical_flip {
+            (cell_height * v_size_cells - 1).wrapping_sub(sprite_row) & 0x1F
+        } else {
+            sprite_row
+        };
+
+        let sprite_width = 8 * h_size_cells;
+        let sprite_right = sprite.h_position + sprite_width;
+        for h_position in sprite.h_position..sprite_right {
+            if !sprite_display_area.contains(&h_position) {
+                continue;
+            }
+
+            let sprite_col = h_position - sprite.h_position;
+            let sprite_col =
+                if sprite.horizontal_flip { 8 * h_size_cells - 1 - sprite_col } else { sprite_col };
+
+            let pattern_offset = (sprite_col / 8) * v_size_cells + sprite_row / cell_height;
+            let color_id = read_pattern_generator(
+                vram,
+                PatternGeneratorArgs {
+                    vertical_flip: false,
+                    horizontal_flip: false,
+                    pattern_generator: sprite.pattern_generator.wrapping_add(pattern_offset),
+                    row: sprite_row % cell_height,
+                    col: sprite_col % 8,
+                    cell_height,
+                },
+            );
+
+            let pixel = h_position - SPRITE_H_DISPLAY_START;
+            if buffers.pixels[pixel as usize].color_id == 0 {
+                // Transparent pixels are always overwritten, even if the current pixel is also transparent
+                buffers.pixels[pixel as usize] =
+                    SpritePixel { palette: sprite.palette, color_id, priority: sprite.priority };
+            } else {
+                // Sprite collision; two non-transparent sprite pixels in the same position
+                state.collision = true;
+            }
+
+            line_pixels += 1;
+            if line_pixels == max_sprite_pixels_per_line {
+                // Hit sprite pixel per scanline limit
+                state.collision = true;
+                dot_overflow = true;
+                if enforce_sprite_limits {
+                    break 'outer;
+                }
+            }
+        }
+    }
+
+    state.dot_overflow_on_prev_line = dot_overflow;
+}
+
+fn sprite_y_position(v_position: u16, interlacing_mode: InterlacingMode) -> u16 {
+    // V position is 9 bits in progressive mode and interlaced mode 1, and 10 bits in
+    // interlaced mode 2
+    match interlacing_mode {
+        InterlacingMode::Progressive | InterlacingMode::Interlaced => v_position & 0x1FF,
+        InterlacingMode::InterlacedDouble => v_position & 0x3FF,
+    }
+}
+
 pub struct RenderingArgs<'a> {
     pub frame_buffer: &'a mut FrameBuffer,
-    pub sprite_buffer: &'a mut Vec<SpriteData>,
-    pub sprite_bit_set: &'a mut SpriteBitSet,
+    pub sprite_buffers: &'a mut SpriteBuffers,
     pub sprite_state: &'a mut SpriteState,
     pub vram: &'a Vram,
     pub cram: &'a Cram,
     pub vsram: &'a Vsram,
     pub registers: &'a Registers,
     pub debug_register: DebugRegister,
-    pub cached_sprite_attributes: &'a [CachedSpriteData; MAX_SPRITES_PER_FRAME],
     pub full_screen_v_scroll_a: u16,
     pub full_screen_v_scroll_b: u16,
     pub enforce_sprite_limits: bool,
@@ -94,8 +343,8 @@ pub fn render_scanline(mut args: RenderingArgs<'_>, scanline: u16, starting_pixe
         if scanline < args.registers.vertical_display_size.active_scanlines() {
             clear_scanline(&mut args, scanline, starting_pixel);
 
-            // Clear sprite buffer in case display is enabled during active display
-            args.sprite_buffer.clear();
+            // Clear sprite pixel buffer in case display is enabled during active display
+            args.sprite_buffers.pixels.fill(SpritePixel::default());
         }
 
         return;
@@ -107,44 +356,30 @@ pub fn render_scanline(mut args: RenderingArgs<'_>, scanline: u16, starting_pixe
         args.registers.background_color_id,
     );
 
-    match args.registers.interlacing_mode {
-        InterlacingMode::Progressive | InterlacingMode::Interlaced => {
-            if starting_pixel == 0 {
-                populate_sprite_buffer(&mut args, scanline);
-            }
-
-            render_pixels_in_scanline(&mut args, scanline, starting_pixel, bg_color);
-        }
-        InterlacingMode::InterlacedDouble => {
-            // Render scanlines 2N and 2N+1 at the same time
-            for scanline in [2 * scanline, 2 * scanline + 1] {
-                populate_sprite_buffer(&mut args, scanline);
-
-                render_pixels_in_scanline(&mut args, scanline, starting_pixel, bg_color);
-            }
-        }
+    if starting_pixel == 0 {
+        render_sprite_pixels(
+            scanline,
+            args.vram,
+            args.registers,
+            args.sprite_buffers,
+            args.sprite_state,
+            args.enforce_sprite_limits,
+        );
     }
+
+    render_pixels_in_scanline(&mut args, scanline, starting_pixel, bg_color);
 }
 
 fn clear_scanline(args: &mut RenderingArgs<'_>, scanline: u16, starting_pixel: u16) {
-    match args.registers.interlacing_mode {
-        InterlacingMode::Progressive | InterlacingMode::Interlaced => {
-            clear_frame_buffer_row(args, scanline.into(), starting_pixel.into());
-        }
-        InterlacingMode::InterlacedDouble => {
-            clear_frame_buffer_row(args, (2 * scanline).into(), starting_pixel.into());
-            clear_frame_buffer_row(args, (2 * scanline + 1).into(), starting_pixel.into());
-        }
-    }
-}
-
-fn clear_frame_buffer_row(args: &mut RenderingArgs<'_>, row: u32, starting_col: u32) {
     let screen_width = args.registers.horizontal_display_size.active_display_pixels().into();
     let bg_color = colors::resolve_color(
         args.cram,
         args.registers.background_palette,
         args.registers.background_color_id,
     );
+
+    let row: u32 = scanline.into();
+    let starting_col: u32 = starting_pixel.into();
 
     for pixel in starting_col..screen_width {
         set_in_frame_buffer(args, row, pixel, bg_color, ColorModifier::None);
@@ -165,206 +400,6 @@ fn set_in_frame_buffer(
 
     let screen_width: u32 = args.registers.horizontal_display_size.active_display_pixels().into();
     args.frame_buffer[(row * screen_width + col) as usize] = rgb_color;
-}
-
-// TODO optimize this to do fewer passes for sorting/filtering
-fn populate_sprite_buffer(args: &mut RenderingArgs<'_>, scanline: u16) {
-    args.sprite_buffer.clear();
-
-    // Populate buffer from the sprite attribute table
-    let h_size = args.registers.horizontal_display_size;
-    let sprite_table_addr = args.registers.masked_sprite_attribute_table_addr();
-
-    // Sprite 0 is always populated
-    let sprite_0 = SpriteData::create(
-        args.cached_sprite_attributes[0],
-        &args.vram[sprite_table_addr as usize + 4..sprite_table_addr as usize + 8],
-    );
-    let mut sprite_idx: u16 = sprite_0.link_data.into();
-    args.sprite_buffer.push(sprite_0);
-
-    // If display was disabled during part of HBlank on the scanline before the previous scanline,
-    // the number of sprites scanned for the current scanline is reduced roughly by the number of
-    // pixels that display was disabled for.
-    // Actual hardware doesn't work exactly this way (it depends on exactly which VRAM access slots
-    // display was disabled during), but this approximation works well enough for Mickey Mania's
-    // 3D stages and Titan Overdrive's "your emulator suxx" screen
-    let sprites_not_scanned = if args.sprite_state.pixels_disabled_during_scan != 0 {
-        // Not sure exactly why, but adding ~8 here is necessary to fully remove the "your emulator
-        // suxx" text from Titan Overdrive's 512-color screen
-        args.sprite_state.pixels_disabled_during_scan + 8
-    } else {
-        0
-    };
-    let max_sprites_to_scan = h_size.sprite_table_len().saturating_sub(sprites_not_scanned);
-    for _ in 0..max_sprites_to_scan {
-        if sprite_idx == 0 || sprite_idx >= max_sprites_to_scan {
-            break;
-        }
-
-        let sprite_addr = sprite_table_addr.wrapping_add(8 * sprite_idx) as usize;
-        let sprite = SpriteData::create(
-            args.cached_sprite_attributes[sprite_idx as usize],
-            &args.vram[sprite_addr + 4..sprite_addr + 8],
-        );
-        sprite_idx = sprite.link_data.into();
-        args.sprite_buffer.push(sprite);
-    }
-
-    // Remove sprites that don't fall on this scanline
-    let interlacing_mode = args.registers.interlacing_mode;
-    let sprite_scanline = interlacing_mode.sprite_display_top() + scanline;
-    let cell_height = interlacing_mode.cell_height();
-    args.sprite_buffer.retain(|sprite| {
-        let sprite_top = sprite.v_position(interlacing_mode);
-        let sprite_bottom = sprite_top + cell_height * u16::from(sprite.v_size_cells);
-        (sprite_top..sprite_bottom).contains(&sprite_scanline)
-    });
-
-    // Apply max sprite per scanline limit
-    let max_sprites_per_line = h_size.max_sprites_per_line() as usize;
-    if args.sprite_buffer.len() > max_sprites_per_line {
-        if args.enforce_sprite_limits {
-            args.sprite_buffer.truncate(max_sprites_per_line);
-        }
-        args.sprite_state.overflow = true;
-    }
-
-    // Apply max sprite pixel per scanline limit.
-    //
-    // If display was disabled during HBlank on the previous scanline, the number of sprite pixels
-    // rendered is reduced roughly proportional to the number of pixels during which display was
-    // disabled.
-    // As above, this is an approximation; in actual hardware it depends on which VRAM access slots
-    // were skipped because display was disabled
-    let max_sprite_pixels_per_line =
-        h_size.max_sprite_pixels_per_line().saturating_sub(sprites_not_scanned * 4);
-    let mut line_pixels = 0;
-    let mut dot_overflow = false;
-    for i in 0..args.sprite_buffer.len() {
-        let sprite_pixels = 8 * u16::from(args.sprite_buffer[i].h_size_cells);
-        line_pixels += sprite_pixels;
-        if line_pixels > max_sprite_pixels_per_line {
-            if args.enforce_sprite_limits {
-                let overflow_pixels = line_pixels - max_sprite_pixels_per_line;
-                args.sprite_buffer[i].partial_width = Some(sprite_pixels - overflow_pixels);
-
-                args.sprite_buffer.truncate(i + 1);
-            }
-
-            args.sprite_state.overflow = true;
-            dot_overflow = true;
-            break;
-        }
-    }
-
-    // Sprites with H position 0 mask all lower priority sprites on the same scanline...with
-    // some quirks. There must be at least one sprite with H != 0 before the H=0 sprite, unless
-    // there was a sprite pixel overflow on the previous scanline.
-    let mut found_non_zero = args.sprite_state.dot_overflow_on_prev_line;
-    for i in 0..args.sprite_buffer.len() {
-        if args.sprite_buffer[i].h_position != 0 {
-            found_non_zero = true;
-            continue;
-        }
-
-        if args.sprite_buffer[i].h_position == 0 && found_non_zero {
-            args.sprite_buffer.truncate(i);
-            break;
-        }
-    }
-    args.sprite_state.dot_overflow_on_prev_line = dot_overflow;
-
-    // Fill in bit set
-    args.sprite_bit_set.clear();
-    for sprite in &*args.sprite_buffer {
-        for x in sprite.h_position..sprite.h_position + 8 * u16::from(sprite.h_size_cells) {
-            let pixel = x.wrapping_sub(SPRITE_H_DISPLAY_START);
-            if pixel < SpriteBitSet::LEN {
-                args.sprite_bit_set.set(pixel);
-            }
-        }
-    }
-}
-
-fn find_first_overlapping_sprite<'sprites>(
-    sprite_buffer: &'sprites [SpriteData],
-    sprite_bit_set: &SpriteBitSet,
-    sprite_state: &mut SpriteState,
-    vram: &Vram,
-    registers: &Registers,
-    scanline: u16,
-    pixel: u16,
-) -> Option<(&'sprites SpriteData, u8)> {
-    if !sprite_bit_set.get(pixel) {
-        return None;
-    }
-
-    let interlacing_mode = registers.interlacing_mode;
-    let sprite_display_top = interlacing_mode.sprite_display_top();
-    let cell_height = interlacing_mode.cell_height();
-
-    let sprite_pixel = SPRITE_H_DISPLAY_START + pixel;
-
-    let mut found_sprite: Option<(&SpriteData, u8)> = None;
-    for sprite in sprite_buffer {
-        let sprite_width = sprite.partial_width.unwrap_or(8 * u16::from(sprite.h_size_cells));
-        let sprite_right = sprite.h_position + sprite_width;
-        if !(sprite.h_position..sprite_right).contains(&sprite_pixel) {
-            continue;
-        }
-
-        let v_size_cells: u16 = sprite.v_size_cells.into();
-        let h_size_cells: u16 = sprite.h_size_cells.into();
-
-        let sprite_row = sprite_display_top + scanline - sprite.v_position(interlacing_mode);
-        let sprite_row = if sprite.vertical_flip {
-            cell_height * v_size_cells - 1 - sprite_row
-        } else {
-            sprite_row
-        };
-
-        let sprite_col = sprite_pixel - sprite.h_position;
-        let sprite_col =
-            if sprite.horizontal_flip { 8 * h_size_cells - 1 - sprite_col } else { sprite_col };
-
-        let pattern_offset = (sprite_col / 8) * v_size_cells + sprite_row / cell_height;
-        let color_id = read_pattern_generator(
-            vram,
-            PatternGeneratorArgs {
-                vertical_flip: false,
-                horizontal_flip: false,
-                pattern_generator: sprite.pattern_generator.wrapping_add(pattern_offset),
-                row: sprite_row % cell_height,
-                col: sprite_col % 8,
-                cell_height,
-            },
-        );
-        if color_id == 0 {
-            // Sprite pixel is transparent
-            continue;
-        }
-
-        match found_sprite {
-            Some(_) => {
-                sprite_state.collision = true;
-                break;
-            }
-            None => {
-                found_sprite = Some((sprite, color_id));
-                if sprite_state.collision {
-                    // No point in continuing to check sprites if the collision flag is
-                    // already set
-                    break;
-                }
-            }
-        }
-    }
-
-    // If no non-transparent sprite pixel was found, return the last transparent sprite pixel (if any)
-    // Titan Overdrive 2 depends on this for the Overdrive 2 logo screen with the colored spinning rings; the effect
-    // needs the palettes from the transparent sprite pixels
-    found_sprite.or(sprite_buffer.last().map(|sprite| (sprite, 0)))
 }
 
 #[allow(clippy::identity_op)]
@@ -499,16 +534,11 @@ fn render_pixels_in_scanline(
             (false, 0, 0)
         };
 
-        let (sprite_priority, sprite_palette, sprite_color_id) = find_first_overlapping_sprite(
-            args.sprite_buffer,
-            args.sprite_bit_set,
-            args.sprite_state,
-            args.vram,
-            args.registers,
-            scanline,
-            pixel,
-        )
-        .map_or((false, 0, 0), |(sprite, color_id)| (sprite.priority, sprite.palette, color_id));
+        let SpritePixel {
+            palette: sprite_palette,
+            color_id: sprite_color_id,
+            priority: sprite_priority,
+        } = args.sprite_buffers.pixels[pixel as usize];
 
         let (scroll_a_priority, scroll_a_palette, scroll_a_color_id) = if in_window {
             // Window replaces scroll A if this pixel is inside the window

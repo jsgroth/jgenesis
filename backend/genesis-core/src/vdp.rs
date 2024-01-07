@@ -15,7 +15,7 @@ use crate::vdp::registers::{
     DebugRegister, DmaMode, HorizontalDisplaySize, InterlacingMode, Registers, VerticalDisplaySize,
     VramSizeKb,
 };
-use crate::vdp::render::{RenderingArgs, SpriteState};
+use crate::vdp::render::{RenderingArgs, SpriteBuffers, SpriteState};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{Color, TimingMode};
 use jgenesis_common::num::GetBit;
@@ -150,8 +150,6 @@ struct SpriteData {
     horizontal_flip: bool,
     priority: bool,
     link_data: u8,
-    // Set if this sprite gets cut off because of the pixels-per-scanline limit
-    partial_width: Option<u16>,
 }
 
 impl SpriteData {
@@ -177,41 +175,7 @@ impl SpriteData {
             horizontal_flip,
             priority,
             link_data: cached_data.link_data,
-            // Will maybe get set later
-            partial_width: None,
         }
-    }
-
-    fn v_position(&self, interlacing_mode: InterlacingMode) -> u16 {
-        // V position is 9 bits in progressive mode and interlaced mode 1, and 10 bits in
-        // interlaced mode 2
-        match interlacing_mode {
-            InterlacingMode::Progressive | InterlacingMode::Interlaced => self.v_position & 0x1FF,
-            InterlacingMode::InterlacedDouble => self.v_position & 0x3FF,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Encode, Decode)]
-struct SpriteBitSet([u64; 5]);
-
-impl SpriteBitSet {
-    const LEN: u16 = 64 * 5;
-
-    fn new() -> Self {
-        Self([0; 5])
-    }
-
-    fn clear(&mut self) {
-        self.0 = [0; 5];
-    }
-
-    fn set(&mut self, bit: u16) {
-        self.0[(bit / 64) as usize] |= 1 << (bit % 64);
-    }
-
-    fn get(&self, bit: u16) -> bool {
-        self.0[(bit / 64) as usize] & (1 << (bit % 64)) != 0
     }
 }
 
@@ -306,8 +270,9 @@ pub struct Vdp {
     latched_registers: Registers,
     latched_full_screen_v_scroll: (u16, u16),
     cached_sprite_attributes: Box<[CachedSpriteData; MAX_SPRITES_PER_FRAME]>,
-    sprite_buffer: Vec<SpriteData>,
-    sprite_bit_set: SpriteBitSet,
+    latched_sprite_attributes: Box<[CachedSpriteData; MAX_SPRITES_PER_FRAME]>,
+    sprite_buffers: SpriteBuffers,
+    interlaced_sprite_buffers: SpriteBuffers,
     enforce_sprite_limits: bool,
     emulate_non_linear_dac: bool,
     master_clock_cycles: u64,
@@ -335,8 +300,12 @@ impl Vdp {
                 .into_boxed_slice()
                 .try_into()
                 .unwrap(),
-            sprite_buffer: Vec::with_capacity(MAX_SPRITES_PER_FRAME),
-            sprite_bit_set: SpriteBitSet::new(),
+            latched_sprite_attributes: vec![CachedSpriteData::default(); MAX_SPRITES_PER_FRAME]
+                .into_boxed_slice()
+                .try_into()
+                .unwrap(),
+            sprite_buffers: SpriteBuffers::new(),
+            interlaced_sprite_buffers: SpriteBuffers::new(),
             enforce_sprite_limits: config.enforce_sprite_limits,
             emulate_non_linear_dac: config.emulate_non_linear_dac,
             master_clock_cycles: 0,
@@ -808,6 +777,8 @@ impl Vdp {
                 self.registers.horizontal_display_size,
                 self.registers.display_enabled,
             );
+
+            self.fetch_sprite_attributes_for_next_line();
         }
 
         // H interrupts occur a set number of mclk cycles after the end of the active display,
@@ -821,6 +792,8 @@ impl Vdp {
         if prev_scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE + h_interrupt_delay
             && scanline_mclk >= ACTIVE_MCLK_CYCLES_PER_SCANLINE + h_interrupt_delay
         {
+            self.latched_sprite_attributes.copy_from_slice(self.cached_sprite_attributes.as_ref());
+
             // Check if an H interrupt has occurred
             if self.state.scanline < active_scanlines
                 || self.state.scanline == scanlines_per_frame - 1
@@ -869,6 +842,8 @@ impl Vdp {
         // Check if the VDP has advanced to a new scanline
         if scanline_mclk >= MCLK_CYCLES_PER_SCANLINE {
             self.sprite_state.handle_line_end(self.registers.horizontal_display_size);
+
+            self.scan_sprites_two_lines_ahead();
             self.render_next_scanline();
 
             self.state.scanline += 1;
@@ -1035,6 +1010,66 @@ impl Vdp {
         }
     }
 
+    fn scan_sprites_two_lines_ahead(&mut self) {
+        let scanline_for_scanning =
+            (self.state.scanline + 2) % self.timing_mode.scanlines_per_frame();
+
+        match self.registers.interlacing_mode {
+            InterlacingMode::Progressive | InterlacingMode::Interlaced => {
+                render::scan_sprites(
+                    scanline_for_scanning,
+                    &self.latched_registers,
+                    self.latched_sprite_attributes.as_ref(),
+                    &mut self.sprite_buffers,
+                    &mut self.sprite_state,
+                    self.enforce_sprite_limits,
+                );
+            }
+            InterlacingMode::InterlacedDouble => {
+                render::scan_sprites(
+                    2 * scanline_for_scanning,
+                    &self.latched_registers,
+                    self.latched_sprite_attributes.as_ref(),
+                    &mut self.sprite_buffers,
+                    &mut self.sprite_state,
+                    self.enforce_sprite_limits,
+                );
+                render::scan_sprites(
+                    2 * scanline_for_scanning + 1,
+                    &self.latched_registers,
+                    self.latched_sprite_attributes.as_ref(),
+                    &mut self.interlaced_sprite_buffers,
+                    &mut self.sprite_state,
+                    self.enforce_sprite_limits,
+                );
+            }
+        }
+    }
+
+    fn fetch_sprite_attributes_for_next_line(&mut self) {
+        render::fetch_sprite_attributes(
+            &self.vram,
+            &self.registers,
+            self.cached_sprite_attributes.as_ref(),
+            &mut self.sprite_buffers,
+        );
+
+        match self.registers.interlacing_mode {
+            InterlacingMode::Progressive | InterlacingMode::Interlaced => {
+                // Clear the interlaced odd line buffers if they're not going to be used
+                self.interlaced_sprite_buffers.clear_all();
+            }
+            InterlacingMode::InterlacedDouble => {
+                render::fetch_sprite_attributes(
+                    &self.vram,
+                    &self.registers,
+                    self.cached_sprite_attributes.as_ref(),
+                    &mut self.interlaced_sprite_buffers,
+                );
+            }
+        }
+    }
+
     #[inline]
     fn render_next_scanline(&mut self) {
         if self.state.v_border_forgotten && self.state.scanline < 239 {
@@ -1043,7 +1078,7 @@ impl Vdp {
         }
 
         match (self.timing_mode, self.registers.vertical_display_size, self.state.scanline) {
-            (TimingMode::Ntsc, _, 261) | (TimingMode::Pal, _, 311) => {
+            (TimingMode::Ntsc, _, 261) | (TimingMode::Pal, _, 312) => {
                 self.render_scanline_from_pixel(0, 0);
             }
             (_, VerticalDisplaySize::TwentyEightCell, scanline @ 0..=222)
@@ -1056,17 +1091,31 @@ impl Vdp {
 
     #[inline]
     fn render_scanline_from_pixel(&mut self, scanline: u16, pixel: u16) {
+        match self.registers.interlacing_mode {
+            InterlacingMode::Progressive | InterlacingMode::Interlaced => {
+                self.do_render_scanline(scanline, pixel, false);
+            }
+            InterlacingMode::InterlacedDouble => {
+                self.do_render_scanline(2 * scanline, pixel, false);
+                self.do_render_scanline(2 * scanline + 1, pixel, true);
+            }
+        }
+    }
+
+    fn do_render_scanline(&mut self, scanline: u16, pixel: u16, use_interlaced_buffers: bool) {
         let rendering_args = RenderingArgs {
             frame_buffer: &mut self.frame_buffer,
-            sprite_buffer: &mut self.sprite_buffer,
-            sprite_bit_set: &mut self.sprite_bit_set,
+            sprite_buffers: if use_interlaced_buffers {
+                &mut self.interlaced_sprite_buffers
+            } else {
+                &mut self.sprite_buffers
+            },
             sprite_state: &mut self.sprite_state,
             vram: &self.vram,
             cram: &self.cram,
             vsram: &self.vsram,
             registers: &self.latched_registers,
             debug_register: self.debug_register,
-            cached_sprite_attributes: &self.cached_sprite_attributes,
             full_screen_v_scroll_a: self.latched_full_screen_v_scroll.0,
             full_screen_v_scroll_b: self.latched_full_screen_v_scroll.1,
             enforce_sprite_limits: self.enforce_sprite_limits,
