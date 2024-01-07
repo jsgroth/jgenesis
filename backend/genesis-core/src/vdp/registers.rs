@@ -141,6 +141,8 @@ pub enum ScrollSize {
     ThirtyTwo,
     SixtyFour,
     OneTwentyEight,
+    // "Invalid" scroll size is effectively 1, repeatedly showing the first line/pixel
+    Invalid,
 }
 
 impl ScrollSize {
@@ -148,11 +150,8 @@ impl ScrollSize {
         match bits & 0x03 {
             0x00 => Self::ThirtyTwo,
             0x01 => Self::SixtyFour,
+            0x02 => Self::Invalid,
             0x03 => Self::OneTwentyEight,
-            0x02 => {
-                log::warn!("Prohibited scroll size set; defaulting to 32");
-                Self::ThirtyTwo
-            }
             _ => unreachable!("value & 0x03 is always <= 0x03"),
         }
     }
@@ -163,6 +162,7 @@ impl ScrollSize {
             Self::ThirtyTwo => 0x00FF,
             Self::SixtyFour => 0x01FF,
             Self::OneTwentyEight => 0x03FF,
+            Self::Invalid => 0x0000,
         }
     }
 }
@@ -173,6 +173,7 @@ impl From<ScrollSize> for u16 {
             ScrollSize::ThirtyTwo => 32,
             ScrollSize::SixtyFour => 64,
             ScrollSize::OneTwentyEight => 128,
+            ScrollSize::Invalid => 1,
         }
     }
 }
