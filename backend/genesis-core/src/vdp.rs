@@ -443,10 +443,9 @@ impl Vdp {
         {
             let mclk_per_pixel =
                 self.latched_registers.horizontal_display_size.mclk_cycles_per_pixel();
-            self.render_scanline_from_pixel(
-                self.state.scanline,
-                ((self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE) / mclk_per_pixel) as u16,
-            );
+            let pixel =
+                ((self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE) / mclk_per_pixel) as u16;
+            self.render_scanline_from_pixel(self.state.scanline, pixel);
         }
     }
 
@@ -1106,6 +1105,12 @@ impl Vdp {
 
     #[inline]
     fn render_scanline_from_pixel(&mut self, scanline: u16, pixel: u16) {
+        if pixel >= self.registers.horizontal_display_size.active_display_pixels() - 10 {
+            // Don't re-render for mid-scanline writes that occur very near the end of a scanline; this can cause visual
+            // glitches due to some underlying issues in how timing is handled between the 68000 and VDP
+            return;
+        }
+
         match self.registers.interlacing_mode {
             InterlacingMode::Progressive | InterlacingMode::Interlaced => {
                 self.do_render_scanline(scanline, pixel, false);
