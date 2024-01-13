@@ -23,6 +23,7 @@ Cross-platform multi-console emulator supporting a number of 8-bit and 16-bit ga
 * Some simple horizontal blur and naive anti-dither shaders for blending dithered pixel patterns, which were extremely common on these consoles due to limited color palettes and lack of hardware-supported transparency
 * Optional 2x CPU overclocking for Sega Master System and Game Gear emulation
 * Optional 2-4x GSU overclocking for SNES Super FX games
+* Can run the Titan Overdrive and Titan Overdrive 2 demos for the Mega Drive
 
 TODOs:
 * Support multiple Sega CD BIOS versions in GUI and automatically use the correct one based on disc region
