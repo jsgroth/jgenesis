@@ -41,3 +41,10 @@ export function setCursorVisible(visible) {
         canvas.classList.add("cursor-hidden");
     }
 }
+
+/**
+ * @param romTitle {string}
+ */
+export function setRomTitle(romTitle) {
+    document.getElementById("jgenesis-rom-title").innerText = romTitle;
+}

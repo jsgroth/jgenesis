@@ -183,6 +183,15 @@ impl Emulator {
             }
         }
     }
+
+    fn rom_title(&mut self, current_file_name: &str) -> String {
+        match self {
+            Self::None => "(No ROM loaded)".into(),
+            Self::SmsGg(..) => current_file_name.into(),
+            Self::Genesis(emulator, ..) => emulator.cartridge_title(),
+            Self::Snes(emulator, ..) => emulator.cartridge_title(),
+        }
+    }
 }
 
 fn handle_smsgg_input(inputs: &mut SmsGgInputs, event: &WindowEvent<'_>) {
@@ -334,6 +343,8 @@ fn run_event_loop(
                 current_rom = Some((contents.clone(), file_name.clone()));
 
                 emulator = open_emulator(contents, &file_name, &config_ref);
+
+                js::setRomTitle(&emulator.rom_title(&file_name));
                 js::focusCanvas();
             }
         },

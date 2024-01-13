@@ -13,4 +13,6 @@ extern "C" {
     pub fn showSnesConfig();
 
     pub fn setCursorVisible(visible: bool);
+
+    pub fn setRomTitle(rom_title: &str);
 }
