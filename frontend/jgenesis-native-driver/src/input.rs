@@ -422,12 +422,8 @@ impl Joysticks {
 
         let name = joystick.name();
         let device_ids = self.name_to_device_ids.get(&name)?;
-        let Some((device_idx, _)) =
-            device_ids.iter().copied().enumerate().find(|&(_, id)| id == device_id)
-        else {
-            return None;
-        };
-
+        let (device_idx, _) =
+            device_ids.iter().copied().enumerate().find(|&(_, id)| id == device_id)?;
         Some(JoystickDeviceId::new(name, device_idx as u32))
     }
 

@@ -102,9 +102,7 @@ fn process_file(file_name: &str, path: &Path, metadata: fs::Metadata) -> Option<
     let extension = Path::new(&file_name).extension().and_then(OsStr::to_str)?;
     let console = Console::from_extension(extension)?;
 
-    let Some(full_path) = path.to_str().map(String::from) else {
-        return None;
-    };
+    let full_path = path.to_str().map(String::from)?;
     let file_name_no_ext = Path::new(&file_name).with_extension("").to_string_lossy().to_string();
 
     let file_size = match console {
