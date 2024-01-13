@@ -6,6 +6,7 @@ mod dma;
 mod fifo;
 mod registers;
 mod render;
+mod sprites;
 
 use crate::memory::{Memory, PhysicalMedium};
 use crate::vdp::colors::ColorModifier;
@@ -13,9 +14,10 @@ use crate::vdp::dma::{DmaTracker, LineType};
 use crate::vdp::fifo::FifoTracker;
 use crate::vdp::registers::{
     DebugRegister, DmaMode, HorizontalDisplaySize, InterlacingMode, Registers, VerticalDisplaySize,
-    VramSizeKb,
+    VramSizeKb, H40_LEFT_BORDER, NTSC_BOTTOM_BORDER, NTSC_TOP_BORDER, PAL_V28_BOTTOM_BORDER,
+    PAL_V28_TOP_BORDER, PAL_V30_BOTTOM_BORDER, PAL_V30_TOP_BORDER, RIGHT_BORDER,
 };
-use crate::vdp::render::{RenderingArgs, SpriteBuffers, SpriteState};
+use crate::vdp::sprites::{SpriteBuffers, SpriteState};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{Color, TimingMode};
 use jgenesis_common::num::GetBit;
@@ -79,17 +81,18 @@ struct InternalState {
     h_interrupt_counter: u16,
     latched_hv_counter: Option<u16>,
     v_border_forgotten: bool,
+    top_border: u16,
+    last_scroll_b_palettes: [u8; 2],
+    last_h_scroll_a: u16,
+    last_h_scroll_b: u16,
     scanline: u16,
     pending_dma: Option<ActiveDma>,
     pending_writes: Vec<PendingWrite>,
     frame_count: u64,
-    // Marks whether a frame has been completed so that frames don't get double rendered if
-    // a game switches from V28 to V30 mode on scanlines 224-239
-    frame_completed: bool,
 }
 
 impl InternalState {
-    fn new() -> Self {
+    fn new(timing_mode: TimingMode) -> Self {
         Self {
             control_write_flag: ControlWriteFlag::First,
             code: 0,
@@ -102,11 +105,14 @@ impl InternalState {
             h_interrupt_counter: 0,
             latched_hv_counter: None,
             v_border_forgotten: false,
+            top_border: VerticalDisplaySize::default().top_border(timing_mode),
+            last_scroll_b_palettes: [0; 2],
+            last_h_scroll_a: 0,
+            last_h_scroll_b: 0,
             scanline: 0,
             pending_dma: None,
             pending_writes: Vec::with_capacity(10),
             frame_count: 0,
-            frame_completed: false,
         }
     }
 }
@@ -214,8 +220,8 @@ impl DerefMut for FrameBuffer {
     }
 }
 
-const MAX_SCREEN_WIDTH: usize = 320;
-const MAX_SCREEN_HEIGHT: usize = 240;
+const MAX_SCREEN_WIDTH: usize = 320 + H40_LEFT_BORDER as usize + RIGHT_BORDER as usize;
+const MAX_SCREEN_HEIGHT: usize = 240 + PAL_V30_TOP_BORDER as usize + PAL_V30_BOTTOM_BORDER as usize;
 
 // Double screen height to account for interlaced 2x mode
 const FRAME_BUFFER_LEN: usize = MAX_SCREEN_WIDTH * MAX_SCREEN_HEIGHT * 2;
@@ -235,6 +241,8 @@ const V_INTERRUPT_DELAY: u64 = 48;
 
 trait TimingModeExt: Copy {
     fn scanlines_per_frame(self) -> u16;
+
+    fn rendered_lines_per_frame(self) -> u16;
 }
 
 impl TimingModeExt for TimingMode {
@@ -244,12 +252,22 @@ impl TimingModeExt for TimingMode {
             Self::Pal => PAL_SCANLINES_PER_FRAME,
         }
     }
+
+    // Includes border lines
+    fn rendered_lines_per_frame(self) -> u16 {
+        match self {
+            Self::Ntsc => 224 + NTSC_TOP_BORDER + NTSC_BOTTOM_BORDER,
+            Self::Pal => 224 + PAL_V28_TOP_BORDER + PAL_V28_BOTTOM_BORDER,
+        }
+    }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub struct VdpConfig {
     pub enforce_sprite_limits: bool,
     pub emulate_non_linear_dac: bool,
+    pub render_vertical_border: bool,
+    pub render_horizontal_border: bool,
 }
 
 type Vram = [u8; VRAM_LEN];
@@ -273,8 +291,7 @@ pub struct Vdp {
     latched_sprite_attributes: Box<[CachedSpriteData; MAX_SPRITES_PER_FRAME]>,
     sprite_buffers: SpriteBuffers,
     interlaced_sprite_buffers: SpriteBuffers,
-    enforce_sprite_limits: bool,
-    emulate_non_linear_dac: bool,
+    config: VdpConfig,
     master_clock_cycles: u64,
     dma_tracker: DmaTracker,
     fifo_tracker: FifoTracker,
@@ -290,7 +307,7 @@ impl Vdp {
             cram: vec![0; CRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             vsram: vec![0; VSRAM_LEN].into_boxed_slice().try_into().unwrap(),
             timing_mode,
-            state: InternalState::new(),
+            state: InternalState::new(timing_mode),
             sprite_state: SpriteState::default(),
             registers: Registers::new(),
             debug_register: DebugRegister::new(),
@@ -306,8 +323,7 @@ impl Vdp {
                 .unwrap(),
             sprite_buffers: SpriteBuffers::new(),
             interlaced_sprite_buffers: SpriteBuffers::new(),
-            enforce_sprite_limits: config.enforce_sprite_limits,
-            emulate_non_linear_dac: config.emulate_non_linear_dac,
+            config,
             master_clock_cycles: 0,
             dma_tracker: DmaTracker::new(),
             fifo_tracker: FifoTracker::new(),
@@ -340,6 +356,8 @@ impl Vdp {
                 if value & 0xE000 == 0x8000 {
                     // Register set
 
+                    let prev_v_display_size = self.registers.vertical_display_size;
+
                     let register_number = ((value >> 8) & 0x1F) as u8;
                     self.registers.write_internal_register(register_number, value as u8);
 
@@ -366,13 +384,13 @@ impl Vdp {
                         // Mark vertical border "forgotten" if V size was switched from V30 to V28 between lines 224-239
                         // This has a few effects:
                         // - The HINT counter continues to tick down every line throughout VBlank instead of getting reset
-                        // - The VDP continues to display during the vertical border (not emulated here other than
-                        //   forcing V frame size to 240px)
-                        if !self.state.frame_completed
+                        // - The VDP continues to render normally inside the vertical border
+                        if prev_v_display_size == VerticalDisplaySize::ThirtyCell
                             && self.registers.vertical_display_size
                                 == VerticalDisplaySize::TwentyEightCell
-                            && self.state.scanline
-                                >= VerticalDisplaySize::TwentyEightCell.active_scanlines()
+                            && (VerticalDisplaySize::TwentyEightCell.active_scanlines()
+                                ..VerticalDisplaySize::ThirtyCell.active_scanlines())
+                                .contains(&self.state.scanline)
                         {
                             self.state.v_border_forgotten = true;
                         }
@@ -445,7 +463,7 @@ impl Vdp {
                 self.latched_registers.horizontal_display_size.mclk_cycles_per_pixel();
             let pixel =
                 ((self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE) / mclk_per_pixel) as u16;
-            self.render_scanline_from_pixel(self.state.scanline, pixel);
+            self.render_scanline(self.state.scanline, pixel);
         }
     }
 
@@ -773,7 +791,8 @@ impl Vdp {
                 self.registers.display_enabled,
             );
 
-            self.fetch_sprite_attributes_for_next_line();
+            // Sprite processing phase 2
+            self.fetch_sprite_attributes();
         }
 
         // H interrupts occur a set number of mclk cycles after the end of the active display,
@@ -839,15 +858,22 @@ impl Vdp {
         if scanline_mclk >= MCLK_CYCLES_PER_SCANLINE {
             self.sprite_state.handle_line_end(self.registers.horizontal_display_size);
 
+            // Sprite processing phase 1
             self.scan_sprites_two_lines_ahead();
+
+            // Render the next line before advancing counters
             self.render_next_scanline();
 
             self.state.scanline += 1;
             if self.state.scanline == scanlines_per_frame {
                 self.state.scanline = 0;
                 self.state.frame_count += 1;
-                self.state.frame_completed = false;
                 self.state.v_border_forgotten = false;
+
+                // Top border length needs to be saved at start-of-frame in case there is a mid-frame swap between V28
+                // mode and V30 mode. Titan Overdrive 2 depends on this for the arcade scene
+                self.state.top_border =
+                    self.registers.vertical_display_size.top_border(self.timing_mode);
             }
 
             // Check if we already passed the VINT threshold
@@ -859,13 +885,9 @@ impl Vdp {
                 self.state.v_interrupt_pending = true;
             }
 
-            if !self.state.frame_completed
-                && (self.state.scanline == active_scanlines
-                    || (self.state.v_border_forgotten
-                        && self.state.scanline
-                            == VerticalDisplaySize::ThirtyCell.active_scanlines()))
-            {
-                self.state.frame_completed = true;
+            let last_scanline_of_frame =
+                self.timing_mode.rendered_lines_per_frame() - self.state.top_border;
+            if self.state.scanline == last_scanline_of_frame {
                 tick_effect = VdpTickEffect::FrameComplete;
             }
         }
@@ -1025,123 +1047,21 @@ impl Vdp {
     }
 
     fn scan_sprites_two_lines_ahead(&mut self) {
-        let scanline_for_scanning =
+        let scanline_for_sprite_scan =
             (self.state.scanline + 2) % self.timing_mode.scanlines_per_frame();
 
-        match self.registers.interlacing_mode {
-            InterlacingMode::Progressive | InterlacingMode::Interlaced => {
-                render::scan_sprites(
-                    scanline_for_scanning,
-                    &self.latched_registers,
-                    self.latched_sprite_attributes.as_ref(),
-                    &mut self.sprite_buffers,
-                    &mut self.sprite_state,
-                    self.enforce_sprite_limits,
-                );
-            }
-            InterlacingMode::InterlacedDouble => {
-                render::scan_sprites(
-                    2 * scanline_for_scanning,
-                    &self.latched_registers,
-                    self.latched_sprite_attributes.as_ref(),
-                    &mut self.sprite_buffers,
-                    &mut self.sprite_state,
-                    self.enforce_sprite_limits,
-                );
-                render::scan_sprites(
-                    2 * scanline_for_scanning + 1,
-                    &self.latched_registers,
-                    self.latched_sprite_attributes.as_ref(),
-                    &mut self.interlaced_sprite_buffers,
-                    &mut self.sprite_state,
-                    self.enforce_sprite_limits,
-                );
-            }
-        }
-    }
-
-    fn fetch_sprite_attributes_for_next_line(&mut self) {
-        render::fetch_sprite_attributes(
-            &self.vram,
-            &self.registers,
-            self.cached_sprite_attributes.as_ref(),
-            &mut self.sprite_buffers,
-        );
-
-        match self.registers.interlacing_mode {
-            InterlacingMode::Progressive | InterlacingMode::Interlaced => {
-                // Clear the interlaced odd line buffers if they're not going to be used
-                self.interlaced_sprite_buffers.clear_all();
-            }
-            InterlacingMode::InterlacedDouble => {
-                render::fetch_sprite_attributes(
-                    &self.vram,
-                    &self.registers,
-                    self.cached_sprite_attributes.as_ref(),
-                    &mut self.interlaced_sprite_buffers,
-                );
-            }
-        }
+        self.scan_sprites(scanline_for_sprite_scan);
     }
 
     #[inline]
     fn render_next_scanline(&mut self) {
-        if self.state.v_border_forgotten && self.state.scanline < 239 {
-            self.render_scanline_from_pixel(self.state.scanline + 1, 0);
-            return;
-        }
-
-        match (self.timing_mode, self.registers.vertical_display_size, self.state.scanline) {
-            (TimingMode::Ntsc, _, 261) | (TimingMode::Pal, _, 312) => {
-                self.render_scanline_from_pixel(0, 0);
-            }
-            (_, VerticalDisplaySize::TwentyEightCell, scanline @ 0..=222)
-            | (_, VerticalDisplaySize::ThirtyCell, scanline @ 0..=238) => {
-                self.render_scanline_from_pixel(scanline + 1, 0);
-            }
-            _ => {}
-        }
-    }
-
-    #[inline]
-    fn render_scanline_from_pixel(&mut self, scanline: u16, pixel: u16) {
-        if pixel >= self.registers.horizontal_display_size.active_display_pixels() - 10 {
-            // Don't re-render for mid-scanline writes that occur very near the end of a scanline; this can cause visual
-            // glitches due to some underlying issues in how timing is handled between the 68000 and VDP
-            return;
-        }
-
-        match self.registers.interlacing_mode {
-            InterlacingMode::Progressive | InterlacingMode::Interlaced => {
-                self.do_render_scanline(scanline, pixel, false);
-            }
-            InterlacingMode::InterlacedDouble => {
-                self.do_render_scanline(2 * scanline, pixel, false);
-                self.do_render_scanline(2 * scanline + 1, pixel, true);
-            }
-        }
-    }
-
-    fn do_render_scanline(&mut self, scanline: u16, pixel: u16, use_interlaced_buffers: bool) {
-        let rendering_args = RenderingArgs {
-            frame_buffer: &mut self.frame_buffer,
-            sprite_buffers: if use_interlaced_buffers {
-                &mut self.interlaced_sprite_buffers
-            } else {
-                &mut self.sprite_buffers
-            },
-            sprite_state: &mut self.sprite_state,
-            vram: &self.vram,
-            cram: &self.cram,
-            vsram: &self.vsram,
-            registers: &self.latched_registers,
-            debug_register: self.debug_register,
-            full_screen_v_scroll_a: self.latched_full_screen_v_scroll.0,
-            full_screen_v_scroll_b: self.latched_full_screen_v_scroll.1,
-            enforce_sprite_limits: self.enforce_sprite_limits,
-            emulate_non_linear_dac: self.emulate_non_linear_dac,
+        let scanlines_per_frame = self.timing_mode.scanlines_per_frame();
+        let render_scanline = if self.state.scanline == scanlines_per_frame - 1 {
+            0
+        } else {
+            self.state.scanline + 1
         };
-        render::render_scanline(rendering_args, scanline, pixel);
+        self.render_scanline(render_scanline, 0);
     }
 
     #[must_use]
@@ -1151,16 +1071,26 @@ impl Vdp {
 
     #[must_use]
     pub fn screen_width(&self) -> u32 {
-        self.registers.horizontal_display_size.active_display_pixels().into()
+        let h_display_size = self.registers.horizontal_display_size;
+        let active_display_pixels: u32 = h_display_size.active_display_pixels().into();
+
+        if self.config.render_horizontal_border {
+            u32::from(h_display_size.left_border())
+                + active_display_pixels
+                + u32::from(RIGHT_BORDER)
+        } else {
+            active_display_pixels
+        }
     }
 
     #[must_use]
     pub fn screen_height(&self) -> u32 {
-        let screen_height: u32 = if self.state.v_border_forgotten {
-            VerticalDisplaySize::ThirtyCell.active_scanlines().into()
+        let screen_height: u32 = if self.config.render_vertical_border {
+            self.timing_mode.rendered_lines_per_frame().into()
         } else {
             self.registers.vertical_display_size.active_scanlines().into()
         };
+
         match self.registers.interlacing_mode {
             InterlacingMode::Progressive | InterlacingMode::Interlaced => screen_height,
             InterlacingMode::InterlacedDouble => 2 * screen_height,
@@ -1169,15 +1099,11 @@ impl Vdp {
 
     #[must_use]
     pub fn config(&self) -> VdpConfig {
-        VdpConfig {
-            enforce_sprite_limits: self.enforce_sprite_limits,
-            emulate_non_linear_dac: self.emulate_non_linear_dac,
-        }
+        self.config
     }
 
     pub fn reload_config(&mut self, config: VdpConfig) {
-        self.enforce_sprite_limits = config.enforce_sprite_limits;
-        self.emulate_non_linear_dac = config.emulate_non_linear_dac;
+        self.config = config;
     }
 }
 
@@ -1237,7 +1163,12 @@ mod tests {
     fn new_vdp() -> Vdp {
         Vdp::new(
             TimingMode::Ntsc,
-            VdpConfig { enforce_sprite_limits: true, emulate_non_linear_dac: false },
+            VdpConfig {
+                enforce_sprite_limits: true,
+                emulate_non_linear_dac: false,
+                render_vertical_border: false,
+                render_horizontal_border: false,
+            },
         )
     }
 

@@ -105,6 +105,14 @@ struct Args {
     #[arg(long, default_value_t, help_heading = GENESIS_OPTIONS_HEADING)]
     emulate_non_linear_vdp_dac: bool,
 
+    /// Render the vertical border, which normally only displays the backdrop color
+    #[arg(long, default_value_t, help_heading = GENESIS_OPTIONS_HEADING)]
+    genesis_render_vertical_border: bool,
+
+    /// Render the horizontal border, which normally only displays the backdrop color
+    #[arg(long, default_value_t, help_heading = GENESIS_OPTIONS_HEADING)]
+    genesis_render_horizontal_border: bool,
+
     /// Disable YM2612 output quantization, letting outputs cover the full 14-bit range instead of only using the highest 9 bits
     #[arg(long = "no-ym2612-quantization", default_value_t = true, action = clap::ArgAction::SetFalse, help_heading = GENESIS_OPTIONS_HEADING)]
     quantize_ym2612_output: bool,
@@ -518,6 +526,8 @@ impl Args {
             adjust_aspect_ratio_in_2x_resolution: self.genesis_adjust_aspect_ratio,
             remove_sprite_limits: self.remove_sprite_limit,
             emulate_non_linear_vdp_dac: self.emulate_non_linear_vdp_dac,
+            render_vertical_border: self.genesis_render_vertical_border,
+            render_horizontal_border: self.genesis_render_horizontal_border,
             quantize_ym2612_output: self.quantize_ym2612_output,
         }
     }

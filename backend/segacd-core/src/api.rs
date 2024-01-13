@@ -489,6 +489,8 @@ impl EmulatorTrait for SegaCdEmulator {
                     adjust_aspect_ratio_in_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
                     remove_sprite_limits: !vdp_config.enforce_sprite_limits,
                     emulate_non_linear_vdp_dac: vdp_config.emulate_non_linear_dac,
+                    render_vertical_border: vdp_config.render_vertical_border,
+                    render_horizontal_border: vdp_config.render_horizontal_border,
                     quantize_ym2612_output: self.ym2612.get_quantize_output(),
                     p1_controller_type,
                     p2_controller_type,

@@ -55,16 +55,16 @@ impl GenesisAspectRatio {
         let mut pixel_aspect_ratio = match (self, frame_size.width) {
             (Self::SquarePixels, _) => Some(1.0),
             (Self::Stretched, _) => None,
-            (Self::Ntsc, 256) => Some(8.0 / 7.0),
-            (Self::Ntsc, 320) => Some(32.0 / 35.0),
-            (Self::Pal, 256) => Some(11.0 / 8.0),
-            (Self::Pal, 320) => Some(11.0 / 10.0),
+            (Self::Ntsc, 256..=284) => Some(8.0 / 7.0),
+            (Self::Ntsc, 320..=347) => Some(32.0 / 35.0),
+            (Self::Pal, 256..=284) => Some(11.0 / 8.0),
+            (Self::Pal, 320..=347) => Some(11.0 / 10.0),
             (Self::Ntsc | Self::Pal, _) => {
                 panic!("unexpected Genesis frame width: {}", frame_size.width)
             }
         };
 
-        if adjust_for_2x_resolution && frame_size.height == 448 {
+        if adjust_for_2x_resolution && frame_size.height >= 448 {
             pixel_aspect_ratio = pixel_aspect_ratio.map(|par| par * 2.0);
         }
 
@@ -134,6 +134,8 @@ pub struct GenesisEmulatorConfig {
     pub adjust_aspect_ratio_in_2x_resolution: bool,
     pub remove_sprite_limits: bool,
     pub emulate_non_linear_vdp_dac: bool,
+    pub render_vertical_border: bool,
+    pub render_horizontal_border: bool,
     pub quantize_ym2612_output: bool,
 }
 
@@ -143,6 +145,8 @@ impl GenesisEmulatorConfig {
         VdpConfig {
             enforce_sprite_limits: !self.remove_sprite_limits,
             emulate_non_linear_dac: self.emulate_non_linear_vdp_dac,
+            render_vertical_border: self.render_vertical_border,
+            render_horizontal_border: self.render_horizontal_border,
         }
     }
 }
@@ -448,6 +452,8 @@ impl EmulatorTrait for GenesisEmulator {
             adjust_aspect_ratio_in_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
             remove_sprite_limits: !vdp_config.enforce_sprite_limits,
             emulate_non_linear_vdp_dac: vdp_config.emulate_non_linear_dac,
+            render_vertical_border: vdp_config.render_vertical_border,
+            render_horizontal_border: vdp_config.render_horizontal_border,
             quantize_ym2612_output: self.ym2612.get_quantize_output(),
             p1_controller_type,
             p2_controller_type,

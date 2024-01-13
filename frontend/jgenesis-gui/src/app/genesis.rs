@@ -21,6 +21,10 @@ pub struct GenesisAppConfig {
     remove_sprite_limits: bool,
     #[serde(default)]
     emulate_non_linear_vdp_dac: bool,
+    #[serde(default)]
+    render_vertical_border: bool,
+    #[serde(default)]
+    render_horizontal_border: bool,
     #[serde(default = "true_fn")]
     quantize_ym2612_output: bool,
 }
@@ -64,6 +68,8 @@ impl AppConfig {
             adjust_aspect_ratio_in_2x_resolution: self.genesis.adjust_aspect_ratio_in_2x_resolution,
             remove_sprite_limits: self.genesis.remove_sprite_limits,
             emulate_non_linear_vdp_dac: self.genesis.emulate_non_linear_vdp_dac,
+            render_vertical_border: self.genesis.render_vertical_border,
+            render_horizontal_border: self.genesis.render_horizontal_border,
             quantize_ym2612_output: self.genesis.quantize_ym2612_output,
         })
     }
@@ -210,6 +216,13 @@ impl App {
                 "Emulate the VDP's non-linear color DAC",
             )
             .on_hover_text("Tends to brighten darker colors and darken brighter colors");
+
+            ui.checkbox(&mut self.config.genesis.render_vertical_border, "Render vertical border");
+
+            ui.checkbox(
+                &mut self.config.genesis.render_horizontal_border,
+                "Render horizontal border",
+            );
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::GenesisVideo);

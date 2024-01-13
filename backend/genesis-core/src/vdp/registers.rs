@@ -1,6 +1,20 @@
 use bincode::{Decode, Encode};
+use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::{GetBit, U16Ext};
 use std::fmt::{Display, Formatter};
+
+// Values from https://gendev.spritesmind.net/forum/viewtopic.php?p=37011#p37011
+pub const H32_LEFT_BORDER: u16 = 14;
+pub const H40_LEFT_BORDER: u16 = 13;
+pub const RIGHT_BORDER: u16 = 14;
+
+pub const NTSC_TOP_BORDER: u16 = 11;
+pub const PAL_V28_TOP_BORDER: u16 = 38;
+pub const PAL_V30_TOP_BORDER: u16 = 30;
+
+pub const NTSC_BOTTOM_BORDER: u16 = 8;
+pub const PAL_V28_BOTTOM_BORDER: u16 = 32;
+pub const PAL_V30_BOTTOM_BORDER: u16 = 24;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum VerticalScrollMode {
@@ -81,6 +95,13 @@ impl HorizontalDisplaySize {
             Self::FortyCell => !0x3FF,
         }
     }
+
+    pub const fn left_border(self) -> u16 {
+        match self {
+            Self::ThirtyTwoCell => H32_LEFT_BORDER,
+            Self::FortyCell => H40_LEFT_BORDER,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
@@ -95,6 +116,14 @@ impl VerticalDisplaySize {
         match self {
             Self::TwentyEightCell => 224,
             Self::ThirtyCell => 240,
+        }
+    }
+
+    pub const fn top_border(self, timing_mode: TimingMode) -> u16 {
+        match (self, timing_mode) {
+            (_, TimingMode::Ntsc) => NTSC_TOP_BORDER,
+            (Self::TwentyEightCell, TimingMode::Pal) => PAL_V28_TOP_BORDER,
+            (Self::ThirtyCell, TimingMode::Pal) => PAL_V30_TOP_BORDER,
         }
     }
 }
@@ -121,6 +150,13 @@ impl InterlacingMode {
             // The sprite display area starts at $080 normally, $100 in interlaced 2x mode
             Self::Progressive | Self::Interlaced => 0x080,
             Self::InterlacedDouble => 0x100,
+        }
+    }
+
+    pub const fn sprite_display_mask(self) -> u16 {
+        match self {
+            Self::Progressive | Self::Interlaced => 0x1FF,
+            Self::InterlacedDouble => 0x3FF,
         }
     }
 

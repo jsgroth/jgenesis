@@ -185,6 +185,8 @@ pub struct GenesisConfig {
     pub adjust_aspect_ratio_in_2x_resolution: bool,
     pub remove_sprite_limits: bool,
     pub emulate_non_linear_vdp_dac: bool,
+    pub render_vertical_border: bool,
+    pub render_horizontal_border: bool,
     pub quantize_ym2612_output: bool,
 }
 
@@ -197,6 +199,8 @@ impl GenesisConfig {
             adjust_aspect_ratio_in_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
             remove_sprite_limits: self.remove_sprite_limits,
             emulate_non_linear_vdp_dac: self.emulate_non_linear_vdp_dac,
+            render_vertical_border: self.render_vertical_border,
+            render_horizontal_border: self.render_horizontal_border,
             quantize_ym2612_output: self.quantize_ym2612_output,
             p1_controller_type: self.p1_controller_type,
             p2_controller_type: self.p2_controller_type,

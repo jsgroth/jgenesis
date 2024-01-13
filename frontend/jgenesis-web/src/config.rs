@@ -147,20 +147,24 @@ pub struct GenesisWebConfig {
     aspect_ratio: GenesisAspectRatio,
     remove_sprite_limits: bool,
     emulate_non_linear_vdp_dac: bool,
+    render_vertical_border: bool,
+    render_horizontal_border: bool,
 }
 
 impl GenesisWebConfig {
     pub fn to_emulator_config(&self) -> GenesisEmulatorConfig {
         GenesisEmulatorConfig {
+            p1_controller_type: GenesisControllerType::default(),
+            p2_controller_type: GenesisControllerType::default(),
             forced_timing_mode: None,
             forced_region: None,
             aspect_ratio: self.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: true,
             remove_sprite_limits: self.remove_sprite_limits,
             emulate_non_linear_vdp_dac: self.emulate_non_linear_vdp_dac,
+            render_vertical_border: self.render_vertical_border,
+            render_horizontal_border: self.render_horizontal_border,
             quantize_ym2612_output: true,
-            p1_controller_type: GenesisControllerType::default(),
-            p2_controller_type: GenesisControllerType::default(),
         }
     }
 }
@@ -261,6 +265,14 @@ impl WebConfigRef {
 
     pub fn set_genesis_emulate_non_linear_dac(&self, emulate_non_linear_dac: bool) {
         self.borrow_mut().genesis.emulate_non_linear_vdp_dac = emulate_non_linear_dac;
+    }
+
+    pub fn set_genesis_render_vertical_border(&self, render_vertical_border: bool) {
+        self.borrow_mut().genesis.render_vertical_border = render_vertical_border;
+    }
+
+    pub fn set_genesis_render_horizontal_border(&self, render_horizontal_border: bool) {
+        self.borrow_mut().genesis.render_horizontal_border = render_horizontal_border;
     }
 
     pub fn set_snes_aspect_ratio(&self, aspect_ratio: &str) {

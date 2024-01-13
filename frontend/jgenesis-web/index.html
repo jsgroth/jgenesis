@@ -42,7 +42,7 @@
 
             #header-text {
                 font-size: 24px;
-                margin-left: 50px;
+                margin-left: 10px;
             }
 
             #jgenesis {
@@ -72,7 +72,7 @@
     <body>
         <div id="loading-text">Loading...</div>
         <div id="header-text" class="hidden">
-            jgenesis - Sega Genesis / Master System / Game Gear emulator
+            jgenesis - Sega Genesis / SNES / Master System / Game Gear emulator
         </div>
         <div id="jgenesis" class="hidden">
             <div id="jgenesis-wasm-and-controls">
@@ -226,6 +226,16 @@
                         <label for="genesis-emulate-non-linear-dac">Emulate non-linear color DAC</label>
                     </div>
 
+                    <div>
+                        <input type="checkbox" id="genesis-render-vertical-border">
+                        <label for="genesis-render-vertical-border">Render vertical border</label>
+                    </div>
+
+                    <div>
+                        <input type="checkbox" id="genesis-render-horizontal-border">
+                        <label for="genesis-render-horizontal-border">Render horizontal border</label>
+                    </div>
+
                     <p>Controls</p>
                     <ul>
                         <li>Up/Left/Right/Down: Arrow keys</li>
@@ -358,6 +368,14 @@
 
             document.getElementById("genesis-emulate-non-linear-dac").addEventListener("click", (event) => {
                 config.set_genesis_emulate_non_linear_dac(event.target.checked);
+            });
+
+            document.getElementById("genesis-render-vertical-border").addEventListener("click", (event) => {
+                config.set_genesis_render_vertical_border(event.target.checked);
+            });
+
+            document.getElementById("genesis-render-horizontal-border").addEventListener("click", (event) => {
+                config.set_genesis_render_horizontal_border(event.target.checked);
             });
 
             document.querySelectorAll("input[name='snes-aspect-ratio']").forEach((element) => {
