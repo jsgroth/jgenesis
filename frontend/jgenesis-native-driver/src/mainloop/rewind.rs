@@ -52,7 +52,12 @@ impl<Emulator: PartialClone> Rewinder<Emulator> {
         self.last_rewind_time.is_some()
     }
 
-    pub fn tick<R>(&mut self, emulator: &mut Emulator, renderer: &mut R) -> Result<(), R::Err>
+    pub fn tick<R>(
+        &mut self,
+        emulator: &mut Emulator,
+        renderer: &mut R,
+        config: &Emulator::Config,
+    ) -> Result<(), R::Err>
     where
         Emulator: EmulatorTrait,
         R: Renderer,
@@ -68,6 +73,7 @@ impl<Emulator: PartialClone> Rewinder<Emulator> {
             clone.take_rom_from(emulator);
             *emulator = clone;
 
+            emulator.reload_config(config);
             emulator.force_render(renderer)?;
 
             self.last_rewind_time = Some(now);

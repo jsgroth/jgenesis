@@ -697,7 +697,11 @@ where
                 }
 
                 if rewinding {
-                    self.hotkey_state.rewinder.tick(&mut self.emulator, &mut self.renderer)?;
+                    self.hotkey_state.rewinder.tick(
+                        &mut self.emulator,
+                        &mut self.renderer,
+                        &self.config,
+                    )?;
                 }
 
                 if rewinding || self.hotkey_state.paused {
