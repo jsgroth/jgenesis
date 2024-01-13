@@ -299,6 +299,11 @@ impl Vdp {
             // Record what VRAM addresses were accessed during sprite tile fetching; this is needed for rendering the
             // borders in Titan Overdrive 2
             for h_cell in 0..h_size_cells {
+                if tiles_fetched == buffers.last_tile_addresses.len() {
+                    // Hit the 40 tile / 320 pixel limit
+                    break;
+                }
+
                 let pattern_offset = h_cell * v_size_cells + sprite_row / cell_height;
                 let pattern_generator = sprite.pattern_generator.wrapping_add(pattern_offset);
                 let cell_addr = (4 * cell_height).wrapping_mul(pattern_generator);
@@ -306,18 +311,13 @@ impl Vdp {
 
                 buffers.last_tile_addresses[tiles_fetched] = row_addr;
                 tiles_fetched += 1;
-
-                if tiles_fetched == buffers.last_tile_addresses.len() {
-                    // Hit the 40 tile / 320 pixel limit
-                    break;
-                }
             }
 
             let sprite_width = 8 * h_size_cells;
             let sprite_right = sprite.h_position + sprite_width;
             for h_position in sprite.h_position..sprite_right {
                 line_pixels += 1;
-                if line_pixels > max_sprite_pixels_per_line {
+                if line_pixels > max_sprite_pixels_per_line && self.config.enforce_sprite_limits {
                     break;
                 }
 
@@ -362,7 +362,10 @@ impl Vdp {
             if line_pixels >= max_sprite_pixels_per_line {
                 self.sprite_state.overflow = true;
                 dot_overflow = true;
-                break;
+
+                if self.config.enforce_sprite_limits {
+                    break;
+                }
             }
         }
 
