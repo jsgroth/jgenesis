@@ -175,23 +175,46 @@ enum Layer {
 #[derive(Debug, Clone)]
 struct PriorityResolver {
     is_mode_0_or_1: bool,
+    bg3_high_priority: bool,
     min_priority: u8,
     min_pixel: Pixel,
     min_layer: Layer,
 }
 
-// Mode 0-1 priorities:
-//   OBJ.3 > BG1.1 > BG2.1 > OBJ.2 > BG1.0 > BG2.0 > OBJ.1 > BG3.1 > BG4.1 > OBJ.0 > BG3.0 > BG4.0
-//     0  <    1   <   2   <   3   <   4   <   5   <   6   <   7   <   8   <   9   <   10  <   11
-//   (unless in Mode 1 and the BG3 high priority flag is set, which moves BG3.1 to highest priority)
-// Mode 2-7 priorities:
-//   OBJ.3 > BG1.1 > OBJ.2 > BG2.1 > OBJ.1 > BG1.0 > OBJ.0 > BG2.0
-//     0   <   1   <   2   <   3   <   4   <   5   <   6   <   7
-//   (BG3 and BG4 are never rendered in these modes)
 impl PriorityResolver {
-    fn new(mode: BgMode) -> Self {
+    // Mode 0-1 priorities:
+    //   OBJ.3 > BG1.1 > BG2.1 > OBJ.2 > BG1.0 > BG2.0 > OBJ.1 > BG3.1 > BG4.1 > OBJ.0 > BG3.0 > BG4.0
+    //     0  <    1   <   2   <   3   <   4   <   5   <   6   <   7   <   8   <   9   <   10  <   11
+    //   (unless in Mode 1 and the BG3 high priority flag is set, which moves BG3.1 to highest priority)
+    // Mode 2-7 priorities:
+    //   OBJ.3 > BG1.1 > OBJ.2 > BG2.1 > OBJ.1 > BG1.0 > OBJ.0 > BG2.0
+    //     0   <   1   <   2   <   3   <   4   <   5   <   6   <   7
+    //   (BG3 and BG4 are never rendered in these modes)
+    const OBJ3: u8 = 0;
+    const BG1_HIGH: u8 = 1;
+    const MODE_01_BG2_HIGH: u8 = 2;
+    const MODE_01_OBJ2: u8 = 3;
+    const MODE_01_BG1_LOW: u8 = 4;
+    const MODE_01_BG2_LOW: u8 = 5;
+    const MODE_01_OBJ1: u8 = 6;
+    const BG3_HIGH: u8 = 7;
+    const BG4_HIGH: u8 = 8;
+    const MODE_01_OBJ0: u8 = 9;
+    const BG3_LOW: u8 = 10;
+    const BG4_LOW: u8 = 11;
+
+    // OBJ.3 and BG1.1 have the same priority in modes 2-7 as in modes 0-1
+    const MODE_27_OBJ2: u8 = 2;
+    const MODE_27_BG2_HIGH: u8 = 3;
+    const MODE_27_OBJ1: u8 = 4;
+    const MODE_27_BG1_LOW: u8 = 5;
+    const MODE_27_OBJ0: u8 = 6;
+    const MODE_27_BG2_LOW: u8 = 7;
+
+    fn new(mode: BgMode, bg3_high_priority: bool) -> Self {
         Self {
             is_mode_0_or_1: matches!(mode, BgMode::Zero | BgMode::One),
+            bg3_high_priority: mode == BgMode::One && bg3_high_priority,
             min_priority: u8::MAX,
             min_pixel: Pixel::TRANSPARENT,
             min_layer: Layer::Backdrop,
@@ -200,9 +223,9 @@ impl PriorityResolver {
 
     fn add_bg1(&mut self, pixel: Pixel) {
         let priority = match (self.is_mode_0_or_1, pixel.priority) {
-            (true, 0) => 4,
-            (false, 0) => 5,
-            (_, 1) => 1,
+            (true, 0) => Self::MODE_01_BG1_LOW,
+            (false, 0) => Self::MODE_27_BG1_LOW,
+            (_, 1) => Self::BG1_HIGH,
             _ => panic!("Invalid BG1 pixel priority: {}", pixel.priority),
         };
         self.add_pixel(pixel, Layer::Bg1, priority);
@@ -210,39 +233,42 @@ impl PriorityResolver {
 
     fn add_bg2(&mut self, pixel: Pixel) {
         let priority = match (self.is_mode_0_or_1, pixel.priority) {
-            (true, 0) => 5,
-            (true, 1) => 2,
-            (false, 0) => 7,
-            (false, 1) => 3,
+            (true, 0) => Self::MODE_01_BG2_LOW,
+            (true, 1) => Self::MODE_01_BG2_HIGH,
+            (false, 0) => Self::MODE_27_BG2_LOW,
+            (false, 1) => Self::MODE_27_BG2_HIGH,
             _ => panic!("Invalid BG2 pixel priority: {}", pixel.priority),
         };
         self.add_pixel(pixel, Layer::Bg2, priority);
     }
 
-    fn add_bg3(&mut self, pixel: Pixel, bg3_high_priority: bool) {
-        let priority = match (bg3_high_priority, pixel.priority) {
+    fn add_bg3(&mut self, pixel: Pixel) {
+        if self.bg3_high_priority && pixel.priority == 1 {
             // In mode 1, non-transparent high-priority BG3 pixels display over all other layers
-            (true, 1) => 0,
-            (_, 0) => 10,
-            (false, 1) => 7,
-            _ => panic!("Invalid BG3 pixel priority: {}", pixel.priority),
-        };
+            self.min_priority = 0;
+            self.min_pixel = pixel;
+            self.min_layer = Layer::Bg3;
+            return;
+        }
+
+        let priority = if pixel.priority == 1 { Self::BG3_HIGH } else { Self::BG3_LOW };
         self.add_pixel(pixel, Layer::Bg3, priority);
     }
 
     fn add_bg4(&mut self, pixel: Pixel) {
-        let priority = if pixel.priority == 0 { 11 } else { 8 };
+        let priority = if pixel.priority == 1 { Self::BG4_HIGH } else { Self::BG4_LOW };
         self.add_pixel(pixel, Layer::Bg4, priority);
     }
 
     fn add_obj(&mut self, pixel: Pixel) {
         let priority = match (self.is_mode_0_or_1, pixel.priority) {
-            (true, 0) => 9,
-            (true, 1) | (false, 0) => 6,
-            (true, 2) => 3,
-            (_, 3) => 0,
-            (false, 1) => 4,
-            (false, 2) => 2,
+            (true, 0) => Self::MODE_01_OBJ0,
+            (true, 1) => Self::MODE_01_OBJ1,
+            (true, 2) => Self::MODE_01_OBJ2,
+            (_, 3) => Self::OBJ3,
+            (false, 0) => Self::MODE_27_OBJ0,
+            (false, 1) => Self::MODE_27_OBJ1,
+            (false, 2) => Self::MODE_27_OBJ2,
             _ => panic!("Invalid OBJ pixel priority: {}", pixel.priority),
         };
         self.add_pixel(pixel, Layer::Obj, priority);
@@ -919,7 +945,7 @@ impl Ppu {
 
         let mode = self.registers.bg_mode;
 
-        let mut priority_resolver = PriorityResolver::new(mode);
+        let mut priority_resolver = PriorityResolver::new(mode, self.registers.mode_1_bg3_priority);
 
         if bg_enabled[0]
             && !(bg_disabled_in_window[0]
@@ -963,8 +989,7 @@ impl Ppu {
         {
             let bg3_pixel = self.buffers.bg_pixels[2][x as usize];
             if !bg3_pixel.is_transparent() {
-                let bg3_high_priority = mode == BgMode::One && self.registers.mode_1_bg3_priority;
-                priority_resolver.add_bg3(bg3_pixel, bg3_high_priority);
+                priority_resolver.add_bg3(bg3_pixel);
             }
         }
 
