@@ -174,96 +174,91 @@ enum Layer {
 
 #[derive(Debug, Clone)]
 struct PriorityResolver {
-    mode: BgMode,
-    layers: [Option<Pixel>; 12],
+    is_mode_0_or_1: bool,
+    min_priority: u8,
+    min_pixel: Pixel,
+    min_layer: Layer,
 }
 
+// Mode 0-1 priorities:
+//   OBJ.3 > BG1.1 > BG2.1 > OBJ.2 > BG1.0 > BG2.0 > OBJ.1 > BG3.1 > BG4.1 > OBJ.0 > BG3.0 > BG4.0
+//     0  <    1   <   2   <   3   <   4   <   5   <   6   <   7   <   8   <   9   <   10  <   11
+//   (unless in Mode 1 and the BG3 high priority flag is set, which moves BG3.1 to highest priority)
+// Mode 2-7 priorities:
+//   OBJ.3 > BG1.1 > OBJ.2 > BG2.1 > OBJ.1 > BG1.0 > OBJ.0 > BG2.0
+//     0   <   1   <   2   <   3   <   4   <   5   <   6   <   7
+//   (BG3 and BG4 are never rendered in these modes)
 impl PriorityResolver {
-    const MODE_01_LAYERS: [Layer; 12] = [
-        Layer::Obj,
-        Layer::Bg1,
-        Layer::Bg2,
-        Layer::Obj,
-        Layer::Bg1,
-        Layer::Bg2,
-        Layer::Obj,
-        Layer::Bg3,
-        Layer::Bg4,
-        Layer::Obj,
-        Layer::Bg3,
-        Layer::Bg4,
-    ];
-    const OTHER_MODE_LAYERS: [Layer; 8] = [
-        Layer::Obj,
-        Layer::Bg1,
-        Layer::Obj,
-        Layer::Bg2,
-        Layer::Obj,
-        Layer::Bg1,
-        Layer::Obj,
-        Layer::Bg2,
-    ];
-
     fn new(mode: BgMode) -> Self {
-        Self { mode, layers: [None; 12] }
-    }
-
-    fn add(&mut self, layer: Layer, pixel: Pixel) {
-        let idx = match self.mode {
-            BgMode::Zero | BgMode::One => match (layer, pixel.priority) {
-                // Modes 0-1:
-                // OBJ.3 > BG1.1 > BG2.1 > OBJ.2 > BG1.0 > BG2.0 > OBJ.1 > BG3.1 > BG4.1 > OBJ.0 > BG3.0 > BG4.0
-                (Layer::Obj, 3) => 0,
-                (Layer::Bg1, 1) => 1,
-                (Layer::Bg2, 1) => 2,
-                (Layer::Obj, 2) => 3,
-                (Layer::Bg1, 0) => 4,
-                (Layer::Bg2, 0) => 5,
-                (Layer::Obj, 1) => 6,
-                (Layer::Bg3, 1) => 7,
-                (Layer::Bg4, 1) => 8,
-                (Layer::Obj, 0) => 9,
-                (Layer::Bg3, 0) => 10,
-                (Layer::Bg4, 0) => 11,
-                _ => panic!(
-                    "invalid mode/layer/priority combination: {:?} / {layer:?} / {}",
-                    self.mode, pixel.priority
-                ),
-            },
-            _ => match (layer, pixel.priority) {
-                // Modes 2-7:
-                // OBJ.3 > BG1.1 > OBJ.2 > BG2.1 > OBJ.1 > BG1.0 > OBJ.0 > BG2.0
-                (Layer::Obj, 3) => 0,
-                (Layer::Bg1, 1) => 1,
-                (Layer::Obj, 2) => 2,
-                (Layer::Bg2, 1) => 3,
-                (Layer::Obj, 1) => 4,
-                (Layer::Bg1, 0) => 5,
-                (Layer::Obj, 0) => 6,
-                (Layer::Bg2, 0) => 7,
-                _ => panic!(
-                    "invalid mode/layer/priority combination: {:?} / {layer:?} / {}",
-                    self.mode, pixel.priority
-                ),
-            },
-        };
-        self.layers[idx] = Some(pixel);
-    }
-
-    fn get(&self, bg3_high_priority: bool) -> Option<(Pixel, Layer)> {
-        if bg3_high_priority {
-            // BG3.1 is at idx 7 in Mode 1
-            if let Some(pixel) = self.layers[7] {
-                return Some((pixel, Layer::Bg3));
-            }
+        Self {
+            is_mode_0_or_1: matches!(mode, BgMode::Zero | BgMode::One),
+            min_priority: u8::MAX,
+            min_pixel: Pixel::TRANSPARENT,
+            min_layer: Layer::Backdrop,
         }
+    }
 
-        self.layers.iter().copied().enumerate().find_map(|(i, color)| {
-            color.map(|pixel| match self.mode {
-                BgMode::Zero | BgMode::One => (pixel, Self::MODE_01_LAYERS[i]),
-                _ => (pixel, Self::OTHER_MODE_LAYERS[i]),
-            })
-        })
+    fn add_bg1(&mut self, pixel: Pixel) {
+        let priority = match (self.is_mode_0_or_1, pixel.priority) {
+            (true, 0) => 4,
+            (false, 0) => 5,
+            (_, 1) => 1,
+            _ => panic!("Invalid BG1 pixel priority: {}", pixel.priority),
+        };
+        self.add_pixel(pixel, Layer::Bg1, priority);
+    }
+
+    fn add_bg2(&mut self, pixel: Pixel) {
+        let priority = match (self.is_mode_0_or_1, pixel.priority) {
+            (true, 0) => 5,
+            (true, 1) => 2,
+            (false, 0) => 7,
+            (false, 1) => 3,
+            _ => panic!("Invalid BG2 pixel priority: {}", pixel.priority),
+        };
+        self.add_pixel(pixel, Layer::Bg2, priority);
+    }
+
+    fn add_bg3(&mut self, pixel: Pixel, bg3_high_priority: bool) {
+        let priority = match (bg3_high_priority, pixel.priority) {
+            // In mode 1, non-transparent high-priority BG3 pixels display over all other layers
+            (true, 1) => 0,
+            (_, 0) => 10,
+            (false, 1) => 7,
+            _ => panic!("Invalid BG3 pixel priority: {}", pixel.priority),
+        };
+        self.add_pixel(pixel, Layer::Bg3, priority);
+    }
+
+    fn add_bg4(&mut self, pixel: Pixel) {
+        let priority = if pixel.priority == 0 { 11 } else { 8 };
+        self.add_pixel(pixel, Layer::Bg4, priority);
+    }
+
+    fn add_obj(&mut self, pixel: Pixel) {
+        let priority = match (self.is_mode_0_or_1, pixel.priority) {
+            (true, 0) => 9,
+            (true, 1) | (false, 0) => 6,
+            (true, 2) => 3,
+            (_, 3) => 0,
+            (false, 1) => 4,
+            (false, 2) => 2,
+            _ => panic!("Invalid OBJ pixel priority: {}", pixel.priority),
+        };
+        self.add_pixel(pixel, Layer::Obj, priority);
+    }
+
+    #[inline(always)]
+    fn add_pixel(&mut self, pixel: Pixel, layer: Layer, layer_priority: u8) {
+        if layer_priority < self.min_priority {
+            self.min_priority = layer_priority;
+            self.min_pixel = pixel;
+            self.min_layer = layer;
+        }
+    }
+
+    fn get(&self) -> Option<(Pixel, Layer)> {
+        (self.min_priority != u8::MAX).then_some((self.min_pixel, self.min_layer))
     }
 }
 
@@ -932,7 +927,7 @@ impl Ppu {
         {
             let bg1_pixel = self.buffers.bg_pixels[0][x as usize];
             if !bg1_pixel.is_transparent() {
-                priority_resolver.add(Layer::Bg1, bg1_pixel);
+                priority_resolver.add_bg1(bg1_pixel);
 
                 if mode == BgMode::Seven && self.registers.extbg_enabled {
                     // When EXTBG is enabled in Mode 7, BG1 pixels are duplicated into BG2
@@ -940,14 +935,11 @@ impl Ppu {
                     let bg2_pixel_color = bg1_pixel.color & 0x7F;
                     if bg2_pixel_color != 0 {
                         let bg2_priority = bg1_pixel.color >> 7;
-                        priority_resolver.add(
-                            Layer::Bg2,
-                            Pixel {
-                                priority: bg2_priority,
-                                color: bg2_pixel_color,
-                                palette: bg1_pixel.palette,
-                            },
-                        );
+                        priority_resolver.add_bg2(Pixel {
+                            priority: bg2_priority,
+                            color: bg2_pixel_color,
+                            palette: bg1_pixel.palette,
+                        });
                     }
                 }
             }
@@ -960,7 +952,7 @@ impl Ppu {
         {
             let bg2_pixel = self.buffers.bg_pixels[1][x as usize];
             if !bg2_pixel.is_transparent() {
-                priority_resolver.add(Layer::Bg2, bg2_pixel);
+                priority_resolver.add_bg2(bg2_pixel);
             }
         }
 
@@ -971,7 +963,8 @@ impl Ppu {
         {
             let bg3_pixel = self.buffers.bg_pixels[2][x as usize];
             if !bg3_pixel.is_transparent() {
-                priority_resolver.add(Layer::Bg3, bg3_pixel);
+                let bg3_high_priority = mode == BgMode::One && self.registers.mode_1_bg3_priority;
+                priority_resolver.add_bg3(bg3_pixel, bg3_high_priority);
             }
         }
 
@@ -982,7 +975,7 @@ impl Ppu {
         {
             let bg4_pixel = self.buffers.bg_pixels[3][x as usize];
             if !bg4_pixel.is_transparent() {
-                priority_resolver.add(Layer::Bg4, bg4_pixel);
+                priority_resolver.add_bg4(bg4_pixel);
             }
         }
 
@@ -1002,13 +995,11 @@ impl Ppu {
             let obj_x = if hi_res_mode == HiResMode::True { x / 2 } else { x };
             let obj_pixel = self.buffers.obj_pixels[obj_x as usize];
             if !obj_pixel.is_transparent() {
-                priority_resolver.add(Layer::Obj, obj_pixel);
+                priority_resolver.add_obj(obj_pixel);
             }
         }
 
-        // In mode 1, non-transparent high-priority BG3 pixels display over all other layers
-        let bg3_high_priority = mode == BgMode::One && self.registers.mode_1_bg3_priority;
-        priority_resolver.get(bg3_high_priority)
+        priority_resolver.get()
     }
 
     fn apply_mosaic(
