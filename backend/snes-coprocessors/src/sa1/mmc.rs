@@ -36,12 +36,16 @@ const DEFAULT_BANK_F_ADDR: u32 = 0x300000;
 pub struct Sa1Mmc {
     pub bank_c_base_addr: u32,
     pub bank_c_lorom_mapped: bool,
+    pub lorom_bank_c_addr: u32,
     pub bank_d_base_addr: u32,
     pub bank_d_lorom_mapped: bool,
+    pub lorom_bank_d_addr: u32,
     pub bank_e_base_addr: u32,
     pub bank_e_lorom_mapped: bool,
+    pub lorom_bank_e_addr: u32,
     pub bank_f_base_addr: u32,
     pub bank_f_lorom_mapped: bool,
+    pub lorom_bank_f_addr: u32,
     pub snes_bwram_base_addr: u32,
     pub sa1_bwram_base_addr: u32,
     pub sa1_bwram_source: BwramMapSource,
@@ -53,12 +57,16 @@ impl Sa1Mmc {
         Self {
             bank_c_base_addr: DEFAULT_BANK_C_ADDR,
             bank_c_lorom_mapped: false,
+            lorom_bank_c_addr: DEFAULT_BANK_C_ADDR,
             bank_d_base_addr: DEFAULT_BANK_D_ADDR,
             bank_d_lorom_mapped: false,
+            lorom_bank_d_addr: DEFAULT_BANK_D_ADDR,
             bank_e_base_addr: DEFAULT_BANK_E_ADDR,
             bank_e_lorom_mapped: false,
+            lorom_bank_e_addr: DEFAULT_BANK_E_ADDR,
             bank_f_base_addr: DEFAULT_BANK_F_ADDR,
             bank_f_lorom_mapped: false,
+            lorom_bank_f_addr: DEFAULT_BANK_F_ADDR,
             snes_bwram_base_addr: 0,
             sa1_bwram_base_addr: 0,
             sa1_bwram_source: BwramMapSource::default(),
@@ -72,23 +80,19 @@ impl Sa1Mmc {
         match (bank, offset) {
             (0x00..=0x1F, 0x8000..=0xFFFF) => {
                 // LoROM bank C
-                let base_addr = self.lorom_bank_c_addr();
-                Some(lorom_map_address(base_addr, address))
+                Some(lorom_map_address(self.lorom_bank_c_addr, address))
             }
             (0x20..=0x3F, 0x8000..=0xFFFF) => {
                 // LoROM bank D
-                let base_addr = self.lorom_bank_d_addr();
-                Some(lorom_map_address(base_addr, address))
+                Some(lorom_map_address(self.lorom_bank_d_addr, address))
             }
             (0x80..=0x9F, 0x8000..=0xFFFF) => {
                 // LoROM bank E
-                let base_addr = self.lorom_bank_e_addr();
-                Some(lorom_map_address(base_addr, address))
+                Some(lorom_map_address(self.lorom_bank_e_addr, address))
             }
             (0xA0..=0xBF, 0x8000..=0xFFFF) => {
                 // LoROM bank F
-                let base_addr = self.lorom_bank_f_addr();
-                Some(lorom_map_address(base_addr, address))
+                Some(lorom_map_address(self.lorom_bank_f_addr, address))
             }
             (0xC0..=0xCF, _) => {
                 // HiROM bank C
@@ -110,25 +114,12 @@ impl Sa1Mmc {
         }
     }
 
-    fn lorom_bank_c_addr(&self) -> u32 {
-        if self.bank_c_lorom_mapped { self.bank_c_base_addr } else { DEFAULT_BANK_C_ADDR }
-    }
-
-    fn lorom_bank_d_addr(&self) -> u32 {
-        if self.bank_d_lorom_mapped { self.bank_d_base_addr } else { DEFAULT_BANK_D_ADDR }
-    }
-
-    fn lorom_bank_e_addr(&self) -> u32 {
-        if self.bank_e_lorom_mapped { self.bank_e_base_addr } else { DEFAULT_BANK_E_ADDR }
-    }
-
-    fn lorom_bank_f_addr(&self) -> u32 {
-        if self.bank_f_lorom_mapped { self.bank_f_base_addr } else { DEFAULT_BANK_F_ADDR }
-    }
-
     pub fn write_cxb(&mut self, value: u8) {
         self.bank_c_base_addr = u32::from(value & 0x07) << 20;
         self.bank_c_lorom_mapped = value.bit(7);
+
+        self.lorom_bank_c_addr =
+            if self.bank_c_lorom_mapped { self.bank_c_base_addr } else { DEFAULT_BANK_C_ADDR };
 
         log::trace!("  MMC bank C base address: {:06X}", self.bank_c_base_addr);
         log::trace!("  MMC bank C LoROM mapped: {}", self.bank_c_lorom_mapped);
@@ -138,6 +129,9 @@ impl Sa1Mmc {
         self.bank_d_base_addr = u32::from(value & 0x07) << 20;
         self.bank_d_lorom_mapped = value.bit(7);
 
+        self.lorom_bank_d_addr =
+            if self.bank_d_lorom_mapped { self.bank_d_base_addr } else { DEFAULT_BANK_D_ADDR };
+
         log::trace!("  MMC bank D base address: {:06X}", self.bank_d_base_addr);
         log::trace!("  MMC bank D LoROM mapped: {}", self.bank_d_lorom_mapped);
     }
@@ -146,6 +140,9 @@ impl Sa1Mmc {
         self.bank_e_base_addr = u32::from(value & 0x07) << 20;
         self.bank_e_lorom_mapped = value.bit(7);
 
+        self.lorom_bank_e_addr =
+            if self.bank_e_lorom_mapped { self.bank_e_base_addr } else { DEFAULT_BANK_E_ADDR };
+
         log::trace!("  MMC bank E base address: {:06X}", self.bank_e_base_addr);
         log::trace!("  MMC bank E LoROM mapped: {}", self.bank_e_lorom_mapped);
     }
@@ -153,6 +150,9 @@ impl Sa1Mmc {
     pub fn write_fxb(&mut self, value: u8) {
         self.bank_f_base_addr = u32::from(value & 0x07) << 20;
         self.bank_f_lorom_mapped = value.bit(7);
+
+        self.lorom_bank_f_addr =
+            if self.bank_f_lorom_mapped { self.bank_f_base_addr } else { DEFAULT_BANK_F_ADDR };
 
         log::trace!("  MMC bank F base address: {:06X}", self.bank_f_base_addr);
         log::trace!("  MMC bank F LoROM mapped: {}", self.bank_f_lorom_mapped);
