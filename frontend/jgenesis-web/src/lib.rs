@@ -492,3 +492,8 @@ fn open_emulator(rom: Vec<u8>, file_name: &str, config_ref: &WebConfigRef) -> Em
         _ => panic!("Unsupported extension: {file_ext}"),
     }
 }
+
+#[wasm_bindgen]
+pub fn build_commit_hash() -> Option<String> {
+    option_env!("JGENESIS_COMMIT").map(String::from)
+}
