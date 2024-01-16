@@ -1,5 +1,10 @@
 use wasm_bindgen::prelude::*;
 
+#[wasm_bindgen]
+extern "C" {
+    pub fn alert(message: &str);
+}
+
 #[wasm_bindgen(module = "/js/ui.js")]
 extern "C" {
     pub fn showUi();

@@ -309,24 +309,26 @@
             function downloadSaveFile() {
                 let currentFileName = channel.current_file_name();
                 let saveBytesB64 = localStorage.getItem(currentFileName);
-                if (saveBytesB64) {
-                    let saveBytes = base64_decode(saveBytesB64);
-                    if (saveBytes) {
-                        let saveFileName = currentFileName.replace(/\.[a-zA-Z]*$/, ".sav");
-
-                        let a = document.createElement("a");
-                        a.href = window.URL.createObjectURL(new Blob([saveBytes], {type: "application/octet-stream"}));
-                        a.download = saveFileName;
-
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                    } else {
-                        alert(`Save file for '${currentFileName}' is invalid`);
-                    }
-                } else {
+                if (!saveBytesB64) {
                     alert(`No save file found for '${currentFileName}'`);
+                    return;
                 }
+
+                let saveBytes = base64_decode(saveBytesB64);
+                if (!saveBytes) {
+                    alert(`Save file for '${currentFileName}' is invalid`);
+                    return;
+                }
+
+                let saveFileName = currentFileName.replace(/\.[a-zA-Z]*$/, ".sav");
+
+                let a = document.createElement("a");
+                a.href = window.URL.createObjectURL(new Blob([saveBytes], {type: "application/octet-stream"}));
+                a.download = saveFileName;
+
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
             }
 
             document.getElementById("open-file").addEventListener("click", () => {

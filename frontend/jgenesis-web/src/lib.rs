@@ -18,6 +18,7 @@ use rfd::AsyncFileDialog;
 use smsgg_core::{SmsGgEmulator, SmsGgInputs};
 use snes_core::api::{CoprocessorRoms, SnesEmulator};
 use snes_core::input::SnesInputs;
+use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::path::Path;
 use wasm_bindgen::prelude::*;
@@ -57,11 +58,6 @@ impl LocalStorageSaveWriter {
     fn new() -> Self {
         Self { file_name: String::new(), buffer: Vec::new() }
     }
-
-    fn read_save(&self) -> Option<Vec<u8>> {
-        let save_bytes_b64 = js::localStorageGet(&self.file_name)?;
-        general_purpose::STANDARD.decode(save_bytes_b64).ok()
-    }
 }
 
 impl SaveWriter for LocalStorageSaveWriter {
@@ -81,6 +77,11 @@ impl SaveWriter for LocalStorageSaveWriter {
 
         Ok(())
     }
+}
+
+fn read_save_file(file_name: &str) -> Option<Vec<u8>> {
+    js::localStorageGet(file_name)
+        .and_then(|save_bytes_b64| general_purpose::STANDARD.decode(save_bytes_b64).ok())
 }
 
 fn window_size_fn(window: &Window) -> (u32, u32) {
@@ -299,7 +300,7 @@ fn handle_snes_input(inputs: &mut SnesInputs, event: &WindowEvent<'_>) {
 #[derive(Debug, Clone)]
 enum JgenesisUserEvent {
     FileOpen { contents: Vec<u8>, file_name: String },
-    UploadSaveFile { contents: Vec<u8> },
+    UploadSaveFile { contents: Vec<u8>, contents_base64: String },
 }
 
 /// # Panics
@@ -380,22 +381,39 @@ fn run_event_loop(
             JgenesisUserEvent::FileOpen { contents, file_name } => {
                 current_rom = Some((contents.clone(), file_name.clone()));
 
-                save_writer.file_name = file_name.clone();
-                let save_bytes = save_writer.read_save();
+                let save_bytes = read_save_file(&file_name);
 
-                emulator = open_emulator(contents, save_bytes, &file_name, &config_ref);
+                emulator = match open_emulator(contents, save_bytes, &file_name, &config_ref) {
+                    Ok(emulator) => emulator,
+                    Err(err) => {
+                        js::alert(&format!("Error opening ROM file: {err}"));
+                        return;
+                    }
+                };
 
                 emulator_channel.set_current_file_name(file_name.clone());
+                save_writer.file_name = file_name.clone();
 
                 js::setRomTitle(&emulator.rom_title(&file_name));
                 js::setSaveUiEnabled(emulator.has_persistent_save());
 
                 js::focusCanvas();
             }
-            JgenesisUserEvent::UploadSaveFile { contents } => {
+            JgenesisUserEvent::UploadSaveFile { contents, contents_base64 } => {
                 let Some((rom, file_name)) = current_rom.clone() else { return };
 
-                emulator = open_emulator(rom, Some(contents), &file_name, &config_ref);
+                // Immediately persist save file because it won't get written again until the game writes to SRAM
+                js::localStorageSet(&file_name, &contents_base64);
+
+                emulator = match open_emulator(rom, Some(contents), &file_name, &config_ref) {
+                    Ok(emulator) => emulator,
+                    Err(err) => {
+                        js::alert(&format!(
+                            "Error resetting emulator after save file upload: {err}"
+                        ));
+                        return;
+                    }
+                };
 
                 js::focusCanvas();
             }
@@ -439,8 +457,14 @@ fn run_event_loop(
                     EmulatorCommand::Reset => {
                         let Some((rom, file_name)) = current_rom.clone() else { continue };
 
-                        let save_bytes = save_writer.read_save();
-                        emulator = open_emulator(rom, save_bytes, &file_name, &config_ref);
+                        let save_bytes = read_save_file(&file_name);
+                        emulator = match open_emulator(rom, save_bytes, &file_name, &config_ref) {
+                            Ok(emulator) => emulator,
+                            Err(err) => {
+                                js::alert(&format!("Error resetting emulator: {err}"));
+                                continue;
+                            }
+                        };
 
                         js::focusCanvas();
                     }
@@ -508,9 +532,10 @@ async fn upload_save_file(event_loop_proxy: EventLoopProxy<JgenesisUserEvent>) {
     let Some(file) = file else { return };
 
     let contents = file.read().await;
+    let contents_base64 = general_purpose::STANDARD.encode(&contents);
 
     event_loop_proxy
-        .send_event(JgenesisUserEvent::UploadSaveFile { contents })
+        .send_event(JgenesisUserEvent::UploadSaveFile { contents, contents_base64 })
         .expect("Unable to send upload save file event");
 }
 
@@ -520,7 +545,7 @@ fn open_emulator(
     save_bytes: Option<Vec<u8>>,
     file_name: &str,
     config_ref: &WebConfigRef,
-) -> Emulator {
+) -> Result<Emulator, Box<dyn Error>> {
     let file_ext = Path::new(file_name).extension().map(|ext| ext.to_string_lossy().to_string()).unwrap_or_else(|| {
         log::warn!("Unable to determine file extension of uploaded file; defaulting to Genesis emulator");
         "md".into()
@@ -540,7 +565,7 @@ fn open_emulator(
                 save_bytes,
                 config_ref.borrow().smsgg.to_emulator_config(console),
             );
-            Emulator::SmsGg(emulator, SmsGgInputs::default(), console)
+            Ok(Emulator::SmsGg(emulator, SmsGgInputs::default(), console))
         }
         "md" | "bin" => {
             js::showGenesisConfig();
@@ -550,21 +575,21 @@ fn open_emulator(
                 save_bytes,
                 config_ref.borrow().genesis.to_emulator_config(),
             );
-            Emulator::Genesis(emulator, GenesisInputs::default())
+            Ok(Emulator::Genesis(emulator, GenesisInputs::default()))
         }
         "sfc" | "smc" => {
-            js::showSnesConfig();
-
             let emulator = SnesEmulator::create(
                 rom,
                 save_bytes,
                 config_ref.borrow().snes.to_emulator_config(),
                 CoprocessorRoms::none(),
-            )
-            .expect("Unable to create SNES emulator");
-            Emulator::Snes(emulator, SnesInputs::default())
+            )?;
+
+            js::showSnesConfig();
+
+            Ok(Emulator::Snes(emulator, SnesInputs::default()))
         }
-        _ => panic!("Unsupported extension: {file_ext}"),
+        _ => Err(format!("Unsupported file extension: {file_ext}").into()),
     }
 }
 
