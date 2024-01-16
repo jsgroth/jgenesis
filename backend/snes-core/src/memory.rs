@@ -166,6 +166,10 @@ impl Memory {
         self.cartridge.sram()
     }
 
+    pub fn has_sram(&self) -> bool {
+        self.cartridge.has_sram()
+    }
+
     pub fn cpu_open_bus(&self) -> u8 {
         self.cpu_open_bus
     }

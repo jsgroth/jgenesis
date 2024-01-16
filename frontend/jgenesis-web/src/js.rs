@@ -15,4 +15,10 @@ extern "C" {
     pub fn setCursorVisible(visible: bool);
 
     pub fn setRomTitle(rom_title: &str);
+
+    pub fn setSaveUiEnabled(save_ui_enabled: bool);
+
+    pub fn localStorageGet(key: &str) -> Option<String>;
+
+    pub fn localStorageSet(key: &str, value: &str);
 }

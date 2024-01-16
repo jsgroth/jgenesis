@@ -148,6 +148,12 @@ impl SmsGgEmulator {
         self.vdp_version
     }
 
+    #[inline]
+    #[must_use]
+    pub fn has_sram(&self) -> bool {
+        self.memory.cartridge_has_battery()
+    }
+
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
         let crop_vertical_border =
             self.vdp_version.is_master_system() && self.sms_crop_vertical_border;

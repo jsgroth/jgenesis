@@ -265,6 +265,12 @@ impl GenesisEmulator {
         self.memory.game_title()
     }
 
+    #[inline]
+    #[must_use]
+    pub fn has_sram(&self) -> bool {
+        self.memory.is_external_ram_persistent()
+    }
+
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
         render_frame(
             &self.vdp,

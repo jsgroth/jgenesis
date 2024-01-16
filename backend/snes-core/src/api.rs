@@ -207,8 +207,15 @@ impl SnesEmulator {
         Ok(emulator)
     }
 
+    #[must_use]
     pub fn cartridge_title(&mut self) -> String {
         self.memory.cartridge_title()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn has_sram(&self) -> bool {
+        self.memory.has_sram()
     }
 
     pub fn copy_cgram(&self, out: &mut [Color]) {

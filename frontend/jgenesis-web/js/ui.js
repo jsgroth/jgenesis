@@ -48,3 +48,35 @@ export function setCursorVisible(visible) {
 export function setRomTitle(romTitle) {
     document.getElementById("jgenesis-rom-title").innerText = romTitle;
 }
+
+/**
+ * @param saveUiEnabled {boolean}
+ */
+export function setSaveUiEnabled(saveUiEnabled) {
+    let saveButtons = document.getElementsByClassName("save-button");
+    if (saveUiEnabled) {
+        for (let i = 0; i < saveButtons.length; i++) {
+            saveButtons[i].removeAttribute("disabled");
+        }
+    } else {
+        for (let i = 0; i < saveButtons.length; i++) {
+            saveButtons[i].setAttribute("disabled", "");
+        }
+    }
+}
+
+/**
+ * @param key {string}
+ * @return {string | null}
+ */
+export function localStorageGet(key) {
+    return localStorage.getItem(key);
+}
+
+/**
+ * @param key {string}
+ * @param value {string}
+ */
+export function localStorageSet(key, value) {
+    localStorage.setItem(key, value);
+}

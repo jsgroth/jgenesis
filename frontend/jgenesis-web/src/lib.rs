@@ -6,6 +6,8 @@ mod js;
 
 use crate::audio::AudioQueue;
 use crate::config::{EmulatorChannel, EmulatorCommand, WebConfig, WebConfigRef};
+use base64::engine::general_purpose;
+use base64::Engine;
 use genesis_core::{GenesisEmulator, GenesisInputs};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, FrameSize, Renderer, SaveWriter, TickEffect, TimingMode,
@@ -16,7 +18,7 @@ use rfd::AsyncFileDialog;
 use smsgg_core::{SmsGgEmulator, SmsGgInputs};
 use snes_core::api::{CoprocessorRoms, SnesEmulator};
 use snes_core::input::SnesInputs;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Display};
 use std::path::Path;
 use wasm_bindgen::prelude::*;
 use web_sys::{AudioContext, AudioContextOptions};
@@ -46,23 +48,38 @@ impl AudioOutput for WebAudioOutput {
     }
 }
 
-#[derive(Debug)]
-struct Null;
+struct LocalStorageSaveWriter {
+    file_name: String,
+    buffer: Vec<u8>,
+}
 
-impl SaveWriter for Null {
+impl LocalStorageSaveWriter {
+    fn new() -> Self {
+        Self { file_name: String::new(), buffer: Vec::new() }
+    }
+
+    fn read_save(&self) -> Option<Vec<u8>> {
+        let save_bytes_b64 = js::localStorageGet(&self.file_name)?;
+        general_purpose::STANDARD.decode(save_bytes_b64).ok()
+    }
+}
+
+impl SaveWriter for LocalStorageSaveWriter {
     type Err = String;
 
     fn persist_save<'a>(
         &mut self,
-        _save_bytes: impl Iterator<Item = &'a [u8]>,
+        save_bytes: impl Iterator<Item = &'a [u8]>,
     ) -> Result<(), Self::Err> {
-        Ok(())
-    }
-}
+        self.buffer.clear();
+        for slice in save_bytes {
+            self.buffer.extend(slice);
+        }
 
-impl Display for Null {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "")
+        let serialized = general_purpose::STANDARD.encode(&self.buffer);
+        js::localStorageSet(&self.file_name, &serialized);
+
+        Ok(())
     }
 }
 
@@ -192,6 +209,15 @@ impl Emulator {
             Self::Snes(emulator, ..) => emulator.cartridge_title(),
         }
     }
+
+    fn has_persistent_save(&self) -> bool {
+        match self {
+            Self::None => false,
+            Self::SmsGg(emulator, ..) => emulator.has_sram(),
+            Self::Genesis(emulator, ..) => emulator.has_sram(),
+            Self::Snes(emulator, ..) => emulator.has_sram(),
+        }
+    }
 }
 
 fn handle_smsgg_input(inputs: &mut SmsGgInputs, event: &WindowEvent<'_>) {
@@ -273,6 +299,7 @@ fn handle_snes_input(inputs: &mut SnesInputs, event: &WindowEvent<'_>) {
 #[derive(Debug, Clone)]
 enum JgenesisUserEvent {
     FileOpen { contents: Vec<u8>, file_name: String },
+    UploadSaveFile { contents: Vec<u8> },
 }
 
 /// # Panics
@@ -311,15 +338,26 @@ pub async fn run_emulator(config_ref: WebConfigRef, emulator_channel: EmulatorCh
         .await
         .expect("Unable to initialize audio worklet");
 
+    let save_writer = LocalStorageSaveWriter::new();
+
     js::showUi();
 
-    run_event_loop(event_loop, renderer, audio_output, audio_ctx, config_ref, emulator_channel);
+    run_event_loop(
+        event_loop,
+        renderer,
+        audio_output,
+        save_writer,
+        audio_ctx,
+        config_ref,
+        emulator_channel,
+    );
 }
 
 fn run_event_loop(
     event_loop: EventLoop<JgenesisUserEvent>,
     mut renderer: WgpuRenderer<Window>,
     mut audio_output: WebAudioOutput,
+    mut save_writer: LocalStorageSaveWriter,
     audio_ctx: AudioContext,
     config_ref: WebConfigRef,
     emulator_channel: EmulatorChannel,
@@ -342,9 +380,23 @@ fn run_event_loop(
             JgenesisUserEvent::FileOpen { contents, file_name } => {
                 current_rom = Some((contents.clone(), file_name.clone()));
 
-                emulator = open_emulator(contents, &file_name, &config_ref);
+                save_writer.file_name = file_name.clone();
+                let save_bytes = save_writer.read_save();
+
+                emulator = open_emulator(contents, save_bytes, &file_name, &config_ref);
+
+                emulator_channel.set_current_file_name(file_name.clone());
 
                 js::setRomTitle(&emulator.rom_title(&file_name));
+                js::setSaveUiEnabled(emulator.has_persistent_save());
+
+                js::focusCanvas();
+            }
+            JgenesisUserEvent::UploadSaveFile { contents } => {
+                let Some((rom, file_name)) = current_rom.clone() else { return };
+
+                emulator = open_emulator(rom, Some(contents), &file_name, &config_ref);
+
                 js::focusCanvas();
             }
         },
@@ -365,7 +417,7 @@ fn run_event_loop(
                 let _: Promise = audio_ctx.resume().expect("Unable to start audio playback");
             }
 
-            emulator.render_frame(&mut renderer, &mut audio_output, &mut Null);
+            emulator.render_frame(&mut renderer, &mut audio_output, &mut save_writer);
 
             let config = config_ref.borrow().clone();
             if config != current_config {
@@ -379,9 +431,16 @@ fn run_event_loop(
                     EmulatorCommand::OpenFile => {
                         wasm_bindgen_futures::spawn_local(open_file(event_loop_proxy.clone()));
                     }
+                    EmulatorCommand::UploadSaveFile => {
+                        wasm_bindgen_futures::spawn_local(upload_save_file(
+                            event_loop_proxy.clone(),
+                        ));
+                    }
                     EmulatorCommand::Reset => {
                         let Some((rom, file_name)) = current_rom.clone() else { continue };
-                        emulator = open_emulator(rom, &file_name, &config_ref);
+
+                        let save_bytes = save_writer.read_save();
+                        emulator = open_emulator(rom, save_bytes, &file_name, &config_ref);
 
                         js::focusCanvas();
                     }
@@ -444,8 +503,24 @@ async fn open_file(event_loop_proxy: EventLoopProxy<JgenesisUserEvent>) {
         .expect("Unable to send file opened event");
 }
 
+async fn upload_save_file(event_loop_proxy: EventLoopProxy<JgenesisUserEvent>) {
+    let file = AsyncFileDialog::new().add_filter("sav", &["sav", "srm"]).pick_file().await;
+    let Some(file) = file else { return };
+
+    let contents = file.read().await;
+
+    event_loop_proxy
+        .send_event(JgenesisUserEvent::UploadSaveFile { contents })
+        .expect("Unable to send upload save file event");
+}
+
 #[allow(clippy::map_unwrap_or)]
-fn open_emulator(rom: Vec<u8>, file_name: &str, config_ref: &WebConfigRef) -> Emulator {
+fn open_emulator(
+    rom: Vec<u8>,
+    save_bytes: Option<Vec<u8>>,
+    file_name: &str,
+    config_ref: &WebConfigRef,
+) -> Emulator {
     let file_ext = Path::new(file_name).extension().map(|ext| ext.to_string_lossy().to_string()).unwrap_or_else(|| {
         log::warn!("Unable to determine file extension of uploaded file; defaulting to Genesis emulator");
         "md".into()
@@ -462,7 +537,7 @@ fn open_emulator(rom: Vec<u8>, file_name: &str, config_ref: &WebConfigRef) -> Em
             };
             let emulator = SmsGgEmulator::create(
                 rom,
-                None,
+                save_bytes,
                 config_ref.borrow().smsgg.to_emulator_config(console),
             );
             Emulator::SmsGg(emulator, SmsGgInputs::default(), console)
@@ -472,7 +547,7 @@ fn open_emulator(rom: Vec<u8>, file_name: &str, config_ref: &WebConfigRef) -> Em
 
             let emulator = GenesisEmulator::create(
                 rom,
-                None,
+                save_bytes,
                 config_ref.borrow().genesis.to_emulator_config(),
             );
             Emulator::Genesis(emulator, GenesisInputs::default())
@@ -482,7 +557,7 @@ fn open_emulator(rom: Vec<u8>, file_name: &str, config_ref: &WebConfigRef) -> Em
 
             let emulator = SnesEmulator::create(
                 rom,
-                None,
+                save_bytes,
                 config_ref.borrow().snes.to_emulator_config(),
                 CoprocessorRoms::none(),
             )
@@ -493,7 +568,14 @@ fn open_emulator(rom: Vec<u8>, file_name: &str, config_ref: &WebConfigRef) -> Em
     }
 }
 
+#[must_use]
 #[wasm_bindgen]
 pub fn build_commit_hash() -> Option<String> {
     option_env!("JGENESIS_COMMIT").map(String::from)
+}
+
+#[must_use]
+#[wasm_bindgen]
+pub fn base64_decode(s: &str) -> Option<Vec<u8>> {
+    general_purpose::STANDARD.decode(s).ok()
 }

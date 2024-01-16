@@ -303,39 +303,50 @@ impl Default for WebConfigRef {
 pub enum EmulatorCommand {
     OpenFile,
     Reset,
+    UploadSaveFile,
 }
 
 #[wasm_bindgen]
-pub struct EmulatorChannel(Rc<RefCell<VecDeque<EmulatorCommand>>>);
+#[derive(Clone, Default)]
+pub struct EmulatorChannel {
+    commands: Rc<RefCell<VecDeque<EmulatorCommand>>>,
+    current_file_name: Rc<RefCell<String>>,
+}
 
 #[wasm_bindgen]
 impl EmulatorChannel {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
-        Self(Rc::default())
+        Self::default()
     }
 
     pub fn request_open_file(&self) {
-        self.0.borrow_mut().push_back(EmulatorCommand::OpenFile);
+        self.commands.borrow_mut().push_back(EmulatorCommand::OpenFile);
     }
 
     pub fn request_reset(&self) {
-        self.0.borrow_mut().push_back(EmulatorCommand::Reset);
+        self.commands.borrow_mut().push_back(EmulatorCommand::Reset);
+    }
+
+    pub fn request_upload_save_file(&self) {
+        self.commands.borrow_mut().push_back(EmulatorCommand::UploadSaveFile);
+    }
+
+    pub fn current_file_name(&self) -> String {
+        self.current_file_name.borrow().clone()
     }
 
     pub fn clone(&self) -> Self {
-        Self(Rc::clone(&self.0))
+        <Self as Clone>::clone(self)
     }
 }
 
 impl EmulatorChannel {
     pub fn pop_command(&self) -> Option<EmulatorCommand> {
-        self.0.borrow_mut().pop_front()
+        self.commands.borrow_mut().pop_front()
     }
-}
 
-impl Default for EmulatorChannel {
-    fn default() -> Self {
-        Self::new()
+    pub fn set_current_file_name(&self, current_file_name: String) {
+        *self.current_file_name.borrow_mut() = current_file_name;
     }
 }
