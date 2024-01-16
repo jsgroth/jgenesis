@@ -12,6 +12,7 @@ use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{Color, FrameSize, TimingMode};
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
+use std::array;
 use std::ops::{Deref, DerefMut};
 
 const MAX_BRIGHTNESS: u8 = 15;
@@ -108,21 +109,42 @@ impl Pixel {
     }
 }
 
+#[derive(Debug, Clone, Copy, Encode, Decode)]
+struct RenderedPixel {
+    color: u16,
+    palette: u8,
+    layer: Layer,
+}
+
+impl Default for RenderedPixel {
+    fn default() -> Self {
+        Self { color: 0, palette: 0, layer: Layer::Backdrop }
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 struct Buffers {
     bg_pixels: [[Pixel; HIRES_SCREEN_WIDTH]; 4],
     obj_pixels: [Pixel; NORMAL_SCREEN_WIDTH],
     offset_per_tile_h_scroll: [[u16; HIRES_SCREEN_WIDTH]; 2],
     offset_per_tile_v_scroll: [[u16; HIRES_SCREEN_WIDTH]; 2],
+    main_screen_pixels: [PriorityResolver; NORMAL_SCREEN_WIDTH],
+    main_screen_rendered_pixels: [RenderedPixel; NORMAL_SCREEN_WIDTH],
+    sub_screen_pixels: [PriorityResolver; NORMAL_SCREEN_WIDTH],
+    sub_screen_rendered_pixels: [RenderedPixel; NORMAL_SCREEN_WIDTH],
 }
 
 impl Buffers {
     fn new() -> Self {
         Self {
-            bg_pixels: [[Pixel::TRANSPARENT; HIRES_SCREEN_WIDTH]; 4],
-            obj_pixels: [Pixel::TRANSPARENT; NORMAL_SCREEN_WIDTH],
-            offset_per_tile_h_scroll: [[0; HIRES_SCREEN_WIDTH]; 2],
-            offset_per_tile_v_scroll: [[0; HIRES_SCREEN_WIDTH]; 2],
+            bg_pixels: array::from_fn(|_| array::from_fn(|_| Pixel::TRANSPARENT)),
+            obj_pixels: array::from_fn(|_| Pixel::TRANSPARENT),
+            offset_per_tile_h_scroll: array::from_fn(|_| array::from_fn(|_| 0)),
+            offset_per_tile_v_scroll: array::from_fn(|_| array::from_fn(|_| 0)),
+            main_screen_pixels: array::from_fn(|_| PriorityResolver::new()),
+            main_screen_rendered_pixels: array::from_fn(|_| RenderedPixel::default()),
+            sub_screen_pixels: array::from_fn(|_| PriorityResolver::new()),
+            sub_screen_rendered_pixels: array::from_fn(|_| RenderedPixel::default()),
         }
     }
 }
@@ -162,7 +184,7 @@ pub enum PpuTickEffect {
     FrameComplete,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum Layer {
     Bg1,
     Bg2,
@@ -172,10 +194,8 @@ enum Layer {
     Backdrop,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, Encode, Decode)]
 struct PriorityResolver {
-    is_mode_0_or_1: bool,
-    bg3_high_priority: bool,
     min_priority: u8,
     min_pixel: Pixel,
     min_layer: Layer,
@@ -211,18 +231,12 @@ impl PriorityResolver {
     const MODE_27_OBJ0: u8 = 6;
     const MODE_27_BG2_LOW: u8 = 7;
 
-    fn new(mode: BgMode, bg3_high_priority: bool) -> Self {
-        Self {
-            is_mode_0_or_1: matches!(mode, BgMode::Zero | BgMode::One),
-            bg3_high_priority: mode == BgMode::One && bg3_high_priority,
-            min_priority: u8::MAX,
-            min_pixel: Pixel::TRANSPARENT,
-            min_layer: Layer::Backdrop,
-        }
+    fn new() -> Self {
+        Self { min_priority: u8::MAX, min_pixel: Pixel::TRANSPARENT, min_layer: Layer::Backdrop }
     }
 
-    fn add_bg1(&mut self, pixel: Pixel) {
-        let priority = match (self.is_mode_0_or_1, pixel.priority) {
+    fn add_bg1(&mut self, pixel: Pixel, is_mode_0_or_1: bool) {
+        let priority = match (is_mode_0_or_1, pixel.priority) {
             (true, 0) => Self::MODE_01_BG1_LOW,
             (false, 0) => Self::MODE_27_BG1_LOW,
             (_, 1) => Self::BG1_HIGH,
@@ -231,8 +245,8 @@ impl PriorityResolver {
         self.add_pixel(pixel, Layer::Bg1, priority);
     }
 
-    fn add_bg2(&mut self, pixel: Pixel) {
-        let priority = match (self.is_mode_0_or_1, pixel.priority) {
+    fn add_bg2(&mut self, pixel: Pixel, is_mode_0_or_1: bool) {
+        let priority = match (is_mode_0_or_1, pixel.priority) {
             (true, 0) => Self::MODE_01_BG2_LOW,
             (true, 1) => Self::MODE_01_BG2_HIGH,
             (false, 0) => Self::MODE_27_BG2_LOW,
@@ -242,8 +256,8 @@ impl PriorityResolver {
         self.add_pixel(pixel, Layer::Bg2, priority);
     }
 
-    fn add_bg3(&mut self, pixel: Pixel) {
-        if self.bg3_high_priority && pixel.priority == 1 {
+    fn add_bg3(&mut self, pixel: Pixel, bg3_high_priority: bool) {
+        if bg3_high_priority && pixel.priority == 1 {
             // In mode 1, non-transparent high-priority BG3 pixels display over all other layers
             self.min_priority = 0;
             self.min_pixel = pixel;
@@ -260,8 +274,8 @@ impl PriorityResolver {
         self.add_pixel(pixel, Layer::Bg4, priority);
     }
 
-    fn add_obj(&mut self, pixel: Pixel) {
-        let priority = match (self.is_mode_0_or_1, pixel.priority) {
+    fn add_obj(&mut self, pixel: Pixel, is_mode_0_or_1: bool) {
+        let priority = match (is_mode_0_or_1, pixel.priority) {
             (true, 0) => Self::MODE_01_OBJ0,
             (true, 1) => Self::MODE_01_OBJ1,
             (true, 2) => Self::MODE_01_OBJ2,
@@ -283,7 +297,7 @@ impl PriorityResolver {
         }
     }
 
-    fn get(&self) -> Option<(Pixel, Layer)> {
+    fn get(self) -> Option<(Pixel, Layer)> {
         (self.min_priority != u8::MAX).then_some((self.min_pixel, self.min_layer))
     }
 }
@@ -305,6 +319,33 @@ struct SpriteData {
 enum Screen {
     Main,
     Sub,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct XModifiers {
+    screen_multiplier: u16,
+    screen_offset: u16,
+    window_offset: u16,
+}
+
+impl XModifiers {
+    fn new(hi_res_mode: HiResMode, screen: Screen) -> Self {
+        let (screen_multiplier, screen_offset, window_offset) = match (hi_res_mode, screen) {
+            (HiResMode::None, _) | (HiResMode::Pseudo, Screen::Main) => (1, 0, 0),
+            (HiResMode::Pseudo, Screen::Sub) => (1, 0, 1),
+            (HiResMode::True, Screen::Main) => (2, 1, 0),
+            (HiResMode::True, Screen::Sub) => (2, 0, 1),
+        };
+        Self { screen_multiplier, screen_offset, window_offset }
+    }
+
+    fn screen_x(self, x: u16) -> u16 {
+        x * self.screen_multiplier + self.screen_offset
+    }
+
+    fn window_x(self, x: u16) -> u16 {
+        x.wrapping_sub(self.window_offset)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -805,96 +846,74 @@ impl Ppu {
     }
 
     fn render_scanline(&mut self, scanline: u16, hi_res_mode: HiResMode) {
+        // Main screen is always rendered
+        self.render_screen_pixels(Screen::Main, hi_res_mode);
+
+        // Sub screen is rendered if in a hi-res mode (which causes even pixels to display the sub screen) OR color math
+        // is enabled for at least one layer and the sub screen is not forced to the subbackdrop color.
+        if hi_res_mode.is_hi_res()
+            || (self.registers.sub_bg_obj_enabled
+                && self.registers.color_math_enabled_for_any_layer())
+        {
+            self.render_screen_pixels(Screen::Sub, hi_res_mode);
+        }
+
         let screen_width =
             if hi_res_mode.is_hi_res() { HIRES_SCREEN_WIDTH } else { NORMAL_SCREEN_WIDTH };
 
         let brightness = self.registers.brightness;
-        let mode = self.registers.bg_mode;
-        let direct_color_mode = self.registers.direct_color_mode_enabled;
-
-        let main_backdrop_color = self.cgram[0];
         let sub_backdrop_color = self.registers.sub_backdrop_color;
 
         for pixel in 0..screen_width as u16 {
-            let main_screen = if hi_res_mode.is_hi_res() && !pixel.bit(0) {
-                // Even pixels draw the sub screen in hi-res mode
-                Screen::Sub
-            } else {
-                Screen::Main
-            };
-
             // In hi-res modes, window coordinates are effectively doubled and then shifted to
             // the right by 1 pixel
             let (screen_x, window_x) = match hi_res_mode {
                 HiResMode::None => (pixel, pixel),
-                HiResMode::Pseudo => (pixel / 2, (pixel / 2).wrapping_sub((pixel & 0x01) ^ 0x01)),
-                HiResMode::True => (pixel, (pixel / 2).wrapping_sub((pixel & 0x01) ^ 0x01)),
+                HiResMode::Pseudo | HiResMode::True => {
+                    (pixel / 2, (pixel / 2).wrapping_sub((pixel & 0x01) ^ 0x01))
+                }
             };
 
-            // Find the frontmost non-transparent pixel in the main screen
-            let (mut main_screen_color, main_screen_palette, main_screen_layer) = self
-                .resolve_screen_color(screen_x, window_x, main_screen, hi_res_mode)
-                .map_or((main_backdrop_color, 0, Layer::Backdrop), |(pixel, layer)| {
-                    let color = resolve_pixel_color(
-                        &self.cgram,
-                        layer,
-                        mode,
-                        direct_color_mode,
-                        pixel.palette,
-                        pixel.color,
-                    );
-                    (color, pixel.palette, layer)
-                });
+            let mut main_screen_pixel = if hi_res_mode.is_hi_res() && !pixel.bit(0) {
+                // Even pixels draw the sub screen in hi-res mode
+                self.buffers.sub_screen_rendered_pixels[screen_x as usize]
+            } else {
+                self.buffers.main_screen_rendered_pixels[screen_x as usize]
+            };
 
             // Check if inside the color window (used for clipping and color math)
-            let in_color_window = self.registers.math_window_mask_logic.apply(
-                self.registers
-                    .math_window_1_area
-                    .to_optional_bool(self.registers.is_inside_window_1(window_x)),
-                self.registers
-                    .math_window_2_area
-                    .to_optional_bool(self.registers.is_inside_window_2(window_x)),
-            );
+            let in_color_window = self.registers.in_math_window(window_x);
 
             let force_main_screen_black =
                 self.registers.force_main_screen_black.enabled(in_color_window);
             if force_main_screen_black {
                 // Pixel is clipped; force color to 0 (black)
-                main_screen_color = 0;
+                main_screen_pixel.color = 0;
             }
 
             // Check if color math is enabled globally and for this layer
             let color_math_enabled_global =
                 self.registers.color_math_enabled.enabled(in_color_window);
 
-            let color_math_enabled_layer = match main_screen_layer {
+            let color_math_enabled_layer = match main_screen_pixel.layer {
                 Layer::Bg1 => self.registers.bg_color_math_enabled[0],
                 Layer::Bg2 => self.registers.bg_color_math_enabled[1],
                 Layer::Bg3 => self.registers.bg_color_math_enabled[2],
                 Layer::Bg4 => self.registers.bg_color_math_enabled[3],
-                Layer::Obj => self.registers.obj_color_math_enabled && main_screen_palette >= 4,
+                Layer::Obj => {
+                    self.registers.obj_color_math_enabled && main_screen_pixel.palette >= 4
+                }
                 Layer::Backdrop => self.registers.backdrop_color_math_enabled,
             };
 
             let snes_color = if color_math_enabled_global && color_math_enabled_layer {
                 // Find the frontmost sub screen pixel
-                let (sub_screen_color, sub_transparent) =
-                    if self.registers.sub_bg_obj_enabled {
-                        self.resolve_screen_color(screen_x, window_x, Screen::Sub, hi_res_mode)
-                            .map_or((sub_backdrop_color, true), |(pixel, layer)| {
-                                let color = resolve_pixel_color(
-                                    &self.cgram,
-                                    layer,
-                                    mode,
-                                    direct_color_mode,
-                                    pixel.palette,
-                                    pixel.color,
-                                );
-                                (color, false)
-                            })
-                    } else {
-                        (sub_backdrop_color, false)
-                    };
+                let (sub_screen_color, sub_transparent) = if self.registers.sub_bg_obj_enabled {
+                    let pixel = self.buffers.sub_screen_rendered_pixels[screen_x as usize];
+                    (pixel.color, pixel.layer == Layer::Backdrop)
+                } else {
+                    (sub_backdrop_color, false)
+                };
 
                 // Apply color math to the main and sub screen pixels
                 // Division only applies if the main pixel was not clipped and the sub pixel is not
@@ -903,12 +922,12 @@ impl Ppu {
                     && !force_main_screen_black
                     && !sub_transparent;
                 self.registers.color_math_operation.apply(
-                    main_screen_color,
+                    main_screen_pixel.color,
                     sub_screen_color,
                     divide,
                 )
             } else {
-                main_screen_color
+                main_screen_pixel.color
             };
 
             let final_color = convert_snes_color(snes_color, brightness);
@@ -924,107 +943,173 @@ impl Ppu {
         }
     }
 
-    fn resolve_screen_color(
-        &self,
-        x: u16,
-        window_x: u16,
-        screen: Screen,
-        hi_res_mode: HiResMode,
-    ) -> Option<(Pixel, Layer)> {
-        let in_window_1 = self.registers.is_inside_window_1(window_x);
-        let in_window_2 = self.registers.is_inside_window_2(window_x);
-
-        let (bg_enabled, bg_disabled_in_window) = match screen {
-            Screen::Main => {
-                (self.registers.main_bg_enabled, self.registers.main_bg_disabled_in_window)
-            }
-            Screen::Sub => {
-                (self.registers.sub_bg_enabled, self.registers.sub_bg_disabled_in_window)
-            }
+    fn render_screen_pixels(&mut self, screen: Screen, hi_res_mode: HiResMode) {
+        let (
+            screen_pixels,
+            screen_rendered_pixels,
+            bg_enabled,
+            bg_disabled_in_window,
+            obj_enabled,
+            obj_disabled_in_window,
+            backdrop_color,
+        ) = match screen {
+            Screen::Main => (
+                &mut self.buffers.main_screen_pixels,
+                &mut self.buffers.main_screen_rendered_pixels,
+                self.registers.main_bg_enabled,
+                self.registers.main_bg_disabled_in_window,
+                self.registers.main_obj_enabled,
+                self.registers.main_obj_disabled_in_window,
+                self.cgram[0],
+            ),
+            Screen::Sub => (
+                &mut self.buffers.sub_screen_pixels,
+                &mut self.buffers.sub_screen_rendered_pixels,
+                self.registers.sub_bg_enabled,
+                self.registers.sub_bg_disabled_in_window,
+                self.registers.sub_obj_enabled,
+                self.registers.sub_obj_disabled_in_window,
+                self.registers.sub_backdrop_color,
+            ),
         };
 
+        screen_pixels.fill(PriorityResolver::new());
+
+        let x_modifiers = XModifiers::new(hi_res_mode, screen);
+
         let mode = self.registers.bg_mode;
+        let is_mode_0_or_1 = matches!(mode, BgMode::Zero | BgMode::One);
 
-        let mut priority_resolver = PriorityResolver::new(mode, self.registers.mode_1_bg3_priority);
+        // OBJ layer (enabled in all modes)
+        if obj_enabled {
+            for (x, priority_resolver) in screen_pixels.iter_mut().enumerate() {
+                if obj_disabled_in_window {
+                    let window_x = x_modifiers.window_x(x as u16);
+                    let obj_in_window = self.registers.obj_in_window(window_x);
+                    if obj_in_window {
+                        continue;
+                    }
+                }
 
-        if bg_enabled[0]
-            && !(bg_disabled_in_window[0]
-                && self.registers.bg_in_window(0, in_window_1, in_window_2))
-        {
-            let bg1_pixel = self.buffers.bg_pixels[0][x as usize];
-            if !bg1_pixel.is_transparent() {
-                priority_resolver.add_bg1(bg1_pixel);
+                let obj_pixel = self.buffers.obj_pixels[x];
+                if !obj_pixel.is_transparent() {
+                    priority_resolver.add_obj(obj_pixel, is_mode_0_or_1);
+                }
+            }
+        }
 
-                if mode == BgMode::Seven && self.registers.extbg_enabled {
-                    // When EXTBG is enabled in Mode 7, BG1 pixels are duplicated into BG2
-                    // but use the highest color bit as priority
-                    let bg2_pixel_color = bg1_pixel.color & 0x7F;
-                    if bg2_pixel_color != 0 {
-                        let bg2_priority = bg1_pixel.color >> 7;
-                        priority_resolver.add_bg2(Pixel {
-                            priority: bg2_priority,
-                            color: bg2_pixel_color,
-                            palette: bg1_pixel.palette,
-                        });
+        // BG1 layer (enabled in all modes)
+        if bg_enabled[0] {
+            for (x, priority_resolver) in screen_pixels.iter_mut().enumerate() {
+                if bg_disabled_in_window[0] {
+                    let window_x = x_modifiers.window_x(x as u16);
+                    let bg1_in_window = self.registers.bg_in_window(0, window_x);
+                    if bg1_in_window {
+                        continue;
+                    }
+                }
+
+                let screen_x = x_modifiers.screen_x(x as u16);
+                let bg1_pixel = self.buffers.bg_pixels[0][screen_x as usize];
+                if !bg1_pixel.is_transparent() {
+                    priority_resolver.add_bg1(bg1_pixel, is_mode_0_or_1);
+
+                    if mode == BgMode::Seven && self.registers.extbg_enabled {
+                        // When EXTBG is enabled in Mode 7, BG1 pixels are duplicated into BG2
+                        // but use the highest color bit as priority
+                        let bg2_pixel_color = bg1_pixel.color & 0x7F;
+                        if bg2_pixel_color != 0 {
+                            let bg2_priority = bg1_pixel.color >> 7;
+                            priority_resolver.add_bg2(
+                                Pixel {
+                                    priority: bg2_priority,
+                                    color: bg2_pixel_color,
+                                    palette: bg1_pixel.palette,
+                                },
+                                is_mode_0_or_1,
+                            );
+                        }
                     }
                 }
             }
         }
 
-        if mode.bg2_enabled()
-            && bg_enabled[1]
-            && !(bg_disabled_in_window[1]
-                && self.registers.bg_in_window(1, in_window_1, in_window_2))
+        // BG2 layer (enabled in all modes except 6 and 7)
+        if mode.bg2_enabled() && bg_enabled[1] {
+            for (x, priority_resolver) in screen_pixels.iter_mut().enumerate() {
+                if bg_disabled_in_window[1] {
+                    let window_x = x_modifiers.window_x(x as u16);
+                    let bg2_in_window = self.registers.bg_in_window(1, window_x);
+                    if bg2_in_window {
+                        continue;
+                    }
+                }
+
+                let screen_x = x_modifiers.screen_x(x as u16);
+                let bg2_pixel = self.buffers.bg_pixels[1][screen_x as usize];
+                if !bg2_pixel.is_transparent() {
+                    priority_resolver.add_bg2(bg2_pixel, is_mode_0_or_1);
+                }
+            }
+        }
+
+        // BG3 layer (enabled in modes 0 and 1)
+        if mode.bg3_enabled() && bg_enabled[2] {
+            let bg3_high_priority = mode == BgMode::One && self.registers.mode_1_bg3_priority;
+
+            for (x, priority_resolver) in screen_pixels.iter_mut().enumerate() {
+                if bg_disabled_in_window[2] {
+                    let window_x = x_modifiers.window_x(x as u16);
+                    let bg3_in_window = self.registers.bg_in_window(2, window_x);
+                    if bg3_in_window {
+                        continue;
+                    }
+                }
+
+                let screen_x = x_modifiers.screen_x(x as u16);
+                let bg3_pixel = self.buffers.bg_pixels[2][screen_x as usize];
+                if !bg3_pixel.is_transparent() {
+                    priority_resolver.add_bg3(bg3_pixel, bg3_high_priority);
+                }
+            }
+        }
+
+        // BG4 layer (enabled in mode 0 only)
+        if mode.bg4_enabled() && bg_enabled[3] {
+            for (x, priority_resolver) in screen_pixels.iter_mut().enumerate() {
+                if bg_disabled_in_window[3] {
+                    let window_x = x_modifiers.window_x(x as u16);
+                    let bg4_in_window = self.registers.bg_in_window(3, window_x);
+                    if bg4_in_window {
+                        continue;
+                    }
+                }
+
+                let screen_x = x_modifiers.screen_x(x as u16);
+                let bg4_pixel = self.buffers.bg_pixels[3][screen_x as usize];
+                if !bg4_pixel.is_transparent() {
+                    priority_resolver.add_bg4(bg4_pixel);
+                }
+            }
+        }
+
+        let backdrop_pixel =
+            RenderedPixel { color: backdrop_color, palette: 0, layer: Layer::Backdrop };
+        for (priority_resolver, rendered_pixel) in
+            screen_pixels.iter_mut().zip(screen_rendered_pixels)
         {
-            let bg2_pixel = self.buffers.bg_pixels[1][x as usize];
-            if !bg2_pixel.is_transparent() {
-                priority_resolver.add_bg2(bg2_pixel);
-            }
+            *rendered_pixel = priority_resolver.get().map_or(backdrop_pixel, |(pixel, layer)| {
+                let color = resolve_pixel_color(
+                    &self.cgram,
+                    layer,
+                    mode,
+                    self.registers.direct_color_mode_enabled,
+                    pixel.palette,
+                    pixel.color,
+                );
+                RenderedPixel { color, palette: pixel.palette, layer }
+            });
         }
-
-        if mode.bg3_enabled()
-            && bg_enabled[2]
-            && !(bg_disabled_in_window[2]
-                && self.registers.bg_in_window(2, in_window_1, in_window_2))
-        {
-            let bg3_pixel = self.buffers.bg_pixels[2][x as usize];
-            if !bg3_pixel.is_transparent() {
-                priority_resolver.add_bg3(bg3_pixel);
-            }
-        }
-
-        if mode.bg4_enabled()
-            && bg_enabled[3]
-            && !(bg_disabled_in_window[3]
-                && self.registers.bg_in_window(3, in_window_1, in_window_2))
-        {
-            let bg4_pixel = self.buffers.bg_pixels[3][x as usize];
-            if !bg4_pixel.is_transparent() {
-                priority_resolver.add_bg4(bg4_pixel);
-            }
-        }
-
-        let (obj_enabled, obj_disabled_in_window) = match screen {
-            Screen::Main => {
-                (self.registers.main_obj_enabled, self.registers.main_obj_disabled_in_window)
-            }
-            Screen::Sub => {
-                (self.registers.sub_obj_enabled, self.registers.sub_obj_disabled_in_window)
-            }
-        };
-        let obj_in_window = self.registers.obj_window_mask_logic.apply(
-            self.registers.obj_window_1_area.to_optional_bool(in_window_1),
-            self.registers.obj_window_2_area.to_optional_bool(in_window_2),
-        );
-        if obj_enabled && !(obj_in_window && obj_disabled_in_window) {
-            let obj_x = if hi_res_mode == HiResMode::True { x / 2 } else { x };
-            let obj_pixel = self.buffers.obj_pixels[obj_x as usize];
-            if !obj_pixel.is_transparent() {
-                priority_resolver.add_obj(obj_pixel);
-            }
-        }
-
-        priority_resolver.get()
     }
 
     fn apply_mosaic(

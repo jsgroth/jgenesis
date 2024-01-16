@@ -1193,14 +1193,35 @@ impl Registers {
         (self.window_2_left..self.window_2_right + 1).contains(&pixel)
     }
 
-    pub fn bg_in_window(&self, bg: usize, in_window_1: bool, in_window_2: bool) -> bool {
+    pub fn bg_in_window(&self, bg: usize, window_x: u16) -> bool {
         self.bg_window_mask_logic[bg].apply(
-            self.bg_window_1_area[bg].to_optional_bool(in_window_1),
-            self.bg_window_2_area[bg].to_optional_bool(in_window_2),
+            self.bg_window_1_area[bg].to_optional_bool(self.is_inside_window_1(window_x)),
+            self.bg_window_2_area[bg].to_optional_bool(self.is_inside_window_2(window_x)),
+        )
+    }
+
+    pub fn obj_in_window(&self, window_x: u16) -> bool {
+        self.obj_window_mask_logic.apply(
+            self.obj_window_1_area.to_optional_bool(self.is_inside_window_1(window_x)),
+            self.obj_window_2_area.to_optional_bool(self.is_inside_window_2(window_x)),
+        )
+    }
+
+    pub fn in_math_window(&self, window_x: u16) -> bool {
+        self.math_window_mask_logic.apply(
+            self.math_window_1_area.to_optional_bool(self.is_inside_window_1(window_x)),
+            self.math_window_2_area.to_optional_bool(self.is_inside_window_2(window_x)),
         )
     }
 
     pub fn in_hi_res_mode(&self) -> bool {
         self.bg_mode.is_hi_res() || self.pseudo_h_hi_res
+    }
+
+    pub fn color_math_enabled_for_any_layer(&self) -> bool {
+        self.color_math_enabled != ColorMathEnableMode::Never
+            && (self.backdrop_color_math_enabled
+                || self.obj_color_math_enabled
+                || self.bg_color_math_enabled.iter().any(|&b| b))
     }
 }
