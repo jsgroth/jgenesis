@@ -165,6 +165,10 @@ pub enum InterruptType {
 }
 
 impl InterruptType {
+    // In descending priority order
+    pub const ALL: [Self; 5] =
+        [Self::VBlank, Self::LcdStatus, Self::Timer, Self::Serial, Self::Joypad];
+
     fn interrupt_vector(self) -> u16 {
         match self {
             Self::VBlank => 0x0040,
@@ -172,6 +176,16 @@ impl InterruptType {
             Self::Timer => 0x0050,
             Self::Serial => 0x0058,
             Self::Joypad => 0x0060,
+        }
+    }
+
+    pub fn register_mask(self) -> u8 {
+        match self {
+            Self::VBlank => 1 << 0,
+            Self::LcdStatus => 1 << 1,
+            Self::Timer => 1 << 2,
+            Self::Serial => 1 << 3,
+            Self::Joypad => 1 << 4,
         }
     }
 }
