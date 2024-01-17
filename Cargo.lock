@@ -1459,6 +1459,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gb-core"
+version = "0.6.1"
+dependencies = [
+ "bincode",
+ "jgenesis-common",
+ "jgenesis-proc-macros",
+ "log",
+]
+
+[[package]]
 name = "gdk-pixbuf-sys"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
