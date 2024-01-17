@@ -238,6 +238,48 @@ define_input_config! {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
+pub struct GameBoyInputConfig<Input> {
+    pub up: Option<Input>,
+    pub left: Option<Input>,
+    pub right: Option<Input>,
+    pub down: Option<Input>,
+    pub a: Option<Input>,
+    pub b: Option<Input>,
+    pub start: Option<Input>,
+    pub select: Option<Input>,
+}
+
+impl Default for GameBoyInputConfig<KeyboardInput> {
+    fn default() -> Self {
+        Self {
+            up: key_input!(Up),
+            left: key_input!(Left),
+            right: key_input!(Right),
+            down: key_input!(Down),
+            a: key_input!(A),
+            b: key_input!(S),
+            start: key_input!(Return),
+            select: key_input!(RShift),
+        }
+    }
+}
+
+impl Default for GameBoyInputConfig<JoystickInput> {
+    fn default() -> Self {
+        Self {
+            up: None,
+            left: None,
+            right: None,
+            down: None,
+            a: None,
+            b: None,
+            start: None,
+            select: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
 pub struct SuperScopeConfig {
     pub fire: Option<KeyboardOrMouseInput>,
     pub cursor: Option<KeyboardOrMouseInput>,

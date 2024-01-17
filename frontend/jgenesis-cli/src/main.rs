@@ -3,12 +3,13 @@ use env_logger::Env;
 use genesis_core::{GenesisAspectRatio, GenesisControllerType, GenesisRegion};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::config::input::{
-    GenesisControllerConfig, GenesisInputConfig, HotkeyConfig, KeyboardInput, NesInputConfig,
-    SmsGgControllerConfig, SmsGgInputConfig, SnesControllerType, SnesInputConfig, SuperScopeConfig,
+    GameBoyInputConfig, GenesisControllerConfig, GenesisInputConfig, HotkeyConfig, KeyboardInput,
+    NesInputConfig, SmsGgControllerConfig, SmsGgInputConfig, SnesControllerType, SnesInputConfig,
+    SuperScopeConfig,
 };
 use jgenesis_native_driver::config::{
-    CommonConfig, GenesisConfig, GgAspectRatio, NesConfig, SegaCdConfig, SmsAspectRatio,
-    SmsGgConfig, SnesConfig, WindowSize,
+    CommonConfig, GameBoyConfig, GenesisConfig, GgAspectRatio, NesConfig, SegaCdConfig,
+    SmsAspectRatio, SmsGgConfig, SnesConfig, WindowSize,
 };
 use jgenesis_native_driver::NativeTickEffect;
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
@@ -31,6 +32,7 @@ enum Hardware {
     SegaCd,
     Nes,
     Snes,
+    GameBoy,
 }
 
 const SMSGG_OPTIONS_HEADING: &str = "Master System / Game Gear Options";
@@ -554,6 +556,7 @@ fn main() -> anyhow::Result<()> {
             "cue" => Hardware::SegaCd,
             "nes" => Hardware::Nes,
             "sfc" | "smc" => Hardware::Snes,
+            "gb" | "gbc" => Hardware::GameBoy,
             _ => {
                 log::warn!("Unrecognized file extension: '{file_ext}' defaulting to Genesis");
                 Hardware::Genesis
@@ -569,6 +572,7 @@ fn main() -> anyhow::Result<()> {
         Hardware::SegaCd => run_sega_cd(args),
         Hardware::Nes => run_nes(args),
         Hardware::Snes => run_snes(args),
+        Hardware::GameBoy => run_gb(args),
     }
 }
 
@@ -666,6 +670,17 @@ fn run_snes(args: Args) -> anyhow::Result<()> {
     };
 
     let mut emulator = jgenesis_native_driver::create_snes(config.into())?;
+    while emulator.render_frame()? != NativeTickEffect::Exit {}
+
+    Ok(())
+}
+
+fn run_gb(args: Args) -> anyhow::Result<()> {
+    let config = GameBoyConfig {
+        common: args.common_config(GameBoyInputConfig::default(), GameBoyInputConfig::default()),
+    };
+
+    let mut emulator = jgenesis_native_driver::create_gb(config.into())?;
     while emulator.render_frame()? != NativeTickEffect::Exit {}
 
     Ok(())

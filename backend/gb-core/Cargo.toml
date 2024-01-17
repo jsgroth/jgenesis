@@ -11,6 +11,7 @@ jgenesis-proc-macros = { path = "../../jgenesis-proc-macros" }
 
 bincode = { workspace = true, features = ["derive"] }
 log = { workspace = true }
+thiserror = { workspace = true }
 
 [lints]
 workspace = true

@@ -3,16 +3,19 @@ mod rewind;
 
 use crate::config;
 use crate::config::{
-    CommonConfig, GenesisConfig, NesConfig, SegaCdConfig, SmsGgConfig, SnesConfig, WindowSize,
+    CommonConfig, GameBoyConfig, GenesisConfig, NesConfig, SegaCdConfig, SmsGgConfig, SnesConfig,
+    WindowSize,
 };
 use crate::input::{
-    GenesisButton, Hotkey, HotkeyMapResult, HotkeyMapper, InputMapper, Joysticks, MappableInputs,
-    NesButton, SmsGgButton, SnesButton,
+    GameBoyButton, GenesisButton, Hotkey, HotkeyMapResult, HotkeyMapper, InputMapper, Joysticks,
+    MappableInputs, NesButton, SmsGgButton, SnesButton,
 };
 use crate::mainloop::debug::{DebugRenderFn, DebuggerWindow};
 use crate::mainloop::rewind::Rewinder;
 use bincode::error::{DecodeError, EncodeError};
 use bincode::{Decode, Encode};
+use gb_core::api::{GameBoyEmulator, GameBoyEmulatorConfig, GameBoyLoadError};
+use gb_core::inputs::GameBoyInputs;
 use genesis_core::{GenesisEmulator, GenesisEmulatorConfig, GenesisInputs};
 use jgenesis_common::frontend::{AudioOutput, EmulatorTrait, PartialClone, SaveWriter, TickEffect};
 use jgenesis_renderer::renderer::{RendererError, WgpuRenderer};
@@ -514,6 +517,34 @@ impl NativeSnesEmulator {
     }
 }
 
+pub type NativeGameBoyEmulator =
+    NativeEmulator<GameBoyInputs, GameBoyButton, GameBoyEmulatorConfig, GameBoyEmulator>;
+
+impl NativeGameBoyEmulator {
+    /// # Errors
+    ///
+    /// This method will return an error if it is unable to reload audio config.
+    pub fn reload_gb_config(&mut self, config: Box<GameBoyConfig>) -> Result<(), AudioError> {
+        log::info!("Reloading config: {config}");
+
+        self.reload_common_config(&config.common)?;
+
+        let emulator_config = config.to_emulator_config();
+        self.emulator.reload_config(&emulator_config);
+        self.config = emulator_config;
+
+        if let Err(err) = self.input_mapper.reload_config(
+            config.common.keyboard_inputs,
+            config.common.joystick_inputs,
+            config.common.axis_deadzone,
+        ) {
+            log::error!("Error reloading input config: {err}");
+        }
+
+        Ok(())
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum NativeEmulatorError {
     #[error("{0}")]
@@ -583,6 +614,8 @@ pub enum NativeEmulatorError {
     NesLoad(#[from] NesInitializationError),
     #[error("{0}")]
     SnesLoad(#[from] LoadError),
+    #[error("{0}")]
+    GameBoyLoad(#[from] GameBoyLoadError),
     #[error("I/O error opening save state file '{path}': {source}")]
     StateFileOpen {
         path: String,
@@ -1090,6 +1123,76 @@ pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEm
         event_pump,
         video,
         hotkey_state: HotkeyState::new(&config.common, save_state_path, debug::snes::render_fn),
+    })
+}
+
+/// Create an emulator with the Game Boy core with the given config.
+///
+/// # Errors
+///
+/// This function will return an error if unable to initialize the emulator.
+pub fn create_gb(config: Box<GameBoyConfig>) -> NativeEmulatorResult<NativeGameBoyEmulator> {
+    log::info!("Running with config: {config}");
+
+    let rom_path = Path::new(&config.common.rom_file_path);
+    let rom = fs::read(rom_path).map_err(|source| NativeEmulatorError::RomRead {
+        path: config.common.rom_file_path.clone(),
+        source,
+    })?;
+
+    let save_path = rom_path.with_extension("sav");
+    let save_state_path = rom_path.with_extension("ss0");
+
+    let initial_sram = fs::read(&save_path).ok();
+    if initial_sram.as_ref().is_some_and(|sram| !sram.is_empty()) {
+        log::info!("Loaded save file from '{}'", save_path.display());
+    }
+
+    let emulator_config = config.to_emulator_config();
+    let emulator = GameBoyEmulator::create(rom, initial_sram)?;
+
+    let (sdl, video, audio, joystick, event_pump) =
+        init_sdl(config.common.hide_cursor_over_window)?;
+
+    let WindowSize { width: window_width, height: window_height } = config::DEFAULT_GB_WINDOW_SIZE;
+
+    let window_title = rom_path
+        .file_name()
+        .map(|file_name| file_name.to_string_lossy().into_owned())
+        .unwrap_or("<unknown>".into());
+    let window = create_window(
+        &video,
+        &window_title,
+        window_width,
+        window_height,
+        config.common.launch_in_fullscreen,
+    )?;
+
+    let renderer =
+        pollster::block_on(WgpuRenderer::new(window, Window::size, config.common.renderer_config))?;
+    let audio_output = SdlAudioOutput::create_and_init(&audio, &config.common)?;
+    let save_writer = FsSaveWriter::new(save_path);
+
+    let input_mapper = InputMapper::new_gb(
+        joystick,
+        config.common.keyboard_inputs.clone(),
+        config.common.joystick_inputs.clone(),
+        config.common.axis_deadzone,
+    )?;
+    let hotkey_mapper = HotkeyMapper::from_config(&config.common.hotkeys)?;
+
+    Ok(NativeGameBoyEmulator {
+        emulator,
+        config: emulator_config,
+        renderer,
+        audio_output,
+        input_mapper,
+        hotkey_mapper,
+        save_writer,
+        sdl,
+        event_pump,
+        video,
+        hotkey_state: HotkeyState::new(&config.common, save_state_path, || Box::new(|_| Ok(()))),
     })
 }
 

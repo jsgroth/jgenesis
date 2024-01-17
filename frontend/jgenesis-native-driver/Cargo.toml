@@ -10,6 +10,7 @@ jgenesis-proc-macros = { path = "../../jgenesis-proc-macros" }
 jgenesis-renderer = { path = "../jgenesis-renderer" }
 jgenesis-common = { path = "../../jgenesis-common" }
 
+gb-core = { path = "../../backend/gb-core" }
 genesis-core = { path = "../../backend/genesis-core" }
 nes-core = { path = "../../backend/nes-core" }
 segacd-core = { path = "../../backend/segacd-core" }

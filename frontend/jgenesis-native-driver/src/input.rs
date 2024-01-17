@@ -1,9 +1,10 @@
 use crate::config::input::{
-    AxisDirection, GenesisInputConfig, HatDirection, HotkeyConfig, JoystickAction,
-    JoystickDeviceId, JoystickInput, KeyboardInput, KeyboardOrMouseInput, NesInputConfig,
-    SmsGgInputConfig, SnesControllerType, SnesInputConfig, SuperScopeConfig,
+    AxisDirection, GameBoyInputConfig, GenesisInputConfig, HatDirection, HotkeyConfig,
+    JoystickAction, JoystickDeviceId, JoystickInput, KeyboardInput, KeyboardOrMouseInput,
+    NesInputConfig, SmsGgInputConfig, SnesControllerType, SnesInputConfig, SuperScopeConfig,
 };
 use crate::mainloop::{NativeEmulatorError, NativeEmulatorResult};
+use gb_core::inputs::GameBoyInputs;
 use genesis_core::GenesisInputs;
 use jgenesis_common::frontend::FrameSize;
 use jgenesis_renderer::renderer::DisplayArea;
@@ -157,6 +158,18 @@ impl SnesButton {
             Self::SuperScope(_) => Player::One,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GameBoyButton {
+    Up,
+    Left,
+    Right,
+    Down,
+    A,
+    B,
+    Start,
+    Select,
 }
 
 pub trait MappableInputs<Button> {
@@ -355,6 +368,34 @@ impl MappableInputs<SnesButton> for SnesInputs {
     }
 }
 
+impl MappableInputs<GameBoyButton> for GameBoyInputs {
+    fn set_field(&mut self, button: GameBoyButton, value: bool) {
+        use GameBoyButton::*;
+
+        match button {
+            Up => self.up = value,
+            Left => self.left = value,
+            Right => self.right = value,
+            Down => self.down = value,
+            A => self.a = value,
+            B => self.b = value,
+            Start => self.start = value,
+            Select => self.select = value,
+        }
+    }
+
+    fn handle_mouse_motion(
+        &mut self,
+        _x: i32,
+        _y: i32,
+        _frame_size: FrameSize,
+        _display_area: DisplayArea,
+    ) {
+    }
+
+    fn handle_mouse_leave(&mut self) {}
+}
+
 #[derive(Default)]
 pub struct Joysticks {
     joysticks: HashMap<u32, Joystick>,
@@ -511,6 +552,16 @@ macro_rules! inputs_array {
     }
 }
 
+macro_rules! flat_inputs_array {
+    ($config:expr, [$($field:ident -> $button:expr),* $(,)?]) => {
+        [
+            $(
+                ($config.$field, $button),
+            )*
+        ]
+    };
+}
+
 macro_rules! smsgg_input_array {
     ($p1_config:expr, $p2_config:expr) => {
         inputs_array!(
@@ -578,6 +629,21 @@ macro_rules! snes_input_array {
             r -> SnesButton::R,
             start -> SnesButton::Start,
             select -> SnesButton::Select,
+        ])
+    }
+}
+
+macro_rules! gb_input_array {
+    ($config:expr) => {
+        flat_inputs_array!($config, [
+            up -> GameBoyButton::Up,
+            left -> GameBoyButton::Left,
+            right -> GameBoyButton::Right,
+            down -> GameBoyButton::Down,
+            a -> GameBoyButton::A,
+            b -> GameBoyButton::B,
+            start -> GameBoyButton::Start,
+            select -> GameBoyButton::Select,
         ])
     }
 }
@@ -657,6 +723,14 @@ impl_generate_mapping_fns!(
     SnesInputConfig,
     SnesButton,
     |config| snes_input_array!(config.p1, config.p2)
+);
+
+impl_generate_mapping_fns!(
+    generate_gb_keyboard_mapping,
+    generate_gb_joystick_mapping,
+    GameBoyInputConfig,
+    GameBoyButton,
+    |config| gb_input_array!(config)
 );
 
 impl InputMapper<SmsGgInputs, SmsGgButton> {
@@ -821,6 +895,39 @@ impl InputMapper<SnesInputs, SnesButton> {
             axis_deadzone,
         );
         set_default_snes_inputs(&mut self.inputs, p2_controller_type, existing_super_scope_turbo);
+
+        Ok(())
+    }
+}
+
+impl InputMapper<GameBoyInputs, GameBoyButton> {
+    pub(crate) fn new_gb(
+        joystick_subsystem: JoystickSubsystem,
+        keyboard_inputs: GameBoyInputConfig<KeyboardInput>,
+        joystick_inputs: GameBoyInputConfig<JoystickInput>,
+        axis_deadzone: i16,
+    ) -> NativeEmulatorResult<Self> {
+        Ok(Self::new_generic(
+            joystick_subsystem,
+            generate_gb_keyboard_mapping(keyboard_inputs)?,
+            generate_gb_joystick_mapping(joystick_inputs),
+            HashMap::new(),
+            axis_deadzone,
+        ))
+    }
+
+    pub(crate) fn reload_config(
+        &mut self,
+        keyboard_inputs: GameBoyInputConfig<KeyboardInput>,
+        joystick_inputs: GameBoyInputConfig<JoystickInput>,
+        axis_deadzone: i16,
+    ) -> NativeEmulatorResult<()> {
+        self.reload_config_generic(
+            generate_gb_keyboard_mapping(keyboard_inputs)?,
+            generate_gb_joystick_mapping(joystick_inputs),
+            HashMap::new(),
+            axis_deadzone,
+        );
 
         Ok(())
     }

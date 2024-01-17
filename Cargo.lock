@@ -1466,6 +1466,7 @@ dependencies = [
  "jgenesis-common",
  "jgenesis-proc-macros",
  "log",
+ "thiserror",
 ]
 
 [[package]]
@@ -1997,6 +1998,7 @@ dependencies = [
  "bytemuck",
  "egui",
  "egui_wgpu_backend",
+ "gb-core",
  "genesis-core",
  "jgenesis-common",
  "jgenesis-proc-macros",

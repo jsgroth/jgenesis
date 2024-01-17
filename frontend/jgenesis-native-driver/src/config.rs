@@ -1,9 +1,10 @@
 pub mod input;
 
 use crate::config::input::{
-    GenesisInputConfig, HotkeyConfig, JoystickInput, KeyboardInput, NesInputConfig,
-    SmsGgInputConfig, SnesControllerType, SnesInputConfig, SuperScopeConfig,
+    GameBoyInputConfig, GenesisInputConfig, HotkeyConfig, JoystickInput, KeyboardInput,
+    NesInputConfig, SmsGgInputConfig, SnesControllerType, SnesInputConfig, SuperScopeConfig,
 };
+use gb_core::api::GameBoyEmulatorConfig;
 use genesis_core::{
     GenesisAspectRatio, GenesisControllerType, GenesisEmulatorConfig, GenesisRegion,
 };
@@ -20,6 +21,8 @@ use std::fs;
 use std::num::NonZeroU64;
 
 pub(crate) const DEFAULT_GENESIS_WINDOW_SIZE: WindowSize = WindowSize { width: 878, height: 672 };
+pub(crate) const DEFAULT_GB_WINDOW_SIZE: WindowSize =
+    WindowSize { width: 160 * 3, height: 144 * 3 };
 
 #[derive(Debug, Clone, Copy)]
 pub struct WindowSize {
@@ -296,4 +299,16 @@ impl SnesConfig {
 
 fn coprocessor_read_fn(path: String) -> Box<CoprocessorRomFn> {
     Box::new(move || fs::read(&path).map_err(|err| (err, path.clone())))
+}
+
+#[derive(Debug, Clone, ConfigDisplay)]
+pub struct GameBoyConfig {
+    #[indent_nested]
+    pub common: CommonConfig<GameBoyInputConfig<KeyboardInput>, GameBoyInputConfig<JoystickInput>>,
+}
+
+impl GameBoyConfig {
+    pub(crate) fn to_emulator_config(&self) -> GameBoyEmulatorConfig {
+        GameBoyEmulatorConfig {}
+    }
 }
