@@ -95,7 +95,7 @@ struct State {
     scanline: u8,
     dot: u16,
     mode: PpuMode,
-    last_stat_interrupt_line: bool,
+    stat_interrupt_pending: bool,
     previously_enabled: bool,
     skip_next_frame: bool,
     frame_complete: bool,
@@ -107,7 +107,7 @@ impl State {
             scanline: 0,
             dot: 0,
             mode: PpuMode::ScanningOam,
-            last_stat_interrupt_line: false,
+            stat_interrupt_pending: false,
             previously_enabled: true,
             skip_next_frame: true,
             frame_complete: false,
@@ -162,6 +162,13 @@ impl Ppu {
             self.state.skip_next_frame = true;
         }
 
+        if self.state.stat_interrupt_pending {
+            interrupt_registers.set_flag(InterruptType::LcdStatus);
+            self.state.stat_interrupt_pending = false;
+        }
+
+        let prev_stat_interrupt_line = self.stat_interrupt_line();
+
         if self.state.mode == PpuMode::Rendering {
             self.fifo.tick(&self.vram, &self.registers, &mut self.frame_buffer);
             if self.fifo.done_with_line() {
@@ -196,10 +203,24 @@ impl Ppu {
         // TODO timing
         if self.state.scanline == SCREEN_HEIGHT as u8 && self.state.dot == 1 {
             interrupt_registers.set_flag(InterruptType::VBlank);
-            self.state.frame_complete = true;
+            if self.state.skip_next_frame {
+                self.state.skip_next_frame = false;
+            } else {
+                self.state.frame_complete = true;
+            }
         }
 
-        // TODO check STAT interrupt line
+        let stat_interrupt_line = self.stat_interrupt_line();
+        if !prev_stat_interrupt_line && stat_interrupt_line {
+            self.state.stat_interrupt_pending = true;
+        }
+    }
+
+    fn stat_interrupt_line(&self) -> bool {
+        (self.registers.lyc_interrupt_enabled && self.state.scanline == self.registers.ly_compare)
+            || (self.registers.mode_2_interrupt_enabled && self.state.mode == PpuMode::ScanningOam)
+            || (self.registers.mode_1_interrupt_enabled && self.state.mode == PpuMode::VBlank)
+            || (self.registers.mode_0_interrupt_enabled && self.state.mode == PpuMode::HBlank)
     }
 
     pub fn frame_buffer(&self) -> &PpuFrameBuffer {
@@ -252,7 +273,10 @@ impl Ppu {
             0x47 => self.registers.read_bgp(),
             0x4A => self.registers.window_y,
             0x4B => self.registers.window_x,
-            _ => todo!("PPU register read {address:04X}"),
+            _ => {
+                log::warn!("PPU register read {address:04X}");
+                0xFF
+            }
         }
     }
 
@@ -268,7 +292,7 @@ impl Ppu {
             0x47 => self.registers.write_bgp(value),
             0x4A => self.registers.write_wy(value),
             0x4B => self.registers.write_wx(value),
-            _ => todo!("PPU register write {address:04X} {value:02X}"),
+            _ => log::warn!("PPU register write {address:04X} {value:02X}"),
         }
     }
 }

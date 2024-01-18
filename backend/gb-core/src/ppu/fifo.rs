@@ -45,10 +45,12 @@ impl PixelFifo {
         self.sprites.clear();
         self.x = 0;
         self.y = scanline;
-        self.fine_x_scroll = registers.bg_x_scroll % 8;
+        self.fine_x_scroll = registers.bg_x_scroll & 0x7;
     }
 
     fn fetch_bg_tile_row(&mut self, vram: &Vram, registers: &Registers) {
+        log::trace!("Fetching tile row at X={}, SCX={}", self.x, registers.bg_x_scroll);
+
         let bg_x: u16 = self
             .x
             .wrapping_add(self.fine_x_scroll)
@@ -81,14 +83,15 @@ impl PixelFifo {
         if self.x == 0 {
             if self.bg.is_empty() {
                 self.fetch_bg_tile_row(vram, registers);
-                self.delay = 6;
-
-                return;
-            } else if self.fine_x_scroll != 0 {
                 for _ in 0..self.fine_x_scroll {
                     self.bg.pop_front();
                 }
-                self.delay = self.fine_x_scroll;
+
+                if self.fine_x_scroll >= 2 {
+                    self.fetch_bg_tile_row(vram, registers);
+                }
+
+                self.delay = 6 + self.fine_x_scroll;
 
                 return;
             }
