@@ -1,6 +1,7 @@
 //! Game Boy bus / address mapping
 
 use crate::cartridge::Cartridge;
+use crate::inputs::InputState;
 use crate::interrupts::InterruptRegisters;
 use crate::memory::Memory;
 use crate::ppu::Ppu;
@@ -14,11 +15,13 @@ pub struct Bus<'a> {
     pub cartridge: &'a mut Cartridge,
     pub interrupt_registers: &'a mut InterruptRegisters,
     pub timer: &'a mut GbTimer,
+    pub input_state: &'a mut InputState,
 }
 
 impl<'a> Bus<'a> {
     fn read_io_register(&self, address: u16) -> u8 {
         match address & 0x7F {
+            0x00 => self.input_state.read_joyp(),
             0x04 => self.timer.read_div(),
             0x05 => self.timer.read_tima(),
             0x06 => self.timer.read_tma(),
@@ -34,6 +37,7 @@ impl<'a> Bus<'a> {
 
     fn write_io_register(&mut self, address: u16, value: u8) {
         match address & 0x7F {
+            0x00 => self.input_state.write_joyp(value),
             0x04 => self.timer.write_div(),
             0x05 => self.timer.write_tima(value),
             0x06 => self.timer.write_tma(value),
