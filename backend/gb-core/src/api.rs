@@ -3,7 +3,7 @@
 use crate::bus::Bus;
 use crate::cartridge::Cartridge;
 use crate::graphics::RgbaFrameBuffer;
-use crate::inputs::GameBoyInputs;
+use crate::inputs::{GameBoyInputs, InputState};
 use crate::interrupts::InterruptRegisters;
 use crate::memory::Memory;
 use crate::ppu;
@@ -49,6 +49,7 @@ pub struct GameBoyEmulator {
     #[partial_clone(partial)]
     cartridge: Cartridge,
     timer: GbTimer,
+    input_state: InputState,
     rgba_buffer: RgbaFrameBuffer,
 }
 
@@ -63,6 +64,7 @@ impl GameBoyEmulator {
             interrupt_registers: InterruptRegisters::default(),
             cartridge,
             timer: GbTimer::new(),
+            input_state: InputState::new(),
             rgba_buffer: RgbaFrameBuffer::default(),
         })
     }
@@ -92,12 +94,15 @@ impl EmulatorTrait for GameBoyEmulator {
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
+        self.input_state.set_inputs(*inputs);
+
         self.cpu.execute_instruction(&mut Bus {
             ppu: &mut self.ppu,
             memory: &mut self.memory,
             cartridge: &mut self.cartridge,
             interrupt_registers: &mut self.interrupt_registers,
             timer: &mut self.timer,
+            input_state: &mut self.input_state,
         });
 
         if self.ppu.frame_complete() {
