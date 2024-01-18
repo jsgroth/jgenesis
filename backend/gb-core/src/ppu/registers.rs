@@ -1,10 +1,11 @@
 use crate::ppu::PpuMode;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
+use std::array;
 use std::fmt::{Display, Formatter};
 
-const TILE_MAP_AREA_0: u16 = 0x9800;
-const TILE_MAP_AREA_1: u16 = 0x9C00;
+const TILE_MAP_AREA_0: u16 = 0x1800;
+const TILE_MAP_AREA_1: u16 = 0x1C00;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum TileDataArea {
@@ -22,12 +23,9 @@ impl TileDataArea {
             Self::Zero => {
                 // Treat tile number as a signed integer so that 128-255 map to $8800-$8FFF
                 let relative_tile_addr = (tile_number as i8 as u16) << 4;
-                0x9000_u16.wrapping_add(relative_tile_addr)
+                0x1000_u16.wrapping_add(relative_tile_addr)
             }
-            Self::One => {
-                let relative_tile_addr = u16::from(tile_number) << 4;
-                0x8000_u16.wrapping_add(relative_tile_addr)
-            }
+            Self::One => u16::from(tile_number) << 4,
         }
     }
 
@@ -73,6 +71,8 @@ pub struct Registers {
     // WX/WY: Window X/Y position
     pub window_x: u8,
     pub window_y: u8,
+    // BGP: Background palettes
+    pub bg_palettes: [u8; 4],
 }
 
 impl Registers {
@@ -95,6 +95,7 @@ impl Registers {
             bg_y_scroll: 0,
             window_x: 0,
             window_y: 0,
+            bg_palettes: [0; 4],
         }
     }
 
@@ -180,5 +181,20 @@ impl Registers {
         self.window_y = value;
 
         log::trace!("WY write: {value:02X}");
+    }
+
+    pub fn write_bgp(&mut self, value: u8) {
+        self.bg_palettes = array::from_fn(|palette| (value >> (2 * palette)) & 0x3);
+
+        log::trace!("BGP write: {value:02X}");
+    }
+
+    pub fn read_bgp(&self) -> u8 {
+        self.bg_palettes
+            .iter()
+            .enumerate()
+            .map(|(i, &color)| color << (2 * i))
+            .reduce(|a, b| a | b)
+            .unwrap()
     }
 }

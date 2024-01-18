@@ -6,6 +6,7 @@
 mod arithmetic;
 mod bits;
 pub mod bus;
+mod disassemble;
 mod flags;
 mod flow;
 mod load;
@@ -247,6 +248,23 @@ impl Sm83 {
         }
 
         let opcode = self.fetch_operand(bus);
+
+        log::trace!(
+            "Executing opcode {opcode:02X} ({}) from PC {:04X}; IME={}, A={:02X}, F={:02X}, B={:02X}, C={:02X}, D={:02X}, E={:02X}, H={:02X}, L={:02X}, SP={:04X}",
+            disassemble::instruction_str(opcode),
+            self.registers.pc.wrapping_sub(1),
+            self.registers.ime,
+            self.registers.a,
+            u8::from(self.registers.f),
+            self.registers.b,
+            self.registers.c,
+            self.registers.d,
+            self.registers.e,
+            self.registers.h,
+            self.registers.l,
+            self.registers.sp
+        );
+
         self.execute_opcode(bus, opcode);
 
         self.poll_for_interrupts(bus);
@@ -405,6 +423,12 @@ impl Sm83 {
 
     fn execute_cb_prefix_opcode<B: BusInterface>(&mut self, bus: &mut B) {
         let opcode = self.fetch_operand(bus);
+
+        log::trace!(
+            "  CB prefix opcode: {opcode:02X} ({})",
+            disassemble::cb_instruction_str(opcode)
+        );
+
         match opcode {
             // RLC r / RLC (HL)
             0x00..=0x07 => self.rlc_r(bus, opcode),
@@ -443,6 +467,8 @@ impl Sm83 {
         );
         bus.acknowledge_interrupt(interrupt_type);
 
+        log::trace!("Handling interrupt of type {interrupt_type:?}");
+
         self.registers.pc = interrupt_type.interrupt_vector();
         self.registers.ime = false;
 
@@ -454,6 +480,9 @@ impl Sm83 {
     fn fetch_operand<B: BusInterface>(&mut self, bus: &mut B) -> u8 {
         let operand = bus.read(self.registers.pc);
         self.registers.pc = self.registers.pc.wrapping_add(1);
+
+        log::trace!("  Fetched operand {operand:02X}");
+
         operand
     }
 

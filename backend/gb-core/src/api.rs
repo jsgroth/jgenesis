@@ -9,6 +9,7 @@ use crate::memory::Memory;
 use crate::ppu;
 use crate::ppu::Ppu;
 use crate::sm83::Sm83;
+use crate::timer::GbTimer;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
     AudioOutput, EmulatorTrait, PixelAspectRatio, Renderer, SaveWriter, TickEffect, TickResult,
@@ -19,7 +20,12 @@ use std::fmt::{Debug, Display};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub enum GameBoyLoadError {}
+pub enum GameBoyLoadError {
+    #[error("ROM header contains invalid SRAM size byte: ${0:02X}")]
+    InvalidSramByte(u8),
+    #[error("ROM header contains unsupported mapper byte: ${0:02X}")]
+    UnsupportedMapperByte(u8),
+}
 
 #[derive(Debug, Error)]
 pub enum GameBoyError<RErr, AErr, SErr> {
@@ -42,12 +48,13 @@ pub struct GameBoyEmulator {
     interrupt_registers: InterruptRegisters,
     #[partial_clone(partial)]
     cartridge: Cartridge,
+    timer: GbTimer,
     rgba_buffer: RgbaFrameBuffer,
 }
 
 impl GameBoyEmulator {
     pub fn create(rom: Vec<u8>, initial_sram: Option<Vec<u8>>) -> Result<Self, GameBoyLoadError> {
-        let cartridge = Cartridge::create(rom.into_boxed_slice())?;
+        let cartridge = Cartridge::create(rom.into_boxed_slice(), initial_sram)?;
 
         Ok(Self {
             cpu: Sm83::new(),
@@ -55,6 +62,7 @@ impl GameBoyEmulator {
             memory: Memory::new(),
             interrupt_registers: InterruptRegisters::default(),
             cartridge,
+            timer: GbTimer::new(),
             rgba_buffer: RgbaFrameBuffer::default(),
         })
     }
@@ -89,6 +97,7 @@ impl EmulatorTrait for GameBoyEmulator {
             memory: &mut self.memory,
             cartridge: &mut self.cartridge,
             interrupt_registers: &mut self.interrupt_registers,
+            timer: &mut self.timer,
         });
 
         if self.ppu.frame_complete() {

@@ -7,3 +7,4 @@ mod interrupts;
 mod memory;
 mod ppu;
 mod sm83;
+mod timer;
