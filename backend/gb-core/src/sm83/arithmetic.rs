@@ -138,7 +138,7 @@ impl Sm83 {
     pub(super) fn add_sp_e<B: BusInterface>(&mut self, bus: &mut B) {
         let operand = self.fetch_operand(bus) as i8;
 
-        let (sum, flags) = add_u16(self.registers.sp, operand as u16);
+        let (sum, flags) = add_sp(self.registers.sp, operand as u16);
         self.registers.sp = sum;
 
         // Adding to stack pointer always sets Z flag to false
@@ -189,7 +189,7 @@ impl Sm83 {
 
     pub(super) fn ld_hl_sp_e<B: BusInterface>(&mut self, bus: &mut B) {
         let operand = self.fetch_operand(bus) as i8;
-        let (sum, flags) = add_u16(self.registers.sp, operand as u16);
+        let (sum, flags) = add_sp(self.registers.sp, operand as u16);
 
         self.registers.set_hl(sum);
 
@@ -221,6 +221,19 @@ fn add_u16(l_value: u16, r_value: u16) -> (u16, Flags) {
 
     let (sum_lsb, lsb_carry) = l_lsb.overflowing_add(r_lsb);
     let sum_msb = add(l_msb, r_msb, lsb_carry, &mut flags);
+    let sum = u16::from_le_bytes([sum_lsb, sum_msb]);
+
+    (sum, flags)
+}
+
+// This differs from add_u16 in that it sets the flags based on the LSB addition instead of MSB
+fn add_sp(l_value: u16, r_value: u16) -> (u16, Flags) {
+    let [l_lsb, l_msb] = l_value.to_le_bytes();
+    let [r_lsb, r_msb] = r_value.to_le_bytes();
+    let mut flags = Flags { zero: false, subtract: false, half_carry: false, carry: false };
+
+    let sum_lsb = add(l_lsb, r_lsb, false, &mut flags);
+    let sum_msb = l_msb.wrapping_add(r_msb).wrapping_add(flags.carry.into());
     let sum = u16::from_le_bytes([sum_lsb, sum_msb]);
 
     (sum, flags)

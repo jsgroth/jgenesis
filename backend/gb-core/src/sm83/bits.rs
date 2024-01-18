@@ -7,7 +7,7 @@ macro_rules! impl_rla_op {
         pub(super) fn $name(&mut self) {
             let carry = self.registers.a.bit(7);
             self.registers.a = if $thru_carry {
-                (self.registers.a << 1) | u8::from(carry)
+                (self.registers.a << 1) | u8::from(self.registers.f.carry)
             } else {
                 (self.registers.a << 1) | (self.registers.a >> 7)
             };
@@ -21,7 +21,7 @@ macro_rules! impl_rra_op {
         pub(super) fn $name(&mut self) {
             let carry = self.registers.a.bit(0);
             self.registers.a = if $thru_carry {
-                (self.registers.a >> 1) | (u8::from(carry) << 7)
+                (self.registers.a >> 1) | (u8::from(self.registers.f.carry) << 7)
             } else {
                 (self.registers.a >> 1) | (self.registers.a << 7)
             };
@@ -164,7 +164,7 @@ impl Sm83 {
         let value = self.read_register(bus, opcode);
         let bit = (opcode >> 3) & 0x7;
 
-        self.registers.f.zero = value.bit(bit);
+        self.registers.f.zero = !value.bit(bit);
         self.registers.f.subtract = false;
         self.registers.f.half_carry = true;
     }
