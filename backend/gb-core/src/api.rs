@@ -2,13 +2,17 @@
 
 use crate::bus::Bus;
 use crate::cartridge::Cartridge;
+use crate::graphics::RgbaFrameBuffer;
 use crate::inputs::GameBoyInputs;
 use crate::interrupts::InterruptRegisters;
 use crate::memory::Memory;
+use crate::ppu;
+use crate::ppu::Ppu;
 use crate::sm83::Sm83;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
-    AudioOutput, EmulatorTrait, Renderer, SaveWriter, TickEffect, TickResult, TimingMode,
+    AudioOutput, EmulatorTrait, PixelAspectRatio, Renderer, SaveWriter, TickEffect, TickResult,
+    TimingMode,
 };
 use jgenesis_proc_macros::PartialClone;
 use std::fmt::{Debug, Display};
@@ -33,10 +37,12 @@ pub struct GameBoyEmulatorConfig {}
 #[derive(Debug, Clone, Encode, Decode, PartialClone)]
 pub struct GameBoyEmulator {
     cpu: Sm83,
+    ppu: Ppu,
     memory: Memory,
     interrupt_registers: InterruptRegisters,
     #[partial_clone(partial)]
     cartridge: Cartridge,
+    rgba_buffer: RgbaFrameBuffer,
 }
 
 impl GameBoyEmulator {
@@ -45,9 +51,11 @@ impl GameBoyEmulator {
 
         Ok(Self {
             cpu: Sm83::new(),
+            ppu: Ppu::new(),
             memory: Memory::new(),
             interrupt_registers: InterruptRegisters::default(),
             cartridge,
+            rgba_buffer: RgbaFrameBuffer::default(),
         })
     }
 }
@@ -77,14 +85,29 @@ impl EmulatorTrait for GameBoyEmulator {
         S::Err: Debug + Display + Send + Sync + 'static,
     {
         self.cpu.execute_instruction(&mut Bus {
+            ppu: &mut self.ppu,
             memory: &mut self.memory,
             cartridge: &mut self.cartridge,
             interrupt_registers: &mut self.interrupt_registers,
         });
 
-        // TODO check if PPU frame complete
+        if self.ppu.frame_complete() {
+            self.ppu.clear_frame_complete();
+            self.rgba_buffer.copy_from(self.ppu.frame_buffer());
+            renderer
+                .render_frame(
+                    self.rgba_buffer.as_ref(),
+                    ppu::FRAME_SIZE,
+                    Some(PixelAspectRatio::SQUARE),
+                )
+                .map_err(GameBoyError::Rendering)?;
 
-        Ok(TickEffect::None)
+            // TODO audio etc.
+
+            Ok(TickEffect::FrameRendered)
+        } else {
+            Ok(TickEffect::None)
+        }
     }
 
     fn force_render<R>(&mut self, renderer: &mut R) -> Result<(), R::Err>
