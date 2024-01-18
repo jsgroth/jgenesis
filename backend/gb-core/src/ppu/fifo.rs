@@ -51,7 +51,6 @@ impl PixelFifo {
     fn fetch_bg_tile_row(&mut self, vram: &Vram, registers: &Registers) {
         let bg_x: u16 = self
             .x
-            .wrapping_sub(8)
             .wrapping_add(self.fine_x_scroll)
             .wrapping_add(registers.bg_x_scroll & !0x7)
             .into();
@@ -97,7 +96,8 @@ impl PixelFifo {
 
         let bg_pixel = self.bg.pop_front().expect("BG FIFO should never be empty past X=0");
         if self.x >= 8 {
-            frame_buffer.set(self.y, self.x - 8, bg_pixel.color);
+            let color = registers.bg_palettes[bg_pixel.color as usize];
+            frame_buffer.set(self.y, self.x - 8, color);
         }
         self.x += 1;
 

@@ -176,6 +176,7 @@ impl Ppu {
 
         self.state.dot += 1;
         if self.state.dot == DOTS_PER_LINE {
+            self.state.dot = 0;
             self.state.scanline += 1;
             if self.state.scanline == LINES_PER_FRAME {
                 self.state.scanline = 0;
@@ -248,6 +249,7 @@ impl Ppu {
             // LY: Line number
             0x44 => self.state.scanline,
             0x45 => self.registers.ly_compare,
+            0x47 => self.registers.read_bgp(),
             0x4A => self.registers.window_y,
             0x4B => self.registers.window_x,
             _ => todo!("PPU register read {address:04X}"),
@@ -263,6 +265,7 @@ impl Ppu {
             // LY, not writable
             0x44 => {}
             0x45 => self.registers.write_lyc(value),
+            0x47 => self.registers.write_bgp(value),
             0x4A => self.registers.write_wy(value),
             0x4B => self.registers.write_wx(value),
             _ => todo!("PPU register write {address:04X} {value:02X}"),

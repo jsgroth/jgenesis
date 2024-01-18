@@ -6,33 +6,51 @@ use crate::memory::Memory;
 use crate::ppu::Ppu;
 use crate::sm83::bus::BusInterface;
 use crate::sm83::InterruptType;
+use crate::timer::GbTimer;
 
 pub struct Bus<'a> {
     pub ppu: &'a mut Ppu,
     pub memory: &'a mut Memory,
     pub cartridge: &'a mut Cartridge,
     pub interrupt_registers: &'a mut InterruptRegisters,
+    pub timer: &'a mut GbTimer,
 }
 
 impl<'a> Bus<'a> {
     fn read_io_register(&self, address: u16) -> u8 {
         match address & 0x7F {
+            0x04 => self.timer.read_div(),
+            0x05 => self.timer.read_tima(),
+            0x06 => self.timer.read_tma(),
+            0x07 => self.timer.read_tac(),
             0x0F => self.interrupt_registers.read_if(),
             0x40..=0x4B => self.ppu.read_register(address),
-            _ => todo!("I/O register at {address:04X}"),
+            _ => {
+                log::warn!("read I/O register at {address:04X}");
+                0xFF
+            }
         }
     }
 
     fn write_io_register(&mut self, address: u16, value: u8) {
         match address & 0x7F {
+            0x04 => self.timer.write_div(),
+            0x05 => self.timer.write_tima(value),
+            0x06 => self.timer.write_tma(value),
+            0x07 => self.timer.write_tac(value),
             0x0F => self.interrupt_registers.write_if(value),
             0x40..=0x4B => self.ppu.write_register(address, value),
-            _ => todo!("I/O register at {address:04X} value {value:02X}"),
+            _ => log::warn!("write I/O register at {address:04X} value {value:02X}"),
         }
     }
 
     fn tick_components(&mut self) {
-        self.ppu.tick(self.interrupt_registers);
+        self.timer.tick_m_cycle(self.interrupt_registers);
+
+        // TODO only 2 ticks in GBC double speed mode
+        for _ in 0..4 {
+            self.ppu.tick(self.interrupt_registers);
+        }
     }
 }
 
@@ -41,9 +59,9 @@ impl<'a> BusInterface for Bus<'a> {
         self.tick_components();
 
         match address {
-            0x0000..=0x7FFF => self.cartridge.read(address),
+            0x0000..=0x7FFF => self.cartridge.read_rom(address),
             0x8000..=0x9FFF => self.ppu.read_vram(address),
-            0xA000..=0xBFFF => todo!("cartridge RAM"),
+            0xA000..=0xBFFF => self.cartridge.read_ram(address),
             0xC000..=0xFDFF => self.memory.read_main_ram(address),
             0xFE00..=0xFE9F => self.ppu.read_oam(address),
             // Unusable memory
@@ -58,9 +76,9 @@ impl<'a> BusInterface for Bus<'a> {
         self.tick_components();
 
         match address {
-            0x0000..=0x7FFF => todo!("cartridge mapper registers"),
+            0x0000..=0x7FFF => self.cartridge.write_rom(address, value),
             0x8000..=0x9FFF => self.ppu.write_vram(address, value),
-            0xA000..=0xBFFF => todo!("cartridge RAM"),
+            0xA000..=0xBFFF => self.cartridge.write_ram(address, value),
             0xC000..=0xFDFF => self.memory.write_main_ram(address, value),
             0xFE00..=0xFE9F => self.ppu.write_oam(address, value),
             // Unusable memory
