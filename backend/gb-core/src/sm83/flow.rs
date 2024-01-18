@@ -40,7 +40,7 @@ impl Sm83 {
     }
 
     // JP HL: Unconditional absolute jump
-    pub(super) fn jp_hl<B: BusInterface>(&mut self, bus: &mut B) {
+    pub(super) fn jp_hl(&mut self) {
         self.registers.pc = self.registers.hl();
     }
 

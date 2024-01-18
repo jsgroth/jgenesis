@@ -369,7 +369,7 @@ impl Sm83 {
             // ADD SP, i8
             0xE8 => self.add_sp_e(bus),
             // JP HL
-            0xE9 => self.jp_hl(bus),
+            0xE9 => self.jp_hl(),
             // LD (u16), A
             0xEA => self.ld_indirect_a(bus),
             // XOR A, u8
