@@ -8,7 +8,8 @@ use crate::ppu::fifo::PixelFifo;
 use crate::ppu::registers::Registers;
 use crate::sm83::InterruptType;
 use bincode::{Decode, Encode};
-use jgenesis_common::frontend::{Color, FrameSize};
+use jgenesis_common::frontend::FrameSize;
+use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::ops::{Deref, DerefMut};
 
@@ -25,7 +26,7 @@ const LINES_PER_FRAME: u8 = 154;
 const DOTS_PER_LINE: u16 = 456;
 const OAM_SCAN_DOTS: u16 = 80;
 
-const WHITE: Color = Color::rgb(255, 255, 255);
+const MAX_SPRITES_PER_LINE: usize = 10;
 
 // TODO 16KB for GBC
 const VRAM_LEN: usize = 8 * 1024;
@@ -115,6 +116,17 @@ impl State {
     }
 }
 
+#[derive(Debug, Clone, Copy, Encode, Decode)]
+struct SpriteData {
+    x: u8,
+    y: u8,
+    tile_number: u8,
+    palette: u8,
+    horizontal_flip: bool,
+    vertical_flip: bool,
+    low_priority: bool,
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Ppu {
     frame_buffer: PpuFrameBuffer,
@@ -122,6 +134,7 @@ pub struct Ppu {
     oam: Box<Oam>,
     registers: Registers,
     state: State,
+    sprite_buffer: Vec<SpriteData>,
     fifo: PixelFifo,
 }
 
@@ -133,6 +146,7 @@ impl Ppu {
             oam: vec![0; OAM_LEN].into_boxed_slice().try_into().unwrap(),
             registers: Registers::new(),
             state: State::new(),
+            sprite_buffer: Vec::with_capacity(MAX_SPRITES_PER_LINE),
             fifo: PixelFifo::new(),
         }
     }
@@ -191,13 +205,18 @@ impl Ppu {
 
             if self.state.scanline < SCREEN_HEIGHT as u8 {
                 self.state.mode = PpuMode::ScanningOam;
-                // TODO do OAM scan
+                scan_oam(
+                    self.state.scanline,
+                    self.registers.double_height_sprites,
+                    &self.oam,
+                    &mut self.sprite_buffer,
+                );
             } else {
                 self.state.mode = PpuMode::VBlank;
             }
         } else if self.state.scanline < SCREEN_HEIGHT as u8 && self.state.dot == OAM_SCAN_DOTS {
             self.state.mode = PpuMode::Rendering;
-            self.fifo.start_new_line(self.state.scanline, &self.registers);
+            self.fifo.start_new_line(self.state.scanline);
         }
 
         // TODO timing
@@ -295,4 +314,52 @@ impl Ppu {
             _ => log::warn!("PPU register write {address:04X} {value:02X}"),
         }
     }
+}
+
+fn scan_oam(
+    scanline: u8,
+    double_height_sprites: bool,
+    oam: &Oam,
+    sprite_buffer: &mut Vec<SpriteData>,
+) {
+    sprite_buffer.clear();
+
+    let sprite_height = if double_height_sprites { 16 } else { 8 };
+
+    for oam_idx in 0..OAM_LEN / 4 {
+        let oam_addr = 4 * oam_idx;
+
+        let y = oam[oam_addr];
+
+        // Check if sprite overlaps current line
+        let sprite_top = y.saturating_add(16);
+        let sprite_bottom = sprite_top.saturating_add(sprite_height);
+        if !(sprite_top..sprite_bottom).contains(&scanline) {
+            continue;
+        }
+
+        let x = oam[oam_addr + 1];
+        let tile_number = oam[oam_addr + 2];
+
+        let attributes = oam[oam_addr + 3];
+        let palette: u8 = attributes.bit(4).into();
+        let horizontal_flip = attributes.bit(5);
+        let vertical_flip = attributes.bit(6);
+        let low_priority = attributes.bit(7);
+
+        sprite_buffer.push(SpriteData {
+            x,
+            y,
+            tile_number,
+            palette,
+            horizontal_flip,
+            vertical_flip,
+            low_priority,
+        });
+        if sprite_buffer.len() == MAX_SPRITES_PER_LINE {
+            break;
+        }
+    }
+
+    sprite_buffer.sort_by_key(|sprite| sprite.x);
 }
