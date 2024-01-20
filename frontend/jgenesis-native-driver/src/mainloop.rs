@@ -1149,7 +1149,7 @@ pub fn create_gb(config: Box<GameBoyConfig>) -> NativeEmulatorResult<NativeGameB
     }
 
     let emulator_config = config.to_emulator_config();
-    let emulator = GameBoyEmulator::create(rom, initial_sram)?;
+    let emulator = GameBoyEmulator::create(rom, initial_sram, emulator_config)?;
 
     let (sdl, video, audio, joystick, event_pump) =
         init_sdl(config.common.hide_cursor_over_window)?;

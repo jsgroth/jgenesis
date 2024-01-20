@@ -1466,6 +1466,7 @@ dependencies = [
  "jgenesis-common",
  "jgenesis-proc-macros",
  "log",
+ "serde",
  "thiserror",
 ]
 
@@ -1940,6 +1941,7 @@ dependencies = [
  "anyhow",
  "clap",
  "env_logger",
+ "gb-core",
  "genesis-core",
  "jgenesis-common",
  "jgenesis-native-driver",

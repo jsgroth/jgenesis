@@ -4,7 +4,7 @@ use crate::config::input::{
     GameBoyInputConfig, GenesisInputConfig, HotkeyConfig, JoystickInput, KeyboardInput,
     NesInputConfig, SmsGgInputConfig, SnesControllerType, SnesInputConfig, SuperScopeConfig,
 };
-use gb_core::api::GameBoyEmulatorConfig;
+use gb_core::api::{GameBoyEmulatorConfig, GbPalette};
 use genesis_core::{
     GenesisAspectRatio, GenesisControllerType, GenesisEmulatorConfig, GenesisRegion,
 };
@@ -305,10 +305,11 @@ fn coprocessor_read_fn(path: String) -> Box<CoprocessorRomFn> {
 pub struct GameBoyConfig {
     #[indent_nested]
     pub common: CommonConfig<GameBoyInputConfig<KeyboardInput>, GameBoyInputConfig<JoystickInput>>,
+    pub gb_palette: GbPalette,
 }
 
 impl GameBoyConfig {
     pub(crate) fn to_emulator_config(&self) -> GameBoyEmulatorConfig {
-        GameBoyEmulatorConfig {}
+        GameBoyEmulatorConfig { gb_palette: self.gb_palette }
     }
 }
