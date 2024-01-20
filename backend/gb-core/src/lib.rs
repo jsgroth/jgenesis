@@ -1,6 +1,7 @@
 pub mod api;
 mod bus;
 mod cartridge;
+mod dma;
 mod graphics;
 pub mod inputs;
 mod interrupts;

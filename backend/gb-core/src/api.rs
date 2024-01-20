@@ -2,6 +2,7 @@
 
 use crate::bus::Bus;
 use crate::cartridge::Cartridge;
+use crate::dma::DmaUnit;
 use crate::graphics::RgbaFrameBuffer;
 use crate::inputs::{GameBoyInputs, InputState};
 use crate::interrupts::InterruptRegisters;
@@ -60,6 +61,7 @@ pub struct GameBoyEmulator {
     #[partial_clone(partial)]
     cartridge: Cartridge,
     timer: GbTimer,
+    dma_unit: DmaUnit,
     input_state: InputState,
     rgba_buffer: RgbaFrameBuffer,
     config: GameBoyEmulatorConfig,
@@ -80,6 +82,7 @@ impl GameBoyEmulator {
             interrupt_registers: InterruptRegisters::default(),
             cartridge,
             timer: GbTimer::new(),
+            dma_unit: DmaUnit::new(),
             input_state: InputState::new(),
             rgba_buffer: RgbaFrameBuffer::default(),
             config,
@@ -119,6 +122,7 @@ impl EmulatorTrait for GameBoyEmulator {
             cartridge: &mut self.cartridge,
             interrupt_registers: &mut self.interrupt_registers,
             timer: &mut self.timer,
+            dma_unit: &mut self.dma_unit,
             input_state: &mut self.input_state,
         });
 

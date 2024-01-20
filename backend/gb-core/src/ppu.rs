@@ -118,6 +118,7 @@ impl State {
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 struct SpriteData {
+    oam_index: u8,
     x: u8,
     y: u8,
     tile_number: u8,
@@ -160,6 +161,10 @@ impl Ppu {
                 self.state.mode = PpuMode::HBlank;
                 self.frame_buffer.fill(0);
 
+                self.sprite_buffer.clear();
+                self.fifo.reset_window_state();
+                self.fifo.start_new_line(0, &self.registers, &[]);
+
                 self.state.previously_enabled = false;
 
                 // Signal that the frame should be displayed
@@ -201,22 +206,26 @@ impl Ppu {
             self.state.scanline += 1;
             if self.state.scanline == LINES_PER_FRAME {
                 self.state.scanline = 0;
+                self.fifo.reset_window_state();
             }
 
             if self.state.scanline < SCREEN_HEIGHT as u8 {
                 self.state.mode = PpuMode::ScanningOam;
+
                 scan_oam(
                     self.state.scanline,
                     self.registers.double_height_sprites,
                     &self.oam,
                     &mut self.sprite_buffer,
                 );
+
+                // Reset the FIFO here so that the WY check happens at the start of mode 2 rather than start of mode 3
+                self.fifo.start_new_line(self.state.scanline, &self.registers, &self.sprite_buffer);
             } else {
                 self.state.mode = PpuMode::VBlank;
             }
         } else if self.state.scanline < SCREEN_HEIGHT as u8 && self.state.dot == OAM_SCAN_DOTS {
             self.state.mode = PpuMode::Rendering;
-            self.fifo.start_new_line(self.state.scanline);
         }
 
         // TODO timing
@@ -290,6 +299,8 @@ impl Ppu {
             0x44 => self.state.scanline,
             0x45 => self.registers.ly_compare,
             0x47 => self.registers.read_bgp(),
+            0x48 => self.registers.read_obp0(),
+            0x49 => self.registers.read_obp1(),
             0x4A => self.registers.window_y,
             0x4B => self.registers.window_x,
             _ => {
@@ -300,6 +311,12 @@ impl Ppu {
     }
 
     pub fn write_register(&mut self, address: u16, value: u8) {
+        log::trace!(
+            "PPU register write on line {} dot {}: {address:04X} set to {value:02X}",
+            self.state.scanline,
+            self.state.dot
+        );
+
         match address & 0xFF {
             0x40 => self.registers.write_lcdc(value),
             0x41 => self.registers.write_stat(value),
@@ -309,6 +326,8 @@ impl Ppu {
             0x44 => {}
             0x45 => self.registers.write_lyc(value),
             0x47 => self.registers.write_bgp(value),
+            0x48 => self.registers.write_obp0(value),
+            0x49 => self.registers.write_obp1(value),
             0x4A => self.registers.write_wy(value),
             0x4B => self.registers.write_wx(value),
             _ => log::warn!("PPU register write {address:04X} {value:02X}"),
@@ -332,9 +351,9 @@ fn scan_oam(
         let y = oam[oam_addr];
 
         // Check if sprite overlaps current line
-        let sprite_top = y.saturating_add(16);
-        let sprite_bottom = sprite_top.saturating_add(sprite_height);
-        if !(sprite_top..sprite_bottom).contains(&scanline) {
+        let sprite_top = i16::from(y) - 16;
+        let sprite_bottom = sprite_top + sprite_height;
+        if !(sprite_top..sprite_bottom).contains(&scanline.into()) {
             continue;
         }
 
@@ -348,6 +367,7 @@ fn scan_oam(
         let low_priority = attributes.bit(7);
 
         sprite_buffer.push(SpriteData {
+            oam_index: oam_idx as u8,
             x,
             y,
             tile_number,
@@ -361,5 +381,5 @@ fn scan_oam(
         }
     }
 
-    sprite_buffer.sort_by_key(|sprite| sprite.x);
+    sprite_buffer.sort_by(|a, b| a.x.cmp(&b.x).then(a.oam_index.cmp(&b.oam_index)));
 }
