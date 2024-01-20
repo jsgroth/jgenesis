@@ -101,22 +101,43 @@ RUSTFLAGS="-Ctarget-cpu=native" cargo build --profile release-lto
 
 ## Sources
 
-* Mega Drive official documentation: https://segaretro.org/Mega_Drive_official_documentation
-* Mega Drive / Genesis architecture: https://www.copetti.org/writings/consoles/mega-drive-genesis/
-* Sega Master System / Game Gear documentation: https://www.smspower.org/Development/Documents
+### Sega Master System / Game Gear
+* Z80 User Manual: https://map.grauw.nl/resources/cpu/z80.pdf
+* The Undocumented Z80 Documented: http://www.myquest.nl/z80undocumented/z80-documented-v0.91.pdf
 * Sega Master System architecture: https://www.copetti.org/writings/consoles/master-system/
+* Sega Master System / Game Gear documentation: https://www.smspower.org/Development/Documents
+* YM2413 application manual: https://www.smspower.org/maxim/Documents/YM2413ApplicationManual
+* Reverse engineering of the YM2413: https://github.com/andete/ym2413
+
+### Sega Genesis / Mega Drive
+* M68000 Family Programmer's Reference Manual: https://www.nxp.com/docs/en/reference-manual/M68000PRM.pdf
+* Motorola 68000 Opcodes: http://goldencrystal.free.fr/M68kOpcodes.pdf
+* Mega Drive / Genesis architecture: https://www.copetti.org/writings/consoles/mega-drive-genesis/
+* Mega Drive official documentation: https://segaretro.org/Mega_Drive_official_documentation
 * Sega Genesis hardware notes by Charles MacDonald: https://gendev.spritesmind.net/mirrors/cmd/gen-hw.txt
+* Aggregating Community Research: https://gendev.spritesmind.net/forum/viewtopic.php?f=2&t=2227
 * Mega Drive video timings: https://gendev.spritesmind.net/forum/viewtopic.php?f=22&t=519
 * Genesis ROM header reference: https://plutiedev.com/rom-header
 * Genesis - Going beyond 4MB: https://plutiedev.com/beyond-4mb
+* SEGA Mega Drive / Genesis hardware notes by Kabuto: https://plutiedev.com/mirror/kabuto-hardware-notes
 * Huge thread discussing and detailing the YM2612: https://gendev.spritesmind.net/forum/viewtopic.php?f=24&t=386
 * Genesis EEPROM games: https://gendev.spritesmind.net/forum/viewtopic.php?f=25&t=206
-* YM2413 application manual: https://www.smspower.org/maxim/Documents/YM2413ApplicationManual
-* Reverse engineering of the YM2413: https://github.com/andete/ym2413
+* SVP documentation by notaz, as well as earlier documentation work by Tasco Deluxe: https://notaz.gp2x.de/docs/svpdoc.txt
+
+### Sega CD / Mega CD
 * Mega CD official documentation: https://segaretro.org/Mega-CD_official_documentation
 * ECMA-130 standard: https://www.ecma-international.org/publications-and-standards/standards/ecma-130/
 * Thread discussing details of Mega CD emulation: https://gendev.spritesmind.net/forum/viewtopic.php?t=3020
-* SVP documentation by notaz, as well as earlier documentation work by Tasco Deluxe: https://notaz.gp2x.de/docs/svpdoc.txt
+
+### NES
+* 6502 Instruction Set: https://www.masswerk.at/6502/6502_instruction_set.html
+* 6502 Hardware Manual: https://web.archive.org/web/20120227142944if_/http://archive.6502.org:80/datasheets/synertek_hardware_manual.pdf
+* Documentation for the NMOS 65xx/85xx Instruction Set: https://www.nesdev.org/6502_cpu.txt
+* Nintendo Entertainment System (NES) architecture: https://www.copetti.org/writings/consoles/nes/
+* NESDev NES reference guide: https://www.nesdev.org/wiki/NES_reference_guide
+
+### SNES
+* A 65816 Primer: https://softpixel.com/~cwright/sianse/docs/65816NFO.HTM
 * Super Nintendo architecture: https://www.copetti.org/writings/consoles/super-nintendo/
 * fullsnes - nocash SNES hardware specifications: https://problemkaputt.github.io/fullsnes.htm
 * Anomie's SNES documents: https://www.romhacking.net/?page=documents&category=&platform=&game=&author=&perpage=20&level=&title=anomie&docsearch=Go
