@@ -1,5 +1,6 @@
 use clap::Parser;
 use env_logger::Env;
+use gb_core::api::GbPalette;
 use genesis_core::{GenesisAspectRatio, GenesisControllerType, GenesisRegion};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::config::input::{
@@ -40,6 +41,7 @@ const GENESIS_OPTIONS_HEADING: &str = "Genesis / Sega CD Options";
 const SCD_OPTIONS_HEADING: &str = "Sega CD Options";
 const NES_OPTIONS_HEADING: &str = "NES Options";
 const SNES_OPTIONS_HEADING: &str = "SNES Options";
+const GB_OPTIONS_HEADING: &str = "Game Boy Options";
 const VIDEO_OPTIONS_HEADING: &str = "Video Options";
 const AUDIO_OPTIONS_HEADING: &str = "Audio Options";
 const INPUT_OPTIONS_HEADING: &str = "Input Options";
@@ -215,6 +217,10 @@ struct Args {
     /// Specify SNES ST011 ROM path (required for ST011 games)
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
     st011_rom_path: Option<String>,
+
+    /// Game Boy palette (BlackAndWhite / GreenTint / LimeGreen)
+    #[arg(long, default_value_t, help_heading = GB_OPTIONS_HEADING)]
+    gb_palette: GbPalette,
 
     /// Window width in pixels; height must also be set
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
@@ -678,6 +684,7 @@ fn run_snes(args: Args) -> anyhow::Result<()> {
 fn run_gb(args: Args) -> anyhow::Result<()> {
     let config = GameBoyConfig {
         common: args.common_config(GameBoyInputConfig::default(), GameBoyInputConfig::default()),
+        gb_palette: args.gb_palette,
     };
 
     let mut emulator = jgenesis_native_driver::create_gb(config.into())?;

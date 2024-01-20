@@ -15,7 +15,7 @@ use jgenesis_common::frontend::{
     AudioOutput, EmulatorTrait, PixelAspectRatio, Renderer, SaveWriter, TickEffect, TickResult,
     TimingMode,
 };
-use jgenesis_proc_macros::PartialClone;
+use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, PartialClone};
 use std::fmt::{Debug, Display};
 use thiserror::Error;
 
@@ -37,8 +37,19 @@ pub enum GameBoyError<RErr, AErr, SErr> {
     SaveWrite(SErr),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum GbPalette {
+    BlackAndWhite,
+    #[default]
+    GreenTint,
+    LimeGreen,
+}
+
 #[derive(Debug, Clone, Copy, Encode, Decode)]
-pub struct GameBoyEmulatorConfig {}
+pub struct GameBoyEmulatorConfig {
+    pub gb_palette: GbPalette,
+}
 
 #[derive(Debug, Clone, Encode, Decode, PartialClone)]
 pub struct GameBoyEmulator {
@@ -51,10 +62,15 @@ pub struct GameBoyEmulator {
     timer: GbTimer,
     input_state: InputState,
     rgba_buffer: RgbaFrameBuffer,
+    config: GameBoyEmulatorConfig,
 }
 
 impl GameBoyEmulator {
-    pub fn create(rom: Vec<u8>, initial_sram: Option<Vec<u8>>) -> Result<Self, GameBoyLoadError> {
+    pub fn create(
+        rom: Vec<u8>,
+        initial_sram: Option<Vec<u8>>,
+        config: GameBoyEmulatorConfig,
+    ) -> Result<Self, GameBoyLoadError> {
         let cartridge = Cartridge::create(rom.into_boxed_slice(), initial_sram)?;
 
         Ok(Self {
@@ -66,6 +82,7 @@ impl GameBoyEmulator {
             timer: GbTimer::new(),
             input_state: InputState::new(),
             rgba_buffer: RgbaFrameBuffer::default(),
+            config,
         })
     }
 }
@@ -107,7 +124,7 @@ impl EmulatorTrait for GameBoyEmulator {
 
         if self.ppu.frame_complete() {
             self.ppu.clear_frame_complete();
-            self.rgba_buffer.copy_from(self.ppu.frame_buffer());
+            self.rgba_buffer.copy_from(self.ppu.frame_buffer(), self.config.gb_palette);
             renderer
                 .render_frame(
                     self.rgba_buffer.as_ref(),
@@ -140,7 +157,7 @@ impl EmulatorTrait for GameBoyEmulator {
     }
 
     fn soft_reset(&mut self) {
-        todo!("soft reset")
+        log::warn!("The Game Boy does not support soft reset except in software");
     }
 
     fn hard_reset(&mut self) {
