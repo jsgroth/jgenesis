@@ -17,6 +17,9 @@ pub enum TileDataArea {
 }
 
 impl TileDataArea {
+    // Sprites always use $8000-$8FFF
+    pub const SPRITES: Self = Self::One;
+
     pub fn tile_address(self, tile_number: u8) -> u16 {
         // 16 bytes per tile
         match self {
@@ -71,8 +74,10 @@ pub struct Registers {
     // WX/WY: Window X/Y position
     pub window_x: u8,
     pub window_y: u8,
-    // BGP: Background palettes
-    pub bg_palettes: [u8; 4],
+    // BGP: Background palette
+    pub bg_palette: [u8; 4],
+    // OBP0/OBP1: Sprite palettes
+    pub sprite_palettes: [[u8; 4]; 2],
 }
 
 impl Registers {
@@ -95,7 +100,8 @@ impl Registers {
             bg_y_scroll: 0,
             window_x: 0,
             window_y: 0,
-            bg_palettes: [0; 4],
+            bg_palette: [0; 4],
+            sprite_palettes: [[0; 4]; 2],
         }
     }
 
@@ -184,17 +190,40 @@ impl Registers {
     }
 
     pub fn write_bgp(&mut self, value: u8) {
-        self.bg_palettes = array::from_fn(|palette| (value >> (2 * palette)) & 0x3);
+        self.bg_palette = parse_palette(value);
 
         log::trace!("BGP write: {value:02X}");
     }
 
     pub fn read_bgp(&self) -> u8 {
-        self.bg_palettes
-            .iter()
-            .enumerate()
-            .map(|(i, &color)| color << (2 * i))
-            .reduce(|a, b| a | b)
-            .unwrap()
+        read_palette(self.bg_palette)
     }
+
+    pub fn write_obp0(&mut self, value: u8) {
+        self.sprite_palettes[0] = parse_palette(value);
+
+        log::trace!("OBP0 write: {value:02X}");
+    }
+
+    pub fn write_obp1(&mut self, value: u8) {
+        self.sprite_palettes[1] = parse_palette(value);
+
+        log::trace!("OBP1 write: {value:02X}");
+    }
+
+    pub fn read_obp0(&self) -> u8 {
+        read_palette(self.sprite_palettes[0])
+    }
+
+    pub fn read_obp1(&self) -> u8 {
+        read_palette(self.sprite_palettes[1])
+    }
+}
+
+fn parse_palette(value: u8) -> [u8; 4] {
+    array::from_fn(|palette| (value >> (2 * palette)) & 0x3)
+}
+
+fn read_palette(palette: [u8; 4]) -> u8 {
+    palette.into_iter().enumerate().map(|(i, color)| color << (2 * i)).reduce(|a, b| a | b).unwrap()
 }

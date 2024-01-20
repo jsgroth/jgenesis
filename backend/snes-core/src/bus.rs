@@ -77,7 +77,7 @@ impl<'a> Bus<'a> {
                 // $4220-$42FF and $4380-$5FFF are CPU open bus with Fast memory speed
                 let cpu_open_bus = self.memory.cpu_open_bus();
                 self.cpu_registers.read_register(address, cpu_open_bus).unwrap_or_else(|| {
-                    self.memory.read_cartridge(full_address).unwrap_or(cpu_open_bus)
+                    self.memory.read_cartridge(full_address).unwrap_or(rand::random())
                 })
             }
             0x2000..=0x20FF | 0x2181..=0x3FFF => {
