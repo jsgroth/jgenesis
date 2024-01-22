@@ -467,7 +467,7 @@ impl Registers {
                     HorizontalDisplaySize::ThirtyTwoCell
                 };
                 self.shadow_highlight_flag = value.bit(3);
-                self.interlacing_mode = match value & 0x03 {
+                self.interlacing_mode = match (value >> 1) & 0x03 {
                     0x00 | 0x02 => InterlacingMode::Progressive,
                     0x01 => InterlacingMode::Interlaced,
                     0x03 => InterlacingMode::InterlacedDouble,
