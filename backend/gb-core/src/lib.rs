@@ -1,4 +1,6 @@
 pub mod api;
+mod apu;
+mod audio;
 mod bus;
 mod cartridge;
 mod dma;
