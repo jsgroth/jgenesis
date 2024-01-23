@@ -1,5 +1,6 @@
 //! Game Boy bus / address mapping
 
+use crate::apu::Apu;
 use crate::cartridge::Cartridge;
 use crate::dma::DmaUnit;
 use crate::inputs::InputState;
@@ -12,6 +13,7 @@ use crate::timer::GbTimer;
 
 pub struct Bus<'a> {
     pub ppu: &'a mut Ppu,
+    pub apu: &'a mut Apu,
     pub memory: &'a mut Memory,
     pub cartridge: &'a mut Cartridge,
     pub interrupt_registers: &'a mut InterruptRegisters,
@@ -29,6 +31,7 @@ impl<'a> Bus<'a> {
             0x06 => self.timer.read_tma(),
             0x07 => self.timer.read_tac(),
             0x0F => self.interrupt_registers.read_if(),
+            0x10..=0x3F => self.apu.read_register(address),
             0x40..=0x45 | 0x47..=0x4B => self.ppu.read_register(address),
             0x46 => self.dma_unit.read_dma_register(),
             _ => {
@@ -46,6 +49,7 @@ impl<'a> Bus<'a> {
             0x06 => self.timer.write_tma(value),
             0x07 => self.timer.write_tac(value),
             0x0F => self.interrupt_registers.write_if(value),
+            0x10..=0x3F => self.apu.write_register(address, value),
             0x40..=0x45 | 0x47..=0x4B => self.ppu.write_register(address, value),
             0x46 => self.dma_unit.write_dma_register(value),
             _ => log::warn!("write I/O register at {address:04X} value {value:02X}"),
@@ -56,10 +60,12 @@ impl<'a> Bus<'a> {
         self.timer.tick_m_cycle(self.interrupt_registers);
         self.dma_unit.tick_m_cycle(self.cartridge, self.memory, self.ppu);
 
-        // TODO only 2 ticks in GBC double speed mode
+        // TODO only 2 ticks in GBC double speed mode, and other components should tick every other cycle
         for _ in 0..4 {
-            self.ppu.tick(self.interrupt_registers);
+            self.ppu.tick_dot(self.interrupt_registers);
         }
+
+        self.apu.tick_m_cycle(self.timer);
     }
 }
 

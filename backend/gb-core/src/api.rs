@@ -1,5 +1,6 @@
 //! Game Boy emulator public interface and main loop
 
+use crate::apu::Apu;
 use crate::bus::Bus;
 use crate::cartridge::Cartridge;
 use crate::dma::DmaUnit;
@@ -56,6 +57,7 @@ pub struct GameBoyEmulatorConfig {
 pub struct GameBoyEmulator {
     cpu: Sm83,
     ppu: Ppu,
+    apu: Apu,
     memory: Memory,
     interrupt_registers: InterruptRegisters,
     #[partial_clone(partial)]
@@ -78,6 +80,7 @@ impl GameBoyEmulator {
         Ok(Self {
             cpu: Sm83::new(),
             ppu: Ppu::new(),
+            apu: Apu::new(),
             memory: Memory::new(),
             interrupt_registers: InterruptRegisters::default(),
             cartridge,
@@ -118,6 +121,7 @@ impl EmulatorTrait for GameBoyEmulator {
 
         self.cpu.execute_instruction(&mut Bus {
             ppu: &mut self.ppu,
+            apu: &mut self.apu,
             memory: &mut self.memory,
             cartridge: &mut self.cartridge,
             interrupt_registers: &mut self.interrupt_registers,
@@ -137,7 +141,7 @@ impl EmulatorTrait for GameBoyEmulator {
                 )
                 .map_err(GameBoyError::Rendering)?;
 
-            // TODO audio etc.
+            self.apu.drain_samples_into(audio_output).map_err(GameBoyError::Audio)?;
 
             Ok(TickEffect::FrameRendered)
         } else {

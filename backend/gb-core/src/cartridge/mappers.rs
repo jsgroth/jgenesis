@@ -1,3 +1,4 @@
+use crate::cartridge::HasBasicRamMapping;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 
@@ -45,19 +46,6 @@ impl Mbc1 {
         }
     }
 
-    pub fn map_ram_address(&self, address: u16) -> u32 {
-        match self.banking_mode {
-            BankingMode::Simple => {
-                // RAM is not banked in simple mode; always mapped to the first 8KB of RAM
-                (address & 0x1FFF).into()
-            }
-            BankingMode::Complex => {
-                ((u32::from(self.ram_bank) << 13) | u32::from(address & 0x1FFF))
-                    & self.ram_addr_mask
-            }
-        }
-    }
-
     pub fn write_rom_address(&mut self, address: u16, value: u8) {
         match address {
             0x0000..=0x1FFF => {
@@ -80,5 +68,100 @@ impl Mbc1 {
 
     pub fn is_ram_enabled(&self) -> bool {
         self.ram_enabled
+    }
+}
+
+impl HasBasicRamMapping for Mbc1 {
+    fn map_ram_address(&self, address: u16) -> Option<u32> {
+        if !self.ram_enabled {
+            return None;
+        }
+
+        let ram_addr = match self.banking_mode {
+            BankingMode::Simple => {
+                // RAM is not banked in simple mode; always mapped to the first 8KB of RAM
+                (address & 0x1FFF).into()
+            }
+            BankingMode::Complex => {
+                ((u32::from(self.ram_bank) << 13) | u32::from(address & 0x1FFF))
+                    & self.ram_addr_mask
+            }
+        };
+
+        Some(ram_addr)
+    }
+}
+
+// Every MBC2 cartridge has 512x4 bits of RAM
+pub const MBC2_RAM_LEN: usize = 512;
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct Mbc2 {
+    rom_bank: u8,
+    rom_addr_mask: u32,
+    ram: Box<[u8; MBC2_RAM_LEN]>,
+    ram_enabled: bool,
+}
+
+impl Mbc2 {
+    pub fn new(rom_len: u32, initial_ram: Vec<u8>) -> Self {
+        let ram =
+            if initial_ram.len() == MBC2_RAM_LEN { initial_ram } else { vec![0; MBC2_RAM_LEN] };
+
+        Self {
+            rom_bank: 0,
+            rom_addr_mask: rom_len - 1,
+            ram: ram.into_boxed_slice().try_into().unwrap(),
+            ram_enabled: false,
+        }
+    }
+
+    pub fn map_rom_address(&self, address: u16) -> u32 {
+        if address <= 0x3FFF {
+            // Fixed to first 16KB of ROM
+            address.into()
+        } else {
+            // 16KB ROM bank
+            let rom_bank = if self.rom_bank == 0 { 1 } else { self.rom_bank };
+            ((u32::from(rom_bank) << 14) | u32::from(address & 0x3FFF)) & self.rom_addr_mask
+        }
+    }
+
+    pub fn read_ram(&self, address: u16) -> u8 {
+        if !self.ram_enabled {
+            return 0xFF;
+        }
+
+        // MBC2 RAM is nibble-sized
+        self.ram[(address & 0x1FF) as usize] & 0x0F
+    }
+
+    pub fn write_ram(&mut self, address: u16, value: u8) {
+        if !self.ram_enabled {
+            return;
+        }
+
+        // MBC2 RAM is nibble-sized
+        self.ram[(address & 0x1FF) as usize] = value & 0x0F;
+    }
+
+    pub fn ram(&self) -> &[u8] {
+        self.ram.as_ref()
+    }
+
+    pub fn write_rom_address(&mut self, address: u16, value: u8) {
+        // MBC2 only has two registers, both mapped to $0000-$3FFF
+        if !(0x0000..0x4000).contains(&address) {
+            return;
+        }
+
+        // Address bit 8 determines whether this sets RAM enabled (clear) or ROM bank (set)
+        if !address.bit(8) {
+            // Set RAM enabled
+            self.ram_enabled = value == 0x0A;
+        } else {
+            // Set ROM bank
+            self.rom_bank = value & 0x0F;
+        };
     }
 }

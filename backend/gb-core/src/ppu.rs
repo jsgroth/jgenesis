@@ -152,7 +152,7 @@ impl Ppu {
         }
     }
 
-    pub fn tick(&mut self, interrupt_registers: &mut InterruptRegisters) {
+    pub fn tick_dot(&mut self, interrupt_registers: &mut InterruptRegisters) {
         if !self.registers.ppu_enabled {
             if self.state.previously_enabled {
                 // Disabling the PPU moves it to line 0 + mode 0 and clears the display
