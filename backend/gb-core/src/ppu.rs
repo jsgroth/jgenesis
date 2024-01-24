@@ -265,10 +265,6 @@ impl Ppu {
         &self.frame_buffer
     }
 
-    pub fn enabled(&self) -> bool {
-        self.registers.ppu_enabled
-    }
-
     pub fn frame_complete(&self) -> bool {
         self.state.frame_complete
     }

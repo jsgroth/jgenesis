@@ -169,4 +169,19 @@ impl Cartridge {
     pub fn write_ram(&mut self, address: u16, value: u8) {
         self.mapper.write_ram(address, value, &mut self.sram);
     }
+
+    pub fn take_rom(&mut self) -> Vec<u8> {
+        mem::take(&mut self.rom.0).into_vec()
+    }
+
+    pub fn take_rom_from(&mut self, other: &mut Self) {
+        self.rom = mem::take(&mut other.rom);
+    }
+
+    pub fn sram(&self) -> &[u8] {
+        match &self.mapper {
+            Mapper::Mbc2(mbc2) => mbc2.ram(),
+            _ => &self.sram,
+        }
+    }
 }

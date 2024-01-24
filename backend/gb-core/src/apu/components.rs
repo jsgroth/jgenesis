@@ -1,6 +1,5 @@
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
-use std::cmp;
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 pub struct LengthCounter<const MAX: u16> {
@@ -75,8 +74,6 @@ impl EnvelopeDirection {
         self == Self::Increasing
     }
 }
-
-const MAX_VOLUME: u8 = 15;
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 pub struct Envelope {

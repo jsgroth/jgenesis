@@ -19,6 +19,7 @@ use jgenesis_common::frontend::{
 };
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, PartialClone};
 use std::fmt::{Debug, Display};
+use std::iter;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -143,6 +144,11 @@ impl EmulatorTrait for GameBoyEmulator {
 
             self.apu.drain_samples_into(audio_output).map_err(GameBoyError::Audio)?;
 
+            let sram = self.cartridge.sram();
+            if !sram.is_empty() {
+                save_writer.persist_save(iter::once(sram)).map_err(GameBoyError::SaveWrite)?;
+            }
+
             Ok(TickEffect::FrameRendered)
         } else if self.apu.queued_sample_count() > 1600 {
             // Two frames' worth of samples are queued up; this can happen when the PPU is disabled
@@ -159,15 +165,20 @@ impl EmulatorTrait for GameBoyEmulator {
     where
         R: Renderer,
     {
-        todo!("force render")
+        self.rgba_buffer.copy_from(self.ppu.frame_buffer(), self.config.gb_palette);
+        renderer.render_frame(
+            self.rgba_buffer.as_ref(),
+            ppu::FRAME_SIZE,
+            Some(PixelAspectRatio::SQUARE),
+        )
     }
 
     fn reload_config(&mut self, config: &Self::Config) {
-        todo!("reload config")
+        self.config = *config;
     }
 
     fn take_rom_from(&mut self, other: &mut Self) {
-        todo!("take ROM from other")
+        self.cartridge.take_rom_from(&mut other.cartridge);
     }
 
     fn soft_reset(&mut self) {
@@ -175,7 +186,11 @@ impl EmulatorTrait for GameBoyEmulator {
     }
 
     fn hard_reset(&mut self) {
-        todo!("hard reset")
+        let rom = self.cartridge.take_rom();
+        let sram = self.cartridge.sram().to_vec();
+
+        *self = Self::create(rom, Some(sram), self.config)
+            .expect("Hard reset should never fail to load cartridge");
     }
 
     fn timing_mode(&self) -> TimingMode {
