@@ -25,7 +25,7 @@ impl Mbc1 {
             rom_addr_mask: rom_len - 1,
             ram_bank: 0,
             ram_addr_mask: ram_len.saturating_sub(1),
-            ram_enabled: true,
+            ram_enabled: false,
             banking_mode: BankingMode::Simple,
         }
     }
@@ -49,7 +49,7 @@ impl Mbc1 {
     pub fn write_rom_address(&mut self, address: u16, value: u8) {
         match address {
             0x0000..=0x1FFF => {
-                self.ram_enabled = value & 0x0A == 0x0A;
+                self.ram_enabled = value & 0x0F == 0x0A;
             }
             0x2000..=0x3FFF => {
                 self.rom_bank = (self.rom_bank & 0xE0) | (value & 0x1F);
@@ -163,5 +163,69 @@ impl Mbc2 {
             // Set ROM bank
             self.rom_bank = value & 0x0F;
         };
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct Mbc3 {
+    rom_bank: u8,
+    rom_addr_mask: u32,
+    ram_bank: u8,
+    ram_addr_mask: u32,
+    ram_enabled: bool,
+}
+
+impl Mbc3 {
+    pub fn new(rom_len: u32, ram_len: u32) -> Self {
+        Self {
+            rom_bank: 0,
+            rom_addr_mask: rom_len - 1,
+            ram_bank: 0,
+            ram_addr_mask: ram_len - 1,
+            ram_enabled: false,
+        }
+    }
+
+    pub fn map_rom_address(&self, address: u16) -> u32 {
+        if address < 0x4000 {
+            // First 16KB of ROM
+            address.into()
+        } else {
+            // 16KB ROM bank
+            let rom_bank = if self.rom_bank == 0 { 1 } else { self.rom_bank };
+            ((u32::from(rom_bank) << 14) | u32::from(address & 0x3FFF)) & self.rom_addr_mask
+        }
+    }
+
+    pub fn write_rom_address(&mut self, address: u16, value: u8) {
+        match address {
+            0x0000..=0x1FFF => {
+                // RAM/RTC enabled
+                self.ram_enabled = value & 0x0F == 0x0A;
+            }
+            0x2000..=0x3FFF => {
+                // ROM bank
+                self.rom_bank = value & 0x7F;
+            }
+            0x4000..=0x5FFF => {
+                // RAM bank number / RTC register select
+                self.ram_bank = value & 0x03;
+            }
+            0x6000..=0x7FFF => {
+                // RTC latch
+                log::warn!("Write to unimplemented RTC latch");
+            }
+            0x8000..=0xFFFF => panic!("Invalid cartridge address: {address:06X}"),
+        }
+    }
+}
+
+impl HasBasicRamMapping for Mbc3 {
+    fn map_ram_address(&self, address: u16) -> Option<u32> {
+        if !self.ram_enabled {
+            return None;
+        }
+
+        Some(((u32::from(self.ram_bank) << 13) | u32::from(address & 0x1FFF)) & self.ram_addr_mask)
     }
 }
