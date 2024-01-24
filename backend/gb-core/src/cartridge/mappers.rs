@@ -31,18 +31,23 @@ impl Mbc1 {
     }
 
     pub fn map_rom_address(&self, address: u16) -> u32 {
-        match self.banking_mode {
-            BankingMode::Simple => {
-                if !address.bit(14) {
+        if !address.bit(14) {
+            // $0000-$3FFF mapping depends on banking mode
+            match self.banking_mode {
+                BankingMode::Simple => {
                     // $0000-$3FFF is always mapped to the first 16KB of ROM
                     (address & 0x3FFF).into()
-                } else {
-                    // $4000-$7FFF is mapped to the currently selected ROM bank
-                    let rom_bank = if self.rom_bank & 0x1F == 0 { 1 } else { self.rom_bank };
+                }
+                BankingMode::Complex => {
+                    // $0000-$3FFF uses the highest 2 bits of ROM bank
+                    let rom_bank = self.rom_bank & 0x60;
                     ((u32::from(rom_bank) << 14) | u32::from(address & 0x3FFF)) & self.rom_addr_mask
                 }
             }
-            BankingMode::Complex => todo!("complex MBC1 mode"),
+        } else {
+            // $4000-$7FFF is mapped to the currently selected ROM bank
+            let rom_bank = if self.rom_bank & 0x1F == 0 { 1 } else { self.rom_bank };
+            ((u32::from(rom_bank) << 14) | u32::from(address & 0x3FFF)) & self.rom_addr_mask
         }
     }
 
