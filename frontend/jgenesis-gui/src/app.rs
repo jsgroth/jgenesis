@@ -1,4 +1,5 @@
 mod common;
+mod gb;
 mod genesis;
 mod input;
 mod nes;
@@ -7,6 +8,7 @@ mod smsgg;
 mod snes;
 
 use crate::app::common::CommonAppConfig;
+use crate::app::gb::GameBoyAppConfig;
 use crate::app::genesis::{GenesisAppConfig, SegaCdAppConfig};
 use crate::app::input::{GenericButton, InputAppConfig};
 use crate::app::nes::{NesAppConfig, OverscanState};
@@ -35,14 +37,26 @@ use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct ListFilters {
+    #[serde(default = "true_fn")]
     master_system: bool,
+    #[serde(default = "true_fn")]
     game_gear: bool,
+    #[serde(default = "true_fn")]
     genesis: bool,
+    #[serde(default = "true_fn")]
     sega_cd: bool,
+    #[serde(default = "true_fn")]
     nes: bool,
+    #[serde(default = "true_fn")]
     snes: bool,
+    #[serde(default = "true_fn")]
+    game_boy: bool,
     #[serde(skip)]
     title_match: String,
+}
+
+fn true_fn() -> bool {
+    true
 }
 
 impl Default for ListFilters {
@@ -54,6 +68,7 @@ impl Default for ListFilters {
             sega_cd: true,
             nes: true,
             snes: true,
+            game_boy: true,
             title_match: String::new(),
         }
     }
@@ -68,6 +83,7 @@ impl ListFilters {
             self.sega_cd.then_some(Console::SegaCd),
             self.nes.then_some(Console::Nes),
             self.snes.then_some(Console::Snes),
+            self.game_boy.then_some(Console::GameBoy),
         ]
         .into_iter()
         .flatten()
@@ -102,6 +118,8 @@ pub struct AppConfig {
     nes: NesAppConfig,
     #[serde(default)]
     snes: SnesAppConfig,
+    #[serde(default)]
+    game_boy: GameBoyAppConfig,
     #[serde(default)]
     inputs: InputAppConfig,
     #[serde(default)]
@@ -141,6 +159,7 @@ enum OpenWindow {
     GenesisVideo,
     NesVideo,
     SnesVideo,
+    GameBoyVideo,
     CommonAudio,
     SmsGgAudio,
     GenesisAudio,
@@ -155,6 +174,8 @@ enum OpenWindow {
     SnesKeyboard,
     SnesGamepad,
     SnesPeripherals,
+    GameBoyKeyboard,
+    GameBoyGamepad,
     Hotkeys,
     About,
 }
@@ -297,7 +318,7 @@ impl App {
 
         let mut file_dialog = FileDialog::new().add_filter(
             "Supported ROM files",
-            &["sms", "gg", "md", "bin", "cue", "nes", "sfc", "smc"],
+            &["sms", "gg", "md", "bin", "cue", "nes", "sfc", "smc", "gb", "gbc"],
         );
         if let Some(dir) = self.config.rom_search_dirs.first() {
             file_dialog = file_dialog.set_directory(Path::new(dir));
@@ -348,7 +369,15 @@ impl App {
                 let config = self.config.snes_config(path);
                 self.emu_thread.send(EmuThreadCommand::RunSnes(config));
             }
-            Some(_) => todo!("unrecognized file extension"),
+            Some("gb" | "gbc") => {
+                self.emu_thread.stop_emulator_if_running();
+
+                let config = self.config.gb_config(path);
+                self.emu_thread.send(EmuThreadCommand::RunGameBoy(config));
+            }
+            Some(extension) => {
+                log::error!("Unsupported file extension: {extension}");
+            }
             None => {}
         }
     }
@@ -565,6 +594,11 @@ impl App {
                         self.state.open_windows.insert(OpenWindow::SnesVideo);
                         ui.close_menu();
                     }
+
+                    if ui.button("Game Boy").clicked() {
+                        self.state.open_windows.insert(OpenWindow::GameBoyVideo);
+                        ui.close_menu();
+                    }
                 });
 
                 ui.menu_button("Audio", |ui| {
@@ -595,50 +629,80 @@ impl App {
                 });
 
                 ui.menu_button("Input", |ui| {
-                    if ui.button("SMS / GG Keyboard").clicked() {
-                        self.state.open_windows.insert(OpenWindow::SmsGgKeyboard);
-                        ui.close_menu();
-                    }
+                    ui.menu_button("SMS / Game Gear", |ui| {
+                        if ui.button("Keyboard").clicked() {
+                            self.state.open_windows.insert(OpenWindow::SmsGgKeyboard);
+                            ui.close_menu();
+                        }
 
-                    if ui.button("SMS / GG Gamepad").clicked() {
-                        self.state.open_windows.insert(OpenWindow::SmsGgGamepad);
-                        ui.close_menu();
-                    }
+                        if ui.button("Gamepad").clicked() {
+                            self.state.open_windows.insert(OpenWindow::SmsGgGamepad);
+                            ui.close_menu();
+                        }
+                    });
 
-                    if ui.button("Genesis Keyboard").clicked() {
-                        self.state.open_windows.insert(OpenWindow::GenesisKeyboard);
-                        ui.close_menu();
-                    }
+                    ui.add_space(5.0);
 
-                    if ui.button("Genesis Gamepad").clicked() {
-                        self.state.open_windows.insert(OpenWindow::GenesisGamepad);
-                        ui.close_menu();
-                    }
+                    ui.menu_button("Genesis / Sega CD", |ui| {
+                        if ui.button("Keyboard").clicked() {
+                            self.state.open_windows.insert(OpenWindow::GenesisKeyboard);
+                            ui.close_menu();
+                        }
 
-                    if ui.button("NES Keyboard").clicked() {
-                        self.state.open_windows.insert(OpenWindow::NesKeyboard);
-                        ui.close_menu();
-                    }
+                        if ui.button("Gamepad").clicked() {
+                            self.state.open_windows.insert(OpenWindow::GenesisGamepad);
+                            ui.close_menu();
+                        }
+                    });
 
-                    if ui.button("NES Gamepad").clicked() {
-                        self.state.open_windows.insert(OpenWindow::NesGamepad);
-                        ui.close_menu();
-                    }
+                    ui.add_space(5.0);
 
-                    if ui.button("SNES Keyboard").clicked() {
-                        self.state.open_windows.insert(OpenWindow::SnesKeyboard);
-                        ui.close_menu();
-                    }
+                    ui.menu_button("NES", |ui| {
+                        if ui.button("Keyboard").clicked() {
+                            self.state.open_windows.insert(OpenWindow::NesKeyboard);
+                            ui.close_menu();
+                        }
 
-                    if ui.button("SNES Gamepad").clicked() {
-                        self.state.open_windows.insert(OpenWindow::SnesGamepad);
-                        ui.close_menu();
-                    }
+                        if ui.button("Gamepad").clicked() {
+                            self.state.open_windows.insert(OpenWindow::NesGamepad);
+                            ui.close_menu();
+                        }
+                    });
 
-                    if ui.button("SNES Peripherals").clicked() {
-                        self.state.open_windows.insert(OpenWindow::SnesPeripherals);
-                        ui.close_menu();
-                    }
+                    ui.add_space(5.0);
+
+                    ui.menu_button("SNES", |ui| {
+                        if ui.button("Keyboard").clicked() {
+                            self.state.open_windows.insert(OpenWindow::SnesKeyboard);
+                            ui.close_menu();
+                        }
+
+                        if ui.button("Gamepad").clicked() {
+                            self.state.open_windows.insert(OpenWindow::SnesGamepad);
+                            ui.close_menu();
+                        }
+
+                        if ui.button("Peripherals").clicked() {
+                            self.state.open_windows.insert(OpenWindow::SnesPeripherals);
+                            ui.close_menu();
+                        }
+                    });
+
+                    ui.add_space(5.0);
+
+                    ui.menu_button("Game Boy", |ui| {
+                        if ui.button("Keyboard").clicked() {
+                            self.state.open_windows.insert(OpenWindow::GameBoyKeyboard);
+                            ui.close_menu();
+                        }
+
+                        if ui.button("Gamepad").clicked() {
+                            self.state.open_windows.insert(OpenWindow::GameBoyGamepad);
+                            ui.close_menu();
+                        }
+                    });
+
+                    ui.add_space(5.0);
 
                     if ui.button("Hotkeys").clicked() {
                         self.state.open_windows.insert(OpenWindow::Hotkeys);
@@ -756,7 +820,7 @@ impl App {
                 self.config.list_filters.title_match.clear();
             }
 
-            ui.add_space(30.0);
+            ui.add_space(15.0);
 
             ui.checkbox(&mut self.config.list_filters.master_system, "SMS");
             ui.checkbox(&mut self.config.list_filters.game_gear, "Game Gear");
@@ -764,6 +828,7 @@ impl App {
             ui.checkbox(&mut self.config.list_filters.sega_cd, "Sega CD");
             ui.checkbox(&mut self.config.list_filters.nes, "NES");
             ui.checkbox(&mut self.config.list_filters.snes, "SNES");
+            ui.checkbox(&mut self.config.list_filters.game_boy, "GB");
         });
     }
 
@@ -792,13 +857,7 @@ impl App {
                     self.config.inputs.set_input(input, button);
 
                     if self.emu_thread.status().is_running() {
-                        self.emu_thread.reload_config(
-                            self.config.smsgg_config(self.state.current_file_path.clone()),
-                            self.config.genesis_config(self.state.current_file_path.clone()),
-                            self.config.sega_cd_config(self.state.current_file_path.clone()),
-                            self.config.nes_config(self.state.current_file_path.clone()),
-                            self.config.snes_config(self.state.current_file_path.clone()),
-                        );
+                        self.reload_config();
                     }
                 }
             } else if self.emu_thread.status().is_running() {
@@ -807,6 +866,17 @@ impl App {
                 });
             }
         }
+    }
+
+    fn reload_config(&mut self) {
+        self.emu_thread.reload_config(
+            self.config.smsgg_config(self.state.current_file_path.clone()),
+            self.config.genesis_config(self.state.current_file_path.clone()),
+            self.config.sega_cd_config(self.state.current_file_path.clone()),
+            self.config.nes_config(self.state.current_file_path.clone()),
+            self.config.snes_config(self.state.current_file_path.clone()),
+            self.config.gb_config(self.state.current_file_path.clone()),
+        );
     }
 }
 
@@ -832,6 +902,7 @@ impl eframe::App for App {
                 OpenWindow::GenesisVideo => self.render_genesis_video_settings(ctx),
                 OpenWindow::NesVideo => self.render_nes_video_settings(ctx),
                 OpenWindow::SnesVideo => self.render_snes_video_settings(ctx),
+                OpenWindow::GameBoyVideo => self.render_gb_video_settings(ctx),
                 OpenWindow::CommonAudio => self.render_common_audio_settings(ctx),
                 OpenWindow::SmsGgAudio => self.render_smsgg_audio_settings(ctx),
                 OpenWindow::GenesisAudio => self.render_genesis_audio_settings(ctx),
@@ -846,6 +917,8 @@ impl eframe::App for App {
                 OpenWindow::SnesKeyboard => self.render_snes_keyboard_settings(ctx),
                 OpenWindow::SnesGamepad => self.render_snes_gamepad_settings(ctx),
                 OpenWindow::SnesPeripherals => self.render_snes_peripheral_settings(ctx),
+                OpenWindow::GameBoyKeyboard => self.render_gb_keyboard_settings(ctx),
+                OpenWindow::GameBoyGamepad => self.render_gb_joystick_settings(ctx),
                 OpenWindow::Hotkeys => self.render_hotkey_settings(ctx),
                 OpenWindow::About => self.render_about(ctx),
             }
@@ -855,13 +928,7 @@ impl eframe::App for App {
             self.state.display_scanlines_warning = should_display_scanlines_warning(&self.config);
 
             if should_reload_config(&prev_config, &self.config) {
-                self.emu_thread.reload_config(
-                    self.config.smsgg_config(self.state.current_file_path.clone()),
-                    self.config.genesis_config(self.state.current_file_path.clone()),
-                    self.config.sega_cd_config(self.state.current_file_path.clone()),
-                    self.config.nes_config(self.state.current_file_path.clone()),
-                    self.config.snes_config(self.state.current_file_path.clone()),
-                );
+                self.reload_config();
             }
 
             let config_str = toml::to_string_pretty(&self.config).unwrap();

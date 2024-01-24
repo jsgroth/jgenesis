@@ -3,12 +3,14 @@ use crate::emuthread::{EmuThreadCommand, GenericInput, InputType};
 use egui::{Color32, Context, Grid, Ui, Window};
 use genesis_core::GenesisControllerType;
 use jgenesis_native_driver::config::input::{
-    GenesisControllerConfig, GenesisInputConfig, HotkeyConfig, JoystickInput, KeyboardInput,
-    KeyboardOrMouseInput, NesControllerConfig, NesInputConfig, SmsGgControllerConfig,
-    SmsGgInputConfig, SnesControllerConfig, SnesControllerType, SnesInputConfig, SuperScopeConfig,
+    GameBoyInputConfig, GenesisControllerConfig, GenesisInputConfig, HotkeyConfig, JoystickInput,
+    KeyboardInput, KeyboardOrMouseInput, NesControllerConfig, NesInputConfig,
+    SmsGgControllerConfig, SmsGgInputConfig, SnesControllerConfig, SnesControllerType,
+    SnesInputConfig, SuperScopeConfig,
 };
 use jgenesis_native_driver::input::{
-    GenesisButton, Hotkey, NesButton, Player, SmsGgButton, SnesButton, SuperScopeButton,
+    GameBoyButton, GenesisButton, Hotkey, NesButton, Player, SmsGgButton, SnesButton,
+    SuperScopeButton,
 };
 use serde::{Deserialize, Serialize};
 
@@ -18,6 +20,7 @@ pub enum GenericButton {
     Genesis(GenesisButton),
     Nes(NesButton),
     Snes(SnesButton),
+    GameBoy(GameBoyButton),
     Hotkey(Hotkey),
 }
 
@@ -63,6 +66,10 @@ pub struct InputAppConfig {
     pub snes_p2_type: SnesControllerType,
     #[serde(default)]
     pub snes_super_scope: SuperScopeConfig,
+    #[serde(default = "default_gb_keyboard_config")]
+    pub gb_keyboard: GameBoyInputConfig<String>,
+    #[serde(default)]
+    pub gb_joystick: GameBoyInputConfig<JoystickInput>,
     #[serde(default = "default_axis_deadzone")]
     pub axis_deadzone: i16,
     #[serde(default)]
@@ -94,11 +101,14 @@ impl InputAppConfig {
             GenericButton::Genesis(genesis_button) => {
                 self.set_genesis_button(input, genesis_button);
             }
+            GenericButton::Nes(nes_button) => {
+                self.set_nes_button(input, nes_button);
+            }
             GenericButton::Snes(snes_button) => {
                 self.set_snes_button(input, snes_button);
             }
-            GenericButton::Nes(nes_button) => {
-                self.set_nes_button(input, nes_button);
+            GenericButton::GameBoy(gb_button) => {
+                self.set_gb_button(input, gb_button);
             }
             GenericButton::Hotkey(hotkey) => {
                 if let GenericInput::Keyboard(input) = input {
@@ -277,6 +287,22 @@ impl InputAppConfig {
         }
     }
 
+    fn set_gb_button(&mut self, input: GenericInput, gb_button: GameBoyButton) {
+        let keyboard = &mut self.gb_keyboard;
+        let joystick = &mut self.gb_joystick;
+
+        match gb_button {
+            GameBoyButton::Up => set_input!(input, keyboard.up, joystick.up),
+            GameBoyButton::Left => set_input!(input, keyboard.left, joystick.left),
+            GameBoyButton::Right => set_input!(input, keyboard.right, joystick.right),
+            GameBoyButton::Down => set_input!(input, keyboard.down, joystick.down),
+            GameBoyButton::A => set_input!(input, keyboard.a, joystick.a),
+            GameBoyButton::B => set_input!(input, keyboard.b, joystick.b),
+            GameBoyButton::Start => set_input!(input, keyboard.start, joystick.start),
+            GameBoyButton::Select => set_input!(input, keyboard.select, joystick.select),
+        }
+    }
+
     fn set_hotkey(&mut self, input: KeyboardInput, hotkey: Hotkey) {
         match hotkey {
             Hotkey::Quit => {
@@ -361,6 +387,10 @@ impl InputAppConfig {
     pub fn to_snes_joystick_config(&self) -> SnesInputConfig<JoystickInput> {
         SnesInputConfig { p1: self.snes_p1_joystick.clone(), p2: self.snes_p2_joystick.clone() }
     }
+
+    pub fn to_gb_keyboard_config(&self) -> GameBoyInputConfig<KeyboardInput> {
+        convert_gb_keyboard_config(self.gb_keyboard.clone())
+    }
 }
 
 macro_rules! to_keyboard_input_config {
@@ -410,6 +440,16 @@ fn convert_snes_keyboard_config(
         config,
         SnesControllerConfig,
         [up, left, right, down, a, b, x, y, l, r, start, select]
+    )
+}
+
+fn convert_gb_keyboard_config(
+    config: GameBoyInputConfig<String>,
+) -> GameBoyInputConfig<KeyboardInput> {
+    to_keyboard_input_config!(
+        config,
+        GameBoyInputConfig,
+        [up, left, right, down, a, b, start, select]
     )
 }
 
@@ -483,6 +523,21 @@ fn default_snes_p1_keyboard_config() -> SnesControllerConfig<String> {
         y: default.y.map(keycode_fn),
         l: default.l.map(keycode_fn),
         r: default.r.map(keycode_fn),
+        start: default.start.map(keycode_fn),
+        select: default.select.map(keycode_fn),
+    }
+}
+
+fn default_gb_keyboard_config() -> GameBoyInputConfig<String> {
+    let default = GameBoyInputConfig::<KeyboardInput>::default();
+    let keycode_fn = |key: KeyboardInput| key.keycode;
+    GameBoyInputConfig {
+        up: default.up.map(keycode_fn),
+        left: default.left.map(keycode_fn),
+        right: default.right.map(keycode_fn),
+        down: default.down.map(keycode_fn),
+        a: default.a.map(keycode_fn),
+        b: default.b.map(keycode_fn),
         start: default.start.map(keycode_fn),
         select: default.select.map(keycode_fn),
     }
@@ -562,6 +617,21 @@ macro_rules! render_snes_input {
             r: "R" -> GenericButton::Snes(SnesButton::R($player)),
             start: "Start" -> GenericButton::Snes(SnesButton::Start($player)),
             select: "Select" -> GenericButton::Snes(SnesButton::Select($player)),
+        ], $ui);
+    }
+}
+
+macro_rules! render_gb_input {
+    ($self:expr, $button_fn:ident, $config:expr, $ui:expr) => {
+        render_buttons!($self, $button_fn, $config, [
+            up: "Up" -> GenericButton::GameBoy(GameBoyButton::Up),
+            left: "Left" -> GenericButton::GameBoy(GameBoyButton::Left),
+            right: "Right" -> GenericButton::GameBoy(GameBoyButton::Right),
+            down: "Down" -> GenericButton::GameBoy(GameBoyButton::Down),
+            a: "A" -> GenericButton::GameBoy(GameBoyButton::A),
+            b: "B" -> GenericButton::GameBoy(GameBoyButton::B),
+            start: "Start" -> GenericButton::GameBoy(GameBoyButton::Start),
+            select: "Select" -> GenericButton::GameBoy(GameBoyButton::Select),
         ], $ui);
     }
 }
@@ -992,6 +1062,50 @@ impl App {
         }
     }
 
+    pub(super) fn render_gb_keyboard_settings(&mut self, ctx: &Context) {
+        let mut open = true;
+        Window::new("Game Boy Keyboard Settings").open(&mut open).resizable(false).show(
+            ctx,
+            |ui| {
+                ui.set_enabled(self.state.waiting_for_input.is_none());
+
+                Grid::new("gb_keyboard_grid").show(ui, |ui| {
+                    render_gb_input!(
+                        self,
+                        keyboard_input_button,
+                        self.config.inputs.gb_keyboard,
+                        ui
+                    );
+                });
+            },
+        );
+        if !open {
+            self.state.open_windows.remove(&OpenWindow::GameBoyKeyboard);
+        }
+    }
+
+    pub(super) fn render_gb_joystick_settings(&mut self, ctx: &Context) {
+        let mut open = true;
+        Window::new("Game Boy Joystick Settings").open(&mut open).resizable(false).show(
+            ctx,
+            |ui| {
+                ui.set_enabled(self.state.waiting_for_input.is_none());
+
+                Grid::new("gb_joystick_grid").show(ui, |ui| {
+                    render_gb_input!(
+                        self,
+                        gamepad_input_button,
+                        self.config.inputs.gb_joystick,
+                        ui
+                    );
+                });
+            },
+        );
+        if !open {
+            self.state.open_windows.remove(&OpenWindow::GameBoyGamepad);
+        }
+    }
+
     pub(super) fn render_hotkey_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("Hotkey Settings").open(&mut open).resizable(false).show(ctx, |ui| {
@@ -1253,6 +1367,11 @@ impl App {
                     }
                 }
             },
+            GenericButton::GameBoy(button) => match input_type {
+                InputType::Keyboard => clear_gb_button(&mut self.config.inputs.gb_keyboard, button),
+                InputType::Joystick => clear_gb_button(&mut self.config.inputs.gb_joystick, button),
+                InputType::KeyboardOrMouse => {}
+            },
             GenericButton::Hotkey(hotkey) => match hotkey {
                 Hotkey::Quit => {
                     self.config.inputs.hotkeys.quit = None;
@@ -1449,4 +1568,19 @@ fn clear_super_scope_button(config: &mut SuperScopeConfig, button: SuperScopeBut
         SuperScopeButton::Pause => config.pause = None,
         SuperScopeButton::TurboToggle => config.turbo_toggle = None,
     }
+}
+
+fn clear_gb_button<T>(config: &mut GameBoyInputConfig<T>, button: GameBoyButton) {
+    let field = match button {
+        GameBoyButton::Up => &mut config.up,
+        GameBoyButton::Left => &mut config.left,
+        GameBoyButton::Right => &mut config.right,
+        GameBoyButton::Down => &mut config.down,
+        GameBoyButton::A => &mut config.a,
+        GameBoyButton::B => &mut config.b,
+        GameBoyButton::Start => &mut config.start,
+        GameBoyButton::Select => &mut config.select,
+    };
+
+    *field = None;
 }

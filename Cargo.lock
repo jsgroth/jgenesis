@@ -1973,6 +1973,7 @@ dependencies = [
  "egui",
  "egui_extras",
  "env_logger",
+ "gb-core",
  "genesis-core",
  "jgenesis-common",
  "jgenesis-native-driver",
