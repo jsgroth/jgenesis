@@ -462,6 +462,9 @@ impl Sm83 {
 
         self.push_stack_u16(bus, self.registers.pc);
 
+        // Take the last idle cycle before reading IE/IF; this *seems* to fix Pinball Deluxe
+        bus.idle();
+
         let interrupt_type = bus.highest_priority_interrupt().expect(
             "The interrupt service routine should never be executed without a pending interrupt",
         );
@@ -471,10 +474,6 @@ impl Sm83 {
 
         self.registers.pc = interrupt_type.interrupt_vector();
         self.registers.ime = false;
-
-        // One more idle cycle at the end of the routine, where the CPU sets PC to the interrupt
-        // handler address
-        bus.idle();
     }
 
     fn fetch_operand<B: BusInterface>(&mut self, bus: &mut B) -> u8 {
