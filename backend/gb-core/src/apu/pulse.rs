@@ -15,13 +15,13 @@ impl DutyCycle {
     fn waveform_step(self, phase: u8) -> bool {
         match self {
             // 00000001
-            Self::OneEighth => phase == 7,
+            Self::OneEighth => 0b1000_0000_u8.bit(phase),
             // 10000001
-            Self::OneFourth => phase == 0 || phase == 7,
+            Self::OneFourth => 0b1000_0001_u8.bit(phase),
             // 10000111
-            Self::OneHalf => phase == 0 || (5..8).contains(&phase),
+            Self::OneHalf => 0b1110_0001_u8.bit(phase),
             // 01111110
-            Self::ThreeFourths => (1..7).contains(&phase),
+            Self::ThreeFourths => 0b0111_1110_u8.bit(phase),
         }
     }
 
