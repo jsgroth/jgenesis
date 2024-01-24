@@ -150,8 +150,8 @@ impl EmulatorTrait for GameBoyEmulator {
             }
 
             Ok(TickEffect::FrameRendered)
-        } else if self.apu.queued_sample_count() > 1600 {
-            // Two frames' worth of samples are queued up; this can happen when the PPU is disabled
+        } else if self.apu.queued_sample_count() > 1200 {
+            // A frame and a half's worth of samples are queued up; this can happen when the PPU is disabled
             // Push the samples and pretend to render a frame so that the frontend will process events
             self.apu.drain_samples_into(audio_output).map_err(GameBoyError::Audio)?;
 
