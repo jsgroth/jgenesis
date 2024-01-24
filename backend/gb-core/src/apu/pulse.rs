@@ -272,10 +272,6 @@ impl PulseChannel {
         log::trace!("  Triggered: {}", value.bit(7));
     }
 
-    pub fn reset_phase(&mut self) {
-        self.timer.phase = 0;
-    }
-
     pub fn enabled(&self) -> bool {
         self.channel_enabled
     }

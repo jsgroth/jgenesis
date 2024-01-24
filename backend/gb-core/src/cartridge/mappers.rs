@@ -65,10 +65,6 @@ impl Mbc1 {
             _ => panic!("Invalid cartridge address: {address:04X}"),
         }
     }
-
-    pub fn is_ram_enabled(&self) -> bool {
-        self.ram_enabled
-    }
 }
 
 impl HasBasicRamMapping for Mbc1 {
