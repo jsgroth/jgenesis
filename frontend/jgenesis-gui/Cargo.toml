@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+gb-core = { path = "../../backend/gb-core", features = ["serde"] }
 genesis-core = { path = "../../backend/genesis-core", features = ["serde"] }
 nes-core = { path = "../../backend/nes-core", features = ["serde"] }
 segacd-core = { path = "../../backend/segacd-core" }

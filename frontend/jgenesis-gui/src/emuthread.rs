@@ -3,12 +3,13 @@ use jgenesis_native_driver::config::input::{
     AxisDirection, HatDirection, JoystickAction, JoystickInput, KeyboardInput, KeyboardOrMouseInput,
 };
 use jgenesis_native_driver::config::{
-    GenesisConfig, NesConfig, SegaCdConfig, SmsGgConfig, SnesConfig,
+    GameBoyConfig, GenesisConfig, NesConfig, SegaCdConfig, SmsGgConfig, SnesConfig,
 };
 use jgenesis_native_driver::input::Joysticks;
 use jgenesis_native_driver::{
-    AudioError, NativeEmulatorResult, NativeGenesisEmulator, NativeNesEmulator,
-    NativeSegaCdEmulator, NativeSmsGgEmulator, NativeSnesEmulator, NativeTickEffect,
+    AudioError, NativeEmulatorResult, NativeGameBoyEmulator, NativeGenesisEmulator,
+    NativeNesEmulator, NativeSegaCdEmulator, NativeSmsGgEmulator, NativeSnesEmulator,
+    NativeTickEffect,
 };
 use sdl2::event::Event;
 use sdl2::joystick::HatState;
@@ -32,6 +33,7 @@ pub enum EmuThreadStatus {
     RunningSegaCd = 3,
     RunningNes = 4,
     RunningSnes = 5,
+    RunningGameBoy = 6,
 }
 
 impl EmuThreadStatus {
@@ -43,6 +45,7 @@ impl EmuThreadStatus {
             3 => Self::RunningSegaCd,
             4 => Self::RunningNes,
             5 => Self::RunningSnes,
+            6 => Self::RunningGameBoy,
             _ => panic!("invalid status discriminant: {discriminant}"),
         }
     }
@@ -55,6 +58,7 @@ impl EmuThreadStatus {
                 | Self::RunningSegaCd
                 | Self::RunningNes
                 | Self::RunningSnes
+                | Self::RunningGameBoy
         )
     }
 }
@@ -66,11 +70,13 @@ pub enum EmuThreadCommand {
     RunSegaCd(Box<SegaCdConfig>),
     RunNes(Box<NesConfig>),
     RunSnes(Box<SnesConfig>),
+    RunGameBoy(Box<GameBoyConfig>),
     ReloadSmsGgConfig(Box<SmsGgConfig>),
     ReloadGenesisConfig(Box<GenesisConfig>),
     ReloadSegaCdConfig(Box<SegaCdConfig>),
     ReloadNesConfig(Box<NesConfig>),
     ReloadSnesConfig(Box<SnesConfig>),
+    ReloadGameBoyConfig(Box<GameBoyConfig>),
     StopEmulator,
     CollectInput { input_type: InputType, axis_deadzone: i16, ctx: egui::Context },
     SoftReset,
@@ -137,6 +143,7 @@ impl EmuThreadHandle {
         sega_cd_config: Box<SegaCdConfig>,
         nes_config: Box<NesConfig>,
         snes_config: Box<SnesConfig>,
+        gb_config: Box<GameBoyConfig>,
     ) {
         match self.status() {
             EmuThreadStatus::RunningSmsGg => {
@@ -153,6 +160,9 @@ impl EmuThreadHandle {
             }
             EmuThreadStatus::RunningSnes => {
                 self.send(EmuThreadCommand::ReloadSnesConfig(snes_config));
+            }
+            EmuThreadStatus::RunningGameBoy => {
+                self.send(EmuThreadCommand::ReloadGameBoyConfig(gb_config));
             }
             EmuThreadStatus::Idle => {}
         }
@@ -262,6 +272,24 @@ pub fn spawn() -> EmuThreadHandle {
                         &emulator_error,
                     );
                 }
+                Ok(EmuThreadCommand::RunGameBoy(config)) => {
+                    status.store(EmuThreadStatus::RunningGameBoy as u8, Ordering::Relaxed);
+
+                    let emulator = match jgenesis_native_driver::create_gb(config) {
+                        Ok(emulator) => emulator,
+                        Err(err) => {
+                            log::error!("Error initializing Game Boy emulator: {err}");
+                            *emulator_error.lock().unwrap() = Some(err.into());
+                            continue;
+                        }
+                    };
+                    run_emulator(
+                        GenericEmulator::GameBoy(emulator),
+                        &command_receiver,
+                        &input_sender,
+                        &emulator_error,
+                    );
+                }
                 Ok(EmuThreadCommand::CollectInput { input_type, axis_deadzone, ctx }) => {
                     match collect_input_not_running(input_type, axis_deadzone) {
                         Ok(input) => {
@@ -280,6 +308,7 @@ pub fn spawn() -> EmuThreadHandle {
                     | EmuThreadCommand::ReloadSegaCdConfig(_)
                     | EmuThreadCommand::ReloadNesConfig(_)
                     | EmuThreadCommand::ReloadSnesConfig(_)
+                    | EmuThreadCommand::ReloadGameBoyConfig(_)
                     | EmuThreadCommand::SoftReset
                     | EmuThreadCommand::HardReset
                     | EmuThreadCommand::OpenMemoryViewer
@@ -310,6 +339,7 @@ enum GenericEmulator {
     SegaCd(NativeSegaCdEmulator),
     Nes(NativeNesEmulator),
     Snes(NativeSnesEmulator),
+    GameBoy(NativeGameBoyEmulator),
 }
 
 macro_rules! match_each_emulator_variant {
@@ -320,6 +350,7 @@ macro_rules! match_each_emulator_variant {
             GenericEmulator::SegaCd($emulator) => $expr,
             GenericEmulator::Nes($emulator) => $expr,
             GenericEmulator::Snes($emulator) => $expr,
+            GenericEmulator::GameBoy($emulator) => $expr,
         }
     };
 }
@@ -360,6 +391,14 @@ impl GenericEmulator {
     fn reload_snes_config(&mut self, config: Box<SnesConfig>) -> Result<(), AudioError> {
         if let Self::Snes(emulator) = self {
             emulator.reload_snes_config(config)?;
+        }
+
+        Ok(())
+    }
+
+    fn reload_gb_config(&mut self, config: Box<GameBoyConfig>) -> Result<(), AudioError> {
+        if let Self::GameBoy(emulator) = self {
+            emulator.reload_gb_config(config)?;
         }
 
         Ok(())
@@ -447,6 +486,12 @@ fn run_emulator(
                                 return;
                             }
                         }
+                        EmuThreadCommand::ReloadGameBoyConfig(config) => {
+                            if let Err(err) = emulator.reload_gb_config(config) {
+                                *emulator_error.lock().unwrap() = Some(err.into());
+                                return;
+                            }
+                        }
                         EmuThreadCommand::StopEmulator => {
                             log::info!("Stopping emulator");
                             return;
@@ -495,7 +540,12 @@ fn run_emulator(
                                 return;
                             }
                         }
-                        _ => {}
+                        EmuThreadCommand::RunSms(_)
+                        | EmuThreadCommand::RunGenesis(_)
+                        | EmuThreadCommand::RunSegaCd(_)
+                        | EmuThreadCommand::RunNes(_)
+                        | EmuThreadCommand::RunSnes(_)
+                        | EmuThreadCommand::RunGameBoy(_) => {}
                     }
                 }
             }
