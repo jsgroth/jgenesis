@@ -772,7 +772,6 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
     log::info!("Running with config: {config}");
 
     let rom_file_path = Path::new(&config.common.rom_file_path);
-    let rom_file_name = parse_file_name(rom_file_path)?;
     let file_ext = parse_file_ext(rom_file_path)?;
 
     let save_state_path = rom_file_path.with_extension("ss0");
@@ -798,9 +797,11 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
 
     let WindowSize { width: window_width, height: window_height } =
         config.common.window_size.unwrap_or_else(|| config::default_smsgg_window_size(vdp_version));
+
+    let rom_title = file_name_no_ext(rom_file_path)?;
     let window = create_window(
         &video,
-        &format!("smsgg - {rom_file_name}"),
+        &format!("smsgg - {rom_title}"),
         window_width,
         window_height,
         config.common.launch_in_fullscreen,
@@ -1016,11 +1017,10 @@ pub fn create_nes(config: Box<NesConfig>) -> NativeEmulatorResult<NativeNesEmula
     let WindowSize { width: window_width, height: window_height } =
         config.common.window_size.unwrap_or(config::DEFAULT_GENESIS_WINDOW_SIZE);
 
-    let rom_file_name =
-        Path::new(&config.common.rom_file_path).file_name().and_then(OsStr::to_str).unwrap_or("");
+    let rom_title = file_name_no_ext(&config.common.rom_file_path)?;
     let window = create_window(
         &video,
-        &format!("nes - {rom_file_name}"),
+        &format!("nes - {rom_title}"),
         window_width,
         window_height,
         config.common.launch_in_fullscreen,
@@ -1156,13 +1156,10 @@ pub fn create_gb(config: Box<GameBoyConfig>) -> NativeEmulatorResult<NativeGameB
 
     let WindowSize { width: window_width, height: window_height } = config::DEFAULT_GB_WINDOW_SIZE;
 
-    let file_name = rom_path
-        .file_name()
-        .map(|file_name| file_name.to_string_lossy().into_owned())
-        .unwrap_or("<unknown>".into());
+    let rom_title = file_name_no_ext(&config.common.rom_file_path)?;
     let window = create_window(
         &video,
-        &format!("gb - {file_name}"),
+        &format!("gb - {rom_title}"),
         window_width,
         window_height,
         config.common.launch_in_fullscreen,
@@ -1196,10 +1193,12 @@ pub fn create_gb(config: Box<GameBoyConfig>) -> NativeEmulatorResult<NativeGameB
     })
 }
 
-fn parse_file_name(path: &Path) -> NativeEmulatorResult<&str> {
-    path.file_name()
-        .and_then(OsStr::to_str)
-        .ok_or_else(|| NativeEmulatorError::ParseFileName(path.display().to_string()))
+fn file_name_no_ext<P: AsRef<Path>>(path: P) -> NativeEmulatorResult<String> {
+    path.as_ref()
+        .with_extension("")
+        .file_name()
+        .map(|file_name| file_name.to_string_lossy().into_owned())
+        .ok_or_else(|| NativeEmulatorError::ParseFileName(path.as_ref().display().to_string()))
 }
 
 fn parse_file_ext(path: &Path) -> NativeEmulatorResult<&str> {
