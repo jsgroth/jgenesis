@@ -3,7 +3,7 @@
 mod mappers;
 
 use crate::api::GameBoyLoadError;
-use crate::cartridge::mappers::{Mbc1, Mbc2, Mbc3};
+use crate::cartridge::mappers::{Mbc1, Mbc2, Mbc3, Mbc5};
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use std::mem;
@@ -43,6 +43,7 @@ enum Mapper {
     Mbc1(Mbc1),
     Mbc2(Mbc2),
     Mbc3(Mbc3),
+    Mbc5(Mbc5),
 }
 
 impl Mapper {
@@ -52,6 +53,7 @@ impl Mapper {
             Self::Mbc1(mbc1) => mbc1.map_rom_address(address),
             Self::Mbc2(mbc2) => mbc2.map_rom_address(address),
             Self::Mbc3(mbc3) => mbc3.map_rom_address(address),
+            Self::Mbc5(mbc5) => mbc5.map_rom_address(address),
         }
     }
 
@@ -61,6 +63,7 @@ impl Mapper {
             Self::Mbc1(mbc1) => mbc1.read_ram(address, sram),
             Self::Mbc2(mbc2) => mbc2.read_ram(address),
             Self::Mbc3(mbc3) => mbc3.read_ram(address, sram),
+            Self::Mbc5(mbc5) => mbc5.read_ram(address, sram),
         }
     }
 
@@ -74,6 +77,7 @@ impl Mapper {
             Self::Mbc1(mbc1) => mbc1.write_ram(address, value, sram),
             Self::Mbc2(mbc2) => mbc2.write_ram(address, value),
             Self::Mbc3(mbc3) => mbc3.write_ram(address, value, sram),
+            Self::Mbc5(mbc5) => mbc5.write_ram(address, value, sram),
         }
     }
 
@@ -83,6 +87,7 @@ impl Mapper {
             Self::Mbc1(mbc1) => mbc1.write_rom_address(address, value),
             Self::Mbc2(mbc2) => mbc2.write_rom_address(address, value),
             Self::Mbc3(mbc3) => mbc3.write_rom_address(address, value),
+            Self::Mbc5(mbc5) => mbc5.write_rom_address(address, value),
         }
     }
 
@@ -92,6 +97,7 @@ impl Mapper {
             Self::Mbc1(..) => "MBC1",
             Self::Mbc2(..) => "MBC2",
             Self::Mbc3(..) => "MBC3",
+            Self::Mbc5(..) => "MBC5",
         }
     }
 }
@@ -138,6 +144,7 @@ impl Cartridge {
             0x01..=0x03 => Mapper::Mbc1(Mbc1::new(rom.len() as u32, sram_len as u32)),
             0x05..=0x06 => Mapper::Mbc2(Mbc2::new(rom.len() as u32, mem::take(&mut sram))),
             0x0F..=0x13 => Mapper::Mbc3(Mbc3::new(rom.len() as u32, sram_len as u32)),
+            0x19..=0x1E => Mapper::Mbc5(Mbc5::new(rom.len() as u32, sram_len as u32)),
             _ => return Err(GameBoyLoadError::UnsupportedMapperByte(mapper_byte)),
         };
 
