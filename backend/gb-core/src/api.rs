@@ -71,6 +71,9 @@ pub struct GameBoyEmulator {
 }
 
 impl GameBoyEmulator {
+    /// # Errors
+    ///
+    /// This function will return an error if it cannot load the ROM (e.g. unsupported mapper).
     pub fn create(
         rom: Vec<u8>,
         initial_sram: Option<Vec<u8>>,

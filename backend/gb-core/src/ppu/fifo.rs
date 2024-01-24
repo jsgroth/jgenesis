@@ -101,10 +101,10 @@ impl PixelFifo {
     pub fn tick(&mut self, vram: &Vram, registers: &Registers, frame_buffer: &mut PpuFrameBuffer) {
         match self.state {
             FifoState::InitialBgFetch { dots_remaining } => {
-                self.handle_initial_bg_fetch(dots_remaining, vram, registers)
+                self.handle_initial_bg_fetch(dots_remaining, vram, registers);
             }
             FifoState::RenderingBgTile(fields) => {
-                self.handle_rendering_bg_tile(fields, vram, registers, frame_buffer)
+                self.handle_rendering_bg_tile(fields, vram, registers, frame_buffer);
             }
             FifoState::SpriteFetch { dots_remaining, previous_bg_fields } => {
                 self.handle_sprite_fetch(dots_remaining, previous_bg_fields);
@@ -174,12 +174,11 @@ impl PixelFifo {
                 };
 
                 return;
-            } else {
-                // Sprites are disabled; pop all sprites at the current position
-                while self.scanned_sprites.front().is_some_and(|sprite| sprite.x == fields.screen_x)
-                {
-                    self.scanned_sprites.pop_front();
-                }
+            }
+
+            // Sprites are disabled; pop all sprites at the current position
+            while self.scanned_sprites.front().is_some_and(|sprite| sprite.x == fields.screen_x) {
+                self.scanned_sprites.pop_front();
             }
         }
 

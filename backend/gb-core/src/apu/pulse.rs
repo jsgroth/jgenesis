@@ -106,7 +106,7 @@ impl SweepUnit {
         self.shadow_frequency.wrapping_add(delta)
     }
 
-    fn trigger(&mut self, timer: &PulseTimer, channel_enabled: &mut bool) {
+    fn trigger(&mut self, timer: PulseTimer, channel_enabled: &mut bool) {
         self.shadow_frequency = timer.frequency();
         self.counter = self.counter_reload_value();
 
@@ -261,7 +261,7 @@ impl PulseChannel {
             self.length_counter.trigger(frame_sequencer_step);
             self.envelope.trigger();
             self.timer.trigger();
-            self.sweep.trigger(&self.timer, &mut self.channel_enabled);
+            self.sweep.trigger(self.timer, &mut self.channel_enabled);
 
             self.channel_enabled &= self.dac_enabled;
         }

@@ -101,7 +101,7 @@ impl Envelope {
         }
     }
 
-    pub fn read_register(&self) -> u8 {
+    pub fn read_register(self) -> u8 {
         (self.initial_volume << 4)
             | (u8::from(self.configured_direction.to_bit()) << 3)
             | self.configured_period
@@ -176,7 +176,7 @@ impl<const MAX_PHASE: u8, const SPEED_MULTIPLIER: u16> PhaseTimer<MAX_PHASE, SPE
         Self { phase: 0, counter: 2048, period: 2048, frequency: 0 }
     }
 
-    pub fn frequency(&self) -> u16 {
+    pub fn frequency(self) -> u16 {
         self.frequency
     }
 
