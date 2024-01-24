@@ -1160,12 +1160,9 @@ pub fn create_gb(config: Box<GameBoyConfig>) -> NativeEmulatorResult<NativeGameB
         .file_name()
         .map(|file_name| file_name.to_string_lossy().into_owned())
         .unwrap_or("<unknown>".into());
-    let system_name =
-        if rom_path.extension().and_then(OsStr::to_str) == Some("gbc") { "gbc" } else { "gb" };
-
     let window = create_window(
         &video,
-        &format!("{system_name} - {file_name}"),
+        &format!("gb - {file_name}"),
         window_width,
         window_height,
         config.common.launch_in_fullscreen,
