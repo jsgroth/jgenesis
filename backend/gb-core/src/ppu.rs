@@ -114,6 +114,16 @@ impl State {
             frame_complete: false,
         }
     }
+
+    fn ly(&self) -> u8 {
+        if self.scanline == LINES_PER_FRAME - 1 && self.dot >= 4 {
+            // LY=0 starts 4 dots into the final scanline. Kirby's Dream Land 2 and Wario Land 2 depend on this for
+            // minor top-of-screen effects
+            0
+        } else {
+            self.scanline
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]
@@ -245,7 +255,7 @@ impl Ppu {
     }
 
     fn stat_interrupt_line(&self) -> bool {
-        (self.registers.lyc_interrupt_enabled && self.state.scanline == self.registers.ly_compare)
+        (self.registers.lyc_interrupt_enabled && self.state.ly() == self.registers.ly_compare)
             || (self.registers.mode_2_interrupt_enabled && self.state.mode == PpuMode::ScanningOam)
             || (self.registers.mode_1_interrupt_enabled && self.state.mode == PpuMode::VBlank)
             || (self.registers.mode_0_interrupt_enabled && self.state.mode == PpuMode::HBlank)
@@ -296,7 +306,7 @@ impl Ppu {
             0x42 => self.registers.bg_y_scroll,
             0x43 => self.registers.bg_x_scroll,
             // LY: Line number
-            0x44 => self.state.scanline,
+            0x44 => self.state.ly(),
             0x45 => self.registers.ly_compare,
             0x47 => self.registers.read_bgp(),
             0x48 => self.registers.read_obp0(),
