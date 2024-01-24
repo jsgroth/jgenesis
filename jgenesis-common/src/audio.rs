@@ -32,9 +32,9 @@ impl<const LPF_TAPS: usize, const ZERO_PADDING: usize> SignalResampler<LPF_TAPS,
     ) -> Self {
         let downsampling_ratio = Self::compute_downsampling_ratio(source_frequency);
         Self {
-            samples_l: VecDeque::new(),
-            samples_r: VecDeque::new(),
-            output: VecDeque::new(),
+            samples_l: VecDeque::with_capacity(lpf_coefficients.len() + 1),
+            samples_r: VecDeque::with_capacity(lpf_coefficients.len() + 1),
+            output: VecDeque::with_capacity((OUTPUT_FREQUENCY / 30.0) as usize),
             sample_count: 0,
             next_sample: downsampling_ratio.round() as u64,
             next_sample_float: downsampling_ratio,
