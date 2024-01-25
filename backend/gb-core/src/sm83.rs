@@ -81,6 +81,7 @@ const HRAM_END: u16 = 0xFFFE;
 impl Registers {
     fn new(hardware_mode: HardwareMode) -> Self {
         // Values from https://gbdev.io/pandocs/Power_Up_Sequence.html
+        // Most important is that DMG sets A=$01 and CGB sets A=$11
         match hardware_mode {
             HardwareMode::Dmg => Self {
                 a: 0x01,
@@ -235,8 +236,8 @@ impl Sm83 {
     }
 
     pub fn execute_instruction<B: BusInterface>(&mut self, bus: &mut B) {
-        if self.state.executed_invalid_opcode {
-            // CPU is frozen
+        if self.state.executed_invalid_opcode || bus.halt() {
+            // CPU is halted or frozen
             bus.idle();
             return;
         }
@@ -322,7 +323,7 @@ impl Sm83 {
             // RRCA
             0x0F => self.rrca(),
             // STOP
-            0x10 => todo!("STOP instruction"),
+            0x10 => self.stop(bus),
             // LD (DE), A
             0x12 => self.ld_de_a(bus),
             // RLA

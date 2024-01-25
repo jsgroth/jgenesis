@@ -1,6 +1,6 @@
 use crate::cartridge::HasBasicRamMapping;
 use bincode::{Decode, Encode};
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext};
 
 #[derive(Debug, Clone, Copy, PartialEq, Encode, Decode)]
 enum BankingMode {
@@ -245,11 +245,11 @@ impl Mbc5 {
             }
             0x2000..=0x2FFF => {
                 // Low 8 bits of ROM bank
-                self.rom_bank = (self.rom_bank & 0xFF00) | u16::from(value);
+                self.rom_bank.set_lsb(value);
             }
             0x3000..=0x3FFF => {
                 // Highest bit of ROM bank
-                self.rom_bank = (self.rom_bank & 0x00FF) | (u16::from(value & 0x01) << 8);
+                self.rom_bank.set_msb(value & 0x01);
             }
             0x4000..=0x5FFF => {
                 // RAM bank

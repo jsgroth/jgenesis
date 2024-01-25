@@ -10,6 +10,7 @@ use crate::interrupts::InterruptRegisters;
 use crate::memory::Memory;
 use crate::ppu::Ppu;
 use crate::sm83::Sm83;
+use crate::speed::SpeedRegister;
 use crate::timer::GbTimer;
 use crate::{ppu, HardwareMode};
 use bincode::{Decode, Encode};
@@ -57,11 +58,13 @@ pub struct GameBoyEmulatorConfig {
 
 #[derive(Debug, Clone, Encode, Decode, PartialClone)]
 pub struct GameBoyEmulator {
+    hardware_mode: HardwareMode,
     cpu: Sm83,
     ppu: Ppu,
     apu: Apu,
     memory: Memory,
     interrupt_registers: InterruptRegisters,
+    speed_register: SpeedRegister,
     #[partial_clone(partial)]
     cartridge: Cartridge,
     timer: GbTimer,
@@ -88,12 +91,16 @@ impl GameBoyEmulator {
             (false, SoftwareType::CgbEnhanced | SoftwareType::CgbOnly) => HardwareMode::Cgb,
         };
 
+        log::info!("Running with hardware mode {hardware_mode}");
+
         Ok(Self {
+            hardware_mode,
             cpu: Sm83::new(hardware_mode),
-            ppu: Ppu::new(),
+            ppu: Ppu::new(hardware_mode),
             apu: Apu::new(),
             memory: Memory::new(),
             interrupt_registers: InterruptRegisters::default(),
+            speed_register: SpeedRegister::new(),
             cartridge,
             timer: GbTimer::new(),
             dma_unit: DmaUnit::new(),
@@ -131,11 +138,13 @@ impl EmulatorTrait for GameBoyEmulator {
         self.input_state.set_inputs(*inputs);
 
         self.cpu.execute_instruction(&mut Bus {
+            hardware_mode: self.hardware_mode,
             ppu: &mut self.ppu,
             apu: &mut self.apu,
             memory: &mut self.memory,
             cartridge: &mut self.cartridge,
             interrupt_registers: &mut self.interrupt_registers,
+            speed_register: &mut self.speed_register,
             timer: &mut self.timer,
             dma_unit: &mut self.dma_unit,
             input_state: &mut self.input_state,
@@ -143,7 +152,11 @@ impl EmulatorTrait for GameBoyEmulator {
 
         if self.ppu.frame_complete() {
             self.ppu.clear_frame_complete();
-            self.rgba_buffer.copy_from(self.ppu.frame_buffer(), self.config.gb_palette);
+            self.rgba_buffer.copy_from(
+                self.ppu.frame_buffer(),
+                self.hardware_mode,
+                self.config.gb_palette,
+            );
             renderer
                 .render_frame(
                     self.rgba_buffer.as_ref(),
@@ -175,7 +188,11 @@ impl EmulatorTrait for GameBoyEmulator {
     where
         R: Renderer,
     {
-        self.rgba_buffer.copy_from(self.ppu.frame_buffer(), self.config.gb_palette);
+        self.rgba_buffer.copy_from(
+            self.ppu.frame_buffer(),
+            self.hardware_mode,
+            self.config.gb_palette,
+        );
         renderer.render_frame(
             self.rgba_buffer.as_ref(),
             ppu::FRAME_SIZE,

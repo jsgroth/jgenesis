@@ -6,8 +6,9 @@ mod registers;
 use crate::dma::DmaUnit;
 use crate::interrupts::InterruptRegisters;
 use crate::ppu::fifo::PixelFifo;
-use crate::ppu::registers::Registers;
+use crate::ppu::registers::{CgbPaletteRam, Registers};
 use crate::sm83::InterruptType;
+use crate::HardwareMode;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::FrameSize;
 use jgenesis_common::num::GetBit;
@@ -29,22 +30,21 @@ const OAM_SCAN_DOTS: u16 = 80;
 
 const MAX_SPRITES_PER_LINE: usize = 10;
 
-// TODO 16KB for GBC
-const VRAM_LEN: usize = 8 * 1024;
+const VRAM_LEN: usize = 16 * 1024;
 const OAM_LEN: usize = 160;
 
 type Vram = [u8; VRAM_LEN];
 type Oam = [u8; OAM_LEN];
 
 #[derive(Debug, Clone, FakeEncode, FakeDecode)]
-pub struct PpuFrameBuffer(Box<[u8; FRAME_BUFFER_LEN]>);
+pub struct PpuFrameBuffer(Box<[u16; FRAME_BUFFER_LEN]>);
 
 impl PpuFrameBuffer {
-    pub fn iter(&self) -> impl Iterator<Item = u8> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = u16> + '_ {
         self.0.iter().copied()
     }
 
-    fn set(&mut self, line: u8, pixel: u8, color: u8) {
+    fn set(&mut self, line: u8, pixel: u8, color: u16) {
         self[(line as usize) * SCREEN_WIDTH + (pixel as usize)] = color;
     }
 }
@@ -56,7 +56,7 @@ impl Default for PpuFrameBuffer {
 }
 
 impl Deref for PpuFrameBuffer {
-    type Target = [u8; FRAME_BUFFER_LEN];
+    type Target = [u16; FRAME_BUFFER_LEN];
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -70,7 +70,7 @@ impl DerefMut for PpuFrameBuffer {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
-enum PpuMode {
+pub enum PpuMode {
     // Mode 1
     VBlank,
     // Mode 0
@@ -133,6 +133,7 @@ struct SpriteData {
     x: u8,
     y: u8,
     tile_number: u8,
+    vram_bank: u8,
     palette: u8,
     horizontal_flip: bool,
     vertical_flip: bool,
@@ -141,25 +142,48 @@ struct SpriteData {
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Ppu {
+    hardware_mode: HardwareMode,
     frame_buffer: PpuFrameBuffer,
     vram: Box<Vram>,
     oam: Box<Oam>,
     registers: Registers,
+    bg_palette_ram: CgbPaletteRam,
+    sprite_palette_ram: CgbPaletteRam,
     state: State,
     sprite_buffer: Vec<SpriteData>,
     fifo: PixelFifo,
 }
 
+macro_rules! cgb_only_read {
+    ($ppu:ident.$($op:tt)*) => {
+        match $ppu.hardware_mode {
+            HardwareMode::Dmg => 0xFF,
+            HardwareMode::Cgb => $ppu.$($op)*,
+        }
+    }
+}
+
+macro_rules! cgb_only_write {
+    ($ppu:ident.$($op:tt)*) => {
+        if $ppu.hardware_mode == HardwareMode::Cgb {
+            $ppu.$($op)*;
+        }
+    }
+}
+
 impl Ppu {
-    pub fn new() -> Self {
+    pub fn new(hardware_mode: HardwareMode) -> Self {
         Self {
+            hardware_mode,
             frame_buffer: PpuFrameBuffer::default(),
             vram: vec![0; VRAM_LEN].into_boxed_slice().try_into().unwrap(),
             oam: vec![0; OAM_LEN].into_boxed_slice().try_into().unwrap(),
             registers: Registers::new(),
+            bg_palette_ram: CgbPaletteRam::new(),
+            sprite_palette_ram: CgbPaletteRam::new(),
             state: State::new(),
             sprite_buffer: Vec::with_capacity(MAX_SPRITES_PER_LINE),
-            fifo: PixelFifo::new(),
+            fifo: PixelFifo::new(hardware_mode),
         }
     }
 
@@ -201,7 +225,13 @@ impl Ppu {
         let prev_stat_interrupt_line = self.stat_interrupt_line();
 
         if self.state.mode == PpuMode::Rendering {
-            self.fifo.tick(&self.vram, &self.registers, &mut self.frame_buffer);
+            self.fifo.tick(
+                &self.vram,
+                &self.registers,
+                &self.bg_palette_ram,
+                &self.sprite_palette_ram,
+                &mut self.frame_buffer,
+            );
             if self.fifo.done_with_line() {
                 log::trace!(
                     "Pixel FIFO finished line {} after dot {}",
@@ -229,6 +259,7 @@ impl Ppu {
                 // PPU cannot read OAM while an OAM DMA is in progress
                 if !dma_unit.oam_dma_in_progress() {
                     scan_oam(
+                        self.hardware_mode,
                         self.state.scanline,
                         self.registers.double_height_sprites,
                         &self.oam,
@@ -281,14 +312,18 @@ impl Ppu {
     }
 
     pub fn read_vram(&self, address: u16) -> u8 {
-        // TODO banking for GBC
-        if self.cpu_can_access_vram() { self.vram[(address & 0x1FFF) as usize] } else { 0xFF }
+        if self.cpu_can_access_vram() {
+            let vram_addr = map_vram_address(address, self.registers.vram_bank);
+            self.vram[vram_addr as usize]
+        } else {
+            0xFF
+        }
     }
 
     pub fn write_vram(&mut self, address: u16, value: u8) {
-        // TODO banking for GBC
         if self.cpu_can_access_vram() {
-            self.vram[(address & 0x1FFF) as usize] = value;
+            let vram_addr = map_vram_address(address, self.registers.vram_bank);
+            self.vram[vram_addr as usize] = value;
         }
     }
 
@@ -302,12 +337,21 @@ impl Ppu {
         }
     }
 
+    // OAM DMA can write to OAM at any time, even during Modes 2 and 3
+    pub fn write_oam_for_dma(&mut self, address: u16, value: u8) {
+        self.oam[(address & 0xFF) as usize] = value;
+    }
+
     fn cpu_can_access_oam(&self) -> bool {
         !matches!(self.state.mode, PpuMode::ScanningOam | PpuMode::Rendering)
     }
 
     fn cpu_can_access_vram(&self) -> bool {
         self.state.mode != PpuMode::Rendering
+    }
+
+    pub fn mode(&self) -> PpuMode {
+        self.state.mode
     }
 
     pub fn read_register(&self, address: u16) -> u8 {
@@ -324,6 +368,13 @@ impl Ppu {
             0x49 => self.registers.read_obp1(),
             0x4A => self.registers.window_y,
             0x4B => self.registers.window_x,
+            0x4F => cgb_only_read!(self.registers.read_vbk()),
+            0x68 => cgb_only_read!(self.bg_palette_ram.read_data_port_address()),
+            0x69 => cgb_only_read!(self.bg_palette_ram.read_data_port(self.cpu_can_access_vram())),
+            0x6A => cgb_only_read!(self.sprite_palette_ram.read_data_port_address()),
+            0x6B => {
+                cgb_only_read!(self.sprite_palette_ram.read_data_port(self.cpu_can_access_vram()))
+            }
             _ => {
                 log::warn!("PPU register read {address:04X}");
                 0xFF
@@ -351,12 +402,26 @@ impl Ppu {
             0x49 => self.registers.write_obp1(value),
             0x4A => self.registers.write_wy(value),
             0x4B => self.registers.write_wx(value),
+            0x4F => cgb_only_write!(self.registers.write_vbk(value)),
+            0x68 => cgb_only_write!(self.bg_palette_ram.write_data_port_address(value)),
+            0x69 => cgb_only_write!(
+                self.bg_palette_ram.write_data_port(value, self.cpu_can_access_vram())
+            ),
+            0x6A => cgb_only_write!(self.sprite_palette_ram.write_data_port_address(value)),
+            0x6B => cgb_only_write!(
+                self.sprite_palette_ram.write_data_port(value, self.cpu_can_access_vram())
+            ),
             _ => log::warn!("PPU register write {address:04X} {value:02X}"),
         }
     }
 }
 
+fn map_vram_address(address: u16, vram_bank: u8) -> u16 {
+    (u16::from(vram_bank) << 13) | (address & 0x1FFF)
+}
+
 fn scan_oam(
+    hardware_mode: HardwareMode,
     scanline: u8,
     double_height_sprites: bool,
     oam: &Oam,
@@ -380,16 +445,22 @@ fn scan_oam(
         let tile_number = oam[oam_addr + 2];
 
         let attributes = oam[oam_addr + 3];
-        let palette: u8 = attributes.bit(4).into();
         let horizontal_flip = attributes.bit(5);
         let vertical_flip = attributes.bit(6);
         let low_priority = attributes.bit(7);
+
+        // VRAM bank is only valid in CGB mode, and palette is read from different bits
+        let (vram_bank, palette) = match hardware_mode {
+            HardwareMode::Dmg => (0, attributes.bit(4).into()),
+            HardwareMode::Cgb => (attributes.bit(3).into(), attributes & 0x07),
+        };
 
         sprite_buffer.push(SpriteData {
             oam_index: oam_idx as u8,
             x,
             y,
             tile_number,
+            vram_bank,
             palette,
             horizontal_flip,
             vertical_flip,

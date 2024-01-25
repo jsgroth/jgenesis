@@ -145,4 +145,16 @@ impl Sm83 {
         // after the next opcode fetch
         self.state.halt_bug_triggered = !self.registers.ime && bus.interrupt_pending();
     }
+
+    // STOP: Perform a CGB speed switch if KEY1 bit 0 is set, otherwise enters an extreme low-power state
+    pub(super) fn stop<B: BusInterface>(&mut self, bus: &mut B) {
+        // STOP always reads the following opcode and just doesn't do anything with it
+        self.fetch_operand(bus);
+
+        if bus.speed_switch_armed() {
+            bus.perform_speed_switch();
+        } else {
+            todo!("STOP instruction executed outside of speed switch")
+        }
+    }
 }

@@ -9,17 +9,38 @@ use crate::memory::Memory;
 use crate::ppu::Ppu;
 use crate::sm83::bus::BusInterface;
 use crate::sm83::InterruptType;
+use crate::speed::{CpuSpeed, SpeedRegister};
 use crate::timer::GbTimer;
+use crate::HardwareMode;
 
 pub struct Bus<'a> {
+    pub hardware_mode: HardwareMode,
     pub ppu: &'a mut Ppu,
     pub apu: &'a mut Apu,
     pub memory: &'a mut Memory,
     pub cartridge: &'a mut Cartridge,
     pub interrupt_registers: &'a mut InterruptRegisters,
+    pub speed_register: &'a mut SpeedRegister,
     pub timer: &'a mut GbTimer,
     pub dma_unit: &'a mut DmaUnit,
     pub input_state: &'a mut InputState,
+}
+
+macro_rules! cgb_only_read {
+    ($bus:ident.$($op:tt)*) => {
+        match $bus.hardware_mode {
+            HardwareMode::Dmg => 0xFF,
+            HardwareMode::Cgb => $bus.$($op)*,
+        }
+    }
+}
+
+macro_rules! cgb_only_write {
+    ($bus:ident.$($op:tt)*) => {
+        if $bus.hardware_mode == HardwareMode::Cgb {
+            $bus.$($op)*;
+        }
+    }
 }
 
 impl<'a> Bus<'a> {
@@ -32,8 +53,11 @@ impl<'a> Bus<'a> {
             0x07 => self.timer.read_tac(),
             0x0F => self.interrupt_registers.read_if(),
             0x10..=0x3F => self.apu.read_register(address),
-            0x40..=0x45 | 0x47..=0x4B => self.ppu.read_register(address),
+            0x40..=0x45 | 0x47..=0x4B | 0x4F | 0x68..=0x6B => self.ppu.read_register(address),
             0x46 => self.dma_unit.read_dma_register(),
+            0x4D => cgb_only_read!(self.speed_register.read_key1()),
+            0x55 => cgb_only_read!(self.dma_unit.read_hdma5()),
+            0x70 => cgb_only_read!(self.memory.read_svbk()),
             _ => {
                 log::warn!("read I/O register at {address:04X}");
                 0xFF
@@ -50,22 +74,42 @@ impl<'a> Bus<'a> {
             0x07 => self.timer.write_tac(value),
             0x0F => self.interrupt_registers.write_if(value),
             0x10..=0x3F => self.apu.write_register(address, value),
-            0x40..=0x45 | 0x47..=0x4B => self.ppu.write_register(address, value),
+            0x40..=0x45 | 0x47..=0x4B | 0x4F | 0x68..=0x6B => {
+                self.ppu.write_register(address, value)
+            }
             0x46 => self.dma_unit.write_dma_register(value),
+            0x4D => cgb_only_write!(self.speed_register.write_key1(value)),
+            0x51 => cgb_only_write!(self.dma_unit.write_hdma1(value)),
+            0x52 => cgb_only_write!(self.dma_unit.write_hdma2(value)),
+            0x53 => cgb_only_write!(self.dma_unit.write_hdma3(value)),
+            0x54 => cgb_only_write!(self.dma_unit.write_hdma4(value)),
+            0x55 => cgb_only_write!(self.dma_unit.write_hdma5(value)),
+            0x70 => cgb_only_write!(self.memory.write_svbk(value)),
             _ => log::warn!("write I/O register at {address:04X} value {value:02X}"),
         }
     }
 
     fn tick_components(&mut self) {
         self.timer.tick_m_cycle(self.interrupt_registers);
-        self.dma_unit.tick_m_cycle(self.cartridge, self.memory, self.ppu);
+        self.dma_unit.oam_dma_tick_m_cycle(self.cartridge, self.memory, self.ppu);
 
-        // TODO only 2 ticks in GBC double speed mode, and other components should tick every other cycle
+        if self.speed_register.speed == CpuSpeed::Double {
+            self.speed_register.double_speed_odd_cycle =
+                !self.speed_register.double_speed_odd_cycle;
+            if self.speed_register.double_speed_odd_cycle {
+                return;
+            }
+        }
+
+        for _ in 0..2 {
+            self.dma_unit.vram_dma_copy_byte(self.cartridge, self.memory, self.ppu);
+        }
+
         for _ in 0..4 {
             self.ppu.tick_dot(self.dma_unit, self.interrupt_registers);
         }
 
-        self.apu.tick_m_cycle(self.timer);
+        self.apu.tick_m_cycle(self.timer, self.speed_register.speed);
     }
 }
 
@@ -128,5 +172,17 @@ impl<'a> BusInterface for Bus<'a> {
 
     fn acknowledge_interrupt(&mut self, interrupt_type: InterruptType) {
         self.interrupt_registers.clear_flag(interrupt_type);
+    }
+
+    fn halt(&self) -> bool {
+        self.dma_unit.vram_dma_active()
+    }
+
+    fn speed_switch_armed(&self) -> bool {
+        self.speed_register.switch_armed
+    }
+
+    fn perform_speed_switch(&mut self) {
+        self.speed_register.perform_speed_switch();
     }
 }
