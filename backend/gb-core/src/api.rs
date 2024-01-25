@@ -2,16 +2,16 @@
 
 use crate::apu::Apu;
 use crate::bus::Bus;
-use crate::cartridge::Cartridge;
+use crate::cartridge::{Cartridge, SoftwareType};
 use crate::dma::DmaUnit;
 use crate::graphics::RgbaFrameBuffer;
 use crate::inputs::{GameBoyInputs, InputState};
 use crate::interrupts::InterruptRegisters;
 use crate::memory::Memory;
-use crate::ppu;
 use crate::ppu::Ppu;
 use crate::sm83::Sm83;
 use crate::timer::GbTimer;
+use crate::{ppu, HardwareMode};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
     AudioOutput, EmulatorTrait, PixelAspectRatio, Renderer, SaveWriter, TickEffect, TickResult,
@@ -51,6 +51,7 @@ pub enum GbPalette {
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 pub struct GameBoyEmulatorConfig {
+    pub force_dmg_mode: bool,
     pub gb_palette: GbPalette,
 }
 
@@ -79,10 +80,16 @@ impl GameBoyEmulator {
         initial_sram: Option<Vec<u8>>,
         config: GameBoyEmulatorConfig,
     ) -> Result<Self, GameBoyLoadError> {
+        let software_type = SoftwareType::from_rom(&rom);
         let cartridge = Cartridge::create(rom.into_boxed_slice(), initial_sram)?;
 
+        let hardware_mode = match (config.force_dmg_mode, software_type) {
+            (true, _) | (_, SoftwareType::DmgOnly) => HardwareMode::Dmg,
+            (false, SoftwareType::CgbEnhanced | SoftwareType::CgbOnly) => HardwareMode::Cgb,
+        };
+
         Ok(Self {
-            cpu: Sm83::new(),
+            cpu: Sm83::new(hardware_mode),
             ppu: Ppu::new(),
             apu: Apu::new(),
             memory: Memory::new(),

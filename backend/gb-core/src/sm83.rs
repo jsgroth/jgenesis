@@ -12,6 +12,7 @@ mod flow;
 mod load;
 
 use crate::sm83::bus::BusInterface;
+use crate::HardwareMode;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 
@@ -78,20 +79,35 @@ const ENTRY_POINT: u16 = 0x0100;
 const HRAM_END: u16 = 0xFFFE;
 
 impl Registers {
-    fn new() -> Self {
-        // TODO different init values for GBC
-        Self {
-            a: 0x01,
-            f: Flags { zero: true, subtract: false, half_carry: false, carry: false },
-            b: 0x00,
-            c: 0x13,
-            d: 0x00,
-            e: 0xD8,
-            h: 0x01,
-            l: 0x4D,
-            sp: HRAM_END,
-            pc: ENTRY_POINT,
-            ime: false,
+    fn new(hardware_mode: HardwareMode) -> Self {
+        // Values from https://gbdev.io/pandocs/Power_Up_Sequence.html
+        match hardware_mode {
+            HardwareMode::Dmg => Self {
+                a: 0x01,
+                f: Flags { zero: true, subtract: false, half_carry: false, carry: false },
+                b: 0x00,
+                c: 0x13,
+                d: 0x00,
+                e: 0xD8,
+                h: 0x01,
+                l: 0x4D,
+                sp: HRAM_END,
+                pc: ENTRY_POINT,
+                ime: false,
+            },
+            HardwareMode::Cgb => Self {
+                a: 0x11,
+                f: Flags { zero: true, subtract: false, half_carry: false, carry: false },
+                b: 0x00,
+                c: 0x00,
+                d: 0xFF,
+                e: 0x56,
+                h: 0x00,
+                l: 0x0D,
+                sp: HRAM_END,
+                pc: ENTRY_POINT,
+                ime: false,
+            },
         }
     }
 
@@ -214,8 +230,8 @@ pub struct Sm83 {
 }
 
 impl Sm83 {
-    pub fn new() -> Self {
-        Self { registers: Registers::new(), state: State::new() }
+    pub fn new(hardware_mode: HardwareMode) -> Self {
+        Self { registers: Registers::new(hardware_mode), state: State::new() }
     }
 
     pub fn execute_instruction<B: BusInterface>(&mut self, bus: &mut B) {
