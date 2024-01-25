@@ -3,6 +3,7 @@
 mod fifo;
 mod registers;
 
+use crate::dma::DmaUnit;
 use crate::interrupts::InterruptRegisters;
 use crate::ppu::fifo::PixelFifo;
 use crate::ppu::registers::Registers;
@@ -162,7 +163,7 @@ impl Ppu {
         }
     }
 
-    pub fn tick_dot(&mut self, interrupt_registers: &mut InterruptRegisters) {
+    pub fn tick_dot(&mut self, dma_unit: &DmaUnit, interrupt_registers: &mut InterruptRegisters) {
         if !self.registers.ppu_enabled {
             if self.state.previously_enabled {
                 // Disabling the PPU moves it to line 0 + mode 0 and clears the display
@@ -191,7 +192,8 @@ impl Ppu {
             self.state.skip_next_frame = true;
         }
 
-        if self.state.stat_interrupt_pending {
+        // STAT interrupts don't seem to fire during the first 4 dots of line 0
+        if self.state.stat_interrupt_pending && (self.state.scanline != 0 || self.state.dot >= 4) {
             interrupt_registers.set_flag(InterruptType::LcdStatus);
             self.state.stat_interrupt_pending = false;
         }
@@ -222,12 +224,17 @@ impl Ppu {
             if self.state.scanline < SCREEN_HEIGHT as u8 {
                 self.state.mode = PpuMode::ScanningOam;
 
-                scan_oam(
-                    self.state.scanline,
-                    self.registers.double_height_sprites,
-                    &self.oam,
-                    &mut self.sprite_buffer,
-                );
+                self.sprite_buffer.clear();
+
+                // PPU cannot read OAM while an OAM DMA is in progress
+                if !dma_unit.oam_dma_in_progress() {
+                    scan_oam(
+                        self.state.scanline,
+                        self.registers.double_height_sprites,
+                        &self.oam,
+                        &mut self.sprite_buffer,
+                    );
+                }
 
                 // Reset the FIFO here so that the WY check happens at the start of mode 2 rather than start of mode 3
                 self.fifo.start_new_line(self.state.scanline, &self.registers, &self.sprite_buffer);
@@ -275,24 +282,32 @@ impl Ppu {
 
     pub fn read_vram(&self, address: u16) -> u8 {
         // TODO banking for GBC
-        // TODO VRAM blocking
-        self.vram[(address & 0x1FFF) as usize]
+        if self.cpu_can_access_vram() { self.vram[(address & 0x1FFF) as usize] } else { 0xFF }
     }
 
     pub fn write_vram(&mut self, address: u16, value: u8) {
         // TODO banking for GBC
-        // TODO VRAM blocking
-        self.vram[(address & 0x1FFF) as usize] = value;
+        if self.cpu_can_access_vram() {
+            self.vram[(address & 0x1FFF) as usize] = value;
+        }
     }
 
     pub fn read_oam(&self, address: u16) -> u8 {
-        // TODO OAM blocking
-        self.oam[(address & 0xFF) as usize]
+        if self.cpu_can_access_oam() { self.oam[(address & 0xFF) as usize] } else { 0xFF }
     }
 
     pub fn write_oam(&mut self, address: u16, value: u8) {
-        // TODO OAM blocking
-        self.oam[(address & 0xFF) as usize] = value;
+        if self.cpu_can_access_oam() {
+            self.oam[(address & 0xFF) as usize] = value;
+        }
+    }
+
+    fn cpu_can_access_oam(&self) -> bool {
+        !matches!(self.state.mode, PpuMode::ScanningOam | PpuMode::Rendering)
+    }
+
+    fn cpu_can_access_vram(&self) -> bool {
+        self.state.mode != PpuMode::Rendering
     }
 
     pub fn read_register(&self, address: u16) -> u8 {
@@ -347,8 +362,6 @@ fn scan_oam(
     oam: &Oam,
     sprite_buffer: &mut Vec<SpriteData>,
 ) {
-    sprite_buffer.clear();
-
     let sprite_height = if double_height_sprites { 16 } else { 8 };
 
     for oam_idx in 0..OAM_LEN / 4 {

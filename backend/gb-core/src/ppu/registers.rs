@@ -100,7 +100,8 @@ impl Registers {
             bg_y_scroll: 0,
             window_x: 0,
             window_y: 0,
-            bg_palette: [0; 4],
+            // Power-on value is $FC / 0b11_11_11_00
+            bg_palette: [0, 3, 3, 3],
             sprite_palettes: [[0; 4]; 2],
         }
     }

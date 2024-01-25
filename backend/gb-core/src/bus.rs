@@ -62,7 +62,7 @@ impl<'a> Bus<'a> {
 
         // TODO only 2 ticks in GBC double speed mode, and other components should tick every other cycle
         for _ in 0..4 {
-            self.ppu.tick_dot(self.interrupt_registers);
+            self.ppu.tick_dot(self.dma_unit, self.interrupt_registers);
         }
 
         self.apu.tick_m_cycle(self.timer);
@@ -78,7 +78,13 @@ impl<'a> BusInterface for Bus<'a> {
             0x8000..=0x9FFF => self.ppu.read_vram(address),
             0xA000..=0xBFFF => self.cartridge.read_ram(address),
             0xC000..=0xFDFF => self.memory.read_main_ram(address),
-            0xFE00..=0xFE9F => self.ppu.read_oam(address),
+            0xFE00..=0xFE9F => {
+                if !self.dma_unit.oam_dma_in_progress() {
+                    self.ppu.read_oam(address)
+                } else {
+                    0xFF
+                }
+            }
             // Unusable memory
             0xFEA0..=0xFEFF => 0xFF,
             0xFF00..=0xFF7F => self.read_io_register(address),
@@ -95,7 +101,11 @@ impl<'a> BusInterface for Bus<'a> {
             0x8000..=0x9FFF => self.ppu.write_vram(address, value),
             0xA000..=0xBFFF => self.cartridge.write_ram(address, value),
             0xC000..=0xFDFF => self.memory.write_main_ram(address, value),
-            0xFE00..=0xFE9F => self.ppu.write_oam(address, value),
+            0xFE00..=0xFE9F => {
+                if !self.dma_unit.oam_dma_in_progress() {
+                    self.ppu.write_oam(address, value);
+                }
+            }
             // Unusable memory
             0xFEA0..=0xFEFF => {}
             0xFF00..=0xFF7F => self.write_io_register(address, value),
@@ -108,8 +118,12 @@ impl<'a> BusInterface for Bus<'a> {
         self.tick_components();
     }
 
-    fn highest_priority_interrupt(&self) -> Option<InterruptType> {
-        self.interrupt_registers.highest_priority_interrupt()
+    fn read_ie_register(&self) -> u8 {
+        self.interrupt_registers.read_ie() & 0x1F
+    }
+
+    fn read_if_register(&self) -> u8 {
+        self.interrupt_registers.read_if() & 0x1F
     }
 
     fn acknowledge_interrupt(&mut self, interrupt_type: InterruptType) {
