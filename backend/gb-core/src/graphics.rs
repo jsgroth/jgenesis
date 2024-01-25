@@ -70,9 +70,9 @@ impl RgbaFrameBuffer {
     fn copy_from_cgb_color_corrected(&mut self, ppu_frame_buffer: &PpuFrameBuffer) {
         // Based on this public domain shader:
         // https://github.com/libretro/common-shaders/blob/master/handheld/shaders/color/gbc-color.cg
-        static COLOR_TABLE: OnceLock<[Color; 32768]> = OnceLock::new();
+        static COLOR_TABLE: OnceLock<Box<[Color; 32768]>> = OnceLock::new();
         let color_table = COLOR_TABLE.get_or_init(|| {
-            array::from_fn(|ppu_color| {
+            Box::new(array::from_fn(|ppu_color| {
                 let r = (ppu_color & 0x1F) as f64;
                 let g = ((ppu_color >> 5) & 0x1F) as f64;
                 let b = ((ppu_color >> 10) & 0x1F) as f64;
@@ -84,7 +84,7 @@ impl RgbaFrameBuffer {
                     ((0.12039 * r + 0.12157 * g + 0.82 * b) * 255.0 / 31.0).round() as u8;
 
                 Color::rgb(corrected_r, corrected_g, corrected_b)
-            })
+            }))
         });
 
         for (ppu_color, rgba_color) in ppu_frame_buffer.iter().zip(self.iter_mut()) {
