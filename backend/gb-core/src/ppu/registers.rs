@@ -78,6 +78,8 @@ pub struct Registers {
     pub bg_palette: [u8; 4],
     // OBP0/OBP1: Sprite palettes
     pub sprite_palettes: [[u8; 4]; 2],
+    // VBK: VRAM bank
+    pub vram_bank: u8,
 }
 
 impl Registers {
@@ -103,6 +105,7 @@ impl Registers {
             // Power-on value is $FC / 0b11_11_11_00
             bg_palette: [0, 3, 3, 3],
             sprite_palettes: [[0; 4]; 2],
+            vram_bank: 0,
         }
     }
 
@@ -191,40 +194,100 @@ impl Registers {
     }
 
     pub fn write_bgp(&mut self, value: u8) {
-        self.bg_palette = parse_palette(value);
+        self.bg_palette = parse_dmg_palette(value);
 
         log::trace!("BGP write: {value:02X}");
     }
 
     pub fn read_bgp(&self) -> u8 {
-        read_palette(self.bg_palette)
+        read_dmg_palette(self.bg_palette)
     }
 
     pub fn write_obp0(&mut self, value: u8) {
-        self.sprite_palettes[0] = parse_palette(value);
+        self.sprite_palettes[0] = parse_dmg_palette(value);
 
         log::trace!("OBP0 write: {value:02X}");
     }
 
     pub fn write_obp1(&mut self, value: u8) {
-        self.sprite_palettes[1] = parse_palette(value);
+        self.sprite_palettes[1] = parse_dmg_palette(value);
 
         log::trace!("OBP1 write: {value:02X}");
     }
 
     pub fn read_obp0(&self) -> u8 {
-        read_palette(self.sprite_palettes[0])
+        read_dmg_palette(self.sprite_palettes[0])
     }
 
     pub fn read_obp1(&self) -> u8 {
-        read_palette(self.sprite_palettes[1])
+        read_dmg_palette(self.sprite_palettes[1])
+    }
+
+    pub fn write_vbk(&mut self, value: u8) {
+        self.vram_bank = value & 0x01;
+
+        log::trace!("VBK write: VRAM bank = {}", self.vram_bank);
+    }
+
+    pub fn read_vbk(&self) -> u8 {
+        0xFE | self.vram_bank
     }
 }
 
-fn parse_palette(value: u8) -> [u8; 4] {
+fn parse_dmg_palette(value: u8) -> [u8; 4] {
     array::from_fn(|palette| (value >> (2 * palette)) & 0x3)
 }
 
-fn read_palette(palette: [u8; 4]) -> u8 {
+fn read_dmg_palette(palette: [u8; 4]) -> u8 {
     palette.into_iter().enumerate().map(|(i, color)| color << (2 * i)).reduce(|a, b| a | b).unwrap()
+}
+
+const PALETTE_RAM_LEN: usize = 64;
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct CgbPaletteRam {
+    ram: Box<[u8; PALETTE_RAM_LEN]>,
+    data_port_address: u8,
+    data_port_auto_increment: bool,
+}
+
+impl CgbPaletteRam {
+    pub fn new() -> Self {
+        Self {
+            ram: vec![0; PALETTE_RAM_LEN].into_boxed_slice().try_into().unwrap(),
+            data_port_address: 0,
+            data_port_auto_increment: false,
+        }
+    }
+
+    pub fn read_data_port_address(&self) -> u8 {
+        0x40 | (u8::from(self.data_port_auto_increment) << 7) | self.data_port_address
+    }
+
+    pub fn write_data_port_address(&mut self, value: u8) {
+        self.data_port_address = value & 0x3F;
+        self.data_port_auto_increment = value.bit(7);
+    }
+
+    pub fn read_data_port(&self, cpu_can_access_vram: bool) -> u8 {
+        if cpu_can_access_vram { self.ram[self.data_port_address as usize] } else { 0xFF }
+    }
+
+    pub fn write_data_port(&mut self, value: u8, cpu_can_access_vram: bool) {
+        if cpu_can_access_vram {
+            self.ram[self.data_port_address as usize] = value;
+        }
+
+        // Auto-increment is always applied, even if the CPU can't access VRAM
+        if self.data_port_auto_increment {
+            self.data_port_address = (self.data_port_address + 1) & 0x3F;
+        }
+    }
+
+    pub fn read_color(&self, palette: u8, color: u8) -> u16 {
+        let addr = 2 * ((palette << 2) | color);
+        let lsb = self.ram[addr as usize];
+        let msb = self.ram[(addr + 1) as usize];
+        u16::from_le_bytes([lsb, msb]) & 0x7FFF
+    }
 }

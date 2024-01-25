@@ -23,4 +23,13 @@ pub trait BusInterface {
 
     /// Acknowledge an interrupt, which should clear the corresponding flag in the IF (interrupt flags) register
     fn acknowledge_interrupt(&mut self, interrupt_type: InterruptType);
+
+    /// Whether the CPU should be halted due to an in-progress VRAM DMA
+    fn halt(&self) -> bool;
+
+    /// Whether a CGB speed switch is currently armed
+    fn speed_switch_armed(&self) -> bool;
+
+    /// Perform a CGB speed switch
+    fn perform_speed_switch(&mut self);
 }

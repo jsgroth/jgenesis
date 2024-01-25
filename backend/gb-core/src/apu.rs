@@ -9,6 +9,7 @@ use crate::apu::noise::NoiseChannel;
 use crate::apu::pulse::PulseChannel;
 use crate::apu::wavetable::WavetableChannel;
 use crate::audio::GameBoyResampler;
+use crate::speed::CpuSpeed;
 use crate::timer::GbTimer;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::AudioOutput;
@@ -87,9 +88,13 @@ impl Apu {
         }
     }
 
-    pub fn tick_m_cycle(&mut self, timer: &GbTimer) {
-        // TODO bit 5 for GBC
-        let div_bit = timer.read_div().bit(4);
+    pub fn tick_m_cycle(&mut self, timer: &GbTimer, cpu_speed: CpuSpeed) {
+        let div_bit_index = match cpu_speed {
+            CpuSpeed::Normal => 4,
+            CpuSpeed::Double => 5,
+        };
+
+        let div_bit = timer.read_div().bit(div_bit_index);
         if self.previous_div_bit && !div_bit {
             self.frame_sequencer_step = (self.frame_sequencer_step + 1) & 7;
 

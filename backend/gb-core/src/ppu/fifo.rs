@@ -1,5 +1,6 @@
-use crate::ppu::registers::{Registers, TileDataArea};
+use crate::ppu::registers::{CgbPaletteRam, Registers, TileDataArea};
 use crate::ppu::{PpuFrameBuffer, SpriteData, Vram, MAX_SPRITES_PER_LINE, SCREEN_WIDTH};
+use crate::HardwareMode;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use std::array;
@@ -10,6 +11,8 @@ const MAX_FIFO_X: u8 = SCREEN_WIDTH as u8 + 8;
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 struct BgPixel {
     color: u8,
+    palette: u8,
+    high_priority: bool,
 }
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]
@@ -17,10 +20,11 @@ struct SpritePixel {
     color: u8,
     palette: u8,
     low_priority: bool,
+    oam_index: u8,
 }
 
 impl SpritePixel {
-    const TRANSPARENT: Self = Self { color: 0, palette: 0, low_priority: true };
+    const TRANSPARENT: Self = Self { color: 0, palette: 0, low_priority: true, oam_index: 255 };
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -53,6 +57,7 @@ enum FifoState {
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct PixelFifo {
+    hardware_mode: HardwareMode,
     bg: VecDeque<BgPixel>,
     sprites: VecDeque<SpritePixel>,
     y: u8,
@@ -63,8 +68,9 @@ pub struct PixelFifo {
 }
 
 impl PixelFifo {
-    pub fn new() -> Self {
+    pub fn new(hardware_mode: HardwareMode) -> Self {
         Self {
+            hardware_mode,
             bg: VecDeque::with_capacity(16),
             sprites: VecDeque::with_capacity(16),
             y: 0,
@@ -99,13 +105,27 @@ impl PixelFifo {
         // TODO check WY here
     }
 
-    pub fn tick(&mut self, vram: &Vram, registers: &Registers, frame_buffer: &mut PpuFrameBuffer) {
+    pub fn tick(
+        &mut self,
+        vram: &Vram,
+        registers: &Registers,
+        bg_palette_ram: &CgbPaletteRam,
+        sprite_palette_ram: &CgbPaletteRam,
+        frame_buffer: &mut PpuFrameBuffer,
+    ) {
         match self.state {
             FifoState::InitialBgFetch { dots_remaining } => {
                 self.handle_initial_bg_fetch(dots_remaining, vram, registers);
             }
             FifoState::RenderingBgTile(fields) => {
-                self.handle_rendering_bg_tile(fields, vram, registers, frame_buffer);
+                self.handle_rendering_bg_tile(
+                    fields,
+                    vram,
+                    registers,
+                    bg_palette_ram,
+                    sprite_palette_ram,
+                    frame_buffer,
+                );
             }
             FifoState::SpriteFetch { dots_remaining, previous_bg_fields } => {
                 self.handle_sprite_fetch(dots_remaining, previous_bg_fields);
@@ -119,8 +139,13 @@ impl PixelFifo {
     fn handle_initial_bg_fetch(&mut self, dots_remaining: u8, vram: &Vram, registers: &Registers) {
         if dots_remaining == 6 {
             // Do the initial tile fetch
-            for color in fetch_bg_tile(0, self.y, vram, registers) {
-                self.bg.push_back(BgPixel { color });
+            let bg_tile_row = fetch_bg_tile(self.hardware_mode, 0, self.y, vram, registers);
+            for color in bg_tile_row.pixels {
+                self.bg.push_back(BgPixel {
+                    color,
+                    palette: bg_tile_row.palette,
+                    high_priority: bg_tile_row.high_priority,
+                });
             }
         }
 
@@ -148,6 +173,8 @@ impl PixelFifo {
         mut fields: RenderingBgTileFields,
         vram: &Vram,
         registers: &Registers,
+        bg_palette_ram: &CgbPaletteRam,
+        sprite_palette_ram: &CgbPaletteRam,
         frame_buffer: &mut PpuFrameBuffer,
     ) {
         if self.scanned_sprites.front().is_some_and(|sprite| sprite.x == fields.screen_x) {
@@ -197,9 +224,9 @@ impl PixelFifo {
 
             // Window triggered; clear the BG FIFO and fetch window tile 0
             self.bg.clear();
-            for color in fetch_window_tile(0, self.window_line_counter, vram, registers) {
-                self.bg.push_back(BgPixel { color });
-            }
+            let first_window_tile =
+                fetch_window_tile(self.hardware_mode, 0, self.window_line_counter, vram, registers);
+            self.push_bg_tile_row(first_window_tile);
 
             self.state = FifoState::InitialWindowFetch {
                 // Wait for 5 cycles instead of 6 to account for the current tick
@@ -218,14 +245,24 @@ impl PixelFifo {
             // Fetch next BG/window tile
             match fields.bg_layer {
                 BgLayer::Background => {
-                    for color in fetch_bg_tile(fields.fetcher_x, self.y, vram, registers) {
-                        self.bg.push_back(BgPixel { color });
-                    }
+                    let bg_tile_row = fetch_bg_tile(
+                        self.hardware_mode,
+                        fields.fetcher_x,
+                        self.y,
+                        vram,
+                        registers,
+                    );
+                    self.push_bg_tile_row(bg_tile_row);
                 }
                 BgLayer::Window { window_line } => {
-                    for color in fetch_window_tile(fields.fetcher_x, window_line, vram, registers) {
-                        self.bg.push_back(BgPixel { color });
-                    }
+                    let window_tile_row = fetch_window_tile(
+                        self.hardware_mode,
+                        fields.fetcher_x,
+                        window_line,
+                        vram,
+                        registers,
+                    );
+                    self.push_bg_tile_row(window_tile_row);
                 }
             }
 
@@ -240,15 +277,30 @@ impl PixelFifo {
         }
 
         if (8..MAX_FIFO_X).contains(&fields.screen_x) {
-            let color =
-                if sprite_pixel.color != 0 && (!sprite_pixel.low_priority || bg_pixel.color == 0) {
-                    registers.sprite_palettes[sprite_pixel.palette as usize]
+            let color = if sprite_pixel.color != 0
+                && (bg_pixel.color == 0
+                    || !registers.bg_enabled
+                    || (!sprite_pixel.low_priority && !bg_pixel.high_priority))
+            {
+                match self.hardware_mode {
+                    HardwareMode::Dmg => registers.sprite_palettes[sprite_pixel.palette as usize]
                         [sprite_pixel.color as usize]
-                } else if registers.bg_enabled {
-                    registers.bg_palette[bg_pixel.color as usize]
-                } else {
-                    0
-                };
+                        .into(),
+                    HardwareMode::Cgb => {
+                        sprite_palette_ram.read_color(sprite_pixel.palette, sprite_pixel.color)
+                    }
+                }
+            } else if registers.bg_enabled || self.hardware_mode == HardwareMode::Cgb {
+                match self.hardware_mode {
+                    HardwareMode::Dmg => registers.bg_palette[bg_pixel.color as usize].into(),
+                    HardwareMode::Cgb => {
+                        bg_palette_ram.read_color(bg_pixel.palette, bg_pixel.color)
+                    }
+                }
+            } else {
+                // In DMG mode, if BG is disabled and sprite pixel is transparent, always display white
+                0
+            };
 
             frame_buffer.set(self.y, fields.screen_x - 8, color);
         }
@@ -264,6 +316,16 @@ impl PixelFifo {
         self.state = FifoState::RenderingBgTile(fields);
     }
 
+    fn push_bg_tile_row(&mut self, bg_tile_row: BgTileRow) {
+        for color in bg_tile_row.pixels {
+            self.bg.push_back(BgPixel {
+                color,
+                palette: bg_tile_row.palette,
+                high_priority: bg_tile_row.high_priority,
+            });
+        }
+    }
+
     fn fetch_next_sprite_tile(&mut self, sprite: SpriteData, vram: &Vram, registers: &Registers) {
         let sprite_tile = fetch_sprite_tile(sprite, self.y, vram, registers.double_height_sprites);
 
@@ -272,12 +334,22 @@ impl PixelFifo {
         }
 
         for (i, color) in sprite_tile.into_iter().enumerate() {
+            if color == 0 {
+                // Don't add transparent pixels to the FIFO
+                continue;
+            }
+
             // Replace any transparent pixels in the FIFO
-            if self.sprites[i].color == 0 {
+            // If in CGB mode, also replace any non-transparent pixels from sprites with a higher OAM index
+            if self.sprites[i].color == 0
+                || (self.hardware_mode == HardwareMode::Cgb
+                    && sprite.oam_index < self.sprites[i].oam_index)
+            {
                 self.sprites[i] = SpritePixel {
                     color,
                     palette: sprite.palette,
                     low_priority: sprite.low_priority,
+                    oam_index: sprite.oam_index,
                 };
             }
         }
@@ -324,11 +396,44 @@ impl PixelFifo {
     }
 }
 
-fn fetch_bg_tile(fetcher_x: u8, y: u8, vram: &Vram, registers: &Registers) -> [u8; 8] {
-    // TODO handle this properly for GBC
-    if !registers.bg_enabled {
-        // All BG pixels are transparent if BG is disabled
-        return [0; 8];
+#[derive(Debug, Clone, Copy)]
+struct BgTileAttributes {
+    high_priority: bool,
+    vertical_flip: bool,
+    horizontal_flip: bool,
+    vram_bank: u8,
+    palette: u8,
+}
+
+impl From<u8> for BgTileAttributes {
+    fn from(value: u8) -> Self {
+        Self {
+            high_priority: value.bit(7),
+            vertical_flip: value.bit(6),
+            horizontal_flip: value.bit(5),
+            vram_bank: value.bit(3).into(),
+            palette: value & 0x07,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BgTileRow {
+    pixels: [u8; 8],
+    palette: u8,
+    high_priority: bool,
+}
+
+fn fetch_bg_tile(
+    hardware_mode: HardwareMode,
+    fetcher_x: u8,
+    y: u8,
+    vram: &Vram,
+    registers: &Registers,
+) -> BgTileRow {
+    if hardware_mode == HardwareMode::Dmg && !registers.bg_enabled {
+        // On DMG, all BG pixels are transparent if BG is disabled
+        return BgTileRow { pixels: [0; 8], palette: 0, high_priority: false };
     }
 
     let coarse_x_scroll = registers.bg_x_scroll / 8;
@@ -340,24 +445,33 @@ fn fetch_bg_tile(fetcher_x: u8, y: u8, vram: &Vram, registers: &Registers) -> [u
     let tile_map_addr = registers.bg_tile_map_addr | (tile_map_y << 5) | tile_map_x;
     let tile_number = vram[tile_map_addr as usize];
 
-    let tile_row = bg_y % 8;
-    let tile_addr = registers.bg_tile_data_area.tile_address(tile_number) | (tile_row << 1);
+    // No need to check for CGB here; the CPU can't write to VRAM bank 1 in DMG mode, and an attributes byte of 0 is
+    // equivalent to DMG functionality
+    let attributes_map_addr = 0x2000 | tile_map_addr;
+    let attributes = BgTileAttributes::from(vram[attributes_map_addr as usize]);
+
+    let bank_addr = u16::from(attributes.vram_bank) << 13;
+    let tile_row = if attributes.vertical_flip { 7 - (bg_y % 8) } else { bg_y % 8 };
+    let tile_addr =
+        bank_addr | registers.bg_tile_data_area.tile_address(tile_number) | (tile_row << 1);
     let tile_data_lsb = vram[tile_addr as usize];
     let tile_data_msb = vram[(tile_addr + 1) as usize];
 
-    tile_data_to_pixels(tile_data_lsb, tile_data_msb)
+    let pixels = tile_data_to_pixels(tile_data_lsb, tile_data_msb, attributes.horizontal_flip);
+
+    BgTileRow { pixels, palette: attributes.palette, high_priority: attributes.high_priority }
 }
 
 fn fetch_window_tile(
+    hardware_mode: HardwareMode,
     fetcher_x: u8,
     window_line: u8,
     vram: &Vram,
     registers: &Registers,
-) -> [u8; 8] {
-    // TODO handle this properly for GBC
-    if !registers.bg_enabled || !registers.window_enabled {
+) -> BgTileRow {
+    if (hardware_mode == HardwareMode::Dmg && !registers.bg_enabled) || !registers.window_enabled {
         // All BG pixels are transparent if BG is disabled
-        return [0; 8];
+        return BgTileRow { pixels: [0; 8], palette: 0, high_priority: false };
     }
 
     let tile_map_x: u16 = fetcher_x.into();
@@ -366,12 +480,19 @@ fn fetch_window_tile(
     let tile_map_addr = registers.window_tile_map_addr | (tile_map_y << 5) | tile_map_x;
     let tile_number = vram[tile_map_addr as usize];
 
+    let attributes_addr = 0x2000 | tile_map_addr;
+    let attributes = BgTileAttributes::from(vram[attributes_addr as usize]);
+
+    let bank_addr = u16::from(attributes.vram_bank) << 13;
     let tile_row: u16 = (window_line % 8).into();
-    let tile_addr = registers.bg_tile_data_area.tile_address(tile_number) | (tile_row << 1);
+    let tile_addr =
+        bank_addr | registers.bg_tile_data_area.tile_address(tile_number) | (tile_row << 1);
     let tile_data_lsb = vram[tile_addr as usize];
     let tile_data_msb = vram[(tile_addr + 1) as usize];
 
-    tile_data_to_pixels(tile_data_lsb, tile_data_msb)
+    let pixels = tile_data_to_pixels(tile_data_lsb, tile_data_msb, attributes.horizontal_flip);
+
+    BgTileRow { pixels, palette: attributes.palette, high_priority: attributes.high_priority }
 }
 
 fn fetch_sprite_tile(
@@ -394,26 +515,24 @@ fn fetch_sprite_tile(
 
     let tile_row = if sprite.vertical_flip { 7 - (sprite_row & 0x07) } else { sprite_row & 0x07 };
 
-    let tile_addr = TileDataArea::SPRITES.tile_address(tile_number) | u16::from(tile_row << 1);
+    let bank_addr = u16::from(sprite.vram_bank) << 13;
+    let tile_addr =
+        bank_addr | TileDataArea::SPRITES.tile_address(tile_number) | u16::from(tile_row << 1);
     let tile_data_lsb = vram[tile_addr as usize];
     let tile_data_msb = vram[(tile_addr + 1) as usize];
 
-    if sprite.horizontal_flip {
-        tile_data_to_pixels_hflip(tile_data_lsb, tile_data_msb)
+    tile_data_to_pixels(tile_data_lsb, tile_data_msb, sprite.horizontal_flip)
+}
+
+fn tile_data_to_pixels(tile_data_lsb: u8, tile_data_msb: u8, horizontal_flip: bool) -> [u8; 8] {
+    if horizontal_flip {
+        array::from_fn(|i| {
+            u8::from(tile_data_lsb.bit(i as u8)) | (u8::from(tile_data_msb.bit(i as u8)) << 1)
+        })
     } else {
-        tile_data_to_pixels(tile_data_lsb, tile_data_msb)
+        array::from_fn(|i| {
+            let pixel_idx = 7 - i as u8;
+            u8::from(tile_data_lsb.bit(pixel_idx)) | (u8::from(tile_data_msb.bit(pixel_idx)) << 1)
+        })
     }
-}
-
-fn tile_data_to_pixels(tile_data_lsb: u8, tile_data_msb: u8) -> [u8; 8] {
-    array::from_fn(|i| {
-        let pixel_idx = 7 - i as u8;
-        u8::from(tile_data_lsb.bit(pixel_idx)) | (u8::from(tile_data_msb.bit(pixel_idx)) << 1)
-    })
-}
-
-fn tile_data_to_pixels_hflip(tile_data_lsb: u8, tile_data_msb: u8) -> [u8; 8] {
-    array::from_fn(|i| {
-        u8::from(tile_data_lsb.bit(i as u8)) | (u8::from(tile_data_msb.bit(i as u8)) << 1)
-    })
 }
