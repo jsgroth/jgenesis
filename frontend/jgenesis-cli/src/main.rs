@@ -218,6 +218,10 @@ struct Args {
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
     st011_rom_path: Option<String>,
 
+    /// Force DMG / original Game Boy mode in software with Game Boy Color support
+    #[arg(long, default_value_t, help_heading = GB_OPTIONS_HEADING)]
+    force_dmg_mode: bool,
+
     /// Game Boy palette (BlackAndWhite / GreenTint / LimeGreen)
     #[arg(long, default_value_t, help_heading = GB_OPTIONS_HEADING)]
     gb_palette: GbPalette,
@@ -684,6 +688,7 @@ fn run_snes(args: Args) -> anyhow::Result<()> {
 fn run_gb(args: Args) -> anyhow::Result<()> {
     let config = GameBoyConfig {
         common: args.common_config(GameBoyInputConfig::default(), GameBoyInputConfig::default()),
+        force_dmg_mode: args.force_dmg_mode,
         gb_palette: args.gb_palette,
     };
 

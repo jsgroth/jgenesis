@@ -102,6 +102,25 @@ impl Mapper {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SoftwareType {
+    DmgOnly,
+    CgbEnhanced,
+    CgbOnly,
+}
+
+impl SoftwareType {
+    pub fn from_rom(rom: &[u8]) -> Self {
+        // $0143 in header contains CGB flag:
+        // https://gbdev.io/pandocs/The_Cartridge_Header.html#0143--cgb-flag
+        match rom.get(0x0143) {
+            Some(0x80) => Self::CgbEnhanced,
+            Some(0xC0) => Self::CgbOnly,
+            _ => Self::DmgOnly,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode, PartialClone)]
 pub struct Cartridge {
     #[partial_clone(default)]

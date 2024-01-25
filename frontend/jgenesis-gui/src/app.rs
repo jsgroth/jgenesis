@@ -153,6 +153,7 @@ enum OpenWindow {
     GenesisGeneral,
     NesGeneral,
     SnesGeneral,
+    GameBoyGeneral,
     Interface,
     CommonVideo,
     SmsGgVideo,
@@ -563,6 +564,11 @@ impl App {
                         ui.close_menu();
                     }
 
+                    if ui.button("Game Boy").clicked() {
+                        self.state.open_windows.insert(OpenWindow::GameBoyGeneral);
+                        ui.close_menu();
+                    }
+
                     if ui.button("Interface").clicked() {
                         self.state.open_windows.insert(OpenWindow::Interface);
                         ui.close_menu();
@@ -896,6 +902,7 @@ impl eframe::App for App {
                 OpenWindow::GenesisGeneral => self.render_genesis_general_settings(ctx),
                 OpenWindow::NesGeneral => self.render_nes_general_settings(ctx),
                 OpenWindow::SnesGeneral => self.render_snes_general_settings(ctx),
+                OpenWindow::GameBoyGeneral => self.render_gb_general_settings(ctx),
                 OpenWindow::Interface => self.render_interface_settings(ctx),
                 OpenWindow::CommonVideo => self.render_common_video_settings(ctx),
                 OpenWindow::SmsGgVideo => self.render_smsgg_video_settings(ctx),

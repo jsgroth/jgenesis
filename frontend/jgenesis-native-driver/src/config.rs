@@ -305,11 +305,12 @@ fn coprocessor_read_fn(path: String) -> Box<CoprocessorRomFn> {
 pub struct GameBoyConfig {
     #[indent_nested]
     pub common: CommonConfig<GameBoyInputConfig<KeyboardInput>, GameBoyInputConfig<JoystickInput>>,
+    pub force_dmg_mode: bool,
     pub gb_palette: GbPalette,
 }
 
 impl GameBoyConfig {
     pub(crate) fn to_emulator_config(&self) -> GameBoyEmulatorConfig {
-        GameBoyEmulatorConfig { gb_palette: self.gb_palette }
+        GameBoyEmulatorConfig { force_dmg_mode: self.force_dmg_mode, gb_palette: self.gb_palette }
     }
 }
