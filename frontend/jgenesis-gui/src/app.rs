@@ -84,6 +84,7 @@ impl ListFilters {
             self.nes.then_some(Console::Nes),
             self.snes.then_some(Console::Snes),
             self.game_boy.then_some(Console::GameBoy),
+            self.game_boy.then_some(Console::GameBoyColor),
         ]
         .into_iter()
         .flatten()

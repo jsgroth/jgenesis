@@ -1,6 +1,6 @@
 use clap::Parser;
 use env_logger::Env;
-use gb_core::api::GbPalette;
+use gb_core::api::{GbAspectRatio, GbPalette, GbcColorCorrection};
 use genesis_core::{GenesisAspectRatio, GenesisControllerType, GenesisRegion};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::config::input::{
@@ -222,9 +222,17 @@ struct Args {
     #[arg(long, default_value_t, help_heading = GB_OPTIONS_HEADING)]
     force_dmg_mode: bool,
 
+    /// Aspect ratio (SquarePixels / Stretched)
+    #[arg(long, default_value_t, help_heading = GB_OPTIONS_HEADING)]
+    gb_aspect_ratio: GbAspectRatio,
+
     /// Game Boy palette (BlackAndWhite / GreenTint / LimeGreen)
     #[arg(long, default_value_t, help_heading = GB_OPTIONS_HEADING)]
     gb_palette: GbPalette,
+
+    /// Game Boy Color color correction (None / GbcLcd)
+    #[arg(long, default_value_t, help_heading = GB_OPTIONS_HEADING)]
+    gbc_color_correction: GbcColorCorrection,
 
     /// Window width in pixels; height must also be set
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
@@ -689,7 +697,9 @@ fn run_gb(args: Args) -> anyhow::Result<()> {
     let config = GameBoyConfig {
         common: args.common_config(GameBoyInputConfig::default(), GameBoyInputConfig::default()),
         force_dmg_mode: args.force_dmg_mode,
+        aspect_ratio: args.gb_aspect_ratio,
         gb_palette: args.gb_palette,
+        gbc_color_correction: args.gbc_color_correction,
     };
 
     let mut emulator = jgenesis_native_driver::create_gb(config.into())?;

@@ -1,6 +1,6 @@
 use crate::app::{App, AppConfig, OpenWindow};
 use egui::{Context, Window};
-use gb_core::api::GbPalette;
+use gb_core::api::{GbAspectRatio, GbPalette, GbcColorCorrection};
 use jgenesis_native_driver::config::GameBoyConfig;
 use serde::{Deserialize, Serialize};
 
@@ -9,7 +9,11 @@ pub struct GameBoyAppConfig {
     #[serde(default)]
     force_dmg_mode: bool,
     #[serde(default)]
+    aspect_ratio: GbAspectRatio,
+    #[serde(default)]
     gb_palette: GbPalette,
+    #[serde(default)]
+    gbc_color_correction: GbcColorCorrection,
 }
 
 impl Default for GameBoyAppConfig {
@@ -27,7 +31,9 @@ impl AppConfig {
                 self.inputs.gb_joystick.clone(),
             ),
             force_dmg_mode: self.game_boy.force_dmg_mode,
+            aspect_ratio: self.game_boy.aspect_ratio,
             gb_palette: self.game_boy.gb_palette,
+            gbc_color_correction: self.game_boy.gbc_color_correction,
         })
     }
 }
@@ -51,6 +57,23 @@ impl App {
         let mut open = true;
         Window::new("Game Boy Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.group(|ui| {
+                ui.label("Aspect ratio");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.config.game_boy.aspect_ratio,
+                        GbAspectRatio::SquarePixels,
+                        "Square pixels",
+                    );
+                    ui.radio_value(
+                        &mut self.config.game_boy.aspect_ratio,
+                        GbAspectRatio::Stretched,
+                        "Stretched",
+                    );
+                });
+            });
+
+            ui.group(|ui| {
                 ui.label("GB color palette");
 
                 ui.horizontal(|ui| {
@@ -68,6 +91,23 @@ impl App {
                         &mut self.config.game_boy.gb_palette,
                         GbPalette::LimeGreen,
                         "Lime green",
+                    );
+                });
+            });
+
+            ui.group(|ui| {
+                ui.label("GBC color correction");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.config.game_boy.gbc_color_correction,
+                        GbcColorCorrection::None,
+                        "None",
+                    );
+                    ui.radio_value(
+                        &mut self.config.game_boy.gbc_color_correction,
+                        GbcColorCorrection::GbcLcd,
+                        "Game Boy Color LCD",
                     );
                 });
             });

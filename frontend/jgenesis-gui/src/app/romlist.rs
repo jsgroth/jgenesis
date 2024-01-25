@@ -15,6 +15,7 @@ pub enum Console {
     Nes,
     Snes,
     GameBoy,
+    GameBoyColor,
 }
 
 impl Console {
@@ -26,7 +27,8 @@ impl Console {
             "cue" => Some(Self::SegaCd),
             "nes" => Some(Self::Nes),
             "sfc" | "smc" => Some(Self::Snes),
-            "gb" | "gbc" => Some(Self::GameBoy),
+            "gb" => Some(Self::GameBoy),
+            "gbc" => Some(Self::GameBoyColor),
             _ => None,
         }
     }
@@ -40,6 +42,7 @@ impl Console {
             Self::Nes => "NES",
             Self::Snes => "SNES",
             Self::GameBoy => "Game Boy",
+            Self::GameBoyColor => "Game Boy Color",
         }
     }
 }
