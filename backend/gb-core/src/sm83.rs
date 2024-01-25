@@ -189,6 +189,10 @@ impl InterruptType {
             Self::Joypad => 1 << 4,
         }
     }
+
+    pub fn from_bits(bits: u8) -> Option<Self> {
+        Self::ALL.into_iter().find(|interrupt_type| bits & interrupt_type.register_mask() != 0)
+    }
 }
 
 trait BusExt {
@@ -224,7 +228,7 @@ impl Sm83 {
         if self.state.halted && !self.state.handling_interrupt {
             // HALT halts the CPU until an interrupt triggers. IME is not checked for this so the
             // CPU will not necessarily handle the interrupt
-            if bus.highest_priority_interrupt().is_none() {
+            if !bus.interrupt_pending() {
                 bus.idle();
                 return;
             }
@@ -238,7 +242,10 @@ impl Sm83 {
 
         if self.state.handling_interrupt {
             self.execute_interrupt_service_routine(bus);
+
+            self.state.halted = false;
             self.state.handling_interrupt = false;
+
             return;
         }
 
@@ -331,7 +338,7 @@ impl Sm83 {
             // LD r, r' / LD (HL), r / LD r, (HL)
             0x40..=0x75 | 0x77..=0x7F => self.ld_r_r(bus, opcode),
             // HALT
-            0x76 => self.halt(),
+            0x76 => self.halt(bus),
             // ADD A, r / ADD A, (HL)
             0x80..=0x87 => self.add_a_r(bus, opcode),
             // ADC A, r / ADC A, (HL)
@@ -460,25 +467,44 @@ impl Sm83 {
         bus.idle();
         bus.idle();
 
-        self.push_stack_u16(bus, self.registers.pc);
+        let [pc_lsb, pc_msb] = self.registers.pc.to_le_bytes();
 
-        // Take the last idle cycle before reading IE/IF; this *seems* to fix Pinball Deluxe
+        self.push_stack(bus, pc_msb);
+
+        // The IE register gets read in between the MSB push and LSB push, as verified on hardware by the ie_push test
+        // ROM in mooneye-test-suite.
+        // This matters for the (contrived) case where one of the two stack pushes will write to the IE register
+        let ie_register = bus.read_ie_register();
+        self.push_stack(bus, pc_lsb);
+
+        // Take the last idle cycle before reading IF; this *seems* to fix Pinball Deluxe
         bus.idle();
 
-        let interrupt_type = bus.highest_priority_interrupt().expect(
-            "The interrupt service routine should never be executed without a pending interrupt",
-        );
+        let if_register = bus.read_if_register();
+        self.registers.ime = false;
+
+        let Some(interrupt_type) = InterruptType::from_bits(ie_register & if_register) else {
+            // IE & IF can equal 0 if one of the stack pushes wrote to IE and cleared bits that were previously set.
+            // In this case PC is set to $0000, as verified on hardware by the ie_push test ROM in mooneye-test-suite
+            self.registers.pc = 0x0000;
+            return;
+        };
         bus.acknowledge_interrupt(interrupt_type);
 
-        log::trace!("Handling interrupt of type {interrupt_type:?}");
-
         self.registers.pc = interrupt_type.interrupt_vector();
-        self.registers.ime = false;
+
+        log::trace!("Handling interrupt of type {interrupt_type:?}");
     }
 
     fn fetch_operand<B: BusInterface>(&mut self, bus: &mut B) -> u8 {
         let operand = bus.read(self.registers.pc);
-        self.registers.pc = self.registers.pc.wrapping_add(1);
+        if self.state.halt_bug_triggered {
+            // If the HALT bug just triggered, don't increment PC for this opcode fetch
+            // The Smurfs (SGB) depends on this to boot
+            self.state.halt_bug_triggered = false;
+        } else {
+            self.registers.pc = self.registers.pc.wrapping_add(1);
+        }
 
         log::trace!("  Fetched operand {operand:02X}");
 
@@ -515,8 +541,7 @@ impl Sm83 {
     }
 
     fn poll_for_interrupts<B: BusInterface>(&mut self, bus: &mut B) {
-        self.state.handling_interrupt =
-            self.registers.ime && bus.highest_priority_interrupt().is_some();
+        self.state.handling_interrupt = self.registers.ime && bus.interrupt_pending();
     }
 
     fn read_register<B: BusInterface>(&self, bus: &mut B, register_bits: u8) -> u8 {

@@ -28,21 +28,14 @@ impl InterruptRegisters {
     }
 
     pub fn set_flag(&mut self, interrupt_type: InterruptType) {
+        log::trace!("Interrupt flag set: {interrupt_type:?}");
+
         self.flags |= interrupt_type.register_mask();
     }
 
     pub fn clear_flag(&mut self, interrupt_type: InterruptType) {
-        self.flags &= !interrupt_type.register_mask();
-    }
+        log::trace!("Interrupt flag cleared: {interrupt_type:?}");
 
-    pub fn highest_priority_interrupt(&self) -> Option<InterruptType> {
-        let interrupts_triggered = self.enabled & self.flags;
-        (interrupts_triggered != 0)
-            .then(|| {
-                InterruptType::ALL.into_iter().find(|&interrupt_type| {
-                    interrupts_triggered & interrupt_type.register_mask() != 0
-                })
-            })
-            .flatten()
+        self.flags &= !interrupt_type.register_mask();
     }
 }

@@ -85,7 +85,8 @@ impl PixelFifo {
         self.sprites.clear();
         self.y = scanline;
 
-        if registers.window_enabled && registers.window_y == scanline {
+        // Intentionally don't check whether the window is enabled here; doing so breaks certain test ROMs (e.g. fairylake.gb)
+        if registers.window_y == scanline {
             self.window_y_triggered = true;
         }
 
@@ -160,12 +161,17 @@ impl PixelFifo {
                 // Sprite fetches take at minimum 6 cycles, and the fetch may be delayed by an additional 1-5 cycles if it
                 // needs to wait for a BG fetch to finish
                 let sprite_fetch_cycles =
-                    if !fields.sprite_fetch_delayed && (3..8).contains(&fields.dots_remaining) {
+                    if !fields.sprite_fetch_delayed && (4..9).contains(&fields.dots_remaining) {
                         fields.sprite_fetch_delayed = true;
-                        6 + fields.dots_remaining - 2
+                        6 + fields.dots_remaining - 3
                     } else {
                         6
                     };
+
+                log::trace!(
+                    "Sprite encountered at X {}, delaying by {sprite_fetch_cycles} cycles",
+                    fields.screen_x
+                );
 
                 // Subtract 1 to account for the current tick
                 self.state = FifoState::SpriteFetch {
@@ -184,9 +190,11 @@ impl PixelFifo {
 
         if self.window_y_triggered
             && registers.window_enabled
-            && registers.window_x + 1 == fields.screen_x
+            && registers.window_x.saturating_add(1) == fields.screen_x
             && fields.bg_layer == BgLayer::Background
         {
+            log::trace!("Window started at X {}", fields.screen_x);
+
             // Window triggered; clear the BG FIFO and fetch window tile 0
             self.bg.clear();
             for color in fetch_window_tile(0, self.window_line_counter, vram, registers) {
@@ -205,6 +213,8 @@ impl PixelFifo {
         }
 
         if fields.dots_remaining == 8 {
+            log::trace!("Fetching BG tile at X {}", fields.screen_x);
+
             // Fetch next BG/window tile
             match fields.bg_layer {
                 BgLayer::Background => {

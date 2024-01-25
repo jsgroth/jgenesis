@@ -138,8 +138,11 @@ impl Sm83 {
     }
 
     // HALT: Halt the CPU until an interrupt occurs
-    pub(super) fn halt(&mut self) {
-        // TODO implement halt bug
+    pub(super) fn halt<B: BusInterface>(&mut self, bus: &mut B) {
         self.state.halted = true;
+
+        // HALT bug: if a HALT instruction is executed while IME=0 and an interrupt is pending, PC does not increment
+        // after the next opcode fetch
+        self.state.halt_bug_triggered = !self.registers.ime && bus.interrupt_pending();
     }
 }
