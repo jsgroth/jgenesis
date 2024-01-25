@@ -43,6 +43,23 @@ pub enum GameBoyError<RErr, AErr, SErr> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum GbAspectRatio {
+    #[default]
+    SquarePixels,
+    Stretched,
+}
+
+impl GbAspectRatio {
+    fn to_pixel_aspect_ratio(self) -> Option<PixelAspectRatio> {
+        match self {
+            Self::SquarePixels => Some(PixelAspectRatio::SQUARE),
+            Self::Stretched => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum GbPalette {
     BlackAndWhite,
     #[default]
@@ -50,10 +67,20 @@ pub enum GbPalette {
     LimeGreen,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum GbcColorCorrection {
+    None,
+    #[default]
+    GbcLcd,
+}
+
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 pub struct GameBoyEmulatorConfig {
     pub force_dmg_mode: bool,
+    pub aspect_ratio: GbAspectRatio,
     pub gb_palette: GbPalette,
+    pub gbc_color_correction: GbcColorCorrection,
 }
 
 #[derive(Debug, Clone, Encode, Decode, PartialClone)]
@@ -156,12 +183,13 @@ impl EmulatorTrait for GameBoyEmulator {
                 self.ppu.frame_buffer(),
                 self.hardware_mode,
                 self.config.gb_palette,
+                self.config.gbc_color_correction,
             );
             renderer
                 .render_frame(
                     self.rgba_buffer.as_ref(),
                     ppu::FRAME_SIZE,
-                    Some(PixelAspectRatio::SQUARE),
+                    self.config.aspect_ratio.to_pixel_aspect_ratio(),
                 )
                 .map_err(GameBoyError::Rendering)?;
 
@@ -192,11 +220,12 @@ impl EmulatorTrait for GameBoyEmulator {
             self.ppu.frame_buffer(),
             self.hardware_mode,
             self.config.gb_palette,
+            self.config.gbc_color_correction,
         );
         renderer.render_frame(
             self.rgba_buffer.as_ref(),
             ppu::FRAME_SIZE,
-            Some(PixelAspectRatio::SQUARE),
+            self.config.aspect_ratio.to_pixel_aspect_ratio(),
         )
     }
 

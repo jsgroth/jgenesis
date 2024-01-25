@@ -1,9 +1,11 @@
-use crate::api::GbPalette;
+use crate::api::{GbPalette, GbcColorCorrection};
 use crate::ppu::PpuFrameBuffer;
 use crate::{ppu, HardwareMode};
 use jgenesis_common::frontend::Color;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
+use std::array;
 use std::ops::{Deref, DerefMut};
+use std::sync::OnceLock;
 
 // 0/0/0 = black and 255/255/255 = white, so linearly map [0,3] to [255,0]
 const GB_COLOR_TO_RGB_BW: [[u8; 3]; 4] =
@@ -32,10 +34,14 @@ impl RgbaFrameBuffer {
         ppu_frame_buffer: &PpuFrameBuffer,
         hardware_mode: HardwareMode,
         gb_palette: GbPalette,
+        gbc_color_correction: GbcColorCorrection,
     ) {
         match hardware_mode {
             HardwareMode::Dmg => self.copy_from_dmg(ppu_frame_buffer, gb_palette),
-            HardwareMode::Cgb => self.copy_from_cgb(ppu_frame_buffer),
+            HardwareMode::Cgb => match gbc_color_correction {
+                GbcColorCorrection::None => self.copy_from_cgb(ppu_frame_buffer),
+                GbcColorCorrection::GbcLcd => self.copy_from_cgb_color_corrected(ppu_frame_buffer),
+            },
         }
     }
 
@@ -58,6 +64,31 @@ impl RgbaFrameBuffer {
             let g = RGB_5_TO_8[((ppu_color >> 5) & 0x1F) as usize];
             let b = RGB_5_TO_8[((ppu_color >> 10) & 0x1F) as usize];
             *rgba_color = Color::rgb(r, g, b);
+        }
+    }
+
+    fn copy_from_cgb_color_corrected(&mut self, ppu_frame_buffer: &PpuFrameBuffer) {
+        // Based on this public domain shader:
+        // https://github.com/libretro/common-shaders/blob/master/handheld/shaders/color/gbc-color.cg
+        static COLOR_TABLE: OnceLock<[Color; 32768]> = OnceLock::new();
+        let color_table = COLOR_TABLE.get_or_init(|| {
+            array::from_fn(|ppu_color| {
+                let r = (ppu_color & 0x1F) as f64;
+                let g = ((ppu_color >> 5) & 0x1F) as f64;
+                let b = ((ppu_color >> 10) & 0x1F) as f64;
+
+                let corrected_r = ((0.78824 * r + 0.12157 * g) * 255.0 / 31.0).round() as u8;
+                let corrected_g =
+                    ((0.025 * r + 0.72941 * g + 0.275 * b) * 255.0 / 31.0).round() as u8;
+                let corrected_b =
+                    ((0.12039 * r + 0.12157 * g + 0.82 * b) * 255.0 / 31.0).round() as u8;
+
+                Color::rgb(corrected_r, corrected_g, corrected_b)
+            })
+        });
+
+        for (ppu_color, rgba_color) in ppu_frame_buffer.iter().zip(self.iter_mut()) {
+            *rgba_color = color_table[ppu_color as usize];
         }
     }
 }
