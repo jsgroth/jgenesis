@@ -13,6 +13,21 @@ use crate::speed::{CpuSpeed, SpeedRegister};
 use crate::timer::GbTimer;
 use crate::HardwareMode;
 
+trait HardwareModeExt {
+    fn read_opri(self) -> u8;
+}
+
+impl HardwareModeExt for HardwareMode {
+    fn read_opri(self) -> u8 {
+        // OPRI: Object priority
+        // This CGB-only register is not writable by software; it should read $FE (?) on CGB and $FF on DMG
+        match self {
+            Self::Dmg => 0xFF,
+            Self::Cgb => 0xFE,
+        }
+    }
+}
+
 pub struct Bus<'a> {
     pub hardware_mode: HardwareMode,
     pub ppu: &'a mut Ppu,
@@ -57,11 +72,9 @@ impl<'a> Bus<'a> {
             0x46 => self.dma_unit.read_dma_register(),
             0x4D => cgb_only_read!(self.speed_register.read_key1()),
             0x55 => cgb_only_read!(self.dma_unit.read_hdma5()),
+            0x6C => self.hardware_mode.read_opri(),
             0x70 => cgb_only_read!(self.memory.read_svbk()),
-            _ => {
-                log::warn!("read I/O register at {address:04X}");
-                0xFF
-            }
+            _ => 0xFF,
         }
     }
 
@@ -85,7 +98,7 @@ impl<'a> Bus<'a> {
             0x54 => cgb_only_write!(self.dma_unit.write_hdma4(value)),
             0x55 => cgb_only_write!(self.dma_unit.write_hdma5(value)),
             0x70 => cgb_only_write!(self.memory.write_svbk(value)),
-            _ => log::warn!("write I/O register at {address:04X} value {value:02X}"),
+            _ => {}
         }
     }
 
