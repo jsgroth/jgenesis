@@ -1,8 +1,8 @@
 //! RTC-4513 real-time clock chip, used by Tengai Makyou Zero
 
-use crate::timeutils;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
+use jgenesis_common::timeutils;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 
