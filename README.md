@@ -143,3 +143,9 @@ RUSTFLAGS="-Ctarget-cpu=native" cargo build --profile release-lto
 * fullsnes - nocash SNES hardware specifications: https://problemkaputt.github.io/fullsnes.htm
 * Anomie's SNES documents: https://www.romhacking.net/?page=documents&category=&platform=&game=&author=&perpage=20&level=&title=anomie&docsearch=Go
 * SFC Development Wiki: https://wiki.superfamicom.org/
+
+### Game Boy / Game Boy Color
+* Game Boy CPU (SM83) Instruction Set: https://gbdev.io/gb-opcodes/optables/
+* Pan Docs: https://gbdev.io/pandocs/
+* Game Boy Complete Technical Reference: https://gekkio.fi/files/gb-docs/gbctr.pdf
+* Gameboy Sound Hardware: https://gbdev.gg8.se/wiki/articles/Gameboy_sound_hardware
