@@ -1,6 +1,11 @@
 use cfg_if::cfg_if;
 use time::{Date, Month, Weekday};
 
+/// Read the time since the Unix epoch in nanoseconds. Will return 0 if the system-reported time is
+/// somehow before the Unix epoch.
+///
+/// Uses `SystemTime` on native platforms and `Date` in WASM.
+#[must_use]
 pub fn current_time_nanos() -> u128 {
     cfg_if! {
         if #[cfg(target_arch = "wasm32")] {
@@ -9,11 +14,16 @@ pub fn current_time_nanos() -> u128 {
         } else {
             use std::time::SystemTime;
 
-            SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos()
+            SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_nanos()
         }
     }
 }
 
+/// Determine the number of days in the given month+year.
+///
+/// Leap years are accounted for, but only in that February is assumed to be 29 days in every 4th
+/// year. Other leap year rules are intentionally not applied.
+#[must_use]
 pub fn days_in_month(month: u8, year: u8) -> u8 {
     match month {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
@@ -30,6 +40,8 @@ pub fn days_in_month(month: u8, year: u8) -> u8 {
     }
 }
 
+/// Determine the weekday of a given date. Day and month should both start at 1, not 0.
+#[must_use]
 pub fn day_of_week(day: u8, month: u8, year: u16) -> Weekday {
     match Date::from_calendar_date(year.into(), convert_month(month), day) {
         Ok(date) => date.weekday(),

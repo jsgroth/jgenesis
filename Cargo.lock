@@ -1959,8 +1959,12 @@ version = "0.6.2"
 dependencies = [
  "bincode",
  "bytemuck",
+ "cfg-if",
  "jgenesis-proc-macros",
+ "js-sys",
+ "log",
  "serde",
+ "time",
 ]
 
 [[package]]
@@ -3191,10 +3195,8 @@ version = "0.6.2"
 dependencies = [
  "bincode",
  "bytemuck",
- "cfg-if",
  "jgenesis-common",
  "jgenesis-proc-macros",
- "js-sys",
  "log",
  "time",
  "wdc65816-emu",

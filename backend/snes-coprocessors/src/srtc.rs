@@ -2,8 +2,8 @@
 //!
 //! Used by Daikaijuu Monogatari II
 
-use crate::timeutils;
 use bincode::{Decode, Encode};
+use jgenesis_common::timeutils;
 use time::Weekday;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]

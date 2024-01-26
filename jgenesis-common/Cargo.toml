@@ -12,9 +12,15 @@ serde = ["dep:serde"]
 [dependencies]
 jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
 
-bincode = { workspace = true }
+bincode = { workspace = true, features = ["derive"] }
 bytemuck = { workspace = true }
+cfg-if = { workspace = true }
+log = { workspace = true }
 serde = { workspace = true, optional = true }
+time = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = { workspace = true }
 
 [lints]
 workspace = true
