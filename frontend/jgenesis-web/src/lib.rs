@@ -8,6 +8,7 @@ use crate::audio::AudioQueue;
 use crate::config::{EmulatorChannel, EmulatorCommand, WebConfig, WebConfigRef};
 use base64::engine::general_purpose;
 use base64::Engine;
+use bincode::{Decode, Encode};
 use genesis_core::{GenesisEmulator, GenesisInputs};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, FrameSize, Renderer, SaveWriter, TickEffect, TimingMode,
@@ -18,9 +19,11 @@ use rfd::AsyncFileDialog;
 use smsgg_core::{SmsGgEmulator, SmsGgInputs};
 use snes_core::api::{CoprocessorRoms, SnesEmulator};
 use snes_core::input::SnesInputs;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::path::Path;
+use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use web_sys::{AudioContext, AudioContextOptions};
 use winit::dpi::LogicalSize;
@@ -49,39 +52,103 @@ impl AudioOutput for WebAudioOutput {
     }
 }
 
+// 1MB should be big enough for any save file
+const SERIALIZATION_BUFFER_LEN: usize = 1024 * 1024;
+
 struct LocalStorageSaveWriter {
-    file_name: String,
-    buffer: Vec<u8>,
+    file_name: Rc<str>,
+    extension_to_file_name: HashMap<String, Rc<str>>,
+    serialization_buffer: Box<[u8]>,
 }
 
 impl LocalStorageSaveWriter {
     fn new() -> Self {
-        Self { file_name: String::new(), buffer: Vec::new() }
+        let serialization_buffer = vec![0; SERIALIZATION_BUFFER_LEN].into_boxed_slice();
+        Self {
+            file_name: String::new().into(),
+            extension_to_file_name: HashMap::new(),
+            serialization_buffer,
+        }
     }
+
+    fn update_file_name(&mut self, file_name: String) {
+        self.file_name = file_name.into();
+        self.extension_to_file_name.clear();
+    }
+
+    fn get_file_name(&mut self, extension: &str) -> Rc<str> {
+        if extension == "sav" {
+            return Rc::clone(&self.file_name);
+        }
+
+        match self.extension_to_file_name.get(extension) {
+            Some(file_name) => Rc::clone(file_name),
+            None => {
+                let mut file_name = self.file_name.to_string();
+                file_name.push('.');
+                file_name.push_str(extension);
+
+                let file_name: Rc<str> = file_name.into();
+                self.extension_to_file_name.insert(extension.into(), Rc::clone(&file_name));
+                file_name
+            }
+        }
+    }
+}
+
+macro_rules! bincode_config {
+    () => {
+        bincode::config::standard()
+            .with_little_endian()
+            .with_fixed_int_encoding()
+            .with_limit::<{ 10 * 1024 * 1024 }>()
+    };
 }
 
 impl SaveWriter for LocalStorageSaveWriter {
     type Err = String;
 
-    fn persist_save<'a>(
-        &mut self,
-        save_bytes: impl Iterator<Item = &'a [u8]>,
-    ) -> Result<(), Self::Err> {
-        self.buffer.clear();
-        for slice in save_bytes {
-            self.buffer.extend(slice);
-        }
+    fn load_bytes(&mut self, extension: &str) -> Result<Vec<u8>, Self::Err> {
+        let file_name = self.get_file_name(extension);
+        let bytes = read_save_file(&file_name)?;
 
-        let serialized = general_purpose::STANDARD.encode(&self.buffer);
-        js::localStorageSet(&self.file_name, &serialized);
+        Ok(bytes)
+    }
+
+    fn persist_bytes(&mut self, extension: &str, bytes: &[u8]) -> Result<(), Self::Err> {
+        let file_name = self.get_file_name(extension);
+        let bytes_b64 = general_purpose::STANDARD.encode(bytes);
+        js::localStorageSet(&file_name, &bytes_b64);
+
+        Ok(())
+    }
+
+    fn load_serialized<D: Decode>(&mut self, extension: &str) -> Result<D, Self::Err> {
+        let file_name = self.get_file_name(extension);
+        let bytes = read_save_file(&file_name)?;
+        let (value, _) = bincode::decode_from_slice(&bytes, bincode_config!())
+            .map_err(|err| format!("Error serializing value into {file_name}: {err}"))?;
+
+        Ok(value)
+    }
+
+    fn persist_serialized<E: Encode>(&mut self, extension: &str, data: E) -> Result<(), Self::Err> {
+        let bytes_len =
+            bincode::encode_into_slice(data, &mut self.serialization_buffer, bincode_config!())
+                .map_err(|err| format!("Error serializing value: {err}"))?;
+        let bytes_b64 = general_purpose::STANDARD.encode(&self.serialization_buffer[..bytes_len]);
+
+        let file_name = self.get_file_name(extension);
+        js::localStorageSet(&file_name, &bytes_b64);
 
         Ok(())
     }
 }
 
-fn read_save_file(file_name: &str) -> Option<Vec<u8>> {
+fn read_save_file(file_name: &str) -> Result<Vec<u8>, String> {
     js::localStorageGet(file_name)
-        .and_then(|save_bytes_b64| general_purpose::STANDARD.decode(save_bytes_b64).ok())
+        .and_then(|b64_bytes| general_purpose::STANDARD.decode(b64_bytes).ok())
+        .ok_or_else(|| format!("No save file found for file name {file_name}"))
 }
 
 fn window_size_fn(window: &Window) -> (u32, u32) {
@@ -300,7 +367,7 @@ fn handle_snes_input(inputs: &mut SnesInputs, event: &WindowEvent<'_>) {
 #[derive(Debug, Clone)]
 enum JgenesisUserEvent {
     FileOpen { contents: Vec<u8>, file_name: String },
-    UploadSaveFile { contents: Vec<u8>, contents_base64: String },
+    UploadSaveFile { contents_base64: String },
 }
 
 /// # Panics
@@ -381,31 +448,32 @@ fn run_event_loop(
             JgenesisUserEvent::FileOpen { contents, file_name } => {
                 current_rom = Some((contents.clone(), file_name.clone()));
 
-                let save_bytes = read_save_file(&file_name);
-
-                emulator = match open_emulator(contents, save_bytes, &file_name, &config_ref) {
+                let prev_file_name = Rc::clone(&save_writer.file_name);
+                save_writer.update_file_name(file_name.clone());
+                emulator = match open_emulator(contents, &file_name, &config_ref, &mut save_writer)
+                {
                     Ok(emulator) => emulator,
                     Err(err) => {
                         js::alert(&format!("Error opening ROM file: {err}"));
+                        save_writer.update_file_name(prev_file_name.to_string());
                         return;
                     }
                 };
 
                 emulator_channel.set_current_file_name(file_name.clone());
-                save_writer.file_name = file_name.clone();
 
                 js::setRomTitle(&emulator.rom_title(&file_name));
                 js::setSaveUiEnabled(emulator.has_persistent_save());
 
                 js::focusCanvas();
             }
-            JgenesisUserEvent::UploadSaveFile { contents, contents_base64 } => {
+            JgenesisUserEvent::UploadSaveFile { contents_base64 } => {
                 let Some((rom, file_name)) = current_rom.clone() else { return };
 
                 // Immediately persist save file because it won't get written again until the game writes to SRAM
                 js::localStorageSet(&file_name, &contents_base64);
 
-                emulator = match open_emulator(rom, Some(contents), &file_name, &config_ref) {
+                emulator = match open_emulator(rom, &file_name, &config_ref, &mut save_writer) {
                     Ok(emulator) => emulator,
                     Err(err) => {
                         js::alert(&format!(
@@ -457,14 +525,14 @@ fn run_event_loop(
                     EmulatorCommand::Reset => {
                         let Some((rom, file_name)) = current_rom.clone() else { continue };
 
-                        let save_bytes = read_save_file(&file_name);
-                        emulator = match open_emulator(rom, save_bytes, &file_name, &config_ref) {
-                            Ok(emulator) => emulator,
-                            Err(err) => {
-                                js::alert(&format!("Error resetting emulator: {err}"));
-                                continue;
-                            }
-                        };
+                        emulator =
+                            match open_emulator(rom, &file_name, &config_ref, &mut save_writer) {
+                                Ok(emulator) => emulator,
+                                Err(err) => {
+                                    js::alert(&format!("Error resetting emulator: {err}"));
+                                    continue;
+                                }
+                            };
 
                         js::focusCanvas();
                     }
@@ -532,19 +600,19 @@ async fn upload_save_file(event_loop_proxy: EventLoopProxy<JgenesisUserEvent>) {
     let Some(file) = file else { return };
 
     let contents = file.read().await;
-    let contents_base64 = general_purpose::STANDARD.encode(&contents);
+    let contents_base64 = general_purpose::STANDARD.encode(contents);
 
     event_loop_proxy
-        .send_event(JgenesisUserEvent::UploadSaveFile { contents, contents_base64 })
+        .send_event(JgenesisUserEvent::UploadSaveFile { contents_base64 })
         .expect("Unable to send upload save file event");
 }
 
 #[allow(clippy::map_unwrap_or)]
 fn open_emulator(
     rom: Vec<u8>,
-    save_bytes: Option<Vec<u8>>,
     file_name: &str,
     config_ref: &WebConfigRef,
+    save_writer: &mut LocalStorageSaveWriter,
 ) -> Result<Emulator, Box<dyn Error>> {
     let file_ext = Path::new(file_name).extension().map(|ext| ext.to_string_lossy().to_string()).unwrap_or_else(|| {
         log::warn!("Unable to determine file extension of uploaded file; defaulting to Genesis emulator");
@@ -562,8 +630,8 @@ fn open_emulator(
             };
             let emulator = SmsGgEmulator::create(
                 rom,
-                save_bytes,
                 config_ref.borrow().smsgg.to_emulator_config(console),
+                save_writer,
             );
             Ok(Emulator::SmsGg(emulator, SmsGgInputs::default(), console))
         }
@@ -572,17 +640,17 @@ fn open_emulator(
 
             let emulator = GenesisEmulator::create(
                 rom,
-                save_bytes,
                 config_ref.borrow().genesis.to_emulator_config(),
+                save_writer,
             );
             Ok(Emulator::Genesis(emulator, GenesisInputs::default()))
         }
         "sfc" | "smc" => {
             let emulator = SnesEmulator::create(
                 rom,
-                save_bytes,
                 config_ref.borrow().snes.to_emulator_config(),
                 CoprocessorRoms::none(),
+                save_writer,
             )?;
 
             js::showSnesConfig();

@@ -107,18 +107,37 @@ pub trait AudioOutput {
 pub trait SaveWriter {
     type Err;
 
-    /// Persist any save data that should be persistent, such as cartridge SRAM.
-    ///
-    /// `save_bytes` is an iterator to enable concatenating multiple arrays
-    /// if desired, such as with the Sega CD (internal backup RAM + RAM cartridge).
+    /// Read an array of bytes using the given extension.
     ///
     /// # Errors
     ///
-    /// This method will return an error if it is unable to persist the given save bytes.
-    fn persist_save<'a>(
-        &mut self,
-        save_bytes: impl Iterator<Item = &'a [u8]>,
-    ) -> Result<(), Self::Err>;
+    /// Will propagate any errors encountered while reading the file.
+    fn load_bytes(&mut self, extension: &str) -> Result<Vec<u8>, Self::Err>;
+
+    /// Write a slice of bytes using the given extension.
+    ///
+    /// # Errors
+    ///
+    /// Will propagate any errors encountered while writing the file.
+    fn persist_bytes(&mut self, extension: &str, bytes: &[u8]) -> Result<(), Self::Err>;
+
+    /// Load a serialized value using the given extension.
+    ///
+    /// For loading raw bytes, use `load_bytes` instead which does not assume that the length is serialized.
+    ///
+    /// # Errors
+    ///
+    /// Will propagate any errors encountered while reading the file or deserializing the data.
+    fn load_serialized<D: Decode>(&mut self, extension: &str) -> Result<D, Self::Err>;
+
+    /// Write a serialized value using the given extension.
+    ///
+    /// For writing raw bytes, use `persist_bytes` instead which does not serialize the slice length.
+    ///
+    /// # Errors
+    ///
+    /// Will propagate any errors encountered while writing the file or serializing the data.
+    fn persist_serialized<E: Encode>(&mut self, extension: &str, data: E) -> Result<(), Self::Err>;
 }
 
 pub trait PartialClone {
@@ -189,7 +208,7 @@ pub trait EmulatorTrait: Encode + Decode + PartialClone {
 
     fn soft_reset(&mut self);
 
-    fn hard_reset(&mut self);
+    fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S);
 
     fn timing_mode(&self) -> TimingMode;
 }

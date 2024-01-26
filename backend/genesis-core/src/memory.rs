@@ -158,10 +158,6 @@ impl Cartridge {
         self.external_memory.is_persistent()
     }
 
-    fn take_ram_if_persistent(&mut self) -> Option<Vec<u8>> {
-        self.external_memory.take_if_persistent()
-    }
-
     fn get_and_clear_ram_dirty(&mut self) -> bool {
         self.external_memory.get_and_clear_dirty_bit()
     }
@@ -401,11 +397,6 @@ impl Memory<Cartridge> {
 
     pub fn take_rom_from(&mut self, other: &mut Self) {
         self.physical_medium.take_rom_from(&mut other.physical_medium);
-    }
-
-    #[must_use]
-    pub fn take_external_ram_if_persistent(&mut self) -> Option<Vec<u8>> {
-        self.physical_medium.take_ram_if_persistent()
     }
 
     #[must_use]

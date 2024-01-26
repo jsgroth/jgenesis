@@ -1,10 +1,9 @@
 //! SNES cartridge loading and mapping code
 
 use crate::api::{CoprocessorRoms, LoadError, LoadResult};
-use bincode::error::EncodeError;
 use bincode::{Decode, Encode};
 use crc::Crc;
-use jgenesis_common::frontend::{PartialClone, TimingMode};
+use jgenesis_common::frontend::{PartialClone, SaveWriter, TimingMode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use snes_coprocessors::cx4::Cx4;
 use snes_coprocessors::obc1::Obc1;
@@ -173,7 +172,6 @@ pub enum Cartridge {
         rom: Rom,
         sram: Box<[u8]>,
         srtc: Option<SRtc>,
-        serialization_buffer: Vec<u8>,
     },
     Cx4(#[partial_clone(partial)] Cx4),
     DspLoRom {
@@ -203,22 +201,14 @@ pub enum Cartridge {
     },
 }
 
-macro_rules! bincode_config {
-    () => {
-        bincode::config::standard()
-            .with_little_endian()
-            .with_fixed_int_encoding()
-            .with_limit::<{ 128 * 1024 }>()
-    };
-}
-
 impl Cartridge {
-    pub fn create(
+    pub fn create<S: SaveWriter>(
         rom: Box<[u8]>,
         initial_sram: Option<Vec<u8>>,
         coprocessor_roms: &CoprocessorRoms,
         forced_timing_mode: Option<TimingMode>,
         gsu_overclock_factor: NonZeroU64,
+        save_writer: &mut S,
     ) -> LoadResult<Self> {
         // Older SNES ROM images have an extra 512-byte header; check for that and strip it off
         if rom.len() & 0x7FFF == 0x0200 {
@@ -229,6 +219,7 @@ impl Cartridge {
                 coprocessor_roms,
                 forced_timing_mode,
                 gsu_overclock_factor,
+                save_writer,
             );
         }
 
@@ -271,13 +262,8 @@ impl Cartridge {
             1 << (10 + sram_header_byte)
         };
 
-        let sram = match (initial_sram, cartridge_type) {
-            (Some(sram), _) if sram.len() == sram_len => sram.into_boxed_slice(),
-            (Some(sram), CartridgeType::ExHiRom | CartridgeType::Spc7110) => {
-                // ExHiROM (S-RTC) and SPC7110 may serialize both SRAM + RTC state; let the
-                // coprocessor figure out if it's valid
-                sram.into_boxed_slice()
-            }
+        let sram = match initial_sram {
+            Some(sram) if sram.len() == sram_len => sram.into_boxed_slice(),
             _ => vec![0; sram_len].into_boxed_slice(),
         };
 
@@ -349,12 +335,12 @@ impl Cartridge {
                 let mask = RomAddressMask::from_rom_len(rom.len() as u32);
                 Self::HiRom { rom: Rom(rom), sram, mask }
             }
-            CartridgeType::ExHiRom => new_exhirom_cartridge(rom, sram, sram_len),
+            CartridgeType::ExHiRom => new_exhirom_cartridge(rom, sram, save_writer),
             CartridgeType::Cx4 => Self::Cx4(Cx4::new(rom)),
             CartridgeType::Obc1 => Self::Obc1(Obc1::new(rom, sram)),
             CartridgeType::Sa1 => Self::Sa1(Sa1::new(rom, sram, timing_mode)),
             CartridgeType::Sdd1 => Self::Sdd1(Sdd1::new(rom, sram)),
-            CartridgeType::Spc7110 => Self::Spc7110(Spc7110::new(rom, sram)),
+            CartridgeType::Spc7110 => Self::Spc7110(Spc7110::new(rom, sram, save_writer)),
             CartridgeType::SuperFx => Self::SuperFx(SuperFx::new(rom, sram, gsu_overclock_factor)),
         })
     }
@@ -555,17 +541,8 @@ impl Cartridge {
         }
     }
 
-    pub fn sram(&mut self) -> Result<Option<&[u8]>, EncodeError> {
-        Ok(match self {
-            Self::ExHiRom { sram, srtc: Some(srtc), serialization_buffer, .. } => {
-                serialization_buffer[..sram.len()].copy_from_slice(sram);
-                let srtc_length = bincode::encode_into_slice(
-                    &*srtc,
-                    &mut serialization_buffer[sram.len()..],
-                    bincode_config!(),
-                )?;
-                Some(&serialization_buffer[..sram.len() + srtc_length])
-            }
+    pub fn sram(&self) -> Option<&[u8]> {
+        match self {
             Self::LoRom { sram, .. }
             | Self::HiRom { sram, .. }
             | Self::ExHiRom { sram, .. }
@@ -584,10 +561,29 @@ impl Cartridge {
             Self::Obc1(obc1) => Some(obc1.sram()),
             Self::Sa1(sa1) => sa1.sram(),
             Self::Sdd1(sdd1) => sdd1.sram(),
-            Self::Spc7110(spc7110) => Some(spc7110.sram_and_rtc()?),
+            Self::Spc7110(spc7110) => Some(spc7110.sram()),
             Self::SuperFx(sfx) => Some(sfx.sram()),
             Self::St01x { upd77c25, .. } => Some(upd77c25.sram()),
-        })
+        }
+    }
+
+    pub fn write_auxiliary_save_files<S: SaveWriter>(
+        &self,
+        save_writer: &mut S,
+    ) -> Result<(), S::Err> {
+        match self {
+            Self::ExHiRom { srtc: Some(srtc), .. } => {
+                save_writer.persist_serialized("rtc", srtc)?;
+            }
+            Self::Spc7110(spc7110) => {
+                if let Some(rtc) = spc7110.rtc() {
+                    save_writer.persist_serialized("rtc", rtc)?;
+                }
+            }
+            _ => {}
+        }
+
+        Ok(())
     }
 
     pub fn has_sram(&self) -> bool {
@@ -670,48 +666,22 @@ impl Cartridge {
     }
 }
 
-fn new_exhirom_cartridge(rom: Box<[u8]>, initial_sram: Box<[u8]>, sram_len: usize) -> Cartridge {
+fn new_exhirom_cartridge<S: SaveWriter>(
+    rom: Box<[u8]>,
+    initial_sram: Box<[u8]>,
+    save_writer: &mut S,
+) -> Cartridge {
     // Chipset byte of $55 indicates S-RTC present (only used by Daikaijuu Monogatari II)
     let has_srtc = rom[EXHIROM_HEADER_ADDR + 0x16] == 0x55;
-
-    let (sram, srtc) = if has_srtc {
-        let sram = if initial_sram.len() >= sram_len {
-            initial_sram[..sram_len].to_vec().into_boxed_slice()
-        } else {
-            vec![0; sram_len].into_boxed_slice()
-        };
-
-        let mut srtc = if initial_sram.len() > sram_len {
-            match bincode::decode_from_slice(&initial_sram[sram_len..], bincode_config!()) {
-                Ok((srtc, _)) => srtc,
-                Err(err) => {
-                    log::error!("Error decoding S-RTC state: {err}");
-                    SRtc::new()
-                }
-            }
-        } else {
-            SRtc::new()
-        };
-
+    let srtc = has_srtc.then(|| {
+        let mut srtc = save_writer.load_serialized("rtc").ok().unwrap_or_else(SRtc::new);
         srtc.reset_state();
-
-        (sram, Some(srtc))
-    } else {
-        let sram = if initial_sram.len() == sram_len {
-            initial_sram
-        } else {
-            vec![0; sram_len].into_boxed_slice()
-        };
-
-        (sram, None)
-    };
-
-    // Doesn't need to be sized exactly right, only big enough
-    let serialization_buffer = vec![0; sram_len + 2 * mem::size_of::<SRtc>()];
+        srtc
+    });
 
     log::info!("ExHiROM cartridge has S-RTC: {}", srtc.is_some());
 
-    Cartridge::ExHiRom { rom: Rom(rom), sram, srtc, serialization_buffer }
+    Cartridge::ExHiRom { rom: Rom(rom), sram: initial_sram, srtc }
 }
 
 pub fn region_to_timing_mode(region_byte: u8) -> TimingMode {

@@ -16,7 +16,7 @@ use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgTickEffect, PsgVersion};
 use std::fmt::{Debug, Display};
-use std::{iter, mem};
+use std::mem;
 use thiserror::Error;
 use z80_emu::Z80;
 
@@ -211,11 +211,12 @@ impl GenesisEmulator {
     ///
     /// Returns an error if unable to parse the ROM header.
     #[must_use]
-    pub fn create(
+    pub fn create<S: SaveWriter>(
         rom: Vec<u8>,
-        initial_ram: Option<Vec<u8>>,
         config: GenesisEmulatorConfig,
+        save_writer: &mut S,
     ) -> Self {
+        let initial_ram = save_writer.load_bytes("sav").ok();
         let cartridge = Cartridge::from_rom(rom, initial_ram, config.forced_region);
         let memory = Memory::new(cartridge);
 
@@ -406,7 +407,7 @@ impl EmulatorTrait for GenesisEmulator {
             {
                 let ram = self.memory.external_ram();
                 if !ram.is_empty() {
-                    save_writer.persist_save(iter::once(ram)).map_err(GenesisError::Save)?;
+                    save_writer.persist_bytes("sav", ram).map_err(GenesisError::Save)?;
                 }
             }
 
@@ -443,11 +444,10 @@ impl EmulatorTrait for GenesisEmulator {
         self.ym2612.reset();
     }
 
-    fn hard_reset(&mut self) {
+    fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
         log::info!("Hard resetting console");
 
         let rom = self.memory.take_rom();
-        let cartridge_ram = self.memory.take_external_ram_if_persistent();
         let vdp_config = self.vdp.config();
         let (p1_controller_type, p2_controller_type) = self.input.controller_types();
 
@@ -465,7 +465,7 @@ impl EmulatorTrait for GenesisEmulator {
             p2_controller_type,
         };
 
-        *self = GenesisEmulator::create(rom, cartridge_ram, config);
+        *self = GenesisEmulator::create(rom, config, save_writer);
     }
 
     fn timing_mode(&self) -> TimingMode {

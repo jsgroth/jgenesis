@@ -31,10 +31,11 @@ use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgInputs};
 use snes_core::api::{LoadError, SnesEmulator, SnesEmulatorConfig};
 use snes_core::input::SnesInputs;
+use std::collections::HashMap;
 use std::error::Error;
 use std::ffi::{NulError, OsStr};
-use std::fs::File;
-use std::io::{BufReader, BufWriter, Write};
+use std::fs::{File, OpenOptions};
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::{fs, io, thread};
@@ -204,39 +205,118 @@ fn sleep(duration: Duration) {
 }
 
 #[derive(Debug, Error)]
-#[error("Error writing save file to '{path}': {source}")]
-pub struct SaveWriteError {
-    path: String,
-    #[source]
-    source: io::Error,
+pub enum SaveWriteError {
+    #[error("Error writing save file to '{path}': {source}")]
+    OpenFile {
+        path: String,
+        #[source]
+        source: io::Error,
+    },
+    #[error("Error serializing save data to '{path}': {source}")]
+    Encode {
+        path: String,
+        #[source]
+        source: EncodeError,
+    },
+    #[error("Error deserializing save data from '{path}': {source}")]
+    Decode {
+        path: String,
+        #[source]
+        source: DecodeError,
+    },
 }
 
 struct FsSaveWriter {
-    path: PathBuf,
+    base_path: PathBuf,
+    extension_to_path: HashMap<String, PathBuf>,
 }
 
 impl FsSaveWriter {
     fn new(path: PathBuf) -> Self {
-        Self { path }
+        Self { base_path: path, extension_to_path: HashMap::new() }
     }
+
+    fn open_file(
+        &mut self,
+        extension: &str,
+        options: &mut OpenOptions,
+    ) -> Result<(File, &PathBuf), SaveWriteError> {
+        if !self.extension_to_path.contains_key(extension) {
+            let path = self.base_path.with_extension(extension);
+            self.extension_to_path.insert(extension.into(), path);
+        }
+
+        let path = &self.extension_to_path[extension];
+
+        let file = options.open(path).map_err(|source| SaveWriteError::OpenFile {
+            path: path.display().to_string(),
+            source,
+        })?;
+
+        Ok((file, path))
+    }
+}
+
+macro_rules! bincode_config {
+    () => {
+        bincode::config::standard()
+            .with_little_endian()
+            .with_fixed_int_encoding()
+            .with_limit::<{ 100 * 1024 * 1024 }>()
+    };
+}
+
+macro_rules! file_read_options {
+    () => {
+        File::options().read(true)
+    };
+}
+
+macro_rules! file_write_options {
+    () => {
+        File::options().write(true).create(true).truncate(true)
+    };
 }
 
 impl SaveWriter for FsSaveWriter {
     type Err = SaveWriteError;
 
-    #[inline]
-    fn persist_save<'a>(
-        &mut self,
-        save_bytes: impl Iterator<Item = &'a [u8]>,
-    ) -> Result<(), Self::Err> {
-        let err_fn = |source| SaveWriteError { path: self.path.display().to_string(), source };
+    fn load_bytes(&mut self, extension: &str) -> Result<Vec<u8>, Self::Err> {
+        let (file, path) = self.open_file(extension, file_read_options!())?;
+        let mut reader = BufReader::new(file);
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes).map_err(|source| SaveWriteError::OpenFile {
+            path: path.display().to_string(),
+            source,
+        })?;
 
-        let file = File::create(&self.path).map_err(err_fn)?;
+        Ok(bytes)
+    }
+
+    fn persist_bytes(&mut self, extension: &str, bytes: &[u8]) -> Result<(), Self::Err> {
+        let (file, path) = self.open_file(extension, file_write_options!())?;
         let mut writer = BufWriter::new(file);
+        writer.write_all(bytes).map_err(|source| SaveWriteError::OpenFile {
+            path: path.display().to_string(),
+            source,
+        })?;
 
-        for save_slice in save_bytes {
-            writer.write_all(save_slice).map_err(err_fn)?;
-        }
+        Ok(())
+    }
+
+    fn load_serialized<D: Decode>(&mut self, extension: &str) -> Result<D, Self::Err> {
+        let (file, path) = self.open_file(extension, file_read_options!())?;
+        let mut reader = BufReader::new(file);
+        bincode::decode_from_std_read(&mut reader, bincode_config!())
+            .map_err(|source| SaveWriteError::Decode { path: path.display().to_string(), source })
+    }
+
+    fn persist_serialized<E: Encode>(&mut self, extension: &str, data: E) -> Result<(), Self::Err> {
+        let (file, path) = self.open_file(extension, file_write_options!())?;
+        let mut writer = BufWriter::new(file);
+        bincode::encode_into_std_write(data, &mut writer, bincode_config!()).map_err(|source| {
+            SaveWriteError::Encode { path: path.display().to_string(), source }
+        })?;
 
         Ok(())
     }
@@ -690,6 +770,7 @@ where
                         config: &self.config,
                         renderer: &mut self.renderer,
                         audio_output: &mut self.audio_output,
+                        save_writer: &mut self.save_writer,
                         video: &self.video,
                         hotkey_state: &mut self.hotkey_state,
                     })? == HotkeyResult::Quit
@@ -752,7 +833,7 @@ where
     }
 
     pub fn hard_reset(&mut self) {
-        self.emulator.hard_reset();
+        self.emulator.hard_reset(&mut self.save_writer);
     }
 
     pub fn open_memory_viewer(&mut self) {
@@ -782,7 +863,7 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
     })?;
 
     let save_path = rom_file_path.with_extension("sav");
-    let initial_cartridge_ram = fs::read(&save_path).ok();
+    let mut save_writer = FsSaveWriter::new(save_path);
 
     let vdp_version =
         config.vdp_version.unwrap_or_else(|| config::default_vdp_version_for_ext(file_ext));
@@ -819,9 +900,8 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
         config.common.axis_deadzone,
     )?;
     let hotkey_mapper = HotkeyMapper::from_config(&config.common.hotkeys)?;
-    let save_writer = FsSaveWriter::new(save_path);
 
-    let emulator = SmsGgEmulator::create(rom, initial_cartridge_ram, emulator_config);
+    let emulator = SmsGgEmulator::create(rom, emulator_config, &mut save_writer);
 
     Ok(NativeEmulator {
         emulator,
@@ -854,14 +934,10 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
 
     let save_path = rom_file_path.with_extension("sav");
     let save_state_path = rom_file_path.with_extension("ss0");
-
-    let initial_ram = fs::read(&save_path).ok();
-    if initial_ram.is_some() {
-        log::info!("Loaded save file from {}", save_path.display());
-    }
+    let mut save_writer = FsSaveWriter::new(save_path);
 
     let emulator_config = config.to_emulator_config();
-    let emulator = GenesisEmulator::create(rom, initial_ram, emulator_config);
+    let emulator = GenesisEmulator::create(rom, emulator_config, &mut save_writer);
 
     let (sdl, video, audio, joystick, event_pump) =
         init_sdl(config.common.hide_cursor_over_window)?;
@@ -891,7 +967,6 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
         config.common.axis_deadzone,
     )?;
     let hotkey_mapper = HotkeyMapper::from_config(&config.common.hotkeys)?;
-    let save_writer = FsSaveWriter::new(save_path);
 
     Ok(NativeEmulator {
         emulator,
@@ -920,8 +995,7 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
     let cue_path = Path::new(&config.genesis.common.rom_file_path);
     let save_path = cue_path.with_extension("sav");
     let save_state_path = cue_path.with_extension("ss0");
-
-    let initial_backup_ram = fs::read(&save_path).ok();
+    let mut save_writer = FsSaveWriter::new(save_path);
 
     let bios_file_path = config.bios_file_path.as_ref().ok_or(NativeEmulatorError::SegaCdNoBios)?;
     let bios = fs::read(bios_file_path).map_err(|source| NativeEmulatorError::SegaCdBiosRead {
@@ -933,9 +1007,9 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
     let emulator = SegaCdEmulator::create(
         bios,
         cue_path,
-        initial_backup_ram,
         config.run_without_disc,
         emulator_config,
+        &mut save_writer,
     )?;
 
     let (sdl, video, audio, joystick, event_pump) =
@@ -965,7 +1039,6 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
         config.genesis.common.axis_deadzone,
     )?;
     let hotkey_mapper = HotkeyMapper::from_config(&config.genesis.common.hotkeys)?;
-    let save_writer = FsSaveWriter::new(save_path);
 
     Ok(NativeEmulator {
         emulator,
@@ -1002,14 +1075,10 @@ pub fn create_nes(config: Box<NesConfig>) -> NativeEmulatorResult<NativeNesEmula
 
     let save_path = rom_path.with_extension("sav");
     let save_state_path = rom_path.with_extension("ss0");
-
-    let initial_sram = fs::read(&save_path).ok();
-    if initial_sram.as_ref().is_some_and(|sram| !sram.is_empty()) {
-        log::info!("Loaded save file from '{}'", save_path.display());
-    }
+    let mut save_writer = FsSaveWriter::new(save_path);
 
     let emulator_config = config.to_emulator_config();
-    let emulator = NesEmulator::create(rom, initial_sram, emulator_config)?;
+    let emulator = NesEmulator::create(rom, emulator_config, &mut save_writer)?;
 
     let (sdl, video, audio, joystick, event_pump) =
         init_sdl(config.common.hide_cursor_over_window)?;
@@ -1029,7 +1098,6 @@ pub fn create_nes(config: Box<NesConfig>) -> NativeEmulatorResult<NativeNesEmula
     let renderer =
         pollster::block_on(WgpuRenderer::new(window, Window::size, config.common.renderer_config))?;
     let audio_output = SdlAudioOutput::create_and_init(&audio, &config.common)?;
-    let save_writer = FsSaveWriter::new(save_path);
 
     let input_mapper = InputMapper::new_nes(
         joystick,
@@ -1070,15 +1138,12 @@ pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEm
 
     let save_path = rom_path.with_extension("sav");
     let save_state_path = rom_path.with_extension("ss0");
-
-    let initial_sram = fs::read(&save_path).ok();
-    if initial_sram.as_ref().is_some_and(|sram| !sram.is_empty()) {
-        log::info!("Loaded save file from '{}'", save_path.display());
-    }
+    let mut save_writer = FsSaveWriter::new(save_path);
 
     let emulator_config = config.to_emulator_config();
     let coprocessor_roms = config.to_coprocessor_roms();
-    let mut emulator = SnesEmulator::create(rom, initial_sram, emulator_config, coprocessor_roms)?;
+    let mut emulator =
+        SnesEmulator::create(rom, emulator_config, coprocessor_roms, &mut save_writer)?;
 
     let (sdl, video, audio, joystick, event_pump) =
         init_sdl(config.common.hide_cursor_over_window)?;
@@ -1099,7 +1164,6 @@ pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEm
     let renderer =
         pollster::block_on(WgpuRenderer::new(window, Window::size, config.common.renderer_config))?;
     let audio_output = SdlAudioOutput::create_and_init(&audio, &config.common)?;
-    let save_writer = FsSaveWriter::new(save_path);
 
     let input_mapper = InputMapper::new_snes(
         joystick,
@@ -1142,14 +1206,10 @@ pub fn create_gb(config: Box<GameBoyConfig>) -> NativeEmulatorResult<NativeGameB
 
     let save_path = rom_path.with_extension("sav");
     let save_state_path = rom_path.with_extension("ss0");
-
-    let initial_sram = fs::read(&save_path).ok();
-    if initial_sram.as_ref().is_some_and(|sram| !sram.is_empty()) {
-        log::info!("Loaded save file from '{}'", save_path.display());
-    }
+    let mut save_writer = FsSaveWriter::new(save_path);
 
     let emulator_config = config.to_emulator_config();
-    let emulator = GameBoyEmulator::create(rom, initial_sram, emulator_config)?;
+    let emulator = GameBoyEmulator::create(rom, emulator_config, &mut save_writer)?;
 
     let (sdl, video, audio, joystick, event_pump) =
         init_sdl(config.common.hide_cursor_over_window)?;
@@ -1168,7 +1228,6 @@ pub fn create_gb(config: Box<GameBoyConfig>) -> NativeEmulatorResult<NativeGameB
     let renderer =
         pollster::block_on(WgpuRenderer::new(window, Window::size, config.common.renderer_config))?;
     let audio_output = SdlAudioOutput::create_and_init(&audio, &config.common)?;
-    let save_writer = FsSaveWriter::new(save_path);
 
     let input_mapper = InputMapper::new_gb(
         joystick,
@@ -1253,6 +1312,7 @@ struct HandleHotkeysArgs<'a, Emulator: EmulatorTrait> {
     config: &'a Emulator::Config,
     renderer: &'a mut WgpuRenderer<Window>,
     audio_output: &'a mut SdlAudioOutput,
+    save_writer: &'a mut FsSaveWriter,
     video: &'a VideoSubsystem,
     hotkey_state: &'a mut HotkeyState<Emulator>,
 }
@@ -1291,7 +1351,6 @@ where
     Ok(HotkeyResult::None)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn handle_hotkey_pressed<Emulator>(
     hotkey: Hotkey,
     args: &mut HandleHotkeysArgs<'_, Emulator>,
@@ -1333,7 +1392,7 @@ where
             args.emulator.soft_reset();
         }
         Hotkey::HardReset => {
-            args.emulator.hard_reset();
+            args.emulator.hard_reset(args.save_writer);
         }
         Hotkey::Pause => {
             args.hotkey_state.paused = !args.hotkey_state.paused;
@@ -1387,12 +1446,6 @@ fn handle_window_event(win_event: WindowEvent, renderer: &mut WgpuRenderer<Windo
         }
         _ => {}
     }
-}
-
-macro_rules! bincode_config {
-    () => {
-        bincode::config::standard().with_little_endian().with_fixed_int_encoding()
-    };
 }
 
 fn save_state<E, P>(emulator: &E, path: P) -> NativeEmulatorResult<()>

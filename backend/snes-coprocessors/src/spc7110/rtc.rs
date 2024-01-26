@@ -640,6 +640,12 @@ impl Rtc4513 {
     }
 }
 
+impl Default for Rtc4513 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 fn irq_rate_nanos_from_bits(rate: u8) -> u128 {
     match rate {
         // 64 times per second

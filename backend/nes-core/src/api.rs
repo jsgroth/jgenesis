@@ -14,7 +14,7 @@ use jgenesis_common::frontend::{
 };
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, PartialClone};
 use std::fmt::{Debug, Display, Formatter};
-use std::{iter, mem};
+use std::mem;
 use thiserror::Error;
 
 pub use graphics::PatternTable;
@@ -127,11 +127,12 @@ impl NesEmulator {
     ///
     /// This function will return an error if it cannot successfully parse NES ROM data out of the
     /// given ROM bytes.
-    pub fn create(
+    pub fn create<S: SaveWriter>(
         rom_bytes: Vec<u8>,
-        sav_bytes: Option<Vec<u8>>,
         config: NesEmulatorConfig,
+        save_writer: &mut S,
     ) -> Result<Self, NesInitializationError> {
+        let sav_bytes = save_writer.load_bytes("sav").ok();
         let mapper = cartridge::from_ines_file(&rom_bytes, sav_bytes, config.forced_timing_mode)?;
         let timing_mode = mapper.timing_mode();
 
@@ -323,7 +324,7 @@ impl EmulatorTrait for NesEmulator {
 
             if self.bus.mapper_mut().get_and_clear_ram_dirty_bit() {
                 let sram = self.bus.mapper().get_prg_ram();
-                save_writer.persist_save(iter::once(sram)).map_err(NesError::SaveWrite)?;
+                save_writer.persist_bytes("sav", sram).map_err(NesError::SaveWrite)?;
             }
 
             return Ok(TickEffect::FrameRendered);
@@ -362,15 +363,10 @@ impl EmulatorTrait for NesEmulator {
         }
     }
 
-    fn hard_reset(&mut self) {
+    fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
         let rom_bytes = mem::take(&mut self.raw_rom_bytes);
-        let sav_bytes = self
-            .bus
-            .mapper()
-            .has_persistent_ram()
-            .then(|| self.bus.mapper().get_prg_ram().to_vec());
 
-        *self = Self::create(rom_bytes, sav_bytes, self.config)
+        *self = Self::create(rom_bytes, self.config, save_writer)
             .expect("Creation during hard reset should never fail");
     }
 

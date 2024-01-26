@@ -15,7 +15,6 @@ use jgenesis_common::frontend::{
 };
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
 use std::fmt::{Debug, Display};
-use std::iter;
 use std::ops::{Deref, DerefMut};
 use thiserror::Error;
 use z80_emu::{InterruptMode, Z80};
@@ -106,11 +105,13 @@ pub struct SmsGgEmulator {
 
 impl SmsGgEmulator {
     #[must_use]
-    pub fn create(
+    pub fn create<S: SaveWriter>(
         rom: Vec<u8>,
-        cartridge_ram: Option<Vec<u8>>,
         config: SmsGgEmulatorConfig,
+        save_writer: &mut S,
     ) -> Self {
+        let cartridge_ram = save_writer.load_bytes("sav").ok();
+
         let memory = Memory::new(rom, cartridge_ram);
         let vdp = Vdp::new(config.vdp_version, config.remove_sprite_limit);
         let psg = Psg::new(config.psg_version);
@@ -287,7 +288,7 @@ impl EmulatorTrait for SmsGgEmulator {
                 {
                     self.memory.clear_cartridge_ram_dirty();
                     save_writer
-                        .persist_save(iter::once(self.memory.cartridge_ram()))
+                        .persist_bytes("sav", self.memory.cartridge_ram())
                         .map_err(SmsGgError::SaveWrite)?;
                 }
             }
@@ -328,7 +329,7 @@ impl EmulatorTrait for SmsGgEmulator {
         self.reset_frames_remaining = 5;
     }
 
-    fn hard_reset(&mut self) {
+    fn hard_reset<S: SaveWriter>(&mut self, _save_writer: &mut S) {
         log::info!("Hard resetting console");
 
         let (rom, ram) = self.memory.take_cartridge_rom_and_ram();

@@ -17,10 +17,12 @@ use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig, GenesisInputs, Gen
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, PartialClone, Renderer, SaveWriter, TickEffect, TimingMode,
 };
+use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgTickEffect, PsgVersion};
 use std::fmt::{Debug, Display};
 use std::io;
+use std::ops::{Deref, DerefMut};
 use std::path::Path;
 use thiserror::Error;
 use z80_emu::Z80;
@@ -104,6 +106,29 @@ pub struct SegaCdEmulatorConfig {
     pub enable_ram_cartridge: bool,
 }
 
+#[derive(Debug, Clone, FakeEncode, FakeDecode)]
+struct SaveSerializationBuffer(Vec<u8>);
+
+impl Default for SaveSerializationBuffer {
+    fn default() -> Self {
+        Self(Vec::with_capacity(memory::BACKUP_RAM_LEN + memory::RAM_CARTRIDGE_LEN))
+    }
+}
+
+impl Deref for SaveSerializationBuffer {
+    type Target = Vec<u8>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for SaveSerializationBuffer {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 #[derive(Debug, Encode, Decode, PartialClone)]
 pub struct SegaCdEmulator {
     #[partial_clone(partial)]
@@ -118,6 +143,7 @@ pub struct SegaCdEmulator {
     pcm: Rf5c164,
     input: InputState,
     audio_resampler: AudioResampler,
+    save_serialization_buffer: SaveSerializationBuffer,
     timing_mode: TimingMode,
     main_bus_writes: MainBusWrites,
     aspect_ratio: GenesisAspectRatio,
@@ -153,12 +179,12 @@ impl SegaCdEmulator {
     /// * Unable to read every BIN file that is referenced in the CUE
     /// * Unable to read boot information from the beginning of the data track
     #[allow(clippy::if_then_some_else_none)]
-    pub fn create<P: AsRef<Path>>(
+    pub fn create<P: AsRef<Path>, S: SaveWriter>(
         bios: Vec<u8>,
         cue_path: P,
-        initial_backup_ram: Option<Vec<u8>>,
         run_without_disc: bool,
         emulator_config: SegaCdEmulatorConfig,
+        save_writer: &mut S,
     ) -> DiscResult<Self> {
         if bios.len() != BIOS_LEN {
             return Err(DiscError::InvalidBios { bios_len: bios.len() });
@@ -176,15 +202,16 @@ impl SegaCdEmulator {
             None
         };
 
-        Self::create_from_disc(bios, initial_backup_ram, disc, emulator_config)
+        Self::create_from_disc(bios, disc, emulator_config, save_writer)
     }
 
-    fn create_from_disc(
+    fn create_from_disc<S: SaveWriter>(
         bios: Vec<u8>,
-        initial_backup_ram: Option<Vec<u8>>,
         disc: Option<CdRom>,
         emulator_config: SegaCdEmulatorConfig,
+        save_writer: &mut S,
     ) -> DiscResult<Self> {
+        let initial_backup_ram = save_writer.load_bytes("sav").ok();
         let mut sega_cd = SegaCd::new(
             bios,
             disc,
@@ -228,6 +255,7 @@ impl SegaCdEmulator {
             pcm,
             input,
             audio_resampler,
+            save_serialization_buffer: SaveSerializationBuffer::default(),
             timing_mode,
             main_bus_writes: MainBusWrites::new(),
             aspect_ratio: emulator_config.genesis.aspect_ratio,
@@ -419,10 +447,13 @@ impl EmulatorTrait for SegaCdEmulator {
 
             if self.memory.medium_mut().get_and_clear_backup_ram_dirty_bit() {
                 let sega_cd = self.memory.medium();
-                let save_bytes = [sega_cd.backup_ram(), sega_cd.ram_cartridge()];
+
+                self.save_serialization_buffer.clear();
+                self.save_serialization_buffer.extend(sega_cd.backup_ram());
+                self.save_serialization_buffer.extend(sega_cd.ram_cartridge());
 
                 save_writer
-                    .persist_save(save_bytes.iter().copied())
+                    .persist_bytes("sav", &self.save_serialization_buffer)
                     .map_err(SegaCdError::SaveWrite)?;
             }
 
@@ -467,11 +498,10 @@ impl EmulatorTrait for SegaCdEmulator {
         self.memory.medium_mut().reset();
     }
 
-    fn hard_reset(&mut self) {
+    fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
         let sega_cd = self.memory.medium_mut();
         let bios = Vec::from(sega_cd.bios());
         let disc = sega_cd.take_cdrom();
-        let backup_ram = Vec::from(sega_cd.backup_ram());
         let forced_region = sega_cd.forced_region();
         let enable_ram_cartridge = sega_cd.get_enable_ram_cartridge();
         let vdp_config = self.vdp.config();
@@ -479,7 +509,6 @@ impl EmulatorTrait for SegaCdEmulator {
 
         *self = Self::create_from_disc(
             bios,
-            Some(backup_ram),
             disc,
             SegaCdEmulatorConfig {
                 genesis: GenesisEmulatorConfig {
@@ -497,6 +526,7 @@ impl EmulatorTrait for SegaCdEmulator {
                 },
                 enable_ram_cartridge,
             },
+            save_writer,
         )
         .expect("Hard reset should not cause an I/O error");
     }

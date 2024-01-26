@@ -17,7 +17,7 @@ use jgenesis_common::frontend::{
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
 use std::fmt::{Debug, Display};
 use std::num::NonZeroU64;
-use std::{io, iter, mem};
+use std::{io, mem};
 use thiserror::Error;
 use wdc65816_emu::core::Wdc65816;
 
@@ -157,16 +157,17 @@ impl SnesEmulator {
     /// # Errors
     ///
     /// This function will return an error if it is unable to load the cartridge ROM for any reason.
-    pub fn create(
+    pub fn create<S: SaveWriter>(
         rom: Vec<u8>,
-        initial_sram: Option<Vec<u8>>,
         config: SnesEmulatorConfig,
         coprocessor_roms: CoprocessorRoms,
+        save_writer: &mut S,
     ) -> LoadResult<Self> {
         let main_cpu = Wdc65816::new();
         let cpu_registers = CpuInternalRegisters::new();
         let dma_unit = DmaUnit::new();
 
+        let initial_sram = save_writer.load_bytes("sav").ok();
         let sram_checksum = initial_sram.as_ref().map_or(0, |sram| CRC.checksum(sram));
         let mut memory = Memory::create(
             rom,
@@ -174,6 +175,7 @@ impl SnesEmulator {
             &coprocessor_roms,
             config.forced_timing_mode,
             config.gsu_overclock_factor,
+            save_writer,
         )?;
 
         let timing_mode =
@@ -305,11 +307,15 @@ impl EmulatorTrait for SnesEmulator {
 
             // Only persist SRAM if it's changed since the last write, and only check ~twice per
             // second because of the checksum calculation
-            if let Some(sram) = self.memory.sram()? {
+            if let Some(sram) = self.memory.sram() {
                 if self.frame_count % 30 == 0 {
                     let checksum = CRC.checksum(sram);
                     if checksum != self.last_sram_checksum {
-                        save_writer.persist_save(iter::once(sram)).map_err(SnesError::SaveWrite)?;
+                        save_writer.persist_bytes("sav", sram).map_err(SnesError::SaveWrite)?;
+                        self.memory
+                            .write_auxiliary_save_files(save_writer)
+                            .map_err(SnesError::SaveWrite)?;
+
                         self.last_sram_checksum = checksum;
                     }
                 }
@@ -374,14 +380,13 @@ impl EmulatorTrait for SnesEmulator {
         self.apu.reset();
     }
 
-    fn hard_reset(&mut self) {
+    fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
         log::info!("Hard resetting");
 
         let rom = self.memory.take_rom();
-        let sram = self.memory.sram().ok().flatten().map(Vec::from);
 
         let coprocessor_roms = mem::take(&mut self.coprocessor_roms);
-        *self = Self::create(rom, sram, self.emulator_config, coprocessor_roms)
+        *self = Self::create(rom, self.emulator_config, coprocessor_roms, save_writer)
             .expect("Hard resetting should never fail to load");
     }
 

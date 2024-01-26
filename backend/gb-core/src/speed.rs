@@ -33,7 +33,7 @@ impl SpeedRegister {
         Self { speed: CpuSpeed::default(), switch_armed: false, double_speed_odd_cycle: false }
     }
 
-    pub fn read_key1(&self) -> u8 {
+    pub fn read_key1(self) -> u8 {
         0x7E | (u8::from(self.speed.to_bit()) << 7) | u8::from(self.switch_armed)
     }
 
