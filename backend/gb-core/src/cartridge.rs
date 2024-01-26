@@ -130,6 +130,7 @@ pub struct Cartridge {
     sram: Box<[u8]>,
     mapper: Mapper,
     has_battery: bool,
+    sram_dirty: bool,
 }
 
 impl Cartridge {
@@ -201,7 +202,13 @@ impl Cartridge {
 
         log::info!("Using mapper {}", mapper.mapper_type());
 
-        Ok(Self { rom: Rom(rom), sram: sram.into_boxed_slice(), mapper, has_battery })
+        Ok(Self {
+            rom: Rom(rom),
+            sram: sram.into_boxed_slice(),
+            mapper,
+            has_battery,
+            sram_dirty: true,
+        })
     }
 
     pub fn read_rom(&self, address: u16) -> u8 {
@@ -219,6 +226,7 @@ impl Cartridge {
 
     pub fn write_ram(&mut self, address: u16, value: u8) {
         self.mapper.write_ram(address, value, &mut self.sram);
+        self.sram_dirty = true;
     }
 
     pub fn take_rom(&mut self) -> Vec<u8> {
@@ -238,6 +246,10 @@ impl Cartridge {
             Mapper::Mbc2(mbc2) => mbc2.ram(),
             _ => &self.sram,
         }
+    }
+
+    pub fn get_and_clear_sram_dirty(&mut self) -> bool {
+        mem::take(&mut self.sram_dirty)
     }
 
     pub fn update_rtc_time(&mut self) {
