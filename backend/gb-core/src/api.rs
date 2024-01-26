@@ -98,6 +98,7 @@ pub struct GameBoyEmulator {
     input_state: InputState,
     rgba_buffer: RgbaFrameBuffer,
     config: GameBoyEmulatorConfig,
+    frame_count: u64,
 }
 
 impl GameBoyEmulator {
@@ -135,6 +136,7 @@ impl GameBoyEmulator {
             input_state: InputState::new(),
             rgba_buffer: RgbaFrameBuffer::default(),
             config,
+            frame_count: 0,
         })
     }
 }
@@ -196,16 +198,19 @@ impl EmulatorTrait for GameBoyEmulator {
 
             self.apu.drain_samples_into(audio_output).map_err(GameBoyError::Audio)?;
 
-            if self.cartridge.has_battery() {
-                // TODO only persist if save bytes have changed
-                let sram = self.cartridge.sram();
-                if !sram.is_empty() {
-                    save_writer.persist_bytes("sav", sram).map_err(GameBoyError::SaveWrite)?;
-                }
+            self.cartridge.update_rtc_time();
 
-                self.cartridge.update_rtc_time();
+            if self.cartridge.has_battery()
+                && self.frame_count % 60 == 30
+                && self.cartridge.get_and_clear_sram_dirty()
+            {
+                let sram = self.cartridge.sram();
+                save_writer.persist_bytes("sav", sram).map_err(GameBoyError::SaveWrite)?;
+
                 self.cartridge.save_rtc_state(save_writer).map_err(GameBoyError::SaveWrite)?;
             }
+
+            self.frame_count += 1;
 
             Ok(TickEffect::FrameRendered)
         } else if self.apu.queued_sample_count() > 1200 {
