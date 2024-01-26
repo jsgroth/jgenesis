@@ -306,6 +306,7 @@ pub struct GameBoyConfig {
     #[indent_nested]
     pub common: CommonConfig<GameBoyInputConfig<KeyboardInput>, GameBoyInputConfig<JoystickInput>>,
     pub force_dmg_mode: bool,
+    pub pretend_to_be_gba: bool,
     pub aspect_ratio: GbAspectRatio,
     pub gb_palette: GbPalette,
     pub gbc_color_correction: GbcColorCorrection,
@@ -315,6 +316,7 @@ impl GameBoyConfig {
     pub(crate) fn to_emulator_config(&self) -> GameBoyEmulatorConfig {
         GameBoyEmulatorConfig {
             force_dmg_mode: self.force_dmg_mode,
+            pretend_to_be_gba: self.pretend_to_be_gba,
             aspect_ratio: self.aspect_ratio,
             gb_palette: self.gb_palette,
             gbc_color_correction: self.gbc_color_correction,

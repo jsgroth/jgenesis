@@ -1,4 +1,5 @@
 use crate::app::{App, AppConfig, OpenWindow};
+use crate::emuthread::EmuThreadStatus;
 use egui::{Context, Window};
 use gb_core::api::{GbAspectRatio, GbPalette, GbcColorCorrection};
 use jgenesis_native_driver::config::GameBoyConfig;
@@ -8,6 +9,8 @@ use serde::{Deserialize, Serialize};
 pub struct GameBoyAppConfig {
     #[serde(default)]
     force_dmg_mode: bool,
+    #[serde(default)]
+    pretend_to_be_gba: bool,
     #[serde(default)]
     aspect_ratio: GbAspectRatio,
     #[serde(default)]
@@ -31,6 +34,7 @@ impl AppConfig {
                 self.inputs.gb_joystick.clone(),
             ),
             force_dmg_mode: self.game_boy.force_dmg_mode,
+            pretend_to_be_gba: self.game_boy.pretend_to_be_gba,
             aspect_ratio: self.game_boy.aspect_ratio,
             gb_palette: self.game_boy.gb_palette,
             gbc_color_correction: self.game_boy.gbc_color_correction,
@@ -42,11 +46,19 @@ impl App {
     pub(super) fn render_gb_general_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("Game Boy General Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.set_enabled(self.emu_thread.status() != EmuThreadStatus::RunningGameBoy);
+
             ui.checkbox(
                 &mut self.config.game_boy.force_dmg_mode,
                 "Force DMG mode in software with CGB support",
             )
             .on_hover_text("DMG = original Game Boy, CGB = Game Boy Color");
+
+            ui.checkbox(
+                &mut self.config.game_boy.pretend_to_be_gba,
+                "Pretend to be a Game Boy Advance",
+            )
+            .on_hover_text("For GBC software that alters behavior when run on GBA");
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::GameBoyGeneral);
@@ -108,6 +120,11 @@ impl App {
                         &mut self.config.game_boy.gbc_color_correction,
                         GbcColorCorrection::GbcLcd,
                         "Game Boy Color LCD",
+                    );
+                    ui.radio_value(
+                        &mut self.config.game_boy.gbc_color_correction,
+                        GbcColorCorrection::GbaLcd,
+                        "Game Boy Advance LCD",
                     );
                 });
             });
