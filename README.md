@@ -11,6 +11,7 @@ Cross-platform multi-console emulator supporting a number of 8-bit and 16-bit ga
   * Game Gear
   * Nintendo Entertainment System (NES) / Famicom
   * Super Nintendo Entertainment System (SNES) / Super Famicom
+  * Game Boy / Game Boy Color
 * GPU-based renderer with integer prescaling and optional linear interpolation
 * Configurable pixel aspect ratio for each console with several different options: accurate to original hardware/TVs, square pixels, and stretched to fill the window
 * Support for the Sega Master System FM sound unit expansion
