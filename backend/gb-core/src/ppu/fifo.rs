@@ -278,9 +278,9 @@ impl PixelFifo {
 
         if (8..MAX_FIFO_X).contains(&fields.screen_x) {
             let color = if sprite_pixel.color != 0
-                && (bg_pixel.color == 0
-                    || !registers.bg_enabled
-                    || (!sprite_pixel.low_priority && !bg_pixel.high_priority))
+                && !(bg_pixel.color != 0
+                    && registers.bg_enabled
+                    && (sprite_pixel.low_priority || bg_pixel.high_priority))
             {
                 match self.hardware_mode {
                     HardwareMode::Dmg => registers.sprite_palettes[sprite_pixel.palette as usize]
