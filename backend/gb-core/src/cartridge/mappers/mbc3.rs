@@ -2,7 +2,7 @@ use bincode::{Decode, Encode};
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_common::timeutils;
 
-#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Encode, Decode)]
 struct RtcTime {
     nanos: u32,
     seconds: u8,
@@ -10,6 +10,21 @@ struct RtcTime {
     hours: u8,
     days: u16,
     day_overflow: bool,
+}
+
+impl Default for RtcTime {
+    fn default() -> Self {
+        Self {
+            nanos: 0,
+            seconds: 0,
+            minutes: 0,
+            hours: 0,
+            days: 0,
+            // Default day overflow flag to true so that games will prompt to reset the time if
+            // no existing RTC state is loaded
+            day_overflow: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -29,7 +44,7 @@ impl Mbc3Rtc {
     fn new_from_current_time(current_time: RtcTime, last_update_nanos: u128) -> Self {
         Self {
             current_time,
-            latched_time: RtcTime::default(),
+            latched_time: current_time,
             last_update_nanos,
             last_latch_write: 0xFF,
             halted: false,
