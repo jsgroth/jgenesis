@@ -72,11 +72,13 @@ pub enum GbcColorCorrection {
     None,
     #[default]
     GbcLcd,
+    GbaLcd,
 }
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 pub struct GameBoyEmulatorConfig {
     pub force_dmg_mode: bool,
+    pub pretend_to_be_gba: bool,
     pub aspect_ratio: GbAspectRatio,
     pub gb_palette: GbPalette,
     pub gbc_color_correction: GbcColorCorrection,
@@ -124,7 +126,7 @@ impl GameBoyEmulator {
 
         Ok(Self {
             hardware_mode,
-            cpu: Sm83::new(hardware_mode),
+            cpu: Sm83::new(hardware_mode, config.pretend_to_be_gba),
             ppu: Ppu::new(hardware_mode),
             apu: Apu::new(),
             memory: Memory::new(),

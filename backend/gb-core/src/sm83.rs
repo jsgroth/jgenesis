@@ -79,7 +79,7 @@ const ENTRY_POINT: u16 = 0x0100;
 const HRAM_END: u16 = 0xFFFE;
 
 impl Registers {
-    fn new(hardware_mode: HardwareMode) -> Self {
+    fn new(hardware_mode: HardwareMode, pretend_to_be_gba: bool) -> Self {
         // Values from https://gbdev.io/pandocs/Power_Up_Sequence.html
         // Most important is that DMG sets A=$01 and CGB sets A=$11
         match hardware_mode {
@@ -99,7 +99,8 @@ impl Registers {
             HardwareMode::Cgb => Self {
                 a: 0x11,
                 f: Flags { zero: true, subtract: false, half_carry: false, carry: false },
-                b: 0x00,
+                // GBA sets B bit 0 at boot ($01), GBC does not ($00)
+                b: pretend_to_be_gba.into(),
                 c: 0x00,
                 d: 0xFF,
                 e: 0x56,
@@ -231,8 +232,8 @@ pub struct Sm83 {
 }
 
 impl Sm83 {
-    pub fn new(hardware_mode: HardwareMode) -> Self {
-        Self { registers: Registers::new(hardware_mode), state: State::new() }
+    pub fn new(hardware_mode: HardwareMode, pretend_to_be_gba: bool) -> Self {
+        Self { registers: Registers::new(hardware_mode, pretend_to_be_gba), state: State::new() }
     }
 
     pub fn execute_instruction<B: BusInterface>(&mut self, bus: &mut B) {

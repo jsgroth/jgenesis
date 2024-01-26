@@ -222,6 +222,10 @@ struct Args {
     #[arg(long, default_value_t, help_heading = GB_OPTIONS_HEADING)]
     force_dmg_mode: bool,
 
+    /// Pretend to be a Game Boy Advance (for GBC games that vary behavior on GBA)
+    #[arg(long, default_value_t, help_heading = GB_OPTIONS_HEADING)]
+    pretend_to_be_gba: bool,
+
     /// Aspect ratio (SquarePixels / Stretched)
     #[arg(long, default_value_t, help_heading = GB_OPTIONS_HEADING)]
     gb_aspect_ratio: GbAspectRatio,
@@ -230,7 +234,7 @@ struct Args {
     #[arg(long, default_value_t, help_heading = GB_OPTIONS_HEADING)]
     gb_palette: GbPalette,
 
-    /// Game Boy Color color correction (None / GbcLcd)
+    /// Game Boy Color color correction (None / GbcLcd / GbaLcd)
     #[arg(long, default_value_t, help_heading = GB_OPTIONS_HEADING)]
     gbc_color_correction: GbcColorCorrection,
 
@@ -697,6 +701,7 @@ fn run_gb(args: Args) -> anyhow::Result<()> {
     let config = GameBoyConfig {
         common: args.common_config(GameBoyInputConfig::default(), GameBoyInputConfig::default()),
         force_dmg_mode: args.force_dmg_mode,
+        pretend_to_be_gba: args.pretend_to_be_gba,
         aspect_ratio: args.gb_aspect_ratio,
         gb_palette: args.gb_palette,
         gbc_color_correction: args.gbc_color_correction,
