@@ -2049,6 +2049,7 @@ version = "0.6.2"
 dependencies = [
  "anyhow",
  "base64",
+ "bincode",
  "console_error_panic_hook",
  "console_log",
  "genesis-core",

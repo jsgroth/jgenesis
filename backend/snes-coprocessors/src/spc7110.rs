@@ -12,6 +12,7 @@ use crate::spc7110::registers::Registers;
 use crate::spc7110::rtc::Rtc4513;
 use bincode::error::EncodeError;
 use bincode::{Decode, Encode};
+use jgenesis_common::frontend::SaveWriter;
 use jgenesis_common::num::{U16Ext, U24Ext};
 use jgenesis_proc_macros::PartialClone;
 use std::mem;
@@ -51,31 +52,21 @@ impl Spc7110 {
     #[allow(clippy::boxed_local)]
     #[allow(clippy::missing_panics_doc)]
     #[must_use]
-    pub fn new(rom: Box<[u8]>, initial_sram: Box<[u8]>) -> Self {
-        let sram = if initial_sram.len() >= SRAM_LEN {
-            initial_sram[..SRAM_LEN].to_vec().into_boxed_slice().try_into().unwrap()
+    pub fn new<S: SaveWriter>(
+        rom: Box<[u8]>,
+        initial_sram: Box<[u8]>,
+        save_writer: &mut S,
+    ) -> Self {
+        let sram = if initial_sram.len() == SRAM_LEN {
+            initial_sram.try_into().unwrap()
         } else {
-            log::error!(
-                "SPC7110 SRAM is too short; expected at least {SRAM_LEN}, got {}",
-                initial_sram.len()
-            );
             vec![0; SRAM_LEN].into_boxed_slice().try_into().unwrap()
         };
 
         // Chipset byte of $F9 indicates SPC7110 + RTC-4513 (only used by Tengai Makyou Zero)
         let has_rtc = rom[0xFFD6] == 0xF9;
-        let rtc = has_rtc.then(|| {
-            if initial_sram.len() > SRAM_LEN {
-                match bincode::decode_from_slice(&initial_sram[SRAM_LEN..], bincode_config!()) {
-                    Ok((rtc, _)) => return rtc,
-                    Err(err) => {
-                        log::error!("Error deserializing RTC-4513 state: {err}");
-                    }
-                }
-            }
-
-            Rtc4513::new()
-        });
+        let rtc =
+            has_rtc.then(|| save_writer.load_serialized("rtc").ok().unwrap_or_else(Rtc4513::new));
 
         log::info!("SPC7110 has RTC-4513: {}", rtc.is_some());
 
@@ -166,6 +157,18 @@ impl Spc7110 {
     }
 
     impl_take_set_rom!(rom);
+
+    #[inline]
+    #[must_use]
+    pub fn sram(&self) -> &[u8] {
+        self.sram.as_ref()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn rtc(&self) -> Option<&Rtc4513> {
+        self.rtc.as_ref()
+    }
 
     /// Return combined SRAM + RTC-4513 state to be written to the save file.
     ///

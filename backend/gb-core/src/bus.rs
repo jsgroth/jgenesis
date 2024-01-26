@@ -75,7 +75,7 @@ impl<'a> Bus<'a> {
             0x0F => self.interrupt_registers.write_if(value),
             0x10..=0x3F => self.apu.write_register(address, value),
             0x40..=0x45 | 0x47..=0x4B | 0x4F | 0x68..=0x6B => {
-                self.ppu.write_register(address, value)
+                self.ppu.write_register(address, value);
             }
             0x46 => self.dma_unit.write_dma_register(value),
             0x4D => cgb_only_write!(self.speed_register.write_key1(value)),

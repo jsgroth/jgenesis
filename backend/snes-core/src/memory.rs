@@ -9,9 +9,8 @@ use crate::input::SnesInputs;
 use crate::memory::cartridge::Cartridge;
 use crate::memory::inputs::InputState;
 use crate::ppu::Ppu;
-use bincode::error::EncodeError;
 use bincode::{Decode, Encode};
-use jgenesis_common::frontend::TimingMode;
+use jgenesis_common::frontend::{SaveWriter, TimingMode};
 use jgenesis_common::num::{GetBit, U16Ext, U24Ext};
 use jgenesis_proc_macros::PartialClone;
 use std::array;
@@ -50,12 +49,13 @@ pub struct Memory {
 }
 
 impl Memory {
-    pub fn create(
+    pub fn create<S: SaveWriter>(
         rom: Vec<u8>,
         initial_sram: Option<Vec<u8>>,
         coprocessor_roms: &CoprocessorRoms,
         forced_timing_mode: Option<TimingMode>,
         gsu_overclock_factor: NonZeroU64,
+        save_writer: &mut S,
     ) -> LoadResult<Self> {
         let cartridge = Cartridge::create(
             rom.into_boxed_slice(),
@@ -63,6 +63,7 @@ impl Memory {
             coprocessor_roms,
             forced_timing_mode,
             gsu_overclock_factor,
+            save_writer,
         )?;
 
         Ok(Self {
@@ -162,8 +163,15 @@ impl Memory {
         self.cartridge.take_rom_from(&mut other.cartridge);
     }
 
-    pub fn sram(&mut self) -> Result<Option<&[u8]>, EncodeError> {
+    pub fn sram(&self) -> Option<&[u8]> {
         self.cartridge.sram()
+    }
+
+    pub fn write_auxiliary_save_files<S: SaveWriter>(
+        &self,
+        save_writer: &mut S,
+    ) -> Result<(), S::Err> {
+        self.cartridge.write_auxiliary_save_files(save_writer)
     }
 
     pub fn has_sram(&self) -> bool {

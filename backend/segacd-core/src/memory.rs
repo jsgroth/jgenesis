@@ -27,8 +27,8 @@ use wordram::WordRam;
 
 pub const BIOS_LEN: usize = 128 * 1024;
 pub const PRG_RAM_LEN: usize = 512 * 1024;
-const BACKUP_RAM_LEN: usize = 8 * 1024;
-const RAM_CARTRIDGE_LEN: usize = 128 * 1024;
+pub const BACKUP_RAM_LEN: usize = 8 * 1024;
+pub const RAM_CARTRIDGE_LEN: usize = 128 * 1024;
 
 // RAM cartridge size byte is N in the formula 8KB * 2^N
 // N=4 signals 128KB

@@ -6,7 +6,6 @@ use crate::memory::eeprom::{X24C01Chip, X24C02Chip, X24C08Chip, X24C16Chip};
 use crate::memory::external::metadata::{EepromMetadata, EepromType};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
-use std::mem;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub(crate) enum RamType {
@@ -269,14 +268,6 @@ impl ExternalMemory {
             Self::Eeprom { .. } => {
                 self.write_byte(address, value as u8);
             }
-        }
-    }
-
-    pub(crate) fn take_if_persistent(&mut self) -> Option<Vec<u8>> {
-        match self {
-            Self::None => None,
-            Self::Ram(ram) => ram.persistent.then(|| mem::take(&mut ram.ram)),
-            Self::Eeprom { chip, .. } => Some(chip.get_memory().to_vec()),
         }
     }
 

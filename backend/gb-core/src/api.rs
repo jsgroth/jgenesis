@@ -20,7 +20,6 @@ use jgenesis_common::frontend::{
 };
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, PartialClone};
 use std::fmt::{Debug, Display};
-use std::iter;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -105,12 +104,14 @@ impl GameBoyEmulator {
     /// # Errors
     ///
     /// This function will return an error if it cannot load the ROM (e.g. unsupported mapper).
-    pub fn create(
+    pub fn create<S: SaveWriter>(
         rom: Vec<u8>,
-        initial_sram: Option<Vec<u8>>,
         config: GameBoyEmulatorConfig,
+        save_writer: &mut S,
     ) -> Result<Self, GameBoyLoadError> {
         let software_type = SoftwareType::from_rom(&rom);
+
+        let initial_sram = save_writer.load_bytes("sav").ok();
         let cartridge = Cartridge::create(rom.into_boxed_slice(), initial_sram)?;
 
         let hardware_mode = match (config.force_dmg_mode, software_type) {
@@ -197,7 +198,7 @@ impl EmulatorTrait for GameBoyEmulator {
 
             let sram = self.cartridge.sram();
             if !sram.is_empty() {
-                save_writer.persist_save(iter::once(sram)).map_err(GameBoyError::SaveWrite)?;
+                save_writer.persist_bytes("sav", sram).map_err(GameBoyError::SaveWrite)?;
             }
 
             Ok(TickEffect::FrameRendered)
@@ -241,11 +242,10 @@ impl EmulatorTrait for GameBoyEmulator {
         log::warn!("The Game Boy does not support soft reset except in software");
     }
 
-    fn hard_reset(&mut self) {
+    fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
         let rom = self.cartridge.take_rom();
-        let sram = self.cartridge.sram().to_vec();
 
-        *self = Self::create(rom, Some(sram), self.config)
+        *self = Self::create(rom, self.config, save_writer)
             .expect("Hard reset should never fail to load cartridge");
     }
 
