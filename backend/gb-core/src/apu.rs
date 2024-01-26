@@ -16,7 +16,7 @@ use jgenesis_common::frontend::AudioOutput;
 use jgenesis_common::num::GetBit;
 use std::array;
 
-#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Encode, Decode)]
 struct StereoControl {
     left_volume: u8,
     right_volume: u8,
@@ -26,6 +26,27 @@ struct StereoControl {
 }
 
 impl StereoControl {
+    pub fn new() -> Self {
+        // Initial state from https://gbdev.io/pandocs/Power_Up_Sequence.html#hardware-registers
+        Self {
+            left_volume: 7,
+            right_volume: 7,
+            vin_bits: 0,
+            left_channels: [true; 4],
+            right_channels: [true, true, false, false],
+        }
+    }
+
+    pub fn zero() -> Self {
+        Self {
+            left_volume: 0,
+            right_volume: 0,
+            vin_bits: 0,
+            left_channels: [false; 4],
+            right_channels: [false; 4],
+        }
+    }
+
     pub fn read_volume(&self) -> u8 {
         (self.left_volume << 4) | self.right_volume | self.vin_bits
     }
@@ -81,7 +102,7 @@ impl Apu {
             pulse_2: PulseChannel::new(),
             wavetable: WavetableChannel::new(),
             noise: NoiseChannel::new(),
-            stereo_control: StereoControl::default(),
+            stereo_control: StereoControl::new(),
             frame_sequencer_step: 0,
             previous_div_bit: false,
             resampler: GameBoyResampler::new(),
@@ -252,7 +273,7 @@ impl Apu {
             self.pulse_2 = PulseChannel::new();
             self.wavetable.reset();
             self.noise = NoiseChannel::new();
-            self.stereo_control = StereoControl::default();
+            self.stereo_control = StereoControl::zero();
         } else if !prev_enabled && self.enabled {
             // Reset frame sequencer step
             self.frame_sequencer_step = 7;
