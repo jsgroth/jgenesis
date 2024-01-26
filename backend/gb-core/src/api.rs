@@ -112,7 +112,7 @@ impl GameBoyEmulator {
         let software_type = SoftwareType::from_rom(&rom);
 
         let initial_sram = save_writer.load_bytes("sav").ok();
-        let cartridge = Cartridge::create(rom.into_boxed_slice(), initial_sram)?;
+        let cartridge = Cartridge::create(rom.into_boxed_slice(), initial_sram, save_writer)?;
 
         let hardware_mode = match (config.force_dmg_mode, software_type) {
             (true, _) | (_, SoftwareType::DmgOnly) => HardwareMode::Dmg,
@@ -196,9 +196,15 @@ impl EmulatorTrait for GameBoyEmulator {
 
             self.apu.drain_samples_into(audio_output).map_err(GameBoyError::Audio)?;
 
-            let sram = self.cartridge.sram();
-            if !sram.is_empty() {
-                save_writer.persist_bytes("sav", sram).map_err(GameBoyError::SaveWrite)?;
+            if self.cartridge.has_battery() {
+                // TODO only persist if save bytes have changed
+                let sram = self.cartridge.sram();
+                if !sram.is_empty() {
+                    save_writer.persist_bytes("sav", sram).map_err(GameBoyError::SaveWrite)?;
+                }
+
+                self.cartridge.update_rtc_time();
+                self.cartridge.save_rtc_state(save_writer).map_err(GameBoyError::SaveWrite)?;
             }
 
             Ok(TickEffect::FrameRendered)

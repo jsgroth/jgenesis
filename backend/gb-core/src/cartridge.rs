@@ -3,8 +3,10 @@
 mod mappers;
 
 use crate::api::GameBoyLoadError;
+use crate::cartridge::mappers::mbc3::Mbc3Rtc;
 use crate::cartridge::mappers::{Mbc1, Mbc2, Mbc3, Mbc5};
 use bincode::{Decode, Encode};
+use jgenesis_common::frontend::SaveWriter;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use std::mem;
 use std::ops::Deref;
@@ -127,10 +129,15 @@ pub struct Cartridge {
     rom: Rom,
     sram: Box<[u8]>,
     mapper: Mapper,
+    has_battery: bool,
 }
 
 impl Cartridge {
-    pub fn create(rom: Box<[u8]>, initial_sram: Option<Vec<u8>>) -> Result<Self, GameBoyLoadError> {
+    pub fn create<S: SaveWriter>(
+        rom: Box<[u8]>,
+        initial_sram: Option<Vec<u8>>,
+        save_writer: &mut S,
+    ) -> Result<Self, GameBoyLoadError> {
         // Cartridge type is always at $0147 in ROM
         let mapper_byte = rom[0x0147];
         let is_mbc2 = mapper_byte == 0x05 || mapper_byte == 0x06;
@@ -158,18 +165,43 @@ impl Cartridge {
             _ => vec![0; sram_len],
         };
 
-        let mapper = match mapper_byte {
-            0x00 => Mapper::None,
-            0x01..=0x03 => Mapper::Mbc1(Mbc1::new(rom.len() as u32, sram_len as u32)),
-            0x05..=0x06 => Mapper::Mbc2(Mbc2::new(rom.len() as u32, mem::take(&mut sram))),
-            0x0F..=0x13 => Mapper::Mbc3(Mbc3::new(rom.len() as u32, sram_len as u32)),
-            0x19..=0x1E => Mapper::Mbc5(Mbc5::new(rom.len() as u32, sram_len as u32)),
+        let (mapper, has_battery) = match mapper_byte {
+            0x00 => (Mapper::None, false),
+            0x01..=0x03 => {
+                let mapper = Mapper::Mbc1(Mbc1::new(rom.len() as u32, sram_len as u32));
+                let has_battery = mapper_byte == 0x03;
+
+                (mapper, has_battery)
+            }
+            0x05..=0x06 => {
+                let mapper = Mapper::Mbc2(Mbc2::new(rom.len() as u32, mem::take(&mut sram)));
+                let has_battery = mapper_byte == 0x06;
+
+                (mapper, has_battery)
+            }
+            0x0F..=0x13 => {
+                let has_rtc = mapper_byte == 0x0F || mapper_byte == 0x10;
+                let rtc = has_rtc
+                    .then(|| save_writer.load_serialized("rtc").ok().unwrap_or_else(Mbc3Rtc::new));
+                let mapper = Mapper::Mbc3(Mbc3::new(rom.len() as u32, sram_len as u32, rtc));
+                let has_battery = matches!(mapper_byte, 0x0F | 0x10 | 0x13);
+
+                log::info!("MBC3 real-time clock: {has_rtc}");
+
+                (mapper, has_battery)
+            }
+            0x19..=0x1E => {
+                let mapper = Mapper::Mbc5(Mbc5::new(rom.len() as u32, sram_len as u32));
+                let has_battery = mapper_byte == 0x1B || mapper_byte == 0x1E;
+
+                (mapper, has_battery)
+            }
             _ => return Err(GameBoyLoadError::UnsupportedMapperByte(mapper_byte)),
         };
 
         log::info!("Using mapper {}", mapper.mapper_type());
 
-        Ok(Self { rom: Rom(rom), sram: sram.into_boxed_slice(), mapper })
+        Ok(Self { rom: Rom(rom), sram: sram.into_boxed_slice(), mapper, has_battery })
     }
 
     pub fn read_rom(&self, address: u16) -> u8 {
@@ -197,10 +229,28 @@ impl Cartridge {
         self.rom = mem::take(&mut other.rom);
     }
 
+    pub fn has_battery(&self) -> bool {
+        self.has_battery
+    }
+
     pub fn sram(&self) -> &[u8] {
         match &self.mapper {
             Mapper::Mbc2(mbc2) => mbc2.ram(),
             _ => &self.sram,
         }
+    }
+
+    pub fn update_rtc_time(&mut self) {
+        if let Mapper::Mbc3(mbc3) = &mut self.mapper {
+            mbc3.update_rtc_time();
+        }
+    }
+
+    pub fn save_rtc_state<S: SaveWriter>(&mut self, save_writer: &mut S) -> Result<(), S::Err> {
+        if let Mapper::Mbc3(mbc3) = &mut self.mapper {
+            mbc3.save_rtc_state(save_writer)?;
+        }
+
+        Ok(())
     }
 }
