@@ -6,7 +6,7 @@ The crates can be broken up roughly into 5 categories:
 
 * Common libraries: `jgenesis-common`, `jgenesis-proc-macros`
 * CPU emulators: `z80-emu`, `m68000-emu`, `wdc65816-emu`, `spc700-emu`
-* Emulation backend: `smsgg-core`, `genesis-core`, `segacd-core`, `nes-core`, `snes-core`, `snes-coprocessors`
+* Emulation backend: `smsgg-core`, `genesis-core`, `segacd-core`, `nes-core`, `snes-core`, `snes-coprocessors`, `gb-core`
 * Emulation frontend: `jgenesis-renderer`, `jgenesis-native-driver`, `jgenesis-cli`, `jgenesis-gui`, `jgenesis-web`
 * CPU emulator test harnesses: `z80-test-runner`, `m68000-test-runner`, `wdc65816-test-runner`, `spc700-test-runner`
 
@@ -51,6 +51,10 @@ Emulation core for the Super Nintendo Entertainment System (SNES) / Super Famico
 ### `snes-coprocessors`
 
 Emulation for coprocessors used in SNES cartridges.
+
+### `gb-core`
+
+Emulation core for the Game Boy and Game Boy Color.
 
 ### `jgenesis-common`
 
