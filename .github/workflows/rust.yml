@@ -64,7 +64,7 @@ jobs:
 
       - name: Build web
         run: |
-          cd frontend/jgenesis-web && ./build.sh
+          cd frontend/jgenesis-web && ./build.sh --dev
 
       - name: Check Clippy warnings for web
         run: |
