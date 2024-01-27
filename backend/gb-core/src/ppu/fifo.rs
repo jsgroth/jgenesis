@@ -239,7 +239,7 @@ impl PixelFifo {
             return;
         }
 
-        if fields.dots_remaining == 8 {
+        if fields.dots_remaining == 2 {
             log::trace!("Fetching BG tile at X {}", fields.screen_x);
 
             // Fetch next BG/window tile
