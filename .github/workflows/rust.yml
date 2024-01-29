@@ -97,7 +97,7 @@ jobs:
         with:
           name: linux-x86_64-bin
           path: jgenesis-${{ env.JGENESIS_VERSION }}-linux-x86_64.tar.gz
-          retention-days: 1
+          retention-days: 14
   windows-release:
     runs-on: ubuntu-latest
 
@@ -156,4 +156,4 @@ jobs:
         with:
           name: windows-x86_64-bin
           path: jgenesis-${{ env.JGENESIS_VERSION }}-windows-x86_64.zip
-          retention-days: 1
+          retention-days: 14
