@@ -17,6 +17,8 @@ pub struct GameBoyAppConfig {
     gb_palette: GbPalette,
     #[serde(default)]
     gbc_color_correction: GbcColorCorrection,
+    #[serde(default)]
+    audio_60hz_hack: bool,
 }
 
 impl Default for GameBoyAppConfig {
@@ -38,6 +40,7 @@ impl AppConfig {
             aspect_ratio: self.game_boy.aspect_ratio,
             gb_palette: self.game_boy.gb_palette,
             gbc_color_correction: self.game_boy.gbc_color_correction,
+            audio_60hz_hack: self.game_boy.audio_60hz_hack,
         })
     }
 }
@@ -45,21 +48,31 @@ impl AppConfig {
 impl App {
     pub(super) fn render_gb_general_settings(&mut self, ctx: &Context) {
         let mut open = true;
-        Window::new("Game Boy General Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.set_enabled(self.emu_thread.status() != EmuThreadStatus::RunningGameBoy);
+        Window::new("Game Boy General Settings")
+            .default_width(400.0)
+            .open(&mut open)
+            .resizable(false)
+            .show(ctx, |ui| {
+                let is_running_gb = self.emu_thread.status() == EmuThreadStatus::RunningGameBoy;
+                ui.add_enabled_ui(!is_running_gb, |ui| {
+                    ui.checkbox(
+                        &mut self.config.game_boy.force_dmg_mode,
+                        "Force DMG mode in software with CGB support",
+                    )
+                    .on_hover_text("DMG = original Game Boy, CGB = Game Boy Color");
 
-            ui.checkbox(
-                &mut self.config.game_boy.force_dmg_mode,
-                "Force DMG mode in software with CGB support",
-            )
-            .on_hover_text("DMG = original Game Boy, CGB = Game Boy Color");
+                    ui.checkbox(
+                        &mut self.config.game_boy.pretend_to_be_gba,
+                        "Pretend to be a Game Boy Advance",
+                    )
+                    .on_hover_text("For GBC software that alters behavior when run on GBA");
+                });
 
-            ui.checkbox(
-                &mut self.config.game_boy.pretend_to_be_gba,
-                "Pretend to be a Game Boy Advance",
-            )
-            .on_hover_text("For GBC software that alters behavior when run on GBA");
-        });
+                ui.checkbox(
+                    &mut self.config.game_boy.audio_60hz_hack,
+                    "Target 60 FPS instead of actual hardware speed (~59.73 FPS)",
+                );
+            });
         if !open {
             self.state.open_windows.remove(&OpenWindow::GameBoyGeneral);
         }

@@ -238,6 +238,10 @@ struct Args {
     #[arg(long, default_value_t, help_heading = GB_OPTIONS_HEADING)]
     gbc_color_correction: GbcColorCorrection,
 
+    /// Target 60 FPS instead of ~59.73 FPS
+    #[arg(long, default_value_t, help_heading = GB_OPTIONS_HEADING)]
+    gb_audio_60hz_hack: bool,
+
     /// Window width in pixels; height must also be set
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     window_width: Option<u32>,
@@ -705,6 +709,7 @@ fn run_gb(args: Args) -> anyhow::Result<()> {
         aspect_ratio: args.gb_aspect_ratio,
         gb_palette: args.gb_palette,
         gbc_color_correction: args.gbc_color_correction,
+        audio_60hz_hack: args.gb_audio_60hz_hack,
     };
 
     let mut emulator = jgenesis_native_driver::create_gb(config.into())?;

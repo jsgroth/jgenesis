@@ -5,6 +5,7 @@ mod noise;
 mod pulse;
 mod wavetable;
 
+use crate::api::GameBoyEmulatorConfig;
 use crate::apu::noise::NoiseChannel;
 use crate::apu::pulse::PulseChannel;
 use crate::apu::wavetable::WavetableChannel;
@@ -98,7 +99,7 @@ pub struct Apu {
 }
 
 impl Apu {
-    pub fn new() -> Self {
+    pub fn new(config: GameBoyEmulatorConfig) -> Self {
         Self {
             enabled: false,
             pulse_1: PulseChannel::new(),
@@ -108,7 +109,7 @@ impl Apu {
             stereo_control: StereoControl::new(),
             frame_sequencer_step: 0,
             previous_div_bit: false,
-            resampler: GameBoyResampler::new(),
+            resampler: GameBoyResampler::new(config.audio_60hz_hack),
         }
     }
 
@@ -299,6 +300,10 @@ impl Apu {
         audio_output: &mut A,
     ) -> Result<(), A::Err> {
         self.resampler.output_samples(audio_output)
+    }
+
+    pub fn reload_config(&mut self, config: GameBoyEmulatorConfig) {
+        self.resampler.update_audio_60hz_hack(config.audio_60hz_hack);
     }
 }
 
