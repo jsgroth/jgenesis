@@ -310,6 +310,7 @@ pub struct GameBoyConfig {
     pub aspect_ratio: GbAspectRatio,
     pub gb_palette: GbPalette,
     pub gbc_color_correction: GbcColorCorrection,
+    pub audio_60hz_hack: bool,
 }
 
 impl GameBoyConfig {
@@ -320,6 +321,7 @@ impl GameBoyConfig {
             aspect_ratio: self.aspect_ratio,
             gb_palette: self.gb_palette,
             gbc_color_correction: self.gbc_color_correction,
+            audio_60hz_hack: self.audio_60hz_hack,
         }
     }
 }

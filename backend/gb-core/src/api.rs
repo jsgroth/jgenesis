@@ -82,6 +82,7 @@ pub struct GameBoyEmulatorConfig {
     pub aspect_ratio: GbAspectRatio,
     pub gb_palette: GbPalette,
     pub gbc_color_correction: GbcColorCorrection,
+    pub audio_60hz_hack: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -135,7 +136,7 @@ impl GameBoyEmulator {
             hardware_mode,
             cpu: Sm83::new(hardware_mode, config.pretend_to_be_gba),
             ppu: Ppu::new(hardware_mode),
-            apu: Apu::new(),
+            apu: Apu::new(config),
             memory: Memory::new(),
             interrupt_registers: InterruptRegisters::default(),
             speed_register: SpeedRegister::new(),
@@ -276,6 +277,7 @@ impl EmulatorTrait for GameBoyEmulator {
 
     fn reload_config(&mut self, config: &Self::Config) {
         self.config = *config;
+        self.apu.reload_config(*config);
     }
 
     fn take_rom_from(&mut self, other: &mut Self) {
