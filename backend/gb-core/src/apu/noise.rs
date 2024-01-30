@@ -48,6 +48,7 @@ impl NoiseChannel {
     }
 
     pub fn write_register_1(&mut self, value: u8) {
+        // NR41: Noise length counter reload
         self.length_counter.load(value);
 
         log::trace!("NR41 write, length counter: {}", self.length_counter.counter);
@@ -58,6 +59,7 @@ impl NoiseChannel {
     }
 
     pub fn write_register_2(&mut self, value: u8) {
+        // NR42: Noise envelope control
         self.envelope.write_register(value);
         self.dac_enabled = value & 0xF8 != 0;
 
@@ -75,6 +77,7 @@ impl NoiseChannel {
     }
 
     pub fn write_register_3(&mut self, value: u8) {
+        // NR43: Noise frequency + LFSR size (7-bit vs. 15-bit)
         self.clock_shift = value >> 4;
         self.lfsr_width = LfsrWidthBits::from_bit(value.bit(3));
         self.clock_divider = value & 0x07;
@@ -90,6 +93,7 @@ impl NoiseChannel {
     }
 
     pub fn write_register_4(&mut self, value: u8, frame_sequencer_step: u8) {
+        // NR44: Noise length counter enabled + trigger
         self.length_counter.set_enabled(
             value.bit(6),
             frame_sequencer_step,

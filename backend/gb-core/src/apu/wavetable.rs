@@ -39,6 +39,7 @@ impl WavetableChannel {
     }
 
     pub fn write_register_0(&mut self, value: u8) {
+        // NR30: Custom wave DAC enabled
         self.dac_enabled = value.bit(7);
 
         if !self.dac_enabled {
@@ -49,6 +50,7 @@ impl WavetableChannel {
     }
 
     pub fn write_register_1(&mut self, value: u8) {
+        // NR31: Custom wave length counter reload
         self.length_counter.load(value);
 
         log::trace!("NR31 write, length counter: {}", self.length_counter.counter);
@@ -59,12 +61,14 @@ impl WavetableChannel {
     }
 
     pub fn write_register_2(&mut self, value: u8) {
+        // NR32: Custom wave volume
         self.volume = (value >> 5) & 0x03;
 
         log::trace!("NR32 write, volume: {}", self.volume);
     }
 
     pub fn write_register_3(&mut self, value: u8) {
+        // NR33: Custom wave frequency low bits
         self.timer.write_frequency_low(value);
 
         log::trace!("NR33 write, timer frequency: {}", self.timer.frequency());
@@ -75,6 +79,7 @@ impl WavetableChannel {
     }
 
     pub fn write_register_4(&mut self, value: u8, frame_sequencer_step: u8) {
+        // NR34: Custom wave frequency high bits + length counter enabled + trigger
         self.timer.write_frequency_high(value);
         self.length_counter.set_enabled(
             value.bit(6),
