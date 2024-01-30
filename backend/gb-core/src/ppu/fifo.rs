@@ -484,7 +484,11 @@ fn fetch_window_tile(
     let attributes = BgTileAttributes::from(vram[attributes_addr as usize]);
 
     let bank_addr = u16::from(attributes.vram_bank) << 13;
-    let tile_row: u16 = (window_line % 8).into();
+    let tile_row: u16 = if attributes.vertical_flip {
+        (7 - (window_line % 8)).into()
+    } else {
+        (window_line % 8).into()
+    };
     let tile_addr =
         bank_addr | registers.bg_tile_data_area.tile_address(tile_number) | (tile_row << 1);
     let tile_data_lsb = vram[tile_addr as usize];
