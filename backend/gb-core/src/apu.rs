@@ -20,9 +20,10 @@ use std::array;
 struct StereoControl {
     left_volume: u8,
     right_volume: u8,
-    vin_bits: u8,
     left_channels: [bool; 4],
     right_channels: [bool; 4],
+    // Vin functionality is not emulated but some test ROMs depend on these bits being R/W
+    vin_bits: u8,
 }
 
 impl StereoControl {
@@ -52,6 +53,7 @@ impl StereoControl {
     }
 
     pub fn write_volume(&mut self, value: u8) {
+        // NR50: Stereo volume controls
         self.left_volume = (value >> 4) & 0x07;
         self.right_volume = value & 0x07;
         self.vin_bits = value & 0x88;
@@ -68,6 +70,7 @@ impl StereoControl {
     }
 
     pub fn write_enabled(&mut self, value: u8) {
+        // NR51: Stereo panning controls
         self.left_channels = array::from_fn(|i| value.bit(4 + i as u8));
         self.right_channels = array::from_fn(|i| value.bit(i as u8));
 
@@ -110,6 +113,8 @@ impl Apu {
     }
 
     pub fn tick_m_cycle(&mut self, timer: &GbTimer, cpu_speed: CpuSpeed) {
+        // In CGB double speed mode, the DIV-APU counter reads DIV bit 5 instead of 4 so that it
+        // continues to tick at 512 Hz instead of running twice as fast
         let div_bit_index = match cpu_speed {
             CpuSpeed::Normal => 4,
             CpuSpeed::Double => 5,
@@ -117,6 +122,7 @@ impl Apu {
 
         let div_bit = timer.read_div().bit(div_bit_index);
         if self.previous_div_bit && !div_bit {
+            // Clock frame sequencer
             self.frame_sequencer_step = (self.frame_sequencer_step + 1) & 7;
 
             if self.enabled {
@@ -136,6 +142,7 @@ impl Apu {
         self.previous_div_bit = div_bit;
 
         if !self.enabled {
+            // If APU is disabled, output constant 0s
             self.resampler.collect_sample(0.0, 0.0);
             return;
         }
@@ -264,6 +271,7 @@ impl Apu {
     }
 
     fn write_nr52(&mut self, value: u8) {
+        // NR52: APU control
         let prev_enabled = self.enabled;
         self.enabled = value.bit(7);
 
@@ -275,7 +283,7 @@ impl Apu {
             self.noise = NoiseChannel::new();
             self.stereo_control = StereoControl::zero();
         } else if !prev_enabled && self.enabled {
-            // Reset frame sequencer step
+            // Reset frame sequencer step when APU is re-enabled
             self.frame_sequencer_step = 7;
         }
 
@@ -297,6 +305,8 @@ impl Apu {
 fn digital_to_analog(sample: Option<u8>) -> i32 {
     let Some(sample) = sample else { return 0 };
 
-    // Map 0 to -15 and 15 to +15
+    // Map [0, 15] to [-15, 15]
+    // [-15, 15] used instead of [-7.5, 7.5] in order to avoid needing to deal with floating-point
+    // until the very end of sample generation
     (2 * i32::from(sample)) - 15
 }

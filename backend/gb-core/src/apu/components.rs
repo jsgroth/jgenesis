@@ -21,7 +21,7 @@ impl<const MAX: u16> LengthCounter<MAX> {
         if self.counter == 0 {
             self.counter = MAX;
 
-            // Immediately clock if enabled and this is a length counter cycle
+            // Quirk: Immediately clock if enabled during trigger and this is a length counter cycle
             if self.enabled && !frame_sequencer_step.bit(0) {
                 self.counter -= 1;
             }
@@ -48,7 +48,7 @@ impl<const MAX: u16> LengthCounter<MAX> {
         let prev_enabled = self.enabled;
         self.enabled = enabled;
 
-        // Immediately clock if newly enabled and this is a length counter cycle
+        // Quirk: Immediately clock if newly enabled and this is a length counter cycle
         if !prev_enabled && self.enabled && !frame_sequencer_step.bit(0) {
             self.clock(channel_enabled);
         }
@@ -110,6 +110,10 @@ impl Envelope {
     pub fn write_register(&mut self, value: u8) {
         let direction = EnvelopeDirection::from_bit(value.bit(3));
 
+        // "Zombie mode" hardware glitch: If the envelope register is written to with bit 3 set while the
+        // current period is 0, immediately increment volume while wrapping around from 15 to 0.
+        // Exact behavior seems to vary between hardware revisions, but this implementation seems to
+        // work for games that depend on "zombie mode" (e.g. Prehistorik Man)
         if self.enabled && self.period == 0 && direction == EnvelopeDirection::Increasing {
             self.volume = (self.volume + 1) & 0x0F;
         }

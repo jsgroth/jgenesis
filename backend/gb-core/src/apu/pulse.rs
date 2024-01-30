@@ -79,6 +79,8 @@ impl SweepUnit {
             self.counter = self.counter_reload_value();
 
             if self.period == 0 {
+                // Period of 0 disables sweep updates (but not the sweep unit counter; a period
+                // of 0 is treated as 8 as far as the counter is concerned)
                 return;
             }
 
@@ -87,6 +89,8 @@ impl SweepUnit {
                 self.shadow_frequency = next_frequency;
                 timer.write_frequency(next_frequency);
 
+                // When sweep adjusts frequency, it immediately runs another frequency calculation
+                // and will disable the channel if the second calculation overflows
                 if self.calculate_next_frequency() > 2047 {
                     *channel_enabled = false;
                 }
@@ -113,6 +117,9 @@ impl SweepUnit {
         self.enabled = self.period != 0 || self.shift != 0;
 
         self.calculated_with_negate_since_trigger = false;
+
+        // If shift is non-zero, trigger immediately runs a frequency calculation and will disable
+        // the channel if it overflows
         if self.shift != 0 && self.calculate_next_frequency() > 2047 {
             *channel_enabled = false;
         }
@@ -136,6 +143,8 @@ impl SweepUnit {
         }
 
         if self.calculated_with_negate_since_trigger && !self.negate {
+            // If the negate flag is cleared after frequency was calculated with it set at least
+            // once, the channel is immediately disabled
             *channel_enabled = false;
         }
     }
@@ -199,6 +208,7 @@ impl PulseChannel {
     }
 
     pub fn write_register_0(&mut self, value: u8) {
+        // NR10: Pulse 1 sweep control
         self.sweep.write_register(value, &mut self.channel_enabled);
 
         log::trace!("NR10 write, sweep: {:?}", self.sweep);
@@ -209,6 +219,7 @@ impl PulseChannel {
     }
 
     pub fn write_register_1(&mut self, value: u8) {
+        // NR11/NR21: Pulse duty cycle and length counter reload
         self.duty_cycle = DutyCycle::from_byte(value);
         self.length_counter.load(value);
 
@@ -222,6 +233,7 @@ impl PulseChannel {
     }
 
     pub fn write_register_2(&mut self, value: u8) {
+        // NR12/NR22: Pulse envelope control
         self.envelope.write_register(value);
         self.dac_enabled = value & 0xF8 != 0;
 
@@ -236,6 +248,7 @@ impl PulseChannel {
     }
 
     pub fn write_register_3(&mut self, value: u8) {
+        // NR13/NR23: Pulse frequency low bits
         self.timer.write_frequency_low(value);
 
         log::trace!("NRx3 write");
@@ -247,6 +260,7 @@ impl PulseChannel {
     }
 
     pub fn write_register_4(&mut self, value: u8, frame_sequencer_step: u8) {
+        // NR14/NR24: Pulse frequency high bits + length counter enabled + trigger
         self.timer.write_frequency_high(value);
         self.length_counter.set_enabled(
             value.bit(6),
