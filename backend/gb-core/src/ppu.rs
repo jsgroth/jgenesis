@@ -1,5 +1,6 @@
 //! Game Boy PPU (picture processing unit)
 
+mod debug;
 mod fifo;
 mod registers;
 

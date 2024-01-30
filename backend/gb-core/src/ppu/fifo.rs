@@ -397,12 +397,12 @@ impl PixelFifo {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct BgTileAttributes {
-    high_priority: bool,
-    vertical_flip: bool,
-    horizontal_flip: bool,
-    vram_bank: u8,
-    palette: u8,
+pub(super) struct BgTileAttributes {
+    pub(super) high_priority: bool,
+    pub(super) vertical_flip: bool,
+    pub(super) horizontal_flip: bool,
+    pub(super) vram_bank: u8,
+    pub(super) palette: u8,
 }
 
 impl From<u8> for BgTileAttributes {

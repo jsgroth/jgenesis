@@ -16,10 +16,18 @@ pub struct Color {
 impl Color {
     pub const BLACK: Self = Self::rgb(0, 0, 0);
 
+    pub const TRANSPARENT: Self = Self::rgba(0, 0, 0, 0);
+
     #[must_use]
     #[inline]
     pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b, a: 255 }
+    }
+
+    #[must_use]
+    #[inline]
+    pub const fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
+        Self { r, g, b, a }
     }
 }
 
