@@ -1248,7 +1248,7 @@ pub fn create_gb(config: Box<GameBoyConfig>) -> NativeEmulatorResult<NativeGameB
         sdl,
         event_pump,
         video,
-        hotkey_state: HotkeyState::new(&config.common, save_state_path, || Box::new(|_| Ok(()))),
+        hotkey_state: HotkeyState::new(&config.common, save_state_path, debug::gb::render_fn),
     })
 }
 

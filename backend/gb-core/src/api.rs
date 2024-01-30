@@ -15,8 +15,8 @@ use crate::timer::GbTimer;
 use crate::{ppu, HardwareMode};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
-    AudioOutput, EmulatorTrait, PixelAspectRatio, Renderer, SaveWriter, TickEffect, TickResult,
-    TimingMode,
+    AudioOutput, Color, EmulatorTrait, PixelAspectRatio, Renderer, SaveWriter, TickEffect,
+    TickResult, TimingMode,
 };
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, PartialClone};
 use std::fmt::{Debug, Display};
@@ -84,6 +84,13 @@ pub struct GameBoyEmulatorConfig {
     pub gbc_color_correction: GbcColorCorrection,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BackgroundTileMap {
+    #[default]
+    Zero,
+    One,
+}
+
 #[derive(Debug, Clone, Encode, Decode, PartialClone)]
 pub struct GameBoyEmulator {
     hardware_mode: HardwareMode,
@@ -140,6 +147,30 @@ impl GameBoyEmulator {
             config,
             frame_count: 0,
         })
+    }
+
+    pub fn copy_background(&self, tile_map: BackgroundTileMap, out: &mut [Color]) {
+        self.ppu.copy_background(tile_map, out);
+    }
+
+    pub fn copy_sprites(&self, out: &mut [Color]) {
+        self.ppu.copy_sprites(out);
+    }
+
+    pub fn copy_palettes(&self, out: &mut [Color]) {
+        self.ppu.copy_palettes(out);
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn is_using_double_height_sprites(&self) -> bool {
+        self.ppu.is_using_double_height_sprites()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn is_cgb_mode(&self) -> bool {
+        self.hardware_mode == HardwareMode::Cgb
     }
 }
 

@@ -3,9 +3,10 @@ use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use std::array;
 use std::fmt::{Display, Formatter};
+use std::ops::Index;
 
-const TILE_MAP_AREA_0: u16 = 0x1800;
-const TILE_MAP_AREA_1: u16 = 0x1C00;
+pub const TILE_MAP_AREA_0: u16 = 0x1800;
+pub const TILE_MAP_AREA_1: u16 = 0x1C00;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum TileDataArea {
@@ -249,6 +250,14 @@ pub struct CgbPaletteRam {
     ram: Box<[u8; PALETTE_RAM_LEN]>,
     data_port_address: u8,
     data_port_auto_increment: bool,
+}
+
+impl Index<usize> for CgbPaletteRam {
+    type Output = u8;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.ram[index]
+    }
 }
 
 impl CgbPaletteRam {
