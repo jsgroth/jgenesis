@@ -100,6 +100,9 @@ struct State {
     mode: PpuMode,
     stat_interrupt_pending: bool,
     previously_enabled: bool,
+    // LY=LYC bit in STAT does not change while PPU is disabled, per:
+    // https://gbdev.gg8.se/wiki/articles/Tricky-to-emulate_games
+    frozen_ly_lyc_bit: bool,
     skip_next_frame: bool,
     frame_complete: bool,
 }
@@ -112,6 +115,7 @@ impl State {
             mode: PpuMode::ScanningOam,
             stat_interrupt_pending: false,
             previously_enabled: true,
+            frozen_ly_lyc_bit: false,
             skip_next_frame: true,
             frame_complete: false,
         }
@@ -191,6 +195,10 @@ impl Ppu {
     pub fn tick_dot(&mut self, dma_unit: &DmaUnit, interrupt_registers: &mut InterruptRegisters) {
         if !self.registers.ppu_enabled {
             if self.state.previously_enabled {
+                // Disabling PPU freezes the LY=LYC bit until it's re-enabled, per:
+                // https://gbdev.gg8.se/wiki/articles/Tricky-to-emulate_games
+                self.state.frozen_ly_lyc_bit = self.state.scanline == self.registers.ly_compare;
+
                 // Disabling the PPU moves it to line 0 + mode 0 and clears the display
                 self.state.scanline = 0;
                 self.state.dot = 0;
@@ -365,7 +373,7 @@ impl Ppu {
     pub fn read_register(&self, address: u16) -> u8 {
         match address & 0xFF {
             0x40 => self.registers.read_lcdc(),
-            0x41 => self.registers.read_stat(self.state.scanline, self.state.mode),
+            0x41 => self.registers.read_stat(&self.state),
             0x42 => self.registers.bg_y_scroll,
             0x43 => self.registers.bg_x_scroll,
             // LY: Line number

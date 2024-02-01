@@ -1,4 +1,4 @@
-use crate::ppu::PpuMode;
+use crate::ppu::State;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use std::array;
@@ -155,13 +155,19 @@ impl Registers {
         log::trace!("  Mode 0 (HBlank) interrupt enabled: {}", self.mode_0_interrupt_enabled);
     }
 
-    pub fn read_stat(&self, scanline: u8, mode: PpuMode) -> u8 {
+    pub fn read_stat(&self, state: &State) -> u8 {
+        let ly_lyc_bit = if self.ppu_enabled {
+            state.scanline == self.ly_compare
+        } else {
+            state.frozen_ly_lyc_bit
+        };
+
         0x80 | (u8::from(self.lyc_interrupt_enabled) << 6)
             | (u8::from(self.mode_2_interrupt_enabled) << 5)
             | (u8::from(self.mode_1_interrupt_enabled) << 4)
             | (u8::from(self.mode_0_interrupt_enabled) << 3)
-            | (u8::from(scanline == self.ly_compare) << 2)
-            | mode.to_bits()
+            | (u8::from(ly_lyc_bit) << 2)
+            | state.mode.to_bits()
     }
 
     pub fn write_lyc(&mut self, value: u8) {
