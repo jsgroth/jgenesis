@@ -101,7 +101,7 @@ pub struct Apu {
 impl Apu {
     pub fn new(config: GameBoyEmulatorConfig) -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             pulse_1: PulseChannel::new(),
             pulse_2: PulseChannel::new(),
             wavetable: WavetableChannel::new(),
