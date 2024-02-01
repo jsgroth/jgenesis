@@ -1099,6 +1099,10 @@ impl App {
                         ui
                     );
                 });
+
+                ui.add_space(30.0);
+
+                self.render_axis_deadzone_input(ui);
             },
         );
         if !open {
