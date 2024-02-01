@@ -7,7 +7,7 @@ use crate::api::DiscResult;
 use crate::cdrom::reader::CdRom;
 use crate::memory::wordram::WordRam;
 use crate::rf5c164::Rf5c164;
-use crate::{cdrom, memory};
+use crate::{api, cdrom, memory};
 use bincode::{Decode, Encode};
 use cdc::Rchip;
 use cdd::CdDrive;
@@ -15,12 +15,9 @@ use genesis_core::GenesisRegion;
 use jgenesis_proc_macros::PartialClone;
 use std::array;
 
-const SEGA_CD_MCLK_FREQUENCY: f64 = 50_000_000.0;
-const CD_DA_FREQUENCY: f64 = 44_100.0;
+const SEGA_CD_MCLK_FREQUENCY: u64 = api::SEGA_CD_MASTER_CLOCK_RATE;
+const CD_DA_FREQUENCY: u64 = 44_100;
 const CD_75HZ_DIVIDER: u16 = 44100 / 75;
-
-// Arbitrary value to keep mclk cycle counts low-ish for better floating-point precision
-const CYCLE_COUNT_MODULO: f64 = 100_000_000.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PrescalerTickEffect {
@@ -34,22 +31,13 @@ enum PrescalerTickEffect {
 #[derive(Debug, Clone, Encode, Decode)]
 struct CdPrescaler {
     sega_cd_mclk_cycles: u64,
-    drive_cycles: u64,
-    drive_cycles_float: f64,
-    prescale_ratio: f64,
+    drive_cycle_product: u64,
     divider_75hz: u16,
 }
 
 impl CdPrescaler {
     fn new() -> Self {
-        let prescale_ratio = SEGA_CD_MCLK_FREQUENCY / CD_DA_FREQUENCY;
-        Self {
-            sega_cd_mclk_cycles: 0,
-            drive_cycles: 0,
-            drive_cycles_float: 0.0,
-            prescale_ratio,
-            divider_75hz: CD_75HZ_DIVIDER,
-        }
+        Self { sega_cd_mclk_cycles: 0, drive_cycle_product: 0, divider_75hz: CD_75HZ_DIVIDER }
     }
 
     #[must_use]
@@ -59,14 +47,11 @@ impl CdPrescaler {
             "sega CD mclk cycles was {sega_cd_mclk_cycles}, expected <1100"
         );
 
+        self.drive_cycle_product += sega_cd_mclk_cycles * CD_DA_FREQUENCY;
+
         let mut tick_effect = PrescalerTickEffect::None;
-
-        let elapsed_drive_cycles = sega_cd_mclk_cycles as f64 / self.prescale_ratio;
-        self.drive_cycles_float += elapsed_drive_cycles;
-        let prev_drive_cycles = self.drive_cycles;
-        self.drive_cycles = self.drive_cycles_float.round() as u64;
-
-        if prev_drive_cycles != self.drive_cycles {
+        if self.drive_cycle_product >= SEGA_CD_MCLK_FREQUENCY {
+            self.drive_cycle_product -= SEGA_CD_MCLK_FREQUENCY;
             tick_effect = PrescalerTickEffect::SampleAudio;
 
             self.divider_75hz -= 1;
@@ -75,9 +60,6 @@ impl CdPrescaler {
                 tick_effect = PrescalerTickEffect::SampleAudioAndClockCdd;
             }
         }
-
-        self.drive_cycles_float %= CYCLE_COUNT_MODULO;
-        self.drive_cycles = self.drive_cycles_float.round() as u64;
 
         tick_effect
     }

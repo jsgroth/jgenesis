@@ -33,10 +33,7 @@ const Z80_DIVIDER: u64 = 15;
 
 const NTSC_GENESIS_MASTER_CLOCK_RATE: u64 = 53_693_175;
 const PAL_GENESIS_MASTER_CLOCK_RATE: u64 = 53_203_424;
-const SEGA_CD_MASTER_CLOCK_RATE: u64 = 50_000_000;
-
-// Arbitrary value to keep mclk counts low-ish for better floating-point precision
-const SEGA_CD_MCLK_MODULO: f64 = 100_000_000.0;
+pub(crate) const SEGA_CD_MASTER_CLOCK_RATE: u64 = 50_000_000;
 
 const BIOS_LEN: usize = memory::BIOS_LEN;
 
@@ -151,7 +148,7 @@ pub struct SegaCdEmulator {
     disc_title: String,
     genesis_mclk_cycles: u64,
     sega_cd_mclk_cycles: u64,
-    sega_cd_mclk_cycles_float: f64,
+    sega_cd_mclk_cycle_product: u64,
     sub_cpu_wait_cycles: u64,
 }
 
@@ -265,7 +262,7 @@ impl SegaCdEmulator {
             disc_title,
             genesis_mclk_cycles: 0,
             sega_cd_mclk_cycles: 0,
-            sega_cd_mclk_cycles_float: 0.0,
+            sega_cd_mclk_cycle_product: 0,
             sub_cpu_wait_cycles: 0,
         };
 
@@ -369,25 +366,26 @@ impl EmulatorTrait for SegaCdEmulator {
 
         self.main_bus_writes = main_bus.take_writes();
 
-        let genesis_master_clock_rate = match self.timing_mode {
-            TimingMode::Ntsc => NTSC_GENESIS_MASTER_CLOCK_RATE,
-            TimingMode::Pal => PAL_GENESIS_MASTER_CLOCK_RATE,
+        self.sega_cd_mclk_cycle_product += genesis_mclk_elapsed * SEGA_CD_MASTER_CLOCK_RATE;
+        let scd_mclk_elapsed = match self.timing_mode {
+            TimingMode::Ntsc => {
+                let elapsed = self.sega_cd_mclk_cycle_product / NTSC_GENESIS_MASTER_CLOCK_RATE;
+                self.sega_cd_mclk_cycle_product -= elapsed * NTSC_GENESIS_MASTER_CLOCK_RATE;
+                elapsed
+            }
+            TimingMode::Pal => {
+                let elapsed = self.sega_cd_mclk_cycle_product / PAL_GENESIS_MASTER_CLOCK_RATE;
+                self.sega_cd_mclk_cycle_product -= elapsed * PAL_GENESIS_MASTER_CLOCK_RATE;
+                elapsed
+            }
         };
 
-        // TODO avoid floating point
-        let sega_cd_mclk_elapsed_float = genesis_mclk_elapsed as f64
-            * SEGA_CD_MASTER_CLOCK_RATE as f64
-            / genesis_master_clock_rate as f64;
-        self.sega_cd_mclk_cycles_float += sega_cd_mclk_elapsed_float;
         let prev_scd_mclk_cycles = self.sega_cd_mclk_cycles;
-        self.sega_cd_mclk_cycles = self.sega_cd_mclk_cycles_float.round() as u64;
+        self.sega_cd_mclk_cycles += scd_mclk_elapsed;
 
         let sub_cpu_cycles =
             self.sega_cd_mclk_cycles / SUB_CPU_DIVIDER - prev_scd_mclk_cycles / SUB_CPU_DIVIDER;
         let elapsed_scd_mclk_cycles = self.sega_cd_mclk_cycles - prev_scd_mclk_cycles;
-
-        self.sega_cd_mclk_cycles_float %= SEGA_CD_MCLK_MODULO;
-        self.sega_cd_mclk_cycles = self.sega_cd_mclk_cycles_float.round() as u64;
 
         // Disc drive and timer/stopwatch
         let sega_cd = self.memory.medium_mut();

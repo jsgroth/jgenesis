@@ -86,6 +86,7 @@ struct InternalState {
     last_h_scroll_a: u16,
     last_h_scroll_b: u16,
     scanline: u16,
+    scanline_mclk_cycles: u64,
     pending_dma: Option<ActiveDma>,
     pending_writes: Vec<PendingWrite>,
     frame_count: u64,
@@ -110,6 +111,7 @@ impl InternalState {
             last_h_scroll_a: 0,
             last_h_scroll_b: 0,
             scanline: 0,
+            scanline_mclk_cycles: 0,
             pending_dma: None,
             pending_writes: Vec::with_capacity(10),
             frame_count: 0,
@@ -292,7 +294,6 @@ pub struct Vdp {
     sprite_buffers: SpriteBuffers,
     interlaced_sprite_buffers: SpriteBuffers,
     config: VdpConfig,
-    master_clock_cycles: u64,
     dma_tracker: DmaTracker,
     fifo_tracker: FifoTracker,
 }
@@ -324,7 +325,6 @@ impl Vdp {
             sprite_buffers: SpriteBuffers::new(),
             interlaced_sprite_buffers: SpriteBuffers::new(),
             config,
-            master_clock_cycles: 0,
             dma_tracker: DmaTracker::new(),
             fifo_tracker: FifoTracker::new(),
         }
@@ -334,9 +334,9 @@ impl Vdp {
         log::trace!(
             "VDP control write on scanline {} / mclk {} / pixel {}: {value:04X} (flag = {:?}, dma_enabled = {})",
             self.state.scanline,
-            self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE,
+            self.state.scanline_mclk_cycles,
             scanline_mclk_to_pixel(
-                self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE,
+                self.state.scanline_mclk_cycles,
                 self.registers.horizontal_display_size
             ),
             self.state.control_write_flag,
@@ -375,7 +375,7 @@ impl Vdp {
                     if register_number == 1 {
                         // Update enabled pixels in sprite state if register #1 was written
                         let pixel = scanline_mclk_to_pixel(
-                            self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE,
+                            self.state.scanline_mclk_cycles,
                             self.registers.horizontal_display_size,
                         );
                         self.sprite_state
@@ -456,13 +456,11 @@ impl Vdp {
 
         // If this write occurred during active display, re-render the current scanline starting from the current pixel
         if self.state.scanline < self.latched_registers.vertical_display_size.active_scanlines()
-            && (self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE)
-                < ACTIVE_MCLK_CYCLES_PER_SCANLINE
+            && self.state.scanline_mclk_cycles < ACTIVE_MCLK_CYCLES_PER_SCANLINE
         {
             let mclk_per_pixel =
                 self.latched_registers.horizontal_display_size.mclk_cycles_per_pixel();
-            let pixel =
-                ((self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE) / mclk_per_pixel) as u16;
+            let pixel = (self.state.scanline_mclk_cycles / mclk_per_pixel) as u16;
             self.render_scanline(self.state.scanline, pixel);
         }
     }
@@ -546,9 +544,9 @@ impl Vdp {
         log::trace!(
             "VDP data write on scanline {} / mclk {} / pixel {}: {value:04X}",
             self.state.scanline,
-            self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE,
+            self.state.scanline_mclk_cycles,
             scanline_mclk_to_pixel(
-                self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE,
+                self.state.scanline_mclk_cycles,
                 self.registers.horizontal_display_size
             )
         );
@@ -624,7 +622,7 @@ impl Vdp {
         let interlaced_odd =
             self.registers.interlacing_mode.is_interlaced() && self.state.frame_count % 2 == 1;
 
-        let scanline_mclk = self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE;
+        let scanline_mclk = self.state.scanline_mclk_cycles;
         let v_counter: u16 = self.v_counter(scanline_mclk).into();
         let vblank_flag = match self.timing_mode {
             TimingMode::Ntsc => {
@@ -675,10 +673,8 @@ impl Vdp {
             return latched_hv_counter;
         }
 
-        let scanline_mclk = self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE;
-
-        let h_counter = self.h_counter(scanline_mclk);
-        let v_counter = self.v_counter(scanline_mclk);
+        let h_counter = self.h_counter(self.state.scanline_mclk_cycles);
+        let v_counter = self.v_counter(self.state.scanline_mclk_cycles);
 
         log::trace!(
             "HV counter read on scanline {}; H={h_counter:02X}, V={v_counter:02X}",
@@ -776,14 +772,11 @@ impl Vdp {
         let scanlines_per_frame = self.timing_mode.scanlines_per_frame();
         let active_scanlines = self.registers.vertical_display_size.active_scanlines();
 
-        let prev_mclk_cycles = self.master_clock_cycles;
-        self.master_clock_cycles += master_clock_cycles;
-
-        let prev_scanline_mclk = prev_mclk_cycles % MCLK_CYCLES_PER_SCANLINE;
-        let scanline_mclk = prev_scanline_mclk + master_clock_cycles;
+        let prev_scanline_mclk = self.state.scanline_mclk_cycles;
+        self.state.scanline_mclk_cycles += master_clock_cycles;
 
         if prev_scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE
-            && scanline_mclk >= ACTIVE_MCLK_CYCLES_PER_SCANLINE
+            && self.state.scanline_mclk_cycles >= ACTIVE_MCLK_CYCLES_PER_SCANLINE
         {
             // HBlank start
             self.sprite_state.handle_hblank_start(
@@ -804,7 +797,8 @@ impl Vdp {
             HorizontalDisplaySize::FortyCell => 128,
         };
         if prev_scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE + h_interrupt_delay
-            && scanline_mclk >= ACTIVE_MCLK_CYCLES_PER_SCANLINE + h_interrupt_delay
+            && self.state.scanline_mclk_cycles
+                >= ACTIVE_MCLK_CYCLES_PER_SCANLINE + h_interrupt_delay
         {
             self.latched_sprite_attributes.copy_from_slice(self.cached_sprite_attributes.as_ref());
 
@@ -829,7 +823,7 @@ impl Vdp {
 
         if prev_scanline_mclk
             < ACTIVE_MCLK_CYCLES_PER_SCANLINE + h_interrupt_delay + REGISTER_LATCH_DELAY_MCLK
-            && scanline_mclk
+            && self.state.scanline_mclk_cycles
                 >= ACTIVE_MCLK_CYCLES_PER_SCANLINE + h_interrupt_delay + REGISTER_LATCH_DELAY_MCLK
         {
             // Almost all VDP registers and the full screen V scroll values are latched within the 36 CPU cycles after
@@ -847,7 +841,7 @@ impl Vdp {
         // Check if a V interrupt has triggered
         if self.state.scanline == active_scanlines
             && prev_scanline_mclk < V_INTERRUPT_DELAY
-            && scanline_mclk >= V_INTERRUPT_DELAY
+            && self.state.scanline_mclk_cycles >= V_INTERRUPT_DELAY
         {
             log::trace!("Generating V interrupt");
             self.state.v_interrupt_pending = true;
@@ -855,7 +849,7 @@ impl Vdp {
 
         // Check if the VDP has advanced to a new scanline
         let mut tick_effect = VdpTickEffect::None;
-        if scanline_mclk >= MCLK_CYCLES_PER_SCANLINE {
+        if self.state.scanline_mclk_cycles >= MCLK_CYCLES_PER_SCANLINE {
             self.sprite_state.handle_line_end(self.registers.horizontal_display_size);
 
             // Sprite processing phase 1
@@ -864,6 +858,7 @@ impl Vdp {
             // Render the next line before advancing counters
             self.render_next_scanline();
 
+            self.state.scanline_mclk_cycles -= MCLK_CYCLES_PER_SCANLINE;
             self.state.scanline += 1;
             if self.state.scanline == scanlines_per_frame {
                 self.state.scanline = 0;
@@ -893,7 +888,7 @@ impl Vdp {
         }
 
         let pixel = scanline_mclk_to_pixel(
-            self.master_clock_cycles % MCLK_CYCLES_PER_SCANLINE,
+            self.state.scanline_mclk_cycles,
             self.registers.horizontal_display_size,
         );
         self.fifo_tracker.advance_to_pixel(
