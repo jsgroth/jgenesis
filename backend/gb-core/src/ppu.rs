@@ -195,7 +195,14 @@ impl Ppu {
                 self.state.scanline = 0;
                 self.state.dot = 0;
                 self.state.mode = PpuMode::HBlank;
-                self.frame_buffer.fill(0);
+
+                // Disabling display makes the entire display white, which is color 0 on DMG
+                // and color 31/31/31 ($7FFF) on CGB
+                let fill_color = match self.hardware_mode {
+                    HardwareMode::Dmg => 0,
+                    HardwareMode::Cgb => 0b11111_11111_11111,
+                };
+                self.frame_buffer.fill(fill_color);
 
                 self.sprite_buffer.clear();
                 self.fifo.reset_window_state();
