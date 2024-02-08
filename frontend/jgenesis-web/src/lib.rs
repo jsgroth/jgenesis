@@ -171,9 +171,32 @@ enum SmsGgConsole {
     GameGear,
 }
 
+const STATIC_FRAME_SIZE: FrameSize = FrameSize { width: 878 / 4, height: 672 / 4 };
+const STATIC_FRAME_LEN: usize = (STATIC_FRAME_SIZE.width * STATIC_FRAME_SIZE.height) as usize;
+
+struct RandomNoiseGenerator {
+    buffer: Vec<Color>,
+}
+
+impl RandomNoiseGenerator {
+    fn new() -> Self {
+        Self { buffer: vec![Color::default(); STATIC_FRAME_LEN] }
+    }
+
+    fn randomize(&mut self) {
+        for color in &mut self.buffer {
+            *color = Color::rgb(rand::random(), rand::random(), rand::random());
+        }
+    }
+
+    fn render<R: Renderer>(&self, renderer: &mut R) -> Result<(), R::Err> {
+        renderer.render_frame(&self.buffer, STATIC_FRAME_SIZE, None)
+    }
+}
+
 #[allow(clippy::large_enum_variant)]
 enum Emulator {
-    None,
+    None(RandomNoiseGenerator),
     SmsGg(SmsGgEmulator, SmsGgInputs, SmsGgConsole),
     Genesis(GenesisEmulator, GenesisInputs),
     Snes(SnesEmulator, SnesInputs),
@@ -191,7 +214,10 @@ impl Emulator {
         S::Err: Debug + Display + Send + Sync + 'static,
     {
         match self {
-            Self::None => {}
+            Self::None(noise_generator) => {
+                noise_generator.randomize();
+                noise_generator.render(renderer).expect("Failed to render random noise");
+            }
             Self::SmsGg(emulator, inputs, _) => {
                 while emulator
                     .tick(renderer, audio_output, inputs, save_writer)
@@ -223,7 +249,7 @@ impl Emulator {
         let sega_pal_fps = 53_203_424.0 / 3420.0 / 313.0;
 
         match self {
-            Self::None => 60.0,
+            Self::None(..) => 30.0,
             Self::SmsGg(emulator, ..) => match emulator.timing_mode() {
                 TimingMode::Ntsc => sega_ntsc_fps,
                 TimingMode::Pal => sega_pal_fps,
@@ -241,7 +267,7 @@ impl Emulator {
 
     fn handle_window_event(&mut self, event: &WindowEvent<'_>) {
         match self {
-            Self::None => {}
+            Self::None(..) => {}
             Self::SmsGg(_, inputs, _) => {
                 handle_smsgg_input(inputs, event);
             }
@@ -256,7 +282,7 @@ impl Emulator {
 
     fn reload_config(&mut self, config: &WebConfig) {
         match self {
-            Self::None => {}
+            Self::None(..) => {}
             Self::SmsGg(emulator, _, console) => {
                 emulator.reload_config(&config.smsgg.to_emulator_config(*console));
             }
@@ -271,7 +297,7 @@ impl Emulator {
 
     fn rom_title(&mut self, current_file_name: &str) -> String {
         match self {
-            Self::None => "(No ROM loaded)".into(),
+            Self::None(..) => "(No ROM loaded)".into(),
             Self::SmsGg(..) => current_file_name.into(),
             Self::Genesis(emulator, ..) => emulator.cartridge_title(),
             Self::Snes(emulator, ..) => emulator.cartridge_title(),
@@ -280,7 +306,7 @@ impl Emulator {
 
     fn has_persistent_save(&self) -> bool {
         match self {
-            Self::None => false,
+            Self::None(..) => false,
             Self::SmsGg(emulator, ..) => emulator.has_sram(),
             Self::Genesis(emulator, ..) => emulator.has_sram(),
             Self::Snes(emulator, ..) => emulator.has_sram(),
@@ -437,7 +463,7 @@ fn run_event_loop(
         .expect("Unable to get window.performance");
     let mut next_frame_time = performance.now();
 
-    let mut emulator = Emulator::None;
+    let mut emulator = Emulator::None(RandomNoiseGenerator::new());
     let mut current_config = config_ref.borrow().clone();
 
     let mut current_rom: Option<(Vec<u8>, String)> = None;
@@ -498,7 +524,7 @@ fn run_event_loop(
                 next_frame_time += 1000.0 / fps;
             }
 
-            if !audio_started && !matches!(&emulator, Emulator::None) {
+            if !audio_started && !matches!(&emulator, Emulator::None(..)) {
                 audio_started = true;
                 let _: Promise = audio_ctx.resume().expect("Unable to start audio playback");
             }
