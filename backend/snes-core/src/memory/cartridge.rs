@@ -930,7 +930,13 @@ fn exhirom_map_rom_address(address: u32, rom_len: u32) -> u32 {
     // ExHiROM mapping ignores A22, and A23 is inverted and shifted right 1
     let rom_addr = (address & 0x3FFFFF) | (((address >> 1) & 0x400000) ^ 0x400000);
     // TODO more gracefully handle unusual ROM sizes
-    // The fan translated version of Daikaijuu Monogatari II is 5.5MB which breaks the usual masking
-    // scheme
-    rom_addr % rom_len
+    if rom_addr >= rom_len {
+        // This will always be in-bounds because ROM address is at most $7FFFFF, and both ExHiROM
+        // games are larger than $400000 (4MB)
+        // This probably isn't correct but neither ExHiROM game seems to access ROM addresses that
+        // are >= ROM length
+        rom_addr - rom_len
+    } else {
+        rom_addr
+    }
 }
