@@ -1,4 +1,4 @@
-//! CX4 coprocessor, a programmable Hitachi HG51B169 CPU clocked at 20 MHz
+//! Cx4 coprocessor, a programmable Hitachi HG51B169 CPU clocked at 20 MHz
 //!
 //! Used by Mega Man X2 and Mega Man X3
 
@@ -20,7 +20,7 @@ type Cx4Ram = [u8; RAM_LEN];
 
 #[derive(Debug, Clone, Encode, Decode)]
 struct Cx4Registers {
-    // CX4's general-purpose registers (16x 24-bit)
+    // Cx4's general-purpose registers (16x 24-bit)
     gpr: [u32; 16],
     dma_source_address: u32,
     dma_destination_address: u16,
