@@ -281,6 +281,7 @@ pub struct Registers {
     pub v_interrupt_enabled: bool,
     pub dma_enabled: bool,
     pub vertical_display_size: VerticalDisplaySize,
+    pub mode_4: bool,
     pub vram_size: VramSizeKb,
     // Register #2
     pub scroll_a_base_nt_addr: u16,
@@ -332,6 +333,7 @@ impl Registers {
             v_interrupt_enabled: false,
             dma_enabled: false,
             vertical_display_size: VerticalDisplaySize::default(),
+            mode_4: false,
             vram_size: VramSizeKb::default(),
             scroll_a_base_nt_addr: 0,
             window_base_nt_addr: 0,
@@ -362,6 +364,13 @@ impl Registers {
     pub fn write_internal_register(&mut self, register: u8, value: u8) {
         log::trace!("Wrote register #{register} with value {value:02X}");
 
+        if self.mode_4 && register > 10 {
+            // Writing to register numbers >10 while in SMS mode has no effect
+            // Bass Masters Classic: Pro Edition depends on this - during boot it attempts to change
+            // the H display size while in SMS mode, and it expects that write to do nothing
+            return;
+        }
+
         match register {
             0 => {
                 // Register #0: Mode set register 1
@@ -382,6 +391,11 @@ impl Registers {
                     VerticalDisplaySize::TwentyEightCell
                 };
 
+                // Undocumented: Register #1 bit 2 toggles between mode 5 (Genesis) and mode 4 (SMS)
+                // Mode 4 / SMS mode is not actually emulated, but some games depend on writes to
+                // VDP registers >10 doing nothing while in mode 4
+                self.mode_4 = !value.bit(2);
+
                 // Undocumented: Register #1 bit 7 enables "128KB" VRAM mode, which effectively enables byte-size access
                 // to VRAM
                 self.vram_size =
@@ -391,6 +405,7 @@ impl Registers {
                 log::trace!("  V interrupt enabled: {}", self.v_interrupt_enabled);
                 log::trace!("  DMA enabled: {}", self.dma_enabled);
                 log::trace!("  Vertical display size: {:?}", self.vertical_display_size);
+                log::trace!("  Mode 4 enabled: {}", self.mode_4);
                 log::trace!("  VRAM size: {}", self.vram_size);
             }
             2 => {
