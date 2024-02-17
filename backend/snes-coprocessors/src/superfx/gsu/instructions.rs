@@ -20,7 +20,7 @@ pub fn execute(gsu: &mut GraphicsSupportUnit, rom: &[u8], ram: &mut [u8]) -> u8 
     if (gsu.rom_access == BusAccess::Snes
         && (memory_type == MemoryType::Rom || is_rom_access_opcode(opcode)))
         || (gsu.ram_access == BusAccess::Snes
-            && (memory_type == MemoryType::Ram || is_ram_access_opcode(opcode)))
+            && (memory_type == MemoryType::Ram || is_ram_access_opcode(opcode, gsu.alt1, gsu.alt2)))
     {
         // GSU is waiting for ROM/RAM access
         return 1;
@@ -44,7 +44,7 @@ pub fn execute(gsu: &mut GraphicsSupportUnit, rom: &[u8], ram: &mut [u8]) -> u8 
     }
 
     log::trace!(
-        "Executing opcode {opcode:02X} ({}); PBR={:02X}, R15={:04X}",
+        "Executing opcode {opcode:02X} ({}) from {memory_type:?}; PBR={:02X}, R15={:04X}",
         disassemble::instruction_str(opcode, gsu.alt1, gsu.alt2),
         gsu.pbr,
         gsu.r[15],
@@ -100,13 +100,14 @@ fn is_rom_access_opcode(opcode: u8) -> bool {
     opcode == 0xDF || opcode == 0xEF
 }
 
-fn is_ram_access_opcode(opcode: u8) -> bool {
+fn is_ram_access_opcode(opcode: u8, alt1: bool, alt2: bool) -> bool {
     // STB/STW ($3x for x=0-B)
     // LDB/LDW ($4x for x=0-B)
-    // LM/SM ($Fn for n=0-F)
-    // LMS/SMS ($An for n=0-F)
+    // LM/SM ($Fn for n=0-F when ALT1 or ALT2 is set)
+    // LMS/SMS ($An for n=0-F when ALT1 or ALT2 is set)
     // SBK ($90)
-    matches!(opcode, 0x30..=0x3B | 0x40..=0x4B | 0x90 | 0xA0..=0xAF | 0xF0..=0xFF)
+    matches!(opcode, 0x30..=0x3B | 0x40..=0x4B | 0x90)
+        || ((alt1 || alt2) && matches!(opcode, 0xA0..=0xAF | 0xF0..=0xFF))
 }
 
 fn u24_address(bank: u8, offset: u16) -> u32 {

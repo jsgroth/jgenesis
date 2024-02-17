@@ -99,12 +99,7 @@ pub(super) fn fmult(
         gsu.r[4] = product as u16;
     }
 
-    // FMULT does not write the result when Dreg is 4
-    // LMULT always writes the result
-    let mut cycles = 0;
-    if gsu.alt1 || gsu.dreg != 4 {
-        cycles = write_register(gsu, gsu.dreg, high_word, rom, ram);
-    }
+    let cycles = write_register(gsu, gsu.dreg, high_word, rom, ram);
 
     gsu.zero_flag = high_word == 0;
     gsu.carry_flag = product.bit(15);
