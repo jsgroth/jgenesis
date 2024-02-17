@@ -10,7 +10,7 @@ mod timer;
 use crate::common::{impl_take_set_rom, Rom};
 use crate::sa1::bus::Sa1Bus;
 use crate::sa1::mmc::Sa1Mmc;
-use crate::sa1::registers::Sa1Registers;
+use crate::sa1::registers::{DmaState, Sa1Registers};
 use crate::sa1::timer::Sa1Timer;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
@@ -75,15 +75,23 @@ impl Sa1 {
     /// This method will panic if `master_cycles_elapsed` is not a multiple of 2.
     pub fn tick(&mut self, master_cycles_elapsed: u64) {
         assert_eq!(master_cycles_elapsed % 2, 0);
+        let sa1_cycles = master_cycles_elapsed / 2;
 
-        let mut bus = new_sa1_bus!(self);
-        for _ in 0..master_cycles_elapsed / 2 {
-            if !bus.registers.cpu_halted() {
+        if !self.registers.cpu_halted() {
+            let mut bus = new_sa1_bus!(self);
+            for _ in 0..sa1_cycles {
                 self.cpu.tick(&mut bus);
             }
+        }
 
-            bus.registers.tick(bus.mmc, bus.rom, bus.iram, bus.bwram);
-            bus.timer.tick();
+        if self.registers.dma_state != DmaState::Idle {
+            for _ in 0..sa1_cycles {
+                self.registers.tick_dma(&self.mmc, &self.rom, &mut self.iram, &mut self.bwram);
+            }
+        }
+
+        for _ in 0..sa1_cycles {
+            self.timer.tick();
         }
     }
 

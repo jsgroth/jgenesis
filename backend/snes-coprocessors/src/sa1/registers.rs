@@ -873,7 +873,7 @@ impl Sa1Registers {
         self.bwram_writes_enabled || bwram_addr >= self.bwram_write_protection_size
     }
 
-    pub fn tick(&mut self, mmc: &Sa1Mmc, rom: &[u8], iram: &mut Iram, bwram: &mut [u8]) {
+    pub fn tick_dma(&mut self, mmc: &Sa1Mmc, rom: &[u8], iram: &mut Iram, bwram: &mut [u8]) {
         // Progress normal DMA or character conversion DMA type 1
         match self.dma_state {
             DmaState::NormalCopying => {
