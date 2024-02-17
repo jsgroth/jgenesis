@@ -1,7 +1,7 @@
 use crate::superfx::gsu::instructions::{
     clear_prefix_flags, fetch_opcode, read_register, write_register, MemoryType,
 };
-use crate::superfx::gsu::GraphicsSupportUnit;
+use crate::superfx::gsu::{ClockSpeed, GraphicsSupportUnit};
 use jgenesis_common::num::{SignBit, U16Ext};
 
 pub(super) fn ldb(
@@ -16,20 +16,21 @@ pub(super) fn ldb(
     let ram_addr = (gsu.r[m as usize] as usize) & (ram.len() - 1);
     let value = ram[ram_addr];
 
-    let mut cycles = write_register(gsu, gsu.dreg, value.into(), rom, ram);
+    let cycles = write_register(gsu, gsu.dreg, value.into(), rom, ram);
 
-    cycles += gsu.state.ram_buffer_wait_cycles;
-    gsu.state.ram_buffer_wait_cycles = 0;
     gsu.state.ram_address_buffer = ram_addr as u16;
 
     log::trace!("Loaded {value:02X} from RAM[{ram_addr:X}]");
 
     clear_prefix_flags(gsu);
     cycles
-        + match memory_type {
-            MemoryType::CodeCache => 6,
-            MemoryType::Rom => 11,
-            MemoryType::Ram => 13,
+        + match (gsu.clock_speed, memory_type) {
+            (ClockSpeed::Slow, MemoryType::CodeCache) => 5,
+            (ClockSpeed::Fast, MemoryType::CodeCache) => 7,
+            (ClockSpeed::Slow, MemoryType::Rom) => 8,
+            (ClockSpeed::Fast, MemoryType::Rom) => 9,
+            (ClockSpeed::Slow, MemoryType::Ram) => 10,
+            (ClockSpeed::Fast, MemoryType::Ram) => 11,
         }
 }
 
@@ -47,20 +48,21 @@ pub(super) fn ldw(
     let value_msb = ram[ram_addr ^ 1];
     let value = u16::from_le_bytes([value_lsb, value_msb]);
 
-    let mut cycles = write_register(gsu, gsu.dreg, value, rom, ram);
+    let cycles = write_register(gsu, gsu.dreg, value, rom, ram);
 
     log::trace!("Loaded {value:04X} from RAM[{ram_addr:X}]");
 
-    cycles += gsu.state.ram_buffer_wait_cycles;
-    gsu.state.ram_buffer_wait_cycles = 0;
     gsu.state.ram_address_buffer = ram_addr as u16;
 
     clear_prefix_flags(gsu);
     cycles
-        + match memory_type {
-            MemoryType::CodeCache => 7,
-            MemoryType::Rom => 10,
-            MemoryType::Ram => 12,
+        + match (gsu.clock_speed, memory_type) {
+            (ClockSpeed::Slow, MemoryType::CodeCache) => 7,
+            (ClockSpeed::Fast, MemoryType::CodeCache) => 11,
+            (ClockSpeed::Slow, MemoryType::Rom) => 10,
+            (ClockSpeed::Fast, MemoryType::Rom) => 13,
+            (ClockSpeed::Slow, MemoryType::Ram) => 12,
+            (ClockSpeed::Fast, MemoryType::Ram) => 15,
         }
 }
 
@@ -88,7 +90,7 @@ pub(super) fn stb(
         + match memory_type {
             MemoryType::CodeCache => 1,
             MemoryType::Rom => 3,
-            MemoryType::Ram => 7,
+            MemoryType::Ram => 6,
         }
 }
 
@@ -114,12 +116,10 @@ pub(super) fn stw(
     gsu.state.ram_buffer_written = true;
 
     clear_prefix_flags(gsu);
-    cycles
-        + match memory_type {
-            MemoryType::CodeCache => 1,
-            MemoryType::Rom => 3,
-            MemoryType::Ram => 7,
-        }
+    match memory_type {
+        MemoryType::CodeCache => 1 + cycles.saturating_sub(1),
+        MemoryType::Rom | MemoryType::Ram => gsu.clock_speed.memory_access_cycles() + cycles,
+    }
 }
 
 pub(super) fn ibt(
@@ -183,18 +183,19 @@ pub(super) fn lm(
     log::trace!("Loaded {value:04X} from RAM[{ram_addr:X}");
 
     let register = opcode & 0x0F;
-    let mut cycles = write_register(gsu, register, value, rom, ram);
+    let cycles = write_register(gsu, register, value, rom, ram);
 
-    cycles += gsu.state.ram_buffer_wait_cycles;
-    gsu.state.ram_buffer_wait_cycles = 0;
     gsu.state.ram_address_buffer = ram_addr as u16;
 
     clear_prefix_flags(gsu);
     cycles
-        + match memory_type {
-            MemoryType::CodeCache => 10,
-            MemoryType::Rom => 17,
-            MemoryType::Ram => 18,
+        + match (gsu.clock_speed, memory_type) {
+            (ClockSpeed::Slow, MemoryType::CodeCache) => 9,
+            (ClockSpeed::Fast, MemoryType::CodeCache) => 13,
+            (ClockSpeed::Slow, MemoryType::Rom) => 17,
+            (ClockSpeed::Fast, MemoryType::Rom) => 24,
+            (ClockSpeed::Slow, MemoryType::Ram) => 18,
+            (ClockSpeed::Fast, MemoryType::Ram) => 25,
         }
 }
 
@@ -216,19 +217,19 @@ pub(super) fn lms(
     let value = u16::from_le_bytes([lsb, msb]);
 
     let register = opcode & 0x0F;
-    let mut cycles = write_register(gsu, register, value, rom, ram);
+    let cycles = write_register(gsu, register, value, rom, ram);
 
     log::trace!("Loaded {value:04X} from RAM[{ram_addr:X}]");
 
-    cycles += gsu.state.ram_buffer_wait_cycles;
-    gsu.state.ram_buffer_wait_cycles = 0;
     gsu.state.ram_address_buffer = ram_addr as u16;
 
     clear_prefix_flags(gsu);
     cycles
-        + match memory_type {
-            MemoryType::CodeCache => 10,
-            MemoryType::Rom | MemoryType::Ram => 17,
+        + match (gsu.clock_speed, memory_type) {
+            (ClockSpeed::Slow, MemoryType::CodeCache) => 8,
+            (ClockSpeed::Fast, MemoryType::CodeCache) => 12,
+            (ClockSpeed::Slow, MemoryType::Rom | MemoryType::Ram) => 15,
+            (ClockSpeed::Fast, MemoryType::Rom | MemoryType::Ram) => 20,
         }
 }
 
@@ -261,9 +262,9 @@ pub(super) fn sm(
     clear_prefix_flags(gsu);
     cycles
         + match memory_type {
-            MemoryType::CodeCache => 3,
+            MemoryType::CodeCache => 2,
             MemoryType::Rom => 9,
-            MemoryType::Ram => 13,
+            MemoryType::Ram => 15,
         }
 }
 
@@ -295,9 +296,9 @@ pub(super) fn sms(
     clear_prefix_flags(gsu);
     cycles
         + match memory_type {
-            MemoryType::CodeCache => 3,
-            MemoryType::Rom => 9,
-            MemoryType::Ram => 13,
+            MemoryType::CodeCache => 1,
+            MemoryType::Rom => 6,
+            MemoryType::Ram => 10,
         }
 }
 
@@ -315,12 +316,10 @@ pub(super) fn sbk(memory_type: MemoryType, gsu: &mut GraphicsSupportUnit, ram: &
     gsu.state.ram_buffer_written = true;
 
     clear_prefix_flags(gsu);
-    cycles
-        + match memory_type {
-            MemoryType::CodeCache => 1,
-            MemoryType::Rom => 3,
-            MemoryType::Ram => 7,
-        }
+    match memory_type {
+        MemoryType::CodeCache => 1 + cycles.saturating_sub(1),
+        MemoryType::Rom | MemoryType::Ram => gsu.clock_speed.memory_access_cycles() + cycles,
+    }
 }
 
 pub(super) fn romb(memory_type: MemoryType, gsu: &mut GraphicsSupportUnit) -> u8 {

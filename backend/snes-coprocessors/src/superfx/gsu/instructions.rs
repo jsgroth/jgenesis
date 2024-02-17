@@ -156,14 +156,6 @@ fn read_memory(bank: u8, address: u16, rom: &[u8], ram: &[u8]) -> (u8, MemoryTyp
 }
 
 fn fetch_opcode(gsu: &mut GraphicsSupportUnit, rom: &[u8], ram: &[u8]) {
-    if gsu.pbr == 0x00 && gsu.r[15] < 0x0200 {
-        // Executing from code cache
-        let opcode = gsu.code_cache.read_ram(gsu.r[15]);
-        gsu.state.opcode_buffer = opcode;
-        gsu.r[15] = gsu.r[15].wrapping_add(1);
-        return;
-    }
-
     let is_cacheable = gsu.code_cache.pc_is_cacheable(gsu.r[15]);
     if is_cacheable {
         if let Some(opcode) = gsu.code_cache.get(gsu.r[15]) {
@@ -186,10 +178,6 @@ fn fetch_opcode(gsu: &mut GraphicsSupportUnit, rom: &[u8], ram: &[u8]) {
 }
 
 fn next_opcode_memory_type(gsu: &GraphicsSupportUnit) -> MemoryType {
-    if gsu.pbr == 0x00 && gsu.r[15] < 0x0200 {
-        return MemoryType::CodeCache;
-    }
-
     if gsu.code_cache.pc_is_cacheable(gsu.r[15]) && gsu.code_cache.get(gsu.r[15]).is_some() {
         MemoryType::CodeCache
     } else {

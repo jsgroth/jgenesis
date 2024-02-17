@@ -52,7 +52,7 @@ impl ClockSpeed {
     const fn rom_buffer_wait_cycles(self) -> u8 {
         // TODO are these numbers right?
         match self {
-            Self::Slow => 4,
+            Self::Slow => 5,
             Self::Fast => 7,
         }
     }

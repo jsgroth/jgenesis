@@ -1,7 +1,7 @@
 use crate::superfx::gsu::instructions::{
     clear_prefix_flags, read_register, write_register, MemoryType,
 };
-use crate::superfx::gsu::{GraphicsSupportUnit, ScreenHeight};
+use crate::superfx::gsu::{ClockSpeed, GraphicsSupportUnit, ScreenHeight};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::{GetBit, SignBit};
 use std::cmp;
@@ -176,8 +176,18 @@ pub(super) fn rpix(
 ) -> u8 {
     // RPIX: Read a pixel from RAM and flush both pixel buffers
     let bitplanes = gsu.color_gradient.bitplanes();
-    let mut cycles =
-        bitplanes as u8 * memory_type.access_cycles(gsu.clock_speed) - bitplanes as u8 / 2;
+    let mut cycles = bitplanes as u8 * gsu.clock_speed.memory_access_cycles();
+    if memory_type != MemoryType::CodeCache {
+        cycles += 4;
+    }
+
+    if !gsu.plot_state.pixel_buffer.any_valid() || gsu.plot_state.pixel_buffer.all_valid() {
+        cycles += match gsu.clock_speed {
+            ClockSpeed::Slow => 7 * bitplanes as u8 - bitplanes as u8 / 2,
+            ClockSpeed::Fast => 10 * bitplanes as u8,
+        };
+    }
+
     if gsu.plot_state.pixel_buffer.any_valid() {
         cycles += flush_pixel_buffer(gsu, ram);
     }
