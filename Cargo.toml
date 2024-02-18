@@ -17,11 +17,11 @@ bytemuck = { version = "1", features = ["derive"] }
 cfg-if = "1"
 clap = { version = "4", features = ["derive"] }
 crc = "3"
-eframe = "0.23"
-egui = "0.23"
-egui_extras = "0.23"
+eframe = "0.25"
+egui = "0.25"
+egui_extras = "0.25"
 egui_wgpu_backend = "0.27"
-env_logger = "0.10"
+env_logger = "0.11"
 flate2 = "1"
 js-sys = "0.3"
 log = "0.4"
@@ -29,7 +29,7 @@ pollster = "0.3"
 rand = "0.8"
 raw-window-handle = "0.5"
 regex = "1"
-rfd = "0.12"
+rfd = "0.13"
 sdl2 = { version = "0.36", features = ["raw-window-handle"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -39,6 +39,11 @@ time = "0.3"
 toml = "0.8"
 windows = "0.52"
 wgpu = "0.18"
+
+# Use a fork of egui_wgpu_backend that is identical to upstream except for depending on a newer version of egui
+[patch.crates-io.egui_wgpu_backend]
+git = "https://github.com/jsgroth/egui_wgpu_backend"
+revision = "198d0da0b274535b4e1245e5a6bee7eca57154ee"
 
 [profile.dev-fast]
 # dev profile with debug symbols disabled, which results in significantly faster compile times

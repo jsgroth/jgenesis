@@ -1,6 +1,8 @@
 //! Largely adapted (and simplified) from `egui_winit_platform`:
 //! <https://github.com/hasenbanck/egui_winit_platform>
 
+use egui::ahash::HashMapExt;
+use egui::{ViewportIdMap, ViewportInfo};
 use sdl2::event::Event as SdlEvent;
 use sdl2::event::WindowEvent as SdlWindowEvent;
 use sdl2::mouse::MouseWheelDirection;
@@ -16,13 +18,20 @@ impl Platform {
     pub fn new(window: &sdl2::video::Window, scale_factor: f32) -> Self {
         let context = egui::Context::default();
 
+        let mut viewports = ViewportIdMap::new();
+        viewports.insert(
+            context.viewport_id(),
+            ViewportInfo { native_pixels_per_point: Some(scale_factor), ..ViewportInfo::default() },
+        );
+
         let (width, height) = window.size();
         let raw_input = egui::RawInput {
+            viewport_id: context.viewport_id(),
+            viewports,
             screen_rect: Some(egui::Rect::from_min_size(
                 egui::Pos2::default(),
                 egui::Vec2::new(width as f32, height as f32) / scale_factor,
             )),
-            pixels_per_point: Some(scale_factor),
             ..egui::RawInput::default()
         };
 
@@ -100,6 +109,10 @@ impl Platform {
 
     pub fn context(&self) -> &egui::Context {
         &self.context
+    }
+
+    pub fn scale_factor(&self) -> f32 {
+        self.scale_factor
     }
 
     pub fn end_frame(&self) -> egui::FullOutput {

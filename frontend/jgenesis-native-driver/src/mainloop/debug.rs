@@ -153,7 +153,7 @@ impl<Emulator> DebuggerWindow<Emulator> {
         let output_view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let full_output = self.platform.end_frame();
-        let paint_jobs = egui_ctx.tessellate(full_output.shapes);
+        let paint_jobs = egui_ctx.tessellate(full_output.shapes, self.platform.scale_factor());
 
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: "debugger_encoder".into(),

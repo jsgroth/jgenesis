@@ -1,5 +1,5 @@
 use eframe::NativeOptions;
-use egui::Vec2;
+use egui::{Vec2, ViewportBuilder};
 use env_logger::Env;
 use jgenesis_gui::app::App;
 use std::path::PathBuf;
@@ -56,7 +56,7 @@ fn main() -> eframe::Result<()> {
     let config_path = PathBuf::from("jgenesis-config.toml");
 
     let options = NativeOptions {
-        initial_window_size: Some(Vec2::new(800.0, 600.0)),
+        viewport: ViewportBuilder::default().with_inner_size(Vec2::new(800.0, 600.0)),
         ..NativeOptions::default()
     };
 

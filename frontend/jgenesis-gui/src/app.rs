@@ -21,7 +21,7 @@ use eframe::Frame;
 use egui::panel::TopBottomSide;
 use egui::{
     menu, Align, Button, CentralPanel, Color32, Context, Key, KeyboardShortcut, Layout, Modifiers,
-    Response, TextEdit, TopBottomPanel, Ui, Vec2, Widget, Window,
+    Response, TextEdit, TopBottomPanel, Ui, Vec2, ViewportCommand, Widget, Window,
 };
 use egui_extras::{Column, TableBuilder};
 use jgenesis_renderer::config::Scanlines;
@@ -453,7 +453,7 @@ impl App {
         }
     }
 
-    fn render_menu(&mut self, ctx: &Context, frame: &mut Frame) {
+    fn render_menu(&mut self, ctx: &Context, _frame: &mut Frame) {
         let open_shortcut = KeyboardShortcut::new(Modifiers::CTRL, Key::O);
         if ctx.input_mut(|input| input.consume_shortcut(&open_shortcut)) {
             self.open_file();
@@ -461,7 +461,7 @@ impl App {
 
         let quit_shortcut = KeyboardShortcut::new(Modifiers::CTRL, Key::Q);
         if ctx.input_mut(|input| input.consume_shortcut(&quit_shortcut)) {
-            frame.close();
+            ctx.send_viewport_cmd(ViewportCommand::Close);
         }
 
         TopBottomPanel::new(TopBottomSide::Top, "top_bottom_panel").show(ctx, |ui| {
@@ -492,7 +492,7 @@ impl App {
                     let quit_button =
                         Button::new("Quit").shortcut_text(ctx.format_shortcut(&quit_shortcut));
                     if quit_button.ui(ui).clicked() {
-                        frame.close();
+                        ctx.send_viewport_cmd(ViewportCommand::Close);
                     }
                 });
 
