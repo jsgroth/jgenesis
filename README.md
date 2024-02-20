@@ -28,7 +28,6 @@ Cross-platform multi-console emulator supporting a number of 8-bit and 16-bit ga
 
 TODOs:
 * Support multiple Sega CD BIOS versions in GUI and automatically use the correct one based on disc region
-* Support CHD files for Sega CD in addition to BIN/CUE
 * Investigate and fix a few minor issues, like the EA logo flickering for a single frame in _Galahad_
 * Support 24C64 EEPROM chips (used only in _Frank Thomas Big Hurt Baseball_ and _College Slam_)
 

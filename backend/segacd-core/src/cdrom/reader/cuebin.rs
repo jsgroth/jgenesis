@@ -1,3 +1,5 @@
+//! Code for loading and reading CD-ROM images in CUE/BIN format
+
 use crate::api::{DiscError, DiscResult};
 use crate::cdrom;
 use crate::cdrom::cue::TrackMetadata;

@@ -579,7 +579,7 @@ fn main() -> anyhow::Result<()> {
         match file_ext {
             "sms" | "gg" => Hardware::MasterSystem,
             "md" | "bin" => Hardware::Genesis,
-            "cue" => Hardware::SegaCd,
+            "cue" | "chd" => Hardware::SegaCd,
             "nes" => Hardware::Nes,
             "sfc" | "smc" => Hardware::Snes,
             "gb" | "gbc" => Hardware::GameBoy,

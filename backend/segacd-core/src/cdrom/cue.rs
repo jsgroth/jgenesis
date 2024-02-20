@@ -16,6 +16,16 @@ pub enum TrackType {
     Audio,
 }
 
+impl TrackType {
+    pub fn default_postgap_len(self) -> CdTime {
+        match self {
+            // Data tracks always have a 2-second postgap
+            Self::Data => CdTime::new(0, 2, 0),
+            Self::Audio => CdTime::ZERO,
+        }
+    }
+}
+
 impl FromStr for TrackType {
     type Err = String;
 
@@ -58,7 +68,7 @@ pub struct CueSheet {
 }
 
 impl CueSheet {
-    fn new(tracks: Vec<Track>) -> Self {
+    pub fn new(tracks: Vec<Track>) -> Self {
         assert!(!tracks.is_empty(), "track list must not be empty");
 
         let track_start_times = tracks.iter().map(|track| track.start_time).collect();
@@ -347,11 +357,7 @@ fn to_cue_sheet(
                 next_track.pause_start.unwrap_or(next_track.track_start)
             };
 
-            let postgap_len = match track.track_type {
-                // Data tracks always have a 2-second postgap
-                TrackType::Data => CdTime::new(0, 2, 0),
-                TrackType::Audio => CdTime::ZERO,
-            };
+            let postgap_len = track.track_type.default_postgap_len();
 
             let padded_track_len =
                 pregap_len + pause_len + (data_end_time - track.track_start) + postgap_len;
@@ -373,12 +379,7 @@ fn to_cue_sheet(
         }
     }
 
-    // The final track always has a 2-second postgap
-    let last_track = tracks.last_mut().unwrap();
-    if last_track.postgap_len == CdTime::ZERO {
-        last_track.postgap_len = CdTime::new(0, 2, 0);
-        last_track.end_time += CdTime::new(0, 2, 0);
-    }
+    finalize_track_list(&mut tracks);
 
     log::trace!("Parsed cue sheet:\n{tracks:#?}");
 
@@ -390,7 +391,7 @@ fn to_cue_sheet(
     Ok((CueSheet::new(tracks), track_metadata))
 }
 
-fn tracks_are_continuous(tracks: &[Track]) -> bool {
+pub fn tracks_are_continuous(tracks: &[Track]) -> bool {
     if tracks[0].start_time != CdTime::ZERO {
         return false;
     }
@@ -403,4 +404,13 @@ fn tracks_are_continuous(tracks: &[Track]) -> bool {
     }
 
     true
+}
+
+pub fn finalize_track_list(tracks: &mut [Track]) {
+    // The final track always has a 2-second postgap
+    let last_track = tracks.last_mut().unwrap();
+    if last_track.postgap_len == CdTime::ZERO {
+        last_track.postgap_len = CdTime::new(0, 2, 0);
+        last_track.end_time += CdTime::new(0, 2, 0);
+    }
 }

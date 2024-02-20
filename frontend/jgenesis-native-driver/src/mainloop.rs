@@ -524,8 +524,16 @@ impl NativeSegaCdEmulator {
     ///
     /// This method will return an error if the disc drive is unable to load the disc.
     #[allow(clippy::missing_panics_doc)]
-    pub fn change_disc<P: AsRef<Path>>(&mut self, cue_path: P) -> DiscResult<()> {
-        self.emulator.change_disc(cue_path, CdRomFileFormat::CueBin)?;
+    pub fn change_disc<P: AsRef<Path>>(&mut self, rom_path: P) -> DiscResult<()> {
+        let rom_format = CdRomFileFormat::from_file_path(rom_path.as_ref()).unwrap_or_else(|| {
+            log::warn!(
+                "Unrecognized CD-ROM file format, treating as CUE: {}",
+                rom_path.as_ref().display()
+            );
+            CdRomFileFormat::CueBin
+        });
+
+        self.emulator.change_disc(rom_path, rom_format)?;
 
         let title = format!("sega cd - {}", self.emulator.disc_title());
 
@@ -993,9 +1001,17 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
 pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeSegaCdEmulator> {
     log::info!("Running with config: {config}");
 
-    let cue_path = Path::new(&config.genesis.common.rom_file_path);
-    let save_path = cue_path.with_extension("sav");
-    let save_state_path = cue_path.with_extension("ss0");
+    let rom_path = Path::new(&config.genesis.common.rom_file_path);
+    let rom_format = CdRomFileFormat::from_file_path(rom_path).unwrap_or_else(|| {
+        log::warn!(
+            "Unrecognized CD-ROM file extension, behaving as if this is a CUE file: {}",
+            rom_path.display()
+        );
+        CdRomFileFormat::CueBin
+    });
+
+    let save_path = rom_path.with_extension("sav");
+    let save_state_path = rom_path.with_extension("ss0");
     let mut save_writer = FsSaveWriter::new(save_path);
 
     let bios_file_path = config.bios_file_path.as_ref().ok_or(NativeEmulatorError::SegaCdNoBios)?;
@@ -1007,8 +1023,8 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
     let emulator_config = config.to_emulator_config();
     let emulator = SegaCdEmulator::create(
         bios,
-        cue_path,
-        CdRomFileFormat::CueBin,
+        rom_path,
+        rom_format,
         config.run_without_disc,
         emulator_config,
         &mut save_writer,

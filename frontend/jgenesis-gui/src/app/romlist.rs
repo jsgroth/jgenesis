@@ -24,7 +24,7 @@ impl Console {
             "sms" => Some(Self::MasterSystem),
             "gg" => Some(Self::GameGear),
             "md" | "bin" => Some(Self::Genesis),
-            "cue" => Some(Self::SegaCd),
+            "cue" | "chd" => Some(Self::SegaCd),
             "nes" => Some(Self::Nes),
             "sfc" | "smc" => Some(Self::Snes),
             "gb" => Some(Self::GameBoy),
@@ -111,8 +111,8 @@ fn process_file(file_name: &str, path: &Path, metadata: fs::Metadata) -> Option<
     let full_path = path.to_str().map(String::from)?;
     let file_name_no_ext = Path::new(&file_name).with_extension("").to_string_lossy().to_string();
 
-    let file_size = match console {
-        Console::SegaCd => sega_cd_file_size(&full_path).ok()?,
+    let file_size = match extension {
+        "cue" => sega_cd_file_size(&full_path).ok()?,
         _ => metadata.len(),
     };
 

@@ -1,5 +1,6 @@
 //! Code for reading CD-ROM files
 
+mod chd;
 mod cuebin;
 
 use crate::api::{DiscError, DiscResult};
@@ -7,10 +8,14 @@ use crate::cdrom;
 use crate::cdrom::cdtime::CdTime;
 use crate::cdrom::cue;
 use crate::cdrom::cue::{CueSheet, TrackType};
+use crate::cdrom::reader::chd::ChdFile;
 use crate::cdrom::reader::cuebin::CdBinFiles;
 use bincode::{Decode, Encode};
 use crc::Crc;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
+use std::ffi::OsStr;
+use std::fs::File;
+use std::io::BufReader;
 use std::ops::Range;
 use std::path::Path;
 
@@ -20,9 +25,12 @@ const CD_ROM_CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_CD_ROM_EDC);
 const CRC32_DIGEST_RANGE: Range<usize> = 0..2064;
 const CRC32_CHECKSUM_LOCATION: Range<usize> = 2064..2068;
 
+type ChdFsFile = ChdFile<BufReader<File>>;
+
 #[derive(Debug, FakeEncode, FakeDecode)]
 enum CdRomReader {
     CueBin(CdBinFiles),
+    Chd(ChdFsFile),
 }
 
 impl Default for CdRomReader {
@@ -42,6 +50,7 @@ impl CdRomReader {
             Self::CueBin(bin_files) => {
                 bin_files.read_sector(track_number, relative_sector_number, out)
             }
+            Self::Chd(chd_file) => chd_file.read_sector(track_number, relative_sector_number, out),
         }
     }
 }
@@ -50,6 +59,18 @@ impl CdRomReader {
 pub enum CdRomFileFormat {
     // CUE file + BIN files
     CueBin,
+    // CHD files
+    Chd,
+}
+
+impl CdRomFileFormat {
+    pub fn from_file_path<P: AsRef<Path>>(path: P) -> Option<Self> {
+        match path.as_ref().extension().and_then(OsStr::to_str) {
+            Some("cue") => Some(Self::CueBin),
+            Some("chd") => Some(Self::Chd),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Encode, Decode)]
@@ -62,6 +83,7 @@ impl CdRom {
     pub fn open<P: AsRef<Path>>(path: P, format: CdRomFileFormat) -> DiscResult<Self> {
         match format {
             CdRomFileFormat::CueBin => Self::open_cue_bin(path),
+            CdRomFileFormat::Chd => Self::open_chd(path),
         }
     }
 
@@ -75,6 +97,16 @@ impl CdRom {
         let bin_files = CdBinFiles::create(track_metadata, parent_dir)?;
 
         Ok(Self { cue_sheet, reader: CdRomReader::CueBin(bin_files) })
+    }
+
+    fn open_chd<P: AsRef<Path>>(path: P) -> DiscResult<Self> {
+        let path = path.as_ref();
+
+        let file = File::open(path)
+            .map_err(|source| DiscError::ChdOpen { path: path.display().to_string(), source })?;
+        let (chd_file, cue_sheet) = ChdFile::open(BufReader::new(file))?;
+
+        Ok(Self { cue_sheet, reader: CdRomReader::Chd(chd_file) })
     }
 
     pub fn cue(&self) -> &CueSheet {

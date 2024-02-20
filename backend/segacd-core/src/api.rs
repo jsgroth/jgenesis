@@ -72,12 +72,24 @@ pub enum DiscError {
         #[source]
         source: io::Error,
     },
+    #[error("Error opening CHD file '{path}': {source}")]
+    ChdOpen {
+        path: String,
+        #[source]
+        source: io::Error,
+    },
     #[error("I/O error reading from disc: {0}")]
     DiscReadIo(#[source] io::Error),
     #[error(
         "CD-ROM error detection check failed for track {track_number} sector {sector_number}; expected={expected:08X}, actual={actual:08X}"
     )]
     DiscReadInvalidChecksum { track_number: u8, sector_number: u32, expected: u32, actual: u32 },
+    #[error("Error reading CHD file: {0}")]
+    ChdError(#[from] chd::Error),
+    #[error("Unable to parse CD-ROM metadata in CHD header: '{metadata_value}'")]
+    ChdHeaderParseError { metadata_value: String },
+    #[error("CHD header contains an invalid CD-ROM track list: {track_numbers:?}")]
+    ChdInvalidTrackList { track_numbers: Vec<u8> },
 }
 
 pub type DiscResult<T> = Result<T, DiscError>;
