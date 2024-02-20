@@ -1,12 +1,11 @@
 //! Sega CD's physical drive, which documentation refers to as the CDD
 
-use crate::api::{DiscError, DiscResult};
+use crate::api::DiscResult;
 use crate::cddrive::cdc::Rchip;
 use crate::cdrom;
 use crate::cdrom::cdtime::CdTime;
-use crate::cdrom::cue;
 use crate::cdrom::cue::{Track, TrackType};
-use crate::cdrom::reader::CdRom;
+use crate::cdrom::reader::{CdRom, CdRomFileFormat};
 use bincode::{Decode, Encode};
 use genesis_core::GenesisRegion;
 use jgenesis_proc_macros::PartialClone;
@@ -824,18 +823,16 @@ impl CdDrive {
         self.state = State::TrayOpening { auto_close: true };
     }
 
-    pub fn change_disc<P: AsRef<Path>>(&mut self, cue_path: P) -> DiscResult<()> {
-        let cue_path = cue_path.as_ref();
+    pub fn change_disc<P: AsRef<Path>>(
+        &mut self,
+        rom_path: P,
+        format: CdRomFileFormat,
+    ) -> DiscResult<()> {
+        let cue_path = rom_path.as_ref();
 
         log::info!("Changing disc to '{}'", cue_path.display());
 
-        let cue_sheet = cue::parse(cue_path)?;
-
-        let Some(cue_directory) = cue_path.parent() else {
-            return Err(DiscError::CueParentDir(cue_path.display().to_string()));
-        };
-
-        self.disc = Some(CdRom::open(cue_sheet, cue_directory)?);
+        self.disc = Some(CdRom::open(cue_path, format)?);
         self.state = State::TrayOpening { auto_close: true };
 
         Ok(())

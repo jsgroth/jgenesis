@@ -8,12 +8,12 @@ use crate::api::DiscResult;
 use crate::cddrive::cdc::{DeviceDestination, Rchip};
 use crate::cddrive::cdd::CdDrive;
 use crate::cddrive::{cdc, CdController, CdTickEffect};
-use crate::cdrom;
 use crate::cdrom::cdtime::CdTime;
 use crate::cdrom::reader::CdRom;
 use crate::graphics::GraphicsCoprocessor;
 use crate::memory::font::FontRegisters;
 use crate::rf5c164::Rf5c164;
+use crate::{cdrom, CdRomFileFormat};
 use bincode::{Decode, Encode};
 use genesis_core::memory::{Memory, PhysicalMedium};
 use genesis_core::GenesisRegion;
@@ -568,8 +568,12 @@ impl SegaCd {
         self.cdd_mut().remove_disc();
     }
 
-    pub fn change_disc<P: AsRef<Path>>(&mut self, cue_path: P) -> DiscResult<()> {
-        self.cdd_mut().change_disc(cue_path)
+    pub fn change_disc<P: AsRef<Path>>(
+        &mut self,
+        rom_path: P,
+        format: CdRomFileFormat,
+    ) -> DiscResult<()> {
+        self.cdd_mut().change_disc(rom_path, format)
     }
 }
 

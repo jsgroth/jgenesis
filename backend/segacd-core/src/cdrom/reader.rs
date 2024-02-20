@@ -1,16 +1,17 @@
-//! Code for reading CD-ROM CUE/BIN files
+//! Code for reading CD-ROM files
+
+mod cuebin;
 
 use crate::api::{DiscError, DiscResult};
 use crate::cdrom;
 use crate::cdrom::cdtime::CdTime;
+use crate::cdrom::cue;
 use crate::cdrom::cue::{CueSheet, TrackType};
+use crate::cdrom::reader::cuebin::CdBinFiles;
 use bincode::{Decode, Encode};
 use crc::Crc;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
-use std::collections::{HashMap, HashSet};
-use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
-use std::ops::{Deref, DerefMut, Range};
+use std::ops::Range;
 use std::path::Path;
 
 const SECTOR_HEADER_LEN: u64 = 16;
@@ -19,65 +20,61 @@ const CD_ROM_CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_CD_ROM_EDC);
 const CRC32_DIGEST_RANGE: Range<usize> = 0..2064;
 const CRC32_CHECKSUM_LOCATION: Range<usize> = 2064..2068;
 
-#[derive(Debug)]
-struct CdRomFile {
-    file: File,
-    position: u64,
+#[derive(Debug, FakeEncode, FakeDecode)]
+enum CdRomReader {
+    CueBin(CdBinFiles),
 }
 
-impl CdRomFile {
-    fn new(file: File) -> Self {
-        Self { file, position: 0 }
+impl Default for CdRomReader {
+    fn default() -> Self {
+        Self::CueBin(CdBinFiles::default())
     }
 }
 
-#[derive(Debug, Default, FakeEncode, FakeDecode)]
-struct CdRomFiles(HashMap<String, CdRomFile>);
-
-impl Deref for CdRomFiles {
-    type Target = HashMap<String, CdRomFile>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for CdRomFiles {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl CdRomFiles {
-    fn create<P: AsRef<Path>>(cue_sheet: &CueSheet, directory: P) -> DiscResult<Self> {
-        let file_names: HashSet<_> =
-            cue_sheet.tracks().map(|track| track.metadata.file_name.clone()).collect();
-
-        let directory = directory.as_ref();
-        let mut files = HashMap::with_capacity(file_names.len());
-        for file_name in file_names {
-            let file_path = directory.join(Path::new(&file_name));
-            let file = File::open(&file_path).map_err(|source| DiscError::BinOpen {
-                path: file_path.display().to_string(),
-                source,
-            })?;
-            files.insert(file_name, CdRomFile::new(file));
+impl CdRomReader {
+    fn read_sector(
+        &mut self,
+        track_number: u8,
+        relative_sector_number: u32,
+        out: &mut [u8],
+    ) -> DiscResult<()> {
+        match self {
+            Self::CueBin(bin_files) => {
+                bin_files.read_sector(track_number, relative_sector_number, out)
+            }
         }
-
-        Ok(Self(files))
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CdRomFileFormat {
+    // CUE file + BIN files
+    CueBin,
 }
 
 #[derive(Debug, Encode, Decode)]
 pub struct CdRom {
     cue_sheet: CueSheet,
-    files: CdRomFiles,
+    reader: CdRomReader,
 }
 
 impl CdRom {
-    pub fn open<P: AsRef<Path>>(cue_sheet: CueSheet, directory: P) -> DiscResult<Self> {
-        let files = CdRomFiles::create(&cue_sheet, directory)?;
-        Ok(Self { cue_sheet, files })
+    pub fn open<P: AsRef<Path>>(path: P, format: CdRomFileFormat) -> DiscResult<Self> {
+        match format {
+            CdRomFileFormat::CueBin => Self::open_cue_bin(path),
+        }
+    }
+
+    fn open_cue_bin<P: AsRef<Path>>(path: P) -> DiscResult<Self> {
+        let path = path.as_ref();
+
+        let (cue_sheet, track_metadata) = cue::parse(path)?;
+
+        let parent_dir =
+            path.parent().ok_or_else(|| DiscError::CueParentDir(path.display().to_string()))?;
+        let bin_files = CdBinFiles::create(track_metadata, parent_dir)?;
+
+        Ok(Self { cue_sheet, reader: CdRomReader::CueBin(bin_files) })
     }
 
     pub fn cue(&self) -> &CueSheet {
@@ -117,24 +114,8 @@ impl CdRom {
             return Ok(());
         }
 
-        let CdRomFile { file: track_file, position } = self
-            .files
-            .get_mut(&track.metadata.file_name)
-            .expect("Track file was not opened on load; this is a bug");
-
         let relative_sector_number = (relative_time - track.pregap_len).to_sector_number();
-        let sector_number = track.metadata.time_in_file.to_sector_number() + relative_sector_number;
-        let sector_addr = u64::from(sector_number) * cdrom::BYTES_PER_SECTOR;
-
-        // Only seek if the file descriptor is not already at the desired position
-        if *position != sector_addr {
-            track_file.seek(SeekFrom::Start(sector_addr)).map_err(DiscError::DiscReadIo)?;
-        }
-
-        track_file
-            .read_exact(&mut out[..cdrom::BYTES_PER_SECTOR as usize])
-            .map_err(DiscError::DiscReadIo)?;
-        *position = sector_addr + cdrom::BYTES_PER_SECTOR;
+        self.reader.read_sector(track_number, relative_sector_number, out)?;
 
         if track.track_type == TrackType::Data {
             // Perform error detection check
@@ -146,7 +127,7 @@ impl CdRom {
             if checksum != edc {
                 return Err(DiscError::DiscReadInvalidChecksum {
                     track_number,
-                    sector_number,
+                    sector_number: relative_sector_number,
                     expected: edc,
                     actual: checksum,
                 });

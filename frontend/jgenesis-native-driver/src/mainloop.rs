@@ -27,6 +27,7 @@ use sdl2::render::TextureValueError;
 use sdl2::video::{FullscreenType, Window, WindowBuildError};
 use sdl2::{AudioSubsystem, EventPump, IntegerOrSdlError, JoystickSubsystem, Sdl, VideoSubsystem};
 use segacd_core::api::{DiscError, DiscResult, SegaCdEmulator, SegaCdEmulatorConfig};
+use segacd_core::CdRomFileFormat;
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgInputs};
 use snes_core::api::{LoadError, SnesEmulator, SnesEmulatorConfig};
@@ -524,7 +525,7 @@ impl NativeSegaCdEmulator {
     /// This method will return an error if the disc drive is unable to load the disc.
     #[allow(clippy::missing_panics_doc)]
     pub fn change_disc<P: AsRef<Path>>(&mut self, cue_path: P) -> DiscResult<()> {
-        self.emulator.change_disc(cue_path)?;
+        self.emulator.change_disc(cue_path, CdRomFileFormat::CueBin)?;
 
         let title = format!("sega cd - {}", self.emulator.disc_title());
 
@@ -1007,6 +1008,7 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
     let emulator = SegaCdEmulator::create(
         bios,
         cue_path,
+        CdRomFileFormat::CueBin,
         config.run_without_disc,
         emulator_config,
         &mut save_writer,

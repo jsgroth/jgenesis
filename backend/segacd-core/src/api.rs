@@ -2,8 +2,7 @@
 
 use crate::audio::AudioResampler;
 use crate::cddrive::CdTickEffect;
-use crate::cdrom::cue;
-use crate::cdrom::reader::CdRom;
+use crate::cdrom::reader::{CdRom, CdRomFileFormat};
 use crate::graphics::GraphicsCoprocessor;
 use crate::memory;
 use crate::memory::{SegaCd, SubBus};
@@ -178,7 +177,8 @@ impl SegaCdEmulator {
     #[allow(clippy::if_then_some_else_none)]
     pub fn create<P: AsRef<Path>, S: SaveWriter>(
         bios: Vec<u8>,
-        cue_path: P,
+        rom_path: P,
+        format: CdRomFileFormat,
         run_without_disc: bool,
         emulator_config: SegaCdEmulatorConfig,
         save_writer: &mut S,
@@ -187,17 +187,7 @@ impl SegaCdEmulator {
             return Err(DiscError::InvalidBios { bios_len: bios.len() });
         }
 
-        let disc = if !run_without_disc {
-            let cue_path = cue_path.as_ref();
-            let cue_parent_dir = cue_path
-                .parent()
-                .ok_or_else(|| DiscError::CueParentDir(cue_path.display().to_string()))?;
-
-            let cue_sheet = cue::parse(cue_path)?;
-            Some(CdRom::open(cue_sheet, cue_parent_dir)?)
-        } else {
-            None
-        };
+        let disc = if !run_without_disc { Some(CdRom::open(rom_path, format)?) } else { None };
 
         Self::create_from_disc(bios, disc, emulator_config, save_writer)
     }
@@ -307,9 +297,13 @@ impl SegaCdEmulator {
     /// # Errors
     ///
     /// This method will return an error if the disc drive is unable to load the disc.
-    pub fn change_disc<P: AsRef<Path>>(&mut self, cue_path: P) -> DiscResult<()> {
+    pub fn change_disc<P: AsRef<Path>>(
+        &mut self,
+        rom_path: P,
+        format: CdRomFileFormat,
+    ) -> DiscResult<()> {
         let sega_cd = self.memory.medium_mut();
-        sega_cd.change_disc(cue_path)?;
+        sega_cd.change_disc(rom_path, format)?;
         self.disc_title = sega_cd.disc_title()?.unwrap_or_else(|| "(no disc)".into());
 
         Ok(())

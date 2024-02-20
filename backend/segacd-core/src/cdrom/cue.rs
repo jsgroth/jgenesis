@@ -43,7 +43,6 @@ pub struct Track {
     pub pregap_len: CdTime,
     pub pause_len: CdTime,
     pub postgap_len: CdTime,
-    pub metadata: TrackMetadata,
 }
 
 impl Track {
@@ -69,10 +68,6 @@ impl CueSheet {
 
     pub fn track(&self, track_number: u8) -> &Track {
         &self.tracks[(track_number - 1) as usize]
-    }
-
-    pub fn tracks(&self) -> impl Iterator<Item = &Track> + '_ {
-        self.tracks.iter()
     }
 
     pub fn last_track(&self) -> &Track {
@@ -299,7 +294,7 @@ impl CueParser {
     }
 }
 
-pub fn parse<P: AsRef<Path>>(cue_path: P) -> DiscResult<CueSheet> {
+pub fn parse<P: AsRef<Path>>(cue_path: P) -> DiscResult<(CueSheet, Vec<TrackMetadata>)> {
     let cue_path = cue_path.as_ref();
 
     let cue_file = fs::read_to_string(cue_path)
@@ -309,12 +304,16 @@ pub fn parse<P: AsRef<Path>>(cue_path: P) -> DiscResult<CueSheet> {
     to_cue_sheet(parsed_files, cue_path)
 }
 
-fn to_cue_sheet(parsed_files: Vec<ParsedFile>, cue_path: &Path) -> DiscResult<CueSheet> {
+fn to_cue_sheet(
+    parsed_files: Vec<ParsedFile>,
+    cue_path: &Path,
+) -> DiscResult<(CueSheet, Vec<TrackMetadata>)> {
     let cue_parent_dir =
         cue_path.parent().ok_or_else(|| DiscError::CueParentDir(cue_path.display().to_string()))?;
 
     let mut absolute_start_time = CdTime::ZERO;
     let mut tracks = Vec::new();
+    let mut track_metadata = Vec::new();
 
     for ParsedFile { file_name, tracks: parsed_tracks } in parsed_files {
         let bin_path = cue_parent_dir.join(&file_name);
@@ -364,11 +363,12 @@ fn to_cue_sheet(parsed_files: Vec<ParsedFile>, cue_path: &Path) -> DiscResult<Cu
                 pregap_len,
                 pause_len,
                 postgap_len,
-                metadata: TrackMetadata {
-                    file_name: file_name.clone(),
-                    time_in_file: track.pause_start.unwrap_or(track.track_start),
-                },
             });
+            track_metadata.push(TrackMetadata {
+                file_name: file_name.clone(),
+                time_in_file: track.pause_start.unwrap_or(track.track_start),
+            });
+
             absolute_start_time += padded_track_len;
         }
     }
@@ -387,7 +387,7 @@ fn to_cue_sheet(parsed_files: Vec<ParsedFile>, cue_path: &Path) -> DiscResult<Cu
         "Tracks in parsed CUE sheet are not continuous; this is a bug"
     );
 
-    Ok(CueSheet::new(tracks))
+    Ok((CueSheet::new(tracks), track_metadata))
 }
 
 fn tracks_are_continuous(tracks: &[Track]) -> bool {
