@@ -2,8 +2,6 @@
 
 Minimal web frontend that compiles to WASM and runs in the browser.
 
-This frontend does not currently support Sega CD / Mega CD due to that core's current dependency on the native file system.
-
 ## Dependencies
 
 ### Rust Nightly

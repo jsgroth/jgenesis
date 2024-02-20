@@ -60,6 +60,11 @@ sudo apt install libgtk-3-dev
 
 ## Build & Run
 
+GUI:
+```
+cargo run --release --bin jgenesis-gui
+```
+
 CLI:
 ```
 cargo run --release --bin jgenesis-cli -- -f <path_to_rom_file>
@@ -70,14 +75,9 @@ To view all CLI args:
 cargo run --release --bin jgenesis-cli -- -h
 ```
 
-GUI:
-```
-cargo run --release --bin jgenesis-gui
-```
-
 To build with maximum optimizations (better runtime performance + smaller binary size at the cost of long compile time):
 ```
-RUSTFLAGS="-Ctarget-cpu=native" cargo build --profile release-lto
+RUSTFLAGS="-C target-cpu=native" cargo build --profile release-lto
 ```
 ...After which the executables will be in `target/release-lto/`.
 
