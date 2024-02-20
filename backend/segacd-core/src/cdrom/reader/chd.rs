@@ -22,7 +22,7 @@ impl CdMetadata {
     fn parse_from(ascii_bytes: Vec<u8>) -> Option<Self> {
         let text = String::from_utf8(ascii_bytes).ok()?;
 
-        println!("metadata {text}");
+        log::debug!("CHD metadata line: {text}");
 
         let mut track_number: Option<u8> = None;
         let mut track_type: Option<TrackType> = None;
@@ -132,7 +132,7 @@ impl<F: Read + Seek> ChdFile<F> {
             "CHD tracks are not continuous; this is a bug"
         );
 
-        println!("start frames: {track_start_frames:?}");
+        log::debug!("CHD track start frames: {track_start_frames:?}");
 
         let compressed_buffer = Vec::with_capacity(chd.header().hunk_size() as usize);
         let decompressed_buffer = chd.get_hunksized_buffer();
