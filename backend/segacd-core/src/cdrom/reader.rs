@@ -6,7 +6,6 @@ mod cuebin;
 use crate::api::{DiscError, DiscResult};
 use crate::cdrom;
 use crate::cdrom::cdtime::CdTime;
-use crate::cdrom::cue;
 use crate::cdrom::cue::{CueSheet, TrackType};
 use crate::cdrom::reader::chd::ChdFile;
 use crate::cdrom::reader::cuebin::CdBinFiles;
@@ -87,23 +86,19 @@ impl CdRom {
         }
     }
 
-    fn open_cue_bin<P: AsRef<Path>>(path: P) -> DiscResult<Self> {
-        let path = path.as_ref();
-
-        let (cue_sheet, track_metadata) = cue::parse(path)?;
-
-        let parent_dir =
-            path.parent().ok_or_else(|| DiscError::CueParentDir(path.display().to_string()))?;
-        let bin_files = CdBinFiles::create(track_metadata, parent_dir)?;
+    fn open_cue_bin<P: AsRef<Path>>(cue_path: P) -> DiscResult<Self> {
+        let (bin_files, cue_sheet) = CdBinFiles::create(cue_path)?;
 
         Ok(Self { cue_sheet, reader: CdRomReader::CueBin(bin_files) })
     }
 
-    fn open_chd<P: AsRef<Path>>(path: P) -> DiscResult<Self> {
-        let path = path.as_ref();
+    fn open_chd<P: AsRef<Path>>(chd_path: P) -> DiscResult<Self> {
+        let chd_path = chd_path.as_ref();
 
-        let file = File::open(path)
-            .map_err(|source| DiscError::ChdOpen { path: path.display().to_string(), source })?;
+        let file = File::open(chd_path).map_err(|source| DiscError::ChdOpen {
+            path: chd_path.display().to_string(),
+            source,
+        })?;
         let (chd_file, cue_sheet) = ChdFile::open(BufReader::new(file))?;
 
         Ok(Self { cue_sheet, reader: CdRomReader::Chd(chd_file) })
