@@ -191,11 +191,6 @@ fn next_opcode_memory_type(gsu: &GraphicsSupportUnit) -> MemoryType {
 
 #[must_use]
 fn fill_cache_to_pc(gsu: &mut GraphicsSupportUnit, pc: u16, rom: &[u8], ram: &[u8]) -> u8 {
-    if gsu.pbr == 0x00 && pc < 0x0200 {
-        // Executing in code cache
-        return 0;
-    }
-
     if !gsu.code_cache.pc_is_cacheable(pc) || gsu.code_cache.get(pc).is_some() {
         // Not cacheable or already cached
         return 0;
@@ -212,11 +207,6 @@ fn fill_cache_to_pc(gsu: &mut GraphicsSupportUnit, pc: u16, rom: &[u8], ram: &[u
 
 #[must_use]
 fn cache_at_pc(gsu: &mut GraphicsSupportUnit, pc: u16, rom: &[u8], ram: &[u8]) -> u8 {
-    if gsu.pbr == 0x00 && pc < 0x0200 {
-        // Executing in code cache
-        return 0;
-    }
-
     if !gsu.code_cache.pc_is_cacheable(pc) || gsu.code_cache.get(pc).is_some() {
         // Not cacheable or already cached
         return 0;
@@ -232,11 +222,6 @@ fn cache_at_pc(gsu: &mut GraphicsSupportUnit, pc: u16, rom: &[u8], ram: &[u8]) -
 fn fill_cache_from_pc(gsu: &mut GraphicsSupportUnit, rom: &[u8], ram: &[u8]) -> u8 {
     if gsu.r[15] & 0xF == 0x0 {
         // PC is at the beginning of a cache line; no need to fill
-        return 0;
-    }
-
-    if gsu.pbr == 0x00 && gsu.r[15] < 0x0200 {
-        // Executing in code cache
         return 0;
     }
 
