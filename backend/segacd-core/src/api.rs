@@ -180,12 +180,15 @@ macro_rules! new_main_bus {
 }
 
 impl SegaCdEmulator {
+    /// Create a Sega CD emulator that reads a CD-ROM image from disk.
+    ///
     /// # Errors
     ///
     /// Returns an error in any of the following conditions:
-    /// * Unable to read the given CUE file
-    /// * Unable to read every BIN file that is referenced in the CUE
-    /// * Unable to read boot information from the beginning of the data track
+    /// * The BIOS is invalid
+    /// * Unable to read the given CUE or CHD file
+    /// * Unable to read every BIN file that is referenced in the CUE file
+    /// * Unable to read boot information from the beginning of the CD-ROM data track
     #[allow(clippy::if_then_some_else_none)]
     pub fn create<P: AsRef<Path>, S: SaveWriter>(
         bios: Vec<u8>,
@@ -195,13 +198,26 @@ impl SegaCdEmulator {
         emulator_config: SegaCdEmulatorConfig,
         save_writer: &mut S,
     ) -> DiscResult<Self> {
-        if bios.len() != BIOS_LEN {
-            return Err(DiscError::InvalidBios { bios_len: bios.len() });
-        }
-
         let disc = if !run_without_disc { Some(CdRom::open(rom_path, format)?) } else { None };
 
         Self::create_from_disc(bios, disc, emulator_config, save_writer)
+    }
+
+    /// Create a Sega CD emulator that reads a CD-ROM image from an in-memory CHD image.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the BIOS is invalid, the CHD image is invalid, or the emulator is unable
+    /// to read boot information from the beginning of the CD-ROM data track.
+    pub fn create_in_memory<S: SaveWriter>(
+        bios: Vec<u8>,
+        chd_bytes: Vec<u8>,
+        emulator_config: SegaCdEmulatorConfig,
+        save_writer: &mut S,
+    ) -> DiscResult<Self> {
+        let disc = CdRom::open_chd_in_memory(chd_bytes)?;
+
+        Self::create_from_disc(bios, Some(disc), emulator_config, save_writer)
     }
 
     fn create_from_disc<S: SaveWriter>(
@@ -210,6 +226,10 @@ impl SegaCdEmulator {
         emulator_config: SegaCdEmulatorConfig,
         save_writer: &mut S,
     ) -> DiscResult<Self> {
+        if bios.len() != BIOS_LEN {
+            return Err(DiscError::InvalidBios { bios_len: bios.len() });
+        }
+
         let initial_backup_ram = save_writer.load_bytes("sav").ok();
         let mut sega_cd = SegaCd::new(
             bios,

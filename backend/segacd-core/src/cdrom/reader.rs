@@ -2,6 +2,7 @@
 
 mod chd;
 mod cuebin;
+mod seekvec;
 
 use crate::api::{DiscError, DiscResult};
 use crate::cdrom;
@@ -9,6 +10,7 @@ use crate::cdrom::cdtime::CdTime;
 use crate::cdrom::cue::{CueSheet, TrackType};
 use crate::cdrom::reader::chd::ChdFile;
 use crate::cdrom::reader::cuebin::CdBinFiles;
+use crate::cdrom::reader::seekvec::SeekableVec;
 use bincode::{Decode, Encode};
 use crc::Crc;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
@@ -25,11 +27,13 @@ const CRC32_DIGEST_RANGE: Range<usize> = 0..2064;
 const CRC32_CHECKSUM_LOCATION: Range<usize> = 2064..2068;
 
 type ChdFsFile = ChdFile<BufReader<File>>;
+type ChdMemoryFile = ChdFile<SeekableVec>;
 
 #[derive(Debug, FakeEncode, FakeDecode)]
 enum CdRomReader {
     CueBin(CdBinFiles),
-    Chd(ChdFsFile),
+    ChdFs(ChdFsFile),
+    ChdMemory(ChdMemoryFile),
 }
 
 impl Default for CdRomReader {
@@ -49,7 +53,12 @@ impl CdRomReader {
             Self::CueBin(bin_files) => {
                 bin_files.read_sector(track_number, relative_sector_number, out)
             }
-            Self::Chd(chd_file) => chd_file.read_sector(track_number, relative_sector_number, out),
+            Self::ChdFs(chd_file) => {
+                chd_file.read_sector(track_number, relative_sector_number, out)
+            }
+            Self::ChdMemory(chd_file) => {
+                chd_file.read_sector(track_number, relative_sector_number, out)
+            }
         }
     }
 }
@@ -101,7 +110,14 @@ impl CdRom {
         })?;
         let (chd_file, cue_sheet) = ChdFile::open(BufReader::new(file))?;
 
-        Ok(Self { cue_sheet, reader: CdRomReader::Chd(chd_file) })
+        Ok(Self { cue_sheet, reader: CdRomReader::ChdFs(chd_file) })
+    }
+
+    pub fn open_chd_in_memory(chd_bytes: Vec<u8>) -> DiscResult<Self> {
+        let seekable_vec = SeekableVec::new(chd_bytes);
+        let (chd_file, cue_sheet) = ChdFile::open(seekable_vec)?;
+
+        Ok(Self { cue_sheet, reader: CdRomReader::ChdMemory(chd_file) })
     }
 
     pub fn cue(&self) -> &CueSheet {

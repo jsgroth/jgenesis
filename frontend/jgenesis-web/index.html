@@ -55,12 +55,12 @@
                 margin-top: 10px;
             }
 
-            #jgenesis-controls {
+            .jgenesis-controls {
                 text-align: center;
                 margin-top: 10px;
             }
 
-            #jgenesis-controls > input {
+            .jgenesis-controls > input {
                 margin-left: auto;
                 margin-right: auto;
             }
@@ -77,17 +77,20 @@
     <body>
         <div id="loading-text">Loading...</div>
         <div id="header-text" class="hidden">
-            jgenesis - Sega Genesis / SNES / Master System / Game Gear emulator
+            Sega Genesis / SNES / Master System / Game Gear emulator
         </div>
         <div id="jgenesis" class="hidden">
             <div id="jgenesis-wasm-and-controls">
                 <div id="jgenesis-wasm"></div>
                 <div id="jgenesis-rom-title">(No ROM loaded)</div>
-                <div id="jgenesis-controls">
+                <div class="jgenesis-controls">
                     <input type="button" id="open-file" value="Open ROM file">
                     <input type="button" id="reset-emulator" value="Reset">
                     <input type="button" id="download-save-file" class="save-button" value="Download save file" disabled>
                     <input type="button" id="upload-save-file" class="save-button" value="Upload save file and reset" disabled>
+                </div>
+                <div class="jgenesis-controls">
+                    <input type="button" id="open-sega-cd" value="Open Sega CD image (CHD)">
                 </div>
             </div>
             <div id="jgenesis-config">
@@ -333,6 +336,10 @@
 
             document.getElementById("open-file").addEventListener("click", () => {
                 channel.request_open_file();
+            });
+
+            document.getElementById("open-sega-cd").addEventListener("click", () => {
+                channel.request_open_sega_cd();
             });
 
             document.getElementById("reset-emulator").addEventListener("click", () => {

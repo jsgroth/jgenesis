@@ -302,6 +302,7 @@ impl Default for WebConfigRef {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmulatorCommand {
     OpenFile,
+    OpenSegaCd,
     Reset,
     UploadSaveFile,
 }
@@ -322,6 +323,10 @@ impl EmulatorChannel {
 
     pub fn request_open_file(&self) {
         self.commands.borrow_mut().push_back(EmulatorCommand::OpenFile);
+    }
+
+    pub fn request_open_sega_cd(&self) {
+        self.commands.borrow_mut().push_back(EmulatorCommand::OpenSegaCd);
     }
 
     pub fn request_reset(&self) {

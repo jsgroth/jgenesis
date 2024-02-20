@@ -14,8 +14,8 @@ use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, FrameSize, Renderer, SaveWriter, TickEffect, TimingMode,
 };
 use jgenesis_renderer::renderer::WgpuRenderer;
-use js_sys::Promise;
 use rfd::AsyncFileDialog;
+use segacd_core::api::{SegaCdEmulator, SegaCdEmulatorConfig};
 use smsgg_core::{SmsGgEmulator, SmsGgInputs};
 use snes_core::api::{CoprocessorRoms, SnesEmulator};
 use snes_core::input::SnesInputs;
@@ -33,12 +33,21 @@ use winit::platform::web::WindowExtWebSys;
 use winit::window::{Fullscreen, Window, WindowBuilder};
 
 struct WebAudioOutput {
+    audio_ctx: AudioContext,
     audio_queue: AudioQueue,
+    audio_started: bool,
 }
 
 impl WebAudioOutput {
-    fn new() -> Self {
-        Self { audio_queue: AudioQueue::new() }
+    fn new(audio_ctx: AudioContext) -> Self {
+        Self { audio_ctx, audio_queue: AudioQueue::new(), audio_started: false }
+    }
+
+    fn suspend(&mut self) {
+        // Suspending the AudioContext while loading/resetting is necessary to avoid audio delay
+        // in Chrome
+        let _ = self.audio_ctx.suspend();
+        self.audio_started = false;
     }
 }
 
@@ -46,6 +55,11 @@ impl AudioOutput for WebAudioOutput {
     type Err = String;
 
     fn push_sample(&mut self, sample_l: f64, sample_r: f64) -> Result<(), Self::Err> {
+        if !self.audio_started {
+            self.audio_started = true;
+            let _ = self.audio_ctx.resume();
+        }
+
         self.audio_queue.push_if_space(sample_l as f32).map_err(|err| format!("{err:?}"))?;
         self.audio_queue.push_if_space(sample_r as f32).map_err(|err| format!("{err:?}"))?;
         Ok(())
@@ -199,6 +213,7 @@ enum Emulator {
     None(RandomNoiseGenerator),
     SmsGg(SmsGgEmulator, SmsGgInputs, SmsGgConsole),
     Genesis(GenesisEmulator, GenesisInputs),
+    SegaCd(SegaCdEmulator, GenesisInputs),
     Snes(SnesEmulator, SnesInputs),
 }
 
@@ -232,12 +247,37 @@ impl Emulator {
                     != TickEffect::FrameRendered
                 {}
             }
+            Self::SegaCd(emulator, inputs) => {
+                while emulator
+                    .tick(renderer, audio_output, inputs, save_writer)
+                    .expect("Emulator error")
+                    != TickEffect::FrameRendered
+                {}
+            }
             Self::Snes(emulator, inputs) => {
                 while emulator
                     .tick(renderer, audio_output, inputs, save_writer)
                     .expect("Emulator error")
                     != TickEffect::FrameRendered
                 {}
+            }
+        }
+    }
+
+    fn reset(&mut self, save_writer: &mut LocalStorageSaveWriter) {
+        match self {
+            Self::None(..) => {}
+            Self::SmsGg(emulator, ..) => {
+                emulator.hard_reset(save_writer);
+            }
+            Self::Genesis(emulator, ..) => {
+                emulator.hard_reset(save_writer);
+            }
+            Self::SegaCd(emulator, ..) => {
+                emulator.hard_reset(save_writer);
+            }
+            Self::Snes(emulator, ..) => {
+                emulator.hard_reset(save_writer);
             }
         }
     }
@@ -258,6 +298,10 @@ impl Emulator {
                 TimingMode::Ntsc => sega_ntsc_fps,
                 TimingMode::Pal => sega_pal_fps,
             },
+            Self::SegaCd(emulator, ..) => match emulator.timing_mode() {
+                TimingMode::Ntsc => sega_ntsc_fps,
+                TimingMode::Pal => sega_pal_fps,
+            },
             Self::Snes(emulator, ..) => match emulator.timing_mode() {
                 TimingMode::Ntsc => 60.0,
                 TimingMode::Pal => 50.0,
@@ -271,7 +315,7 @@ impl Emulator {
             Self::SmsGg(_, inputs, _) => {
                 handle_smsgg_input(inputs, event);
             }
-            Self::Genesis(_, inputs) => {
+            Self::Genesis(_, inputs) | Self::SegaCd(_, inputs) => {
                 handle_genesis_input(inputs, event);
             }
             Self::Snes(_, inputs) => {
@@ -289,6 +333,12 @@ impl Emulator {
             Self::Genesis(emulator, ..) => {
                 emulator.reload_config(&config.genesis.to_emulator_config());
             }
+            Self::SegaCd(emulator, ..) => {
+                emulator.reload_config(&SegaCdEmulatorConfig {
+                    genesis: config.genesis.to_emulator_config(),
+                    enable_ram_cartridge: true,
+                });
+            }
             Self::Snes(emulator, ..) => {
                 emulator.reload_config(&config.snes.to_emulator_config());
             }
@@ -300,6 +350,7 @@ impl Emulator {
             Self::None(..) => "(No ROM loaded)".into(),
             Self::SmsGg(..) => current_file_name.into(),
             Self::Genesis(emulator, ..) => emulator.cartridge_title(),
+            Self::SegaCd(emulator, ..) => emulator.disc_title().into(),
             Self::Snes(emulator, ..) => emulator.cartridge_title(),
         }
     }
@@ -309,6 +360,7 @@ impl Emulator {
             Self::None(..) => false,
             Self::SmsGg(emulator, ..) => emulator.has_sram(),
             Self::Genesis(emulator, ..) => emulator.has_sram(),
+            Self::SegaCd(..) => true,
             Self::Snes(emulator, ..) => emulator.has_sram(),
         }
     }
@@ -392,7 +444,7 @@ fn handle_snes_input(inputs: &mut SnesInputs, event: &WindowEvent<'_>) {
 
 #[derive(Debug, Clone)]
 enum JgenesisUserEvent {
-    FileOpen { contents: Vec<u8>, file_name: String },
+    FileOpen { rom: Vec<u8>, bios: Option<Vec<u8>>, rom_file_name: String },
     UploadSaveFile { contents_base64: String },
 }
 
@@ -427,24 +479,17 @@ pub async fn run_emulator(config_ref: WebConfigRef, emulator_channel: EmulatorCh
     let audio_ctx =
         AudioContext::new_with_context_options(AudioContextOptions::new().sample_rate(48000.0))
             .expect("Unable to create audio context");
-    let audio_output = WebAudioOutput::new();
-    let _audio_worklet = audio::initialize_audio_worklet(&audio_ctx, &audio_output.audio_queue)
-        .await
-        .expect("Unable to initialize audio worklet");
+    let audio_output = WebAudioOutput::new(audio_ctx);
+    let _audio_worklet =
+        audio::initialize_audio_worklet(&audio_output.audio_ctx, &audio_output.audio_queue)
+            .await
+            .expect("Unable to initialize audio worklet");
 
     let save_writer = LocalStorageSaveWriter::new();
 
     js::showUi();
 
-    run_event_loop(
-        event_loop,
-        renderer,
-        audio_output,
-        save_writer,
-        audio_ctx,
-        config_ref,
-        emulator_channel,
-    );
+    run_event_loop(event_loop, renderer, audio_output, save_writer, config_ref, emulator_channel);
 }
 
 fn run_event_loop(
@@ -452,12 +497,9 @@ fn run_event_loop(
     mut renderer: WgpuRenderer<Window>,
     mut audio_output: WebAudioOutput,
     mut save_writer: LocalStorageSaveWriter,
-    audio_ctx: AudioContext,
     config_ref: WebConfigRef,
     emulator_channel: EmulatorChannel,
 ) {
-    let mut audio_started = false;
-
     let performance = web_sys::window()
         .and_then(|window| window.performance())
         .expect("Unable to get window.performance");
@@ -466,48 +508,43 @@ fn run_event_loop(
     let mut emulator = Emulator::None(RandomNoiseGenerator::new());
     let mut current_config = config_ref.borrow().clone();
 
-    let mut current_rom: Option<(Vec<u8>, String)> = None;
-
     let event_loop_proxy = event_loop.create_proxy();
     event_loop.run(move |event, _, control_flow| match event {
         Event::UserEvent(user_event) => match user_event {
-            JgenesisUserEvent::FileOpen { contents, file_name } => {
-                current_rom = Some((contents.clone(), file_name.clone()));
+            JgenesisUserEvent::FileOpen { rom, bios, rom_file_name } => {
+                audio_output.suspend();
 
                 let prev_file_name = Rc::clone(&save_writer.file_name);
-                save_writer.update_file_name(file_name.clone());
-                emulator = match open_emulator(contents, &file_name, &config_ref, &mut save_writer)
-                {
-                    Ok(emulator) => emulator,
-                    Err(err) => {
-                        js::alert(&format!("Error opening ROM file: {err}"));
-                        save_writer.update_file_name(prev_file_name.to_string());
-                        return;
-                    }
-                };
+                save_writer.update_file_name(rom_file_name.clone());
+                emulator =
+                    match open_emulator(rom, bios, &rom_file_name, &config_ref, &mut save_writer) {
+                        Ok(emulator) => emulator,
+                        Err(err) => {
+                            js::alert(&format!("Error opening ROM file: {err}"));
+                            save_writer.update_file_name(prev_file_name.to_string());
+                            return;
+                        }
+                    };
 
-                emulator_channel.set_current_file_name(file_name.clone());
+                emulator_channel.set_current_file_name(rom_file_name.clone());
 
-                js::setRomTitle(&emulator.rom_title(&file_name));
+                js::setRomTitle(&emulator.rom_title(&rom_file_name));
                 js::setSaveUiEnabled(emulator.has_persistent_save());
 
                 js::focusCanvas();
             }
             JgenesisUserEvent::UploadSaveFile { contents_base64 } => {
-                let Some((rom, file_name)) = current_rom.clone() else { return };
+                if matches!(emulator, Emulator::None(..)) {
+                    return;
+                }
+
+                audio_output.suspend();
 
                 // Immediately persist save file because it won't get written again until the game writes to SRAM
+                let file_name = emulator_channel.current_file_name();
                 js::localStorageSet(&file_name, &contents_base64);
 
-                emulator = match open_emulator(rom, &file_name, &config_ref, &mut save_writer) {
-                    Ok(emulator) => emulator,
-                    Err(err) => {
-                        js::alert(&format!(
-                            "Error resetting emulator after save file upload: {err}"
-                        ));
-                        return;
-                    }
-                };
+                emulator.reset(&mut save_writer);
 
                 js::focusCanvas();
             }
@@ -524,11 +561,6 @@ fn run_event_loop(
                 next_frame_time += 1000.0 / fps;
             }
 
-            if !audio_started && !matches!(&emulator, Emulator::None(..)) {
-                audio_started = true;
-                let _: Promise = audio_ctx.resume().expect("Unable to start audio playback");
-            }
-
             emulator.render_frame(&mut renderer, &mut audio_output, &mut save_writer);
 
             let config = config_ref.borrow().clone();
@@ -543,22 +575,18 @@ fn run_event_loop(
                     EmulatorCommand::OpenFile => {
                         wasm_bindgen_futures::spawn_local(open_file(event_loop_proxy.clone()));
                     }
+                    EmulatorCommand::OpenSegaCd => {
+                        wasm_bindgen_futures::spawn_local(open_sega_cd(event_loop_proxy.clone()));
+                    }
                     EmulatorCommand::UploadSaveFile => {
                         wasm_bindgen_futures::spawn_local(upload_save_file(
                             event_loop_proxy.clone(),
                         ));
                     }
                     EmulatorCommand::Reset => {
-                        let Some((rom, file_name)) = current_rom.clone() else { continue };
+                        audio_output.suspend();
 
-                        emulator =
-                            match open_emulator(rom, &file_name, &config_ref, &mut save_writer) {
-                                Ok(emulator) => emulator,
-                                Err(err) => {
-                                    js::alert(&format!("Error resetting emulator: {err}"));
-                                    continue;
-                                }
-                            };
+                        emulator.reset(&mut save_writer);
 
                         js::focusCanvas();
                     }
@@ -617,8 +645,41 @@ async fn open_file(event_loop_proxy: EventLoopProxy<JgenesisUserEvent>) {
     let file_name = file.file_name();
 
     event_loop_proxy
-        .send_event(JgenesisUserEvent::FileOpen { contents, file_name })
+        .send_event(JgenesisUserEvent::FileOpen {
+            rom: contents,
+            bios: None,
+            rom_file_name: file_name,
+        })
         .expect("Unable to send file opened event");
+}
+
+async fn open_sega_cd(event_loop_proxy: EventLoopProxy<JgenesisUserEvent>) {
+    let bios_file = AsyncFileDialog::new()
+        .set_title("Sega CD BIOS")
+        .add_filter("bin", &["bin"])
+        .pick_file()
+        .await;
+
+    let Some(bios_file) = bios_file else { return };
+    let bios_contents = bios_file.read().await;
+
+    let chd_file = AsyncFileDialog::new()
+        .set_title("CD-ROM image (only CHD supported)")
+        .add_filter("chd", &["chd"])
+        .pick_file()
+        .await;
+
+    let Some(chd_file) = chd_file else { return };
+    let chd_contents = chd_file.read().await;
+    let chd_file_name = chd_file.file_name();
+
+    event_loop_proxy
+        .send_event(JgenesisUserEvent::FileOpen {
+            rom: chd_contents,
+            bios: Some(bios_contents),
+            rom_file_name: chd_file_name,
+        })
+        .expect("Unable to send Sega CD BIOS/CHD opened event");
 }
 
 async fn upload_save_file(event_loop_proxy: EventLoopProxy<JgenesisUserEvent>) {
@@ -636,11 +697,12 @@ async fn upload_save_file(event_loop_proxy: EventLoopProxy<JgenesisUserEvent>) {
 #[allow(clippy::map_unwrap_or)]
 fn open_emulator(
     rom: Vec<u8>,
-    file_name: &str,
+    bios: Option<Vec<u8>>,
+    rom_file_name: &str,
     config_ref: &WebConfigRef,
     save_writer: &mut LocalStorageSaveWriter,
 ) -> Result<Emulator, Box<dyn Error>> {
-    let file_ext = Path::new(file_name).extension().map(|ext| ext.to_string_lossy().to_string()).unwrap_or_else(|| {
+    let file_ext = Path::new(rom_file_name).extension().map(|ext| ext.to_string_lossy().to_string()).unwrap_or_else(|| {
         log::warn!("Unable to determine file extension of uploaded file; defaulting to Genesis emulator");
         "md".into()
     });
@@ -670,6 +732,23 @@ fn open_emulator(
                 save_writer,
             );
             Ok(Emulator::Genesis(emulator, GenesisInputs::default()))
+        }
+        "chd" => {
+            let Some(bios) = bios else { return Err("No SEGA CD BIOS supplied".into()) };
+
+            let emulator = SegaCdEmulator::create_in_memory(
+                bios,
+                rom,
+                SegaCdEmulatorConfig {
+                    genesis: config_ref.borrow().genesis.to_emulator_config(),
+                    enable_ram_cartridge: true,
+                },
+                save_writer,
+            )?;
+
+            js::showGenesisConfig();
+
+            Ok(Emulator::SegaCd(emulator, GenesisInputs::default()))
         }
         "sfc" | "smc" => {
             let emulator = SnesEmulator::create(

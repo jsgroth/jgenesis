@@ -2260,6 +2260,7 @@ dependencies = [
  "log",
  "rand",
  "rfd",
+ "segacd-core",
  "smsgg-core",
  "snes-core",
  "wasm-bindgen",
