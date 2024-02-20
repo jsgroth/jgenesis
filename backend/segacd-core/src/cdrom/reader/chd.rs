@@ -22,6 +22,8 @@ impl CdMetadata {
     fn parse_from(ascii_bytes: Vec<u8>) -> Option<Self> {
         let text = String::from_utf8(ascii_bytes).ok()?;
 
+        println!("metadata {text}");
+
         let mut track_number: Option<u8> = None;
         let mut track_type: Option<TrackType> = None;
         let mut frames: Option<u32> = None;
@@ -106,7 +108,10 @@ impl<F: Read + Seek> ChdFile<F> {
                 start_time: current_start_time,
                 end_time: current_start_time + padded_track_len,
                 pregap_len,
-                pause_len: CdTime::ZERO,
+                pause_len: match cd_metadata.track_type {
+                    TrackType::Data => CdTime::ZERO,
+                    TrackType::Audio => pregap_len,
+                },
                 postgap_len,
             });
             track_start_frames.push(current_frame);
