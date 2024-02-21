@@ -205,6 +205,9 @@ impl DmaUnit {
                 continue;
             }
 
+            // HDMA reloads immediately disable any in-progress GPDMA on the channel
+            bus.cpu_registers.active_gpdma_channels[channel] = false;
+
             log::trace!("Reloading HDMA channel {channel}");
 
             // Each active channel adds an 8-cycle overhead
@@ -263,6 +266,9 @@ impl DmaUnit {
     }
 
     fn hdma_process_channel(&mut self, bus: &mut Bus<'_>, channel: usize) -> (HDmaState, u64) {
+        // Any HDMA action immediately disables any in-progress GPDMA on the channel
+        bus.cpu_registers.active_gpdma_channels[channel] = false;
+
         // 8-cycle overhead per active channel
         let mut cycles = 8;
 
@@ -480,6 +486,12 @@ fn dma_write_bus_a(bus: &mut Bus<'_>, bus_a_address: u32, value: u8) {
 fn gpdma_copy_byte(bus: &mut Bus<'_>, channel: u8, bytes_copied: u16) -> GpDmaState {
     let channel = channel as usize;
 
+    // GPDMA channels can be canceled mid-transfer if an HDMA activates on the same channel.
+    // If this happens, abort the transfer
+    if !bus.cpu_registers.active_gpdma_channels[channel] {
+        return gpdma_finish_channel(bus, channel);
+    }
+
     let bus_a_bank = bus.cpu_registers.dma_bank[channel];
     let bus_a_address = bus.cpu_registers.gpdma_current_address[channel];
     let bus_a_full_address = (u32::from(bus_a_bank) << 16) | u32::from(bus_a_address);
@@ -531,32 +543,36 @@ fn gpdma_copy_byte(bus: &mut Bus<'_>, channel: u8, bytes_copied: u16) -> GpDmaSt
 
     // Channel is done when byte counter decrements to 0
     if byte_counter == 1 {
-        bus.cpu_registers.active_gpdma_channels[channel] = false;
-
-        return match bus.cpu_registers.active_gpdma_channels[channel + 1..]
-            .iter()
-            .copied()
-            .position(|active| active)
-        {
-            Some(next_active_channel) => {
-                let next_active_channel = (channel + 1 + next_active_channel) as u8;
-
-                let next_start_address = u24_address(
-                    bus.cpu_registers.dma_bank[next_active_channel as usize],
-                    bus.cpu_registers.gpdma_current_address[next_active_channel as usize],
-                );
-                bus.memory.notify_dma_start(next_active_channel, next_start_address);
-
-                GpDmaState::Copying { channel: next_active_channel, bytes_copied: 0 }
-            }
-            None => {
-                bus.memory.notify_dma_end();
-                GpDmaState::Idle
-            }
-        };
+        return gpdma_finish_channel(bus, channel);
     }
 
     GpDmaState::Copying { channel: channel as u8, bytes_copied: bytes_copied.wrapping_add(1) }
+}
+
+fn gpdma_finish_channel(bus: &mut Bus<'_>, channel: usize) -> GpDmaState {
+    bus.cpu_registers.active_gpdma_channels[channel] = false;
+
+    match bus.cpu_registers.active_gpdma_channels[channel + 1..]
+        .iter()
+        .copied()
+        .position(|active| active)
+    {
+        Some(next_active_channel) => {
+            let next_active_channel = (channel + 1 + next_active_channel) as u8;
+
+            let next_start_address = u24_address(
+                bus.cpu_registers.dma_bank[next_active_channel as usize],
+                bus.cpu_registers.gpdma_current_address[next_active_channel as usize],
+            );
+            bus.memory.notify_dma_start(next_active_channel, next_start_address);
+
+            GpDmaState::Copying { channel: next_active_channel, bytes_copied: 0 }
+        }
+        None => {
+            bus.memory.notify_dma_end();
+            GpDmaState::Idle
+        }
+    }
 }
 
 fn gpdma_start_log(bus: &Bus<'_>) {
