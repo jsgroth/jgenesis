@@ -9,7 +9,7 @@ use bincode::{Decode, Encode};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::OnceLock;
 use std::{fs, mem};
@@ -22,13 +22,13 @@ pub struct TrackMetadata {
 
 #[derive(Debug)]
 struct CdRomFile {
-    file: File,
+    file: BufReader<File>,
     position: u64,
 }
 
 impl CdRomFile {
     fn new(file: File) -> Self {
-        Self { file, position: 0 }
+        Self { file: BufReader::new(file), position: 0 }
     }
 }
 
