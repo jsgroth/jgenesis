@@ -708,6 +708,10 @@ fn guess_cartridge_type(rom: &[u8]) -> Option<CartridgeType> {
     if rom.len() < 0x10000 {
         // Any ROM less than 64KB must be LoROM; HiROM <64KB wouldn't have anywhere to store
         // the 65816 interrupt vectors
+        if let Some(coprocessor) = check_for_lorom_coprocessor(rom) {
+            return Some(coprocessor);
+        }
+
         return Some(CartridgeType::LoRom);
     }
 
@@ -747,31 +751,11 @@ fn guess_cartridge_type(rom: &[u8]) -> Option<CartridgeType> {
         hirom_points += 1;
     }
 
-    // Check for CX4 (always LoROM); identified by chipset == $Fx and subtype == $10
-    if hirom_points <= lorom_points
-        && rom[LOROM_HEADER_ADDR + 0x1A] == 0x33
-        && rom[LOROM_HEADER_ADDR + 0x16] & 0xF0 == 0xF0
-        && rom[LOROM_HEADER_ADDR - 1] == 0x10
-    {
-        return Some(CartridgeType::Cx4);
-    }
-
-    // Check for S-DD1
-    // Identified by map == $22/$32 and chipset == $4x in the LoROM header area
-    if hirom_points <= lorom_points
-        && (lorom_map_byte == 0x22 || lorom_map_byte == 0x32)
-        && (0x43..0x46).contains(&rom[LOROM_HEADER_ADDR + 0x16])
-    {
-        return Some(CartridgeType::Sdd1);
-    }
-
-    // Check for SA-1
-    // Identified by map == $23 and chipset == $3x in the LoROM header area
-    if hirom_points <= lorom_points
-        && lorom_map_byte == 0x23
-        && (0x33..0x36).contains(&rom[LOROM_HEADER_ADDR + 0x16])
-    {
-        return Some(CartridgeType::Sa1);
+    // Check for any coprocessors that put the header in the LoROM header location
+    if lorom_points >= hirom_points {
+        if let Some(coprocessor) = check_for_lorom_coprocessor(rom) {
+            return Some(coprocessor);
+        }
     }
 
     // Check for SPC7110
@@ -785,26 +769,52 @@ fn guess_cartridge_type(rom: &[u8]) -> Option<CartridgeType> {
         return Some(CartridgeType::Spc7110);
     }
 
-    // Check for Super FX
-    // Identified by map == $20 and chipset $13-$1A in the LoROM header area
-    if hirom_points <= lorom_points
-        && lorom_map_byte == 0x20
-        && (0x13..0x1B).contains(&rom[LOROM_HEADER_ADDR + 0x16])
-    {
-        return Some(CartridgeType::SuperFx);
-    }
-
-    // Check for OBC1
-    // Identified by chipset $25 in the LoROM header area
-    if hirom_points <= lorom_points && rom[LOROM_HEADER_ADDR + 0x16] == 0x25 {
-        return Some(CartridgeType::Obc1);
-    }
-
     match lorom_points.cmp(&hirom_points) {
         Ordering::Less => Some(CartridgeType::HiRom),
         Ordering::Greater => Some(CartridgeType::LoRom),
         Ordering::Equal => None,
     }
+}
+
+fn check_for_lorom_coprocessor(rom: &[u8]) -> Option<CartridgeType> {
+    let lorom_map_byte = rom[LOROM_HEADER_ADDR + HEADER_MAP_OFFSET];
+
+    // Check for CX4
+    // Identified by chipset == $Fx and subtype == $10
+    if rom[LOROM_HEADER_ADDR + 0x1A] == 0x33
+        && rom[LOROM_HEADER_ADDR + 0x16] & 0xF0 == 0xF0
+        && rom[LOROM_HEADER_ADDR - 1] == 0x10
+    {
+        return Some(CartridgeType::Cx4);
+    }
+
+    // Check for S-DD1
+    // Identified by map == $22/$32 and chipset == $4x in the LoROM header area
+    if (lorom_map_byte == 0x22 || lorom_map_byte == 0x32)
+        && (0x43..0x46).contains(&rom[LOROM_HEADER_ADDR + 0x16])
+    {
+        return Some(CartridgeType::Sdd1);
+    }
+
+    // Check for SA-1
+    // Identified by map == $23 and chipset == $3x in the LoROM header area
+    if lorom_map_byte == 0x23 && (0x33..0x36).contains(&rom[LOROM_HEADER_ADDR + 0x16]) {
+        return Some(CartridgeType::Sa1);
+    }
+
+    // Check for Super FX
+    // Identified by map == $20 and chipset $13-$1A in the LoROM header area
+    if lorom_map_byte == 0x20 && (0x13..0x1B).contains(&rom[LOROM_HEADER_ADDR + 0x16]) {
+        return Some(CartridgeType::SuperFx);
+    }
+
+    // Check for OBC1
+    // Identified by chipset $25 in the LoROM header area
+    if rom[LOROM_HEADER_ADDR + 0x16] == 0x25 {
+        return Some(CartridgeType::Obc1);
+    }
+
+    None
 }
 
 const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
