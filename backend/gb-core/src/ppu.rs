@@ -98,6 +98,7 @@ struct State {
     scanline: u8,
     dot: u16,
     mode: PpuMode,
+    prev_stat_interrupt_line: bool,
     stat_interrupt_pending: bool,
     previously_enabled: bool,
     // LY=LYC bit in STAT does not change while PPU is disabled, per:
@@ -113,6 +114,7 @@ impl State {
             scanline: 0,
             dot: 0,
             mode: PpuMode::ScanningOam,
+            prev_stat_interrupt_line: false,
             stat_interrupt_pending: false,
             previously_enabled: true,
             frozen_ly_lyc_bit: false,
@@ -238,8 +240,6 @@ impl Ppu {
             self.state.stat_interrupt_pending = false;
         }
 
-        let prev_stat_interrupt_line = self.stat_interrupt_line();
-
         if self.state.mode == PpuMode::Rendering {
             self.fifo.tick(
                 &self.vram,
@@ -303,16 +303,34 @@ impl Ppu {
         }
 
         let stat_interrupt_line = self.stat_interrupt_line();
-        if !prev_stat_interrupt_line && stat_interrupt_line {
+        if !self.state.prev_stat_interrupt_line && stat_interrupt_line {
             self.state.stat_interrupt_pending = true;
         }
+        self.state.prev_stat_interrupt_line = stat_interrupt_line;
+        self.registers.stat_written_last_cycle = false;
     }
 
     fn stat_interrupt_line(&self) -> bool {
-        (self.registers.lyc_interrupt_enabled && self.state.ly() == self.registers.ly_compare)
-            || (self.registers.mode_2_interrupt_enabled && self.state.mode == PpuMode::ScanningOam)
-            || (self.registers.mode_1_interrupt_enabled && self.state.mode == PpuMode::VBlank)
-            || (self.registers.mode_0_interrupt_enabled && self.state.mode == PpuMode::HBlank)
+        // DMG STAT bug: If STAT is written while any of the 4 STAT conditions are true, the
+        // hardware behaves as if all 4 STAT interrupts are enabled for a single M-cycle.
+        // Road Rash (GB version) and Zerd no Densetsu depend on this
+        let dmg_stat_bug_triggered = self.hardware_mode == HardwareMode::Dmg
+            && self.registers.stat_written_last_cycle
+            && (self.state.mode != PpuMode::Rendering
+                || self.state.ly() == self.registers.ly_compare);
+
+        let lyc_interrupt_enabled = self.registers.lyc_interrupt_enabled || dmg_stat_bug_triggered;
+        let mode_2_interrupt_enabled =
+            self.registers.mode_2_interrupt_enabled || dmg_stat_bug_triggered;
+        let mode_1_interrupt_enabled =
+            self.registers.mode_1_interrupt_enabled || dmg_stat_bug_triggered;
+        let mode_0_interrupt_enabled =
+            self.registers.mode_0_interrupt_enabled || dmg_stat_bug_triggered;
+
+        (lyc_interrupt_enabled && self.state.ly() == self.registers.ly_compare)
+            || (mode_2_interrupt_enabled && self.state.mode == PpuMode::ScanningOam)
+            || (mode_1_interrupt_enabled && self.state.mode == PpuMode::VBlank)
+            || (mode_0_interrupt_enabled && self.state.mode == PpuMode::HBlank)
     }
 
     pub fn frame_buffer(&self) -> &PpuFrameBuffer {
