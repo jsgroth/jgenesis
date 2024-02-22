@@ -1,7 +1,6 @@
 use js_sys::{Array, Atomics, SharedArrayBuffer, Uint32Array};
 use std::cmp;
 use wasm_bindgen::prelude::*;
-use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{AudioContext, AudioWorkletNode, AudioWorkletNodeOptions, ChannelCountMode};
 
