@@ -541,6 +541,20 @@ impl Cartridge {
         }
     }
 
+    pub fn has_battery(&self) -> bool {
+        match self {
+            Self::Cx4(..) => false,
+            Self::ExHiRom { .. } | Self::Obc1(..) | Self::Spc7110(..) | Self::St01x { .. } => true,
+            Self::LoRom { sram, .. }
+            | Self::HiRom { sram, .. }
+            | Self::DspLoRom { sram, .. }
+            | Self::DspHiRom { sram, .. } => !sram.is_empty(),
+            Self::Sa1(sa1) => sa1.has_battery(),
+            Self::Sdd1(sdd1) => sdd1.has_battery(),
+            Self::SuperFx(sfx) => sfx.has_battery(),
+        }
+    }
+
     pub fn sram(&self) -> Option<&[u8]> {
         match self {
             Self::LoRom { sram, .. }
@@ -584,23 +598,6 @@ impl Cartridge {
         }
 
         Ok(())
-    }
-
-    pub fn has_sram(&self) -> bool {
-        match self {
-            Self::LoRom { sram, .. }
-            | Self::HiRom { sram, .. }
-            | Self::ExHiRom { sram, .. }
-            | Self::DspLoRom { sram, .. }
-            | Self::DspHiRom { sram, .. } => !sram.is_empty(),
-            Self::Cx4(..) => false,
-            Self::Obc1(obc1) => !obc1.sram().is_empty(),
-            Self::Sa1(sa1) => sa1.sram().is_some_and(|sram| !sram.is_empty()),
-            Self::Sdd1(sdd1) => sdd1.sram().is_some_and(|sram| !sram.is_empty()),
-            Self::Spc7110(..) => true,
-            Self::SuperFx(sfx) => !sfx.sram().is_empty(),
-            Self::St01x { upd77c25, .. } => !upd77c25.sram().is_empty(),
-        }
     }
 
     pub fn tick(&mut self, master_cycles_elapsed: u64) {

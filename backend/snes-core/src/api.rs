@@ -217,7 +217,7 @@ impl SnesEmulator {
     #[inline]
     #[must_use]
     pub fn has_sram(&self) -> bool {
-        self.memory.has_sram()
+        self.memory.has_battery_backed_sram()
     }
 
     pub fn copy_cgram(&self, out: &mut [Color]) {
@@ -307,16 +307,18 @@ impl EmulatorTrait for SnesEmulator {
 
             // Only persist SRAM if it's changed since the last write, and only check ~twice per
             // second because of the checksum calculation
-            if let Some(sram) = self.memory.sram() {
-                if self.frame_count % 30 == 0 {
-                    let checksum = CRC.checksum(sram);
-                    if checksum != self.last_sram_checksum {
-                        save_writer.persist_bytes("sav", sram).map_err(SnesError::SaveWrite)?;
-                        self.memory
-                            .write_auxiliary_save_files(save_writer)
-                            .map_err(SnesError::SaveWrite)?;
+            if self.memory.has_battery_backed_sram() {
+                if let Some(sram) = self.memory.sram() {
+                    if self.frame_count % 30 == 0 {
+                        let checksum = CRC.checksum(sram);
+                        if checksum != self.last_sram_checksum {
+                            save_writer.persist_bytes("sav", sram).map_err(SnesError::SaveWrite)?;
+                            self.memory
+                                .write_auxiliary_save_files(save_writer)
+                                .map_err(SnesError::SaveWrite)?;
 
-                        self.last_sram_checksum = checksum;
+                            self.last_sram_checksum = checksum;
+                        }
                     }
                 }
             }

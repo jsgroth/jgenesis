@@ -5,6 +5,8 @@ use std::ops::Deref;
 pub const NTSC_MASTER_CLOCK_FREQUENCY: u64 = 21_477_270;
 pub const PAL_MASTER_CLOCK_FREQUENCY: u64 = 21_281_370;
 
+pub const LOROM_CHIPSET_BYTE_ADDRESS: usize = 0x7FD6;
+
 #[derive(Debug, Clone, Default, FakeEncode, FakeDecode)]
 pub struct Rom(pub Box<[u8]>);
 

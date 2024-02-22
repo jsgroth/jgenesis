@@ -66,6 +66,8 @@ impl Memory {
             save_writer,
         )?;
 
+        log::info!("Cartridge has battery-backed SRAM: {}", cartridge.has_battery());
+
         Ok(Self {
             cartridge,
             main_ram: vec![0; MAIN_RAM_LEN].into_boxed_slice().try_into().unwrap(),
@@ -174,8 +176,8 @@ impl Memory {
         self.cartridge.write_auxiliary_save_files(save_writer)
     }
 
-    pub fn has_sram(&self) -> bool {
-        self.cartridge.has_sram()
+    pub fn has_battery_backed_sram(&self) -> bool {
+        self.cartridge.has_battery()
     }
 
     pub fn cpu_open_bus(&self) -> u8 {

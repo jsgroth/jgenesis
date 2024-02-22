@@ -193,6 +193,12 @@ impl Sdd1 {
 
     #[inline]
     #[must_use]
+    pub fn has_battery(&self) -> bool {
+        !self.sram.is_empty()
+    }
+
+    #[inline]
+    #[must_use]
     pub fn sram(&self) -> Option<&[u8]> {
         (!self.sram.is_empty()).then_some(self.sram.as_ref())
     }

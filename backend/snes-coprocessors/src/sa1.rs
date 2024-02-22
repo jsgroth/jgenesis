@@ -7,6 +7,7 @@ mod mmc;
 mod registers;
 mod timer;
 
+use crate::common;
 use crate::common::{impl_take_set_rom, Rom};
 use crate::sa1::bus::Sa1Bus;
 use crate::sa1::mmc::Sa1Mmc;
@@ -62,6 +63,15 @@ impl Sa1 {
     }
 
     impl_take_set_rom!(rom);
+
+    #[inline]
+    #[must_use]
+    pub fn has_battery(&self) -> bool {
+        // Most SA-1 games have battery backup, but Dragon Ball Z: Hyper Dimension does not
+        // This is indicated by a chipset byte of $34 instead of $32 or $35
+        let chipset_byte = self.rom[common::LOROM_CHIPSET_BYTE_ADDRESS];
+        !self.bwram.is_empty() && (chipset_byte == 0x32 || chipset_byte == 0x35)
+    }
 
     #[inline]
     #[must_use]

@@ -13,6 +13,7 @@
 
 mod gsu;
 
+use crate::common;
 use crate::common::{impl_take_set_rom, Rom};
 use crate::superfx::gsu::{BusAccess, GraphicsSupportUnit};
 use bincode::{Decode, Encode};
@@ -130,6 +131,15 @@ impl SuperFx {
 
     pub fn reset(&mut self) {
         self.gsu.reset();
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn has_battery(&self) -> bool {
+        // Most of the Super FX games do not have battery backup but some do, e.g. Yoshi's Island
+        // This is indicated by a chipset byte of $15 or $1A instead of $13 or $14
+        let chipset_byte = self.rom[common::LOROM_CHIPSET_BYTE_ADDRESS];
+        chipset_byte == 0x15 || chipset_byte == 0x1A
     }
 
     #[inline]
