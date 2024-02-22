@@ -1,6 +1,6 @@
 #[allow(clippy::wildcard_imports)]
 use super::*;
-use jgenesis_common::num::{GetBit, U16Ext};
+use jgenesis_common::num::U16Ext;
 
 macro_rules! impl_branch {
     ($name:ident $(, $flag:ident == $value:expr)?) => {

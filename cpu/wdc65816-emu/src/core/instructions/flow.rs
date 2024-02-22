@@ -1,6 +1,5 @@
 #[allow(clippy::wildcard_imports)]
 use super::*;
-use crate::core::InterruptType;
 
 // JMP: Jump
 pub(crate) fn jmp_absolute<B: BusInterface>(cpu: &mut Wdc65816, bus: &mut B) {

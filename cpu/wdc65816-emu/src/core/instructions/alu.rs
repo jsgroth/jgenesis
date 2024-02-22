@@ -1,6 +1,5 @@
 #[allow(clippy::wildcard_imports)]
 use super::*;
-use crate::core::Registers;
 
 fn adc_bcd(registers: &mut Registers, value: u8) {
     // Formulas from http://www.6502.org/tutorials/decimal_mode.html#A which correctly handle
