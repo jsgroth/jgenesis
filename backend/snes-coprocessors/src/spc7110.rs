@@ -10,21 +10,16 @@ use crate::common::{impl_take_set_rom, Rom};
 use crate::spc7110::decompressor::Spc7110Decompressor;
 use crate::spc7110::registers::Registers;
 use crate::spc7110::rtc::Rtc4513;
-use bincode::error::EncodeError;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::SaveWriter;
 use jgenesis_common::num::{U16Ext, U24Ext};
 use jgenesis_proc_macros::PartialClone;
-use std::mem;
 
 // All 3 SPC7110 game images have a 1MB program ROM followed by a data ROM
 const DATA_ROM_START: usize = 0x100000;
 
 // All 3 SPC7110 games have 8KB of SRAM
 const SRAM_LEN: usize = 8 * 1024;
-
-// Doesn't need to be exact, just big enough
-const SERIALIZATION_BUFFER_LEN: usize = SRAM_LEN + 2 * mem::size_of::<Rtc4513>();
 
 type Sram = [u8; SRAM_LEN];
 
@@ -36,16 +31,6 @@ pub struct Spc7110 {
     registers: Registers,
     decompressor: Spc7110Decompressor,
     rtc: Option<Rtc4513>,
-    serialization_buffer: Box<[u8]>,
-}
-
-macro_rules! bincode_config {
-    () => {
-        bincode::config::standard()
-            .with_little_endian()
-            .with_fixed_int_encoding()
-            .with_limit::<SERIALIZATION_BUFFER_LEN>()
-    };
 }
 
 impl Spc7110 {
@@ -76,7 +61,6 @@ impl Spc7110 {
             registers: Registers::new(),
             decompressor: Spc7110Decompressor::new(),
             rtc,
-            serialization_buffer: vec![0; SERIALIZATION_BUFFER_LEN].into_boxed_slice(),
         }
     }
 
@@ -168,29 +152,6 @@ impl Spc7110 {
     #[must_use]
     pub fn rtc(&self) -> Option<&Rtc4513> {
         self.rtc.as_ref()
-    }
-
-    /// Return combined SRAM + RTC-4513 state to be written to the save file.
-    ///
-    /// RTC-4513 state will only be included if the game actually uses the RTC chip.
-    ///
-    /// # Errors
-    ///
-    /// This method will return any error encountered while serializing RTC state. This would be
-    /// extremely unexpected as the RTC is serialized into memory, and the internal buffer size
-    /// is validated using a unit test.
-    #[inline]
-    pub fn sram_and_rtc(&mut self) -> Result<&[u8], EncodeError> {
-        let Some(rtc) = &self.rtc else { return Ok(self.sram.as_ref()) };
-
-        self.serialization_buffer[..SRAM_LEN].copy_from_slice(self.sram.as_ref());
-        let rtc_length = bincode::encode_into_slice(
-            rtc,
-            &mut self.serialization_buffer[SRAM_LEN..],
-            bincode_config!(),
-        )?;
-
-        Ok(&self.serialization_buffer[..SRAM_LEN + rtc_length])
     }
 
     #[allow(clippy::match_same_arms)]
@@ -299,20 +260,5 @@ impl Spc7110 {
             }
             _ => {}
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rtc_serialization() {
-        let mut slice = [0; SERIALIZATION_BUFFER_LEN];
-
-        let rtc = Rtc4513::new();
-        let result = bincode::encode_into_slice(rtc, &mut slice[SRAM_LEN..], bincode_config!());
-        assert!(result.is_ok());
-        assert!(result.unwrap() < SERIALIZATION_BUFFER_LEN - SRAM_LEN);
     }
 }
