@@ -240,6 +240,7 @@ pub struct NesConfig {
     pub pal_black_border: bool,
     pub silence_ultrasonic_triangle_output: bool,
     pub audio_refresh_rate_adjustment: bool,
+    pub allow_opposing_joypad_inputs: bool,
 }
 
 impl NesConfig {
@@ -252,6 +253,7 @@ impl NesConfig {
             pal_black_border: self.pal_black_border,
             silence_ultrasonic_triangle_output: self.silence_ultrasonic_triangle_output,
             audio_refresh_rate_adjustment: self.audio_refresh_rate_adjustment,
+            allow_opposing_joypad_inputs: self.allow_opposing_joypad_inputs,
         }
     }
 }

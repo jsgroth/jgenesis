@@ -632,12 +632,28 @@ impl Bus {
         PpuBus(self)
     }
 
-    pub fn update_p1_joypad_state(&mut self, p1_joypad_state: NesJoypadState) {
-        self.io_registers.p1_joypad_state = p1_joypad_state;
+    pub fn update_p1_joypad_state(
+        &mut self,
+        p1_joypad_state: NesJoypadState,
+        allow_opposing_inputs: bool,
+    ) {
+        self.io_registers.p1_joypad_state = if allow_opposing_inputs {
+            p1_joypad_state
+        } else {
+            p1_joypad_state.sanitize_opposing_directions()
+        };
     }
 
-    pub fn update_p2_joypad_state(&mut self, p2_joypad_state: NesJoypadState) {
-        self.io_registers.p2_joypad_state = p2_joypad_state;
+    pub fn update_p2_joypad_state(
+        &mut self,
+        p2_joypad_state: NesJoypadState,
+        allow_opposing_inputs: bool,
+    ) {
+        self.io_registers.p2_joypad_state = if allow_opposing_inputs {
+            p2_joypad_state
+        } else {
+            p2_joypad_state.sanitize_opposing_directions()
+        };
     }
 
     pub fn tick(&mut self) {

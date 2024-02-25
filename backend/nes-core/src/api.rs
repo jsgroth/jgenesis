@@ -87,6 +87,10 @@ pub struct NesEmulatorConfig {
     pub silence_ultrasonic_triangle_output: bool,
     /// If true, adjust audio frequency so that audio sync times to 60Hz NTSC / 50Hz PAL
     pub audio_refresh_rate_adjustment: bool,
+    /// Whether to allow simultaneous left+right and up+down joypad inputs.
+    /// Some games exhibit severe glitches when opposing joypad directions are pressed
+    /// simultaneously, e.g. Zelda 2 and Battletoads
+    pub allow_opposing_joypad_inputs: bool,
 }
 
 #[derive(Debug, Error)]
@@ -303,6 +307,9 @@ impl EmulatorTrait for NesEmulator {
     {
         let prev_in_vblank = self.ppu_state.in_vblank();
 
+        self.bus.update_p1_joypad_state(inputs.p1, self.config.allow_opposing_joypad_inputs);
+        self.bus.update_p2_joypad_state(inputs.p2, self.config.allow_opposing_joypad_inputs);
+
         let timing_mode = self.bus.mapper().timing_mode();
 
         match timing_mode {
@@ -318,9 +325,6 @@ impl EmulatorTrait for NesEmulator {
             self.render_frame(renderer).map_err(NesError::Render)?;
 
             self.audio_resampler.output_samples(audio_output).map_err(NesError::Audio)?;
-
-            self.bus.update_p1_joypad_state(inputs.p1);
-            self.bus.update_p2_joypad_state(inputs.p2);
 
             if self.bus.mapper_mut().get_and_clear_ram_dirty_bit() {
                 let sram = self.bus.mapper().get_prg_ram();

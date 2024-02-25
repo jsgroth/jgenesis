@@ -170,6 +170,10 @@ struct Args {
     #[arg(long, default_value_t, help_heading = NES_OPTIONS_HEADING)]
     nes_pal_black_border: bool,
 
+    /// Allow opposing directional inputs (left+right or up+down)
+    #[arg(long, default_value_t, help_heading = NES_OPTIONS_HEADING)]
+    nes_allow_opposing_inputs: bool,
+
     /// Silence ultrasonic triangle channel output (less accurate but reduces audio popping)
     #[arg(long, default_value_t, help_heading = NES_OPTIONS_HEADING)]
     nes_silence_ultrasonic_triangle: bool,
@@ -670,6 +674,7 @@ fn run_nes(args: Args) -> anyhow::Result<()> {
         pal_black_border: args.nes_pal_black_border,
         silence_ultrasonic_triangle_output: args.nes_silence_ultrasonic_triangle,
         audio_refresh_rate_adjustment: args.nes_audio_60hz_hack,
+        allow_opposing_joypad_inputs: args.nes_allow_opposing_inputs,
     };
 
     let mut emulator = jgenesis_native_driver::create_nes(config.into())?;

@@ -23,6 +23,8 @@ pub struct NesAppConfig {
     silence_ultrasonic_triangle_output: bool,
     #[serde(default = "true_fn")]
     audio_60hz_hack: bool,
+    #[serde(default)]
+    allow_opposing_joypad_inputs: bool,
 }
 
 const fn true_fn() -> bool {
@@ -82,6 +84,7 @@ impl AppConfig {
             pal_black_border: self.nes.pal_black_border,
             silence_ultrasonic_triangle_output: self.nes.silence_ultrasonic_triangle_output,
             audio_refresh_rate_adjustment: self.nes.audio_60hz_hack,
+            allow_opposing_joypad_inputs: self.nes.allow_opposing_joypad_inputs,
         })
     }
 }
@@ -91,23 +94,26 @@ impl App {
         let mut open = true;
         Window::new("NES General Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.group(|ui| {
-                ui.set_enabled(self.emu_thread.status() != EmuThreadStatus::RunningNes);
+                ui.add_enabled_ui(self.emu_thread.status() != EmuThreadStatus::RunningNes, |ui| {
+                    ui.label("Timing / display mode");
 
-                ui.label("Timing / display mode");
-
-                ui.horizontal(|ui| {
-                    ui.radio_value(&mut self.config.nes.forced_timing_mode, None, "Auto");
-                    ui.radio_value(
-                        &mut self.config.nes.forced_timing_mode,
-                        Some(TimingMode::Ntsc),
-                        "NTSC",
-                    );
-                    ui.radio_value(
-                        &mut self.config.nes.forced_timing_mode,
-                        Some(TimingMode::Pal),
-                        "PAL",
-                    );
+                    ui.horizontal(|ui| {
+                        ui.radio_value(&mut self.config.nes.forced_timing_mode, None, "Auto");
+                        ui.radio_value(
+                            &mut self.config.nes.forced_timing_mode,
+                            Some(TimingMode::Ntsc),
+                            "NTSC",
+                        );
+                        ui.radio_value(
+                            &mut self.config.nes.forced_timing_mode,
+                            Some(TimingMode::Pal),
+                            "PAL",
+                        );
+                    });
                 });
+
+                ui.checkbox(&mut self.config.nes.allow_opposing_joypad_inputs, "Allow simultaneous opposing directional inputs")
+                    .on_hover_text("Some games exhibit major glitches when opposing directions are pressed simultaneously");
             });
         });
         if !open {
