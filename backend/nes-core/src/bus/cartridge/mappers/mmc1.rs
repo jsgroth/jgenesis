@@ -33,6 +33,7 @@ pub(crate) struct Mmc1 {
     chr_bank_0: u8,
     chr_bank_1: u8,
     prg_bank: u8,
+    prg_bank_upper_bit: u8,
 }
 
 impl Mmc1 {
@@ -49,7 +50,12 @@ impl Mmc1 {
             chr_bank_0: 0,
             chr_bank_1: 0,
             prg_bank: 0,
+            prg_bank_upper_bit: 0,
         }
+    }
+
+    fn full_prg_bank(&self) -> u8 {
+        self.prg_bank_upper_bit | self.prg_bank
     }
 }
 
@@ -68,32 +74,35 @@ impl MapperImpl<Mmc1> {
             0x8000..=0xFFFF => match self.data.prg_banking_mode {
                 PrgBankingMode::Switch32Kb => {
                     // In 32KB mode, treat the bank number as a 16KB bank number but ignore the lowest bit
-                    let prg_rom_addr =
-                        BankSizeKb::ThirtyTwo.to_absolute_address(self.data.prg_bank >> 1, address);
+                    let prg_rom_addr = BankSizeKb::ThirtyTwo
+                        .to_absolute_address(self.data.full_prg_bank() >> 1, address);
                     CpuMapResult::PrgROM(prg_rom_addr)
                 }
                 PrgBankingMode::Switch16KbFirstBankFixed => match address {
                     0x8000..=0xBFFF => {
-                        CpuMapResult::PrgROM((address & BankSizeKb::Sixteen.address_mask()).into())
+                        // If PRG ROM is 512KB, the upper bit affects the fixed bank
+                        let rom_addr = u32::from(address & BankSizeKb::Sixteen.address_mask())
+                            | (u32::from(self.data.prg_bank_upper_bit) << 18);
+                        CpuMapResult::PrgROM(rom_addr)
                     }
                     0xC000..=0xFFFF => {
-                        let prg_rom_addr =
-                            BankSizeKb::Sixteen.to_absolute_address(self.data.prg_bank, address);
+                        let prg_rom_addr = BankSizeKb::Sixteen
+                            .to_absolute_address(self.data.full_prg_bank(), address);
                         CpuMapResult::PrgROM(prg_rom_addr)
                     }
                     _ => unreachable!("match arm should be unreachable"),
                 },
                 PrgBankingMode::Switch16KbLastBankFixed => match address {
                     0x8000..=0xBFFF => {
-                        let prg_rom_addr =
-                            BankSizeKb::Sixteen.to_absolute_address(self.data.prg_bank, address);
+                        let prg_rom_addr = BankSizeKb::Sixteen
+                            .to_absolute_address(self.data.full_prg_bank(), address);
                         CpuMapResult::PrgROM(prg_rom_addr)
                     }
                     0xC000..=0xFFFF => {
-                        let prg_rom_addr = BankSizeKb::Sixteen.to_absolute_address_last_bank(
-                            self.cartridge.prg_rom.len() as u32,
-                            address,
-                        );
+                        // If PRG ROM is 512KB, the upper bit affects the fixed bank
+                        let last_bank = self.data.prg_bank_upper_bit | 0xF;
+                        let prg_rom_addr =
+                            BankSizeKb::Sixteen.to_absolute_address(last_bank, address);
                         CpuMapResult::PrgROM(prg_rom_addr)
                     }
                     _ => unreachable!("match arm should be unreachable"),
@@ -167,12 +176,26 @@ impl MapperImpl<Mmc1> {
                         }
                         0xA000..=0xBFFF => {
                             self.data.chr_bank_0 = shift_register;
+
+                            // Some MMC1 variants use bit 4 of CHR bank 0 as PRG ROM A18
+                            // Dragon Warrior 3 & 4 depend on this
+                            if self.cartridge.prg_rom.len() >= 512 * 1024 {
+                                self.data.prg_bank_upper_bit = shift_register & 0x10;
+                            }
                         }
                         0xC000..=0xDFFF => {
                             self.data.chr_bank_1 = shift_register;
+
+                            // Some MMC1 variants use bit 4 of CHR bank 1 as PRG ROM A18, but only
+                            // when not in 8KB mode
+                            if self.cartridge.prg_rom.len() >= 512 * 1024
+                                && self.data.chr_banking_mode != ChrBankingMode::Single8KbBank
+                            {
+                                self.data.prg_bank_upper_bit = shift_register & 0x10;
+                            }
                         }
                         0xE000..=0xFFFF => {
-                            self.data.prg_bank = shift_register;
+                            self.data.prg_bank = shift_register & 0x0F;
                         }
                         _ => unreachable!("match arm should be unreachable"),
                     }
