@@ -94,7 +94,7 @@ pub fn execute(gsu: &mut GraphicsSupportUnit, rom: &[u8], ram: &mut [u8]) -> u8 
 
     if gsu.stop_state == StopState::StopPending {
         // Stop GSU
-        gsu.stop_state = StopState::Running;
+        gsu.stop_state = StopState::None;
         gsu.go = false;
         gsu.irq = true;
 

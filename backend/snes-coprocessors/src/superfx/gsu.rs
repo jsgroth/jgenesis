@@ -206,7 +206,7 @@ impl GsuState {
 enum StopState {
     // GSU is running normally
     #[default]
-    Running,
+    None,
     // STOP instruction just executed, stop state has not been progressed yet
     StopExecuted,
     // Previous instruction was a STOP instruction and stop state was progressed post-execution
@@ -217,7 +217,7 @@ impl StopState {
     #[must_use]
     fn next(self) -> Self {
         match self {
-            Self::Running => Self::Running,
+            Self::None => Self::None,
             Self::StopExecuted | Self::StopPending => Self::StopPending,
         }
     }
