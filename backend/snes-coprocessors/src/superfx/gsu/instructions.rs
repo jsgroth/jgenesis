@@ -10,8 +10,9 @@ mod load;
 mod plot;
 
 use crate::superfx;
-use crate::superfx::gsu::{BusAccess, ClockSpeed, GraphicsSupportUnit};
+use crate::superfx::gsu::{BusAccess, ClockSpeed, GraphicsSupportUnit, StopState};
 
+use crate::superfx::gsu;
 pub use plot::PlotState;
 
 pub fn execute(gsu: &mut GraphicsSupportUnit, rom: &[u8], ram: &mut [u8]) -> u8 {
@@ -90,6 +91,20 @@ pub fn execute(gsu: &mut GraphicsSupportUnit, rom: &[u8], ram: &mut [u8]) -> u8 
     }
 
     gsu.plot_state.tick(cycles);
+
+    if gsu.stop_state == StopState::StopPending {
+        // Stop GSU
+        gsu.stop_state = StopState::Running;
+        gsu.go = false;
+        gsu.irq = true;
+
+        // Ensure the GSU starts execution from the right place if the SNES CPU starts it back up
+        // by writing GO=1
+        gsu.state.opcode_buffer = gsu::NOP_OPCODE;
+        gsu.r[15] = gsu.r[15].wrapping_sub(1);
+    } else {
+        gsu.stop_state = gsu.stop_state.next();
+    }
 
     cycles
 }
@@ -395,8 +410,7 @@ fn execute_opcode(
 
 fn stop(memory_type: MemoryType, gsu: &mut GraphicsSupportUnit) -> u8 {
     // STOP: Stop the GSU
-    gsu.go = false;
-    gsu.irq = true;
+    gsu.stop_state = StopState::StopExecuted;
 
     clear_prefix_flags(gsu);
     memory_type.access_cycles(gsu.clock_speed)

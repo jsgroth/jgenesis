@@ -202,6 +202,27 @@ impl GsuState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+enum StopState {
+    // GSU is running normally
+    #[default]
+    Running,
+    // STOP instruction just executed, stop state has not been progressed yet
+    StopExecuted,
+    // Previous instruction was a STOP instruction and stop state was progressed post-execution
+    StopPending,
+}
+
+impl StopState {
+    #[must_use]
+    fn next(self) -> Self {
+        match self {
+            Self::Running => Self::Running,
+            Self::StopExecuted | Self::StopPending => Self::StopPending,
+        }
+    }
+}
+
 const VERSION_REGISTER: u8 = 0x04;
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -212,6 +233,7 @@ pub struct GraphicsSupportUnit {
     rombr: u8,
     code_cache: CodeCache,
     state: GsuState,
+    stop_state: StopState,
     plot_state: PlotState,
     zero_flag: bool,
     carry_flag: bool,
@@ -250,6 +272,7 @@ impl GraphicsSupportUnit {
             rombr: 0,
             code_cache: CodeCache::new(),
             state: GsuState::new(),
+            stop_state: StopState::default(),
             plot_state: PlotState::new(),
             zero_flag: false,
             carry_flag: false,
@@ -263,8 +286,8 @@ impl GraphicsSupportUnit {
             dreg: 0,
             irq: false,
             irq_enabled: false,
-            multiplier_speed: MultiplierSpeed::Standard,
-            clock_speed: ClockSpeed::Slow,
+            multiplier_speed: MultiplierSpeed::default(),
+            clock_speed: ClockSpeed::default(),
             screen_base: 0,
             color: 0,
             color_gradient: ColorGradientColors::default(),
