@@ -1,5 +1,7 @@
+mod audio;
 mod debug;
 mod rewind;
+mod save;
 
 use crate::config;
 use crate::config::{
@@ -10,18 +12,21 @@ use crate::input::{
     GameBoyButton, GenesisButton, Hotkey, HotkeyMapResult, HotkeyMapper, InputMapper, Joysticks,
     MappableInputs, NesButton, SmsGgButton, SnesButton,
 };
+use crate::mainloop::audio::SdlAudioOutput;
 use crate::mainloop::debug::{DebugRenderFn, DebuggerWindow};
 use crate::mainloop::rewind::Rewinder;
+use crate::mainloop::save::FsSaveWriter;
+pub use audio::AudioError;
 use bincode::error::{DecodeError, EncodeError};
 use bincode::{Decode, Encode};
 use gb_core::api::{GameBoyEmulator, GameBoyEmulatorConfig, GameBoyLoadError};
 use gb_core::inputs::GameBoyInputs;
 use genesis_core::{GenesisEmulator, GenesisEmulatorConfig, GenesisInputs};
-use jgenesis_common::frontend::{AudioOutput, EmulatorTrait, PartialClone, SaveWriter, TickEffect};
+use jgenesis_common::frontend::{EmulatorTrait, PartialClone, TickEffect};
 use jgenesis_renderer::renderer::{RendererError, WgpuRenderer};
 use nes_core::api::{NesEmulator, NesEmulatorConfig, NesInitializationError};
 use nes_core::input::NesInputs;
-use sdl2::audio::{AudioQueue, AudioSpecDesired};
+pub use save::SaveWriteError;
 use sdl2::event::{Event, WindowEvent};
 use sdl2::render::TextureValueError;
 use sdl2::video::{FullscreenType, Window, WindowBuildError};
@@ -32,11 +37,10 @@ use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgInputs};
 use snes_core::api::{LoadError, SnesEmulator, SnesEmulatorConfig};
 use snes_core::input::SnesInputs;
-use std::collections::HashMap;
 use std::error::Error;
 use std::ffi::{NulError, OsStr};
-use std::fs::{File, OpenOptions};
-use std::io::{BufReader, BufWriter, Read, Write};
+use std::fs::File;
+use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::{fs, io, thread};
@@ -75,121 +79,6 @@ impl RendererExt for WgpuRenderer<Window> {
     }
 }
 
-#[derive(Debug, Error)]
-pub enum AudioError {
-    #[error("Error opening SDL2 audio queue: {0}")]
-    OpenQueue(String),
-    #[error("Error pushing audio samples to SDL2 audio queue: {0}")]
-    QueueAudio(String),
-}
-
-struct SdlAudioOutput {
-    audio_queue: AudioQueue<f32>,
-    audio_buffer: Vec<f32>,
-    audio_sync: bool,
-    internal_audio_buffer_len: u32,
-    audio_sync_threshold: u32,
-    audio_gain_multiplier: f64,
-    sample_count: u64,
-    speed_multiplier: u64,
-}
-
-impl SdlAudioOutput {
-    fn create_and_init<KC, JC>(
-        audio: &AudioSubsystem,
-        config: &CommonConfig<KC, JC>,
-    ) -> Result<Self, AudioError> {
-        let audio_queue = audio
-            .open_queue(
-                None,
-                &AudioSpecDesired {
-                    freq: Some(48000),
-                    channels: Some(2),
-                    samples: Some(config.audio_device_queue_size),
-                },
-            )
-            .map_err(AudioError::OpenQueue)?;
-        audio_queue.resume();
-
-        Ok(Self {
-            audio_queue,
-            audio_buffer: Vec::with_capacity(config.internal_audio_buffer_size as usize),
-            audio_sync: config.audio_sync,
-            internal_audio_buffer_len: config.internal_audio_buffer_size,
-            audio_sync_threshold: config.audio_sync_threshold,
-            audio_gain_multiplier: decibels_to_multiplier(config.audio_gain_db),
-            sample_count: 0,
-            speed_multiplier: 1,
-        })
-    }
-
-    fn reload_config<KC, JC>(&mut self, config: &CommonConfig<KC, JC>) -> Result<(), AudioError> {
-        self.audio_sync = config.audio_sync;
-        self.internal_audio_buffer_len = config.internal_audio_buffer_size;
-        self.audio_sync_threshold = config.audio_sync_threshold;
-        self.audio_gain_multiplier = decibels_to_multiplier(config.audio_gain_db);
-
-        if config.audio_device_queue_size != self.audio_queue.spec().samples {
-            log::info!("Recreating SDL audio queue with size {}", config.audio_device_queue_size);
-            self.audio_queue.pause();
-
-            let new_audio_queue = self
-                .audio_queue
-                .subsystem()
-                .open_queue(
-                    None,
-                    &AudioSpecDesired {
-                        freq: Some(48000),
-                        channels: Some(2),
-                        samples: Some(config.audio_device_queue_size),
-                    },
-                )
-                .map_err(AudioError::OpenQueue)?;
-            self.audio_queue = new_audio_queue;
-            self.audio_queue.resume();
-        }
-
-        Ok(())
-    }
-}
-
-fn decibels_to_multiplier(decibels: f64) -> f64 {
-    10.0_f64.powf(decibels / 20.0)
-}
-
-impl AudioOutput for SdlAudioOutput {
-    type Err = AudioError;
-
-    #[inline]
-    fn push_sample(&mut self, sample_l: f64, sample_r: f64) -> Result<(), Self::Err> {
-        self.sample_count += 1;
-        if self.sample_count % self.speed_multiplier != 0 {
-            return Ok(());
-        }
-
-        self.audio_buffer.push((sample_l * self.audio_gain_multiplier) as f32);
-        self.audio_buffer.push((sample_r * self.audio_gain_multiplier) as f32);
-
-        if self.audio_buffer.len() >= self.internal_audio_buffer_len as usize {
-            if self.audio_sync {
-                // Wait until audio queue is not full
-                while self.audio_queue.size() >= self.audio_sync_threshold {
-                    sleep(Duration::from_micros(250));
-                }
-            } else if self.audio_queue.size() >= self.audio_sync_threshold {
-                // Audio queue is full; drop samples
-                self.audio_buffer.clear();
-                return Ok(());
-            }
-
-            self.audio_queue.queue_audio(&self.audio_buffer).map_err(AudioError::QueueAudio)?;
-            self.audio_buffer.clear();
-        }
-
-        Ok(())
-    }
-}
-
 #[cfg(target_os = "windows")]
 fn sleep(duration: Duration) {
     // SAFETY: thread::sleep cannot panic, so timeEndPeriod will always be called after timeBeginPeriod.
@@ -203,124 +92,6 @@ fn sleep(duration: Duration) {
 #[cfg(not(target_os = "windows"))]
 fn sleep(duration: Duration) {
     thread::sleep(duration);
-}
-
-#[derive(Debug, Error)]
-pub enum SaveWriteError {
-    #[error("Error writing save file to '{path}': {source}")]
-    OpenFile {
-        path: String,
-        #[source]
-        source: io::Error,
-    },
-    #[error("Error serializing save data to '{path}': {source}")]
-    Encode {
-        path: String,
-        #[source]
-        source: EncodeError,
-    },
-    #[error("Error deserializing save data from '{path}': {source}")]
-    Decode {
-        path: String,
-        #[source]
-        source: DecodeError,
-    },
-}
-
-struct FsSaveWriter {
-    base_path: PathBuf,
-    extension_to_path: HashMap<String, PathBuf>,
-}
-
-impl FsSaveWriter {
-    fn new(path: PathBuf) -> Self {
-        Self { base_path: path, extension_to_path: HashMap::new() }
-    }
-
-    fn open_file(
-        &mut self,
-        extension: &str,
-        options: &mut OpenOptions,
-    ) -> Result<(File, &PathBuf), SaveWriteError> {
-        if !self.extension_to_path.contains_key(extension) {
-            let path = self.base_path.with_extension(extension);
-            self.extension_to_path.insert(extension.into(), path);
-        }
-
-        let path = &self.extension_to_path[extension];
-
-        let file = options.open(path).map_err(|source| SaveWriteError::OpenFile {
-            path: path.display().to_string(),
-            source,
-        })?;
-
-        Ok((file, path))
-    }
-}
-
-macro_rules! bincode_config {
-    () => {
-        bincode::config::standard()
-            .with_little_endian()
-            .with_fixed_int_encoding()
-            .with_limit::<{ 100 * 1024 * 1024 }>()
-    };
-}
-
-macro_rules! file_read_options {
-    () => {
-        File::options().read(true)
-    };
-}
-
-macro_rules! file_write_options {
-    () => {
-        File::options().write(true).create(true).truncate(true)
-    };
-}
-
-impl SaveWriter for FsSaveWriter {
-    type Err = SaveWriteError;
-
-    fn load_bytes(&mut self, extension: &str) -> Result<Vec<u8>, Self::Err> {
-        let (file, path) = self.open_file(extension, file_read_options!())?;
-        let mut reader = BufReader::new(file);
-        let mut bytes = Vec::new();
-        reader.read_to_end(&mut bytes).map_err(|source| SaveWriteError::OpenFile {
-            path: path.display().to_string(),
-            source,
-        })?;
-
-        Ok(bytes)
-    }
-
-    fn persist_bytes(&mut self, extension: &str, bytes: &[u8]) -> Result<(), Self::Err> {
-        let (file, path) = self.open_file(extension, file_write_options!())?;
-        let mut writer = BufWriter::new(file);
-        writer.write_all(bytes).map_err(|source| SaveWriteError::OpenFile {
-            path: path.display().to_string(),
-            source,
-        })?;
-
-        Ok(())
-    }
-
-    fn load_serialized<D: Decode>(&mut self, extension: &str) -> Result<D, Self::Err> {
-        let (file, path) = self.open_file(extension, file_read_options!())?;
-        let mut reader = BufReader::new(file);
-        bincode::decode_from_std_read(&mut reader, bincode_config!())
-            .map_err(|source| SaveWriteError::Decode { path: path.display().to_string(), source })
-    }
-
-    fn persist_serialized<E: Encode>(&mut self, extension: &str, data: E) -> Result<(), Self::Err> {
-        let (file, path) = self.open_file(extension, file_write_options!())?;
-        let mut writer = BufWriter::new(file);
-        bincode::encode_into_std_write(data, &mut writer, bincode_config!()).map_err(|source| {
-            SaveWriteError::Encode { path: path.display().to_string(), source }
-        })?;
-
-        Ok(())
-    }
 }
 
 struct HotkeyState<Emulator> {
@@ -386,7 +157,7 @@ impl<Inputs, Button, Config, Emulator: PartialClone>
         self.hotkey_state.fast_forward_multiplier = config.fast_forward_multiplier;
         // Reset speed multiplier in case the fast forward hotkey changed
         self.renderer.set_speed_multiplier(1);
-        self.audio_output.speed_multiplier = 1;
+        self.audio_output.set_speed_multiplier(1);
 
         self.hotkey_state
             .rewinder
@@ -1354,7 +1125,7 @@ where
                 match hotkey {
                     Hotkey::FastForward => {
                         args.renderer.set_speed_multiplier(1);
-                        args.audio_output.speed_multiplier = 1;
+                        args.audio_output.set_speed_multiplier(1);
                     }
                     Hotkey::Rewind => {
                         args.hotkey_state.rewinder.stop_rewinding();
@@ -1420,7 +1191,7 @@ where
         }
         Hotkey::FastForward => {
             args.renderer.set_speed_multiplier(args.hotkey_state.fast_forward_multiplier);
-            args.audio_output.speed_multiplier = args.hotkey_state.fast_forward_multiplier;
+            args.audio_output.set_speed_multiplier(args.hotkey_state.fast_forward_multiplier);
         }
         Hotkey::Rewind => {
             args.hotkey_state.rewinder.start_rewinding();
@@ -1465,6 +1236,17 @@ fn handle_window_event(win_event: WindowEvent, renderer: &mut WgpuRenderer<Windo
         _ => {}
     }
 }
+
+macro_rules! bincode_config {
+    () => {
+        bincode::config::standard()
+            .with_little_endian()
+            .with_fixed_int_encoding()
+            .with_limit::<{ 100 * 1024 * 1024 }>()
+    };
+}
+
+use bincode_config;
 
 fn save_state<E, P>(emulator: &E, path: P) -> NativeEmulatorResult<()>
 where
