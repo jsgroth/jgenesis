@@ -3,18 +3,35 @@
 ## Overview
 
 The crates can be broken up roughly into 5 categories:
-
 * Common libraries: `jgenesis-common`, `jgenesis-proc-macros`
 * CPU emulators: `z80-emu`, `m68000-emu`, `wdc65816-emu`, `spc700-emu`
 * Emulation backend: `smsgg-core`, `genesis-core`, `segacd-core`, `nes-core`, `snes-core`, `snes-coprocessors`, `gb-core`
 * Emulation frontend: `jgenesis-renderer`, `jgenesis-native-driver`, `jgenesis-cli`, `jgenesis-gui`, `jgenesis-web`
 * CPU emulator test harnesses: `z80-test-runner`, `m68000-test-runner`, `wdc65816-test-runner`, `spc700-test-runner`
 
+Repo structure:
+* Common library crates are at the top level of the project
+* `cpu/` contains the CPU emulator and test harness crates
+* `backend/` contains the emulation backend crates
+* `frontend/` contains the emulation frontend crates
+
+The CPU emulators are designed to be usable with any implementation of their respective bus traits. The test harnesses provide a bus implementation that maps every address to RAM (which is what the tests expect), while the various consoles provide implementations that emulate the console's memory map.
+
+For the most part, the backends interact with the frontends through trait implementations. The backends implement traits that enable frontend features including save states and rewind. The frontends provide trait implementations to the backends that enable the backends to display video frames, output audio samples, and persist any save files (e.g. for a cartridge with battery-backed SRAM). The frontends are also responsible for passing current emulated controller state to the backends (i.e. which buttons are currently pressed).
+
 ## Crates
+
+### `jgenesis-common`
+
+Contains traits that define the interface between the emulation backends and the emulation frontends, as well as some dependency-light common code that is used across many of the other crates (e.g. helper extension traits and audio resampling).
+
+### `jgenesis-proc-macros`
+
+Custom derive macros used across many of the other crates.
 
 ### `z80-emu`
 
-Instruction-based emulation core for the Zilog Z80 CPU, which is used in the Master System, the Game Gear, and the Genesis (and by proxy the Sega CD).
+Instruction-based emulation core for the Zilog Z80 CPU, which is used in the Master System, the Game Gear, and the Genesis.
 
 ### `m68000-emu`
 
@@ -30,7 +47,7 @@ Cycle-based emulation core for the Sony SPC700 CPU, which is used in the SNES as
 
 ### `smsgg-core`
 
-Emulation core for the Sega Master System and Game Gear, which are extremely similar hardware-wise.
+Emulation core for the Sega Master System and Game Gear. The core is shared because there are very few hardware differences between the two.
 
 ### `genesis-core`
 
@@ -46,23 +63,15 @@ Emulation core for the Nintendo Entertainment System (NES) / Famicom.
 
 ### `snes-core`
 
-Emulation core for the Super Nintendo Entertainment System (SNES) / Super Famicom.
+Emulation core for the Super Nintendo Entertainment System (SNES) / Super Famicom. Depends on `snes-coprocessors` to emulate cartridges that contain coprocessors.
 
 ### `snes-coprocessors`
 
-Emulation for coprocessors used in SNES cartridges.
+Emulation for coprocessors used in SNES cartridges. Coprocessor cartridge implementations expose methods such as reading a memory address, writing a memory address, and ticking the internal processor (for cartridges that contain a CPU or DSP).
 
 ### `gb-core`
 
 Emulation core for the Game Boy and Game Boy Color.
-
-### `jgenesis-common`
-
-Contains traits that define the interface between the emulation backends and the emulation frontends, as well as some dependency-light common code that is used across many of the other crates (e.g. helper extension traits).
-
-### `jgenesis-proc-macros`
-
-Custom derive macros used across many of the other crates.
 
 ### `jgenesis-renderer`
 
