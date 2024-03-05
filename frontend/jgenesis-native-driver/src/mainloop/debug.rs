@@ -62,7 +62,7 @@ impl<Emulator> DebuggerWindow<Emulator> {
         video: &VideoSubsystem,
         render_fn: Box<DebugRenderFn<Emulator>>,
     ) -> Result<Self, DebuggerError> {
-        let window = video.window("Memory Viewer", 800, 700).resizable().build()?;
+        let window = video.window("Memory Viewer", 800, 700).resizable().metal_view().build()?;
         let (width, height) = window.size();
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {

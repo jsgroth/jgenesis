@@ -1077,7 +1077,7 @@ fn create_window(
     height: u32,
     fullscreen: bool,
 ) -> NativeEmulatorResult<Window> {
-    let mut window = video.window(title, width, height).resizable().build()?;
+    let mut window = video.window(title, width, height).metal_view().resizable().build()?;
 
     if fullscreen {
         window
