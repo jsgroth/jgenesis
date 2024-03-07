@@ -188,6 +188,20 @@ impl Mos6502 {
         self.registers.pc
     }
 
+    #[must_use]
+    pub fn is_mid_instruction(&self) -> bool {
+        !self.state.instruction_complete
+    }
+
+    #[must_use]
+    pub fn registers(&self) -> &CpuRegisters {
+        &self.registers
+    }
+
+    pub fn set_registers(&mut self, registers: CpuRegisters) {
+        self.registers = registers;
+    }
+
     /// Return whether the CPU has frozen from a KIL instruction.
     #[inline]
     #[must_use]

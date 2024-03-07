@@ -2585,6 +2585,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "mos6502-test-runner"
+version = "0.7.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "env_logger",
+ "log",
+ "mos6502-emu",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "naga"
 version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

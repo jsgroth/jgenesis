@@ -721,14 +721,17 @@ impl<'a> BusInterface for CpuBus<'a> {
         }
     }
 
+    #[inline]
     fn nmi(&self) -> bool {
         self.0.interrupt_lines.nmi_triggered()
     }
 
+    #[inline]
     fn acknowledge_nmi(&mut self) {
         self.0.interrupt_lines.clear_nmi_triggered();
     }
 
+    #[inline]
     fn irq(&self) -> bool {
         self.0.interrupt_lines.irq_triggered()
     }

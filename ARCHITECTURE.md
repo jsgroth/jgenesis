@@ -7,7 +7,7 @@ The crates can be broken up roughly into 5 categories:
 * CPU emulators: `z80-emu`, `m68000-emu`, `mos6502-emu`, `wdc65816-emu`, `spc700-emu`
 * Emulation backend: `smsgg-core`, `genesis-core`, `segacd-core`, `nes-core`, `snes-core`, `snes-coprocessors`, `gb-core`
 * Emulation frontend: `jgenesis-renderer`, `jgenesis-native-driver`, `jgenesis-cli`, `jgenesis-gui`, `jgenesis-web`
-* CPU emulator test harnesses: `z80-test-runner`, `m68000-test-runner`, `wdc65816-test-runner`, `spc700-test-runner`
+* CPU emulator test harnesses: `z80-test-runner`, `m68000-test-runner`, `mos6502-test-runner`, `wdc65816-test-runner`, `spc700-test-runner`
 
 Repo structure:
 * Common library crates are at the top level of the project
@@ -39,7 +39,7 @@ Instruction-based emulation core for the Motorola 68000 CPU, which is used in th
 
 ### `mos6502-emu`
 
-Cycle-based emulation core for the MOS 6502 CPU, which is used in the NES.
+Cycle-based emulation core for the NES version of the MOS 6502 CPU.
 
 ### `wdc65816-emu`
 
@@ -100,6 +100,10 @@ Test harness to test `z80-emu` against Z80 test suites that were assembled for o
 ### `m68000-test-runner`
 
 Test harness to test `m68000-emu` against [TomHarte's 68000 test suite](https://github.com/TomHarte/ProcessorTests/tree/main/680x0/68000/v1).
+
+### `mos6502-test-runner`
+
+Test harness to test `mos6502-emu` against [TomHarte's NES 6502 test suite](https://github.com/TomHarte/ProcessorTests/tree/main/nes6502).
 
 ### `wdc65816-test-runner`
 
