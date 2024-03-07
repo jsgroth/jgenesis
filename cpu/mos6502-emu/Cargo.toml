@@ -1,0 +1,14 @@
+[package]
+name = "mos6502-emu"
+version = "0.7.1"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+jgenesis-common = { path = "../../jgenesis-common" }
+
+bincode = { workspace = true, features = ["derive"] }
+
+[lints]
+workspace = true

@@ -41,6 +41,7 @@ use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::PartialClone;
+use mos6502_emu::bus::BusInterface;
 use std::array;
 
 pub const CPU_RAM_START: u16 = 0x0000;
@@ -59,10 +60,6 @@ pub const CPU_IO_TEST_MODE_END: u16 = 0x401F;
 
 pub const CPU_CARTRIDGE_START: u16 = 0x4020;
 pub const CPU_CARTRIDGE_END: u16 = 0xFFFF;
-
-pub const CPU_NMI_VECTOR: u16 = 0xFFFA;
-pub const CPU_RESET_VECTOR: u16 = 0xFFFC;
-pub const CPU_IRQ_VECTOR: u16 = 0xFFFE;
 
 #[derive(Debug, Clone, Copy, Default, Encode, Decode)]
 struct PendingCpuWrite {
@@ -693,8 +690,9 @@ impl Bus {
 /// A view of the bus containing methods that are appropriate for use by the CPU and APU.
 pub struct CpuBus<'a>(&'a mut Bus);
 
-impl<'a> CpuBus<'a> {
-    pub fn read_address(&mut self, address: u16) -> u8 {
+impl<'a> BusInterface for CpuBus<'a> {
+    #[inline]
+    fn read(&mut self, address: u16) -> u8 {
         match address {
             address @ CPU_RAM_START..=CPU_RAM_END => {
                 let ram_address = address & CPU_RAM_MASK;
@@ -715,6 +713,28 @@ impl<'a> CpuBus<'a> {
         }
     }
 
+    #[inline]
+    #[allow(clippy::manual_assert)]
+    fn write(&mut self, address: u16, value: u8) {
+        if self.0.pending_write.replace(PendingCpuWrite { address, value }).is_some() {
+            panic!("Attempted to write twice in the same cycle");
+        }
+    }
+
+    fn nmi(&self) -> bool {
+        self.0.interrupt_lines.nmi_triggered()
+    }
+
+    fn acknowledge_nmi(&mut self) {
+        self.0.interrupt_lines.clear_nmi_triggered();
+    }
+
+    fn irq(&self) -> bool {
+        self.0.interrupt_lines.irq_triggered()
+    }
+}
+
+impl<'a> CpuBus<'a> {
     fn apply_write(&mut self, address: u16, value: u8) {
         match address {
             address @ CPU_RAM_START..=CPU_RAM_END => {
@@ -734,17 +754,6 @@ impl<'a> CpuBus<'a> {
                 self.0.mapper.write_cpu_address(address, value);
             }
         }
-    }
-
-    #[allow(clippy::manual_assert)]
-    pub fn write_address(&mut self, address: u16, value: u8) {
-        if self.0.pending_write.replace(PendingCpuWrite { address, value }).is_some() {
-            panic!("Attempted to write twice in the same cycle");
-        }
-    }
-
-    pub fn interrupt_lines(&mut self) -> &mut InterruptLines {
-        &mut self.0.interrupt_lines
     }
 
     fn read_ppu_register_address(&mut self, relative_addr: usize) -> u8 {
@@ -874,6 +883,10 @@ impl<'a> CpuBus<'a> {
 
     pub fn get_io_registers_mut(&mut self) -> &mut IoRegisters {
         &mut self.0.io_registers
+    }
+
+    pub fn interrupt_lines(&mut self) -> &mut InterruptLines {
+        &mut self.0.interrupt_lines
     }
 }
 

@@ -2577,6 +2577,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mos6502-emu"
+version = "0.7.1"
+dependencies = [
+ "bincode",
+ "jgenesis-common",
+]
+
+[[package]]
 name = "naga"
 version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2667,6 +2675,7 @@ dependencies = [
  "jgenesis-common",
  "jgenesis-proc-macros",
  "log",
+ "mos6502-emu",
  "rand",
  "serde",
  "thiserror",

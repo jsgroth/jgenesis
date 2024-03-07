@@ -4,7 +4,7 @@
 
 The crates can be broken up roughly into 5 categories:
 * Common libraries: `jgenesis-common`, `jgenesis-proc-macros`
-* CPU emulators: `z80-emu`, `m68000-emu`, `wdc65816-emu`, `spc700-emu`
+* CPU emulators: `z80-emu`, `m68000-emu`, `mos6502-emu`, `wdc65816-emu`, `spc700-emu`
 * Emulation backend: `smsgg-core`, `genesis-core`, `segacd-core`, `nes-core`, `snes-core`, `snes-coprocessors`, `gb-core`
 * Emulation frontend: `jgenesis-renderer`, `jgenesis-native-driver`, `jgenesis-cli`, `jgenesis-gui`, `jgenesis-web`
 * CPU emulator test harnesses: `z80-test-runner`, `m68000-test-runner`, `wdc65816-test-runner`, `spc700-test-runner`
@@ -36,6 +36,10 @@ Instruction-based emulation core for the Zilog Z80 CPU, which is used in the Mas
 ### `m68000-emu`
 
 Instruction-based emulation core for the Motorola 68000 CPU, which is used in the Genesis and the Sega CD.
+
+### `mos6502-emu`
+
+Cycle-based emulation core for the MOS 6502 CPU, which is used in the NES.
 
 ### `wdc65816-emu`
 

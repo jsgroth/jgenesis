@@ -2,7 +2,7 @@ use crate::apu::ApuState;
 use crate::audio::AudioResampler;
 use crate::bus::cartridge::CartridgeFileError;
 use crate::bus::{cartridge, Bus};
-use crate::cpu::{CpuRegisters, CpuState};
+use crate::cpu::CpuState;
 use crate::graphics::TimingModeGraphicsExt;
 use crate::input::NesInputs;
 use crate::ppu::PpuState;
@@ -18,6 +18,7 @@ use std::mem;
 use thiserror::Error;
 
 pub use graphics::PatternTable;
+use mos6502_emu::bus::BusInterface;
 
 // The number of master clock ticks to run in one `Emulator::tick` call
 const PAL_MASTER_CLOCK_TICKS: u32 = 80;
@@ -142,8 +143,7 @@ impl NesEmulator {
 
         let mut bus = Bus::from_cartridge(mapper);
 
-        let cpu_registers = CpuRegisters::create(&mut bus.cpu());
-        let cpu_state = CpuState::new(cpu_registers);
+        let cpu_state = CpuState::new(&mut bus.cpu());
         let ppu_state = PpuState::new(timing_mode);
         let mut apu_state = ApuState::new(timing_mode);
 
@@ -381,7 +381,7 @@ impl EmulatorTrait for NesEmulator {
 
 fn init_apu(apu_state: &mut ApuState, bus: &mut Bus, config: NesEmulatorConfig) {
     // Write 0x00 to JOY2 to reset the frame counter
-    bus.cpu().write_address(0x4017, 0x00);
+    bus.cpu().write(0x4017, 0x00);
     bus.tick();
 
     // Run the APU for 10 cycles
