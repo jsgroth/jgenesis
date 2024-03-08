@@ -1,8 +1,8 @@
 mod mappers;
 
 use crate::bus::cartridge::mappers::{
-    Axrom, BandaiFcg, Bnrom, ChrType, Cnrom, Gxrom, Mmc1, Mmc2, Mmc3, Mmc5, Namco163, Namco175,
-    NametableMirroring, Nrom, PpuMapResult, Sunsoft, Uxrom, Vrc4, Vrc6, Vrc7,
+    Action52, Axrom, BandaiFcg, Bnrom, ChrType, Cnrom, Gxrom, Mmc1, Mmc2, Mmc3, Mmc5, Namco163,
+    Namco175, NametableMirroring, Nrom, PpuMapResult, Sunsoft, Uxrom, Vrc4, Vrc6, Vrc7,
 };
 use bincode::de::{BorrowDecoder, Decoder};
 use bincode::enc::Encoder;
@@ -161,6 +161,7 @@ where
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Encode, Decode, PartialClone, MatchEachVariantMacro)]
 pub(crate) enum Mapper {
+    Action52(#[partial_clone(partial)] MapperImpl<Action52>),
     Axrom(#[partial_clone(partial)] MapperImpl<Axrom>),
     BandaiFcg(#[partial_clone(partial)] MapperImpl<BandaiFcg>),
     Bnrom(#[partial_clone(partial)] MapperImpl<Bnrom>),
@@ -184,6 +185,7 @@ impl Mapper {
     /// Retrieve the mapper's user-readable name. Only used for logging output.
     pub(crate) fn name(&self) -> &'static str {
         match self {
+            Self::Action52(..) => "Action 52",
             Self::Axrom(..) => "AxROM",
             Self::BandaiFcg(bandai_fcg) => bandai_fcg.name(),
             Self::Bnrom(..) => "BNROM / NINA-001",
@@ -367,6 +369,12 @@ impl Mapper {
     pub(crate) fn move_rom_from(&mut self, other: &mut Self) {
         let other_cartridge = match_each_variant!(other, mapper => &mut mapper.cartridge);
         match_each_variant!(self, mapper => mapper.cartridge.move_rom_from(other_cartridge));
+    }
+
+    pub(crate) fn reset(&mut self) {
+        if let Self::Action52(action52) = self {
+            action52.reset();
+        }
     }
 }
 
@@ -678,6 +686,7 @@ pub(crate) fn from_ines_file(
                 header.nametable_mirroring,
             ),
         }),
+        228 => Mapper::Action52(MapperImpl { cartridge, data: Action52::new(header.prg_rom_size) }),
         _ => {
             return Err(CartridgeFileError::UnsupportedMapper {
                 mapper_number: header.mapper_number,

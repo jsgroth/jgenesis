@@ -1,3 +1,4 @@
+mod action52;
 mod bandai;
 mod konami;
 mod mmc1;
@@ -13,6 +14,7 @@ use crate::bus::cartridge::Cartridge;
 use bincode::{Decode, Encode};
 
 use crate::bus;
+pub(crate) use action52::Action52;
 pub(crate) use bandai::BandaiFcg;
 pub(crate) use konami::{Vrc4, Vrc6, Vrc7};
 pub(crate) use mmc1::Mmc1;
