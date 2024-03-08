@@ -1,7 +1,9 @@
+use bincode::{Decode, Encode};
+
+use jgenesis_common::num::{GetBit, SignBit};
+
 use crate::bus::BusInterface;
 use crate::{CpuRegisters, Mos6502, StatusFlags, StatusReadContext, IRQ_VECTOR, NMI_VECTOR};
-use bincode::{Decode, Encode};
-use jgenesis_common::num::GetBit;
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct InstructionState {
@@ -867,11 +869,45 @@ fn add(accumulator: u8, value: u8, flags: &mut StatusFlags) -> u8 {
     result
 }
 
+fn add_bcd(accumulator: u8, value: u8, flags: &mut StatusFlags) -> u8 {
+    // Formulas from http://www.6502.org/tutorials/decimal_mode.html#A which correctly handle
+    // invalid values and undocumented behaviors
+
+    let existing_carry: u8 = flags.carry.into();
+
+    let mut al = (accumulator & 0x0F) + (value & 0x0F) + existing_carry;
+    if al >= 0x0A {
+        al = 0x10 | ((al + 0x06) & 0x0F);
+    }
+
+    let mut a = u16::from(accumulator & 0xF0) + u16::from(value & 0xF0) + u16::from(al);
+    if a >= 0xA0 {
+        a += 0x60;
+    }
+
+    let s = i16::from((accumulator & 0xF0) as i8) + i16::from((value & 0xF0) as i8) + i16::from(al);
+    let overflow = !(-128..128).contains(&s);
+
+    let result = a as u8;
+
+    // The 6502 calculates the Z flag based on the binary arithmetic result
+    flags.zero = accumulator.wrapping_add(value).wrapping_add(existing_carry) == 0;
+    flags.carry = a >= 0x0100;
+    flags.negative = s.bit(7);
+    flags.overflow = overflow;
+
+    result
+}
+
 // ADC
 macro_rules! impl_add_with_carry {
     ($name:ident, $addressing_mode:tt) => {
         impl_read_fn!($name, $addressing_mode, |operand, registers| {
-            registers.accumulator = add(registers.accumulator, operand, &mut registers.status);
+            registers.accumulator = if registers.in_decimal_mode() {
+                add_bcd(registers.accumulator, operand, &mut registers.status)
+            } else {
+                add(registers.accumulator, operand, &mut registers.status)
+            };
         });
     };
 }
@@ -1026,11 +1062,52 @@ fn subtract(accumulator: u8, value: u8, flags: &mut StatusFlags) -> u8 {
     result
 }
 
+fn subtract_bcd(accumulator: u8, value: u8, flags: &mut StatusFlags) -> u8 {
+    // Formulas from http://www.6502.org/tutorials/decimal_mode.html#A which correctly handle
+    // invalid values and undocumented behaviors
+
+    let existing_borrow: u8 = (!flags.carry).into();
+
+    let mut al = u16::from(accumulator & 0x0F)
+        .wrapping_sub(u16::from(value & 0x0F))
+        .wrapping_sub(u16::from(existing_borrow));
+    if al.sign_bit() {
+        al = (al.wrapping_sub(0x06) & 0x0F).wrapping_sub(0x10);
+    }
+
+    let mut a =
+        u16::from(accumulator & 0xF0).wrapping_sub(u16::from(value & 0xF0)).wrapping_add(al);
+    if a.sign_bit() {
+        a = a.wrapping_sub(0x60);
+    }
+
+    // Carry and overflow flags are set based on binary arithmetic
+    let borrow = u16::from(accumulator) < u16::from(value) + u16::from(existing_borrow);
+    let bit_6_borrow = accumulator & 0x7F < (value & 0x7F) + existing_borrow;
+    let overflow = bit_6_borrow != borrow;
+
+    let result = a as u8;
+
+    // Z and N flags are set based on binary arithmetic
+    let binary_result = accumulator.wrapping_sub(value).wrapping_sub(existing_borrow);
+
+    flags.zero = binary_result == 0;
+    flags.negative = binary_result.sign_bit();
+    flags.carry = !borrow;
+    flags.overflow = overflow;
+
+    result
+}
+
 // SBC
 macro_rules! impl_subtract_with_carry {
     ($name:ident, $addressing_mode:tt) => {
         impl_read_fn!($name, $addressing_mode, |operand, registers| {
-            registers.accumulator = subtract(registers.accumulator, operand, &mut registers.status);
+            registers.accumulator = if registers.in_decimal_mode() {
+                subtract_bcd(registers.accumulator, operand, &mut registers.status)
+            } else {
+                subtract(registers.accumulator, operand, &mut registers.status)
+            };
         });
     };
 }
@@ -1230,7 +1307,11 @@ macro_rules! impl_rotate_right_add {
     ($name:ident, $addressing_mode:tt) => {
         impl_modify_fn!($name, $addressing_mode, |operand, registers| {
             let rotated = rotate_right(operand, &mut registers.status);
-            registers.accumulator = add(registers.accumulator, rotated, &mut registers.status);
+            registers.accumulator = if registers.in_decimal_mode() {
+                add_bcd(registers.accumulator, rotated, &mut registers.status)
+            } else {
+                add(registers.accumulator, rotated, &mut registers.status)
+            };
             rotated
         });
     };
@@ -1268,8 +1349,11 @@ macro_rules! impl_increment_subtract {
     ($name:ident, $addressing_mode:tt) => {
         impl_modify_fn!($name, $addressing_mode, |operand, registers| {
             let incremented = increment(operand, &mut registers.status);
-            registers.accumulator =
-                subtract(registers.accumulator, incremented, &mut registers.status);
+            registers.accumulator = if registers.in_decimal_mode() {
+                subtract_bcd(registers.accumulator, incremented, &mut registers.status)
+            } else {
+                subtract(registers.accumulator, incremented, &mut registers.status)
+            };
             incremented
         });
     };

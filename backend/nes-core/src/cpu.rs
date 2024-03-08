@@ -33,7 +33,7 @@ pub struct CpuState {
 
 impl CpuState {
     pub fn new(bus: &mut CpuBus<'_>) -> Self {
-        let mos6502 = Mos6502::new(bus);
+        let mos6502 = Mos6502::new_nes(bus);
 
         Self { mos6502, state: State::default() }
     }

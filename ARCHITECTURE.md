@@ -39,7 +39,7 @@ Instruction-based emulation core for the Motorola 68000 CPU, which is used in th
 
 ### `mos6502-emu`
 
-Cycle-based emulation core for the NES version of the MOS 6502 CPU.
+Cycle-based emulation core for the MOS 6502 CPU. Supports both the stock 6502 and the NES 6502.
 
 ### `wdc65816-emu`
 

@@ -103,11 +103,24 @@ pub struct CpuRegisters {
     pub status: StatusFlags,
     pub pc: u16,
     pub sp: u8,
+    pub enable_decimal_mode: bool,
 }
 
 impl CpuRegisters {
-    fn new(reset_vector: u16) -> Self {
-        Self { accumulator: 0, x: 0, y: 0, status: StatusFlags::new(), pc: reset_vector, sp: 0xFD }
+    fn new(reset_vector: u16, enable_decimal_mode: bool) -> Self {
+        Self {
+            accumulator: 0,
+            x: 0,
+            y: 0,
+            status: StatusFlags::new(),
+            pc: reset_vector,
+            sp: 0xFD,
+            enable_decimal_mode,
+        }
+    }
+
+    fn in_decimal_mode(&self) -> bool {
+        self.enable_decimal_mode && self.status.decimal
     }
 }
 
@@ -123,14 +136,27 @@ const RESET_VECTOR: u16 = 0xFFFC;
 const IRQ_VECTOR: u16 = 0xFFFE;
 
 impl Mos6502 {
-    /// Create a new 6502 with the PC pointing to the RESET vector, read from $FFFC.
-    pub fn new<B: BusInterface>(bus: &mut B) -> Self {
+    /// Create a new standard 6502 with the PC pointing to the RESET vector, read from $FFFC.
+    ///
+    /// In the standard 6502, the decimal mode flag works as intended and toggles BCD arithmetic.
+    pub fn new_standard<B: BusInterface>(bus: &mut B) -> Self {
+        Self::new(bus, true)
+    }
+
+    /// Create a new NES 6502 with the PC pointing to the RESET vector, read from $FFFC.
+    ///
+    /// In the NES 6502, the decimal mode flag does nothing.
+    pub fn new_nes<B: BusInterface>(bus: &mut B) -> Self {
+        Self::new(bus, false)
+    }
+
+    fn new<B: BusInterface>(bus: &mut B, enable_decimal_mode: bool) -> Self {
         let reset_vector_lsb = bus.read(RESET_VECTOR);
         let reset_vector_msb = bus.read(RESET_VECTOR + 1);
         let reset_vector = u16::from_le_bytes([reset_vector_lsb, reset_vector_msb]);
 
         Self {
-            registers: CpuRegisters::new(reset_vector),
+            registers: CpuRegisters::new(reset_vector, enable_decimal_mode),
             state: InstructionState::default(),
             frozen: false,
         }

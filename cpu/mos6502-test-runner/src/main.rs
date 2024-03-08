@@ -100,6 +100,10 @@ struct Args {
     /// Directory containing JSON tests
     #[arg(long, short = 'd')]
     dir_path: String,
+
+    /// Emulate the NES 6502 instead of the standard 6502
+    #[arg(long, short = 'n', default_value_t)]
+    nes: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -121,7 +125,9 @@ fn main() -> anyhow::Result<()> {
                 bus.write(address, value);
             }
 
-            let mut cpu = Mos6502::new(&mut bus);
+            let mut cpu =
+                if args.nes { Mos6502::new_nes(&mut bus) } else { Mos6502::new_standard(&mut bus) };
+
             cpu.set_registers(CpuRegisters {
                 accumulator: test.initial.a,
                 x: test.initial.x,
@@ -129,6 +135,7 @@ fn main() -> anyhow::Result<()> {
                 status: StatusFlags::from_byte(test.initial.p),
                 pc: test.initial.pc,
                 sp: test.initial.s,
+                ..cpu.registers().clone()
             });
 
             bus.cycles.clear();
