@@ -467,19 +467,11 @@ impl Args {
                 left: self.input_p1_left.as_ref().map(keyboard_input).or(default.p1.left),
                 right: self.input_p1_right.as_ref().map(keyboard_input).or(default.p1.right),
                 down: self.input_p1_down.as_ref().map(keyboard_input).or(default.p1.down),
-                button_1: self
-                    .input_p1_button_1
-                    .as_ref()
-                    .map(keyboard_input)
-                    .or(default.p1.button_1),
-                button_2: self
-                    .input_p1_button_2
-                    .as_ref()
-                    .map(keyboard_input)
-                    .or(default.p1.button_2),
-                pause: self.input_p1_start.as_ref().map(keyboard_input).or(default.p1.pause),
+                button1: self.input_p1_button_1.as_ref().map(keyboard_input).or(default.p1.button1),
+                button2: self.input_p1_button_2.as_ref().map(keyboard_input).or(default.p1.button2),
             },
             p2: default.p2,
+            pause: self.input_p1_start.as_ref().map(keyboard_input).or(default.pause),
         }
     }
 
@@ -710,7 +702,7 @@ fn run_snes(args: Args) -> anyhow::Result<()> {
 
 fn run_gb(args: Args) -> anyhow::Result<()> {
     let config = GameBoyConfig {
-        common: args.common_config(GameBoyInputConfig::default(), GameBoyInputConfig::default()),
+        common: args.common_config(GameBoyInputConfig::default_p1(), GameBoyInputConfig::default()),
         force_dmg_mode: args.force_dmg_mode,
         pretend_to_be_gba: args.pretend_to_be_gba,
         aspect_ratio: args.gb_aspect_ratio,

@@ -8,10 +8,7 @@ use crate::config::{
     CommonConfig, GameBoyConfig, GenesisConfig, NesConfig, SegaCdConfig, SmsGgConfig, SnesConfig,
     WindowSize,
 };
-use crate::input::{
-    GameBoyButton, GenesisButton, Hotkey, HotkeyMapResult, HotkeyMapper, InputMapper, Joysticks,
-    MappableInputs, NesButton, SmsGgButton, SnesButton,
-};
+use crate::input::{Hotkey, HotkeyMapResult, HotkeyMapper, InputMapper, Joysticks, MappableInputs};
 use crate::mainloop::audio::SdlAudioOutput;
 use crate::mainloop::debug::{DebugRenderFn, DebuggerWindow};
 use crate::mainloop::rewind::Rewinder;
@@ -20,12 +17,12 @@ pub use audio::AudioError;
 use bincode::error::{DecodeError, EncodeError};
 use bincode::{Decode, Encode};
 use gb_core::api::{GameBoyEmulator, GameBoyEmulatorConfig, GameBoyLoadError};
-use gb_core::inputs::GameBoyInputs;
+use gb_core::inputs::{GameBoyButton, GameBoyInputs};
 use genesis_core::{GenesisEmulator, GenesisEmulatorConfig, GenesisInputs};
 use jgenesis_common::frontend::{EmulatorTrait, PartialClone, TickEffect};
 use jgenesis_renderer::renderer::{RendererError, WgpuRenderer};
 use nes_core::api::{NesEmulator, NesEmulatorConfig, NesInitializationError};
-use nes_core::input::NesInputs;
+use nes_core::input::{NesButton, NesInputs};
 pub use save::SaveWriteError;
 use sdl2::event::{Event, WindowEvent};
 use sdl2::render::TextureValueError;
@@ -34,9 +31,9 @@ use sdl2::{AudioSubsystem, EventPump, IntegerOrSdlError, JoystickSubsystem, Sdl,
 use segacd_core::api::{SegaCdEmulator, SegaCdEmulatorConfig, SegaCdLoadError, SegaCdLoadResult};
 use segacd_core::CdRomFileFormat;
 use smsgg_core::psg::PsgVersion;
-use smsgg_core::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgInputs};
+use smsgg_core::{SmsGgButton, SmsGgEmulator, SmsGgEmulatorConfig, SmsGgInputs};
 use snes_core::api::{SnesEmulator, SnesEmulatorConfig, SnesLoadError};
-use snes_core::input::SnesInputs;
+use snes_core::input::{SnesButton, SnesInputs};
 use std::error::Error;
 use std::ffi::{NulError, OsStr};
 use std::fs::File;
@@ -218,6 +215,7 @@ impl NativeSmsGgEmulator {
             config.common.keyboard_inputs,
             config.common.joystick_inputs,
             config.common.axis_deadzone,
+            &SmsGgButton::ALL,
         ) {
             log::error!("Error reloading input config: {err}");
         }
@@ -246,6 +244,7 @@ impl NativeGenesisEmulator {
             config.common.keyboard_inputs,
             config.common.joystick_inputs,
             config.common.axis_deadzone,
+            &GenesisButton::ALL,
         ) {
             log::error!("Error reloading input config: {err}");
         }
@@ -271,6 +270,7 @@ impl NativeSegaCdEmulator {
             config.genesis.common.keyboard_inputs,
             config.genesis.common.joystick_inputs,
             config.genesis.common.axis_deadzone,
+            &GenesisButton::ALL,
         ) {
             log::error!("Error reloading input config: {err}");
         }
@@ -339,6 +339,7 @@ impl NativeNesEmulator {
             config.common.keyboard_inputs,
             config.common.joystick_inputs,
             config.common.axis_deadzone,
+            &NesButton::ALL,
         ) {
             log::error!("Error reloading input config: {err}");
         }
@@ -363,7 +364,7 @@ impl NativeSnesEmulator {
         self.emulator.reload_config(&emulator_config);
         self.config = emulator_config;
 
-        if let Err(err) = self.input_mapper.reload_config(
+        if let Err(err) = self.input_mapper.reload_config_snes(
             config.p2_controller_type,
             config.common.keyboard_inputs,
             config.common.joystick_inputs,
@@ -397,6 +398,7 @@ impl NativeGameBoyEmulator {
             config.common.keyboard_inputs,
             config.common.joystick_inputs,
             config.common.axis_deadzone,
+            &GameBoyButton::ALL,
         ) {
             log::error!("Error reloading input config: {err}");
         }
@@ -673,11 +675,12 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
     let renderer =
         pollster::block_on(WgpuRenderer::new(window, Window::size, config.common.renderer_config))?;
     let audio_output = SdlAudioOutput::create_and_init(&audio, &config.common)?;
-    let input_mapper = InputMapper::new_smsgg(
+    let input_mapper = InputMapper::new(
         joystick,
         config.common.keyboard_inputs.clone(),
         config.common.joystick_inputs.clone(),
         config.common.axis_deadzone,
+        &SmsGgButton::ALL,
     )?;
     let hotkey_mapper = HotkeyMapper::from_config(&config.common.hotkeys)?;
 
@@ -740,11 +743,12 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
     let renderer =
         pollster::block_on(WgpuRenderer::new(window, Window::size, config.common.renderer_config))?;
     let audio_output = SdlAudioOutput::create_and_init(&audio, &config.common)?;
-    let input_mapper = InputMapper::new_genesis(
+    let input_mapper = InputMapper::new(
         joystick,
         config.common.keyboard_inputs.clone(),
         config.common.joystick_inputs.clone(),
         config.common.axis_deadzone,
+        &GenesisButton::ALL,
     )?;
     let hotkey_mapper = HotkeyMapper::from_config(&config.common.hotkeys)?;
 
@@ -821,11 +825,12 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
         config.genesis.common.renderer_config,
     ))?;
     let audio_output = SdlAudioOutput::create_and_init(&audio, &config.genesis.common)?;
-    let input_mapper = InputMapper::new_genesis(
+    let input_mapper = InputMapper::new(
         joystick,
         config.genesis.common.keyboard_inputs.clone(),
         config.genesis.common.joystick_inputs.clone(),
         config.genesis.common.axis_deadzone,
+        &GenesisButton::ALL,
     )?;
     let hotkey_mapper = HotkeyMapper::from_config(&config.genesis.common.hotkeys)?;
 
@@ -888,11 +893,12 @@ pub fn create_nes(config: Box<NesConfig>) -> NativeEmulatorResult<NativeNesEmula
         pollster::block_on(WgpuRenderer::new(window, Window::size, config.common.renderer_config))?;
     let audio_output = SdlAudioOutput::create_and_init(&audio, &config.common)?;
 
-    let input_mapper = InputMapper::new_nes(
+    let input_mapper = InputMapper::new(
         joystick,
         config.common.keyboard_inputs.clone(),
         config.common.joystick_inputs.clone(),
         config.common.axis_deadzone,
+        &NesButton::ALL,
     )?;
     let hotkey_mapper = HotkeyMapper::from_config(&config.common.hotkeys)?;
 
@@ -1018,11 +1024,12 @@ pub fn create_gb(config: Box<GameBoyConfig>) -> NativeEmulatorResult<NativeGameB
         pollster::block_on(WgpuRenderer::new(window, Window::size, config.common.renderer_config))?;
     let audio_output = SdlAudioOutput::create_and_init(&audio, &config.common)?;
 
-    let input_mapper = InputMapper::new_gb(
+    let input_mapper = InputMapper::new(
         joystick,
         config.common.keyboard_inputs.clone(),
         config.common.joystick_inputs.clone(),
         config.common.axis_deadzone,
+        &GameBoyButton::ALL,
     )?;
     let hotkey_mapper = HotkeyMapper::from_config(&config.common.hotkeys)?;
 
@@ -1247,6 +1254,7 @@ macro_rules! bincode_config {
 }
 
 use bincode_config;
+use genesis_core::input::GenesisButton;
 
 fn save_state<E, P>(emulator: &E, path: P) -> NativeEmulatorResult<()>
 where

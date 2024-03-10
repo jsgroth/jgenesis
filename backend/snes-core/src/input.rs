@@ -3,9 +3,23 @@ use jgenesis_common::input::Player;
 use jgenesis_proc_macros::define_controller_inputs;
 
 define_controller_inputs! {
-    button_ident: SnesButton,
+    button_ident: SnesControllerButton,
     joypad_ident: SnesJoypadState,
     buttons: [Up, Left, Right, Down, A, B, X, Y, L, R, Start, Select],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SuperScopeButton {
+    Fire,
+    Cursor,
+    Pause,
+    TurboToggle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SnesButton {
+    Controller(SnesControllerButton),
+    SuperScope(SuperScopeButton),
 }
 
 impl SnesJoypadState {
@@ -43,6 +57,29 @@ impl Default for SuperScopeState {
     }
 }
 
+impl SuperScopeState {
+    #[inline]
+    pub fn set_button(&mut self, button: SuperScopeButton, pressed: bool) {
+        match button {
+            SuperScopeButton::Fire => self.fire = pressed,
+            SuperScopeButton::Cursor => self.cursor = pressed,
+            SuperScopeButton::Pause => self.pause = pressed,
+            SuperScopeButton::TurboToggle => {
+                if pressed {
+                    self.turbo = !self.turbo;
+                }
+            }
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn with_button(mut self, button: SuperScopeButton, pressed: bool) -> Self {
+        self.set_button(button, pressed);
+        self
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum SnesInputDevice {
     Controller(SnesJoypadState),
@@ -64,9 +101,15 @@ pub struct SnesInputs {
 impl SnesInputs {
     #[inline]
     pub fn set_button(&mut self, button: SnesButton, player: Player, pressed: bool) {
-        match player {
-            Player::One => self.p1.set_button(button, pressed),
-            Player::Two => match &mut self.p2 {
+        match (button, player) {
+            (SnesButton::SuperScope(button), _) => match &mut self.p2 {
+                SnesInputDevice::SuperScope(super_scope_state) => {
+                    super_scope_state.set_button(button, pressed);
+                }
+                SnesInputDevice::Controller(_) => {}
+            },
+            (SnesButton::Controller(button), Player::One) => self.p1.set_button(button, pressed),
+            (SnesButton::Controller(button), Player::Two) => match &mut self.p2 {
                 SnesInputDevice::Controller(joypad_state) => {
                     joypad_state.set_button(button, pressed);
                 }

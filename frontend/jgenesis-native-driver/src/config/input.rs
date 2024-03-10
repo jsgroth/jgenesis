@@ -1,7 +1,15 @@
-use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay, EnumFromStr};
+use std::fmt::{Display, Formatter};
+
 use sdl2::keyboard::Keycode;
 use serde::{Deserialize, Serialize};
-use std::fmt::{Display, Formatter};
+
+use gb_core::inputs::GameBoyButton;
+use genesis_core::input::GenesisButton;
+use jgenesis_common::input::Player;
+use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay, EnumFromStr};
+use nes_core::input::NesButton;
+use smsgg_core::SmsGgButton;
+use snes_core::input::{SnesControllerButton, SuperScopeButton};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AxisDirection {
@@ -109,22 +117,27 @@ impl Display for KeyboardOrMouseInput {
     }
 }
 
-macro_rules! key_input {
-    ($key:ident) => {
-        Some(KeyboardInput { keycode: Keycode::$key.name() })
-    };
+pub trait InputConfig {
+    type Button;
+    type Input;
+
+    fn get_input(&self, button: Self::Button, player: Player) -> Option<&Self::Input>;
+
+    fn set_input(&mut self, button: Self::Button, player: Player, input: Self::Input);
+
+    fn clear_input(&mut self, button: Self::Button, player: Player);
 }
 
-macro_rules! define_input_config {
+macro_rules! define_controller_config {
     (
-        controller_cfg_name: $controller_cfg_name:ident,
-        input_cfg_name: $input_cfg_name:ident,
-        buttons: [$($button:ident: default $keycode:ident),* $(,)?] $(,)?
+        controller_cfg: $controller_cfg_name:ident,
+        button: $button_t:ident,
+        fields: [$($field:ident: button $button:ident default $keycode:ident),* $(,)?]
     ) => {
         #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
         pub struct $controller_cfg_name<Input> {
             $(
-                pub $button: Option<Input>,
+                pub $field: Option<Input>,
             )*
         }
 
@@ -132,150 +145,252 @@ macro_rules! define_input_config {
             fn default() -> Self {
                 Self {
                     $(
-                        $button: None,
+                        $field: None,
                     )*
                 }
             }
         }
 
+        impl<Input> $controller_cfg_name<Input> {
+            #[inline]
+            #[must_use]
+            #[allow(unreachable_patterns)]
+            pub fn get_button(&self, button: $button_t) -> Option<&Input> {
+                match button {
+                    $(
+                        $button_t::$button => self.$field.as_ref(),
+                    )*
+                    _ => None,
+                }
+            }
+
+            #[inline]
+            #[allow(unreachable_patterns)]
+            pub fn set_button(&mut self, button: $button_t, input: Input) {
+                match button {
+                    $(
+                        $button_t::$button => self.$field = Some(input),
+                    )*
+                    _ => {}
+                }
+            }
+
+            #[inline]
+            #[allow(unreachable_patterns)]
+            pub fn clear_button(&mut self, button: $button_t) {
+                match button {
+                    $(
+                        $button_t::$button => self.$field = None,
+                    )*
+                    _ => {}
+                }
+            }
+        }
+
+        impl $controller_cfg_name<KeyboardInput> {
+            #[must_use]
+            pub fn default_p1() -> Self {
+                Self {
+                    $(
+                        $field: Some(KeyboardInput { keycode: Keycode::$keycode.name() }),
+                    )*
+                }
+            }
+        }
+    }
+}
+
+macro_rules! define_input_config {
+    (
+        input_cfg: $input_cfg:ident,
+        controller_cfg: $controller_cfg:ident,
+        button: $button_t:ident
+        $(, console_button: $console_btn_field:ident: button $console_btn:ident default $console_btn_default:ident),*
+        $(, extra: $extra_field:ident: $extra_field_t:ident),*
+        $(,)?
+    ) => {
         #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
-        pub struct $input_cfg_name<Input> {
+        pub struct $input_cfg<Input> {
             #[indent_nested]
-            pub p1: $controller_cfg_name<Input>,
+            pub p1: $controller_cfg<Input>,
             #[indent_nested]
-            pub p2: $controller_cfg_name<Input>,
+            pub p2: $controller_cfg<Input>,
+            $(pub $console_btn_field: Option<Input>,)*
+            $(pub $extra_field: $extra_field_t,)?
         }
 
-        impl Default for $input_cfg_name<KeyboardInput> {
+        impl Default for $input_cfg<KeyboardInput> {
             fn default() -> Self {
                 Self {
-                    p1: $controller_cfg_name {
-                        $(
-                            $button: key_input!($keycode),
-                        )*
-                    },
-                    p2: $controller_cfg_name::default(),
+                    p1: $controller_cfg::default_p1(),
+                    p2: $controller_cfg::default(),
+                    $($console_btn_field: Some(KeyboardInput { keycode: Keycode::$console_btn_default.name() }),)*
+                    $($extra_field: $extra_field_t::default(),)?
                 }
             }
         }
 
-        impl Default for $input_cfg_name<JoystickInput> {
+        impl Default for $input_cfg<JoystickInput> {
             fn default() -> Self {
                 Self {
-                    p1: $controller_cfg_name::default(),
-                    p2: $controller_cfg_name::default(),
+                    p1: $controller_cfg::default(),
+                    p2: $controller_cfg::default(),
+                    $($console_btn_field: None,)*
+                    $($extra_field: $extra_field_t::default(),)?
+                }
+            }
+        }
+
+        impl<Input> InputConfig for $input_cfg<Input> {
+            type Button = $button_t;
+            type Input = Input;
+
+            #[inline]
+            #[must_use]
+            fn get_input(&self, button: $button_t, player: Player) -> Option<&Input> {
+                match (button, player) {
+                    $(
+                        ($button_t::$console_btn, _) => self.$console_btn_field.as_ref(),
+                    )*
+                    (_, Player::One) => self.p1.get_button(button),
+                    (_, Player::Two) => self.p2.get_button(button),
+                }
+            }
+
+            #[inline]
+            fn set_input(&mut self, button: $button_t, player: Player, input: Input) {
+                match (button, player) {
+                    $(
+                        ($button_t::$console_btn, _) => self.$console_btn_field = Some(input),
+                    )*
+                    (_, Player::One) => self.p1.set_button(button, input),
+                    (_, Player::Two) => self.p2.set_button(button, input),
+                }
+            }
+
+            #[inline]
+            fn clear_input(&mut self, button: $button_t, player: Player) {
+                match (button, player) {
+                    $(
+                        ($button_t::$console_btn, _) => self.$console_btn_field = None,
+                    )*
+                    (_, Player::One) => self.p1.clear_button(button),
+                    (_, Player::Two) => self.p2.clear_button(button),
                 }
             }
         }
     }
 }
 
-define_input_config! {
-    controller_cfg_name: SmsGgControllerConfig,
-    input_cfg_name: SmsGgInputConfig,
-    buttons: [
-        up: default Up,
-        left: default Left,
-        right: default Right,
-        down: default Down,
-        button_1: default S,
-        button_2: default A,
-        pause: default Return,
-    ],
-}
+define_controller_config!(controller_cfg: SmsGgControllerConfig, button: SmsGgButton, fields: [
+    up: button Up default Up,
+    left: button Left default Left,
+    right: button Right default Right,
+    down: button Down default Down,
+    button1: button Button1 default S,
+    button2: button Button2 default A,
+]);
 
-define_input_config! {
-    controller_cfg_name: GenesisControllerConfig,
-    input_cfg_name: GenesisInputConfig,
-    buttons: [
-        up: default Up,
-        left: default Left,
-        right: default Right,
-        down: default Down,
-        a: default A,
-        b: default S,
-        c: default D,
-        x: default Q,
-        y: default W,
-        z: default E,
-        start: default Return,
-        mode: default RShift,
-    ],
-}
+define_input_config!(
+    input_cfg: SmsGgInputConfig,
+    controller_cfg: SmsGgControllerConfig,
+    button: SmsGgButton,
+    console_button: pause: button Pause default Return,
+);
 
-define_input_config! {
-    controller_cfg_name: NesControllerConfig,
-    input_cfg_name: NesInputConfig,
-    buttons: [
-        up: default Up,
-        left: default Left,
-        right: default Right,
-        down: default Down,
-        a: default A,
-        b: default S,
-        start: default Return,
-        select: default RShift,
-    ],
-}
+define_controller_config!(controller_cfg: GenesisControllerConfig, button: GenesisButton, fields: [
+    up: button Up default Up,
+    left: button Left default Left,
+    right: button Right default Right,
+    down: button Down default Down,
+    a: button A default A,
+    b: button B default S,
+    c: button C default D,
+    x: button X default Q,
+    y: button Y default W,
+    z: button Z default E,
+    start: button Start default Return,
+    mode: button Mode default RShift,
+]);
 
-define_input_config! {
-    controller_cfg_name: SnesControllerConfig,
-    input_cfg_name: SnesInputConfig,
-    buttons: [
-        up: default Up,
-        left: default Left,
-        right: default Right,
-        down: default Down,
-        a: default S,
-        b: default X,
-        x: default A,
-        y: default Z,
-        l: default D,
-        r: default C,
-        start: default Return,
-        select: default RShift,
-    ],
-}
+define_input_config!(input_cfg: GenesisInputConfig, controller_cfg: GenesisControllerConfig, button: GenesisButton);
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
-pub struct GameBoyInputConfig<Input> {
-    pub up: Option<Input>,
-    pub left: Option<Input>,
-    pub right: Option<Input>,
-    pub down: Option<Input>,
-    pub a: Option<Input>,
-    pub b: Option<Input>,
-    pub start: Option<Input>,
-    pub select: Option<Input>,
-}
+define_controller_config!(controller_cfg: NesControllerConfig, button: NesButton, fields: [
+    up: button Up default Up,
+    left: button Left default Left,
+    right: button Right default Right,
+    down: button Down default Down,
+    a: button A default A,
+    b: button B default S,
+    start: button Start default Return,
+    select: button Select default RShift,
+]);
 
-impl Default for GameBoyInputConfig<KeyboardInput> {
-    fn default() -> Self {
-        Self {
-            up: key_input!(Up),
-            left: key_input!(Left),
-            right: key_input!(Right),
-            down: key_input!(Down),
-            a: key_input!(A),
-            b: key_input!(S),
-            start: key_input!(Return),
-            select: key_input!(RShift),
+define_input_config!(input_cfg: NesInputConfig, controller_cfg: NesControllerConfig, button: NesButton);
+
+define_controller_config!(controller_cfg: SnesControllerConfig, button: SnesControllerButton, fields: [
+    up: button Up default Up,
+    left: button Left default Left,
+    right: button Right default Right,
+    down: button Down default Down,
+    a: button A default S,
+    b: button B default X,
+    x: button X default A,
+    y: button Y default Z,
+    l: button L default D,
+    r: button R default C,
+    start: button Start default Return,
+    select: button Select default RShift,
+]);
+
+define_input_config!(
+    input_cfg: SnesInputConfig,
+    controller_cfg: SnesControllerConfig,
+    button: SnesControllerButton,
+    extra: super_scope: SuperScopeConfig,
+);
+
+define_controller_config!(controller_cfg: GameBoyInputConfig, button: GameBoyButton, fields: [
+    up: button Up default Up,
+    left: button Left default Left,
+    right: button Right default Right,
+    down: button Down default Down,
+    a: button A default A,
+    b: button B default S,
+    start: button Start default Return,
+    select: button Select default RShift,
+]);
+
+impl<Input> InputConfig for GameBoyInputConfig<Input> {
+    type Button = GameBoyButton;
+    type Input = Input;
+
+    #[inline]
+    #[must_use]
+    fn get_input(&self, button: Self::Button, player: Player) -> Option<&Self::Input> {
+        if player != Player::One {
+            return None;
         }
+
+        self.get_button(button)
     }
-}
 
-impl Default for GameBoyInputConfig<JoystickInput> {
-    fn default() -> Self {
-        Self {
-            up: None,
-            left: None,
-            right: None,
-            down: None,
-            a: None,
-            b: None,
-            start: None,
-            select: None,
+    #[inline]
+    fn set_input(&mut self, button: Self::Button, player: Player, input: Self::Input) {
+        if player != Player::One {
+            return;
         }
+
+        self.set_button(button, input);
+    }
+
+    #[inline]
+    fn clear_input(&mut self, button: Self::Button, player: Player) {
+        if player != Player::One {
+            return;
+        }
+
+        self.clear_button(button);
     }
 }
 
@@ -294,6 +409,39 @@ impl Default for SuperScopeConfig {
             cursor: Some(KeyboardOrMouseInput::MouseRight),
             pause: Some(KeyboardOrMouseInput::MouseMiddle),
             turbo_toggle: Some(KeyboardOrMouseInput::Keyboard("T".into())),
+        }
+    }
+}
+
+impl SuperScopeConfig {
+    #[inline]
+    #[must_use]
+    pub fn get_button(&self, button: SuperScopeButton) -> Option<&KeyboardOrMouseInput> {
+        match button {
+            SuperScopeButton::Fire => self.fire.as_ref(),
+            SuperScopeButton::Cursor => self.cursor.as_ref(),
+            SuperScopeButton::Pause => self.pause.as_ref(),
+            SuperScopeButton::TurboToggle => self.turbo_toggle.as_ref(),
+        }
+    }
+
+    #[inline]
+    pub fn set_button(&mut self, button: SuperScopeButton, input: KeyboardOrMouseInput) {
+        match button {
+            SuperScopeButton::Fire => self.fire = Some(input),
+            SuperScopeButton::Cursor => self.cursor = Some(input),
+            SuperScopeButton::Pause => self.pause = Some(input),
+            SuperScopeButton::TurboToggle => self.turbo_toggle = Some(input),
+        }
+    }
+
+    #[inline]
+    pub fn clear_button(&mut self, button: SuperScopeButton) {
+        match button {
+            SuperScopeButton::Fire => self.fire = None,
+            SuperScopeButton::Cursor => self.cursor = None,
+            SuperScopeButton::Pause => self.pause = None,
+            SuperScopeButton::TurboToggle => self.turbo_toggle = None,
         }
     }
 }
@@ -349,6 +497,12 @@ impl Default for HotkeyConfig {
             open_debugger: default_open_debugger(),
         }
     }
+}
+
+macro_rules! key_input {
+    ($key:ident) => {
+        Some(KeyboardInput { keycode: Keycode::$key.name() })
+    };
 }
 
 fn default_quit() -> Option<KeyboardInput> {
