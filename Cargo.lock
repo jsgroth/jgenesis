@@ -2226,6 +2226,7 @@ dependencies = [
 name = "jgenesis-proc-macros"
 version = "0.7.1"
 dependencies = [
+ "bincode",
  "jgenesis-common",
  "proc-macro2",
  "quote",

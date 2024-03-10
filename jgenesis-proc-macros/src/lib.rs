@@ -1,6 +1,7 @@
 mod config;
 mod encode;
 mod enums;
+mod inputs;
 mod partialclone;
 
 use proc_macro::TokenStream;
@@ -297,4 +298,66 @@ pub fn partial_clone(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(MatchEachVariantMacro)]
 pub fn match_each_variant_macro(input: TokenStream) -> TokenStream {
     enums::match_each_variant_macro(input)
+}
+
+/// Define a button enum, joypad state struct, and console inputs struct.
+///
+/// As an example, this will define an enum `NesButton`, a struct `NesJoypadState`, and a struct
+/// `NesInputs`:
+///
+/// ```
+/// use jgenesis_common::input::Player;
+/// use jgenesis_proc_macros::define_controller_inputs;
+///
+/// define_controller_inputs! {
+///     button_ident: NesButton,
+///     joypad_ident: NesJoypadState,
+///     inputs_ident: NesInputs,
+///     buttons: [Up, Left, Right, Down, A, B, Start, Select],
+///     inputs: {
+///         p1: (Player One),
+///         p2: (Player Two),
+///     },
+/// }
+///
+/// let mut inputs = NesInputs {
+///     p1: NesJoypadState {
+///         up: true,
+///         left: false,
+///         right: false,
+///         down: false,
+///         a: false,
+///         b: true,
+///         start: false,
+///         select: false,
+///     },
+///     p2: NesJoypadState::default(),
+/// };
+/// inputs = inputs.with_button(NesButton::A, Player::Two, true);
+/// assert!(inputs.p2.a);
+/// ```
+///
+/// The `NesButton` enum will have one variant per button in `buttons`.
+///
+/// The `NesJoypadState` struct will have a `bool` field for each button, with the field name equal
+/// to the lowercased variant name. It will also have the following two methods defined for setting
+/// fields from button enum values:
+/// * `set_button(&mut self, button: NesButton, pressed: bool)`
+/// * `with_button(self, button: NesButton, pressed: bool) -> Self`
+///
+/// The `NesInputs` struct will have two fields: `p1` and `p2`, both of type `NesJoypadState`. It
+/// will also have the following two methods defined for setting fields from button/player values:
+/// * `set_button(&mut self, button: NesButton, player: Player, pressed: bool)`
+/// * `with_button(self, button: NesButton, player: Player, pressed: bool) -> Self`
+///
+/// `inputs_ident` is optional. If it is omitted then no inputs struct will be defined.
+///
+/// All fields and methods will have `pub` visibility.
+///
+/// All enums and structs will implement the following traits: `Debug`, `Clone`, `Copy`, `PartialEq`,
+/// `Eq`, `Default`, `bincode::Encode`, and `bincode::Decode`. The button enum will additionally
+/// implement the traits `Display` and `FromStr`.
+#[proc_macro]
+pub fn define_controller_inputs(input: TokenStream) -> TokenStream {
+    inputs::define_controller_inputs(input)
 }
