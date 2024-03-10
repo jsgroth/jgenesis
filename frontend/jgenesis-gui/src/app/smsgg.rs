@@ -67,8 +67,8 @@ impl AppConfig {
         Box::new(SmsGgConfig {
             common: self.common_config(
                 path,
-                self.inputs.to_smsgg_keyboard_config(),
-                self.inputs.to_smsgg_joystick_config(),
+                self.inputs.smsgg_keyboard.clone(),
+                self.inputs.smsgg_joystick.clone(),
             ),
             vdp_version,
             psg_version: self.smsgg.psg_version,

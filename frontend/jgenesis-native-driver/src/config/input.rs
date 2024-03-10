@@ -1,7 +1,8 @@
 use std::fmt::{Display, Formatter};
 
 use sdl2::keyboard::Keycode;
-use serde::{Deserialize, Serialize};
+use serde::de::Error;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use gb_core::inputs::GameBoyButton;
 use genesis_core::input::GenesisButton;
@@ -73,7 +74,9 @@ impl Display for JoystickDeviceId {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct JoystickInput {
+    #[serde(flatten)]
     pub device: JoystickDeviceId,
+    #[serde(flatten)]
     pub action: JoystickAction,
 }
 
@@ -83,7 +86,7 @@ impl Display for JoystickInput {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyboardInput {
     pub keycode: String,
 }
@@ -91,6 +94,41 @@ pub struct KeyboardInput {
 impl Display for KeyboardInput {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.keycode)
+    }
+}
+
+impl Serialize for KeyboardInput {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.keycode)
+    }
+}
+
+struct KeyboardInputVisitor;
+
+impl<'de> serde::de::Visitor<'de> for KeyboardInputVisitor {
+    type Value = KeyboardInput;
+
+    fn expecting(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "KeyboardInput string")
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: Error,
+    {
+        Ok(KeyboardInput { keycode: v.into() })
+    }
+}
+
+impl<'de> Deserialize<'de> for KeyboardInput {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_str(KeyboardInputVisitor)
     }
 }
 
@@ -457,27 +495,30 @@ pub enum SnesControllerType {
 
 #[derive(Debug, Clone, PartialEq, Eq, ConfigDisplay, Serialize, Deserialize)]
 pub struct HotkeyConfig {
-    #[serde(default = "default_quit")]
+    #[serde(default = "default_quit", deserialize_with = "deserialize_quit")]
     pub quit: Option<KeyboardInput>,
-    #[serde(default = "default_toggle_fullscreen")]
+    #[serde(
+        default = "default_toggle_fullscreen",
+        deserialize_with = "deserialize_toggle_fullscreen"
+    )]
     pub toggle_fullscreen: Option<KeyboardInput>,
-    #[serde(default = "default_save_state")]
+    #[serde(default = "default_save_state", deserialize_with = "deserialize_save_state")]
     pub save_state: Option<KeyboardInput>,
-    #[serde(default = "default_load_state")]
+    #[serde(default = "default_load_state", deserialize_with = "deserialize_load_state")]
     pub load_state: Option<KeyboardInput>,
-    #[serde(default = "default_soft_reset")]
+    #[serde(default = "default_soft_reset", deserialize_with = "deserialize_soft_reset")]
     pub soft_reset: Option<KeyboardInput>,
-    #[serde(default = "default_hard_reset")]
+    #[serde(default = "default_hard_reset", deserialize_with = "deserialize_hard_reset")]
     pub hard_reset: Option<KeyboardInput>,
-    #[serde(default = "default_pause")]
+    #[serde(default = "default_pause", deserialize_with = "deserialize_pause")]
     pub pause: Option<KeyboardInput>,
-    #[serde(default = "default_step_frame")]
+    #[serde(default = "default_step_frame", deserialize_with = "deserialize_step_frame")]
     pub step_frame: Option<KeyboardInput>,
-    #[serde(default = "default_fast_forward")]
+    #[serde(default = "default_fast_forward", deserialize_with = "deserialize_fast_forward")]
     pub fast_forward: Option<KeyboardInput>,
-    #[serde(default = "default_rewind")]
+    #[serde(default = "default_rewind", deserialize_with = "deserialize_rewind")]
     pub rewind: Option<KeyboardInput>,
-    #[serde(default = "default_open_debugger")]
+    #[serde(default = "default_open_debugger", deserialize_with = "deserialize_open_debugger")]
     pub open_debugger: Option<KeyboardInput>,
 }
 
@@ -548,3 +589,26 @@ fn default_rewind() -> Option<KeyboardInput> {
 fn default_open_debugger() -> Option<KeyboardInput> {
     key_input!(Quote)
 }
+
+macro_rules! impl_deserialize_or_default {
+    ($name:ident, $default_fn:ident) => {
+        fn $name<'de, D>(deserializer: D) -> Result<Option<KeyboardInput>, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            Ok(Option::<KeyboardInput>::deserialize(deserializer).unwrap_or_else(|_| $default_fn()))
+        }
+    };
+}
+
+impl_deserialize_or_default!(deserialize_quit, default_quit);
+impl_deserialize_or_default!(deserialize_toggle_fullscreen, default_toggle_fullscreen);
+impl_deserialize_or_default!(deserialize_save_state, default_save_state);
+impl_deserialize_or_default!(deserialize_load_state, default_load_state);
+impl_deserialize_or_default!(deserialize_soft_reset, default_soft_reset);
+impl_deserialize_or_default!(deserialize_hard_reset, default_hard_reset);
+impl_deserialize_or_default!(deserialize_pause, default_pause);
+impl_deserialize_or_default!(deserialize_step_frame, default_step_frame);
+impl_deserialize_or_default!(deserialize_fast_forward, default_fast_forward);
+impl_deserialize_or_default!(deserialize_rewind, default_rewind);
+impl_deserialize_or_default!(deserialize_open_debugger, default_open_debugger);

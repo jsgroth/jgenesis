@@ -356,7 +356,8 @@ pub fn match_each_variant_macro(input: TokenStream) -> TokenStream {
 ///
 /// All enums and structs will implement the following traits: `Debug`, `Clone`, `Copy`, `PartialEq`,
 /// `Eq`, `Default`, `bincode::Encode`, and `bincode::Decode`. The button enum will additionally
-/// implement the traits `Display` and `FromStr`.
+/// implement the traits `Display` and `FromStr`, and it will have an `ALL` associated constant
+/// containing all enum values.
 #[proc_macro]
 pub fn define_controller_inputs(input: TokenStream) -> TokenStream {
     inputs::define_controller_inputs(input)

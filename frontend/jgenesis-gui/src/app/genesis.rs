@@ -57,8 +57,8 @@ impl AppConfig {
         Box::new(GenesisConfig {
             common: self.common_config(
                 path,
-                self.inputs.to_genesis_keyboard_config(),
-                self.inputs.to_genesis_joystick_config(),
+                self.inputs.genesis_keyboard.clone(),
+                self.inputs.genesis_joystick.clone(),
             ),
             p1_controller_type: self.inputs.genesis_p1_type,
             p2_controller_type: self.inputs.genesis_p2_type,

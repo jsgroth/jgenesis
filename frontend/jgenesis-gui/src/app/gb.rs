@@ -32,7 +32,7 @@ impl AppConfig {
         Box::new(GameBoyConfig {
             common: self.common_config(
                 path,
-                self.inputs.to_gb_keyboard_config(),
+                self.inputs.gb_keyboard.clone(),
                 self.inputs.gb_joystick.clone(),
             ),
             force_dmg_mode: self.game_boy.force_dmg_mode,
