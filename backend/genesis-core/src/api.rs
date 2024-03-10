@@ -400,7 +400,7 @@ impl EmulatorTrait for GenesisEmulator {
 
             self.audio_resampler.output_samples(audio_output).map_err(GenesisError::Audio)?;
 
-            self.input.set_inputs(inputs);
+            self.input.set_inputs(*inputs);
 
             if self.memory.is_external_ram_persistent()
                 && self.memory.get_and_clear_external_ram_dirty()

@@ -198,8 +198,8 @@ impl MappableInputs<SmsGgButton> for SmsGgInputs {
             SmsGgButton::Left(..) => joypad_state.left = value,
             SmsGgButton::Right(..) => joypad_state.right = value,
             SmsGgButton::Down(..) => joypad_state.down = value,
-            SmsGgButton::Button1(..) => joypad_state.button_1 = value,
-            SmsGgButton::Button2(..) => joypad_state.button_2 = value,
+            SmsGgButton::Button1(..) => joypad_state.button1 = value,
+            SmsGgButton::Button2(..) => joypad_state.button2 = value,
             SmsGgButton::Pause => self.pause = value,
         }
     }

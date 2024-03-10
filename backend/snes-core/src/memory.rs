@@ -806,7 +806,7 @@ impl CpuInternalRegisters {
         inputs: &SnesInputs,
     ) {
         // Progress auto joypad read if it's running
-        self.input_state.tick(master_cycles_elapsed, inputs);
+        self.input_state.tick(master_cycles_elapsed, *inputs);
 
         // Update VBlank, HBlank, and NMI flags
         self.update_hv_blank_flags(ppu);

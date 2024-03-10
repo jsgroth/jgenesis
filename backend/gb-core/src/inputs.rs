@@ -2,17 +2,12 @@
 
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
+use jgenesis_proc_macros::define_controller_inputs;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
-pub struct GameBoyInputs {
-    pub up: bool,
-    pub left: bool,
-    pub right: bool,
-    pub down: bool,
-    pub a: bool,
-    pub b: bool,
-    pub start: bool,
-    pub select: bool,
+define_controller_inputs! {
+    button_ident: GameBoyButton,
+    joypad_ident: GameBoyInputs,
+    buttons: [Up, Left, Right, Down, A, B, Start, Select],
 }
 
 #[derive(Debug, Clone, Encode, Decode)]

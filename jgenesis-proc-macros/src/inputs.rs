@@ -215,20 +215,17 @@ fn generate_joypad_struct(
     let struct_impl = quote! {
         impl #joypad_ident {
             #[inline]
-            #[must_use]
-            pub fn with_button(mut self, button: #button_enum_ident, pressed: bool) -> Self {
-                match button {
-                    #(#match_arms,)*
-                }
-
-                self
-            }
-
-            #[inline]
             pub fn set_button(&mut self, button: #button_enum_ident, pressed: bool) {
                 match button {
                     #(#match_arms,)*
                 }
+            }
+
+            #[inline]
+            #[must_use]
+            pub fn with_button(mut self, button: #button_enum_ident, pressed: bool) -> Self {
+                self.set_button(button, pressed);
+                self
             }
         }
     };
@@ -353,20 +350,17 @@ fn generate_inputs_struct(
     let struct_impl = quote! {
         impl #inputs_ident {
             #[inline]
-            #[must_use]
-            pub fn with_button(mut self, button: #button_ident, player: ::jgenesis_common::input::Player, pressed: bool) -> Self {
-                match (button, player) {
-                    #(#match_arms,)*
-                }
-
-                self
-            }
-
-            #[inline]
             pub fn set_button(&mut self, button: #button_ident, player: ::jgenesis_common::input::Player, pressed: bool) {
                 match (button, player) {
                     #(#match_arms,)*
                 }
+            }
+
+            #[inline]
+            #[must_use]
+            pub fn with_button(mut self, button: #button_ident, player: ::jgenesis_common::input::Player, pressed: bool) -> Self {
+                self.set_button(button, player, pressed);
+                self
             }
         }
     };

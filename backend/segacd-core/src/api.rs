@@ -421,7 +421,7 @@ impl EmulatorTrait for SegaCdEmulator {
         if self.vdp.tick(genesis_mclk_elapsed, &mut self.memory) == VdpTickEffect::FrameComplete {
             self.render_frame(renderer).map_err(SegaCdError::Render)?;
 
-            self.input.set_inputs(inputs);
+            self.input.set_inputs(*inputs);
 
             if self.memory.medium_mut().get_and_clear_backup_ram_dirty_bit() {
                 let sega_cd = self.memory.medium();

@@ -277,7 +277,7 @@ impl EmulatorTrait for SmsGgEmulator {
 
                 self.audio_resampler.output_samples(audio_output).map_err(SmsGgError::Audio)?;
 
-                self.input.set_inputs(inputs);
+                self.input.set_inputs(*inputs);
                 self.input.set_reset(self.reset_frames_remaining != 0);
                 self.reset_frames_remaining = self.reset_frames_remaining.saturating_sub(1);
 
