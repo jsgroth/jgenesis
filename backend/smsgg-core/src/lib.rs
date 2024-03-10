@@ -8,7 +8,7 @@ mod vdp;
 mod ym2413;
 
 pub use api::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgError, SmsGgResult, SmsRegion};
-pub use input::{SmsGgInputs, SmsGgJoypadState};
+pub use input::{SmsGgButton, SmsGgInputs, SmsGgJoypadState};
 pub use vdp::{gg_color_to_rgb, sms_color_to_rgb, VdpVersion};
 
 // 8:7
