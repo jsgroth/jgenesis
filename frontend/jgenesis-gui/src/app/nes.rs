@@ -74,8 +74,8 @@ impl AppConfig {
         Box::new(NesConfig {
             common: self.common_config(
                 path,
-                self.inputs.to_nes_keyboard_config(),
-                self.inputs.to_nes_joystick_config(),
+                self.inputs.nes_keyboard.clone(),
+                self.inputs.nes_joystick.clone(),
             ),
             forced_timing_mode: self.nes.forced_timing_mode,
             aspect_ratio: self.nes.aspect_ratio,

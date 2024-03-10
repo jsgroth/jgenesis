@@ -44,8 +44,8 @@ impl AppConfig {
         Box::new(SnesConfig {
             common: self.common_config(
                 path,
-                self.inputs.to_snes_keyboard_config(),
-                self.inputs.to_snes_joystick_config(),
+                self.inputs.snes_keyboard.clone(),
+                self.inputs.snes_joystick.clone(),
             ),
             p2_controller_type: self.inputs.snes_p2_type,
             super_scope_config: self.inputs.snes_super_scope.clone(),

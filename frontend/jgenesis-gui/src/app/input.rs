@@ -1,73 +1,59 @@
 use crate::app::{App, NumericTextEdit, OpenWindow};
 use crate::emuthread::{EmuThreadCommand, GenericInput, InputType};
 use egui::{Color32, Context, Grid, Ui, Window};
+use gb_core::inputs::GameBoyButton;
+use genesis_core::input::GenesisButton;
 use genesis_core::GenesisControllerType;
+use jgenesis_common::input::Player;
 use jgenesis_native_driver::config::input::{
-    GameBoyInputConfig, GenesisControllerConfig, GenesisInputConfig, HotkeyConfig, JoystickInput,
-    KeyboardInput, KeyboardOrMouseInput, NesControllerConfig, NesInputConfig,
-    SmsGgControllerConfig, SmsGgInputConfig, SnesControllerConfig, SnesControllerType,
+    GameBoyInputConfig, GenesisInputConfig, HotkeyConfig, InputConfig, JoystickInput,
+    KeyboardInput, KeyboardOrMouseInput, NesInputConfig, SmsGgInputConfig, SnesControllerType,
     SnesInputConfig, SuperScopeConfig,
 };
-use jgenesis_native_driver::input::{
-    GameBoyButton, GenesisButton, Hotkey, NesButton, Player, SmsGgButton, SnesButton,
-    SuperScopeButton,
-};
+use jgenesis_native_driver::input::Hotkey;
+use nes_core::input::NesButton;
 use serde::{Deserialize, Serialize};
+use smsgg_core::SmsGgButton;
+use snes_core::input::{SnesButton, SnesControllerButton, SuperScopeButton};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GenericButton {
-    SmsGg(SmsGgButton),
-    Genesis(GenesisButton),
-    Nes(NesButton),
-    Snes(SnesButton),
+    SmsGg(SmsGgButton, Player),
+    Genesis(GenesisButton, Player),
+    Nes(NesButton, Player),
+    Snes(SnesButton, Player),
     GameBoy(GameBoyButton),
     Hotkey(Hotkey),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InputAppConfig {
-    #[serde(default = "default_smsgg_p1_keyboard_config")]
-    pub smsgg_p1_keyboard: SmsGgControllerConfig<String>,
     #[serde(default)]
-    pub smsgg_p2_keyboard: SmsGgControllerConfig<String>,
+    pub smsgg_keyboard: SmsGgInputConfig<KeyboardInput>,
     #[serde(default)]
-    pub smsgg_p1_joystick: SmsGgControllerConfig<JoystickInput>,
-    #[serde(default)]
-    pub smsgg_p2_joystick: SmsGgControllerConfig<JoystickInput>,
+    pub smsgg_joystick: SmsGgInputConfig<JoystickInput>,
     #[serde(default)]
     pub genesis_p1_type: GenesisControllerType,
     #[serde(default)]
     pub genesis_p2_type: GenesisControllerType,
-    #[serde(default = "default_genesis_p1_keyboard_config")]
-    pub genesis_p1_keyboard: GenesisControllerConfig<String>,
     #[serde(default)]
-    pub genesis_p2_keyboard: GenesisControllerConfig<String>,
+    pub genesis_keyboard: GenesisInputConfig<KeyboardInput>,
     #[serde(default)]
-    pub genesis_p1_joystick: GenesisControllerConfig<JoystickInput>,
+    pub genesis_joystick: GenesisInputConfig<JoystickInput>,
     #[serde(default)]
-    pub genesis_p2_joystick: GenesisControllerConfig<JoystickInput>,
-    #[serde(default = "default_nes_p1_keyboard_config")]
-    pub nes_p1_keyboard: NesControllerConfig<String>,
+    pub nes_keyboard: NesInputConfig<KeyboardInput>,
     #[serde(default)]
-    pub nes_p2_keyboard: NesControllerConfig<String>,
+    pub nes_joystick: NesInputConfig<JoystickInput>,
     #[serde(default)]
-    pub nes_p1_joystick: NesControllerConfig<JoystickInput>,
+    pub snes_keyboard: SnesInputConfig<KeyboardInput>,
     #[serde(default)]
-    pub nes_p2_joystick: NesControllerConfig<JoystickInput>,
-    #[serde(default = "default_snes_p1_keyboard_config")]
-    pub snes_p1_keyboard: SnesControllerConfig<String>,
-    #[serde(default)]
-    pub snes_p2_keyboard: SnesControllerConfig<String>,
-    #[serde(default)]
-    pub snes_p1_joystick: SnesControllerConfig<JoystickInput>,
-    #[serde(default)]
-    pub snes_p2_joystick: SnesControllerConfig<JoystickInput>,
+    pub snes_joystick: SnesInputConfig<JoystickInput>,
     #[serde(default)]
     pub snes_p2_type: SnesControllerType,
     #[serde(default)]
     pub snes_super_scope: SuperScopeConfig,
     #[serde(default = "default_gb_keyboard_config")]
-    pub gb_keyboard: GameBoyInputConfig<String>,
+    pub gb_keyboard: GameBoyInputConfig<KeyboardInput>,
     #[serde(default)]
     pub gb_joystick: GameBoyInputConfig<JoystickInput>,
     #[serde(default = "default_axis_deadzone")]
@@ -76,230 +62,77 @@ pub struct InputAppConfig {
     pub hotkeys: HotkeyConfig,
 }
 
-macro_rules! set_input {
-    ($input:expr, $keyboard_field:expr, $joystick_field:expr) => {
-        match $input {
-            GenericInput::Keyboard(KeyboardInput { keycode }) => {
-                $keyboard_field = Some(keycode);
-            }
-            GenericInput::Joystick(input) => {
-                $joystick_field = Some(input);
-            }
-            GenericInput::KeyboardOrMouse(_) => {
-                panic!("keyboard/mouse input set through an unexpected code path")
-            }
+fn set_input<Button, KC, JC>(
+    input: GenericInput,
+    button: Button,
+    player: Player,
+    keyboard: &mut KC,
+    joystick: &mut JC,
+) where
+    KC: InputConfig<Button = Button, Input = KeyboardInput>,
+    JC: InputConfig<Button = Button, Input = JoystickInput>,
+{
+    match input {
+        GenericInput::Keyboard(input) => {
+            keyboard.set_input(button, player, input);
         }
-    };
+        GenericInput::Joystick(input) => {
+            joystick.set_input(button, player, input);
+        }
+        GenericInput::KeyboardOrMouse(_) => {
+            log::error!("keyboard/mouse input set from unexpected code path");
+        }
+    }
 }
 
 impl InputAppConfig {
     pub fn set_input(&mut self, input: GenericInput, button: GenericButton) {
         match button {
-            GenericButton::SmsGg(smsgg_button) => {
-                self.set_smsgg_button(input, smsgg_button);
+            GenericButton::SmsGg(button, player) => {
+                set_input(
+                    input,
+                    button,
+                    player,
+                    &mut self.smsgg_keyboard,
+                    &mut self.smsgg_joystick,
+                );
             }
-            GenericButton::Genesis(genesis_button) => {
-                self.set_genesis_button(input, genesis_button);
+            GenericButton::Genesis(button, player) => {
+                set_input(
+                    input,
+                    button,
+                    player,
+                    &mut self.genesis_keyboard,
+                    &mut self.genesis_joystick,
+                );
             }
-            GenericButton::Nes(nes_button) => {
-                self.set_nes_button(input, nes_button);
+            GenericButton::Nes(button, player) => {
+                set_input(input, button, player, &mut self.nes_keyboard, &mut self.nes_joystick);
             }
-            GenericButton::Snes(snes_button) => {
-                self.set_snes_button(input, snes_button);
+            GenericButton::Snes(button, player) => {
+                match button {
+                    SnesButton::Controller(button) => set_input(
+                        input,
+                        button,
+                        player,
+                        &mut self.snes_keyboard,
+                        &mut self.snes_joystick,
+                    ),
+                    SnesButton::SuperScope(button) => {
+                        if let GenericInput::KeyboardOrMouse(input) = input {
+                            self.snes_super_scope.set_button(button, input);
+                        }
+                    }
+                };
             }
-            GenericButton::GameBoy(gb_button) => {
-                self.set_gb_button(input, gb_button);
+            GenericButton::GameBoy(button) => {
+                set_input(input, button, Player::One, &mut self.gb_keyboard, &mut self.gb_joystick);
             }
             GenericButton::Hotkey(hotkey) => {
                 if let GenericInput::Keyboard(input) = input {
                     self.set_hotkey(input, hotkey);
                 }
             }
-        }
-    }
-
-    fn set_smsgg_button(&mut self, input: GenericInput, smsgg_button: SmsGgButton) {
-        let (keyboard, joystick) = match smsgg_button.player() {
-            Player::One => (&mut self.smsgg_p1_keyboard, &mut self.smsgg_p1_joystick),
-            Player::Two => (&mut self.smsgg_p2_keyboard, &mut self.smsgg_p2_joystick),
-        };
-
-        match smsgg_button {
-            SmsGgButton::Up(_) => {
-                set_input!(input, keyboard.up, joystick.up);
-            }
-            SmsGgButton::Left(_) => {
-                set_input!(input, keyboard.left, joystick.left);
-            }
-            SmsGgButton::Right(_) => {
-                set_input!(input, keyboard.right, joystick.right);
-            }
-            SmsGgButton::Down(_) => {
-                set_input!(input, keyboard.down, joystick.down);
-            }
-            SmsGgButton::Button1(_) => {
-                set_input!(input, keyboard.button_1, joystick.button_1);
-            }
-            SmsGgButton::Button2(_) => {
-                set_input!(input, keyboard.button_2, joystick.button_2);
-            }
-            SmsGgButton::Pause => {
-                set_input!(input, self.smsgg_p1_keyboard.pause, self.smsgg_p1_joystick.pause);
-            }
-        }
-    }
-
-    fn set_genesis_button(&mut self, input: GenericInput, genesis_button: GenesisButton) {
-        let (keyboard, joystick) = match genesis_button.player() {
-            Player::One => (&mut self.genesis_p1_keyboard, &mut self.genesis_p1_joystick),
-            Player::Two => (&mut self.genesis_p2_keyboard, &mut self.genesis_p2_joystick),
-        };
-
-        match genesis_button {
-            GenesisButton::Up(_) => {
-                set_input!(input, keyboard.up, joystick.up);
-            }
-            GenesisButton::Left(_) => {
-                set_input!(input, keyboard.left, joystick.left);
-            }
-            GenesisButton::Right(_) => {
-                set_input!(input, keyboard.right, joystick.right);
-            }
-            GenesisButton::Down(_) => {
-                set_input!(input, keyboard.down, joystick.down);
-            }
-            GenesisButton::A(_) => {
-                set_input!(input, keyboard.a, joystick.a);
-            }
-            GenesisButton::B(_) => {
-                set_input!(input, keyboard.b, joystick.b);
-            }
-            GenesisButton::C(_) => {
-                set_input!(input, keyboard.c, joystick.c);
-            }
-            GenesisButton::X(_) => {
-                set_input!(input, keyboard.x, joystick.x);
-            }
-            GenesisButton::Y(_) => {
-                set_input!(input, keyboard.y, joystick.y);
-            }
-            GenesisButton::Z(_) => {
-                set_input!(input, keyboard.z, joystick.z);
-            }
-            GenesisButton::Start(_) => {
-                set_input!(input, keyboard.start, joystick.start);
-            }
-            GenesisButton::Mode(_) => {
-                set_input!(input, keyboard.mode, joystick.mode);
-            }
-        }
-    }
-
-    fn set_nes_button(&mut self, input: GenericInput, nes_button: NesButton) {
-        let (keyboard, joystick) = match nes_button.player() {
-            Player::One => (&mut self.nes_p1_keyboard, &mut self.nes_p1_joystick),
-            Player::Two => (&mut self.nes_p2_keyboard, &mut self.nes_p2_joystick),
-        };
-
-        match nes_button {
-            NesButton::Up(_) => {
-                set_input!(input, keyboard.up, joystick.up);
-            }
-            NesButton::Left(_) => {
-                set_input!(input, keyboard.left, joystick.left);
-            }
-            NesButton::Right(_) => {
-                set_input!(input, keyboard.right, joystick.right);
-            }
-            NesButton::Down(_) => {
-                set_input!(input, keyboard.down, joystick.down);
-            }
-            NesButton::A(_) => {
-                set_input!(input, keyboard.a, joystick.a);
-            }
-            NesButton::B(_) => {
-                set_input!(input, keyboard.b, joystick.b);
-            }
-            NesButton::Start(_) => {
-                set_input!(input, keyboard.start, joystick.start);
-            }
-            NesButton::Select(_) => {
-                set_input!(input, keyboard.select, joystick.select);
-            }
-        }
-    }
-
-    fn set_snes_button(&mut self, input: GenericInput, snes_button: SnesButton) {
-        let (keyboard, joystick) = match snes_button.player() {
-            Player::One => (&mut self.snes_p1_keyboard, &mut self.snes_p1_joystick),
-            Player::Two => (&mut self.snes_p2_keyboard, &mut self.snes_p2_joystick),
-        };
-
-        match snes_button {
-            SnesButton::Up(_) => {
-                set_input!(input, keyboard.up, joystick.up);
-            }
-            SnesButton::Left(_) => {
-                set_input!(input, keyboard.left, joystick.left);
-            }
-            SnesButton::Right(_) => {
-                set_input!(input, keyboard.right, joystick.right);
-            }
-            SnesButton::Down(_) => {
-                set_input!(input, keyboard.down, joystick.down);
-            }
-            SnesButton::A(_) => {
-                set_input!(input, keyboard.a, joystick.a);
-            }
-            SnesButton::B(_) => {
-                set_input!(input, keyboard.b, joystick.b);
-            }
-            SnesButton::X(_) => {
-                set_input!(input, keyboard.x, joystick.x);
-            }
-            SnesButton::Y(_) => {
-                set_input!(input, keyboard.y, joystick.y);
-            }
-            SnesButton::L(_) => {
-                set_input!(input, keyboard.l, joystick.l);
-            }
-            SnesButton::R(_) => {
-                set_input!(input, keyboard.r, joystick.r);
-            }
-            SnesButton::Start(_) => {
-                set_input!(input, keyboard.start, joystick.start);
-            }
-            SnesButton::Select(_) => {
-                set_input!(input, keyboard.select, joystick.select);
-            }
-            SnesButton::SuperScope(super_scope_button) => {
-                if let GenericInput::KeyboardOrMouse(input) = input {
-                    let config = &mut self.snes_super_scope;
-
-                    match super_scope_button {
-                        SuperScopeButton::Fire => config.fire = Some(input),
-                        SuperScopeButton::Cursor => config.cursor = Some(input),
-                        SuperScopeButton::Pause => config.pause = Some(input),
-                        SuperScopeButton::TurboToggle => config.turbo_toggle = Some(input),
-                    }
-                }
-            }
-        }
-    }
-
-    fn set_gb_button(&mut self, input: GenericInput, gb_button: GameBoyButton) {
-        let keyboard = &mut self.gb_keyboard;
-        let joystick = &mut self.gb_joystick;
-
-        match gb_button {
-            GameBoyButton::Up => set_input!(input, keyboard.up, joystick.up),
-            GameBoyButton::Left => set_input!(input, keyboard.left, joystick.left),
-            GameBoyButton::Right => set_input!(input, keyboard.right, joystick.right),
-            GameBoyButton::Down => set_input!(input, keyboard.down, joystick.down),
-            GameBoyButton::A => set_input!(input, keyboard.a, joystick.a),
-            GameBoyButton::B => set_input!(input, keyboard.b, joystick.b),
-            GameBoyButton::Start => set_input!(input, keyboard.start, joystick.start),
-            GameBoyButton::Select => set_input!(input, keyboard.select, joystick.select),
         }
     }
 
@@ -340,121 +173,6 @@ impl InputAppConfig {
             }
         }
     }
-
-    pub fn to_smsgg_keyboard_config(&self) -> SmsGgInputConfig<KeyboardInput> {
-        SmsGgInputConfig {
-            p1: convert_smsgg_keyboard_config(self.smsgg_p1_keyboard.clone()),
-            p2: convert_smsgg_keyboard_config(self.smsgg_p2_keyboard.clone()),
-        }
-    }
-
-    pub fn to_smsgg_joystick_config(&self) -> SmsGgInputConfig<JoystickInput> {
-        SmsGgInputConfig { p1: self.smsgg_p1_joystick.clone(), p2: self.smsgg_p2_joystick.clone() }
-    }
-
-    pub fn to_genesis_keyboard_config(&self) -> GenesisInputConfig<KeyboardInput> {
-        GenesisInputConfig {
-            p1: convert_genesis_keyboard_config(self.genesis_p1_keyboard.clone()),
-            p2: convert_genesis_keyboard_config(self.genesis_p2_keyboard.clone()),
-        }
-    }
-
-    pub fn to_genesis_joystick_config(&self) -> GenesisInputConfig<JoystickInput> {
-        GenesisInputConfig {
-            p1: self.genesis_p1_joystick.clone(),
-            p2: self.genesis_p2_joystick.clone(),
-        }
-    }
-
-    pub fn to_nes_keyboard_config(&self) -> NesInputConfig<KeyboardInput> {
-        NesInputConfig {
-            p1: convert_nes_keyboard_config(self.nes_p1_keyboard.clone()),
-            p2: convert_nes_keyboard_config(self.nes_p2_keyboard.clone()),
-        }
-    }
-
-    pub fn to_nes_joystick_config(&self) -> NesInputConfig<JoystickInput> {
-        NesInputConfig { p1: self.nes_p1_joystick.clone(), p2: self.nes_p2_joystick.clone() }
-    }
-
-    pub fn to_snes_keyboard_config(&self) -> SnesInputConfig<KeyboardInput> {
-        SnesInputConfig {
-            p1: convert_snes_keyboard_config(self.snes_p1_keyboard.clone()),
-            p2: convert_snes_keyboard_config(self.snes_p2_keyboard.clone()),
-        }
-    }
-
-    pub fn to_snes_joystick_config(&self) -> SnesInputConfig<JoystickInput> {
-        SnesInputConfig { p1: self.snes_p1_joystick.clone(), p2: self.snes_p2_joystick.clone() }
-    }
-
-    pub fn to_gb_keyboard_config(&self) -> GameBoyInputConfig<KeyboardInput> {
-        convert_gb_keyboard_config(self.gb_keyboard.clone())
-    }
-}
-
-macro_rules! to_keyboard_input_config {
-    ($config:expr, $t:ident, [$($field:ident),* $(,)?]) => {
-        $t {
-            $(
-                $field: $config.$field.map(to_keyboard_input),
-            )*
-        }
-    }
-}
-
-fn convert_smsgg_keyboard_config(
-    config: SmsGgControllerConfig<String>,
-) -> SmsGgControllerConfig<KeyboardInput> {
-    to_keyboard_input_config!(
-        config,
-        SmsGgControllerConfig,
-        [up, left, right, down, button_1, button_2, pause]
-    )
-}
-
-fn convert_genesis_keyboard_config(
-    config: GenesisControllerConfig<String>,
-) -> GenesisControllerConfig<KeyboardInput> {
-    to_keyboard_input_config!(
-        config,
-        GenesisControllerConfig,
-        [up, left, right, down, a, b, c, x, y, z, start, mode]
-    )
-}
-
-fn convert_nes_keyboard_config(
-    config: NesControllerConfig<String>,
-) -> NesControllerConfig<KeyboardInput> {
-    to_keyboard_input_config!(
-        config,
-        NesControllerConfig,
-        [up, left, right, down, a, b, start, select]
-    )
-}
-
-fn convert_snes_keyboard_config(
-    config: SnesControllerConfig<String>,
-) -> SnesControllerConfig<KeyboardInput> {
-    to_keyboard_input_config!(
-        config,
-        SnesControllerConfig,
-        [up, left, right, down, a, b, x, y, l, r, start, select]
-    )
-}
-
-fn convert_gb_keyboard_config(
-    config: GameBoyInputConfig<String>,
-) -> GameBoyInputConfig<KeyboardInput> {
-    to_keyboard_input_config!(
-        config,
-        GameBoyInputConfig,
-        [up, left, right, down, a, b, start, select]
-    )
-}
-
-fn to_keyboard_input(s: String) -> KeyboardInput {
-    KeyboardInput { keycode: s }
 }
 
 impl Default for InputAppConfig {
@@ -463,177 +181,12 @@ impl Default for InputAppConfig {
     }
 }
 
-fn default_smsgg_p1_keyboard_config() -> SmsGgControllerConfig<String> {
-    let default = SmsGgInputConfig::<KeyboardInput>::default().p1;
-    SmsGgControllerConfig {
-        up: default.up.map(|key| key.keycode),
-        left: default.left.map(|key| key.keycode),
-        right: default.right.map(|key| key.keycode),
-        down: default.down.map(|key| key.keycode),
-        button_1: default.button_1.map(|key| key.keycode),
-        button_2: default.button_2.map(|key| key.keycode),
-        pause: default.pause.map(|key| key.keycode),
-    }
-}
-
-fn default_genesis_p1_keyboard_config() -> GenesisControllerConfig<String> {
-    let default = GenesisInputConfig::<KeyboardInput>::default().p1;
-    GenesisControllerConfig {
-        up: default.up.map(|key| key.keycode),
-        left: default.left.map(|key| key.keycode),
-        right: default.right.map(|key| key.keycode),
-        down: default.down.map(|key| key.keycode),
-        a: default.a.map(|key| key.keycode),
-        b: default.b.map(|key| key.keycode),
-        c: default.c.map(|key| key.keycode),
-        x: default.x.map(|key| key.keycode),
-        y: default.y.map(|key| key.keycode),
-        z: default.z.map(|key| key.keycode),
-        start: default.start.map(|key| key.keycode),
-        mode: default.mode.map(|key| key.keycode),
-    }
-}
-
-fn default_nes_p1_keyboard_config() -> NesControllerConfig<String> {
-    let default = NesInputConfig::<KeyboardInput>::default().p1;
-    let keycode_fn = |key: KeyboardInput| key.keycode;
-    NesControllerConfig {
-        up: default.up.map(keycode_fn),
-        left: default.left.map(keycode_fn),
-        right: default.right.map(keycode_fn),
-        down: default.down.map(keycode_fn),
-        a: default.a.map(keycode_fn),
-        b: default.b.map(keycode_fn),
-        start: default.start.map(keycode_fn),
-        select: default.select.map(keycode_fn),
-    }
-}
-
-fn default_snes_p1_keyboard_config() -> SnesControllerConfig<String> {
-    let default = SnesInputConfig::<KeyboardInput>::default().p1;
-    let keycode_fn = |key: KeyboardInput| key.keycode;
-    SnesControllerConfig {
-        up: default.up.map(keycode_fn),
-        left: default.left.map(keycode_fn),
-        right: default.right.map(keycode_fn),
-        down: default.down.map(keycode_fn),
-        a: default.a.map(keycode_fn),
-        b: default.b.map(keycode_fn),
-        x: default.x.map(keycode_fn),
-        y: default.y.map(keycode_fn),
-        l: default.l.map(keycode_fn),
-        r: default.r.map(keycode_fn),
-        start: default.start.map(keycode_fn),
-        select: default.select.map(keycode_fn),
-    }
-}
-
-fn default_gb_keyboard_config() -> GameBoyInputConfig<String> {
-    let default = GameBoyInputConfig::<KeyboardInput>::default();
-    let keycode_fn = |key: KeyboardInput| key.keycode;
-    GameBoyInputConfig {
-        up: default.up.map(keycode_fn),
-        left: default.left.map(keycode_fn),
-        right: default.right.map(keycode_fn),
-        down: default.down.map(keycode_fn),
-        a: default.a.map(keycode_fn),
-        b: default.b.map(keycode_fn),
-        start: default.start.map(keycode_fn),
-        select: default.select.map(keycode_fn),
-    }
+fn default_gb_keyboard_config() -> GameBoyInputConfig<KeyboardInput> {
+    GameBoyInputConfig::default_p1()
 }
 
 fn default_axis_deadzone() -> i16 {
     8000
-}
-
-macro_rules! render_buttons {
-    ($self:expr, $button_fn:ident, $config:expr, [$($field:ident: $label:literal -> $button:expr),*$(,)?], $ui:expr) => {
-        $(
-            $self.$button_fn($config.$field.clone(), $label, $button, $ui);
-        )*
-    }
-}
-
-macro_rules! render_smsgg_input {
-    ($self:expr, $button_fn:ident, $config:expr, $player:expr, $ui:expr) => {
-        render_buttons!($self, $button_fn, $config, [
-            up: "Up" -> GenericButton::SmsGg(SmsGgButton::Up($player)),
-            left: "Left" -> GenericButton::SmsGg(SmsGgButton::Left($player)),
-            right: "Right" -> GenericButton::SmsGg(SmsGgButton::Right($player)),
-            down: "Down" -> GenericButton::SmsGg(SmsGgButton::Down($player)),
-            button_1: "Button 1" -> GenericButton::SmsGg(SmsGgButton::Button1($player)),
-            button_2: "Button 2" -> GenericButton::SmsGg(SmsGgButton::Button2($player)),
-        ], $ui);
-    }
-}
-
-macro_rules! render_genesis_input {
-    ($self:expr, $button_fn:ident, $config:expr, $player:expr, $ui:expr) => {
-        render_buttons!($self, $button_fn, $config, [
-            up: "Up" -> GenericButton::Genesis(GenesisButton::Up($player)),
-            left: "Left" -> GenericButton::Genesis(GenesisButton::Left($player)),
-            right: "Right" -> GenericButton::Genesis(GenesisButton::Right($player)),
-            down: "Down" -> GenericButton::Genesis(GenesisButton::Down($player)),
-            a: "A" -> GenericButton::Genesis(GenesisButton::A($player)),
-            b: "B" -> GenericButton::Genesis(GenesisButton::B($player)),
-            c: "C" -> GenericButton::Genesis(GenesisButton::C($player)),
-            x: "X" -> GenericButton::Genesis(GenesisButton::X($player)),
-            y: "Y" -> GenericButton::Genesis(GenesisButton::Y($player)),
-            z: "Z" -> GenericButton::Genesis(GenesisButton::Z($player)),
-            start: "Start" -> GenericButton::Genesis(GenesisButton::Start($player)),
-            mode: "Mode" -> GenericButton::Genesis(GenesisButton::Mode($player)),
-        ], $ui);
-    }
-}
-
-macro_rules! render_nes_input {
-    ($self:expr, $button_fn:ident, $config:expr, $player:expr, $ui:expr) => {
-        render_buttons!($self, $button_fn, $config, [
-            up: "Up" -> GenericButton::Nes(NesButton::Up($player)),
-            left: "Left" -> GenericButton::Nes(NesButton::Left($player)),
-            right: "Right" -> GenericButton::Nes(NesButton::Right($player)),
-            down: "Down" -> GenericButton::Nes(NesButton::Down($player)),
-            a: "A" -> GenericButton::Nes(NesButton::A($player)),
-            b: "B" -> GenericButton::Nes(NesButton::B($player)),
-            start: "Start" -> GenericButton::Nes(NesButton::Start($player)),
-            select: "Select" -> GenericButton::Nes(NesButton::Select($player)),
-        ], $ui);
-    }
-}
-
-macro_rules! render_snes_input {
-    ($self:expr, $button_fn:ident, $config:expr, $player:expr, $ui:expr) => {
-        render_buttons!($self, $button_fn, $config, [
-            up: "Up" -> GenericButton::Snes(SnesButton::Up($player)),
-            left: "Left" -> GenericButton::Snes(SnesButton::Left($player)),
-            right: "Right" -> GenericButton::Snes(SnesButton::Right($player)),
-            down: "Down" -> GenericButton::Snes(SnesButton::Down($player)),
-            a: "A" -> GenericButton::Snes(SnesButton::A($player)),
-            b: "B" -> GenericButton::Snes(SnesButton::B($player)),
-            x: "X" -> GenericButton::Snes(SnesButton::X($player)),
-            y: "Y" -> GenericButton::Snes(SnesButton::Y($player)),
-            l: "L" -> GenericButton::Snes(SnesButton::L($player)),
-            r: "R" -> GenericButton::Snes(SnesButton::R($player)),
-            start: "Start" -> GenericButton::Snes(SnesButton::Start($player)),
-            select: "Select" -> GenericButton::Snes(SnesButton::Select($player)),
-        ], $ui);
-    }
-}
-
-macro_rules! render_gb_input {
-    ($self:expr, $button_fn:ident, $config:expr, $ui:expr) => {
-        render_buttons!($self, $button_fn, $config, [
-            up: "Up" -> GenericButton::GameBoy(GameBoyButton::Up),
-            left: "Left" -> GenericButton::GameBoy(GameBoyButton::Left),
-            right: "Right" -> GenericButton::GameBoy(GameBoyButton::Right),
-            down: "Down" -> GenericButton::GameBoy(GameBoyButton::Down),
-            a: "A" -> GenericButton::GameBoy(GameBoyButton::A),
-            b: "B" -> GenericButton::GameBoy(GameBoyButton::B),
-            start: "Start" -> GenericButton::GameBoy(GameBoyButton::Start),
-            select: "Select" -> GenericButton::GameBoy(GameBoyButton::Select),
-        ], $ui);
-    }
 }
 
 impl App {
@@ -643,42 +196,45 @@ impl App {
             ui.set_enabled(self.state.waiting_for_input.is_none());
 
             Grid::new("smsgg_keyboard_grid").show(ui, |ui| {
-                Grid::new("smsgg_p1_keyboard_grid").show(ui, |ui| {
-                    ui.heading("Player 1");
-                    ui.end_row();
+                for (grid_id, heading, player) in [
+                    ("smsgg_p1_keyboard_grid", "Player 1", Player::One),
+                    ("smsgg_p2_keyboard_grid", "Player 2", Player::Two),
+                ] {
+                    Grid::new(grid_id).show(ui, |ui| {
+                        ui.heading(heading);
+                        ui.end_row();
 
-                    render_smsgg_input!(
-                        self,
-                        keyboard_input_button,
-                        self.config.inputs.smsgg_p1_keyboard,
-                        Player::One,
-                        ui
-                    );
-                });
+                        for button in SmsGgButton::ALL {
+                            if button == SmsGgButton::Pause {
+                                continue;
+                            }
 
-                ui.add_space(20.0);
+                            let current_value = self
+                                .config
+                                .inputs
+                                .smsgg_keyboard
+                                .get_input(button, player)
+                                .cloned();
+                            self.keyboard_input_button(
+                                current_value,
+                                &button.to_string(),
+                                GenericButton::SmsGg(button, player),
+                                ui,
+                            );
+                        }
+                    });
 
-                Grid::new("smsgg_p2_keyboard_grid").show(ui, |ui| {
-                    ui.heading("Player 2");
-                    ui.end_row();
-
-                    render_smsgg_input!(
-                        self,
-                        keyboard_input_button,
-                        self.config.inputs.smsgg_p2_keyboard,
-                        Player::Two,
-                        ui
-                    );
-                });
+                    ui.add_space(20.0);
+                }
             });
 
             ui.add_space(20.0);
 
             Grid::new("smsgg_pause_keyboard_grid").show(ui, |ui| {
                 self.keyboard_input_button(
-                    self.config.inputs.smsgg_p1_keyboard.pause.clone(),
+                    self.config.inputs.smsgg_keyboard.pause.clone(),
                     "Start/Pause",
-                    GenericButton::SmsGg(SmsGgButton::Pause),
+                    GenericButton::SmsGg(SmsGgButton::Pause, Player::One),
                     ui,
                 );
             });
@@ -694,42 +250,45 @@ impl App {
             ui.set_enabled(self.state.waiting_for_input.is_none());
 
             Grid::new("smsgg_gamepad_grid").show(ui, |ui| {
-                Grid::new("smsgg_p1_gamepad_grid").show(ui, |ui| {
-                    ui.heading("Player 1");
-                    ui.end_row();
+                for (grid_id, heading, player) in [
+                    ("smsgg_p1_gamepad_grid", "Player 1", Player::One),
+                    ("smsgg_p2_gamepad_grid", "Player 2", Player::Two),
+                ] {
+                    Grid::new(grid_id).show(ui, |ui| {
+                        ui.heading(heading);
+                        ui.end_row();
 
-                    render_smsgg_input!(
-                        self,
-                        gamepad_input_button,
-                        self.config.inputs.smsgg_p1_joystick,
-                        Player::One,
-                        ui
-                    );
-                });
+                        for button in SmsGgButton::ALL {
+                            if button == SmsGgButton::Pause {
+                                continue;
+                            }
 
-                ui.add_space(20.0);
+                            let current_value = self
+                                .config
+                                .inputs
+                                .smsgg_joystick
+                                .get_input(button, player)
+                                .cloned();
+                            self.gamepad_input_button(
+                                current_value,
+                                &button.to_string(),
+                                GenericButton::SmsGg(button, player),
+                                ui,
+                            );
+                        }
+                    });
 
-                Grid::new("smsgg_p2_gamepad_grid").show(ui, |ui| {
-                    ui.heading("Player 2");
-                    ui.end_row();
-
-                    render_smsgg_input!(
-                        self,
-                        gamepad_input_button,
-                        self.config.inputs.smsgg_p2_joystick,
-                        Player::Two,
-                        ui
-                    );
-                });
+                    ui.add_space(20.0);
+                }
             });
 
             ui.add_space(20.0);
 
             Grid::new("smsgg_pause_gamepad_grid").show(ui, |ui| {
                 self.gamepad_input_button(
-                    self.config.inputs.smsgg_p1_joystick.pause.clone(),
+                    self.config.inputs.smsgg_joystick.pause.clone(),
                     "Start/Pause",
-                    GenericButton::SmsGg(SmsGgButton::Pause),
+                    GenericButton::SmsGg(SmsGgButton::Pause, Player::One),
                     ui,
                 );
             });
@@ -748,33 +307,32 @@ impl App {
             ui.set_enabled(self.state.waiting_for_input.is_none());
 
             Grid::new("genesis_keyboard_grid").show(ui, |ui| {
-                Grid::new("genesis_p1_keyboard_grid").show(ui, |ui| {
-                    ui.heading("Player 1");
-                    ui.end_row();
+                for (grid_id, heading, player) in [
+                    ("genesis_p1_keyboard_grid", "Player 1", Player::One),
+                    ("genesis_p2_keyboard_grid", "Player 2", Player::Two),
+                ] {
+                    Grid::new(grid_id).show(ui, |ui| {
+                        ui.heading(heading);
+                        ui.end_row();
 
-                    render_genesis_input!(
-                        self,
-                        keyboard_input_button,
-                        self.config.inputs.genesis_p1_keyboard,
-                        Player::One,
-                        ui
-                    );
-                });
+                        for button in GenesisButton::ALL {
+                            let current_value = self
+                                .config
+                                .inputs
+                                .genesis_keyboard
+                                .get_input(button, player)
+                                .cloned();
+                            self.keyboard_input_button(
+                                current_value,
+                                &button.to_string(),
+                                GenericButton::Genesis(button, player),
+                                ui,
+                            );
+                        }
+                    });
 
-                ui.add_space(50.0);
-
-                Grid::new("genesis_p2_keyboard_grid").show(ui, |ui| {
-                    ui.heading("Player 2");
-                    ui.end_row();
-
-                    render_genesis_input!(
-                        self,
-                        keyboard_input_button,
-                        self.config.inputs.genesis_p2_keyboard,
-                        Player::Two,
-                        ui
-                    );
-                });
+                    ui.add_space(50.0);
+                }
             });
 
             ui.add_space(30.0);
@@ -793,33 +351,32 @@ impl App {
             ui.set_enabled(self.state.waiting_for_input.is_none());
 
             Grid::new("genesis_gamepad_grid").show(ui, |ui| {
-                Grid::new("genesis_p1_gamepad_grid").show(ui, |ui| {
-                    ui.heading("Player 1");
-                    ui.end_row();
+                for (grid_id, heading, player) in [
+                    ("genesis_p1_gamepad_grid", "Player 1", Player::One),
+                    ("genesis_p2_gamepad_grid", "Player 2", Player::Two),
+                ] {
+                    Grid::new(grid_id).show(ui, |ui| {
+                        ui.heading(heading);
+                        ui.end_row();
 
-                    render_genesis_input!(
-                        self,
-                        gamepad_input_button,
-                        self.config.inputs.genesis_p1_joystick,
-                        Player::One,
-                        ui
-                    );
-                });
+                        for button in GenesisButton::ALL {
+                            let current_value = self
+                                .config
+                                .inputs
+                                .genesis_joystick
+                                .get_input(button, player)
+                                .cloned();
+                            self.gamepad_input_button(
+                                current_value,
+                                &button.to_string(),
+                                GenericButton::Genesis(button, player),
+                                ui,
+                            );
+                        }
+                    });
 
-                ui.add_space(50.0);
-
-                Grid::new("genesis_p2_gamepad_grid").show(ui, |ui| {
-                    ui.heading("Player 2");
-                    ui.end_row();
-
-                    render_genesis_input!(
-                        self,
-                        gamepad_input_button,
-                        self.config.inputs.genesis_p2_joystick,
-                        Player::Two,
-                        ui
-                    );
-                });
+                    ui.add_space(50.0);
+                }
             });
 
             ui.add_space(30.0);
@@ -842,33 +399,28 @@ impl App {
             ui.set_enabled(self.state.waiting_for_input.is_none());
 
             Grid::new("nes_keyboard_grid").show(ui, |ui| {
-                Grid::new("nes_p1_keyboard_grid").show(ui, |ui| {
-                    ui.heading("Player 1");
-                    ui.end_row();
+                for (grid_id, heading, player) in [
+                    ("nes_p1_keyboard_grid", "Player 1", Player::One),
+                    ("nes_p2_keyboard_grid", "Player 2", Player::Two),
+                ] {
+                    Grid::new(grid_id).show(ui, |ui| {
+                        ui.heading(heading);
+                        ui.end_row();
 
-                    render_nes_input!(
-                        self,
-                        keyboard_input_button,
-                        self.config.inputs.nes_p1_keyboard,
-                        Player::One,
-                        ui
-                    );
-                });
+                        for button in NesButton::ALL {
+                            let current_value =
+                                self.config.inputs.nes_keyboard.get_input(button, player).cloned();
+                            self.keyboard_input_button(
+                                current_value,
+                                &button.to_string(),
+                                GenericButton::Nes(button, player),
+                                ui,
+                            );
+                        }
 
-                ui.add_space(50.0);
-
-                Grid::new("nes_p2_keyboard_grid").show(ui, |ui| {
-                    ui.heading("Player 2");
-                    ui.end_row();
-
-                    render_nes_input!(
-                        self,
-                        keyboard_input_button,
-                        self.config.inputs.nes_p2_keyboard,
-                        Player::Two,
-                        ui
-                    );
-                });
+                        ui.add_space(50.0);
+                    });
+                }
             });
         });
         if !open {
@@ -882,33 +434,28 @@ impl App {
             ui.set_enabled(self.state.waiting_for_input.is_none());
 
             Grid::new("nes_gamepad_grid").show(ui, |ui| {
-                Grid::new("nes_p1_gamepad_grid").show(ui, |ui| {
-                    ui.heading("Player 1");
-                    ui.end_row();
+                for (grid_id, heading, player) in [
+                    ("nes_p1_gamepad_grid", "Player 1", Player::One),
+                    ("nes_p2_gamepad_grid", "Player 2", Player::Two),
+                ] {
+                    Grid::new(grid_id).show(ui, |ui| {
+                        ui.heading(heading);
+                        ui.end_row();
 
-                    render_nes_input!(
-                        self,
-                        gamepad_input_button,
-                        self.config.inputs.nes_p1_joystick,
-                        Player::One,
-                        ui
-                    );
-                });
+                        for button in NesButton::ALL {
+                            let current_value =
+                                self.config.inputs.nes_joystick.get_input(button, player).cloned();
+                            self.gamepad_input_button(
+                                current_value,
+                                &button.to_string(),
+                                GenericButton::Nes(button, player),
+                                ui,
+                            );
+                        }
 
-                ui.add_space(50.0);
-
-                Grid::new("nes_p2_joystick_grid").show(ui, |ui| {
-                    ui.heading("Player 2");
-                    ui.end_row();
-
-                    render_nes_input!(
-                        self,
-                        gamepad_input_button,
-                        self.config.inputs.nes_p2_joystick,
-                        Player::Two,
-                        ui
-                    );
-                });
+                        ui.add_space(50.0);
+                    });
+                }
             });
 
             ui.add_space(30.0);
@@ -926,33 +473,28 @@ impl App {
             ui.set_enabled(self.state.waiting_for_input.is_none());
 
             Grid::new("snes_keyboard_grid").show(ui, |ui| {
-                Grid::new("snes_p1_keyboard_grid").show(ui, |ui| {
-                    ui.heading("Player 1");
-                    ui.end_row();
+                for (grid_id, heading, player) in [
+                    ("snes_p1_keyboard_grid", "Player 1", Player::One),
+                    ("snes_p2_keyboard_grid", "Player 2", Player::Two),
+                ] {
+                    Grid::new(grid_id).show(ui, |ui| {
+                        ui.heading(heading);
+                        ui.end_row();
 
-                    render_snes_input!(
-                        self,
-                        keyboard_input_button,
-                        self.config.inputs.snes_p1_keyboard,
-                        Player::One,
-                        ui
-                    );
-                });
+                        for button in SnesControllerButton::ALL {
+                            let current_value =
+                                self.config.inputs.snes_keyboard.get_input(button, player).cloned();
+                            self.keyboard_input_button(
+                                current_value,
+                                &button.to_string(),
+                                GenericButton::Snes(SnesButton::Controller(button), player),
+                                ui,
+                            );
+                        }
+                    });
 
-                ui.add_space(50.0);
-
-                Grid::new("snes_p2_keyboard_grid").show(ui, |ui| {
-                    ui.heading("Player 2");
-                    ui.end_row();
-
-                    render_snes_input!(
-                        self,
-                        keyboard_input_button,
-                        self.config.inputs.snes_p2_keyboard,
-                        Player::Two,
-                        ui
-                    );
-                });
+                    ui.add_space(50.0);
+                }
             });
         });
         if !open {
@@ -966,33 +508,28 @@ impl App {
             ui.set_enabled(self.state.waiting_for_input.is_none());
 
             Grid::new("snes_gamepad_grid").show(ui, |ui| {
-                Grid::new("snes_p1_gamepad_grid").show(ui, |ui| {
-                    ui.heading("Player 1");
-                    ui.end_row();
+                for (grid_id, heading, player) in [
+                    ("snes_p1_gamepad_grid", "Player 1", Player::One),
+                    ("snes_p2_gamepad_grid", "Player 2", Player::Two),
+                ] {
+                    Grid::new(grid_id).show(ui, |ui| {
+                        ui.heading(heading);
+                        ui.end_row();
 
-                    render_snes_input!(
-                        self,
-                        gamepad_input_button,
-                        self.config.inputs.snes_p1_joystick,
-                        Player::One,
-                        ui
-                    );
-                });
+                        for button in SnesControllerButton::ALL {
+                            let current_value =
+                                self.config.inputs.snes_joystick.get_input(button, player).cloned();
+                            self.gamepad_input_button(
+                                current_value,
+                                &button.to_string(),
+                                GenericButton::Snes(SnesButton::Controller(button), player),
+                                ui,
+                            );
+                        }
+                    });
 
-                ui.add_space(50.0);
-
-                Grid::new("snes_p2_gamepad_grid").show(ui, |ui| {
-                    ui.heading("Player 2");
-                    ui.end_row();
-
-                    render_snes_input!(
-                        self,
-                        gamepad_input_button,
-                        self.config.inputs.snes_p2_joystick,
-                        Player::Two,
-                        ui
-                    );
-                });
+                    ui.add_space(50.0);
+                }
             });
 
             ui.add_space(30.0);
@@ -1070,12 +607,16 @@ impl App {
                 ui.set_enabled(self.state.waiting_for_input.is_none());
 
                 Grid::new("gb_keyboard_grid").show(ui, |ui| {
-                    render_gb_input!(
-                        self,
-                        keyboard_input_button,
-                        self.config.inputs.gb_keyboard,
-                        ui
-                    );
+                    for button in GameBoyButton::ALL {
+                        let current_value =
+                            self.config.inputs.gb_keyboard.get_input(button, Player::One).cloned();
+                        self.keyboard_input_button(
+                            current_value,
+                            &button.to_string(),
+                            GenericButton::GameBoy(button),
+                            ui,
+                        );
+                    }
                 });
             },
         );
@@ -1092,12 +633,16 @@ impl App {
                 ui.set_enabled(self.state.waiting_for_input.is_none());
 
                 Grid::new("gb_joystick_grid").show(ui, |ui| {
-                    render_gb_input!(
-                        self,
-                        gamepad_input_button,
-                        self.config.inputs.gb_joystick,
-                        ui
-                    );
+                    for button in GameBoyButton::ALL {
+                        let current_value =
+                            self.config.inputs.gb_joystick.get_input(button, Player::One).cloned();
+                        self.gamepad_input_button(
+                            current_value,
+                            &button.to_string(),
+                            GenericButton::GameBoy(button),
+                            ui,
+                        );
+                    }
                 });
 
                 ui.add_space(30.0);
@@ -1251,12 +796,12 @@ impl App {
 
     fn keyboard_input_button(
         &mut self,
-        current_value: Option<String>,
+        current_value: Option<KeyboardInput>,
         label: &str,
         button: GenericButton,
         ui: &mut Ui,
     ) {
-        let text = current_value.unwrap_or("<None>".into());
+        let text = current_value.map_or_else(|| "<None>".into(), |input| input.keycode);
         self.input_button(&text, label, InputType::Keyboard, button, ui);
     }
 
@@ -1304,76 +849,44 @@ impl App {
 
     fn clear_button_in_config(&mut self, button: GenericButton, input_type: InputType) {
         match button {
-            GenericButton::SmsGg(button) => match (input_type, button.player()) {
-                (InputType::Keyboard, Player::One) => {
-                    clear_smsgg_button(&mut self.config.inputs.smsgg_p1_keyboard, button);
+            GenericButton::SmsGg(button, player) => match input_type {
+                InputType::Keyboard => {
+                    self.config.inputs.smsgg_keyboard.clear_input(button, player);
                 }
-                (InputType::Joystick, Player::One) => {
-                    clear_smsgg_button(&mut self.config.inputs.smsgg_p1_joystick, button);
+                InputType::Joystick => {
+                    self.config.inputs.smsgg_joystick.clear_input(button, player);
                 }
-                (InputType::Keyboard, Player::Two) => {
-                    clear_smsgg_button(&mut self.config.inputs.smsgg_p2_keyboard, button);
-                }
-                (InputType::Joystick, Player::Two) => {
-                    clear_smsgg_button(&mut self.config.inputs.smsgg_p2_joystick, button);
-                }
-                (InputType::KeyboardOrMouse, _) => {}
+                InputType::KeyboardOrMouse => {}
             },
-            GenericButton::Genesis(button) => match (input_type, button.player()) {
-                (InputType::Keyboard, Player::One) => {
-                    clear_genesis_button(&mut self.config.inputs.genesis_p1_keyboard, button);
+            GenericButton::Genesis(button, player) => match input_type {
+                InputType::Keyboard => {
+                    self.config.inputs.genesis_keyboard.clear_input(button, player);
                 }
-                (InputType::Joystick, Player::One) => {
-                    clear_genesis_button(&mut self.config.inputs.genesis_p1_joystick, button);
+                InputType::Joystick => {
+                    self.config.inputs.genesis_joystick.clear_input(button, player);
                 }
-                (InputType::Keyboard, Player::Two) => {
-                    clear_genesis_button(&mut self.config.inputs.genesis_p2_keyboard, button);
-                }
-                (InputType::Joystick, Player::Two) => {
-                    clear_genesis_button(&mut self.config.inputs.genesis_p2_joystick, button);
-                }
-                (InputType::KeyboardOrMouse, _) => {}
+                InputType::KeyboardOrMouse => {}
             },
-            GenericButton::Nes(button) => match (input_type, button.player()) {
-                (InputType::Keyboard, Player::One) => {
-                    clear_nes_button(&mut self.config.inputs.nes_p1_keyboard, button);
-                }
-                (InputType::Keyboard, Player::Two) => {
-                    clear_nes_button(&mut self.config.inputs.nes_p2_keyboard, button);
-                }
-                (InputType::Joystick, Player::One) => {
-                    clear_nes_button(&mut self.config.inputs.nes_p1_joystick, button);
-                }
-                (InputType::Joystick, Player::Two) => {
-                    clear_nes_button(&mut self.config.inputs.nes_p2_joystick, button);
-                }
-                (InputType::KeyboardOrMouse, _) => {}
+            GenericButton::Nes(button, player) => match input_type {
+                InputType::Keyboard => self.config.inputs.nes_keyboard.clear_input(button, player),
+                InputType::Joystick => self.config.inputs.nes_joystick.clear_input(button, player),
+                InputType::KeyboardOrMouse => {}
             },
-            GenericButton::Snes(button) => match (input_type, button.player()) {
-                (InputType::Keyboard, Player::One) => {
-                    clear_snes_button(&mut self.config.inputs.snes_p1_keyboard, button);
+            GenericButton::Snes(button, player) => match (input_type, button) {
+                (InputType::Keyboard, SnesButton::Controller(button)) => {
+                    self.config.inputs.snes_keyboard.clear_input(button, player);
                 }
-                (InputType::Joystick, Player::One) => {
-                    clear_snes_button(&mut self.config.inputs.snes_p1_joystick, button);
+                (InputType::Joystick, SnesButton::Controller(button)) => {
+                    self.config.inputs.snes_joystick.clear_input(button, player);
                 }
-                (InputType::Keyboard, Player::Two) => {
-                    clear_snes_button(&mut self.config.inputs.snes_p2_keyboard, button);
+                (InputType::KeyboardOrMouse, SnesButton::SuperScope(button)) => {
+                    self.config.inputs.snes_super_scope.clear_button(button);
                 }
-                (InputType::Joystick, Player::Two) => {
-                    clear_snes_button(&mut self.config.inputs.snes_p2_joystick, button);
-                }
-                (InputType::KeyboardOrMouse, _) => {
-                    if let SnesButton::SuperScope(super_scope_button) = button {
-                        clear_super_scope_button(
-                            &mut self.config.inputs.snes_super_scope,
-                            super_scope_button,
-                        );
-                    }
-                }
+                _ => {}
             },
             GenericButton::GameBoy(button) => match input_type {
-                InputType::Keyboard => clear_gb_button(&mut self.config.inputs.gb_keyboard, button),
-                InputType::Joystick => clear_gb_button(&mut self.config.inputs.gb_joystick, button),
+                InputType::Keyboard => self.config.inputs.gb_keyboard.clear_button(button),
+                InputType::Joystick => self.config.inputs.gb_joystick.clear_button(button),
                 InputType::KeyboardOrMouse => {}
             },
             GenericButton::Hotkey(hotkey) => match hotkey {
@@ -1485,106 +998,16 @@ impl App {
                 ctx: ui.ctx().clone(),
             });
             self.state.waiting_for_input =
-                Some(GenericButton::Snes(SnesButton::SuperScope(button)));
+                Some(GenericButton::Snes(SnesButton::SuperScope(button), Player::One));
         }
 
         if ui.button("Clear").clicked() {
             self.clear_button_in_config(
-                GenericButton::Snes(SnesButton::SuperScope(button)),
+                GenericButton::Snes(SnesButton::SuperScope(button), Player::One),
                 InputType::KeyboardOrMouse,
             );
         }
 
         ui.end_row();
     }
-}
-
-fn clear_smsgg_button<T>(config: &mut SmsGgControllerConfig<T>, button: SmsGgButton) {
-    let field = match button {
-        SmsGgButton::Up(_) => &mut config.up,
-        SmsGgButton::Left(_) => &mut config.left,
-        SmsGgButton::Right(_) => &mut config.right,
-        SmsGgButton::Down(_) => &mut config.down,
-        SmsGgButton::Button1(_) => &mut config.button_1,
-        SmsGgButton::Button2(_) => &mut config.button_2,
-        SmsGgButton::Pause => &mut config.pause,
-    };
-
-    *field = None;
-}
-
-fn clear_genesis_button<T>(config: &mut GenesisControllerConfig<T>, button: GenesisButton) {
-    let field = match button {
-        GenesisButton::Up(_) => &mut config.up,
-        GenesisButton::Left(_) => &mut config.left,
-        GenesisButton::Right(_) => &mut config.right,
-        GenesisButton::Down(_) => &mut config.down,
-        GenesisButton::A(_) => &mut config.a,
-        GenesisButton::B(_) => &mut config.b,
-        GenesisButton::C(_) => &mut config.c,
-        GenesisButton::X(_) => &mut config.x,
-        GenesisButton::Y(_) => &mut config.y,
-        GenesisButton::Z(_) => &mut config.z,
-        GenesisButton::Start(_) => &mut config.start,
-        GenesisButton::Mode(_) => &mut config.mode,
-    };
-
-    *field = None;
-}
-
-fn clear_nes_button<T>(config: &mut NesControllerConfig<T>, button: NesButton) {
-    match button {
-        NesButton::Up(_) => config.up = None,
-        NesButton::Left(_) => config.left = None,
-        NesButton::Right(_) => config.right = None,
-        NesButton::Down(_) => config.down = None,
-        NesButton::A(_) => config.a = None,
-        NesButton::B(_) => config.b = None,
-        NesButton::Start(_) => config.start = None,
-        NesButton::Select(_) => config.select = None,
-    }
-}
-
-fn clear_snes_button<T>(config: &mut SnesControllerConfig<T>, button: SnesButton) {
-    let field = match button {
-        SnesButton::Up(_) => &mut config.up,
-        SnesButton::Left(_) => &mut config.left,
-        SnesButton::Right(_) => &mut config.right,
-        SnesButton::Down(_) => &mut config.down,
-        SnesButton::A(_) => &mut config.a,
-        SnesButton::B(_) => &mut config.b,
-        SnesButton::X(_) => &mut config.x,
-        SnesButton::Y(_) => &mut config.y,
-        SnesButton::L(_) => &mut config.l,
-        SnesButton::R(_) => &mut config.r,
-        SnesButton::Start(_) => &mut config.start,
-        SnesButton::Select(_) => &mut config.select,
-        SnesButton::SuperScope(_) => return,
-    };
-
-    *field = None;
-}
-
-fn clear_super_scope_button(config: &mut SuperScopeConfig, button: SuperScopeButton) {
-    match button {
-        SuperScopeButton::Fire => config.fire = None,
-        SuperScopeButton::Cursor => config.cursor = None,
-        SuperScopeButton::Pause => config.pause = None,
-        SuperScopeButton::TurboToggle => config.turbo_toggle = None,
-    }
-}
-
-fn clear_gb_button<T>(config: &mut GameBoyInputConfig<T>, button: GameBoyButton) {
-    let field = match button {
-        GameBoyButton::Up => &mut config.up,
-        GameBoyButton::Left => &mut config.left,
-        GameBoyButton::Right => &mut config.right,
-        GameBoyButton::Down => &mut config.down,
-        GameBoyButton::A => &mut config.a,
-        GameBoyButton::B => &mut config.b,
-        GameBoyButton::Start => &mut config.start,
-        GameBoyButton::Select => &mut config.select,
-    };
-
-    *field = None;
 }
