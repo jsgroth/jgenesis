@@ -1,19 +1,11 @@
 use bincode::{Decode, Encode};
+use jgenesis_common::input::Player;
+use jgenesis_proc_macros::define_controller_inputs;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
-pub struct SnesJoypadState {
-    pub up: bool,
-    pub left: bool,
-    pub right: bool,
-    pub down: bool,
-    pub a: bool,
-    pub b: bool,
-    pub x: bool,
-    pub y: bool,
-    pub l: bool,
-    pub r: bool,
-    pub start: bool,
-    pub select: bool,
+define_controller_inputs! {
+    button_ident: SnesButton,
+    joypad_ident: SnesJoypadState,
+    buttons: [Up, Left, Right, Down, A, B, X, Y, L, R, Start, Select],
 }
 
 impl SnesJoypadState {
@@ -63,8 +55,30 @@ impl Default for SnesInputDevice {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub struct SnesInputs {
     pub p1: SnesJoypadState,
     pub p2: SnesInputDevice,
+}
+
+impl SnesInputs {
+    #[inline]
+    pub fn set_button(&mut self, button: SnesButton, player: Player, pressed: bool) {
+        match player {
+            Player::One => self.p1.set_button(button, pressed),
+            Player::Two => match &mut self.p2 {
+                SnesInputDevice::Controller(joypad_state) => {
+                    joypad_state.set_button(button, pressed);
+                }
+                SnesInputDevice::SuperScope(_) => {}
+            },
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn with_button(mut self, button: SnesButton, player: Player, pressed: bool) -> Self {
+        self.set_button(button, player, pressed);
+        self
+    }
 }

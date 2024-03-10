@@ -3,22 +3,17 @@
 use crate::GenesisEmulatorConfig;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
-use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
+use jgenesis_proc_macros::{define_controller_inputs, EnumDisplay, EnumFromStr};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
-pub struct GenesisJoypadState {
-    pub up: bool,
-    pub left: bool,
-    pub right: bool,
-    pub down: bool,
-    pub a: bool,
-    pub b: bool,
-    pub c: bool,
-    pub x: bool,
-    pub y: bool,
-    pub z: bool,
-    pub start: bool,
-    pub mode: bool,
+define_controller_inputs! {
+    button_ident: GenesisButton,
+    joypad_ident: GenesisJoypadState,
+    inputs_ident: GenesisInputs,
+    buttons: [Up, Left, Right, Down, A, B, C, X, Y, Z, Start, Mode],
+    inputs: {
+        p1: (Player One),
+        p2: (Player Two),
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumFromStr, EnumDisplay)]
@@ -27,12 +22,6 @@ pub enum GenesisControllerType {
     ThreeButton,
     #[default]
     SixButton,
-}
-
-#[derive(Debug, Clone, Default, Encode, Decode)]
-pub struct GenesisInputs {
-    pub p1: GenesisJoypadState,
-    pub p2: GenesisJoypadState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
@@ -178,8 +167,8 @@ impl InputState {
         Self::default()
     }
 
-    pub fn set_inputs(&mut self, inputs: &GenesisInputs) {
-        self.inputs = inputs.clone();
+    pub fn set_inputs(&mut self, inputs: GenesisInputs) {
+        self.inputs = inputs;
     }
 
     pub fn reload_config(&mut self, config: GenesisEmulatorConfig) {

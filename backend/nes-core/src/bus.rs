@@ -399,8 +399,8 @@ impl IoRegisters {
             dma_dirty: false,
             dirty_register: None,
             snd_chn_read: false,
-            p1_joypad_state: NesJoypadState::new(),
-            p2_joypad_state: NesJoypadState::new(),
+            p1_joypad_state: NesJoypadState::default(),
+            p2_joypad_state: NesJoypadState::default(),
             latched_joypad_state: None,
         }
     }

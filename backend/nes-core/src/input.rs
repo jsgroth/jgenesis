@@ -1,29 +1,24 @@
 use bincode::{Decode, Encode};
+use jgenesis_proc_macros::define_controller_inputs;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
-pub struct NesJoypadState {
-    pub up: bool,
-    pub down: bool,
-    pub left: bool,
-    pub right: bool,
-    pub a: bool,
-    pub b: bool,
-    pub start: bool,
-    pub select: bool,
+define_controller_inputs! {
+    button_ident: NesButton,
+    joypad_ident: NesJoypadState,
+    inputs_ident: NesInputs,
+    buttons: [Up, Left, Right, Down, A, B, Start, Select],
+    inputs: {
+        p1: (Player One),
+        p2: (Player Two),
+    },
 }
 
 impl NesJoypadState {
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Prevent left+right or up+down from being pressed simultaneously from the NES's perspective.
     ///
     /// If left+right are pressed simultaneously, left will be preferred.
     /// If up+down are pressed simultaneously, up will be preferred.
     #[must_use]
-    pub fn sanitize_opposing_directions(self) -> Self {
+    pub(crate) fn sanitize_opposing_directions(self) -> Self {
         let mut sanitized = self;
 
         if self.left && self.right {
@@ -50,12 +45,6 @@ impl NesJoypadState {
             | u8::from(self.a);
         LatchedJoypadState(bitstream)
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
-pub struct NesInputs {
-    pub p1: NesJoypadState,
-    pub p2: NesJoypadState,
 }
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]

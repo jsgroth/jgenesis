@@ -119,7 +119,7 @@ impl InputState {
                 }
             };
 
-            self.last_strobe_inputs = self.current_inputs.clone();
+            self.last_strobe_inputs = self.current_inputs;
         }
 
         self.strobe = strobe;
@@ -153,8 +153,8 @@ impl InputState {
         self.auto_read_cycles_remaining = AUTO_JOYPAD_DURATION_MCLK;
     }
 
-    pub fn tick(&mut self, master_cycles_elapsed: u64, inputs: &SnesInputs) {
-        self.current_inputs = inputs.clone();
+    pub fn tick(&mut self, master_cycles_elapsed: u64, inputs: SnesInputs) {
+        self.current_inputs = inputs;
 
         if self.auto_read_cycles_remaining != 0 {
             self.progress_auto_joypad_read(master_cycles_elapsed);

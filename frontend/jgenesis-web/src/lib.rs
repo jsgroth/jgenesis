@@ -381,8 +381,8 @@ fn handle_smsgg_input(inputs: &mut SmsGgInputs, event: &WindowEvent<'_>) {
         VirtualKeyCode::Left => inputs.p1.left = pressed,
         VirtualKeyCode::Right => inputs.p1.right = pressed,
         VirtualKeyCode::Down => inputs.p1.down = pressed,
-        VirtualKeyCode::A => inputs.p1.button_2 = pressed,
-        VirtualKeyCode::S => inputs.p1.button_1 = pressed,
+        VirtualKeyCode::A => inputs.p1.button2 = pressed,
+        VirtualKeyCode::S => inputs.p1.button1 = pressed,
         VirtualKeyCode::Return => inputs.pause = pressed,
         _ => {}
     }
