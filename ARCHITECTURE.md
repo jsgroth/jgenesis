@@ -3,7 +3,7 @@
 ## Overview
 
 The crates can be broken up roughly into 5 categories:
-* Common libraries: `jgenesis-common`, `jgenesis-proc-macros`
+* Common libraries: `jgenesis-common`, `jgenesis-proc-macros`, `cdrom`
 * CPU emulators: `z80-emu`, `m68000-emu`, `mos6502-emu`, `wdc65816-emu`, `spc700-emu`
 * Emulation backend: `smsgg-core`, `genesis-core`, `segacd-core`, `nes-core`, `snes-core`, `snes-coprocessors`, `gb-core`
 * Emulation frontend: `jgenesis-renderer`, `jgenesis-native-driver`, `jgenesis-cli`, `jgenesis-gui`, `jgenesis-web`
@@ -28,6 +28,10 @@ Contains traits that define the interface between the emulation backends and the
 ### `jgenesis-proc-macros`
 
 Custom derive macros used across many of the other crates.
+
+### `cdrom`
+
+Contains code for reading CD-ROM images in CUE/BIN or CHD format.
 
 ### `z80-emu`
 

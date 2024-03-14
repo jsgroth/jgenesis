@@ -781,6 +781,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cdrom"
+version = "0.7.1"
+dependencies = [
+ "bincode",
+ "chd",
+ "crc",
+ "jgenesis-proc-macros",
+ "log",
+ "regex",
+ "thiserror",
+]
+
+[[package]]
 name = "cesu8"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3446,8 +3459,7 @@ name = "segacd-core"
 version = "0.7.1"
 dependencies = [
  "bincode",
- "chd",
- "crc",
+ "cdrom",
  "genesis-core",
  "jgenesis-common",
  "jgenesis-proc-macros",

@@ -2,12 +2,13 @@
 
 use crate::audio::AudioResampler;
 use crate::cddrive::CdTickEffect;
-use crate::cdrom::reader::{CdRom, CdRomFileFormat};
 use crate::graphics::GraphicsCoprocessor;
 use crate::memory;
 use crate::memory::{SegaCd, SubBus};
 use crate::rf5c164::{PcmTickEffect, Rf5c164};
 use bincode::{Decode, Encode};
+use cdrom::reader::{CdRom, CdRomFileFormat};
+use cdrom::CdRomError;
 use genesis_core::input::InputState;
 use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::vdp::{Vdp, VdpTickEffect};
@@ -20,7 +21,6 @@ use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgTickEffect, PsgVersion};
 use std::fmt::{Debug, Display};
-use std::io;
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
 use thiserror::Error;
@@ -37,67 +37,21 @@ pub(crate) const SEGA_CD_MASTER_CLOCK_RATE: u64 = 50_000_000;
 const BIOS_LEN: usize = memory::BIOS_LEN;
 
 #[derive(Debug, Error)]
-pub enum DiscError {
+pub enum SegaCdLoadError {
     #[error("BIOS is required for Sega CD emulation")]
     MissingBios,
     #[error("BIOS must be {BIOS_LEN} bytes, was {bios_len} bytes")]
     InvalidBios { bios_len: usize },
-    #[error("Unable to determine parent directory of CUE file '{0}'")]
-    CueParentDir(String),
-    #[error("Error parsing CUE file: {0}")]
-    CueParse(String),
-    #[error("Invalid/unsupported FILE line in CUE file: {0}")]
-    CueInvalidFileLine(String),
-    #[error("Invalid/unsupported TRACK line in CUE file: {0}")]
-    CueInvalidTrackLine(String),
-    #[error("Invalid/unsupported INDEX line in CUE file: {0}")]
-    CueInvalidIndexLine(String),
-    #[error("Invalid/unsupported PREGAP line in CUE file: {0}")]
-    CueInvalidPregapLine(String),
-    #[error("Unable to get file metadata for file '{path}': {source}")]
-    FsMetadata {
-        path: String,
-        #[source]
-        source: io::Error,
-    },
-    #[error("Error opening CUE file '{path}': {source}")]
-    CueOpen {
-        path: String,
-        #[source]
-        source: io::Error,
-    },
-    #[error("Error opening BIN file '{path}': {source}")]
-    BinOpen {
-        path: String,
-        #[source]
-        source: io::Error,
-    },
-    #[error("Error opening CHD file '{path}': {source}")]
-    ChdOpen {
-        path: String,
-        #[source]
-        source: io::Error,
-    },
-    #[error("I/O error reading from disc: {0}")]
-    DiscReadIo(#[source] io::Error),
-    #[error(
-        "CD-ROM error detection check failed for track {track_number} sector {sector_number}; expected={expected:08X}, actual={actual:08X}"
-    )]
-    DiscReadInvalidChecksum { track_number: u8, sector_number: u32, expected: u32, actual: u32 },
-    #[error("Error reading CHD file: {0}")]
-    ChdError(#[from] chd::Error),
-    #[error("Unable to parse CD-ROM metadata in CHD header: '{metadata_value}'")]
-    ChdHeaderParseError { metadata_value: String },
-    #[error("CHD header contains an invalid CD-ROM track list: {track_numbers:?}")]
-    ChdInvalidTrackList { track_numbers: Vec<u8> },
+    #[error("CD-ROM-related error: {0}")]
+    CdRom(#[from] CdRomError),
 }
 
-pub type DiscResult<T> = Result<T, DiscError>;
+pub type SegaCdLoadResult<T> = Result<T, SegaCdLoadError>;
 
 #[derive(Debug, Error)]
 pub enum SegaCdError<RErr, AErr, SErr> {
     #[error("Disc-related error: {0}")]
-    Disc(#[from] DiscError),
+    Disc(#[from] SegaCdLoadError),
     #[error("Rendering error: {0}")]
     Render(RErr),
     #[error("Audio output error: {0}")]
@@ -197,7 +151,7 @@ impl SegaCdEmulator {
         run_without_disc: bool,
         emulator_config: SegaCdEmulatorConfig,
         save_writer: &mut S,
-    ) -> DiscResult<Self> {
+    ) -> SegaCdLoadResult<Self> {
         let disc = if !run_without_disc { Some(CdRom::open(rom_path, format)?) } else { None };
 
         Self::create_from_disc(bios, disc, emulator_config, save_writer)
@@ -214,7 +168,7 @@ impl SegaCdEmulator {
         chd_bytes: Vec<u8>,
         emulator_config: SegaCdEmulatorConfig,
         save_writer: &mut S,
-    ) -> DiscResult<Self> {
+    ) -> SegaCdLoadResult<Self> {
         let disc = CdRom::open_chd_in_memory(chd_bytes)?;
 
         Self::create_from_disc(bios, Some(disc), emulator_config, save_writer)
@@ -225,9 +179,9 @@ impl SegaCdEmulator {
         disc: Option<CdRom>,
         emulator_config: SegaCdEmulatorConfig,
         save_writer: &mut S,
-    ) -> DiscResult<Self> {
+    ) -> SegaCdLoadResult<Self> {
         if bios.len() != BIOS_LEN {
-            return Err(DiscError::InvalidBios { bios_len: bios.len() });
+            return Err(SegaCdLoadError::InvalidBios { bios_len: bios.len() });
         }
 
         let initial_backup_ram = save_writer.load_bytes("sav").ok();
@@ -333,7 +287,7 @@ impl SegaCdEmulator {
         &mut self,
         rom_path: P,
         format: CdRomFileFormat,
-    ) -> DiscResult<()> {
+    ) -> SegaCdLoadResult<()> {
         let sega_cd = self.memory.medium_mut();
         sega_cd.change_disc(rom_path, format)?;
         self.disc_title = sega_cd.disc_title()?.unwrap_or_else(|| "(no disc)".into());

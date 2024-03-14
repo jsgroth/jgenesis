@@ -4,17 +4,16 @@ mod backupram;
 mod font;
 pub(crate) mod wordram;
 
-use crate::api::DiscResult;
+use crate::api::SegaCdLoadResult;
 use crate::cddrive::cdc::{DeviceDestination, Rchip};
 use crate::cddrive::cdd::CdDrive;
 use crate::cddrive::{cdc, CdController, CdTickEffect};
-use crate::cdrom::cdtime::CdTime;
-use crate::cdrom::reader::CdRom;
 use crate::graphics::GraphicsCoprocessor;
 use crate::memory::font::FontRegisters;
 use crate::rf5c164::Rf5c164;
-use crate::{cdrom, CdRomFileFormat};
 use bincode::{Decode, Encode};
+use cdrom::cdtime::CdTime;
+use cdrom::reader::{CdRom, CdRomFileFormat};
 use genesis_core::memory::{Memory, PhysicalMedium};
 use genesis_core::GenesisRegion;
 use jgenesis_common::num::{GetBit, U16Ext};
@@ -154,7 +153,7 @@ impl SegaCd {
         initial_backup_ram: Option<Vec<u8>>,
         enable_ram_cartridge: bool,
         forced_region: Option<GenesisRegion>,
-    ) -> DiscResult<Self> {
+    ) -> SegaCdLoadResult<Self> {
         let (backup_ram, ram_cartridge) =
             backupram::load_initial_backup_ram(initial_backup_ram.as_ref());
 
@@ -473,7 +472,7 @@ impl SegaCd {
         &mut self,
         master_clock_cycles: u64,
         pcm: &mut Rf5c164,
-    ) -> DiscResult<CdTickEffect> {
+    ) -> SegaCdLoadResult<CdTickEffect> {
         let cd_tick_effect = self.disc_drive.tick(
             master_clock_cycles,
             &mut self.word_ram,
@@ -504,7 +503,7 @@ impl SegaCd {
         self.registers.stopwatch_counter = (self.registers.stopwatch_counter + 1) & 0x0FFF;
     }
 
-    pub fn disc_title(&mut self) -> DiscResult<Option<String>> {
+    pub fn disc_title(&mut self) -> SegaCdLoadResult<Option<String>> {
         self.disc_drive.disc_title(self.region())
     }
 
@@ -572,12 +571,12 @@ impl SegaCd {
         &mut self,
         rom_path: P,
         format: CdRomFileFormat,
-    ) -> DiscResult<()> {
+    ) -> SegaCdLoadResult<()> {
         self.cdd_mut().change_disc(rom_path, format)
     }
 }
 
-fn parse_disc_region(disc: &mut CdRom) -> DiscResult<GenesisRegion> {
+fn parse_disc_region(disc: &mut CdRom) -> SegaCdLoadResult<GenesisRegion> {
     // ROM header is always located at track 1 sector 0
     let mut rom_header = [0; cdrom::BYTES_PER_SECTOR as usize];
     disc.read_sector(1, CdTime::SECTOR_0_START, &mut rom_header)?;

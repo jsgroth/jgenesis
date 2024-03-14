@@ -4,13 +4,12 @@ mod chd;
 mod cuebin;
 mod seekvec;
 
-use crate::api::{DiscError, DiscResult};
-use crate::cdrom;
-use crate::cdrom::cdtime::CdTime;
-use crate::cdrom::cue::{CueSheet, TrackType};
-use crate::cdrom::reader::chd::ChdFile;
-use crate::cdrom::reader::cuebin::CdBinFiles;
-use crate::cdrom::reader::seekvec::SeekableVec;
+use crate::cdtime::CdTime;
+use crate::cue::{CueSheet, TrackType};
+use crate::reader::chd::ChdFile;
+use crate::reader::cuebin::CdBinFiles;
+use crate::reader::seekvec::SeekableVec;
+use crate::{CdRomError, CdRomResult};
 use bincode::{Decode, Encode};
 use crc::Crc;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
@@ -48,7 +47,7 @@ impl CdRomReader {
         track_number: u8,
         relative_sector_number: u32,
         out: &mut [u8],
-    ) -> DiscResult<()> {
+    ) -> CdRomResult<()> {
         match self {
             Self::CueBin(bin_files) => {
                 bin_files.read_sector(track_number, relative_sector_number, out)
@@ -88,23 +87,29 @@ pub struct CdRom {
 }
 
 impl CdRom {
-    pub fn open<P: AsRef<Path>>(path: P, format: CdRomFileFormat) -> DiscResult<Self> {
+    /// Open a CD-ROM reader that will read from the filesystem as needed.
+    ///
+    /// # Errors
+    ///
+    /// Will propagate any I/O errors, and will return an error if the CD-ROM metadata appears
+    /// invalid.
+    pub fn open<P: AsRef<Path>>(path: P, format: CdRomFileFormat) -> CdRomResult<Self> {
         match format {
             CdRomFileFormat::CueBin => Self::open_cue_bin(path),
             CdRomFileFormat::Chd => Self::open_chd(path),
         }
     }
 
-    fn open_cue_bin<P: AsRef<Path>>(cue_path: P) -> DiscResult<Self> {
+    fn open_cue_bin<P: AsRef<Path>>(cue_path: P) -> CdRomResult<Self> {
         let (bin_files, cue_sheet) = CdBinFiles::create(cue_path)?;
 
         Ok(Self { cue_sheet, reader: CdRomReader::CueBin(bin_files) })
     }
 
-    fn open_chd<P: AsRef<Path>>(chd_path: P) -> DiscResult<Self> {
+    fn open_chd<P: AsRef<Path>>(chd_path: P) -> CdRomResult<Self> {
         let chd_path = chd_path.as_ref();
 
-        let file = File::open(chd_path).map_err(|source| DiscError::ChdOpen {
+        let file = File::open(chd_path).map_err(|source| CdRomError::ChdOpen {
             path: chd_path.display().to_string(),
             source,
         })?;
@@ -113,13 +118,19 @@ impl CdRom {
         Ok(Self { cue_sheet, reader: CdRomReader::ChdFs(chd_file) })
     }
 
-    pub fn open_chd_in_memory(chd_bytes: Vec<u8>) -> DiscResult<Self> {
+    /// Open a CD-ROM reader that will read from a CHD file that has been read into memory.
+    ///
+    /// # Errors
+    ///
+    /// Will return an error if the CHD or CD-ROM metadata appears invalid.
+    pub fn open_chd_in_memory(chd_bytes: Vec<u8>) -> CdRomResult<Self> {
         let seekable_vec = SeekableVec::new(chd_bytes);
         let (chd_file, cue_sheet) = ChdFile::open(seekable_vec)?;
 
         Ok(Self { cue_sheet, reader: CdRomReader::ChdMemory(chd_file) })
     }
 
+    #[must_use]
     pub fn cue(&self) -> &CueSheet {
         &self.cue_sheet
     }
@@ -139,7 +150,7 @@ impl CdRom {
         track_number: u8,
         relative_time: CdTime,
         out: &mut [u8],
-    ) -> DiscResult<()> {
+    ) -> CdRomResult<()> {
         let track = self.cue_sheet.track(track_number);
         if relative_time < track.pregap_len
             || relative_time >= track.end_time - track.postgap_len - track.start_time
@@ -151,7 +162,7 @@ impl CdRom {
                 }
                 TrackType::Audio => {
                     // Fill with all 0s
-                    out[..cdrom::BYTES_PER_SECTOR as usize].fill(0);
+                    out[..crate::BYTES_PER_SECTOR as usize].fill(0);
                 }
             }
             return Ok(());
@@ -168,7 +179,7 @@ impl CdRom {
             let edc = u32::from_le_bytes(edc_bytes);
 
             if checksum != edc {
-                return Err(DiscError::DiscReadInvalidChecksum {
+                return Err(CdRomError::DiscReadInvalidChecksum {
                     track_number,
                     sector_number: relative_sector_number,
                     expected: edc,
@@ -206,7 +217,7 @@ fn write_fake_data_pregap(time: CdTime, out: &mut [u8]) {
         bcd_frames,
         0x01,
     ]);
-    out[SECTOR_HEADER_LEN as usize..cdrom::BYTES_PER_SECTOR as usize].fill(0);
+    out[SECTOR_HEADER_LEN as usize..crate::BYTES_PER_SECTOR as usize].fill(0);
 }
 
 fn time_component_to_bcd(component: u8) -> u8 {

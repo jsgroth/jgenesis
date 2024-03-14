@@ -1,12 +1,11 @@
 //! Sega CD's physical drive, which documentation refers to as the CDD
 
-use crate::api::DiscResult;
+use crate::api::SegaCdLoadResult;
 use crate::cddrive::cdc::Rchip;
-use crate::cdrom;
-use crate::cdrom::cdtime::CdTime;
-use crate::cdrom::cue::{Track, TrackType};
-use crate::cdrom::reader::{CdRom, CdRomFileFormat};
 use bincode::{Decode, Encode};
+use cdrom::cdtime::CdTime;
+use cdrom::cue::{Track, TrackType};
+use cdrom::reader::{CdRom, CdRomFileFormat};
 use genesis_core::GenesisRegion;
 use jgenesis_proc_macros::PartialClone;
 use regex::Regex;
@@ -609,7 +608,7 @@ impl CdDrive {
         (sample_l, sample_r)
     }
 
-    pub fn clock(&mut self, rchip: &mut Rchip) -> DiscResult<()> {
+    pub fn clock(&mut self, rchip: &mut Rchip) -> SegaCdLoadResult<()> {
         // It is a bug if clock() is called when audio index is not 0; update_audio_sample() must
         // be called before clock() on the cycle when both are called
         assert_eq!(self.audio_sample_idx, 0);
@@ -774,7 +773,7 @@ impl CdDrive {
         self.interrupt_pending = false;
     }
 
-    pub fn disc_title(&mut self, region: GenesisRegion) -> DiscResult<Option<String>> {
+    pub fn disc_title(&mut self, region: GenesisRegion) -> SegaCdLoadResult<Option<String>> {
         static WHITESPACE_RE: OnceLock<Regex> = OnceLock::new();
 
         let Some(disc) = &mut self.disc else { return Ok(None) };
@@ -827,7 +826,7 @@ impl CdDrive {
         &mut self,
         rom_path: P,
         format: CdRomFileFormat,
-    ) -> DiscResult<()> {
+    ) -> SegaCdLoadResult<()> {
         let cue_path = rom_path.as_ref();
 
         log::info!("Changing disc to '{}'", cue_path.display());

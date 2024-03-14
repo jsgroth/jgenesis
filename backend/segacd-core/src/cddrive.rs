@@ -3,14 +3,14 @@
 pub mod cdc;
 pub mod cdd;
 
-use crate::api::DiscResult;
-use crate::cdrom::reader::CdRom;
+use crate::api::SegaCdLoadResult;
 use crate::memory::wordram::WordRam;
 use crate::rf5c164::Rf5c164;
-use crate::{api, cdrom, memory};
+use crate::{api, memory};
 use bincode::{Decode, Encode};
 use cdc::Rchip;
 use cdd::CdDrive;
+use cdrom::reader::CdRom;
 use genesis_core::GenesisRegion;
 use jgenesis_proc_macros::PartialClone;
 use std::array;
@@ -96,7 +96,7 @@ impl CdController {
         word_ram: &mut WordRam,
         prg_ram: &mut [u8; memory::PRG_RAM_LEN],
         pcm: &mut Rf5c164,
-    ) -> DiscResult<CdTickEffect> {
+    ) -> SegaCdLoadResult<CdTickEffect> {
         match self.prescaler.tick(mclk_cycles) {
             PrescalerTickEffect::None => Ok(CdTickEffect::None),
             PrescalerTickEffect::SampleAudio => {
@@ -131,7 +131,7 @@ impl CdController {
         &mut self.rchip
     }
 
-    pub fn disc_title(&mut self, region: GenesisRegion) -> DiscResult<Option<String>> {
+    pub fn disc_title(&mut self, region: GenesisRegion) -> SegaCdLoadResult<Option<String>> {
         self.drive.disc_title(region)
     }
 

@@ -31,11 +31,11 @@ use sdl2::event::{Event, WindowEvent};
 use sdl2::render::TextureValueError;
 use sdl2::video::{FullscreenType, Window, WindowBuildError};
 use sdl2::{AudioSubsystem, EventPump, IntegerOrSdlError, JoystickSubsystem, Sdl, VideoSubsystem};
-use segacd_core::api::{DiscError, DiscResult, SegaCdEmulator, SegaCdEmulatorConfig};
+use segacd_core::api::{SegaCdEmulator, SegaCdEmulatorConfig, SegaCdLoadError, SegaCdLoadResult};
 use segacd_core::CdRomFileFormat;
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgInputs};
-use snes_core::api::{LoadError, SnesEmulator, SnesEmulatorConfig};
+use snes_core::api::{SnesEmulator, SnesEmulatorConfig, SnesLoadError};
 use snes_core::input::SnesInputs;
 use std::error::Error;
 use std::ffi::{NulError, OsStr};
@@ -295,7 +295,7 @@ impl NativeSegaCdEmulator {
     ///
     /// This method will return an error if the disc drive is unable to load the disc.
     #[allow(clippy::missing_panics_doc)]
-    pub fn change_disc<P: AsRef<Path>>(&mut self, rom_path: P) -> DiscResult<()> {
+    pub fn change_disc<P: AsRef<Path>>(&mut self, rom_path: P) -> SegaCdLoadResult<()> {
         let rom_format = CdRomFileFormat::from_file_path(rom_path.as_ref()).unwrap_or_else(|| {
             log::warn!(
                 "Unrecognized CD-ROM file format, treating as CUE: {}",
@@ -469,11 +469,11 @@ pub enum NativeEmulatorError {
     },
 
     #[error("{0}")]
-    SegaCdDisc(#[from] DiscError),
+    SegaCdDisc(#[from] SegaCdLoadError),
     #[error("{0}")]
     NesLoad(#[from] NesInitializationError),
     #[error("{0}")]
-    SnesLoad(#[from] LoadError),
+    SnesLoad(#[from] SnesLoadError),
     #[error("{0}")]
     GameBoyLoad(#[from] GameBoyLoadError),
     #[error("I/O error opening save state file '{path}': {source}")]

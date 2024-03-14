@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+cdrom = { path = "../../cdrom" }
 genesis-core = { path = "../genesis-core" }
 jgenesis-proc-macros = { path = "../../jgenesis-proc-macros" }
 jgenesis-common = { path = "../../jgenesis-common" }
@@ -14,8 +15,6 @@ smsgg-core = { path = "../smsgg-core" }
 z80-emu = { path = "../../cpu/z80-emu" }
 
 bincode = { workspace = true }
-chd = { workspace = true, features = ["unstable_lending_iterators"] }
-crc = { workspace = true }
 log = { workspace = true }
 regex = { workspace = true }
 thiserror = { workspace = true }

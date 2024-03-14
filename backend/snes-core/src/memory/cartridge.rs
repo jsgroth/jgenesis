@@ -1,6 +1,6 @@
 //! SNES cartridge loading and mapping code
 
-use crate::api::{CoprocessorRoms, LoadError, LoadResult};
+use crate::api::{CoprocessorRoms, SnesLoadError, SnesLoadResult};
 use bincode::{Decode, Encode};
 use crc::Crc;
 use jgenesis_common::frontend::{PartialClone, SaveWriter, TimingMode};
@@ -209,7 +209,7 @@ impl Cartridge {
         forced_timing_mode: Option<TimingMode>,
         gsu_overclock_factor: NonZeroU64,
         save_writer: &mut S,
-    ) -> LoadResult<Self> {
+    ) -> SnesLoadResult<Self> {
         // Older SNES ROM images have an extra 512-byte header; check for that and strip it off
         if rom.len() & 0x7FFF == 0x0200 {
             let stripped_rom = rom[0x200..].to_vec().into_boxed_slice();
@@ -276,15 +276,15 @@ impl Cartridge {
 
             let st01x_rom_fn = match st01x_variant {
                 St01xVariant::St010 => {
-                    coprocessor_roms.st010.as_ref().ok_or(LoadError::MissingSt010Rom)?
+                    coprocessor_roms.st010.as_ref().ok_or(SnesLoadError::MissingSt010Rom)?
                 }
                 St01xVariant::St011 => {
-                    coprocessor_roms.st011.as_ref().ok_or(LoadError::MissingSt011Rom)?
+                    coprocessor_roms.st011.as_ref().ok_or(SnesLoadError::MissingSt011Rom)?
                 }
             };
 
             let st01x_rom = st01x_rom_fn()
-                .map_err(|(source, path)| LoadError::CoprocessorRomLoad { source, path })?;
+                .map_err(|(source, path)| SnesLoadError::CoprocessorRomLoad { source, path })?;
             let upd77c25 = Upd77c25::new(&st01x_rom, st01x_variant.into(), &sram, timing_mode);
 
             let mask = RomAddressMask::from_rom_len(rom.len() as u32);
@@ -301,21 +301,21 @@ impl Cartridge {
 
             let dsp_rom_fn = match dsp_variant {
                 DspVariant::Dsp1 => {
-                    coprocessor_roms.dsp1.as_ref().ok_or(LoadError::MissingDsp1Rom)?
+                    coprocessor_roms.dsp1.as_ref().ok_or(SnesLoadError::MissingDsp1Rom)?
                 }
                 DspVariant::Dsp2 => {
-                    coprocessor_roms.dsp2.as_ref().ok_or(LoadError::MissingDsp2Rom)?
+                    coprocessor_roms.dsp2.as_ref().ok_or(SnesLoadError::MissingDsp2Rom)?
                 }
                 DspVariant::Dsp3 => {
-                    coprocessor_roms.dsp3.as_ref().ok_or(LoadError::MissingDsp3Rom)?
+                    coprocessor_roms.dsp3.as_ref().ok_or(SnesLoadError::MissingDsp3Rom)?
                 }
                 DspVariant::Dsp4 => {
-                    coprocessor_roms.dsp4.as_ref().ok_or(LoadError::MissingDsp4Rom)?
+                    coprocessor_roms.dsp4.as_ref().ok_or(SnesLoadError::MissingDsp4Rom)?
                 }
             };
 
             let dsp_rom = dsp_rom_fn()
-                .map_err(|(source, path)| LoadError::CoprocessorRomLoad { source, path })?;
+                .map_err(|(source, path)| SnesLoadError::CoprocessorRomLoad { source, path })?;
             let upd77c25 = Upd77c25::new(&dsp_rom, Upd77c25Variant::Dsp, &sram, timing_mode);
 
             let mask = RomAddressMask::from_rom_len(rom.len() as u32);

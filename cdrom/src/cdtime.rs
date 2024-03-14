@@ -18,12 +18,24 @@ impl CdTime {
     pub const SECTOR_0_START: Self = Self { minutes: 0, seconds: 2, frames: 0 };
     pub const DISC_END: Self = Self { minutes: 60, seconds: 3, frames: 74 };
 
-    pub const MAX_MINUTES: u8 = 75;
+    pub const MAX_MINUTES: u8 = 80;
     pub const SECONDS_PER_MINUTE: u8 = 60;
     pub const FRAMES_PER_SECOND: u8 = 75;
 
-    pub const MAX_SECTORS: u32 = 337500;
+    pub const MAX_SECTORS: u32 = 360000;
 
+    /// Create a new `CdTime` value.
+    ///
+    /// This function will panic if any field is out of bounds. Call [`CdTime::new_checked`] if
+    /// this behavior is not desired.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if any field is out of bounds:
+    /// * Minutes must be less than 80
+    /// * Seconds must be less than 60
+    /// * Frames must be less than 75
+    #[must_use]
     pub fn new(minutes: u8, seconds: u8, frames: u8) -> Self {
         assert!(minutes < Self::MAX_MINUTES, "Minutes must be less than {}", Self::MAX_MINUTES);
         assert!(
@@ -40,6 +52,7 @@ impl CdTime {
         Self { minutes, seconds, frames }
     }
 
+    #[must_use]
     pub fn new_checked(minutes: u8, seconds: u8, frames: u8) -> Option<Self> {
         (minutes < Self::MAX_MINUTES
             && seconds < Self::SECONDS_PER_MINUTE
@@ -47,14 +60,22 @@ impl CdTime {
             .then_some(Self { minutes, seconds, frames })
     }
 
+    #[must_use]
     pub fn to_sector_number(self) -> u32 {
         (u32::from(Self::SECONDS_PER_MINUTE) * u32::from(self.minutes) + u32::from(self.seconds))
             * u32::from(Self::FRAMES_PER_SECOND)
             + u32::from(self.frames)
     }
 
+    /// Convert an absolute sector number to a `CdTime` value.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if `sector_number` is greater than `360_000`, which is the number
+    /// of sectors in an 80-minute CD.
+    #[must_use]
     pub fn from_sector_number(sector_number: u32) -> Self {
-        // All Sega CD sector numbers are less than 337,500 (75 minutes)
+        // All Sega CD sector numbers are less than 360,000 (80 minutes)
         assert!(sector_number < Self::MAX_SECTORS, "Invalid sector number: {sector_number}");
 
         let frames = sector_number % u32::from(Self::FRAMES_PER_SECOND);
@@ -66,6 +87,7 @@ impl CdTime {
         Self::new(minutes as u8, seconds as u8, frames as u8)
     }
 
+    #[must_use]
     pub fn to_frames(self) -> u32 {
         let seconds: u32 = self.seconds.into();
         let minutes: u32 = self.minutes.into();
@@ -77,6 +99,7 @@ impl CdTime {
         frames + frames_per_second * (seconds + seconds_per_minute * minutes)
     }
 
+    #[must_use]
     pub fn from_frames(frames: u32) -> Self {
         let minutes =
             frames / (u32::from(Self::FRAMES_PER_SECOND) * u32::from(Self::SECONDS_PER_MINUTE));
@@ -87,6 +110,7 @@ impl CdTime {
         Self::new(minutes as u8, seconds as u8, frames as u8)
     }
 
+    #[must_use]
     pub fn saturating_sub(self, other: Self) -> Self {
         if self <= other { CdTime::ZERO } else { self - other }
     }

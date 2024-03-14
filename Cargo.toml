@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "cdrom",
     "jgenesis-common",
     "jgenesis-proc-macros",
     "cpu/*",

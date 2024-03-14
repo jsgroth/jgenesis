@@ -1,10 +1,10 @@
 //! Sanyo LC8951 CD-ROM decoder & error correction chip, which Sega CD documentation refers to as
 //! the CDC
 
+use crate::memory;
 use crate::memory::wordram::{WordRam, WordRamMode};
 use crate::memory::ScdCpu;
 use crate::rf5c164::Rf5c164;
-use crate::{cdrom, memory};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::{GetBit, U16Ext};
 

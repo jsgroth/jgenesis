@@ -1,6 +1,6 @@
 //! Code for representing CUE files / TOC info
 
-use crate::cdrom::cdtime::CdTime;
+use crate::cdtime::CdTime;
 use bincode::{Decode, Encode};
 use std::str::FromStr;
 
@@ -11,6 +11,7 @@ pub enum TrackType {
 }
 
 impl TrackType {
+    #[must_use]
     pub fn default_postgap_len(self) -> CdTime {
         match self {
             // Data tracks always have a 2-second postgap
@@ -44,6 +45,7 @@ pub struct Track {
 }
 
 impl Track {
+    #[must_use]
     pub fn effective_start_time(&self) -> CdTime {
         self.start_time + self.pregap_len + self.pause_len
     }
@@ -56,7 +58,13 @@ pub struct CueSheet {
 }
 
 impl CueSheet {
-    pub fn new(tracks: Vec<Track>) -> Self {
+    /// Create a new `CueSheet` from the given track list.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if the track list is empty.
+    #[must_use]
+    pub(crate) fn new(tracks: Vec<Track>) -> Self {
         assert!(!tracks.is_empty(), "track list must not be empty");
 
         let track_start_times = tracks.iter().map(|track| track.start_time).collect();
@@ -64,15 +72,20 @@ impl CueSheet {
         Self { tracks, track_start_times }
     }
 
+    #[must_use]
     pub fn track(&self, track_number: u8) -> &Track {
         &self.tracks[(track_number - 1) as usize]
     }
 
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
     pub fn last_track(&self) -> &Track {
         self.tracks.last().unwrap()
     }
 
-    // Returns None if `time` is past the end of the disc
+    /// Find the track containing the specified time. Returns `None` if the time is past the end of
+    /// the disc.
+    #[must_use]
     pub fn find_track_by_time(&self, time: CdTime) -> Option<&Track> {
         match self.track_start_times.binary_search(&time) {
             Ok(i) => Some(&self.tracks[i]),
@@ -88,7 +101,8 @@ impl CueSheet {
     }
 }
 
-pub fn tracks_are_continuous(tracks: &[Track]) -> bool {
+#[must_use]
+pub(crate) fn tracks_are_continuous(tracks: &[Track]) -> bool {
     if tracks[0].start_time != CdTime::ZERO {
         return false;
     }
@@ -103,7 +117,7 @@ pub fn tracks_are_continuous(tracks: &[Track]) -> bool {
     true
 }
 
-pub fn finalize_track_list(tracks: &mut [Track]) {
+pub(crate) fn finalize_track_list(tracks: &mut [Track]) {
     // The final track always has a 2-second postgap
     let last_track = tracks.last_mut().unwrap();
     if last_track.postgap_len == CdTime::ZERO {

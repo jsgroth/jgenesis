@@ -17,7 +17,7 @@ use sdl2::mouse::MouseButton;
 use sdl2::pixels::Color;
 use sdl2::render::WindowCanvas;
 use sdl2::{EventPump, JoystickSubsystem};
-use segacd_core::api::DiscResult;
+use segacd_core::api::SegaCdLoadResult;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
@@ -410,7 +410,7 @@ impl GenericEmulator {
         }
     }
 
-    fn change_disc(&mut self, path: PathBuf) -> DiscResult<()> {
+    fn change_disc(&mut self, path: PathBuf) -> SegaCdLoadResult<()> {
         if let Self::SegaCd(emulator) = self {
             emulator.change_disc(path)?;
         }

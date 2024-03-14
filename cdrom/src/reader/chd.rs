@@ -1,10 +1,8 @@
 //! Code for loading and reading CD-ROM images in CHD format
 
-use crate::api::{DiscError, DiscResult};
-use crate::cdrom;
-use crate::cdrom::cdtime::CdTime;
-use crate::cdrom::cue;
-use crate::cdrom::cue::{CueSheet, Track, TrackType};
+use crate::cdtime::CdTime;
+use crate::cue::{CueSheet, Track, TrackType};
+use crate::{cue, CdRomError, CdRomResult};
 use chd::iter::LendingIterator;
 use chd::Chd;
 use std::fmt::{Debug, Formatter};
@@ -63,7 +61,7 @@ pub struct ChdFile<F: Read + Seek> {
 }
 
 impl<F: Read + Seek> ChdFile<F> {
-    pub fn open(f: F) -> DiscResult<(Self, CueSheet)> {
+    pub fn open(f: F) -> CdRomResult<(Self, CueSheet)> {
         let mut chd = Chd::open(f, None)?;
 
         // Parse TOC info from CHD metadata
@@ -74,7 +72,7 @@ impl<F: Read + Seek> ChdFile<F> {
 
             let Some(cd_metadata) = CdMetadata::parse_from(metadata.value.clone()) else {
                 let value_str = String::from_utf8_lossy(&metadata.value).to_string();
-                return Err(DiscError::ChdHeaderParseError { metadata_value: value_str });
+                return Err(CdRomError::ChdHeaderParseError { metadata_value: value_str });
             };
 
             cd_metadata_list.push(cd_metadata);
@@ -155,7 +153,7 @@ impl<F: Read + Seek> ChdFile<F> {
         track_number: u8,
         relative_sector_number: u32,
         out: &mut [u8],
-    ) -> DiscResult<()> {
+    ) -> CdRomResult<()> {
         let track_start_frame = self.track_start_frames[(track_number - 1) as usize];
         let sector_number = track_start_frame + relative_sector_number;
 
@@ -177,15 +175,15 @@ impl<F: Read + Seek> ChdFile<F> {
             self.current_hunk_number = hunk_number;
         }
 
-        out[..cdrom::BYTES_PER_SECTOR as usize].copy_from_slice(
+        out[..crate::BYTES_PER_SECTOR as usize].copy_from_slice(
             &self.decompressed_buffer[hunk_offset_bytes as usize
-                ..(hunk_offset_bytes + cdrom::BYTES_PER_SECTOR as u32) as usize],
+                ..(hunk_offset_bytes + crate::BYTES_PER_SECTOR as u32) as usize],
         );
 
         if self.cue.track(track_number).track_type == TrackType::Audio {
             // CHD audio tracks decompress into big-endian audio samples for some reason. Swap all
             // the bytes to make them little-endian to match the CD-DA format
-            for chunk in out[..cdrom::BYTES_PER_SECTOR as usize].chunks_exact_mut(2) {
+            for chunk in out[..crate::BYTES_PER_SECTOR as usize].chunks_exact_mut(2) {
                 chunk.swap(0, 1);
             }
         }
@@ -200,12 +198,12 @@ impl<F: Read + Seek> Debug for ChdFile<F> {
     }
 }
 
-fn validate_track_numbers(cd_metadata_list: &[CdMetadata]) -> DiscResult<()> {
+fn validate_track_numbers(cd_metadata_list: &[CdMetadata]) -> CdRomResult<()> {
     for (i, metadata) in cd_metadata_list.iter().enumerate() {
         if metadata.track_number != (i + 1) as u8 {
             let track_numbers =
                 cd_metadata_list.iter().map(|metadata| metadata.track_number).collect();
-            return Err(DiscError::ChdInvalidTrackList { track_numbers });
+            return Err(CdRomError::ChdInvalidTrackList { track_numbers });
         }
     }
 

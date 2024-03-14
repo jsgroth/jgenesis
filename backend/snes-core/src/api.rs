@@ -96,7 +96,7 @@ pub enum SnesError<RErr, AErr, SErr> {
 }
 
 #[derive(Debug, Error)]
-pub enum LoadError {
+pub enum SnesLoadError {
     #[error("Cannot load DSP-1 cartridge because DSP-1 ROM is not configured")]
     MissingDsp1Rom,
     #[error("Cannot load DSP-2 cartridge because DSP-2 ROM is not configured")]
@@ -117,7 +117,7 @@ pub enum LoadError {
     },
 }
 
-pub type LoadResult<T> = Result<T, LoadError>;
+pub type SnesLoadResult<T> = Result<T, SnesLoadError>;
 
 macro_rules! new_bus {
     ($self:expr) => {
@@ -162,7 +162,7 @@ impl SnesEmulator {
         config: SnesEmulatorConfig,
         coprocessor_roms: CoprocessorRoms,
         save_writer: &mut S,
-    ) -> LoadResult<Self> {
+    ) -> SnesLoadResult<Self> {
         let main_cpu = Wdc65816::new();
         let cpu_registers = CpuInternalRegisters::new();
         let dma_unit = DmaUnit::new();

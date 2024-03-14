@@ -4,7 +4,7 @@ pub(crate) mod cartridge;
 pub(crate) mod dma;
 mod inputs;
 
-use crate::api::{CoprocessorRoms, LoadResult};
+use crate::api::{CoprocessorRoms, SnesLoadResult};
 use crate::input::SnesInputs;
 use crate::memory::cartridge::Cartridge;
 use crate::memory::inputs::InputState;
@@ -56,7 +56,7 @@ impl Memory {
         forced_timing_mode: Option<TimingMode>,
         gsu_overclock_factor: NonZeroU64,
         save_writer: &mut S,
-    ) -> LoadResult<Self> {
+    ) -> SnesLoadResult<Self> {
         let cartridge = Cartridge::create(
             rom.into_boxed_slice(),
             initial_sram,
