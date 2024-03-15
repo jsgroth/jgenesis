@@ -1,7 +1,7 @@
 //! Code for loading and reading CD-ROM images in CUE/BIN format
 
 use crate::cdtime::CdTime;
-use crate::cue::{CueSheet, Track, TrackType};
+use crate::cue::{CueSheet, Track, TrackMode, TrackType};
 use crate::{cue, CdRomError, CdRomResult};
 use bincode::{Decode, Encode};
 use regex::Regex;
@@ -95,7 +95,7 @@ impl CdBinFiles {
 #[derive(Debug, Clone)]
 struct ParsedTrack {
     number: u8,
-    track_type: TrackType,
+    mode: TrackMode,
     pregap_len: Option<CdTime>,
     pause_start: Option<CdTime>,
     track_start: CdTime,
@@ -112,7 +112,7 @@ struct CueParser {
     files: Vec<ParsedFile>,
     tracks: Vec<ParsedTrack>,
     current_file: Option<String>,
-    current_track: Option<(u8, TrackType)>,
+    current_track: Option<(u8, TrackMode)>,
     last_track_number: Option<u8>,
     pregap_len: Option<CdTime>,
     pause_start: Option<CdTime>,
@@ -187,7 +187,7 @@ impl CueParser {
             .get(2)
             .unwrap()
             .as_str()
-            .parse::<TrackType>()
+            .parse::<TrackMode>()
             .map_err(|_| CdRomError::CueInvalidTrackLine(line.into()))?;
 
         self.current_track = Some((track_number, mode));
@@ -260,39 +260,41 @@ impl CueParser {
     }
 
     fn push_track(&mut self) -> CdRomResult<()> {
-        if let Some((track_number, track_type)) = self.current_track.take() {
-            match self.last_track_number {
-                None => {
-                    if track_number != 1 {
-                        return Err(CdRomError::CueParse(format!(
-                            "Expected first track to be 01, was {track_number}"
-                        )));
-                    }
-                }
-                Some(last_track_number) => {
-                    if track_number != last_track_number + 1 {
-                        return Err(CdRomError::CueParse(format!(
-                            "Tracks out of order; track {track_number} after {last_track_number}"
-                        )));
-                    }
+        let Some((track_number, track_mode)) = self.current_track.take() else {
+            return Ok(());
+        };
+
+        match self.last_track_number {
+            None => {
+                if track_number != 1 {
+                    return Err(CdRomError::CueParse(format!(
+                        "Expected first track to be 01, was {track_number}"
+                    )));
                 }
             }
-            self.last_track_number = Some(track_number);
-
-            let Some(track_start) = self.track_start.take() else {
-                return Err(CdRomError::CueParse(format!(
-                    "No start time found for track {track_number}"
-                )));
-            };
-
-            self.tracks.push(ParsedTrack {
-                number: track_number,
-                track_type,
-                pregap_len: self.pregap_len.take(),
-                pause_start: self.pause_start.take(),
-                track_start,
-            });
+            Some(last_track_number) => {
+                if track_number != last_track_number + 1 {
+                    return Err(CdRomError::CueParse(format!(
+                        "Tracks out of order; track {track_number} after {last_track_number}"
+                    )));
+                }
+            }
         }
+        self.last_track_number = Some(track_number);
+
+        let Some(track_start) = self.track_start.take() else {
+            return Err(CdRomError::CueParse(format!(
+                "No start time found for track {track_number}"
+            )));
+        };
+
+        self.tracks.push(ParsedTrack {
+            number: track_number,
+            mode: track_mode,
+            pregap_len: self.pregap_len.take(),
+            pause_start: self.pause_start.take(),
+            track_start,
+        });
 
         Ok(())
     }
@@ -333,7 +335,8 @@ fn to_cue_sheet(
         for i in 0..parsed_tracks.len() {
             let track = &parsed_tracks[i];
 
-            let pregap_len = match track.track_type {
+            let track_type = track.mode.to_type();
+            let pregap_len = match track_type {
                 TrackType::Data => {
                     // Data tracks always have a 2-second pregap
                     CdTime::new(0, 2, 0)
@@ -352,13 +355,14 @@ fn to_cue_sheet(
                 next_track.pause_start.unwrap_or(next_track.track_start)
             };
 
-            let postgap_len = track.track_type.default_postgap_len();
+            let postgap_len = track_type.default_postgap_len();
 
             let padded_track_len =
                 pregap_len + pause_len + (data_end_time - track.track_start) + postgap_len;
             tracks.push(Track {
                 number: track.number,
-                track_type: track.track_type,
+                mode: track.mode,
+                track_type,
                 start_time: absolute_start_time,
                 end_time: absolute_start_time + padded_track_len,
                 pregap_len,

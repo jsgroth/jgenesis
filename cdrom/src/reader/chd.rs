@@ -1,7 +1,7 @@
 //! Code for loading and reading CD-ROM images in CHD format
 
 use crate::cdtime::CdTime;
-use crate::cue::{CueSheet, Track, TrackType};
+use crate::cue::{CueSheet, Track, TrackMode, TrackType};
 use crate::{cue, CdRomError, CdRomResult};
 use chd::iter::LendingIterator;
 use chd::Chd;
@@ -11,7 +11,7 @@ use std::io::{Read, Seek};
 #[derive(Debug, Clone, Copy)]
 struct CdMetadata {
     track_number: u8,
-    track_type: TrackType,
+    mode: TrackMode,
     frames: u32,
     pregap_frames: u32,
 }
@@ -23,7 +23,7 @@ impl CdMetadata {
         log::debug!("CHD metadata line: {text}");
 
         let mut track_number: Option<u8> = None;
-        let mut track_type: Option<TrackType> = None;
+        let mut track_mode: Option<TrackMode> = None;
         let mut frames: Option<u32> = None;
         let mut pregap_frames: u32 = 0;
         for token in text.split(' ') {
@@ -32,8 +32,9 @@ impl CdMetadata {
             match key {
                 "TRACK" => track_number = Some(value.parse().ok()?),
                 "TYPE" => match value {
-                    "MODE1/2352" | "MODE1_RAW" => track_type = Some(TrackType::Data),
-                    "AUDIO" => track_type = Some(TrackType::Audio),
+                    "MODE1/2352" | "MODE1_RAW" => track_mode = Some(TrackMode::Mode1),
+                    "MODE2/2352" | "MODE2_RAW" => track_mode = Some(TrackMode::Mode2),
+                    "AUDIO" => track_mode = Some(TrackMode::Audio),
                     _ => return None,
                 },
                 "FRAMES" => frames = Some(value.parse().ok()?),
@@ -44,7 +45,7 @@ impl CdMetadata {
 
         Some(Self {
             track_number: track_number?,
-            track_type: track_type?,
+            mode: track_mode?,
             frames: frames?,
             pregap_frames,
         })
@@ -87,7 +88,8 @@ impl<F: Read + Seek> ChdFile<F> {
         let mut current_start_time = CdTime::ZERO;
         let mut current_frame = 0;
         for cd_metadata in cd_metadata_list {
-            let pregap_len = match cd_metadata.track_type {
+            let track_type = cd_metadata.mode.to_type();
+            let pregap_len = match track_type {
                 TrackType::Data => {
                     // Data tracks always have a 2-second pregap
                     CdTime::new(0, 2, 0)
@@ -95,18 +97,19 @@ impl<F: Read + Seek> ChdFile<F> {
                 TrackType::Audio => CdTime::from_frames(cd_metadata.pregap_frames),
             };
 
-            let postgap_len = cd_metadata.track_type.default_postgap_len();
+            let postgap_len = track_type.default_postgap_len();
 
             let track_len = CdTime::from_frames(cd_metadata.frames);
             let padded_track_len = pregap_len + track_len + postgap_len;
 
             tracks.push(Track {
                 number: cd_metadata.track_number,
-                track_type: cd_metadata.track_type,
+                mode: cd_metadata.mode,
+                track_type,
                 start_time: current_start_time,
                 end_time: current_start_time + padded_track_len,
                 pregap_len,
-                pause_len: match cd_metadata.track_type {
+                pause_len: match track_type {
                     TrackType::Data => CdTime::ZERO,
                     TrackType::Audio => pregap_len,
                 },

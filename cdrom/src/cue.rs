@@ -12,7 +12,7 @@ pub enum TrackType {
 
 impl TrackType {
     #[must_use]
-    pub fn default_postgap_len(self) -> CdTime {
+    pub(crate) fn default_postgap_len(self) -> CdTime {
         match self {
             // Data tracks always have a 2-second postgap
             Self::Data => CdTime::new(0, 2, 0),
@@ -21,12 +21,30 @@ impl TrackType {
     }
 }
 
-impl FromStr for TrackType {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+pub enum TrackMode {
+    Mode1,
+    Mode2,
+    Audio,
+}
+
+impl TrackMode {
+    #[must_use]
+    pub fn to_type(self) -> TrackType {
+        match self {
+            Self::Mode1 | Self::Mode2 => TrackType::Data,
+            Self::Audio => TrackType::Audio,
+        }
+    }
+}
+
+impl FromStr for TrackMode {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "MODE1/2352" => Ok(Self::Data),
+            "MODE1/2352" => Ok(Self::Mode1),
+            "MODE2/2352" => Ok(Self::Mode2),
             "AUDIO" => Ok(Self::Audio),
             _ => Err(format!("unsupported CD track type: {s}")),
         }
@@ -36,6 +54,7 @@ impl FromStr for TrackType {
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Track {
     pub number: u8,
+    pub mode: TrackMode,
     pub track_type: TrackType,
     pub start_time: CdTime,
     pub end_time: CdTime,
