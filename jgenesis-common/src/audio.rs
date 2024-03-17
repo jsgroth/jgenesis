@@ -1,20 +1,18 @@
 use bincode::{Decode, Encode};
 use std::collections::VecDeque;
 
-// Arbitrary power of 2 to keep total sample count small-ish for better f64 precision
-const SAMPLE_COUNT_MODULO: u64 = 1 << 27;
+pub const OUTPUT_FREQUENCY: u64 = 48000;
 
-pub const OUTPUT_FREQUENCY: f64 = 48000.0;
+// Scale frequencies up by 1e9 to better handle non-integer source frequencies, e.g. the Master System PSG
+const RESAMPLE_SCALING_FACTOR: u64 = 1_000_000_000;
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct SignalResampler<const LPF_TAPS: usize, const ZERO_PADDING: usize> {
     samples_l: VecDeque<f64>,
     samples_r: VecDeque<f64>,
     output: VecDeque<(f64, f64)>,
-    sample_count: u64,
-    next_sample: u64,
-    next_sample_float: f64,
-    downsampling_ratio: f64,
+    sample_count_product: u64,
+    padded_scaled_source_frequency: u64,
     hpf_charge_factor: f64,
     hpf_capacitor_l: f64,
     hpf_capacitor_r: f64,
@@ -30,15 +28,13 @@ impl<const LPF_TAPS: usize, const ZERO_PADDING: usize> SignalResampler<LPF_TAPS,
         lpf_coefficients: [f64; LPF_TAPS],
         hpf_charge_factor: f64,
     ) -> Self {
-        let downsampling_ratio = Self::compute_downsampling_ratio(source_frequency);
+        let padded_scaled_source_frequency = Self::pad_and_scale_frequency(source_frequency);
         Self {
             samples_l: VecDeque::with_capacity(lpf_coefficients.len() + 1),
             samples_r: VecDeque::with_capacity(lpf_coefficients.len() + 1),
-            output: VecDeque::with_capacity((OUTPUT_FREQUENCY / 30.0) as usize),
-            sample_count: 0,
-            next_sample: downsampling_ratio.round() as u64,
-            next_sample_float: downsampling_ratio,
-            downsampling_ratio,
+            output: VecDeque::with_capacity((OUTPUT_FREQUENCY / 30) as usize),
+            sample_count_product: 0,
+            padded_scaled_source_frequency,
             hpf_charge_factor,
             hpf_capacitor_l: 0.0,
             hpf_capacitor_r: 0.0,
@@ -47,8 +43,9 @@ impl<const LPF_TAPS: usize, const ZERO_PADDING: usize> SignalResampler<LPF_TAPS,
         }
     }
 
-    fn compute_downsampling_ratio(source_frequency: f64) -> f64 {
-        source_frequency * (ZERO_PADDING + 1) as f64 / OUTPUT_FREQUENCY
+    fn pad_and_scale_frequency(source_frequency: f64) -> u64 {
+        (source_frequency * (ZERO_PADDING + 1) as f64 * RESAMPLE_SCALING_FACTOR as f64).round()
+            as u64
     }
 
     fn buffer_sample(&mut self, sample_l: f64, sample_r: f64) {
@@ -62,11 +59,9 @@ impl<const LPF_TAPS: usize, const ZERO_PADDING: usize> SignalResampler<LPF_TAPS,
             self.samples_r.pop_front();
         }
 
-        self.sample_count = (self.sample_count + 1) % SAMPLE_COUNT_MODULO;
-        if self.sample_count == self.next_sample {
-            self.next_sample_float =
-                (self.next_sample_float + self.downsampling_ratio) % SAMPLE_COUNT_MODULO as f64;
-            self.next_sample = (self.next_sample_float.round() as u64) % SAMPLE_COUNT_MODULO;
+        self.sample_count_product += OUTPUT_FREQUENCY * RESAMPLE_SCALING_FACTOR;
+        while self.sample_count_product >= self.padded_scaled_source_frequency {
+            self.sample_count_product -= self.padded_scaled_source_frequency;
 
             let sample_l = output_sample(
                 &self.samples_l,
@@ -109,7 +104,7 @@ impl<const LPF_TAPS: usize, const ZERO_PADDING: usize> SignalResampler<LPF_TAPS,
     }
 
     pub fn update_source_frequency(&mut self, source_frequency: f64) {
-        self.downsampling_ratio = Self::compute_downsampling_ratio(source_frequency);
+        self.padded_scaled_source_frequency = Self::pad_and_scale_frequency(source_frequency);
     }
 }
 
