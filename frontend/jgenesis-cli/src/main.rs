@@ -1,3 +1,5 @@
+#![allow(clippy::doc_markdown)]
+
 use clap::Parser;
 use env_logger::Env;
 use gb_core::api::{GbAspectRatio, GbPalette, GbcColorCorrection};

@@ -332,7 +332,7 @@ impl App {
     }
 
     fn launch_emulator(&mut self, path: String) {
-        self.state.current_file_path = path.clone();
+        self.state.current_file_path.clone_from(&path);
 
         // Update Open Recent contents
         self.config.recent_opens.retain(|recent_open_path| recent_open_path != &path);
