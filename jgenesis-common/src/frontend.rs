@@ -38,7 +38,7 @@ impl Default for Color {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FrameSize {
     pub width: u32,
     pub height: u32,

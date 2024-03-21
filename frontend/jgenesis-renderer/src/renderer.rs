@@ -1,6 +1,7 @@
 use crate::config::{PreprocessShader, RendererConfig, Scanlines, WgpuBackend};
 use jgenesis_common::frontend::{Color, FrameSize, PixelAspectRatio, Renderer};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
+use std::collections::HashMap;
 use std::{cmp, iter, mem};
 use thiserror::Error;
 use wgpu::util::DeviceExt;
@@ -259,7 +260,6 @@ fn padded_u32(value: u32) -> [u32; 4] {
 
 struct RenderingPipeline {
     frame_size: FrameSize,
-    pixel_aspect_ratio: Option<PixelAspectRatio>,
     display_area: DisplayArea,
     scaled_texture: wgpu::Texture,
     vertex_buffer: wgpu::Buffer,
@@ -537,7 +537,6 @@ impl RenderingPipeline {
 
         Self {
             frame_size,
-            pixel_aspect_ratio,
             display_area,
             scaled_texture,
             vertex_buffer,
@@ -766,6 +765,54 @@ impl Shaders {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct PipelineKey {
+    frame_size: FrameSize,
+    pixel_aspect_ratio_bits: u64,
+}
+
+impl PipelineKey {
+    fn new(frame_size: FrameSize, pixel_aspect_ratio: Option<PixelAspectRatio>) -> Self {
+        Self {
+            frame_size,
+            pixel_aspect_ratio_bits: pixel_aspect_ratio
+                .map_or(f64::NAN.to_bits(), |par| f64::from(par).to_bits()),
+        }
+    }
+}
+
+struct RenderingPipelines {
+    pipelines: HashMap<PipelineKey, RenderingPipeline>,
+    last_display_info: Option<(FrameSize, DisplayArea)>,
+}
+
+impl RenderingPipelines {
+    fn new() -> Self {
+        Self { pipelines: HashMap::new(), last_display_info: None }
+    }
+
+    fn clear(&mut self) {
+        self.pipelines.clear();
+        self.last_display_info = None;
+    }
+
+    fn get_or_insert(
+        &mut self,
+        frame_size: FrameSize,
+        pixel_aspect_ratio: Option<PixelAspectRatio>,
+        create_fn: impl FnOnce() -> RenderingPipeline,
+    ) -> &RenderingPipeline {
+        let pipeline = self
+            .pipelines
+            .entry(PipelineKey::new(frame_size, pixel_aspect_ratio))
+            .or_insert_with(create_fn);
+
+        self.last_display_info = Some((frame_size, pipeline.display_area));
+
+        pipeline
+    }
+}
+
 pub type WindowSizeFn<Window> = fn(&Window) -> (u32, u32);
 
 pub struct WgpuRenderer<Window> {
@@ -776,7 +823,7 @@ pub struct WgpuRenderer<Window> {
     shaders: Shaders,
     texture_format: wgpu::TextureFormat,
     renderer_config: RendererConfig,
-    pipeline: Option<RenderingPipeline>,
+    pipelines: RenderingPipelines,
     frame_count: u64,
     speed_multiplier: u64,
     // SAFETY: The surface must not outlive the window it was created from, thus the window must be
@@ -887,7 +934,7 @@ impl<Window: HasRawDisplayHandle + HasRawWindowHandle> WgpuRenderer<Window> {
             shaders,
             texture_format,
             renderer_config: config,
-            pipeline: None,
+            pipelines: RenderingPipelines::new(),
             frame_count: 0,
             speed_multiplier: 1,
             window,
@@ -903,7 +950,7 @@ impl<Window> WgpuRenderer<Window> {
         self.surface.configure(&self.device, &self.surface_config);
 
         // Force render pipeline to be recreated on the next render_frame() call
-        self.pipeline = None;
+        self.pipelines.clear();
     }
 
     pub fn handle_resize(&mut self) {
@@ -913,36 +960,7 @@ impl<Window> WgpuRenderer<Window> {
         self.surface.configure(&self.device, &self.surface_config);
 
         // Force render pipeline to be recreated on the next render_frame() call
-        self.pipeline = None;
-    }
-
-    fn ensure_pipeline(
-        &mut self,
-        frame_size: FrameSize,
-        pixel_aspect_ratio: Option<PixelAspectRatio>,
-    ) {
-        if self.pipeline.is_none()
-            || self.pipeline.as_ref().is_some_and(|pipeline| {
-                pipeline.frame_size != frame_size
-                    || pipeline.pixel_aspect_ratio != pixel_aspect_ratio
-            })
-        {
-            log::info!(
-                "Creating render pipeline for frame size {frame_size:?} and pixel aspect ratio {pixel_aspect_ratio:?}"
-            );
-
-            let window_size = (self.window_size_fn)(&self.window);
-            self.pipeline = Some(RenderingPipeline::create(
-                &self.device,
-                &self.shaders,
-                window_size,
-                frame_size,
-                pixel_aspect_ratio,
-                self.texture_format,
-                &self.surface_config,
-                self.renderer_config,
-            ));
-        }
+        self.pipelines.clear();
     }
 
     /// Obtain a shared reference to the window.
@@ -977,7 +995,7 @@ impl<Window> WgpuRenderer<Window> {
     /// the new config.
     #[must_use]
     pub fn current_display_info(&self) -> Option<(FrameSize, DisplayArea)> {
-        self.pipeline.as_ref().map(|pipeline| (pipeline.frame_size, pipeline.display_area))
+        self.pipelines.last_display_info
     }
 }
 
@@ -995,13 +1013,23 @@ impl<Window> Renderer for WgpuRenderer<Window> {
             return Ok(());
         }
 
-        self.ensure_pipeline(frame_size, pixel_aspect_ratio);
-        match self.pipeline.as_ref().unwrap().render(
-            &self.device,
-            &self.queue,
-            &self.surface,
-            frame_buffer,
-        ) {
+        let pipeline = self.pipelines.get_or_insert(frame_size, pixel_aspect_ratio, || {
+            log::info!("Creating render pipeline for frame size {frame_size:?} and pixel aspect ratio {pixel_aspect_ratio:?}");
+
+            let window_size = (self.window_size_fn)(&self.window);
+            RenderingPipeline::create(
+                &self.device,
+                &self.shaders,
+                window_size,
+                frame_size,
+                pixel_aspect_ratio,
+                self.texture_format,
+                &self.surface_config,
+                self.renderer_config,
+            )
+        });
+
+        match pipeline.render(&self.device, &self.queue, &self.surface, frame_buffer) {
             Ok(()) => {}
             Err(RendererError::WgpuSurface(wgpu::SurfaceError::Outdated)) => {
                 // This can sometimes happen on Windows with the Vulkan backend while the window is minimized
