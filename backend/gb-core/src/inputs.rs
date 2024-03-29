@@ -5,9 +5,20 @@ use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::define_controller_inputs;
 
 define_controller_inputs! {
-    button_ident: GameBoyButton,
-    joypad_ident: GameBoyInputs,
-    buttons: [Up, Left, Right, Down, A, B, Start, Select],
+    enum GameBoyButton {
+        Up,
+        Left,
+        Right,
+        Down,
+        A,
+        B,
+        Start,
+        Select,
+    }
+
+    struct GameBoyInputs {
+        buttons!
+    }
 }
 
 #[derive(Debug, Clone, Encode, Decode)]

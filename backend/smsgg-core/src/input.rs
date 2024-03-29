@@ -6,16 +6,26 @@ use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::define_controller_inputs;
 
 define_controller_inputs! {
-    button_ident: SmsGgButton,
-    joypad_ident: SmsGgJoypadState,
-    inputs_ident: SmsGgInputs,
-    buttons: [Up, Left, Right, Down, Button1, Button2],
-    console_buttons: [Pause],
-    inputs: {
-        p1: (Player One),
-        p2: (Player Two),
-        pause: (Button Pause),
-    },
+    enum SmsGgButton {
+        Up,
+        Left,
+        Right,
+        Down,
+        Button1,
+        Button2,
+        #[on_console]
+        Pause,
+    }
+
+    struct SmsGgJoypadState {
+        buttons!
+    }
+
+    struct SmsGgInputs {
+        p1: Player::One,
+        p2: Player::Two,
+        pause: Button::Pause,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]

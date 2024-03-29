@@ -310,14 +310,25 @@ pub fn match_each_variant_macro(input: TokenStream) -> TokenStream {
 /// use jgenesis_proc_macros::define_controller_inputs;
 ///
 /// define_controller_inputs! {
-///     button_ident: NesButton,
-///     joypad_ident: NesJoypadState,
-///     inputs_ident: NesInputs,
-///     buttons: [Up, Left, Right, Down, A, B, Start, Select],
-///     inputs: {
-///         p1: (Player One),
-///         p2: (Player Two),
-///     },
+///     enum NesButton {
+///         Up,
+///         Left,
+///         Right,
+///         Down,
+///         A,
+///         B,
+///         Start,
+///         Select,
+///     }
+///
+///     struct NesJoypadState {
+///         buttons!
+///     }
+///
+///     struct NesInputs {
+///         p1: Player::One,
+///         p2: Player::Two,
+///     }
 /// }
 ///
 /// let mut inputs = NesInputs {

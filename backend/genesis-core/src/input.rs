@@ -6,14 +6,29 @@ use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{define_controller_inputs, EnumDisplay, EnumFromStr};
 
 define_controller_inputs! {
-    button_ident: GenesisButton,
-    joypad_ident: GenesisJoypadState,
-    inputs_ident: GenesisInputs,
-    buttons: [Up, Left, Right, Down, A, B, C, X, Y, Z, Start, Mode],
-    inputs: {
-        p1: (Player One),
-        p2: (Player Two),
-    },
+    enum GenesisButton {
+        Up,
+        Left,
+        Right,
+        Down,
+        A,
+        B,
+        C,
+        X,
+        Y,
+        Z,
+        Start,
+        Mode,
+    }
+
+    struct GenesisJoypadState {
+        buttons!
+    }
+
+    struct GenesisInputs {
+        p1: Player::One,
+        p2: Player::Two,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumFromStr, EnumDisplay)]

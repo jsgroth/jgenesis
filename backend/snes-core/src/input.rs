@@ -3,9 +3,24 @@ use jgenesis_common::input::Player;
 use jgenesis_proc_macros::define_controller_inputs;
 
 define_controller_inputs! {
-    button_ident: SnesControllerButton,
-    joypad_ident: SnesJoypadState,
-    buttons: [Up, Left, Right, Down, A, B, X, Y, L, R, Start, Select],
+    enum SnesControllerButton {
+        Up,
+        Left,
+        Right,
+        Down,
+        A,
+        B,
+        X,
+        Y,
+        L,
+        R,
+        Start,
+        Select,
+    }
+
+    struct SnesJoypadState {
+        buttons!
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
