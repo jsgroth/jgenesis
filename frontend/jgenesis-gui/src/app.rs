@@ -320,7 +320,7 @@ impl App {
 
         let mut file_dialog = FileDialog::new().add_filter(
             "Supported ROM files",
-            &["sms", "gg", "md", "bin", "cue", "nes", "sfc", "smc", "gb", "gbc"],
+            &["sms", "gg", "md", "bin", "cue", "chd", "nes", "sfc", "smc", "gb", "gbc"],
         );
         if let Some(dir) = self.config.rom_search_dirs.first() {
             file_dialog = file_dialog.set_directory(Path::new(dir));
@@ -353,7 +353,7 @@ impl App {
                 let config = self.config.genesis_config(path);
                 self.emu_thread.send(EmuThreadCommand::RunGenesis(config));
             }
-            Some("cue") => {
+            Some("cue" | "chd") => {
                 self.emu_thread.stop_emulator_if_running();
 
                 let config = self.config.sega_cd_config(path);
@@ -532,8 +532,9 @@ impl App {
                             }
 
                             if ui.button("Change Disc").clicked() {
-                                if let Some(path) =
-                                    FileDialog::new().add_filter("cue", &["cue"]).pick_file()
+                                if let Some(path) = FileDialog::new()
+                                    .add_filter("cue/chd", &["cue", "chd"])
+                                    .pick_file()
                                 {
                                     self.emu_thread.send(EmuThreadCommand::SegaCdChangeDisc(path));
                                 }
