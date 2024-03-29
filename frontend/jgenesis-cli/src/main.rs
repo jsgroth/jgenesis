@@ -17,7 +17,8 @@ use jgenesis_native_driver::config::{
 use jgenesis_native_driver::NativeTickEffect;
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::{
-    FilterMode, PreprocessShader, PrescaleFactor, RendererConfig, Scanlines, VSyncMode, WgpuBackend,
+    FilterMode, PreprocessShader, PrescaleFactor, PrescaleMode, RendererConfig, Scanlines,
+    VSyncMode, WgpuBackend,
 };
 use nes_core::api::{NesAspectRatio, Overscan};
 use smsgg_core::psg::PsgVersion;
@@ -268,9 +269,9 @@ struct Args {
     #[arg(long, default_value_t = VSyncMode::Enabled, help_heading = VIDEO_OPTIONS_HEADING)]
     vsync_mode: VSyncMode,
 
-    /// Prescale factor; must be a positive integer
-    #[arg(long, default_value_t = 3, help_heading = VIDEO_OPTIONS_HEADING)]
-    prescale_factor: u32,
+    /// Manual prescale factor; must be a positive integer
+    #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
+    prescale_factor: Option<u32>,
 
     /// Scanlines (None / Dim / Black)
     #[arg(long, default_value_t, help_heading = VIDEO_OPTIONS_HEADING)]
@@ -445,12 +446,18 @@ impl Args {
     }
 
     fn renderer_config(&self) -> RendererConfig {
-        let prescale_factor = PrescaleFactor::try_from(self.prescale_factor)
-            .expect("prescale factor must be non-zero");
+        let prescale_mode = match self.prescale_factor {
+            Some(prescale_factor) => PrescaleMode::Manual(
+                PrescaleFactor::try_from(prescale_factor)
+                    .expect("prescale factor must be non-zero"),
+            ),
+            None => PrescaleMode::Auto,
+        };
+
         RendererConfig {
             wgpu_backend: self.wgpu_backend,
             vsync_mode: self.vsync_mode,
-            prescale_factor,
+            prescale_mode,
             scanlines: self.scanlines,
             force_integer_height_scaling: self.force_integer_height_scaling,
             filter_mode: self.filter_mode,

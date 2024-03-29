@@ -3,7 +3,8 @@ use eframe::epaint::Color32;
 use egui::{Context, TextEdit, Widget, Window};
 use jgenesis_native_driver::config::{CommonConfig, WindowSize};
 use jgenesis_renderer::config::{
-    FilterMode, PreprocessShader, PrescaleFactor, RendererConfig, Scanlines, VSyncMode, WgpuBackend,
+    FilterMode, PreprocessShader, PrescaleFactor, PrescaleMode, RendererConfig, Scanlines,
+    VSyncMode, WgpuBackend,
 };
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
@@ -28,6 +29,8 @@ pub struct CommonAppConfig {
     pub wgpu_backend: WgpuBackend,
     #[serde(default)]
     pub vsync_mode: VSyncMode,
+    #[serde(default = "true_fn")]
+    pub auto_prescale: bool,
     #[serde(default = "default_prescale_factor")]
     pub prescale_factor: PrescaleFactor,
     #[serde(default)]
@@ -107,7 +110,11 @@ impl AppConfig {
             renderer_config: RendererConfig {
                 wgpu_backend: self.common.wgpu_backend,
                 vsync_mode: self.common.vsync_mode,
-                prescale_factor: self.common.prescale_factor,
+                prescale_mode: if self.common.auto_prescale {
+                    PrescaleMode::Auto
+                } else {
+                    PrescaleMode::Manual(self.common.prescale_factor)
+                },
                 scanlines: self.common.scanlines,
                 force_integer_height_scaling: self.common.force_integer_height_scaling,
                 filter_mode: self.common.filter_mode,
@@ -245,6 +252,8 @@ impl App {
             });
 
             ui.horizontal(|ui| {
+                ui.set_enabled(!self.config.common.auto_prescale);
+
                 if TextEdit::singleline(&mut self.state.prescale_factor_text)
                     .desired_width(30.0)
                     .ui(ui)
@@ -278,6 +287,9 @@ impl App {
                     ),
                 );
             }
+
+            ui.checkbox(&mut self.config.common.auto_prescale, "Enable auto-prescale")
+                .on_hover_text("Automatically adjust prescale factor based on viewport size");
 
             ui.checkbox(
                 &mut self.config.common.force_integer_height_scaling,

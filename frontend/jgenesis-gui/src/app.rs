@@ -243,9 +243,10 @@ impl AppState {
 }
 
 fn should_display_scanlines_warning(config: &AppConfig) -> bool {
+    let prescale_odd = !config.common.auto_prescale && config.common.prescale_factor.get() % 2 != 0;
+
     config.common.scanlines != Scanlines::None
-        && (config.common.prescale_factor.get() % 2 != 0
-            || !config.common.force_integer_height_scaling)
+        && (prescale_odd || !config.common.force_integer_height_scaling)
 }
 
 struct NumericTextEdit<'a, T> {

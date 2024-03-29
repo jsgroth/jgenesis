@@ -1,4 +1,4 @@
-use crate::config::{PreprocessShader, RendererConfig, Scanlines, WgpuBackend};
+use crate::config::{PreprocessShader, PrescaleMode, RendererConfig, Scanlines, WgpuBackend};
 use jgenesis_common::frontend::{Color, FrameSize, PixelAspectRatio, Renderer};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::collections::HashMap;
@@ -297,7 +297,22 @@ impl RenderingPipeline {
             view_formats: &[],
         });
 
-        let prescale_factor = renderer_config.prescale_factor.get();
+        let display_area = determine_display_area(
+            window_size.0,
+            window_size.1,
+            frame_size,
+            pixel_aspect_ratio,
+            renderer_config.force_integer_height_scaling,
+        );
+
+        let prescale_factor = match renderer_config.prescale_mode {
+            PrescaleMode::Auto => {
+                let width_ratio = display_area.width / frame_size.width;
+                let height_ratio = display_area.height / frame_size.height;
+                cmp::max(1, cmp::max(width_ratio, height_ratio))
+            }
+            PrescaleMode::Manual(factor) => factor.get(),
+        };
 
         let filter_mode = renderer_config.filter_mode.to_wgpu_filter_mode();
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -310,14 +325,6 @@ impl RenderingPipeline {
             mipmap_filter: filter_mode,
             ..wgpu::SamplerDescriptor::default()
         });
-
-        let display_area = determine_display_area(
-            window_size.0,
-            window_size.1,
-            frame_size,
-            pixel_aspect_ratio,
-            renderer_config.force_integer_height_scaling,
-        );
 
         let vertices = match pixel_aspect_ratio {
             Some(_) => compute_vertices(window_size.0, window_size.1, display_area),

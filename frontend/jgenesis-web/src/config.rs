@@ -4,7 +4,8 @@ use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig};
 use jgenesis_common::frontend::{PixelAspectRatio, TimingMode};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::{
-    FilterMode, PreprocessShader, PrescaleFactor, RendererConfig, Scanlines, VSyncMode, WgpuBackend,
+    FilterMode, PreprocessShader, PrescaleFactor, PrescaleMode, RendererConfig, Scanlines,
+    VSyncMode, WgpuBackend,
 };
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgEmulatorConfig, SmsRegion, VdpVersion};
@@ -74,7 +75,7 @@ impl CommonWebConfig {
         RendererConfig {
             wgpu_backend: WgpuBackend::OpenGl,
             vsync_mode: VSyncMode::Enabled,
-            prescale_factor: self.prescale_factor,
+            prescale_mode: PrescaleMode::Manual(self.prescale_factor),
             scanlines: Scanlines::default(),
             force_integer_height_scaling: false,
             filter_mode: self.filter_mode,

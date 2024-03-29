@@ -81,6 +81,21 @@ impl Display for PrescaleFactor {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrescaleMode {
+    Auto,
+    Manual(PrescaleFactor),
+}
+
+impl Display for PrescaleMode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Auto => write!(f, "Auto"),
+            Self::Manual(factor) => write!(f, "Manual({factor})"),
+        }
+    }
+}
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
 )]
@@ -126,7 +141,7 @@ pub enum PreprocessShader {
 pub struct RendererConfig {
     pub wgpu_backend: WgpuBackend,
     pub vsync_mode: VSyncMode,
-    pub prescale_factor: PrescaleFactor,
+    pub prescale_mode: PrescaleMode,
     pub scanlines: Scanlines,
     pub force_integer_height_scaling: bool,
     pub filter_mode: FilterMode,
