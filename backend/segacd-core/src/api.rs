@@ -17,11 +17,9 @@ use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig, GenesisInputs, Gen
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, PartialClone, Renderer, SaveWriter, TickEffect, TimingMode,
 };
-use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgTickEffect, PsgVersion};
 use std::fmt::{Debug, Display};
-use std::ops::{Deref, DerefMut};
 use std::path::Path;
 use thiserror::Error;
 use z80_emu::Z80;
@@ -68,29 +66,6 @@ pub struct SegaCdEmulatorConfig {
     pub enable_ram_cartridge: bool,
 }
 
-#[derive(Debug, Clone, FakeEncode, FakeDecode)]
-struct SaveSerializationBuffer(Vec<u8>);
-
-impl Default for SaveSerializationBuffer {
-    fn default() -> Self {
-        Self(Vec::with_capacity(memory::BACKUP_RAM_LEN + memory::RAM_CARTRIDGE_LEN))
-    }
-}
-
-impl Deref for SaveSerializationBuffer {
-    type Target = Vec<u8>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for SaveSerializationBuffer {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
 #[derive(Debug, Encode, Decode, PartialClone)]
 pub struct SegaCdEmulator {
     #[partial_clone(partial)]
@@ -105,7 +80,6 @@ pub struct SegaCdEmulator {
     pcm: Rf5c164,
     input: InputState,
     audio_resampler: AudioResampler,
-    save_serialization_buffer: SaveSerializationBuffer,
     timing_mode: TimingMode,
     main_bus_writes: MainBusWrites,
     aspect_ratio: GenesisAspectRatio,
@@ -185,10 +159,12 @@ impl SegaCdEmulator {
         }
 
         let initial_backup_ram = save_writer.load_bytes("sav").ok();
+        let initial_ram_cartridge = save_writer.load_bytes("ramc").ok();
         let mut sega_cd = SegaCd::new(
             bios,
             disc,
             initial_backup_ram,
+            initial_ram_cartridge,
             emulator_config.enable_ram_cartridge,
             emulator_config.genesis.forced_region,
         )?;
@@ -228,7 +204,6 @@ impl SegaCdEmulator {
             pcm,
             input,
             audio_resampler,
-            save_serialization_buffer: SaveSerializationBuffer::default(),
             timing_mode,
             main_bus_writes: MainBusWrites::new(),
             aspect_ratio: emulator_config.genesis.aspect_ratio,
@@ -426,12 +401,12 @@ impl EmulatorTrait for SegaCdEmulator {
             if self.memory.medium_mut().get_and_clear_backup_ram_dirty_bit() {
                 let sega_cd = self.memory.medium();
 
-                self.save_serialization_buffer.clear();
-                self.save_serialization_buffer.extend(sega_cd.backup_ram());
-                self.save_serialization_buffer.extend(sega_cd.ram_cartridge());
+                save_writer
+                    .persist_bytes("sav", sega_cd.backup_ram())
+                    .map_err(SegaCdError::SaveWrite)?;
 
                 save_writer
-                    .persist_bytes("sav", &self.save_serialization_buffer)
+                    .persist_bytes("ramc", sega_cd.ram_cartridge())
                     .map_err(SegaCdError::SaveWrite)?;
             }
 

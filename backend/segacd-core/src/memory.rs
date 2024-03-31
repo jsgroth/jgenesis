@@ -151,11 +151,14 @@ impl SegaCd {
         bios: Vec<u8>,
         mut disc: Option<CdRom>,
         initial_backup_ram: Option<Vec<u8>>,
+        initial_ram_cartridge: Option<Vec<u8>>,
         enable_ram_cartridge: bool,
         forced_region: Option<GenesisRegion>,
     ) -> SegaCdLoadResult<Self> {
-        let (backup_ram, ram_cartridge) =
-            backupram::load_initial_backup_ram(initial_backup_ram.as_ref());
+        let (backup_ram, ram_cartridge) = backupram::load_initial_backup_ram(
+            initial_backup_ram.as_ref(),
+            initial_ram_cartridge.as_ref(),
+        );
 
         let disc_region = match &mut disc {
             Some(disc) => parse_disc_region(disc)?,

@@ -48,24 +48,30 @@ fn new_formatted_backup_ram<const LEN: usize>(
 
 pub fn load_initial_backup_ram(
     initial_backup_ram: Option<&Vec<u8>>,
+    initial_ram_cartridge: Option<&Vec<u8>>,
 ) -> (Box<[u8; BACKUP_RAM_LEN]>, Box<[u8; RAM_CARTRIDGE_LEN]>) {
-    match initial_backup_ram {
+    let backup_ram: Box<[u8; BACKUP_RAM_LEN]> = match initial_backup_ram {
         Some(backup_ram) if backup_ram.len() == BACKUP_RAM_LEN => {
-            let backup_ram = backup_ram.clone().into_boxed_slice().try_into().unwrap();
-            let ram_cartridge = new_formatted_backup_ram(&RAM_CARTRIDGE_FOOTER);
-            (backup_ram, ram_cartridge)
+            backup_ram.clone().into_boxed_slice().try_into().unwrap()
         }
         Some(combined_ram) if combined_ram.len() == BACKUP_RAM_LEN + RAM_CARTRIDGE_LEN => {
-            let backup_ram =
-                Vec::from(&combined_ram[..BACKUP_RAM_LEN]).into_boxed_slice().try_into().unwrap();
-            let ram_cartridge =
-                Vec::from(&combined_ram[BACKUP_RAM_LEN..]).into_boxed_slice().try_into().unwrap();
-            (backup_ram, ram_cartridge)
+            Vec::from(&combined_ram[..BACKUP_RAM_LEN]).into_boxed_slice().try_into().unwrap()
         }
-        _ => {
-            let backup_ram = new_formatted_backup_ram(&BACKUP_RAM_FOOTER);
-            let ram_cartridge = new_formatted_backup_ram(&RAM_CARTRIDGE_FOOTER);
-            (backup_ram, ram_cartridge)
-        }
-    }
+        _ => new_formatted_backup_ram(&BACKUP_RAM_FOOTER),
+    };
+
+    // Prefer to load RAM cartridge from the initial RAM cartridge data, and fall back to looking for
+    // it at the end of the initial backup RAM data
+    let ram_cartridge: Box<[u8; RAM_CARTRIDGE_LEN]> =
+        match (initial_backup_ram, initial_ram_cartridge) {
+            (_, Some(ram_cartridge)) if ram_cartridge.len() == RAM_CARTRIDGE_LEN => {
+                ram_cartridge.clone().into_boxed_slice().try_into().unwrap()
+            }
+            (Some(combined_ram), _) if combined_ram.len() == BACKUP_RAM_LEN + RAM_CARTRIDGE_LEN => {
+                Vec::from(&combined_ram[BACKUP_RAM_LEN..]).into_boxed_slice().try_into().unwrap()
+            }
+            _ => new_formatted_backup_ram(&RAM_CARTRIDGE_FOOTER),
+        };
+
+    (backup_ram, ram_cartridge)
 }
