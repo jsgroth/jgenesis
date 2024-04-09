@@ -307,9 +307,18 @@ impl RenderingPipeline {
 
         let prescale_factor = match renderer_config.prescale_mode {
             PrescaleMode::Auto => {
-                let width_ratio = display_area.width / frame_size.width;
+                let width_ratio = (f64::from(display_area.width)
+                    / f64::from(frame_size.width)
+                    / f64::from(pixel_aspect_ratio.unwrap_or(PixelAspectRatio::SQUARE)))
+                .floor() as u32;
                 let height_ratio = display_area.height / frame_size.height;
-                cmp::max(1, cmp::max(width_ratio, height_ratio))
+                let prescale_factor = cmp::max(1, cmp::max(width_ratio, height_ratio));
+
+                log::info!(
+                    "Auto-prescale setting prescale factor to {prescale_factor}x (measured width scale {width_ratio} and height_scale {height_ratio})"
+                );
+
+                prescale_factor
             }
             PrescaleMode::Manual(factor) => factor.get(),
         };
