@@ -522,11 +522,10 @@ impl Ppu {
         let bg_from_pixel =
             if hi_res_mode == HiResMode::True { 2 * from_pixel } else { from_pixel };
         if hi_res_mode == HiResMode::True && self.registers.interlaced {
-            self.render_bg_layers_to_buffer(2 * scanline, hi_res_mode, bg_from_pixel);
-            self.render_scanline(2 * scanline, hi_res_mode);
-
-            self.render_bg_layers_to_buffer(2 * scanline + 1, hi_res_mode, bg_from_pixel);
-            self.render_scanline(2 * scanline + 1, hi_res_mode);
+            for y in [2 * scanline - 1, 2 * scanline] {
+                self.render_bg_layers_to_buffer(y, hi_res_mode, bg_from_pixel);
+                self.render_scanline(y, hi_res_mode);
+            }
         } else {
             self.render_bg_layers_to_buffer(scanline, hi_res_mode, bg_from_pixel);
             self.render_scanline(scanline, hi_res_mode);
@@ -862,6 +861,8 @@ impl Ppu {
             if hi_res_mode.is_hi_res() { HIRES_SCREEN_WIDTH } else { NORMAL_SCREEN_WIDTH };
 
         let brightness = self.registers.brightness;
+        let main_backdrop_pixel =
+            RenderedPixel { palette: 0, color: self.cgram[0], layer: Layer::Backdrop };
         let sub_backdrop_color = self.registers.sub_backdrop_color;
 
         for pixel in 0..screen_width as u16 {
@@ -876,7 +877,9 @@ impl Ppu {
 
             let mut main_screen_pixel = if hi_res_mode.is_hi_res() && !pixel.bit(0) {
                 // Even pixels draw the sub screen in hi-res mode
-                self.buffers.sub_screen_rendered_pixels[screen_x as usize]
+                // If all sub screen pixels are transparent, draw the main backdrop color
+                let sub_pixel = self.buffers.sub_screen_rendered_pixels[screen_x as usize];
+                if sub_pixel.layer == Layer::Backdrop { main_backdrop_pixel } else { sub_pixel }
             } else {
                 self.buffers.main_screen_rendered_pixels[screen_x as usize]
             };
