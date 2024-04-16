@@ -34,5 +34,9 @@ toml = { workspace = true }
 [target.'cfg(target_os = "linux")'.dependencies]
 xrandr = "0.2"
 
+[package.metadata.packager]
+before-packaging-command = "RUSTFLAGS='-C target-cpu=x86-64-v2' cargo build --profile release-lto"
+icons = ["32x32.png"]
+
 [lints]
 workspace = true

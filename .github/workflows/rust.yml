@@ -69,7 +69,7 @@ jobs:
       - name: Check Clippy warnings for web
         run: |
           cd frontend/jgenesis-web && cargo +nightly clippy --target wasm32-unknown-unknown
-  linux-release:
+  linux-release-binary:
     runs-on: ubuntu-latest
 
     steps:
@@ -95,8 +95,48 @@ jobs:
       - name: Upload binaries
         uses: actions/upload-artifact@v3
         with:
-          name: linux-x86_64-bin
+          name: linux-x86_64-binary
           path: jgenesis-${{ env.JGENESIS_VERSION }}-linux-x86_64.tar.gz
+  linux-release-appimage:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install latest stable Rust toolchain
+        run: |
+          rustup update
+
+      - name: Install libsdl2 and libgtk-3
+        run: |
+          sudo apt-get update && sudo apt-get install -y libsdl2-dev libgtk-3-dev
+
+      - name: Get latest cargo-packager version
+        id: get-packager-version
+        run: |
+          cargo search cargo-packager | head -1 | cut -d' ' -f3 | sed -re 's/"(.*)"/version=\1/g' >> $GITHUB_OUTPUT
+
+      - name: Cache cargo-packager binary
+        id: packager-cache
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/bin/cargo-packager
+          key: ${{ runner.os }}-${{ steps.get-packager-version.outputs.version }}
+
+      - name: Install cargo-packager
+        if: steps.packager-cache.outputs.cache-hit != 'true'
+        run: |
+          cargo install cargo-packager --version ${{ steps.get-packager-version.outputs.version }}
+
+      - name: Build GUI AppImage
+        run: |
+          RUST_LOG=debug cargo packager --profile release-lto -f appimage
+
+      - name: Upload GUI AppImage
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-x86_64-gui-appimage
+          path: target/release-lto/jgenesis-gui_${{ env.JGENESIS_VERSION }}_x86_64.AppImage
   windows-release:
     runs-on: ubuntu-latest
 
@@ -153,5 +193,5 @@ jobs:
       - name: Upload binaries
         uses: actions/upload-artifact@v3
         with:
-          name: windows-x86_64-bin
+          name: windows-x86_64-exe
           path: jgenesis-${{ env.JGENESIS_VERSION }}-windows-x86_64.zip
