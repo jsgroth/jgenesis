@@ -29,6 +29,10 @@ impl<const MCLK_DIVIDER: u8> Timer<MCLK_DIVIDER> {
     }
 
     fn clock(&mut self) {
+        if !self.enabled {
+            return;
+        }
+
         self.counter += 1;
         if self.counter >= self.timer_divider {
             self.counter = 0;

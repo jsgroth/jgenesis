@@ -111,6 +111,12 @@ impl ApuRegisters {
                 }
 
                 self.boot_rom_mapped = value.bit(7);
+
+                log::trace!("APU control register write: {value:02X}");
+                log::trace!("  Timer 0 enabled: {}", value.bit(0));
+                log::trace!("  Timer 1 enabled: {}", value.bit(1));
+                log::trace!("  Timer 2 enabled: {}", value.bit(2));
+                log::trace!("  Boot ROM mapped: {}", self.boot_rom_mapped);
             }
             2 => {
                 dsp.write_address(value);
@@ -140,12 +146,15 @@ impl ApuRegisters {
             }
             10 => {
                 self.timer_0.set_divider(value);
+                log::trace!("Timer 0 divider: {value:02X}");
             }
             11 => {
                 self.timer_1.set_divider(value);
+                log::trace!("Timer 1 divider: {value:02X}");
             }
             12 => {
                 self.timer_2.set_divider(value);
+                log::trace!("Timer 2 divider: {value:02X}");
             }
             13..=15 => {
                 // Timer outputs; writes do nothing
