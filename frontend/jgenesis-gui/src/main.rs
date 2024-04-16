@@ -1,7 +1,9 @@
+use cfg_if::cfg_if;
 use eframe::NativeOptions;
 use egui::{Vec2, ViewportBuilder};
 use env_logger::Env;
 use jgenesis_gui::app::App;
+use std::fs;
 use std::path::PathBuf;
 
 // Attempt to detect if the application is running on a Steam Deck, and if it is then override
@@ -44,6 +46,43 @@ fn steam_deck_dpi_hack() {
     }
 }
 
+const CONFIG_FILENAME: &str = "jgenesis-config.toml";
+
+fn get_config_path() -> PathBuf {
+    cfg_if! {
+        if #[cfg(target_os = "linux")] {
+            get_linux_config_path()
+        } else {
+            CONFIG_FILENAME.into()
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn get_linux_config_path() -> PathBuf {
+    if option_env!("JGENESIS_APPIMAGE_BUILD").is_none() {
+        return CONFIG_FILENAME.into();
+    }
+
+    let Some(base_dirs) = directories::BaseDirs::new() else {
+        log::error!("Unable to determine config dir; app config will probably not save");
+        return CONFIG_FILENAME.into();
+    };
+
+    let jgenesis_dir = base_dirs.config_dir().join("jgenesis");
+    if !jgenesis_dir.exists() {
+        if let Err(err) = fs::create_dir_all(&jgenesis_dir) {
+            log::error!(
+                "Unable to create config directory '{}', app config will probably not save: {err}",
+                jgenesis_dir.display()
+            );
+            return CONFIG_FILENAME.into();
+        }
+    }
+
+    jgenesis_dir.join(CONFIG_FILENAME)
+}
+
 fn main() -> eframe::Result<()> {
     env_logger::Builder::from_env(
         Env::default().default_filter_or("info,wgpu_core=warn,wgpu_hal=warn"),
@@ -53,7 +92,8 @@ fn main() -> eframe::Result<()> {
     #[cfg(target_os = "linux")]
     steam_deck_dpi_hack();
 
-    let config_path = PathBuf::from("jgenesis-config.toml");
+    let config_path = get_config_path();
+    log::info!("Using config path '{}'", config_path.display());
 
     let options = NativeOptions {
         viewport: ViewportBuilder::default().with_inner_size(Vec2::new(800.0, 600.0)),
