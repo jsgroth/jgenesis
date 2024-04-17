@@ -128,9 +128,15 @@ jobs:
         run: |
           cargo install cargo-packager --version ${{ steps.get-packager-version.outputs.version }}
 
-      - name: Build GUI AppImage
+      - name: Build AppImage packages
         run: |
           RUST_LOG=debug cargo packager --profile release-lto -f appimage
+
+      - name: Upload CLI AppImage
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-x86_64-cli-appimage
+          path: target/release-lto/jgenesis-cli_${{ env.JGENESIS_VERSION }}_x86_64.AppImage
 
       - name: Upload GUI AppImage
         uses: actions/upload-artifact@v3
