@@ -22,5 +22,12 @@ clap = { workspace = true }
 env_logger = { workspace = true }
 log = { workspace = true, features = ["release_max_level_info"] }
 
+[package.metadata.packager]
+icons = ["32x32.png"]
+before-packaging-command = """
+RUSTFLAGS='-C target-cpu=x86-64-v2' \
+JGENESIS_APPIMAGE_BUILD=1 \
+cargo build --profile release-lto"""
+
 [lints]
 workspace = true
