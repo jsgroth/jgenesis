@@ -322,33 +322,6 @@ enum Screen {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct XModifiers {
-    screen_multiplier: u16,
-    screen_offset: u16,
-    window_offset: u16,
-}
-
-impl XModifiers {
-    fn new(hi_res_mode: HiResMode, screen: Screen) -> Self {
-        let (screen_multiplier, screen_offset, window_offset) = match (hi_res_mode, screen) {
-            (HiResMode::None, _) | (HiResMode::Pseudo, Screen::Main) => (1, 0, 0),
-            (HiResMode::Pseudo, Screen::Sub) => (1, 0, 1),
-            (HiResMode::True, Screen::Main) => (2, 1, 0),
-            (HiResMode::True, Screen::Sub) => (2, 0, 1),
-        };
-        Self { screen_multiplier, screen_offset, window_offset }
-    }
-
-    fn screen_x(self, x: u16) -> u16 {
-        x * self.screen_multiplier + self.screen_offset
-    }
-
-    fn window_x(self, x: u16) -> u16 {
-        x.wrapping_sub(self.window_offset)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HiResMode {
     None,
     Pseudo,
@@ -866,13 +839,9 @@ impl Ppu {
         let sub_backdrop_color = self.registers.sub_backdrop_color;
 
         for pixel in 0..screen_width as u16 {
-            // In hi-res modes, window coordinates are effectively doubled and then shifted to
-            // the right by 1 pixel
-            let (screen_x, window_x) = match hi_res_mode {
-                HiResMode::None => (pixel, pixel),
-                HiResMode::Pseudo | HiResMode::True => {
-                    (pixel / 2, (pixel / 2).wrapping_sub((pixel & 0x01) ^ 0x01))
-                }
+            let screen_x = match hi_res_mode {
+                HiResMode::None => pixel,
+                HiResMode::Pseudo | HiResMode::True => pixel / 2,
             };
 
             let mut main_screen_pixel = if hi_res_mode.is_hi_res() && !pixel.bit(0) {
@@ -885,7 +854,7 @@ impl Ppu {
             };
 
             // Check if inside the color window (used for clipping and color math)
-            let in_color_window = self.registers.in_math_window(window_x);
+            let in_color_window = self.registers.in_math_window(screen_x);
 
             let force_main_screen_black =
                 self.registers.force_main_screen_black.enabled(in_color_window);
@@ -947,6 +916,11 @@ impl Ppu {
     }
 
     fn render_screen_pixels(&mut self, screen: Screen, hi_res_mode: HiResMode) {
+        #[inline(always)]
+        fn apply_screen_shift(x: usize, shift: i32, offset: usize) -> u16 {
+            ((x << shift) | offset) as u16
+        }
+
         let (
             screen_pixels,
             screen_rendered_pixels,
@@ -978,7 +952,14 @@ impl Ppu {
 
         screen_pixels.fill(PriorityResolver::new());
 
-        let x_modifiers = XModifiers::new(hi_res_mode, screen);
+        let screen_x_shift = match hi_res_mode {
+            HiResMode::True => 1,
+            HiResMode::None | HiResMode::Pseudo => 0,
+        };
+        let screen_x_offset = match (hi_res_mode, screen) {
+            (HiResMode::None | HiResMode::Pseudo, _) | (HiResMode::True, Screen::Sub) => 0,
+            (HiResMode::True, Screen::Main) => 1,
+        };
 
         let mode = self.registers.bg_mode;
         let is_mode_0_or_1 = matches!(mode, BgMode::Zero | BgMode::One);
@@ -987,8 +968,8 @@ impl Ppu {
         if obj_enabled {
             for (x, priority_resolver) in screen_pixels.iter_mut().enumerate() {
                 if obj_disabled_in_window {
-                    let window_x = x_modifiers.window_x(x as u16);
-                    let obj_in_window = self.registers.obj_in_window(window_x);
+                    let screen_x = apply_screen_shift(x, screen_x_shift, screen_x_offset);
+                    let obj_in_window = self.registers.obj_in_window(screen_x);
                     if obj_in_window {
                         continue;
                     }
@@ -1004,15 +985,15 @@ impl Ppu {
         // BG1 layer (enabled in all modes)
         if bg_enabled[0] {
             for (x, priority_resolver) in screen_pixels.iter_mut().enumerate() {
+                let screen_x = apply_screen_shift(x, screen_x_shift, screen_x_offset);
+
                 if bg_disabled_in_window[0] {
-                    let window_x = x_modifiers.window_x(x as u16);
-                    let bg1_in_window = self.registers.bg_in_window(0, window_x);
+                    let bg1_in_window = self.registers.bg_in_window(0, screen_x);
                     if bg1_in_window {
                         continue;
                     }
                 }
 
-                let screen_x = x_modifiers.screen_x(x as u16);
                 let bg1_pixel = self.buffers.bg_pixels[0][screen_x as usize];
                 if !bg1_pixel.is_transparent() {
                     priority_resolver.add_bg1(bg1_pixel, is_mode_0_or_1);
@@ -1040,15 +1021,15 @@ impl Ppu {
         // BG2 layer (enabled in all modes except 6 and 7)
         if mode.bg2_enabled() && bg_enabled[1] {
             for (x, priority_resolver) in screen_pixels.iter_mut().enumerate() {
+                let screen_x = apply_screen_shift(x, screen_x_shift, screen_x_offset);
+
                 if bg_disabled_in_window[1] {
-                    let window_x = x_modifiers.window_x(x as u16);
-                    let bg2_in_window = self.registers.bg_in_window(1, window_x);
+                    let bg2_in_window = self.registers.bg_in_window(1, screen_x);
                     if bg2_in_window {
                         continue;
                     }
                 }
 
-                let screen_x = x_modifiers.screen_x(x as u16);
                 let bg2_pixel = self.buffers.bg_pixels[1][screen_x as usize];
                 if !bg2_pixel.is_transparent() {
                     priority_resolver.add_bg2(bg2_pixel, is_mode_0_or_1);
@@ -1061,15 +1042,15 @@ impl Ppu {
             let bg3_high_priority = mode == BgMode::One && self.registers.mode_1_bg3_priority;
 
             for (x, priority_resolver) in screen_pixels.iter_mut().enumerate() {
+                let screen_x = apply_screen_shift(x, screen_x_shift, screen_x_offset);
+
                 if bg_disabled_in_window[2] {
-                    let window_x = x_modifiers.window_x(x as u16);
-                    let bg3_in_window = self.registers.bg_in_window(2, window_x);
+                    let bg3_in_window = self.registers.bg_in_window(2, screen_x);
                     if bg3_in_window {
                         continue;
                     }
                 }
 
-                let screen_x = x_modifiers.screen_x(x as u16);
                 let bg3_pixel = self.buffers.bg_pixels[2][screen_x as usize];
                 if !bg3_pixel.is_transparent() {
                     priority_resolver.add_bg3(bg3_pixel, bg3_high_priority);
@@ -1080,15 +1061,15 @@ impl Ppu {
         // BG4 layer (enabled in mode 0 only)
         if mode.bg4_enabled() && bg_enabled[3] {
             for (x, priority_resolver) in screen_pixels.iter_mut().enumerate() {
+                let screen_x = apply_screen_shift(x, screen_x_shift, screen_x_offset);
+
                 if bg_disabled_in_window[3] {
-                    let window_x = x_modifiers.window_x(x as u16);
-                    let bg4_in_window = self.registers.bg_in_window(3, window_x);
+                    let bg4_in_window = self.registers.bg_in_window(3, screen_x);
                     if bg4_in_window {
                         continue;
                     }
                 }
 
-                let screen_x = x_modifiers.screen_x(x as u16);
                 let bg4_pixel = self.buffers.bg_pixels[3][screen_x as usize];
                 if !bg4_pixel.is_transparent() {
                     priority_resolver.add_bg4(bg4_pixel);
