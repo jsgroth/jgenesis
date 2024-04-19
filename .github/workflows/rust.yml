@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Install latest stable Rust toolchain
       run: |
@@ -48,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install latest stable Rust toolchain
         run: |
@@ -73,7 +73,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install latest stable Rust toolchain
         run: |
@@ -93,7 +93,7 @@ jobs:
           tar -czvf jgenesis-${JGENESIS_VERSION}-linux-x86_64.tar.gz LICENSE -C target/release-lto jgenesis-cli jgenesis-gui
 
       - name: Upload binaries
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: linux-x86_64-binary
           path: jgenesis-${{ env.JGENESIS_VERSION }}-linux-x86_64.tar.gz
@@ -101,7 +101,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install latest stable Rust toolchain
         run: |
@@ -118,7 +118,7 @@ jobs:
 
       - name: Cache cargo-packager binary
         id: packager-cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cargo/bin/cargo-packager
           key: ${{ runner.os }}-${{ steps.get-packager-version.outputs.version }}
@@ -133,13 +133,13 @@ jobs:
           RUST_LOG=debug cargo packager --profile release-lto -f appimage
 
       - name: Upload CLI AppImage
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: linux-x86_64-cli-appimage
           path: target/release-lto/jgenesis-cli_${{ env.JGENESIS_VERSION }}_x86_64.AppImage
 
       - name: Upload GUI AppImage
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: linux-x86_64-gui-appimage
           path: target/release-lto/jgenesis-gui_${{ env.JGENESIS_VERSION }}_x86_64.AppImage
@@ -152,7 +152,7 @@ jobs:
       DXC_ZIP_FILE: dxc_2023_08_14.zip
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install latest stable Rust toolchain
         run: |
@@ -197,7 +197,7 @@ jobs:
           zip -r jgenesis-${JGENESIS_VERSION}-windows-x86_64.zip LICENSE* README-SDL.txt *.dll jgenesis-cli.exe jgenesis-gui.exe
 
       - name: Upload binaries
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: windows-x86_64-exe
           path: jgenesis-${{ env.JGENESIS_VERSION }}-windows-x86_64.zip
