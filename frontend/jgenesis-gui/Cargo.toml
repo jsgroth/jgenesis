@@ -37,7 +37,7 @@ directories = { workspace = true }
 xrandr = { workspace = true }
 
 [package.metadata.packager]
-icons = ["32x32.png"]
+icons = ["../32x32.png"]
 before-packaging-command = """
 RUSTFLAGS='-C target-cpu=x86-64-v2' \
 JGENESIS_APPIMAGE_BUILD=1 \
