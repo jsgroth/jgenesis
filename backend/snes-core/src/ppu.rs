@@ -473,8 +473,16 @@ impl Ppu {
         if self.registers.forced_blanking {
             // Forced blanking always draws black
             let screen_width = self.state.frame_screen_width();
-            for pixel in 0..screen_width as u16 {
-                self.set_in_frame_buffer(scanline, pixel, Color::BLACK);
+            if self.is_v_hi_res() {
+                for y in [2 * scanline - 1, 2 * scanline] {
+                    for pixel in 0..screen_width as u16 {
+                        self.set_in_frame_buffer(y, pixel, Color::BLACK);
+                    }
+                }
+            } else {
+                for pixel in 0..screen_width as u16 {
+                    self.set_in_frame_buffer(scanline, pixel, Color::BLACK);
+                }
             }
             return;
         }
