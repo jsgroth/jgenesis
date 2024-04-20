@@ -1,5 +1,6 @@
 //! SNES memory mapping and bus interface code
 
+use crate::api::LatchedInterrupts;
 use crate::apu::Apu;
 use crate::memory::{CpuInternalRegisters, Memory, Memory2Speed};
 use crate::ppu::Ppu;
@@ -29,6 +30,7 @@ pub struct Bus<'a> {
     pub cpu_registers: &'a mut CpuInternalRegisters,
     pub ppu: &'a mut Ppu,
     pub apu: &'a mut Apu,
+    pub latched_interrupts: Option<LatchedInterrupts>,
     pub access_master_cycles: u64,
 }
 
@@ -261,7 +263,7 @@ impl<'a> BusInterface for Bus<'a> {
 
     #[inline]
     fn nmi(&self) -> bool {
-        self.cpu_registers.nmi_pending()
+        self.latched_interrupts.map_or(self.cpu_registers.nmi_pending(), |latched| latched.nmi)
     }
 
     #[inline]
@@ -271,7 +273,10 @@ impl<'a> BusInterface for Bus<'a> {
 
     #[inline]
     fn irq(&self) -> bool {
-        self.cpu_registers.irq_pending() || self.memory.cartridge_irq()
+        self.latched_interrupts
+            .map_or(self.cpu_registers.irq_pending() || self.memory.cartridge_irq(), |latched| {
+                latched.irq
+            })
     }
 
     #[inline]

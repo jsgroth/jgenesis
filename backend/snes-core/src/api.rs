@@ -20,6 +20,7 @@ use std::num::NonZeroU64;
 use std::{io, mem};
 use thiserror::Error;
 use wdc65816_emu::core::Wdc65816;
+use wdc65816_emu::traits::BusInterface;
 
 const MEMORY_REFRESH_MCLK: u64 = 536;
 const MEMORY_REFRESH_CYCLES: u64 = 40;
@@ -126,9 +127,16 @@ macro_rules! new_bus {
             cpu_registers: &mut $self.cpu_registers,
             ppu: &mut $self.ppu,
             apu: &mut $self.apu,
+            latched_interrupts: $self.latched_interrupts,
             access_master_cycles: 0,
         }
     };
+}
+
+#[derive(Debug, Clone, Copy, Encode, Decode)]
+pub(crate) struct LatchedInterrupts {
+    pub nmi: bool,
+    pub irq: bool,
 }
 
 #[derive(Encode, Decode, PartialClone)]
@@ -142,6 +150,7 @@ pub struct SnesEmulator {
     apu: Apu,
     audio_downsampler: AudioResampler,
     total_master_cycles: u64,
+    latched_interrupts: Option<LatchedInterrupts>,
     memory_refresh_pending: bool,
     timing_mode: TimingMode,
     aspect_ratio: SnesAspectRatio,
@@ -194,6 +203,7 @@ impl SnesEmulator {
             apu,
             audio_downsampler: AudioResampler::new(),
             total_master_cycles: 0,
+            latched_interrupts: None,
             memory_refresh_pending: false,
             timing_mode,
             aspect_ratio: config.aspect_ratio,
@@ -278,9 +288,21 @@ impl EmulatorTrait for SnesEmulator {
                 DmaStatus::None => {
                     // DMA not in progress, tick CPU
                     self.main_cpu.tick(&mut bus);
+                    self.latched_interrupts = None;
+
                     bus.access_master_cycles
                 }
-                DmaStatus::InProgress { master_cycles_elapsed } => master_cycles_elapsed,
+                DmaStatus::InProgress { master_cycles_elapsed } => {
+                    // Latch interrupt lines at the start of DMA to emulate interrupt tests being
+                    // delayed by one cycle after the DMA ends.
+                    // Wild Guns depends on this
+                    if self.latched_interrupts.is_none() {
+                        self.latched_interrupts =
+                            Some(LatchedInterrupts { nmi: bus.nmi(), irq: bus.irq() });
+                    }
+
+                    master_cycles_elapsed
+                }
             }
         };
         assert!(master_cycles_elapsed > 0);
