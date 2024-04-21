@@ -41,7 +41,8 @@ trait PreprocessShaderExt {
 impl PreprocessShaderExt for PreprocessShader {
     fn width_scale_factor(self, frame_width: u32) -> u32 {
         match self {
-            Self::HorizontalBlurSnesAdaptive if frame_width == 256 => 2,
+            Self::HorizontalBlurSnesAdaptive if frame_width >= 512 => 1,
+            Self::HorizontalBlurSnesAdaptive => 2,
             _ => 1,
         }
     }

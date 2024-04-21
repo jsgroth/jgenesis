@@ -61,7 +61,7 @@ fn hblur_snes(@builtin(position) position: vec4f) -> @location(0) vec4f {
     let color = select(
         hblur_snes_256px(t_position),
         compute_hblur_3px(t_position),
-        texture_width.value == 512u,
+        texture_width.value >= 512u,
     );
 
     return vec4f(color, 1.0);
