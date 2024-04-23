@@ -337,6 +337,7 @@ impl Emulator {
                 emulator.reload_config(&SegaCdEmulatorConfig {
                     genesis: config.genesis.to_emulator_config(),
                     enable_ram_cartridge: true,
+                    load_disc_into_ram: true,
                 });
             }
             Self::Snes(emulator, ..) => {
@@ -742,6 +743,7 @@ fn open_emulator(
                 SegaCdEmulatorConfig {
                     genesis: config_ref.borrow().genesis.to_emulator_config(),
                     enable_ram_cartridge: true,
+                    load_disc_into_ram: true,
                 },
                 save_writer,
             )?;
