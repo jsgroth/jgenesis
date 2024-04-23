@@ -547,6 +547,7 @@ pub(crate) struct Mmc5 {
     frame_counter: FrameCounter,
     ram_writes_enabled_1: bool,
     ram_writes_enabled_2: bool,
+    rendering_enabled: bool,
 }
 
 impl Mmc5 {
@@ -570,6 +571,7 @@ impl Mmc5 {
             frame_counter: FrameCounter::new(TimingMode::Ntsc),
             ram_writes_enabled_1: false,
             ram_writes_enabled_2: false,
+            rendering_enabled: false,
         }
     }
 }
@@ -577,6 +579,10 @@ impl Mmc5 {
 impl MapperImpl<Mmc5> {
     pub(crate) fn process_ppu_ctrl_update(&mut self, value: u8) {
         self.data.chr_mapper.process_ppu_ctrl_update(value);
+    }
+
+    pub(crate) fn process_ppu_mask_update(&mut self, value: u8) {
+        self.data.rendering_enabled = value & 0x18 != 0;
     }
 
     pub(crate) fn about_to_access_ppu_data(&mut self) {
@@ -796,7 +802,8 @@ impl MapperImpl<Mmc5> {
         match address {
             0x0000..=0x1FFF => {
                 let tile_type = self.data.scanline_counter.current_tile_type();
-                let pattern_table_byte = if tile_type == TileType::Background
+                let pattern_table_byte = if self.data.rendering_enabled
+                    && tile_type == TileType::Background
                     && self.data.extended_ram_mode == ExtendedRamMode::NametableExtendedAttributes
                 {
                     self.data.extended_attributes_state.get_pattern_table_byte(
@@ -804,7 +811,8 @@ impl MapperImpl<Mmc5> {
                         &self.data.extended_ram,
                         &self.cartridge,
                     )
-                } else if tile_type == TileType::Background
+                } else if self.data.rendering_enabled
+                    && tile_type == TileType::Background
                     && self.data.vertical_split.inside_split(&self.data.scanline_counter)
                 {
                     let fine_y_scroll = self.data.vertical_split.y_scroll & 0x07;

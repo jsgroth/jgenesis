@@ -288,6 +288,13 @@ impl Mapper {
         }
     }
 
+    /// Process a PPUMASK write. Used by MMC5 to know whether rendering is currently enabled
+    pub(crate) fn process_ppu_mask_update(&mut self, value: u8) {
+        if let Self::Mmc5(mmc5) = self {
+            mmc5.process_ppu_mask_update(value);
+        }
+    }
+
     /// Notify the mapper that the CPU will imminently access the PPUDATA register. This is required
     /// by MMC5 to map PPUDATA reads/writes to the correct CHR banks.
     ///

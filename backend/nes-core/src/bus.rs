@@ -841,6 +841,7 @@ impl<'a> CpuBus<'a> {
             PpuRegister::PPUMASK => {
                 log::trace!("BUS: PPUMASK set to {value:02X}");
                 self.0.ppu_registers.ppu_mask = value;
+                self.0.mapper.process_ppu_mask_update(value);
             }
             PpuRegister::PPUSTATUS => {}
             PpuRegister::OAMADDR => {
