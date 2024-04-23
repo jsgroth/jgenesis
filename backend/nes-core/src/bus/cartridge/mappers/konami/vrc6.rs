@@ -330,13 +330,7 @@ impl MapperImpl<Vrc6> {
 
         // Slightly amplify because otherwise this chip is very quiet
         let amplified = 1.25 * mixed_sample;
-        if amplified > 1.0 {
-            1.0
-        } else if amplified < -1.0 {
-            -1.0
-        } else {
-            amplified
-        }
+        amplified.clamp(-1.0, 1.0)
     }
 }
 
