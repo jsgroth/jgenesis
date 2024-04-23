@@ -574,8 +574,9 @@ impl SegaCd {
         &mut self,
         rom_path: P,
         format: CdRomFileFormat,
+        load_disc_into_ram: bool,
     ) -> SegaCdLoadResult<()> {
-        self.cdd_mut().change_disc(rom_path, format)
+        self.cdd_mut().change_disc(rom_path, format, load_disc_into_ram)
     }
 }
 

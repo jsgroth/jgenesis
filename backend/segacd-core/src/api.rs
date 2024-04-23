@@ -64,6 +64,7 @@ pub type SegaCdResult<T, RErr, AErr, SErr> = Result<T, SegaCdError<RErr, AErr, S
 pub struct SegaCdEmulatorConfig {
     pub genesis: GenesisEmulatorConfig,
     pub enable_ram_cartridge: bool,
+    pub load_disc_into_ram: bool,
 }
 
 #[derive(Debug, Encode, Decode, PartialClone)]
@@ -89,6 +90,7 @@ pub struct SegaCdEmulator {
     sega_cd_mclk_cycles: u64,
     sega_cd_mclk_cycle_product: u64,
     sub_cpu_wait_cycles: u64,
+    load_disc_into_ram: bool,
 }
 
 // This is a macro instead of a function so that it only mutably borrows the needed fields
@@ -126,7 +128,15 @@ impl SegaCdEmulator {
         emulator_config: SegaCdEmulatorConfig,
         save_writer: &mut S,
     ) -> SegaCdLoadResult<Self> {
-        let disc = if !run_without_disc { Some(CdRom::open(rom_path, format)?) } else { None };
+        let disc = if !run_without_disc {
+            Some(if emulator_config.load_disc_into_ram {
+                CdRom::open_in_memory(rom_path, format)?
+            } else {
+                CdRom::open(rom_path, format)?
+            })
+        } else {
+            None
+        };
 
         Self::create_from_disc(bios, disc, emulator_config, save_writer)
     }
@@ -215,6 +225,7 @@ impl SegaCdEmulator {
             sega_cd_mclk_cycles: 0,
             sega_cd_mclk_cycle_product: 0,
             sub_cpu_wait_cycles: 0,
+            load_disc_into_ram: emulator_config.load_disc_into_ram,
         };
 
         // Reset main CPU so that execution starts from the right place
@@ -264,7 +275,7 @@ impl SegaCdEmulator {
         format: CdRomFileFormat,
     ) -> SegaCdLoadResult<()> {
         let sega_cd = self.memory.medium_mut();
-        sega_cd.change_disc(rom_path, format)?;
+        sega_cd.change_disc(rom_path, format, self.load_disc_into_ram)?;
         self.disc_title = sega_cd.disc_title()?.unwrap_or_else(|| "(no disc)".into());
 
         Ok(())
@@ -478,6 +489,7 @@ impl EmulatorTrait for SegaCdEmulator {
                     p2_controller_type,
                 },
                 enable_ram_cartridge,
+                load_disc_into_ram: self.load_disc_into_ram,
             },
             save_writer,
         )

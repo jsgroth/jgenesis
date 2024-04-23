@@ -218,6 +218,7 @@ pub struct SegaCdConfig {
     pub bios_file_path: Option<String>,
     pub enable_ram_cartridge: bool,
     pub run_without_disc: bool,
+    pub load_disc_into_ram: bool,
 }
 
 impl SegaCdConfig {
@@ -225,6 +226,7 @@ impl SegaCdConfig {
         SegaCdEmulatorConfig {
             genesis: self.genesis.to_emulator_config(),
             enable_ram_cartridge: self.enable_ram_cartridge,
+            load_disc_into_ram: self.load_disc_into_ram,
         }
     }
 }

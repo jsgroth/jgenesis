@@ -44,6 +44,8 @@ pub struct SegaCdAppConfig {
     bios_path: Option<String>,
     #[serde(default = "true_fn")]
     enable_ram_cartridge: bool,
+    #[serde(default)]
+    load_disc_into_ram: bool,
 }
 
 impl Default for SegaCdAppConfig {
@@ -80,6 +82,7 @@ impl AppConfig {
             bios_file_path: self.sega_cd.bios_path.clone(),
             enable_ram_cartridge: self.sega_cd.enable_ram_cartridge,
             run_without_disc: false,
+            load_disc_into_ram: self.sega_cd.load_disc_into_ram,
         })
     }
 }
@@ -159,6 +162,15 @@ impl App {
             ui.checkbox(
                 &mut self.config.sega_cd.enable_ram_cartridge,
                 "Enable Sega CD RAM cartridge",
+            );
+
+            ui.add_space(5.0);
+            ui.checkbox(
+                &mut self.config.sega_cd.load_disc_into_ram,
+                "(Sega CD) Load CD-ROM images into RAM at startup",
+            )
+            .on_hover_text(
+                "Significantly increases RAM usage but avoids reading from disk after startup",
             );
         });
         if !open {

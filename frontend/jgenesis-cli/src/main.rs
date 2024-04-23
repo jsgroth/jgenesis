@@ -149,6 +149,10 @@ struct Args {
     #[arg(long, default_value_t, help_heading = SCD_OPTIONS_HEADING)]
     scd_no_disc: bool,
 
+    /// Load the CD-ROM image into RAM at startup
+    #[arg(long, default_value_t, help_heading = SCD_OPTIONS_HEADING)]
+    scd_load_disc_into_ram: bool,
+
     /// Aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
     #[arg(long, default_value_t, help_heading = NES_OPTIONS_HEADING)]
     nes_aspect_ratio: NesAspectRatio,
@@ -652,6 +656,7 @@ fn run_sega_cd(args: Args) -> anyhow::Result<()> {
         bios_file_path: Some(bios_file_path),
         enable_ram_cartridge: args.enable_ram_cartridge,
         run_without_disc: args.scd_no_disc,
+        load_disc_into_ram: args.scd_load_disc_into_ram,
     };
 
     let mut emulator = jgenesis_native_driver::create_sega_cd(config.into())?;

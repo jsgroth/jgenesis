@@ -826,12 +826,17 @@ impl CdDrive {
         &mut self,
         rom_path: P,
         format: CdRomFileFormat,
+        load_disc_into_ram: bool,
     ) -> SegaCdLoadResult<()> {
         let cue_path = rom_path.as_ref();
 
         log::info!("Changing disc to '{}'", cue_path.display());
 
-        self.disc = Some(CdRom::open(cue_path, format)?);
+        self.disc = Some(if load_disc_into_ram {
+            CdRom::open_in_memory(cue_path, format)?
+        } else {
+            CdRom::open(cue_path, format)?
+        });
         self.state = State::TrayOpening { auto_close: true };
 
         Ok(())
