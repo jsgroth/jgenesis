@@ -6,11 +6,10 @@ use crate::{cue, CdRomError, CdRomResult};
 use bincode::{Decode, Encode};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
-use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::OnceLock;
-use std::{fs, mem};
+use std::{fs, io, mem};
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct TrackMetadata {
@@ -19,25 +18,35 @@ pub struct TrackMetadata {
 }
 
 #[derive(Debug)]
-struct CdRomFile {
-    file: BufReader<File>,
+struct CdRomFile<F: Read + Seek> {
+    file: BufReader<F>,
     position: u64,
 }
 
-impl CdRomFile {
-    fn new(file: File) -> Self {
+impl<F: Read + Seek> CdRomFile<F> {
+    fn new(file: F) -> Self {
         Self { file: BufReader::new(file), position: 0 }
     }
 }
 
-#[derive(Debug, Default)]
-pub struct CdBinFiles {
-    files: HashMap<String, CdRomFile>,
+#[derive(Debug)]
+pub struct CdBinFiles<F: Read + Seek> {
+    files: HashMap<String, CdRomFile<F>>,
     track_metadata: Vec<TrackMetadata>,
 }
 
-impl CdBinFiles {
-    pub fn create<P: AsRef<Path>>(cue_path: P) -> CdRomResult<(Self, CueSheet)> {
+impl<F: Read + Seek> CdBinFiles<F> {
+    pub fn empty() -> Self {
+        Self { files: HashMap::new(), track_metadata: Vec::new() }
+    }
+
+    pub fn create<OpenFn, P: AsRef<Path>>(
+        cue_path: P,
+        bin_open_fn: OpenFn,
+    ) -> CdRomResult<(Self, CueSheet)>
+    where
+        OpenFn: for<'a> Fn(&'a Path) -> io::Result<F>,
+    {
         let cue_path = cue_path.as_ref();
 
         let (cue_sheet, track_metadata) = parse_cue(cue_path)?;
@@ -52,7 +61,7 @@ impl CdBinFiles {
         let mut files = HashMap::with_capacity(file_names.len());
         for file_name in file_names {
             let file_path = parent_dir.join(Path::new(&file_name));
-            let file = File::open(&file_path).map_err(|source| CdRomError::BinOpen {
+            let file = bin_open_fn(&file_path).map_err(|source| CdRomError::BinOpen {
                 path: file_path.display().to_string(),
                 source,
             })?;

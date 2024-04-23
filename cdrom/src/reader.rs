@@ -14,6 +14,7 @@ use bincode::{Decode, Encode};
 use crc::Crc;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::ffi::OsStr;
+use std::fs;
 use std::fs::File;
 use std::io::BufReader;
 use std::ops::Range;
@@ -34,19 +35,23 @@ const MODE_2_FORM_1_CHECKSUM_LOCATION: Range<usize> = 2072..2076;
 const MODE_2_FORM_2_DIGEST_RANGE: Range<usize> = 16..2348;
 const MODE_2_FORM_2_CHECKSUM_LOCATION: Range<usize> = 2348..2352;
 
+type CdBinFsFiles = CdBinFiles<File>;
+type CdBinMemoryFiles = CdBinFiles<SeekableVec>;
+
 type ChdFsFile = ChdFile<BufReader<File>>;
 type ChdMemoryFile = ChdFile<SeekableVec>;
 
 #[derive(Debug, FakeEncode, FakeDecode)]
 enum CdRomReader {
-    CueBin(CdBinFiles),
+    CueBin(CdBinFsFiles),
+    CueBinMemory(CdBinMemoryFiles),
     ChdFs(ChdFsFile),
     ChdMemory(ChdMemoryFile),
 }
 
 impl Default for CdRomReader {
     fn default() -> Self {
-        Self::CueBin(CdBinFiles::default())
+        Self::CueBin(CdBinFiles::empty())
     }
 }
 
@@ -59,6 +64,9 @@ impl CdRomReader {
     ) -> CdRomResult<()> {
         match self {
             Self::CueBin(bin_files) => {
+                bin_files.read_sector(track_number, relative_sector_number, out)
+            }
+            Self::CueBinMemory(bin_files) => {
                 bin_files.read_sector(track_number, relative_sector_number, out)
             }
             Self::ChdFs(chd_file) => {
@@ -125,7 +133,7 @@ impl CdRom {
     }
 
     fn open_cue_bin<P: AsRef<Path>>(cue_path: P) -> CdRomResult<Self> {
-        let (bin_files, cue_sheet) = CdBinFiles::create(cue_path)?;
+        let (bin_files, cue_sheet) = CdBinFiles::create(cue_path, |path| File::open(path))?;
 
         Ok(Self { cue_sheet, reader: CdRomReader::CueBin(bin_files) })
     }
@@ -140,6 +148,42 @@ impl CdRom {
         let (chd_file, cue_sheet) = ChdFile::open(BufReader::new(file))?;
 
         Ok(Self { cue_sheet, reader: CdRomReader::ChdFs(chd_file) })
+    }
+
+    /// Open a CD-ROM reader that will load the entire disc image into memory.
+    ///
+    /// # Errors
+    ///
+    /// Will return any error encountered while reading from disk, or if the CD-ROM metadata appears
+    /// invalid.
+    pub fn open_in_memory<P: AsRef<Path>>(path: P, format: CdRomFileFormat) -> CdRomResult<Self> {
+        let path = path.as_ref();
+
+        match format {
+            CdRomFileFormat::CueBin => Self::open_cue_bin_in_memory(path),
+            CdRomFileFormat::Chd => {
+                let chd_bytes = fs::read(path).map_err(|source| CdRomError::ChdOpen {
+                    path: path.display().to_string(),
+                    source,
+                })?;
+                Self::open_chd_in_memory(chd_bytes)
+            }
+        }
+    }
+
+    /// Open a CD-ROM reader that will read from CUE/BIN files that will be read into memory.
+    ///
+    /// # Errors
+    ///
+    /// Will return any error encountered while reading from disk, or if the CUE file appears to be
+    /// invalid.
+    pub fn open_cue_bin_in_memory<P: AsRef<Path>>(cue_path: P) -> CdRomResult<Self> {
+        let (bin_files, cue_sheet) = CdBinFiles::create(cue_path, |path| {
+            let bin_bytes = fs::read(path)?;
+            Ok(SeekableVec::new(bin_bytes))
+        })?;
+
+        Ok(Self { reader: CdRomReader::CueBinMemory(bin_files), cue_sheet })
     }
 
     /// Open a CD-ROM reader that will read from a CHD file that has been read into memory.
