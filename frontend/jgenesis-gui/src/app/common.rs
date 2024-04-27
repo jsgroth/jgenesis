@@ -29,7 +29,7 @@ pub struct CommonAppConfig {
     pub wgpu_backend: WgpuBackend,
     #[serde(default)]
     pub vsync_mode: VSyncMode,
-    #[serde(default = "true_fn")]
+    #[serde(default)]
     pub auto_prescale: bool,
     #[serde(default = "default_prescale_factor")]
     pub prescale_factor: PrescaleFactor,
