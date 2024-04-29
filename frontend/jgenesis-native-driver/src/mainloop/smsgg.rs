@@ -1,15 +1,12 @@
-use crate::config::{SmsGgConfig, WindowSize};
-use crate::input::{HotkeyMapper, InputMapper};
-use crate::mainloop::audio::SdlAudioOutput;
+use crate::config::SmsGgConfig;
+
 use crate::mainloop::save::FsSaveWriter;
 use crate::mainloop::{
-    create_window, debug, file_name_no_ext, init_sdl, parse_file_ext, HotkeyState,
-    NativeEmulatorError,
+    basic_input_mapper_fn, debug, file_name_no_ext, parse_file_ext, NativeEmulatorError,
 };
 use crate::{config, AudioError, NativeEmulator, NativeEmulatorResult};
 use jgenesis_common::frontend::EmulatorTrait;
-use jgenesis_renderer::renderer::WgpuRenderer;
-use sdl2::video::Window;
+
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgButton, SmsGgEmulator, SmsGgEmulatorConfig, SmsGgInputs};
 use std::fs;
@@ -82,48 +79,24 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
     log::info!("VDP version: {vdp_version:?}");
     log::info!("PSG version: {psg_version:?}");
 
-    let (sdl, video, audio, joystick, event_pump) =
-        init_sdl(config.common.hide_cursor_over_window)?;
-
-    let WindowSize { width: window_width, height: window_height } =
+    let window_size =
         config.common.window_size.unwrap_or_else(|| config::default_smsgg_window_size(vdp_version));
 
     let rom_title = file_name_no_ext(rom_file_path)?;
-    let window = create_window(
-        &video,
-        &format!("smsgg - {rom_title}"),
-        window_width,
-        window_height,
-        config.common.launch_in_fullscreen,
-    )?;
+    let window_title = format!("smsgg - {rom_title}");
 
     let emulator_config = config.to_emulator_config(vdp_version, psg_version);
-
-    let renderer =
-        pollster::block_on(WgpuRenderer::new(window, Window::size, config.common.renderer_config))?;
-    let audio_output = SdlAudioOutput::create_and_init(&audio, &config.common)?;
-    let input_mapper = InputMapper::new(
-        joystick,
-        config.common.keyboard_inputs.clone(),
-        config.common.joystick_inputs.clone(),
-        config.common.axis_deadzone,
-        &SmsGgButton::ALL,
-    )?;
-    let hotkey_mapper = HotkeyMapper::from_config(&config.common.hotkeys)?;
-
     let emulator = SmsGgEmulator::create(rom, emulator_config, &mut save_writer);
 
-    Ok(NativeEmulator {
+    NativeSmsGgEmulator::new(
         emulator,
-        config: emulator_config,
-        renderer,
-        audio_output,
-        input_mapper,
-        hotkey_mapper,
+        emulator_config,
+        config.common,
+        window_size,
+        &window_title,
         save_writer,
-        sdl,
-        event_pump,
-        video,
-        hotkey_state: HotkeyState::new(&config.common, save_state_path, debug::smsgg::render_fn),
-    })
+        save_state_path,
+        basic_input_mapper_fn(&SmsGgButton::ALL),
+        debug::smsgg::render_fn,
+    )
 }

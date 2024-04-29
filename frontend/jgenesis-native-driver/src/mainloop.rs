@@ -14,7 +14,7 @@ pub use nes::{create_nes, NativeNesEmulator};
 pub use smsgg::{create_smsgg, NativeSmsGgEmulator};
 pub use snes::{create_snes, NativeSnesEmulator};
 
-use crate::config::CommonConfig;
+use crate::config::{CommonConfig, WindowSize};
 use crate::input::{Hotkey, HotkeyMapResult, HotkeyMapper, InputMapper, Joysticks, MappableInputs};
 use crate::mainloop::audio::SdlAudioOutput;
 use crate::mainloop::debug::{DebugRenderFn, DebuggerWindow};
@@ -281,6 +281,61 @@ where
     Emulator: EmulatorTrait<Inputs = Inputs, Config = Config>,
     Emulator::Err<RendererError, AudioError, SaveWriteError>: Error + Send + Sync + 'static,
 {
+    #[allow(clippy::too_many_arguments)]
+    fn new<KC, JC, InputMapperFn>(
+        emulator: Emulator,
+        emulator_config: Emulator::Config,
+        common_config: CommonConfig<KC, JC>,
+        window_size: WindowSize,
+        window_title: &str,
+        save_writer: FsSaveWriter,
+        save_state_path: PathBuf,
+        input_mapper_fn: InputMapperFn,
+        debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
+    ) -> NativeEmulatorResult<Self>
+    where
+        InputMapperFn: FnOnce(
+            JoystickSubsystem,
+            &CommonConfig<KC, JC>,
+        ) -> NativeEmulatorResult<InputMapper<Inputs, Button>>,
+    {
+        let (sdl, video, audio, joystick, event_pump) =
+            init_sdl(common_config.hide_cursor_over_window)?;
+
+        let window = create_window(
+            &video,
+            window_title,
+            window_size.width,
+            window_size.height,
+            common_config.launch_in_fullscreen,
+        )?;
+
+        let renderer = pollster::block_on(WgpuRenderer::new(
+            window,
+            Window::size,
+            common_config.renderer_config,
+        ))?;
+
+        let audio_output = SdlAudioOutput::create_and_init(&audio, &common_config)?;
+
+        let input_mapper = input_mapper_fn(joystick, &common_config)?;
+        let hotkey_mapper = HotkeyMapper::from_config(&common_config.hotkeys)?;
+
+        Ok(Self {
+            emulator,
+            config: emulator_config,
+            renderer,
+            audio_output,
+            input_mapper,
+            hotkey_mapper,
+            save_writer,
+            sdl,
+            event_pump,
+            video,
+            hotkey_state: HotkeyState::new(&common_config, save_state_path, debug_render_fn),
+        })
+    }
+
     /// Run the emulator until a frame is rendered.
     ///
     /// # Errors
@@ -417,6 +472,30 @@ fn parse_file_ext(path: &Path) -> NativeEmulatorResult<&str> {
     path.extension()
         .and_then(OsStr::to_str)
         .ok_or_else(|| NativeEmulatorError::ParseFileExtension(path.display().to_string()))
+}
+
+fn basic_input_mapper_fn<KC, JC, Inputs, Button>(
+    all_buttons: &[Button],
+) -> impl FnOnce(
+    JoystickSubsystem,
+    &CommonConfig<KC, JC>,
+) -> NativeEmulatorResult<InputMapper<Inputs, Button>>
++ '_
+where
+    KC: InputConfig<Button = Button, Input = KeyboardInput>,
+    JC: InputConfig<Button = Button, Input = JoystickInput>,
+    Inputs: Default + MappableInputs<Button>,
+    Button: Copy,
+{
+    |joystick, common_config| {
+        InputMapper::new(
+            joystick,
+            &common_config.keyboard_inputs,
+            &common_config.joystick_inputs,
+            common_config.axis_deadzone,
+            all_buttons,
+        )
+    }
 }
 
 // Initialize SDL2
@@ -610,6 +689,7 @@ macro_rules! bincode_config {
     };
 }
 
+use crate::config::input::{InputConfig, JoystickInput, KeyboardInput};
 use bincode_config;
 
 fn save_state<E, P>(emulator: &E, path: P) -> NativeEmulatorResult<()>

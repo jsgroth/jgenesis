@@ -1,14 +1,10 @@
-use crate::config::{GenesisConfig, SegaCdConfig, WindowSize};
-use crate::input::{HotkeyMapper, InputMapper};
-use crate::mainloop::audio::SdlAudioOutput;
+use crate::config::{GenesisConfig, SegaCdConfig};
 use crate::mainloop::save::FsSaveWriter;
-use crate::mainloop::{create_window, debug, init_sdl, HotkeyState, NativeEmulatorError};
+use crate::mainloop::{basic_input_mapper_fn, debug, NativeEmulatorError};
 use crate::{config, AudioError, NativeEmulator, NativeEmulatorResult};
 use genesis_core::input::GenesisButton;
 use genesis_core::{GenesisEmulator, GenesisEmulatorConfig, GenesisInputs};
 use jgenesis_common::frontend::EmulatorTrait;
-use jgenesis_renderer::renderer::WgpuRenderer;
-use sdl2::video::Window;
 use segacd_core::api::{SegaCdEmulator, SegaCdEmulatorConfig, SegaCdLoadResult};
 use segacd_core::CdRomFileFormat;
 use std::fs;
@@ -131,49 +127,25 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
     let emulator_config = config.to_emulator_config();
     let emulator = GenesisEmulator::create(rom, emulator_config, &mut save_writer);
 
-    let (sdl, video, audio, joystick, event_pump) =
-        init_sdl(config.common.hide_cursor_over_window)?;
-
-    let WindowSize { width: window_width, height: window_height } =
-        config.common.window_size.unwrap_or(config::DEFAULT_GENESIS_WINDOW_SIZE);
+    let window_size = config.common.window_size.unwrap_or(config::DEFAULT_GENESIS_WINDOW_SIZE);
     let mut cartridge_title = emulator.cartridge_title();
     // Remove non-printable characters
     cartridge_title.retain(|c| {
         c.is_ascii_alphanumeric() || c.is_ascii_whitespace() || c.is_ascii_punctuation()
     });
-    let window = create_window(
-        &video,
-        &format!("genesis - {cartridge_title}"),
-        window_width,
-        window_height,
-        config.common.launch_in_fullscreen,
-    )?;
+    let window_title = format!("genesis - {cartridge_title}");
 
-    let renderer =
-        pollster::block_on(WgpuRenderer::new(window, Window::size, config.common.renderer_config))?;
-    let audio_output = SdlAudioOutput::create_and_init(&audio, &config.common)?;
-    let input_mapper = InputMapper::new(
-        joystick,
-        config.common.keyboard_inputs.clone(),
-        config.common.joystick_inputs.clone(),
-        config.common.axis_deadzone,
-        &GenesisButton::ALL,
-    )?;
-    let hotkey_mapper = HotkeyMapper::from_config(&config.common.hotkeys)?;
-
-    Ok(NativeEmulator {
+    NativeGenesisEmulator::new(
         emulator,
-        config: emulator_config,
-        renderer,
-        audio_output,
-        input_mapper,
-        hotkey_mapper,
+        emulator_config,
+        config.common,
+        window_size,
+        &window_title,
         save_writer,
-        sdl,
-        event_pump,
-        video,
-        hotkey_state: HotkeyState::new(&config.common, save_state_path, debug::genesis::render_fn),
-    })
+        save_state_path,
+        basic_input_mapper_fn(&GenesisButton::ALL),
+        debug::genesis::render_fn,
+    )
 }
 
 /// Create an emulator with the Sega CD core with the given config.
@@ -214,50 +186,20 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
         &mut save_writer,
     )?;
 
-    let (sdl, video, audio, joystick, event_pump) =
-        init_sdl(config.genesis.common.hide_cursor_over_window)?;
-
-    let WindowSize { width: window_width, height: window_height } =
+    let window_size =
         config.genesis.common.window_size.unwrap_or(config::DEFAULT_GENESIS_WINDOW_SIZE);
 
-    let window = create_window(
-        &video,
-        &format!("sega cd - {}", emulator.disc_title()),
-        window_width,
-        window_height,
-        config.genesis.common.launch_in_fullscreen,
-    )?;
+    let window_title = format!("sega cd - {}", emulator.disc_title());
 
-    let renderer = pollster::block_on(WgpuRenderer::new(
-        window,
-        Window::size,
-        config.genesis.common.renderer_config,
-    ))?;
-    let audio_output = SdlAudioOutput::create_and_init(&audio, &config.genesis.common)?;
-    let input_mapper = InputMapper::new(
-        joystick,
-        config.genesis.common.keyboard_inputs.clone(),
-        config.genesis.common.joystick_inputs.clone(),
-        config.genesis.common.axis_deadzone,
-        &GenesisButton::ALL,
-    )?;
-    let hotkey_mapper = HotkeyMapper::from_config(&config.genesis.common.hotkeys)?;
-
-    Ok(NativeEmulator {
+    NativeSegaCdEmulator::new(
         emulator,
-        config: emulator_config,
-        renderer,
-        audio_output,
-        input_mapper,
-        hotkey_mapper,
+        emulator_config,
+        config.genesis.common,
+        window_size,
+        &window_title,
         save_writer,
-        sdl,
-        event_pump,
-        video,
-        hotkey_state: HotkeyState::new(
-            &config.genesis.common,
-            save_state_path,
-            debug::genesis::render_fn,
-        ),
-    })
+        save_state_path,
+        basic_input_mapper_fn(&GenesisButton::ALL),
+        debug::genesis::render_fn,
+    )
 }

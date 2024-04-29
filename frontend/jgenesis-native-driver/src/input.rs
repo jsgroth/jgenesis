@@ -257,17 +257,17 @@ impl<Inputs, Button> InputMapper<Inputs, Button> {
 }
 
 fn generate_snes_key_or_mouse_mapping(
-    super_scope_config: SuperScopeConfig,
+    super_scope_config: &SuperScopeConfig,
 ) -> NativeEmulatorResult<HashMap<KeycodeOrMouseButton, Vec<SnesButton>>> {
     let mut map: HashMap<KeycodeOrMouseButton, Vec<SnesButton>> = HashMap::new();
     for (input, button) in [
-        (super_scope_config.fire, SuperScopeButton::Fire),
-        (super_scope_config.cursor, SuperScopeButton::Cursor),
-        (super_scope_config.pause, SuperScopeButton::Pause),
-        (super_scope_config.turbo_toggle, SuperScopeButton::TurboToggle),
+        (&super_scope_config.fire, SuperScopeButton::Fire),
+        (&super_scope_config.cursor, SuperScopeButton::Cursor),
+        (&super_scope_config.pause, SuperScopeButton::Pause),
+        (&super_scope_config.turbo_toggle, SuperScopeButton::TurboToggle),
     ] {
         let Some(input) = input else { continue };
-        let key_or_mouse_button = input.try_into()?;
+        let key_or_mouse_button = input.clone().try_into()?;
         map.entry(key_or_mouse_button).or_default().push(SnesButton::SuperScope(button));
     }
 
@@ -278,9 +278,9 @@ impl InputMapper<SnesInputs, SnesButton> {
     pub(crate) fn new_snes(
         joystick_subsystem: JoystickSubsystem,
         p2_controller_type: SnesControllerType,
-        keyboard_inputs: SnesInputConfig<KeyboardInput>,
-        joystick_inputs: SnesInputConfig<JoystickInput>,
-        super_scope_config: SuperScopeConfig,
+        keyboard_inputs: &SnesInputConfig<KeyboardInput>,
+        joystick_inputs: &SnesInputConfig<JoystickInput>,
+        super_scope_config: &SuperScopeConfig,
         axis_deadzone: i16,
     ) -> NativeEmulatorResult<Self> {
         let (keyboard_mapping, joystick_mapping) =
@@ -304,9 +304,9 @@ impl InputMapper<SnesInputs, SnesButton> {
     pub(crate) fn reload_config_snes(
         &mut self,
         p2_controller_type: SnesControllerType,
-        keyboard_inputs: SnesInputConfig<KeyboardInput>,
-        joystick_inputs: SnesInputConfig<JoystickInput>,
-        super_scope_config: SuperScopeConfig,
+        keyboard_inputs: &SnesInputConfig<KeyboardInput>,
+        joystick_inputs: &SnesInputConfig<JoystickInput>,
+        super_scope_config: &SuperScopeConfig,
         axis_deadzone: i16,
     ) -> NativeEmulatorResult<()> {
         let existing_super_scope_turbo = match self.inputs.p2 {
@@ -366,8 +366,8 @@ fn set_default_snes_inputs(
 }
 
 fn generate_mappings<Button, KC, JC>(
-    keyboard_config: KC,
-    joystick_config: JC,
+    keyboard_config: &KC,
+    joystick_config: &JC,
     all_buttons: &[Button],
 ) -> NativeEmulatorResult<(KeyboardMapping<Button>, JoystickMapping<Button>)>
 where
@@ -402,8 +402,8 @@ where
 {
     pub(crate) fn new<KC, JC>(
         joystick_subsystem: JoystickSubsystem,
-        keyboard_config: KC,
-        joystick_config: JC,
+        keyboard_config: &KC,
+        joystick_config: &JC,
         axis_deadzone: i16,
         all_buttons: &[Button],
     ) -> NativeEmulatorResult<Self>
@@ -436,7 +436,7 @@ where
         JC: InputConfig<Button = Button, Input = JoystickInput>,
     {
         let (keyboard_mapping, joystick_mapping) =
-            generate_mappings(keyboard_config, joystick_config, all_buttons)?;
+            generate_mappings(&keyboard_config, &joystick_config, all_buttons)?;
         self.reload_config_internal(
             keyboard_mapping,
             joystick_mapping,

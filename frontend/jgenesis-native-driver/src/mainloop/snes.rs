@@ -1,12 +1,11 @@
-use crate::config::{SnesConfig, WindowSize};
-use crate::input::{HotkeyMapper, InputMapper};
-use crate::mainloop::audio::SdlAudioOutput;
+use crate::config::{CommonConfig, SnesConfig};
+use crate::input::InputMapper;
+
 use crate::mainloop::save::FsSaveWriter;
-use crate::mainloop::{create_window, debug, init_sdl, HotkeyState, NativeEmulatorError};
+use crate::mainloop::{debug, NativeEmulatorError};
 use crate::{config, AudioError, NativeEmulator, NativeEmulatorResult};
 use jgenesis_common::frontend::EmulatorTrait;
-use jgenesis_renderer::renderer::WgpuRenderer;
-use sdl2::video::Window;
+
 use snes_core::api::{SnesEmulator, SnesEmulatorConfig};
 use snes_core::input::{SnesButton, SnesInputs};
 use std::fs;
@@ -30,9 +29,9 @@ impl NativeSnesEmulator {
 
         if let Err(err) = self.input_mapper.reload_config_snes(
             config.p2_controller_type,
-            config.common.keyboard_inputs,
-            config.common.joystick_inputs,
-            config.super_scope_config,
+            &config.common.keyboard_inputs,
+            &config.common.joystick_inputs,
+            &config.super_scope_config,
             config.common.axis_deadzone,
         ) {
             log::error!("Error reloading input config: {err}");
@@ -65,47 +64,32 @@ pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEm
     let mut emulator =
         SnesEmulator::create(rom, emulator_config, coprocessor_roms, &mut save_writer)?;
 
-    let (sdl, video, audio, joystick, event_pump) =
-        init_sdl(config.common.hide_cursor_over_window)?;
-
     // Use same default window size as Genesis / Sega CD
-    let WindowSize { width: window_width, height: window_height } =
-        config.common.window_size.unwrap_or(config::DEFAULT_GENESIS_WINDOW_SIZE);
+    let window_size = config.common.window_size.unwrap_or(config::DEFAULT_GENESIS_WINDOW_SIZE);
 
     let cartridge_title = emulator.cartridge_title();
-    let window = create_window(
-        &video,
-        &format!("snes - {cartridge_title}"),
-        window_width,
-        window_height,
-        config.common.launch_in_fullscreen,
-    )?;
+    let window_title = format!("snes - {cartridge_title}");
 
-    let renderer =
-        pollster::block_on(WgpuRenderer::new(window, Window::size, config.common.renderer_config))?;
-    let audio_output = SdlAudioOutput::create_and_init(&audio, &config.common)?;
+    let input_mapper_fn = |joystick, common_config: &CommonConfig<_, _>| {
+        InputMapper::new_snes(
+            joystick,
+            config.p2_controller_type,
+            &common_config.keyboard_inputs,
+            &common_config.joystick_inputs,
+            &config.super_scope_config,
+            common_config.axis_deadzone,
+        )
+    };
 
-    let input_mapper = InputMapper::new_snes(
-        joystick,
-        config.p2_controller_type,
-        config.common.keyboard_inputs.clone(),
-        config.common.joystick_inputs.clone(),
-        config.super_scope_config.clone(),
-        config.common.axis_deadzone,
-    )?;
-    let hotkey_mapper = HotkeyMapper::from_config(&config.common.hotkeys)?;
-
-    Ok(NativeEmulator {
+    NativeSnesEmulator::new(
         emulator,
-        config: emulator_config,
-        renderer,
-        audio_output,
-        input_mapper,
-        hotkey_mapper,
+        emulator_config,
+        config.common,
+        window_size,
+        &window_title,
         save_writer,
-        sdl,
-        event_pump,
-        video,
-        hotkey_state: HotkeyState::new(&config.common, save_state_path, debug::snes::render_fn),
-    })
+        save_state_path,
+        input_mapper_fn,
+        debug::snes::render_fn,
+    )
 }
