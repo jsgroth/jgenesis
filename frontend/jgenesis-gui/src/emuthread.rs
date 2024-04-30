@@ -34,6 +34,7 @@ pub enum EmuThreadStatus {
     RunningNes = 4,
     RunningSnes = 5,
     RunningGameBoy = 6,
+    WaitingForFirstCommand = 7,
 }
 
 impl EmuThreadStatus {
@@ -46,6 +47,7 @@ impl EmuThreadStatus {
             4 => Self::RunningNes,
             5 => Self::RunningSnes,
             6 => Self::RunningGameBoy,
+            7 => Self::WaitingForFirstCommand,
             _ => panic!("invalid status discriminant: {discriminant}"),
         }
     }
@@ -78,7 +80,7 @@ pub enum EmuThreadCommand {
     ReloadSnesConfig(Box<SnesConfig>),
     ReloadGameBoyConfig(Box<GameBoyConfig>),
     StopEmulator,
-    CollectInput { input_type: InputType, axis_deadzone: i16, ctx: egui::Context },
+    CollectInput { input_type: InputType, axis_deadzone: i16 },
     SoftReset,
     HardReset,
     OpenMemoryViewer,
@@ -164,13 +166,13 @@ impl EmuThreadHandle {
             EmuThreadStatus::RunningGameBoy => {
                 self.send(EmuThreadCommand::ReloadGameBoyConfig(gb_config));
             }
-            EmuThreadStatus::Idle => {}
+            EmuThreadStatus::Idle | EmuThreadStatus::WaitingForFirstCommand => {}
         }
     }
 }
 
-pub fn spawn() -> EmuThreadHandle {
-    let status_arc = Arc::new(AtomicU8::new(EmuThreadStatus::Idle as u8));
+pub fn spawn(ctx: egui::Context) -> EmuThreadHandle {
+    let status_arc = Arc::new(AtomicU8::new(EmuThreadStatus::WaitingForFirstCommand as u8));
     let (command_sender, command_receiver) = mpsc::channel();
     let (input_sender, input_receiver) = mpsc::channel();
     let emulator_error_arc = Arc::new(Mutex::new(None));
@@ -179,8 +181,6 @@ pub fn spawn() -> EmuThreadHandle {
     let emulator_error = Arc::clone(&emulator_error_arc);
     thread::spawn(move || {
         loop {
-            status.store(EmuThreadStatus::Idle as u8, Ordering::Relaxed);
-
             match command_receiver.recv() {
                 Ok(EmuThreadCommand::RunSms(config)) => {
                     status.store(EmuThreadStatus::RunningSmsGg as u8, Ordering::Relaxed);
@@ -198,6 +198,7 @@ pub fn spawn() -> EmuThreadHandle {
                         &command_receiver,
                         &input_sender,
                         &emulator_error,
+                        &ctx,
                     );
                 }
                 Ok(EmuThreadCommand::RunGenesis(config)) => {
@@ -216,6 +217,7 @@ pub fn spawn() -> EmuThreadHandle {
                         &command_receiver,
                         &input_sender,
                         &emulator_error,
+                        &ctx,
                     );
                 }
                 Ok(EmuThreadCommand::RunSegaCd(config)) => {
@@ -234,6 +236,7 @@ pub fn spawn() -> EmuThreadHandle {
                         &command_receiver,
                         &input_sender,
                         &emulator_error,
+                        &ctx,
                     );
                 }
                 Ok(EmuThreadCommand::RunNes(config)) => {
@@ -252,6 +255,7 @@ pub fn spawn() -> EmuThreadHandle {
                         &command_receiver,
                         &input_sender,
                         &emulator_error,
+                        &ctx,
                     );
                 }
                 Ok(EmuThreadCommand::RunSnes(config)) => {
@@ -270,6 +274,7 @@ pub fn spawn() -> EmuThreadHandle {
                         &command_receiver,
                         &input_sender,
                         &emulator_error,
+                        &ctx,
                     );
                 }
                 Ok(EmuThreadCommand::RunGameBoy(config)) => {
@@ -288,9 +293,10 @@ pub fn spawn() -> EmuThreadHandle {
                         &command_receiver,
                         &input_sender,
                         &emulator_error,
+                        &ctx,
                     );
                 }
-                Ok(EmuThreadCommand::CollectInput { input_type, axis_deadzone, ctx }) => {
+                Ok(EmuThreadCommand::CollectInput { input_type, axis_deadzone }) => {
                     match collect_input_not_running(input_type, axis_deadzone) {
                         Ok(input) => {
                             input_sender.send(input).unwrap();
@@ -322,6 +328,13 @@ pub fn spawn() -> EmuThreadHandle {
                     break;
                 }
             }
+
+            status.store(EmuThreadStatus::Idle as u8, Ordering::Relaxed);
+
+            // Force a repaint immediately after the emulator exits. This will immediately display
+            // the error window if there was an error, and it will also force quit immediately if
+            // auto-close is enabled
+            ctx.request_repaint();
         }
     });
 
@@ -450,6 +463,7 @@ fn run_emulator(
     command_receiver: &Receiver<EmuThreadCommand>,
     input_sender: &Sender<Option<GenericInput>>,
     emulator_error: &Arc<Mutex<Option<anyhow::Error>>>,
+    ctx: &egui::Context,
 ) {
     loop {
         match emulator.render_frame() {
@@ -496,7 +510,7 @@ fn run_emulator(
                             log::info!("Stopping emulator");
                             return;
                         }
-                        EmuThreadCommand::CollectInput { input_type, axis_deadzone, ctx } => {
+                        EmuThreadCommand::CollectInput { input_type, axis_deadzone } => {
                             log::debug!("Received collect input command");
 
                             emulator.focus();

@@ -13,7 +13,8 @@ struct Args {
     #[arg(long = "config")]
     config_path: Option<String>,
 
-    /// If set, the GUI will open this file immediately after starting up
+    /// If set, the GUI will open this file immediately after starting up, and the GUI will exit
+    /// when the emulator window is closed
     #[arg(long = "file-path", short = 'f')]
     startup_file_path: Option<String>,
 }
@@ -121,6 +122,6 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "jgenesis",
         options,
-        Box::new(|_cc| Box::new(App::new(config_path, args.startup_file_path))),
+        Box::new(|cc| Box::new(App::new(config_path, args.startup_file_path, cc.egui_ctx.clone()))),
     )
 }

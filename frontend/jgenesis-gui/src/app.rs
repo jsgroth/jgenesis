@@ -302,16 +302,18 @@ pub struct App {
     state: AppState,
     config_path: PathBuf,
     emu_thread: EmuThreadHandle,
+    close_on_emulator_exit: bool,
 }
 
 impl App {
     #[must_use]
-    pub fn new(config_path: PathBuf, startup_file_path: Option<String>) -> Self {
+    pub fn new(config_path: PathBuf, startup_file_path: Option<String>, ctx: Context) -> Self {
         let config = AppConfig::from_file(&config_path);
         let state = AppState::from_config(&config);
-        let emu_thread = emuthread::spawn();
+        let emu_thread = emuthread::spawn(ctx);
+        let close_on_emulator_exit = startup_file_path.is_some();
 
-        let mut app = Self { config, state, config_path, emu_thread };
+        let mut app = Self { config, state, config_path, emu_thread, close_on_emulator_exit };
 
         if let Some(startup_file_path) = startup_file_path {
             app.launch_emulator(startup_file_path);
@@ -388,7 +390,9 @@ impl App {
             Some(extension) => {
                 log::error!("Unsupported file extension: {extension}");
             }
-            None => {}
+            None => {
+                log::error!("Unable to determine file extension of path: {path}");
+            }
         }
     }
 
@@ -461,7 +465,7 @@ impl App {
         }
     }
 
-    fn render_menu(&mut self, ctx: &Context, _frame: &mut Frame) {
+    fn render_menu(&mut self, ctx: &Context) {
         let open_shortcut = KeyboardShortcut::new(Modifiers::CTRL, Key::O);
         if ctx.input_mut(|input| input.consume_shortcut(&open_shortcut)) {
             self.open_file();
@@ -884,6 +888,15 @@ impl App {
         }
     }
 
+    fn check_for_close_on_emu_exit(&mut self, ctx: &Context) {
+        if self.close_on_emulator_exit {
+            let status = self.emu_thread.status();
+            if !status.is_running() && status != EmuThreadStatus::WaitingForFirstCommand {
+                ctx.send_viewport_cmd(ViewportCommand::Close);
+            }
+        }
+    }
+
     fn reload_config(&mut self) {
         self.emu_thread.reload_config(
             self.config.smsgg_config(self.state.current_file_path.clone()),
@@ -897,13 +910,14 @@ impl App {
 }
 
 impl eframe::App for App {
-    fn update(&mut self, ctx: &Context, frame: &mut Frame) {
+    fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
         let prev_config = self.config.clone();
 
         self.check_emulator_error(ctx);
         self.check_waiting_for_input(ctx);
+        self.check_for_close_on_emu_exit(ctx);
 
-        self.render_menu(ctx, frame);
+        self.render_menu(ctx);
         self.render_central_panel(ctx);
 
         for open_window in self.state.open_windows.clone() {
