@@ -140,6 +140,10 @@ impl<Emulator> DebuggerWindow<Emulator> {
                 log::warn!("Skipping debug frame because wgpu surface has changed");
                 return Ok(());
             }
+            Err(wgpu::SurfaceError::Timeout) => {
+                log::warn!("Skipping debug frame because wgpu surface timed out");
+                return Ok(());
+            }
             Err(err) => return Err(err.into()),
         };
         let output_view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());

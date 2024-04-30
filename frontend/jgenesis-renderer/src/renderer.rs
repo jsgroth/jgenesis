@@ -1055,6 +1055,10 @@ impl<Window> Renderer for WgpuRenderer<Window> {
                 );
                 self.surface.configure(&self.device, &self.surface_config);
             }
+            Err(RendererError::WgpuSurface(wgpu::SurfaceError::Timeout)) => {
+                log::warn!("Skipping frame because wgpu surface timed out");
+                self.surface.configure(&self.device, &self.surface_config);
+            }
             Err(err) => return Err(err),
         }
 
