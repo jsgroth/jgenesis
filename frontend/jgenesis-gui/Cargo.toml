@@ -21,6 +21,7 @@ jgenesis-renderer = { path = "../jgenesis-renderer" }
 anyhow = { workspace = true }
 bincode = { workspace = true }
 cfg-if = { workspace = true }
+clap = { workspace = true }
 eframe = { workspace = true }
 egui = { workspace = true }
 egui_extras = { workspace = true }

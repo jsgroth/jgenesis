@@ -1,10 +1,22 @@
 use cfg_if::cfg_if;
+use clap::Parser;
 use eframe::NativeOptions;
 use egui::{Vec2, ViewportBuilder};
 use env_logger::Env;
 use jgenesis_gui::app::App;
 use std::fs;
 use std::path::PathBuf;
+
+#[derive(Debug, Parser)]
+struct Args {
+    /// Use a specific config file path instead of the default path of 'jgenesis-config.toml'
+    #[arg(long = "config")]
+    config_path: Option<String>,
+
+    /// If set, the GUI will open this file immediately after starting up
+    #[arg(long = "file-path", short = 'f')]
+    startup_file_path: Option<String>,
+}
 
 // Attempt to detect if the application is running on a Steam Deck, and if it is then override
 // the winit scale factor to 1. It defaults to 4.5 on the Steam Deck which results in the GUI
@@ -89,16 +101,26 @@ fn main() -> eframe::Result<()> {
     )
     .init();
 
+    let args = Args::parse();
+
     #[cfg(target_os = "linux")]
     steam_deck_dpi_hack();
 
-    let config_path = get_config_path();
+    let config_path = args.config_path.map_or_else(get_config_path, PathBuf::from);
     log::info!("Using config path '{}'", config_path.display());
+
+    if let Some(file_path) = &args.startup_file_path {
+        log::info!("Will open file '{file_path}' after starting");
+    }
 
     let options = NativeOptions {
         viewport: ViewportBuilder::default().with_inner_size(Vec2::new(800.0, 600.0)),
         ..NativeOptions::default()
     };
 
-    eframe::run_native("jgenesis", options, Box::new(|_cc| Box::new(App::new(config_path))))
+    eframe::run_native(
+        "jgenesis",
+        options,
+        Box::new(|_cc| Box::new(App::new(config_path, args.startup_file_path))),
+    )
 }

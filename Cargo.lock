@@ -2190,6 +2190,7 @@ dependencies = [
  "anyhow",
  "bincode",
  "cfg-if",
+ "clap",
  "directories",
  "eframe",
  "egui",

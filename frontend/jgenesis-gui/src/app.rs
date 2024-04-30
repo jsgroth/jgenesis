@@ -306,11 +306,18 @@ pub struct App {
 
 impl App {
     #[must_use]
-    pub fn new(config_path: PathBuf) -> Self {
+    pub fn new(config_path: PathBuf, startup_file_path: Option<String>) -> Self {
         let config = AppConfig::from_file(&config_path);
         let state = AppState::from_config(&config);
         let emu_thread = emuthread::spawn();
-        Self { config, state, config_path, emu_thread }
+
+        let mut app = Self { config, state, config_path, emu_thread };
+
+        if let Some(startup_file_path) = startup_file_path {
+            app.launch_emulator(startup_file_path);
+        }
+
+        app
     }
 
     fn open_file(&mut self) {
