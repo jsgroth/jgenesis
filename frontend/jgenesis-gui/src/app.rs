@@ -389,9 +389,11 @@ impl App {
             }
             Some(extension) => {
                 log::error!("Unsupported file extension: {extension}");
+                self.emu_thread.clear_waiting_for_first_command();
             }
             None => {
                 log::error!("Unable to determine file extension of path: {path}");
+                self.emu_thread.clear_waiting_for_first_command();
             }
         }
     }

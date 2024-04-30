@@ -132,6 +132,15 @@ impl EmuThreadHandle {
         self.input_receiver.try_recv()
     }
 
+    pub fn clear_waiting_for_first_command(&self) {
+        let _ = self.status.compare_exchange(
+            EmuThreadStatus::WaitingForFirstCommand as u8,
+            EmuThreadStatus::Idle as u8,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        );
+    }
+
     pub fn stop_emulator_if_running(&self) {
         if self.status().is_running() {
             self.send(EmuThreadCommand::StopEmulator);
@@ -181,6 +190,15 @@ pub fn spawn(ctx: egui::Context) -> EmuThreadHandle {
     let emulator_error = Arc::clone(&emulator_error_arc);
     thread::spawn(move || {
         loop {
+            if status.load(Ordering::Relaxed) != EmuThreadStatus::WaitingForFirstCommand as u8 {
+                status.store(EmuThreadStatus::Idle as u8, Ordering::Relaxed);
+            }
+
+            // Force a repaint at the start of the loop so that the GUI will always repaint after an
+            // emulator exits. This will immediately display the error window if there was an
+            // error, and it will also force quit immediately if auto-close is enabled
+            ctx.request_repaint();
+
             match command_receiver.recv() {
                 Ok(EmuThreadCommand::RunSms(config)) => {
                     status.store(EmuThreadStatus::RunningSmsGg as u8, Ordering::Relaxed);
@@ -328,13 +346,6 @@ pub fn spawn(ctx: egui::Context) -> EmuThreadHandle {
                     break;
                 }
             }
-
-            status.store(EmuThreadStatus::Idle as u8, Ordering::Relaxed);
-
-            // Force a repaint immediately after the emulator exits. This will immediately display
-            // the error window if there was an error, and it will also force quit immediately if
-            // auto-close is enabled
-            ctx.request_repaint();
         }
     });
 
