@@ -99,24 +99,13 @@ impl Platform {
         }
     }
 
-    pub fn update_time(&mut self, elapsed_secs: f64) {
+    pub fn take_raw_input(&mut self, elapsed_secs: f64) -> egui::RawInput {
         self.raw_input.time = Some(elapsed_secs);
-    }
-
-    pub fn begin_frame(&mut self) {
-        self.context.begin_frame(self.raw_input.take());
+        self.raw_input.take()
     }
 
     pub fn context(&self) -> &egui::Context {
         &self.context
-    }
-
-    pub fn scale_factor(&self) -> f32 {
-        self.scale_factor
-    }
-
-    pub fn end_frame(&self) -> egui::FullOutput {
-        self.context.end_frame()
     }
 }
 

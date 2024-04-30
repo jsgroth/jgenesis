@@ -1,5 +1,5 @@
 use crate::mainloop::debug;
-use crate::mainloop::debug::{DebugRenderContext, DebugRenderFn, DebuggerError, SelectableButton};
+use crate::mainloop::debug::{DebugRenderContext, DebugRenderFn, SelectableButton};
 use egui::{CentralPanel, Grid, ScrollArea, Vec2};
 use gb_core::api::{BackgroundTileMap, GameBoyEmulator};
 use jgenesis_common::frontend::Color;
@@ -46,13 +46,10 @@ pub fn render_fn() -> Box<DebugRenderFn<GameBoyEmulator>> {
     Box::new(move |ctx| render(ctx, &mut state))
 }
 
-fn render(
-    mut ctx: DebugRenderContext<'_, GameBoyEmulator>,
-    state: &mut State,
-) -> Result<(), DebuggerError> {
-    update_background_texture(&mut ctx, state)?;
-    update_sprite_texture(&mut ctx, state)?;
-    update_palettes_texture(&mut ctx, state)?;
+fn render(mut ctx: DebugRenderContext<'_, GameBoyEmulator>, state: &mut State) {
+    update_background_texture(&mut ctx, state);
+    update_sprite_texture(&mut ctx, state);
+    update_palettes_texture(&mut ctx, state);
 
     let screen_width = debug::screen_width(ctx.egui_ctx);
 
@@ -141,21 +138,16 @@ fn render(
             }
         }
     });
-
-    Ok(())
 }
 
-fn update_background_texture(
-    ctx: &mut DebugRenderContext<'_, GameBoyEmulator>,
-    state: &mut State,
-) -> Result<(), DebuggerError> {
+fn update_background_texture(ctx: &mut DebugRenderContext<'_, GameBoyEmulator>, state: &mut State) {
     if state.tab == Tab::Background {
         ctx.emulator.copy_background(state.background_tile_map, &mut state.background_buffer);
     }
 
     if state.background_texture.is_none() {
         let (wgpu_texture, egui_texture) =
-            debug::create_texture("debug_gb_bg", 256, 256, ctx.device, ctx.rpass);
+            debug::create_texture("debug_gb_bg", 256, 256, ctx.device, ctx.renderer);
         state.background_texture = Some((wgpu_texture, egui_texture));
     }
 
@@ -167,20 +159,17 @@ fn update_background_texture(
         egui_texture,
         bytemuck::cast_slice(&state.background_buffer),
         ctx,
-    )
+    );
 }
 
-fn update_sprite_texture(
-    ctx: &mut DebugRenderContext<'_, GameBoyEmulator>,
-    state: &mut State,
-) -> Result<(), DebuggerError> {
+fn update_sprite_texture(ctx: &mut DebugRenderContext<'_, GameBoyEmulator>, state: &mut State) {
     if state.tab == Tab::Sprites {
         ctx.emulator.copy_sprites(&mut state.sprites_buffer);
     }
 
     if state.sprites_texture.is_none() {
         let (wgpu_texture, egui_texture) =
-            debug::create_texture("debug_gb_sprites", 8 * 8, 5 * 8, ctx.device, ctx.rpass);
+            debug::create_texture("debug_gb_sprites", 8 * 8, 5 * 8, ctx.device, ctx.renderer);
         state.sprites_texture = Some((wgpu_texture, egui_texture));
     }
 
@@ -190,7 +179,7 @@ fn update_sprite_texture(
             8 * 8,
             2 * 5 * 8,
             ctx.device,
-            ctx.rpass,
+            ctx.renderer,
         );
         state.sprites_double_height_texture = Some((wgpu_texture, egui_texture));
     }
@@ -204,7 +193,7 @@ fn update_sprite_texture(
             egui_texture,
             bytemuck::cast_slice(&state.sprites_buffer),
             ctx,
-        )
+        );
     } else {
         let (wgpu_texture, egui_texture) = state.sprites_texture.as_ref().unwrap();
         let egui_texture = *egui_texture;
@@ -214,14 +203,11 @@ fn update_sprite_texture(
             egui_texture,
             bytemuck::cast_slice(&state.sprites_buffer[..40 * 64]),
             ctx,
-        )
+        );
     }
 }
 
-fn update_palettes_texture(
-    ctx: &mut DebugRenderContext<'_, GameBoyEmulator>,
-    state: &mut State,
-) -> Result<(), DebuggerError> {
+fn update_palettes_texture(ctx: &mut DebugRenderContext<'_, GameBoyEmulator>, state: &mut State) {
     let mut palettes_buffer = [Color::default(); 64];
 
     if state.tab == Tab::Palettes {
@@ -230,13 +216,13 @@ fn update_palettes_texture(
 
     if state.bg_palettes_texture.is_none() {
         let (wgpu_texture, egui_texture) =
-            debug::create_texture("debug_gb_bg_palettes", 4, 8, ctx.device, ctx.rpass);
+            debug::create_texture("debug_gb_bg_palettes", 4, 8, ctx.device, ctx.renderer);
         state.bg_palettes_texture = Some((wgpu_texture, egui_texture));
     }
 
     if state.obj_palettes_texture.is_none() {
         let (wgpu_texture, egui_texture) =
-            debug::create_texture("debug_gb_obj_palettes", 4, 8, ctx.device, ctx.rpass);
+            debug::create_texture("debug_gb_obj_palettes", 4, 8, ctx.device, ctx.renderer);
         state.obj_palettes_texture = Some((wgpu_texture, egui_texture));
     }
 
@@ -256,7 +242,7 @@ fn update_palettes_texture(
         *bg_egui_texture,
         bytemuck::cast_slice(&bg_palettes_buffer),
         ctx,
-    )?;
+    );
 
     let (obj_wgpu_texture, obj_egui_texture) = state.obj_palettes_texture.as_ref().unwrap();
     debug::write_textures(
@@ -264,7 +250,5 @@ fn update_palettes_texture(
         *obj_egui_texture,
         bytemuck::cast_slice(&obj_palettes_buffer),
         ctx,
-    )?;
-
-    Ok(())
+    );
 }

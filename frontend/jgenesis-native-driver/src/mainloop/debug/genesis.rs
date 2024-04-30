@@ -1,5 +1,5 @@
 use crate::mainloop::debug;
-use crate::mainloop::debug::{DebugRenderContext, DebugRenderFn, DebuggerError, SelectableButton};
+use crate::mainloop::debug::{DebugRenderContext, DebugRenderFn, SelectableButton};
 use egui::{CentralPanel, ScrollArea, Vec2};
 use genesis_core::GenesisEmulator;
 use jgenesis_common::frontend::Color;
@@ -65,12 +65,9 @@ pub(crate) fn render_fn<Emulator: GenesisBase>() -> Box<DebugRenderFn<Emulator>>
     Box::new(move |ctx| render(ctx, &mut state))
 }
 
-fn render<Emulator: GenesisBase>(
-    mut ctx: DebugRenderContext<'_, Emulator>,
-    state: &mut State,
-) -> Result<(), DebuggerError> {
-    update_cram_texture(&mut ctx, state)?;
-    update_vram_texture(&mut ctx, state)?;
+fn render<Emulator: GenesisBase>(mut ctx: DebugRenderContext<'_, Emulator>, state: &mut State) {
+    update_cram_texture(&mut ctx, state);
+    update_vram_texture(&mut ctx, state);
 
     let screen_width = debug::screen_width(ctx.egui_ctx);
 
@@ -105,19 +102,17 @@ fn render<Emulator: GenesisBase>(
             }
         }
     });
-
-    Ok(())
 }
 
 fn update_cram_texture<Emulator: GenesisBase>(
     ctx: &mut DebugRenderContext<'_, Emulator>,
     state: &mut State,
-) -> Result<(), DebuggerError> {
+) {
     ctx.emulator.copy_cram(state.cram_buffer.as_mut());
 
     if state.cram_texture.is_none() {
         let (wgpu_texture, egui_texture) =
-            debug::create_texture("debug_genesis_cram", 16, 4, ctx.device, ctx.rpass);
+            debug::create_texture("debug_genesis_cram", 16, 4, ctx.device, ctx.renderer);
         state.cram_texture = Some((wgpu_texture, egui_texture));
     }
 
@@ -128,18 +123,18 @@ fn update_cram_texture<Emulator: GenesisBase>(
         *egui_texture,
         bytemuck::cast_slice(state.cram_buffer.as_ref()),
         ctx,
-    )
+    );
 }
 
 fn update_vram_texture<Emulator: GenesisBase>(
     ctx: &mut DebugRenderContext<'_, Emulator>,
     state: &mut State,
-) -> Result<(), DebuggerError> {
+) {
     ctx.emulator.copy_vram(state.vram_buffer.as_mut(), state.vram_palette, 64);
 
     if state.vram_texture.is_none() {
         let (wgpu_texture, egui_texture) =
-            debug::create_texture("debug_genesis_vram", 64 * 8, 32 * 8, ctx.device, ctx.rpass);
+            debug::create_texture("debug_genesis_vram", 64 * 8, 32 * 8, ctx.device, ctx.renderer);
         state.vram_texture = Some((wgpu_texture, egui_texture));
     }
 
@@ -150,5 +145,5 @@ fn update_vram_texture<Emulator: GenesisBase>(
         *egui_texture,
         bytemuck::cast_slice(state.vram_buffer.as_ref()),
         ctx,
-    )
+    );
 }

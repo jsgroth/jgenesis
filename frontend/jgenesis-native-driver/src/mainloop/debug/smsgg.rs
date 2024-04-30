@@ -1,5 +1,5 @@
 use crate::mainloop::debug;
-use crate::mainloop::debug::{DebugRenderContext, DebugRenderFn, DebuggerError, SelectableButton};
+use crate::mainloop::debug::{DebugRenderContext, DebugRenderFn, SelectableButton};
 use egui::{CentralPanel, ScrollArea, Vec2};
 use jgenesis_common::frontend::Color;
 use smsgg_core::SmsGgEmulator;
@@ -38,12 +38,9 @@ pub fn render_fn() -> Box<DebugRenderFn<SmsGgEmulator>> {
     Box::new(move |ctx| render(ctx, &mut state))
 }
 
-fn render(
-    mut ctx: DebugRenderContext<'_, SmsGgEmulator>,
-    state: &mut State,
-) -> Result<(), DebuggerError> {
-    update_cram_texture(&mut ctx, state)?;
-    update_vram_texture(&mut ctx, state)?;
+fn render(mut ctx: DebugRenderContext<'_, SmsGgEmulator>, state: &mut State) {
+    update_cram_texture(&mut ctx, state);
+    update_vram_texture(&mut ctx, state);
 
     let screen_width = debug::screen_width(ctx.egui_ctx);
 
@@ -77,19 +74,14 @@ fn render(
             }
         }
     });
-
-    Ok(())
 }
 
-fn update_cram_texture(
-    ctx: &mut DebugRenderContext<'_, SmsGgEmulator>,
-    state: &mut State,
-) -> Result<(), DebuggerError> {
+fn update_cram_texture(ctx: &mut DebugRenderContext<'_, SmsGgEmulator>, state: &mut State) {
     ctx.emulator.copy_cram(state.cram_buffer.as_mut());
 
     if state.cram_texture.is_none() {
         let (wgpu_texture, egui_texture) =
-            debug::create_texture("debug_smsgg_cram", 16, 2, ctx.device, ctx.rpass);
+            debug::create_texture("debug_smsgg_cram", 16, 2, ctx.device, ctx.renderer);
         state.cram_texture = Some((wgpu_texture, egui_texture));
     }
 
@@ -100,18 +92,15 @@ fn update_cram_texture(
         *egui_texture,
         bytemuck::cast_slice(state.cram_buffer.as_ref()),
         ctx,
-    )
+    );
 }
 
-fn update_vram_texture(
-    ctx: &mut DebugRenderContext<'_, SmsGgEmulator>,
-    state: &mut State,
-) -> Result<(), DebuggerError> {
+fn update_vram_texture(ctx: &mut DebugRenderContext<'_, SmsGgEmulator>, state: &mut State) {
     ctx.emulator.copy_vram(state.vram_buffer.as_mut(), state.vram_palette, 32);
 
     if state.vram_texture.is_none() {
         let (wgpu_texture, egui_texture) =
-            debug::create_texture("debug_smsgg_vram", 32 * 8, 16 * 8, ctx.device, ctx.rpass);
+            debug::create_texture("debug_smsgg_vram", 32 * 8, 16 * 8, ctx.device, ctx.renderer);
         state.vram_texture = Some((wgpu_texture, egui_texture));
     }
 
@@ -122,5 +111,5 @@ fn update_vram_texture(
         *egui_texture,
         bytemuck::cast_slice(state.vram_buffer.as_ref()),
         ctx,
-    )
+    );
 }

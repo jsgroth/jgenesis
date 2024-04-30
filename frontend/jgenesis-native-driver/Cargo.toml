@@ -21,7 +21,7 @@ anyhow = { workspace = true }
 bincode = { workspace = true }
 bytemuck = { workspace = true }
 egui = { workspace = true }
-egui_wgpu_backend = { workspace = true }
+egui-wgpu = { workspace = true }
 log = { workspace = true }
 pollster = { workspace = true }
 serde = { workspace = true }

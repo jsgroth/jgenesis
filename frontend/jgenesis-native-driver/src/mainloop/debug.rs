@@ -5,11 +5,10 @@ pub mod nes;
 pub mod smsgg;
 pub mod snes;
 
-use egui_wgpu_backend::ScreenDescriptor;
-
 use sdl2::event::{Event, WindowEvent};
 
 use egui::{Button, Response, Ui, Widget, WidgetText};
+use egui_wgpu::renderer::ScreenDescriptor;
 use sdl2::video::{Window, WindowBuildError};
 use sdl2::VideoSubsystem;
 use std::iter;
@@ -28,8 +27,6 @@ pub enum DebuggerError {
     RequestAdapterFailed,
     #[error("Failed to obtain wgpu device: {0}")]
     RequestDeviceFailed(#[from] wgpu::RequestDeviceError),
-    #[error("Error in egui wgpu backend: {0}")]
-    WgpuBackendError(#[from] egui_wgpu_backend::BackendError),
 }
 
 pub struct DebugRenderContext<'a, Emulator> {
@@ -37,11 +34,10 @@ pub struct DebugRenderContext<'a, Emulator> {
     emulator: &'a mut Emulator,
     device: &'a wgpu::Device,
     queue: &'a wgpu::Queue,
-    rpass: &'a mut egui_wgpu_backend::RenderPass,
+    renderer: &'a mut egui_wgpu::Renderer,
 }
 
-pub type DebugRenderFn<Emulator> =
-    dyn FnMut(DebugRenderContext<'_, Emulator>) -> Result<(), DebuggerError>;
+pub type DebugRenderFn<Emulator> = dyn FnMut(DebugRenderContext<'_, Emulator>);
 
 pub struct DebuggerWindow<Emulator> {
     surface: wgpu::Surface,
@@ -49,12 +45,11 @@ pub struct DebuggerWindow<Emulator> {
     device: wgpu::Device,
     queue: wgpu::Queue,
     platform: eguisdl::Platform,
-    egui_pass: egui_wgpu_backend::RenderPass,
+    egui_renderer: egui_wgpu::Renderer,
     start_time: SystemTime,
     render_fn: Box<DebugRenderFn<Emulator>>,
     // SAFETY: The window must be dropped after the surface
     window: Window,
-    scale_factor: f32,
 }
 
 impl<Emulator> DebuggerWindow<Emulator> {
@@ -109,7 +104,7 @@ impl<Emulator> DebuggerWindow<Emulator> {
         let platform = eguisdl::Platform::new(&window, scale_factor);
         let start_time = SystemTime::now();
 
-        let egui_pass = egui_wgpu_backend::RenderPass::new(&device, surface_format, 1);
+        let egui_renderer = egui_wgpu::Renderer::new(&device, surface_format, None, 1);
 
         Ok(Self {
             surface,
@@ -117,69 +112,87 @@ impl<Emulator> DebuggerWindow<Emulator> {
             device,
             queue,
             platform,
-            egui_pass,
+            egui_renderer,
             start_time,
             render_fn,
             window,
-            scale_factor,
         })
     }
 
     pub fn update(&mut self, emulator: &mut Emulator) -> Result<(), DebuggerError> {
-        self.platform.update_time(
+        let egui_input = self.platform.take_raw_input(
             SystemTime::now().duration_since(self.start_time).unwrap_or_default().as_secs_f64(),
         );
 
-        self.platform.begin_frame();
-        let egui_ctx = self.platform.context();
-
-        (self.render_fn)(DebugRenderContext {
-            egui_ctx,
-            emulator,
-            device: &self.device,
-            queue: &self.queue,
-            rpass: &mut self.egui_pass,
-        })?;
+        let full_output = self.platform.context().run(egui_input, |ctx| {
+            (self.render_fn)(DebugRenderContext {
+                egui_ctx: ctx,
+                emulator,
+                device: &self.device,
+                queue: &self.queue,
+                renderer: &mut self.egui_renderer,
+            });
+        });
 
         let output = match self.surface.get_current_texture() {
             Ok(output) => output,
             Err(wgpu::SurfaceError::Outdated) => {
                 log::warn!("Skipping debug frame because wgpu surface has changed");
-                self.platform.end_frame();
                 return Ok(());
             }
             Err(err) => return Err(err.into()),
         };
         let output_view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let full_output = self.platform.end_frame();
-        let paint_jobs = egui_ctx.tessellate(full_output.shapes, self.platform.scale_factor());
+        let paint_jobs =
+            self.platform.context().tessellate(full_output.shapes, full_output.pixels_per_point);
+
+        let screen_descriptor = ScreenDescriptor {
+            size_in_pixels: [self.surface_config.width, self.surface_config.height],
+            pixels_per_point: full_output.pixels_per_point,
+        };
+
+        for (id, image_delta) in &full_output.textures_delta.set {
+            self.egui_renderer.update_texture(&self.device, &self.queue, *id, image_delta);
+        }
 
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: "debugger_encoder".into(),
         });
 
-        let screen_descriptor = ScreenDescriptor {
-            physical_width: self.surface_config.width,
-            physical_height: self.surface_config.height,
-            scale_factor: self.scale_factor,
-        };
-
-        let tdelta = full_output.textures_delta;
-        self.egui_pass.add_textures(&self.device, &self.queue, &tdelta)?;
-        self.egui_pass.update_buffers(&self.device, &self.queue, &paint_jobs, &screen_descriptor);
-        self.egui_pass.execute(
+        self.egui_renderer.update_buffers(
+            &self.device,
+            &self.queue,
             &mut encoder,
-            &output_view,
             &paint_jobs,
             &screen_descriptor,
-            Some(wgpu::Color::BLACK),
-        )?;
+        );
+
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: "egui_render_pass".into(),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &output_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            self.egui_renderer.render(&mut render_pass, &paint_jobs, &screen_descriptor);
+        }
 
         self.queue.submit(iter::once(encoder.finish()));
         output.present();
 
-        self.egui_pass.remove_textures(tdelta)?;
+        for id in &full_output.textures_delta.free {
+            self.egui_renderer.free_texture(id);
+        }
 
         Ok(())
     }
@@ -237,7 +250,7 @@ fn create_texture(
     width: u32,
     height: u32,
     device: &wgpu::Device,
-    rpass: &mut egui_wgpu_backend::RenderPass,
+    renderer: &mut egui_wgpu::Renderer,
 ) -> (wgpu::Texture, egui::TextureId) {
     let wgpu_texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some(label),
@@ -252,7 +265,7 @@ fn create_texture(
     let texture_view = wgpu_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
     let egui_texture =
-        rpass.egui_texture_from_wgpu_texture(device, &texture_view, wgpu::FilterMode::Nearest);
+        renderer.register_native_texture(device, &texture_view, wgpu::FilterMode::Nearest);
 
     (wgpu_texture, egui_texture)
 }
@@ -285,7 +298,7 @@ fn write_textures<Emulator>(
     egui_texture: egui::TextureId,
     data: &[u8],
     ctx: &mut DebugRenderContext<'_, Emulator>,
-) -> Result<(), DebuggerError> {
+) {
     ctx.queue.write_texture(
         wgpu::ImageCopyTexture {
             texture: wgpu_texture,
@@ -303,12 +316,10 @@ fn write_textures<Emulator>(
     );
 
     let texture_view = wgpu_texture.create_view(&wgpu::TextureViewDescriptor::default());
-    ctx.rpass.update_egui_texture_from_wgpu_texture(
+    ctx.renderer.update_egui_texture_from_wgpu_texture(
         ctx.device,
         &texture_view,
         wgpu::FilterMode::Nearest,
         egui_texture,
-    )?;
-
-    Ok(())
+    );
 }
