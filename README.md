@@ -49,15 +49,6 @@ sudo apt install libsdl2-dev
 Windows:
 * https://github.com/libsdl-org/SDL/releases
 
-### GTK3 (Linux GUI only)
-
-On Linux only, the GUI requires [GTK3](https://www.gtk.org/) headers to build.
-
-Linux (Debian-based):
-```
-sudo apt install libgtk-3-dev
-```
-
 ## Build & Run
 
 GUI:
