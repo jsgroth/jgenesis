@@ -2156,7 +2156,7 @@ checksum = "b1a46d1a171d865aa5f83f92695765caa047a9b4cbae2cbf37dbd613a793fd4c"
 
 [[package]]
 name = "jgenesis-cli"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -2189,7 +2189,7 @@ dependencies = [
 
 [[package]]
 name = "jgenesis-gui"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "anyhow",
  "bincode",
