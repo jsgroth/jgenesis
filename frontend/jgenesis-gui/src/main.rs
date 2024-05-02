@@ -4,7 +4,6 @@ use eframe::NativeOptions;
 use egui::{Vec2, ViewportBuilder};
 use env_logger::Env;
 use jgenesis_gui::app::App;
-use std::fs;
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
@@ -84,7 +83,7 @@ fn get_linux_config_path() -> PathBuf {
 
     let jgenesis_dir = base_dirs.config_dir().join("jgenesis");
     if !jgenesis_dir.exists() {
-        if let Err(err) = fs::create_dir_all(&jgenesis_dir) {
+        if let Err(err) = std::fs::create_dir_all(&jgenesis_dir) {
             log::error!(
                 "Unable to create config directory '{}', app config will probably not save: {err}",
                 jgenesis_dir.display()

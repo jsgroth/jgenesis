@@ -207,6 +207,8 @@ struct AppState {
     waiting_for_input: Option<GenericButton>,
     rom_list: Rc<RefCell<Vec<RomMetadata>>>,
     recent_open_list: Vec<RomMetadata>,
+    rendered_first_frame: bool,
+    close_on_emulator_exit: bool,
 }
 
 impl AppState {
@@ -238,6 +240,8 @@ impl AppState {
             waiting_for_input: None,
             rom_list: Rc::new(RefCell::new(rom_list)),
             recent_open_list,
+            rendered_first_frame: false,
+            close_on_emulator_exit: false,
         }
     }
 }
@@ -302,7 +306,7 @@ pub struct App {
     state: AppState,
     config_path: PathBuf,
     emu_thread: EmuThreadHandle,
-    close_on_emulator_exit: bool,
+    startup_file_path: Option<String>,
 }
 
 impl App {
@@ -311,15 +315,8 @@ impl App {
         let config = AppConfig::from_file(&config_path);
         let state = AppState::from_config(&config);
         let emu_thread = emuthread::spawn(ctx);
-        let close_on_emulator_exit = startup_file_path.is_some();
 
-        let mut app = Self { config, state, config_path, emu_thread, close_on_emulator_exit };
-
-        if let Some(startup_file_path) = startup_file_path {
-            app.launch_emulator(startup_file_path);
-        }
-
-        app
+        Self { config, state, config_path, emu_thread, startup_file_path }
     }
 
     fn open_file(&mut self) {
@@ -891,7 +888,7 @@ impl App {
     }
 
     fn check_for_close_on_emu_exit(&mut self, ctx: &Context) {
-        if self.close_on_emulator_exit {
+        if self.state.close_on_emulator_exit {
             let status = self.emu_thread.status();
             if !status.is_running() && status != EmuThreadStatus::WaitingForFirstCommand {
                 ctx.send_viewport_cmd(ViewportCommand::Close);
@@ -913,6 +910,13 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
+        if self.state.rendered_first_frame {
+            if let Some(startup_file_path) = self.startup_file_path.take() {
+                self.launch_emulator(startup_file_path);
+                self.state.close_on_emulator_exit = true;
+            }
+        }
+
         let prev_config = self.config.clone();
 
         self.check_emulator_error(ctx);
@@ -969,6 +973,8 @@ impl eframe::App for App {
                 log::error!("Error serializing app config: {err}");
             }
         }
+
+        self.state.rendered_first_frame = true;
     }
 }
 
