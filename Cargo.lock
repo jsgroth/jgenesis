@@ -2189,10 +2189,7 @@ name = "jgenesis-gui"
 version = "0.7.2"
 dependencies = [
  "anyhow",
- "bincode",
- "cfg-if",
  "clap",
- "directories",
  "eframe",
  "egui",
  "egui_extras",
@@ -2200,6 +2197,7 @@ dependencies = [
  "gb-core",
  "genesis-core",
  "jgenesis-common",
+ "jgenesis-native-config",
  "jgenesis-native-driver",
  "jgenesis-proc-macros",
  "jgenesis-renderer",
@@ -2209,11 +2207,29 @@ dependencies = [
  "rfd",
  "sdl2",
  "segacd-core",
- "serde",
  "smsgg-core",
  "snes-core",
  "toml",
  "xrandr",
+]
+
+[[package]]
+name = "jgenesis-native-config"
+version = "0.1.0"
+dependencies = [
+ "cfg-if",
+ "directories",
+ "gb-core",
+ "genesis-core",
+ "jgenesis-common",
+ "jgenesis-native-driver",
+ "jgenesis-renderer",
+ "log",
+ "nes-core",
+ "serde",
+ "smsgg-core",
+ "snes-core",
+ "toml",
 ]
 
 [[package]]

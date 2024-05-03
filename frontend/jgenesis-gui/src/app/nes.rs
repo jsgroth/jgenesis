@@ -1,47 +1,10 @@
-use crate::app::{App, AppConfig, NumericTextEdit, OpenWindow};
+use crate::app::{App, NumericTextEdit, OpenWindow};
 use crate::emuthread::EmuThreadStatus;
 use eframe::emath::Align;
 use eframe::epaint::Color32;
 use egui::{Context, Layout, Window};
 use jgenesis_common::frontend::TimingMode;
-use jgenesis_native_driver::config::NesConfig;
 use nes_core::api::{NesAspectRatio, Overscan};
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NesAppConfig {
-    forced_timing_mode: Option<TimingMode>,
-    #[serde(default)]
-    aspect_ratio: NesAspectRatio,
-    #[serde(default)]
-    overscan: Overscan,
-    #[serde(default)]
-    remove_sprite_limit: bool,
-    #[serde(default)]
-    pal_black_border: bool,
-    #[serde(default)]
-    silence_ultrasonic_triangle_output: bool,
-    #[serde(default = "true_fn")]
-    audio_60hz_hack: bool,
-    #[serde(default)]
-    allow_opposing_joypad_inputs: bool,
-}
-
-const fn true_fn() -> bool {
-    true
-}
-
-impl NesAppConfig {
-    pub(super) fn overscan(&self) -> Overscan {
-        self.overscan
-    }
-}
-
-impl Default for NesAppConfig {
-    fn default() -> Self {
-        toml::from_str("").unwrap()
-    }
-}
 
 pub struct OverscanState {
     top_text: String,
@@ -66,26 +29,6 @@ impl From<Overscan> for OverscanState {
             right_text: value.right.to_string(),
             right_invalid: false,
         }
-    }
-}
-
-impl AppConfig {
-    pub(super) fn nes_config(&self, path: String) -> Box<NesConfig> {
-        Box::new(NesConfig {
-            common: self.common_config(
-                path,
-                self.inputs.nes_keyboard.clone(),
-                self.inputs.nes_joystick.clone(),
-            ),
-            forced_timing_mode: self.nes.forced_timing_mode,
-            aspect_ratio: self.nes.aspect_ratio,
-            overscan: self.nes.overscan,
-            remove_sprite_limit: self.nes.remove_sprite_limit,
-            pal_black_border: self.nes.pal_black_border,
-            silence_ultrasonic_triangle_output: self.nes.silence_ultrasonic_triangle_output,
-            audio_refresh_rate_adjustment: self.nes.audio_60hz_hack,
-            allow_opposing_joypad_inputs: self.nes.allow_opposing_joypad_inputs,
-        })
     }
 }
 

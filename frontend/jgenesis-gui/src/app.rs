@@ -7,14 +7,9 @@ mod romlist;
 mod smsgg;
 mod snes;
 
-use crate::app::common::CommonAppConfig;
-use crate::app::gb::GameBoyAppConfig;
-use crate::app::genesis::{GenesisAppConfig, SegaCdAppConfig};
-use crate::app::input::{GenericButton, InputAppConfig};
-use crate::app::nes::{NesAppConfig, OverscanState};
+use crate::app::input::{GenericButton, InputAppConfigExt};
+use crate::app::nes::OverscanState;
 use crate::app::romlist::{Console, RomMetadata};
-use crate::app::smsgg::SmsGgAppConfig;
-use crate::app::snes::SnesAppConfig;
 use crate::emuthread;
 use crate::emuthread::{EmuThreadCommand, EmuThreadHandle, EmuThreadStatus};
 use eframe::Frame;
@@ -24,9 +19,9 @@ use egui::{
     Response, TextEdit, TopBottomPanel, Ui, Vec2, ViewportCommand, Widget, Window,
 };
 use egui_extras::{Column, TableBuilder};
+use jgenesis_native_config::{AppConfig, ListFilters};
 use jgenesis_renderer::config::Scanlines;
 use rfd::FileDialog;
-use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::ffi::OsStr;
@@ -35,46 +30,16 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::str::FromStr;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct ListFilters {
-    #[serde(default = "true_fn")]
-    master_system: bool,
-    #[serde(default = "true_fn")]
-    game_gear: bool,
-    #[serde(default = "true_fn")]
-    genesis: bool,
-    #[serde(default = "true_fn")]
-    sega_cd: bool,
-    #[serde(default = "true_fn")]
-    nes: bool,
-    #[serde(default = "true_fn")]
-    snes: bool,
-    #[serde(default = "true_fn")]
-    game_boy: bool,
-    #[serde(skip)]
-    title_match: String,
+trait ListFiltersExt {
+    fn to_console_vec(&self) -> Vec<Console>;
+
+    fn apply<'metadata>(
+        &self,
+        rom_list: &'metadata [RomMetadata],
+    ) -> impl Iterator<Item = &'metadata RomMetadata>;
 }
 
-fn true_fn() -> bool {
-    true
-}
-
-impl Default for ListFilters {
-    fn default() -> Self {
-        Self {
-            master_system: true,
-            game_gear: true,
-            genesis: true,
-            sega_cd: true,
-            nes: true,
-            snes: true,
-            game_boy: true,
-            title_match: String::new(),
-        }
-    }
-}
-
-impl ListFilters {
+impl ListFiltersExt for ListFilters {
     fn to_console_vec(&self) -> Vec<Console> {
         [
             self.master_system.then_some(Console::MasterSystem),
@@ -94,7 +59,7 @@ impl ListFilters {
     fn apply<'metadata>(
         &self,
         rom_list: &'metadata [RomMetadata],
-    ) -> impl Iterator<Item = &'metadata RomMetadata> {
+    ) -> impl Iterator<Item = &'metadata RomMetadata> + 'metadata {
         let filters = self.to_console_vec();
         let title_match = self.title_match.to_lowercase();
         rom_list.iter().filter(move |metadata| {
@@ -102,49 +67,6 @@ impl ListFilters {
                 && (title_match.is_empty()
                     || metadata.file_name_no_ext.to_lowercase().contains(&title_match))
         })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AppConfig {
-    #[serde(default)]
-    common: CommonAppConfig,
-    #[serde(default)]
-    smsgg: SmsGgAppConfig,
-    #[serde(default)]
-    genesis: GenesisAppConfig,
-    #[serde(default)]
-    sega_cd: SegaCdAppConfig,
-    #[serde(default)]
-    nes: NesAppConfig,
-    #[serde(default)]
-    snes: SnesAppConfig,
-    #[serde(default)]
-    game_boy: GameBoyAppConfig,
-    #[serde(default)]
-    inputs: InputAppConfig,
-    #[serde(default)]
-    list_filters: ListFilters,
-    #[serde(default)]
-    rom_search_dirs: Vec<String>,
-    #[serde(default)]
-    recent_opens: Vec<String>,
-}
-
-impl AppConfig {
-    #[allow(clippy::missing_panics_doc)]
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
-        let config_str = fs::read_to_string(path).unwrap_or_default();
-        toml::from_str(&config_str).unwrap_or_else(|err| {
-            log::error!("Error deserializing app config: {err}");
-            toml::from_str("").unwrap()
-        })
-    }
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        toml::from_str("").unwrap()
     }
 }
 

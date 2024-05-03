@@ -1,67 +1,10 @@
-use crate::app::{App, AppConfig, OpenWindow};
+use crate::app::{App, OpenWindow};
 use crate::emuthread::EmuThreadStatus;
 use egui::{Context, Window};
 use jgenesis_common::frontend::TimingMode;
-use jgenesis_native_driver::config::SnesConfig;
 use rfd::FileDialog;
-use serde::{Deserialize, Serialize};
 use snes_core::api::SnesAspectRatio;
 use std::num::NonZeroU64;
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SnesAppConfig {
-    forced_timing_mode: Option<TimingMode>,
-    #[serde(default)]
-    aspect_ratio: SnesAspectRatio,
-    #[serde(default = "true_fn")]
-    audio_60hz_hack: bool,
-    #[serde(default = "default_gsu_overclock")]
-    gsu_overclock_factor: NonZeroU64,
-    dsp1_rom_path: Option<String>,
-    dsp2_rom_path: Option<String>,
-    dsp3_rom_path: Option<String>,
-    dsp4_rom_path: Option<String>,
-    st010_rom_path: Option<String>,
-    st011_rom_path: Option<String>,
-}
-
-const fn true_fn() -> bool {
-    true
-}
-
-fn default_gsu_overclock() -> NonZeroU64 {
-    NonZeroU64::new(1).unwrap()
-}
-
-impl Default for SnesAppConfig {
-    fn default() -> Self {
-        toml::from_str("").unwrap()
-    }
-}
-
-impl AppConfig {
-    pub(super) fn snes_config(&self, path: String) -> Box<SnesConfig> {
-        Box::new(SnesConfig {
-            common: self.common_config(
-                path,
-                self.inputs.snes_keyboard.clone(),
-                self.inputs.snes_joystick.clone(),
-            ),
-            p2_controller_type: self.inputs.snes_p2_type,
-            super_scope_config: self.inputs.snes_super_scope.clone(),
-            forced_timing_mode: self.snes.forced_timing_mode,
-            aspect_ratio: self.snes.aspect_ratio,
-            audio_60hz_hack: self.snes.audio_60hz_hack,
-            gsu_overclock_factor: self.snes.gsu_overclock_factor,
-            dsp1_rom_path: self.snes.dsp1_rom_path.clone(),
-            dsp2_rom_path: self.snes.dsp2_rom_path.clone(),
-            dsp3_rom_path: self.snes.dsp3_rom_path.clone(),
-            dsp4_rom_path: self.snes.dsp4_rom_path.clone(),
-            st010_rom_path: self.snes.st010_rom_path.clone(),
-            st011_rom_path: self.snes.st011_rom_path.clone(),
-        })
-    }
-}
 
 impl App {
     pub(super) fn render_snes_general_settings(&mut self, ctx: &Context) {

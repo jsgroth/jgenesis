@@ -1,88 +1,11 @@
-use crate::app::{App, AppConfig, OpenWindow};
+use crate::app::{App, OpenWindow};
 use crate::emuthread::EmuThreadStatus;
 use egui::{Context, Window};
 use jgenesis_common::frontend::TimingMode;
-use jgenesis_native_driver::config::{GgAspectRatio, SmsAspectRatio, SmsGgConfig};
-use serde::{Deserialize, Serialize};
+use jgenesis_native_config::smsgg::SmsModel;
+use jgenesis_native_driver::config::{GgAspectRatio, SmsAspectRatio};
 use smsgg_core::psg::PsgVersion;
-use smsgg_core::{SmsRegion, VdpVersion};
-use std::ffi::OsStr;
-use std::path::Path;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum SmsModel {
-    Sms1,
-    #[default]
-    Sms2,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SmsGgAppConfig {
-    psg_version: Option<PsgVersion>,
-    #[serde(default)]
-    remove_sprite_limit: bool,
-    #[serde(default)]
-    sms_aspect_ratio: SmsAspectRatio,
-    #[serde(default)]
-    gg_aspect_ratio: GgAspectRatio,
-    #[serde(default)]
-    sms_region: SmsRegion,
-    #[serde(default)]
-    sms_timing_mode: TimingMode,
-    #[serde(default)]
-    sms_model: SmsModel,
-    #[serde(default)]
-    sms_crop_vertical_border: bool,
-    #[serde(default)]
-    sms_crop_left_border: bool,
-    #[serde(default = "true_fn")]
-    fm_sound_unit_enabled: bool,
-    #[serde(default)]
-    overclock_z80: bool,
-}
-
-const fn true_fn() -> bool {
-    true
-}
-
-impl Default for SmsGgAppConfig {
-    fn default() -> Self {
-        toml::from_str("").unwrap()
-    }
-}
-
-impl AppConfig {
-    pub(super) fn smsgg_config(&self, path: String) -> Box<SmsGgConfig> {
-        let vdp_version = if Path::new(&path).extension().and_then(OsStr::to_str) == Some("sms") {
-            match (self.smsgg.sms_timing_mode, self.smsgg.sms_model) {
-                (TimingMode::Ntsc, SmsModel::Sms2) => Some(VdpVersion::NtscMasterSystem2),
-                (TimingMode::Pal, SmsModel::Sms2) => Some(VdpVersion::PalMasterSystem2),
-                (TimingMode::Ntsc, SmsModel::Sms1) => Some(VdpVersion::NtscMasterSystem1),
-                (TimingMode::Pal, SmsModel::Sms1) => Some(VdpVersion::PalMasterSystem1),
-            }
-        } else {
-            None
-        };
-
-        Box::new(SmsGgConfig {
-            common: self.common_config(
-                path,
-                self.inputs.smsgg_keyboard.clone(),
-                self.inputs.smsgg_joystick.clone(),
-            ),
-            vdp_version,
-            psg_version: self.smsgg.psg_version,
-            remove_sprite_limit: self.smsgg.remove_sprite_limit,
-            sms_aspect_ratio: self.smsgg.sms_aspect_ratio,
-            gg_aspect_ratio: self.smsgg.gg_aspect_ratio,
-            sms_region: self.smsgg.sms_region,
-            sms_crop_vertical_border: self.smsgg.sms_crop_vertical_border,
-            sms_crop_left_border: self.smsgg.sms_crop_left_border,
-            fm_sound_unit_enabled: self.smsgg.fm_sound_unit_enabled,
-            overclock_z80: self.smsgg.overclock_z80,
-        })
-    }
-}
+use smsgg_core::SmsRegion;
 
 impl App {
     pub(super) fn render_smsgg_general_settings(&mut self, ctx: &Context) {

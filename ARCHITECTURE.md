@@ -6,7 +6,7 @@ The crates can be broken up roughly into 5 categories:
 * Common libraries: `jgenesis-common`, `jgenesis-proc-macros`, `cdrom`
 * CPU emulators: `z80-emu`, `m68000-emu`, `mos6502-emu`, `wdc65816-emu`, `spc700-emu`
 * Emulation backend: `smsgg-core`, `genesis-core`, `segacd-core`, `nes-core`, `snes-core`, `snes-coprocessors`, `gb-core`
-* Emulation frontend: `jgenesis-renderer`, `jgenesis-native-driver`, `jgenesis-cli`, `jgenesis-gui`, `jgenesis-web`
+* Emulation frontend: `jgenesis-renderer`, `jgenesis-native-driver`, `jgenesis-native-config`, `jgenesis-cli`, `jgenesis-gui`, `jgenesis-web`
 * CPU emulator test harnesses: `z80-test-runner`, `m68000-test-runner`, `mos6502-test-runner`, `wdc65816-test-runner`, `spc700-test-runner`
 
 Repo structure:
@@ -88,6 +88,10 @@ GPU-based implementation of the `Renderer` trait in `jgenesis-traits`, built on 
 ### `jgenesis-native-driver`
 
 Native emulation frontend that uses SDL2 for windowing, audio, and input.
+
+### `jgenesis-native-config`
+
+Contains the code representation of the main config file used by the CLI and GUI.
 
 ### `jgenesis-cli` / `jgenesis-gui`
 
