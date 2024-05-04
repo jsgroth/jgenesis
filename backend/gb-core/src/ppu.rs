@@ -106,6 +106,7 @@ struct State {
     frozen_ly_lyc_bit: bool,
     skip_next_frame: bool,
     frame_complete: bool,
+    dots_until_frame_clear: u32,
 }
 
 impl State {
@@ -120,6 +121,7 @@ impl State {
             frozen_ly_lyc_bit: false,
             skip_next_frame: true,
             frame_complete: false,
+            dots_until_frame_clear: 0,
         }
     }
 
@@ -197,6 +199,24 @@ impl Ppu {
     pub fn tick_dot(&mut self, dma_unit: &DmaUnit, interrupt_registers: &mut InterruptRegisters) {
         if !self.registers.ppu_enabled {
             if self.state.previously_enabled {
+                match self.hardware_mode {
+                    HardwareMode::Dmg => {
+                        self.clear_frame_buffer();
+                    }
+                    HardwareMode::Cgb => {
+                        if self.state.scanline < SCREEN_HEIGHT as u8 {
+                            self.clear_frame_buffer();
+                        } else {
+                            // On CGB, disabling the PPU only seems to clear the screen if it's
+                            // left disabled for a long enough time.
+                            // A Bug's Life depends on this or the screen will flash in some parts
+                            // of the game
+                            self.state.dots_until_frame_clear =
+                                (SCREEN_HEIGHT as u32) * u32::from(DOTS_PER_LINE);
+                        }
+                    }
+                }
+
                 // Disabling PPU freezes the LY=LYC bit until it's re-enabled, per:
                 // https://gbdev.gg8.se/wiki/articles/Tricky-to-emulate_games
                 self.state.frozen_ly_lyc_bit = self.state.scanline == self.registers.ly_compare;
@@ -206,23 +226,20 @@ impl Ppu {
                 self.state.dot = 0;
                 self.state.mode = PpuMode::HBlank;
 
-                // Disabling display makes the entire display white, which is color 0 on DMG
-                // and color 31/31/31 ($7FFF) on CGB
-                let fill_color = match self.hardware_mode {
-                    HardwareMode::Dmg => 0,
-                    HardwareMode::Cgb => 0b11111_11111_11111,
-                };
-                self.frame_buffer.fill(fill_color);
-
                 self.sprite_buffer.clear();
                 self.fifo.reset_window_state();
                 self.fifo.start_new_line(0, &self.registers, &[]);
 
                 self.state.previously_enabled = false;
 
-                // Signal that the frame should be displayed
-                self.state.frame_complete = true;
                 return;
+            }
+
+            if self.state.dots_until_frame_clear != 0 {
+                self.state.dots_until_frame_clear -= 1;
+                if self.state.dots_until_frame_clear == 0 {
+                    self.clear_frame_buffer();
+                }
             }
 
             // Unlike TV-based systems, the PPU does not process at all when display is disabled
@@ -308,6 +325,21 @@ impl Ppu {
         }
         self.state.prev_stat_interrupt_line = stat_interrupt_line;
         self.registers.stat_written_last_cycle = false;
+    }
+
+    fn clear_frame_buffer(&mut self) {
+        log::trace!("Clearing PPU frame buffer");
+
+        // Disabling display makes the entire display white, which is color 0 on DMG
+        // and color 31/31/31 ($7FFF) on CGB
+        let fill_color = match self.hardware_mode {
+            HardwareMode::Dmg => 0,
+            HardwareMode::Cgb => 0b11111_11111_11111,
+        };
+        self.frame_buffer.fill(fill_color);
+
+        // Signal that the frame should be displayed
+        self.state.frame_complete = true;
     }
 
     fn stat_interrupt_line(&self) -> bool {
