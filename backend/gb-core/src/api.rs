@@ -9,6 +9,7 @@ use crate::inputs::{GameBoyInputs, InputState};
 use crate::interrupts::InterruptRegisters;
 use crate::memory::Memory;
 use crate::ppu::Ppu;
+use crate::serial::SerialPort;
 use crate::sm83::Sm83;
 use crate::speed::SpeedRegister;
 use crate::timer::GbTimer;
@@ -99,6 +100,7 @@ pub struct GameBoyEmulator {
     ppu: Ppu,
     apu: Apu,
     memory: Memory,
+    serial_port: SerialPort,
     interrupt_registers: InterruptRegisters,
     speed_register: SpeedRegister,
     #[partial_clone(partial)]
@@ -138,6 +140,7 @@ impl GameBoyEmulator {
             ppu: Ppu::new(hardware_mode),
             apu: Apu::new(config),
             memory: Memory::new(),
+            serial_port: SerialPort::new(hardware_mode),
             interrupt_registers: InterruptRegisters::default(),
             speed_register: SpeedRegister::new(),
             cartridge,
@@ -206,6 +209,7 @@ impl EmulatorTrait for GameBoyEmulator {
             ppu: &mut self.ppu,
             apu: &mut self.apu,
             memory: &mut self.memory,
+            serial_port: &mut self.serial_port,
             cartridge: &mut self.cartridge,
             interrupt_registers: &mut self.interrupt_registers,
             speed_register: &mut self.speed_register,

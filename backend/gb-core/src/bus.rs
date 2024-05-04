@@ -7,6 +7,7 @@ use crate::inputs::InputState;
 use crate::interrupts::InterruptRegisters;
 use crate::memory::Memory;
 use crate::ppu::Ppu;
+use crate::serial::SerialPort;
 use crate::sm83::bus::BusInterface;
 use crate::sm83::InterruptType;
 use crate::speed::{CpuSpeed, SpeedRegister};
@@ -33,6 +34,7 @@ pub struct Bus<'a> {
     pub ppu: &'a mut Ppu,
     pub apu: &'a mut Apu,
     pub memory: &'a mut Memory,
+    pub serial_port: &'a mut SerialPort,
     pub cartridge: &'a mut Cartridge,
     pub interrupt_registers: &'a mut InterruptRegisters,
     pub speed_register: &'a mut SpeedRegister,
@@ -60,8 +62,11 @@ macro_rules! cgb_only_write {
 
 impl<'a> Bus<'a> {
     fn read_io_register(&self, address: u16) -> u8 {
+        log::trace!("I/O register read: {address:04X}");
+
         match address & 0x7F {
             0x00 => self.input_state.read_joyp(),
+            0x02 => self.serial_port.read_control(),
             0x04 => self.timer.read_div(),
             0x05 => self.timer.read_tima(),
             0x06 => self.timer.read_tma(),
@@ -79,8 +84,11 @@ impl<'a> Bus<'a> {
     }
 
     fn write_io_register(&mut self, address: u16, value: u8) {
+        log::trace!("I/O register write: {address:04X} {value:02X}");
+
         match address & 0x7F {
             0x00 => self.input_state.write_joyp(value),
+            0x02 => self.serial_port.write_control(value),
             0x04 => self.timer.write_div(),
             0x05 => self.timer.write_tima(value),
             0x06 => self.timer.write_tma(value),
@@ -105,6 +113,7 @@ impl<'a> Bus<'a> {
     fn tick_components(&mut self) {
         self.timer.tick_m_cycle(self.interrupt_registers);
         self.dma_unit.oam_dma_tick_m_cycle(self.cartridge, self.memory, self.ppu);
+        self.serial_port.tick(self.interrupt_registers);
 
         if self.speed_register.speed == CpuSpeed::Double {
             self.speed_register.double_speed_odd_cycle =

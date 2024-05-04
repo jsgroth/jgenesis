@@ -211,6 +211,7 @@ impl Ppu {
                             // left disabled for a long enough time.
                             // A Bug's Life depends on this or the screen will flash in some parts
                             // of the game
+                            // TODO is this really a CGB-only behavior?
                             self.state.dots_until_frame_clear =
                                 (SCREEN_HEIGHT as u32) * u32::from(DOTS_PER_LINE);
                         }

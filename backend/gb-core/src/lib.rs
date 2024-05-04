@@ -9,6 +9,7 @@ pub mod inputs;
 mod interrupts;
 mod memory;
 mod ppu;
+mod serial;
 mod sm83;
 mod speed;
 mod timer;
