@@ -414,7 +414,11 @@ impl Ppu {
     }
 
     fn cpu_can_access_vram(&self) -> bool {
-        self.state.mode != PpuMode::Rendering
+        // Allow access even during mode 3 if dot == 80.
+        // Because of how the CPU and PPU are executed, a write at dot == 80 would have occurred
+        // on dot 78 (single-speed) or dot 79 (double-speed) on actual hardware and would not have
+        // been blocked
+        self.state.mode != PpuMode::Rendering || self.state.dot == OAM_SCAN_DOTS
     }
 
     pub fn mode(&self) -> PpuMode {
