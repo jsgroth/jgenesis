@@ -56,20 +56,27 @@ impl Mbc1 {
     }
 
     pub fn write_rom_address(&mut self, address: u16, value: u8) {
+        log::trace!("MBC1 register write: {address:04X} {value:02X}");
+
         match address {
             0x0000..=0x1FFF => {
                 self.ram_enabled = value & 0x0F == 0x0A;
+                log::trace!("  RAM enabled: {}", self.ram_enabled);
             }
             0x2000..=0x3FFF => {
                 self.rom_bank = (self.rom_bank & 0xE0) | (value & 0x1F);
+                log::trace!("  ROM bank: {:02X}", self.rom_bank);
             }
             0x4000..=0x5FFF => {
                 self.rom_bank = (self.rom_bank & 0x1F) | ((value & 0x03) << 5);
                 self.ram_bank = value & 0x03;
+                log::trace!("  ROM bank: {:02X}", self.rom_bank);
+                log::trace!("  RAM bank: {:02X}", self.ram_bank);
             }
             0x6000..=0x7FFF => {
                 self.banking_mode =
                     if value.bit(0) { BankingMode::Complex } else { BankingMode::Simple };
+                log::trace!("  Banking mode: {:?}", self.banking_mode);
             }
             _ => panic!("Invalid cartridge address: {address:04X}"),
         }

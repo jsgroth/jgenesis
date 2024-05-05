@@ -67,7 +67,6 @@ pub struct Registers {
     pub mode_2_interrupt_enabled: bool,
     pub mode_1_interrupt_enabled: bool,
     pub mode_0_interrupt_enabled: bool,
-    pub stat_written_last_cycle: bool,
     // LYC: LY compare
     pub ly_compare: u8,
     // SCX/SCY: Background X/Y position
@@ -99,7 +98,6 @@ impl Registers {
             mode_2_interrupt_enabled: false,
             mode_1_interrupt_enabled: false,
             mode_0_interrupt_enabled: false,
-            stat_written_last_cycle: false,
             ly_compare: 0,
             bg_x_scroll: 0,
             bg_y_scroll: 0,
@@ -149,7 +147,6 @@ impl Registers {
         self.mode_2_interrupt_enabled = value.bit(5);
         self.mode_1_interrupt_enabled = value.bit(4);
         self.mode_0_interrupt_enabled = value.bit(3);
-        self.stat_written_last_cycle = true;
 
         log::trace!("STAT write: {value:02X}");
         log::trace!("  LY=LYC interrupt enabled: {}", self.lyc_interrupt_enabled);

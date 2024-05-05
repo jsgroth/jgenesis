@@ -254,6 +254,12 @@ impl Ppu {
 
         // STAT interrupts don't seem to fire during the first 4 dots of line 0
         if self.state.stat_interrupt_pending && (self.state.scanline != 0 || self.state.dot >= 4) {
+            log::trace!(
+                "Generating STAT interrupt at line {} dot {}",
+                self.state.scanline,
+                self.state.dot
+            );
+
             interrupt_registers.set_flag(InterruptType::LcdStatus);
             self.state.stat_interrupt_pending = false;
         }
@@ -325,7 +331,6 @@ impl Ppu {
             self.state.stat_interrupt_pending = true;
         }
         self.state.prev_stat_interrupt_line = stat_interrupt_line;
-        self.registers.stat_written_last_cycle = false;
     }
 
     fn clear_frame_buffer(&mut self) {
@@ -344,21 +349,10 @@ impl Ppu {
     }
 
     fn stat_interrupt_line(&self) -> bool {
-        // DMG STAT bug: If STAT is written while any of the 4 STAT conditions are true, the
-        // hardware behaves as if all 4 STAT interrupts are enabled for a single M-cycle.
-        // Road Rash (GB version) and Zerd no Densetsu depend on this
-        let dmg_stat_bug_triggered = self.hardware_mode == HardwareMode::Dmg
-            && self.registers.stat_written_last_cycle
-            && (self.state.mode != PpuMode::Rendering
-                || self.state.ly() == self.registers.ly_compare);
-
-        let lyc_interrupt_enabled = self.registers.lyc_interrupt_enabled || dmg_stat_bug_triggered;
-        let mode_2_interrupt_enabled =
-            self.registers.mode_2_interrupt_enabled || dmg_stat_bug_triggered;
-        let mode_1_interrupt_enabled =
-            self.registers.mode_1_interrupt_enabled || dmg_stat_bug_triggered;
-        let mode_0_interrupt_enabled =
-            self.registers.mode_0_interrupt_enabled || dmg_stat_bug_triggered;
+        let lyc_interrupt_enabled = self.registers.lyc_interrupt_enabled;
+        let mode_2_interrupt_enabled = self.registers.mode_2_interrupt_enabled;
+        let mode_1_interrupt_enabled = self.registers.mode_1_interrupt_enabled;
+        let mode_0_interrupt_enabled = self.registers.mode_0_interrupt_enabled;
 
         (lyc_interrupt_enabled && self.state.ly() == self.registers.ly_compare)
             || (mode_2_interrupt_enabled && self.state.mode == PpuMode::ScanningOam)
@@ -453,7 +447,12 @@ impl Ppu {
         }
     }
 
-    pub fn write_register(&mut self, address: u16, value: u8) {
+    pub fn write_register(
+        &mut self,
+        address: u16,
+        value: u8,
+        interrupt_registers: &mut InterruptRegisters,
+    ) {
         log::trace!(
             "PPU register write on line {} dot {}: {address:04X} set to {value:02X}",
             self.state.scanline,
@@ -462,7 +461,7 @@ impl Ppu {
 
         match address & 0xFF {
             0x40 => self.registers.write_lcdc(value),
-            0x41 => self.registers.write_stat(value),
+            0x41 => self.write_stat(value, interrupt_registers),
             0x42 => self.registers.write_scy(value),
             0x43 => self.registers.write_scx(value),
             // LY, not writable
@@ -484,6 +483,35 @@ impl Ppu {
             ),
             _ => log::warn!("PPU register write {address:04X} {value:02X}"),
         }
+    }
+
+    fn write_stat(&mut self, value: u8, interrupt_registers: &mut InterruptRegisters) {
+        if self.hardware_mode == HardwareMode::Dmg {
+            // DMG STAT bug: If STAT is written while any of the 4 STAT conditions are true, the
+            // hardware behaves as if all 4 STAT interrupts are enabled for a single M-cycle.
+            // Road Rash (GB version) and Zerd no Densetsu depend on this
+            let dmg_stat_bug_triggered = self.state.mode != PpuMode::Rendering
+                && self.state.scanline != self.registers.ly_compare;
+
+            if dmg_stat_bug_triggered {
+                // It seems that the DMG STAT bug does not trigger if HBlank interrupts were previously
+                // enabled and the current mode is 2 (OAM scan). This doesn't really make sense, but
+                // this fixes Initial D Gaiden and doesn't break Road Rash or Zerd no Densetsu
+                let suppress_oam_interrupts = self.registers.mode_0_interrupt_enabled
+                    && self.state.mode == PpuMode::ScanningOam;
+                let bugged_stat_write = !(u8::from(suppress_oam_interrupts) << 5);
+
+                self.registers.write_stat(bugged_stat_write);
+
+                let stat_interrupt_line = self.stat_interrupt_line();
+                if !self.state.prev_stat_interrupt_line && stat_interrupt_line {
+                    interrupt_registers.set_flag(InterruptType::LcdStatus);
+                }
+                self.state.prev_stat_interrupt_line = stat_interrupt_line;
+            }
+        }
+
+        self.registers.write_stat(value);
     }
 }
 
