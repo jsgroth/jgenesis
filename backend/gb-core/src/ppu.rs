@@ -357,7 +357,13 @@ impl Ppu {
         let mode_1_interrupt_enabled = self.registers.mode_1_interrupt_enabled;
         let mode_0_interrupt_enabled = self.registers.mode_0_interrupt_enabled;
 
-        (lyc_interrupt_enabled && self.state.ly() == self.registers.ly_compare)
+        // Don't allow LY=LYC interrupt to trigger on dot 0 because HBlank interrupts should not
+        // block LY=LYC interrupts.
+        // Ken Griffey Jr.'s Slugfest depends on this or else graphics will be corrupted during
+        // gameplay
+        (lyc_interrupt_enabled
+            && self.state.ly() == self.registers.ly_compare
+            && self.state.dot > 0)
             || (mode_2_interrupt_enabled && self.state.mode == PpuMode::ScanningOam)
             || (mode_1_interrupt_enabled && self.state.mode == PpuMode::VBlank)
             || (mode_0_interrupt_enabled && self.state.mode == PpuMode::HBlank)

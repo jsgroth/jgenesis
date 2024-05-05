@@ -291,6 +291,7 @@ impl CgbPaletteRam {
     pub fn write_data_port(&mut self, value: u8, cpu_can_access_vram: bool) {
         if cpu_can_access_vram {
             self.ram[self.data_port_address as usize] = value;
+            log::trace!("CGB palette RAM write: {:02X}, {value:02X}", self.data_port_address);
         }
 
         // Auto-increment is always applied, even if the CPU can't access VRAM
