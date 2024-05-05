@@ -1,5 +1,7 @@
 //! Game Boy input handling
 
+use crate::interrupts::InterruptRegisters;
+use crate::sm83::InterruptType;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::define_controller_inputs;
@@ -26,11 +28,17 @@ pub(crate) struct InputState {
     inputs: GameBoyInputs,
     d_pad_selected: bool,
     buttons_selected: bool,
+    prev_joyp: u8,
 }
 
 impl InputState {
     pub(crate) fn new() -> Self {
-        Self { inputs: GameBoyInputs::default(), d_pad_selected: false, buttons_selected: false }
+        Self {
+            inputs: GameBoyInputs::default(),
+            d_pad_selected: false,
+            buttons_selected: false,
+            prev_joyp: 0xFF,
+        }
     }
 
     pub(crate) fn set_inputs(&mut self, inputs: GameBoyInputs) {
@@ -42,6 +50,18 @@ impl InputState {
         self.d_pad_selected = !value.bit(4);
 
         log::trace!("JOYP write: {value:02X}");
+    }
+
+    pub(crate) fn check_for_joypad_interrupt(
+        &mut self,
+        interrupt_registers: &mut InterruptRegisters,
+    ) {
+        // Joypad interrupt triggers when any of JOYP bits 0-3 change from 1 to 0
+        let new_joyp = self.read_joyp();
+        if self.prev_joyp & 0x0F & !new_joyp != 0 {
+            interrupt_registers.set_flag(InterruptType::Joypad);
+        }
+        self.prev_joyp = new_joyp;
     }
 
     pub(crate) fn read_joyp(&self) -> u8 {

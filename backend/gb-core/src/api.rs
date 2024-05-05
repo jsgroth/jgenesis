@@ -218,6 +218,8 @@ impl EmulatorTrait for GameBoyEmulator {
             input_state: &mut self.input_state,
         });
 
+        self.input_state.check_for_joypad_interrupt(&mut self.interrupt_registers);
+
         if self.ppu.frame_complete() {
             self.ppu.clear_frame_complete();
             self.rgba_buffer.copy_from(
