@@ -1,6 +1,7 @@
 //! Game Boy internal memory
 
 use bincode::{Decode, Encode};
+use std::iter;
 
 const MAIN_RAM_LEN: usize = 32 * 1024;
 const HRAM_LEN: usize = 127;
@@ -17,8 +18,11 @@ pub struct Memory {
 
 impl Memory {
     pub fn new() -> Self {
+        // Randomize RAM contents at power-on
+        let main_ram: Vec<u8> = iter::repeat_with(rand::random).take(MAIN_RAM_LEN).collect();
+
         Self {
-            main_ram: vec![0; MAIN_RAM_LEN].into_boxed_slice().try_into().unwrap(),
+            main_ram: main_ram.into_boxed_slice().try_into().unwrap(),
             main_ram_bank: 0,
             hram: vec![0; HRAM_LEN].into_boxed_slice().try_into().unwrap(),
         }
