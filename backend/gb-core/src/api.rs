@@ -138,7 +138,7 @@ impl GameBoyEmulator {
             hardware_mode,
             cpu: Sm83::new(hardware_mode, config.pretend_to_be_gba),
             ppu: Ppu::new(hardware_mode),
-            apu: Apu::new(config),
+            apu: Apu::new(config, hardware_mode),
             memory: Memory::new(),
             serial_port: SerialPort::new(hardware_mode),
             interrupt_registers: InterruptRegisters::default(),

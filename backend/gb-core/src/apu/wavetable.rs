@@ -1,4 +1,5 @@
 use crate::apu::components::{TimerTickEffect, WavetableLengthCounter, WavetableTimer};
+use crate::HardwareMode;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 
@@ -13,10 +14,22 @@ pub struct WavetableChannel {
     dac_enabled: bool,
 }
 
+// From https://gbdev.gg8.se/wiki/articles/Gameboy_sound_hardware#Power_Control
+const DMG_INITIAL_RAM: [u8; 16] = [
+    0x84, 0x40, 0x43, 0xAA, 0x2D, 0x78, 0x92, 0x3C, 0x60, 0x59, 0x59, 0xB0, 0x34, 0xB8, 0x2E, 0xDA,
+];
+
+const CGB_INITIAL_RAM: [u8; 16] = [
+    0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF,
+];
+
 impl WavetableChannel {
-    pub fn new() -> Self {
+    pub fn new(hardware_mode: HardwareMode) -> Self {
         Self {
-            ram: [0; 16],
+            ram: match hardware_mode {
+                HardwareMode::Dmg => DMG_INITIAL_RAM,
+                HardwareMode::Cgb => CGB_INITIAL_RAM,
+            },
             sample_buffer: 0,
             timer: WavetableTimer::new(),
             length_counter: WavetableLengthCounter::new(),
@@ -133,7 +146,7 @@ impl WavetableChannel {
         self.channel_enabled
     }
 
-    pub fn reset(&mut self) {
-        *self = Self { ram: self.ram, ..Self::new() };
+    pub fn reset(&mut self, hardware_mode: HardwareMode) {
+        *self = Self { ram: self.ram, ..Self::new(hardware_mode) };
     }
 }

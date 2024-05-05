@@ -12,6 +12,7 @@ use crate::apu::wavetable::WavetableChannel;
 use crate::audio::GameBoyResampler;
 use crate::speed::CpuSpeed;
 use crate::timer::GbTimer;
+use crate::HardwareMode;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::AudioOutput;
 use jgenesis_common::num::GetBit;
@@ -87,6 +88,7 @@ fn stereo_channels_to_nibble(channels: [bool; 4]) -> u8 {
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Apu {
+    hardware_mode: HardwareMode,
     enabled: bool,
     pulse_1: PulseChannel,
     pulse_2: PulseChannel,
@@ -99,12 +101,13 @@ pub struct Apu {
 }
 
 impl Apu {
-    pub fn new(config: GameBoyEmulatorConfig) -> Self {
+    pub fn new(config: GameBoyEmulatorConfig, hardware_mode: HardwareMode) -> Self {
         Self {
+            hardware_mode,
             enabled: true,
             pulse_1: PulseChannel::new(),
             pulse_2: PulseChannel::new(),
-            wavetable: WavetableChannel::new(),
+            wavetable: WavetableChannel::new(hardware_mode),
             noise: NoiseChannel::new(),
             stereo_control: StereoControl::new(),
             frame_sequencer_step: 0,
@@ -280,7 +283,7 @@ impl Apu {
             // Reset all channel and register state
             self.pulse_1 = PulseChannel::new();
             self.pulse_2 = PulseChannel::new();
-            self.wavetable.reset();
+            self.wavetable.reset(self.hardware_mode);
             self.noise = NoiseChannel::new();
             self.stereo_control = StereoControl::zero();
         } else if !prev_enabled && self.enabled {
