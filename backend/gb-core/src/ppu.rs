@@ -284,6 +284,11 @@ impl Ppu {
 
         self.state.dot += 1;
         if self.state.dot == DOTS_PER_LINE {
+            // Check the window Y condition again before moving to the next line.
+            // The fairylake.gb test ROM depends on this because it enables the window during mode 3
+            // with WY==LY
+            self.fifo.check_window_y(self.state.scanline, &self.registers);
+
             self.state.dot = 0;
             self.state.scanline += 1;
             if self.state.scanline == LINES_PER_FRAME {
@@ -306,13 +311,11 @@ impl Ppu {
                         &mut self.sprite_buffer,
                     );
                 }
-
-                // Reset the FIFO here so that the WY check happens at the start of mode 2 rather than start of mode 3
-                self.fifo.start_new_line(self.state.scanline, &self.registers, &self.sprite_buffer);
             } else {
                 self.state.mode = PpuMode::VBlank;
             }
         } else if self.state.scanline < SCREEN_HEIGHT as u8 && self.state.dot == OAM_SCAN_DOTS {
+            self.fifo.start_new_line(self.state.scanline, &self.registers, &self.sprite_buffer);
             self.state.mode = PpuMode::Rendering;
         }
 

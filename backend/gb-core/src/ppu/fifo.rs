@@ -86,15 +86,16 @@ impl PixelFifo {
         self.window_line_counter = 0;
     }
 
+    pub fn check_window_y(&mut self, scanline: u8, registers: &Registers) {
+        self.window_y_triggered |= registers.window_y == scanline && registers.window_enabled;
+    }
+
     pub fn start_new_line(&mut self, scanline: u8, registers: &Registers, sprites: &[SpriteData]) {
         self.bg.clear();
         self.sprites.clear();
         self.y = scanline;
 
-        // Intentionally don't check whether the window is enabled here; doing so breaks certain test ROMs (e.g. fairylake.gb)
-        if registers.window_y == scanline {
-            self.window_y_triggered = true;
-        }
+        self.check_window_y(scanline, registers);
 
         self.scanned_sprites.clear();
         self.scanned_sprites.extend(sprites);
