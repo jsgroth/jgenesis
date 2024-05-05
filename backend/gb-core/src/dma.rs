@@ -190,7 +190,7 @@ impl DmaUnit {
         length_bits | (status_bit << 7)
     }
 
-    pub fn write_hdma5(&mut self, value: u8) {
+    pub fn write_hdma5(&mut self, value: u8, ppu_mode: PpuMode) {
         // HDMA5: VRAM DMA length/mode + initiate VRAM DMA
         if self.vram_dma_state != VramDmaState::Idle {
             if !value.bit(7) {
@@ -205,7 +205,11 @@ impl DmaUnit {
 
         self.vram_dma_state = if value.bit(7) {
             // HDMA
-            VramDmaState::HDmaPending
+            if ppu_mode == PpuMode::HBlank {
+                VramDmaState::HDmaActive { hblank_bytes_remaining: 16 }
+            } else {
+                VramDmaState::HDmaPending
+            }
         } else {
             // GPDMA
             VramDmaState::GpDmaActive

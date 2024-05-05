@@ -104,7 +104,7 @@ impl<'a> Bus<'a> {
             0x52 => cgb_only_write!(self.dma_unit.write_hdma2(value)),
             0x53 => cgb_only_write!(self.dma_unit.write_hdma3(value)),
             0x54 => cgb_only_write!(self.dma_unit.write_hdma4(value)),
-            0x55 => cgb_only_write!(self.dma_unit.write_hdma5(value)),
+            0x55 => cgb_only_write!(self.dma_unit.write_hdma5(value, self.ppu.mode())),
             0x70 => cgb_only_write!(self.memory.write_svbk(value)),
             _ => {}
         }
