@@ -40,6 +40,16 @@ impl WavetableChannel {
     }
 
     pub fn read_ram(&self, address: u16) -> u8 {
+        // Reading from wavetable RAM while the channel is playing returns the contents of RAM at
+        // the current wave position rather than the requested address. Demotronic depends on this
+        // for its emulator check
+        // TODO on DMG this should only happen if the read occurs on specific cycles, otherwise it
+        // should return 0xFF
+        // TODO more accurate timing; this doesn't pass cgb_sound
+        if self.channel_enabled {
+            return self.ram[(self.timer.phase >> 1) as usize];
+        }
+
         self.ram[(address & 0xF) as usize]
     }
 
