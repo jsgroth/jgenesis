@@ -78,6 +78,8 @@ pub enum PpuMode {
     HBlank,
     // Mode 2
     ScanningOam,
+    // Glitched mode 2 that occurs after re-enabling the PPU
+    ScanningOamGlitched,
     // Mode 3
     Rendering,
 }
@@ -87,9 +89,13 @@ impl PpuMode {
         match self {
             Self::HBlank => 0,
             Self::VBlank => 1,
-            Self::ScanningOam => 2,
+            Self::ScanningOam | Self::ScanningOamGlitched => 2,
             Self::Rendering => 3,
         }
+    }
+
+    fn is_scanning_oam(self) -> bool {
+        matches!(self, Self::ScanningOam | Self::ScanningOamGlitched)
     }
 }
 
@@ -232,6 +238,8 @@ impl Ppu {
                 self.fifo.start_new_line(0, &self.registers, &[]);
 
                 self.state.previously_enabled = false;
+                self.state.stat_interrupt_pending = false;
+                self.state.prev_stat_interrupt_line = false;
 
                 return;
             }
@@ -250,6 +258,8 @@ impl Ppu {
 
             // When the PPU is re-enabled, the next frame is not displayed
             self.state.skip_next_frame = true;
+
+            self.state.mode = PpuMode::ScanningOamGlitched;
         }
 
         // STAT interrupts don't seem to fire during the first 4 dots of line 0
@@ -332,6 +342,12 @@ impl Ppu {
         let stat_interrupt_line = self.stat_interrupt_line();
         if !self.state.prev_stat_interrupt_line && stat_interrupt_line {
             self.state.stat_interrupt_pending = true;
+            log::trace!(
+                "Setting STAT pending: LY={}, LYC={}, mode={:?}",
+                self.state.ly(),
+                self.registers.ly_compare,
+                self.state.mode
+            );
         }
         self.state.prev_stat_interrupt_line = stat_interrupt_line;
     }
@@ -357,14 +373,13 @@ impl Ppu {
         let mode_1_interrupt_enabled = self.registers.mode_1_interrupt_enabled;
         let mode_0_interrupt_enabled = self.registers.mode_0_interrupt_enabled;
 
-        // Don't allow LY=LYC interrupt to trigger on dot 0 because HBlank interrupts should not
-        // block LY=LYC interrupts.
-        // Ken Griffey Jr.'s Slugfest depends on this or else graphics will be corrupted during
-        // gameplay
+        // Don't allow LY=LYC interrupt to trigger on dot 0 (except on line 0) because HBlank
+        // interrupts should not block LY=LYC interrupts.
+        // Ken Griffey Jr.'s Slugfest and Worms Armageddon depend on this
         (lyc_interrupt_enabled
             && self.state.ly() == self.registers.ly_compare
-            && self.state.dot > 0)
-            || (mode_2_interrupt_enabled && self.state.mode == PpuMode::ScanningOam)
+            && (self.state.scanline == 0 || self.state.dot > 0))
+            || (mode_2_interrupt_enabled && self.state.mode.is_scanning_oam())
             || (mode_1_interrupt_enabled && self.state.mode == PpuMode::VBlank)
             || (mode_0_interrupt_enabled && self.state.mode == PpuMode::HBlank)
     }

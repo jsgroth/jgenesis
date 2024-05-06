@@ -156,11 +156,8 @@ impl Registers {
     }
 
     pub fn read_stat(&self, state: &State) -> u8 {
-        let ly_lyc_bit = if self.ppu_enabled {
-            state.scanline == self.ly_compare
-        } else {
-            state.frozen_ly_lyc_bit
-        };
+        let ly_lyc_bit =
+            if self.ppu_enabled { state.ly() == self.ly_compare } else { state.frozen_ly_lyc_bit };
 
         0x80 | (u8::from(self.lyc_interrupt_enabled) << 6)
             | (u8::from(self.mode_2_interrupt_enabled) << 5)

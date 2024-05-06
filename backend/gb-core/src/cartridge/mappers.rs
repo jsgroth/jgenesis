@@ -305,22 +305,29 @@ impl Mbc5 {
     }
 
     pub fn write_rom_address(&mut self, address: u16, value: u8) {
+        log::trace!("MBC5 register write: {address:04X} {value:02X}");
+
         match address {
             0x0000..=0x1FFF => {
                 // RAM enabled
                 self.ram_enabled = value & 0x0F == 0x0A;
+                log::trace!("RAM enabled: {}", self.ram_enabled);
             }
             0x2000..=0x2FFF => {
                 // Low 8 bits of ROM bank
                 self.rom_bank.set_lsb(value);
+                log::trace!("ROM bank: {:03X}", self.rom_bank);
             }
             0x3000..=0x3FFF => {
                 // Highest bit of ROM bank
                 self.rom_bank.set_msb(value & 0x01);
+                log::trace!("ROM bank: {:03X}", self.rom_bank);
             }
             0x4000..=0x5FFF => {
-                // RAM bank
+                // RAM bank / rumble motor
+                // TODO support rumble
                 self.ram_bank = value & 0x0F;
+                log::trace!("RAM bank: {:02X}", self.ram_bank);
             }
             0x6000..=0x7FFF => {}
             _ => panic!("Invalid cartridge address: {address:06X}"),
@@ -358,7 +365,7 @@ fn basic_map_ram_address(
     ram_bank: u32,
     ram_addr_mask: u32,
 ) -> Option<u32> {
-    if !ram_enabled {
+    if !ram_enabled || ram_addr_mask == 0 {
         return None;
     }
 
