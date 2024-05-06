@@ -18,8 +18,11 @@ pub struct Memory {
 
 impl Memory {
     pub fn new() -> Self {
-        // Randomize RAM contents at power-on
-        let main_ram: Vec<u8> = iter::repeat_with(rand::random).take(MAIN_RAM_LEN).collect();
+        // Randomize RAM contents at power-on except for bank 2, which the CGB boot ROM normally
+        // zerofills. Worms Armageddon depends on bank 2 being zeroed out.
+        // Hardware mode check is not necessary because bank 2 is not accessible on DMG
+        let mut main_ram: Vec<u8> = iter::repeat_with(rand::random).take(MAIN_RAM_LEN).collect();
+        main_ram[0x2000..0x3000].fill(0);
 
         Self {
             main_ram: main_ram.into_boxed_slice().try_into().unwrap(),
