@@ -27,10 +27,16 @@ use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use web_sys::{AudioContext, AudioContextOptions};
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
+use winit::event::{ElementState, Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy};
 use winit::platform::web::WindowExtWebSys;
-use winit::window::{Fullscreen, Window, WindowBuilder};
+use winit::window::{Fullscreen, Window};
+
+use winit::event::WindowEvent::KeyboardInput;
+use winit::keyboard::KeyCode;
+use winit::keyboard::PhysicalKey;
+use winit::event::KeyEvent;
+use winit::event_loop::ActiveEventLoop;
 
 struct WebAudioOutput {
     audio_ctx: AudioContext,
@@ -309,7 +315,7 @@ impl Emulator {
         }
     }
 
-    fn handle_window_event(&mut self, event: &WindowEvent<'_>) {
+    fn handle_window_event(&mut self, event: &WindowEvent) {
         match self {
             Self::None(..) => {}
             Self::SmsGg(_, inputs, _) => {
@@ -367,9 +373,9 @@ impl Emulator {
     }
 }
 
-fn handle_smsgg_input(inputs: &mut SmsGgInputs, event: &WindowEvent<'_>) {
+fn handle_smsgg_input(inputs: &mut SmsGgInputs, event: &WindowEvent) {
     let WindowEvent::KeyboardInput {
-        input: KeyboardInput { virtual_keycode: Some(keycode), state, .. },
+        event: KeyEvent { physical_key: PhysicalKey::Code(KeyCode), state, .. },
         ..
     } = event
     else {
@@ -377,21 +383,21 @@ fn handle_smsgg_input(inputs: &mut SmsGgInputs, event: &WindowEvent<'_>) {
     };
     let pressed = *state == ElementState::Pressed;
 
-    match keycode {
-        VirtualKeyCode::Up => inputs.p1.up = pressed,
-        VirtualKeyCode::Left => inputs.p1.left = pressed,
-        VirtualKeyCode::Right => inputs.p1.right = pressed,
-        VirtualKeyCode::Down => inputs.p1.down = pressed,
-        VirtualKeyCode::A => inputs.p1.button2 = pressed,
-        VirtualKeyCode::S => inputs.p1.button1 = pressed,
-        VirtualKeyCode::Return => inputs.pause = pressed,
+    match KeyCode {
+        KeyCode::ArrowUp => inputs.p1.up = pressed,
+        KeyCode::ArrowLeft => inputs.p1.left = pressed,
+        KeyCode::ArrowRight => inputs.p1.right = pressed,
+        KeyCode::ArrowDown => inputs.p1.down = pressed,
+        KeyCode::KeyA => inputs.p1.button2 = pressed,
+        KeyCode::KeyS => inputs.p1.button1 = pressed,
+        KeyCode::Enter => inputs.pause = pressed,
         _ => {}
     }
 }
 
-fn handle_genesis_input(inputs: &mut GenesisInputs, event: &WindowEvent<'_>) {
+fn handle_genesis_input(inputs: &mut GenesisInputs, event: &WindowEvent) {
     let WindowEvent::KeyboardInput {
-        input: KeyboardInput { virtual_keycode: Some(keycode), state, .. },
+        event: KeyEvent { physical_key: PhysicalKey::Code(KeyCode), state, .. },
         ..
     } = event
     else {
@@ -399,26 +405,26 @@ fn handle_genesis_input(inputs: &mut GenesisInputs, event: &WindowEvent<'_>) {
     };
     let pressed = *state == ElementState::Pressed;
 
-    match keycode {
-        VirtualKeyCode::Up => inputs.p1.up = pressed,
-        VirtualKeyCode::Left => inputs.p1.left = pressed,
-        VirtualKeyCode::Right => inputs.p1.right = pressed,
-        VirtualKeyCode::Down => inputs.p1.down = pressed,
-        VirtualKeyCode::A => inputs.p1.a = pressed,
-        VirtualKeyCode::S => inputs.p1.b = pressed,
-        VirtualKeyCode::D => inputs.p1.c = pressed,
-        VirtualKeyCode::Q => inputs.p1.x = pressed,
-        VirtualKeyCode::W => inputs.p1.y = pressed,
-        VirtualKeyCode::E => inputs.p1.z = pressed,
-        VirtualKeyCode::Return => inputs.p1.start = pressed,
-        VirtualKeyCode::RShift => inputs.p1.mode = pressed,
+    match KeyCode {
+        KeyCode::ArrowUp => inputs.p1.up = pressed,
+        KeyCode::ArrowLeft => inputs.p1.left = pressed,
+        KeyCode::ArrowRight => inputs.p1.right = pressed,
+        KeyCode::ArrowDown => inputs.p1.down = pressed,
+        KeyCode::KeyA => inputs.p1.a = pressed,
+        KeyCode::KeyS => inputs.p1.b = pressed,
+        KeyCode::KeyD => inputs.p1.c = pressed,
+        KeyCode::KeyQ => inputs.p1.x = pressed,
+        KeyCode::KeyW => inputs.p1.y = pressed,
+        KeyCode::KeyE => inputs.p1.z = pressed,
+        KeyCode::Enter => inputs.p1.start = pressed,
+        KeyCode::ShiftRight => inputs.p1.mode = pressed,
         _ => {}
     }
 }
 
-fn handle_snes_input(inputs: &mut SnesInputs, event: &WindowEvent<'_>) {
+fn handle_snes_input(inputs: &mut SnesInputs, event: &WindowEvent) {
     let WindowEvent::KeyboardInput {
-        input: KeyboardInput { virtual_keycode: Some(keycode), state, .. },
+        event: KeyEvent { physical_key: PhysicalKey::Code(KeyCode), state, .. },
         ..
     } = event
     else {
@@ -426,19 +432,19 @@ fn handle_snes_input(inputs: &mut SnesInputs, event: &WindowEvent<'_>) {
     };
     let pressed = *state == ElementState::Pressed;
 
-    match keycode {
-        VirtualKeyCode::Up => inputs.p1.up = pressed,
-        VirtualKeyCode::Left => inputs.p1.left = pressed,
-        VirtualKeyCode::Right => inputs.p1.right = pressed,
-        VirtualKeyCode::Down => inputs.p1.down = pressed,
-        VirtualKeyCode::S => inputs.p1.a = pressed,
-        VirtualKeyCode::X => inputs.p1.b = pressed,
-        VirtualKeyCode::A => inputs.p1.x = pressed,
-        VirtualKeyCode::Z => inputs.p1.y = pressed,
-        VirtualKeyCode::D => inputs.p1.l = pressed,
-        VirtualKeyCode::C => inputs.p1.r = pressed,
-        VirtualKeyCode::Return => inputs.p1.start = pressed,
-        VirtualKeyCode::RShift => inputs.p1.select = pressed,
+    match KeyCode {
+        KeyCode::ArrowUp => inputs.p1.up = pressed,
+        KeyCode::ArrowLeft => inputs.p1.left = pressed,
+        KeyCode::ArrowRight => inputs.p1.right = pressed,
+        KeyCode::ArrowDown => inputs.p1.down = pressed,
+        KeyCode::KeyS => inputs.p1.a = pressed,
+        KeyCode::KeyX => inputs.p1.b = pressed,
+        KeyCode::KeyA => inputs.p1.x = pressed,
+        KeyCode::KeyZ => inputs.p1.y = pressed,
+        KeyCode::KeyD => inputs.p1.l = pressed,
+        KeyCode::KeyC => inputs.p1.r = pressed,
+        KeyCode::Enter => inputs.p1.start = pressed,
+        KeyCode::ShiftRight => inputs.p1.select = pressed,
         _ => {}
     }
 }
@@ -452,22 +458,31 @@ enum JgenesisUserEvent {
 /// # Panics
 #[wasm_bindgen]
 pub async fn run_emulator(config_ref: WebConfigRef, emulator_channel: EmulatorChannel) {
-    let event_loop = EventLoopBuilder::<JgenesisUserEvent>::with_user_event().build();
-    let window = WindowBuilder::new().build(&event_loop).expect("Unable to create window");
+    let event_loop = EventLoop::<JgenesisUserEvent>::with_user_event().build().expect("Unable to create event loop");
+    //let window = WindowBuilder::new().build(&event_loop).expect("Unable to create window");
+    //let window_attributes = Window::default_attributes();
+    //    window.set_inner_size(LogicalSize::new(878, 672));
+    let window_attributes = Window::default_attributes()
+                .with_inner_size(LogicalSize::new(878, 672));
+    let window = event_loop.create_window(window_attributes).expect("Unable to create window");
 
-    window.set_inner_size(LogicalSize::new(878, 672));
+    window.set_min_inner_size(Some(LogicalSize::new(878, 672)));
+    window.set_max_inner_size(Some(LogicalSize::new(878, 672)));
+
+    //window
 
     web_sys::window()
         .and_then(|window| window.document())
         .and_then(|document| {
             let dst = document.get_element_by_id("jgenesis-wasm")?;
-            let canvas = web_sys::Element::from(window.canvas());
+            let canvas = web_sys::Element::from(window.canvas().unwrap());
             dst.append_child(&canvas).ok()?;
             Some(())
         })
         .expect("Unable to append canvas to document");
 
     let renderer_config = config_ref.borrow().common.to_renderer_config();
+    //log::warn!("render config: {}", renderer_config);
     let mut renderer = WgpuRenderer::new(window, window_size_fn, renderer_config)
         .await
         .expect("Unable to create wgpu renderer");
@@ -510,7 +525,7 @@ fn run_event_loop(
     let mut current_config = config_ref.borrow().clone();
 
     let event_loop_proxy = event_loop.create_proxy();
-    event_loop.run(move |event, _, control_flow| match event {
+    event_loop.run(move |event, control_flow| match event {
         Event::UserEvent(user_event) => match user_event {
             JgenesisUserEvent::FileOpen { rom, bios, rom_file_name } => {
                 audio_output.suspend();
@@ -550,10 +565,11 @@ fn run_event_loop(
                 js::focusCanvas();
             }
         },
-        Event::MainEventsCleared => {
+        Event::AboutToWait => {
             let now = performance.now();
             if now < next_frame_time {
-                *control_flow = ControlFlow::Poll;
+                //TODO
+                //*control_flow = ControlFlow::Poll;
                 return;
             }
 
@@ -561,7 +577,11 @@ fn run_event_loop(
             while now >= next_frame_time {
                 next_frame_time += 1000.0 / fps;
             }
-
+            
+            //TODO
+            // WGPU now has !send !sync when atomics are enabled
+            // https://github.com/gfx-rs/wgpu/discussions/4127
+            // https://github.com/gfx-rs/wgpu/pull/3691
             emulator.render_frame(&mut renderer, &mut audio_output, &mut save_writer);
 
             let config = config_ref.borrow().clone();
@@ -601,7 +621,11 @@ fn run_event_loop(
 
             match window_event {
                 WindowEvent::CloseRequested => {
-                    *control_flow = ControlFlow::Exit;
+                    
+                    //TODO
+                    //maybe ActiveEventLoop::exit; 
+                    //*control_flow = ControlFlow::Exit;
+
                 }
                 WindowEvent::Resized(_) => {
                     renderer.handle_resize();
@@ -610,10 +634,11 @@ fn run_event_loop(
                     js::setCursorVisible(renderer.window().fullscreen().is_none());
                 }
                 WindowEvent::KeyboardInput {
-                    input:
-                        KeyboardInput {
-                            virtual_keycode: Some(VirtualKeyCode::F8),
+                    event:
+                        KeyEvent {
+                            physical_key: PhysicalKey::Code(KeyCode::F8),
                             state: ElementState::Pressed,
+                            repeat: false,
                             ..
                         },
                     ..

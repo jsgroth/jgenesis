@@ -1,6 +1,6 @@
 use crate::config::{PreprocessShader, PrescaleMode, RendererConfig, Scanlines, WgpuBackend};
 use jgenesis_common::frontend::{Color, FrameSize, PixelAspectRatio, Renderer};
-use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
+use wgpu::rwh::{HasDisplayHandle, HasWindowHandle};
 use std::collections::HashMap;
 use std::{cmp, iter, mem};
 use thiserror::Error;
@@ -218,6 +218,7 @@ fn create_horizontal_blur_pipeline(
             module: &shaders.identity,
             entry_point: "vs_main",
             buffers: &[],
+            compilation_options: Default::default(),
         },
         primitive: wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::TriangleStrip,
@@ -242,6 +243,7 @@ fn create_horizontal_blur_pipeline(
                 blend: Some(wgpu::BlendState::REPLACE),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
+            compilation_options: Default::default()
         }),
         multiview: None,
     });
@@ -444,6 +446,7 @@ impl RenderingPipeline {
                 module: &shaders.identity,
                 entry_point: "vs_main",
                 buffers: &[],
+                compilation_options: Default::default(),
             },
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleStrip,
@@ -468,6 +471,7 @@ impl RenderingPipeline {
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
+                compilation_options: Default::default()
             }),
             multiview: None,
         });
@@ -524,6 +528,7 @@ impl RenderingPipeline {
                 module: &shaders.render,
                 entry_point: "vs_main",
                 buffers: &[Vertex::buffer_layout()],
+                compilation_options: Default::default(),
             },
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleStrip,
@@ -548,6 +553,7 @@ impl RenderingPipeline {
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
+                compilation_options: Default::default()
             }),
             multiview: None,
         });
@@ -569,7 +575,7 @@ impl RenderingPipeline {
         &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        surface: &wgpu::Surface,
+        surface: &wgpu::Surface<'static>,
         frame_buffer: &[Color],
     ) -> Result<(), RendererError> {
         let output = surface.get_current_texture()?;
@@ -833,7 +839,7 @@ impl RenderingPipelines {
 pub type WindowSizeFn<Window> = fn(&Window) -> (u32, u32);
 
 pub struct WgpuRenderer<Window> {
-    surface: wgpu::Surface,
+    surface: wgpu::Surface<'static>,
     surface_config: wgpu::SurfaceConfiguration,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -849,7 +855,7 @@ pub struct WgpuRenderer<Window> {
     window_size_fn: WindowSizeFn<Window>,
 }
 
-impl<Window: HasRawDisplayHandle + HasRawWindowHandle> WgpuRenderer<Window> {
+impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
     /// Construct a wgpu renderer from the given window and config.
     ///
     /// # Errors
@@ -875,7 +881,11 @@ impl<Window: HasRawDisplayHandle + HasRawWindowHandle> WgpuRenderer<Window> {
         });
 
         // SAFETY: The surface must not outlive the window it was created from
-        let surface = unsafe { instance.create_surface(&window) }?;
+        let surface = unsafe {
+            instance.create_surface_unsafe(
+                wgpu::SurfaceTargetUnsafe::from_window(&window).unwrap()
+            )? 
+        };
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -892,8 +902,8 @@ impl<Window: HasRawDisplayHandle + HasRawWindowHandle> WgpuRenderer<Window> {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: "device".into(),
-                    features: wgpu::Features::empty(),
-                    limits: if config.use_webgl2_limits {
+                    required_features: wgpu::Features::empty(),
+                    required_limits: if config.use_webgl2_limits {
                         wgpu::Limits::downlevel_webgl2_defaults()
                     } else {
                         wgpu::Limits::default()
@@ -924,6 +934,8 @@ impl<Window: HasRawDisplayHandle + HasRawWindowHandle> WgpuRenderer<Window> {
             });
 
         let (window_width, window_height) = window_size_fn(&window);
+        log::warn!("window_width: {}", window_width);
+        log::warn!("window_height: {}", window_height);
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
@@ -932,6 +944,7 @@ impl<Window: HasRawDisplayHandle + HasRawWindowHandle> WgpuRenderer<Window> {
             present_mode,
             alpha_mode: surface_capabilities.alpha_modes[0],
             view_formats: vec![],
+            desired_maximum_frame_latency: Default::default(),
         };
         surface.configure(&device, &surface_config);
 
