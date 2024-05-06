@@ -218,9 +218,12 @@ impl PulseChannel {
         0x3F | self.duty_cycle.to_bits()
     }
 
-    pub fn write_register_1(&mut self, value: u8) {
+    pub fn write_register_1(&mut self, value: u8, apu_enabled: bool) {
         // NR11/NR21: Pulse duty cycle and length counter reload
-        self.duty_cycle = DutyCycle::from_byte(value);
+        if apu_enabled {
+            self.duty_cycle = DutyCycle::from_byte(value);
+        }
+
         self.length_counter.load(value);
 
         log::trace!("NRx1 write");

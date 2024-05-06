@@ -256,16 +256,27 @@ impl Apu {
 
         if !self.enabled && address != 0xFF26 && !(0xFF30..0xFF40).contains(&address) {
             // When APU is disabled, writes are only allowed to NR52 and wavetable RAM
+            // On DMG, writes to length counters are allowed while the APU is disabled
+            if self.hardware_mode == HardwareMode::Dmg {
+                match address & 0x7F {
+                    0x11 => self.pulse_1.write_register_1(value, false),
+                    0x16 => self.pulse_2.write_register_1(value, false),
+                    0x1B => self.wavetable.write_register_1(value),
+                    0x20 => self.noise.write_register_1(value),
+                    _ => {}
+                }
+            }
+
             return;
         }
 
         match address & 0x7F {
             0x10 => self.pulse_1.write_register_0(value),
-            0x11 => self.pulse_1.write_register_1(value),
+            0x11 => self.pulse_1.write_register_1(value, self.enabled),
             0x12 => self.pulse_1.write_register_2(value),
             0x13 => self.pulse_1.write_register_3(value),
             0x14 => self.pulse_1.write_register_4(value, self.frame_sequencer_step),
-            0x16 => self.pulse_2.write_register_1(value),
+            0x16 => self.pulse_2.write_register_1(value, self.enabled),
             0x17 => self.pulse_2.write_register_2(value),
             0x18 => self.pulse_2.write_register_3(value),
             0x19 => self.pulse_2.write_register_4(value, self.frame_sequencer_step),
