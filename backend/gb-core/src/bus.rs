@@ -79,6 +79,8 @@ impl<'a> Bus<'a> {
             0x55 => cgb_only_read!(self.dma_unit.read_hdma5()),
             0x6C => self.hardware_mode.read_opri(),
             0x70 => cgb_only_read!(self.memory.read_svbk()),
+            0x76 => cgb_only_read!(self.apu.read_pcm12()),
+            0x77 => cgb_only_read!(self.apu.read_pcm34()),
             _ => 0xFF,
         }
     }

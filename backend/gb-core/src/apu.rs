@@ -239,6 +239,18 @@ impl Apu {
             | u8::from(self.pulse_1.enabled())
     }
 
+    pub fn read_pcm12(&self) -> u8 {
+        let ch1_sample = self.pulse_1.sample().unwrap_or(0);
+        let ch2_sample = self.pulse_2.sample().unwrap_or(0);
+        ch1_sample | (ch2_sample << 4)
+    }
+
+    pub fn read_pcm34(&self) -> u8 {
+        let ch3_sample = self.wavetable.sample().unwrap_or(0);
+        let ch4_sample = self.noise.sample().unwrap_or(0);
+        ch3_sample | (ch4_sample << 4)
+    }
+
     pub fn write_register(&mut self, address: u16, value: u8) {
         log::trace!("APU write register {address:04X} {value:02X}");
 
