@@ -123,23 +123,24 @@ impl GameBoyEmulator {
         save_writer: &mut S,
     ) -> Result<Self, GameBoyLoadError> {
         let software_type = SoftwareType::from_rom(&rom);
-
-        let initial_sram = save_writer.load_bytes("sav").ok();
-        let cartridge = Cartridge::create(rom.into_boxed_slice(), initial_sram, save_writer)?;
-
         let hardware_mode = match (config.force_dmg_mode, software_type) {
             (true, _) | (_, SoftwareType::DmgOnly) => HardwareMode::Dmg,
             (false, SoftwareType::CgbEnhanced | SoftwareType::CgbOnly) => HardwareMode::Cgb,
         };
+
+        let ppu = Ppu::new(hardware_mode, &rom);
+
+        let initial_sram = save_writer.load_bytes("sav").ok();
+        let cartridge = Cartridge::create(rom.into_boxed_slice(), initial_sram, save_writer)?;
 
         log::info!("Running with hardware mode {hardware_mode}");
 
         Ok(Self {
             hardware_mode,
             cpu: Sm83::new(hardware_mode, config.pretend_to_be_gba),
-            ppu: Ppu::new(hardware_mode),
+            ppu,
             apu: Apu::new(config, hardware_mode),
-            memory: Memory::new(),
+            memory: Memory::new(hardware_mode),
             serial_port: SerialPort::new(hardware_mode),
             interrupt_registers: InterruptRegisters::default(),
             speed_register: SpeedRegister::new(),

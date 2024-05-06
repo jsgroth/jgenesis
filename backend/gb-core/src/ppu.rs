@@ -14,7 +14,7 @@ use bincode::{Decode, Encode};
 use jgenesis_common::frontend::FrameSize;
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
-use std::ops::{Deref, DerefMut};
+use std::ops::{Deref, DerefMut, Range};
 
 const SCREEN_WIDTH: usize = 160;
 const SCREEN_HEIGHT: usize = 144;
@@ -187,11 +187,14 @@ macro_rules! cgb_only_write {
 }
 
 impl Ppu {
-    pub fn new(hardware_mode: HardwareMode) -> Self {
+    pub fn new(hardware_mode: HardwareMode, rom: &[u8]) -> Self {
+        let mut vram = vec![0; VRAM_LEN];
+        initialize_vram(hardware_mode, rom, &mut vram);
+
         Self {
             hardware_mode,
             frame_buffer: PpuFrameBuffer::default(),
-            vram: vec![0; VRAM_LEN].into_boxed_slice().try_into().unwrap(),
+            vram: vram.into_boxed_slice().try_into().unwrap(),
             oam: vec![0; OAM_LEN].into_boxed_slice().try_into().unwrap(),
             registers: Registers::new(),
             bg_palette_ram: CgbPaletteRam::new(),
@@ -595,4 +598,67 @@ fn scan_oam(
     }
 
     sprite_buffer.sort_by(|a, b| a.x.cmp(&b.x).then(a.oam_index.cmp(&b.oam_index)));
+}
+
+const NINTENDO_LOGO_ADDR: Range<usize> = 0x0104..0x0134;
+const LOGO_TILE_DATA_ADDR: usize = 0x0010;
+
+const TRADEMARK_TILE_DATA_ADDR: usize = 0x0190;
+const TRADEMARK_SYMBOL: [u8; 16] = [
+    0x3C, 0x00, 0x42, 0x00, 0xB9, 0x00, 0xA5, 0x00, 0xB9, 0x00, 0xA5, 0x00, 0x42, 0x00, 0x3C, 0x00,
+];
+
+// Initialize VRAM the way that the DMG boot ROM would. The Nintendo logo is copied out of the
+// cartridge header.
+// Some games depend on this by assuming that VRAM initially contains the Nintendo logo and a
+// trademark symbol, e.g. X for its intro animation
+fn initialize_vram(hardware_mode: HardwareMode, rom: &[u8], vram: &mut [u8]) {
+    if hardware_mode != HardwareMode::Dmg {
+        // Only write the logo to VRAM on DMG
+        return;
+    }
+
+    if rom.len() < NINTENDO_LOGO_ADDR.end {
+        // Invalid ROM; don't try to initialize VRAM
+        return;
+    }
+
+    // Write logo to tile data area
+    let logo = &rom[NINTENDO_LOGO_ADDR];
+    for (i, logo_byte) in logo.iter().copied().enumerate() {
+        for nibble_idx in 0..2 {
+            let nibble = logo_byte >> (4 * (1 - nibble_idx));
+
+            // Duplicate pixels horizontally
+            let vram_byte = ((nibble & 8) << 4)
+                | ((nibble & 8) << 3)
+                | ((nibble & 4) << 3)
+                | ((nibble & 4) << 2)
+                | ((nibble & 2) << 2)
+                | ((nibble & 2) << 1)
+                | ((nibble & 1) << 1)
+                | (nibble & 1);
+
+            // Duplicate pixels vertically
+            let vram_addr = LOGO_TILE_DATA_ADDR + 4 * (2 * i + nibble_idx);
+            vram[vram_addr] = vram_byte;
+            vram[vram_addr + 2] = vram_byte;
+        }
+    }
+
+    // Write trademark to tile data area
+    vram[TRADEMARK_TILE_DATA_ADDR..TRADEMARK_TILE_DATA_ADDR + TRADEMARK_SYMBOL.len()]
+        .copy_from_slice(&TRADEMARK_SYMBOL);
+
+    // Populate tile map
+    // The upscaled logo is 12x2 tiles and should be centered, ranging from (X=4, Y=8) to (X=16, Y=10)
+    for tile_row in 0..2 {
+        for tile_col in 0..12 {
+            let vram_addr = 0x1800 + (8 + tile_row) * 32 + (4 + tile_col);
+            vram[vram_addr] = (1 + (12 * tile_row) + tile_col) as u8;
+        }
+    }
+
+    // Trademark symbol should be in the top row just to the right of the logo, at (X=16, Y=8)
+    vram[0x1800 + 8 * 32 + 16] = (TRADEMARK_TILE_DATA_ADDR / 16) as u8;
 }

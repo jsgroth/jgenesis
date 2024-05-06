@@ -1,5 +1,6 @@
 //! Game Boy internal memory
 
+use crate::HardwareMode;
 use bincode::{Decode, Encode};
 use std::iter;
 
@@ -9,6 +10,17 @@ const HRAM_LEN: usize = 127;
 type MainRam = [u8; MAIN_RAM_LEN];
 type Hram = [u8; HRAM_LEN];
 
+// Initial contents of $FF80-$FFC2; the rest of HRAM is presumably randomized
+// These values are normally written by the CGB boot ROM
+#[rustfmt::skip]
+const CGB_INITIAL_HRAM: &[u8; 67] = &[
+    0x00, 0xFF, 0xFF, 0xFF, 0x7F, 0xFF, 0x7F, 0xFF, 0x7F, 0xFF, 0xFF, 0xFF, 0x7F, 0xFF, 0x7F, 0xFF,
+    0x7F, 0xFF, 0xFF, 0xFF, 0x7F, 0xFF, 0x7F, 0xFF, 0x7F, 0xFF, 0xFF, 0xFF, 0x7F, 0xFF, 0x7F, 0xFF,
+    0x7F, 0xFF, 0xFF, 0xFF, 0x7F, 0xFF, 0x7F, 0xFF, 0x7F, 0xFF, 0xFF, 0xFF, 0x7F, 0xFF, 0x7F, 0xFF,
+    0x7F, 0xFF, 0xFF, 0xFF, 0x7F, 0xFF, 0x7F, 0xFF, 0x7F, 0xFF, 0xFF, 0xFF, 0x7F, 0xFF, 0x7F, 0xFF,
+    0x7F, 0x00, 0x00,
+];
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Memory {
     main_ram: Box<MainRam>,
@@ -17,17 +29,22 @@ pub struct Memory {
 }
 
 impl Memory {
-    pub fn new() -> Self {
+    pub fn new(hardware_mode: HardwareMode) -> Self {
         // Randomize RAM contents at power-on except for bank 2, which the CGB boot ROM normally
         // zerofills. Worms Armageddon depends on bank 2 being zeroed out.
-        // Hardware mode check is not necessary because bank 2 is not accessible on DMG
+        // Hardware mode check is not necessary because banks 2-7 are not accessible on DMG
         let mut main_ram: Vec<u8> = iter::repeat_with(rand::random).take(MAIN_RAM_LEN).collect();
         main_ram[0x2000..0x3000].fill(0);
+
+        let mut hram = vec![0_u8; HRAM_LEN];
+        if hardware_mode == HardwareMode::Cgb {
+            hram[..CGB_INITIAL_HRAM.len()].copy_from_slice(CGB_INITIAL_HRAM);
+        }
 
         Self {
             main_ram: main_ram.into_boxed_slice().try_into().unwrap(),
             main_ram_bank: 0,
-            hram: vec![0; HRAM_LEN].into_boxed_slice().try_into().unwrap(),
+            hram: hram.into_boxed_slice().try_into().unwrap(),
         }
     }
 
