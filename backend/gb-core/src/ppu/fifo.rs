@@ -63,6 +63,7 @@ pub struct PixelFifo {
     y: u8,
     window_y_triggered: bool,
     window_line_counter: u8,
+    window_triggered_in_frame: bool,
     scanned_sprites: VecDeque<SpriteData>,
     state: FifoState,
 }
@@ -76,6 +77,7 @@ impl PixelFifo {
             y: 0,
             window_y_triggered: false,
             window_line_counter: 0,
+            window_triggered_in_frame: false,
             scanned_sprites: VecDeque::with_capacity(MAX_SPRITES_PER_LINE),
             state: FifoState::InitialBgFetch { dots_remaining: 6 },
         }
@@ -84,6 +86,7 @@ impl PixelFifo {
     pub fn reset_window_state(&mut self) {
         self.window_y_triggered = false;
         self.window_line_counter = 0;
+        self.window_triggered_in_frame = false;
     }
 
     pub fn check_window_y(&mut self, scanline: u8, registers: &Registers) {
@@ -155,7 +158,21 @@ impl PixelFifo {
             return;
         }
 
-        // TODO check if WX=0 here
+        // TODO check if WX=0 here and emulate WX=0 hardware glitches
+
+        // DMG hardware glitch: render a single pixel of color BGP[0] if the following are all true:
+        //   The window triggered earlier in the current frame
+        //   The window is currently disabled
+        //   WX & 7 == 7 - (SCX & 7)
+        // This is needed for correct alignment on the title screen of Star Trek: 25th Anniversary
+        // Reference: https://github.com/LIJI32/SameBoy/issues/278
+        if self.hardware_mode == HardwareMode::Dmg
+            && self.window_triggered_in_frame
+            && !registers.window_enabled
+            && registers.window_x & 7 == 7 - (registers.bg_x_scroll & 7)
+        {
+            self.bg.push_back(BgPixel { color: 0, palette: 0, high_priority: false });
+        }
 
         // The first 8 pixels are always discarded, and (SCX % 8) additional pixels are discarded to handle fine X scrolling
         // Simulate this by using fine X scroll to move the screen position backwards
@@ -236,6 +253,7 @@ impl PixelFifo {
                 window_line: self.window_line_counter,
             };
             self.window_line_counter += 1;
+            self.window_triggered_in_frame = true;
 
             return;
         }
