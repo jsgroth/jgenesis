@@ -1,4 +1,4 @@
-use crate::ppu::State;
+use crate::ppu::{PpuMode, State};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use std::array;
@@ -159,12 +159,23 @@ impl Registers {
         let ly_lyc_bit =
             if self.ppu_enabled { state.ly() == self.ly_compare } else { state.frozen_ly_lyc_bit };
 
+        // Have the CPU read mode 0->2 and mode 1->2 transitions one M-cycle late to account for the
+        // read occurring mid-M-cycle on actual hardware.
+        // This is needed for the demo Space Waste to not crash at the first effect, as it does lots
+        // of mid-frame CGB palette writes gated by STAT mode checks and it needs to finish all of
+        // them within a certain number of cycles
+        let mode_for_read = if state.mode == PpuMode::ScanningOam && state.dot == 0 {
+            if state.scanline == 0 { PpuMode::VBlank } else { PpuMode::HBlank }
+        } else {
+            state.mode
+        };
+
         0x80 | (u8::from(self.lyc_interrupt_enabled) << 6)
             | (u8::from(self.mode_2_interrupt_enabled) << 5)
             | (u8::from(self.mode_1_interrupt_enabled) << 4)
             | (u8::from(self.mode_0_interrupt_enabled) << 3)
             | (u8::from(ly_lyc_bit) << 2)
-            | state.mode.to_bits()
+            | mode_for_read.to_bits()
     }
 
     pub fn write_lyc(&mut self, value: u8) {
