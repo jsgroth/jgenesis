@@ -513,12 +513,12 @@ impl Ppu {
     }
 
     fn write_stat(&mut self, value: u8, interrupt_registers: &mut InterruptRegisters) {
-        if self.hardware_mode == HardwareMode::Dmg {
+        if self.hardware_mode == HardwareMode::Dmg && self.registers.ppu_enabled {
             // DMG STAT bug: If STAT is written while any of the 4 STAT conditions are true, the
             // hardware behaves as if all 4 STAT interrupts are enabled for a single M-cycle.
             // Road Rash (GB version) and Zerd no Densetsu depend on this
             let dmg_stat_bug_triggered = self.state.mode != PpuMode::Rendering
-                && self.state.scanline != self.registers.ly_compare;
+                || self.state.ly() == self.registers.ly_compare;
 
             if dmg_stat_bug_triggered {
                 // It seems that the DMG STAT bug does not trigger if HBlank interrupts were previously
