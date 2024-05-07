@@ -39,6 +39,8 @@ struct RenderingBgTileFields {
     dots_remaining: u8,
     screen_x: u8,
     fetcher_x: u8,
+    latched_scx: u8,
+    latched_scy: u8,
     // Whether or not a sprite fetch was delayed by a BG fetch in the current BG tile
     sprite_fetch_delayed: bool,
 }
@@ -143,7 +145,15 @@ impl PixelFifo {
     fn handle_initial_bg_fetch(&mut self, dots_remaining: u8, vram: &Vram, registers: &Registers) {
         if dots_remaining == 6 {
             // Do the initial tile fetch
-            let bg_tile_row = fetch_bg_tile(self.hardware_mode, 0, self.y, vram, registers);
+            let bg_tile_row = fetch_bg_tile(
+                self.hardware_mode,
+                0,
+                self.y,
+                vram,
+                registers,
+                registers.bg_x_scroll,
+                registers.bg_y_scroll,
+            );
             for color in bg_tile_row.pixels {
                 self.bg.push_back(BgPixel {
                     color,
@@ -183,6 +193,8 @@ impl PixelFifo {
             screen_x: 0_u8.wrapping_sub(fine_x_scroll),
             fetcher_x: 0,
             sprite_fetch_delayed: false,
+            latched_scx: registers.bg_x_scroll,
+            latched_scy: registers.bg_y_scroll,
         });
     }
 
@@ -258,6 +270,13 @@ impl PixelFifo {
             return;
         }
 
+        if fields.dots_remaining == 4 {
+            // Latch SCY/SCX two dots before tile fetch
+            // Some demos depend on this, e.g. Demotronic
+            fields.latched_scx = registers.bg_x_scroll;
+            fields.latched_scy = registers.bg_y_scroll;
+        }
+
         if fields.dots_remaining == 2 {
             log::trace!("Fetching BG tile at X {}", fields.screen_x);
 
@@ -270,6 +289,8 @@ impl PixelFifo {
                         self.y,
                         vram,
                         registers,
+                        fields.latched_scx,
+                        fields.latched_scy,
                     );
                     self.push_bg_tile_row(bg_tile_row);
                 }
@@ -395,6 +416,9 @@ impl PixelFifo {
                 // Start at tile 1 since tile 0 has already been fetched
                 fetcher_x: 1,
                 sprite_fetch_delayed: false,
+                // Values don't matter because the window does not use SCY/SCX during tile fetch
+                latched_scx: 0,
+                latched_scy: 0,
             })
         } else {
             FifoState::InitialWindowFetch {
@@ -449,16 +473,18 @@ fn fetch_bg_tile(
     y: u8,
     vram: &Vram,
     registers: &Registers,
+    bg_x_scroll: u8,
+    bg_y_scroll: u8,
 ) -> BgTileRow {
     if hardware_mode == HardwareMode::Dmg && !registers.bg_enabled {
         // On DMG, all BG pixels are transparent if BG is disabled
         return BgTileRow { pixels: [0; 8], palette: 0, high_priority: false };
     }
 
-    let coarse_x_scroll = registers.bg_x_scroll / 8;
+    let coarse_x_scroll = bg_x_scroll / 8;
     let tile_map_x: u16 = (fetcher_x.wrapping_add(coarse_x_scroll) % 32).into();
 
-    let bg_y: u16 = y.wrapping_add(registers.bg_y_scroll).into();
+    let bg_y: u16 = y.wrapping_add(bg_y_scroll).into();
     let tile_map_y = bg_y / 8;
 
     let tile_map_addr = registers.bg_tile_map_addr | (tile_map_y << 5) | tile_map_x;
