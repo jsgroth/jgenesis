@@ -130,7 +130,7 @@ impl<'a> Bus<'a> {
         }
 
         for _ in 0..4 {
-            self.ppu.tick_dot(self.dma_unit, self.interrupt_registers);
+            self.ppu.tick_dot(self.speed_register.speed, self.dma_unit, self.interrupt_registers);
         }
 
         self.apu.tick_m_cycle(self.timer, self.speed_register.speed);

@@ -9,6 +9,7 @@ use crate::interrupts::InterruptRegisters;
 use crate::ppu::fifo::PixelFifo;
 use crate::ppu::registers::{CgbPaletteRam, Registers};
 use crate::sm83::InterruptType;
+use crate::speed::CpuSpeed;
 use crate::HardwareMode;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::FrameSize;
@@ -140,6 +141,33 @@ impl State {
             self.scanline
         }
     }
+
+    fn ly_for_compare(&self, cpu_speed: CpuSpeed) -> u8 {
+        // This handles two edge cases for LY=LYC interrupts:
+        //
+        // 1. HBlank interrupts should not block LY=LYC interrupts; Ken Griffey Jr.'s Slugfest
+        // depends on this
+        //
+        // 2. When LYC=0, the LY=LYC interrupt should not trigger before dot 9 in single speed
+        // or before dot 13 in CGB double speed. The demo Mental Respirator depends on this for the
+        // "gin & tonic trick" effect
+        match self.scanline {
+            0 => 0,
+            line @ 1..=152 => {
+                if self.dot != 0 {
+                    line
+                } else {
+                    line - 1
+                }
+            }
+            153 => match (self.dot, cpu_speed) {
+                (0, _) => 152,
+                (1..=8, _) | (9..=12, CpuSpeed::Double) => 153,
+                _ => 0,
+            },
+            _ => panic!("Invalid scanline in state: {}", self.scanline),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]
@@ -205,7 +233,12 @@ impl Ppu {
         }
     }
 
-    pub fn tick_dot(&mut self, dma_unit: &DmaUnit, interrupt_registers: &mut InterruptRegisters) {
+    pub fn tick_dot(
+        &mut self,
+        cpu_speed: CpuSpeed,
+        dma_unit: &DmaUnit,
+        interrupt_registers: &mut InterruptRegisters,
+    ) {
         if !self.registers.ppu_enabled {
             if self.state.previously_enabled {
                 match self.hardware_mode {
@@ -342,7 +375,7 @@ impl Ppu {
             }
         }
 
-        let stat_interrupt_line = self.stat_interrupt_line();
+        let stat_interrupt_line = self.stat_interrupt_line(cpu_speed);
         if !self.state.prev_stat_interrupt_line && stat_interrupt_line {
             self.state.stat_interrupt_pending = true;
             log::trace!(
@@ -370,18 +403,13 @@ impl Ppu {
         self.state.frame_complete = true;
     }
 
-    fn stat_interrupt_line(&self) -> bool {
+    fn stat_interrupt_line(&self, cpu_speed: CpuSpeed) -> bool {
         let lyc_interrupt_enabled = self.registers.lyc_interrupt_enabled;
         let mode_2_interrupt_enabled = self.registers.mode_2_interrupt_enabled;
         let mode_1_interrupt_enabled = self.registers.mode_1_interrupt_enabled;
         let mode_0_interrupt_enabled = self.registers.mode_0_interrupt_enabled;
 
-        // Don't allow LY=LYC interrupt to trigger on dot 0 (except on line 0) because HBlank
-        // interrupts should not block LY=LYC interrupts.
-        // Ken Griffey Jr.'s Slugfest and Worms Armageddon depend on this
-        (lyc_interrupt_enabled
-            && self.state.ly() == self.registers.ly_compare
-            && (self.state.scanline == 0 || self.state.dot > 0))
+        (lyc_interrupt_enabled && self.state.ly_for_compare(cpu_speed) == self.registers.ly_compare)
             || (mode_2_interrupt_enabled && self.state.mode.is_scanning_oam())
             || (mode_1_interrupt_enabled && self.state.mode == PpuMode::VBlank)
             || (mode_0_interrupt_enabled && self.state.mode == PpuMode::HBlank)
@@ -518,7 +546,7 @@ impl Ppu {
             // hardware behaves as if all 4 STAT interrupts are enabled for a single M-cycle.
             // Road Rash (GB version) and Zerd no Densetsu depend on this
             let dmg_stat_bug_triggered = self.state.mode != PpuMode::Rendering
-                || self.state.ly() == self.registers.ly_compare;
+                || self.state.ly_for_compare(CpuSpeed::Normal) == self.registers.ly_compare;
 
             if dmg_stat_bug_triggered {
                 // It seems that the DMG STAT bug does not trigger if HBlank interrupts were previously
@@ -530,7 +558,7 @@ impl Ppu {
 
                 self.registers.write_stat(bugged_stat_write);
 
-                let stat_interrupt_line = self.stat_interrupt_line();
+                let stat_interrupt_line = self.stat_interrupt_line(CpuSpeed::Normal);
                 if !self.state.prev_stat_interrupt_line && stat_interrupt_line {
                     interrupt_registers.set_flag(InterruptType::LcdStatus);
                 }

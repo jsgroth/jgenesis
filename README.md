@@ -130,7 +130,7 @@ RUSTFLAGS="-C target-cpu=native" cargo build --profile release-lto
 ### SNES
 * A 65816 Primer: https://softpixel.com/~cwright/sianse/docs/65816NFO.HTM
 * Super Nintendo architecture: https://www.copetti.org/writings/consoles/super-nintendo/
-* fullsnes - nocash SNES hardware specifications: https://problemkaputt.github.io/fullsnes.htm
+* fullsnes - nocash SNES hardware specifications: https://problemkaputt.de/fullsnes.htm
 * Anomie's SNES documents: https://www.romhacking.net/?page=documents&category=&platform=&game=&author=&perpage=20&level=&title=anomie&docsearch=Go
 * SFC Development Wiki: https://wiki.superfamicom.org/
 
@@ -139,3 +139,5 @@ RUSTFLAGS="-C target-cpu=native" cargo build --profile release-lto
 * Pan Docs: https://gbdev.io/pandocs/
 * Game Boy Complete Technical Reference: https://gekkio.fi/files/gb-docs/gbctr.pdf
 * Gameboy Sound Hardware: https://gbdev.gg8.se/wiki/articles/Gameboy_sound_hardware
+* The Cycle-Accurate Game Boy Docs: https://github.com/geaz/emu-gameboy/blob/master/docs/The%20Cycle-Accurate%20Game%20Boy%20Docs.pdf
+  * This contains some outdated/incorrect information but is still useful
