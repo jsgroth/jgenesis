@@ -398,6 +398,10 @@ pub enum CartridgeFileError {
     UnsupportedMapper { mapper_number: u16 },
     #[error("cartridge header specifies both volatile and non-volatile PRG RAM")]
     MultiplePrgRamTypes,
+    #[error(
+        "Invalid PRG/CHR ROM size in ROM header: file size is {file_size} bytes, PRG ROM size is {prg_rom_size} bytes, CHR ROM size is {chr_rom_size} bytes"
+    )]
+    InvalidRomSize { file_size: u32, prg_rom_size: u32, chr_rom_size: u32 },
     #[error("unsupported timing mode byte: {byte}")]
     UnsupportedTimingMode { byte: u8 },
 }
@@ -443,8 +447,32 @@ impl INesHeader {
             return Err(CartridgeFileError::Format);
         }
 
-        let prg_rom_size = 16 * 1024 * ((u32::from(header[9] & 0x0F) << 8) | u32::from(header[4]));
-        let chr_rom_size = 8 * 1024 * ((u32::from(header[9] & 0xF0) << 4) | u32::from(header[5]));
+        let format =
+            if header[7] & 0x0C == 0x08 { FileFormat::Nes2Point0 } else { FileFormat::INes };
+
+        let prg_rom_size = {
+            let mut prg_rom_size_16kb = u32::from(header[4]);
+            if format == FileFormat::Nes2Point0 {
+                prg_rom_size_16kb |= u32::from(header[9] & 0x0F) << 8;
+            }
+            16 * 1024 * prg_rom_size_16kb
+        };
+
+        let chr_rom_size = {
+            let mut chr_rom_size_8kb = u32::from(header[5]);
+            if format == FileFormat::Nes2Point0 {
+                chr_rom_size_8kb |= u32::from(header[9] & 0xF0) << 4;
+            }
+            8 * 1024 * chr_rom_size_8kb
+        };
+
+        if header.len() + (prg_rom_size + chr_rom_size) as usize > file_bytes.len() {
+            return Err(CartridgeFileError::InvalidRomSize {
+                file_size: file_bytes.len() as u32,
+                prg_rom_size,
+                chr_rom_size,
+            });
+        }
 
         let has_trainer = header[6].bit(2);
 
@@ -461,9 +489,6 @@ impl INesHeader {
         let has_four_screen_vram = header[6].bit(3);
 
         let has_battery = header[6].bit(1);
-
-        let format =
-            if header[7] & 0x0C == 0x08 { FileFormat::Nes2Point0 } else { FileFormat::INes };
 
         log::info!("ROM header format: {format}");
 
