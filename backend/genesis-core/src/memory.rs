@@ -10,6 +10,7 @@ use crate::svp::Svp;
 use crate::vdp::Vdp;
 use crate::ym2612::Ym2612;
 use bincode::{Decode, Encode};
+use crc::Crc;
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
@@ -19,6 +20,8 @@ use std::ops::Index;
 use std::sync::OnceLock;
 use std::{array, mem};
 use z80_emu::traits::InterruptLine;
+
+const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
 
 #[derive(Debug, Clone, Default, FakeEncode, FakeDecode)]
 struct Rom(Vec<u8>);
@@ -81,7 +84,10 @@ pub struct Cartridge {
     mapper: Option<SegaMapper>,
     svp: Option<Svp>,
     region: GenesisRegion,
+    is_unlicensed_rockman_x3: bool,
 }
+
+const ROCKMAN_X3_CHECKSUM: u32 = 0x3EE639F0;
 
 impl Cartridge {
     pub fn from_rom(
@@ -116,7 +122,17 @@ impl Cartridge {
         // Only one game uses the SVP, Virtua Racing
         let svp = is_virtua_racing(serial_number).then(Svp::new);
 
-        Self { rom: Rom(rom_bytes), external_memory, ram_mapped, mapper, svp, region }
+        let is_unlicensed_rockman_x3 = CRC.checksum(&rom_bytes) == ROCKMAN_X3_CHECKSUM;
+
+        Self {
+            rom: Rom(rom_bytes),
+            external_memory,
+            ram_mapped,
+            mapper,
+            svp,
+            region,
+            is_unlicensed_rockman_x3,
+        }
     }
 
     #[inline]
@@ -136,7 +152,7 @@ impl Cartridge {
                     mapper.write(address, value);
                 }
             }
-            _ => panic!(
+            _ => log::error!(
                 "unexpected cartridge register write; address={address:06X}, value={value:02X}"
             ),
         }
@@ -223,6 +239,12 @@ impl PhysicalMedium for Cartridge {
     fn read_word(&mut self, address: u32) -> u16 {
         if let Some(svp) = &mut self.svp {
             return svp.m68k_read(address, &self.rom.0);
+        }
+
+        // The unlicensed Rockman X3 port depends on $A13000 reads returning a value where the lower
+        // 4 bits are $C or else it will immediately crash and display "decode error"
+        if self.is_unlicensed_rockman_x3 && address == 0xA13000 {
+            return 0x000C;
         }
 
         if self.ram_mapped {
