@@ -146,7 +146,7 @@ impl MemoryType {
 }
 
 fn read_memory(bank: u8, address: u16, rom: &[u8], ram: &[u8]) -> (u8, MemoryType) {
-    match bank {
+    match bank & 0x7F {
         0x00..=0x3F => {
             // ROM, LoROM mapping (mirrored in $0000-$7FFF and $8000-$FFFF)
             let rom_addr = superfx::map_lorom_address(u24_address(bank, address), rom.len() as u32);
@@ -196,7 +196,7 @@ fn next_opcode_memory_type(gsu: &GraphicsSupportUnit) -> MemoryType {
     if gsu.code_cache.pc_is_cacheable(gsu.r[15]) && gsu.code_cache.get(gsu.r[15]).is_some() {
         MemoryType::CodeCache
     } else {
-        match gsu.pbr {
+        match gsu.pbr & 0x7F {
             0x00..=0x5F => MemoryType::Rom,
             0x70..=0x71 => MemoryType::Ram,
             _ => panic!("invalid GSU bank {:02X}", gsu.pbr),
