@@ -180,13 +180,21 @@ jobs:
           wget https://github.com/microsoft/DirectXShaderCompiler/releases/download/$DXC_RELEASE_TAG/$DXC_ZIP_FILE && \
           unzip $DXC_ZIP_FILE
 
-      - name: Build release
+      - name: Build CLI release
         run: |
           RUSTFLAGS=" \
             -C target-cpu=x86-64-v2 \
             -C link-arg=-ISDL2-$SDL_VERSION/x86_64-w64-mingw32/include \
             -C link-arg=-LSDL2-$SDL_VERSION/x86_64-w64-mingw32/lib" \
-          cargo build --profile release-lto --target x86_64-pc-windows-gnu
+          cargo build --profile release-lto --target x86_64-pc-windows-gnu -p jgenesis-cli
+
+      - name: Build GUI release
+        run: |
+          RUSTFLAGS=" \
+            -C target-cpu=x86-64-v2 \
+            -C link-arg=-ISDL2-$SDL_VERSION/x86_64-w64-mingw32/include \
+            -C link-arg=-LSDL2-$SDL_VERSION/x86_64-w64-mingw32/lib" \
+          cargo build --profile release-lto --target x86_64-pc-windows-gnu -p jgenesis-gui
 
       - name: Compress binaries
         run: |
