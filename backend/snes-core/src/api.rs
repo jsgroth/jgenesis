@@ -129,7 +129,6 @@ macro_rules! new_bus {
             apu: &mut $self.apu,
             latched_interrupts: $self.latched_interrupts,
             access_master_cycles: 0,
-            buffered_write: None,
         }
     };
 }
@@ -277,11 +276,11 @@ impl EmulatorTrait for SnesEmulator {
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
-        let (master_cycles_elapsed, write) = if self.memory_refresh_pending {
+        let master_cycles_elapsed = if self.memory_refresh_pending {
             // The CPU (including DMA) halts for 40 cycles partway through every scanline so that
             // the system can refresh DRAM (used for work RAM)
             self.memory_refresh_pending = false;
-            (MEMORY_REFRESH_CYCLES, None)
+            MEMORY_REFRESH_CYCLES
         } else {
             let mut bus = new_bus!(self);
 
@@ -291,17 +290,9 @@ impl EmulatorTrait for SnesEmulator {
                     self.main_cpu.tick(&mut bus);
                     self.latched_interrupts = None;
 
-                    if let Some((address, value)) = bus.buffered_write {
-                        // bus.apply_write(address, value);
-                    }
-
-                    (bus.access_master_cycles, bus.buffered_write)
+                    bus.access_master_cycles
                 }
                 DmaStatus::InProgress { master_cycles_elapsed } => {
-                    if let Some((address, value)) = bus.buffered_write {
-                        bus.apply_write(address, value);
-                    }
-
                     // Latch interrupt lines at the start of DMA to emulate interrupt tests being
                     // delayed by one cycle after the DMA ends.
                     // Wild Guns depends on this
@@ -310,7 +301,7 @@ impl EmulatorTrait for SnesEmulator {
                             Some(LatchedInterrupts { nmi: bus.nmi(), irq: bus.irq() });
                     }
 
-                    (master_cycles_elapsed, None)
+                    master_cycles_elapsed
                 }
             }
         };
@@ -364,10 +355,6 @@ impl EmulatorTrait for SnesEmulator {
             self.apu.tick(master_cycles_elapsed)
         {
             self.audio_downsampler.collect_sample(sample_l, sample_r);
-        }
-
-        if let Some((address, value)) = write {
-            new_bus!(self).apply_write(address, value);
         }
 
         self.memory.tick(master_cycles_elapsed);
