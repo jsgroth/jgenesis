@@ -199,7 +199,10 @@ impl SegaCdEmulator {
         let ym2612 = Ym2612::new(emulator_config.genesis.quantize_ym2612_output);
         let psg = Psg::new(PsgVersion::Standard);
         let pcm = Rf5c164::new();
-        let input = InputState::new();
+        let input = InputState::new(
+            emulator_config.genesis.p1_controller_type,
+            emulator_config.genesis.p2_controller_type,
+        );
 
         let audio_resampler = AudioResampler::new(timing_mode);
         let mut emulator = Self {

@@ -167,7 +167,7 @@ impl PinDirections {
     }
 }
 
-#[derive(Debug, Clone, Default, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct InputState {
     inputs: GenesisInputs,
     p1_controller_type: GenesisControllerType,
@@ -178,8 +178,17 @@ pub struct InputState {
 
 impl InputState {
     #[must_use]
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(
+        p1_controller_type: GenesisControllerType,
+        p2_controller_type: GenesisControllerType,
+    ) -> Self {
+        Self {
+            inputs: GenesisInputs::default(),
+            p1_controller_type,
+            p2_controller_type,
+            p1_pin_directions: PinDirections::default(),
+            p2_pin_directions: PinDirections::default(),
+        }
     }
 
     pub fn set_inputs(&mut self, inputs: GenesisInputs) {

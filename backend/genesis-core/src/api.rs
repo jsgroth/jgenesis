@@ -232,7 +232,7 @@ impl GenesisEmulator {
         let vdp = Vdp::new(timing_mode, config.to_vdp_config());
         let psg = Psg::new(PsgVersion::Standard);
         let ym2612 = Ym2612::new(config.quantize_ym2612_output);
-        let input = InputState::new();
+        let input = InputState::new(config.p1_controller_type, config.p2_controller_type);
 
         // The Genesis does not allow TAS to lock the bus, so don't allow TAS writes
         let m68k = M68000::builder().allow_tas_writes(false).build();
