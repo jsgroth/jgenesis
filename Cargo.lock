@@ -2161,6 +2161,7 @@ dependencies = [
  "gb-core",
  "genesis-core",
  "jgenesis-common",
+ "jgenesis-native-config",
  "jgenesis-native-driver",
  "jgenesis-proc-macros",
  "jgenesis-renderer",
@@ -2168,6 +2169,7 @@ dependencies = [
  "nes-core",
  "smsgg-core",
  "snes-core",
+ "toml",
 ]
 
 [[package]]
@@ -2223,6 +2225,7 @@ dependencies = [
  "genesis-core",
  "jgenesis-common",
  "jgenesis-native-driver",
+ "jgenesis-proc-macros",
  "jgenesis-renderer",
  "log",
  "nes-core",

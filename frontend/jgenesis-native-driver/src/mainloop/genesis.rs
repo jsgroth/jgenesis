@@ -127,7 +127,6 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
     let emulator_config = config.to_emulator_config();
     let emulator = GenesisEmulator::create(rom, emulator_config, &mut save_writer);
 
-    let window_size = config.common.window_size.unwrap_or(config::DEFAULT_GENESIS_WINDOW_SIZE);
     let mut cartridge_title = emulator.cartridge_title();
     // Remove non-printable characters
     cartridge_title.retain(|c| {
@@ -139,7 +138,7 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
         emulator,
         emulator_config,
         config.common,
-        window_size,
+        config::DEFAULT_GENESIS_WINDOW_SIZE,
         &window_title,
         save_writer,
         save_state_path,
@@ -186,16 +185,13 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
         &mut save_writer,
     )?;
 
-    let window_size =
-        config.genesis.common.window_size.unwrap_or(config::DEFAULT_GENESIS_WINDOW_SIZE);
-
     let window_title = format!("sega cd - {}", emulator.disc_title());
 
     NativeSegaCdEmulator::new(
         emulator,
         emulator_config,
         config.genesis.common,
-        window_size,
+        config::DEFAULT_GENESIS_WINDOW_SIZE,
         &window_title,
         save_writer,
         save_state_path,

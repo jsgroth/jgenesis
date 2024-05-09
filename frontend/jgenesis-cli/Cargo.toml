@@ -12,15 +12,17 @@ nes-core = { path = "../../backend/nes-core" }
 smsgg-core = { path = "../../backend/smsgg-core" }
 snes-core = { path = "../../backend/snes-core" }
 
+jgenesis-common = { path = "../../jgenesis-common" }
+jgenesis-native-config = { path = "../jgenesis-native-config" }
 jgenesis-native-driver = { path = "../jgenesis-native-driver" }
 jgenesis-proc-macros = { path = "../../jgenesis-proc-macros" }
 jgenesis-renderer = { path = "../jgenesis-renderer" }
-jgenesis-common = { path = "../../jgenesis-common" }
 
 anyhow = { workspace = true }
 clap = { workspace = true }
 env_logger = { workspace = true }
 log = { workspace = true, features = ["release_max_level_info"] }
+toml = { workspace = true }
 
 [package.metadata.packager]
 icons = ["../32x32.png"]

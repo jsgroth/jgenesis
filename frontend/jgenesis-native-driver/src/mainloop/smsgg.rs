@@ -79,9 +79,6 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
     log::info!("VDP version: {vdp_version:?}");
     log::info!("PSG version: {psg_version:?}");
 
-    let window_size =
-        config.common.window_size.unwrap_or_else(|| config::default_smsgg_window_size(vdp_version));
-
     let rom_title = file_name_no_ext(rom_file_path)?;
     let window_title = format!("smsgg - {rom_title}");
 
@@ -92,7 +89,7 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
         emulator,
         emulator_config,
         config.common,
-        window_size,
+        config::default_smsgg_window_size(vdp_version),
         &window_title,
         save_writer,
         save_state_path,

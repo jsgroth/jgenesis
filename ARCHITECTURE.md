@@ -91,7 +91,7 @@ Native emulation frontend that uses SDL2 for windowing, audio, and input.
 
 ### `jgenesis-native-config`
 
-Contains the code representation of the main config file used by the CLI and GUI.
+Contains the code representation of the configuration file used by the CLI and GUI.
 
 ### `jgenesis-cli` / `jgenesis-gui`
 

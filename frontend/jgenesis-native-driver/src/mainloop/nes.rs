@@ -60,8 +60,6 @@ pub fn create_nes(config: Box<NesConfig>) -> NativeEmulatorResult<NativeNesEmula
     let emulator_config = config.to_emulator_config();
     let emulator = NesEmulator::create(rom, emulator_config, &mut save_writer)?;
 
-    let window_size = config.common.window_size.unwrap_or(config::DEFAULT_GENESIS_WINDOW_SIZE);
-
     let rom_title = file_name_no_ext(&config.common.rom_file_path)?;
     let window_title = format!("nes - {rom_title}");
 
@@ -69,7 +67,7 @@ pub fn create_nes(config: Box<NesConfig>) -> NativeEmulatorResult<NativeNesEmula
         emulator,
         emulator_config,
         config.common,
-        window_size,
+        config::DEFAULT_GENESIS_WINDOW_SIZE,
         &window_title,
         save_writer,
         save_state_path,

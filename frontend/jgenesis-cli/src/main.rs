@@ -5,29 +5,23 @@ use env_logger::Env;
 use gb_core::api::{GbAspectRatio, GbPalette, GbcColorCorrection};
 use genesis_core::{GenesisAspectRatio, GenesisControllerType, GenesisRegion};
 use jgenesis_common::frontend::TimingMode;
-use jgenesis_native_driver::config::input::{
-    GameBoyInputConfig, GenesisControllerConfig, GenesisInputConfig, HotkeyConfig, KeyboardInput,
-    NesInputConfig, SmsGgControllerConfig, SmsGgInputConfig, SnesControllerType, SnesInputConfig,
-    SuperScopeConfig,
-};
-use jgenesis_native_driver::config::{
-    CommonConfig, GameBoyConfig, GenesisConfig, GgAspectRatio, NesConfig, SegaCdConfig,
-    SmsAspectRatio, SmsGgConfig, SnesConfig, WindowSize,
-};
+use jgenesis_native_config::smsgg::SmsModel;
+use jgenesis_native_config::AppConfig;
+use jgenesis_native_driver::config::input::SnesControllerType;
+use jgenesis_native_driver::config::{GgAspectRatio, SmsAspectRatio};
 use jgenesis_native_driver::NativeTickEffect;
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::{
-    FilterMode, PreprocessShader, PrescaleFactor, PrescaleMode, RendererConfig, Scanlines,
-    VSyncMode, WgpuBackend,
+    FilterMode, PreprocessShader, PrescaleFactor, Scanlines, VSyncMode, WgpuBackend,
 };
-use nes_core::api::{NesAspectRatio, Overscan};
+use nes_core::api::NesAspectRatio;
 use smsgg_core::psg::PsgVersion;
-use smsgg_core::{SmsRegion, VdpVersion};
+use smsgg_core::SmsRegion;
 use snes_core::api::SnesAspectRatio;
 use std::ffi::OsStr;
+use std::fs;
 use std::num::NonZeroU64;
-use std::path::Path;
-use std::process;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumDisplay, EnumFromStr)]
 enum Hardware {
@@ -47,163 +41,168 @@ const SNES_OPTIONS_HEADING: &str = "SNES Options";
 const GB_OPTIONS_HEADING: &str = "Game Boy Options";
 const VIDEO_OPTIONS_HEADING: &str = "Video Options";
 const AUDIO_OPTIONS_HEADING: &str = "Audio Options";
-const INPUT_OPTIONS_HEADING: &str = "Input Options";
-const HOTKEY_OPTIONS_HEADING: &str = "Hotkey Options";
 
-#[derive(Parser)]
+#[derive(Debug, Parser)]
 struct Args {
+    /// Hardware (MasterSystem / Genesis / SegaCd / Nes / Snes / GameBoy); defaults based on file extension if not set
+    #[arg(long)]
+    hardware: Option<Hardware>,
+
     /// ROM file path
     #[arg(short = 'f', long)]
     file_path: String,
 
-    /// Hardware (MasterSystem / Genesis / SegaCd / Nes / Snes), will default based on file extension if not set
-    #[arg(long)]
-    hardware: Option<Hardware>,
+    /// Override default config file path (jgenesis-config.toml)
+    #[arg(long = "config")]
+    config_path_override: Option<String>,
 
     /// Force timing mode (Ntsc / Pal)
     #[arg(long)]
     forced_timing_mode: Option<TimingMode>,
 
-    /// Remove sprite-per-scanline and sprite-pixel-per-scanlines limits which reduces sprite flickering
-    #[arg(long, default_value_t)]
-    remove_sprite_limit: bool,
+    /// Remove sprite-per-scanline and sprite-pixel-per-scanline limits which reduces sprite flickering (for applicable consoles)
+    #[arg(long)]
+    remove_sprite_limit: Option<bool>,
 
     /// Hide mouse cursor when over emulator window
-    #[arg(long, default_value_t)]
-    hide_cursor_over_window: bool,
+    #[arg(long)]
+    hide_cursor_over_window: Option<bool>,
 
-    /// Force VDP version (NtscMasterSystem2 / NtscMasterSystem1 / PalMasterSystem2 / PalMasterSystem1 / GameGear)
+    /// MasterSystem model (Sms2 / Sms1)
     #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
-    vdp_version: Option<VdpVersion>,
+    sms_model: Option<SmsModel>,
 
     /// Force PSG version (MasterSystem2 / Standard)
     #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
     psg_version: Option<PsgVersion>,
 
     /// Master System aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
-    #[arg(long, default_value_t, help_heading = SMSGG_OPTIONS_HEADING)]
-    sms_aspect_ratio: SmsAspectRatio,
+    #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
+    sms_aspect_ratio: Option<SmsAspectRatio>,
 
     /// Game Gear aspect ratio (GgLcd / SquarePixels / Stretched)
-    #[arg(long, default_value_t, help_heading = SMSGG_OPTIONS_HEADING)]
-    gg_aspect_ratio: GgAspectRatio,
+    #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
+    gg_aspect_ratio: Option<GgAspectRatio>,
 
     /// Master System region (International / Domestic)
-    #[arg(long, default_value_t, help_heading = SMSGG_OPTIONS_HEADING)]
-    sms_region: SmsRegion,
+    #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
+    sms_region: Option<SmsRegion>,
 
     /// Crop SMS top and bottom border; almost all games display only the background color in this area
-    #[arg(long, default_value_t, help_heading = SMSGG_OPTIONS_HEADING)]
-    sms_crop_vertical_border: bool,
+    #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
+    sms_crop_vertical_border: Option<bool>,
 
     /// Crop SMS left border; many games display only the background color in this area
-    #[arg(long, default_value_t, help_heading = SMSGG_OPTIONS_HEADING)]
-    sms_crop_left_border: bool,
+    #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
+    sms_crop_left_border: Option<bool>,
 
-    /// Disable SMS FM sound unit
-    #[arg(long = "disable-sms-fm-unit", default_value_t = true, action = clap::ArgAction::SetFalse, help_heading = SMSGG_OPTIONS_HEADING)]
-    sms_fm_unit_enabled: bool,
+    /// Enable SMS FM sound unit
+    #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
+    sms_fm_unit_enabled: Option<bool>,
 
     /// Overclock the Z80 CPU to 2x speed
-    #[arg(long, default_value_t, help_heading = SMSGG_OPTIONS_HEADING)]
-    smsgg_overclock_z80: bool,
+    #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
+    smsgg_overclock_z80: Option<bool>,
 
     /// Emulate the VDP's non-linear DAC, which tends to brighten darker colors and darken brighter colors
-    #[arg(long, default_value_t, help_heading = GENESIS_OPTIONS_HEADING)]
-    emulate_non_linear_vdp_dac: bool,
+    #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
+    emulate_non_linear_vdp_dac: Option<bool>,
 
     /// Render the vertical border, which normally only displays the backdrop color
-    #[arg(long, default_value_t, help_heading = GENESIS_OPTIONS_HEADING)]
-    genesis_render_vertical_border: bool,
+    #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
+    genesis_render_vertical_border: Option<bool>,
 
     /// Render the horizontal border, which normally only displays the backdrop color
-    #[arg(long, default_value_t, help_heading = GENESIS_OPTIONS_HEADING)]
-    genesis_render_horizontal_border: bool,
+    #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
+    genesis_render_horizontal_border: Option<bool>,
 
-    /// Disable YM2612 output quantization, letting outputs cover the full 14-bit range instead of only using the highest 9 bits
-    #[arg(long = "no-ym2612-quantization", default_value_t = true, action = clap::ArgAction::SetFalse, help_heading = GENESIS_OPTIONS_HEADING)]
-    quantize_ym2612_output: bool,
+    /// Enable YM2612 channel output quantization
+    #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
+    quantize_ym2612_output: Option<bool>,
 
     /// Aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
-    #[arg(long, default_value_t, help_heading = GENESIS_OPTIONS_HEADING)]
-    genesis_aspect_ratio: GenesisAspectRatio,
+    #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
+    genesis_aspect_ratio: Option<GenesisAspectRatio>,
 
-    /// Disable automatic pixel aspect ratio adjustment when Genesis interlacing double resolution mode
-    /// is enabled
-    #[arg(long = "no-genesis-adjust-aspect-ratio", default_value_t = true, action = clap::ArgAction::SetFalse, help_heading = GENESIS_OPTIONS_HEADING)]
-    genesis_adjust_aspect_ratio: bool,
+    /// Automatically adjust pixel aspect ratio in double-screen interlaced mode
+    #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
+    genesis_adjust_aspect_ratio: Option<bool>,
 
     /// Force region (Americas / Japan / Europe)
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
     genesis_region: Option<GenesisRegion>,
 
-    /// Sega CD BIOS path (required for Sega CD emulation)
+    /// P1 Genesis controller type (ThreeButton / SixButton)
+    #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
+    genesis_p1_controller_type: Option<GenesisControllerType>,
+
+    /// Sega CD BIOS path
     #[arg(short = 'b', long, help_heading = SCD_OPTIONS_HEADING)]
     bios_path: Option<String>,
 
-    /// Disable Sega CD RAM cartridge mapping
-    #[arg(long = "disable-ram-cartridge", default_value_t = true, action = clap::ArgAction::SetFalse, help_heading = SCD_OPTIONS_HEADING)]
-    enable_ram_cartridge: bool,
+    /// Enable Sega CD RAM cartridge mapping
+    #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
+    enable_ram_cartridge: Option<bool>,
 
     /// Run the Sega CD emulator with no disc
-    #[arg(long, default_value_t, help_heading = SCD_OPTIONS_HEADING)]
+    #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
     scd_no_disc: bool,
 
     /// Load the CD-ROM image into RAM at startup
-    #[arg(long, default_value_t, help_heading = SCD_OPTIONS_HEADING)]
-    scd_load_disc_into_ram: bool,
+    #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
+    scd_load_disc_into_ram: Option<bool>,
 
     /// Aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
-    #[arg(long, default_value_t, help_heading = NES_OPTIONS_HEADING)]
-    nes_aspect_ratio: NesAspectRatio,
+    #[arg(long, help_heading = NES_OPTIONS_HEADING)]
+    nes_aspect_ratio: Option<NesAspectRatio>,
 
     /// Top overscan in pixels
-    #[arg(long, default_value_t, help_heading = NES_OPTIONS_HEADING)]
-    overscan_top: u16,
+    #[arg(long, help_heading = NES_OPTIONS_HEADING)]
+    overscan_top: Option<u16>,
 
     /// Bottom overscan in pixels
-    #[arg(long, default_value_t, help_heading = NES_OPTIONS_HEADING)]
-    overscan_bottom: u16,
+    #[arg(long, help_heading = NES_OPTIONS_HEADING)]
+    overscan_bottom: Option<u16>,
 
     /// Left overscan in pixels
-    #[arg(long, default_value_t, help_heading = NES_OPTIONS_HEADING)]
-    overscan_left: u16,
+    #[arg(long, help_heading = NES_OPTIONS_HEADING)]
+    overscan_left: Option<u16>,
 
     /// Right overscan in pixels
-    #[arg(long, default_value_t, help_heading = NES_OPTIONS_HEADING)]
-    overscan_right: u16,
+    #[arg(long, help_heading = NES_OPTIONS_HEADING)]
+    overscan_right: Option<u16>,
 
     /// Render the PAL black border (top scanline + two columns on each side)
-    #[arg(long, default_value_t, help_heading = NES_OPTIONS_HEADING)]
-    nes_pal_black_border: bool,
+    #[arg(long, help_heading = NES_OPTIONS_HEADING)]
+    nes_pal_black_border: Option<bool>,
 
     /// Allow opposing directional inputs (left+right or up+down)
-    #[arg(long, default_value_t, help_heading = NES_OPTIONS_HEADING)]
-    nes_allow_opposing_inputs: bool,
+    #[arg(long, help_heading = NES_OPTIONS_HEADING)]
+    nes_allow_opposing_inputs: Option<bool>,
 
     /// Silence ultrasonic triangle channel output (less accurate but reduces audio popping)
-    #[arg(long, default_value_t, help_heading = NES_OPTIONS_HEADING)]
-    nes_silence_ultrasonic_triangle: bool,
+    #[arg(long, help_heading = NES_OPTIONS_HEADING)]
+    nes_silence_ultrasonic_triangle: Option<bool>,
 
-    /// Disable hack that times NES audio sync to 60Hz NTSC / 50Hz PAL instead of ~60.099Hz NTSC / ~50.007Hz PAL
-    #[arg(long = "no-nes-audio-60hz-hack", default_value_t = true, action = clap::ArgAction::SetFalse, help_heading = NES_OPTIONS_HEADING)]
-    nes_audio_60hz_hack: bool,
+    /// Enable hack that times NES audio sync to 60Hz NTSC / 50Hz PAL instead of ~60.099Hz NTSC / ~50.007Hz PAL
+    #[arg(long, help_heading = NES_OPTIONS_HEADING)]
+    nes_audio_60hz_hack: Option<bool>,
 
     /// SNES aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
-    #[arg(long, default_value_t, help_heading = SNES_OPTIONS_HEADING)]
-    snes_aspect_ratio: SnesAspectRatio,
+    #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
+    snes_aspect_ratio: Option<SnesAspectRatio>,
 
-    /// Disable hack that times SNES audio sync to 60Hz instead of ~60.098Hz
-    #[arg(long = "no-snes-audio-60hz-hack", default_value_t = true, action = clap::ArgAction::SetFalse, help_heading = SNES_OPTIONS_HEADING)]
-    snes_audio_60hz_hack: bool,
+    /// Enable hack that times SNES audio sync to 60Hz instead of ~60.098Hz
+    #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
+    snes_audio_60hz_hack: Option<bool>,
 
     /// Speed multiplier for the Super FX GSU
-    #[arg(long, default_value_t = NonZeroU64::new(1).unwrap(), help_heading = SNES_OPTIONS_HEADING)]
-    gsu_overclock_factor: NonZeroU64,
+    #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
+    gsu_overclock_factor: Option<NonZeroU64>,
 
     /// Player 2 input device (Gamepad / SuperScope)
-    #[arg(long, default_value_t, help_heading = SNES_OPTIONS_HEADING)]
-    snes_p2_controller_type: SnesControllerType,
+    #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
+    snes_p2_controller_type: Option<SnesControllerType>,
 
     /// Specify SNES DSP-1 ROM path (required for DSP-1 games)
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
@@ -230,348 +229,287 @@ struct Args {
     st011_rom_path: Option<String>,
 
     /// Force DMG / original Game Boy mode in software with Game Boy Color support
-    #[arg(long, default_value_t, help_heading = GB_OPTIONS_HEADING)]
-    force_dmg_mode: bool,
+    #[arg(long, help_heading = GB_OPTIONS_HEADING)]
+    force_dmg_mode: Option<bool>,
 
     /// Pretend to be a Game Boy Advance (for GBC games that vary behavior on GBA)
-    #[arg(long, default_value_t, help_heading = GB_OPTIONS_HEADING)]
-    pretend_to_be_gba: bool,
+    #[arg(long, help_heading = GB_OPTIONS_HEADING)]
+    pretend_to_be_gba: Option<bool>,
 
     /// Aspect ratio (SquarePixels / Stretched)
-    #[arg(long, default_value_t, help_heading = GB_OPTIONS_HEADING)]
-    gb_aspect_ratio: GbAspectRatio,
+    #[arg(long, help_heading = GB_OPTIONS_HEADING)]
+    gb_aspect_ratio: Option<GbAspectRatio>,
 
     /// Game Boy palette (BlackAndWhite / GreenTint / LimeGreen)
-    #[arg(long, default_value_t, help_heading = GB_OPTIONS_HEADING)]
-    gb_palette: GbPalette,
+    #[arg(long, help_heading = GB_OPTIONS_HEADING)]
+    gb_palette: Option<GbPalette>,
 
     /// Game Boy Color color correction (None / GbcLcd / GbaLcd)
-    #[arg(long, default_value_t, help_heading = GB_OPTIONS_HEADING)]
-    gbc_color_correction: GbcColorCorrection,
+    #[arg(long, help_heading = GB_OPTIONS_HEADING)]
+    gbc_color_correction: Option<GbcColorCorrection>,
 
     /// Target 60 FPS instead of ~59.73 FPS
-    #[arg(long, default_value_t, help_heading = GB_OPTIONS_HEADING)]
-    gb_audio_60hz_hack: bool,
+    #[arg(long, help_heading = GB_OPTIONS_HEADING)]
+    gb_audio_60hz_hack: Option<bool>,
 
-    /// Window width in pixels; height must also be set
+    /// Initial window width in pixels
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     window_width: Option<u32>,
 
-    /// Window height in pixels; width must also be set
+    /// Initial window height in pixels
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     window_height: Option<u32>,
 
     /// Launch in fullscreen
-    #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
+    #[arg(long, default_value_t, help_heading = VIDEO_OPTIONS_HEADING)]
     fullscreen: bool,
 
     /// wgpu backend (Auto / Vulkan / DirectX12 / OpenGl)
-    #[arg(long, default_value_t, help_heading = VIDEO_OPTIONS_HEADING)]
-    wgpu_backend: WgpuBackend,
+    #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
+    wgpu_backend: Option<WgpuBackend>,
 
     /// VSync mode (Enabled / Disabled / Fast)
-    #[arg(long, default_value_t = VSyncMode::Enabled, help_heading = VIDEO_OPTIONS_HEADING)]
-    vsync_mode: VSyncMode,
+    #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
+    vsync_mode: Option<VSyncMode>,
+
+    /// Enable auto-prescaling
+    #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
+    auto_prescale: Option<bool>,
 
     /// Manual prescale factor; must be a positive integer
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     prescale_factor: Option<u32>,
 
     /// Scanlines (None / Dim / Black)
-    #[arg(long, default_value_t, help_heading = VIDEO_OPTIONS_HEADING)]
-    scanlines: Scanlines,
+    #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
+    scanlines: Option<Scanlines>,
 
     /// Force display area height to be an integer multiple of native console resolution
-    #[arg(long, default_value_t, help_heading = VIDEO_OPTIONS_HEADING)]
-    force_integer_height_scaling: bool,
+    #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
+    force_integer_height_scaling: Option<bool>,
 
     /// Filter mode (Nearest / Linear)
-    #[arg(long, default_value_t = FilterMode::Linear, help_heading = VIDEO_OPTIONS_HEADING)]
-    filter_mode: FilterMode,
+    #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
+    filter_mode: Option<FilterMode>,
 
     /// Preprocess shader (None / HorizontalBlurTwoPixels / HorizontalBlurThreePixels / HorizontalBlurSnesAdaptive / AntiDitherWeak / AntiDitherStrong)
-    #[arg(long, default_value_t, help_heading = VIDEO_OPTIONS_HEADING)]
-    preprocess_shader: PreprocessShader,
+    #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
+    preprocess_shader: Option<PreprocessShader>,
 
-    /// Disable audio sync
-    #[arg(long = "no-audio-sync", default_value_t = true, action = clap::ArgAction::SetFalse, help_heading = AUDIO_OPTIONS_HEADING)]
-    audio_sync: bool,
+    /// Enable audio sync
+    #[arg(long, help_heading = AUDIO_OPTIONS_HEADING)]
+    audio_sync: Option<bool>,
 
     /// Audio device queue size in samples
-    #[arg(long, default_value_t = 512, help_heading = AUDIO_OPTIONS_HEADING)]
-    audio_device_queue_size: u16,
+    #[arg(long, help_heading = AUDIO_OPTIONS_HEADING)]
+    audio_device_queue_size: Option<u16>,
 
     /// Internal audio buffer size in samples
-    #[arg(long, default_value_t = 64, help_heading = AUDIO_OPTIONS_HEADING)]
-    internal_audio_buffer_size: u32,
+    #[arg(long, help_heading = AUDIO_OPTIONS_HEADING)]
+    internal_audio_buffer_size: Option<u32>,
 
     /// Audio sync threshold in bytes (1 sample = 2x4 bytes)
-    #[arg(long, default_value_t = 8192, help_heading = AUDIO_OPTIONS_HEADING)]
-    audio_sync_threshold: u32,
+    #[arg(long, help_heading = AUDIO_OPTIONS_HEADING)]
+    audio_sync_threshold: Option<u32>,
 
     /// Audio gain in decibels; can be positive or negative
-    #[arg(long, default_value_t = 0.0, help_heading = AUDIO_OPTIONS_HEADING)]
-    audio_gain_db: f64,
+    #[arg(long, help_heading = AUDIO_OPTIONS_HEADING)]
+    audio_gain_db: Option<f64>,
+}
 
-    /// P1 Genesis controller type (ThreeButton / SixButton)
-    #[arg(long, default_value_t, help_heading = INPUT_OPTIONS_HEADING)]
-    input_p1_type: GenesisControllerType,
+macro_rules! apply_overrides {
+    (@set_field $config:expr, $value:expr, $arg_field:ident) => {
+        $config.$arg_field = $value;
+    };
+    (@set_field $config:expr, $value:expr, $arg_field:ident $config_field:ident) => {
+        $config.$config_field = $value;
+    };
+    ($self:expr, $config:expr, [$($arg_field:ident $(-> $config_field:ident)?),* $(,)?]) => {
+        $(
+            if let Some(field) = $self.$arg_field {
+                apply_overrides!(@set_field $config, field, $arg_field $($config_field)?);
+            }
+        )*
+    };
+}
 
-    /// P1 up key
-    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
-    input_p1_up: Option<String>,
-
-    /// P1 left key
-    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
-    input_p1_left: Option<String>,
-
-    /// P1 right key
-    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
-    input_p1_right: Option<String>,
-
-    /// P1 down key
-    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
-    input_p1_down: Option<String>,
-
-    /// P1 button 1 key (SMS/GG)
-    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
-    input_p1_button_1: Option<String>,
-
-    /// P1 button 2 key (SMS/GG)
-    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
-    input_p1_button_2: Option<String>,
-
-    /// P1 A button key (Genesis)
-    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
-    input_p1_a: Option<String>,
-
-    /// P1 B button key (Genesis)
-    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
-    input_p1_b: Option<String>,
-
-    /// P1 C button key (Genesis)
-    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
-    input_p1_c: Option<String>,
-
-    /// P1 X button key (Genesis)
-    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
-    input_p1_x: Option<String>,
-
-    /// P1 Y button key (Genesis)
-    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
-    input_p1_y: Option<String>,
-
-    /// P1 Z button key (Genesis)
-    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
-    input_p1_z: Option<String>,
-
-    /// P1 start/pause key
-    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
-    input_p1_start: Option<String>,
-
-    /// P1 mode key (Genesis)
-    #[arg(long, help_heading = INPUT_OPTIONS_HEADING)]
-    input_p1_mode: Option<String>,
-
-    /// Joystick axis deadzone
-    #[arg(long, default_value_t = 8000, help_heading = INPUT_OPTIONS_HEADING)]
-    joy_axis_deadzone: i16,
-
-    /// Fast forward multiplier
-    #[arg(long, default_value_t = 2, help_heading = HOTKEY_OPTIONS_HEADING)]
-    fast_forward_multiplier: u64,
-
-    /// Rewind buffer length in seconds
-    #[arg(long, default_value_t = 10, help_heading = HOTKEY_OPTIONS_HEADING)]
-    rewind_buffer_length_seconds: u64,
-
-    /// Quit hotkey
-    #[arg(long, default_value_t = String::from("Escape"), help_heading = HOTKEY_OPTIONS_HEADING)]
-    hotkey_quit: String,
-
-    /// Toggle fullscreen hotkey
-    #[arg(long, default_value_t = String::from("F9"), help_heading = HOTKEY_OPTIONS_HEADING)]
-    hotkey_toggle_fullscreen: String,
-
-    /// Save state hotkey
-    #[arg(long, default_value_t = String::from("F5"), help_heading = HOTKEY_OPTIONS_HEADING)]
-    hotkey_save_state: String,
-
-    /// Load state hotkey
-    #[arg(long, default_value_t = String::from("F6"), help_heading = HOTKEY_OPTIONS_HEADING)]
-    hotkey_load_state: String,
-
-    /// Soft reset hotkey
-    #[arg(long, default_value_t = String::from("F1"), help_heading = HOTKEY_OPTIONS_HEADING)]
-    hotkey_soft_reset: String,
-
-    /// Hard reset hotkey
-    #[arg(long, default_value_t = String::from("F2"), help_heading = HOTKEY_OPTIONS_HEADING)]
-    hotkey_hard_reset: String,
-
-    /// Pause hotkey
-    #[arg(long, default_value_t = String::from("P"), help_heading = HOTKEY_OPTIONS_HEADING)]
-    hotkey_pause: String,
-
-    /// Step frame hotkey
-    #[arg(long, default_value_t = String::from("N"), help_heading = HOTKEY_OPTIONS_HEADING)]
-    hotkey_step_frame: String,
-
-    /// Fast forward hotkey
-    #[arg(long, default_value_t = String::from("Tab"), help_heading = HOTKEY_OPTIONS_HEADING)]
-    hotkey_fast_forward: String,
-
-    /// Rewind hotkey
-    #[arg(long, default_value_t = String::from("`"), help_heading = HOTKEY_OPTIONS_HEADING)]
-    hotkey_rewind: String,
-
-    /// Open memory viewer window hotkey
-    #[arg(long, default_value_t = String::from("'"), help_heading = HOTKEY_OPTIONS_HEADING)]
-    hotkey_open_debugger: String,
+macro_rules! apply_path_overrides {
+    ($self:expr, $config:expr, [$($field:ident),* $(,)?]) => {
+        $(
+            if let Some(field) = &$self.$field {
+                $config.$field = Some(field.clone());
+            }
+        )*
+    }
 }
 
 impl Args {
-    fn validate(&self) {
-        assert!(
-            self.joy_axis_deadzone >= 0,
-            "joy_axis_deadzone must be non-negative; was {}",
-            self.joy_axis_deadzone
+    fn apply_overrides(&self, config: &mut AppConfig) {
+        self.apply_common_overrides(config);
+        self.apply_smsgg_overrides(config);
+        self.apply_genesis_overrides(config);
+        self.apply_sega_cd_overrides(config);
+        self.apply_nes_overrides(config);
+        self.apply_snes_overrides(config);
+        self.apply_gb_overrides(config);
+        self.apply_video_overrides(config);
+        self.apply_audio_overrides(config);
+    }
+
+    fn apply_common_overrides(&self, config: &mut AppConfig) {
+        if let Some(timing_mode) = self.forced_timing_mode {
+            config.smsgg.sms_timing_mode = timing_mode;
+            config.genesis.forced_timing_mode = Some(timing_mode);
+            config.nes.forced_timing_mode = Some(timing_mode);
+            config.snes.forced_timing_mode = Some(timing_mode);
+        }
+
+        if let Some(remove_sprite_limit) = self.remove_sprite_limit {
+            config.smsgg.remove_sprite_limit = remove_sprite_limit;
+            config.genesis.remove_sprite_limits = remove_sprite_limit;
+            config.nes.remove_sprite_limit = remove_sprite_limit;
+        }
+
+        apply_overrides!(self, config.common, [hide_cursor_over_window]);
+    }
+
+    fn apply_smsgg_overrides(&self, config: &mut AppConfig) {
+        apply_overrides!(self, config.smsgg, [
+            sms_model,
+            sms_aspect_ratio,
+            gg_aspect_ratio,
+            sms_region,
+            sms_crop_vertical_border,
+            sms_crop_left_border,
+            sms_fm_unit_enabled -> fm_sound_unit_enabled,
+            smsgg_overclock_z80 -> overclock_z80,
+        ]);
+
+        if let Some(psg_version) = self.psg_version {
+            config.smsgg.psg_version = Some(psg_version);
+        }
+    }
+
+    fn apply_genesis_overrides(&self, config: &mut AppConfig) {
+        apply_overrides!(self, config.genesis, [
+            emulate_non_linear_vdp_dac,
+            genesis_render_vertical_border -> render_vertical_border,
+            genesis_render_horizontal_border -> render_horizontal_border,
+            quantize_ym2612_output,
+            genesis_aspect_ratio -> aspect_ratio,
+            genesis_adjust_aspect_ratio -> adjust_aspect_ratio_in_2x_resolution,
+        ]);
+
+        if let Some(region) = self.genesis_region {
+            config.genesis.forced_region = Some(region);
+        }
+
+        apply_overrides!(self, config.inputs, [genesis_p1_controller_type -> genesis_p1_type]);
+    }
+
+    fn apply_sega_cd_overrides(&self, config: &mut AppConfig) {
+        apply_path_overrides!(self, config.sega_cd, [bios_path]);
+
+        apply_overrides!(self, config.sega_cd, [
+            enable_ram_cartridge,
+            scd_load_disc_into_ram -> load_disc_into_ram,
+        ]);
+    }
+
+    fn apply_nes_overrides(&self, config: &mut AppConfig) {
+        apply_overrides!(self, config.nes, [
+            nes_aspect_ratio -> aspect_ratio,
+            nes_pal_black_border -> pal_black_border,
+            nes_allow_opposing_inputs -> allow_opposing_joypad_inputs,
+            nes_silence_ultrasonic_triangle -> silence_ultrasonic_triangle_output,
+            nes_audio_60hz_hack -> audio_60hz_hack,
+        ]);
+
+        apply_overrides!(self, config.nes.overscan, [
+            overscan_top -> top,
+            overscan_bottom -> bottom,
+            overscan_left -> left,
+            overscan_right -> right,
+        ]);
+    }
+
+    fn apply_snes_overrides(&self, config: &mut AppConfig) {
+        apply_overrides!(self, config.snes, [
+            snes_aspect_ratio -> aspect_ratio,
+            snes_audio_60hz_hack -> audio_60hz_hack,
+            gsu_overclock_factor,
+        ]);
+
+        if let Some(p2_controller_type) = self.snes_p2_controller_type {
+            config.inputs.snes_p2_type = p2_controller_type;
+        }
+
+        apply_path_overrides!(
+            self,
+            config.snes,
+            [
+                dsp1_rom_path,
+                dsp2_rom_path,
+                dsp3_rom_path,
+                dsp4_rom_path,
+                st010_rom_path,
+                st011_rom_path,
+            ]
         );
     }
 
-    fn window_size(&self) -> Option<WindowSize> {
-        match (self.window_width, self.window_height) {
-            (Some(width), Some(height)) => Some(WindowSize { width, height }),
-            (None, None) => None,
-            (Some(_), None) | (None, Some(_)) => {
-                panic!("Window width and height must either be both set or neither set")
-            }
+    fn apply_gb_overrides(&self, config: &mut AppConfig) {
+        apply_overrides!(self, config.game_boy, [
+            force_dmg_mode,
+            pretend_to_be_gba,
+            gb_aspect_ratio -> aspect_ratio,
+            gb_palette,
+            gbc_color_correction,
+            gb_audio_60hz_hack -> audio_60hz_hack,
+        ]);
+    }
+
+    fn apply_video_overrides(&self, config: &mut AppConfig) {
+        config.common.window_width = self.window_width;
+        config.common.window_height = self.window_height;
+
+        if self.fullscreen {
+            config.common.launch_in_fullscreen = true;
+        }
+
+        apply_overrides!(
+            self,
+            config.common,
+            [
+                wgpu_backend,
+                vsync_mode,
+                auto_prescale,
+                scanlines,
+                force_integer_height_scaling,
+                filter_mode,
+                preprocess_shader,
+            ]
+        );
+
+        if let Some(prescale_factor) = self.prescale_factor {
+            config.common.prescale_factor =
+                PrescaleFactor::try_from(prescale_factor).expect("prescale factor is invalid");
         }
     }
 
-    fn renderer_config(&self) -> RendererConfig {
-        let prescale_mode = match self.prescale_factor {
-            Some(prescale_factor) => PrescaleMode::Manual(
-                PrescaleFactor::try_from(prescale_factor)
-                    .expect("prescale factor must be non-zero"),
-            ),
-            None => PrescaleMode::Auto,
-        };
-
-        RendererConfig {
-            wgpu_backend: self.wgpu_backend,
-            vsync_mode: self.vsync_mode,
-            prescale_mode,
-            scanlines: self.scanlines,
-            force_integer_height_scaling: self.force_integer_height_scaling,
-            filter_mode: self.filter_mode,
-            preprocess_shader: self.preprocess_shader,
-            use_webgl2_limits: false,
-        }
+    fn apply_audio_overrides(&self, config: &mut AppConfig) {
+        apply_overrides!(
+            self,
+            config.common,
+            [
+                audio_sync,
+                audio_device_queue_size,
+                internal_audio_buffer_size,
+                audio_sync_threshold,
+                audio_gain_db,
+            ]
+        );
     }
-
-    fn smsgg_keyboard_config(&self) -> SmsGgInputConfig<KeyboardInput> {
-        let default = SmsGgInputConfig::default();
-        SmsGgInputConfig {
-            p1: SmsGgControllerConfig {
-                up: self.input_p1_up.as_ref().map(keyboard_input).or(default.p1.up),
-                left: self.input_p1_left.as_ref().map(keyboard_input).or(default.p1.left),
-                right: self.input_p1_right.as_ref().map(keyboard_input).or(default.p1.right),
-                down: self.input_p1_down.as_ref().map(keyboard_input).or(default.p1.down),
-                button1: self.input_p1_button_1.as_ref().map(keyboard_input).or(default.p1.button1),
-                button2: self.input_p1_button_2.as_ref().map(keyboard_input).or(default.p1.button2),
-            },
-            p2: default.p2,
-            pause: self.input_p1_start.as_ref().map(keyboard_input).or(default.pause),
-        }
-    }
-
-    fn genesis_keyboard_config(&self) -> GenesisInputConfig<KeyboardInput> {
-        let default = GenesisInputConfig::default();
-        GenesisInputConfig {
-            p1: GenesisControllerConfig {
-                up: self.input_p1_up.as_ref().map(keyboard_input).or(default.p1.up),
-                left: self.input_p1_left.as_ref().map(keyboard_input).or(default.p1.left),
-                right: self.input_p1_right.as_ref().map(keyboard_input).or(default.p1.right),
-                down: self.input_p1_down.as_ref().map(keyboard_input).or(default.p1.down),
-                a: self.input_p1_a.as_ref().map(keyboard_input).or(default.p1.a),
-                b: self.input_p1_b.as_ref().map(keyboard_input).or(default.p1.b),
-                c: self.input_p1_c.as_ref().map(keyboard_input).or(default.p1.c),
-                x: self.input_p1_x.as_ref().map(keyboard_input).or(default.p1.x),
-                y: self.input_p1_x.as_ref().map(keyboard_input).or(default.p1.y),
-                z: self.input_p1_x.as_ref().map(keyboard_input).or(default.p1.z),
-                start: self.input_p1_start.as_ref().map(keyboard_input).or(default.p1.start),
-                mode: self.input_p1_mode.as_ref().map(keyboard_input).or(default.p1.mode),
-            },
-            p2: default.p2,
-        }
-    }
-
-    fn hotkey_config(&self) -> HotkeyConfig {
-        HotkeyConfig {
-            quit: Some(keyboard_input(&self.hotkey_quit)),
-            toggle_fullscreen: Some(keyboard_input(&self.hotkey_toggle_fullscreen)),
-            save_state: Some(keyboard_input(&self.hotkey_save_state)),
-            load_state: Some(keyboard_input(&self.hotkey_load_state)),
-            soft_reset: Some(keyboard_input(&self.hotkey_soft_reset)),
-            hard_reset: Some(keyboard_input(&self.hotkey_hard_reset)),
-            pause: Some(keyboard_input(&self.hotkey_pause)),
-            step_frame: Some(keyboard_input(&self.hotkey_step_frame)),
-            fast_forward: Some(keyboard_input(&self.hotkey_fast_forward)),
-            rewind: Some(keyboard_input(&self.hotkey_rewind)),
-            open_debugger: Some(keyboard_input(&self.hotkey_open_debugger)),
-        }
-    }
-
-    fn common_config<KC, JC>(
-        &self,
-        keyboard_inputs: KC,
-        joystick_inputs: JC,
-    ) -> CommonConfig<KC, JC> {
-        assert_ne!(self.fast_forward_multiplier, 0, "Fast forward multiplier must not be 0");
-
-        CommonConfig {
-            rom_file_path: self.file_path.clone(),
-            audio_sync: self.audio_sync,
-            audio_device_queue_size: self.audio_device_queue_size,
-            internal_audio_buffer_size: self.internal_audio_buffer_size,
-            audio_sync_threshold: self.audio_sync_threshold,
-            audio_gain_db: self.audio_gain_db,
-            window_size: self.window_size(),
-            renderer_config: self.renderer_config(),
-            fast_forward_multiplier: self.fast_forward_multiplier,
-            rewind_buffer_length_seconds: self.rewind_buffer_length_seconds,
-            launch_in_fullscreen: self.fullscreen,
-            keyboard_inputs,
-            axis_deadzone: self.joy_axis_deadzone,
-            joystick_inputs,
-            hotkeys: self.hotkey_config(),
-            hide_cursor_over_window: self.hide_cursor_over_window,
-        }
-    }
-
-    fn genesis_config(&self) -> GenesisConfig {
-        let keyboard_inputs = self.genesis_keyboard_config();
-        let common = self.common_config(keyboard_inputs, GenesisInputConfig::default());
-        GenesisConfig {
-            common,
-            forced_timing_mode: self.forced_timing_mode,
-            forced_region: self.genesis_region,
-            p1_controller_type: self.input_p1_type,
-            p2_controller_type: GenesisControllerType::default(),
-            aspect_ratio: self.genesis_aspect_ratio,
-            adjust_aspect_ratio_in_2x_resolution: self.genesis_adjust_aspect_ratio,
-            remove_sprite_limits: self.remove_sprite_limit,
-            emulate_non_linear_vdp_dac: self.emulate_non_linear_vdp_dac,
-            render_vertical_border: self.genesis_render_vertical_border,
-            render_horizontal_border: self.genesis_render_horizontal_border,
-            quantize_ym2612_output: self.quantize_ym2612_output,
-        }
-    }
-}
-
-fn keyboard_input(s: &String) -> KeyboardInput {
-    KeyboardInput { keycode: s.into() }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -581,7 +519,6 @@ fn main() -> anyhow::Result<()> {
     .init();
 
     let args = Args::parse();
-    args.validate();
 
     let hardware = args.hardware.unwrap_or_else(|| {
         let file_ext = Path::new(&args.file_path).extension().and_then(OsStr::to_str).unwrap_or("");
@@ -601,129 +538,75 @@ fn main() -> anyhow::Result<()> {
 
     log::info!("Running with hardware {hardware}");
 
+    let config_path = args
+        .config_path_override
+        .clone()
+        .map_or_else(jgenesis_native_config::default_config_path, PathBuf::from);
+    log::info!("Loading config from '{}'", config_path.display());
+
+    let config_str = fs::read_to_string(&config_path).unwrap_or_else(|err| {
+        log::warn!("Unable to read config file from '{}': {err}", config_path.display());
+        "".into()
+    });
+
+    let mut config = toml::from_str::<AppConfig>(&config_str).unwrap_or_else(|err| {
+        log::error!("Unable to deserialize config file at '{}': {err}", config_path.display());
+        AppConfig::default()
+    });
+
+    args.apply_overrides(&mut config);
+
     match hardware {
-        Hardware::MasterSystem => run_sms(args),
-        Hardware::Genesis => run_genesis(args),
-        Hardware::SegaCd => run_sega_cd(args),
-        Hardware::Nes => run_nes(args),
-        Hardware::Snes => run_snes(args),
-        Hardware::GameBoy => run_gb(args),
+        Hardware::MasterSystem => run_sms(args, config),
+        Hardware::Genesis => run_genesis(args, config),
+        Hardware::SegaCd => run_sega_cd(args, config),
+        Hardware::Nes => run_nes(args, config),
+        Hardware::Snes => run_snes(args, config),
+        Hardware::GameBoy => run_gb(args, config),
     }
 }
 
-fn run_sms(args: Args) -> anyhow::Result<()> {
-    let keyboard_inputs = args.smsgg_keyboard_config();
-    let common = args.common_config(keyboard_inputs, SmsGgInputConfig::default());
-    let config = SmsGgConfig {
-        common,
-        vdp_version: args.vdp_version,
-        psg_version: args.psg_version,
-        remove_sprite_limit: args.remove_sprite_limit,
-        sms_aspect_ratio: args.sms_aspect_ratio,
-        gg_aspect_ratio: args.gg_aspect_ratio,
-        sms_region: args.sms_region,
-        sms_crop_vertical_border: args.sms_crop_vertical_border,
-        sms_crop_left_border: args.sms_crop_left_border,
-        fm_sound_unit_enabled: args.sms_fm_unit_enabled,
-        overclock_z80: args.smsgg_overclock_z80,
-    };
-
-    let mut emulator = jgenesis_native_driver::create_smsgg(config.into())?;
+fn run_sms(args: Args, config: AppConfig) -> anyhow::Result<()> {
+    let mut emulator = jgenesis_native_driver::create_smsgg(config.smsgg_config(args.file_path))?;
     while emulator.render_frame()? != NativeTickEffect::Exit {}
 
     Ok(())
 }
 
-fn run_genesis(args: Args) -> anyhow::Result<()> {
-    let config = args.genesis_config();
-
-    let mut emulator = jgenesis_native_driver::create_genesis(config.into())?;
+fn run_genesis(args: Args, config: AppConfig) -> anyhow::Result<()> {
+    let mut emulator =
+        jgenesis_native_driver::create_genesis(config.genesis_config(args.file_path))?;
     while emulator.render_frame()? != NativeTickEffect::Exit {}
 
     Ok(())
 }
 
-fn run_sega_cd(args: Args) -> anyhow::Result<()> {
-    let bios_file_path = args.bios_path.clone().unwrap_or_else(|| {
-        eprintln!(
-            "ERROR: BIOS file path (-b / --bios-file-path) is required for Sega CD emulation"
-        );
-        process::exit(1);
-    });
+fn run_sega_cd(args: Args, config: AppConfig) -> anyhow::Result<()> {
+    let mut scd_config = config.sega_cd_config(args.file_path);
+    scd_config.run_without_disc = args.scd_no_disc;
 
-    let config = SegaCdConfig {
-        genesis: args.genesis_config(),
-        bios_file_path: Some(bios_file_path),
-        enable_ram_cartridge: args.enable_ram_cartridge,
-        run_without_disc: args.scd_no_disc,
-        load_disc_into_ram: args.scd_load_disc_into_ram,
-    };
-
-    let mut emulator = jgenesis_native_driver::create_sega_cd(config.into())?;
+    let mut emulator = jgenesis_native_driver::create_sega_cd(scd_config)?;
     while emulator.render_frame()? != NativeTickEffect::Exit {}
 
     Ok(())
 }
 
-fn run_nes(args: Args) -> anyhow::Result<()> {
-    let config = NesConfig {
-        common: args.common_config(NesInputConfig::default(), NesInputConfig::default()),
-        forced_timing_mode: args.forced_timing_mode,
-        aspect_ratio: args.nes_aspect_ratio,
-        overscan: Overscan {
-            top: args.overscan_top,
-            bottom: args.overscan_bottom,
-            left: args.overscan_left,
-            right: args.overscan_right,
-        },
-        remove_sprite_limit: args.remove_sprite_limit,
-        pal_black_border: args.nes_pal_black_border,
-        silence_ultrasonic_triangle_output: args.nes_silence_ultrasonic_triangle,
-        audio_refresh_rate_adjustment: args.nes_audio_60hz_hack,
-        allow_opposing_joypad_inputs: args.nes_allow_opposing_inputs,
-    };
-
-    let mut emulator = jgenesis_native_driver::create_nes(config.into())?;
+fn run_nes(args: Args, config: AppConfig) -> anyhow::Result<()> {
+    let mut emulator = jgenesis_native_driver::create_nes(config.nes_config(args.file_path))?;
     while emulator.render_frame()? != NativeTickEffect::Exit {}
 
     Ok(())
 }
 
-fn run_snes(args: Args) -> anyhow::Result<()> {
-    let config = SnesConfig {
-        common: args.common_config(SnesInputConfig::default(), SnesInputConfig::default()),
-        p2_controller_type: args.snes_p2_controller_type,
-        super_scope_config: SuperScopeConfig::default(),
-        forced_timing_mode: args.forced_timing_mode,
-        aspect_ratio: args.snes_aspect_ratio,
-        audio_60hz_hack: args.snes_audio_60hz_hack,
-        gsu_overclock_factor: args.gsu_overclock_factor,
-        dsp1_rom_path: args.dsp1_rom_path,
-        dsp2_rom_path: args.dsp2_rom_path,
-        dsp3_rom_path: args.dsp3_rom_path,
-        dsp4_rom_path: args.dsp4_rom_path,
-        st010_rom_path: args.st010_rom_path,
-        st011_rom_path: args.st011_rom_path,
-    };
-
-    let mut emulator = jgenesis_native_driver::create_snes(config.into())?;
+fn run_snes(args: Args, config: AppConfig) -> anyhow::Result<()> {
+    let mut emulator = jgenesis_native_driver::create_snes(config.snes_config(args.file_path))?;
     while emulator.render_frame()? != NativeTickEffect::Exit {}
 
     Ok(())
 }
 
-fn run_gb(args: Args) -> anyhow::Result<()> {
-    let config = GameBoyConfig {
-        common: args.common_config(GameBoyInputConfig::default_p1(), GameBoyInputConfig::default()),
-        force_dmg_mode: args.force_dmg_mode,
-        pretend_to_be_gba: args.pretend_to_be_gba,
-        aspect_ratio: args.gb_aspect_ratio,
-        gb_palette: args.gb_palette,
-        gbc_color_correction: args.gbc_color_correction,
-        audio_60hz_hack: args.gb_audio_60hz_hack,
-    };
-
-    let mut emulator = jgenesis_native_driver::create_gb(config.into())?;
+fn run_gb(args: Args, config: AppConfig) -> anyhow::Result<()> {
+    let mut emulator = jgenesis_native_driver::create_gb(config.gb_config(args.file_path))?;
     while emulator.render_frame()? != NativeTickEffect::Exit {}
 
     Ok(())

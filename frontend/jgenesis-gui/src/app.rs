@@ -36,7 +36,8 @@ trait ListFiltersExt {
     fn apply<'metadata>(
         &self,
         rom_list: &'metadata [RomMetadata],
-    ) -> impl Iterator<Item = &'metadata RomMetadata>;
+        title_match: &'metadata str,
+    ) -> impl Iterator<Item = &'metadata RomMetadata> + 'metadata;
 }
 
 impl ListFiltersExt for ListFilters {
@@ -59,13 +60,17 @@ impl ListFiltersExt for ListFilters {
     fn apply<'metadata>(
         &self,
         rom_list: &'metadata [RomMetadata],
+        title_match_lowercase: &'metadata str,
     ) -> impl Iterator<Item = &'metadata RomMetadata> + 'metadata {
+        debug_assert!(
+            title_match_lowercase.chars().all(|c| c.is_lowercase() || !c.is_alphabetic())
+        );
+
         let filters = self.to_console_vec();
-        let title_match = self.title_match.to_lowercase();
         rom_list.iter().filter(move |metadata| {
             filters.contains(&metadata.console)
-                && (title_match.is_empty()
-                    || metadata.file_name_no_ext.to_lowercase().contains(&title_match))
+                && (title_match_lowercase.is_empty()
+                    || metadata.file_name_no_ext.to_lowercase().contains(title_match_lowercase))
         })
     }
 }
@@ -129,6 +134,8 @@ struct AppState {
     waiting_for_input: Option<GenericButton>,
     rom_list: Rc<RefCell<Vec<RomMetadata>>>,
     recent_open_list: Vec<RomMetadata>,
+    title_match: String,
+    title_match_lowercase: Rc<str>,
     rendered_first_frame: bool,
     close_on_emulator_exit: bool,
 }
@@ -161,6 +168,8 @@ impl AppState {
             display_scanlines_warning: should_display_scanlines_warning(config),
             waiting_for_input: None,
             rom_list: Rc::new(RefCell::new(rom_list)),
+            title_match: String::new(),
+            title_match_lowercase: Rc::from(String::new()),
             recent_open_list,
             rendered_first_frame: false,
             close_on_emulator_exit: false,
@@ -709,7 +718,10 @@ impl App {
                     })
                     .body(|mut body| {
                         let rom_list = Rc::clone(&self.state.rom_list);
-                        for metadata in self.config.list_filters.apply(&rom_list.borrow()) {
+                        let title_match = Rc::clone(&self.state.title_match_lowercase);
+                        for metadata in
+                            self.config.list_filters.apply(&rom_list.borrow(), &title_match)
+                        {
                             body.row(40.0, |mut row| {
                                 row.col(|ui| {
                                     if Button::new(&metadata.file_name_no_ext)
@@ -752,13 +764,15 @@ impl App {
 
     fn render_central_panel_filters(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
-            ui.add(
-                TextEdit::singleline(&mut self.config.list_filters.title_match)
-                    .hint_text("Filter by name"),
-            );
+            let textedit =
+                TextEdit::singleline(&mut self.state.title_match).hint_text("Filter by name");
+            if ui.add(textedit).changed() {
+                self.state.title_match_lowercase = Rc::from(self.state.title_match.to_lowercase());
+            }
 
             if ui.button("Clear").clicked() {
-                self.config.list_filters.title_match.clear();
+                self.state.title_match.clear();
+                self.state.title_match_lowercase = Rc::from(String::new());
             }
 
             ui.add_space(15.0);

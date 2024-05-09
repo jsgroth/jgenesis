@@ -286,7 +286,7 @@ where
         emulator: Emulator,
         emulator_config: Emulator::Config,
         common_config: CommonConfig<KC, JC>,
-        window_size: WindowSize,
+        default_window_size: WindowSize,
         window_title: &str,
         save_writer: FsSaveWriter,
         save_state_path: PathBuf,
@@ -302,6 +302,7 @@ where
         let (sdl, video, audio, joystick, event_pump) =
             init_sdl(common_config.hide_cursor_over_window)?;
 
+        let window_size = common_config.window_size.unwrap_or(default_window_size);
         let window = create_window(
             &video,
             window_title,

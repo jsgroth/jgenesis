@@ -34,8 +34,6 @@ pub struct ListFilters {
     pub snes: bool,
     #[serde(default = "true_fn")]
     pub game_boy: bool,
-    #[serde(skip)]
-    pub title_match: String,
 }
 
 fn true_fn() -> bool {
@@ -52,7 +50,6 @@ impl Default for ListFilters {
             nes: true,
             snes: true,
             game_boy: true,
-            title_match: String::new(),
         }
     }
 }
@@ -84,12 +81,11 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
-    #[allow(clippy::missing_panics_doc)]
     pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
         let config_str = fs::read_to_string(path).unwrap_or_default();
         toml::from_str(&config_str).unwrap_or_else(|err| {
             log::error!("Error deserializing app config: {err}");
-            toml::from_str("").unwrap()
+            Self::default()
         })
     }
 }
@@ -97,16 +93,6 @@ impl AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         toml::from_str("").unwrap()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn default_does_not_panic() {
-        let _ = AppConfig::default();
     }
 }
 
@@ -146,4 +132,14 @@ fn default_linux_config_path() -> PathBuf {
     }
 
     jgenesis_dir.join(CONFIG_FILENAME)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_default_does_not_panic() {
+        let _ = AppConfig::default();
+    }
 }

@@ -32,6 +32,7 @@ pub struct Bus<'a> {
     pub apu: &'a mut Apu,
     pub latched_interrupts: Option<LatchedInterrupts>,
     pub access_master_cycles: u64,
+    pub buffered_write: Option<(u32, u8)>,
 }
 
 impl<'a> Bus<'a> {
@@ -189,6 +190,37 @@ impl<'a> Bus<'a> {
             _ => unreachable!("value & 0x7FFF is always <= 0x7FFF"),
         }
     }
+
+    pub fn apply_write(&mut self, address: u32, value: u8) {
+        log::trace!("Bus write {address:06X} {value:02X}");
+
+        let bank = (address >> 16) as u8;
+        let offset = address as u16;
+        match (bank, offset) {
+            (0x00..=0x3F | 0x80..=0xBF, 0x0000..=0x7FFF) => {
+                // System area
+                self.write_system_area(address, value);
+            }
+            (0x00..=0x3F, 0x8000..=0xFFFF) | (0x40..=0x7D, _) => {
+                self.access_master_cycles = SLOW_MASTER_CYCLES;
+
+                // Cartridge (Memory-1)
+                self.memory.write_cartridge(address, value);
+            }
+            (0x80..=0xBF, 0x8000..=0xFFFF) | (0xC0..=0xFF, _) => {
+                self.access_master_cycles = self.cpu_registers.memory_2_speed().master_cycles();
+
+                // Cartridge (Memory-2)
+                self.memory.write_cartridge(address, value);
+            }
+            (0x7E..=0x7F, _) => {
+                self.access_master_cycles = SLOW_MASTER_CYCLES;
+
+                // WRAM
+                self.memory.write_wram(address, value);
+            }
+        }
+    }
 }
 
 impl<'a> BusInterface for Bus<'a> {
@@ -226,34 +258,25 @@ impl<'a> BusInterface for Bus<'a> {
 
     #[inline]
     fn write(&mut self, address: u32, value: u8) {
-        log::trace!("Bus write {address:06X} {value:02X}");
-
-        let bank = (address >> 16) as u8;
-        let offset = address as u16;
-        match (bank, offset) {
-            (0x00..=0x3F | 0x80..=0xBF, 0x0000..=0x7FFF) => {
-                // System area
-                self.write_system_area(address, value);
-            }
-            (0x00..=0x3F, 0x8000..=0xFFFF) | (0x40..=0x7D, _) => {
-                self.access_master_cycles = SLOW_MASTER_CYCLES;
-
-                // Cartridge (Memory-1)
-                self.memory.write_cartridge(address, value);
-            }
-            (0x80..=0xBF, 0x8000..=0xFFFF) | (0xC0..=0xFF, _) => {
-                self.access_master_cycles = self.cpu_registers.memory_2_speed().master_cycles();
-
-                // Cartridge (Memory-2)
-                self.memory.write_cartridge(address, value);
-            }
-            (0x7E..=0x7F, _) => {
-                self.access_master_cycles = SLOW_MASTER_CYCLES;
-
-                // WRAM
-                self.memory.write_wram(address, value);
-            }
+        if let Some((address, value)) = self.buffered_write {
+            self.apply_write(address, value);
         }
+
+        self.buffered_write = Some((address, value));
+
+        let bank = (address >> 16) & 0xFF;
+        let offset = address & 0xFFFF;
+        self.access_master_cycles = match (bank as u8, offset as u16) {
+            (0x00..=0x3F | 0x80..=0xBF, 0x0000..=0x1FFF) => SLOW_MASTER_CYCLES,
+            (0x00..=0x3F | 0x80..=0xBF, 0x2000..=0x3FFF) => FAST_MASTER_CYCLES,
+            (0x00..=0x3F | 0x80..=0xBF, 0x4000..=0x41FF) => XSLOW_MASTER_CYCLES,
+            (0x00..=0x3F | 0x80..=0xBF, 0x4200..=0x5FFF) => FAST_MASTER_CYCLES,
+            (0x00..=0x3F | 0x80..=0xBF, 0x6000..=0x7FFF) => SLOW_MASTER_CYCLES,
+            (0x00..=0x3F, 0x8000..=0xFFFF) => SLOW_MASTER_CYCLES,
+            (0x80..=0xBF, 0x8000..=0xFFFF) => self.cpu_registers.memory_2_speed().master_cycles(),
+            (0x40..=0x7F, _) => SLOW_MASTER_CYCLES,
+            (0xC0..=0xFF, _) => self.cpu_registers.memory_2_speed().master_cycles(),
+        };
     }
 
     #[inline]

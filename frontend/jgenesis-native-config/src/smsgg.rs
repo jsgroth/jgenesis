@@ -1,13 +1,16 @@
 use crate::AppConfig;
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::config::{GgAspectRatio, SmsAspectRatio, SmsGgConfig};
+use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsRegion, VdpVersion};
 use std::ffi::OsStr;
 use std::path::Path;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
+)]
 pub enum SmsModel {
     Sms1,
     #[default]

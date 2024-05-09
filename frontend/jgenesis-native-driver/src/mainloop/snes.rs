@@ -64,9 +64,6 @@ pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEm
     let mut emulator =
         SnesEmulator::create(rom, emulator_config, coprocessor_roms, &mut save_writer)?;
 
-    // Use same default window size as Genesis / Sega CD
-    let window_size = config.common.window_size.unwrap_or(config::DEFAULT_GENESIS_WINDOW_SIZE);
-
     let cartridge_title = emulator.cartridge_title();
     let window_title = format!("snes - {cartridge_title}");
 
@@ -85,7 +82,7 @@ pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEm
         emulator,
         emulator_config,
         config.common,
-        window_size,
+        config::DEFAULT_GENESIS_WINDOW_SIZE,
         &window_title,
         save_writer,
         save_state_path,
