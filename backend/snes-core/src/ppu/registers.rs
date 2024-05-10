@@ -576,7 +576,7 @@ pub struct Registers {
     pub sprite_overflow: bool,
     pub sprite_pixel_overflow: bool,
     // Tracks mid-scanline writes to certain registers (currently just scroll registers)
-    pub modified: bool,
+    pub update_line: bool,
     // Copied from WRIO CPU register (needed for H/V counter latching)
     pub programmable_joypad_port: u8,
 }
@@ -669,7 +669,7 @@ impl Registers {
             v_counter_flipflop: AccessFlipflop::default(),
             sprite_overflow: false,
             sprite_pixel_overflow: false,
-            modified: false,
+            update_line: false,
             programmable_joypad_port: 0xFF,
         }
     }
@@ -677,6 +677,8 @@ impl Registers {
     pub fn write_inidisp(&mut self, value: u8, first_vblank_scanline: bool) {
         // INIDISP: Display control 1
         let prev_forced_blanking = self.forced_blanking;
+        let prev_brightness = self.brightness;
+
         self.forced_blanking = value.bit(7);
         self.brightness = value & 0x0F;
 
@@ -684,6 +686,9 @@ impl Registers {
         if prev_forced_blanking && !self.forced_blanking && first_vblank_scanline {
             self.oam_address = self.oam_address_reload_value << 1;
         }
+
+        self.update_line |= prev_forced_blanking != self.forced_blanking
+            || (!self.forced_blanking && prev_brightness != self.brightness);
 
         log::trace!("  Forced blanking: {}", self.forced_blanking);
         log::trace!("  Brightness: {}", self.brightness);
@@ -811,8 +816,6 @@ impl Registers {
             (u16::from(value) << 8) | u16::from(prev & !0x07) | ((current >> 8) & 0x07);
         self.bg_scroll_write_buffer = value;
 
-        self.modified = true;
-
         log::trace!("  BG{} H scroll: {:04X}", i + 1, self.bg_h_scroll[i]);
     }
 
@@ -821,8 +824,6 @@ impl Registers {
 
         self.bg_v_scroll[i] = u16::from_le_bytes([prev, value]);
         self.bg_scroll_write_buffer = value;
-
-        self.modified = true;
 
         log::trace!("  BG{} V scroll: {:04X}", i + 1, self.bg_v_scroll[i]);
     }

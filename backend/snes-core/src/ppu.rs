@@ -451,8 +451,7 @@ impl Ppu {
         {
             // Just crossed H=22; render current line in full
             self.render_current_line(0);
-        } else if self.registers.modified
-            && !self.registers.forced_blanking
+        } else if self.registers.update_line
             && is_active_scanline
             && (RENDER_LINE_MCLK..END_RENDER_LINE_MCLK).contains(&new_scanline_mclks)
         {
@@ -461,7 +460,7 @@ impl Ppu {
             self.render_current_line(from_pixel as u16);
         }
 
-        self.registers.modified = false;
+        self.registers.update_line = false;
 
         tick_effect
     }
@@ -502,14 +501,16 @@ impl Ppu {
 
         let bg_from_pixel =
             if hi_res_mode == HiResMode::True { 2 * from_pixel } else { from_pixel };
+        let screen_from_pixel = if hi_res_mode.is_hi_res() { 2 * from_pixel } else { from_pixel };
+
         if hi_res_mode == HiResMode::True && self.registers.interlaced {
             for y in [2 * scanline - 1, 2 * scanline] {
                 self.render_bg_layers_to_buffer(y, hi_res_mode, bg_from_pixel);
-                self.render_scanline(y, hi_res_mode);
+                self.render_scanline(y, hi_res_mode, screen_from_pixel);
             }
         } else {
             self.render_bg_layers_to_buffer(scanline, hi_res_mode, bg_from_pixel);
-            self.render_scanline(scanline, hi_res_mode);
+            self.render_scanline(scanline, hi_res_mode, screen_from_pixel);
         }
     }
 
@@ -825,7 +826,7 @@ impl Ppu {
         }
     }
 
-    fn render_scanline(&mut self, scanline: u16, hi_res_mode: HiResMode) {
+    fn render_scanline(&mut self, scanline: u16, hi_res_mode: HiResMode, screen_from_pixel: u16) {
         // Main screen is always rendered
         self.render_screen_pixels(Screen::Main, hi_res_mode);
 
@@ -846,7 +847,7 @@ impl Ppu {
             RenderedPixel { palette: 0, color: self.cgram[0], layer: Layer::Backdrop };
         let sub_backdrop_color = self.registers.sub_backdrop_color;
 
-        for pixel in 0..screen_width as u16 {
+        for pixel in screen_from_pixel..screen_width as u16 {
             let screen_x = match hi_res_mode {
                 HiResMode::None => pixel,
                 HiResMode::Pseudo | HiResMode::True => pixel / 2,
