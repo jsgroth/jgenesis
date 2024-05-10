@@ -41,6 +41,7 @@ const SNES_OPTIONS_HEADING: &str = "SNES Options";
 const GB_OPTIONS_HEADING: &str = "Game Boy Options";
 const VIDEO_OPTIONS_HEADING: &str = "Video Options";
 const AUDIO_OPTIONS_HEADING: &str = "Audio Options";
+const HOTKEY_OPTIONS_HEADING: &str = "Hotkey Options";
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -315,6 +316,14 @@ struct Args {
     /// Audio gain in decibels; can be positive or negative
     #[arg(long, help_heading = AUDIO_OPTIONS_HEADING)]
     audio_gain_db: Option<f64>,
+
+    /// Fast forward multiplier
+    #[arg(long, help_heading = HOTKEY_OPTIONS_HEADING)]
+    fast_forward_multiplier: Option<u64>,
+
+    /// Rewind buffer length in seconds
+    #[arg(long, help_heading = HOTKEY_OPTIONS_HEADING)]
+    rewind_buffer_length_seconds: Option<u64>,
 }
 
 macro_rules! apply_overrides {
@@ -354,6 +363,7 @@ impl Args {
         self.apply_gb_overrides(config);
         self.apply_video_overrides(config);
         self.apply_audio_overrides(config);
+        self.apply_hotkey_overrides(config);
     }
 
     fn apply_common_overrides(&self, config: &mut AppConfig) {
@@ -508,6 +518,14 @@ impl Args {
                 audio_sync_threshold,
                 audio_gain_db,
             ]
+        );
+    }
+
+    fn apply_hotkey_overrides(&self, config: &mut AppConfig) {
+        apply_overrides!(
+            self,
+            config.common,
+            [fast_forward_multiplier, rewind_buffer_length_seconds]
         );
     }
 }
