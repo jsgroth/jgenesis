@@ -1498,8 +1498,9 @@ impl Ppu {
             let address = address & 0xFF;
             if address != 0x04 && address != 0x18 && address != 0x19 && address != 0x22 {
                 log::trace!(
-                    "PPU register write: 21{address:02X} {value:02X} (scanline {})",
-                    self.state.scanline
+                    "PPU register write: 21{address:02X} {value:02X} (scanline {} mclk {})",
+                    self.state.scanline,
+                    self.state.scanline_master_cycles,
                 );
             }
         }
