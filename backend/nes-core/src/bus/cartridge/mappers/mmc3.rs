@@ -43,7 +43,7 @@ impl BankMapping {
             prg_rom_len,
             chr_len,
             prg_bank_0: 0,
-            prg_bank_1: 0,
+            prg_bank_1: 1,
             chr_banks: [0; 6],
         }
     }
