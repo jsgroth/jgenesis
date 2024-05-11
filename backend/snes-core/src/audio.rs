@@ -1,10 +1,11 @@
 //! SNES audio resampling code
 
+use crate::apu;
 use bincode::{Decode, Encode};
 use jgenesis_common::audio::SignalResampler;
 use jgenesis_common::frontend::AudioOutput;
 
-const SNES_AUDIO_FREQUENCY: f64 = 32000.0;
+const SNES_AUDIO_FREQUENCY: f64 = apu::OUTPUT_FREQUENCY as f64;
 
 const LPF_COEFFICIENT_0: f64 = -0.001032167331725023;
 const LPF_COEFFICIENTS: [f64; 21] = [

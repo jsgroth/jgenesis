@@ -17,10 +17,15 @@ use spc700_emu::Spc700;
 
 const AUDIO_RAM_LEN: usize = 64 * 1024;
 
-const ACTUAL_APU_MASTER_CLOCK_FREQUENCY: u64 = 24_576_000;
+// The APU frequency is 32000 Hz on paper, but hardware tends to run slightly faster than that
+pub const OUTPUT_FREQUENCY: u64 = 32040;
+
+// Roughly 24.607 MHz
+const ACTUAL_APU_MASTER_CLOCK_FREQUENCY: u64 = OUTPUT_FREQUENCY * 768;
+
 // APU master clock rate increased such that audio signal is timed to 60Hz for NTSC (and slightly under 50Hz for PAL)
-// Specifically, ceil(actual_mclk_rate * 60.099 / 60.0)
-const ADJUSTED_APU_MASTER_CLOCK_FREQUENCY: u64 = 24_616_551;
+// Specifically, (actual_mclk_rate * 60.099 / 60.0)
+const ADJUSTED_APU_MASTER_CLOCK_FREQUENCY: u64 = ACTUAL_APU_MASTER_CLOCK_FREQUENCY * 60099 / 60000;
 
 // APU outputs a sample every 24 * 32 master clocks
 const SAMPLE_DIVIDER: u8 = 32;
