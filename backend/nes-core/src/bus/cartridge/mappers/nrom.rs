@@ -163,11 +163,21 @@ pub(crate) struct Cnrom {
     chr_type: ChrType,
     chr_bank: u8,
     nametable_mirroring: NametableMirroring,
+    emulate_bus_conflicts: bool,
 }
 
 impl Cnrom {
-    pub(crate) fn new(chr_type: ChrType, nametable_mirroring: NametableMirroring) -> Self {
-        Self { chr_type, chr_bank: 0, nametable_mirroring }
+    pub(crate) fn new(
+        chr_type: ChrType,
+        nametable_mirroring: NametableMirroring,
+        sub_mapper_number: u8,
+    ) -> Self {
+        let emulate_bus_conflicts = sub_mapper_number == 0 || sub_mapper_number == 2;
+        log::info!(
+            "Emulating CNROM bus conflicts: {emulate_bus_conflicts} (sub mapper {sub_mapper_number})"
+        );
+
+        Self { chr_type, chr_bank: 0, nametable_mirroring, emulate_bus_conflicts }
     }
 }
 
@@ -181,7 +191,15 @@ impl MapperImpl<Cnrom> {
             0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
             0x4020..=0x7FFF => {}
             0x8000..=0xFFFF => {
-                self.data.chr_bank = value;
+                // Mapper bus conflict behavior: the value written by the CPU is bitwise ANDed with
+                // the value at that address in PRG ROM.
+                // Cybernoid depends on this or graphics will be corrupted after certain parts of
+                // its audio code run
+                self.data.chr_bank = if self.data.emulate_bus_conflicts {
+                    value & self.cartridge.get_prg_rom(address.into())
+                } else {
+                    value
+                };
             }
         }
     }

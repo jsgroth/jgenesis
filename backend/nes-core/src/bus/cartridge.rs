@@ -651,7 +651,7 @@ pub(crate) fn from_ines_file(
         }),
         3 => Mapper::Cnrom(MapperImpl {
             cartridge,
-            data: Cnrom::new(header.chr_type, header.nametable_mirroring),
+            data: Cnrom::new(header.chr_type, header.nametable_mirroring, header.sub_mapper_number),
         }),
         4 | 76 | 88 | 95 | 154 | 206 => Mapper::Mmc3(MapperImpl {
             cartridge,
