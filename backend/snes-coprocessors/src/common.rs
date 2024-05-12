@@ -21,8 +21,7 @@ impl Deref for Rom {
 pub fn lorom_map_rom_address(address: u32, rom_len: u32) -> u32 {
     // LoROM mapping ignores A23 and A15, and A16-22 are shifted right 1
     let rom_addr = ((address & 0x7F0000) >> 1) | (address & 0x007FFF);
-    // TODO better handle unusual ROM sizes
-    rom_addr % rom_len
+    rom_addr & (rom_len - 1)
 }
 
 macro_rules! impl_take_set_rom {

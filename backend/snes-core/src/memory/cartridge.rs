@@ -118,54 +118,17 @@ const HEADER_MAP_OFFSET: usize = 0x15;
 const LOROM_RESET_VECTOR: usize = 0x7FFC;
 const HIROM_RESET_VECTOR: usize = 0xFFFC;
 
-#[derive(Debug, Clone, Copy, Encode, Decode)]
-pub enum RomAddressMask {
-    PowerOfTwo { mask: u32 },
-    NonPowerOfTwo { primary_mask: u32, secondary_mask: u32 },
-}
-
-impl RomAddressMask {
-    fn from_rom_len(rom_len: u32) -> Self {
-        if rom_len.count_ones() == 1 {
-            // Easy case
-            return Self::PowerOfTwo { mask: rom_len - 1 };
-        }
-
-        // Annoying case; some games depend on getting this right, e.g. Mega Man X
-        let rom_len_log2 = rom_len.ilog2();
-        let primary_mask = 1 << rom_len_log2;
-        let secondary_log2 = (rom_len & !primary_mask).ilog2();
-        let secondary_mask = (1 << secondary_log2) - 1;
-        Self::NonPowerOfTwo { primary_mask, secondary_mask }
-    }
-
-    fn mask(self, rom_addr: u32) -> u32 {
-        match self {
-            Self::PowerOfTwo { mask } => rom_addr & mask,
-            Self::NonPowerOfTwo { primary_mask, secondary_mask } => {
-                if rom_addr & primary_mask == 0 {
-                    rom_addr & (primary_mask - 1)
-                } else {
-                    primary_mask | (rom_addr & secondary_mask)
-                }
-            }
-        }
-    }
-}
-
 #[derive(Debug, Clone, Encode, Decode, PartialClone)]
 pub enum Cartridge {
     LoRom {
         #[partial_clone(default)]
         rom: Rom,
         sram: Box<[u8]>,
-        mask: RomAddressMask,
     },
     HiRom {
         #[partial_clone(default)]
         rom: Rom,
         sram: Box<[u8]>,
-        mask: RomAddressMask,
     },
     ExHiRom {
         #[partial_clone(default)]
@@ -179,14 +142,12 @@ pub enum Cartridge {
         rom: Rom,
         sram: Box<[u8]>,
         upd77c25: Upd77c25,
-        mask: RomAddressMask,
     },
     DspHiRom {
         #[partial_clone(default)]
         rom: Rom,
         sram: Box<[u8]>,
         upd77c25: Upd77c25,
-        mask: RomAddressMask,
     },
     Obc1(#[partial_clone(partial)] Obc1),
     Sa1(#[partial_clone(partial)] Sa1),
@@ -197,13 +158,12 @@ pub enum Cartridge {
         #[partial_clone(default)]
         rom: Rom,
         upd77c25: Upd77c25,
-        mask: RomAddressMask,
     },
 }
 
 impl Cartridge {
     pub fn create<S: SaveWriter>(
-        rom: Box<[u8]>,
+        mut rom: Vec<u8>,
         initial_sram: Option<Vec<u8>>,
         coprocessor_roms: &CoprocessorRoms,
         forced_timing_mode: Option<TimingMode>,
@@ -212,21 +172,22 @@ impl Cartridge {
     ) -> SnesLoadResult<Self> {
         // Older SNES ROM images have an extra 512-byte header; check for that and strip it off
         if rom.len() & 0x7FFF == 0x0200 {
-            let stripped_rom = rom[0x200..].to_vec().into_boxed_slice();
-            return Self::create(
-                stripped_rom,
-                initial_sram,
-                coprocessor_roms,
-                forced_timing_mode,
-                gsu_overclock_factor,
-                save_writer,
-            );
+            rom = rom[0x200..].to_vec();
         }
 
         let cartridge_type = guess_cartridge_type(&rom).unwrap_or_else(|| {
             log::error!("Unable to confidently determine ROM type; defaulting to LoROM");
             CartridgeType::LoRom
         });
+
+        if cartridge_type != CartridgeType::Spc7110 {
+            mirror_to_next_power_of_two(&mut rom);
+            log::debug!("ROM length after mirroring is {} bytes", rom.len());
+
+            debug_assert_eq!(rom.len().count_ones(), 1);
+        }
+
+        let rom = rom.into_boxed_slice();
 
         let rom_header_addr = match cartridge_type {
             CartridgeType::LoRom
@@ -287,8 +248,7 @@ impl Cartridge {
                 .map_err(|(source, path)| SnesLoadError::CoprocessorRomLoad { source, path })?;
             let upd77c25 = Upd77c25::new(&st01x_rom, st01x_variant.into(), &sram, timing_mode);
 
-            let mask = RomAddressMask::from_rom_len(rom.len() as u32);
-            return Ok(Self::St01x { rom: Rom(rom), upd77c25, mask });
+            return Ok(Self::St01x { rom: Rom(rom), upd77c25 });
         }
 
         // Check for DSP-1/2/3/4 coprocessor (identified by chipset $03-$05, can be LoROM or HiROM)
@@ -318,23 +278,16 @@ impl Cartridge {
                 .map_err(|(source, path)| SnesLoadError::CoprocessorRomLoad { source, path })?;
             let upd77c25 = Upd77c25::new(&dsp_rom, Upd77c25Variant::Dsp, &sram, timing_mode);
 
-            let mask = RomAddressMask::from_rom_len(rom.len() as u32);
             return match cartridge_type {
-                CartridgeType::LoRom => Ok(Self::DspLoRom { rom: Rom(rom), sram, upd77c25, mask }),
-                CartridgeType::HiRom => Ok(Self::DspHiRom { rom: Rom(rom), sram, upd77c25, mask }),
+                CartridgeType::LoRom => Ok(Self::DspLoRom { rom: Rom(rom), sram, upd77c25 }),
+                CartridgeType::HiRom => Ok(Self::DspHiRom { rom: Rom(rom), sram, upd77c25 }),
                 _ => unreachable!("nested match expressions"),
             };
         }
 
         Ok(match cartridge_type {
-            CartridgeType::LoRom => {
-                let mask = RomAddressMask::from_rom_len(rom.len() as u32);
-                Self::LoRom { rom: Rom(rom), sram, mask }
-            }
-            CartridgeType::HiRom => {
-                let mask = RomAddressMask::from_rom_len(rom.len() as u32);
-                Self::HiRom { rom: Rom(rom), sram, mask }
-            }
+            CartridgeType::LoRom => Self::LoRom { rom: Rom(rom), sram },
+            CartridgeType::HiRom => Self::HiRom { rom: Rom(rom), sram },
             CartridgeType::ExHiRom => new_exhirom_cartridge(rom, sram, save_writer),
             CartridgeType::Cx4 => Self::Cx4(Cx4::new(rom)),
             CartridgeType::Obc1 => Self::Obc1(Obc1::new(rom, sram)),
@@ -349,25 +302,25 @@ impl Cartridge {
         let bank = (address >> 16) & 0xFF;
         let offset = address & 0xFFFF;
         let (mapped_address, rom, sram) = match self {
-            Self::LoRom { rom, sram, mask } => {
-                (lorom_map_address(address, *mask, sram.len() as u32), rom, sram)
+            Self::LoRom { rom, sram } => {
+                (lorom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram)
             }
-            Self::DspLoRom { rom, sram, upd77c25, mask } => match (bank, offset) {
+            Self::DspLoRom { rom, sram, upd77c25 } => match (bank, offset) {
                 (0x30..=0x3F | 0xC0..=0xCF, 0x8000..=0xBFFF) => return Some(upd77c25.read_data()),
                 (0x30..=0x3F | 0xC0..=0xCF, 0xC000..=0xFFFF) => {
                     return Some(upd77c25.read_status());
                 }
-                _ => (lorom_map_address(address, *mask, sram.len() as u32), rom, sram),
+                _ => (lorom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram),
             },
-            Self::HiRom { rom, sram, mask } => {
-                (hirom_map_address(address, *mask, sram.len() as u32), rom, sram)
+            Self::HiRom { rom, sram } => {
+                (hirom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram)
             }
-            Self::DspHiRom { rom, sram, upd77c25, mask } => match (bank, offset) {
+            Self::DspHiRom { rom, sram, upd77c25 } => match (bank, offset) {
                 (0x00..=0x0F | 0x80..=0x8F, 0x6000..=0x6FFF) => return Some(upd77c25.read_data()),
                 (0x00..=0x0F | 0x80..=0x8F, 0x7000..=0x7FFF) => {
                     return Some(upd77c25.read_status());
                 }
-                _ => (hirom_map_address(address, *mask, sram.len() as u32), rom, sram),
+                _ => (hirom_map_address(address, rom.len() as u32, sram.len() as u32), rom, sram),
             },
             Self::ExHiRom { rom, sram, srtc, .. } => match (bank, offset, srtc) {
                 (0x00..=0x3F | 0x80..=0xBF, 0x2800, Some(srtc)) => return Some(srtc.read()),
@@ -379,7 +332,7 @@ impl Cartridge {
             Self::Sdd1(sdd1) => return sdd1.read(address),
             Self::Spc7110(spc7110) => return spc7110.read(address),
             Self::SuperFx(sfx) => return sfx.read(address),
-            Self::St01x { rom, upd77c25, mask } => {
+            Self::St01x { rom, upd77c25 } => {
                 return match (bank, offset) {
                     (0x60..=0x67, 0x0000) => Some(upd77c25.read_data()),
                     (0x60..=0x67, 0x0001) => Some(upd77c25.read_status()),
@@ -387,7 +340,7 @@ impl Cartridge {
                         let sram_addr = ((bank & 0x7) << 12) | (offset & 0xFFF);
                         Some(upd77c25.read_ram(sram_addr))
                     }
-                    _ => match lorom_map_address(address, *mask, 0) {
+                    _ => match lorom_map_address(address, rom.len() as u32, 0) {
                         CartridgeAddress::Rom(rom_addr) => Some(rom[rom_addr as usize]),
                         _ => None,
                     },
@@ -406,39 +359,39 @@ impl Cartridge {
         let bank = (address >> 16) & 0xFF;
         let offset = address & 0xFFFF;
         match self {
-            Self::LoRom { sram, mask, .. } => {
+            Self::LoRom { rom, sram } => {
                 if let CartridgeAddress::Sram(sram_addr) =
-                    lorom_map_address(address, *mask, sram.len() as u32)
+                    lorom_map_address(address, rom.len() as u32, sram.len() as u32)
                 {
                     sram[sram_addr as usize] = value;
                 }
             }
-            Self::DspLoRom { sram, upd77c25, mask, .. } => match (bank, offset) {
+            Self::DspLoRom { rom, sram, upd77c25 } => match (bank, offset) {
                 (0x30..=0x3F | 0xC0..=0xCF, 0x8000..=0xBFFF) => {
                     upd77c25.write_data(value);
                 }
                 _ => {
                     if let CartridgeAddress::Sram(sram_addr) =
-                        lorom_map_address(address, *mask, sram.len() as u32)
+                        lorom_map_address(address, rom.len() as u32, sram.len() as u32)
                     {
                         sram[sram_addr as usize] = value;
                     }
                 }
             },
-            Self::HiRom { sram, mask, .. } => {
+            Self::HiRom { rom, sram, .. } => {
                 if let CartridgeAddress::Sram(sram_addr) =
-                    hirom_map_address(address, *mask, sram.len() as u32)
+                    hirom_map_address(address, rom.len() as u32, sram.len() as u32)
                 {
                     sram[sram_addr as usize] = value;
                 }
             }
-            Self::DspHiRom { sram, upd77c25, mask, .. } => match (bank, offset) {
+            Self::DspHiRom { rom, sram, upd77c25 } => match (bank, offset) {
                 (0x00..=0x0F | 0x80..=0x8F, 0x6000..=0x6FFF) => {
                     upd77c25.write_data(value);
                 }
                 _ => {
                     if let CartridgeAddress::Sram(sram_addr) =
-                        hirom_map_address(address, *mask, sram.len() as u32)
+                        hirom_map_address(address, rom.len() as u32, sram.len() as u32)
                     {
                         sram[sram_addr as usize] = value;
                     }
@@ -852,18 +805,14 @@ pub(crate) enum CartridgeAddress {
     Sram(u32),
 }
 
-pub(crate) fn lorom_map_address(
-    address: u32,
-    mask: RomAddressMask,
-    sram_len: u32,
-) -> CartridgeAddress {
+pub(crate) fn lorom_map_address(address: u32, rom_len: u32, sram_len: u32) -> CartridgeAddress {
     let bank = address >> 16;
     let offset = address & 0xFFFF;
     match (bank, offset) {
         (0x00..=0x3F | 0x80..=0xBF | 0x70..=0x7D | 0xF0..=0xFF, 0x8000..=0xFFFF)
         | (0x40..=0x6F | 0xC0..=0xEF, _) => {
             // ROM; typically at $8000-$FFFF and sometimes mirrored into $0000-$7FFF
-            let rom_addr = lorom_map_rom_address(address, mask);
+            let rom_addr = lorom_map_rom_address(address, rom_len);
             CartridgeAddress::Rom(rom_addr)
         }
         (0x70..=0x7D | 0xF0..=0xFF, 0x0000..=0x7FFF) => {
@@ -875,7 +824,7 @@ pub(crate) fn lorom_map_address(
                 CartridgeAddress::Sram(sram_addr)
             } else {
                 // Treat as ROM mirror
-                let rom_addr = lorom_map_rom_address(address, mask);
+                let rom_addr = lorom_map_rom_address(address, rom_len);
                 CartridgeAddress::Rom(rom_addr)
             }
         }
@@ -883,19 +832,19 @@ pub(crate) fn lorom_map_address(
     }
 }
 
-pub(crate) fn lorom_map_rom_address(address: u32, mask: RomAddressMask) -> u32 {
+pub(crate) fn lorom_map_rom_address(address: u32, rom_len: u32) -> u32 {
     // LoROM mapping ignores A23 and A15, and A16-22 are shifted right 1
     let rom_addr = ((address & 0x7F0000) >> 1) | (address & 0x007FFF);
-    mask.mask(rom_addr)
+    rom_addr & (rom_len - 1)
 }
 
-fn hirom_map_address(address: u32, mask: RomAddressMask, sram_len: u32) -> CartridgeAddress {
+fn hirom_map_address(address: u32, rom_len: u32, sram_len: u32) -> CartridgeAddress {
     let bank = address >> 16;
     let offset = address & 0xFFFF;
     match (bank, offset) {
         (0x40..=0x7D | 0xC0..=0xFF, _) | (0x00..=0x3F | 0x80..=0xBF, 0x8000..=0xFFFF) => {
             // ROM
-            let rom_addr = hirom_map_rom_address(address, mask);
+            let rom_addr = hirom_map_rom_address(address, rom_len);
             CartridgeAddress::Rom(rom_addr)
         }
         (0x20..=0x3F | 0xA0..=0xBF, 0x6000..=0x7FFF) if sram_len != 0 => {
@@ -908,10 +857,10 @@ fn hirom_map_address(address: u32, mask: RomAddressMask, sram_len: u32) -> Cartr
     }
 }
 
-fn hirom_map_rom_address(address: u32, mask: RomAddressMask) -> u32 {
+fn hirom_map_rom_address(address: u32, rom_len: u32) -> u32 {
     // HiROM mapping simply ignores A23 and A22
     let rom_addr = address & 0x3FFFFF;
-    mask.mask(rom_addr)
+    rom_addr & (rom_len - 1)
 }
 
 fn exhirom_map_address(address: u32, rom_len: u32, sram_len: u32) -> CartridgeAddress {
@@ -936,14 +885,84 @@ fn exhirom_map_address(address: u32, rom_len: u32, sram_len: u32) -> CartridgeAd
 fn exhirom_map_rom_address(address: u32, rom_len: u32) -> u32 {
     // ExHiROM mapping ignores A22, and A23 is inverted and shifted right 1
     let rom_addr = (address & 0x3FFFFF) | (((address >> 1) & 0x400000) ^ 0x400000);
-    // TODO more gracefully handle unusual ROM sizes
-    if rom_addr >= rom_len {
-        // This will always be in-bounds because ROM address is at most $7FFFFF, and both ExHiROM
-        // games are larger than $400000 (4MB)
-        // This probably isn't correct but neither ExHiROM game seems to access ROM addresses that
-        // are >= ROM length
-        rom_addr - rom_len
-    } else {
-        rom_addr
+    rom_addr & (rom_len - 1)
+}
+
+fn mirror_to_next_power_of_two(rom: &mut Vec<u8>) {
+    if rom.is_empty() {
+        log::error!("Cannot mirror empty ROM");
+        return;
+    }
+
+    let ones_count = rom.len().count_ones();
+    if ones_count == 1 {
+        // ROM size is already a power of two
+        return;
+    }
+
+    let trailing_zeroes = rom.len().trailing_zeros();
+    let source_len = 1 << trailing_zeroes;
+    let source_mask = source_len - 1;
+
+    let remaining_rom_len = rom.len() & !source_len;
+    let copy_len = (1 << (remaining_rom_len.trailing_zeros())) - source_len;
+
+    log::debug!(
+        "ROM len is {}; duplicating last {source_len} bytes of ROM to last {copy_len} bytes",
+        rom.len()
+    );
+
+    let base_addr = rom.len() & !source_len;
+    for i in 0..copy_len {
+        rom.push(rom[base_addr + (i & source_mask)]);
+    }
+
+    // Recurse in case there are more than 2 ROM chips (e.g. fan translated version of Daikaijuu
+    // Monogatari II which is 5.5MB)
+    mirror_to_next_power_of_two(rom);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::array;
+
+    fn new_vec<const LEN: usize>() -> Vec<u8> {
+        Vec::from(array::from_fn::<u8, LEN, _>(|i| i as u8))
+    }
+
+    #[test]
+    fn mirror_empty_rom() {
+        let mut rom = vec![];
+        mirror_to_next_power_of_two(&mut rom);
+        assert_eq!(rom, vec![]);
+    }
+
+    #[test]
+    fn mirror_power_of_two() {
+        let mut rom = new_vec::<8>();
+        mirror_to_next_power_of_two(&mut rom);
+        assert_eq!(rom, vec![0, 1, 2, 3, 4, 5, 6, 7]);
+    }
+
+    #[test]
+    fn mirror_6_to_8() {
+        let mut rom = new_vec::<6>();
+        mirror_to_next_power_of_two(&mut rom);
+        assert_eq!(rom, vec![0, 1, 2, 3, 4, 5, 4, 5]);
+    }
+
+    #[test]
+    fn mirror_5_to_8() {
+        let mut rom = new_vec::<5>();
+        mirror_to_next_power_of_two(&mut rom);
+        assert_eq!(rom, vec![0, 1, 2, 3, 4, 4, 4, 4]);
+    }
+
+    #[test]
+    fn mirror_11_to_16() {
+        let mut rom = new_vec::<11>();
+        mirror_to_next_power_of_two(&mut rom);
+        assert_eq!(rom, vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 8, 9, 10, 10]);
     }
 }

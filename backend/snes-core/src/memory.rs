@@ -58,7 +58,7 @@ impl Memory {
         save_writer: &mut S,
     ) -> SnesLoadResult<Self> {
         let cartridge = Cartridge::create(
-            rom.into_boxed_slice(),
+            rom,
             initial_sram,
             coprocessor_roms,
             forced_timing_mode,

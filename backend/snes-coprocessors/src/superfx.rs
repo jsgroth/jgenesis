@@ -198,6 +198,14 @@ pub fn guess_ram_len(rom: &[u8]) -> usize {
     // explicitly specify 64KB
     match (rom[0x7FDA], rom[0x7FBD]) {
         (0x33, 0x06) => 64 * 1024,
-        _ => 32 * 1024,
+        _ => {
+            if &rom[0x7FC0..0x7FD2] == "Voxels in progress".as_bytes() {
+                // VOXEL.smc demo does not specify RAM size but requires 64KB of Super FX RAM
+                64 * 1024
+            } else {
+                // Header does not specify RAM size (e.g. Star Fox), default to 32KB
+                32 * 1024
+            }
+        }
     }
 }
