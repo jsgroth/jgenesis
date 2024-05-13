@@ -177,8 +177,8 @@ impl FmChannel {
             algorithm: 0,
             am_sensitivity: 0,
             fm_sensitivity: 0,
-            l_output: false,
-            r_output: false,
+            l_output: true,
+            r_output: true,
             divider: FM_SAMPLE_DIVIDER,
             current_output: (0, 0),
         }
