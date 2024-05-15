@@ -48,9 +48,14 @@ impl SnesAspectRatio {
             }
         };
 
-        if frame_size.width == 512 && (frame_size.height == 224 || frame_size.height == 239) {
+        if frame_size.width == 512 && frame_size.height < 240 {
             // Cut pixel aspect ratio in half to account for the screen being squished horizontally
-            pixel_aspect_ratio /= 2.0;
+            pixel_aspect_ratio *= 0.5;
+        }
+
+        if frame_size.width == 256 && frame_size.height >= 240 {
+            // Double pixel aspect ratio to account for the screen being stretched horizontally
+            pixel_aspect_ratio *= 2.0;
         }
 
         Some(PixelAspectRatio::try_from(pixel_aspect_ratio).unwrap())

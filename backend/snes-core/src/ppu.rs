@@ -51,7 +51,9 @@ struct State {
     ppu2_open_bus: u8,
     last_rendered_scanline: Option<u16>,
     // Tracks if Mode 5/6 or pseudo-hi-res was enabled at any point during active display
-    hi_res_frame: bool,
+    h_hi_res_frame: bool,
+    // Tracks if interlacing was enabled at the start of the frame
+    v_hi_res_frame: bool,
 }
 
 impl State {
@@ -64,12 +66,13 @@ impl State {
             ppu1_open_bus: 0,
             ppu2_open_bus: 0,
             last_rendered_scanline: None,
-            hi_res_frame: false,
+            h_hi_res_frame: false,
+            v_hi_res_frame: false,
         }
     }
 
     fn frame_screen_width(&self) -> u32 {
-        if self.hi_res_frame { HIRES_SCREEN_WIDTH as u32 } else { NORMAL_SCREEN_WIDTH as u32 }
+        if self.h_hi_res_frame { HIRES_SCREEN_WIDTH as u32 } else { NORMAL_SCREEN_WIDTH as u32 }
     }
 }
 
@@ -412,7 +415,8 @@ impl Ppu {
                 // TODO wait until H=1?
                 self.state.odd_frame = !self.state.odd_frame;
                 self.state.last_rendered_scanline = None;
-                self.state.hi_res_frame = self.registers.in_hi_res_mode();
+                self.state.h_hi_res_frame = self.registers.in_hi_res_mode();
+                self.state.v_hi_res_frame = self.registers.interlaced;
 
                 if !self.registers.forced_blanking {
                     self.registers.sprite_overflow = false;
@@ -460,7 +464,7 @@ impl Ppu {
         if self.registers.forced_blanking {
             // Forced blanking always draws black
             let screen_width = self.state.frame_screen_width();
-            if self.is_v_hi_res() {
+            if self.state.v_hi_res_frame {
                 for y in [2 * scanline - 1, 2 * scanline] {
                     for pixel in 0..screen_width as u16 {
                         self.set_in_frame_buffer(y, pixel, Color::BLACK);
@@ -489,13 +493,33 @@ impl Ppu {
         let bg_from_pixel =
             if hi_res_mode == HiResMode::True { 2 * from_pixel } else { from_pixel };
         let screen_from_pixel = if hi_res_mode.is_hi_res() { 2 * from_pixel } else { from_pixel };
+        let v_hi_res = hi_res_mode == HiResMode::True && self.registers.interlaced;
 
-        if hi_res_mode == HiResMode::True && self.registers.interlaced {
+        if self.state.v_hi_res_frame && v_hi_res {
+            // Vertical hi-res, 448px
+            // TODO handle smaller OBJs flag
             for y in [2 * scanline - 1, 2 * scanline] {
                 self.render_bg_layers_to_buffer(y, hi_res_mode, bg_from_pixel);
                 self.render_scanline(y, hi_res_mode, screen_from_pixel);
             }
+        } else if !self.state.v_hi_res_frame && v_hi_res {
+            // Probably should never happen - PPU is in 448px mode but interlacing was disabled at
+            // start of frame
+            let y = if self.state.odd_frame { 2 * scanline } else { 2 * scanline - 1 };
+            self.render_bg_layers_to_buffer(y, hi_res_mode, bg_from_pixel);
+            self.render_scanline(scanline, hi_res_mode, screen_from_pixel);
+        } else if self.state.v_hi_res_frame {
+            // Interlacing was enabled at start of frame - duplicate lines
+            // TODO handle smaller OBJs flag
+            self.render_bg_layers_to_buffer(scanline, hi_res_mode, bg_from_pixel);
+            self.render_scanline(2 * scanline - 1, hi_res_mode, screen_from_pixel);
+            self.duplicate_line(
+                (2 * scanline - 1).into(),
+                (2 * scanline).into(),
+                screen_from_pixel.into(),
+            );
         } else {
+            // Interlacing is disabled, render normally
             self.render_bg_layers_to_buffer(scanline, hi_res_mode, bg_from_pixel);
             self.render_scanline(scanline, hi_res_mode, screen_from_pixel);
         }
@@ -588,7 +612,7 @@ impl Ppu {
 
             if hi_res_mode == HiResMode::True {
                 // H scroll values are effectively doubled in mode 5/6
-                h_scroll *= 2;
+                h_scroll <<= 1;
             }
 
             // Apply scroll values
@@ -889,7 +913,7 @@ impl Ppu {
 
             let final_color = convert_snes_color(snes_color, brightness);
 
-            if self.state.hi_res_frame && !hi_res_mode.is_hi_res() {
+            if self.state.h_hi_res_frame && !hi_res_mode.is_hi_res() {
                 // Hi-res mode is not currently enabled, but it was enabled earlier in the frame;
                 // draw in 512px
                 self.set_in_frame_buffer(scanline, 2 * pixel, final_color);
@@ -1295,10 +1319,15 @@ impl Ppu {
     }
 
     fn enter_hi_res_mode(&mut self) {
-        if !self.vblank_flag() && !self.state.hi_res_frame {
+        if !self.vblank_flag() && !self.state.h_hi_res_frame {
             // Hi-res mode enabled mid-frame; redraw previously rendered scanlines to 512x224 in-place
             if let Some(last_rendered_scanline) = self.state.last_rendered_scanline {
-                for scanline in (1..=last_rendered_scanline).rev() {
+                let last_copy_line = if self.state.v_hi_res_frame {
+                    2 * last_rendered_scanline
+                } else {
+                    last_rendered_scanline
+                };
+                for scanline in (1..=last_copy_line).rev() {
                     let src_line_addr = 256 * u32::from(scanline - 1);
                     let dest_line_addr = 512 * u32::from(scanline - 1);
                     for pixel in (0..256).rev() {
@@ -1310,13 +1339,23 @@ impl Ppu {
             }
         }
 
-        self.state.hi_res_frame = true;
+        self.state.h_hi_res_frame = true;
     }
 
     fn set_in_frame_buffer(&mut self, scanline: u16, pixel: u16, color: Color) {
         let screen_width = self.state.frame_screen_width();
         let index = u32::from(scanline - 1) * screen_width + u32::from(pixel);
         self.frame_buffer[index as usize] = color;
+    }
+
+    fn duplicate_line(&mut self, from_line: u32, to_line: u32, from_pixel: u32) {
+        let screen_width = self.state.frame_screen_width();
+        let from_row_addr = screen_width * (from_line - 1);
+        let to_row_addr = screen_width * (to_line - 1);
+        for pixel in from_pixel..screen_width {
+            self.frame_buffer[(to_row_addr + pixel) as usize] =
+                self.frame_buffer[(from_row_addr + pixel) as usize];
+        }
     }
 
     fn scanlines_per_frame(&self) -> u16 {
@@ -1378,15 +1417,11 @@ impl Ppu {
         let screen_width = self.state.frame_screen_width();
 
         let mut screen_height = self.registers.v_display_size.to_lines();
-        if self.is_v_hi_res() {
+        if self.state.v_hi_res_frame {
             screen_height *= 2;
         }
 
         FrameSize { width: screen_width, height: screen_height.into() }
-    }
-
-    fn is_v_hi_res(&self) -> bool {
-        self.registers.bg_mode.is_hi_res() && self.registers.interlaced
     }
 
     pub fn read_port(&mut self, address: u32) -> Option<u8> {
