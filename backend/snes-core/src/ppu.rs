@@ -486,10 +486,6 @@ impl Ppu {
             HiResMode::None
         };
 
-        if from_pixel == 0 {
-            self.render_obj_layer(scanline);
-        }
-
         let bg_from_pixel =
             if hi_res_mode == HiResMode::True { 2 * from_pixel } else { from_pixel };
         let screen_from_pixel = if hi_res_mode.is_hi_res() { 2 * from_pixel } else { from_pixel };
@@ -497,29 +493,49 @@ impl Ppu {
 
         if self.state.v_hi_res_frame && v_hi_res {
             // Vertical hi-res, 448px
-            // TODO handle smaller OBJs flag
-            for y in [2 * scanline - 1, 2 * scanline] {
-                self.render_bg_layers_to_buffer(y, hi_res_mode, bg_from_pixel);
-                self.render_scanline(y, hi_res_mode, screen_from_pixel);
+            self.render_obj_layer(scanline, false);
+            self.render_bg_layers_to_buffer(2 * scanline - 1, hi_res_mode, bg_from_pixel);
+            self.render_scanline(2 * scanline - 1, hi_res_mode, screen_from_pixel);
+
+            if self.registers.pseudo_obj_hi_res {
+                self.render_obj_layer(scanline, true);
             }
+
+            self.render_bg_layers_to_buffer(2 * scanline, hi_res_mode, bg_from_pixel);
+            self.render_scanline(2 * scanline, hi_res_mode, screen_from_pixel);
         } else if !self.state.v_hi_res_frame && v_hi_res {
             // Probably should never happen - PPU is in 448px mode but interlacing was disabled at
             // start of frame
             let y = if self.state.odd_frame { 2 * scanline } else { 2 * scanline - 1 };
+
+            if from_pixel == 0 {
+                self.render_obj_layer(scanline, y % 2 == 0);
+            }
+
             self.render_bg_layers_to_buffer(y, hi_res_mode, bg_from_pixel);
             self.render_scanline(scanline, hi_res_mode, screen_from_pixel);
         } else if self.state.v_hi_res_frame {
             // Interlacing was enabled at start of frame - duplicate lines
-            // TODO handle smaller OBJs flag
+            self.render_obj_layer(scanline, false);
             self.render_bg_layers_to_buffer(scanline, hi_res_mode, bg_from_pixel);
             self.render_scanline(2 * scanline - 1, hi_res_mode, screen_from_pixel);
-            self.duplicate_line(
-                (2 * scanline - 1).into(),
-                (2 * scanline).into(),
-                screen_from_pixel.into(),
-            );
+
+            if self.registers.interlaced && self.registers.pseudo_obj_hi_res {
+                self.render_obj_layer(scanline, true);
+                self.render_scanline(2 * scanline, hi_res_mode, screen_from_pixel);
+            } else {
+                self.duplicate_line(
+                    (2 * scanline - 1).into(),
+                    (2 * scanline).into(),
+                    screen_from_pixel.into(),
+                );
+            }
         } else {
             // Interlacing is disabled, render normally
+            if from_pixel == 0 {
+                self.render_obj_layer(scanline, false);
+            }
+
             self.render_bg_layers_to_buffer(scanline, hi_res_mode, bg_from_pixel);
             self.render_scanline(scanline, hi_res_mode, screen_from_pixel);
         }
@@ -1133,15 +1149,9 @@ impl Ppu {
         (scanline / mosaic_height * mosaic_height, pixel / mosaic_width * mosaic_width)
     }
 
-    fn render_obj_layer(&mut self, scanline: u16) {
+    fn render_obj_layer(&mut self, scanline: u16, interlaced_odd_line: bool) {
         self.scan_oam(scanline);
-        self.process_sprite_tiles(scanline);
-
-        log::trace!(
-            "Scanned {} in-range sprites and {} in-time sprite tiles on line {scanline}",
-            self.sprite_buffer.len(),
-            self.sprite_tile_buffer.len()
-        );
+        self.process_sprite_tiles(scanline, interlaced_odd_line);
 
         if !(self.registers.main_obj_enabled || self.registers.sub_obj_enabled) {
             return;
@@ -1169,14 +1179,24 @@ impl Ppu {
     }
 
     fn scan_oam(&mut self, scanline: u16) {
-        let (small_width, small_height) = self.registers.obj_tile_size.small_size();
-        let (large_width, large_height) = self.registers.obj_tile_size.large_size();
+        let (small_width, small_height, large_width, large_height) = {
+            let (small_width, mut small_height) = self.registers.obj_tile_size.small_size();
+            let (large_width, mut large_height) = self.registers.obj_tile_size.large_size();
+
+            if self.registers.interlaced && self.registers.pseudo_obj_hi_res {
+                // If smaller OBJs are enabled, pretend sprites are half-size vertically for the OAM scan
+                small_height >>= 1;
+                large_height >>= 1;
+            }
+
+            (small_width, small_height, large_width, large_height)
+        };
 
         // If priority rotate mode is set, start iteration at the current OAM address instead of
         // index 0
         let oam_offset = match self.registers.obj_priority_mode {
             ObjPriorityMode::Normal => 0,
-            ObjPriorityMode::Rotate => (((self.registers.oam_address) >> 2) & 0x7F) as usize,
+            ObjPriorityMode::Rotate => ((self.registers.oam_address >> 2) & 0x7F) as usize,
         };
 
         self.sprite_buffer.clear();
@@ -1236,7 +1256,7 @@ impl Ppu {
         }
     }
 
-    fn process_sprite_tiles(&mut self, scanline: u16) {
+    fn process_sprite_tiles(&mut self, scanline: u16, interlaced_odd_line: bool) {
         let (small_width, small_height) = self.registers.obj_tile_size.small_size();
         let (large_width, large_height) = self.registers.obj_tile_size.large_size();
 
@@ -1249,13 +1269,20 @@ impl Ppu {
                 TileSize::Large => (large_width, large_height),
             };
 
-            let sprite_line = if sprite.y_flip {
+            let mut sprite_line = if sprite.y_flip {
                 sprite_height as u8
                     - 1
                     - ((scanline as u8).wrapping_sub(sprite.y) & ((sprite_height - 1) as u8))
             } else {
                 (scanline as u8).wrapping_sub(sprite.y) & ((sprite_height - 1) as u8)
             };
+
+            // Adjust sprite line if smaller OBJs are enabled
+            // Smaller OBJs affect how the line within the sprite is determined, but not where the
+            // sprite is positioned onscreen
+            if self.registers.interlaced && self.registers.pseudo_obj_hi_res {
+                sprite_line = (sprite_line << 1) | u8::from(interlaced_odd_line ^ sprite.y_flip);
+            }
 
             let tile_y_offset: u16 = (sprite_line / 8).into();
             for tile_x_offset in 0..sprite_width / 8 {
