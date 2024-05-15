@@ -1147,7 +1147,7 @@ impl Ppu {
         // index 0
         let oam_offset = match self.registers.obj_priority_mode {
             ObjPriorityMode::Normal => 0,
-            ObjPriorityMode::Rotate => (((self.registers.oam_address) >> 1) & 0x7F) as usize,
+            ObjPriorityMode::Rotate => (((self.registers.oam_address) >> 2) & 0x7F) as usize,
         };
         let mut total_pixels = 0;
         for i in 0..OAM_LEN {
