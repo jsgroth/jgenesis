@@ -457,6 +457,12 @@ impl AccessFlipflop {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+pub enum MidScanlineUpdate {
+    Inidisp,
+    Scroll,
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Registers {
     // INIDISP
@@ -575,8 +581,8 @@ pub struct Registers {
     // Sprite overflow flags (readable in STAT77)
     pub sprite_overflow: bool,
     pub sprite_pixel_overflow: bool,
-    // Tracks mid-scanline writes to certain registers (currently just scroll registers)
-    pub update_line: bool,
+    // Tracks mid-scanline writes to certain registers (currently just scroll registers and INIDISP)
+    pub mid_line_update: Option<MidScanlineUpdate>,
     // Copied from WRIO CPU register (needed for H/V counter latching)
     pub programmable_joypad_port: u8,
 }
@@ -669,7 +675,7 @@ impl Registers {
             v_counter_flipflop: AccessFlipflop::default(),
             sprite_overflow: false,
             sprite_pixel_overflow: false,
-            update_line: false,
+            mid_line_update: None,
             programmable_joypad_port: 0xFF,
         }
     }
@@ -687,8 +693,11 @@ impl Registers {
             self.oam_address = self.oam_address_reload_value << 1;
         }
 
-        self.update_line |= prev_forced_blanking != self.forced_blanking
-            || (!self.forced_blanking && prev_brightness != self.brightness);
+        if prev_forced_blanking != self.forced_blanking
+            || (!self.forced_blanking && prev_brightness != self.brightness)
+        {
+            self.mid_line_update = Some(MidScanlineUpdate::Inidisp);
+        }
 
         log::trace!("  Forced blanking: {}", self.forced_blanking);
         log::trace!("  Brightness: {}", self.brightness);
@@ -816,6 +825,10 @@ impl Registers {
             (u16::from(value) << 8) | u16::from(prev & !0x07) | ((current >> 8) & 0x07);
         self.bg_scroll_write_buffer = value;
 
+        if self.bg_mode != BgMode::Seven {
+            self.mid_line_update = Some(MidScanlineUpdate::Scroll);
+        }
+
         log::trace!("  BG{} H scroll: {:04X}", i + 1, self.bg_h_scroll[i]);
     }
 
@@ -824,6 +837,10 @@ impl Registers {
 
         self.bg_v_scroll[i] = u16::from_le_bytes([prev, value]);
         self.bg_scroll_write_buffer = value;
+
+        if self.bg_mode != BgMode::Seven {
+            self.mid_line_update = Some(MidScanlineUpdate::Scroll);
+        }
 
         log::trace!("  BG{} V scroll: {:04X}", i + 1, self.bg_v_scroll[i]);
     }

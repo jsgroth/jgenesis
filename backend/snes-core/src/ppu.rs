@@ -5,8 +5,8 @@ mod debug;
 mod registers;
 
 use crate::ppu::registers::{
-    AccessFlipflop, BgMode, BgScreenSize, BitsPerPixel, Mode7OobBehavior, ObjPriorityMode,
-    Registers, TileSize, VramIncrementMode,
+    AccessFlipflop, BgMode, BgScreenSize, BitsPerPixel, MidScanlineUpdate, Mode7OobBehavior,
+    ObjPriorityMode, Registers, TileSize, VramIncrementMode,
 };
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{Color, FrameSize, TimingMode};
@@ -443,16 +443,28 @@ impl Ppu {
         {
             // Just crossed H=22; render current line in full
             self.render_current_line(0);
-        } else if self.registers.update_line
+        } else if self.registers.mid_line_update.is_some()
             && is_active_scanline
             && (RENDER_LINE_MCLK..END_RENDER_LINE_MCLK).contains(&new_scanline_mclks)
         {
-            // Between H=22 and H=276 and one of the scroll registers was just modified; partially render current line
-            let from_pixel = (new_scanline_mclks - RENDER_LINE_MCLK) / 4;
-            self.render_current_line(from_pixel as u16);
+            // Between H=22 and H=276 and INIDISP or one of the scroll registers was just modified;
+            // partially render current line
+            let mid_line_update = self.registers.mid_line_update.unwrap();
+
+            // Scroll register writes don't seem to apply immediately - see the "Good Luck"
+            // animation in Air Strike Patrol
+            let pixel_offset = match mid_line_update {
+                MidScanlineUpdate::Inidisp => 0,
+                MidScanlineUpdate::Scroll => 15,
+            };
+
+            let from_pixel = (new_scanline_mclks - RENDER_LINE_MCLK) / 4 + pixel_offset;
+            if from_pixel < NORMAL_SCREEN_WIDTH as u64 {
+                self.render_current_line(from_pixel as u16);
+            }
         }
 
-        self.registers.update_line = false;
+        self.registers.mid_line_update = None;
 
         tick_effect
     }
