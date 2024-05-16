@@ -176,6 +176,15 @@ impl Cartridge {
             self.ram_dirty = true;
         }
     }
+
+    fn set_ram_mapped(&mut self, value: bool) {
+        self.ram_mapped = value;
+
+        if value && !self.has_battery {
+            log::info!("Cartridge RAM enabled; assuming cartridge has a battery backup");
+            self.has_battery = true;
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]
@@ -231,7 +240,7 @@ impl Memory {
             }
             (Mapper::Sega, 0xFFFC) => {
                 log::trace!("RAM flags set to {value:02X}");
-                self.cartridge.ram_mapped = value.bit(3);
+                self.cartridge.set_ram_mapped(value.bit(3));
                 self.cartridge.ram_bank = value.bit(2).into();
             }
             (Mapper::Sega, 0xFFFD) | (Mapper::Codemasters, 0x0000..=0x3FFF) => {
@@ -249,7 +258,7 @@ impl Memory {
             (Mapper::Codemasters, 0x4000..=0x7FFF) => {
                 log::trace!("ROM bank 1 set to {value:02X}");
                 self.cartridge.rom_bank_1 = value.into();
-                self.cartridge.ram_mapped = value.bit(7);
+                self.cartridge.set_ram_mapped(value.bit(7));
             }
             (Mapper::Codemasters, 0xA000..=0xBFFF) => {
                 if self.cartridge.ram_mapped {
