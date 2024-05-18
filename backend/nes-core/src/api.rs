@@ -141,7 +141,7 @@ impl NesEmulator {
         let mapper = cartridge::from_ines_file(&rom_bytes, sav_bytes, config.forced_timing_mode)?;
         let timing_mode = mapper.timing_mode();
 
-        let mut bus = Bus::from_cartridge(mapper);
+        let mut bus = Bus::from_cartridge(mapper, config.overscan);
 
         let cpu_state = CpuState::new(&mut bus.cpu());
         let ppu_state = PpuState::new(timing_mode);
@@ -347,6 +347,7 @@ impl EmulatorTrait for NesEmulator {
     fn reload_config(&mut self, config: &Self::Config) {
         self.config = *config;
 
+        self.bus.reload_config(*config);
         self.audio_resampler
             .set_apply_refresh_rate_adjustment(config.audio_refresh_rate_adjustment);
     }

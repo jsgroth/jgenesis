@@ -244,7 +244,6 @@ macro_rules! define_input_config {
         controller_cfg: $controller_cfg:ident,
         button: $button_t:ident
         $(, console_button: $console_btn_field:ident: button $console_btn:ident default $console_btn_default:ident),*
-        $(, extra: $extra_field:ident: $extra_field_t:ident),*
         $(,)?
     ) => {
         #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
@@ -254,7 +253,6 @@ macro_rules! define_input_config {
             #[indent_nested]
             pub p2: $controller_cfg<Input>,
             $(pub $console_btn_field: Option<Input>,)*
-            $(pub $extra_field: $extra_field_t,)?
         }
 
         impl Default for $input_cfg<KeyboardInput> {
@@ -263,7 +261,6 @@ macro_rules! define_input_config {
                     p1: $controller_cfg::default_p1(),
                     p2: $controller_cfg::default(),
                     $($console_btn_field: Some(KeyboardInput { keycode: Keycode::$console_btn_default.name() }),)*
-                    $($extra_field: $extra_field_t::default(),)?
                 }
             }
         }
@@ -274,7 +271,6 @@ macro_rules! define_input_config {
                     p1: $controller_cfg::default(),
                     p2: $controller_cfg::default(),
                     $($console_btn_field: None,)*
-                    $($extra_field: $extra_field_t::default(),)?
                 }
             }
         }
@@ -364,7 +360,11 @@ define_controller_config!(controller_cfg: NesControllerConfig, button: NesButton
     select: button Select default RShift,
 ]);
 
-define_input_config!(input_cfg: NesInputConfig, controller_cfg: NesControllerConfig, button: NesButton);
+define_input_config!(
+    input_cfg: NesInputConfig,
+    controller_cfg: NesControllerConfig,
+    button: NesButton,
+);
 
 define_controller_config!(controller_cfg: SnesControllerConfig, button: SnesControllerButton, fields: [
     up: button Up default Up,
@@ -385,7 +385,6 @@ define_input_config!(
     input_cfg: SnesInputConfig,
     controller_cfg: SnesControllerConfig,
     button: SnesControllerButton,
-    extra: super_scope: SuperScopeConfig,
 );
 
 define_controller_config!(controller_cfg: GameBoyInputConfig, button: GameBoyButton, fields: [
@@ -430,6 +429,40 @@ impl<Input> InputConfig for GameBoyInputConfig<Input> {
 
         self.clear_button(button);
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
+pub struct ZapperConfig {
+    pub fire: Option<KeyboardOrMouseInput>,
+    pub force_offscreen: Option<KeyboardOrMouseInput>,
+}
+
+impl ZapperConfig {
+    pub fn set_input(&mut self, button: NesButton, input: Option<KeyboardOrMouseInput>) {
+        match button {
+            NesButton::ZapperFire => self.fire = input,
+            NesButton::ZapperForceOffscreen => self.force_offscreen = input,
+            _ => {}
+        }
+    }
+}
+
+impl Default for ZapperConfig {
+    fn default() -> Self {
+        Self {
+            fire: Some(KeyboardOrMouseInput::MouseLeft),
+            force_offscreen: Some(KeyboardOrMouseInput::MouseRight),
+        }
+    }
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
+)]
+pub enum NesControllerType {
+    #[default]
+    Gamepad,
+    Zapper,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]

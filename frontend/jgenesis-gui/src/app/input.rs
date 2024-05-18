@@ -7,7 +7,8 @@ use genesis_core::GenesisControllerType;
 use jgenesis_common::input::Player;
 use jgenesis_native_config::input::InputAppConfig;
 use jgenesis_native_driver::config::input::{
-    InputConfig, JoystickInput, KeyboardInput, KeyboardOrMouseInput, SnesControllerType,
+    InputConfig, JoystickInput, KeyboardInput, KeyboardOrMouseInput, NesControllerType,
+    SnesControllerType,
 };
 use jgenesis_native_driver::input::Hotkey;
 use nes_core::input::NesButton;
@@ -74,9 +75,20 @@ impl InputAppConfigExt for InputAppConfig {
                     &mut self.genesis_joystick,
                 );
             }
-            GenericButton::Nes(button, player) => {
-                set_input(input, button, player, &mut self.nes_keyboard, &mut self.nes_joystick);
-            }
+            GenericButton::Nes(button, player) => match &input {
+                GenericInput::KeyboardOrMouse(key_or_mouse_input) => {
+                    self.nes_zapper.set_input(button, Some(key_or_mouse_input.clone()));
+                }
+                _ => {
+                    set_input(
+                        input,
+                        button,
+                        player,
+                        &mut self.nes_keyboard,
+                        &mut self.nes_joystick,
+                    );
+                }
+            },
             GenericButton::Snes(button, player) => {
                 match button {
                     SnesButton::Controller(button) => set_input(
@@ -418,6 +430,53 @@ impl App {
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::NesGamepad);
+        }
+    }
+
+    pub(super) fn render_nes_peripheral_settings(&mut self, ctx: &Context) {
+        let mut open = true;
+        Window::new("NES Peripheral Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.set_enabled(self.state.waiting_for_input.is_none());
+
+            ui.group(|ui| {
+                ui.label("P2 input device");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.config.inputs.nes_p2_type,
+                        NesControllerType::Gamepad,
+                        "Gamepad",
+                    );
+                    ui.radio_value(
+                        &mut self.config.inputs.nes_p2_type,
+                        NesControllerType::Zapper,
+                        "Zapper",
+                    );
+                });
+            });
+
+            ui.add_space(10.0);
+
+            ui.heading("Zapper");
+
+            Grid::new("zapper_grid").show(ui, |ui| {
+                self.zapper_button(
+                    self.config.inputs.nes_zapper.fire.clone(),
+                    "Pull trigger",
+                    NesButton::ZapperFire,
+                    ui,
+                );
+
+                self.zapper_button(
+                    self.config.inputs.nes_zapper.force_offscreen.clone(),
+                    "Force offscreen (while held)",
+                    NesButton::ZapperForceOffscreen,
+                    ui,
+                );
+            });
+        });
+        if !open {
+            self.state.open_windows.remove(&OpenWindow::NesPeripherals);
         }
     }
 
@@ -823,7 +882,7 @@ impl App {
             GenericButton::Nes(button, player) => match input_type {
                 InputType::Keyboard => self.config.inputs.nes_keyboard.clear_input(button, player),
                 InputType::Joystick => self.config.inputs.nes_joystick.clear_input(button, player),
-                InputType::KeyboardOrMouse => {}
+                InputType::KeyboardOrMouse => self.config.inputs.nes_zapper.set_input(button, None),
             },
             GenericButton::Snes(button, player) => match (input_type, button) {
                 (InputType::Keyboard, SnesButton::Controller(button)) => {
@@ -924,6 +983,38 @@ impl App {
 
         if ui.button("Clear").clicked() {
             self.clear_button_in_config(GenericButton::Hotkey(hotkey), InputType::Keyboard);
+        }
+
+        ui.end_row();
+    }
+
+    fn zapper_button(
+        &mut self,
+        current_value: Option<KeyboardOrMouseInput>,
+        label: &str,
+        button: NesButton,
+        ui: &mut Ui,
+    ) {
+        ui.label(format!("{label}:"));
+
+        let text = match current_value {
+            Some(value) => value.to_string(),
+            None => "<None>".into(),
+        };
+        if ui.button(text).clicked() {
+            log::debug!("Sending collect input request for Zapper button {button:?}");
+            self.emu_thread.send(EmuThreadCommand::CollectInput {
+                input_type: InputType::KeyboardOrMouse,
+                axis_deadzone: self.config.inputs.axis_deadzone,
+            });
+            self.state.waiting_for_input = Some(GenericButton::Nes(button, Player::One));
+        }
+
+        if ui.button("Clear").clicked() {
+            self.clear_button_in_config(
+                GenericButton::Nes(button, Player::One),
+                InputType::KeyboardOrMouse,
+            );
         }
 
         ui.end_row();

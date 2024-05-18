@@ -1,7 +1,7 @@
 use crate::config::input::{
     AxisDirection, HatDirection, HotkeyConfig, InputConfig, JoystickAction, JoystickDeviceId,
-    JoystickInput, KeyboardInput, KeyboardOrMouseInput, SnesControllerType, SnesInputConfig,
-    SuperScopeConfig,
+    JoystickInput, KeyboardInput, KeyboardOrMouseInput, NesControllerType, NesInputConfig,
+    SnesControllerType, SnesInputConfig, SuperScopeConfig, ZapperConfig,
 };
 use crate::mainloop::{NativeEmulatorError, NativeEmulatorResult};
 use gb_core::inputs::{GameBoyButton, GameBoyInputs};
@@ -10,7 +10,7 @@ use genesis_core::GenesisInputs;
 use jgenesis_common::frontend::FrameSize;
 use jgenesis_common::input::Player;
 use jgenesis_renderer::renderer::DisplayArea;
-use nes_core::input::{NesButton, NesInputs};
+use nes_core::input::{NesButton, NesInputDevice, NesInputs, NesJoypadState, ZapperState};
 use sdl2::event::{Event, WindowEvent};
 use sdl2::joystick::{HatState, Joystick};
 use sdl2::keyboard::Keycode;
@@ -40,6 +40,40 @@ pub trait MappableInputs<Button> {
     fn handle_mouse_leave(&mut self) {}
 }
 
+fn viewport_position_to_frame_position(
+    x: i32,
+    y: i32,
+    frame_size: FrameSize,
+    display_area: DisplayArea,
+) -> Option<(u16, u16)> {
+    let display_left = display_area.x as i32;
+    let display_right = display_left + display_area.width as i32;
+    let display_top = display_area.y as i32;
+    let display_bottom = display_top + display_area.height as i32;
+
+    if !(display_left..display_right).contains(&x) || !(display_top..display_bottom).contains(&y) {
+        return None;
+    }
+
+    let x: f64 = x.into();
+    let y: f64 = y.into();
+    let display_left: f64 = display_left.into();
+    let display_width: f64 = display_area.width.into();
+    let frame_width: f64 = frame_size.width.into();
+    let display_top: f64 = display_top.into();
+    let display_height: f64 = display_area.height.into();
+    let frame_height: f64 = frame_size.height.into();
+
+    let frame_x = ((x - display_left) * frame_width / display_width).round() as u16;
+    let frame_y = ((y - display_top) * frame_height / display_height).round() as u16;
+
+    log::trace!(
+        "Mapped mouse position ({x}, {y}) to ({frame_x}, {frame_y}) (frame size {frame_size:?}, display_area {display_area:?})"
+    );
+
+    Some((frame_x, frame_y))
+}
+
 impl MappableInputs<SmsGgButton> for SmsGgInputs {
     fn set_field(&mut self, button: SmsGgButton, player: Player, pressed: bool) {
         self.set_button(button, player, pressed);
@@ -56,6 +90,25 @@ impl MappableInputs<NesButton> for NesInputs {
     fn set_field(&mut self, button: NesButton, player: Player, pressed: bool) {
         self.set_button(button, player, pressed);
     }
+
+    fn handle_mouse_motion(
+        &mut self,
+        x: i32,
+        y: i32,
+        frame_size: FrameSize,
+        display_area: DisplayArea,
+    ) {
+        if let NesInputDevice::Zapper(zapper_state) = &mut self.p2 {
+            zapper_state.position =
+                viewport_position_to_frame_position(x, y, frame_size, display_area);
+        }
+    }
+
+    fn handle_mouse_leave(&mut self) {
+        if let NesInputDevice::Zapper(zapper_state) = &mut self.p2 {
+            zapper_state.position = None;
+        }
+    }
 }
 
 impl MappableInputs<SnesButton> for SnesInputs {
@@ -70,32 +123,10 @@ impl MappableInputs<SnesButton> for SnesInputs {
         frame_size: FrameSize,
         display_area: DisplayArea,
     ) {
-        let SnesInputDevice::SuperScope(super_scope_state) = &mut self.p2 else { return };
-
-        let display_left = display_area.x as i32;
-        let display_right = display_left + display_area.width as i32;
-        let display_top = display_area.y as i32;
-        let display_bottom = display_top + display_area.height as i32;
-
-        if !(display_left..display_right).contains(&x)
-            || !(display_top..display_bottom).contains(&y)
-        {
-            super_scope_state.position = None;
-            return;
+        if let SnesInputDevice::SuperScope(super_scope_state) = &mut self.p2 {
+            super_scope_state.position =
+                viewport_position_to_frame_position(x, y, frame_size, display_area);
         }
-
-        let x: f64 = x.into();
-        let y: f64 = y.into();
-        let display_left: f64 = display_left.into();
-        let display_width: f64 = display_area.width.into();
-        let frame_width: f64 = frame_size.width.into();
-        let display_top: f64 = display_top.into();
-        let display_height: f64 = display_area.height.into();
-        let frame_height: f64 = frame_size.height.into();
-
-        let snes_x = ((x - display_left) * frame_width / display_width).round() as u16;
-        let snes_y = ((y - display_top) * frame_height / display_height).round() as u16;
-        super_scope_state.position = Some((snes_x, snes_y));
     }
 
     fn handle_mouse_leave(&mut self) {
@@ -256,6 +287,82 @@ impl<Inputs, Button> InputMapper<Inputs, Button> {
     }
 }
 
+fn generate_nes_key_or_mouse_mapping(
+    config: &ZapperConfig,
+) -> NativeEmulatorResult<HashMap<KeycodeOrMouseButton, Vec<NesButton>>> {
+    let mut map: HashMap<KeycodeOrMouseButton, Vec<NesButton>> = HashMap::new();
+    for (input, button) in [
+        (&config.fire, NesButton::ZapperFire),
+        (&config.force_offscreen, NesButton::ZapperForceOffscreen),
+    ] {
+        let Some(input) = input else { continue };
+
+        let key_or_mouse_button: KeycodeOrMouseButton = input.clone().try_into()?;
+        map.entry(key_or_mouse_button).or_default().push(button);
+    }
+
+    Ok(map)
+}
+
+fn set_default_nes_inputs(inputs: &mut NesInputs, p2_controller_type: NesControllerType) {
+    match p2_controller_type {
+        NesControllerType::Gamepad => {
+            inputs.p2 = NesInputDevice::Controller(NesJoypadState::default());
+        }
+        NesControllerType::Zapper => {
+            inputs.p2 = NesInputDevice::Zapper(ZapperState::default());
+        }
+    }
+}
+
+impl InputMapper<NesInputs, NesButton> {
+    pub(crate) fn new_nes(
+        joystick_subsystem: JoystickSubsystem,
+        p2_controller_type: NesControllerType,
+        keyboard_inputs: &NesInputConfig<KeyboardInput>,
+        joystick_inputs: &NesInputConfig<JoystickInput>,
+        zapper_config: &ZapperConfig,
+        axis_deadzone: i16,
+    ) -> NativeEmulatorResult<Self> {
+        let (keyboard_mapping, joystick_mapping) =
+            generate_mappings(keyboard_inputs, joystick_inputs, &NesButton::ALL)?;
+
+        let mut inputs = NesInputs::default();
+        set_default_nes_inputs(&mut inputs, p2_controller_type);
+
+        Ok(Self::new_internal(
+            inputs,
+            joystick_subsystem,
+            keyboard_mapping,
+            joystick_mapping,
+            generate_nes_key_or_mouse_mapping(zapper_config)?,
+            axis_deadzone,
+        ))
+    }
+
+    pub(crate) fn reload_config_nes(
+        &mut self,
+        p2_controller_type: NesControllerType,
+        keyboard_inputs: &NesInputConfig<KeyboardInput>,
+        joystick_inputs: &NesInputConfig<JoystickInput>,
+        zapper_config: &ZapperConfig,
+        axis_deadzone: i16,
+    ) -> NativeEmulatorResult<()> {
+        let (keyboard_mapping, joystick_mapping) =
+            generate_mappings(keyboard_inputs, joystick_inputs, &NesButton::ALL)?;
+
+        self.reload_config_internal(
+            keyboard_mapping,
+            joystick_mapping,
+            generate_nes_key_or_mouse_mapping(zapper_config)?,
+            axis_deadzone,
+        );
+        set_default_nes_inputs(&mut self.inputs, p2_controller_type);
+
+        Ok(())
+    }
+}
+
 fn generate_snes_key_or_mouse_mapping(
     super_scope_config: &SuperScopeConfig,
 ) -> NativeEmulatorResult<HashMap<KeycodeOrMouseButton, Vec<SnesButton>>> {
@@ -272,6 +379,40 @@ fn generate_snes_key_or_mouse_mapping(
     }
 
     Ok(map)
+}
+
+fn convert_snes_mapping<Input: Eq + Hash>(
+    map: HashMap<Input, Vec<(SnesControllerButton, Player)>>,
+) -> HashMap<Input, Vec<(SnesButton, Player)>> {
+    map.into_iter()
+        .map(|(input, buttons)| {
+            (
+                input,
+                buttons
+                    .into_iter()
+                    .map(|(button, player)| (SnesButton::Controller(button), player))
+                    .collect(),
+            )
+        })
+        .collect()
+}
+
+fn set_default_snes_inputs(
+    inputs: &mut SnesInputs,
+    p2_controller_type: SnesControllerType,
+    super_scope_turbo: bool,
+) {
+    match p2_controller_type {
+        SnesControllerType::Gamepad => {
+            inputs.p2 = SnesInputDevice::Controller(SnesJoypadState::default());
+        }
+        SnesControllerType::SuperScope => {
+            inputs.p2 = SnesInputDevice::SuperScope(SuperScopeState {
+                turbo: super_scope_turbo,
+                ..SuperScopeState::default()
+            });
+        }
+    }
 }
 
 impl InputMapper<SnesInputs, SnesButton> {
@@ -328,40 +469,6 @@ impl InputMapper<SnesInputs, SnesButton> {
         set_default_snes_inputs(&mut self.inputs, p2_controller_type, existing_super_scope_turbo);
 
         Ok(())
-    }
-}
-
-fn convert_snes_mapping<Input: Eq + Hash>(
-    map: HashMap<Input, Vec<(SnesControllerButton, Player)>>,
-) -> HashMap<Input, Vec<(SnesButton, Player)>> {
-    map.into_iter()
-        .map(|(input, buttons)| {
-            (
-                input,
-                buttons
-                    .into_iter()
-                    .map(|(button, player)| (SnesButton::Controller(button), player))
-                    .collect(),
-            )
-        })
-        .collect()
-}
-
-fn set_default_snes_inputs(
-    inputs: &mut SnesInputs,
-    p2_controller_type: SnesControllerType,
-    super_scope_turbo: bool,
-) {
-    match p2_controller_type {
-        SnesControllerType::Gamepad => {
-            inputs.p2 = SnesInputDevice::Controller(SnesJoypadState::default());
-        }
-        SnesControllerType::SuperScope => {
-            inputs.p2 = SnesInputDevice::SuperScope(SuperScopeState {
-                turbo: super_scope_turbo,
-                ..SuperScopeState::default()
-            });
-        }
     }
 }
 

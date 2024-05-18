@@ -361,6 +361,18 @@ impl PpuState {
     pub fn frame_buffer(&self) -> &FrameBuffer {
         &self.frame_buffer
     }
+
+    fn set_in_frame_buffer(
+        &mut self,
+        y: u16,
+        x: u16,
+        pixel: u8,
+        color_emphasis: ColorEmphasis,
+        bus: &mut PpuBus<'_>,
+    ) {
+        self.frame_buffer[y as usize][x as usize] = (pixel, color_emphasis);
+        bus.handle_pixel_rendered(pixel, x, y, self.timing_mode);
+    }
 }
 
 pub fn render_pal_black_border(state: &mut PpuState) {
@@ -425,8 +437,13 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>, config: NesEmulatorConfi
 
         if VISIBLE_SCANLINES.contains(&state.scanline) && RENDERING_DOTS.contains(&state.dot) {
             let color_emphasis = ColorEmphasis::get_current(bus, state.timing_mode);
-            state.frame_buffer[state.scanline as usize][(state.dot - 1) as usize] =
-                (backdrop_color, color_emphasis);
+            state.set_in_frame_buffer(
+                state.scanline,
+                state.dot - 1,
+                backdrop_color,
+                color_emphasis,
+                bus,
+            );
         }
     }
 
@@ -748,7 +765,7 @@ fn reset_vertical_pos(registers: &mut InternalRegisters) {
         (registers.vram_address & 0x041F) | (registers.temp_vram_address & 0xFBE0);
 }
 
-fn render_pixel(state: &mut PpuState, bus: &PpuBus<'_>) {
+fn render_pixel(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     let pixel = (state.dot - 1) as u8;
 
     let tile_cycle_offset = pixel & 0x07;
@@ -814,7 +831,7 @@ fn render_pixel(state: &mut PpuState, bus: &PpuBus<'_>) {
     let color_emphasis = ColorEmphasis::get_current(bus, state.timing_mode);
 
     // Render the pixel to the frame buffer
-    state.frame_buffer[state.scanline as usize][pixel as usize] = (pixel_color, color_emphasis);
+    state.set_in_frame_buffer(state.scanline, pixel.into(), pixel_color, color_emphasis, bus);
 }
 
 fn fetch_bg_tile_data(state: &mut PpuState, bus: &mut PpuBus<'_>) {

@@ -1,7 +1,8 @@
 use genesis_core::GenesisControllerType;
 use jgenesis_native_driver::config::input::{
     GameBoyInputConfig, GenesisInputConfig, HotkeyConfig, JoystickInput, KeyboardInput,
-    NesInputConfig, SmsGgInputConfig, SnesControllerType, SnesInputConfig, SuperScopeConfig,
+    NesControllerType, NesInputConfig, SmsGgInputConfig, SnesControllerType, SnesInputConfig,
+    SuperScopeConfig, ZapperConfig,
 };
 use serde::{Deserialize, Serialize};
 
@@ -23,6 +24,10 @@ pub struct InputAppConfig {
     pub nes_keyboard: NesInputConfig<KeyboardInput>,
     #[serde(default)]
     pub nes_joystick: NesInputConfig<JoystickInput>,
+    #[serde(default)]
+    pub nes_p2_type: NesControllerType,
+    #[serde(default)]
+    pub nes_zapper: ZapperConfig,
     #[serde(default)]
     pub snes_keyboard: SnesInputConfig<KeyboardInput>,
     #[serde(default)]

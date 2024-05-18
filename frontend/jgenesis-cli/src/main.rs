@@ -7,7 +7,7 @@ use genesis_core::{GenesisAspectRatio, GenesisControllerType, GenesisRegion};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_config::smsgg::SmsModel;
 use jgenesis_native_config::AppConfig;
-use jgenesis_native_driver::config::input::SnesControllerType;
+use jgenesis_native_driver::config::input::{NesControllerType, SnesControllerType};
 use jgenesis_native_driver::config::{GgAspectRatio, SmsAspectRatio};
 use jgenesis_native_driver::NativeTickEffect;
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
@@ -156,6 +156,10 @@ struct Args {
     /// Aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
     #[arg(long, help_heading = NES_OPTIONS_HEADING)]
     nes_aspect_ratio: Option<NesAspectRatio>,
+
+    /// NES P2 controller type (Gamepad / Zapper)
+    #[arg(long, help_heading = NES_OPTIONS_HEADING)]
+    nes_p2_controller_type: Option<NesControllerType>,
 
     /// Top overscan in pixels
     #[arg(long, help_heading = NES_OPTIONS_HEADING)]
@@ -441,6 +445,8 @@ impl Args {
             overscan_left -> left,
             overscan_right -> right,
         ]);
+
+        apply_overrides!(self, config.inputs, [nes_p2_controller_type -> nes_p2_type]);
     }
 
     fn apply_snes_overrides(&self, config: &mut AppConfig) {

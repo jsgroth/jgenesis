@@ -49,6 +49,8 @@ impl AppConfig {
                 self.inputs.nes_keyboard.clone(),
                 self.inputs.nes_joystick.clone(),
             ),
+            p2_controller_type: self.inputs.nes_p2_type,
+            zapper_config: self.inputs.nes_zapper.clone(),
             forced_timing_mode: self.nes.forced_timing_mode,
             aspect_ratio: self.nes.aspect_ratio,
             overscan: self.nes.overscan,

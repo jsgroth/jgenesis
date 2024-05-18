@@ -2,7 +2,8 @@ pub mod input;
 
 use crate::config::input::{
     GameBoyInputConfig, GenesisInputConfig, HotkeyConfig, JoystickInput, KeyboardInput,
-    NesInputConfig, SmsGgInputConfig, SnesControllerType, SnesInputConfig, SuperScopeConfig,
+    NesControllerType, NesInputConfig, SmsGgInputConfig, SnesControllerType, SnesInputConfig,
+    SuperScopeConfig, ZapperConfig,
 };
 use gb_core::api::{GameBoyEmulatorConfig, GbAspectRatio, GbPalette, GbcColorCorrection};
 use genesis_core::{
@@ -235,6 +236,9 @@ impl SegaCdConfig {
 pub struct NesConfig {
     #[indent_nested]
     pub common: CommonConfig<NesInputConfig<KeyboardInput>, NesInputConfig<JoystickInput>>,
+    pub p2_controller_type: NesControllerType,
+    #[indent_nested]
+    pub zapper_config: ZapperConfig,
     pub forced_timing_mode: Option<TimingMode>,
     pub aspect_ratio: NesAspectRatio,
     pub overscan: Overscan,

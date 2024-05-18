@@ -35,8 +35,10 @@
 
 pub mod cartridge;
 
+use crate::api::{NesEmulatorConfig, Overscan};
 use crate::bus::cartridge::Mapper;
-use crate::input::{LatchedJoypadState, NesJoypadState};
+use crate::graphics::TimingModeGraphicsExt;
+use crate::input::{LatchedJoypadState, NesInputDevice, NesJoypadState, ZapperState};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::GetBit;
@@ -379,6 +381,123 @@ impl IoRegister {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
+struct ZapperBusState {
+    fire_pressed: bool,
+    position: Option<(u16, u16)>,
+    cpu_ticks_until_release: u32,
+    cpu_ticks_until_sensor_off: u32,
+}
+
+impl ZapperBusState {
+    // Roughly two frames' worth of CPU cycles
+    // In actual hardware, the bit transitions from 0 to 1 when either the trigger is full pulled or
+    // roughly 100ms after the half-pull (if the trigger is never full pulled)
+    const HALF_PULLED_CPU_TICKS: u32 = 59_661;
+
+    // Roughly 25 lines' worth of CPU cycles
+    const SENSOR_ON_CPU_TICKS: u32 = 2_841;
+
+    fn new(state: ZapperState) -> Self {
+        Self {
+            fire_pressed: state.fire,
+            position: state.position(),
+            cpu_ticks_until_release: 0,
+            cpu_ticks_until_sensor_off: 0,
+        }
+    }
+
+    fn read(&self) -> u8 {
+        let no_light_sensed_bit = u8::from(self.cpu_ticks_until_sensor_off == 0) << 3;
+        let released_bit = u8::from(self.cpu_ticks_until_release == 0) << 4;
+
+        log::trace!(
+            "Zapper read: light_sensed={} pressed={}",
+            no_light_sensed_bit == 0,
+            released_bit == 0
+        );
+
+        no_light_sensed_bit | released_bit
+    }
+
+    fn tick_cpu(&mut self) {
+        self.cpu_ticks_until_release = self.cpu_ticks_until_release.saturating_sub(1);
+        self.cpu_ticks_until_sensor_off = self.cpu_ticks_until_sensor_off.saturating_sub(1);
+    }
+
+    fn update_buttons(&mut self, state: ZapperState) {
+        self.position = state.position();
+
+        if !self.fire_pressed && state.fire {
+            log::debug!(
+                "Zapper fire button pressed; setting released bit to 0 for {} cycles",
+                Self::HALF_PULLED_CPU_TICKS
+            );
+            self.cpu_ticks_until_release = Self::HALF_PULLED_CPU_TICKS;
+        }
+
+        self.fire_pressed = state.fire;
+    }
+
+    fn handle_pixel_rendered(
+        &mut self,
+        pixel: u8,
+        x: u16,
+        y: u16,
+        timing_mode: TimingMode,
+        overscan: Overscan,
+    ) {
+        let Some((x, y)) = Self::adjust_frame_position(x, y, timing_mode, overscan) else {
+            return;
+        };
+
+        if self.position == Some((x, y)) {
+            log::debug!("Detected pixel {pixel:02X} at Zapper position of ({x}, {y})");
+
+            if should_trigger_zapper_sensor(pixel) {
+                log::debug!("  Triggered Zapper light sensor");
+                self.cpu_ticks_until_sensor_off = Self::SENSOR_ON_CPU_TICKS;
+            }
+        }
+    }
+
+    fn adjust_frame_position(
+        mut x: u16,
+        mut y: u16,
+        timing_mode: TimingMode,
+        overscan: Overscan,
+    ) -> Option<(u16, u16)> {
+        let mut overflowed;
+
+        (y, overflowed) = y.overflowing_sub(timing_mode.starting_row());
+        if overflowed {
+            return None;
+        }
+
+        (y, overflowed) = y.overflowing_sub(overscan.top);
+        if overflowed {
+            return None;
+        }
+
+        (x, overflowed) = x.overflowing_sub(overscan.left);
+        if overflowed {
+            return None;
+        }
+
+        Some((x, y))
+    }
+}
+
+fn should_trigger_zapper_sensor(pixel: u8) -> bool {
+    // Fairly arbitrary definition of what constitutes a bright enough pixel to trigger
+    // the sensor. On actual hardware this will vary by TV
+    let pixel = pixel & 0x3F;
+    pixel == 0x00
+        || (0x10..0x1D).contains(&pixel)
+        || (0x20..0x2E).contains(&pixel)
+        || (0x30..0x3E).contains(&pixel)
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct IoRegisters {
     data: [u8; 0x18],
     dma_dirty: bool,
@@ -386,14 +505,18 @@ pub struct IoRegisters {
     snd_chn_read: bool,
     p1_joypad_state: NesJoypadState,
     p2_joypad_state: NesJoypadState,
-    latched_joypad_state: Option<(LatchedJoypadState, LatchedJoypadState)>,
+    latched_p1_joypad_state: Option<LatchedJoypadState>,
+    latched_p2_joypad_state: Option<LatchedJoypadState>,
+    zapper_state: Option<ZapperBusState>,
+    // Needed for zapper positioning
+    overscan: Overscan,
 }
 
 impl IoRegisters {
     // All I/O registers are at $40xx, and JOY1/JOY2 leave the highest 3 bits unused
     const IO_OPEN_BUS_BITS: u8 = 0x40;
 
-    fn new() -> Self {
+    fn new(overscan: Overscan) -> Self {
         Self {
             data: [0; 0x18],
             dma_dirty: false,
@@ -401,7 +524,10 @@ impl IoRegisters {
             snd_chn_read: false,
             p1_joypad_state: NesJoypadState::default(),
             p2_joypad_state: NesJoypadState::default(),
-            latched_joypad_state: None,
+            latched_p1_joypad_state: None,
+            latched_p2_joypad_state: None,
+            zapper_state: None,
+            overscan,
         }
     }
 
@@ -420,22 +546,23 @@ impl IoRegisters {
                 self.snd_chn_read = true;
                 self.data[register.to_relative_address()]
             }
-            IoRegister::JOY1 => {
-                if let Some((p1_joypad_state, p2_joypad_state)) = self.latched_joypad_state {
-                    self.latched_joypad_state = Some((p1_joypad_state.shift(), p2_joypad_state));
-                    p1_joypad_state.next_bit() | Self::IO_OPEN_BUS_BITS
-                } else {
-                    u8::from(self.p1_joypad_state.a) | Self::IO_OPEN_BUS_BITS
+            IoRegister::JOY1 => match &mut self.latched_p1_joypad_state {
+                Some(latched_state) => {
+                    let next_bit = latched_state.next_bit();
+                    *latched_state = latched_state.shift();
+                    next_bit | Self::IO_OPEN_BUS_BITS
                 }
-            }
-            IoRegister::JOY2 => {
-                if let Some((p1_joypad_state, p2_joypad_state)) = self.latched_joypad_state {
-                    self.latched_joypad_state = Some((p1_joypad_state, p2_joypad_state.shift()));
-                    p2_joypad_state.next_bit() | Self::IO_OPEN_BUS_BITS
-                } else {
-                    u8::from(self.p2_joypad_state.a) | Self::IO_OPEN_BUS_BITS
+                None => u8::from(self.p1_joypad_state.a) | Self::IO_OPEN_BUS_BITS,
+            },
+            IoRegister::JOY2 => match (&mut self.latched_p2_joypad_state, &self.zapper_state) {
+                (_, Some(zapper_state)) => zapper_state.read() | Self::IO_OPEN_BUS_BITS,
+                (Some(latched_state), None) => {
+                    let next_bit = latched_state.next_bit();
+                    *latched_state = latched_state.shift();
+                    next_bit | Self::IO_OPEN_BUS_BITS
                 }
-            }
+                (None, None) => u8::from(self.p2_joypad_state.a) | Self::IO_OPEN_BUS_BITS,
+            },
             _ => Self::IO_OPEN_BUS_BITS,
         }
     }
@@ -460,10 +587,11 @@ impl IoRegisters {
         match register {
             IoRegister::JOY1 => {
                 if value.bit(0) {
-                    self.latched_joypad_state = None;
-                } else if self.latched_joypad_state.is_none() {
-                    self.latched_joypad_state =
-                        Some((self.p1_joypad_state.latch(), self.p2_joypad_state.latch()));
+                    self.latched_p1_joypad_state = None;
+                    self.latched_p2_joypad_state = None;
+                } else if self.latched_p1_joypad_state.is_none() {
+                    self.latched_p1_joypad_state = Some(self.p1_joypad_state.latch());
+                    self.latched_p2_joypad_state = Some(self.p2_joypad_state.latch());
                 }
             }
             IoRegister::OAMDMA => {
@@ -605,13 +733,13 @@ pub struct Bus {
 }
 
 impl Bus {
-    pub(crate) fn from_cartridge(mapper: Mapper) -> Self {
+    pub(crate) fn from_cartridge(mapper: Mapper, overscan: Overscan) -> Self {
         Self {
             mapper,
             // (Somewhat) randomize initial RAM contents
             cpu_internal_ram: array::from_fn(|_| if rand::random() { 0x00 } else { 0xFF }),
             ppu_registers: PpuRegisters::new(),
-            io_registers: IoRegisters::new(),
+            io_registers: IoRegisters::new(overscan),
             ppu_vram: [0; 2048],
             ppu_palette_ram: [0; 32],
             ppu_oam: [0; 256],
@@ -643,14 +771,30 @@ impl Bus {
 
     pub fn update_p2_joypad_state(
         &mut self,
-        p2_joypad_state: NesJoypadState,
+        p2_inputs: NesInputDevice,
         allow_opposing_inputs: bool,
     ) {
-        self.io_registers.p2_joypad_state = if allow_opposing_inputs {
-            p2_joypad_state
-        } else {
-            p2_joypad_state.sanitize_opposing_directions()
-        };
+        match p2_inputs {
+            NesInputDevice::Controller(joypad_state) => {
+                self.io_registers.p2_joypad_state = if allow_opposing_inputs {
+                    joypad_state
+                } else {
+                    joypad_state.sanitize_opposing_directions()
+                };
+                self.io_registers.zapper_state = None;
+            }
+            NesInputDevice::Zapper(zapper_state) => {
+                match &mut self.io_registers.zapper_state {
+                    Some(bus_state) => {
+                        bus_state.update_buttons(zapper_state);
+                    }
+                    None => {
+                        self.io_registers.zapper_state = Some(ZapperBusState::new(zapper_state));
+                    }
+                }
+                self.io_registers.p2_joypad_state = NesJoypadState::default();
+            }
+        }
     }
 
     pub fn tick(&mut self) {
@@ -664,6 +808,10 @@ impl Bus {
         }
 
         self.mapper.tick_cpu();
+
+        if let Some(zapper_state) = &mut self.io_registers.zapper_state {
+            zapper_state.tick_cpu();
+        }
     }
 
     // Poll NMI/IRQ interrupt lines; this should be called once per CPU cycle, between the first
@@ -684,6 +832,10 @@ impl Bus {
 
     pub(crate) fn move_rom_from(&mut self, other: &mut Self) {
         self.mapper.move_rom_from(&mut other.mapper);
+    }
+
+    pub(crate) fn reload_config(&mut self, config: NesEmulatorConfig) {
+        self.io_registers.overscan = config.overscan;
     }
 }
 
@@ -953,6 +1105,13 @@ impl<'a> PpuBus<'a> {
         self.0.ppu_bus_address = address;
     }
 
+    pub fn handle_pixel_rendered(&mut self, pixel: u8, x: u16, y: u16, timing_mode: TimingMode) {
+        if let Some(zapper_state) = &mut self.0.io_registers.zapper_state {
+            let overscan = self.0.io_registers.overscan;
+            zapper_state.handle_pixel_rendered(pixel, x, y, timing_mode, overscan);
+        }
+    }
+
     pub fn reset(&mut self) {
         self.0.ppu_registers.ppu_ctrl = 0x00;
         self.0.ppu_registers.ppu_mask = 0x00;
@@ -975,13 +1134,14 @@ fn map_palette_address(address: u16) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use crate::api::Overscan;
     use crate::bus::{cartridge, Bus};
 
     #[test]
     fn randomized_ram_on_startup() {
         let mapper = cartridge::new_mmc1(vec![0; 32768]);
-        let bus1 = Bus::from_cartridge(mapper.clone());
-        let bus2 = Bus::from_cartridge(mapper);
+        let bus1 = Bus::from_cartridge(mapper.clone(), Overscan::default());
+        let bus2 = Bus::from_cartridge(mapper, Overscan::default());
 
         assert_ne!(bus1.cpu_internal_ram, bus2.cpu_internal_ram);
     }

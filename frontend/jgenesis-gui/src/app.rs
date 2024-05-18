@@ -100,6 +100,7 @@ enum OpenWindow {
     GenesisGamepad,
     NesKeyboard,
     NesGamepad,
+    NesPeripherals,
     SnesKeyboard,
     SnesGamepad,
     SnesPeripherals,
@@ -617,6 +618,11 @@ impl App {
                             self.state.open_windows.insert(OpenWindow::NesGamepad);
                             ui.close_menu();
                         }
+
+                        if ui.button("Peripherals").clicked() {
+                            self.state.open_windows.insert(OpenWindow::NesPeripherals);
+                            ui.close_menu();
+                        }
                     });
 
                     ui.add_space(5.0);
@@ -887,6 +893,7 @@ impl eframe::App for App {
                 OpenWindow::GenesisGamepad => self.render_genesis_gamepad_settings(ctx),
                 OpenWindow::NesKeyboard => self.render_nes_keyboard_settings(ctx),
                 OpenWindow::NesGamepad => self.render_nes_joystick_settings(ctx),
+                OpenWindow::NesPeripherals => self.render_nes_peripheral_settings(ctx),
                 OpenWindow::SnesKeyboard => self.render_snes_keyboard_settings(ctx),
                 OpenWindow::SnesGamepad => self.render_snes_gamepad_settings(ctx),
                 OpenWindow::SnesPeripherals => self.render_snes_peripheral_settings(ctx),
