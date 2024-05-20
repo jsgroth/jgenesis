@@ -1,6 +1,5 @@
 //! Code for Konami's VRC6 board (iNES mappers 24 + 26).
 
-use std::array;
 use crate::apu::units::PhaseTimer;
 use crate::bus;
 use crate::bus::cartridge::mappers::konami::irq::VrcIrqCounter;
@@ -10,6 +9,7 @@ use crate::bus::cartridge::mappers::{
 use crate::bus::cartridge::{HasBasicPpuMapping, MapperImpl};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
+use std::array;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum Variant {
