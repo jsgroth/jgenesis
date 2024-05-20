@@ -203,16 +203,15 @@ impl<Emulator> DebuggerWindow<Emulator> {
 
     pub fn handle_sdl_event(&mut self, event: &Event) {
         match event {
-            Event::Window { window_id, win_event, .. } if *window_id == self.window.id() => {
-                match win_event {
-                    WindowEvent::Resized(..) | WindowEvent::SizeChanged(..) => {
-                        let (width, height) = self.window.size();
-                        self.surface_config.width = width;
-                        self.surface_config.height = height;
-                        self.surface.configure(&self.device, &self.surface_config);
-                    }
-                    _ => {}
-                }
+            Event::Window {
+                window_id,
+                win_event: WindowEvent::Resized(..) | WindowEvent::SizeChanged(..),
+                ..
+            } if *window_id == self.window.id() => {
+                let (width, height) = self.window.size();
+                self.surface_config.width = width;
+                self.surface_config.height = height;
+                self.surface.configure(&self.device, &self.surface_config);
             }
             _ => {}
         }

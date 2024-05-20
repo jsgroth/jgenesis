@@ -40,17 +40,16 @@ impl Platform {
 
     pub fn handle_event(&mut self, event: &SdlEvent) {
         match *event {
-            SdlEvent::Window { window_id, win_event, .. } if window_id == self.window_id => {
-                match win_event {
-                    SdlWindowEvent::Resized(width, height)
-                    | SdlWindowEvent::SizeChanged(width, height) => {
-                        self.raw_input.screen_rect = Some(egui::Rect::from_min_size(
-                            egui::Pos2::default(),
-                            egui::Vec2::new(width as f32, height as f32) / self.scale_factor,
-                        ));
-                    }
-                    _ => {}
-                }
+            SdlEvent::Window {
+                window_id,
+                win_event:
+                    SdlWindowEvent::Resized(width, height) | SdlWindowEvent::SizeChanged(width, height),
+                ..
+            } if window_id == self.window_id => {
+                self.raw_input.screen_rect = Some(egui::Rect::from_min_size(
+                    egui::Pos2::default(),
+                    egui::Vec2::new(width as f32, height as f32) / self.scale_factor,
+                ));
             }
             SdlEvent::MouseMotion { window_id, x, y, .. } if window_id == self.window_id => {
                 let pointer_pos =
