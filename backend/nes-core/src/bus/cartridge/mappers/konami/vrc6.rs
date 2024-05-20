@@ -1,5 +1,6 @@
 //! Code for Konami's VRC6 board (iNES mappers 24 + 26).
 
+use std::array;
 use crate::apu::units::PhaseTimer;
 use crate::bus;
 use crate::bus::cartridge::mappers::konami::irq::VrcIrqCounter;
@@ -178,8 +179,8 @@ impl Vrc6 {
         Self {
             variant,
             prg_16kb_bank: 0,
-            prg_8kb_bank: 0,
-            chr_banks: [0; 8],
+            prg_8kb_bank: 2,
+            chr_banks: array::from_fn(|i| i as u8),
             chr_type,
             nametable_mirroring: NametableMirroring::Vertical,
             ram_enabled: false,
