@@ -1246,6 +1246,7 @@ impl Ppu {
             if self.sprite_buffer.len() == MAX_SPRITES_PER_LINE {
                 // TODO more accurate timing - this flag should get set partway through the previous line
                 self.registers.sprite_overflow = true;
+                log::debug!("Hit 32 sprites per line limit on line {scanline}");
                 break;
             }
 
@@ -1298,7 +1299,13 @@ impl Ppu {
 
             let tile_y_offset: u16 = (sprite_line / 8).into();
             for tile_x_offset in 0..sprite_width / 8 {
-                if sprite.x + 8 * tile_x_offset >= 256 && sprite.x + 8 * (tile_x_offset + 1) < 512 {
+                let x = if sprite.x_flip {
+                    sprite.x + (sprite_width - 8) - 8 * tile_x_offset
+                } else {
+                    sprite.x + 8 * tile_x_offset
+                };
+
+                if x >= 256 && x + 8 < 512 {
                     // Sprite tile is entirely offscreen
                     continue;
                 }
@@ -1306,6 +1313,7 @@ impl Ppu {
                 if self.sprite_tile_buffer.len() == MAX_SPRITE_TILES_PER_LINE {
                     // Sprite time overflow
                     self.registers.sprite_pixel_overflow = true;
+                    log::debug!("Hit 34 sprite tiles per line limit on line {scanline}");
                     return;
                 }
 
@@ -1340,12 +1348,6 @@ impl Ppu {
 
                     colors[if sprite.x_flip { 7 - tile_col } else { tile_col }] = color;
                 }
-
-                let x = if sprite.x_flip {
-                    sprite.x + (sprite_width - 8) - 8 * tile_x_offset
-                } else {
-                    sprite.x + 8 * tile_x_offset
-                };
 
                 self.sprite_tile_buffer.push(SpriteTileData {
                     x,
