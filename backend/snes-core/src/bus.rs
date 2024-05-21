@@ -32,6 +32,7 @@ pub struct Bus<'a> {
     pub apu: &'a mut Apu,
     pub latched_interrupts: Option<LatchedInterrupts>,
     pub access_master_cycles: u64,
+    pub pending_write: Option<(u32, u8)>,
 }
 
 impl<'a> Bus<'a> {
@@ -100,93 +101,77 @@ impl<'a> Bus<'a> {
         }
     }
 
-    #[allow(clippy::match_same_arms)]
     fn write_system_area(&mut self, full_address: u32, value: u8) {
         let address = full_address & 0x7FFF;
         match address {
             0x0000..=0x1FFF => {
-                self.access_master_cycles = SLOW_MASTER_CYCLES;
-
                 // First 8KB of WRAM
                 self.memory.write_wram(address, value);
             }
-            0x2000..=0x20FF => {
-                self.access_master_cycles = FAST_MASTER_CYCLES;
-
-                // Open bus; do nothing (no coprocessors use this range)
+            0x2000..=0x20FF | 0x2184..=0x21FF => {
+                // $2000-$2FFF: Open bus; do nothing (no coprocessors use this range)
+                // $2184-$21FF: Open bus in address bus B; do nothing
             }
             0x2100..=0x213F => {
-                self.access_master_cycles = FAST_MASTER_CYCLES;
-
                 // PPU ports
                 self.ppu.write_port(address, value);
             }
             0x2140..=0x217F => {
-                self.access_master_cycles = FAST_MASTER_CYCLES;
-
                 // APU ports
                 self.apu.write_port(address, value);
             }
             0x2180 => {
-                self.access_master_cycles = FAST_MASTER_CYCLES;
-
                 // WMDATA: WRAM port in address bus B
                 self.memory.write_wram_port(value);
             }
             0x2181 => {
-                self.access_master_cycles = FAST_MASTER_CYCLES;
-
                 // WMADDL: WRAM port address, low byte
                 self.memory.write_wram_port_address_low(value);
             }
             0x2182 => {
-                self.access_master_cycles = FAST_MASTER_CYCLES;
-
                 // WMADDM: WRAM port address, middle byte
                 self.memory.write_wram_port_address_mid(value);
             }
             0x2183 => {
-                self.access_master_cycles = FAST_MASTER_CYCLES;
-
                 // WMADDH: WRAM port address, high byte
                 self.memory.write_wram_port_address_high(value);
             }
-            0x2184..=0x21FF => {
-                self.access_master_cycles = FAST_MASTER_CYCLES;
-
-                // Open bus in address bus B; do nothing
-            }
-            0x2200..=0x3FFF => {
-                self.access_master_cycles = FAST_MASTER_CYCLES;
-
-                // Normally open bus; some coprocessors map I/O ports or RAM to this range
+            0x2200..=0x3FFF | 0x4400..=0x7FFF => {
+                // $2200-$3FFF: Normally open bus; some coprocessors map I/O ports or RAM to this range
+                // $4400-$5FFF: Normally open bus; some coprocessors map I/O ports to this range
+                // $6000-$7FFF: Cartridge expansion; some cartridges map RAM to this range
                 self.memory.write_cartridge(full_address, value);
             }
             0x4000..=0x41FF => {
-                self.access_master_cycles = XSLOW_MASTER_CYCLES;
-
                 // CPU I/O ports (manual joypad ports)
                 self.cpu_registers.write_register(address, value);
             }
             0x4200..=0x43FF => {
-                self.access_master_cycles = FAST_MASTER_CYCLES;
-
                 // CPU I/O ports (everything except manual joypad ports)
                 self.cpu_registers.write_register(address, value);
             }
-            0x4400..=0x5FFF => {
-                self.access_master_cycles = FAST_MASTER_CYCLES;
-
-                // Normally open bus; some coprocessors map I/O ports to this range
-                self.memory.write_cartridge(full_address, value);
-            }
-            0x6000..=0x7FFF => {
-                self.access_master_cycles = SLOW_MASTER_CYCLES;
-
-                // Cartridge expansion
-                self.memory.write_cartridge(full_address, value);
-            }
             _ => unreachable!("value & 0x7FFF is always <= 0x7FFF"),
+        }
+    }
+
+    pub fn apply_write(&mut self, address: u32, value: u8) {
+        log::trace!("Bus write {address:06X} {value:02X}");
+
+        let bank = (address >> 16) as u8;
+        let offset = address as u16;
+        match (bank, offset) {
+            (0x00..=0x3F | 0x80..=0xBF, 0x0000..=0x7FFF) => {
+                // System area
+                self.write_system_area(address, value);
+            }
+            (0x00..=0x3F | 0x80..=0xBF, 0x8000..=0xFFFF) | (0x40..=0x7D | 0xC0..=0xFF, _) => {
+                // Cartridge
+                self.memory.write_cartridge(address, value);
+            }
+            (0x7E..=0x7F, _) => {
+                // WRAM
+                self.memory.write_wram(address, value);
+            }
         }
     }
 }
@@ -226,34 +211,20 @@ impl<'a> BusInterface for Bus<'a> {
 
     #[inline]
     fn write(&mut self, address: u32, value: u8) {
-        log::trace!("Bus write {address:06X} {value:02X}");
+        self.pending_write = Some((address, value));
 
         let bank = (address >> 16) as u8;
         let offset = address as u16;
-        match (bank, offset) {
-            (0x00..=0x3F | 0x80..=0xBF, 0x0000..=0x7FFF) => {
-                // System area
-                self.write_system_area(address, value);
-            }
-            (0x00..=0x3F, 0x8000..=0xFFFF) | (0x40..=0x7D, _) => {
-                self.access_master_cycles = SLOW_MASTER_CYCLES;
-
-                // Cartridge (Memory-1)
-                self.memory.write_cartridge(address, value);
-            }
+        self.access_master_cycles = match (bank, offset) {
+            (0x00..=0x3F | 0x80..=0xBF, 0x2000..=0x3FFF | 0x4200..=0x5FFF) => FAST_MASTER_CYCLES,
+            (0x00..=0x3F | 0x80..=0xBF, 0x0000..=0x1FFF | 0x6000..=0x7FFF)
+            | (0x00..=0x3F, 0x8000..=0xFFFF)
+            | (0x40..=0x7F, _) => SLOW_MASTER_CYCLES,
+            (0x00..=0x3F | 0x80..=0xBF, 0x4000..=0x41FF) => XSLOW_MASTER_CYCLES,
             (0x80..=0xBF, 0x8000..=0xFFFF) | (0xC0..=0xFF, _) => {
-                self.access_master_cycles = self.cpu_registers.memory_2_speed().master_cycles();
-
-                // Cartridge (Memory-2)
-                self.memory.write_cartridge(address, value);
+                self.cpu_registers.memory_2_speed().master_cycles()
             }
-            (0x7E..=0x7F, _) => {
-                self.access_master_cycles = SLOW_MASTER_CYCLES;
-
-                // WRAM
-                self.memory.write_wram(address, value);
-            }
-        }
+        };
     }
 
     #[inline]

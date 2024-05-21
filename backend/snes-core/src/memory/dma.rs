@@ -444,7 +444,7 @@ fn hdma_copy_byte(
     match direction {
         DmaDirection::AtoB => {
             let byte = dma_read_bus_a(bus, bus_a_full_address);
-            bus.write(bus_b_full_address, byte);
+            bus.apply_write(bus_b_full_address, byte);
         }
         DmaDirection::BtoA => {
             let byte = bus.read(bus_b_full_address);
@@ -479,7 +479,7 @@ fn dma_write_bus_a(bus: &mut Bus<'_>, bus_a_address: u32, value: u8) {
     match (bank, offset) {
         // DMA cannot write to bus B or DMA registers through bus A
         (0x00..=0x3F | 0x80..=0xBF, 0x2100..=0x21FF | 0x4300..=0x43FF) => {}
-        _ => bus.write(bus_a_address, value),
+        _ => bus.apply_write(bus_a_address, value),
     }
 }
 
@@ -520,7 +520,7 @@ fn gpdma_copy_byte(bus: &mut Bus<'_>, channel: u8, bytes_copied: u16) -> GpDmaSt
     match bus.cpu_registers.dma_direction[channel] {
         DmaDirection::AtoB => {
             let byte = dma_read_bus_a(bus, bus_a_full_address);
-            bus.write(bus_b_address, byte);
+            bus.apply_write(bus_b_address, byte);
         }
         DmaDirection::BtoA => {
             let byte = bus.read(bus_b_address);

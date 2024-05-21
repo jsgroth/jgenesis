@@ -134,6 +134,7 @@ macro_rules! new_bus {
             apu: &mut $self.apu,
             latched_interrupts: $self.latched_interrupts,
             access_master_cycles: 0,
+            pending_write: None,
         }
     };
 }
@@ -281,11 +282,11 @@ impl EmulatorTrait for SnesEmulator {
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
-        let master_cycles_elapsed = if self.memory_refresh_pending {
+        let (master_cycles_elapsed, pending_write) = if self.memory_refresh_pending {
             // The CPU (including DMA) halts for 40 cycles partway through every scanline so that
             // the system can refresh DRAM (used for work RAM)
             self.memory_refresh_pending = false;
-            MEMORY_REFRESH_CYCLES
+            (MEMORY_REFRESH_CYCLES, None)
         } else {
             let mut bus = new_bus!(self);
 
@@ -295,7 +296,7 @@ impl EmulatorTrait for SnesEmulator {
                     self.main_cpu.tick(&mut bus);
                     self.latched_interrupts = None;
 
-                    bus.access_master_cycles
+                    (bus.access_master_cycles, bus.pending_write)
                 }
                 DmaStatus::InProgress { master_cycles_elapsed } => {
                     // Latch interrupt lines at the start of DMA to emulate interrupt tests being
@@ -306,11 +307,11 @@ impl EmulatorTrait for SnesEmulator {
                             Some(LatchedInterrupts { nmi: bus.nmi(), irq: bus.irq() });
                     }
 
-                    master_cycles_elapsed
+                    (master_cycles_elapsed, None)
                 }
             }
         };
-        assert!(master_cycles_elapsed > 0);
+        debug_assert!(master_cycles_elapsed > 0);
 
         // Copy WRIO from CPU to PPU for possible H/V counter latching
         self.ppu.update_wrio(self.cpu_registers.wrio_register());
@@ -363,6 +364,12 @@ impl EmulatorTrait for SnesEmulator {
         }
 
         self.memory.tick(master_cycles_elapsed);
+
+        // CPU reads are applied before advancing other components but CPU writes are applied after.
+        // This fixes freezing in Rendering Ranger R2
+        if let Some((address, value)) = pending_write {
+            new_bus!(self).apply_write(address, value);
+        }
 
         self.total_master_cycles += master_cycles_elapsed;
         if prev_scanline_mclk < MEMORY_REFRESH_MCLK
