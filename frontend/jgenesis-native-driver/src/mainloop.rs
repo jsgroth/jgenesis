@@ -7,13 +7,16 @@ mod rewind;
 mod save;
 mod smsgg;
 mod snes;
+mod state;
 
 pub use gb::{create_gb, NativeGameBoyEmulator};
 pub use genesis::{create_genesis, create_sega_cd, NativeGenesisEmulator, NativeSegaCdEmulator};
 pub use nes::{create_nes, NativeNesEmulator};
 pub use smsgg::{create_smsgg, NativeSmsGgEmulator};
 pub use snes::{create_snes, NativeSnesEmulator};
+pub use state::SaveStateMetadata;
 
+use crate::config::input::{InputConfig, JoystickInput, KeyboardInput};
 use crate::config::{CommonConfig, WindowSize};
 use crate::input::{Hotkey, HotkeyMapResult, HotkeyMapper, InputMapper, Joysticks, MappableInputs};
 use crate::mainloop::audio::SdlAudioOutput;
@@ -22,7 +25,6 @@ use crate::mainloop::rewind::Rewinder;
 use crate::mainloop::save::FsSaveWriter;
 pub use audio::AudioError;
 use bincode::error::{DecodeError, EncodeError};
-use bincode::{Decode, Encode};
 use gb_core::api::GameBoyLoadError;
 use jgenesis_common::frontend::{EmulatorTrait, PartialClone, TickEffect};
 use jgenesis_renderer::renderer::{RendererError, WgpuRenderer};
@@ -37,8 +39,6 @@ use snes_core::api::SnesLoadError;
 use std::cell::RefCell;
 use std::error::Error;
 use std::ffi::{NulError, OsStr};
-use std::fs::File;
-use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
@@ -94,7 +94,9 @@ fn sleep(duration: Duration) {
 }
 
 struct HotkeyState<Emulator> {
-    save_state_path: PathBuf,
+    save_state_paths: SaveStatePaths,
+    save_state_slot: usize,
+    save_state_metadata: SaveStateMetadata,
     paused: bool,
     should_step_frame: bool,
     fast_forward_multiplier: u64,
@@ -108,9 +110,14 @@ impl<Emulator: PartialClone> HotkeyState<Emulator> {
         common_config: &CommonConfig<KC, JC>,
         save_state_path: PathBuf,
         debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
-    ) -> Self {
-        Self {
-            save_state_path,
+    ) -> NativeEmulatorResult<Self> {
+        let save_state_paths = state::init_paths(&save_state_path)?;
+        let save_state_metadata = SaveStateMetadata::load(&save_state_paths);
+
+        Ok(Self {
+            save_state_paths,
+            save_state_slot: 0,
+            save_state_metadata,
             paused: false,
             should_step_frame: false,
             fast_forward_multiplier: common_config.fast_forward_multiplier,
@@ -119,7 +126,7 @@ impl<Emulator: PartialClone> HotkeyState<Emulator> {
             )),
             debugger_window: None,
             debug_render_fn,
-        }
+        })
     }
 }
 
@@ -234,16 +241,27 @@ impl<Inputs, Button, Config, Emulator: EmulatorTrait<Config = Config>>
                 self.renderer.toggle_fullscreen().map_err(NativeEmulatorError::SdlSetFullscreen)?;
             }
             Hotkey::SaveState => {
-                save_state(&self.emulator, &self.hotkey_state.save_state_path)?;
+                let slot = self.hotkey_state.save_state_slot;
+                state::save(
+                    &self.emulator,
+                    &self.hotkey_state.save_state_paths,
+                    slot,
+                    &mut self.hotkey_state.save_state_metadata,
+                )?;
+                log::info!(
+                    "Saved state to slot {slot} in '{}'",
+                    self.hotkey_state.save_state_paths[slot].display()
+                );
             }
             Hotkey::LoadState => {
-                let save_state_path = &self.hotkey_state.save_state_path;
-                let mut loaded_emulator: Emulator = match load_state(save_state_path) {
+                let paths = &self.hotkey_state.save_state_paths;
+                let slot = self.hotkey_state.save_state_slot;
+                let mut loaded_emulator: Emulator = match state::load(paths, slot) {
                     Ok(emulator) => emulator,
                     Err(err) => {
                         log::error!(
-                            "Error loading save state from {}: {err}",
-                            self.hotkey_state.save_state_path.display()
+                            "Error loading save state from slot {slot} in '{}': {err}",
+                            paths[slot].display()
                         );
                         return Ok(HotkeyResult::None);
                     }
@@ -254,12 +272,27 @@ impl<Inputs, Button, Config, Emulator: EmulatorTrait<Config = Config>>
                 loaded_emulator.reload_config(&self.config);
 
                 self.emulator = loaded_emulator;
+
+                log::info!("Loaded state from slot {slot} in '{}'", paths[slot].display());
             }
             Hotkey::SoftReset => {
                 self.emulator.soft_reset();
             }
             Hotkey::HardReset => {
                 self.emulator.hard_reset(&mut self.save_writer);
+            }
+            Hotkey::NextSaveStateSlot => {
+                self.hotkey_state.save_state_slot =
+                    (self.hotkey_state.save_state_slot + 1) % state::SAVE_STATE_SLOTS;
+                log::info!("Save state slot is now {}", self.hotkey_state.save_state_slot);
+            }
+            Hotkey::PrevSaveStateSlot => {
+                self.hotkey_state.save_state_slot = if self.hotkey_state.save_state_slot == 0 {
+                    state::SAVE_STATE_SLOTS - 1
+                } else {
+                    self.hotkey_state.save_state_slot - 1
+                };
+                log::info!("Save state slot is now {}", self.hotkey_state.save_state_slot);
             }
             Hotkey::Pause => {
                 self.hotkey_state.paused = !self.hotkey_state.paused;
@@ -388,7 +421,9 @@ pub enum NativeEmulatorError {
     #[error("Error saving state: {0}")]
     SaveState(#[from] EncodeError),
     #[error("Error loading state: {0}")]
-    LoadState(#[from] DecodeError),
+    LoadStateDecode(#[from] DecodeError),
+    #[error("No state found in slot {slot}")]
+    LoadStateNotFound { slot: usize },
     #[error("Error in emulation core: {0}")]
     Emulator(#[source] Box<dyn Error + Send + Sync + 'static>),
 }
@@ -444,6 +479,8 @@ where
         let input_mapper = input_mapper_fn(joystick, &common_config)?;
         let hotkey_mapper = HotkeyMapper::from_config(&common_config.hotkeys)?;
 
+        let hotkey_state = HotkeyState::new(&common_config, save_state_path, debug_render_fn)?;
+
         Ok(Self {
             emulator,
             config: emulator_config,
@@ -456,7 +493,7 @@ where
             event_pump,
             event_buffer: Rc::new(RefCell::new(Vec::with_capacity(100))),
             video,
-            hotkey_state: HotkeyState::new(&common_config, save_state_path, debug_render_fn),
+            hotkey_state,
         })
     }
 
@@ -668,43 +705,5 @@ macro_rules! bincode_config {
     };
 }
 
-use crate::config::input::{InputConfig, JoystickInput, KeyboardInput};
+use crate::mainloop::state::SaveStatePaths;
 use bincode_config;
-
-fn save_state<E, P>(emulator: &E, path: P) -> NativeEmulatorResult<()>
-where
-    E: Encode,
-    P: AsRef<Path>,
-{
-    let path = path.as_ref();
-
-    let mut file = BufWriter::new(File::create(path).map_err(|source| {
-        NativeEmulatorError::StateFileOpen { path: path.display().to_string(), source }
-    })?);
-
-    let conf = bincode_config!();
-    bincode::encode_into_std_write(emulator, &mut file, conf)?;
-
-    log::info!("Saved state to {}", path.display());
-
-    Ok(())
-}
-
-fn load_state<D, P>(path: P) -> NativeEmulatorResult<D>
-where
-    D: Decode,
-    P: AsRef<Path>,
-{
-    let path = path.as_ref();
-
-    let mut file = BufReader::new(File::open(path).map_err(|source| {
-        NativeEmulatorError::StateFileOpen { path: path.display().to_string(), source }
-    })?);
-
-    let conf = bincode_config!();
-    let emulator = bincode::decode_from_std_read(&mut file, conf)?;
-
-    log::info!("Loaded state from {}", path.display());
-
-    Ok(emulator)
-}

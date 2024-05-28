@@ -539,6 +539,16 @@ pub struct HotkeyConfig {
     pub save_state: Option<KeyboardInput>,
     #[serde(default = "default_load_state", deserialize_with = "deserialize_load_state")]
     pub load_state: Option<KeyboardInput>,
+    #[serde(
+        default = "default_next_save_state_slot",
+        deserialize_with = "deserialize_next_save_state_slot"
+    )]
+    pub next_save_state_slot: Option<KeyboardInput>,
+    #[serde(
+        default = "default_prev_save_state_slot",
+        deserialize_with = "deserialize_prev_save_state_slot"
+    )]
+    pub prev_save_state_slot: Option<KeyboardInput>,
     #[serde(default = "default_soft_reset", deserialize_with = "deserialize_soft_reset")]
     pub soft_reset: Option<KeyboardInput>,
     #[serde(default = "default_hard_reset", deserialize_with = "deserialize_hard_reset")]
@@ -562,6 +572,8 @@ impl Default for HotkeyConfig {
             toggle_fullscreen: default_toggle_fullscreen(),
             save_state: default_save_state(),
             load_state: default_load_state(),
+            next_save_state_slot: default_next_save_state_slot(),
+            prev_save_state_slot: default_prev_save_state_slot(),
             soft_reset: default_soft_reset(),
             hard_reset: default_hard_reset(),
             pause: default_pause(),
@@ -593,6 +605,14 @@ fn default_save_state() -> Option<KeyboardInput> {
 
 fn default_load_state() -> Option<KeyboardInput> {
     key_input!(F6)
+}
+
+fn default_next_save_state_slot() -> Option<KeyboardInput> {
+    key_input!(RightBracket)
+}
+
+fn default_prev_save_state_slot() -> Option<KeyboardInput> {
+    key_input!(LeftBracket)
 }
 
 fn default_soft_reset() -> Option<KeyboardInput> {
@@ -639,6 +659,8 @@ impl_deserialize_or_default!(deserialize_toggle_fullscreen, default_toggle_fulls
 impl_deserialize_or_default!(deserialize_save_state, default_save_state);
 impl_deserialize_or_default!(deserialize_load_state, default_load_state);
 impl_deserialize_or_default!(deserialize_soft_reset, default_soft_reset);
+impl_deserialize_or_default!(deserialize_next_save_state_slot, default_next_save_state_slot);
+impl_deserialize_or_default!(deserialize_prev_save_state_slot, default_prev_save_state_slot);
 impl_deserialize_or_default!(deserialize_hard_reset, default_hard_reset);
 impl_deserialize_or_default!(deserialize_pause, default_pause);
 impl_deserialize_or_default!(deserialize_step_frame, default_step_frame);

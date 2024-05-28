@@ -130,6 +130,12 @@ impl InputAppConfigExt for InputAppConfig {
             Hotkey::LoadState => {
                 self.hotkeys.load_state = Some(input);
             }
+            Hotkey::NextSaveStateSlot => {
+                self.hotkeys.next_save_state_slot = Some(input);
+            }
+            Hotkey::PrevSaveStateSlot => {
+                self.hotkeys.prev_save_state_slot = Some(input);
+            }
             Hotkey::SoftReset => {
                 self.hotkeys.soft_reset = Some(input);
             }
@@ -699,6 +705,18 @@ impl App {
                     ui,
                 );
                 self.hotkey_button(
+                    self.config.inputs.hotkeys.next_save_state_slot.clone(),
+                    "Next save state slot",
+                    Hotkey::NextSaveStateSlot,
+                    ui,
+                );
+                self.hotkey_button(
+                    self.config.inputs.hotkeys.prev_save_state_slot.clone(),
+                    "Previous save state slot",
+                    Hotkey::PrevSaveStateSlot,
+                    ui,
+                );
+                self.hotkey_button(
                     self.config.inputs.hotkeys.soft_reset.clone(),
                     "Soft reset",
                     Hotkey::SoftReset,
@@ -913,6 +931,12 @@ impl App {
                 }
                 Hotkey::LoadState => {
                     self.config.inputs.hotkeys.load_state = None;
+                }
+                Hotkey::NextSaveStateSlot => {
+                    self.config.inputs.hotkeys.next_save_state_slot = None;
+                }
+                Hotkey::PrevSaveStateSlot => {
+                    self.config.inputs.hotkeys.prev_save_state_slot = None;
                 }
                 Hotkey::SoftReset => {
                     self.config.inputs.hotkeys.soft_reset = None;
