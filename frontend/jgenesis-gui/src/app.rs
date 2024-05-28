@@ -516,10 +516,13 @@ impl App {
 
             ui.add_space(15.0);
 
-            if ui.button("Soft Reset").clicked() {
-                self.emu_thread.send(EmuThreadCommand::SoftReset);
-                ui.close_menu();
-            }
+            let running_gb = self.emu_thread.status() == EmuThreadStatus::RunningGameBoy;
+            ui.add_enabled_ui(!running_gb, |ui| {
+                if ui.button("Soft Reset").clicked() {
+                    self.emu_thread.send(EmuThreadCommand::SoftReset);
+                    ui.close_menu();
+                }
+            });
 
             if ui.button("Hard Reset").clicked() {
                 self.emu_thread.send(EmuThreadCommand::HardReset);
