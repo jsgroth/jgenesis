@@ -23,6 +23,7 @@ use snes_core::input::{
 };
 use std::collections::HashMap;
 use std::hash::Hash;
+use std::rc::Rc;
 
 pub trait MappableInputs<Button> {
     fn set_field(&mut self, button: Button, player: Player, pressed: bool);
@@ -773,17 +774,16 @@ pub enum Hotkey {
     OpenDebugger,
 }
 
-pub(crate) enum HotkeyMapResult<'a> {
+pub(crate) enum HotkeyMapResult {
     None,
-    Pressed(&'a Vec<Hotkey>),
-    Released(&'a Vec<Hotkey>),
+    Pressed(Rc<[Hotkey]>),
+    Released(Rc<[Hotkey]>),
 }
 
 pub(crate) struct HotkeyMapper {
-    mapping: HashMap<Keycode, Vec<Hotkey>>,
+    mapping: HashMap<Keycode, Rc<[Hotkey]>>,
+    empty_vec: Rc<[Hotkey]>,
 }
-
-const EMPTY_VEC: &Vec<Hotkey> = &Vec::new();
 
 impl HotkeyMapper {
     /// Build a hotkey mapper from the given config.
@@ -813,18 +813,20 @@ impl HotkeyMapper {
             }
         }
 
-        Ok(Self { mapping })
+        let mapping = mapping.into_iter().map(|(key, value)| (key, value.into())).collect();
+
+        Ok(Self { mapping, empty_vec: vec![].into() })
     }
 
     #[must_use]
-    pub fn check_for_hotkeys(&self, event: &Event) -> HotkeyMapResult<'_> {
+    pub fn check_for_hotkeys(&self, event: &Event) -> HotkeyMapResult {
         match event {
-            Event::KeyDown { keycode: Some(keycode), .. } => {
-                HotkeyMapResult::Pressed(self.mapping.get(keycode).unwrap_or(EMPTY_VEC))
-            }
-            Event::KeyUp { keycode: Some(keycode), .. } => {
-                HotkeyMapResult::Released(self.mapping.get(keycode).unwrap_or(EMPTY_VEC))
-            }
+            Event::KeyDown { keycode: Some(keycode), .. } => HotkeyMapResult::Pressed(
+                self.mapping.get(keycode).map_or_else(|| Rc::clone(&self.empty_vec), Rc::clone),
+            ),
+            Event::KeyUp { keycode: Some(keycode), .. } => HotkeyMapResult::Released(
+                self.mapping.get(keycode).map_or_else(|| Rc::clone(&self.empty_vec), Rc::clone),
+            ),
             _ => HotkeyMapResult::None,
         }
     }

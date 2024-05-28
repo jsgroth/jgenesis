@@ -34,11 +34,13 @@ use sdl2::video::{FullscreenType, Window, WindowBuildError};
 use sdl2::{AudioSubsystem, EventPump, IntegerOrSdlError, JoystickSubsystem, Sdl, VideoSubsystem};
 use segacd_core::api::SegaCdLoadError;
 use snes_core::api::SnesLoadError;
+use std::cell::RefCell;
 use std::error::Error;
 use std::ffi::{NulError, OsStr};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::time::Duration;
 use std::{io, thread};
 use thiserror::Error;
@@ -137,6 +139,7 @@ pub struct NativeEmulator<Inputs, Button, Config, Emulator> {
     save_writer: FsSaveWriter,
     sdl: Sdl,
     event_pump: EventPump,
+    event_buffer: Rc<RefCell<Vec<Event>>>,
     video: VideoSubsystem,
     hotkey_state: HotkeyState<Emulator>,
 }
@@ -183,6 +186,125 @@ impl<Inputs, Button, Config, Emulator: PartialClone>
     ) -> (&mut EventPump, &mut Joysticks, &JoystickSubsystem) {
         let (joysticks, joystick_subsystem) = self.input_mapper.joysticks_mut();
         (&mut self.event_pump, joysticks, joystick_subsystem)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HotkeyResult {
+    None,
+    Quit,
+}
+
+impl<Inputs, Button, Config, Emulator: EmulatorTrait<Config = Config>>
+    NativeEmulator<Inputs, Button, Config, Emulator>
+{
+    fn handle_hotkeys(&mut self, event: &Event) -> NativeEmulatorResult<HotkeyResult> {
+        match self.hotkey_mapper.check_for_hotkeys(event) {
+            HotkeyMapResult::Pressed(hotkeys) => {
+                for &hotkey in &*hotkeys {
+                    if self.handle_hotkey_pressed(hotkey)? == HotkeyResult::Quit {
+                        return Ok(HotkeyResult::Quit);
+                    }
+                }
+            }
+            HotkeyMapResult::Released(hotkeys) => {
+                for &hotkey in &*hotkeys {
+                    match hotkey {
+                        Hotkey::FastForward => {
+                            self.renderer.set_speed_multiplier(1);
+                            self.audio_output.set_speed_multiplier(1);
+                        }
+                        Hotkey::Rewind => {
+                            self.hotkey_state.rewinder.stop_rewinding();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            HotkeyMapResult::None => {}
+        }
+
+        Ok(HotkeyResult::None)
+    }
+
+    fn handle_hotkey_pressed(&mut self, hotkey: Hotkey) -> NativeEmulatorResult<HotkeyResult> {
+        match hotkey {
+            Hotkey::Quit => return Ok(HotkeyResult::Quit),
+            Hotkey::ToggleFullscreen => {
+                self.renderer.toggle_fullscreen().map_err(NativeEmulatorError::SdlSetFullscreen)?;
+            }
+            Hotkey::SaveState => {
+                save_state(&self.emulator, &self.hotkey_state.save_state_path)?;
+            }
+            Hotkey::LoadState => {
+                let save_state_path = &self.hotkey_state.save_state_path;
+                let mut loaded_emulator: Emulator = match load_state(save_state_path) {
+                    Ok(emulator) => emulator,
+                    Err(err) => {
+                        log::error!(
+                            "Error loading save state from {}: {err}",
+                            self.hotkey_state.save_state_path.display()
+                        );
+                        return Ok(HotkeyResult::None);
+                    }
+                };
+                loaded_emulator.take_rom_from(&mut self.emulator);
+
+                // Force a config reload because the emulator will contain some config fields
+                loaded_emulator.reload_config(&self.config);
+
+                self.emulator = loaded_emulator;
+            }
+            Hotkey::SoftReset => {
+                self.emulator.soft_reset();
+            }
+            Hotkey::HardReset => {
+                self.emulator.hard_reset(&mut self.save_writer);
+            }
+            Hotkey::Pause => {
+                self.hotkey_state.paused = !self.hotkey_state.paused;
+            }
+            Hotkey::StepFrame => {
+                self.hotkey_state.should_step_frame = true;
+            }
+            Hotkey::FastForward => {
+                let multiplier = self.hotkey_state.fast_forward_multiplier;
+                self.renderer.set_speed_multiplier(multiplier);
+                self.audio_output.set_speed_multiplier(multiplier);
+            }
+            Hotkey::Rewind => {
+                self.hotkey_state.rewinder.start_rewinding();
+            }
+            Hotkey::OpenDebugger => {
+                if self.hotkey_state.debugger_window.is_none() {
+                    let debug_render_fn = (self.hotkey_state.debug_render_fn)();
+                    match DebuggerWindow::new(&self.video, debug_render_fn) {
+                        Ok(debugger_window) => {
+                            self.hotkey_state.debugger_window = Some(debugger_window);
+                        }
+                        Err(err) => {
+                            log::error!("Error opening debugger window: {err}");
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(HotkeyResult::None)
+    }
+}
+
+fn open_debugger_window<Emulator>(
+    video: &VideoSubsystem,
+    debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
+) -> Option<DebuggerWindow<Emulator>> {
+    let render_fn = debug_render_fn();
+    match DebuggerWindow::new(video, render_fn) {
+        Ok(debugger_window) => Some(debugger_window),
+        Err(err) => {
+            log::error!("Error opening debugger window: {err}");
+            None
+        }
     }
 }
 
@@ -332,6 +454,7 @@ where
             save_writer,
             sdl,
             event_pump,
+            event_buffer: Rc::new(RefCell::new(Vec::with_capacity(100))),
             video,
             hotkey_state: HotkeyState::new(&common_config, save_state_path, debug_render_fn),
         })
@@ -369,7 +492,13 @@ where
                     }
                 }
 
-                for event in self.event_pump.poll_iter() {
+                // Gymnastics to avoid borrow checker errors that would otherwise occur due to
+                // calling `&mut self` methods while mutably borrowing the event pump
+                let event_buffer_ref = Rc::clone(&self.event_buffer);
+                let mut event_buffer = event_buffer_ref.borrow_mut();
+                event_buffer.extend(self.event_pump.poll_iter());
+
+                for event in event_buffer.drain(..) {
                     self.input_mapper.handle_event(
                         &event,
                         self.renderer.window_id(),
@@ -380,18 +509,7 @@ where
                         debugger_window.handle_sdl_event(&event);
                     }
 
-                    if handle_hotkeys(HandleHotkeysArgs {
-                        hotkey_mapper: &self.hotkey_mapper,
-                        event: &event,
-                        emulator: &mut self.emulator,
-                        config: &self.config,
-                        renderer: &mut self.renderer,
-                        audio_output: &mut self.audio_output,
-                        save_writer: &mut self.save_writer,
-                        video: &self.video,
-                        hotkey_state: &mut self.hotkey_state,
-                    })? == HotkeyResult::Quit
-                    {
+                    if self.handle_hotkeys(&event)? == HotkeyResult::Quit {
                         return Ok(NativeTickEffect::Exit);
                     }
 
@@ -530,146 +648,6 @@ fn create_window(
     }
 
     Ok(window)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum HotkeyResult {
-    None,
-    Quit,
-}
-
-struct HandleHotkeysArgs<'a, Emulator: EmulatorTrait> {
-    hotkey_mapper: &'a HotkeyMapper,
-    event: &'a Event,
-    emulator: &'a mut Emulator,
-    config: &'a Emulator::Config,
-    renderer: &'a mut WgpuRenderer<Window>,
-    audio_output: &'a mut SdlAudioOutput,
-    save_writer: &'a mut FsSaveWriter,
-    video: &'a VideoSubsystem,
-    hotkey_state: &'a mut HotkeyState<Emulator>,
-}
-
-fn handle_hotkeys<Emulator>(
-    mut args: HandleHotkeysArgs<'_, Emulator>,
-) -> NativeEmulatorResult<HotkeyResult>
-where
-    Emulator: EmulatorTrait,
-{
-    match args.hotkey_mapper.check_for_hotkeys(args.event) {
-        HotkeyMapResult::Pressed(hotkeys) => {
-            for &hotkey in hotkeys {
-                if handle_hotkey_pressed(hotkey, &mut args)? == HotkeyResult::Quit {
-                    return Ok(HotkeyResult::Quit);
-                }
-            }
-        }
-        HotkeyMapResult::Released(hotkeys) => {
-            for &hotkey in hotkeys {
-                match hotkey {
-                    Hotkey::FastForward => {
-                        args.renderer.set_speed_multiplier(1);
-                        args.audio_output.set_speed_multiplier(1);
-                    }
-                    Hotkey::Rewind => {
-                        args.hotkey_state.rewinder.stop_rewinding();
-                    }
-                    _ => {}
-                }
-            }
-        }
-        HotkeyMapResult::None => {}
-    }
-
-    Ok(HotkeyResult::None)
-}
-
-fn handle_hotkey_pressed<Emulator>(
-    hotkey: Hotkey,
-    args: &mut HandleHotkeysArgs<'_, Emulator>,
-) -> NativeEmulatorResult<HotkeyResult>
-where
-    Emulator: EmulatorTrait,
-{
-    let save_state_path = &args.hotkey_state.save_state_path;
-
-    match hotkey {
-        Hotkey::Quit => {
-            return Ok(HotkeyResult::Quit);
-        }
-        Hotkey::ToggleFullscreen => {
-            args.renderer.toggle_fullscreen().map_err(NativeEmulatorError::SdlSetFullscreen)?;
-        }
-        Hotkey::SaveState => {
-            save_state(args.emulator, save_state_path)?;
-        }
-        Hotkey::LoadState => {
-            let mut loaded_emulator: Emulator = match load_state(save_state_path) {
-                Ok(emulator) => emulator,
-                Err(err) => {
-                    log::error!(
-                        "Error loading save state from {}: {err}",
-                        save_state_path.display()
-                    );
-                    return Ok(HotkeyResult::None);
-                }
-            };
-            loaded_emulator.take_rom_from(args.emulator);
-
-            // Force a config reload because the emulator will contain some config fields
-            loaded_emulator.reload_config(args.config);
-
-            *args.emulator = loaded_emulator;
-        }
-        Hotkey::SoftReset => {
-            args.emulator.soft_reset();
-        }
-        Hotkey::HardReset => {
-            args.emulator.hard_reset(args.save_writer);
-        }
-        Hotkey::Pause => {
-            args.hotkey_state.paused = !args.hotkey_state.paused;
-        }
-        Hotkey::StepFrame => {
-            args.hotkey_state.should_step_frame = true;
-        }
-        Hotkey::FastForward => {
-            args.renderer.set_speed_multiplier(args.hotkey_state.fast_forward_multiplier);
-            args.audio_output.set_speed_multiplier(args.hotkey_state.fast_forward_multiplier);
-        }
-        Hotkey::Rewind => {
-            args.hotkey_state.rewinder.start_rewinding();
-        }
-        Hotkey::OpenDebugger => {
-            if args.hotkey_state.debugger_window.is_none() {
-                let debug_render_fn = (args.hotkey_state.debug_render_fn)();
-                match DebuggerWindow::new(args.video, debug_render_fn) {
-                    Ok(debugger_window) => {
-                        args.hotkey_state.debugger_window = Some(debugger_window);
-                    }
-                    Err(err) => {
-                        log::error!("Error opening debugger window: {err}");
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(HotkeyResult::None)
-}
-
-fn open_debugger_window<Emulator>(
-    video: &VideoSubsystem,
-    debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
-) -> Option<DebuggerWindow<Emulator>> {
-    let render_fn = debug_render_fn();
-    match DebuggerWindow::new(video, render_fn) {
-        Ok(debugger_window) => Some(debugger_window),
-        Err(err) => {
-            log::error!("Error opening debugger window: {err}");
-            None
-        }
-    }
 }
 
 fn handle_window_event(win_event: WindowEvent, renderer: &mut WgpuRenderer<Window>) {
