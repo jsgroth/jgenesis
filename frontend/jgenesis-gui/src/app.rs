@@ -29,6 +29,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::str::FromStr;
+use time::util::local_offset;
+use time::util::local_offset::Soundness;
+use time::{format_description, OffsetDateTime, UtcOffset};
 
 trait ListFiltersExt {
     fn to_console_vec(&self) -> Vec<Console>;
@@ -397,6 +400,22 @@ impl App {
     }
 
     fn render_menu(&mut self, ctx: &Context) {
+        TopBottomPanel::new(TopBottomSide::Top, "top_bottom_panel").show(ctx, |ui| {
+            menu::bar(ui, |ui| {
+                ui.set_enabled(!self.state.error_window_open);
+
+                self.render_file_menu(ctx, ui);
+                self.render_emulation_menu(ui);
+                self.render_settings_menu(ui);
+                self.render_video_menu(ui);
+                self.render_audio_menu(ui);
+                self.render_input_menu(ui);
+                self.render_help_menu(ui);
+            });
+        });
+    }
+
+    fn render_file_menu(&mut self, ctx: &Context, ui: &mut Ui) {
         let open_shortcut = KeyboardShortcut::new(Modifiers::CTRL, Key::O);
         if ctx.input_mut(|input| input.consume_shortcut(&open_shortcut)) {
             self.open_file();
@@ -407,272 +426,324 @@ impl App {
             ctx.send_viewport_cmd(ViewportCommand::Close);
         }
 
-        TopBottomPanel::new(TopBottomSide::Top, "top_bottom_panel").show(ctx, |ui| {
-            menu::bar(ui, |ui| {
-                ui.set_enabled(!self.state.error_window_open);
+        ui.menu_button("File", |ui| {
+            ui.add_enabled_ui(!self.state.recent_open_list.is_empty(), |ui| {
+                ui.menu_button("Open Recent", |ui| {
+                    ui.set_min_width(200.0);
+                    ui.set_max_width(400.0);
 
-                ui.menu_button("File", |ui| {
-                    ui.add_enabled_ui(!self.state.recent_open_list.is_empty(), |ui| {
-                        ui.menu_button("Open Recent", |ui| {
-                            for recent_open in self.state.recent_open_list.clone() {
-                                if ui.button(&recent_open.file_name_no_ext).clicked() {
-                                    self.launch_emulator(recent_open.full_path);
-                                    ui.close_menu();
-                                }
-
-                                ui.add_space(5.0);
-                            }
-                        });
-                    });
-
-                    let open_button =
-                        Button::new("Open").shortcut_text(ctx.format_shortcut(&open_shortcut));
-                    if open_button.ui(ui).clicked() {
-                        self.open_file();
-                        ui.close_menu();
-                    }
-
-                    let quit_button =
-                        Button::new("Quit").shortcut_text(ctx.format_shortcut(&quit_shortcut));
-                    if quit_button.ui(ui).clicked() {
-                        ctx.send_viewport_cmd(ViewportCommand::Close);
-                    }
-                });
-
-                ui.menu_button("Emulation", |ui| {
-                    ui.set_enabled(self.emu_thread.status().is_running());
-
-                    if ui.button("Open Memory Viewer").clicked() {
-                        self.emu_thread.send(EmuThreadCommand::OpenMemoryViewer);
-                        ui.close_menu();
-                    }
-
-                    ui.add_space(15.0);
-
-                    if ui.button("Soft Reset").clicked() {
-                        self.emu_thread.send(EmuThreadCommand::SoftReset);
-                        ui.close_menu();
-                    }
-
-                    if ui.button("Hard Reset").clicked() {
-                        self.emu_thread.send(EmuThreadCommand::HardReset);
-                        ui.close_menu();
-                    }
-
-                    if ui.button("Power Off").clicked() {
-                        self.emu_thread.send(EmuThreadCommand::StopEmulator);
-                        ui.close_menu();
-                    }
-
-                    ui.add_space(15.0);
-
-                    ui.add_enabled_ui(
-                        self.emu_thread.status() == EmuThreadStatus::RunningSegaCd,
-                        |ui| {
-                            if ui.button("Remove Disc").clicked() {
-                                self.emu_thread.send(EmuThreadCommand::SegaCdRemoveDisc);
-                                ui.close_menu();
-                            }
-
-                            if ui.button("Change Disc").clicked() {
-                                if let Some(path) = FileDialog::new()
-                                    .add_filter("cue/chd", &["cue", "chd"])
-                                    .pick_file()
-                                {
-                                    self.emu_thread.send(EmuThreadCommand::SegaCdChangeDisc(path));
-                                }
-
-                                ui.close_menu();
-                            }
-                        },
-                    );
-                });
-
-                ui.menu_button("Settings", |ui| {
-                    if ui.button("SMS / Game Gear").clicked() {
-                        self.state.open_windows.insert(OpenWindow::SmsGgGeneral);
-                        ui.close_menu();
-                    }
-
-                    if ui.button("Genesis / Sega CD").clicked() {
-                        self.state.open_windows.insert(OpenWindow::GenesisGeneral);
-                        ui.close_menu();
-                    }
-
-                    if ui.button("NES").clicked() {
-                        self.state.open_windows.insert(OpenWindow::NesGeneral);
-                        ui.close_menu();
-                    }
-
-                    if ui.button("SNES").clicked() {
-                        self.state.open_windows.insert(OpenWindow::SnesGeneral);
-                        ui.close_menu();
-                    }
-
-                    if ui.button("Game Boy").clicked() {
-                        self.state.open_windows.insert(OpenWindow::GameBoyGeneral);
-                        ui.close_menu();
-                    }
-
-                    if ui.button("Interface").clicked() {
-                        self.state.open_windows.insert(OpenWindow::Interface);
-                        ui.close_menu();
-                    }
-                });
-
-                ui.menu_button("Video", |ui| {
-                    if ui.button("General").clicked() {
-                        self.state.open_windows.insert(OpenWindow::CommonVideo);
-                        ui.close_menu();
-                    }
-
-                    if ui.button("SMS / Game Gear").clicked() {
-                        self.state.open_windows.insert(OpenWindow::SmsGgVideo);
-                        ui.close_menu();
-                    }
-
-                    if ui.button("Genesis / Sega CD").clicked() {
-                        self.state.open_windows.insert(OpenWindow::GenesisVideo);
-                        ui.close_menu();
-                    }
-
-                    if ui.button("NES").clicked() {
-                        self.state.open_windows.insert(OpenWindow::NesVideo);
-                        ui.close_menu();
-                    }
-
-                    if ui.button("SNES").clicked() {
-                        self.state.open_windows.insert(OpenWindow::SnesVideo);
-                        ui.close_menu();
-                    }
-
-                    if ui.button("Game Boy").clicked() {
-                        self.state.open_windows.insert(OpenWindow::GameBoyVideo);
-                        ui.close_menu();
-                    }
-                });
-
-                ui.menu_button("Audio", |ui| {
-                    if ui.button("General").clicked() {
-                        self.state.open_windows.insert(OpenWindow::CommonAudio);
-                        ui.close_menu();
-                    }
-
-                    if ui.button("SMS / Game Gear").clicked() {
-                        self.state.open_windows.insert(OpenWindow::SmsGgAudio);
-                        ui.close_menu();
-                    }
-
-                    if ui.button("Genesis / Sega CD").clicked() {
-                        self.state.open_windows.insert(OpenWindow::GenesisAudio);
-                        ui.close_menu();
-                    }
-
-                    if ui.button("NES").clicked() {
-                        self.state.open_windows.insert(OpenWindow::NesAudio);
-                        ui.close_menu();
-                    }
-
-                    if ui.button("SNES").clicked() {
-                        self.state.open_windows.insert(OpenWindow::SnesAudio);
-                        ui.close_menu();
-                    }
-                });
-
-                ui.menu_button("Input", |ui| {
-                    ui.menu_button("SMS / Game Gear", |ui| {
-                        if ui.button("Keyboard").clicked() {
-                            self.state.open_windows.insert(OpenWindow::SmsGgKeyboard);
+                    for recent_open in self.state.recent_open_list.clone() {
+                        if ui.button(&recent_open.file_name_no_ext).clicked() {
+                            self.launch_emulator(recent_open.full_path);
                             ui.close_menu();
                         }
 
-                        if ui.button("Gamepad").clicked() {
-                            self.state.open_windows.insert(OpenWindow::SmsGgGamepad);
-                            ui.close_menu();
-                        }
-                    });
-
-                    ui.add_space(5.0);
-
-                    ui.menu_button("Genesis / Sega CD", |ui| {
-                        if ui.button("Keyboard").clicked() {
-                            self.state.open_windows.insert(OpenWindow::GenesisKeyboard);
-                            ui.close_menu();
-                        }
-
-                        if ui.button("Gamepad").clicked() {
-                            self.state.open_windows.insert(OpenWindow::GenesisGamepad);
-                            ui.close_menu();
-                        }
-                    });
-
-                    ui.add_space(5.0);
-
-                    ui.menu_button("NES", |ui| {
-                        if ui.button("Keyboard").clicked() {
-                            self.state.open_windows.insert(OpenWindow::NesKeyboard);
-                            ui.close_menu();
-                        }
-
-                        if ui.button("Gamepad").clicked() {
-                            self.state.open_windows.insert(OpenWindow::NesGamepad);
-                            ui.close_menu();
-                        }
-
-                        if ui.button("Peripherals").clicked() {
-                            self.state.open_windows.insert(OpenWindow::NesPeripherals);
-                            ui.close_menu();
-                        }
-                    });
-
-                    ui.add_space(5.0);
-
-                    ui.menu_button("SNES", |ui| {
-                        if ui.button("Keyboard").clicked() {
-                            self.state.open_windows.insert(OpenWindow::SnesKeyboard);
-                            ui.close_menu();
-                        }
-
-                        if ui.button("Gamepad").clicked() {
-                            self.state.open_windows.insert(OpenWindow::SnesGamepad);
-                            ui.close_menu();
-                        }
-
-                        if ui.button("Peripherals").clicked() {
-                            self.state.open_windows.insert(OpenWindow::SnesPeripherals);
-                            ui.close_menu();
-                        }
-                    });
-
-                    ui.add_space(5.0);
-
-                    ui.menu_button("Game Boy", |ui| {
-                        if ui.button("Keyboard").clicked() {
-                            self.state.open_windows.insert(OpenWindow::GameBoyKeyboard);
-                            ui.close_menu();
-                        }
-
-                        if ui.button("Gamepad").clicked() {
-                            self.state.open_windows.insert(OpenWindow::GameBoyGamepad);
-                            ui.close_menu();
-                        }
-                    });
-
-                    ui.add_space(5.0);
-
-                    if ui.button("Hotkeys").clicked() {
-                        self.state.open_windows.insert(OpenWindow::Hotkeys);
-                        ui.close_menu();
-                    }
-                });
-
-                ui.menu_button("Help", |ui| {
-                    if ui.button("About").clicked() {
-                        self.state.open_windows.insert(OpenWindow::About);
-                        ui.close_menu();
+                        ui.add_space(5.0);
                     }
                 });
             });
+
+            let open_button =
+                Button::new("Open").shortcut_text(ctx.format_shortcut(&open_shortcut));
+            if open_button.ui(ui).clicked() {
+                self.open_file();
+                ui.close_menu();
+            }
+
+            let quit_button =
+                Button::new("Quit").shortcut_text(ctx.format_shortcut(&quit_shortcut));
+            if quit_button.ui(ui).clicked() {
+                ctx.send_viewport_cmd(ViewportCommand::Close);
+            }
+        });
+    }
+
+    fn render_emulation_menu(&mut self, ui: &mut Ui) {
+        ui.menu_button("Emulation", |ui| {
+            ui.set_enabled(self.emu_thread.status().is_running());
+
+            let save_state_metadata = self.emu_thread.save_state_metadata();
+
+            ui.menu_button("Load State", |ui| {
+                ui.set_min_width(200.0);
+
+                for slot in 0..jgenesis_native_driver::SAVE_STATE_SLOTS {
+                    match save_state_metadata.times_nanos[slot] {
+                        Some(time_nanos) => {
+                            let formatted_time =
+                                format_time_nanos(time_nanos).unwrap_or_else(|| "Unknown".into());
+                            let label = format!("Slot {slot} - {formatted_time}");
+                            if ui.button(label).clicked() {
+                                self.emu_thread.send(EmuThreadCommand::LoadState { slot });
+                                ui.close_menu();
+                            }
+                        }
+                        None => {
+                            if ui.button(format!("Slot {slot} - Empty")).clicked() {
+                                ui.close_menu();
+                            }
+                        }
+                    }
+                }
+            });
+
+            ui.menu_button("Save State", |ui| {
+                ui.set_min_width(200.0);
+
+                for slot in 0..jgenesis_native_driver::SAVE_STATE_SLOTS {
+                    let label = match save_state_metadata.times_nanos[slot] {
+                        Some(time_nanos) => {
+                            let formatted_time =
+                                format_time_nanos(time_nanos).unwrap_or_else(|| "Unknown".into());
+                            format!("Slot {slot} - {formatted_time}")
+                        }
+                        None => format!("Slot {slot} - Empty"),
+                    };
+
+                    if ui.button(label).clicked() {
+                        self.emu_thread.send(EmuThreadCommand::SaveState { slot });
+                        ui.close_menu();
+                    }
+                }
+            });
+
+            ui.add_space(15.0);
+
+            if ui.button("Open Memory Viewer").clicked() {
+                self.emu_thread.send(EmuThreadCommand::OpenMemoryViewer);
+                ui.close_menu();
+            }
+
+            ui.add_space(15.0);
+
+            if ui.button("Soft Reset").clicked() {
+                self.emu_thread.send(EmuThreadCommand::SoftReset);
+                ui.close_menu();
+            }
+
+            if ui.button("Hard Reset").clicked() {
+                self.emu_thread.send(EmuThreadCommand::HardReset);
+                ui.close_menu();
+            }
+
+            if ui.button("Power Off").clicked() {
+                self.emu_thread.send(EmuThreadCommand::StopEmulator);
+                ui.close_menu();
+            }
+
+            ui.add_space(15.0);
+
+            ui.add_enabled_ui(self.emu_thread.status() == EmuThreadStatus::RunningSegaCd, |ui| {
+                if ui.button("Remove Disc").clicked() {
+                    self.emu_thread.send(EmuThreadCommand::SegaCdRemoveDisc);
+                    ui.close_menu();
+                }
+
+                if ui.button("Change Disc").clicked() {
+                    if let Some(path) =
+                        FileDialog::new().add_filter("cue/chd", &["cue", "chd"]).pick_file()
+                    {
+                        self.emu_thread.send(EmuThreadCommand::SegaCdChangeDisc(path));
+                    }
+
+                    ui.close_menu();
+                }
+            });
+        });
+    }
+
+    fn render_settings_menu(&mut self, ui: &mut Ui) {
+        ui.menu_button("Settings", |ui| {
+            if ui.button("SMS / Game Gear").clicked() {
+                self.state.open_windows.insert(OpenWindow::SmsGgGeneral);
+                ui.close_menu();
+            }
+
+            if ui.button("Genesis / Sega CD").clicked() {
+                self.state.open_windows.insert(OpenWindow::GenesisGeneral);
+                ui.close_menu();
+            }
+
+            if ui.button("NES").clicked() {
+                self.state.open_windows.insert(OpenWindow::NesGeneral);
+                ui.close_menu();
+            }
+
+            if ui.button("SNES").clicked() {
+                self.state.open_windows.insert(OpenWindow::SnesGeneral);
+                ui.close_menu();
+            }
+
+            if ui.button("Game Boy").clicked() {
+                self.state.open_windows.insert(OpenWindow::GameBoyGeneral);
+                ui.close_menu();
+            }
+
+            if ui.button("Interface").clicked() {
+                self.state.open_windows.insert(OpenWindow::Interface);
+                ui.close_menu();
+            }
+        });
+    }
+
+    fn render_video_menu(&mut self, ui: &mut Ui) {
+        ui.menu_button("Video", |ui| {
+            if ui.button("General").clicked() {
+                self.state.open_windows.insert(OpenWindow::CommonVideo);
+                ui.close_menu();
+            }
+
+            if ui.button("SMS / Game Gear").clicked() {
+                self.state.open_windows.insert(OpenWindow::SmsGgVideo);
+                ui.close_menu();
+            }
+
+            if ui.button("Genesis / Sega CD").clicked() {
+                self.state.open_windows.insert(OpenWindow::GenesisVideo);
+                ui.close_menu();
+            }
+
+            if ui.button("NES").clicked() {
+                self.state.open_windows.insert(OpenWindow::NesVideo);
+                ui.close_menu();
+            }
+
+            if ui.button("SNES").clicked() {
+                self.state.open_windows.insert(OpenWindow::SnesVideo);
+                ui.close_menu();
+            }
+
+            if ui.button("Game Boy").clicked() {
+                self.state.open_windows.insert(OpenWindow::GameBoyVideo);
+                ui.close_menu();
+            }
+        });
+    }
+
+    fn render_audio_menu(&mut self, ui: &mut Ui) {
+        ui.menu_button("Audio", |ui| {
+            if ui.button("General").clicked() {
+                self.state.open_windows.insert(OpenWindow::CommonAudio);
+                ui.close_menu();
+            }
+
+            if ui.button("SMS / Game Gear").clicked() {
+                self.state.open_windows.insert(OpenWindow::SmsGgAudio);
+                ui.close_menu();
+            }
+
+            if ui.button("Genesis / Sega CD").clicked() {
+                self.state.open_windows.insert(OpenWindow::GenesisAudio);
+                ui.close_menu();
+            }
+
+            if ui.button("NES").clicked() {
+                self.state.open_windows.insert(OpenWindow::NesAudio);
+                ui.close_menu();
+            }
+
+            if ui.button("SNES").clicked() {
+                self.state.open_windows.insert(OpenWindow::SnesAudio);
+                ui.close_menu();
+            }
+        });
+    }
+
+    fn render_input_menu(&mut self, ui: &mut Ui) {
+        ui.menu_button("Input", |ui| {
+            ui.menu_button("SMS / Game Gear", |ui| {
+                if ui.button("Keyboard").clicked() {
+                    self.state.open_windows.insert(OpenWindow::SmsGgKeyboard);
+                    ui.close_menu();
+                }
+
+                if ui.button("Gamepad").clicked() {
+                    self.state.open_windows.insert(OpenWindow::SmsGgGamepad);
+                    ui.close_menu();
+                }
+            });
+
+            ui.add_space(5.0);
+
+            ui.menu_button("Genesis / Sega CD", |ui| {
+                if ui.button("Keyboard").clicked() {
+                    self.state.open_windows.insert(OpenWindow::GenesisKeyboard);
+                    ui.close_menu();
+                }
+
+                if ui.button("Gamepad").clicked() {
+                    self.state.open_windows.insert(OpenWindow::GenesisGamepad);
+                    ui.close_menu();
+                }
+            });
+
+            ui.add_space(5.0);
+
+            ui.menu_button("NES", |ui| {
+                if ui.button("Keyboard").clicked() {
+                    self.state.open_windows.insert(OpenWindow::NesKeyboard);
+                    ui.close_menu();
+                }
+
+                if ui.button("Gamepad").clicked() {
+                    self.state.open_windows.insert(OpenWindow::NesGamepad);
+                    ui.close_menu();
+                }
+
+                if ui.button("Peripherals").clicked() {
+                    self.state.open_windows.insert(OpenWindow::NesPeripherals);
+                    ui.close_menu();
+                }
+            });
+
+            ui.add_space(5.0);
+
+            ui.menu_button("SNES", |ui| {
+                if ui.button("Keyboard").clicked() {
+                    self.state.open_windows.insert(OpenWindow::SnesKeyboard);
+                    ui.close_menu();
+                }
+
+                if ui.button("Gamepad").clicked() {
+                    self.state.open_windows.insert(OpenWindow::SnesGamepad);
+                    ui.close_menu();
+                }
+
+                if ui.button("Peripherals").clicked() {
+                    self.state.open_windows.insert(OpenWindow::SnesPeripherals);
+                    ui.close_menu();
+                }
+            });
+
+            ui.add_space(5.0);
+
+            ui.menu_button("Game Boy", |ui| {
+                if ui.button("Keyboard").clicked() {
+                    self.state.open_windows.insert(OpenWindow::GameBoyKeyboard);
+                    ui.close_menu();
+                }
+
+                if ui.button("Gamepad").clicked() {
+                    self.state.open_windows.insert(OpenWindow::GameBoyGamepad);
+                    ui.close_menu();
+                }
+            });
+
+            ui.add_space(5.0);
+
+            if ui.button("Hotkeys").clicked() {
+                self.state.open_windows.insert(OpenWindow::Hotkeys);
+                ui.close_menu();
+            }
+        });
+    }
+
+    fn render_help_menu(&mut self, ui: &mut Ui) {
+        ui.menu_button("Help", |ui| {
+            if ui.button("About").clicked() {
+                self.state.open_windows.insert(OpenWindow::About);
+                ui.close_menu();
+            }
         });
     }
 
@@ -941,6 +1012,27 @@ fn should_reload_config(prev_config: &AppConfig, new_config: &AppConfig) -> bool
     prev_no_ui_settings != new_no_ui_settings
 }
 
+fn format_time_nanos(time_nanos: u128) -> Option<String> {
+    let utc_date_time = OffsetDateTime::from_unix_timestamp_nanos(time_nanos as i128)
+        .unwrap_or(OffsetDateTime::UNIX_EPOCH);
+
+    // SAFETY: Nothing in this application modifies the current local time zone offset
+    let local_offset = unsafe {
+        local_offset::set_soundness(Soundness::Unsound);
+        let offset = UtcOffset::current_local_offset().ok();
+        local_offset::set_soundness(Soundness::Sound);
+
+        offset
+    }?;
+
+    let local_date_time = utc_date_time.checked_to_offset(local_offset)?;
+
+    let format =
+        format_description::parse_borrowed::<2>("[year]-[month]-[day] [hour]:[minute]:[second]")
+            .unwrap();
+    local_date_time.format(&format).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -948,5 +1040,10 @@ mod tests {
     #[test]
     fn config_default_does_not_panic() {
         let _ = AppConfig::default();
+    }
+
+    #[test]
+    fn time_nanos_format_is_valid() {
+        assert!(format_time_nanos(1_000_000_000).is_some());
     }
 }

@@ -29,6 +29,7 @@ log = { workspace = true, features = ["release_max_level_info"] }
 regex = { workspace = true }
 rfd = { workspace = true }
 sdl2 = { workspace = true }
+time = { workspace = true, features = ["formatting", "local-offset"] }
 toml = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]

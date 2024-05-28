@@ -1,7 +1,7 @@
 use crate::mainloop::{bincode_config, NativeEmulatorError};
 use crate::NativeEmulatorResult;
-use bincode::{Decode, Encode};
-use jgenesis_common::frontend::PartialClone;
+use bincode::Encode;
+use jgenesis_common::frontend::EmulatorTrait;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
@@ -27,13 +27,13 @@ pub fn init_paths(path: &Path) -> NativeEmulatorResult<[PathBuf; SAVE_STATE_SLOT
     Ok(file_names.map(|name| path.with_file_name(name).with_extension(EXTENSION)))
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SaveStateMetadata {
     pub times_nanos: [Option<u128>; SAVE_STATE_SLOTS],
 }
 
 impl SaveStateMetadata {
-    pub fn load(paths: &SaveStatePaths) -> Self {
+    pub(crate) fn load(paths: &SaveStatePaths) -> Self {
         let times_nanos = array::from_fn(|i| {
             let metadata = fs::metadata(&paths[i]).ok()?;
             let modified = metadata.modified().ok()?;
@@ -44,7 +44,7 @@ impl SaveStateMetadata {
     }
 }
 
-pub fn save<Emulator: PartialClone + Encode>(
+pub fn save<Emulator: Encode>(
     emulator: &Emulator,
     paths: &SaveStatePaths,
     slot: usize,
@@ -64,17 +64,24 @@ pub fn save<Emulator: PartialClone + Encode>(
     Ok(())
 }
 
-pub fn load<Emulator: Decode>(
+pub fn load<Emulator: EmulatorTrait>(
+    emulator: &mut Emulator,
+    config: &Emulator::Config,
     paths: &SaveStatePaths,
     slot: usize,
-) -> NativeEmulatorResult<Emulator> {
+) -> NativeEmulatorResult<()> {
     let path = &paths[slot];
     let file = File::open(path).map_err(|source| NativeEmulatorError::StateFileOpen {
         path: path.display().to_string(),
         source,
     })?;
     let mut reader = BufReader::new(file);
-    let emulator = bincode::decode_from_std_read(&mut reader, bincode_config!())?;
+    let mut loaded_emulator: Emulator =
+        bincode::decode_from_std_read(&mut reader, bincode_config!())?;
 
-    Ok(emulator)
+    loaded_emulator.take_rom_from(emulator);
+    *emulator = loaded_emulator;
+    emulator.reload_config(config);
+
+    Ok(())
 }

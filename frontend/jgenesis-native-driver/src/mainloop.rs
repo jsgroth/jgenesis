@@ -14,7 +14,7 @@ pub use genesis::{create_genesis, create_sega_cd, NativeGenesisEmulator, NativeS
 pub use nes::{create_nes, NativeNesEmulator};
 pub use smsgg::{create_smsgg, NativeSmsGgEmulator};
 pub use snes::{create_snes, NativeSnesEmulator};
-pub use state::SaveStateMetadata;
+pub use state::{SaveStateMetadata, SAVE_STATE_SLOTS};
 
 use crate::config::input::{InputConfig, JoystickInput, KeyboardInput};
 use crate::config::{CommonConfig, WindowSize};
@@ -256,24 +256,18 @@ impl<Inputs, Button, Config, Emulator: EmulatorTrait<Config = Config>>
             Hotkey::LoadState => {
                 let paths = &self.hotkey_state.save_state_paths;
                 let slot = self.hotkey_state.save_state_slot;
-                let mut loaded_emulator: Emulator = match state::load(paths, slot) {
-                    Ok(emulator) => emulator,
+
+                match state::load(&mut self.emulator, &self.config, paths, slot) {
+                    Ok(()) => {
+                        log::info!("Loaded state from slot {slot} in '{}'", paths[slot].display());
+                    }
                     Err(err) => {
                         log::error!(
                             "Error loading save state from slot {slot} in '{}': {err}",
                             paths[slot].display()
                         );
-                        return Ok(HotkeyResult::None);
                     }
-                };
-                loaded_emulator.take_rom_from(&mut self.emulator);
-
-                // Force a config reload because the emulator will contain some config fields
-                loaded_emulator.reload_config(&self.config);
-
-                self.emulator = loaded_emulator;
-
-                log::info!("Loaded state from slot {slot} in '{}'", paths[slot].display());
+                }
             }
             Hotkey::SoftReset => {
                 self.emulator.soft_reset();
@@ -421,9 +415,7 @@ pub enum NativeEmulatorError {
     #[error("Error saving state: {0}")]
     SaveState(#[from] EncodeError),
     #[error("Error loading state: {0}")]
-    LoadStateDecode(#[from] DecodeError),
-    #[error("No state found in slot {slot}")]
-    LoadStateNotFound { slot: usize },
+    LoadState(#[from] DecodeError),
     #[error("Error in emulation core: {0}")]
     Emulator(#[source] Box<dyn Error + Send + Sync + 'static>),
 }
@@ -613,6 +605,30 @@ where
             self.hotkey_state.debugger_window =
                 open_debugger_window(&self.video, self.hotkey_state.debug_render_fn);
         }
+    }
+
+    /// # Errors
+    ///
+    /// Returns an error if the state cannot be saved (e.g. due to I/O error).
+    pub fn save_state(&mut self, slot: usize) -> NativeEmulatorResult<()> {
+        state::save(
+            &self.emulator,
+            &self.hotkey_state.save_state_paths,
+            slot,
+            &mut self.hotkey_state.save_state_metadata,
+        )
+    }
+
+    /// # Errors
+    ///
+    /// Return an error if the state cannot be loaded (e.g. due to I/O error or because the save
+    /// state does not exist).
+    pub fn load_state(&mut self, slot: usize) -> NativeEmulatorResult<()> {
+        state::load(&mut self.emulator, &self.config, &self.hotkey_state.save_state_paths, slot)
+    }
+
+    pub fn save_state_metadata(&self) -> &SaveStateMetadata {
+        &self.hotkey_state.save_state_metadata
     }
 }
 
