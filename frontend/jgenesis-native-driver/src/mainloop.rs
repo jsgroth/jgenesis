@@ -45,6 +45,8 @@ use std::time::Duration;
 use std::{io, thread};
 use thiserror::Error;
 
+const MODAL_DURATION: Duration = Duration::from_secs(3);
+
 trait RendererExt {
     fn focus(&mut self);
 
@@ -200,125 +202,6 @@ impl<Inputs, Button, Config, Emulator: PartialClone>
 enum HotkeyResult {
     None,
     Quit,
-}
-
-impl<Inputs, Button, Config, Emulator: EmulatorTrait<Config = Config>>
-    NativeEmulator<Inputs, Button, Config, Emulator>
-{
-    fn handle_hotkeys(&mut self, event: &Event) -> NativeEmulatorResult<HotkeyResult> {
-        match self.hotkey_mapper.check_for_hotkeys(event) {
-            HotkeyMapResult::Pressed(hotkeys) => {
-                for &hotkey in &*hotkeys {
-                    if self.handle_hotkey_pressed(hotkey)? == HotkeyResult::Quit {
-                        return Ok(HotkeyResult::Quit);
-                    }
-                }
-            }
-            HotkeyMapResult::Released(hotkeys) => {
-                for &hotkey in &*hotkeys {
-                    match hotkey {
-                        Hotkey::FastForward => {
-                            self.renderer.set_speed_multiplier(1);
-                            self.audio_output.set_speed_multiplier(1);
-                        }
-                        Hotkey::Rewind => {
-                            self.hotkey_state.rewinder.stop_rewinding();
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            HotkeyMapResult::None => {}
-        }
-
-        Ok(HotkeyResult::None)
-    }
-
-    fn handle_hotkey_pressed(&mut self, hotkey: Hotkey) -> NativeEmulatorResult<HotkeyResult> {
-        match hotkey {
-            Hotkey::Quit => return Ok(HotkeyResult::Quit),
-            Hotkey::ToggleFullscreen => {
-                self.renderer.toggle_fullscreen().map_err(NativeEmulatorError::SdlSetFullscreen)?;
-            }
-            Hotkey::SaveState => {
-                let slot = self.hotkey_state.save_state_slot;
-                state::save(
-                    &self.emulator,
-                    &self.hotkey_state.save_state_paths,
-                    slot,
-                    &mut self.hotkey_state.save_state_metadata,
-                )?;
-                log::info!(
-                    "Saved state to slot {slot} in '{}'",
-                    self.hotkey_state.save_state_paths[slot].display()
-                );
-            }
-            Hotkey::LoadState => {
-                let paths = &self.hotkey_state.save_state_paths;
-                let slot = self.hotkey_state.save_state_slot;
-
-                match state::load(&mut self.emulator, &self.config, paths, slot) {
-                    Ok(()) => {
-                        log::info!("Loaded state from slot {slot} in '{}'", paths[slot].display());
-                    }
-                    Err(err) => {
-                        log::error!(
-                            "Error loading save state from slot {slot} in '{}': {err}",
-                            paths[slot].display()
-                        );
-                    }
-                }
-            }
-            Hotkey::SoftReset => {
-                self.emulator.soft_reset();
-            }
-            Hotkey::HardReset => {
-                self.emulator.hard_reset(&mut self.save_writer);
-            }
-            Hotkey::NextSaveStateSlot => {
-                self.hotkey_state.save_state_slot =
-                    (self.hotkey_state.save_state_slot + 1) % state::SAVE_STATE_SLOTS;
-                log::info!("Save state slot is now {}", self.hotkey_state.save_state_slot);
-            }
-            Hotkey::PrevSaveStateSlot => {
-                self.hotkey_state.save_state_slot = if self.hotkey_state.save_state_slot == 0 {
-                    state::SAVE_STATE_SLOTS - 1
-                } else {
-                    self.hotkey_state.save_state_slot - 1
-                };
-                log::info!("Save state slot is now {}", self.hotkey_state.save_state_slot);
-            }
-            Hotkey::Pause => {
-                self.hotkey_state.paused = !self.hotkey_state.paused;
-            }
-            Hotkey::StepFrame => {
-                self.hotkey_state.should_step_frame = true;
-            }
-            Hotkey::FastForward => {
-                let multiplier = self.hotkey_state.fast_forward_multiplier;
-                self.renderer.set_speed_multiplier(multiplier);
-                self.audio_output.set_speed_multiplier(multiplier);
-            }
-            Hotkey::Rewind => {
-                self.hotkey_state.rewinder.start_rewinding();
-            }
-            Hotkey::OpenDebugger => {
-                if self.hotkey_state.debugger_window.is_none() {
-                    let debug_render_fn = (self.hotkey_state.debug_render_fn)();
-                    match DebuggerWindow::new(&self.video, debug_render_fn) {
-                        Ok(debugger_window) => {
-                            self.hotkey_state.debugger_window = Some(debugger_window);
-                        }
-                        Err(err) => {
-                            log::error!("Error opening debugger window: {err}");
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(HotkeyResult::None)
-    }
 }
 
 fn open_debugger_window<Emulator>(
@@ -611,12 +494,19 @@ where
     ///
     /// Returns an error if the state cannot be saved (e.g. due to I/O error).
     pub fn save_state(&mut self, slot: usize) -> NativeEmulatorResult<()> {
-        state::save(
+        if let Err(err) = state::save(
             &self.emulator,
             &self.hotkey_state.save_state_paths,
             slot,
             &mut self.hotkey_state.save_state_metadata,
-        )
+        ) {
+            self.renderer.add_modal(format!("Failed to save state to slot {slot}"), MODAL_DURATION);
+            return Err(err);
+        }
+
+        self.renderer.add_modal(format!("Saved state to slot {slot}"), MODAL_DURATION);
+
+        Ok(())
     }
 
     /// # Errors
@@ -624,11 +514,138 @@ where
     /// Return an error if the state cannot be loaded (e.g. due to I/O error or because the save
     /// state does not exist).
     pub fn load_state(&mut self, slot: usize) -> NativeEmulatorResult<()> {
-        state::load(&mut self.emulator, &self.config, &self.hotkey_state.save_state_paths, slot)
+        if let Err(err) =
+            state::load(&mut self.emulator, &self.config, &self.hotkey_state.save_state_paths, slot)
+        {
+            self.renderer
+                .add_modal(format!("Failed to load state from slot {slot}"), MODAL_DURATION);
+            return Err(err);
+        }
+
+        self.renderer.add_modal(format!("Loaded state from slot {slot}"), MODAL_DURATION);
+
+        Ok(())
     }
 
     pub fn save_state_metadata(&self) -> &SaveStateMetadata {
         &self.hotkey_state.save_state_metadata
+    }
+
+    fn handle_hotkeys(&mut self, event: &Event) -> NativeEmulatorResult<HotkeyResult> {
+        match self.hotkey_mapper.check_for_hotkeys(event) {
+            HotkeyMapResult::Pressed(hotkeys) => {
+                for &hotkey in &*hotkeys {
+                    if self.handle_hotkey_pressed(hotkey)? == HotkeyResult::Quit {
+                        return Ok(HotkeyResult::Quit);
+                    }
+                }
+            }
+            HotkeyMapResult::Released(hotkeys) => {
+                for &hotkey in &*hotkeys {
+                    match hotkey {
+                        Hotkey::FastForward => {
+                            self.renderer.set_speed_multiplier(1);
+                            self.audio_output.set_speed_multiplier(1);
+                        }
+                        Hotkey::Rewind => {
+                            self.hotkey_state.rewinder.stop_rewinding();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            HotkeyMapResult::None => {}
+        }
+
+        Ok(HotkeyResult::None)
+    }
+
+    fn handle_hotkey_pressed(&mut self, hotkey: Hotkey) -> NativeEmulatorResult<HotkeyResult> {
+        match hotkey {
+            Hotkey::Quit => return Ok(HotkeyResult::Quit),
+            Hotkey::ToggleFullscreen => {
+                self.renderer.toggle_fullscreen().map_err(NativeEmulatorError::SdlSetFullscreen)?;
+            }
+            Hotkey::SaveState => {
+                let slot = self.hotkey_state.save_state_slot;
+                self.save_state(slot)?;
+                log::info!(
+                    "Saved state to slot {slot} in '{}'",
+                    self.hotkey_state.save_state_paths[slot].display()
+                );
+            }
+            Hotkey::LoadState => {
+                let slot = self.hotkey_state.save_state_slot;
+                match self.load_state(slot) {
+                    Ok(()) => {
+                        log::info!(
+                            "Loaded state from slot {slot} in '{}'",
+                            self.hotkey_state.save_state_paths[slot].display()
+                        );
+                    }
+                    Err(err) => {
+                        log::error!(
+                            "Error loading save state from slot {slot} in '{}': {err}",
+                            self.hotkey_state.save_state_paths[slot].display()
+                        );
+                    }
+                }
+            }
+            Hotkey::SoftReset => {
+                self.emulator.soft_reset();
+            }
+            Hotkey::HardReset => {
+                self.emulator.hard_reset(&mut self.save_writer);
+            }
+            Hotkey::NextSaveStateSlot => {
+                self.hotkey_state.save_state_slot =
+                    (self.hotkey_state.save_state_slot + 1) % SAVE_STATE_SLOTS;
+                self.renderer.add_modal(
+                    format!("Selected save state slot {}", self.hotkey_state.save_state_slot),
+                    MODAL_DURATION,
+                );
+            }
+            Hotkey::PrevSaveStateSlot => {
+                self.hotkey_state.save_state_slot = if self.hotkey_state.save_state_slot == 0 {
+                    state::SAVE_STATE_SLOTS - 1
+                } else {
+                    self.hotkey_state.save_state_slot - 1
+                };
+                self.renderer.add_modal(
+                    format!("Selected save state slot {}", self.hotkey_state.save_state_slot),
+                    MODAL_DURATION,
+                );
+            }
+            Hotkey::Pause => {
+                self.hotkey_state.paused = !self.hotkey_state.paused;
+            }
+            Hotkey::StepFrame => {
+                self.hotkey_state.should_step_frame = true;
+            }
+            Hotkey::FastForward => {
+                let multiplier = self.hotkey_state.fast_forward_multiplier;
+                self.renderer.set_speed_multiplier(multiplier);
+                self.audio_output.set_speed_multiplier(multiplier);
+            }
+            Hotkey::Rewind => {
+                self.hotkey_state.rewinder.start_rewinding();
+            }
+            Hotkey::OpenDebugger => {
+                if self.hotkey_state.debugger_window.is_none() {
+                    let debug_render_fn = (self.hotkey_state.debug_render_fn)();
+                    match DebuggerWindow::new(&self.video, debug_render_fn) {
+                        Ok(debugger_window) => {
+                            self.hotkey_state.debugger_window = Some(debugger_window);
+                        }
+                        Err(err) => {
+                            log::error!("Error opening debugger window: {err}");
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(HotkeyResult::None)
     }
 }
 

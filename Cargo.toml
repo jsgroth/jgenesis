@@ -10,6 +10,14 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
+# TODO the following dependencies can all be upgraded once the sdl2 crate supports raw-window-handle 0.6:
+#   eframe
+#   egui
+#   egui_extras
+#   egui-wgpu
+#   glyphon
+#   wgpu
+#   winit
 anyhow = "1"
 arrayvec = "0.7"
 base64 = "0.22"
@@ -26,6 +34,7 @@ egui_extras = "0.25"
 egui-wgpu = "0.25"
 env_logger = "0.11"
 flate2 = "1"
+glyphon = "0.4"
 js-sys = "0.3"
 lending-iterator = "0.1"
 log = "0.4"

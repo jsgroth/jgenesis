@@ -1,7 +1,9 @@
 use crate::config::{PreprocessShader, PrescaleMode, RendererConfig, Scanlines, WgpuBackend};
+use crate::ttf::ModalRenderer;
 use jgenesis_common::frontend::{Color, FrameSize, PixelAspectRatio, Renderer};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use std::collections::HashMap;
+use std::time::Duration;
 use std::{cmp, iter, mem};
 use thiserror::Error;
 use wgpu::util::DeviceExt;
@@ -570,7 +572,9 @@ impl RenderingPipeline {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         surface: &wgpu::Surface,
+        surface_config: &wgpu::SurfaceConfiguration,
         frame_buffer: &[Color],
+        modal_renderer: &mut ModalRenderer,
     ) -> Result<(), RendererError> {
         let output = surface.get_current_texture()?;
         let output_texture_view =
@@ -623,6 +627,13 @@ impl RenderingPipeline {
             prescale_pass.draw(0..VERTICES.len() as u32, 0..1);
         }
 
+        let modal_vertex_buffer = modal_renderer.prepare_modals(
+            device,
+            queue,
+            surface_config.width,
+            surface_config.height,
+        )?;
+
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: "render_pass".into(),
@@ -644,6 +655,10 @@ impl RenderingPipeline {
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
 
             render_pass.draw(0..VERTICES.len() as u32, 0..1);
+
+            if let Some(modal_vertex_buffer) = &modal_vertex_buffer {
+                modal_renderer.render(modal_vertex_buffer, &mut render_pass)?;
+            }
         }
 
         queue.submit(iter::once(encoder.finish()));
@@ -762,6 +777,10 @@ pub enum RendererError {
         "wgpu adapter does not support present mode {desired:?}; supported modes are {available:?}"
     )]
     UnsupportedPresentMode { desired: wgpu::PresentMode, available: Vec<wgpu::PresentMode> },
+    #[error("Error preparing text to render: {0}")]
+    GlyphonPrepare(#[from] glyphon::PrepareError),
+    #[error("Error rendering text: {0}")]
+    GlyphonRender(#[from] glyphon::RenderError),
 }
 
 struct Shaders {
@@ -841,6 +860,7 @@ pub struct WgpuRenderer<Window> {
     texture_format: wgpu::TextureFormat,
     renderer_config: RendererConfig,
     pipelines: RenderingPipelines,
+    modal_renderer: ModalRenderer,
     frame_count: u64,
     speed_multiplier: u64,
     // SAFETY: The surface must not outlive the window it was created from, thus the window must be
@@ -943,6 +963,8 @@ impl<Window: HasRawDisplayHandle + HasRawWindowHandle> WgpuRenderer<Window> {
 
         let shaders = Shaders::create(&device);
 
+        let modal_renderer = ModalRenderer::new(&device, &queue, surface_format);
+
         Ok(Self {
             surface,
             surface_config,
@@ -952,6 +974,7 @@ impl<Window: HasRawDisplayHandle + HasRawWindowHandle> WgpuRenderer<Window> {
             texture_format,
             renderer_config: config,
             pipelines: RenderingPipelines::new(),
+            modal_renderer,
             frame_count: 0,
             speed_multiplier: 1,
             window,
@@ -1014,6 +1037,10 @@ impl<Window> WgpuRenderer<Window> {
     pub fn current_display_info(&self) -> Option<(FrameSize, DisplayArea)> {
         self.pipelines.last_display_info
     }
+
+    pub fn add_modal(&mut self, text: String, duration: Duration) {
+        self.modal_renderer.add_modal(text, duration);
+    }
 }
 
 impl<Window> Renderer for WgpuRenderer<Window> {
@@ -1046,7 +1073,14 @@ impl<Window> Renderer for WgpuRenderer<Window> {
             )
         });
 
-        match pipeline.render(&self.device, &self.queue, &self.surface, frame_buffer) {
+        match pipeline.render(
+            &self.device,
+            &self.queue,
+            &self.surface,
+            &self.surface_config,
+            frame_buffer,
+            &mut self.modal_renderer,
+        ) {
             Ok(()) => {}
             Err(RendererError::WgpuSurface(wgpu::SurfaceError::Outdated)) => {
                 // This can sometimes happen on Windows with the Vulkan backend while the window is minimized
