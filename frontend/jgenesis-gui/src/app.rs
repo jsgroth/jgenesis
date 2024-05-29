@@ -479,9 +479,9 @@ impl App {
                             }
                         }
                         None => {
-                            if ui.button(format!("Slot {slot} - Empty")).clicked() {
-                                ui.close_menu();
-                            }
+                            ui.add_enabled_ui(false, |ui| {
+                                let _ = ui.button(format!("Slot {slot} - Empty"));
+                            });
                         }
                     }
                 }
