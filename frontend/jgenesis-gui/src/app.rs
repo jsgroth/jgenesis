@@ -770,6 +770,7 @@ impl App {
                 TableBuilder::new(ui)
                     .auto_shrink([false; 2])
                     .striped(true)
+                    .max_scroll_height(3000.0)
                     .cell_layout(Layout::left_to_right(Align::Center))
                     .column(Column::auto().at_most(300.0))
                     .columns(Column::auto(), 2)
