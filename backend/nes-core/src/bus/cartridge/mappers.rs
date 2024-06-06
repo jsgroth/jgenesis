@@ -1,30 +1,20 @@
-mod action52;
-mod bandai;
-mod konami;
-mod mmc1;
-mod mmc2;
-mod mmc3;
-mod mmc5;
-mod namco163;
-mod namco175;
-mod nrom;
-mod sunsoft;
+pub(crate) mod action52;
+pub(crate) mod bandai;
+pub(crate) mod konami;
+pub(crate) mod mmc1;
+pub(crate) mod mmc2;
+pub(crate) mod mmc3;
+pub(crate) mod mmc5;
+pub(crate) mod namco163;
+pub(crate) mod namco175;
+pub(crate) mod nrom;
+pub(crate) mod sunsoft;
+pub(crate) mod unrom512;
 
 use crate::bus::cartridge::Cartridge;
 use bincode::{Decode, Encode};
 
 use crate::bus;
-pub(crate) use action52::Action52;
-pub(crate) use bandai::BandaiFcg;
-pub(crate) use konami::{Vrc4, Vrc6, Vrc7};
-pub(crate) use mmc1::Mmc1;
-pub(crate) use mmc2::Mmc2;
-pub(crate) use mmc3::Mmc3;
-pub(crate) use mmc5::Mmc5;
-pub(crate) use namco163::Namco163;
-pub(crate) use namco175::Namco175;
-pub(crate) use nrom::{Axrom, Bnrom, Cnrom, Gxrom, Nrom, Uxrom};
-pub(crate) use sunsoft::Sunsoft;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]

@@ -15,6 +15,7 @@ jgenesis-proc-macros = { path = "../../jgenesis-proc-macros" }
 mos6502-emu = { path = "../../cpu/mos6502-emu" }
 
 bincode = { workspace = true }
+crc = { workspace = true }
 log = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true, optional = true }

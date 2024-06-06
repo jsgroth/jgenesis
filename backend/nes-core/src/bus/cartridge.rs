@@ -1,9 +1,5 @@
 mod mappers;
 
-use crate::bus::cartridge::mappers::{
-    Action52, Axrom, BandaiFcg, Bnrom, ChrType, Cnrom, Gxrom, Mmc1, Mmc2, Mmc3, Mmc5, Namco163,
-    Namco175, NametableMirroring, Nrom, PpuMapResult, Sunsoft, Uxrom, Vrc4, Vrc6, Vrc7,
-};
 use bincode::de::{BorrowDecoder, Decoder};
 use bincode::enc::Encoder;
 use bincode::error::{DecodeError, EncodeError};
@@ -15,11 +11,24 @@ use std::fmt::{Display, Formatter};
 use std::{io, mem};
 use thiserror::Error;
 
+use crate::bus::cartridge::mappers::action52::Action52;
+use crate::bus::cartridge::mappers::bandai::BandaiFcg;
+use crate::bus::cartridge::mappers::konami::{Vrc4, Vrc6, Vrc7};
+use crate::bus::cartridge::mappers::mmc1::Mmc1;
+use crate::bus::cartridge::mappers::mmc2::Mmc2;
+use crate::bus::cartridge::mappers::mmc3::Mmc3;
+use crate::bus::cartridge::mappers::mmc5::Mmc5;
+use crate::bus::cartridge::mappers::namco163::Namco163;
+use crate::bus::cartridge::mappers::namco175::Namco175;
+use crate::bus::cartridge::mappers::nrom::{Axrom, Bnrom, Cnrom, Gxrom, Nrom, Uxrom};
+use crate::bus::cartridge::mappers::sunsoft::Sunsoft;
+use crate::bus::cartridge::mappers::unrom512::Unrom512;
+use crate::bus::cartridge::mappers::{unrom512, ChrType, NametableMirroring, PpuMapResult};
 #[cfg(test)]
 pub(crate) use mappers::new_mmc1;
 
 #[derive(Debug, Clone, PartialClone)]
-struct Cartridge {
+pub struct Cartridge {
     timing_mode: TimingMode,
     #[partial_clone(default)]
     prg_rom: Vec<u8>,
@@ -175,6 +184,7 @@ pub(crate) enum Mapper {
     Namco175(#[partial_clone(partial)] MapperImpl<Namco175>),
     Nrom(#[partial_clone(partial)] MapperImpl<Nrom>),
     Sunsoft(#[partial_clone(partial)] MapperImpl<Sunsoft>),
+    Unrom512(#[partial_clone(partial)] MapperImpl<Unrom512>),
     Uxrom(#[partial_clone(partial)] MapperImpl<Uxrom>),
     Vrc4(#[partial_clone(partial)] MapperImpl<Vrc4>),
     Vrc6(#[partial_clone(partial)] MapperImpl<Vrc6>),
@@ -199,6 +209,7 @@ impl Mapper {
             Self::Namco175(..) => "Namco 175",
             Self::Nrom(..) => "NROM",
             Self::Sunsoft(..) => "Sunsoft",
+            Self::Unrom512(..) => "UNROM 512",
             Self::Uxrom(uxrom) => uxrom.name(),
             Self::Vrc4(vrc4) => vrc4.name(),
             Self::Vrc6(..) => "VRC6",
@@ -321,6 +332,11 @@ impl Mapper {
                     return true;
                 }
             }
+            Mapper::Unrom512(mapper) => {
+                if mapper.get_and_clear_dirty_bit() {
+                    return true;
+                }
+            }
             _ => {}
         }
 
@@ -343,6 +359,12 @@ impl Mapper {
             Mapper::Namco163(mapper) => {
                 if mapper.has_battery_backed_internal_ram() {
                     return mapper.get_internal_ram();
+                }
+            }
+            Mapper::Unrom512(mapper) => {
+                if mapper.is_flashable() {
+                    // Some UNROM 512 cartridges have flashable PRG ROM that is used to store save data
+                    return &mapper.cartridge.prg_rom;
                 }
             }
             _ => {}
@@ -422,7 +444,7 @@ impl Display for FileFormat {
 }
 
 #[derive(Debug, Clone)]
-struct INesHeader {
+pub struct INesHeader {
     mapper_number: u16,
     sub_mapper_number: u8,
     timing_mode: TimingMode,
@@ -527,7 +549,13 @@ impl INesHeader {
                 let chr_ram_shift = header[11] & 0x0F;
                 if chr_ram_shift > 0 { 64 << chr_ram_shift } else { 0 }
             }
-            (ChrType::RAM, FileFormat::INes) => 8192,
+            (ChrType::RAM, FileFormat::INes) => {
+                if mapper_number == unrom512::MAPPER_NUMBER {
+                    unrom512::INES_CHR_RAM_LEN
+                } else {
+                    8 * 1024
+                }
+            }
             (ChrType::ROM, _) => 0,
         };
 
@@ -598,8 +626,21 @@ pub(crate) fn from_ines_file(
     let prg_rom_end_address = prg_rom_start_address + header.prg_rom_size as usize;
     let chr_rom_end_address = prg_rom_end_address + header.chr_rom_size as usize;
 
-    let prg_rom = Vec::from(&file_bytes[prg_rom_start_address..prg_rom_end_address]);
+    let mut prg_rom = Vec::from(&file_bytes[prg_rom_start_address..prg_rom_end_address]);
     let chr_rom = Vec::from(&file_bytes[prg_rom_end_address..chr_rom_end_address]);
+
+    // UNROM 512 stores save data in flashable PRG ROM instead of PRG RAM; replace PRG ROM with
+    // save contents if save is present and size matches
+    let original_prg_rom = prg_rom.clone();
+    if header.mapper_number == unrom512::MAPPER_NUMBER {
+        match &sav_bytes {
+            Some(sav_bytes) if sav_bytes.len() == prg_rom.len() => {
+                log::info!("Replacing UNROM 512 PRG ROM with contents of save file");
+                prg_rom.clone_from(sav_bytes);
+            }
+            _ => {}
+        }
+    }
 
     let prg_ram = if let Some(sav_bytes) = &sav_bytes {
         if sav_bytes.len() == header.prg_ram_size as usize {
@@ -701,6 +742,10 @@ pub(crate) fn from_ines_file(
             cartridge,
             data: Vrc6::new(header.mapper_number, header.chr_type),
         }),
+        30 => {
+            let mapper = Unrom512::new(&original_prg_rom, &header);
+            Mapper::Unrom512(MapperImpl { cartridge, data: mapper })
+        }
         34 => Mapper::Bnrom(MapperImpl {
             cartridge,
             data: Bnrom::new(header.chr_type, header.nametable_mirroring),

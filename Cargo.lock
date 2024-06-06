@@ -2852,6 +2852,7 @@ name = "nes-core"
 version = "0.7.1"
 dependencies = [
  "bincode",
+ "crc",
  "jgenesis-common",
  "jgenesis-proc-macros",
  "log",
