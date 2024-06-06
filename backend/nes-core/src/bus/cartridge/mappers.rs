@@ -161,6 +161,7 @@ impl BankSizeKb {
 
 #[cfg(test)]
 pub(crate) fn new_mmc1(prg_rom: Vec<u8>) -> super::Mapper {
+    use super::mappers::mmc1::Mmc1;
     use super::{Mapper, MapperImpl, TimingMode};
 
     Mapper::Mmc1(MapperImpl {
