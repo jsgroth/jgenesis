@@ -3,6 +3,7 @@
 mod mappers;
 
 use crate::api::GameBoyLoadError;
+use crate::cartridge::mappers::huc3::Huc3;
 use crate::cartridge::mappers::mbc3::Mbc3Rtc;
 use crate::cartridge::mappers::{Mbc1, Mbc2, Mbc3, Mbc5};
 use bincode::{Decode, Encode};
@@ -46,6 +47,7 @@ enum Mapper {
     Mbc2(Mbc2),
     Mbc3(Mbc3),
     Mbc5(Mbc5),
+    Huc3(Huc3),
 }
 
 impl Mapper {
@@ -56,6 +58,7 @@ impl Mapper {
             Self::Mbc2(mbc2) => mbc2.map_rom_address(address),
             Self::Mbc3(mbc3) => mbc3.map_rom_address(address),
             Self::Mbc5(mbc5) => mbc5.map_rom_address(address),
+            Self::Huc3(huc3) => huc3.map_rom_address(address),
         }
     }
 
@@ -66,6 +69,7 @@ impl Mapper {
             Self::Mbc2(mbc2) => mbc2.read_ram(address),
             Self::Mbc3(mbc3) => mbc3.read_ram(address, sram),
             Self::Mbc5(mbc5) => mbc5.read_ram(address, sram),
+            Self::Huc3(huc3) => huc3.read_ram(address, sram),
         }
     }
 
@@ -80,6 +84,7 @@ impl Mapper {
             Self::Mbc2(mbc2) => mbc2.write_ram(address, value),
             Self::Mbc3(mbc3) => mbc3.write_ram(address, value, sram),
             Self::Mbc5(mbc5) => mbc5.write_ram(address, value, sram),
+            Self::Huc3(huc3) => huc3.write_ram(address, value, sram),
         }
     }
 
@@ -90,6 +95,7 @@ impl Mapper {
             Self::Mbc2(mbc2) => mbc2.write_rom_address(address, value),
             Self::Mbc3(mbc3) => mbc3.write_rom_address(address, value),
             Self::Mbc5(mbc5) => mbc5.write_rom_address(address, value),
+            Self::Huc3(huc3) => huc3.write_rom_address(address, value),
         }
     }
 
@@ -100,6 +106,7 @@ impl Mapper {
             Self::Mbc2(..) => "MBC2",
             Self::Mbc3(..) => "MBC3",
             Self::Mbc5(..) => "MBC5",
+            Self::Huc3(..) => "HuC-3",
         }
     }
 }
@@ -197,6 +204,11 @@ impl Cartridge {
 
                 (mapper, has_battery)
             }
+            0xFE => {
+                let rtc = save_writer.load_serialized("rtc").ok();
+                let mapper = Mapper::Huc3(Huc3::new(rom.len() as u32, sram_len as u32, rtc));
+                (mapper, true)
+            }
             _ => return Err(GameBoyLoadError::UnsupportedMapperByte(mapper_byte)),
         };
 
@@ -253,16 +265,26 @@ impl Cartridge {
     }
 
     pub fn update_rtc_time(&mut self) {
-        if let Mapper::Mbc3(mbc3) = &mut self.mapper {
-            mbc3.update_rtc_time();
+        match &mut self.mapper {
+            Mapper::Mbc3(mbc3) => mbc3.update_rtc_time(),
+            Mapper::Huc3(huc3) => huc3.update_rtc_time(),
+            _ => {}
         }
     }
 
     pub fn save_rtc_state<S: SaveWriter>(&mut self, save_writer: &mut S) -> Result<(), S::Err> {
-        if let Mapper::Mbc3(mbc3) = &mut self.mapper {
-            mbc3.save_rtc_state(save_writer)?;
+        match &mut self.mapper {
+            Mapper::Mbc3(mbc3) => mbc3.save_rtc_state(save_writer)?,
+            Mapper::Huc3(huc3) => huc3.save_rtc_state(save_writer)?,
+            _ => {}
         }
 
         Ok(())
+    }
+
+    pub fn tick_cpu(&mut self) {
+        if let Mapper::Huc3(huc3) = &mut self.mapper {
+            huc3.tick_cpu();
+        }
     }
 }

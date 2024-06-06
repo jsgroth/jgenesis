@@ -134,6 +134,8 @@ impl<'a> Bus<'a> {
         }
 
         self.apu.tick_m_cycle(self.timer, self.speed_register.speed);
+
+        self.cartridge.tick_cpu();
     }
 }
 

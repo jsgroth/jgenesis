@@ -1,3 +1,4 @@
+pub mod huc3;
 pub mod mbc3;
 
 use crate::cartridge::mappers::mbc3::Mbc3Rtc;
