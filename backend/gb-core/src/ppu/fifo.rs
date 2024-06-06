@@ -247,6 +247,7 @@ impl PixelFifo {
 
         if self.window_y_triggered
             && registers.window_enabled
+            && registers.window_x <= (SCREEN_WIDTH + 7) as u8
             && registers.window_x.saturating_add(1) == fields.screen_x
             && fields.bg_layer == BgLayer::Background
         {
