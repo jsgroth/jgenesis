@@ -7,8 +7,8 @@ pub enum WhichCpu {
     Slave,
 }
 
-pub struct Sh2Bus<'a> {
-    pub boot_rom: &'static [u8],
+pub struct Sh2Bus<'a, const BOOT_ROM_LEN: usize> {
+    pub boot_rom: &'static [u8; BOOT_ROM_LEN],
     pub registers: &'a mut Sega32XRegisters,
     pub which: WhichCpu,
 }
@@ -25,9 +25,12 @@ macro_rules! memory_map {
     };
 }
 
-impl<'a> BusInterface for Sh2Bus<'a> {
+impl<'a, const BOOT_ROM_LEN: usize> BusInterface for Sh2Bus<'a, BOOT_ROM_LEN> {
     fn read_byte(&mut self, address: u32) -> u8 {
-        todo!("SH-2 read byte {address:08X}")
+        memory_map!(self, address, {
+            boot_rom => read_u8(self.boot_rom, address),
+            _ => todo!("SH-2 read byte {address:08X}")
+        })
     }
 
     fn read_word(&mut self, address: u32) -> u16 {
@@ -66,20 +69,16 @@ impl<'a> BusInterface for Sh2Bus<'a> {
     }
 }
 
-fn read_u16(slice: &[u8], address: u32) -> u16 {
-    let address = address as usize;
-    if address + 2 >= slice.len() {
-        return !0;
-    }
+fn read_u8<const LEN: usize>(slice: &[u8; LEN], address: u32) -> u8 {
+    slice[(address as usize) & (LEN - 1)]
+}
 
+fn read_u16<const LEN: usize>(slice: &[u8; LEN], address: u32) -> u16 {
+    let address = (address as usize) & (LEN - 1) & !1;
     u16::from_be_bytes([slice[address], slice[address + 1]])
 }
 
-fn read_u32(slice: &[u8], address: u32) -> u32 {
-    let address = address as usize;
-    if address + 4 >= slice.len() {
-        return !0;
-    }
-
+fn read_u32<const LEN: usize>(slice: &[u8; LEN], address: u32) -> u32 {
+    let address = (address as usize) & (LEN - 1) & !3;
     u32::from_be_bytes(slice[address..address + 4].try_into().unwrap())
 }
