@@ -1,4 +1,5 @@
 pub mod bus;
+mod instructions;
 
 use crate::bus::BusInterface;
 use bincode::{Decode, Encode};
@@ -60,7 +61,7 @@ impl Sh2 {
             self.reset_pending = false;
 
             // First 8 bytes of the vector table contain the reset vector and the initial SP
-            // TODO use different vectors for manual reset vs. power-on reset?
+            // TODO use different vectors for manual reset vs. power-on reset? 32X doesn't depend on this
             self.registers.pc = bus.read_longword(self.registers.vbr);
             self.registers.gpr[15] = bus.read_longword(self.registers.vbr.wrapping_add(4));
 
@@ -68,11 +69,18 @@ impl Sh2 {
         }
 
         let opcode = bus.read_word(self.registers.pc);
-        self.registers.pc = match self.registers.delayed_branch.take() {
-            Some(pc) => pc,
-            None => self.registers.pc.wrapping_add(2),
+        let (new_pc, in_delay_slot) = match self.registers.delayed_branch.take() {
+            Some(pc) => (pc, true),
+            None => (self.registers.pc.wrapping_add(2), false),
         };
+        self.registers.pc = new_pc;
 
-        todo!("execute SH-2 instruction {opcode:04X}")
+        // Interrupts cannot trigger in a delay slot per the SH7604 hardware manual
+        let interrupt_level = bus.interrupt_level();
+        if !in_delay_slot && interrupt_level > self.registers.sr.interrupt_mask {
+            todo!("handle interrupt of level {interrupt_level}")
+        }
+
+        instructions::execute(self, opcode, bus);
     }
 }
