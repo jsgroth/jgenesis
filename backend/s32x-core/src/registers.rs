@@ -1,3 +1,4 @@
+use crate::bus;
 use crate::bus::WhichCpu;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::{GetBit, U16Ext, U24Ext};
@@ -45,6 +46,13 @@ impl Sh2Interrupts {
             | (u16::from(self.command_enabled) << 1)
             | u16::from(self.pwm_enabled)
     }
+
+    fn write_mask_bits(&mut self, value: u16) {
+        self.v_enabled = value.bit(3);
+        self.h_enabled = value.bit(2);
+        self.command_enabled = value.bit(1);
+        self.pwm_enabled = value.bit(0);
+    }
 }
 
 #[derive(Debug, Clone, Default, Encode, Decode)]
@@ -66,6 +74,7 @@ pub struct SystemRegisters {
     pub master_interrupts: Sh2Interrupts,
     pub slave_interrupts: Sh2Interrupts,
     pub dma: DmaRegisters,
+    pub m68k_h_int_vector: u32,
 }
 
 impl SystemRegisters {
@@ -79,12 +88,17 @@ impl SystemRegisters {
             master_interrupts: Sh2Interrupts::default(),
             slave_interrupts: Sh2Interrupts::default(),
             dma: DmaRegisters::default(),
+            m68k_h_int_vector: u32::from_be_bytes(
+                bus::M68K_VECTORS[0x70..0x74].try_into().unwrap(),
+            ),
         }
     }
 
     pub fn m68k_read(&mut self, address: u32) -> u16 {
         match address {
             0xA15100 => self.read_adapter_control(),
+            0xA15104 => self.read_68k_rom_bank(),
+            0xA15106 => self.read_dreq_control(),
             0xA15120..=0xA1512F => self.read_communication_port(address),
             _ => todo!("M68K register read: {address:06X}"),
         }
@@ -114,6 +128,16 @@ impl SystemRegisters {
             0x4000 => self.read_interrupt_mask(which),
             0x4020..=0x402F => self.read_communication_port(address),
             _ => todo!("SH-2 register read: {address:08X} {which:?}"),
+        }
+    }
+
+    pub fn sh2_write(&mut self, address: u32, value: u16, which: WhichCpu) {
+        match address {
+            0x4000 => self.write_interrupt_mask(value, which),
+            0x4014 => self.clear_reset_interrupt(which),
+            0x401A => self.clear_command_interrupt(which),
+            0x4020..=0x402F => self.write_communication_port(address, value),
+            _ => todo!("SH-2 register write: {address:08X} {value:04X} {which:?}"),
         }
     }
 
@@ -149,9 +173,20 @@ impl SystemRegisters {
     }
 
     // 68000: $A15104
+    fn read_68k_rom_bank(&self) -> u16 {
+        self.m68k_rom_bank.into()
+    }
+
+    // 68000: $A15104
     fn write_68k_rom_bank(&mut self, value: u16) {
         self.m68k_rom_bank = (value & 0x03) as u8;
         log::trace!("68000 ROM bank: {}", self.m68k_rom_bank);
+    }
+
+    // 68000: $A15106
+    fn read_dreq_control(&self) -> u16 {
+        // TODO bit 7 (full) hardcoded to 0
+        (u16::from(self.dma.active) << 2) | u16::from(self.dma.rom_to_vram_dma)
     }
 
     // 68000: $A15106
@@ -211,12 +246,54 @@ impl SystemRegisters {
             WhichCpu::Slave => self.slave_interrupts.mask_bits(),
         };
 
-        // Bit 8 (Cartridge inserted) hardcoded to 1
+        // Bit 8 (Cartridge not inserted) hardcoded to 0
         ((self.vdp_access as u16) << 15)
             | (u16::from(self.adapter_enabled) << 9)
-            | (1 << 8)
             | (u16::from(self.master_interrupts.h_in_vblank) << 7)
             | mask_bits
+    }
+
+    // SH-2: $4000
+    pub fn write_interrupt_mask(&mut self, value: u16, which: WhichCpu) {
+        self.vdp_access = Access::from_bit(value.bit(15));
+
+        let h_in_vblank = value.bit(7);
+        self.master_interrupts.h_in_vblank = h_in_vblank;
+        self.slave_interrupts.h_in_vblank = h_in_vblank;
+
+        match which {
+            WhichCpu::Master => self.master_interrupts.write_mask_bits(value),
+            WhichCpu::Slave => self.slave_interrupts.write_mask_bits(value),
+        }
+
+        log::trace!("Interrupt mask write: {value:04X}");
+        log::trace!("  VDP access: {:?}", self.vdp_access);
+        log::trace!("  HINT during VBlank: {h_in_vblank}");
+        log::trace!(
+            "  Interrupt mask bits: {:04b}",
+            match which {
+                WhichCpu::Master => self.master_interrupts.mask_bits(),
+                WhichCpu::Slave => self.slave_interrupts.mask_bits(),
+            }
+        );
+    }
+
+    // SH-2: $4014
+    fn clear_reset_interrupt(&mut self, which: WhichCpu) {
+        match which {
+            WhichCpu::Master => self.master_interrupts.reset_pending = false,
+            WhichCpu::Slave => self.slave_interrupts.reset_pending = false,
+        }
+        log::trace!("VRESINT cleared");
+    }
+
+    // SH-2: $401A
+    fn clear_command_interrupt(&mut self, which: WhichCpu) {
+        match which {
+            WhichCpu::Master => self.master_interrupts.command_pending = false,
+            WhichCpu::Slave => self.slave_interrupts.command_pending = false,
+        }
+        log::trace!("CMDINT cleared");
     }
 
     // 68000: $A15120-$A1512E

@@ -218,14 +218,18 @@ pub fn create_32x(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native32XE
     let emulator_config = Sega32XEmulatorConfig { genesis: config.to_emulator_config() };
     let emulator = Sega32XEmulator::create(rom.into_boxed_slice(), emulator_config);
 
+    // TODO
     let save_writer = FsSaveWriter::new("TODO".into());
+
+    let cartridge_title = emulator.cartridge_title();
+    let window_title = format!("32x - {cartridge_title}");
 
     Native32XEmulator::new(
         emulator,
         emulator_config,
         config.common,
         config::DEFAULT_GENESIS_WINDOW_SIZE,
-        "32x",
+        &window_title,
         save_writer,
         save_state_path,
         basic_input_mapper_fn(&GenesisButton::ALL),

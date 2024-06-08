@@ -6,7 +6,6 @@ mod registers;
 use crate::bus::BusInterface;
 use crate::registers::{BusControllerRegisters, Sh2Registers};
 use bincode::{Decode, Encode};
-use jgenesis_common::num::GetBit;
 
 const RESET_PC_VECTOR: u32 = 0x00000000;
 const RESET_SP_VECTOR: u32 = 0x00000004;
@@ -135,56 +134,6 @@ impl Sh2 {
             0 | 1 => bus.write_longword(address & 0x1FFFFFFF, value),
             7 => self.write_internal_register_longword(address, value),
             _ => todo!("Unexpected SH-2 address, longword write: {address:08X} {value:08X}"),
-        }
-    }
-
-    fn read_internal_register_longword(&mut self, address: u32) -> u32 {
-        match address {
-            0xFFFFFFE0..=0xFFFFFFFF => todo!("read bus control register {address:08X}"),
-            _ => todo!("Unexpected internal register read: {address:08X}"),
-        }
-    }
-
-    fn write_internal_register_byte(&mut self, address: u32, value: u8) {
-        match address {
-            0xFFFFFE91 => {
-                // SBYCR (Standby control register)
-                log::trace!("SBYCR write: {value:02X}");
-                log::trace!("  Standby mode enabled: {}", value.bit(7));
-                log::trace!("  Pins at Hi-Z in standby: {}", value.bit(6));
-                log::trace!("  DMAC clock halted: {}", value.bit(4));
-                log::trace!("  MULT clock halted: {}", value.bit(3));
-                log::trace!("  DIVU clock halted: {}", value.bit(2));
-                log::trace!("  FRT clock halted: {}", value.bit(1));
-                log::trace!("  SCI clock halted: {}", value.bit(0));
-            }
-            0xFFFFFE92 => {
-                // CCR (Cache control register)
-                log::trace!("CCR write: {value:02X}");
-                log::trace!("  Way specification: {}", value >> 6);
-                log::trace!("  Cache purge: {}", value.bit(4));
-                log::trace!("  Two-way mode: {}", value.bit(3));
-                log::trace!("  Data caching disabled: {}", value.bit(2));
-                log::trace!("  Instruction caching disabled: {}", value.bit(1));
-                log::trace!("  Cache enabled: {}", value.bit(0));
-            }
-            _ => todo!("Unexpected internal register byte write: {address:08X} {value:02X}"),
-        }
-    }
-
-    fn write_internal_register_word(&mut self, address: u32, value: u16) {
-        match address {
-            0xFFFF8446 => {
-                log::trace!("$FFFF8446 write ({value:04X}): SDRAM 16-bit CAS latency set to 2");
-            }
-            _ => todo!("Unexpected internal register word write: {address:08X} {value:04X}"),
-        }
-    }
-
-    fn write_internal_register_longword(&mut self, address: u32, value: u32) {
-        match address {
-            0xFFFFFFE0..=0xFFFFFFFF => self.bus_control.write_register(address, value),
-            _ => todo!("Unexpected internal register write: {address:08X} {value:08X}"),
         }
     }
 }
