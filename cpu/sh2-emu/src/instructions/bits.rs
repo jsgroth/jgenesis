@@ -10,6 +10,13 @@ pub fn and_rm_rn(cpu: &mut Sh2, opcode: u16) {
     cpu.registers.gpr[destination] &= cpu.registers.gpr[source];
 }
 
+// AND #imm, R0
+// Logical and
+pub fn and_imm_r0(cpu: &mut Sh2, opcode: u16) {
+    let immediate = parse_unsigned_immediate(opcode);
+    cpu.registers.gpr[0] &= immediate;
+}
+
 // XOR Rm, Rn
 // Exclusive or
 pub fn xor_rm_rn(cpu: &mut Sh2, opcode: u16) {

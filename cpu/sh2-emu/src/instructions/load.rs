@@ -316,6 +316,13 @@ pub fn lds_postinc_pr<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) 
     cpu.registers.pr = cpu.read_longword(address, bus);
 }
 
+// STC SR, Rn
+// Store SR into a general-purpose register
+pub fn stc_sr_rn(cpu: &mut Sh2, opcode: u16) {
+    let register = parse_register_high(opcode) as usize;
+    cpu.registers.gpr[register] = cpu.registers.sr.into();
+}
+
 // STS MACL, Rn
 // Store MACL into a general-purpose register
 pub fn sts_macl_rn(cpu: &mut Sh2, opcode: u16) {

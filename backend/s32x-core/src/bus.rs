@@ -290,7 +290,9 @@ impl<'a> BusInterface for Sh2Bus<'a> {
         memory_map!(self, address, {
             boot_rom => read_u16(self.boot_rom, self.boot_rom_mask, address),
             system_registers => {
-                log::trace!("SH-2 {:?} read word {address:08X}", self.which);
+                if log::log_enabled!(log::Level::Trace) && !(0x4020..0x4030).contains(&address) {
+                    log::trace!("SH-2 {:?} read word {address:08X}", self.which);
+                }
                 self.registers.sh2_read(address, self.which, self.vdp)
             },
             vdp => {
