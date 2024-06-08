@@ -1,9 +1,11 @@
 pub mod bus;
 mod disassemble;
+mod frt;
 mod instructions;
 mod registers;
 
 use crate::bus::BusInterface;
+use crate::frt::FreeRunTimer;
 use crate::registers::{BusControllerRegisters, Sh2Registers};
 use bincode::{Decode, Encode};
 
@@ -26,6 +28,7 @@ type CpuCache = [u8; CACHE_LEN];
 pub struct Sh2 {
     registers: Sh2Registers,
     cache: Box<CpuCache>,
+    free_run_timer: FreeRunTimer,
     bus_control: BusControllerRegisters,
     reset_pending: bool,
     name: String,
@@ -37,6 +40,7 @@ impl Sh2 {
         Self {
             registers: Sh2Registers::default(),
             cache: vec![0; CACHE_LEN].into_boxed_slice().try_into().unwrap(),
+            free_run_timer: FreeRunTimer::new(),
             bus_control: BusControllerRegisters::new(),
             reset_pending: false,
             name,
@@ -104,6 +108,7 @@ impl Sh2 {
     fn read_byte<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u8 {
         match address >> 29 {
             0 | 1 => bus.read_byte(address & 0x1FFFFFFF),
+            7 => self.read_internal_register_byte(address),
             _ => todo!("Unexpected SH-2 address, byte read: {address:08X}"),
         }
     }

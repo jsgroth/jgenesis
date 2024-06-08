@@ -183,6 +183,13 @@ fn idle_cycles(value: u32) -> &'static str {
 }
 
 impl Sh2 {
+    pub(super) fn read_internal_register_byte(&self, address: u32) -> u8 {
+        match address {
+            0xFFFFFE10..=0xFFFFFE19 => self.free_run_timer.read_register(address),
+            _ => todo!("[{}] Internal register byte read {address:08X}", self.name),
+        }
+    }
+
     pub(super) fn read_internal_register_longword(&mut self, address: u32) -> u32 {
         match address {
             0xFFFFFFE0..=0xFFFFFFFF => todo!("read bus control register {address:08X}"),
@@ -192,55 +199,7 @@ impl Sh2 {
 
     pub(super) fn write_internal_register_byte(&mut self, address: u32, value: u8) {
         match address {
-            0xFFFFFE10 => {
-                // TIER (Timer interrupt enable register)
-                log::trace!("TIER write: {value:02X}");
-                log::trace!("  Interrupt capture interrupt enabled: {}", value.bit(7));
-                log::trace!("  Output compare interrupt A enabled: {}", value.bit(3));
-                log::trace!("  Output compare interrupt B enabled: {}", value.bit(2));
-                log::trace!("  Overflow interrupt enabled: {}", value.bit(1));
-            }
-            0xFFFFFE11 => {
-                // FTCSR (Free running timer control/status register)
-                log::trace!("FTCSR write: {value:02X}");
-                log::trace!("  Input capture flag: {}", value.bit(7));
-                log::trace!("  Output compare flag A: {}", value.bit(3));
-                log::trace!("  Output compare flag B: {}", value.bit(2));
-                log::trace!("  Timer overflow flag: {}", value.bit(1));
-                log::trace!("  Clear FRC on compare match A: {}", value.bit(0));
-            }
-            0xFFFFFE12 => {
-                // FRCH (Free running counter high)
-                log::trace!("FRCH write: {value:02X}");
-            }
-            0xFFFFFE13 => {
-                // FRCL (Free running counter low)
-                log::trace!("FRCL write: {value:02X}");
-            }
-            0xFFFFFE14 => {
-                // OCRA/BH (Output compare register A/B high)
-                log::trace!("Output compare register A/B high write: {value:02X}");
-            }
-            0xFFFFFE15 => {
-                // OCRA/BL (Output compare register A/B low)
-                log::trace!("Output compare register A/B low write: {value:02X}");
-            }
-            0xFFFFFE16 => {
-                // TCR (Timer control register)
-                log::trace!("TCR write: {value:02X}");
-                log::trace!(
-                    "  Captures input on edge: {}",
-                    if value.bit(7) { "Rising" } else { "Falling" }
-                );
-                log::trace!("  Clock select bits: {}", value & 3);
-            }
-            0xFFFFFE17 => {
-                // TOCR (Timer output compare control register)
-                log::trace!("TOCR write: {value:02X}");
-                log::trace!("  Output compare register: {}", if value.bit(4) { "B" } else { "A" });
-                log::trace!("  Output level on match A: {}", value.bit(1));
-                log::trace!("  Output level on match B: {}", value.bit(0));
-            }
+            0xFFFFFE10..=0xFFFFFE19 => self.free_run_timer.write_register(address, value),
             0xFFFFFE91 => {
                 // SBYCR (Standby control register)
                 log::trace!("SBYCR write: {value:02X}");
@@ -262,7 +221,10 @@ impl Sh2 {
                 log::trace!("  Instruction caching disabled: {}", value.bit(1));
                 log::trace!("  Cache enabled: {}", value.bit(0));
             }
-            _ => todo!("Unexpected internal register byte write: {address:08X} {value:02X}"),
+            _ => todo!(
+                "[{}] Unexpected internal register byte write: {address:08X} {value:02X}",
+                self.name
+            ),
         }
     }
 
@@ -271,14 +233,20 @@ impl Sh2 {
             0xFFFF8446 => {
                 log::trace!("$FFFF8446 write ({value:04X}): SDRAM 16-bit CAS latency set to 2");
             }
-            _ => todo!("Unexpected internal register word write: {address:08X} {value:04X}"),
+            _ => todo!(
+                "[{}] Unexpected internal register word write: {address:08X} {value:04X}",
+                self.name
+            ),
         }
     }
 
     pub(super) fn write_internal_register_longword(&mut self, address: u32, value: u32) {
         match address {
             0xFFFFFFE0..=0xFFFFFFFF => self.bus_control.write_register(address, value),
-            _ => todo!("Unexpected internal register write: {address:08X} {value:08X}"),
+            _ => todo!(
+                "[{}] Unexpected internal register write: {address:08X} {value:08X}",
+                self.name
+            ),
         }
     }
 }
