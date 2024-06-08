@@ -1,13 +1,14 @@
 //! 32X memory mapping for the 68000 and SH-2s
 
-use crate::core::{Sdram, Sega32X};
+use crate::core::{Rom, Sdram, Sega32X};
 use crate::registers::{Access, SystemRegisters};
+use crate::vdp::Vdp;
 use genesis_core::memory::PhysicalMedium;
 use genesis_core::GenesisRegion;
-use jgenesis_common::num::{GetBit, U16Ext};
+use jgenesis_common::num::{GetBit, U16Ext, U24Ext};
 use sh2_emu::bus::BusInterface;
 
-const M68K_VECTORS: &[u8; 256] = include_bytes!("m68k_vectors.bin");
+pub const M68K_VECTORS: &[u8; 256] = include_bytes!("m68k_vectors.bin");
 
 const SDRAM_MASK: u32 = 0x3FFFF;
 
@@ -16,22 +17,41 @@ impl PhysicalMedium for Sega32X {
     fn read_byte(&mut self, address: u32) -> u8 {
         match address {
             0x000000..=0x0000FF => {
+                // Hardcoded vectors when 32X is enabled, first 256 bytes of ROM otherwise
                 if self.registers.adapter_enabled {
-                    M68K_VECTORS[address as usize]
+                    match address {
+                        0x70 => (self.registers.m68k_h_int_vector >> 24) as u8,
+                        0x71 => self.registers.m68k_h_int_vector.high_byte(),
+                        0x72 => self.registers.m68k_h_int_vector.mid_byte(),
+                        0x73 => self.registers.m68k_h_int_vector.low_byte(),
+                        _ => M68K_VECTORS[address as usize],
+                    }
                 } else {
                     self.rom.get(address as usize).copied().unwrap_or(0xFF)
                 }
             }
             0x000010..=0x3FFFFF => {
-                // TODO access only when RV=1 or adapter disabled
-                self.rom.get(address as usize).copied().unwrap_or(0xFF)
+                // ROM (only accessible when 32X is disabled or ROM-to-VRAM DMA is enabled)
+                if !self.registers.adapter_enabled || self.registers.dma.rom_to_vram_dma {
+                    self.rom.get(address as usize).copied().unwrap_or(0xFF)
+                } else {
+                    0xFF
+                }
             }
+            0x880000..=0x8FFFFF => {
+                // First 512KB of ROM
+                self.rom.get((address & 0x7FFFF) as usize).copied().unwrap_or(0xFF)
+            }
+            // TODO should this function like the Phantasy Star 4 SRAM register?
+            0xA130F1 => 0,
             0xA15100..=0xA1512F => {
+                // System registers
                 log::trace!("M68K read byte {address:06X}");
                 let word = self.registers.m68k_read(address & !1);
                 if !address.bit(0) { word.msb() } else { word.lsb() }
             }
             0xA15180..=0xA1518F => {
+                // 32X VDP registers
                 log::trace!("M68K read byte {address:06X}");
                 if self.registers.vdp_access == Access::M68k {
                     let word = self.vdp.read_register(address & !1);
@@ -47,26 +67,36 @@ impl PhysicalMedium for Sega32X {
     fn read_word(&mut self, address: u32) -> u16 {
         match address {
             0x000000..=0x0000FF => {
+                // Hardcoded vectors when 32X is enabled, first 256 bytes of ROM otherwise
                 if self.registers.adapter_enabled {
-                    let address = (address & !1) as usize;
-                    u16::from_be_bytes(M68K_VECTORS[address..address + 2].try_into().unwrap())
+                    match address {
+                        0x70 => (self.registers.m68k_h_int_vector >> 16) as u16,
+                        0x72 => self.registers.m68k_h_int_vector as u16,
+                        _ => {
+                            let address = (address & !1) as usize;
+                            u16::from_be_bytes(
+                                M68K_VECTORS[address..address + 2].try_into().unwrap(),
+                            )
+                        }
+                    }
                 } else {
                     self.rom.get_u16(address)
                 }
             }
             0x000100..=0x3FFFFF => {
-                // TODO access only when RV=1 or adapter disabled
-                self.rom.get_u16(address)
-            }
-            0x880000..=0x8FFFFF => {
-                // TODO access only when RV=0
-                if self.registers.adapter_enabled {
-                    self.rom.get_u16(address & 0x7FFFF)
+                // ROM (only accessible when 32X is disabled or ROM-to-VRAM DMA is enabled)
+                if !self.registers.adapter_enabled || self.registers.dma.rom_to_vram_dma {
+                    self.rom.get_u16(address)
                 } else {
-                    0xFF
+                    0xFFFF
                 }
             }
+            0x880000..=0x8FFFFF => {
+                // First 512KB of ROM
+                self.rom.get_u16(address & 0x7FFFF)
+            }
             0xA15100..=0xA1512F => {
+                // System registers
                 log::trace!("M68K read word {address:06X}");
                 self.registers.m68k_read(address)
             }
@@ -83,6 +113,10 @@ impl PhysicalMedium for Sega32X {
 
     fn write_byte(&mut self, address: u32, value: u8) {
         match address {
+            // TODO should this function like the Phantasy Star 4 SRAM register?
+            0xA130F1 => {
+                assert_eq!(value, 0, "Wrote {value:02X} to A130F1; SRAM mapping register?");
+            }
             0xA15100..=0xA1512F => {
                 log::trace!("M68K write byte {address:06X} {value:02X}");
 
@@ -111,8 +145,15 @@ impl PhysicalMedium for Sega32X {
 
     fn write_word(&mut self, address: u32, value: u16) {
         match address {
-            0x000000..=0x3FFFFF => {
-                log::warn!("M68K ROM write: {address:06X} {value:04X}");
+            0x000070 => {
+                self.registers.m68k_h_int_vector =
+                    (self.registers.m68k_h_int_vector & 0x0000FFFF) | (u32::from(value) << 16);
+                log::trace!("68000 HINT vector: {:06X}", self.registers.m68k_h_int_vector);
+            }
+            0x000072 => {
+                self.registers.m68k_h_int_vector =
+                    (self.registers.m68k_h_int_vector & 0xFFFF0000) | u32::from(value);
+                log::trace!("68000 HINT vector: {:06X}", self.registers.m68k_h_int_vector);
             }
             0xA15100..=0xA1512F => {
                 // System registers
@@ -156,6 +197,8 @@ pub struct Sh2Bus<'a> {
     pub boot_rom: &'static [u8],
     pub boot_rom_mask: usize,
     pub which: WhichCpu,
+    pub rom: &'a Rom,
+    pub vdp: &'a mut Vdp,
     pub registers: &'a mut SystemRegisters,
     pub sdram: &'a mut Sdram,
 }
@@ -164,12 +207,16 @@ macro_rules! memory_map {
     ($self:expr, $address:expr, {
         boot_rom => $boot_rom:expr,
         system_registers => $system_registers:expr,
+        vdp => $vdp:expr,
+        cartridge => $cartridge:expr,
         sdram => $sdram:expr,
         _ => $default:expr $(,)?
     }) => {
         match $address {
             0x00000000..=0x00003FFF => $boot_rom,
             0x00004000..=0x000040FF => $system_registers,
+            0x00004100..=0x000041FF => $vdp,
+            0x02000000..=0x023FFFFF => $cartridge,
             0x06000000..=0x0603FFFF => $sdram,
             _ => $default,
         }
@@ -186,11 +233,18 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 let value = self.registers.sh2_read(address & !1, self.which);
                 if !address.bit(0) { value.msb() } else { value.lsb() }
             },
+            vdp => {
+                let word = self.vdp.read_register(address & !1);
+                if !address.bit(0) { word.msb() } else { word.lsb() }
+            },
+            cartridge => {
+                self.rom.get((address & 0x3FFFFF) as usize).copied().unwrap_or(!0)
+            },
             sdram => {
                 let word = self.sdram[((address & SDRAM_MASK) >> 1) as usize];
                 if !address.bit(0) { word.msb() } else { word.lsb() }
             },
-            _ => todo!("SH-2 read byte {address:08X}")
+            _ => todo!("SH-2 {:?} read byte {address:08X}", self.which)
         })
     }
 
@@ -202,8 +256,10 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 log::trace!("SH-2 {:?} read word {address:08X}", self.which);
                 self.registers.sh2_read(address, self.which)
             },
+            vdp => self.vdp.read_register(address),
+            cartridge => self.rom.get_u16(address & 0x3FFFFF),
             sdram => self.sdram[((address & SDRAM_MASK) >> 1) as usize],
-            _ => todo!("SH-2 read word {address:08X}"),
+            _ => todo!("SH-2 {:?} read word {address:08X}", self.which),
         })
     }
 
@@ -219,31 +275,88 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 let low = self.registers.sh2_read(address | 2, self.which);
                 (u32::from(high) << 16) | u32::from(low)
             },
-            sdram => todo!("longword read from SDRAM {address:08X}"),
-            _ => todo!("SH-2 read longword {address:08X}")
+            vdp => {
+                let high_word = self.vdp.read_register(address);
+                let low_word = self.vdp.read_register(address | 2);
+                (u32::from(high_word) << 16) | u32::from(low_word)
+            },
+            cartridge => self.rom.get_u32(address & 0x3FFFFF),
+            sdram => {
+                let word_addr = (((address & SDRAM_MASK) >> 1) & !1) as usize;
+                let high_word = self.sdram[word_addr];
+                let low_word = self.sdram[word_addr | 1];
+                (u32::from(high_word) << 16) | u32::from(low_word)
+            },
+            _ => todo!("SH-2 {:?} read longword {address:08X}", self.which)
         })
     }
 
     #[inline]
     fn write_byte(&mut self, address: u32, value: u8) {
-        todo!("SH-2 write byte {address:08X} {value:02X}")
+        memory_map!(self, address, {
+            boot_rom => {},
+            system_registers => {
+                log::trace!("SH-2 {:?} byte write {address:08X} {value:02X}", self.which);
+                let mut word = self.registers.sh2_read(address & !1, self.which);
+                if !address.bit(0) { word.set_msb(value) } else { word.set_lsb(value) };
+                self.registers.sh2_write(address & !1, word, self.which);
+            },
+            vdp => {
+                let mut word = self.vdp.read_register(address & !1);
+                if !address.bit(0) { word.set_msb(value) } else { word.set_lsb(value) };
+                self.vdp.write_register(address & !1, word);
+            },
+            cartridge => {},
+            sdram => {
+                let word_addr = ((address & SDRAM_MASK) >> 1) as usize;
+                if !address.bit(0) {
+                    self.sdram[word_addr].set_msb(value);
+                } else {
+                    self.sdram[word_addr].set_lsb(value);
+                }
+            },
+            _ => todo!("SH-2 {:?} write byte {address:08X} {value:02X}", self.which)
+        });
     }
 
     #[inline]
     fn write_word(&mut self, address: u32, value: u16) {
         memory_map!(self, address, {
             boot_rom => {},
-            system_registers => todo!("system register word write {address:08X} {value:04X}"),
+            system_registers => {
+                log::trace!("SH-2 {:?} word write {address:08X} {value:04X}", self.which);
+                self.registers.sh2_write(address, value, self.which);
+            },
+            vdp => self.vdp.write_register(address, value),
+            cartridge => {},
             sdram => {
                 self.sdram[((address & SDRAM_MASK) >> 1) as usize] = value;
             },
-            _ => todo!("SH-2 write word {address:08X} {value:04X}")
+            _ => todo!("SH-2 {:?} write word {address:08X} {value:04X}", self.which)
         });
     }
 
     #[inline]
     fn write_longword(&mut self, address: u32, value: u32) {
-        todo!("SH-2 write longword {address:08X} {value:08X}")
+        memory_map!(self, address, {
+            boot_rom => {},
+            system_registers => {
+                log::trace!("SH-2 {:?} longword write {address:08X} {value:08X}", self.which);
+                self.registers.sh2_write(address, (value >> 16) as u16, self.which);
+                self.registers.sh2_write(address | 2, value as u16, self.which);
+            },
+            vdp => {
+                self.vdp.write_register(address, (value >> 16) as u16);
+                self.vdp.write_register(address | 2, value as u16);
+            },
+            cartridge => {},
+            sdram => {
+                let sdram_addr = (((address & SDRAM_MASK) >> 1) & !1) as usize;
+                self.sdram[sdram_addr] = (value >> 16) as u16;
+                self.sdram[sdram_addr | 1] = value as u16;
+            },
+            _ => todo!("SH-2 {:?} write longword {address:08X} {value:08X}", self.which)
+        });
     }
 
     #[inline]
@@ -253,8 +366,24 @@ impl<'a> BusInterface for Sh2Bus<'a> {
 
     #[inline]
     fn interrupt_level(&self) -> u8 {
-        // TODO
-        0
+        let interrupts = match self.which {
+            WhichCpu::Master => &self.registers.master_interrupts,
+            WhichCpu::Slave => &self.registers.slave_interrupts,
+        };
+
+        if interrupts.reset_pending {
+            14
+        } else if interrupts.v_pending {
+            12
+        } else if interrupts.h_pending {
+            10
+        } else if interrupts.command_pending && interrupts.command_enabled {
+            8
+        } else if interrupts.pwm_pending {
+            6
+        } else {
+            0
+        }
     }
 }
 

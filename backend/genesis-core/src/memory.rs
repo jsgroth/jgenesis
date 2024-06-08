@@ -179,18 +179,23 @@ impl Cartridge {
     }
 
     fn program_title(&self) -> String {
-        static RE: OnceLock<Regex> = OnceLock::new();
-
-        let addr = match self.region {
-            GenesisRegion::Americas | GenesisRegion::Europe => 0x0150,
-            GenesisRegion::Japan => 0x0120,
-        };
-        let bytes = &self.rom.0[addr..addr + 48];
-        let title = bytes.iter().copied().map(|b| b as char).collect::<String>();
-
-        let re = RE.get_or_init(|| Regex::new(r" +").unwrap());
-        re.replace_all(title.trim(), " ").into()
+        parse_title_from_header(&self.rom.0, self.region)
     }
+}
+
+#[must_use]
+pub fn parse_title_from_header(rom: &[u8], region: GenesisRegion) -> String {
+    static RE: OnceLock<Regex> = OnceLock::new();
+
+    let addr = match region {
+        GenesisRegion::Americas | GenesisRegion::Europe => 0x0150,
+        GenesisRegion::Japan => 0x0120,
+    };
+    let bytes = &rom[addr..addr + 48];
+    let title = bytes.iter().copied().map(|b| b as char).collect::<String>();
+
+    let re = RE.get_or_init(|| Regex::new(r" +").unwrap());
+    re.replace_all(title.trim(), " ").into()
 }
 
 fn is_super_street_fighter_2(serial_number: &[u8]) -> bool {

@@ -8,7 +8,7 @@ use genesis_core::input::InputState;
 use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::vdp::{Vdp, VdpTickEffect};
 use genesis_core::ym2612::Ym2612;
-use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig, GenesisInputs};
+use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, Renderer, SaveWriter, TickEffect, TickResult, TimingMode,
 };
@@ -99,6 +99,14 @@ impl Sega32XEmulator {
         emulator.m68k.execute_instruction(&mut new_main_bus!(emulator, m68k_reset: true));
 
         emulator
+    }
+
+    pub fn cartridge_title(&self) -> String {
+        // TODO don't hardcode region
+        genesis_core::memory::parse_title_from_header(
+            &self.memory.medium().rom,
+            GenesisRegion::Americas,
+        )
     }
 
     pub fn copy_cram(&self, out: &mut [Color]) {

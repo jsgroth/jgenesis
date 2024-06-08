@@ -37,6 +37,15 @@ impl Rom {
             0xFFFF
         }
     }
+
+    pub fn get_u32(&self, address: u32) -> u32 {
+        let address = address as usize;
+        if address + 3 < self.0.len() {
+            u32::from_be_bytes(self.0[address..address + 4].try_into().unwrap())
+        } else {
+            0xFFFFFFFF
+        }
+    }
 }
 
 #[derive(Debug, PartialClone, Encode, Decode)]
@@ -82,6 +91,8 @@ impl Sega32X {
             boot_rom: SH2_MASTER_BOOT_ROM,
             boot_rom_mask: SH2_MASTER_BOOT_ROM.len() - 1,
             which: WhichCpu::Master,
+            rom: &self.rom,
+            vdp: &mut self.vdp,
             registers: &mut self.registers,
             sdram: &mut self.sdram,
         };
@@ -93,6 +104,8 @@ impl Sega32X {
             boot_rom: SH2_SLAVE_BOOT_ROM,
             boot_rom_mask: SH2_SLAVE_BOOT_ROM.len() - 1,
             which: WhichCpu::Slave,
+            rom: &self.rom,
+            vdp: &mut self.vdp,
             registers: &mut self.registers,
             sdram: &mut self.sdram,
         };

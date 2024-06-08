@@ -10,10 +10,11 @@ use crate::Sh2;
 pub fn execute<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
     match opcode {
         0b0000_0000_0001_1001 => todo!("DIV0U"),
-        0b0000_0000_0000_1011 => todo!("RTS"),
+        0b0000_0000_0000_1011 => branch::rts(cpu),
         0b0000_0000_0000_1000 => todo!("CLRT"),
         0b0000_0000_0010_1000 => todo!("CLRMAC"),
-        0b0000_0000_0000_1001 => todo!("NOP"),
+        // NOP
+        0b0000_0000_0000_1001 => {}
         0b0000_0000_0010_1011 => todo!("RTE"),
         0b0000_0000_0001_1000 => todo!("SETT"),
         0b0000_0000_0001_1011 => todo!("SLEEP"),
@@ -24,29 +25,29 @@ pub fn execute<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
 #[inline]
 fn execute_xnnx<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
     match opcode & 0b1111_0000_0000_1111 {
-        0b0110_0000_0000_0011 => todo!("MOV Rm, Rn"),
+        0b0110_0000_0000_0011 => load::mov_rm_rn(cpu, opcode),
         0b0010_0000_0000_0000 => load::mov_b_rm_indirect(cpu, opcode, bus),
         0b0010_0000_0000_0001 => load::mov_w_rm_indirect(cpu, opcode, bus),
-        0b0010_0000_0000_0010 => todo!("MOV.L Rm, @Rn"),
+        0b0010_0000_0000_0010 => load::mov_l_rm_indirect(cpu, opcode, bus),
         0b0110_0000_0000_0000 => todo!("MOV.B @Rm, Rn"),
-        0b0110_0000_0000_0001 => todo!("MOV.W @Rm, Rn"),
-        0b0110_0000_0000_0010 => todo!("MOV.L @Rm, Rn"),
+        0b0110_0000_0000_0001 => load::mov_w_indirect_rn(cpu, opcode, bus),
+        0b0110_0000_0000_0010 => load::mov_l_indirect_rn(cpu, opcode, bus),
         0b0010_0000_0000_0100 => todo!("MOV.B Rm, @-Rn"),
         0b0010_0000_0000_0101 => load::mov_w_rm_predec(cpu, opcode, bus),
-        0b0010_0000_0000_0110 => todo!("MOV.L Rm, @-Rn"),
+        0b0010_0000_0000_0110 => load::mov_l_rm_predec(cpu, opcode, bus),
         0b0110_0000_0000_0100 => todo!("MOV.B @Rm+, Rn"),
-        0b0110_0000_0000_0101 => todo!("MOV.W @Rm+, Rn"),
+        0b0110_0000_0000_0101 => load::mov_w_postinc_rn(cpu, opcode, bus),
         0b0110_0000_0000_0110 => load::mov_l_postinc_rn(cpu, opcode, bus),
         0b0000_0000_0000_0100 => todo!("MOV.B Rm, @(R0,Rn)"),
         0b0000_0000_0000_0101 => todo!("MOV.W Rm, @(R0,Rn)"),
         0b0000_0000_0000_0110 => todo!("MOV.L Rm, @(R0,Rn)"),
         0b0000_0000_0000_1100 => todo!("MOV.B @(R0,Rm), Rn"),
         0b0000_0000_0000_1101 => todo!("MOV.W @(R0,Rm), Rn"),
-        0b0000_0000_0000_1110 => todo!("MOV.L @(R0,Rm), Rn"),
+        0b0000_0000_0000_1110 => load::mov_l_indirect_indexed_rn(cpu, opcode, bus),
         0b0110_0000_0000_1000 => todo!("SWAP.B Rm, Rn"),
         0b0110_0000_0000_1001 => todo!("SWAP.W Rm, Rn"),
         0b0010_0000_0000_1101 => todo!("XTRCT Rm, Rn"),
-        0b0011_0000_0000_1100 => todo!("ADD Rm, Rn"),
+        0b0011_0000_0000_1100 => alu::add_rm_rn(cpu, opcode),
         0b0011_0000_0000_1110 => todo!("ADDC Rm, Rn"),
         0b0011_0000_0000_1111 => todo!("ADDV Rm, Rn"),
         0b0011_0000_0000_0000 => alu::cmp_eq_rm_rn(cpu, opcode),
@@ -61,8 +62,8 @@ fn execute_xnnx<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
         0b0011_0000_0000_0101 => todo!("DMULU.L Rm, Rn"),
         0b0110_0000_0000_1110 => todo!("EXTS.B Rm, Rn"),
         0b0110_0000_0000_1111 => todo!("EXTS.W Rm, Rn"),
-        0b0110_0000_0000_1100 => todo!("EXTU.B Rm, Rn"),
-        0b0110_0000_0000_1101 => todo!("EXTU.W Rm, Rn"),
+        0b0110_0000_0000_1100 => alu::extu_b(cpu, opcode),
+        0b0110_0000_0000_1101 => alu::extu_w(cpu, opcode),
         0b0000_0000_0000_1111 => todo!("MAC.L @Rm+, @Rn+"),
         0b0100_0000_0000_1111 => todo!("MAC @Rm+, @Rn+"),
         0b0000_0000_0000_0111 => todo!("MUL.L Rm, Rn"),
@@ -70,13 +71,13 @@ fn execute_xnnx<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
         0b0010_0000_0000_1110 => todo!("MULU.W Rm, Rn"),
         0b0110_0000_0000_1011 => todo!("NEG Rm, Rn"),
         0b0110_0000_0000_1010 => todo!("NEGC Rm, Rn"),
-        0b0011_0000_0000_1000 => todo!("SUB Rm, Rn"),
+        0b0011_0000_0000_1000 => alu::sub_rm_rn(cpu, opcode),
         0b0011_0000_0000_1010 => todo!("SUBC Rm, Rn"),
         0b0011_0000_0000_1011 => todo!("SUBV Rm, Rn"),
-        0b0010_0000_0000_1001 => todo!("AND Rm, Rn"),
+        0b0010_0000_0000_1001 => bits::and_rm_rn(cpu, opcode),
         0b0110_0000_0000_0111 => todo!("NOT Rm, Rn"),
         0b0010_0000_0000_1011 => todo!("OR Rm, Rn"),
-        0b0010_0000_0000_1000 => todo!("TST Rm, Rn"),
+        0b0010_0000_0000_1000 => bits::tst_rm_rn(cpu, opcode),
         0b0010_0000_0000_1010 => todo!("XOR Rm, Rn"),
         _ => execute_xxnn(cpu, opcode, bus),
     }
@@ -85,18 +86,18 @@ fn execute_xnnx<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
 #[inline]
 fn execute_xxnn<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
     match opcode & 0b1111_1111_0000_0000 {
-        0b1000_0000_0000_0000 => todo!("MOV.B R0, @(disp,Rn)"),
-        0b1000_0001_0000_0000 => todo!("MOV.W R0, @(disp,Rn)"),
-        0b1000_0100_0000_0000 => todo!("MOV.B @(disp,Rm), R0"),
+        0b1000_0000_0000_0000 => load::mov_b_r0_rn_displacement(cpu, opcode, bus),
+        0b1000_0001_0000_0000 => load::mov_w_r0_rn_displacement(cpu, opcode, bus),
+        0b1000_0100_0000_0000 => load::mov_b_rm_displacement_r0(cpu, opcode, bus),
         0b1000_0101_0000_0000 => todo!("MOV.W @(disp,Rm), R0"),
-        0b1100_0000_0000_0000 => todo!("MOV.B R0, @(disp,GBR)"),
-        0b1100_0001_0000_0000 => todo!("MOV.W R0, @(disp,GBR)"),
-        0b1100_0010_0000_0000 => todo!("MOV.L R0, @(disp,GBR)"),
+        0b1100_0000_0000_0000 => load::mov_b_r0_disp_gbr(cpu, opcode, bus),
+        0b1100_0001_0000_0000 => load::mov_w_r0_disp_gbr(cpu, opcode, bus),
+        0b1100_0010_0000_0000 => load::mov_l_r0_disp_gbr(cpu, opcode, bus),
         0b1100_0100_0000_0000 => load::mov_b_disp_gbr_r0(cpu, opcode, bus),
         0b1100_0101_0000_0000 => todo!("MOV.W @(disp,GBR), R0"),
         0b1100_0110_0000_0000 => load::mov_l_disp_gbr_r0(cpu, opcode, bus),
-        0b1100_0111_0000_0000 => todo!("MOVA @(disp,PC), R0"),
-        0b1000_1000_0000_0000 => todo!("CMP/EQ #imm, R0"),
+        0b1100_0111_0000_0000 => load::mova(cpu, opcode),
+        0b1000_1000_0000_0000 => alu::cmp_eq_imm_r0(cpu, opcode),
         0b1100_1001_0000_0000 => todo!("AND #imm, R0"),
         0b1100_1101_0000_0000 => todo!("AND.B #imm, @(R0,GBR)"),
         0b1100_1011_0000_0000 => todo!("OR #imm, R0"),
@@ -120,7 +121,7 @@ fn execute_xnxx<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
         0b0000_0000_0010_1001 => todo!("MOVT Rn"),
         0b0100_0000_0001_0001 => todo!("CMP/PZ Rn"),
         0b0100_0000_0001_0101 => todo!("CMP/PL Rn"),
-        0b0100_0000_0001_0000 => todo!("DT Rn"),
+        0b0100_0000_0001_0000 => alu::dt(cpu, opcode),
         0b0100_0000_0001_1011 => todo!("TAS.B @Rn"),
         0b0100_0000_0000_0100 => todo!("ROTL Rn"),
         0b0100_0000_0000_0101 => todo!("ROTR Rn"),
@@ -129,20 +130,20 @@ fn execute_xnxx<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
         0b0100_0000_0010_0000 => todo!("SHAL Rn"),
         0b0100_0000_0010_0001 => todo!("SHAR Rn"),
         0b0100_0000_0000_0000 => todo!("SHLL Rn"),
-        0b0100_0000_0000_0001 => todo!("SHLR Rn"),
-        0b0100_0000_0000_1000 => todo!("SHLL2 Rn"),
+        0b0100_0000_0000_0001 => bits::shlr(cpu, opcode),
+        0b0100_0000_0000_1000 => bits::shlln::<2>(cpu, opcode),
         0b0100_0000_0000_1001 => todo!("SHLR2 Rn"),
-        0b0100_0000_0001_1000 => todo!("SHLL8 Rn"),
+        0b0100_0000_0001_1000 => bits::shlln::<8>(cpu, opcode),
         0b0100_0000_0001_1001 => todo!("SHLR8 Rn"),
-        0b0100_0000_0010_1000 => todo!("SHLL16 Rn"),
+        0b0100_0000_0010_1000 => bits::shlln::<16>(cpu, opcode),
         0b0100_0000_0010_1001 => todo!("SHLR16 Rn"),
         0b0000_0000_0010_0011 => todo!("BRAF Rm"),
-        0b0000_0000_0000_0011 => todo!("BSRF Rm"),
-        0b0100_0000_0010_1011 => todo!("JMP @Rm"),
+        0b0000_0000_0000_0011 => branch::bsrf(cpu, opcode),
+        0b0100_0000_0010_1011 => branch::jmp(cpu, opcode),
         0b0100_0000_0000_1011 => todo!("JSR @Rm"),
         0b0100_0000_0000_1110 => load::ldc_rm_sr(cpu, opcode),
         0b0100_0000_0001_1110 => load::ldc_rm_gbr(cpu, opcode),
-        0b0100_0000_0010_1110 => todo!("LDC Rm, VBR"),
+        0b0100_0000_0010_1110 => load::ldc_rm_vbr(cpu, opcode),
         0b0100_0000_0000_0111 => todo!("LDC.L @Rm+, SR"),
         0b0100_0000_0001_0111 => todo!("LDC.L @Rm+, GBR"),
         0b0100_0000_0010_0111 => todo!("LDC.L @Rm+, VBR"),
@@ -163,7 +164,7 @@ fn execute_xnxx<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
         0b0000_0000_0010_1010 => todo!("STS PR, Rn"),
         0b0100_0000_0000_0010 => todo!("STS.L MACH, @-Rn"),
         0b0100_0000_0001_0010 => todo!("STS.L MACL, @-Rn"),
-        0b0100_0000_0010_0010 => todo!("STS.L PR, @-Rn"),
+        0b0100_0000_0010_0010 => load::sts_pr_rn_predec(cpu, opcode, bus),
         _ => execute_xnnn(cpu, opcode, bus),
     }
 }
@@ -175,10 +176,10 @@ fn execute_xnnn<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
         0b1001_0000_0000_0000 => load::mov_w_immediate_rn(cpu, opcode, bus),
         0b1101_0000_0000_0000 => load::mov_l_immediate_rn(cpu, opcode, bus),
         0b0001_0000_0000_0000 => load::mov_l_rm_rn_displacement(cpu, opcode, bus),
-        0b0101_0000_0000_0000 => todo!("MOV.L @(disp,Rm), Rn"),
+        0b0101_0000_0000_0000 => load::mov_l_rm_displacement_rn(cpu, opcode, bus),
         0b0111_0000_0000_0000 => alu::add_imm_rn(cpu, opcode),
-        0b1010_0000_0000_0000 => todo!("BRA label"),
-        0b1011_0000_0000_0000 => todo!("BSR label"),
+        0b1010_0000_0000_0000 => branch::bra(cpu, opcode),
+        0b1011_0000_0000_0000 => branch::bsr(cpu, opcode),
         _ => todo!("illegal (?) SH-2 opcode {opcode:04X}"),
     }
 }
@@ -215,6 +216,12 @@ fn parse_signed_immediate(opcode: u16) -> i32 {
 #[inline]
 fn parse_unsigned_immediate(opcode: u16) -> u32 {
     (opcode & 0xFF).into()
+}
+
+#[inline]
+fn parse_branch_displacement(opcode: u16) -> i32 {
+    // Signed 12-bit
+    (((opcode as i16) << 4) >> 4).into()
 }
 
 #[inline]
