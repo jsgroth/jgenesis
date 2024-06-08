@@ -2,19 +2,20 @@
 //!
 //! At some point common code should probably be collapsed between the Genesis/SCD/32X crates
 
+use crate::audio::Sega32XResampler;
 use crate::core::Sega32X;
 use bincode::{Decode, Encode};
 use genesis_core::input::InputState;
 use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::vdp::{Vdp, VdpTickEffect};
-use genesis_core::ym2612::Ym2612;
+use genesis_core::ym2612::{Ym2612, YmTickEffect};
 use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, Renderer, SaveWriter, TickEffect, TickResult, TimingMode,
 };
 use jgenesis_proc_macros::PartialClone;
 use m68000_emu::M68000;
-use smsgg_core::psg::{Psg, PsgVersion};
+use smsgg_core::psg::{Psg, PsgTickEffect, PsgVersion};
 use std::fmt::{Debug, Display};
 use thiserror::Error;
 use z80_emu::Z80;
@@ -63,6 +64,7 @@ pub struct Sega32XEmulator {
     #[partial_clone(partial)]
     memory: Memory<Sega32X>,
     input: InputState,
+    audio_resampler: Sega32XResampler,
     main_bus_writes: MainBusWrites,
     timing_mode: TimingMode,
 }
@@ -92,6 +94,7 @@ impl Sega32XEmulator {
             psg,
             memory,
             input,
+            audio_resampler: Sega32XResampler::new(timing_mode),
             main_bus_writes: MainBusWrites::new(),
             timing_mode,
         };
@@ -165,17 +168,26 @@ impl EmulatorTrait for Sega32XEmulator {
         self.memory.medium_mut().tick(m68k_cycles);
 
         for _ in 0..m68k_cycles {
-            self.ym2612.tick();
+            if self.ym2612.tick() == YmTickEffect::OutputSample {
+                let (sample_l, sample_r) = self.ym2612.sample();
+                self.audio_resampler.collect_ym2612_sample(sample_l, sample_r);
+            }
         }
 
         for _ in 0..z80_cycles {
-            self.psg.tick();
+            if self.psg.tick() == PsgTickEffect::Clocked {
+                let (sample_l, sample_r) = self.psg.sample();
+                self.audio_resampler.collect_psg_sample(sample_l, sample_r);
+            }
         }
 
         let mut tick_effect = TickEffect::None;
         if self.vdp.tick(mclk_cycles, &mut self.memory) == VdpTickEffect::FrameComplete {
             // TODO composite Genesis/32X frames
             self.render_frame(renderer).map_err(Sega32XError::Render)?;
+
+            self.audio_resampler.output_samples(audio_output).map_err(Sega32XError::Audio)?;
+
             tick_effect = TickEffect::FrameRendered;
         }
 
