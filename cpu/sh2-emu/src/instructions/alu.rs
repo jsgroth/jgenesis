@@ -20,6 +20,20 @@ pub fn add_imm_rn(cpu: &mut Sh2, opcode: u16) {
     cpu.registers.gpr[register] = cpu.registers.gpr[register].wrapping_add(immediate as u32);
 }
 
+// ADDC Rm, Rn
+// Addition with carry
+pub fn addc(cpu: &mut Sh2, opcode: u16) {
+    let source = parse_register_low(opcode) as usize;
+    let destination = parse_register_high(opcode) as usize;
+
+    let (partial_sum, carry1) =
+        cpu.registers.gpr[source].overflowing_add(cpu.registers.gpr[destination]);
+    let (sum, carry2) = partial_sum.overflowing_add(cpu.registers.sr.t.into());
+
+    cpu.registers.gpr[destination] = sum;
+    cpu.registers.sr.t = carry1 || carry2;
+}
+
 // SUB Rm, Rn
 // Subtraction
 pub fn sub_rm_rn(cpu: &mut Sh2, opcode: u16) {
@@ -28,6 +42,20 @@ pub fn sub_rm_rn(cpu: &mut Sh2, opcode: u16) {
 
     cpu.registers.gpr[destination] =
         cpu.registers.gpr[destination].wrapping_sub(cpu.registers.gpr[source]);
+}
+
+// SUBC Rm, Rn
+// Subtraction with carry
+pub fn subc(cpu: &mut Sh2, opcode: u16) {
+    let source = parse_register_low(opcode) as usize;
+    let destination = parse_register_high(opcode) as usize;
+
+    let (partial_diff, borrow1) =
+        cpu.registers.gpr[destination].overflowing_sub(cpu.registers.gpr[source]);
+    let (difference, borrow2) = partial_diff.overflowing_sub(cpu.registers.sr.t.into());
+
+    cpu.registers.gpr[destination] = difference;
+    cpu.registers.sr.t = borrow1 || borrow2;
 }
 
 macro_rules! impl_compare {
@@ -142,14 +170,16 @@ pub fn div1(cpu: &mut Sh2, opcode: u16) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::instructions::bits::rotcl;
 
     fn mn_opcode(rm: u16, rn: u16) -> u16 {
         (rm << 4) | (rn << 8)
     }
 
     #[test]
-    fn unsigned_division_w() {
+    fn unsigned_division() {
         let mut cpu = Sh2::new(String::new());
+
         cpu.registers.gpr[0] = 100000;
         cpu.registers.gpr[1] = 300 << 16;
 
@@ -163,5 +193,38 @@ mod tests {
         cpu.registers.gpr[0] = (cpu.registers.gpr[0] << 1) | u32::from(cpu.registers.sr.t);
 
         assert_eq!(cpu.registers.gpr[0] & 0xFFFF, 333);
+    }
+
+    #[test]
+    fn signed_division() {
+        let mut cpu = Sh2::new(String::new());
+
+        for _ in 0..100 {
+            let dividend: i16 = rand::random();
+            let mut divisor = rand::random::<i16>() >> 7;
+            while divisor == 0 {
+                divisor = rand::random();
+            }
+
+            cpu.registers.gpr[0] = (divisor as u32) << 16;
+            cpu.registers.gpr[1] = dividend as u32;
+
+            cpu.registers.gpr[3] = cpu.registers.gpr[1];
+            rotcl(&mut cpu, 3 << 8);
+            subc(&mut cpu, mn_opcode(2, 1));
+
+            div0s(&mut cpu, mn_opcode(0, 1));
+            for _ in 0..16 {
+                div1(&mut cpu, mn_opcode(0, 1));
+            }
+
+            cpu.registers.gpr[1] = (cpu.registers.gpr[1] as i16) as u32;
+
+            rotcl(&mut cpu, 1 << 8);
+            addc(&mut cpu, mn_opcode(2, 1));
+
+            let quotient = cpu.registers.gpr[1] as i16;
+            assert_eq!(quotient, dividend / divisor);
+        }
     }
 }

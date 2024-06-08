@@ -150,6 +150,8 @@ impl EmulatorTrait for Sega32XEmulator {
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
+        self.input.set_inputs(*inputs);
+
         let mut bus = new_main_bus!(self, m68k_reset: false);
         let m68k_cycles: u64 = self.m68k.execute_instruction(&mut bus).into();
 

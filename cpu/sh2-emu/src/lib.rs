@@ -13,6 +13,8 @@ const RESET_SP_VECTOR: u32 = 0x00000004;
 const RESET_INTERRUPT_MASK: u8 = 15;
 const RESET_VBR: u32 = 0x00000000;
 
+const BASE_IRL_VECTOR_NUMBER: u32 = 64;
+
 // R15 is the hardware stack pointer
 const SP: usize = 15;
 
@@ -71,19 +73,21 @@ impl Sh2 {
             return;
         }
 
+        // Interrupts cannot trigger in a delay slot per the SH7604 hardware manual
+        // TODO check for internal peripheral interrupts
+        let interrupt_level = bus.interrupt_level();
+        if !self.registers.next_op_in_delay_slot
+            && interrupt_level > self.registers.sr.interrupt_mask
+        {
+            self.handle_irl_interrupt(interrupt_level, bus);
+            return;
+        }
+
         let pc = self.registers.pc;
         let opcode = self.read_word(pc, bus);
         self.registers.pc = self.registers.next_pc;
         self.registers.next_pc = self.registers.pc.wrapping_add(2);
-
-        let in_delay_slot = self.registers.next_op_in_delay_slot;
         self.registers.next_op_in_delay_slot = false;
-
-        // Interrupts cannot trigger in a delay slot per the SH7604 hardware manual
-        let interrupt_level = bus.interrupt_level();
-        if !in_delay_slot && interrupt_level > self.registers.sr.interrupt_mask {
-            todo!("handle interrupt of level {interrupt_level}")
-        }
 
         if log::log_enabled!(log::Level::Trace) {
             log::trace!(
@@ -159,5 +163,24 @@ impl Sh2 {
     fn write_cache_u32(&mut self, address: u32, value: u32) {
         let cache_addr = (address as usize) & (CACHE_LEN - 1) & !3;
         self.cache[cache_addr..cache_addr + 4].copy_from_slice(&value.to_be_bytes());
+    }
+
+    fn handle_irl_interrupt<B: BusInterface>(&mut self, interrupt_level: u8, bus: &mut B) {
+        let mut sp = self.registers.gpr[SP].wrapping_sub(4);
+        self.write_longword(sp, self.registers.sr.into(), bus);
+
+        sp = sp.wrapping_sub(4);
+        self.write_longword(sp, self.registers.pc, bus);
+
+        self.registers.gpr[SP] = sp;
+        self.registers.sr.interrupt_mask = interrupt_level;
+
+        let vector_number = BASE_IRL_VECTOR_NUMBER + u32::from(interrupt_level >> 1);
+        let vector_addr = self.registers.vbr.wrapping_add(vector_number << 2);
+        self.registers.pc = self.read_longword(vector_addr, bus);
+        self.registers.next_pc = self.registers.pc.wrapping_add(2);
+        self.registers.next_op_in_delay_slot = false;
+
+        log::debug!("Handled IRL{interrupt_level} interrupt, jumped to {:08X}", self.registers.pc);
     }
 }

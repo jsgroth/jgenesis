@@ -33,6 +33,16 @@ impl From<u32> for StatusRegister {
     }
 }
 
+impl From<StatusRegister> for u32 {
+    fn from(value: StatusRegister) -> Self {
+        (u32::from(value.m) << 9)
+            | (u32::from(value.q) << 8)
+            | (u32::from(value.interrupt_mask) << 4)
+            | (u32::from(value.s) << 1)
+            | u32::from(value.t)
+    }
+}
+
 #[derive(Debug, Clone, Default, Encode, Decode)]
 pub struct Sh2Registers {
     // General-purpose registers
