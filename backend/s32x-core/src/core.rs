@@ -14,6 +14,10 @@ const M68K_VECTORS: &[u8; 256] = include_bytes!("m68k_vectors.bin");
 const SH2_MASTER_BOOT_ROM: &[u8; 2048] = include_bytes!("sh2_master_boot_rom.bin");
 const SH2_SLAVE_BOOT_ROM: &[u8; 1024] = include_bytes!("sh2_slave_boot_rom.bin");
 
+const SDRAM_LEN_WORDS: usize = 256 * 1024 / 2;
+
+type Sdram = [u16; SDRAM_LEN_WORDS];
+
 #[derive(Debug, Clone, Default, FakeEncode, FakeDecode)]
 struct Rom(Box<[u8]>);
 
@@ -43,6 +47,7 @@ pub struct Sega32X {
     sh2_master: Sh2,
     sh2_slave: Sh2,
     registers: Sega32XRegisters,
+    sdram: Box<Sdram>,
     sh2_cycles: u64,
 }
 
@@ -50,9 +55,10 @@ impl Sega32X {
     pub fn new(rom: Box<[u8]>) -> Self {
         Self {
             rom: Rom(rom),
-            sh2_master: Sh2::new(),
-            sh2_slave: Sh2::new(),
+            sh2_master: Sh2::new("Master".into()),
+            sh2_slave: Sh2::new("Slave".into()),
             registers: Sega32XRegisters::new(),
+            sdram: vec![0; SDRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             sh2_cycles: 0,
         }
     }
@@ -62,6 +68,7 @@ impl Sega32X {
             return;
         }
 
+        // SH-2 clock speed is exactly 3x the 68000 clock speed
         self.sh2_cycles += 3 * m68k_cycles;
 
         // TODO actual timing
@@ -70,8 +77,10 @@ impl Sega32X {
 
         let mut master_bus = Sh2Bus {
             boot_rom: SH2_MASTER_BOOT_ROM,
-            registers: &mut self.registers,
+            boot_rom_mask: SH2_MASTER_BOOT_ROM.len() - 1,
             which: WhichCpu::Master,
+            registers: &mut self.registers,
+            sdram: &mut self.sdram,
         };
         for _ in 0..sh2_ticks {
             self.sh2_master.tick(&mut master_bus);
@@ -79,8 +88,10 @@ impl Sega32X {
 
         let mut slave_bus = Sh2Bus {
             boot_rom: SH2_SLAVE_BOOT_ROM,
-            registers: &mut self.registers,
+            boot_rom_mask: SH2_SLAVE_BOOT_ROM.len() - 1,
             which: WhichCpu::Slave,
+            registers: &mut self.registers,
+            sdram: &mut self.sdram,
         };
         for _ in 0..sh2_ticks {
             self.sh2_slave.tick(&mut slave_bus);
