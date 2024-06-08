@@ -1,3 +1,7 @@
+//! 32X public interface and main loop
+//!
+//! At some point common code should probably be collapsed between the Genesis/SCD/32X crates
+
 use crate::core::Sega32X;
 use bincode::{Decode, Encode};
 use genesis_core::input::InputState;
@@ -15,7 +19,7 @@ use std::fmt::{Debug, Display};
 use thiserror::Error;
 use z80_emu::Z80;
 
-const M68K_DIVIDER: u64 = 7;
+pub(crate) const M68K_DIVIDER: u64 = 7;
 const Z80_DIVIDER: u64 = 15;
 
 #[derive(Debug, Error)]
@@ -68,11 +72,12 @@ impl Sega32XEmulator {
         let m68k = M68000::builder().allow_tas_writes(false).build();
         let z80 = Z80::new();
         // TODO
-        let vdp = Vdp::new(TimingMode::Ntsc, config.genesis.to_vdp_config());
+        let timing_mode = TimingMode::Ntsc;
+        let vdp = Vdp::new(timing_mode, config.genesis.to_vdp_config());
         let ym2612 = Ym2612::new(config.genesis.quantize_ym2612_output);
         let psg = Psg::new(PsgVersion::Standard);
 
-        let s32x = Sega32X::new(rom);
+        let s32x = Sega32X::new(rom, timing_mode);
         let memory = Memory::new(s32x);
 
         let input =
@@ -88,8 +93,7 @@ impl Sega32XEmulator {
             memory,
             input,
             main_bus_writes: MainBusWrites::new(),
-            // TODO
-            timing_mode: TimingMode::Ntsc,
+            timing_mode,
         };
 
         emulator.m68k.execute_instruction(&mut new_main_bus!(emulator, m68k_reset: true));
@@ -160,12 +164,17 @@ impl EmulatorTrait for Sega32XEmulator {
             self.psg.tick();
         }
 
+        let mut tick_effect = TickEffect::None;
         if self.vdp.tick(mclk_cycles, &mut self.memory) == VdpTickEffect::FrameComplete {
+            // TODO composite Genesis/32X frames
             self.render_frame(renderer).map_err(Sega32XError::Render)?;
-            return Ok(TickEffect::FrameRendered);
+            tick_effect = TickEffect::FrameRendered;
         }
 
-        Ok(TickEffect::None)
+        debug_assert_eq!(self.vdp.scanline(), self.memory.medium().vdp.scanline());
+        debug_assert_eq!(self.vdp.scanline_mclk(), self.memory.medium().vdp.scanline_mclk());
+
+        Ok(tick_effect)
     }
 
     fn force_render<R>(&mut self, renderer: &mut R) -> Result<(), R::Err>

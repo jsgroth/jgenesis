@@ -228,10 +228,10 @@ const MAX_SCREEN_HEIGHT: usize = 240 + PAL_V30_TOP_BORDER as usize + PAL_V30_BOT
 // Double screen height to account for interlaced 2x mode
 const FRAME_BUFFER_LEN: usize = MAX_SCREEN_WIDTH * MAX_SCREEN_HEIGHT * 2;
 
-const MCLK_CYCLES_PER_SCANLINE: u64 = 3420;
-const ACTIVE_MCLK_CYCLES_PER_SCANLINE: u64 = 2560;
-const NTSC_SCANLINES_PER_FRAME: u16 = 262;
-const PAL_SCANLINES_PER_FRAME: u16 = 313;
+pub const MCLK_CYCLES_PER_SCANLINE: u64 = 3420;
+pub const ACTIVE_MCLK_CYCLES_PER_SCANLINE: u64 = 2560;
+pub const NTSC_SCANLINES_PER_FRAME: u16 = 262;
+pub const PAL_SCANLINES_PER_FRAME: u16 = 313;
 
 // 36 CPU cycles
 const REGISTER_LATCH_DELAY_MCLK: u64 = 36 * 7;
@@ -1099,6 +1099,16 @@ impl Vdp {
 
     pub fn reload_config(&mut self, config: VdpConfig) {
         self.config = config;
+    }
+
+    #[must_use]
+    pub fn scanline(&self) -> u16 {
+        self.state.scanline
+    }
+
+    #[must_use]
+    pub fn scanline_mclk(&self) -> u64 {
+        self.state.scanline_mclk_cycles
     }
 }
 
