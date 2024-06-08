@@ -1,3 +1,4 @@
+use crate::core::bus::WhichCpu;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::{GetBit, U16Ext};
 use std::fmt::{Display, Formatter};
@@ -23,12 +24,32 @@ impl Access {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
+pub struct Sh2InterruptMasks {
+    pub vertical: bool,
+    pub horizontal: bool,
+    pub command: bool,
+    pub pwm_timer: bool,
+}
+
+impl From<Sh2InterruptMasks> for u16 {
+    fn from(value: Sh2InterruptMasks) -> Self {
+        (u16::from(value.vertical) << 3)
+            | (u16::from(value.horizontal) << 2)
+            | (u16::from(value.command) << 1)
+            | u16::from(value.pwm_timer)
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct SystemRegisters {
     pub adapter_enabled: bool,
     pub reset_sh2: bool,
     pub vdp_access: Access,
     pub communication_ports: [u16; 8],
+    pub horizontal_interrupt_in_vblank: bool,
+    pub master_interrupt_masks: Sh2InterruptMasks,
+    pub slave_interrupt_masks: Sh2InterruptMasks,
 }
 
 impl SystemRegisters {
@@ -38,6 +59,9 @@ impl SystemRegisters {
             reset_sh2: true,
             vdp_access: Access::M68k,
             communication_ports: [0; 8],
+            horizontal_interrupt_in_vblank: false,
+            master_interrupt_masks: Sh2InterruptMasks::default(),
+            slave_interrupt_masks: Sh2InterruptMasks::default(),
         }
     }
 
@@ -58,6 +82,25 @@ impl SystemRegisters {
         log::trace!("  32X adapter enabled: {}", self.adapter_enabled);
         log::trace!("  Reset SH-2: {}", self.reset_sh2);
         log::trace!("  32X VDP access: {}", self.vdp_access);
+    }
+
+    fn read_interrupt_mask(&self, which: WhichCpu) -> u16 {
+        let mask_bits: u16 = match which {
+            WhichCpu::Master => self.master_interrupt_masks.into(),
+            WhichCpu::Slave => self.slave_interrupt_masks.into(),
+        };
+
+        // Bit 8 (Cartridge inserted, read-only) hardcoded to 1
+        ((self.vdp_access as u16) << 15)
+            | (u16::from(self.adapter_enabled) << 9)
+            | (1 << 8)
+            | (u16::from(self.horizontal_interrupt_in_vblank) << 7)
+            | mask_bits
+    }
+
+    fn read_communication_port(&self, address: u32) -> u16 {
+        let idx = (address >> 1) & 0x7;
+        self.communication_ports[idx as usize]
     }
 
     fn write_communication_port_u16(&mut self, address: u32, value: u16) {
@@ -114,6 +157,16 @@ impl Sega32XRegisters {
         match address {
             0xA15120..=0xA1512F => self.system.write_communication_port_u16(address, value),
             _ => todo!("M68K write word {address:06X} {value:04X}"),
+        }
+    }
+
+    pub fn sh2_read(&mut self, address: u32, which: WhichCpu) -> u16 {
+        log::trace!("SH-2 read: {address:08X} {which:?}");
+
+        match address {
+            0x4000 => self.system.read_interrupt_mask(which),
+            0x4020..=0x402F => self.system.read_communication_port(address),
+            _ => todo!("SH-2 register read: {address:08X} {which:?}"),
         }
     }
 }
