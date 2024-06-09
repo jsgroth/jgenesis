@@ -48,7 +48,10 @@ impl PhysicalMedium for Sega32X {
             0xA130F1 => 0,
             0xA15100..=0xA1512F => {
                 // System registers
-                log::trace!("M68K read byte {address:06X}");
+                if log::log_enabled!(log::Level::Trace) && !(0xA15120..=0xA1512F).contains(&address)
+                {
+                    log::trace!("M68K read byte {address:06X}");
+                }
                 let word = self.registers.m68k_read(address & !1);
                 if !address.bit(0) { word.msb() } else { word.lsb() }
             }
@@ -97,7 +100,10 @@ impl PhysicalMedium for Sega32X {
             }
             0xA15100..=0xA1512F => {
                 // System registers
-                log::trace!("M68K read word {address:06X}");
+                if log::log_enabled!(log::Level::Trace) && !(0xA15120..=0xA1512F).contains(&address)
+                {
+                    log::trace!("M68K read word {address:06X}");
+                }
                 self.registers.m68k_read(address)
             }
             0xA15180..=0xA1518F => {
@@ -247,7 +253,9 @@ impl<'a> BusInterface for Sh2Bus<'a> {
         memory_map!(self, address, {
             boot_rom => read_u8(self.boot_rom, self.boot_rom_mask, address),
             system_registers => {
-                log::trace!("SH-2 {:?} read byte {address:08X}", self.which);
+                if log::log_enabled!(log::Level::Trace) && !(0x4020..0x4030).contains(&address) {
+                    log::trace!("SH-2 {:?} read byte {address:08X}", self.which);
+                }
                 let value = self.registers.sh2_read(address & !1, self.which, self.vdp);
                 if !address.bit(0) { value.msb() } else { value.lsb() }
             },
@@ -473,6 +481,11 @@ impl<'a> BusInterface for Sh2Bus<'a> {
     #[inline]
     fn dma_request_0(&self) -> bool {
         !self.registers.dma.fifo.is_empty()
+    }
+
+    #[inline]
+    fn dma_request_1(&self) -> bool {
+        false
     }
 }
 

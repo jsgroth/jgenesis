@@ -196,7 +196,7 @@ impl Sh2 {
         log::trace!("[{}] Internal register longword read: {address:08X}", self.name);
 
         match address {
-            0xFFFFFF80..=0xFFFFFF9F | 0xFFFFFFB0 => self.dma_controller.read_register(address),
+            0xFFFFFF80..=0xFFFFFF9F | 0xFFFFFFB0 => self.dmac.read_register(address),
             0xFFFFFFE0..=0xFFFFFFFF => todo!("read bus control register {address:08X}"),
             _ => todo!("Unexpected internal register longword read: {address:08X}"),
         }
@@ -256,9 +256,7 @@ impl Sh2 {
         log::trace!("[{}] Internal register longword write: {address:08X} {value:08X}", self.name);
 
         match address {
-            0xFFFFFF80..=0xFFFFFF9F | 0xFFFFFFB0 => {
-                self.dma_controller.write_register(address, value)
-            }
+            0xFFFFFF80..=0xFFFFFF9F | 0xFFFFFFB0 => self.dmac.write_register(address, value),
             0xFFFFFFE0..=0xFFFFFFFF => self.bus_control.write_register(address, value),
             _ => todo!(
                 "[{}] Unexpected internal register longword write: {address:08X} {value:08X}",

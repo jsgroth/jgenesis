@@ -1,5 +1,6 @@
 //! SH-2 DMA controller (DMAC)
 
+use crate::bus::BusInterface;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use std::array;
@@ -156,6 +157,7 @@ pub struct DmaChannel {
     pub destination_address: u32,
     pub transfer_count: u32,
     pub control: DmaChannelControl,
+    pub just_ran: bool,
 }
 
 impl DmaChannel {
@@ -165,6 +167,7 @@ impl DmaChannel {
             destination_address: 0,
             transfer_count: 0,
             control: DmaChannelControl::default(),
+            just_ran: false,
         }
     }
 }
@@ -253,5 +256,34 @@ impl DmaController {
             }
             _ => todo!("Write DMA register {address:08X} {value:08X}"),
         }
+    }
+
+    pub fn channel_ready<B: BusInterface>(&mut self, bus: &mut B) -> Option<usize> {
+        if !self.operation.dma_master_enabled || self.operation.address_error {
+            return None;
+        }
+
+        // TODO respect priority
+
+        for (idx, channel) in self.channels.iter_mut().enumerate() {
+            if !channel.control.dma_enabled || channel.control.dma_complete {
+                continue;
+            }
+
+            if channel.control.bus_mode == DmaBusMode::CycleStealing && channel.just_ran {
+                channel.just_ran = false;
+                continue;
+            }
+
+            if channel.control.auto_request
+                || (idx == 0 && bus.dma_request_0())
+                || (idx == 1 && bus.dma_request_1())
+            {
+                channel.just_ran = true;
+                return Some(idx);
+            }
+        }
+
+        None
     }
 }

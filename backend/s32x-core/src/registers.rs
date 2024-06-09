@@ -2,7 +2,6 @@ use crate::bus::WhichCpu;
 use crate::vdp::Vdp;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::{GetBit, U24Ext};
-use std::array;
 use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -166,7 +165,9 @@ impl SystemRegisters {
         match address {
             0x4000 => self.read_interrupt_mask(which, vdp),
             0x4004 => vdp.h_interrupt_interval(),
+            0x4008 => self.read_dreq_source_high(),
             0x4010 => self.dma.length,
+            0x4012 => self.dma.fifo.pop(),
             0x4020..=0x402F => self.read_communication_port(address),
             _ => todo!("SH-2 register read: {address:08X} {which:?}"),
         }
@@ -250,6 +251,12 @@ impl SystemRegisters {
         log::trace!("DREQ control write: {value:04X}");
         log::trace!("  ROM-to-VRAM DMA active: {}", self.dma.rom_to_vram_dma);
         log::trace!("  DMA active: {}", self.dma.active);
+    }
+
+    // 68000: $A15108
+    // SH-2: $4008
+    fn read_dreq_source_high(&self) -> u16 {
+        (self.dma.source_address >> 16) as u16
     }
 
     // 68000: $A15108

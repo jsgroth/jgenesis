@@ -193,6 +193,17 @@ pub fn mov_b_rm_displacement_r0<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus
     cpu.registers.gpr[0] = extend_i8(value);
 }
 
+// MOV.W @(disp,Rm), R0
+// Load a word from memory using indirect register with displacement addressing
+pub fn mov_w_rm_displacement_r0<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let displacement = parse_4bit_displacement(opcode) << 1;
+    let source = parse_register_low(opcode) as usize;
+
+    let address = cpu.registers.gpr[source].wrapping_add(displacement);
+    let value = cpu.read_word(address, bus);
+    cpu.registers.gpr[0] = extend_i16(value);
+}
+
 // MOV.L Rm, @(disp,Rn)
 // Stores a longword into memory using indirect register with displacement addressing
 pub fn mov_l_rm_rn_displacement<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
@@ -338,6 +349,13 @@ pub fn ldc_rm_vbr(cpu: &mut Sh2, opcode: u16) {
     cpu.registers.vbr = cpu.registers.gpr[register as usize];
 }
 
+// LDS Rm, PR
+// Loads PR from a general-purpose register
+pub fn lds_rm_pr(cpu: &mut Sh2, opcode: u16) {
+    let register = parse_register_high(opcode);
+    cpu.registers.pr = cpu.registers.gpr[register as usize];
+}
+
 // LDS.L @Rm+, PR
 // Loads PR from memory using post-increment indirect register addressing
 pub fn lds_postinc_pr<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
@@ -368,4 +386,26 @@ pub fn sts_pr_rn_predec<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B
     let address = cpu.registers.gpr[register].wrapping_sub(4);
     cpu.registers.gpr[register] = address;
     cpu.write_longword(address, cpu.registers.pr, bus);
+}
+
+// SWAP.B Rm, Rn
+// Swaps the lowest two bytes of a register
+pub fn swap_b(cpu: &mut Sh2, opcode: u16) {
+    let source = parse_register_low(opcode) as usize;
+    let destination = parse_register_high(opcode) as usize;
+
+    let original = cpu.registers.gpr[source];
+    let swapped = (original & 0xFFFF0000) | ((original & 0xFF) << 8) | ((original >> 8) & 0xFF);
+    cpu.registers.gpr[destination] = swapped;
+}
+
+// SWAP.W Rm, Rn
+// Swaps the words of a register
+pub fn swap_w(cpu: &mut Sh2, opcode: u16) {
+    let source = parse_register_low(opcode) as usize;
+    let destination = parse_register_high(opcode) as usize;
+
+    let original = cpu.registers.gpr[source];
+    let swapped = (original >> 16) | (original << 16);
+    cpu.registers.gpr[destination] = swapped;
 }
