@@ -94,7 +94,7 @@ fn execute_xxnn<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
         0b1100_0001_0000_0000 => load::mov_w_r0_disp_gbr(cpu, opcode, bus),
         0b1100_0010_0000_0000 => load::mov_l_r0_disp_gbr(cpu, opcode, bus),
         0b1100_0100_0000_0000 => load::mov_b_disp_gbr_r0(cpu, opcode, bus),
-        0b1100_0101_0000_0000 => todo!("MOV.W @(disp,GBR), R0"),
+        0b1100_0101_0000_0000 => load::mov_w_disp_gbr_r0(cpu, opcode, bus),
         0b1100_0110_0000_0000 => load::mov_l_disp_gbr_r0(cpu, opcode, bus),
         0b1100_0111_0000_0000 => load::mova(cpu, opcode),
         0b1000_1000_0000_0000 => alu::cmp_eq_imm_r0(cpu, opcode),

@@ -310,6 +310,16 @@ pub fn mov_b_disp_gbr_r0<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut 
     cpu.registers.gpr[0] = extend_i8(value);
 }
 
+// MOV.W @(disp,GBR), R0
+// Loads a word into R0 using indirect GBR with displacement addressing
+pub fn mov_w_disp_gbr_r0<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let displacement = parse_8bit_displacement(opcode) << 1;
+    let address = cpu.registers.gbr.wrapping_add(displacement);
+    let value = cpu.read_word(address, bus);
+
+    cpu.registers.gpr[0] = extend_i16(value);
+}
+
 // MOV.L @(disp,GBR), R0
 // Loads a longword into R0 using indirect GBR with displacement addressing
 pub fn mov_l_disp_gbr_r0<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
