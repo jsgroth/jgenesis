@@ -392,6 +392,24 @@ pub fn lds_rm_pr(cpu: &mut Sh2, opcode: u16) {
     cpu.registers.pr = cpu.registers.gpr[register as usize];
 }
 
+// LDS.L @Rm+, MACH
+// Loads MACH from memory using post-increment indirect register addressing
+pub fn lds_postinc_mach<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let register = parse_register_high(opcode) as usize;
+    let address = cpu.registers.gpr[register];
+    cpu.registers.gpr[register] = address.wrapping_add(4);
+    cpu.registers.mach = cpu.read_longword(address, bus);
+}
+
+// LDS.L @Rm+, MACL
+// Loads MACL from memory using post-increment indirect register addressing
+pub fn lds_postinc_macl<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let register = parse_register_high(opcode) as usize;
+    let address = cpu.registers.gpr[register];
+    cpu.registers.gpr[register] = address.wrapping_add(4);
+    cpu.registers.macl = cpu.read_longword(address, bus);
+}
+
 // LDS.L @Rm+, PR
 // Loads PR from memory using post-increment indirect register addressing
 pub fn lds_postinc_pr<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
@@ -406,6 +424,20 @@ pub fn lds_postinc_pr<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) 
 pub fn stc_sr_rn(cpu: &mut Sh2, opcode: u16) {
     let register = parse_register_high(opcode) as usize;
     cpu.registers.gpr[register] = cpu.registers.sr.into();
+}
+
+// STC GBR, Rn
+// Store GBR into a general-purpose register
+pub fn stc_gbr_rn(cpu: &mut Sh2, opcode: u16) {
+    let register = parse_register_high(opcode) as usize;
+    cpu.registers.gpr[register] = cpu.registers.gbr;
+}
+
+// STC VBR, Rn
+// Store VBR into a general-purpose register
+pub fn stc_vbr_rn(cpu: &mut Sh2, opcode: u16) {
+    let register = parse_register_high(opcode) as usize;
+    cpu.registers.gpr[register] = cpu.registers.vbr;
 }
 
 // STS MACH, Rn
@@ -427,6 +459,24 @@ pub fn sts_macl_rn(cpu: &mut Sh2, opcode: u16) {
 pub fn sts_pr_rn(cpu: &mut Sh2, opcode: u16) {
     let register = parse_register_high(opcode) as usize;
     cpu.registers.gpr[register] = cpu.registers.pr;
+}
+
+// STS.L MACH, @-Rn
+// Store MACH in memory using pre-decrement register addressing
+pub fn sts_mach_rn_predec<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let register = parse_register_high(opcode) as usize;
+    let address = cpu.registers.gpr[register].wrapping_sub(4);
+    cpu.registers.gpr[register] = address;
+    cpu.write_longword(address, cpu.registers.mach, bus);
+}
+
+// STS.L MACL, @-Rn
+// Store MACL in memory using pre-decrement register addressing
+pub fn sts_macl_rn_predec<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let register = parse_register_high(opcode) as usize;
+    let address = cpu.registers.gpr[register].wrapping_sub(4);
+    cpu.registers.gpr[register] = address;
+    cpu.write_longword(address, cpu.registers.macl, bus);
 }
 
 // STS.L PR, @-Rn

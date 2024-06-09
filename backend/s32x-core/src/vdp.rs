@@ -2,6 +2,7 @@
 
 mod registers;
 
+use crate::registers::SystemRegisters;
 use crate::vdp::registers::{FrameBufferMode, Registers, SelectedFrameBuffer};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{Color, TimingMode};
@@ -119,8 +120,8 @@ impl Vdp {
         }
     }
 
-    pub fn tick(&mut self, mclk_cycles: u64) {
-        // TODO VINT/HINT
+    pub fn tick(&mut self, mclk_cycles: u64, registers: &mut SystemRegisters) {
+        // TODO HINT
 
         self.state.scanline_mclk += mclk_cycles;
         if self.state.scanline_mclk >= MCLK_CYCLES_PER_SCANLINE {
@@ -131,6 +132,7 @@ impl Vdp {
             if self.state.scanline == active_lines_per_frame {
                 // Beginning of VBlank; frame buffer switches take effect
                 self.state.display_frame_buffer = self.registers.display_frame_buffer;
+                registers.notify_vblank();
             } else if self.state.scanline >= self.timing_mode.scanlines_per_frame() {
                 self.state.scanline = 0;
             }

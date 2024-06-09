@@ -13,7 +13,10 @@ impl DivisionUnit {
 
     pub fn read_register(&self, address: u32) -> u32 {
         match address {
-            0xFFFFFF04 => self.dividend as u32,
+            // DVDNT / DVDNTL
+            0xFFFFFF04 | 0xFFFFFF14 => self.dividend as u32,
+            // DVDNTH
+            0xFFFFFF10 => ((self.dividend as u64) >> 32) as u32,
             _ => todo!("DIVU register read {address:08X}"),
         }
     }
@@ -21,20 +24,38 @@ impl DivisionUnit {
     pub fn write_register(&mut self, address: u32, value: u32) {
         match address {
             0xFFFFFF00 => {
+                // DVSR: Divisor
                 self.divisor = (value as i32).into();
             }
             0xFFFFFF04 => {
-                // Dividend for 32-bit division; sign extended to 64 bits
+                // DVDNT: Dividend for 32-bit division + execute 32-bit division
                 self.dividend = (value as i32).into();
 
-                // Writing to this register initiates 32-bit / 32-bit division
                 if self.divisor == 0 {
-                    todo!("division by zero")
+                    self.dividend = if self.dividend >= 0 { 0x7FFFFFFF } else { -0x80000000 };
+                    // TODO set overflow flag
+                    return;
                 }
 
                 let quotient = (self.dividend / self.divisor) as i32;
-                self.dividend =
-                    (self.dividend & (0xFFFFFFFF_00000000_u64 as i64)) | i64::from(quotient as u32);
+                self.dividend = quotient.into();
+            }
+            0xFFFFFF10 => {
+                // DVDNTH: High longword of dividend for 64-bit division
+                self.dividend = (i64::from(value) << 32) | (self.dividend & 0xFFFFFFFF);
+            }
+            0xFFFFFF14 => {
+                // DVDNTL: Low longword of dividend for 64-bit division + execute 64-bit division
+                let dividend = (self.dividend & !0xFFFFFFFF) | (value as i64);
+                if self.divisor == 0 {
+                    todo!("64-bit division by zero")
+                }
+
+                let quotient = dividend / self.divisor;
+                let remainder = dividend % self.divisor;
+
+                // TODO check for overflow
+                self.dividend = (quotient & 0xFFFFFFFF) | (remainder << 32);
             }
             _ => todo!("DIVU register write {address:08X} {value:08X}"),
         }

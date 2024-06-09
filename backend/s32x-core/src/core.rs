@@ -2,14 +2,14 @@
 
 use crate::api;
 use crate::bus::{Sh2Bus, WhichCpu};
+use crate::cartridge::Cartridge;
 use crate::registers::SystemRegisters;
 use crate::vdp::Vdp;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
-use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
+use jgenesis_proc_macros::PartialClone;
 use sh2_emu::Sh2;
 use std::mem;
-use std::ops::Deref;
 
 pub type M68kVectors = [u8; 256];
 
@@ -21,44 +21,13 @@ const SDRAM_LEN_WORDS: usize = 256 * 1024 / 2;
 
 pub type Sdram = [u16; SDRAM_LEN_WORDS];
 
-#[derive(Debug, Clone, Default, FakeEncode, FakeDecode)]
-pub struct Rom(Box<[u8]>);
-
-impl Deref for Rom {
-    type Target = Box<[u8]>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl Rom {
-    pub fn get_u16(&self, address: u32) -> u16 {
-        let address = address as usize;
-        if address + 1 < self.0.len() {
-            u16::from_be_bytes(self.0[address..address + 2].try_into().unwrap())
-        } else {
-            0xFFFF
-        }
-    }
-
-    pub fn get_u32(&self, address: u32) -> u32 {
-        let address = address as usize;
-        if address + 3 < self.0.len() {
-            u32::from_be_bytes(self.0[address..address + 4].try_into().unwrap())
-        } else {
-            0xFFFFFFFF
-        }
-    }
-}
-
 #[derive(Debug, PartialClone, Encode, Decode)]
 pub struct Sega32X {
     sh2_master: Sh2,
     sh2_slave: Sh2,
     sh2_cycles: u64,
-    #[partial_clone(default)]
-    pub rom: Rom,
+    #[partial_clone(partial)]
+    pub cartridge: Cartridge,
     pub vdp: Vdp,
     pub registers: SystemRegisters,
     pub m68k_vectors: Box<M68kVectors>,
@@ -66,12 +35,14 @@ pub struct Sega32X {
 }
 
 impl Sega32X {
-    pub fn new(rom: Box<[u8]>, timing_mode: TimingMode) -> Self {
+    pub fn new(rom: Box<[u8]>, initial_ram: Option<Vec<u8>>, timing_mode: TimingMode) -> Self {
+        let cartridge = Cartridge::new(rom, initial_ram);
+
         Self {
             sh2_master: Sh2::new("Master".into()),
             sh2_slave: Sh2::new("Slave".into()),
             sh2_cycles: 0,
-            rom: Rom(rom),
+            cartridge,
             vdp: Vdp::new(timing_mode),
             registers: SystemRegisters::new(),
             m68k_vectors: M68K_VECTORS.to_vec().into_boxed_slice().try_into().unwrap(),
@@ -80,7 +51,7 @@ impl Sega32X {
     }
 
     pub fn tick(&mut self, m68k_cycles: u64) {
-        self.vdp.tick(api::M68K_DIVIDER * m68k_cycles);
+        self.vdp.tick(api::M68K_DIVIDER * m68k_cycles, &mut self.registers);
 
         if !self.registers.adapter_enabled {
             return;
@@ -97,7 +68,7 @@ impl Sega32X {
             boot_rom: SH2_MASTER_BOOT_ROM,
             boot_rom_mask: SH2_MASTER_BOOT_ROM.len() - 1,
             which: WhichCpu::Master,
-            rom: &self.rom,
+            cartridge: &self.cartridge,
             vdp: &mut self.vdp,
             registers: &mut self.registers,
             sdram: &mut self.sdram,
@@ -115,6 +86,6 @@ impl Sega32X {
     }
 
     pub fn take_rom_from(&mut self, other: &mut Self) {
-        self.rom.0 = mem::take(&mut other.rom.0);
+        self.cartridge.rom.0 = mem::take(&mut other.cartridge.rom.0);
     }
 }

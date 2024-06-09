@@ -130,6 +130,11 @@ impl SystemRegisters {
         }
     }
 
+    pub fn notify_vblank(&mut self) {
+        self.master_interrupts.v_pending |= self.master_interrupts.v_enabled;
+        self.slave_interrupts.v_pending |= self.slave_interrupts.v_enabled;
+    }
+
     pub fn m68k_read(&mut self, address: u32) -> u16 {
         match address {
             0xA15100 => self.read_adapter_control(),
@@ -178,6 +183,7 @@ impl SystemRegisters {
             0x4000 => self.write_interrupt_mask(value, which, vdp),
             0x4004 => vdp.write_h_interrupt_interval(value),
             0x4014 => self.clear_reset_interrupt(which),
+            0x4016 => self.clear_v_interrupt(which),
             0x401A => self.clear_command_interrupt(which),
             0x401C => self.clear_pwm_interrupt(which),
             0x4020..=0x402F => self.write_communication_port(address, value),
@@ -343,6 +349,15 @@ impl SystemRegisters {
             WhichCpu::Slave => self.slave_interrupts.reset_pending = false,
         }
         log::trace!("VRESINT cleared");
+    }
+
+    // SH-2: $4016
+    fn clear_v_interrupt(&mut self, which: WhichCpu) {
+        match which {
+            WhichCpu::Master => self.master_interrupts.v_pending = false,
+            WhichCpu::Slave => self.slave_interrupts.v_pending = false,
+        }
+        log::trace!("VINT cleared");
     }
 
     // SH-2: $401A

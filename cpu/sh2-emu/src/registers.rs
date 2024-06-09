@@ -65,6 +65,17 @@ pub struct Sh2Registers {
     pub next_op_in_delay_slot: bool,
 }
 
+impl Sh2Registers {
+    pub fn mac(&self) -> i64 {
+        (i64::from(self.mach) << 32) | i64::from(self.macl)
+    }
+
+    pub fn set_mac(&mut self, mac: i64) {
+        self.macl = mac as u32;
+        self.mach = ((mac as u64) >> 32) as u32;
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct BusControllerRegisters {}
 

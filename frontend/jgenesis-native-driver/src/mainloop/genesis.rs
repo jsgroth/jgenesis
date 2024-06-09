@@ -215,11 +215,12 @@ pub fn create_32x(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native32XE
 
     let save_state_path = rom_path.with_extension("ss0");
 
-    let emulator_config = Sega32XEmulatorConfig { genesis: config.to_emulator_config() };
-    let emulator = Sega32XEmulator::create(rom.into_boxed_slice(), emulator_config);
+    let save_path = rom_path.with_extension("sav");
+    let mut save_writer = FsSaveWriter::new(save_path);
 
-    // TODO
-    let save_writer = FsSaveWriter::new("TODO".into());
+    let emulator_config = Sega32XEmulatorConfig { genesis: config.to_emulator_config() };
+    let emulator =
+        Sega32XEmulator::create(rom.into_boxed_slice(), emulator_config, &mut save_writer);
 
     let cartridge_title = emulator.cartridge_title();
     let window_title = format!("32x - {cartridge_title}");
