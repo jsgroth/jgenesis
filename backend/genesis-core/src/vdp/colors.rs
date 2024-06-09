@@ -49,10 +49,11 @@ impl AddAssign for ColorModifier {
 }
 
 #[inline]
-pub fn gen_to_rgb(
+pub fn gen_to_rgba(
     r: u8,
     g: u8,
     b: u8,
+    a: u8,
     modifier: ColorModifier,
     emulate_non_linear_dac: bool,
 ) -> Color {
@@ -64,7 +65,7 @@ pub fn gen_to_rgb(
         (ColorModifier::Shadow, true) => SHADOWED_RGB_COLORS_NON_LINEAR,
         (ColorModifier::Highlight, true) => HIGHLIGHTED_RGB_COLORS_NON_LINEAR,
     };
-    Color::rgb(colors[r as usize], colors[g as usize], colors[b as usize])
+    Color::rgba(colors[r as usize], colors[g as usize], colors[b as usize], a)
 }
 
 pub fn resolve_color(cram: &Cram, palette: u8, color_id: u8) -> u16 {

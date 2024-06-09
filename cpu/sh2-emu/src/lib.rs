@@ -87,9 +87,7 @@ impl Sh2 {
             return;
         }
 
-        if self.try_tick_dma(bus) {
-            return;
-        }
+        self.try_tick_dma(bus);
 
         // Interrupts cannot trigger in a delay slot per the SH7604 hardware manual
         // TODO check for internal peripheral interrupts
@@ -205,8 +203,8 @@ impl Sh2 {
         log::debug!("Handled IRL{interrupt_level} interrupt, jumped to {:08X}", self.registers.pc);
     }
 
-    fn try_tick_dma<B: BusInterface>(&mut self, bus: &mut B) -> bool {
-        let Some(channel) = self.dmac.channel_ready(bus) else { return false };
+    fn try_tick_dma<B: BusInterface>(&mut self, bus: &mut B) {
+        let Some(channel) = self.dmac.channel_ready(bus) else { return };
 
         log::debug!(
             "[{}] Progressing DMA{channel}: src={:08X}, dest={:08X}, unit={:?}, size={:06X}",
@@ -295,8 +293,6 @@ impl Sh2 {
         if log::log_enabled!(log::Level::Debug) && transfer_complete {
             log::debug!("[{}] DMA{channel} complete", self.name);
         }
-
-        true
     }
 }
 

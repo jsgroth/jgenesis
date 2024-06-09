@@ -185,7 +185,7 @@ impl EmulatorTrait for Sega32XEmulator {
 
         let mut tick_effect = TickEffect::None;
         if self.vdp.tick(mclk_cycles, &mut self.memory) == VdpTickEffect::FrameComplete {
-            // TODO composite Genesis/32X frames
+            self.memory.medium().vdp.composite_frame(self.vdp.frame_buffer_mut());
             self.render_frame(renderer).map_err(Sega32XError::Render)?;
 
             self.audio_resampler.output_samples(audio_output).map_err(Sega32XError::Audio)?;

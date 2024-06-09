@@ -33,26 +33,13 @@ pub enum VerticalResolution {
 impl VerticalResolution {
     pub fn active_scanlines_per_frame(self) -> u16 {
         match self {
-            Self::V28 => 224,
-            Self::V30 => 240,
+            Self::V28 => super::V28_FRAME_HEIGHT as u16,
+            Self::V30 => super::V30_FRAME_HEIGHT as u16,
         }
     }
 
     fn from_bit(bit: bool) -> Self {
         if bit { Self::V30 } else { Self::V28 }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
-pub enum FramePriority {
-    #[default]
-    Genesis = 0,
-    S32x = 1,
-}
-
-impl FramePriority {
-    fn from_bit(bit: bool) -> Self {
-        if bit { Self::S32x } else { Self::Genesis }
     }
 }
 
@@ -73,7 +60,7 @@ impl SelectedFrameBuffer {
 pub struct Registers {
     pub frame_buffer_mode: FrameBufferMode,
     pub v_resolution: VerticalResolution,
-    pub priority: FramePriority,
+    pub priority: bool,
     pub display_frame_buffer: SelectedFrameBuffer,
     pub screen_left_shift: bool,
     pub auto_fill_length: u16,
@@ -98,12 +85,12 @@ impl Registers {
     pub fn write_display_mode(&mut self, value: u16) {
         self.frame_buffer_mode = FrameBufferMode::from_word(value);
         self.v_resolution = VerticalResolution::from_bit(value.bit(6));
-        self.priority = FramePriority::from_bit(value.bit(7));
+        self.priority = value.bit(7);
 
         log::trace!("Display mode write: {value:04X}");
         log::trace!("  Frame buffer mode: {:?}", self.frame_buffer_mode);
         log::trace!("  Vertical resolution: {:?}", self.v_resolution);
-        log::trace!("  Priority: {:?}", self.priority);
+        log::trace!("  Priority: {}", self.priority);
     }
 
     // 68000: $A15182
