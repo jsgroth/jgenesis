@@ -93,7 +93,7 @@ impl Sega32X {
         let sh2_ticks = self.sh2_cycles * 2 / 3;
         self.sh2_cycles -= sh2_ticks * 3 / 2;
 
-        let mut master_bus = Sh2Bus {
+        let mut bus = Sh2Bus {
             boot_rom: SH2_MASTER_BOOT_ROM,
             boot_rom_mask: SH2_MASTER_BOOT_ROM.len() - 1,
             which: WhichCpu::Master,
@@ -103,20 +103,14 @@ impl Sega32X {
             sdram: &mut self.sdram,
         };
         for _ in 0..sh2_ticks {
-            self.sh2_master.tick(&mut master_bus);
+            self.sh2_master.tick(&mut bus);
         }
 
-        let mut slave_bus = Sh2Bus {
-            boot_rom: SH2_SLAVE_BOOT_ROM,
-            boot_rom_mask: SH2_SLAVE_BOOT_ROM.len() - 1,
-            which: WhichCpu::Slave,
-            rom: &self.rom,
-            vdp: &mut self.vdp,
-            registers: &mut self.registers,
-            sdram: &mut self.sdram,
-        };
+        bus.boot_rom = SH2_SLAVE_BOOT_ROM;
+        bus.boot_rom_mask = SH2_SLAVE_BOOT_ROM.len() - 1;
+        bus.which = WhichCpu::Slave;
         for _ in 0..sh2_ticks {
-            self.sh2_slave.tick(&mut slave_bus);
+            self.sh2_slave.tick(&mut bus);
         }
     }
 

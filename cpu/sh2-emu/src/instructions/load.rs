@@ -438,6 +438,25 @@ pub fn sts_pr_rn_predec<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B
     cpu.write_longword(address, cpu.registers.pr, bus);
 }
 
+// CLRT
+// Clear the T flag
+pub fn clrt(cpu: &mut Sh2) {
+    cpu.registers.sr.t = false;
+}
+
+// SETT
+// Set the T flag
+pub fn sett(cpu: &mut Sh2) {
+    cpu.registers.sr.t = true;
+}
+
+// CLRMAC
+// Clear the MAC registers
+pub fn clrmac(cpu: &mut Sh2) {
+    cpu.registers.macl = 0;
+    cpu.registers.mach = 0;
+}
+
 // SWAP.B Rm, Rn
 // Swaps the lowest two bytes of a register
 pub fn swap_b(cpu: &mut Sh2, opcode: u16) {
@@ -458,4 +477,14 @@ pub fn swap_w(cpu: &mut Sh2, opcode: u16) {
     let original = cpu.registers.gpr[source];
     let swapped = (original >> 16) | (original << 16);
     cpu.registers.gpr[destination] = swapped;
+}
+
+// XTRCT Rm, Rn
+// Extract the center 32 bits of the 64-bit value formed by Rm and Rn
+pub fn xtrct(cpu: &mut Sh2, opcode: u16) {
+    let source = parse_register_low(opcode) as usize;
+    let destination = parse_register_high(opcode) as usize;
+
+    let value = (cpu.registers.gpr[source] << 16) | (cpu.registers.gpr[destination] >> 16);
+    cpu.registers.gpr[destination] = value;
 }
