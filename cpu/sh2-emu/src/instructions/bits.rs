@@ -17,6 +17,21 @@ pub fn and_imm_r0(cpu: &mut Sh2, opcode: u16) {
     cpu.registers.gpr[0] &= immediate;
 }
 
+// OR Rm, Rn
+// Logical or
+pub fn or_rm_rn(cpu: &mut Sh2, opcode: u16) {
+    let source = parse_register_low(opcode) as usize;
+    let destination = parse_register_high(opcode) as usize;
+    cpu.registers.gpr[destination] |= cpu.registers.gpr[source];
+}
+
+// OR #imm, R0
+// Logical or
+pub fn or_imm_r0(cpu: &mut Sh2, opcode: u16) {
+    let immediate = parse_unsigned_immediate(opcode);
+    cpu.registers.gpr[0] |= immediate;
+}
+
 // XOR Rm, Rn
 // Exclusive or
 pub fn xor_rm_rn(cpu: &mut Sh2, opcode: u16) {

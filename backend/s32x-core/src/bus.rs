@@ -469,6 +469,11 @@ impl<'a> BusInterface for Sh2Bus<'a> {
             0
         }
     }
+
+    #[inline]
+    fn dma_request_0(&self) -> bool {
+        !self.registers.dma.fifo.is_empty()
+    }
 }
 
 #[inline]

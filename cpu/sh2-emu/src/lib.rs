@@ -1,10 +1,12 @@
 pub mod bus;
 mod disassemble;
+mod dma;
 mod frt;
 mod instructions;
 mod registers;
 
 use crate::bus::BusInterface;
+use crate::dma::DmaController;
 use crate::frt::FreeRunTimer;
 use crate::registers::{BusControllerRegisters, Sh2Registers};
 use bincode::{Decode, Encode};
@@ -28,6 +30,7 @@ type CpuCache = [u8; CACHE_LEN];
 pub struct Sh2 {
     registers: Sh2Registers,
     cache: Box<CpuCache>,
+    dma_controller: DmaController,
     free_run_timer: FreeRunTimer,
     bus_control: BusControllerRegisters,
     reset_pending: bool,
@@ -40,6 +43,7 @@ impl Sh2 {
         Self {
             registers: Sh2Registers::default(),
             cache: vec![0; CACHE_LEN].into_boxed_slice().try_into().unwrap(),
+            dma_controller: DmaController::new(),
             free_run_timer: FreeRunTimer::new(),
             bus_control: BusControllerRegisters::new(),
             reset_pending: false,

@@ -58,6 +58,26 @@ pub fn subc(cpu: &mut Sh2, opcode: u16) {
     cpu.registers.sr.t = borrow1 || borrow2;
 }
 
+// NEG Rm, Rn
+// Negate
+pub fn neg(cpu: &mut Sh2, opcode: u16) {
+    let source = parse_register_low(opcode) as usize;
+    let destination = parse_register_high(opcode) as usize;
+    cpu.registers.gpr[destination] = 0_u32.wrapping_sub(cpu.registers.gpr[source]);
+}
+
+// NEGC Rm, Rn
+// Negate with carry
+pub fn negc(cpu: &mut Sh2, opcode: u16) {
+    let source = parse_register_low(opcode) as usize;
+    let destination = parse_register_high(opcode) as usize;
+
+    let (partial_diff, borrow1) = 0_u32.overflowing_sub(cpu.registers.gpr[source]);
+    let (difference, borrow2) = partial_diff.overflowing_sub(cpu.registers.sr.t.into());
+    cpu.registers.gpr[destination] = difference;
+    cpu.registers.sr.t = borrow1 || borrow2;
+}
+
 macro_rules! impl_compare {
     ($name:ident, |$rn:ident| $compare:expr) => {
         pub fn $name(cpu: &mut Sh2, opcode: u16) {
@@ -84,6 +104,26 @@ pub fn cmp_eq_imm_r0(cpu: &mut Sh2, opcode: u16) {
     let immediate = parse_signed_immediate(opcode);
     cpu.registers.sr.t = cpu.registers.gpr[0] == immediate as u32;
 }
+
+// CMP/GE Rm, Rn
+// Set the T flag if Rn >= Rm (signed)
+impl_compare!(cmp_ge, |rm, rn| (rn as i32) >= (rm as i32));
+
+// CMP/GT Rm, Rn
+// Set the T flag if Rn > Rm (signed)
+impl_compare!(cmp_gt, |rm, rn| (rn as i32) > (rm as i32));
+
+// CMP/HI Rm, Rn
+// Set the T flag if Rn > Rm (unsigned)
+impl_compare!(cmp_hi, |rm, rn| rn > rm);
+
+// CMP/HS Rm, Rn
+// Set the T flag if Rn >= Rm (unsigned)
+impl_compare!(cmp_hs, |rm, rn| rn >= rm);
+
+// CMP/PL Rn
+// Set the T flag if Rn > 0
+impl_compare!(cmp_pl, |rn| (rn as i32) > 0);
 
 // CMP/PZ Rn
 // Set the T flag if Rn >= 0

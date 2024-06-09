@@ -2,6 +2,7 @@ use crate::bus::WhichCpu;
 use crate::vdp::Vdp;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::{GetBit, U24Ext};
+use std::array;
 use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -54,6 +55,46 @@ impl Sh2Interrupts {
     }
 }
 
+const DMA_FIFO_LEN: u8 = 4;
+
+#[derive(Debug, Clone, Default, Encode, Decode)]
+pub struct DmaFifo {
+    fifo: [u16; DMA_FIFO_LEN as usize],
+    start: u8,
+    len: u8,
+}
+
+impl DmaFifo {
+    pub fn push(&mut self, value: u16) {
+        if self.len == DMA_FIFO_LEN {
+            return;
+        }
+
+        self.fifo[(self.start + self.len) as usize] = value;
+        self.len += 1;
+    }
+
+    pub fn pop(&mut self) -> u16 {
+        if self.len == 0 {
+            return self.fifo[self.start as usize];
+        }
+
+        let value = self.fifo[self.start as usize];
+        self.start = (self.start + 1) % DMA_FIFO_LEN;
+        self.len -= 1;
+
+        value
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    pub fn is_full(&self) -> bool {
+        self.len == DMA_FIFO_LEN
+    }
+}
+
 #[derive(Debug, Clone, Default, Encode, Decode)]
 pub struct DmaRegisters {
     pub rom_to_vram_dma: bool,
@@ -61,6 +102,7 @@ pub struct DmaRegisters {
     pub source_address: u32,
     pub destination_address: u32,
     pub length: u16,
+    pub fifo: DmaFifo,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -111,6 +153,7 @@ impl SystemRegisters {
             0xA1510C => self.write_dreq_destination_high(value),
             0xA1510E => self.write_dreq_destination_low(value),
             0xA15110 => self.write_dreq_length(value),
+            0xA15112 => self.dma.fifo.push(value),
             0xA15120..=0xA1512F => self.write_communication_port(address, value),
             0xA15130..=0xA15138 => {
                 log::warn!("Ignoring PWM register write: {address:06X} {value:04X}")
@@ -123,6 +166,7 @@ impl SystemRegisters {
         match address {
             0x4000 => self.read_interrupt_mask(which, vdp),
             0x4004 => vdp.h_interrupt_interval(),
+            0x4010 => self.dma.length,
             0x4020..=0x402F => self.read_communication_port(address),
             _ => todo!("SH-2 register read: {address:08X} {which:?}"),
         }
@@ -193,8 +237,9 @@ impl SystemRegisters {
 
     // 68000: $A15106
     fn read_dreq_control(&self) -> u16 {
-        // TODO bit 7 (full) hardcoded to 0
-        (u16::from(self.dma.active) << 2) | u16::from(self.dma.rom_to_vram_dma)
+        (u16::from(self.dma.fifo.is_full()) << 7)
+            | (u16::from(self.dma.active) << 2)
+            | u16::from(self.dma.rom_to_vram_dma)
     }
 
     // 68000: $A15106
