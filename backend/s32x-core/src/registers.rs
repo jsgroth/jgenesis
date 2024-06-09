@@ -1,4 +1,3 @@
-use crate::bus;
 use crate::bus::WhichCpu;
 use crate::vdp::Vdp;
 use bincode::{Decode, Encode};
@@ -74,7 +73,6 @@ pub struct SystemRegisters {
     pub master_interrupts: Sh2Interrupts,
     pub slave_interrupts: Sh2Interrupts,
     pub dma: DmaRegisters,
-    pub m68k_h_int_vector: u32,
 }
 
 impl SystemRegisters {
@@ -88,9 +86,6 @@ impl SystemRegisters {
             master_interrupts: Sh2Interrupts::default(),
             slave_interrupts: Sh2Interrupts::default(),
             dma: DmaRegisters::default(),
-            m68k_h_int_vector: u32::from_be_bytes(
-                bus::M68K_VECTORS[0x70..0x74].try_into().unwrap(),
-            ),
         }
     }
 

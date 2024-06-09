@@ -11,6 +11,9 @@ use sh2_emu::Sh2;
 use std::mem;
 use std::ops::Deref;
 
+pub type M68kVectors = [u8; 256];
+
+const M68K_VECTORS: &M68kVectors = include_bytes!("m68k_vectors.bin");
 const SH2_MASTER_BOOT_ROM: &[u8; 2048] = include_bytes!("sh2_master_boot_rom.bin");
 const SH2_SLAVE_BOOT_ROM: &[u8; 1024] = include_bytes!("sh2_slave_boot_rom.bin");
 
@@ -58,6 +61,7 @@ pub struct Sega32X {
     pub rom: Rom,
     pub vdp: Vdp,
     pub registers: SystemRegisters,
+    pub m68k_vectors: Box<M68kVectors>,
     pub sdram: Box<Sdram>,
 }
 
@@ -70,6 +74,7 @@ impl Sega32X {
             rom: Rom(rom),
             vdp: Vdp::new(timing_mode),
             registers: SystemRegisters::new(),
+            m68k_vectors: M68K_VECTORS.to_vec().into_boxed_slice().try_into().unwrap(),
             sdram: vec![0; SDRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
         }
     }
