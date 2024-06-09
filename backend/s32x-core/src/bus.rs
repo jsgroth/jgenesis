@@ -5,12 +5,20 @@ use crate::registers::{Access, SystemRegisters};
 use crate::vdp::Vdp;
 use genesis_core::memory::PhysicalMedium;
 use genesis_core::GenesisRegion;
-use jgenesis_common::num::{GetBit, U16Ext, U24Ext};
+use jgenesis_common::num::{GetBit, U16Ext};
 use sh2_emu::bus::BusInterface;
 
-pub const M68K_VECTORS: &[u8; 256] = include_bytes!("m68k_vectors.bin");
+const H_INT_VECTOR_ADDR: usize = 0x000070;
 
 const SDRAM_MASK: u32 = 0x3FFFF;
+
+impl Sega32X {
+    fn h_int_vector(&self) -> u32 {
+        u32::from_be_bytes(
+            self.m68k_vectors[H_INT_VECTOR_ADDR..H_INT_VECTOR_ADDR + 4].try_into().unwrap(),
+        )
+    }
+}
 
 // 68000 memory map
 impl PhysicalMedium for Sega32X {
@@ -19,18 +27,12 @@ impl PhysicalMedium for Sega32X {
             0x000000..=0x0000FF => {
                 // Hardcoded vectors when 32X is enabled, first 256 bytes of ROM otherwise
                 if self.registers.adapter_enabled {
-                    match address {
-                        0x70 => (self.registers.m68k_h_int_vector >> 24) as u8,
-                        0x71 => self.registers.m68k_h_int_vector.high_byte(),
-                        0x72 => self.registers.m68k_h_int_vector.mid_byte(),
-                        0x73 => self.registers.m68k_h_int_vector.low_byte(),
-                        _ => M68K_VECTORS[address as usize],
-                    }
+                    self.m68k_vectors[address as usize]
                 } else {
                     self.rom.get(address as usize).copied().unwrap_or(0xFF)
                 }
             }
-            0x000010..=0x3FFFFF => {
+            0x000100..=0x3FFFFF => {
                 // ROM (only accessible when 32X is disabled or ROM-to-VRAM DMA is enabled)
                 if !self.registers.adapter_enabled || self.registers.dma.rom_to_vram_dma {
                     self.rom.get(address as usize).copied().unwrap_or(0xFF)
@@ -69,16 +71,8 @@ impl PhysicalMedium for Sega32X {
             0x000000..=0x0000FF => {
                 // Hardcoded vectors when 32X is enabled, first 256 bytes of ROM otherwise
                 if self.registers.adapter_enabled {
-                    match address {
-                        0x70 => (self.registers.m68k_h_int_vector >> 16) as u16,
-                        0x72 => self.registers.m68k_h_int_vector as u16,
-                        _ => {
-                            let address = (address & !1) as usize;
-                            u16::from_be_bytes(
-                                M68K_VECTORS[address..address + 2].try_into().unwrap(),
-                            )
-                        }
-                    }
+                    let address = (address & !1) as usize;
+                    u16::from_be_bytes(self.m68k_vectors[address..address + 2].try_into().unwrap())
                 } else {
                     self.rom.get_u16(address)
                 }
@@ -136,6 +130,10 @@ impl PhysicalMedium for Sega32X {
 
     fn write_byte(&mut self, address: u32, value: u8) {
         match address {
+            0x000070..=0x000073 => {
+                self.m68k_vectors[address as usize] = value;
+                log::trace!("68000 HINT vector: {:06X}", self.h_int_vector());
+            }
             // TODO should this function like the Phantasy Star 4 SRAM register?
             0xA130F1 => {
                 assert_eq!(value, 0, "Wrote {value:02X} to A130F1; SRAM mapping register?");
@@ -168,15 +166,10 @@ impl PhysicalMedium for Sega32X {
 
     fn write_word(&mut self, address: u32, value: u16) {
         match address {
-            0x000070 => {
-                self.registers.m68k_h_int_vector =
-                    (self.registers.m68k_h_int_vector & 0x0000FFFF) | (u32::from(value) << 16);
-                log::trace!("68000 HINT vector: {:06X}", self.registers.m68k_h_int_vector);
-            }
-            0x000072 => {
-                self.registers.m68k_h_int_vector =
-                    (self.registers.m68k_h_int_vector & 0xFFFF0000) | u32::from(value);
-                log::trace!("68000 HINT vector: {:06X}", self.registers.m68k_h_int_vector);
+            0x000070 | 0x000072 => {
+                self.m68k_vectors[address as usize] = value.msb();
+                self.m68k_vectors[(address + 1) as usize] = value.lsb();
+                log::trace!("68000 HINT vector: {:06X}", self.h_int_vector());
             }
             0xA15100..=0xA1512F => {
                 // System registers
