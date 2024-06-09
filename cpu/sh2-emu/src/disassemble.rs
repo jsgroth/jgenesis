@@ -136,7 +136,7 @@ fn decode_xnnx(opcode: u16) -> String {
             format!("MAC.L @R{}+, @R{}+", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0100_0000_0000_1111 => {
-            format!("MAC @R{}+, @R{}+", parse_register_low(opcode), parse_register_high(opcode))
+            format!("MAC.W @R{}+, @R{}+", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0000_0000_0000_0111 => {
             format!("MUL.L R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))

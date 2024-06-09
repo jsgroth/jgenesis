@@ -11,12 +11,12 @@ pub fn execute<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
     match opcode {
         0b0000_0000_0001_1001 => alu::div0u(cpu),
         0b0000_0000_0000_1011 => branch::rts(cpu),
-        0b0000_0000_0000_1000 => todo!("CLRT"),
-        0b0000_0000_0010_1000 => todo!("CLRMAC"),
+        0b0000_0000_0000_1000 => load::clrt(cpu),
+        0b0000_0000_0010_1000 => load::clrmac(cpu),
         // NOP
         0b0000_0000_0000_1001 => {}
         0b0000_0000_0010_1011 => branch::rte(cpu, bus),
-        0b0000_0000_0001_1000 => todo!("SETT"),
+        0b0000_0000_0001_1000 => load::sett(cpu),
         0b0000_0000_0001_1011 => todo!("SLEEP"),
         _ => execute_xnnx(cpu, opcode, bus),
     }
@@ -46,7 +46,7 @@ fn execute_xnnx<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
         0b0000_0000_0000_1110 => load::mov_l_indirect_indexed_rn(cpu, opcode, bus),
         0b0110_0000_0000_1000 => load::swap_b(cpu, opcode),
         0b0110_0000_0000_1001 => load::swap_w(cpu, opcode),
-        0b0010_0000_0000_1101 => todo!("XTRCT Rm, Rn"),
+        0b0010_0000_0000_1101 => load::xtrct(cpu, opcode),
         0b0011_0000_0000_1100 => alu::add_rm_rn(cpu, opcode),
         0b0011_0000_0000_1110 => alu::addc(cpu, opcode),
         0b0011_0000_0000_1111 => todo!("ADDV Rm, Rn"),
@@ -65,7 +65,7 @@ fn execute_xnnx<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
         0b0110_0000_0000_1100 => alu::extu_b(cpu, opcode),
         0b0110_0000_0000_1101 => alu::extu_w(cpu, opcode),
         0b0000_0000_0000_1111 => todo!("MAC.L @Rm+, @Rn+"),
-        0b0100_0000_0000_1111 => todo!("MAC @Rm+, @Rn+"),
+        0b0100_0000_0000_1111 => alu::mac_w(cpu, opcode, bus),
         0b0000_0000_0000_0111 => alu::mul(cpu, opcode),
         0b0010_0000_0000_1111 => alu::muls(cpu, opcode),
         0b0010_0000_0000_1110 => alu::mulu(cpu, opcode),

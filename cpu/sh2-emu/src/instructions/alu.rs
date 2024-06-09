@@ -1,3 +1,4 @@
+use crate::bus::BusInterface;
 use crate::instructions::{parse_register_high, parse_register_low, parse_signed_immediate};
 use crate::Sh2;
 use jgenesis_common::num::SignBit;
@@ -193,6 +194,34 @@ pub fn mulu(cpu: &mut Sh2, opcode: u16) {
     let rn = parse_register_high(opcode) as usize;
     let product = (cpu.registers.gpr[rm] & 0xFFFF) * (cpu.registers.gpr[rn] & 0xFFFF);
     cpu.registers.macl = product;
+}
+
+// MAC.W @Rm+, @Rn+
+// Multiply and accumulate with word operands
+pub fn mac_w<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let rm = parse_register_low(opcode) as usize;
+    let rn = parse_register_high(opcode) as usize;
+
+    let operand_l = cpu.read_word(cpu.registers.gpr[rm], bus) as i16;
+    cpu.registers.gpr[rm] = cpu.registers.gpr[rm].wrapping_add(2);
+
+    let operand_r = cpu.read_word(cpu.registers.gpr[rn], bus) as i16;
+    cpu.registers.gpr[rn] = cpu.registers.gpr[rn].wrapping_add(2);
+
+    let product: i64 = i64::from(operand_l) * i64::from(operand_r);
+
+    if cpu.registers.sr.s {
+        // 16-bit x 16-bit + 32-bit -> 32-bit, with saturation
+        let sum = i64::from(cpu.registers.macl as i32) + product;
+        cpu.registers.macl = sum.clamp(i32::MIN.into(), i32::MAX.into()) as u32;
+        // TODO set overflow bit in MACH? manual suggests that only SH-1 does this
+    } else {
+        // 16-bit x 16-bit + 64-bit -> 64-bit
+        let mac = ((u64::from(cpu.registers.mach) << 32) | u64::from(cpu.registers.macl)) as i64;
+        let sum = mac.wrapping_add(product);
+        cpu.registers.macl = sum as u32;
+        cpu.registers.mach = ((sum as u64) >> 32) as u32;
+    }
 }
 
 // DIV0U
