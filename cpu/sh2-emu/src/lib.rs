@@ -1,11 +1,13 @@
 pub mod bus;
 mod disassemble;
+mod divu;
 mod dma;
 mod frt;
 mod instructions;
 mod registers;
 
 use crate::bus::BusInterface;
+use crate::divu::DivisionUnit;
 use crate::dma::{
     DmaAddressMode, DmaChannel, DmaController, DmaTransferAddressMode, DmaTransferUnit,
 };
@@ -34,6 +36,7 @@ pub struct Sh2 {
     cache: Box<CpuCache>,
     dmac: DmaController,
     free_run_timer: FreeRunTimer,
+    divu: DivisionUnit,
     bus_control: BusControllerRegisters,
     reset_pending: bool,
     name: String,
@@ -47,6 +50,7 @@ impl Sh2 {
             cache: vec![0; CACHE_LEN].into_boxed_slice().try_into().unwrap(),
             dmac: DmaController::new(),
             free_run_timer: FreeRunTimer::new(),
+            divu: DivisionUnit::new(),
             bus_control: BusControllerRegisters::new(),
             reset_pending: false,
             name,
@@ -204,7 +208,14 @@ impl Sh2 {
     fn try_tick_dma<B: BusInterface>(&mut self, bus: &mut B) -> bool {
         let Some(channel) = self.dmac.channel_ready(bus) else { return false };
 
-        log::trace!("[{}] Progressing DMA{channel}", self.name);
+        log::debug!(
+            "[{}] Progressing DMA{channel}: src={:08X}, dest={:08X}, unit={:?}, size={:06X}",
+            self.name,
+            self.dmac.channels[channel].source_address,
+            self.dmac.channels[channel].destination_address,
+            self.dmac.channels[channel].control.transfer_size,
+            self.dmac.channels[channel].transfer_count
+        );
 
         // TODO handle single address mode?
         assert_eq!(

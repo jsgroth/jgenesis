@@ -129,6 +129,22 @@ impl_compare!(cmp_pl, |rn| (rn as i32) > 0);
 // Set the T flag if Rn >= 0
 impl_compare!(cmp_pz, |rn| !rn.sign_bit());
 
+// EXTS.B Rm, Rn
+// Sign extend byte
+pub fn exts_b(cpu: &mut Sh2, opcode: u16) {
+    let source = parse_register_low(opcode) as usize;
+    let destination = parse_register_high(opcode) as usize;
+    cpu.registers.gpr[destination] = cpu.registers.gpr[source] as i8 as u32;
+}
+
+// EXTS.W Rm, Rn
+// Sign extend word
+pub fn exts_w(cpu: &mut Sh2, opcode: u16) {
+    let source = parse_register_low(opcode) as usize;
+    let destination = parse_register_high(opcode) as usize;
+    cpu.registers.gpr[destination] = cpu.registers.gpr[source] as i16 as u32;
+}
+
 // EXTU.B Rm, Rn
 // Zero extend byte
 pub fn extu_b(cpu: &mut Sh2, opcode: u16) {
@@ -151,6 +167,23 @@ pub fn dt(cpu: &mut Sh2, opcode: u16) {
     let register = parse_register_high(opcode) as usize;
     cpu.registers.gpr[register] = cpu.registers.gpr[register].wrapping_sub(1);
     cpu.registers.sr.t = cpu.registers.gpr[register] == 0;
+}
+
+// MUL.L Rm, Rn
+// 32-bit x 32-bit -> 32-bit multiplication
+pub fn mul(cpu: &mut Sh2, opcode: u16) {
+    let rm = parse_register_low(opcode) as usize;
+    let rn = parse_register_high(opcode) as usize;
+    cpu.registers.macl = cpu.registers.gpr[rm].wrapping_mul(cpu.registers.gpr[rn]);
+}
+
+// MULS.W Rm, Rn
+// Signed 16-bit x 16-bit -> 32-bit multiplication
+pub fn muls(cpu: &mut Sh2, opcode: u16) {
+    let rm = parse_register_low(opcode) as usize;
+    let rn = parse_register_high(opcode) as usize;
+    let product = i32::from(cpu.registers.gpr[rm] as i16) * i32::from(cpu.registers.gpr[rn] as i16);
+    cpu.registers.macl = product as u32;
 }
 
 // MULU.W Rm, Rn
