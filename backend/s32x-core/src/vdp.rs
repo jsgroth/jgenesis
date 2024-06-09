@@ -2,9 +2,10 @@
 
 mod registers;
 
-use crate::vdp::registers::{FrameBufferMode, Registers, SelectedFrameBuffer};
+use crate::vdp::registers::{Registers, SelectedFrameBuffer};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
+use jgenesis_common::num::{GetBit, U16Ext};
 
 const NTSC_SCANLINES_PER_FRAME: u16 = genesis_core::vdp::NTSC_SCANLINES_PER_FRAME;
 const PAL_SCANLINES_PER_FRAME: u16 = genesis_core::vdp::PAL_SCANLINES_PER_FRAME;
@@ -153,22 +154,48 @@ impl Vdp {
         frame_buffer[((address & 0x1FFFF) >> 1) as usize] = value;
     }
 
+    pub fn frame_buffer_overwrite_byte(&mut self, address: u32, value: u8) {
+        if value == 0 {
+            return;
+        }
+
+        let frame_buffer = non_display_frame_buffer_mut!(self);
+        let frame_buffer_addr = ((address & 0x1FFFF) >> 1) as usize;
+
+        if !address.bit(0) {
+            frame_buffer[frame_buffer_addr].set_msb(value);
+        } else {
+            frame_buffer[frame_buffer_addr].set_lsb(value);
+        }
+    }
+
+    pub fn frame_buffer_overwrite_word(&mut self, address: u32, value: u16) {
+        if value == 0 {
+            return;
+        }
+
+        let frame_buffer = non_display_frame_buffer_mut!(self);
+        let frame_buffer_addr = ((address & 0x1FFFF) >> 1) as usize;
+
+        let [msb, lsb] = value.to_be_bytes();
+
+        if msb != 0 {
+            frame_buffer[frame_buffer_addr].set_msb(msb);
+        }
+
+        if lsb != 0 {
+            frame_buffer[frame_buffer_addr].set_lsb(lsb);
+        }
+    }
+
     pub fn read_cram(&self, address: u32) -> u16 {
         // TODO block access to CRAM when in use?
         self.cram[((address & 0x1FF) >> 1) as usize]
     }
 
     pub fn write_cram(&mut self, address: u32, value: u16) {
-        if matches!(
-            self.registers.frame_buffer_mode,
-            FrameBufferMode::Blank | FrameBufferMode::DirectColor
-        ) || self.in_vblank()
-            || self.in_hblank()
-        {
-            self.cram[((address & 0x1FF) >> 1) as usize] = value;
-        } else {
-            log::warn!("CRAM written while in use: {address:08X} {value:04X}");
-        }
+        // TODO block access to CRAM while in use?
+        self.cram[((address & 0x1FF) >> 1) as usize] = value;
     }
 
     // Interrupt mask bit 7: HEN (H interrupts enabled during VBlank)(

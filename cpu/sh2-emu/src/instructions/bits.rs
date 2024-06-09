@@ -62,6 +62,14 @@ pub fn shlln<const N: usize>(cpu: &mut Sh2, opcode: u16) {
     cpu.registers.gpr[register] <<= N;
 }
 
+// SHAR Rn
+// Arithmetic shift right
+pub fn shar(cpu: &mut Sh2, opcode: u16) {
+    let register = parse_register_high(opcode) as usize;
+    cpu.registers.sr.t = cpu.registers.gpr[register].bit(0);
+    cpu.registers.gpr[register] = ((cpu.registers.gpr[register] as i32) >> 1) as u32;
+}
+
 // SHLR Rn
 // Logical shift right
 pub fn shlr(cpu: &mut Sh2, opcode: u16) {
@@ -77,6 +85,15 @@ pub fn shlrn<const N: usize>(cpu: &mut Sh2, opcode: u16) {
     cpu.registers.gpr[register] >>= N;
 }
 
+// ROTL Rn
+// Rotate left
+pub fn rotl(cpu: &mut Sh2, opcode: u16) {
+    let register = parse_register_high(opcode) as usize;
+    cpu.registers.sr.t = cpu.registers.gpr[register].bit(31);
+    cpu.registers.gpr[register] =
+        (cpu.registers.gpr[register] << 1) | (cpu.registers.gpr[register] >> 31);
+}
+
 // ROTCL Rn
 // Rotate with carry left
 pub fn rotcl(cpu: &mut Sh2, opcode: u16) {
@@ -84,6 +101,26 @@ pub fn rotcl(cpu: &mut Sh2, opcode: u16) {
     let carry_out = cpu.registers.gpr[register].bit(31);
     cpu.registers.gpr[register] =
         (cpu.registers.gpr[register] << 1) | u32::from(cpu.registers.sr.t);
+    cpu.registers.sr.t = carry_out;
+}
+
+// ROTR Rn
+// Rotate right
+pub fn rotr(cpu: &mut Sh2, opcode: u16) {
+    let register = parse_register_high(opcode) as usize;
+    let carry = cpu.registers.gpr[register].bit(0);
+    cpu.registers.sr.t = carry;
+    cpu.registers.gpr[register] =
+        (cpu.registers.gpr[register] >> 1) | (cpu.registers.gpr[register] << 31);
+}
+
+// ROTCR Rn
+// Rotate with carry right
+pub fn rotcr(cpu: &mut Sh2, opcode: u16) {
+    let register = parse_register_high(opcode) as usize;
+    let carry_out = cpu.registers.gpr[register].bit(0);
+    cpu.registers.gpr[register] =
+        (cpu.registers.gpr[register] >> 1) | (u32::from(cpu.registers.sr.t) << 31);
     cpu.registers.sr.t = carry_out;
 }
 

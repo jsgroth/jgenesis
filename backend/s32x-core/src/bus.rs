@@ -44,6 +44,12 @@ impl PhysicalMedium for Sega32X {
                 // First 512KB of ROM
                 self.rom.get((address & 0x7FFFF) as usize).copied().unwrap_or(0xFF)
             }
+            0x900000..=0x9FFFFF => {
+                // Mappable 1MB ROM bank
+                let rom_addr =
+                    (u32::from(self.registers.m68k_rom_bank) << 20) | (address & 0xFFFFF);
+                self.rom.get(rom_addr as usize).copied().unwrap_or(0xFF)
+            }
             // TODO should this function like the Phantasy Star 4 SRAM register?
             0xA130F1 => 0,
             0xA15100..=0xA1512F => {
@@ -232,6 +238,7 @@ macro_rules! memory_map {
         vdp => $vdp:expr,
         cartridge => $cartridge:expr,
         frame_buffer => $frame_buffer:expr,
+        frame_buffer_overwrite => $frame_buffer_overwrite:expr,
         sdram => $sdram:expr,
         _ => $default:expr $(,)?
     }) => {
@@ -241,6 +248,7 @@ macro_rules! memory_map {
             0x00004100..=0x000041FF => $vdp,
             0x02000000..=0x023FFFFF => $cartridge,
             0x04000000..=0x0401FFFF => $frame_buffer,
+            0x04020000..=0x0403FFFF => $frame_buffer_overwrite,
             0x06000000..=0x0603FFFF => $sdram,
             _ => $default,
         }
@@ -278,6 +286,7 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     0xFF
                 }
             },
+            frame_buffer_overwrite => todo!("FB overwrite byte read {address:08X}"),
             sdram => {
                 let word = self.sdram[((address & SDRAM_MASK) >> 1) as usize];
                 if !address.bit(0) { word.msb() } else { word.lsb() }
@@ -311,6 +320,7 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     0xFFFF
                 }
             },
+            frame_buffer_overwrite => todo!("FB overwrite word read {address:08X}"),
             sdram => self.sdram[((address & SDRAM_MASK) >> 1) as usize],
             _ => todo!("SH-2 {:?} read word {address:08X}", self.which),
         })
@@ -347,6 +357,7 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     0xFFFFFFFF
                 }
             },
+            frame_buffer_overwrite => todo!("FB overwrite longword read {address:08X}"),
             sdram => {
                 let word_addr = (((address & SDRAM_MASK) >> 1) & !1) as usize;
                 let high_word = self.sdram[word_addr];
@@ -377,9 +388,13 @@ impl<'a> BusInterface for Sh2Bus<'a> {
             cartridge => {},
             frame_buffer => {
                 if self.registers.vdp_access == Access::Sh2 {
-                    let mut word = self.vdp.read_frame_buffer(address & !1);
-                    if !address.bit(0) { word.set_msb(value) } else { word.set_lsb(value) };
-                    self.vdp.write_frame_buffer(address & !1, word);
+                    // Treat write as an overwrite because 0 bytes are never written to the frame buffer
+                    self.vdp.frame_buffer_overwrite_byte(address, value);
+                }
+            },
+            frame_buffer_overwrite => {
+                if self.registers.vdp_access == Access::Sh2 {
+                    self.vdp.frame_buffer_overwrite_byte(address, value);
                 }
             },
             sdram => {
@@ -413,6 +428,11 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     self.vdp.write_frame_buffer(address, value);
                 }
             },
+            frame_buffer_overwrite => {
+                if self.registers.vdp_access == Access::Sh2 {
+                    self.vdp.frame_buffer_overwrite_word(address, value);
+                }
+            },
             sdram => {
                 self.sdram[((address & SDRAM_MASK) >> 1) as usize] = value;
             },
@@ -442,6 +462,7 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     self.vdp.write_frame_buffer(address | 2, value as u16);
                 }
             },
+            frame_buffer_overwrite => todo!("FB overwrite longword write {address:08X}"),
             sdram => {
                 let sdram_addr = (((address & SDRAM_MASK) >> 1) & !1) as usize;
                 self.sdram[sdram_addr] = (value >> 16) as u16;
