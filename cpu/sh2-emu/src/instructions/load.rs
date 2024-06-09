@@ -87,6 +87,17 @@ pub fn mov_l_rm_indirect<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut 
     cpu.write_longword(address, value, bus);
 }
 
+// MOV.B @Rm+, Rn
+// Loads a byte into a register using post-increment indirect register addressing
+pub fn mov_b_postinc_rn<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let source = parse_register_low(opcode) as usize;
+    let destination = parse_register_high(opcode) as usize;
+
+    let value = cpu.read_byte(cpu.registers.gpr[source], bus);
+    cpu.registers.gpr[source] = cpu.registers.gpr[source].wrapping_add(1);
+    cpu.registers.gpr[destination] = extend_i8(value);
+}
+
 // MOV.W @Rm+, Rn
 // Loads a word into a register using post-increment indirect register addressing
 pub fn mov_w_postinc_rn<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
@@ -202,6 +213,26 @@ pub fn mov_l_rm_displacement_rn<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus
     let displacement = parse_4bit_displacement(opcode) << 2;
     let address = cpu.registers.gpr[source].wrapping_add(displacement);
     cpu.registers.gpr[destination] = cpu.read_longword(address, bus);
+}
+
+// MOV.B Rm, @(R0,Rn)
+// Stores a byte into memory using indirect indexed register addressing
+pub fn mov_b_rm_indirect_indexed<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let source = parse_register_low(opcode) as usize;
+    let destination = parse_register_high(opcode) as usize;
+
+    let address = cpu.registers.gpr[0].wrapping_add(cpu.registers.gpr[destination]);
+    cpu.write_byte(address, cpu.registers.gpr[source] as u8, bus);
+}
+
+// MOV.W Rm, @(R0,Rn)
+// Stores a word into memory using indirect indexed register addressing
+pub fn mov_w_rm_indirect_indexed<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let source = parse_register_low(opcode) as usize;
+    let destination = parse_register_high(opcode) as usize;
+
+    let address = cpu.registers.gpr[0].wrapping_add(cpu.registers.gpr[destination]);
+    cpu.write_word(address, cpu.registers.gpr[source] as u16, bus);
 }
 
 // MOV.L Rm, @(R0,Rn)

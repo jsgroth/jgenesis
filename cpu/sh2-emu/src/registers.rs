@@ -184,6 +184,8 @@ fn idle_cycles(value: u32) -> &'static str {
 
 impl Sh2 {
     pub(super) fn read_internal_register_byte(&self, address: u32) -> u8 {
+        log::trace!("[{}] Internal register byte read: {address:08X}", self.name);
+
         match address {
             0xFFFFFE10..=0xFFFFFE19 => self.free_run_timer.read_register(address),
             _ => todo!("[{}] Internal register byte read {address:08X}", self.name),
@@ -191,18 +193,23 @@ impl Sh2 {
     }
 
     pub(super) fn read_internal_register_longword(&mut self, address: u32) -> u32 {
+        log::trace!("[{}] Internal register longword read: {address:08X}", self.name);
+
         match address {
+            0xFFFFFF80..=0xFFFFFF9F | 0xFFFFFFB0 => self.dma_controller.read_register(address),
             0xFFFFFFE0..=0xFFFFFFFF => todo!("read bus control register {address:08X}"),
-            _ => todo!("Unexpected internal register read: {address:08X}"),
+            _ => todo!("Unexpected internal register longword read: {address:08X}"),
         }
     }
 
     pub(super) fn write_internal_register_byte(&mut self, address: u32, value: u8) {
+        log::trace!("[{}] Internal register byte write: {address:08X} {value:08X}", self.name);
+
         match address {
             0xFFFFFE10..=0xFFFFFE19 => self.free_run_timer.write_register(address, value),
             0xFFFFFE91 => {
                 // SBYCR (Standby control register)
-                log::trace!("SBYCR write: {value:02X}");
+                log::trace!("[{}] SBYCR write: {value:02X}", self.name);
                 log::trace!("  Standby mode enabled: {}", value.bit(7));
                 log::trace!("  Pins at Hi-Z in standby: {}", value.bit(6));
                 log::trace!("  DMAC clock halted: {}", value.bit(4));
@@ -213,7 +220,7 @@ impl Sh2 {
             }
             0xFFFFFE92 => {
                 // CCR (Cache control register)
-                log::trace!("CCR write: {value:02X}");
+                log::trace!("[{}] CCR write: {value:02X}", self.name);
                 log::trace!("  Way specification: {}", value >> 6);
                 log::trace!("  Cache purge: {}", value.bit(4));
                 log::trace!("  Two-way mode: {}", value.bit(3));
@@ -229,9 +236,14 @@ impl Sh2 {
     }
 
     pub(super) fn write_internal_register_word(&mut self, address: u32, value: u16) {
+        log::trace!("[{}] Internal register word write: {address:08X} {value:04X}", self.name);
+
         match address {
             0xFFFF8446 => {
-                log::trace!("$FFFF8446 write ({value:04X}): SDRAM 16-bit CAS latency set to 2");
+                log::trace!(
+                    "[{}] $FFFF8446 write ({value:04X}): SDRAM 16-bit CAS latency set to 2",
+                    self.name
+                );
             }
             _ => todo!(
                 "[{}] Unexpected internal register word write: {address:08X} {value:04X}",
@@ -241,10 +253,15 @@ impl Sh2 {
     }
 
     pub(super) fn write_internal_register_longword(&mut self, address: u32, value: u32) {
+        log::trace!("[{}] Internal register longword write: {address:08X} {value:08X}", self.name);
+
         match address {
+            0xFFFFFF80..=0xFFFFFF9F | 0xFFFFFFB0 => {
+                self.dma_controller.write_register(address, value)
+            }
             0xFFFFFFE0..=0xFFFFFFFF => self.bus_control.write_register(address, value),
             _ => todo!(
-                "[{}] Unexpected internal register write: {address:08X} {value:08X}",
+                "[{}] Unexpected internal register longword write: {address:08X} {value:08X}",
                 self.name
             ),
         }

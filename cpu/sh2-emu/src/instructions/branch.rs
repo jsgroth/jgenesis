@@ -1,5 +1,6 @@
+use crate::bus::BusInterface;
 use crate::instructions::{parse_branch_displacement, parse_register_high, parse_signed_immediate};
-use crate::Sh2;
+use crate::{Sh2, SP};
 
 // JMP @Rm
 // Unconditional jump
@@ -94,4 +95,18 @@ impl_delayed_conditional_branch!(bt_s);
 pub fn rts(cpu: &mut Sh2) {
     cpu.registers.next_pc = cpu.registers.pr;
     cpu.registers.next_op_in_delay_slot = true;
+}
+
+// RTE
+// Return from exception
+pub fn rte<B: BusInterface>(cpu: &mut Sh2, bus: &mut B) {
+    let mut sp = cpu.registers.gpr[SP];
+    cpu.registers.next_pc = bus.read_longword(sp);
+    cpu.registers.next_op_in_delay_slot = true;
+    sp = sp.wrapping_add(4);
+
+    cpu.registers.sr = bus.read_longword(sp).into();
+    sp = sp.wrapping_add(4);
+
+    cpu.registers.gpr[SP] = sp;
 }
