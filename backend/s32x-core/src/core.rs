@@ -90,8 +90,8 @@ impl Sega32X {
         self.sh2_cycles += 3 * m68k_cycles;
 
         // TODO actual timing
-        let sh2_ticks = self.sh2_cycles / 2;
-        self.sh2_cycles %= 2;
+        let sh2_ticks = self.sh2_cycles * 2 / 3;
+        self.sh2_cycles -= sh2_ticks * 3 / 2;
 
         let mut master_bus = Sh2Bus {
             boot_rom: SH2_MASTER_BOOT_ROM,

@@ -19,7 +19,7 @@ use crate::vdp::registers::{
 };
 use crate::vdp::sprites::{SpriteBuffers, SpriteState};
 use bincode::{Decode, Encode};
-use jgenesis_common::frontend::{Color, TimingMode};
+use jgenesis_common::frontend::{Color, FrameSize, TimingMode};
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::ops::{Deref, DerefMut};
@@ -226,7 +226,7 @@ const MAX_SCREEN_WIDTH: usize = 320 + H40_LEFT_BORDER as usize + RIGHT_BORDER as
 const MAX_SCREEN_HEIGHT: usize = 240 + PAL_V30_TOP_BORDER as usize + PAL_V30_BOTTOM_BORDER as usize;
 
 // Double screen height to account for interlaced 2x mode
-const FRAME_BUFFER_LEN: usize = MAX_SCREEN_WIDTH * MAX_SCREEN_HEIGHT * 2;
+pub const FRAME_BUFFER_LEN: usize = MAX_SCREEN_WIDTH * MAX_SCREEN_HEIGHT * 2;
 
 pub const MCLK_CYCLES_PER_SCANLINE: u64 = 3420;
 pub const ACTIVE_MCLK_CYCLES_PER_SCANLINE: u64 = 2560;
@@ -262,6 +262,14 @@ impl TimingModeExt for TimingMode {
             Self::Pal => 224 + PAL_V28_TOP_BORDER + PAL_V28_BOTTOM_BORDER,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct BorderSize {
+    pub left: u32,
+    pub right: u32,
+    pub top: u32,
+    pub bottom: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -1065,6 +1073,16 @@ impl Vdp {
     }
 
     #[must_use]
+    pub fn frame_buffer_mut(&mut self) -> &mut [Color; FRAME_BUFFER_LEN] {
+        &mut self.frame_buffer
+    }
+
+    #[must_use]
+    pub fn frame_size(&self) -> FrameSize {
+        FrameSize { width: self.screen_width(), height: self.screen_height() }
+    }
+
+    #[must_use]
     pub fn screen_width(&self) -> u32 {
         let h_display_size = self.registers.horizontal_display_size;
         let active_display_pixels: u32 = h_display_size.active_display_pixels().into();
@@ -1089,6 +1107,33 @@ impl Vdp {
         match self.registers.interlacing_mode {
             InterlacingMode::Progressive | InterlacingMode::Interlaced => screen_height,
             InterlacingMode::InterlacedDouble => 2 * screen_height,
+        }
+    }
+
+    #[must_use]
+    pub fn border_size(&self) -> BorderSize {
+        let (left, right) = if self.config.render_horizontal_border {
+            let h_display_size = self.registers.horizontal_display_size;
+            (h_display_size.left_border(), RIGHT_BORDER)
+        } else {
+            (0, 0)
+        };
+
+        let (top, bottom) = if self.config.render_vertical_border {
+            let v_display_size = self.registers.vertical_display_size;
+            (
+                v_display_size.top_border(self.timing_mode),
+                v_display_size.bottom_border(self.timing_mode),
+            )
+        } else {
+            (0, 0)
+        };
+
+        BorderSize {
+            left: left.into(),
+            right: right.into(),
+            top: top.into(),
+            bottom: bottom.into(),
         }
     }
 

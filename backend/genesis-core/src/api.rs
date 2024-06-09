@@ -306,10 +306,7 @@ pub fn render_frame<R: Renderer>(
     adjust_aspect_ratio_in_2x_resolution: bool,
     renderer: &mut R,
 ) -> Result<(), R::Err> {
-    let frame_width = vdp.screen_width();
-    let frame_height = vdp.screen_height();
-
-    let frame_size = FrameSize { width: frame_width, height: frame_height };
+    let frame_size = vdp.frame_size();
     let pixel_aspect_ratio =
         aspect_ratio.to_pixel_aspect_ratio(frame_size, adjust_aspect_ratio_in_2x_resolution);
 

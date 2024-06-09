@@ -771,7 +771,8 @@ fn set_in_frame_buffer(
     let r = ((color >> 1) & 0x07) as u8;
     let g = ((color >> 5) & 0x07) as u8;
     let b = ((color >> 9) & 0x07) as u8;
-    let rgb_color = colors::gen_to_rgb(r, g, b, modifier, emulate_non_linear_dac);
+    let a = (color >> 15) as u8;
+    let rgb_color = colors::gen_to_rgba(r, g, b, a, modifier, emulate_non_linear_dac);
 
     frame_buffer[(row * screen_width + col) as usize] = rgb_color;
 }
@@ -1040,7 +1041,9 @@ fn determine_pixel_color(
         } else {
             modifier
         };
-        return (color, modifier);
+
+        // Set alpha bit to indicate that the backdrop color was not used (needed by 32X)
+        return (color | 0x8000, modifier);
     }
 
     let fallback_color = match debug_register.forced_plane {
@@ -1050,7 +1053,8 @@ fn determine_pixel_color(
         Plane::ScrollB => cram[scroll_b_cram_idx as usize],
     };
 
-    (fallback_color, modifier)
+    // Clear alpha bit to indicate that the backdrop color was used (needed by 32X)
+    (fallback_color & 0x7FFF, modifier)
 }
 
 #[cfg(test)]

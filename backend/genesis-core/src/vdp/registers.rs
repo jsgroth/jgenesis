@@ -126,6 +126,14 @@ impl VerticalDisplaySize {
             (Self::ThirtyCell, TimingMode::Pal) => PAL_V30_TOP_BORDER,
         }
     }
+
+    pub const fn bottom_border(self, timing_mode: TimingMode) -> u16 {
+        match (self, timing_mode) {
+            (_, TimingMode::Ntsc) => NTSC_BOTTOM_BORDER,
+            (Self::TwentyEightCell, TimingMode::Pal) => PAL_V28_BOTTOM_BORDER,
+            (Self::ThirtyCell, TimingMode::Pal) => PAL_V30_BOTTOM_BORDER,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
