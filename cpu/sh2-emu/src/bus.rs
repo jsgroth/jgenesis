@@ -16,4 +16,6 @@ pub trait BusInterface {
     fn interrupt_level(&self) -> u8;
 
     fn dma_request_0(&self) -> bool;
+
+    fn dma_request_1(&self) -> bool;
 }

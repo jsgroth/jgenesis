@@ -6,7 +6,9 @@ mod instructions;
 mod registers;
 
 use crate::bus::BusInterface;
-use crate::dma::DmaController;
+use crate::dma::{
+    DmaAddressMode, DmaChannel, DmaController, DmaTransferAddressMode, DmaTransferUnit,
+};
 use crate::frt::FreeRunTimer;
 use crate::registers::{BusControllerRegisters, Sh2Registers};
 use bincode::{Decode, Encode};
@@ -30,7 +32,7 @@ type CpuCache = [u8; CACHE_LEN];
 pub struct Sh2 {
     registers: Sh2Registers,
     cache: Box<CpuCache>,
-    dma_controller: DmaController,
+    dmac: DmaController,
     free_run_timer: FreeRunTimer,
     bus_control: BusControllerRegisters,
     reset_pending: bool,
@@ -43,7 +45,7 @@ impl Sh2 {
         Self {
             registers: Sh2Registers::default(),
             cache: vec![0; CACHE_LEN].into_boxed_slice().try_into().unwrap(),
-            dma_controller: DmaController::new(),
+            dmac: DmaController::new(),
             free_run_timer: FreeRunTimer::new(),
             bus_control: BusControllerRegisters::new(),
             reset_pending: false,
@@ -78,6 +80,10 @@ impl Sh2 {
                 self.registers.gpr[SP]
             );
 
+            return;
+        }
+
+        if self.try_tick_dma(bus) {
             return;
         }
 
@@ -153,6 +159,8 @@ impl Sh2 {
     fn write_longword<B: BusInterface>(&mut self, address: u32, value: u32, bus: &mut B) {
         match address >> 29 {
             0 | 1 => bus.write_longword(address & 0x1FFFFFFF, value),
+            // Associative purge; ignore (cache is not emulated)
+            2 => {}
             6 => self.write_cache_u32(address, value),
             7 => self.write_internal_register_longword(address, value),
             _ => todo!("Unexpected SH-2 address, longword write: {address:08X} {value:08X}"),
@@ -191,5 +199,116 @@ impl Sh2 {
         self.registers.next_op_in_delay_slot = false;
 
         log::debug!("Handled IRL{interrupt_level} interrupt, jumped to {:08X}", self.registers.pc);
+    }
+
+    fn try_tick_dma<B: BusInterface>(&mut self, bus: &mut B) -> bool {
+        let Some(channel) = self.dmac.channel_ready(bus) else { return false };
+
+        log::trace!("[{}] Progressing DMA{channel}", self.name);
+
+        // TODO handle single address mode?
+        assert_eq!(
+            self.dmac.channels[channel].control.transfer_address_mode,
+            DmaTransferAddressMode::Dual
+        );
+
+        match self.dmac.channels[channel].control.transfer_size {
+            DmaTransferUnit::Byte => {
+                let source_addr = self.dmac.channels[channel].source_address;
+                let byte = self.read_byte(source_addr, bus);
+
+                apply_dma_source_address_mode(&mut self.dmac.channels[channel], 1);
+
+                let dest_addr = self.dmac.channels[channel].destination_address;
+                self.write_byte(dest_addr, byte, bus);
+
+                apply_dma_destination_address_mode(&mut self.dmac.channels[channel], 1);
+
+                self.dmac.channels[channel].transfer_count =
+                    self.dmac.channels[channel].transfer_count.wrapping_sub(1);
+            }
+            DmaTransferUnit::Word => {
+                let source_addr = self.dmac.channels[channel].source_address;
+                let word = self.read_word(source_addr, bus);
+
+                apply_dma_source_address_mode(&mut self.dmac.channels[channel], 2);
+
+                let dest_addr = self.dmac.channels[channel].destination_address;
+                self.write_word(dest_addr, word, bus);
+
+                apply_dma_destination_address_mode(&mut self.dmac.channels[channel], 2);
+
+                self.dmac.channels[channel].transfer_count =
+                    self.dmac.channels[channel].transfer_count.wrapping_sub(1);
+            }
+            DmaTransferUnit::Longword => {
+                let source_addr = self.dmac.channels[channel].source_address;
+                let longword = self.read_longword(source_addr, bus);
+
+                apply_dma_source_address_mode(&mut self.dmac.channels[channel], 4);
+
+                let dest_addr = self.dmac.channels[channel].destination_address;
+                self.write_longword(dest_addr, longword, bus);
+
+                apply_dma_destination_address_mode(&mut self.dmac.channels[channel], 4);
+
+                self.dmac.channels[channel].transfer_count =
+                    self.dmac.channels[channel].transfer_count.wrapping_sub(1);
+            }
+            DmaTransferUnit::SixteenByte => {
+                for _ in 0..4 {
+                    let source_addr = self.dmac.channels[channel].source_address;
+                    let longword = self.read_longword(source_addr, bus);
+
+                    // Source address mode is ignored for 16-byte transfers
+                    self.dmac.channels[channel].source_address =
+                        self.dmac.channels[channel].source_address.wrapping_add(4);
+
+                    let dest_addr = self.dmac.channels[channel].destination_address;
+                    self.write_longword(dest_addr, longword, bus);
+
+                    apply_dma_destination_address_mode(&mut self.dmac.channels[channel], 4);
+
+                    self.dmac.channels[channel].transfer_count =
+                        self.dmac.channels[channel].transfer_count.wrapping_sub(1);
+                    if self.dmac.channels[channel].transfer_count == 0 {
+                        break;
+                    }
+                }
+            }
+        }
+
+        let transfer_complete = self.dmac.channels[channel].transfer_count == 0;
+        self.dmac.channels[channel].control.dma_complete = transfer_complete;
+
+        if log::log_enabled!(log::Level::Debug) && transfer_complete {
+            log::debug!("[{}] DMA{channel} complete", self.name);
+        }
+
+        true
+    }
+}
+
+fn apply_dma_source_address_mode(channel: &mut DmaChannel, size: u32) {
+    match channel.control.source_address_mode {
+        DmaAddressMode::AutoIncrement => {
+            channel.source_address = channel.source_address.wrapping_add(size);
+        }
+        DmaAddressMode::AutoDecrement => {
+            channel.source_address = channel.source_address.wrapping_sub(size);
+        }
+        DmaAddressMode::Fixed | DmaAddressMode::Invalid => {}
+    }
+}
+
+fn apply_dma_destination_address_mode(channel: &mut DmaChannel, size: u32) {
+    match channel.control.destination_address_mode {
+        DmaAddressMode::AutoIncrement => {
+            channel.destination_address = channel.destination_address.wrapping_add(size);
+        }
+        DmaAddressMode::AutoDecrement => {
+            channel.destination_address = channel.destination_address.wrapping_sub(size);
+        }
+        DmaAddressMode::Fixed | DmaAddressMode::Invalid => {}
     }
 }
