@@ -196,6 +196,16 @@ pub fn mulu(cpu: &mut Sh2, opcode: u16) {
     cpu.registers.macl = product;
 }
 
+// DMULS.L Rm, Rn
+// Signed 32-bit x 32-bit -> 64-bit multiplication
+pub fn dmuls(cpu: &mut Sh2, opcode: u16) {
+    let rm = parse_register_low(opcode) as usize;
+    let rn = parse_register_high(opcode) as usize;
+    let product = i64::from(cpu.registers.gpr[rm] as i32) * i64::from(cpu.registers.gpr[rn] as i32);
+    cpu.registers.macl = product as u32;
+    cpu.registers.mach = ((product as u64) >> 32) as u32;
+}
+
 // MAC.W @Rm+, @Rn+
 // Multiply and accumulate with word operands
 pub fn mac_w<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
@@ -208,7 +218,7 @@ pub fn mac_w<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
     let operand_r = cpu.read_word(cpu.registers.gpr[rn], bus) as i16;
     cpu.registers.gpr[rn] = cpu.registers.gpr[rn].wrapping_add(2);
 
-    let product: i64 = i64::from(operand_l) * i64::from(operand_r);
+    let product = i64::from(operand_l) * i64::from(operand_r);
 
     if cpu.registers.sr.s {
         // 16-bit x 16-bit + 32-bit -> 32-bit, with saturation
@@ -219,8 +229,31 @@ pub fn mac_w<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
         // 16-bit x 16-bit + 64-bit -> 64-bit
         let mac = ((u64::from(cpu.registers.mach) << 32) | u64::from(cpu.registers.macl)) as i64;
         let sum = mac.wrapping_add(product);
-        cpu.registers.macl = sum as u32;
-        cpu.registers.mach = ((sum as u64) >> 32) as u32;
+        cpu.registers.set_mac(sum);
+    }
+}
+
+// MAC.L @Rm+, @Rn+
+// Multiply and accumulate with longword operands
+pub fn mac_l<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let rm = parse_register_low(opcode) as usize;
+    let rn = parse_register_high(opcode) as usize;
+
+    let operand_l = cpu.read_longword(cpu.registers.gpr[rm], bus) as i32;
+    cpu.registers.gpr[rm] = cpu.registers.gpr[rm].wrapping_add(4);
+
+    let operand_r = cpu.read_longword(cpu.registers.gpr[rn], bus) as i32;
+    cpu.registers.gpr[rn] = cpu.registers.gpr[rn].wrapping_add(4);
+
+    let product = i64::from(operand_l) * i64::from(operand_r);
+    let product_sum = product.wrapping_add(cpu.registers.mac());
+
+    if cpu.registers.sr.s {
+        // Saturate to signed 48-bit
+        let clamped = product_sum.clamp(-(1 << 47), (1 << 47) - 1);
+        cpu.registers.set_mac(clamped);
+    } else {
+        cpu.registers.set_mac(product_sum);
     }
 }
 

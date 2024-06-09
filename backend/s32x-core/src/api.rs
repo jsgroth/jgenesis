@@ -17,6 +17,7 @@ use jgenesis_proc_macros::PartialClone;
 use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgTickEffect, PsgVersion};
 use std::fmt::{Debug, Display};
+use std::mem;
 use thiserror::Error;
 use z80_emu::Z80;
 
@@ -67,10 +68,15 @@ pub struct Sega32XEmulator {
     audio_resampler: Sega32XResampler,
     main_bus_writes: MainBusWrites,
     timing_mode: TimingMode,
+    config: Sega32XEmulatorConfig,
 }
 
 impl Sega32XEmulator {
-    pub fn create(rom: Box<[u8]>, config: Sega32XEmulatorConfig) -> Self {
+    pub fn create<S: SaveWriter>(
+        rom: Box<[u8]>,
+        config: Sega32XEmulatorConfig,
+        save_writer: &mut S,
+    ) -> Self {
         let m68k = M68000::builder().allow_tas_writes(false).build();
         let z80 = Z80::new();
         // TODO
@@ -79,7 +85,8 @@ impl Sega32XEmulator {
         let ym2612 = Ym2612::new(config.genesis.quantize_ym2612_output);
         let psg = Psg::new(PsgVersion::Standard);
 
-        let s32x = Sega32X::new(rom, timing_mode);
+        let initial_cartridge_ram = save_writer.load_bytes("sav").ok();
+        let s32x = Sega32X::new(rom, initial_cartridge_ram, timing_mode);
         let memory = Memory::new(s32x);
 
         let input =
@@ -97,6 +104,7 @@ impl Sega32XEmulator {
             audio_resampler: Sega32XResampler::new(timing_mode),
             main_bus_writes: MainBusWrites::new(),
             timing_mode,
+            config,
         };
 
         emulator.m68k.execute_instruction(&mut new_main_bus!(emulator, m68k_reset: true));
@@ -107,7 +115,7 @@ impl Sega32XEmulator {
     pub fn cartridge_title(&self) -> String {
         // TODO don't hardcode region
         genesis_core::memory::parse_title_from_header(
-            &self.memory.medium().rom,
+            &self.memory.medium().cartridge.rom,
             GenesisRegion::Americas,
         )
     }
@@ -190,6 +198,15 @@ impl EmulatorTrait for Sega32XEmulator {
 
             self.audio_resampler.output_samples(audio_output).map_err(Sega32XError::Audio)?;
 
+            if let Some(cartridge_ram) = &mut self.memory.medium_mut().cartridge.ram {
+                if cartridge_ram.dirty {
+                    save_writer
+                        .persist_bytes("sav", &cartridge_ram.ram)
+                        .map_err(Sega32XError::SaveWrite)?;
+                    cartridge_ram.dirty = false;
+                }
+            }
+
             tick_effect = TickEffect::FrameRendered;
         }
 
@@ -221,7 +238,9 @@ impl EmulatorTrait for Sega32XEmulator {
     }
 
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
-        todo!("hard reset")
+        let rom = mem::take(&mut self.memory.medium_mut().cartridge.rom.0);
+
+        *self = Self::create(rom, self.config, save_writer)
     }
 
     fn timing_mode(&self) -> TimingMode {

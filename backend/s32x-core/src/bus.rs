@@ -1,6 +1,7 @@
 //! 32X memory mapping for the 68000 and SH-2s
 
-use crate::core::{Rom, Sdram, Sega32X};
+use crate::cartridge::Cartridge;
+use crate::core::{Sdram, Sega32X};
 use crate::registers::{Access, SystemRegisters};
 use crate::vdp::Vdp;
 use genesis_core::memory::PhysicalMedium;
@@ -29,29 +30,36 @@ impl PhysicalMedium for Sega32X {
                 if self.registers.adapter_enabled {
                     self.m68k_vectors[address as usize]
                 } else {
-                    self.rom.get(address as usize).copied().unwrap_or(0xFF)
+                    self.cartridge.read_byte(address)
                 }
             }
             0x000100..=0x3FFFFF => {
                 // ROM (only accessible when 32X is disabled or ROM-to-VRAM DMA is enabled)
                 if !self.registers.adapter_enabled || self.registers.dma.rom_to_vram_dma {
-                    self.rom.get(address as usize).copied().unwrap_or(0xFF)
+                    self.cartridge.read_byte(address)
+                } else {
+                    0xFF
+                }
+            }
+            0x840000..=0x87FFFF => {
+                if self.registers.vdp_access == Access::M68k {
+                    let word = self.vdp.read_frame_buffer(address);
+                    if !address.bit(0) { word.msb() } else { word.lsb() }
                 } else {
                     0xFF
                 }
             }
             0x880000..=0x8FFFFF => {
                 // First 512KB of ROM
-                self.rom.get((address & 0x7FFFF) as usize).copied().unwrap_or(0xFF)
+                self.cartridge.read_byte(address & 0x7FFFF)
             }
             0x900000..=0x9FFFFF => {
                 // Mappable 1MB ROM bank
                 let rom_addr =
                     (u32::from(self.registers.m68k_rom_bank) << 20) | (address & 0xFFFFF);
-                self.rom.get(rom_addr as usize).copied().unwrap_or(0xFF)
+                self.cartridge.read_byte(rom_addr)
             }
-            // TODO should this function like the Phantasy Star 4 SRAM register?
-            0xA130F1 => 0,
+            0xA130F1 => self.cartridge.read_ram_register(),
             0xA15100..=0xA1512F => {
                 // System registers
                 if log::log_enabled!(log::Level::Trace) && !(0xA15120..=0xA1512F).contains(&address)
@@ -83,26 +91,33 @@ impl PhysicalMedium for Sega32X {
                     let address = (address & !1) as usize;
                     u16::from_be_bytes(self.m68k_vectors[address..address + 2].try_into().unwrap())
                 } else {
-                    self.rom.get_u16(address)
+                    self.cartridge.read_word(address)
                 }
             }
             0x000100..=0x3FFFFF => {
                 // ROM (only accessible when 32X is disabled or ROM-to-VRAM DMA is enabled)
                 if !self.registers.adapter_enabled || self.registers.dma.rom_to_vram_dma {
-                    self.rom.get_u16(address)
+                    self.cartridge.read_word(address)
+                } else {
+                    0xFFFF
+                }
+            }
+            0x840000..=0x87FFFF => {
+                if self.registers.vdp_access == Access::M68k {
+                    self.vdp.read_frame_buffer(address)
                 } else {
                     0xFFFF
                 }
             }
             0x880000..=0x8FFFFF => {
                 // First 512KB of ROM
-                self.rom.get_u16(address & 0x7FFFF)
+                self.cartridge.read_word(address & 0x7FFFF)
             }
             0x900000..=0x9FFFFF => {
                 // Mappable 1MB ROM bank
                 let rom_addr =
                     (u32::from(self.registers.m68k_rom_bank) << 20) | (address & 0xFFFFF);
-                self.rom.get_u16(rom_addr)
+                self.cartridge.read_word(rom_addr)
             }
             0xA15100..=0xA1512F => {
                 // System registers
@@ -146,10 +161,24 @@ impl PhysicalMedium for Sega32X {
                 self.m68k_vectors[address as usize] = value;
                 log::trace!("68000 HINT vector: {:06X}", self.h_int_vector());
             }
-            // TODO should this function like the Phantasy Star 4 SRAM register?
-            0xA130F1 => {
-                assert_eq!(value, 0, "Wrote {value:02X} to A130F1; SRAM mapping register?");
+            0x000010..=0x3FFFFF => self.cartridge.write_byte(address, value),
+            0x840000..=0x85FFFF => {
+                if value != 0 && self.registers.vdp_access == Access::M68k {
+                    let mut word = self.vdp.read_frame_buffer(address & !1);
+                    if !address.bit(0) {
+                        word.set_msb(value)
+                    } else {
+                        word.set_lsb(value)
+                    };
+                    self.vdp.write_frame_buffer(address & !1, word);
+                }
             }
+            0x860000..=0x87FFFF => {
+                if self.registers.vdp_access == Access::M68k {
+                    self.vdp.frame_buffer_overwrite_byte(address, value);
+                }
+            }
+            0xA130F1 => self.cartridge.write_ram_register(value),
             0xA15100..=0xA1512F => {
                 log::trace!("M68K write byte {address:06X} {value:02X}");
 
@@ -182,6 +211,19 @@ impl PhysicalMedium for Sega32X {
                 self.m68k_vectors[address as usize] = value.msb();
                 self.m68k_vectors[(address + 1) as usize] = value.lsb();
                 log::trace!("68000 HINT vector: {:06X}", self.h_int_vector());
+            }
+            0x840000..=0x85FFFF => {
+                if self.registers.vdp_access == Access::M68k {
+                    self.vdp.write_frame_buffer(address, value);
+                }
+            }
+            0x860000..=0x87FFFF => {
+                if self.registers.vdp_access == Access::M68k {
+                    self.vdp.frame_buffer_overwrite_word(address, value);
+                }
+            }
+            0x900000..=0x9FFFFF => {
+                log::warn!("Write to ROM {address:06X} {value:04X}");
             }
             0xA15100..=0xA1512F => {
                 // System registers
@@ -225,7 +267,7 @@ pub struct Sh2Bus<'a> {
     pub boot_rom: &'static [u8],
     pub boot_rom_mask: usize,
     pub which: WhichCpu,
-    pub rom: &'a Rom,
+    pub cartridge: &'a Cartridge,
     pub vdp: &'a mut Vdp,
     pub registers: &'a mut SystemRegisters,
     pub sdram: &'a mut Sdram,
@@ -236,6 +278,7 @@ macro_rules! memory_map {
         boot_rom => $boot_rom:expr,
         system_registers => $system_registers:expr,
         vdp => $vdp:expr,
+        cram => $cram:expr,
         cartridge => $cartridge:expr,
         frame_buffer => $frame_buffer:expr,
         frame_buffer_overwrite => $frame_buffer_overwrite:expr,
@@ -246,6 +289,7 @@ macro_rules! memory_map {
             0x00000000..=0x00003FFF => $boot_rom,
             0x00004000..=0x000040FF => $system_registers,
             0x00004100..=0x000041FF => $vdp,
+            0x00004200..=0x000043FF => $cram,
             0x02000000..=0x023FFFFF => $cartridge,
             0x04000000..=0x0401FFFF => $frame_buffer,
             0x04020000..=0x0403FFFF => $frame_buffer_overwrite,
@@ -275,8 +319,16 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     0xFF
                 }
             },
+            cram => {
+                if self.registers.vdp_access == Access::Sh2 {
+                    let word = self.vdp.read_cram(address & !1);
+                    if !address.bit(0) { word.msb() } else { word.lsb() }
+                } else {
+                    0xFF
+                }
+            },
             cartridge => {
-                self.rom.get((address & 0x3FFFFF) as usize).copied().unwrap_or(!0)
+                self.cartridge.read_byte(address & 0x3FFFFF)
             },
             frame_buffer => {
                 if self.registers.vdp_access == Access::Sh2 {
@@ -312,7 +364,14 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     0xFFFF
                 }
             },
-            cartridge => self.rom.get_u16(address & 0x3FFFFF),
+            cram => {
+                if self.registers.vdp_access == Access::Sh2 {
+                    self.vdp.read_cram(address)
+                } else {
+                    0xFFFF
+                }
+            },
+            cartridge => self.cartridge.read_word(address & 0x3FFFFF),
             frame_buffer => {
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.read_frame_buffer(address)
@@ -347,7 +406,16 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     0xFFFFFFFF
                 }
             },
-            cartridge => self.rom.get_u32(address & 0x3FFFFF),
+            cram => {
+                if self.registers.vdp_access == Access::Sh2 {
+                    let high_word = self.vdp.read_cram(address);
+                    let low_word = self.vdp.read_cram(address | 2);
+                    (u32::from(high_word) << 16) | u32::from(low_word)
+                } else {
+                    0xFFFFFFFF
+                }
+            },
+            cartridge => self.cartridge.read_longword(address & 0x3FFFFF),
             frame_buffer => {
                 if self.registers.vdp_access == Access::Sh2 {
                     let high_word = self.vdp.read_frame_buffer(address);
@@ -383,6 +451,13 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     let mut word = self.vdp.read_register(address & !1);
                     if !address.bit(0) { word.set_msb(value) } else { word.set_lsb(value) };
                     self.vdp.write_register(address & !1, word);
+                }
+            },
+            cram => {
+                if self.registers.vdp_access == Access::Sh2 {
+                    let mut word = self.vdp.read_cram(address & !1);
+                    if !address.bit(0) { word.set_msb(value) } else { word.set_lsb(value) };
+                    self.vdp.write_cram(address & !1, word);
                 }
             },
             cartridge => {},
@@ -422,6 +497,11 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     self.vdp.write_register(address, value);
                 }
             },
+            cram => {
+                if self.registers.vdp_access == Access::Sh2 {
+                    self.vdp.write_cram(address, value);
+                }
+            },
             cartridge => {},
             frame_buffer => {
                 if self.registers.vdp_access == Access::Sh2 {
@@ -453,6 +533,12 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.write_register(address, (value >> 16) as u16);
                     self.vdp.write_register(address | 2, value as u16);
+                }
+            },
+            cram => {
+                if self.registers.vdp_access == Access::Sh2 {
+                    self.vdp.write_cram(address, (value >> 16) as u16);
+                    self.vdp.write_cram(address | 2, value as u16);
                 }
             },
             cartridge => {},
