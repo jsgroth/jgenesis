@@ -206,6 +206,17 @@ pub fn dmuls(cpu: &mut Sh2, opcode: u16) {
     cpu.registers.set_mac(operand_l * operand_r);
 }
 
+// DMULU Rm, Rn
+// Unsigned 32-bit x 32-bit -> 64-bit multiplication
+pub fn dmulu(cpu: &mut Sh2, opcode: u16) {
+    let m = rm(opcode);
+    let n = rn(opcode);
+
+    let product = u64::from(cpu.registers.gpr[m]) * u64::from(cpu.registers.gpr[n]);
+    cpu.registers.macl = product as u32;
+    cpu.registers.mach = (product >> 32) as u32;
+}
+
 // MAC.W @Rm+, @Rn+
 // Multiply and accumulate with word operands
 pub fn mac_w<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {

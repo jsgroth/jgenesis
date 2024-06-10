@@ -58,7 +58,7 @@ fn execute_xnnx<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
         0b0011_0000_0000_0100 => alu::div1(cpu, opcode),
         0b0010_0000_0000_0111 => alu::div0s(cpu, opcode),
         0b0011_0000_0000_1101 => alu::dmuls(cpu, opcode),
-        0b0011_0000_0000_0101 => todo!("DMULU.L Rm, Rn"),
+        0b0011_0000_0000_0101 => alu::dmulu(cpu, opcode),
         0b0110_0000_0000_1110 => alu::exts_b(cpu, opcode),
         0b0110_0000_0000_1111 => alu::exts_w(cpu, opcode),
         0b0110_0000_0000_1100 => alu::extu_b(cpu, opcode),
