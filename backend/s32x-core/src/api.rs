@@ -185,6 +185,7 @@ impl EmulatorTrait for Sega32XEmulator {
         self.main_bus_writes = bus.apply_writes();
 
         self.memory.medium_mut().tick(m68k_cycles);
+        self.input.tick(m68k_cycles as u32);
 
         for _ in 0..m68k_cycles {
             if self.ym2612.tick() == YmTickEffect::OutputSample {
