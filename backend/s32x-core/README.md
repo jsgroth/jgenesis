@@ -10,7 +10,7 @@ Sega CD games can also make use of the 32X hardware if it is plugged in - games 
 depth and resolution. This functionality is not currently emulated.
 
 The 32X contains the following hardware:
-* A pair of Hitachi SH-2 CPUs clocked at 23.01 MHz, exactly 3 times the Genesis 68000 clock speed
+* A pair of Hitachi SH-2 CPUs clocked at ~23.01 MHz, exactly 3 times the Genesis 68000 clock speed
   * Each CPU has 4KB of internal RAM that can be used as either 4KB cache or 2KB cache + 2KB fast RAM
   * Each CPU includes a 2-channel DMA controller, two timers, a division unit, and a serial interface
     * DMA channels can be used to transfer data within 32X memory, to transfer data from the Genesis, and to transfer data to the PWM sound chip
@@ -30,5 +30,7 @@ The 32X contains the following hardware:
     * Run length (256-color compressed): Each 16-bit word contains an 8-bit index into 32X CRAM and the number of pixels to render in that color (1-256)
   * Can composite pixels between Genesis VDP frames and 32X VDP frames
     * Supports priority compositing only, no color blending
-* 2-channel PWM sound chip that outputs at 22 KHz
+* 2-channel PWM sound chip with a configurable sample rate ranging from ~5.62 KHz to the 32X system clock rate of ~23.01 MHz
+  * The sound chip has no attached RAM, only two 3-word FIFOs for upcoming pulse width samples; one of the CPUs must continuously send samples to the FIFOs
+  * In practice, most games set the sample rate to 22 KHz and nothing sets it higher than 44.1 KHz
 * 256KB of SDRAM shared between the two SH-2s

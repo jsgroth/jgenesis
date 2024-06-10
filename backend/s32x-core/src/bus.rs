@@ -2,6 +2,7 @@
 
 use crate::cartridge::Cartridge;
 use crate::core::{Sdram, Sega32X};
+use crate::pwm::PwmChip;
 use crate::registers::{Access, SystemRegisters};
 use crate::vdp::Vdp;
 use genesis_core::memory::PhysicalMedium;
@@ -251,7 +252,8 @@ impl PhysicalMedium for Sega32X {
             }
             0xA15130..=0xA1513F => {
                 // PWM registers
-                log::warn!("Ignored PWM register write {address:06X} {value:04X}");
+                log::trace!("M68K PWM register write {address:06X} {value:04X}");
+                self.pwm.m68k_write_register(address, value);
             }
             0xA15180..=0xA1518F => {
                 // VDP registers
@@ -292,6 +294,7 @@ pub struct Sh2Bus<'a> {
     pub which: WhichCpu,
     pub cartridge: &'a Cartridge,
     pub vdp: &'a mut Vdp,
+    pub pwm: &'a mut PwmChip,
     pub registers: &'a mut SystemRegisters,
     pub sdram: &'a mut Sdram,
 }
@@ -300,6 +303,7 @@ macro_rules! sh2_memory_map {
     ($self:expr, $address:expr, {
         boot_rom => $boot_rom:expr,
         system_registers => $system_registers:expr,
+        $(pwm => $pwm:expr,)?
         vdp => $vdp:expr,
         cram => $cram:expr,
         cartridge => $cartridge:expr,
@@ -310,7 +314,8 @@ macro_rules! sh2_memory_map {
     }) => {
         match $address {
             0x00000000..=0x00003FFF => $boot_rom,
-            0x00004000..=0x000040FF => $system_registers,
+            0x00004000..=0x0000402F => $system_registers,
+            $(0x00004030..=0x0000403F => $pwm,)?
             0x00004100..=0x000041FF => $vdp,
             0x00004200..=0x000043FF => $cram,
             0x02000000..=0x023FFFFF => $cartridge,
@@ -386,6 +391,10 @@ impl<'a> BusInterface for Sh2Bus<'a> {
             system_registers => {
                 log::trace!("SH-2 {:?} read word {address:08X}", self.which);
                 self.registers.sh2_read(address, self.which, self.vdp)
+            },
+            pwm => {
+                log::trace!("SH-2 {:?} PWM register read {address:08X}", self.which);
+                self.pwm.read_register(address)
             },
             vdp => {
                 if self.registers.vdp_access == Access::Sh2 {
@@ -535,6 +544,10 @@ impl<'a> BusInterface for Sh2Bus<'a> {
             system_registers => {
                 log::trace!("SH-2 {:?} word write {address:08X} {value:04X}", self.which);
                 self.registers.sh2_write(address, value, self.which, self.vdp);
+            },
+            pwm => {
+                log::trace!("SH-2 {:?} PWM register write {address:08X} {value:04X}", self.which);
+                self.pwm.sh2_write_register(address, value);
             },
             vdp => {
                 if self.registers.vdp_access == Access::Sh2 {
