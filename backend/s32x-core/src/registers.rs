@@ -135,6 +135,11 @@ impl SystemRegisters {
         self.slave_interrupts.v_pending |= self.slave_interrupts.v_enabled;
     }
 
+    pub fn notify_pwm_timer(&mut self) {
+        self.master_interrupts.pwm_pending |= self.master_interrupts.pwm_enabled;
+        self.slave_interrupts.pwm_pending |= self.slave_interrupts.pwm_enabled;
+    }
+
     pub fn m68k_read(&mut self, address: u32) -> u16 {
         match address {
             0xA15100 => self.read_adapter_control(),
@@ -199,9 +204,6 @@ impl SystemRegisters {
             0x401A => self.clear_command_interrupt(which),
             0x401C => self.clear_pwm_interrupt(which),
             0x4020..=0x402F => self.write_communication_port(address, value),
-            0x4030..=0x403F => {
-                log::warn!("Ignored SH-2 PWM register write {address:08X} {value:04X} {which:?}");
-            }
             _ => todo!("SH-2 register write: {address:08X} {value:04X} {which:?}"),
         }
     }

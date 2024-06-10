@@ -4,6 +4,7 @@ use crate::api;
 use crate::api::S32XVideoOut;
 use crate::bus::{Sh2Bus, WhichCpu};
 use crate::cartridge::Cartridge;
+use crate::pwm::PwmChip;
 use crate::registers::SystemRegisters;
 use crate::vdp::Vdp;
 use bincode::{Decode, Encode};
@@ -30,6 +31,7 @@ pub struct Sega32X {
     #[partial_clone(partial)]
     pub cartridge: Cartridge,
     pub vdp: Vdp,
+    pub pwm: PwmChip,
     pub registers: SystemRegisters,
     pub m68k_vectors: Box<M68kVectors>,
     pub sdram: Box<Sdram>,
@@ -50,6 +52,7 @@ impl Sega32X {
             sh2_cycles: 0,
             cartridge,
             vdp: Vdp::new(timing_mode, video_out),
+            pwm: PwmChip::new(),
             registers: SystemRegisters::new(),
             m68k_vectors: M68K_VECTORS.to_vec().into_boxed_slice().try_into().unwrap(),
             sdram: vec![0; SDRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
@@ -64,7 +67,8 @@ impl Sega32X {
         }
 
         // SH-2 clock speed is exactly 3x the 68000 clock speed
-        self.sh2_cycles += 3 * m68k_cycles;
+        let elapsed_sh2_cycles = 3 * m68k_cycles;
+        self.sh2_cycles += elapsed_sh2_cycles;
 
         // TODO actual timing
         let sh2_ticks = self.sh2_cycles * 2 / 3;
@@ -76,6 +80,7 @@ impl Sega32X {
             which: WhichCpu::Master,
             cartridge: &self.cartridge,
             vdp: &mut self.vdp,
+            pwm: &mut self.pwm,
             registers: &mut self.registers,
             sdram: &mut self.sdram,
         };
@@ -89,6 +94,8 @@ impl Sega32X {
         for _ in 0..sh2_ticks {
             self.sh2_slave.tick(&mut bus);
         }
+
+        self.pwm.tick(elapsed_sh2_cycles, &mut self.registers);
     }
 
     pub fn take_rom_from(&mut self, other: &mut Self) {
