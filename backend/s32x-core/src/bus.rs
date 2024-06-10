@@ -161,7 +161,7 @@ impl PhysicalMedium for Sega32X {
                 self.m68k_vectors[address as usize] = value;
                 log::trace!("68000 HINT vector: {:06X}", self.h_int_vector());
             }
-            0x000010..=0x3FFFFF => self.cartridge.write_byte(address, value),
+            0x000100..=0x3FFFFF => self.cartridge.write_byte(address, value),
             0x840000..=0x85FFFF => {
                 if value != 0 && self.registers.vdp_access == Access::M68k {
                     let mut word = self.vdp.read_frame_buffer(address & !1);
