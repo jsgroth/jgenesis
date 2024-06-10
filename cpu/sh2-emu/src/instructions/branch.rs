@@ -1,12 +1,12 @@
 use crate::bus::BusInterface;
-use crate::instructions::{parse_branch_displacement, parse_register_high, parse_signed_immediate};
+use crate::instructions::rn;
 use crate::{Sh2, SP};
 
 // JMP @Rm
 // Unconditional jump
 pub fn jmp(cpu: &mut Sh2, opcode: u16) {
-    let register = parse_register_high(opcode) as usize;
-    cpu.registers.next_pc = cpu.registers.gpr[register];
+    let n = rn(opcode);
+    cpu.registers.next_pc = cpu.registers.gpr[n];
     cpu.registers.next_op_in_delay_slot = true;
 }
 
@@ -17,19 +17,23 @@ pub fn jsr(cpu: &mut Sh2, opcode: u16) {
     jmp(cpu, opcode);
 }
 
+fn i12(opcode: u16) -> i16 {
+    ((opcode as i16) << 4) >> 4
+}
+
 // BRA label
 // Unconditional branch
 pub fn bra(cpu: &mut Sh2, opcode: u16) {
-    let displacement = parse_branch_displacement(opcode) << 1;
-    cpu.registers.next_pc = cpu.registers.next_pc.wrapping_add(displacement as u32);
+    let disp = i12(opcode) << 1;
+    cpu.registers.next_pc = cpu.registers.next_pc.wrapping_add(disp as u32);
     cpu.registers.next_op_in_delay_slot = true;
 }
 
 // BRAF Rm
 // Unconditional branch far
 pub fn braf(cpu: &mut Sh2, opcode: u16) {
-    let register = parse_register_high(opcode) as usize;
-    cpu.registers.next_pc = cpu.registers.next_pc.wrapping_add(cpu.registers.gpr[register]);
+    let n = rn(opcode);
+    cpu.registers.next_pc = cpu.registers.next_pc.wrapping_add(cpu.registers.gpr[n]);
     cpu.registers.next_op_in_delay_slot = true;
 }
 
@@ -44,18 +48,15 @@ pub fn bsr(cpu: &mut Sh2, opcode: u16) {
 // Branch to subroutine far
 pub fn bsrf(cpu: &mut Sh2, opcode: u16) {
     cpu.registers.pr = cpu.registers.next_pc;
-
-    let register = parse_register_high(opcode) as usize;
-    cpu.registers.next_pc = cpu.registers.next_pc.wrapping_add(cpu.registers.gpr[register]);
-    cpu.registers.next_op_in_delay_slot = true;
+    braf(cpu, opcode);
 }
 
 macro_rules! impl_conditional_branch {
     ($name:ident $(, $not:tt)?) => {
         pub fn $name(cpu: &mut Sh2, opcode: u16) {
             if $($not)? cpu.registers.sr.t {
-                let displacement = parse_signed_immediate(opcode) << 1;
-                cpu.registers.pc = cpu.registers.next_pc.wrapping_add(displacement as u32);
+                let disp = i32::from(opcode as i8) << 1;
+                cpu.registers.pc = cpu.registers.next_pc.wrapping_add(disp as u32);
                 cpu.registers.next_pc = cpu.registers.pc.wrapping_add(2);
             }
         }
@@ -74,8 +75,8 @@ macro_rules! impl_delayed_conditional_branch {
     ($name:ident $(, $not:tt)?) => {
         pub fn $name(cpu: &mut Sh2, opcode: u16) {
             if $($not)? cpu.registers.sr.t {
-                let displacement = parse_signed_immediate(opcode) << 1;
-                cpu.registers.next_pc = cpu.registers.next_pc.wrapping_add(displacement as u32);
+                let disp = i32::from(opcode as i8) << 1;
+                cpu.registers.next_pc = cpu.registers.next_pc.wrapping_add(disp as u32);
                 cpu.registers.next_op_in_delay_slot = true;
             }
         }
@@ -101,6 +102,7 @@ pub fn rts(cpu: &mut Sh2) {
 // Return from exception
 pub fn rte<B: BusInterface>(cpu: &mut Sh2, bus: &mut B) {
     let mut sp = cpu.registers.gpr[SP];
+
     cpu.registers.next_pc = cpu.read_longword(sp, bus);
     cpu.registers.next_op_in_delay_slot = true;
     sp = sp.wrapping_add(4);
