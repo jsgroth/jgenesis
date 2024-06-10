@@ -134,6 +134,14 @@ impl Vdp {
             let active_lines_per_frame = self.registers.v_resolution.active_scanlines_per_frame();
             if self.state.scanline == active_lines_per_frame {
                 // Beginning of VBlank; frame buffer switches take effect
+                if log::log_enabled!(log::Level::Debug)
+                    && self.state.display_frame_buffer != self.registers.display_frame_buffer
+                {
+                    log::debug!(
+                        "VBlank: Changing front frame buffer to {:?}",
+                        self.registers.display_frame_buffer
+                    );
+                }
                 self.state.display_frame_buffer = self.registers.display_frame_buffer;
                 registers.notify_vblank();
             } else if self.state.scanline >= self.timing_mode.scanlines_per_frame() {
@@ -162,6 +170,11 @@ impl Vdp {
         let frame_buffer = front_frame_buffer!(self);
         let line_addr = frame_buffer[line];
 
+        log::trace!(
+            "Rendering line {line} from buffer {:?} in packed pixel mode, addr={line_addr:04X}",
+            self.state.display_frame_buffer
+        );
+
         for pixel in (0..FRAME_WIDTH as u16).step_by(2) {
             let frame_buffer_addr = line_addr.wrapping_add(pixel >> 1);
             let [msb, lsb] = frame_buffer[frame_buffer_addr as usize].to_be_bytes();
@@ -181,7 +194,10 @@ impl Vdp {
     }
 
     pub fn write_register(&mut self, address: u32, value: u16) {
-        log::trace!("VDP register write: {address:08X} {value:04X}");
+        log::trace!(
+            "VDP register write on line {}: {address:08X} {value:04X}",
+            self.state.scanline
+        );
 
         match address & 0xF {
             0x0 => self.registers.write_display_mode(value),
@@ -196,8 +212,9 @@ impl Vdp {
             }
             0xA => {
                 self.registers.write_frame_buffer_control(value);
-                if self.in_vblank() {
+                if self.in_vblank() || self.registers.frame_buffer_mode == FrameBufferMode::Blank {
                     self.state.display_frame_buffer = self.registers.display_frame_buffer;
+                    log::debug!("Front frame buffer set to {:?}", self.state.display_frame_buffer);
                 }
             }
             _ => todo!("VDP register write {address:08X} {value:04X}"),
@@ -210,11 +227,15 @@ impl Vdp {
     }
 
     pub fn write_frame_buffer(&mut self, address: u32, value: u16) {
+        log::trace!("Frame buffer write {:05X} {value:04X}", address & 0x1FFFF);
+
         let frame_buffer = back_frame_buffer_mut!(self);
         frame_buffer[((address & 0x1FFFF) >> 1) as usize] = value;
     }
 
     pub fn frame_buffer_overwrite_byte(&mut self, address: u32, value: u8) {
+        log::trace!("Overwrite image write {:05X} {value:02X}", address & 0x1FFFF);
+
         if value == 0 {
             return;
         }
@@ -230,6 +251,8 @@ impl Vdp {
     }
 
     pub fn frame_buffer_overwrite_word(&mut self, address: u32, value: u16) {
+        log::trace!("Overwrite image write {:05X} {value:04X}", address & 0x1FFFF);
+
         if value == 0 {
             return;
         }
