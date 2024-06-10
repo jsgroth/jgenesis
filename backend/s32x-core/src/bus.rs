@@ -310,6 +310,7 @@ macro_rules! sh2_memory_map {
         frame_buffer => $frame_buffer:expr,
         frame_buffer_overwrite => $frame_buffer_overwrite:expr,
         sdram => $sdram:expr,
+        $(reserved => $reserved:expr,)?
         _ => $default:expr $(,)?
     }) => {
         match $address {
@@ -322,6 +323,7 @@ macro_rules! sh2_memory_map {
             0x04000000..=0x0401FFFF => $frame_buffer,
             0x04020000..=0x0403FFFF => $frame_buffer_overwrite,
             0x06000000..=0x0603FFFF => $sdram,
+            $(0x08000000..=0x1FFFFFFF => $reserved,)?
             _ => $default,
         }
     };
@@ -532,6 +534,9 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 } else {
                     self.sdram[word_addr].set_lsb(value);
                 }
+            },
+            reserved => {
+                log::warn!("Ignoring SH-2 {:?} byte write to reserved address: {address:08X} {value:02X}", self.which);
             },
             _ => todo!("SH-2 {:?} write byte {address:08X} {value:02X}", self.which)
         });
