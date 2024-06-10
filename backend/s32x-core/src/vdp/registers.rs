@@ -87,10 +87,10 @@ impl Registers {
         self.v_resolution = VerticalResolution::from_bit(value.bit(6));
         self.priority = value.bit(7);
 
-        log::trace!("Display mode write: {value:04X}");
-        log::trace!("  Frame buffer mode: {:?}", self.frame_buffer_mode);
-        log::trace!("  Vertical resolution: {:?}", self.v_resolution);
-        log::trace!("  Priority: {}", self.priority);
+        log::debug!("Display mode write: {value:04X}");
+        log::debug!("  Frame buffer mode: {:?}", self.frame_buffer_mode);
+        log::debug!("  Vertical resolution: {:?}", self.v_resolution);
+        log::debug!("  Priority: {}", self.priority);
     }
 
     // 68000: $A15182
@@ -104,8 +104,8 @@ impl Registers {
     pub fn write_screen_shift(&mut self, value: u16) {
         self.screen_left_shift = value.bit(0);
 
-        log::trace!("Screen shift control write: {value:04X}");
-        log::trace!("  Shift screen left by 1 dot: {}", self.screen_left_shift);
+        log::debug!("Screen shift control write: {value:04X}");
+        log::debug!("  Shift screen left by 1 dot: {}", self.screen_left_shift);
     }
 
     // 68000: $A15184
@@ -142,7 +142,7 @@ impl Registers {
     pub fn write_frame_buffer_control(&mut self, value: u16) {
         self.display_frame_buffer = SelectedFrameBuffer::from_bit(value.bit(0));
 
-        log::trace!("Frame buffer control write: {value:04X}");
-        log::trace!("  Display frame buffer: {:?}", self.display_frame_buffer);
+        log::debug!("Frame buffer control write: {value:04X}");
+        log::debug!("  Display frame buffer: {:?}", self.display_frame_buffer);
     }
 }
