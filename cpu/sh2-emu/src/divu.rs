@@ -14,9 +14,9 @@ impl DivisionUnit {
     pub fn read_register(&self, address: u32) -> u32 {
         match address {
             // DVDNT / DVDNTL
-            0xFFFFFF04 | 0xFFFFFF14 => self.dividend as u32,
+            0xFFFFFF04 | 0xFFFFFF14 | 0xFFFFFF1C => self.dividend as u32,
             // DVDNTH
-            0xFFFFFF10 => ((self.dividend as u64) >> 32) as u32,
+            0xFFFFFF10 | 0xFFFFFF18 => ((self.dividend as u64) >> 32) as u32,
             _ => todo!("DIVU register read {address:08X}"),
         }
     }

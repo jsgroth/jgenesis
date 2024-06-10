@@ -153,6 +153,7 @@ impl Sh2 {
     fn write_word<B: BusInterface>(&mut self, address: u32, value: u16, bus: &mut B) {
         match address >> 29 {
             0 | 1 => bus.write_word(address & 0x1FFFFFFF, value),
+            6 => self.write_cache_u16(address, value),
             7 => self.write_internal_register_word(address, value),
             _ => todo!("Unexpected SH-2 address, word write: {address:08X} {value:04X}"),
         }
@@ -163,6 +164,8 @@ impl Sh2 {
             0 | 1 => bus.write_longword(address & 0x1FFFFFFF, value),
             // Associative purge; ignore (cache is not emulated)
             2 => {}
+            // Cache address area; ignore
+            3 => {}
             6 => self.write_cache_u32(address, value),
             7 => self.write_internal_register_longword(address, value),
             _ => todo!("Unexpected SH-2 address, longword write: {address:08X} {value:08X}"),
@@ -177,6 +180,11 @@ impl Sh2 {
     fn read_cache_u32(&self, address: u32) -> u32 {
         let cache_addr = (address as usize) & (CACHE_LEN - 1) & !3;
         u32::from_be_bytes(self.cache[cache_addr..cache_addr + 4].try_into().unwrap())
+    }
+
+    fn write_cache_u16(&mut self, address: u32, value: u16) {
+        let cache_addr = (address as usize) & (CACHE_LEN - 1) & !1;
+        self.cache[cache_addr..cache_addr + 2].copy_from_slice(&value.to_be_bytes());
     }
 
     fn write_cache_u32(&mut self, address: u32, value: u32) {
