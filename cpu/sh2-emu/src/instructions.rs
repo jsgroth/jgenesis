@@ -4,7 +4,6 @@ mod branch;
 mod load;
 
 use crate::bus::BusInterface;
-use crate::registers::Sh2Registers;
 use crate::Sh2;
 
 pub fn execute<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
@@ -183,44 +182,14 @@ fn execute_xnnn<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
     }
 }
 
-// Parse 4-bit register number from bits 8-11
-// Often destination register but not always
 #[inline]
-fn parse_register_high(opcode: u16) -> u16 {
-    (opcode >> 8) & 0xF
-}
-
-// Parse 4-bit register number from bits 4-7
-// Often source register but not always
-#[inline]
-fn parse_register_low(opcode: u16) -> u16 {
-    (opcode >> 4) & 0xF
+fn rn(opcode: u16) -> usize {
+    ((opcode >> 8) & 0xF) as usize
 }
 
 #[inline]
-fn parse_4bit_displacement(opcode: u16) -> u32 {
-    (opcode & 0xF).into()
-}
-
-#[inline]
-fn parse_8bit_displacement(opcode: u16) -> u32 {
-    (opcode & 0xFF).into()
-}
-
-#[inline]
-fn parse_signed_immediate(opcode: u16) -> i32 {
-    (opcode as i8).into()
-}
-
-#[inline]
-fn parse_unsigned_immediate(opcode: u16) -> u32 {
-    (opcode & 0xFF).into()
-}
-
-#[inline]
-fn parse_branch_displacement(opcode: u16) -> i32 {
-    // Signed 12-bit
-    (((opcode as i16) << 4) >> 4).into()
+fn rm(opcode: u16) -> usize {
+    ((opcode >> 4) & 0xF) as usize
 }
 
 #[inline]
@@ -231,16 +200,4 @@ fn extend_i8(value: u8) -> u32 {
 #[inline]
 fn extend_i16(value: u16) -> u32 {
     value as i16 as u32
-}
-
-#[inline]
-fn pc_relative_displacement_word(registers: &Sh2Registers, opcode: u16) -> u32 {
-    let displacement = (opcode & 0xFF) << 1;
-    registers.next_pc.wrapping_add(displacement.into())
-}
-
-#[inline]
-fn pc_relative_displacement_long(registers: &Sh2Registers, opcode: u16) -> u32 {
-    let displacement = (opcode & 0xFF) << 2;
-    (registers.next_pc & !3).wrapping_add(displacement.into())
 }

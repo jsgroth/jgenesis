@@ -1,95 +1,90 @@
 use crate::bus::BusInterface;
-use crate::instructions::{parse_register_high, parse_register_low, parse_signed_immediate};
+use crate::instructions::{rm, rn};
 use crate::Sh2;
 use jgenesis_common::num::SignBit;
 
 // ADD Rm, Rn
 // Addition
 pub fn add_rm_rn(cpu: &mut Sh2, opcode: u16) {
-    let source = parse_register_low(opcode) as usize;
-    let destination = parse_register_high(opcode) as usize;
-    cpu.registers.gpr[destination] =
-        cpu.registers.gpr[destination].wrapping_add(cpu.registers.gpr[source]);
+    let m = rm(opcode);
+    let n = rn(opcode);
+    cpu.registers.gpr[n] = cpu.registers.gpr[n].wrapping_add(cpu.registers.gpr[m]);
 }
 
 // ADD #imm, Rn
 // Addition with immediate operand
 pub fn add_imm_rn(cpu: &mut Sh2, opcode: u16) {
-    let register = parse_register_high(opcode) as usize;
-    let immediate = parse_signed_immediate(opcode);
-
-    cpu.registers.gpr[register] = cpu.registers.gpr[register].wrapping_add(immediate as u32);
+    let n = rn(opcode);
+    let imm = opcode as i8;
+    cpu.registers.gpr[n] = cpu.registers.gpr[n].wrapping_add(imm as u32);
 }
 
 // ADDC Rm, Rn
 // Addition with carry
 pub fn addc(cpu: &mut Sh2, opcode: u16) {
-    let source = parse_register_low(opcode) as usize;
-    let destination = parse_register_high(opcode) as usize;
+    let m = rm(opcode);
+    let n = rn(opcode);
 
-    let (partial_sum, carry1) =
-        cpu.registers.gpr[source].overflowing_add(cpu.registers.gpr[destination]);
+    let (partial_sum, carry1) = cpu.registers.gpr[m].overflowing_add(cpu.registers.gpr[n]);
     let (sum, carry2) = partial_sum.overflowing_add(cpu.registers.sr.t.into());
 
-    cpu.registers.gpr[destination] = sum;
+    cpu.registers.gpr[n] = sum;
     cpu.registers.sr.t = carry1 || carry2;
 }
 
 // SUB Rm, Rn
 // Subtraction
 pub fn sub_rm_rn(cpu: &mut Sh2, opcode: u16) {
-    let source = parse_register_low(opcode) as usize;
-    let destination = parse_register_high(opcode) as usize;
+    let m = rm(opcode);
+    let n = rn(opcode);
 
-    cpu.registers.gpr[destination] =
-        cpu.registers.gpr[destination].wrapping_sub(cpu.registers.gpr[source]);
+    cpu.registers.gpr[n] = cpu.registers.gpr[n].wrapping_sub(cpu.registers.gpr[m]);
 }
 
 // SUBC Rm, Rn
 // Subtraction with carry
 pub fn subc(cpu: &mut Sh2, opcode: u16) {
-    let source = parse_register_low(opcode) as usize;
-    let destination = parse_register_high(opcode) as usize;
+    let m = rm(opcode);
+    let n = rn(opcode);
 
-    let (partial_diff, borrow1) =
-        cpu.registers.gpr[destination].overflowing_sub(cpu.registers.gpr[source]);
+    let (partial_diff, borrow1) = cpu.registers.gpr[n].overflowing_sub(cpu.registers.gpr[m]);
     let (difference, borrow2) = partial_diff.overflowing_sub(cpu.registers.sr.t.into());
 
-    cpu.registers.gpr[destination] = difference;
+    cpu.registers.gpr[n] = difference;
     cpu.registers.sr.t = borrow1 || borrow2;
 }
 
 // NEG Rm, Rn
 // Negate
 pub fn neg(cpu: &mut Sh2, opcode: u16) {
-    let source = parse_register_low(opcode) as usize;
-    let destination = parse_register_high(opcode) as usize;
-    cpu.registers.gpr[destination] = 0_u32.wrapping_sub(cpu.registers.gpr[source]);
+    let m = rm(opcode);
+    let n = rn(opcode);
+    cpu.registers.gpr[n] = 0_u32.wrapping_sub(cpu.registers.gpr[m]);
 }
 
 // NEGC Rm, Rn
 // Negate with carry
 pub fn negc(cpu: &mut Sh2, opcode: u16) {
-    let source = parse_register_low(opcode) as usize;
-    let destination = parse_register_high(opcode) as usize;
+    let m = rm(opcode);
+    let n = rn(opcode);
 
-    let (partial_diff, borrow1) = 0_u32.overflowing_sub(cpu.registers.gpr[source]);
+    let (partial_diff, borrow1) = 0_u32.overflowing_sub(cpu.registers.gpr[m]);
     let (difference, borrow2) = partial_diff.overflowing_sub(cpu.registers.sr.t.into());
-    cpu.registers.gpr[destination] = difference;
+    cpu.registers.gpr[n] = difference;
     cpu.registers.sr.t = borrow1 || borrow2;
 }
 
 macro_rules! impl_compare {
     ($name:ident, |$rn:ident| $compare:expr) => {
         pub fn $name(cpu: &mut Sh2, opcode: u16) {
-            let $rn = cpu.registers.gpr[parse_register_high(opcode) as usize];
+            let $rn = cpu.registers.gpr[rn(opcode)];
             cpu.registers.sr.t = $compare;
         }
     };
     ($name:ident, |$rm:ident, $rn:ident| $compare:expr) => {
         pub fn $name(cpu: &mut Sh2, opcode: u16) {
-            let $rm = cpu.registers.gpr[parse_register_low(opcode) as usize];
-            let $rn = cpu.registers.gpr[parse_register_high(opcode) as usize];
+            let $rm = cpu.registers.gpr[rm(opcode)];
+            let $rn = cpu.registers.gpr[rn(opcode)];
             cpu.registers.sr.t = $compare;
         }
     };
@@ -102,8 +97,8 @@ impl_compare!(cmp_eq_rm_rn, |rm, rn| rm == rn);
 // CMP/EQ #imm, R0
 // Set the T flag if R0 = #imm
 pub fn cmp_eq_imm_r0(cpu: &mut Sh2, opcode: u16) {
-    let immediate = parse_signed_immediate(opcode);
-    cpu.registers.sr.t = cpu.registers.gpr[0] == immediate as u32;
+    let imm = opcode as i8;
+    cpu.registers.sr.t = cpu.registers.gpr[0] == imm as u32;
 }
 
 // CMP/GE Rm, Rn
@@ -128,95 +123,100 @@ impl_compare!(cmp_pl, |rn| (rn as i32) > 0);
 
 // CMP/PZ Rn
 // Set the T flag if Rn >= 0
-impl_compare!(cmp_pz, |rn| !rn.sign_bit());
+impl_compare!(cmp_pz, |rn| (rn as i32) >= 0);
 
 // EXTS.B Rm, Rn
 // Sign extend byte
 pub fn exts_b(cpu: &mut Sh2, opcode: u16) {
-    let source = parse_register_low(opcode) as usize;
-    let destination = parse_register_high(opcode) as usize;
-    cpu.registers.gpr[destination] = cpu.registers.gpr[source] as i8 as u32;
+    let m = rm(opcode);
+    let n = rn(opcode);
+    cpu.registers.gpr[n] = cpu.registers.gpr[m] as i8 as u32;
 }
 
 // EXTS.W Rm, Rn
 // Sign extend word
 pub fn exts_w(cpu: &mut Sh2, opcode: u16) {
-    let source = parse_register_low(opcode) as usize;
-    let destination = parse_register_high(opcode) as usize;
-    cpu.registers.gpr[destination] = cpu.registers.gpr[source] as i16 as u32;
+    let m = rm(opcode);
+    let n = rn(opcode);
+    cpu.registers.gpr[n] = cpu.registers.gpr[m] as i16 as u32;
 }
 
 // EXTU.B Rm, Rn
 // Zero extend byte
 pub fn extu_b(cpu: &mut Sh2, opcode: u16) {
-    let source = parse_register_low(opcode) as usize;
-    let destination = parse_register_high(opcode) as usize;
-    cpu.registers.gpr[destination] = cpu.registers.gpr[source] & 0xFF;
+    let m = rm(opcode);
+    let n = rn(opcode);
+    cpu.registers.gpr[n] = cpu.registers.gpr[m] & 0xFF;
 }
 
 // EXTU.W Rm, Rn
 // Zero extend word
 pub fn extu_w(cpu: &mut Sh2, opcode: u16) {
-    let source = parse_register_low(opcode) as usize;
-    let destination = parse_register_high(opcode) as usize;
-    cpu.registers.gpr[destination] = cpu.registers.gpr[source] & 0xFFFF;
+    let m = rm(opcode);
+    let n = rn(opcode);
+    cpu.registers.gpr[n] = cpu.registers.gpr[m] & 0xFFFF;
 }
 
 // DT Rn
 // Decrement and test
 pub fn dt(cpu: &mut Sh2, opcode: u16) {
-    let register = parse_register_high(opcode) as usize;
-    cpu.registers.gpr[register] = cpu.registers.gpr[register].wrapping_sub(1);
-    cpu.registers.sr.t = cpu.registers.gpr[register] == 0;
+    let n = rn(opcode);
+    cpu.registers.gpr[n] = cpu.registers.gpr[n].wrapping_sub(1);
+    cpu.registers.sr.t = cpu.registers.gpr[n] == 0;
 }
 
 // MUL.L Rm, Rn
 // 32-bit x 32-bit -> 32-bit multiplication
 pub fn mul(cpu: &mut Sh2, opcode: u16) {
-    let rm = parse_register_low(opcode) as usize;
-    let rn = parse_register_high(opcode) as usize;
-    cpu.registers.macl = cpu.registers.gpr[rm].wrapping_mul(cpu.registers.gpr[rn]);
+    let m = rm(opcode);
+    let n = rn(opcode);
+    cpu.registers.macl = cpu.registers.gpr[m].wrapping_mul(cpu.registers.gpr[n]);
 }
 
 // MULS.W Rm, Rn
 // Signed 16-bit x 16-bit -> 32-bit multiplication
 pub fn muls(cpu: &mut Sh2, opcode: u16) {
-    let rm = parse_register_low(opcode) as usize;
-    let rn = parse_register_high(opcode) as usize;
-    let product = i32::from(cpu.registers.gpr[rm] as i16) * i32::from(cpu.registers.gpr[rn] as i16);
-    cpu.registers.macl = product as u32;
+    let m = rm(opcode);
+    let n = rn(opcode);
+
+    let operand_l: i32 = (cpu.registers.gpr[m] as i16).into();
+    let operand_r: i32 = (cpu.registers.gpr[n] as i16).into();
+    cpu.registers.macl = (operand_l * operand_r) as u32;
 }
 
 // MULU.W Rm, Rn
 // Unsigned 16-bit x 16-bit -> 32-bit multiplication
 pub fn mulu(cpu: &mut Sh2, opcode: u16) {
-    let rm = parse_register_low(opcode) as usize;
-    let rn = parse_register_high(opcode) as usize;
-    let product = (cpu.registers.gpr[rm] & 0xFFFF) * (cpu.registers.gpr[rn] & 0xFFFF);
-    cpu.registers.macl = product;
+    let m = rm(opcode);
+    let n = rn(opcode);
+
+    let operand_l = cpu.registers.gpr[m] & 0xFFFF;
+    let operand_r = cpu.registers.gpr[n] & 0xFFFF;
+    cpu.registers.macl = operand_l * operand_r;
 }
 
 // DMULS.L Rm, Rn
 // Signed 32-bit x 32-bit -> 64-bit multiplication
 pub fn dmuls(cpu: &mut Sh2, opcode: u16) {
-    let rm = parse_register_low(opcode) as usize;
-    let rn = parse_register_high(opcode) as usize;
-    let product = i64::from(cpu.registers.gpr[rm] as i32) * i64::from(cpu.registers.gpr[rn] as i32);
-    cpu.registers.macl = product as u32;
-    cpu.registers.mach = ((product as u64) >> 32) as u32;
+    let m = rm(opcode);
+    let n = rn(opcode);
+
+    let operand_l: i64 = (cpu.registers.gpr[m] as i32).into();
+    let operand_r: i64 = (cpu.registers.gpr[n] as i32).into();
+    cpu.registers.set_mac(operand_l * operand_r);
 }
 
 // MAC.W @Rm+, @Rn+
 // Multiply and accumulate with word operands
 pub fn mac_w<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
-    let rm = parse_register_low(opcode) as usize;
-    let rn = parse_register_high(opcode) as usize;
+    let m = rm(opcode);
+    let n = rn(opcode);
 
-    let operand_l = cpu.read_word(cpu.registers.gpr[rm], bus) as i16;
-    cpu.registers.gpr[rm] = cpu.registers.gpr[rm].wrapping_add(2);
+    let operand_l = cpu.read_word(cpu.registers.gpr[m], bus) as i16;
+    cpu.registers.gpr[m] = cpu.registers.gpr[m].wrapping_add(2);
 
-    let operand_r = cpu.read_word(cpu.registers.gpr[rn], bus) as i16;
-    cpu.registers.gpr[rn] = cpu.registers.gpr[rn].wrapping_add(2);
+    let operand_r = cpu.read_word(cpu.registers.gpr[n], bus) as i16;
+    cpu.registers.gpr[n] = cpu.registers.gpr[n].wrapping_add(2);
 
     let product = i64::from(operand_l) * i64::from(operand_r);
 
@@ -227,8 +227,7 @@ pub fn mac_w<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
         // TODO set overflow bit in MACH? manual suggests that only SH-1 does this
     } else {
         // 16-bit x 16-bit + 64-bit -> 64-bit
-        let mac = ((u64::from(cpu.registers.mach) << 32) | u64::from(cpu.registers.macl)) as i64;
-        let sum = mac.wrapping_add(product);
+        let sum = product.wrapping_add(cpu.registers.mac());
         cpu.registers.set_mac(sum);
     }
 }
@@ -236,14 +235,14 @@ pub fn mac_w<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
 // MAC.L @Rm+, @Rn+
 // Multiply and accumulate with longword operands
 pub fn mac_l<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
-    let rm = parse_register_low(opcode) as usize;
-    let rn = parse_register_high(opcode) as usize;
+    let m = rm(opcode);
+    let n = rn(opcode);
 
-    let operand_l = cpu.read_longword(cpu.registers.gpr[rm], bus) as i32;
-    cpu.registers.gpr[rm] = cpu.registers.gpr[rm].wrapping_add(4);
+    let operand_l = cpu.read_longword(cpu.registers.gpr[m], bus) as i32;
+    cpu.registers.gpr[m] = cpu.registers.gpr[m].wrapping_add(4);
 
-    let operand_r = cpu.read_longword(cpu.registers.gpr[rn], bus) as i32;
-    cpu.registers.gpr[rn] = cpu.registers.gpr[rn].wrapping_add(4);
+    let operand_r = cpu.read_longword(cpu.registers.gpr[n], bus) as i32;
+    cpu.registers.gpr[n] = cpu.registers.gpr[n].wrapping_add(4);
 
     let product = i64::from(operand_l) * i64::from(operand_r);
     let product_sum = product.wrapping_add(cpu.registers.mac());
@@ -268,8 +267,8 @@ pub fn div0u(cpu: &mut Sh2) {
 // DIV0S Rm, Rn
 // Initialization step for signed division
 pub fn div0s(cpu: &mut Sh2, opcode: u16) {
-    let divisor = cpu.registers.gpr[parse_register_low(opcode) as usize];
-    let dividend = cpu.registers.gpr[parse_register_high(opcode) as usize];
+    let divisor = cpu.registers.gpr[rm(opcode)];
+    let dividend = cpu.registers.gpr[rn(opcode)];
 
     cpu.registers.sr.m = divisor.sign_bit();
     cpu.registers.sr.q = dividend.sign_bit();
@@ -279,11 +278,11 @@ pub fn div0s(cpu: &mut Sh2, opcode: u16) {
 // DIV1 Rm, Rn
 // Division single step
 pub fn div1(cpu: &mut Sh2, opcode: u16) {
-    let divisor_register = parse_register_low(opcode) as usize;
-    let dividend_register = parse_register_high(opcode) as usize;
+    let m = rm(opcode);
+    let n = rn(opcode);
 
-    let divisor = cpu.registers.gpr[divisor_register];
-    let mut dividend = cpu.registers.gpr[dividend_register];
+    let divisor = cpu.registers.gpr[m];
+    let mut dividend = cpu.registers.gpr[n];
 
     let prev_sign_bit = dividend.sign_bit();
     dividend = (dividend << 1) | u32::from(cpu.registers.sr.t);
@@ -299,7 +298,7 @@ pub fn div1(cpu: &mut Sh2, opcode: u16) {
 
     cpu.registers.sr.q = overflowed ^ prev_sign_bit ^ cpu.registers.sr.m;
     cpu.registers.sr.t = cpu.registers.sr.q == cpu.registers.sr.m;
-    cpu.registers.gpr[dividend_register] = dividend;
+    cpu.registers.gpr[n] = dividend;
 }
 
 #[cfg(test)]
