@@ -32,7 +32,7 @@ impl DivisionUnit {
                 self.dividend = (value as i32).into();
 
                 if self.divisor == 0 {
-                    self.dividend = if self.dividend >= 0 { 0x7FFFFFFF } else { -0x80000000 };
+                    self.dividend = overflow_result(self.dividend);
                     // TODO set overflow flag
                     return;
                 }
@@ -48,7 +48,9 @@ impl DivisionUnit {
                 // DVDNTL: Low longword of dividend for 64-bit division + execute 64-bit division
                 let dividend = (self.dividend & !0xFFFFFFFF) | (value as i64);
                 if self.divisor == 0 {
-                    todo!("64-bit division by zero")
+                    self.dividend = overflow_result(self.dividend);
+                    // TODO set overflow flag
+                    return;
                 }
 
                 let quotient = dividend / self.divisor;
@@ -60,4 +62,8 @@ impl DivisionUnit {
             _ => todo!("DIVU register write {address:08X} {value:08X}"),
         }
     }
+}
+
+fn overflow_result(dividend: i64) -> i64 {
+    if dividend >= 0 { 0x7FFFFFFF } else { -0x80000000 }
 }

@@ -619,7 +619,14 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     log::warn!("Frame buffer write with FM=0: {address:08X} {value:08X}");
                 }
             },
-            frame_buffer_overwrite => todo!("FB overwrite longword write {address:08X}"),
+            frame_buffer_overwrite => {
+                if self.registers.vdp_access == Access::Sh2 {
+                    self.vdp.frame_buffer_overwrite_word(address, (value >> 16) as u16);
+                    self.vdp.frame_buffer_overwrite_word(address | 2, value as u16);
+                } else {
+                    log::warn!("Frame buffer write with FM=0: {address:08X} {value:08X}");
+                }
+            },
             sdram => {
                 let sdram_addr = (((address & SDRAM_MASK) >> 1) & !1) as usize;
                 self.sdram[sdram_addr] = (value >> 16) as u16;
