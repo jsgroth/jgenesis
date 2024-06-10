@@ -172,8 +172,19 @@ impl SystemRegisters {
             0x4004 => vdp.h_interrupt_interval(),
             0x4008 => self.read_dreq_source_high(),
             0x4010 => self.dma.length,
-            0x4012 => self.dma.fifo.pop(),
+            0x4012 => {
+                self.dma.length = self.dma.length.wrapping_sub(1);
+                if self.dma.length == 0 {
+                    self.dma.active = false;
+                }
+
+                self.dma.fifo.pop()
+            }
+            // TODO this register shouldn't be readable?
+            0x401A => 0,
             0x4020..=0x402F => self.read_communication_port(address),
+            // TODO PWM registers
+            0x4030..=0x403F => 0,
             _ => todo!("SH-2 register read: {address:08X} {which:?}"),
         }
     }
@@ -184,6 +195,7 @@ impl SystemRegisters {
             0x4004 => vdp.write_h_interrupt_interval(value),
             0x4014 => self.clear_reset_interrupt(which),
             0x4016 => self.clear_v_interrupt(which),
+            0x4018 => self.clear_h_interrupt(which),
             0x401A => self.clear_command_interrupt(which),
             0x401C => self.clear_pwm_interrupt(which),
             0x4020..=0x402F => self.write_communication_port(address, value),
@@ -358,6 +370,14 @@ impl SystemRegisters {
             WhichCpu::Slave => self.slave_interrupts.v_pending = false,
         }
         log::trace!("VINT cleared");
+    }
+
+    // SH-2: $4018
+    fn clear_h_interrupt(&mut self, which: WhichCpu) {
+        match which {
+            WhichCpu::Master => self.master_interrupts.h_pending = false,
+            WhichCpu::Slave => self.slave_interrupts.h_pending = false,
+        }
     }
 
     // SH-2: $401A

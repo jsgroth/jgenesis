@@ -338,7 +338,14 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     0xFF
                 }
             },
-            frame_buffer_overwrite => todo!("FB overwrite byte read {address:08X}"),
+            frame_buffer_overwrite => {
+                if self.registers.vdp_access == Access::Sh2 {
+                    let word = self.vdp.read_frame_buffer(address & !1);
+                    if !address.bit(0) { word.msb() } else { word.lsb() }
+                } else {
+                    0xFF
+                }
+            },
             sdram => {
                 let word = self.sdram[((address & SDRAM_MASK) >> 1) as usize];
                 if !address.bit(0) { word.msb() } else { word.lsb() }
@@ -465,11 +472,15 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 if self.registers.vdp_access == Access::Sh2 {
                     // Treat write as an overwrite because 0 bytes are never written to the frame buffer
                     self.vdp.frame_buffer_overwrite_byte(address, value);
+                } else {
+                    log::warn!("Frame buffer write without access: {address:08X} {value:02X}");
                 }
             },
             frame_buffer_overwrite => {
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.frame_buffer_overwrite_byte(address, value);
+                } else {
+                    log::warn!("Frame buffer write without access: {address:08X} {value:02X}");
                 }
             },
             sdram => {
@@ -506,11 +517,15 @@ impl<'a> BusInterface for Sh2Bus<'a> {
             frame_buffer => {
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.write_frame_buffer(address, value);
+                } else {
+                    log::warn!("Frame buffer write without access: {address:08X} {value:04X}");
                 }
             },
             frame_buffer_overwrite => {
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.frame_buffer_overwrite_word(address, value);
+                } else {
+                    log::warn!("Frame buffer write without access: {address:08X} {value:04X}");
                 }
             },
             sdram => {
@@ -546,6 +561,8 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.write_frame_buffer(address, (value >> 16) as u16);
                     self.vdp.write_frame_buffer(address | 2, value as u16);
+                } else {
+                    log::warn!("Frame buffer write without access: {address:08X} {value:08X}");
                 }
             },
             frame_buffer_overwrite => todo!("FB overwrite longword write {address:08X}"),

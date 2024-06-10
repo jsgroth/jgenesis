@@ -47,6 +47,14 @@ pub fn xor_imm_r0(cpu: &mut Sh2, opcode: u16) {
     cpu.registers.gpr[0] ^= imm;
 }
 
+// NOT Rm, Rn
+// Logical complement
+pub fn not(cpu: &mut Sh2, opcode: u16) {
+    let m = rm(opcode);
+    let n = rn(opcode);
+    cpu.registers.gpr[n] = !cpu.registers.gpr[m];
+}
+
 // SHLL Rn
 // Logical shift left
 pub fn shll(cpu: &mut Sh2, opcode: u16) {

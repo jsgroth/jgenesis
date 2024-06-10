@@ -199,6 +199,7 @@ impl Sh2 {
 
         match address {
             0xFFFFFE10..=0xFFFFFE19 => self.free_run_timer.read_register(address),
+            0xFFFFFE93..=0xFFFFFE9F => 0xFF,
             _ => todo!("[{}] Internal register byte read {address:08X}", self.name),
         }
     }
@@ -207,7 +208,7 @@ impl Sh2 {
         log::trace!("[{}] Internal register longword read: {address:08X}", self.name);
 
         match address {
-            0xFFFFFF00..=0xFFFFFF14 => self.divu.read_register(address),
+            0xFFFFFF00..=0xFFFFFF1C => self.divu.read_register(address),
             0xFFFFFF80..=0xFFFFFF9F | 0xFFFFFFB0 => self.dmac.read_register(address),
             0xFFFFFFE0..=0xFFFFFFFF => todo!("read bus control register {address:08X}"),
             _ => todo!("Unexpected internal register longword read: {address:08X}"),
@@ -219,6 +220,7 @@ impl Sh2 {
 
         match address {
             0xFFFFFE10..=0xFFFFFE19 => self.free_run_timer.write_register(address, value),
+            0xFFFFFE93..=0xFFFFFE9F => {}
             0xFFFFFE91 => {
                 // SBYCR (Standby control register)
                 log::trace!("[{}] SBYCR write: {value:02X}", self.name);

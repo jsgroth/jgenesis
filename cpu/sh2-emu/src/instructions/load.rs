@@ -353,6 +353,13 @@ pub fn mova(cpu: &mut Sh2, opcode: u16) {
     cpu.registers.gpr[0] = (cpu.registers.next_pc & !3).wrapping_add(disp.into());
 }
 
+// MOVT Rn
+// Loads T into a general-purpose register
+pub fn movt(cpu: &mut Sh2, opcode: u16) {
+    let n = rn(opcode);
+    cpu.registers.gpr[n] = cpu.registers.sr.t.into();
+}
+
 // LDC Rm, SR
 // Loads the status register from a general-purpose register
 pub fn ldc_rm_sr(cpu: &mut Sh2, opcode: u16) {
@@ -372,6 +379,36 @@ pub fn ldc_rm_gbr(cpu: &mut Sh2, opcode: u16) {
 pub fn ldc_rm_vbr(cpu: &mut Sh2, opcode: u16) {
     let n = rn(opcode);
     cpu.registers.vbr = cpu.registers.gpr[n];
+}
+
+// LDC.L @Rm+, SR
+// Load SR from memory using post-increment register indirect addressing
+pub fn ldc_postinc_sr<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let m = rn(opcode);
+    let address = cpu.registers.gpr[m];
+    cpu.registers.gpr[m] = address.wrapping_add(4);
+
+    cpu.registers.sr = cpu.read_longword(address, bus).into();
+}
+
+// LDC.L @Rm+, GBR
+// Load GBR from memory using post-increment register indirect addressing
+pub fn ldc_postinc_gbr<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let m = rn(opcode);
+    let address = cpu.registers.gpr[m];
+    cpu.registers.gpr[m] = address.wrapping_add(4);
+
+    cpu.registers.gbr = cpu.read_longword(address, bus);
+}
+
+// LDC.L @Rm+, VBR
+// Load VBR from memory using post-increment register indirect addressing
+pub fn ldc_postinc_vbr<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let m = rn(opcode);
+    let address = cpu.registers.gpr[m];
+    cpu.registers.gpr[m] = address.wrapping_add(4);
+
+    cpu.registers.vbr = cpu.read_longword(address, bus);
 }
 
 // LDS Rm, MACH
@@ -444,6 +481,36 @@ pub fn stc_gbr_rn(cpu: &mut Sh2, opcode: u16) {
 pub fn stc_vbr_rn(cpu: &mut Sh2, opcode: u16) {
     let n = rn(opcode);
     cpu.registers.gpr[n] = cpu.registers.vbr;
+}
+
+// STC.L SR, @-Rn
+// Store SR in memory using pre-decrement register addressing
+pub fn stc_sr_rn_predec<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let n = rn(opcode);
+    let address = cpu.registers.gpr[n].wrapping_sub(4);
+    cpu.registers.gpr[n] = address;
+
+    cpu.write_longword(address, cpu.registers.sr.into(), bus);
+}
+
+// STC.L GBR, @-Rn
+// Store GBR in memory using pre-decrement register addressing
+pub fn stc_gbr_rn_predec<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let n = rn(opcode);
+    let address = cpu.registers.gpr[n].wrapping_sub(4);
+    cpu.registers.gpr[n] = address;
+
+    cpu.write_longword(address, cpu.registers.gbr, bus);
+}
+
+// STC.L VBR, @-Rn
+// Store VBR in memory using pre-decrement register addressing
+pub fn stc_vbr_rn_predec<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let n = rn(opcode);
+    let address = cpu.registers.gpr[n].wrapping_sub(4);
+    cpu.registers.gpr[n] = address;
+
+    cpu.write_longword(address, cpu.registers.vbr, bus);
 }
 
 // STS MACH, Rn
