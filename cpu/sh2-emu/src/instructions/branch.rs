@@ -101,11 +101,11 @@ pub fn rts(cpu: &mut Sh2) {
 // Return from exception
 pub fn rte<B: BusInterface>(cpu: &mut Sh2, bus: &mut B) {
     let mut sp = cpu.registers.gpr[SP];
-    cpu.registers.next_pc = bus.read_longword(sp);
+    cpu.registers.next_pc = cpu.read_longword(sp, bus);
     cpu.registers.next_op_in_delay_slot = true;
     sp = sp.wrapping_add(4);
 
-    cpu.registers.sr = bus.read_longword(sp).into();
+    cpu.registers.sr = cpu.read_longword(sp, bus).into();
     sp = sp.wrapping_add(4);
 
     cpu.registers.gpr[SP] = sp;
