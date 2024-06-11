@@ -193,6 +193,16 @@ impl Vdp {
         }
     }
 
+    pub fn write_register_byte(&mut self, address: u32, value: u8) {
+        let mut word = self.read_register(address & !1);
+        if !address.bit(0) {
+            word.set_msb(value);
+        } else {
+            word.set_lsb(value);
+        }
+        self.write_register(address & !1, word);
+    }
+
     pub fn write_register(&mut self, address: u32, value: u16) {
         log::trace!(
             "VDP register write on line {}: {address:08X} {value:04X}",
@@ -224,6 +234,21 @@ impl Vdp {
     pub fn read_frame_buffer(&self, address: u32) -> u16 {
         let frame_buffer = back_frame_buffer!(self);
         frame_buffer[((address & 0x1FFFF) >> 1) as usize]
+    }
+
+    pub fn write_frame_buffer_byte(&mut self, address: u32, value: u8) {
+        if value == 0 {
+            // 0 bytes are never written to the frame buffer
+            return;
+        }
+
+        let mut word = self.read_frame_buffer(address & !1);
+        if !address.bit(0) {
+            word.set_msb(value);
+        } else {
+            word.set_lsb(value);
+        }
+        self.write_frame_buffer(address & !1, word);
     }
 
     pub fn write_frame_buffer(&mut self, address: u32, value: u16) {
@@ -274,6 +299,16 @@ impl Vdp {
     pub fn read_cram(&self, address: u32) -> u16 {
         // TODO block access to CRAM when in use?
         self.cram[((address & 0x1FF) >> 1) as usize]
+    }
+
+    pub fn write_cram_byte(&mut self, address: u32, value: u8) {
+        let mut word = self.read_cram(address & !1);
+        if !address.bit(0) {
+            word.set_msb(value);
+        } else {
+            word.set_lsb(value);
+        }
+        self.write_cram(address, word);
     }
 
     pub fn write_cram(&mut self, address: u32, value: u16) {
