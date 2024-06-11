@@ -1,7 +1,7 @@
 use crate::bus::WhichCpu;
 use crate::vdp::Vdp;
 use bincode::{Decode, Encode};
-use jgenesis_common::num::{GetBit, U24Ext};
+use jgenesis_common::num::{GetBit, U16Ext, U24Ext};
 use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -151,6 +151,16 @@ impl SystemRegisters {
         }
     }
 
+    pub fn m68k_write_byte(&mut self, address: u32, value: u8) {
+        let mut word = self.m68k_read(address & !1);
+        if !address.bit(0) {
+            word.set_msb(value);
+        } else {
+            word.set_lsb(value);
+        }
+        self.m68k_write(address & !1, word);
+    }
+
     pub fn m68k_write(&mut self, address: u32, value: u16) {
         match address {
             0xA15100 => self.write_adapter_control(value),
@@ -192,6 +202,16 @@ impl SystemRegisters {
             0x4030..=0x403F => 0,
             _ => todo!("SH-2 register read: {address:08X} {which:?}"),
         }
+    }
+
+    pub fn sh2_write_byte(&mut self, address: u32, value: u8, which: WhichCpu, vdp: &mut Vdp) {
+        let mut word = self.sh2_read(address & !1, which, vdp);
+        if !address.bit(0) {
+            word.set_msb(value);
+        } else {
+            word.set_lsb(value);
+        }
+        self.sh2_write(address & !1, word, which, vdp);
     }
 
     pub fn sh2_write(&mut self, address: u32, value: u16, which: WhichCpu, vdp: &mut Vdp) {

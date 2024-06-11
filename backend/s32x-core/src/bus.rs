@@ -22,11 +22,90 @@ impl Sega32X {
     }
 }
 
+macro_rules! m68k_vector_rom {
+    () => {
+        0x000000..=0x0000FF
+    };
+}
+
+macro_rules! m68k_writable_vector {
+    () => {
+        0x000070..=0x000073
+    };
+}
+
+macro_rules! m68k_cartridge {
+    () => {
+        0x000100..=0x3FFFFF
+    };
+}
+
+macro_rules! m68k_frame_buffer {
+    () => {
+        0x840000..=0x85FFFF
+    };
+}
+
+macro_rules! m68k_overwrite_image {
+    () => {
+        0x860000..=0x87FFFF
+    };
+}
+
+macro_rules! m68k_rom_first_512kb {
+    () => {
+        0x880000..=0x8FFFFF
+    };
+}
+
+macro_rules! m68k_mappable_rom_bank {
+    () => {
+        0x900000..=0x9FFFFF
+    };
+}
+
+macro_rules! m68k_system_registers {
+    () => {
+        0xA15100..=0xA1512F
+    };
+}
+
+macro_rules! m68k_pwm_registers {
+    () => {
+        0xA15130..=0xA1513F
+    };
+}
+
+macro_rules! m68k_vdp_registers {
+    () => {
+        0xA15180..=0xA1518F
+    };
+}
+
+macro_rules! m68k_cram {
+    () => {
+        0xA15200..=0xA153FF
+    };
+}
+
+macro_rules! word_to_byte {
+    ($address:expr, $($op:tt)*) => {
+        {
+            let word = $($op)*($address & !1);
+            if !$address.bit(0) { word.msb() } else { word.lsb() }
+        }
+    }
+}
+
+const M68K_RAM_REGISTER: u32 = 0xA130F1;
+const M68K_32X_ID_HIGH: u32 = 0xA130EC;
+const M68K_32X_ID_LOW: u32 = 0xA130EE;
+
 // 68000 memory map
 impl PhysicalMedium for Sega32X {
     fn read_byte(&mut self, address: u32) -> u8 {
         match address {
-            0x000000..=0x0000FF => {
+            m68k_vector_rom!() => {
                 // Hardcoded vectors when 32X is enabled, first 256 bytes of ROM otherwise
                 if self.registers.adapter_enabled {
                     self.m68k_vectors[address as usize]
@@ -34,7 +113,7 @@ impl PhysicalMedium for Sega32X {
                     self.cartridge.read_byte(address)
                 }
             }
-            0x000100..=0x3FFFFF => {
+            m68k_cartridge!() => {
                 // ROM (only accessible when 32X is disabled or ROM-to-VRAM DMA is enabled)
                 if !self.registers.adapter_enabled || self.registers.dma.rom_to_vram_dma {
                     self.cartridge.read_byte(address)
@@ -43,38 +122,35 @@ impl PhysicalMedium for Sega32X {
                     0xFF
                 }
             }
-            0x840000..=0x87FFFF => {
+            m68k_frame_buffer!() | m68k_overwrite_image!() => {
                 if self.registers.vdp_access == Access::M68k {
-                    let word = self.vdp.read_frame_buffer(address);
-                    if !address.bit(0) { word.msb() } else { word.lsb() }
+                    word_to_byte!(address, self.vdp.read_frame_buffer)
                 } else {
                     log::warn!("Frame buffer byte read with FM=1: {address:06X}");
                     0xFF
                 }
             }
-            0x880000..=0x8FFFFF => {
+            m68k_rom_first_512kb!() => {
                 // First 512KB of ROM
                 self.cartridge.read_byte(address & 0x7FFFF)
             }
-            0x900000..=0x9FFFFF => {
+            m68k_mappable_rom_bank!() => {
                 // Mappable 1MB ROM bank
                 let rom_addr =
                     (u32::from(self.registers.m68k_rom_bank) << 20) | (address & 0xFFFFF);
                 self.cartridge.read_byte(rom_addr)
             }
-            0xA130F1 => self.cartridge.read_ram_register(),
-            0xA15100..=0xA1512F => {
+            M68K_RAM_REGISTER => self.cartridge.read_ram_register(),
+            m68k_system_registers!() => {
                 // System registers
                 log::trace!("M68K read byte {address:06X}");
-                let word = self.registers.m68k_read(address & !1);
-                if !address.bit(0) { word.msb() } else { word.lsb() }
+                word_to_byte!(address, self.registers.m68k_read)
             }
-            0xA15180..=0xA1518F => {
+            m68k_vdp_registers!() => {
                 // 32X VDP registers
                 log::trace!("M68K read byte {address:06X}");
                 if self.registers.vdp_access == Access::M68k {
-                    let word = self.vdp.read_register(address & !1);
-                    if !address.bit(0) { word.msb() } else { word.lsb() }
+                    word_to_byte!(address, self.vdp.read_register)
                 } else {
                     log::warn!("VDP register byte read while FM=1: {address:06X}");
                     0xFF
@@ -86,7 +162,7 @@ impl PhysicalMedium for Sega32X {
 
     fn read_word(&mut self, address: u32) -> u16 {
         match address {
-            0x000000..=0x0000FF => {
+            m68k_vector_rom!() => {
                 // Hardcoded vectors when 32X is enabled, first 256 bytes of ROM otherwise
                 if self.registers.adapter_enabled {
                     let address = (address & !1) as usize;
@@ -95,7 +171,7 @@ impl PhysicalMedium for Sega32X {
                     self.cartridge.read_word(address)
                 }
             }
-            0x000100..=0x3FFFFF => {
+            m68k_cartridge!() => {
                 // ROM (only accessible when 32X is disabled or ROM-to-VRAM DMA is enabled)
                 if !self.registers.adapter_enabled || self.registers.dma.rom_to_vram_dma {
                     self.cartridge.read_word(address)
@@ -104,7 +180,7 @@ impl PhysicalMedium for Sega32X {
                     0xFFFF
                 }
             }
-            0x840000..=0x87FFFF => {
+            m68k_frame_buffer!() | m68k_overwrite_image!() => {
                 if self.registers.vdp_access == Access::M68k {
                     self.vdp.read_frame_buffer(address)
                 } else {
@@ -112,22 +188,22 @@ impl PhysicalMedium for Sega32X {
                     0xFFFF
                 }
             }
-            0x880000..=0x8FFFFF => {
+            m68k_rom_first_512kb!() => {
                 // First 512KB of ROM
                 self.cartridge.read_word(address & 0x7FFFF)
             }
-            0x900000..=0x9FFFFF => {
+            m68k_mappable_rom_bank!() => {
                 // Mappable 1MB ROM bank
                 let rom_addr =
                     (u32::from(self.registers.m68k_rom_bank) << 20) | (address & 0xFFFFF);
                 self.cartridge.read_word(rom_addr)
             }
-            0xA15100..=0xA1512F => {
+            m68k_system_registers!() => {
                 // System registers
                 log::trace!("M68K read word {address:06X}");
                 self.registers.m68k_read(address)
             }
-            0xA15180..=0xA1518F => {
+            m68k_vdp_registers!() => {
                 // 32X VDP registers
                 log::trace!("M68K read word {address:06X}");
                 if self.registers.vdp_access == Access::M68k {
@@ -137,7 +213,7 @@ impl PhysicalMedium for Sega32X {
                     0xFFFF
                 }
             }
-            0xA15200..=0xA153FF => {
+            m68k_cram!() => {
                 // 32X CRAM
                 if self.registers.vdp_access == Access::M68k {
                     self.vdp.read_cram(address)
@@ -147,8 +223,8 @@ impl PhysicalMedium for Sega32X {
                 }
             }
             // 32X ID - "MARS"
-            0xA130EC => u16::from_be_bytes([b'M', b'A']),
-            0xA130EE => u16::from_be_bytes([b'R', b'S']),
+            M68K_32X_ID_HIGH => u16::from_be_bytes([b'M', b'A']),
+            M68K_32X_ID_LOW => u16::from_be_bytes([b'R', b'S']),
             _ => todo!("read word {address:06X}"),
         }
     }
@@ -159,27 +235,19 @@ impl PhysicalMedium for Sega32X {
 
     fn write_byte(&mut self, address: u32, value: u8) {
         match address {
-            0x000070..=0x000073 => {
+            m68k_writable_vector!() => {
                 self.m68k_vectors[address as usize] = value;
                 log::trace!("68000 HINT vector: {:06X}", self.h_int_vector());
             }
-            0x000100..=0x3FFFFF => self.cartridge.write_byte(address, value),
-            0x840000..=0x85FFFF => {
+            m68k_cartridge!() => self.cartridge.write_byte(address, value),
+            m68k_frame_buffer!() => {
                 if self.registers.vdp_access == Access::M68k {
-                    if value != 0 {
-                        let mut word = self.vdp.read_frame_buffer(address & !1);
-                        if !address.bit(0) {
-                            word.set_msb(value)
-                        } else {
-                            word.set_lsb(value)
-                        };
-                        self.vdp.write_frame_buffer(address & !1, word);
-                    }
+                    self.vdp.write_frame_buffer_byte(address, value);
                 } else {
                     log::warn!("Frame buffer write with FM=1: {address:06X} {value:02X}");
                 }
             }
-            0x860000..=0x87FFFF => {
+            m68k_overwrite_image!() => {
                 if self.registers.vdp_access == Access::M68k {
                     self.vdp.frame_buffer_overwrite_byte(address, value);
                 } else {
@@ -188,29 +256,16 @@ impl PhysicalMedium for Sega32X {
                     );
                 }
             }
-            0xA130F1 => self.cartridge.write_ram_register(value),
-            0xA15100..=0xA1512F => {
+            M68K_RAM_REGISTER => self.cartridge.write_ram_register(value),
+            m68k_system_registers!() => {
                 log::trace!("M68K write byte {address:06X} {value:02X}");
-
-                let mut word = self.registers.m68k_read(address & !1);
-                if !address.bit(0) {
-                    word.set_msb(value);
-                } else {
-                    word.set_lsb(value);
-                }
-                self.registers.m68k_write(address & !1, word);
+                self.registers.m68k_write_byte(address, value);
             }
-            0xA15180..=0xA1518F => {
+            m68k_vdp_registers!() => {
                 log::trace!("M68K write byte {address:06X} {value:02X}");
 
                 if self.registers.vdp_access == Access::M68k {
-                    let mut word = self.vdp.read_register(address & !1);
-                    if !address.bit(0) {
-                        word.set_msb(value);
-                    } else {
-                        word.set_lsb(value);
-                    }
-                    self.vdp.write_register(address & !1, word);
+                    self.vdp.write_register_byte(address, value);
                 } else {
                     log::warn!("VDP register write with FM=1: {address:06X} {value:02X}");
                 }
@@ -221,19 +276,19 @@ impl PhysicalMedium for Sega32X {
 
     fn write_word(&mut self, address: u32, value: u16) {
         match address {
-            0x000070 | 0x000072 => {
+            m68k_writable_vector!() => {
                 self.m68k_vectors[address as usize] = value.msb();
                 self.m68k_vectors[(address + 1) as usize] = value.lsb();
                 log::trace!("68000 HINT vector: {:06X}", self.h_int_vector());
             }
-            0x840000..=0x85FFFF => {
+            m68k_frame_buffer!() => {
                 if self.registers.vdp_access == Access::M68k {
                     self.vdp.write_frame_buffer(address, value);
                 } else {
                     log::warn!("Frame buffer write with FM=1: {address:06X} {value:04X}");
                 }
             }
-            0x860000..=0x87FFFF => {
+            m68k_overwrite_image!() => {
                 if self.registers.vdp_access == Access::M68k {
                     self.vdp.frame_buffer_overwrite_word(address, value);
                 } else {
@@ -242,20 +297,20 @@ impl PhysicalMedium for Sega32X {
                     );
                 }
             }
-            0x900000..=0x9FFFFF => {
+            m68k_mappable_rom_bank!() => {
                 log::warn!("Write to ROM {address:06X} {value:04X}");
             }
-            0xA15100..=0xA1512F => {
+            m68k_system_registers!() => {
                 // System registers
                 log::trace!("M68K write word {address:06X} {value:04X}");
                 self.registers.m68k_write(address, value);
             }
-            0xA15130..=0xA1513F => {
+            m68k_pwm_registers!() => {
                 // PWM registers
                 log::trace!("M68K PWM register write {address:06X} {value:04X}");
                 self.pwm.m68k_write_register(address, value);
             }
-            0xA15180..=0xA1518F => {
+            m68k_vdp_registers!() => {
                 // VDP registers
                 log::trace!("M68K write word {address:06X} {value:04X}");
                 if self.registers.vdp_access == Access::M68k {
@@ -264,7 +319,7 @@ impl PhysicalMedium for Sega32X {
                     log::warn!("VDP register write with FM=1: {address:06X} {value:04X}");
                 }
             }
-            0xA15200..=0xA153FF => {
+            m68k_cram!() => {
                 if self.registers.vdp_access == Access::M68k {
                     self.vdp.write_cram(address, value);
                 } else {
@@ -299,56 +354,89 @@ pub struct Sh2Bus<'a> {
     pub sdram: &'a mut Sdram,
 }
 
-macro_rules! sh2_memory_map {
-    ($self:expr, $address:expr, {
-        boot_rom => $boot_rom:expr,
-        system_registers => $system_registers:expr,
-        $(pwm => $pwm:expr,)?
-        vdp => $vdp:expr,
-        cram => $cram:expr,
-        cartridge => $cartridge:expr,
-        frame_buffer => $frame_buffer:expr,
-        frame_buffer_overwrite => $frame_buffer_overwrite:expr,
-        sdram => $sdram:expr,
-        $(reserved => $reserved:expr,)?
-        _ => $default:expr $(,)?
-    }) => {
-        match $address {
-            0x00000000..=0x00003FFF => $boot_rom,
-            0x00004000..=0x0000402F => $system_registers,
-            $(0x00004030..=0x0000403F => $pwm,)?
-            0x00004100..=0x000041FF => $vdp,
-            0x00004200..=0x000043FF => $cram,
-            0x02000000..=0x023FFFFF => $cartridge,
-            0x04000000..=0x0401FFFF => $frame_buffer,
-            0x04020000..=0x0403FFFF => $frame_buffer_overwrite,
-            0x06000000..=0x0603FFFF => $sdram,
-            $(0x08000000..=0x1FFFFFFF => $reserved,)?
-            _ => $default,
-        }
+macro_rules! sh2_boot_rom {
+    () => {
+        0x00000000..=0x00003FFF
+    };
+}
+
+macro_rules! sh2_system_registers {
+    () => {
+        0x00004000..=0x0000402F
+    };
+}
+
+macro_rules! sh2_pwm_registers {
+    () => {
+        0x00004030..=0x0000403F
+    };
+}
+
+macro_rules! sh2_vdp_registers {
+    () => {
+        0x00004100..=0x000041FF
+    };
+}
+
+macro_rules! sh2_cram {
+    () => {
+        0x00004200..=0x000043FF
+    };
+}
+
+macro_rules! sh2_cartridge {
+    () => {
+        0x02000000..=0x023FFFFF
+    };
+}
+
+macro_rules! sh2_frame_buffer {
+    () => {
+        0x04000000..=0x0401FFFF
+    };
+}
+
+macro_rules! sh2_overwrite_image {
+    () => {
+        0x04020000..=0x0403FFFF
+    };
+}
+
+macro_rules! sh2_sdram {
+    () => {
+        0x06000000..=0x0603FFFF
+    };
+}
+
+macro_rules! sh2_invalid_address {
+    () => {
+        0x08000000..=0x1FFFFFFF
     };
 }
 
 impl<'a> BusInterface for Sh2Bus<'a> {
     #[inline]
     fn read_byte(&mut self, address: u32) -> u8 {
-        sh2_memory_map!(self, address, {
-            boot_rom => read_u8(self.boot_rom, self.boot_rom_mask, address),
-            system_registers => {
+        match address {
+            sh2_sdram!() => {
+                let word = self.sdram[((address & SDRAM_MASK) >> 1) as usize];
+                if !address.bit(0) { word.msb() } else { word.lsb() }
+            }
+            sh2_boot_rom!() => read_u8(self.boot_rom, self.boot_rom_mask, address),
+            sh2_system_registers!() => {
                 log::trace!("SH-2 {:?} read byte {address:08X}", self.which);
                 let value = self.registers.sh2_read(address & !1, self.which, self.vdp);
                 if !address.bit(0) { value.msb() } else { value.lsb() }
-            },
-            vdp => {
+            }
+            sh2_vdp_registers!() => {
                 if self.registers.vdp_access == Access::Sh2 {
-                    let word = self.vdp.read_register(address & !1);
-                    if !address.bit(0) { word.msb() } else { word.lsb() }
+                    word_to_byte!(address, self.vdp.read_register)
                 } else {
                     log::warn!("VDP register byte read with FM=0: {address:08X}");
                     0xFF
                 }
-            },
-            cram => {
+            }
+            sh2_cram!() => {
                 if self.registers.vdp_access == Access::Sh2 {
                     let word = self.vdp.read_cram(address & !1);
                     if !address.bit(0) { word.msb() } else { word.lsb() }
@@ -356,92 +444,81 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     log::warn!("CRAM byte read with FM=0: {address:08X}");
                     0xFF
                 }
-            },
-            cartridge => {
-                self.cartridge.read_byte(address & 0x3FFFFF)
-            },
-            frame_buffer => {
+            }
+            sh2_cartridge!() => self.cartridge.read_byte(address & 0x3FFFFF),
+            sh2_frame_buffer!() | sh2_overwrite_image!() => {
                 if self.registers.vdp_access == Access::Sh2 {
-                    let word = self.vdp.read_frame_buffer(address & !1);
-                    if !address.bit(0) { word.msb() } else { word.lsb() }
+                    word_to_byte!(address, self.vdp.read_frame_buffer)
                 } else {
                     log::warn!("Frame buffer byte read with FM=0: {address:08X}");
                     0xFF
                 }
-            },
-            frame_buffer_overwrite => {
-                if self.registers.vdp_access == Access::Sh2 {
-                    let word = self.vdp.read_frame_buffer(address & !1);
-                    if !address.bit(0) { word.msb() } else { word.lsb() }
-                } else {
-                    log::warn!("Frame buffer byte read with FM=0: {address:08X}");
-                    0xFF
-                }
-            },
-            sdram => {
-                let word = self.sdram[((address & SDRAM_MASK) >> 1) as usize];
-                if !address.bit(0) { word.msb() } else { word.lsb() }
-            },
-            _ => todo!("SH-2 {:?} read byte {address:08X}", self.which)
-        })
+            }
+            _ => todo!("SH-2 {:?} read byte {address:08X}", self.which),
+        }
     }
 
     #[inline]
     fn read_word(&mut self, address: u32) -> u16 {
-        sh2_memory_map!(self, address, {
-            boot_rom => read_u16(self.boot_rom, self.boot_rom_mask, address),
-            system_registers => {
+        match address {
+            sh2_sdram!() => self.sdram[((address & SDRAM_MASK) >> 1) as usize],
+            sh2_boot_rom!() => read_u16(self.boot_rom, self.boot_rom_mask, address),
+            sh2_system_registers!() => {
                 log::trace!("SH-2 {:?} read word {address:08X}", self.which);
                 self.registers.sh2_read(address, self.which, self.vdp)
-            },
-            pwm => {
+            }
+            sh2_pwm_registers!() => {
                 log::trace!("SH-2 {:?} PWM register read {address:08X}", self.which);
                 self.pwm.read_register(address)
-            },
-            vdp => {
+            }
+            sh2_vdp_registers!() => {
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.read_register(address)
                 } else {
                     log::warn!("VDP register word read with FM=0: {address:08X}");
                     0xFFFF
                 }
-            },
-            cram => {
+            }
+            sh2_cram!() => {
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.read_cram(address)
                 } else {
                     log::warn!("CRAM word read with FM=0: {address:08X}");
                     0xFFFF
                 }
-            },
-            cartridge => self.cartridge.read_word(address & 0x3FFFFF),
-            frame_buffer => {
+            }
+            sh2_cartridge!() => self.cartridge.read_word(address & 0x3FFFFF),
+            sh2_frame_buffer!() | sh2_overwrite_image!() => {
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.read_frame_buffer(address)
                 } else {
                     log::warn!("Frame buffer word read with FM=0: {address:08X}");
                     0xFFFF
                 }
-            },
-            frame_buffer_overwrite => todo!("FB overwrite word read {address:08X}"),
-            sdram => self.sdram[((address & SDRAM_MASK) >> 1) as usize],
+            }
             _ => todo!("SH-2 {:?} read word {address:08X}", self.which),
-        })
+        }
     }
 
     #[inline]
     fn read_longword(&mut self, address: u32) -> u32 {
-        sh2_memory_map!(self, address, {
-            boot_rom => read_u32(self.boot_rom, self.boot_rom_mask, address),
-            system_registers => {
+        match address {
+            sh2_sdram!() => {
+                let word_addr = (((address & SDRAM_MASK) >> 1) & !1) as usize;
+                let high_word = self.sdram[word_addr];
+                let low_word = self.sdram[word_addr | 1];
+                (u32::from(high_word) << 16) | u32::from(low_word)
+            }
+            sh2_boot_rom!() => read_u32(self.boot_rom, self.boot_rom_mask, address),
+            sh2_system_registers!() => {
                 if log::log_enabled!(log::Level::Trace) && !(0x4020..0x4030).contains(&address) {
                     log::trace!("SH-2 {:?} read longword {address:08X}", self.which);
                 }
                 let high = self.registers.sh2_read(address, self.which, self.vdp);
                 let low = self.registers.sh2_read(address | 2, self.which, self.vdp);
                 (u32::from(high) << 16) | u32::from(low)
-            },
-            vdp => {
+            }
+            sh2_vdp_registers!() => {
                 if self.registers.vdp_access == Access::Sh2 {
                     let high_word = self.vdp.read_register(address);
                     let low_word = self.vdp.read_register(address | 2);
@@ -450,8 +527,8 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     log::warn!("VDP register longword read with FM=0: {address:08X}");
                     0xFFFFFFFF
                 }
-            },
-            cram => {
+            }
+            sh2_cram!() => {
                 if self.registers.vdp_access == Access::Sh2 {
                     let high_word = self.vdp.read_cram(address);
                     let low_word = self.vdp.read_cram(address | 2);
@@ -460,9 +537,9 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     log::warn!("CRAM longword read with FM=0: {address:08X}");
                     0xFFFFFFFF
                 }
-            },
-            cartridge => self.cartridge.read_longword(address & 0x3FFFFF),
-            frame_buffer => {
+            }
+            sh2_cartridge!() => self.cartridge.read_longword(address & 0x3FFFFF),
+            sh2_frame_buffer!() | sh2_overwrite_image!() => {
                 if self.registers.vdp_access == Access::Sh2 {
                     let high_word = self.vdp.read_frame_buffer(address);
                     let low_word = self.vdp.read_frame_buffer(address | 2);
@@ -471,174 +548,162 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     log::warn!("Frame buffer longword read with FM=0: {address:08X}");
                     0xFFFFFFFF
                 }
-            },
-            frame_buffer_overwrite => todo!("FB overwrite longword read {address:08X}"),
-            sdram => {
-                let word_addr = (((address & SDRAM_MASK) >> 1) & !1) as usize;
-                let high_word = self.sdram[word_addr];
-                let low_word = self.sdram[word_addr | 1];
-                (u32::from(high_word) << 16) | u32::from(low_word)
-            },
-            _ => todo!("SH-2 {:?} read longword {address:08X}", self.which)
-        })
+            }
+            _ => todo!("SH-2 {:?} read longword {address:08X}", self.which),
+        }
     }
 
     #[inline]
     fn write_byte(&mut self, address: u32, value: u8) {
-        sh2_memory_map!(self, address, {
-            boot_rom => {},
-            system_registers => {
-                log::trace!("SH-2 {:?} byte write {address:08X} {value:02X}", self.which);
-                let mut word = self.registers.sh2_read(address & !1, self.which, self.vdp);
-                if !address.bit(0) { word.set_msb(value) } else { word.set_lsb(value) };
-                self.registers.sh2_write(address & !1, word, self.which, self.vdp);
-            },
-            vdp => {
-                if self.registers.vdp_access == Access::Sh2 {
-                    let mut word = self.vdp.read_register(address & !1);
-                    if !address.bit(0) { word.set_msb(value) } else { word.set_lsb(value) };
-                    self.vdp.write_register(address & !1, word);
-                } else {
-                    log::warn!("VDP register write with FM=0: {address:08X} {value:02X}");
-                }
-            },
-            cram => {
-                if self.registers.vdp_access == Access::Sh2 {
-                    let mut word = self.vdp.read_cram(address & !1);
-                    if !address.bit(0) { word.set_msb(value) } else { word.set_lsb(value) };
-                    self.vdp.write_cram(address & !1, word);
-                } else {
-                    log::warn!("CRAM write with FM=0: {address:08X} {value:02X}");
-                }
-            },
-            cartridge => {},
-            frame_buffer => {
-                if self.registers.vdp_access == Access::Sh2 {
-                    // Treat write as an overwrite because 0 bytes are never written to the frame buffer
-                    self.vdp.frame_buffer_overwrite_byte(address, value);
-                } else {
-                    log::warn!("Frame buffer write with FM=0: {address:08X} {value:02X}");
-                }
-            },
-            frame_buffer_overwrite => {
-                if self.registers.vdp_access == Access::Sh2 {
-                    self.vdp.frame_buffer_overwrite_byte(address, value);
-                } else {
-                    log::warn!("Frame buffer overwrite image write with FM=0: {address:08X} {value:02X}");
-                }
-            },
-            sdram => {
+        match address {
+            sh2_sdram!() => {
                 let word_addr = ((address & SDRAM_MASK) >> 1) as usize;
                 if !address.bit(0) {
                     self.sdram[word_addr].set_msb(value);
                 } else {
                     self.sdram[word_addr].set_lsb(value);
                 }
-            },
-            reserved => {
-                log::warn!("Ignoring SH-2 {:?} byte write to reserved address: {address:08X} {value:02X}", self.which);
-            },
-            _ => todo!("SH-2 {:?} write byte {address:08X} {value:02X}", self.which)
-        });
+            }
+            sh2_system_registers!() => {
+                log::trace!("SH-2 {:?} byte write {address:08X} {value:02X}", self.which);
+                self.registers.sh2_write_byte(address, value, self.which, self.vdp);
+            }
+            sh2_vdp_registers!() => {
+                if self.registers.vdp_access == Access::Sh2 {
+                    self.vdp.write_register_byte(address, value);
+                } else {
+                    log::warn!("VDP register write with FM=0: {address:08X} {value:02X}");
+                }
+            }
+            sh2_cram!() => {
+                if self.registers.vdp_access == Access::Sh2 {
+                    self.vdp.write_cram_byte(address, value);
+                } else {
+                    log::warn!("CRAM write with FM=0: {address:08X} {value:02X}");
+                }
+            }
+            sh2_frame_buffer!() => {
+                if self.registers.vdp_access == Access::Sh2 {
+                    // Treat write as an overwrite because 0 bytes are never written to the frame buffer
+                    self.vdp.write_frame_buffer_byte(address, value);
+                } else {
+                    log::warn!("Frame buffer write with FM=0: {address:08X} {value:02X}");
+                }
+            }
+            sh2_overwrite_image!() => {
+                if self.registers.vdp_access == Access::Sh2 {
+                    self.vdp.frame_buffer_overwrite_byte(address, value);
+                } else {
+                    log::warn!(
+                        "Frame buffer overwrite image write with FM=0: {address:08X} {value:02X}"
+                    );
+                }
+            }
+            sh2_invalid_address!() => {
+                log::warn!(
+                    "Ignoring SH-2 {:?} byte write to reserved address: {address:08X} {value:02X}",
+                    self.which
+                );
+            }
+            _ => todo!("SH-2 {:?} write byte {address:08X} {value:02X}", self.which),
+        }
     }
 
     #[inline]
     fn write_word(&mut self, address: u32, value: u16) {
-        sh2_memory_map!(self, address, {
-            boot_rom => {},
-            system_registers => {
+        match address {
+            sh2_sdram!() => {
+                self.sdram[((address & SDRAM_MASK) >> 1) as usize] = value;
+            }
+            sh2_system_registers!() => {
                 log::trace!("SH-2 {:?} word write {address:08X} {value:04X}", self.which);
                 self.registers.sh2_write(address, value, self.which, self.vdp);
-            },
-            pwm => {
+            }
+            sh2_pwm_registers!() => {
                 log::trace!("SH-2 {:?} PWM register write {address:08X} {value:04X}", self.which);
                 self.pwm.sh2_write_register(address, value);
-            },
-            vdp => {
+            }
+            sh2_vdp_registers!() => {
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.write_register(address, value);
                 } else {
                     log::warn!("VDP register write with FM=0: {address:08X} {value:04X}");
                 }
-            },
-            cram => {
+            }
+            sh2_cram!() => {
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.write_cram(address, value);
                 } else {
                     log::warn!("CRAM write with FM=0: {address:08X} {value:04X}");
                 }
-            },
-            cartridge => {},
-            frame_buffer => {
+            }
+            sh2_frame_buffer!() => {
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.write_frame_buffer(address, value);
                 } else {
                     log::warn!("Frame buffer write with FM=0: {address:08X} {value:04X}");
                 }
-            },
-            frame_buffer_overwrite => {
+            }
+            sh2_overwrite_image!() => {
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.frame_buffer_overwrite_word(address, value);
                 } else {
-                    log::warn!("Frame buffer overwrite image write with FM=0: {address:08X} {value:04X}");
+                    log::warn!(
+                        "Frame buffer overwrite image write with FM=0: {address:08X} {value:04X}"
+                    );
                 }
-            },
-            sdram => {
-                self.sdram[((address & SDRAM_MASK) >> 1) as usize] = value;
-            },
-            _ => todo!("SH-2 {:?} write word {address:08X} {value:04X}", self.which)
-        });
+            }
+            _ => todo!("SH-2 {:?} write word {address:08X} {value:04X}", self.which),
+        }
     }
 
     #[inline]
     fn write_longword(&mut self, address: u32, value: u32) {
-        sh2_memory_map!(self, address, {
-            boot_rom => {},
-            system_registers => {
+        match address {
+            sh2_sdram!() => {
+                let sdram_addr = (((address & SDRAM_MASK) >> 1) & !1) as usize;
+                self.sdram[sdram_addr] = (value >> 16) as u16;
+                self.sdram[sdram_addr | 1] = value as u16;
+            }
+            sh2_system_registers!() => {
                 log::trace!("SH-2 {:?} longword write {address:08X} {value:08X}", self.which);
                 self.registers.sh2_write(address, (value >> 16) as u16, self.which, self.vdp);
                 self.registers.sh2_write(address | 2, value as u16, self.which, self.vdp);
-            },
-            vdp => {
+            }
+            sh2_vdp_registers!() => {
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.write_register(address, (value >> 16) as u16);
                     self.vdp.write_register(address | 2, value as u16);
                 } else {
                     log::warn!("VDP register write with FM=0: {address:08X} {value:08X}");
                 }
-            },
-            cram => {
+            }
+            sh2_cram!() => {
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.write_cram(address, (value >> 16) as u16);
                     self.vdp.write_cram(address | 2, value as u16);
                 } else {
                     log::warn!("CRAM write with FM=0: {address:08X} {value:08X}");
                 }
-            },
-            cartridge => {},
-            frame_buffer => {
+            }
+            sh2_frame_buffer!() => {
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.write_frame_buffer(address, (value >> 16) as u16);
                     self.vdp.write_frame_buffer(address | 2, value as u16);
                 } else {
                     log::warn!("Frame buffer write with FM=0: {address:08X} {value:08X}");
                 }
-            },
-            frame_buffer_overwrite => {
+            }
+            sh2_overwrite_image!() => {
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.frame_buffer_overwrite_word(address, (value >> 16) as u16);
                     self.vdp.frame_buffer_overwrite_word(address | 2, value as u16);
                 } else {
                     log::warn!("Frame buffer write with FM=0: {address:08X} {value:08X}");
                 }
-            },
-            sdram => {
-                let sdram_addr = (((address & SDRAM_MASK) >> 1) & !1) as usize;
-                self.sdram[sdram_addr] = (value >> 16) as u16;
-                self.sdram[sdram_addr | 1] = value as u16;
-            },
-            _ => todo!("SH-2 {:?} write longword {address:08X} {value:08X}", self.which)
-        });
+            }
+            _ => todo!("SH-2 {:?} write longword {address:08X} {value:08X}", self.which),
+        }
     }
 
     #[inline]
