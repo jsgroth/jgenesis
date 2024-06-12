@@ -22,9 +22,9 @@ pub fn init_paths(path: &Path) -> NativeEmulatorResult<[PathBuf; SAVE_STATE_SLOT
         .ok_or_else(|| NativeEmulatorError::ParseFileName(path.display().to_string()))?;
 
     let file_names: [_; SAVE_STATE_SLOTS] =
-        array::from_fn(|i| String::from_iter([file_name, format!("_{i}").as_str()]));
+        array::from_fn(|i| format!("{file_name}_{i}.{EXTENSION}"));
 
-    Ok(file_names.map(|name| path.with_file_name(name).with_extension(EXTENSION)))
+    Ok(file_names.map(|name| path.with_file_name(name)))
 }
 
 #[derive(Debug, Clone, Default)]

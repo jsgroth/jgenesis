@@ -116,6 +116,8 @@ impl<Emulator: PartialClone> HotkeyState<Emulator> {
         let save_state_paths = state::init_paths(&save_state_path)?;
         let save_state_metadata = SaveStateMetadata::load(&save_state_paths);
 
+        log::debug!("Save state paths: {save_state_paths:?}");
+
         Ok(Self {
             save_state_paths,
             save_state_slot: 0,
