@@ -362,9 +362,12 @@ pub struct Ppu {
     sprite_tile_buffer: Vec<SpriteTileData>,
 }
 
-// PPU starts rendering pixels at H=22
+// In actual hardware, PPU starts rendering pixels at H=22 / mclk=88
 // Some games depend on this 88-cycle delay to finish HDMA before rendering starts, e.g. Final Fantasy 6
-const RENDER_LINE_MCLK: u64 = 88;
+//
+// Here, start rendering at H=23 / mclk=92 to account for CPU writes occurring at the end of the
+// CPU cycle rather than in the middle of it; starting at mclk=88 causes flickering in Lemmings
+const RENDER_LINE_MCLK: u64 = 92;
 
 const END_RENDER_LINE_MCLK: u64 = RENDER_LINE_MCLK + 256 * 4;
 
