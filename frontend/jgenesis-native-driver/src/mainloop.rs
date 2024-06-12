@@ -381,8 +381,11 @@ where
     pub fn render_frame(&mut self) -> NativeEmulatorResult<NativeTickEffect> {
         loop {
             let rewinding = self.hotkey_state.rewinder.is_rewinding();
-            let should_tick_emulator =
-                !rewinding && (!self.hotkey_state.paused || self.hotkey_state.should_step_frame);
+            let should_wait_for_audio = self.audio_output.should_wait_for_audio();
+            let should_tick_emulator = !rewinding
+                && !should_wait_for_audio
+                && (!self.hotkey_state.paused || self.hotkey_state.should_step_frame);
+
             let frame_rendered = should_tick_emulator
                 && self
                     .emulator
@@ -465,7 +468,7 @@ where
                     )?;
                 }
 
-                if rewinding || self.hotkey_state.paused {
+                if !should_tick_emulator {
                     // Don't spin loop when the emulator is not actively running
                     sleep(Duration::from_millis(1));
                 }

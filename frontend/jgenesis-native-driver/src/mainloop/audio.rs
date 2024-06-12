@@ -1,9 +1,7 @@
 use crate::config::CommonConfig;
-use crate::mainloop;
 use jgenesis_common::frontend::AudioOutput;
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::AudioSubsystem;
-use std::time::Duration;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -89,6 +87,11 @@ impl SdlAudioOutput {
     pub fn set_speed_multiplier(&mut self, speed_multiplier: u64) {
         self.speed_multiplier = speed_multiplier;
     }
+
+    #[must_use]
+    pub fn should_wait_for_audio(&self) -> bool {
+        self.audio_sync && self.audio_queue.size() >= self.audio_sync_threshold
+    }
 }
 
 fn decibels_to_multiplier(decibels: f64) -> f64 {
@@ -109,12 +112,7 @@ impl AudioOutput for SdlAudioOutput {
         self.audio_buffer.push((sample_r * self.audio_gain_multiplier) as f32);
 
         if self.audio_buffer.len() >= self.internal_audio_buffer_len as usize {
-            if self.audio_sync {
-                // Wait until audio queue is not full
-                while self.audio_queue.size() >= self.audio_sync_threshold {
-                    mainloop::sleep(Duration::from_micros(250));
-                }
-            } else if self.audio_queue.size() >= self.audio_sync_threshold {
+            if !self.audio_sync && self.audio_queue.size() >= self.audio_sync_threshold {
                 // Audio queue is full; drop samples
                 self.audio_buffer.clear();
                 return Ok(());

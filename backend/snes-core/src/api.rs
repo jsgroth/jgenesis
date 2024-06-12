@@ -321,6 +321,16 @@ impl EmulatorTrait for SnesEmulator {
             self.ppu.update_controller_hv_latch(h, v, master_cycles_elapsed);
         }
 
+        if let ApuTickEffect::OutputSample(sample_l, sample_r) =
+            self.apu.tick(master_cycles_elapsed)
+        {
+            self.audio_downsampler.collect_sample(sample_l, sample_r);
+        }
+
+        self.audio_downsampler.output_samples(audio_output).map_err(SnesError::AudioOutput)?;
+
+        self.memory.tick(master_cycles_elapsed);
+
         let prev_scanline_mclk = self.ppu.scanline_master_cycles();
         let mut tick_effect = TickEffect::None;
         if self.ppu.tick(master_cycles_elapsed) == PpuTickEffect::FrameComplete {
@@ -330,8 +340,6 @@ impl EmulatorTrait for SnesEmulator {
             renderer
                 .render_frame(self.ppu.frame_buffer(), self.ppu.frame_size(), aspect_ratio)
                 .map_err(SnesError::Render)?;
-
-            self.audio_downsampler.output_samples(audio_output).map_err(SnesError::AudioOutput)?;
 
             // Only persist SRAM if it's changed since the last write, and only check ~twice per
             // second because of the checksum calculation
@@ -356,14 +364,6 @@ impl EmulatorTrait for SnesEmulator {
         }
 
         self.cpu_registers.tick(master_cycles_elapsed, &self.ppu, prev_scanline_mclk, inputs);
-
-        if let ApuTickEffect::OutputSample(sample_l, sample_r) =
-            self.apu.tick(master_cycles_elapsed)
-        {
-            self.audio_downsampler.collect_sample(sample_l, sample_r);
-        }
-
-        self.memory.tick(master_cycles_elapsed);
 
         // CPU reads are applied before advancing other components but CPU writes are applied after.
         // This fixes freezing in Rendering Ranger R2

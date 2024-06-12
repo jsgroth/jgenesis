@@ -317,14 +317,14 @@ impl EmulatorTrait for NesEmulator {
             TimingMode::Pal => self.pal_tick(),
         }
 
+        self.audio_resampler.output_samples(audio_output).map_err(NesError::Audio)?;
+
         if !prev_in_vblank && self.ppu_state.in_vblank() {
             if self.config.pal_black_border {
                 ppu::render_pal_black_border(&mut self.ppu_state);
             }
 
             self.render_frame(renderer).map_err(NesError::Render)?;
-
-            self.audio_resampler.output_samples(audio_output).map_err(NesError::Audio)?;
 
             if self.bus.mapper_mut().get_and_clear_ram_dirty_bit() {
                 let sram = self.bus.mapper().get_prg_ram();

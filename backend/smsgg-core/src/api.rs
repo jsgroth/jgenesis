@@ -265,6 +265,8 @@ impl EmulatorTrait for SmsGgEmulator {
             }
         }
 
+        self.audio_resampler.output_samples(audio_output).map_err(SmsGgError::Audio)?;
+
         let t_cycles_plus_leftover = t_cycles + self.vdp_cycles_remainder;
         self.vdp_cycles_remainder = t_cycles_plus_leftover % 2;
 
@@ -274,8 +276,6 @@ impl EmulatorTrait for SmsGgEmulator {
             if self.vdp.tick() == VdpTickEffect::FrameComplete {
                 self.render_frame(renderer).map_err(SmsGgError::Render)?;
                 frame_rendered = true;
-
-                self.audio_resampler.output_samples(audio_output).map_err(SmsGgError::Audio)?;
 
                 self.input.set_inputs(*inputs);
                 self.input.set_reset(self.reset_frames_remaining != 0);

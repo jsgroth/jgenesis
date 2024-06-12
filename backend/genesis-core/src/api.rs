@@ -395,10 +395,10 @@ impl EmulatorTrait for GenesisEmulator {
             }
         }
 
+        self.audio_resampler.output_samples(audio_output).map_err(GenesisError::Audio)?;
+
         if self.vdp.tick(elapsed_mclk_cycles, &mut self.memory) == VdpTickEffect::FrameComplete {
             self.render_frame(renderer).map_err(GenesisError::Render)?;
-
-            self.audio_resampler.output_samples(audio_output).map_err(GenesisError::Audio)?;
 
             self.input.set_inputs(*inputs);
 

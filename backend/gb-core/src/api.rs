@@ -219,6 +219,8 @@ impl EmulatorTrait for GameBoyEmulator {
             input_state: &mut self.input_state,
         });
 
+        self.apu.drain_samples_into(audio_output).map_err(GameBoyError::Audio)?;
+
         self.input_state.check_for_joypad_interrupt(&mut self.interrupt_registers);
 
         if self.ppu.frame_complete() {
@@ -236,8 +238,6 @@ impl EmulatorTrait for GameBoyEmulator {
                     self.config.aspect_ratio.to_pixel_aspect_ratio(),
                 )
                 .map_err(GameBoyError::Rendering)?;
-
-            self.apu.drain_samples_into(audio_output).map_err(GameBoyError::Audio)?;
 
             self.cartridge.update_rtc_time();
 
