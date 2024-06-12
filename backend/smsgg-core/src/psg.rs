@@ -185,17 +185,15 @@ impl NoiseGenerator {
     }
 
     fn clock(&mut self, tone2: u16) {
-        if self.counter == 0 {
-            self.counter = self.counter_reload.value(tone2);
-        } else {
-            self.counter -= 1;
-            if self.counter == 0 {
-                self.counter = self.counter_reload.value(tone2);
-                self.current_counter_output = self.current_counter_output.invert();
-                if self.current_counter_output == WaveOutput::Positive {
-                    self.shift_lfsr();
-                }
-            }
+        self.counter = self.counter.saturating_sub(1);
+        if self.counter != 0 {
+            return;
+        }
+
+        self.counter = self.counter_reload.value(tone2);
+        self.current_counter_output = self.current_counter_output.invert();
+        if self.current_counter_output == WaveOutput::Positive {
+            self.shift_lfsr();
         }
     }
 
