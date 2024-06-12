@@ -2,6 +2,7 @@
 
 use crate::api;
 use crate::api::S32XVideoOut;
+use crate::audio::PwmResampler;
 use crate::bus::{Sh2Bus, WhichCpu};
 use crate::cartridge::Cartridge;
 use crate::pwm::PwmChip;
@@ -52,14 +53,14 @@ impl Sega32X {
             sh2_cycles: 0,
             cartridge,
             vdp: Vdp::new(timing_mode, video_out),
-            pwm: PwmChip::new(),
+            pwm: PwmChip::new(timing_mode),
             registers: SystemRegisters::new(),
             m68k_vectors: M68K_VECTORS.to_vec().into_boxed_slice().try_into().unwrap(),
             sdram: vec![0; SDRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
         }
     }
 
-    pub fn tick(&mut self, m68k_cycles: u64) {
+    pub fn tick(&mut self, m68k_cycles: u64, pwm_resampler: &mut PwmResampler) {
         self.vdp.tick(api::M68K_DIVIDER * m68k_cycles, &mut self.registers);
 
         if !self.registers.adapter_enabled {
@@ -95,7 +96,7 @@ impl Sega32X {
             self.sh2_slave.tick(&mut bus);
         }
 
-        self.pwm.tick(elapsed_sh2_cycles, &mut self.registers);
+        self.pwm.tick(elapsed_sh2_cycles, &mut self.registers, pwm_resampler);
     }
 
     pub fn take_rom_from(&mut self, other: &mut Self) {

@@ -184,7 +184,7 @@ impl EmulatorTrait for Sega32XEmulator {
 
         self.main_bus_writes = bus.apply_writes();
 
-        self.memory.medium_mut().tick(m68k_cycles);
+        self.memory.medium_mut().tick(m68k_cycles, self.audio_resampler.pwm_resampler_mut());
         self.input.tick(m68k_cycles as u32);
 
         for _ in 0..m68k_cycles {
@@ -201,12 +201,12 @@ impl EmulatorTrait for Sega32XEmulator {
             }
         }
 
+        self.audio_resampler.output_samples(audio_output).map_err(Sega32XError::Audio)?;
+
         let mut tick_effect = TickEffect::None;
         if self.vdp.tick(mclk_cycles, &mut self.memory) == VdpTickEffect::FrameComplete {
             self.memory.medium().vdp.composite_frame(self.vdp.frame_buffer_mut());
             self.render_frame(renderer).map_err(Sega32XError::Render)?;
-
-            self.audio_resampler.output_samples(audio_output).map_err(Sega32XError::Audio)?;
 
             if let Some(cartridge_ram) = &mut self.memory.medium_mut().cartridge.ram {
                 if cartridge_ram.dirty {
