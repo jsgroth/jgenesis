@@ -143,6 +143,7 @@ pub struct NativeEmulator<Inputs, Button, Config, Emulator> {
     config: Config,
     renderer: WgpuRenderer<Window>,
     audio_output: SdlAudioOutput,
+    wait_for_audio_sync: bool,
     input_mapper: InputMapper<Inputs, Button>,
     hotkey_mapper: HotkeyMapper,
     save_writer: FsSaveWriter,
@@ -361,6 +362,7 @@ where
             config: emulator_config,
             renderer,
             audio_output,
+            wait_for_audio_sync: true,
             input_mapper,
             hotkey_mapper,
             save_writer,
@@ -380,10 +382,16 @@ where
     /// samples, or writing save files.
     pub fn render_frame(&mut self) -> NativeEmulatorResult<NativeTickEffect> {
         loop {
+            // The underlying SDL2 call for audio sync may lock, so only check the audio queue
+            // size if the emulator just rendered a frame or if `should_wait_for_audio()`
+            // returned true on the last loop iteration
+            if self.wait_for_audio_sync {
+                self.wait_for_audio_sync = self.audio_output.should_wait_for_audio();
+            }
+
             let rewinding = self.hotkey_state.rewinder.is_rewinding();
-            let should_wait_for_audio = self.audio_output.should_wait_for_audio();
-            let should_tick_emulator = !rewinding
-                && !should_wait_for_audio
+            let should_tick_emulator = !self.wait_for_audio_sync
+                && !rewinding
                 && (!self.hotkey_state.paused || self.hotkey_state.should_step_frame);
 
             let frame_rendered = should_tick_emulator
@@ -398,83 +406,88 @@ where
                     .map_err(|err| NativeEmulatorError::Emulator(err.into()))?
                     == TickEffect::FrameRendered;
 
-            if !should_tick_emulator || frame_rendered {
-                self.hotkey_state.should_step_frame = false;
+            if should_tick_emulator && !frame_rendered {
+                continue;
+            }
+
+            self.hotkey_state.should_step_frame = false;
+
+            if let Some(debugger_window) = &mut self.hotkey_state.debugger_window {
+                if let Err(err) = debugger_window.update(&mut self.emulator) {
+                    log::error!("Debugger window error: {err}");
+                }
+            }
+
+            // Gymnastics to avoid borrow checker errors that would otherwise occur due to
+            // calling `&mut self` methods while mutably borrowing the event pump
+            let event_buffer_ref = Rc::clone(&self.event_buffer);
+            let mut event_buffer = event_buffer_ref.borrow_mut();
+            event_buffer.extend(self.event_pump.poll_iter());
+
+            for event in event_buffer.drain(..) {
+                self.input_mapper.handle_event(
+                    &event,
+                    self.renderer.window_id(),
+                    self.renderer.current_display_info(),
+                )?;
 
                 if let Some(debugger_window) = &mut self.hotkey_state.debugger_window {
-                    if let Err(err) = debugger_window.update(&mut self.emulator) {
-                        log::error!("Debugger window error: {err}");
-                    }
+                    debugger_window.handle_sdl_event(&event);
                 }
 
-                // Gymnastics to avoid borrow checker errors that would otherwise occur due to
-                // calling `&mut self` methods while mutably borrowing the event pump
-                let event_buffer_ref = Rc::clone(&self.event_buffer);
-                let mut event_buffer = event_buffer_ref.borrow_mut();
-                event_buffer.extend(self.event_pump.poll_iter());
+                if self.handle_hotkeys(&event)? == HotkeyResult::Quit {
+                    return Ok(NativeTickEffect::Exit);
+                }
 
-                for event in event_buffer.drain(..) {
-                    self.input_mapper.handle_event(
-                        &event,
-                        self.renderer.window_id(),
-                        self.renderer.current_display_info(),
-                    )?;
-
-                    if let Some(debugger_window) = &mut self.hotkey_state.debugger_window {
-                        debugger_window.handle_sdl_event(&event);
-                    }
-
-                    if self.handle_hotkeys(&event)? == HotkeyResult::Quit {
+                match event {
+                    Event::Quit { .. } => {
                         return Ok(NativeTickEffect::Exit);
                     }
-
-                    match event {
-                        Event::Quit { .. } => {
-                            return Ok(NativeTickEffect::Exit);
-                        }
-                        Event::Window { win_event, window_id, .. } => {
-                            if win_event == WindowEvent::Close {
-                                if window_id == self.renderer.window_id() {
-                                    return Ok(NativeTickEffect::Exit);
-                                }
-
-                                if self
-                                    .hotkey_state
-                                    .debugger_window
-                                    .as_ref()
-                                    .is_some_and(|debugger| window_id == debugger.window_id())
-                                {
-                                    self.hotkey_state.debugger_window = None;
-                                }
-                            }
-
+                    Event::Window { win_event, window_id, .. } => {
+                        if win_event == WindowEvent::Close {
                             if window_id == self.renderer.window_id() {
-                                handle_window_event(win_event, &mut self.renderer);
+                                return Ok(NativeTickEffect::Exit);
+                            }
+
+                            if self
+                                .hotkey_state
+                                .debugger_window
+                                .as_ref()
+                                .is_some_and(|debugger| window_id == debugger.window_id())
+                            {
+                                self.hotkey_state.debugger_window = None;
                             }
                         }
-                        _ => {}
+
+                        if window_id == self.renderer.window_id() {
+                            handle_window_event(win_event, &mut self.renderer);
+                        }
                     }
+                    _ => {}
                 }
-
-                if frame_rendered {
-                    self.hotkey_state.rewinder.record_frame(&self.emulator);
-                }
-
-                if rewinding {
-                    self.hotkey_state.rewinder.tick(
-                        &mut self.emulator,
-                        &mut self.renderer,
-                        &self.config,
-                    )?;
-                }
-
-                if !should_tick_emulator {
-                    // Don't spin loop when the emulator is not actively running
-                    sleep(Duration::from_millis(1));
-                }
-
-                return Ok(NativeTickEffect::None);
             }
+
+            if frame_rendered {
+                self.hotkey_state.rewinder.record_frame(&self.emulator);
+
+                // Check for audio sync at least once after every frame (if enabled)
+                self.wait_for_audio_sync = true;
+            }
+
+            if rewinding {
+                self.hotkey_state.rewinder.tick(
+                    &mut self.emulator,
+                    &mut self.renderer,
+                    &self.config,
+                )?;
+            }
+
+            if !should_tick_emulator {
+                // Don't spin loop when the emulator is not actively running
+                sleep(Duration::from_millis(1));
+            }
+
+            return Ok(NativeTickEffect::None);
         }
     }
 
