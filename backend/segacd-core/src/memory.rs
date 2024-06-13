@@ -545,16 +545,8 @@ impl SegaCd {
         self.disc_drive.take_disc_from(&mut other.disc_drive);
     }
 
-    pub fn forced_region(&self) -> Option<GenesisRegion> {
-        self.forced_region
-    }
-
     pub fn set_forced_region(&mut self, forced_region: Option<GenesisRegion>) {
         self.forced_region = forced_region;
-    }
-
-    pub fn get_enable_ram_cartridge(&self) -> bool {
-        self.enable_ram_cartridge
     }
 
     pub fn set_enable_ram_cartridge(&mut self, enable_ram_cartridge: bool) {

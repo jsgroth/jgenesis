@@ -24,6 +24,8 @@ pub struct GenesisAppConfig {
     pub render_horizontal_border: bool,
     #[serde(default = "true_fn")]
     pub quantize_ym2612_output: bool,
+    #[serde(default = "true_fn")]
+    pub emulate_ym2612_ladder_effect: bool,
 }
 
 const fn true_fn() -> bool {
@@ -71,6 +73,7 @@ impl AppConfig {
             render_vertical_border: self.genesis.render_vertical_border,
             render_horizontal_border: self.genesis.render_horizontal_border,
             quantize_ym2612_output: self.genesis.quantize_ym2612_output,
+            emulate_ym2612_ladder_effect: self.genesis.emulate_ym2612_ladder_effect,
         })
     }
 

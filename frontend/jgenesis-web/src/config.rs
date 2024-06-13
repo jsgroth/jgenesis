@@ -166,6 +166,7 @@ impl GenesisWebConfig {
             render_vertical_border: self.render_vertical_border,
             render_horizontal_border: self.render_horizontal_border,
             quantize_ym2612_output: true,
+            emulate_ym2612_ladder_effect: true,
         }
     }
 }

@@ -60,7 +60,7 @@ pub enum SegaCdError<RErr, AErr, SErr> {
 
 pub type SegaCdResult<T, RErr, AErr, SErr> = Result<T, SegaCdError<RErr, AErr, SErr>>;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Encode, Decode)]
 pub struct SegaCdEmulatorConfig {
     pub genesis: GenesisEmulatorConfig,
     pub enable_ram_cartridge: bool,
@@ -91,6 +91,7 @@ pub struct SegaCdEmulator {
     sega_cd_mclk_cycle_product: u64,
     sub_cpu_wait_cycles: u64,
     load_disc_into_ram: bool,
+    config: SegaCdEmulatorConfig,
 }
 
 // This is a macro instead of a function so that it only mutably borrows the needed fields
@@ -196,7 +197,7 @@ impl SegaCdEmulator {
         let z80 = Z80::new();
         let vdp = Vdp::new(timing_mode, emulator_config.genesis.to_vdp_config());
         let graphics_coprocessor = GraphicsCoprocessor::new();
-        let ym2612 = Ym2612::new(emulator_config.genesis.quantize_ym2612_output);
+        let ym2612 = Ym2612::new(emulator_config.genesis);
         let psg = Psg::new(PsgVersion::Standard);
         let pcm = Rf5c164::new();
         let input = InputState::new(
@@ -229,6 +230,7 @@ impl SegaCdEmulator {
             sega_cd_mclk_cycle_product: 0,
             sub_cpu_wait_cycles: 0,
             load_disc_into_ram: emulator_config.load_disc_into_ram,
+            config: emulator_config,
         };
 
         // Reset main CPU so that execution starts from the right place
@@ -442,12 +444,14 @@ impl EmulatorTrait for SegaCdEmulator {
         self.adjust_aspect_ratio_in_2x_resolution =
             config.genesis.adjust_aspect_ratio_in_2x_resolution;
         self.vdp.reload_config(config.genesis.to_vdp_config());
-        self.ym2612.set_quantize_output(config.genesis.quantize_ym2612_output);
+        self.ym2612.reload_config(config.genesis);
         self.input.reload_config(config.genesis);
 
         let sega_cd = self.memory.medium_mut();
         sega_cd.set_forced_region(config.genesis.forced_region);
         sega_cd.set_enable_ram_cartridge(config.enable_ram_cartridge);
+
+        self.config = *config;
     }
 
     fn take_rom_from(&mut self, other: &mut Self) {
@@ -459,7 +463,7 @@ impl EmulatorTrait for SegaCdEmulator {
         self.main_cpu.execute_instruction(&mut new_main_bus!(self, m68k_reset: true));
         self.memory.reset_z80_signals();
 
-        self.ym2612.reset();
+        self.ym2612.reset(self.config.genesis);
         self.pcm.disable();
 
         self.memory.medium_mut().reset();
@@ -469,34 +473,9 @@ impl EmulatorTrait for SegaCdEmulator {
         let sega_cd = self.memory.medium_mut();
         let bios = Vec::from(sega_cd.bios());
         let disc = sega_cd.take_cdrom();
-        let forced_region = sega_cd.forced_region();
-        let enable_ram_cartridge = sega_cd.get_enable_ram_cartridge();
-        let vdp_config = self.vdp.config();
-        let (p1_controller_type, p2_controller_type) = self.input.controller_types();
 
-        *self = Self::create_from_disc(
-            bios,
-            disc,
-            SegaCdEmulatorConfig {
-                genesis: GenesisEmulatorConfig {
-                    forced_timing_mode: Some(self.timing_mode),
-                    forced_region,
-                    aspect_ratio: self.aspect_ratio,
-                    adjust_aspect_ratio_in_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
-                    remove_sprite_limits: !vdp_config.enforce_sprite_limits,
-                    emulate_non_linear_vdp_dac: vdp_config.emulate_non_linear_dac,
-                    render_vertical_border: vdp_config.render_vertical_border,
-                    render_horizontal_border: vdp_config.render_horizontal_border,
-                    quantize_ym2612_output: self.ym2612.get_quantize_output(),
-                    p1_controller_type,
-                    p2_controller_type,
-                },
-                enable_ram_cartridge,
-                load_disc_into_ram: self.load_disc_into_ram,
-            },
-            save_writer,
-        )
-        .expect("Hard reset should not cause an I/O error");
+        *self = Self::create_from_disc(bios, disc, self.config, save_writer)
+            .expect("Hard reset should not cause an I/O error");
     }
 
     fn timing_mode(&self) -> TimingMode {

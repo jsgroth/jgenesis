@@ -215,11 +215,14 @@ pub struct GenesisConfig {
     pub render_vertical_border: bool,
     pub render_horizontal_border: bool,
     pub quantize_ym2612_output: bool,
+    pub emulate_ym2612_ladder_effect: bool,
 }
 
 impl GenesisConfig {
     pub(crate) fn to_emulator_config(&self) -> GenesisEmulatorConfig {
         GenesisEmulatorConfig {
+            p1_controller_type: self.p1_controller_type,
+            p2_controller_type: self.p2_controller_type,
             forced_timing_mode: self.forced_timing_mode,
             forced_region: self.forced_region,
             aspect_ratio: self.aspect_ratio,
@@ -229,8 +232,7 @@ impl GenesisConfig {
             render_vertical_border: self.render_vertical_border,
             render_horizontal_border: self.render_horizontal_border,
             quantize_ym2612_output: self.quantize_ym2612_output,
-            p1_controller_type: self.p1_controller_type,
-            p2_controller_type: self.p2_controller_type,
+            emulate_ym2612_ladder_effect: self.emulate_ym2612_ladder_effect,
         }
     }
 }

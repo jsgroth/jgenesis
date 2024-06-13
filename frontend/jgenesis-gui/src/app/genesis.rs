@@ -169,6 +169,12 @@ impl App {
             .on_hover_text(
                 "Quantize channel outputs from 14 bits to 9 bits to emulate the YM2612's 9-bit DAC",
             );
+
+            ui.checkbox(
+                &mut self.config.genesis.emulate_ym2612_ladder_effect,
+                "Emulate YM2612 DAC distortion (\"ladder effect\")",
+            )
+            .on_hover_text("Effectively amplifies low-volume waves");
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::GenesisAudio);

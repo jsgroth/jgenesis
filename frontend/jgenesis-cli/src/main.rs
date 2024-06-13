@@ -121,6 +121,10 @@ struct Args {
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
     quantize_ym2612_output: Option<bool>,
 
+    /// Emulate the YM2612 "ladder effect"
+    #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
+    emulate_ym2612_ladder_effect: Option<bool>,
+
     /// Aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
     genesis_aspect_ratio: Option<GenesisAspectRatio>,
@@ -410,6 +414,7 @@ impl Args {
             genesis_render_vertical_border -> render_vertical_border,
             genesis_render_horizontal_border -> render_horizontal_border,
             quantize_ym2612_output,
+            emulate_ym2612_ladder_effect,
             genesis_aspect_ratio -> aspect_ratio,
             genesis_adjust_aspect_ratio -> adjust_aspect_ratio_in_2x_resolution,
         ]);

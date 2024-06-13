@@ -124,7 +124,7 @@ impl GenesisRegion {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Encode, Decode)]
 pub struct GenesisEmulatorConfig {
     pub p1_controller_type: GenesisControllerType,
     pub p2_controller_type: GenesisControllerType,
@@ -137,6 +137,7 @@ pub struct GenesisEmulatorConfig {
     pub render_vertical_border: bool,
     pub render_horizontal_border: bool,
     pub quantize_ym2612_output: bool,
+    pub emulate_ym2612_ladder_effect: bool,
 }
 
 impl GenesisEmulatorConfig {
@@ -186,6 +187,7 @@ pub struct GenesisEmulator {
     z80_mclk_cycles: u64,
     psg_mclk_cycles: u64,
     wait_states: WaitStates,
+    config: GenesisEmulatorConfig,
 }
 
 // This is a macro instead of a function so that it only mutably borrows the needed fields
@@ -231,7 +233,7 @@ impl GenesisEmulator {
         let z80 = Z80::new();
         let vdp = Vdp::new(timing_mode, config.to_vdp_config());
         let psg = Psg::new(PsgVersion::Standard);
-        let ym2612 = Ym2612::new(config.quantize_ym2612_output);
+        let ym2612 = Ym2612::new(config);
         let input = InputState::new(config.p1_controller_type, config.p2_controller_type);
 
         // The Genesis does not allow TAS to lock the bus, so don't allow TAS writes
@@ -253,6 +255,7 @@ impl GenesisEmulator {
             z80_mclk_cycles: 0,
             psg_mclk_cycles: 0,
             wait_states: WaitStates::default(),
+            config,
         };
 
         // Reset CPU so that execution will start from the right place
@@ -428,8 +431,10 @@ impl EmulatorTrait for GenesisEmulator {
         self.aspect_ratio = config.aspect_ratio;
         self.adjust_aspect_ratio_in_2x_resolution = config.adjust_aspect_ratio_in_2x_resolution;
         self.vdp.reload_config(config.to_vdp_config());
-        self.ym2612.set_quantize_output(config.quantize_ym2612_output);
+        self.ym2612.reload_config(*config);
         self.input.reload_config(*config);
+
+        self.config = *config;
     }
 
     fn take_rom_from(&mut self, other: &mut Self) {
@@ -441,31 +446,14 @@ impl EmulatorTrait for GenesisEmulator {
 
         self.m68k.execute_instruction(&mut new_main_bus!(self, m68k_reset: true));
         self.memory.reset_z80_signals();
-        self.ym2612.reset();
+        self.ym2612.reset(self.config);
     }
 
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
         log::info!("Hard resetting console");
 
         let rom = self.memory.take_rom();
-        let vdp_config = self.vdp.config();
-        let (p1_controller_type, p2_controller_type) = self.input.controller_types();
-
-        let config = GenesisEmulatorConfig {
-            forced_timing_mode: Some(self.timing_mode),
-            forced_region: Some(self.memory.hardware_region()),
-            aspect_ratio: self.aspect_ratio,
-            adjust_aspect_ratio_in_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
-            remove_sprite_limits: !vdp_config.enforce_sprite_limits,
-            emulate_non_linear_vdp_dac: vdp_config.emulate_non_linear_dac,
-            render_vertical_border: vdp_config.render_vertical_border,
-            render_horizontal_border: vdp_config.render_horizontal_border,
-            quantize_ym2612_output: self.ym2612.get_quantize_output(),
-            p1_controller_type,
-            p2_controller_type,
-        };
-
-        *self = GenesisEmulator::create(rom, config, save_writer);
+        *self = GenesisEmulator::create(rom, self.config, save_writer);
     }
 
     fn timing_mode(&self) -> TimingMode {

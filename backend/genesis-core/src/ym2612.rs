@@ -12,6 +12,7 @@ use crate::ym2612::envelope::EnvelopeGenerator;
 use crate::ym2612::lfo::LowFrequencyOscillator;
 use crate::ym2612::phase::PhaseGenerator;
 use crate::ym2612::timer::{TimerA, TimerB, TimerTickEffect};
+use crate::GenesisEmulatorConfig;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::{GetBit, U16Ext};
 use std::array;
@@ -367,11 +368,12 @@ pub struct Ym2612 {
     timer_b: TimerB,
     csm_enabled: bool,
     quantize_output: bool,
+    emulate_ladder_effect: bool,
 }
 
 impl Ym2612 {
     #[must_use]
-    pub fn new(quantize_output: bool) -> Self {
+    pub fn new(config: GenesisEmulatorConfig) -> Self {
         Self {
             channels: array::from_fn(|_| FmChannel::default()),
             pcm_enabled: false,
@@ -385,12 +387,13 @@ impl Ym2612 {
             timer_a: TimerA::new(),
             timer_b: TimerB::new(),
             csm_enabled: false,
-            quantize_output,
+            quantize_output: config.quantize_ym2612_output,
+            emulate_ladder_effect: config.emulate_ym2612_ladder_effect,
         }
     }
 
-    pub fn reset(&mut self) {
-        *self = Self::new(self.quantize_output);
+    pub fn reset(&mut self, config: GenesisEmulatorConfig) {
+        *self = Self::new(config);
     }
 
     // Set the address register and set group to 1 (system registers + channels 1-3)
@@ -581,21 +584,25 @@ impl Ym2612 {
 
         let mut sum_l = 0;
         let mut sum_r = 0;
-        for channel in &self.channels[0..5] {
-            let (sample_l, sample_r) = channel.current_output;
-            sum_l += i32::from(sample_l & quantization_mask);
-            sum_r += i32::from(sample_r & quantization_mask);
-        }
+        for (i, channel) in self.channels.iter().enumerate() {
+            let (mut sample_l, mut sample_r) = if i == 5 && self.pcm_enabled {
+                // Channel 6 is in DAC mode; play PCM sample instead of FM output
+                // Convert unsigned 8-bit sample to a signed 14-bit sample
+                let pcm_sample = (i16::from(self.pcm_sample) - 128) << 6;
+                (pcm_sample, pcm_sample)
+            } else {
+                channel.current_output
+            };
 
-        let (ch6_sample_l, ch6_sample_r) = if self.pcm_enabled {
-            // Convert unsigned 8-bit sample to a signed 14-bit sample
-            let pcm_sample = (i16::from(self.pcm_sample) - 128) << 6;
-            (pcm_sample, pcm_sample)
-        } else {
-            self.channels[5].current_output
-        };
-        sum_l += i32::from(ch6_sample_l);
-        sum_r += i32::from(ch6_sample_r);
+            sample_l &= quantization_mask;
+            sample_r &= quantization_mask;
+
+            sample_l = self.apply_ladder_effect(sample_l);
+            sample_r = self.apply_ladder_effect(sample_r);
+
+            sum_l += i32::from(sample_l);
+            sum_r += i32::from(sample_r);
+        }
 
         // Each channel has a range of [-8192, 8191], so divide the sums by 6*8192 to convert to [-1.0, 1.0]
         (f64::from(sum_l) / 49152.0, f64::from(sum_r) / 49152.0)
@@ -608,6 +615,20 @@ impl Ym2612 {
         } else {
             !0
         }
+    }
+
+    fn apply_ladder_effect(&self, sample: i16) -> i16 {
+        if !self.emulate_ladder_effect {
+            return sample;
+        }
+
+        // The "ladder effect" is a distortion in the YM2612 DAC that effectively amplifies
+        // low-volume waves (and has little effect on high-volume waves). A number of games depend
+        // on it for their music to sound correct.
+        //
+        // Emulate the distortion by adding -3 to negative samples and +4 to non-negative samples,
+        // shifted left by 5 because the distortion occurs in the 9-bit DAC but these are 14-bit samples
+        if sample < 0 { sample - (3 << 5) } else { sample + (4 << 5) }
     }
 
     fn write_operator_level_register(&mut self, register: u8, value: u8, base_channel_idx: usize) {
@@ -806,12 +827,8 @@ impl Ym2612 {
         }
     }
 
-    #[must_use]
-    pub fn get_quantize_output(&self) -> bool {
-        self.quantize_output
-    }
-
-    pub fn set_quantize_output(&mut self, quantize_output: bool) {
-        self.quantize_output = quantize_output;
+    pub fn reload_config(&mut self, config: GenesisEmulatorConfig) {
+        self.quantize_output = config.quantize_ym2612_output;
+        self.emulate_ladder_effect = config.emulate_ym2612_ladder_effect;
     }
 }
