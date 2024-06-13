@@ -22,7 +22,6 @@ use egui_extras::{Column, TableBuilder};
 use jgenesis_native_config::{AppConfig, ListFilters};
 use jgenesis_renderer::config::Scanlines;
 use rfd::FileDialog;
-use std::cell::RefCell;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -135,7 +134,8 @@ struct AppState {
     display_scanlines_warning: bool,
     overscan: OverscanState,
     waiting_for_input: Option<GenericButton>,
-    rom_list: Rc<RefCell<Vec<RomMetadata>>>,
+    rom_list: Vec<RomMetadata>,
+    filtered_rom_list: Rc<[RomMetadata]>,
     recent_open_list: Vec<RomMetadata>,
     title_match: String,
     title_match_lowercase: Rc<str>,
@@ -170,7 +170,8 @@ impl AppState {
             overscan: config.nes.overscan().into(),
             display_scanlines_warning: should_display_scanlines_warning(config),
             waiting_for_input: None,
-            rom_list: Rc::new(RefCell::new(rom_list)),
+            rom_list,
+            filtered_rom_list: vec![].into(),
             title_match: String::new(),
             title_match_lowercase: Rc::from(String::new()),
             recent_open_list,
@@ -250,7 +251,10 @@ impl App {
         let state = AppState::from_config(&config);
         let emu_thread = emuthread::spawn(ctx);
 
-        Self { config, state, config_path, emu_thread, startup_file_path }
+        let mut app = Self { config, state, config_path, emu_thread, startup_file_path };
+        app.refresh_filtered_rom_list();
+
+        app
     }
 
     fn open_file(&mut self) {
@@ -332,7 +336,8 @@ impl App {
         let Some(dir) = dir.to_str() else { return };
 
         self.config.rom_search_dirs.push(dir.into());
-        *self.state.rom_list.borrow_mut() = romlist::build(&self.config.rom_search_dirs);
+        self.state.rom_list = romlist::build(&self.config.rom_search_dirs);
+        self.refresh_filtered_rom_list();
     }
 
     fn render_interface_settings(&mut self, ctx: &Context) {
@@ -358,8 +363,8 @@ impl App {
 
                         if ui.button("Remove").clicked() {
                             self.config.rom_search_dirs.remove(i);
-                            *self.state.rom_list.borrow_mut() =
-                                romlist::build(&self.config.rom_search_dirs);
+                            self.state.rom_list = romlist::build(&self.config.rom_search_dirs);
+                            self.refresh_filtered_rom_list();
                         }
                     });
                 }
@@ -751,7 +756,7 @@ impl App {
         CentralPanel::default().show(ctx, |ui| {
             ui.set_enabled(!self.state.error_window_open);
 
-            if self.state.rom_list.borrow().is_empty() {
+            if self.state.rom_list.is_empty() {
                 ui.centered_and_justified(|ui| {
                     if ui.selectable_label(false, "Configure ROM search directory").clicked() {
                         self.add_rom_search_directory();
@@ -794,47 +799,44 @@ impl App {
                         // Blank column to make stripes extend to the right
                         row.col(|_ui| {});
                     })
-                    .body(|mut body| {
-                        let rom_list = Rc::clone(&self.state.rom_list);
-                        let title_match = Rc::clone(&self.state.title_match_lowercase);
-                        for metadata in
-                            self.config.list_filters.apply(&rom_list.borrow(), &title_match)
-                        {
-                            body.row(40.0, |mut row| {
-                                row.col(|ui| {
-                                    if Button::new(&metadata.file_name_no_ext)
-                                        .min_size(Vec2::new(300.0, 30.0))
-                                        .wrap(true)
-                                        .ui(ui)
-                                        .clicked()
-                                    {
-                                        self.emu_thread.stop_emulator_if_running();
-                                        self.launch_emulator(metadata.full_path.clone());
+                    .body(|body| {
+                        let rom_list = Rc::clone(&self.state.filtered_rom_list);
+                        body.rows(40.0, rom_list.len(), |mut row| {
+                            let metadata = &rom_list[row.index()];
+
+                            row.col(|ui| {
+                                if Button::new(&metadata.file_name_no_ext)
+                                    .min_size(Vec2::new(300.0, 30.0))
+                                    .wrap(true)
+                                    .ui(ui)
+                                    .clicked()
+                                {
+                                    self.emu_thread.stop_emulator_if_running();
+                                    self.launch_emulator(metadata.full_path.clone());
+                                }
+                            });
+
+                            row.col(|ui| {
+                                ui.centered_and_justified(|ui| {
+                                    ui.label(metadata.console.to_str());
+                                });
+                            });
+
+                            row.col(|ui| {
+                                ui.centered_and_justified(|ui| {
+                                    if metadata.file_size < 1024 * 1024 {
+                                        let file_size_kb = metadata.file_size / 1024;
+                                        ui.label(format!("{file_size_kb}KB"));
+                                    } else {
+                                        let file_size_mb = metadata.file_size / 1024 / 1024;
+                                        ui.label(format!("{file_size_mb}MB"));
                                     }
                                 });
-
-                                row.col(|ui| {
-                                    ui.centered_and_justified(|ui| {
-                                        ui.label(metadata.console.to_str());
-                                    });
-                                });
-
-                                row.col(|ui| {
-                                    ui.centered_and_justified(|ui| {
-                                        if metadata.file_size < 1024 * 1024 {
-                                            let file_size_kb = metadata.file_size / 1024;
-                                            ui.label(format!("{file_size_kb}KB"));
-                                        } else {
-                                            let file_size_mb = metadata.file_size / 1024 / 1024;
-                                            ui.label(format!("{file_size_mb}MB"));
-                                        }
-                                    });
-                                });
-
-                                // Blank column to make stripes extend to the right
-                                row.col(|_ui| {});
                             });
-                        }
+
+                            // Blank column to make stripes extend to the right
+                            row.col(|_ui| {});
+                        });
                     });
             }
         });
@@ -846,14 +848,18 @@ impl App {
                 TextEdit::singleline(&mut self.state.title_match).hint_text("Filter by name");
             if ui.add(textedit).changed() {
                 self.state.title_match_lowercase = Rc::from(self.state.title_match.to_lowercase());
+                self.refresh_filtered_rom_list();
             }
 
             if ui.button("Clear").clicked() {
                 self.state.title_match.clear();
                 self.state.title_match_lowercase = Rc::from(String::new());
+                self.refresh_filtered_rom_list();
             }
 
             ui.add_space(15.0);
+
+            let prev_list_filters = self.config.list_filters.clone();
 
             ui.checkbox(&mut self.config.list_filters.master_system, "SMS");
             ui.checkbox(&mut self.config.list_filters.game_gear, "Game Gear");
@@ -862,6 +868,10 @@ impl App {
             ui.checkbox(&mut self.config.list_filters.nes, "NES");
             ui.checkbox(&mut self.config.list_filters.snes, "SNES");
             ui.checkbox(&mut self.config.list_filters.game_boy, "GB");
+
+            if prev_list_filters != self.config.list_filters {
+                self.refresh_filtered_rom_list();
+            }
         });
     }
 
@@ -919,6 +929,16 @@ impl App {
             self.config.snes_config(self.state.current_file_path.clone()),
             self.config.gb_config(self.state.current_file_path.clone()),
         );
+    }
+
+    fn refresh_filtered_rom_list(&mut self) {
+        self.state.filtered_rom_list = self
+            .config
+            .list_filters
+            .apply(&self.state.rom_list, &self.state.title_match_lowercase)
+            .cloned()
+            .collect::<Vec<_>>()
+            .into();
     }
 }
 
