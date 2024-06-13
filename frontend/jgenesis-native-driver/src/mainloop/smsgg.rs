@@ -1,10 +1,11 @@
 use crate::config::SmsGgConfig;
 
 use crate::mainloop::save::FsSaveWriter;
-use crate::mainloop::{basic_input_mapper_fn, debug, file_name_no_ext, parse_file_ext};
+use crate::mainloop::{basic_input_mapper_fn, debug, file_name_no_ext};
 use crate::{config, AudioError, NativeEmulator, NativeEmulatorResult};
 use jgenesis_common::frontend::EmulatorTrait;
 
+use crate::config::RomReadResult;
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgButton, SmsGgEmulator, SmsGgEmulatorConfig, SmsGgInputs};
 use std::path::Path;
@@ -58,19 +59,18 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
     log::info!("Running with config: {config}");
 
     let rom_file_path = Path::new(&config.common.rom_file_path);
-    let file_ext = parse_file_ext(rom_file_path)?;
 
     let save_state_path = rom_file_path.with_extension("ss0");
 
-    let rom = config.common.read_rom_file(SUPPORTED_EXTENSIONS)?;
+    let RomReadResult { rom, extension } = config.common.read_rom_file(SUPPORTED_EXTENSIONS)?;
 
     let save_path = rom_file_path.with_extension("sav");
     let mut save_writer = FsSaveWriter::new(save_path);
 
     let vdp_version =
-        config.vdp_version.unwrap_or_else(|| config::default_vdp_version_for_ext(file_ext));
+        config.vdp_version.unwrap_or_else(|| config::default_vdp_version_for_ext(&extension));
     let psg_version =
-        config.psg_version.unwrap_or_else(|| config::default_psg_version_for_ext(file_ext));
+        config.psg_version.unwrap_or_else(|| config::default_psg_version_for_ext(&extension));
 
     log::info!("VDP version: {vdp_version:?}");
     log::info!("PSG version: {psg_version:?}");

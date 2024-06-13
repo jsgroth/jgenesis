@@ -19,25 +19,6 @@ pub enum Console {
 }
 
 impl Console {
-    pub fn from_path(path: &Path) -> Option<Self> {
-        let extension = path.extension().and_then(OsStr::to_str)?;
-        match extension {
-            "zip" => {
-                let first_supported_file =
-                    jgenesis_native_driver::archive::first_supported_file_in_zip(
-                        path,
-                        jgenesis_native_driver::all_supported_extensions(),
-                    )
-                    .ok()
-                    .flatten()?;
-                let extension =
-                    Path::new(&first_supported_file).extension().and_then(OsStr::to_str)?;
-                Self::from_extension(extension)
-            }
-            _ => Self::from_extension(extension),
-        }
-    }
-
     fn from_extension(extension: &str) -> Option<Self> {
         match extension {
             "sms" => Some(Self::MasterSystem),
@@ -123,13 +104,34 @@ pub fn build(rom_search_dirs: &[String]) -> Vec<RomMetadata> {
     metadata
 }
 
-fn process_file(file_name: &str, path: &Path, metadata: fs::Metadata) -> Option<RomMetadata> {
-    let console = Console::from_path(path)?;
+pub fn read_metadata(path: &Path) -> Option<RomMetadata> {
+    let file_name = path.file_name().and_then(OsStr::to_str)?;
+    let metadata = fs::metadata(path).ok()?;
+    process_file(file_name, path, metadata)
+}
 
+fn process_file(file_name: &str, path: &Path, metadata: fs::Metadata) -> Option<RomMetadata> {
     let full_path = path.to_str().map(String::from)?;
     let file_name_no_ext = Path::new(&file_name).with_extension("").to_string_lossy().to_string();
-
     let extension = Path::new(&file_name).extension().and_then(OsStr::to_str)?;
+
+    if extension == "zip" {
+        let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_zip(
+            path,
+            jgenesis_native_driver::all_supported_extensions(),
+        )
+        .ok()
+        .flatten()?;
+        let console = Console::from_extension(&zip_entry.extension)?;
+        return Some(RomMetadata {
+            full_path,
+            file_name_no_ext,
+            console,
+            file_size: zip_entry.size,
+        });
+    }
+
+    let console = Console::from_extension(extension)?;
     let file_size = match extension {
         "cue" => sega_cd_file_size(&full_path).ok()?,
         _ => metadata.len(),

@@ -6,6 +6,7 @@ use crate::mainloop::save::FsSaveWriter;
 use crate::{config, AudioError, NativeEmulator, NativeEmulatorResult};
 use jgenesis_common::frontend::EmulatorTrait;
 
+use crate::config::RomReadResult;
 use snes_core::api::{SnesEmulator, SnesEmulatorConfig};
 use snes_core::input::{SnesButton, SnesInputs};
 use std::path::Path;
@@ -51,7 +52,7 @@ pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEm
     log::info!("Running with config: {config}");
 
     let rom_path = Path::new(&config.common.rom_file_path);
-    let rom = config.common.read_rom_file(SUPPORTED_EXTENSIONS)?;
+    let RomReadResult { rom, .. } = config.common.read_rom_file(SUPPORTED_EXTENSIONS)?;
 
     let save_path = rom_path.with_extension("sav");
     let save_state_path = rom_path.with_extension("ss0");

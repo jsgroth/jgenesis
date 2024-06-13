@@ -285,48 +285,48 @@ impl App {
         self.config.recent_opens.truncate(10);
         self.state.recent_open_list = romlist::from_recent_opens(&self.config.recent_opens);
 
-        let console = Console::from_path(Path::new(&path));
+        let Some(metadata) = romlist::read_metadata(Path::new(&path)) else {
+            log::error!("Unable to detect compatible file at path: '{path}'");
+            self.emu_thread.clear_waiting_for_first_command();
+            return;
+        };
 
-        match console {
-            Some(Console::MasterSystem | Console::GameGear) => {
+        match metadata.console {
+            Console::MasterSystem | Console::GameGear => {
                 self.emu_thread.stop_emulator_if_running();
 
                 let config = self.config.smsgg_config(path);
                 self.emu_thread.send(EmuThreadCommand::RunSms(config));
             }
-            Some(Console::Genesis) => {
+            Console::Genesis => {
                 self.emu_thread.stop_emulator_if_running();
 
                 let config = self.config.genesis_config(path);
                 self.emu_thread.send(EmuThreadCommand::RunGenesis(config));
             }
-            Some(Console::SegaCd) => {
+            Console::SegaCd => {
                 self.emu_thread.stop_emulator_if_running();
 
                 let config = self.config.sega_cd_config(path);
                 self.emu_thread.send(EmuThreadCommand::RunSegaCd(config));
             }
-            Some(Console::Nes) => {
+            Console::Nes => {
                 self.emu_thread.stop_emulator_if_running();
 
                 let config = self.config.nes_config(path);
                 self.emu_thread.send(EmuThreadCommand::RunNes(config));
             }
-            Some(Console::Snes) => {
+            Console::Snes => {
                 self.emu_thread.stop_emulator_if_running();
 
                 let config = self.config.snes_config(path);
                 self.emu_thread.send(EmuThreadCommand::RunSnes(config));
             }
-            Some(Console::GameBoy | Console::GameBoyColor) => {
+            Console::GameBoy | Console::GameBoyColor => {
                 self.emu_thread.stop_emulator_if_running();
 
                 let config = self.config.gb_config(path);
                 self.emu_thread.send(EmuThreadCommand::RunGameBoy(config));
-            }
-            None => {
-                log::error!("Unable to determine core for path: {path}");
-                self.emu_thread.clear_waiting_for_first_command();
             }
         }
     }

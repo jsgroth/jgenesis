@@ -1,3 +1,4 @@
+use crate::config::RomReadResult;
 use crate::config::{GenesisConfig, SegaCdConfig};
 use crate::mainloop::save::FsSaveWriter;
 use crate::mainloop::{basic_input_mapper_fn, debug, NativeEmulatorError};
@@ -117,7 +118,7 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
     log::info!("Running with config: {config}");
 
     let rom_file_path = Path::new(&config.common.rom_file_path);
-    let rom = config.common.read_rom_file(GENESIS_SUPPORTED_EXTENSIONS)?;
+    let RomReadResult { rom, .. } = config.common.read_rom_file(GENESIS_SUPPORTED_EXTENSIONS)?;
 
     let save_path = rom_file_path.with_extension("sav");
     let save_state_path = rom_file_path.with_extension("ss0");

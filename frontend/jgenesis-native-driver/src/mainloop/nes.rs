@@ -8,6 +8,7 @@ use jgenesis_common::frontend::EmulatorTrait;
 use nes_core::api::{NesEmulator, NesEmulatorConfig};
 use nes_core::input::{NesButton, NesInputs};
 
+use crate::config::RomReadResult;
 use crate::input::InputMapper;
 use std::path::Path;
 
@@ -51,7 +52,7 @@ pub fn create_nes(config: Box<NesConfig>) -> NativeEmulatorResult<NativeNesEmula
     log::info!("Running with config: {config}");
 
     let rom_path = Path::new(&config.common.rom_file_path);
-    let rom = config.common.read_rom_file(SUPPORTED_EXTENSIONS)?;
+    let RomReadResult { rom, .. } = config.common.read_rom_file(SUPPORTED_EXTENSIONS)?;
 
     let save_path = rom_path.with_extension("sav");
     let save_state_path = rom_path.with_extension("ss0");

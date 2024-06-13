@@ -1,3 +1,4 @@
+use crate::config::RomReadResult;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io;
@@ -39,6 +40,13 @@ impl ArchiveError {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct ZipEntryMetadata {
+    pub file_name: String,
+    pub extension: String,
+    pub size: u64,
+}
+
 /// Returns the file name of the first file in the .zip archive that has a supported extension, or
 /// None if there are no files with a supported extension.
 ///
@@ -48,25 +56,34 @@ impl ArchiveError {
 pub fn first_supported_file_in_zip(
     zip_path: &Path,
     supported_extensions: &[&str],
-) -> Result<Option<String>, ArchiveError> {
+) -> Result<Option<ZipEntryMetadata>, ArchiveError> {
     let io_err_fn = |source| ArchiveError::io(zip_path, source);
     let zip_err_fn = |source| ArchiveError::zip(zip_path, source);
 
     let file = File::open(zip_path).map_err(io_err_fn)?;
     let reader = BufReader::new(file);
-    let archive = ZipArchive::new(reader).map_err(zip_err_fn)?;
+    let mut archive = ZipArchive::new(reader).map_err(zip_err_fn)?;
 
+    let mut first_file_name_with_ext: Option<(String, String)> = None;
     for file_name in archive.file_names() {
         let Some(extension) = Path::new(&file_name).extension().and_then(OsStr::to_str) else {
             continue;
         };
 
         if supported_extensions.contains(&extension) {
-            return Ok(Some(file_name.into()));
+            first_file_name_with_ext = Some((file_name.into(), extension.into()));
+            break;
         }
     }
 
-    Ok(None)
+    let Some((file_name, extension)) = first_file_name_with_ext else {
+        return Ok(None);
+    };
+
+    let file = archive.by_name(&file_name).map_err(zip_err_fn)?;
+    let size = file.size();
+
+    Ok(Some(ZipEntryMetadata { file_name, extension, size }))
 }
 
 /// Opens and reads the first file in the .zip archive that has a supported extension.
@@ -75,10 +92,10 @@ pub fn first_supported_file_in_zip(
 ///
 /// Propagates any I/O or ZIP errors, and will also return an error if the .zip archive contains
 /// no files with a supported extension.
-pub fn read_first_file_in_zip(
+pub(crate) fn read_first_file_in_zip(
     zip_path: &Path,
     supported_extensions: &[&str],
-) -> Result<Vec<u8>, ArchiveError> {
+) -> Result<RomReadResult, ArchiveError> {
     let io_err_fn = |source| ArchiveError::io(zip_path, source);
     let zip_err_fn = |source| ArchiveError::zip(zip_path, source);
 
@@ -97,7 +114,8 @@ pub fn read_first_file_in_zip(
 
             let mut contents = Vec::with_capacity(zip_file.size() as usize);
             zip_file.read_to_end(&mut contents).map_err(io_err_fn)?;
-            return Ok(contents);
+
+            return Ok(RomReadResult { rom: contents, extension: extension.into() });
         }
     }
 

@@ -566,8 +566,7 @@ fn main() -> anyhow::Result<()> {
                         args.file_path
                     )
                 });
-                file_ext =
-                    Path::new(&zip_entry).extension().and_then(OsStr::to_str).unwrap().into();
+                file_ext = zip_entry.extension;
             }
 
             match file_ext.as_str() {

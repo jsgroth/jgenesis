@@ -83,6 +83,12 @@ impl GgAspectRatio {
     }
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct RomReadResult {
+    pub rom: Vec<u8>,
+    pub extension: String,
+}
+
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct CommonConfig<KeyboardConfig, JoystickConfig> {
     pub rom_file_path: String,
@@ -112,7 +118,7 @@ impl<KeyboardConfig, JoystickConfig> CommonConfig<KeyboardConfig, JoystickConfig
     pub(crate) fn read_rom_file(
         &self,
         supported_extensions: &[&str],
-    ) -> NativeEmulatorResult<Vec<u8>> {
+    ) -> NativeEmulatorResult<RomReadResult> {
         let path = Path::new(&self.rom_file_path);
         let extension = path.extension().and_then(OsStr::to_str).unwrap_or("");
         if extension == "zip" {
@@ -120,10 +126,12 @@ impl<KeyboardConfig, JoystickConfig> CommonConfig<KeyboardConfig, JoystickConfig
                 .map_err(NativeEmulatorError::Archive);
         }
 
-        fs::read(path).map_err(|source| NativeEmulatorError::RomRead {
+        let contents = fs::read(path).map_err(|source| NativeEmulatorError::RomRead {
             path: path.display().to_string(),
             source,
-        })
+        })?;
+
+        Ok(RomReadResult { rom: contents, extension: extension.into() })
     }
 }
 

@@ -1,4 +1,5 @@
 use crate::config::GameBoyConfig;
+use crate::config::RomReadResult;
 use crate::mainloop::save::FsSaveWriter;
 use crate::mainloop::{basic_input_mapper_fn, debug, file_name_no_ext};
 use crate::{config, AudioError, NativeEmulator, NativeEmulatorResult};
@@ -47,7 +48,7 @@ pub fn create_gb(config: Box<GameBoyConfig>) -> NativeEmulatorResult<NativeGameB
     log::info!("Running with config: {config}");
 
     let rom_path = Path::new(&config.common.rom_file_path);
-    let rom = config.common.read_rom_file(SUPPORTED_EXTENSIONS)?;
+    let RomReadResult { rom, .. } = config.common.read_rom_file(SUPPORTED_EXTENSIONS)?;
 
     let save_path = rom_path.with_extension("sav");
     let save_state_path = rom_path.with_extension("ss0");

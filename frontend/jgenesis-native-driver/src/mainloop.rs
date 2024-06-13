@@ -40,7 +40,7 @@ use segacd_core::api::SegaCdLoadError;
 use snes_core::api::SnesLoadError;
 use std::cell::RefCell;
 use std::error::Error;
-use std::ffi::{NulError, OsStr};
+use std::ffi::NulError;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::OnceLock;
@@ -678,12 +678,6 @@ fn file_name_no_ext<P: AsRef<Path>>(path: P) -> NativeEmulatorResult<String> {
         .file_name()
         .map(|file_name| file_name.to_string_lossy().into_owned())
         .ok_or_else(|| NativeEmulatorError::ParseFileName(path.as_ref().display().to_string()))
-}
-
-fn parse_file_ext(path: &Path) -> NativeEmulatorResult<&str> {
-    path.extension()
-        .and_then(OsStr::to_str)
-        .ok_or_else(|| NativeEmulatorError::ParseFileExtension(path.display().to_string()))
 }
 
 fn basic_input_mapper_fn<KC, JC, Inputs, Button>(
