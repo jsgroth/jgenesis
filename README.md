@@ -31,6 +31,13 @@ TODOs:
 * Investigate and fix a few minor issues, like the EA logo flickering for a single frame in _Galahad_
 * Support 24C64 EEPROM chips (used only in _Frank Thomas Big Hurt Baseball_ and _College Slam_)
 
+## Dev Builds
+
+The GitHub Actions workflow compiles release builds on every commit, which will stay available for 90 days afterwards:
+https://github.com/jsgroth/jgenesis/actions
+
+Note that these builds are not always well-tested and may have bugs.
+
 ## Dependencies
 
 ### Rust
