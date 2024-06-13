@@ -60,6 +60,24 @@ pub struct Vdp {
     timing_mode: TimingMode,
 }
 
+macro_rules! non_display_frame_buffer {
+    ($self:expr) => {
+        match $self.state.display_frame_buffer {
+            SelectedFrameBuffer::Zero => &$self.frame_buffer_1,
+            SelectedFrameBuffer::One => &$self.frame_buffer_0,
+        }
+    };
+}
+
+macro_rules! non_display_frame_buffer_mut {
+    ($self:expr) => {
+        match $self.state.display_frame_buffer {
+            SelectedFrameBuffer::Zero => &mut $self.frame_buffer_1,
+            SelectedFrameBuffer::One => &mut $self.frame_buffer_0,
+        }
+    };
+}
+
 impl Vdp {
     pub fn new(timing_mode: TimingMode) -> Self {
         Self {
@@ -95,12 +113,15 @@ impl Vdp {
     pub fn read_register(&self, address: u32) -> u16 {
         match address & 0xF {
             0x0 => self.registers.read_display_mode(self.timing_mode),
+            0x2 => self.registers.read_screen_shift(),
             0xA => self.read_frame_buffer_control(),
             _ => todo!("VDP register read {address:08X}"),
         }
     }
 
     pub fn write_register(&mut self, address: u32, value: u16) {
+        log::trace!("VDP register write: {address:08X} {value:04X}");
+
         match address & 0xF {
             0x0 => self.registers.write_display_mode(value),
             0x2 => self.registers.write_screen_shift(value),
@@ -122,6 +143,21 @@ impl Vdp {
         }
     }
 
+    pub fn read_frame_buffer(&self, address: u32) -> u16 {
+        let frame_buffer = non_display_frame_buffer!(self);
+        frame_buffer[((address & 0x1FFFF) >> 1) as usize]
+    }
+
+    pub fn write_frame_buffer(&mut self, address: u32, value: u16) {
+        let frame_buffer = non_display_frame_buffer_mut!(self);
+        frame_buffer[((address & 0x1FFFF) >> 1) as usize] = value;
+    }
+
+    pub fn read_cram(&self, address: u32) -> u16 {
+        // TODO block access to CRAM when in use?
+        self.cram[((address & 0x1FF) >> 1) as usize]
+    }
+
     pub fn write_cram(&mut self, address: u32, value: u16) {
         if matches!(
             self.registers.frame_buffer_mode,
@@ -130,7 +166,30 @@ impl Vdp {
             || self.in_hblank()
         {
             self.cram[((address & 0x1FF) >> 1) as usize] = value;
+        } else {
+            log::warn!("CRAM written while in use: {address:08X} {value:04X}");
         }
+    }
+
+    // Interrupt mask bit 7: HEN (H interrupts enabled during VBlank)(
+    pub fn hen_bit(&self) -> bool {
+        self.registers.h_interrupt_in_vblank
+    }
+
+    // Interrupt mask bit 7: HEN (H interrupts enabled during VBlank)(
+    pub fn write_hen_bit(&mut self, hen: bool) {
+        self.registers.h_interrupt_in_vblank = hen;
+    }
+
+    // SH-2: $4004
+    pub fn h_interrupt_interval(&self) -> u16 {
+        self.registers.h_interrupt_interval
+    }
+
+    // SH-2: $4004
+    pub fn write_h_interrupt_interval(&mut self, value: u16) {
+        self.registers.h_interrupt_interval = value & 0xFF;
+        log::trace!("H interrupt interval write: {value:04X}");
     }
 
     fn read_frame_buffer_control(&self) -> u16 {
@@ -149,10 +208,7 @@ impl Vdp {
     }
 
     fn do_auto_fill(&mut self) {
-        let frame_buffer = match self.state.display_frame_buffer {
-            SelectedFrameBuffer::Zero => &mut self.frame_buffer_1,
-            SelectedFrameBuffer::One => &mut self.frame_buffer_0,
-        };
+        let frame_buffer = non_display_frame_buffer_mut!(self);
 
         let data = self.registers.auto_fill_data;
         for _ in 0..self.registers.auto_fill_length {

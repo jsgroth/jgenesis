@@ -79,6 +79,8 @@ pub struct Registers {
     pub auto_fill_length: u16,
     pub auto_fill_start_address: u16,
     pub auto_fill_data: u16,
+    pub h_interrupt_interval: u16,
+    pub h_interrupt_in_vblank: bool,
 }
 
 impl Registers {
@@ -102,6 +104,12 @@ impl Registers {
         log::trace!("  Frame buffer mode: {:?}", self.frame_buffer_mode);
         log::trace!("  Vertical resolution: {:?}", self.v_resolution);
         log::trace!("  Priority: {:?}", self.priority);
+    }
+
+    // 68000: $A15182
+    // SH-2: $4102
+    pub fn read_screen_shift(&self) -> u16 {
+        self.screen_left_shift.into()
     }
 
     // 68000: $A15182

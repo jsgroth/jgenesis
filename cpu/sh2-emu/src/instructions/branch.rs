@@ -1,4 +1,3 @@
-use crate::bus::BusInterface;
 use crate::instructions::{parse_branch_displacement, parse_register_high, parse_signed_immediate};
 use crate::Sh2;
 
@@ -10,6 +9,13 @@ pub fn jmp(cpu: &mut Sh2, opcode: u16) {
     cpu.registers.next_op_in_delay_slot = true;
 }
 
+// JSR @Rm
+// Jump to subroutine
+pub fn jsr(cpu: &mut Sh2, opcode: u16) {
+    cpu.registers.pr = cpu.registers.next_pc;
+    jmp(cpu, opcode);
+}
+
 // BRA label
 // Unconditional branch
 pub fn bra(cpu: &mut Sh2, opcode: u16) {
@@ -18,14 +24,19 @@ pub fn bra(cpu: &mut Sh2, opcode: u16) {
     cpu.registers.next_op_in_delay_slot = true;
 }
 
+// BRAF Rm
+// Unconditional branch far
+pub fn braf(cpu: &mut Sh2, opcode: u16) {
+    let register = parse_register_high(opcode) as usize;
+    cpu.registers.next_pc = cpu.registers.next_pc.wrapping_add(cpu.registers.gpr[register]);
+    cpu.registers.next_op_in_delay_slot = true;
+}
+
 // BSR label
 // Branch to subroutine
 pub fn bsr(cpu: &mut Sh2, opcode: u16) {
     cpu.registers.pr = cpu.registers.next_pc;
-
-    let displacement = parse_branch_displacement(opcode) << 1;
-    cpu.registers.next_pc = cpu.registers.next_pc.wrapping_add(displacement as u32);
-    cpu.registers.next_op_in_delay_slot = true;
+    bra(cpu, opcode);
 }
 
 // BSRF Rm
@@ -57,6 +68,26 @@ impl_conditional_branch!(bf, !);
 // BT label
 // Branch if true
 impl_conditional_branch!(bt);
+
+macro_rules! impl_delayed_conditional_branch {
+    ($name:ident $(, $not:tt)?) => {
+        pub fn $name(cpu: &mut Sh2, opcode: u16) {
+            if $($not)? cpu.registers.sr.t {
+                let displacement = parse_signed_immediate(opcode) << 1;
+                cpu.registers.next_pc = cpu.registers.next_pc.wrapping_add(displacement as u32);
+                cpu.registers.next_op_in_delay_slot = true;
+            }
+        }
+    }
+}
+
+// BF/S label
+// Branch if false with delay slot
+impl_delayed_conditional_branch!(bf_s, !);
+
+// BT/S label
+// Branch if true with delay slot
+impl_delayed_conditional_branch!(bt_s);
 
 // RTS
 // Return from subroutine
