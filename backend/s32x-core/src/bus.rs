@@ -95,10 +95,33 @@ impl PhysicalMedium for Sega32X {
                 // First 512KB of ROM
                 self.rom.get_u16(address & 0x7FFFF)
             }
+            0x900000..=0x9FFFFF => {
+                // Mappable 1MB ROM bank
+                let rom_addr =
+                    (u32::from(self.registers.m68k_rom_bank) << 20) | (address & 0xFFFFF);
+                self.rom.get_u16(rom_addr)
+            }
             0xA15100..=0xA1512F => {
                 // System registers
                 log::trace!("M68K read word {address:06X}");
                 self.registers.m68k_read(address)
+            }
+            0xA15180..=0xA1518F => {
+                // 32X VDP registers
+                log::trace!("M68K read word {address:06X}");
+                if self.registers.vdp_access == Access::M68k {
+                    self.vdp.read_register(address)
+                } else {
+                    0xFFFF
+                }
+            }
+            0xA15200..=0xA153FF => {
+                // 32X CRAM
+                if self.registers.vdp_access == Access::M68k {
+                    self.vdp.read_cram(address)
+                } else {
+                    0xFFFF
+                }
             }
             // 32X ID - "MARS"
             0xA130EC => u16::from_be_bytes([b'M', b'A']),
@@ -209,6 +232,7 @@ macro_rules! memory_map {
         system_registers => $system_registers:expr,
         vdp => $vdp:expr,
         cartridge => $cartridge:expr,
+        frame_buffer => $frame_buffer:expr,
         sdram => $sdram:expr,
         _ => $default:expr $(,)?
     }) => {
@@ -217,6 +241,7 @@ macro_rules! memory_map {
             0x00004000..=0x000040FF => $system_registers,
             0x00004100..=0x000041FF => $vdp,
             0x02000000..=0x023FFFFF => $cartridge,
+            0x04000000..=0x0401FFFF => $frame_buffer,
             0x06000000..=0x0603FFFF => $sdram,
             _ => $default,
         }
@@ -230,15 +255,27 @@ impl<'a> BusInterface for Sh2Bus<'a> {
             boot_rom => read_u8(self.boot_rom, self.boot_rom_mask, address),
             system_registers => {
                 log::trace!("SH-2 {:?} read byte {address:08X}", self.which);
-                let value = self.registers.sh2_read(address & !1, self.which);
+                let value = self.registers.sh2_read(address & !1, self.which, self.vdp);
                 if !address.bit(0) { value.msb() } else { value.lsb() }
             },
             vdp => {
-                let word = self.vdp.read_register(address & !1);
-                if !address.bit(0) { word.msb() } else { word.lsb() }
+                if self.registers.vdp_access == Access::Sh2 {
+                    let word = self.vdp.read_register(address & !1);
+                    if !address.bit(0) { word.msb() } else { word.lsb() }
+                } else {
+                    0xFF
+                }
             },
             cartridge => {
                 self.rom.get((address & 0x3FFFFF) as usize).copied().unwrap_or(!0)
+            },
+            frame_buffer => {
+                if self.registers.vdp_access == Access::Sh2 {
+                    let word = self.vdp.read_frame_buffer(address & !1);
+                    if !address.bit(0) { word.msb() } else { word.lsb() }
+                } else {
+                    0xFF
+                }
             },
             sdram => {
                 let word = self.sdram[((address & SDRAM_MASK) >> 1) as usize];
@@ -254,10 +291,23 @@ impl<'a> BusInterface for Sh2Bus<'a> {
             boot_rom => read_u16(self.boot_rom, self.boot_rom_mask, address),
             system_registers => {
                 log::trace!("SH-2 {:?} read word {address:08X}", self.which);
-                self.registers.sh2_read(address, self.which)
+                self.registers.sh2_read(address, self.which, self.vdp)
             },
-            vdp => self.vdp.read_register(address),
+            vdp => {
+                if self.registers.vdp_access == Access::Sh2 {
+                    self.vdp.read_register(address)
+                } else {
+                    0xFFFF
+                }
+            },
             cartridge => self.rom.get_u16(address & 0x3FFFFF),
+            frame_buffer => {
+                if self.registers.vdp_access == Access::Sh2 {
+                    self.vdp.read_frame_buffer(address)
+                } else {
+                    0xFFFF
+                }
+            },
             sdram => self.sdram[((address & SDRAM_MASK) >> 1) as usize],
             _ => todo!("SH-2 {:?} read word {address:08X}", self.which),
         })
@@ -271,16 +321,29 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 if log::log_enabled!(log::Level::Trace) && !(0x4020..0x4030).contains(&address) {
                     log::trace!("SH-2 {:?} read longword {address:08X}", self.which);
                 }
-                let high = self.registers.sh2_read(address, self.which);
-                let low = self.registers.sh2_read(address | 2, self.which);
+                let high = self.registers.sh2_read(address, self.which, self.vdp);
+                let low = self.registers.sh2_read(address | 2, self.which, self.vdp);
                 (u32::from(high) << 16) | u32::from(low)
             },
             vdp => {
-                let high_word = self.vdp.read_register(address);
-                let low_word = self.vdp.read_register(address | 2);
-                (u32::from(high_word) << 16) | u32::from(low_word)
+                if self.registers.vdp_access == Access::Sh2 {
+                    let high_word = self.vdp.read_register(address);
+                    let low_word = self.vdp.read_register(address | 2);
+                    (u32::from(high_word) << 16) | u32::from(low_word)
+                } else {
+                    0xFFFFFFFF
+                }
             },
             cartridge => self.rom.get_u32(address & 0x3FFFFF),
+            frame_buffer => {
+                if self.registers.vdp_access == Access::Sh2 {
+                    let high_word = self.vdp.read_frame_buffer(address);
+                    let low_word = self.vdp.read_frame_buffer(address | 2);
+                    (u32::from(high_word) << 16) | u32::from(low_word)
+                } else {
+                    0xFFFFFFFF
+                }
+            },
             sdram => {
                 let word_addr = (((address & SDRAM_MASK) >> 1) & !1) as usize;
                 let high_word = self.sdram[word_addr];
@@ -297,16 +360,25 @@ impl<'a> BusInterface for Sh2Bus<'a> {
             boot_rom => {},
             system_registers => {
                 log::trace!("SH-2 {:?} byte write {address:08X} {value:02X}", self.which);
-                let mut word = self.registers.sh2_read(address & !1, self.which);
+                let mut word = self.registers.sh2_read(address & !1, self.which, self.vdp);
                 if !address.bit(0) { word.set_msb(value) } else { word.set_lsb(value) };
-                self.registers.sh2_write(address & !1, word, self.which);
+                self.registers.sh2_write(address & !1, word, self.which, self.vdp);
             },
             vdp => {
-                let mut word = self.vdp.read_register(address & !1);
-                if !address.bit(0) { word.set_msb(value) } else { word.set_lsb(value) };
-                self.vdp.write_register(address & !1, word);
+                if self.registers.vdp_access == Access::Sh2 {
+                    let mut word = self.vdp.read_register(address & !1);
+                    if !address.bit(0) { word.set_msb(value) } else { word.set_lsb(value) };
+                    self.vdp.write_register(address & !1, word);
+                }
             },
             cartridge => {},
+            frame_buffer => {
+                if self.registers.vdp_access == Access::Sh2 {
+                    let mut word = self.vdp.read_frame_buffer(address & !1);
+                    if !address.bit(0) { word.set_msb(value) } else { word.set_lsb(value) };
+                    self.vdp.write_frame_buffer(address & !1, word);
+                }
+            },
             sdram => {
                 let word_addr = ((address & SDRAM_MASK) >> 1) as usize;
                 if !address.bit(0) {
@@ -325,10 +397,19 @@ impl<'a> BusInterface for Sh2Bus<'a> {
             boot_rom => {},
             system_registers => {
                 log::trace!("SH-2 {:?} word write {address:08X} {value:04X}", self.which);
-                self.registers.sh2_write(address, value, self.which);
+                self.registers.sh2_write(address, value, self.which, self.vdp);
             },
-            vdp => self.vdp.write_register(address, value),
+            vdp => {
+                if self.registers.vdp_access == Access::Sh2 {
+                    self.vdp.write_register(address, value);
+                }
+            },
             cartridge => {},
+            frame_buffer => {
+                if self.registers.vdp_access == Access::Sh2 {
+                    self.vdp.write_frame_buffer(address, value);
+                }
+            },
             sdram => {
                 self.sdram[((address & SDRAM_MASK) >> 1) as usize] = value;
             },
@@ -342,14 +423,22 @@ impl<'a> BusInterface for Sh2Bus<'a> {
             boot_rom => {},
             system_registers => {
                 log::trace!("SH-2 {:?} longword write {address:08X} {value:08X}", self.which);
-                self.registers.sh2_write(address, (value >> 16) as u16, self.which);
-                self.registers.sh2_write(address | 2, value as u16, self.which);
+                self.registers.sh2_write(address, (value >> 16) as u16, self.which, self.vdp);
+                self.registers.sh2_write(address | 2, value as u16, self.which, self.vdp);
             },
             vdp => {
-                self.vdp.write_register(address, (value >> 16) as u16);
-                self.vdp.write_register(address | 2, value as u16);
+                if self.registers.vdp_access == Access::Sh2 {
+                    self.vdp.write_register(address, (value >> 16) as u16);
+                    self.vdp.write_register(address | 2, value as u16);
+                }
             },
             cartridge => {},
+            frame_buffer => {
+                if self.registers.vdp_access == Access::Sh2 {
+                    self.vdp.write_frame_buffer(address, (value >> 16) as u16);
+                    self.vdp.write_frame_buffer(address | 2, value as u16);
+                }
+            },
             sdram => {
                 let sdram_addr = (((address & SDRAM_MASK) >> 1) & !1) as usize;
                 self.sdram[sdram_addr] = (value >> 16) as u16;

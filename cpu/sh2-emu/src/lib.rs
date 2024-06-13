@@ -16,9 +16,14 @@ const RESET_VBR: u32 = 0x00000000;
 // R15 is the hardware stack pointer
 const SP: usize = 15;
 
+const CACHE_LEN: usize = 4 * 1024;
+
+type CpuCache = [u8; CACHE_LEN];
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Sh2 {
     registers: Sh2Registers,
+    cache: Box<CpuCache>,
     bus_control: BusControllerRegisters,
     reset_pending: bool,
     name: String,
@@ -29,6 +34,7 @@ impl Sh2 {
     pub fn new(name: String) -> Self {
         Self {
             registers: Sh2Registers::default(),
+            cache: vec![0; CACHE_LEN].into_boxed_slice().try_into().unwrap(),
             bus_control: BusControllerRegisters::new(),
             reset_pending: false,
             name,
@@ -66,7 +72,7 @@ impl Sh2 {
         }
 
         let pc = self.registers.pc;
-        let opcode = bus.read_word(pc);
+        let opcode = self.read_word(pc, bus);
         self.registers.pc = self.registers.next_pc;
         self.registers.next_pc = self.registers.pc.wrapping_add(2);
 
@@ -101,6 +107,7 @@ impl Sh2 {
     fn read_word<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u16 {
         match address >> 29 {
             0 | 1 => bus.read_word(address & 0x1FFFFFFF),
+            6 => self.read_cache_u16(address),
             _ => todo!("Unexpected SH-2 address, word read: {address:08X}"),
         }
     }
@@ -108,6 +115,7 @@ impl Sh2 {
     fn read_longword<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u32 {
         match address >> 29 {
             0 | 1 => bus.read_longword(address & 0x1FFFFFFF),
+            6 => self.read_cache_u32(address),
             7 => self.read_internal_register_longword(address),
             _ => todo!("Unexpected SH-2 address, longword read: {address:08X}"),
         }
@@ -132,8 +140,24 @@ impl Sh2 {
     fn write_longword<B: BusInterface>(&mut self, address: u32, value: u32, bus: &mut B) {
         match address >> 29 {
             0 | 1 => bus.write_longword(address & 0x1FFFFFFF, value),
+            6 => self.write_cache_u32(address, value),
             7 => self.write_internal_register_longword(address, value),
             _ => todo!("Unexpected SH-2 address, longword write: {address:08X} {value:08X}"),
         }
+    }
+
+    fn read_cache_u16(&self, address: u32) -> u16 {
+        let cache_addr = (address as usize) & (CACHE_LEN - 1) & !1;
+        u16::from_be_bytes([self.cache[cache_addr], self.cache[cache_addr + 1]])
+    }
+
+    fn read_cache_u32(&self, address: u32) -> u32 {
+        let cache_addr = (address as usize) & (CACHE_LEN - 1) & !3;
+        u32::from_be_bytes(self.cache[cache_addr..cache_addr + 4].try_into().unwrap())
+    }
+
+    fn write_cache_u32(&mut self, address: u32, value: u32) {
+        let cache_addr = (address as usize) & (CACHE_LEN - 1) & !3;
+        self.cache[cache_addr..cache_addr + 4].copy_from_slice(&value.to_be_bytes());
     }
 }

@@ -22,6 +22,17 @@ pub fn mov_b_immediate_rn(cpu: &mut Sh2, opcode: u16) {
     cpu.registers.gpr[register as usize] = immediate as u32;
 }
 
+// MOV.B @Rm, Rn
+// Loads a byte from memory using indirect register addressing
+pub fn mov_b_indirect_rn<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let source = parse_register_low(opcode) as usize;
+    let destination = parse_register_high(opcode) as usize;
+
+    let address = cpu.registers.gpr[source];
+    let value = cpu.read_byte(address, bus);
+    cpu.registers.gpr[destination] = extend_i8(value);
+}
+
 // MOV.W @Rm, Rn
 // Loads a word from memory using indirect register addressing
 pub fn mov_w_indirect_rn<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
@@ -193,6 +204,27 @@ pub fn mov_l_rm_displacement_rn<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus
     cpu.registers.gpr[destination] = cpu.read_longword(address, bus);
 }
 
+// MOV.L Rm, @(R0,Rn)
+// Stores a longword into memory using indirect indexed register addressing
+pub fn mov_l_rm_indirect_indexed<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let source = parse_register_low(opcode) as usize;
+    let destination = parse_register_high(opcode) as usize;
+
+    let address = cpu.registers.gpr[0].wrapping_add(cpu.registers.gpr[destination]);
+    cpu.write_longword(address, cpu.registers.gpr[source], bus);
+}
+
+// MOV.W @(R0,Rm), Rn
+// Loads a word from memory using indirect indexed register addressing
+pub fn mov_w_indirect_indexed_rn<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let source = parse_register_low(opcode) as usize;
+    let destination = parse_register_high(opcode) as usize;
+
+    let address = cpu.registers.gpr[0].wrapping_add(cpu.registers.gpr[source]);
+    let value = cpu.read_word(address, bus);
+    cpu.registers.gpr[destination] = extend_i16(value);
+}
+
 // MOV.L @(R0,Rm), Rn
 // Loads a longword from memory using indirect indexed register addressing
 pub fn mov_l_indirect_indexed_rn<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
@@ -273,6 +305,22 @@ pub fn ldc_rm_gbr(cpu: &mut Sh2, opcode: u16) {
 pub fn ldc_rm_vbr(cpu: &mut Sh2, opcode: u16) {
     let register = parse_register_high(opcode);
     cpu.registers.vbr = cpu.registers.gpr[register as usize];
+}
+
+// LDS.L @Rm+, PR
+// Loads PR from memory using post-increment indirect register addressing
+pub fn lds_postinc_pr<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let register = parse_register_high(opcode) as usize;
+    let address = cpu.registers.gpr[register];
+    cpu.registers.gpr[register] = address.wrapping_add(4);
+    cpu.registers.pr = cpu.read_longword(address, bus);
+}
+
+// STS MACL, Rn
+// Store MACL into a general-purpose register
+pub fn sts_macl_rn(cpu: &mut Sh2, opcode: u16) {
+    let register = parse_register_high(opcode) as usize;
+    cpu.registers.gpr[register] = cpu.registers.macl;
 }
 
 // STS.L PR, @-Rn

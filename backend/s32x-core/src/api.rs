@@ -193,11 +193,13 @@ impl EmulatorTrait for Sega32XEmulator {
     }
 
     fn reload_config(&mut self, config: &Self::Config) {
-        todo!("reload config")
+        self.vdp.reload_config(config.genesis.to_vdp_config());
+        self.ym2612.set_quantize_output(config.genesis.quantize_ym2612_output);
+        self.input.reload_config(config.genesis);
     }
 
     fn take_rom_from(&mut self, other: &mut Self) {
-        todo!("take ROM from")
+        self.memory.medium_mut().take_rom_from(other.memory.medium_mut());
     }
 
     fn soft_reset(&mut self) {

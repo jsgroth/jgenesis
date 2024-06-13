@@ -8,6 +8,7 @@ use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use sh2_emu::Sh2;
+use std::mem;
 use std::ops::Deref;
 
 const SH2_MASTER_BOOT_ROM: &[u8; 2048] = include_bytes!("sh2_master_boot_rom.bin");
@@ -112,5 +113,9 @@ impl Sega32X {
         for _ in 0..sh2_ticks {
             self.sh2_slave.tick(&mut slave_bus);
         }
+    }
+
+    pub fn take_rom_from(&mut self, other: &mut Self) {
+        self.rom.0 = mem::take(&mut other.rom.0);
     }
 }
