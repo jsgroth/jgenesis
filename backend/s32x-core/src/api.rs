@@ -91,7 +91,7 @@ impl Sega32XEmulator {
         // TODO
         let timing_mode = TimingMode::Ntsc;
         let vdp = Vdp::new(timing_mode, config.genesis.to_vdp_config());
-        let ym2612 = Ym2612::new(config.genesis.quantize_ym2612_output);
+        let ym2612 = Ym2612::new(config.genesis);
         let psg = Psg::new(PsgVersion::Standard);
 
         let initial_cartridge_ram = save_writer.load_bytes("sav").ok();
@@ -235,9 +235,11 @@ impl EmulatorTrait for Sega32XEmulator {
 
     fn reload_config(&mut self, config: &Self::Config) {
         self.vdp.reload_config(config.genesis.to_vdp_config());
-        self.ym2612.set_quantize_output(config.genesis.quantize_ym2612_output);
+        self.ym2612.reload_config(config.genesis);
         self.input.reload_config(config.genesis);
         self.memory.medium_mut().vdp.update_video_out(config.video_out);
+
+        self.config = *config;
     }
 
     fn take_rom_from(&mut self, other: &mut Self) {
