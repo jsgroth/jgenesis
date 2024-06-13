@@ -53,6 +53,7 @@ toml = "0.8"
 windows = "0.56"
 wgpu = "0.18"
 xrandr = "0.2"
+zip = "2"
 
 [profile.dev-fast]
 # dev profile with debug symbols disabled, which results in significantly faster compile times

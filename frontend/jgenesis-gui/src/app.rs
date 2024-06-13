@@ -24,7 +24,6 @@ use jgenesis_renderer::config::Scanlines;
 use rfd::FileDialog;
 use std::cell::RefCell;
 use std::collections::HashSet;
-use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -282,49 +281,47 @@ impl App {
         self.config.recent_opens.truncate(10);
         self.state.recent_open_list = romlist::from_recent_opens(&self.config.recent_opens);
 
-        match Path::new(&path).extension().and_then(OsStr::to_str) {
-            Some("sms" | "gg") => {
+        let console = Console::from_path(Path::new(&path));
+
+        match console {
+            Some(Console::MasterSystem | Console::GameGear) => {
                 self.emu_thread.stop_emulator_if_running();
 
                 let config = self.config.smsgg_config(path);
                 self.emu_thread.send(EmuThreadCommand::RunSms(config));
             }
-            Some("md" | "bin") => {
+            Some(Console::Genesis) => {
                 self.emu_thread.stop_emulator_if_running();
 
                 let config = self.config.genesis_config(path);
                 self.emu_thread.send(EmuThreadCommand::RunGenesis(config));
             }
-            Some("cue" | "chd") => {
+            Some(Console::SegaCd) => {
                 self.emu_thread.stop_emulator_if_running();
 
                 let config = self.config.sega_cd_config(path);
                 self.emu_thread.send(EmuThreadCommand::RunSegaCd(config));
             }
-            Some("nes") => {
+            Some(Console::Nes) => {
                 self.emu_thread.stop_emulator_if_running();
 
                 let config = self.config.nes_config(path);
                 self.emu_thread.send(EmuThreadCommand::RunNes(config));
             }
-            Some("sfc" | "smc") => {
+            Some(Console::Snes) => {
                 self.emu_thread.stop_emulator_if_running();
 
                 let config = self.config.snes_config(path);
                 self.emu_thread.send(EmuThreadCommand::RunSnes(config));
             }
-            Some("gb" | "gbc") => {
+            Some(Console::GameBoy | Console::GameBoyColor) => {
                 self.emu_thread.stop_emulator_if_running();
 
                 let config = self.config.gb_config(path);
                 self.emu_thread.send(EmuThreadCommand::RunGameBoy(config));
             }
-            Some(extension) => {
-                log::error!("Unsupported file extension: {extension}");
-                self.emu_thread.clear_waiting_for_first_command();
-            }
             None => {
-                log::error!("Unable to determine file extension of path: {path}");
+                log::error!("Unable to determine core for path: {path}");
                 self.emu_thread.clear_waiting_for_first_command();
             }
         }

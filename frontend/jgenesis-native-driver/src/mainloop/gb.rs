@@ -1,15 +1,16 @@
 use crate::config::GameBoyConfig;
 use crate::mainloop::save::FsSaveWriter;
-use crate::mainloop::{basic_input_mapper_fn, debug, file_name_no_ext, NativeEmulatorError};
+use crate::mainloop::{basic_input_mapper_fn, debug, file_name_no_ext};
 use crate::{config, AudioError, NativeEmulator, NativeEmulatorResult};
 use gb_core::api::{GameBoyEmulator, GameBoyEmulatorConfig};
 use gb_core::inputs::{GameBoyButton, GameBoyInputs};
 use jgenesis_common::frontend::EmulatorTrait;
-use std::fs;
 use std::path::Path;
 
 pub type NativeGameBoyEmulator =
     NativeEmulator<GameBoyInputs, GameBoyButton, GameBoyEmulatorConfig, GameBoyEmulator>;
+
+pub const SUPPORTED_EXTENSIONS: &[&str] = &["gb", "gbc"];
 
 impl NativeGameBoyEmulator {
     /// # Errors
@@ -46,10 +47,7 @@ pub fn create_gb(config: Box<GameBoyConfig>) -> NativeEmulatorResult<NativeGameB
     log::info!("Running with config: {config}");
 
     let rom_path = Path::new(&config.common.rom_file_path);
-    let rom = fs::read(rom_path).map_err(|source| NativeEmulatorError::RomRead {
-        path: config.common.rom_file_path.clone(),
-        source,
-    })?;
+    let rom = config.common.read_rom_file(SUPPORTED_EXTENSIONS)?;
 
     let save_path = rom_path.with_extension("sav");
     let save_state_path = rom_path.with_extension("ss0");

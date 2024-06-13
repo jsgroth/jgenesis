@@ -16,6 +16,7 @@ pub use smsgg::{create_smsgg, NativeSmsGgEmulator};
 pub use snes::{create_snes, NativeSnesEmulator};
 pub use state::{SaveStateMetadata, SAVE_STATE_SLOTS};
 
+use crate::archive::ArchiveError;
 use crate::config::input::{InputConfig, JoystickInput, KeyboardInput};
 use crate::config::{CommonConfig, WindowSize};
 use crate::input::{Hotkey, HotkeyMapResult, HotkeyMapper, InputMapper, Joysticks, MappableInputs};
@@ -23,6 +24,7 @@ use crate::mainloop::audio::SdlAudioOutput;
 use crate::mainloop::debug::{DebugRenderFn, DebuggerWindow};
 use crate::mainloop::rewind::Rewinder;
 use crate::mainloop::save::FsSaveWriter;
+use crate::mainloop::state::SaveStatePaths;
 pub use audio::AudioError;
 use bincode::error::{DecodeError, EncodeError};
 use gb_core::api::GameBoyLoadError;
@@ -41,6 +43,7 @@ use std::error::Error;
 use std::ffi::{NulError, OsStr};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::OnceLock;
 use std::time::Duration;
 use std::{io, thread};
 use thiserror::Error;
@@ -275,6 +278,8 @@ pub enum NativeEmulatorError {
         #[source]
         source: io::Error,
     },
+    #[error("{0}")]
+    Archive(#[from] ArchiveError),
     #[error("BIOS is required for Sega CD emulation")]
     SegaCdNoBios,
     #[error("Error opening BIOS file at '{path}': {source}")]
@@ -756,5 +761,20 @@ macro_rules! bincode_config {
     };
 }
 
-use crate::mainloop::state::SaveStatePaths;
 use bincode_config;
+
+pub fn all_supported_extensions() -> &'static [&'static str] {
+    static EXTENSIONS: OnceLock<Vec<&'static str>> = OnceLock::new();
+
+    EXTENSIONS.get_or_init(|| {
+        let mut extensions = Vec::new();
+
+        extensions.extend(gb::SUPPORTED_EXTENSIONS);
+        extensions.extend(genesis::GENESIS_SUPPORTED_EXTENSIONS);
+        extensions.extend(nes::SUPPORTED_EXTENSIONS);
+        extensions.extend(smsgg::SUPPORTED_EXTENSIONS);
+        extensions.extend(snes::SUPPORTED_EXTENSIONS);
+
+        extensions
+    })
+}

@@ -13,6 +13,8 @@ use std::path::Path;
 pub type NativeGenesisEmulator =
     NativeEmulator<GenesisInputs, GenesisButton, GenesisEmulatorConfig, GenesisEmulator>;
 
+pub const GENESIS_SUPPORTED_EXTENSIONS: &[&str] = &["md", "bin"];
+
 impl NativeGenesisEmulator {
     /// # Errors
     ///
@@ -115,10 +117,7 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
     log::info!("Running with config: {config}");
 
     let rom_file_path = Path::new(&config.common.rom_file_path);
-    let rom = fs::read(rom_file_path).map_err(|source| NativeEmulatorError::RomRead {
-        path: rom_file_path.display().to_string(),
-        source,
-    })?;
+    let rom = config.common.read_rom_file(GENESIS_SUPPORTED_EXTENSIONS)?;
 
     let save_path = rom_file_path.with_extension("sav");
     let save_state_path = rom_file_path.with_extension("ss0");

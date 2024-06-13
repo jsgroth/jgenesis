@@ -5,6 +5,8 @@ use crate::config::input::{
     NesControllerType, NesInputConfig, SmsGgInputConfig, SnesControllerType, SnesInputConfig,
     SuperScopeConfig, ZapperConfig,
 };
+use crate::mainloop::NativeEmulatorError;
+use crate::{archive, NativeEmulatorResult};
 use gb_core::api::{GameBoyEmulatorConfig, GbAspectRatio, GbPalette, GbcColorCorrection};
 use genesis_core::{
     GenesisAspectRatio, GenesisControllerType, GenesisEmulatorConfig, GenesisRegion,
@@ -18,8 +20,10 @@ use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgEmulatorConfig, SmsRegion, VdpVersion};
 use snes_core::api::{CoprocessorRomFn, CoprocessorRoms, SnesAspectRatio, SnesEmulatorConfig};
+use std::ffi::OsStr;
 use std::fs;
 use std::num::NonZeroU64;
+use std::path::Path;
 
 pub(crate) const DEFAULT_GENESIS_WINDOW_SIZE: WindowSize = WindowSize { width: 878, height: 672 };
 pub(crate) const DEFAULT_GB_WINDOW_SIZE: WindowSize =
@@ -102,6 +106,25 @@ pub struct CommonConfig<KeyboardConfig, JoystickConfig> {
     #[indent_nested]
     pub hotkeys: HotkeyConfig,
     pub hide_cursor_over_window: bool,
+}
+
+impl<KeyboardConfig, JoystickConfig> CommonConfig<KeyboardConfig, JoystickConfig> {
+    pub(crate) fn read_rom_file(
+        &self,
+        supported_extensions: &[&str],
+    ) -> NativeEmulatorResult<Vec<u8>> {
+        let path = Path::new(&self.rom_file_path);
+        let extension = path.extension().and_then(OsStr::to_str).unwrap_or("");
+        if extension == "zip" {
+            return archive::read_first_file_in_zip(path, supported_extensions)
+                .map_err(NativeEmulatorError::Archive);
+        }
+
+        fs::read(path).map_err(|source| NativeEmulatorError::RomRead {
+            path: path.display().to_string(),
+            source,
+        })
+    }
 }
 
 #[derive(Debug, Clone, ConfigDisplay)]

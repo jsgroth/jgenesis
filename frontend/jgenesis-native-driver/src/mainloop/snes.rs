@@ -1,18 +1,19 @@
 use crate::config::{CommonConfig, SnesConfig};
 use crate::input::InputMapper;
 
+use crate::mainloop::debug;
 use crate::mainloop::save::FsSaveWriter;
-use crate::mainloop::{debug, NativeEmulatorError};
 use crate::{config, AudioError, NativeEmulator, NativeEmulatorResult};
 use jgenesis_common::frontend::EmulatorTrait;
 
 use snes_core::api::{SnesEmulator, SnesEmulatorConfig};
 use snes_core::input::{SnesButton, SnesInputs};
-use std::fs;
 use std::path::Path;
 
 pub type NativeSnesEmulator =
     NativeEmulator<SnesInputs, SnesButton, SnesEmulatorConfig, SnesEmulator>;
+
+pub const SUPPORTED_EXTENSIONS: &[&str] = &["sfc", "smc"];
 
 impl NativeSnesEmulator {
     /// # Errors
@@ -50,10 +51,7 @@ pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEm
     log::info!("Running with config: {config}");
 
     let rom_path = Path::new(&config.common.rom_file_path);
-    let rom = fs::read(rom_path).map_err(|source| NativeEmulatorError::RomRead {
-        path: config.common.rom_file_path.clone(),
-        source,
-    })?;
+    let rom = config.common.read_rom_file(SUPPORTED_EXTENSIONS)?;
 
     let save_path = rom_path.with_extension("sav");
     let save_state_path = rom_path.with_extension("ss0");

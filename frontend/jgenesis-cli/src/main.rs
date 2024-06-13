@@ -544,21 +544,41 @@ fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
 
-    let hardware = args.hardware.unwrap_or_else(|| {
-        let file_ext = Path::new(&args.file_path).extension().and_then(OsStr::to_str).unwrap_or("");
-        match file_ext {
-            "sms" | "gg" => Hardware::MasterSystem,
-            "md" | "bin" => Hardware::Genesis,
-            "cue" | "chd" => Hardware::SegaCd,
-            "nes" => Hardware::Nes,
-            "sfc" | "smc" => Hardware::Snes,
-            "gb" | "gbc" => Hardware::GameBoy,
-            _ => {
-                log::warn!("Unrecognized file extension: '{file_ext}' defaulting to Genesis");
-                Hardware::Genesis
+    let hardware = match args.hardware {
+        Some(hardware) => hardware,
+        None => {
+            let file_path = Path::new(&args.file_path);
+            let mut file_ext: String =
+                file_path.extension().and_then(OsStr::to_str).unwrap_or("").into();
+            if file_ext == "zip" {
+                let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_zip(
+                    file_path,
+                    jgenesis_native_driver::all_supported_extensions(),
+                )?
+                .unwrap_or_else(|| {
+                    panic!(
+                        "No files with supported extensions found in .zip archive: {}",
+                        args.file_path
+                    )
+                });
+                file_ext =
+                    Path::new(&zip_entry).extension().and_then(OsStr::to_str).unwrap().into();
+            }
+
+            match file_ext.as_str() {
+                "sms" | "gg" => Hardware::MasterSystem,
+                "md" | "bin" => Hardware::Genesis,
+                "cue" | "chd" => Hardware::SegaCd,
+                "nes" => Hardware::Nes,
+                "sfc" | "smc" => Hardware::Snes,
+                "gb" | "gbc" => Hardware::GameBoy,
+                _ => {
+                    log::warn!("Unrecognized file extension: '{file_ext}' defaulting to Genesis");
+                    Hardware::Genesis
+                }
             }
         }
-    });
+    };
 
     log::info!("Running with hardware {hardware}");
 

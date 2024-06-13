@@ -1,7 +1,7 @@
 use crate::config::{CommonConfig, NesConfig};
 
 use crate::mainloop::save::FsSaveWriter;
-use crate::mainloop::{debug, file_name_no_ext, NativeEmulatorError};
+use crate::mainloop::{debug, file_name_no_ext};
 use crate::{config, AudioError, NativeEmulator, NativeEmulatorResult};
 use jgenesis_common::frontend::EmulatorTrait;
 
@@ -9,10 +9,11 @@ use nes_core::api::{NesEmulator, NesEmulatorConfig};
 use nes_core::input::{NesButton, NesInputs};
 
 use crate::input::InputMapper;
-use std::fs;
 use std::path::Path;
 
 pub type NativeNesEmulator = NativeEmulator<NesInputs, NesButton, NesEmulatorConfig, NesEmulator>;
+
+pub const SUPPORTED_EXTENSIONS: &[&str] = &["nes"];
 
 impl NativeNesEmulator {
     /// # Errors
@@ -50,10 +51,7 @@ pub fn create_nes(config: Box<NesConfig>) -> NativeEmulatorResult<NativeNesEmula
     log::info!("Running with config: {config}");
 
     let rom_path = Path::new(&config.common.rom_file_path);
-    let rom = fs::read(rom_path).map_err(|source| NativeEmulatorError::RomRead {
-        path: config.common.rom_file_path.clone(),
-        source,
-    })?;
+    let rom = config.common.read_rom_file(SUPPORTED_EXTENSIONS)?;
 
     let save_path = rom_path.with_extension("sav");
     let save_state_path = rom_path.with_extension("ss0");

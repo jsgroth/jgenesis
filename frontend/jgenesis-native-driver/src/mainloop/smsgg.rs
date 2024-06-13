@@ -1,19 +1,18 @@
 use crate::config::SmsGgConfig;
 
 use crate::mainloop::save::FsSaveWriter;
-use crate::mainloop::{
-    basic_input_mapper_fn, debug, file_name_no_ext, parse_file_ext, NativeEmulatorError,
-};
+use crate::mainloop::{basic_input_mapper_fn, debug, file_name_no_ext, parse_file_ext};
 use crate::{config, AudioError, NativeEmulator, NativeEmulatorResult};
 use jgenesis_common::frontend::EmulatorTrait;
 
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgButton, SmsGgEmulator, SmsGgEmulatorConfig, SmsGgInputs};
-use std::fs;
 use std::path::Path;
 
 pub type NativeSmsGgEmulator =
     NativeEmulator<SmsGgInputs, SmsGgButton, SmsGgEmulatorConfig, SmsGgEmulator>;
+
+pub const SUPPORTED_EXTENSIONS: &[&str] = &["sms", "gg"];
 
 impl NativeSmsGgEmulator {
     /// # Errors
@@ -63,10 +62,7 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
 
     let save_state_path = rom_file_path.with_extension("ss0");
 
-    let rom = fs::read(rom_file_path).map_err(|source| NativeEmulatorError::RomRead {
-        path: rom_file_path.display().to_string(),
-        source,
-    })?;
+    let rom = config.common.read_rom_file(SUPPORTED_EXTENSIONS)?;
 
     let save_path = rom_file_path.with_extension("sav");
     let mut save_writer = FsSaveWriter::new(save_path);
