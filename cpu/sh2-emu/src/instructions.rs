@@ -121,7 +121,7 @@ fn execute_xnxx<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
         0b0100_0000_0001_0001 => alu::cmp_pz(cpu, opcode),
         0b0100_0000_0001_0101 => alu::cmp_pl(cpu, opcode),
         0b0100_0000_0001_0000 => alu::dt(cpu, opcode),
-        0b0100_0000_0001_1011 => todo!("TAS.B @Rn"),
+        0b0100_0000_0001_1011 => bits::tas(cpu, opcode, bus),
         0b0100_0000_0000_0100 => bits::rotl(cpu, opcode),
         0b0100_0000_0000_0101 => bits::rotr(cpu, opcode),
         0b0100_0000_0010_0100 => bits::rotcl(cpu, opcode),

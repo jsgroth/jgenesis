@@ -124,14 +124,56 @@ impl CacheControlRegister {
     }
 }
 
+#[derive(Debug, Clone, Default, Encode, Decode)]
+pub struct InterruptRegisters {
+    pub divu_priority: u16,
+    pub dmac_priority: u16,
+    pub wdt_priority: u16,
+    pub wdt_vector: u16,
+    pub bsc_vector: u16,
+}
+
+impl InterruptRegisters {
+    // $FFFFFEE2: IPRA (Interrupt priority A)
+    fn read_ipra(&self) -> u16 {
+        (self.divu_priority << 12) | (self.dmac_priority << 8) | (self.wdt_priority << 4)
+    }
+
+    // $FFFFFEE2: IPRA (Interrupt priority A)
+    fn write_ipra(&mut self, value: u16) {
+        self.divu_priority = value >> 12;
+        self.dmac_priority = (value >> 8) & 0xF;
+        self.wdt_priority = (value >> 4) & 0xF;
+
+        log::trace!("IPRA write: {value:04X}");
+        log::trace!("  DIVU interrupt priority: {}", self.divu_priority);
+        log::trace!("  DMAC interrupt priority: {}", self.dmac_priority);
+        log::trace!("  WDT interrupt priority: {}", self.wdt_priority);
+    }
+
+    // $FFFFFEE4: VCRWDT (WDT interrupt vector number)
+    fn write_vcrwdt(&mut self, value: u16) {
+        self.wdt_vector = (value >> 8) & 0x7F;
+        self.bsc_vector = value & 0x7F;
+
+        log::trace!("VCRWDT write: {value:04X}");
+        log::trace!("  WDT interrupt vector number: {}", self.wdt_vector);
+        log::trace!("  BSC interrupt vector number: {}", self.bsc_vector);
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Sh7604Registers {
     pub cache_control: CacheControlRegister,
+    pub interrupts: InterruptRegisters,
 }
 
 impl Sh7604Registers {
     pub fn new() -> Self {
-        Self { cache_control: CacheControlRegister::default() }
+        Self {
+            cache_control: CacheControlRegister::default(),
+            interrupts: InterruptRegisters::default(),
+        }
     }
 }
 
@@ -144,6 +186,15 @@ impl Sh2 {
             0xFFFFFE92 => self.sh7604.cache_control.read(),
             0xFFFFFE93..=0xFFFFFE9F => 0xFF,
             _ => todo!("[{}] Internal register byte read {address:08X}", self.name),
+        }
+    }
+
+    pub(super) fn read_internal_register_word(&self, address: u32) -> u16 {
+        log::trace!("[{}] Internal register word read: {address:08X}", self.name);
+
+        match address {
+            0xFFFFFEE2 => self.sh7604.interrupts.read_ipra(),
+            _ => todo!("[{}] Internal register word read {address:08X}", self.name),
         }
     }
 
@@ -193,6 +244,8 @@ impl Sh2 {
                     self.name
                 );
             }
+            0xFFFFFEE2 => self.sh7604.interrupts.write_ipra(value),
+            0xFFFFFEE4 => self.sh7604.interrupts.write_vcrwdt(value),
             _ => todo!(
                 "[{}] Unexpected internal register word write: {address:08X} {value:04X}",
                 self.name

@@ -1,3 +1,4 @@
+use crate::bus::BusInterface;
 use crate::instructions::{rm, rn};
 use crate::Sh2;
 use jgenesis_common::num::GetBit;
@@ -141,4 +142,16 @@ pub fn tst_rm_rn(cpu: &mut Sh2, opcode: u16) {
 pub fn tst_imm_r0(cpu: &mut Sh2, opcode: u16) {
     let imm: u32 = (opcode & 0xFF).into();
     cpu.registers.sr.t = imm & cpu.registers.gpr[0] == 0;
+}
+
+// TAS.B @Rn
+// Tests the value at the specified address and sets bit 7
+pub fn tas<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let n = rn(opcode);
+    let address = cpu.registers.gpr[n];
+
+    let value = cpu.read_byte(address, bus);
+    cpu.write_byte(address, value | 0x80, bus);
+
+    cpu.registers.sr.t = value == 0;
 }
