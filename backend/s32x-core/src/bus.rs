@@ -446,6 +446,12 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 }
             }
             sh2_cartridge!() => self.cartridge.read_byte(address & 0x3FFFFF),
+            0x02400000..=0x027FFFFF => {
+                // Kolibri sometimes reads from these addresses
+                // Maybe they mirror cartridge ROM?
+                log::warn!("SH-2 {:?} invalid address byte read {address:08X}", self.which);
+                0xFF
+            }
             sh2_frame_buffer!() | sh2_overwrite_image!() => {
                 if self.registers.vdp_access == Access::Sh2 {
                     word_to_byte!(address, self.vdp.read_frame_buffer)
@@ -701,6 +707,12 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 } else {
                     log::warn!("Frame buffer write with FM=0: {address:08X} {value:08X}");
                 }
+            }
+            sh2_boot_rom!() => {
+                log::warn!(
+                    "SH-2 {:?} longword write to boot ROM address: {address:08X} {value:08X}",
+                    self.which
+                );
             }
             _ => todo!("SH-2 {:?} write longword {address:08X} {value:08X}", self.which),
         }
