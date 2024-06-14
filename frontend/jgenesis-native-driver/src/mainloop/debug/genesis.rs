@@ -3,6 +3,7 @@ use crate::mainloop::debug::{DebugRenderContext, DebugRenderFn, SelectableButton
 use egui::{CentralPanel, ScrollArea, Vec2};
 use genesis_core::GenesisEmulator;
 use jgenesis_common::frontend::Color;
+use s32x_core::api::Sega32XEmulator;
 use segacd_core::api::SegaCdEmulator;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -57,6 +58,16 @@ impl GenesisBase for SegaCdEmulator {
 
     fn copy_vram(&self, out: &mut [Color], palette: u8, row_len: usize) {
         SegaCdEmulator::copy_vram(self, out, palette, row_len);
+    }
+}
+
+impl GenesisBase for Sega32XEmulator {
+    fn copy_cram(&self, out: &mut [Color]) {
+        Sega32XEmulator::copy_cram(self, out);
+    }
+
+    fn copy_vram(&self, out: &mut [Color], palette: u8, row_len: usize) {
+        Sega32XEmulator::copy_vram(self, out, palette, row_len);
     }
 }
 

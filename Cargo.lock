@@ -2513,6 +2513,7 @@ dependencies = [
  "log",
  "nes-core",
  "pollster",
+ "s32x-core",
  "sdl2",
  "segacd-core",
  "serde",
@@ -3848,6 +3849,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f3cb5ba0dc43242ce17de99c180e96db90b235b8a9fdc9543c96d2209116bd9f"
 
 [[package]]
+name = "s32x-core"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "genesis-core",
+ "jgenesis-common",
+ "jgenesis-proc-macros",
+ "log",
+ "m68000-emu",
+ "sh2-emu",
+ "smsgg-core",
+ "thiserror",
+ "z80-emu",
+]
+
+[[package]]
 name = "same-file"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3994,6 +4011,15 @@ dependencies = [
  "nt-time",
  "sha2",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "sh2-emu"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "jgenesis-common",
+ "log",
 ]
 
 [[package]]

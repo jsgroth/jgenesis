@@ -13,6 +13,7 @@ jgenesis-common = { path = "../../jgenesis-common" }
 gb-core = { path = "../../backend/gb-core" }
 genesis-core = { path = "../../backend/genesis-core" }
 nes-core = { path = "../../backend/nes-core" }
+s32x-core = { path = "../../backend/s32x-core" }
 segacd-core = { path = "../../backend/segacd-core" }
 smsgg-core = { path = "../../backend/smsgg-core" }
 snes-core = { path = "../../backend/snes-core" }

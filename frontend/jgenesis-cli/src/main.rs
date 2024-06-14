@@ -28,6 +28,7 @@ enum Hardware {
     MasterSystem,
     Genesis,
     SegaCd,
+    Sega32X,
     Nes,
     Snes,
     GameBoy,
@@ -609,6 +610,7 @@ fn main() -> anyhow::Result<()> {
                 "sms" | "gg" => Hardware::MasterSystem,
                 "md" | "bin" => Hardware::Genesis,
                 "cue" | "chd" => Hardware::SegaCd,
+                "32x" => Hardware::Sega32X,
                 "nes" => Hardware::Nes,
                 "sfc" | "smc" => Hardware::Snes,
                 "gb" | "gbc" => Hardware::GameBoy,
@@ -644,6 +646,7 @@ fn main() -> anyhow::Result<()> {
         Hardware::MasterSystem => run_sms(args, config),
         Hardware::Genesis => run_genesis(args, config),
         Hardware::SegaCd => run_sega_cd(args, config),
+        Hardware::Sega32X => run_32x(args, config),
         Hardware::Nes => run_nes(args, config),
         Hardware::Snes => run_snes(args, config),
         Hardware::GameBoy => run_gb(args, config),
@@ -670,6 +673,13 @@ fn run_sega_cd(args: Args, config: AppConfig) -> anyhow::Result<()> {
     scd_config.run_without_disc = args.scd_no_disc;
 
     let mut emulator = jgenesis_native_driver::create_sega_cd(scd_config)?;
+    while emulator.render_frame()? != NativeTickEffect::Exit {}
+
+    Ok(())
+}
+
+fn run_32x(args: Args, config: AppConfig) -> anyhow::Result<()> {
+    let mut emulator = jgenesis_native_driver::create_32x(config.genesis_config(args.file_path))?;
     while emulator.render_frame()? != NativeTickEffect::Exit {}
 
     Ok(())
