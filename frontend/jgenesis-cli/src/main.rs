@@ -555,18 +555,34 @@ fn main() -> anyhow::Result<()> {
             let file_path = Path::new(&args.file_path);
             let mut file_ext: String =
                 file_path.extension().and_then(OsStr::to_str).unwrap_or("").into();
-            if file_ext == "zip" {
-                let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_zip(
-                    file_path,
-                    jgenesis_native_driver::all_supported_extensions(),
-                )?
-                .unwrap_or_else(|| {
-                    panic!(
-                        "No files with supported extensions found in .zip archive: {}",
-                        args.file_path
-                    )
-                });
-                file_ext = zip_entry.extension;
+            match file_ext.as_str() {
+                "zip" => {
+                    let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_zip(
+                        file_path,
+                        jgenesis_native_driver::all_supported_extensions(),
+                    )?
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "No files with supported extensions found in .zip archive: {}",
+                            args.file_path
+                        )
+                    });
+                    file_ext = zip_entry.extension;
+                }
+                "7z" => {
+                    let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_7z(
+                        file_path,
+                        jgenesis_native_driver::all_supported_extensions(),
+                    )?
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "No files with supported extensions found in .7z archive: {}",
+                            args.file_path
+                        )
+                    });
+                    file_ext = zip_entry.extension;
+                }
+                _ => {}
             }
 
             match file_ext.as_str() {

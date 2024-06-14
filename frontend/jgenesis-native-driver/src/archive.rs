@@ -22,6 +22,12 @@ pub enum ArchiveError {
         #[source]
         source: ZipError,
     },
+    #[error("Error reading .7z archive '{path}': {source}")]
+    SevenZ {
+        path: String,
+        #[source]
+        source: sevenz_rust::Error,
+    },
     #[error("No supported files found in .zip archive '{path}'")]
     NoSupportedFiles { path: String },
 }
@@ -33,6 +39,10 @@ impl ArchiveError {
 
     fn zip(path: &Path, source: ZipError) -> Self {
         Self::Zip { path: path.display().to_string(), source }
+    }
+
+    fn sevenz(path: &Path, source: sevenz_rust::Error) -> Self {
+        Self::SevenZ { path: path.display().to_string(), source }
     }
 
     fn no_supported_files(path: &Path) -> Self {
@@ -47,7 +57,7 @@ pub struct ZipEntryMetadata {
     pub size: u64,
 }
 
-/// Returns the file name of the first file in the .zip archive that has a supported extension, or
+/// Returns metadata of the first file in the .zip archive that has a supported extension, or
 /// None if there are no files with a supported extension.
 ///
 /// # Errors
@@ -86,6 +96,48 @@ pub fn first_supported_file_in_zip(
     Ok(Some(ZipEntryMetadata { file_name, extension, size }))
 }
 
+/// Returns metadata of the first file in the .7z archive that has a supported extension, or
+/// None if there are no files with a supported extension.
+///
+/// # Errors
+///
+/// Will propagate any I/O or 7ZIP errors.
+pub fn first_supported_file_in_7z(
+    sevenz_path: &Path,
+    supported_extensions: &[&str],
+) -> Result<Option<ZipEntryMetadata>, ArchiveError> {
+    let io_err_fn = |source| ArchiveError::io(sevenz_path, source);
+    let sevenz_err_fn = |source| ArchiveError::sevenz(sevenz_path, source);
+
+    let file = File::open(sevenz_path).map_err(io_err_fn)?;
+    let file_len = file.metadata().map_err(io_err_fn)?.len();
+    let mut reader = BufReader::new(file);
+    let archive = sevenz_rust::Archive::read(&mut reader, file_len, &[]).map_err(sevenz_err_fn)?;
+
+    for folder_idx in 0..archive.folders.len() {
+        let folder_dec = sevenz_rust::BlockDecoder::new(folder_idx, &archive, &[], &mut reader);
+
+        for entry in folder_dec.entries() {
+            if !entry.has_stream {
+                // Is a directory
+                continue;
+            }
+
+            for &extension in supported_extensions {
+                if entry.name.ends_with(extension) {
+                    return Ok(Some(ZipEntryMetadata {
+                        file_name: entry.name.clone(),
+                        extension: extension.to_string(),
+                        size: entry.size,
+                    }));
+                }
+            }
+        }
+    }
+
+    Ok(None)
+}
+
 /// Opens and reads the first file in the .zip archive that has a supported extension.
 ///
 /// # Errors
@@ -120,4 +172,54 @@ pub(crate) fn read_first_file_in_zip(
     }
 
     Err(ArchiveError::no_supported_files(zip_path))
+}
+
+pub(crate) fn read_first_file_in_7z(
+    sevenz_path: &Path,
+    supported_extensions: &[&str],
+) -> Result<RomReadResult, ArchiveError> {
+    let io_err_fn = |source| ArchiveError::io(sevenz_path, source);
+    let sevenz_err_fn = |source| ArchiveError::sevenz(sevenz_path, source);
+
+    let file = File::open(sevenz_path).map_err(io_err_fn)?;
+    let file_len = file.metadata().map_err(io_err_fn)?.len();
+    let mut reader = BufReader::new(file);
+    let archive = sevenz_rust::Archive::read(&mut reader, file_len, &[]).map_err(sevenz_err_fn)?;
+
+    for folder_idx in 0..archive.folders.len() {
+        let folder_dec = sevenz_rust::BlockDecoder::new(folder_idx, &archive, &[], &mut reader);
+
+        let Some((file_name, extension)) = folder_dec.entries().iter().find_map(|entry| {
+            if !entry.has_stream {
+                return None;
+            }
+
+            for &extension in supported_extensions {
+                if entry.name.ends_with(&format!(".{extension}")) {
+                    return Some((entry.name.clone(), extension.to_string()));
+                }
+            }
+
+            None
+        }) else {
+            continue;
+        };
+
+        let mut decompressed = Vec::new();
+        folder_dec
+            .for_each_entries(&mut |entry, reader| {
+                if entry.name == file_name {
+                    reader.read_to_end(&mut decompressed)?;
+                    return Ok(false);
+                }
+
+                io::copy(reader, &mut io::sink())?;
+                Ok(true)
+            })
+            .map_err(sevenz_err_fn)?;
+
+        return Ok(RomReadResult { rom: decompressed, extension });
+    }
+
+    Err(ArchiveError::no_supported_files(sevenz_path))
 }

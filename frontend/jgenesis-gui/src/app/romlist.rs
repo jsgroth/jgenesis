@@ -117,29 +117,37 @@ fn process_file(file_name: &str, path: &Path, metadata: fs::Metadata) -> Option<
     let file_name_no_ext = Path::new(&file_name).with_extension("").to_string_lossy().to_string();
     let extension = Path::new(&file_name).extension().and_then(OsStr::to_str)?;
 
-    if extension == "zip" {
-        let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_zip(
-            path,
-            jgenesis_native_driver::all_supported_extensions(),
-        )
-        .ok()
-        .flatten()?;
-        let console = Console::from_extension(&zip_entry.extension)?;
-        return Some(RomMetadata {
-            full_path,
-            file_name_no_ext,
-            console,
-            file_size: zip_entry.size,
-        });
+    match extension {
+        "zip" => {
+            let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_zip(
+                path,
+                jgenesis_native_driver::all_supported_extensions(),
+            )
+            .ok()
+            .flatten()?;
+            let console = Console::from_extension(&zip_entry.extension)?;
+            Some(RomMetadata { full_path, file_name_no_ext, console, file_size: zip_entry.size })
+        }
+        "7z" => {
+            let zip_entry = jgenesis_native_driver::archive::first_supported_file_in_7z(
+                path,
+                jgenesis_native_driver::all_supported_extensions(),
+            )
+            .ok()
+            .flatten()?;
+            let console = Console::from_extension(&zip_entry.extension)?;
+            Some(RomMetadata { full_path, file_name_no_ext, console, file_size: zip_entry.size })
+        }
+        _ => {
+            let console = Console::from_extension(extension)?;
+            let file_size = match extension {
+                "cue" => sega_cd_file_size(&full_path).ok()?,
+                _ => metadata.len(),
+            };
+
+            Some(RomMetadata { full_path, file_name_no_ext, console, file_size })
+        }
     }
-
-    let console = Console::from_extension(extension)?;
-    let file_size = match extension {
-        "cue" => sega_cd_file_size(&full_path).ok()?,
-        _ => metadata.len(),
-    };
-
-    Some(RomMetadata { full_path, file_name_no_ext, console, file_size })
 }
 
 fn sega_cd_file_size(cue_path: &str) -> io::Result<u64> {

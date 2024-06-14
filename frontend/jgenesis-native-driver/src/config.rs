@@ -121,17 +121,20 @@ impl<KeyboardConfig, JoystickConfig> CommonConfig<KeyboardConfig, JoystickConfig
     ) -> NativeEmulatorResult<RomReadResult> {
         let path = Path::new(&self.rom_file_path);
         let extension = path.extension().and_then(OsStr::to_str).unwrap_or("");
-        if extension == "zip" {
-            return archive::read_first_file_in_zip(path, supported_extensions)
-                .map_err(NativeEmulatorError::Archive);
+        match extension {
+            "zip" => archive::read_first_file_in_zip(path, supported_extensions)
+                .map_err(NativeEmulatorError::Archive),
+            "7z" => archive::read_first_file_in_7z(path, supported_extensions)
+                .map_err(NativeEmulatorError::Archive),
+            _ => {
+                let contents = fs::read(path).map_err(|source| NativeEmulatorError::RomRead {
+                    path: path.display().to_string(),
+                    source,
+                })?;
+
+                Ok(RomReadResult { rom: contents, extension: extension.into() })
+            }
         }
-
-        let contents = fs::read(path).map_err(|source| NativeEmulatorError::RomRead {
-            path: path.display().to_string(),
-            source,
-        })?;
-
-        Ok(RomReadResult { rom: contents, extension: extension.into() })
     }
 }
 

@@ -24,8 +24,9 @@ egui = { workspace = true }
 egui-wgpu = { workspace = true }
 log = { workspace = true }
 pollster = { workspace = true }
-serde = { workspace = true }
 sdl2 = { workspace = true }
+serde = { workspace = true }
+sevenz-rust = { workspace = true }
 thiserror = { workspace = true }
 wgpu = { workspace = true }
 zip = { workspace = true }

@@ -46,6 +46,7 @@ rfd = "0.14"
 sdl2 = { version = "0.36", features = ["raw-window-handle"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sevenz-rust = "0.6"
 test-log = "0.2"
 thiserror = "1"
 time = "0.3"
