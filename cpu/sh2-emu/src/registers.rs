@@ -76,120 +76,62 @@ impl Sh2Registers {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+pub enum CacheMode {
+    #[default]
+    FourWay = 0,
+    TwoWay = 1,
+}
+
+impl CacheMode {
+    fn from_bit(bit: bool) -> Self {
+        if bit { Self::TwoWay } else { Self::FourWay }
+    }
+}
+
+#[derive(Debug, Clone, Default, Encode, Decode)]
+pub struct CacheControlRegister {
+    pub way: u8,
+    pub mode: CacheMode,
+    pub disable_data_replacement: bool,
+    pub disable_instruction_replacement: bool,
+    pub cache_enabled: bool,
+}
+
+impl CacheControlRegister {
+    fn read(&self) -> u8 {
+        (self.way << 6)
+            | ((self.mode as u8) << 3)
+            | (u8::from(self.disable_data_replacement) << 2)
+            | (u8::from(self.disable_instruction_replacement) << 1)
+            | u8::from(self.cache_enabled)
+    }
+
+    fn write(&mut self, value: u8) {
+        self.way = value >> 6;
+        self.mode = CacheMode::from_bit(value.bit(3));
+        self.disable_data_replacement = value.bit(2);
+        self.disable_instruction_replacement = value.bit(1);
+        self.cache_enabled = value.bit(0);
+
+        log::trace!("CCR write: {value:02X}");
+        log::trace!("  Way specification: {}", self.way);
+        log::trace!("  Cache mode: {:?}", self.mode);
+        log::trace!("  Cache purged: {}", value.bit(4));
+        log::trace!("  Disable data replacement: {}", self.disable_data_replacement);
+        log::trace!("  Disable instruction replacement: {}", self.disable_instruction_replacement);
+        log::trace!("  Cache enabled: {}", self.cache_enabled);
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
-pub struct BusControllerRegisters {}
+pub struct Sh7604Registers {
+    pub cache_control: CacheControlRegister,
+}
 
-impl BusControllerRegisters {
+impl Sh7604Registers {
     pub fn new() -> Self {
-        Self {}
-    }
-
-    pub fn write_register(&mut self, address: u32, value: u32) {
-        match address {
-            0xFFFFFFE0 => self.write_control_1(value),
-            0xFFFFFFE4 => self.write_control_2(value),
-            0xFFFFFFE8 => self.write_wait_control(value),
-            0xFFFFFFEC => self.write_individual_memory_control(value),
-            0xFFFFFFF0 => self.write_refresh_timer_control(value),
-            0xFFFFFFF4 => self.write_refresh_timer_counter(value),
-            0xFFFFFFF8 => self.write_refresh_timer_constant(value),
-            _ => todo!("Bus control register write {address:08X} {value:08X}"),
-        }
-    }
-
-    fn write_control_1(&mut self, value: u32) {
-        log::trace!("BCR1 write: {value:08X}");
-        log::trace!("  Master mode: {}", !value.bit(15));
-        log::trace!("  Big endian mode: {}", !value.bit(12));
-        log::trace!("  Area 0 burst ROM enabled: {}", value.bit(11));
-        log::trace!("  Partial-share master mode: {}", value.bit(10));
-        log::trace!("  Long wait specification for areas 2/3: {} waits", ((value >> 8) & 3) + 3);
-        log::trace!("  Long wait specification for area 1: {} waits", ((value >> 6) & 3) + 3);
-        log::trace!("  Long wait specification for area 0: {} waits", ((value >> 4) & 3) + 3);
-        log::trace!("  DRAM specification bits: {}", value & 7);
-    }
-
-    fn write_control_2(&mut self, value: u32) {
-        log::trace!("BCR2 write: {value:08X}");
-        log::trace!("  Size specification for area 3: {}", bus_area_size(value >> 6));
-        log::trace!("  Size specification for area 2: {}", bus_area_size(value >> 4));
-        log::trace!("  Size specification for area 1: {}", bus_area_size(value >> 2));
-    }
-
-    fn write_wait_control(&mut self, value: u32) {
-        log::trace!("WCR write: {value:08X}");
-        log::trace!("  Idles between cycles for area 3: {}", idle_cycles(value >> 14));
-        log::trace!("  Idles between cycles for area 2: {}", idle_cycles(value >> 12));
-        log::trace!("  Idles between cycles for area 1: {}", idle_cycles(value >> 10));
-        log::trace!("  Idles between cycles for area 0: {}", idle_cycles(value >> 8));
-        log::trace!("  Wait control for area 3: {}", (value >> 6) & 3);
-        log::trace!("  Wait control for area 2: {}", (value >> 4) & 3);
-        log::trace!("  Wait control for area 1: {}", (value >> 2) & 3);
-        log::trace!("  Wait control for area 0: {}", value & 3);
-    }
-
-    fn write_individual_memory_control(&mut self, value: u32) {
-        log::trace!("MCR write: {value:08X}");
-        log::trace!("  RAS precharge time: {}", if value.bit(15) { 2 } else { 1 });
-        log::trace!("  RAS-CAS delay: {}", if value.bit(14) { 2 } else { 1 });
-        log::trace!("  Write precharge delay: {}", if value.bit(13) { 2 } else { 1 });
-        log::trace!(
-            "  CAS-before-RAS refresh RAS assert time: {}",
-            match (value >> 11) & 3 {
-                0 => "2 cycles",
-                1 => "3 cycles",
-                2 => "4 cycles",
-                3 => "(Reserved)",
-                _ => unreachable!(),
-            }
-        );
-        log::trace!("  Burst enabled: {}", value.bit(10));
-        log::trace!("  RAS down mode enabled: {}", value.bit(9));
-        log::trace!("  Address multiplexing bits: {}", ((value >> 5) & 0x4) | ((value >> 4) & 0x3));
-        log::trace!("  DRAM memory data size: {}", if value.bit(6) { "Longword" } else { "Word" });
-        log::trace!("  DRAM refresh enabled: {}", value.bit(3));
-        log::trace!("  Self-refresh enabled: {}", value.bit(2));
-    }
-
-    fn write_refresh_timer_control(&mut self, value: u32) {
-        log::trace!("RTCSR write: {value:08X}");
-        log::trace!("  Compare match flag: {}", value.bit(7));
-        log::trace!("  Compare match interrupt enabled: {}", value.bit(6));
-        log::trace!("  Clock select bits: {}", (value >> 3) & 7);
-
-        if value.bit(6) {
-            panic!("Compare match interrupt was enabled");
-        }
-    }
-
-    fn write_refresh_timer_counter(&mut self, value: u32) {
-        log::trace!("RTCNT write: {value:08X}");
-        log::trace!("  Refresh timer counter: 0x{:02X}", value & 0xFF);
-    }
-
-    fn write_refresh_timer_constant(&mut self, value: u32) {
-        log::trace!("RTCOR write: {value:08X}");
-        log::trace!("  Refresh time constant for compare: 0x{:02X}", value & 0xFF);
-    }
-}
-
-fn bus_area_size(value: u32) -> &'static str {
-    match value & 3 {
-        0 => "(Reserved)",
-        1 => "Byte",
-        2 => "Word",
-        3 => "Longword",
-        _ => unreachable!("value & 3 is always <= 3"),
-    }
-}
-
-fn idle_cycles(value: u32) -> &'static str {
-    match value & 3 {
-        0 => "0 cycles",
-        1 => "1 cycle",
-        2 => "2 cycles",
-        3 => "(Reserved)",
-        _ => unreachable!("value & 3 is always <= 3"),
+        Self { cache_control: CacheControlRegister::default() }
     }
 }
 
@@ -199,6 +141,7 @@ impl Sh2 {
 
         match address {
             0xFFFFFE10..=0xFFFFFE19 => self.free_run_timer.read_register(address),
+            0xFFFFFE92 => self.sh7604.cache_control.read(),
             0xFFFFFE93..=0xFFFFFE9F => 0xFF,
             _ => todo!("[{}] Internal register byte read {address:08X}", self.name),
         }
@@ -232,16 +175,7 @@ impl Sh2 {
                 log::trace!("  FRT clock halted: {}", value.bit(1));
                 log::trace!("  SCI clock halted: {}", value.bit(0));
             }
-            0xFFFFFE92 => {
-                // CCR (Cache control register)
-                log::trace!("[{}] CCR write: {value:02X}", self.name);
-                log::trace!("  Way specification: {}", value >> 6);
-                log::trace!("  Cache purge: {}", value.bit(4));
-                log::trace!("  Two-way mode: {}", value.bit(3));
-                log::trace!("  Data caching disabled: {}", value.bit(2));
-                log::trace!("  Instruction caching disabled: {}", value.bit(1));
-                log::trace!("  Cache enabled: {}", value.bit(0));
-            }
+            0xFFFFFE92 => self.sh7604.cache_control.write(value),
             _ => todo!(
                 "[{}] Unexpected internal register byte write: {address:08X} {value:02X}",
                 self.name
@@ -272,11 +206,115 @@ impl Sh2 {
         match address {
             0xFFFFFF00..=0xFFFFFF14 => self.divu.write_register(address, value),
             0xFFFFFF80..=0xFFFFFF9F | 0xFFFFFFB0 => self.dmac.write_register(address, value),
-            0xFFFFFFE0..=0xFFFFFFFF => self.bus_control.write_register(address, value),
+            0xFFFFFFE0..=0xFFFFFFFF => log_bus_control_write(address, value),
             _ => todo!(
                 "[{}] Unexpected internal register longword write: {address:08X} {value:08X}",
                 self.name
             ),
         }
+    }
+}
+
+fn log_bus_control_write(address: u32, value: u32) {
+    // TODO actually emulate these registers?
+    match address {
+        0xFFFFFFE0 => {
+            log::trace!("BCR1 write: {value:08X}");
+            log::trace!("  Master mode: {}", !value.bit(15));
+            log::trace!("  Big endian mode: {}", !value.bit(12));
+            log::trace!("  Area 0 burst ROM enabled: {}", value.bit(11));
+            log::trace!("  Partial-share master mode: {}", value.bit(10));
+            log::trace!(
+                "  Long wait specification for areas 2/3: {} waits",
+                ((value >> 8) & 3) + 3
+            );
+            log::trace!("  Long wait specification for area 1: {} waits", ((value >> 6) & 3) + 3);
+            log::trace!("  Long wait specification for area 0: {} waits", ((value >> 4) & 3) + 3);
+            log::trace!("  DRAM specification bits: {}", value & 7);
+        }
+        0xFFFFFFE4 => {
+            log::trace!("BCR2 write: {value:08X}");
+            log::trace!("  Size specification for area 3: {}", bus_area_size(value >> 6));
+            log::trace!("  Size specification for area 2: {}", bus_area_size(value >> 4));
+            log::trace!("  Size specification for area 1: {}", bus_area_size(value >> 2));
+        }
+        0xFFFFFFE8 => {
+            log::trace!("WCR write: {value:08X}");
+            log::trace!("  Idles between cycles for area 3: {}", idle_cycles(value >> 14));
+            log::trace!("  Idles between cycles for area 2: {}", idle_cycles(value >> 12));
+            log::trace!("  Idles between cycles for area 1: {}", idle_cycles(value >> 10));
+            log::trace!("  Idles between cycles for area 0: {}", idle_cycles(value >> 8));
+            log::trace!("  Wait control for area 3: {}", (value >> 6) & 3);
+            log::trace!("  Wait control for area 2: {}", (value >> 4) & 3);
+            log::trace!("  Wait control for area 1: {}", (value >> 2) & 3);
+            log::trace!("  Wait control for area 0: {}", value & 3);
+        }
+        0xFFFFFFEC => {
+            log::trace!("MCR write: {value:08X}");
+            log::trace!("  RAS precharge time: {}", if value.bit(15) { 2 } else { 1 });
+            log::trace!("  RAS-CAS delay: {}", if value.bit(14) { 2 } else { 1 });
+            log::trace!("  Write precharge delay: {}", if value.bit(13) { 2 } else { 1 });
+            log::trace!(
+                "  CAS-before-RAS refresh RAS assert time: {}",
+                match (value >> 11) & 3 {
+                    0 => "2 cycles",
+                    1 => "3 cycles",
+                    2 => "4 cycles",
+                    3 => "(Reserved)",
+                    _ => unreachable!(),
+                }
+            );
+            log::trace!("  Burst enabled: {}", value.bit(10));
+            log::trace!("  RAS down mode enabled: {}", value.bit(9));
+            log::trace!(
+                "  Address multiplexing bits: {}",
+                ((value >> 5) & 0x4) | ((value >> 4) & 0x3)
+            );
+            log::trace!(
+                "  DRAM memory data size: {}",
+                if value.bit(6) { "Longword" } else { "Word" }
+            );
+            log::trace!("  DRAM refresh enabled: {}", value.bit(3));
+            log::trace!("  Self-refresh enabled: {}", value.bit(2));
+        }
+        0xFFFFFFF0 => {
+            log::trace!("RTCSR write: {value:08X}");
+            log::trace!("  Compare match flag: {}", value.bit(7));
+            log::trace!("  Compare match interrupt enabled: {}", value.bit(6));
+            log::trace!("  Clock select bits: {}", (value >> 3) & 7);
+
+            if value.bit(6) {
+                panic!("Compare match interrupt was enabled");
+            }
+        }
+        0xFFFFFFF4 => {
+            log::trace!("RTCNT write: {value:08X}");
+            log::trace!("  Refresh timer counter: 0x{:02X}", value & 0xFF);
+        }
+        0xFFFFFFF8 => {
+            log::trace!("RTCOR write: {value:08X}");
+            log::trace!("  Refresh time constant for compare: 0x{:02X}", value & 0xFF);
+        }
+        _ => todo!("bus control register write {address:08X} {value:08X}"),
+    }
+}
+
+fn bus_area_size(value: u32) -> &'static str {
+    match value & 3 {
+        0 => "(Reserved)",
+        1 => "Byte",
+        2 => "Word",
+        3 => "Longword",
+        _ => unreachable!("value & 3 is always <= 3"),
+    }
+}
+
+fn idle_cycles(value: u32) -> &'static str {
+    match value & 3 {
+        0 => "0 cycles",
+        1 => "1 cycle",
+        2 => "2 cycles",
+        3 => "(Reserved)",
+        _ => unreachable!("value & 3 is always <= 3"),
     }
 }

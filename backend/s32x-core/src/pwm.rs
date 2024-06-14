@@ -254,6 +254,7 @@ impl PwmChip {
             0x2 => self.cycle_register,
             0x4 => self.read_l_fifo_status(),
             0x6 => self.read_r_fifo_status(),
+            0x8 => self.read_mono_fifo_status(),
             _ => todo!("PWM register read {address:08X}"),
         }
     }
@@ -293,6 +294,15 @@ impl PwmChip {
     // SH-2: $4036
     fn read_r_fifo_status(&self) -> u16 {
         (u16::from(self.r_fifo.is_full()) << 15) | (u16::from(self.r_fifo.is_empty()) << 14)
+    }
+
+    // 68000: $A15138
+    // SH-2: $4038
+    fn read_mono_fifo_status(&self) -> u16 {
+        // TODO is this right?
+        let full = self.l_fifo.is_full() || self.r_fifo.is_full();
+        let empty = self.l_fifo.is_empty() && self.r_fifo.is_empty();
+        (u16::from(full) << 15) | (u16::from(empty) << 14)
     }
 
     // 68000: $A15136

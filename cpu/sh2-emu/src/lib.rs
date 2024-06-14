@@ -12,7 +12,7 @@ use crate::dma::{
     DmaAddressMode, DmaChannel, DmaController, DmaTransferAddressMode, DmaTransferUnit,
 };
 use crate::frt::FreeRunTimer;
-use crate::registers::{BusControllerRegisters, Sh2Registers};
+use crate::registers::{Sh2Registers, Sh7604Registers};
 use bincode::{Decode, Encode};
 
 const RESET_PC_VECTOR: u32 = 0x00000000;
@@ -33,11 +33,11 @@ type CpuCache = [u8; CACHE_LEN];
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Sh2 {
     registers: Sh2Registers,
+    sh7604: Sh7604Registers,
     cache: Box<CpuCache>,
     dmac: DmaController,
     free_run_timer: FreeRunTimer,
     divu: DivisionUnit,
-    bus_control: BusControllerRegisters,
     reset_pending: bool,
     name: String,
 }
@@ -47,11 +47,11 @@ impl Sh2 {
     pub fn new(name: String) -> Self {
         Self {
             registers: Sh2Registers::default(),
+            sh7604: Sh7604Registers::new(),
             cache: vec![0; CACHE_LEN].into_boxed_slice().try_into().unwrap(),
             dmac: DmaController::new(),
             free_run_timer: FreeRunTimer::new(),
             divu: DivisionUnit::new(),
-            bus_control: BusControllerRegisters::new(),
             reset_pending: false,
             name,
         }
