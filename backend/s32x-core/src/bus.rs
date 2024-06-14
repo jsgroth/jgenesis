@@ -270,6 +270,9 @@ impl PhysicalMedium for Sega32X {
                     log::warn!("VDP register write with FM=1: {address:06X} {value:02X}");
                 }
             }
+            0x000000..=0x00006F | 0x000074..=0x0000FF => {
+                log::warn!("M68K write to invalid address {address:06X} {value:02X}");
+            }
             _ => todo!("M68K write byte {address:06X} {value:02X}"),
         }
     }
@@ -459,6 +462,9 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     log::warn!("Frame buffer byte read with FM=0: {address:08X}");
                     0xFF
                 }
+            }
+            sh2_pwm_registers!() => {
+                word_to_byte!(address, self.pwm.read_register)
             }
             _ => todo!("SH-2 {:?} read byte {address:08X}", self.which),
         }
@@ -711,6 +717,12 @@ impl<'a> BusInterface for Sh2Bus<'a> {
             sh2_boot_rom!() => {
                 log::warn!(
                     "SH-2 {:?} longword write to boot ROM address: {address:08X} {value:08X}",
+                    self.which
+                );
+            }
+            sh2_cartridge!() => {
+                log::warn!(
+                    "SH-2 {:?} longword write to cartridge address: {address:08X} {value:08X}",
                     self.which
                 );
             }

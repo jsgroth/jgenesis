@@ -129,6 +129,7 @@ impl Sh2 {
         match address >> 29 {
             0 | 1 => bus.read_word(address & 0x1FFFFFFF),
             6 => self.read_cache_u16(address),
+            7 => self.read_internal_register_word(address),
             _ => todo!("Unexpected SH-2 address, word read: {address:08X}"),
         }
     }
