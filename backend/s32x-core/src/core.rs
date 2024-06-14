@@ -1,6 +1,7 @@
 //! 32X core code
 
 use crate::api;
+use crate::api::S32XVideoOut;
 use crate::bus::{Sh2Bus, WhichCpu};
 use crate::cartridge::Cartridge;
 use crate::registers::SystemRegisters;
@@ -35,7 +36,12 @@ pub struct Sega32X {
 }
 
 impl Sega32X {
-    pub fn new(rom: Box<[u8]>, initial_ram: Option<Vec<u8>>, timing_mode: TimingMode) -> Self {
+    pub fn new(
+        rom: Box<[u8]>,
+        initial_ram: Option<Vec<u8>>,
+        timing_mode: TimingMode,
+        video_out: S32XVideoOut,
+    ) -> Self {
         let cartridge = Cartridge::new(rom, initial_ram);
 
         Self {
@@ -43,7 +49,7 @@ impl Sega32X {
             sh2_slave: Sh2::new("Slave".into()),
             sh2_cycles: 0,
             cartridge,
-            vdp: Vdp::new(timing_mode),
+            vdp: Vdp::new(timing_mode, video_out),
             registers: SystemRegisters::new(),
             m68k_vectors: M68K_VECTORS.to_vec().into_boxed_slice().try_into().unwrap(),
             sdram: vec![0; SDRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),

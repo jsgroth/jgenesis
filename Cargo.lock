@@ -2427,6 +2427,7 @@ dependencies = [
  "jgenesis-renderer",
  "log",
  "nes-core",
+ "s32x-core",
  "smsgg-core",
  "snes-core",
  "toml",

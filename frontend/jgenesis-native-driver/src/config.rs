@@ -15,6 +15,7 @@ use jgenesis_common::frontend::{PixelAspectRatio, TimingMode};
 use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::RendererConfig;
 use nes_core::api::{NesAspectRatio, NesEmulatorConfig, Overscan};
+use s32x_core::api::{S32XVideoOut, Sega32XEmulatorConfig};
 use segacd_core::api::SegaCdEmulatorConfig;
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
@@ -272,6 +273,22 @@ impl SegaCdConfig {
             load_disc_into_ram: self.load_disc_into_ram,
             pcm_enabled: self.pcm_enabled,
             cd_audio_enabled: self.cd_audio_enabled,
+        }
+    }
+}
+
+#[derive(Debug, Clone, ConfigDisplay)]
+pub struct Sega32XConfig {
+    #[indent_nested]
+    pub genesis: GenesisConfig,
+    pub video_out: S32XVideoOut,
+}
+
+impl Sega32XConfig {
+    pub(crate) fn to_emulator_config(&self) -> Sega32XEmulatorConfig {
+        Sega32XEmulatorConfig {
+            genesis: self.genesis.to_emulator_config(),
+            video_out: self.video_out,
         }
     }
 }

@@ -1,5 +1,5 @@
 use crate::config::RomReadResult;
-use crate::config::{GenesisConfig, SegaCdConfig};
+use crate::config::{GenesisConfig, Sega32XConfig, SegaCdConfig};
 use crate::mainloop::save::FsSaveWriter;
 use crate::mainloop::{basic_input_mapper_fn, debug, NativeEmulatorError};
 use crate::{config, AudioError, NativeEmulator, NativeEmulatorResult};
@@ -204,10 +204,10 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
     )
 }
 
-pub fn create_32x(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native32XEmulator> {
+pub fn create_32x(config: Box<Sega32XConfig>) -> NativeEmulatorResult<Native32XEmulator> {
     log::info!("Running with config: {config}");
 
-    let rom_path = Path::new(&config.common.rom_file_path);
+    let rom_path = Path::new(&config.genesis.common.rom_file_path);
     let rom = fs::read(rom_path).map_err(|source| NativeEmulatorError::RomRead {
         path: rom_path.display().to_string(),
         source,
@@ -218,7 +218,7 @@ pub fn create_32x(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native32XE
     let save_path = rom_path.with_extension("sav");
     let mut save_writer = FsSaveWriter::new(save_path);
 
-    let emulator_config = Sega32XEmulatorConfig { genesis: config.to_emulator_config() };
+    let emulator_config = config.to_emulator_config();
     let emulator =
         Sega32XEmulator::create(rom.into_boxed_slice(), emulator_config, &mut save_writer);
 
@@ -228,7 +228,7 @@ pub fn create_32x(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native32XE
     Native32XEmulator::new(
         emulator,
         emulator_config,
-        config.common,
+        config.genesis.common,
         config::DEFAULT_GENESIS_WINDOW_SIZE,
         &window_title,
         save_writer,

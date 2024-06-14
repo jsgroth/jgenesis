@@ -8,13 +8,14 @@ use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_config::smsgg::SmsModel;
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_driver::config::input::{NesControllerType, SnesControllerType};
-use jgenesis_native_driver::config::{GgAspectRatio, SmsAspectRatio};
+use jgenesis_native_driver::config::{GgAspectRatio, Sega32XConfig, SmsAspectRatio};
 use jgenesis_native_driver::NativeTickEffect;
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, Scanlines, VSyncMode, WgpuBackend,
 };
 use nes_core::api::NesAspectRatio;
+use s32x_core::api::S32XVideoOut;
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::SmsRegion;
 use snes_core::api::SnesAspectRatio;
@@ -349,6 +350,9 @@ struct Args {
     /// Rewind buffer length in seconds
     #[arg(long, help_heading = HOTKEY_OPTIONS_HEADING)]
     rewind_buffer_length_seconds: Option<u64>,
+
+    #[arg(long, default_value_t)]
+    s32x_video_out: S32XVideoOut,
 }
 
 macro_rules! apply_overrides {
@@ -679,7 +683,12 @@ fn run_sega_cd(args: Args, config: AppConfig) -> anyhow::Result<()> {
 }
 
 fn run_32x(args: Args, config: AppConfig) -> anyhow::Result<()> {
-    let mut emulator = jgenesis_native_driver::create_32x(config.genesis_config(args.file_path))?;
+    let config = Sega32XConfig {
+        genesis: *config.genesis_config(args.file_path),
+        video_out: args.s32x_video_out,
+    };
+
+    let mut emulator = jgenesis_native_driver::create_32x(config.into())?;
     while emulator.render_frame()? != NativeTickEffect::Exit {}
 
     Ok(())

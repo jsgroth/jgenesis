@@ -13,7 +13,7 @@ use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig, GenesisInputs, Gen
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, Renderer, SaveWriter, TickEffect, TickResult, TimingMode,
 };
-use jgenesis_proc_macros::PartialClone;
+use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, PartialClone};
 use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgTickEffect, PsgVersion};
 use std::fmt::{Debug, Display};
@@ -34,9 +34,18 @@ pub enum Sega32XError<RErr, AErr, SErr> {
     SaveWrite(SErr),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
+pub enum S32XVideoOut {
+    #[default]
+    Combined,
+    GenesisOnly,
+    S32XOnly,
+}
+
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 pub struct Sega32XEmulatorConfig {
     pub genesis: GenesisEmulatorConfig,
+    pub video_out: S32XVideoOut,
 }
 
 macro_rules! new_main_bus {
@@ -86,7 +95,7 @@ impl Sega32XEmulator {
         let psg = Psg::new(PsgVersion::Standard);
 
         let initial_cartridge_ram = save_writer.load_bytes("sav").ok();
-        let s32x = Sega32X::new(rom, initial_cartridge_ram, timing_mode);
+        let s32x = Sega32X::new(rom, initial_cartridge_ram, timing_mode, config.video_out);
         let memory = Memory::new(s32x);
 
         let input =
@@ -227,6 +236,7 @@ impl EmulatorTrait for Sega32XEmulator {
         self.vdp.reload_config(config.genesis.to_vdp_config());
         self.ym2612.set_quantize_output(config.genesis.quantize_ym2612_output);
         self.input.reload_config(config.genesis);
+        self.memory.medium_mut().vdp.update_video_out(config.video_out);
     }
 
     fn take_rom_from(&mut self, other: &mut Self) {
