@@ -13,7 +13,7 @@ use genesis_core::{GenesisEmulator, GenesisInputs};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, FrameSize, Renderer, SaveWriter, TickEffect, TimingMode,
 };
-use jgenesis_renderer::renderer::WgpuRenderer;
+use jgenesis_renderer::renderer::{WgpuRenderer, WindowSize};
 use rfd::AsyncFileDialog;
 use segacd_core::api::{SegaCdEmulator, SegaCdEmulatorConfig};
 use smsgg_core::{SmsGgEmulator, SmsGgInputs};
@@ -24,11 +24,13 @@ use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::path::Path;
 use std::rc::Rc;
+use std::time::Duration;
 use wasm_bindgen::prelude::*;
 use web_sys::{AudioContext, AudioContextOptions};
-use winit::dpi::LogicalSize;
-use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
+use web_time::Instant;
+use winit::event::{ElementState, Event, KeyEvent, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy};
+use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::platform::web::WindowExtWebSys;
 use winit::window::{Fullscreen, Window, WindowBuilder};
 
@@ -163,11 +165,6 @@ fn read_save_file(file_name: &str) -> Result<Vec<u8>, String> {
     js::localStorageGet(file_name)
         .and_then(|b64_bytes| general_purpose::STANDARD.decode(b64_bytes).ok())
         .ok_or_else(|| format!("No save file found for file name {file_name}"))
-}
-
-fn window_size_fn(window: &Window) -> (u32, u32) {
-    let size = window.inner_size();
-    (size.width, size.height)
 }
 
 /// # Panics
@@ -309,7 +306,7 @@ impl Emulator {
         }
     }
 
-    fn handle_window_event(&mut self, event: &WindowEvent<'_>) {
+    fn handle_window_event(&mut self, event: &WindowEvent) {
         match self {
             Self::None(..) => {}
             Self::SmsGg(_, inputs, _) => {
@@ -367,9 +364,9 @@ impl Emulator {
     }
 }
 
-fn handle_smsgg_input(inputs: &mut SmsGgInputs, event: &WindowEvent<'_>) {
+fn handle_smsgg_input(inputs: &mut SmsGgInputs, event: &WindowEvent) {
     let WindowEvent::KeyboardInput {
-        input: KeyboardInput { virtual_keycode: Some(keycode), state, .. },
+        event: KeyEvent { physical_key: PhysicalKey::Code(keycode), state, .. },
         ..
     } = event
     else {
@@ -378,20 +375,20 @@ fn handle_smsgg_input(inputs: &mut SmsGgInputs, event: &WindowEvent<'_>) {
     let pressed = *state == ElementState::Pressed;
 
     match keycode {
-        VirtualKeyCode::Up => inputs.p1.up = pressed,
-        VirtualKeyCode::Left => inputs.p1.left = pressed,
-        VirtualKeyCode::Right => inputs.p1.right = pressed,
-        VirtualKeyCode::Down => inputs.p1.down = pressed,
-        VirtualKeyCode::A => inputs.p1.button2 = pressed,
-        VirtualKeyCode::S => inputs.p1.button1 = pressed,
-        VirtualKeyCode::Return => inputs.pause = pressed,
+        KeyCode::ArrowUp => inputs.p1.up = pressed,
+        KeyCode::ArrowLeft => inputs.p1.left = pressed,
+        KeyCode::ArrowRight => inputs.p1.right = pressed,
+        KeyCode::ArrowDown => inputs.p1.down = pressed,
+        KeyCode::KeyA => inputs.p1.button2 = pressed,
+        KeyCode::KeyS => inputs.p1.button1 = pressed,
+        KeyCode::Enter => inputs.pause = pressed,
         _ => {}
     }
 }
 
-fn handle_genesis_input(inputs: &mut GenesisInputs, event: &WindowEvent<'_>) {
+fn handle_genesis_input(inputs: &mut GenesisInputs, event: &WindowEvent) {
     let WindowEvent::KeyboardInput {
-        input: KeyboardInput { virtual_keycode: Some(keycode), state, .. },
+        event: KeyEvent { physical_key: PhysicalKey::Code(keycode), state, .. },
         ..
     } = event
     else {
@@ -400,25 +397,25 @@ fn handle_genesis_input(inputs: &mut GenesisInputs, event: &WindowEvent<'_>) {
     let pressed = *state == ElementState::Pressed;
 
     match keycode {
-        VirtualKeyCode::Up => inputs.p1.up = pressed,
-        VirtualKeyCode::Left => inputs.p1.left = pressed,
-        VirtualKeyCode::Right => inputs.p1.right = pressed,
-        VirtualKeyCode::Down => inputs.p1.down = pressed,
-        VirtualKeyCode::A => inputs.p1.a = pressed,
-        VirtualKeyCode::S => inputs.p1.b = pressed,
-        VirtualKeyCode::D => inputs.p1.c = pressed,
-        VirtualKeyCode::Q => inputs.p1.x = pressed,
-        VirtualKeyCode::W => inputs.p1.y = pressed,
-        VirtualKeyCode::E => inputs.p1.z = pressed,
-        VirtualKeyCode::Return => inputs.p1.start = pressed,
-        VirtualKeyCode::RShift => inputs.p1.mode = pressed,
+        KeyCode::ArrowUp => inputs.p1.up = pressed,
+        KeyCode::ArrowLeft => inputs.p1.left = pressed,
+        KeyCode::ArrowRight => inputs.p1.right = pressed,
+        KeyCode::ArrowDown => inputs.p1.down = pressed,
+        KeyCode::KeyA => inputs.p1.a = pressed,
+        KeyCode::KeyS => inputs.p1.b = pressed,
+        KeyCode::KeyD => inputs.p1.c = pressed,
+        KeyCode::KeyQ => inputs.p1.x = pressed,
+        KeyCode::KeyW => inputs.p1.y = pressed,
+        KeyCode::KeyE => inputs.p1.z = pressed,
+        KeyCode::Enter => inputs.p1.start = pressed,
+        KeyCode::ShiftRight => inputs.p1.mode = pressed,
         _ => {}
     }
 }
 
-fn handle_snes_input(inputs: &mut SnesInputs, event: &WindowEvent<'_>) {
+fn handle_snes_input(inputs: &mut SnesInputs, event: &WindowEvent) {
     let WindowEvent::KeyboardInput {
-        input: KeyboardInput { virtual_keycode: Some(keycode), state, .. },
+        event: KeyEvent { physical_key: PhysicalKey::Code(keycode), state, .. },
         ..
     } = event
     else {
@@ -427,18 +424,18 @@ fn handle_snes_input(inputs: &mut SnesInputs, event: &WindowEvent<'_>) {
     let pressed = *state == ElementState::Pressed;
 
     match keycode {
-        VirtualKeyCode::Up => inputs.p1.up = pressed,
-        VirtualKeyCode::Left => inputs.p1.left = pressed,
-        VirtualKeyCode::Right => inputs.p1.right = pressed,
-        VirtualKeyCode::Down => inputs.p1.down = pressed,
-        VirtualKeyCode::S => inputs.p1.a = pressed,
-        VirtualKeyCode::X => inputs.p1.b = pressed,
-        VirtualKeyCode::A => inputs.p1.x = pressed,
-        VirtualKeyCode::Z => inputs.p1.y = pressed,
-        VirtualKeyCode::D => inputs.p1.l = pressed,
-        VirtualKeyCode::C => inputs.p1.r = pressed,
-        VirtualKeyCode::Return => inputs.p1.start = pressed,
-        VirtualKeyCode::RShift => inputs.p1.select = pressed,
+        KeyCode::ArrowUp => inputs.p1.up = pressed,
+        KeyCode::ArrowLeft => inputs.p1.left = pressed,
+        KeyCode::ArrowRight => inputs.p1.right = pressed,
+        KeyCode::ArrowDown => inputs.p1.down = pressed,
+        KeyCode::KeyS => inputs.p1.a = pressed,
+        KeyCode::KeyX => inputs.p1.b = pressed,
+        KeyCode::KeyA => inputs.p1.x = pressed,
+        KeyCode::KeyZ => inputs.p1.y = pressed,
+        KeyCode::KeyD => inputs.p1.l = pressed,
+        KeyCode::KeyC => inputs.p1.r = pressed,
+        KeyCode::Enter => inputs.p1.start = pressed,
+        KeyCode::ShiftRight => inputs.p1.select = pressed,
         _ => {}
     }
 }
@@ -449,26 +446,30 @@ enum JgenesisUserEvent {
     UploadSaveFile { contents_base64: String },
 }
 
+const CANVAS_WIDTH: u32 = 878;
+const CANVAS_HEIGHT: u32 = 672;
+const CANVAS_SIZE: WindowSize = WindowSize { width: CANVAS_WIDTH, height: CANVAS_HEIGHT };
+
 /// # Panics
 #[wasm_bindgen]
 pub async fn run_emulator(config_ref: WebConfigRef, emulator_channel: EmulatorChannel) {
-    let event_loop = EventLoopBuilder::<JgenesisUserEvent>::with_user_event().build();
+    let event_loop = EventLoopBuilder::<JgenesisUserEvent>::with_user_event()
+        .build()
+        .expect("Failed to create winit event loop");
     let window = WindowBuilder::new().build(&event_loop).expect("Unable to create window");
-
-    window.set_inner_size(LogicalSize::new(878, 672));
 
     web_sys::window()
         .and_then(|window| window.document())
         .and_then(|document| {
             let dst = document.get_element_by_id("jgenesis-wasm")?;
-            let canvas = web_sys::Element::from(window.canvas());
+            let canvas = web_sys::Element::from(window.canvas()?);
             dst.append_child(&canvas).ok()?;
             Some(())
         })
         .expect("Unable to append canvas to document");
 
     let renderer_config = config_ref.borrow().common.to_renderer_config();
-    let mut renderer = WgpuRenderer::new(window, window_size_fn, renderer_config)
+    let mut renderer = WgpuRenderer::new(window, CANVAS_SIZE, renderer_config)
         .await
         .expect("Unable to create wgpu renderer");
 
@@ -509,16 +510,24 @@ fn run_event_loop(
     let mut emulator = Emulator::None(RandomNoiseGenerator::new());
     let mut current_config = config_ref.borrow().clone();
 
-    let event_loop_proxy = event_loop.create_proxy();
-    event_loop.run(move |event, _, control_flow| match event {
-        Event::UserEvent(user_event) => match user_event {
-            JgenesisUserEvent::FileOpen { rom, bios, rom_file_name } => {
-                audio_output.suspend();
+    event_loop.set_control_flow(ControlFlow::Poll);
 
-                let prev_file_name = Rc::clone(&save_writer.file_name);
-                save_writer.update_file_name(rom_file_name.clone());
-                emulator =
-                    match open_emulator(rom, bios, &rom_file_name, &config_ref, &mut save_writer) {
+    let event_loop_proxy = event_loop.create_proxy();
+    event_loop
+        .run(move |event, elwt| match event {
+            Event::UserEvent(user_event) => match user_event {
+                JgenesisUserEvent::FileOpen { rom, bios, rom_file_name } => {
+                    audio_output.suspend();
+
+                    let prev_file_name = Rc::clone(&save_writer.file_name);
+                    save_writer.update_file_name(rom_file_name.clone());
+                    emulator = match open_emulator(
+                        rom,
+                        bios,
+                        &rom_file_name,
+                        &config_ref,
+                        &mut save_writer,
+                    ) {
                         Ok(emulator) => emulator,
                         Err(err) => {
                             js::alert(&format!("Error opening ROM file: {err}"));
@@ -527,112 +536,117 @@ fn run_event_loop(
                         }
                     };
 
-                emulator_channel.set_current_file_name(rom_file_name.clone());
+                    emulator_channel.set_current_file_name(rom_file_name.clone());
 
-                js::setRomTitle(&emulator.rom_title(&rom_file_name));
-                js::setSaveUiEnabled(emulator.has_persistent_save());
+                    js::setRomTitle(&emulator.rom_title(&rom_file_name));
+                    js::setSaveUiEnabled(emulator.has_persistent_save());
 
-                js::focusCanvas();
-            }
-            JgenesisUserEvent::UploadSaveFile { contents_base64 } => {
-                if matches!(emulator, Emulator::None(..)) {
+                    js::focusCanvas();
+                }
+                JgenesisUserEvent::UploadSaveFile { contents_base64 } => {
+                    if matches!(emulator, Emulator::None(..)) {
+                        return;
+                    }
+
+                    audio_output.suspend();
+
+                    // Immediately persist save file because it won't get written again until the game writes to SRAM
+                    let file_name = emulator_channel.current_file_name();
+                    js::localStorageSet(&file_name, &contents_base64);
+
+                    emulator.reset(&mut save_writer);
+
+                    js::focusCanvas();
+                }
+            },
+            Event::AboutToWait => {
+                let now = performance.now();
+                if now < next_frame_time {
+                    elwt.set_control_flow(ControlFlow::WaitUntil(
+                        Instant::now() + Duration::from_millis(1),
+                    ));
                     return;
                 }
 
-                audio_output.suspend();
+                let fps = emulator.target_fps();
+                while now >= next_frame_time {
+                    next_frame_time += 1000.0 / fps;
+                }
 
-                // Immediately persist save file because it won't get written again until the game writes to SRAM
-                let file_name = emulator_channel.current_file_name();
-                js::localStorageSet(&file_name, &contents_base64);
+                emulator.render_frame(&mut renderer, &mut audio_output, &mut save_writer);
 
-                emulator.reset(&mut save_writer);
+                let config = config_ref.borrow().clone();
+                if config != current_config {
+                    renderer.reload_config(config.common.to_renderer_config());
+                    emulator.reload_config(&config);
+                    current_config = config;
+                }
 
-                js::focusCanvas();
-            }
-        },
-        Event::MainEventsCleared => {
-            let now = performance.now();
-            if now < next_frame_time {
-                *control_flow = ControlFlow::Poll;
-                return;
-            }
+                while let Some(command) = emulator_channel.pop_command() {
+                    match command {
+                        EmulatorCommand::OpenFile => {
+                            wasm_bindgen_futures::spawn_local(open_file(event_loop_proxy.clone()));
+                        }
+                        EmulatorCommand::OpenSegaCd => {
+                            wasm_bindgen_futures::spawn_local(open_sega_cd(
+                                event_loop_proxy.clone(),
+                            ));
+                        }
+                        EmulatorCommand::UploadSaveFile => {
+                            wasm_bindgen_futures::spawn_local(upload_save_file(
+                                event_loop_proxy.clone(),
+                            ));
+                        }
+                        EmulatorCommand::Reset => {
+                            audio_output.suspend();
 
-            let fps = emulator.target_fps();
-            while now >= next_frame_time {
-                next_frame_time += 1000.0 / fps;
-            }
+                            emulator.reset(&mut save_writer);
 
-            emulator.render_frame(&mut renderer, &mut audio_output, &mut save_writer);
-
-            let config = config_ref.borrow().clone();
-            if config != current_config {
-                renderer.reload_config(config.common.to_renderer_config());
-                emulator.reload_config(&config);
-                current_config = config;
-            }
-
-            while let Some(command) = emulator_channel.pop_command() {
-                match command {
-                    EmulatorCommand::OpenFile => {
-                        wasm_bindgen_futures::spawn_local(open_file(event_loop_proxy.clone()));
-                    }
-                    EmulatorCommand::OpenSegaCd => {
-                        wasm_bindgen_futures::spawn_local(open_sega_cd(event_loop_proxy.clone()));
-                    }
-                    EmulatorCommand::UploadSaveFile => {
-                        wasm_bindgen_futures::spawn_local(upload_save_file(
-                            event_loop_proxy.clone(),
-                        ));
-                    }
-                    EmulatorCommand::Reset => {
-                        audio_output.suspend();
-
-                        emulator.reset(&mut save_writer);
-
-                        js::focusCanvas();
+                            js::focusCanvas();
+                        }
                     }
                 }
             }
-        }
-        Event::WindowEvent { event: window_event, window_id }
-            if window_id == renderer.window().id() =>
-        {
-            emulator.handle_window_event(&window_event);
+            Event::WindowEvent { event: window_event, window_id }
+                if window_id == renderer.window().id() =>
+            {
+                emulator.handle_window_event(&window_event);
 
-            match window_event {
-                WindowEvent::CloseRequested => {
-                    *control_flow = ControlFlow::Exit;
-                }
-                WindowEvent::Resized(_) => {
-                    renderer.handle_resize();
-
-                    // Show cursor only when not fullscreen
-                    js::setCursorVisible(renderer.window().fullscreen().is_none());
-                }
-                WindowEvent::KeyboardInput {
-                    input:
-                        KeyboardInput {
-                            virtual_keycode: Some(VirtualKeyCode::F8),
-                            state: ElementState::Pressed,
-                            ..
-                        },
-                    ..
-                } => {
-                    // Toggle fullscreen
-                    let new_fullscreen = match renderer.window().fullscreen() {
-                        None => Some(Fullscreen::Borderless(None)),
-                        Some(_) => None,
-                    };
-                    // SAFETY: Not reassigning the window
-                    unsafe {
-                        renderer.window_mut().set_fullscreen(new_fullscreen);
+                match window_event {
+                    WindowEvent::CloseRequested => {
+                        elwt.exit();
                     }
+                    WindowEvent::Resized(_) => {
+                        renderer.handle_resize(CANVAS_SIZE);
+
+                        // Show cursor only when not fullscreen
+                        js::setCursorVisible(renderer.window().fullscreen().is_none());
+                    }
+                    WindowEvent::KeyboardInput {
+                        event:
+                            KeyEvent {
+                                physical_key: PhysicalKey::Code(KeyCode::F8),
+                                state: ElementState::Pressed,
+                                ..
+                            },
+                        ..
+                    } => {
+                        // Toggle fullscreen
+                        let new_fullscreen = match renderer.window().fullscreen() {
+                            None => Some(Fullscreen::Borderless(None)),
+                            Some(_) => None,
+                        };
+                        // SAFETY: Not reassigning the window
+                        unsafe {
+                            renderer.window_mut().set_fullscreen(new_fullscreen);
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
-        }
-        _ => {}
-    });
+            _ => {}
+        })
+        .unwrap();
 }
 
 async fn open_file(event_loop_proxy: EventLoopProxy<JgenesisUserEvent>) {

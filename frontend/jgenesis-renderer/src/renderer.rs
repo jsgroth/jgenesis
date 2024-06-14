@@ -1,13 +1,15 @@
 use crate::config::{PreprocessShader, PrescaleMode, RendererConfig, Scanlines, WgpuBackend};
 use crate::ttf::ModalRenderer;
+use cfg_if::cfg_if;
 use jgenesis_common::frontend::{Color, FrameSize, PixelAspectRatio, Renderer};
-use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
+use raw_window_handle::{HandleError, HasDisplayHandle, HasWindowHandle};
 use std::collections::HashMap;
+use std::error::Error;
+use std::fmt::Debug;
 use std::time::Duration;
 use std::{cmp, iter, mem};
 use thiserror::Error;
 use wgpu::util::DeviceExt;
-use wgpu::Gles3MinorVersion;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -278,7 +280,7 @@ impl RenderingPipeline {
     fn create(
         device: &wgpu::Device,
         shaders: &Shaders,
-        window_size: (u32, u32),
+        window_size: WindowSize,
         frame_size: FrameSize,
         pixel_aspect_ratio: Option<PixelAspectRatio>,
         texture_format: wgpu::TextureFormat,
@@ -301,8 +303,8 @@ impl RenderingPipeline {
         });
 
         let display_area = determine_display_area(
-            window_size.0,
-            window_size.1,
+            window_size.width,
+            window_size.height,
             frame_size,
             pixel_aspect_ratio,
             renderer_config.force_integer_height_scaling,
@@ -339,7 +341,7 @@ impl RenderingPipeline {
         });
 
         let vertices = match pixel_aspect_ratio {
-            Some(_) => compute_vertices(window_size.0, window_size.1, display_area),
+            Some(_) => compute_vertices(window_size.width, window_size.height, display_area),
             None => VERTICES.into(),
         };
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -571,7 +573,7 @@ impl RenderingPipeline {
         &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        surface: &wgpu::Surface,
+        surface: &wgpu::Surface<'_>,
         surface_config: &wgpu::SurfaceConfiguration,
         frame_buffer: &[Color],
         modal_renderer: &mut ModalRenderer,
@@ -765,10 +767,12 @@ fn scale_vertex_position(
 
 #[derive(Debug, Error)]
 pub enum RendererError {
+    #[error("Error creating surface from window: {0}")]
+    WindowHandleError(#[from] HandleError),
     #[error("Error creating wgpu surface: {0}")]
     WgpuCreateSurface(#[from] wgpu::CreateSurfaceError),
     #[error("Error requesting wgpu device: {0}")]
-    WgpuRequestDevice(#[from] wgpu::RequestDeviceError),
+    WgpuRequestDevice(#[source] Box<dyn Error + Send + Sync + 'static>),
     #[error("Error getting handle to wgpu output surface: {0}")]
     WgpuSurface(#[from] wgpu::SurfaceError),
     #[error("Failed to obtain wgpu adapter")]
@@ -781,6 +785,35 @@ pub enum RendererError {
     GlyphonPrepare(#[from] glyphon::PrepareError),
     #[error("Error rendering text: {0}")]
     GlyphonRender(#[from] glyphon::RenderError),
+}
+
+#[cfg(target_arch = "wasm32")]
+#[derive(Debug, Clone)]
+struct RequestDeviceErrorWrapper(String);
+
+#[cfg(target_arch = "wasm32")]
+impl std::fmt::Display for RequestDeviceErrorWrapper {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl std::error::Error for RequestDeviceErrorWrapper {}
+
+impl From<wgpu::RequestDeviceError> for RendererError {
+    fn from(value: wgpu::RequestDeviceError) -> Self {
+        cfg_if! {
+            if #[cfg(target_arch = "wasm32")] {
+                // On web, wgpu::RequestDeviceError contains a JsValue which is not Send+Sync.
+                // Serialize the error to a String, which is not ideal but keeps the error type
+                // Send+Sync
+                Self::WgpuRequestDevice(Box::new(RequestDeviceErrorWrapper(value.to_string())))
+            } else {
+                Self::WgpuRequestDevice(Box::new(value))
+            }
+        }
+    }
 }
 
 struct Shaders {
@@ -849,10 +882,14 @@ impl RenderingPipelines {
     }
 }
 
-pub type WindowSizeFn<Window> = fn(&Window) -> (u32, u32);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowSize {
+    pub width: u32,
+    pub height: u32,
+}
 
 pub struct WgpuRenderer<Window> {
-    surface: wgpu::Surface,
+    surface: wgpu::Surface<'static>,
     surface_config: wgpu::SurfaceConfiguration,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -866,10 +903,10 @@ pub struct WgpuRenderer<Window> {
     // SAFETY: The surface must not outlive the window it was created from, thus the window must be
     // declared after the surface
     window: Window,
-    window_size_fn: WindowSizeFn<Window>,
+    window_size: WindowSize,
 }
 
-impl<Window: HasRawDisplayHandle + HasRawWindowHandle> WgpuRenderer<Window> {
+impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
     /// Construct a wgpu renderer from the given window and config.
     ///
     /// # Errors
@@ -877,7 +914,7 @@ impl<Window: HasRawDisplayHandle + HasRawWindowHandle> WgpuRenderer<Window> {
     /// This function will return any errors encountered while initializing wgpu.
     pub async fn new(
         window: Window,
-        window_size_fn: WindowSizeFn<Window>,
+        window_size: WindowSize,
         config: RendererConfig,
     ) -> Result<Self, RendererError> {
         let backends = match config.wgpu_backend {
@@ -891,11 +928,13 @@ impl<Window: HasRawDisplayHandle + HasRawWindowHandle> WgpuRenderer<Window> {
             backends,
             flags: wgpu::InstanceFlags::default(),
             dx12_shader_compiler: wgpu::Dx12Compiler::Dxc { dxil_path: None, dxc_path: None },
-            gles_minor_version: Gles3MinorVersion::default(),
+            gles_minor_version: wgpu::Gles3MinorVersion::default(),
         });
 
         // SAFETY: The surface must not outlive the window it was created from
-        let surface = unsafe { instance.create_surface(&window) }?;
+        let surface = unsafe {
+            instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::from_window(&window)?)
+        }?;
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -912,8 +951,8 @@ impl<Window: HasRawDisplayHandle + HasRawWindowHandle> WgpuRenderer<Window> {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: "device".into(),
-                    features: wgpu::Features::empty(),
-                    limits: if config.use_webgl2_limits {
+                    required_features: wgpu::Features::empty(),
+                    required_limits: if config.use_webgl2_limits {
                         wgpu::Limits::downlevel_webgl2_defaults()
                     } else {
                         wgpu::Limits::default()
@@ -943,13 +982,13 @@ impl<Window: HasRawDisplayHandle + HasRawWindowHandle> WgpuRenderer<Window> {
                 surface_capabilities.formats[0]
             });
 
-        let (window_width, window_height) = window_size_fn(&window);
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
-            width: window_width,
-            height: window_height,
+            width: window_size.width,
+            height: window_size.height,
             present_mode,
+            desired_maximum_frame_latency: 2,
             alpha_mode: surface_capabilities.alpha_modes[0],
             view_formats: vec![],
         };
@@ -978,7 +1017,7 @@ impl<Window: HasRawDisplayHandle + HasRawWindowHandle> WgpuRenderer<Window> {
             frame_count: 0,
             speed_multiplier: 1,
             window,
-            window_size_fn,
+            window_size,
         })
     }
 }
@@ -993,10 +1032,11 @@ impl<Window> WgpuRenderer<Window> {
         self.pipelines.clear();
     }
 
-    pub fn handle_resize(&mut self) {
-        let (window_width, window_height) = (self.window_size_fn)(&self.window);
-        self.surface_config.width = window_width;
-        self.surface_config.height = window_height;
+    pub fn handle_resize(&mut self, size: WindowSize) {
+        self.window_size = size;
+
+        self.surface_config.width = size.width;
+        self.surface_config.height = size.height;
         self.surface.configure(&self.device, &self.surface_config);
 
         // Force render pipeline to be recreated on the next render_frame() call
@@ -1060,11 +1100,10 @@ impl<Window> Renderer for WgpuRenderer<Window> {
         let pipeline = self.pipelines.get_or_insert(frame_size, pixel_aspect_ratio, || {
             log::info!("Creating render pipeline for frame size {frame_size:?} and pixel aspect ratio {pixel_aspect_ratio:?}");
 
-            let window_size = (self.window_size_fn)(&self.window);
             RenderingPipeline::create(
                 &self.device,
                 &self.shaders,
-                window_size,
+                self.window_size,
                 frame_size,
                 pixel_aspect_ratio,
                 self.texture_format,

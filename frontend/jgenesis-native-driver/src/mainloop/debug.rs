@@ -8,15 +8,19 @@ pub mod snes;
 use sdl2::event::{Event, WindowEvent};
 
 use egui::{Button, Response, Ui, Widget, WidgetText};
-use egui_wgpu::renderer::ScreenDescriptor;
+use egui_wgpu::ScreenDescriptor;
 use sdl2::video::{Window, WindowBuildError};
 use sdl2::VideoSubsystem;
 use std::iter;
 use std::time::SystemTime;
 use thiserror::Error;
+use wgpu::rwh::HandleError;
+use wgpu::SurfaceTargetUnsafe;
 
 #[derive(Debug, Error)]
 pub enum DebuggerError {
+    #[error("Failed to create surface from window handle: {0}")]
+    WindowHandleError(#[from] HandleError),
     #[error("Failed to create SDL2 window: {0}")]
     SdlWindowCreateFailed(#[from] WindowBuildError),
     #[error("Failed to create wgpu surface: {0}")]
@@ -40,7 +44,7 @@ pub struct DebugRenderContext<'a, Emulator> {
 pub type DebugRenderFn<Emulator> = dyn FnMut(DebugRenderContext<'_, Emulator>);
 
 pub struct DebuggerWindow<Emulator> {
-    surface: wgpu::Surface,
+    surface: wgpu::Surface<'static>,
     surface_config: wgpu::SurfaceConfiguration,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -68,7 +72,8 @@ impl<Emulator> DebuggerWindow<Emulator> {
         });
 
         // SAFETY: The surface must not outlive the window
-        let surface = unsafe { instance.create_surface(&window) }?;
+        let surface =
+            unsafe { instance.create_surface_unsafe(SurfaceTargetUnsafe::from_window(&window)?) }?;
 
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
@@ -80,8 +85,8 @@ impl<Emulator> DebuggerWindow<Emulator> {
         let (device, queue) = pollster::block_on(adapter.request_device(
             &wgpu::DeviceDescriptor {
                 label: "debugger_device".into(),
-                features: wgpu::Features::default(),
-                limits: wgpu::Limits::default(),
+                required_features: wgpu::Features::default(),
+                required_limits: wgpu::Limits::default(),
             },
             None,
         ))?;
@@ -93,6 +98,7 @@ impl<Emulator> DebuggerWindow<Emulator> {
             width,
             height,
             present_mode: wgpu::PresentMode::AutoVsync,
+            desired_maximum_frame_latency: 2,
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
             view_formats: vec![],
         };

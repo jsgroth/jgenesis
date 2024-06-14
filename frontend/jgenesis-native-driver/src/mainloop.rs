@@ -29,6 +29,7 @@ pub use audio::AudioError;
 use bincode::error::{DecodeError, EncodeError};
 use gb_core::api::GameBoyLoadError;
 use jgenesis_common::frontend::{EmulatorTrait, PartialClone, TickEffect};
+use jgenesis_renderer::renderer;
 use jgenesis_renderer::renderer::{RendererError, WgpuRenderer};
 use nes_core::api::NesInitializationError;
 pub use save::SaveWriteError;
@@ -351,9 +352,10 @@ where
             common_config.launch_in_fullscreen,
         )?;
 
+        let window_size = sdl_window_size(&window);
         let renderer = pollster::block_on(WgpuRenderer::new(
             window,
-            Window::size,
+            window_size,
             common_config.renderer_config,
         ))?;
 
@@ -737,10 +739,16 @@ fn create_window(
     Ok(window)
 }
 
+fn sdl_window_size(window: &Window) -> renderer::WindowSize {
+    let (width, height) = window.size();
+    renderer::WindowSize { width, height }
+}
+
 fn handle_window_event(win_event: WindowEvent, renderer: &mut WgpuRenderer<Window>) {
     match win_event {
         WindowEvent::Resized(..) | WindowEvent::SizeChanged(..) | WindowEvent::Maximized => {
-            renderer.handle_resize();
+            let window_size = sdl_window_size(renderer.window());
+            renderer.handle_resize(window_size);
         }
         _ => {}
     }
