@@ -9,7 +9,7 @@ mod snes;
 
 use crate::app::input::{GenericButton, InputAppConfigExt};
 use crate::app::nes::OverscanState;
-use crate::app::romlist::{Console, RomMetadata};
+use crate::app::romlist::{Console, RomListThreadHandle, RomMetadata};
 use crate::emuthread;
 use crate::emuthread::{EmuThreadCommand, EmuThreadHandle, EmuThreadStatus};
 use eframe::Frame;
@@ -27,6 +27,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 use time::util::local_offset;
 use time::util::local_offset::Soundness;
 use time::{format_description, OffsetDateTime, UtcOffset};
@@ -134,8 +135,9 @@ struct AppState {
     display_scanlines_warning: bool,
     overscan: OverscanState,
     waiting_for_input: Option<GenericButton>,
-    rom_list: Vec<RomMetadata>,
+    rom_list: Arc<Mutex<Vec<RomMetadata>>>,
     filtered_rom_list: Rc<[RomMetadata]>,
+    rom_list_refresh_needed: bool,
     recent_open_list: Vec<RomMetadata>,
     title_match: String,
     title_match_lowercase: Rc<str>,
@@ -145,7 +147,6 @@ struct AppState {
 
 impl AppState {
     fn from_config(config: &AppConfig) -> Self {
-        let rom_list = romlist::build(&config.rom_search_dirs);
         let recent_open_list = romlist::from_recent_opens(&config.recent_opens);
         Self {
             current_file_path: String::new(),
@@ -170,8 +171,9 @@ impl AppState {
             overscan: config.nes.overscan().into(),
             display_scanlines_warning: should_display_scanlines_warning(config),
             waiting_for_input: None,
-            rom_list,
+            rom_list: Arc::new(Mutex::new(vec![])),
             filtered_rom_list: vec![].into(),
+            rom_list_refresh_needed: true,
             title_match: String::new(),
             title_match_lowercase: Rc::from(String::new()),
             recent_open_list,
@@ -241,6 +243,7 @@ pub struct App {
     state: AppState,
     config_path: PathBuf,
     emu_thread: EmuThreadHandle,
+    rom_list_thread: RomListThreadHandle,
     startup_file_path: Option<String>,
 }
 
@@ -251,10 +254,10 @@ impl App {
         let state = AppState::from_config(&config);
         let emu_thread = emuthread::spawn(ctx);
 
-        let mut app = Self { config, state, config_path, emu_thread, startup_file_path };
-        app.refresh_filtered_rom_list();
+        let rom_list_thread = RomListThreadHandle::spawn(Arc::clone(&state.rom_list));
+        rom_list_thread.request_scan(config.rom_search_dirs.clone());
 
-        app
+        Self { config, state, config_path, emu_thread, rom_list_thread, startup_file_path }
     }
 
     fn open_file(&mut self) {
@@ -336,8 +339,8 @@ impl App {
         let Some(dir) = dir.to_str() else { return };
 
         self.config.rom_search_dirs.push(dir.into());
-        self.state.rom_list = romlist::build(&self.config.rom_search_dirs);
-        self.refresh_filtered_rom_list();
+        self.rom_list_thread.request_scan(self.config.rom_search_dirs.clone());
+        self.state.rom_list_refresh_needed = true;
     }
 
     fn render_interface_settings(&mut self, ctx: &Context) {
@@ -363,8 +366,8 @@ impl App {
 
                         if ui.button("Remove").clicked() {
                             self.config.rom_search_dirs.remove(i);
-                            self.state.rom_list = romlist::build(&self.config.rom_search_dirs);
-                            self.refresh_filtered_rom_list();
+                            self.rom_list_thread.request_scan(self.config.rom_search_dirs.clone());
+                            self.state.rom_list_refresh_needed = true;
                         }
                     });
                 }
@@ -756,7 +759,11 @@ impl App {
         CentralPanel::default().show(ctx, |ui| {
             ui.set_enabled(!self.state.error_window_open);
 
-            if self.state.rom_list.is_empty() {
+            if self.rom_list_thread.any_scans_in_progress() {
+                ui.centered_and_justified(|ui| {
+                    ui.label("Scanning search directories...");
+                });
+            } else if self.state.rom_list.lock().unwrap().is_empty() {
                 ui.centered_and_justified(|ui| {
                     if ui.selectable_label(false, "Configure ROM search directory").clicked() {
                         self.add_rom_search_directory();
@@ -932,10 +939,12 @@ impl App {
     }
 
     fn refresh_filtered_rom_list(&mut self) {
+        let rom_list = self.state.rom_list.lock().unwrap();
+
         self.state.filtered_rom_list = self
             .config
             .list_filters
-            .apply(&self.state.rom_list, &self.state.title_match_lowercase)
+            .apply(&rom_list, &self.state.title_match_lowercase)
             .cloned()
             .collect::<Vec<_>>()
             .into();
@@ -944,6 +953,11 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
+        if self.state.rom_list_refresh_needed && !self.rom_list_thread.any_scans_in_progress() {
+            self.state.rom_list_refresh_needed = false;
+            self.refresh_filtered_rom_list();
+        }
+
         if self.state.rendered_first_frame {
             if let Some(startup_file_path) = self.startup_file_path.take() {
                 self.launch_emulator(startup_file_path);

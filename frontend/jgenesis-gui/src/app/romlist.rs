@@ -3,8 +3,10 @@ use regex::Regex;
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::path::Path;
-use std::sync::OnceLock;
-use std::{fs, io};
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::mpsc::Sender;
+use std::sync::{mpsc, Arc, Mutex, OnceLock};
+use std::{fs, io, thread};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumAll)]
 pub enum Console {
@@ -177,4 +179,38 @@ pub fn from_recent_opens(recent_opens: &[String]) -> Vec<RomMetadata> {
             process_file(&file_name, path, metadata)
         })
         .collect()
+}
+
+#[derive(Debug)]
+pub struct RomListThreadHandle {
+    scan_requests_sender: Sender<Vec<String>>,
+    scan_request_counter: Arc<AtomicU32>,
+}
+
+impl RomListThreadHandle {
+    pub fn spawn(rom_list: Arc<Mutex<Vec<RomMetadata>>>) -> Self {
+        let (scan_requests_sender, scan_requests_receiver) = mpsc::channel::<Vec<String>>();
+        let scan_request_counter = Arc::new(AtomicU32::new(0));
+        let scan_request_counter_handle = Arc::clone(&scan_request_counter);
+
+        thread::spawn(move || {
+            while let Ok(scan_request) = scan_requests_receiver.recv() {
+                let new_rom_list = build(&scan_request);
+                *rom_list.lock().unwrap() = new_rom_list;
+
+                scan_request_counter.fetch_sub(1, Ordering::SeqCst);
+            }
+        });
+
+        Self { scan_requests_sender, scan_request_counter: scan_request_counter_handle }
+    }
+
+    pub fn request_scan(&self, scan_request: Vec<String>) {
+        self.scan_request_counter.fetch_add(1, Ordering::SeqCst);
+        self.scan_requests_sender.send(scan_request).unwrap();
+    }
+
+    pub fn any_scans_in_progress(&self) -> bool {
+        self.scan_request_counter.load(Ordering::SeqCst) != 0
+    }
 }
