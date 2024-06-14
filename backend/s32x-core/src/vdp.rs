@@ -2,6 +2,7 @@
 
 mod registers;
 
+use crate::api::S32XVideoOut;
 use crate::registers::SystemRegisters;
 use crate::vdp::registers::{FrameBufferMode, Registers, SelectedFrameBuffer};
 use bincode::{Decode, Encode};
@@ -78,6 +79,7 @@ pub struct Vdp {
     registers: Registers,
     state: State,
     timing_mode: TimingMode,
+    video_out: S32XVideoOut,
 }
 
 macro_rules! front_frame_buffer {
@@ -108,7 +110,7 @@ macro_rules! back_frame_buffer_mut {
 }
 
 impl Vdp {
-    pub fn new(timing_mode: TimingMode) -> Self {
+    pub fn new(timing_mode: TimingMode, video_out: S32XVideoOut) -> Self {
         Self {
             frame_buffer_0: new_frame_buffer(),
             frame_buffer_1: new_frame_buffer(),
@@ -117,6 +119,7 @@ impl Vdp {
             registers: Registers::default(),
             state: State::new(),
             timing_mode,
+            video_out,
         }
     }
 
@@ -319,7 +322,9 @@ impl Vdp {
         &self,
         genesis_frame_buffer: &mut [Color; genesis_core::vdp::FRAME_BUFFER_LEN],
     ) {
-        if self.registers.frame_buffer_mode == FrameBufferMode::Blank {
+        if self.registers.frame_buffer_mode == FrameBufferMode::Blank
+            || self.video_out == S32XVideoOut::GenesisOnly
+        {
             // Leave Genesis frame as-is
             return;
         }
@@ -329,12 +334,17 @@ impl Vdp {
         // TODO properly handle Genesis frame buffer size
         let active_lines_per_frame: u32 =
             self.registers.v_resolution.active_scanlines_per_frame().into();
+        let s32x_only = self.video_out == S32XVideoOut::S32XOnly;
+
         for line in 0..active_lines_per_frame {
             for pixel in 0..FRAME_WIDTH {
                 let genesis_fb_addr = (line * FRAME_WIDTH + pixel) as usize;
 
                 let s32x_pixel = self.rendered_frame[line as usize][pixel as usize];
-                if s32x_pixel.bit(15) != priority || genesis_frame_buffer[genesis_fb_addr].a == 0 {
+                if s32x_only
+                    || s32x_pixel.bit(15) != priority
+                    || genesis_frame_buffer[genesis_fb_addr].a == 0
+                {
                     // Replace Genesis pixel with 32X pixel
                     let r = s32x_pixel & 0x1F;
                     let g = (s32x_pixel >> 5) & 0x1F;
@@ -348,5 +358,9 @@ impl Vdp {
                 }
             }
         }
+    }
+
+    pub fn update_video_out(&mut self, video_out: S32XVideoOut) {
+        self.video_out = video_out;
     }
 }
