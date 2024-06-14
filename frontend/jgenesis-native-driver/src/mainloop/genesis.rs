@@ -6,6 +6,7 @@ use crate::{config, AudioError, NativeEmulator, NativeEmulatorResult};
 use genesis_core::input::GenesisButton;
 use genesis_core::{GenesisEmulator, GenesisEmulatorConfig, GenesisInputs};
 use jgenesis_common::frontend::EmulatorTrait;
+use s32x_core::api::{Sega32XEmulator, Sega32XEmulatorConfig};
 use segacd_core::api::{SegaCdEmulator, SegaCdEmulatorConfig, SegaCdLoadResult};
 use segacd_core::CdRomFileFormat;
 use std::fs;
@@ -109,6 +110,9 @@ impl NativeSegaCdEmulator {
     }
 }
 
+pub type Native32XEmulator =
+    NativeEmulator<GenesisInputs, GenesisButton, Sega32XEmulatorConfig, Sega32XEmulator>;
+
 /// Create an emulator with the Genesis core with the given config.
 ///
 /// # Errors
@@ -193,6 +197,35 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
         config.genesis.common,
         config::DEFAULT_GENESIS_WINDOW_SIZE,
         &window_title,
+        save_writer,
+        save_state_path,
+        basic_input_mapper_fn(&GenesisButton::ALL),
+        debug::genesis::render_fn,
+    )
+}
+
+pub fn create_32x(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native32XEmulator> {
+    log::info!("Running with config: {config}");
+
+    let rom_path = Path::new(&config.common.rom_file_path);
+    let rom = fs::read(rom_path).map_err(|source| NativeEmulatorError::RomRead {
+        path: rom_path.display().to_string(),
+        source,
+    })?;
+
+    let save_state_path = rom_path.with_extension("ss0");
+
+    let emulator_config = Sega32XEmulatorConfig { genesis: config.to_emulator_config() };
+    let emulator = Sega32XEmulator::create(rom.into_boxed_slice(), emulator_config);
+
+    let save_writer = FsSaveWriter::new("TODO".into());
+
+    Native32XEmulator::new(
+        emulator,
+        emulator_config,
+        config.common,
+        config::DEFAULT_GENESIS_WINDOW_SIZE,
+        "32x",
         save_writer,
         save_state_path,
         basic_input_mapper_fn(&GenesisButton::ALL),

@@ -10,7 +10,10 @@ mod snes;
 mod state;
 
 pub use gb::{create_gb, NativeGameBoyEmulator};
-pub use genesis::{create_genesis, create_sega_cd, NativeGenesisEmulator, NativeSegaCdEmulator};
+pub use genesis::{
+    create_32x, create_genesis, create_sega_cd, Native32XEmulator, NativeGenesisEmulator,
+    NativeSegaCdEmulator,
+};
 pub use nes::{create_nes, NativeNesEmulator};
 pub use smsgg::{create_smsgg, NativeSmsGgEmulator};
 pub use snes::{create_snes, NativeSnesEmulator};
