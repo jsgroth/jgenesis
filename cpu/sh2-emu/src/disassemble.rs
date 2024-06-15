@@ -316,7 +316,7 @@ fn decode_xnnn(opcode: u16) -> String {
         }
         0b1010_0000_0000_0000 => format!("BRA {}", parse_12bit_displacement(opcode)),
         0b1011_0000_0000_0000 => format!("BSR {}", parse_12bit_displacement(opcode)),
-        _ => todo!("illegal (?) SH-2 opcode {opcode:04X}"),
+        _ => format!("Illegal (?) SH-2 opcode {opcode:04X}"),
     }
 }
 

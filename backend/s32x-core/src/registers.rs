@@ -51,6 +51,10 @@ impl Sh2Interrupts {
         self.h_enabled = value.bit(2);
         self.command_enabled = value.bit(1);
         self.pwm_enabled = value.bit(0);
+
+        if self.h_enabled {
+            todo!("SH-2 HINT enabled")
+        }
     }
 }
 
@@ -195,11 +199,9 @@ impl SystemRegisters {
 
                 self.dma.fifo.pop()
             }
-            // TODO this register shouldn't be readable?
-            0x401A => 0,
+            // TODO these registers shouldn't be readable? (interrupt clear)
+            0x401A | 0x401C => 0,
             0x4020..=0x402F => self.read_communication_port(address),
-            // TODO PWM registers
-            0x4030..=0x403F => 0,
             _ => todo!("SH-2 register read: {address:08X} {which:?}"),
         }
     }

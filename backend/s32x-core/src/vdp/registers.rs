@@ -119,6 +119,12 @@ impl Registers {
 
     // 68000: $A15186
     // SH-2: $4106
+    pub fn read_auto_fill_start_address(&self) -> u16 {
+        self.auto_fill_start_address
+    }
+
+    // 68000: $A15186
+    // SH-2: $4106
     pub fn write_auto_fill_start_address(&mut self, value: u16) {
         self.auto_fill_start_address = value;
         log::trace!("Auto fill start address write: {value:04X}");
