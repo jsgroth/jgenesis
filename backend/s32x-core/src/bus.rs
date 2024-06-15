@@ -346,6 +346,9 @@ impl PhysicalMedium for Sega32X {
                     log::warn!("CRAM write with FM=1: {address:06X} {value:04X}");
                 }
             }
+            0x000000..=0x00006F | 0x000074..=0x0000FF => {
+                log::warn!("M68K write to invalid address {address:06X} {value:02X}");
+            }
             _ => todo!("M68K write word {address:06X} {value:04X}"),
         }
     }

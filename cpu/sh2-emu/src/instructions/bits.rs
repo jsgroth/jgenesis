@@ -18,6 +18,15 @@ pub fn and_imm_r0(cpu: &mut Sh2, opcode: u16) {
     cpu.registers.gpr[0] &= imm;
 }
 
+// AND.B #imm @(R0,GBR)
+// Logical and, in memory
+pub fn and_imm_gbr_indexed<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let imm = opcode as u8;
+    let address = cpu.registers.gbr.wrapping_add(cpu.registers.gpr[0]);
+    let value = cpu.read_byte(address, bus);
+    cpu.write_byte(address, value & imm, bus);
+}
+
 // OR Rm, Rn
 // Logical or
 pub fn or_rm_rn(cpu: &mut Sh2, opcode: u16) {
@@ -33,6 +42,15 @@ pub fn or_imm_r0(cpu: &mut Sh2, opcode: u16) {
     cpu.registers.gpr[0] |= imm;
 }
 
+// OR.B #imm @(R0,GBR)
+// Logical or, in memory
+pub fn or_imm_gbr_indexed<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let imm = opcode as u8;
+    let address = cpu.registers.gbr.wrapping_add(cpu.registers.gpr[0]);
+    let value = cpu.read_byte(address, bus);
+    cpu.write_byte(address, value | imm, bus);
+}
+
 // XOR Rm, Rn
 // Exclusive or
 pub fn xor_rm_rn(cpu: &mut Sh2, opcode: u16) {
@@ -46,6 +64,15 @@ pub fn xor_rm_rn(cpu: &mut Sh2, opcode: u16) {
 pub fn xor_imm_r0(cpu: &mut Sh2, opcode: u16) {
     let imm: u32 = (opcode & 0xFF).into();
     cpu.registers.gpr[0] ^= imm;
+}
+
+// XOR.B #imm @(R0,GBR)
+// Exclusive or, in memory
+pub fn xor_imm_gbr_indexed<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let imm = opcode as u8;
+    let address = cpu.registers.gbr.wrapping_add(cpu.registers.gpr[0]);
+    let value = cpu.read_byte(address, bus);
+    cpu.write_byte(address, value ^ imm, bus);
 }
 
 // NOT Rm, Rn

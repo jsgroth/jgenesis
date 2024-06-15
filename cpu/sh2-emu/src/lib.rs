@@ -213,6 +213,8 @@ impl Sh2 {
     fn write_byte<B: BusInterface>(&mut self, address: u32, value: u8, bus: &mut B) {
         match address >> 29 {
             0 | 1 => bus.write_byte(address & 0x1FFFFFFF, value),
+            // Associative purge; ignore (cache is not emulated)
+            2 => {}
             6 => self.write_cache_u8(address, value),
             7 => self.write_internal_register_byte(address, value),
             _ => todo!("Unexpected SH-2 address, byte write: {address:08X} {value:02X}"),

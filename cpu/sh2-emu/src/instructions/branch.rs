@@ -101,14 +101,25 @@ pub fn rts(cpu: &mut Sh2) {
 // RTE
 // Return from exception
 pub fn rte<B: BusInterface>(cpu: &mut Sh2, bus: &mut B) {
-    let mut sp = cpu.registers.gpr[SP];
-
-    cpu.registers.next_pc = cpu.read_longword(sp, bus);
+    cpu.registers.next_pc = cpu.read_longword(cpu.registers.gpr[SP], bus);
     cpu.registers.next_op_in_delay_slot = true;
-    sp = sp.wrapping_add(4);
+    cpu.registers.gpr[SP] = cpu.registers.gpr[SP].wrapping_add(4);
 
-    cpu.registers.sr = cpu.read_longword(sp, bus).into();
-    sp = sp.wrapping_add(4);
+    cpu.registers.sr = cpu.read_longword(cpu.registers.gpr[SP], bus).into();
+    cpu.registers.gpr[SP] = cpu.registers.gpr[SP].wrapping_add(4);
+}
 
-    cpu.registers.gpr[SP] = sp;
+// TRAPA #imm
+// Trap always
+pub fn trapa<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    cpu.registers.gpr[SP] = cpu.registers.gpr[SP].wrapping_sub(4);
+    cpu.write_longword(cpu.registers.gpr[SP], cpu.registers.sr.into(), bus);
+
+    cpu.registers.gpr[SP] = cpu.registers.gpr[SP].wrapping_sub(4);
+    cpu.write_longword(cpu.registers.gpr[SP], cpu.registers.next_pc, bus);
+
+    let vector_number = opcode & 0xFF;
+    let vector_addr = cpu.registers.vbr.wrapping_add((vector_number << 2).into());
+    cpu.registers.pc = cpu.read_longword(vector_addr, bus);
+    cpu.registers.next_pc = cpu.registers.pc.wrapping_add(2);
 }
