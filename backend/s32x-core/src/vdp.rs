@@ -213,6 +213,7 @@ impl Vdp {
         match address & 0xF {
             0x0 => self.registers.read_display_mode(self.timing_mode),
             0x2 => self.registers.read_screen_shift(),
+            0x4 => self.registers.read_auto_fill_length(),
             0x6 => self.registers.read_auto_fill_start_address(),
             0xA => self.read_frame_buffer_control(),
             _ => todo!("VDP register read {address:08X}"),

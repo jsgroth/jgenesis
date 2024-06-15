@@ -893,7 +893,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
                 self.registers.address_error = true;
                 if self.handle_address_error(address, op_type).is_err() {
-                    todo!("halt CPU")
+                    todo!("address error triggered while handling address error")
                 }
 
                 // Not completely accurate but close enough; this shouldn't occur in real software
@@ -910,7 +910,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                     .handle_trap(ILLEGAL_OPCODE_VECTOR, self.registers.pc.wrapping_sub(2))
                     .is_err()
                 {
-                    todo!("???")
+                    todo!("address error triggered while handling illegal opcode exception")
                 }
 
                 // TODO this shouldn't happen in real software
@@ -919,25 +919,22 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             Err(Exception::DivisionByZero { cycles }) => {
                 log::error!("[{}] Encountered 68000 divide by zero error", self.name);
 
-                if self
-                    .handle_trap(DIVIDE_BY_ZERO_VECTOR, self.registers.pc.wrapping_sub(4))
-                    .is_err()
-                {
-                    todo!("???")
+                if self.handle_trap(DIVIDE_BY_ZERO_VECTOR, self.registers.pc).is_err() {
+                    todo!("address error triggered while handling divide by zero exception")
                 }
 
                 38 + cycles
             }
             Err(Exception::Trap(vector)) => {
                 if self.handle_trap(vector, self.registers.pc).is_err() {
-                    todo!("???")
+                    todo!("address error triggered while executing TRAP instruction")
                 }
 
                 34
             }
             Err(Exception::CheckRegister { cycles }) => {
                 if self.handle_trap(CHECK_REGISTER_VECTOR, self.registers.pc).is_err() {
-                    todo!("???")
+                    todo!("address error triggered while executing CHK instruction")
                 }
 
                 30 + cycles

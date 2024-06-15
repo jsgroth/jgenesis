@@ -154,6 +154,8 @@ impl SystemRegisters {
             0xA15102 => self.read_interrupt_control(),
             0xA15104 => self.read_68k_rom_bank(),
             0xA15106 => self.m68k_read_dreq_control(),
+            0xA1510C => self.read_dreq_destination_high(),
+            0xA1510E => self.read_dreq_destination_low(),
             0xA15120..=0xA1512F => self.read_communication_port(address),
             _ => todo!("M68K register read: {address:06X}"),
         }
@@ -195,10 +197,13 @@ impl SystemRegisters {
             0x4004 => vdp.h_interrupt_interval(),
             0x4006 => self.sh2_read_dreq_control(),
             0x4008 => self.read_dreq_source_high(),
+            0x400A => self.read_dreq_source_low(),
+            0x400C => self.read_dreq_destination_high(),
+            0x400E => self.read_dreq_destination_low(),
             0x4010 => self.dma.length,
             0x4012 => self.read_dreq_fifo(),
             // TODO these registers shouldn't be readable? (interrupt clear)
-            0x4016 | 0x4018 | 0x401A | 0x401C => 0,
+            0x4014 | 0x4016 | 0x4018 | 0x401A | 0x401C => 0,
             0x4020..=0x402F => self.read_communication_port(address),
             _ => todo!("SH-2 register read: {address:08X} {which:?}"),
         }
@@ -304,6 +309,12 @@ impl SystemRegisters {
         (self.dma.source_address >> 16) as u16
     }
 
+    // 68000: $A1510A
+    // SH-2: $400A
+    fn read_dreq_source_low(&self) -> u16 {
+        self.dma.source_address as u16
+    }
+
     // 68000: $A15108
     fn write_dreq_source_high(&mut self, value: u16) {
         self.dma.source_address.set_high_byte(value as u8);
@@ -318,6 +329,18 @@ impl SystemRegisters {
 
         log::trace!("DREQ source address low write: {value:04X}");
         log::trace!("  New address: {:06X}", self.dma.source_address);
+    }
+
+    // 68000: $A1510C
+    // SH-2: $410C
+    fn read_dreq_destination_high(&self) -> u16 {
+        (self.dma.destination_address >> 16) as u16
+    }
+
+    // 68000: $A1510E
+    // SH-2: $410E
+    fn read_dreq_destination_low(&self) -> u16 {
+        self.dma.destination_address as u16
     }
 
     // 68000: $A1510C

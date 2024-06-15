@@ -102,7 +102,7 @@ fn execute_xxnn<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
         0b1100_1011_0000_0000 => bits::or_imm_r0(cpu, opcode),
         0b1100_1111_0000_0000 => todo!("OR.B #imm, @(R0,GBR)"),
         0b1100_1000_0000_0000 => bits::tst_imm_r0(cpu, opcode),
-        0b1100_1100_0000_0000 => todo!("TST.B #imm, @(R0,GBR)"),
+        0b1100_1100_0000_0000 => bits::tst_imm_gbr_indexed(cpu, opcode, bus),
         0b1100_1010_0000_0000 => bits::xor_imm_r0(cpu, opcode),
         0b1100_1110_0000_0000 => todo!("XOR.B #imm, @(R0,GBR)"),
         0b1000_1011_0000_0000 => branch::bf(cpu, opcode),

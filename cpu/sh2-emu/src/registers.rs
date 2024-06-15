@@ -124,6 +124,62 @@ impl CacheControlRegister {
     }
 }
 
+// User break functionality is not emulated, but After Burner Complete uses these R/W registers to
+// store state in its audio processing code
+#[derive(Debug, Clone, Default, Encode, Decode)]
+pub struct BreakRegisters {
+    pub break_address_a: u32,
+    pub break_address_b: u32,
+}
+
+impl BreakRegisters {
+    fn read_break_address_a_high(&self) -> u16 {
+        (self.break_address_a >> 16) as u16
+    }
+
+    fn read_break_address_a_low(&self) -> u16 {
+        self.break_address_a as u16
+    }
+
+    fn read_break_address_b_high(&self) -> u16 {
+        (self.break_address_b >> 16) as u16
+    }
+
+    fn read_break_address_b_low(&self) -> u16 {
+        self.break_address_b as u16
+    }
+
+    fn write_break_address_a(&mut self, value: u32) {
+        self.break_address_a = value;
+        log::trace!("Break address A write: {value:08X}");
+    }
+
+    fn write_break_address_a_high(&mut self, value: u16) {
+        self.break_address_a = (self.break_address_a & 0xFFFF) | (u32::from(value) << 16);
+        log::trace!("Break address A high write: {value:04X}");
+    }
+
+    fn write_break_address_a_low(&mut self, value: u16) {
+        self.break_address_a = (self.break_address_a & !0xFFFF) | u32::from(value);
+        log::trace!("Break address A low write: {value:04X}");
+    }
+
+    fn write_break_address_b(&mut self, value: u32) {
+        self.break_address_b = value;
+        log::trace!("Break address B write: {value:08X}");
+    }
+
+    fn write_break_address_b_high(&mut self, value: u16) {
+        self.break_address_b = (self.break_address_b & 0xFFFF) | (u32::from(value) << 16);
+        log::trace!("Break address B high write: {value:04X}");
+    }
+
+    fn write_break_address_b_low(&mut self, value: u16) {
+        self.break_address_b = (self.break_address_b & !0xFFFF) | u32::from(value);
+        log::trace!("Break address B low write: {value:04X}");
+    }
+}
+
 #[derive(Debug, Clone, Default, Encode, Decode)]
 pub struct InterruptRegisters {
     pub divu_priority: u8,
@@ -167,6 +223,7 @@ impl InterruptRegisters {
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Sh7604Registers {
     pub cache_control: CacheControlRegister,
+    pub break_registers: BreakRegisters,
     pub interrupts: InterruptRegisters,
     pub watchdog_interrupt_pending: bool,
 }
@@ -175,6 +232,7 @@ impl Sh7604Registers {
     pub fn new() -> Self {
         Self {
             cache_control: CacheControlRegister::default(),
+            break_registers: BreakRegisters::default(),
             interrupts: InterruptRegisters::default(),
             watchdog_interrupt_pending: false,
         }
@@ -197,6 +255,10 @@ impl Sh2 {
         log::trace!("[{}] Internal register word read: {address:08X}", self.name);
 
         match address {
+            0xFFFFFF40 => self.sh7604.break_registers.read_break_address_a_high(),
+            0xFFFFFF42 => self.sh7604.break_registers.read_break_address_a_low(),
+            0xFFFFFF60 => self.sh7604.break_registers.read_break_address_b_high(),
+            0xFFFFFF62 => self.sh7604.break_registers.read_break_address_b_low(),
             0xFFFFFEE2 => self.sh7604.interrupts.read_ipra(),
             _ => todo!("[{}] Internal register word read {address:08X}", self.name),
         }
@@ -207,6 +269,9 @@ impl Sh2 {
 
         match address {
             0xFFFFFF00..=0xFFFFFF1C => self.divu.read_register(address),
+            // Break registers; break functionality is not implemented
+            0xFFFFFF40 => self.sh7604.break_registers.break_address_a,
+            0xFFFFFF60 => self.sh7604.break_registers.break_address_b,
             0xFFFFFF80..=0xFFFFFF9F | 0xFFFFFFB0 => self.dmac.read_register(address),
             0xFFFFFFE0..=0xFFFFFFFF => todo!("read bus control register {address:08X}"),
             _ => todo!("Unexpected internal register longword read: {address:08X}"),
@@ -248,6 +313,10 @@ impl Sh2 {
                     self.name
                 );
             }
+            0xFFFFFF40 => self.sh7604.break_registers.write_break_address_a_high(value),
+            0xFFFFFF42 => self.sh7604.break_registers.write_break_address_a_low(value),
+            0xFFFFFF60 => self.sh7604.break_registers.write_break_address_b_high(value),
+            0xFFFFFF62 => self.sh7604.break_registers.write_break_address_b_low(value),
             0xFFFFFE80 => self.watchdog_timer.write_control(value),
             0xFFFFFEE2 => self.sh7604.interrupts.write_ipra(value),
             0xFFFFFEE4 => self.sh7604.interrupts.write_vcrwdt(value),
@@ -263,6 +332,20 @@ impl Sh2 {
 
         match address {
             0xFFFFFF00..=0xFFFFFF14 => self.divu.write_register(address, value),
+            0xFFFFFF40 => self.sh7604.break_registers.write_break_address_a(value),
+            0xFFFFFF48 => {
+                log::warn!(
+                    "[{}] Ignoring write to break bus cycle register A ($FFFFFF48): {value:08X}",
+                    self.name
+                );
+            }
+            0xFFFFFF60 => self.sh7604.break_registers.write_break_address_b(value),
+            0xFFFFFF68 => {
+                log::warn!(
+                    "[{}] Ignoring write to break bus cycle register B ($FFFFFF68): {value:08X}",
+                    self.name
+                );
+            }
             0xFFFFFF80..=0xFFFFFF9F | 0xFFFFFFB0 => self.dmac.write_register(address, value),
             0xFFFFFFE0..=0xFFFFFFFF => log_bus_control_write(address, value),
             _ => todo!(
