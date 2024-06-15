@@ -738,6 +738,10 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     log::warn!("Frame buffer write with FM=0: {address:08X} {value:08X}");
                 }
             }
+            sh2_pwm_registers!() => {
+                self.pwm.sh2_write_register(address, (value >> 16) as u16);
+                self.pwm.sh2_write_register(address | 2, value as u16);
+            }
             sh2_boot_rom!() => {
                 log::warn!(
                     "SH-2 {:?} longword write to boot ROM address: {address:08X} {value:08X}",

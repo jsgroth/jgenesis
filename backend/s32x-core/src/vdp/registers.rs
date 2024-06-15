@@ -110,6 +110,12 @@ impl Registers {
 
     // 68000: $A15184
     // SH-2: $4104
+    pub fn read_auto_fill_length(&self) -> u16 {
+        self.auto_fill_length.wrapping_sub(1) & 0xFF
+    }
+
+    // 68000: $A15184
+    // SH-2: $4104
     pub fn write_auto_fill_length(&mut self, value: u16) {
         self.auto_fill_length = (value & 0xFF) + 1;
 

@@ -144,6 +144,15 @@ pub fn tst_imm_r0(cpu: &mut Sh2, opcode: u16) {
     cpu.registers.sr.t = imm & cpu.registers.gpr[0] == 0;
 }
 
+// TST.B #imm, @(R0,GBR)
+// Sets the T bit if (#imm & MEM[GBR+R0]) is 0
+pub fn tst_imm_gbr_indexed<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+    let imm = opcode as u8;
+    let address = cpu.registers.gbr.wrapping_add(cpu.registers.gpr[0]);
+    let value = cpu.read_byte(address, bus);
+    cpu.registers.sr.t = imm & value == 0;
+}
+
 // TAS.B @Rn
 // Tests the value at the specified address and sets bit 7
 pub fn tas<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
