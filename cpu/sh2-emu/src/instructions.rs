@@ -178,7 +178,11 @@ fn execute_xnnn<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
         0b0111_0000_0000_0000 => alu::add_imm_rn(cpu, opcode),
         0b1010_0000_0000_0000 => branch::bra(cpu, opcode),
         0b1011_0000_0000_0000 => branch::bsr(cpu, opcode),
-        _ => todo!("illegal (?) SH-2 opcode {opcode:04X}"),
+        _ => todo!(
+            "[{}] illegal (?) SH-2 opcode {opcode:04X}, PC={:08X}",
+            cpu.name,
+            cpu.registers.pc
+        ),
     }
 }
 

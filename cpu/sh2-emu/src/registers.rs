@@ -126,39 +126,41 @@ impl CacheControlRegister {
 
 #[derive(Debug, Clone, Default, Encode, Decode)]
 pub struct InterruptRegisters {
-    pub divu_priority: u16,
-    pub dmac_priority: u16,
-    pub wdt_priority: u16,
-    pub wdt_vector: u16,
-    pub bsc_vector: u16,
+    pub divu_priority: u8,
+    pub dmac_priority: u8,
+    pub wdt_priority: u8,
+    pub wdt_vector: u8,
+    pub bsc_vector: u8,
 }
 
 impl InterruptRegisters {
     // $FFFFFEE2: IPRA (Interrupt priority A)
     fn read_ipra(&self) -> u16 {
-        (self.divu_priority << 12) | (self.dmac_priority << 8) | (self.wdt_priority << 4)
+        (u16::from(self.divu_priority) << 12)
+            | (u16::from(self.dmac_priority) << 8)
+            | (u16::from(self.wdt_priority) << 4)
     }
 
     // $FFFFFEE2: IPRA (Interrupt priority A)
     fn write_ipra(&mut self, value: u16) {
-        self.divu_priority = value >> 12;
-        self.dmac_priority = (value >> 8) & 0xF;
-        self.wdt_priority = (value >> 4) & 0xF;
+        self.divu_priority = (value >> 12) as u8;
+        self.dmac_priority = ((value >> 8) & 0xF) as u8;
+        self.wdt_priority = ((value >> 4) & 0xF) as u8;
 
-        log::trace!("IPRA write: {value:04X}");
-        log::trace!("  DIVU interrupt priority: {}", self.divu_priority);
-        log::trace!("  DMAC interrupt priority: {}", self.dmac_priority);
-        log::trace!("  WDT interrupt priority: {}", self.wdt_priority);
+        log::debug!("IPRA write: {value:04X}");
+        log::debug!("  DIVU interrupt priority: {}", self.divu_priority);
+        log::debug!("  DMAC interrupt priority: {}", self.dmac_priority);
+        log::debug!("  WDT interrupt priority: {}", self.wdt_priority);
     }
 
     // $FFFFFEE4: VCRWDT (WDT interrupt vector number)
     fn write_vcrwdt(&mut self, value: u16) {
-        self.wdt_vector = (value >> 8) & 0x7F;
-        self.bsc_vector = value & 0x7F;
+        self.wdt_vector = ((value >> 8) & 0x7F) as u8;
+        self.bsc_vector = (value & 0x7F) as u8;
 
-        log::trace!("VCRWDT write: {value:04X}");
-        log::trace!("  WDT interrupt vector number: {}", self.wdt_vector);
-        log::trace!("  BSC interrupt vector number: {}", self.bsc_vector);
+        log::debug!("VCRWDT write: {value:04X}");
+        log::debug!("  WDT interrupt vector number: {}", self.wdt_vector);
+        log::debug!("  BSC interrupt vector number: {}", self.bsc_vector);
     }
 }
 
@@ -166,6 +168,7 @@ impl InterruptRegisters {
 pub struct Sh7604Registers {
     pub cache_control: CacheControlRegister,
     pub interrupts: InterruptRegisters,
+    pub watchdog_interrupt_pending: bool,
 }
 
 impl Sh7604Registers {
@@ -173,6 +176,7 @@ impl Sh7604Registers {
         Self {
             cache_control: CacheControlRegister::default(),
             interrupts: InterruptRegisters::default(),
+            watchdog_interrupt_pending: false,
         }
     }
 }
@@ -244,6 +248,7 @@ impl Sh2 {
                     self.name
                 );
             }
+            0xFFFFFE80 => self.watchdog_timer.write_control(value),
             0xFFFFFEE2 => self.sh7604.interrupts.write_ipra(value),
             0xFFFFFEE4 => self.sh7604.interrupts.write_vcrwdt(value),
             _ => todo!(

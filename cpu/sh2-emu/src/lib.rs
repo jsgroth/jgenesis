@@ -5,6 +5,7 @@ mod dma;
 mod frt;
 mod instructions;
 mod registers;
+mod wdt;
 
 use crate::bus::BusInterface;
 use crate::divu::DivisionUnit;
@@ -13,6 +14,7 @@ use crate::dma::{
 };
 use crate::frt::FreeRunTimer;
 use crate::registers::{Sh2Registers, Sh7604Registers};
+use crate::wdt::{WatchdogTickEffect, WatchdogTimer};
 use bincode::{Decode, Encode};
 
 const RESET_PC_VECTOR: u32 = 0x00000000;
@@ -37,6 +39,7 @@ pub struct Sh2 {
     cache: Box<CpuCache>,
     dmac: DmaController,
     free_run_timer: FreeRunTimer,
+    watchdog_timer: WatchdogTimer,
     divu: DivisionUnit,
     reset_pending: bool,
     name: String,
@@ -51,6 +54,7 @@ impl Sh2 {
             cache: vec![0; CACHE_LEN].into_boxed_slice().try_into().unwrap(),
             dmac: DmaController::new(),
             free_run_timer: FreeRunTimer::new(),
+            watchdog_timer: WatchdogTimer::new(),
             divu: DivisionUnit::new(),
             reset_pending: false,
             name,
@@ -91,12 +95,33 @@ impl Sh2 {
 
         // Interrupts cannot trigger in a delay slot per the SH7604 hardware manual
         // TODO check for internal peripheral interrupts
-        let interrupt_level = bus.interrupt_level();
-        if !self.registers.next_op_in_delay_slot
-            && interrupt_level > self.registers.sr.interrupt_mask
-        {
-            self.handle_irl_interrupt(interrupt_level, bus);
-            return;
+        if !self.registers.next_op_in_delay_slot {
+            let external_interrupt_level = bus.interrupt_level();
+
+            // TODO handle other types of internal peripheral interrupts
+            let internal_interrupt_level = if self.sh7604.watchdog_interrupt_pending {
+                self.sh7604.interrupts.wdt_priority
+            } else {
+                0
+            };
+
+            if external_interrupt_level >= internal_interrupt_level
+                && external_interrupt_level > self.registers.sr.interrupt_mask
+            {
+                let vector_number =
+                    BASE_IRL_VECTOR_NUMBER + u32::from(external_interrupt_level >> 1);
+                self.handle_interrupt(external_interrupt_level, vector_number, bus);
+                return;
+            }
+
+            if internal_interrupt_level > self.registers.sr.interrupt_mask {
+                self.sh7604.watchdog_interrupt_pending = false;
+
+                // TODO handle other types of internal peripheral interrupts
+                let vector_number: u32 = self.sh7604.interrupts.wdt_vector.into();
+                self.handle_interrupt(internal_interrupt_level, vector_number, bus);
+                return;
+            }
         }
 
         let pc = self.registers.pc;
@@ -112,9 +137,23 @@ impl Sh2 {
                 disassemble::disassemble(opcode)
             );
             log::trace!("  Registers: {:08X?}", self.registers.gpr);
+            log::trace!(
+                "  GBR={:08X} VBR={:08X} PR={:08X}",
+                self.registers.gbr,
+                self.registers.vbr,
+                self.registers.pr
+            );
         }
 
         instructions::execute(self, opcode, bus);
+    }
+
+    pub fn tick_timers(&mut self, system_cycles: u64) {
+        if self.watchdog_timer.tick(system_cycles) == WatchdogTickEffect::Overflow
+            && self.sh7604.interrupts.wdt_priority > self.registers.sr.interrupt_mask
+        {
+            self.sh7604.watchdog_interrupt_pending = true;
+        }
     }
 
     fn read_byte<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u8 {
@@ -193,7 +232,12 @@ impl Sh2 {
         self.cache[cache_addr..cache_addr + 4].copy_from_slice(&value.to_be_bytes());
     }
 
-    fn handle_irl_interrupt<B: BusInterface>(&mut self, interrupt_level: u8, bus: &mut B) {
+    fn handle_interrupt<B: BusInterface>(
+        &mut self,
+        interrupt_level: u8,
+        vector_number: u32,
+        bus: &mut B,
+    ) {
         let mut sp = self.registers.gpr[SP].wrapping_sub(4);
         self.write_longword(sp, self.registers.sr.into(), bus);
 
@@ -203,13 +247,16 @@ impl Sh2 {
         self.registers.gpr[SP] = sp;
         self.registers.sr.interrupt_mask = interrupt_level;
 
-        let vector_number = BASE_IRL_VECTOR_NUMBER + u32::from(interrupt_level >> 1);
         let vector_addr = self.registers.vbr.wrapping_add(vector_number << 2);
         self.registers.pc = self.read_longword(vector_addr, bus);
         self.registers.next_pc = self.registers.pc.wrapping_add(2);
         self.registers.next_op_in_delay_slot = false;
 
-        log::debug!("Handled IRL{interrupt_level} interrupt, jumped to {:08X}", self.registers.pc);
+        log::debug!(
+            "[{}] Handled interrupt of level {interrupt_level} with vector number {vector_number}, jumped to {:08X}",
+            self.name,
+            self.registers.pc
+        );
     }
 
     fn try_tick_dma<B: BusInterface>(&mut self, bus: &mut B) {
