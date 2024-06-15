@@ -61,7 +61,12 @@ impl Sh2 {
         }
     }
 
-    pub fn tick<B: BusInterface>(&mut self, bus: &mut B) {
+    #[inline]
+    pub fn tick<B: BusInterface>(&mut self, ticks: u64, bus: &mut B) {
+        if ticks == 0 {
+            return;
+        }
+
         if bus.reset() {
             self.reset_pending = true;
             return;
@@ -91,7 +96,11 @@ impl Sh2 {
             return;
         }
 
-        self.try_tick_dma(bus);
+        for _ in 0..ticks {
+            if !self.try_tick_dma(bus) {
+                break;
+            }
+        }
 
         // Interrupts cannot trigger in a delay slot per the SH7604 hardware manual
         // TODO check for internal peripheral interrupts
@@ -124,30 +133,33 @@ impl Sh2 {
             }
         }
 
-        let pc = self.registers.pc;
-        let opcode = self.read_word(pc, bus);
-        self.registers.pc = self.registers.next_pc;
-        self.registers.next_pc = self.registers.pc.wrapping_add(2);
-        self.registers.next_op_in_delay_slot = false;
+        for _ in 0..ticks {
+            let pc = self.registers.pc;
+            let opcode = self.read_word(pc, bus);
+            self.registers.pc = self.registers.next_pc;
+            self.registers.next_pc = self.registers.pc.wrapping_add(2);
+            self.registers.next_op_in_delay_slot = false;
 
-        if log::log_enabled!(log::Level::Trace) {
-            log::trace!(
-                "[{}] Executing opcode {opcode:04X} at PC {pc:08X}: {}",
-                self.name,
-                disassemble::disassemble(opcode)
-            );
-            log::trace!("  Registers: {:08X?}", self.registers.gpr);
-            log::trace!(
-                "  GBR={:08X} VBR={:08X} PR={:08X}",
-                self.registers.gbr,
-                self.registers.vbr,
-                self.registers.pr
-            );
+            if log::log_enabled!(log::Level::Trace) {
+                log::trace!(
+                    "[{}] Executing opcode {opcode:04X} at PC {pc:08X}: {}",
+                    self.name,
+                    disassemble::disassemble(opcode)
+                );
+                log::trace!("  Registers: {:08X?}", self.registers.gpr);
+                log::trace!(
+                    "  GBR={:08X} VBR={:08X} PR={:08X}",
+                    self.registers.gbr,
+                    self.registers.vbr,
+                    self.registers.pr
+                );
+            }
+
+            instructions::execute(self, opcode, bus);
         }
-
-        instructions::execute(self, opcode, bus);
     }
 
+    #[inline]
     pub fn tick_timers(&mut self, system_cycles: u64) {
         if self.watchdog_timer.tick(system_cycles) == WatchdogTickEffect::Overflow
             && self.sh7604.interrupts.wdt_priority > self.registers.sr.interrupt_mask
@@ -259,8 +271,8 @@ impl Sh2 {
         );
     }
 
-    fn try_tick_dma<B: BusInterface>(&mut self, bus: &mut B) {
-        let Some(channel) = self.dmac.channel_ready(bus) else { return };
+    fn try_tick_dma<B: BusInterface>(&mut self, bus: &mut B) -> bool {
+        let Some(channel) = self.dmac.channel_ready(bus) else { return false };
 
         log::debug!(
             "[{}] Progressing DMA{channel}: src={:08X}, dest={:08X}, unit={:?}, size={:06X}",
@@ -349,6 +361,8 @@ impl Sh2 {
         if log::log_enabled!(log::Level::Debug) && transfer_complete {
             log::debug!("[{}] DMA{channel} complete", self.name);
         }
+
+        true
     }
 }
 
