@@ -149,7 +149,7 @@ impl SystemRegisters {
             0xA15100 => self.read_adapter_control(),
             0xA15102 => self.read_interrupt_control(),
             0xA15104 => self.read_68k_rom_bank(),
-            0xA15106 => self.read_dreq_control(),
+            0xA15106 => self.m68k_read_dreq_control(),
             0xA15120..=0xA1512F => self.read_communication_port(address),
             _ => todo!("M68K register read: {address:06X}"),
         }
@@ -189,6 +189,7 @@ impl SystemRegisters {
         match address {
             0x4000 => self.read_interrupt_mask(which, vdp),
             0x4004 => vdp.h_interrupt_interval(),
+            0x4006 => self.sh2_read_dreq_control(),
             0x4008 => self.read_dreq_source_high(),
             0x4010 => self.dma.length,
             0x4012 => {
@@ -200,7 +201,7 @@ impl SystemRegisters {
                 self.dma.fifo.pop()
             }
             // TODO these registers shouldn't be readable? (interrupt clear)
-            0x401A | 0x401C => 0,
+            0x4016 | 0x4018 | 0x401A | 0x401C => 0,
             0x4020..=0x402F => self.read_communication_port(address),
             _ => todo!("SH-2 register read: {address:08X} {which:?}"),
         }
@@ -279,10 +280,15 @@ impl SystemRegisters {
     }
 
     // 68000: $A15106
-    fn read_dreq_control(&self) -> u16 {
-        (u16::from(self.dma.fifo.is_full()) << 7)
+    fn m68k_read_dreq_control(&self) -> u16 {
+        (u16::from(self.dma.fifo.is_full()) << 15)
             | (u16::from(self.dma.active) << 2)
             | u16::from(self.dma.rom_to_vram_dma)
+    }
+
+    // SH-2: $4006
+    fn sh2_read_dreq_control(&self) -> u16 {
+        self.m68k_read_dreq_control() | (u16::from(self.dma.fifo.is_empty()) << 14)
     }
 
     // 68000: $A15106
@@ -366,16 +372,21 @@ impl SystemRegisters {
             WhichCpu::Slave => self.slave_interrupts.write_mask_bits(value),
         }
 
-        log::trace!("Interrupt mask write: {value:04X}");
+        log::trace!("Interrupt mask write ({which:?}): {value:04X}");
         log::trace!("  VDP access: {:?}", self.vdp_access);
         log::trace!("  HINT during VBlank: {}", vdp.hen_bit());
-        log::trace!(
-            "  Interrupt mask bits: {:04b}",
-            match which {
-                WhichCpu::Master => self.master_interrupts.mask_bits(),
-                WhichCpu::Slave => self.slave_interrupts.mask_bits(),
-            }
-        );
+
+        if log::log_enabled!(log::Level::Trace) {
+            let interrupts = match which {
+                WhichCpu::Master => &self.master_interrupts,
+                WhichCpu::Slave => &self.slave_interrupts,
+            };
+
+            log::trace!("  V interrupt enabled: {}", interrupts.v_enabled);
+            log::trace!("  H interrupt enabled: {}", interrupts.h_enabled);
+            log::trace!("  Command interrupt enabled: {}", interrupts.command_enabled);
+            log::trace!("  PWM interrupt enabled: {}", interrupts.pwm_enabled);
+        }
     }
 
     // SH-2: $4014

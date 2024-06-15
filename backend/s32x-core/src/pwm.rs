@@ -249,6 +249,8 @@ impl PwmChip {
     }
 
     pub fn read_register(&self, address: u32) -> u16 {
+        log::trace!("PWM register read {address:08X}");
+
         match address & 0xF {
             0x0 => self.control.read(),
             0x2 => self.cycle_register,

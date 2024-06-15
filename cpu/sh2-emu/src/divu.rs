@@ -1,15 +1,24 @@
 use bincode::{Decode, Encode};
+use jgenesis_common::num::GetBit;
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct DivisionUnit {
     pub divisor: i32,
     pub quotient: u32,
     pub remainder: u32,
+    pub overflow_interrupt_enabled: bool,
+    pub overflow_flag: bool,
 }
 
 impl DivisionUnit {
     pub fn new() -> Self {
-        Self { divisor: 0, quotient: 0, remainder: 0 }
+        Self {
+            divisor: 0,
+            quotient: 0,
+            remainder: 0,
+            overflow_interrupt_enabled: false,
+            overflow_flag: false,
+        }
     }
 
     pub fn read_register(&self, address: u32) -> u32 {
@@ -51,6 +60,19 @@ impl DivisionUnit {
 
                 self.quotient = quotient as u32;
                 self.remainder = remainder as u32;
+            }
+            0xFFFFFF08 => {
+                // DVCR: Division control register
+                self.overflow_interrupt_enabled = value.bit(1);
+                self.overflow_flag = value.bit(0);
+
+                if self.overflow_interrupt_enabled {
+                    todo!("DIVU overflow interrupt enabled")
+                }
+
+                log::debug!("DVCR write: {value:08X}");
+                log::debug!("  Overflow interrupt enabled: {}", self.overflow_interrupt_enabled);
+                log::debug!("  Overflow flag write: {}", self.overflow_flag);
             }
             0xFFFFFF10 => {
                 // DVDNTH: High longword of dividend for 64-bit division

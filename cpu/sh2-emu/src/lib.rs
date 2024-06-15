@@ -63,7 +63,7 @@ impl Sh2 {
     }
 
     #[inline]
-    pub fn tick<B: BusInterface>(&mut self, ticks: u64, bus: &mut B) {
+    pub fn tick<B: BusInterface>(&mut self, mut ticks: u64, bus: &mut B) {
         if ticks == 0 {
             return;
         }
@@ -104,60 +104,74 @@ impl Sh2 {
         }
 
         // Interrupts cannot trigger in a delay slot per the SH7604 hardware manual
+        // Before checking for interrupts, loop until the CPU is no longer in a delay slot
+        while self.registers.next_op_in_delay_slot && ticks != 0 {
+            self.execute_single_instruction(bus);
+            ticks -= 1;
+        }
+
+        if self.registers.next_op_in_delay_slot {
+            log::error!("SH-2 is stuck in an infinite branch loop at PC={:08X}", self.registers.pc);
+            return;
+        }
+
         // TODO check for internal peripheral interrupts
-        if !self.registers.next_op_in_delay_slot {
-            let external_interrupt_level = bus.interrupt_level();
+        let external_interrupt_level = bus.interrupt_level();
+
+        // TODO handle other types of internal peripheral interrupts
+        let internal_interrupt_level = if self.sh7604.watchdog_interrupt_pending {
+            self.sh7604.interrupts.wdt_priority
+        } else {
+            0
+        };
+
+        if external_interrupt_level >= internal_interrupt_level
+            && external_interrupt_level > self.registers.sr.interrupt_mask
+        {
+            let vector_number = BASE_IRL_VECTOR_NUMBER + u32::from(external_interrupt_level >> 1);
+            self.handle_interrupt(external_interrupt_level, vector_number, bus);
+            return;
+        }
+
+        if internal_interrupt_level > self.registers.sr.interrupt_mask {
+            self.sh7604.watchdog_interrupt_pending = false;
 
             // TODO handle other types of internal peripheral interrupts
-            let internal_interrupt_level = if self.sh7604.watchdog_interrupt_pending {
-                self.sh7604.interrupts.wdt_priority
-            } else {
-                0
-            };
-
-            if external_interrupt_level >= internal_interrupt_level
-                && external_interrupt_level > self.registers.sr.interrupt_mask
-            {
-                let vector_number =
-                    BASE_IRL_VECTOR_NUMBER + u32::from(external_interrupt_level >> 1);
-                self.handle_interrupt(external_interrupt_level, vector_number, bus);
-                return;
-            }
-
-            if internal_interrupt_level > self.registers.sr.interrupt_mask {
-                self.sh7604.watchdog_interrupt_pending = false;
-
-                // TODO handle other types of internal peripheral interrupts
-                let vector_number: u32 = self.sh7604.interrupts.wdt_vector.into();
-                self.handle_interrupt(internal_interrupt_level, vector_number, bus);
-                return;
-            }
+            let vector_number: u32 = self.sh7604.interrupts.wdt_vector.into();
+            self.handle_interrupt(internal_interrupt_level, vector_number, bus);
+            return;
         }
 
         for _ in 0..ticks {
-            let pc = self.registers.pc;
-            let opcode = self.read_word(pc, bus);
-            self.registers.pc = self.registers.next_pc;
-            self.registers.next_pc = self.registers.pc.wrapping_add(2);
-            self.registers.next_op_in_delay_slot = false;
-
-            if log::log_enabled!(log::Level::Trace) {
-                log::trace!(
-                    "[{}] Executing opcode {opcode:04X} at PC {pc:08X}: {}",
-                    self.name,
-                    disassemble::disassemble(opcode)
-                );
-                log::trace!("  Registers: {:08X?}", self.registers.gpr);
-                log::trace!(
-                    "  GBR={:08X} VBR={:08X} PR={:08X}",
-                    self.registers.gbr,
-                    self.registers.vbr,
-                    self.registers.pr
-                );
-            }
-
-            instructions::execute(self, opcode, bus);
+            self.execute_single_instruction(bus);
         }
+    }
+
+    #[inline]
+    fn execute_single_instruction<B: BusInterface>(&mut self, bus: &mut B) {
+        let pc = self.registers.pc;
+        let opcode = self.read_word(pc, bus);
+        self.registers.pc = self.registers.next_pc;
+        self.registers.next_pc = self.registers.pc.wrapping_add(2);
+        self.registers.next_op_in_delay_slot = false;
+
+        if log::log_enabled!(log::Level::Trace) {
+            log::trace!(
+                "[{}] Executing opcode {opcode:04X} at PC {pc:08X}: {}",
+                self.name,
+                disassemble::disassemble(opcode)
+            );
+            log::trace!("  Registers: {:08X?}", self.registers.gpr);
+            log::trace!(
+                "  GBR={:08X} VBR={:08X} PR={:08X}",
+                self.registers.gbr,
+                self.registers.vbr,
+                self.registers.pr
+            );
+            log::trace!("  SR={:?}", self.registers.sr);
+        }
+
+        instructions::execute(self, opcode, bus);
     }
 
     #[inline]
