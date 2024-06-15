@@ -54,7 +54,7 @@ fn execute_xnnx<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
         0b0011_0000_0000_0011 => alu::cmp_ge(cpu, opcode),
         0b0011_0000_0000_0110 => alu::cmp_hi(cpu, opcode),
         0b0011_0000_0000_0111 => alu::cmp_gt(cpu, opcode),
-        0b0010_0000_0000_1100 => todo!("CMP/ST Rm, Rn"),
+        0b0010_0000_0000_1100 => alu::cmp_str(cpu, opcode),
         0b0011_0000_0000_0100 => alu::div1(cpu, opcode),
         0b0010_0000_0000_0111 => alu::div0s(cpu, opcode),
         0b0011_0000_0000_1101 => alu::dmuls(cpu, opcode),

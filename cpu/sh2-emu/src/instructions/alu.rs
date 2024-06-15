@@ -125,6 +125,19 @@ impl_compare!(cmp_pl, |rn| (rn as i32) > 0);
 // Set the T flag if Rn >= 0
 impl_compare!(cmp_pz, |rn| (rn as i32) >= 0);
 
+// CMP/STR Rm, Rn
+// Set the T flag if any individual byte is equal in Rm and Rn
+pub fn cmp_str(cpu: &mut Sh2, opcode: u16) {
+    let m = rm(opcode);
+    let n = rn(opcode);
+
+    let xor = cpu.registers.gpr[m] ^ cpu.registers.gpr[n];
+    cpu.registers.sr.t = (xor & 0xFF == 0)
+        || ((xor >> 8) & 0xFF == 0)
+        || ((xor >> 16) & 0xFF == 0)
+        || ((xor >> 24) & 0xFF == 0);
+}
+
 // EXTS.B Rm, Rn
 // Sign extend byte
 pub fn exts_b(cpu: &mut Sh2, opcode: u16) {
