@@ -184,6 +184,7 @@ impl Cartridge {
 }
 
 #[must_use]
+#[allow(clippy::missing_panics_doc)]
 pub fn parse_title_from_header(rom: &[u8], region: GenesisRegion) -> String {
     static RE: OnceLock<Regex> = OnceLock::new();
 

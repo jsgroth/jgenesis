@@ -121,6 +121,7 @@ impl Sega32XEmulator {
         emulator
     }
 
+    #[must_use]
     pub fn cartridge_title(&self) -> String {
         // TODO don't hardcode region
         genesis_core::memory::parse_title_from_header(
@@ -253,7 +254,7 @@ impl EmulatorTrait for Sega32XEmulator {
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
         let rom = mem::take(&mut self.memory.medium_mut().cartridge.rom.0);
 
-        *self = Self::create(rom, self.config, save_writer)
+        *self = Self::create(rom, self.config, save_writer);
     }
 
     fn timing_mode(&self) -> TimingMode {

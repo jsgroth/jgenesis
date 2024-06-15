@@ -75,7 +75,7 @@ impl Registers {
     // SH-2: $4100
     pub fn read_display_mode(&self, timing_mode: TimingMode) -> u16 {
         (u16::from(timing_mode == TimingMode::Ntsc) << 15)
-            | ((self.priority as u16) << 7)
+            | (u16::from(self.priority) << 7)
             | ((self.v_resolution as u16) << 6)
             | (self.frame_buffer_mode as u16)
     }

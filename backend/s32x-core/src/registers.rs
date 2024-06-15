@@ -179,7 +179,7 @@ impl SystemRegisters {
             0xA15112 => self.dma.fifo.push(value),
             0xA15120..=0xA1512F => self.write_communication_port(address, value),
             0xA15130..=0xA15138 => {
-                log::warn!("Ignoring PWM register write: {address:06X} {value:04X}")
+                log::warn!("Ignoring PWM register write: {address:06X} {value:04X}");
             }
             _ => todo!("M68K register write: {address:06X} {value:04X}"),
         }

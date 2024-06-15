@@ -47,6 +47,7 @@ pub struct Sh2 {
 
 impl Sh2 {
     #[must_use]
+    #[allow(clippy::missing_panics_doc)]
     pub fn new(name: String) -> Self {
         Self {
             registers: Sh2Registers::default(),
@@ -211,6 +212,7 @@ impl Sh2 {
         }
     }
 
+    #[allow(clippy::match_same_arms)]
     fn write_longword<B: BusInterface>(&mut self, address: u32, value: u32, bus: &mut B) {
         match address >> 29 {
             0 | 1 => bus.write_longword(address & 0x1FFFFFFF, value),

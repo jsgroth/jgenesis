@@ -342,7 +342,7 @@ fn log_bus_control_write(address: u32, value: u32) {
             log::trace!("  Clock select bits: {}", (value >> 3) & 7);
 
             if value.bit(6) {
-                panic!("Compare match interrupt was enabled");
+                todo!("SH-2 FRT compare match interrupt was enabled");
             }
         }
         0xFFFFFFF4 => {

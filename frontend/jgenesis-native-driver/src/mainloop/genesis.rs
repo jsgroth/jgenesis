@@ -204,6 +204,11 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
     )
 }
 
+/// Create an emulator with the 32X core with the given config.
+///
+/// # Errors
+///
+/// Propagates any errors encountered while initializing the emulator.
 pub fn create_32x(config: Box<Sega32XConfig>) -> NativeEmulatorResult<Native32XEmulator> {
     log::info!("Running with config: {config}");
 
