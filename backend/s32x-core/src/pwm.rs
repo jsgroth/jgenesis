@@ -150,7 +150,9 @@ macro_rules! impl_write_register {
                 0x4 => self.write_l_fifo(value),
                 0x6 => self.write_r_fifo(value),
                 0x8 => self.write_mono_fifo(value),
-                _ => todo!("PWM register write {address:08X} {value:04X}"),
+                _ => {
+                    log::warn!("Invalid PWM register write: {address:08X} {value:04X}");
+                }
             }
         }
     };

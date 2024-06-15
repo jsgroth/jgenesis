@@ -106,7 +106,7 @@ fn decode_xnnx(opcode: u16) -> String {
             format!("CMP/GT R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0010_0000_0000_1100 => {
-            format!("CMP/ST R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
+            format!("CMP/STR R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
         }
         0b0011_0000_0000_0100 => {
             format!("DIV1 R{}, R{}", parse_register_low(opcode), parse_register_high(opcode))
