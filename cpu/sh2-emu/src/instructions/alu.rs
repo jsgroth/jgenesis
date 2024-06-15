@@ -32,6 +32,21 @@ pub fn addc(cpu: &mut Sh2, opcode: u16) {
     cpu.registers.sr.t = carry1 || carry2;
 }
 
+// ADDV Rm, Rn
+// Addition with signed overflow check
+pub fn addv(cpu: &mut Sh2, opcode: u16) {
+    let m = rm(opcode);
+    let n = rn(opcode);
+
+    let source_sign = cpu.registers.gpr[m].sign_bit();
+    let destination_sign = cpu.registers.gpr[n].sign_bit();
+    cpu.registers.gpr[n] = cpu.registers.gpr[n].wrapping_add(cpu.registers.gpr[m]);
+
+    // Signed overflow occurs when the operands have the same sign and the sum has a different sign
+    let sum_sign = cpu.registers.gpr[n].sign_bit();
+    cpu.registers.sr.t = source_sign == destination_sign && source_sign != sum_sign;
+}
+
 // SUB Rm, Rn
 // Subtraction
 pub fn sub_rm_rn(cpu: &mut Sh2, opcode: u16) {
@@ -52,6 +67,22 @@ pub fn subc(cpu: &mut Sh2, opcode: u16) {
 
     cpu.registers.gpr[n] = difference;
     cpu.registers.sr.t = borrow1 || borrow2;
+}
+
+// SUBV Rm, Rn
+// Subtraction with signed underflow check
+pub fn subv(cpu: &mut Sh2, opcode: u16) {
+    let m = rm(opcode);
+    let n = rn(opcode);
+
+    let source_sign = cpu.registers.gpr[m].sign_bit();
+    let dest_sign = cpu.registers.gpr[n].sign_bit();
+    cpu.registers.gpr[n] = cpu.registers.gpr[n].wrapping_sub(cpu.registers.gpr[m]);
+
+    // Signed overflow occurs when the operands have different signs and the difference sign does
+    // not match the left operand's sign
+    let difference_sign = cpu.registers.gpr[n].sign_bit();
+    cpu.registers.sr.t = source_sign != dest_sign && difference_sign != dest_sign;
 }
 
 // NEG Rm, Rn

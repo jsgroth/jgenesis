@@ -8,12 +8,16 @@ use crate::vdp::registers::{FrameBufferMode, Registers, SelectedFrameBuffer};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{Color, TimingMode};
 use jgenesis_common::num::{GetBit, U16Ext};
+use std::ops::Range;
 
 const NTSC_SCANLINES_PER_FRAME: u16 = genesis_core::vdp::NTSC_SCANLINES_PER_FRAME;
 const PAL_SCANLINES_PER_FRAME: u16 = genesis_core::vdp::PAL_SCANLINES_PER_FRAME;
 
 const MCLK_CYCLES_PER_SCANLINE: u64 = genesis_core::vdp::MCLK_CYCLES_PER_SCANLINE;
 const ACTIVE_MCLK_CYCLES_PER_SCANLINE: u64 = genesis_core::vdp::ACTIVE_MCLK_CYCLES_PER_SCANLINE;
+
+const DRAM_REFRESH_MCLK_CYCLES: Range<u64> =
+    ACTIVE_MCLK_CYCLES_PER_SCANLINE..ACTIVE_MCLK_CYCLES_PER_SCANLINE + 40;
 
 const FRAME_BUFFER_LEN_WORDS: usize = 128 * 1024 / 2;
 const CRAM_LEN_WORDS: usize = 512 / 2;
@@ -63,6 +67,7 @@ struct State {
     scanline_mclk: u64,
     h_interrupt_counter: u16,
     display_frame_buffer: SelectedFrameBuffer,
+    auto_fill_cycles_remaining: u64,
 }
 
 impl State {
@@ -72,6 +77,7 @@ impl State {
             scanline_mclk: 0,
             h_interrupt_counter: 0,
             display_frame_buffer: SelectedFrameBuffer::default(),
+            auto_fill_cycles_remaining: 0,
         }
     }
 }
@@ -130,6 +136,9 @@ impl Vdp {
     }
 
     pub fn tick(&mut self, mclk_cycles: u64, registers: &mut SystemRegisters) {
+        self.state.auto_fill_cycles_remaining =
+            self.state.auto_fill_cycles_remaining.saturating_sub(mclk_cycles);
+
         let prev_scanline_mclk = self.state.scanline_mclk;
         self.state.scanline_mclk += mclk_cycles;
 
@@ -406,16 +415,23 @@ impl Vdp {
         log::trace!("H interrupt interval write: {value:04X}");
     }
 
+    // 68000: $A1518A
+    // SH-2: $410A
     fn read_frame_buffer_control(&self) -> u16 {
         let in_vblank = self.in_vblank();
         let in_hblank = self.in_hblank();
 
         let cram_accessible = in_vblank || in_hblank;
 
-        // TODO FEN (bit 1): frame buffer is not accessible during DRAM refresh (or during auto fill?)
+        // Metal Head depends on the FEN bit reading 1 during DRAM refresh (beginning of HBlank every line)
+        // or else it will freeze after the Sega splash screen
+        let frame_buffer_blocked = self.state.auto_fill_cycles_remaining != 0
+            || DRAM_REFRESH_MCLK_CYCLES.contains(&self.state.scanline_mclk);
+
         (u16::from(in_vblank) << 15)
             | (u16::from(in_hblank) << 14)
             | (u16::from(cram_accessible) << 13)
+            | (u16::from(frame_buffer_blocked) << 1)
             | (self.state.display_frame_buffer as u16)
     }
 
@@ -427,6 +443,8 @@ impl Vdp {
             frame_buffer[self.registers.auto_fill_start_address as usize] = data;
             self.registers.increment_auto_fill_address();
         }
+
+        self.state.auto_fill_cycles_remaining = self.registers.auto_fill_length.into();
     }
 
     fn in_vblank(&self) -> bool {
