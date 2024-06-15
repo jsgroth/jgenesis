@@ -71,7 +71,7 @@ impl Sega32X {
         let elapsed_sh2_cycles = 3 * m68k_cycles;
         self.sh2_cycles += elapsed_sh2_cycles;
 
-        // TODO actual timing
+        // TODO actual timing instead of hardcoded 1.5 cycles per instruction
         let sh2_ticks = self.sh2_cycles * 2 / 3;
         self.sh2_cycles -= sh2_ticks * 3 / 2;
 

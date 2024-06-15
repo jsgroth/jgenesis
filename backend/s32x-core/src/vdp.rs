@@ -67,6 +67,7 @@ struct State {
     scanline_mclk: u64,
     h_interrupt_counter: u16,
     display_frame_buffer: SelectedFrameBuffer,
+    // 7 * SH-2 cycles
     auto_fill_cycles_remaining: u64,
 }
 
@@ -137,19 +138,19 @@ impl Vdp {
 
     pub fn tick(&mut self, mclk_cycles: u64, registers: &mut SystemRegisters) {
         self.state.auto_fill_cycles_remaining =
-            self.state.auto_fill_cycles_remaining.saturating_sub(mclk_cycles);
+            self.state.auto_fill_cycles_remaining.saturating_sub(mclk_cycles * 3);
 
         let prev_scanline_mclk = self.state.scanline_mclk;
         self.state.scanline_mclk += mclk_cycles;
 
-        // TODO HINT
+        // TODO HEN flag (HINT inside VBlank) - does this just disable the constant refresh during VBlank?
         if self.state.scanline < self.registers.v_resolution.active_scanlines_per_frame() {
             if prev_scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE
                 && self.state.scanline_mclk >= ACTIVE_MCLK_CYCLES_PER_SCANLINE
             {
                 if self.state.h_interrupt_counter == 0 {
                     self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
-                    registers.notify_h_interrupt()
+                    registers.notify_h_interrupt();
                 } else {
                     self.state.h_interrupt_counter -= 1;
                 }
@@ -326,14 +327,22 @@ impl Vdp {
     }
 
     pub fn write_frame_buffer(&mut self, address: u32, value: u16) {
-        log::trace!("Frame buffer write {:05X} {value:04X}", address & 0x1FFFF);
+        log::trace!(
+            "Frame buffer write {:05X} {value:04X} (word addr {:04X})",
+            address & 0x1FFFF,
+            (address >> 1) & 0xFFFF
+        );
 
         let frame_buffer = back_frame_buffer_mut!(self);
         frame_buffer[((address & 0x1FFFF) >> 1) as usize] = value;
     }
 
     pub fn frame_buffer_overwrite_byte(&mut self, address: u32, value: u8) {
-        log::trace!("Overwrite image write {:05X} {value:02X}", address & 0x1FFFF);
+        log::trace!(
+            "Overwrite image write {:05X} {value:02X} (word addr {:04X})",
+            address & 0x1FFFF,
+            (address >> 1) & 0xFFFF
+        );
 
         if value == 0 {
             return;
@@ -350,7 +359,11 @@ impl Vdp {
     }
 
     pub fn frame_buffer_overwrite_word(&mut self, address: u32, value: u16) {
-        log::trace!("Overwrite image write {:05X} {value:04X}", address & 0x1FFFF);
+        log::trace!(
+            "Overwrite image write {:05X} {value:04X} (word addr {:04X})",
+            address & 0x1FFFF,
+            (address >> 1) & 0xFFFF
+        );
 
         if value == 0 {
             return;
@@ -425,13 +438,13 @@ impl Vdp {
 
         // Metal Head depends on the FEN bit reading 1 during DRAM refresh (beginning of HBlank every line)
         // or else it will freeze after the Sega splash screen
-        let frame_buffer_blocked = self.state.auto_fill_cycles_remaining != 0
+        let frame_buffer_busy = self.state.auto_fill_cycles_remaining != 0
             || DRAM_REFRESH_MCLK_CYCLES.contains(&self.state.scanline_mclk);
 
         (u16::from(in_vblank) << 15)
             | (u16::from(in_hblank) << 14)
             | (u16::from(cram_accessible) << 13)
-            | (u16::from(frame_buffer_blocked) << 1)
+            | (u16::from(frame_buffer_busy) << 1)
             | (self.state.display_frame_buffer as u16)
     }
 
@@ -444,7 +457,19 @@ impl Vdp {
             self.registers.increment_auto_fill_address();
         }
 
-        self.state.auto_fill_cycles_remaining = self.registers.auto_fill_length.into();
+        // Note: Auto fill finishing too quickly will cause major glitches in Mortal Kombat II.
+        //
+        // At VINT, the master SH-2 immediately starts drawing the next frame without syncing with
+        // the 68000. It first zeroes out the frame buffer using auto fills and then starts drawing
+        // sprites and the HUD.
+        //
+        // If the auto fills finish before the 68000 interrupts the master SH-2 to send updated I/O
+        // data and then the SH-2 sees that user inputs have changed, it will get very confused and
+        // draw a single glitched frame that was partly drawn using the previous inputs and partly
+        // drawn using the new inputs. Depending on emulated SH-2 speed, this can also cause
+        // gameplay glitches as the game may briefly stop responding to user inputs.
+        self.state.auto_fill_cycles_remaining =
+            7 * (7 * u64::from(self.registers.auto_fill_length) / 3);
     }
 
     fn in_vblank(&self) -> bool {

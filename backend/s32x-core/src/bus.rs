@@ -644,6 +644,9 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     self.which
                 );
             }
+            0x04040000..=0x0407FFFF => {
+                log::warn!("SH-2 invalid address write {address:08X} {value:02X}");
+            }
             _ => todo!("SH-2 {:?} write byte {address:08X} {value:02X}", self.which),
         }
     }
