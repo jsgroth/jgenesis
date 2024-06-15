@@ -207,7 +207,11 @@ impl EmulatorTrait for Sega32XEmulator {
 
         let mut tick_effect = TickEffect::None;
         if self.vdp.tick(mclk_cycles, &mut self.memory) == VdpTickEffect::FrameComplete {
-            self.memory.medium().vdp.composite_frame(self.vdp.frame_buffer_mut());
+            self.memory.medium().vdp.composite_frame(
+                self.vdp.frame_size(),
+                self.vdp.border_size(),
+                self.vdp.frame_buffer_mut(),
+            );
             self.render_frame(renderer).map_err(Sega32XError::Render)?;
 
             if let Some(cartridge_ram) = &mut self.memory.medium_mut().cartridge.ram {

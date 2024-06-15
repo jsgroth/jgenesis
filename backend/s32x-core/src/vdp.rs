@@ -6,7 +6,8 @@ use crate::api::S32XVideoOut;
 use crate::registers::SystemRegisters;
 use crate::vdp::registers::{FrameBufferMode, Registers, SelectedFrameBuffer};
 use bincode::{Decode, Encode};
-use jgenesis_common::frontend::{Color, TimingMode};
+use genesis_core::vdp::BorderSize;
+use jgenesis_common::frontend::{Color, FrameSize, TimingMode};
 use jgenesis_common::num::{GetBit, U16Ext};
 use std::ops::Range;
 
@@ -490,6 +491,8 @@ impl Vdp {
 
     pub fn composite_frame(
         &self,
+        genesis_frame_size: FrameSize,
+        border_size: BorderSize,
         genesis_frame_buffer: &mut [Color; genesis_core::vdp::FRAME_BUFFER_LEN],
     ) {
         if self.registers.frame_buffer_mode == FrameBufferMode::Blank
@@ -501,16 +504,18 @@ impl Vdp {
 
         let priority = self.registers.priority;
 
-        // TODO properly handle Genesis frame buffer size
         let active_lines_per_frame: u32 =
             self.registers.v_resolution.active_scanlines_per_frame().into();
         let s32x_only = self.video_out == S32XVideoOut::S32XOnly;
 
         for line in 0..active_lines_per_frame {
             for pixel in 0..FRAME_WIDTH {
-                let genesis_fb_addr = (line * FRAME_WIDTH + pixel) as usize;
+                let genesis_fb_addr = ((line + border_size.top) * genesis_frame_size.width
+                    + pixel
+                    + border_size.left) as usize;
 
                 let s32x_pixel = self.rendered_frame[line as usize][pixel as usize];
+
                 if s32x_only
                     || s32x_pixel.bit(15) != priority
                     || genesis_frame_buffer[genesis_fb_addr].a == 0
