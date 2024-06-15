@@ -49,6 +49,7 @@ impl ListFiltersExt for ListFilters {
             self.game_gear.then_some(Console::GameGear),
             self.genesis.then_some(Console::Genesis),
             self.sega_cd.then_some(Console::SegaCd),
+            self.sega_32x.then_some(Console::Sega32X),
             self.nes.then_some(Console::Nes),
             self.snes.then_some(Console::Snes),
             self.game_boy.then_some(Console::GameBoy),
@@ -310,6 +311,12 @@ impl App {
 
                 let config = self.config.sega_cd_config(path);
                 self.emu_thread.send(EmuThreadCommand::RunSegaCd(config));
+            }
+            Console::Sega32X => {
+                self.emu_thread.stop_emulator_if_running();
+
+                let config = self.config.sega_32x_config(path);
+                self.emu_thread.send(EmuThreadCommand::Run32X(config));
             }
             Console::Nes => {
                 self.emu_thread.stop_emulator_if_running();
@@ -849,8 +856,9 @@ impl App {
 
     fn render_central_panel_filters(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
-            let textedit =
-                TextEdit::singleline(&mut self.state.title_match).hint_text("Filter by name");
+            let textedit = TextEdit::singleline(&mut self.state.title_match)
+                .hint_text("Filter by name")
+                .desired_width(280.0);
             if ui.add(textedit).changed() {
                 self.state.title_match_lowercase = Rc::from(self.state.title_match.to_lowercase());
                 self.refresh_filtered_rom_list();
@@ -867,9 +875,10 @@ impl App {
             let prev_list_filters = self.config.list_filters.clone();
 
             ui.checkbox(&mut self.config.list_filters.master_system, "SMS");
-            ui.checkbox(&mut self.config.list_filters.game_gear, "Game Gear");
+            ui.checkbox(&mut self.config.list_filters.game_gear, "GG");
             ui.checkbox(&mut self.config.list_filters.genesis, "Genesis");
             ui.checkbox(&mut self.config.list_filters.sega_cd, "Sega CD");
+            ui.checkbox(&mut self.config.list_filters.sega_32x, "32X");
             ui.checkbox(&mut self.config.list_filters.nes, "NES");
             ui.checkbox(&mut self.config.list_filters.snes, "SNES");
             ui.checkbox(&mut self.config.list_filters.game_boy, "GB");
@@ -926,10 +935,12 @@ impl App {
     }
 
     fn reload_config(&mut self) {
+        // TODO this is terrible; should only generate and send the config for the currently-running emulator
         self.emu_thread.reload_config(
             self.config.smsgg_config(self.state.current_file_path.clone()),
             self.config.genesis_config(self.state.current_file_path.clone()),
             self.config.sega_cd_config(self.state.current_file_path.clone()),
+            self.config.sega_32x_config(self.state.current_file_path.clone()),
             self.config.nes_config(self.state.current_file_path.clone()),
             self.config.snes_config(self.state.current_file_path.clone()),
             self.config.gb_config(self.state.current_file_path.clone()),

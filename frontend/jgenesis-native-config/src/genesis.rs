@@ -1,7 +1,8 @@
 use crate::AppConfig;
 use genesis_core::{GenesisAspectRatio, GenesisRegion};
 use jgenesis_common::frontend::TimingMode;
-use jgenesis_native_driver::config::{GenesisConfig, SegaCdConfig};
+use jgenesis_native_driver::config::{GenesisConfig, Sega32XConfig, SegaCdConfig};
+use s32x_core::api::S32XVideoOut;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -61,6 +62,18 @@ impl Default for SegaCdAppConfig {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Sega32XAppConfig {
+    #[serde(default)]
+    pub video_out: S32XVideoOut,
+}
+
+impl Default for Sega32XAppConfig {
+    fn default() -> Self {
+        toml::from_str("").unwrap()
+    }
+}
+
 impl AppConfig {
     #[must_use]
     pub fn genesis_config(&self, path: String) -> Box<GenesisConfig> {
@@ -97,6 +110,14 @@ impl AppConfig {
             load_disc_into_ram: self.sega_cd.load_disc_into_ram,
             pcm_enabled: self.sega_cd.pcm_enabled,
             cd_audio_enabled: self.sega_cd.cd_audio_enabled,
+        })
+    }
+
+    #[must_use]
+    pub fn sega_32x_config(&self, path: String) -> Box<Sega32XConfig> {
+        Box::new(Sega32XConfig {
+            genesis: *self.genesis_config(path),
+            video_out: self.sega_32x.video_out,
         })
     }
 }

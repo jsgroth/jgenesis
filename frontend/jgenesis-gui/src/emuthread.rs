@@ -3,13 +3,13 @@ use jgenesis_native_driver::config::input::{
     AxisDirection, HatDirection, JoystickAction, JoystickInput, KeyboardInput, KeyboardOrMouseInput,
 };
 use jgenesis_native_driver::config::{
-    GameBoyConfig, GenesisConfig, NesConfig, SegaCdConfig, SmsGgConfig, SnesConfig,
+    GameBoyConfig, GenesisConfig, NesConfig, Sega32XConfig, SegaCdConfig, SmsGgConfig, SnesConfig,
 };
 use jgenesis_native_driver::input::Joysticks;
 use jgenesis_native_driver::{
-    AudioError, NativeEmulatorResult, NativeGameBoyEmulator, NativeGenesisEmulator,
-    NativeNesEmulator, NativeSegaCdEmulator, NativeSmsGgEmulator, NativeSnesEmulator,
-    NativeTickEffect, SaveStateMetadata,
+    AudioError, Native32XEmulator, NativeEmulatorResult, NativeGameBoyEmulator,
+    NativeGenesisEmulator, NativeNesEmulator, NativeSegaCdEmulator, NativeSmsGgEmulator,
+    NativeSnesEmulator, NativeTickEffect, SaveStateMetadata,
 };
 use sdl2::event::Event;
 use sdl2::joystick::HatState;
@@ -31,10 +31,11 @@ pub enum EmuThreadStatus {
     RunningSmsGg = 1,
     RunningGenesis = 2,
     RunningSegaCd = 3,
-    RunningNes = 4,
-    RunningSnes = 5,
-    RunningGameBoy = 6,
-    WaitingForFirstCommand = 7,
+    Running32X = 4,
+    RunningNes = 5,
+    RunningSnes = 6,
+    RunningGameBoy = 7,
+    WaitingForFirstCommand = 8,
 }
 
 impl EmuThreadStatus {
@@ -44,10 +45,11 @@ impl EmuThreadStatus {
             1 => Self::RunningSmsGg,
             2 => Self::RunningGenesis,
             3 => Self::RunningSegaCd,
-            4 => Self::RunningNes,
-            5 => Self::RunningSnes,
-            6 => Self::RunningGameBoy,
-            7 => Self::WaitingForFirstCommand,
+            4 => Self::Running32X,
+            5 => Self::RunningNes,
+            6 => Self::RunningSnes,
+            7 => Self::RunningGameBoy,
+            8 => Self::WaitingForFirstCommand,
             _ => panic!("invalid status discriminant: {discriminant}"),
         }
     }
@@ -58,6 +60,7 @@ impl EmuThreadStatus {
             Self::RunningSmsGg
                 | Self::RunningGenesis
                 | Self::RunningSegaCd
+                | Self::Running32X
                 | Self::RunningNes
                 | Self::RunningSnes
                 | Self::RunningGameBoy
@@ -70,12 +73,14 @@ pub enum EmuThreadCommand {
     RunSms(Box<SmsGgConfig>),
     RunGenesis(Box<GenesisConfig>),
     RunSegaCd(Box<SegaCdConfig>),
+    Run32X(Box<Sega32XConfig>),
     RunNes(Box<NesConfig>),
     RunSnes(Box<SnesConfig>),
     RunGameBoy(Box<GameBoyConfig>),
     ReloadSmsGgConfig(Box<SmsGgConfig>),
     ReloadGenesisConfig(Box<GenesisConfig>),
     ReloadSegaCdConfig(Box<SegaCdConfig>),
+    Reload32XConfig(Box<Sega32XConfig>),
     ReloadNesConfig(Box<NesConfig>),
     ReloadSnesConfig(Box<SnesConfig>),
     ReloadGameBoyConfig(Box<GameBoyConfig>),
@@ -154,11 +159,14 @@ impl EmuThreadHandle {
         }
     }
 
+    // TODO fix this
+    #[allow(clippy::too_many_arguments)]
     pub fn reload_config(
         &self,
         smsgg_config: Box<SmsGgConfig>,
         genesis_config: Box<GenesisConfig>,
         sega_cd_config: Box<SegaCdConfig>,
+        s32x_config: Box<Sega32XConfig>,
         nes_config: Box<NesConfig>,
         snes_config: Box<SnesConfig>,
         gb_config: Box<GameBoyConfig>,
@@ -172,6 +180,9 @@ impl EmuThreadHandle {
             }
             EmuThreadStatus::RunningSegaCd => {
                 self.send(EmuThreadCommand::ReloadSegaCdConfig(sega_cd_config));
+            }
+            EmuThreadStatus::Running32X => {
+                self.send(EmuThreadCommand::Reload32XConfig(s32x_config));
             }
             EmuThreadStatus::RunningNes => {
                 self.send(EmuThreadCommand::ReloadNesConfig(nes_config));
@@ -292,6 +303,26 @@ fn thread_run(
                     &ctx,
                 );
             }
+            Ok(EmuThreadCommand::Run32X(config)) => {
+                status.store(EmuThreadStatus::Running32X as u8, Ordering::Relaxed);
+
+                let emulator = match jgenesis_native_driver::create_32x(config) {
+                    Ok(emulator) => emulator,
+                    Err(err) => {
+                        log::error!("Error initializing 32X emulator: {err}");
+                        *emulator_error.lock().unwrap() = Some(err.into());
+                        continue;
+                    }
+                };
+                run_emulator(
+                    GenericEmulator::Sega32X(emulator),
+                    &command_receiver,
+                    &input_sender,
+                    &save_state_metadata,
+                    &emulator_error,
+                    &ctx,
+                );
+            }
             Ok(EmuThreadCommand::RunNes(config)) => {
                 status.store(EmuThreadStatus::RunningNes as u8, Ordering::Relaxed);
 
@@ -368,6 +399,7 @@ fn thread_run(
                 | EmuThreadCommand::ReloadSmsGgConfig(_)
                 | EmuThreadCommand::ReloadGenesisConfig(_)
                 | EmuThreadCommand::ReloadSegaCdConfig(_)
+                | EmuThreadCommand::Reload32XConfig(_)
                 | EmuThreadCommand::ReloadNesConfig(_)
                 | EmuThreadCommand::ReloadSnesConfig(_)
                 | EmuThreadCommand::ReloadGameBoyConfig(_)
@@ -393,6 +425,7 @@ enum GenericEmulator {
     SmsGg(NativeSmsGgEmulator),
     Genesis(NativeGenesisEmulator),
     SegaCd(NativeSegaCdEmulator),
+    Sega32X(Native32XEmulator),
     Nes(NativeNesEmulator),
     Snes(NativeSnesEmulator),
     GameBoy(NativeGameBoyEmulator),
@@ -404,6 +437,7 @@ macro_rules! match_each_emulator_variant {
             GenericEmulator::SmsGg($emulator) => $expr,
             GenericEmulator::Genesis($emulator) => $expr,
             GenericEmulator::SegaCd($emulator) => $expr,
+            GenericEmulator::Sega32X($emulator) => $expr,
             GenericEmulator::Nes($emulator) => $expr,
             GenericEmulator::Snes($emulator) => $expr,
             GenericEmulator::GameBoy($emulator) => $expr,
@@ -431,6 +465,14 @@ impl GenericEmulator {
     fn reload_sega_cd_config(&mut self, config: Box<SegaCdConfig>) -> Result<(), AudioError> {
         if let Self::SegaCd(emulator) = self {
             emulator.reload_sega_cd_config(config)?;
+        }
+
+        Ok(())
+    }
+
+    fn reload_32x_config(&mut self, config: Box<Sega32XConfig>) -> Result<(), AudioError> {
+        if let Self::Sega32X(emulator) = self {
+            emulator.reload_32x_config(config)?;
         }
 
         Ok(())
@@ -552,6 +594,12 @@ fn run_emulator(
                                 return;
                             }
                         }
+                        EmuThreadCommand::Reload32XConfig(config) => {
+                            if let Err(err) = emulator.reload_32x_config(config) {
+                                *emulator_error.lock().unwrap() = Some(err.into());
+                                return;
+                            }
+                        }
                         EmuThreadCommand::ReloadNesConfig(config) => {
                             if let Err(err) = emulator.reload_nes_config(config) {
                                 *emulator_error.lock().unwrap() = Some(err.into());
@@ -615,6 +663,7 @@ fn run_emulator(
                         EmuThreadCommand::RunSms(_)
                         | EmuThreadCommand::RunGenesis(_)
                         | EmuThreadCommand::RunSegaCd(_)
+                        | EmuThreadCommand::Run32X(_)
                         | EmuThreadCommand::RunNes(_)
                         | EmuThreadCommand::RunSnes(_)
                         | EmuThreadCommand::RunGameBoy(_) => {}

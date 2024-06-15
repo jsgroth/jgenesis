@@ -776,6 +776,7 @@ pub fn all_supported_extensions() -> &'static [&'static str] {
 
         extensions.extend(gb::SUPPORTED_EXTENSIONS);
         extensions.extend(genesis::GENESIS_SUPPORTED_EXTENSIONS);
+        extensions.extend(genesis::S32X_SUPPORTED_EXTENSIONS);
         extensions.extend(nes::SUPPORTED_EXTENSIONS);
         extensions.extend(smsgg::SUPPORTED_EXTENSIONS);
         extensions.extend(snes::SUPPORTED_EXTENSIONS);

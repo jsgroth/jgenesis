@@ -7,6 +7,7 @@ edition = "2021"
 gb-core = { path = "../../backend/gb-core", features = ["serde"] }
 genesis-core = { path = "../../backend/genesis-core", features = ["serde"] }
 nes-core = { path = "../../backend/nes-core", features = ["serde"] }
+s32x-core = { path = "../../backend/s32x-core", features = ["serde"] }
 smsgg-core = { path = "../../backend/smsgg-core", features = ["serde"] }
 snes-core = { path = "../../backend/snes-core", features = ["serde"] }
 

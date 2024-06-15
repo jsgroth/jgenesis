@@ -8,7 +8,7 @@ pub mod snes;
 
 use crate::common::CommonAppConfig;
 use crate::gb::GameBoyAppConfig;
-use crate::genesis::{GenesisAppConfig, SegaCdAppConfig};
+use crate::genesis::{GenesisAppConfig, Sega32XAppConfig, SegaCdAppConfig};
 use crate::input::InputAppConfig;
 use crate::nes::NesAppConfig;
 use crate::smsgg::SmsGgAppConfig;
@@ -29,6 +29,8 @@ pub struct ListFilters {
     #[serde(default = "true_fn")]
     pub sega_cd: bool,
     #[serde(default = "true_fn")]
+    pub sega_32x: bool,
+    #[serde(default = "true_fn")]
     pub nes: bool,
     #[serde(default = "true_fn")]
     pub snes: bool,
@@ -42,15 +44,7 @@ fn true_fn() -> bool {
 
 impl Default for ListFilters {
     fn default() -> Self {
-        Self {
-            master_system: true,
-            game_gear: true,
-            genesis: true,
-            sega_cd: true,
-            nes: true,
-            snes: true,
-            game_boy: true,
-        }
+        toml::from_str("").unwrap()
     }
 }
 
@@ -64,6 +58,8 @@ pub struct AppConfig {
     pub genesis: GenesisAppConfig,
     #[serde(default)]
     pub sega_cd: SegaCdAppConfig,
+    #[serde(default)]
+    pub sega_32x: Sega32XAppConfig,
     #[serde(default)]
     pub nes: NesAppConfig,
     #[serde(default)]

@@ -16,6 +16,7 @@ pub type NativeGenesisEmulator =
     NativeEmulator<GenesisInputs, GenesisButton, GenesisEmulatorConfig, GenesisEmulator>;
 
 pub const GENESIS_SUPPORTED_EXTENSIONS: &[&str] = &["md", "bin"];
+pub const S32X_SUPPORTED_EXTENSIONS: &[&str] = &["32x"];
 
 impl NativeGenesisEmulator {
     /// # Errors
@@ -112,6 +113,32 @@ impl NativeSegaCdEmulator {
 
 pub type Native32XEmulator =
     NativeEmulator<GenesisInputs, GenesisButton, Sega32XEmulatorConfig, Sega32XEmulator>;
+
+impl Native32XEmulator {
+    /// # Errors
+    ///
+    /// Propagates any errors encountered while reloading audio config.
+    pub fn reload_32x_config(&mut self, config: Box<Sega32XConfig>) -> Result<(), AudioError> {
+        log::info!("Reloading config: {config}");
+
+        self.reload_common_config(&config.genesis.common)?;
+
+        let emulator_config = config.to_emulator_config();
+        self.emulator.reload_config(&emulator_config);
+        self.config = emulator_config;
+
+        if let Err(err) = self.input_mapper.reload_config(
+            config.genesis.common.keyboard_inputs,
+            config.genesis.common.joystick_inputs,
+            config.genesis.common.axis_deadzone,
+            &GenesisButton::ALL,
+        ) {
+            log::error!("Error reloading input config: {err}");
+        }
+
+        Ok(())
+    }
+}
 
 /// Create an emulator with the Genesis core with the given config.
 ///
@@ -213,10 +240,8 @@ pub fn create_32x(config: Box<Sega32XConfig>) -> NativeEmulatorResult<Native32XE
     log::info!("Running with config: {config}");
 
     let rom_path = Path::new(&config.genesis.common.rom_file_path);
-    let rom = fs::read(rom_path).map_err(|source| NativeEmulatorError::RomRead {
-        path: rom_path.display().to_string(),
-        source,
-    })?;
+    let RomReadResult { rom, .. } =
+        config.genesis.common.read_rom_file(S32X_SUPPORTED_EXTENSIONS)?;
 
     let save_state_path = rom_path.with_extension("ss0");
 
