@@ -85,18 +85,14 @@ impl Sega32X {
             registers: &mut self.registers,
             sdram: &mut self.sdram,
         };
-        for _ in 0..sh2_ticks {
-            self.sh2_master.tick(&mut bus);
-        }
+        self.sh2_master.tick(sh2_ticks, &mut bus);
 
         self.sh2_master.tick_timers(elapsed_sh2_cycles);
 
         bus.boot_rom = SH2_SLAVE_BOOT_ROM;
         bus.boot_rom_mask = SH2_SLAVE_BOOT_ROM.len() - 1;
         bus.which = WhichCpu::Slave;
-        for _ in 0..sh2_ticks {
-            self.sh2_slave.tick(&mut bus);
-        }
+        self.sh2_slave.tick(sh2_ticks, &mut bus);
 
         self.sh2_slave.tick_timers(elapsed_sh2_cycles);
 
