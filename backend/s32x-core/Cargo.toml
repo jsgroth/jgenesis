@@ -3,6 +3,10 @@ name = "s32x-core"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+serde = ["dep:serde"]
+
 [dependencies]
 jgenesis-common = { path = "../../jgenesis-common" }
 jgenesis-proc-macros = { path = "../../jgenesis-proc-macros" }
@@ -16,6 +20,7 @@ smsgg-core = { path = "../smsgg-core" }
 
 bincode = { workspace = true, features = ["derive"] }
 log = { workspace = true }
+serde = { workspace = true, optional = true, features = ["derive"] }
 thiserror = { workspace = true }
 
 [lints]

@@ -4,6 +4,7 @@ use egui::{Context, Window};
 use genesis_core::{GenesisAspectRatio, GenesisRegion};
 use jgenesis_common::frontend::TimingMode;
 use rfd::FileDialog;
+use s32x_core::api::S32XVideoOut;
 
 impl App {
     pub(super) fn render_genesis_general_settings(&mut self, ctx: &Context) {
@@ -153,6 +154,30 @@ impl App {
                 &mut self.config.genesis.render_horizontal_border,
                 "Render horizontal border",
             );
+
+            ui.add_space(5.0);
+
+            ui.group(|ui| {
+                ui.label("32X video output");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.config.sega_32x.video_out,
+                        S32XVideoOut::Combined,
+                        "Combined",
+                    );
+                    ui.radio_value(
+                        &mut self.config.sega_32x.video_out,
+                        S32XVideoOut::GenesisOnly,
+                        "Genesis VDP only",
+                    );
+                    ui.radio_value(
+                        &mut self.config.sega_32x.video_out,
+                        S32XVideoOut::S32XOnly,
+                        "32X VDP only",
+                    );
+                });
+            });
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::GenesisVideo);
