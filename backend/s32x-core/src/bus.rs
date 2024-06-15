@@ -237,7 +237,17 @@ impl PhysicalMedium for Sega32X {
     }
 
     fn read_word_for_dma(&mut self, address: u32) -> u16 {
-        todo!("read word for DMA {address:06X}")
+        if !self.registers.dma.rom_to_vram_dma {
+            log::warn!("Cartridge read for DMA with RV=0 {address:06X}");
+            return 0xFFFF;
+        }
+
+        if !(0x000000..=0x3FFFFF).contains(&address) {
+            log::warn!("VDP DMA read from an invalid address {address:06X}");
+            return 0xFFFF;
+        }
+
+        self.cartridge.read_word(address)
     }
 
     fn write_byte(&mut self, address: u32, value: u8) {
