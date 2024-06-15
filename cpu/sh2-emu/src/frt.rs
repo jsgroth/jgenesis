@@ -95,7 +95,7 @@ impl FreeRunTimer {
             0x1 => self.write_ftcsr(value),
             0x2 | 0x4 => {
                 log::trace!("Temp register MSB write: {address:08X} {value:02X}");
-                self.temp_register.set_msb(value)
+                self.temp_register.set_msb(value);
             }
             0x3 => self.write_frc(value),
             0x5 => self.write_ocr(value),

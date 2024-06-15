@@ -52,6 +52,13 @@ macro_rules! m68k_overwrite_image {
     };
 }
 
+// Matches both the normal frame buffer range and the overwrite image range
+macro_rules! m68k_frame_buffer_combined {
+    () => {
+        0x840000..=0x87FFFF
+    };
+}
+
 macro_rules! m68k_rom_first_512kb {
     () => {
         0x880000..=0x8FFFFF
@@ -122,7 +129,7 @@ impl PhysicalMedium for Sega32X {
                     0xFF
                 }
             }
-            m68k_frame_buffer!() | m68k_overwrite_image!() => {
+            m68k_frame_buffer_combined!() => {
                 if self.registers.vdp_access == Access::M68k {
                     word_to_byte!(address, self.vdp.read_frame_buffer)
                 } else {
@@ -180,7 +187,7 @@ impl PhysicalMedium for Sega32X {
                     0xFFFF
                 }
             }
-            m68k_frame_buffer!() | m68k_overwrite_image!() => {
+            m68k_frame_buffer_combined!() => {
                 if self.registers.vdp_access == Access::M68k {
                     self.vdp.read_frame_buffer(address)
                 } else {
@@ -405,6 +412,13 @@ macro_rules! sh2_overwrite_image {
     };
 }
 
+// Matches both the normal frame buffer range and the overwrite image range
+macro_rules! sh2_frame_buffer_combined {
+    () => {
+        0x04000000..=0x0403FFFF
+    };
+}
+
 macro_rules! sh2_sdram {
     () => {
         0x06000000..=0x0603FFFF
@@ -455,7 +469,7 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 log::warn!("SH-2 {:?} invalid address byte read {address:08X}", self.which);
                 0xFF
             }
-            sh2_frame_buffer!() | sh2_overwrite_image!() => {
+            sh2_frame_buffer_combined!() => {
                 if self.registers.vdp_access == Access::Sh2 {
                     word_to_byte!(address, self.vdp.read_frame_buffer)
                 } else {
@@ -500,7 +514,7 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 }
             }
             sh2_cartridge!() => self.cartridge.read_word(address & 0x3FFFFF),
-            sh2_frame_buffer!() | sh2_overwrite_image!() => {
+            sh2_frame_buffer_combined!() => {
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.read_frame_buffer(address)
                 } else {
@@ -551,7 +565,7 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 }
             }
             sh2_cartridge!() => self.cartridge.read_longword(address & 0x3FFFFF),
-            sh2_frame_buffer!() | sh2_overwrite_image!() => {
+            sh2_frame_buffer_combined!() => {
                 if self.registers.vdp_access == Access::Sh2 {
                     let high_word = self.vdp.read_frame_buffer(address);
                     let low_word = self.vdp.read_frame_buffer(address | 2);

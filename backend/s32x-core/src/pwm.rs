@@ -53,13 +53,13 @@ impl PwmControl {
         }
     }
 
-    fn effective_timer_interval(&self) -> u16 {
+    fn effective_timer_interval(self) -> u16 {
         if self.timer_interval == 0 { 16 } else { self.timer_interval }
     }
 
     // 68000: $A15130
     // SH-2: $4030
-    fn read(&self) -> u16 {
+    fn read(self) -> u16 {
         (self.timer_interval << 8)
             | (u16::from(self.dreq1_enabled) << 7)
             | ((self.r_out as u16) << 2)
