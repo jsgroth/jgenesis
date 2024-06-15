@@ -161,7 +161,7 @@ impl Vdp {
             }
             FrameBufferMode::PackedPixel => self.render_packed_pixel(),
             FrameBufferMode::DirectColor => todo!("direct color render"),
-            FrameBufferMode::RunLength => todo!("run length render"),
+            FrameBufferMode::RunLength => self.render_run_length(),
         }
     }
 
@@ -181,6 +181,31 @@ impl Vdp {
 
             self.rendered_frame[line][pixel as usize] = self.cram[msb as usize];
             self.rendered_frame[line][(pixel + 1) as usize] = self.cram[lsb as usize];
+        }
+    }
+
+    fn render_run_length(&mut self) {
+        let line = self.state.scanline as usize;
+        let frame_buffer = front_frame_buffer!(self);
+        let mut line_addr = frame_buffer[line];
+
+        log::trace!(
+            "Rendering line {line} from buffer {:?} in run length mode, addr={line_addr:04X}",
+            self.state.display_frame_buffer
+        );
+
+        let mut pixel = 0;
+        while pixel < FRAME_WIDTH {
+            let [run_length_byte, color_idx] = frame_buffer[line_addr as usize].to_be_bytes();
+            line_addr = line_addr.wrapping_add(1);
+
+            let color = self.cram[color_idx as usize];
+            let mut run_length = u16::from(run_length_byte) + 1;
+            while pixel < FRAME_WIDTH && run_length != 0 {
+                self.rendered_frame[line][pixel as usize] = color;
+                pixel += 1;
+                run_length -= 1;
+            }
         }
     }
 
