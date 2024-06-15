@@ -182,7 +182,7 @@ impl Vdp {
                 self.rendered_frame[self.state.scanline as usize].fill(0);
             }
             FrameBufferMode::PackedPixel => self.render_packed_pixel(),
-            FrameBufferMode::DirectColor => todo!("direct color render"),
+            FrameBufferMode::DirectColor => self.render_direct_color(),
             FrameBufferMode::RunLength => self.render_run_length(),
         }
     }
@@ -203,6 +203,22 @@ impl Vdp {
 
             self.rendered_frame[line][pixel as usize] = self.cram[msb as usize];
             self.rendered_frame[line][(pixel + 1) as usize] = self.cram[lsb as usize];
+        }
+    }
+
+    fn render_direct_color(&mut self) {
+        let line = self.state.scanline as usize;
+        let frame_buffer = front_frame_buffer!(self);
+        let line_addr = frame_buffer[line];
+
+        log::trace!(
+            "Rendering line {line} from frame buffer {:?} in direct color mode, addr={line_addr:04X}",
+            self.state.display_frame_buffer
+        );
+
+        for pixel in 0..FRAME_WIDTH as u16 {
+            let color = frame_buffer[line_addr.wrapping_add(pixel) as usize];
+            self.rendered_frame[line][pixel as usize] = color;
         }
     }
 
