@@ -61,12 +61,18 @@ impl TimingModeExt for TimingMode {
 struct State {
     scanline: u16,
     scanline_mclk: u64,
+    h_interrupt_counter: u16,
     display_frame_buffer: SelectedFrameBuffer,
 }
 
 impl State {
     fn new() -> Self {
-        Self { scanline: 0, scanline_mclk: 0, display_frame_buffer: SelectedFrameBuffer::default() }
+        Self {
+            scanline: 0,
+            scanline_mclk: 0,
+            h_interrupt_counter: 0,
+            display_frame_buffer: SelectedFrameBuffer::default(),
+        }
     }
 }
 
@@ -124,9 +130,25 @@ impl Vdp {
     }
 
     pub fn tick(&mut self, mclk_cycles: u64, registers: &mut SystemRegisters) {
-        // TODO HINT
-
+        let prev_scanline_mclk = self.state.scanline_mclk;
         self.state.scanline_mclk += mclk_cycles;
+
+        // TODO HINT
+        if self.state.scanline < self.registers.v_resolution.active_scanlines_per_frame() {
+            if prev_scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE
+                && self.state.scanline_mclk >= ACTIVE_MCLK_CYCLES_PER_SCANLINE
+            {
+                if self.state.h_interrupt_counter == 0 {
+                    self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
+                    registers.notify_h_interrupt()
+                } else {
+                    self.state.h_interrupt_counter -= 1;
+                }
+            }
+        } else {
+            self.state.h_interrupt_counter = self.registers.h_interrupt_interval;
+        }
+
         if self.state.scanline_mclk >= MCLK_CYCLES_PER_SCANLINE {
             self.state.scanline_mclk -= MCLK_CYCLES_PER_SCANLINE;
             self.state.scanline += 1;
@@ -351,6 +373,10 @@ impl Vdp {
     // Interrupt mask bit 7: HEN (H interrupts enabled during VBlank)(
     pub fn write_hen_bit(&mut self, hen: bool) {
         self.registers.h_interrupt_in_vblank = hen;
+
+        if hen {
+            todo!("HEN bit set to 1 (HINT allowed during VBlank)")
+        }
     }
 
     // SH-2: $4004

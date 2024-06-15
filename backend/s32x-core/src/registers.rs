@@ -51,10 +51,6 @@ impl Sh2Interrupts {
         self.h_enabled = value.bit(2);
         self.command_enabled = value.bit(1);
         self.pwm_enabled = value.bit(0);
-
-        if self.h_enabled {
-            todo!("SH-2 HINT enabled")
-        }
     }
 }
 
@@ -141,6 +137,11 @@ impl SystemRegisters {
     pub fn notify_vblank(&mut self) {
         self.master_interrupts.v_pending |= self.master_interrupts.v_enabled;
         self.slave_interrupts.v_pending |= self.slave_interrupts.v_enabled;
+    }
+
+    pub fn notify_h_interrupt(&mut self) {
+        self.master_interrupts.h_pending |= self.master_interrupts.h_enabled;
+        self.slave_interrupts.h_pending |= self.slave_interrupts.h_enabled;
     }
 
     pub fn notify_pwm_timer(&mut self) {
