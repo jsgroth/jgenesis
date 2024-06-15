@@ -69,11 +69,13 @@ pub struct DmaFifo {
 
 impl DmaFifo {
     pub fn push(&mut self, value: u16) {
+        log::trace!("DMA FIFO push: {value:04X}");
+
         if self.len == DMA_FIFO_LEN {
             return;
         }
 
-        self.fifo[(self.start + self.len) as usize] = value;
+        self.fifo[((self.start + self.len) % DMA_FIFO_LEN) as usize] = value;
         self.len += 1;
     }
 
@@ -85,6 +87,8 @@ impl DmaFifo {
         let value = self.fifo[self.start as usize];
         self.start = (self.start + 1) % DMA_FIFO_LEN;
         self.len -= 1;
+
+        log::trace!("DMA FIFO pop: {value:04X}");
 
         value
     }
@@ -176,7 +180,7 @@ impl SystemRegisters {
             0xA1510C => self.write_dreq_destination_high(value),
             0xA1510E => self.write_dreq_destination_low(value),
             0xA15110 => self.write_dreq_length(value),
-            0xA15112 => self.dma.fifo.push(value),
+            0xA15112 => self.write_dreq_fifo(value),
             0xA15120..=0xA1512F => self.write_communication_port(address, value),
             0xA15130..=0xA15138 => {
                 log::warn!("Ignoring PWM register write: {address:06X} {value:04X}");
@@ -192,14 +196,7 @@ impl SystemRegisters {
             0x4006 => self.sh2_read_dreq_control(),
             0x4008 => self.read_dreq_source_high(),
             0x4010 => self.dma.length,
-            0x4012 => {
-                self.dma.length = self.dma.length.wrapping_sub(1);
-                if self.dma.length == 0 {
-                    self.dma.active = false;
-                }
-
-                self.dma.fifo.pop()
-            }
+            0x4012 => self.read_dreq_fifo(),
             // TODO these registers shouldn't be readable? (interrupt clear)
             0x4016 | 0x4018 | 0x401A | 0x401C => 0,
             0x4020..=0x402F => self.read_communication_port(address),
@@ -345,6 +342,27 @@ impl SystemRegisters {
         // Lowest 2 bits are forced to 0
         self.dma.length = value & !3;
         log::trace!("DREQ length: {:04X}", self.dma.length);
+    }
+
+    // SH-2: $4012
+    fn read_dreq_fifo(&mut self) -> u16 {
+        self.dma.length = self.dma.length.wrapping_sub(1);
+        if self.dma.length == 0 {
+            self.dma.active = false;
+        }
+
+        self.dma.fifo.pop()
+    }
+
+    // 68000: $A15112
+    fn write_dreq_fifo(&mut self, value: u16) {
+        // Only push to the DMA FIFO if 68000-to-32X DMA is currently active. Virtua Racing Deluxe
+        // depends on this or else it will crash after the title screen.
+        // It does 68000-to-32X DMAs of length 64 while consistently pushing 65 words into the FIFO
+        // for each DMA, and it depends on the 65th word never getting transferred.
+        if self.dma.active {
+            self.dma.fifo.push(value);
+        }
     }
 
     // SH-2: $4000

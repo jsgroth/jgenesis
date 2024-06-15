@@ -186,6 +186,7 @@ impl Sh2 {
     fn read_byte<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u8 {
         match address >> 29 {
             0 | 1 => bus.read_byte(address & 0x1FFFFFFF),
+            6 => self.read_cache_u8(address),
             7 => self.read_internal_register_byte(address),
             _ => todo!("Unexpected SH-2 address, byte read: {address:08X}"),
         }
@@ -212,6 +213,7 @@ impl Sh2 {
     fn write_byte<B: BusInterface>(&mut self, address: u32, value: u8, bus: &mut B) {
         match address >> 29 {
             0 | 1 => bus.write_byte(address & 0x1FFFFFFF, value),
+            6 => self.write_cache_u8(address, value),
             7 => self.write_internal_register_byte(address, value),
             _ => todo!("Unexpected SH-2 address, byte write: {address:08X} {value:02X}"),
         }
@@ -240,6 +242,10 @@ impl Sh2 {
         }
     }
 
+    fn read_cache_u8(&self, address: u32) -> u8 {
+        self.cache[(address as usize) & (CACHE_LEN - 1)]
+    }
+
     fn read_cache_u16(&self, address: u32) -> u16 {
         let cache_addr = (address as usize) & (CACHE_LEN - 1) & !1;
         u16::from_be_bytes([self.cache[cache_addr], self.cache[cache_addr + 1]])
@@ -248,6 +254,10 @@ impl Sh2 {
     fn read_cache_u32(&self, address: u32) -> u32 {
         let cache_addr = (address as usize) & (CACHE_LEN - 1) & !3;
         u32::from_be_bytes(self.cache[cache_addr..cache_addr + 4].try_into().unwrap())
+    }
+
+    fn write_cache_u8(&mut self, address: u32, value: u8) {
+        self.cache[(address as usize) & (CACHE_LEN - 1)] = value;
     }
 
     fn write_cache_u16(&mut self, address: u32, value: u16) {
