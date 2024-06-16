@@ -66,6 +66,8 @@ impl Default for SegaCdAppConfig {
 pub struct Sega32XAppConfig {
     #[serde(default)]
     pub video_out: S32XVideoOut,
+    #[serde(default = "true_fn")]
+    pub pwm_enabled: bool,
 }
 
 impl Default for Sega32XAppConfig {
@@ -118,6 +120,7 @@ impl AppConfig {
         Box::new(Sega32XConfig {
             genesis: *self.genesis_config(path),
             video_out: self.sega_32x.video_out,
+            pwm_enabled: self.sega_32x.pwm_enabled,
         })
     }
 }

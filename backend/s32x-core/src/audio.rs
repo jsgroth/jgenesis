@@ -1,3 +1,4 @@
+use crate::api::Sega32XEmulatorConfig;
 use bincode::{Decode, Encode};
 use genesis_core::audio::Ym2612Resampler;
 use jgenesis_common::audio::SignalResampler;
@@ -76,10 +77,13 @@ pub struct Sega32XResampler {
     ym2612_resampler: Ym2612Resampler,
     psg_resampler: PsgResampler,
     pwm_resampler: PwmResampler,
+    ym2612_enabled: bool,
+    psg_enabled: bool,
+    pwm_enabled: bool,
 }
 
 impl Sega32XResampler {
-    pub fn new(timing_mode: TimingMode) -> Self {
+    pub fn new(timing_mode: TimingMode, config: Sega32XEmulatorConfig) -> Self {
         let genesis_mclk_frequency = match timing_mode {
             TimingMode::Ntsc => NTSC_GENESIS_MCLK_FREQUENCY,
             TimingMode::Pal => PAL_GENESIS_MCLK_FREQUENCY,
@@ -89,6 +93,9 @@ impl Sega32XResampler {
             ym2612_resampler: genesis_core::audio::new_ym2612_resampler(genesis_mclk_frequency),
             psg_resampler: smsgg_core::audio::new_psg_resampler(genesis_mclk_frequency),
             pwm_resampler: new_pwm_resampler(),
+            ym2612_enabled: config.genesis.ym2612_enabled,
+            psg_enabled: config.genesis.psg_enabled,
+            pwm_enabled: config.pwm_enabled,
         }
     }
 
@@ -114,9 +121,18 @@ impl Sega32XResampler {
         .min()
         .unwrap();
         for _ in 0..samples_ready {
-            let (ym2612_l, ym2612_r) = self.ym2612_resampler.output_buffer_pop_front().unwrap();
-            let (psg_l, psg_r) = self.psg_resampler.output_buffer_pop_front().unwrap();
-            let (pwm_l, pwm_r) = self.pwm_resampler.output_buffer_pop_front().unwrap();
+            let (ym2612_l, ym2612_r) = check_enabled(
+                self.ym2612_resampler.output_buffer_pop_front().unwrap(),
+                self.ym2612_enabled,
+            );
+            let (psg_l, psg_r) = check_enabled(
+                self.psg_resampler.output_buffer_pop_front().unwrap(),
+                self.psg_enabled,
+            );
+            let (pwm_l, pwm_r) = check_enabled(
+                self.pwm_resampler.output_buffer_pop_front().unwrap(),
+                self.pwm_enabled,
+            );
 
             let sample_l =
                 (ym2612_l + PSG_COEFFICIENT * psg_l + PWM_COEFFICIENT * pwm_l).clamp(-1.0, 1.0);
@@ -128,4 +144,14 @@ impl Sega32XResampler {
 
         Ok(())
     }
+
+    pub fn reload_config(&mut self, config: Sega32XEmulatorConfig) {
+        self.ym2612_enabled = config.genesis.ym2612_enabled;
+        self.psg_enabled = config.genesis.psg_enabled;
+        self.pwm_enabled = config.pwm_enabled;
+    }
+}
+
+fn check_enabled(sample: (f64, f64), enabled: bool) -> (f64, f64) {
+    if enabled { sample } else { (0.0, 0.0) }
 }

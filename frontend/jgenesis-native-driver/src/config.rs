@@ -282,6 +282,7 @@ pub struct Sega32XConfig {
     #[indent_nested]
     pub genesis: GenesisConfig,
     pub video_out: S32XVideoOut,
+    pub pwm_enabled: bool,
 }
 
 impl Sega32XConfig {
@@ -289,6 +290,7 @@ impl Sega32XConfig {
         Sega32XEmulatorConfig {
             genesis: self.genesis.to_emulator_config(),
             video_out: self.video_out,
+            pwm_enabled: self.pwm_enabled,
         }
     }
 }
