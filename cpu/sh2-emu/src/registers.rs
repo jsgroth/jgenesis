@@ -76,54 +76,6 @@ impl Sh2Registers {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
-pub enum CacheMode {
-    #[default]
-    FourWay = 0,
-    TwoWay = 1,
-}
-
-impl CacheMode {
-    fn from_bit(bit: bool) -> Self {
-        if bit { Self::TwoWay } else { Self::FourWay }
-    }
-}
-
-#[derive(Debug, Clone, Default, Encode, Decode)]
-pub struct CacheControlRegister {
-    pub way: u8,
-    pub mode: CacheMode,
-    pub disable_data_replacement: bool,
-    pub disable_instruction_replacement: bool,
-    pub cache_enabled: bool,
-}
-
-impl CacheControlRegister {
-    fn read(&self) -> u8 {
-        (self.way << 6)
-            | ((self.mode as u8) << 3)
-            | (u8::from(self.disable_data_replacement) << 2)
-            | (u8::from(self.disable_instruction_replacement) << 1)
-            | u8::from(self.cache_enabled)
-    }
-
-    fn write(&mut self, value: u8) {
-        self.way = value >> 6;
-        self.mode = CacheMode::from_bit(value.bit(3));
-        self.disable_data_replacement = value.bit(2);
-        self.disable_instruction_replacement = value.bit(1);
-        self.cache_enabled = value.bit(0);
-
-        log::trace!("CCR write: {value:02X}");
-        log::trace!("  Way specification: {}", self.way);
-        log::trace!("  Cache mode: {:?}", self.mode);
-        log::trace!("  Cache purged: {}", value.bit(4));
-        log::trace!("  Disable data replacement: {}", self.disable_data_replacement);
-        log::trace!("  Disable instruction replacement: {}", self.disable_instruction_replacement);
-        log::trace!("  Cache enabled: {}", self.cache_enabled);
-    }
-}
-
 // User break functionality is not emulated, but After Burner Complete uses these R/W registers to
 // store state in its audio processing code
 #[derive(Debug, Clone, Default, Encode, Decode)]
@@ -222,7 +174,6 @@ impl InterruptRegisters {
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Sh7604Registers {
-    pub cache_control: CacheControlRegister,
     pub break_registers: BreakRegisters,
     pub interrupts: InterruptRegisters,
     pub watchdog_interrupt_pending: bool,
@@ -231,7 +182,6 @@ pub struct Sh7604Registers {
 impl Sh7604Registers {
     pub fn new() -> Self {
         Self {
-            cache_control: CacheControlRegister::default(),
             break_registers: BreakRegisters::default(),
             interrupts: InterruptRegisters::default(),
             watchdog_interrupt_pending: false,
@@ -245,7 +195,7 @@ impl Sh2 {
 
         match address {
             0xFFFFFE10..=0xFFFFFE19 => self.free_run_timer.read_register(address),
-            0xFFFFFE92 => self.sh7604.cache_control.read(),
+            0xFFFFFE92 => self.cache.read_control(),
             0xFFFFFE93..=0xFFFFFE9F => 0xFF,
             _ => todo!("[{}] Internal register byte read {address:08X}", self.name),
         }
@@ -283,6 +233,7 @@ impl Sh2 {
 
         match address {
             0xFFFFFE10..=0xFFFFFE19 => self.free_run_timer.write_register(address, value),
+            0xFFFFFE92 => self.cache.write_control(value),
             0xFFFFFE93..=0xFFFFFE9F => {}
             0xFFFFFE91 => {
                 // SBYCR (Standby control register)
@@ -295,7 +246,6 @@ impl Sh2 {
                 log::trace!("  FRT clock halted: {}", value.bit(1));
                 log::trace!("  SCI clock halted: {}", value.bit(0));
             }
-            0xFFFFFE92 => self.sh7604.cache_control.write(value),
             _ => todo!(
                 "[{}] Unexpected internal register byte write: {address:08X} {value:02X}",
                 self.name

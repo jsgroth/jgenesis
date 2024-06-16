@@ -1,7 +1,7 @@
 //! 32X core code
 
 use crate::api;
-use crate::api::S32XVideoOut;
+use crate::api::Sega32XEmulatorConfig;
 use crate::audio::PwmResampler;
 use crate::bus::{Sh2Bus, WhichCpu};
 use crate::cartridge::Cartridge;
@@ -43,7 +43,7 @@ impl Sega32X {
         rom: Box<[u8]>,
         initial_ram: Option<Vec<u8>>,
         timing_mode: TimingMode,
-        video_out: S32XVideoOut,
+        config: Sega32XEmulatorConfig,
     ) -> Self {
         let cartridge = Cartridge::new(rom, initial_ram);
 
@@ -52,7 +52,7 @@ impl Sega32X {
             sh2_slave: Sh2::new("Slave".into()),
             sh2_cycles: 0,
             cartridge,
-            vdp: Vdp::new(timing_mode, video_out),
+            vdp: Vdp::new(timing_mode, config.video_out),
             pwm: PwmChip::new(timing_mode),
             registers: SystemRegisters::new(),
             m68k_vectors: M68K_VECTORS.to_vec().into_boxed_slice().try_into().unwrap(),
@@ -101,5 +101,9 @@ impl Sega32X {
 
     pub fn take_rom_from(&mut self, other: &mut Self) {
         self.cartridge.rom.0 = mem::take(&mut other.cartridge.rom.0);
+    }
+
+    pub fn reload_config(&mut self, config: Sega32XEmulatorConfig) {
+        self.vdp.update_video_out(config.video_out);
     }
 }

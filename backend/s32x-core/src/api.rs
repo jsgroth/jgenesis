@@ -96,7 +96,7 @@ impl Sega32XEmulator {
         let psg = Psg::new(PsgVersion::Standard);
 
         let initial_cartridge_ram = save_writer.load_bytes("sav").ok();
-        let s32x = Sega32X::new(rom, initial_cartridge_ram, timing_mode, config.video_out);
+        let s32x = Sega32X::new(rom, initial_cartridge_ram, timing_mode, config);
         let memory = Memory::new(s32x);
 
         let input =
@@ -243,7 +243,7 @@ impl EmulatorTrait for Sega32XEmulator {
         self.vdp.reload_config(config.genesis.to_vdp_config());
         self.ym2612.reload_config(config.genesis);
         self.input.reload_config(config.genesis);
-        self.memory.medium_mut().vdp.update_video_out(config.video_out);
+        self.memory.medium_mut().reload_config(*config);
 
         self.config = *config;
     }
