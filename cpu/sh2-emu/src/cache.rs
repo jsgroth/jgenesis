@@ -11,7 +11,7 @@
 use crate::bus::BusInterface;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
-use std::{array, iter};
+use std::array;
 
 const CACHE_RAM_LEN: usize = 4 * 1024;
 
@@ -95,11 +95,8 @@ impl CpuCache {
     pub fn new() -> Self {
         Self {
             ram: vec![0; CACHE_RAM_LEN].into_boxed_slice().try_into().unwrap(),
-            ways: Vec::from_iter(iter::repeat_with(Way::new).take(WAYS))
-                .into_boxed_slice()
-                .try_into()
-                .unwrap(),
-            lru_bits: vec![0; CACHE_ENTRIES].into_boxed_slice().try_into().unwrap(),
+            ways: Box::new(array::from_fn(|_| Way::new())),
+            lru_bits: Box::new(array::from_fn(|_| 0)),
             control: CacheControlRegister::default(),
         }
     }
