@@ -7,17 +7,15 @@ use std::{array, cmp};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum WaveOutput {
-    Positive,
-    Negative,
-    Zero,
+    Negative = 0,
+    Positive = 1,
 }
 
 impl WaveOutput {
     fn invert(self) -> Self {
         match self {
-            Self::Positive => Self::Negative,
             Self::Negative => Self::Positive,
-            Self::Zero => Self::Zero,
+            Self::Positive => Self::Negative,
         }
     }
 }
@@ -25,9 +23,8 @@ impl WaveOutput {
 impl From<WaveOutput> for f64 {
     fn from(value: WaveOutput) -> Self {
         match value {
-            WaveOutput::Positive => 1.0,
             WaveOutput::Negative => 0.0,
-            WaveOutput::Zero => 0.5,
+            WaveOutput::Positive => 1.0,
         }
     }
 }
@@ -159,7 +156,7 @@ impl NoiseGenerator {
             current_counter_output: WaveOutput::Negative,
             counter_reload: NoiseReload::from_noise_register(0x00),
             lfsr: INITIAL_LFSR,
-            current_lfsr_output: WaveOutput::Zero,
+            current_lfsr_output: WaveOutput::Negative,
             noise_type: NoiseType::Periodic,
             attenuation: 0x0F,
         }
@@ -167,7 +164,7 @@ impl NoiseGenerator {
 
     fn shift_lfsr(&mut self) {
         self.current_lfsr_output =
-            if self.lfsr.bit(0) { WaveOutput::Negative } else { WaveOutput::Zero };
+            if self.lfsr.bit(0) { WaveOutput::Positive } else { WaveOutput::Negative };
 
         let input_bit = match self.noise_type {
             NoiseType::Periodic => self.lfsr.bit(0),
@@ -405,7 +402,7 @@ impl Psg {
         };
 
         let square_samples = self.square_wave_channels.map(|channel| channel.sample(volume_table));
-        let noise_sample = 2.0 * self.noise_channel.sample(volume_table);
+        let noise_sample = self.noise_channel.sample(volume_table);
 
         let sample_l = (f64::from(self.stereo_control.square_0_l) * square_samples[0]
             + f64::from(self.stereo_control.square_1_l) * square_samples[1]
