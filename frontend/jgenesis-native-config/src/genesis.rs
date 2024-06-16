@@ -26,6 +26,10 @@ pub struct GenesisAppConfig {
     pub quantize_ym2612_output: bool,
     #[serde(default = "true_fn")]
     pub emulate_ym2612_ladder_effect: bool,
+    #[serde(default = "true_fn")]
+    pub ym2612_enabled: bool,
+    #[serde(default = "true_fn")]
+    pub psg_enabled: bool,
 }
 
 const fn true_fn() -> bool {
@@ -45,6 +49,10 @@ pub struct SegaCdAppConfig {
     pub enable_ram_cartridge: bool,
     #[serde(default)]
     pub load_disc_into_ram: bool,
+    #[serde(default = "true_fn")]
+    pub pcm_enabled: bool,
+    #[serde(default = "true_fn")]
+    pub cd_audio_enabled: bool,
 }
 
 impl Default for SegaCdAppConfig {
@@ -74,6 +82,8 @@ impl AppConfig {
             render_horizontal_border: self.genesis.render_horizontal_border,
             quantize_ym2612_output: self.genesis.quantize_ym2612_output,
             emulate_ym2612_ladder_effect: self.genesis.emulate_ym2612_ladder_effect,
+            ym2612_enabled: self.genesis.ym2612_enabled,
+            psg_enabled: self.genesis.psg_enabled,
         })
     }
 
@@ -85,6 +95,8 @@ impl AppConfig {
             enable_ram_cartridge: self.sega_cd.enable_ram_cartridge,
             run_without_disc: false,
             load_disc_into_ram: self.sega_cd.load_disc_into_ram,
+            pcm_enabled: self.sega_cd.pcm_enabled,
+            cd_audio_enabled: self.sega_cd.cd_audio_enabled,
         })
     }
 }

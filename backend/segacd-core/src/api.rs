@@ -65,6 +65,8 @@ pub struct SegaCdEmulatorConfig {
     pub genesis: GenesisEmulatorConfig,
     pub enable_ram_cartridge: bool,
     pub load_disc_into_ram: bool,
+    pub pcm_enabled: bool,
+    pub cd_audio_enabled: bool,
 }
 
 #[derive(Debug, Encode, Decode, PartialClone)]
@@ -205,7 +207,7 @@ impl SegaCdEmulator {
             emulator_config.genesis.p2_controller_type,
         );
 
-        let audio_resampler = AudioResampler::new(timing_mode);
+        let audio_resampler = AudioResampler::new(timing_mode, emulator_config);
         let mut emulator = Self {
             memory,
             main_cpu,
@@ -446,6 +448,7 @@ impl EmulatorTrait for SegaCdEmulator {
         self.vdp.reload_config(config.genesis.to_vdp_config());
         self.ym2612.reload_config(config.genesis);
         self.input.reload_config(config.genesis);
+        self.audio_resampler.reload_config(*config);
 
         let sega_cd = self.memory.medium_mut();
         sega_cd.set_forced_region(config.genesis.forced_region);

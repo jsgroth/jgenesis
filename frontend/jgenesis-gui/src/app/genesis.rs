@@ -175,6 +175,15 @@ impl App {
                 "Emulate YM2612 DAC distortion (\"ladder effect\")",
             )
             .on_hover_text("Effectively amplifies low-volume waves");
+
+            ui.group(|ui| {
+                ui.label("Enabled sound sources");
+
+                ui.checkbox(&mut self.config.genesis.ym2612_enabled, "YM2612 FM chip");
+                ui.checkbox(&mut self.config.genesis.psg_enabled, "SN76489 PSG chip");
+                ui.checkbox(&mut self.config.sega_cd.pcm_enabled, "RF5C164 PCM chip (Sega CD)");
+                ui.checkbox(&mut self.config.sega_cd.cd_audio_enabled, "CD-DA playback (Sega CD)");
+            });
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::GenesisAudio);

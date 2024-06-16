@@ -2,6 +2,7 @@
 
 #![allow(clippy::excessive_precision)]
 
+use crate::GenesisEmulatorConfig;
 use bincode::{Decode, Encode};
 use jgenesis_common::audio::SignalResampler;
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
@@ -62,11 +63,13 @@ pub fn new_ym2612_resampler(genesis_mclk_frequency: f64) -> Ym2612Resampler {
 pub struct GenesisAudioResampler {
     ym2612_resampler: Ym2612Resampler,
     psg_resampler: PsgResampler,
+    ym2612_enabled: bool,
+    psg_enabled: bool,
 }
 
 impl GenesisAudioResampler {
     #[must_use]
-    pub fn new(timing_mode: TimingMode) -> Self {
+    pub fn new(timing_mode: TimingMode, config: GenesisEmulatorConfig) -> Self {
         let genesis_mclk_frequency = match timing_mode {
             TimingMode::Ntsc => NTSC_GENESIS_MCLK_FREQUENCY,
             TimingMode::Pal => PAL_GENESIS_MCLK_FREQUENCY,
@@ -75,7 +78,12 @@ impl GenesisAudioResampler {
         let ym2612_resampler = new_ym2612_resampler(genesis_mclk_frequency);
         let psg_resampler = smsgg_core::audio::new_psg_resampler(genesis_mclk_frequency);
 
-        Self { ym2612_resampler, psg_resampler }
+        Self {
+            ym2612_resampler,
+            psg_resampler,
+            ym2612_enabled: config.ym2612_enabled,
+            psg_enabled: config.psg_enabled,
+        }
     }
 
     pub fn collect_ym2612_sample(&mut self, sample_l: f64, sample_r: f64) {
@@ -100,8 +108,14 @@ impl GenesisAudioResampler {
         );
 
         for _ in 0..sample_count {
-            let (ym2612_l, ym2612_r) = self.ym2612_resampler.output_buffer_pop_front().unwrap();
-            let (psg_l, psg_r) = self.psg_resampler.output_buffer_pop_front().unwrap();
+            let (ym2612_l, ym2612_r) = check_enabled(
+                self.ym2612_resampler.output_buffer_pop_front().unwrap(),
+                self.ym2612_enabled,
+            );
+            let (psg_l, psg_r) = check_enabled(
+                self.psg_resampler.output_buffer_pop_front().unwrap(),
+                self.psg_enabled,
+            );
 
             let sample_l = (ym2612_l + PSG_COEFFICIENT * psg_l).clamp(-1.0, 1.0);
             let sample_r = (ym2612_r + PSG_COEFFICIENT * psg_r).clamp(-1.0, 1.0);
@@ -111,4 +125,13 @@ impl GenesisAudioResampler {
 
         Ok(())
     }
+
+    pub fn reload_config(&mut self, config: GenesisEmulatorConfig) {
+        self.ym2612_enabled = config.ym2612_enabled;
+        self.psg_enabled = config.psg_enabled;
+    }
+}
+
+fn check_enabled(sample: (f64, f64), enabled: bool) -> (f64, f64) {
+    if enabled { sample } else { (0.0, 0.0) }
 }

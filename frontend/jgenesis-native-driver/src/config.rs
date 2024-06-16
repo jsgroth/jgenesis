@@ -227,6 +227,8 @@ pub struct GenesisConfig {
     pub render_horizontal_border: bool,
     pub quantize_ym2612_output: bool,
     pub emulate_ym2612_ladder_effect: bool,
+    pub ym2612_enabled: bool,
+    pub psg_enabled: bool,
 }
 
 impl GenesisConfig {
@@ -244,6 +246,8 @@ impl GenesisConfig {
             render_horizontal_border: self.render_horizontal_border,
             quantize_ym2612_output: self.quantize_ym2612_output,
             emulate_ym2612_ladder_effect: self.emulate_ym2612_ladder_effect,
+            ym2612_enabled: self.ym2612_enabled,
+            psg_enabled: self.psg_enabled,
         }
     }
 }
@@ -256,6 +260,8 @@ pub struct SegaCdConfig {
     pub enable_ram_cartridge: bool,
     pub run_without_disc: bool,
     pub load_disc_into_ram: bool,
+    pub pcm_enabled: bool,
+    pub cd_audio_enabled: bool,
 }
 
 impl SegaCdConfig {
@@ -264,6 +270,8 @@ impl SegaCdConfig {
             genesis: self.genesis.to_emulator_config(),
             enable_ram_cartridge: self.enable_ram_cartridge,
             load_disc_into_ram: self.load_disc_into_ram,
+            pcm_enabled: self.pcm_enabled,
+            cd_audio_enabled: self.cd_audio_enabled,
         }
     }
 }

@@ -138,6 +138,8 @@ pub struct GenesisEmulatorConfig {
     pub render_horizontal_border: bool,
     pub quantize_ym2612_output: bool,
     pub emulate_ym2612_ladder_effect: bool,
+    pub ym2612_enabled: bool,
+    pub psg_enabled: bool,
 }
 
 impl GenesisEmulatorConfig {
@@ -251,7 +253,7 @@ impl GenesisEmulator {
             main_bus_writes: MainBusWrites::new(),
             aspect_ratio: config.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: config.adjust_aspect_ratio_in_2x_resolution,
-            audio_resampler: GenesisAudioResampler::new(timing_mode),
+            audio_resampler: GenesisAudioResampler::new(timing_mode, config),
             z80_mclk_cycles: 0,
             psg_mclk_cycles: 0,
             wait_states: WaitStates::default(),
@@ -433,6 +435,7 @@ impl EmulatorTrait for GenesisEmulator {
         self.vdp.reload_config(config.to_vdp_config());
         self.ym2612.reload_config(*config);
         self.input.reload_config(*config);
+        self.audio_resampler.reload_config(*config);
 
         self.config = *config;
     }

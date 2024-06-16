@@ -1,4 +1,4 @@
-//! SN76498 PSG (programmable sound generator)
+//! SN76489 PSG (programmable sound generator)
 
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;

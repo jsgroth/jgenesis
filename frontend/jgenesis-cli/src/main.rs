@@ -125,6 +125,14 @@ struct Args {
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
     emulate_ym2612_ladder_effect: Option<bool>,
 
+    /// Enable audio from the YM2612 FM chip
+    #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
+    ym2612_enabled: Option<bool>,
+
+    /// Enable audio from the SN76489 PSG chip
+    #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
+    genesis_psg_enabled: Option<bool>,
+
     /// Aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
     genesis_aspect_ratio: Option<GenesisAspectRatio>,
@@ -156,6 +164,14 @@ struct Args {
     /// Load the CD-ROM image into RAM at startup
     #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
     scd_load_disc_into_ram: Option<bool>,
+
+    /// Enable audio from the RF5C164 PCM chip
+    #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
+    scd_pcm_enabled: Option<bool>,
+
+    /// Enable CD audio playback
+    #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
+    scd_cd_da_enabled: Option<bool>,
 
     /// Aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
     #[arg(long, help_heading = NES_OPTIONS_HEADING)]
@@ -415,6 +431,8 @@ impl Args {
             genesis_render_horizontal_border -> render_horizontal_border,
             quantize_ym2612_output,
             emulate_ym2612_ladder_effect,
+            ym2612_enabled,
+            genesis_psg_enabled -> psg_enabled,
             genesis_aspect_ratio -> aspect_ratio,
             genesis_adjust_aspect_ratio -> adjust_aspect_ratio_in_2x_resolution,
         ]);
@@ -432,6 +450,8 @@ impl Args {
         apply_overrides!(self, config.sega_cd, [
             enable_ram_cartridge,
             scd_load_disc_into_ram -> load_disc_into_ram,
+            scd_pcm_enabled -> pcm_enabled,
+            scd_cd_da_enabled -> cd_audio_enabled,
         ]);
     }
 
