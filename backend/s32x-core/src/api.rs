@@ -47,6 +47,7 @@ pub enum S32XVideoOut {
 pub struct Sega32XEmulatorConfig {
     pub genesis: GenesisEmulatorConfig,
     pub video_out: S32XVideoOut,
+    pub pwm_enabled: bool,
 }
 
 macro_rules! new_main_bus {
@@ -111,7 +112,7 @@ impl Sega32XEmulator {
             psg,
             memory,
             input,
-            audio_resampler: Sega32XResampler::new(timing_mode),
+            audio_resampler: Sega32XResampler::new(timing_mode, config),
             main_bus_writes: MainBusWrites::new(),
             timing_mode,
             config,
@@ -244,6 +245,7 @@ impl EmulatorTrait for Sega32XEmulator {
         self.ym2612.reload_config(config.genesis);
         self.input.reload_config(config.genesis);
         self.memory.medium_mut().reload_config(*config);
+        self.audio_resampler.reload_config(*config);
 
         self.config = *config;
     }

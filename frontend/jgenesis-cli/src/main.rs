@@ -180,6 +180,10 @@ struct Args {
     #[arg(long, help_heading = S32X_OPTIONS_HEADING)]
     s32x_video_out: Option<S32XVideoOut>,
 
+    /// Enable audio from the 32X PWM chip
+    #[arg(long, help_heading = S32X_OPTIONS_HEADING)]
+    s32x_pwm_enabled: Option<bool>,
+
     /// Aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
     #[arg(long, help_heading = NES_OPTIONS_HEADING)]
     nes_aspect_ratio: Option<NesAspectRatio>,
@@ -466,6 +470,7 @@ impl Args {
     fn apply_32x_overrides(&self, config: &mut AppConfig) {
         apply_overrides!(self, config.sega_32x, [
             s32x_video_out -> video_out,
+            s32x_pwm_enabled -> pwm_enabled,
         ]);
     }
 

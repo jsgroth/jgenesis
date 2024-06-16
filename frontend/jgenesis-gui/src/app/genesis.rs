@@ -208,6 +208,7 @@ impl App {
                 ui.checkbox(&mut self.config.genesis.psg_enabled, "SN76489 PSG chip");
                 ui.checkbox(&mut self.config.sega_cd.pcm_enabled, "RF5C164 PCM chip (Sega CD)");
                 ui.checkbox(&mut self.config.sega_cd.cd_audio_enabled, "CD-DA playback (Sega CD)");
+                ui.checkbox(&mut self.config.sega_32x.pwm_enabled, "PWM chip (32X)");
             });
         });
         if !open {
