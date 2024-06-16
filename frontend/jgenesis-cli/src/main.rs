@@ -8,7 +8,7 @@ use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_config::smsgg::SmsModel;
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_driver::config::input::{NesControllerType, SnesControllerType};
-use jgenesis_native_driver::config::{GgAspectRatio, Sega32XConfig, SmsAspectRatio};
+use jgenesis_native_driver::config::{GgAspectRatio, SmsAspectRatio};
 use jgenesis_native_driver::NativeTickEffect;
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::{
@@ -38,6 +38,7 @@ enum Hardware {
 const SMSGG_OPTIONS_HEADING: &str = "Master System / Game Gear Options";
 const GENESIS_OPTIONS_HEADING: &str = "Genesis / Sega CD Options";
 const SCD_OPTIONS_HEADING: &str = "Sega CD Options";
+const S32X_OPTIONS_HEADING: &str = "32X Options";
 const NES_OPTIONS_HEADING: &str = "NES Options";
 const SNES_OPTIONS_HEADING: &str = "SNES Options";
 const GB_OPTIONS_HEADING: &str = "Game Boy Options";
@@ -174,6 +175,10 @@ struct Args {
     /// Enable CD audio playback
     #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
     scd_cd_da_enabled: Option<bool>,
+
+    /// Set 32X video output (Combined / GenesisOnly / S32XOnly)
+    #[arg(long, help_heading = S32X_OPTIONS_HEADING)]
+    s32x_video_out: Option<S32XVideoOut>,
 
     /// Aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
     #[arg(long, help_heading = NES_OPTIONS_HEADING)]
@@ -350,9 +355,6 @@ struct Args {
     /// Rewind buffer length in seconds
     #[arg(long, help_heading = HOTKEY_OPTIONS_HEADING)]
     rewind_buffer_length_seconds: Option<u64>,
-
-    #[arg(long, default_value_t)]
-    s32x_video_out: S32XVideoOut,
 }
 
 macro_rules! apply_overrides {
@@ -387,6 +389,7 @@ impl Args {
         self.apply_smsgg_overrides(config);
         self.apply_genesis_overrides(config);
         self.apply_sega_cd_overrides(config);
+        self.apply_32x_overrides(config);
         self.apply_nes_overrides(config);
         self.apply_snes_overrides(config);
         self.apply_gb_overrides(config);
@@ -457,6 +460,12 @@ impl Args {
             scd_load_disc_into_ram -> load_disc_into_ram,
             scd_pcm_enabled -> pcm_enabled,
             scd_cd_da_enabled -> cd_audio_enabled,
+        ]);
+    }
+
+    fn apply_32x_overrides(&self, config: &mut AppConfig) {
+        apply_overrides!(self, config.sega_32x, [
+            s32x_video_out -> video_out,
         ]);
     }
 
@@ -683,12 +692,7 @@ fn run_sega_cd(args: Args, config: AppConfig) -> anyhow::Result<()> {
 }
 
 fn run_32x(args: Args, config: AppConfig) -> anyhow::Result<()> {
-    let config = Sega32XConfig {
-        genesis: *config.genesis_config(args.file_path),
-        video_out: args.s32x_video_out,
-    };
-
-    let mut emulator = jgenesis_native_driver::create_32x(config.into())?;
+    let mut emulator = jgenesis_native_driver::create_32x(config.sega_32x_config(args.file_path))?;
     while emulator.render_frame()? != NativeTickEffect::Exit {}
 
     Ok(())

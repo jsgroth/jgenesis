@@ -755,7 +755,7 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 );
             }
             sh2_cartridge!() => {
-                log::warn!(
+                log::debug!(
                     "SH-2 {:?} longword write to cartridge address: {address:08X} {value:08X}",
                     self.which
                 );

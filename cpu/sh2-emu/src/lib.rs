@@ -1,4 +1,5 @@
 pub mod bus;
+mod cache;
 mod disassemble;
 mod divu;
 mod dma;
@@ -8,6 +9,7 @@ mod registers;
 mod wdt;
 
 use crate::bus::BusInterface;
+use crate::cache::CpuCache;
 use crate::divu::DivisionUnit;
 use crate::dma::{
     DmaAddressMode, DmaChannel, DmaController, DmaTransferAddressMode, DmaTransferUnit,
@@ -28,15 +30,11 @@ const BASE_IRL_VECTOR_NUMBER: u32 = 64;
 // R15 is the hardware stack pointer
 const SP: usize = 15;
 
-const CACHE_LEN: usize = 4 * 1024;
-
-type CpuCache = [u8; CACHE_LEN];
-
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Sh2 {
     registers: Sh2Registers,
+    cache: CpuCache,
     sh7604: Sh7604Registers,
-    cache: Box<CpuCache>,
     dmac: DmaController,
     free_run_timer: FreeRunTimer,
     watchdog_timer: WatchdogTimer,
@@ -51,8 +49,8 @@ impl Sh2 {
     pub fn new(name: String) -> Self {
         Self {
             registers: Sh2Registers::default(),
+            cache: CpuCache::new(),
             sh7604: Sh7604Registers::new(),
-            cache: vec![0; CACHE_LEN].into_boxed_slice().try_into().unwrap(),
             dmac: DmaController::new(),
             free_run_timer: FreeRunTimer::new(),
             watchdog_timer: WatchdogTimer::new(),
@@ -86,6 +84,8 @@ impl Sh2 {
 
             self.registers.sr.interrupt_mask = RESET_INTERRUPT_MASK;
             self.registers.vbr = RESET_VBR;
+
+            self.cache.purge_all();
 
             log::trace!(
                 "[{}] Reset SH-2; PC is {:08X} and SP is {:08X}",
@@ -150,7 +150,7 @@ impl Sh2 {
     #[inline]
     fn execute_single_instruction<B: BusInterface>(&mut self, bus: &mut B) {
         let pc = self.registers.pc;
-        let opcode = self.read_word(pc, bus);
+        let opcode = self.read_opcode(pc, bus);
         self.registers.pc = self.registers.next_pc;
         self.registers.next_pc = self.registers.pc.wrapping_add(2);
         self.registers.next_op_in_delay_slot = false;
@@ -185,37 +185,90 @@ impl Sh2 {
 
     fn read_byte<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u8 {
         match address >> 29 {
-            0 | 1 => bus.read_byte(address & 0x1FFFFFFF),
-            6 => self.read_cache_u8(address),
+            0 => self.cached_read_byte(address, bus),
+            1 => bus.read_byte(address & 0x1FFFFFFF),
+            6 => self.cache.read_data_array_u8(address),
             7 => self.read_internal_register_byte(address),
             _ => todo!("Unexpected SH-2 address, byte read: {address:08X}"),
         }
     }
 
-    fn read_word<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u16 {
+    fn cached_read_byte<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u8 {
+        if let Some(value) = self.cache.read_u8(address) {
+            return value;
+        }
+
+        self.cache.replace_data(address, bus);
+        bus.read_byte(address & 0x1FFFFFFF)
+    }
+
+    fn read_opcode<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u16 {
         match address >> 29 {
-            0 | 1 => bus.read_word(address & 0x1FFFFFFF),
-            6 => self.read_cache_u16(address),
+            0 => self.cached_read_instruction(address, bus),
+            1 => bus.read_word(address & 0x1FFFFFFF),
+            6 => self.cache.read_data_array_u16(address),
             7 => self.read_internal_register_word(address),
             _ => todo!("Unexpected SH-2 address, word read: {address:08X}"),
         }
     }
 
+    fn read_word<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u16 {
+        match address >> 29 {
+            0 => self.cached_read_word(address, bus),
+            1 => bus.read_word(address & 0x1FFFFFFF),
+            6 => self.cache.read_data_array_u16(address),
+            7 => self.read_internal_register_word(address),
+            _ => todo!("Unexpected SH-2 address, word read: {address:08X}"),
+        }
+    }
+
+    fn cached_read_instruction<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u16 {
+        if let Some(value) = self.cache.read_u16(address) {
+            return value;
+        }
+
+        self.cache.replace_instruction(address, bus);
+        bus.read_word(address & 0x1FFFFFFF)
+    }
+
+    fn cached_read_word<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u16 {
+        if let Some(value) = self.cache.read_u16(address) {
+            return value;
+        }
+
+        self.cache.replace_data(address, bus);
+        bus.read_word(address & 0x1FFFFFFF)
+    }
+
     fn read_longword<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u32 {
         match address >> 29 {
-            0 | 1 => bus.read_longword(address & 0x1FFFFFFF),
-            6 => self.read_cache_u32(address),
+            0 => self.cached_read_longword(address, bus),
+            1 => bus.read_longword(address & 0x1FFFFFFF),
+            3 => self.cache.read_address_array(address),
+            6 => self.cache.read_data_array_u32(address),
             7 => self.read_internal_register_longword(address),
             _ => todo!("Unexpected SH-2 address, longword read: {address:08X}"),
         }
     }
 
+    fn cached_read_longword<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u32 {
+        if let Some(value) = self.cache.read_u32(address) {
+            return value;
+        }
+
+        self.cache.replace_data(address, bus);
+        bus.read_longword(address & 0x1FFFFFFF)
+    }
+
     fn write_byte<B: BusInterface>(&mut self, address: u32, value: u8, bus: &mut B) {
         match address >> 29 {
-            0 | 1 => bus.write_byte(address & 0x1FFFFFFF, value),
-            // Associative purge; ignore (cache is not emulated)
-            2 => {}
-            6 => self.write_cache_u8(address, value),
+            0 => {
+                bus.write_byte(address & 0x1FFFFFFF, value);
+                self.cache.write_through_u8(address, value);
+            }
+            1 => bus.write_byte(address & 0x1FFFFFFF, value),
+            2 => self.cache.associative_purge(address),
+            6 => self.cache.write_data_array_u8(address, value),
             7 => self.write_internal_register_byte(address, value),
             _ => todo!("Unexpected SH-2 address, byte write: {address:08X} {value:02X}"),
         }
@@ -223,8 +276,13 @@ impl Sh2 {
 
     fn write_word<B: BusInterface>(&mut self, address: u32, value: u16, bus: &mut B) {
         match address >> 29 {
-            0 | 1 => bus.write_word(address & 0x1FFFFFFF, value),
-            6 => self.write_cache_u16(address, value),
+            0 => {
+                bus.write_word(address & 0x1FFFFFFF, value);
+                self.cache.write_through_u16(address, value);
+            }
+            1 => bus.write_word(address & 0x1FFFFFFF, value),
+            2 => self.cache.associative_purge(address),
+            6 => self.cache.write_data_array_u16(address, value),
             7 => self.write_internal_register_word(address, value),
             _ => todo!("Unexpected SH-2 address, word write: {address:08X} {value:04X}"),
         }
@@ -233,43 +291,17 @@ impl Sh2 {
     #[allow(clippy::match_same_arms)]
     fn write_longword<B: BusInterface>(&mut self, address: u32, value: u32, bus: &mut B) {
         match address >> 29 {
-            0 | 1 => bus.write_longword(address & 0x1FFFFFFF, value),
-            // Associative purge; ignore (cache is not emulated)
-            2 => {}
-            // Cache address area; ignore
-            3 => {}
-            6 => self.write_cache_u32(address, value),
+            0 => {
+                bus.write_longword(address & 0x1FFFFFFF, value);
+                self.cache.write_through_u32(address, value);
+            }
+            1 => bus.write_longword(address & 0x1FFFFFFF, value),
+            2 => self.cache.associative_purge(address),
+            3 => self.cache.write_address_array(address, value),
+            6 => self.cache.write_data_array_u32(address, value),
             7 => self.write_internal_register_longword(address, value),
             _ => todo!("Unexpected SH-2 address, longword write: {address:08X} {value:08X}"),
         }
-    }
-
-    fn read_cache_u8(&self, address: u32) -> u8 {
-        self.cache[(address as usize) & (CACHE_LEN - 1)]
-    }
-
-    fn read_cache_u16(&self, address: u32) -> u16 {
-        let cache_addr = (address as usize) & (CACHE_LEN - 1) & !1;
-        u16::from_be_bytes([self.cache[cache_addr], self.cache[cache_addr + 1]])
-    }
-
-    fn read_cache_u32(&self, address: u32) -> u32 {
-        let cache_addr = (address as usize) & (CACHE_LEN - 1) & !3;
-        u32::from_be_bytes(self.cache[cache_addr..cache_addr + 4].try_into().unwrap())
-    }
-
-    fn write_cache_u8(&mut self, address: u32, value: u8) {
-        self.cache[(address as usize) & (CACHE_LEN - 1)] = value;
-    }
-
-    fn write_cache_u16(&mut self, address: u32, value: u16) {
-        let cache_addr = (address as usize) & (CACHE_LEN - 1) & !1;
-        self.cache[cache_addr..cache_addr + 2].copy_from_slice(&value.to_be_bytes());
-    }
-
-    fn write_cache_u32(&mut self, address: u32, value: u32) {
-        let cache_addr = (address as usize) & (CACHE_LEN - 1) & !3;
-        self.cache[cache_addr..cache_addr + 4].copy_from_slice(&value.to_be_bytes());
     }
 
     fn handle_interrupt<B: BusInterface>(
