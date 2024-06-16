@@ -335,6 +335,8 @@ impl Emulator {
                     genesis: config.genesis.to_emulator_config(),
                     enable_ram_cartridge: true,
                     load_disc_into_ram: true,
+                    pcm_enabled: true,
+                    cd_audio_enabled: true,
                 });
             }
             Self::Snes(emulator, ..) => {
@@ -758,6 +760,8 @@ fn open_emulator(
                     genesis: config_ref.borrow().genesis.to_emulator_config(),
                     enable_ram_cartridge: true,
                     load_disc_into_ram: true,
+                    pcm_enabled: true,
+                    cd_audio_enabled: true,
                 },
                 save_writer,
             )?;
