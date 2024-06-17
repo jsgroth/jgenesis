@@ -303,7 +303,10 @@ impl Vdp {
                     log::debug!("Front frame buffer set to {:?}", self.state.display_frame_buffer);
                 }
             }
-            _ => todo!("VDP register write {address:08X} {value:04X}"),
+            0xC | 0xE => {
+                log::warn!("Invalid VDP register write {address:08X} {value:04X}");
+            }
+            _ => panic!("VDP register write to an unaligned address: {address:08X} {value:04X}"),
         }
     }
 
