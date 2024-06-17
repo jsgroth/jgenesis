@@ -733,6 +733,9 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     );
                 }
             }
+            sh2_boot_rom!() => {
+                log::warn!("SH-2 {:?} write to boot ROM: {address:08X} {value:04X}", self.which);
+            }
             sh2_invalid_addresses!() => {
                 log::warn!(
                     "SH-2 {:?} invalid address write: {address:08X} {value:04X}",
