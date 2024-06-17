@@ -664,6 +664,15 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     );
                 }
             }
+            sh2_pwm_registers!() => {
+                let mut word = self.pwm.read_register(address & !1);
+                if !address.bit(0) {
+                    word.set_msb(value);
+                } else {
+                    word.set_lsb(value);
+                }
+                self.pwm.sh2_write_register(address & !1, word);
+            }
             sh2_invalid_addresses!() => {
                 log::warn!(
                     "SH-2 {:?} invalid address write: {address:08X} {value:02X}",
