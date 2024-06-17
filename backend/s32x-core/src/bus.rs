@@ -239,7 +239,7 @@ impl PhysicalMedium for Sega32X {
     fn read_word_for_dma(&mut self, address: u32) -> u16 {
         if !self.registers.dma.rom_to_vram_dma {
             log::warn!("Cartridge read for DMA with RV=0 {address:06X}");
-            return 0xFFFF;
+            // return 0xFFFF;
         }
 
         if !(0x000000..=0x3FFFFF).contains(&address) {
@@ -646,6 +646,12 @@ impl<'a> BusInterface for Sh2Bus<'a> {
             }
             0x04040000..=0x0407FFFF => {
                 log::warn!("SH-2 invalid address write {address:08X} {value:02X}");
+            }
+            sh2_boot_rom!() => {
+                log::warn!(
+                    "Ignoring SH-2 {:?} byte write to boot ROM: {address:08X} {value:02X}",
+                    self.which
+                );
             }
             _ => todo!("SH-2 {:?} write byte {address:08X} {value:02X}", self.which),
         }
