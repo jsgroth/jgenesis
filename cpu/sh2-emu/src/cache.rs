@@ -146,23 +146,18 @@ impl CpuCache {
         None
     }
 
-    pub fn replace_instruction<B: BusInterface>(&mut self, address: u32, bus: &mut B) {
-        if !self.control.cache_enabled || self.control.disable_instruction_replacement {
-            return;
-        }
-
-        self.cache_replace(address, bus);
+    #[inline]
+    pub fn should_replace_instruction(&self) -> bool {
+        self.control.cache_enabled && !self.control.disable_instruction_replacement
     }
 
-    pub fn replace_data<B: BusInterface>(&mut self, address: u32, bus: &mut B) {
-        if !self.control.cache_enabled || self.control.disable_data_replacement {
-            return;
-        }
-
-        self.cache_replace(address, bus);
+    #[inline]
+    pub fn should_replace_data(&self) -> bool {
+        self.control.cache_enabled && !self.control.disable_data_replacement
     }
 
-    fn cache_replace<B: BusInterface>(&mut self, address: u32, bus: &mut B) {
+    #[must_use]
+    pub fn replace<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u32 {
         let entry_idx = cache_entry_index(address);
 
         let lru_bits = self.lru_bits[entry_idx];
@@ -187,13 +182,16 @@ impl CpuCache {
 
         let mut bus_addr = address & 0x1FFFFFF0;
         let mut ram_addr = cache_ram_addr(way_idx, entry_idx);
-        for _ in 0..4 {
-            let word = bus.read_longword(bus_addr);
-            self.ram[ram_addr..ram_addr + 4].copy_from_slice(&word.to_be_bytes());
+        let mut longwords = [0; 4];
+        for i in 0..4 {
+            longwords[i] = bus.read_longword(bus_addr);
+            self.ram[ram_addr..ram_addr + 4].copy_from_slice(&longwords[i].to_be_bytes());
 
             bus_addr += 4;
             ram_addr += 4;
         }
+
+        longwords[((address >> 2) & 3) as usize]
     }
 
     #[inline]
