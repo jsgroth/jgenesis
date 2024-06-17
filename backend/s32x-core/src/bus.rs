@@ -458,9 +458,9 @@ macro_rules! sh2_sdram {
     };
 }
 
-macro_rules! sh2_invalid_address {
+macro_rules! sh2_invalid_addresses {
     () => {
-        0x08000000..=0x1FFFFFFF
+        0x00004400..=0x01FFFFFF | 0x02400000..=0x03FFFFFF | 0x04040000..=0x05FFFFFF | 0x06040000..=0x1FFFFFFF
     };
 }
 
@@ -496,12 +496,6 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 }
             }
             sh2_cartridge!() => self.cartridge.read_byte(address & 0x3FFFFF),
-            0x02400000..=0x027FFFFF => {
-                // Kolibri sometimes reads from these addresses
-                // Maybe they mirror cartridge ROM?
-                log::warn!("SH-2 {:?} invalid address byte read {address:08X}", self.which);
-                0xFF
-            }
             sh2_frame_buffer_combined!() => {
                 if self.registers.vdp_access == Access::Sh2 {
                     word_to_byte!(address, self.vdp.read_frame_buffer)
@@ -512,6 +506,10 @@ impl<'a> BusInterface for Sh2Bus<'a> {
             }
             sh2_pwm_registers!() => {
                 word_to_byte!(address, self.pwm.read_register)
+            }
+            sh2_invalid_addresses!() => {
+                log::warn!("SH-2 {:?} invalid address byte read {address:08X}", self.which);
+                0
             }
             _ => todo!("SH-2 {:?} read byte {address:08X}", self.which),
         }
@@ -555,9 +553,9 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     0xFFFF
                 }
             }
-            0x04040000..=0x05FFFFFF => {
+            sh2_invalid_addresses!() => {
                 log::warn!("SH-2 {:?} invalid address word read {address:08X}", self.which);
-                0xFFFF
+                0
             }
             _ => todo!("SH-2 {:?} read word {address:08X}", self.which),
         }
@@ -612,7 +610,7 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     0xFFFFFFFF
                 }
             }
-            0x00004400..=0x01FFFFFF | 0x04040000..=0x05FFFFFF | 0x08000000..=0x1FFFFFFF => {
+            sh2_invalid_addresses!() => {
                 log::warn!("SH-2 {:?} invalid address longword read {address:08X}", self.which);
                 0
             }
@@ -666,14 +664,11 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     );
                 }
             }
-            sh2_invalid_address!() => {
+            sh2_invalid_addresses!() => {
                 log::warn!(
-                    "Ignoring SH-2 {:?} byte write to reserved address: {address:08X} {value:02X}",
+                    "SH-2 {:?} invalid address write: {address:08X} {value:02X}",
                     self.which
                 );
-            }
-            0x04040000..=0x0407FFFF => {
-                log::warn!("SH-2 invalid address write {address:08X} {value:02X}");
             }
             sh2_boot_rom!() => {
                 log::warn!(
@@ -728,6 +723,12 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                         "Frame buffer overwrite image write with FM=0: {address:08X} {value:04X}"
                     );
                 }
+            }
+            sh2_invalid_addresses!() => {
+                log::warn!(
+                    "SH-2 {:?} invalid address write: {address:08X} {value:04X}",
+                    self.which
+                );
             }
             _ => todo!("SH-2 {:?} write word {address:08X} {value:04X}", self.which),
         }
@@ -791,6 +792,12 @@ impl<'a> BusInterface for Sh2Bus<'a> {
             sh2_cartridge!() => {
                 log::debug!(
                     "SH-2 {:?} longword write to cartridge address: {address:08X} {value:08X}",
+                    self.which
+                );
+            }
+            sh2_invalid_addresses!() => {
+                log::warn!(
+                    "SH-2 {:?} invalid address write: {address:08X} {value:08X}",
                     self.which
                 );
             }
