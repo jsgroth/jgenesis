@@ -287,6 +287,14 @@ impl PhysicalMedium for Sega32X {
                     log::warn!("VDP register write with FM=1: {address:06X} {value:02X}");
                 }
             }
+            m68k_rom_first_512kb!() => {
+                self.cartridge.write_byte(address & 0x7FFFF, value);
+            }
+            m68k_mappable_rom_bank!() => {
+                let rom_addr =
+                    (u32::from(self.registers.m68k_rom_bank) << 20) | (address & 0xFFFFF);
+                self.cartridge.write_byte(rom_addr, value);
+            }
             0x000000..=0x00006F | 0x000074..=0x0000FF => {
                 log::warn!("M68K write to invalid address {address:06X} {value:02X}");
             }
@@ -317,9 +325,6 @@ impl PhysicalMedium for Sega32X {
                     );
                 }
             }
-            m68k_mappable_rom_bank!() => {
-                log::warn!("Write to ROM {address:06X} {value:04X}");
-            }
             m68k_system_registers!() => {
                 // System registers
                 log::trace!("M68K write word {address:06X} {value:04X}");
@@ -346,8 +351,19 @@ impl PhysicalMedium for Sega32X {
                     log::warn!("CRAM write with FM=1: {address:06X} {value:04X}");
                 }
             }
+            m68k_rom_first_512kb!() => {
+                // TODO RAM
+                log::warn!("M68K cartridge ROM write {address:06X} {value:04X}");
+            }
+            m68k_mappable_rom_bank!() => {
+                // TODO RAM
+                log::warn!(
+                    "M68K cartridge ROM write {address:06X} {value:04X}, bank {}",
+                    self.registers.m68k_rom_bank
+                );
+            }
             0x000000..=0x00006F | 0x000074..=0x0000FF => {
-                log::warn!("M68K write to invalid address {address:06X} {value:02X}");
+                log::warn!("M68K write to invalid address {address:06X} {value:04X}");
             }
             _ => todo!("M68K write word {address:06X} {value:04X}"),
         }
@@ -535,6 +551,10 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     0xFFFF
                 }
             }
+            0x04040000..=0x05FFFFFF => {
+                log::warn!("SH-2 {:?} invalid address word read {address:08X}", self.which);
+                0xFFFF
+            }
             _ => todo!("SH-2 {:?} read word {address:08X}", self.which),
         }
     }
@@ -587,6 +607,10 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     log::warn!("Frame buffer longword read with FM=0: {address:08X}");
                     0xFFFFFFFF
                 }
+            }
+            0x04040000..=0x05FFFFFF => {
+                log::warn!("SH-2 {:?} invalid address longword read {address:08X}", self.which);
+                0xFFFFFFFF
             }
             _ => todo!("SH-2 {:?} read longword {address:08X}", self.which),
         }
