@@ -32,6 +32,10 @@ impl DivisionUnit {
             // DVDNTH (Remainder)
             // Virtua Fighter seems to expect $FFFFFF18 to mirror $FFFFFF10
             0xFFFFFF10 | 0xFFFFFF18 => self.remainder,
+            // DVCNT (Division control)
+            0xFFFFFF08 => {
+                (u32::from(self.overflow_interrupt_enabled) << 1) | u32::from(self.overflow_flag)
+            }
             _ => todo!("DIVU register read {address:08X}"),
         }
     }
@@ -49,7 +53,8 @@ impl DivisionUnit {
                 let dividend = value as i32;
                 if self.divisor == 0 {
                     self.quotient = overflow_result(dividend.into());
-                    // TODO set overflow flag
+                    self.overflow_flag = true;
+                    // TODO overflow interrupt
                     return;
                 }
 
@@ -85,7 +90,8 @@ impl DivisionUnit {
                 let dividend = (i64::from(self.remainder) << 32) | i64::from(value);
                 if self.divisor == 0 {
                     self.quotient = overflow_result(dividend);
-                    // TODO set overflow flag
+                    self.overflow_flag = true;
+                    // TODO overflow interrupt
                     return;
                 }
 
