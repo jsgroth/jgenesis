@@ -25,6 +25,8 @@ impl DivisionUnit {
         log::trace!("DIVU register read {address:08X}");
 
         match address {
+            // DVSR (Divisor)
+            0xFFFFFF00 => self.divisor as u32,
             // DVDNT / DVDNTL (Quotient)
             // Virtua Fighter seems to expect $FFFFFF1C to mirror $FFFFFF14
             // TODO are DVDNT and DVDNTL actually the same register? it seems like it
@@ -79,13 +81,13 @@ impl DivisionUnit {
                 log::debug!("  Overflow interrupt enabled: {}", self.overflow_interrupt_enabled);
                 log::debug!("  Overflow flag write: {}", self.overflow_flag);
             }
-            0xFFFFFF10 => {
+            0xFFFFFF10 | 0xFFFFFF18 => {
                 // DVDNTH: High longword of dividend for 64-bit division
                 // Store in the remainder register so software will get the same value back on reads
                 // if no division operation is executed in between
                 self.remainder = value;
             }
-            0xFFFFFF14 => {
+            0xFFFFFF14 | 0xFFFFFF1C => {
                 // DVDNTL: Low longword of dividend for 64-bit division + execute 64-bit division
                 let dividend = (i64::from(self.remainder) << 32) | i64::from(value);
                 if self.divisor == 0 {

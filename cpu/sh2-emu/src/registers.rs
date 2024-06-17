@@ -281,7 +281,7 @@ impl Sh2 {
         log::trace!("[{}] Internal register longword write: {address:08X} {value:08X}", self.name);
 
         match address {
-            0xFFFFFF00..=0xFFFFFF14 => self.divu.write_register(address, value),
+            0xFFFFFF00..=0xFFFFFF1F => self.divu.write_register(address, value),
             0xFFFFFF40 => self.sh7604.break_registers.write_break_address_a(value),
             0xFFFFFF48 => {
                 log::warn!(
