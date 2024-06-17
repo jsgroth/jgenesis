@@ -220,6 +220,10 @@ impl PhysicalMedium for Sega32X {
                     0xFFFF
                 }
             }
+            m68k_pwm_registers!() => {
+                // PWM registers
+                self.pwm.read_register(address)
+            }
             m68k_cram!() => {
                 // 32X CRAM
                 if self.registers.vdp_access == Access::M68k {
@@ -608,9 +612,9 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     0xFFFFFFFF
                 }
             }
-            0x04040000..=0x05FFFFFF => {
+            0x00004400..=0x01FFFFFF | 0x04040000..=0x05FFFFFF | 0x08000000..=0x1FFFFFFF => {
                 log::warn!("SH-2 {:?} invalid address longword read {address:08X}", self.which);
-                0xFFFFFFFF
+                0
             }
             _ => todo!("SH-2 {:?} read longword {address:08X}", self.which),
         }
