@@ -206,23 +206,30 @@ impl Sh2 {
             return value;
         }
 
-        self.cache.replace_data(address, bus);
-        bus.read_byte(address & 0x1FFFFFFF)
-    }
-
-    fn read_opcode<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u16 {
-        match address >> 29 {
-            0 => self.cached_read_instruction(address, bus),
-            1 => bus.read_word(address & 0x1FFFFFFF),
-            6 => self.cache.read_data_array_u16(address),
-            7 => self.read_internal_register_word(address),
-            _ => todo!("Unexpected SH-2 address, word read: {address:08X}"),
+        if self.cache.should_replace_data() {
+            let longword = self.cache.replace(address, bus);
+            longword.to_be_bytes()[(address & 3) as usize]
+        } else {
+            bus.read_byte(address & 0x1FFFFFFF)
         }
     }
 
     fn read_word<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u16 {
+        self.read_word_generic::<_, false>(address, bus)
+    }
+
+    fn read_opcode<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u16 {
+        self.read_word_generic::<_, true>(address, bus)
+    }
+
+    #[inline]
+    fn read_word_generic<B: BusInterface, const INSTRUCTION: bool>(
+        &mut self,
+        address: u32,
+        bus: &mut B,
+    ) -> u16 {
         match address >> 29 {
-            0 => self.cached_read_word(address, bus),
+            0 => self.cached_read_word::<_, INSTRUCTION>(address, bus),
             1 => bus.read_word(address & 0x1FFFFFFF),
             6 => self.cache.read_data_array_u16(address),
             7 => self.read_internal_register_word(address),
@@ -230,22 +237,23 @@ impl Sh2 {
         }
     }
 
-    fn cached_read_instruction<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u16 {
+    fn cached_read_word<B: BusInterface, const INSTRUCTION: bool>(
+        &mut self,
+        address: u32,
+        bus: &mut B,
+    ) -> u16 {
         if let Some(value) = self.cache.read_u16(address) {
             return value;
         }
 
-        self.cache.replace_instruction(address, bus);
-        bus.read_word(address & 0x1FFFFFFF)
-    }
-
-    fn cached_read_word<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u16 {
-        if let Some(value) = self.cache.read_u16(address) {
-            return value;
+        if (INSTRUCTION && self.cache.should_replace_instruction())
+            || (!INSTRUCTION && self.cache.should_replace_data())
+        {
+            let longword = self.cache.replace(address, bus);
+            (longword >> (16 * (((address >> 1) & 1) ^ 1))) as u16
+        } else {
+            bus.read_word(address & 0x1FFFFFFF)
         }
-
-        self.cache.replace_data(address, bus);
-        bus.read_word(address & 0x1FFFFFFF)
     }
 
     fn read_longword<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u32 {
@@ -264,8 +272,11 @@ impl Sh2 {
             return value;
         }
 
-        self.cache.replace_data(address, bus);
-        bus.read_longword(address & 0x1FFFFFFF)
+        if self.cache.should_replace_data() {
+            self.cache.replace(address, bus)
+        } else {
+            bus.read_longword(address & 0x1FFFFFFF)
+        }
     }
 
     fn write_byte<B: BusInterface>(&mut self, address: u32, value: u8, bus: &mut B) {
