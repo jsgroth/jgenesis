@@ -157,6 +157,7 @@ impl SystemRegisters {
             0xA15106 => self.m68k_read_dreq_control(),
             0xA1510C => self.read_dreq_destination_high(),
             0xA1510E => self.read_dreq_destination_low(),
+            0xA15110 => self.dma.length,
             0xA15120..=0xA1512F => self.read_communication_port(address),
             _ => todo!("M68K register read: {address:06X}"),
         }
