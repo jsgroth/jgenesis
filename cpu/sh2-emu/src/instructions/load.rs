@@ -118,10 +118,11 @@ pub fn mov_b_rm_predec<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B)
     let m = rm(opcode);
     let n = rn(opcode);
 
+    let value = cpu.registers.gpr[m] as u8;
+
     let address = cpu.registers.gpr[n].wrapping_sub(1);
     cpu.registers.gpr[n] = address;
 
-    let value = cpu.registers.gpr[m] as u8;
     cpu.write_byte(address, value, bus);
 }
 
@@ -131,10 +132,11 @@ pub fn mov_w_rm_predec<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B)
     let m = rm(opcode);
     let n = rn(opcode);
 
+    let value = cpu.registers.gpr[m] as u16;
+
     let address = cpu.registers.gpr[n].wrapping_sub(2);
     cpu.registers.gpr[n] = address;
 
-    let value = cpu.registers.gpr[m] as u16;
     cpu.write_word(address, value, bus);
 }
 
@@ -144,10 +146,12 @@ pub fn mov_l_rm_predec<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B)
     let m = rm(opcode);
     let n = rn(opcode);
 
+    let value = cpu.registers.gpr[m];
+
     let address = cpu.registers.gpr[n].wrapping_sub(4);
     cpu.registers.gpr[n] = address;
 
-    cpu.write_longword(address, cpu.registers.gpr[m], bus);
+    cpu.write_longword(address, value, bus);
 }
 
 // MOV.W @(disp,PC), Rn

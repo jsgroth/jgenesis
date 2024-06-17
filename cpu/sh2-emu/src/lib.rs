@@ -18,6 +18,7 @@ use crate::frt::FreeRunTimer;
 use crate::registers::{Sh2Registers, Sh7604Registers};
 use crate::wdt::{WatchdogTickEffect, WatchdogTimer};
 use bincode::{Decode, Encode};
+use std::env;
 
 const RESET_PC_VECTOR: u32 = 0x00000000;
 const RESET_SP_VECTOR: u32 = 0x00000004;
@@ -41,12 +42,18 @@ pub struct Sh2 {
     divu: DivisionUnit,
     reset_pending: bool,
     name: String,
+    trace_log_enabled: bool,
 }
 
 impl Sh2 {
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
     pub fn new(name: String) -> Self {
+        let trace_log_enabled = match env::var("SH2_LOG") {
+            Ok(log_name) => name == log_name,
+            Err(_) => true,
+        };
+
         Self {
             registers: Sh2Registers::default(),
             cache: CpuCache::new(),
@@ -57,6 +64,7 @@ impl Sh2 {
             divu: DivisionUnit::new(),
             reset_pending: false,
             name,
+            trace_log_enabled,
         }
     }
 
@@ -155,7 +163,7 @@ impl Sh2 {
         self.registers.next_pc = self.registers.pc.wrapping_add(2);
         self.registers.next_op_in_delay_slot = false;
 
-        if log::log_enabled!(log::Level::Trace) {
+        if log::log_enabled!(log::Level::Trace) && self.trace_log_enabled {
             log::trace!(
                 "[{}] Executing opcode {opcode:04X} at PC {pc:08X}: {}",
                 self.name,

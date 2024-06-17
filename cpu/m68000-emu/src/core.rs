@@ -412,6 +412,8 @@ const ADDRESS_ERROR_VECTOR: u32 = 3;
 const ILLEGAL_OPCODE_VECTOR: u32 = 4;
 const DIVIDE_BY_ZERO_VECTOR: u32 = 5;
 const CHECK_REGISTER_VECTOR: u32 = 6;
+const LINE_1010_VECTOR: u32 = 10;
+const LINE_1111_VECTOR: u32 = 11;
 const AUTO_VECTORED_INTERRUPT_BASE_ADDRESS: u32 = 0x60;
 
 impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
@@ -901,15 +903,21 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             }
             Err(Exception::PrivilegeViolation) => todo!("privilege violation"),
             Err(Exception::IllegalInstruction(opcode)) => {
-                log::error!(
-                    "[{}] Illegal opcode executed: {opcode:04X} / {opcode:016b}",
-                    self.name
-                );
+                // If the highest 4 bits of the opcode are 1010 or 1111, the CPU uses different
+                // exception vectors. Zaxxon's Motherbase 2000 (32X) depends on this
+                let vector = match opcode >> 12 {
+                    0b1010 => LINE_1010_VECTOR,
+                    0b1111 => LINE_1111_VECTOR,
+                    _ => {
+                        log::error!(
+                            "[{}] Illegal opcode executed: {opcode:04X} / {opcode:016b}",
+                            self.name
+                        );
+                        ILLEGAL_OPCODE_VECTOR
+                    }
+                };
 
-                if self
-                    .handle_trap(ILLEGAL_OPCODE_VECTOR, self.registers.pc.wrapping_sub(2))
-                    .is_err()
-                {
+                if self.handle_trap(vector, self.registers.pc.wrapping_sub(2)).is_err() {
                     todo!("address error triggered while handling illegal opcode exception")
                 }
 
