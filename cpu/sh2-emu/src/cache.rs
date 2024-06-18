@@ -134,7 +134,8 @@ impl CpuCache {
         let entry_idx = cache_entry_index(address);
         let tag = tag_address(address);
 
-        for way_idx in 0..4 {
+        // Iterate in reverse for slightly better performance when cache is in 2-way mode
+        for way_idx in (0..4).rev() {
             if self.ways[way_idx].valid_bits.bit(entry_idx as u8)
                 && self.ways[way_idx].tags[entry_idx] == tag
             {
@@ -249,7 +250,8 @@ impl CpuCache {
         let entry_idx = cache_entry_index(address);
         let tag = tag_address(address);
 
-        for way_idx in 0..4 {
+        // Iterate in reverse for slightly better performance when cache is in 2-way mode
+        for way_idx in (0..4).rev() {
             if self.ways[way_idx].valid_bits.bit(entry_idx as u8)
                 && self.ways[way_idx].tags[entry_idx] == tag
             {

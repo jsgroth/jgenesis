@@ -1,7 +1,7 @@
 //! 32X memory mapping for the 68000 and SH-2s
 
 use crate::cartridge::Cartridge;
-use crate::core::{Sdram, Sega32X};
+use crate::core::{Sdram, Sega32X, SH2_MASTER_BOOT_ROM, SH2_SLAVE_BOOT_ROM};
 use crate::pwm::PwmChip;
 use crate::registers::{Access, SystemRegisters};
 use crate::vdp::Vdp;
@@ -387,8 +387,6 @@ pub enum WhichCpu {
 
 // SH-2 memory map
 pub struct Sh2Bus<'a> {
-    pub boot_rom: &'static [u8],
-    pub boot_rom_mask: usize,
     pub which: WhichCpu,
     pub cartridge: &'a Cartridge,
     pub vdp: &'a mut Vdp,
@@ -472,7 +470,11 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 let word = self.sdram[((address & SDRAM_MASK) >> 1) as usize];
                 if !address.bit(0) { word.msb() } else { word.lsb() }
             }
-            sh2_boot_rom!() => read_u8(self.boot_rom, self.boot_rom_mask, address),
+            sh2_cartridge!() => self.cartridge.read_byte(address & 0x3FFFFF),
+            sh2_boot_rom!() => match self.which {
+                WhichCpu::Master => read_u8(SH2_MASTER_BOOT_ROM, address),
+                WhichCpu::Slave => read_u8(SH2_SLAVE_BOOT_ROM, address),
+            },
             sh2_system_registers!() => {
                 log::trace!("SH-2 {:?} read byte {address:08X}", self.which);
                 let value = self.registers.sh2_read(address & !1, self.which, self.vdp);
@@ -495,7 +497,6 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     0xFF
                 }
             }
-            sh2_cartridge!() => self.cartridge.read_byte(address & 0x3FFFFF),
             sh2_frame_buffer_combined!() => {
                 if self.registers.vdp_access == Access::Sh2 {
                     word_to_byte!(address, self.vdp.read_frame_buffer)
@@ -519,7 +520,11 @@ impl<'a> BusInterface for Sh2Bus<'a> {
     fn read_word(&mut self, address: u32) -> u16 {
         match address {
             sh2_sdram!() => self.sdram[((address & SDRAM_MASK) >> 1) as usize],
-            sh2_boot_rom!() => read_u16(self.boot_rom, self.boot_rom_mask, address),
+            sh2_cartridge!() => self.cartridge.read_word(address & 0x3FFFFF),
+            sh2_boot_rom!() => match self.which {
+                WhichCpu::Master => read_u16(SH2_MASTER_BOOT_ROM, address),
+                WhichCpu::Slave => read_u16(SH2_SLAVE_BOOT_ROM, address),
+            },
             sh2_system_registers!() => {
                 log::trace!("SH-2 {:?} read word {address:08X}", self.which);
                 self.registers.sh2_read(address, self.which, self.vdp)
@@ -544,7 +549,6 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     0xFFFF
                 }
             }
-            sh2_cartridge!() => self.cartridge.read_word(address & 0x3FFFFF),
             sh2_frame_buffer_combined!() => {
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.read_frame_buffer(address)
@@ -570,7 +574,11 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 let low_word = self.sdram[word_addr | 1];
                 (u32::from(high_word) << 16) | u32::from(low_word)
             }
-            sh2_boot_rom!() => read_u32(self.boot_rom, self.boot_rom_mask, address),
+            sh2_cartridge!() => self.cartridge.read_longword(address & 0x3FFFFF),
+            sh2_boot_rom!() => match self.which {
+                WhichCpu::Master => read_u32(SH2_MASTER_BOOT_ROM, address),
+                WhichCpu::Slave => read_u32(SH2_SLAVE_BOOT_ROM, address),
+            },
             sh2_system_registers!() => {
                 if log::log_enabled!(log::Level::Trace) && !(0x4020..0x4030).contains(&address) {
                     log::trace!("SH-2 {:?} read longword {address:08X}", self.which);
@@ -599,7 +607,6 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     0xFFFFFFFF
                 }
             }
-            sh2_cartridge!() => self.cartridge.read_longword(address & 0x3FFFFF),
             sh2_frame_buffer_combined!() => {
                 if self.registers.vdp_access == Access::Sh2 {
                     let high_word = self.vdp.read_frame_buffer(address);
@@ -824,23 +831,9 @@ impl<'a> BusInterface for Sh2Bus<'a> {
 
     #[inline]
     fn interrupt_level(&self) -> u8 {
-        let interrupts = match self.which {
-            WhichCpu::Master => &self.registers.master_interrupts,
-            WhichCpu::Slave => &self.registers.slave_interrupts,
-        };
-
-        if interrupts.reset_pending {
-            14
-        } else if interrupts.v_pending {
-            12
-        } else if interrupts.h_pending {
-            10
-        } else if interrupts.command_pending && interrupts.command_enabled {
-            8
-        } else if interrupts.pwm_pending {
-            6
-        } else {
-            0
+        match self.which {
+            WhichCpu::Master => self.registers.master_interrupts.current_interrupt_level,
+            WhichCpu::Slave => self.registers.slave_interrupts.current_interrupt_level,
         }
     }
 
@@ -856,18 +849,18 @@ impl<'a> BusInterface for Sh2Bus<'a> {
 }
 
 #[inline]
-fn read_u8(slice: &[u8], mask: usize, address: u32) -> u8 {
-    slice[(address as usize) & mask]
+fn read_u8<const LEN: usize>(slice: &[u8; LEN], address: u32) -> u8 {
+    slice[(address as usize) & (LEN - 1)]
 }
 
 #[inline]
-fn read_u16(slice: &[u8], mask: usize, address: u32) -> u16 {
-    let address = (address as usize) & mask;
+fn read_u16<const LEN: usize>(slice: &[u8; LEN], address: u32) -> u16 {
+    let address = (address as usize) & (LEN - 1) & !1;
     u16::from_be_bytes([slice[address], slice[address + 1]])
 }
 
 #[inline]
-fn read_u32(slice: &[u8], mask: usize, address: u32) -> u32 {
-    let address = (address as usize) & mask;
+fn read_u32<const LEN: usize>(slice: &[u8; LEN], address: u32) -> u32 {
+    let address = (address as usize) & (LEN - 1) & !3;
     u32::from_be_bytes(slice[address..address + 4].try_into().unwrap())
 }

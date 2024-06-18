@@ -36,6 +36,7 @@ pub struct Sh2Interrupts {
     pub command_enabled: bool,
     pub pwm_pending: bool,
     pub pwm_enabled: bool,
+    pub current_interrupt_level: u8,
 }
 
 impl Sh2Interrupts {
@@ -51,6 +52,49 @@ impl Sh2Interrupts {
         self.h_enabled = value.bit(2);
         self.command_enabled = value.bit(1);
         self.pwm_enabled = value.bit(0);
+
+        self.update_interrupt_level();
+    }
+
+    fn clear_reset(&mut self) {
+        self.reset_pending = false;
+        self.update_interrupt_level();
+    }
+
+    fn clear_v(&mut self) {
+        self.v_pending = false;
+        self.update_interrupt_level();
+    }
+
+    fn clear_h(&mut self) {
+        self.h_pending = false;
+        self.update_interrupt_level();
+    }
+
+    fn clear_command(&mut self) {
+        self.command_pending = false;
+        self.update_interrupt_level();
+    }
+
+    fn clear_pwm(&mut self) {
+        self.pwm_pending = false;
+        self.update_interrupt_level();
+    }
+
+    fn update_interrupt_level(&mut self) {
+        self.current_interrupt_level = if self.reset_pending {
+            14
+        } else if self.v_pending {
+            12
+        } else if self.h_pending {
+            10
+        } else if self.command_pending && self.command_enabled {
+            8
+        } else if self.pwm_pending {
+            6
+        } else {
+            0
+        };
     }
 }
 
@@ -137,16 +181,25 @@ impl SystemRegisters {
     pub fn notify_vblank(&mut self) {
         self.master_interrupts.v_pending |= self.master_interrupts.v_enabled;
         self.slave_interrupts.v_pending |= self.slave_interrupts.v_enabled;
+
+        self.master_interrupts.update_interrupt_level();
+        self.slave_interrupts.update_interrupt_level();
     }
 
     pub fn notify_h_interrupt(&mut self) {
         self.master_interrupts.h_pending |= self.master_interrupts.h_enabled;
         self.slave_interrupts.h_pending |= self.slave_interrupts.h_enabled;
+
+        self.master_interrupts.update_interrupt_level();
+        self.slave_interrupts.update_interrupt_level();
     }
 
     pub fn notify_pwm_timer(&mut self) {
         self.master_interrupts.pwm_pending |= self.master_interrupts.pwm_enabled;
         self.slave_interrupts.pwm_pending |= self.slave_interrupts.pwm_enabled;
+
+        self.master_interrupts.update_interrupt_level();
+        self.slave_interrupts.update_interrupt_level();
     }
 
     pub fn m68k_read(&mut self, address: u32) -> u16 {
@@ -266,6 +319,9 @@ impl SystemRegisters {
     fn write_interrupt_control(&mut self, value: u16) {
         self.master_interrupts.command_pending = value.bit(0);
         self.slave_interrupts.command_pending = value.bit(1);
+
+        self.master_interrupts.update_interrupt_level();
+        self.slave_interrupts.update_interrupt_level();
 
         log::trace!("Interrupt control write: {value:04X}");
         log::trace!("  Master command interrupt: {}", self.master_interrupts.command_pending);
@@ -435,8 +491,8 @@ impl SystemRegisters {
     // SH-2: $4014
     fn clear_reset_interrupt(&mut self, which: WhichCpu) {
         match which {
-            WhichCpu::Master => self.master_interrupts.reset_pending = false,
-            WhichCpu::Slave => self.slave_interrupts.reset_pending = false,
+            WhichCpu::Master => self.master_interrupts.clear_reset(),
+            WhichCpu::Slave => self.slave_interrupts.clear_reset(),
         }
         log::trace!("VRESINT cleared");
     }
@@ -444,8 +500,8 @@ impl SystemRegisters {
     // SH-2: $4016
     fn clear_v_interrupt(&mut self, which: WhichCpu) {
         match which {
-            WhichCpu::Master => self.master_interrupts.v_pending = false,
-            WhichCpu::Slave => self.slave_interrupts.v_pending = false,
+            WhichCpu::Master => self.master_interrupts.clear_v(),
+            WhichCpu::Slave => self.slave_interrupts.clear_v(),
         }
         log::trace!("VINT cleared");
     }
@@ -453,16 +509,16 @@ impl SystemRegisters {
     // SH-2: $4018
     fn clear_h_interrupt(&mut self, which: WhichCpu) {
         match which {
-            WhichCpu::Master => self.master_interrupts.h_pending = false,
-            WhichCpu::Slave => self.slave_interrupts.h_pending = false,
+            WhichCpu::Master => self.master_interrupts.clear_h(),
+            WhichCpu::Slave => self.slave_interrupts.clear_h(),
         }
     }
 
     // SH-2: $401A
     fn clear_command_interrupt(&mut self, which: WhichCpu) {
         match which {
-            WhichCpu::Master => self.master_interrupts.command_pending = false,
-            WhichCpu::Slave => self.slave_interrupts.command_pending = false,
+            WhichCpu::Master => self.master_interrupts.clear_command(),
+            WhichCpu::Slave => self.slave_interrupts.clear_command(),
         }
         log::trace!("CMDINT cleared");
     }
@@ -470,8 +526,8 @@ impl SystemRegisters {
     // SH-2: $401C
     fn clear_pwm_interrupt(&mut self, which: WhichCpu) {
         match which {
-            WhichCpu::Master => self.master_interrupts.pwm_pending = false,
-            WhichCpu::Slave => self.slave_interrupts.pwm_pending = false,
+            WhichCpu::Master => self.master_interrupts.clear_pwm(),
+            WhichCpu::Slave => self.slave_interrupts.clear_pwm(),
         }
         log::trace!("PWMINT cleared");
     }
