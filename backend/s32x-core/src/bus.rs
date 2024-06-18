@@ -163,6 +163,8 @@ impl PhysicalMedium for Sega32X {
                     0xFF
                 }
             }
+            // 32X ID - "MARS"
+            0xA130EC..=0xA130EF => [b'M', b'A', b'R', b'S'][(address & 3) as usize],
             _ => todo!("read byte {address:06X}"),
         }
     }
@@ -298,6 +300,15 @@ impl PhysicalMedium for Sega32X {
                 let rom_addr =
                     (u32::from(self.registers.m68k_rom_bank) << 20) | (address & 0xFFFFF);
                 self.cartridge.write_byte(rom_addr, value);
+            }
+            m68k_pwm_registers!() => {
+                let mut word = self.pwm.read_register(address & !1);
+                if !address.bit(0) {
+                    word.set_msb(value);
+                } else {
+                    word.set_lsb(value);
+                }
+                self.pwm.m68k_write_register(address & !1, word);
             }
             0x000000..=0x00006F | 0x000074..=0x0000FF => {
                 log::warn!("M68K write to invalid address {address:06X} {value:02X}");
@@ -839,7 +850,7 @@ impl<'a> BusInterface for Sh2Bus<'a> {
 
     #[inline]
     fn dma_request_0(&self) -> bool {
-        !self.registers.dma.fifo.is_empty()
+        !self.registers.dma.fifo.sh2_is_empty()
     }
 
     #[inline]

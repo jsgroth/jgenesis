@@ -98,53 +98,65 @@ impl Sh2Interrupts {
     }
 }
 
-const DMA_FIFO_LEN: u8 = 4;
+const DMA_FIFO_LEN: usize = 4;
 
 #[derive(Debug, Clone, Default, Encode, Decode)]
 pub struct DmaFifo {
-    fifo: [u16; DMA_FIFO_LEN as usize],
-    start: u8,
-    len: u8,
+    blocks: [[u16; 4]; 2],
+    ready: [bool; 2],
+    m68k_block: usize,
+    m68k_idx: usize,
+    sh2_block: usize,
+    sh2_idx: usize,
 }
 
 impl DmaFifo {
     pub fn push(&mut self, value: u16) {
         log::trace!("DMA FIFO push: {value:04X}");
 
-        if self.len == DMA_FIFO_LEN {
-            return;
-        }
+        self.blocks[self.m68k_block][self.m68k_idx] = value;
+        self.m68k_idx += 1;
 
-        self.fifo[((self.start + self.len) % DMA_FIFO_LEN) as usize] = value;
-        self.len += 1;
+        if self.m68k_idx == DMA_FIFO_LEN {
+            self.ready[self.m68k_block] = true;
+            self.m68k_block ^= 1;
+            self.m68k_idx = 0;
+        }
     }
 
     pub fn pop(&mut self) -> u16 {
-        if self.len == 0 {
-            return self.fifo[self.start as usize];
-        }
+        let value = self.blocks[self.sh2_block][self.sh2_idx];
+        self.sh2_idx += 1;
 
-        let value = self.fifo[self.start as usize];
-        self.start = (self.start + 1) % DMA_FIFO_LEN;
-        self.len -= 1;
+        if self.sh2_idx == DMA_FIFO_LEN {
+            self.ready[self.sh2_block] = false;
+            self.sh2_block ^= 1;
+            self.sh2_idx = 0;
+        }
 
         log::trace!("DMA FIFO pop: {value:04X}");
 
         value
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
+    pub fn sh2_is_empty(&self) -> bool {
+        !self.ready[self.sh2_block]
     }
 
     pub fn is_full(&self) -> bool {
-        self.len == DMA_FIFO_LEN
+        self.ready[self.m68k_block]
+    }
+
+    pub fn clear(&mut self) {
+        *self = Self::default();
     }
 }
 
 #[derive(Debug, Clone, Default, Encode, Decode)]
 pub struct DmaRegisters {
     pub rom_to_vram_dma: bool,
+    // TODO not sure what this does - seems like maybe something to do with Sega CD?
+    pub bit_1: bool,
     pub active: bool,
     pub source_address: u32,
     pub destination_address: u32,
@@ -162,6 +174,8 @@ pub struct SystemRegisters {
     pub master_interrupts: Sh2Interrupts,
     pub slave_interrupts: Sh2Interrupts,
     pub dma: DmaRegisters,
+    // Functionality not emulated, only this bit being R/W
+    pub sega_tv_bit: bool,
 }
 
 impl SystemRegisters {
@@ -175,6 +189,7 @@ impl SystemRegisters {
             master_interrupts: Sh2Interrupts::default(),
             slave_interrupts: Sh2Interrupts::default(),
             dma: DmaRegisters::default(),
+            sega_tv_bit: false,
         }
     }
 
@@ -208,9 +223,12 @@ impl SystemRegisters {
             0xA15102 => self.read_interrupt_control(),
             0xA15104 => self.read_68k_rom_bank(),
             0xA15106 => self.m68k_read_dreq_control(),
+            0xA15108 => self.read_dreq_source_high(),
+            0xA1510A => self.read_dreq_source_low(),
             0xA1510C => self.read_dreq_destination_high(),
             0xA1510E => self.read_dreq_destination_low(),
             0xA15110 => self.dma.length,
+            0xA1511A => self.sega_tv_bit.into(),
             0xA15120..=0xA1512F => self.read_communication_port(address),
             _ => todo!("M68K register read: {address:06X}"),
         }
@@ -238,6 +256,9 @@ impl SystemRegisters {
             0xA1510E => self.write_dreq_destination_low(value),
             0xA15110 => self.write_dreq_length(value),
             0xA15112 => self.write_dreq_fifo(value),
+            0xA1511A => {
+                self.sega_tv_bit = value.bit(0);
+            }
             0xA15120..=0xA1512F => self.write_communication_port(address, value),
             0xA15130..=0xA15138 => {
                 log::warn!("Ignoring PWM register write: {address:06X} {value:04X}");
@@ -341,20 +362,30 @@ impl SystemRegisters {
 
     // 68000: $A15106
     fn m68k_read_dreq_control(&self) -> u16 {
-        (u16::from(self.dma.fifo.is_full()) << 15)
+        (u16::from(self.dma.fifo.is_full()) << 7)
             | (u16::from(self.dma.active) << 2)
+            | (u16::from(self.dma.bit_1) << 1)
             | u16::from(self.dma.rom_to_vram_dma)
     }
 
     // SH-2: $4006
     fn sh2_read_dreq_control(&self) -> u16 {
-        self.m68k_read_dreq_control() | (u16::from(self.dma.fifo.is_empty()) << 14)
+        (u16::from(self.dma.fifo.is_full()) << 15)
+            | (u16::from(self.dma.fifo.sh2_is_empty()) << 14)
+            | (u16::from(self.dma.active) << 2)
+            | (u16::from(self.dma.bit_1) << 1)
+            | u16::from(self.dma.rom_to_vram_dma)
     }
 
     // 68000: $A15106
     fn write_dreq_control(&mut self, value: u16) {
         self.dma.rom_to_vram_dma = value.bit(0);
+        self.dma.bit_1 = value.bit(1);
         self.dma.active = value.bit(2);
+
+        if !self.dma.active {
+            self.dma.fifo.clear();
+        }
 
         log::trace!("DREQ control write: {value:04X}");
         log::trace!("  ROM-to-VRAM DMA active: {}", self.dma.rom_to_vram_dma);

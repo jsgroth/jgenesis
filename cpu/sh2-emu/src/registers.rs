@@ -356,10 +356,15 @@ impl Sh2 {
                     self.name
                 );
             }
-            0xFFFFFF40 => self.sh7604.break_registers.write_break_address_a_high(value),
-            0xFFFFFF42 => self.sh7604.break_registers.write_break_address_a_low(value),
-            0xFFFFFF60 => self.sh7604.break_registers.write_break_address_b_high(value),
-            0xFFFFFF62 => self.sh7604.break_registers.write_break_address_b_low(value),
+            0xFFFFFE60 => {
+                log::warn!("[{}] Ignored IPRB write ($FFFFFE60): {value:04X}", self.name);
+            }
+            0xFFFFFE62 => {
+                log::warn!("[{}] Ignored VCRA write ($FFFFFE62): {value:04X}", self.name);
+            }
+            0xFFFFFE64 => {
+                log::warn!("[{}] Ignored VCRB write ($FFFFFE64): {value:04X}", self.name);
+            }
             0xFFFFFE80 => {
                 self.watchdog_timer.write_control(value);
                 self.update_internal_interrupt_level();
@@ -372,6 +377,10 @@ impl Sh2 {
                 self.sh7604.interrupts.write_vcrwdt(value);
                 self.update_internal_interrupt_level();
             }
+            0xFFFFFF40 => self.sh7604.break_registers.write_break_address_a_high(value),
+            0xFFFFFF42 => self.sh7604.break_registers.write_break_address_a_low(value),
+            0xFFFFFF60 => self.sh7604.break_registers.write_break_address_b_high(value),
+            0xFFFFFF62 => self.sh7604.break_registers.write_break_address_b_low(value),
             _ => todo!(
                 "[{}] Unexpected internal register word write: {address:08X} {value:04X}",
                 self.name
