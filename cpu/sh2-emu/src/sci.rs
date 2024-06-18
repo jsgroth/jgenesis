@@ -4,11 +4,21 @@ use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 
 #[derive(Debug, Clone, Encode, Decode)]
-pub struct SerialInterface {}
+pub struct SerialInterface;
 
 impl SerialInterface {
     pub fn new() -> Self {
-        Self {}
+        Self
+    }
+
+    pub fn read_register(&self, address: u32) -> u8 {
+        log::warn!("SCI read {address:08X}");
+
+        match address {
+            0xFFFFFE04 => 0xC0,
+            0xFFFFFE05 => 0x00,
+            _ => todo!("SCI read {address:08X}"),
+        }
     }
 
     pub fn write_register(&mut self, address: u32, value: u8) {
