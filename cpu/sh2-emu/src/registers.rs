@@ -1,4 +1,5 @@
 use crate::dma::DmaController;
+use crate::sci::SerialInterface;
 use crate::wdt::WatchdogTimer;
 use crate::{Sh2, RESET_INTERRUPT_MASK};
 use bincode::{Decode, Encode};
@@ -143,6 +144,12 @@ pub struct InterruptRegisters {
     pub wdt_priority: u8,
     pub wdt_vector: u8,
     pub bsc_vector: u8,
+    pub sci_priority: u8,
+    pub sci_rx_error_vector: u8,
+    pub sci_rx_ok_vector: u8,
+    pub sci_tx_empty_vector: u8,
+    pub sci_transfer_end_vector: u8,
+    pub frt_priority: u8,
 }
 
 impl InterruptRegisters {
@@ -170,6 +177,36 @@ impl InterruptRegisters {
 
         log::debug!("IPRA low write: {value:02X}");
         log::debug!("  WDT interrupt priority: {}", self.wdt_priority);
+    }
+
+    // $FFFFFE60: IPRB (Interrupt priority B)
+    fn write_iprb(&mut self, value: u16) {
+        self.sci_priority = (value >> 12) as u8;
+        self.frt_priority = ((value >> 8) & 0xF) as u8;
+
+        log::debug!("IPRB write: {value:04X}");
+        log::debug!("  SCI interrupt priority: {}", self.sci_priority);
+        log::debug!("  FRT interrupt priority: {}", self.frt_priority);
+    }
+
+    // $FFFFFE62: VCRA (Vector number register A)
+    fn write_vcra(&mut self, value: u16) {
+        self.sci_rx_error_vector = ((value >> 8) & 0x7F) as u8;
+        self.sci_rx_ok_vector = (value & 0x7F) as u8;
+
+        log::debug!("VCRA write: {value:04X}");
+        log::debug!("  SCI RX error vector number: {}", self.sci_rx_error_vector);
+        log::debug!("  SCI RX ok vector number: {}", self.sci_rx_ok_vector);
+    }
+
+    // $FFFFFE64: VCRB (Vector number register B)
+    fn write_vcrb(&mut self, value: u16) {
+        self.sci_tx_empty_vector = ((value >> 8) & 0x7F) as u8;
+        self.sci_transfer_end_vector = (value & 0x7F) as u8;
+
+        log::debug!("VCRB write: {value:04X}");
+        log::debug!("  SCI TX empty vector number: {}", self.sci_tx_empty_vector);
+        log::debug!("  SCI transfer end vector number: {}", self.sci_transfer_end_vector);
     }
 
     // $FFFFFEE4: VCRWDT (WDT interrupt vector number)
@@ -224,6 +261,7 @@ impl Sh7604Registers {
         &mut self,
         dma_controller: &DmaController,
         watchdog_timer: &WatchdogTimer,
+        serial: &SerialInterface,
     ) {
         let dma0_level = if dma_controller.channels[0].control.interrupt_pending() {
             self.interrupts.dmac_priority
@@ -237,25 +275,26 @@ impl Sh7604Registers {
             0
         };
 
+        let rx_level = if serial.rx_interrupt_pending() { self.interrupts.sci_priority } else { 0 };
+
         let watchdog_level =
             if watchdog_timer.overflow_flag() { self.interrupts.wdt_priority } else { 0 };
 
-        if watchdog_level == 0 && dma0_level == 0 && dma1_level == 0 {
-            self.internal_interrupt_level = InternalInterrupt::default();
-            return;
-        }
-
-        self.internal_interrupt_level = if dma0_level >= dma1_level && dma0_level >= watchdog_level
-        {
-            InternalInterrupt { priority: dma0_level, vector_number: self.interrupts.dma0_vector }
-        } else if dma1_level >= watchdog_level {
-            InternalInterrupt { priority: dma1_level, vector_number: self.interrupts.dma1_vector }
-        } else {
+        self.internal_interrupt_level = [
+            InternalInterrupt { priority: dma0_level, vector_number: self.interrupts.dma0_vector },
+            InternalInterrupt { priority: dma1_level, vector_number: self.interrupts.dma1_vector },
+            InternalInterrupt {
+                priority: rx_level,
+                vector_number: self.interrupts.sci_rx_ok_vector,
+            },
             InternalInterrupt {
                 priority: watchdog_level,
                 vector_number: self.interrupts.wdt_vector,
-            }
-        };
+            },
+        ]
+        .into_iter()
+        .max_by_key(|interrupt| interrupt.priority)
+        .unwrap();
     }
 }
 
@@ -356,15 +395,9 @@ impl Sh2 {
                     self.name
                 );
             }
-            0xFFFFFE60 => {
-                log::warn!("[{}] Ignored IPRB write ($FFFFFE60): {value:04X}", self.name);
-            }
-            0xFFFFFE62 => {
-                log::warn!("[{}] Ignored VCRA write ($FFFFFE62): {value:04X}", self.name);
-            }
-            0xFFFFFE64 => {
-                log::warn!("[{}] Ignored VCRB write ($FFFFFE64): {value:04X}", self.name);
-            }
+            0xFFFFFE60 => self.sh7604.interrupts.write_iprb(value),
+            0xFFFFFE62 => self.sh7604.interrupts.write_vcra(value),
+            0xFFFFFE64 => self.sh7604.interrupts.write_vcrb(value),
             0xFFFFFE80 => {
                 self.watchdog_timer.write_control(value);
                 self.update_internal_interrupt_level();

@@ -18,4 +18,8 @@ pub trait BusInterface {
     fn dma_request_0(&self) -> bool;
 
     fn dma_request_1(&self) -> bool;
+
+    fn serial_rx(&mut self) -> Option<u8>;
+
+    fn serial_tx(&mut self, value: u8);
 }
