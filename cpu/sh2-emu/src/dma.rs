@@ -221,6 +221,7 @@ impl DmaController {
     pub fn read_register(&self, address: u32) -> u32 {
         match address {
             0xFFFFFF8C => self.channels[0].control.to_register_value(),
+            0xFFFFFF9C => self.channels[1].control.to_register_value(),
             0xFFFFFFB0 => self.operation.read(),
             _ => todo!("Read DMA register {address:08X}"),
         }
@@ -244,10 +245,29 @@ impl DmaController {
                 );
             }
             0xFFFFFF8C => {
-                // TODO check if DMA started
                 self.channels[0].control.write(value);
                 log::trace!("DMAC channel 0 control write (CHCR0): {value:08X}");
                 log::trace!("  {:?}", self.channels[0].control);
+            }
+            0xFFFFFF90 => {
+                self.channels[1].source_address = value;
+                log::trace!("DMAC channel 1 source address (SAR1): {value:08X}");
+            }
+            0xFFFFFF94 => {
+                self.channels[1].destination_address = value;
+                log::trace!("DMAC channel 1 destination address (DAR1): {value:08X}");
+            }
+            0xFFFFFF98 => {
+                self.channels[1].transfer_count = value & 0xFFFFFF;
+                log::trace!(
+                    "DMAC channel 1 transfer count (TCR1): {:06X}",
+                    self.channels[1].transfer_count
+                );
+            }
+            0xFFFFFF9C => {
+                self.channels[1].control.write(value);
+                log::trace!("DMAC channel 1 control write (CHCR1): {value:08X}");
+                log::trace!("  {:?}", self.channels[1].control);
             }
             0xFFFFFFB0 => {
                 self.operation.write(value);

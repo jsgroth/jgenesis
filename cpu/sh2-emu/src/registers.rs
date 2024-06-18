@@ -194,6 +194,7 @@ impl Sh2 {
         log::trace!("[{}] Internal register byte read: {address:08X}", self.name);
 
         match address {
+            0xFFFFFE00..=0xFFFFFE05 => self.serial.read_register(address),
             0xFFFFFE10..=0xFFFFFE19 => self.free_run_timer.read_register(address),
             0xFFFFFE92 => self.cache.read_control(),
             0xFFFFFE93..=0xFFFFFE9F => 0xFF,
