@@ -27,6 +27,12 @@ const SDRAM_LEN_WORDS: usize = 256 * 1024 / 2;
 
 pub type Sdram = [u16; SDRAM_LEN_WORDS];
 
+#[derive(Debug, Clone, Default, Encode, Decode)]
+pub struct SerialInterface {
+    pub master_to_slave: Option<u8>,
+    pub slave_to_master: Option<u8>,
+}
+
 #[derive(Debug, PartialClone, Encode, Decode)]
 pub struct Sega32X {
     sh2_master: Sh2,
@@ -40,6 +46,7 @@ pub struct Sega32X {
     pub registers: SystemRegisters,
     pub m68k_vectors: Box<M68kVectors>,
     pub sdram: Box<Sdram>,
+    pub serial: SerialInterface,
 }
 
 impl Sega32X {
@@ -62,6 +69,7 @@ impl Sega32X {
             registers: SystemRegisters::new(),
             m68k_vectors: M68K_VECTORS.to_vec().into_boxed_slice().try_into().unwrap(),
             sdram: vec![0; SDRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
+            serial: SerialInterface::default(),
         }
     }
 
@@ -84,6 +92,7 @@ impl Sega32X {
             pwm: &mut self.pwm,
             registers: &mut self.registers,
             sdram: &mut self.sdram,
+            serial: &mut self.serial,
         };
 
         // Run the two CPUs in slices of 10 instructions rather than running one for N instructions
@@ -100,8 +109,11 @@ impl Sega32X {
             self.sh2_slave.execute(SH2_EXECUTION_SLICE_LEN, &mut bus);
         }
 
-        self.sh2_master.tick_timers(elapsed_sh2_cycles);
-        self.sh2_slave.tick_timers(elapsed_sh2_cycles);
+        bus.which = WhichCpu::Master;
+        self.sh2_master.tick_peripherals(elapsed_sh2_cycles, &mut bus);
+
+        bus.which = WhichCpu::Slave;
+        self.sh2_slave.tick_peripherals(elapsed_sh2_cycles, &mut bus);
 
         self.pwm.tick(elapsed_sh2_cycles, &mut self.registers, pwm_resampler);
     }

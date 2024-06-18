@@ -1,7 +1,7 @@
 //! 32X memory mapping for the 68000 and SH-2s
 
 use crate::cartridge::Cartridge;
-use crate::core::{Sdram, Sega32X, SH2_MASTER_BOOT_ROM, SH2_SLAVE_BOOT_ROM};
+use crate::core::{Sdram, Sega32X, SerialInterface, SH2_MASTER_BOOT_ROM, SH2_SLAVE_BOOT_ROM};
 use crate::pwm::PwmChip;
 use crate::registers::{Access, SystemRegisters};
 use crate::vdp::Vdp;
@@ -404,6 +404,7 @@ pub struct Sh2Bus<'a> {
     pub pwm: &'a mut PwmChip,
     pub registers: &'a mut SystemRegisters,
     pub sdram: &'a mut Sdram,
+    pub serial: &'a mut SerialInterface,
 }
 
 macro_rules! sh2_boot_rom {
@@ -856,6 +857,22 @@ impl<'a> BusInterface for Sh2Bus<'a> {
     #[inline]
     fn dma_request_1(&self) -> bool {
         self.pwm.dma_request_1()
+    }
+
+    #[inline]
+    fn serial_rx(&mut self) -> Option<u8> {
+        match self.which {
+            WhichCpu::Master => self.serial.slave_to_master.take(),
+            WhichCpu::Slave => self.serial.master_to_slave.take(),
+        }
+    }
+
+    #[inline]
+    fn serial_tx(&mut self, value: u8) {
+        match self.which {
+            WhichCpu::Master => self.serial.master_to_slave = Some(value),
+            WhichCpu::Slave => self.serial.slave_to_master = Some(value),
+        }
     }
 }
 

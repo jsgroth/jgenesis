@@ -65,7 +65,7 @@ impl Sh2 {
             free_run_timer: FreeRunTimer::new(),
             watchdog_timer: WatchdogTimer::new(),
             divu: DivisionUnit::new(),
-            serial: SerialInterface::new(),
+            serial: SerialInterface::new(name.clone()),
             reset_pending: false,
             name,
             trace_log_enabled,
@@ -178,8 +178,9 @@ impl Sh2 {
     }
 
     #[inline]
-    pub fn tick_timers(&mut self, system_cycles: u64) {
+    pub fn tick_peripherals<B: BusInterface>(&mut self, system_cycles: u64, bus: &mut B) {
         self.watchdog_timer.tick(system_cycles);
+        self.serial.process(system_cycles, bus);
         self.update_internal_interrupt_level();
     }
 
@@ -439,7 +440,7 @@ impl Sh2 {
     }
 
     fn update_internal_interrupt_level(&mut self) {
-        self.sh7604.update_interrupt_level(&self.dmac, &self.watchdog_timer);
+        self.sh7604.update_interrupt_level(&self.dmac, &self.watchdog_timer, &self.serial);
     }
 }
 
