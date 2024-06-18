@@ -232,6 +232,7 @@ impl Sh2 {
         log::trace!("[{}] Internal register byte write: {address:08X} {value:08X}", self.name);
 
         match address {
+            0xFFFFFE00..=0xFFFFFE05 => self.serial.write_register(address, value),
             0xFFFFFE10..=0xFFFFFE19 => self.free_run_timer.write_register(address, value),
             0xFFFFFE92 => self.cache.write_control(value),
             0xFFFFFE93..=0xFFFFFE9F => {}

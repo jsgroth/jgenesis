@@ -6,6 +6,7 @@ mod dma;
 mod frt;
 mod instructions;
 mod registers;
+mod sci;
 mod wdt;
 
 use crate::bus::BusInterface;
@@ -16,6 +17,7 @@ use crate::dma::{
 };
 use crate::frt::FreeRunTimer;
 use crate::registers::{Sh2Registers, Sh7604Registers};
+use crate::sci::SerialInterface;
 use crate::wdt::{WatchdogTickEffect, WatchdogTimer};
 use bincode::{Decode, Encode};
 use std::env;
@@ -40,6 +42,7 @@ pub struct Sh2 {
     free_run_timer: FreeRunTimer,
     watchdog_timer: WatchdogTimer,
     divu: DivisionUnit,
+    serial: SerialInterface,
     reset_pending: bool,
     name: String,
     trace_log_enabled: bool,
@@ -62,6 +65,7 @@ impl Sh2 {
             free_run_timer: FreeRunTimer::new(),
             watchdog_timer: WatchdogTimer::new(),
             divu: DivisionUnit::new(),
+            serial: SerialInterface::new(),
             reset_pending: false,
             name,
             trace_log_enabled,
@@ -69,7 +73,7 @@ impl Sh2 {
     }
 
     #[inline]
-    pub fn tick<B: BusInterface>(&mut self, mut ticks: u64, bus: &mut B) {
+    pub fn execute<B: BusInterface>(&mut self, mut ticks: u64, bus: &mut B) {
         if ticks == 0 {
             return;
         }
@@ -112,18 +116,18 @@ impl Sh2 {
         }
 
         // Interrupts cannot trigger in a delay slot per the SH7604 hardware manual
-        // Before checking for interrupts, loop until the CPU is no longer in a delay slot
-        while self.registers.next_op_in_delay_slot && ticks != 0 {
+        // Before checking for interrupts, make sure the CPU is not in a delay slot
+        if self.registers.next_op_in_delay_slot {
             self.execute_single_instruction(bus);
             ticks -= 1;
         }
 
-        if self.registers.next_op_in_delay_slot {
-            log::error!("SH-2 is stuck in an infinite branch loop at PC={:08X}", self.registers.pc);
-            return;
-        }
+        debug_assert!(
+            !self.registers.next_op_in_delay_slot,
+            "SH-2 executed two simultaneous delay slot instructions, PC={:08X}",
+            self.registers.pc
+        );
 
-        // TODO check for internal peripheral interrupts
         let external_interrupt_level = bus.interrupt_level();
 
         // TODO handle other types of internal peripheral interrupts
@@ -133,8 +137,8 @@ impl Sh2 {
             0
         };
 
-        if external_interrupt_level >= internal_interrupt_level
-            && external_interrupt_level > self.registers.sr.interrupt_mask
+        if external_interrupt_level > self.registers.sr.interrupt_mask
+            && external_interrupt_level >= internal_interrupt_level
         {
             let vector_number = BASE_IRL_VECTOR_NUMBER + u32::from(external_interrupt_level >> 1);
             self.handle_interrupt(external_interrupt_level, vector_number, bus);
@@ -142,9 +146,9 @@ impl Sh2 {
         }
 
         if internal_interrupt_level > self.registers.sr.interrupt_mask {
+            // TODO handle other types of internal peripheral interrupts
             self.sh7604.watchdog_interrupt_pending = false;
 
-            // TODO handle other types of internal peripheral interrupts
             let vector_number: u32 = self.sh7604.interrupts.wdt_vector.into();
             self.handle_interrupt(internal_interrupt_level, vector_number, bus);
             return;
@@ -184,9 +188,7 @@ impl Sh2 {
 
     #[inline]
     pub fn tick_timers(&mut self, system_cycles: u64) {
-        if self.watchdog_timer.tick(system_cycles) == WatchdogTickEffect::Overflow
-            && self.sh7604.interrupts.wdt_priority > self.registers.sr.interrupt_mask
-        {
+        if self.watchdog_timer.tick(system_cycles) == WatchdogTickEffect::Overflow {
             self.sh7604.watchdog_interrupt_pending = true;
         }
     }
