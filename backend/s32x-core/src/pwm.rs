@@ -241,10 +241,6 @@ impl PwmChip {
 
                     log::trace!("Generating PWM interrupt");
                     system_registers.notify_pwm_timer();
-
-                    if self.control.dreq1_enabled {
-                        todo!("generate PWM DREQ1 for SH-2s")
-                    }
                 }
             }
         }
@@ -328,6 +324,10 @@ impl PwmChip {
 
         log::trace!("Mono pulse width FIFO write: {value:04X}");
         log::trace!("  Effective wave height: {sample}");
+    }
+
+    pub fn dma_request_1(&self) -> bool {
+        self.control.dreq1_enabled && (!self.l_fifo.is_full() || !self.r_fifo.is_full())
     }
 }
 

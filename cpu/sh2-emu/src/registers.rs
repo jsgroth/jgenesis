@@ -1,3 +1,5 @@
+use crate::dma::DmaController;
+use crate::wdt::WatchdogTimer;
 use crate::{Sh2, RESET_INTERRUPT_MASK};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
@@ -136,6 +138,8 @@ impl BreakRegisters {
 pub struct InterruptRegisters {
     pub divu_priority: u8,
     pub dmac_priority: u8,
+    pub dma0_vector: u8,
+    pub dma1_vector: u8,
     pub wdt_priority: u8,
     pub wdt_vector: u8,
     pub bsc_vector: u8,
@@ -161,6 +165,13 @@ impl InterruptRegisters {
         log::debug!("  WDT interrupt priority: {}", self.wdt_priority);
     }
 
+    fn write_ipra_low(&mut self, value: u8) {
+        self.wdt_priority = value >> 4;
+
+        log::debug!("IPRA low write: {value:02X}");
+        log::debug!("  WDT interrupt priority: {}", self.wdt_priority);
+    }
+
     // $FFFFFEE4: VCRWDT (WDT interrupt vector number)
     fn write_vcrwdt(&mut self, value: u16) {
         self.wdt_vector = ((value >> 8) & 0x7F) as u8;
@@ -170,13 +181,34 @@ impl InterruptRegisters {
         log::debug!("  WDT interrupt vector number: {}", self.wdt_vector);
         log::debug!("  BSC interrupt vector number: {}", self.bsc_vector);
     }
+
+    fn write_vcrwdt_high(&mut self, value: u8) {
+        self.wdt_vector = value & 0x7F;
+
+        log::debug!("VCRWDT high write: {value:02X}");
+        log::debug!("  WDT interrupt vector number: {}", self.wdt_vector);
+    }
+
+    // $FFFFFFA8: VCRDMA1 (Interrupt vector number for DMA1)
+    fn write_vcrdma1(&mut self, value: u32) {
+        self.dma1_vector = value as u8;
+
+        log::debug!("VCRDMA1 write: {value:08X}");
+        log::debug!("  DMA vector number: {}", self.dma1_vector);
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
+pub struct InternalInterrupt {
+    pub priority: u8,
+    pub vector_number: u8,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Sh7604Registers {
     pub break_registers: BreakRegisters,
     pub interrupts: InterruptRegisters,
-    pub watchdog_interrupt_pending: bool,
+    pub internal_interrupt_level: InternalInterrupt,
 }
 
 impl Sh7604Registers {
@@ -184,8 +216,46 @@ impl Sh7604Registers {
         Self {
             break_registers: BreakRegisters::default(),
             interrupts: InterruptRegisters::default(),
-            watchdog_interrupt_pending: false,
+            internal_interrupt_level: InternalInterrupt::default(),
         }
+    }
+
+    pub fn update_interrupt_level(
+        &mut self,
+        dma_controller: &DmaController,
+        watchdog_timer: &WatchdogTimer,
+    ) {
+        let dma0_level = if dma_controller.channels[0].control.interrupt_pending() {
+            self.interrupts.dmac_priority
+        } else {
+            0
+        };
+
+        let dma1_level = if dma_controller.channels[1].control.interrupt_pending() {
+            self.interrupts.dmac_priority
+        } else {
+            0
+        };
+
+        let watchdog_level =
+            if watchdog_timer.overflow_flag() { self.interrupts.wdt_priority } else { 0 };
+
+        if watchdog_level == 0 && dma0_level == 0 && dma1_level == 0 {
+            self.internal_interrupt_level = InternalInterrupt::default();
+            return;
+        }
+
+        self.internal_interrupt_level = if dma0_level >= dma1_level && dma0_level >= watchdog_level
+        {
+            InternalInterrupt { priority: dma0_level, vector_number: self.interrupts.dma0_vector }
+        } else if dma1_level >= watchdog_level {
+            InternalInterrupt { priority: dma1_level, vector_number: self.interrupts.dma1_vector }
+        } else {
+            InternalInterrupt {
+                priority: watchdog_level,
+                vector_number: self.interrupts.wdt_vector,
+            }
+        };
     }
 }
 
@@ -201,6 +271,7 @@ impl Sh2 {
             }
             0xFFFFFE00..=0xFFFFFE05 => self.serial.read_register(address),
             0xFFFFFE10..=0xFFFFFE19 => self.free_run_timer.read_register(address),
+            0xFFFFFE80 => self.watchdog_timer.read_control(),
             0xFFFFFE92 => self.cache.read_control(),
             0xFFFFFE93..=0xFFFFFE9F => 0xFF,
             _ => todo!("[{}] Internal register byte read {address:08X}", self.name),
@@ -260,6 +331,14 @@ impl Sh2 {
                 log::trace!("  FRT clock halted: {}", value.bit(1));
                 log::trace!("  SCI clock halted: {}", value.bit(0));
             }
+            0xFFFFFEE3 => {
+                self.sh7604.interrupts.write_ipra_low(value);
+                self.update_internal_interrupt_level();
+            }
+            0xFFFFFEE4 => {
+                self.sh7604.interrupts.write_vcrwdt_high(value);
+                self.update_internal_interrupt_level();
+            }
             _ => todo!(
                 "[{}] Unexpected internal register byte write: {address:08X} {value:02X}",
                 self.name
@@ -281,9 +360,18 @@ impl Sh2 {
             0xFFFFFF42 => self.sh7604.break_registers.write_break_address_a_low(value),
             0xFFFFFF60 => self.sh7604.break_registers.write_break_address_b_high(value),
             0xFFFFFF62 => self.sh7604.break_registers.write_break_address_b_low(value),
-            0xFFFFFE80 => self.watchdog_timer.write_control(value),
-            0xFFFFFEE2 => self.sh7604.interrupts.write_ipra(value),
-            0xFFFFFEE4 => self.sh7604.interrupts.write_vcrwdt(value),
+            0xFFFFFE80 => {
+                self.watchdog_timer.write_control(value);
+                self.update_internal_interrupt_level();
+            }
+            0xFFFFFEE2 => {
+                self.sh7604.interrupts.write_ipra(value);
+                self.update_internal_interrupt_level();
+            }
+            0xFFFFFEE4 => {
+                self.sh7604.interrupts.write_vcrwdt(value);
+                self.update_internal_interrupt_level();
+            }
             _ => todo!(
                 "[{}] Unexpected internal register word write: {address:08X} {value:04X}",
                 self.name
@@ -310,7 +398,20 @@ impl Sh2 {
                     self.name
                 );
             }
-            0xFFFFFF80..=0xFFFFFF9F | 0xFFFFFFB0 => self.dmac.write_register(address, value),
+            0xFFFFFF80..=0xFFFFFF9F | 0xFFFFFFB0 => {
+                self.dmac.write_register(address, value);
+                self.update_internal_interrupt_level();
+            }
+            0xFFFFFFB8 => {
+                log::warn!(
+                    "[{}] Ignoring write to invalid register address: {address:08X} {value:08X}",
+                    self.name
+                );
+            }
+            0xFFFFFFA8 => {
+                self.sh7604.interrupts.write_vcrdma1(value);
+                self.update_internal_interrupt_level();
+            }
             0xFFFFFFE0..=0xFFFFFFFF => log_bus_control_write(address, value),
             _ => todo!(
                 "[{}] Unexpected internal register longword write: {address:08X} {value:08X}",

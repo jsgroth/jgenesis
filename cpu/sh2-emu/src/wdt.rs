@@ -38,17 +38,12 @@ fn clock_shift_select(byte: u8) -> u8 {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WatchdogTickEffect {
-    None,
-    Overflow,
-}
-
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct WatchdogTimer {
     timer_counter: u8,
     mode: WatchdogTimerMode,
     enabled: bool,
+    raw_clock_select: u8,
     system_clock_shift: u8,
     system_clock_counter: u64,
     interval_overflow_flag: bool,
@@ -60,16 +55,16 @@ impl WatchdogTimer {
             timer_counter: 0,
             mode: WatchdogTimerMode::default(),
             enabled: false,
+            raw_clock_select: 0,
             system_clock_shift: clock_shift_select(0),
             system_clock_counter: 0,
             interval_overflow_flag: false,
         }
     }
 
-    #[must_use]
-    pub fn tick(&mut self, system_cycles: u64) -> WatchdogTickEffect {
+    pub fn tick(&mut self, system_cycles: u64) {
         if !self.enabled {
-            return WatchdogTickEffect::None;
+            return;
         }
 
         self.system_clock_counter += system_cycles;
@@ -82,8 +77,13 @@ impl WatchdogTimer {
 
         let overflow_flag = exceeds_byte || overflowed;
         self.interval_overflow_flag |= overflow_flag;
+    }
 
-        if overflow_flag { WatchdogTickEffect::Overflow } else { WatchdogTickEffect::None }
+    // $FFFFFE80: WTCSR (Watchdog timer control/status)
+    pub fn read_control(&self) -> u8 {
+        (u8::from(self.interval_overflow_flag) << 7)
+            | ((self.mode as u8) << 6)
+            | (u8::from(self.enabled) << 5)
     }
 
     // $FFFFFE80: WTCSR (Watchdog timer control/status) / WTCNT (Watchdog timer counter)
@@ -111,6 +111,7 @@ impl WatchdogTimer {
         self.interval_overflow_flag &= value.bit(7);
         self.mode = WatchdogTimerMode::from_bit(value.bit(6));
         self.enabled = value.bit(5);
+        self.raw_clock_select = value & 7;
         self.system_clock_shift = clock_shift_select(value);
 
         if !self.enabled {
@@ -127,5 +128,9 @@ impl WatchdogTimer {
         if self.mode == WatchdogTimerMode::Watchdog {
             todo!("Watchdog timer mode not implemented")
         }
+    }
+
+    pub fn overflow_flag(&self) -> bool {
+        self.interval_overflow_flag
     }
 }
