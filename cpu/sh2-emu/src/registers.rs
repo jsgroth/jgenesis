@@ -226,12 +226,20 @@ impl InterruptRegisters {
         log::debug!("  WDT interrupt vector number: {}", self.wdt_vector);
     }
 
+    // $FFFFFFA0: VCRDMA0 (Interrupt vector number for DMA0)
+    fn write_vcrdma0(&mut self, value: u32) {
+        self.dma0_vector = value as u8;
+
+        log::debug!("VCRDMA0 write: {value:08X}");
+        log::debug!("  DMA0 vector number: {}", self.dma0_vector);
+    }
+
     // $FFFFFFA8: VCRDMA1 (Interrupt vector number for DMA1)
     fn write_vcrdma1(&mut self, value: u32) {
         self.dma1_vector = value as u8;
 
         log::debug!("VCRDMA1 write: {value:08X}");
-        log::debug!("  DMA vector number: {}", self.dma1_vector);
+        log::debug!("  DMA1 vector number: {}", self.dma1_vector);
     }
 }
 
@@ -449,6 +457,10 @@ impl Sh2 {
                     "[{}] Ignoring write to invalid register address: {address:08X} {value:08X}",
                     self.name
                 );
+            }
+            0xFFFFFFA0 => {
+                self.sh7604.interrupts.write_vcrdma0(value);
+                self.update_internal_interrupt_level();
             }
             0xFFFFFFA8 => {
                 self.sh7604.interrupts.write_vcrdma1(value);
