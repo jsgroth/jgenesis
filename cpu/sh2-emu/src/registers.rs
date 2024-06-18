@@ -194,6 +194,11 @@ impl Sh2 {
         log::trace!("[{}] Internal register byte read: {address:08X}", self.name);
 
         match address {
+            0xFFFFFC17 => {
+                // Cosmic Carnage constantly reads from and writes to this address - not sure what it's supposed to be
+                log::warn!("[{}] Invalid internal register byte read {address:08X}", self.name);
+                0
+            }
             0xFFFFFE00..=0xFFFFFE05 => self.serial.read_register(address),
             0xFFFFFE10..=0xFFFFFE19 => self.free_run_timer.read_register(address),
             0xFFFFFE92 => self.cache.read_control(),
@@ -230,9 +235,16 @@ impl Sh2 {
     }
 
     pub(super) fn write_internal_register_byte(&mut self, address: u32, value: u8) {
-        log::trace!("[{}] Internal register byte write: {address:08X} {value:08X}", self.name);
+        log::trace!("[{}] Internal register byte write: {address:08X} {value:02X}", self.name);
 
         match address {
+            0xFFFFFC17 => {
+                // Cosmic Carnage constantly reads from and writes to this address - not sure what it's supposed to be
+                log::warn!(
+                    "[{}] Invalid internal register write {address:08X} {value:02X}",
+                    self.name
+                );
+            }
             0xFFFFFE00..=0xFFFFFE05 => self.serial.write_register(address, value),
             0xFFFFFE10..=0xFFFFFE19 => self.free_run_timer.write_register(address, value),
             0xFFFFFE92 => self.cache.write_control(value),
