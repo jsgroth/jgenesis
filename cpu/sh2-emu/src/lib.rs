@@ -18,7 +18,7 @@ use crate::dma::{
 use crate::frt::FreeRunTimer;
 use crate::registers::{Sh2Registers, Sh7604Registers};
 use crate::sci::SerialInterface;
-use crate::wdt::{WatchdogTickEffect, WatchdogTimer};
+use crate::wdt::WatchdogTimer;
 use bincode::{Decode, Encode};
 use std::env;
 
@@ -129,13 +129,7 @@ impl Sh2 {
         );
 
         let external_interrupt_level = bus.interrupt_level();
-
-        // TODO handle other types of internal peripheral interrupts
-        let internal_interrupt_level = if self.sh7604.watchdog_interrupt_pending {
-            self.sh7604.interrupts.wdt_priority
-        } else {
-            0
-        };
+        let internal_interrupt_level = self.sh7604.internal_interrupt_level.priority;
 
         if external_interrupt_level > self.registers.sr.interrupt_mask
             && external_interrupt_level >= internal_interrupt_level
@@ -146,10 +140,7 @@ impl Sh2 {
         }
 
         if internal_interrupt_level > self.registers.sr.interrupt_mask {
-            // TODO handle other types of internal peripheral interrupts
-            self.sh7604.watchdog_interrupt_pending = false;
-
-            let vector_number: u32 = self.sh7604.interrupts.wdt_vector.into();
+            let vector_number: u32 = self.sh7604.internal_interrupt_level.vector_number.into();
             self.handle_interrupt(internal_interrupt_level, vector_number, bus);
             return;
         }
@@ -188,9 +179,8 @@ impl Sh2 {
 
     #[inline]
     pub fn tick_timers(&mut self, system_cycles: u64) {
-        if self.watchdog_timer.tick(system_cycles) == WatchdogTickEffect::Overflow {
-            self.sh7604.watchdog_interrupt_pending = true;
-        }
+        self.watchdog_timer.tick(system_cycles);
+        self.update_internal_interrupt_level();
     }
 
     fn read_byte<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u8 {
@@ -439,11 +429,17 @@ impl Sh2 {
         let transfer_complete = self.dmac.channels[channel].transfer_count == 0;
         self.dmac.channels[channel].control.dma_complete = transfer_complete;
 
+        self.update_internal_interrupt_level();
+
         if log::log_enabled!(log::Level::Debug) && transfer_complete {
             log::debug!("[{}] DMA{channel} complete", self.name);
         }
 
         true
+    }
+
+    fn update_internal_interrupt_level(&mut self) {
+        self.sh7604.update_interrupt_level(&self.dmac, &self.watchdog_timer);
     }
 }
 

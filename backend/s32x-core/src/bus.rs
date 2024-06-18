@@ -844,7 +844,7 @@ impl<'a> BusInterface for Sh2Bus<'a> {
 
     #[inline]
     fn dma_request_1(&self) -> bool {
-        false
+        self.pwm.dma_request_1()
     }
 }
 
