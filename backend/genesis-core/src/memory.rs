@@ -1,6 +1,6 @@
 //! Genesis memory map and 68000 + Z80 bus interfaces
 
-mod eeprom;
+pub mod eeprom;
 mod external;
 
 use crate::api::GenesisRegion;
@@ -73,6 +73,12 @@ impl SegaMapper {
         let bank_number: u32 = self.bank_numbers[idx as usize].into();
         (bank_number << 19) | (address & 0x07FFFF)
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct CartridgeHeader {
+    pub region: Option<GenesisRegion>,
+    pub ssf_mapper: bool,
 }
 
 #[derive(Debug, Clone, Encode, Decode, PartialClone)]

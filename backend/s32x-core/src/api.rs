@@ -9,7 +9,7 @@ use genesis_core::input::InputState;
 use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::vdp::{Vdp, VdpTickEffect};
 use genesis_core::ym2612::{Ym2612, YmTickEffect};
-use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
+use genesis_core::{GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, Renderer, SaveWriter, TickEffect, TickResult, TimingMode,
 };
@@ -78,6 +78,7 @@ pub struct Sega32XEmulator {
     input: InputState,
     audio_resampler: Sega32XResampler,
     main_bus_writes: MainBusWrites,
+    region: GenesisRegion,
     timing_mode: TimingMode,
     config: Sega32XEmulatorConfig,
 }
@@ -88,10 +89,22 @@ impl Sega32XEmulator {
         config: Sega32XEmulatorConfig,
         save_writer: &mut S,
     ) -> Self {
+        let region = config.genesis.forced_region.unwrap_or_else(|| {
+            GenesisRegion::from_rom(&rom).unwrap_or_else(|| {
+                log::error!("Unable to determine ROM region; defaulting to Americas");
+                GenesisRegion::Americas
+            })
+        });
+
+        let timing_mode = config.genesis.forced_timing_mode.unwrap_or_else(|| match region {
+            GenesisRegion::Americas | GenesisRegion::Japan => TimingMode::Ntsc,
+            GenesisRegion::Europe => TimingMode::Pal,
+        });
+
+        log::info!("Running with region {region:?} and timing mode {timing_mode:?}");
+
         let m68k = M68000::builder().allow_tas_writes(false).build();
         let z80 = Z80::new();
-        // TODO
-        let timing_mode = TimingMode::Ntsc;
         let vdp = Vdp::new(timing_mode, config.genesis.to_vdp_config());
         let ym2612 = Ym2612::new(config.genesis);
         let psg = Psg::new(PsgVersion::Standard);
@@ -114,6 +127,7 @@ impl Sega32XEmulator {
             input,
             audio_resampler: Sega32XResampler::new(timing_mode, config),
             main_bus_writes: MainBusWrites::new(),
+            region,
             timing_mode,
             config,
         };
@@ -125,10 +139,9 @@ impl Sega32XEmulator {
 
     #[must_use]
     pub fn cartridge_title(&self) -> String {
-        // TODO don't hardcode region
         genesis_core::memory::parse_title_from_header(
             &self.memory.medium().cartridge.rom,
-            GenesisRegion::Americas,
+            self.region,
         )
     }
 
@@ -141,8 +154,7 @@ impl Sega32XEmulator {
     }
 
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
-        // TODO
-        genesis_core::render_frame(&self.vdp, GenesisAspectRatio::Ntsc, true, renderer)
+        genesis_core::render_frame(&self.vdp, self.config.genesis.aspect_ratio, true, renderer)
     }
 }
 
