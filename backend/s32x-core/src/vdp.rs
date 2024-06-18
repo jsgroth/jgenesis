@@ -144,8 +144,9 @@ impl Vdp {
         let prev_scanline_mclk = self.state.scanline_mclk;
         self.state.scanline_mclk += mclk_cycles;
 
-        // TODO HEN flag (HINT inside VBlank) - does this just disable the constant refresh during VBlank?
-        if self.state.scanline < self.registers.v_resolution.active_scanlines_per_frame() {
+        if self.state.scanline < self.registers.v_resolution.active_scanlines_per_frame()
+            || self.registers.h_interrupt_in_vblank
+        {
             if prev_scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE
                 && self.state.scanline_mclk >= ACTIVE_MCLK_CYCLES_PER_SCANLINE
             {
@@ -415,10 +416,6 @@ impl Vdp {
     // Interrupt mask bit 7: HEN (H interrupts enabled during VBlank)(
     pub fn write_hen_bit(&mut self, hen: bool) {
         self.registers.h_interrupt_in_vblank = hen;
-
-        if hen {
-            todo!("HEN bit set to 1 (HINT allowed during VBlank)")
-        }
     }
 
     // SH-2: $4004
