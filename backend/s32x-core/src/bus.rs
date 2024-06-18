@@ -163,6 +163,9 @@ impl PhysicalMedium for Sega32X {
                     0xFF
                 }
             }
+            m68k_pwm_registers!() => {
+                word_to_byte!(address, self.pwm.read_register)
+            }
             // 32X ID - "MARS"
             0xA130EC..=0xA130EF => [b'M', b'A', b'R', b'S'][(address & 3) as usize],
             _ => todo!("read byte {address:06X}"),
@@ -238,6 +241,11 @@ impl PhysicalMedium for Sega32X {
             // 32X ID - "MARS"
             M68K_32X_ID_HIGH => u16::from_be_bytes([b'M', b'A']),
             M68K_32X_ID_LOW => u16::from_be_bytes([b'R', b'S']),
+            0x400000..=0x7FFFFF => {
+                // TODO Sega CD is mapped here if plugged in
+                log::warn!("Invalid word read {address:06X}");
+                0
+            }
             _ => todo!("read word {address:06X}"),
         }
     }
@@ -377,7 +385,8 @@ impl PhysicalMedium for Sega32X {
                     self.registers.m68k_rom_bank
                 );
             }
-            0x000000..=0x00006F | 0x000074..=0x0000FF => {
+            // TODO Sega CD is $400000-$7FFFFF if plugged in
+            0x000000..=0x00006F | 0x000074..=0x0000FF | 0x400000..=0x7FFFFF => {
                 log::warn!("M68K write to invalid address {address:06X} {value:04X}");
             }
             _ => todo!("M68K write word {address:06X} {value:04X}"),
