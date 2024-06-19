@@ -96,7 +96,7 @@ impl Sega32XEmulator {
             })
         });
 
-        let timing_mode = config.genesis.forced_timing_mode.unwrap_or_else(|| match region {
+        let timing_mode = config.genesis.forced_timing_mode.unwrap_or(match region {
             GenesisRegion::Americas | GenesisRegion::Japan => TimingMode::Ntsc,
             GenesisRegion::Europe => TimingMode::Pal,
         });
@@ -227,13 +227,12 @@ impl EmulatorTrait for Sega32XEmulator {
             );
             self.render_frame(renderer).map_err(Sega32XError::Render)?;
 
-            if let Some(cartridge_ram) = &mut self.memory.medium_mut().cartridge.ram {
-                if cartridge_ram.dirty {
-                    save_writer
-                        .persist_bytes("sav", &cartridge_ram.ram)
-                        .map_err(Sega32XError::SaveWrite)?;
-                    cartridge_ram.dirty = false;
-                }
+            let cartridge = &mut self.memory.medium_mut().cartridge;
+            if cartridge.persistent_memory_dirty() {
+                cartridge.clear_persistent_dirty_bit();
+                save_writer
+                    .persist_bytes("sav", cartridge.persistent_memory())
+                    .map_err(Sega32XError::SaveWrite)?;
             }
 
             tick_effect = TickEffect::FrameRendered;

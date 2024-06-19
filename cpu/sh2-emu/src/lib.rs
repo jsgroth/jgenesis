@@ -188,6 +188,13 @@ impl Sh2 {
         match address >> 29 {
             0 => self.cached_read_byte(address, bus),
             1 => bus.read_byte(address & 0x1FFFFFFF),
+            2 => {
+                log::warn!(
+                    "[{}] Read byte from associative purge address: {address:08X}",
+                    self.name
+                );
+                0
+            }
             6 => self.cache.read_data_array_u8(address),
             7 => self.read_internal_register_byte(address),
             _ => todo!("Unexpected SH-2 address, byte read: {address:08X}"),
@@ -224,6 +231,13 @@ impl Sh2 {
         match address >> 29 {
             0 => self.cached_read_word::<_, INSTRUCTION>(address, bus),
             1 => bus.read_word(address & 0x1FFFFFFF),
+            2 => {
+                log::warn!(
+                    "[{}] Read word from associative purge address: {address:08X}",
+                    self.name
+                );
+                0
+            }
             6 => self.cache.read_data_array_u16(address),
             7 => self.read_internal_register_word(address),
             _ => todo!("Unexpected SH-2 address, word read: {address:08X}"),
@@ -253,6 +267,13 @@ impl Sh2 {
         match address >> 29 {
             0 => self.cached_read_longword(address, bus),
             1 => bus.read_longword(address & 0x1FFFFFFF),
+            2 => {
+                log::warn!(
+                    "[{}] Read longword from associative purge address: {address:08X}",
+                    self.name
+                );
+                0
+            }
             3 => self.cache.read_address_array(address),
             6 => self.cache.read_data_array_u32(address),
             7 => self.read_internal_register_longword(address),

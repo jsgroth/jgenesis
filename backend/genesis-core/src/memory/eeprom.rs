@@ -8,14 +8,19 @@ use jgenesis_common::num::GetBit;
 use std::fmt::Debug;
 
 pub trait EepromState: Copy + Default {
+    #[must_use]
     fn start(self) -> Self;
 
+    #[must_use]
     fn stop(self) -> Self;
 
+    #[must_use]
     fn is_stopped(self) -> bool;
 
+    #[must_use]
     fn clock(self, data: bool, memory: &mut [u8], dirty: &mut bool) -> Self;
 
+    #[must_use]
     fn read(self, memory: &[u8]) -> Option<bool>;
 }
 
@@ -283,6 +288,7 @@ pub struct EepromChip<State, const N: usize> {
 }
 
 impl<State: EepromState + Debug, const N: usize> EepromChip<State, N> {
+    #[must_use]
     pub fn new(sav_bytes: Option<&Vec<u8>>) -> Self {
         let mut memory = [0; N];
         if let Some(sav_bytes) = sav_bytes {
