@@ -82,7 +82,7 @@ impl Sega32X {
 
         let mut bus = Sh2Bus {
             which: WhichCpu::Master,
-            cartridge: &self.cartridge,
+            cartridge: &mut self.cartridge,
             vdp: &mut self.vdp,
             pwm: &mut self.pwm,
             registers: &mut self.registers,

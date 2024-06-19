@@ -375,6 +375,9 @@ impl PhysicalMedium for Sega32X {
                     log::warn!("CRAM write with FM=1: {address:06X} {value:04X}");
                 }
             }
+            m68k_cartridge!() => {
+                self.cartridge.write_word(address, value);
+            }
             m68k_rom_first_512kb!() => {
                 // TODO RAM
                 log::warn!("M68K cartridge ROM write {address:06X} {value:04X}");
@@ -409,7 +412,7 @@ pub enum WhichCpu {
 // SH-2 memory map
 pub struct Sh2Bus<'a> {
     pub which: WhichCpu,
-    pub cartridge: &'a Cartridge,
+    pub cartridge: &'a mut Cartridge,
     pub vdp: &'a mut Vdp,
     pub pwm: &'a mut PwmChip,
     pub registers: &'a mut SystemRegisters,

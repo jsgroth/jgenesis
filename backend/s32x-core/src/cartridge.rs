@@ -1,4 +1,5 @@
 use bincode::{Decode, Encode};
+use genesis_core::memory::eeprom::X24C02Chip;
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use std::ops::Deref;
@@ -34,29 +35,104 @@ impl Rom {
     }
 }
 
+const EEPROM_SCL_ADDRESS: u32 = 0x200000;
+const EEPROM_SDA_ADDRESS: u32 = 0x200001;
+
 #[derive(Debug, Clone, Encode, Decode)]
-pub struct CartridgeRam {
-    pub ram: Box<[u8]>,
-    pub dirty: bool,
-    pub start_address: u32,
-    pub end_address_exclusive: u32,
+enum PersistentMemory {
+    None,
+    Ram { ram: Box<[u8]>, start_address: u32, end_address_exclusive: u32, dirty: bool },
+    Eeprom { chip: X24C02Chip, dirty: bool },
+}
+
+impl PersistentMemory {
+    fn read_byte(&self, address: u32) -> Option<u8> {
+        match self {
+            Self::None => None,
+            Self::Ram { ram, start_address, end_address_exclusive, .. } => {
+                if (*start_address..*end_address_exclusive).contains(&address) {
+                    return Some(ram[map_ram_address(address, *start_address)]);
+                }
+
+                None
+            }
+            Self::Eeprom { chip, .. } => match address {
+                EEPROM_SDA_ADDRESS => Some(chip.handle_read().into()),
+                _ => None,
+            },
+        }
+    }
+
+    fn write_byte(&mut self, address: u32, value: u8) {
+        match self {
+            Self::None => {}
+            Self::Ram { ram, start_address, end_address_exclusive, dirty } => {
+                if (*start_address..*end_address_exclusive).contains(&address) {
+                    let address = map_ram_address(address, *start_address);
+                    ram[address] = value;
+                    *dirty = true;
+                }
+            }
+            Self::Eeprom { chip, dirty } => match address {
+                EEPROM_SCL_ADDRESS => {
+                    chip.handle_clock_write(value.bit(0));
+                }
+                EEPROM_SDA_ADDRESS => {
+                    chip.handle_data_write(value.bit(0));
+                    *dirty = true;
+                }
+                _ => {}
+            },
+        }
+    }
+
+    fn write_word(&mut self, address: u32, value: u16) {
+        match self {
+            Self::None => {}
+            Self::Ram { ram, start_address, end_address_exclusive, dirty } => {
+                if (*start_address..*end_address_exclusive).contains(&address) {
+                    let address = map_ram_address(address, *start_address);
+                    // TODO assuming RAM is always at the odd addresses
+                    ram[address] = value as u8;
+                    *dirty = true;
+                }
+            }
+            Self::Eeprom { chip, dirty } => {
+                if address == EEPROM_SCL_ADDRESS {
+                    let scl = value.bit(8);
+                    let sda = value.bit(0);
+                    chip.handle_dual_write(sda, scl);
+                    *dirty = true;
+                }
+            }
+        }
+    }
+}
+
+fn map_ram_address(address: u32, start_address: u32) -> usize {
+    ((address - start_address) >> 1) as usize
 }
 
 #[derive(Debug, PartialClone, Encode, Decode)]
 pub struct Cartridge {
     #[partial_clone(default)]
     pub rom: Rom,
-    pub ram: Option<CartridgeRam>,
-    pub ram_mapped: bool,
+    persistent: PersistentMemory,
+    ram_mapped: bool,
 }
 
 impl Cartridge {
     pub fn new(rom: Box<[u8]>, initial_ram: Option<Vec<u8>>) -> Self {
         let has_ram = &rom[0x1B0..0x1B2] == "RA".as_bytes();
+        let has_eeprom = has_ram && rom[0x1B2] == 0xE8;
 
         // TODO check RAM type? assuming 8-bit at odd addresses
 
-        let ram = has_ram.then(|| {
+        let persistent = if has_eeprom {
+            log::info!("Cartridge has EEPROM, assuming 24C02 chip mapped to $200000-$200001");
+
+            PersistentMemory::Eeprom { chip: X24C02Chip::new(initial_ram.as_ref()), dirty: false }
+        } else if has_ram {
             let start_address = u32::from_be_bytes(rom[0x1B4..0x1B8].try_into().unwrap());
             let end_address = u32::from_be_bytes(rom[0x1B8..0x1BC].try_into().unwrap());
             let ram_len = (((end_address >> 1) + 1) - (start_address >> 1)) as usize;
@@ -68,23 +144,23 @@ impl Cartridge {
 
             log::info!("Cartridge RAM address range: ${start_address:06X}-${end_address:06X}");
 
-            CartridgeRam {
+            PersistentMemory::Ram {
                 ram,
-                dirty: false,
                 start_address,
                 end_address_exclusive: (end_address & !1) + 2,
+                dirty: false,
             }
-        });
+        } else {
+            PersistentMemory::None
+        };
 
-        Self { rom: Rom(rom), ram, ram_mapped: false }
+        Self { rom: Rom(rom), persistent, ram_mapped: true }
     }
 
     pub fn read_byte(&self, address: u32) -> u8 {
         if self.ram_mapped {
-            if let Some(ram) = &self.ram {
-                if (ram.start_address..ram.end_address_exclusive).contains(&address) {
-                    return ram.ram[((address - ram.start_address) >> 1) as usize];
-                }
+            if let Some(value) = self.persistent.read_byte(address) {
+                return value;
             }
         }
 
@@ -106,15 +182,15 @@ impl Cartridge {
             return;
         }
 
-        let Some(ram) = &mut self.ram else { return };
+        self.persistent.write_byte(address, value);
+    }
 
-        if !(ram.start_address..ram.end_address_exclusive).contains(&address) {
+    pub fn write_word(&mut self, address: u32, value: u16) {
+        if !self.ram_mapped {
             return;
         }
 
-        let ram_addr = (address - ram.start_address) >> 1;
-        ram.ram[ram_addr as usize] = value;
-        ram.dirty = true;
+        self.persistent.write_word(address, value);
     }
 
     pub fn read_ram_register(&self) -> u8 {
@@ -124,5 +200,29 @@ impl Cartridge {
     pub fn write_ram_register(&mut self, value: u8) {
         self.ram_mapped = value.bit(0);
         log::trace!("Cartridge RAM register write ({value:02X}); RAM mapped = {}", self.ram_mapped);
+    }
+
+    pub fn persistent_memory(&self) -> &[u8] {
+        match &self.persistent {
+            PersistentMemory::None => &[],
+            PersistentMemory::Ram { ram, .. } => ram,
+            PersistentMemory::Eeprom { chip, .. } => chip.get_memory(),
+        }
+    }
+
+    pub fn persistent_memory_dirty(&self) -> bool {
+        match &self.persistent {
+            PersistentMemory::None => false,
+            &PersistentMemory::Ram { dirty, .. } | &PersistentMemory::Eeprom { dirty, .. } => dirty,
+        }
+    }
+
+    pub fn clear_persistent_dirty_bit(&mut self) {
+        match &mut self.persistent {
+            PersistentMemory::None => {}
+            PersistentMemory::Ram { dirty, .. } | PersistentMemory::Eeprom { dirty, .. } => {
+                *dirty = false;
+            }
+        }
     }
 }
