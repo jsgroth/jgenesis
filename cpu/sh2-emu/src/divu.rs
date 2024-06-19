@@ -101,10 +101,12 @@ impl DivisionUnit {
                 let quotient = dividend / divisor;
                 let remainder = dividend % divisor;
 
+                let clamped_quotient = quotient.clamp(i32::MIN.into(), i32::MAX.into());
+                self.overflow_flag |= clamped_quotient != quotient;
+
                 log::trace!("div64 {dividend} / {divisor} = {quotient}, {remainder}");
 
-                // TODO check for overflow
-                self.quotient = quotient as u32;
+                self.quotient = clamped_quotient as u32;
                 self.remainder = remainder as u32;
             }
             _ => todo!("DIVU register write {address:08X} {value:08X}"),
