@@ -169,6 +169,11 @@ impl PhysicalMedium for Sega32X {
             }
             // 32X ID - "MARS"
             0xA130EC..=0xA130EF => [b'M', b'A', b'R', b'S'][(address & 3) as usize],
+            // TODO Sega CD is mapped here if connected?
+            0x400000..=0x7FFFFF => {
+                log::warn!("Read from unexpected address: {address:06X}");
+                0
+            }
             _ => todo!("read byte {address:06X}"),
         }
     }
@@ -289,6 +294,7 @@ impl PhysicalMedium for Sega32X {
                 }
             }
             M68K_RAM_REGISTER => self.cartridge.write_ram_register(value),
+            0xA130F3..=0xA130FF => self.cartridge.write_mapper_bank_register(address, value),
             m68k_system_registers!() => {
                 log::trace!("M68K write byte {address:06X} {value:02X}");
                 self.registers.m68k_write_byte(address, value);
@@ -389,6 +395,7 @@ impl PhysicalMedium for Sega32X {
                     self.registers.m68k_rom_bank
                 );
             }
+            0xA130F0 => self.cartridge.write_ram_register(value as u8),
             // TODO Sega CD is $400000-$7FFFFF if plugged in
             0x000000..=0x00006F | 0x000074..=0x0000FF | 0x400000..=0x7FFFFF => {
                 log::warn!("M68K write to invalid address {address:06X} {value:04X}");

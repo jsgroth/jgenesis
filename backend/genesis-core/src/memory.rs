@@ -49,30 +49,47 @@ impl Index<u32> for Rom {
 }
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]
-struct SegaMapper {
-    bank_numbers: [u8; 7],
+pub struct SegaMapper {
+    bank_numbers: [u8; 8],
 }
 
 impl SegaMapper {
-    fn new() -> Self {
-        Self { bank_numbers: array::from_fn(|i| (i + 1) as u8) }
+    #[must_use]
+    pub fn new() -> Self {
+        Self { bank_numbers: array::from_fn(|i| i as u8) }
     }
 
-    fn write(&mut self, address: u32, value: u8) {
-        let idx = ((address >> 1) & 0x07) - 1;
+    pub fn write(&mut self, address: u32, value: u8) {
+        let idx = (address >> 1) & 0x07;
+        if idx == 0 {
+            // First bank can't be changed, always points to first 512KB of ROM
+            return;
+        }
+
         self.bank_numbers[idx as usize] = value;
     }
 
-    fn map_address(self, address: u32) -> u32 {
-        if address <= 0x07FFFF {
-            // $000000-$07FFFF is not banked
-            return address;
-        }
-
-        let idx = (address - 0x080000) >> 19;
+    #[must_use]
+    pub fn map_address(self, address: u32) -> u32 {
+        let idx = (address >> 19) & 0x07;
         let bank_number: u32 = self.bank_numbers[idx as usize].into();
         (bank_number << 19) | (address & 0x07FFFF)
     }
+
+    #[must_use]
+    pub fn should_use(rom: &[u8]) -> bool {
+        // Only one game uses the bank switching Sega mapper, Super Street Fighter 2
+        // Additionally enable the bank switching mapper for any cartridge that declares its system type as "SEGA SSF"
+        let serial_number = &rom[0x183..0x18B];
+        let is_ssf2 = is_super_street_fighter_2(serial_number);
+        let is_ssf_system = &rom[0x100..0x110] == b"SEGA SSF        ";
+
+        is_ssf2 | is_ssf_system
+    }
+}
+
+fn is_super_street_fighter_2(serial_number: &[u8]) -> bool {
+    serial_number == b"T-12056 " || serial_number == b"MK-12056" || serial_number == b"T-12043 "
 }
 
 #[derive(Debug, Clone)]
@@ -115,17 +132,11 @@ impl Cartridge {
         // Only one game ever unmaps RAM (Phantasy Star 4)
         let ram_mapped = !matches!(external_memory, ExternalMemory::None);
 
-        // Only one game uses the bank switching Sega mapper, Super Street Fighter 2
-        let serial_number = &rom_bytes[0x183..0x18B];
-        let is_ssf2 = is_super_street_fighter_2(serial_number);
-
-        // Additionally enable the bank switching mapper for any cartridge that declares its system type as "SEGA SSF"
-        let is_ssf_system = &rom_bytes[0x100..0x110] == b"SEGA SSF        ";
-
-        let mapper = (is_ssf2 || is_ssf_system).then(SegaMapper::new);
+        let mapper = SegaMapper::should_use(&rom_bytes).then(SegaMapper::new);
         log::info!("Using Sega banked mapper: {}", mapper.is_some());
 
         // Only one game uses the SVP, Virtua Racing
+        let serial_number = &rom_bytes[0x183..0x18B];
         let svp = is_virtua_racing(serial_number).then(Svp::new);
 
         let is_unlicensed_rockman_x3 = CRC.checksum(&rom_bytes) == ROCKMAN_X3_CHECKSUM;
@@ -203,10 +214,6 @@ pub fn parse_title_from_header(rom: &[u8], region: GenesisRegion) -> String {
 
     let re = RE.get_or_init(|| Regex::new(r" +").unwrap());
     re.replace_all(title.trim(), " ").into()
-}
-
-fn is_super_street_fighter_2(serial_number: &[u8]) -> bool {
-    serial_number == b"T-12056 " || serial_number == b"MK-12056" || serial_number == b"T-12043 "
 }
 
 fn is_virtua_racing(serial_number: &[u8]) -> bool {
