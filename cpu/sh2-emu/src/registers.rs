@@ -180,6 +180,11 @@ impl InterruptRegisters {
     }
 
     // $FFFFFE60: IPRB (Interrupt priority B)
+    fn read_iprb(&self) -> u16 {
+        (u16::from(self.sci_priority) << 12) | (u16::from(self.frt_priority) << 8)
+    }
+
+    // $FFFFFE60: IPRB (Interrupt priority B)
     fn write_iprb(&mut self, value: u16) {
         self.sci_priority = (value >> 12) as u8;
         self.frt_priority = ((value >> 8) & 0xF) as u8;
@@ -329,11 +334,12 @@ impl Sh2 {
         log::trace!("[{}] Internal register word read: {address:08X}", self.name);
 
         match address {
+            0xFFFFFE60 => self.sh7604.interrupts.read_iprb(),
+            0xFFFFFEE2 => self.sh7604.interrupts.read_ipra(),
             0xFFFFFF40 => self.sh7604.break_registers.read_break_address_a_high(),
             0xFFFFFF42 => self.sh7604.break_registers.read_break_address_a_low(),
             0xFFFFFF60 => self.sh7604.break_registers.read_break_address_b_high(),
             0xFFFFFF62 => self.sh7604.break_registers.read_break_address_b_low(),
-            0xFFFFFEE2 => self.sh7604.interrupts.read_ipra(),
             _ => todo!("[{}] Internal register word read {address:08X}", self.name),
         }
     }
@@ -347,7 +353,9 @@ impl Sh2 {
             0xFFFFFF40 => self.sh7604.break_registers.break_address_a,
             0xFFFFFF60 => self.sh7604.break_registers.break_address_b,
             0xFFFFFF80..=0xFFFFFF9F | 0xFFFFFFB0 => self.dmac.read_register(address),
-            0xFFFFFFE0..=0xFFFFFFFF => todo!("read bus control register {address:08X}"),
+            // Bus control registers; not emulated
+            0xFFFFFFE0 => 0xA55A0001,
+            0xFFFFFFE1..=0xFFFFFFFF => todo!("read bus control register {address:08X}"),
             _ => todo!("Unexpected internal register longword read: {address:08X}"),
         }
     }
@@ -410,6 +418,7 @@ impl Sh2 {
                 self.watchdog_timer.write_control(value);
                 self.update_internal_interrupt_level();
             }
+            0xFFFFFE92 => self.cache.write_control(value as u8),
             0xFFFFFEE2 => {
                 self.sh7604.interrupts.write_ipra(value);
                 self.update_internal_interrupt_level();
