@@ -7,9 +7,10 @@ use crate::registers::SystemRegisters;
 use crate::vdp::registers::{FrameBufferMode, Registers, SelectedFrameBuffer};
 use bincode::{Decode, Encode};
 use genesis_core::vdp::BorderSize;
-use jgenesis_common::frontend::{Color, FrameSize, TimingMode};
+use jgenesis_common::frontend::{Color, FrameSize, PixelAspectRatio, Renderer, TimingMode};
 use jgenesis_common::num::{GetBit, U16Ext};
-use std::ops::Range;
+use jgenesis_proc_macros::{FakeDecode, FakeEncode};
+use std::ops::{Deref, DerefMut, Range};
 
 const NTSC_SCANLINES_PER_FRAME: u16 = genesis_core::vdp::NTSC_SCANLINES_PER_FRAME;
 const PAL_SCANLINES_PER_FRAME: u16 = genesis_core::vdp::PAL_SCANLINES_PER_FRAME;
@@ -28,10 +29,36 @@ const FRAME_WIDTH: u32 = 320;
 const V28_FRAME_HEIGHT: u32 = 224;
 const V30_FRAME_HEIGHT: u32 = 240;
 
+// The H32 frame buffer should be large enough to store frames as H1280px resolution (4 * 320)
+const H32_FRAME_BUFFER_LEN: usize = genesis_core::vdp::FRAME_BUFFER_LEN * 4;
+
 const RGB_5_TO_8: &[u8; 32] = &[
     0, 8, 16, 25, 33, 41, 49, 58, 66, 74, 82, 90, 99, 107, 115, 123, 132, 140, 148, 156, 165, 173,
     181, 189, 197, 206, 214, 222, 230, 239, 247, 255,
 ];
+
+#[derive(Debug, Clone, FakeEncode, FakeDecode)]
+struct H32FrameBuffer(Box<[Color; H32_FRAME_BUFFER_LEN]>);
+
+impl Default for H32FrameBuffer {
+    fn default() -> Self {
+        Self(vec![Color::default(); H32_FRAME_BUFFER_LEN].into_boxed_slice().try_into().unwrap())
+    }
+}
+
+impl Deref for H32FrameBuffer {
+    type Target = [Color; H32_FRAME_BUFFER_LEN];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for H32FrameBuffer {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 type FrameBufferRam = [u16; FRAME_BUFFER_LEN_WORDS];
 type Cram = [u16; CRAM_LEN_WORDS];
@@ -62,8 +89,16 @@ impl TimingModeExt for TimingMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+enum WhichFrameBuffer {
+    #[default]
+    Genesis,
+    H32,
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 struct State {
+    next_render_buffer: WhichFrameBuffer,
     scanline: u16,
     scanline_mclk: u64,
     h_interrupt_counter: u16,
@@ -75,6 +110,7 @@ struct State {
 impl State {
     fn new() -> Self {
         Self {
+            next_render_buffer: WhichFrameBuffer::Genesis,
             scanline: 0,
             scanline_mclk: 0,
             h_interrupt_counter: 0,
@@ -89,6 +125,9 @@ pub struct Vdp {
     frame_buffer_0: Box<FrameBufferRam>,
     frame_buffer_1: Box<FrameBufferRam>,
     rendered_frame: Box<RenderedFrame>,
+    // 1280x224 or 1280x240 (not including borders)
+    // Needed for when a game enables H32 mode on the Genesis side (NFL Quarterback Club does this)
+    h32_frame_buffer: H32FrameBuffer,
     cram: Box<Cram>,
     registers: Registers,
     state: State,
@@ -129,6 +168,7 @@ impl Vdp {
             frame_buffer_0: new_frame_buffer(),
             frame_buffer_1: new_frame_buffer(),
             rendered_frame: new_rendered_frame(),
+            h32_frame_buffer: H32FrameBuffer::default(),
             cram: vec![0; CRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             registers: Registers::default(),
             state: State::new(),
@@ -490,15 +530,27 @@ impl Vdp {
     }
 
     pub fn composite_frame(
-        &self,
+        &mut self,
         genesis_frame_size: FrameSize,
         border_size: BorderSize,
         genesis_frame_buffer: &mut [Color; genesis_core::vdp::FRAME_BUFFER_LEN],
     ) {
+        // Default to rendering from the Genesis VDP frame buffer, switch later if necessary
+        self.state.next_render_buffer = WhichFrameBuffer::Genesis;
+
         if self.registers.frame_buffer_mode == FrameBufferMode::Blank
             || self.video_out == S32XVideoOut::GenesisOnly
         {
             // Leave Genesis frame as-is
+            return;
+        }
+
+        if genesis_frame_size.width - border_size.left - border_size.right == 256 {
+            // If the Genesis VDP is in H32 mode, render the frame in 1280x224 so that it's possible
+            // to composite the 320x224 32X frame with the 256x224 Genesis frame without needing to
+            // blend or filter any pixels.
+            // NFL Quarterback Club depends on this - it uses H32 mode in menus
+            self.composite_frame_h32(genesis_frame_buffer, genesis_frame_size, border_size);
             return;
         }
 
@@ -521,21 +573,94 @@ impl Vdp {
                     || genesis_frame_buffer[genesis_fb_addr].a == 0
                 {
                     // Replace Genesis pixel with 32X pixel
-                    let r = s32x_pixel & 0x1F;
-                    let g = (s32x_pixel >> 5) & 0x1F;
-                    let b = (s32x_pixel >> 10) & 0x1F;
-
-                    genesis_frame_buffer[genesis_fb_addr] = Color::rgb(
-                        RGB_5_TO_8[r as usize],
-                        RGB_5_TO_8[g as usize],
-                        RGB_5_TO_8[b as usize],
-                    );
+                    genesis_frame_buffer[genesis_fb_addr] = u16_to_rgb(s32x_pixel);
                 }
             }
         }
     }
 
+    fn composite_frame_h32(
+        &mut self,
+        genesis_frame_buffer: &[Color; genesis_core::vdp::FRAME_BUFFER_LEN],
+        genesis_frame_size: FrameSize,
+        border_size: BorderSize,
+    ) {
+        debug_assert!(genesis_frame_size.width == 256 + border_size.left + border_size.right);
+
+        let s32x_only = self.video_out == S32XVideoOut::S32XOnly;
+
+        if !s32x_only {
+            self.copy_genesis_frame_buffer_to_h32(genesis_frame_buffer, genesis_frame_size);
+        }
+
+        let priority = self.registers.priority;
+        let active_lines_per_frame: u32 =
+            self.registers.v_resolution.active_scanlines_per_frame().into();
+
+        for line in 0..active_lines_per_frame {
+            let fb_row_addr = 5
+                * ((line + border_size.top) * genesis_frame_size.width + border_size.left) as usize;
+            for pixel in 0..FRAME_WIDTH {
+                let s32x_pixel = self.rendered_frame[line as usize][pixel as usize];
+                let fb_addr = fb_row_addr + 4 * pixel as usize;
+
+                for i in 0..4 {
+                    if s32x_only
+                        || s32x_pixel.bit(15) != priority
+                        || self.h32_frame_buffer[fb_addr + i].a == 0
+                    {
+                        self.h32_frame_buffer[fb_addr + i] = u16_to_rgb(s32x_pixel);
+                    }
+                }
+            }
+        }
+
+        self.state.next_render_buffer = WhichFrameBuffer::H32;
+    }
+
+    fn copy_genesis_frame_buffer_to_h32(
+        &mut self,
+        frame_buffer: &[Color; genesis_core::vdp::FRAME_BUFFER_LEN],
+        frame_size: FrameSize,
+    ) {
+        // Expand the frame buffer from 256x224 to 1280x224 (plus borders)
+        for line in 0..frame_size.height {
+            for pixel in 0..frame_size.width {
+                let genesis_fb_addr = (line * frame_size.width + pixel) as usize;
+                let h32_fb_addr = 5 * genesis_fb_addr;
+                self.h32_frame_buffer[h32_fb_addr..h32_fb_addr + 5]
+                    .fill(frame_buffer[genesis_fb_addr]);
+            }
+        }
+    }
+
+    pub fn render_frame<R: Renderer>(
+        &self,
+        genesis_frame_buffer: &[Color; genesis_core::vdp::FRAME_BUFFER_LEN],
+        mut frame_size: FrameSize,
+        mut aspect_ratio: Option<PixelAspectRatio>,
+        renderer: &mut R,
+    ) -> Result<(), R::Err> {
+        if self.state.next_render_buffer == WhichFrameBuffer::Genesis {
+            return renderer.render_frame(genesis_frame_buffer, frame_size, aspect_ratio);
+        }
+
+        frame_size.width *= 5;
+        aspect_ratio =
+            aspect_ratio.map(|par| PixelAspectRatio::try_from(0.2 * f64::from(par)).unwrap());
+
+        renderer.render_frame(self.h32_frame_buffer.as_ref(), frame_size, aspect_ratio)
+    }
+
     pub fn update_video_out(&mut self, video_out: S32XVideoOut) {
         self.video_out = video_out;
     }
+}
+
+fn u16_to_rgb(s32x_pixel: u16) -> Color {
+    let r = s32x_pixel & 0x1F;
+    let g = (s32x_pixel >> 5) & 0x1F;
+    let b = (s32x_pixel >> 10) & 0x1F;
+
+    Color::rgb(RGB_5_TO_8[r as usize], RGB_5_TO_8[g as usize], RGB_5_TO_8[b as usize])
 }

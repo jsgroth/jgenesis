@@ -47,7 +47,7 @@ pub enum GenesisAspectRatio {
 }
 
 impl GenesisAspectRatio {
-    fn to_pixel_aspect_ratio(
+    pub fn to_pixel_aspect_ratio(
         self,
         frame_size: FrameSize,
         adjust_for_2x_resolution: bool,
