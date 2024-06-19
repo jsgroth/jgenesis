@@ -102,11 +102,16 @@ impl Sega32X {
         while self.sh2_ticks >= SH2_EXECUTION_SLICE_LEN {
             self.sh2_ticks -= SH2_EXECUTION_SLICE_LEN;
 
-            bus.which = WhichCpu::Master;
-            self.sh2_master.execute(SH2_EXECUTION_SLICE_LEN, &mut bus);
-
+            // Running the slave SH-2 before the master SH-2 fixes some of the Knuckles Chaotix
+            // prototype cartridges, which can freeze at boot otherwise.
+            // The 68000 writes to a communication port after it's done initializing the 32X VDP,
+            // and both SH-2s need to see that write before the master SH-2 writes a different value
+            // to the port (which it does almost immediately)
             bus.which = WhichCpu::Slave;
             self.sh2_slave.execute(SH2_EXECUTION_SLICE_LEN, &mut bus);
+
+            bus.which = WhichCpu::Master;
+            self.sh2_master.execute(SH2_EXECUTION_SLICE_LEN, &mut bus);
         }
 
         bus.which = WhichCpu::Master;
