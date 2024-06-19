@@ -154,7 +154,14 @@ impl Sega32XEmulator {
     }
 
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
-        genesis_core::render_frame(&self.vdp, self.config.genesis.aspect_ratio, true, renderer)
+        let frame_size = self.vdp.frame_size();
+        let aspect_ratio = self.config.genesis.aspect_ratio.to_pixel_aspect_ratio(frame_size, true);
+        self.memory.medium().vdp.render_frame(
+            self.vdp.frame_buffer(),
+            frame_size,
+            aspect_ratio,
+            renderer,
+        )
     }
 }
 
@@ -220,7 +227,7 @@ impl EmulatorTrait for Sega32XEmulator {
 
         let mut tick_effect = TickEffect::None;
         if self.vdp.tick(mclk_cycles, &mut self.memory) == VdpTickEffect::FrameComplete {
-            self.memory.medium().vdp.composite_frame(
+            self.memory.medium_mut().vdp.composite_frame(
                 self.vdp.frame_size(),
                 self.vdp.border_size(),
                 self.vdp.frame_buffer_mut(),
