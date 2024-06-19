@@ -1,13 +1,14 @@
 //! 32X core code
 
-use crate::api;
 use crate::api::Sega32XEmulatorConfig;
 use crate::audio::PwmResampler;
+use crate::bootrom::M68kVectors;
 use crate::bus::{Sh2Bus, WhichCpu};
 use crate::cartridge::Cartridge;
 use crate::pwm::PwmChip;
 use crate::registers::SystemRegisters;
 use crate::vdp::Vdp;
+use crate::{api, bootrom};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::PartialClone;
@@ -16,12 +17,6 @@ use std::mem;
 
 // Only execute SH-2 instructions in batches of at least 10 for slightly better performance
 const SH2_EXECUTION_SLICE_LEN: u64 = 10;
-
-pub type M68kVectors = [u8; 256];
-
-const M68K_VECTORS: &M68kVectors = include_bytes!("m68k_vectors.bin");
-pub(crate) const SH2_MASTER_BOOT_ROM: &[u8; 2048] = include_bytes!("sh2_master_boot_rom.bin");
-pub(crate) const SH2_SLAVE_BOOT_ROM: &[u8; 1024] = include_bytes!("sh2_slave_boot_rom.bin");
 
 const SDRAM_LEN_WORDS: usize = 256 * 1024 / 2;
 
@@ -67,7 +62,7 @@ impl Sega32X {
             vdp: Vdp::new(timing_mode, config.video_out),
             pwm: PwmChip::new(timing_mode),
             registers: SystemRegisters::new(),
-            m68k_vectors: M68K_VECTORS.to_vec().into_boxed_slice().try_into().unwrap(),
+            m68k_vectors: bootrom::M68K_VECTORS.to_vec().into_boxed_slice().try_into().unwrap(),
             sdram: vec![0; SDRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             serial: SerialInterface::default(),
         }

@@ -1,7 +1,8 @@
 //! 32X memory mapping for the 68000 and SH-2s
 
+use crate::bootrom;
 use crate::cartridge::Cartridge;
-use crate::core::{Sdram, Sega32X, SerialInterface, SH2_MASTER_BOOT_ROM, SH2_SLAVE_BOOT_ROM};
+use crate::core::{Sdram, Sega32X, SerialInterface};
 use crate::pwm::PwmChip;
 use crate::registers::{Access, SystemRegisters};
 use crate::vdp::Vdp;
@@ -493,8 +494,8 @@ impl<'a> BusInterface for Sh2Bus<'a> {
             }
             sh2_cartridge!() => self.cartridge.read_byte(address & 0x3FFFFF),
             sh2_boot_rom!() => match self.which {
-                WhichCpu::Master => read_u8(SH2_MASTER_BOOT_ROM, address),
-                WhichCpu::Slave => read_u8(SH2_SLAVE_BOOT_ROM, address),
+                WhichCpu::Master => read_u8(bootrom::SH2_MASTER, address),
+                WhichCpu::Slave => read_u8(bootrom::SH2_SLAVE, address),
             },
             sh2_system_registers!() => {
                 log::trace!("SH-2 {:?} read byte {address:08X}", self.which);
@@ -543,8 +544,8 @@ impl<'a> BusInterface for Sh2Bus<'a> {
             sh2_sdram!() => self.sdram[((address & SDRAM_MASK) >> 1) as usize],
             sh2_cartridge!() => self.cartridge.read_word(address & 0x3FFFFF),
             sh2_boot_rom!() => match self.which {
-                WhichCpu::Master => read_u16(SH2_MASTER_BOOT_ROM, address),
-                WhichCpu::Slave => read_u16(SH2_SLAVE_BOOT_ROM, address),
+                WhichCpu::Master => read_u16(bootrom::SH2_MASTER, address),
+                WhichCpu::Slave => read_u16(bootrom::SH2_SLAVE, address),
             },
             sh2_system_registers!() => {
                 log::trace!("SH-2 {:?} read word {address:08X}", self.which);
@@ -597,8 +598,8 @@ impl<'a> BusInterface for Sh2Bus<'a> {
             }
             sh2_cartridge!() => self.cartridge.read_longword(address & 0x3FFFFF),
             sh2_boot_rom!() => match self.which {
-                WhichCpu::Master => read_u32(SH2_MASTER_BOOT_ROM, address),
-                WhichCpu::Slave => read_u32(SH2_SLAVE_BOOT_ROM, address),
+                WhichCpu::Master => read_u32(bootrom::SH2_MASTER, address),
+                WhichCpu::Slave => read_u32(bootrom::SH2_SLAVE, address),
             },
             sh2_system_registers!() => {
                 if log::log_enabled!(log::Level::Trace) && !(0x4020..0x4030).contains(&address) {
