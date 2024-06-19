@@ -86,6 +86,11 @@ impl WatchdogTimer {
             | (u8::from(self.enabled) << 5)
     }
 
+    // $FFFFFE81: WTCNT (Watchdog timer counter)
+    pub fn read_counter(&self) -> u8 {
+        self.timer_counter
+    }
+
     // $FFFFFE80: WTCSR (Watchdog timer control/status) / WTCNT (Watchdog timer counter)
     // Upper byte determines which register is written to
     pub fn write_control(&mut self, value: u16) {

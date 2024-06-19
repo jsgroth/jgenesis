@@ -1,5 +1,6 @@
 use bincode::{Decode, Encode};
 use genesis_core::memory::eeprom::X24C02Chip;
+use genesis_core::memory::SegaMapper;
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use std::ops::Deref;
@@ -117,12 +118,17 @@ fn map_ram_address(address: u32, start_address: u32) -> usize {
 pub struct Cartridge {
     #[partial_clone(default)]
     pub rom: Rom,
+    mapper: Option<SegaMapper>,
     persistent: PersistentMemory,
     ram_mapped: bool,
 }
 
 impl Cartridge {
     pub fn new(rom: Box<[u8]>, initial_ram: Option<Vec<u8>>) -> Self {
+        let mapper = SegaMapper::should_use(&rom).then(SegaMapper::new);
+
+        log::info!("Using SSF mapper for ROM banking: {}", mapper.is_some());
+
         let has_ram = &rom[0x1B0..0x1B2] == "RA".as_bytes();
         let has_eeprom = has_ram && rom[0x1B2] == 0xE8;
 
@@ -154,7 +160,7 @@ impl Cartridge {
             PersistentMemory::None
         };
 
-        Self { rom: Rom(rom), persistent, ram_mapped: true }
+        Self { rom: Rom(rom), mapper, persistent, ram_mapped: true }
     }
 
     pub fn read_byte(&self, address: u32) -> u8 {
@@ -164,17 +170,20 @@ impl Cartridge {
             }
         }
 
-        self.rom.get(address as usize).copied().unwrap_or(0xFF)
+        let rom_addr = self.mapper.map_or(address, |mapper| mapper.map_address(address));
+        self.rom.get(rom_addr as usize).copied().unwrap_or(0xFF)
     }
 
     pub fn read_word(&self, address: u32) -> u16 {
         // TODO handle cartridge RAM reads?
-        self.rom.get_u16(address)
+        let rom_addr = self.mapper.map_or(address, |mapper| mapper.map_address(address));
+        self.rom.get_u16(rom_addr)
     }
 
     pub fn read_longword(&self, address: u32) -> u32 {
         // TODO handle cartridge RAM reads?
-        self.rom.get_u32(address)
+        let rom_addr = self.mapper.map_or(address, |mapper| mapper.map_address(address));
+        self.rom.get_u32(rom_addr)
     }
 
     pub fn write_byte(&mut self, address: u32, value: u8) {
@@ -200,6 +209,11 @@ impl Cartridge {
     pub fn write_ram_register(&mut self, value: u8) {
         self.ram_mapped = value.bit(0);
         log::trace!("Cartridge RAM register write ({value:02X}); RAM mapped = {}", self.ram_mapped);
+    }
+
+    pub fn write_mapper_bank_register(&mut self, address: u32, value: u8) {
+        let Some(mapper) = &mut self.mapper else { return };
+        mapper.write(address, value);
     }
 
     pub fn persistent_memory(&self) -> &[u8] {

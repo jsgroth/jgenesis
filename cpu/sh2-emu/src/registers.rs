@@ -215,6 +215,11 @@ impl InterruptRegisters {
     }
 
     // $FFFFFEE4: VCRWDT (WDT interrupt vector number)
+    fn read_vcrwdt(&self) -> u16 {
+        (u16::from(self.wdt_vector) << 8) | u16::from(self.bsc_vector)
+    }
+
+    // $FFFFFEE4: VCRWDT (WDT interrupt vector number)
     fn write_vcrwdt(&mut self, value: u16) {
         self.wdt_vector = ((value >> 8) & 0x7F) as u8;
         self.bsc_vector = (value & 0x7F) as u8;
@@ -324,6 +329,7 @@ impl Sh2 {
             0xFFFFFE00..=0xFFFFFE05 => self.serial.read_register(address),
             0xFFFFFE10..=0xFFFFFE19 => self.free_run_timer.read_register(address),
             0xFFFFFE80 => self.watchdog_timer.read_control(),
+            0xFFFFFE81 => self.watchdog_timer.read_counter(),
             0xFFFFFE92 => self.cache.read_control(),
             0xFFFFFE93..=0xFFFFFE9F => 0xFF,
             _ => todo!("[{}] Internal register byte read {address:08X}", self.name),
@@ -336,6 +342,7 @@ impl Sh2 {
         match address {
             0xFFFFFE60 => self.sh7604.interrupts.read_iprb(),
             0xFFFFFEE2 => self.sh7604.interrupts.read_ipra(),
+            0xFFFFFEE4 => self.sh7604.interrupts.read_vcrwdt(),
             0xFFFFFF40 => self.sh7604.break_registers.read_break_address_a_high(),
             0xFFFFFF42 => self.sh7604.break_registers.read_break_address_a_low(),
             0xFFFFFF60 => self.sh7604.break_registers.read_break_address_b_high(),
@@ -373,6 +380,11 @@ impl Sh2 {
             }
             0xFFFFFE00..=0xFFFFFE05 => self.serial.write_register(address, value),
             0xFFFFFE10..=0xFFFFFE19 => self.free_run_timer.write_register(address, value),
+            0xFFFFFE71 | 0xFFFFFE72 => {
+                if value != 0 {
+                    todo!("{address:08X} {value:02X}")
+                }
+            }
             0xFFFFFE92 => self.cache.write_control(value),
             0xFFFFFE93..=0xFFFFFE9F => {}
             0xFFFFFE91 => {
