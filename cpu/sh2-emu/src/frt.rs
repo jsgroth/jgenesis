@@ -1,4 +1,6 @@
-//! SH-2 free-running timer
+//! SH-2 free-running timer (FRT)
+//!
+//! FRT functionality is not emulated; this module exists only so that the registers are R/W
 
 use bincode::{Decode, Encode};
 use jgenesis_common::num::{GetBit, U16Ext};

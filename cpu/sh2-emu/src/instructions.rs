@@ -1,3 +1,5 @@
+//! SH-2 instruction implementations
+
 mod alu;
 mod bits;
 mod branch;
