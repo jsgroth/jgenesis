@@ -43,7 +43,7 @@ const EEPROM_SDA_ADDRESS: u32 = 0x200001;
 enum PersistentMemory {
     None,
     Ram { ram: Box<[u8]>, start_address: u32, end_address_exclusive: u32, dirty: bool },
-    Eeprom { chip: X24C02Chip, dirty: bool },
+    Eeprom { chip: Box<X24C02Chip>, dirty: bool },
 }
 
 impl PersistentMemory {
@@ -137,7 +137,10 @@ impl Cartridge {
         let persistent = if has_eeprom {
             log::info!("Cartridge has EEPROM, assuming 24C02 chip mapped to $200000-$200001");
 
-            PersistentMemory::Eeprom { chip: X24C02Chip::new(initial_ram.as_ref()), dirty: false }
+            PersistentMemory::Eeprom {
+                chip: Box::new(X24C02Chip::new(initial_ram.as_ref())),
+                dirty: false,
+            }
         } else if has_ram {
             let start_address = u32::from_be_bytes(rom[0x1B4..0x1B8].try_into().unwrap());
             let end_address = u32::from_be_bytes(rom[0x1B8..0x1BC].try_into().unwrap());

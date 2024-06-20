@@ -181,14 +181,10 @@ impl CpuCache {
         self.ways[way_idx].valid_bits |= 1 << entry_idx;
         self.update_lru_bits(way_idx, entry_idx);
 
-        let mut bus_addr = address & 0x1FFFFFF0;
+        let longwords = bus.read_cache_line(address & 0x1FFFFFF0);
         let mut ram_addr = cache_ram_addr(way_idx, entry_idx);
-        let mut longwords = [0; 4];
-        for longword in &mut longwords {
-            *longword = bus.read_longword(bus_addr);
+        for longword in longwords {
             self.ram[ram_addr..ram_addr + 4].copy_from_slice(&longword.to_be_bytes());
-
-            bus_addr += 4;
             ram_addr += 4;
         }
 

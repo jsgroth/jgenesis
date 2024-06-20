@@ -129,7 +129,7 @@ impl Sh2 {
         );
 
         let external_interrupt_level = bus.interrupt_level();
-        let internal_interrupt_level = self.sh7604.internal_interrupt_level.priority;
+        let internal_interrupt_level = self.sh7604.internal_interrupt.priority;
 
         if external_interrupt_level > self.registers.sr.interrupt_mask
             && external_interrupt_level >= internal_interrupt_level
@@ -140,7 +140,7 @@ impl Sh2 {
         }
 
         if internal_interrupt_level > self.registers.sr.interrupt_mask {
-            let vector_number: u32 = self.sh7604.internal_interrupt_level.vector_number.into();
+            let vector_number: u32 = self.sh7604.internal_interrupt.vector_number.into();
             self.handle_interrupt(internal_interrupt_level, vector_number, bus);
             return;
         }

@@ -263,7 +263,7 @@ pub struct InternalInterrupt {
 pub struct Sh7604Registers {
     pub break_registers: BreakRegisters,
     pub interrupts: InterruptRegisters,
-    pub internal_interrupt_level: InternalInterrupt,
+    pub internal_interrupt: InternalInterrupt,
 }
 
 impl Sh7604Registers {
@@ -271,7 +271,7 @@ impl Sh7604Registers {
         Self {
             break_registers: BreakRegisters::default(),
             interrupts: InterruptRegisters::default(),
-            internal_interrupt_level: InternalInterrupt::default(),
+            internal_interrupt: InternalInterrupt::default(),
         }
     }
 
@@ -281,38 +281,39 @@ impl Sh7604Registers {
         watchdog_timer: &WatchdogTimer,
         serial: &SerialInterface,
     ) {
-        let dma0_level = if dma_controller.channels[0].control.interrupt_pending() {
-            self.interrupts.dmac_priority
-        } else {
-            0
-        };
+        self.internal_interrupt = InternalInterrupt::default();
 
-        let dma1_level = if dma_controller.channels[1].control.interrupt_pending() {
-            self.interrupts.dmac_priority
-        } else {
-            0
-        };
+        if self.interrupts.dmac_priority != 0 {
+            if dma_controller.channels[0].control.interrupt_pending() {
+                self.internal_interrupt = InternalInterrupt {
+                    priority: self.interrupts.dmac_priority,
+                    vector_number: self.interrupts.dma0_vector,
+                };
+            } else if dma_controller.channels[1].control.interrupt_pending() {
+                self.internal_interrupt = InternalInterrupt {
+                    priority: self.interrupts.dmac_priority,
+                    vector_number: self.interrupts.dma1_vector,
+                };
+            }
+        }
 
-        let rx_level = if serial.rx_interrupt_pending() { self.interrupts.sci_priority } else { 0 };
-
-        let watchdog_level =
-            if watchdog_timer.overflow_flag() { self.interrupts.wdt_priority } else { 0 };
-
-        self.internal_interrupt_level = [
-            InternalInterrupt { priority: dma0_level, vector_number: self.interrupts.dma0_vector },
-            InternalInterrupt { priority: dma1_level, vector_number: self.interrupts.dma1_vector },
-            InternalInterrupt {
-                priority: rx_level,
+        if serial.rx_interrupt_pending()
+            && self.interrupts.sci_priority > self.internal_interrupt.priority
+        {
+            self.internal_interrupt = InternalInterrupt {
+                priority: self.interrupts.sci_priority,
                 vector_number: self.interrupts.sci_rx_ok_vector,
-            },
-            InternalInterrupt {
-                priority: watchdog_level,
+            };
+        }
+
+        if watchdog_timer.overflow_flag()
+            && self.interrupts.wdt_priority > self.internal_interrupt.priority
+        {
+            self.internal_interrupt = InternalInterrupt {
+                priority: self.interrupts.wdt_priority,
                 vector_number: self.interrupts.wdt_vector,
-            },
-        ]
-        .into_iter()
-        .max_by_key(|interrupt| interrupt.priority)
-        .unwrap();
+            };
+        }
     }
 }
 
@@ -398,14 +399,8 @@ impl Sh2 {
                 log::trace!("  FRT clock halted: {}", value.bit(1));
                 log::trace!("  SCI clock halted: {}", value.bit(0));
             }
-            0xFFFFFEE3 => {
-                self.sh7604.interrupts.write_ipra_low(value);
-                self.update_internal_interrupt_level();
-            }
-            0xFFFFFEE4 => {
-                self.sh7604.interrupts.write_vcrwdt_high(value);
-                self.update_internal_interrupt_level();
-            }
+            0xFFFFFEE3 => self.sh7604.interrupts.write_ipra_low(value),
+            0xFFFFFEE4 => self.sh7604.interrupts.write_vcrwdt_high(value),
             _ => todo!(
                 "[{}] Unexpected internal register byte write: {address:08X} {value:02X}",
                 self.name
@@ -426,19 +421,10 @@ impl Sh2 {
             0xFFFFFE60 => self.sh7604.interrupts.write_iprb(value),
             0xFFFFFE62 => self.sh7604.interrupts.write_vcra(value),
             0xFFFFFE64 => self.sh7604.interrupts.write_vcrb(value),
-            0xFFFFFE80 => {
-                self.watchdog_timer.write_control(value);
-                self.update_internal_interrupt_level();
-            }
+            0xFFFFFE80 => self.watchdog_timer.write_control(value),
             0xFFFFFE92 => self.cache.write_control(value as u8),
-            0xFFFFFEE2 => {
-                self.sh7604.interrupts.write_ipra(value);
-                self.update_internal_interrupt_level();
-            }
-            0xFFFFFEE4 => {
-                self.sh7604.interrupts.write_vcrwdt(value);
-                self.update_internal_interrupt_level();
-            }
+            0xFFFFFEE2 => self.sh7604.interrupts.write_ipra(value),
+            0xFFFFFEE4 => self.sh7604.interrupts.write_vcrwdt(value),
             0xFFFFFF40 => self.sh7604.break_registers.write_break_address_a_high(value),
             0xFFFFFF42 => self.sh7604.break_registers.write_break_address_a_low(value),
             0xFFFFFF60 => self.sh7604.break_registers.write_break_address_b_high(value),
@@ -469,24 +455,15 @@ impl Sh2 {
                     self.name
                 );
             }
-            0xFFFFFF80..=0xFFFFFF9F | 0xFFFFFFB0 => {
-                self.dmac.write_register(address, value);
-                self.update_internal_interrupt_level();
-            }
+            0xFFFFFF80..=0xFFFFFF9F | 0xFFFFFFB0 => self.dmac.write_register(address, value),
             0xFFFFFFB8 => {
                 log::warn!(
                     "[{}] Ignoring write to invalid register address: {address:08X} {value:08X}",
                     self.name
                 );
             }
-            0xFFFFFFA0 => {
-                self.sh7604.interrupts.write_vcrdma0(value);
-                self.update_internal_interrupt_level();
-            }
-            0xFFFFFFA8 => {
-                self.sh7604.interrupts.write_vcrdma1(value);
-                self.update_internal_interrupt_level();
-            }
+            0xFFFFFFA0 => self.sh7604.interrupts.write_vcrdma0(value),
+            0xFFFFFFA8 => self.sh7604.interrupts.write_vcrdma1(value),
             0xFFFFFFE0..=0xFFFFFFFF => log_bus_control_write(address, value),
             _ => todo!(
                 "[{}] Unexpected internal register longword write: {address:08X} {value:08X}",

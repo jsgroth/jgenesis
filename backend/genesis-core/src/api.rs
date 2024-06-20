@@ -47,6 +47,8 @@ pub enum GenesisAspectRatio {
 }
 
 impl GenesisAspectRatio {
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
     pub fn to_pixel_aspect_ratio(
         self,
         frame_size: FrameSize,
@@ -60,7 +62,8 @@ impl GenesisAspectRatio {
             (Self::Pal, 256..=284) => Some(11.0 / 8.0),
             (Self::Pal, 320..=347) => Some(11.0 / 10.0),
             (Self::Ntsc | Self::Pal, _) => {
-                panic!("unexpected Genesis frame width: {}", frame_size.width)
+                log::error!("unexpected Genesis frame width: {}", frame_size.width);
+                None
             }
         };
 

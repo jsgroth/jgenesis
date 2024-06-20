@@ -88,6 +88,12 @@ impl SegaMapper {
     }
 }
 
+impl Default for SegaMapper {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 fn is_super_street_fighter_2(serial_number: &[u8]) -> bool {
     serial_number == b"T-12056 " || serial_number == b"MK-12056" || serial_number == b"T-12043 "
 }

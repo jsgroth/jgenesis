@@ -10,6 +10,7 @@ use genesis_core::memory::PhysicalMedium;
 use genesis_core::GenesisRegion;
 use jgenesis_common::num::{GetBit, U16Ext};
 use sh2_emu::bus::BusInterface;
+use std::array;
 
 const H_INT_VECTOR_ADDR: usize = 0x000070;
 
@@ -425,6 +426,7 @@ pub struct Sh2Bus<'a> {
     pub registers: &'a mut SystemRegisters,
     pub sdram: &'a mut Sdram,
     pub serial: &'a mut SerialInterface,
+    pub cycle_counter: u64,
 }
 
 macro_rules! sh2_boot_rom {
@@ -494,25 +496,43 @@ macro_rules! sh2_invalid_addresses {
     };
 }
 
+// All values are minus one because every access takes at least 1 cycle
+const SH2_CARTRIDGE_CYCLES: u64 = 5;
+const SH2_FRAME_BUFFER_READ_CYCLES: u64 = 4;
+const SH2_VDP_CYCLES: u64 = 4;
+const SH2_SDRAM_READ_CYCLES: u64 = 11;
+const SH2_SDRAM_WRITE_CYCLES: u64 = 1;
+
 impl<'a> BusInterface for Sh2Bus<'a> {
     #[inline]
     fn read_byte(&mut self, address: u32) -> u8 {
+        self.cycle_counter += 1;
+
         match address {
             sh2_sdram!() => {
+                self.cycle_counter += SH2_SDRAM_READ_CYCLES;
+
                 let word = self.sdram[((address & SDRAM_MASK) >> 1) as usize];
                 if !address.bit(0) { word.msb() } else { word.lsb() }
             }
-            sh2_cartridge!() => self.cartridge.read_byte(address & 0x3FFFFF),
+            sh2_cartridge!() => {
+                self.cycle_counter += SH2_CARTRIDGE_CYCLES;
+
+                self.cartridge.read_byte(address & 0x3FFFFF)
+            }
             sh2_boot_rom!() => match self.which {
                 WhichCpu::Master => read_u8(bootrom::SH2_MASTER, address),
                 WhichCpu::Slave => read_u8(bootrom::SH2_SLAVE, address),
             },
             sh2_system_registers!() => {
                 log::trace!("SH-2 {:?} read byte {address:08X}", self.which);
-                let value = self.registers.sh2_read(address & !1, self.which, self.vdp);
+                let value =
+                    self.registers.sh2_read(address & !1, self.which, self.vdp, self.cycle_counter);
                 if !address.bit(0) { value.msb() } else { value.lsb() }
             }
             sh2_vdp_registers!() => {
+                self.cycle_counter += SH2_VDP_CYCLES;
+
                 if self.registers.vdp_access == Access::Sh2 {
                     word_to_byte!(address, self.vdp.read_register)
                 } else {
@@ -521,6 +541,8 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 }
             }
             sh2_cram!() => {
+                self.cycle_counter += SH2_VDP_CYCLES;
+
                 if self.registers.vdp_access == Access::Sh2 {
                     let word = self.vdp.read_cram(address & !1);
                     if !address.bit(0) { word.msb() } else { word.lsb() }
@@ -530,6 +552,8 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 }
             }
             sh2_frame_buffer_combined!() => {
+                self.cycle_counter += SH2_FRAME_BUFFER_READ_CYCLES;
+
                 if self.registers.vdp_access == Access::Sh2 {
                     word_to_byte!(address, self.vdp.read_frame_buffer)
                 } else {
@@ -550,22 +574,32 @@ impl<'a> BusInterface for Sh2Bus<'a> {
 
     #[inline]
     fn read_word(&mut self, address: u32) -> u16 {
+        self.cycle_counter += 1;
+
         match address {
-            sh2_sdram!() => self.sdram[((address & SDRAM_MASK) >> 1) as usize],
-            sh2_cartridge!() => self.cartridge.read_word(address & 0x3FFFFF),
+            sh2_sdram!() => {
+                self.cycle_counter += SH2_SDRAM_READ_CYCLES;
+                self.sdram[((address & SDRAM_MASK) >> 1) as usize]
+            }
+            sh2_cartridge!() => {
+                self.cycle_counter += SH2_CARTRIDGE_CYCLES;
+                self.cartridge.read_word(address & 0x3FFFFF)
+            }
             sh2_boot_rom!() => match self.which {
                 WhichCpu::Master => read_u16(bootrom::SH2_MASTER, address),
                 WhichCpu::Slave => read_u16(bootrom::SH2_SLAVE, address),
             },
             sh2_system_registers!() => {
                 log::trace!("SH-2 {:?} read word {address:08X}", self.which);
-                self.registers.sh2_read(address, self.which, self.vdp)
+                self.registers.sh2_read(address, self.which, self.vdp, self.cycle_counter)
             }
             sh2_pwm_registers!() => {
                 log::trace!("SH-2 {:?} PWM register read {address:08X}", self.which);
                 self.pwm.read_register(address)
             }
             sh2_vdp_registers!() => {
+                self.cycle_counter += SH2_VDP_CYCLES;
+
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.read_register(address)
                 } else {
@@ -574,6 +608,8 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 }
             }
             sh2_cram!() => {
+                self.cycle_counter += SH2_VDP_CYCLES;
+
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.read_cram(address)
                 } else {
@@ -582,6 +618,8 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 }
             }
             sh2_frame_buffer_combined!() => {
+                self.cycle_counter += SH2_FRAME_BUFFER_READ_CYCLES;
+
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.read_frame_buffer(address)
                 } else {
@@ -599,14 +637,22 @@ impl<'a> BusInterface for Sh2Bus<'a> {
 
     #[inline]
     fn read_longword(&mut self, address: u32) -> u32 {
+        self.cycle_counter += 2;
+
         match address {
             sh2_sdram!() => {
+                // Subtract one because SDRAM access times are not doubled for longword reads
+                self.cycle_counter += SH2_SDRAM_READ_CYCLES - 1;
+
                 let word_addr = (((address & SDRAM_MASK) >> 1) & !1) as usize;
                 let high_word = self.sdram[word_addr];
                 let low_word = self.sdram[word_addr | 1];
                 (u32::from(high_word) << 16) | u32::from(low_word)
             }
-            sh2_cartridge!() => self.cartridge.read_longword(address & 0x3FFFFF),
+            sh2_cartridge!() => {
+                self.cycle_counter += 2 * SH2_CARTRIDGE_CYCLES;
+                self.cartridge.read_longword(address & 0x3FFFFF)
+            }
             sh2_boot_rom!() => match self.which {
                 WhichCpu::Master => read_u32(bootrom::SH2_MASTER, address),
                 WhichCpu::Slave => read_u32(bootrom::SH2_SLAVE, address),
@@ -615,11 +661,15 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 if log::log_enabled!(log::Level::Trace) && !(0x4020..0x4030).contains(&address) {
                     log::trace!("SH-2 {:?} read longword {address:08X}", self.which);
                 }
-                let high = self.registers.sh2_read(address, self.which, self.vdp);
-                let low = self.registers.sh2_read(address | 2, self.which, self.vdp);
+                let high =
+                    self.registers.sh2_read(address, self.which, self.vdp, self.cycle_counter);
+                let low =
+                    self.registers.sh2_read(address | 2, self.which, self.vdp, self.cycle_counter);
                 (u32::from(high) << 16) | u32::from(low)
             }
             sh2_vdp_registers!() => {
+                self.cycle_counter += 2 * SH2_VDP_CYCLES;
+
                 if self.registers.vdp_access == Access::Sh2 {
                     let high_word = self.vdp.read_register(address);
                     let low_word = self.vdp.read_register(address | 2);
@@ -630,6 +680,8 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 }
             }
             sh2_cram!() => {
+                self.cycle_counter += 2 * SH2_VDP_CYCLES;
+
                 if self.registers.vdp_access == Access::Sh2 {
                     let high_word = self.vdp.read_cram(address);
                     let low_word = self.vdp.read_cram(address | 2);
@@ -640,6 +692,8 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 }
             }
             sh2_frame_buffer_combined!() => {
+                self.cycle_counter += 2 * SH2_FRAME_BUFFER_READ_CYCLES;
+
                 if self.registers.vdp_access == Access::Sh2 {
                     let high_word = self.vdp.read_frame_buffer(address);
                     let low_word = self.vdp.read_frame_buffer(address | 2);
@@ -658,9 +712,30 @@ impl<'a> BusInterface for Sh2Bus<'a> {
     }
 
     #[inline]
+    fn read_cache_line(&mut self, address: u32) -> [u32; 4] {
+        if sh2_sdram!().contains(&address) {
+            // The SH-2s can read a full 16-byte cache line in 12 cycles
+            self.cycle_counter += SH2_SDRAM_READ_CYCLES + 1;
+
+            let base_addr = ((address & SDRAM_MASK) >> 1) as usize;
+            return array::from_fn(|i| {
+                let high_word = self.sdram[base_addr | (i << 1)];
+                let low_word = self.sdram[(base_addr | (i << 1)) + 1];
+                (u32::from(high_word) << 16) | u32::from(low_word)
+            });
+        }
+
+        array::from_fn(|i| self.read_longword(address | ((i as u32) << 2)))
+    }
+
+    #[inline]
     fn write_byte(&mut self, address: u32, value: u8) {
+        self.cycle_counter += 1;
+
         match address {
             sh2_sdram!() => {
+                self.cycle_counter += SH2_SDRAM_WRITE_CYCLES;
+
                 let word_addr = ((address & SDRAM_MASK) >> 1) as usize;
                 if !address.bit(0) {
                     self.sdram[word_addr].set_msb(value);
@@ -670,9 +745,17 @@ impl<'a> BusInterface for Sh2Bus<'a> {
             }
             sh2_system_registers!() => {
                 log::trace!("SH-2 {:?} byte write {address:08X} {value:02X}", self.which);
-                self.registers.sh2_write_byte(address, value, self.which, self.vdp);
+                self.registers.sh2_write_byte(
+                    address,
+                    value,
+                    self.which,
+                    self.vdp,
+                    self.cycle_counter,
+                );
             }
             sh2_vdp_registers!() => {
+                self.cycle_counter += SH2_VDP_CYCLES;
+
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.write_register_byte(address, value);
                 } else {
@@ -680,6 +763,8 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 }
             }
             sh2_cram!() => {
+                self.cycle_counter += SH2_VDP_CYCLES;
+
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.write_cram_byte(address, value);
                 } else {
@@ -730,19 +815,24 @@ impl<'a> BusInterface for Sh2Bus<'a> {
 
     #[inline]
     fn write_word(&mut self, address: u32, value: u16) {
+        self.cycle_counter += 1;
+
         match address {
             sh2_sdram!() => {
+                self.cycle_counter += SH2_SDRAM_WRITE_CYCLES;
                 self.sdram[((address & SDRAM_MASK) >> 1) as usize] = value;
             }
             sh2_system_registers!() => {
                 log::trace!("SH-2 {:?} word write {address:08X} {value:04X}", self.which);
-                self.registers.sh2_write(address, value, self.which, self.vdp);
+                self.registers.sh2_write(address, value, self.which, self.vdp, self.cycle_counter);
             }
             sh2_pwm_registers!() => {
                 log::trace!("SH-2 {:?} PWM register write {address:08X} {value:04X}", self.which);
                 self.pwm.sh2_write_register(address, value);
             }
             sh2_vdp_registers!() => {
+                self.cycle_counter += SH2_VDP_CYCLES;
+
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.write_register(address, value);
                 } else {
@@ -750,6 +840,8 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 }
             }
             sh2_cram!() => {
+                self.cycle_counter += SH2_VDP_CYCLES;
+
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.write_cram(address, value);
                 } else {
@@ -787,18 +879,36 @@ impl<'a> BusInterface for Sh2Bus<'a> {
 
     #[inline]
     fn write_longword(&mut self, address: u32, value: u32) {
+        self.cycle_counter += 2;
+
         match address {
             sh2_sdram!() => {
+                self.cycle_counter += 2 * SH2_SDRAM_WRITE_CYCLES;
+
                 let sdram_addr = (((address & SDRAM_MASK) >> 1) & !1) as usize;
                 self.sdram[sdram_addr] = (value >> 16) as u16;
                 self.sdram[sdram_addr | 1] = value as u16;
             }
             sh2_system_registers!() => {
                 log::trace!("SH-2 {:?} longword write {address:08X} {value:08X}", self.which);
-                self.registers.sh2_write(address, (value >> 16) as u16, self.which, self.vdp);
-                self.registers.sh2_write(address | 2, value as u16, self.which, self.vdp);
+                self.registers.sh2_write(
+                    address,
+                    (value >> 16) as u16,
+                    self.which,
+                    self.vdp,
+                    self.cycle_counter,
+                );
+                self.registers.sh2_write(
+                    address | 2,
+                    value as u16,
+                    self.which,
+                    self.vdp,
+                    self.cycle_counter,
+                );
             }
             sh2_vdp_registers!() => {
+                self.cycle_counter += 2 * SH2_VDP_CYCLES;
+
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.write_register(address, (value >> 16) as u16);
                     self.vdp.write_register(address | 2, value as u16);
@@ -807,6 +917,8 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                 }
             }
             sh2_cram!() => {
+                self.cycle_counter += 2 * SH2_VDP_CYCLES;
+
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.write_cram(address, (value >> 16) as u16);
                     self.vdp.write_cram(address | 2, value as u16);
