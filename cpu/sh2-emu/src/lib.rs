@@ -18,9 +18,7 @@ mod wdt;
 use crate::bus::BusInterface;
 use crate::cache::CpuCache;
 use crate::divu::DivisionUnit;
-use crate::dma::{
-    DmaAddressMode, DmaChannel, DmaController, DmaTransferAddressMode, DmaTransferUnit,
-};
+use crate::dma::DmaController;
 use crate::frt::FreeRunTimer;
 use crate::registers::{Sh2Registers, Sh7604Registers};
 use crate::sci::SerialInterface;
@@ -38,6 +36,9 @@ const BASE_IRL_VECTOR_NUMBER: u32 = 64;
 
 // R15 is the hardware stack pointer
 const SP: usize = 15;
+
+// Only A0-28 are visible externally; A29-31 are handled internally
+const EXTERNAL_ADDRESS_MASK: u32 = 0x1FFFFFFF;
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Sh2 {
@@ -198,7 +199,7 @@ impl Sh2 {
     fn read_byte<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u8 {
         match address >> 29 {
             0 => self.cached_read_byte(address, bus),
-            1 => bus.read_byte(address & 0x1FFFFFFF),
+            1 => bus.read_byte(address & EXTERNAL_ADDRESS_MASK),
             2 => {
                 log::warn!(
                     "[{}] Read byte from associative purge address: {address:08X}",
@@ -221,7 +222,7 @@ impl Sh2 {
             let longword = self.cache.replace(address, bus);
             longword.to_be_bytes()[(address & 3) as usize]
         } else {
-            bus.read_byte(address & 0x1FFFFFFF)
+            bus.read_byte(address & EXTERNAL_ADDRESS_MASK)
         }
     }
 
@@ -241,7 +242,7 @@ impl Sh2 {
     ) -> u16 {
         match address >> 29 {
             0 => self.cached_read_word::<_, INSTRUCTION>(address, bus),
-            1 => bus.read_word(address & 0x1FFFFFFF),
+            1 => bus.read_word(address & EXTERNAL_ADDRESS_MASK),
             2 => {
                 log::warn!(
                     "[{}] Read word from associative purge address: {address:08X}",
@@ -270,14 +271,14 @@ impl Sh2 {
             let longword = self.cache.replace(address, bus);
             (longword >> (16 * (((address >> 1) & 1) ^ 1))) as u16
         } else {
-            bus.read_word(address & 0x1FFFFFFF)
+            bus.read_word(address & EXTERNAL_ADDRESS_MASK)
         }
     }
 
     fn read_longword<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u32 {
         match address >> 29 {
             0 => self.cached_read_longword(address, bus),
-            1 => bus.read_longword(address & 0x1FFFFFFF),
+            1 => bus.read_longword(address & EXTERNAL_ADDRESS_MASK),
             2 => {
                 log::warn!(
                     "[{}] Read longword from associative purge address: {address:08X}",
@@ -300,17 +301,17 @@ impl Sh2 {
         if self.cache.should_replace_data() {
             self.cache.replace(address, bus)
         } else {
-            bus.read_longword(address & 0x1FFFFFFF)
+            bus.read_longword(address & EXTERNAL_ADDRESS_MASK)
         }
     }
 
     fn write_byte<B: BusInterface>(&mut self, address: u32, value: u8, bus: &mut B) {
         match address >> 29 {
             0 => {
-                bus.write_byte(address & 0x1FFFFFFF, value);
+                bus.write_byte(address & EXTERNAL_ADDRESS_MASK, value);
                 self.cache.write_through_u8(address, value);
             }
-            1 => bus.write_byte(address & 0x1FFFFFFF, value),
+            1 => bus.write_byte(address & EXTERNAL_ADDRESS_MASK, value),
             2 => self.cache.associative_purge(address),
             6 => self.cache.write_data_array_u8(address, value),
             7 => self.write_internal_register_byte(address, value),
@@ -321,10 +322,10 @@ impl Sh2 {
     fn write_word<B: BusInterface>(&mut self, address: u32, value: u16, bus: &mut B) {
         match address >> 29 {
             0 => {
-                bus.write_word(address & 0x1FFFFFFF, value);
+                bus.write_word(address & EXTERNAL_ADDRESS_MASK, value);
                 self.cache.write_through_u16(address, value);
             }
-            1 => bus.write_word(address & 0x1FFFFFFF, value),
+            1 => bus.write_word(address & EXTERNAL_ADDRESS_MASK, value),
             2 => self.cache.associative_purge(address),
             6 => self.cache.write_data_array_u16(address, value),
             7 => self.write_internal_register_word(address, value),
@@ -336,10 +337,10 @@ impl Sh2 {
     fn write_longword<B: BusInterface>(&mut self, address: u32, value: u32, bus: &mut B) {
         match address >> 29 {
             0 => {
-                bus.write_longword(address & 0x1FFFFFFF, value);
+                bus.write_longword(address & EXTERNAL_ADDRESS_MASK, value);
                 self.cache.write_through_u32(address, value);
             }
-            1 => bus.write_longword(address & 0x1FFFFFFF, value),
+            1 => bus.write_longword(address & EXTERNAL_ADDRESS_MASK, value),
             2 => self.cache.associative_purge(address),
             3 => self.cache.write_address_array(address, value),
             6 => self.cache.write_data_array_u32(address, value),
@@ -375,127 +376,7 @@ impl Sh2 {
         );
     }
 
-    fn try_tick_dma<B: BusInterface>(&mut self, bus: &mut B) -> bool {
-        let Some(channel) = self.dmac.channel_ready(bus) else { return false };
-
-        log::debug!(
-            "[{}] Progressing DMA{channel}: src={:08X}, dest={:08X}, unit={:?}, size={:06X}",
-            self.name,
-            self.dmac.channels[channel].source_address,
-            self.dmac.channels[channel].destination_address,
-            self.dmac.channels[channel].control.transfer_size,
-            self.dmac.channels[channel].transfer_count
-        );
-
-        // TODO handle single address mode?
-        assert_eq!(
-            self.dmac.channels[channel].control.transfer_address_mode,
-            DmaTransferAddressMode::Dual
-        );
-
-        match self.dmac.channels[channel].control.transfer_size {
-            DmaTransferUnit::Byte => {
-                let source_addr = self.dmac.channels[channel].source_address;
-                let byte = self.read_byte(source_addr, bus);
-
-                apply_dma_source_address_mode(&mut self.dmac.channels[channel], 1);
-
-                let dest_addr = self.dmac.channels[channel].destination_address;
-                self.write_byte(dest_addr, byte, bus);
-
-                apply_dma_destination_address_mode(&mut self.dmac.channels[channel], 1);
-
-                self.dmac.channels[channel].transfer_count =
-                    self.dmac.channels[channel].transfer_count.wrapping_sub(1);
-            }
-            DmaTransferUnit::Word => {
-                let source_addr = self.dmac.channels[channel].source_address;
-                let word = self.read_word(source_addr, bus);
-
-                apply_dma_source_address_mode(&mut self.dmac.channels[channel], 2);
-
-                let dest_addr = self.dmac.channels[channel].destination_address;
-                self.write_word(dest_addr, word, bus);
-
-                apply_dma_destination_address_mode(&mut self.dmac.channels[channel], 2);
-
-                self.dmac.channels[channel].transfer_count =
-                    self.dmac.channels[channel].transfer_count.wrapping_sub(1);
-            }
-            DmaTransferUnit::Longword => {
-                let source_addr = self.dmac.channels[channel].source_address;
-                let longword = self.read_longword(source_addr, bus);
-
-                apply_dma_source_address_mode(&mut self.dmac.channels[channel], 4);
-
-                let dest_addr = self.dmac.channels[channel].destination_address;
-                self.write_longword(dest_addr, longword, bus);
-
-                apply_dma_destination_address_mode(&mut self.dmac.channels[channel], 4);
-
-                self.dmac.channels[channel].transfer_count =
-                    self.dmac.channels[channel].transfer_count.wrapping_sub(1);
-            }
-            DmaTransferUnit::SixteenByte => {
-                for _ in 0..4 {
-                    let source_addr = self.dmac.channels[channel].source_address;
-                    let longword = self.read_longword(source_addr, bus);
-
-                    // Source address mode is ignored for 16-byte transfers
-                    self.dmac.channels[channel].source_address =
-                        self.dmac.channels[channel].source_address.wrapping_add(4);
-
-                    let dest_addr = self.dmac.channels[channel].destination_address;
-                    self.write_longword(dest_addr, longword, bus);
-
-                    apply_dma_destination_address_mode(&mut self.dmac.channels[channel], 4);
-
-                    self.dmac.channels[channel].transfer_count =
-                        self.dmac.channels[channel].transfer_count.wrapping_sub(1);
-                    if self.dmac.channels[channel].transfer_count == 0 {
-                        break;
-                    }
-                }
-            }
-        }
-
-        let transfer_complete = self.dmac.channels[channel].transfer_count == 0;
-        self.dmac.channels[channel].control.dma_complete = transfer_complete;
-
-        self.update_internal_interrupt_level();
-
-        if log::log_enabled!(log::Level::Debug) && transfer_complete {
-            log::debug!("[{}] DMA{channel} complete", self.name);
-        }
-
-        true
-    }
-
     fn update_internal_interrupt_level(&mut self) {
         self.sh7604.update_interrupt_level(&self.dmac, &self.watchdog_timer, &self.serial);
-    }
-}
-
-fn apply_dma_source_address_mode(channel: &mut DmaChannel, size: u32) {
-    match channel.control.source_address_mode {
-        DmaAddressMode::AutoIncrement => {
-            channel.source_address = channel.source_address.wrapping_add(size);
-        }
-        DmaAddressMode::AutoDecrement => {
-            channel.source_address = channel.source_address.wrapping_sub(size);
-        }
-        DmaAddressMode::Fixed | DmaAddressMode::Invalid => {}
-    }
-}
-
-fn apply_dma_destination_address_mode(channel: &mut DmaChannel, size: u32) {
-    match channel.control.destination_address_mode {
-        DmaAddressMode::AutoIncrement => {
-            channel.destination_address = channel.destination_address.wrapping_add(size);
-        }
-        DmaAddressMode::AutoDecrement => {
-            channel.destination_address = channel.destination_address.wrapping_sub(size);
-        }
-        DmaAddressMode::Fixed | DmaAddressMode::Invalid => {}
     }
 }

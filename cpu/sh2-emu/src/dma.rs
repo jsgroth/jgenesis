@@ -3,9 +3,12 @@
 //! Has 2 DMA channels that can transfer data between memory regions in parallel to CPU execution
 
 use crate::bus::BusInterface;
+use crate::Sh2;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use std::array;
+
+const EXTERNAL_ADDRESS_MASK: u32 = super::EXTERNAL_ADDRESS_MASK;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum DmaAddressMode {
@@ -317,5 +320,129 @@ impl DmaController {
         }
 
         None
+    }
+}
+
+impl Sh2 {
+    // TODO better timing? DMA memory accesses should only impact CPU speed if the CPU accesses memory simultaneously
+    pub(super) fn try_tick_dma<B: BusInterface>(&mut self, bus: &mut B) -> bool {
+        let Some(channel) = self.dmac.channel_ready(bus) else { return false };
+
+        log::debug!(
+            "[{}] Progressing DMA{channel}: src={:08X}, dest={:08X}, unit={:?}, size={:06X}",
+            self.name,
+            self.dmac.channels[channel].source_address,
+            self.dmac.channels[channel].destination_address,
+            self.dmac.channels[channel].control.transfer_size,
+            self.dmac.channels[channel].transfer_count
+        );
+
+        // TODO handle single address mode? seems to never be used
+        assert_eq!(
+            self.dmac.channels[channel].control.transfer_address_mode,
+            DmaTransferAddressMode::Dual
+        );
+
+        match self.dmac.channels[channel].control.transfer_size {
+            DmaTransferUnit::Byte => {
+                let source_addr = self.dmac.channels[channel].source_address;
+                let byte = bus.read_byte(source_addr & EXTERNAL_ADDRESS_MASK);
+
+                apply_dma_source_address_mode(&mut self.dmac.channels[channel], 1);
+
+                let dest_addr = self.dmac.channels[channel].destination_address;
+                bus.write_byte(dest_addr & EXTERNAL_ADDRESS_MASK, byte);
+
+                apply_dma_destination_address_mode(&mut self.dmac.channels[channel], 1);
+
+                self.dmac.channels[channel].transfer_count =
+                    self.dmac.channels[channel].transfer_count.wrapping_sub(1);
+            }
+            DmaTransferUnit::Word => {
+                let source_addr = self.dmac.channels[channel].source_address;
+                let word = bus.read_word(source_addr & EXTERNAL_ADDRESS_MASK);
+
+                apply_dma_source_address_mode(&mut self.dmac.channels[channel], 2);
+
+                let dest_addr = self.dmac.channels[channel].destination_address;
+                bus.write_word(dest_addr & EXTERNAL_ADDRESS_MASK, word);
+
+                apply_dma_destination_address_mode(&mut self.dmac.channels[channel], 2);
+
+                self.dmac.channels[channel].transfer_count =
+                    self.dmac.channels[channel].transfer_count.wrapping_sub(1);
+            }
+            DmaTransferUnit::Longword => {
+                let source_addr = self.dmac.channels[channel].source_address;
+                let longword = bus.read_longword(source_addr & EXTERNAL_ADDRESS_MASK);
+
+                apply_dma_source_address_mode(&mut self.dmac.channels[channel], 4);
+
+                let dest_addr = self.dmac.channels[channel].destination_address;
+                bus.write_longword(dest_addr & EXTERNAL_ADDRESS_MASK, longword);
+
+                apply_dma_destination_address_mode(&mut self.dmac.channels[channel], 4);
+
+                self.dmac.channels[channel].transfer_count =
+                    self.dmac.channels[channel].transfer_count.wrapping_sub(1);
+            }
+            DmaTransferUnit::SixteenByte => {
+                // TODO timing will be wrong when DMAing from 32X SDRAM
+                for _ in 0..4 {
+                    let source_addr = self.dmac.channels[channel].source_address;
+                    let longword = bus.read_longword(source_addr & EXTERNAL_ADDRESS_MASK);
+
+                    // Source address mode is ignored for 16-byte transfers
+                    self.dmac.channels[channel].source_address =
+                        self.dmac.channels[channel].source_address.wrapping_add(4);
+
+                    let dest_addr = self.dmac.channels[channel].destination_address;
+                    bus.write_longword(dest_addr & EXTERNAL_ADDRESS_MASK, longword);
+
+                    apply_dma_destination_address_mode(&mut self.dmac.channels[channel], 4);
+
+                    self.dmac.channels[channel].transfer_count =
+                        self.dmac.channels[channel].transfer_count.wrapping_sub(1);
+                    if self.dmac.channels[channel].transfer_count == 0 {
+                        break;
+                    }
+                }
+            }
+        }
+
+        let transfer_complete = self.dmac.channels[channel].transfer_count == 0;
+        self.dmac.channels[channel].control.dma_complete = transfer_complete;
+
+        self.update_internal_interrupt_level();
+
+        if log::log_enabled!(log::Level::Debug) && transfer_complete {
+            log::debug!("[{}] DMA{channel} complete", self.name);
+        }
+
+        true
+    }
+}
+
+fn apply_dma_source_address_mode(channel: &mut DmaChannel, size: u32) {
+    match channel.control.source_address_mode {
+        DmaAddressMode::AutoIncrement => {
+            channel.source_address = channel.source_address.wrapping_add(size);
+        }
+        DmaAddressMode::AutoDecrement => {
+            channel.source_address = channel.source_address.wrapping_sub(size);
+        }
+        DmaAddressMode::Fixed | DmaAddressMode::Invalid => {}
+    }
+}
+
+fn apply_dma_destination_address_mode(channel: &mut DmaChannel, size: u32) {
+    match channel.control.destination_address_mode {
+        DmaAddressMode::AutoIncrement => {
+            channel.destination_address = channel.destination_address.wrapping_add(size);
+        }
+        DmaAddressMode::AutoDecrement => {
+            channel.destination_address = channel.destination_address.wrapping_sub(size);
+        }
+        DmaAddressMode::Fixed | DmaAddressMode::Invalid => {}
     }
 }
