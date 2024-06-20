@@ -224,6 +224,9 @@ impl SystemRegisters {
     pub fn reset(&mut self) {
         self.master_interrupts.reset_pending = true;
         self.slave_interrupts.reset_pending = true;
+
+        self.master_interrupts.update_interrupt_level();
+        self.slave_interrupts.update_interrupt_level();
     }
 
     pub fn m68k_read(&mut self, address: u32) -> u16 {
