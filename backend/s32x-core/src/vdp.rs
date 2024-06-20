@@ -357,34 +357,8 @@ impl Vdp {
     }
 
     pub fn write_frame_buffer_byte(&mut self, address: u32, value: u8) {
-        if value == 0 {
-            // 0 bytes are never written to the frame buffer
-            return;
-        }
-
-        let mut word = self.read_frame_buffer(address & !1);
-        if !address.bit(0) {
-            word.set_msb(value);
-        } else {
-            word.set_lsb(value);
-        }
-        self.write_frame_buffer(address & !1, word);
-    }
-
-    pub fn write_frame_buffer(&mut self, address: u32, value: u16) {
         log::trace!(
-            "Frame buffer write {:05X} {value:04X} (word addr {:04X})",
-            address & 0x1FFFF,
-            (address >> 1) & 0xFFFF
-        );
-
-        let frame_buffer = back_frame_buffer_mut!(self);
-        frame_buffer[((address & 0x1FFFF) >> 1) as usize] = value;
-    }
-
-    pub fn frame_buffer_overwrite_byte(&mut self, address: u32, value: u8) {
-        log::trace!(
-            "Overwrite image write {:05X} {value:02X} (word addr {:04X})",
+            "Frame buffer byte write {:05X} {value:02X} (word addr {:04X})",
             address & 0x1FFFF,
             (address >> 1) & 0xFFFF
         );
@@ -401,6 +375,17 @@ impl Vdp {
         } else {
             frame_buffer[frame_buffer_addr].set_lsb(value);
         }
+    }
+
+    pub fn write_frame_buffer_word(&mut self, address: u32, value: u16) {
+        log::trace!(
+            "Frame buffer write {:05X} {value:04X} (word addr {:04X})",
+            address & 0x1FFFF,
+            (address >> 1) & 0xFFFF
+        );
+
+        let frame_buffer = back_frame_buffer_mut!(self);
+        frame_buffer[((address & 0x1FFFF) >> 1) as usize] = value;
     }
 
     pub fn frame_buffer_overwrite_word(&mut self, address: u32, value: u16) {

@@ -90,6 +90,13 @@ impl Sega32XEmulator {
         save_writer: &mut S,
     ) -> Self {
         let region = config.genesis.forced_region.unwrap_or_else(|| {
+            // Shadow Squadron / Stellar Assault (UE) reports its region as E in the header,
+            // but it's NTSC-compatible; prefer Americas if region is not forced so it will run at
+            // 60Hz instead of 50Hz
+            if &rom[0x180..0x18E] == "GM MK-84509-00".as_bytes() {
+                return GenesisRegion::Americas;
+            }
+
             GenesisRegion::from_rom(&rom).unwrap_or_else(|| {
                 log::error!("Unable to determine ROM region; defaulting to Americas");
                 GenesisRegion::Americas
@@ -110,7 +117,7 @@ impl Sega32XEmulator {
         let psg = Psg::new(PsgVersion::Standard);
 
         let initial_cartridge_ram = save_writer.load_bytes("sav").ok();
-        let s32x = Sega32X::new(rom, initial_cartridge_ram, timing_mode, config);
+        let s32x = Sega32X::new(rom, initial_cartridge_ram, region, timing_mode, config);
         let memory = Memory::new(s32x);
 
         let input =
