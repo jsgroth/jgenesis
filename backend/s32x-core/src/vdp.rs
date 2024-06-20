@@ -306,7 +306,10 @@ impl Vdp {
             0x4 => self.registers.read_auto_fill_length(),
             0x6 => self.registers.read_auto_fill_start_address(),
             0xA => self.read_frame_buffer_control(),
-            _ => todo!("VDP register read {address:08X}"),
+            _ => {
+                log::warn!("Invalid VDP register read {address:08X}");
+                0
+            }
         }
     }
 

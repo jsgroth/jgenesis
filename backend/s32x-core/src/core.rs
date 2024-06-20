@@ -138,4 +138,8 @@ impl Sega32X {
     pub fn reload_config(&mut self, config: Sega32XEmulatorConfig) {
         self.vdp.update_video_out(config.video_out);
     }
+
+    pub fn reset(&mut self) {
+        self.registers.reset();
+    }
 }

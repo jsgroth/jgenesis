@@ -256,7 +256,10 @@ impl PwmChip {
             0x4 => self.read_l_fifo_status(),
             0x6 => self.read_r_fifo_status(),
             0x8 => self.read_mono_fifo_status(),
-            _ => todo!("PWM register read {address:08X}"),
+            _ => {
+                log::warn!("Invalid PWM register read {address:08X}");
+                0
+            }
         }
     }
 

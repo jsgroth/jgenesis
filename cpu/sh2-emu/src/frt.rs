@@ -87,7 +87,10 @@ impl FreeRunTimer {
 
         match address & 0xF {
             0x7 => self.read_tocr(),
-            _ => todo!("FRT register read {address:08X}"),
+            _ => {
+                log::warn!("FRT register read {address:08X}");
+                0
+            }
         }
     }
 
@@ -103,7 +106,7 @@ impl FreeRunTimer {
             0x5 => self.write_ocr(value),
             0x6 => self.write_tcr(value),
             0x7 => self.write_tocr(value),
-            _ => todo!("FRT register write {address:08X} {value:02X}"),
+            _ => log::warn!("FRT register write {address:08X} {value:02X}"),
         }
     }
 

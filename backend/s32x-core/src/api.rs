@@ -280,7 +280,13 @@ impl EmulatorTrait for Sega32XEmulator {
     }
 
     fn soft_reset(&mut self) {
-        todo!("soft reset")
+        log::info!("Soft resetting console");
+
+        self.m68k.execute_instruction(&mut new_main_bus!(self, m68k_reset: true));
+        self.memory.reset_z80_signals();
+        self.ym2612.reset(self.config.genesis);
+
+        self.memory.medium_mut().reset();
     }
 
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {

@@ -221,6 +221,11 @@ impl SystemRegisters {
         self.slave_interrupts.update_interrupt_level();
     }
 
+    pub fn reset(&mut self) {
+        self.master_interrupts.reset_pending = true;
+        self.slave_interrupts.reset_pending = true;
+    }
+
     pub fn m68k_read(&mut self, address: u32) -> u16 {
         match address {
             0xA15100 => self.read_adapter_control(),
@@ -234,7 +239,10 @@ impl SystemRegisters {
             0xA15110 => self.dma.length,
             0xA1511A => self.sega_tv_bit.into(),
             0xA15120..=0xA1512F => self.m68k_read_communication_port(address),
-            _ => todo!("M68K register read: {address:06X}"),
+            _ => {
+                log::warn!("M68K invalid register read: {address:06X}");
+                0
+            }
         }
     }
 
@@ -267,7 +275,7 @@ impl SystemRegisters {
             0xA15130..=0xA15138 => {
                 log::warn!("Ignoring PWM register write: {address:06X} {value:04X}");
             }
-            _ => todo!("M68K register write: {address:06X} {value:04X}"),
+            _ => log::warn!("M68K invalid register write: {address:06X} {value:04X}"),
         }
     }
 
@@ -291,7 +299,10 @@ impl SystemRegisters {
             // TODO these registers shouldn't be readable? (interrupt clear)
             0x4014 | 0x4016 | 0x4018 | 0x401A | 0x401C => 0,
             0x4020..=0x402F => self.sh2_read_communication_port(address, cycle_counter),
-            _ => todo!("SH-2 register read: {address:08X} {which:?}"),
+            _ => {
+                log::warn!("SH-2 invalid register read: {address:08X} {which:?}");
+                0
+            }
         }
     }
 
@@ -329,7 +340,7 @@ impl SystemRegisters {
             0x401A => self.clear_command_interrupt(which),
             0x401C => self.clear_pwm_interrupt(which),
             0x4020..=0x402F => self.sh2_write_communication_port(address, value, cycle_counter),
-            _ => todo!("SH-2 register write: {address:08X} {value:04X} {which:?}"),
+            _ => log::warn!("SH-2 invalid register write: {address:08X} {value:04X} {which:?}"),
         }
     }
 
