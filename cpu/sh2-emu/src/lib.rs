@@ -201,10 +201,7 @@ impl Sh2 {
             0 => self.cached_read_byte(address, bus),
             1 => bus.read_byte(address & EXTERNAL_ADDRESS_MASK),
             2 => {
-                log::warn!(
-                    "[{}] Read byte from associative purge address: {address:08X}",
-                    self.name
-                );
+                self.cache.associative_purge(address);
                 0
             }
             6 => self.cache.read_data_array_u8(address),
@@ -244,10 +241,7 @@ impl Sh2 {
             0 => self.cached_read_word::<_, INSTRUCTION>(address, bus),
             1 => bus.read_word(address & EXTERNAL_ADDRESS_MASK),
             2 => {
-                log::warn!(
-                    "[{}] Read word from associative purge address: {address:08X}",
-                    self.name
-                );
+                self.cache.associative_purge(address);
                 0
             }
             6 => self.cache.read_data_array_u16(address),
@@ -280,10 +274,9 @@ impl Sh2 {
             0 => self.cached_read_longword(address, bus),
             1 => bus.read_longword(address & EXTERNAL_ADDRESS_MASK),
             2 => {
-                log::warn!(
-                    "[{}] Read longword from associative purge address: {address:08X}",
-                    self.name
-                );
+                // FIFA Soccer 96 reads from associative purge addresses and doesn't use the values read
+                // Seems like it expects reads to purge cache lines in addition to writes?
+                self.cache.associative_purge(address);
                 0
             }
             3 => self.cache.read_address_array(address),

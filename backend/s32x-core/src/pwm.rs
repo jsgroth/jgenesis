@@ -151,7 +151,8 @@ macro_rules! impl_write_register {
                 0x6 => self.write_r_fifo(value),
                 0x8 => self.write_mono_fifo(value),
                 _ => {
-                    log::warn!("Invalid PWM register write: {address:08X} {value:04X}");
+                    // BC Racers frequently writes to $403A for some reason
+                    log::debug!("Invalid PWM register write: {address:08X} {value:04X}");
                 }
             }
         }
@@ -223,14 +224,14 @@ impl PwmChip {
                 self.l_output = self.l_fifo.pop().unwrap_or(self.l_output);
                 self.r_output = self.r_fifo.pop().unwrap_or(self.r_output);
 
-                let sample_l = match (self.control.l_out, self.control.r_out) {
-                    (OutputDirection::Same, _) => pulse_width_to_f64(self.l_output),
-                    (_, OutputDirection::Opposite) => pulse_width_to_f64(self.r_output),
+                let sample_l = match self.control.l_out {
+                    OutputDirection::Same => pulse_width_to_f64(self.l_output),
+                    OutputDirection::Opposite => pulse_width_to_f64(self.r_output),
                     _ => 0.0,
                 };
-                let sample_r = match (self.control.r_out, self.control.l_out) {
-                    (OutputDirection::Same, _) => pulse_width_to_f64(self.r_output),
-                    (_, OutputDirection::Opposite) => pulse_width_to_f64(self.l_output),
+                let sample_r = match self.control.r_out {
+                    OutputDirection::Same => pulse_width_to_f64(self.r_output),
+                    OutputDirection::Opposite => pulse_width_to_f64(self.l_output),
                     _ => 0.0,
                 };
                 pwm_resampler.collect_sample(sample_l, sample_r);

@@ -379,6 +379,7 @@ impl Sh7604Registers {
 }
 
 impl Sh2 {
+    #[allow(clippy::match_same_arms)]
     pub(super) fn read_internal_register_byte(&self, address: u32) -> u8 {
         log::trace!("[{}] Internal register byte read: {address:08X}", self.name);
 
@@ -398,6 +399,8 @@ impl Sh2 {
             0xFFFFFE80 => self.watchdog_timer.read_control(),
             0xFFFFFE81 => self.watchdog_timer.read_counter(),
             0xFFFFFE92 => self.cache.read_control(),
+            // Unmapped addresses; some games access them for unknown reasons
+            0xFFFFFE93..=0xFFFFFE9F => 0,
             0xFFFFFEE2 => self.sh7604.interrupts.read_ipra().msb(),
             0xFFFFFEE3 => self.sh7604.interrupts.read_ipra().lsb(),
             0xFFFFFEE4 => self.sh7604.interrupts.read_vcrwdt().msb(),
@@ -481,6 +484,8 @@ impl Sh2 {
             }
             0xFFFFFE91 => log_standby_control_write(value, &self.name),
             0xFFFFFE92 => self.cache.write_control(value),
+            // Unmapped addresses; some games access them for unknown reasons
+            0xFFFFFE93..=0xFFFFFE9F => {}
             0xFFFFFEE2 => self.sh7604.interrupts.write_ipra_high(value),
             0xFFFFFEE3 => self.sh7604.interrupts.write_ipra_low(value),
             0xFFFFFEE4 => self.sh7604.interrupts.write_vcrwdt_high(value),
