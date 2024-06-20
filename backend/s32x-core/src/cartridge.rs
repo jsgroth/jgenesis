@@ -163,7 +163,10 @@ impl Cartridge {
             PersistentMemory::None
         };
 
-        Self { rom: Rom(rom), mapper, persistent, ram_mapped: true }
+        // Map RAM by default unless there is none
+        let ram_mapped = !matches!(persistent, PersistentMemory::None);
+
+        Self { rom: Rom(rom), mapper, persistent, ram_mapped }
     }
 
     pub fn read_byte(&self, address: u32) -> u8 {

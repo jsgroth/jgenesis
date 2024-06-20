@@ -10,6 +10,7 @@ use crate::registers::SystemRegisters;
 use crate::vdp::Vdp;
 use crate::{api, bootrom};
 use bincode::{Decode, Encode};
+use genesis_core::GenesisRegion;
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::PartialClone;
 use sh2_emu::Sh2;
@@ -43,12 +44,14 @@ pub struct Sega32X {
     pub m68k_vectors: Box<M68kVectors>,
     pub sdram: Box<Sdram>,
     pub serial: SerialInterface,
+    pub region: GenesisRegion,
 }
 
 impl Sega32X {
     pub fn new(
         rom: Box<[u8]>,
         initial_ram: Option<Vec<u8>>,
+        region: GenesisRegion,
         timing_mode: TimingMode,
         config: Sega32XEmulatorConfig,
     ) -> Self {
@@ -67,6 +70,7 @@ impl Sega32X {
             m68k_vectors: bootrom::M68K_VECTORS.to_vec().into_boxed_slice().try_into().unwrap(),
             sdram: vec![0; SDRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
             serial: SerialInterface::default(),
+            region,
         }
     }
 
