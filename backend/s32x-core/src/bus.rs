@@ -107,12 +107,11 @@ impl PhysicalMedium for Sega32X {
             }
             M68K_CARTRIDGE_START..=M68K_CARTRIDGE_END => {
                 // ROM (only accessible when 32X is disabled or ROM-to-VRAM DMA is enabled)
-                if !self.registers.adapter_enabled || self.registers.dma.rom_to_vram_dma {
-                    self.cartridge.read_byte(address)
-                } else {
+                // TODO is this right? some games read from ROM without setting RV=1; allow them to go through
+                if self.registers.adapter_enabled && !self.registers.dma.rom_to_vram_dma {
                     log::warn!("ROM byte read with RV=0: {address:06X}");
-                    0xFF
                 }
+                self.cartridge.read_byte(address)
             }
             M68K_FRAME_BUFFER_START..=M68K_OVERWRITE_IMAGE_END => {
                 if self.registers.vdp_access == Access::M68k {
@@ -180,12 +179,11 @@ impl PhysicalMedium for Sega32X {
             }
             M68K_CARTRIDGE_START..=M68K_CARTRIDGE_END => {
                 // ROM (only accessible when 32X is disabled or ROM-to-VRAM DMA is enabled)
-                if !self.registers.adapter_enabled || self.registers.dma.rom_to_vram_dma {
-                    self.cartridge.read_word(address)
-                } else {
+                // TODO is this right? some games read from ROM without setting RV=1; allow them to go through
+                if self.registers.adapter_enabled && !self.registers.dma.rom_to_vram_dma {
                     log::warn!("ROM word read with RV=0: {address:06X}");
-                    0xFFFF
                 }
+                self.cartridge.read_word(address)
             }
             M68K_FRAME_BUFFER_START..=M68K_OVERWRITE_IMAGE_END => {
                 if self.registers.vdp_access == Access::M68k {
@@ -443,6 +441,11 @@ const SH2_FRAME_BUFFER_END: u32 = 0x0401FFFF;
 const SH2_OVERWRITE_IMAGE_START: u32 = 0x04020000;
 const SH2_OVERWRITE_IMAGE_END: u32 = 0x0403FFFF;
 
+// $04040000-$0405FFFF: Frame buffer (mirror)
+// The unreleased SoulStar X prototype seems to expect the frame buffer to be mirrored at these addresses
+const SH2_FB_MIRROR_START: u32 = 0x04040000;
+const SH2_FB_MIRROR_END: u32 = 0x0405FFFF;
+
 // $06000000-$0603FFFF: SDRAM
 const SH2_SDRAM_START: u32 = 0x06000000;
 const SH2_SDRAM_END: u32 = 0x0603FFFF;
@@ -502,7 +505,7 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     0xFF
                 }
             }
-            SH2_FRAME_BUFFER_START..=SH2_OVERWRITE_IMAGE_END => {
+            SH2_FRAME_BUFFER_START..=SH2_FB_MIRROR_END => {
                 self.cycle_counter += SH2_FRAME_BUFFER_READ_CYCLES;
 
                 if self.registers.vdp_access == Access::Sh2 {
@@ -567,7 +570,7 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     0xFFFF
                 }
             }
-            SH2_FRAME_BUFFER_START..=SH2_OVERWRITE_IMAGE_END => {
+            SH2_FRAME_BUFFER_START..=SH2_FB_MIRROR_END => {
                 self.cycle_counter += SH2_FRAME_BUFFER_READ_CYCLES;
 
                 if self.registers.vdp_access == Access::Sh2 {
@@ -646,7 +649,7 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     0xFFFFFFFF
                 }
             }
-            SH2_FRAME_BUFFER_START..=SH2_OVERWRITE_IMAGE_END => {
+            SH2_FRAME_BUFFER_START..=SH2_FB_MIRROR_END => {
                 self.cycle_counter += 2 * SH2_FRAME_BUFFER_READ_CYCLES;
 
                 if self.registers.vdp_access == Access::Sh2 {
@@ -725,7 +728,7 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     log::warn!("CRAM write with FM=0: {address:08X} {value:02X}");
                 }
             }
-            SH2_FRAME_BUFFER_START..=SH2_OVERWRITE_IMAGE_END => {
+            SH2_FRAME_BUFFER_START..=SH2_FB_MIRROR_END => {
                 if self.registers.vdp_access == Access::Sh2 {
                     // Treat write as an overwrite because 0 bytes are never written to the frame buffer
                     self.vdp.write_frame_buffer_byte(address, value);
@@ -798,7 +801,8 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     log::warn!("CRAM write with FM=0: {address:08X} {value:04X}");
                 }
             }
-            SH2_FRAME_BUFFER_START..=SH2_FRAME_BUFFER_END => {
+            SH2_FRAME_BUFFER_START..=SH2_FRAME_BUFFER_END
+            | SH2_FB_MIRROR_START..=SH2_FB_MIRROR_END => {
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.write_frame_buffer_word(address, value);
                 } else {
@@ -881,7 +885,8 @@ impl<'a> BusInterface for Sh2Bus<'a> {
                     log::warn!("CRAM write with FM=0: {address:08X} {value:08X}");
                 }
             }
-            SH2_FRAME_BUFFER_START..=SH2_FRAME_BUFFER_END => {
+            SH2_FRAME_BUFFER_START..=SH2_FRAME_BUFFER_END
+            | SH2_FB_MIRROR_START..=SH2_FB_MIRROR_END => {
                 if self.registers.vdp_access == Access::Sh2 {
                     self.vdp.write_frame_buffer_word(address, (value >> 16) as u16);
                     self.vdp.write_frame_buffer_word(address | 2, value as u16);

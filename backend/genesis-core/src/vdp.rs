@@ -442,28 +442,41 @@ impl Vdp {
         // Writing to register #1 immediately updates the display enabled flag.
         // Writing to register #7 immediately updates the background color.
         // Other register writes do not take effect until the next scanline.
-        match register_number {
-            1 => {
-                self.latched_registers.display_enabled = self.registers.display_enabled;
+        macro_rules! relatch_registers {
+            ($self:expr, [$($field:ident),* $(,)?]) => {
+                {
+                    let mut changed = false;
+                    $(
+                        changed |= self.latched_registers.$field != self.registers.$field;
+                        self.latched_registers.$field = self.registers.$field;
+                    )*
+                    changed
+                }
             }
-            2 => {
-                self.latched_registers.scroll_a_base_nt_addr = self.registers.scroll_a_base_nt_addr;
-            }
-            3 => {
-                self.latched_registers.window_base_nt_addr = self.registers.window_base_nt_addr;
-            }
-            4 => {
-                self.latched_registers.scroll_b_base_nt_addr = self.registers.scroll_b_base_nt_addr;
-            }
-            7 => {
-                self.latched_registers.background_palette = self.registers.background_palette;
-                self.latched_registers.background_color_id = self.registers.background_color_id;
-            }
-            _ => return,
         }
 
+        let changed = match register_number {
+            1 => {
+                relatch_registers!(self, [display_enabled])
+            }
+            2 => {
+                relatch_registers!(self, [scroll_a_base_nt_addr])
+            }
+            3 => {
+                relatch_registers!(self, [window_base_nt_addr])
+            }
+            4 => {
+                relatch_registers!(self, [scroll_b_base_nt_addr])
+            }
+            7 => {
+                relatch_registers!(self, [background_palette, background_color_id])
+            }
+            _ => return,
+        };
+
         // If this write occurred during active display, re-render the current scanline starting from the current pixel
-        if self.state.scanline < self.latched_registers.vertical_display_size.active_scanlines()
+        if changed
+            && self.state.scanline < self.latched_registers.vertical_display_size.active_scanlines()
             && self.state.scanline_mclk_cycles < ACTIVE_MCLK_CYCLES_PER_SCANLINE
         {
             let mclk_per_pixel =
