@@ -1,3 +1,5 @@
+//! SH-2 logical and bitwise instructions
+
 use crate::bus::BusInterface;
 use crate::instructions::{rm, rn};
 use crate::Sh2;

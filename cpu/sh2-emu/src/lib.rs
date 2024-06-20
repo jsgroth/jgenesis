@@ -1,3 +1,9 @@
+//! Emulation core for the Hitachi SH-2 CPU
+//!
+//! Note that this core does not track timing. Callers can compute timing by assuming 1 cycle per
+//! instruction plus memory access delays, using the `BusInterface` implementation to record memory
+//! accesses.
+
 pub mod bus;
 mod cache;
 mod disassemble;
@@ -72,6 +78,9 @@ impl Sh2 {
         }
     }
 
+    /// Execute up to `ticks` instructions.
+    ///
+    /// Will not execute any instructions if a reset is performed or an interrupt is handled.
     #[inline]
     pub fn execute<B: BusInterface>(&mut self, mut ticks: u64, bus: &mut B) {
         if ticks == 0 {
@@ -177,6 +186,8 @@ impl Sh2 {
         instructions::execute(self, opcode, bus);
     }
 
+    /// Advance internal peripherals by `system_cycles`, specifically the watchdog timer (WDT) and
+    /// the serial interface (SCI). Also updates internal interrupt state.
     #[inline]
     pub fn tick_peripherals<B: BusInterface>(&mut self, system_cycles: u64, bus: &mut B) {
         self.watchdog_timer.tick(system_cycles);

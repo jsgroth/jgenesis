@@ -1,4 +1,6 @@
 //! SH-2 DMA controller (DMAC)
+//!
+//! Has 2 DMA channels that can transfer data between memory regions in parallel to CPU execution
 
 use crate::bus::BusInterface;
 use bincode::{Decode, Encode};
@@ -224,10 +226,16 @@ impl DmaController {
 
     pub fn read_register(&self, address: u32) -> u32 {
         match address {
+            0xFFFFFF80 => self.channels[0].source_address,
+            0xFFFFFF84 => self.channels[0].destination_address,
+            0xFFFFFF88 => self.channels[0].transfer_count,
             0xFFFFFF8C => self.channels[0].control.to_register_value(),
+            0xFFFFFF90 => self.channels[1].source_address,
+            0xFFFFFF94 => self.channels[1].destination_address,
+            0xFFFFFF98 => self.channels[1].transfer_count,
             0xFFFFFF9C => self.channels[1].control.to_register_value(),
             0xFFFFFFB0 => self.operation.read(),
-            _ => todo!("Read DMA register {address:08X}"),
+            _ => panic!("Invalid DMAC register address: {address:08X}"),
         }
     }
 
@@ -278,7 +286,7 @@ impl DmaController {
                 log::trace!("DMAOR write: {value:08X}");
                 log::trace!("  {:?}", self.operation);
             }
-            _ => todo!("Write DMA register {address:08X} {value:08X}"),
+            _ => panic!("Invalid DMA register write: {address:08X} {value:08X}"),
         }
     }
 

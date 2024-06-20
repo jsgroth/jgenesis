@@ -1,3 +1,5 @@
+//! SH-2 load and store instructions
+
 use crate::bus::BusInterface;
 use crate::instructions::{extend_i16, extend_i8, rm, rn};
 use crate::Sh2;

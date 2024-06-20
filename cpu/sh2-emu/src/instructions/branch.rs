@@ -1,3 +1,5 @@
+//! SH-2 branch and jump instructions
+
 use crate::bus::BusInterface;
 use crate::instructions::rn;
 use crate::{Sh2, SP};

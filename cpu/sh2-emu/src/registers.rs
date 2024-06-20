@@ -1,9 +1,11 @@
+//! SH-2 internal I/O registers (accessed using A29-31 = 111)
+
 use crate::dma::DmaController;
 use crate::sci::SerialInterface;
 use crate::wdt::WatchdogTimer;
 use crate::{Sh2, RESET_INTERRUPT_MASK};
 use bincode::{Decode, Encode};
-use jgenesis_common::num::GetBit;
+use jgenesis_common::num::{GetBit, U16Ext};
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 pub struct StatusRegister {
@@ -11,7 +13,7 @@ pub struct StatusRegister {
     pub interrupt_mask: u8,
     // Used as a carry/test flag by many instructions
     pub t: bool,
-    // Flag used by multiply-accumulate instructions
+    // Saturation flag used by multiply-accumulate instructions
     pub s: bool,
     // Flags used by division instructions
     pub q: bool,
@@ -172,6 +174,15 @@ impl InterruptRegisters {
         log::debug!("  WDT interrupt priority: {}", self.wdt_priority);
     }
 
+    fn write_ipra_high(&mut self, value: u8) {
+        self.divu_priority = value >> 4;
+        self.dmac_priority = value & 0xF;
+
+        log::debug!("IPRA high write: {value:02X}");
+        log::debug!("  DIVU interrupt priority: {}", self.divu_priority);
+        log::debug!("  DMAC interrupt priority: {}", self.dmac_priority);
+    }
+
     fn write_ipra_low(&mut self, value: u8) {
         self.wdt_priority = value >> 4;
 
@@ -194,6 +205,16 @@ impl InterruptRegisters {
         log::debug!("  FRT interrupt priority: {}", self.frt_priority);
     }
 
+    fn write_iprb_high(&mut self, value: u8) {
+        // IPRB low byte is not used; just shift the value
+        self.write_iprb(u16::from(value) << 8);
+    }
+
+    // $FFFFFE62: VCRA (Vector number register A)
+    fn read_vcra(&self) -> u16 {
+        (u16::from(self.sci_rx_error_vector) << 8) | u16::from(self.sci_rx_ok_vector)
+    }
+
     // $FFFFFE62: VCRA (Vector number register A)
     fn write_vcra(&mut self, value: u16) {
         self.sci_rx_error_vector = ((value >> 8) & 0x7F) as u8;
@@ -204,6 +225,25 @@ impl InterruptRegisters {
         log::debug!("  SCI RX ok vector number: {}", self.sci_rx_ok_vector);
     }
 
+    fn write_vcra_high(&mut self, value: u8) {
+        self.sci_rx_error_vector = value & 0x7F;
+
+        log::debug!("VCRA high write: {value:02X}");
+        log::debug!("  SCI RX error vector number: {}", self.sci_rx_error_vector);
+    }
+
+    fn write_vcra_low(&mut self, value: u8) {
+        self.sci_rx_ok_vector = value & 0x7F;
+
+        log::debug!("VCRA low write: {value:02X}");
+        log::debug!("  SCI RX ok vector number: {}", self.sci_rx_ok_vector);
+    }
+
+    // $FFFFFE64: VCRB (Vector number register B)
+    fn read_vcrb(&self) -> u16 {
+        (u16::from(self.sci_tx_empty_vector) << 8) | u16::from(self.sci_transfer_end_vector)
+    }
+
     // $FFFFFE64: VCRB (Vector number register B)
     fn write_vcrb(&mut self, value: u16) {
         self.sci_tx_empty_vector = ((value >> 8) & 0x7F) as u8;
@@ -211,6 +251,20 @@ impl InterruptRegisters {
 
         log::debug!("VCRB write: {value:04X}");
         log::debug!("  SCI TX empty vector number: {}", self.sci_tx_empty_vector);
+        log::debug!("  SCI transfer end vector number: {}", self.sci_transfer_end_vector);
+    }
+
+    fn write_vcrb_high(&mut self, value: u8) {
+        self.sci_tx_empty_vector = value & 0x7F;
+
+        log::debug!("VCRB high write: {value:02X}");
+        log::debug!("  SCI TX empty vector number: {}", self.sci_tx_empty_vector);
+    }
+
+    fn write_vcrb_low(&mut self, value: u8) {
+        self.sci_transfer_end_vector = value & 0x7F;
+
+        log::debug!("VCRB low write: {value:02X}");
         log::debug!("  SCI transfer end vector number: {}", self.sci_transfer_end_vector);
     }
 
@@ -234,6 +288,13 @@ impl InterruptRegisters {
 
         log::debug!("VCRWDT high write: {value:02X}");
         log::debug!("  WDT interrupt vector number: {}", self.wdt_vector);
+    }
+
+    fn write_vcrwdt_low(&mut self, value: u8) {
+        self.bsc_vector = value & 0x7F;
+
+        log::debug!("VCRWDT low write: {value:02X}");
+        log::debug!("  BSC interrupt vector number: {}", self.bsc_vector);
     }
 
     // $FFFFFFA0: VCRDMA0 (Interrupt vector number for DMA0)
@@ -323,17 +384,28 @@ impl Sh2 {
 
         match address {
             0xFFFFFC17 => {
-                // Cosmic Carnage constantly reads from and writes to this address - not sure what it's supposed to be
-                log::warn!("[{}] Invalid internal register byte read {address:08X}", self.name);
+                // Cosmic Carnage constantly accesses this address - not sure what it's supposed to be
                 0
             }
             0xFFFFFE00..=0xFFFFFE05 => self.serial.read_register(address),
             0xFFFFFE10..=0xFFFFFE19 => self.free_run_timer.read_register(address),
+            0xFFFFFE60 => self.sh7604.interrupts.read_iprb().msb(),
+            0xFFFFFE61 => self.sh7604.interrupts.read_iprb().lsb(),
+            0xFFFFFE62 => self.sh7604.interrupts.read_vcra().msb(),
+            0xFFFFFE63 => self.sh7604.interrupts.read_vcra().lsb(),
+            0xFFFFFE64 => self.sh7604.interrupts.read_vcrb().msb(),
+            0xFFFFFE65 => self.sh7604.interrupts.read_vcrb().lsb(),
             0xFFFFFE80 => self.watchdog_timer.read_control(),
             0xFFFFFE81 => self.watchdog_timer.read_counter(),
             0xFFFFFE92 => self.cache.read_control(),
-            0xFFFFFE93..=0xFFFFFE9F => 0xFF,
-            _ => todo!("[{}] Internal register byte read {address:08X}", self.name),
+            0xFFFFFEE2 => self.sh7604.interrupts.read_ipra().msb(),
+            0xFFFFFEE3 => self.sh7604.interrupts.read_ipra().lsb(),
+            0xFFFFFEE4 => self.sh7604.interrupts.read_vcrwdt().msb(),
+            0xFFFFFEE5 => self.sh7604.interrupts.read_vcrwdt().lsb(),
+            _ => {
+                log::warn!("[{}] Unexpected internal register byte read: {address:08X}", self.name);
+                0
+            }
         }
     }
 
@@ -342,13 +414,20 @@ impl Sh2 {
 
         match address {
             0xFFFFFE60 => self.sh7604.interrupts.read_iprb(),
+            0xFFFFFE62 => self.sh7604.interrupts.read_vcra(),
+            0xFFFFFE64 => self.sh7604.interrupts.read_vcrb(),
             0xFFFFFEE2 => self.sh7604.interrupts.read_ipra(),
             0xFFFFFEE4 => self.sh7604.interrupts.read_vcrwdt(),
+            0xFFFFFF08 => (self.divu.read_control() >> 16) as u16,
+            0xFFFFFF0A => self.divu.read_control() as u16,
             0xFFFFFF40 => self.sh7604.break_registers.read_break_address_a_high(),
             0xFFFFFF42 => self.sh7604.break_registers.read_break_address_a_low(),
             0xFFFFFF60 => self.sh7604.break_registers.read_break_address_b_high(),
             0xFFFFFF62 => self.sh7604.break_registers.read_break_address_b_low(),
-            _ => todo!("[{}] Internal register word read {address:08X}", self.name),
+            _ => {
+                log::warn!("[{}] Unexpected internal register word read: {address:08X}", self.name);
+                0
+            }
         }
     }
 
@@ -356,52 +435,57 @@ impl Sh2 {
         log::trace!("[{}] Internal register longword read: {address:08X}", self.name);
 
         match address {
-            0xFFFFFF00..=0xFFFFFF1C => self.divu.read_register(address),
-            // Break registers; break functionality is not implemented
+            0xFFFFFF00..=0xFFFFFF1F => self.divu.read_register(address),
+            // Break registers; break functionality is not implemented but some games use the registers as R/W storage
             0xFFFFFF40 => self.sh7604.break_registers.break_address_a,
             0xFFFFFF60 => self.sh7604.break_registers.break_address_b,
             0xFFFFFF80..=0xFFFFFF9F | 0xFFFFFFB0 => self.dmac.read_register(address),
-            // Bus control registers; not emulated
+            0xFFFFFFA0 => self.sh7604.interrupts.dma0_vector.into(),
+            0xFFFFFFA8 => self.sh7604.interrupts.dma1_vector.into(),
+            // Bus control register; not emulated, 32X games only ever write this value to it before reading
             0xFFFFFFE0 => 0xA55A0001,
-            0xFFFFFFE1..=0xFFFFFFFF => todo!("read bus control register {address:08X}"),
-            _ => todo!("Unexpected internal register longword read: {address:08X}"),
+            _ => {
+                log::warn!(
+                    "[{}] Unexpected internal register longword read: {address:08X}",
+                    self.name
+                );
+                0
+            }
         }
     }
 
+    #[allow(clippy::match_same_arms)]
     pub(super) fn write_internal_register_byte(&mut self, address: u32, value: u8) {
         log::trace!("[{}] Internal register byte write: {address:08X} {value:02X}", self.name);
 
         match address {
-            0xFFFFFC17 => {
-                // Cosmic Carnage constantly reads from and writes to this address - not sure what it's supposed to be
-                log::warn!(
-                    "[{}] Invalid internal register write {address:08X} {value:02X}",
-                    self.name
-                );
-            }
+            // Cosmic Carnage constantly accesses this address - not sure what it's supposed to be
+            0xFFFFFC17 => {}
             0xFFFFFE00..=0xFFFFFE05 => self.serial.write_register(address, value),
             0xFFFFFE10..=0xFFFFFE19 => self.free_run_timer.write_register(address, value),
+            0xFFFFFE60 => self.sh7604.interrupts.write_iprb_high(value),
+            // IPRB low byte; does not do anything
+            0xFFFFFE61 => {}
+            0xFFFFFE62 => self.sh7604.interrupts.write_vcra_high(value),
+            0xFFFFFE63 => self.sh7604.interrupts.write_vcra_low(value),
+            0xFFFFFE64 => self.sh7604.interrupts.write_vcrb_high(value),
+            0xFFFFFE65 => self.sh7604.interrupts.write_vcrb_low(value),
+            // DMA request/response selection control registers; unusual only if a non-zero value is written
             0xFFFFFE71 | 0xFFFFFE72 => {
                 if value != 0 {
-                    todo!("{address:08X} {value:02X}")
+                    log::warn!(
+                        "[{}] Unexpected DRCR0/DRCR1 write: {address:08X} {value:02X}",
+                        self.name
+                    );
                 }
             }
+            0xFFFFFE91 => log_standby_control_write(value, &self.name),
             0xFFFFFE92 => self.cache.write_control(value),
-            0xFFFFFE93..=0xFFFFFE9F => {}
-            0xFFFFFE91 => {
-                // SBYCR (Standby control register)
-                log::trace!("[{}] SBYCR write: {value:02X}", self.name);
-                log::trace!("  Standby mode enabled: {}", value.bit(7));
-                log::trace!("  Pins at Hi-Z in standby: {}", value.bit(6));
-                log::trace!("  DMAC clock halted: {}", value.bit(4));
-                log::trace!("  MULT clock halted: {}", value.bit(3));
-                log::trace!("  DIVU clock halted: {}", value.bit(2));
-                log::trace!("  FRT clock halted: {}", value.bit(1));
-                log::trace!("  SCI clock halted: {}", value.bit(0));
-            }
+            0xFFFFFEE2 => self.sh7604.interrupts.write_ipra_high(value),
             0xFFFFFEE3 => self.sh7604.interrupts.write_ipra_low(value),
             0xFFFFFEE4 => self.sh7604.interrupts.write_vcrwdt_high(value),
-            _ => todo!(
+            0xFFFFFEE5 => self.sh7604.interrupts.write_vcrwdt_low(value),
+            _ => log::warn!(
                 "[{}] Unexpected internal register byte write: {address:08X} {value:02X}",
                 self.name
             ),
@@ -412,12 +496,8 @@ impl Sh2 {
         log::trace!("[{}] Internal register word write: {address:08X} {value:04X}", self.name);
 
         match address {
-            0xFFFF8446 => {
-                log::trace!(
-                    "[{}] $FFFF8446 write ({value:04X}): SDRAM 16-bit CAS latency set to 2",
-                    self.name
-                );
-            }
+            // Writing to this address sets SDRAM 16-bit CAS latency; ignore
+            0xFFFF8446 => {}
             0xFFFFFE60 => self.sh7604.interrupts.write_iprb(value),
             0xFFFFFE62 => self.sh7604.interrupts.write_vcra(value),
             0xFFFFFE64 => self.sh7604.interrupts.write_vcrb(value),
@@ -425,52 +505,53 @@ impl Sh2 {
             0xFFFFFE92 => self.cache.write_control(value as u8),
             0xFFFFFEE2 => self.sh7604.interrupts.write_ipra(value),
             0xFFFFFEE4 => self.sh7604.interrupts.write_vcrwdt(value),
+            // DIVU control register is writable 16-bit
+            0xFFFFFF08 => self.divu.write_register(address, value.into()),
             0xFFFFFF40 => self.sh7604.break_registers.write_break_address_a_high(value),
             0xFFFFFF42 => self.sh7604.break_registers.write_break_address_a_low(value),
             0xFFFFFF60 => self.sh7604.break_registers.write_break_address_b_high(value),
             0xFFFFFF62 => self.sh7604.break_registers.write_break_address_b_low(value),
-            _ => todo!(
+            _ => log::warn!(
                 "[{}] Unexpected internal register word write: {address:08X} {value:04X}",
                 self.name
             ),
         }
     }
 
+    #[allow(clippy::match_same_arms)]
     pub(super) fn write_internal_register_longword(&mut self, address: u32, value: u32) {
         log::trace!("[{}] Internal register longword write: {address:08X} {value:08X}", self.name);
 
         match address {
             0xFFFFFF00..=0xFFFFFF1F => self.divu.write_register(address, value),
             0xFFFFFF40 => self.sh7604.break_registers.write_break_address_a(value),
-            0xFFFFFF48 => {
-                log::warn!(
-                    "[{}] Ignoring write to break bus cycle register A ($FFFFFF48): {value:08X}",
-                    self.name
-                );
-            }
+            // Break bus cycle register A; ignore
+            0xFFFFFF48 => {}
             0xFFFFFF60 => self.sh7604.break_registers.write_break_address_b(value),
-            0xFFFFFF68 => {
-                log::warn!(
-                    "[{}] Ignoring write to break bus cycle register B ($FFFFFF68): {value:08X}",
-                    self.name
-                );
-            }
+            // Break bus cycle register B; ignore
+            0xFFFFFF68 => {}
             0xFFFFFF80..=0xFFFFFF9F | 0xFFFFFFB0 => self.dmac.write_register(address, value),
-            0xFFFFFFB8 => {
-                log::warn!(
-                    "[{}] Ignoring write to invalid register address: {address:08X} {value:08X}",
-                    self.name
-                );
-            }
             0xFFFFFFA0 => self.sh7604.interrupts.write_vcrdma0(value),
             0xFFFFFFA8 => self.sh7604.interrupts.write_vcrdma1(value),
             0xFFFFFFE0..=0xFFFFFFFF => log_bus_control_write(address, value),
-            _ => todo!(
+            _ => log::warn!(
                 "[{}] Unexpected internal register longword write: {address:08X} {value:08X}",
                 self.name
             ),
         }
     }
+}
+
+// $FFFFFE91: SBYCR (Standby control register); not emulated
+fn log_standby_control_write(value: u8, name: &str) {
+    log::trace!("[{name}] SBYCR write: {value:02X}");
+    log::trace!("  Standby mode enabled: {}", value.bit(7));
+    log::trace!("  Pins at Hi-Z in standby: {}", value.bit(6));
+    log::trace!("  DMAC clock halted: {}", value.bit(4));
+    log::trace!("  MULT clock halted: {}", value.bit(3));
+    log::trace!("  DIVU clock halted: {}", value.bit(2));
+    log::trace!("  FRT clock halted: {}", value.bit(1));
+    log::trace!("  SCI clock halted: {}", value.bit(0));
 }
 
 fn log_bus_control_write(address: u32, value: u32) {
@@ -542,7 +623,7 @@ fn log_bus_control_write(address: u32, value: u32) {
             log::trace!("  Clock select bits: {}", (value >> 3) & 7);
 
             if value.bit(6) {
-                todo!("SH-2 FRT compare match interrupt was enabled");
+                log::error!("SH-2 FRT compare match interrupt was enabled; not emulated");
             }
         }
         0xFFFFFFF4 => {
@@ -553,7 +634,7 @@ fn log_bus_control_write(address: u32, value: u32) {
             log::trace!("RTCOR write: {value:08X}");
             log::trace!("  Refresh time constant for compare: 0x{:02X}", value & 0xFF);
         }
-        _ => todo!("bus control register write {address:08X} {value:08X}"),
+        _ => log::warn!("Bus control register write {address:08X} {value:08X}"),
     }
 }
 

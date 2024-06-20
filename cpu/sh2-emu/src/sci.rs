@@ -1,4 +1,6 @@
 //! SH7604 serial communication interface (SCI)
+//!
+//! No 32X games use this but some test cartridges do
 
 use crate::bus::BusInterface;
 use bincode::{Decode, Encode};
@@ -82,9 +84,13 @@ impl SerialInterface {
         log::debug!("[{}] SCI read {address:08X}", self.name);
 
         match address {
+            0xFFFFFE00 => self.read_mode(),
+            0xFFFFFE01 => self.bit_rate,
+            0xFFFFFE02 => self.read_control(),
+            0xFFFFFE03 => self.transfer_data,
             0xFFFFFE04 => self.read_status(),
             0xFFFFFE05 => self.read_rx(),
-            _ => todo!("SCI read {address:08X}"),
+            _ => panic!("Invalid SCI register address: {address:08X}"),
         }
     }
 
@@ -95,8 +101,15 @@ impl SerialInterface {
             0xFFFFFE02 => self.write_control(value),
             0xFFFFFE03 => self.write_tx(value),
             0xFFFFFE04 => self.write_status(value),
-            _ => todo!("SCI write {address:08X} {value:02X}"),
+            // RX data register, ignore writes
+            0xFFFFFE05 => {}
+            _ => panic!("Invalid SCI register address: {address:08X} {value:02X}"),
         }
+    }
+
+    // $FFFFFE00: SMR (Serial mode)
+    fn read_mode(&self) -> u8 {
+        self.clock_select
     }
 
     // $FFFFFE00: SMR (Serial mode)
@@ -126,6 +139,14 @@ impl SerialInterface {
     fn write_bit_rate(&mut self, value: u8) {
         self.bit_rate = value;
         log::debug!("[{}] BRR write: {value:02X}", self.name);
+    }
+
+    // $FFFFFE02: SCR (Serial control)
+    fn read_control(&self) -> u8 {
+        (u8::from(self.tx_interrupt_enabled) << 7)
+            | (u8::from(self.rx_interrupt_enabled) << 6)
+            | (u8::from(self.tx_enabled) << 5)
+            | (u8::from(self.rx_enabled) << 4)
     }
 
     // $FFFFFE02: SCR (Serial control)

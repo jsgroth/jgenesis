@@ -1,3 +1,7 @@
+//! SH-2 division unit (DIVU)
+//!
+//! Supports signed 64-bit ÷ 32-bit division with a 32-bit quotient and a 32-bit remainder
+
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 
@@ -35,11 +39,16 @@ impl DivisionUnit {
             // Virtua Fighter seems to expect $FFFFFF18 to mirror $FFFFFF10
             0xFFFFFF10 | 0xFFFFFF18 => self.remainder,
             // DVCNT (Division control)
-            0xFFFFFF08 => {
-                (u32::from(self.overflow_interrupt_enabled) << 1) | u32::from(self.overflow_flag)
+            0xFFFFFF08 => self.read_control(),
+            _ => {
+                log::error!("Invalid DIVU register address: {address:08X}");
+                0
             }
-            _ => todo!("DIVU register read {address:08X}"),
         }
+    }
+
+    pub fn read_control(&self) -> u32 {
+        (u32::from(self.overflow_interrupt_enabled) << 1) | u32::from(self.overflow_flag)
     }
 
     pub fn write_register(&mut self, address: u32, value: u32) {
@@ -74,7 +83,7 @@ impl DivisionUnit {
                 self.overflow_flag = value.bit(0);
 
                 if self.overflow_interrupt_enabled {
-                    todo!("DIVU overflow interrupt enabled")
+                    log::error!("DIVU overflow interrupt enabled; not emulated");
                 }
 
                 log::debug!("DVCR write: {value:08X}");
@@ -109,7 +118,9 @@ impl DivisionUnit {
                 self.quotient = clamped_quotient as u32;
                 self.remainder = remainder as u32;
             }
-            _ => todo!("DIVU register write {address:08X} {value:08X}"),
+            _ => {
+                log::warn!("Invalid DIVU register address: {address:08X} {value:08X}");
+            }
         }
     }
 }

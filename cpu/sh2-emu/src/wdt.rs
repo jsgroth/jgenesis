@@ -1,4 +1,7 @@
-//! SH7604 watchdog timer
+//! SH7604 watchdog timer (WDT)
+//!
+//! Can also be used as an interval timer, and that is the only mode that is emulated. No 32X software
+//! uses the WDT as a watchdog timer
 
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
@@ -131,7 +134,7 @@ impl WatchdogTimer {
         log::debug!("  System clock divider: {}", 1 << self.system_clock_shift);
 
         if self.mode == WatchdogTimerMode::Watchdog {
-            todo!("Watchdog timer mode not implemented")
+            log::error!("Watchdog timer mode not implemented");
         }
     }
 
