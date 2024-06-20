@@ -12,7 +12,10 @@ static ALL_EXTENSIONS: OnceLock<Vec<&'static str>> = OnceLock::new();
 
 pub fn all_extensions() -> &'static [&'static str] {
     ALL_EXTENSIONS.get_or_init(|| {
-        vec!["sms", "gg", "md", "bin", "cue", "chd", "nes", "sfc", "smc", "gb", "gbc", "zip", "7z"]
+        vec![
+            "sms", "gg", "md", "bin", "cue", "chd", "32x", "nes", "sfc", "smc", "gb", "gbc", "zip",
+            "7z",
+        ]
     })
 }
 
