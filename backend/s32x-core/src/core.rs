@@ -32,8 +32,9 @@ pub struct SerialInterface {
 pub struct Sega32X {
     sh2_master: Sh2,
     sh2_slave: Sh2,
-    sh2_cycles: u64,
-    sh2_ticks: u64,
+    global_cycles: u64,
+    master_cycles: u64,
+    slave_cycles: u64,
     #[partial_clone(partial)]
     pub cartridge: Cartridge,
     pub vdp: Vdp,
@@ -56,8 +57,9 @@ impl Sega32X {
         Self {
             sh2_master: Sh2::new("Master".into()),
             sh2_slave: Sh2::new("Slave".into()),
-            sh2_cycles: 0,
-            sh2_ticks: 0,
+            global_cycles: 0,
+            master_cycles: 0,
+            slave_cycles: 0,
             cartridge,
             vdp: Vdp::new(timing_mode, config.video_out),
             pwm: PwmChip::new(timing_mode),
@@ -73,12 +75,7 @@ impl Sega32X {
 
         // SH-2 clock speed is exactly 3x the 68000 clock speed
         let elapsed_sh2_cycles = 3 * m68k_cycles;
-        self.sh2_cycles += elapsed_sh2_cycles;
-
-        // TODO actual timing instead of hardcoded 1.6 cycles per instruction
-        let new_sh2_ticks = self.sh2_cycles * 5 / 8;
-        self.sh2_cycles -= new_sh2_ticks * 8 / 5;
-        self.sh2_ticks += new_sh2_ticks;
+        self.global_cycles += elapsed_sh2_cycles;
 
         let mut bus = Sh2Bus {
             which: WhichCpu::Master,
@@ -88,25 +85,37 @@ impl Sega32X {
             registers: &mut self.registers,
             sdram: &mut self.sdram,
             serial: &mut self.serial,
+            cycle_counter: 0,
         };
 
-        // Run the two CPUs in slices of 10 instructions rather than running one for N instructions
-        // then the other for N instructions. Brutal Unleashed: Above the Claw requires fairly
-        // close synchronization between the two SH-2s to avoid freezing, and this is a lot simpler
-        // than syncing on communication port accesses
-        while self.sh2_ticks >= SH2_EXECUTION_SLICE_LEN {
-            self.sh2_ticks -= SH2_EXECUTION_SLICE_LEN;
-
+        // Brutal Unleashed: Above the Claw requires fairly close synchronization to prevent
+        // the game from freezing due to the master SH-2 missing a communication port write from
+        // the slave SH-2. After the slave SH-2 sees a specific value from the master SH-2, it
+        // writes to the communication port twice in quick succession, and the master SH-2 must
+        // read the first value before it's overwritten
+        while self.master_cycles < self.global_cycles || self.slave_cycles < self.global_cycles {
             // Running the slave SH-2 before the master SH-2 fixes some of the Knuckles Chaotix
             // prototype cartridges, which can freeze at boot otherwise.
             // The 68000 writes to a communication port after it's done initializing the 32X VDP,
             // and both SH-2s need to see that write before the master SH-2 writes a different value
             // to the port (which it does almost immediately)
-            bus.which = WhichCpu::Slave;
-            self.sh2_slave.execute(SH2_EXECUTION_SLICE_LEN, &mut bus);
+            if self.slave_cycles < self.global_cycles {
+                while self.slave_cycles <= self.master_cycles {
+                    bus.which = WhichCpu::Slave;
+                    bus.cycle_counter = self.slave_cycles;
+                    self.sh2_slave.execute(SH2_EXECUTION_SLICE_LEN, &mut bus);
+                    self.slave_cycles = bus.cycle_counter + SH2_EXECUTION_SLICE_LEN;
+                }
+            }
 
-            bus.which = WhichCpu::Master;
-            self.sh2_master.execute(SH2_EXECUTION_SLICE_LEN, &mut bus);
+            if self.master_cycles < self.global_cycles {
+                while self.master_cycles <= self.slave_cycles {
+                    bus.which = WhichCpu::Master;
+                    bus.cycle_counter = self.master_cycles;
+                    self.sh2_master.execute(SH2_EXECUTION_SLICE_LEN, &mut bus);
+                    self.master_cycles = bus.cycle_counter + SH2_EXECUTION_SLICE_LEN;
+                }
+            }
         }
 
         bus.which = WhichCpu::Master;

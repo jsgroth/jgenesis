@@ -1,7 +1,11 @@
+mod commport;
+
 use crate::bus::WhichCpu;
+use crate::registers::commport::CommunicationPort;
 use crate::vdp::Vdp;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::{GetBit, U16Ext, U24Ext};
+use std::array;
 use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -170,7 +174,7 @@ pub struct SystemRegisters {
     pub reset_sh2: bool,
     pub vdp_access: Access,
     pub m68k_rom_bank: u8,
-    pub communication_ports: [u16; 8],
+    pub communication_ports: [CommunicationPort; 8],
     pub master_interrupts: Sh2Interrupts,
     pub slave_interrupts: Sh2Interrupts,
     pub dma: DmaRegisters,
@@ -185,7 +189,7 @@ impl SystemRegisters {
             reset_sh2: true,
             vdp_access: Access::M68k,
             m68k_rom_bank: 0,
-            communication_ports: [0; 8],
+            communication_ports: array::from_fn(|_| CommunicationPort::new()),
             master_interrupts: Sh2Interrupts::default(),
             slave_interrupts: Sh2Interrupts::default(),
             dma: DmaRegisters::default(),
@@ -229,7 +233,7 @@ impl SystemRegisters {
             0xA1510E => self.read_dreq_destination_low(),
             0xA15110 => self.dma.length,
             0xA1511A => self.sega_tv_bit.into(),
-            0xA15120..=0xA1512F => self.read_communication_port(address),
+            0xA15120..=0xA1512F => self.m68k_read_communication_port(address),
             _ => todo!("M68K register read: {address:06X}"),
         }
     }
@@ -259,7 +263,7 @@ impl SystemRegisters {
             0xA1511A => {
                 self.sega_tv_bit = value.bit(0);
             }
-            0xA15120..=0xA1512F => self.write_communication_port(address, value),
+            0xA15120..=0xA1512F => self.m68k_write_communication_port(address, value),
             0xA15130..=0xA15138 => {
                 log::warn!("Ignoring PWM register write: {address:06X} {value:04X}");
             }
@@ -267,7 +271,13 @@ impl SystemRegisters {
         }
     }
 
-    pub fn sh2_read(&mut self, address: u32, which: WhichCpu, vdp: &Vdp) -> u16 {
+    pub fn sh2_read(
+        &mut self,
+        address: u32,
+        which: WhichCpu,
+        vdp: &Vdp,
+        cycle_counter: u64,
+    ) -> u16 {
         match address {
             0x4000 => self.read_interrupt_mask(which, vdp),
             0x4004 => vdp.h_interrupt_interval(),
@@ -280,22 +290,36 @@ impl SystemRegisters {
             0x4012 => self.read_dreq_fifo(),
             // TODO these registers shouldn't be readable? (interrupt clear)
             0x4014 | 0x4016 | 0x4018 | 0x401A | 0x401C => 0,
-            0x4020..=0x402F => self.read_communication_port(address),
+            0x4020..=0x402F => self.sh2_read_communication_port(address, cycle_counter),
             _ => todo!("SH-2 register read: {address:08X} {which:?}"),
         }
     }
 
-    pub fn sh2_write_byte(&mut self, address: u32, value: u8, which: WhichCpu, vdp: &mut Vdp) {
-        let mut word = self.sh2_read(address & !1, which, vdp);
+    pub fn sh2_write_byte(
+        &mut self,
+        address: u32,
+        value: u8,
+        which: WhichCpu,
+        vdp: &mut Vdp,
+        cycle_counter: u64,
+    ) {
+        let mut word = self.sh2_read(address & !1, which, vdp, cycle_counter);
         if !address.bit(0) {
             word.set_msb(value);
         } else {
             word.set_lsb(value);
         }
-        self.sh2_write(address & !1, word, which, vdp);
+        self.sh2_write(address & !1, word, which, vdp, cycle_counter);
     }
 
-    pub fn sh2_write(&mut self, address: u32, value: u16, which: WhichCpu, vdp: &mut Vdp) {
+    pub fn sh2_write(
+        &mut self,
+        address: u32,
+        value: u16,
+        which: WhichCpu,
+        vdp: &mut Vdp,
+        cycle_counter: u64,
+    ) {
         match address {
             0x4000 => self.write_interrupt_mask(value, which, vdp),
             0x4004 => vdp.write_h_interrupt_interval(value),
@@ -304,7 +328,7 @@ impl SystemRegisters {
             0x4018 => self.clear_h_interrupt(which),
             0x401A => self.clear_command_interrupt(which),
             0x401C => self.clear_pwm_interrupt(which),
-            0x4020..=0x402F => self.write_communication_port(address, value),
+            0x4020..=0x402F => self.sh2_write_communication_port(address, value, cycle_counter),
             _ => todo!("SH-2 register write: {address:08X} {value:04X} {which:?}"),
         }
     }
@@ -563,16 +587,28 @@ impl SystemRegisters {
         log::trace!("PWMINT cleared");
     }
 
-    // 68000: $A15120-$A1512E
-    // SH-2: $4020-$402E
-    fn read_communication_port(&self, address: u32) -> u16 {
+    // 68000: $A15120-$A1512F
+    fn m68k_read_communication_port(&self, address: u32) -> u16 {
         let idx = (address >> 1) & 0x7;
-        self.communication_ports[idx as usize]
+        self.communication_ports[idx as usize].m68k_read()
     }
 
-    fn write_communication_port(&mut self, address: u32, value: u16) {
+    // SH-2: $4020-$402F
+    fn sh2_read_communication_port(&self, address: u32, cycle_counter: u64) -> u16 {
         let idx = (address >> 1) & 0x7;
-        self.communication_ports[idx as usize] = value;
+        self.communication_ports[idx as usize].sh2_read(cycle_counter)
+    }
+
+    // 68000: $A15120-$A1512F
+    fn m68k_write_communication_port(&mut self, address: u32, value: u16) {
+        let idx = (address >> 1) & 0x7;
+        self.communication_ports[idx as usize].m68k_write(value);
+    }
+
+    // SH-2: $4020-$402F
+    fn sh2_write_communication_port(&mut self, address: u32, value: u16, cycle_counter: u64) {
+        let idx = (address >> 1) & 0x7;
+        self.communication_ports[idx as usize].sh2_write(value, cycle_counter);
 
         log::trace!("Communication port {idx} write: {value:04X}");
     }

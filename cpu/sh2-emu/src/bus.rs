@@ -5,6 +5,8 @@ pub trait BusInterface {
 
     fn read_longword(&mut self, address: u32) -> u32;
 
+    fn read_cache_line(&mut self, address: u32) -> [u32; 4];
+
     fn write_byte(&mut self, address: u32, value: u8);
 
     fn write_word(&mut self, address: u32, value: u16);
