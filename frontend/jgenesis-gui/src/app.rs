@@ -266,10 +266,8 @@ impl App {
             return;
         }
 
-        let mut file_dialog = FileDialog::new().add_filter(
-            "Supported ROM files",
-            &["sms", "gg", "md", "bin", "cue", "chd", "nes", "sfc", "smc", "gb", "gbc"],
-        );
+        let mut file_dialog =
+            FileDialog::new().add_filter("Supported ROM files", romlist::all_extensions());
         if let Some(dir) = self.config.rom_search_dirs.first() {
             file_dialog = file_dialog.set_directory(Path::new(dir));
         }

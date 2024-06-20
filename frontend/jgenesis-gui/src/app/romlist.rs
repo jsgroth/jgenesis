@@ -8,6 +8,14 @@ use std::sync::mpsc::Sender;
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::{fs, io, thread};
 
+static ALL_EXTENSIONS: OnceLock<Vec<&'static str>> = OnceLock::new();
+
+pub fn all_extensions() -> &'static [&'static str] {
+    ALL_EXTENSIONS.get_or_init(|| {
+        vec!["sms", "gg", "md", "bin", "cue", "chd", "nes", "sfc", "smc", "gb", "gbc", "zip", "7z"]
+    })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumAll)]
 pub enum Console {
     MasterSystem,
