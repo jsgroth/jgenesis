@@ -170,9 +170,13 @@ impl Default for State {
 pub struct CdDrive {
     #[partial_clone(default)]
     disc: Option<CdRom>,
-    sector_buffer: [u8; cdrom::BYTES_PER_SECTOR as usize],
+    sector_buffer: Box<[u8; cdrom::BYTES_PER_SECTOR as usize]>,
     state: State,
     report_type: ReportType,
+    // If a command is sent while the drive is playing, it needs to read at least 1 more sector
+    // before it responds to the new command. Radical Rex depends on this or it will crash shortly
+    // into the intro
+    next_clock_play: Option<CdTime>,
     interrupt_pending: bool,
     status: [u8; 10],
     audio_sample_idx: u16,
@@ -185,10 +189,11 @@ impl CdDrive {
     pub(super) fn new(disc: Option<CdRom>) -> Self {
         Self {
             disc,
-            sector_buffer: array::from_fn(|_| 0),
+            sector_buffer: Box::new(array::from_fn(|_| 0)),
             state: State::default(),
             report_type: ReportType::default(),
             interrupt_pending: false,
+            next_clock_play: None,
             status: INITIAL_STATUS,
             audio_sample_idx: 0,
             loaded_audio_sector: false,
@@ -200,6 +205,11 @@ impl CdDrive {
     #[allow(clippy::match_same_arms)]
     pub fn send_command(&mut self, command: [u8; 10]) {
         log::trace!("CDD command: {command:02X?}");
+
+        let prev_playing_time = match self.state {
+            State::Playing(time) => Some(time),
+            _ => None,
+        };
 
         match command[0] {
             0x00 => {
@@ -307,6 +317,14 @@ impl CdDrive {
         }
 
         self.update_status();
+
+        if prev_playing_time.is_some() && !matches!(self.state, State::Playing(..)) {
+            // If the drive was playing and a command just changed the state, have it read one more
+            // sector on the next clock before it handles the new state (e.g. seeking).
+            // Per tests by krikzz, the CDD status changes immediately in response to a command
+            // despite this behavior, so changing the state immediately is correct
+            self.next_clock_play = prev_playing_time;
+        }
 
         log::trace!("CDD status: {:02X?}", self.status);
     }
@@ -616,6 +634,13 @@ impl CdDrive {
         // CDD interrupt fires once every 1/75 of a second
         self.interrupt_pending = true;
 
+        if let Some(time) = self.next_clock_play.take() {
+            // If the state was just changed from playing, read one more sector before handling the
+            // new state
+            log::trace!("Reading sector at {time} before handling new state of {:?}", self.state);
+            return self.handle_playing(time, false, rchip);
+        }
+
         match self.state {
             State::Seeking { current_time, seek_time, next_status, clocks_remaining } => {
                 if clocks_remaining == 1 {
@@ -716,26 +741,7 @@ impl CdDrive {
             }
             State::Playing(time) => {
                 log::trace!("Playing at {time}");
-
-                let Some(disc) = &mut self.disc else {
-                    self.state = State::NoDisc;
-                    return Ok(());
-                };
-
-                let Some(track) = disc.cue().find_track_by_time(time) else {
-                    self.state = State::DiscEnd(disc.cue().last_track().end_time);
-                    return Ok(());
-                };
-
-                let relative_time = time - track.start_time;
-                let track_type = track.track_type;
-                disc.read_sector(track.number, relative_time, &mut self.sector_buffer)?;
-
-                self.loaded_audio_sector = track_type == TrackType::Audio;
-
-                rchip.decode_block(&self.sector_buffer);
-
-                self.state = State::Playing(time + CdTime::new(0, 0, 1));
+                self.handle_playing(time, true, rchip)?;
             }
             State::MotorStopped => {
                 match &self.disc {
@@ -765,6 +771,41 @@ impl CdDrive {
         Ok(())
     }
 
+    fn handle_playing(
+        &mut self,
+        time: CdTime,
+        change_state: bool,
+        rchip: &mut Rchip,
+    ) -> SegaCdLoadResult<()> {
+        let Some(disc) = &mut self.disc else {
+            if change_state {
+                self.state = State::NoDisc;
+            }
+            return Ok(());
+        };
+
+        let Some(track) = disc.cue().find_track_by_time(time) else {
+            if change_state {
+                self.state = State::DiscEnd(disc.cue().last_track().end_time);
+            }
+            return Ok(());
+        };
+
+        let relative_time = time - track.start_time;
+        let track_type = track.track_type;
+        disc.read_sector(track.number, relative_time, self.sector_buffer.as_mut())?;
+
+        self.loaded_audio_sector = track_type == TrackType::Audio;
+
+        rchip.decode_block(&self.sector_buffer);
+
+        if change_state {
+            self.state = State::Playing(time + CdTime::new(0, 0, 1));
+        }
+
+        Ok(())
+    }
+
     pub fn interrupt_pending(&self) -> bool {
         self.interrupt_pending
     }
@@ -779,7 +820,7 @@ impl CdDrive {
         let Some(disc) = &mut self.disc else { return Ok(None) };
 
         // Title information is always stored in the first sector of track 1
-        disc.read_sector(1, CdTime::SECTOR_0_START, &mut self.sector_buffer)?;
+        disc.read_sector(1, CdTime::SECTOR_0_START, self.sector_buffer.as_mut())?;
 
         let title_bytes = match region {
             GenesisRegion::Japan => &self.sector_buffer[0x130..0x160],
