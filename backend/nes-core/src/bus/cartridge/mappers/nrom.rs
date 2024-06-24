@@ -109,7 +109,8 @@ impl MapperImpl<Uxrom> {
     pub(crate) fn read_cpu_address(&self, address: u16) -> u8 {
         match address {
             0x0000..=0x401F => panic!("invalid CPU map address: 0x{address:04X}"),
-            0x4020..=0x7FFF => bus::cpu_open_bus(address),
+            0x4020..=0x5FFF => bus::cpu_open_bus(address),
+            0x6000..=0x7FFF => self.cartridge.get_prg_ram((address & 0x1FFF).into()),
             0x8000..=0xBFFF => {
                 let prg_rom_addr =
                     BankSizeKb::Sixteen.to_absolute_address(self.data.prg_bank, address);
@@ -137,7 +138,10 @@ impl MapperImpl<Uxrom> {
                     NametableMirroring::SingleScreenBank0
                 };
             }
-            (_, 0x4020..=0x7FFF)
+            (_, 0x6000..=0x7FFF) => {
+                self.cartridge.set_prg_ram((address & 0x1FFF).into(), value);
+            }
+            (_, 0x4020..=0x5FFF)
             | (UxromVariant::Codemasters, 0x8000..=0x9FFF)
             | (UxromVariant::Codemasters | UxromVariant::FireHawk, 0xA000..=0xBFFF) => {}
         }
