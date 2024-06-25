@@ -11,6 +11,7 @@ use cdrom::reader::{CdRom, CdRomFileFormat};
 use cdrom::CdRomError;
 use genesis_core::input::InputState;
 use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
+use genesis_core::timing::CycleCounters;
 use genesis_core::vdp::{Vdp, VdpTickEffect};
 use genesis_core::ym2612::{Ym2612, YmTickEffect};
 use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
@@ -24,15 +25,20 @@ use std::path::Path;
 use thiserror::Error;
 use z80_emu::Z80;
 
-const MAIN_CPU_DIVIDER: u64 = 7;
 pub(crate) const SUB_CPU_DIVIDER: u64 = 4;
-const Z80_DIVIDER: u64 = 15;
 
 const NTSC_GENESIS_MASTER_CLOCK_RATE: u64 = 53_693_175;
 const PAL_GENESIS_MASTER_CLOCK_RATE: u64 = 53_203_424;
 pub(crate) const SEGA_CD_MASTER_CLOCK_RATE: u64 = 50_000_000;
 
 const BIOS_LEN: usize = memory::BIOS_LEN;
+
+// Stall the main CPU for 2 out of every 172 mclk cycles instead of 2 out of 128 because this fixes
+// some tests in mcd-verificator.
+// I have no evidence that the main CPU actually does run faster with Sega CD compared to standalone
+// Genesis, but it's at least plausible that the memory refresh behavior is different when executing
+// out of BIOS ROM compared to Genesis cartridge ROM or WRAM
+type SegaCdCycleCounters = CycleCounters<172>;
 
 #[derive(Debug, Error)]
 pub enum SegaCdLoadError {
@@ -88,7 +94,7 @@ pub struct SegaCdEmulator {
     aspect_ratio: GenesisAspectRatio,
     adjust_aspect_ratio_in_2x_resolution: bool,
     disc_title: String,
-    genesis_mclk_cycles: u64,
+    cycles: SegaCdCycleCounters,
     sega_cd_mclk_cycles: u64,
     sega_cd_mclk_cycle_product: u64,
     sub_cpu_wait_cycles: u64,
@@ -227,7 +233,7 @@ impl SegaCdEmulator {
                 .genesis
                 .adjust_aspect_ratio_in_2x_resolution,
             disc_title,
-            genesis_mclk_cycles: 0,
+            cycles: SegaCdCycleCounters::default(),
             sega_cd_mclk_cycles: 0,
             sega_cd_mclk_cycle_product: 0,
             sub_cpu_wait_cycles: 0,
@@ -325,16 +331,24 @@ impl EmulatorTrait for SegaCdEmulator {
         let mut main_bus = new_main_bus!(self, m68k_reset: false);
 
         // Main 68000
-        let main_cpu_cycles = self.main_cpu.execute_instruction(&mut main_bus);
-
-        let genesis_mclk_elapsed = u64::from(main_cpu_cycles) * MAIN_CPU_DIVIDER;
-        let z80_cycles = (self.genesis_mclk_cycles + genesis_mclk_elapsed) / Z80_DIVIDER
-            - self.genesis_mclk_cycles / Z80_DIVIDER;
-        self.genesis_mclk_cycles += genesis_mclk_elapsed;
+        let main_cpu_cycles = if self.cycles.m68k_wait_cpu_cycles != 0 {
+            self.cycles.take_m68k_wait_cpu_cycles()
+        } else {
+            self.main_cpu.execute_instruction(&mut main_bus)
+        };
+        let genesis_mclk_elapsed = self.cycles.record_68k_instruction(
+            main_cpu_cycles,
+            self.main_cpu.last_instruction_was_mul_or_div(),
+        );
 
         // Z80
-        for _ in 0..z80_cycles {
+        while self.cycles.should_tick_z80() {
             self.z80.tick(&mut main_bus);
+            self.cycles.decrement_z80();
+        }
+
+        if main_bus.z80_accessed_68k_bus() {
+            self.cycles.record_z80_68k_bus_access();
         }
 
         self.main_bus_writes = main_bus.take_writes();
@@ -386,19 +400,21 @@ impl EmulatorTrait for SegaCdEmulator {
         self.input.tick(main_cpu_cycles);
 
         // PSG
-        for _ in 0..z80_cycles {
+        while self.cycles.should_tick_psg() {
             if self.psg.tick() == PsgTickEffect::Clocked {
                 let (psg_sample_l, psg_sample_r) = self.psg.sample();
                 self.audio_resampler.collect_psg_sample(psg_sample_l, psg_sample_r);
             }
+            self.cycles.decrement_psg();
         }
 
         // YM2612
-        for _ in 0..main_cpu_cycles {
+        while self.cycles.should_tick_ym2612() {
             if self.ym2612.tick() == YmTickEffect::OutputSample {
                 let (ym2612_sample_l, ym2612_sample_r) = self.ym2612.sample();
                 self.audio_resampler.collect_ym2612_sample(ym2612_sample_l, ym2612_sample_r);
             }
+            self.cycles.decrement_ym2612();
         }
 
         // RF5C164

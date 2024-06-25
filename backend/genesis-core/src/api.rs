@@ -3,6 +3,7 @@
 use crate::audio::GenesisAudioResampler;
 use crate::input::{GenesisInputs, InputState};
 use crate::memory::{Cartridge, MainBus, MainBusSignals, MainBusWrites, Memory};
+use crate::timing::GenesisCycleCounters;
 use crate::vdp::{Vdp, VdpConfig, VdpTickEffect};
 use crate::ym2612::{Ym2612, YmTickEffect};
 use crate::GenesisControllerType;
@@ -16,13 +17,8 @@ use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgTickEffect, PsgVersion};
 use std::fmt::{Debug, Display};
-use std::mem;
 use thiserror::Error;
 use z80_emu::Z80;
-
-const M68K_MCLK_DIVIDER: u64 = 7;
-const Z80_MCLK_DIVIDER: u64 = 15;
-const PSG_MCLK_DIVIDER: u64 = 15;
 
 #[derive(Debug, Error)]
 pub enum GenesisError<RErr, AErr, SErr> {
@@ -157,23 +153,6 @@ impl GenesisEmulatorConfig {
     }
 }
 
-#[derive(Debug, Clone, Default, Encode, Decode)]
-struct WaitStates {
-    m68k_cpu_cycles: u32,
-    z80_mclk_cycles: u64,
-    odd_access: bool,
-}
-
-impl WaitStates {
-    fn handle_z80_68k_bus_access(&mut self) {
-        // Each time the Z80 accesses the 68K bus, the Z80 is stalled for on average 3.3 Z80 cycles (= 49.5 mclk cycles)
-        // and the 68K is stalled for on average 11 68K cycles
-        self.m68k_cpu_cycles = 11;
-        self.z80_mclk_cycles = 49 + u64::from(self.odd_access);
-        self.odd_access = !self.odd_access;
-    }
-}
-
 #[derive(Debug, Encode, Decode, PartialClone)]
 pub struct GenesisEmulator {
     #[partial_clone(partial)]
@@ -186,12 +165,10 @@ pub struct GenesisEmulator {
     input: InputState,
     timing_mode: TimingMode,
     main_bus_writes: MainBusWrites,
+    audio_resampler: GenesisAudioResampler,
+    cycles: GenesisCycleCounters,
     aspect_ratio: GenesisAspectRatio,
     adjust_aspect_ratio_in_2x_resolution: bool,
-    audio_resampler: GenesisAudioResampler,
-    z80_mclk_cycles: u64,
-    psg_mclk_cycles: u64,
-    wait_states: WaitStates,
     config: GenesisEmulatorConfig,
 }
 
@@ -257,9 +234,7 @@ impl GenesisEmulator {
             aspect_ratio: config.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: config.adjust_aspect_ratio_in_2x_resolution,
             audio_resampler: GenesisAudioResampler::new(timing_mode, config),
-            z80_mclk_cycles: 0,
-            psg_mclk_cycles: 0,
-            wait_states: WaitStates::default(),
+            cycles: GenesisCycleCounters::default(),
             config,
         };
 
@@ -350,30 +325,23 @@ impl EmulatorTrait for GenesisEmulator {
         S::Err: Debug + Display + Send + Sync + 'static,
     {
         let mut bus = new_main_bus!(self, m68k_reset: false);
-        let m68k_cycles = if self.wait_states.m68k_cpu_cycles != 0 {
-            mem::take(&mut self.wait_states.m68k_cpu_cycles)
+        let m68k_cycles = if self.cycles.m68k_wait_cpu_cycles != 0 {
+            self.cycles.take_m68k_wait_cpu_cycles()
         } else {
             self.m68k.execute_instruction(&mut bus)
         };
 
-        let elapsed_mclk_cycles = u64::from(m68k_cycles) * M68K_MCLK_DIVIDER;
+        let elapsed_mclk_cycles = self
+            .cycles
+            .record_68k_instruction(m68k_cycles, self.m68k.last_instruction_was_mul_or_div());
 
-        self.z80_mclk_cycles += elapsed_mclk_cycles;
-        if self.z80_mclk_cycles >= self.wait_states.z80_mclk_cycles {
-            self.z80_mclk_cycles -= self.wait_states.z80_mclk_cycles;
-            self.wait_states.z80_mclk_cycles = 0;
-        } else {
-            self.wait_states.z80_mclk_cycles -= self.z80_mclk_cycles;
-            self.z80_mclk_cycles = 0;
-        }
-
-        while self.z80_mclk_cycles >= Z80_MCLK_DIVIDER {
+        while self.cycles.should_tick_z80() {
             self.z80.tick(&mut bus);
-            self.z80_mclk_cycles -= Z80_MCLK_DIVIDER;
+            self.cycles.decrement_z80();
         }
 
         if bus.z80_accessed_68k_bus() {
-            self.wait_states.handle_z80_68k_bus_access();
+            self.cycles.record_z80_68k_bus_access();
         }
 
         self.main_bus_writes = bus.apply_writes();
@@ -382,22 +350,22 @@ impl EmulatorTrait for GenesisEmulator {
 
         self.input.tick(m68k_cycles);
 
-        self.psg_mclk_cycles += elapsed_mclk_cycles;
-        while self.psg_mclk_cycles >= PSG_MCLK_DIVIDER {
+        while self.cycles.should_tick_psg() {
             if self.psg.tick() == PsgTickEffect::Clocked {
                 let (psg_sample_l, psg_sample_r) = self.psg.sample();
                 self.audio_resampler.collect_psg_sample(psg_sample_l, psg_sample_r);
             }
 
-            self.psg_mclk_cycles -= PSG_MCLK_DIVIDER;
+            self.cycles.decrement_psg();
         }
 
-        // The YM2612 uses the same master clock divider as the 68000
-        for _ in 0..m68k_cycles {
+        while self.cycles.should_tick_ym2612() {
             if self.ym2612.tick() == YmTickEffect::OutputSample {
                 let (ym_sample_l, ym_sample_r) = self.ym2612.sample();
                 self.audio_resampler.collect_ym2612_sample(ym_sample_l, ym_sample_r);
             }
+
+            self.cycles.decrement_ym2612();
         }
 
         self.audio_resampler.output_samples(audio_output).map_err(GenesisError::Audio)?;

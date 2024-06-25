@@ -51,6 +51,7 @@ struct Registers {
     supervisor_mode: bool,
     trace_enabled: bool,
     address_error: bool,
+    last_instruction_was_muldiv: bool,
     stopped: bool,
 }
 
@@ -69,6 +70,7 @@ impl Registers {
             supervisor_mode: true,
             trace_enabled: false,
             address_error: false,
+            last_instruction_was_muldiv: false,
             stopped: false,
         }
     }
@@ -869,6 +871,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
 
     fn execute(mut self) -> u32 {
         self.registers.address_error = false;
+        self.registers.last_instruction_was_muldiv = false;
 
         // TODO properly handle non-maskable level 7 interrupts?
         let interrupt_level = self.bus.interrupt_level() & 0x07;
@@ -1084,6 +1087,13 @@ impl M68000 {
     #[must_use]
     pub fn address_error(&self) -> bool {
         self.registers.address_error
+    }
+
+    /// True if the most recently executed instruction was MULU, MULS, DIVU, or DIVS
+    #[inline]
+    #[must_use]
+    pub fn last_instruction_was_mul_or_div(&self) -> bool {
+        self.registers.last_instruction_was_muldiv
     }
 
     #[inline]

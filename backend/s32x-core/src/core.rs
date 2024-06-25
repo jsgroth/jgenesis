@@ -2,14 +2,15 @@
 
 use crate::api::Sega32XEmulatorConfig;
 use crate::audio::PwmResampler;
+use crate::bootrom;
 use crate::bootrom::M68kVectors;
 use crate::bus::{Sh2Bus, WhichCpu};
 use crate::cartridge::Cartridge;
 use crate::pwm::PwmChip;
 use crate::registers::SystemRegisters;
 use crate::vdp::Vdp;
-use crate::{api, bootrom};
 use bincode::{Decode, Encode};
+use genesis_core::timing::M68K_DIVIDER;
 use genesis_core::GenesisRegion;
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::PartialClone;
@@ -33,6 +34,7 @@ pub struct SerialInterface {
 pub struct Sega32X {
     sh2_master: Sh2,
     sh2_slave: Sh2,
+    mclk_counter: u64,
     global_cycles: u64,
     master_cycles: u64,
     slave_cycles: u64,
@@ -60,6 +62,7 @@ impl Sega32X {
         Self {
             sh2_master: Sh2::new("Master".into()),
             sh2_slave: Sh2::new("Slave".into()),
+            mclk_counter: 0,
             global_cycles: 0,
             master_cycles: 0,
             slave_cycles: 0,
@@ -74,11 +77,13 @@ impl Sega32X {
         }
     }
 
-    pub fn tick(&mut self, m68k_cycles: u64, pwm_resampler: &mut PwmResampler) {
-        self.vdp.tick(api::M68K_DIVIDER * m68k_cycles, &mut self.registers);
+    pub fn tick(&mut self, mclk_cycles: u64, pwm_resampler: &mut PwmResampler) {
+        self.vdp.tick(mclk_cycles, &mut self.registers);
 
         // SH-2 clock speed is exactly 3x the 68000 clock speed
-        let elapsed_sh2_cycles = 3 * m68k_cycles;
+        self.mclk_counter += mclk_cycles;
+        let elapsed_sh2_cycles = self.mclk_counter * 3 / M68K_DIVIDER;
+        self.mclk_counter -= elapsed_sh2_cycles * M68K_DIVIDER / 3;
         self.global_cycles += elapsed_sh2_cycles;
 
         let mut bus = Sh2Bus {

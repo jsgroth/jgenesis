@@ -7,6 +7,7 @@ use crate::core::Sega32X;
 use bincode::{Decode, Encode};
 use genesis_core::input::InputState;
 use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
+use genesis_core::timing::GenesisCycleCounters;
 use genesis_core::vdp::{Vdp, VdpTickEffect};
 use genesis_core::ym2612::{Ym2612, YmTickEffect};
 use genesis_core::{GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
@@ -20,9 +21,6 @@ use std::fmt::{Debug, Display};
 use std::mem;
 use thiserror::Error;
 use z80_emu::Z80;
-
-pub(crate) const M68K_DIVIDER: u64 = 7;
-const Z80_DIVIDER: u64 = 15;
 
 #[derive(Debug, Error)]
 pub enum Sega32XError<RErr, AErr, SErr> {
@@ -69,7 +67,6 @@ macro_rules! new_main_bus {
 pub struct Sega32XEmulator {
     m68k: M68000,
     z80: Z80,
-    z80_mclk_cycles: u64,
     vdp: Vdp,
     ym2612: Ym2612,
     psg: Psg,
@@ -78,6 +75,7 @@ pub struct Sega32XEmulator {
     input: InputState,
     audio_resampler: Sega32XResampler,
     main_bus_writes: MainBusWrites,
+    cycles: GenesisCycleCounters,
     region: GenesisRegion,
     timing_mode: TimingMode,
     config: Sega32XEmulatorConfig,
@@ -126,7 +124,6 @@ impl Sega32XEmulator {
         let mut emulator = Self {
             m68k,
             z80,
-            z80_mclk_cycles: 0,
             vdp,
             ym2612,
             psg,
@@ -134,6 +131,7 @@ impl Sega32XEmulator {
             input,
             audio_resampler: Sega32XResampler::new(timing_mode, config),
             main_bus_writes: MainBusWrites::new(),
+            cycles: GenesisCycleCounters::default(),
             region,
             timing_mode,
             config,
@@ -199,35 +197,43 @@ impl EmulatorTrait for Sega32XEmulator {
         self.input.set_inputs(*inputs);
 
         let mut bus = new_main_bus!(self, m68k_reset: false);
-        let m68k_cycles: u64 = self.m68k.execute_instruction(&mut bus).into();
+        let m68k_cycles = if self.cycles.m68k_wait_cpu_cycles != 0 {
+            self.cycles.take_m68k_wait_cpu_cycles()
+        } else {
+            self.m68k.execute_instruction(&mut bus)
+        };
+        let mclk_cycles = self
+            .cycles
+            .record_68k_instruction(m68k_cycles, self.m68k.last_instruction_was_mul_or_div());
 
-        let mclk_cycles = M68K_DIVIDER * m68k_cycles;
-        self.z80_mclk_cycles += mclk_cycles;
-
-        let mut z80_cycles = 0;
-        while self.z80_mclk_cycles >= Z80_DIVIDER {
+        while self.cycles.should_tick_z80() {
             self.z80.tick(&mut bus);
-            self.z80_mclk_cycles -= Z80_DIVIDER;
-            z80_cycles += 1;
+            self.cycles.decrement_z80();
+        }
+
+        if bus.z80_accessed_68k_bus() {
+            self.cycles.record_z80_68k_bus_access();
         }
 
         self.main_bus_writes = bus.apply_writes();
 
-        self.memory.medium_mut().tick(m68k_cycles, self.audio_resampler.pwm_resampler_mut());
-        self.input.tick(m68k_cycles as u32);
+        self.memory.medium_mut().tick(mclk_cycles, self.audio_resampler.pwm_resampler_mut());
+        self.input.tick(m68k_cycles);
 
-        for _ in 0..m68k_cycles {
+        while self.cycles.should_tick_ym2612() {
             if self.ym2612.tick() == YmTickEffect::OutputSample {
                 let (sample_l, sample_r) = self.ym2612.sample();
                 self.audio_resampler.collect_ym2612_sample(sample_l, sample_r);
             }
+            self.cycles.decrement_ym2612();
         }
 
-        for _ in 0..z80_cycles {
+        while self.cycles.should_tick_psg() {
             if self.psg.tick() == PsgTickEffect::Clocked {
                 let (sample_l, sample_r) = self.psg.sample();
                 self.audio_resampler.collect_psg_sample(sample_l, sample_r);
             }
+            self.cycles.decrement_psg();
         }
 
         self.audio_resampler.output_samples(audio_output).map_err(Sega32XError::Audio)?;

@@ -333,6 +333,11 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             self.name
         );
 
+        self.registers.last_instruction_was_muldiv = matches!(
+            instruction,
+            MultiplyUnsigned(..) | MultiplySigned(..) | DivideUnsigned(..) | DivideSigned(..)
+        );
+
         match instruction {
             Add { size: OpSize::Byte, source, dest, with_extend } => {
                 self.add_byte(source, dest, with_extend)
