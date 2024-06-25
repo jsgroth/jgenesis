@@ -98,6 +98,7 @@ pub struct SegaCdEmulator {
     sega_cd_mclk_cycles: u64,
     sega_cd_mclk_cycle_product: u64,
     sub_cpu_wait_cycles: u64,
+    sub_cpu_pending_intack: Option<u8>,
     load_disc_into_ram: bool,
     config: SegaCdEmulatorConfig,
 }
@@ -237,6 +238,7 @@ impl SegaCdEmulator {
             sega_cd_mclk_cycles: 0,
             sega_cd_mclk_cycle_product: 0,
             sub_cpu_wait_cycles: 0,
+            sub_cpu_pending_intack: None,
             load_disc_into_ram: emulator_config.load_disc_into_ram,
             config: emulator_config,
         };
@@ -249,15 +251,34 @@ impl SegaCdEmulator {
 
     #[inline]
     fn tick_sub_cpu(&mut self, mut sub_cpu_cycles: u64) {
+        let mut bus = SubBus::new(&mut self.memory, &mut self.graphics_coprocessor, &mut self.pcm);
+
         while sub_cpu_cycles >= self.sub_cpu_wait_cycles {
+            if let Some(interrupt_level) = self.sub_cpu_pending_intack {
+                bus.apply_intack(interrupt_level);
+                bus.pending_intack = None;
+                self.sub_cpu_pending_intack = None;
+            }
+
             let wait_cycles = self.sub_cpu_wait_cycles;
-            let mut bus =
-                SubBus::new(&mut self.memory, &mut self.graphics_coprocessor, &mut self.pcm);
             self.sub_cpu_wait_cycles = self.sub_cpu.execute_instruction(&mut bus).into();
+            self.sub_cpu_pending_intack = bus.pending_intack;
             sub_cpu_cycles -= wait_cycles;
         }
 
         self.sub_cpu_wait_cycles -= sub_cpu_cycles;
+
+        // When the sub CPU finishes execution, only apply a pending INTACK if the sub CPU is at
+        // least 10 cycles into its 44-cycle interrupt handler. Actual hardware doesn't begin to
+        // acknowledge the interrupt until 10 cycles in, and this is needed to pass mcd-verificator's
+        // IRQ tests
+        match self.sub_cpu_pending_intack {
+            Some(interrupt_level) if self.sub_cpu_wait_cycles <= 34 => {
+                bus.apply_intack(interrupt_level);
+                self.sub_cpu_pending_intack = None;
+            }
+            _ => {}
+        }
     }
 
     fn render_frame<R: Renderer>(&self, renderer: &mut R) -> Result<(), R::Err> {

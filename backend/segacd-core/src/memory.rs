@@ -752,9 +752,10 @@ impl PhysicalMedium for SegaCd {
 const SUB_REGISTER_ADDRESS_MASK: u32 = 0x1FF;
 
 pub struct SubBus<'a> {
-    memory: &'a mut Memory<SegaCd>,
-    graphics_coprocessor: &'a mut GraphicsCoprocessor,
-    pcm: &'a mut Rf5c164,
+    pub memory: &'a mut Memory<SegaCd>,
+    pub graphics_coprocessor: &'a mut GraphicsCoprocessor,
+    pub pcm: &'a mut Rf5c164,
+    pub pending_intack: Option<u8>,
 }
 
 impl<'a> SubBus<'a> {
@@ -764,7 +765,7 @@ impl<'a> SubBus<'a> {
         graphics_coprocessor: &'a mut GraphicsCoprocessor,
         pcm: &'a mut Rf5c164,
     ) -> Self {
-        Self { memory, graphics_coprocessor, pcm }
+        Self { memory, graphics_coprocessor, pcm, pending_intack: None }
     }
 
     fn sega_cd(&self) -> &SegaCd {
@@ -774,9 +775,7 @@ impl<'a> SubBus<'a> {
     fn sega_cd_mut(&mut self) -> &mut SegaCd {
         self.memory.medium_mut()
     }
-}
 
-impl<'a> SubBus<'a> {
     #[allow(clippy::match_same_arms)]
     fn read_register_byte(&mut self, address: u32) -> u8 {
         log::trace!("Sub CPU register byte read: {address:06X}");
@@ -1219,6 +1218,27 @@ impl<'a> SubBus<'a> {
             _ => {}
         }
     }
+
+    pub fn apply_intack(&mut self, interrupt_level: u8) {
+        match interrupt_level {
+            1 => {
+                self.graphics_coprocessor.acknowledge_interrupt();
+            }
+            2 => {
+                self.sega_cd_mut().registers.software_interrupt_pending = false;
+            }
+            3 => {
+                self.sega_cd_mut().registers.timer_interrupt_pending = false;
+            }
+            4 => {
+                self.sega_cd_mut().cdd_mut().acknowledge_interrupt();
+            }
+            5 => {
+                self.sega_cd_mut().cdc_mut().acknowledge_interrupt();
+            }
+            _ => {}
+        }
+    }
 }
 
 // Sega CD / 68000 only has a 24-bit address bus
@@ -1400,24 +1420,7 @@ impl<'a> BusInterface for SubBus<'a> {
 
     #[inline]
     fn acknowledge_interrupt(&mut self) {
-        match self.interrupt_level() {
-            1 => {
-                self.graphics_coprocessor.acknowledge_interrupt();
-            }
-            2 => {
-                self.sega_cd_mut().registers.software_interrupt_pending = false;
-            }
-            3 => {
-                self.sega_cd_mut().registers.timer_interrupt_pending = false;
-            }
-            4 => {
-                self.sega_cd_mut().cdd_mut().acknowledge_interrupt();
-            }
-            5 => {
-                self.sega_cd_mut().cdc_mut().acknowledge_interrupt();
-            }
-            _ => {}
-        }
+        self.pending_intack = Some(self.interrupt_level());
     }
 
     #[inline]
