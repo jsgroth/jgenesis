@@ -482,9 +482,14 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             self.registers.ccr =
                 ConditionCodes { carry: false, overflow: true, ..self.registers.ccr };
 
-            // Overflows take 16 cycles for non-negative dividend and 18 for negative dividend
-            let base_cycles = 16 + 2 * u32::from(operand_l < 0);
-            return Ok(base_cycles + source.address_calculation_cycles(OpSize::Word));
+            return if operand_l.wrapping_abs() >> 16 >= operand_r.abs() {
+                // Absolute overflows take 16 cycles for non-negative dividend and 18 for negative dividend
+                let base_cycles = 16 + 2 * u32::from(operand_l < 0);
+                Ok(base_cycles + source.address_calculation_cycles(OpSize::Word))
+            } else {
+                // Signed overflows are not detected early and take the normal number of cycles
+                Ok(divs_cycle_count(operand_l, operand_r, quotient, source))
+            };
         }
 
         let value = ((quotient as u32) & 0x0000_FFFF) | ((remainder as u32) << 16);
@@ -498,7 +503,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
             ..self.registers.ccr
         };
 
-        Ok(divs_cycle_count(operand_l, operand_r, quotient as i16, source))
+        Ok(divs_cycle_count(operand_l, operand_r, quotient, source))
     }
 
     pub(super) fn divu(
@@ -679,14 +684,14 @@ fn divu_cycle_count(dividend: u32, divisor: u32, source: AddressingMode) -> u32 
     76 + added_cycles + source.address_calculation_cycles(OpSize::Word)
 }
 
-fn divs_cycle_count(dividend: i32, divisor: i32, quotient: i16, source: AddressingMode) -> u32 {
+fn divs_cycle_count(dividend: i32, divisor: i32, quotient: i32, source: AddressingMode) -> u32 {
     // All DIVS instructions take at least 120 cycles for a non-negative dividend and 122 for negative
     let base_cycles = if dividend < 0 { 122 } else { 120 };
 
     let mut added_cycles = 0;
 
     // Add 2 cycles for each 0 in the quotient's absolute value's most significant 15 bits
-    let mut absolute_quotient = quotient.wrapping_abs();
+    let mut absolute_quotient = quotient.wrapping_abs() as i16;
     for _ in 0..15 {
         added_cycles += 2 * u32::from(absolute_quotient >= 0);
         absolute_quotient <<= 1;

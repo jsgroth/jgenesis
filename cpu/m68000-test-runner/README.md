@@ -25,3 +25,5 @@ Sample output (single test):
 
 * `ADD.l` / `SUB.l`: The test suite seems to expect `ADDQ.l #<d>, An` and `SUBQ.l #<d>, An` to take 6 cycles, when all documentation I can find suggests that these should take 8 cycles (same as `ADDQ.w` and `SUBQ.w` with an address direct destination)
 * `ASL.b` / `ASR.b` / `ASR.w` / `ASR.l`: The test cases have incorrect flag values, see https://github.com/TomHarte/ProcessorTests/issues/21
+* `DIVS`: The test cases that trigger signed overflow have incorrect cycle counts compared to tests verified on actual hardware (e.g. https://gendev.spritesmind.net/forum/viewtopic.php?f=8&t=3321)
+* `DIVU`: The one test case that triggers a divide by zero exception pushes the wrong PC value onto the stack compared to actual hardware; matching the test case breaks After Burner Complete (32X)
