@@ -95,6 +95,7 @@ impl CdController {
         mclk_cycles: u64,
         word_ram: &mut WordRam,
         prg_ram: &mut [u8; memory::PRG_RAM_LEN],
+        prg_ram_accessible: bool,
         pcm: &mut Rf5c164,
     ) -> SegaCdLoadResult<CdTickEffect> {
         match self.prescaler.tick(mclk_cycles) {
@@ -102,7 +103,7 @@ impl CdController {
             PrescalerTickEffect::SampleAudio => {
                 let (sample_l, sample_r) = self.drive.update_audio_sample();
 
-                self.rchip.clock_44100hz(word_ram, prg_ram, pcm);
+                self.rchip.clock_44100hz(word_ram, prg_ram, prg_ram_accessible, pcm);
 
                 Ok(CdTickEffect::OutputAudioSample(sample_l, sample_r))
             }

@@ -142,7 +142,6 @@ impl Rchip {
 
     pub fn set_device_destination(&mut self, device_destination: DeviceDestination) {
         // Abort any in-progress data transfer and reset DMA controller
-        self.data_transfer_in_progress = false;
         self.dma_address = 0;
 
         // Writing device destination always clears EDT
@@ -159,8 +158,8 @@ impl Rchip {
                 && self.device_destination != DeviceDestination::MainCpuRegister)
             || (cpu == ScdCpu::Sub && self.device_destination != DeviceDestination::SubCpuRegister)
         {
-            // Invalid host data read
-            return 0x0000;
+            // Invalid host data read; return whatever is currently in the buffer but don't refill it
+            return self.host_data_buffer.unwrap_or(0);
         }
 
         log::trace!("Host data read by {cpu:?}");
@@ -180,6 +179,26 @@ impl Rchip {
         log::trace!("  Returning {host_data:04X}");
 
         host_data
+    }
+
+    pub fn write_host_data(&mut self, cpu: ScdCpu) {
+        log::trace!("Host data write by {cpu:?}");
+
+        // Writing to the host data register effectively skips the word
+        if !self.data_transfer_in_progress
+            || (cpu == ScdCpu::Main
+                && self.device_destination != DeviceDestination::MainCpuRegister)
+            || (cpu == ScdCpu::Sub && self.device_destination != DeviceDestination::SubCpuRegister)
+        {
+            return;
+        }
+
+        if self.end_of_data_transfer {
+            log::trace!("  Host data transfer has ended");
+            self.data_transfer_in_progress = false;
+        } else {
+            self.populate_host_data_buffer();
+        }
     }
 
     fn populate_host_data_buffer(&mut self) {
@@ -570,6 +589,8 @@ impl Rchip {
                 self.decoded_first_written_block = true;
             }
 
+            self.end_of_data_transfer = false;
+
             log::trace!(
                 "Performed decoder write; write address = {:04X}, block pointer = {:04X}",
                 self.write_address,
@@ -603,10 +624,11 @@ impl Rchip {
         &mut self,
         word_ram: &mut WordRam,
         prg_ram: &mut [u8; memory::PRG_RAM_LEN],
+        prg_ram_accessible: bool,
         pcm: &mut Rf5c164,
     ) {
         if self.data_transfer_in_progress && self.device_destination.is_dma() {
-            self.progress_dma(word_ram, prg_ram, pcm);
+            self.progress_dma(word_ram, prg_ram, prg_ram_accessible, pcm);
         }
 
         // Based on mcd-verificator, DECI automatically clears about 40% of the way through a 75Hz frame
@@ -631,8 +653,20 @@ impl Rchip {
         &mut self,
         word_ram: &mut WordRam,
         prg_ram: &mut [u8; memory::PRG_RAM_LEN],
+        prg_ram_accessible: bool,
         pcm: &mut Rf5c164,
     ) {
+        if self.device_destination == DeviceDestination::PrgRam && !prg_ram_accessible {
+            log::trace!("CDC DMA to PRG RAM is halted because sub CPU is removed from the bus");
+            return;
+        }
+
+        if self.device_destination == DeviceDestination::WordRam && word_ram.is_sub_access_blocked()
+        {
+            log::trace!("CDC DMA is halted because sub CPU does not have access to word RAM");
+            return;
+        }
+
         let dma_address_mask = match self.device_destination {
             // All 19 bits of DMA address are used for PRG RAM
             DeviceDestination::PrgRam => (1 << 19) - 1,

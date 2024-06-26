@@ -340,6 +340,10 @@ impl SegaCd {
             0xA12006..=0xA12007 => {
                 self.registers.h_interrupt_vector = u16::from_le_bytes([value, value]);
             }
+            0xA12008..=0xA12009 => {
+                // CDC host data
+                self.cdc_mut().write_host_data(ScdCpu::Main);
+            }
             0xA1200E..=0xA1200F => {
                 self.registers.main_cpu_communication_flags = value;
             }
@@ -370,6 +374,10 @@ impl SegaCd {
                 self.registers.h_interrupt_vector = value;
 
                 log::trace!("  HINT vector set to {value:04X}");
+            }
+            0xA12008 => {
+                // CDC host data
+                self.cdc_mut().write_host_data(ScdCpu::Main);
             }
             0xA1200E => {
                 // Communication flags; only main CPU flags are writable
@@ -476,10 +484,13 @@ impl SegaCd {
         master_clock_cycles: u64,
         pcm: &mut Rf5c164,
     ) -> SegaCdLoadResult<CdTickEffect> {
+        // CDC DMA can only write to PRG RAM while the sub CPU is on the bus
+        let prg_ram_accessible = !self.registers.sub_cpu_busreq;
         let cd_tick_effect = self.disc_drive.tick(
             master_clock_cycles,
             &mut self.word_ram,
             &mut self.prg_ram,
+            prg_ram_accessible,
             pcm,
         )?;
 
@@ -1039,6 +1050,10 @@ impl<'a> SubBus<'a> {
                 log::trace!("  CDC register data write: {value:02X}");
                 self.sega_cd_mut().cdc_mut().write_register(value);
             }
+            0x0008..=0x0009 => {
+                // CDC host data
+                self.sega_cd_mut().cdc_mut().write_host_data(ScdCpu::Sub);
+            }
             0x000A..=0x000B => {
                 // CDC DMA address (bits 18-3)
                 // Byte-size writes to this register are erroneous
@@ -1155,6 +1170,10 @@ impl<'a> SubBus<'a> {
             0x0006 => {
                 // CDC data, only low byte is writable
                 self.write_register_byte(address | 1, value as u8);
+            }
+            0x0008 => {
+                // CDC host data
+                self.sega_cd_mut().cdc_mut().write_host_data(ScdCpu::Sub);
             }
             0x000A => {
                 // CDC DMA address (bits 18-3)
