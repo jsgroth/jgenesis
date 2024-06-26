@@ -455,7 +455,7 @@ impl SegaCd {
     fn write_prg_ram(&mut self, address: u32, value: u8, cpu: ScdCpu) {
         if cpu == ScdCpu::Main && !self.registers.sub_cpu_busreq {
             // The Genesis hardware cannot write to PRG RAM while the sub CPU is on the bus.
-            // Dungeon Master depends on this or the Z80 will trash PRG RAM while the sub CPU is using it
+            // Dungeon Explorer depends on this or the Z80 will trash PRG RAM while the sub CPU is using it
             log::trace!(
                 "Main CPU write to PRG RAM without removing sub CPU from bus: {address:06X} {value:02X}"
             );
