@@ -646,55 +646,96 @@ impl Rchip {
             _ => panic!("Invalid DMA destination: {:?}", self.device_destination),
         };
 
-        // PCM DMA confusingly shifts the effective address bits down by 1, treating the register
-        // as A11-A2 instead of A12-A3
-        let dma_address_shift = match self.device_destination {
-            DeviceDestination::Pcm => 1,
-            DeviceDestination::PrgRam | DeviceDestination::WordRam => 0,
-            _ => panic!("Invalid DMA destination: {:?}", self.device_destination),
-        };
-
-        let mut dma_address = (self.dma_address >> dma_address_shift) & dma_address_mask;
-
         log::trace!(
-            "Progressing DMA transfer to {:?} starting at {dma_address:06X}; {} bytes remaining",
+            "Progressing DMA transfer to {:?} starting at {:06X}; {} bytes remaining",
             self.device_destination,
+            self.dma_address,
             self.data_byte_counter + 1
         );
 
-        // 128 is arbitrary; CDC DMA seems to always be in chunks of 2048 bytes so this will get the
-        // DMA done fairly quickly
-        for _ in 0..128 {
-            let byte = self.buffer_ram[self.data_address_counter as usize];
-            match self.device_destination {
-                DeviceDestination::PrgRam => {
-                    prg_ram[dma_address as usize] = byte;
+        match self.device_destination {
+            DeviceDestination::PrgRam | DeviceDestination::WordRam => {
+                let mut dma_address = self.dma_address & dma_address_mask;
+
+                // Transfers to PRG RAM and word RAM are word-size; transfer 2 bytes at a time
+                // 64 is arbitrary and makes the transfer finish quickly
+                for _ in 0..64 {
+                    if self.data_byte_counter == 0 {
+                        // DMA length is odd; skip the last byte because transfers are word-size
+                        log::trace!("DMA transfer complete");
+
+                        self.data_byte_counter = 0xFFFF;
+                        self.data_transfer_in_progress = false;
+                        self.end_dma_transfer();
+
+                        break;
+                    }
+
+                    let msb = self.buffer_ram[self.data_address_counter as usize];
+                    let lsb = self.buffer_ram
+                        [((self.data_address_counter + 1) & BUFFER_RAM_ADDRESS_MASK) as usize];
+
+                    match self.device_destination {
+                        DeviceDestination::PrgRam => {
+                            prg_ram[dma_address as usize] = msb;
+                            prg_ram[((dma_address + 1) & dma_address_mask) as usize] = lsb;
+                        }
+                        DeviceDestination::WordRam => {
+                            word_ram.dma_write(dma_address, msb);
+                            word_ram.dma_write((dma_address + 1) & dma_address_mask, lsb);
+                        }
+                        _ => unreachable!("nested matches"),
+                    }
+
+                    self.data_address_counter =
+                        (self.data_address_counter + 2) & BUFFER_RAM_ADDRESS_MASK;
+                    dma_address = (dma_address + 2) & dma_address_mask;
+
+                    let (new_byte_counter, overflowed) = self.data_byte_counter.overflowing_sub(2);
+                    self.data_byte_counter = new_byte_counter;
+                    if overflowed {
+                        log::trace!("DMA transfer complete");
+
+                        self.data_transfer_in_progress = false;
+                        self.end_dma_transfer();
+
+                        break;
+                    }
                 }
-                DeviceDestination::WordRam => {
-                    word_ram.dma_write(dma_address, byte);
-                }
-                DeviceDestination::Pcm => {
+
+                self.dma_address = dma_address;
+            }
+            DeviceDestination::Pcm => {
+                // PCM DMA confusingly shifts the effective address bits down by 1, treating the register
+                // as A11-A2 instead of A12-A3
+                let mut dma_address = (self.dma_address >> 1) & dma_address_mask;
+
+                // Transfers to PCM RAM are byte-size
+                // 128 is arbitrary and makes the transfer finish quickly
+                for _ in 0..128 {
+                    let byte = self.buffer_ram[self.data_address_counter as usize];
                     pcm.dma_write(dma_address, byte);
+
+                    self.data_address_counter =
+                        (self.data_address_counter + 1) & BUFFER_RAM_ADDRESS_MASK;
+                    dma_address = (dma_address + 1) & dma_address_mask;
+
+                    let (new_byte_counter, overflowed) = self.data_byte_counter.overflowing_sub(1);
+                    self.data_byte_counter = new_byte_counter;
+                    if overflowed {
+                        log::trace!("DMA transfer complete");
+
+                        self.data_transfer_in_progress = false;
+                        self.end_dma_transfer();
+
+                        break;
+                    }
                 }
-                _ => unreachable!("device destination checked earlier in the function"),
+
+                self.dma_address = dma_address << 1;
             }
-
-            self.data_address_counter = (self.data_address_counter + 1) & BUFFER_RAM_ADDRESS_MASK;
-            dma_address = (dma_address + 1) & dma_address_mask;
-
-            let (new_byte_counter, overflowed) = self.data_byte_counter.overflowing_sub(1);
-            self.data_byte_counter = new_byte_counter;
-            if overflowed {
-                log::trace!("DMA transfer complete");
-
-                self.data_transfer_in_progress = false;
-                self.end_dma_transfer();
-
-                break;
-            }
+            _ => unreachable!("device destination was checked earlier in the method"),
         }
-
-        self.dma_address = dma_address << dma_address_shift;
     }
 
     pub fn reset(&mut self) {
