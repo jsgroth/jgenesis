@@ -935,6 +935,10 @@ impl<'a> SubBus<'a> {
                 log::trace!("  CDC host data read (sub CPU)");
                 self.sega_cd_mut().cdc_mut().read_host_data(ScdCpu::Sub)
             }
+            0x000A => {
+                // CDC DMA address
+                (self.sega_cd().cdc().dma_address() >> 3) as u16
+            }
             0x000C => self.sega_cd().registers.stopwatch_counter,
             0x000E => {
                 // Communication flags

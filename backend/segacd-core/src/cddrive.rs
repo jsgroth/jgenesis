@@ -102,13 +102,14 @@ impl CdController {
             PrescalerTickEffect::SampleAudio => {
                 let (sample_l, sample_r) = self.drive.update_audio_sample();
 
-                self.rchip.clock(word_ram, prg_ram, pcm);
+                self.rchip.clock_44100hz(word_ram, prg_ram, pcm);
 
                 Ok(CdTickEffect::OutputAudioSample(sample_l, sample_r))
             }
             PrescalerTickEffect::SampleAudioAndClockCdd => {
                 let (sample_l, sample_r) = self.drive.update_audio_sample();
                 self.drive.clock(&mut self.rchip)?;
+                self.rchip.clock_75hz();
 
                 Ok(CdTickEffect::OutputAudioSample(sample_l, sample_r))
             }

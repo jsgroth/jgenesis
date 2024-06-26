@@ -57,6 +57,10 @@ impl DeviceDestination {
     fn is_dma(self) -> bool {
         matches!(self, Self::Pcm | Self::PrgRam | Self::WordRam)
     }
+
+    fn is_host_data(self) -> bool {
+        matches!(self, Self::MainCpuRegister | Self::SubCpuRegister)
+    }
 }
 
 impl Default for DeviceDestination {
@@ -73,11 +77,14 @@ impl Default for DeviceDestination {
 pub struct Rchip {
     buffer_ram: Box<[u8; BUFFER_RAM_LEN]>,
     device_destination: DeviceDestination,
+    host_data_buffer: Option<u16>,
     register_address: u8,
     dma_address: u32,
     decoder_enabled: bool,
     decoder_writes_enabled: bool,
     decoded_first_written_block: bool,
+    decoded_last_75hz_cycle: bool,
+    cycles_44100hz_since_decode: u32,
     data_out_enabled: bool,
     data_transfer_in_progress: bool,
     end_of_data_transfer: bool,
@@ -103,11 +110,14 @@ impl Rchip {
         Self {
             buffer_ram: vec![0; BUFFER_RAM_LEN].into_boxed_slice().try_into().unwrap(),
             device_destination: DeviceDestination::default(),
+            host_data_buffer: None,
             register_address: 0,
             dma_address: 0,
             decoder_enabled: false,
             decoder_writes_enabled: false,
             decoded_first_written_block: false,
+            decoded_last_75hz_cycle: false,
+            cycles_44100hz_since_decode: 0,
             data_out_enabled: false,
             data_transfer_in_progress: false,
             end_of_data_transfer: true,
@@ -153,30 +163,49 @@ impl Rchip {
             return 0x0000;
         }
 
+        log::trace!("Host data read by {cpu:?}");
+
+        let Some(host_data) = self.host_data_buffer.take() else {
+            log::trace!("  Host data buffer is empty");
+            return 0x0000;
+        };
+
+        if self.end_of_data_transfer {
+            log::trace!("  Host data transfer has ended");
+            self.data_transfer_in_progress = false;
+        } else {
+            self.populate_host_data_buffer();
+        }
+
+        log::trace!("  Returning {host_data:04X}");
+
+        host_data
+    }
+
+    fn populate_host_data_buffer(&mut self) {
         let msb_addr = self.data_address_counter;
         let lsb_addr = (self.data_address_counter + 1) & BUFFER_RAM_ADDRESS_MASK;
         let host_data = u16::from_be_bytes([
             self.buffer_ram[msb_addr as usize],
             self.buffer_ram[lsb_addr as usize],
         ]);
+        self.host_data_buffer = Some(host_data);
         self.data_address_counter = (self.data_address_counter + 2) & BUFFER_RAM_ADDRESS_MASK;
 
         let (new_byte_counter, overflowed) = self.data_byte_counter.overflowing_sub(2);
         self.data_byte_counter = new_byte_counter;
         if overflowed {
-            self.data_transfer_in_progress = false;
-            self.end_of_data_transfer = true;
-            self.transfer_end_interrupt_pending = true;
-            if self.transfer_end_interrupt_enabled {
-                self.scd_interrupt_flag = true;
-            }
+            self.end_dma_transfer();
         }
 
         log::trace!(
             "Host data read performed; data={host_data:04X}, DBC={new_byte_counter:04X}, ended={overflowed}"
         );
+    }
 
-        host_data
+    fn end_dma_transfer(&mut self) {
+        self.end_of_data_transfer = true;
+        self.set_transfer_end_interrupt_flag();
     }
 
     pub fn register_address(&self) -> u8 {
@@ -194,7 +223,7 @@ impl Rchip {
                 log::trace!("COMIN read");
 
                 // Not used by Sega CD; return a dummy value
-                0x00
+                0xFF
             }
             1 => {
                 // IFSTAT (Host Interface Status)
@@ -293,7 +322,7 @@ impl Rchip {
             }
             16..=31 => {
                 // Invalid addresses
-                0x00
+                0xFF
             }
             _ => panic!("CDC register address should always be <= 15"),
         };
@@ -357,6 +386,9 @@ impl Rchip {
 
                 // Writing any value to this register initiates a data transfer if DOUTEN=1
                 self.data_transfer_in_progress = self.data_out_enabled;
+                if self.data_transfer_in_progress && self.device_destination.is_host_data() {
+                    self.populate_host_data_buffer();
+                }
             }
             7 => {
                 // DTACK (Data Transfer End Acknowledge)
@@ -487,6 +519,10 @@ impl Rchip {
         }
     }
 
+    pub fn dma_address(&self) -> u32 {
+        self.dma_address
+    }
+
     pub fn set_dma_address(&mut self, dma_address: u32) {
         log::trace!("CDC DMA address set to {dma_address:X}");
         self.dma_address = dma_address;
@@ -509,14 +545,13 @@ impl Rchip {
             return;
         }
 
+        self.decoded_last_75hz_cycle = true;
+
         // Header data and subheader data are always read from bytes 12-15 and 16-19 respectively
         self.header_data.copy_from_slice(&sector_buffer[12..16]);
         self.subheader_data.copy_from_slice(&sector_buffer[16..20]);
 
-        self.decoder_interrupt_pending = true;
-        if self.decoder_interrupt_enabled {
-            self.scd_interrupt_flag = true;
-        }
+        self.set_decoder_interrupt_flag();
 
         if self.decoder_writes_enabled {
             for &byte in sector_buffer {
@@ -543,7 +578,28 @@ impl Rchip {
         }
     }
 
-    pub fn clock(
+    fn set_decoder_interrupt_flag(&mut self) {
+        // Decoder interrupt always triggers INT5, even if not acknowledged in CDC
+        self.decoder_interrupt_pending = true;
+        if self.decoder_interrupt_enabled
+            && (!self.transfer_end_interrupt_enabled || !self.transfer_end_interrupt_pending)
+        {
+            self.scd_interrupt_flag = true;
+        }
+    }
+
+    fn set_transfer_end_interrupt_flag(&mut self) {
+        // Transfer end interrupt only triggers INT5 if the previous interrupt was acknowledged in CDC
+        if self.transfer_end_interrupt_enabled
+            && !self.transfer_end_interrupt_pending
+            && (!self.decoder_interrupt_enabled || !self.decoder_interrupt_pending)
+        {
+            self.scd_interrupt_flag = true;
+        }
+        self.transfer_end_interrupt_pending = true;
+    }
+
+    pub fn clock_44100hz(
         &mut self,
         word_ram: &mut WordRam,
         prg_ram: &mut [u8; memory::PRG_RAM_LEN],
@@ -552,6 +608,23 @@ impl Rchip {
         if self.data_transfer_in_progress && self.device_destination.is_dma() {
             self.progress_dma(word_ram, prg_ram, pcm);
         }
+
+        // Based on mcd-verificator, DECI automatically clears about 40% of the way through a 75Hz frame
+        self.cycles_44100hz_since_decode += 1;
+        if self.cycles_44100hz_since_decode == 44100 / 75 * 4 / 10 {
+            self.decoder_interrupt_pending = false;
+        }
+    }
+
+    pub fn clock_75hz(&mut self) {
+        if !self.decoded_last_75hz_cycle && self.decoder_enabled {
+            // The decoder interrupt triggers every 75Hz cycle if enabled, even if no new sector
+            // was received from the CDD. In actual hardware I think it repeatedly decodes the
+            // last received block
+            self.set_decoder_interrupt_flag();
+        }
+        self.decoded_last_75hz_cycle = false;
+        self.cycles_44100hz_since_decode = 0;
     }
 
     fn progress_dma(
@@ -615,11 +688,7 @@ impl Rchip {
                 log::trace!("DMA transfer complete");
 
                 self.data_transfer_in_progress = false;
-                self.end_of_data_transfer = true;
-                self.transfer_end_interrupt_pending = true;
-                if self.transfer_end_interrupt_enabled {
-                    self.scd_interrupt_flag = true;
-                }
+                self.end_dma_transfer();
 
                 break;
             }
