@@ -50,6 +50,13 @@ impl<const REFRESH_INTERVAL: u64> CycleCounters<REFRESH_INTERVAL> {
             }
         }
 
+        self.increment_mclk_counters(mclk_cycles);
+
+        mclk_cycles
+    }
+
+    #[inline]
+    pub fn increment_mclk_counters(&mut self, mclk_cycles: u64) {
         self.z80_mclk_counter += mclk_cycles;
         self.ym2612_mclk_counter += mclk_cycles;
         self.psg_mclk_counter += mclk_cycles;
@@ -57,8 +64,6 @@ impl<const REFRESH_INTERVAL: u64> CycleCounters<REFRESH_INTERVAL> {
         let z80_wait_elapsed = cmp::min(self.z80_mclk_counter, self.z80_wait_mclk_cycles);
         self.z80_mclk_counter -= z80_wait_elapsed;
         self.z80_wait_mclk_cycles -= z80_wait_elapsed;
-
-        mclk_cycles
     }
 
     #[inline]

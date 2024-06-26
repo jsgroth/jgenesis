@@ -10,12 +10,14 @@ use crate::pwm::PwmChip;
 use crate::registers::SystemRegisters;
 use crate::vdp::Vdp;
 use bincode::{Decode, Encode};
-use genesis_core::timing::M68K_DIVIDER;
-use genesis_core::GenesisRegion;
+use genesis_core::{timing, GenesisRegion};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::PartialClone;
 use sh2_emu::Sh2;
 use std::mem;
+
+const M68K_DIVIDER: u64 = timing::M68K_DIVIDER;
+const SH2_MULTIPLIER: u64 = 3;
 
 // Only execute SH-2 instructions in batches of at least 10 for slightly better performance
 const SH2_EXECUTION_SLICE_LEN: u64 = 10;
@@ -82,8 +84,8 @@ impl Sega32X {
 
         // SH-2 clock speed is exactly 3x the 68000 clock speed
         self.mclk_counter += mclk_cycles;
-        let elapsed_sh2_cycles = self.mclk_counter * 3 / M68K_DIVIDER;
-        self.mclk_counter -= elapsed_sh2_cycles * M68K_DIVIDER / 3;
+        let elapsed_sh2_cycles = self.mclk_counter * SH2_MULTIPLIER / M68K_DIVIDER;
+        self.mclk_counter -= elapsed_sh2_cycles * M68K_DIVIDER / SH2_MULTIPLIER;
         self.global_cycles += elapsed_sh2_cycles;
 
         let mut bus = Sh2Bus {
