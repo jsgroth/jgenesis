@@ -28,7 +28,7 @@ pub trait BusInterface {
     // Auto-vectored interrupt level; should be between 0 and 7, with 0 indicating no interrupt
     fn interrupt_level(&self) -> u8;
 
-    fn acknowledge_interrupt(&mut self);
+    fn acknowledge_interrupt(&mut self, interrupt_level: u8);
 
     fn halt(&self) -> bool;
 

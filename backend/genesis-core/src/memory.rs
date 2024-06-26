@@ -786,7 +786,17 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
     }
 
     #[inline]
-    fn acknowledge_interrupt(&mut self) {
+    fn acknowledge_interrupt(&mut self, _interrupt_level: u8) {
+        // When the 68000 acknowledges a VDP interrupt, the VDP acknowledges whatever level it is
+        // currently raising rather than paying attention to the 68000's IACK lines. This is noted
+        // in official documentation which describes this hardware bug: If both HINT are VINT are
+        // enabled and the 68000 executes a long instruction right before HINT would trigger on line
+        // 224, it's possible for the following sequence of events to happen:
+        //   1. The VDP sets IPL2 to indicate a level 4 interrupt (HINT)
+        //   2. After the 68000 finishes its long instruction, it begins to handle the level 4 interrupt
+        //   3. Before the acknowledge, VBlank begins and the VDP sets IPL2+IPL1 for level 6 interrupt (VINT)
+        //   4. The 68000 sets its VPA signal to acknowledge the interrupt, and the VDP acknowledges VINT instead of HINT
+        //   5. After the 68000 returns from its HINT handler, it immediately handles the HINT a second time (having missed VINT)
         self.vdp.acknowledge_m68k_interrupt();
     }
 

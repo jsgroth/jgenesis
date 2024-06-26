@@ -755,7 +755,6 @@ pub struct SubBus<'a> {
     pub memory: &'a mut Memory<SegaCd>,
     pub graphics_coprocessor: &'a mut GraphicsCoprocessor,
     pub pcm: &'a mut Rf5c164,
-    pub pending_intack: Option<u8>,
 }
 
 impl<'a> SubBus<'a> {
@@ -765,7 +764,7 @@ impl<'a> SubBus<'a> {
         graphics_coprocessor: &'a mut GraphicsCoprocessor,
         pcm: &'a mut Rf5c164,
     ) -> Self {
-        Self { memory, graphics_coprocessor, pcm, pending_intack: None }
+        Self { memory, graphics_coprocessor, pcm }
     }
 
     fn sega_cd(&self) -> &SegaCd {
@@ -1218,27 +1217,6 @@ impl<'a> SubBus<'a> {
             _ => {}
         }
     }
-
-    pub fn apply_intack(&mut self, interrupt_level: u8) {
-        match interrupt_level {
-            1 => {
-                self.graphics_coprocessor.acknowledge_interrupt();
-            }
-            2 => {
-                self.sega_cd_mut().registers.software_interrupt_pending = false;
-            }
-            3 => {
-                self.sega_cd_mut().registers.timer_interrupt_pending = false;
-            }
-            4 => {
-                self.sega_cd_mut().cdd_mut().acknowledge_interrupt();
-            }
-            5 => {
-                self.sega_cd_mut().cdc_mut().acknowledge_interrupt();
-            }
-            _ => {}
-        }
-    }
 }
 
 // Sega CD / 68000 only has a 24-bit address bus
@@ -1419,8 +1397,28 @@ impl<'a> BusInterface for SubBus<'a> {
     }
 
     #[inline]
-    fn acknowledge_interrupt(&mut self) {
-        self.pending_intack = Some(self.interrupt_level());
+    fn acknowledge_interrupt(&mut self, interrupt_level: u8) {
+        // Unlike the Genesis VDP, the Sega CD does appear to acknowledge the correct interrupt
+        // when the sub CPU acknowledges an interrupt. Not doing this causes some mcd-verificator
+        // tests to fail
+        match interrupt_level {
+            1 => {
+                self.graphics_coprocessor.acknowledge_interrupt();
+            }
+            2 => {
+                self.sega_cd_mut().registers.software_interrupt_pending = false;
+            }
+            3 => {
+                self.sega_cd_mut().registers.timer_interrupt_pending = false;
+            }
+            4 => {
+                self.sega_cd_mut().cdd_mut().acknowledge_interrupt();
+            }
+            5 => {
+                self.sega_cd_mut().cdc_mut().acknowledge_interrupt();
+            }
+            _ => {}
+        }
     }
 
     #[inline]

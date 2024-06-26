@@ -48,6 +48,7 @@ struct Registers {
     pc: u32,
     ccr: ConditionCodes,
     interrupt_priority_mask: u8,
+    pending_interrupt_level: Option<u8>,
     supervisor_mode: bool,
     trace_enabled: bool,
     address_error: bool,
@@ -67,6 +68,7 @@ impl Registers {
             pc: 0,
             ccr: 0.into(),
             interrupt_priority_mask: DEFAULT_INTERRUPT_MASK,
+            pending_interrupt_level: None,
             supervisor_mode: true,
             trace_enabled: false,
             address_error: false,
@@ -866,22 +868,34 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
         let vector_addr = AUTO_VECTORED_INTERRUPT_BASE_ADDRESS + 4 * u32::from(interrupt_level);
         self.registers.pc = self.bus.read_long_word(vector_addr);
 
-        Ok(44)
+        // Auto-vectored interrupt handling takes 44 cycles, but 10 already elapsed from waiting to
+        // acknowledge
+        Ok(34)
     }
 
     fn execute(mut self) -> u32 {
         self.registers.address_error = false;
         self.registers.last_instruction_was_muldiv = false;
 
-        // TODO properly handle non-maskable level 7 interrupts?
-        let interrupt_level = self.bus.interrupt_level() & 0x07;
-        if interrupt_level > self.registers.interrupt_priority_mask {
-            log::trace!("[{}] Handling interrupt of level {interrupt_level}", self.name);
-            self.bus.acknowledge_interrupt();
+        if let Some(interrupt_level) = self.registers.pending_interrupt_level {
+            self.registers.pending_interrupt_level = None;
+            self.bus.acknowledge_interrupt(interrupt_level);
             self.registers.stopped = false;
             return self
                 .handle_auto_vectored_interrupt(interrupt_level)
                 .unwrap_or_else(|_err| todo!("address error during interrupt service routine"));
+        }
+
+        // TODO properly handle non-maskable level 7 interrupts?
+        let interrupt_level = self.bus.interrupt_level() & 0x07;
+        if interrupt_level > self.registers.interrupt_priority_mask {
+            log::trace!("[{}] Handling interrupt of level {interrupt_level}", self.name);
+            self.registers.pending_interrupt_level = Some(interrupt_level);
+
+            // The 68000 takes about 10 cycles before it begins to acknowledge a received interrupt:
+            //   https://gendev.spritesmind.net/forum/viewtopic.php?t=2202
+            // mcd-verificator IRQ tests depend on this 10-cycle delay
+            return 10;
         }
 
         if self.registers.stopped {
