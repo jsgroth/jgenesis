@@ -501,7 +501,7 @@ impl GraphicsCoprocessor {
     }
 }
 
-fn read_word_ram(word_ram: &WordRam, address: u32) -> u8 {
+fn read_word_ram(word_ram: &mut WordRam, address: u32) -> u8 {
     word_ram.sub_cpu_read_ram(wordram::SUB_BASE_ADDRESS | address)
 }
 
@@ -529,7 +529,7 @@ fn compute_stamp_map_address(
 }
 
 fn sample_stamp(
-    word_ram: &WordRam,
+    word_ram: &mut WordRam,
     stamp: StampData,
     stamp_size: StampSizeDots,
     x: u32,

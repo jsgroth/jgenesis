@@ -251,12 +251,24 @@ impl SegaCdEmulator {
 
     #[inline]
     fn tick_sub_cpu(&mut self, mut sub_cpu_cycles: u64) {
+        if self.memory.medium().word_ram().sub_performed_blocked_access() {
+            // If the sub CPU accesses word RAM while it's in 2M mode and owned by the main CPU, it
+            // should halt until the main CPU writes DMNA=1 to transfer ownership to the sub CPU.
+            // Marko's Magic Football depends on this or it will have glitched map graphics
+            log::trace!("Not running sub CPU because word RAM writes are buffered");
+            return;
+        }
+
         let mut bus = SubBus::new(&mut self.memory, &mut self.graphics_coprocessor, &mut self.pcm);
 
         while sub_cpu_cycles >= self.sub_cpu_wait_cycles {
             let wait_cycles = self.sub_cpu_wait_cycles;
             self.sub_cpu_wait_cycles = self.sub_cpu.execute_instruction(&mut bus).into();
             sub_cpu_cycles -= wait_cycles;
+
+            if bus.memory.medium().word_ram().sub_performed_blocked_access() {
+                return;
+            }
         }
 
         self.sub_cpu_wait_cycles -= sub_cpu_cycles;
@@ -385,12 +397,14 @@ impl EmulatorTrait for SegaCdEmulator {
         }
 
         // Graphics ASIC
-        let graphics_interrupt_enabled = sega_cd.graphics_interrupt_enabled();
-        self.graphics_coprocessor.tick(
-            elapsed_scd_mclk_cycles,
-            sega_cd.word_ram_mut(),
-            graphics_interrupt_enabled,
-        );
+        if !sega_cd.word_ram().is_sub_access_blocked() {
+            let graphics_interrupt_enabled = sega_cd.graphics_interrupt_enabled();
+            self.graphics_coprocessor.tick(
+                elapsed_scd_mclk_cycles,
+                sega_cd.word_ram_mut(),
+                graphics_interrupt_enabled,
+            );
+        }
 
         // Sub 68000
         self.tick_sub_cpu(sub_cpu_cycles);

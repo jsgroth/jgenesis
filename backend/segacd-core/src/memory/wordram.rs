@@ -76,6 +76,8 @@ enum WordRamSubMapResult {
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct WordRam {
     ram: Box<[u8; WORD_RAM_LEN]>,
+    sub_buffered_writes: Vec<(u32, u8)>,
+    sub_blocked_read: bool,
     mode: WordRamMode,
     priority_mode: WordRamPriorityMode,
     owner_2m: ScdCpu,
@@ -95,6 +97,8 @@ impl WordRam {
     pub fn new() -> Self {
         Self {
             ram: vec![0; WORD_RAM_LEN].into_boxed_slice().try_into().unwrap(),
+            sub_buffered_writes: Vec::with_capacity(5),
+            sub_blocked_read: false,
             mode: WordRamMode::default(),
             priority_mode: WordRamPriorityMode::default(),
             owner_2m: ScdCpu::Main,
@@ -130,6 +134,8 @@ impl WordRam {
         // DMNA=1 always returns 2M word RAM to sub CPU, regardless of mode
         if dmna {
             self.owner_2m = ScdCpu::Sub;
+            self.flush_buffered_sub_writes();
+            self.sub_blocked_read = false;
         }
 
         // In 1M mode, setting DMNA=0 sends a swap request to the sub CPU
@@ -250,10 +256,6 @@ impl WordRam {
     fn sub_cpu_map_address(&self, address: u32) -> WordRamSubMapResult {
         match (self.mode, address) {
             (WordRamMode::TwoM, 0x080000..=0x0BFFFF) => {
-                // Hack: On real hardware, the sub CPU accessing word RAM in 2M mode while it's
-                // owned by the main CPU causes the sub CPU to lock up.
-                // Allowing these accesses to go through fixes flickering / missing graphics in
-                // Batman Returns, possibly related to graphics ASIC timing issues
                 WordRamSubMapResult::Byte(address & ADDRESS_MASK)
             }
             (WordRamMode::TwoM, 0x0C0000..=0x0DFFFF) => WordRamSubMapResult::None,
@@ -272,10 +274,13 @@ impl WordRam {
         }
     }
 
-    pub fn sub_cpu_read_ram(&self, address: u32) -> u8 {
+    pub fn sub_cpu_read_ram(&mut self, address: u32) -> u8 {
         match self.sub_cpu_map_address(address) {
             WordRamSubMapResult::None => 0,
-            WordRamSubMapResult::Byte(addr) => self.ram[addr as usize],
+            WordRamSubMapResult::Byte(addr) => {
+                self.sub_blocked_read |= self.is_sub_access_blocked();
+                self.ram[addr as usize]
+            }
             WordRamSubMapResult::Pixel(pixel_addr) => {
                 let byte_addr = (pixel_addr >> 1) as usize;
                 if pixel_addr.bit(0) {
@@ -290,12 +295,32 @@ impl WordRam {
     pub fn sub_cpu_write_ram(&mut self, address: u32, value: u8) {
         match self.sub_cpu_map_address(address) {
             WordRamSubMapResult::None => {}
-            WordRamSubMapResult::Byte(addr) => {
-                self.ram[addr as usize] = value;
+            WordRamSubMapResult::Byte(byte_addr) => {
+                if !self.is_sub_access_blocked() {
+                    self.ram[byte_addr as usize] = value;
+                } else {
+                    self.sub_buffered_writes.push((byte_addr, value));
+                }
             }
             WordRamSubMapResult::Pixel(pixel_addr) => {
                 self.write_1m_pixel(pixel_addr, value & 0x0F);
             }
+        }
+    }
+
+    /// Is sub CPU access to word RAM currently blocked (i.e. in 2M mode and main CPU owns word RAM)
+    pub fn is_sub_access_blocked(&self) -> bool {
+        self.mode == WordRamMode::TwoM && self.owner_2m == ScdCpu::Main
+    }
+
+    /// Did the sub CPU access word RAM while access was blocked
+    pub fn sub_performed_blocked_access(&self) -> bool {
+        !self.sub_buffered_writes.is_empty() || self.sub_blocked_read
+    }
+
+    fn flush_buffered_sub_writes(&mut self) {
+        for (address, byte) in self.sub_buffered_writes.drain(..) {
+            self.ram[address as usize] = byte;
         }
     }
 
@@ -533,23 +558,27 @@ mod tests {
         assert_eq!(R::None, word_ram.sub_cpu_map_address(0x0DFFFF));
     }
 
-    // This test case depends on restricting sub CPU access to 2M word RAM when it's owned by
-    // the main CPU, which seems to cause graphical issues in Batman Returns (most likely caused
-    // by a bug elsewhere in the emulator)
-    #[ignore]
     #[test]
     fn word_ram_sub_cpu_2m_mapping_main_owner() {
-        use WordRamSubMapResult as R;
-
         let mut word_ram = WordRam::new();
+        word_ram.ram.fill(0xFF);
         word_ram.mode = WordRamMode::TwoM;
-
         word_ram.owner_2m = ScdCpu::Main;
-        assert_eq!(R::None, word_ram.sub_cpu_map_address(0x080000));
-        assert_eq!(R::None, word_ram.sub_cpu_map_address(0x0BFFFF));
 
-        assert_eq!(R::None, word_ram.sub_cpu_map_address(0x0C0000));
-        assert_eq!(R::None, word_ram.sub_cpu_map_address(0x0DFFFF));
+        // Valid addresses but access is blocked
+        word_ram.sub_cpu_write_ram(0x080000, 0x01);
+        word_ram.sub_cpu_write_ram(0x0BFFFF, 0x02);
+
+        // Invalid addresses
+        word_ram.sub_cpu_write_ram(0x0C0000, 0x03);
+        word_ram.sub_cpu_write_ram(0x0DFFFF, 0x04);
+
+        assert!(word_ram.ram.iter().copied().all(|value| value == 0xFF));
+        assert_eq!(word_ram.sub_buffered_writes, vec![(0x00000, 0x01), (0x3FFFF, 0x02)]);
+
+        word_ram.flush_buffered_sub_writes();
+        assert_eq!(word_ram.ram[0x00000], 0x01);
+        assert_eq!(word_ram.ram[0x3FFFF], 0x02);
     }
 
     #[test]

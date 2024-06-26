@@ -510,6 +510,10 @@ impl SegaCd {
         self.disc_drive.disc_title(self.region())
     }
 
+    pub fn word_ram(&self) -> &WordRam {
+        &self.word_ram
+    }
+
     pub fn word_ram_mut(&mut self) -> &mut WordRam {
         &mut self.word_ram
     }
@@ -1233,7 +1237,7 @@ impl<'a> BusInterface for SubBus<'a> {
             }
             0x080000..=0x0DFFFF => {
                 // Word RAM
-                self.sega_cd().word_ram.sub_cpu_read_ram(address)
+                self.sega_cd_mut().word_ram.sub_cpu_read_ram(address)
             }
             0xFE0000..=0xFEFFFF => {
                 // Backup RAM (odd addresses)
@@ -1269,7 +1273,7 @@ impl<'a> BusInterface for SubBus<'a> {
             }
             0x080000..=0x0DFFFF => {
                 // Word RAM
-                let word_ram = &self.sega_cd().word_ram;
+                let word_ram = &mut self.sega_cd_mut().word_ram;
                 let msb = word_ram.sub_cpu_read_ram(address);
                 let lsb = word_ram.sub_cpu_read_ram(address | 1);
                 u16::from_be_bytes([msb, lsb])
