@@ -453,7 +453,7 @@ impl SegaCd {
     }
 
     fn write_prg_ram(&mut self, address: u32, value: u8, cpu: ScdCpu) {
-        if cpu == ScdCpu::Main && !self.registers.sub_cpu_busreq {
+        if cpu == ScdCpu::Main && !(self.registers.sub_cpu_busreq || self.registers.sub_cpu_reset) {
             // The Genesis hardware cannot write to PRG RAM while the sub CPU is on the bus.
             // Dungeon Explorer depends on this or the Z80 will trash PRG RAM while the sub CPU is using it
             log::trace!(
@@ -494,7 +494,7 @@ impl SegaCd {
         pcm: &mut Rf5c164,
     ) -> SegaCdLoadResult<CdTickEffect> {
         // CDC DMA can only write to PRG RAM while the sub CPU is on the bus
-        let prg_ram_accessible = !self.registers.sub_cpu_busreq;
+        let prg_ram_accessible = !(self.registers.sub_cpu_busreq || self.registers.sub_cpu_reset);
         let cd_tick_effect = self.disc_drive.tick(
             master_clock_cycles,
             &mut self.word_ram,
