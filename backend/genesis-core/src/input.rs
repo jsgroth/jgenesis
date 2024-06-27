@@ -37,6 +37,7 @@ pub enum GenesisControllerType {
     ThreeButton,
     #[default]
     SixButton,
+    None,
 }
 
 // Slightly less than 1.5ms
@@ -150,6 +151,9 @@ pub struct InputState {
     p2_pin_directions: PinDirections,
 }
 
+// All 1s signals to games that nothing is connected to the port
+const DATA_NO_CONTROLLER: u8 = 0xFF;
+
 impl InputState {
     #[must_use]
     pub fn new(
@@ -181,11 +185,19 @@ impl InputState {
 
     #[must_use]
     pub fn read_p1_data(&self) -> u8 {
+        if self.p1_controller_type == GenesisControllerType::None {
+            return DATA_NO_CONTROLLER;
+        }
+
         self.p1_pin_directions.to_data_byte(self.inputs.p1)
     }
 
     #[must_use]
     pub fn read_p2_data(&self) -> u8 {
+        if self.p2_controller_type == GenesisControllerType::None {
+            return DATA_NO_CONTROLLER;
+        }
+
         self.p2_pin_directions.to_data_byte(self.inputs.p2)
     }
 

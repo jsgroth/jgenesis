@@ -979,6 +979,7 @@ impl App {
                     "3-button",
                 );
                 ui.radio_value(controller_type_field, GenesisControllerType::SixButton, "6-button");
+                ui.radio_value(controller_type_field, GenesisControllerType::None, "None");
             });
         });
     }

@@ -148,9 +148,13 @@ struct Args {
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
     genesis_region: Option<GenesisRegion>,
 
-    /// P1 Genesis controller type (ThreeButton / SixButton)
+    /// P1 Genesis controller type (ThreeButton / SixButton / None)
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
     genesis_p1_controller_type: Option<GenesisControllerType>,
+
+    /// P2 Genesis controller type (ThreeButton / SixButton / None)
+    #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
+    genesis_p2_controller_type: Option<GenesisControllerType>,
 
     /// Sega CD BIOS path
     #[arg(short = 'b', long, help_heading = SCD_OPTIONS_HEADING)]
@@ -453,7 +457,10 @@ impl Args {
             config.genesis.forced_region = Some(region);
         }
 
-        apply_overrides!(self, config.inputs, [genesis_p1_controller_type -> genesis_p1_type]);
+        apply_overrides!(self, config.inputs, [
+            genesis_p1_controller_type -> genesis_p1_type,
+            genesis_p2_controller_type -> genesis_p2_type,
+        ]);
     }
 
     fn apply_sega_cd_overrides(&self, config: &mut AppConfig) {
