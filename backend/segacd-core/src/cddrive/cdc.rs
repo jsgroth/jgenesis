@@ -405,6 +405,7 @@ impl Rchip {
 
                 // Writing any value to this register initiates a data transfer if DOUTEN=1
                 self.data_transfer_in_progress = self.data_out_enabled;
+                self.end_of_data_transfer = !self.data_transfer_in_progress;
                 if self.data_transfer_in_progress && self.device_destination.is_host_data() {
                     self.populate_host_data_buffer();
                 }
@@ -588,8 +589,6 @@ impl Rchip {
 
                 self.decoded_first_written_block = true;
             }
-
-            self.end_of_data_transfer = false;
 
             log::trace!(
                 "Performed decoder write; write address = {:04X}, block pointer = {:04X}",
