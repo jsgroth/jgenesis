@@ -61,10 +61,6 @@ const PWM_LPF_COEFFICIENTS: [f64; 45] = [
 
 const PWM_HPF_CHARGE_FACTOR: f64 = 0.9920244986380192;
 
-// +8 dB (10 ^ 8/20)
-// This is a significant volume increase, but the PWM chip sounds way too quiet without doing this
-const PWM_COEFFICIENT: f64 = 2.51188643150958;
-
 pub type PwmResampler = SignalResampler<45, 8>;
 
 fn new_pwm_resampler() -> PwmResampler {
@@ -134,10 +130,8 @@ impl Sega32XResampler {
                 self.pwm_enabled,
             );
 
-            let sample_l =
-                (ym2612_l + PSG_COEFFICIENT * psg_l + PWM_COEFFICIENT * pwm_l).clamp(-1.0, 1.0);
-            let sample_r =
-                (ym2612_r + PSG_COEFFICIENT * psg_r + PWM_COEFFICIENT * pwm_r).clamp(-1.0, 1.0);
+            let sample_l = (ym2612_l + PSG_COEFFICIENT * psg_l + pwm_l).clamp(-1.0, 1.0);
+            let sample_r = (ym2612_r + PSG_COEFFICIENT * psg_r + pwm_r).clamp(-1.0, 1.0);
 
             audio_output.push_sample(sample_l, sample_r)?;
         }

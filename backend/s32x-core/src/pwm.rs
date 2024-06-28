@@ -5,6 +5,7 @@ use crate::registers::SystemRegisters;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::GetBit;
+use std::cmp;
 use std::collections::VecDeque;
 
 // 53.693175 MHz * 3 / 7 / (1047 - 1) ~= 22 KHz
@@ -219,19 +220,20 @@ impl PwmChip {
 
             if self.cycle_counter == 0 {
                 // Cycle counter is always set to (register - 1), wrapping from 0 to 4095
-                self.cycle_counter = (self.cycle_register.wrapping_sub(1) & U12_MASK).into();
+                let cycle_register = self.cycle_register;
+                self.cycle_counter = (cycle_register.wrapping_sub(1) & U12_MASK).into();
 
                 self.l_output = self.l_fifo.pop().unwrap_or(self.l_output);
                 self.r_output = self.r_fifo.pop().unwrap_or(self.r_output);
 
                 let sample_l = match self.control.l_out {
-                    OutputDirection::Same => pulse_width_to_f64(self.l_output),
-                    OutputDirection::Opposite => pulse_width_to_f64(self.r_output),
+                    OutputDirection::Same => pulse_width_to_f64(self.l_output, cycle_register),
+                    OutputDirection::Opposite => pulse_width_to_f64(self.r_output, cycle_register),
                     _ => 0.0,
                 };
                 let sample_r = match self.control.r_out {
-                    OutputDirection::Same => pulse_width_to_f64(self.r_output),
-                    OutputDirection::Opposite => pulse_width_to_f64(self.l_output),
+                    OutputDirection::Same => pulse_width_to_f64(self.r_output, cycle_register),
+                    OutputDirection::Opposite => pulse_width_to_f64(self.l_output, cycle_register),
                     _ => 0.0,
                 };
                 pwm_resampler.collect_sample(sample_l, sample_r);
@@ -339,8 +341,15 @@ fn compute_sample_rate(genesis_mclk_frequency: f64, cycle_register: u16) -> f64 
     genesis_mclk_frequency * 3.0 / 7.0 / f64::from(cycle_register.wrapping_sub(1) & U12_MASK)
 }
 
-// Map from [0, 4096) to [-1.0, 1.0]
-fn pulse_width_to_f64(pulse_width: u16) -> f64 {
-    let divisor = 0.5 * f64::from(U12_MASK);
-    (f64::from(pulse_width) - divisor) / divisor
+fn pulse_width_to_f64(pulse_width: u16, cycle_register: u16) -> f64 {
+    if cycle_register == 1 {
+        return 0.0;
+    }
+
+    // Treat the pulse width as a sample on a scale from 0 to (cycle_register - 1) and map that to [-1, 1]
+    let max_width = cycle_register.wrapping_sub(1) & U12_MASK;
+    let clamped_width = cmp::min(pulse_width, max_width);
+
+    let divisor = 0.5 * f64::from(max_width);
+    (f64::from(clamped_width) - divisor) / divisor
 }
