@@ -752,6 +752,18 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
     pub fn z80_accessed_68k_bus(&self) -> bool {
         self.z80_accessed_68k_bus
     }
+
+    // $A11100
+    fn read_busack_register(&self) -> u16 {
+        // Word reads of Z80 BUSREQ signal mirror the byte in both MSB and LSB (TODO is this right or should only bit 8 be set?)
+        let busack_byte: u8 = (!self.memory.signals.z80_busack()).into();
+        let busack_word = u16::from_be_bytes([busack_byte, busack_byte]);
+
+        // Fill unused bits with 1s; this fixes Danny Sullivan's Indy Heat from failing to boot.
+        // It has a broken loop to poll for BUSACK that ends up depending on the unused bits being
+        // open bus
+        busack_word | 0xFEFE
+    }
 }
 
 // The Genesis has a 24-bit bus, not 32-bit
@@ -772,7 +784,7 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
                 <Self as z80_emu::BusInterface>::read_memory(self, (address & 0x7FFF) as u16)
             }
             0xA10000..=0xA1001F => self.read_io_register(address),
-            0xA11100..=0xA11101 => (!self.memory.signals.z80_busack()).into(),
+            0xA11100..=0xA11101 => (self.read_busack_register() >> 8) as u8,
             0xC00000..=0xC0001F => self.read_vdp_byte(address),
             0xE00000..=0xFFFFFF => self.memory.main_ram[(address & 0xFFFF) as usize],
             _ => 0xFF,
@@ -793,11 +805,7 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
                 u16::from_le_bytes([byte, byte])
             }
             0xA10000..=0xA1001F => self.read_io_register(address).into(),
-            0xA11100..=0xA11101 => {
-                // Word reads of Z80 BUSREQ signal mirror the byte in both MSB and LSB
-                let byte: u8 = (!self.memory.signals.z80_busack()).into();
-                u16::from_le_bytes([byte, byte])
-            }
+            0xA11100..=0xA11101 => self.read_busack_register(),
             0xC00000..=0xC00003 => self.vdp.read_data(),
             0xC00004..=0xC00007 => self.vdp.read_status(),
             0xC00008..=0xC0000F => self.vdp.hv_counter(),
