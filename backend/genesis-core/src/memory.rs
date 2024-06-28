@@ -124,6 +124,12 @@ impl Cartridge {
         initial_ram_bytes: Option<Vec<u8>>,
         forced_region: Option<GenesisRegion>,
     ) -> Self {
+        // Take checksum before potentially byteswapping the ROM
+        let checksum = CRC.checksum(&rom_bytes);
+        log::info!("ROM CRC32: {checksum:08X}");
+
+        let rom_bytes = ensure_big_endian(rom_bytes);
+
         let region = forced_region.unwrap_or_else(|| {
             GenesisRegion::from_rom(&rom_bytes).unwrap_or_else(|| {
                 log::warn!("Unable to determine cartridge region from ROM header; using Americas");
@@ -132,7 +138,7 @@ impl Cartridge {
         });
         log::info!("Genesis hardware region: {region:?}");
 
-        let external_memory = ExternalMemory::from_rom(&rom_bytes, initial_ram_bytes);
+        let external_memory = ExternalMemory::from_rom(&rom_bytes, checksum, initial_ram_bytes);
 
         // Initialize ram_mapped to true if external memory is present
         // Only one game ever unmaps RAM (Phantasy Star 4)
@@ -145,7 +151,7 @@ impl Cartridge {
         let serial_number = &rom_bytes[0x183..0x18B];
         let svp = is_virtua_racing(serial_number).then(Svp::new);
 
-        let is_unlicensed_rockman_x3 = CRC.checksum(&rom_bytes) == ROCKMAN_X3_CHECKSUM;
+        let is_unlicensed_rockman_x3 = checksum == ROCKMAN_X3_CHECKSUM;
 
         Self {
             rom: Rom(rom_bytes),
@@ -204,6 +210,20 @@ impl Cartridge {
     fn program_title(&self) -> String {
         parse_title_from_header(&self.rom.0, self.region)
     }
+}
+
+fn ensure_big_endian(mut rom: Vec<u8>) -> Vec<u8> {
+    // Every licensed game contains the ASCII string "SEGA" at $100-$104 in ROM
+    // If the string "ESAG" is detected there, byteswap the ROM
+    if &rom[0x100..0x104] == "ESAG".as_bytes() {
+        log::info!("Byteswapping ROM because it appears to be little-endian");
+
+        for chunk in rom.chunks_exact_mut(2) {
+            chunk.swap(0, 1);
+        }
+    }
+
+    rom
 }
 
 #[must_use]

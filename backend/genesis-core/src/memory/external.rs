@@ -7,6 +7,13 @@ use crate::memory::external::metadata::{EepromMetadata, EepromType};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 
+// Games that expect to have 8KB of SRAM mapped to $200001-$203FFF but don't specify that in the header
+const FORCE_SRAM_CHECKSUMS: &[u32] = &[
+    0x8135702C, // NHL 96 (UE)
+    0xF509145F, // Might and Magic: Gates to Another World (UE)
+    0x6EF7104A, // Might and Magic III: Isles of Terra (U) (Proto)
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub(crate) enum RamType {
     SixteenBit,
@@ -26,7 +33,17 @@ pub(crate) struct Ram {
 }
 
 impl Ram {
-    pub(crate) fn from_rom_header(rom: &[u8], initial_ram: &mut Option<Vec<u8>>) -> Option<Self> {
+    pub(crate) fn from_rom_header(
+        rom: &[u8],
+        checksum: u32,
+        initial_ram: &mut Option<Vec<u8>>,
+    ) -> Option<Self> {
+        if FORCE_SRAM_CHECKSUMS.contains(&checksum) {
+            // Several games have 8KB of SRAM but don't declare it in the header
+            log::info!("Forcibly mapping 8KB of SRAM to $200001-$203FFF");
+            return Some(Self::forced_8kb_sram(initial_ram));
+        }
+
         let ram_header_bytes = &rom[0x1B0..0x1BC];
 
         // RAM header should always start with ASCII "RA" followed by $F8 and $20
@@ -146,6 +163,25 @@ impl Ram {
             log::warn!("Write to invalid address: {address:06X} {value:04X}");
         }
     }
+
+    fn forced_8kb_sram(initial_ram: &mut Option<Vec<u8>>) -> Self {
+        const SRAM_LEN: usize = 8 * 1024;
+
+        let ram = match initial_ram.take() {
+            Some(ram) if ram.len() == SRAM_LEN => ram,
+            _ => vec![0; SRAM_LEN],
+        };
+
+        Self {
+            ram,
+            address_mask: (SRAM_LEN - 1) as u32,
+            ram_type: RamType::EightBitOddAddress,
+            persistent: true,
+            dirty: false,
+            start_address: 0x200001,
+            end_address: 0x203FFF,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -210,12 +246,12 @@ pub(crate) enum ExternalMemory {
 }
 
 impl ExternalMemory {
-    pub(crate) fn from_rom(rom: &[u8], mut initial_ram: Option<Vec<u8>>) -> Self {
-        if let Some(ram) = Ram::from_rom_header(rom, &mut initial_ram) {
+    pub(crate) fn from_rom(rom: &[u8], checksum: u32, mut initial_ram: Option<Vec<u8>>) -> Self {
+        if let Some(ram) = Ram::from_rom_header(rom, checksum, &mut initial_ram) {
             return Self::Ram(ram);
         }
 
-        if let Some(eeprom_metadata) = metadata::eeprom(rom) {
+        if let Some(eeprom_metadata) = metadata::eeprom(rom, checksum) {
             log::info!("EEPROM metadata: {eeprom_metadata:X?}");
             return new_eeprom(rom, initial_ram, eeprom_metadata);
         }

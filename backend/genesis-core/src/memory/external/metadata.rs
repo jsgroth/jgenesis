@@ -4,8 +4,6 @@
 //! List of games and metadata from this thread:
 //! <https://gendev.spritesmind.net/forum/viewtopic.php?f=25&t=206>
 
-use crc::Crc;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EepromType {
     X24C01,
@@ -97,9 +95,7 @@ const CODEMASTERS_24C16_METADATA: EepromMetadata = EepromMetadata {
     scl_bit: 1,
 };
 
-const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
-
-pub fn eeprom(rom: &[u8]) -> Option<EepromMetadata> {
+pub fn eeprom(rom: &[u8], checksum: u32) -> Option<EepromMetadata> {
     let serial_number: String = rom[0x183..0x18B].iter().map(|&b| b as char).collect();
     match serial_number.as_str() {
         // NBA Jam (UE)
@@ -128,9 +124,6 @@ pub fn eeprom(rom: &[u8]) -> Option<EepromMetadata> {
             if is_micro_machines_2(rom) {
                 return Some(CODEMASTERS_24C08_METADATA);
             }
-
-            let checksum = CRC.checksum(rom);
-            log::info!("ROM CRC32: {checksum:08X}");
 
             match checksum {
                 // Micro Machines: Military (E)
