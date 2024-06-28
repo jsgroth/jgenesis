@@ -82,6 +82,12 @@ pub enum GenesisRegion {
 impl GenesisRegion {
     #[must_use]
     pub fn from_rom(rom: &[u8]) -> Option<Self> {
+        if &rom[0x1F0..0x1F6] == b"EUROPE" {
+            // Another World (E) has the string "EUROPE" in the region section; special case this
+            // so that it's not detected as U (this game does not work with NTSC timings)
+            return Some(GenesisRegion::Europe);
+        }
+
         let region_bytes = &rom[0x1F0..0x1F3];
 
         // Prefer Americas if region code contains a 'U'
