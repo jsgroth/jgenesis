@@ -84,7 +84,10 @@ impl SegaMapper {
         let is_ssf2 = is_super_street_fighter_2(serial_number);
         let is_ssf_system = &rom[0x100..0x110] == b"SEGA SSF        ";
 
-        is_ssf2 | is_ssf_system
+        // Demons of Asteborg specifies its system as "SEGA DOA" but expects the SSF mapper
+        let is_doa = &rom[0x100..0x108] == b"SEGA DOA";
+
+        is_ssf2 | is_ssf_system | is_doa
     }
 }
 
