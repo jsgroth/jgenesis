@@ -77,6 +77,8 @@ struct InternalState {
     data_address: u32,
     latched_high_address_bits: u32,
     v_interrupt_pending: bool,
+    delayed_v_interrupt: bool,
+    delayed_v_interrupt_next: bool,
     h_interrupt_pending: bool,
     h_interrupt_counter: u16,
     latched_hv_counter: Option<u16>,
@@ -102,6 +104,8 @@ impl InternalState {
             data_address: 0,
             latched_high_address_bits: 0,
             v_interrupt_pending: false,
+            delayed_v_interrupt: false,
+            delayed_v_interrupt_next: false,
             h_interrupt_pending: false,
             h_interrupt_counter: 0,
             latched_hv_counter: None,
@@ -364,6 +368,7 @@ impl Vdp {
                 if value & 0xE000 == 0x8000 {
                     // Register set
 
+                    let prev_v_interrupt_enabled = self.registers.v_interrupt_enabled;
                     let prev_v_display_size = self.registers.vertical_display_size;
 
                     let register_number = ((value >> 8) & 0x1F) as u8;
@@ -402,6 +407,11 @@ impl Vdp {
                         {
                             self.state.v_border_forgotten = true;
                         }
+
+                        // V interrupts must be delayed by 1 CPU instruction if they are enabled
+                        // while a V interrupt is pending; Sesame Street Counting Cafe depends on this
+                        self.state.delayed_v_interrupt_next =
+                            !prev_v_interrupt_enabled && self.registers.v_interrupt_enabled;
                     }
                 } else {
                     // First word of command write
@@ -780,6 +790,9 @@ impl Vdp {
         // The longest 68k instruction (DIVS (xxx).l, Dn) takes 172 68k cycles / 1204 mclk cycles
         assert!(master_clock_cycles < 1250);
 
+        self.state.delayed_v_interrupt = self.state.delayed_v_interrupt_next;
+        self.state.delayed_v_interrupt_next = false;
+
         // Count down DMA time before checking if a DMA was initiated in the last CPU instruction
         let line_type = LineType::from_vdp(self);
         let h_display_size = self.registers.horizontal_display_size;
@@ -1027,7 +1040,10 @@ impl Vdp {
     #[must_use]
     pub fn m68k_interrupt_level(&self) -> u8 {
         // TODO external interrupts at level 2
-        if self.state.v_interrupt_pending && self.registers.v_interrupt_enabled {
+        if self.state.v_interrupt_pending
+            && self.registers.v_interrupt_enabled
+            && !self.state.delayed_v_interrupt
+        {
             6
         } else if self.state.h_interrupt_pending && self.registers.h_interrupt_enabled {
             4
