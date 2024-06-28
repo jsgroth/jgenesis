@@ -411,6 +411,12 @@ impl Default for Signals {
     }
 }
 
+impl Signals {
+    fn z80_busack(self) -> bool {
+        self.z80_busreq && !self.z80_reset
+    }
+}
+
 #[derive(Debug, Encode, Decode, PartialClone)]
 pub struct Memory<Medium> {
     #[partial_clone(partial)]
@@ -509,7 +515,6 @@ impl Memory<Cartridge> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MainBusSignals {
-    pub z80_busack: bool,
     pub m68k_reset: bool,
 }
 
@@ -767,7 +772,7 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
                 <Self as z80_emu::BusInterface>::read_memory(self, (address & 0x7FFF) as u16)
             }
             0xA10000..=0xA1001F => self.read_io_register(address),
-            0xA11100..=0xA11101 => (!self.signals.z80_busack).into(),
+            0xA11100..=0xA11101 => (!self.memory.signals.z80_busack()).into(),
             0xC00000..=0xC0001F => self.read_vdp_byte(address),
             0xE00000..=0xFFFFFF => self.memory.main_ram[(address & 0xFFFF) as usize],
             _ => 0xFF,
@@ -790,7 +795,7 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
             0xA10000..=0xA1001F => self.read_io_register(address).into(),
             0xA11100..=0xA11101 => {
                 // Word reads of Z80 BUSREQ signal mirror the byte in both MSB and LSB
-                let byte: u8 = (!self.signals.z80_busack).into();
+                let byte: u8 = (!self.memory.signals.z80_busack()).into();
                 u16::from_le_bytes([byte, byte])
             }
             0xC00000..=0xC00003 => self.vdp.read_data(),

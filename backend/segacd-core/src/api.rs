@@ -113,7 +113,7 @@ macro_rules! new_main_bus {
             &mut $self.ym2612,
             &mut $self.input,
             $self.timing_mode,
-            MainBusSignals { z80_busack: $self.z80.stalled(), m68k_reset: $m68k_reset },
+            MainBusSignals { m68k_reset: $m68k_reset },
             std::mem::take(&mut $self.main_bus_writes),
         )
     };
