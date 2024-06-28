@@ -257,7 +257,10 @@ impl PhysicalMedium for Cartridge {
         }
 
         let rom_addr = self.mapper.map_or(address, |mapper| mapper.map_address(address));
-        self.rom.get(rom_addr as usize).unwrap_or(0xFF)
+        self.rom.get(rom_addr as usize).unwrap_or_else(|| {
+            log::warn!("Out-of-bounds cartridge byte read: {address:06X}");
+            0xFF
+        })
     }
 
     #[inline]
@@ -279,7 +282,10 @@ impl PhysicalMedium for Cartridge {
         }
 
         let rom_addr = self.mapper.map_or(address, |mapper| mapper.map_address(address));
-        let msb = self.rom.get(rom_addr as usize).unwrap_or(0xFF);
+        let msb = self.rom.get(rom_addr as usize).unwrap_or_else(|| {
+            log::warn!("Out-of-bounds cartridge word read: {address:06X}");
+            0xFF
+        });
         let lsb = self.rom.get((rom_addr + 1) as usize).unwrap_or(0xFF);
         u16::from_be_bytes([msb, lsb])
     }
@@ -306,12 +312,16 @@ impl PhysicalMedium for Cartridge {
             0x000000..=0x3FFFFF => {
                 if self.ram_mapped {
                     self.external_memory.write_byte(address, value);
+                } else {
+                    log::warn!("Cartridge write with no RAM mapped: {address:06X} {value:02X}");
                 }
             }
             0xA13000..=0xA130FF => {
                 self.write_cartridge_register(address, value);
             }
-            _ => {}
+            _ => {
+                log::warn!("Write to invalid cartridge address: {address:06X} {value:02X}");
+            }
         }
     }
 
@@ -326,12 +336,16 @@ impl PhysicalMedium for Cartridge {
             0x000000..=0x3FFFFF => {
                 if self.ram_mapped {
                     self.external_memory.write_word(address, value);
+                } else {
+                    log::warn!("Cartridge write with no RAM mapped: {address:06X} {value:04X}");
                 }
             }
             0xA13000..=0xA130FF => {
                 self.write_cartridge_register(address + 1, value as u8);
             }
-            _ => {}
+            _ => {
+                log::warn!("Write to invalid cartridge address: {address:06X} {value:04X}");
+            }
         }
     }
 

@@ -107,9 +107,14 @@ impl Ram {
     }
 
     fn write_byte(&mut self, address: u32, value: u8) {
-        if let Some(address) = self.map_address(address) {
-            self.ram[address as usize] = value;
-            self.dirty = true;
+        match self.map_address(address) {
+            Some(address) => {
+                self.ram[address as usize] = value;
+                self.dirty = true;
+            }
+            None => {
+                log::warn!("Write to invalid address: {address:06X} {value:02X}");
+            }
         }
     }
 
@@ -135,6 +140,10 @@ impl Ram {
         if let Some(lsb_address) = lsb_address {
             self.ram[lsb_address as usize] = lsb;
             self.dirty = true;
+        }
+
+        if msb_address.is_none() && lsb_address.is_none() {
+            log::warn!("Write to invalid address: {address:06X} {value:04X}");
         }
     }
 }
@@ -243,7 +252,9 @@ impl ExternalMemory {
 
     pub(crate) fn write_byte(&mut self, address: u32, value: u8) {
         match self {
-            Self::None => {}
+            Self::None => {
+                log::warn!("Write to invalid address {address:06X} {value:02X}");
+            }
             Self::Ram(ram) => {
                 ram.write_byte(address, value);
             }
@@ -261,7 +272,9 @@ impl ExternalMemory {
 
     pub(crate) fn write_word(&mut self, address: u32, value: u16) {
         match self {
-            Self::None => {}
+            Self::None => {
+                log::warn!("Write to invalid address {address:06X} {value:04X}");
+            }
             Self::Ram(ram) => {
                 ram.write_word(address, value);
             }
