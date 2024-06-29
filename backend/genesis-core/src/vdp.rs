@@ -3,21 +3,20 @@
 mod colors;
 mod debug;
 mod dma;
-mod fifo;
 mod registers;
 mod render;
 mod sprites;
+mod timing;
 
 use crate::memory::{Memory, PhysicalMedium};
 use crate::vdp::colors::ColorModifier;
-use crate::vdp::dma::{DmaTracker, LineType};
-use crate::vdp::fifo::FifoTracker;
 use crate::vdp::registers::{
     DebugRegister, DmaMode, HorizontalDisplaySize, InterlacingMode, Registers, VerticalDisplaySize,
     VramSizeKb, H40_LEFT_BORDER, NTSC_BOTTOM_BORDER, NTSC_TOP_BORDER, PAL_V28_BOTTOM_BORDER,
     PAL_V28_TOP_BORDER, PAL_V30_BOTTOM_BORDER, PAL_V30_TOP_BORDER, RIGHT_BORDER,
 };
 use crate::vdp::sprites::{SpriteBuffers, SpriteState};
+use crate::vdp::timing::{DmaTracker, FifoTracker, LineType};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{Color, FrameSize, TimingMode};
 use jgenesis_common::num::GetBit;
@@ -793,30 +792,18 @@ impl Vdp {
         self.state.delayed_v_interrupt = self.state.delayed_v_interrupt_next;
         self.state.delayed_v_interrupt_next = false;
 
-        // Count down DMA time before checking if a DMA was initiated in the last CPU instruction
-        let line_type = LineType::from_vdp(self);
-        let h_display_size = self.registers.horizontal_display_size;
-        self.dma_tracker.tick(master_clock_cycles, h_display_size, line_type);
-
-        if let Some(active_dma) = self.state.pending_dma {
-            // TODO accurate DMA timing
-            self.run_dma(memory, active_dma);
-        }
-
         let scanlines_per_frame = self.timing_mode.scanlines_per_frame();
         let active_scanlines = self.registers.vertical_display_size.active_scanlines();
 
         let prev_scanline_mclk = self.state.scanline_mclk_cycles;
         self.state.scanline_mclk_cycles += master_clock_cycles;
 
+        let h_display_size = self.registers.horizontal_display_size;
         if prev_scanline_mclk < ACTIVE_MCLK_CYCLES_PER_SCANLINE
             && self.state.scanline_mclk_cycles >= ACTIVE_MCLK_CYCLES_PER_SCANLINE
         {
             // HBlank start
-            self.sprite_state.handle_hblank_start(
-                self.registers.horizontal_display_size,
-                self.registers.display_enabled,
-            );
+            self.sprite_state.handle_hblank_start(h_display_size, self.registers.display_enabled);
 
             // Sprite processing phase 2
             self.fetch_sprite_attributes();
@@ -824,7 +811,7 @@ impl Vdp {
 
         // H interrupts occur a set number of mclk cycles after the end of the active display,
         // not right at the start of HBlank
-        let h_interrupt_delay = match self.registers.horizontal_display_size {
+        let h_interrupt_delay = match h_display_size {
             // 12 pixels after active display
             HorizontalDisplaySize::ThirtyTwoCell => 120,
             // 16 pixels after active display
@@ -884,7 +871,7 @@ impl Vdp {
         // Check if the VDP has advanced to a new scanline
         let mut tick_effect = VdpTickEffect::None;
         if self.state.scanline_mclk_cycles >= MCLK_CYCLES_PER_SCANLINE {
-            self.sprite_state.handle_line_end(self.registers.horizontal_display_size);
+            self.sprite_state.handle_line_end(h_display_size);
 
             // Sprite processing phase 1
             self.scan_sprites_two_lines_ahead();
@@ -921,16 +908,18 @@ impl Vdp {
             }
         }
 
-        let pixel = scanline_mclk_to_pixel(
-            self.state.scanline_mclk_cycles,
-            self.registers.horizontal_display_size,
-        );
-        self.fifo_tracker.advance_to_pixel(
-            self.state.scanline,
-            pixel,
-            self.registers.horizontal_display_size,
-            line_type,
-        );
+        let line_type = LineType::from_vdp(self);
+        let pixel = scanline_mclk_to_pixel(self.state.scanline_mclk_cycles, h_display_size);
+
+        self.fifo_tracker.advance_to_pixel(self.state.scanline, pixel, h_display_size, line_type);
+
+        // Count down DMA time before checking if a DMA was initiated in the last CPU instruction
+        self.dma_tracker.advance_to_pixel(self.state.scanline, pixel, h_display_size, line_type);
+
+        if let Some(active_dma) = self.state.pending_dma {
+            // TODO accurate DMA timing
+            self.run_dma(memory, active_dma);
+        }
 
         if !self.dma_tracker.is_in_progress()
             && !self.fifo_tracker.should_halt_cpu()
