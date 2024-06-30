@@ -45,13 +45,26 @@ const FLIP_COUNTER_CYCLES: u32 = 10000;
 
 const TH_BIT: u8 = 6;
 
-#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Encode, Decode)]
 struct PinDirections {
     last_data_write: u8,
     last_ctrl_write: u8,
     th_flip_count: u8,
     flip_reset_counter: u32,
     controller_th: bool,
+}
+
+impl Default for PinDirections {
+    fn default() -> Self {
+        Self {
+            last_data_write: 0,
+            last_ctrl_write: 0,
+            th_flip_count: 0,
+            flip_reset_counter: 0,
+            // Some games will freeze at boot if controller TH doesn't default to 1
+            controller_th: true,
+        }
+    }
 }
 
 impl PinDirections {
