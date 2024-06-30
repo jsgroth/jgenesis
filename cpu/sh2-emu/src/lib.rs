@@ -160,7 +160,7 @@ impl Sh2 {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     fn execute_single_instruction<B: BusInterface>(&mut self, bus: &mut B) {
         let pc = self.registers.pc;
         let opcode = self.read_opcode(pc, bus);
@@ -227,11 +227,12 @@ impl Sh2 {
         self.read_word_generic::<_, false>(address, bus)
     }
 
+    #[inline(always)]
     fn read_opcode<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u16 {
         self.read_word_generic::<_, true>(address, bus)
     }
 
-    #[inline]
+    #[inline(always)]
     fn read_word_generic<B: BusInterface, const INSTRUCTION: bool>(
         &mut self,
         address: u32,
@@ -250,6 +251,7 @@ impl Sh2 {
         }
     }
 
+    #[inline(always)]
     fn cached_read_word<B: BusInterface, const INSTRUCTION: bool>(
         &mut self,
         address: u32,

@@ -108,6 +108,7 @@ impl CpuCache {
         })
     }
 
+    #[inline(always)]
     pub fn read_u16(&mut self, address: u32) -> Option<u16> {
         self.cache_read(address, move |cache, way_idx, entry_idx| {
             let address = cache_ram_addr(way_idx, entry_idx) | ((address as usize) & 0xE);
@@ -122,6 +123,7 @@ impl CpuCache {
         })
     }
 
+    #[inline(always)]
     fn cache_read<T>(
         &mut self,
         address: u32,
