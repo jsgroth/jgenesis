@@ -271,7 +271,7 @@ impl Vdp {
         // there was a sprite pixel overflow on the previous scanline.
         let mut found_non_zero = self.sprite_state.dot_overflow_on_prev_line;
 
-        for sprite in &buffers.sprites {
+        'outer: for sprite in &buffers.sprites {
             if sprite.h_position == 0 && found_non_zero {
                 // Sprite masking from H=0 sprite; no more sprites will display on this line
                 break;
@@ -317,8 +317,13 @@ impl Vdp {
             let sprite_right = sprite.h_position + sprite_width;
             for h_position in sprite.h_position..sprite_right {
                 line_pixels += 1;
-                if line_pixels > max_sprite_pixels_per_line && self.config.enforce_sprite_limits {
-                    break;
+                if line_pixels > max_sprite_pixels_per_line {
+                    self.sprite_state.overflow = true;
+                    dot_overflow = true;
+
+                    if self.config.enforce_sprite_limits {
+                        break 'outer;
+                    }
                 }
 
                 if !sprite_display_area.contains(&h_position) {
@@ -356,15 +361,6 @@ impl Vdp {
                 } else {
                     // Sprite collision; two non-transparent sprite pixels in the same position
                     self.sprite_state.collision = true;
-                }
-            }
-
-            if line_pixels >= max_sprite_pixels_per_line {
-                self.sprite_state.overflow = true;
-                dot_overflow = true;
-
-                if self.config.enforce_sprite_limits {
-                    break;
                 }
             }
         }
