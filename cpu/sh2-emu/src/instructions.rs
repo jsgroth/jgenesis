@@ -23,7 +23,7 @@ pub fn execute<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
     }
 }
 
-#[inline]
+#[inline(always)]
 fn execute_xnnx<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
     match opcode & 0b1111_0000_0000_1111 {
         0b0110_0000_0000_0011 => load::mov_rm_rn(cpu, opcode),
@@ -84,7 +84,7 @@ fn execute_xnnx<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
     }
 }
 
-#[inline]
+#[inline(always)]
 fn execute_xxnn<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
     match opcode & 0b1111_1111_0000_0000 {
         0b1000_0000_0000_0000 => load::mov_b_r0_rn_displacement(cpu, opcode, bus),
@@ -116,7 +116,7 @@ fn execute_xxnn<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
     }
 }
 
-#[inline]
+#[inline(always)]
 fn execute_xnxx<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
     match opcode & 0b1111_0000_1111_1111 {
         0b0000_0000_0010_1001 => load::movt(cpu, opcode),
@@ -170,7 +170,7 @@ fn execute_xnxx<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
     }
 }
 
-#[inline]
+#[inline(always)]
 fn execute_xnnn<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
     match opcode & 0b1111_0000_0000_0000 {
         0b1110_0000_0000_0000 => load::mov_b_immediate_rn(cpu, opcode),
@@ -189,22 +189,22 @@ fn execute_xnnn<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
     }
 }
 
-#[inline]
+#[inline(always)]
 fn rn(opcode: u16) -> usize {
     ((opcode >> 8) & 0xF) as usize
 }
 
-#[inline]
+#[inline(always)]
 fn rm(opcode: u16) -> usize {
     ((opcode >> 4) & 0xF) as usize
 }
 
-#[inline]
+#[inline(always)]
 fn extend_i8(value: u8) -> u32 {
     value as i8 as u32
 }
 
-#[inline]
+#[inline(always)]
 fn extend_i16(value: u16) -> u32 {
     value as i16 as u32
 }
