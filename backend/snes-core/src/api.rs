@@ -62,10 +62,20 @@ impl SnesAspectRatio {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum AudioInterpolationMode {
+    #[default]
+    Gaussian,
+    Hermite,
+    Lagrange,
+}
+
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 pub struct SnesEmulatorConfig {
     pub forced_timing_mode: Option<TimingMode>,
     pub aspect_ratio: SnesAspectRatio,
+    pub audio_interpolation: AudioInterpolationMode,
     pub audio_60hz_hack: bool,
     pub gsu_overclock_factor: NonZeroU64,
 }
@@ -196,7 +206,7 @@ impl SnesEmulator {
         let timing_mode =
             config.forced_timing_mode.unwrap_or_else(|| memory.cartridge_timing_mode());
         let ppu = Ppu::new(timing_mode);
-        let apu = Apu::new(timing_mode, config.audio_60hz_hack);
+        let apu = Apu::new(timing_mode, config);
 
         log::info!("Running with timing/display mode {timing_mode}");
 
@@ -392,7 +402,7 @@ impl EmulatorTrait for SnesEmulator {
 
     fn reload_config(&mut self, config: &Self::Config) {
         self.aspect_ratio = config.aspect_ratio;
-        self.apu.set_audio_60hz_hack(config.audio_60hz_hack);
+        self.apu.update_config(*config);
         self.memory.update_gsu_overclock_factor(config.gsu_overclock_factor);
 
         self.emulator_config = *config;

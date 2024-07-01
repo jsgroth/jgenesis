@@ -1,5 +1,10 @@
 //! SNES S-DSP, responsible for audio playback
 
+mod interpolate;
+mod tables;
+
+use crate::api::AudioInterpolationMode;
+use crate::apu::dsp::interpolate::InterpolateArgs;
 use crate::apu::AudioRam;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::{GetBit, U16Ext};
@@ -7,73 +12,6 @@ use std::array;
 use std::ops::Index;
 
 const BRR_BLOCK_LEN: u16 = 9;
-
-// From https://problemkaputt.github.io/fullsnes.htm#snesapudspbrrsamples
-#[rustfmt::skip]
-const GAUSSIAN_TABLE: &[i32; 512] = &[
-    0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000,
-    0x001, 0x001, 0x001, 0x001, 0x001, 0x001, 0x001, 0x001, 0x001, 0x001, 0x001, 0x002, 0x002, 0x002, 0x002, 0x002,
-    0x002, 0x002, 0x003, 0x003, 0x003, 0x003, 0x003, 0x004, 0x004, 0x004, 0x004, 0x004, 0x005, 0x005, 0x005, 0x005,
-    0x006, 0x006, 0x006, 0x006, 0x007, 0x007, 0x007, 0x008, 0x008, 0x008, 0x009, 0x009, 0x009, 0x00A, 0x00A, 0x00A,
-    0x00B, 0x00B, 0x00B, 0x00C, 0x00C, 0x00D, 0x00D, 0x00E, 0x00E, 0x00F, 0x00F, 0x00F, 0x010, 0x010, 0x011, 0x011,
-    0x012, 0x013, 0x013, 0x014, 0x014, 0x015, 0x015, 0x016, 0x017, 0x017, 0x018, 0x018, 0x019, 0x01A, 0x01B, 0x01B,
-    0x01C, 0x01D, 0x01D, 0x01E, 0x01F, 0x020, 0x020, 0x021, 0x022, 0x023, 0x024, 0x024, 0x025, 0x026, 0x027, 0x028,
-    0x029, 0x02A, 0x02B, 0x02C, 0x02D, 0x02E, 0x02F, 0x030, 0x031, 0x032, 0x033, 0x034, 0x035, 0x036, 0x037, 0x038,
-    0x03A, 0x03B, 0x03C, 0x03D, 0x03E, 0x040, 0x041, 0x042, 0x043, 0x045, 0x046, 0x047, 0x049, 0x04A, 0x04C, 0x04D,
-    0x04E, 0x050, 0x051, 0x053, 0x054, 0x056, 0x057, 0x059, 0x05A, 0x05C, 0x05E, 0x05F, 0x061, 0x063, 0x064, 0x066,
-    0x068, 0x06A, 0x06B, 0x06D, 0x06F, 0x071, 0x073, 0x075, 0x076, 0x078, 0x07A, 0x07C, 0x07E, 0x080, 0x082, 0x084,
-    0x086, 0x089, 0x08B, 0x08D, 0x08F, 0x091, 0x093, 0x096, 0x098, 0x09A, 0x09C, 0x09F, 0x0A1, 0x0A3, 0x0A6, 0x0A8,
-    0x0AB, 0x0AD, 0x0AF, 0x0B2, 0x0B4, 0x0B7, 0x0BA, 0x0BC, 0x0BF, 0x0C1, 0x0C4, 0x0C7, 0x0C9, 0x0CC, 0x0CF, 0x0D2,
-    0x0D4, 0x0D7, 0x0DA, 0x0DD, 0x0E0, 0x0E3, 0x0E6, 0x0E9, 0x0EC, 0x0EF, 0x0F2, 0x0F5, 0x0F8, 0x0FB, 0x0FE, 0x101,
-    0x104, 0x107, 0x10B, 0x10E, 0x111, 0x114, 0x118, 0x11B, 0x11E, 0x122, 0x125, 0x129, 0x12C, 0x130, 0x133, 0x137,
-    0x13A, 0x13E, 0x141, 0x145, 0x148, 0x14C, 0x150, 0x153, 0x157, 0x15B, 0x15F, 0x162, 0x166, 0x16A, 0x16E, 0x172,
-    0x176, 0x17A, 0x17D, 0x181, 0x185, 0x189, 0x18D, 0x191, 0x195, 0x19A, 0x19E, 0x1A2, 0x1A6, 0x1AA, 0x1AE, 0x1B2,
-    0x1B7, 0x1BB, 0x1BF, 0x1C3, 0x1C8, 0x1CC, 0x1D0, 0x1D5, 0x1D9, 0x1DD, 0x1E2, 0x1E6, 0x1EB, 0x1EF, 0x1F3, 0x1F8,
-    0x1FC, 0x201, 0x205, 0x20A, 0x20F, 0x213, 0x218, 0x21C, 0x221, 0x226, 0x22A, 0x22F, 0x233, 0x238, 0x23D, 0x241,
-    0x246, 0x24B, 0x250, 0x254, 0x259, 0x25E, 0x263, 0x267, 0x26C, 0x271, 0x276, 0x27B, 0x280, 0x284, 0x289, 0x28E,
-    0x293, 0x298, 0x29D, 0x2A2, 0x2A6, 0x2AB, 0x2B0, 0x2B5, 0x2BA, 0x2BF, 0x2C4, 0x2C9, 0x2CE, 0x2D3, 0x2D8, 0x2DC,
-    0x2E1, 0x2E6, 0x2EB, 0x2F0, 0x2F5, 0x2FA, 0x2FF, 0x304, 0x309, 0x30E, 0x313, 0x318, 0x31D, 0x322, 0x326, 0x32B,
-    0x330, 0x335, 0x33A, 0x33F, 0x344, 0x349, 0x34E, 0x353, 0x357, 0x35C, 0x361, 0x366, 0x36B, 0x370, 0x374, 0x379,
-    0x37E, 0x383, 0x388, 0x38C, 0x391, 0x396, 0x39B, 0x39F, 0x3A4, 0x3A9, 0x3AD, 0x3B2, 0x3B7, 0x3BB, 0x3C0, 0x3C5,
-    0x3C9, 0x3CE, 0x3D2, 0x3D7, 0x3DC, 0x3E0, 0x3E5, 0x3E9, 0x3ED, 0x3F2, 0x3F6, 0x3FB, 0x3FF, 0x403, 0x408, 0x40C,
-    0x410, 0x415, 0x419, 0x41D, 0x421, 0x425, 0x42A, 0x42E, 0x432, 0x436, 0x43A, 0x43E, 0x442, 0x446, 0x44A, 0x44E,
-    0x452, 0x455, 0x459, 0x45D, 0x461, 0x465, 0x468, 0x46C, 0x470, 0x473, 0x477, 0x47A, 0x47E, 0x481, 0x485, 0x488,
-    0x48C, 0x48F, 0x492, 0x496, 0x499, 0x49C, 0x49F, 0x4A2, 0x4A6, 0x4A9, 0x4AC, 0x4AF, 0x4B2, 0x4B5, 0x4B7, 0x4BA,
-    0x4BD, 0x4C0, 0x4C3, 0x4C5, 0x4C8, 0x4CB, 0x4CD, 0x4D0, 0x4D2, 0x4D5, 0x4D7, 0x4D9, 0x4DC, 0x4DE, 0x4E0, 0x4E3,
-    0x4E5, 0x4E7, 0x4E9, 0x4EB, 0x4ED, 0x4EF, 0x4F1, 0x4F3, 0x4F5, 0x4F6, 0x4F8, 0x4FA, 0x4FB, 0x4FD, 0x4FF, 0x500,
-    0x502, 0x503, 0x504, 0x506, 0x507, 0x508, 0x50A, 0x50B, 0x50C, 0x50D, 0x50E, 0x50F, 0x510, 0x511, 0x511, 0x512,
-    0x513, 0x514, 0x514, 0x515, 0x516, 0x516, 0x517, 0x517, 0x517, 0x518, 0x518, 0x518, 0x518, 0x518, 0x519, 0x519,
-];
-
-// From https://problemkaputt.github.io/fullsnes.htm#snesapudspadsrgainenvelope
-#[rustfmt::skip]
-const ENVELOPE_RATE_TABLE: &[u16; 32] = &[
-    u16::MAX, 2048, 1536, 1280,
-    1024, 768, 640, 512,
-    384, 320, 256, 192,
-    160, 128, 96, 80,
-    64, 48, 40, 32,
-    24, 20, 16, 12,
-    10, 8, 6, 5,
-    4, 3, 2, 1,
-];
-
-// From Anomie's S-DSP doc
-#[rustfmt::skip]
-const ENVELOPE_OFFSET_TABLE: &[u16; 32] = &[
-    u16::MAX, 0, 1040,
-    536, 0, 1040,
-    536, 0, 1040,
-    536, 0, 1040,
-    536, 0, 1040,
-    536, 0, 1040,
-    536, 0, 1040,
-    536, 0, 1040,
-    536, 0, 1040,
-    536, 0, 1040,
-         0,
-         0,
-];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 enum EnvelopeMode {
@@ -162,8 +100,9 @@ impl Index<u16> for BrrRingBuffer {
     }
 }
 
-#[derive(Debug, Clone, Default, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode)]
 struct Voice {
+    audio_interpolation: AudioInterpolationMode,
     // Registers
     instrument_number: u8,
     sample_rate: u16,
@@ -198,6 +137,39 @@ struct Voice {
 }
 
 impl Voice {
+    fn new(audio_interpolation: AudioInterpolationMode) -> Self {
+        Self {
+            audio_interpolation,
+            instrument_number: 0,
+            sample_rate: 0,
+            pitch_modulation_enabled: false,
+            envelope_mode: EnvelopeMode::default(),
+            attack_rate: 0,
+            decay_rate: 0,
+            sustain_rate: 0,
+            sustain_level: 0,
+            gain_mode: GainMode::default(),
+            gain_value: 0,
+            volume_l: 0,
+            volume_r: 0,
+            keyed_on: false,
+            keyed_off: false,
+            output_noise: false,
+            last_pitch_h_write: 0,
+            brr_block_address: 0,
+            brr_buffer: BrrRingBuffer::default(),
+            brr_decoder_idx: 0,
+            pitch_counter: 0,
+            envelope_level: 0,
+            clipped_envelope_value: 0,
+            envelope_phase: EnvelopePhase::default(),
+            current_sample: 0,
+            restart_pending: false,
+            restart_delay_remaining: 0,
+            end_flag_seen: false,
+        }
+    }
+
     fn write_pitch_low(&mut self, value: u8) {
         self.sample_rate.set_lsb(value);
     }
@@ -333,14 +305,22 @@ impl Voice {
             // background
             noise_generator_output
         } else {
-            let interpolate_idx = self.pitch_counter >> 12;
-            apply_gaussian_filter(GaussArgs {
-                pitch_counter: self.pitch_counter,
-                oldest: self.brr_buffer[interpolate_idx],
-                older: self.brr_buffer[interpolate_idx + 1],
-                old: self.brr_buffer[interpolate_idx + 2],
-                sample: self.brr_buffer[interpolate_idx + 3],
-            })
+            // Bits 12-15 of pitch counter are used as the sample index and 4-11 are interpolation index
+            let sample_idx = self.pitch_counter >> 12;
+            let interpolation_idx = (self.pitch_counter >> 4) & 0xFF;
+            let args = InterpolateArgs {
+                interpolation_idx,
+                oldest: self.brr_buffer[sample_idx],
+                older: self.brr_buffer[sample_idx + 1],
+                old: self.brr_buffer[sample_idx + 2],
+                sample: self.brr_buffer[sample_idx + 3],
+            };
+
+            match self.audio_interpolation {
+                AudioInterpolationMode::Gaussian => interpolate::gaussian(args),
+                AudioInterpolationMode::Hermite => interpolate::hermite(args),
+                AudioInterpolationMode::Lagrange => interpolate::lagrange(args),
+            }
         };
 
         // TODO do this after multiplying by sample?
@@ -520,8 +500,8 @@ impl Voice {
         };
 
         if rate != 0
-            && (global_counter + ENVELOPE_OFFSET_TABLE[rate as usize])
-                % ENVELOPE_RATE_TABLE[rate as usize]
+            && (global_counter + tables::ENVELOPE_OFFSET[rate as usize])
+                % tables::ENVELOPE_RATE[rate as usize]
                 == 0
         {
             let new_value = current_value + step;
@@ -568,41 +548,6 @@ fn apply_brr_filter(sample: i16, filter: u8, old: i16, older: i16) -> i16 {
     (clamped << 1) >> 1
 }
 
-struct GaussArgs {
-    pitch_counter: u16,
-    oldest: i16,
-    older: i16,
-    old: i16,
-    sample: i16,
-}
-
-fn apply_gaussian_filter(
-    GaussArgs { sample, pitch_counter, old, older, oldest }: GaussArgs,
-) -> i16 {
-    // Do math in 32 bits to avoid overflows
-    let sample: i32 = sample.into();
-    let old: i32 = old.into();
-    let older: i32 = older.into();
-    let oldest: i32 = oldest.into();
-
-    // Bits 4-11 of the pitch counter are used as the interpolation index
-    let interpolation_idx = ((pitch_counter >> 4) & 0xFF) as usize;
-
-    // Sum the 3 older samples with 15-bit wrapping
-    let mut sum = (GAUSSIAN_TABLE[0x0FF - interpolation_idx] * oldest) >> 11;
-    sum += (GAUSSIAN_TABLE[0x1FF - interpolation_idx] * older) >> 11;
-    sum += (GAUSSIAN_TABLE[0x100 + interpolation_idx] * old) >> 11;
-
-    // Clip to 15 bits
-    sum = (((sum as i16) << 1) >> 1).into();
-
-    // Add in the current sample
-    sum += (GAUSSIAN_TABLE[interpolation_idx] * sample) >> 11;
-
-    // Clamp the final result to signed 15-bit
-    sum.clamp((i16::MIN >> 1).into(), (i16::MAX >> 1).into()) as i16
-}
-
 fn compute_exp_decay(current_value: i32) -> i32 {
     -(((current_value - 1) >> 8) + 1)
 }
@@ -621,7 +566,7 @@ impl NoiseGenerator {
         // Noise generator uses the same rate/offset tables as the envelopes
         let rate = noise_frequency as usize;
         if rate != 0
-            && (global_counter + ENVELOPE_OFFSET_TABLE[rate]) % ENVELOPE_RATE_TABLE[rate] == 0
+            && (global_counter + tables::ENVELOPE_OFFSET[rate]) % tables::ENVELOPE_RATE[rate] == 0
         {
             let new_bit = self.output.bit(0) ^ self.output.bit(1);
             self.output = ((self.output >> 1) & 0x3FFF) | (i16::from(new_bit) << 14);
@@ -872,9 +817,9 @@ pub struct AudioDsp {
 }
 
 impl AudioDsp {
-    pub fn new() -> Self {
+    pub fn new(audio_interpolation: AudioInterpolationMode) -> Self {
         Self {
-            voices: array::from_fn(|_| Voice::default()),
+            voices: array::from_fn(|_| Voice::new(audio_interpolation)),
             registers: DspRegisters::new(),
             noise_generator: NoiseGenerator::new(),
             echo_filter: EchoFilter::new(),
@@ -1203,6 +1148,12 @@ impl AudioDsp {
 
         for voice in &mut self.voices {
             voice.soft_reset();
+        }
+    }
+
+    pub fn update_audio_interpolation(&mut self, audio_interpolation: AudioInterpolationMode) {
+        for voice in &mut self.voices {
+            voice.audio_interpolation = audio_interpolation;
         }
     }
 }

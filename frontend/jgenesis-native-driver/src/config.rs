@@ -20,7 +20,9 @@ use segacd_core::api::SegaCdEmulatorConfig;
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgEmulatorConfig, SmsRegion, VdpVersion};
-use snes_core::api::{CoprocessorRomFn, CoprocessorRoms, SnesAspectRatio, SnesEmulatorConfig};
+use snes_core::api::{
+    AudioInterpolationMode, CoprocessorRomFn, CoprocessorRoms, SnesAspectRatio, SnesEmulatorConfig,
+};
 use std::ffi::OsStr;
 use std::fs;
 use std::num::NonZeroU64;
@@ -336,6 +338,7 @@ pub struct SnesConfig {
     pub super_scope_config: SuperScopeConfig,
     pub forced_timing_mode: Option<TimingMode>,
     pub aspect_ratio: SnesAspectRatio,
+    pub audio_interpolation: AudioInterpolationMode,
     pub audio_60hz_hack: bool,
     pub gsu_overclock_factor: NonZeroU64,
     pub dsp1_rom_path: Option<String>,
@@ -351,6 +354,7 @@ impl SnesConfig {
         SnesEmulatorConfig {
             forced_timing_mode: self.forced_timing_mode,
             aspect_ratio: self.aspect_ratio,
+            audio_interpolation: self.audio_interpolation,
             audio_60hz_hack: self.audio_60hz_hack,
             gsu_overclock_factor: self.gsu_overclock_factor,
         }

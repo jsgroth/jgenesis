@@ -2,7 +2,7 @@ use crate::AppConfig;
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::config::SnesConfig;
 use serde::{Deserialize, Serialize};
-use snes_core::api::SnesAspectRatio;
+use snes_core::api::{AudioInterpolationMode, SnesAspectRatio};
 use std::num::NonZeroU64;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -10,6 +10,8 @@ pub struct SnesAppConfig {
     pub forced_timing_mode: Option<TimingMode>,
     #[serde(default)]
     pub aspect_ratio: SnesAspectRatio,
+    #[serde(default)]
+    pub audio_interpolation: AudioInterpolationMode,
     #[serde(default = "true_fn")]
     pub audio_60hz_hack: bool,
     #[serde(default = "default_gsu_overclock")]
@@ -49,6 +51,7 @@ impl AppConfig {
             super_scope_config: self.inputs.snes_super_scope.clone(),
             forced_timing_mode: self.snes.forced_timing_mode,
             aspect_ratio: self.snes.aspect_ratio,
+            audio_interpolation: self.snes.audio_interpolation,
             audio_60hz_hack: self.snes.audio_60hz_hack,
             gsu_overclock_factor: self.snes.gsu_overclock_factor,
             dsp1_rom_path: self.snes.dsp1_rom_path.clone(),

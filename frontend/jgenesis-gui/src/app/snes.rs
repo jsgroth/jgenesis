@@ -3,7 +3,7 @@ use crate::emuthread::EmuThreadStatus;
 use egui::{Context, Window};
 use jgenesis_common::frontend::TimingMode;
 use rfd::FileDialog;
-use snes_core::api::SnesAspectRatio;
+use snes_core::api::{AudioInterpolationMode, SnesAspectRatio};
 use std::num::NonZeroU64;
 
 impl App {
@@ -154,6 +154,16 @@ impl App {
     pub(super) fn render_snes_audio_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("SNES Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.group(|ui| {
+                ui.label("ADPCM sample interpolation");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(&mut self.config.snes.audio_interpolation, AudioInterpolationMode::Gaussian, "Gaussian (Native)");
+                    ui.radio_value(&mut self.config.snes.audio_interpolation, AudioInterpolationMode::Hermite, "Cubic Hermite");
+                    ui.radio_value(&mut self.config.snes.audio_interpolation, AudioInterpolationMode::Lagrange, "Cubic Lagrange");
+                });
+            });
+
             ui.checkbox(&mut self.config.snes.audio_60hz_hack, "Enable audio 60Hz/50Hz hack")
                 .on_hover_text("Enabling this option will very slightly increase the audio signal frequency to time to 60Hz NTSC / 50Hz PAL");
         });

@@ -18,7 +18,7 @@ use nes_core::api::NesAspectRatio;
 use s32x_core::api::S32XVideoOut;
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::SmsRegion;
-use snes_core::api::SnesAspectRatio;
+use snes_core::api::{AudioInterpolationMode, SnesAspectRatio};
 use std::ffi::OsStr;
 use std::fs;
 use std::num::NonZeroU64;
@@ -231,6 +231,10 @@ struct Args {
     /// SNES aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
     snes_aspect_ratio: Option<SnesAspectRatio>,
+
+    /// Audio interpolation mode (Gaussian / Hermite / Lagrange)
+    #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
+    snes_audio_interpolation: Option<AudioInterpolationMode>,
 
     /// Enable hack that times SNES audio sync to 60Hz instead of ~60.098Hz
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
@@ -503,6 +507,7 @@ impl Args {
     fn apply_snes_overrides(&self, config: &mut AppConfig) {
         apply_overrides!(self, config.snes, [
             snes_aspect_ratio -> aspect_ratio,
+            snes_audio_interpolation -> audio_interpolation,
             snes_audio_60hz_hack -> audio_60hz_hack,
             gsu_overclock_factor,
         ]);

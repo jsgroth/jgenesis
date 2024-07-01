@@ -9,7 +9,7 @@ use jgenesis_renderer::config::{
 };
 use smsgg_core::psg::PsgVersion;
 use smsgg_core::{SmsGgEmulatorConfig, SmsRegion, VdpVersion};
-use snes_core::api::{SnesAspectRatio, SnesEmulatorConfig};
+use snes_core::api::{AudioInterpolationMode, SnesAspectRatio, SnesEmulatorConfig};
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::num::NonZeroU64;
@@ -183,6 +183,7 @@ impl SnesWebConfig {
         SnesEmulatorConfig {
             forced_timing_mode: None,
             aspect_ratio: self.aspect_ratio,
+            audio_interpolation: AudioInterpolationMode::default(),
             audio_60hz_hack: true,
             gsu_overclock_factor: NonZeroU64::new(1).unwrap(),
         }

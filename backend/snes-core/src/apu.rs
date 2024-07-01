@@ -6,6 +6,7 @@ mod bootrom;
 mod dsp;
 mod timer;
 
+use crate::api::SnesEmulatorConfig;
 use crate::apu::dsp::AudioDsp;
 use crate::apu::timer::{FastTimer, SlowTimer};
 use crate::constants;
@@ -241,7 +242,7 @@ macro_rules! new_spc700_bus {
 }
 
 impl Apu {
-    pub fn new(timing_mode: TimingMode, enable_audio_60hz_hack: bool) -> Self {
+    pub fn new(timing_mode: TimingMode, config: SnesEmulatorConfig) -> Self {
         let main_master_clock_frequency = match timing_mode {
             TimingMode::Ntsc => constants::NTSC_MASTER_CLOCK_FREQUENCY,
             TimingMode::Pal => constants::PAL_MASTER_CLOCK_FREQUENCY,
@@ -249,13 +250,13 @@ impl Apu {
 
         let mut apu = Self {
             spc700: Spc700::new(),
-            dsp: AudioDsp::new(),
+            dsp: AudioDsp::new(config.audio_interpolation),
             audio_ram: vec![0; AUDIO_RAM_LEN].into_boxed_slice().try_into().unwrap(),
             registers: ApuRegisters::new(),
             main_master_clock_frequency,
             master_cycles_product: 0,
             sample_divider: SAMPLE_DIVIDER,
-            enable_audio_60hz_hack,
+            enable_audio_60hz_hack: config.audio_60hz_hack,
         };
 
         apu.spc700.reset(&mut new_spc700_bus!(apu));
@@ -312,7 +313,8 @@ impl Apu {
         self.dsp.reset();
     }
 
-    pub fn set_audio_60hz_hack(&mut self, audio_60hz_hack: bool) {
-        self.enable_audio_60hz_hack = audio_60hz_hack;
+    pub fn update_config(&mut self, config: SnesEmulatorConfig) {
+        self.dsp.update_audio_interpolation(config.audio_interpolation);
+        self.enable_audio_60hz_hack = config.audio_60hz_hack;
     }
 }
