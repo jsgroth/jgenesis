@@ -369,7 +369,10 @@ pub struct Ppu {
 // CPU cycle rather than in the middle of it; starting at mclk=88 causes flickering in Lemmings
 const RENDER_LINE_MCLK: u64 = 92;
 
-const END_RENDER_LINE_MCLK: u64 = RENDER_LINE_MCLK + 256 * 4;
+// Used as the threshold for applying mid-scanline register writes.
+// Ignore writes that occur during the last few pixels of active display; this fixes minor flickering
+// in Wild Guns
+const END_RENDER_LINE_MCLK: u64 = RENDER_LINE_MCLK + 256 * 4 - 3 * 4;
 
 impl Ppu {
     pub fn new(timing_mode: TimingMode) -> Self {
@@ -478,18 +481,21 @@ impl Ppu {
 
         if self.registers.forced_blanking {
             // Forced blanking always draws black
+            let from_pixel = if self.state.h_hi_res_frame { 2 * from_pixel } else { from_pixel };
             let screen_width = self.state.frame_screen_width();
+
             if self.state.v_hi_res_frame {
                 for y in [2 * scanline - 1, 2 * scanline] {
-                    for pixel in 0..screen_width as u16 {
+                    for pixel in from_pixel..screen_width as u16 {
                         self.set_in_frame_buffer(y, pixel, Color::BLACK);
                     }
                 }
             } else {
-                for pixel in 0..screen_width as u16 {
+                for pixel in from_pixel..screen_width as u16 {
                     self.set_in_frame_buffer(scanline, pixel, Color::BLACK);
                 }
             }
+
             return;
         }
 
