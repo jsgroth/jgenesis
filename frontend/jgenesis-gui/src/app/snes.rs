@@ -157,12 +157,13 @@ impl App {
             ui.group(|ui| {
                 ui.label("ADPCM sample interpolation");
 
-                ui.horizontal(|ui| {
-                    ui.radio_value(&mut self.config.snes.audio_interpolation, AudioInterpolationMode::Gaussian, "Gaussian (Native)");
-                    ui.radio_value(&mut self.config.snes.audio_interpolation, AudioInterpolationMode::Hermite, "Cubic Hermite");
-                    ui.radio_value(&mut self.config.snes.audio_interpolation, AudioInterpolationMode::Lagrange, "Cubic Lagrange");
-                });
+                ui.radio_value(&mut self.config.snes.audio_interpolation, AudioInterpolationMode::Gaussian, "Gaussian (Native)")
+                    .on_hover_text("Emulate actual hardware's behavior");
+                ui.radio_value(&mut self.config.snes.audio_interpolation, AudioInterpolationMode::Hermite, "Cubic Hermite (Sharp)")
+                    .on_hover_text("More advanced algorithm than actual hardware");
             });
+
+            ui.add_space(10.0);
 
             ui.checkbox(&mut self.config.snes.audio_60hz_hack, "Enable audio 60Hz/50Hz hack")
                 .on_hover_text("Enabling this option will very slightly increase the audio signal frequency to time to 60Hz NTSC / 50Hz PAL");

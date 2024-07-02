@@ -53,20 +53,3 @@ pub fn hermite(
     let c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
     (((c3 * x + c2) * x + c1) * x + c0).round().clamp(I16_MIN, I16_MAX) as i16
 }
-
-// Based on https://yehar.com/blog/wp-content/uploads/2009/08/deip.pdf
-pub fn lagrange(
-    InterpolateArgs { interpolation_idx, oldest, older, old, sample }: InterpolateArgs,
-) -> i16 {
-    let y3: f64 = sample.into();
-    let y2: f64 = old.into();
-    let y1: f64 = older.into();
-    let y0: f64 = oldest.into();
-    let x = f64::from(interpolation_idx) / 256.0;
-
-    let c0 = y1;
-    let c1 = y2 - 1.0 / 3.0 * y0 - 0.5 * y1 - 1.0 / 6.0 * y3;
-    let c2 = 0.5 * (y0 + y2) - y1;
-    let c3 = 1.0 / 6.0 * (y3 - y0) + 0.5 * (y1 - y2);
-    (((c3 * x + c2) * x + c1) * x + c0).round().clamp(I16_MIN, I16_MAX) as i16
-}

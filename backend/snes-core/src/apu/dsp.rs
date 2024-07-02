@@ -319,7 +319,6 @@ impl Voice {
             match self.audio_interpolation {
                 AudioInterpolationMode::Gaussian => interpolate::gaussian(args),
                 AudioInterpolationMode::Hermite => interpolate::hermite(args),
-                AudioInterpolationMode::Lagrange => interpolate::lagrange(args),
             }
         };
 

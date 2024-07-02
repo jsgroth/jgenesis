@@ -68,7 +68,6 @@ pub enum AudioInterpolationMode {
     #[default]
     Gaussian,
     Hermite,
-    Lagrange,
 }
 
 #[derive(Debug, Clone, Copy, Encode, Decode)]
