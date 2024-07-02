@@ -18,7 +18,7 @@ use regex::Regex;
 use smsgg_core::psg::Psg;
 use std::ops::Index;
 use std::sync::OnceLock;
-use std::{array, mem};
+use std::{array, iter, mem};
 use z80_emu::traits::InterruptLine;
 
 const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
@@ -119,6 +119,9 @@ pub struct Cartridge {
     is_unlicensed_rockman_x3: bool,
 }
 
+const TRIPLE_PLAY_GOLD_SERIAL: &[u8] = b"T-172116";
+const TRIPLE_PLAY_96_SERIAL: &[u8] = b"T-172026";
+
 const ROCKMAN_X3_CHECKSUM: u32 = 0x3EE639F0;
 
 impl Cartridge {
@@ -131,7 +134,7 @@ impl Cartridge {
         let checksum = CRC.checksum(&rom_bytes);
         log::info!("ROM CRC32: {checksum:08X}");
 
-        let rom_bytes = ensure_big_endian(rom_bytes);
+        let mut rom_bytes = ensure_big_endian(rom_bytes);
 
         let region = forced_region.unwrap_or_else(|| {
             GenesisRegion::from_rom(&rom_bytes).unwrap_or_else(|| {
@@ -150,9 +153,23 @@ impl Cartridge {
         let mapper = SegaMapper::should_use(&rom_bytes).then(SegaMapper::new);
         log::info!("Using Sega banked mapper: {}", mapper.is_some());
 
-        // Only one game uses the SVP, Virtua Racing
         let serial_number = &rom_bytes[0x183..0x18B];
+
+        // Only one game uses the SVP, Virtua Racing
         let svp = is_virtua_racing(serial_number).then(Svp::new);
+
+        if rom_bytes.len() >= 0x300000
+            && (serial_number == TRIPLE_PLAY_GOLD_SERIAL || serial_number == TRIPLE_PLAY_96_SERIAL)
+        {
+            // Triple Play expects the third MB of the ROM to be mapped to $300000-$3FFFFF instead
+            // of $200000-$2FFFFF; accomplish this by duplicating the data
+            if rom_bytes.len() < 0x400000 {
+                rom_bytes.extend(iter::repeat(0xFF).take(0x400000 - rom_bytes.len()));
+            }
+
+            let (first, second) = rom_bytes.split_at_mut(0x300000);
+            second[..0x100000].copy_from_slice(&first[0x200000..0x300000]);
+        }
 
         let is_unlicensed_rockman_x3 = checksum == ROCKMAN_X3_CHECKSUM;
 
