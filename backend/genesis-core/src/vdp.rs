@@ -75,6 +75,9 @@ struct InternalState {
     data_port_location: DataPortLocation,
     data_address: u32,
     latched_high_address_bits: u32,
+    // Whether the VINT flag in the status register reads 1
+    vint_flag: bool,
+    // Whether the VDP is actively raising INT6
     v_interrupt_pending: bool,
     delayed_v_interrupt: bool,
     delayed_v_interrupt_next: bool,
@@ -102,6 +105,7 @@ impl InternalState {
             data_port_location: DataPortLocation::Vram,
             data_address: 0,
             latched_high_address_bits: 0,
+            vint_flag: false,
             v_interrupt_pending: false,
             delayed_v_interrupt: false,
             delayed_v_interrupt_next: false,
@@ -243,6 +247,11 @@ const MAX_SPRITES_PER_FRAME: usize = 80;
 
 // Master clock cycle on which to trigger VINT on scanline 224/240.
 const V_INTERRUPT_DELAY: u64 = 48;
+
+// Have the VINT flag in the VDP status register read 1 about 20 CPU cycles before the VDP raises
+// the interrupt. This fixes several games failing to boot (e.g. Tyrants: Fight Through Time, Ex-Mutants)
+const M68K_DIVIDER: u64 = crate::timing::M68K_DIVIDER;
+const VINT_FLAG_MCLK: u64 = MCLK_CYCLES_PER_SCANLINE - (20 * M68K_DIVIDER - V_INTERRUPT_DELAY);
 
 trait TimingModeExt: Copy {
     fn scanlines_per_frame(self) -> u16;
@@ -679,7 +688,7 @@ impl Vdp {
 
         let status = (u16::from(self.fifo_tracker.is_empty()) << 9)
             | (u16::from(self.fifo_tracker.is_full()) << 8)
-            | (u16::from(self.state.v_interrupt_pending) << 7)
+            | (u16::from(self.state.vint_flag) << 7)
             | (u16::from(self.sprite_state.overflow_flag()) << 6)
             | (u16::from(self.sprite_state.collision_flag()) << 5)
             | (u16::from(interlaced_odd) << 4)
@@ -859,6 +868,14 @@ impl Vdp {
             );
         }
 
+        // Check whether to set the VINT flag in the VDP status register
+        if self.state.scanline == active_scanlines - 1
+            && prev_scanline_mclk < VINT_FLAG_MCLK
+            && self.state.scanline_mclk_cycles >= VINT_FLAG_MCLK
+        {
+            self.state.vint_flag = true;
+        }
+
         // Check if a V interrupt has triggered
         if self.state.scanline == active_scanlines
             && prev_scanline_mclk < V_INTERRUPT_DELAY
@@ -894,8 +911,7 @@ impl Vdp {
 
             // Check if we already passed the VINT threshold
             if self.state.scanline == active_scanlines
-                && prev_scanline_mclk + master_clock_cycles - MCLK_CYCLES_PER_SCANLINE
-                    >= V_INTERRUPT_DELAY
+                && self.state.scanline_mclk_cycles >= V_INTERRUPT_DELAY
             {
                 log::trace!("Generating V interrupt");
                 self.state.v_interrupt_pending = true;
@@ -1046,6 +1062,7 @@ impl Vdp {
         log::trace!("M68K interrupt acknowledged; level {interrupt_level}");
         if interrupt_level == 6 {
             self.state.v_interrupt_pending = false;
+            self.state.vint_flag = false;
         } else if interrupt_level == 4 {
             self.state.h_interrupt_pending = false;
         }
