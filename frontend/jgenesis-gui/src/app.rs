@@ -19,7 +19,7 @@ use egui::{
     Response, TextEdit, TopBottomPanel, Ui, Vec2, ViewportCommand, Widget, Window,
 };
 use egui_extras::{Column, TableBuilder};
-use jgenesis_native_config::{AppConfig, ListFilters};
+use jgenesis_native_config::{AppConfig, ListFilters, RecentOpen};
 use jgenesis_renderer::config::Scanlines;
 use rfd::FileDialog;
 use std::collections::HashSet;
@@ -148,7 +148,7 @@ struct AppState {
 
 impl AppState {
     fn from_config(config: &AppConfig) -> Self {
-        let recent_open_list = romlist::from_recent_opens(&config.recent_opens);
+        let recent_open_list = romlist::from_recent_opens(&config.recent_open_list);
         Self {
             current_file_path: String::new(),
             open_windows: HashSet::new(),
@@ -261,39 +261,61 @@ impl App {
         Self { config, state, config_path, emu_thread, rom_list_thread, startup_file_path }
     }
 
-    fn open_file(&mut self) {
+    fn open_file(&mut self, console: Option<Console>) {
         if self.state.waiting_for_input.is_some() {
             log::warn!("Cannot open file while configuring input");
             return;
         }
 
-        let mut file_dialog =
-            FileDialog::new().add_filter("Supported ROM files", romlist::all_extensions());
+        let mut file_dialog = FileDialog::new();
+
+        file_dialog = match console {
+            Some(console) => {
+                let extensions: Vec<_> =
+                    console.supported_extensions().iter().copied().chain(["zip", "7z"]).collect();
+                file_dialog.add_filter(console.display_str(), &extensions)
+            }
+            None => file_dialog.add_filter("Supported Files", romlist::ALL_EXTENSIONS),
+        };
+
+        file_dialog = file_dialog.add_filter("All Files", &["*"]);
+
         if let Some(dir) = self.config.rom_search_dirs.first() {
             file_dialog = file_dialog.set_directory(Path::new(dir));
         }
         let Some(path) = file_dialog.pick_file() else { return };
 
         let Some(path_str) = path.to_str().map(String::from) else { return };
-        self.launch_emulator(path_str);
+        self.launch_emulator(path_str, console);
     }
 
-    fn launch_emulator(&mut self, path: String) {
+    fn launch_emulator(&mut self, path: String, console: Option<Console>) {
         self.state.current_file_path.clone_from(&path);
 
-        // Update Open Recent contents
-        self.config.recent_opens.retain(|recent_open_path| recent_open_path != &path);
-        self.config.recent_opens.insert(0, path.clone());
-        self.config.recent_opens.truncate(10);
-        self.state.recent_open_list = romlist::from_recent_opens(&self.config.recent_opens);
-
-        let Some(metadata) = romlist::read_metadata(Path::new(&path)) else {
-            log::error!("Unable to detect compatible file at path: '{path}'");
-            self.emu_thread.clear_waiting_for_first_command();
-            return;
+        let console = match console {
+            Some(console) => console,
+            None => {
+                let Some(metadata) = romlist::read_metadata(Path::new(&path)) else {
+                    log::error!("Unable to detect compatible file at path: '{path}'");
+                    self.emu_thread.clear_waiting_for_first_command();
+                    return;
+                };
+                metadata.console
+            }
         };
 
-        match metadata.console {
+        // Update Open Recent contents
+        let console_str = console.to_string();
+        self.config
+            .recent_open_list
+            .retain(|open| open.path != path || open.console != console_str);
+        self.config
+            .recent_open_list
+            .insert(0, RecentOpen { console: console_str, path: path.clone() });
+        self.config.recent_open_list.truncate(10);
+        self.state.recent_open_list = romlist::from_recent_opens(&self.config.recent_open_list);
+
+        match console {
             Console::MasterSystem | Console::GameGear => {
                 self.emu_thread.stop_emulator_if_running();
 
@@ -428,7 +450,7 @@ impl App {
     fn render_file_menu(&mut self, ctx: &Context, ui: &mut Ui) {
         let open_shortcut = KeyboardShortcut::new(Modifiers::CTRL, Key::O);
         if ctx.input_mut(|input| input.consume_shortcut(&open_shortcut)) {
-            self.open_file();
+            self.open_file(None);
         }
 
         let quit_shortcut = KeyboardShortcut::new(Modifiers::CTRL, Key::Q);
@@ -439,12 +461,17 @@ impl App {
         ui.menu_button("File", |ui| {
             ui.add_enabled_ui(!self.state.recent_open_list.is_empty(), |ui| {
                 ui.menu_button("Open Recent", |ui| {
-                    ui.set_min_width(200.0);
-                    ui.set_max_width(400.0);
+                    ui.set_min_width(300.0);
+                    ui.set_max_width(500.0);
 
                     for recent_open in self.state.recent_open_list.clone() {
-                        if ui.button(&recent_open.file_name_no_ext).clicked() {
-                            self.launch_emulator(recent_open.full_path);
+                        let label = format!(
+                            "{} [{}]",
+                            recent_open.file_name_no_ext,
+                            recent_open.console.display_str()
+                        );
+                        if ui.button(label).clicked() {
+                            self.launch_emulator(recent_open.full_path, Some(recent_open.console));
                             ui.close_menu();
                         }
 
@@ -453,10 +480,26 @@ impl App {
                 });
             });
 
+            ui.menu_button("Open Using", |ui| {
+                for console in [
+                    Console::MasterSystem,
+                    Console::Genesis,
+                    Console::SegaCd,
+                    Console::Sega32X,
+                    Console::Nes,
+                    Console::Snes,
+                    Console::GameBoy,
+                ] {
+                    self.render_open_using_button(console, ui);
+                }
+            });
+
+            ui.add_space(10.0);
+
             let open_button =
                 Button::new("Open").shortcut_text(ctx.format_shortcut(&open_shortcut));
             if open_button.ui(ui).clicked() {
-                self.open_file();
+                self.open_file(None);
                 ui.close_menu();
             }
 
@@ -466,6 +509,18 @@ impl App {
                 ctx.send_viewport_cmd(ViewportCommand::Close);
             }
         });
+    }
+
+    fn render_open_using_button(&mut self, console: Console, ui: &mut Ui) {
+        let label = match console {
+            Console::MasterSystem => "SMS / Game Gear",
+            _ => console.display_str(),
+        };
+
+        if ui.button(label).clicked() {
+            self.open_file(Some(console));
+            ui.close_menu();
+        }
     }
 
     fn render_emulation_menu(&mut self, ui: &mut Ui) {
@@ -824,13 +879,13 @@ impl App {
                                     .clicked()
                                 {
                                     self.emu_thread.stop_emulator_if_running();
-                                    self.launch_emulator(metadata.full_path.clone());
+                                    self.launch_emulator(metadata.full_path.clone(), None);
                                 }
                             });
 
                             row.col(|ui| {
                                 ui.centered_and_justified(|ui| {
-                                    ui.label(metadata.console.to_str());
+                                    ui.label(metadata.console.display_str());
                                 });
                             });
 
@@ -969,7 +1024,7 @@ impl eframe::App for App {
 
         if self.state.rendered_first_frame {
             if let Some(startup_file_path) = self.startup_file_path.take() {
-                self.launch_emulator(startup_file_path);
+                self.launch_emulator(startup_file_path, None);
                 self.state.close_on_emulator_exit = true;
             }
         }
@@ -1042,14 +1097,14 @@ fn should_reload_config(prev_config: &AppConfig, new_config: &AppConfig) -> bool
     let prev_no_ui_settings = AppConfig {
         list_filters: ListFilters::default(),
         rom_search_dirs: vec![],
-        recent_opens: vec![],
+        recent_open_list: vec![],
         ..prev_config.clone()
     };
 
     let new_no_ui_settings = AppConfig {
         list_filters: ListFilters::default(),
         rom_search_dirs: vec![],
-        recent_opens: vec![],
+        recent_open_list: vec![],
         ..new_config.clone()
     };
 

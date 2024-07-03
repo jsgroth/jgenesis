@@ -1,25 +1,27 @@
-use jgenesis_proc_macros::EnumAll;
+use jgenesis_native_config::RecentOpen;
+use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 use regex::Regex;
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::{fs, io, thread};
 
-static ALL_EXTENSIONS: OnceLock<Vec<&'static str>> = OnceLock::new();
+pub const ALL_EXTENSIONS: &[&str] =
+    &["sms", "gg", "md", "bin", "cue", "chd", "32x", "nes", "sfc", "smc", "gb", "gbc", "zip", "7z"];
 
-pub fn all_extensions() -> &'static [&'static str] {
-    ALL_EXTENSIONS.get_or_init(|| {
-        vec![
-            "sms", "gg", "md", "bin", "cue", "chd", "32x", "nes", "sfc", "smc", "gb", "gbc", "zip",
-            "7z",
-        ]
-    })
-}
+const SMSGG_EXTENSIONS: &[&str] = &["sms", "gg"];
+const GENESIS_EXTENSIONS: &[&str] = &["md", "bin"];
+const SCD_EXTENSIONS: &[&str] = &["cue", "chd"];
+const S32X_EXTENSIONS: &[&str] = &["32x"];
+const NES_EXTENSIONS: &[&str] = &["nes"];
+const SNES_EXTENSIONS: &[&str] = &["sfc", "smc"];
+const GB_EXTENSIONS: &[&str] = &["gb", "gbc"];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumAll)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumAll, EnumDisplay, EnumFromStr)]
 pub enum Console {
     MasterSystem,
     GameGear,
@@ -48,7 +50,7 @@ impl Console {
         }
     }
 
-    pub fn to_str(self) -> &'static str {
+    pub fn display_str(self) -> &'static str {
         match self {
             Self::MasterSystem => "Master System",
             Self::GameGear => "Game Gear",
@@ -59,6 +61,18 @@ impl Console {
             Self::Snes => "SNES",
             Self::GameBoy => "Game Boy",
             Self::GameBoyColor => "Game Boy Color",
+        }
+    }
+
+    pub fn supported_extensions(self) -> &'static [&'static str] {
+        match self {
+            Self::MasterSystem | Self::GameGear => SMSGG_EXTENSIONS,
+            Self::Genesis => GENESIS_EXTENSIONS,
+            Self::SegaCd => SCD_EXTENSIONS,
+            Self::Sega32X => S32X_EXTENSIONS,
+            Self::Nes => NES_EXTENSIONS,
+            Self::Snes => SNES_EXTENSIONS,
+            Self::GameBoy | Self::GameBoyColor => GB_EXTENSIONS,
         }
     }
 }
@@ -190,15 +204,22 @@ fn parse_bin_file_names(cue_contents: &str) -> impl Iterator<Item = &str> {
     })
 }
 
-pub fn from_recent_opens(recent_opens: &[String]) -> Vec<RomMetadata> {
+pub fn from_recent_opens(recent_opens: &[RecentOpen]) -> Vec<RomMetadata> {
     recent_opens
         .iter()
-        .filter_map(|path| {
-            let path = Path::new(path);
-            let file_name = path.file_name()?.to_string_lossy();
+        .filter_map(|RecentOpen { console, path: path_str }| {
+            let console = Console::from_str(console).ok()?;
+            let path = Path::new(path_str);
+            let file_name_no_ext =
+                path.with_extension("").file_name()?.to_string_lossy().to_string();
             let metadata = fs::metadata(path).ok()?;
 
-            process_file(&file_name, path, metadata)
+            let file_size = match path.extension().and_then(OsStr::to_str) {
+                Some("cue") => sega_cd_file_size(path_str).ok()?,
+                _ => metadata.len(),
+            };
+
+            Some(RomMetadata { full_path: path_str.into(), file_name_no_ext, console, file_size })
         })
         .collect()
 }

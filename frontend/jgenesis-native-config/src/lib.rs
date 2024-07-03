@@ -48,6 +48,12 @@ impl Default for ListFilters {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecentOpen {
+    pub console: String,
+    pub path: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default)]
@@ -68,12 +74,13 @@ pub struct AppConfig {
     pub game_boy: GameBoyAppConfig,
     #[serde(default)]
     pub inputs: InputAppConfig,
+    // TODO move GUI-specific config/state somewhere else - separate file?
     #[serde(default)]
     pub list_filters: ListFilters,
     #[serde(default)]
     pub rom_search_dirs: Vec<String>,
     #[serde(default)]
-    pub recent_opens: Vec<String>,
+    pub recent_open_list: Vec<RecentOpen>,
 }
 
 impl AppConfig {
