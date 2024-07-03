@@ -18,8 +18,8 @@ pub enum WgpuBackend {
     Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
 )]
 pub enum VSyncMode {
-    #[default]
     Enabled,
+    #[default]
     Disabled,
     Fast,
 }
