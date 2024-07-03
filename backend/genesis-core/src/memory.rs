@@ -564,6 +564,8 @@ pub struct MainBus<'a, Medium> {
     signals: MainBusSignals,
     pending_writes: MainBusWrites,
     z80_accessed_68k_bus: bool,
+    // Last word-size read; used to pseudo-emulate open bus bits in the Z80 BUSACK register
+    last_word_read: u16,
 }
 
 impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
@@ -589,6 +591,7 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
             signals,
             pending_writes,
             z80_accessed_68k_bus: false,
+            last_word_read: 0,
         }
     }
 
@@ -776,10 +779,9 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
         let busack_byte: u8 = (!self.memory.signals.z80_busack()).into();
         let busack_word = u16::from_be_bytes([busack_byte, busack_byte]);
 
-        // Fill unused bits with 1s; this fixes Danny Sullivan's Indy Heat from failing to boot.
-        // It has a broken loop to poll for BUSACK that ends up depending on the unused bits being
-        // open bus
-        busack_word | 0xFEFE
+        // Unused bits should read open bus; Danny Sullivan's Indy Heat (Proto) depends on this or
+        // it will fail to boot
+        busack_word | (self.last_word_read & !0x0101)
     }
 }
 
@@ -812,7 +814,8 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
     fn read_word(&mut self, address: u32) -> u16 {
         let address = address & ADDRESS_MASK;
         log::trace!("Main bus word read, address={address:06X}");
-        match address {
+
+        self.last_word_read = match address {
             0x000000..=0x9FFFFF | 0xA12000..=0xA153FF => {
                 self.memory.physical_medium.read_word(address)
             }
@@ -834,7 +837,9 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
                 ])
             }
             _ => 0xFFFF,
-        }
+        };
+
+        self.last_word_read
     }
 
     #[inline]
