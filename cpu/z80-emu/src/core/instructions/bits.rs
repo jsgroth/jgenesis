@@ -316,7 +316,14 @@ fn rotate_right_decimal(a: u8, memory_value: u8, flags: &mut Flags) -> (u8, u8) 
 
 fn bit_test(value: u8, bit: u8, flags: &mut Flags) {
     let zero = value & (1 << bit) == 0;
-    *flags = Flags { zero, half_carry: true, subtract: false, ..*flags };
+    *flags = Flags {
+        zero,
+        half_carry: true,
+        subtract: false,
+        overflow: zero,
+        sign: bit == 7 && !zero,
+        ..*flags
+    };
 }
 
 fn set_bit(value: u8, bit: u8) -> u8 {
