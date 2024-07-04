@@ -4,7 +4,7 @@ const I16_MIN: f64 = -32768.0;
 const I16_MAX: f64 = 32767.0;
 
 pub struct InterpolateArgs {
-    pub interpolation_idx: u16,
+    pub pitch_counter: u16,
     pub oldest: i16,
     pub older: i16,
     pub old: i16,
@@ -12,7 +12,7 @@ pub struct InterpolateArgs {
 }
 
 pub fn gaussian(
-    InterpolateArgs { interpolation_idx, oldest, older, old, sample }: InterpolateArgs,
+    InterpolateArgs { pitch_counter, oldest, older, old, sample }: InterpolateArgs,
 ) -> i16 {
     // Do math in 32 bits to avoid overflows
     let sample: i32 = sample.into();
@@ -20,7 +20,8 @@ pub fn gaussian(
     let older: i32 = older.into();
     let oldest: i32 = oldest.into();
 
-    let interpolation_idx = interpolation_idx as usize;
+    // Bits 4-11 of pitch counter are the interpolation index into the Gaussian interpolation table
+    let interpolation_idx = ((pitch_counter >> 4) & 0xFF) as usize;
 
     // Sum the 3 older samples with 15-bit wrapping
     let mut sum = (tables::GAUSSIAN[0x0FF - interpolation_idx] * oldest) >> 11;
@@ -39,13 +40,13 @@ pub fn gaussian(
 
 // Based on https://yehar.com/blog/wp-content/uploads/2009/08/deip.pdf
 pub fn hermite(
-    InterpolateArgs { interpolation_idx, oldest, older, old, sample }: InterpolateArgs,
+    InterpolateArgs { pitch_counter, oldest, older, old, sample }: InterpolateArgs,
 ) -> i16 {
     let y3: f64 = sample.into();
     let y2: f64 = old.into();
     let y1: f64 = older.into();
     let y0: f64 = oldest.into();
-    let x = f64::from(interpolation_idx) / 256.0;
+    let x = f64::from(pitch_counter & 0xFFF) / 4096.0;
 
     let c0 = y1;
     let c1 = 0.5 * (y2 - y0);

@@ -305,11 +305,10 @@ impl Voice {
             // background
             noise_generator_output
         } else {
-            // Bits 12-15 of pitch counter are used as the sample index and 4-11 are interpolation index
+            // Bits 12-15 of pitch counter are used as the sample index
             let sample_idx = self.pitch_counter >> 12;
-            let interpolation_idx = (self.pitch_counter >> 4) & 0xFF;
             let args = InterpolateArgs {
-                interpolation_idx,
+                pitch_counter: self.pitch_counter,
                 oldest: self.brr_buffer[sample_idx],
                 older: self.brr_buffer[sample_idx + 1],
                 old: self.brr_buffer[sample_idx + 2],
