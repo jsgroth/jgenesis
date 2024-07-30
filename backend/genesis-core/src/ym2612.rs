@@ -16,7 +16,7 @@ use crate::GenesisEmulatorConfig;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::{GetBit, U16Ext};
 use std::array;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 const FM_CLOCK_DIVIDER: u8 = 6;
 const FM_SAMPLE_DIVIDER: u8 = 24;
@@ -120,26 +120,25 @@ impl FmOperator {
 
 #[inline]
 fn phase_sin(phase: u16) -> f64 {
-    static LOOKUP_TABLE: OnceLock<[f64; 1024]> = OnceLock::new();
-
     // Phase represents a value from 0 to 2PI on a scale from 0 to 2^10
-    let lookup_table = LOOKUP_TABLE
-        .get_or_init(|| array::from_fn(|i| (i as f64 / 1024.0 * 2.0 * std::f64::consts::PI).sin()));
-    lookup_table[phase as usize]
+    static LOOKUP_TABLE: LazyLock<[f64; 1024]> = LazyLock::new(|| {
+        array::from_fn(|i| (i as f64 / 1024.0 * 2.0 * std::f64::consts::PI).sin())
+    });
+
+    LOOKUP_TABLE[phase as usize]
 }
 
 #[inline]
 fn attenuation_to_volume(attenuation: u16) -> f64 {
-    static LOOKUP_TABLE: OnceLock<[f64; 1024]> = OnceLock::new();
-
     // Envelope attenuation represents a value from 0dB to 96dB on a scale from 0 to 2^10
-    let lookup_table = LOOKUP_TABLE.get_or_init(|| {
+    static LOOKUP_TABLE: LazyLock<[f64; 1024]> = LazyLock::new(|| {
         array::from_fn(|i| {
             let decibels = 96.0 * i as f64 / 1024.0;
             10.0_f64.powf(decibels / -20.0)
         })
     });
-    lookup_table[attenuation as usize]
+
+    LOOKUP_TABLE[attenuation as usize]
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]

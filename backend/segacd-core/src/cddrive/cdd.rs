@@ -11,7 +11,7 @@ use jgenesis_proc_macros::PartialClone;
 use regex::Regex;
 use std::cmp::Ordering;
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use std::{array, cmp};
 
 const INITIAL_STATUS: [u8; 10] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0F];
@@ -816,9 +816,8 @@ impl CdDrive {
         self.interrupt_pending = false;
     }
 
+    #[allow(clippy::items_after_statements)]
     pub fn disc_title(&mut self, region: GenesisRegion) -> SegaCdLoadResult<Option<String>> {
-        static WHITESPACE_RE: OnceLock<Regex> = OnceLock::new();
-
         let Some(disc) = &mut self.disc else { return Ok(None) };
 
         // Title information is always stored in the first sector of track 1
@@ -838,9 +837,9 @@ impl CdDrive {
             })
             .collect();
 
-        let whitespace_re = WHITESPACE_RE.get_or_init(|| Regex::new(r" +").unwrap());
+        static WHITESPACE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" +").unwrap());
 
-        Ok(Some(whitespace_re.replace_all(title.trim(), " ").to_string()))
+        Ok(Some(WHITESPACE_RE.replace_all(title.trim(), " ").to_string()))
     }
 
     pub fn take_disc(&mut self) -> Option<CdRom> {
@@ -888,9 +887,7 @@ impl CdDrive {
 
 fn fader_volume_multiplier(volume: u16) -> f64 {
     // Yes, 1025; fader volumes range from 0 to 1024 inclusive
-    static LOOKUP_TABLE: OnceLock<[f64; 1025]> = OnceLock::new();
-
-    let lookup_table = LOOKUP_TABLE.get_or_init(|| {
+    static LOOKUP_TABLE: LazyLock<[f64; 1025]> = LazyLock::new(|| {
         let mut lookup_table = [0.0; 1025];
 
         // For every volume, multiplier is (Bits 9-2)/256
@@ -901,7 +898,8 @@ fn fader_volume_multiplier(volume: u16) -> f64 {
 
         lookup_table
     });
-    lookup_table[volume as usize]
+
+    LOOKUP_TABLE[volume as usize]
 }
 
 // Checksum is the first 9 nibbles summed and then inverted

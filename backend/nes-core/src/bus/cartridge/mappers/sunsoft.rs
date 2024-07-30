@@ -6,7 +6,7 @@ use crate::bus::cartridge::mappers::{
 use crate::bus::cartridge::{HasBasicPpuMapping, MapperImpl};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -56,8 +56,7 @@ impl Sunsoft5bChannel {
     }
 
     fn sample_analog(&self) -> f64 {
-        static DAC_LOOKUP_TABLE: OnceLock<[f64; 16]> = OnceLock::new();
-        let lookup_table = DAC_LOOKUP_TABLE.get_or_init(|| {
+        static DAC_LOOKUP_TABLE: LazyLock<[f64; 16]> = LazyLock::new(|| {
             let mut lookup_table = [0.0; 16];
 
             // Arbitrary value, will get normalized later
@@ -93,7 +92,7 @@ impl Sunsoft5bChannel {
             lookup_table
         });
 
-        lookup_table[self.sample() as usize]
+        DAC_LOOKUP_TABLE[self.sample() as usize]
     }
 
     fn clock(&mut self) {

@@ -5,7 +5,7 @@ use jgenesis_common::frontend::Color;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::array;
 use std::ops::{Deref, DerefMut};
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 // 0/0/0 = black and 255/255/255 = white, so linearly map [0,3] to [255,0]
 const GB_COLOR_TO_RGB_BW: [[u8; 3]; 4] =
@@ -72,8 +72,7 @@ impl RgbaFrameBuffer {
     fn copy_gbc_correction(&mut self, ppu_frame_buffer: &PpuFrameBuffer) {
         // Based on this public domain shader:
         // https://github.com/libretro/common-shaders/blob/master/handheld/shaders/color/gbc-color.cg
-        static COLOR_TABLE: OnceLock<Box<[Color; 32768]>> = OnceLock::new();
-        let color_table = COLOR_TABLE.get_or_init(|| {
+        static COLOR_TABLE: LazyLock<Box<[Color; 32768]>> = LazyLock::new(|| {
             Box::new(array::from_fn(|ppu_color| {
                 let (r, g, b) = parse_cgb_color(ppu_color as u16);
                 let r: f64 = r.into();
@@ -91,15 +90,14 @@ impl RgbaFrameBuffer {
         });
 
         for (ppu_color, rgba_color) in ppu_frame_buffer.iter().zip(self.iter_mut()) {
-            *rgba_color = color_table[(ppu_color & 0x7FFF) as usize];
+            *rgba_color = COLOR_TABLE[(ppu_color & 0x7FFF) as usize];
         }
     }
 
     fn copy_gba_correction(&mut self, ppu_frame_buffer: &PpuFrameBuffer) {
         // Based on this public domain shader:
         // https://github.com/libretro/common-shaders/blob/master/handheld/shaders/color/gba-color.cg
-        static COLOR_TABLE: OnceLock<Box<[Color; 32768]>> = OnceLock::new();
-        let color_table = COLOR_TABLE.get_or_init(|| {
+        static COLOR_TABLE: LazyLock<Box<[Color; 32768]>> = LazyLock::new(|| {
             Box::new(array::from_fn(|ppu_color| {
                 let (r, g, b) = parse_cgb_color(ppu_color as u16);
                 let r: f64 = r.into();
@@ -120,7 +118,7 @@ impl RgbaFrameBuffer {
         });
 
         for (ppu_color, rgba_color) in ppu_frame_buffer.iter().zip(self.iter_mut()) {
-            *rgba_color = color_table[(ppu_color & 0x7FFF) as usize];
+            *rgba_color = COLOR_TABLE[(ppu_color & 0x7FFF) as usize];
         }
     }
 }

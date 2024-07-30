@@ -2,7 +2,7 @@ use crate::core::instructions::{
     BranchCondition, Direction, Instruction, ShiftCount, ShiftDirection, UspDirection,
 };
 use crate::core::{AddressRegister, AddressingMode, DataRegister, OpSize};
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 type InstructionTable = Box<[Instruction; 65536]>;
 
@@ -71,9 +71,7 @@ impl BranchCondition {
 }
 
 pub fn decode(opcode: u16) -> Instruction {
-    static LOOKUP_TABLE: OnceLock<InstructionTable> = OnceLock::new();
-
-    let lookup_table = LOOKUP_TABLE.get_or_init(|| {
+    static LOOKUP_TABLE: LazyLock<InstructionTable> = LazyLock::new(|| {
         // Initialize table with every entry set to ILLEGAL
         let mut table = (0..=u16::MAX)
             .map(|opcode| Instruction::Illegal { opcode })
@@ -151,7 +149,8 @@ pub fn decode(opcode: u16) -> Instruction {
 
         table
     });
-    lookup_table[opcode as usize]
+
+    LOOKUP_TABLE[opcode as usize]
 }
 
 fn all_addressing_modes() -> impl Iterator<Item = AddressingMode> {

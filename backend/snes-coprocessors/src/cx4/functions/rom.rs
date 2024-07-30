@@ -1,15 +1,13 @@
 #![allow(clippy::needless_range_loop)]
 
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 const PI: f64 = std::f64::consts::PI;
 
 type Cx4Rom = [u32; 1024];
 
 pub fn read(address: u32) -> u32 {
-    static ROM: OnceLock<Box<Cx4Rom>> = OnceLock::new();
-
-    let rom = ROM.get_or_init(|| {
+    static ROM: LazyLock<Box<Cx4Rom>> = LazyLock::new(|| {
         let mut rom: Box<Cx4Rom> = vec![0; 1024].into_boxed_slice().try_into().unwrap();
 
         populate_div(&mut rom);
@@ -21,7 +19,8 @@ pub fn read(address: u32) -> u32 {
 
         rom
     });
-    rom[(address & 0x3FF) as usize]
+
+    ROM[(address & 0x3FF) as usize]
 }
 
 fn populate_div(rom: &mut Cx4Rom) {

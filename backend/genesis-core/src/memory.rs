@@ -17,7 +17,7 @@ use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use regex::Regex;
 use smsgg_core::psg::Psg;
 use std::ops::Index;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use std::{array, iter, mem};
 use z80_emu::traits::InterruptLine;
 
@@ -247,10 +247,8 @@ fn ensure_big_endian(mut rom: Vec<u8>) -> Vec<u8> {
 }
 
 #[must_use]
-#[allow(clippy::missing_panics_doc)]
+#[allow(clippy::missing_panics_doc, clippy::items_after_statements)]
 pub fn parse_title_from_header(rom: &[u8], region: GenesisRegion) -> String {
-    static RE: OnceLock<Regex> = OnceLock::new();
-
     let addr = match region {
         GenesisRegion::Americas | GenesisRegion::Europe => 0x0150,
         GenesisRegion::Japan => 0x0120,
@@ -258,8 +256,8 @@ pub fn parse_title_from_header(rom: &[u8], region: GenesisRegion) -> String {
     let bytes = &rom[addr..addr + 48];
     let title = bytes.iter().copied().map(|b| b as char).collect::<String>();
 
-    let re = RE.get_or_init(|| Regex::new(r" +").unwrap());
-    re.replace_all(title.trim(), " ").into()
+    static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r" +").unwrap());
+    RE.replace_all(title.trim(), " ").into()
 }
 
 fn is_virtua_racing(serial_number: &[u8]) -> bool {

@@ -8,7 +8,7 @@ use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use std::{fs, io, mem};
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -164,28 +164,29 @@ impl CueParser {
         Ok(self.files)
     }
 
+    #[allow(clippy::items_after_statements)]
     fn parse_file_line(&mut self, line: &str) -> CdRomResult<()> {
-        static RE: OnceLock<Regex> = OnceLock::new();
-
         self.push_file()?;
 
-        let re = RE.get_or_init(|| Regex::new(r#"FILE "(.*)" BINARY"#).unwrap());
+        static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"FILE "(.*)" BINARY"#).unwrap());
+
         let captures =
-            re.captures(line).ok_or_else(|| CdRomError::CueInvalidFileLine(line.into()))?;
+            RE.captures(line).ok_or_else(|| CdRomError::CueInvalidFileLine(line.into()))?;
         let file_name = captures.get(1).unwrap();
         self.current_file = Some(file_name.as_str().into());
 
         Ok(())
     }
 
+    #[allow(clippy::items_after_statements)]
     fn parse_track_line(&mut self, line: &str) -> CdRomResult<()> {
-        static RE: OnceLock<Regex> = OnceLock::new();
-
         self.push_track()?;
 
-        let re = RE.get_or_init(|| Regex::new(r"TRACK ([^ ]*) ([^ ]*)").unwrap());
+        static RE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"TRACK ([^ ]*) ([^ ]*)").unwrap());
+
         let captures =
-            re.captures(line).ok_or_else(|| CdRomError::CueInvalidTrackLine(line.into()))?;
+            RE.captures(line).ok_or_else(|| CdRomError::CueInvalidTrackLine(line.into()))?;
         let track_number = captures
             .get(1)
             .unwrap()
@@ -205,11 +206,11 @@ impl CueParser {
     }
 
     fn parse_index_line(&mut self, line: &str) -> CdRomResult<()> {
-        static RE: OnceLock<Regex> = OnceLock::new();
+        static RE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"INDEX ([^ ]*) ([^ ]*)").unwrap());
 
-        let re = RE.get_or_init(|| Regex::new(r"INDEX ([^ ]*) ([^ ]*)").unwrap());
         let captures =
-            re.captures(line).ok_or_else(|| CdRomError::CueInvalidIndexLine(line.into()))?;
+            RE.captures(line).ok_or_else(|| CdRomError::CueInvalidIndexLine(line.into()))?;
         let index_number = captures.get(1).unwrap();
         let start_time = captures
             .get(2)
@@ -234,11 +235,10 @@ impl CueParser {
     }
 
     fn parse_pregap_line(&mut self, line: &str) -> CdRomResult<()> {
-        static RE: OnceLock<Regex> = OnceLock::new();
+        static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"PREGAP ([^ ]*)").unwrap());
 
-        let re = RE.get_or_init(|| Regex::new(r"PREGAP ([^ ]*)").unwrap());
         let captures =
-            re.captures(line).ok_or_else(|| CdRomError::CueInvalidPregapLine(line.into()))?;
+            RE.captures(line).ok_or_else(|| CdRomError::CueInvalidPregapLine(line.into()))?;
         let pregap_len = captures
             .get(1)
             .unwrap()

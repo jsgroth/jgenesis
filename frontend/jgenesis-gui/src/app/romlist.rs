@@ -7,7 +7,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::Sender;
-use std::sync::{mpsc, Arc, Mutex, OnceLock};
+use std::sync::{mpsc, Arc, LazyLock, Mutex};
 use std::{fs, io, thread};
 
 pub const ALL_EXTENSIONS: &[&str] =
@@ -195,13 +195,12 @@ fn sega_cd_file_size(cue_path: &str) -> io::Result<u64> {
 }
 
 fn parse_bin_file_names(cue_contents: &str) -> impl Iterator<Item = &str> {
-    static LINE_RE: OnceLock<Regex> = OnceLock::new();
+    static LINE_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r#"FILE "(.*)" BINARY"#).unwrap());
 
-    cue_contents.lines().filter_map(|line| {
-        let line_re = LINE_RE.get_or_init(|| Regex::new(r#"FILE "(.*)" BINARY"#).unwrap());
-
-        line_re.captures(line).map(|captures| captures.get(1).unwrap().as_str())
-    })
+    cue_contents
+        .lines()
+        .filter_map(|line| LINE_RE.captures(line).map(|captures| captures.get(1).unwrap().as_str()))
 }
 
 pub fn from_recent_opens(recent_opens: &[RecentOpen]) -> Vec<RomMetadata> {

@@ -6,7 +6,7 @@
 
 use bincode::{Decode, Encode};
 use jgenesis_common::num::{GetBit, U16Ext};
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use std::{array, cmp};
 
 // Built-in instrument and rhythm patches from:
@@ -411,8 +411,7 @@ enum Sign {
 // Output range is 0..=2137
 // Source: https://www.smspower.org/Development/YM2413ReverseEngineeringNotes2015-04-09
 fn log_sine_lookup(phase: u32) -> (u16, Sign) {
-    static LOOKUP_TABLE: OnceLock<[(u16, Sign); 1024]> = OnceLock::new();
-    let lookup_table = LOOKUP_TABLE.get_or_init(|| {
+    static LOOKUP_TABLE: LazyLock<[(u16, Sign); 1024]> = LazyLock::new(|| {
         let quarter_table: [u16; 256] = array::from_fn(|i| {
             let sine = ((i as f64 + 0.5) / 256.0 * std::f64::consts::PI / 2.0).sin();
             (-1.0 * sine.log2() * 256.0).round() as u16
@@ -426,7 +425,8 @@ fn log_sine_lookup(phase: u32) -> (u16, Sign) {
             _ => unreachable!("array::from_fn with array of size 1024"),
         })
     });
-    lookup_table[phase as usize]
+
+    LOOKUP_TABLE[phase as usize]
 }
 
 // Returns a 12-bit unsigned amplitude, assuming the input is an attenuation in log2 decibels units
@@ -440,11 +440,11 @@ fn exp2_lookup(attenuation: u16) -> u16 {
         return 0;
     }
 
-    static LOOKUP_TABLE: OnceLock<[u16; 256]> = OnceLock::new();
-    let lookup_table = LOOKUP_TABLE.get_or_init(|| {
+    static LOOKUP_TABLE: LazyLock<[u16; 256]> = LazyLock::new(|| {
         array::from_fn(|i| (2.0_f64.powf((255 - i) as f64 / 256.0) * 1024.0).round() as u16 - 1024)
     });
-    ((lookup_table[attenuation_lsb as usize] + 1024) << 1) >> attenuation_msb
+
+    ((LOOKUP_TABLE[attenuation_lsb as usize] + 1024) << 1) >> attenuation_msb
 }
 
 fn compute_amplitude(attenuation: u16, sign: Sign) -> i32 {

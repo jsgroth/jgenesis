@@ -28,7 +28,7 @@ use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::GetBit;
 use std::ops::Range;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 enum FrameCounterMode {
@@ -304,8 +304,7 @@ impl ApuState {
 }
 
 pub fn mix_pulse_samples(pulse1_sample: u8, pulse2_sample: u8) -> f64 {
-    static PULSE_AUDIO_LOOKUP_TABLE: OnceLock<[[f64; 16]; 16]> = OnceLock::new();
-    let lookup_table = PULSE_AUDIO_LOOKUP_TABLE.get_or_init(|| {
+    static PULSE_AUDIO_LOOKUP_TABLE: LazyLock<[[f64; 16]; 16]> = LazyLock::new(|| {
         let mut lookup_table = [[0.0; 16]; 16];
 
         for (pulse1_sample, row) in lookup_table.iter_mut().enumerate() {
@@ -320,12 +319,11 @@ pub fn mix_pulse_samples(pulse1_sample: u8, pulse2_sample: u8) -> f64 {
         lookup_table
     });
 
-    lookup_table[pulse1_sample as usize][pulse2_sample as usize]
+    PULSE_AUDIO_LOOKUP_TABLE[pulse1_sample as usize][pulse2_sample as usize]
 }
 
 fn mix_tnd_samples(triangle_sample: u8, noise_sample: u8, dmc_sample: u8) -> f64 {
-    static TND_AUDIO_LOOKUP_TABLE: OnceLock<Box<[[[f64; 16]; 16]; 128]>> = OnceLock::new();
-    let lookup_table = TND_AUDIO_LOOKUP_TABLE.get_or_init(|| {
+    static TND_AUDIO_LOOKUP_TABLE: LazyLock<Box<[[[f64; 16]; 16]; 128]>> = LazyLock::new(|| {
         let mut lookup_table = Box::new([[[0.0; 16]; 16]; 128]);
 
         for (dmc_sample, dmc_row) in lookup_table.iter_mut().enumerate() {
@@ -347,7 +345,7 @@ fn mix_tnd_samples(triangle_sample: u8, noise_sample: u8, dmc_sample: u8) -> f64
         lookup_table
     });
 
-    lookup_table[dmc_sample as usize][triangle_sample as usize][noise_sample as usize]
+    TND_AUDIO_LOOKUP_TABLE[dmc_sample as usize][triangle_sample as usize][noise_sample as usize]
 }
 
 /// Tick the APU for one CPU cycle.
