@@ -18,8 +18,9 @@ const PAL_SCANLINES_PER_FRAME: u16 = genesis_core::vdp::PAL_SCANLINES_PER_FRAME;
 const MCLK_CYCLES_PER_SCANLINE: u64 = genesis_core::vdp::MCLK_CYCLES_PER_SCANLINE;
 const ACTIVE_MCLK_CYCLES_PER_SCANLINE: u64 = genesis_core::vdp::ACTIVE_MCLK_CYCLES_PER_SCANLINE;
 
+// DRAM refresh takes ~40 SH-2 cycles
 const DRAM_REFRESH_MCLK_CYCLES: Range<u64> =
-    ACTIVE_MCLK_CYCLES_PER_SCANLINE..ACTIVE_MCLK_CYCLES_PER_SCANLINE + 40;
+    ACTIVE_MCLK_CYCLES_PER_SCANLINE..ACTIVE_MCLK_CYCLES_PER_SCANLINE + 40 * 7 / 3;
 
 const FRAME_BUFFER_LEN_WORDS: usize = 128 * 1024 / 2;
 const CRAM_LEN_WORDS: usize = 512 / 2;
@@ -436,12 +437,12 @@ impl Vdp {
         self.cram[((address & 0x1FF) >> 1) as usize] = value;
     }
 
-    // Interrupt mask bit 7: HEN (H interrupts enabled during VBlank)(
+    // Interrupt mask bit 7: HEN (H interrupts enabled during VBlank)
     pub fn hen_bit(&self) -> bool {
         self.registers.h_interrupt_in_vblank
     }
 
-    // Interrupt mask bit 7: HEN (H interrupts enabled during VBlank)(
+    // Interrupt mask bit 7: HEN (H interrupts enabled during VBlank)
     pub fn write_hen_bit(&mut self, hen: bool) {
         self.registers.h_interrupt_in_vblank = hen;
     }
