@@ -33,7 +33,7 @@ sdl2 = { workspace = true }
 time = { workspace = true, features = ["formatting", "local-offset"] }
 toml = { workspace = true }
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 xrandr = { workspace = true }
 
 [package.metadata.packager]
