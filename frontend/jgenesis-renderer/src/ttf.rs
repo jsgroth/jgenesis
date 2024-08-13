@@ -36,7 +36,8 @@ pub struct Modal {
 
 pub struct ModalRenderer {
     font_system: FontSystem,
-    cache: SwashCache,
+    swash_cache: SwashCache,
+    viewport: glyphon::Viewport,
     atlas: TextAtlas,
     text_renderer: TextRenderer,
     buffers: Vec<Buffer>,
@@ -51,8 +52,9 @@ impl ModalRenderer {
         surface_format: wgpu::TextureFormat,
     ) -> Self {
         let font_system = FontSystem::new();
-        let cache = SwashCache::new();
-        let mut atlas = TextAtlas::new(device, queue, surface_format);
+        let swash_cache = SwashCache::new();
+        let glyphon_cache = glyphon::Cache::new(device);
+        let mut atlas = TextAtlas::new(device, queue, &glyphon_cache, surface_format);
         let text_renderer =
             TextRenderer::new(&mut atlas, device, wgpu::MultisampleState::default(), None);
 
@@ -63,6 +65,7 @@ impl ModalRenderer {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main",
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
                 buffers: &[Vertex::LAYOUT],
             },
             primitive: wgpu::PrimitiveState {
@@ -79,6 +82,7 @@ impl ModalRenderer {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: "fs_main",
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -88,9 +92,12 @@ impl ModalRenderer {
             multiview: None,
         });
 
+        let viewport = glyphon::Viewport::new(device, &glyphon_cache);
+
         Self {
             font_system,
-            cache,
+            swash_cache,
+            viewport,
             atlas,
             text_renderer,
             buffers: Vec::with_capacity(10),
@@ -127,14 +134,14 @@ impl ModalRenderer {
         let mut text_areas = Vec::with_capacity(self.modals.len());
         let mut line_top = BORDER_OFFSET;
         for (modal, buffer) in self.modals.iter().zip(self.buffers.iter_mut()) {
-            buffer.set_size(&mut self.font_system, width as f32, height as f32);
+            buffer.set_size(&mut self.font_system, Some(width as f32), Some(height as f32));
             buffer.set_text(
                 &mut self.font_system,
                 &modal.text,
                 Attrs::new().family(Family::Monospace),
                 Shaping::Basic,
             );
-            buffer.shape_until_scroll(&mut self.font_system);
+            buffer.shape_until_scroll(&mut self.font_system, false);
 
             text_areas.push(TextArea {
                 buffer,
@@ -159,14 +166,16 @@ impl ModalRenderer {
             line_top += LINE_HEIGHT + BORDER_OFFSET;
         }
 
+        self.viewport.update(queue, Resolution { width, height });
+
         self.text_renderer.prepare(
             device,
             queue,
             &mut self.font_system,
             &mut self.atlas,
-            Resolution { width, height },
+            &self.viewport,
             text_areas,
-            &mut self.cache,
+            &mut self.swash_cache,
         )?;
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -193,7 +202,7 @@ impl ModalRenderer {
         let vertex_count = 6 * self.modals.len() as u32;
         render_pass.draw(0..vertex_count, 0..1);
 
-        self.text_renderer.render(&self.atlas, render_pass)
+        self.text_renderer.render(&self.atlas, &self.viewport, render_pass)
     }
 }
 

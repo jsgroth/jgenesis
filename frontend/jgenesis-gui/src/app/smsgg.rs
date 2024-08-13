@@ -162,11 +162,12 @@ impl App {
                 });
             });
 
-            ui.set_enabled(self.emu_thread.status() != EmuThreadStatus::RunningSmsGg);
-            ui.checkbox(
-                &mut self.config.smsgg.fm_sound_unit_enabled,
-                "Sega Master System FM sound unit enabled",
-            );
+            ui.add_enabled_ui(self.emu_thread.status() != EmuThreadStatus::RunningSmsGg, |ui| {
+                ui.checkbox(
+                    &mut self.config.smsgg.fm_sound_unit_enabled,
+                    "Sega Master System FM sound unit enabled",
+                );
+            });
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::SmsGgAudio);

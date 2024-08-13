@@ -20,13 +20,12 @@ chd = "0.3"
 clap = { version = "4", features = ["derive"] }
 crc = "3"
 directories = "5"
-eframe = "0.27"
-egui = "0.27"
-egui_extras = "0.27"
-egui-wgpu = "0.27"
+eframe = "0.28"
+egui = "0.28"
+egui_extras = "0.28"
+egui-wgpu = "0.28"
 env_logger = "0.11"
 flate2 = "1"
-glyphon = "0.5"
 js-sys = "0.3"
 lending-iterator = "0.1"
 log = "0.4"
@@ -43,11 +42,16 @@ test-log = "0.2"
 thiserror = "1"
 time = "0.3"
 toml = "0.8"
-windows = "0.57"
+windows = "0.58"
 winit = "0.29"
-wgpu = "0.19"
+wgpu = "0.20"
 xrandr = "0.2"
 zip = "2"
+
+# Fix Glyphon to a version that is built with wgpu 0.20
+[workspace.dependencies.glyphon]
+git = "https://github.com/grovesNL/glyphon.git"
+rev = "47f4126f999753e14728c0862b822677f1b039e2"
 
 [profile.dev-fast]
 # dev profile with debug symbols disabled, which results in significantly faster compile times

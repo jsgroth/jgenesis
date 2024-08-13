@@ -11,22 +11,22 @@ impl App {
         let mut open = true;
         Window::new("SNES General Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.group(|ui| {
-                ui.set_enabled(self.emu_thread.status() != EmuThreadStatus::RunningSnes);
+                ui.add_enabled_ui(self.emu_thread.status() != EmuThreadStatus::RunningSnes, |ui| {
+                    ui.label("Timing / display mode");
 
-                ui.label("Timing / display mode");
-
-                ui.horizontal(|ui| {
-                    ui.radio_value(&mut self.config.snes.forced_timing_mode, None, "Auto");
-                    ui.radio_value(
-                        &mut self.config.snes.forced_timing_mode,
-                        Some(TimingMode::Ntsc),
-                        "NTSC",
-                    );
-                    ui.radio_value(
-                        &mut self.config.snes.forced_timing_mode,
-                        Some(TimingMode::Pal),
-                        "PAL",
-                    );
+                    ui.horizontal(|ui| {
+                        ui.radio_value(&mut self.config.snes.forced_timing_mode, None, "Auto");
+                        ui.radio_value(
+                            &mut self.config.snes.forced_timing_mode,
+                            Some(TimingMode::Ntsc),
+                            "NTSC",
+                        );
+                        ui.radio_value(
+                            &mut self.config.snes.forced_timing_mode,
+                            Some(TimingMode::Pal),
+                            "PAL",
+                        );
+                    });
                 });
             });
 

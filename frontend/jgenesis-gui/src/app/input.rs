@@ -165,50 +165,50 @@ impl App {
     pub(super) fn render_smsgg_keyboard_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("SMS/GG Keyboard Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.set_enabled(self.state.waiting_for_input.is_none());
+            ui.add_enabled_ui(self.state.waiting_for_input.is_none(), |ui| {
+                Grid::new("smsgg_keyboard_grid").show(ui, |ui| {
+                    for (grid_id, heading, player) in [
+                        ("smsgg_p1_keyboard_grid", "Player 1", Player::One),
+                        ("smsgg_p2_keyboard_grid", "Player 2", Player::Two),
+                    ] {
+                        Grid::new(grid_id).show(ui, |ui| {
+                            ui.heading(heading);
+                            ui.end_row();
 
-            Grid::new("smsgg_keyboard_grid").show(ui, |ui| {
-                for (grid_id, heading, player) in [
-                    ("smsgg_p1_keyboard_grid", "Player 1", Player::One),
-                    ("smsgg_p2_keyboard_grid", "Player 2", Player::Two),
-                ] {
-                    Grid::new(grid_id).show(ui, |ui| {
-                        ui.heading(heading);
-                        ui.end_row();
+                            for button in SmsGgButton::ALL {
+                                if button == SmsGgButton::Pause {
+                                    continue;
+                                }
 
-                        for button in SmsGgButton::ALL {
-                            if button == SmsGgButton::Pause {
-                                continue;
+                                let current_value = self
+                                    .config
+                                    .inputs
+                                    .smsgg_keyboard
+                                    .get_input(button, player)
+                                    .cloned();
+                                self.keyboard_input_button(
+                                    current_value,
+                                    &button.to_string(),
+                                    GenericButton::SmsGg(button, player),
+                                    ui,
+                                );
                             }
+                        });
 
-                            let current_value = self
-                                .config
-                                .inputs
-                                .smsgg_keyboard
-                                .get_input(button, player)
-                                .cloned();
-                            self.keyboard_input_button(
-                                current_value,
-                                &button.to_string(),
-                                GenericButton::SmsGg(button, player),
-                                ui,
-                            );
-                        }
-                    });
+                        ui.add_space(20.0);
+                    }
+                });
 
-                    ui.add_space(20.0);
-                }
-            });
+                ui.add_space(20.0);
 
-            ui.add_space(20.0);
-
-            Grid::new("smsgg_pause_keyboard_grid").show(ui, |ui| {
-                self.keyboard_input_button(
-                    self.config.inputs.smsgg_keyboard.pause.clone(),
-                    "Start/Pause",
-                    GenericButton::SmsGg(SmsGgButton::Pause, Player::One),
-                    ui,
-                );
+                Grid::new("smsgg_pause_keyboard_grid").show(ui, |ui| {
+                    self.keyboard_input_button(
+                        self.config.inputs.smsgg_keyboard.pause.clone(),
+                        "Start/Pause",
+                        GenericButton::SmsGg(SmsGgButton::Pause, Player::One),
+                        ui,
+                    );
+                });
             });
         });
         if !open {
@@ -219,54 +219,54 @@ impl App {
     pub(super) fn render_smsgg_gamepad_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("SMS/GG Gamepad Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.set_enabled(self.state.waiting_for_input.is_none());
+            ui.add_enabled_ui(self.state.waiting_for_input.is_none(), |ui| {
+                Grid::new("smsgg_gamepad_grid").show(ui, |ui| {
+                    for (grid_id, heading, player) in [
+                        ("smsgg_p1_gamepad_grid", "Player 1", Player::One),
+                        ("smsgg_p2_gamepad_grid", "Player 2", Player::Two),
+                    ] {
+                        Grid::new(grid_id).show(ui, |ui| {
+                            ui.heading(heading);
+                            ui.end_row();
 
-            Grid::new("smsgg_gamepad_grid").show(ui, |ui| {
-                for (grid_id, heading, player) in [
-                    ("smsgg_p1_gamepad_grid", "Player 1", Player::One),
-                    ("smsgg_p2_gamepad_grid", "Player 2", Player::Two),
-                ] {
-                    Grid::new(grid_id).show(ui, |ui| {
-                        ui.heading(heading);
-                        ui.end_row();
+                            for button in SmsGgButton::ALL {
+                                if button == SmsGgButton::Pause {
+                                    continue;
+                                }
 
-                        for button in SmsGgButton::ALL {
-                            if button == SmsGgButton::Pause {
-                                continue;
+                                let current_value = self
+                                    .config
+                                    .inputs
+                                    .smsgg_joystick
+                                    .get_input(button, player)
+                                    .cloned();
+                                self.gamepad_input_button(
+                                    current_value,
+                                    &button.to_string(),
+                                    GenericButton::SmsGg(button, player),
+                                    ui,
+                                );
                             }
+                        });
 
-                            let current_value = self
-                                .config
-                                .inputs
-                                .smsgg_joystick
-                                .get_input(button, player)
-                                .cloned();
-                            self.gamepad_input_button(
-                                current_value,
-                                &button.to_string(),
-                                GenericButton::SmsGg(button, player),
-                                ui,
-                            );
-                        }
-                    });
+                        ui.add_space(20.0);
+                    }
+                });
 
-                    ui.add_space(20.0);
-                }
+                ui.add_space(20.0);
+
+                Grid::new("smsgg_pause_gamepad_grid").show(ui, |ui| {
+                    self.gamepad_input_button(
+                        self.config.inputs.smsgg_joystick.pause.clone(),
+                        "Start/Pause",
+                        GenericButton::SmsGg(SmsGgButton::Pause, Player::One),
+                        ui,
+                    );
+                });
+
+                ui.add_space(20.0);
+                self.render_axis_deadzone_input(ui);
             });
-
-            ui.add_space(20.0);
-
-            Grid::new("smsgg_pause_gamepad_grid").show(ui, |ui| {
-                self.gamepad_input_button(
-                    self.config.inputs.smsgg_joystick.pause.clone(),
-                    "Start/Pause",
-                    GenericButton::SmsGg(SmsGgButton::Pause, Player::One),
-                    ui,
-                );
-            });
-
-            ui.add_space(20.0);
-            self.render_axis_deadzone_input(ui);
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::SmsGgGamepad);
@@ -276,41 +276,41 @@ impl App {
     pub(super) fn render_genesis_keyboard_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("Genesis Keyboard Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.set_enabled(self.state.waiting_for_input.is_none());
+            ui.add_enabled_ui(self.state.waiting_for_input.is_none(), |ui| {
+                Grid::new("genesis_keyboard_grid").show(ui, |ui| {
+                    for (grid_id, heading, player) in [
+                        ("genesis_p1_keyboard_grid", "Player 1", Player::One),
+                        ("genesis_p2_keyboard_grid", "Player 2", Player::Two),
+                    ] {
+                        Grid::new(grid_id).show(ui, |ui| {
+                            ui.heading(heading);
+                            ui.end_row();
 
-            Grid::new("genesis_keyboard_grid").show(ui, |ui| {
-                for (grid_id, heading, player) in [
-                    ("genesis_p1_keyboard_grid", "Player 1", Player::One),
-                    ("genesis_p2_keyboard_grid", "Player 2", Player::Two),
-                ] {
-                    Grid::new(grid_id).show(ui, |ui| {
-                        ui.heading(heading);
-                        ui.end_row();
+                            for button in GenesisButton::ALL {
+                                let current_value = self
+                                    .config
+                                    .inputs
+                                    .genesis_keyboard
+                                    .get_input(button, player)
+                                    .cloned();
+                                self.keyboard_input_button(
+                                    current_value,
+                                    &button.to_string(),
+                                    GenericButton::Genesis(button, player),
+                                    ui,
+                                );
+                            }
+                        });
 
-                        for button in GenesisButton::ALL {
-                            let current_value = self
-                                .config
-                                .inputs
-                                .genesis_keyboard
-                                .get_input(button, player)
-                                .cloned();
-                            self.keyboard_input_button(
-                                current_value,
-                                &button.to_string(),
-                                GenericButton::Genesis(button, player),
-                                ui,
-                            );
-                        }
-                    });
+                        ui.add_space(50.0);
+                    }
+                });
 
-                    ui.add_space(50.0);
-                }
+                ui.add_space(30.0);
+
+                self.controller_type_input("Player 1 controller", Player::One, ui);
+                self.controller_type_input("Player 2 controller", Player::Two, ui);
             });
-
-            ui.add_space(30.0);
-
-            self.controller_type_input("Player 1 controller", Player::One, ui);
-            self.controller_type_input("Player 2 controller", Player::Two, ui);
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::GenesisKeyboard);
@@ -320,45 +320,45 @@ impl App {
     pub(super) fn render_genesis_gamepad_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("Genesis Gamepad Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.set_enabled(self.state.waiting_for_input.is_none());
+            ui.add_enabled_ui(self.state.waiting_for_input.is_none(), |ui| {
+                Grid::new("genesis_gamepad_grid").show(ui, |ui| {
+                    for (grid_id, heading, player) in [
+                        ("genesis_p1_gamepad_grid", "Player 1", Player::One),
+                        ("genesis_p2_gamepad_grid", "Player 2", Player::Two),
+                    ] {
+                        Grid::new(grid_id).show(ui, |ui| {
+                            ui.heading(heading);
+                            ui.end_row();
 
-            Grid::new("genesis_gamepad_grid").show(ui, |ui| {
-                for (grid_id, heading, player) in [
-                    ("genesis_p1_gamepad_grid", "Player 1", Player::One),
-                    ("genesis_p2_gamepad_grid", "Player 2", Player::Two),
-                ] {
-                    Grid::new(grid_id).show(ui, |ui| {
-                        ui.heading(heading);
-                        ui.end_row();
+                            for button in GenesisButton::ALL {
+                                let current_value = self
+                                    .config
+                                    .inputs
+                                    .genesis_joystick
+                                    .get_input(button, player)
+                                    .cloned();
+                                self.gamepad_input_button(
+                                    current_value,
+                                    &button.to_string(),
+                                    GenericButton::Genesis(button, player),
+                                    ui,
+                                );
+                            }
+                        });
 
-                        for button in GenesisButton::ALL {
-                            let current_value = self
-                                .config
-                                .inputs
-                                .genesis_joystick
-                                .get_input(button, player)
-                                .cloned();
-                            self.gamepad_input_button(
-                                current_value,
-                                &button.to_string(),
-                                GenericButton::Genesis(button, player),
-                                ui,
-                            );
-                        }
-                    });
+                        ui.add_space(50.0);
+                    }
+                });
 
-                    ui.add_space(50.0);
-                }
+                ui.add_space(30.0);
+
+                self.render_axis_deadzone_input(ui);
+
+                ui.add_space(20.0);
+
+                self.controller_type_input("Player 1 controller", Player::One, ui);
+                self.controller_type_input("Player 2 controller", Player::Two, ui);
             });
-
-            ui.add_space(30.0);
-
-            self.render_axis_deadzone_input(ui);
-
-            ui.add_space(20.0);
-
-            self.controller_type_input("Player 1 controller", Player::One, ui);
-            self.controller_type_input("Player 2 controller", Player::Two, ui);
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::GenesisGamepad);
@@ -368,31 +368,35 @@ impl App {
     pub(super) fn render_nes_keyboard_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("NES Keyboard Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.set_enabled(self.state.waiting_for_input.is_none());
+            ui.add_enabled_ui(self.state.waiting_for_input.is_none(), |ui| {
+                Grid::new("nes_keyboard_grid").show(ui, |ui| {
+                    for (grid_id, heading, player) in [
+                        ("nes_p1_keyboard_grid", "Player 1", Player::One),
+                        ("nes_p2_keyboard_grid", "Player 2", Player::Two),
+                    ] {
+                        Grid::new(grid_id).show(ui, |ui| {
+                            ui.heading(heading);
+                            ui.end_row();
 
-            Grid::new("nes_keyboard_grid").show(ui, |ui| {
-                for (grid_id, heading, player) in [
-                    ("nes_p1_keyboard_grid", "Player 1", Player::One),
-                    ("nes_p2_keyboard_grid", "Player 2", Player::Two),
-                ] {
-                    Grid::new(grid_id).show(ui, |ui| {
-                        ui.heading(heading);
-                        ui.end_row();
+                            for button in NesButton::ALL {
+                                let current_value = self
+                                    .config
+                                    .inputs
+                                    .nes_keyboard
+                                    .get_input(button, player)
+                                    .cloned();
+                                self.keyboard_input_button(
+                                    current_value,
+                                    &button.to_string(),
+                                    GenericButton::Nes(button, player),
+                                    ui,
+                                );
+                            }
 
-                        for button in NesButton::ALL {
-                            let current_value =
-                                self.config.inputs.nes_keyboard.get_input(button, player).cloned();
-                            self.keyboard_input_button(
-                                current_value,
-                                &button.to_string(),
-                                GenericButton::Nes(button, player),
-                                ui,
-                            );
-                        }
-
-                        ui.add_space(50.0);
-                    });
-                }
+                            ui.add_space(50.0);
+                        });
+                    }
+                });
             });
         });
         if !open {
@@ -403,36 +407,40 @@ impl App {
     pub(super) fn render_nes_joystick_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("NES Gamepad Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.set_enabled(self.state.waiting_for_input.is_none());
+            ui.add_enabled_ui(self.state.waiting_for_input.is_none(), |ui| {
+                Grid::new("nes_gamepad_grid").show(ui, |ui| {
+                    for (grid_id, heading, player) in [
+                        ("nes_p1_gamepad_grid", "Player 1", Player::One),
+                        ("nes_p2_gamepad_grid", "Player 2", Player::Two),
+                    ] {
+                        Grid::new(grid_id).show(ui, |ui| {
+                            ui.heading(heading);
+                            ui.end_row();
 
-            Grid::new("nes_gamepad_grid").show(ui, |ui| {
-                for (grid_id, heading, player) in [
-                    ("nes_p1_gamepad_grid", "Player 1", Player::One),
-                    ("nes_p2_gamepad_grid", "Player 2", Player::Two),
-                ] {
-                    Grid::new(grid_id).show(ui, |ui| {
-                        ui.heading(heading);
-                        ui.end_row();
+                            for button in NesButton::ALL {
+                                let current_value = self
+                                    .config
+                                    .inputs
+                                    .nes_joystick
+                                    .get_input(button, player)
+                                    .cloned();
+                                self.gamepad_input_button(
+                                    current_value,
+                                    &button.to_string(),
+                                    GenericButton::Nes(button, player),
+                                    ui,
+                                );
+                            }
 
-                        for button in NesButton::ALL {
-                            let current_value =
-                                self.config.inputs.nes_joystick.get_input(button, player).cloned();
-                            self.gamepad_input_button(
-                                current_value,
-                                &button.to_string(),
-                                GenericButton::Nes(button, player),
-                                ui,
-                            );
-                        }
+                            ui.add_space(50.0);
+                        });
+                    }
+                });
 
-                        ui.add_space(50.0);
-                    });
-                }
+                ui.add_space(30.0);
+
+                self.render_axis_deadzone_input(ui);
             });
-
-            ui.add_space(30.0);
-
-            self.render_axis_deadzone_input(ui);
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::NesGamepad);
@@ -442,43 +450,43 @@ impl App {
     pub(super) fn render_nes_peripheral_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("NES Peripheral Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.set_enabled(self.state.waiting_for_input.is_none());
+            ui.add_enabled_ui(self.state.waiting_for_input.is_none(), |ui| {
+                ui.group(|ui| {
+                    ui.label("P2 input device");
 
-            ui.group(|ui| {
-                ui.label("P2 input device");
+                    ui.horizontal(|ui| {
+                        ui.radio_value(
+                            &mut self.config.inputs.nes_p2_type,
+                            NesControllerType::Gamepad,
+                            "Gamepad",
+                        );
+                        ui.radio_value(
+                            &mut self.config.inputs.nes_p2_type,
+                            NesControllerType::Zapper,
+                            "Zapper",
+                        );
+                    });
+                });
 
-                ui.horizontal(|ui| {
-                    ui.radio_value(
-                        &mut self.config.inputs.nes_p2_type,
-                        NesControllerType::Gamepad,
-                        "Gamepad",
+                ui.add_space(10.0);
+
+                ui.heading("Zapper");
+
+                Grid::new("zapper_grid").show(ui, |ui| {
+                    self.zapper_button(
+                        self.config.inputs.nes_zapper.fire.clone(),
+                        "Pull trigger",
+                        NesButton::ZapperFire,
+                        ui,
                     );
-                    ui.radio_value(
-                        &mut self.config.inputs.nes_p2_type,
-                        NesControllerType::Zapper,
-                        "Zapper",
+
+                    self.zapper_button(
+                        self.config.inputs.nes_zapper.force_offscreen.clone(),
+                        "Force offscreen (while held)",
+                        NesButton::ZapperForceOffscreen,
+                        ui,
                     );
                 });
-            });
-
-            ui.add_space(10.0);
-
-            ui.heading("Zapper");
-
-            Grid::new("zapper_grid").show(ui, |ui| {
-                self.zapper_button(
-                    self.config.inputs.nes_zapper.fire.clone(),
-                    "Pull trigger",
-                    NesButton::ZapperFire,
-                    ui,
-                );
-
-                self.zapper_button(
-                    self.config.inputs.nes_zapper.force_offscreen.clone(),
-                    "Force offscreen (while held)",
-                    NesButton::ZapperForceOffscreen,
-                    ui,
-                );
             });
         });
         if !open {
@@ -489,31 +497,35 @@ impl App {
     pub(super) fn render_snes_keyboard_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("SNES Keyboard Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.set_enabled(self.state.waiting_for_input.is_none());
+            ui.add_enabled_ui(self.state.waiting_for_input.is_none(), |ui| {
+                Grid::new("snes_keyboard_grid").show(ui, |ui| {
+                    for (grid_id, heading, player) in [
+                        ("snes_p1_keyboard_grid", "Player 1", Player::One),
+                        ("snes_p2_keyboard_grid", "Player 2", Player::Two),
+                    ] {
+                        Grid::new(grid_id).show(ui, |ui| {
+                            ui.heading(heading);
+                            ui.end_row();
 
-            Grid::new("snes_keyboard_grid").show(ui, |ui| {
-                for (grid_id, heading, player) in [
-                    ("snes_p1_keyboard_grid", "Player 1", Player::One),
-                    ("snes_p2_keyboard_grid", "Player 2", Player::Two),
-                ] {
-                    Grid::new(grid_id).show(ui, |ui| {
-                        ui.heading(heading);
-                        ui.end_row();
+                            for button in SnesControllerButton::ALL {
+                                let current_value = self
+                                    .config
+                                    .inputs
+                                    .snes_keyboard
+                                    .get_input(button, player)
+                                    .cloned();
+                                self.keyboard_input_button(
+                                    current_value,
+                                    &button.to_string(),
+                                    GenericButton::Snes(SnesButton::Controller(button), player),
+                                    ui,
+                                );
+                            }
+                        });
 
-                        for button in SnesControllerButton::ALL {
-                            let current_value =
-                                self.config.inputs.snes_keyboard.get_input(button, player).cloned();
-                            self.keyboard_input_button(
-                                current_value,
-                                &button.to_string(),
-                                GenericButton::Snes(SnesButton::Controller(button), player),
-                                ui,
-                            );
-                        }
-                    });
-
-                    ui.add_space(50.0);
-                }
+                        ui.add_space(50.0);
+                    }
+                });
             });
         });
         if !open {
@@ -524,36 +536,40 @@ impl App {
     pub(super) fn render_snes_gamepad_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("SNES Gamepad Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.set_enabled(self.state.waiting_for_input.is_none());
+            ui.add_enabled_ui(self.state.waiting_for_input.is_none(), |ui| {
+                Grid::new("snes_gamepad_grid").show(ui, |ui| {
+                    for (grid_id, heading, player) in [
+                        ("snes_p1_gamepad_grid", "Player 1", Player::One),
+                        ("snes_p2_gamepad_grid", "Player 2", Player::Two),
+                    ] {
+                        Grid::new(grid_id).show(ui, |ui| {
+                            ui.heading(heading);
+                            ui.end_row();
 
-            Grid::new("snes_gamepad_grid").show(ui, |ui| {
-                for (grid_id, heading, player) in [
-                    ("snes_p1_gamepad_grid", "Player 1", Player::One),
-                    ("snes_p2_gamepad_grid", "Player 2", Player::Two),
-                ] {
-                    Grid::new(grid_id).show(ui, |ui| {
-                        ui.heading(heading);
-                        ui.end_row();
+                            for button in SnesControllerButton::ALL {
+                                let current_value = self
+                                    .config
+                                    .inputs
+                                    .snes_joystick
+                                    .get_input(button, player)
+                                    .cloned();
+                                self.gamepad_input_button(
+                                    current_value,
+                                    &button.to_string(),
+                                    GenericButton::Snes(SnesButton::Controller(button), player),
+                                    ui,
+                                );
+                            }
+                        });
 
-                        for button in SnesControllerButton::ALL {
-                            let current_value =
-                                self.config.inputs.snes_joystick.get_input(button, player).cloned();
-                            self.gamepad_input_button(
-                                current_value,
-                                &button.to_string(),
-                                GenericButton::Snes(SnesButton::Controller(button), player),
-                                ui,
-                            );
-                        }
-                    });
+                        ui.add_space(50.0);
+                    }
+                });
 
-                    ui.add_space(50.0);
-                }
+                ui.add_space(30.0);
+
+                self.render_axis_deadzone_input(ui);
             });
-
-            ui.add_space(30.0);
-
-            self.render_axis_deadzone_input(ui);
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::SnesGamepad);
@@ -563,54 +579,54 @@ impl App {
     pub(super) fn render_snes_peripheral_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("SNES Peripheral Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.set_enabled(self.state.waiting_for_input.is_none());
+            ui.add_enabled_ui(self.state.waiting_for_input.is_none(), |ui| {
+                ui.group(|ui| {
+                    ui.label("P2 input device");
 
-            ui.group(|ui| {
-                ui.label("P2 input device");
+                    ui.horizontal(|ui| {
+                        ui.radio_value(
+                            &mut self.config.inputs.snes_p2_type,
+                            SnesControllerType::Gamepad,
+                            "Gamepad",
+                        );
+                        ui.radio_value(
+                            &mut self.config.inputs.snes_p2_type,
+                            SnesControllerType::SuperScope,
+                            "Super Scope",
+                        );
+                    });
+                });
 
-                ui.horizontal(|ui| {
-                    ui.radio_value(
-                        &mut self.config.inputs.snes_p2_type,
-                        SnesControllerType::Gamepad,
-                        "Gamepad",
+                ui.add_space(10.0);
+
+                ui.heading("Super Scope");
+
+                Grid::new("super_scope_grid").show(ui, |ui| {
+                    self.super_scope_button(
+                        self.config.inputs.snes_super_scope.fire.clone(),
+                        "Fire",
+                        SuperScopeButton::Fire,
+                        ui,
                     );
-                    ui.radio_value(
-                        &mut self.config.inputs.snes_p2_type,
-                        SnesControllerType::SuperScope,
-                        "Super Scope",
+                    self.super_scope_button(
+                        self.config.inputs.snes_super_scope.cursor.clone(),
+                        "Cursor",
+                        SuperScopeButton::Cursor,
+                        ui,
+                    );
+                    self.super_scope_button(
+                        self.config.inputs.snes_super_scope.pause.clone(),
+                        "Pause",
+                        SuperScopeButton::Pause,
+                        ui,
+                    );
+                    self.super_scope_button(
+                        self.config.inputs.snes_super_scope.turbo_toggle.clone(),
+                        "Turbo (Toggle)",
+                        SuperScopeButton::TurboToggle,
+                        ui,
                     );
                 });
-            });
-
-            ui.add_space(10.0);
-
-            ui.heading("Super Scope");
-
-            Grid::new("super_scope_grid").show(ui, |ui| {
-                self.super_scope_button(
-                    self.config.inputs.snes_super_scope.fire.clone(),
-                    "Fire",
-                    SuperScopeButton::Fire,
-                    ui,
-                );
-                self.super_scope_button(
-                    self.config.inputs.snes_super_scope.cursor.clone(),
-                    "Cursor",
-                    SuperScopeButton::Cursor,
-                    ui,
-                );
-                self.super_scope_button(
-                    self.config.inputs.snes_super_scope.pause.clone(),
-                    "Pause",
-                    SuperScopeButton::Pause,
-                    ui,
-                );
-                self.super_scope_button(
-                    self.config.inputs.snes_super_scope.turbo_toggle.clone(),
-                    "Turbo (Toggle)",
-                    SuperScopeButton::TurboToggle,
-                    ui,
-                );
             });
         });
         if !open {
@@ -623,19 +639,23 @@ impl App {
         Window::new("Game Boy Keyboard Settings").open(&mut open).resizable(false).show(
             ctx,
             |ui| {
-                ui.set_enabled(self.state.waiting_for_input.is_none());
-
-                Grid::new("gb_keyboard_grid").show(ui, |ui| {
-                    for button in GameBoyButton::ALL {
-                        let current_value =
-                            self.config.inputs.gb_keyboard.get_input(button, Player::One).cloned();
-                        self.keyboard_input_button(
-                            current_value,
-                            &button.to_string(),
-                            GenericButton::GameBoy(button),
-                            ui,
-                        );
-                    }
+                ui.add_enabled_ui(self.state.waiting_for_input.is_none(), |ui| {
+                    Grid::new("gb_keyboard_grid").show(ui, |ui| {
+                        for button in GameBoyButton::ALL {
+                            let current_value = self
+                                .config
+                                .inputs
+                                .gb_keyboard
+                                .get_input(button, Player::One)
+                                .cloned();
+                            self.keyboard_input_button(
+                                current_value,
+                                &button.to_string(),
+                                GenericButton::GameBoy(button),
+                                ui,
+                            );
+                        }
+                    });
                 });
             },
         );
@@ -649,24 +669,28 @@ impl App {
         Window::new("Game Boy Joystick Settings").open(&mut open).resizable(false).show(
             ctx,
             |ui| {
-                ui.set_enabled(self.state.waiting_for_input.is_none());
+                ui.add_enabled_ui(self.state.waiting_for_input.is_none(), |ui| {
+                    Grid::new("gb_joystick_grid").show(ui, |ui| {
+                        for button in GameBoyButton::ALL {
+                            let current_value = self
+                                .config
+                                .inputs
+                                .gb_joystick
+                                .get_input(button, Player::One)
+                                .cloned();
+                            self.gamepad_input_button(
+                                current_value,
+                                &button.to_string(),
+                                GenericButton::GameBoy(button),
+                                ui,
+                            );
+                        }
+                    });
 
-                Grid::new("gb_joystick_grid").show(ui, |ui| {
-                    for button in GameBoyButton::ALL {
-                        let current_value =
-                            self.config.inputs.gb_joystick.get_input(button, Player::One).cloned();
-                        self.gamepad_input_button(
-                            current_value,
-                            &button.to_string(),
-                            GenericButton::GameBoy(button),
-                            ui,
-                        );
-                    }
+                    ui.add_space(30.0);
+
+                    self.render_axis_deadzone_input(ui);
                 });
-
-                ui.add_space(30.0);
-
-                self.render_axis_deadzone_input(ui);
             },
         );
         if !open {
@@ -677,129 +701,129 @@ impl App {
     pub(super) fn render_hotkey_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("Hotkey Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.set_enabled(self.state.waiting_for_input.is_none());
+            ui.add_enabled_ui(self.state.waiting_for_input.is_none(), |ui| {
+                Grid::new("hotkeys_grid").show(ui, |ui| {
+                    self.hotkey_button(
+                        self.config.inputs.hotkeys.quit.clone(),
+                        "Quit",
+                        Hotkey::Quit,
+                        ui,
+                    );
+                    self.hotkey_button(
+                        self.config.inputs.hotkeys.toggle_fullscreen.clone(),
+                        "Toggle fullscreen",
+                        Hotkey::ToggleFullscreen,
+                        ui,
+                    );
+                    self.hotkey_button(
+                        self.config.inputs.hotkeys.save_state.clone(),
+                        "Save state",
+                        Hotkey::SaveState,
+                        ui,
+                    );
+                    self.hotkey_button(
+                        self.config.inputs.hotkeys.load_state.clone(),
+                        "Load state",
+                        Hotkey::LoadState,
+                        ui,
+                    );
+                    self.hotkey_button(
+                        self.config.inputs.hotkeys.next_save_state_slot.clone(),
+                        "Next save state slot",
+                        Hotkey::NextSaveStateSlot,
+                        ui,
+                    );
+                    self.hotkey_button(
+                        self.config.inputs.hotkeys.prev_save_state_slot.clone(),
+                        "Previous save state slot",
+                        Hotkey::PrevSaveStateSlot,
+                        ui,
+                    );
+                    self.hotkey_button(
+                        self.config.inputs.hotkeys.soft_reset.clone(),
+                        "Soft reset",
+                        Hotkey::SoftReset,
+                        ui,
+                    );
+                    self.hotkey_button(
+                        self.config.inputs.hotkeys.hard_reset.clone(),
+                        "Hard reset",
+                        Hotkey::HardReset,
+                        ui,
+                    );
+                    self.hotkey_button(
+                        self.config.inputs.hotkeys.pause.clone(),
+                        "Pause/Unpause",
+                        Hotkey::Pause,
+                        ui,
+                    );
+                    self.hotkey_button(
+                        self.config.inputs.hotkeys.step_frame.clone(),
+                        "Step frame while paused",
+                        Hotkey::StepFrame,
+                        ui,
+                    );
+                    self.hotkey_button(
+                        self.config.inputs.hotkeys.fast_forward.clone(),
+                        "Fast forward",
+                        Hotkey::FastForward,
+                        ui,
+                    );
+                    self.hotkey_button(
+                        self.config.inputs.hotkeys.rewind.clone(),
+                        "Rewind",
+                        Hotkey::Rewind,
+                        ui,
+                    );
+                    self.hotkey_button(
+                        self.config.inputs.hotkeys.open_debugger.clone(),
+                        "Open memory viewer",
+                        Hotkey::OpenDebugger,
+                        ui,
+                    );
+                });
 
-            Grid::new("hotkeys_grid").show(ui, |ui| {
-                self.hotkey_button(
-                    self.config.inputs.hotkeys.quit.clone(),
-                    "Quit",
-                    Hotkey::Quit,
-                    ui,
-                );
-                self.hotkey_button(
-                    self.config.inputs.hotkeys.toggle_fullscreen.clone(),
-                    "Toggle fullscreen",
-                    Hotkey::ToggleFullscreen,
-                    ui,
-                );
-                self.hotkey_button(
-                    self.config.inputs.hotkeys.save_state.clone(),
-                    "Save state",
-                    Hotkey::SaveState,
-                    ui,
-                );
-                self.hotkey_button(
-                    self.config.inputs.hotkeys.load_state.clone(),
-                    "Load state",
-                    Hotkey::LoadState,
-                    ui,
-                );
-                self.hotkey_button(
-                    self.config.inputs.hotkeys.next_save_state_slot.clone(),
-                    "Next save state slot",
-                    Hotkey::NextSaveStateSlot,
-                    ui,
-                );
-                self.hotkey_button(
-                    self.config.inputs.hotkeys.prev_save_state_slot.clone(),
-                    "Previous save state slot",
-                    Hotkey::PrevSaveStateSlot,
-                    ui,
-                );
-                self.hotkey_button(
-                    self.config.inputs.hotkeys.soft_reset.clone(),
-                    "Soft reset",
-                    Hotkey::SoftReset,
-                    ui,
-                );
-                self.hotkey_button(
-                    self.config.inputs.hotkeys.hard_reset.clone(),
-                    "Hard reset",
-                    Hotkey::HardReset,
-                    ui,
-                );
-                self.hotkey_button(
-                    self.config.inputs.hotkeys.pause.clone(),
-                    "Pause/Unpause",
-                    Hotkey::Pause,
-                    ui,
-                );
-                self.hotkey_button(
-                    self.config.inputs.hotkeys.step_frame.clone(),
-                    "Step frame while paused",
-                    Hotkey::StepFrame,
-                    ui,
-                );
-                self.hotkey_button(
-                    self.config.inputs.hotkeys.fast_forward.clone(),
-                    "Fast forward",
-                    Hotkey::FastForward,
-                    ui,
-                );
-                self.hotkey_button(
-                    self.config.inputs.hotkeys.rewind.clone(),
-                    "Rewind",
-                    Hotkey::Rewind,
-                    ui,
-                );
-                self.hotkey_button(
-                    self.config.inputs.hotkeys.open_debugger.clone(),
-                    "Open memory viewer",
-                    Hotkey::OpenDebugger,
-                    ui,
-                );
+                ui.add_space(20.0);
+
+                ui.horizontal(|ui| {
+                    ui.add(
+                        NumericTextEdit::new(
+                            &mut self.state.ff_multiplier_text,
+                            &mut self.config.common.fast_forward_multiplier,
+                            &mut self.state.ff_multiplier_invalid,
+                        )
+                        .with_validation(|value| value != 0)
+                        .desired_width(30.0),
+                    );
+
+                    ui.label("Fast forward multiplier");
+                });
+                if self.state.ff_multiplier_invalid {
+                    ui.colored_label(
+                        Color32::RED,
+                        "Fast forward multiplier must be a positive integer",
+                    );
+                }
+
+                ui.horizontal(|ui| {
+                    ui.add(
+                        NumericTextEdit::new(
+                            &mut self.state.rewind_buffer_len_text,
+                            &mut self.config.common.rewind_buffer_length_seconds,
+                            &mut self.state.rewind_buffer_len_invalid,
+                        )
+                        .desired_width(30.0),
+                    );
+
+                    ui.label("Rewind buffer length in seconds");
+                });
+                if self.state.rewind_buffer_len_invalid {
+                    ui.colored_label(
+                        Color32::RED,
+                        "Rewind buffer length must be a non-negative integer",
+                    );
+                }
             });
-
-            ui.add_space(20.0);
-
-            ui.horizontal(|ui| {
-                ui.add(
-                    NumericTextEdit::new(
-                        &mut self.state.ff_multiplier_text,
-                        &mut self.config.common.fast_forward_multiplier,
-                        &mut self.state.ff_multiplier_invalid,
-                    )
-                    .with_validation(|value| value != 0)
-                    .desired_width(30.0),
-                );
-
-                ui.label("Fast forward multiplier");
-            });
-            if self.state.ff_multiplier_invalid {
-                ui.colored_label(
-                    Color32::RED,
-                    "Fast forward multiplier must be a positive integer",
-                );
-            }
-
-            ui.horizontal(|ui| {
-                ui.add(
-                    NumericTextEdit::new(
-                        &mut self.state.rewind_buffer_len_text,
-                        &mut self.config.common.rewind_buffer_length_seconds,
-                        &mut self.state.rewind_buffer_len_invalid,
-                    )
-                    .desired_width(30.0),
-                );
-
-                ui.label("Rewind buffer length in seconds");
-            });
-            if self.state.rewind_buffer_len_invalid {
-                ui.colored_label(
-                    Color32::RED,
-                    "Rewind buffer length must be a non-negative integer",
-                );
-            }
         });
         if !open {
             self.state.open_windows.remove(&OpenWindow::Hotkeys);

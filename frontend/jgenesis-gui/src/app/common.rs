@@ -14,26 +14,26 @@ impl App {
             ui.checkbox(&mut self.config.common.launch_in_fullscreen, "Launch in fullscreen");
 
             ui.group(|ui| {
-                ui.set_enabled(!self.emu_thread.status().is_running());
-
-                ui.label("wgpu backend");
-                ui.horizontal(|ui| {
-                    ui.radio_value(&mut self.config.common.wgpu_backend, WgpuBackend::Auto, "Auto");
-                    ui.radio_value(
-                        &mut self.config.common.wgpu_backend,
-                        WgpuBackend::Vulkan,
-                        "Vulkan",
-                    );
-                    ui.radio_value(
-                        &mut self.config.common.wgpu_backend,
-                        WgpuBackend::DirectX12,
-                        "DirectX 12",
-                    );
-                    ui.radio_value(
-                        &mut self.config.common.wgpu_backend,
-                        WgpuBackend::OpenGl,
-                        "OpenGL",
-                    );
+                ui.add_enabled_ui(!self.emu_thread.status().is_running(), |ui| {
+                    ui.label("wgpu backend");
+                    ui.horizontal(|ui| {
+                        ui.radio_value(&mut self.config.common.wgpu_backend, WgpuBackend::Auto, "Auto");
+                        ui.radio_value(
+                            &mut self.config.common.wgpu_backend,
+                            WgpuBackend::Vulkan,
+                            "Vulkan",
+                        );
+                        ui.radio_value(
+                            &mut self.config.common.wgpu_backend,
+                            WgpuBackend::DirectX12,
+                            "DirectX 12",
+                        );
+                        ui.radio_value(
+                            &mut self.config.common.wgpu_backend,
+                            WgpuBackend::OpenGl,
+                            "OpenGL",
+                        );
+                    });
                 });
             });
 
@@ -124,32 +124,32 @@ impl App {
             });
 
             ui.horizontal(|ui| {
-                ui.set_enabled(!self.config.common.auto_prescale);
-
-                if TextEdit::singleline(&mut self.state.prescale_factor_text)
-                    .desired_width(30.0)
-                    .ui(ui)
-                    .changed()
-                {
-                    match self
-                        .state
-                        .prescale_factor_text
-                        .parse::<u32>()
-                        .ok()
-                        .filter(|&n| n <= MAX_PRESCALE_FACTOR)
-                        .and_then(|n| PrescaleFactor::try_from(n).ok())
+                ui.add_enabled_ui(!self.config.common.auto_prescale, |ui| {
+                    if TextEdit::singleline(&mut self.state.prescale_factor_text)
+                        .desired_width(30.0)
+                        .ui(ui)
+                        .changed()
                     {
-                        Some(prescale_factor) => {
-                            self.config.common.prescale_factor = prescale_factor;
-                            self.state.prescale_factor_invalid = false;
-                        }
-                        None => {
-                            self.state.prescale_factor_invalid = true;
+                        match self
+                            .state
+                            .prescale_factor_text
+                            .parse::<u32>()
+                            .ok()
+                            .filter(|&n| n <= MAX_PRESCALE_FACTOR)
+                            .and_then(|n| PrescaleFactor::try_from(n).ok())
+                        {
+                            Some(prescale_factor) => {
+                                self.config.common.prescale_factor = prescale_factor;
+                                self.state.prescale_factor_invalid = false;
+                            }
+                            None => {
+                                self.state.prescale_factor_invalid = true;
+                            }
                         }
                     }
-                }
 
-                ui.label("Prescale factor");
+                    ui.label("Prescale factor");
+                });
             });
             if self.state.prescale_factor_invalid {
                 ui.colored_label(

@@ -84,6 +84,8 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "jgenesis",
         options,
-        Box::new(|cc| Box::new(App::new(config_path, args.startup_file_path, cc.egui_ctx.clone()))),
+        Box::new(|cc| {
+            Ok(Box::new(App::new(config_path, args.startup_file_path, cc.egui_ctx.clone())))
+        }),
     )
 }

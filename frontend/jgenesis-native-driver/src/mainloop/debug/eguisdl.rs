@@ -2,7 +2,7 @@
 //! <https://github.com/hasenbanck/egui_winit_platform>
 
 use egui::ahash::HashMapExt;
-use egui::{ViewportIdMap, ViewportInfo};
+use egui::{MouseWheelUnit, ViewportIdMap, ViewportInfo};
 use sdl2::event::Event as SdlEvent;
 use sdl2::event::WindowEvent as SdlWindowEvent;
 use sdl2::mouse::MouseWheelDirection;
@@ -92,7 +92,11 @@ impl Platform {
                 if direction == MouseWheelDirection::Flipped {
                     delta *= -1.0;
                 }
-                self.raw_input.events.push(egui::Event::Scroll(delta));
+                self.raw_input.events.push(egui::Event::MouseWheel {
+                    unit: MouseWheelUnit::Point,
+                    delta,
+                    modifiers: self.raw_input.modifiers,
+                });
             }
             _ => {}
         }

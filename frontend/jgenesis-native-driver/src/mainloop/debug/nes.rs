@@ -89,12 +89,12 @@ fn render(mut ctx: DebugRenderContext<'_, NesEmulator>, state: &mut State) {
             }
             Tab::Oam => {
                 ui.horizontal(|ui| {
-                    ui.set_enabled(!ctx.emulator.using_double_height_sprites());
+                    ui.add_enabled_ui(!ctx.emulator.using_double_height_sprites(), |ui| {
+                        ui.label("Pattern table:");
 
-                    ui.label("Pattern table:");
-
-                    ui.radio_value(&mut state.oam_pattern_table, PatternTable::Zero, "$0000");
-                    ui.radio_value(&mut state.oam_pattern_table, PatternTable::One, "$1000");
+                        ui.radio_value(&mut state.oam_pattern_table, PatternTable::Zero, "$0000");
+                        ui.radio_value(&mut state.oam_pattern_table, PatternTable::One, "$1000");
+                    });
                 });
 
                 ui.add_space(10.0);

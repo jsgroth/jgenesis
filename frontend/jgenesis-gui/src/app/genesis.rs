@@ -11,70 +11,74 @@ impl App {
         let mut open = true;
         Window::new("Genesis General Settings").open(&mut open).resizable(true).show(ctx, |ui| {
             let emu_thread_status = self.emu_thread.status();
-            let running_genesis = emu_thread_status != EmuThreadStatus::RunningGenesis
-                && emu_thread_status != EmuThreadStatus::RunningSegaCd;
+            let running_genesis = emu_thread_status == EmuThreadStatus::RunningGenesis
+                || emu_thread_status == EmuThreadStatus::RunningSegaCd
+                || emu_thread_status == EmuThreadStatus::Running32X;
 
             ui.group(|ui| {
-                ui.set_enabled(running_genesis);
+                ui.add_enabled_ui(!running_genesis, |ui| {
+                    ui.label("Timing / display mode");
 
-                ui.label("Timing / display mode");
-
-                ui.horizontal(|ui| {
-                    ui.radio_value(&mut self.config.genesis.forced_timing_mode, None, "Auto");
-                    ui.radio_value(
-                        &mut self.config.genesis.forced_timing_mode,
-                        Some(TimingMode::Ntsc),
-                        "NTSC",
-                    );
-                    ui.radio_value(
-                        &mut self.config.genesis.forced_timing_mode,
-                        Some(TimingMode::Pal),
-                        "PAL",
-                    );
+                    ui.horizontal(|ui| {
+                        ui.radio_value(&mut self.config.genesis.forced_timing_mode, None, "Auto");
+                        ui.radio_value(
+                            &mut self.config.genesis.forced_timing_mode,
+                            Some(TimingMode::Ntsc),
+                            "NTSC",
+                        );
+                        ui.radio_value(
+                            &mut self.config.genesis.forced_timing_mode,
+                            Some(TimingMode::Pal),
+                            "PAL",
+                        );
+                    });
                 });
             });
 
             ui.group(|ui| {
-                ui.set_enabled(running_genesis);
+                ui.add_enabled_ui(!running_genesis, |ui| {
+                    ui.label("Region");
 
-                ui.label("Region");
-
-                ui.horizontal(|ui| {
-                    ui.radio_value(&mut self.config.genesis.forced_region, None, "Auto");
-                    ui.radio_value(
-                        &mut self.config.genesis.forced_region,
-                        Some(GenesisRegion::Americas),
-                        "Americas",
-                    );
-                    ui.radio_value(
-                        &mut self.config.genesis.forced_region,
-                        Some(GenesisRegion::Japan),
-                        "Japan",
-                    );
-                    ui.radio_value(
-                        &mut self.config.genesis.forced_region,
-                        Some(GenesisRegion::Europe),
-                        "Europe",
-                    );
+                    ui.horizontal(|ui| {
+                        ui.radio_value(&mut self.config.genesis.forced_region, None, "Auto");
+                        ui.radio_value(
+                            &mut self.config.genesis.forced_region,
+                            Some(GenesisRegion::Americas),
+                            "Americas",
+                        );
+                        ui.radio_value(
+                            &mut self.config.genesis.forced_region,
+                            Some(GenesisRegion::Japan),
+                            "Japan",
+                        );
+                        ui.radio_value(
+                            &mut self.config.genesis.forced_region,
+                            Some(GenesisRegion::Europe),
+                            "Europe",
+                        );
+                    });
                 });
             });
 
             ui.add_space(5.0);
             ui.horizontal(|ui| {
-                ui.set_enabled(self.emu_thread.status() != EmuThreadStatus::RunningSegaCd);
+                ui.add_enabled_ui(
+                    self.emu_thread.status() != EmuThreadStatus::RunningSegaCd,
+                    |ui| {
+                        let bios_path_str =
+                            self.config.sega_cd.bios_path.as_ref().map_or("<None>", String::as_str);
+                        if ui.button(bios_path_str).clicked() {
+                            if let Some(bios_path) =
+                                FileDialog::new().add_filter("bin", &["bin"]).pick_file()
+                            {
+                                self.config.sega_cd.bios_path =
+                                    Some(bios_path.to_string_lossy().to_string());
+                            }
+                        }
 
-                let bios_path_str =
-                    self.config.sega_cd.bios_path.as_ref().map_or("<None>", String::as_str);
-                if ui.button(bios_path_str).clicked() {
-                    if let Some(bios_path) =
-                        FileDialog::new().add_filter("bin", &["bin"]).pick_file()
-                    {
-                        self.config.sega_cd.bios_path =
-                            Some(bios_path.to_string_lossy().to_string());
-                    }
-                }
-
-                ui.label("Sega CD BIOS path");
+                        ui.label("Sega CD BIOS path");
+                    },
+                );
             });
 
             ui.add_space(5.0);

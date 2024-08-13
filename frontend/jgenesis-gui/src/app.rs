@@ -434,15 +434,15 @@ impl App {
     fn render_menu(&mut self, ctx: &Context) {
         TopBottomPanel::new(TopBottomSide::Top, "top_bottom_panel").show(ctx, |ui| {
             menu::bar(ui, |ui| {
-                ui.set_enabled(!self.state.error_window_open);
-
-                self.render_file_menu(ctx, ui);
-                self.render_emulation_menu(ui);
-                self.render_settings_menu(ui);
-                self.render_video_menu(ui);
-                self.render_audio_menu(ui);
-                self.render_input_menu(ui);
-                self.render_help_menu(ui);
+                ui.add_enabled_ui(!self.state.error_window_open, |ui| {
+                    self.render_file_menu(ctx, ui);
+                    self.render_emulation_menu(ui);
+                    self.render_settings_menu(ui);
+                    self.render_video_menu(ui);
+                    self.render_audio_menu(ui);
+                    self.render_input_menu(ui);
+                    self.render_help_menu(ui);
+                });
             });
         });
     }
@@ -525,97 +525,100 @@ impl App {
 
     fn render_emulation_menu(&mut self, ui: &mut Ui) {
         ui.menu_button("Emulation", |ui| {
-            ui.set_enabled(self.emu_thread.status().is_running());
+            ui.add_enabled_ui(self.emu_thread.status().is_running(), |ui| {
+                let save_state_metadata = self.emu_thread.save_state_metadata();
 
-            let save_state_metadata = self.emu_thread.save_state_metadata();
+                ui.menu_button("Load State", |ui| {
+                    ui.set_min_width(200.0);
 
-            ui.menu_button("Load State", |ui| {
-                ui.set_min_width(200.0);
-
-                for slot in 0..jgenesis_native_driver::SAVE_STATE_SLOTS {
-                    match save_state_metadata.times_nanos[slot] {
-                        Some(time_nanos) => {
-                            let formatted_time =
-                                format_time_nanos(time_nanos).unwrap_or_else(|| "Unknown".into());
-                            let label = format!("Slot {slot} - {formatted_time}");
-                            if ui.button(label).clicked() {
-                                self.emu_thread.send(EmuThreadCommand::LoadState { slot });
-                                ui.close_menu();
+                    for slot in 0..jgenesis_native_driver::SAVE_STATE_SLOTS {
+                        match save_state_metadata.times_nanos[slot] {
+                            Some(time_nanos) => {
+                                let formatted_time = format_time_nanos(time_nanos)
+                                    .unwrap_or_else(|| "Unknown".into());
+                                let label = format!("Slot {slot} - {formatted_time}");
+                                if ui.button(label).clicked() {
+                                    self.emu_thread.send(EmuThreadCommand::LoadState { slot });
+                                    ui.close_menu();
+                                }
+                            }
+                            None => {
+                                ui.add_enabled_ui(false, |ui| {
+                                    let _ = ui.button(format!("Slot {slot} - Empty"));
+                                });
                             }
                         }
-                        None => {
-                            ui.add_enabled_ui(false, |ui| {
-                                let _ = ui.button(format!("Slot {slot} - Empty"));
-                            });
+                    }
+                });
+
+                ui.menu_button("Save State", |ui| {
+                    ui.set_min_width(200.0);
+
+                    for slot in 0..jgenesis_native_driver::SAVE_STATE_SLOTS {
+                        let label = match save_state_metadata.times_nanos[slot] {
+                            Some(time_nanos) => {
+                                let formatted_time = format_time_nanos(time_nanos)
+                                    .unwrap_or_else(|| "Unknown".into());
+                                format!("Slot {slot} - {formatted_time}")
+                            }
+                            None => format!("Slot {slot} - Empty"),
+                        };
+
+                        if ui.button(label).clicked() {
+                            self.emu_thread.send(EmuThreadCommand::SaveState { slot });
+                            ui.close_menu();
                         }
                     }
+                });
+
+                ui.add_space(15.0);
+
+                if ui.button("Open Memory Viewer").clicked() {
+                    self.emu_thread.send(EmuThreadCommand::OpenMemoryViewer);
+                    ui.close_menu();
                 }
-            });
 
-            ui.menu_button("Save State", |ui| {
-                ui.set_min_width(200.0);
+                ui.add_space(15.0);
 
-                for slot in 0..jgenesis_native_driver::SAVE_STATE_SLOTS {
-                    let label = match save_state_metadata.times_nanos[slot] {
-                        Some(time_nanos) => {
-                            let formatted_time =
-                                format_time_nanos(time_nanos).unwrap_or_else(|| "Unknown".into());
-                            format!("Slot {slot} - {formatted_time}")
-                        }
-                        None => format!("Slot {slot} - Empty"),
-                    };
-
-                    if ui.button(label).clicked() {
-                        self.emu_thread.send(EmuThreadCommand::SaveState { slot });
+                let running_gb = self.emu_thread.status() == EmuThreadStatus::RunningGameBoy;
+                ui.add_enabled_ui(!running_gb, |ui| {
+                    if ui.button("Soft Reset").clicked() {
+                        self.emu_thread.send(EmuThreadCommand::SoftReset);
                         ui.close_menu();
                     }
-                }
-            });
+                });
 
-            ui.add_space(15.0);
-
-            if ui.button("Open Memory Viewer").clicked() {
-                self.emu_thread.send(EmuThreadCommand::OpenMemoryViewer);
-                ui.close_menu();
-            }
-
-            ui.add_space(15.0);
-
-            let running_gb = self.emu_thread.status() == EmuThreadStatus::RunningGameBoy;
-            ui.add_enabled_ui(!running_gb, |ui| {
-                if ui.button("Soft Reset").clicked() {
-                    self.emu_thread.send(EmuThreadCommand::SoftReset);
-                    ui.close_menu();
-                }
-            });
-
-            if ui.button("Hard Reset").clicked() {
-                self.emu_thread.send(EmuThreadCommand::HardReset);
-                ui.close_menu();
-            }
-
-            if ui.button("Power Off").clicked() {
-                self.emu_thread.send(EmuThreadCommand::StopEmulator);
-                ui.close_menu();
-            }
-
-            ui.add_space(15.0);
-
-            ui.add_enabled_ui(self.emu_thread.status() == EmuThreadStatus::RunningSegaCd, |ui| {
-                if ui.button("Remove Disc").clicked() {
-                    self.emu_thread.send(EmuThreadCommand::SegaCdRemoveDisc);
+                if ui.button("Hard Reset").clicked() {
+                    self.emu_thread.send(EmuThreadCommand::HardReset);
                     ui.close_menu();
                 }
 
-                if ui.button("Change Disc").clicked() {
-                    if let Some(path) =
-                        FileDialog::new().add_filter("cue/chd", &["cue", "chd"]).pick_file()
-                    {
-                        self.emu_thread.send(EmuThreadCommand::SegaCdChangeDisc(path));
-                    }
-
+                if ui.button("Power Off").clicked() {
+                    self.emu_thread.send(EmuThreadCommand::StopEmulator);
                     ui.close_menu();
                 }
+
+                ui.add_space(15.0);
+
+                ui.add_enabled_ui(
+                    self.emu_thread.status() == EmuThreadStatus::RunningSegaCd,
+                    |ui| {
+                        if ui.button("Remove Disc").clicked() {
+                            self.emu_thread.send(EmuThreadCommand::SegaCdRemoveDisc);
+                            ui.close_menu();
+                        }
+
+                        if ui.button("Change Disc").clicked() {
+                            if let Some(path) =
+                                FileDialog::new().add_filter("cue/chd", &["cue", "chd"]).pick_file()
+                            {
+                                self.emu_thread.send(EmuThreadCommand::SegaCdChangeDisc(path));
+                            }
+
+                            ui.close_menu();
+                        }
+                    },
+                );
             });
         });
     }
@@ -817,95 +820,95 @@ impl App {
 
     fn render_central_panel(&mut self, ctx: &Context) {
         CentralPanel::default().show(ctx, |ui| {
-            ui.set_enabled(!self.state.error_window_open);
-
-            if self.rom_list_thread.any_scans_in_progress() {
-                ui.centered_and_justified(|ui| {
-                    ui.label("Scanning search directories...");
-                });
-            } else if self.state.rom_list.lock().unwrap().is_empty() {
-                ui.centered_and_justified(|ui| {
-                    if ui.selectable_label(false, "Configure ROM search directory").clicked() {
-                        self.add_rom_search_directory();
-                    }
-                });
-            } else {
-                ui.set_enabled(self.state.waiting_for_input.is_none());
-
-                self.render_central_panel_filters(ui);
-
-                ui.add_space(15.0);
-
-                TableBuilder::new(ui)
-                    .auto_shrink([false; 2])
-                    .striped(true)
-                    .max_scroll_height(3000.0)
-                    .cell_layout(Layout::left_to_right(Align::Center))
-                    .column(Column::auto().at_most(300.0))
-                    .columns(Column::auto(), 2)
-                    .column(Column::remainder())
-                    .header(30.0, |mut row| {
-                        row.col(|ui| {
-                            ui.vertical_centered(|ui| {
-                                ui.heading("Name");
-                            });
-                        });
-
-                        row.col(|ui| {
-                            ui.vertical_centered(|ui| {
-                                ui.heading("Console");
-                            });
-                        });
-
-                        row.col(|ui| {
-                            ui.vertical_centered(|ui| {
-                                ui.heading("Size");
-                            });
-                        });
-
-                        // Blank column to make stripes extend to the right
-                        row.col(|_ui| {});
-                    })
-                    .body(|body| {
-                        let rom_list = Rc::clone(&self.state.filtered_rom_list);
-                        body.rows(40.0, rom_list.len(), |mut row| {
-                            let metadata = &rom_list[row.index()];
-
-                            row.col(|ui| {
-                                if Button::new(&metadata.file_name_no_ext)
-                                    .min_size(Vec2::new(300.0, 30.0))
-                                    .wrap(true)
-                                    .ui(ui)
-                                    .clicked()
-                                {
-                                    self.emu_thread.stop_emulator_if_running();
-                                    self.launch_emulator(metadata.full_path.clone(), None);
-                                }
-                            });
-
-                            row.col(|ui| {
-                                ui.centered_and_justified(|ui| {
-                                    ui.label(metadata.console.display_str());
-                                });
-                            });
-
-                            row.col(|ui| {
-                                ui.centered_and_justified(|ui| {
-                                    if metadata.file_size < 1024 * 1024 {
-                                        let file_size_kb = metadata.file_size / 1024;
-                                        ui.label(format!("{file_size_kb}KB"));
-                                    } else {
-                                        let file_size_mb = metadata.file_size / 1024 / 1024;
-                                        ui.label(format!("{file_size_mb}MB"));
-                                    }
-                                });
-                            });
-
-                            // Blank column to make stripes extend to the right
-                            row.col(|_ui| {});
-                        });
+            ui.add_enabled_ui(!self.state.error_window_open, |ui| {
+                if self.rom_list_thread.any_scans_in_progress() {
+                    ui.centered_and_justified(|ui| {
+                        ui.label("Scanning search directories...");
                     });
-            }
+                } else if self.state.rom_list.lock().unwrap().is_empty() {
+                    ui.centered_and_justified(|ui| {
+                        if ui.selectable_label(false, "Configure ROM search directory").clicked() {
+                            self.add_rom_search_directory();
+                        }
+                    });
+                } else {
+                    ui.add_enabled_ui(self.state.waiting_for_input.is_none(), |ui| {
+                        self.render_central_panel_filters(ui);
+
+                        ui.add_space(15.0);
+
+                        TableBuilder::new(ui)
+                            .auto_shrink([false; 2])
+                            .striped(true)
+                            .max_scroll_height(3000.0)
+                            .cell_layout(Layout::left_to_right(Align::Center))
+                            .column(Column::auto().at_most(300.0))
+                            .columns(Column::auto(), 2)
+                            .column(Column::remainder())
+                            .header(30.0, |mut row| {
+                                row.col(|ui| {
+                                    ui.vertical_centered(|ui| {
+                                        ui.heading("Name");
+                                    });
+                                });
+
+                                row.col(|ui| {
+                                    ui.vertical_centered(|ui| {
+                                        ui.heading("Console");
+                                    });
+                                });
+
+                                row.col(|ui| {
+                                    ui.vertical_centered(|ui| {
+                                        ui.heading("Size");
+                                    });
+                                });
+
+                                // Blank column to make stripes extend to the right
+                                row.col(|_ui| {});
+                            })
+                            .body(|body| {
+                                let rom_list = Rc::clone(&self.state.filtered_rom_list);
+                                body.rows(40.0, rom_list.len(), |mut row| {
+                                    let metadata = &rom_list[row.index()];
+
+                                    row.col(|ui| {
+                                        if Button::new(&metadata.file_name_no_ext)
+                                            .min_size(Vec2::new(300.0, 30.0))
+                                            .wrap()
+                                            .ui(ui)
+                                            .clicked()
+                                        {
+                                            self.emu_thread.stop_emulator_if_running();
+                                            self.launch_emulator(metadata.full_path.clone(), None);
+                                        }
+                                    });
+
+                                    row.col(|ui| {
+                                        ui.centered_and_justified(|ui| {
+                                            ui.label(metadata.console.display_str());
+                                        });
+                                    });
+
+                                    row.col(|ui| {
+                                        ui.centered_and_justified(|ui| {
+                                            if metadata.file_size < 1024 * 1024 {
+                                                let file_size_kb = metadata.file_size / 1024;
+                                                ui.label(format!("{file_size_kb}KB"));
+                                            } else {
+                                                let file_size_mb = metadata.file_size / 1024 / 1024;
+                                                ui.label(format!("{file_size_mb}MB"));
+                                            }
+                                        });
+                                    });
+
+                                    // Blank column to make stripes extend to the right
+                                    row.col(|_ui| {});
+                                });
+                            });
+                    });
+                }
+            });
         });
     }
 
