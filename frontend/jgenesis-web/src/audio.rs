@@ -148,15 +148,14 @@ pub async fn initialize_audio_worklet(
     let module_url = format!("./js/audio-processor.js?r={}", rand::random::<u32>());
     JsFuture::from(audio_ctx.audio_worklet()?.add_module(&module_url)?).await?;
 
-    let mut node_options = AudioWorkletNodeOptions::new();
-    node_options
-        .channel_count_mode(ChannelCountMode::Explicit)
-        .output_channel_count(&Array::of1(&JsValue::from(2)))
-        .processor_options(Some(&Array::of3(
-            &wasm_bindgen::module(),
-            &wasm_bindgen::memory(),
-            &audio_queue.to_js_value(),
-        )));
+    let node_options = AudioWorkletNodeOptions::new();
+    node_options.set_channel_count_mode(ChannelCountMode::Explicit);
+    node_options.set_output_channel_count(&Array::of1(&JsValue::from(2)));
+    node_options.set_processor_options(Some(&Array::of3(
+        &wasm_bindgen::module(),
+        &wasm_bindgen::memory(),
+        &audio_queue.to_js_value(),
+    )));
 
     let worklet_node =
         AudioWorkletNode::new_with_options(audio_ctx, "audio-processor", &node_options)?;

@@ -480,9 +480,11 @@ pub async fn run_emulator(config_ref: WebConfigRef, emulator_channel: EmulatorCh
         .render_frame(&[Color::rgb(128, 128, 128)], FrameSize { width: 1, height: 1 }, None)
         .expect("Unable to render blank frame");
 
-    let audio_ctx =
-        AudioContext::new_with_context_options(AudioContextOptions::new().sample_rate(48000.0))
-            .expect("Unable to create audio context");
+    let audio_ctx_options = AudioContextOptions::new();
+    audio_ctx_options.set_sample_rate(48000.0);
+
+    let audio_ctx = AudioContext::new_with_context_options(&audio_ctx_options)
+        .expect("Unable to create audio context");
     let audio_output = WebAudioOutput::new(audio_ctx);
     let _audio_worklet =
         audio::initialize_audio_worklet(&audio_output.audio_ctx, &audio_output.audio_queue)
