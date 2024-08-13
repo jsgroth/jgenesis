@@ -20,7 +20,7 @@ struct Args {
 // Attempt to detect if the application is running on a Steam Deck, and if it is then override
 // the winit scale factor to 1. It defaults to 4.5 on the Steam Deck which results in the GUI
 // being completely unusable.
-#[cfg(target_os = "linux")]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn steam_deck_dpi_hack() {
     let Ok(mut xhandle) = xrandr::XHandle::open() else {
         return;
@@ -65,7 +65,7 @@ fn main() -> eframe::Result<()> {
 
     let args = Args::parse();
 
-    #[cfg(target_os = "linux")]
+    #[cfg(all(unix, not(target_os = "macos")))]
     steam_deck_dpi_hack();
 
     let config_path =
