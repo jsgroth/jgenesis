@@ -51,5 +51,8 @@ features = [
     "Performance",
 ]
 
+[features]
+webgpu = []
+
 [lints]
 workspace = true

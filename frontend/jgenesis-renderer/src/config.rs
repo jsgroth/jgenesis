@@ -12,6 +12,7 @@ pub enum WgpuBackend {
     Vulkan,
     DirectX12,
     OpenGl,
+    WebGPU
 }
 
 #[derive(

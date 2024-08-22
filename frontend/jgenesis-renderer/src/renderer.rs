@@ -928,6 +928,7 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
             WgpuBackend::Vulkan => wgpu::Backends::VULKAN,
             WgpuBackend::DirectX12 => wgpu::Backends::DX12,
             WgpuBackend::OpenGl => wgpu::Backends::GL,
+            WgpuBackend::WebGPU => wgpu::Backends::BROWSER_WEBGPU,
         };
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
