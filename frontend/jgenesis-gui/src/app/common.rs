@@ -1,3 +1,5 @@
+mod helptext;
+
 use crate::app::{App, NumericTextEdit, OpenWindow};
 use eframe::epaint::Color32;
 use egui::{Context, TextEdit, Widget, Window};
@@ -9,11 +11,17 @@ const MAX_PRESCALE_FACTOR: u32 = 20;
 
 impl App {
     pub(super) fn render_common_video_settings(&mut self, ctx: &Context) {
+        const WINDOW: OpenWindow = OpenWindow::CommonVideo;
+
         let mut open = true;
         Window::new("General Video Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.checkbox(&mut self.config.common.launch_in_fullscreen, "Launch in fullscreen");
+            let rect = ui.checkbox(&mut self.config.common.launch_in_fullscreen, "Launch in fullscreen")
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::FULLSCREEN);
+            }
 
-            ui.group(|ui| {
+            let rect = ui.group(|ui| {
                 ui.add_enabled_ui(!self.emu_thread.status().is_running(), |ui| {
                     ui.label("wgpu backend");
                     ui.horizontal(|ui| {
@@ -35,9 +43,12 @@ impl App {
                         );
                     });
                 });
-            });
+            }).response.interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::WGPU_BACKEND);
+            }
 
-            ui.group(|ui| {
+            let rect = ui.group(|ui| {
                 ui.label("VSync mode");
 
                 ui.horizontal(|ui| {
@@ -53,9 +64,12 @@ impl App {
                     );
                     ui.radio_value(&mut self.config.common.vsync_mode, VSyncMode::Fast, "Fast");
                 });
-            });
+            }).response.interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::VSYNC_MODE);
+            }
 
-            ui.group(|ui| {
+            let rect = ui.group(|ui| {
                 ui.label("Filter mode");
                 ui.horizontal(|ui| {
                     ui.radio_value(
@@ -69,9 +83,12 @@ impl App {
                         "Linear interpolation",
                     );
                 });
-            });
+            }).response.interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::FILTER_MODE);
+            }
 
-            ui.group(|ui| {
+            let rect = ui.group(|ui| {
                 ui.label("Preprocess shader");
 
                 ui.radio_value(
@@ -111,9 +128,12 @@ impl App {
                         "Anti-dither (aggressive)"
                     );
                 });
-            });
+            }).response.interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::PREPROCESS_SHADER);
+            }
 
-            ui.group(|ui| {
+            let rect = ui.group(|ui| {
                 ui.label("Scanlines");
 
                 ui.horizontal(|ui| {
@@ -121,9 +141,12 @@ impl App {
                     ui.radio_value(&mut self.config.common.scanlines, Scanlines::Dim, "Dim");
                     ui.radio_value(&mut self.config.common.scanlines, Scanlines::Black, "Black");
                 });
-            });
+            }).response.interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::SCANLINES);
+            }
 
-            ui.horizontal(|ui| {
+            let rect = ui.horizontal(|ui| {
                 ui.add_enabled_ui(!self.config.common.auto_prescale, |ui| {
                     if TextEdit::singleline(&mut self.state.prescale_factor_text)
                         .desired_width(30.0)
@@ -150,7 +173,11 @@ impl App {
 
                     ui.label("Prescale factor");
                 });
-            });
+            }).response.interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::PRESCALING);
+            }
+
             if self.state.prescale_factor_invalid {
                 ui.colored_label(
                     Color32::RED,
@@ -160,35 +187,48 @@ impl App {
                 );
             }
 
-            ui.checkbox(&mut self.config.common.auto_prescale, "Enable auto-prescale")
-                .on_hover_text("Automatically adjust prescale factor based on viewport size");
+            let rect = ui.checkbox(&mut self.config.common.auto_prescale, "Enable auto-prescale")
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::PRESCALING);
+            }
 
-            ui.checkbox(
+            let rect = ui.checkbox(
                 &mut self.config.common.force_integer_height_scaling,
                 "Force integer height scaling",
-            ).on_hover_text("Display area will be the largest possible integer multiple of native height that preserves aspect ratio");
+            ).interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::INTEGER_HEIGHT_SCALING);
+            }
 
             if self.state.display_scanlines_warning {
                 ui.colored_label(Color32::RED, "Integer height scaling + even-numbered prescale factor strongly recommended when scanlines are enabled");
             }
+
+            self.render_help_text(ui, WINDOW);
         });
         if !open {
-            self.state.open_windows.remove(&OpenWindow::CommonVideo);
+            self.state.open_windows.remove(&WINDOW);
         }
     }
 
     pub(super) fn render_common_audio_settings(&mut self, ctx: &Context) {
+        const WINDOW: OpenWindow = OpenWindow::CommonAudio;
+
         const TEXT_EDIT_WIDTH: f32 = 50.0;
         const MIN_DEVICE_QUEUE_SIZE: u16 = 8;
         const MIN_AUDIO_SYNC_THRESHOLD: u32 = 64;
 
         let mut open = true;
         Window::new("General Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.checkbox(&mut self.config.common.audio_sync, "Audio sync enabled");
+            let rect = ui.checkbox(&mut self.config.common.audio_sync, "Audio sync enabled").interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::AUDIO_SYNC);
+            }
 
             ui.add_space(10.0);
 
-            ui.horizontal(|ui| {
+            let rect = ui.horizontal(|ui| {
                 ui.add(
                     NumericTextEdit::new(
                         &mut self.state.audio_device_queue_size_text,
@@ -200,12 +240,16 @@ impl App {
                 );
 
                 ui.label("Audio device queue size (samples)");
-            });
+            }).response.interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::AUDIO_DEVICE_QUEUE_SIZE);
+            }
+
             if self.state.audio_device_queue_size_invalid {
                 ui.colored_label(Color32::RED, format!("Audio device queue size must be a power of 2 and must be at least {MIN_DEVICE_QUEUE_SIZE}"));
             }
 
-            ui.horizontal(|ui| {
+            let rect = ui.horizontal(|ui| {
                 ui.add(
                     NumericTextEdit::new(
                         &mut self.state.internal_audio_buffer_size_text,
@@ -217,7 +261,11 @@ impl App {
                 );
 
                 ui.label("Internal audio buffer size (samples)");
-            });
+            }).response.interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::INTERNAL_AUDIO_BUFFER_SIZE);
+            }
+
             if self.state.internal_audio_buffer_size_invalid {
                 ui.colored_label(
                     Color32::RED,
@@ -225,7 +273,7 @@ impl App {
                 );
             }
 
-            ui.horizontal(|ui| {
+            let rect = ui.horizontal(|ui| {
                 ui.add(
                     NumericTextEdit::new(
                         &mut self.state.audio_sync_threshold_text,
@@ -237,7 +285,11 @@ impl App {
                 );
 
                 ui.label("Audio sync threshold (bytes)");
-            });
+            }).response.interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::AUDIO_SYNC_THRESHOLD);
+            }
+
             if self.state.audio_sync_threshold_invalid {
                 ui.colored_label(
                     Color32::RED,
@@ -245,7 +297,7 @@ impl App {
                 );
             }
 
-            ui.horizontal(|ui| {
+            let rect = ui.horizontal(|ui| {
                 ui.add(
                     NumericTextEdit::new(
                         &mut self.state.audio_gain_text,
@@ -257,13 +309,19 @@ impl App {
                 );
 
                 ui.label("Audio gain (dB) (+/-)");
-            });
+            }).response.interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::AUDIO_GAIN);
+            }
+
             if self.state.audio_gain_invalid {
                 ui.colored_label(Color32::RED, "Audio gain must be a finite decimal number");
             }
+
+            self.render_help_text(ui, WINDOW);
         });
         if !open {
-            self.state.open_windows.remove(&OpenWindow::CommonAudio);
+            self.state.open_windows.remove(&WINDOW);
         }
     }
 }

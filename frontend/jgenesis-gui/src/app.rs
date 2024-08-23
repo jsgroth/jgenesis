@@ -13,6 +13,7 @@ use crate::app::romlist::{Console, RomListThreadHandle, RomMetadata};
 use crate::emuthread;
 use crate::emuthread::{EmuThreadCommand, EmuThreadHandle, EmuThreadStatus};
 use eframe::Frame;
+use egui::ahash::HashMap;
 use egui::panel::TopBottomSide;
 use egui::{
     menu, Align, Button, CentralPanel, Color32, Context, Key, KeyboardShortcut, Layout, Modifiers,
@@ -113,9 +114,16 @@ enum OpenWindow {
     About,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct HelpText {
+    heading: &'static str,
+    text: &'static [&'static str],
+}
+
 struct AppState {
     current_file_path: String,
     open_windows: HashSet<OpenWindow>,
+    help_text: HashMap<OpenWindow, HelpText>,
     error_window_open: bool,
     prescale_factor_text: String,
     prescale_factor_invalid: bool,
@@ -152,6 +160,7 @@ impl AppState {
         Self {
             current_file_path: String::new(),
             open_windows: HashSet::new(),
+            help_text: HashMap::default(),
             error_window_open: false,
             prescale_factor_text: config.common.prescale_factor.get().to_string(),
             prescale_factor_invalid: false,
@@ -418,7 +427,7 @@ impl App {
             ui.label(format!("Version: {}", env!("CARGO_PKG_VERSION")));
 
             ui.add_space(15.0);
-            ui.label("Copyright © 2023 James Groth");
+            ui.label("Copyright © 2024 James Groth");
 
             ui.add_space(10.0);
             ui.horizontal(|ui| {
@@ -945,6 +954,19 @@ impl App {
                 self.refresh_filtered_rom_list();
             }
         });
+    }
+
+    fn render_help_text(&mut self, ui: &mut Ui, window: OpenWindow) {
+        let Some(help_text) = self.state.help_text.get(&window) else { return };
+
+        ui.separator();
+
+        ui.heading(help_text.heading);
+
+        for text in help_text.text {
+            ui.add_space(7.0);
+            ui.label(*text);
+        }
     }
 
     fn check_emulator_error(&mut self, ctx: &Context) {
