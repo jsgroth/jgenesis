@@ -72,7 +72,9 @@ impl Default for CommonWebConfig {
 
 impl CommonWebConfig {
     pub fn to_renderer_config(&self) -> RendererConfig {
-        let renderer = if cfg!(feature = "webgpu") {
+        let renderer = if cfg!(feature = "auto-renderer") {
+            WgpuBackend::Auto
+        } else if cfg!(feature = "webgpu") {
             WgpuBackend::WebGPU
         } else {
             WgpuBackend::OpenGl
