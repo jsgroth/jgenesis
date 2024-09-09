@@ -9,7 +9,7 @@ macro_rules! impl_rla_op {
             self.registers.a = if $thru_carry {
                 (self.registers.a << 1) | u8::from(self.registers.f.carry)
             } else {
-                (self.registers.a << 1) | (self.registers.a >> 7)
+                self.registers.a.rotate_left(1)
             };
             self.registers.f = Flags { zero: false, subtract: false, half_carry: false, carry };
         }
@@ -23,7 +23,7 @@ macro_rules! impl_rra_op {
             self.registers.a = if $thru_carry {
                 (self.registers.a >> 1) | (u8::from(self.registers.f.carry) << 7)
             } else {
-                (self.registers.a >> 1) | (self.registers.a << 7)
+                self.registers.a.rotate_right(1)
             };
             self.registers.f = Flags { zero: false, subtract: false, half_carry: false, carry };
         }
@@ -90,7 +90,7 @@ impl Sm83 {
     // RLC: Rotate register left
     pub(super) fn rlc_r<B: BusInterface>(&mut self, bus: &mut B, opcode: u8) {
         let value = self.read_register(bus, opcode);
-        let rotated = (value << 1) | (value >> 7);
+        let rotated = value.rotate_left(1);
         self.write_register(bus, opcode, rotated);
 
         self.registers.f = flags_for_shift_op(rotated, value.bit(7));
@@ -99,7 +99,7 @@ impl Sm83 {
     // RRC: Rotate register right
     pub(super) fn rrc_r<B: BusInterface>(&mut self, bus: &mut B, opcode: u8) {
         let value = self.read_register(bus, opcode);
-        let rotated = (value >> 1) | (value << 7);
+        let rotated = value.rotate_right(1);
         self.write_register(bus, opcode, rotated);
 
         self.registers.f = flags_for_shift_op(rotated, value.bit(0));
@@ -153,7 +153,7 @@ impl Sm83 {
     // SWAP: Swap nibbles
     pub(super) fn swap<B: BusInterface>(&mut self, bus: &mut B, opcode: u8) {
         let value = self.read_register(bus, opcode);
-        self.write_register(bus, opcode, (value >> 4) | (value << 4));
+        self.write_register(bus, opcode, value.rotate_left(4));
 
         self.registers.f =
             Flags { zero: value == 0, subtract: false, half_carry: false, carry: false };

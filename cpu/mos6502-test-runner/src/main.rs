@@ -113,7 +113,7 @@ fn main() -> anyhow::Result<()> {
     let mut bus = Bus::new();
 
     for opcode in 0x00..=0xFF {
-        let file_path = Path::new(&args.dir_path).join(&format!("{opcode:02x}.json"));
+        let file_path = Path::new(&args.dir_path).join(format!("{opcode:02x}.json"));
         let tests: Vec<TestDescription> =
             serde_json::from_reader(BufReader::new(File::open(&file_path)?))?;
 

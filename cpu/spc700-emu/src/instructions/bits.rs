@@ -307,7 +307,7 @@ pub(crate) fn xcn<B: BusInterface>(cpu: &mut Spc700, bus: &mut B) {
             cpu.final_cycle();
             bus.idle();
 
-            cpu.registers.a = (cpu.registers.a >> 4) | (cpu.registers.a << 4);
+            cpu.registers.a = cpu.registers.a.rotate_left(4);
             cpu.registers.psw.zero = cpu.registers.a == 0;
             cpu.registers.psw.negative = cpu.registers.a.sign_bit();
         }

@@ -168,7 +168,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     pub(super) fn rlca(&mut self) -> u32 {
         let a = self.registers.a;
 
-        self.registers.a = (a << 1) | (a >> 7);
+        self.registers.a = a.rotate_left(1);
         self.registers.f =
             Flags { half_carry: false, subtract: false, carry: a.bit(7), ..self.registers.f };
 
@@ -190,7 +190,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
     pub(super) fn rrca(&mut self) -> u32 {
         let a = self.registers.a;
 
-        self.registers.a = (a >> 1) | (a << 7);
+        self.registers.a = a.rotate_right(1);
         self.registers.f =
             Flags { half_carry: false, subtract: false, carry: a.bit(0), ..self.registers.f };
 

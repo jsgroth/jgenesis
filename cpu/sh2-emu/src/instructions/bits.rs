@@ -128,7 +128,7 @@ pub fn shlrn<const N: usize>(cpu: &mut Sh2, opcode: u16) {
 pub fn rotl(cpu: &mut Sh2, opcode: u16) {
     let n = rn(opcode);
     cpu.registers.sr.t = cpu.registers.gpr[n].bit(31);
-    cpu.registers.gpr[n] = (cpu.registers.gpr[n] << 1) | (cpu.registers.gpr[n] >> 31);
+    cpu.registers.gpr[n] = cpu.registers.gpr[n].rotate_left(1);
 }
 
 // ROTCL Rn
@@ -146,7 +146,7 @@ pub fn rotr(cpu: &mut Sh2, opcode: u16) {
     let n = rn(opcode);
     let carry = cpu.registers.gpr[n].bit(0);
     cpu.registers.sr.t = carry;
-    cpu.registers.gpr[n] = (cpu.registers.gpr[n] >> 1) | (cpu.registers.gpr[n] << 31);
+    cpu.registers.gpr[n] = cpu.registers.gpr[n].rotate_right(1);
 }
 
 // ROTCR Rn

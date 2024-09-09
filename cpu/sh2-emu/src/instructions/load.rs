@@ -606,7 +606,7 @@ pub fn swap_w(cpu: &mut Sh2, opcode: u16) {
     let n = rn(opcode);
 
     let value = cpu.registers.gpr[m];
-    cpu.registers.gpr[n] = (value >> 16) | (value << 16);
+    cpu.registers.gpr[n] = value.rotate_left(16);
 }
 
 // XTRCT Rm, Rn

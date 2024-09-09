@@ -176,7 +176,7 @@ impl ProgrammableMemoryControlRegister {
             PmcWaitingFor::Mode => {
                 // If waiting for mode, return address but rotated by 4; direction doesn't matter
                 // because SVP always does this with both bytes equal
-                (self.address << 4) | (self.address >> 12)
+                self.address.rotate_left(4)
             }
         };
 
