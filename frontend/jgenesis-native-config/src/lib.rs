@@ -54,6 +54,14 @@ pub struct RecentOpen {
     pub path: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum EguiTheme {
+    #[default]
+    SystemDefault,
+    Dark,
+    Light,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default)]
@@ -81,6 +89,8 @@ pub struct AppConfig {
     pub rom_search_dirs: Vec<String>,
     #[serde(default)]
     pub recent_open_list: Vec<RecentOpen>,
+    #[serde(default)]
+    pub egui_theme: EguiTheme,
 }
 
 impl AppConfig {
