@@ -65,7 +65,7 @@ pub const AUDIO_SYNC: HelpText = HelpText {
     heading: "Audio Sync",
     text: &[
         "If enabled, synchronize emulation speed to the audio output stream.",
-        "This is more accurate than video sync but may cause poor frame pacing if the display refresh rate does not match the console's native refresh rate.",
+        "This is more accurate than video sync and prevents audio pops caused by buffer overflow, but it may cause poor frame pacing if the display refresh rate does not match the console's native refresh rate.",
     ],
 };
 

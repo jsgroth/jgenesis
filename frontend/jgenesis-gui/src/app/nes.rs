@@ -61,7 +61,7 @@ impl App {
                                 ui.radio_value(
                                     &mut self.config.nes.forced_timing_mode,
                                     Some(TimingMode::Pal),
-                                    "PAL (50HzO)",
+                                    "PAL (50Hz)",
                                 );
                             });
                         },

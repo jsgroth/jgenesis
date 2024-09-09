@@ -12,7 +12,7 @@ pub const OPPOSING_DIRECTIONAL_INPUTS: HelpText = HelpText {
     heading: "Opposing Directional Inputs",
     text: &[
         "Whether to allow simultaneous opposing directional inputs (left+right, up+down).",
-        "Much moreso than on other consoles, some NES games exhibit severe glitches if the game reads opposing directional inputs pressed simultaneously. This setting makes it impossible for the game to see that happen.",
+        "Much moreso than on other consoles, some NES games exhibit severe glitches if the game reads opposing directional inputs pressed simultaneously. Unchecking this option makes it impossible for the game to see that happen.",
     ],
 };
 

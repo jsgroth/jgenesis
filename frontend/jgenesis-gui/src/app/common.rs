@@ -2,12 +2,9 @@ mod helptext;
 
 use crate::app::{App, NumericTextEdit, OpenWindow};
 use eframe::epaint::Color32;
-use egui::{Context, TextEdit, Widget, Window};
-use jgenesis_renderer::config::{
-    FilterMode, PreprocessShader, PrescaleFactor, Scanlines, VSyncMode, WgpuBackend,
-};
-
-const MAX_PRESCALE_FACTOR: u32 = 20;
+use egui::{Context, Slider, Window};
+use jgenesis_renderer::config::{FilterMode, PreprocessShader, Scanlines, VSyncMode, WgpuBackend};
+use std::num::NonZeroU32;
 
 impl App {
     pub(super) fn render_common_video_settings(&mut self, ctx: &Context) {
@@ -146,49 +143,23 @@ impl App {
                 self.state.help_text.insert(WINDOW, helptext::SCANLINES);
             }
 
-            let rect = ui.horizontal(|ui| {
-                ui.add_enabled_ui(!self.config.common.auto_prescale, |ui| {
-                    if TextEdit::singleline(&mut self.state.prescale_factor_text)
-                        .desired_width(30.0)
-                        .ui(ui)
-                        .changed()
-                    {
-                        match self
-                            .state
-                            .prescale_factor_text
-                            .parse::<u32>()
-                            .ok()
-                            .filter(|&n| n <= MAX_PRESCALE_FACTOR)
-                            .and_then(|n| PrescaleFactor::try_from(n).ok())
-                        {
-                            Some(prescale_factor) => {
-                                self.config.common.prescale_factor = prescale_factor;
-                                self.state.prescale_factor_invalid = false;
-                            }
-                            None => {
-                                self.state.prescale_factor_invalid = true;
-                            }
-                        }
-                    }
+            let rect = ui.group(|ui| {
+                ui.label("Prescaling");
 
-                    ui.label("Prescale factor");
+                ui.horizontal(|ui| {
+                    ui.add_enabled_ui(!self.config.common.auto_prescale, |ui| {
+                        ui.label("Prescale factor:");
+
+                        if ui.add(Slider::new(&mut self.state.prescale_factor_raw, 1..=16)).changed() {
+                            if let Some(prescale_factor) = NonZeroU32::new(self.state.prescale_factor_raw) {
+                                self.config.common.prescale_factor = prescale_factor.into();
+                            }
+                        };
+                    });
                 });
+
+                ui.checkbox(&mut self.config.common.auto_prescale, "Enable auto-prescale");
             }).response.interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::PRESCALING);
-            }
-
-            if self.state.prescale_factor_invalid {
-                ui.colored_label(
-                    Color32::RED,
-                    format!(
-                        "Prescale factor must be a non-negative integer <= {MAX_PRESCALE_FACTOR}"
-                    ),
-                );
-            }
-
-            let rect = ui.checkbox(&mut self.config.common.auto_prescale, "Enable auto-prescale")
-                .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::PRESCALING);
             }
