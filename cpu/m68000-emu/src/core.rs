@@ -942,7 +942,7 @@ impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B>
                 34
             }
             Err(Exception::DivisionByZero { cycles }) => {
-                log::error!("[{}] Encountered 68000 divide by zero error", self.name);
+                log::warn!("[{}] Encountered 68000 divide by zero exception", self.name);
 
                 if self.handle_trap(DIVIDE_BY_ZERO_VECTOR, self.registers.pc).is_err() {
                     todo!("address error triggered while handling divide by zero exception")
