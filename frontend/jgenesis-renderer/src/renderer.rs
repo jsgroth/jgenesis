@@ -897,6 +897,7 @@ pub struct WindowSize {
 pub struct WgpuRenderer<Window> {
     surface: wgpu::Surface<'static>,
     surface_config: wgpu::SurfaceConfiguration,
+    surface_capabilities: wgpu::SurfaceCapabilities,
     device: wgpu::Device,
     queue: wgpu::Queue,
     shaders: Shaders,
@@ -1013,6 +1014,7 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
         Ok(Self {
             surface,
             surface_config,
+            surface_capabilities,
             device,
             queue,
             shaders,
@@ -1029,9 +1031,20 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
 }
 
 impl<Window> WgpuRenderer<Window> {
-    pub fn reload_config(&mut self, config: RendererConfig) {
+    pub fn reload_config(&mut self, mut config: RendererConfig) {
+        let present_mode = config.vsync_mode.to_wgpu_present_mode();
+        if self.surface_capabilities.present_modes.contains(&present_mode) {
+            self.surface_config.present_mode = present_mode;
+        } else {
+            log::error!(
+                "wgpu adapter does not support requested present mode '{present_mode:?}' for VSync mode '{:?}'; leaving VSync mode set to '{:?}'",
+                config.vsync_mode,
+                self.renderer_config.vsync_mode
+            );
+            config.vsync_mode = self.renderer_config.vsync_mode;
+        }
+
         self.renderer_config = config;
-        self.surface_config.present_mode = config.vsync_mode.to_wgpu_present_mode();
         self.surface.configure(&self.device, &self.surface_config);
 
         // Force render pipeline to be recreated on the next render_frame() call
