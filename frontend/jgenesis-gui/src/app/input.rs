@@ -166,7 +166,7 @@ impl App {
         let mut open = true;
         Window::new("SMS/GG Keyboard Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.add_enabled_ui(self.state.waiting_for_input.is_none(), |ui| {
-                Grid::new("smsgg_keyboard_grid").show(ui, |ui| {
+                Grid::new("smsgg_keyboard_grid").spacing([50.0, 0.0]).show(ui, |ui| {
                     for (grid_id, heading, player) in [
                         ("smsgg_p1_keyboard_grid", "Player 1", Player::One),
                         ("smsgg_p2_keyboard_grid", "Player 2", Player::Two),
@@ -194,8 +194,6 @@ impl App {
                                 );
                             }
                         });
-
-                        ui.add_space(20.0);
                     }
                 });
 
@@ -220,7 +218,7 @@ impl App {
         let mut open = true;
         Window::new("SMS/GG Gamepad Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.add_enabled_ui(self.state.waiting_for_input.is_none(), |ui| {
-                Grid::new("smsgg_gamepad_grid").show(ui, |ui| {
+                Grid::new("smsgg_gamepad_grid").spacing([50.0, 0.0]).show(ui, |ui| {
                     for (grid_id, heading, player) in [
                         ("smsgg_p1_gamepad_grid", "Player 1", Player::One),
                         ("smsgg_p2_gamepad_grid", "Player 2", Player::Two),
@@ -248,8 +246,6 @@ impl App {
                                 );
                             }
                         });
-
-                        ui.add_space(20.0);
                     }
                 });
 
@@ -277,7 +273,7 @@ impl App {
         let mut open = true;
         Window::new("Genesis Keyboard Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.add_enabled_ui(self.state.waiting_for_input.is_none(), |ui| {
-                Grid::new("genesis_keyboard_grid").show(ui, |ui| {
+                Grid::new("genesis_keyboard_grid").spacing([50.0, 0.0]).show(ui, |ui| {
                     for (grid_id, heading, player) in [
                         ("genesis_p1_keyboard_grid", "Player 1", Player::One),
                         ("genesis_p2_keyboard_grid", "Player 2", Player::Two),
@@ -301,8 +297,6 @@ impl App {
                                 );
                             }
                         });
-
-                        ui.add_space(50.0);
                     }
                 });
 
@@ -321,7 +315,7 @@ impl App {
         let mut open = true;
         Window::new("Genesis Gamepad Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.add_enabled_ui(self.state.waiting_for_input.is_none(), |ui| {
-                Grid::new("genesis_gamepad_grid").show(ui, |ui| {
+                Grid::new("genesis_gamepad_grid").spacing([50.0, 0.0]).show(ui, |ui| {
                     for (grid_id, heading, player) in [
                         ("genesis_p1_gamepad_grid", "Player 1", Player::One),
                         ("genesis_p2_gamepad_grid", "Player 2", Player::Two),
@@ -345,8 +339,6 @@ impl App {
                                 );
                             }
                         });
-
-                        ui.add_space(50.0);
                     }
                 });
 
@@ -369,7 +361,7 @@ impl App {
         let mut open = true;
         Window::new("NES Keyboard Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.add_enabled_ui(self.state.waiting_for_input.is_none(), |ui| {
-                Grid::new("nes_keyboard_grid").show(ui, |ui| {
+                Grid::new("nes_keyboard_grid").spacing([50.0, 0.0]).show(ui, |ui| {
                     for (grid_id, heading, player) in [
                         ("nes_p1_keyboard_grid", "Player 1", Player::One),
                         ("nes_p2_keyboard_grid", "Player 2", Player::Two),
@@ -392,8 +384,6 @@ impl App {
                                     ui,
                                 );
                             }
-
-                            ui.add_space(50.0);
                         });
                     }
                 });
@@ -408,7 +398,7 @@ impl App {
         let mut open = true;
         Window::new("NES Gamepad Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.add_enabled_ui(self.state.waiting_for_input.is_none(), |ui| {
-                Grid::new("nes_gamepad_grid").show(ui, |ui| {
+                Grid::new("nes_gamepad_grid").spacing([50.0, 0.0]).show(ui, |ui| {
                     for (grid_id, heading, player) in [
                         ("nes_p1_gamepad_grid", "Player 1", Player::One),
                         ("nes_p2_gamepad_grid", "Player 2", Player::Two),
@@ -431,8 +421,6 @@ impl App {
                                     ui,
                                 );
                             }
-
-                            ui.add_space(50.0);
                         });
                     }
                 });
@@ -498,7 +486,7 @@ impl App {
         let mut open = true;
         Window::new("SNES Keyboard Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.add_enabled_ui(self.state.waiting_for_input.is_none(), |ui| {
-                Grid::new("snes_keyboard_grid").show(ui, |ui| {
+                Grid::new("snes_keyboard_grid").spacing([50.0, 0.0]).show(ui, |ui| {
                     for (grid_id, heading, player) in [
                         ("snes_p1_keyboard_grid", "Player 1", Player::One),
                         ("snes_p2_keyboard_grid", "Player 2", Player::Two),
@@ -522,8 +510,6 @@ impl App {
                                 );
                             }
                         });
-
-                        ui.add_space(50.0);
                     }
                 });
             });
@@ -537,7 +523,7 @@ impl App {
         let mut open = true;
         Window::new("SNES Gamepad Settings").open(&mut open).resizable(false).show(ctx, |ui| {
             ui.add_enabled_ui(self.state.waiting_for_input.is_none(), |ui| {
-                Grid::new("snes_gamepad_grid").show(ui, |ui| {
+                Grid::new("snes_gamepad_grid").spacing([50.0, 0.0]).show(ui, |ui| {
                     for (grid_id, heading, player) in [
                         ("snes_p1_gamepad_grid", "Player 1", Player::One),
                         ("snes_p2_gamepad_grid", "Player 2", Player::Two),
@@ -561,8 +547,6 @@ impl App {
                                 );
                             }
                         });
-
-                        ui.add_space(50.0);
                     }
                 });
 
