@@ -863,7 +863,7 @@ impl App {
                             .cell_layout(Layout::left_to_right(Align::Center))
                             .column(Column::auto().at_least(300.0).at_most(400.0))
                             .column(Column::auto().at_least(125.0))
-                            .column(Column::auto())
+                            .column(Column::auto().at_least(50.0))
                             .column(Column::remainder())
                             .header(30.0, |mut row| {
                                 row.col(|ui| {
