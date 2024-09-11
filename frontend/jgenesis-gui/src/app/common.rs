@@ -45,21 +45,32 @@ impl App {
                 self.state.help_text.insert(WINDOW, helptext::WGPU_BACKEND);
             }
 
-            let rect = ui.group(|ui| {
-                ui.label("VSync mode");
+            // At least as of wgpu 0.20, wgpu w/ the OpenGL backend only supports present mode Fifo (VSync enabled)
+            let is_opengl = self.config.common.wgpu_backend == WgpuBackend::OpenGl;
+            if is_opengl {
+                self.config.common.vsync_mode = VSyncMode::Enabled;
+            }
 
-                ui.horizontal(|ui| {
-                    ui.radio_value(
-                        &mut self.config.common.vsync_mode,
-                        VSyncMode::Enabled,
-                        "Enabled",
-                    );
-                    ui.radio_value(
-                        &mut self.config.common.vsync_mode,
-                        VSyncMode::Disabled,
-                        "Disabled",
-                    );
-                    ui.radio_value(&mut self.config.common.vsync_mode, VSyncMode::Fast, "Fast");
+            let rect = ui.group(|ui| {
+                ui.add_enabled_ui(!is_opengl, |ui| {
+                    let disabled_text = "VSync mode is not configurable with the OpenGL backend";
+
+                    ui.label("VSync mode").on_disabled_hover_text(disabled_text);
+
+                    ui.horizontal(|ui| {
+                        ui.radio_value(
+                            &mut self.config.common.vsync_mode,
+                            VSyncMode::Enabled,
+                            "Enabled",
+                        ).on_disabled_hover_text(disabled_text);
+                        ui.radio_value(
+                            &mut self.config.common.vsync_mode,
+                            VSyncMode::Disabled,
+                            "Disabled",
+                        ).on_disabled_hover_text(disabled_text);
+                        ui.radio_value(&mut self.config.common.vsync_mode, VSyncMode::Fast, "Fast")
+                            .on_disabled_hover_text(disabled_text);
+                    });
                 });
             }).response.interact_rect;
             if ui.rect_contains_pointer(rect) {
