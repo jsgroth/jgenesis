@@ -82,6 +82,8 @@ impl App {
 
             let rect = ui
                 .group(|ui| {
+                    ui.label("Coprocessor ROM Paths");
+
                     ui.horizontal(|ui| {
                         let dsp1_rom_path = self.config.snes.dsp1_rom_path.as_deref();
                         if ui.button(dsp1_rom_path.unwrap_or("<None>")).clicked() {
