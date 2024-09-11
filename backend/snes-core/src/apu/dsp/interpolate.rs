@@ -1,7 +1,7 @@
 use crate::apu::dsp::tables;
 
-const I16_MIN: f64 = -32768.0;
-const I16_MAX: f64 = 32767.0;
+const I15_MIN: f64 = -16384.0;
+const I15_MAX: f64 = 16383.0;
 
 pub struct InterpolateArgs {
     pub pitch_counter: u16,
@@ -52,5 +52,5 @@ pub fn hermite(
     let c1 = 0.5 * (y2 - y0);
     let c2 = y0 - 2.5 * y1 + 2.0 * y2 - 0.5 * y3;
     let c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
-    (((c3 * x + c2) * x + c1) * x + c0).round().clamp(I16_MIN, I16_MAX) as i16
+    (((c3 * x + c2) * x + c1) * x + c0).round().clamp(I15_MIN, I15_MAX) as i16
 }
