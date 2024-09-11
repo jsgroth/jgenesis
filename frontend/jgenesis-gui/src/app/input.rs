@@ -1,6 +1,6 @@
 use crate::app::{App, NumericTextEdit, OpenWindow};
 use crate::emuthread::{EmuThreadCommand, GenericInput, InputType};
-use egui::{Color32, Context, Grid, Ui, Window};
+use egui::{Color32, Context, Grid, Slider, Ui, Window};
 use gb_core::inputs::GameBoyButton;
 use genesis_core::input::GenesisButton;
 use genesis_core::GenesisControllerType;
@@ -816,21 +816,9 @@ impl App {
 
     fn render_axis_deadzone_input(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
-            ui.add(
-                NumericTextEdit::new(
-                    &mut self.state.axis_deadzone_text,
-                    &mut self.config.inputs.axis_deadzone,
-                    &mut self.state.axis_deadzone_invalid,
-                )
-                .with_validation(|value| value >= 0)
-                .desired_width(50.0),
-            );
-
-            ui.label("Joystick axis deadzone (0-32767)");
+            ui.label("Joystick axis deadzone:");
+            ui.add(Slider::new(&mut self.config.inputs.axis_deadzone, 0..=32767));
         });
-        if self.state.axis_deadzone_invalid {
-            ui.colored_label(Color32::RED, "Axis dead zone must be an integer between 0 and 32767");
-        }
     }
 
     fn keyboard_input_button(
