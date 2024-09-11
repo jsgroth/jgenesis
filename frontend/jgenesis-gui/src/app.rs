@@ -865,8 +865,9 @@ impl App {
                             .striped(true)
                             .max_scroll_height(3000.0)
                             .cell_layout(Layout::left_to_right(Align::Center))
-                            .column(Column::auto().at_most(300.0))
-                            .columns(Column::auto(), 2)
+                            .column(Column::auto().at_least(300.0).at_most(400.0))
+                            .column(Column::auto().at_least(125.0))
+                            .column(Column::auto())
                             .column(Column::remainder())
                             .header(30.0, |mut row| {
                                 row.col(|ui| {
