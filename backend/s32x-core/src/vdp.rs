@@ -253,7 +253,7 @@ impl Vdp {
         if self.registers.screen_left_shift {
             for pixel in 0..FRAME_WIDTH as u16 {
                 let frame_buffer_addr = line_addr.wrapping_add((pixel + 1) >> 1);
-                let color = frame_buffer[frame_buffer_addr as usize] >> (8 * (pixel & 1)) & 0xFF;
+                let color = (frame_buffer[frame_buffer_addr as usize] >> (8 * (pixel & 1))) & 0xFF;
 
                 self.rendered_frame[line][pixel as usize] = self.cram[color as usize];
             }
