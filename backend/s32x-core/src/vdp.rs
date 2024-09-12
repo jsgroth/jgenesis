@@ -250,12 +250,21 @@ impl Vdp {
             self.state.display_frame_buffer
         );
 
-        for pixel in (0..FRAME_WIDTH as u16).step_by(2) {
-            let frame_buffer_addr = line_addr.wrapping_add(pixel >> 1);
-            let [msb, lsb] = frame_buffer[frame_buffer_addr as usize].to_be_bytes();
+        if self.registers.screen_left_shift {
+            for pixel in 0..FRAME_WIDTH as u16 {
+                let frame_buffer_addr = line_addr.wrapping_add((pixel + 1) >> 1);
+                let color = frame_buffer[frame_buffer_addr as usize] >> (8 * (pixel & 1)) & 0xFF;
 
-            self.rendered_frame[line][pixel as usize] = self.cram[msb as usize];
-            self.rendered_frame[line][(pixel + 1) as usize] = self.cram[lsb as usize];
+                self.rendered_frame[line][pixel as usize] = self.cram[color as usize];
+            }
+        } else {
+            for pixel in (0..FRAME_WIDTH as u16).step_by(2) {
+                let frame_buffer_addr = line_addr.wrapping_add(pixel >> 1);
+                let [msb, lsb] = frame_buffer[frame_buffer_addr as usize].to_be_bytes();
+
+                self.rendered_frame[line][pixel as usize] = self.cram[msb as usize];
+                self.rendered_frame[line][(pixel + 1) as usize] = self.cram[lsb as usize];
+            }
         }
     }
 
