@@ -281,6 +281,7 @@ impl RenderingPipeline {
     #[allow(clippy::too_many_arguments)]
     fn create(
         device: &wgpu::Device,
+        limits: &wgpu::Limits,
         shaders: &Shaders,
         window_size: WindowSize,
         frame_size: FrameSize,
@@ -312,24 +313,6 @@ impl RenderingPipeline {
             renderer_config.force_integer_height_scaling,
         );
 
-        let prescale_factor = match renderer_config.prescale_mode {
-            PrescaleMode::Auto => {
-                let width_ratio = (f64::from(display_area.width)
-                    / f64::from(frame_size.width)
-                    / f64::from(pixel_aspect_ratio.unwrap_or(PixelAspectRatio::SQUARE)))
-                .floor() as u32;
-                let height_ratio = display_area.height / frame_size.height;
-                let prescale_factor = cmp::max(1, cmp::max(width_ratio, height_ratio));
-
-                log::info!(
-                    "Auto-prescale setting prescale factor to {prescale_factor}x (measured width scale {width_ratio} and height_scale {height_ratio})"
-                );
-
-                prescale_factor
-            }
-            PrescaleMode::Manual(factor) => factor.get(),
-        };
-
         let filter_mode = renderer_config.filter_mode.to_wgpu_filter_mode();
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: "sampler".into(),
@@ -358,6 +341,27 @@ impl RenderingPipeline {
             input_texture,
             shaders,
         );
+        let preprocess_output_texture = preprocess_pipeline.output_texture();
+
+        let prescale_factor = match renderer_config.prescale_mode {
+            PrescaleMode::Auto => {
+                let width_ratio = (f64::from(display_area.width)
+                    / f64::from(frame_size.width)
+                    / f64::from(pixel_aspect_ratio.unwrap_or(PixelAspectRatio::SQUARE)))
+                .floor() as u32;
+                let height_ratio = display_area.height / frame_size.height;
+                let prescale_factor = cmp::max(1, cmp::max(width_ratio, height_ratio));
+
+                log::info!(
+                    "Auto-prescale setting prescale factor to {prescale_factor}x (measured width scale {width_ratio} and height_scale {height_ratio})"
+                );
+
+                prescale_factor
+            }
+            PrescaleMode::Manual(factor) => factor.get(),
+        };
+        let prescale_factor =
+            clamp_prescale_factor(prescale_factor, preprocess_output_texture, limits);
 
         let prescale_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -386,7 +390,6 @@ impl RenderingPipeline {
                 ],
             });
 
-        let preprocess_output_texture = preprocess_pipeline.output_texture();
         let preprocess_output_view =
             preprocess_output_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let prescale_factor_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -676,6 +679,28 @@ impl RenderingPipeline {
     }
 }
 
+fn clamp_prescale_factor(
+    prescale_factor: u32,
+    preprocess_output_texture: &wgpu::Texture,
+    limits: &wgpu::Limits,
+) -> u32 {
+    let max_dimension = limits.max_texture_dimension_2d;
+    let max_prescale_factor = cmp::min(
+        max_dimension / preprocess_output_texture.width(),
+        max_dimension / preprocess_output_texture.height(),
+    );
+
+    if max_prescale_factor < prescale_factor {
+        log::warn!(
+            "Prescale factor {prescale_factor} is too high for frame size {}x{}; reducing to {max_prescale_factor}",
+            preprocess_output_texture.width(),
+            preprocess_output_texture.height()
+        );
+    }
+
+    cmp::min(max_prescale_factor, prescale_factor)
+}
+
 fn compute_vertices(
     window_width: u32,
     window_height: u32,
@@ -899,6 +924,7 @@ pub struct WgpuRenderer<Window> {
     surface_config: wgpu::SurfaceConfiguration,
     surface_capabilities: wgpu::SurfaceCapabilities,
     device: wgpu::Device,
+    device_limits: wgpu::Limits,
     queue: wgpu::Queue,
     shaders: Shaders,
     texture_format: wgpu::TextureFormat,
@@ -1007,6 +1033,7 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
             wgpu::TextureFormat::Rgba8Unorm
         };
 
+        let device_limits = device.limits();
         let shaders = Shaders::create(&device);
 
         let modal_renderer = ModalRenderer::new(&device, &queue, surface_format);
@@ -1016,6 +1043,7 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
             surface_config,
             surface_capabilities,
             device,
+            device_limits,
             queue,
             shaders,
             texture_format,
@@ -1121,6 +1149,7 @@ impl<Window> Renderer for WgpuRenderer<Window> {
 
             RenderingPipeline::create(
                 &self.device,
+                &self.device_limits,
                 &self.shaders,
                 self.window_size,
                 frame_size,
