@@ -48,7 +48,7 @@ const HOTKEY_OPTIONS_HEADING: &str = "Hotkey Options";
 
 #[derive(Debug, Parser)]
 struct Args {
-    /// Hardware (MasterSystem / Genesis / SegaCd / Nes / Snes / GameBoy); defaults based on file extension if not set
+    /// Hardware (MasterSystem / Genesis / SegaCd / Sega32X / Nes / Snes / GameBoy); defaults based on file extension if not set
     #[arg(long)]
     hardware: Option<Hardware>,
 
