@@ -14,10 +14,10 @@ segacd-core = { path = "../../backend/segacd-core" }
 smsgg-core = { path = "../../backend/smsgg-core", features = ["serde"] }
 snes-core = { path = "../../backend/snes-core", features = ["serde"] }
 
-jgenesis-common = { path = "../../jgenesis-common", features = ["serde"] }
+jgenesis-common = { path = "../../common/jgenesis-common", features = ["serde"] }
 jgenesis-native-config = { path = "../jgenesis-native-config"}
 jgenesis-native-driver = { path = "../jgenesis-native-driver" }
-jgenesis-proc-macros = { path = "../../jgenesis-proc-macros" }
+jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
 jgenesis-renderer = { path = "../jgenesis-renderer" }
 
 anyhow = { workspace = true }

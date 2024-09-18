@@ -6,8 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-jgenesis-common = { path = "../../jgenesis-common" }
-jgenesis-proc-macros = { path = "../../jgenesis-proc-macros" }
+jgenesis-common = { path = "../../common/jgenesis-common" }
+jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
 wdc65816-emu = { path = "../../cpu/wdc65816-emu" }
 
 bincode = { workspace = true }

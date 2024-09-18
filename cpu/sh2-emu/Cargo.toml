@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-jgenesis-common = { path = "../../jgenesis-common" }
+jgenesis-common = { path = "../../common/jgenesis-common" }
 
 bincode = { workspace = true, features = ["derive"] }
 log = { workspace = true }

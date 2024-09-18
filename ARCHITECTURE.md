@@ -10,7 +10,7 @@ The crates can be broken up roughly into 5 categories:
 * CPU emulator test harnesses: `z80-test-runner`, `m68000-test-runner`, `mos6502-test-runner`, `wdc65816-test-runner`, `spc700-test-runner`
 
 Repo structure:
-* Common library crates are at the top level of the project
+* `common/` contains common library crates
 * `cpu/` contains the CPU emulator and test harness crates
 * `backend/` contains the emulation backend crates
 * `frontend/` contains the emulation frontend crates

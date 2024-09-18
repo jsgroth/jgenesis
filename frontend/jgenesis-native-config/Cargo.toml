@@ -11,9 +11,9 @@ s32x-core = { path = "../../backend/s32x-core", features = ["serde"] }
 smsgg-core = { path = "../../backend/smsgg-core", features = ["serde"] }
 snes-core = { path = "../../backend/snes-core", features = ["serde"] }
 
-jgenesis-common = { path = "../../jgenesis-common", features = ["serde"] }
+jgenesis-common = { path = "../../common/jgenesis-common", features = ["serde"] }
 jgenesis-native-driver = { path = "../jgenesis-native-driver" }
-jgenesis-proc-macros = { path = "../../jgenesis-proc-macros" }
+jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
 jgenesis-renderer = { path = "../jgenesis-renderer" }
 
 cfg-if = { workspace = true }

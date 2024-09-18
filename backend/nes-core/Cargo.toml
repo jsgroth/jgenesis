@@ -10,8 +10,8 @@ default = []
 serde = ["dep:serde"]
 
 [dependencies]
-jgenesis-common = { path = "../../jgenesis-common" }
-jgenesis-proc-macros = { path = "../../jgenesis-proc-macros" }
+jgenesis-common = { path = "../../common/jgenesis-common" }
+jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
 mos6502-emu = { path = "../../cpu/mos6502-emu" }
 
 bincode = { workspace = true }

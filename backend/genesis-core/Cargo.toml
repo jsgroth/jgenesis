@@ -10,8 +10,8 @@ default = []
 serde = ["dep:serde"]
 
 [dependencies]
-jgenesis-proc-macros = { path = "../../jgenesis-proc-macros" }
-jgenesis-common = { path = "../../jgenesis-common" }
+jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
+jgenesis-common = { path = "../../common/jgenesis-common" }
 m68000-emu = { path = "../../cpu/m68000-emu", features = ["bincode"] }
 smsgg-core = { path = "../smsgg-core" }
 z80-emu = { path = "../../cpu/z80-emu", features = ["bincode"] }

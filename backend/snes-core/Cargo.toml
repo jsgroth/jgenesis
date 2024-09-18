@@ -10,8 +10,8 @@ default = []
 serde = ["dep:serde"]
 
 [dependencies]
-jgenesis-proc-macros = { path = "../../jgenesis-proc-macros" }
-jgenesis-common = { path = "../../jgenesis-common" }
+jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
+jgenesis-common = { path = "../../common/jgenesis-common" }
 snes-coprocessors = { path = "../snes-coprocessors" }
 spc700-emu = { path = "../../cpu/spc700-emu" }
 wdc65816-emu = { path = "../../cpu/wdc65816-emu" }

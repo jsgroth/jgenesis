@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-jgenesis-common = { path = "../../jgenesis-common" }
+jgenesis-common = { path = "../../common/jgenesis-common" }
 
 bincode = { workspace = true }
 log = { workspace = true }
