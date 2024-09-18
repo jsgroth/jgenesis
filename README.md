@@ -12,6 +12,8 @@ Cross-platform multi-console emulator supporting a number of 8-bit and 16-bit ga
   * Nintendo Entertainment System (NES) / Famicom
   * Super Nintendo Entertainment System (SNES) / Super Famicom
   * Game Boy / Game Boy Color
+  * Sega 32X / Mega 32X
+    * This core is currently not well-optimized - full-speed 32X emulation requires a CPU with decent single-core performance
 * GPU-based renderer with integer prescaling and optional linear interpolation
 * Configurable pixel aspect ratio for each console with several different options: accurate to original hardware/TVs, square pixels, and stretched to fill the window
 * Support for the Sega Master System FM sound unit expansion
@@ -126,6 +128,11 @@ RUSTFLAGS="-C target-cpu=native" cargo build --profile release-lto
 * Mega CD official documentation: https://segaretro.org/Mega-CD_official_documentation
 * ECMA-130 standard: https://www.ecma-international.org/publications-and-standards/standards/ecma-130/
 * Thread discussing details of Mega CD emulation: https://gendev.spritesmind.net/forum/viewtopic.php?t=3020
+
+### 32X
+* 32X official documentation: https://segaretro.org/32X_official_documentation
+* SH-1/SH-2 programming manual: https://antime.kapsi.fi/sega/files/h12p0.pdf
+* SH7604 hardware manual: https://segaretro.org/images/2/2c/SH7604_Hardware_Manual.pdf
 
 ### NES
 * 6502 Instruction Set: https://www.masswerk.at/6502/6502_instruction_set.html
