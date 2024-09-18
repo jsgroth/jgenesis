@@ -12,6 +12,7 @@ serde = ["dep:serde"]
 [dependencies]
 jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
 jgenesis-common = { path = "../../common/jgenesis-common" }
+ym-opll = { path = "../ym-opll" }
 z80-emu = { path = "../../cpu/z80-emu", features = ["bincode"] }
 
 arrayvec = { workspace = true }

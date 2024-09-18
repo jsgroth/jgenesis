@@ -6,7 +6,6 @@ use crate::input::InputState;
 use crate::memory::Memory;
 use crate::psg::{Psg, PsgTickEffect, PsgVersion};
 use crate::vdp::{Vdp, VdpBuffer, VdpTickEffect};
-use crate::ym2413::Ym2413;
 use crate::{vdp, SmsGgInputs, VdpVersion};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
@@ -17,6 +16,7 @@ use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
 use std::fmt::{Debug, Display};
 use std::ops::{Deref, DerefMut};
 use thiserror::Error;
+use ym_opll::Ym2413;
 use z80_emu::{InterruptMode, Z80};
 
 #[derive(Debug, Error)]
@@ -103,6 +103,8 @@ pub struct SmsGgEmulator {
     reset_frames_remaining: u32,
 }
 
+const YM2413_CLOCK_INTERVAL: u8 = 72;
+
 impl SmsGgEmulator {
     #[must_use]
     pub fn create<S: SaveWriter>(
@@ -120,7 +122,8 @@ impl SmsGgEmulator {
         let mut z80 = Z80::new();
         init_z80(&mut z80);
 
-        let ym2413 = config.fm_sound_unit_enabled.then(Ym2413::new);
+        let ym2413 =
+            config.fm_sound_unit_enabled.then(|| ym_opll::new_ym2413(YM2413_CLOCK_INTERVAL));
 
         let timing_mode = vdp.timing_mode();
         Self {

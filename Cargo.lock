@@ -2948,6 +2948,7 @@ dependencies = [
  "rand",
  "serde",
  "thiserror",
+ "ym-opll",
 ]
 
 [[package]]
@@ -4122,6 +4123,7 @@ dependencies = [
  "log",
  "serde",
  "thiserror",
+ "ym-opll",
  "z80-emu",
 ]
 
@@ -5650,6 +5652,15 @@ name = "yazi"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c94451ac9513335b5e23d7a8a2b61a7102398b8cca5160829d313e84c9d98be1"
+
+[[package]]
+name = "ym-opll"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "jgenesis-common",
+ "log",
+]
 
 [[package]]
 name = "z80-emu"

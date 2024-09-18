@@ -1,5 +1,4 @@
-//! YM2413 FM synthesis sound chip, also known as the OPLL. Used in the Sega Master System FM sound
-//! unit expansion
+//! Yamaha OPLL FM synthesis sound chip. Used in the YM2413 and the NES VRC7 expansion audio chip
 //!
 //! This implementation is largely based on reverse engineering work by andete:
 //! <https://github.com/andete/ym2413>
@@ -9,29 +8,7 @@ use jgenesis_common::num::{GetBit, U16Ext};
 use std::sync::LazyLock;
 use std::{array, cmp};
 
-// Built-in instrument and rhythm patches from:
-//   https://siliconpr0n.org/archive/doku.php?id=vendor:yamaha:opl2#ym2413_instrument_rom
-const INSTRUMENT_PATCHES: [[u8; 8]; 15] = [
-    [0x71, 0x61, 0x1E, 0x17, 0xD0, 0x78, 0x00, 0x17],
-    [0x13, 0x41, 0x1A, 0x0D, 0xD8, 0xF7, 0x23, 0x13],
-    [0x13, 0x01, 0x99, 0x00, 0xF2, 0xC4, 0x11, 0x23],
-    [0x31, 0x61, 0x0E, 0x07, 0xA8, 0x64, 0x70, 0x27],
-    [0x32, 0x21, 0x1E, 0x06, 0xE0, 0x76, 0x00, 0x28],
-    [0x31, 0x22, 0x16, 0x05, 0xE0, 0x71, 0x00, 0x18],
-    [0x21, 0x61, 0x1D, 0x07, 0x82, 0x81, 0x10, 0x07],
-    [0x23, 0x21, 0x2D, 0x14, 0xA2, 0x72, 0x00, 0x07],
-    [0x61, 0x61, 0x1B, 0x06, 0x64, 0x65, 0x10, 0x17],
-    [0x41, 0x61, 0x0B, 0x18, 0x85, 0xF7, 0x71, 0x07],
-    [0x13, 0x01, 0x83, 0x11, 0xFA, 0xE4, 0x10, 0x04],
-    [0x17, 0xC1, 0x24, 0x07, 0xF8, 0xF8, 0x22, 0x12],
-    [0x61, 0x50, 0x0C, 0x05, 0xC2, 0xF5, 0x20, 0x42],
-    [0x01, 0x01, 0x55, 0x03, 0xC9, 0x95, 0x03, 0x02],
-    [0x61, 0x41, 0x89, 0x03, 0xF1, 0xE4, 0x40, 0x13],
-];
-
-const BASS_DRUM_PATCH: [u8; 8] = [0x01, 0x01, 0x18, 0x0F, 0xDF, 0xF8, 0x6A, 0x6D];
-const SNARE_DRUM_HIGH_HAT_PATCH: [u8; 8] = [0x01, 0x01, 0x00, 0x00, 0xC8, 0xD8, 0xA7, 0x68];
-const TOM_TOM_TOP_CYMBAL_PATCH: [u8; 8] = [0x05, 0x01, 0x00, 0x00, 0xF8, 0xAA, 0x59, 0x55];
+type FixedPatches = [[u8; 8]; 15];
 
 // Tables from https://www.smspower.org/Development/YM2413ReverseEngineeringNotes2015-03-20
 const ENVELOPE_INCREMENT_TABLES: [[u8; 8]; 4] = [
@@ -457,6 +434,7 @@ fn compute_amplitude(attenuation: u16, sign: Sign) -> i32 {
 
 #[derive(Debug, Clone, Encode, Decode)]
 struct Channel {
+    fixed_patches: FixedPatches,
     modulator: Operator,
     carrier: Operator,
     settings: ChannelSettings,
@@ -464,18 +442,17 @@ struct Channel {
     modulator_volume_override: Option<u8>,
 }
 
-impl Default for Channel {
-    fn default() -> Self {
+impl Channel {
+    fn new(fixed_patches: FixedPatches) -> Self {
         Self {
+            fixed_patches,
             modulator: Operator::new(OperatorType::Modulator),
             carrier: Operator::new(OperatorType::Carrier),
             settings: ChannelSettings::default(),
             modulator_volume_override: None,
         }
     }
-}
 
-impl Channel {
     fn write_register_1(&mut self, value: u8) {
         self.settings.f_number.set_lsb(value);
 
@@ -521,7 +498,7 @@ impl Channel {
         let instrument_idx = self.settings.instrument;
         let instrument = match instrument_idx {
             0 => Instrument::from_patch(custom_instrument_patch),
-            _ => Instrument::from_patch(INSTRUMENT_PATCHES[(instrument_idx - 1) as usize]),
+            _ => Instrument::from_patch(self.fixed_patches[(instrument_idx - 1) as usize]),
         };
 
         self.load_instrument(instrument);
@@ -678,8 +655,8 @@ struct RhythmSettings {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
-pub struct Ym2413 {
-    channels: [Channel; 9],
+pub struct Opll<const CHANNELS: usize, const RHYTHM: bool> {
+    channels: [Channel; CHANNELS],
     rhythm_mode_enabled: bool,
     rhythm_settings: RhythmSettings,
     lfsr: u32,
@@ -688,15 +665,17 @@ pub struct Ym2413 {
     selected_register: u8,
     custom_instrument_patch: [u8; 8],
     divider: u8,
+    clock_interval: u8,
 }
 
-const YM2413_DIVIDER: u8 = 72;
 const MAX_CARRIER_OUTPUT: f64 = 255.0;
 
-impl Ym2413 {
-    pub fn new() -> Self {
+impl<const CHANNELS: usize, const RHYTHM: bool> Opll<CHANNELS, RHYTHM> {
+    fn new(fixed_patches: FixedPatches, clock_interval: u8) -> Self {
+        assert_ne!(clock_interval, 0, "OPLL clock interval must be non-zero");
+
         Self {
-            channels: array::from_fn(|_| Channel::default()),
+            channels: array::from_fn(|_| Channel::new(fixed_patches)),
             rhythm_mode_enabled: false,
             rhythm_settings: RhythmSettings::default(),
             lfsr: 1,
@@ -704,7 +683,8 @@ impl Ym2413 {
             fm_unit: FmUnit::new(),
             selected_register: 0,
             custom_instrument_patch: [0; 8],
-            divider: YM2413_DIVIDER,
+            divider: clock_interval,
+            clock_interval,
         }
     }
 
@@ -720,7 +700,7 @@ impl Ym2413 {
                 self.custom_instrument_patch[register as usize] = value;
 
                 // Immediately reload any channels using custom instrument
-                let end_idx = if self.rhythm_mode_enabled { 6 } else { 9 };
+                let end_idx = if RHYTHM && self.rhythm_mode_enabled { 6 } else { CHANNELS };
                 for channel in &mut self.channels[..end_idx] {
                     if channel.settings.instrument == 0 {
                         channel
@@ -728,42 +708,51 @@ impl Ym2413 {
                     }
                 }
             }
-            0x0E => {
+            0x0E if RHYTHM => {
                 self.handle_rhythm_register_write(value);
             }
             register @ 0x10..=0x18 => {
                 let channel = register & 0x0F;
-                self.channels[channel as usize].write_register_1(value);
+                if channel < CHANNELS as u8 {
+                    self.channels[channel as usize].write_register_1(value);
+                }
             }
             register @ 0x20..=0x28 => {
                 let channel = register & 0x0F;
-                self.channels[channel as usize].write_register_2(value);
+                if channel < CHANNELS as u8 {
+                    self.channels[channel as usize].write_register_2(value);
+                }
             }
             register @ 0x30..=0x38 => {
                 let channel = register & 0x0F;
-                self.channels[channel as usize].write_register_3(value);
+                if channel < CHANNELS as u8 {
+                    self.channels[channel as usize].write_register_3(value);
+                }
 
-                if channel < 6 || !self.rhythm_mode_enabled {
+                if channel < 6 || (RHYTHM && !self.rhythm_mode_enabled) {
                     self.channels[channel as usize].reload_instrument(self.custom_instrument_patch);
                 }
 
-                // Rhythm volume writes
-                match channel {
-                    // No need to special case bass drum volume; it uses channel 6 volume normally
-                    7 => {
-                        self.rhythm_settings.high_hat_volume = value >> 4;
-                        self.rhythm_settings.snare_drum_volume = value & 0x0F;
-                    }
-                    8 => {
-                        let tom_tom_volume = value >> 4;
-                        self.rhythm_settings.tom_tom_volume = tom_tom_volume;
-                        self.rhythm_settings.top_cymbal_volume = value & 0x0F;
-
-                        if self.rhythm_mode_enabled {
-                            self.channels[8].modulator_volume_override = Some(tom_tom_volume << 3);
+                if RHYTHM {
+                    // Rhythm volume writes
+                    match channel {
+                        // No need to special case bass drum volume; it uses channel 6 volume normally
+                        7 => {
+                            self.rhythm_settings.high_hat_volume = value >> 4;
+                            self.rhythm_settings.snare_drum_volume = value & 0x0F;
                         }
+                        8 => {
+                            let tom_tom_volume = value >> 4;
+                            self.rhythm_settings.tom_tom_volume = tom_tom_volume;
+                            self.rhythm_settings.top_cymbal_volume = value & 0x0F;
+
+                            if self.rhythm_mode_enabled {
+                                self.channels[8].modulator_volume_override =
+                                    Some(tom_tom_volume << 3);
+                            }
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
             _ => {}
@@ -771,6 +760,10 @@ impl Ym2413 {
     }
 
     fn handle_rhythm_register_write(&mut self, value: u8) {
+        if !RHYTHM {
+            return;
+        }
+
         let rhythm_mode_enabled = value.bit(5);
         if rhythm_mode_enabled != self.rhythm_mode_enabled {
             if rhythm_mode_enabled {
@@ -824,17 +817,20 @@ impl Ym2413 {
     pub fn tick(&mut self) {
         self.divider -= 1;
         if self.divider == 0 {
-            self.divider = YM2413_DIVIDER;
+            self.divider = self.clock_interval;
+            self.clock();
+        }
+    }
 
-            self.am_unit.clock();
-            self.fm_unit.clock();
-            self.shift_lfsr();
+    fn clock(&mut self) {
+        self.am_unit.clock();
+        self.fm_unit.clock();
+        self.shift_lfsr();
 
-            let am_output = self.am_unit.output();
-            let fm_position = self.fm_unit.position;
-            for channel in &mut self.channels {
-                channel.clock(am_output, fm_position);
-            }
+        let am_output = self.am_unit.output();
+        let fm_position = self.fm_unit.position;
+        for channel in &mut self.channels {
+            channel.clock(am_output, fm_position);
         }
     }
 
@@ -848,8 +844,9 @@ impl Ym2413 {
         self.lfsr = (self.lfsr >> 1) ^ xor_operand;
     }
 
+    #[must_use]
     pub fn sample(&self) -> f64 {
-        let sample = if self.rhythm_mode_enabled {
+        let sample = if RHYTHM && self.rhythm_mode_enabled {
             let melodic = self.channels[..6]
                 .iter()
                 .map(|channel| f64::from(channel.sample()) / MAX_CARRIER_OUTPUT)
@@ -867,7 +864,7 @@ impl Ym2413 {
                 .sum::<f64>()
         };
 
-        (sample / 9.0).clamp(-1.0, 1.0)
+        (sample / CHANNELS as f64).clamp(-1.0, 1.0)
     }
 
     // Rhythm instrument formulas based on https://github.com/andete/ym2413/blob/master/results/rhythm/rhythm.md
@@ -957,4 +954,76 @@ impl Ym2413 {
 
 fn rhythm_attenuation(envelope_attenuation: u8, volume: u8) -> u16 {
     cmp::min(u16::from(MAX_ATTENUATION), u16::from(envelope_attenuation) + u16::from(volume << 3))
+}
+
+// YM2413 built-in instrument and rhythm patches from:
+//   https://siliconpr0n.org/archive/doku.php?id=vendor:yamaha:opl2#ym2413_instrument_rom
+const YM2413_INSTRUMENT_PATCHES: FixedPatches = [
+    [0x71, 0x61, 0x1E, 0x17, 0xD0, 0x78, 0x00, 0x17],
+    [0x13, 0x41, 0x1A, 0x0D, 0xD8, 0xF7, 0x23, 0x13],
+    [0x13, 0x01, 0x99, 0x00, 0xF2, 0xC4, 0x11, 0x23],
+    [0x31, 0x61, 0x0E, 0x07, 0xA8, 0x64, 0x70, 0x27],
+    [0x32, 0x21, 0x1E, 0x06, 0xE0, 0x76, 0x00, 0x28],
+    [0x31, 0x22, 0x16, 0x05, 0xE0, 0x71, 0x00, 0x18],
+    [0x21, 0x61, 0x1D, 0x07, 0x82, 0x81, 0x10, 0x07],
+    [0x23, 0x21, 0x2D, 0x14, 0xA2, 0x72, 0x00, 0x07],
+    [0x61, 0x61, 0x1B, 0x06, 0x64, 0x65, 0x10, 0x17],
+    [0x41, 0x61, 0x0B, 0x18, 0x85, 0xF7, 0x71, 0x07],
+    [0x13, 0x01, 0x83, 0x11, 0xFA, 0xE4, 0x10, 0x04],
+    [0x17, 0xC1, 0x24, 0x07, 0xF8, 0xF8, 0x22, 0x12],
+    [0x61, 0x50, 0x0C, 0x05, 0xC2, 0xF5, 0x20, 0x42],
+    [0x01, 0x01, 0x55, 0x03, 0xC9, 0x95, 0x03, 0x02],
+    [0x61, 0x41, 0x89, 0x03, 0xF1, 0xE4, 0x40, 0x13],
+];
+
+const BASS_DRUM_PATCH: [u8; 8] = [0x01, 0x01, 0x18, 0x0F, 0xDF, 0xF8, 0x6A, 0x6D];
+const SNARE_DRUM_HIGH_HAT_PATCH: [u8; 8] = [0x01, 0x01, 0x00, 0x00, 0xC8, 0xD8, 0xA7, 0x68];
+const TOM_TOM_TOP_CYMBAL_PATCH: [u8; 8] = [0x05, 0x01, 0x00, 0x00, 0xF8, 0xAA, 0x59, 0x55];
+
+// From https://www.nesdev.org/wiki/VRC7_audio#Internal_patch_set
+// Indexed into using (instrument # - 1) since 0 is custom instrument
+const VRC7_INSTRUMENT_PATCHES: FixedPatches = [
+    // $01: Buzzy bell
+    [0x03, 0x21, 0x05, 0x06, 0xE8, 0x81, 0x42, 0x27],
+    // $02: Guitar
+    [0x13, 0x41, 0x14, 0x0D, 0xD8, 0xF6, 0x23, 0x12],
+    // $02: Wurly
+    [0x11, 0x11, 0x08, 0x08, 0xFA, 0xB2, 0x20, 0x12],
+    // $04: Flute
+    [0x31, 0x61, 0x0C, 0x07, 0xA8, 0x64, 0x61, 0x27],
+    // $05: Clarinet
+    [0x32, 0x21, 0x1E, 0x06, 0xE1, 0x76, 0x01, 0x28],
+    // $06: Synth
+    [0x02, 0x01, 0x06, 0x00, 0xA3, 0xE2, 0xF4, 0xF4],
+    // $07: Trumpet
+    [0x21, 0x61, 0x1D, 0x07, 0x82, 0x81, 0x11, 0x07],
+    // $08: Organ
+    [0x23, 0x21, 0x22, 0x17, 0xA2, 0x72, 0x01, 0x17],
+    // $09: Bells
+    [0x35, 0x11, 0x25, 0x00, 0x40, 0x73, 0x72, 0x01],
+    // $0A: Vibes
+    [0xB5, 0x01, 0x0F, 0x0F, 0xA8, 0xA5, 0x51, 0x02],
+    // $0B: Vibraphone
+    [0x17, 0xC1, 0x24, 0x07, 0xF8, 0xF8, 0x22, 0x12],
+    // $0C: Tutti
+    [0x71, 0x23, 0x11, 0x06, 0x65, 0x74, 0x18, 0x16],
+    // $0D: Fretless
+    [0x01, 0x02, 0xD3, 0x05, 0xC9, 0x95, 0x03, 0x02],
+    // $0E: Synth bass
+    [0x61, 0x63, 0x0C, 0x00, 0x94, 0xC0, 0x33, 0xF6],
+    // $0F: Sweep
+    [0x21, 0x72, 0x0D, 0x00, 0xC1, 0xD5, 0x56, 0x06],
+];
+
+pub type Ym2413 = Opll<9, true>;
+pub type Vrc7AudioUnit = Opll<6, false>;
+
+#[must_use]
+pub fn new_ym2413(clock_interval: u8) -> Ym2413 {
+    Ym2413::new(YM2413_INSTRUMENT_PATCHES, clock_interval)
+}
+
+#[must_use]
+pub fn new_vrc7(clock_interval: u8) -> Vrc7AudioUnit {
+    Vrc7AudioUnit::new(VRC7_INSTRUMENT_PATCHES, clock_interval)
 }

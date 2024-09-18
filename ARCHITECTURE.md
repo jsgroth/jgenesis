@@ -5,7 +5,7 @@
 The crates can be broken up roughly into 5 categories:
 * Common libraries: `jgenesis-common`, `jgenesis-proc-macros`, `cdrom`
 * CPU emulators: `z80-emu`, `m68000-emu`, `mos6502-emu`, `wdc65816-emu`, `spc700-emu`
-* Emulation backend: `smsgg-core`, `genesis-core`, `segacd-core`, `nes-core`, `snes-core`, `snes-coprocessors`, `gb-core`
+* Emulation backend: `smsgg-core`, `genesis-core`, `segacd-core`, `nes-core`, `snes-core`, `snes-coprocessors`, `gb-core`, `ym-opll`
 * Emulation frontend: `jgenesis-renderer`, `jgenesis-native-driver`, `jgenesis-native-config`, `jgenesis-cli`, `jgenesis-gui`, `jgenesis-web`
 * CPU emulator test harnesses: `z80-test-runner`, `m68000-test-runner`, `mos6502-test-runner`, `wdc65816-test-runner`, `spc700-test-runner`
 
@@ -52,6 +52,10 @@ Cycle-based emulation core for the WDC 65C816 CPU (aka 65816), which is used in 
 ### `spc700-emu`
 
 Cycle-based emulation core for the Sony SPC700 CPU, which is used in the SNES as a dedicated audio processor embedded inside the APU.
+
+### `ym-opll`
+
+Emulation core for the Yamaha OPLL sound chip, used in the Sega Master System FM sound unit expansion and the NES VRC7 mapper.
 
 ### `smsgg-core`
 
