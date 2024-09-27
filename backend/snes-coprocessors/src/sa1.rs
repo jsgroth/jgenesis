@@ -8,7 +8,7 @@ mod registers;
 mod timer;
 
 use crate::common;
-use crate::common::{impl_take_set_rom, Rom};
+use crate::common::{Rom, impl_take_set_rom};
 use crate::sa1::bus::Sa1Bus;
 use crate::sa1::mmc::Sa1Mmc;
 use crate::sa1::registers::{DmaState, Sa1Registers};

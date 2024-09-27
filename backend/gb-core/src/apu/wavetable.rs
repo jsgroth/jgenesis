@@ -1,5 +1,5 @@
-use crate::apu::components::{TimerTickEffect, WavetableLengthCounter, WavetableTimer};
 use crate::HardwareMode;
+use crate::apu::components::{TimerTickEffect, WavetableLengthCounter, WavetableTimer};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 

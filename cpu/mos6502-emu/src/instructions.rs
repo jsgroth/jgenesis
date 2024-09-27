@@ -3,7 +3,7 @@ use bincode::{Decode, Encode};
 use jgenesis_common::num::{GetBit, SignBit};
 
 use crate::bus::BusInterface;
-use crate::{CpuRegisters, Mos6502, StatusFlags, StatusReadContext, IRQ_VECTOR, NMI_VECTOR};
+use crate::{CpuRegisters, IRQ_VECTOR, Mos6502, NMI_VECTOR, StatusFlags, StatusReadContext};
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct InstructionState {

@@ -1,8 +1,8 @@
 //! SH-2 logical and bitwise instructions
 
+use crate::Sh2;
 use crate::bus::BusInterface;
 use crate::instructions::{rm, rn};
-use crate::Sh2;
 use jgenesis_common::num::GetBit;
 
 // AND Rm, Rn

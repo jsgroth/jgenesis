@@ -3,9 +3,9 @@
 //! Accessories that use the serial port (e.g. link cable) are not emulated, but some games depend
 //! on the serial port responding correctly to reads/writes.
 
+use crate::HardwareMode;
 use crate::interrupts::InterruptRegisters;
 use crate::sm83::InterruptType;
-use crate::HardwareMode;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 

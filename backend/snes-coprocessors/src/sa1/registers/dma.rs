@@ -1,8 +1,8 @@
+use crate::sa1::Iram;
 use crate::sa1::mmc::Sa1Mmc;
 use crate::sa1::registers::{
     CharacterConversionColorBits, DmaDestinationDevice, DmaSourceDevice, DmaState, Sa1Registers,
 };
-use crate::sa1::Iram;
 use jgenesis_common::num::GetBit;
 
 impl Sa1Registers {

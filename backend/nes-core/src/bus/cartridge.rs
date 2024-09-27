@@ -23,7 +23,7 @@ use crate::bus::cartridge::mappers::namco175::Namco175;
 use crate::bus::cartridge::mappers::nrom::{Axrom, Bnrom, Cnrom, Gxrom, Nrom, Uxrom};
 use crate::bus::cartridge::mappers::sunsoft::Sunsoft;
 use crate::bus::cartridge::mappers::unrom512::Unrom512;
-use crate::bus::cartridge::mappers::{unrom512, ChrType, NametableMirroring, PpuMapResult};
+use crate::bus::cartridge::mappers::{ChrType, NametableMirroring, PpuMapResult, unrom512};
 #[cfg(test)]
 pub(crate) use mappers::new_mmc1;
 

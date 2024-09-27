@@ -1,4 +1,4 @@
-use crate::vdp::{convert_gg_color, convert_sms_color, get_color_id, Vdp, VRAM_SIZE};
+use crate::vdp::{VRAM_SIZE, Vdp, convert_gg_color, convert_sms_color, get_color_id};
 
 use jgenesis_common::frontend::Color;
 

@@ -2,9 +2,9 @@
 
 use crate::cdtime::CdTime;
 use crate::cue::{CueSheet, Track, TrackMode, TrackType};
-use crate::{cue, CdRomError, CdRomResult};
-use chd::iter::LendingIterator;
+use crate::{CdRomError, CdRomResult, cue};
 use chd::Chd;
+use chd::iter::LendingIterator;
 use std::fmt::{Debug, Formatter};
 use std::io::{Read, Seek};
 

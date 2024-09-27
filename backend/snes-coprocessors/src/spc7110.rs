@@ -6,7 +6,7 @@ mod decompressor;
 mod registers;
 mod rtc;
 
-use crate::common::{impl_take_set_rom, Rom};
+use crate::common::{Rom, impl_take_set_rom};
 use crate::spc7110::decompressor::Spc7110Decompressor;
 use crate::spc7110::registers::Registers;
 use crate::spc7110::rtc::Rtc4513;

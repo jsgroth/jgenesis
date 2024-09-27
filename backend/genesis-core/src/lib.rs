@@ -8,7 +8,7 @@ pub mod vdp;
 pub mod ym2612;
 
 pub use api::{
-    render_frame, GenesisAspectRatio, GenesisEmulator, GenesisEmulatorConfig, GenesisError,
-    GenesisRegion, GenesisResult,
+    GenesisAspectRatio, GenesisEmulator, GenesisEmulatorConfig, GenesisError, GenesisRegion,
+    GenesisResult, render_frame,
 };
 pub use input::{GenesisControllerType, GenesisInputs, GenesisJoypadState};

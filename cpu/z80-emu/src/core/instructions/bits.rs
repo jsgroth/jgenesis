@@ -1,4 +1,4 @@
-use crate::core::instructions::{parity_flag, sign_flag, zero_flag, InstructionExecutor};
+use crate::core::instructions::{InstructionExecutor, parity_flag, sign_flag, zero_flag};
 use crate::core::{Flags, IndexRegister, Register16, Registers};
 use crate::traits::BusInterface;
 use jgenesis_common::num::GetBit;

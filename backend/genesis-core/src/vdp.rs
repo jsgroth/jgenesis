@@ -11,9 +11,10 @@ mod timing;
 use crate::memory::{Memory, PhysicalMedium};
 use crate::vdp::colors::ColorModifier;
 use crate::vdp::registers::{
-    DebugRegister, DmaMode, HorizontalDisplaySize, InterlacingMode, Registers, VerticalDisplaySize,
-    VramSizeKb, H40_LEFT_BORDER, NTSC_BOTTOM_BORDER, NTSC_TOP_BORDER, PAL_V28_BOTTOM_BORDER,
-    PAL_V28_TOP_BORDER, PAL_V30_BOTTOM_BORDER, PAL_V30_TOP_BORDER, RIGHT_BORDER,
+    DebugRegister, DmaMode, H40_LEFT_BORDER, HorizontalDisplaySize, InterlacingMode,
+    NTSC_BOTTOM_BORDER, NTSC_TOP_BORDER, PAL_V28_BOTTOM_BORDER, PAL_V28_TOP_BORDER,
+    PAL_V30_BOTTOM_BORDER, PAL_V30_TOP_BORDER, RIGHT_BORDER, Registers, VerticalDisplaySize,
+    VramSizeKb,
 };
 use crate::vdp::sprites::{SpriteBuffers, SpriteState};
 use crate::vdp::timing::{DmaTracker, FifoTracker, LineType};
@@ -1246,15 +1247,12 @@ mod tests {
     use super::*;
 
     fn new_vdp() -> Vdp {
-        Vdp::new(
-            TimingMode::Ntsc,
-            VdpConfig {
-                enforce_sprite_limits: true,
-                emulate_non_linear_dac: false,
-                render_vertical_border: false,
-                render_horizontal_border: false,
-            },
-        )
+        Vdp::new(TimingMode::Ntsc, VdpConfig {
+            enforce_sprite_limits: true,
+            emulate_non_linear_dac: false,
+            render_vertical_border: false,
+            render_horizontal_border: false,
+        })
     }
 
     #[test]

@@ -2,8 +2,8 @@ use crate::app::{App, NumericTextEdit, OpenWindow};
 use crate::emuthread::{EmuThreadCommand, GenericInput, InputType};
 use egui::{Color32, Context, Grid, Slider, Ui, Window};
 use gb_core::inputs::GameBoyButton;
-use genesis_core::input::GenesisButton;
 use genesis_core::GenesisControllerType;
+use genesis_core::input::GenesisButton;
 use jgenesis_common::input::Player;
 use jgenesis_native_config::input::InputAppConfig;
 use jgenesis_native_driver::config::input::{

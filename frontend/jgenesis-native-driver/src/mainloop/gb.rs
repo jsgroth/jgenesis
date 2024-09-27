@@ -2,7 +2,7 @@ use crate::config::GameBoyConfig;
 use crate::config::RomReadResult;
 use crate::mainloop::save::FsSaveWriter;
 use crate::mainloop::{basic_input_mapper_fn, debug, file_name_no_ext};
-use crate::{config, AudioError, NativeEmulator, NativeEmulatorResult};
+use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config};
 use gb_core::api::{GameBoyEmulator, GameBoyEmulatorConfig};
 use gb_core::inputs::{GameBoyButton, GameBoyInputs};
 use jgenesis_common::frontend::EmulatorTrait;

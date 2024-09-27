@@ -1,14 +1,14 @@
 use crate::config::RomReadResult;
 use crate::config::{GenesisConfig, Sega32XConfig, SegaCdConfig};
 use crate::mainloop::save::FsSaveWriter;
-use crate::mainloop::{basic_input_mapper_fn, debug, NativeEmulatorError};
-use crate::{config, AudioError, NativeEmulator, NativeEmulatorResult};
+use crate::mainloop::{NativeEmulatorError, basic_input_mapper_fn, debug};
+use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config};
 use genesis_core::input::GenesisButton;
 use genesis_core::{GenesisEmulator, GenesisEmulatorConfig, GenesisInputs};
 use jgenesis_common::frontend::EmulatorTrait;
 use s32x_core::api::{Sega32XEmulator, Sega32XEmulatorConfig};
-use segacd_core::api::{SegaCdEmulator, SegaCdEmulatorConfig, SegaCdLoadResult};
 use segacd_core::CdRomFileFormat;
+use segacd_core::api::{SegaCdEmulator, SegaCdEmulatorConfig, SegaCdLoadResult};
 use std::fs;
 use std::path::Path;
 

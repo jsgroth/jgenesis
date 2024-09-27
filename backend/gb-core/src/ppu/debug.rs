@@ -1,8 +1,8 @@
 use crate::api::BackgroundTileMap;
 use crate::ppu::fifo::BgTileAttributes;
 use crate::ppu::registers::{CgbPaletteRam, TileDataArea};
-use crate::ppu::{registers, Ppu};
-use crate::{graphics, HardwareMode};
+use crate::ppu::{Ppu, registers};
+use crate::{HardwareMode, graphics};
 use jgenesis_common::frontend::Color;
 use jgenesis_common::num::GetBit;
 

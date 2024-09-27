@@ -5,8 +5,8 @@ use std::error::Error;
 use std::io::Write;
 use std::path::Path;
 use std::{env, fs, io, process};
-use z80_emu::traits::{BusInterface, InterruptLine};
 use z80_emu::Z80;
+use z80_emu::traits::{BusInterface, InterruptLine};
 
 // This is an I/O routine that emulates the CP/M's $05 syscall, which does the following:
 //

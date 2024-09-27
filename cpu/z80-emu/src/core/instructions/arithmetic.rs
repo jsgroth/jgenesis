@@ -1,5 +1,5 @@
 use crate::core::instructions::{
-    parity_flag, sign_flag, zero_flag, BlockMode, InstructionExecutor,
+    BlockMode, InstructionExecutor, parity_flag, sign_flag, zero_flag,
 };
 use crate::core::{Flags, IndexRegister, Register16};
 use crate::traits::BusInterface;

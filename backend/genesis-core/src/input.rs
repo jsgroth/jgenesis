@@ -3,7 +3,7 @@
 use crate::GenesisEmulatorConfig;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
-use jgenesis_proc_macros::{define_controller_inputs, EnumDisplay, EnumFromStr};
+use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, define_controller_inputs};
 
 define_controller_inputs! {
     enum GenesisButton {

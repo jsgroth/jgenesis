@@ -1,5 +1,6 @@
 //! Game Boy bus / address mapping
 
+use crate::HardwareMode;
 use crate::apu::Apu;
 use crate::cartridge::Cartridge;
 use crate::dma::DmaUnit;
@@ -8,11 +9,10 @@ use crate::interrupts::InterruptRegisters;
 use crate::memory::Memory;
 use crate::ppu::Ppu;
 use crate::serial::SerialPort;
-use crate::sm83::bus::BusInterface;
 use crate::sm83::InterruptType;
+use crate::sm83::bus::BusInterface;
 use crate::speed::{CpuSpeed, SpeedRegister};
 use crate::timer::GbTimer;
-use crate::HardwareMode;
 
 trait HardwareModeExt {
     fn read_opri(self) -> u8;

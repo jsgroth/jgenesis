@@ -10,7 +10,7 @@ use crate::pwm::PwmChip;
 use crate::registers::SystemRegisters;
 use crate::vdp::Vdp;
 use bincode::{Decode, Encode};
-use genesis_core::{timing, GenesisRegion};
+use genesis_core::{GenesisRegion, timing};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::PartialClone;
 use sh2_emu::Sh2;

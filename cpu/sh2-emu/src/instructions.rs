@@ -5,8 +5,8 @@ mod bits;
 mod branch;
 mod load;
 
-use crate::bus::BusInterface;
 use crate::Sh2;
+use crate::bus::BusInterface;
 
 pub fn execute<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
     match opcode {

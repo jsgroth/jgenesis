@@ -2,8 +2,8 @@
 //! the CDC
 
 use crate::memory;
-use crate::memory::wordram::{WordRam, WordRamMode};
 use crate::memory::ScdCpu;
+use crate::memory::wordram::{WordRam, WordRamMode};
 use crate::rf5c164::Rf5c164;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::{GetBit, U16Ext};

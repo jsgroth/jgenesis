@@ -13,7 +13,7 @@ use crate::serial::SerialPort;
 use crate::sm83::Sm83;
 use crate::speed::SpeedRegister;
 use crate::timer::GbTimer;
-use crate::{ppu, HardwareMode};
+use crate::{HardwareMode, ppu};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, PixelAspectRatio, Renderer, SaveWriter, TickEffect,

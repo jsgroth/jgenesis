@@ -2,7 +2,7 @@ use crate::config::{CommonConfig, NesConfig};
 
 use crate::mainloop::save::FsSaveWriter;
 use crate::mainloop::{debug, file_name_no_ext};
-use crate::{config, AudioError, NativeEmulator, NativeEmulatorResult};
+use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config};
 use jgenesis_common::frontend::EmulatorTrait;
 
 use nes_core::api::{NesEmulator, NesEmulatorConfig};

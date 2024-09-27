@@ -1,7 +1,7 @@
 //! Code for the MMC2 and MMC4 boards (iNES mappers 9 + 10).
 
-use crate::bus::cartridge::mappers::{BankSizeKb, CpuMapResult, NametableMirroring};
 use crate::bus::cartridge::MapperImpl;
+use crate::bus::cartridge::mappers::{BankSizeKb, CpuMapResult, NametableMirroring};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 

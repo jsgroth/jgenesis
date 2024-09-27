@@ -6,7 +6,7 @@ use crate::input::InputState;
 use crate::memory::Memory;
 use crate::psg::{Psg, PsgTickEffect, PsgVersion};
 use crate::vdp::{Vdp, VdpBuffer, VdpTickEffect};
-use crate::{vdp, SmsGgInputs, VdpVersion};
+use crate::{SmsGgInputs, VdpVersion, vdp};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, FrameSize, PartialClone, PixelAspectRatio, Renderer,

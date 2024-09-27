@@ -5,17 +5,17 @@ use crate::config::input::{
 };
 use crate::mainloop::{NativeEmulatorError, NativeEmulatorResult};
 use gb_core::inputs::{GameBoyButton, GameBoyInputs};
-use genesis_core::input::GenesisButton;
 use genesis_core::GenesisInputs;
+use genesis_core::input::GenesisButton;
 use jgenesis_common::frontend::FrameSize;
 use jgenesis_common::input::Player;
 use jgenesis_renderer::renderer::DisplayArea;
 use nes_core::input::{NesButton, NesInputDevice, NesInputs, NesJoypadState, ZapperState};
+use sdl2::JoystickSubsystem;
 use sdl2::event::{Event, WindowEvent};
 use sdl2::joystick::{HatState, Joystick};
 use sdl2::keyboard::Keycode;
 use sdl2::mouse::MouseButton;
-use sdl2::JoystickSubsystem;
 use smsgg_core::{SmsGgButton, SmsGgInputs};
 use snes_core::input::{
     SnesButton, SnesControllerButton, SnesInputDevice, SnesInputs, SnesJoypadState,

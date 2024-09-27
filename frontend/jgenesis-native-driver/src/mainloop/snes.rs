@@ -3,7 +3,7 @@ use crate::input::InputMapper;
 
 use crate::mainloop::debug;
 use crate::mainloop::save::FsSaveWriter;
-use crate::{config, AudioError, NativeEmulator, NativeEmulatorResult};
+use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config};
 use jgenesis_common::frontend::EmulatorTrait;
 
 use crate::config::RomReadResult;

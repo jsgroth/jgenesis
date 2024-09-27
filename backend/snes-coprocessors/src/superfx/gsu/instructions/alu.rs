@@ -1,5 +1,5 @@
 use crate::superfx::gsu::instructions::{
-    clear_prefix_flags, read_register, write_register, MemoryType,
+    MemoryType, clear_prefix_flags, read_register, write_register,
 };
 use crate::superfx::gsu::{GraphicsSupportUnit, MultiplierSpeed};
 use jgenesis_common::num::{GetBit, SignBit};

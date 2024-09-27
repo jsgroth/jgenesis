@@ -1,7 +1,7 @@
 use crate::apu::ApuState;
 use crate::audio::AudioResampler;
 use crate::bus::cartridge::CartridgeFileError;
-use crate::bus::{cartridge, Bus};
+use crate::bus::{Bus, cartridge};
 use crate::cpu::CpuState;
 use crate::graphics::TimingModeGraphicsExt;
 use crate::input::NesInputs;

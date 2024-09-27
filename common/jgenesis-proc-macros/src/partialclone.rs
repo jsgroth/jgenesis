@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use syn::{parse_quote, Data, DataEnum, DataStruct, DeriveInput, Field, Fields};
+use syn::{Data, DataEnum, DataStruct, DeriveInput, Field, Fields, parse_quote};
 
 pub fn partial_clone(input: TokenStream) -> TokenStream {
     let input: DeriveInput = syn::parse(input).expect("Unable to parse input");

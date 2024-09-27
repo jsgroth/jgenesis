@@ -9,15 +9,15 @@ mod smsgg;
 mod snes;
 mod state;
 
-pub use gb::{create_gb, NativeGameBoyEmulator};
+pub use gb::{NativeGameBoyEmulator, create_gb};
 pub use genesis::{
-    create_32x, create_genesis, create_sega_cd, Native32XEmulator, NativeGenesisEmulator,
-    NativeSegaCdEmulator,
+    Native32XEmulator, NativeGenesisEmulator, NativeSegaCdEmulator, create_32x, create_genesis,
+    create_sega_cd,
 };
-pub use nes::{create_nes, NativeNesEmulator};
-pub use smsgg::{create_smsgg, NativeSmsGgEmulator};
-pub use snes::{create_snes, NativeSnesEmulator};
-pub use state::{SaveStateMetadata, SAVE_STATE_SLOTS};
+pub use nes::{NativeNesEmulator, create_nes};
+pub use smsgg::{NativeSmsGgEmulator, create_smsgg};
+pub use snes::{NativeSnesEmulator, create_snes};
+pub use state::{SAVE_STATE_SLOTS, SaveStateMetadata};
 
 use crate::archive::ArchiveError;
 use crate::config::input::{InputConfig, JoystickInput, KeyboardInput};

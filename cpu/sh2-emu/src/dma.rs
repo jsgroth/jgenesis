@@ -2,8 +2,8 @@
 //!
 //! Has 2 DMA channels that can transfer data between memory regions in parallel to CPU execution
 
-use crate::bus::BusInterface;
 use crate::Sh2;
+use crate::bus::BusInterface;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use std::array;

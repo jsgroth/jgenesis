@@ -14,7 +14,7 @@
 mod gsu;
 
 use crate::common;
-use crate::common::{impl_take_set_rom, Rom};
+use crate::common::{Rom, impl_take_set_rom};
 use crate::superfx::gsu::{BusAccess, GraphicsSupportUnit};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::U16Ext;

@@ -1,8 +1,8 @@
-use crate::superfx::gsu::instructions::{
-    clear_prefix_flags, fetch_opcode, fill_cache_from_pc, fill_cache_to_pc, read_register,
-    MemoryType,
-};
 use crate::superfx::gsu::GraphicsSupportUnit;
+use crate::superfx::gsu::instructions::{
+    MemoryType, clear_prefix_flags, fetch_opcode, fill_cache_from_pc, fill_cache_to_pc,
+    read_register,
+};
 use jgenesis_common::num::SignBit;
 
 pub(super) fn link(opcode: u8, memory_type: MemoryType, gsu: &mut GraphicsSupportUnit) -> u8 {

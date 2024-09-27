@@ -5,8 +5,8 @@ mod flags;
 mod flow;
 mod load;
 
-use crate::traits::BusInterface;
 use crate::Spc700;
+use crate::traits::BusInterface;
 use jgenesis_common::num::{GetBit, SignBit};
 
 fn fetch_operand<B: BusInterface>(cpu: &mut Spc700, bus: &mut B) -> u8 {

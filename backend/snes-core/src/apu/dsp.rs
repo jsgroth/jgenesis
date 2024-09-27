@@ -4,8 +4,8 @@ mod interpolate;
 mod tables;
 
 use crate::api::AudioInterpolationMode;
-use crate::apu::dsp::interpolate::InterpolateArgs;
 use crate::apu::AudioRam;
+use crate::apu::dsp::interpolate::InterpolateArgs;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::{GetBit, U16Ext};
 use std::array;

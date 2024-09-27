@@ -6,7 +6,7 @@ use crate::config::input::{
     SuperScopeConfig, ZapperConfig,
 };
 use crate::mainloop::NativeEmulatorError;
-use crate::{archive, NativeEmulatorResult};
+use crate::{NativeEmulatorResult, archive};
 use gb_core::api::{GameBoyEmulatorConfig, GbAspectRatio, GbPalette, GbcColorCorrection};
 use genesis_core::{
     GenesisAspectRatio, GenesisControllerType, GenesisEmulatorConfig, GenesisRegion,

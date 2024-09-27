@@ -2,7 +2,7 @@
 
 use crate::bus::BusInterface;
 use crate::instructions::rn;
-use crate::{Sh2, SP};
+use crate::{SP, Sh2};
 
 // JMP @Rm
 // Unconditional jump

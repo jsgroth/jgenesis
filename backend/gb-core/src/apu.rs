@@ -5,6 +5,7 @@ mod noise;
 mod pulse;
 mod wavetable;
 
+use crate::HardwareMode;
 use crate::api::GameBoyEmulatorConfig;
 use crate::apu::noise::NoiseChannel;
 use crate::apu::pulse::PulseChannel;
@@ -12,7 +13,6 @@ use crate::apu::wavetable::WavetableChannel;
 use crate::audio::GameBoyResampler;
 use crate::speed::CpuSpeed;
 use crate::timer::GbTimer;
-use crate::HardwareMode;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::AudioOutput;
 use jgenesis_common::num::GetBit;

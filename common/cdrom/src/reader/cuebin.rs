@@ -2,7 +2,7 @@
 
 use crate::cdtime::CdTime;
 use crate::cue::{CueSheet, Track, TrackMode, TrackType};
-use crate::{cue, CdRomError, CdRomResult};
+use crate::{CdRomError, CdRomResult, cue};
 use bincode::{Decode, Encode};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};

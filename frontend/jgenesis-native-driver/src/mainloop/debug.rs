@@ -9,13 +9,13 @@ use sdl2::event::{Event, WindowEvent};
 
 use egui::{Button, Response, Ui, Widget, WidgetText};
 use egui_wgpu::ScreenDescriptor;
-use sdl2::video::{Window, WindowBuildError};
 use sdl2::VideoSubsystem;
+use sdl2::video::{Window, WindowBuildError};
 use std::iter;
 use std::time::SystemTime;
 use thiserror::Error;
-use wgpu::rwh::HandleError;
 use wgpu::SurfaceTargetUnsafe;
+use wgpu::rwh::HandleError;
 
 #[derive(Debug, Error)]
 pub enum DebuggerError {

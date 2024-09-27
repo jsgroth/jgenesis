@@ -4,7 +4,7 @@ use crate::apu::units::PhaseTimer;
 use crate::bus;
 use crate::bus::cartridge::mappers::konami::irq::VrcIrqCounter;
 use crate::bus::cartridge::mappers::{
-    konami, BankSizeKb, ChrType, NametableMirroring, PpuMapResult,
+    BankSizeKb, ChrType, NametableMirroring, PpuMapResult, konami,
 };
 use crate::bus::cartridge::{HasBasicPpuMapping, MapperImpl};
 use bincode::{Decode, Encode};

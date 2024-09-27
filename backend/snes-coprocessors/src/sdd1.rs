@@ -5,7 +5,7 @@
 mod decompressor;
 
 use crate::common;
-use crate::common::{impl_take_set_rom, Rom};
+use crate::common::{Rom, impl_take_set_rom};
 use crate::sdd1::decompressor::Sdd1Decompressor;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;

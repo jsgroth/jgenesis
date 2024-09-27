@@ -1,5 +1,5 @@
-use crate::mainloop::{bincode_config, NativeEmulatorError};
 use crate::NativeEmulatorResult;
+use crate::mainloop::{NativeEmulatorError, bincode_config};
 use bincode::Encode;
 use jgenesis_common::frontend::EmulatorTrait;
 use std::ffi::OsStr;

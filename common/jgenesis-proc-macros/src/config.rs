@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_quote, Data, DeriveInput, Type};
+use syn::{Data, DeriveInput, Type, parse_quote};
 
 pub fn config_display(input: TokenStream) -> TokenStream {
     let input: DeriveInput = syn::parse(input).expect("Unable to parse input");

@@ -6,7 +6,7 @@ mod jump;
 mod load;
 mod mnemonics;
 
-use crate::core::{IndexRegister, InterruptMode, Register16, Register8, Registers};
+use crate::core::{IndexRegister, InterruptMode, Register8, Register16, Registers};
 use crate::traits::{BusInterface, InterruptLine};
 use jgenesis_common::num::GetBit;
 

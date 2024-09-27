@@ -1,7 +1,7 @@
 use crate::config::CommonConfig;
 use jgenesis_common::frontend::AudioOutput;
-use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use sdl2::AudioSubsystem;
+use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -29,14 +29,11 @@ impl SdlAudioOutput {
         config: &CommonConfig<KC, JC>,
     ) -> Result<Self, AudioError> {
         let audio_queue = audio
-            .open_queue(
-                None,
-                &AudioSpecDesired {
-                    freq: Some(48000),
-                    channels: Some(2),
-                    samples: Some(config.audio_device_queue_size),
-                },
-            )
+            .open_queue(None, &AudioSpecDesired {
+                freq: Some(48000),
+                channels: Some(2),
+                samples: Some(config.audio_device_queue_size),
+            })
             .map_err(AudioError::OpenQueue)?;
         audio_queue.resume();
 
@@ -68,14 +65,11 @@ impl SdlAudioOutput {
             let new_audio_queue = self
                 .audio_queue
                 .subsystem()
-                .open_queue(
-                    None,
-                    &AudioSpecDesired {
-                        freq: Some(48000),
-                        channels: Some(2),
-                        samples: Some(config.audio_device_queue_size),
-                    },
-                )
+                .open_queue(None, &AudioSpecDesired {
+                    freq: Some(48000),
+                    channels: Some(2),
+                    samples: Some(config.audio_device_queue_size),
+                })
                 .map_err(AudioError::OpenQueue)?;
             self.audio_queue = new_audio_queue;
             self.audio_queue.resume();

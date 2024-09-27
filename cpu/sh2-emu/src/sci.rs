@@ -123,16 +123,13 @@ impl SerialInterface {
         log::debug!("  Parity mode odd/even flag: {}", value.bit(4));
         log::debug!("  Stop bit length bit: {}", value.bit(3));
         log::debug!("  Multiprocessor mode: {}", value.bit(2));
-        log::debug!(
-            "  Clock select: {}",
-            match value & 3 {
-                0 => "sysclk/4",
-                1 => "sysclk/16",
-                2 => "sysclk/64",
-                3 => "sysclk/256",
-                _ => unreachable!(),
-            }
-        );
+        log::debug!("  Clock select: {}", match value & 3 {
+            0 => "sysclk/4",
+            1 => "sysclk/16",
+            2 => "sysclk/64",
+            3 => "sysclk/256",
+            _ => unreachable!(),
+        });
     }
 
     // $FFFFFE01: BRR (Bit rate)

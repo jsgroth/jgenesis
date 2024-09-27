@@ -1,10 +1,10 @@
 use crate::vdp::colors::ColorModifier;
 use crate::vdp::registers::{
-    DebugRegister, HorizontalDisplaySize, HorizontalScrollMode, InterlacingMode, Plane, Registers,
-    ScrollSize, VerticalDisplaySize, VerticalScrollMode, RIGHT_BORDER,
+    DebugRegister, HorizontalDisplaySize, HorizontalScrollMode, InterlacingMode, Plane,
+    RIGHT_BORDER, Registers, ScrollSize, VerticalDisplaySize, VerticalScrollMode,
 };
 use crate::vdp::sprites::SpritePixel;
-use crate::vdp::{colors, Cram, FrameBuffer, TimingModeExt, Vdp, Vram, Vsram};
+use crate::vdp::{Cram, FrameBuffer, TimingModeExt, Vdp, Vram, Vsram, colors};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::GetBit;
 use std::cmp;
@@ -364,28 +364,22 @@ impl Vdp {
                 }
             }
 
-            let scroll_a_color_id = read_pattern_generator(
-                &self.vram,
-                PatternGeneratorArgs {
-                    vertical_flip: scroll_a_nt_word.vertical_flip,
-                    horizontal_flip: scroll_a_nt_word.horizontal_flip,
-                    pattern_generator: scroll_a_nt_word.pattern_generator,
-                    row: scrolled_scanline_a,
-                    col: scrolled_pixel_a,
-                    cell_height,
-                },
-            );
-            let scroll_b_color_id = read_pattern_generator(
-                &self.vram,
-                PatternGeneratorArgs {
-                    vertical_flip: scroll_b_nt_word.vertical_flip,
-                    horizontal_flip: scroll_b_nt_word.horizontal_flip,
-                    pattern_generator: scroll_b_nt_word.pattern_generator,
-                    row: scrolled_scanline_b,
-                    col: scrolled_pixel_b,
-                    cell_height,
-                },
-            );
+            let scroll_a_color_id = read_pattern_generator(&self.vram, PatternGeneratorArgs {
+                vertical_flip: scroll_a_nt_word.vertical_flip,
+                horizontal_flip: scroll_a_nt_word.horizontal_flip,
+                pattern_generator: scroll_a_nt_word.pattern_generator,
+                row: scrolled_scanline_a,
+                col: scrolled_pixel_a,
+                cell_height,
+            });
+            let scroll_b_color_id = read_pattern_generator(&self.vram, PatternGeneratorArgs {
+                vertical_flip: scroll_b_nt_word.vertical_flip,
+                horizontal_flip: scroll_b_nt_word.horizontal_flip,
+                pattern_generator: scroll_b_nt_word.pattern_generator,
+                row: scrolled_scanline_b,
+                col: scrolled_pixel_b,
+                cell_height,
+            });
 
             let in_window = self.latched_registers.is_in_window(raster_line.line, pixel as u16);
             let (window_priority, window_palette, window_color_id) = if in_window {
@@ -403,17 +397,14 @@ impl Vdp {
                     window_v_cell,
                     window_h_cell,
                 );
-                let window_color_id = read_pattern_generator(
-                    &self.vram,
-                    PatternGeneratorArgs {
-                        vertical_flip: window_nt_word.vertical_flip,
-                        horizontal_flip: window_nt_word.horizontal_flip,
-                        pattern_generator: window_nt_word.pattern_generator,
-                        row: raster_line.line,
-                        col: window_pixel,
-                        cell_height,
-                    },
-                );
+                let window_color_id = read_pattern_generator(&self.vram, PatternGeneratorArgs {
+                    vertical_flip: window_nt_word.vertical_flip,
+                    horizontal_flip: window_nt_word.horizontal_flip,
+                    pattern_generator: window_nt_word.pattern_generator,
+                    row: raster_line.line,
+                    col: window_pixel,
+                    cell_height,
+                });
                 (window_nt_word.priority, window_nt_word.palette, window_color_id)
             } else {
                 (false, 0, 0)
@@ -436,10 +427,8 @@ impl Vdp {
                 (scroll_a_nt_word.priority, scroll_a_nt_word.palette, scroll_a_color_id)
             };
 
-            let (pixel_color, color_modifier) = determine_pixel_color(
-                &self.cram,
-                self.debug_register,
-                PixelColorArgs {
+            let (pixel_color, color_modifier) =
+                determine_pixel_color(&self.cram, self.debug_register, PixelColorArgs {
                     sprite_priority,
                     sprite_palette,
                     sprite_color_id,
@@ -453,8 +442,7 @@ impl Vdp {
                     shadow_highlight_flag: self.latched_registers.shadow_highlight_flag,
                     in_h_border: !(0..active_display_pixels as i16).contains(&pixel),
                     in_v_border: raster_line.in_v_border && !self.state.v_border_forgotten,
-                },
-            );
+                });
 
             set_in_frame_buffer(
                 &mut self.frame_buffer,

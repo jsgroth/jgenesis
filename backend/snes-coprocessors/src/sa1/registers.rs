@@ -1,8 +1,8 @@
 mod dma;
 
+use crate::sa1::Iram;
 use crate::sa1::mmc::Sa1Mmc;
 use crate::sa1::timer::Sa1Timer;
-use crate::sa1::Iram;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::{GetBit, SignBit, U16Ext, U24Ext};
 use std::ops::Range;

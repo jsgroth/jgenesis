@@ -1,8 +1,8 @@
 pub mod huc3;
 pub mod mbc3;
 
-use crate::cartridge::mappers::mbc3::Mbc3Rtc;
 use crate::cartridge::HasBasicRamMapping;
+use crate::cartridge::mappers::mbc3::Mbc3Rtc;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::SaveWriter;
 use jgenesis_common::num::{GetBit, U16Ext};

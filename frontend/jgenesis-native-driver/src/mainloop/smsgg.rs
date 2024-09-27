@@ -2,7 +2,7 @@ use crate::config::SmsGgConfig;
 
 use crate::mainloop::save::FsSaveWriter;
 use crate::mainloop::{basic_input_mapper_fn, debug, file_name_no_ext};
-use crate::{config, AudioError, NativeEmulator, NativeEmulatorResult};
+use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config};
 use jgenesis_common::frontend::EmulatorTrait;
 
 use crate::config::RomReadResult;

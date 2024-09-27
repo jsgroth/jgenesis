@@ -5,8 +5,8 @@ use env_logger::Env;
 use gb_core::api::{GbAspectRatio, GbPalette, GbcColorCorrection};
 use genesis_core::{GenesisAspectRatio, GenesisControllerType, GenesisRegion};
 use jgenesis_common::frontend::{EmulatorTrait, TimingMode};
-use jgenesis_native_config::smsgg::SmsModel;
 use jgenesis_native_config::AppConfig;
+use jgenesis_native_config::smsgg::SmsModel;
 use jgenesis_native_driver::config::input::{NesControllerType, SnesControllerType};
 use jgenesis_native_driver::config::{GgAspectRatio, SmsAspectRatio};
 use jgenesis_native_driver::input::MappableInputs;
@@ -18,8 +18,8 @@ use jgenesis_renderer::config::{
 use jgenesis_renderer::renderer::RendererError;
 use nes_core::api::NesAspectRatio;
 use s32x_core::api::S32XVideoOut;
-use smsgg_core::psg::PsgVersion;
 use smsgg_core::SmsRegion;
+use smsgg_core::psg::PsgVersion;
 use snes_core::api::{AudioInterpolationMode, SnesAspectRatio};
 use std::error::Error;
 use std::ffi::OsStr;
@@ -523,18 +523,14 @@ impl Args {
             config.inputs.snes_p2_type = p2_controller_type;
         }
 
-        apply_path_overrides!(
-            self,
-            config.snes,
-            [
-                dsp1_rom_path,
-                dsp2_rom_path,
-                dsp3_rom_path,
-                dsp4_rom_path,
-                st010_rom_path,
-                st011_rom_path,
-            ]
-        );
+        apply_path_overrides!(self, config.snes, [
+            dsp1_rom_path,
+            dsp2_rom_path,
+            dsp3_rom_path,
+            dsp4_rom_path,
+            st010_rom_path,
+            st011_rom_path,
+        ]);
     }
 
     fn apply_gb_overrides(&self, config: &mut AppConfig) {
@@ -556,19 +552,15 @@ impl Args {
             config.common.launch_in_fullscreen = true;
         }
 
-        apply_overrides!(
-            self,
-            config.common,
-            [
-                wgpu_backend,
-                vsync_mode,
-                auto_prescale,
-                scanlines,
-                force_integer_height_scaling,
-                filter_mode,
-                preprocess_shader,
-            ]
-        );
+        apply_overrides!(self, config.common, [
+            wgpu_backend,
+            vsync_mode,
+            auto_prescale,
+            scanlines,
+            force_integer_height_scaling,
+            filter_mode,
+            preprocess_shader,
+        ]);
 
         if let Some(prescale_factor) = self.prescale_factor {
             config.common.prescale_factor =
@@ -577,25 +569,20 @@ impl Args {
     }
 
     fn apply_audio_overrides(&self, config: &mut AppConfig) {
-        apply_overrides!(
-            self,
-            config.common,
-            [
-                audio_sync,
-                audio_device_queue_size,
-                internal_audio_buffer_size,
-                audio_sync_threshold,
-                audio_gain_db,
-            ]
-        );
+        apply_overrides!(self, config.common, [
+            audio_sync,
+            audio_device_queue_size,
+            internal_audio_buffer_size,
+            audio_sync_threshold,
+            audio_gain_db,
+        ]);
     }
 
     fn apply_hotkey_overrides(&self, config: &mut AppConfig) {
-        apply_overrides!(
-            self,
-            config.common,
-            [fast_forward_multiplier, rewind_buffer_length_seconds]
-        );
+        apply_overrides!(self, config.common, [
+            fast_forward_multiplier,
+            rewind_buffer_length_seconds
+        ]);
     }
 }
 

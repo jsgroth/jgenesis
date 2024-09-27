@@ -1,5 +1,5 @@
 use crate::superfx::gsu::instructions::{
-    clear_prefix_flags, fetch_opcode, read_register, write_register, MemoryType,
+    MemoryType, clear_prefix_flags, fetch_opcode, read_register, write_register,
 };
 use crate::superfx::gsu::{ClockSpeed, GraphicsSupportUnit};
 use jgenesis_common::num::{SignBit, U16Ext};

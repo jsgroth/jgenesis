@@ -1,6 +1,6 @@
 mod debug;
 
-pub use debug::{copy_nametables, copy_oam, copy_palette_ram, PatternTable};
+pub use debug::{PatternTable, copy_nametables, copy_oam, copy_palette_ram};
 
 use crate::api::Overscan;
 use crate::ppu;

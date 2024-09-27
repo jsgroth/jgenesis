@@ -1,5 +1,5 @@
-use crate::core::instructions::{sign_flag, zero_flag, BlockMode, InstructionExecutor};
-use crate::core::{Flags, IndexRegister, Register16, Register8};
+use crate::core::instructions::{BlockMode, InstructionExecutor, sign_flag, zero_flag};
+use crate::core::{Flags, IndexRegister, Register8, Register16};
 use crate::traits::BusInterface;
 use std::mem;
 

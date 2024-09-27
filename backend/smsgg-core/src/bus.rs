@@ -1,10 +1,10 @@
 //! Implementation of the Z80's bus interface, which connects it to all other components
 
+use crate::VdpVersion;
 use crate::input::InputState;
 use crate::memory::Memory;
 use crate::psg::Psg;
 use crate::vdp::Vdp;
-use crate::VdpVersion;
 use jgenesis_common::num::GetBit;
 use ym_opll::Ym2413;
 use z80_emu::traits::{BusInterface, InterruptLine};

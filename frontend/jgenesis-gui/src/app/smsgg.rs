@@ -6,8 +6,8 @@ use egui::{Context, Window};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_config::smsgg::SmsModel;
 use jgenesis_native_driver::config::{GgAspectRatio, SmsAspectRatio};
-use smsgg_core::psg::PsgVersion;
 use smsgg_core::SmsRegion;
+use smsgg_core::psg::PsgVersion;
 
 impl App {
     pub(super) fn render_smsgg_general_settings(&mut self, ctx: &Context) {

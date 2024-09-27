@@ -1,6 +1,6 @@
 use crate::api::{GbPalette, GbcColorCorrection};
 use crate::ppu::PpuFrameBuffer;
-use crate::{ppu, HardwareMode};
+use crate::{HardwareMode, ppu};
 use jgenesis_common::frontend::Color;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::array;

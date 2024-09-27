@@ -1135,7 +1135,7 @@ fn map_palette_address(address: u16) -> usize {
 #[cfg(test)]
 mod tests {
     use crate::api::Overscan;
-    use crate::bus::{cartridge, Bus};
+    use crate::bus::{Bus, cartridge};
 
     #[test]
     fn randomized_ram_on_startup() {

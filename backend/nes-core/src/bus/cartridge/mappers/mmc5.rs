@@ -1,7 +1,7 @@
 //! Code for the MMC5 board (iNES mapper 5).
 
-use crate::apu::pulse::{PulseChannel, SweepStatus};
 use crate::apu::FrameCounter;
+use crate::apu::pulse::{PulseChannel, SweepStatus};
 use crate::bus::cartridge::mappers::{BankSizeKb, CpuMapResult};
 use crate::bus::cartridge::{Cartridge, MapperImpl};
 use crate::{apu, bus};

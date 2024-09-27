@@ -4,7 +4,7 @@ use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
-use syn::{braced, parse_macro_input, Field, Token, Type, Variant};
+use syn::{Field, Token, Type, Variant, braced, parse_macro_input};
 
 struct ButtonEnum {
     name: Ident,

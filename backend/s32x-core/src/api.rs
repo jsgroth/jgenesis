@@ -10,7 +10,7 @@ use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::timing::GenesisCycleCounters;
 use genesis_core::vdp::{Vdp, VdpTickEffect};
 use genesis_core::ym2612::{Ym2612, YmTickEffect};
-use genesis_core::{timing, GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
+use genesis_core::{GenesisEmulatorConfig, GenesisInputs, GenesisRegion, timing};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, Renderer, SaveWriter, TickEffect, TickResult, TimingMode,
 };

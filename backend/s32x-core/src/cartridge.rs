@@ -1,6 +1,6 @@
 use bincode::{Decode, Encode};
-use genesis_core::memory::eeprom::X24C02Chip;
 use genesis_core::memory::SegaMapper;
+use genesis_core::memory::eeprom::X24C02Chip;
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use std::ops::Deref;

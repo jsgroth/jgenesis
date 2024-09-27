@@ -2,8 +2,8 @@
 
 use crate::bus::{CpuBus, PpuRegister};
 use bincode::{Decode, Encode};
-use mos6502_emu::bus::BusInterface;
 use mos6502_emu::Mos6502;
+use mos6502_emu::bus::BusInterface;
 
 #[derive(Debug, Clone, Encode, Decode)]
 struct OamDmaState {

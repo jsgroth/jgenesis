@@ -1,5 +1,5 @@
-use crate::core::instructions::InstructionExecutor;
 use crate::core::InterruptMode;
+use crate::core::instructions::InstructionExecutor;
 use crate::traits::BusInterface;
 
 pub(super) const fn nop() -> u32 {

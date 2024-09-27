@@ -1,7 +1,7 @@
-use crate::superfx::gsu::instructions::{
-    clear_prefix_flags, read_register, write_register, MemoryType,
-};
 use crate::superfx::gsu::GraphicsSupportUnit;
+use crate::superfx::gsu::instructions::{
+    MemoryType, clear_prefix_flags, read_register, write_register,
+};
 use jgenesis_common::num::{GetBit, SignBit};
 
 pub(super) fn from(

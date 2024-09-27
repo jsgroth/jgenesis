@@ -13,8 +13,8 @@ use crate::constants;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::GetBit;
-use spc700_emu::traits::BusInterface;
 use spc700_emu::Spc700;
+use spc700_emu::traits::BusInterface;
 
 const AUDIO_RAM_LEN: usize = 64 * 1024;
 

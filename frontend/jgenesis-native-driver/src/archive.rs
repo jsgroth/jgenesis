@@ -5,8 +5,8 @@ use std::io;
 use std::io::{BufReader, Read};
 use std::path::Path;
 use thiserror::Error;
-use zip::result::ZipError;
 use zip::ZipArchive;
+use zip::result::ZipError;
 
 #[derive(Debug, Error)]
 pub enum ArchiveError {

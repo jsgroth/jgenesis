@@ -16,8 +16,9 @@ use eframe::{Frame, Theme};
 use egui::ahash::HashMap;
 use egui::panel::TopBottomSide;
 use egui::{
-    menu, Align, Button, CentralPanel, Color32, Context, Key, KeyboardShortcut, Layout, Modifiers,
+    Align, Button, CentralPanel, Color32, Context, Key, KeyboardShortcut, Layout, Modifiers,
     Response, Style, TextEdit, TopBottomPanel, Ui, Vec2, ViewportCommand, Visuals, Widget, Window,
+    menu,
 };
 use egui_extras::{Column, TableBuilder};
 use jgenesis_native_config::{AppConfig, EguiTheme, ListFilters, RecentOpen};
@@ -31,7 +32,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use time::util::local_offset;
 use time::util::local_offset::Soundness;
-use time::{format_description, OffsetDateTime, UtcOffset};
+use time::{OffsetDateTime, UtcOffset, format_description};
 
 trait ListFiltersExt {
     fn to_console_vec(&self) -> Vec<Console>;

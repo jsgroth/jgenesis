@@ -19,10 +19,10 @@ impl Platform {
         let context = egui::Context::default();
 
         let mut viewports = ViewportIdMap::new();
-        viewports.insert(
-            context.viewport_id(),
-            ViewportInfo { native_pixels_per_point: Some(scale_factor), ..ViewportInfo::default() },
-        );
+        viewports.insert(context.viewport_id(), ViewportInfo {
+            native_pixels_per_point: Some(scale_factor),
+            ..ViewportInfo::default()
+        });
 
         let (width, height) = window.size();
         let raw_input = egui::RawInput {

@@ -1,6 +1,6 @@
 use crate::ppu;
-use crate::ppu::registers::{BgMode, BitsPerPixel, Registers, TileSize};
 use crate::ppu::Ppu;
+use crate::ppu::registers::{BgMode, BitsPerPixel, Registers, TileSize};
 use jgenesis_common::frontend::Color;
 use jgenesis_common::num::GetBit;
 

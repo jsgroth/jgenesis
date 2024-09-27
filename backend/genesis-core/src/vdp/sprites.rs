@@ -1,6 +1,6 @@
 use crate::vdp::registers::{HorizontalDisplaySize, InterlacingMode};
 use crate::vdp::render::{PatternGeneratorArgs, RasterLine};
-use crate::vdp::{render, CachedSpriteData, SpriteData, Vdp};
+use crate::vdp::{CachedSpriteData, SpriteData, Vdp, render};
 use bincode::{Decode, Encode};
 
 // Sprites with X = $080 display at the left edge of the screen
@@ -338,17 +338,14 @@ impl Vdp {
                 };
 
                 let pattern_offset = (sprite_col / 8) * v_size_cells + sprite_row / cell_height;
-                let color_id = render::read_pattern_generator(
-                    &self.vram,
-                    PatternGeneratorArgs {
-                        vertical_flip: false,
-                        horizontal_flip: false,
-                        pattern_generator: sprite.pattern_generator.wrapping_add(pattern_offset),
-                        row: sprite_row % cell_height,
-                        col: sprite_col % 8,
-                        cell_height,
-                    },
-                );
+                let color_id = render::read_pattern_generator(&self.vram, PatternGeneratorArgs {
+                    vertical_flip: false,
+                    horizontal_flip: false,
+                    pattern_generator: sprite.pattern_generator.wrapping_add(pattern_offset),
+                    row: sprite_row % cell_height,
+                    col: sprite_col % 8,
+                    cell_height,
+                });
 
                 let pixel = h_position - SPRITE_H_DISPLAY_START;
                 if buffers.pixels[pixel as usize].color_id == 0 {

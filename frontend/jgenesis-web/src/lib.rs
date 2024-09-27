@@ -6,8 +6,8 @@ mod js;
 
 use crate::audio::AudioQueue;
 use crate::config::{EmulatorChannel, EmulatorCommand, WebConfig, WebConfigRef};
-use base64::engine::general_purpose;
 use base64::Engine;
+use base64::engine::general_purpose;
 use bincode::{Decode, Encode};
 use genesis_core::{GenesisEmulator, GenesisInputs};
 use jgenesis_common::frontend::{

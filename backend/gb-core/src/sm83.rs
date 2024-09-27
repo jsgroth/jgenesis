@@ -11,8 +11,8 @@ mod flags;
 mod flow;
 mod load;
 
-use crate::sm83::bus::BusInterface;
 use crate::HardwareMode;
+use crate::sm83::bus::BusInterface;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 

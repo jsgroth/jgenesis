@@ -4,13 +4,13 @@ mod debug;
 mod fifo;
 mod registers;
 
+use crate::HardwareMode;
 use crate::dma::DmaUnit;
 use crate::interrupts::InterruptRegisters;
 use crate::ppu::fifo::PixelFifo;
 use crate::ppu::registers::{CgbPaletteRam, Registers};
 use crate::sm83::InterruptType;
 use crate::speed::CpuSpeed;
-use crate::HardwareMode;
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::FrameSize;
 use jgenesis_common::num::GetBit;

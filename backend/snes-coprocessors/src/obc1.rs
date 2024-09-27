@@ -3,7 +3,7 @@
 //! Used by 1 game, Metal Combat: Falcon's Revenge
 
 use crate::common;
-use crate::common::{impl_take_set_rom, Rom};
+use crate::common::{Rom, impl_take_set_rom};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::PartialClone;

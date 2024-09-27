@@ -1,5 +1,5 @@
 use crate::vdp;
-use crate::vdp::{colors, render, ColorModifier, Vdp};
+use crate::vdp::{ColorModifier, Vdp, colors, render};
 
 use crate::vdp::render::PatternGeneratorArgs;
 use jgenesis_common::frontend::Color;
@@ -19,17 +19,15 @@ impl Vdp {
                 for col in 0..8 {
                     let out_idx = base_idx + row * row_len * 8 + col;
 
-                    let color_id = render::read_pattern_generator(
-                        &self.vram,
-                        PatternGeneratorArgs {
+                    let color_id =
+                        render::read_pattern_generator(&self.vram, PatternGeneratorArgs {
                             vertical_flip: false,
                             horizontal_flip: false,
                             pattern_generator: pattern as u16,
                             row: row as u16,
                             col: col as u16,
                             cell_height: 8,
-                        },
-                    );
+                        });
                     let color = colors::resolve_color(&self.cram, palette, color_id);
                     out[out_idx] = parse_gen_color(color);
                 }

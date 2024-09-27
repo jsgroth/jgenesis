@@ -1,6 +1,6 @@
-use crate::ppu::registers::{CgbPaletteRam, Registers, TileDataArea};
-use crate::ppu::{PpuFrameBuffer, SpriteData, Vram, MAX_SPRITES_PER_LINE, SCREEN_WIDTH};
 use crate::HardwareMode;
+use crate::ppu::registers::{CgbPaletteRam, Registers, TileDataArea};
+use crate::ppu::{MAX_SPRITES_PER_LINE, PpuFrameBuffer, SCREEN_WIDTH, SpriteData, Vram};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use std::array;

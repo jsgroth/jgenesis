@@ -1,8 +1,8 @@
 //! SH-2 load and store instructions
 
-use crate::bus::BusInterface;
-use crate::instructions::{extend_i16, extend_i8, rm, rn};
 use crate::Sh2;
+use crate::bus::BusInterface;
+use crate::instructions::{extend_i8, extend_i16, rm, rn};
 
 // MOV Rm, Rn
 // Load from a register
