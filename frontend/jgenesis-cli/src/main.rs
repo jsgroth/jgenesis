@@ -10,18 +10,16 @@ use jgenesis_native_config::smsgg::SmsModel;
 use jgenesis_native_driver::config::input::{NesControllerType, SnesControllerType};
 use jgenesis_native_driver::config::{GgAspectRatio, SmsAspectRatio};
 use jgenesis_native_driver::input::MappableInputs;
-use jgenesis_native_driver::{AudioError, NativeEmulator, NativeTickEffect, SaveWriteError};
+use jgenesis_native_driver::{NativeEmulator, NativeTickEffect};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, Scanlines, VSyncMode, WgpuBackend,
 };
-use jgenesis_renderer::renderer::RendererError;
 use nes_core::api::NesAspectRatio;
 use s32x_core::api::S32XVideoOut;
 use smsgg_core::SmsRegion;
 use smsgg_core::psg::PsgVersion;
 use snes_core::api::{AudioInterpolationMode, SnesAspectRatio};
-use std::error::Error;
 use std::ffi::OsStr;
 use std::fs;
 use std::num::NonZeroU64;
@@ -756,7 +754,6 @@ fn init_emulator<Inputs, Button, Config, Emulator>(
     Inputs: Default + MappableInputs<Button>,
     Button: Copy,
     Emulator: EmulatorTrait<Inputs = Inputs, Config = Config>,
-    Emulator::Err<RendererError, AudioError, SaveWriteError>: Error + Send + Sync + 'static,
 {
     let Some(save_state_slot) = args.load_save_state else { return };
 

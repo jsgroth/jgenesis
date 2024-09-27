@@ -323,7 +323,6 @@ where
     Inputs: Default + MappableInputs<Button>,
     Button: Copy,
     Emulator: EmulatorTrait<Inputs = Inputs, Config = Config>,
-    Emulator::Err<RendererError, AudioError, SaveWriteError>: Error + Send + Sync + 'static,
 {
     #[allow(clippy::too_many_arguments)]
     fn new<KC, JC, InputMapperFn>(
