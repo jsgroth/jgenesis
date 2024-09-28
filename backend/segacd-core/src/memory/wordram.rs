@@ -3,6 +3,7 @@
 
 use crate::memory::ScdCpu;
 use bincode::{Decode, Encode};
+use jgenesis_common::boxedarray::BoxedByteArray;
 use jgenesis_common::num::GetBit;
 
 // Word RAM is 256KB
@@ -75,7 +76,7 @@ enum WordRamSubMapResult {
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct WordRam {
-    ram: Box<[u8; WORD_RAM_LEN]>,
+    ram: BoxedByteArray<WORD_RAM_LEN>,
     sub_buffered_writes: Vec<(u32, u8)>,
     sub_blocked_read: bool,
     mode: WordRamMode,
@@ -96,7 +97,7 @@ const CELL_IMAGE_H_SIZE_BYTES: u32 = 64 * 8 / 2;
 impl WordRam {
     pub fn new() -> Self {
         Self {
-            ram: vec![0; WORD_RAM_LEN].into_boxed_slice().try_into().unwrap(),
+            ram: BoxedByteArray::new(),
             sub_buffered_writes: Vec::with_capacity(5),
             sub_blocked_read: false,
             mode: WordRamMode::default(),

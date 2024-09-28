@@ -11,6 +11,7 @@ use crate::registers::SystemRegisters;
 use crate::vdp::Vdp;
 use bincode::{Decode, Encode};
 use genesis_core::{GenesisRegion, timing};
+use jgenesis_common::boxedarray::BoxedWordArray;
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::PartialClone;
 use sh2_emu::Sh2;
@@ -46,7 +47,7 @@ pub struct Sega32X {
     pub pwm: PwmChip,
     pub registers: SystemRegisters,
     pub m68k_vectors: Box<M68kVectors>,
-    pub sdram: Box<Sdram>,
+    pub sdram: BoxedWordArray<SDRAM_LEN_WORDS>,
     pub serial: SerialInterface,
     pub region: GenesisRegion,
 }
@@ -73,7 +74,7 @@ impl Sega32X {
             pwm: PwmChip::new(timing_mode),
             registers: SystemRegisters::new(),
             m68k_vectors: bootrom::M68K_VECTORS.to_vec().into_boxed_slice().try_into().unwrap(),
-            sdram: vec![0; SDRAM_LEN_WORDS].into_boxed_slice().try_into().unwrap(),
+            sdram: BoxedWordArray::new(),
             serial: SerialInterface::default(),
             region,
         }

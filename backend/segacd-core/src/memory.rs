@@ -16,6 +16,7 @@ use cdrom::cdtime::CdTime;
 use cdrom::reader::{CdRom, CdRomFileFormat};
 use genesis_core::GenesisRegion;
 use genesis_core::memory::{Memory, PhysicalMedium};
+use jgenesis_common::boxedarray::BoxedByteArray;
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use m68000_emu::BusInterface;
@@ -132,11 +133,11 @@ pub struct SegaCd {
     bios: Bios,
     #[partial_clone(partial)]
     disc_drive: CdController,
-    prg_ram: Box<[u8; PRG_RAM_LEN]>,
+    prg_ram: BoxedByteArray<PRG_RAM_LEN>,
     word_ram: WordRam,
     backup_ram: Box<[u8; BACKUP_RAM_LEN]>,
     enable_ram_cartridge: bool,
-    ram_cartridge: Box<[u8; RAM_CARTRIDGE_LEN]>,
+    ram_cartridge: BoxedByteArray<RAM_CARTRIDGE_LEN>,
     ram_cartridge_writes_enabled: bool,
     backup_ram_dirty: bool,
     registers: SegaCdRegisters,
@@ -173,11 +174,11 @@ impl SegaCd {
         Ok(Self {
             bios: Bios(bios),
             disc_drive: CdController::new(disc),
-            prg_ram: vec![0; PRG_RAM_LEN].into_boxed_slice().try_into().unwrap(),
+            prg_ram: BoxedByteArray::new(),
             word_ram: WordRam::new(),
             backup_ram,
             enable_ram_cartridge,
-            ram_cartridge,
+            ram_cartridge: ram_cartridge.into(),
             ram_cartridge_writes_enabled: true,
             backup_ram_dirty: false,
             registers: SegaCdRegisters::new(),
