@@ -889,6 +889,15 @@ impl Vdp {
         }
     }
 
+    fn clear_scanline(&mut self) {
+        const BLACK: u16 = 0;
+
+        let frame_buffer_row = self.frame_buffer_row();
+        for pixel in 0..SCREEN_WIDTH {
+            self.frame_buffer.set(frame_buffer_row, pixel, BLACK);
+        }
+    }
+
     fn frame_buffer_row(&self) -> u16 {
         self.scanline + self.frame_buffer.viewport.top_border_height
             - self.registers.mode.vertical_border_offset()
@@ -930,8 +939,12 @@ impl Vdp {
         }
 
         let active_scanlines = self.registers.mode.active_scanlines();
-        if self.registers.display_enabled && self.scanline < active_scanlines && self.dot == 0 {
-            self.render_scanline();
+        if self.scanline < active_scanlines && self.dot == 0 {
+            if self.registers.display_enabled {
+                self.render_scanline();
+            } else {
+                self.clear_scanline();
+            }
         }
 
         // The apparent off-by-one in this comparison is intentional. The line counter is
