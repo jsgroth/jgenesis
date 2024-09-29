@@ -6,7 +6,6 @@ use gb_core::api::{GbAspectRatio, GbPalette, GbcColorCorrection};
 use genesis_core::{GenesisAspectRatio, GenesisControllerType, GenesisRegion};
 use jgenesis_common::frontend::{EmulatorTrait, TimingMode};
 use jgenesis_native_config::AppConfig;
-use jgenesis_native_config::smsgg::SmsModel;
 use jgenesis_native_driver::config::input::{NesControllerType, SnesControllerType};
 use jgenesis_native_driver::config::{GgAspectRatio, SmsAspectRatio};
 use jgenesis_native_driver::input::MappableInputs;
@@ -17,8 +16,8 @@ use jgenesis_renderer::config::{
 };
 use nes_core::api::NesAspectRatio;
 use s32x_core::api::S32XVideoOut;
-use smsgg_core::SmsRegion;
 use smsgg_core::psg::PsgVersion;
+use smsgg_core::{SmsModel, SmsRegion};
 use snes_core::api::{AudioInterpolationMode, SnesAspectRatio};
 use std::ffi::OsStr;
 use std::fs;

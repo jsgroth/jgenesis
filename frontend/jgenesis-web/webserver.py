@@ -36,7 +36,7 @@ def main():
 
     (host, port) = server_address.split(":")
 
-    print(f"Starting webserver listening on {host}:{port}")
+    print(f"Starting webserver listening on http://{host}:{port}/")
 
     run(host, int(port))
 

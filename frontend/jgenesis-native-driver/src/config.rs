@@ -19,7 +19,7 @@ use s32x_core::api::{S32XVideoOut, Sega32XEmulatorConfig};
 use segacd_core::api::SegaCdEmulatorConfig;
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
-use smsgg_core::{SmsGgEmulatorConfig, SmsRegion, VdpVersion};
+use smsgg_core::{SmsGgEmulatorConfig, SmsGgHardware, SmsModel, SmsRegion};
 use snes_core::api::{
     AudioInterpolationMode, CoprocessorRomFn, CoprocessorRoms, SnesAspectRatio, SnesEmulatorConfig,
 };
@@ -145,8 +145,9 @@ impl<KeyboardConfig, JoystickConfig> CommonConfig<KeyboardConfig, JoystickConfig
 pub struct SmsGgConfig {
     #[indent_nested]
     pub common: CommonConfig<SmsGgInputConfig<KeyboardInput>, SmsGgInputConfig<JoystickInput>>,
-    pub vdp_version: Option<VdpVersion>,
-    pub psg_version: Option<PsgVersion>,
+    pub sms_timing_mode: TimingMode,
+    pub sms_model: SmsModel,
+    pub forced_psg_version: Option<PsgVersion>,
     pub remove_sprite_limit: bool,
     pub sms_aspect_ratio: SmsAspectRatio,
     pub gg_aspect_ratio: GgAspectRatio,
@@ -158,19 +159,16 @@ pub struct SmsGgConfig {
 }
 
 impl SmsGgConfig {
-    pub(crate) fn to_emulator_config(
-        &self,
-        vdp_version: VdpVersion,
-        psg_version: PsgVersion,
-    ) -> SmsGgEmulatorConfig {
-        let pixel_aspect_ratio = if vdp_version.is_master_system() {
-            self.sms_aspect_ratio.to_pixel_aspect_ratio()
-        } else {
-            self.gg_aspect_ratio.to_pixel_aspect_ratio()
+    pub(crate) fn to_emulator_config(&self, hardware: SmsGgHardware) -> SmsGgEmulatorConfig {
+        let pixel_aspect_ratio = match hardware {
+            SmsGgHardware::MasterSystem => self.sms_aspect_ratio.to_pixel_aspect_ratio(),
+            SmsGgHardware::GameGear => self.gg_aspect_ratio.to_pixel_aspect_ratio(),
         };
         SmsGgEmulatorConfig {
-            vdp_version,
-            psg_version,
+            hardware,
+            sms_timing_mode: self.sms_timing_mode,
+            sms_model: self.sms_model,
+            forced_psg_version: self.forced_psg_version,
             pixel_aspect_ratio,
             remove_sprite_limit: self.remove_sprite_limit,
             sms_region: self.sms_region,
@@ -182,33 +180,14 @@ impl SmsGgConfig {
     }
 }
 
-pub(crate) fn default_vdp_version_for_ext(file_ext: &str) -> VdpVersion {
-    match file_ext {
-        "sms" => VdpVersion::NtscMasterSystem2,
-        "gg" => VdpVersion::GameGear,
-        _ => {
-            log::warn!("Unknown file extension {file_ext}, defaulting to NTSC SMS VDP");
-            VdpVersion::NtscMasterSystem2
-        }
-    }
-}
-
-pub(crate) fn default_psg_version_for_ext(file_ext: &str) -> PsgVersion {
-    match file_ext {
-        "sms" => PsgVersion::MasterSystem2,
-        _ => PsgVersion::Standard,
-    }
-}
-
-pub(crate) fn default_smsgg_window_size(vdp_version: VdpVersion) -> WindowSize {
-    match vdp_version {
-        VdpVersion::NtscMasterSystem1 | VdpVersion::NtscMasterSystem2 => {
-            WindowSize { width: 940, height: 720 }
-        }
-        VdpVersion::PalMasterSystem1 | VdpVersion::PalMasterSystem2 => {
-            WindowSize { width: 1056, height: 720 }
-        }
-        VdpVersion::GameGear => WindowSize { width: 576, height: 432 },
+pub(crate) fn default_smsgg_window_size(
+    hardware: SmsGgHardware,
+    sms_timing_mode: TimingMode,
+) -> WindowSize {
+    match (hardware, sms_timing_mode) {
+        (SmsGgHardware::MasterSystem, TimingMode::Ntsc) => WindowSize { width: 940, height: 720 },
+        (SmsGgHardware::MasterSystem, TimingMode::Pal) => WindowSize { width: 1056, height: 720 },
+        (SmsGgHardware::GameGear, _) => WindowSize { width: 576, height: 432 },
     }
 }
 

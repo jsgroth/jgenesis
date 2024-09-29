@@ -6,8 +6,7 @@ use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config};
 use jgenesis_common::frontend::EmulatorTrait;
 
 use crate::config::RomReadResult;
-use smsgg_core::psg::PsgVersion;
-use smsgg_core::{SmsGgButton, SmsGgEmulator, SmsGgEmulatorConfig, SmsGgInputs};
+use smsgg_core::{SmsGgButton, SmsGgEmulator, SmsGgEmulatorConfig, SmsGgHardware, SmsGgInputs};
 use std::path::Path;
 
 pub type NativeSmsGgEmulator =
@@ -24,16 +23,8 @@ impl NativeSmsGgEmulator {
 
         self.reload_common_config(&config.common)?;
 
-        let vdp_version = config.vdp_version.unwrap_or_else(|| self.emulator.vdp_version());
-        let psg_version = config.psg_version.unwrap_or_else(|| {
-            if vdp_version.is_master_system() {
-                PsgVersion::MasterSystem2
-            } else {
-                PsgVersion::Standard
-            }
-        });
-
-        let emulator_config = config.to_emulator_config(vdp_version, psg_version);
+        let hardware = self.emulator.hardware();
+        let emulator_config = config.to_emulator_config(hardware);
         self.emulator.reload_config(&emulator_config);
         self.config = emulator_config;
 
@@ -67,29 +58,34 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
     let save_path = rom_file_path.with_extension("sav");
     let mut save_writer = FsSaveWriter::new(save_path);
 
-    let vdp_version =
-        config.vdp_version.unwrap_or_else(|| config::default_vdp_version_for_ext(&extension));
-    let psg_version =
-        config.psg_version.unwrap_or_else(|| config::default_psg_version_for_ext(&extension));
-
-    log::info!("VDP version: {vdp_version:?}");
-    log::info!("PSG version: {psg_version:?}");
+    let hardware = hardware_for_ext(&extension);
 
     let rom_title = file_name_no_ext(rom_file_path)?;
     let window_title = format!("smsgg - {rom_title}");
 
-    let emulator_config = config.to_emulator_config(vdp_version, psg_version);
+    let emulator_config = config.to_emulator_config(hardware);
     let emulator = SmsGgEmulator::create(rom, emulator_config, &mut save_writer);
 
     NativeSmsGgEmulator::new(
         emulator,
         emulator_config,
         config.common,
-        config::default_smsgg_window_size(vdp_version),
+        config::default_smsgg_window_size(hardware, config.sms_timing_mode),
         &window_title,
         save_writer,
         save_state_path,
         basic_input_mapper_fn(&SmsGgButton::ALL),
         debug::smsgg::render_fn,
     )
+}
+
+fn hardware_for_ext(extension: &str) -> SmsGgHardware {
+    match extension.to_ascii_lowercase().as_str() {
+        "sms" => SmsGgHardware::MasterSystem,
+        "gg" => SmsGgHardware::GameGear,
+        _ => {
+            log::error!("Unrecognized file extension '{extension}', defaulting to SMS mode");
+            SmsGgHardware::MasterSystem
+        }
+    }
 }

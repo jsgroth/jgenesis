@@ -1,21 +1,9 @@
 use crate::AppConfig;
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::config::{GgAspectRatio, SmsAspectRatio, SmsGgConfig};
-use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::PsgVersion;
-use smsgg_core::{SmsRegion, VdpVersion};
-use std::ffi::OsStr;
-use std::path::Path;
-
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
-)]
-pub enum SmsModel {
-    Sms1,
-    #[default]
-    Sms2,
-}
+use smsgg_core::{SmsModel, SmsRegion};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SmsGgAppConfig {
@@ -55,25 +43,15 @@ impl Default for SmsGgAppConfig {
 impl AppConfig {
     #[must_use]
     pub fn smsgg_config(&self, path: String) -> Box<SmsGgConfig> {
-        let vdp_version = if Path::new(&path).extension().and_then(OsStr::to_str) == Some("sms") {
-            match (self.smsgg.sms_timing_mode, self.smsgg.sms_model) {
-                (TimingMode::Ntsc, SmsModel::Sms2) => Some(VdpVersion::NtscMasterSystem2),
-                (TimingMode::Pal, SmsModel::Sms2) => Some(VdpVersion::PalMasterSystem2),
-                (TimingMode::Ntsc, SmsModel::Sms1) => Some(VdpVersion::NtscMasterSystem1),
-                (TimingMode::Pal, SmsModel::Sms1) => Some(VdpVersion::PalMasterSystem1),
-            }
-        } else {
-            None
-        };
-
         Box::new(SmsGgConfig {
             common: self.common_config(
                 path,
                 self.inputs.smsgg_keyboard.clone(),
                 self.inputs.smsgg_joystick.clone(),
             ),
-            vdp_version,
-            psg_version: self.smsgg.psg_version,
+            sms_timing_mode: self.smsgg.sms_timing_mode,
+            sms_model: self.smsgg.sms_model,
+            forced_psg_version: self.smsgg.psg_version,
             remove_sprite_limit: self.smsgg.remove_sprite_limit,
             sms_aspect_ratio: self.smsgg.sms_aspect_ratio,
             gg_aspect_ratio: self.smsgg.gg_aspect_ratio,

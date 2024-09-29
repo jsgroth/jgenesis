@@ -60,6 +60,20 @@ impl DerefMut for FrameBuffer {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SmsGgHardware {
+    MasterSystem,
+    GameGear,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumDisplay, EnumFromStr)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum SmsModel {
+    Sms1,
+    #[default]
+    Sms2,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SmsRegion {
@@ -70,8 +84,10 @@ pub enum SmsRegion {
 
 #[derive(Debug, Clone, Copy)]
 pub struct SmsGgEmulatorConfig {
-    pub vdp_version: VdpVersion,
-    pub psg_version: PsgVersion,
+    pub hardware: SmsGgHardware,
+    pub sms_timing_mode: TimingMode,
+    pub sms_model: SmsModel,
+    pub forced_psg_version: Option<PsgVersion>,
     pub pixel_aspect_ratio: Option<PixelAspectRatio>,
     pub remove_sprite_limit: bool,
     pub sms_region: SmsRegion,
@@ -114,9 +130,15 @@ impl SmsGgEmulator {
     ) -> Self {
         let cartridge_ram = save_writer.load_bytes("sav").ok();
 
+        let vdp_version = determine_vdp_version(&config);
+        let psg_version = determine_psg_version(&config);
+
+        log::info!("VDP version: {vdp_version:?}");
+        log::info!("PSG version: {psg_version:?}");
+
         let memory = Memory::new(rom, cartridge_ram);
-        let vdp = Vdp::new(config.vdp_version, config.remove_sprite_limit);
-        let psg = Psg::new(config.psg_version);
+        let vdp = Vdp::new(vdp_version, config.remove_sprite_limit);
+        let psg = Psg::new(psg_version);
         let input = InputState::new(config.sms_region);
 
         let mut z80 = Z80::new();
@@ -130,7 +152,7 @@ impl SmsGgEmulator {
             memory,
             z80,
             vdp,
-            vdp_version: config.vdp_version,
+            vdp_version,
             pixel_aspect_ratio: config.pixel_aspect_ratio,
             psg,
             ym2413,
@@ -144,6 +166,15 @@ impl SmsGgEmulator {
             vdp_cycles_remainder: 0,
             frame_count: 0,
             reset_frames_remaining: 0,
+        }
+    }
+
+    #[must_use]
+    pub fn hardware(&self) -> SmsGgHardware {
+        if self.vdp_version.is_master_system() {
+            SmsGgHardware::MasterSystem
+        } else {
+            SmsGgHardware::GameGear
         }
     }
 
@@ -199,6 +230,31 @@ fn init_z80(z80: &mut Z80) {
     z80.set_pc(0x0000);
     z80.set_sp(0xDFFF);
     z80.set_interrupt_mode(InterruptMode::Mode1);
+}
+
+fn determine_vdp_version(config: &SmsGgEmulatorConfig) -> VdpVersion {
+    match (config.hardware, config.sms_timing_mode, config.sms_model) {
+        (SmsGgHardware::MasterSystem, TimingMode::Ntsc, SmsModel::Sms1) => {
+            VdpVersion::NtscMasterSystem1
+        }
+        (SmsGgHardware::MasterSystem, TimingMode::Ntsc, SmsModel::Sms2) => {
+            VdpVersion::NtscMasterSystem2
+        }
+        (SmsGgHardware::MasterSystem, TimingMode::Pal, SmsModel::Sms1) => {
+            VdpVersion::PalMasterSystem1
+        }
+        (SmsGgHardware::MasterSystem, TimingMode::Pal, SmsModel::Sms2) => {
+            VdpVersion::PalMasterSystem2
+        }
+        (SmsGgHardware::GameGear, _, _) => VdpVersion::GameGear,
+    }
+}
+
+fn determine_psg_version(config: &SmsGgEmulatorConfig) -> PsgVersion {
+    config.forced_psg_version.unwrap_or(match config.hardware {
+        SmsGgHardware::MasterSystem => PsgVersion::MasterSystem2,
+        SmsGgHardware::GameGear => PsgVersion::Standard,
+    })
 }
 
 impl EmulatorTrait for SmsGgEmulator {
@@ -308,9 +364,11 @@ impl EmulatorTrait for SmsGgEmulator {
     }
 
     fn reload_config(&mut self, config: &Self::Config) {
-        self.vdp_version = config.vdp_version;
-        self.vdp.set_version(config.vdp_version);
-        self.psg.set_version(config.psg_version);
+        self.vdp_version = determine_vdp_version(config);
+        self.vdp.set_version(self.vdp_version);
+
+        self.psg.set_version(determine_psg_version(config));
+
         self.pixel_aspect_ratio = config.pixel_aspect_ratio;
         self.vdp.set_remove_sprite_limit(config.remove_sprite_limit);
         self.input.set_region(config.sms_region);

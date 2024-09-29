@@ -16,7 +16,7 @@ use jgenesis_common::frontend::{
 use jgenesis_renderer::renderer::{WgpuRenderer, WindowSize};
 use rfd::AsyncFileDialog;
 use segacd_core::api::{SegaCdEmulator, SegaCdEmulatorConfig};
-use smsgg_core::{SmsGgEmulator, SmsGgInputs};
+use smsgg_core::{SmsGgEmulator, SmsGgHardware, SmsGgInputs};
 use snes_core::api::{CoprocessorRoms, SnesEmulator};
 use snes_core::input::SnesInputs;
 use std::collections::HashMap;
@@ -176,12 +176,6 @@ pub fn init_logger() {
     console_log::init_with_level(log::Level::Info).expect("Unable to initialize logger");
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SmsGgConsole {
-    MasterSystem,
-    GameGear,
-}
-
 const STATIC_FRAME_SIZE: FrameSize = FrameSize { width: 878 / 4, height: 672 / 4 };
 const STATIC_FRAME_LEN: usize = (STATIC_FRAME_SIZE.width * STATIC_FRAME_SIZE.height) as usize;
 
@@ -208,7 +202,7 @@ impl RandomNoiseGenerator {
 #[allow(clippy::large_enum_variant)]
 enum Emulator {
     None(RandomNoiseGenerator),
-    SmsGg(SmsGgEmulator, SmsGgInputs, SmsGgConsole),
+    SmsGg(SmsGgEmulator, SmsGgInputs, SmsGgHardware),
     Genesis(GenesisEmulator, GenesisInputs),
     SegaCd(SegaCdEmulator, GenesisInputs),
     Snes(SnesEmulator, SnesInputs),
@@ -324,8 +318,8 @@ impl Emulator {
     fn reload_config(&mut self, config: &WebConfig) {
         match self {
             Self::None(..) => {}
-            Self::SmsGg(emulator, _, console) => {
-                emulator.reload_config(&config.smsgg.to_emulator_config(*console));
+            Self::SmsGg(emulator, _, hardware) => {
+                emulator.reload_config(&config.smsgg.to_emulator_config(*hardware));
             }
             Self::Genesis(emulator, ..) => {
                 emulator.reload_config(&config.genesis.to_emulator_config());
@@ -730,17 +724,17 @@ fn open_emulator(
         file_ext @ ("sms" | "gg") => {
             js::showSmsGgConfig();
 
-            let console = match file_ext {
-                "sms" => SmsGgConsole::MasterSystem,
-                "gg" => SmsGgConsole::GameGear,
+            let hardware = match file_ext {
+                "sms" => SmsGgHardware::MasterSystem,
+                "gg" => SmsGgHardware::GameGear,
                 _ => unreachable!("nested match expressions"),
             };
             let emulator = SmsGgEmulator::create(
                 rom,
-                config_ref.borrow().smsgg.to_emulator_config(console),
+                config_ref.borrow().smsgg.to_emulator_config(hardware),
                 save_writer,
             );
-            Ok(Emulator::SmsGg(emulator, SmsGgInputs::default(), console))
+            Ok(Emulator::SmsGg(emulator, SmsGgInputs::default(), hardware))
         }
         "md" | "bin" => {
             js::showGenesisConfig();

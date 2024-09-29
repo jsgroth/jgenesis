@@ -6,7 +6,9 @@ mod memory;
 pub mod psg;
 mod vdp;
 
-pub use api::{SmsGgEmulator, SmsGgEmulatorConfig, SmsGgError, SmsGgResult, SmsRegion};
+pub use api::{
+    SmsGgEmulator, SmsGgEmulatorConfig, SmsGgError, SmsGgHardware, SmsGgResult, SmsModel, SmsRegion,
+};
 pub use input::{SmsGgButton, SmsGgInputs, SmsGgJoypadState};
 pub use vdp::{VdpVersion, gg_color_to_rgb, sms_color_to_rgb};
 

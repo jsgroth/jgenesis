@@ -1,4 +1,3 @@
-use crate::SmsGgConsole;
 use genesis_core::input::GenesisControllerType;
 use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig};
 use jgenesis_common::frontend::{PixelAspectRatio, TimingMode};
@@ -7,8 +6,7 @@ use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, PrescaleMode, RendererConfig, Scanlines,
     VSyncMode, WgpuBackend,
 };
-use smsgg_core::psg::PsgVersion;
-use smsgg_core::{SmsGgEmulatorConfig, SmsRegion, VdpVersion};
+use smsgg_core::{SmsGgEmulatorConfig, SmsGgHardware, SmsModel, SmsRegion};
 use snes_core::api::{AudioInterpolationMode, SnesAspectRatio, SnesEmulatorConfig};
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -113,25 +111,17 @@ impl Default for SmsGgWebConfig {
 }
 
 impl SmsGgWebConfig {
-    fn vdp_version(&self, console: SmsGgConsole) -> VdpVersion {
-        match (console, self.timing_mode) {
-            (SmsGgConsole::GameGear, _) => VdpVersion::GameGear,
-            (SmsGgConsole::MasterSystem, TimingMode::Ntsc) => VdpVersion::NtscMasterSystem2,
-            (SmsGgConsole::MasterSystem, TimingMode::Pal) => VdpVersion::PalMasterSystem2,
-        }
-    }
-
-    pub(crate) fn to_emulator_config(&self, console: SmsGgConsole) -> SmsGgEmulatorConfig {
-        let vdp_version = self.vdp_version(console);
-        let (psg_version, pixel_aspect_ratio) = if vdp_version.is_master_system() {
-            (PsgVersion::MasterSystem2, self.sms_aspect_ratio.to_pixel_aspect_ratio())
-        } else {
-            (PsgVersion::Standard, self.gg_aspect_ratio.to_pixel_aspect_ratio())
+    pub(crate) fn to_emulator_config(&self, hardware: SmsGgHardware) -> SmsGgEmulatorConfig {
+        let pixel_aspect_ratio = match hardware {
+            SmsGgHardware::MasterSystem => self.sms_aspect_ratio.to_pixel_aspect_ratio(),
+            SmsGgHardware::GameGear => self.gg_aspect_ratio.to_pixel_aspect_ratio(),
         };
 
         SmsGgEmulatorConfig {
-            vdp_version,
-            psg_version,
+            hardware,
+            sms_timing_mode: self.timing_mode,
+            sms_model: SmsModel::default(),
+            forced_psg_version: None,
             pixel_aspect_ratio: Some(pixel_aspect_ratio),
             sms_region: self.region,
             remove_sprite_limit: self.remove_sprite_limit,
