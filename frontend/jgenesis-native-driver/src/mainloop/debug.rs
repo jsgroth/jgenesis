@@ -87,6 +87,7 @@ impl<Emulator> DebuggerWindow<Emulator> {
                 label: "debugger_device".into(),
                 required_features: wgpu::Features::default(),
                 required_limits: wgpu::Limits::default(),
+                memory_hints: wgpu::MemoryHints::default(),
             },
             None,
         ))?;
@@ -110,7 +111,7 @@ impl<Emulator> DebuggerWindow<Emulator> {
         let platform = eguisdl::Platform::new(&window, scale_factor);
         let start_time = SystemTime::now();
 
-        let egui_renderer = egui_wgpu::Renderer::new(&device, surface_format, None, 1);
+        let egui_renderer = egui_wgpu::Renderer::new(&device, surface_format, None, 1, false);
 
         Ok(Self {
             surface,
@@ -179,7 +180,7 @@ impl<Emulator> DebuggerWindow<Emulator> {
         );
 
         {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: "egui_render_pass".into(),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &output_view,
@@ -193,6 +194,9 @@ impl<Emulator> DebuggerWindow<Emulator> {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
+
+            // egui-wgpu requires a RenderPass with static lifetime
+            let mut render_pass = render_pass.forget_lifetime();
 
             self.egui_renderer.render(&mut render_pass, &paint_jobs, &screen_descriptor);
         }

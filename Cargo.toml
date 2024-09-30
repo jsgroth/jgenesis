@@ -16,14 +16,18 @@ bytemuck = { version = "1", features = ["derive"] }
 cfg-if = "1"
 chd = "0.3"
 clap = { version = "4", features = ["derive"] }
+console_error_panic_hook = "0.1"
+console_log = "1"
 crc = "3"
 directories = "5"
-eframe = "0.28"
-egui = "0.28"
-egui_extras = "0.28"
-egui-wgpu = "0.28"
+eframe = "0.29"
+egui = "0.29"
+egui_extras = "0.29"
+egui-wgpu = "0.29"
 env_logger = "0.11"
 flate2 = "1"
+getrandom = "0.2"
+glyphon = "0.6"
 js-sys = "0.3"
 lending-iterator = "0.1"
 log = "0.4"
@@ -31,7 +35,7 @@ pollster = "0.3"
 rand = "0.8"
 raw-window-handle = "0.6"
 regex = "1"
-rfd = "0.14"
+rfd = "0.15"
 sdl2 = { version = "0.37", features = ["raw-window-handle"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -40,16 +44,14 @@ test-log = "0.2"
 thiserror = "1"
 time = "0.3"
 toml = "0.8"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-time = "1"
 windows = "0.58"
-winit = "0.29"
-wgpu = "0.20"
+winit = "0.30"
+wgpu = "22"
 xrandr = "0.2"
 zip = "2"
-
-# Fix Glyphon to a version that is built with wgpu 0.20
-[workspace.dependencies.glyphon]
-git = "https://github.com/grovesNL/glyphon.git"
-rev = "47f4126f999753e14728c0862b822677f1b039e2"
 
 [profile.dev-fast]
 # dev profile with debug symbols disabled, which results in significantly faster compile times

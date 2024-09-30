@@ -29,10 +29,10 @@ use wasm_bindgen::prelude::*;
 use web_sys::{AudioContext, AudioContextOptions};
 use web_time::Instant;
 use winit::event::{ElementState, Event, KeyEvent, WindowEvent};
-use winit::event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy};
+use winit::event_loop::{ControlFlow, EventLoop, EventLoopProxy};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::platform::web::WindowExtWebSys;
-use winit::window::{Fullscreen, Window, WindowBuilder};
+use winit::window::{Fullscreen, Window, WindowAttributes};
 
 struct WebAudioOutput {
     audio_ctx: AudioContext,
@@ -449,10 +449,13 @@ const CANVAS_SIZE: WindowSize = WindowSize { width: CANVAS_WIDTH, height: CANVAS
 /// # Panics
 #[wasm_bindgen]
 pub async fn run_emulator(config_ref: WebConfigRef, emulator_channel: EmulatorChannel) {
-    let event_loop = EventLoopBuilder::<JgenesisUserEvent>::with_user_event()
+    let event_loop = EventLoop::<JgenesisUserEvent>::with_user_event()
         .build()
         .expect("Failed to create winit event loop");
-    let window = WindowBuilder::new().build(&event_loop).expect("Unable to create window");
+
+    #[allow(deprecated)]
+    let window =
+        event_loop.create_window(WindowAttributes::default()).expect("Unable to create window");
 
     web_sys::window()
         .and_then(|window| window.document())
@@ -511,6 +514,8 @@ fn run_event_loop(
     event_loop.set_control_flow(ControlFlow::Poll);
 
     let event_loop_proxy = event_loop.create_proxy();
+
+    #[allow(deprecated)]
     event_loop
         .run(move |event, elwt| match event {
             Event::UserEvent(user_event) => match user_event {

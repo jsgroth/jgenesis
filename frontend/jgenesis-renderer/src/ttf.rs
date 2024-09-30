@@ -90,6 +90,7 @@ impl ModalRenderer {
                 })],
             }),
             multiview: None,
+            cache: None,
         });
 
         let viewport = glyphon::Viewport::new(device, &glyphon_cache);
@@ -150,6 +151,7 @@ impl ModalRenderer {
                 scale: 1.0,
                 bounds: TextBounds { left: 0, top: 0, right: width as i32, bottom: height as i32 },
                 default_color: glyphon::Color::rgb(255, 255, 255),
+                custom_glyphs: &[],
             });
 
             let box_vertices =

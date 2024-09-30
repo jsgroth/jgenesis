@@ -250,6 +250,7 @@ fn create_horizontal_blur_pipeline(
             })],
         }),
         multiview: None,
+        cache: None,
     });
 
     PreprocessPipeline::PreprocessShader {
@@ -481,6 +482,7 @@ impl RenderingPipeline {
                 })],
             }),
             multiview: None,
+            cache: None,
         });
 
         let render_bind_group_layout =
@@ -563,6 +565,7 @@ impl RenderingPipeline {
                 })],
             }),
             multiview: None,
+            cache: None,
         });
 
         Self {
@@ -990,6 +993,7 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
                     } else {
                         wgpu::Limits::default()
                     },
+                    memory_hints: wgpu::MemoryHints::default(),
                 },
                 None,
             )
