@@ -1,7 +1,7 @@
 use crate::config::{CommonConfig, NesConfig};
 
-use crate::mainloop::save::FsSaveWriter;
-use crate::mainloop::{debug, file_name_no_ext};
+use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
+use crate::mainloop::{debug, file_name_no_ext, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config};
 use jgenesis_common::frontend::EmulatorTrait;
 
@@ -52,10 +52,15 @@ pub fn create_nes(config: Box<NesConfig>) -> NativeEmulatorResult<NativeNesEmula
     log::info!("Running with config: {config}");
 
     let rom_path = Path::new(&config.common.rom_file_path);
-    let RomReadResult { rom, .. } = config.common.read_rom_file(SUPPORTED_EXTENSIONS)?;
+    let RomReadResult { rom, extension } = config.common.read_rom_file(SUPPORTED_EXTENSIONS)?;
 
-    let save_path = rom_path.with_extension("sav");
-    let save_state_path = rom_path.with_extension("ss0");
+    let DeterminedPaths { save_path, save_state_path } = save::determine_save_paths(
+        &config.common.save_path,
+        &config.common.state_path,
+        rom_path,
+        &extension,
+    )?;
+
     let mut save_writer = FsSaveWriter::new(save_path);
 
     let emulator_config = config.to_emulator_config();
@@ -79,6 +84,7 @@ pub fn create_nes(config: Box<NesConfig>) -> NativeEmulatorResult<NativeNesEmula
         emulator,
         emulator_config,
         config.common,
+        extension,
         config::DEFAULT_GENESIS_WINDOW_SIZE,
         &window_title,
         save_writer,

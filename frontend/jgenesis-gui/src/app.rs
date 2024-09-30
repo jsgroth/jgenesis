@@ -7,6 +7,7 @@ mod romlist;
 mod smsgg;
 mod snes;
 
+use crate::app::common::SavePathSelect;
 use crate::app::input::{GenericButton, InputAppConfigExt};
 use crate::app::nes::OverscanState;
 use crate::app::romlist::{Console, RomListThreadHandle, RomMetadata};
@@ -16,7 +17,7 @@ use eframe::{Frame, Theme};
 use egui::ahash::HashMap;
 use egui::panel::TopBottomSide;
 use egui::{
-    Align, Button, CentralPanel, Color32, Context, Key, KeyboardShortcut, Layout, Modifiers,
+    Align, Button, CentralPanel, Color32, Context, Grid, Key, KeyboardShortcut, Layout, Modifiers,
     Response, Style, TextEdit, TopBottomPanel, Ui, Vec2, ViewportCommand, Visuals, Widget, Window,
     menu,
 };
@@ -87,6 +88,7 @@ enum OpenWindow {
     NesGeneral,
     SnesGeneral,
     GameBoyGeneral,
+    Paths,
     Interface,
     CommonVideo,
     SmsGgVideo,
@@ -374,6 +376,54 @@ impl App {
         self.state.rom_list_refresh_needed = true;
     }
 
+    fn render_path_settings(&mut self, ctx: &Context) {
+        let mut open = true;
+        Window::new("Path Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.add(SavePathSelect::new(
+                "Game save file path",
+                &mut self.config.common.save_path,
+                &mut self.config.common.custom_save_path,
+            ));
+
+            ui.add(SavePathSelect::new(
+                "Save state path",
+                &mut self.config.common.state_path,
+                &mut self.config.common.custom_state_path,
+            ));
+
+            ui.add_space(10.0);
+
+            ui.group(|ui| {
+                ui.heading("ROM search directories");
+
+                ui.add_space(5.0);
+
+                Grid::new("rom_search_dirs").show(ui, |ui| {
+                    for (i, rom_search_dir) in
+                        self.config.rom_search_dirs.clone().into_iter().enumerate()
+                    {
+                        ui.label(&rom_search_dir);
+
+                        if ui.button("Remove").clicked() {
+                            self.config.rom_search_dirs.remove(i);
+                            self.rom_list_thread.request_scan(self.config.rom_search_dirs.clone());
+                            self.state.rom_list_refresh_needed = true;
+                        }
+
+                        ui.end_row();
+                    }
+                });
+
+                if ui.button("Add").clicked() {
+                    self.add_rom_search_directory();
+                }
+            });
+        });
+        if !open {
+            self.state.open_windows.remove(&OpenWindow::Paths);
+        }
+    }
+
     fn render_interface_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("UI Settings").open(&mut open).resizable(false).show(ctx, |ui| {
@@ -396,32 +446,6 @@ impl App {
                     ui.radio_value(&mut self.config.egui_theme, EguiTheme::Dark, "Dark");
                     ui.radio_value(&mut self.config.egui_theme, EguiTheme::Light, "Light");
                 });
-            });
-
-            ui.add_space(5.0);
-
-            ui.group(|ui| {
-                ui.label("ROM search directories");
-
-                ui.add_space(5.0);
-
-                for (i, rom_search_dir) in
-                    self.config.rom_search_dirs.clone().into_iter().enumerate()
-                {
-                    ui.horizontal(|ui| {
-                        ui.label(&rom_search_dir);
-
-                        if ui.button("Remove").clicked() {
-                            self.config.rom_search_dirs.remove(i);
-                            self.rom_list_thread.request_scan(self.config.rom_search_dirs.clone());
-                            self.state.rom_list_refresh_needed = true;
-                        }
-                    });
-                }
-
-                if ui.button("Add").clicked() {
-                    self.add_rom_search_directory();
-                }
             });
         });
         if !open {
@@ -667,6 +691,11 @@ impl App {
 
             if ui.button("Game Boy").clicked() {
                 self.state.open_windows.insert(OpenWindow::GameBoyGeneral);
+                ui.close_menu();
+            }
+
+            if ui.button("Paths").clicked() {
+                self.state.open_windows.insert(OpenWindow::Paths);
                 ui.close_menu();
             }
 
@@ -1096,6 +1125,7 @@ impl eframe::App for App {
                 OpenWindow::NesGeneral => self.render_nes_general_settings(ctx),
                 OpenWindow::SnesGeneral => self.render_snes_general_settings(ctx),
                 OpenWindow::GameBoyGeneral => self.render_gb_general_settings(ctx),
+                OpenWindow::Paths => self.render_path_settings(ctx),
                 OpenWindow::Interface => self.render_interface_settings(ctx),
                 OpenWindow::CommonVideo => self.render_common_video_settings(ctx),
                 OpenWindow::SmsGgVideo => self.render_smsgg_video_settings(ctx),

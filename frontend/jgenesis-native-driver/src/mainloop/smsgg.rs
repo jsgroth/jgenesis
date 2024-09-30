@@ -1,7 +1,7 @@
 use crate::config::SmsGgConfig;
 
-use crate::mainloop::save::FsSaveWriter;
-use crate::mainloop::{basic_input_mapper_fn, debug, file_name_no_ext};
+use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
+use crate::mainloop::{basic_input_mapper_fn, debug, file_name_no_ext, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config};
 use jgenesis_common::frontend::EmulatorTrait;
 
@@ -49,18 +49,22 @@ impl NativeSmsGgEmulator {
 pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsGgEmulator> {
     log::info!("Running with config: {config}");
 
-    let rom_file_path = Path::new(&config.common.rom_file_path);
-
-    let save_state_path = rom_file_path.with_extension("ss0");
+    let rom_path = Path::new(&config.common.rom_file_path);
 
     let RomReadResult { rom, extension } = config.common.read_rom_file(SUPPORTED_EXTENSIONS)?;
 
-    let save_path = rom_file_path.with_extension("sav");
+    let DeterminedPaths { save_path, save_state_path } = save::determine_save_paths(
+        &config.common.save_path,
+        &config.common.state_path,
+        rom_path,
+        &extension,
+    )?;
+
     let mut save_writer = FsSaveWriter::new(save_path);
 
     let hardware = hardware_for_ext(&extension);
 
-    let rom_title = file_name_no_ext(rom_file_path)?;
+    let rom_title = file_name_no_ext(rom_path)?;
     let window_title = format!("smsgg - {rom_title}");
 
     let emulator_config = config.to_emulator_config(hardware);
@@ -70,6 +74,7 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
         emulator,
         emulator_config,
         config.common,
+        extension,
         config::default_smsgg_window_size(hardware, config.sms_timing_mode),
         &window_title,
         save_writer,

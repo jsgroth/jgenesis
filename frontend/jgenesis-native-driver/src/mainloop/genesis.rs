@@ -1,7 +1,7 @@
 use crate::config::RomReadResult;
 use crate::config::{GenesisConfig, Sega32XConfig, SegaCdConfig};
-use crate::mainloop::save::FsSaveWriter;
-use crate::mainloop::{NativeEmulatorError, basic_input_mapper_fn, debug};
+use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
+use crate::mainloop::{NativeEmulatorError, basic_input_mapper_fn, debug, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config};
 use genesis_core::input::GenesisButton;
 use genesis_core::{GenesisEmulator, GenesisEmulatorConfig, GenesisInputs};
@@ -148,11 +148,17 @@ impl Native32XEmulator {
 pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<NativeGenesisEmulator> {
     log::info!("Running with config: {config}");
 
-    let rom_file_path = Path::new(&config.common.rom_file_path);
-    let RomReadResult { rom, .. } = config.common.read_rom_file(GENESIS_SUPPORTED_EXTENSIONS)?;
+    let rom_path = Path::new(&config.common.rom_file_path);
+    let RomReadResult { rom, extension } =
+        config.common.read_rom_file(GENESIS_SUPPORTED_EXTENSIONS)?;
 
-    let save_path = rom_file_path.with_extension("sav");
-    let save_state_path = rom_file_path.with_extension("ss0");
+    let DeterminedPaths { save_path, save_state_path } = save::determine_save_paths(
+        &config.common.save_path,
+        &config.common.state_path,
+        rom_path,
+        &extension,
+    )?;
+
     let mut save_writer = FsSaveWriter::new(save_path);
 
     let emulator_config = config.to_emulator_config();
@@ -169,6 +175,7 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
         emulator,
         emulator_config,
         config.common,
+        extension,
         config::DEFAULT_GENESIS_WINDOW_SIZE,
         &window_title,
         save_writer,
@@ -185,6 +192,8 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
 /// This function will return an error upon encountering any video, audio, or I/O error, including
 /// any error encountered loading the Sega CD game disc.
 pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeSegaCdEmulator> {
+    const SCD_SAVE_EXTENSION: &str = "scd";
+
     log::info!("Running with config: {config}");
 
     let rom_path = Path::new(&config.genesis.common.rom_file_path);
@@ -196,8 +205,13 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
         CdRomFileFormat::CueBin
     });
 
-    let save_path = rom_path.with_extension("sav");
-    let save_state_path = rom_path.with_extension("ss0");
+    let DeterminedPaths { save_path, save_state_path } = save::determine_save_paths(
+        &config.genesis.common.save_path,
+        &config.genesis.common.state_path,
+        rom_path,
+        SCD_SAVE_EXTENSION,
+    )?;
+
     let mut save_writer = FsSaveWriter::new(save_path);
 
     let bios_file_path = config.bios_file_path.as_ref().ok_or(NativeEmulatorError::SegaCdNoBios)?;
@@ -222,6 +236,7 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
         emulator,
         emulator_config,
         config.genesis.common,
+        SCD_SAVE_EXTENSION.into(),
         config::DEFAULT_GENESIS_WINDOW_SIZE,
         &window_title,
         save_writer,
@@ -240,12 +255,16 @@ pub fn create_32x(config: Box<Sega32XConfig>) -> NativeEmulatorResult<Native32XE
     log::info!("Running with config: {config}");
 
     let rom_path = Path::new(&config.genesis.common.rom_file_path);
-    let RomReadResult { rom, .. } =
+    let RomReadResult { rom, extension } =
         config.genesis.common.read_rom_file(S32X_SUPPORTED_EXTENSIONS)?;
 
-    let save_state_path = rom_path.with_extension("ss0");
+    let DeterminedPaths { save_path, save_state_path } = save::determine_save_paths(
+        &config.genesis.common.save_path,
+        &config.genesis.common.state_path,
+        rom_path,
+        &extension,
+    )?;
 
-    let save_path = rom_path.with_extension("sav");
     let mut save_writer = FsSaveWriter::new(save_path);
 
     let emulator_config = config.to_emulator_config();
@@ -259,6 +278,7 @@ pub fn create_32x(config: Box<Sega32XConfig>) -> NativeEmulatorResult<Native32XE
         emulator,
         emulator_config,
         config.genesis.common,
+        extension,
         config::DEFAULT_GENESIS_WINDOW_SIZE,
         &window_title,
         save_writer,

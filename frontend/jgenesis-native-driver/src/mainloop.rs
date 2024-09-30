@@ -26,7 +26,7 @@ use crate::input::{Hotkey, HotkeyMapResult, HotkeyMapper, InputMapper, Joysticks
 use crate::mainloop::audio::SdlAudioOutput;
 use crate::mainloop::debug::{DebugRenderFn, DebuggerWindow};
 use crate::mainloop::rewind::Rewinder;
-use crate::mainloop::save::FsSaveWriter;
+use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::state::SaveStatePaths;
 pub use audio::AudioError;
 use bincode::error::{DecodeError, EncodeError};
@@ -103,6 +103,7 @@ fn sleep(duration: Duration) {
 }
 
 struct HotkeyState<Emulator> {
+    base_save_state_path: PathBuf,
     save_state_paths: SaveStatePaths,
     save_state_slot: usize,
     save_state_metadata: SaveStateMetadata,
@@ -112,6 +113,20 @@ struct HotkeyState<Emulator> {
     rewinder: Rewinder<Emulator>,
     debugger_window: Option<DebuggerWindow<Emulator>>,
     debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
+}
+
+impl<Emulator> HotkeyState<Emulator> {
+    fn update_save_state_path(&mut self, save_state_path: PathBuf) -> NativeEmulatorResult<()> {
+        if save_state_path == self.base_save_state_path {
+            return Ok(());
+        }
+
+        self.save_state_paths = state::init_paths(&save_state_path)?;
+        self.save_state_metadata = SaveStateMetadata::load(&self.save_state_paths);
+        self.base_save_state_path = save_state_path;
+
+        Ok(())
+    }
 }
 
 impl<Emulator: PartialClone> HotkeyState<Emulator> {
@@ -126,6 +141,7 @@ impl<Emulator: PartialClone> HotkeyState<Emulator> {
         log::debug!("Save state paths: {save_state_paths:?}");
 
         Ok(Self {
+            base_save_state_path: save_state_path,
             save_state_paths,
             save_state_slot: 0,
             save_state_metadata,
@@ -161,6 +177,8 @@ pub struct NativeEmulator<Inputs, Button, Config, Emulator> {
     event_buffer: Rc<RefCell<Vec<Event>>>,
     video: VideoSubsystem,
     hotkey_state: HotkeyState<Emulator>,
+    rom_path: PathBuf,
+    rom_extension: String,
 }
 
 impl<Inputs, Button, Config, Emulator: PartialClone>
@@ -178,6 +196,10 @@ impl<Inputs, Button, Config, Emulator: PartialClone>
         self.renderer.set_speed_multiplier(1);
         self.audio_output.set_speed_multiplier(1);
 
+        if let Err(err) = self.update_save_paths(config) {
+            log::error!("Error updating save paths: {err}");
+        }
+
         self.hotkey_state
             .rewinder
             .set_buffer_duration(Duration::from_secs(config.rewind_buffer_length_seconds));
@@ -192,6 +214,23 @@ impl<Inputs, Button, Config, Emulator: PartialClone>
         }
 
         self.sdl.mouse().show_cursor(!config.hide_cursor_over_window);
+
+        Ok(())
+    }
+
+    fn update_save_paths<KC, JC>(
+        &mut self,
+        config: &CommonConfig<KC, JC>,
+    ) -> NativeEmulatorResult<()> {
+        let DeterminedPaths { save_path, save_state_path } = save::determine_save_paths(
+            &config.save_path,
+            &config.state_path,
+            &self.rom_path,
+            &self.rom_extension,
+        )?;
+
+        self.save_writer.update_path(save_path);
+        self.hotkey_state.update_save_state_path(save_state_path)?;
 
         Ok(())
     }
@@ -276,6 +315,12 @@ pub enum NativeEmulatorError {
     ParseFileName(String),
     #[error("Unable to determine file extension for path: '{0}'")]
     ParseFileExtension(String),
+    #[error("Failed to create save directory at '{path}': {source}")]
+    CreateSaveDir {
+        path: String,
+        #[source]
+        source: io::Error,
+    },
     #[error("Failed to read ROM file at '{path}': {source}")]
     RomRead {
         path: String,
@@ -329,6 +374,7 @@ where
         emulator: Emulator,
         emulator_config: Emulator::Config,
         common_config: CommonConfig<KC, JC>,
+        rom_extension: String,
         default_window_size: WindowSize,
         window_title: &str,
         save_writer: FsSaveWriter,
@@ -371,6 +417,8 @@ where
         Ok(Self {
             emulator,
             config: emulator_config,
+            rom_path: common_config.rom_file_path.into(),
+            rom_extension,
             renderer,
             audio_output,
             wait_for_audio_sync: true,

@@ -6,6 +6,7 @@ use gb_core::api::{GbAspectRatio, GbPalette, GbcColorCorrection};
 use genesis_core::{GenesisAspectRatio, GenesisControllerType, GenesisRegion};
 use jgenesis_common::frontend::{EmulatorTrait, TimingMode};
 use jgenesis_native_config::AppConfig;
+use jgenesis_native_config::common::ConfigSavePath;
 use jgenesis_native_driver::config::input::{NesControllerType, SnesControllerType};
 use jgenesis_native_driver::config::{GgAspectRatio, SmsAspectRatio};
 use jgenesis_native_driver::input::MappableInputs;
@@ -75,6 +76,22 @@ struct Args {
     /// Hide mouse cursor when over emulator window
     #[arg(long)]
     hide_cursor_over_window: Option<bool>,
+
+    /// Save file path (RomFolder / EmulatorFolder / Custom)
+    #[arg(long)]
+    save_path: Option<ConfigSavePath>,
+
+    /// Custom save file path (if save_path=Custom)
+    #[arg(long)]
+    custom_save_path: Option<PathBuf>,
+
+    /// Save state path (RomFolder / EmulatorFolder / Custom)
+    #[arg(long)]
+    state_path: Option<ConfigSavePath>,
+
+    /// Custom save state path (if state_path=Custom)
+    #[arg(long)]
+    custom_state_path: Option<PathBuf>,
 
     /// MasterSystem model (Sms2 / Sms1)
     #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
@@ -428,7 +445,15 @@ impl Args {
             config.nes.remove_sprite_limit = remove_sprite_limit;
         }
 
-        apply_overrides!(self, config.common, [hide_cursor_over_window]);
+        apply_overrides!(self, config.common, [hide_cursor_over_window, save_path, state_path]);
+
+        if let Some(custom_save_path) = &self.custom_save_path {
+            config.common.custom_save_path.clone_from(custom_save_path);
+        }
+
+        if let Some(custom_state_path) = &self.custom_state_path {
+            config.common.custom_state_path.clone_from(custom_state_path);
+        }
     }
 
     fn apply_smsgg_overrides(&self, config: &mut AppConfig) {

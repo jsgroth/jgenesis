@@ -17,12 +17,10 @@ jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
 jgenesis-renderer = { path = "../jgenesis-renderer" }
 
 cfg-if = { workspace = true }
+directories = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }
-
-[target.'cfg(target_os = "linux")'.dependencies]
-directories = { workspace = true }
 
 [lints]
 workspace = true

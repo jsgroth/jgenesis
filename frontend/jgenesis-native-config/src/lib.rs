@@ -124,7 +124,7 @@ pub fn default_config_path() -> PathBuf {
 
 #[cfg(target_os = "linux")]
 fn default_linux_config_path() -> PathBuf {
-    if option_env!("JGENESIS_APPIMAGE_BUILD").is_none() {
+    if !jgenesis_common::is_appimage_build() {
         return CONFIG_FILENAME.into();
     }
 

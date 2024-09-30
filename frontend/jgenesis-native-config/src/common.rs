@@ -1,11 +1,23 @@
 use crate::AppConfig;
-use jgenesis_native_driver::config::{CommonConfig, WindowSize};
+use jgenesis_native_driver::config::{CommonConfig, SavePath, WindowSize};
+use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, PrescaleMode, RendererConfig, Scanlines,
     VSyncMode, WgpuBackend,
 };
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
+use std::path::{Path, PathBuf};
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
+)]
+pub enum ConfigSavePath {
+    #[default]
+    RomFolder,
+    EmulatorFolder,
+    Custom,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CommonAppConfig {
@@ -19,6 +31,14 @@ pub struct CommonAppConfig {
     pub audio_sync_threshold: u32,
     #[serde(default)]
     pub audio_gain_db: f64,
+    #[serde(default)]
+    pub save_path: ConfigSavePath,
+    #[serde(default = "default_custom_save_path")]
+    pub custom_save_path: PathBuf,
+    #[serde(default)]
+    pub state_path: ConfigSavePath,
+    #[serde(default = "default_custom_state_path")]
+    pub custom_state_path: PathBuf,
     pub window_width: Option<u32>,
     pub window_height: Option<u32>,
     #[serde(default)]
@@ -79,6 +99,23 @@ fn default_audio_sync_threshold() -> u32 {
     8192
 }
 
+fn default_custom_path(subdir: &str) -> PathBuf {
+    let Some(base_dirs) = directories::BaseDirs::new() else {
+        log::error!("Unable to determine user base directories for default custom paths");
+        return PathBuf::default();
+    };
+
+    base_dirs.data_local_dir().join("jgenesis").join(subdir)
+}
+
+fn default_custom_save_path() -> PathBuf {
+    default_custom_path(SavePath::SAVE_SUBDIR)
+}
+
+fn default_custom_state_path() -> PathBuf {
+    default_custom_path(SavePath::STATE_SUBDIR)
+}
+
 fn default_prescale_factor() -> PrescaleFactor {
     PrescaleFactor::from(NonZeroU32::new(3).unwrap())
 }
@@ -105,6 +142,8 @@ impl AppConfig {
             internal_audio_buffer_size: self.common.internal_audio_buffer_size,
             audio_sync_threshold: self.common.audio_sync_threshold,
             audio_gain_db: self.common.audio_gain_db,
+            save_path: save_path(self.common.save_path, &self.common.custom_save_path),
+            state_path: save_path(self.common.state_path, &self.common.custom_state_path),
             window_size: self.common.window_size(),
             renderer_config: RendererConfig {
                 wgpu_backend: self.common.wgpu_backend,
@@ -129,5 +168,13 @@ impl AppConfig {
             hotkeys: self.inputs.hotkeys.clone(),
             hide_cursor_over_window: self.common.hide_cursor_over_window,
         }
+    }
+}
+
+fn save_path(path: ConfigSavePath, custom_path: &Path) -> SavePath {
+    match path {
+        ConfigSavePath::RomFolder => SavePath::RomFolder,
+        ConfigSavePath::EmulatorFolder => SavePath::EmulatorFolder,
+        ConfigSavePath::Custom => SavePath::Custom(custom_path.into()),
     }
 }

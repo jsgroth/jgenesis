@@ -24,9 +24,10 @@ use snes_core::api::{
     AudioInterpolationMode, CoprocessorRomFn, CoprocessorRoms, SnesAspectRatio, SnesEmulatorConfig,
 };
 use std::ffi::OsStr;
+use std::fmt::{Display, Formatter};
 use std::fs;
 use std::num::NonZeroU64;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub(crate) const DEFAULT_GENESIS_WINDOW_SIZE: WindowSize = WindowSize { width: 878, height: 672 };
 pub(crate) const DEFAULT_GB_WINDOW_SIZE: WindowSize =
@@ -87,6 +88,28 @@ impl GgAspectRatio {
 }
 
 #[derive(Debug, Clone)]
+pub enum SavePath {
+    RomFolder,
+    EmulatorFolder,
+    Custom(PathBuf),
+}
+
+impl SavePath {
+    pub const SAVE_SUBDIR: &'static str = "saves";
+    pub const STATE_SUBDIR: &'static str = "states";
+}
+
+impl Display for SavePath {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RomFolder => write!(f, "ROM Folder"),
+            Self::EmulatorFolder => write!(f, "Emulator Folder"),
+            Self::Custom(path) => write!(f, "{}", path.display()),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct RomReadResult {
     pub rom: Vec<u8>,
     pub extension: String,
@@ -100,6 +123,8 @@ pub struct CommonConfig<KeyboardConfig, JoystickConfig> {
     pub internal_audio_buffer_size: u32,
     pub audio_sync_threshold: u32,
     pub audio_gain_db: f64,
+    pub save_path: SavePath,
+    pub state_path: SavePath,
     #[debug_fmt]
     pub window_size: Option<WindowSize>,
     #[indent_nested]

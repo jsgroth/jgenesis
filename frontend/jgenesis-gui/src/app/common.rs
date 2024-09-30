@@ -2,9 +2,12 @@ mod helptext;
 
 use crate::app::{App, NumericTextEdit, OpenWindow};
 use eframe::epaint::Color32;
-use egui::{Context, Slider, Window};
+use egui::{Context, Response, Slider, Ui, Widget, Window};
+use jgenesis_native_config::common::ConfigSavePath;
 use jgenesis_renderer::config::{FilterMode, PreprocessShader, Scanlines, VSyncMode, WgpuBackend};
+use rfd::FileDialog;
 use std::num::NonZeroU32;
+use std::path::PathBuf;
 
 impl App {
     pub(super) fn render_common_video_settings(&mut self, ctx: &Context) {
@@ -305,5 +308,49 @@ impl App {
         if !open {
             self.state.open_windows.remove(&WINDOW);
         }
+    }
+}
+
+pub struct SavePathSelect<'a> {
+    label: &'a str,
+    save_path: &'a mut ConfigSavePath,
+    custom_path: &'a mut PathBuf,
+}
+
+impl<'a> SavePathSelect<'a> {
+    pub fn new(
+        label: &'a str,
+        save_path: &'a mut ConfigSavePath,
+        custom_path: &'a mut PathBuf,
+    ) -> Self {
+        Self { label, save_path, custom_path }
+    }
+}
+
+impl<'a> Widget for SavePathSelect<'a> {
+    fn ui(self, ui: &mut Ui) -> Response {
+        ui.group(|ui| {
+            ui.label(self.label);
+
+            ui.horizontal(|ui| {
+                ui.radio_value(self.save_path, ConfigSavePath::RomFolder, "Same folder as ROM");
+                ui.radio_value(self.save_path, ConfigSavePath::EmulatorFolder, "Emulator folder");
+                ui.radio_value(self.save_path, ConfigSavePath::Custom, "Custom");
+            });
+
+            ui.add_enabled_ui(*self.save_path == ConfigSavePath::Custom, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Custom path:");
+
+                    let button_label = self.custom_path.to_string_lossy();
+                    if ui.button(button_label).clicked() {
+                        if let Some(path) = FileDialog::new().pick_folder() {
+                            *self.custom_path = path;
+                        }
+                    }
+                });
+            });
+        })
+        .response
     }
 }
