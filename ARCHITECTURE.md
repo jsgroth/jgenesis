@@ -4,8 +4,8 @@
 
 The crates can be broken up roughly into 5 categories:
 * Common libraries: `jgenesis-common`, `jgenesis-proc-macros`, `cdrom`
-* CPU emulators: `z80-emu`, `m68000-emu`, `mos6502-emu`, `wdc65816-emu`, `spc700-emu`
-* Emulation backend: `smsgg-core`, `genesis-core`, `segacd-core`, `nes-core`, `snes-core`, `snes-coprocessors`, `gb-core`, `ym-opll`
+* CPU emulators: `z80-emu`, `m68000-emu`, `mos6502-emu`, `wdc65816-emu`, `spc700-emu`, `sh2-emu`
+* Emulation backend: `smsgg-core`, `genesis-core`, `segacd-core`, `s32x-core`, `nes-core`, `snes-core`, `snes-coprocessors`, `gb-core`, `ym-opll`
 * Emulation frontend: `jgenesis-renderer`, `jgenesis-native-driver`, `jgenesis-native-config`, `jgenesis-cli`, `jgenesis-gui`, `jgenesis-web`
 * CPU emulator test harnesses: `z80-test-runner`, `m68000-test-runner`, `mos6502-test-runner`, `wdc65816-test-runner`, `spc700-test-runner`
 
@@ -53,6 +53,10 @@ Cycle-based emulation core for the WDC 65C816 CPU (aka 65816), which is used in 
 
 Cycle-based emulation core for the Sony SPC700 CPU, which is used in the SNES as a dedicated audio processor embedded inside the APU.
 
+### `sh2-emu`
+
+Instruction-based emulation core for the Hitachi SH-2 CPU, used in the Sega 32X and the Sega Saturn. This implementation includes the SH7604 hardware features.
+
 ### `ym-opll`
 
 Emulation core for the Yamaha OPLL sound chip, used in the Sega Master System FM sound unit expansion and the NES VRC7 mapper.
@@ -68,6 +72,10 @@ Emulation core for the Sega Genesis / Mega Drive. Uses the PSG component from `s
 ### `segacd-core`
 
 Emulation core for the Sega CD / Mega CD. Uses many components from `genesis-core`, as the Genesis side of the system is virtually unchanged except for the parts of the memory map that the standalone Genesis maps to the cartridge.
+
+### `s32x-core`
+
+Emulation core for the Sega 32X / Mega 32X. Also uses many components from `genesis-core`.
 
 ### `nes-core`
 
