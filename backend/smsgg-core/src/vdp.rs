@@ -774,9 +774,7 @@ impl Vdp {
                 (u16::from(self.registers.x_scroll >> 3), u16::from(self.registers.x_scroll & 0x07))
             };
 
-        // Backdrop color always reads from the second half of CRAM
-        let backdrop_color = self.read_color_ram_word(0x10 | self.registers.backdrop_color);
-
+        let backdrop_color = self.backdrop_color();
         for dot in 0..fine_x_scroll {
             self.frame_buffer.set(frame_buffer_row, dot, backdrop_color);
         }
@@ -890,17 +888,22 @@ impl Vdp {
     }
 
     fn clear_scanline(&mut self) {
-        const BLACK: u16 = 0;
-
         let frame_buffer_row = self.frame_buffer_row();
+        let backdrop_color = self.backdrop_color();
+
         for pixel in 0..SCREEN_WIDTH {
-            self.frame_buffer.set(frame_buffer_row, pixel, BLACK);
+            self.frame_buffer.set(frame_buffer_row, pixel, backdrop_color);
         }
     }
 
     fn frame_buffer_row(&self) -> u16 {
         self.scanline + self.frame_buffer.viewport.top_border_height
             - self.registers.mode.vertical_border_offset()
+    }
+
+    fn backdrop_color(&self) -> u16 {
+        // Backdrop color always reads from the second half of CRAM (sprite colors)
+        self.read_color_ram_word(0x10 | self.registers.backdrop_color)
     }
 
     fn debug_log(&self) {
@@ -992,9 +995,7 @@ impl Vdp {
 
     fn fill_vertical_border(&mut self) {
         let backdrop_color = match self.registers.mode {
-            Mode::Four | Mode::Four224Line => {
-                self.read_color_ram_word(0x10 | self.registers.backdrop_color)
-            }
+            Mode::Four | Mode::Four224Line => self.backdrop_color(),
             Mode::GraphicsII => {
                 tms9918::TMS9918_COLOR_TO_SMS_COLOR[self.registers.backdrop_color as usize].into()
             }
