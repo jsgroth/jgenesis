@@ -180,7 +180,7 @@ impl App {
             let rect = ui
                 .checkbox(
                     &mut self.config.smsgg.gg_use_sms_resolution,
-                    "(Game Gear) Display in SMS resolution",
+                    "(Game Gear) Render in SMS resolution",
                 )
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
