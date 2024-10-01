@@ -60,13 +60,13 @@ impl DerefMut for FrameBuffer {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum SmsGgHardware {
     MasterSystem,
     GameGear,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumDisplay, EnumFromStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SmsModel {
     Sms1,
@@ -82,7 +82,7 @@ pub enum SmsRegion {
     Domestic,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Encode, Decode)]
 pub struct SmsGgEmulatorConfig {
     pub hardware: SmsGgHardware,
     pub sms_timing_mode: TimingMode,
@@ -93,6 +93,7 @@ pub struct SmsGgEmulatorConfig {
     pub sms_region: SmsRegion,
     pub sms_crop_vertical_border: bool,
     pub sms_crop_left_border: bool,
+    pub gg_use_sms_resolution: bool,
     pub fm_sound_unit_enabled: bool,
     pub overclock_z80: bool,
 }
@@ -110,9 +111,7 @@ pub struct SmsGgEmulator {
     input: InputState,
     audio_resampler: AudioResampler,
     frame_buffer: FrameBuffer,
-    sms_crop_vertical_border: bool,
-    sms_crop_left_border: bool,
-    overclock_z80: bool,
+    config: SmsGgEmulatorConfig,
     z80_cycles_remainder: u32,
     vdp_cycles_remainder: u32,
     frame_count: u64,
@@ -137,7 +136,7 @@ impl SmsGgEmulator {
         log::info!("PSG version: {psg_version:?}");
 
         let memory = Memory::new(rom, cartridge_ram);
-        let vdp = Vdp::new(vdp_version, config.remove_sprite_limit);
+        let vdp = Vdp::new(vdp_version, &config);
         let psg = Psg::new(psg_version);
         let input = InputState::new(config.sms_region);
 
@@ -159,9 +158,7 @@ impl SmsGgEmulator {
             input,
             audio_resampler: AudioResampler::new(timing_mode),
             frame_buffer: FrameBuffer::new(),
-            sms_crop_vertical_border: config.sms_crop_vertical_border,
-            sms_crop_left_border: config.sms_crop_left_border,
-            overclock_z80: config.overclock_z80,
+            config,
             z80_cycles_remainder: 0,
             vdp_cycles_remainder: 0,
             frame_count: 0,
@@ -190,24 +187,21 @@ impl SmsGgEmulator {
     }
 
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
-        let crop_vertical_border =
-            self.vdp_version.is_master_system() && self.sms_crop_vertical_border;
-        let crop_left_border = self.vdp_version.is_master_system() && self.sms_crop_left_border;
         populate_frame_buffer(
             self.vdp.frame_buffer(),
             self.vdp_version,
-            crop_vertical_border,
-            crop_left_border,
+            self.config.sms_crop_vertical_border,
+            self.config.sms_crop_left_border,
             &mut self.frame_buffer,
         );
 
-        let viewport = self.vdp_version.viewport_size();
-        let frame_width = if crop_left_border {
+        let viewport = self.vdp.viewport();
+        let frame_width = if self.config.sms_crop_left_border {
             viewport.width_without_border().into()
         } else {
             viewport.width.into()
         };
-        let frame_height = if crop_vertical_border {
+        let frame_height = if self.config.sms_crop_vertical_border {
             viewport.height_without_border().into()
         } else {
             viewport.height.into()
@@ -295,7 +289,7 @@ impl EmulatorTrait for SmsGgEmulator {
             self.ym2413.as_mut(),
             &mut self.input,
         ));
-        let (t_cycles, remainder) = if self.overclock_z80 {
+        let (t_cycles, remainder) = if self.config.overclock_z80 {
             // Emulate a Z80 running at 2x speed by only ticking the rest of the components for
             // half as many cycles
             let t_cycles = t_cycles + self.z80_cycles_remainder;
@@ -364,17 +358,15 @@ impl EmulatorTrait for SmsGgEmulator {
     }
 
     fn reload_config(&mut self, config: &Self::Config) {
+        self.config = *config;
+
         self.vdp_version = determine_vdp_version(config);
-        self.vdp.set_version(self.vdp_version);
+        self.vdp.update_config(self.vdp_version, config);
 
         self.psg.set_version(determine_psg_version(config));
 
         self.pixel_aspect_ratio = config.pixel_aspect_ratio;
-        self.vdp.set_remove_sprite_limit(config.remove_sprite_limit);
         self.input.set_region(config.sms_region);
-        self.sms_crop_vertical_border = config.sms_crop_vertical_border;
-        self.sms_crop_left_border = config.sms_crop_left_border;
-        self.overclock_z80 = config.overclock_z80;
         self.audio_resampler.update_timing_mode(self.vdp.timing_mode());
     }
 
@@ -399,7 +391,7 @@ impl EmulatorTrait for SmsGgEmulator {
         self.z80 = Z80::new();
         init_z80(&mut self.z80);
 
-        self.vdp = Vdp::new(self.vdp_version, self.vdp.get_remove_sprite_limit());
+        self.vdp = Vdp::new(self.vdp_version, &self.config);
         self.psg = Psg::new(self.psg.version());
         self.input = InputState::new(self.input.region());
 
@@ -419,7 +411,7 @@ fn populate_frame_buffer(
     crop_left_border: bool,
     frame_buffer: &mut [Color],
 ) {
-    let viewport = vdp_version.viewport_size();
+    let viewport = vdp_buffer.viewport();
 
     let (row_skip, row_take) = if crop_vertical_border {
         (viewport.top_border_height as usize, viewport.height_without_border() as usize)

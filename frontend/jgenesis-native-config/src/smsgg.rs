@@ -24,6 +24,8 @@ pub struct SmsGgAppConfig {
     pub sms_crop_vertical_border: bool,
     #[serde(default)]
     pub sms_crop_left_border: bool,
+    #[serde(default)]
+    pub gg_use_sms_resolution: bool,
     #[serde(default = "true_fn")]
     pub fm_sound_unit_enabled: bool,
     #[serde(default)]
@@ -58,6 +60,7 @@ impl AppConfig {
             sms_region: self.smsgg.sms_region,
             sms_crop_vertical_border: self.smsgg.sms_crop_vertical_border,
             sms_crop_left_border: self.smsgg.sms_crop_left_border,
+            gg_use_sms_resolution: self.smsgg.gg_use_sms_resolution,
             fm_sound_unit_enabled: self.smsgg.fm_sound_unit_enabled,
             overclock_z80: self.smsgg.overclock_z80,
         })

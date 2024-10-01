@@ -7,6 +7,7 @@
 mod debug;
 mod tms9918;
 
+use crate::SmsGgEmulatorConfig;
 use bincode::de::{BorrowDecoder, Decoder};
 use bincode::enc::Encoder;
 use bincode::error::{DecodeError, EncodeError};
@@ -28,7 +29,7 @@ pub struct ViewportSize {
 }
 
 impl ViewportSize {
-    const NTSC_SMS2: Self = Self {
+    const NTSC_SMS: Self = Self {
         width: 256,
         height: 224,
         top: 0,
@@ -38,7 +39,7 @@ impl ViewportSize {
         left_border_width: 8,
     };
 
-    const PAL_SMS2: Self = Self {
+    const PAL_SMS: Self = Self {
         width: 256,
         height: 240,
         top: 0,
@@ -56,6 +57,16 @@ impl ViewportSize {
         top_border_height: 0,
         bottom_border_height: 0,
         left_border_width: 0,
+    };
+
+    const GAME_GEAR_EXPANDED: Self = Self {
+        width: 256,
+        height: 192,
+        top: 0,
+        left: 0,
+        top_border_height: 0,
+        bottom_border_height: 0,
+        left_border_width: 8,
     };
 
     pub fn height_without_border(self) -> u16 {
@@ -113,11 +124,17 @@ impl VdpVersion {
     }
 
     #[must_use]
-    pub const fn viewport_size(self) -> ViewportSize {
+    const fn viewport_size(self, gg_use_sms_resolution: bool) -> ViewportSize {
         match self {
-            Self::NtscMasterSystem1 | Self::NtscMasterSystem2 => ViewportSize::NTSC_SMS2,
-            Self::PalMasterSystem1 | Self::PalMasterSystem2 => ViewportSize::PAL_SMS2,
-            Self::GameGear => ViewportSize::GAME_GEAR,
+            Self::NtscMasterSystem1 | Self::NtscMasterSystem2 => ViewportSize::NTSC_SMS,
+            Self::PalMasterSystem1 | Self::PalMasterSystem2 => ViewportSize::PAL_SMS,
+            Self::GameGear => {
+                if gg_use_sms_resolution {
+                    ViewportSize::GAME_GEAR_EXPANDED
+                } else {
+                    ViewportSize::GAME_GEAR
+                }
+            }
         }
     }
 }
@@ -599,8 +616,11 @@ pub struct VdpBuffer {
 }
 
 impl VdpBuffer {
-    fn new(version: VdpVersion) -> Self {
-        Self { buffer: vec![0; FRAME_BUFFER_LEN], viewport: version.viewport_size() }
+    fn new(version: VdpVersion, gg_use_sms_resolution: bool) -> Self {
+        Self {
+            buffer: vec![0; FRAME_BUFFER_LEN],
+            viewport: version.viewport_size(gg_use_sms_resolution),
+        }
     }
 
     #[inline]
@@ -622,6 +642,10 @@ impl VdpBuffer {
 
     pub fn iter(&self) -> FrameBufferRowIter<'_> {
         FrameBufferRowIter { buffer: self, row: 0 }
+    }
+
+    pub fn viewport(&self) -> ViewportSize {
+        self.viewport
     }
 }
 
@@ -703,26 +727,18 @@ pub enum VdpTickEffect {
 }
 
 impl Vdp {
-    pub fn new(version: VdpVersion, remove_sprite_limit: bool) -> Self {
+    pub fn new(version: VdpVersion, config: &SmsGgEmulatorConfig) -> Self {
         Self {
-            frame_buffer: VdpBuffer::new(version),
+            frame_buffer: VdpBuffer::new(version, config.gg_use_sms_resolution),
             registers: Registers::new(version),
             vram: [0; VRAM_SIZE],
             color_ram: [0; COLOR_RAM_SIZE],
             scanline: 0,
             dot: 0,
             sprite_buffer: SpriteBuffer::new(),
-            remove_sprite_limit,
+            remove_sprite_limit: config.remove_sprite_limit,
             line_counter: 0xFF,
         }
-    }
-
-    pub fn get_remove_sprite_limit(&self) -> bool {
-        self.remove_sprite_limit
-    }
-
-    pub fn set_remove_sprite_limit(&mut self, remove_sprite_limit: bool) {
-        self.remove_sprite_limit = remove_sprite_limit;
     }
 
     fn read_color_ram_word(&self, address: u8) -> u16 {
@@ -1025,6 +1041,10 @@ impl Vdp {
         &self.frame_buffer
     }
 
+    pub fn viewport(&self) -> ViewportSize {
+        self.frame_buffer.viewport
+    }
+
     pub fn read_control(&mut self) -> u8 {
         self.registers.read_control()
     }
@@ -1090,9 +1110,10 @@ impl Vdp {
         self.registers.version.timing_mode()
     }
 
-    pub fn set_version(&mut self, version: VdpVersion) {
+    pub fn update_config(&mut self, version: VdpVersion, config: &SmsGgEmulatorConfig) {
         self.registers.version = version;
-        self.frame_buffer.viewport = version.viewport_size();
+        self.frame_buffer.viewport = version.viewport_size(config.gg_use_sms_resolution);
+        self.remove_sprite_limit = config.remove_sprite_limit;
     }
 }
 

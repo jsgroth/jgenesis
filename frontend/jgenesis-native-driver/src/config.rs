@@ -179,6 +179,7 @@ pub struct SmsGgConfig {
     pub sms_region: SmsRegion,
     pub sms_crop_vertical_border: bool,
     pub sms_crop_left_border: bool,
+    pub gg_use_sms_resolution: bool,
     pub fm_sound_unit_enabled: bool,
     pub overclock_z80: bool,
 }
@@ -199,6 +200,7 @@ impl SmsGgConfig {
             sms_region: self.sms_region,
             sms_crop_vertical_border: self.sms_crop_vertical_border,
             sms_crop_left_border: self.sms_crop_left_border,
+            gg_use_sms_resolution: self.gg_use_sms_resolution,
             fm_sound_unit_enabled: self.fm_sound_unit_enabled,
             overclock_z80: self.overclock_z80,
         }

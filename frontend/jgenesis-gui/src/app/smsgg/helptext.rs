@@ -73,6 +73,14 @@ pub const SMS_CROP_LEFT_BORDER: HelpText = HelpText {
     ],
 };
 
+pub const GG_USE_SMS_RESOLUTION: HelpText = HelpText {
+    heading: "Game Gear Expanded Resolution",
+    text: &[
+        "If enabled, display the full 256x192 frame rendered by the VDP rather than only the center 160x144 pixels.",
+        "Only the center pixels display on actual hardware, so the expanded parts of the frame may contain garbage.",
+    ],
+};
+
 pub const PSG_VERSION: HelpText = HelpText {
     heading: "PSG Version",
     text: &[

@@ -121,6 +121,10 @@ struct Args {
     #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
     sms_crop_left_border: Option<bool>,
 
+    /// For Game Gear, render at SMS resolution (256x192) instead of native resolution (160x144)
+    #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
+    gg_use_sms_resolution: Option<bool>,
+
     /// Enable SMS FM sound unit
     #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
     sms_fm_unit_enabled: Option<bool>,
@@ -464,6 +468,7 @@ impl Args {
             sms_region,
             sms_crop_vertical_border,
             sms_crop_left_border,
+            gg_use_sms_resolution,
             sms_fm_unit_enabled -> fm_sound_unit_enabled,
             smsgg_overclock_z80 -> overclock_z80,
         ]);

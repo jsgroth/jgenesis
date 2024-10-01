@@ -177,6 +177,16 @@ impl App {
                 self.state.help_text.insert(WINDOW, helptext::SMS_CROP_LEFT_BORDER);
             }
 
+            let rect = ui
+                .checkbox(
+                    &mut self.config.smsgg.gg_use_sms_resolution,
+                    "(Game Gear) Display in SMS resolution",
+                )
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::GG_USE_SMS_RESOLUTION);
+            }
+
             self.render_help_text(ui, WINDOW);
         });
         if !open {
