@@ -951,10 +951,11 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
         config: RendererConfig,
     ) -> Result<Self, RendererError> {
         let backends = match config.wgpu_backend {
-            WgpuBackend::Auto => wgpu::Backends::PRIMARY,
+            WgpuBackend::Auto => wgpu::Backends::all(),
             WgpuBackend::Vulkan => wgpu::Backends::VULKAN,
             WgpuBackend::DirectX12 => wgpu::Backends::DX12,
             WgpuBackend::OpenGl => wgpu::Backends::GL,
+            WgpuBackend::WebGPU => wgpu::Backends::BROWSER_WEBGPU,
         };
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {

@@ -70,8 +70,15 @@ impl Default for CommonWebConfig {
 
 impl CommonWebConfig {
     pub fn to_renderer_config(&self) -> RendererConfig {
+        let renderer = if cfg!(feature = "auto-renderer") {
+            WgpuBackend::Auto
+        } else if cfg!(feature = "webgpu") {
+            WgpuBackend::WebGPU
+        } else {
+            WgpuBackend::OpenGl
+        };
         RendererConfig {
-            wgpu_backend: WgpuBackend::OpenGl,
+            wgpu_backend: renderer,
             vsync_mode: VSyncMode::Enabled,
             prescale_mode: PrescaleMode::Manual(self.prescale_factor),
             scanlines: Scanlines::default(),

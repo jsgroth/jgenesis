@@ -51,5 +51,10 @@ features = [
     "Performance",
 ]
 
+[features]
+default = ["auto-renderer"]
+webgpu = []
+auto-renderer = []
+
 [lints]
 workspace = true
