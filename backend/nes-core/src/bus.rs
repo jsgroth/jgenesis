@@ -63,6 +63,8 @@ pub const CPU_IO_TEST_MODE_END: u16 = 0x401F;
 pub const CPU_CARTRIDGE_START: u16 = 0x4020;
 pub const CPU_CARTRIDGE_END: u16 = 0xFFFF;
 
+pub const PALETTE_RAM_MASK: u16 = 0x001F;
+
 #[derive(Debug, Clone, Copy, Default, Encode, Decode)]
 struct PendingCpuWrite {
     address: u16,
@@ -952,8 +954,9 @@ impl<'a> CpuBus<'a> {
                 let (data, buffer_read_address) = if address < 0x3F00 {
                     (self.0.ppu_registers.ppu_data_buffer, address)
                 } else {
-                    let palette_address = map_palette_address(address);
-                    let palette_byte = self.0.ppu_palette_ram[palette_address];
+                    let palette_address = address & PALETTE_RAM_MASK;
+                    let palette_byte = self.0.ppu_palette_ram[palette_address as usize];
+
                     // When PPUDATA is used to read palette RAM, buffer reads mirror the nametable
                     // data located at $2F00-$2FFF
                     (palette_byte, address - 0x1000)
@@ -1058,11 +1061,7 @@ impl<'a> PpuBus<'a> {
 
         match address {
             0x0000..=0x3EFF => self.0.mapper.read_ppu_address(address, &self.0.ppu_vram),
-            0x3F00..=0x3FFF => {
-                let palette_relative_addr = map_palette_address(address);
-
-                self.0.ppu_palette_ram[palette_relative_addr]
-            }
+            0x3F00..=0x3FFF => self.0.ppu_palette_ram[(address & PALETTE_RAM_MASK) as usize],
             0x4000..=0xFFFF => {
                 unreachable!("{address} should be <= 0x3FFF after masking with 0x3FFF")
             }
@@ -1076,8 +1075,15 @@ impl<'a> PpuBus<'a> {
                 self.0.mapper.write_ppu_address(address, value, &mut self.0.ppu_vram);
             }
             0x3F00..=0x3FFF => {
-                let palette_relative_addr = map_palette_address(address);
-                self.0.ppu_palette_ram[palette_relative_addr] = value;
+                let palette_ram_addr = (address & PALETTE_RAM_MASK) as usize;
+                self.0.ppu_palette_ram[palette_ram_addr] = value;
+
+                // Sprite backdrop colors ($3F10, $3F14, $3F18, $3F1C) mirror BG backdrop colors ($3F00, $3F04, $3F08, $3F0C)
+                // Emulate this by writing to both locations whenever either is written to.
+                // Super Mario Bros. and Micro Machines depend on this for correct colors
+                if palette_ram_addr & 3 == 0 {
+                    self.0.ppu_palette_ram[palette_ram_addr ^ 0x10] = value;
+                }
             }
             0x4000..=0xFFFF => {
                 unreachable!("{address} should be <= 0x3FFF after masking with 0x3FFF")
@@ -1119,16 +1125,6 @@ impl<'a> PpuBus<'a> {
         self.0.ppu_registers.ppu_data_buffer = 0x00;
         self.0.ppu_registers.ppu_open_bus_value = 0x00;
         self.0.mapper.reset();
-    }
-}
-
-fn map_palette_address(address: u16) -> usize {
-    let palette_relative_addr = (address & 0x001F) as usize;
-    if palette_relative_addr >= 0x10 && palette_relative_addr.trailing_zeros() >= 2 {
-        // 0x10, 0x14, 0x18, 0x1C are mirrored to 0x00, 0x04, 0x08, 0x0C
-        palette_relative_addr - 0x10
-    } else {
-        palette_relative_addr
     }
 }
 

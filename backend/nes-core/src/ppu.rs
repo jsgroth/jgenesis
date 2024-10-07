@@ -8,6 +8,7 @@
 //! for a total of 312 scanlines.
 
 use crate::api::NesEmulatorConfig;
+use crate::bus;
 use crate::bus::{PpuBus, PpuRegisters, PpuTrackedRegister, PpuWriteToggle};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
@@ -115,8 +116,11 @@ impl TimingModePpuExt for TimingMode {
 
 #[derive(Debug, Clone, Encode, Decode)]
 struct InternalRegisters {
+    // v register (15-bit)
     vram_address: u16,
+    // t register (15-bit)
     temp_vram_address: u16,
+    // x register (3-bit)
     fine_x_scroll: u8,
 }
 
@@ -323,7 +327,6 @@ pub struct PpuState {
     scanline: u16,
     dot: u16,
     odd_frame: bool,
-    rendering_disabled_backdrop_color: Option<u8>,
     pending_sprite_0_hit: bool,
 }
 
@@ -340,7 +343,6 @@ impl PpuState {
             scanline: timing_mode.pre_render_scanline(),
             dot: 0,
             odd_frame: false,
-            rendering_disabled_backdrop_color: Some(BLACK_NES_COLOR),
             pending_sprite_0_hit: false,
         }
     }
@@ -410,32 +412,23 @@ pub fn tick(state: &mut PpuState, bus: &mut PpuBus<'_>, config: NesEmulatorConfi
 
     let color_mask = get_color_mask(bus.get_ppu_registers());
     if rendering_enabled {
-        state.rendering_disabled_backdrop_color = None;
         process_scanline(state, bus, config.remove_sprite_limit);
     } else {
         bus.get_ppu_registers_mut().set_oam_open_bus(None);
 
-        if !VISIBLE_SCANLINES.contains(&state.scanline) {
-            // The backdrop color always resets to color 0 when rendering is disabled outside of
-            // active display
-            state.rendering_disabled_backdrop_color = Some(bus.get_palette_ram()[0] & color_mask);
-        }
-
-        // When rendering is disabled, pixels should use whatever the backdrop color was set to
-        // at disable time until rendering is enabled again
-        let backdrop_color = *state.rendering_disabled_backdrop_color.get_or_insert_with(|| {
-            // "Background palette hack": If rendering is disabled mid-frame while the current
-            // VRAM address is inside the palette RAM address range, use the color at that
-            // address instead of the standard backdrop color
-            let palette_ram_addr = if (0x3F00..=0x3FFF).contains(&state.registers.vram_address) {
-                state.registers.vram_address & 0x001F
+        if VISIBLE_SCANLINES.contains(&state.scanline) && RENDERING_DOTS.contains(&state.dot) {
+            // When rendering is disabled, the PPU normally always outputs the backdrop color (index 0),
+            // but if the current VRAM address is in the palette RAM range ($3F00-$3FFF) then it will
+            // use the color at the current palette RAM address instead.
+            // Micro Machines depends on this for correct rendering, as do certain test roms (e.g. full_palette.nes)
+            let vram_addr = state.registers.vram_address & 0x3FFF;
+            let palette_ram_addr = if (0x3F00..=0x3FFF).contains(&vram_addr) {
+                vram_addr & bus::PALETTE_RAM_MASK
             } else {
                 0
             };
-            bus.get_palette_ram()[palette_ram_addr as usize] & color_mask
-        });
+            let backdrop_color = bus.get_palette_ram()[palette_ram_addr as usize] & color_mask;
 
-        if VISIBLE_SCANLINES.contains(&state.scanline) && RENDERING_DOTS.contains(&state.dot) {
             let color_emphasis = ColorEmphasis::get_current(bus, state.timing_mode);
             state.set_in_frame_buffer(
                 state.scanline,
