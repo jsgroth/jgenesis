@@ -13,6 +13,7 @@ use crate::bus::{PpuBus, PpuRegisters, PpuTrackedRegister, PpuWriteToggle};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::GetBit;
+use std::array;
 use std::fmt::{Display, Formatter};
 use std::ops::RangeInclusive;
 
@@ -192,23 +193,6 @@ impl BgBuffers {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
-struct BitSet256([u64; 4]);
-
-impl BitSet256 {
-    fn new() -> Self {
-        Self([0; 4])
-    }
-
-    fn get(&self, bit: u8) -> bool {
-        self.0[(bit >> 6) as usize] & (1_u64 << (bit & 0x3F)) != 0
-    }
-
-    fn set(&mut self, bit: u8) {
-        self.0[(bit >> 6) as usize] |= 1_u64 << (bit & 0x3F);
-    }
-}
-
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 struct SpriteBufferData {
     y_position: u8,
@@ -232,19 +216,16 @@ struct SpriteBuffers {
     pattern_table_high: [u8; SPRITE_BUFFER_LEN],
     buffer_len: u8,
     sprite_0_buffered: bool,
-    // Stores whether there is any sprite at the given X coordinate
-    sprite_x_bit_set: BitSet256,
 }
 
 impl SpriteBuffers {
     fn new() -> Self {
         Self {
-            sprites: [SpriteBufferData::default(); SPRITE_BUFFER_LEN],
-            pattern_table_low: [0; SPRITE_BUFFER_LEN],
-            pattern_table_high: [0; SPRITE_BUFFER_LEN],
+            sprites: array::from_fn(|_| SpriteBufferData::default()),
+            pattern_table_low: array::from_fn(|_| 0),
+            pattern_table_high: array::from_fn(|_| 0),
             buffer_len: 0,
             sprite_0_buffered: false,
-            sprite_x_bit_set: BitSet256::new(),
         }
     }
 }
@@ -275,9 +256,8 @@ impl SpriteEvaluationData {
         }
     }
 
-    fn to_sprite_buffers(&self) -> SpriteBuffers {
-        let mut sprites = [SpriteBufferData::default(); SPRITE_BUFFER_LEN];
-        let mut sprite_x_bit_set = BitSet256::new();
+    fn update_sprite_buffers(&self, buffers: &mut SpriteBuffers) {
+        buffers.sprites.fill(SpriteBufferData::default());
 
         for (i, chunk) in
             self.secondary_oam.chunks_exact(4).take(self.sprites_found as usize).enumerate()
@@ -286,35 +266,34 @@ impl SpriteEvaluationData {
                 unreachable!("all chunks from chunks_exact(4) should be of size 4")
             };
 
-            sprites[i] = SpriteBufferData {
+            buffers.sprites[i] = SpriteBufferData {
                 y_position,
                 x_position,
                 attributes: attributes_byte,
                 tile_index,
             };
-
-            for x in x_position..=x_position.saturating_add(7) {
-                sprite_x_bit_set.set(x);
-            }
         }
 
-        SpriteBuffers {
-            sprites,
-            pattern_table_low: [0; SPRITE_BUFFER_LEN],
-            pattern_table_high: [0; SPRITE_BUFFER_LEN],
-            buffer_len: self.sprites_found,
-            sprite_0_buffered: self.sprite_0_found,
-            sprite_x_bit_set,
-        }
+        buffers.pattern_table_low.fill(0);
+        buffers.pattern_table_high.fill(0);
+        buffers.buffer_len = self.sprites_found;
+        buffers.sprite_0_buffered = self.sprite_0_found;
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Encode, Decode)]
 struct SpriteData {
     color_id: u8,
     is_sprite_0: bool,
     attributes: u8,
 }
+
+impl SpriteData {
+    // Color 0 is transparent and will never display
+    const NONE: Self = Self { color_id: 0, is_sprite_0: false, attributes: 0x00 };
+}
+
+type SpriteLineBuffer = [SpriteData; SCREEN_WIDTH as usize];
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct PpuState {
@@ -324,6 +303,7 @@ pub struct PpuState {
     bg_buffers: BgBuffers,
     sprite_buffers: SpriteBuffers,
     sprite_evaluation_data: SpriteEvaluationData,
+    sprite_line_buffer: SpriteLineBuffer,
     scanline: u16,
     dot: u16,
     odd_frame: bool,
@@ -340,6 +320,7 @@ impl PpuState {
             bg_buffers: BgBuffers::new(),
             sprite_buffers: SpriteBuffers::new(),
             sprite_evaluation_data: SpriteEvaluationData::new(),
+            sprite_line_buffer: array::from_fn(|_| SpriteData::NONE),
             scanline: timing_mode.pre_render_scanline(),
             dot: 0,
             odd_frame: false,
@@ -561,13 +542,26 @@ fn process_scanline(state: &mut PpuState, bus: &mut PpuBus<'_>, remove_sprite_li
                         reset_horizontal_pos(&mut state.registers);
 
                         // Fill sprite buffers with sprite data for the next scanline
-                        state.sprite_buffers = state.sprite_evaluation_data.to_sprite_buffers();
+                        state
+                            .sprite_evaluation_data
+                            .update_sprite_buffers(&mut state.sprite_buffers);
                     }
 
                     fetch_sprite_tile_data(bus, scanline, dot, &mut state.sprite_buffers);
 
-                    if remove_sprite_limit && dot == 320 {
-                        finish_sprite_tile_fetches(bus, scanline, dot, &mut state.sprite_buffers);
+                    if dot == 320 {
+                        if remove_sprite_limit {
+                            finish_sprite_tile_fetches(
+                                bus,
+                                scanline,
+                                dot,
+                                &mut state.sprite_buffers,
+                            );
+                        }
+                        fill_sprite_line_buffer(
+                            &state.sprite_buffers,
+                            &mut state.sprite_line_buffer,
+                        );
                     }
                 }
                 321..=336 => {
@@ -787,14 +781,15 @@ fn render_pixel(state: &mut PpuState, bus: &mut PpuBus<'_>) {
     state.bg_buffers.shift();
 
     // Find the first overlapping sprite by OAM index, if any; use transparent if none found
-    let sprite = (state.scanline != 0
+    let sprite = if state.scanline != 0
         && state.scanline != state.timing_mode.pre_render_scanline()
         && sprites_enabled
         && (pixel >= 8 || left_edge_sprites_enabled)
-        && state.sprite_buffers.sprite_x_bit_set.get(pixel))
-    .then(|| find_first_overlapping_sprite(pixel, &state.sprite_buffers))
-    .flatten()
-    .unwrap_or(SpriteData { color_id: 0, is_sprite_0: false, attributes: 0x00 });
+    {
+        state.sprite_line_buffer[pixel as usize]
+    } else {
+        SpriteData::NONE
+    };
 
     if sprite.is_sprite_0 && bg_color_id != 0 && sprite.color_id != 0 && pixel < 255 {
         // Set sprite 0 hit when a non-transparent sprite pixel overlaps a non-transparent BG pixel
@@ -1110,30 +1105,38 @@ fn finish_sprite_evaluation_no_limit(state: &mut PpuState, bus: &mut PpuBus<'_>)
     }
 }
 
-fn find_first_overlapping_sprite(pixel: u8, sprites: &SpriteBuffers) -> Option<SpriteData> {
-    (0..sprites.buffer_len as usize).find_map(|i| {
-        let SpriteBufferData { x_position: x_pos, attributes, .. } = sprites.sprites[i];
+fn fill_sprite_line_buffer(sprite_buffers: &SpriteBuffers, line_buffer: &mut SpriteLineBuffer) {
+    line_buffer.fill(SpriteData::NONE);
 
-        if !(x_pos..=x_pos.saturating_add(7)).contains(&pixel) {
-            return None;
-        }
+    for i in 0..sprite_buffers.buffer_len {
+        let SpriteBufferData { x_position: x_pos, attributes, .. } =
+            sprite_buffers.sprites[i as usize];
 
         let sprite_flip_x = attributes.bit(6);
+        let is_sprite_0 = i == 0 && sprite_buffers.sprite_0_buffered;
 
-        // Determine sprite pixel color ID
-        let sprite_fine_x = if sprite_flip_x { 7 - (pixel - x_pos) } else { pixel - x_pos };
-        let sprite_color_id = get_color_id(
-            sprites.pattern_table_low[i],
-            sprites.pattern_table_high[i],
-            sprite_fine_x,
-        );
+        for x in x_pos..=x_pos.saturating_add(7) {
+            if line_buffer[x as usize].color_id != 0 {
+                // There is already a non-transparent sprite pixel in this position with a lower OAM index
+                continue;
+            }
 
-        (sprite_color_id != 0).then_some(SpriteData {
-            color_id: sprite_color_id,
-            attributes,
-            is_sprite_0: i == 0 && sprites.sprite_0_buffered,
-        })
-    })
+            // Determine sprite pixel color ID
+            let sprite_fine_x = if sprite_flip_x { 7 - (x - x_pos) } else { x - x_pos };
+            let color_id = get_color_id(
+                sprite_buffers.pattern_table_low[i as usize],
+                sprite_buffers.pattern_table_high[i as usize],
+                sprite_fine_x,
+            );
+
+            if color_id == 0 {
+                // Sprite pixel is transparent
+                continue;
+            }
+
+            line_buffer[x as usize] = SpriteData { color_id, is_sprite_0, attributes };
+        }
+    }
 }
 
 fn fetch_nametable_byte(registers: &InternalRegisters, bus: &mut PpuBus<'_>) -> u8 {
