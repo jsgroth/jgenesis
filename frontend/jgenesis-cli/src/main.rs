@@ -61,7 +61,7 @@ struct Args {
     #[arg(long = "config")]
     config_path_override: Option<String>,
 
-    /// Attempt to load the specified save state slot during startup
+    /// Attempt to load the specified save state slot during startup. Takes priority over --load-recent-state-at-launch
     #[arg(long, value_name = "SLOT")]
     load_save_state: Option<usize>,
 
@@ -392,6 +392,10 @@ struct Args {
     /// Rewind buffer length in seconds
     #[arg(long, help_heading = HOTKEY_OPTIONS_HEADING)]
     rewind_buffer_length_seconds: Option<u64>,
+
+    /// Attempt to load the most recent save state slot during startup
+    #[arg(long, help_heading = HOTKEY_OPTIONS_HEADING)]
+    load_recent_state_at_launch: Option<bool>,
 }
 
 macro_rules! apply_overrides {
@@ -608,8 +612,15 @@ impl Args {
     fn apply_hotkey_overrides(&self, config: &mut AppConfig) {
         apply_overrides!(self, config.common, [
             fast_forward_multiplier,
-            rewind_buffer_length_seconds
+            rewind_buffer_length_seconds,
         ]);
+
+        if self.load_save_state.is_some() {
+            // Don't try to load a recent state if --load-save-state arg was passed
+            config.common.load_recent_state_at_launch = false;
+        } else if let Some(load_recent_state_at_launch) = self.load_recent_state_at_launch {
+            config.common.load_recent_state_at_launch = load_recent_state_at_launch;
+        }
     }
 }
 

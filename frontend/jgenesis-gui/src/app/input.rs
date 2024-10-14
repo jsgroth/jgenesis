@@ -807,6 +807,11 @@ impl App {
                         "Rewind buffer length must be a non-negative integer",
                     );
                 }
+
+                ui.checkbox(
+                    &mut self.config.common.load_recent_state_at_launch,
+                    "Load most recent save state at launch",
+                );
             });
         });
         if !open {

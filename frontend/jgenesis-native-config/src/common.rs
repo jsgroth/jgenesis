@@ -59,6 +59,8 @@ pub struct CommonAppConfig {
     pub filter_mode: FilterMode,
     #[serde(default)]
     pub preprocess_shader: PreprocessShader,
+    #[serde(default)]
+    pub load_recent_state_at_launch: bool,
     #[serde(default = "default_fast_forward_multiplier")]
     pub fast_forward_multiplier: u64,
     #[serde(default = "default_rewind_buffer_length")]
@@ -161,6 +163,7 @@ impl AppConfig {
             },
             fast_forward_multiplier: self.common.fast_forward_multiplier,
             rewind_buffer_length_seconds: self.common.rewind_buffer_length_seconds,
+            load_recent_state_at_launch: self.common.load_recent_state_at_launch,
             launch_in_fullscreen: self.common.launch_in_fullscreen,
             keyboard_inputs,
             axis_deadzone: self.inputs.axis_deadzone,

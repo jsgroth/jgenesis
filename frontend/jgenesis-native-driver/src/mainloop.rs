@@ -414,7 +414,7 @@ where
 
         let hotkey_state = HotkeyState::new(&common_config, save_state_path, debug_render_fn)?;
 
-        Ok(Self {
+        let mut emulator = Self {
             emulator,
             config: emulator_config,
             rom_path: common_config.rom_file_path.into(),
@@ -430,7 +430,13 @@ where
             event_buffer: Rc::new(RefCell::new(Vec::with_capacity(100))),
             video,
             hotkey_state,
-        })
+        };
+
+        if common_config.load_recent_state_at_launch {
+            emulator.try_load_most_recent_state();
+        }
+
+        Ok(emulator)
     }
 
     /// Run the emulator until a frame is rendered.
@@ -602,6 +608,30 @@ where
         self.hotkey_state.save_state_slot = slot;
 
         Ok(())
+    }
+
+    /// Try to load the most recent save state.
+    ///
+    /// If there are no save states or the most recent save state is invalid, this method will log
+    /// an error and not modify any emulator state.
+    pub fn try_load_most_recent_state(&mut self) {
+        let max_time = self
+            .hotkey_state
+            .save_state_metadata
+            .times_nanos
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, option)| option.map(|time| (i, time)))
+            .max_by_key(|&(_, time)| time);
+
+        let Some((slot, _)) = max_time else {
+            log::error!("No save states found; not loading a save state at launch");
+            return;
+        };
+
+        if let Err(err) = self.load_state(slot) {
+            log::error!("Error loading save state slot {slot} at launch: {err}");
+        }
     }
 
     pub fn save_state_metadata(&self) -> &SaveStateMetadata {
