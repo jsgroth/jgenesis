@@ -13,12 +13,12 @@ use crate::app::nes::OverscanState;
 use crate::app::romlist::{Console, RomListThreadHandle, RomMetadata};
 use crate::emuthread;
 use crate::emuthread::{EmuThreadCommand, EmuThreadHandle, EmuThreadStatus};
-use eframe::{Frame, Theme};
+use eframe::Frame;
 use egui::ahash::HashMap;
 use egui::panel::TopBottomSide;
 use egui::{
     Align, Button, CentralPanel, Color32, Context, Grid, Key, KeyboardShortcut, Layout, Modifiers,
-    Response, Style, TextEdit, TopBottomPanel, Ui, Vec2, ViewportCommand, Visuals, Widget, Window,
+    Response, TextEdit, ThemePreference, TopBottomPanel, Ui, Vec2, ViewportCommand, Widget, Window,
     menu,
 };
 use egui_extras::{Column, TableBuilder};
@@ -1061,16 +1061,12 @@ impl App {
         }
     }
 
-    fn update_egui_theme(&mut self, ctx: &Context, frame: &Frame) {
-        let visuals = match self.config.egui_theme {
-            EguiTheme::SystemDefault => {
-                frame.info().system_theme.map_or_else(Visuals::default, Theme::egui_visuals)
-            }
-            EguiTheme::Dark => Visuals::dark(),
-            EguiTheme::Light => Visuals::light(),
-        };
-
-        ctx.set_style(Style { visuals, ..Style::default() });
+    fn update_egui_theme(&mut self, ctx: &Context) {
+        ctx.set_theme(match self.config.egui_theme {
+            EguiTheme::SystemDefault => ThemePreference::System,
+            EguiTheme::Dark => ThemePreference::Dark,
+            EguiTheme::Light => ThemePreference::Light,
+        });
     }
 
     fn reload_config(&mut self) {
@@ -1100,7 +1096,7 @@ impl App {
 }
 
 impl eframe::App for App {
-    fn update(&mut self, ctx: &Context, frame: &mut Frame) {
+    fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
         if self.state.rom_list_refresh_needed && !self.rom_list_thread.any_scans_in_progress() {
             self.state.rom_list_refresh_needed = false;
             self.refresh_filtered_rom_list();
@@ -1124,7 +1120,7 @@ impl eframe::App for App {
         self.check_waiting_for_input(ctx);
         self.check_for_close_on_emu_exit(ctx);
 
-        self.update_egui_theme(ctx, frame);
+        self.update_egui_theme(ctx);
 
         self.render_menu(ctx);
         self.render_central_panel(ctx);

@@ -21,17 +21,16 @@ jgenesis-renderer = { path = "../jgenesis-renderer" }
 anyhow = { workspace = true }
 bincode = { workspace = true }
 base64 = { workspace = true }
-console_error_panic_hook = "0.1"
-console_log = "1"
-getrandom = { version = "0.2", features = ["js"] }
+console_error_panic_hook = { workspace = true }
+console_log = { workspace = true }
+getrandom = { workspace = true, features = ["js"] }
 js-sys = { workspace = true }
 log = { workspace = true, features = ["release_max_level_info"] }
 rand = { workspace = true }
 rfd = { workspace = true }
-wasm-bindgen = "0.2"
-wasm-bindgen-futures = "0.4"
-# web-time 1.x is incompatible with winit 0.29
-web-time = "0.2"
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+web-time = { workspace = true }
 wgpu = { workspace = true, features = ["webgl"] }
 winit = { workspace = true }
 
