@@ -2,7 +2,7 @@ use clap::Parser;
 use eframe::NativeOptions;
 use egui::{Vec2, ViewportBuilder};
 use env_logger::Env;
-use jgenesis_gui::app::App;
+use jgenesis_gui::app::{App, LoadAtStartup};
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
@@ -15,6 +15,20 @@ struct Args {
     /// when the emulator window is closed
     #[arg(long = "file-path", short = 'f')]
     startup_file_path: Option<String>,
+
+    /// In combination with -f, attempt to load the specified save state when launching the game.
+    /// This arg has no effect if -f/--file-path is not set
+    #[arg(long, value_name = "SLOT")]
+    load_save_state: Option<usize>,
+}
+
+impl Args {
+    fn load_at_startup(&self) -> Option<LoadAtStartup> {
+        self.startup_file_path.as_ref().map(|file_path| LoadAtStartup {
+            file_path: file_path.clone(),
+            load_state_slot: self.load_save_state,
+        })
+    }
 }
 
 // Attempt to detect if the application is running on a Steam Deck, and if it is then override
@@ -68,8 +82,10 @@ fn main() -> eframe::Result<()> {
     #[cfg(all(unix, not(target_os = "macos")))]
     steam_deck_dpi_hack();
 
-    let config_path =
-        args.config_path.map_or_else(jgenesis_native_config::default_config_path, PathBuf::from);
+    let config_path = args
+        .config_path
+        .as_ref()
+        .map_or_else(jgenesis_native_config::default_config_path, Into::<PathBuf>::into);
     log::info!("Using config path '{}'", config_path.display());
 
     if let Some(file_path) = &args.startup_file_path {
@@ -81,11 +97,10 @@ fn main() -> eframe::Result<()> {
         ..NativeOptions::default()
     };
 
+    let load_at_startup = args.load_at_startup();
     eframe::run_native(
         "jgenesis",
         options,
-        Box::new(|cc| {
-            Ok(Box::new(App::new(config_path, args.startup_file_path, cc.egui_ctx.clone())))
-        }),
+        Box::new(|cc| Ok(Box::new(App::new(config_path, load_at_startup, cc.egui_ctx.clone())))),
     )
 }

@@ -245,18 +245,24 @@ impl<'a, T: Copy + FromStr> Widget for NumericTextEdit<'a, T> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct LoadAtStartup {
+    pub file_path: String,
+    pub load_state_slot: Option<usize>,
+}
+
 pub struct App {
     config: AppConfig,
     state: AppState,
     config_path: PathBuf,
     emu_thread: EmuThreadHandle,
     rom_list_thread: RomListThreadHandle,
-    startup_file_path: Option<String>,
+    load_at_startup: Option<LoadAtStartup>,
 }
 
 impl App {
     #[must_use]
-    pub fn new(config_path: PathBuf, startup_file_path: Option<String>, ctx: Context) -> Self {
+    pub fn new(config_path: PathBuf, load_at_startup: Option<LoadAtStartup>, ctx: Context) -> Self {
         let config = AppConfig::from_file(&config_path);
         let state = AppState::from_config(&config);
         let emu_thread = emuthread::spawn(ctx);
@@ -264,7 +270,7 @@ impl App {
         let rom_list_thread = RomListThreadHandle::spawn(Arc::clone(&state.rom_list));
         rom_list_thread.request_scan(config.rom_search_dirs.clone());
 
-        Self { config, state, config_path, emu_thread, rom_list_thread, startup_file_path }
+        Self { config, state, config_path, emu_thread, rom_list_thread, load_at_startup }
     }
 
     fn open_file(&mut self, console: Option<Console>) {
@@ -1101,8 +1107,13 @@ impl eframe::App for App {
         }
 
         if self.state.rendered_first_frame {
-            if let Some(startup_file_path) = self.startup_file_path.take() {
-                self.launch_emulator(startup_file_path, None);
+            if let Some(load_at_startup) = self.load_at_startup.take() {
+                self.launch_emulator(load_at_startup.file_path, None);
+
+                if let Some(load_state_slot) = load_at_startup.load_state_slot {
+                    self.emu_thread.send(EmuThreadCommand::LoadState { slot: load_state_slot });
+                }
+
                 self.state.close_on_emulator_exit = true;
             }
         }
