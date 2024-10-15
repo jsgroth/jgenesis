@@ -184,7 +184,7 @@ impl Sh2 {
             log::trace!("  SR={:?}", self.registers.sr);
         }
 
-        instructions::execute(self, opcode, bus);
+        instructions::decode(opcode)(self, opcode, bus);
     }
 
     /// Advance internal peripherals by `system_cycles`, specifically the watchdog timer (WDT) and
@@ -196,7 +196,7 @@ impl Sh2 {
         self.update_internal_interrupt_level();
     }
 
-    fn read_byte<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u8 {
+    fn read_byte<B: BusInterface + ?Sized>(&mut self, address: u32, bus: &mut B) -> u8 {
         match address >> 29 {
             0 => self.cached_read_byte(address, bus),
             1 => bus.read_byte(address & EXTERNAL_ADDRESS_MASK),
@@ -210,7 +210,7 @@ impl Sh2 {
         }
     }
 
-    fn cached_read_byte<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u8 {
+    fn cached_read_byte<B: BusInterface + ?Sized>(&mut self, address: u32, bus: &mut B) -> u8 {
         if let Some(value) = self.cache.read_u8(address) {
             return value;
         }
@@ -223,7 +223,7 @@ impl Sh2 {
         }
     }
 
-    fn read_word<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u16 {
+    fn read_word<B: BusInterface + ?Sized>(&mut self, address: u32, bus: &mut B) -> u16 {
         self.read_word_generic::<_, false>(address, bus)
     }
 
@@ -233,7 +233,7 @@ impl Sh2 {
     }
 
     #[inline(always)]
-    fn read_word_generic<B: BusInterface, const INSTRUCTION: bool>(
+    fn read_word_generic<B: BusInterface + ?Sized, const INSTRUCTION: bool>(
         &mut self,
         address: u32,
         bus: &mut B,
@@ -252,7 +252,7 @@ impl Sh2 {
     }
 
     #[inline(always)]
-    fn cached_read_word<B: BusInterface, const INSTRUCTION: bool>(
+    fn cached_read_word<B: BusInterface + ?Sized, const INSTRUCTION: bool>(
         &mut self,
         address: u32,
         bus: &mut B,
@@ -271,7 +271,7 @@ impl Sh2 {
         }
     }
 
-    fn read_longword<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u32 {
+    fn read_longword<B: BusInterface + ?Sized>(&mut self, address: u32, bus: &mut B) -> u32 {
         match address >> 29 {
             0 => self.cached_read_longword(address, bus),
             1 => bus.read_longword(address & EXTERNAL_ADDRESS_MASK),
@@ -288,7 +288,7 @@ impl Sh2 {
         }
     }
 
-    fn cached_read_longword<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u32 {
+    fn cached_read_longword<B: BusInterface + ?Sized>(&mut self, address: u32, bus: &mut B) -> u32 {
         if let Some(value) = self.cache.read_u32(address) {
             return value;
         }
@@ -300,7 +300,7 @@ impl Sh2 {
         }
     }
 
-    fn write_byte<B: BusInterface>(&mut self, address: u32, value: u8, bus: &mut B) {
+    fn write_byte<B: BusInterface + ?Sized>(&mut self, address: u32, value: u8, bus: &mut B) {
         match address >> 29 {
             0 => {
                 bus.write_byte(address & EXTERNAL_ADDRESS_MASK, value);
@@ -314,7 +314,7 @@ impl Sh2 {
         }
     }
 
-    fn write_word<B: BusInterface>(&mut self, address: u32, value: u16, bus: &mut B) {
+    fn write_word<B: BusInterface + ?Sized>(&mut self, address: u32, value: u16, bus: &mut B) {
         match address >> 29 {
             0 => {
                 bus.write_word(address & EXTERNAL_ADDRESS_MASK, value);
@@ -329,7 +329,7 @@ impl Sh2 {
     }
 
     #[allow(clippy::match_same_arms)]
-    fn write_longword<B: BusInterface>(&mut self, address: u32, value: u32, bus: &mut B) {
+    fn write_longword<B: BusInterface + ?Sized>(&mut self, address: u32, value: u32, bus: &mut B) {
         match address >> 29 {
             0 => {
                 bus.write_longword(address & EXTERNAL_ADDRESS_MASK, value);

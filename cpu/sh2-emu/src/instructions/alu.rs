@@ -265,7 +265,7 @@ pub fn dmulu(cpu: &mut Sh2, opcode: u16) {
 
 // MAC.W @Rm+, @Rn+
 // Multiply and accumulate with word operands
-pub fn mac_w<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+pub fn mac_w<B: BusInterface + ?Sized>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
     let m = rm(opcode);
     let n = rn(opcode);
 
@@ -291,7 +291,7 @@ pub fn mac_w<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
 
 // MAC.L @Rm+, @Rn+
 // Multiply and accumulate with longword operands
-pub fn mac_l<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+pub fn mac_l<B: BusInterface + ?Sized>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
     let m = rm(opcode);
     let n = rn(opcode);
 

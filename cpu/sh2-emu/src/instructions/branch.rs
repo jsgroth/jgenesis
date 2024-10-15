@@ -102,7 +102,7 @@ pub fn rts(cpu: &mut Sh2) {
 
 // RTE
 // Return from exception
-pub fn rte<B: BusInterface>(cpu: &mut Sh2, bus: &mut B) {
+pub fn rte<B: BusInterface + ?Sized>(cpu: &mut Sh2, bus: &mut B) {
     cpu.registers.next_pc = cpu.read_longword(cpu.registers.gpr[SP], bus);
     cpu.registers.next_op_in_delay_slot = true;
     cpu.registers.gpr[SP] = cpu.registers.gpr[SP].wrapping_add(4);
@@ -113,7 +113,7 @@ pub fn rte<B: BusInterface>(cpu: &mut Sh2, bus: &mut B) {
 
 // TRAPA #imm
 // Trap always
-pub fn trapa<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+pub fn trapa<B: BusInterface + ?Sized>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
     cpu.registers.gpr[SP] = cpu.registers.gpr[SP].wrapping_sub(4);
     cpu.write_longword(cpu.registers.gpr[SP], cpu.registers.sr.into(), bus);
 

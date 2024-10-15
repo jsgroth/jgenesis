@@ -7,185 +7,208 @@ mod load;
 
 use crate::Sh2;
 use crate::bus::BusInterface;
+use std::array;
+use std::sync::LazyLock;
 
-pub fn execute<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
-    match opcode {
-        0b0000_0000_0001_1001 => alu::div0u(cpu),
-        0b0000_0000_0000_1011 => branch::rts(cpu),
-        0b0000_0000_0000_1000 => load::clrt(cpu),
-        0b0000_0000_0010_1000 => load::clrmac(cpu),
-        // NOP
-        0b0000_0000_0000_1001 => {}
-        0b0000_0000_0010_1011 => branch::rte(cpu, bus),
-        0b0000_0000_0001_1000 => load::sett(cpu),
-        0b0000_0000_0001_1011 => todo!("SLEEP"),
-        _ => execute_xnnx(cpu, opcode, bus),
+pub type OpcodeFn = fn(&mut Sh2, u16, &mut dyn BusInterface);
+
+pub fn decode(opcode: u16) -> OpcodeFn {
+    // Use bits 15-12 and 7-0 for the opcode lookup instead of all 16 bits to keep the lookup table
+    // size down (32KB vs. 512KB for 64-bit), making it more likely that most of it will fit in cache.
+    //
+    // For opcodes where bits 11-8 are needed to determine which instruction function to call, the
+    // returned OpcodeFn will match on those bits when called. This is only needed for opcodes where
+    // the highest 4 bits are either 0b1000 or 0b1100.
+    static TABLE: LazyLock<Box<[OpcodeFn; 4096]>> = LazyLock::new(|| {
+        Box::new(array::from_fn(|i| {
+            let opcode = (i & 0xFF) | ((i & 0xF00) << 4);
+            decode_inner(opcode as u16)
+        }))
+    });
+
+    TABLE[((opcode & 0xFF) | ((opcode & 0xF000) >> 4)) as usize]
+}
+
+macro_rules! cpu {
+    ($($name:tt)*) => {
+        |cpu, _, _| $($name)*(cpu)
     }
 }
 
-#[inline(always)]
-fn execute_xnnx<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+macro_rules! cpu_op {
+    ($($name:tt)*) => {
+        |cpu, opcode, _| $($name)*(cpu, opcode)
+    }
+}
+
+macro_rules! cpu_op_bus {
+    ($($name:tt)*) => {
+        |cpu, opcode, bus| $($name)*(cpu, opcode, bus)
+    }
+}
+
+fn illegal_opcode(cpu: &mut Sh2, opcode: u16, _bus: &mut dyn BusInterface) {
+    todo!("[{}] illegal (?) SH-2 opcode {opcode:04X}, PC={:08X}", cpu.name, cpu.registers.pc)
+}
+
+fn decode_inner(opcode: u16) -> OpcodeFn {
     match opcode & 0b1111_0000_0000_1111 {
-        0b0110_0000_0000_0011 => load::mov_rm_rn(cpu, opcode),
-        0b0010_0000_0000_0000 => load::mov_b_rm_indirect(cpu, opcode, bus),
-        0b0010_0000_0000_0001 => load::mov_w_rm_indirect(cpu, opcode, bus),
-        0b0010_0000_0000_0010 => load::mov_l_rm_indirect(cpu, opcode, bus),
-        0b0110_0000_0000_0000 => load::mov_b_indirect_rn(cpu, opcode, bus),
-        0b0110_0000_0000_0001 => load::mov_w_indirect_rn(cpu, opcode, bus),
-        0b0110_0000_0000_0010 => load::mov_l_indirect_rn(cpu, opcode, bus),
-        0b0010_0000_0000_0100 => load::mov_b_rm_predec(cpu, opcode, bus),
-        0b0010_0000_0000_0101 => load::mov_w_rm_predec(cpu, opcode, bus),
-        0b0010_0000_0000_0110 => load::mov_l_rm_predec(cpu, opcode, bus),
-        0b0110_0000_0000_0100 => load::mov_b_postinc_rn(cpu, opcode, bus),
-        0b0110_0000_0000_0101 => load::mov_w_postinc_rn(cpu, opcode, bus),
-        0b0110_0000_0000_0110 => load::mov_l_postinc_rn(cpu, opcode, bus),
-        0b0000_0000_0000_0100 => load::mov_b_rm_indirect_indexed(cpu, opcode, bus),
-        0b0000_0000_0000_0101 => load::mov_w_rm_indirect_indexed(cpu, opcode, bus),
-        0b0000_0000_0000_0110 => load::mov_l_rm_indirect_indexed(cpu, opcode, bus),
-        0b0000_0000_0000_1100 => load::mov_b_indirect_indexed_rn(cpu, opcode, bus),
-        0b0000_0000_0000_1101 => load::mov_w_indirect_indexed_rn(cpu, opcode, bus),
-        0b0000_0000_0000_1110 => load::mov_l_indirect_indexed_rn(cpu, opcode, bus),
-        0b0110_0000_0000_1000 => load::swap_b(cpu, opcode),
-        0b0110_0000_0000_1001 => load::swap_w(cpu, opcode),
-        0b0010_0000_0000_1101 => load::xtrct(cpu, opcode),
-        0b0011_0000_0000_1100 => alu::add_rm_rn(cpu, opcode),
-        0b0011_0000_0000_1110 => alu::addc(cpu, opcode),
-        0b0011_0000_0000_1111 => alu::addv(cpu, opcode),
-        0b0011_0000_0000_0000 => alu::cmp_eq_rm_rn(cpu, opcode),
-        0b0011_0000_0000_0010 => alu::cmp_hs(cpu, opcode),
-        0b0011_0000_0000_0011 => alu::cmp_ge(cpu, opcode),
-        0b0011_0000_0000_0110 => alu::cmp_hi(cpu, opcode),
-        0b0011_0000_0000_0111 => alu::cmp_gt(cpu, opcode),
-        0b0010_0000_0000_1100 => alu::cmp_str(cpu, opcode),
-        0b0011_0000_0000_0100 => alu::div1(cpu, opcode),
-        0b0010_0000_0000_0111 => alu::div0s(cpu, opcode),
-        0b0011_0000_0000_1101 => alu::dmuls(cpu, opcode),
-        0b0011_0000_0000_0101 => alu::dmulu(cpu, opcode),
-        0b0110_0000_0000_1110 => alu::exts_b(cpu, opcode),
-        0b0110_0000_0000_1111 => alu::exts_w(cpu, opcode),
-        0b0110_0000_0000_1100 => alu::extu_b(cpu, opcode),
-        0b0110_0000_0000_1101 => alu::extu_w(cpu, opcode),
-        0b0000_0000_0000_1111 => alu::mac_l(cpu, opcode, bus),
-        0b0100_0000_0000_1111 => alu::mac_w(cpu, opcode, bus),
-        0b0000_0000_0000_0111 => alu::mul(cpu, opcode),
-        0b0010_0000_0000_1111 => alu::muls(cpu, opcode),
-        0b0010_0000_0000_1110 => alu::mulu(cpu, opcode),
-        0b0110_0000_0000_1011 => alu::neg(cpu, opcode),
-        0b0110_0000_0000_1010 => alu::negc(cpu, opcode),
-        0b0011_0000_0000_1000 => alu::sub_rm_rn(cpu, opcode),
-        0b0011_0000_0000_1010 => alu::subc(cpu, opcode),
-        0b0011_0000_0000_1011 => alu::subv(cpu, opcode),
-        0b0010_0000_0000_1001 => bits::and_rm_rn(cpu, opcode),
-        0b0110_0000_0000_0111 => bits::not(cpu, opcode),
-        0b0010_0000_0000_1011 => bits::or_rm_rn(cpu, opcode),
-        0b0010_0000_0000_1000 => bits::tst_rm_rn(cpu, opcode),
-        0b0010_0000_0000_1010 => bits::xor_rm_rn(cpu, opcode),
-        _ => execute_xxnn(cpu, opcode, bus),
-    }
-}
-
-#[inline(always)]
-fn execute_xxnn<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
-    match opcode & 0b1111_1111_0000_0000 {
-        0b1000_0000_0000_0000 => load::mov_b_r0_rn_displacement(cpu, opcode, bus),
-        0b1000_0001_0000_0000 => load::mov_w_r0_rn_displacement(cpu, opcode, bus),
-        0b1000_0100_0000_0000 => load::mov_b_rm_displacement_r0(cpu, opcode, bus),
-        0b1000_0101_0000_0000 => load::mov_w_rm_displacement_r0(cpu, opcode, bus),
-        0b1100_0000_0000_0000 => load::mov_b_r0_disp_gbr(cpu, opcode, bus),
-        0b1100_0001_0000_0000 => load::mov_w_r0_disp_gbr(cpu, opcode, bus),
-        0b1100_0010_0000_0000 => load::mov_l_r0_disp_gbr(cpu, opcode, bus),
-        0b1100_0100_0000_0000 => load::mov_b_disp_gbr_r0(cpu, opcode, bus),
-        0b1100_0101_0000_0000 => load::mov_w_disp_gbr_r0(cpu, opcode, bus),
-        0b1100_0110_0000_0000 => load::mov_l_disp_gbr_r0(cpu, opcode, bus),
-        0b1100_0111_0000_0000 => load::mova(cpu, opcode),
-        0b1000_1000_0000_0000 => alu::cmp_eq_imm_r0(cpu, opcode),
-        0b1100_1001_0000_0000 => bits::and_imm_r0(cpu, opcode),
-        0b1100_1101_0000_0000 => bits::and_imm_gbr_indexed(cpu, opcode, bus),
-        0b1100_1011_0000_0000 => bits::or_imm_r0(cpu, opcode),
-        0b1100_1111_0000_0000 => bits::or_imm_gbr_indexed(cpu, opcode, bus),
-        0b1100_1000_0000_0000 => bits::tst_imm_r0(cpu, opcode),
-        0b1100_1100_0000_0000 => bits::tst_imm_gbr_indexed(cpu, opcode, bus),
-        0b1100_1010_0000_0000 => bits::xor_imm_r0(cpu, opcode),
-        0b1100_1110_0000_0000 => bits::xor_imm_gbr_indexed(cpu, opcode, bus),
-        0b1000_1011_0000_0000 => branch::bf(cpu, opcode),
-        0b1000_1111_0000_0000 => branch::bf_s(cpu, opcode),
-        0b1000_1001_0000_0000 => branch::bt(cpu, opcode),
-        0b1000_1101_0000_0000 => branch::bt_s(cpu, opcode),
-        0b1100_0011_0000_0000 => branch::trapa(cpu, opcode, bus),
-        _ => execute_xnxx(cpu, opcode, bus),
-    }
-}
-
-#[inline(always)]
-fn execute_xnxx<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
-    match opcode & 0b1111_0000_1111_1111 {
-        0b0000_0000_0010_1001 => load::movt(cpu, opcode),
-        0b0100_0000_0001_0001 => alu::cmp_pz(cpu, opcode),
-        0b0100_0000_0001_0101 => alu::cmp_pl(cpu, opcode),
-        0b0100_0000_0001_0000 => alu::dt(cpu, opcode),
-        0b0100_0000_0001_1011 => bits::tas(cpu, opcode, bus),
-        0b0100_0000_0000_0100 => bits::rotl(cpu, opcode),
-        0b0100_0000_0000_0101 => bits::rotr(cpu, opcode),
-        0b0100_0000_0010_0100 => bits::rotcl(cpu, opcode),
-        0b0100_0000_0010_0101 => bits::rotcr(cpu, opcode),
-        // SHAL and SHLL behave identically; use SHLL implementation for both
-        0b0100_0000_0010_0000 | 0b0100_0000_0000_0000 => bits::shll(cpu, opcode),
-        0b0100_0000_0010_0001 => bits::shar(cpu, opcode),
-        0b0100_0000_0000_0001 => bits::shlr(cpu, opcode),
-        0b0100_0000_0000_1000 => bits::shlln::<2>(cpu, opcode),
-        0b0100_0000_0000_1001 => bits::shlrn::<2>(cpu, opcode),
-        0b0100_0000_0001_1000 => bits::shlln::<8>(cpu, opcode),
-        0b0100_0000_0001_1001 => bits::shlrn::<8>(cpu, opcode),
-        0b0100_0000_0010_1000 => bits::shlln::<16>(cpu, opcode),
-        0b0100_0000_0010_1001 => bits::shlrn::<16>(cpu, opcode),
-        0b0000_0000_0010_0011 => branch::braf(cpu, opcode),
-        0b0000_0000_0000_0011 => branch::bsrf(cpu, opcode),
-        0b0100_0000_0010_1011 => branch::jmp(cpu, opcode),
-        0b0100_0000_0000_1011 => branch::jsr(cpu, opcode),
-        0b0100_0000_0000_1110 => load::ldc_rm_sr(cpu, opcode),
-        0b0100_0000_0001_1110 => load::ldc_rm_gbr(cpu, opcode),
-        0b0100_0000_0010_1110 => load::ldc_rm_vbr(cpu, opcode),
-        0b0100_0000_0000_0111 => load::ldc_postinc_sr(cpu, opcode, bus),
-        0b0100_0000_0001_0111 => load::ldc_postinc_gbr(cpu, opcode, bus),
-        0b0100_0000_0010_0111 => load::ldc_postinc_vbr(cpu, opcode, bus),
-        0b0100_0000_0000_1010 => load::lds_rm_mach(cpu, opcode),
-        0b0100_0000_0001_1010 => load::lds_rm_macl(cpu, opcode),
-        0b0100_0000_0010_1010 => load::lds_rm_pr(cpu, opcode),
-        0b0100_0000_0000_0110 => load::lds_postinc_mach(cpu, opcode, bus),
-        0b0100_0000_0001_0110 => load::lds_postinc_macl(cpu, opcode, bus),
-        0b0100_0000_0010_0110 => load::lds_postinc_pr(cpu, opcode, bus),
-        0b0000_0000_0000_0010 => load::stc_sr_rn(cpu, opcode),
-        0b0000_0000_0001_0010 => load::stc_gbr_rn(cpu, opcode),
-        0b0000_0000_0010_0010 => load::stc_vbr_rn(cpu, opcode),
-        0b0100_0000_0000_0011 => load::stc_sr_rn_predec(cpu, opcode, bus),
-        0b0100_0000_0001_0011 => load::stc_gbr_rn_predec(cpu, opcode, bus),
-        0b0100_0000_0010_0011 => load::stc_vbr_rn_predec(cpu, opcode, bus),
-        0b0000_0000_0000_1010 => load::sts_mach_rn(cpu, opcode),
-        0b0000_0000_0001_1010 => load::sts_macl_rn(cpu, opcode),
-        0b0000_0000_0010_1010 => load::sts_pr_rn(cpu, opcode),
-        0b0100_0000_0000_0010 => load::sts_mach_rn_predec(cpu, opcode, bus),
-        0b0100_0000_0001_0010 => load::sts_macl_rn_predec(cpu, opcode, bus),
-        0b0100_0000_0010_0010 => load::sts_pr_rn_predec(cpu, opcode, bus),
-        _ => execute_xnnn(cpu, opcode, bus),
-    }
-}
-
-#[inline(always)]
-fn execute_xnnn<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
-    match opcode & 0b1111_0000_0000_0000 {
-        0b1110_0000_0000_0000 => load::mov_b_immediate_rn(cpu, opcode),
-        0b1001_0000_0000_0000 => load::mov_w_immediate_rn(cpu, opcode, bus),
-        0b1101_0000_0000_0000 => load::mov_l_immediate_rn(cpu, opcode, bus),
-        0b0001_0000_0000_0000 => load::mov_l_rm_rn_displacement(cpu, opcode, bus),
-        0b0101_0000_0000_0000 => load::mov_l_rm_displacement_rn(cpu, opcode, bus),
-        0b0111_0000_0000_0000 => alu::add_imm_rn(cpu, opcode),
-        0b1010_0000_0000_0000 => branch::bra(cpu, opcode),
-        0b1011_0000_0000_0000 => branch::bsr(cpu, opcode),
-        _ => todo!(
-            "[{}] illegal (?) SH-2 opcode {opcode:04X}, PC={:08X}",
-            cpu.name,
-            cpu.registers.pc
-        ),
+        0b0110_0000_0000_0011 => cpu_op!(load::mov_rm_rn),
+        0b0010_0000_0000_0000 => cpu_op_bus!(load::mov_b_rm_indirect),
+        0b0010_0000_0000_0001 => cpu_op_bus!(load::mov_w_rm_indirect),
+        0b0010_0000_0000_0010 => cpu_op_bus!(load::mov_l_rm_indirect),
+        0b0110_0000_0000_0000 => cpu_op_bus!(load::mov_b_indirect_rn),
+        0b0110_0000_0000_0001 => cpu_op_bus!(load::mov_w_indirect_rn),
+        0b0110_0000_0000_0010 => cpu_op_bus!(load::mov_l_indirect_rn),
+        0b0010_0000_0000_0100 => cpu_op_bus!(load::mov_b_rm_predec),
+        0b0010_0000_0000_0101 => cpu_op_bus!(load::mov_w_rm_predec),
+        0b0010_0000_0000_0110 => cpu_op_bus!(load::mov_l_rm_predec),
+        0b0110_0000_0000_0100 => cpu_op_bus!(load::mov_b_postinc_rn),
+        0b0110_0000_0000_0101 => cpu_op_bus!(load::mov_w_postinc_rn),
+        0b0110_0000_0000_0110 => cpu_op_bus!(load::mov_l_postinc_rn),
+        0b0000_0000_0000_0100 => cpu_op_bus!(load::mov_b_rm_indirect_indexed),
+        0b0000_0000_0000_0101 => cpu_op_bus!(load::mov_w_rm_indirect_indexed),
+        0b0000_0000_0000_0110 => cpu_op_bus!(load::mov_l_rm_indirect_indexed),
+        0b0000_0000_0000_1100 => cpu_op_bus!(load::mov_b_indirect_indexed_rn),
+        0b0000_0000_0000_1101 => cpu_op_bus!(load::mov_w_indirect_indexed_rn),
+        0b0000_0000_0000_1110 => cpu_op_bus!(load::mov_l_indirect_indexed_rn),
+        0b0110_0000_0000_1000 => cpu_op!(load::swap_b),
+        0b0110_0000_0000_1001 => cpu_op!(load::swap_w),
+        0b0010_0000_0000_1101 => cpu_op!(load::xtrct),
+        0b0011_0000_0000_1100 => cpu_op!(alu::add_rm_rn),
+        0b0011_0000_0000_1110 => cpu_op!(alu::addc),
+        0b0011_0000_0000_1111 => cpu_op!(alu::addv),
+        0b0011_0000_0000_0000 => cpu_op!(alu::cmp_eq_rm_rn),
+        0b0011_0000_0000_0010 => cpu_op!(alu::cmp_hs),
+        0b0011_0000_0000_0011 => cpu_op!(alu::cmp_ge),
+        0b0011_0000_0000_0110 => cpu_op!(alu::cmp_hi),
+        0b0011_0000_0000_0111 => cpu_op!(alu::cmp_gt),
+        0b0010_0000_0000_1100 => cpu_op!(alu::cmp_str),
+        0b0011_0000_0000_0100 => cpu_op!(alu::div1),
+        0b0010_0000_0000_0111 => cpu_op!(alu::div0s),
+        0b0011_0000_0000_1101 => cpu_op!(alu::dmuls),
+        0b0011_0000_0000_0101 => cpu_op!(alu::dmulu),
+        0b0110_0000_0000_1110 => cpu_op!(alu::exts_b),
+        0b0110_0000_0000_1111 => cpu_op!(alu::exts_w),
+        0b0110_0000_0000_1100 => cpu_op!(alu::extu_b),
+        0b0110_0000_0000_1101 => cpu_op!(alu::extu_w),
+        0b0000_0000_0000_1111 => cpu_op_bus!(alu::mac_l),
+        0b0100_0000_0000_1111 => cpu_op_bus!(alu::mac_w),
+        0b0000_0000_0000_0111 => cpu_op!(alu::mul),
+        0b0010_0000_0000_1111 => cpu_op!(alu::muls),
+        0b0010_0000_0000_1110 => cpu_op!(alu::mulu),
+        0b0110_0000_0000_1011 => cpu_op!(alu::neg),
+        0b0110_0000_0000_1010 => cpu_op!(alu::negc),
+        0b0011_0000_0000_1000 => cpu_op!(alu::sub_rm_rn),
+        0b0011_0000_0000_1010 => cpu_op!(alu::subc),
+        0b0011_0000_0000_1011 => cpu_op!(alu::subv),
+        0b0010_0000_0000_1001 => cpu_op!(bits::and_rm_rn),
+        0b0110_0000_0000_0111 => cpu_op!(bits::not),
+        0b0010_0000_0000_1011 => cpu_op!(bits::or_rm_rn),
+        0b0010_0000_0000_1000 => cpu_op!(bits::tst_rm_rn),
+        0b0010_0000_0000_1010 => cpu_op!(bits::xor_rm_rn),
+        _ => match opcode & 0b1111_0000_1111_1111 {
+            0b0000_0000_0010_1001 => cpu_op!(load::movt),
+            0b0100_0000_0001_0001 => cpu_op!(alu::cmp_pz),
+            0b0100_0000_0001_0101 => cpu_op!(alu::cmp_pl),
+            0b0100_0000_0001_0000 => cpu_op!(alu::dt),
+            0b0100_0000_0001_1011 => cpu_op_bus!(bits::tas),
+            0b0100_0000_0000_0100 => cpu_op!(bits::rotl),
+            0b0100_0000_0000_0101 => cpu_op!(bits::rotr),
+            0b0100_0000_0010_0100 => cpu_op!(bits::rotcl),
+            0b0100_0000_0010_0101 => cpu_op!(bits::rotcr),
+            // SHAL and SHLL behave identically; use SHLL implementation for both
+            0b0100_0000_0010_0000 | 0b0100_0000_0000_0000 => cpu_op!(bits::shll),
+            0b0100_0000_0010_0001 => cpu_op!(bits::shar),
+            0b0100_0000_0000_0001 => cpu_op!(bits::shlr),
+            0b0100_0000_0000_1000 => cpu_op!(bits::shlln::<2>),
+            0b0100_0000_0000_1001 => cpu_op!(bits::shlrn::<2>),
+            0b0100_0000_0001_1000 => cpu_op!(bits::shlln::<8>),
+            0b0100_0000_0001_1001 => cpu_op!(bits::shlrn::<8>),
+            0b0100_0000_0010_1000 => cpu_op!(bits::shlln::<16>),
+            0b0100_0000_0010_1001 => cpu_op!(bits::shlrn::<16>),
+            0b0000_0000_0010_0011 => cpu_op!(branch::braf),
+            0b0000_0000_0000_0011 => cpu_op!(branch::bsrf),
+            0b0100_0000_0010_1011 => cpu_op!(branch::jmp),
+            0b0100_0000_0000_1011 => cpu_op!(branch::jsr),
+            0b0100_0000_0000_1110 => cpu_op!(load::ldc_rm_sr),
+            0b0100_0000_0001_1110 => cpu_op!(load::ldc_rm_gbr),
+            0b0100_0000_0010_1110 => cpu_op!(load::ldc_rm_vbr),
+            0b0100_0000_0000_0111 => cpu_op_bus!(load::ldc_postinc_sr),
+            0b0100_0000_0001_0111 => cpu_op_bus!(load::ldc_postinc_gbr),
+            0b0100_0000_0010_0111 => cpu_op_bus!(load::ldc_postinc_vbr),
+            0b0100_0000_0000_1010 => cpu_op!(load::lds_rm_mach),
+            0b0100_0000_0001_1010 => cpu_op!(load::lds_rm_macl),
+            0b0100_0000_0010_1010 => cpu_op!(load::lds_rm_pr),
+            0b0100_0000_0000_0110 => cpu_op_bus!(load::lds_postinc_mach),
+            0b0100_0000_0001_0110 => cpu_op_bus!(load::lds_postinc_macl),
+            0b0100_0000_0010_0110 => cpu_op_bus!(load::lds_postinc_pr),
+            0b0000_0000_0000_0010 => cpu_op!(load::stc_sr_rn),
+            0b0000_0000_0001_0010 => cpu_op!(load::stc_gbr_rn),
+            0b0000_0000_0010_0010 => cpu_op!(load::stc_vbr_rn),
+            0b0100_0000_0000_0011 => cpu_op_bus!(load::stc_sr_rn_predec),
+            0b0100_0000_0001_0011 => cpu_op_bus!(load::stc_gbr_rn_predec),
+            0b0100_0000_0010_0011 => cpu_op_bus!(load::stc_vbr_rn_predec),
+            0b0000_0000_0000_1010 => cpu_op!(load::sts_mach_rn),
+            0b0000_0000_0001_1010 => cpu_op!(load::sts_macl_rn),
+            0b0000_0000_0010_1010 => cpu_op!(load::sts_pr_rn),
+            0b0100_0000_0000_0010 => cpu_op_bus!(load::sts_mach_rn_predec),
+            0b0100_0000_0001_0010 => cpu_op_bus!(load::sts_macl_rn_predec),
+            0b0100_0000_0010_0010 => cpu_op_bus!(load::sts_pr_rn_predec),
+            0b0000_0000_0001_1001 => cpu!(alu::div0u),
+            0b0000_0000_0000_1011 => cpu!(branch::rts),
+            0b0000_0000_0000_1000 => cpu!(load::clrt),
+            0b0000_0000_0010_1000 => cpu!(load::clrmac),
+            // NOP
+            0b0000_0000_0000_1001 => |_, _, _| {},
+            0b0000_0000_0010_1011 => |cpu, _, bus| branch::rte(cpu, bus),
+            0b0000_0000_0001_1000 => cpu!(load::sett),
+            0b0000_0000_0001_1011 => |_, _, _| todo!("SLEEP"),
+            _ => match opcode & 0b1111_0000_0000_0000 {
+                0b1110_0000_0000_0000 => cpu_op!(load::mov_b_immediate_rn),
+                0b1001_0000_0000_0000 => cpu_op_bus!(load::mov_w_immediate_rn),
+                0b1101_0000_0000_0000 => cpu_op_bus!(load::mov_l_immediate_rn),
+                0b0001_0000_0000_0000 => cpu_op_bus!(load::mov_l_rm_rn_displacement),
+                0b0101_0000_0000_0000 => cpu_op_bus!(load::mov_l_rm_displacement_rn),
+                0b0111_0000_0000_0000 => cpu_op!(alu::add_imm_rn),
+                0b1010_0000_0000_0000 => cpu_op!(branch::bra),
+                0b1011_0000_0000_0000 => cpu_op!(branch::bsr),
+                // Opcode begins with 0b1000; need to match on bits 11-8
+                0b1000_0000_0000_0000 => |cpu, opcode, bus| match (opcode >> 8) & 0b1111 {
+                    0b0000 => load::mov_b_r0_rn_displacement(cpu, opcode, bus),
+                    0b0001 => load::mov_w_r0_rn_displacement(cpu, opcode, bus),
+                    0b0100 => load::mov_b_rm_displacement_r0(cpu, opcode, bus),
+                    0b0101 => load::mov_w_rm_displacement_r0(cpu, opcode, bus),
+                    0b1000 => alu::cmp_eq_imm_r0(cpu, opcode),
+                    0b1001 => branch::bt(cpu, opcode),
+                    0b1011 => branch::bf(cpu, opcode),
+                    0b1101 => branch::bt_s(cpu, opcode),
+                    0b1111 => branch::bf_s(cpu, opcode),
+                    _ => illegal_opcode(cpu, opcode, bus),
+                },
+                // Opcode begins with 0b1100; need to match on bits 11-8
+                0b1100_0000_0000_0000 => |cpu, opcode, bus| match (opcode >> 8) & 0b1111 {
+                    0b0000 => load::mov_b_r0_disp_gbr(cpu, opcode, bus),
+                    0b0001 => load::mov_w_r0_disp_gbr(cpu, opcode, bus),
+                    0b0010 => load::mov_l_r0_disp_gbr(cpu, opcode, bus),
+                    0b0011 => branch::trapa(cpu, opcode, bus),
+                    0b0100 => load::mov_b_disp_gbr_r0(cpu, opcode, bus),
+                    0b0101 => load::mov_w_disp_gbr_r0(cpu, opcode, bus),
+                    0b0110 => load::mov_l_disp_gbr_r0(cpu, opcode, bus),
+                    0b0111 => load::mova(cpu, opcode),
+                    0b1000 => bits::tst_imm_r0(cpu, opcode),
+                    0b1001 => bits::and_imm_r0(cpu, opcode),
+                    0b1010 => bits::xor_imm_r0(cpu, opcode),
+                    0b1011 => bits::or_imm_r0(cpu, opcode),
+                    0b1100 => bits::tst_imm_gbr_indexed(cpu, opcode, bus),
+                    0b1101 => bits::and_imm_gbr_indexed(cpu, opcode, bus),
+                    0b1110 => bits::xor_imm_gbr_indexed(cpu, opcode, bus),
+                    0b1111 => bits::or_imm_gbr_indexed(cpu, opcode, bus),
+                    _ => unreachable!("value & 0b1111 will always be one of the above values"),
+                },
+                _ => illegal_opcode,
+            },
+        },
     }
 }
 

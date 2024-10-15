@@ -22,7 +22,7 @@ pub fn and_imm_r0(cpu: &mut Sh2, opcode: u16) {
 
 // AND.B #imm @(R0,GBR)
 // Logical and, in memory
-pub fn and_imm_gbr_indexed<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+pub fn and_imm_gbr_indexed<B: BusInterface + ?Sized>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
     let imm = opcode as u8;
     let address = cpu.registers.gbr.wrapping_add(cpu.registers.gpr[0]);
     let value = cpu.read_byte(address, bus);
@@ -46,7 +46,7 @@ pub fn or_imm_r0(cpu: &mut Sh2, opcode: u16) {
 
 // OR.B #imm @(R0,GBR)
 // Logical or, in memory
-pub fn or_imm_gbr_indexed<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+pub fn or_imm_gbr_indexed<B: BusInterface + ?Sized>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
     let imm = opcode as u8;
     let address = cpu.registers.gbr.wrapping_add(cpu.registers.gpr[0]);
     let value = cpu.read_byte(address, bus);
@@ -70,7 +70,7 @@ pub fn xor_imm_r0(cpu: &mut Sh2, opcode: u16) {
 
 // XOR.B #imm @(R0,GBR)
 // Exclusive or, in memory
-pub fn xor_imm_gbr_indexed<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+pub fn xor_imm_gbr_indexed<B: BusInterface + ?Sized>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
     let imm = opcode as u8;
     let address = cpu.registers.gbr.wrapping_add(cpu.registers.gpr[0]);
     let value = cpu.read_byte(address, bus);
@@ -175,7 +175,7 @@ pub fn tst_imm_r0(cpu: &mut Sh2, opcode: u16) {
 
 // TST.B #imm, @(R0,GBR)
 // Sets the T bit if (#imm & MEM[GBR+R0]) is 0
-pub fn tst_imm_gbr_indexed<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+pub fn tst_imm_gbr_indexed<B: BusInterface + ?Sized>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
     let imm = opcode as u8;
     let address = cpu.registers.gbr.wrapping_add(cpu.registers.gpr[0]);
     let value = cpu.read_byte(address, bus);
@@ -184,7 +184,7 @@ pub fn tst_imm_gbr_indexed<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mu
 
 // TAS.B @Rn
 // Tests the value at the specified address and sets bit 7
-pub fn tas<B: BusInterface>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
+pub fn tas<B: BusInterface + ?Sized>(cpu: &mut Sh2, opcode: u16, bus: &mut B) {
     let n = rn(opcode);
     let address = cpu.registers.gpr[n];
 

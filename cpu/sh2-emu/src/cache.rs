@@ -165,7 +165,7 @@ impl CpuCache {
     }
 
     #[must_use]
-    pub fn replace<B: BusInterface>(&mut self, address: u32, bus: &mut B) -> u32 {
+    pub fn replace<B: BusInterface + ?Sized>(&mut self, address: u32, bus: &mut B) -> u32 {
         let entry_idx = cache_entry_index(address);
 
         let lru_bits = self.lru_bits[entry_idx];
