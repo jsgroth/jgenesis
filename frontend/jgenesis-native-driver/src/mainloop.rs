@@ -177,6 +177,7 @@ pub struct NativeEmulator<Inputs, Button, Config, Emulator> {
     event_buffer: Rc<RefCell<Vec<Event>>>,
     video: VideoSubsystem,
     hotkey_state: HotkeyState<Emulator>,
+    fps_tracker: FpsTracker,
     rom_path: PathBuf,
     rom_extension: String,
 }
@@ -417,8 +418,6 @@ where
         let mut emulator = Self {
             emulator,
             config: emulator_config,
-            rom_path: common_config.rom_file_path.into(),
-            rom_extension,
             renderer,
             audio_output,
             wait_for_audio_sync: true,
@@ -430,6 +429,9 @@ where
             event_buffer: Rc::new(RefCell::new(Vec::with_capacity(100))),
             video,
             hotkey_state,
+            fps_tracker: FpsTracker::new(),
+            rom_path: common_config.rom_file_path.into(),
+            rom_extension,
         };
 
         if common_config.load_recent_state_at_launch {
@@ -470,6 +472,10 @@ where
                     )
                     .map_err(|err| NativeEmulatorError::Emulator(err.into()))?
                     == TickEffect::FrameRendered;
+
+            if frame_rendered {
+                self.fps_tracker.record_frame();
+            }
 
             if should_tick_emulator && !frame_rendered {
                 continue;
@@ -845,6 +851,7 @@ macro_rules! bincode_config {
     };
 }
 
+use crate::fpstracker::FpsTracker;
 use bincode_config;
 
 #[must_use]

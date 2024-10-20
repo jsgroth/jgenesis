@@ -1,5 +1,6 @@
 pub mod archive;
 pub mod config;
+mod fpstracker;
 pub mod input;
 mod mainloop;
 
