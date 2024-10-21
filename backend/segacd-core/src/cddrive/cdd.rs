@@ -18,7 +18,7 @@ const INITIAL_STATUS: [u8; 10] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 
 // The BIOS freezes if this delay is too short or too long
 // Time Gal freezes at boot if this delay is too short
-const PLAY_DELAY_CLOCKS: u8 = 5;
+const PLAY_DELAY_CLOCKS: u8 = 6;
 
 // 2x signed 16-bit PCM samples, one per stereo channel
 const BYTES_PER_AUDIO_SAMPLE: u16 = 4;
