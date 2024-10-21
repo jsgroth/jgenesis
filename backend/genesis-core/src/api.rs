@@ -6,7 +6,7 @@ use crate::memory::{Cartridge, MainBus, MainBusSignals, MainBusWrites, Memory};
 use crate::timing::{CycleCounters, GenesisCycleCounters};
 use crate::vdp::{Vdp, VdpConfig, VdpTickEffect};
 use crate::ym2612::{Ym2612, YmTickEffect};
-use crate::{GenesisControllerType, vdp};
+use crate::{GenesisControllerType, timing, vdp};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, FrameSize, PartialClone, PixelAspectRatio, Renderer,
@@ -453,7 +453,7 @@ pub fn check_for_long_dma_skip<const REFRESH_INTERVAL: u64>(
 ) {
     // Executing for too many cycles at a time breaks assumptions in the VDP code, checked via an
     // assert in Vdp::tick()
-    const MAX_WAIT_CYCLES: u32 = 1230 / 7;
+    const MAX_WAIT_CYCLES: u32 = (1230 / timing::M68K_DIVIDER) as u32;
 
     if !vdp.long_halting_dma_in_progress() {
         return;
@@ -462,9 +462,15 @@ pub fn check_for_long_dma_skip<const REFRESH_INTERVAL: u64>(
     // Skip as close as possible to the end of the current scanline
     let wait_cycles = cmp::max(
         cycles.m68k_wait_cpu_cycles,
-        cmp::min(MAX_WAIT_CYCLES, (vdp::MCLK_CYCLES_PER_SCANLINE - vdp.scanline_mclk()) as u32),
+        cmp::min(
+            MAX_WAIT_CYCLES,
+            ((vdp::MCLK_CYCLES_PER_SCANLINE - vdp.scanline_mclk()) / timing::M68K_DIVIDER) as u32,
+        ),
     );
     cycles.m68k_wait_cpu_cycles = wait_cycles;
 
-    log::trace!("Skipping {wait_cycles} 68000 CPU cycles in long DMA optimization");
+    log::trace!(
+        "Skipping {wait_cycles} 68000 CPU cycles in long DMA optimization, scanline mclk is {}",
+        vdp.scanline_mclk()
+    );
 }
