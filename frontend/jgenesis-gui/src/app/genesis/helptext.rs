@@ -37,6 +37,14 @@ pub const SCD_CDROM_IN_RAM: HelpText = HelpText {
     ],
 };
 
+pub const M68K_CLOCK_DIVIDER: HelpText = HelpText {
+    heading: "Genesis 68000 Clock Divider",
+    text: &[
+        "Optionally overclock the main Genesis CPU by reducing the master clock divider. Overclocking can reduce or eliminate slowdown, but it can also cause major glitches in some games. Use with caution.",
+        "This setting also affects the main Genesis CPU speed in Sega CD and 32X mode.",
+    ],
+};
+
 pub const ASPECT_RATIO: HelpText = HelpText {
     heading: "Aspect Ratio",
     text: &[

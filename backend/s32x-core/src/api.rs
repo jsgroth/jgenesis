@@ -10,7 +10,7 @@ use genesis_core::memory::{MainBus, MainBusSignals, MainBusWrites, Memory};
 use genesis_core::timing::GenesisCycleCounters;
 use genesis_core::vdp::{Vdp, VdpTickEffect};
 use genesis_core::ym2612::{Ym2612, YmTickEffect};
-use genesis_core::{GenesisEmulatorConfig, GenesisInputs, GenesisRegion, timing};
+use genesis_core::{GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, Renderer, SaveWriter, TickEffect, TickResult, TimingMode,
 };
@@ -131,7 +131,7 @@ impl Sega32XEmulator {
             input,
             audio_resampler: Sega32XResampler::new(timing_mode, config),
             main_bus_writes: MainBusWrites::new(),
-            cycles: GenesisCycleCounters::default(),
+            cycles: GenesisCycleCounters::new(config.genesis.clamped_m68k_divider()),
             region,
             timing_mode,
             config,
@@ -203,7 +203,7 @@ impl EmulatorTrait for Sega32XEmulator {
             self.m68k.execute_instruction(&mut bus)
         };
 
-        let mclk_cycles = u64::from(m68k_cycles) * timing::M68K_DIVIDER;
+        let mclk_cycles = u64::from(m68k_cycles) * self.cycles.m68k_divider.get();
         self.cycles.increment_mclk_counters(mclk_cycles);
 
         while self.cycles.should_tick_z80() {
@@ -277,6 +277,7 @@ impl EmulatorTrait for Sega32XEmulator {
         self.input.reload_config(config.genesis);
         self.memory.medium_mut().reload_config(*config);
         self.audio_resampler.reload_config(*config);
+        self.cycles.update_m68k_divider(config.genesis.clamped_m68k_divider());
 
         self.config = *config;
     }

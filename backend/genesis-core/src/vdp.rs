@@ -251,7 +251,7 @@ const V_INTERRUPT_DELAY: u64 = 48;
 
 // Have the VINT flag in the VDP status register read 1 about 20 CPU cycles before the VDP raises
 // the interrupt. This fixes several games failing to boot (e.g. Tyrants: Fight Through Time, Ex-Mutants)
-const M68K_DIVIDER: u64 = crate::timing::M68K_DIVIDER;
+const M68K_DIVIDER: u64 = crate::timing::NATIVE_M68K_DIVIDER;
 const VINT_FLAG_MCLK: u64 = MCLK_CYCLES_PER_SCANLINE - (20 * M68K_DIVIDER - V_INTERRUPT_DELAY);
 
 trait TimingModeExt: Copy {

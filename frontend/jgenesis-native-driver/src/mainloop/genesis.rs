@@ -55,7 +55,10 @@ impl NativeSegaCdEmulator {
         log::info!("Reloading config: {config}");
 
         self.reload_common_config(&config.genesis.common)?;
-        self.emulator.reload_config(&config.to_emulator_config());
+
+        let emulator_config = config.to_emulator_config();
+        self.emulator.reload_config(&emulator_config);
+        self.config = emulator_config;
 
         if let Err(err) = self.input_mapper.reload_config(
             config.genesis.common.keyboard_inputs,

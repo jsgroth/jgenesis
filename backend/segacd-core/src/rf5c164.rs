@@ -93,12 +93,6 @@ impl Channel {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PcmTickEffect {
-    None,
-    Clocked,
-}
-
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Rf5c164 {
     enabled: bool,
@@ -294,22 +288,18 @@ impl Rf5c164 {
         }
     }
 
-    pub fn tick(&mut self, sub_cpu_cycles: u64) -> PcmTickEffect {
-        assert!(sub_cpu_cycles < RF5C164_DIVIDER);
+    pub fn tick(&mut self, mut sub_cpu_cycles: u64, mut audio_callback: impl FnMut((f64, f64))) {
+        while sub_cpu_cycles >= self.divider {
+            sub_cpu_cycles -= self.divider;
+            self.divider = RF5C164_DIVIDER;
 
-        let clocked = if sub_cpu_cycles >= self.divider {
-            self.divider = RF5C164_DIVIDER - (sub_cpu_cycles - self.divider);
-            true
-        } else {
-            self.divider -= sub_cpu_cycles;
-            false
-        };
+            if self.enabled {
+                self.clock();
+            }
 
-        if clocked && self.enabled {
-            self.clock();
+            audio_callback(self.sample());
         }
-
-        if clocked { PcmTickEffect::Clocked } else { PcmTickEffect::None }
+        self.divider -= sub_cpu_cycles;
     }
 
     fn clock(&mut self) {

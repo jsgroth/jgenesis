@@ -2,7 +2,7 @@ mod helptext;
 
 use crate::app::{App, OpenWindow};
 use crate::emuthread::EmuThreadStatus;
-use egui::{Context, Window};
+use egui::{Context, Slider, Window};
 use genesis_core::{GenesisAspectRatio, GenesisRegion};
 use jgenesis_common::frontend::TimingMode;
 use rfd::FileDialog;
@@ -131,6 +131,29 @@ impl App {
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::SCD_CDROM_IN_RAM);
+            }
+
+            ui.add_space(5.0);
+            let rect = ui
+                .group(|ui| {
+                    ui.label("Genesis 68000 clock divider");
+                    ui.add(Slider::new(&mut self.config.genesis.m68k_clock_divider, 1..=7));
+
+                    let effective_speed_ratio = 100.0
+                        * genesis_core::timing::NATIVE_M68K_DIVIDER as f64
+                        / self.config.genesis.m68k_clock_divider as f64;
+                    let effective_speed_mhz = genesis_core::audio::NTSC_GENESIS_MCLK_FREQUENCY
+                        / self.config.genesis.m68k_clock_divider as f64
+                        / 1_000_000.0;
+                    ui.label(format!(
+                        "Effective speed: {effective_speed_mhz:.2} MHz ({}%)",
+                        effective_speed_ratio.round()
+                    ));
+                })
+                .response
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::M68K_CLOCK_DIVIDER);
             }
 
             self.render_help_text(ui, WINDOW);

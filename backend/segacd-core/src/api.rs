@@ -4,7 +4,7 @@ use crate::audio::AudioResampler;
 use crate::graphics::GraphicsCoprocessor;
 use crate::memory;
 use crate::memory::{SegaCd, SubBus};
-use crate::rf5c164::{PcmTickEffect, Rf5c164};
+use crate::rf5c164::Rf5c164;
 use bincode::{Decode, Encode};
 use cdrom::CdRomError;
 use cdrom::reader::{CdRom, CdRomFileFormat};
@@ -233,7 +233,7 @@ impl SegaCdEmulator {
                 .genesis
                 .adjust_aspect_ratio_in_2x_resolution,
             disc_title,
-            cycles: SegaCdCycleCounters::default(),
+            cycles: SegaCdCycleCounters::new(emulator_config.genesis.clamped_m68k_divider()),
             sega_cd_mclk_cycles: 0,
             sega_cd_mclk_cycle_product: 0,
             sub_cpu_wait_cycles: 0,
@@ -431,10 +431,9 @@ impl EmulatorTrait for SegaCdEmulator {
         }
 
         // RF5C164
-        if self.pcm.tick(sub_cpu_cycles) == PcmTickEffect::Clocked {
-            let (pcm_sample_l, pcm_sample_r) = self.pcm.sample();
+        self.pcm.tick(sub_cpu_cycles, |(pcm_sample_l, pcm_sample_r)| {
             self.audio_resampler.collect_pcm_sample(pcm_sample_l, pcm_sample_r);
-        }
+        });
 
         // Output any audio samples that are queued up
         self.audio_resampler.output_samples(audio_output).map_err(SegaCdError::Audio)?;
@@ -481,6 +480,7 @@ impl EmulatorTrait for SegaCdEmulator {
         self.ym2612.reload_config(config.genesis);
         self.input.reload_config(config.genesis);
         self.audio_resampler.reload_config(*config);
+        self.cycles.update_m68k_divider(config.genesis.clamped_m68k_divider());
 
         let sega_cd = self.memory.medium_mut();
         sega_cd.set_forced_region(config.genesis.forced_region);

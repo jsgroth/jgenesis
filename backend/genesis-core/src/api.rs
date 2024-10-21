@@ -18,6 +18,7 @@ use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgTickEffect, PsgVersion};
 use std::cmp;
 use std::fmt::{Debug, Display};
+use std::num::NonZeroU64;
 use thiserror::Error;
 use z80_emu::Z80;
 
@@ -139,6 +140,7 @@ pub struct GenesisEmulatorConfig {
     pub aspect_ratio: GenesisAspectRatio,
     pub adjust_aspect_ratio_in_2x_resolution: bool,
     pub remove_sprite_limits: bool,
+    pub m68k_clock_divider: u64,
     pub emulate_non_linear_vdp_dac: bool,
     pub render_vertical_border: bool,
     pub render_horizontal_border: bool,
@@ -150,13 +152,26 @@ pub struct GenesisEmulatorConfig {
 
 impl GenesisEmulatorConfig {
     #[must_use]
-    pub fn to_vdp_config(self) -> VdpConfig {
+    pub fn to_vdp_config(&self) -> VdpConfig {
         VdpConfig {
             enforce_sprite_limits: !self.remove_sprite_limits,
             emulate_non_linear_dac: self.emulate_non_linear_vdp_dac,
             render_vertical_border: self.render_vertical_border,
             render_horizontal_border: self.render_horizontal_border,
         }
+    }
+
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
+    pub fn clamped_m68k_divider(&self) -> NonZeroU64 {
+        let clamped_divider = self.m68k_clock_divider.clamp(1, timing::NATIVE_M68K_DIVIDER);
+        if clamped_divider != self.m68k_clock_divider {
+            log::warn!(
+                "Clamped M68K clock divider from {} to {clamped_divider}",
+                self.m68k_clock_divider
+            );
+        }
+        NonZeroU64::new(clamped_divider).unwrap()
     }
 }
 
@@ -241,7 +256,7 @@ impl GenesisEmulator {
             aspect_ratio: config.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: config.adjust_aspect_ratio_in_2x_resolution,
             audio_resampler: GenesisAudioResampler::new(timing_mode, config),
-            cycles: GenesisCycleCounters::default(),
+            cycles: GenesisCycleCounters::new(config.clamped_m68k_divider()),
             config,
         };
 
@@ -414,6 +429,7 @@ impl EmulatorTrait for GenesisEmulator {
         self.ym2612.reload_config(*config);
         self.input.reload_config(*config);
         self.audio_resampler.reload_config(*config);
+        self.cycles.update_m68k_divider(config.clamped_m68k_divider());
 
         self.config = *config;
     }
@@ -451,10 +467,6 @@ pub fn check_for_long_dma_skip<const REFRESH_INTERVAL: u64>(
     vdp: &Vdp,
     cycles: &mut CycleCounters<REFRESH_INTERVAL>,
 ) {
-    // Executing for too many cycles at a time breaks assumptions in the VDP code, checked via an
-    // assert in Vdp::tick()
-    const MAX_WAIT_CYCLES: u32 = (1230 / timing::M68K_DIVIDER) as u32;
-
     if !vdp.long_halting_dma_in_progress() {
         return;
     }
@@ -463,8 +475,9 @@ pub fn check_for_long_dma_skip<const REFRESH_INTERVAL: u64>(
     let wait_cycles = cmp::max(
         cycles.m68k_wait_cpu_cycles,
         cmp::min(
-            MAX_WAIT_CYCLES,
-            ((vdp::MCLK_CYCLES_PER_SCANLINE - vdp.scanline_mclk()) / timing::M68K_DIVIDER) as u32,
+            cycles.max_wait_cpu_cycles,
+            (vdp::MCLK_CYCLES_PER_SCANLINE - vdp.scanline_mclk()) as u32
+                / cycles.m68k_divider_u32.get(),
         ),
     );
     cycles.m68k_wait_cpu_cycles = wait_cycles;

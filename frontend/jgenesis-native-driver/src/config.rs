@@ -232,6 +232,7 @@ pub struct GenesisConfig {
     // double resolution mode
     pub adjust_aspect_ratio_in_2x_resolution: bool,
     pub remove_sprite_limits: bool,
+    pub m68k_clock_divider: u64,
     pub emulate_non_linear_vdp_dac: bool,
     pub render_vertical_border: bool,
     pub render_horizontal_border: bool,
@@ -251,6 +252,7 @@ impl GenesisConfig {
             aspect_ratio: self.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: self.adjust_aspect_ratio_in_2x_resolution,
             remove_sprite_limits: self.remove_sprite_limits,
+            m68k_clock_divider: self.m68k_clock_divider,
             emulate_non_linear_vdp_dac: self.emulate_non_linear_vdp_dac,
             render_vertical_border: self.render_vertical_border,
             render_horizontal_border: self.render_horizontal_border,

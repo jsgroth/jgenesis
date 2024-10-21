@@ -17,7 +17,7 @@ use jgenesis_proc_macros::PartialClone;
 use sh2_emu::Sh2;
 use std::mem;
 
-const M68K_DIVIDER: u64 = timing::M68K_DIVIDER;
+const M68K_DIVIDER: u64 = timing::NATIVE_M68K_DIVIDER;
 const SH2_MULTIPLIER: u64 = 3;
 
 // Only execute SH-2 instructions in batches of at least 10 for slightly better performance

@@ -17,6 +17,8 @@ pub struct GenesisAppConfig {
     pub adjust_aspect_ratio_in_2x_resolution: bool,
     #[serde(default)]
     pub remove_sprite_limits: bool,
+    #[serde(default = "default_68k_divider")]
+    pub m68k_clock_divider: u64,
     #[serde(default)]
     pub emulate_non_linear_vdp_dac: bool,
     #[serde(default)]
@@ -35,6 +37,10 @@ pub struct GenesisAppConfig {
 
 const fn true_fn() -> bool {
     true
+}
+
+const fn default_68k_divider() -> u64 {
+    genesis_core::timing::NATIVE_M68K_DIVIDER
 }
 
 impl Default for GenesisAppConfig {
@@ -92,6 +98,7 @@ impl AppConfig {
             aspect_ratio: self.genesis.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: self.genesis.adjust_aspect_ratio_in_2x_resolution,
             remove_sprite_limits: self.genesis.remove_sprite_limits,
+            m68k_clock_divider: self.genesis.m68k_clock_divider,
             emulate_non_linear_vdp_dac: self.genesis.emulate_non_linear_vdp_dac,
             render_vertical_border: self.genesis.render_vertical_border,
             render_horizontal_border: self.genesis.render_horizontal_border,
