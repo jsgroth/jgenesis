@@ -153,6 +153,7 @@ impl GenesisWebConfig {
             aspect_ratio: self.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: true,
             remove_sprite_limits: self.remove_sprite_limits,
+            m68k_clock_divider: genesis_core::timing::NATIVE_M68K_DIVIDER,
             emulate_non_linear_vdp_dac: self.emulate_non_linear_vdp_dac,
             render_vertical_border: self.render_vertical_border,
             render_horizontal_border: self.render_horizontal_border,
