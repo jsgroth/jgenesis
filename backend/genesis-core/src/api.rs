@@ -1,12 +1,12 @@
 //! Genesis public interface and main loop
 
-use crate::GenesisControllerType;
 use crate::audio::GenesisAudioResampler;
 use crate::input::{GenesisInputs, InputState};
 use crate::memory::{Cartridge, MainBus, MainBusSignals, MainBusWrites, Memory};
-use crate::timing::GenesisCycleCounters;
+use crate::timing::{CycleCounters, GenesisCycleCounters};
 use crate::vdp::{Vdp, VdpConfig, VdpTickEffect};
 use crate::ym2612::{Ym2612, YmTickEffect};
+use crate::{GenesisControllerType, vdp};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, FrameSize, PartialClone, PixelAspectRatio, Renderer,
@@ -16,6 +16,7 @@ use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use m68000_emu::M68000;
 use smsgg_core::psg::{Psg, PsgTickEffect, PsgVersion};
+use std::cmp;
 use std::fmt::{Debug, Display};
 use thiserror::Error;
 use z80_emu::Z80;
@@ -376,6 +377,7 @@ impl EmulatorTrait for GenesisEmulator {
 
         self.audio_resampler.output_samples(audio_output).map_err(GenesisError::Audio)?;
 
+        let mut tick_effect = TickEffect::None;
         if self.vdp.tick(elapsed_mclk_cycles, &mut self.memory) == VdpTickEffect::FrameComplete {
             self.render_frame(renderer).map_err(GenesisError::Render)?;
 
@@ -390,10 +392,12 @@ impl EmulatorTrait for GenesisEmulator {
                 }
             }
 
-            return Ok(TickEffect::FrameRendered);
+            tick_effect = TickEffect::FrameRendered;
         }
 
-        Ok(TickEffect::None)
+        check_for_long_dma_skip(&self.vdp, &mut self.cycles);
+
+        Ok(tick_effect)
     }
 
     fn force_render<R>(&mut self, renderer: &mut R) -> Result<(), R::Err>
@@ -436,4 +440,31 @@ impl EmulatorTrait for GenesisEmulator {
     fn timing_mode(&self) -> TimingMode {
         self.timing_mode
     }
+}
+
+// If a long DMA is in progress (i.e. the DMA will not finish on this line), preemptively skip the
+// 68000 forward by a large number of mclk cycles (up to 1250).
+//
+// This function is public so that it can be used by the Sega CD core
+#[inline]
+pub fn check_for_long_dma_skip<const REFRESH_INTERVAL: u64>(
+    vdp: &Vdp,
+    cycles: &mut CycleCounters<REFRESH_INTERVAL>,
+) {
+    // Executing for too many cycles at a time breaks assumptions in the VDP code, checked via an
+    // assert in Vdp::tick()
+    const MAX_WAIT_CYCLES: u32 = 1230 / 7;
+
+    if !vdp.long_halting_dma_in_progress() {
+        return;
+    }
+
+    // Skip as close as possible to the end of the current scanline
+    let wait_cycles = cmp::max(
+        cycles.m68k_wait_cpu_cycles,
+        cmp::min(MAX_WAIT_CYCLES, (vdp::MCLK_CYCLES_PER_SCANLINE - vdp.scanline_mclk()) as u32),
+    );
+    cycles.m68k_wait_cpu_cycles = wait_cycles;
+
+    log::trace!("Skipping {wait_cycles} 68000 CPU cycles in long DMA optimization");
 }

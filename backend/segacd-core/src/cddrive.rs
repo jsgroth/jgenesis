@@ -16,12 +16,11 @@ use jgenesis_proc_macros::PartialClone;
 use std::array;
 
 const SEGA_CD_MCLK_FREQUENCY: u64 = api::SEGA_CD_MASTER_CLOCK_RATE;
-const CD_DA_FREQUENCY: u64 = 44_100;
+const CD_DA_FREQUENCY: u64 = 44100;
 const CD_75HZ_DIVIDER: u16 = 44100 / 75;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PrescalerTickEffect {
-    None,
+enum PrescalerEvent {
     SampleAudio,
     SampleAudioAndClockCdd,
 }
@@ -40,35 +39,26 @@ impl CdPrescaler {
         Self { sega_cd_mclk_cycles: 0, drive_cycle_product: 0, divider_75hz: CD_75HZ_DIVIDER }
     }
 
-    #[must_use]
-    fn tick(&mut self, sega_cd_mclk_cycles: u64) -> PrescalerTickEffect {
-        assert!(
-            sega_cd_mclk_cycles < 1100,
-            "sega CD mclk cycles was {sega_cd_mclk_cycles}, expected <1100"
-        );
-
+    fn tick(
+        &mut self,
+        sega_cd_mclk_cycles: u64,
+        mut callback: impl FnMut(PrescalerEvent) -> SegaCdLoadResult<()>,
+    ) -> SegaCdLoadResult<()> {
         self.drive_cycle_product += sega_cd_mclk_cycles * CD_DA_FREQUENCY;
 
-        let mut tick_effect = PrescalerTickEffect::None;
-        if self.drive_cycle_product >= SEGA_CD_MCLK_FREQUENCY {
+        while self.drive_cycle_product >= SEGA_CD_MCLK_FREQUENCY {
             self.drive_cycle_product -= SEGA_CD_MCLK_FREQUENCY;
-            tick_effect = PrescalerTickEffect::SampleAudio;
-
             self.divider_75hz -= 1;
             if self.divider_75hz == 0 {
                 self.divider_75hz = CD_75HZ_DIVIDER;
-                tick_effect = PrescalerTickEffect::SampleAudioAndClockCdd;
+                callback(PrescalerEvent::SampleAudioAndClockCdd)?;
+            } else {
+                callback(PrescalerEvent::SampleAudio)?;
             }
         }
 
-        tick_effect
+        Ok(())
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum CdTickEffect {
-    None,
-    OutputAudioSample(f64, f64),
 }
 
 #[derive(Debug, Encode, Decode, PartialClone)]
@@ -97,24 +87,29 @@ impl CdController {
         prg_ram: &mut [u8; memory::PRG_RAM_LEN],
         prg_ram_accessible: bool,
         pcm: &mut Rf5c164,
-    ) -> SegaCdLoadResult<CdTickEffect> {
-        match self.prescaler.tick(mclk_cycles) {
-            PrescalerTickEffect::None => Ok(CdTickEffect::None),
-            PrescalerTickEffect::SampleAudio => {
-                let (sample_l, sample_r) = self.drive.update_audio_sample();
+        mut audio_callback: impl FnMut(f64, f64),
+    ) -> SegaCdLoadResult<()> {
+        self.prescaler.tick(mclk_cycles, |event| {
+            let (sample_l, sample_r) = match event {
+                PrescalerEvent::SampleAudio => {
+                    let (sample_l, sample_r) = self.drive.update_audio_sample();
+                    self.rchip.clock_44100hz(word_ram, prg_ram, prg_ram_accessible, pcm);
 
-                self.rchip.clock_44100hz(word_ram, prg_ram, prg_ram_accessible, pcm);
+                    (sample_l, sample_r)
+                }
+                PrescalerEvent::SampleAudioAndClockCdd => {
+                    let (sample_l, sample_r) = self.drive.update_audio_sample();
+                    self.drive.clock(&mut self.rchip)?;
+                    self.rchip.clock_75hz();
 
-                Ok(CdTickEffect::OutputAudioSample(sample_l, sample_r))
-            }
-            PrescalerTickEffect::SampleAudioAndClockCdd => {
-                let (sample_l, sample_r) = self.drive.update_audio_sample();
-                self.drive.clock(&mut self.rchip)?;
-                self.rchip.clock_75hz();
+                    (sample_l, sample_r)
+                }
+            };
 
-                Ok(CdTickEffect::OutputAudioSample(sample_l, sample_r))
-            }
-        }
+            audio_callback(sample_l, sample_r);
+
+            Ok(())
+        })
     }
 
     pub fn cdd(&self) -> &CdDrive {

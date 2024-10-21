@@ -7,7 +7,7 @@ pub(crate) mod wordram;
 use crate::api::SegaCdLoadResult;
 use crate::cddrive::cdc::{DeviceDestination, Rchip};
 use crate::cddrive::cdd::CdDrive;
-use crate::cddrive::{CdController, CdTickEffect, cdc};
+use crate::cddrive::{CdController, cdc};
 use crate::graphics::GraphicsCoprocessor;
 use crate::memory::font::FontRegisters;
 use crate::rf5c164::Rf5c164;
@@ -491,27 +491,29 @@ impl SegaCd {
 
     pub fn tick(
         &mut self,
-        master_clock_cycles: u64,
+        mut master_clock_cycles: u64,
         pcm: &mut Rf5c164,
-    ) -> SegaCdLoadResult<CdTickEffect> {
+        audio_callback: impl FnMut(f64, f64),
+    ) -> SegaCdLoadResult<()> {
         // CDC DMA can only write to PRG RAM while the sub CPU is on the bus
         let prg_ram_accessible = !(self.registers.sub_cpu_busreq || self.registers.sub_cpu_reset);
-        let cd_tick_effect = self.disc_drive.tick(
+        self.disc_drive.tick(
             master_clock_cycles,
             &mut self.word_ram,
             &mut self.prg_ram,
             prg_ram_accessible,
             pcm,
+            audio_callback,
         )?;
 
-        if master_clock_cycles >= self.timer_divider {
+        while master_clock_cycles >= self.timer_divider {
             self.clock_timers();
-            self.timer_divider = TIMER_DIVIDER - (master_clock_cycles - self.timer_divider);
-        } else {
-            self.timer_divider -= master_clock_cycles;
+            master_clock_cycles -= self.timer_divider;
+            self.timer_divider = TIMER_DIVIDER;
         }
+        self.timer_divider -= master_clock_cycles;
 
-        Ok(cd_tick_effect)
+        Ok(())
     }
 
     fn clock_timers(&mut self) {

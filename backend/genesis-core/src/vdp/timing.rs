@@ -201,6 +201,7 @@ pub struct DmaTracker {
     last_line_type: LineType,
     last_pixel: u16,
     last_slot_index: u8,
+    long_dma_in_progress: bool,
 }
 
 impl DmaTracker {
@@ -213,6 +214,7 @@ impl DmaTracker {
             last_line_type: LineType::Blanked,
             last_pixel: 0,
             last_slot_index: 0,
+            long_dma_in_progress: false,
         }
     }
 
@@ -266,6 +268,9 @@ impl DmaTracker {
         self.last_line_type = line_type;
         self.last_slot_index = find_slot_index(pixel, h_display_size.dma_slot_pixels(line_type));
 
+        // Wait to set "long DMA in progress" flag until advancing to the start of a line
+        self.long_dma_in_progress = false;
+
         log::trace!(
             "Initiated DMA in mode {mode:?} at line {scanline} pixel {pixel}; length {dma_length}, bytes {dma_length_bytes}"
         );
@@ -273,6 +278,10 @@ impl DmaTracker {
 
     pub fn is_in_progress(&self) -> bool {
         self.bytes_remaining != 0
+    }
+
+    pub fn long_dma_in_progress(&self) -> bool {
+        self.long_dma_in_progress
     }
 
     pub fn record_data_port_read(&mut self) {
@@ -316,6 +325,11 @@ impl DmaTracker {
             self.last_line_type = line_type;
             self.last_pixel = 0;
             self.last_slot_index = 0;
+
+            // Update "long DMA in progress" flag after advancing to the start of the next line and
+            // before advancing to the current pixel
+            self.long_dma_in_progress =
+                self.bytes_remaining > h_display_size.slots_per_line(line_type);
         }
 
         self.advance_state(pixel, h_display_size);

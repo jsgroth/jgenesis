@@ -797,7 +797,10 @@ impl Vdp {
         memory: &mut Memory<Medium>,
     ) -> VdpTickEffect {
         // The longest 68k instruction (DIVS (xxx).l, Dn) takes 172 68k cycles / 1204 mclk cycles
-        assert!(master_clock_cycles < 1250);
+        assert!(
+            master_clock_cycles < 1250,
+            "VDP tick {master_clock_cycles} mclk cycles, expected <1250"
+        );
 
         self.state.delayed_v_interrupt = self.state.delayed_v_interrupt_next;
         self.state.delayed_v_interrupt_next = false;
@@ -1069,12 +1072,20 @@ impl Vdp {
         }
     }
 
+    #[inline]
     #[must_use]
     pub fn should_halt_cpu(&self) -> bool {
         self.dma_tracker.should_halt_cpu(&self.state.pending_writes)
             || self.fifo_tracker.should_halt_cpu()
     }
 
+    #[inline]
+    #[must_use]
+    pub fn long_halting_dma_in_progress(&self) -> bool {
+        self.should_halt_cpu() && self.dma_tracker.long_dma_in_progress()
+    }
+
+    #[inline]
     #[must_use]
     pub fn z80_interrupt_line(&self) -> InterruptLine {
         // Z80 INT line is low only during the first scanline of VBlank
@@ -1103,21 +1114,25 @@ impl Vdp {
         self.render_scanline(render_scanline, 0);
     }
 
+    #[inline]
     #[must_use]
     pub fn frame_buffer(&self) -> &[Color; FRAME_BUFFER_LEN] {
         &self.frame_buffer
     }
 
+    #[inline]
     #[must_use]
     pub fn frame_buffer_mut(&mut self) -> &mut [Color; FRAME_BUFFER_LEN] {
         &mut self.frame_buffer
     }
 
+    #[inline]
     #[must_use]
     pub fn frame_size(&self) -> FrameSize {
         FrameSize { width: self.screen_width(), height: self.screen_height() }
     }
 
+    #[inline]
     #[must_use]
     pub fn screen_width(&self) -> u32 {
         let h_display_size = self.registers.horizontal_display_size;
@@ -1132,6 +1147,7 @@ impl Vdp {
         }
     }
 
+    #[inline]
     #[must_use]
     pub fn screen_height(&self) -> u32 {
         let screen_height: u32 = if self.config.render_vertical_border {
@@ -1146,6 +1162,7 @@ impl Vdp {
         }
     }
 
+    #[inline]
     #[must_use]
     pub fn border_size(&self) -> BorderSize {
         let (left, right) = if self.config.render_horizontal_border {
@@ -1173,20 +1190,24 @@ impl Vdp {
         }
     }
 
+    #[inline]
     #[must_use]
     pub fn config(&self) -> VdpConfig {
         self.config
     }
 
+    #[inline]
     pub fn reload_config(&mut self, config: VdpConfig) {
         self.config = config;
     }
 
+    #[inline]
     #[must_use]
     pub fn scanline(&self) -> u16 {
         self.state.scanline
     }
 
+    #[inline]
     #[must_use]
     pub fn scanline_mclk(&self) -> u64 {
         self.state.scanline_mclk_cycles

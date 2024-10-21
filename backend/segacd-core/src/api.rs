@@ -1,7 +1,6 @@
 //! Sega CD public interface and main loop
 
 use crate::audio::AudioResampler;
-use crate::cddrive::CdTickEffect;
 use crate::graphics::GraphicsCoprocessor;
 use crate::memory;
 use crate::memory::{SegaCd, SubBus};
@@ -390,11 +389,9 @@ impl EmulatorTrait for SegaCdEmulator {
 
         // Disc drive and timer/stopwatch
         let sega_cd = self.memory.medium_mut();
-        if let CdTickEffect::OutputAudioSample(sample_l, sample_r) =
-            sega_cd.tick(elapsed_scd_mclk_cycles, &mut self.pcm)?
-        {
+        sega_cd.tick(elapsed_scd_mclk_cycles, &mut self.pcm, |sample_l, sample_r| {
             self.audio_resampler.collect_cd_sample(sample_l, sample_r);
-        }
+        })?;
 
         // Graphics ASIC
         if !sega_cd.word_ram().is_sub_access_blocked() {
@@ -443,6 +440,7 @@ impl EmulatorTrait for SegaCdEmulator {
         self.audio_resampler.output_samples(audio_output).map_err(SegaCdError::Audio)?;
 
         // VDP
+        let mut tick_effect = TickEffect::None;
         if self.vdp.tick(genesis_mclk_elapsed, &mut self.memory) == VdpTickEffect::FrameComplete {
             self.render_frame(renderer).map_err(SegaCdError::Render)?;
 
@@ -460,10 +458,12 @@ impl EmulatorTrait for SegaCdEmulator {
                     .map_err(SegaCdError::SaveWrite)?;
             }
 
-            return Ok(TickEffect::FrameRendered);
+            tick_effect = TickEffect::FrameRendered;
         }
 
-        Ok(TickEffect::None)
+        genesis_core::check_for_long_dma_skip(&self.vdp, &mut self.cycles);
+
+        Ok(tick_effect)
     }
 
     fn force_render<R>(&mut self, renderer: &mut R) -> Result<(), R::Err>
