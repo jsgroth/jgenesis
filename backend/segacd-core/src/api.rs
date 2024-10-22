@@ -18,7 +18,7 @@ use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, PartialClone, Renderer, SaveWriter, TickEffect, TimingMode,
 };
 use m68000_emu::M68000;
-use smsgg_core::psg::{Psg, PsgTickEffect, PsgVersion};
+use smsgg_core::psg::{Sn76489, Sn76489TickEffect, Sn76489Version};
 use std::fmt::{Debug, Display};
 use std::path::Path;
 use thiserror::Error;
@@ -84,7 +84,7 @@ pub struct SegaCdEmulator {
     vdp: Vdp,
     graphics_coprocessor: GraphicsCoprocessor,
     ym2612: Ym2612,
-    psg: Psg,
+    psg: Sn76489,
     pcm: Rf5c164,
     input: InputState,
     audio_resampler: AudioResampler,
@@ -206,7 +206,7 @@ impl SegaCdEmulator {
         let vdp = Vdp::new(timing_mode, emulator_config.genesis.to_vdp_config());
         let graphics_coprocessor = GraphicsCoprocessor::new();
         let ym2612 = Ym2612::new(emulator_config.genesis);
-        let psg = Psg::new(PsgVersion::Standard);
+        let psg = Sn76489::new(Sn76489Version::Standard);
         let pcm = Rf5c164::new();
         let input = InputState::new(
             emulator_config.genesis.p1_controller_type,
@@ -414,7 +414,7 @@ impl EmulatorTrait for SegaCdEmulator {
 
         // PSG
         while self.cycles.should_tick_psg() {
-            if self.psg.tick() == PsgTickEffect::Clocked {
+            if self.psg.tick() == Sn76489TickEffect::Clocked {
                 let (psg_sample_l, psg_sample_r) = self.psg.sample();
                 self.audio_resampler.collect_psg_sample(psg_sample_l, psg_sample_r);
             }

@@ -5,7 +5,7 @@ use crate::emuthread::EmuThreadStatus;
 use egui::{Context, Window};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::config::{GgAspectRatio, SmsAspectRatio};
-use smsgg_core::psg::PsgVersion;
+use smsgg_core::psg::Sn76489Version;
 use smsgg_core::{SmsModel, SmsRegion};
 
 impl App {
@@ -210,13 +210,13 @@ impl App {
                             );
                         ui.radio_value(
                             &mut self.config.smsgg.psg_version,
-                            Some(PsgVersion::MasterSystem2),
+                            Some(Sn76489Version::MasterSystem2),
                             "SMS2",
                         )
                         .on_hover_text("SMS2 PSG clips high volumes");
                         ui.radio_value(
                             &mut self.config.smsgg.psg_version,
-                            Some(PsgVersion::Standard),
+                            Some(Sn76489Version::Standard),
                             "SMS1 / Game Gear",
                         )
                         .on_hover_text("SMS1 and Game Gear PSGs correctly play high volumes");

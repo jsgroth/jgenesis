@@ -3,7 +3,7 @@
 use crate::VdpVersion;
 use crate::input::InputState;
 use crate::memory::Memory;
-use crate::psg::Psg;
+use crate::psg::Sn76489;
 use crate::vdp::Vdp;
 use jgenesis_common::num::GetBit;
 use ym_opll::Ym2413;
@@ -13,7 +13,7 @@ pub struct Bus<'a> {
     version: VdpVersion,
     memory: &'a mut Memory,
     vdp: &'a mut Vdp,
-    psg: &'a mut Psg,
+    psg: &'a mut Sn76489,
     ym2413: Option<&'a mut Ym2413>,
     input: &'a mut InputState,
 }
@@ -23,7 +23,7 @@ impl<'a> Bus<'a> {
         version: VdpVersion,
         memory: &'a mut Memory,
         vdp: &'a mut Vdp,
-        psg: &'a mut Psg,
+        psg: &'a mut Sn76489,
         ym2413: Option<&'a mut Ym2413>,
         input: &'a mut InputState,
     ) -> Self {

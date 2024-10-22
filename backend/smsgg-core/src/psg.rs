@@ -228,14 +228,14 @@ impl Register {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PsgTickEffect {
+pub enum Sn76489TickEffect {
     None,
     Clocked,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum PsgVersion {
+pub enum Sn76489Version {
     #[default]
     MasterSystem2,
     Standard,
@@ -282,8 +282,8 @@ impl Default for StereoControl {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
-pub struct Psg {
-    version: PsgVersion,
+pub struct Sn76489 {
+    version: Sn76489Version,
     square_wave_channels: [SquareWaveGenerator; 3],
     noise_channel: NoiseGenerator,
     latched_register: Register,
@@ -291,18 +291,18 @@ pub struct Psg {
     divider: u8,
 }
 
-const PSG_DIVIDER: u8 = 16;
+const SN76489_DIVIDER: u8 = 16;
 
-impl Psg {
+impl Sn76489 {
     #[must_use]
-    pub fn new(version: PsgVersion) -> Self {
+    pub fn new(version: Sn76489Version) -> Self {
         Self {
             version,
             square_wave_channels: array::from_fn(|_| SquareWaveGenerator::new()),
             noise_channel: NoiseGenerator::new(),
             latched_register: Register::Tone0,
             stereo_control: StereoControl::default(),
-            divider: PSG_DIVIDER,
+            divider: SN76489_DIVIDER,
         }
     }
 
@@ -368,28 +368,28 @@ impl Psg {
     }
 
     #[inline]
-    pub fn tick(&mut self) -> PsgTickEffect {
+    pub fn tick(&mut self) -> Sn76489TickEffect {
         self.divider -= 1;
         if self.divider == 0 {
-            self.divider = PSG_DIVIDER;
+            self.divider = SN76489_DIVIDER;
 
             for channel in &mut self.square_wave_channels {
                 channel.clock();
             }
             self.noise_channel.clock(self.square_wave_channels[2].tone);
 
-            PsgTickEffect::Clocked
+            Sn76489TickEffect::Clocked
         } else {
-            PsgTickEffect::None
+            Sn76489TickEffect::None
         }
     }
 
     #[must_use]
-    pub fn version(&self) -> PsgVersion {
+    pub fn version(&self) -> Sn76489Version {
         self.version
     }
 
-    pub fn set_version(&mut self, version: PsgVersion) {
+    pub fn set_version(&mut self, version: Sn76489Version) {
         self.version = version;
     }
 
@@ -397,8 +397,8 @@ impl Psg {
     pub fn sample(&self) -> (f64, f64) {
         // TODO rewrite to use integer arithmetic as much as possible
         let volume_table = match self.version {
-            PsgVersion::MasterSystem2 => &SMS2_ATTENUATION_TO_VOLUME,
-            PsgVersion::Standard => &ATTENUATION_TO_VOLUME,
+            Sn76489Version::MasterSystem2 => &SMS2_ATTENUATION_TO_VOLUME,
+            Sn76489Version::Standard => &ATTENUATION_TO_VOLUME,
         };
 
         let square_samples = self.square_wave_channels.map(|channel| channel.sample(volume_table));

@@ -15,7 +15,7 @@ use jgenesis_common::frontend::{
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use m68000_emu::M68000;
-use smsgg_core::psg::{Psg, PsgTickEffect, PsgVersion};
+use smsgg_core::psg::{Sn76489, Sn76489TickEffect, Sn76489Version};
 use std::cmp;
 use std::fmt::{Debug, Display};
 use std::num::NonZeroU64;
@@ -182,7 +182,7 @@ pub struct GenesisEmulator {
     m68k: M68000,
     z80: Z80,
     vdp: Vdp,
-    psg: Psg,
+    psg: Sn76489,
     ym2612: Ym2612,
     input: InputState,
     timing_mode: TimingMode,
@@ -236,7 +236,7 @@ impl GenesisEmulator {
 
         let z80 = Z80::new();
         let vdp = Vdp::new(timing_mode, config.to_vdp_config());
-        let psg = Psg::new(PsgVersion::Standard);
+        let psg = Sn76489::new(Sn76489Version::Standard);
         let ym2612 = Ym2612::new(config);
         let input = InputState::new(config.p1_controller_type, config.p2_controller_type);
 
@@ -373,7 +373,7 @@ impl EmulatorTrait for GenesisEmulator {
         self.input.tick(m68k_cycles);
 
         while self.cycles.should_tick_psg() {
-            if self.psg.tick() == PsgTickEffect::Clocked {
+            if self.psg.tick() == Sn76489TickEffect::Clocked {
                 let (psg_sample_l, psg_sample_r) = self.psg.sample();
                 self.audio_resampler.collect_psg_sample(psg_sample_l, psg_sample_r);
             }

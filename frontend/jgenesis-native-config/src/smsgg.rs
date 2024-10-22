@@ -2,12 +2,12 @@ use crate::AppConfig;
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::config::{GgAspectRatio, SmsAspectRatio, SmsGgConfig};
 use serde::{Deserialize, Serialize};
-use smsgg_core::psg::PsgVersion;
+use smsgg_core::psg::Sn76489Version;
 use smsgg_core::{SmsModel, SmsRegion};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SmsGgAppConfig {
-    pub psg_version: Option<PsgVersion>,
+    pub psg_version: Option<Sn76489Version>,
     #[serde(default)]
     pub remove_sprite_limit: bool,
     #[serde(default)]

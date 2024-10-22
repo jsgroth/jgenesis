@@ -18,7 +18,7 @@ use nes_core::api::{NesAspectRatio, NesEmulatorConfig, Overscan};
 use s32x_core::api::{S32XVideoOut, Sega32XEmulatorConfig};
 use segacd_core::api::SegaCdEmulatorConfig;
 use serde::{Deserialize, Serialize};
-use smsgg_core::psg::PsgVersion;
+use smsgg_core::psg::Sn76489Version;
 use smsgg_core::{SmsGgEmulatorConfig, SmsGgHardware, SmsModel, SmsRegion};
 use snes_core::api::{
     AudioInterpolationMode, CoprocessorRomFn, CoprocessorRoms, SnesAspectRatio, SnesEmulatorConfig,
@@ -173,7 +173,7 @@ pub struct SmsGgConfig {
     pub common: CommonConfig<SmsGgInputConfig<KeyboardInput>, SmsGgInputConfig<JoystickInput>>,
     pub sms_timing_mode: TimingMode,
     pub sms_model: SmsModel,
-    pub forced_psg_version: Option<PsgVersion>,
+    pub forced_psg_version: Option<Sn76489Version>,
     pub remove_sprite_limit: bool,
     pub sms_aspect_ratio: SmsAspectRatio,
     pub gg_aspect_ratio: GgAspectRatio,

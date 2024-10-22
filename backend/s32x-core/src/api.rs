@@ -16,7 +16,7 @@ use jgenesis_common::frontend::{
 };
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, PartialClone};
 use m68000_emu::M68000;
-use smsgg_core::psg::{Psg, PsgTickEffect, PsgVersion};
+use smsgg_core::psg::{Sn76489, Sn76489TickEffect, Sn76489Version};
 use std::fmt::{Debug, Display};
 use std::mem;
 use thiserror::Error;
@@ -69,7 +69,7 @@ pub struct Sega32XEmulator {
     z80: Z80,
     vdp: Vdp,
     ym2612: Ym2612,
-    psg: Psg,
+    psg: Sn76489,
     #[partial_clone(partial)]
     memory: Memory<Sega32X>,
     input: InputState,
@@ -112,7 +112,7 @@ impl Sega32XEmulator {
         let z80 = Z80::new();
         let vdp = Vdp::new(timing_mode, config.genesis.to_vdp_config());
         let ym2612 = Ym2612::new(config.genesis);
-        let psg = Psg::new(PsgVersion::Standard);
+        let psg = Sn76489::new(Sn76489Version::Standard);
 
         let initial_cartridge_ram = save_writer.load_bytes("sav").ok();
         let s32x = Sega32X::new(rom, initial_cartridge_ram, region, timing_mode, config);
@@ -229,7 +229,7 @@ impl EmulatorTrait for Sega32XEmulator {
         }
 
         while self.cycles.should_tick_psg() {
-            if self.psg.tick() == PsgTickEffect::Clocked {
+            if self.psg.tick() == Sn76489TickEffect::Clocked {
                 let (sample_l, sample_r) = self.psg.sample();
                 self.audio_resampler.collect_psg_sample(sample_l, sample_r);
             }

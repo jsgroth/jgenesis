@@ -15,7 +15,7 @@ use jgenesis_common::frontend::TimingMode;
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use regex::Regex;
-use smsgg_core::psg::Psg;
+use smsgg_core::psg::Sn76489;
 use std::ops::Index;
 use std::sync::LazyLock;
 use std::{array, iter, mem};
@@ -555,7 +555,7 @@ impl MainBusWrites {
 pub struct MainBus<'a, Medium> {
     memory: &'a mut Memory<Medium>,
     vdp: &'a mut Vdp,
-    psg: &'a mut Psg,
+    psg: &'a mut Sn76489,
     ym2612: &'a mut Ym2612,
     input: &'a mut InputState,
     timing_mode: TimingMode,
@@ -572,7 +572,7 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
     pub fn new(
         memory: &'a mut Memory<Medium>,
         vdp: &'a mut Vdp,
-        psg: &'a mut Psg,
+        psg: &'a mut Sn76489,
         ym2612: &'a mut Ym2612,
         input: &'a mut InputState,
         timing_mode: TimingMode,

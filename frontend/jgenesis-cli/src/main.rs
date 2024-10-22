@@ -17,7 +17,7 @@ use jgenesis_renderer::config::{
 };
 use nes_core::api::NesAspectRatio;
 use s32x_core::api::S32XVideoOut;
-use smsgg_core::psg::PsgVersion;
+use smsgg_core::psg::Sn76489Version;
 use smsgg_core::{SmsModel, SmsRegion};
 use snes_core::api::{AudioInterpolationMode, SnesAspectRatio};
 use std::ffi::OsStr;
@@ -99,7 +99,7 @@ struct Args {
 
     /// Force PSG version (MasterSystem2 / Standard)
     #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
-    psg_version: Option<PsgVersion>,
+    psg_version: Option<Sn76489Version>,
 
     /// Master System aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
     #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]

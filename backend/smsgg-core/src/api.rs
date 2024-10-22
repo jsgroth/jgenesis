@@ -4,7 +4,7 @@ use crate::audio::AudioResampler;
 use crate::bus::Bus;
 use crate::input::InputState;
 use crate::memory::Memory;
-use crate::psg::{Psg, PsgTickEffect, PsgVersion};
+use crate::psg::{Sn76489, Sn76489TickEffect, Sn76489Version};
 use crate::vdp::{Vdp, VdpBuffer, VdpTickEffect};
 use crate::{SmsGgInputs, VdpVersion, vdp};
 use bincode::{Decode, Encode};
@@ -87,7 +87,7 @@ pub struct SmsGgEmulatorConfig {
     pub hardware: SmsGgHardware,
     pub sms_timing_mode: TimingMode,
     pub sms_model: SmsModel,
-    pub forced_psg_version: Option<PsgVersion>,
+    pub forced_psg_version: Option<Sn76489Version>,
     pub pixel_aspect_ratio: Option<PixelAspectRatio>,
     pub remove_sprite_limit: bool,
     pub sms_region: SmsRegion,
@@ -106,7 +106,7 @@ pub struct SmsGgEmulator {
     vdp: Vdp,
     vdp_version: VdpVersion,
     pixel_aspect_ratio: Option<PixelAspectRatio>,
-    psg: Psg,
+    psg: Sn76489,
     ym2413: Option<Ym2413>,
     input: InputState,
     audio_resampler: AudioResampler,
@@ -137,7 +137,7 @@ impl SmsGgEmulator {
 
         let memory = Memory::new(rom, cartridge_ram);
         let vdp = Vdp::new(vdp_version, &config);
-        let psg = Psg::new(psg_version);
+        let psg = Sn76489::new(psg_version);
         let input = InputState::new(config.sms_region);
 
         let mut z80 = Z80::new();
@@ -244,10 +244,10 @@ fn determine_vdp_version(config: &SmsGgEmulatorConfig) -> VdpVersion {
     }
 }
 
-fn determine_psg_version(config: &SmsGgEmulatorConfig) -> PsgVersion {
+fn determine_psg_version(config: &SmsGgEmulatorConfig) -> Sn76489Version {
     config.forced_psg_version.unwrap_or(match config.hardware {
-        SmsGgHardware::MasterSystem => PsgVersion::MasterSystem2,
-        SmsGgHardware::GameGear => PsgVersion::Standard,
+        SmsGgHardware::MasterSystem => Sn76489Version::MasterSystem2,
+        SmsGgHardware::GameGear => Sn76489Version::Standard,
     })
 }
 
@@ -303,7 +303,7 @@ impl EmulatorTrait for SmsGgEmulator {
             if let Some(ym2413) = &mut self.ym2413 {
                 ym2413.tick();
             }
-            if self.psg.tick() == PsgTickEffect::Clocked {
+            if self.psg.tick() == Sn76489TickEffect::Clocked {
                 let (psg_sample_l, psg_sample_r) =
                     if self.memory.psg_enabled() { self.psg.sample() } else { (0.0, 0.0) };
                 let ym_sample = if self.memory.fm_enabled() {
@@ -392,7 +392,7 @@ impl EmulatorTrait for SmsGgEmulator {
         init_z80(&mut self.z80);
 
         self.vdp = Vdp::new(self.vdp_version, &self.config);
-        self.psg = Psg::new(self.psg.version());
+        self.psg = Sn76489::new(self.psg.version());
         self.input = InputState::new(self.input.region());
 
         self.vdp_cycles_remainder = 0;
