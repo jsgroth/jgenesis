@@ -2,6 +2,8 @@
 
 Cross-platform multi-console emulator supporting a number of 8-bit and 16-bit gaming consoles.
 
+Linux, Windows, and web (WASM) are officially supported. Other platforms may work but have not been tested.
+
 ## Features
 
 * Emulation for the following consoles:
@@ -30,7 +32,6 @@ Cross-platform multi-console emulator supporting a number of 8-bit and 16-bit ga
 
 TODOs:
 * Support multiple Sega CD BIOS versions in GUI and automatically use the correct one based on disc region
-* Investigate and fix a few minor issues, like the EA logo flickering for a single frame in _Galahad_
 * Support 24C64 EEPROM chips (used only in _Frank Thomas Big Hurt Baseball_ and _College Slam_)
 
 ## Dev Builds
@@ -48,7 +49,7 @@ This project requires the latest stable version of the [Rust toolchain](https://
 
 ### SDL2
 
-This project requires [SDL2](https://www.libsdl.org/) core headers to build.
+This project requires [SDL2](https://www.libsdl.org/) core headers to build. SDL2 is used for windowing, audio playback, and reading keyboard/gamepad/mouse inputs.
 
 Linux (Debian-based):
 ```
@@ -77,9 +78,11 @@ cargo run --release --bin jgenesis-cli -- -h
 
 To build with maximum optimizations (better runtime performance + smaller binary size at the cost of long compile time):
 ```
-RUSTFLAGS="-C target-cpu=native" cargo build --profile release-lto
+RUSTFLAGS="-C target-cpu=x86-64-v2" cargo build --profile release-lto
 ```
 ...After which the executables will be in `target/release-lto/`.
+
+If you are building solely for your own personal usage, you can alternatively set `-C target_cpu=native` to tell the Rust compiler that it can use any CPU instruction that your computer's CPU supports, which may slightly improve performance.
 
 ## Screenshots
 
