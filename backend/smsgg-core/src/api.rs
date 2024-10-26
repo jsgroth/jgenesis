@@ -402,6 +402,10 @@ impl EmulatorTrait for SmsGgEmulator {
     fn timing_mode(&self) -> TimingMode {
         self.vdp.timing_mode()
     }
+
+    fn update_audio_output_frequency(&mut self, output_frequency: u64) {
+        self.audio_resampler.update_output_frequency(output_frequency);
+    }
 }
 
 fn populate_frame_buffer(

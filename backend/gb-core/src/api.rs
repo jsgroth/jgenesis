@@ -305,4 +305,8 @@ impl EmulatorTrait for GameBoyEmulator {
     fn timing_mode(&self) -> TimingMode {
         TimingMode::Ntsc
     }
+
+    fn update_audio_output_frequency(&mut self, output_frequency: u64) {
+        self.apu.update_output_frequency(output_frequency);
+    }
 }

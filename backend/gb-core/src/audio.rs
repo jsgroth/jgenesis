@@ -39,6 +39,10 @@ impl GameBoyResampler {
     pub fn update_audio_60hz_hack(&mut self, audio_60hz_hack: bool) {
         self.resampler.update_source_frequency(gb_source_frequency(audio_60hz_hack));
     }
+
+    pub fn update_output_frequency(&mut self, output_frequency: u64) {
+        self.resampler.update_output_frequency(output_frequency);
+    }
 }
 
 fn gb_source_frequency(audio_60hz_hack: bool) -> f64 {

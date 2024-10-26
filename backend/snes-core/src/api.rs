@@ -163,7 +163,7 @@ pub struct SnesEmulator {
     memory: Memory,
     ppu: Ppu,
     apu: Apu,
-    audio_downsampler: AudioResampler,
+    audio_resampler: AudioResampler,
     total_master_cycles: u64,
     latched_interrupts: Option<LatchedInterrupts>,
     memory_refresh_pending: bool,
@@ -216,7 +216,7 @@ impl SnesEmulator {
             memory,
             ppu,
             apu,
-            audio_downsampler: AudioResampler::new(),
+            audio_resampler: AudioResampler::new(),
             total_master_cycles: 0,
             latched_interrupts: None,
             memory_refresh_pending: false,
@@ -333,10 +333,10 @@ impl EmulatorTrait for SnesEmulator {
         if let ApuTickEffect::OutputSample(sample_l, sample_r) =
             self.apu.tick(master_cycles_elapsed)
         {
-            self.audio_downsampler.collect_sample(sample_l, sample_r);
+            self.audio_resampler.collect_sample(sample_l, sample_r);
         }
 
-        self.audio_downsampler.output_samples(audio_output).map_err(SnesError::AudioOutput)?;
+        self.audio_resampler.output_samples(audio_output).map_err(SnesError::AudioOutput)?;
 
         self.memory.tick(master_cycles_elapsed);
 
@@ -437,5 +437,9 @@ impl EmulatorTrait for SnesEmulator {
 
     fn timing_mode(&self) -> TimingMode {
         self.timing_mode
+    }
+
+    fn update_audio_output_frequency(&mut self, output_frequency: u64) {
+        self.audio_resampler.update_output_frequency(output_frequency);
     }
 }

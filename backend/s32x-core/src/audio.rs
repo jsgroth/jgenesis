@@ -144,6 +144,12 @@ impl Sega32XResampler {
         self.psg_enabled = config.genesis.psg_enabled;
         self.pwm_enabled = config.pwm_enabled;
     }
+
+    pub fn update_output_frequency(&mut self, output_frequency: u64) {
+        self.ym2612_resampler.update_output_frequency(output_frequency);
+        self.psg_resampler.update_output_frequency(output_frequency);
+        self.pwm_resampler.update_output_frequency(output_frequency);
+    }
 }
 
 fn check_enabled(sample: (f64, f64), enabled: bool) -> (f64, f64) {

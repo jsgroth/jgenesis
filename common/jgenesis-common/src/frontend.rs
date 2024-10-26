@@ -219,4 +219,6 @@ pub trait EmulatorTrait: Encode + Decode + PartialClone {
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S);
 
     fn timing_mode(&self) -> TimingMode;
+
+    fn update_audio_output_frequency(&mut self, output_frequency: u64);
 }

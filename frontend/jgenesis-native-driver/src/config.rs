@@ -118,6 +118,7 @@ pub(crate) struct RomReadResult {
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct CommonConfig<KeyboardConfig, JoystickConfig> {
     pub rom_file_path: String,
+    pub audio_output_frequency: u64,
     pub audio_sync: bool,
     pub audio_device_queue_size: u16,
     pub internal_audio_buffer_size: u32,

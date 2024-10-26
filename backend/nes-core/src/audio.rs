@@ -92,6 +92,10 @@ impl AudioResampler {
             apply_refresh_rate_adjustment,
         ));
     }
+
+    pub fn update_output_frequency(&mut self, output_frequency: u64) {
+        self.resampler.update_output_frequency(output_frequency);
+    }
 }
 
 const HPF_CHARGE_FACTOR: f64 = 0.9999015765;

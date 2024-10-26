@@ -87,4 +87,8 @@ impl AudioResampler {
 
         Ok(())
     }
+
+    pub fn update_output_frequency(&mut self, output_frequency: u64) {
+        self.resampler.update_output_frequency(output_frequency);
+    }
 }

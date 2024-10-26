@@ -1,7 +1,7 @@
 use bincode::{Decode, Encode};
 use std::collections::VecDeque;
 
-pub const OUTPUT_FREQUENCY: u64 = 48000;
+pub const DEFAULT_OUTPUT_FREQUENCY: u64 = 48000;
 
 // Scale frequencies up by 1e9 to better handle non-integer source frequencies, e.g. the Master System PSG
 const RESAMPLE_SCALING_FACTOR: u64 = 1_000_000_000;
@@ -12,6 +12,7 @@ pub struct SignalResampler<const LPF_TAPS: usize, const ZERO_PADDING: usize> {
     samples_r: VecDeque<f64>,
     output: VecDeque<(f64, f64)>,
     sample_count_product: u64,
+    output_frequency: u64,
     padded_scaled_source_frequency: u64,
     hpf_charge_factor: f64,
     hpf_capacitor_l: f64,
@@ -32,8 +33,9 @@ impl<const LPF_TAPS: usize, const ZERO_PADDING: usize> SignalResampler<LPF_TAPS,
         Self {
             samples_l: VecDeque::with_capacity(lpf_coefficients.len() + 1),
             samples_r: VecDeque::with_capacity(lpf_coefficients.len() + 1),
-            output: VecDeque::with_capacity((OUTPUT_FREQUENCY / 30) as usize),
+            output: VecDeque::with_capacity((DEFAULT_OUTPUT_FREQUENCY / 30) as usize),
             sample_count_product: 0,
+            output_frequency: DEFAULT_OUTPUT_FREQUENCY,
             padded_scaled_source_frequency,
             hpf_charge_factor,
             hpf_capacitor_l: 0.0,
@@ -59,7 +61,7 @@ impl<const LPF_TAPS: usize, const ZERO_PADDING: usize> SignalResampler<LPF_TAPS,
             self.samples_r.pop_front();
         }
 
-        self.sample_count_product += OUTPUT_FREQUENCY * RESAMPLE_SCALING_FACTOR;
+        self.sample_count_product += self.output_frequency * RESAMPLE_SCALING_FACTOR;
         while self.sample_count_product >= self.padded_scaled_source_frequency {
             self.sample_count_product -= self.padded_scaled_source_frequency;
 
@@ -103,6 +105,12 @@ impl<const LPF_TAPS: usize, const ZERO_PADDING: usize> SignalResampler<LPF_TAPS,
         self.output.pop_front()
     }
 
+    #[inline]
+    pub fn update_output_frequency(&mut self, output_frequency: u64) {
+        self.output_frequency = output_frequency;
+    }
+
+    #[inline]
     pub fn update_source_frequency(&mut self, source_frequency: f64) {
         self.padded_scaled_source_frequency = Self::pad_and_scale_frequency(source_frequency);
     }

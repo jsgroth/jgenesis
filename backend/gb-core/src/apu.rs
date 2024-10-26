@@ -331,6 +331,10 @@ impl Apu {
     pub fn reload_config(&mut self, config: GameBoyEmulatorConfig) {
         self.resampler.update_audio_60hz_hack(config.audio_60hz_hack);
     }
+
+    pub fn update_output_frequency(&mut self, output_frequency: u64) {
+        self.resampler.update_output_frequency(output_frequency);
+    }
 }
 
 fn digital_to_analog(sample: Option<u8>) -> i32 {

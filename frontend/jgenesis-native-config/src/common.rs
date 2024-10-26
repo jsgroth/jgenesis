@@ -21,6 +21,8 @@ pub enum ConfigSavePath {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CommonAppConfig {
+    #[serde(default = "default_audio_output_frequency")]
+    pub audio_output_frequency: u64,
     #[serde(default = "true_fn")]
     pub audio_sync: bool,
     #[serde(default = "default_audio_device_queue_size")]
@@ -89,6 +91,10 @@ fn true_fn() -> bool {
     true
 }
 
+fn default_audio_output_frequency() -> u64 {
+    jgenesis_common::audio::DEFAULT_OUTPUT_FREQUENCY
+}
+
 fn default_audio_device_queue_size() -> u16 {
     512
 }
@@ -139,6 +145,7 @@ impl AppConfig {
     ) -> CommonConfig<KC, JC> {
         CommonConfig {
             rom_file_path: path,
+            audio_output_frequency: self.common.audio_output_frequency,
             audio_sync: self.common.audio_sync,
             audio_device_queue_size: self.common.audio_device_queue_size,
             internal_audio_buffer_size: self.common.internal_audio_buffer_size,

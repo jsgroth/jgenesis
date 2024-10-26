@@ -4,6 +4,9 @@ use sdl2::AudioSubsystem;
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
 use thiserror::Error;
 
+// Always output in stereo
+const CHANNELS: u8 = 2;
+
 #[derive(Debug, Error)]
 pub enum AudioError {
     #[error("Error opening SDL2 audio queue: {0}")]
@@ -28,14 +31,7 @@ impl SdlAudioOutput {
         audio: &AudioSubsystem,
         config: &CommonConfig<KC, JC>,
     ) -> Result<Self, AudioError> {
-        let audio_queue = audio
-            .open_queue(None, &AudioSpecDesired {
-                freq: Some(48000),
-                channels: Some(2),
-                samples: Some(config.audio_device_queue_size),
-            })
-            .map_err(AudioError::OpenQueue)?;
-        audio_queue.resume();
+        let audio_queue = open_audio_queue(audio, config)?;
 
         Ok(Self {
             audio_queue,
@@ -58,21 +54,19 @@ impl SdlAudioOutput {
         self.audio_sync_threshold = config.audio_sync_threshold;
         self.audio_gain_multiplier = decibels_to_multiplier(config.audio_gain_db);
 
-        if config.audio_device_queue_size != self.audio_queue.spec().samples {
-            log::info!("Recreating SDL audio queue with size {}", config.audio_device_queue_size);
+        let spec = self.audio_queue.spec();
+        if config.audio_output_frequency != spec.freq as u64
+            || config.audio_device_queue_size != spec.samples
+        {
+            log::info!(
+                "Recreating SDL audio queue with freq {} and size {}",
+                config.audio_output_frequency,
+                config.audio_device_queue_size
+            );
             self.audio_queue.pause();
 
-            let new_audio_queue = self
-                .audio_queue
-                .subsystem()
-                .open_queue(None, &AudioSpecDesired {
-                    freq: Some(48000),
-                    channels: Some(2),
-                    samples: Some(config.audio_device_queue_size),
-                })
-                .map_err(AudioError::OpenQueue)?;
+            let new_audio_queue = open_audio_queue(self.audio_queue.subsystem(), config)?;
             self.audio_queue = new_audio_queue;
-            self.audio_queue.resume();
         }
 
         Ok(())
@@ -86,6 +80,35 @@ impl SdlAudioOutput {
     pub fn should_wait_for_audio(&self) -> bool {
         self.audio_sync && self.audio_queue.size() >= self.audio_sync_threshold
     }
+
+    #[must_use]
+    pub fn output_frequency(&self) -> i32 {
+        self.audio_queue.spec().freq
+    }
+}
+
+fn open_audio_queue<KC, JC>(
+    audio: &AudioSubsystem,
+    config: &CommonConfig<KC, JC>,
+) -> Result<AudioQueue<f32>, AudioError> {
+    let audio_queue = audio
+        .open_queue(None, &AudioSpecDesired {
+            freq: Some(config.audio_output_frequency as i32),
+            channels: Some(CHANNELS),
+            samples: Some(config.audio_device_queue_size),
+        })
+        .map_err(AudioError::OpenQueue)?;
+    audio_queue.resume();
+
+    if config.audio_output_frequency as i32 != audio_queue.spec().freq {
+        log::error!(
+            "Audio device does not support requested frequency {}; set to {} instead",
+            config.audio_output_frequency,
+            audio_queue.spec().freq
+        );
+    }
+
+    Ok(audio_queue)
 }
 
 fn decibels_to_multiplier(decibels: f64) -> f64 {

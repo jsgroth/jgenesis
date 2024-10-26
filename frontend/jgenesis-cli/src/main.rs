@@ -370,6 +370,10 @@ struct Args {
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     preprocess_shader: Option<PreprocessShader>,
 
+    /// Audio output frequency (48000 recommended)
+    #[arg(long, help_heading = AUDIO_OPTIONS_HEADING)]
+    audio_output_frequency: Option<u64>,
+
     /// Enable audio sync
     #[arg(long, help_heading = AUDIO_OPTIONS_HEADING)]
     audio_sync: Option<bool>,
@@ -607,6 +611,7 @@ impl Args {
 
     fn apply_audio_overrides(&self, config: &mut AppConfig) {
         apply_overrides!(self, config.common, [
+            audio_output_frequency,
             audio_sync,
             audio_device_queue_size,
             internal_audio_buffer_size,

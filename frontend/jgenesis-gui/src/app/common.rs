@@ -206,6 +206,18 @@ impl App {
 
         let mut open = true;
         Window::new("General Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
+            let rect = ui.group(|ui| {
+                ui.label("Output sample rate");
+
+                ui.radio_value(&mut self.config.common.audio_output_frequency, 48000, "48000 Hz (Recommended)");
+                ui.radio_value(&mut self.config.common.audio_output_frequency, 44100, "44100 Hz");
+            }).response.interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::AUDIO_SAMPLE_RATE);
+            }
+
+            ui.add_space(10.0);
+
             let rect = ui.checkbox(&mut self.config.common.audio_sync, "Audio sync enabled").interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::AUDIO_SYNC);

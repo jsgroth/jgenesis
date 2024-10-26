@@ -208,6 +208,13 @@ impl AudioResampler {
         self.pcm_enabled = config.pcm_enabled;
         self.cd_enabled = config.cd_audio_enabled;
     }
+
+    pub fn update_output_frequency(&mut self, output_frequency: u64) {
+        self.ym2612_resampler.update_output_frequency(output_frequency);
+        self.psg_resampler.update_output_frequency(output_frequency);
+        self.pcm_resampler.update_output_frequency(output_frequency);
+        self.cd_resampler.update_output_frequency(output_frequency);
+    }
 }
 
 fn check_enabled(sample: (f64, f64), enabled: bool) -> (f64, f64) {

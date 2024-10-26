@@ -61,6 +61,14 @@ pub const INTEGER_HEIGHT_SCALING: HelpText = HelpText {
     ],
 };
 
+pub const AUDIO_SAMPLE_RATE: HelpText = HelpText {
+    heading: "Audio Sample Rate",
+    text: &[
+        "Configure the output sample rate.",
+        "Most audio devices should support both of these settings, but some may only support one.",
+    ],
+};
+
 pub const AUDIO_SYNC: HelpText = HelpText {
     heading: "Audio Sync",
     text: &[

@@ -182,7 +182,7 @@ pub struct NativeEmulator<Inputs, Button, Config, Emulator> {
     rom_extension: String,
 }
 
-impl<Inputs, Button, Config, Emulator: PartialClone>
+impl<Inputs, Button, Config, Emulator: EmulatorTrait>
     NativeEmulator<Inputs, Button, Config, Emulator>
 {
     fn reload_common_config<KC, JC>(
@@ -190,7 +190,9 @@ impl<Inputs, Button, Config, Emulator: PartialClone>
         config: &CommonConfig<KC, JC>,
     ) -> Result<(), AudioError> {
         self.renderer.reload_config(config.renderer_config);
+
         self.audio_output.reload_config(config)?;
+        self.emulator.update_audio_output_frequency(self.audio_output.output_frequency() as u64);
 
         self.hotkey_state.fast_forward_multiplier = config.fast_forward_multiplier;
         // Reset speed multiplier in case the fast forward hotkey changed
@@ -372,7 +374,7 @@ where
 {
     #[allow(clippy::too_many_arguments)]
     fn new<KC, JC, InputMapperFn>(
-        emulator: Emulator,
+        mut emulator: Emulator,
         emulator_config: Emulator::Config,
         common_config: CommonConfig<KC, JC>,
         rom_extension: String,
@@ -409,6 +411,7 @@ where
         ))?;
 
         let audio_output = SdlAudioOutput::create_and_init(&audio, &common_config)?;
+        emulator.update_audio_output_frequency(audio_output.output_frequency() as u64);
 
         let input_mapper = input_mapper_fn(joystick, &common_config)?;
         let hotkey_mapper = HotkeyMapper::from_config(&common_config.hotkeys)?;
