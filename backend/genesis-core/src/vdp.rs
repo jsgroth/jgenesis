@@ -254,7 +254,7 @@ const V_INTERRUPT_DELAY: u64 = 48;
 const M68K_DIVIDER: u64 = crate::timing::NATIVE_M68K_DIVIDER;
 const VINT_FLAG_MCLK: u64 = MCLK_CYCLES_PER_SCANLINE - (20 * M68K_DIVIDER - V_INTERRUPT_DELAY);
 
-trait TimingModeExt: Copy {
+pub(crate) trait TimingModeExt: Copy {
     fn scanlines_per_frame(self) -> u16;
 
     fn rendered_lines_per_frame(self) -> u16;

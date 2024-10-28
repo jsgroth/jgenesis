@@ -153,6 +153,7 @@ pub enum PreprocessShader {
 pub struct RendererConfig {
     pub wgpu_backend: WgpuBackend,
     pub vsync_mode: VSyncMode,
+    pub frame_time_sync: bool,
     pub prescale_mode: PrescaleMode,
     pub scanlines: Scanlines,
     pub force_integer_height_scaling: bool,

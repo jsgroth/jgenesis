@@ -88,6 +88,7 @@ enum OpenWindow {
     NesGeneral,
     SnesGeneral,
     GameBoyGeneral,
+    Synchronization,
     Paths,
     Interface,
     CommonVideo,
@@ -133,12 +134,10 @@ struct AppState {
     ff_multiplier_invalid: bool,
     rewind_buffer_len_text: String,
     rewind_buffer_len_invalid: bool,
-    audio_device_queue_size_text: String,
-    audio_device_queue_size_invalid: bool,
-    internal_audio_buffer_size_text: String,
-    internal_audio_buffer_size_invalid: bool,
-    audio_sync_threshold_text: String,
-    audio_sync_threshold_invalid: bool,
+    audio_hardware_queue_size_text: String,
+    audio_hardware_queue_size_invalid: bool,
+    audio_buffer_size_text: String,
+    audio_buffer_size_invalid: bool,
     audio_gain_text: String,
     audio_gain_invalid: bool,
     display_scanlines_warning: bool,
@@ -167,12 +166,10 @@ impl AppState {
             ff_multiplier_invalid: false,
             rewind_buffer_len_text: config.common.rewind_buffer_length_seconds.to_string(),
             rewind_buffer_len_invalid: false,
-            audio_device_queue_size_text: config.common.audio_device_queue_size.to_string(),
-            audio_device_queue_size_invalid: false,
-            internal_audio_buffer_size_text: config.common.internal_audio_buffer_size.to_string(),
-            internal_audio_buffer_size_invalid: false,
-            audio_sync_threshold_text: config.common.audio_sync_threshold.to_string(),
-            audio_sync_threshold_invalid: false,
+            audio_hardware_queue_size_text: config.common.audio_hardware_queue_size.to_string(),
+            audio_hardware_queue_size_invalid: false,
+            audio_buffer_size_text: config.common.audio_buffer_size.to_string(),
+            audio_buffer_size_invalid: false,
             audio_gain_text: format!("{:.1}", config.common.audio_gain_db),
             audio_gain_invalid: false,
             overscan: config.nes.overscan().into(),
@@ -700,6 +697,13 @@ impl App {
                 ui.close_menu();
             }
 
+            ui.separator();
+
+            if ui.button("Synchronization").clicked() {
+                self.state.open_windows.insert(OpenWindow::Synchronization);
+                ui.close_menu();
+            }
+
             if ui.button("Paths").clicked() {
                 self.state.open_windows.insert(OpenWindow::Paths);
                 ui.close_menu();
@@ -718,6 +722,8 @@ impl App {
                 self.state.open_windows.insert(OpenWindow::CommonVideo);
                 ui.close_menu();
             }
+
+            ui.separator();
 
             if ui.button("SMS / Game Gear").clicked() {
                 self.state.open_windows.insert(OpenWindow::SmsGgVideo);
@@ -752,6 +758,8 @@ impl App {
                 self.state.open_windows.insert(OpenWindow::CommonAudio);
                 ui.close_menu();
             }
+
+            ui.separator();
 
             if ui.button("SMS / Game Gear").clicked() {
                 self.state.open_windows.insert(OpenWindow::SmsGgAudio);
@@ -855,7 +863,7 @@ impl App {
                 }
             });
 
-            ui.add_space(5.0);
+            ui.separator();
 
             if ui.button("Hotkeys").clicked() {
                 self.state.open_windows.insert(OpenWindow::Hotkeys);
@@ -1132,6 +1140,7 @@ impl eframe::App for App {
                 OpenWindow::NesGeneral => self.render_nes_general_settings(ctx),
                 OpenWindow::SnesGeneral => self.render_snes_general_settings(ctx),
                 OpenWindow::GameBoyGeneral => self.render_gb_general_settings(ctx),
+                OpenWindow::Synchronization => self.render_sync_settings(ctx),
                 OpenWindow::Paths => self.render_path_settings(ctx),
                 OpenWindow::Interface => self.render_interface_settings(ctx),
                 OpenWindow::CommonVideo => self.render_common_video_settings(ctx),

@@ -1,6 +1,6 @@
 //! Sega Master System / Game Gear public interface and main loop
 
-use crate::audio::AudioResampler;
+use crate::audio::{AudioResampler, TimingModeExt};
 use crate::bus::Bus;
 use crate::input::InputState;
 use crate::memory::Memory;
@@ -401,6 +401,17 @@ impl EmulatorTrait for SmsGgEmulator {
 
     fn timing_mode(&self) -> TimingMode {
         self.vdp.timing_mode()
+    }
+
+    fn target_fps(&self) -> f64 {
+        let timing_mode = self.timing_mode();
+        let mclk_frequency = timing_mode.mclk_frequency();
+        let scanlines_per_frame = match timing_mode {
+            TimingMode::Ntsc => vdp::NTSC_SCANLINES_PER_FRAME,
+            TimingMode::Pal => vdp::PAL_SCANLINES_PER_FRAME,
+        };
+
+        mclk_frequency / f64::from(vdp::MCLK_CYCLES_PER_SCANLINE) / f64::from(scanlines_per_frame)
     }
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {

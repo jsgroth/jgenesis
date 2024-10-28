@@ -25,12 +25,10 @@ pub struct CommonAppConfig {
     pub audio_output_frequency: u64,
     #[serde(default = "true_fn")]
     pub audio_sync: bool,
-    #[serde(default = "default_audio_device_queue_size")]
-    pub audio_device_queue_size: u16,
-    #[serde(default = "default_internal_audio_buffer_size")]
-    pub internal_audio_buffer_size: u32,
-    #[serde(default = "default_audio_sync_threshold")]
-    pub audio_sync_threshold: u32,
+    #[serde(default = "default_audio_hardware_queue_size")]
+    pub audio_hardware_queue_size: u16,
+    #[serde(default = "default_audio_buffer_size")]
+    pub audio_buffer_size: u32,
     #[serde(default)]
     pub audio_gain_db: f64,
     #[serde(default)]
@@ -49,6 +47,8 @@ pub struct CommonAppConfig {
     pub wgpu_backend: WgpuBackend,
     #[serde(default)]
     pub vsync_mode: VSyncMode,
+    #[serde(default)]
+    pub frame_time_sync: bool,
     #[serde(default)]
     pub auto_prescale: bool,
     #[serde(default = "default_prescale_factor")]
@@ -95,16 +95,12 @@ fn default_audio_output_frequency() -> u64 {
     jgenesis_common::audio::DEFAULT_OUTPUT_FREQUENCY
 }
 
-fn default_audio_device_queue_size() -> u16 {
-    512
-}
-
-fn default_internal_audio_buffer_size() -> u32 {
+fn default_audio_hardware_queue_size() -> u16 {
     64
 }
 
-fn default_audio_sync_threshold() -> u32 {
-    8192
+fn default_audio_buffer_size() -> u32 {
+    2048
 }
 
 fn default_custom_path(subdir: &str) -> PathBuf {
@@ -147,9 +143,8 @@ impl AppConfig {
             rom_file_path: path,
             audio_output_frequency: self.common.audio_output_frequency,
             audio_sync: self.common.audio_sync,
-            audio_device_queue_size: self.common.audio_device_queue_size,
-            internal_audio_buffer_size: self.common.internal_audio_buffer_size,
-            audio_sync_threshold: self.common.audio_sync_threshold,
+            audio_hardware_queue_size: self.common.audio_hardware_queue_size,
+            audio_buffer_size: self.common.audio_buffer_size,
             audio_gain_db: self.common.audio_gain_db,
             save_path: save_path(self.common.save_path, &self.common.custom_save_path),
             state_path: save_path(self.common.state_path, &self.common.custom_state_path),
@@ -157,6 +152,7 @@ impl AppConfig {
             renderer_config: RendererConfig {
                 wgpu_backend: self.common.wgpu_backend,
                 vsync_mode: self.common.vsync_mode,
+                frame_time_sync: self.common.frame_time_sync,
                 prescale_mode: if self.common.auto_prescale {
                     PrescaleMode::Auto
                 } else {

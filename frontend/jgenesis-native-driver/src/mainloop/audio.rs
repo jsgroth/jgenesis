@@ -2,10 +2,14 @@ use crate::config::CommonConfig;
 use jgenesis_common::frontend::AudioOutput;
 use sdl2::AudioSubsystem;
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
+use std::time::Duration;
 use thiserror::Error;
 
 // Always output in stereo
 const CHANNELS: u8 = 2;
+
+// Number of samples to buffer before locking and pushing to the audio queue
+const INTERNAL_AUDIO_BUFFER_LEN: usize = 32;
 
 #[derive(Debug, Error)]
 pub enum AudioError {
@@ -19,8 +23,7 @@ pub struct SdlAudioOutput {
     audio_queue: AudioQueue<f32>,
     audio_buffer: Vec<f32>,
     audio_sync: bool,
-    internal_audio_buffer_len: u32,
-    audio_sync_threshold: u32,
+    audio_buffer_size: u32,
     audio_gain_multiplier: f64,
     sample_count: u64,
     speed_multiplier: u64,
@@ -35,10 +38,9 @@ impl SdlAudioOutput {
 
         Ok(Self {
             audio_queue,
-            audio_buffer: Vec::with_capacity(config.internal_audio_buffer_size as usize),
+            audio_buffer: Vec::with_capacity(INTERNAL_AUDIO_BUFFER_LEN),
             audio_sync: config.audio_sync,
-            internal_audio_buffer_len: config.internal_audio_buffer_size,
-            audio_sync_threshold: config.audio_sync_threshold,
+            audio_buffer_size: config.audio_buffer_size,
             audio_gain_multiplier: decibels_to_multiplier(config.audio_gain_db),
             sample_count: 0,
             speed_multiplier: 1,
@@ -50,18 +52,17 @@ impl SdlAudioOutput {
         config: &CommonConfig<KC, JC>,
     ) -> Result<(), AudioError> {
         self.audio_sync = config.audio_sync;
-        self.internal_audio_buffer_len = config.internal_audio_buffer_size;
-        self.audio_sync_threshold = config.audio_sync_threshold;
+        self.audio_buffer_size = config.audio_buffer_size;
         self.audio_gain_multiplier = decibels_to_multiplier(config.audio_gain_db);
 
         let spec = self.audio_queue.spec();
         if config.audio_output_frequency != spec.freq as u64
-            || config.audio_device_queue_size != spec.samples
+            || config.audio_hardware_queue_size != spec.samples
         {
             log::info!(
                 "Recreating SDL audio queue with freq {} and size {}",
                 config.audio_output_frequency,
-                config.audio_device_queue_size
+                config.audio_hardware_queue_size
             );
             self.audio_queue.pause();
 
@@ -77,13 +78,13 @@ impl SdlAudioOutput {
     }
 
     #[must_use]
-    pub fn should_wait_for_audio(&self) -> bool {
-        self.audio_sync && self.audio_queue.size() >= self.audio_sync_threshold
-    }
-
-    #[must_use]
     pub fn output_frequency(&self) -> i32 {
         self.audio_queue.spec().freq
+    }
+
+    fn audio_queue_len_samples(&self) -> u32 {
+        // 2 channels, 4 bytes per sample
+        self.audio_queue.size() / 2 / 4
     }
 }
 
@@ -95,7 +96,7 @@ fn open_audio_queue<KC, JC>(
         .open_queue(None, &AudioSpecDesired {
             freq: Some(config.audio_output_frequency as i32),
             channels: Some(CHANNELS),
-            samples: Some(config.audio_device_queue_size),
+            samples: Some(config.audio_hardware_queue_size),
         })
         .map_err(AudioError::OpenQueue)?;
     audio_queue.resume();
@@ -128,11 +129,28 @@ impl AudioOutput for SdlAudioOutput {
         self.audio_buffer.push((sample_l * self.audio_gain_multiplier) as f32);
         self.audio_buffer.push((sample_r * self.audio_gain_multiplier) as f32);
 
-        if self.audio_buffer.len() >= self.internal_audio_buffer_len as usize {
-            if !self.audio_sync && self.audio_queue.size() >= self.audio_sync_threshold {
-                // Audio queue is full; drop samples
-                self.audio_buffer.clear();
-                return Ok(());
+        if self.audio_buffer.len() >= INTERNAL_AUDIO_BUFFER_LEN {
+            if self.audio_queue_len_samples() > self.audio_buffer_size {
+                if !self.audio_sync {
+                    // Audio queue is full; drop samples
+                    log::debug!("Dropping audio samples because buffer is full");
+                    self.audio_buffer.clear();
+                    return Ok(());
+                }
+
+                // Block until audio queue is not full
+                loop {
+                    jgenesis_common::sleep(Duration::from_micros(250));
+                    if self.audio_queue_len_samples() <= self.audio_buffer_size {
+                        break;
+                    }
+                }
+            }
+
+            if log::log_enabled!(log::Level::Debug) {
+                if self.audio_queue.size() == 0 {
+                    log::debug!("Potential audio buffer underflow");
+                }
             }
 
             self.audio_queue.queue_audio(&self.audio_buffer).map_err(AudioError::QueueAudio)?;

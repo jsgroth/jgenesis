@@ -716,9 +716,11 @@ pub struct Vdp {
     line_counter: u8,
 }
 
-const DOTS_PER_SCANLINE: u16 = 342;
-const NTSC_SCANLINES_PER_FRAME: u16 = 262;
-const PAL_SCANLINES_PER_FRAME: u16 = 313;
+pub const DOTS_PER_SCANLINE: u16 = 342;
+pub const MCLK_CYCLES_PER_SCANLINE: u16 = 10 * DOTS_PER_SCANLINE;
+
+pub const NTSC_SCANLINES_PER_FRAME: u16 = 262;
+pub const PAL_SCANLINES_PER_FRAME: u16 = 313;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VdpTickEffect {

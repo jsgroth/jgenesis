@@ -6,7 +6,7 @@ use crate::cpu::CpuState;
 use crate::graphics::TimingModeGraphicsExt;
 use crate::input::NesInputs;
 use crate::ppu::PpuState;
-use crate::{apu, cpu, graphics, ppu};
+use crate::{apu, audio, cpu, graphics, ppu};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, FrameSize, PixelAspectRatio, Renderer, SaveWriter,
@@ -377,6 +377,16 @@ impl EmulatorTrait for NesEmulator {
 
     fn timing_mode(&self) -> TimingMode {
         self.bus.mapper().timing_mode()
+    }
+
+    fn target_fps(&self) -> f64 {
+        let timing_mode = self.timing_mode();
+        match (timing_mode, self.config.audio_refresh_rate_adjustment) {
+            (TimingMode::Ntsc, true) => 60.0,
+            (TimingMode::Ntsc, false) => audio::NTSC_NES_NATIVE_DISPLAY_RATE,
+            (TimingMode::Pal, true) => 50.0,
+            (TimingMode::Pal, false) => audio::PAL_NES_NATIVE_DISPLAY_RATE,
+        }
     }
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {

@@ -517,6 +517,10 @@ impl EmulatorTrait for SegaCdEmulator {
         self.timing_mode
     }
 
+    fn target_fps(&self) -> f64 {
+        genesis_core::target_framerate(self.timing_mode)
+    }
+
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {
         self.audio_resampler.update_output_frequency(output_frequency);
     }

@@ -4,9 +4,9 @@ use crate::audio::GenesisAudioResampler;
 use crate::input::{GenesisInputs, InputState};
 use crate::memory::{Cartridge, MainBus, MainBusSignals, MainBusWrites, Memory};
 use crate::timing::{CycleCounters, GenesisCycleCounters};
-use crate::vdp::{Vdp, VdpConfig, VdpTickEffect};
+use crate::vdp::{TimingModeExt, Vdp, VdpConfig, VdpTickEffect};
 use crate::ym2612::{Ym2612, YmTickEffect};
-use crate::{GenesisControllerType, timing, vdp};
+use crate::{GenesisControllerType, audio, timing, vdp};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, FrameSize, PartialClone, PixelAspectRatio, Renderer,
@@ -457,9 +457,25 @@ impl EmulatorTrait for GenesisEmulator {
         self.timing_mode
     }
 
+    fn target_fps(&self) -> f64 {
+        target_framerate(self.timing_mode)
+    }
+
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {
         self.audio_resampler.update_output_frequency(output_frequency);
     }
+}
+
+#[inline]
+#[must_use]
+pub fn target_framerate(timing_mode: TimingMode) -> f64 {
+    let mclk_frequency = match timing_mode {
+        TimingMode::Ntsc => audio::NTSC_GENESIS_MCLK_FREQUENCY,
+        TimingMode::Pal => audio::PAL_GENESIS_MCLK_FREQUENCY,
+    };
+    let scanlines_per_frame = timing_mode.scanlines_per_frame();
+
+    mclk_frequency / (vdp::MCLK_CYCLES_PER_SCANLINE as f64) / f64::from(scanlines_per_frame)
 }
 
 // If a long DMA is in progress (i.e. the DMA will not finish on this line), preemptively skip the

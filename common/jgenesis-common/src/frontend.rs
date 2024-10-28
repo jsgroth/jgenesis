@@ -220,5 +220,7 @@ pub trait EmulatorTrait: Encode + Decode + PartialClone {
 
     fn timing_mode(&self) -> TimingMode;
 
+    fn target_fps(&self) -> f64;
+
     fn update_audio_output_frequency(&mut self, output_frequency: u64);
 }

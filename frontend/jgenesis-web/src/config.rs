@@ -73,6 +73,8 @@ impl CommonWebConfig {
         RendererConfig {
             wgpu_backend: WgpuBackend::OpenGl,
             vsync_mode: VSyncMode::Enabled,
+            // Frame time sync does not work on web because it blocks until the next frame time
+            frame_time_sync: false,
             prescale_mode: PrescaleMode::Manual(self.prescale_factor),
             scanlines: Scanlines::default(),
             force_integer_height_scaling: false,

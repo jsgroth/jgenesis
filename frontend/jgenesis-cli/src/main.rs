@@ -346,6 +346,10 @@ struct Args {
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     vsync_mode: Option<VSyncMode>,
 
+    /// Enable frame time sync
+    #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
+    frame_time_sync: Option<bool>,
+
     /// Enable auto-prescaling
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     auto_prescale: Option<bool>,
@@ -378,17 +382,13 @@ struct Args {
     #[arg(long, help_heading = AUDIO_OPTIONS_HEADING)]
     audio_sync: Option<bool>,
 
-    /// Audio device queue size in samples
+    /// Audio hardware queue size in samples
     #[arg(long, help_heading = AUDIO_OPTIONS_HEADING)]
-    audio_device_queue_size: Option<u16>,
+    audio_hardware_queue_size: Option<u16>,
 
-    /// Internal audio buffer size in samples
+    /// Audio buffer size in samples
     #[arg(long, help_heading = AUDIO_OPTIONS_HEADING)]
-    internal_audio_buffer_size: Option<u32>,
-
-    /// Audio sync threshold in bytes (1 sample = 2x4 bytes)
-    #[arg(long, help_heading = AUDIO_OPTIONS_HEADING)]
-    audio_sync_threshold: Option<u32>,
+    audio_buffer_size: Option<u32>,
 
     /// Audio gain in decibels; can be positive or negative
     #[arg(long, help_heading = AUDIO_OPTIONS_HEADING)]
@@ -596,6 +596,7 @@ impl Args {
         apply_overrides!(self, config.common, [
             wgpu_backend,
             vsync_mode,
+            frame_time_sync,
             auto_prescale,
             scanlines,
             force_integer_height_scaling,
@@ -613,9 +614,8 @@ impl Args {
         apply_overrides!(self, config.common, [
             audio_output_frequency,
             audio_sync,
-            audio_device_queue_size,
-            internal_audio_buffer_size,
-            audio_sync_threshold,
+            audio_hardware_queue_size,
+            audio_buffer_size,
             audio_gain_db,
         ]);
     }

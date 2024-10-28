@@ -45,11 +45,11 @@ use snes_core::api::SnesLoadError;
 use std::cell::RefCell;
 use std::error::Error;
 use std::ffi::NulError;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::LazyLock;
 use std::time::Duration;
-use std::{io, thread};
 use thiserror::Error;
 
 const MODAL_DURATION: Duration = Duration::from_secs(3);
@@ -85,21 +85,6 @@ impl RendererExt for WgpuRenderer<Window> {
             window.set_fullscreen(new_fullscreen)
         }
     }
-}
-
-#[cfg(target_os = "windows")]
-fn sleep(duration: Duration) {
-    // SAFETY: thread::sleep cannot panic, so timeEndPeriod will always be called after timeBeginPeriod.
-    unsafe {
-        windows::Win32::Media::timeBeginPeriod(1);
-        thread::sleep(duration);
-        windows::Win32::Media::timeEndPeriod(1);
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn sleep(duration: Duration) {
-    thread::sleep(duration);
 }
 
 struct HotkeyState<Emulator> {
@@ -168,7 +153,6 @@ pub struct NativeEmulator<Inputs, Button, Config, Emulator> {
     config: Config,
     renderer: WgpuRenderer<Window>,
     audio_output: SdlAudioOutput,
-    wait_for_audio_sync: bool,
     input_mapper: InputMapper<Inputs, Button>,
     hotkey_mapper: HotkeyMapper,
     save_writer: FsSaveWriter,
@@ -217,6 +201,8 @@ impl<Inputs, Button, Config, Emulator: EmulatorTrait>
         }
 
         self.sdl.mouse().show_cursor(!config.hide_cursor_over_window);
+
+        self.renderer.set_target_fps(self.emulator.target_fps());
 
         Ok(())
     }
@@ -404,11 +390,12 @@ where
         )?;
 
         let window_size = sdl_window_size(&window);
-        let renderer = pollster::block_on(WgpuRenderer::new(
+        let mut renderer = pollster::block_on(WgpuRenderer::new(
             window,
             window_size,
             common_config.renderer_config,
         ))?;
+        renderer.set_target_fps(emulator.target_fps());
 
         let audio_output = SdlAudioOutput::create_and_init(&audio, &common_config)?;
         emulator.update_audio_output_frequency(audio_output.output_frequency() as u64);
@@ -423,7 +410,6 @@ where
             config: emulator_config,
             renderer,
             audio_output,
-            wait_for_audio_sync: true,
             input_mapper,
             hotkey_mapper,
             save_writer,
@@ -452,17 +438,9 @@ where
     /// samples, or writing save files.
     pub fn render_frame(&mut self) -> NativeEmulatorResult<NativeTickEffect> {
         loop {
-            // The underlying SDL2 call for audio sync may lock, so only check the audio queue
-            // size if the emulator just rendered a frame or if `should_wait_for_audio()`
-            // returned true on the last loop iteration
-            if self.wait_for_audio_sync {
-                self.wait_for_audio_sync = self.audio_output.should_wait_for_audio();
-            }
-
             let rewinding = self.hotkey_state.rewinder.is_rewinding();
-            let should_tick_emulator = !self.wait_for_audio_sync
-                && !rewinding
-                && (!self.hotkey_state.paused || self.hotkey_state.should_step_frame);
+            let should_tick_emulator =
+                !rewinding && (!self.hotkey_state.paused || self.hotkey_state.should_step_frame);
 
             let frame_rendered = should_tick_emulator
                 && self
@@ -543,9 +521,6 @@ where
 
             if frame_rendered {
                 self.hotkey_state.rewinder.record_frame(&self.emulator);
-
-                // Check for audio sync at least once after every frame (if enabled)
-                self.wait_for_audio_sync = true;
             }
 
             if rewinding {
@@ -558,7 +533,7 @@ where
 
             if !should_tick_emulator {
                 // Don't spin loop when the emulator is not actively running
-                sleep(Duration::from_millis(1));
+                jgenesis_common::sleep(Duration::from_millis(1));
             }
 
             return Ok(NativeTickEffect::None);

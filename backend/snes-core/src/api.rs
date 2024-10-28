@@ -439,6 +439,15 @@ impl EmulatorTrait for SnesEmulator {
         self.timing_mode
     }
 
+    fn target_fps(&self) -> f64 {
+        match (self.timing_mode, self.emulator_config.audio_60hz_hack) {
+            (TimingMode::Ntsc, true) => 60.0,
+            (TimingMode::Ntsc, false) => 60.0988,
+            (TimingMode::Pal, true) => 50.0,
+            (TimingMode::Pal, false) => 50.007,
+        }
+    }
+
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {
         self.audio_resampler.update_output_frequency(output_frequency);
     }

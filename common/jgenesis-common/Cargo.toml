@@ -19,6 +19,9 @@ log = { workspace = true }
 serde = { workspace = true, optional = true }
 time = { workspace = true }
 
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { workspace = true, features = ["Win32_Media"] }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = { workspace = true }
 

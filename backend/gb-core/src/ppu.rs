@@ -26,8 +26,8 @@ pub const FRAME_SIZE: FrameSize =
     FrameSize { width: SCREEN_WIDTH as u32, height: SCREEN_HEIGHT as u32 };
 
 // 144 rendered lines + 10 VBlank lines
-const LINES_PER_FRAME: u8 = 154;
-const DOTS_PER_LINE: u16 = 456;
+pub const LINES_PER_FRAME: u8 = 154;
+pub const DOTS_PER_LINE: u16 = 456;
 const OAM_SCAN_DOTS: u16 = 80;
 
 const MAX_SPRITES_PER_LINE: usize = 10;

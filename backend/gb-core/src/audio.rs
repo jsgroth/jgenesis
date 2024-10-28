@@ -4,7 +4,7 @@ use jgenesis_common::frontend::AudioOutput;
 
 type GbApuResampler = SignalResampler<45, 0>;
 
-const GB_APU_FREQUENCY: f64 = 1_048_576.0;
+pub const GB_APU_FREQUENCY: f64 = 1_048_576.0;
 
 fn new_gb_apu_resampler(source_frequency: f64) -> GbApuResampler {
     SignalResampler::new(source_frequency, FIR_COEFFICIENT_0, FIR_COEFFICIENTS, HPF_CHARGE_FACTOR)

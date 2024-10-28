@@ -13,7 +13,7 @@ use crate::serial::SerialPort;
 use crate::sm83::Sm83;
 use crate::speed::SpeedRegister;
 use crate::timer::GbTimer;
-use crate::{HardwareMode, ppu};
+use crate::{HardwareMode, audio, ppu};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, PixelAspectRatio, Renderer, SaveWriter, TickEffect,
@@ -304,6 +304,16 @@ impl EmulatorTrait for GameBoyEmulator {
 
     fn timing_mode(&self) -> TimingMode {
         TimingMode::Ntsc
+    }
+
+    fn target_fps(&self) -> f64 {
+        if self.config.audio_60hz_hack {
+            60.0
+        } else {
+            // Approximately 59.73 Hz
+            let dots_per_frame = f64::from(ppu::DOTS_PER_LINE) * f64::from(ppu::LINES_PER_FRAME);
+            4.0 * audio::GB_APU_FREQUENCY / dots_per_frame
+        }
     }
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {

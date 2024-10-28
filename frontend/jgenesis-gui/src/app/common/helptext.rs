@@ -69,35 +69,36 @@ pub const AUDIO_SAMPLE_RATE: HelpText = HelpText {
     ],
 };
 
+pub const FRAME_TIME_SYNC: HelpText = HelpText {
+    heading: "Frame Time Sync",
+    text: &[
+        "If enabled, make a best effort to present video frames with consistent frame pacing.",
+        "This is different from VSync in that it's based purely on system time and does not perform any kind of synchronization with the graphics driver.",
+    ],
+};
+
 pub const AUDIO_SYNC: HelpText = HelpText {
     heading: "Audio Sync",
     text: &[
-        "If enabled, synchronize emulation speed to the audio output stream.",
-        "This is more accurate than video sync and prevents audio pops caused by buffer overflow, but it may cause poor frame pacing if the display refresh rate does not match the console's native refresh rate.",
+        "If enabled, synchronize emulation speed to the audio output stream by blocking when the audio buffer is full.",
+        "This prevents audio popping caused by audio buffer overflows.",
     ],
 };
 
-pub const AUDIO_DEVICE_QUEUE_SIZE: HelpText = HelpText {
-    heading: "Device Queue Size",
+pub const AUDIO_HARDWARE_QUEUE_SIZE: HelpText = HelpText {
+    heading: "Audio Hardware Queue Size",
     text: &[
         "Configure audio device queue size in samples.",
-        "Setting this too low can cause audio popping due to buffer underflow. Setting this too high can cause noticeable audio latency.",
+        "Decreasing this value can increase CPU usage. Increasing this value makes audio sync less accurate and can increase audio latency.",
     ],
 };
 
-pub const INTERNAL_AUDIO_BUFFER_SIZE: HelpText = HelpText {
-    heading: "Internal Audio Buffer Size",
+pub const AUDIO_BUFFER_SIZE: HelpText = HelpText {
+    heading: "Audio Buffer Size",
     text: &[
-        "Configure size of the internal audio buffer, where samples are buffered before they're pushed to the SDL2 audio queue.",
-        "This is generally fine to leave at the default value. Setting this too low can hurt performance due to excessive synchronization with the SDL2 audio queue.",
-    ],
-};
-
-pub const AUDIO_SYNC_THRESHOLD: HelpText = HelpText {
-    heading: "Audio Sync Threshold",
-    text: &[
-        "If audio sync is enabled, configure the audio queue size at which the emulation thread will block and wait for the audio thread.",
-        "Setting this too low can cause various performance issues. Setting this too high will cause noticeable audio latency.",
+        "If audio sync is enabled, this is the audio buffer size at which the emulation thread will block and wait for the audio thread.",
+        "If audio sync is disabled, this is the audio buffer size at which the emulator will start dropping audio samples, which causes audio pops.",
+        "This setting affects audio latency.",
     ],
 };
 

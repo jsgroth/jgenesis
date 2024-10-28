@@ -6,10 +6,10 @@ use bincode::{Decode, Encode};
 use jgenesis_common::audio::SignalResampler;
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
 
-const NTSC_MCLK_FREQUENCY: f64 = 53_693_175.0;
-const PAL_MCLK_FREQUENCY: f64 = 53_203_424.0;
+pub const NTSC_MCLK_FREQUENCY: f64 = 53_693_175.0;
+pub const PAL_MCLK_FREQUENCY: f64 = 53_203_424.0;
 
-trait TimingModeExt {
+pub(crate) trait TimingModeExt {
     fn mclk_frequency(self) -> f64;
 }
 

@@ -2,6 +2,7 @@ use crate::config::{PreprocessShader, PrescaleMode, RendererConfig, Scanlines, W
 use crate::ttf::ModalRenderer;
 use cfg_if::cfg_if;
 use jgenesis_common::frontend::{Color, FrameSize, PixelAspectRatio, Renderer};
+use jgenesis_common::timeutils;
 use raw_window_handle::{HandleError, HasDisplayHandle, HasWindowHandle};
 use std::collections::HashMap;
 use std::error::Error;
@@ -581,6 +582,7 @@ impl RenderingPipeline {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render(
         &self,
         device: &wgpu::Device,
@@ -589,6 +591,7 @@ impl RenderingPipeline {
         surface_config: &wgpu::SurfaceConfiguration,
         frame_buffer: &[Color],
         modal_renderer: &mut ModalRenderer,
+        frame_time_tracker: &mut FrameTimeTracker,
     ) -> Result<(), RendererError> {
         let output = surface.get_current_texture()?;
         let output_texture_view =
@@ -676,6 +679,8 @@ impl RenderingPipeline {
         }
 
         queue.submit(iter::once(encoder.finish()));
+
+        frame_time_tracker.sync();
         output.present();
 
         Ok(())
@@ -916,6 +921,40 @@ impl RenderingPipelines {
     }
 }
 
+#[derive(Debug, Clone)]
+struct FrameTimeTracker {
+    sync_enabled: bool,
+    last_frame_time_nanos: u128,
+    frame_interval_nanos: u128,
+}
+
+impl FrameTimeTracker {
+    fn new(sync_enabled: bool) -> Self {
+        Self {
+            sync_enabled,
+            last_frame_time_nanos: timeutils::current_time_nanos(),
+            frame_interval_nanos: (1_000_000_000.0_f64 / 60.0).round() as u128,
+        }
+    }
+
+    fn sync(&mut self) {
+        if !self.sync_enabled {
+            return;
+        }
+
+        let mut now = timeutils::current_time_nanos();
+        let next_frame_time = self.last_frame_time_nanos + self.frame_interval_nanos;
+        while now < next_frame_time {
+            jgenesis_common::sleep(Duration::from_micros(250));
+            now = timeutils::current_time_nanos();
+        }
+
+        while self.last_frame_time_nanos + self.frame_interval_nanos < now {
+            self.last_frame_time_nanos += self.frame_interval_nanos;
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WindowSize {
     pub width: u32,
@@ -936,6 +975,7 @@ pub struct WgpuRenderer<Window> {
     modal_renderer: ModalRenderer,
     frame_count: u64,
     speed_multiplier: u64,
+    frame_time_tracker: FrameTimeTracker,
     // SAFETY: The surface must not outlive the window it was created from, thus the window must be
     // declared after the surface
     window: Window,
@@ -1056,6 +1096,7 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
             modal_renderer,
             frame_count: 0,
             speed_multiplier: 1,
+            frame_time_tracker: FrameTimeTracker::new(config.frame_time_sync),
             window,
             window_size,
         })
@@ -1075,6 +1116,12 @@ impl<Window> WgpuRenderer<Window> {
             );
             config.vsync_mode = self.renderer_config.vsync_mode;
         }
+
+        if !self.frame_time_tracker.sync_enabled && config.frame_time_sync {
+            // Reset last frame time if frame time sync was just enabled
+            self.frame_time_tracker.last_frame_time_nanos = timeutils::current_time_nanos();
+        }
+        self.frame_time_tracker.sync_enabled = config.frame_time_sync;
 
         self.renderer_config = config;
         self.surface.configure(&self.device, &self.surface_config);
@@ -1118,6 +1165,22 @@ impl<Window> WgpuRenderer<Window> {
     pub fn set_speed_multiplier(&mut self, speed_multiplier: u64) {
         assert_ne!(speed_multiplier, 0, "speed multiplier must be non-zero");
         self.speed_multiplier = speed_multiplier;
+    }
+
+    /// Set the target framerate to use for frame time sync (if enabled).
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if `fps` is infinite, NaN, or 0.
+    pub fn set_target_fps(&mut self, fps: f64) {
+        assert!(fps.is_finite() && fps != 0.0);
+
+        self.frame_time_tracker.frame_interval_nanos = (1_000_000_000.0_f64 / fps).round() as u128;
+
+        log::debug!(
+            "Set frame time interval to {}ns for target framerate {fps} FPS",
+            self.frame_time_tracker.frame_interval_nanos
+        );
     }
 
     /// Obtain the last rendered frame size and the current display area within the window.
@@ -1171,6 +1234,7 @@ impl<Window> Renderer for WgpuRenderer<Window> {
             &self.surface_config,
             frame_buffer,
             &mut self.modal_renderer,
+            &mut self.frame_time_tracker,
         ) {
             Ok(()) => {}
             Err(RendererError::WgpuSurface(wgpu::SurfaceError::Outdated)) => {

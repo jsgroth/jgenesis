@@ -2189,6 +2189,7 @@ dependencies = [
  "log",
  "serde",
  "time",
+ "windows 0.58.0",
 ]
 
 [[package]]
@@ -2269,7 +2270,6 @@ dependencies = [
  "snes-core",
  "thiserror",
  "wgpu",
- "windows 0.58.0",
  "zip",
 ]
 

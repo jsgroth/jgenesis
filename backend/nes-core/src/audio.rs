@@ -6,11 +6,11 @@ use jgenesis_common::frontend::{AudioOutput, TimingMode};
 
 // 236.25MHz / 11 / 12
 const NTSC_NES_AUDIO_FREQUENCY: f64 = 1789772.7272727272727273;
-const NTSC_NES_NATIVE_DISPLAY_RATE: f64 = 60.0988;
+pub const NTSC_NES_NATIVE_DISPLAY_RATE: f64 = 60.0988;
 
 // 26.6017125.MHz / 16
 const PAL_NES_AUDIO_FREQUENCY: f64 = 1662607.03125;
-const PAL_NES_NATIVE_DISPLAY_RATE: f64 = 50.0070;
+pub const PAL_NES_NATIVE_DISPLAY_RATE: f64 = 50.0070;
 
 trait TimingModeAudioExt {
     fn nes_audio_frequency(self) -> f64;

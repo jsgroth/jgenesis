@@ -55,32 +55,6 @@ impl App {
             }
 
             let rect = ui.group(|ui| {
-                ui.add_enabled_ui(!is_opengl, |ui| {
-                    let disabled_text = "VSync mode is not configurable with the OpenGL backend";
-
-                    ui.label("VSync mode").on_disabled_hover_text(disabled_text);
-
-                    ui.horizontal(|ui| {
-                        ui.radio_value(
-                            &mut self.config.common.vsync_mode,
-                            VSyncMode::Enabled,
-                            "Enabled",
-                        ).on_disabled_hover_text(disabled_text);
-                        ui.radio_value(
-                            &mut self.config.common.vsync_mode,
-                            VSyncMode::Disabled,
-                            "Disabled",
-                        ).on_disabled_hover_text(disabled_text);
-                        ui.radio_value(&mut self.config.common.vsync_mode, VSyncMode::Fast, "Fast")
-                            .on_disabled_hover_text(disabled_text);
-                    });
-                });
-            }).response.interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::VSYNC_MODE);
-            }
-
-            let rect = ui.group(|ui| {
                 ui.label("Filter mode");
                 ui.horizontal(|ui| {
                     ui.radio_value(
@@ -201,112 +175,48 @@ impl App {
         const WINDOW: OpenWindow = OpenWindow::CommonAudio;
 
         const TEXT_EDIT_WIDTH: f32 = 50.0;
-        const MIN_DEVICE_QUEUE_SIZE: u16 = 8;
-        const MIN_AUDIO_SYNC_THRESHOLD: u32 = 64;
 
         let mut open = true;
         Window::new("General Audio Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            let rect = ui.group(|ui| {
-                ui.label("Output sample rate");
+            let rect = ui
+                .group(|ui| {
+                    ui.label("Output sample rate");
 
-                ui.radio_value(&mut self.config.common.audio_output_frequency, 48000, "48000 Hz (Recommended)");
-                ui.radio_value(&mut self.config.common.audio_output_frequency, 44100, "44100 Hz");
-            }).response.interact_rect;
+                    ui.radio_value(
+                        &mut self.config.common.audio_output_frequency,
+                        48000,
+                        "48000 Hz (Recommended)",
+                    );
+                    ui.radio_value(
+                        &mut self.config.common.audio_output_frequency,
+                        44100,
+                        "44100 Hz",
+                    );
+                })
+                .response
+                .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::AUDIO_SAMPLE_RATE);
             }
 
             ui.add_space(10.0);
 
-            let rect = ui.checkbox(&mut self.config.common.audio_sync, "Audio sync enabled").interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::AUDIO_SYNC);
-            }
-
-            ui.add_space(10.0);
-
-            let rect = ui.horizontal(|ui| {
-                ui.add(
-                    NumericTextEdit::new(
-                        &mut self.state.audio_device_queue_size_text,
-                        &mut self.config.common.audio_device_queue_size,
-                        &mut self.state.audio_device_queue_size_invalid,
-                    )
-                        .with_validation(|value| value.is_power_of_two() && value >= MIN_DEVICE_QUEUE_SIZE)
-                        .desired_width(TEXT_EDIT_WIDTH)
-                );
-
-                ui.label("Audio device queue size (samples)");
-            }).response.interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::AUDIO_DEVICE_QUEUE_SIZE);
-            }
-
-            if self.state.audio_device_queue_size_invalid {
-                ui.colored_label(Color32::RED, format!("Audio device queue size must be a power of 2 and must be at least {MIN_DEVICE_QUEUE_SIZE}"));
-            }
-
-            let rect = ui.horizontal(|ui| {
-                ui.add(
-                    NumericTextEdit::new(
-                        &mut self.state.internal_audio_buffer_size_text,
-                        &mut self.config.common.internal_audio_buffer_size,
-                        &mut self.state.internal_audio_buffer_size_invalid,
-                    )
-                        .with_validation(|value| value != 0)
-                        .desired_width(TEXT_EDIT_WIDTH)
-                );
-
-                ui.label("Internal audio buffer size (samples)");
-            }).response.interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::INTERNAL_AUDIO_BUFFER_SIZE);
-            }
-
-            if self.state.internal_audio_buffer_size_invalid {
-                ui.colored_label(
-                    Color32::RED,
-                    "Internal audio buffer size must be a positive integer",
-                );
-            }
-
-            let rect = ui.horizontal(|ui| {
-                ui.add(
-                    NumericTextEdit::new(
-                        &mut self.state.audio_sync_threshold_text,
-                        &mut self.config.common.audio_sync_threshold,
-                        &mut self.state.audio_sync_threshold_invalid,
-                    )
-                        .with_validation(|value| value >= MIN_AUDIO_SYNC_THRESHOLD)
-                        .desired_width(TEXT_EDIT_WIDTH)
-                );
-
-                ui.label("Audio sync threshold (bytes)");
-            }).response.interact_rect;
-            if ui.rect_contains_pointer(rect) {
-                self.state.help_text.insert(WINDOW, helptext::AUDIO_SYNC_THRESHOLD);
-            }
-
-            if self.state.audio_sync_threshold_invalid {
-                ui.colored_label(
-                    Color32::RED,
-                    format!("Audio sync threshold must be at least {MIN_AUDIO_SYNC_THRESHOLD}"),
-                );
-            }
-
-            let rect = ui.horizontal(|ui| {
-                ui.add(
-                    NumericTextEdit::new(
-                        &mut self.state.audio_gain_text,
-                        &mut self.config.common.audio_gain_db,
-                        &mut self.state.audio_gain_invalid,
-                    )
+            let rect = ui
+                .horizontal(|ui| {
+                    ui.add(
+                        NumericTextEdit::new(
+                            &mut self.state.audio_gain_text,
+                            &mut self.config.common.audio_gain_db,
+                            &mut self.state.audio_gain_invalid,
+                        )
                         .with_validation(f64::is_finite)
-                        .desired_width(TEXT_EDIT_WIDTH)
-                );
+                        .desired_width(TEXT_EDIT_WIDTH),
+                    );
 
-                ui.label("Audio gain (dB) (+/-)");
-            }).response.interact_rect;
+                    ui.label("Audio gain (dB) (+/-)");
+                })
+                .response
+                .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::AUDIO_GAIN);
             }
@@ -320,6 +230,120 @@ impl App {
         if !open {
             self.state.open_windows.remove(&WINDOW);
         }
+    }
+
+    pub(super) fn render_sync_settings(&mut self, ctx: &Context) {
+        const WINDOW: OpenWindow = OpenWindow::Synchronization;
+
+        const TEXT_EDIT_WIDTH: f32 = 50.0;
+        const MIN_DEVICE_QUEUE_SIZE: u16 = 8;
+        const MIN_AUDIO_SYNC_THRESHOLD: u32 = 8;
+
+        let mut open = true;
+        Window::new("Synchronization Settings").open(&mut open).show(ctx, |ui| {
+            let rect = ui.group(|ui| {
+                ui.add_enabled_ui(self.config.common.wgpu_backend != WgpuBackend::OpenGl, |ui| {
+                    let disabled_text = "VSync mode is not configurable with the OpenGL backend";
+
+                    ui.label("VSync mode").on_disabled_hover_text(disabled_text);
+
+                    ui.horizontal(|ui| {
+                        ui.radio_value(
+                            &mut self.config.common.vsync_mode,
+                            VSyncMode::Enabled,
+                            "Enabled",
+                        ).on_disabled_hover_text(disabled_text);
+                        ui.radio_value(
+                            &mut self.config.common.vsync_mode,
+                            VSyncMode::Disabled,
+                            "Disabled",
+                        ).on_disabled_hover_text(disabled_text);
+                        ui.radio_value(&mut self.config.common.vsync_mode, VSyncMode::Fast, "Fast")
+                            .on_disabled_hover_text(disabled_text);
+                    });
+                });
+            }).response.interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::VSYNC_MODE);
+            }
+
+            ui.add_space(10.0);
+
+            let rect = ui.checkbox(&mut self.config.common.frame_time_sync, "Frame time sync enabled").interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::FRAME_TIME_SYNC);
+            }
+
+            let rect = ui.checkbox(&mut self.config.common.audio_sync, "Audio sync enabled").interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::AUDIO_SYNC);
+            }
+
+            ui.add_space(10.0);
+
+            let rect = ui.horizontal(|ui| {
+                ui.add(
+                    NumericTextEdit::new(
+                        &mut self.state.audio_buffer_size_text,
+                        &mut self.config.common.audio_buffer_size,
+                        &mut self.state.audio_buffer_size_invalid,
+                    )
+                        .with_validation(|value| value >= MIN_AUDIO_SYNC_THRESHOLD)
+                        .desired_width(TEXT_EDIT_WIDTH)
+                );
+
+                ui.label("Audio buffer size (samples)");
+            }).response.interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::AUDIO_BUFFER_SIZE);
+            }
+
+            if self.state.audio_buffer_size_invalid {
+                ui.colored_label(
+                    Color32::RED,
+                    format!("Audio sync threshold must be at least {MIN_AUDIO_SYNC_THRESHOLD}"),
+                );
+            }
+
+            let rect = ui.horizontal(|ui| {
+                ui.add(
+                    NumericTextEdit::new(
+                        &mut self.state.audio_hardware_queue_size_text,
+                        &mut self.config.common.audio_hardware_queue_size,
+                        &mut self.state.audio_hardware_queue_size_invalid,
+                    )
+                        .with_validation(|value| value.is_power_of_two() && value >= MIN_DEVICE_QUEUE_SIZE)
+                        .desired_width(TEXT_EDIT_WIDTH)
+                );
+
+                ui.label("Audio hardware queue size (samples)");
+            }).response.interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::AUDIO_HARDWARE_QUEUE_SIZE);
+            }
+
+            if self.state.audio_hardware_queue_size_invalid {
+                ui.colored_label(Color32::RED, format!("Audio device queue size must be a power of 2 and must be at least {MIN_DEVICE_QUEUE_SIZE}"));
+            }
+
+            ui.add_space(5.0);
+
+            let estimated_audio_latency_ms = self.estimate_audio_latency_ms();
+            ui.label(format!("Estimated audio latency: {estimated_audio_latency_ms} ms"));
+
+            self.render_help_text(ui, WINDOW);
+        });
+        if !open {
+            self.state.open_windows.remove(&WINDOW);
+        }
+    }
+
+    fn estimate_audio_latency_ms(&self) -> u32 {
+        let total_queue_size = u32::from(self.config.common.audio_hardware_queue_size)
+            + self.config.common.audio_buffer_size;
+        let latency_secs =
+            f64::from(total_queue_size) / (self.config.common.audio_output_frequency as f64);
+        (latency_secs * 1000.0).round() as u32
     }
 }
 
