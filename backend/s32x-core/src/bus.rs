@@ -457,7 +457,7 @@ const SH2_VDP_CYCLES: u64 = 4;
 const SH2_SDRAM_READ_CYCLES: u64 = 11;
 const SH2_SDRAM_WRITE_CYCLES: u64 = 1;
 
-impl<'a> BusInterface for Sh2Bus<'a> {
+impl BusInterface for Sh2Bus<'_> {
     #[inline]
     fn read_byte(&mut self, address: u32) -> u8 {
         self.cycle_counter += 1;

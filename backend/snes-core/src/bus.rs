@@ -35,7 +35,7 @@ pub struct Bus<'a> {
     pub pending_write: Option<(u32, u8)>,
 }
 
-impl<'a> Bus<'a> {
+impl Bus<'_> {
     fn read_system_area(&mut self, full_address: u32) -> u8 {
         let address = full_address & 0x7FFF;
         match address {
@@ -176,7 +176,7 @@ impl<'a> Bus<'a> {
     }
 }
 
-impl<'a> BusInterface for Bus<'a> {
+impl BusInterface for Bus<'_> {
     #[inline]
     fn read(&mut self, address: u32) -> u8 {
         log::trace!("Bus read {address:06X}");

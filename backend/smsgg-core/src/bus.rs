@@ -31,7 +31,7 @@ impl<'a> Bus<'a> {
     }
 }
 
-impl<'a> BusInterface for Bus<'a> {
+impl BusInterface for Bus<'_> {
     fn read_memory(&mut self, address: u16) -> u8 {
         self.memory.read(address)
     }

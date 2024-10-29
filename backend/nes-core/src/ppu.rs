@@ -298,7 +298,7 @@ type SpriteLineBuffer = [SpriteData; SCREEN_WIDTH as usize];
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct PpuState {
     timing_mode: TimingMode,
-    frame_buffer: FrameBuffer,
+    frame_buffer: Box<FrameBuffer>,
     registers: InternalRegisters,
     bg_buffers: BgBuffers,
     sprite_buffers: SpriteBuffers,
@@ -314,8 +314,13 @@ impl PpuState {
     pub fn new(timing_mode: TimingMode) -> Self {
         Self {
             timing_mode,
-            frame_buffer: [[(0, ColorEmphasis::default()); SCREEN_WIDTH as usize];
-                MAX_SCREEN_HEIGHT as usize],
+            frame_buffer: vec![
+                [(0, ColorEmphasis::default()); SCREEN_WIDTH as usize];
+                MAX_SCREEN_HEIGHT as usize
+            ]
+            .into_boxed_slice()
+            .try_into()
+            .unwrap(),
             registers: InternalRegisters::new(),
             bg_buffers: BgBuffers::new(),
             sprite_buffers: SpriteBuffers::new(),

@@ -54,7 +54,7 @@ macro_rules! impl_exg {
     };
 }
 
-impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
+impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     #[inline]
     fn write_long_word_for_move(&mut self, dest: AddressingMode, value: u32) -> ExecuteResult<()> {
         match dest {

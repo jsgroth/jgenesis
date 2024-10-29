@@ -109,7 +109,7 @@ pub struct Sa1Bus<'a> {
     pub timer: &'a mut Sa1Timer,
 }
 
-impl<'a> BusInterface for Sa1Bus<'a> {
+impl BusInterface for Sa1Bus<'_> {
     #[inline]
     fn read(&mut self, address: u32) -> u8 {
         let bank = (address >> 16) & 0xFF;

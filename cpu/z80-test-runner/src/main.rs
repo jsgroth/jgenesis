@@ -74,13 +74,16 @@ fn hex_to_bytes(s: &str) -> Vec<u8> {
 }
 
 struct FullyWritableBus {
-    memory: [u8; 0x10000],
+    memory: Box<[u8; 0x10000]>,
     io_ports: [u8; 0x100],
 }
 
 impl FullyWritableBus {
     fn new() -> Self {
-        Self { memory: [0; 0x10000], io_ports: [0; 0x100] }
+        Self {
+            memory: vec![0; 0x10000].into_boxed_slice().try_into().unwrap(),
+            io_ports: [0; 0x100],
+        }
     }
 }
 

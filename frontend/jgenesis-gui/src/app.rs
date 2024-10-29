@@ -219,7 +219,7 @@ impl<'a, T> NumericTextEdit<'a, T> {
     }
 }
 
-impl<'a, T: Copy + FromStr> Widget for NumericTextEdit<'a, T> {
+impl<T: Copy + FromStr> Widget for NumericTextEdit<'_, T> {
     fn ui(self, ui: &mut Ui) -> Response {
         let mut text_edit = TextEdit::singleline(self.text);
         if let Some(desired_width) = self.desired_width {

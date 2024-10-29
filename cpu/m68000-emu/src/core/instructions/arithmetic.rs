@@ -168,7 +168,7 @@ fn cmp_cycles_long_word(source: AddressingMode, dest: AddressingMode) -> u32 {
     }
 }
 
-impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
+impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     fn read_byte_for_extend(
         &mut self,
         source: AddressingMode,

@@ -786,7 +786,7 @@ impl<'a, Medium: PhysicalMedium> MainBus<'a, Medium> {
 // The Genesis has a 24-bit bus, not 32-bit
 const ADDRESS_MASK: u32 = 0xFFFFFF;
 
-impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium> {
+impl<Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'_, Medium> {
     #[inline]
     fn read_byte(&mut self, address: u32) -> u8 {
         let address = address & ADDRESS_MASK;
@@ -881,7 +881,7 @@ impl<'a, Medium: PhysicalMedium> m68000_emu::BusInterface for MainBus<'a, Medium
     }
 }
 
-impl<'a, Medium: PhysicalMedium> z80_emu::BusInterface for MainBus<'a, Medium> {
+impl<Medium: PhysicalMedium> z80_emu::BusInterface for MainBus<'_, Medium> {
     #[inline]
     // TODO remove
     #[allow(clippy::match_same_arms)]

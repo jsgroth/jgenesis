@@ -8,7 +8,7 @@ use crate::traits::BusInterface;
 const TRAP_VECTOR_OFFSET: u32 = 32;
 const OVERFLOW_VECTOR: u32 = 7;
 
-impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
+impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     fn resolve_to_memory_address(&mut self, source: AddressingMode) -> ExecuteResult<u32> {
         let resolved = self.resolve_address(source, OpSize::LongWord)?;
         let ResolvedAddress::Memory(address) = resolved else {

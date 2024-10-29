@@ -388,7 +388,7 @@ impl<'a> SavePathSelect<'a> {
     }
 }
 
-impl<'a> Widget for SavePathSelect<'a> {
+impl Widget for SavePathSelect<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         ui.group(|ui| {
             ui.label(self.label);

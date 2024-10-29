@@ -130,7 +130,7 @@ macro_rules! impl_hl_bit_op {
     };
 }
 
-impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
+impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     impl_r_shift_op!(rlc_r, rotate_left, thru_carry: false);
     impl_hl_shift_op!(rlc_hl, rotate_left, thru_carry: false);
 

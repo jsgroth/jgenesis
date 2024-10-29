@@ -140,7 +140,7 @@ macro_rules! impl_16_bit_increment_op {
     };
 }
 
-impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
+impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     impl_a_r_add_op!(add_a_r, add);
     impl_a_immediate_add_op!(add_a_immediate, add);
     impl_a_hl_add_op!(add_a_hl, add);

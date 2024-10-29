@@ -4,7 +4,7 @@ use crate::core::instructions::{
 use crate::core::{Flags, Register16};
 use crate::traits::BusInterface;
 
-impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
+impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     pub(super) fn in_a_n(&mut self) -> u32 {
         let operand = self.fetch_operand();
         let io_address = u16::from_be_bytes([self.registers.a, operand]);

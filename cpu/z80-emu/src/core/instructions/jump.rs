@@ -67,7 +67,7 @@ macro_rules! impl_jr_op {
     };
 }
 
-impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
+impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     impl_jr_op!(jr_e);
     impl_jr_op!(jr_c_e, carry == true);
     impl_jr_op!(jr_nc_e, carry == false);

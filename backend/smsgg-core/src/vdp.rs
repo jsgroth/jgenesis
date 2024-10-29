@@ -549,7 +549,7 @@ struct BufferIter<'a, T> {
     len: usize,
 }
 
-impl<'a, T: Copy> Iterator for BufferIter<'a, T> {
+impl<T: Copy> Iterator for BufferIter<'_, T> {
     type Item = T;
 
     #[allow(clippy::if_then_some_else_none)]

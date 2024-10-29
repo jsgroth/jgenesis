@@ -1261,7 +1261,7 @@ impl<'a> SubBus<'a> {
 // Sega CD / 68000 only has a 24-bit address bus
 const ADDRESS_MASK: u32 = 0xFFFFFF;
 
-impl<'a> BusInterface for SubBus<'a> {
+impl BusInterface for SubBus<'_> {
     #[inline]
     fn read_byte(&mut self, address: u32) -> u8 {
         let address = address & ADDRESS_MASK;

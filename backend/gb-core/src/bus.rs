@@ -60,7 +60,7 @@ macro_rules! cgb_only_write {
     }
 }
 
-impl<'a> Bus<'a> {
+impl Bus<'_> {
     fn read_io_register(&self, address: u16) -> u8 {
         log::trace!("I/O register read: {address:04X}");
 
@@ -139,7 +139,7 @@ impl<'a> Bus<'a> {
     }
 }
 
-impl<'a> BusInterface for Bus<'a> {
+impl BusInterface for Bus<'_> {
     fn read(&mut self, address: u16) -> u8 {
         self.tick_components();
 

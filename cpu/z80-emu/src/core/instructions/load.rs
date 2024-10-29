@@ -3,7 +3,7 @@ use crate::core::{Flags, IndexRegister, Register8, Register16};
 use crate::traits::BusInterface;
 use std::mem;
 
-impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
+impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     pub(super) fn ld_r_r(&mut self, opcode: u8, index: Option<IndexRegister>) -> u32 {
         let write_target =
             super::parse_register_from_opcode(opcode >> 3, index).expect("invalid opcode");

@@ -295,7 +295,7 @@ impl<'a, T> SelectableButton<'a, T> {
     }
 }
 
-impl<'a, T: Copy + PartialEq> Widget for SelectableButton<'a, T> {
+impl<T: Copy + PartialEq> Widget for SelectableButton<'_, T> {
     fn ui(self, ui: &mut Ui) -> Response {
         let response =
             Button::new(self.label).selected(*self.current_value == self.alternative).ui(ui);

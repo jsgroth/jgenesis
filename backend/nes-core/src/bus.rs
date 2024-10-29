@@ -844,7 +844,7 @@ impl Bus {
 /// A view of the bus containing methods that are appropriate for use by the CPU and APU.
 pub struct CpuBus<'a>(&'a mut Bus);
 
-impl<'a> BusInterface for CpuBus<'a> {
+impl BusInterface for CpuBus<'_> {
     #[inline]
     fn read(&mut self, address: u16) -> u8 {
         match address {
@@ -891,7 +891,7 @@ impl<'a> BusInterface for CpuBus<'a> {
     }
 }
 
-impl<'a> CpuBus<'a> {
+impl CpuBus<'_> {
     fn apply_write(&mut self, address: u16, value: u8) {
         match address {
             address @ CPU_RAM_START..=CPU_RAM_END => {
@@ -1052,7 +1052,7 @@ impl<'a> CpuBus<'a> {
 /// A view of the bus containing methods that are appropriate for use by the PPU.
 pub struct PpuBus<'a>(&'a mut Bus);
 
-impl<'a> PpuBus<'a> {
+impl PpuBus<'_> {
     pub fn read_address(&mut self, address: u16) -> u8 {
         // PPU bus only has 14-bit addressing
         let address = address & 0x3FFF;
@@ -1128,6 +1128,10 @@ impl<'a> PpuBus<'a> {
     }
 }
 
+pub(crate) fn cpu_open_bus(address: u16) -> u8 {
+    (address >> 8) as u8
+}
+
 #[cfg(test)]
 mod tests {
     use crate::api::Overscan;
@@ -1141,8 +1145,4 @@ mod tests {
 
         assert_ne!(bus1.cpu_internal_ram, bus2.cpu_internal_ram);
     }
-}
-
-pub(crate) fn cpu_open_bus(address: u16) -> u8 {
-    (address >> 8) as u8
 }

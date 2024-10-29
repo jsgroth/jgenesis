@@ -176,7 +176,7 @@ struct Spc700Bus<'a> {
     registers: &'a mut ApuRegisters,
 }
 
-impl<'a> BusInterface for Spc700Bus<'a> {
+impl BusInterface for Spc700Bus<'_> {
     #[inline]
     fn read(&mut self, address: u16) -> u8 {
         log::trace!("SPC700 bus read: {address:04X}");

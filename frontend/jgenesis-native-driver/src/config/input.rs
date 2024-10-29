@@ -108,7 +108,7 @@ impl Serialize for KeyboardInput {
 
 struct KeyboardInputVisitor;
 
-impl<'de> serde::de::Visitor<'de> for KeyboardInputVisitor {
+impl serde::de::Visitor<'_> for KeyboardInputVisitor {
     type Value = KeyboardInput;
 
     fn expecting(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {

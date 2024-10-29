@@ -291,7 +291,7 @@ macro_rules! impl_tst {
 }
 
 #[allow(clippy::assign_op_pattern)]
-impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
+impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     impl_bit_op_all_sizes!(and_byte, and_word, and_long_word, &);
     impl_bit_op_all_sizes!(or_byte, or_word, or_long_word, |);
     impl_bit_op_all_sizes!(eor_byte, eor_word, eor_long_word, ^);

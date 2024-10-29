@@ -6,7 +6,7 @@ pub(super) const fn nop() -> u32 {
     4
 }
 
-impl<'registers, 'bus, B: BusInterface> InstructionExecutor<'registers, 'bus, B> {
+impl<B: BusInterface> InstructionExecutor<'_, '_, B> {
     pub(super) fn halt(&mut self) -> u32 {
         self.registers.halted = true;
 
