@@ -118,6 +118,22 @@ pub enum FullscreenMode {
     Exclusive,
 }
 
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
+)]
+pub enum HideMouseCursor {
+    #[default]
+    Fullscreen,
+    Never,
+    Always,
+}
+
+impl HideMouseCursor {
+    pub(crate) fn should_hide(self, fullscreen: bool) -> bool {
+        self == Self::Always || (fullscreen && self == Self::Fullscreen)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct RomReadResult {
     pub rom: Vec<u8>,
@@ -151,7 +167,7 @@ pub struct CommonConfig<KeyboardConfig, JoystickConfig> {
     pub joystick_inputs: JoystickConfig,
     #[indent_nested]
     pub hotkeys: HotkeyConfig,
-    pub hide_cursor_over_window: bool,
+    pub hide_mouse_cursor: HideMouseCursor,
 }
 
 impl<KeyboardConfig, JoystickConfig> CommonConfig<KeyboardConfig, JoystickConfig> {

@@ -21,7 +21,7 @@ pub use state::{SAVE_STATE_SLOTS, SaveStateMetadata};
 
 use crate::archive::ArchiveError;
 use crate::config::input::{InputConfig, JoystickInput, KeyboardInput};
-use crate::config::{CommonConfig, FullscreenMode, WindowSize};
+use crate::config::{CommonConfig, FullscreenMode, HideMouseCursor, WindowSize};
 use crate::input::{Hotkey, HotkeyMapResult, HotkeyMapper, InputMapper, Joysticks, MappableInputs};
 use crate::mainloop::audio::SdlAudioOutput;
 use crate::mainloop::debug::{DebugRenderFn, DebuggerWindow};
@@ -68,6 +68,8 @@ trait RendererExt {
 
     fn window_id(&self) -> u32;
 
+    fn is_fullscreen(&self) -> bool;
+
     fn update_fullscreen_mode(&mut self, fullscreen_mode: FullscreenMode) -> Result<(), String>;
 
     fn toggle_fullscreen(&mut self, fullscreen_mode: FullscreenMode) -> Result<(), String>;
@@ -83,6 +85,10 @@ impl RendererExt for WgpuRenderer<Window> {
 
     fn window_id(&self) -> u32 {
         self.window().id()
+    }
+
+    fn is_fullscreen(&self) -> bool {
+        matches!(self.window().fullscreen_state(), FullscreenType::Desktop | FullscreenType::True)
     }
 
     fn update_fullscreen_mode(&mut self, fullscreen_mode: FullscreenMode) -> Result<(), String> {
@@ -115,6 +121,7 @@ impl RendererExt for WgpuRenderer<Window> {
 
 struct HotkeyState<Emulator> {
     fullscreen_mode: FullscreenMode,
+    hide_mouse_cursor: HideMouseCursor,
     base_save_state_path: PathBuf,
     save_state_paths: SaveStatePaths,
     save_state_slot: usize,
@@ -154,6 +161,7 @@ impl<Emulator: PartialClone> HotkeyState<Emulator> {
 
         Ok(Self {
             fullscreen_mode: common_config.fullscreen_mode,
+            hide_mouse_cursor: common_config.hide_mouse_cursor,
             base_save_state_path: save_state_path,
             save_state_paths,
             save_state_slot: 0,
@@ -206,6 +214,7 @@ impl<Inputs, Button, Config, Emulator: EmulatorTrait>
         self.audio_output.reload_config(config)?;
         self.emulator.update_audio_output_frequency(self.audio_output.output_frequency());
 
+        self.hotkey_state.hide_mouse_cursor = config.hide_mouse_cursor;
         self.hotkey_state.fullscreen_mode = config.fullscreen_mode;
         if let Err(err) = self.renderer.update_fullscreen_mode(config.fullscreen_mode) {
             log::error!("Error updating fullscreen mode to {}: {err}", config.fullscreen_mode);
@@ -233,7 +242,8 @@ impl<Inputs, Button, Config, Emulator: EmulatorTrait>
             }
         }
 
-        self.sdl.mouse().show_cursor(!config.hide_cursor_over_window);
+        let fullscreen = self.renderer.is_fullscreen();
+        self.sdl.mouse().show_cursor(!config.hide_mouse_cursor.should_hide(fullscreen));
 
         Ok(())
     }
@@ -408,8 +418,7 @@ where
             &CommonConfig<KC, JC>,
         ) -> NativeEmulatorResult<InputMapper<Inputs, Button>>,
     {
-        let (sdl, video, audio, joystick, event_pump) =
-            init_sdl(common_config.hide_cursor_over_window)?;
+        let (sdl, video, audio, joystick, event_pump) = init_sdl(&common_config)?;
 
         let window_size = common_config.window_size.unwrap_or(default_window_size);
         let window = create_window(
@@ -692,6 +701,9 @@ where
                 self.renderer
                     .toggle_fullscreen(self.hotkey_state.fullscreen_mode)
                     .map_err(NativeEmulatorError::SdlSetFullscreen)?;
+                self.sdl.mouse().show_cursor(
+                    !self.hotkey_state.hide_mouse_cursor.should_hide(self.renderer.is_fullscreen()),
+                );
             }
             Hotkey::SaveState => {
                 let slot = self.hotkey_state.save_state_slot;
@@ -809,8 +821,8 @@ where
 }
 
 // Initialize SDL2
-fn init_sdl(
-    hide_cursor_over_window: bool,
+fn init_sdl<KC, JC>(
+    config: &CommonConfig<KC, JC>,
 ) -> NativeEmulatorResult<(Sdl, VideoSubsystem, AudioSubsystem, JoystickSubsystem, EventPump)> {
     let sdl = sdl2::init().map_err(NativeEmulatorError::SdlInit)?;
     let video = sdl.video().map_err(NativeEmulatorError::SdlVideoInit)?;
@@ -818,7 +830,7 @@ fn init_sdl(
     let joystick = sdl.joystick().map_err(NativeEmulatorError::SdlJoystickInit)?;
     let event_pump = sdl.event_pump().map_err(NativeEmulatorError::SdlEventPumpInit)?;
 
-    sdl.mouse().show_cursor(!hide_cursor_over_window);
+    sdl.mouse().show_cursor(!config.hide_mouse_cursor.should_hide(config.launch_in_fullscreen));
 
     Ok((sdl, video, audio, joystick, event_pump))
 }

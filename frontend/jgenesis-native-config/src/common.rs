@@ -1,5 +1,7 @@
 use crate::AppConfig;
-use jgenesis_native_driver::config::{CommonConfig, FullscreenMode, SavePath, WindowSize};
+use jgenesis_native_driver::config::{
+    CommonConfig, FullscreenMode, HideMouseCursor, SavePath, WindowSize,
+};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, PrescaleMode, RendererConfig, Scanlines,
@@ -72,7 +74,7 @@ pub struct CommonAppConfig {
     #[serde(default = "default_rewind_buffer_length")]
     pub rewind_buffer_length_seconds: u64,
     #[serde(default)]
-    pub hide_cursor_over_window: bool,
+    pub hide_mouse_cursor: HideMouseCursor,
 }
 
 impl CommonAppConfig {
@@ -178,7 +180,7 @@ impl AppConfig {
             axis_deadzone: self.inputs.axis_deadzone,
             joystick_inputs,
             hotkeys: self.inputs.hotkeys.clone(),
-            hide_cursor_over_window: self.common.hide_cursor_over_window,
+            hide_mouse_cursor: self.common.hide_mouse_cursor,
         }
     }
 }

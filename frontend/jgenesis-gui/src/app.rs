@@ -23,6 +23,7 @@ use egui::{
 };
 use egui_extras::{Column, TableBuilder};
 use jgenesis_native_config::{AppConfig, EguiTheme, ListFilters, RecentOpen};
+use jgenesis_native_driver::config::HideMouseCursor;
 use jgenesis_renderer::config::Scanlines;
 use rfd::FileDialog;
 use std::collections::HashSet;
@@ -430,10 +431,25 @@ impl App {
     fn render_interface_settings(&mut self, ctx: &Context) {
         let mut open = true;
         Window::new("UI Settings").open(&mut open).resizable(false).show(ctx, |ui| {
-            ui.checkbox(
-                &mut self.config.common.hide_cursor_over_window,
-                "Hide mouse cursor over emulator window",
-            );
+            ui.group(|ui| {
+                ui.label("Hide mouse cursor over emulator window");
+
+                ui.radio_value(
+                    &mut self.config.common.hide_mouse_cursor,
+                    HideMouseCursor::Fullscreen,
+                    "Only when fullscreen",
+                );
+                ui.radio_value(
+                    &mut self.config.common.hide_mouse_cursor,
+                    HideMouseCursor::Always,
+                    "Always",
+                );
+                ui.radio_value(
+                    &mut self.config.common.hide_mouse_cursor,
+                    HideMouseCursor::Never,
+                    "Never",
+                );
+            });
 
             ui.add_space(5.0);
 

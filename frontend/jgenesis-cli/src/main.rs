@@ -8,7 +8,9 @@ use jgenesis_common::frontend::{EmulatorTrait, TimingMode};
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::common::ConfigSavePath;
 use jgenesis_native_driver::config::input::{NesControllerType, SnesControllerType};
-use jgenesis_native_driver::config::{FullscreenMode, GgAspectRatio, SmsAspectRatio};
+use jgenesis_native_driver::config::{
+    FullscreenMode, GgAspectRatio, HideMouseCursor, SmsAspectRatio,
+};
 use jgenesis_native_driver::input::MappableInputs;
 use jgenesis_native_driver::{NativeEmulator, NativeTickEffect};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
@@ -73,9 +75,9 @@ struct Args {
     #[arg(long)]
     remove_sprite_limit: Option<bool>,
 
-    /// Hide mouse cursor when over emulator window
+    /// Hide mouse cursor when over emulator window (Fullscreen / Always / Never)
     #[arg(long)]
-    hide_cursor_over_window: Option<bool>,
+    hide_mouse_cursor: Option<HideMouseCursor>,
 
     /// Save file path (RomFolder / EmulatorFolder / Custom)
     #[arg(long)]
@@ -466,7 +468,7 @@ impl Args {
             config.nes.remove_sprite_limit = remove_sprite_limit;
         }
 
-        apply_overrides!(self, config.common, [hide_cursor_over_window, save_path, state_path]);
+        apply_overrides!(self, config.common, [hide_mouse_cursor, save_path, state_path]);
 
         if let Some(custom_save_path) = &self.custom_save_path {
             config.common.custom_save_path.clone_from(custom_save_path);
