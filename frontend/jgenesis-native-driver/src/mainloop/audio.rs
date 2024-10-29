@@ -23,6 +23,9 @@ pub struct SdlAudioOutput {
     audio_queue: AudioQueue<f32>,
     audio_buffer: Vec<f32>,
     audio_sync: bool,
+    dynamic_resampling_ratio: bool,
+    dynamic_output_frequency: u64,
+    dynamic_update_counter: u32,
     audio_buffer_size: u32,
     audio_gain_multiplier: f64,
     sample_count: u64,
@@ -35,11 +38,15 @@ impl SdlAudioOutput {
         config: &CommonConfig<KC, JC>,
     ) -> Result<Self, AudioError> {
         let audio_queue = open_audio_queue(audio, config)?;
+        let output_frequency = audio_queue.spec().freq;
 
         Ok(Self {
             audio_queue,
             audio_buffer: Vec::with_capacity(INTERNAL_AUDIO_BUFFER_LEN),
             audio_sync: config.audio_sync,
+            dynamic_resampling_ratio: config.audio_dynamic_resampling_ratio,
+            dynamic_output_frequency: output_frequency as u64,
+            dynamic_update_counter: 0,
             audio_buffer_size: config.audio_buffer_size,
             audio_gain_multiplier: decibels_to_multiplier(config.audio_gain_db),
             sample_count: 0,
@@ -52,6 +59,7 @@ impl SdlAudioOutput {
         config: &CommonConfig<KC, JC>,
     ) -> Result<(), AudioError> {
         self.audio_sync = config.audio_sync;
+        self.dynamic_resampling_ratio = config.audio_dynamic_resampling_ratio;
         self.audio_buffer_size = config.audio_buffer_size;
         self.audio_gain_multiplier = decibels_to_multiplier(config.audio_gain_db);
 
@@ -68,7 +76,13 @@ impl SdlAudioOutput {
 
             let new_audio_queue = open_audio_queue(self.audio_queue.subsystem(), config)?;
             self.audio_queue = new_audio_queue;
+        } else if self.audio_queue_len_samples() >= 4 * self.audio_buffer_size {
+            // Truncate audio queue on config reloads if it is way oversized
+            self.audio_queue.clear();
         }
+
+        self.dynamic_output_frequency = self.audio_queue.spec().freq as u64;
+        self.dynamic_update_counter = 0;
 
         Ok(())
     }
@@ -77,9 +91,46 @@ impl SdlAudioOutput {
         self.speed_multiplier = speed_multiplier;
     }
 
+    pub fn adjust_dynamic_resampling_ratio(&mut self) {
+        // Restrict the adjusted ratio to within 0.5% of the expected ratio
+        const MAX_DELTA: f64 = 0.005;
+
+        // Only update the ratio every 20 frames
+        const UPDATE_PERIOD: u32 = 20;
+
+        if !self.dynamic_resampling_ratio || self.audio_sync {
+            return;
+        }
+
+        self.dynamic_update_counter += 1;
+        if self.dynamic_update_counter != UPDATE_PERIOD {
+            return;
+        }
+        self.dynamic_update_counter = 0;
+
+        let target_len: f64 = (self.audio_buffer_size / 2).into();
+        let current_len: f64 = self.audio_queue_len_samples().into();
+        let difference = ((target_len - current_len) / target_len).clamp(-1.0, 1.0);
+        let adjustment = 1.0 + MAX_DELTA * difference;
+
+        // This should _probably_ adjust the current dynamic frequency rather than the audio output
+        // stream frequency, but adjusting the latter seems to work much better in practice
+        self.dynamic_output_frequency =
+            (adjustment * f64::from(self.audio_queue.spec().freq)).round() as u64;
+
+        log::debug!(
+            "Adjusted dynamic frequency to {}; target={target_len}, current={current_len}, adjustment={adjustment}",
+            self.dynamic_output_frequency
+        );
+    }
+
     #[must_use]
-    pub fn output_frequency(&self) -> i32 {
-        self.audio_queue.spec().freq
+    pub fn output_frequency(&self) -> u64 {
+        if self.dynamic_resampling_ratio {
+            self.dynamic_output_frequency
+        } else {
+            self.audio_queue.spec().freq as u64
+        }
     }
 
     fn audio_queue_len_samples(&self) -> u32 {
@@ -131,26 +182,25 @@ impl AudioOutput for SdlAudioOutput {
 
         if self.audio_buffer.len() >= INTERNAL_AUDIO_BUFFER_LEN {
             if self.audio_queue_len_samples() > self.audio_buffer_size {
-                if !self.audio_sync {
+                if self.audio_sync {
+                    // Block until audio queue is not full
+                    loop {
+                        jgenesis_common::sleep(Duration::from_micros(250));
+                        if self.audio_queue_len_samples() <= self.audio_buffer_size {
+                            break;
+                        }
+                    }
+                } else if !self.dynamic_resampling_ratio {
                     // Audio queue is full; drop samples
                     log::debug!("Dropping audio samples because buffer is full");
                     self.audio_buffer.clear();
                     return Ok(());
                 }
-
-                // Block until audio queue is not full
-                loop {
-                    jgenesis_common::sleep(Duration::from_micros(250));
-                    if self.audio_queue_len_samples() <= self.audio_buffer_size {
-                        break;
-                    }
-                }
+                // Enqueue as normal if audio sync is disabled but dynamic resampling is enabled
             }
 
-            if log::log_enabled!(log::Level::Debug) {
-                if self.audio_queue.size() == 0 {
-                    log::debug!("Potential audio buffer underflow");
-                }
+            if log::log_enabled!(log::Level::Debug) && self.audio_queue.size() == 0 {
+                log::debug!("Potential audio buffer underflow");
             }
 
             self.audio_queue.queue_audio(&self.audio_buffer).map_err(AudioError::QueueAudio)?;

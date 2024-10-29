@@ -25,6 +25,8 @@ pub struct CommonAppConfig {
     pub audio_output_frequency: u64,
     #[serde(default = "true_fn")]
     pub audio_sync: bool,
+    #[serde(default)]
+    pub audio_dynamic_resampling_ratio: bool,
     #[serde(default = "default_audio_hardware_queue_size")]
     pub audio_hardware_queue_size: u16,
     #[serde(default = "default_audio_buffer_size")]
@@ -143,6 +145,7 @@ impl AppConfig {
             rom_file_path: path,
             audio_output_frequency: self.common.audio_output_frequency,
             audio_sync: self.common.audio_sync,
+            audio_dynamic_resampling_ratio: self.common.audio_dynamic_resampling_ratio,
             audio_hardware_queue_size: self.common.audio_hardware_queue_size,
             audio_buffer_size: self.common.audio_buffer_size,
             audio_gain_db: self.common.audio_gain_db,

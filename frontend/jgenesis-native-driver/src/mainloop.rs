@@ -176,7 +176,7 @@ impl<Inputs, Button, Config, Emulator: EmulatorTrait>
         self.renderer.reload_config(config.renderer_config);
 
         self.audio_output.reload_config(config)?;
-        self.emulator.update_audio_output_frequency(self.audio_output.output_frequency() as u64);
+        self.emulator.update_audio_output_frequency(self.audio_output.output_frequency());
 
         self.hotkey_state.fast_forward_multiplier = config.fast_forward_multiplier;
         // Reset speed multiplier in case the fast forward hotkey changed
@@ -398,7 +398,7 @@ where
         renderer.set_target_fps(emulator.target_fps());
 
         let audio_output = SdlAudioOutput::create_and_init(&audio, &common_config)?;
-        emulator.update_audio_output_frequency(audio_output.output_frequency() as u64);
+        emulator.update_audio_output_frequency(audio_output.output_frequency());
 
         let input_mapper = input_mapper_fn(joystick, &common_config)?;
         let hotkey_mapper = HotkeyMapper::from_config(&common_config.hotkeys)?;
@@ -456,6 +456,9 @@ where
 
             if frame_rendered {
                 self.fps_tracker.record_frame();
+
+                self.audio_output.adjust_dynamic_resampling_ratio();
+                self.emulator.update_audio_output_frequency(self.audio_output.output_frequency());
             }
 
             if should_tick_emulator && !frame_rendered {

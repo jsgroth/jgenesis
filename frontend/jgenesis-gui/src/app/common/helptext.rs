@@ -72,7 +72,7 @@ pub const AUDIO_SAMPLE_RATE: HelpText = HelpText {
 pub const FRAME_TIME_SYNC: HelpText = HelpText {
     heading: "Frame Time Sync",
     text: &[
-        "If enabled, make a best effort to present video frames with consistent frame pacing.",
+        "If enabled, make a best effort to present video frames with consistent frame timing while maintaining the emulated system's native framerate.",
         "This is different from VSync in that it's based purely on system time and does not perform any kind of synchronization with the graphics driver.",
     ],
 };
@@ -85,11 +85,21 @@ pub const AUDIO_SYNC: HelpText = HelpText {
     ],
 };
 
+pub const AUDIO_DYNAMIC_RESAMPLING: HelpText = HelpText {
+    heading: "Audio Dynamic Resampling Ratio",
+    text: &[
+        "If enabled, periodically adjust the audio resampling ratio to try and keep the audio buffer as close as possible to half full.",
+        "This should reduce audio pops caused by audio buffer underflow/overflow when using frame time sync or VSync.",
+        "Changing the resampling ratio this way does change the audio pitch, but the difference should be barely noticeable.",
+    ],
+};
+
 pub const AUDIO_HARDWARE_QUEUE_SIZE: HelpText = HelpText {
     heading: "Audio Hardware Queue Size",
     text: &[
         "Configure audio device queue size in samples.",
-        "Decreasing this value can increase CPU usage. Increasing this value makes audio sync less accurate and can increase audio latency.",
+        "Decreasing this value can increase CPU usage.",
+        "Increasing this value makes audio sync and dynamic resampling ratio less accurate, and it will also increase audio latency.",
     ],
 };
 

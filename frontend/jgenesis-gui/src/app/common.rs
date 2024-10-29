@@ -279,6 +279,15 @@ impl App {
                 self.state.help_text.insert(WINDOW, helptext::AUDIO_SYNC);
             }
 
+            ui.add_enabled_ui(!self.config.common.audio_sync, |ui| {
+                let rect = ui.checkbox(&mut self.config.common.audio_dynamic_resampling_ratio, "Audio dynamic resampling ratio enabled")
+                    .on_disabled_hover_text("Dynamic resampling ratio cannot be used with audio sync")
+                    .interact_rect;
+                if ui.rect_contains_pointer(rect) {
+                    self.state.help_text.insert(WINDOW, helptext::AUDIO_DYNAMIC_RESAMPLING);
+                }
+            });
+
             ui.add_space(10.0);
 
             let rect = ui.horizontal(|ui| {
@@ -339,10 +348,17 @@ impl App {
     }
 
     fn estimate_audio_latency_ms(&self) -> u32 {
-        let total_queue_size = u32::from(self.config.common.audio_hardware_queue_size)
-            + self.config.common.audio_buffer_size;
+        let mut audio_buffer_size: f64 = self.config.common.audio_buffer_size.into();
+        if self.config.common.audio_dynamic_resampling_ratio {
+            // Dynamic resampling targets a half-full audio buffer
+            audio_buffer_size *= 0.5;
+        }
+
+        let total_queue_size =
+            f64::from(self.config.common.audio_hardware_queue_size) + audio_buffer_size;
         let latency_secs =
             f64::from(total_queue_size) / (self.config.common.audio_output_frequency as f64);
+
         (latency_secs * 1000.0).round() as u32
     }
 }

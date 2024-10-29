@@ -120,6 +120,7 @@ pub struct CommonConfig<KeyboardConfig, JoystickConfig> {
     pub rom_file_path: String,
     pub audio_output_frequency: u64,
     pub audio_sync: bool,
+    pub audio_dynamic_resampling_ratio: bool,
     pub audio_hardware_queue_size: u16,
     pub audio_buffer_size: u32,
     pub audio_gain_db: f64,
