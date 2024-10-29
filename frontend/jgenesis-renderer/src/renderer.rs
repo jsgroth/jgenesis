@@ -279,6 +279,12 @@ struct RenderingPipeline {
     render_pipeline: wgpu::RenderPipeline,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RenderResult {
+    None,
+    SuboptimalSurface,
+}
+
 impl RenderingPipeline {
     #[allow(clippy::too_many_arguments)]
     fn create(
@@ -592,7 +598,7 @@ impl RenderingPipeline {
         frame_buffer: &[Color],
         modal_renderer: &mut ModalRenderer,
         frame_time_tracker: &mut FrameTimeTracker,
-    ) -> Result<(), RendererError> {
+    ) -> Result<RenderResult, RendererError> {
         let output = surface.get_current_texture()?;
         let output_texture_view =
             output.texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -680,10 +686,13 @@ impl RenderingPipeline {
 
         queue.submit(iter::once(encoder.finish()));
 
+        let render_result =
+            if output.suboptimal { RenderResult::SuboptimalSurface } else { RenderResult::None };
+
         frame_time_tracker.sync();
         output.present();
 
-        Ok(())
+        Ok(render_result)
     }
 }
 
@@ -1236,7 +1245,11 @@ impl<Window> Renderer for WgpuRenderer<Window> {
             &mut self.modal_renderer,
             &mut self.frame_time_tracker,
         ) {
-            Ok(()) => {}
+            Ok(RenderResult::None) => {}
+            Ok(RenderResult::SuboptimalSurface) => {
+                log::debug!("Reconfiguring surface because graphics API reported it as suboptimal");
+                self.surface.configure(&self.device, &self.surface_config);
+            }
             Err(RendererError::WgpuSurface(wgpu::SurfaceError::Outdated)) => {
                 // This can sometimes happen on Windows with the Vulkan backend while the window is minimized
                 log::warn!(
