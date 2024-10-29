@@ -467,6 +467,9 @@ where
             emulator.try_load_most_recent_state();
         }
 
+        // Make a best effort to focus the newly-created emulator window
+        emulator.renderer.focus();
+
         Ok(emulator)
     }
 
