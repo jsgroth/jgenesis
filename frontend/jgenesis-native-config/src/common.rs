@@ -1,5 +1,5 @@
 use crate::AppConfig;
-use jgenesis_native_driver::config::{CommonConfig, SavePath, WindowSize};
+use jgenesis_native_driver::config::{CommonConfig, FullscreenMode, SavePath, WindowSize};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, PrescaleMode, RendererConfig, Scanlines,
@@ -45,6 +45,8 @@ pub struct CommonAppConfig {
     pub window_height: Option<u32>,
     #[serde(default)]
     pub launch_in_fullscreen: bool,
+    #[serde(default)]
+    pub fullscreen_mode: FullscreenMode,
     #[serde(default)]
     pub wgpu_backend: WgpuBackend,
     #[serde(default)]
@@ -171,6 +173,7 @@ impl AppConfig {
             rewind_buffer_length_seconds: self.common.rewind_buffer_length_seconds,
             load_recent_state_at_launch: self.common.load_recent_state_at_launch,
             launch_in_fullscreen: self.common.launch_in_fullscreen,
+            fullscreen_mode: self.common.fullscreen_mode,
             keyboard_inputs,
             axis_deadzone: self.inputs.axis_deadzone,
             joystick_inputs,

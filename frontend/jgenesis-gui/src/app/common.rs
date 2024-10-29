@@ -4,6 +4,7 @@ use crate::app::{App, NumericTextEdit, OpenWindow};
 use eframe::epaint::Color32;
 use egui::{Context, Response, Slider, Ui, Widget, Window};
 use jgenesis_native_config::common::ConfigSavePath;
+use jgenesis_native_driver::config::FullscreenMode;
 use jgenesis_renderer::config::{FilterMode, PreprocessShader, Scanlines, VSyncMode, WgpuBackend};
 use rfd::FileDialog;
 use std::num::NonZeroU32;
@@ -19,6 +20,18 @@ impl App {
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::FULLSCREEN);
+            }
+
+            let rect = ui.group(|ui| {
+                ui.label("Fullscreen mode");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(&mut self.config.common.fullscreen_mode, FullscreenMode::Borderless, "Borderless");
+                    ui.radio_value(&mut self.config.common.fullscreen_mode, FullscreenMode::Exclusive, "Exclusive");
+                });
+            }).response.interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::FULLSCREEN_MODE);
             }
 
             let rect = ui.group(|ui| {

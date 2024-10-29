@@ -109,6 +109,15 @@ impl Display for SavePath {
     }
 }
 
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
+)]
+pub enum FullscreenMode {
+    #[default]
+    Borderless,
+    Exclusive,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct RomReadResult {
     pub rom: Vec<u8>,
@@ -134,6 +143,7 @@ pub struct CommonConfig<KeyboardConfig, JoystickConfig> {
     pub rewind_buffer_length_seconds: u64,
     pub load_recent_state_at_launch: bool,
     pub launch_in_fullscreen: bool,
+    pub fullscreen_mode: FullscreenMode,
     #[indent_nested]
     pub keyboard_inputs: KeyboardConfig,
     pub axis_deadzone: i16,

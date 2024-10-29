@@ -21,7 +21,7 @@ pub use state::{SAVE_STATE_SLOTS, SaveStateMetadata};
 
 use crate::archive::ArchiveError;
 use crate::config::input::{InputConfig, JoystickInput, KeyboardInput};
-use crate::config::{CommonConfig, WindowSize};
+use crate::config::{CommonConfig, FullscreenMode, WindowSize};
 use crate::input::{Hotkey, HotkeyMapResult, HotkeyMapper, InputMapper, Joysticks, MappableInputs};
 use crate::mainloop::audio::SdlAudioOutput;
 use crate::mainloop::debug::{DebugRenderFn, DebuggerWindow};
@@ -54,12 +54,23 @@ use thiserror::Error;
 
 const MODAL_DURATION: Duration = Duration::from_secs(3);
 
+impl FullscreenMode {
+    fn to_sdl_fullscreen(self) -> FullscreenType {
+        match self {
+            Self::Borderless => FullscreenType::Desktop,
+            Self::Exclusive => FullscreenType::True,
+        }
+    }
+}
+
 trait RendererExt {
     fn focus(&mut self);
 
     fn window_id(&self) -> u32;
 
-    fn toggle_fullscreen(&mut self) -> Result<(), String>;
+    fn update_fullscreen_mode(&mut self, fullscreen_mode: FullscreenMode) -> Result<(), String>;
+
+    fn toggle_fullscreen(&mut self, fullscreen_mode: FullscreenMode) -> Result<(), String>;
 }
 
 impl RendererExt for WgpuRenderer<Window> {
@@ -74,12 +85,27 @@ impl RendererExt for WgpuRenderer<Window> {
         self.window().id()
     }
 
-    fn toggle_fullscreen(&mut self) -> Result<(), String> {
+    fn update_fullscreen_mode(&mut self, fullscreen_mode: FullscreenMode) -> Result<(), String> {
+        // SAFETY: This is not reassigning the window
+        unsafe {
+            let window = self.window_mut();
+            let existing_fullscreen = window.fullscreen_state();
+            if existing_fullscreen == FullscreenType::Off
+                || existing_fullscreen == fullscreen_mode.to_sdl_fullscreen()
+            {
+                return Ok(());
+            }
+
+            window.set_fullscreen(fullscreen_mode.to_sdl_fullscreen())
+        }
+    }
+
+    fn toggle_fullscreen(&mut self, fullscreen_mode: FullscreenMode) -> Result<(), String> {
         // SAFETY: This is not reassigning the window
         unsafe {
             let window = self.window_mut();
             let new_fullscreen = match window.fullscreen_state() {
-                FullscreenType::Off => FullscreenType::Desktop,
+                FullscreenType::Off => fullscreen_mode.to_sdl_fullscreen(),
                 FullscreenType::Desktop | FullscreenType::True => FullscreenType::Off,
             };
             window.set_fullscreen(new_fullscreen)
@@ -88,6 +114,7 @@ impl RendererExt for WgpuRenderer<Window> {
 }
 
 struct HotkeyState<Emulator> {
+    fullscreen_mode: FullscreenMode,
     base_save_state_path: PathBuf,
     save_state_paths: SaveStatePaths,
     save_state_slot: usize,
@@ -126,6 +153,7 @@ impl<Emulator: PartialClone> HotkeyState<Emulator> {
         log::debug!("Save state paths: {save_state_paths:?}");
 
         Ok(Self {
+            fullscreen_mode: common_config.fullscreen_mode,
             base_save_state_path: save_state_path,
             save_state_paths,
             save_state_slot: 0,
@@ -177,6 +205,11 @@ impl<Inputs, Button, Config, Emulator: EmulatorTrait>
 
         self.audio_output.reload_config(config)?;
         self.emulator.update_audio_output_frequency(self.audio_output.output_frequency());
+
+        self.hotkey_state.fullscreen_mode = config.fullscreen_mode;
+        if let Err(err) = self.renderer.update_fullscreen_mode(config.fullscreen_mode) {
+            log::error!("Error updating fullscreen mode to {}: {err}", config.fullscreen_mode);
+        }
 
         self.hotkey_state.fast_forward_multiplier = config.fast_forward_multiplier;
         // Reset speed multiplier in case the fast forward hotkey changed
@@ -384,7 +417,7 @@ where
             window_title,
             window_size.width,
             window_size.height,
-            common_config.launch_in_fullscreen,
+            common_config.launch_in_fullscreen.then_some(common_config.fullscreen_mode),
         )?;
 
         let window_size = sdl_window_size(&window);
@@ -656,7 +689,9 @@ where
         match hotkey {
             Hotkey::Quit => return Ok(HotkeyResult::Quit),
             Hotkey::ToggleFullscreen => {
-                self.renderer.toggle_fullscreen().map_err(NativeEmulatorError::SdlSetFullscreen)?;
+                self.renderer
+                    .toggle_fullscreen(self.hotkey_state.fullscreen_mode)
+                    .map_err(NativeEmulatorError::SdlSetFullscreen)?;
             }
             Hotkey::SaveState => {
                 let slot = self.hotkey_state.save_state_slot;
@@ -793,13 +828,13 @@ fn create_window(
     title: &str,
     width: u32,
     height: u32,
-    fullscreen: bool,
+    fullscreen: Option<FullscreenMode>,
 ) -> NativeEmulatorResult<Window> {
     let mut window = video.window(title, width, height).metal_view().resizable().build()?;
 
-    if fullscreen {
+    if let Some(fullscreen) = fullscreen {
         window
-            .set_fullscreen(FullscreenType::Desktop)
+            .set_fullscreen(fullscreen.to_sdl_fullscreen())
             .map_err(NativeEmulatorError::SdlSetFullscreen)?;
     }
 

@@ -5,6 +5,11 @@ pub const FULLSCREEN: HelpText = HelpText {
     text: &["If enabled, launch fullscreen instead of windowed."],
 };
 
+pub const FULLSCREEN_MODE: HelpText = HelpText {
+    heading: "Fullscreen Mode",
+    text: &["Choose whether fullscreen is borderless or exclusive."],
+};
+
 pub const WGPU_BACKEND: HelpText = HelpText {
     heading: "wgpu Backend",
     text: &[

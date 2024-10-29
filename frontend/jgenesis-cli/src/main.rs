@@ -8,7 +8,7 @@ use jgenesis_common::frontend::{EmulatorTrait, TimingMode};
 use jgenesis_native_config::AppConfig;
 use jgenesis_native_config::common::ConfigSavePath;
 use jgenesis_native_driver::config::input::{NesControllerType, SnesControllerType};
-use jgenesis_native_driver::config::{GgAspectRatio, SmsAspectRatio};
+use jgenesis_native_driver::config::{FullscreenMode, GgAspectRatio, SmsAspectRatio};
 use jgenesis_native_driver::input::MappableInputs;
 use jgenesis_native_driver::{NativeEmulator, NativeTickEffect};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
@@ -338,6 +338,10 @@ struct Args {
     #[arg(long, default_value_t, help_heading = VIDEO_OPTIONS_HEADING)]
     fullscreen: bool,
 
+    /// Fullscreen mode (Borderless / Exclusive)
+    #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
+    fullscreen_mode: Option<FullscreenMode>,
+
     /// wgpu backend (Auto / Vulkan / DirectX12 / OpenGl)
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     wgpu_backend: Option<WgpuBackend>,
@@ -594,6 +598,7 @@ impl Args {
         }
 
         apply_overrides!(self, config.common, [
+            fullscreen_mode,
             wgpu_backend,
             vsync_mode,
             frame_time_sync,
