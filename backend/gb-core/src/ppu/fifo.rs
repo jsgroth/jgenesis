@@ -117,7 +117,7 @@ impl PixelFifo {
         registers: &Registers,
         bg_palette_ram: &CgbPaletteRam,
         sprite_palette_ram: &CgbPaletteRam,
-        frame_buffer: &mut PpuFrameBuffer,
+        frame_buffer: Option<&mut PpuFrameBuffer>,
     ) {
         match self.state {
             FifoState::InitialBgFetch { dots_remaining } => {
@@ -205,7 +205,7 @@ impl PixelFifo {
         registers: &Registers,
         bg_palette_ram: &CgbPaletteRam,
         sprite_palette_ram: &CgbPaletteRam,
-        frame_buffer: &mut PpuFrameBuffer,
+        frame_buffer: Option<&mut PpuFrameBuffer>,
     ) {
         if self.scanned_sprites.front().is_some_and(|sprite| sprite.x == fields.screen_x) {
             // A sprite starts on this position. Go ahead and do the actual tile fetch immediately
@@ -343,7 +343,9 @@ impl PixelFifo {
                 0
             };
 
-            frame_buffer.set(self.y, fields.screen_x - 8, color);
+            if let Some(frame_buffer) = frame_buffer {
+                frame_buffer.set(self.y, fields.screen_x - 8, color);
+            }
         }
         fields.screen_x = fields.screen_x.wrapping_add(1);
 

@@ -317,10 +317,6 @@ impl Apu {
         log::trace!("NR52 write, APU enabled: {}", self.enabled);
     }
 
-    pub fn queued_sample_count(&self) -> u32 {
-        self.resampler.output_buffer_len() as u32
-    }
-
     pub fn drain_samples_into<A: AudioOutput>(
         &mut self,
         audio_output: &mut A,

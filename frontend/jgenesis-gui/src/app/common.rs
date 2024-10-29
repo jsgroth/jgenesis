@@ -279,14 +279,11 @@ impl App {
                 self.state.help_text.insert(WINDOW, helptext::AUDIO_SYNC);
             }
 
-            ui.add_enabled_ui(!self.config.common.audio_sync, |ui| {
-                let rect = ui.checkbox(&mut self.config.common.audio_dynamic_resampling_ratio, "Audio dynamic resampling ratio enabled")
-                    .on_disabled_hover_text("Dynamic resampling ratio cannot be used with audio sync")
-                    .interact_rect;
-                if ui.rect_contains_pointer(rect) {
-                    self.state.help_text.insert(WINDOW, helptext::AUDIO_DYNAMIC_RESAMPLING);
-                }
-            });
+            let rect = ui.checkbox(&mut self.config.common.audio_dynamic_resampling_ratio, "Audio dynamic resampling ratio enabled")
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::AUDIO_DYNAMIC_RESAMPLING);
+            }
 
             ui.add_space(10.0);
 

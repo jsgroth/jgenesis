@@ -113,7 +113,7 @@ struct State {
     frozen_ly_lyc_bit: bool,
     skip_next_frame: bool,
     frame_complete: bool,
-    dots_until_frame_clear: u32,
+    powered_off_dots: u32,
 }
 
 impl State {
@@ -128,7 +128,7 @@ impl State {
             frozen_ly_lyc_bit: false,
             skip_next_frame: true,
             frame_complete: false,
-            dots_until_frame_clear: 0,
+            powered_off_dots: 0,
         }
     }
 
@@ -241,25 +241,6 @@ impl Ppu {
     ) {
         if !self.registers.ppu_enabled {
             if self.state.previously_enabled {
-                match self.hardware_mode {
-                    HardwareMode::Dmg => {
-                        self.clear_frame_buffer();
-                    }
-                    HardwareMode::Cgb => {
-                        if self.state.scanline < SCREEN_HEIGHT as u8 {
-                            self.clear_frame_buffer();
-                        } else {
-                            // On CGB, disabling the PPU only seems to clear the screen if it's
-                            // left disabled for a long enough time.
-                            // A Bug's Life depends on this or the screen will flash in some parts
-                            // of the game
-                            // TODO is this really a CGB-only behavior?
-                            self.state.dots_until_frame_clear =
-                                (SCREEN_HEIGHT as u32) * u32::from(DOTS_PER_LINE);
-                        }
-                    }
-                }
-
                 // Disabling PPU freezes the LY=LYC bit until it's re-enabled, per:
                 // https://gbdev.gg8.se/wiki/articles/Tricky-to-emulate_games
                 self.state.frozen_ly_lyc_bit = self.state.scanline == self.registers.ly_compare;
@@ -277,14 +258,16 @@ impl Ppu {
                 self.state.stat_interrupt_pending = false;
                 self.state.prev_stat_interrupt_line = false;
 
-                return;
+                self.state.powered_off_dots = 0;
             }
 
-            if self.state.dots_until_frame_clear != 0 {
-                self.state.dots_until_frame_clear -= 1;
-                if self.state.dots_until_frame_clear == 0 {
-                    self.clear_frame_buffer();
-                }
+            self.state.powered_off_dots += 1;
+            if self.state.powered_off_dots == u32::from(LINES_PER_FRAME) * u32::from(DOTS_PER_LINE)
+            {
+                // Force a blank frame render if the PPU is powered off for a full frame's worth of cycles
+                self.clear_frame_buffer();
+                self.state.frame_complete = true;
+                self.state.powered_off_dots = 0;
             }
 
             // Unlike TV-based systems, the PPU does not process at all when display is disabled
@@ -311,12 +294,13 @@ impl Ppu {
         }
 
         if self.state.mode == PpuMode::Rendering {
+            let frame_buffer = (!self.state.skip_next_frame).then_some(&mut self.frame_buffer);
             self.fifo.tick(
                 &self.vram,
                 &self.registers,
                 &self.bg_palette_ram,
                 &self.sprite_palette_ram,
-                &mut self.frame_buffer,
+                frame_buffer,
             );
             if self.fifo.done_with_line() {
                 log::trace!(

@@ -24,10 +24,6 @@ impl GameBoyResampler {
         self.resampler.collect_sample(sample_l, sample_r);
     }
 
-    pub fn output_buffer_len(&self) -> usize {
-        self.resampler.output_buffer_len()
-    }
-
     pub fn output_samples<A: AudioOutput>(&mut self, audio_output: &mut A) -> Result<(), A::Err> {
         while let Some((sample_l, sample_r)) = self.resampler.output_buffer_pop_front() {
             audio_output.push_sample(sample_l, sample_r)?;

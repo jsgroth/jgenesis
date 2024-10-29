@@ -98,7 +98,7 @@ impl SdlAudioOutput {
         // Only update the ratio every 20 frames
         const UPDATE_PERIOD: u32 = 20;
 
-        if !self.dynamic_resampling_ratio || self.audio_sync {
+        if !self.dynamic_resampling_ratio {
             return;
         }
 

@@ -202,8 +202,6 @@ impl<Inputs, Button, Config, Emulator: EmulatorTrait>
 
         self.sdl.mouse().show_cursor(!config.hide_cursor_over_window);
 
-        self.renderer.set_target_fps(self.emulator.target_fps());
-
         Ok(())
     }
 

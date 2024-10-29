@@ -29,6 +29,9 @@ impl NativeNesEmulator {
         self.emulator.reload_config(&emulator_config);
         self.config = emulator_config;
 
+        // Config change could have changed target framerate (50/60 Hz hack)
+        self.renderer.set_target_fps(self.emulator.target_fps());
+
         if let Err(err) = self.input_mapper.reload_config_nes(
             config.p2_controller_type,
             &config.common.keyboard_inputs,

@@ -90,7 +90,7 @@ pub const AUDIO_DYNAMIC_RESAMPLING: HelpText = HelpText {
     text: &[
         "If enabled, periodically adjust the audio resampling ratio to try and keep the audio buffer as close as possible to half full.",
         "This should reduce audio pops caused by audio buffer underflow/overflow when using frame time sync or VSync.",
-        "Changing the resampling ratio this way does change the audio pitch, but the difference should be barely noticeable.",
+        "Changing the resampling ratio this way does slightly change the audio pitch, but the difference should be inaudible - the adjusted ratio is restricted to being within 0.5% of the original ratio.",
     ],
 };
 
