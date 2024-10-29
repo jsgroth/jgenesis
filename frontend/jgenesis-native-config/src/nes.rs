@@ -17,14 +17,10 @@ pub struct NesAppConfig {
     pub pal_black_border: bool,
     #[serde(default)]
     pub silence_ultrasonic_triangle_output: bool,
-    #[serde(default = "true_fn")]
+    #[serde(default)]
     pub audio_60hz_hack: bool,
     #[serde(default)]
     pub allow_opposing_joypad_inputs: bool,
-}
-
-const fn true_fn() -> bool {
-    true
 }
 
 impl NesAppConfig {

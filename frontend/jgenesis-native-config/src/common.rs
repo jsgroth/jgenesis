@@ -25,7 +25,7 @@ pub struct CommonAppConfig {
     pub audio_output_frequency: u64,
     #[serde(default = "true_fn")]
     pub audio_sync: bool,
-    #[serde(default)]
+    #[serde(default = "true_fn")]
     pub audio_dynamic_resampling_ratio: bool,
     #[serde(default = "default_audio_hardware_queue_size")]
     pub audio_hardware_queue_size: u16,
@@ -49,7 +49,7 @@ pub struct CommonAppConfig {
     pub wgpu_backend: WgpuBackend,
     #[serde(default)]
     pub vsync_mode: VSyncMode,
-    #[serde(default)]
+    #[serde(default = "true_fn")]
     pub frame_time_sync: bool,
     #[serde(default)]
     pub auto_prescale: bool,
@@ -89,19 +89,19 @@ impl Default for CommonAppConfig {
     }
 }
 
-fn true_fn() -> bool {
+const fn true_fn() -> bool {
     true
 }
 
-fn default_audio_output_frequency() -> u64 {
+const fn default_audio_output_frequency() -> u64 {
     jgenesis_common::audio::DEFAULT_OUTPUT_FREQUENCY
 }
 
-fn default_audio_hardware_queue_size() -> u16 {
+const fn default_audio_hardware_queue_size() -> u16 {
     64
 }
 
-fn default_audio_buffer_size() -> u32 {
+const fn default_audio_buffer_size() -> u32 {
     2048
 }
 

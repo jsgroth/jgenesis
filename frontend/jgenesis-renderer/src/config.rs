@@ -1,4 +1,3 @@
-use cfg_if::cfg_if;
 use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay, EnumFromStr};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -34,15 +33,7 @@ impl VSyncMode {
 
 impl Default for VSyncMode {
     fn default() -> Self {
-        // Not rigorously tested, but disabling VSync seems to cause exceptionally poor frame pacing
-        // on Windows, so enable it by default there
-        cfg_if! {
-            if #[cfg(target_os = "windows")] {
-                Self::Enabled
-            } else {
-                Self::Disabled
-            }
-        }
+        Self::Disabled
     }
 }
 

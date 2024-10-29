@@ -12,7 +12,7 @@ pub struct SnesAppConfig {
     pub aspect_ratio: SnesAspectRatio,
     #[serde(default)]
     pub audio_interpolation: AudioInterpolationMode,
-    #[serde(default = "true_fn")]
+    #[serde(default)]
     pub audio_60hz_hack: bool,
     #[serde(default = "default_gsu_overclock")]
     pub gsu_overclock_factor: NonZeroU64,
@@ -22,10 +22,6 @@ pub struct SnesAppConfig {
     pub dsp4_rom_path: Option<String>,
     pub st010_rom_path: Option<String>,
     pub st011_rom_path: Option<String>,
-}
-
-const fn true_fn() -> bool {
-    true
 }
 
 fn default_gsu_overclock() -> NonZeroU64 {

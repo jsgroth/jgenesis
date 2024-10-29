@@ -353,8 +353,7 @@ impl App {
 
         let total_queue_size =
             f64::from(self.config.common.audio_hardware_queue_size) + audio_buffer_size;
-        let latency_secs =
-            f64::from(total_queue_size) / (self.config.common.audio_output_frequency as f64);
+        let latency_secs = total_queue_size / (self.config.common.audio_output_frequency as f64);
 
         (latency_secs * 1000.0).round() as u32
     }
