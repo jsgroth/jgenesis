@@ -10,7 +10,7 @@ use smsgg_core::{SmsGgEmulatorConfig, SmsGgHardware, SmsModel, SmsRegion};
 use snes_core::api::{AudioInterpolationMode, SnesAspectRatio, SnesEmulatorConfig};
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::num::NonZeroU64;
+use std::num::{NonZeroU32, NonZeroU64};
 use std::ops::Deref;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
@@ -131,7 +131,7 @@ impl SmsGgWebConfig {
             sms_crop_vertical_border: self.sms_crop_vertical_border,
             gg_use_sms_resolution: false,
             fm_sound_unit_enabled: self.fm_unit_enabled,
-            overclock_z80: false,
+            z80_divider: NonZeroU32::new(smsgg_core::NATIVE_Z80_DIVIDER).unwrap(),
         }
     }
 }
