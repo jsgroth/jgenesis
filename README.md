@@ -62,27 +62,31 @@ Windows:
 ## Build & Run
 
 GUI:
-```
+```shell
 cargo run --release --bin jgenesis-gui
 ```
 
 CLI:
-```
+```shell
 cargo run --release --bin jgenesis-cli -- -f <path_to_rom_file>
 ```
 
 To view all CLI args:
-```
+```shell
 cargo run --release --bin jgenesis-cli -- -h
 ```
 
-To build with maximum optimizations (better runtime performance + smaller binary size at the cost of long compile time):
-```
-RUSTFLAGS="-C target-cpu=x86-64-v2" cargo build --profile release-lto
+To build with maximum optimizations (better runtime performance + smaller binary size at the cost of longer compile time):
+```shell
+cargo build --profile release-lto
 ```
 ...After which the executables will be in `target/release-lto/`.
 
-If you are building solely for your own personal usage, you can alternatively set `-C target_cpu=native` to tell the Rust compiler that it can use any CPU instruction that your computer's CPU supports, which may slightly improve performance.
+If you are building solely for your own personal usage, you can additionally set the flag `-C target_cpu=native` to tell the Rust compiler that it can use any CPU instruction that your computer's CPU supports, which may slightly improve performance:
+
+```shell
+RUSTFLAGS="-C target-cpu=native" cargo build --profile release-lto
+```
 
 ## Screenshots
 
