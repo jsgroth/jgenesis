@@ -25,9 +25,9 @@ pub const REGION: HelpText = HelpText {
 };
 
 pub const Z80_OVERCLOCK: HelpText = HelpText {
-    heading: "Overclock Z80 CPU",
+    heading: "Z80 Clock Divider",
     text: &[
-        "If enabled, double the emulated Z80 CPU speed.",
+        "Optionally overclock the Z80 CPU by reducing the master clock divider.",
         "This can reduce or eliminate slowdown in some games but can also cause major glitches. Use with caution.",
     ],
 };

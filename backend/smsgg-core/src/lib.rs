@@ -20,3 +20,5 @@ pub const SMS_PAL_ASPECT_RATIO: f64 = 1.375;
 
 // 6:5
 pub const GAME_GEAR_LCD_ASPECT_RATIO: f64 = 1.2;
+
+pub const NATIVE_Z80_DIVIDER: u32 = 15;

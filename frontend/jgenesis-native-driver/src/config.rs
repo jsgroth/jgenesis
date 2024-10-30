@@ -26,7 +26,7 @@ use snes_core::api::{
 use std::ffi::OsStr;
 use std::fmt::{Display, Formatter};
 use std::fs;
-use std::num::NonZeroU64;
+use std::num::{NonZeroU32, NonZeroU64};
 use std::path::{Path, PathBuf};
 
 pub(crate) const DEFAULT_GENESIS_WINDOW_SIZE: WindowSize = WindowSize { width: 878, height: 672 };
@@ -209,7 +209,7 @@ pub struct SmsGgConfig {
     pub sms_crop_left_border: bool,
     pub gg_use_sms_resolution: bool,
     pub fm_sound_unit_enabled: bool,
-    pub overclock_z80: bool,
+    pub z80_divider: NonZeroU32,
 }
 
 impl SmsGgConfig {
@@ -230,7 +230,7 @@ impl SmsGgConfig {
             sms_crop_left_border: self.sms_crop_left_border,
             gg_use_sms_resolution: self.gg_use_sms_resolution,
             fm_sound_unit_enabled: self.fm_sound_unit_enabled,
-            overclock_z80: self.overclock_z80,
+            z80_divider: self.z80_divider,
         }
     }
 }

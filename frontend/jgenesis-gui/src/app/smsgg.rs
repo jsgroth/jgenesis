@@ -2,11 +2,12 @@ mod helptext;
 
 use crate::app::{App, OpenWindow};
 use crate::emuthread::EmuThreadStatus;
-use egui::{Context, Window};
+use egui::{Context, Slider, Window};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::config::{GgAspectRatio, SmsAspectRatio};
 use smsgg_core::psg::Sn76489Version;
 use smsgg_core::{SmsModel, SmsRegion};
+use std::num::NonZeroU32;
 
 impl App {
     pub(super) fn render_smsgg_general_settings(&mut self, ctx: &Context) {
@@ -64,8 +65,17 @@ impl App {
                 self.state.help_text.insert(WINDOW, helptext::REGION);
             }
 
-            let rect = ui.checkbox(&mut self.config.smsgg.overclock_z80, "Double Z80 CPU speed")
-                .interact_rect;
+            let rect = ui.group(|ui| {
+                ui.label("Z80 clock divider");
+
+                let min_divider = NonZeroU32::new(1).unwrap();
+                let max_divider = NonZeroU32::new(smsgg_core::NATIVE_Z80_DIVIDER).unwrap();
+                ui.add(Slider::new(&mut self.config.smsgg.z80_divider, min_divider..=max_divider));
+
+                let estimated_clock_speed = 53.693_175 / f64::from(self.config.smsgg.z80_divider.get());
+                let estimated_ratio = (100.0 * f64::from(smsgg_core::NATIVE_Z80_DIVIDER) / f64::from(self.config.smsgg.z80_divider.get())).round();
+                ui.label(format!("Effective speed: {estimated_clock_speed:.2} MHz ({estimated_ratio}%)"));
+            }).response.interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::Z80_OVERCLOCK);
             }

@@ -24,7 +24,7 @@ use smsgg_core::{SmsModel, SmsRegion};
 use snes_core::api::{AudioInterpolationMode, SnesAspectRatio};
 use std::ffi::OsStr;
 use std::fs;
-use std::num::NonZeroU64;
+use std::num::{NonZeroU32, NonZeroU64};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumDisplay, EnumFromStr)]
@@ -131,9 +131,10 @@ struct Args {
     #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
     sms_fm_unit_enabled: Option<bool>,
 
-    /// Overclock the Z80 CPU to 2x speed
+    /// Optionally decrease the Z80's clock divider (1-15, with 15 being actual hardware speed).
+    /// Lower divider = higher CPU clock speed
     #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
-    smsgg_overclock_z80: Option<bool>,
+    smsgg_z80_divider: Option<NonZeroU32>,
 
     /// Emulate the VDP's non-linear DAC, which tends to brighten darker colors and darken brighter colors
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
@@ -489,7 +490,7 @@ impl Args {
             sms_crop_left_border,
             gg_use_sms_resolution,
             sms_fm_unit_enabled -> fm_sound_unit_enabled,
-            smsgg_overclock_z80 -> overclock_z80,
+            smsgg_z80_divider -> z80_divider,
         ]);
 
         if let Some(psg_version) = self.psg_version {

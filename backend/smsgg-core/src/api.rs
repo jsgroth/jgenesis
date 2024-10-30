@@ -14,6 +14,7 @@ use jgenesis_common::frontend::{
 };
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
 use std::fmt::{Debug, Display};
+use std::num::NonZeroU32;
 use std::ops::{Deref, DerefMut};
 use thiserror::Error;
 use ym_opll::Ym2413;
@@ -95,7 +96,7 @@ pub struct SmsGgEmulatorConfig {
     pub sms_crop_left_border: bool,
     pub gg_use_sms_resolution: bool,
     pub fm_sound_unit_enabled: bool,
-    pub overclock_z80: bool,
+    pub z80_divider: NonZeroU32,
 }
 
 #[derive(Debug, Clone, Encode, Decode, PartialClone)]
@@ -112,11 +113,14 @@ pub struct SmsGgEmulator {
     audio_resampler: AudioResampler,
     frame_buffer: FrameBuffer,
     config: SmsGgEmulatorConfig,
-    z80_cycles_remainder: u32,
-    vdp_cycles_remainder: u32,
+    vdp_mclk_counter: u32,
+    psg_mclk_counter: u32,
     frame_count: u64,
     reset_frames_remaining: u32,
 }
+
+const VDP_DIVIDER: u32 = 10;
+const PSG_DIVIDER: u32 = 15;
 
 const YM2413_CLOCK_INTERVAL: u8 = 72;
 
@@ -159,8 +163,8 @@ impl SmsGgEmulator {
             audio_resampler: AudioResampler::new(timing_mode),
             frame_buffer: FrameBuffer::new(),
             config,
-            z80_cycles_remainder: 0,
-            vdp_cycles_remainder: 0,
+            vdp_mclk_counter: 0,
+            psg_mclk_counter: 0,
             frame_count: 0,
             reset_frames_remaining: 0,
         }
@@ -281,7 +285,7 @@ impl EmulatorTrait for SmsGgEmulator {
         A: AudioOutput,
         S: SaveWriter,
     {
-        let t_cycles = self.z80.execute_instruction(&mut Bus::new(
+        let z80_t_cycles = self.z80.execute_instruction(&mut Bus::new(
             self.vdp_version,
             &mut self.memory,
             &mut self.vdp,
@@ -289,17 +293,14 @@ impl EmulatorTrait for SmsGgEmulator {
             self.ym2413.as_mut(),
             &mut self.input,
         ));
-        let (t_cycles, remainder) = if self.config.overclock_z80 {
-            // Emulate a Z80 running at 2x speed by only ticking the rest of the components for
-            // half as many cycles
-            let t_cycles = t_cycles + self.z80_cycles_remainder;
-            (t_cycles / 2, t_cycles % 2)
-        } else {
-            (t_cycles, 0)
-        };
-        self.z80_cycles_remainder = remainder;
 
-        for _ in 0..t_cycles {
+        let mclk_cycles = z80_t_cycles * self.config.z80_divider.get();
+        self.vdp_mclk_counter += mclk_cycles;
+        self.psg_mclk_counter += mclk_cycles;
+
+        while self.psg_mclk_counter >= PSG_DIVIDER {
+            self.psg_mclk_counter -= PSG_DIVIDER;
+
             if let Some(ym2413) = &mut self.ym2413 {
                 ym2413.tick();
             }
@@ -320,12 +321,10 @@ impl EmulatorTrait for SmsGgEmulator {
 
         self.audio_resampler.output_samples(audio_output).map_err(SmsGgError::Audio)?;
 
-        let t_cycles_plus_leftover = t_cycles + self.vdp_cycles_remainder;
-        self.vdp_cycles_remainder = t_cycles_plus_leftover % 2;
-
         let mut frame_rendered = false;
-        let vdp_cycles = t_cycles_plus_leftover / 2 * 3;
-        for _ in 0..vdp_cycles {
+        while self.vdp_mclk_counter >= VDP_DIVIDER {
+            self.vdp_mclk_counter -= VDP_DIVIDER;
+
             if self.vdp.tick() == VdpTickEffect::FrameComplete {
                 self.render_frame(renderer).map_err(SmsGgError::Render)?;
                 frame_rendered = true;
@@ -395,7 +394,8 @@ impl EmulatorTrait for SmsGgEmulator {
         self.psg = Sn76489::new(self.psg.version());
         self.input = InputState::new(self.input.region());
 
-        self.vdp_cycles_remainder = 0;
+        self.vdp_mclk_counter = 0;
+        self.psg_mclk_counter = 0;
         self.frame_count = 0;
     }
 

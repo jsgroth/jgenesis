@@ -4,6 +4,7 @@ use jgenesis_native_driver::config::{GgAspectRatio, SmsAspectRatio, SmsGgConfig}
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::Sn76489Version;
 use smsgg_core::{SmsModel, SmsRegion};
+use std::num::NonZeroU32;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SmsGgAppConfig {
@@ -28,12 +29,16 @@ pub struct SmsGgAppConfig {
     pub gg_use_sms_resolution: bool,
     #[serde(default = "true_fn")]
     pub fm_sound_unit_enabled: bool,
-    #[serde(default)]
-    pub overclock_z80: bool,
+    #[serde(default = "default_z80_divider")]
+    pub z80_divider: NonZeroU32,
 }
 
 const fn true_fn() -> bool {
     true
+}
+
+fn default_z80_divider() -> NonZeroU32 {
+    NonZeroU32::new(smsgg_core::NATIVE_Z80_DIVIDER).unwrap()
 }
 
 impl Default for SmsGgAppConfig {
@@ -62,7 +67,7 @@ impl AppConfig {
             sms_crop_left_border: self.smsgg.sms_crop_left_border,
             gg_use_sms_resolution: self.smsgg.gg_use_sms_resolution,
             fm_sound_unit_enabled: self.smsgg.fm_sound_unit_enabled,
-            overclock_z80: self.smsgg.overclock_z80,
+            z80_divider: self.smsgg.z80_divider,
         })
     }
 }
