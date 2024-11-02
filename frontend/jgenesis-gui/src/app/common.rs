@@ -298,6 +298,12 @@ impl App {
                 self.state.help_text.insert(WINDOW, helptext::AUDIO_DYNAMIC_RESAMPLING);
             }
 
+            let any_sync_enabled = self.config.common.vsync_mode == VSyncMode::Enabled || self.config.common.audio_sync || self.config.common.frame_time_sync;
+            if !any_sync_enabled {
+                ui.add_space(5.0);
+                ui.colored_label(Color32::RED, "No sync enabled; emulator will run at uncapped speed");
+            }
+
             ui.add_space(10.0);
 
             let rect = ui.horizontal(|ui| {

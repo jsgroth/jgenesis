@@ -41,6 +41,7 @@ pub const M68K_CLOCK_DIVIDER: HelpText = HelpText {
     heading: "Genesis 68000 Clock Divider",
     text: &[
         "Optionally overclock the main Genesis CPU by reducing the master clock divider. Overclocking can reduce or eliminate slowdown, but it can also cause major glitches in some games. Use with caution.",
+        "Note that a clock divider lower than 3 or 4 will significantly increase the emulator's CPU usage.",
         "This setting also affects the main Genesis CPU speed in Sega CD and 32X mode.",
     ],
 };
