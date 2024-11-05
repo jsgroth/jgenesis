@@ -1,6 +1,6 @@
 use crate::app::{App, NumericTextEdit, OpenWindow};
 use crate::emuthread::EmuThreadCommand;
-use egui::{Button, Color32, ComboBox, Context, Grid, Slider, Ui, Window};
+use egui::{Button, Color32, ComboBox, Context, Grid, ScrollArea, Slider, Ui, Window};
 use gb_core::inputs::GameBoyButton;
 use genesis_core::GenesisControllerType;
 use genesis_core::input::GenesisButton;
@@ -208,10 +208,10 @@ fn hotkey_label(hotkey: Hotkey) -> &'static str {
     match hotkey {
         Quit => "Quit:",
         ToggleFullscreen => "Toggle fullscreen:",
-        SaveState => "Save state:",
-        LoadState => "Load state:",
+        SaveState => "Save state to current slot:",
+        LoadState => "Load state from current slot:",
         NextSaveStateSlot => "Next save state slot:",
-        PrevSaveStateSlot => "Previous save statfe slot:",
+        PrevSaveStateSlot => "Previous save state slot:",
         SoftReset => "Soft reset:",
         HardReset => "Hard reset:",
         Pause => "Pause:",
@@ -219,6 +219,26 @@ fn hotkey_label(hotkey: Hotkey) -> &'static str {
         FastForward => "Fast forward:",
         Rewind => "Rewind:",
         OpenDebugger => "Open memory viewer:",
+        SaveStateSlot0 => "Save state to slot 0:",
+        SaveStateSlot1 => "Save state to slot 1:",
+        SaveStateSlot2 => "Save state to slot 2:",
+        SaveStateSlot3 => "Save state to slot 3:",
+        SaveStateSlot4 => "Save state to slot 4:",
+        SaveStateSlot5 => "Save state to slot 5:",
+        SaveStateSlot6 => "Save state to slot 6:",
+        SaveStateSlot7 => "Save state to slot 7:",
+        SaveStateSlot8 => "Save state to slot 8:",
+        SaveStateSlot9 => "Save state to slot 9:",
+        LoadStateSlot0 => "Load state from slot 0:",
+        LoadStateSlot1 => "Load state from slot 1:",
+        LoadStateSlot2 => "Load state from slot 2:",
+        LoadStateSlot3 => "Load state from slot 3:",
+        LoadStateSlot4 => "Load state from slot 4:",
+        LoadStateSlot5 => "Load state from slot 5:",
+        LoadStateSlot6 => "Load state from slot 6:",
+        LoadStateSlot7 => "Load state from slot 7:",
+        LoadStateSlot8 => "Load state from slot 8:",
+        LoadStateSlot9 => "Load state from slot 9:",
     }
 }
 
@@ -394,6 +414,26 @@ fn access_hotkey(
         Hotkey::FastForward => &mut mapping_config.fast_forward,
         Hotkey::Rewind => &mut mapping_config.rewind,
         Hotkey::OpenDebugger => &mut mapping_config.open_debugger,
+        Hotkey::SaveStateSlot0 => &mut mapping_config.save_state_slot_0,
+        Hotkey::SaveStateSlot1 => &mut mapping_config.save_state_slot_1,
+        Hotkey::SaveStateSlot2 => &mut mapping_config.save_state_slot_2,
+        Hotkey::SaveStateSlot3 => &mut mapping_config.save_state_slot_3,
+        Hotkey::SaveStateSlot4 => &mut mapping_config.save_state_slot_4,
+        Hotkey::SaveStateSlot5 => &mut mapping_config.save_state_slot_5,
+        Hotkey::SaveStateSlot6 => &mut mapping_config.save_state_slot_6,
+        Hotkey::SaveStateSlot7 => &mut mapping_config.save_state_slot_7,
+        Hotkey::SaveStateSlot8 => &mut mapping_config.save_state_slot_8,
+        Hotkey::SaveStateSlot9 => &mut mapping_config.save_state_slot_9,
+        Hotkey::LoadStateSlot0 => &mut mapping_config.load_state_slot_0,
+        Hotkey::LoadStateSlot1 => &mut mapping_config.load_state_slot_1,
+        Hotkey::LoadStateSlot2 => &mut mapping_config.load_state_slot_2,
+        Hotkey::LoadStateSlot3 => &mut mapping_config.load_state_slot_3,
+        Hotkey::LoadStateSlot4 => &mut mapping_config.load_state_slot_4,
+        Hotkey::LoadStateSlot5 => &mut mapping_config.load_state_slot_5,
+        Hotkey::LoadStateSlot6 => &mut mapping_config.load_state_slot_6,
+        Hotkey::LoadStateSlot7 => &mut mapping_config.load_state_slot_7,
+        Hotkey::LoadStateSlot8 => &mut mapping_config.load_state_slot_8,
+        Hotkey::LoadStateSlot9 => &mut mapping_config.load_state_slot_9,
     }
 }
 
@@ -880,8 +920,10 @@ impl App {
     }
 
     pub(super) fn render_hotkey_settings(&mut self, ctx: &Context) {
-        static HOTKEYS: LazyLock<Vec<GenericButton>> =
-            LazyLock::new(|| Hotkey::ALL.into_iter().map(GenericButton::Hotkey).collect());
+        static GENERAL_HOTKEYS: LazyLock<Vec<GenericButton>> =
+            LazyLock::new(|| hotkey_vec(HotkeyCategory::General));
+        static STATE_HOTKEYS: LazyLock<Vec<GenericButton>> =
+            LazyLock::new(|| hotkey_vec(HotkeyCategory::SaveState));
 
         let mut open = true;
         Window::new("Hotkey Settings").open(&mut open).show(ctx, |ui| {
@@ -890,7 +932,18 @@ impl App {
             let mapping = self.render_mapping_set_selector(OpenWindow::Hotkeys, ui);
             ui.separator();
 
-            self.render_input_buttons("hotkeys", mapping, &HOTKEYS, ui);
+            ScrollArea::vertical()
+                .auto_shrink([false, true])
+                .max_height(ctx.screen_rect().height() * 0.5)
+                .show(ui, |ui| {
+                    ui.heading("General");
+                    self.render_input_buttons("general_hotkeys", mapping, &GENERAL_HOTKEYS, ui);
+
+                    ui.separator();
+
+                    ui.heading("Save States");
+                    self.render_input_buttons("state_hotkeys", mapping, &STATE_HOTKEYS, ui);
+                });
 
             ui.add_space(15.0);
 
@@ -1021,4 +1074,40 @@ fn format_input_str(value: Option<&Vec<GenericInput>>) -> String {
     let s: Vec<_> = value.iter().map(|&input| input.to_string()).collect();
 
     s.join(" + ")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HotkeyCategory {
+    General,
+    SaveState,
+}
+
+trait HotkeyExt {
+    fn category(self) -> HotkeyCategory;
+}
+
+impl HotkeyExt for Hotkey {
+    fn category(self) -> HotkeyCategory {
+        use Hotkey::*;
+
+        match self {
+            Quit | ToggleFullscreen | SoftReset | HardReset | Pause | StepFrame | FastForward
+            | Rewind | OpenDebugger => HotkeyCategory::General,
+            SaveState | LoadState | NextSaveStateSlot | PrevSaveStateSlot | SaveStateSlot0
+            | SaveStateSlot1 | SaveStateSlot2 | SaveStateSlot3 | SaveStateSlot4
+            | SaveStateSlot5 | SaveStateSlot6 | SaveStateSlot7 | SaveStateSlot8
+            | SaveStateSlot9 | LoadStateSlot0 | LoadStateSlot1 | LoadStateSlot2
+            | LoadStateSlot3 | LoadStateSlot4 | LoadStateSlot5 | LoadStateSlot6
+            | LoadStateSlot7 | LoadStateSlot8 | LoadStateSlot9 => HotkeyCategory::SaveState,
+        }
+    }
+}
+
+fn hotkey_vec(category: HotkeyCategory) -> Vec<GenericButton> {
+    Hotkey::ALL
+        .into_iter()
+        .filter_map(|hotkey| {
+            (hotkey.category() == category).then_some(GenericButton::Hotkey(hotkey))
+        })
+        .collect()
 }

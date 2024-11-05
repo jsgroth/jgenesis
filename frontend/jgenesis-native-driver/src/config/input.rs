@@ -639,7 +639,13 @@ impl Default for GameBoyInputConfig {
 }
 
 macro_rules! define_hotkey_mapping {
-    ($($value:ident: $hotkey:ident default $default:ident,)* $(,)?) => {
+    (@default none) => {
+        None
+    };
+    (@default $default:ident) => {
+        key_input!($default)
+    };
+    ($($value:ident: $hotkey:ident default $default:tt,)* $(,)?) => {
         #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
         pub struct HotkeyMapping {
             $(
@@ -652,7 +658,7 @@ macro_rules! define_hotkey_mapping {
             pub fn default_keyboard() -> Self {
                 Self {
                     $(
-                        $value: key_input!($default),
+                        $value: define_hotkey_mapping!(@default $default),
                     )*
                 }
             }
@@ -675,7 +681,7 @@ macro_rules! define_hotkey_mapping {
                 ], f)
             }
         }
-    }
+    };
 }
 
 define_hotkey_mapping!(
@@ -692,6 +698,26 @@ define_hotkey_mapping!(
     fast_forward: FastForward default Tab,
     rewind: Rewind default Backquote,
     open_debugger: OpenDebugger default Quote,
+    save_state_slot_0: SaveStateSlot0 default none,
+    save_state_slot_1: SaveStateSlot1 default none,
+    save_state_slot_2: SaveStateSlot2 default none,
+    save_state_slot_3: SaveStateSlot3 default none,
+    save_state_slot_4: SaveStateSlot4 default none,
+    save_state_slot_5: SaveStateSlot5 default none,
+    save_state_slot_6: SaveStateSlot6 default none,
+    save_state_slot_7: SaveStateSlot7 default none,
+    save_state_slot_8: SaveStateSlot8 default none,
+    save_state_slot_9: SaveStateSlot9 default none,
+    load_state_slot_0: LoadStateSlot0 default none,
+    load_state_slot_1: LoadStateSlot1 default none,
+    load_state_slot_2: LoadStateSlot2 default none,
+    load_state_slot_3: LoadStateSlot3 default none,
+    load_state_slot_4: LoadStateSlot4 default none,
+    load_state_slot_5: LoadStateSlot5 default none,
+    load_state_slot_6: LoadStateSlot6 default none,
+    load_state_slot_7: LoadStateSlot7 default none,
+    load_state_slot_8: LoadStateSlot8 default none,
+    load_state_slot_9: LoadStateSlot9 default none,
 );
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]

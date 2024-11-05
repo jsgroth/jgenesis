@@ -23,7 +23,7 @@ use crate::archive::ArchiveError;
 use crate::config::input::ButtonMappingVec;
 use crate::config::{CommonConfig, FullscreenMode, HideMouseCursor, WindowSize};
 use crate::fpstracker::FpsTracker;
-use crate::input::{Hotkey, HotkeyEvent, InputMapper, Joysticks, MappableInputs};
+use crate::input::{CompactHotkey, Hotkey, HotkeyEvent, InputMapper, Joysticks, MappableInputs};
 use crate::mainloop::audio::SdlAudioOutput;
 use crate::mainloop::debug::{DebugRenderFn, DebuggerWindow};
 use crate::mainloop::rewind::Rewinder;
@@ -685,9 +685,10 @@ where
     }
 
     fn handle_hotkey_pressed(&mut self, hotkey: Hotkey) -> NativeEmulatorResult<HotkeyResult> {
+        let hotkey = hotkey.to_compact();
         match hotkey {
-            Hotkey::Quit => return Ok(HotkeyResult::Quit),
-            Hotkey::ToggleFullscreen => {
+            CompactHotkey::Quit => return Ok(HotkeyResult::Quit),
+            CompactHotkey::ToggleFullscreen => {
                 self.renderer
                     .toggle_fullscreen(self.hotkey_state.fullscreen_mode)
                     .map_err(NativeEmulatorError::SdlSetFullscreen)?;
@@ -695,16 +696,25 @@ where
                     !self.hotkey_state.hide_mouse_cursor.should_hide(self.renderer.is_fullscreen()),
                 );
             }
-            Hotkey::SaveState => {
-                let slot = self.hotkey_state.save_state_slot;
+            CompactHotkey::SaveState | CompactHotkey::SaveStateSlot(..) => {
+                let slot = match hotkey {
+                    CompactHotkey::SaveState => self.hotkey_state.save_state_slot,
+                    CompactHotkey::SaveStateSlot(slot) => slot,
+                    _ => unreachable!("nested match expressions"),
+                };
                 self.save_state(slot)?;
                 log::info!(
                     "Saved state to slot {slot} in '{}'",
                     self.hotkey_state.save_state_paths[slot].display()
                 );
             }
-            Hotkey::LoadState => {
-                let slot = self.hotkey_state.save_state_slot;
+            CompactHotkey::LoadState | CompactHotkey::LoadStateSlot(..) => {
+                let slot = match hotkey {
+                    CompactHotkey::LoadState => self.hotkey_state.save_state_slot,
+                    CompactHotkey::LoadStateSlot(slot) => slot,
+                    _ => unreachable!("nested match expressions"),
+                };
+
                 match self.load_state(slot) {
                     Ok(()) => {
                         log::info!(
@@ -720,13 +730,13 @@ where
                     }
                 }
             }
-            Hotkey::SoftReset => {
+            CompactHotkey::SoftReset => {
                 self.emulator.soft_reset();
             }
-            Hotkey::HardReset => {
+            CompactHotkey::HardReset => {
                 self.emulator.hard_reset(&mut self.save_writer);
             }
-            Hotkey::NextSaveStateSlot => {
+            CompactHotkey::NextSaveStateSlot => {
                 self.hotkey_state.save_state_slot =
                     (self.hotkey_state.save_state_slot + 1) % SAVE_STATE_SLOTS;
                 self.renderer.add_modal(
@@ -734,7 +744,7 @@ where
                     MODAL_DURATION,
                 );
             }
-            Hotkey::PrevSaveStateSlot => {
+            CompactHotkey::PrevSaveStateSlot => {
                 self.hotkey_state.save_state_slot = if self.hotkey_state.save_state_slot == 0 {
                     state::SAVE_STATE_SLOTS - 1
                 } else {
@@ -745,21 +755,21 @@ where
                     MODAL_DURATION,
                 );
             }
-            Hotkey::Pause => {
+            CompactHotkey::Pause => {
                 self.hotkey_state.paused = !self.hotkey_state.paused;
             }
-            Hotkey::StepFrame => {
+            CompactHotkey::StepFrame => {
                 self.hotkey_state.should_step_frame = true;
             }
-            Hotkey::FastForward => {
+            CompactHotkey::FastForward => {
                 let multiplier = self.hotkey_state.fast_forward_multiplier;
                 self.renderer.set_speed_multiplier(multiplier);
                 self.audio_output.set_speed_multiplier(multiplier);
             }
-            Hotkey::Rewind => {
+            CompactHotkey::Rewind => {
                 self.hotkey_state.rewinder.start_rewinding();
             }
-            Hotkey::OpenDebugger => {
+            CompactHotkey::OpenDebugger => {
                 if self.hotkey_state.debugger_window.is_none() {
                     let debug_render_fn = (self.hotkey_state.debug_render_fn)();
                     match DebuggerWindow::new(&self.video, debug_render_fn) {
