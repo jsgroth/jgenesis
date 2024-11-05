@@ -1,22 +1,21 @@
+mod inputwindow;
+
+use crate::emuthread::inputwindow::InputWindow;
 use anyhow::anyhow;
-use jgenesis_native_driver::config::input::{
-    AxisDirection, HatDirection, JoystickAction, JoystickInput, KeyboardInput, KeyboardOrMouseInput,
-};
 use jgenesis_native_driver::config::{
     GameBoyConfig, GenesisConfig, NesConfig, Sega32XConfig, SegaCdConfig, SmsGgConfig, SnesConfig,
 };
-use jgenesis_native_driver::input::Joysticks;
+use jgenesis_native_driver::input::{
+    AxisDirection, GamepadAction, GenericInput, HatDirection, Joysticks,
+};
 use jgenesis_native_driver::{
     AudioError, Native32XEmulator, NativeEmulatorResult, NativeGameBoyEmulator,
     NativeGenesisEmulator, NativeNesEmulator, NativeSegaCdEmulator, NativeSmsGgEmulator,
     NativeSnesEmulator, NativeTickEffect, SaveStateMetadata,
 };
+use sdl2::EventPump;
 use sdl2::event::Event;
 use sdl2::joystick::HatState;
-use sdl2::mouse::MouseButton;
-use sdl2::pixels::Color;
-use sdl2::render::WindowCanvas;
-use sdl2::{EventPump, JoystickSubsystem};
 use segacd_core::api::SegaCdLoadResult;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -85,7 +84,7 @@ pub enum EmuThreadCommand {
     ReloadSnesConfig(Box<SnesConfig>),
     ReloadGameBoyConfig(Box<GameBoyConfig>),
     StopEmulator,
-    CollectInput { input_type: InputType, axis_deadzone: i16 },
+    CollectInput { axis_deadzone: i16 },
     SoftReset,
     HardReset,
     OpenMemoryViewer,
@@ -95,30 +94,10 @@ pub enum EmuThreadCommand {
     SegaCdChangeDisc(PathBuf),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InputType {
-    Keyboard,
-    Joystick,
-    KeyboardOrMouse,
-}
-
-impl InputType {
-    fn accepts_keyboard(self) -> bool {
-        matches!(self, Self::Keyboard | Self::KeyboardOrMouse)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum GenericInput {
-    Keyboard(KeyboardInput),
-    Joystick(JoystickInput),
-    KeyboardOrMouse(KeyboardOrMouseInput),
-}
-
 pub struct EmuThreadHandle {
     status: Arc<AtomicU8>,
     command_sender: Sender<EmuThreadCommand>,
-    input_receiver: Receiver<Option<GenericInput>>,
+    input_receiver: Receiver<Option<Vec<GenericInput>>>,
     save_state_metadata: Arc<Mutex<SaveStateMetadata>>,
     emulator_error: Arc<Mutex<Option<anyhow::Error>>>,
 }
@@ -140,7 +119,7 @@ impl EmuThreadHandle {
         self.emulator_error.lock().unwrap()
     }
 
-    pub fn poll_input_receiver(&self) -> Result<Option<GenericInput>, TryRecvError> {
+    pub fn poll_input_receiver(&self) -> Result<Option<Vec<GenericInput>>, TryRecvError> {
         self.input_receiver.try_recv()
     }
 
@@ -227,7 +206,7 @@ pub fn spawn(ctx: egui::Context) -> EmuThreadHandle {
 fn thread_run(
     ctx: egui::Context,
     command_receiver: Receiver<EmuThreadCommand>,
-    input_sender: Sender<Option<GenericInput>>,
+    input_sender: Sender<Option<Vec<GenericInput>>>,
     status: Arc<AtomicU8>,
     save_state_metadata: Arc<Mutex<SaveStateMetadata>>,
     emulator_error: Arc<Mutex<Option<anyhow::Error>>>,
@@ -383,8 +362,8 @@ fn thread_run(
                     &ctx,
                 );
             }
-            Ok(EmuThreadCommand::CollectInput { input_type, axis_deadzone }) => {
-                match collect_input_not_running(input_type, axis_deadzone) {
+            Ok(EmuThreadCommand::CollectInput { axis_deadzone }) => {
+                match collect_input_not_running(axis_deadzone, ctx.pixels_per_point()) {
                     Ok(input) => {
                         input_sender.send(input).unwrap();
                         ctx.request_repaint();
@@ -554,9 +533,7 @@ impl GenericEmulator {
         match_each_emulator_variant!(self, emulator => emulator.focus());
     }
 
-    fn event_pump_and_joysticks_mut(
-        &mut self,
-    ) -> (&mut EventPump, &mut Joysticks, &JoystickSubsystem) {
+    fn event_pump_and_joysticks_mut(&mut self) -> (&mut EventPump, &mut Joysticks) {
         match_each_emulator_variant!(self, emulator => emulator.event_pump_and_joysticks_mut())
     }
 }
@@ -564,7 +541,7 @@ impl GenericEmulator {
 fn run_emulator(
     mut emulator: GenericEmulator,
     command_receiver: &Receiver<EmuThreadCommand>,
-    input_sender: &Sender<Option<GenericInput>>,
+    input_sender: &Sender<Option<Vec<GenericInput>>>,
     save_state_metadata: &Arc<Mutex<SaveStateMetadata>>,
     emulator_error: &Arc<Mutex<Option<anyhow::Error>>>,
     ctx: &egui::Context,
@@ -622,20 +599,12 @@ fn run_emulator(
                             log::info!("Stopping emulator");
                             return;
                         }
-                        EmuThreadCommand::CollectInput { input_type, axis_deadzone } => {
+                        EmuThreadCommand::CollectInput { axis_deadzone } => {
                             log::debug!("Received collect input command");
 
                             emulator.focus();
-                            let (event_pump, joysticks, joystick_subsystem) =
-                                emulator.event_pump_and_joysticks_mut();
-                            let input = collect_input(
-                                input_type,
-                                event_pump,
-                                joysticks,
-                                joystick_subsystem,
-                                axis_deadzone,
-                                None,
-                            );
+                            let (event_pump, joysticks) = emulator.event_pump_and_joysticks_mut();
+                            let input = collect_input(event_pump, joysticks, axis_deadzone, None);
 
                             let is_none = input.is_none();
 
@@ -683,9 +652,9 @@ fn run_emulator(
 }
 
 fn collect_input_not_running(
-    input_type: InputType,
     axis_deadzone: i16,
-) -> anyhow::Result<Option<GenericInput>> {
+    scale_factor: f32,
+) -> anyhow::Result<Option<Vec<GenericInput>>> {
     let sdl = sdl2::init().map_err(|err| anyhow!("Error initializing SDL2: {err}"))?;
     let video =
         sdl.video().map_err(|err| anyhow!("Error initializing SDL2 video subsystem: {err}"))?;
@@ -695,152 +664,156 @@ fn collect_input_not_running(
     let mut event_pump =
         sdl.event_pump().map_err(|err| anyhow!("Error initializing SDL2 event pump: {err}"))?;
 
-    let mut canvas =
-        video.window("SDL input configuration", 200, 100).build()?.into_canvas().build()?;
-    canvas.set_draw_color(Color::RGB(0, 0, 0));
-    canvas.clear();
-    canvas.present();
+    let mut sdl_window = video
+        .window(
+            "SDL input configuration",
+            (400.0 * scale_factor).round() as u32,
+            (150.0 * scale_factor).round() as u32,
+        )
+        .build()?;
+    sdl_window.raise();
+    let window = InputWindow::new(sdl_window, scale_factor)?;
 
-    let mut joysticks = Joysticks::new();
+    let mut joysticks = Joysticks::new(joystick_subsystem);
 
-    let input = collect_input(
-        input_type,
-        &mut event_pump,
-        &mut joysticks,
-        &joystick_subsystem,
-        axis_deadzone,
-        Some(&mut canvas),
-    );
+    let input = collect_input(&mut event_pump, &mut joysticks, axis_deadzone, Some(window));
 
     for _ in event_pump.poll_iter() {}
 
     Ok(input)
 }
 
-// Some gamepads report phantom inputs right after connecting; use a timestamp threshold to avoid
-// collecting those
-const TIMESTAMP_THRESHOLD: u32 = 1000;
+struct VecSet(Vec<GenericInput>);
+
+impl VecSet {
+    fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    fn insert(&mut self, input: GenericInput) {
+        if !self.0.contains(&input) {
+            self.0.push(input);
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
 
 fn collect_input(
-    input_type: InputType,
     event_pump: &mut EventPump,
     joysticks: &mut Joysticks,
-    joystick_subsystem: &JoystickSubsystem,
     axis_deadzone: i16,
-    mut canvas: Option<&mut WindowCanvas>,
-) -> Option<GenericInput> {
+    mut window: Option<InputWindow>,
+) -> Option<Vec<GenericInput>> {
+    let mut inputs = VecSet::new();
+
     loop {
         for event in event_pump.poll_iter() {
+            log::debug!("SDL event: {event:?}");
+
+            if let Some(window) = &mut window {
+                window.handle_sdl_event(&event);
+            }
+
             match event {
                 Event::Quit { .. } => {
                     return None;
                 }
-                Event::KeyDown { keycode: Some(keycode), .. } if input_type.accepts_keyboard() => {
-                    return Some(match input_type {
-                        InputType::Keyboard => {
-                            GenericInput::Keyboard(KeyboardInput { keycode: keycode.name() })
-                        }
-                        InputType::KeyboardOrMouse => GenericInput::KeyboardOrMouse(
-                            KeyboardOrMouseInput::Keyboard(keycode.name()),
-                        ),
-                        InputType::Joystick => unreachable!("nested match arms"),
-                    });
+                Event::KeyDown { keycode: Some(keycode), .. } => {
+                    inputs.insert(GenericInput::Keyboard(keycode));
+                }
+                Event::KeyUp { .. } | Event::JoyButtonUp { .. } | Event::MouseButtonUp { .. } => {
+                    return Some(inputs.0);
                 }
                 Event::JoyDeviceAdded { which: device_id, .. } => {
-                    if let Err(err) = joysticks.device_added(device_id, joystick_subsystem) {
+                    if let Err(err) = joysticks.handle_device_added(device_id) {
                         log::error!("Error adding joystick with device id {device_id}: {err}");
                     }
                 }
                 Event::JoyDeviceRemoved { which: instance_id, .. } => {
-                    joysticks.device_removed(instance_id);
+                    joysticks.handle_device_removed(instance_id);
                 }
-                Event::JoyButtonDown { which: instance_id, button_idx, timestamp }
-                    if timestamp > TIMESTAMP_THRESHOLD && input_type == InputType::Joystick =>
-                {
-                    if let Some(device_id) = joysticks.device_id_for(instance_id) {
-                        if let Some(joystick_id) = joysticks.get_joystick_id(device_id) {
-                            return Some(GenericInput::Joystick(JoystickInput {
-                                device: joystick_id,
-                                action: JoystickAction::Button { button_idx },
-                            }));
-                        }
+                Event::JoyButtonDown { which: instance_id, button_idx, .. } => {
+                    if let Some(device_id) = joysticks.map_to_device_id(instance_id) {
+                        inputs.insert(GenericInput::Gamepad {
+                            gamepad_idx: device_id,
+                            action: GamepadAction::Button(button_idx),
+                        });
                     }
                 }
-                Event::JoyAxisMotion { which: instance_id, axis_idx, value, timestamp }
-                    if timestamp > TIMESTAMP_THRESHOLD
-                        && input_type == InputType::Joystick
-                        && value.saturating_abs() > axis_deadzone =>
-                {
-                    if let Some(device_id) = joysticks.device_id_for(instance_id) {
-                        if let Some(joystick_id) = joysticks.get_joystick_id(device_id) {
-                            let direction = if value < 0 {
-                                AxisDirection::Negative
-                            } else {
-                                AxisDirection::Positive
-                            };
-                            return Some(GenericInput::Joystick(JoystickInput {
-                                device: joystick_id,
-                                action: JoystickAction::Axis { axis_idx, direction },
-                            }));
-                        }
+                Event::JoyAxisMotion { which: instance_id, axis_idx, value, .. } => {
+                    let Some(gamepad_idx) = joysticks.map_to_device_id(instance_id) else {
+                        continue;
+                    };
+
+                    let pressed = value.saturating_abs() > axis_deadzone;
+                    if pressed {
+                        let direction = AxisDirection::from_value(value);
+                        inputs.insert(GenericInput::Gamepad {
+                            gamepad_idx,
+                            action: GamepadAction::Axis(axis_idx, direction),
+                        });
+                    } else if [AxisDirection::Positive, AxisDirection::Negative].into_iter().any(
+                        |direction| {
+                            inputs.0.contains(&GenericInput::Gamepad {
+                                gamepad_idx,
+                                action: GamepadAction::Axis(axis_idx, direction),
+                            })
+                        },
+                    ) {
+                        return Some(inputs.0);
                     }
                 }
-                Event::JoyHatMotion { which: instance_id, hat_idx, state, timestamp }
-                    if timestamp > TIMESTAMP_THRESHOLD && input_type == InputType::Joystick =>
-                {
+                Event::JoyHatMotion { which: instance_id, hat_idx, state, .. } => {
+                    let Some(gamepad_idx) = joysticks.map_to_device_id(instance_id) else {
+                        continue;
+                    };
+
+                    if state == HatState::Centered {
+                        if HatDirection::ALL.into_iter().any(|direction| {
+                            inputs.0.contains(&GenericInput::Gamepad {
+                                gamepad_idx,
+                                action: GamepadAction::Hat(hat_idx, direction),
+                            })
+                        }) {
+                            return Some(inputs.0);
+                        }
+
+                        continue;
+                    }
+
                     if let Some(direction) = hat_direction_for(state) {
-                        if let Some(device_id) = joysticks.device_id_for(instance_id) {
-                            if let Some(joystick_id) = joysticks.get_joystick_id(device_id) {
-                                return Some(GenericInput::Joystick(JoystickInput {
-                                    device: joystick_id,
-                                    action: JoystickAction::Hat { hat_idx, direction },
-                                }));
-                            }
-                        }
+                        inputs.insert(GenericInput::Gamepad {
+                            gamepad_idx,
+                            action: GamepadAction::Hat(hat_idx, direction),
+                        });
                     }
                 }
-                Event::MouseButtonDown { mouse_btn, .. }
-                    if input_type == InputType::KeyboardOrMouse =>
-                {
-                    match mouse_btn {
-                        MouseButton::Left => {
-                            return Some(GenericInput::KeyboardOrMouse(
-                                KeyboardOrMouseInput::MouseLeft,
-                            ));
-                        }
-                        MouseButton::Right => {
-                            return Some(GenericInput::KeyboardOrMouse(
-                                KeyboardOrMouseInput::MouseRight,
-                            ));
-                        }
-                        MouseButton::Middle => {
-                            return Some(GenericInput::KeyboardOrMouse(
-                                KeyboardOrMouseInput::MouseMiddle,
-                            ));
-                        }
-                        MouseButton::X1 => {
-                            return Some(GenericInput::KeyboardOrMouse(
-                                KeyboardOrMouseInput::MouseX1,
-                            ));
-                        }
-                        MouseButton::X2 => {
-                            return Some(GenericInput::KeyboardOrMouse(
-                                KeyboardOrMouseInput::MouseX2,
-                            ));
-                        }
-                        MouseButton::Unknown => {}
-                    }
+                Event::MouseButtonDown { mouse_btn, .. } => {
+                    inputs.insert(GenericInput::Mouse(mouse_btn));
                 }
                 _ => {}
             }
         }
 
-        if let Some(canvas) = &mut canvas {
-            canvas.clear();
-            canvas.present();
+        if inputs.len() == jgenesis_native_driver::input::MAX_MAPPING_LEN {
+            return Some(inputs.0);
         }
 
-        thread::sleep(Duration::from_millis(1));
+        if let Some(window) = &mut window {
+            let result = window.update(|ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    render_input_window(joysticks, ui);
+                });
+            });
+            if let Err(err) = result {
+                log::error!("Error rendering input window: {err}");
+            }
+        }
+
+        jgenesis_common::sleep(Duration::from_millis(10));
     }
 }
 
@@ -853,4 +826,28 @@ fn hat_direction_for(state: HatState) -> Option<HatDirection> {
         // Ignore diagonals for the purpose of collecting input
         _ => None,
     }
+}
+
+fn render_input_window(joysticks: &Joysticks, ui: &mut egui::Ui) {
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        ui.label(
+            format!(
+                "Press a key, a gamepad input, or a mouse button. Mouse clicks must be on this window. Combinations of up to {} inputs simultaneously are supported.",
+                jgenesis_native_driver::input::MAX_MAPPING_LEN,
+            )
+        );
+
+        ui.add_space(10.0);
+
+        ui.label("Connected gamepads:");
+
+        let devices: Vec<_> = joysticks.all_devices().collect();
+        if devices.is_empty() {
+            ui.label("    (None)");
+        } else {
+            for (gamepad_idx, joystick) in devices {
+                ui.label(format!("    Gamepad {gamepad_idx}: {}", joystick.name()));
+            }
+        }
+    });
 }

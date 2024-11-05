@@ -38,13 +38,8 @@ impl AppConfig {
     #[must_use]
     pub fn snes_config(&self, path: String) -> Box<SnesConfig> {
         Box::new(SnesConfig {
-            common: self.common_config(
-                path,
-                self.inputs.snes_keyboard.clone(),
-                self.inputs.snes_joystick.clone(),
-            ),
-            p2_controller_type: self.inputs.snes_p2_type,
-            super_scope_config: self.inputs.snes_super_scope.clone(),
+            common: self.common_config(path),
+            inputs: self.input.snes.clone(),
             forced_timing_mode: self.snes.forced_timing_mode,
             aspect_ratio: self.snes.aspect_ratio,
             audio_interpolation: self.snes.audio_interpolation,

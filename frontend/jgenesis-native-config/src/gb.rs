@@ -29,11 +29,8 @@ impl AppConfig {
     #[must_use]
     pub fn gb_config(&self, path: String) -> Box<GameBoyConfig> {
         Box::new(GameBoyConfig {
-            common: self.common_config(
-                path,
-                self.inputs.gb_keyboard.clone(),
-                self.inputs.gb_joystick.clone(),
-            ),
+            common: self.common_config(path),
+            inputs: self.input.game_boy.clone(),
             force_dmg_mode: self.game_boy.force_dmg_mode,
             pretend_to_be_gba: self.game_boy.pretend_to_be_gba,
             aspect_ratio: self.game_boy.aspect_ratio,

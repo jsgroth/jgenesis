@@ -81,7 +81,7 @@ pub struct AppConfig {
     #[serde(default)]
     pub game_boy: GameBoyAppConfig,
     #[serde(default)]
-    pub inputs: InputAppConfig,
+    pub input: InputAppConfig,
     // TODO move GUI-specific config/state somewhere else - separate file?
     #[serde(default)]
     pub list_filters: ListFilters,

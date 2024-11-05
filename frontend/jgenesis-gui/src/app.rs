@@ -8,13 +8,12 @@ mod smsgg;
 mod snes;
 
 use crate::app::common::SavePathSelect;
-use crate::app::input::{GenericButton, InputAppConfigExt};
+use crate::app::input::{GenericButton, InputMappingSet};
 use crate::app::nes::OverscanState;
 use crate::app::romlist::{Console, RomListThreadHandle, RomMetadata};
 use crate::emuthread;
 use crate::emuthread::{EmuThreadCommand, EmuThreadHandle, EmuThreadStatus};
 use eframe::Frame;
-use egui::ahash::HashMap;
 use egui::panel::TopBottomSide;
 use egui::{
     Align, Button, CentralPanel, Color32, Context, Grid, Key, KeyboardShortcut, Layout, Modifiers,
@@ -26,7 +25,7 @@ use jgenesis_native_config::{AppConfig, EguiTheme, ListFilters, RecentOpen};
 use jgenesis_native_driver::config::HideMouseCursor;
 use jgenesis_renderer::config::Scanlines;
 use rfd::FileDialog;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -103,18 +102,14 @@ enum OpenWindow {
     GenesisAudio,
     NesAudio,
     SnesAudio,
-    SmsGgKeyboard,
-    SmsGgGamepad,
-    GenesisKeyboard,
-    GenesisGamepad,
-    NesKeyboard,
-    NesGamepad,
+    GeneralInput,
+    SmsGgInput,
+    GenesisInput,
+    NesInput,
     NesPeripherals,
-    SnesKeyboard,
-    SnesGamepad,
+    SnesInput,
     SnesPeripherals,
-    GameBoyKeyboard,
-    GameBoyGamepad,
+    GameBoyInput,
     Hotkeys,
     About,
 }
@@ -129,6 +124,7 @@ struct AppState {
     current_file_path: String,
     open_windows: HashSet<OpenWindow>,
     help_text: HashMap<OpenWindow, HelpText>,
+    input_mapping_sets: HashMap<OpenWindow, InputMappingSet>,
     error_window_open: bool,
     prescale_factor_raw: u32,
     ff_multiplier_text: String,
@@ -143,7 +139,7 @@ struct AppState {
     audio_gain_invalid: bool,
     display_scanlines_warning: bool,
     overscan: OverscanState,
-    waiting_for_input: Option<GenericButton>,
+    waiting_for_input: Option<(GenericButton, InputMappingSet)>,
     rom_list: Arc<Mutex<Vec<RomMetadata>>>,
     filtered_rom_list: Rc<[RomMetadata]>,
     rom_list_refresh_needed: bool,
@@ -160,7 +156,8 @@ impl AppState {
         Self {
             current_file_path: String::new(),
             open_windows: HashSet::new(),
-            help_text: HashMap::default(),
+            help_text: HashMap::new(),
+            input_mapping_sets: HashMap::new(),
             error_window_open: false,
             prescale_factor_raw: config.common.prescale_factor.get(),
             ff_multiplier_text: config.common.fast_forward_multiplier.to_string(),
@@ -801,42 +798,26 @@ impl App {
 
     fn render_input_menu(&mut self, ui: &mut Ui) {
         ui.menu_button("Input", |ui| {
-            ui.menu_button("SMS / Game Gear", |ui| {
-                if ui.button("Keyboard").clicked() {
-                    self.state.open_windows.insert(OpenWindow::SmsGgKeyboard);
-                    ui.close_menu();
-                }
+            if ui.button("General").clicked() {
+                self.state.open_windows.insert(OpenWindow::GeneralInput);
+                ui.close_menu();
+            }
 
-                if ui.button("Gamepad").clicked() {
-                    self.state.open_windows.insert(OpenWindow::SmsGgGamepad);
-                    ui.close_menu();
-                }
-            });
+            ui.separator();
 
-            ui.add_space(5.0);
+            if ui.button("SMS / Game Gear").clicked() {
+                self.state.open_windows.insert(OpenWindow::SmsGgInput);
+                ui.close_menu();
+            }
 
-            ui.menu_button("Genesis / Sega CD", |ui| {
-                if ui.button("Keyboard").clicked() {
-                    self.state.open_windows.insert(OpenWindow::GenesisKeyboard);
-                    ui.close_menu();
-                }
-
-                if ui.button("Gamepad").clicked() {
-                    self.state.open_windows.insert(OpenWindow::GenesisGamepad);
-                    ui.close_menu();
-                }
-            });
-
-            ui.add_space(5.0);
+            if ui.button("Genesis / Sega CD").clicked() {
+                self.state.open_windows.insert(OpenWindow::GenesisInput);
+                ui.close_menu();
+            }
 
             ui.menu_button("NES", |ui| {
-                if ui.button("Keyboard").clicked() {
-                    self.state.open_windows.insert(OpenWindow::NesKeyboard);
-                    ui.close_menu();
-                }
-
-                if ui.button("Gamepad").clicked() {
-                    self.state.open_windows.insert(OpenWindow::NesGamepad);
+                if ui.button("Gamepads").clicked() {
+                    self.state.open_windows.insert(OpenWindow::NesInput);
                     ui.close_menu();
                 }
 
@@ -846,16 +827,9 @@ impl App {
                 }
             });
 
-            ui.add_space(5.0);
-
             ui.menu_button("SNES", |ui| {
-                if ui.button("Keyboard").clicked() {
-                    self.state.open_windows.insert(OpenWindow::SnesKeyboard);
-                    ui.close_menu();
-                }
-
-                if ui.button("Gamepad").clicked() {
-                    self.state.open_windows.insert(OpenWindow::SnesGamepad);
+                if ui.button("Gamepads").clicked() {
+                    self.state.open_windows.insert(OpenWindow::SnesInput);
                     ui.close_menu();
                 }
 
@@ -865,19 +839,10 @@ impl App {
                 }
             });
 
-            ui.add_space(5.0);
-
-            ui.menu_button("Game Boy", |ui| {
-                if ui.button("Keyboard").clicked() {
-                    self.state.open_windows.insert(OpenWindow::GameBoyKeyboard);
-                    ui.close_menu();
-                }
-
-                if ui.button("Gamepad").clicked() {
-                    self.state.open_windows.insert(OpenWindow::GameBoyGamepad);
-                    ui.close_menu();
-                }
-            });
+            if ui.button("Game Boy").clicked() {
+                self.state.open_windows.insert(OpenWindow::GameBoyInput);
+                ui.close_menu();
+            }
 
             ui.separator();
 
@@ -1056,16 +1021,14 @@ impl App {
     }
 
     fn check_waiting_for_input(&mut self, ctx: &Context) {
-        if let Some(button) = self.state.waiting_for_input {
+        if let Some((button, mapping)) = self.state.waiting_for_input {
             if let Ok(input) = self.emu_thread.poll_input_receiver() {
                 self.state.waiting_for_input = None;
 
                 log::info!("Received input {input:?} for button {button:?}");
                 if let Some(input) = input {
-                    self.config.inputs.set_input(input, button);
-
-                    if self.emu_thread.status().is_running() {
-                        self.reload_config();
+                    if !input.is_empty() {
+                        *button.access_value(mapping, &mut self.config.input) = Some(input);
                     }
                 }
             } else if self.emu_thread.status().is_running() {
@@ -1170,18 +1133,14 @@ impl eframe::App for App {
                 OpenWindow::GenesisAudio => self.render_genesis_audio_settings(ctx),
                 OpenWindow::NesAudio => self.render_nes_audio_settings(ctx),
                 OpenWindow::SnesAudio => self.render_snes_audio_settings(ctx),
-                OpenWindow::SmsGgKeyboard => self.render_smsgg_keyboard_settings(ctx),
-                OpenWindow::SmsGgGamepad => self.render_smsgg_gamepad_settings(ctx),
-                OpenWindow::GenesisKeyboard => self.render_genesis_keyboard_settings(ctx),
-                OpenWindow::GenesisGamepad => self.render_genesis_gamepad_settings(ctx),
-                OpenWindow::NesKeyboard => self.render_nes_keyboard_settings(ctx),
-                OpenWindow::NesGamepad => self.render_nes_joystick_settings(ctx),
+                OpenWindow::GeneralInput => self.render_general_input_settings(ctx),
+                OpenWindow::SmsGgInput => self.render_smsgg_input_settings(ctx),
+                OpenWindow::GenesisInput => self.render_genesis_input_settings(ctx),
+                OpenWindow::NesInput => self.render_nes_input_settings(ctx),
                 OpenWindow::NesPeripherals => self.render_nes_peripheral_settings(ctx),
-                OpenWindow::SnesKeyboard => self.render_snes_keyboard_settings(ctx),
-                OpenWindow::SnesGamepad => self.render_snes_gamepad_settings(ctx),
+                OpenWindow::SnesInput => self.render_snes_input_settings(ctx),
                 OpenWindow::SnesPeripherals => self.render_snes_peripheral_settings(ctx),
-                OpenWindow::GameBoyKeyboard => self.render_gb_keyboard_settings(ctx),
-                OpenWindow::GameBoyGamepad => self.render_gb_joystick_settings(ctx),
+                OpenWindow::GameBoyInput => self.render_gb_input_settings(ctx),
                 OpenWindow::Hotkeys => self.render_hotkey_settings(ctx),
                 OpenWindow::About => self.render_about(ctx),
             }

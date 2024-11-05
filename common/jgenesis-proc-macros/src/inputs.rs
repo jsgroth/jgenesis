@@ -165,6 +165,7 @@ fn generate_button_enum(button_enum: &ButtonEnum) -> TokenStream {
             Copy,
             PartialEq,
             Eq,
+            ::std::hash::Hash,
             ::bincode::Encode,
             ::bincode::Decode,
             ::jgenesis_proc_macros::EnumDisplay,
@@ -205,7 +206,7 @@ fn generate_joypad_struct(button_enum: &ButtonEnum, joypad_struct: &JoypadStruct
     });
 
     quote! {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ::bincode::Encode, ::bincode::Decode)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ::std::hash::Hash, ::bincode::Encode, ::bincode::Decode)]
         pub struct #joypad_name {
             #(#fields,)*
         }
@@ -263,7 +264,7 @@ fn generate_inputs_struct(
     }
 
     quote! {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ::bincode::Encode, ::bincode::Decode)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ::std::hash::Hash, ::bincode::Encode, ::bincode::Decode)]
         pub struct #inputs_name {
             #(#fields,)*
         }

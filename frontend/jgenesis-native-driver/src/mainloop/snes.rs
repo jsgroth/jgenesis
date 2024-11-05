@@ -1,5 +1,4 @@
-use crate::config::{CommonConfig, SnesConfig};
-use crate::input::InputMapper;
+use crate::config::SnesConfig;
 
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::{debug, save};
@@ -7,9 +6,23 @@ use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config};
 use jgenesis_common::frontend::EmulatorTrait;
 
 use crate::config::RomReadResult;
+use crate::config::input::SnesControllerType;
 use snes_core::api::{SnesEmulator, SnesEmulatorConfig};
-use snes_core::input::{SnesButton, SnesInputs};
+use snes_core::input::{SnesButton, SnesInputDevice, SnesInputs, SnesJoypadState, SuperScopeState};
 use std::path::Path;
+
+trait SnesControllerTypeExt {
+    fn to_input_device(self) -> SnesInputDevice;
+}
+
+impl SnesControllerTypeExt for SnesControllerType {
+    fn to_input_device(self) -> SnesInputDevice {
+        match self {
+            Self::Gamepad => SnesInputDevice::Controller(SnesJoypadState::default()),
+            Self::SuperScope => SnesInputDevice::SuperScope(SuperScopeState::default()),
+        }
+    }
+}
 
 pub type NativeSnesEmulator =
     NativeEmulator<SnesInputs, SnesButton, SnesEmulatorConfig, SnesEmulator>;
@@ -32,15 +45,12 @@ impl NativeSnesEmulator {
         // Config change could have changed target framerate (50/60 Hz hack)
         self.renderer.set_target_fps(self.emulator.target_fps());
 
-        if let Err(err) = self.input_mapper.reload_config_snes(
-            config.p2_controller_type,
-            &config.common.keyboard_inputs,
-            &config.common.joystick_inputs,
-            &config.super_scope_config,
+        self.input_mapper.update_mappings(
             config.common.axis_deadzone,
-        ) {
-            log::error!("Error reloading input config: {err}");
-        }
+            &config.inputs.to_mapping_vec(),
+            &config.common.hotkey_config.to_mapping_vec(),
+        );
+        self.input_mapper.inputs_mut().p2 = config.inputs.p2_type.to_input_device();
 
         Ok(())
     }
@@ -74,16 +84,8 @@ pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEm
     let cartridge_title = emulator.cartridge_title();
     let window_title = format!("snes - {cartridge_title}");
 
-    let input_mapper_fn = |joystick, common_config: &CommonConfig<_, _>| {
-        InputMapper::new_snes(
-            joystick,
-            config.p2_controller_type,
-            &common_config.keyboard_inputs,
-            &common_config.joystick_inputs,
-            &config.super_scope_config,
-            common_config.axis_deadzone,
-        )
-    };
+    let initial_inputs =
+        SnesInputs { p1: SnesJoypadState::default(), p2: config.inputs.p2_type.to_input_device() };
 
     NativeSnesEmulator::new(
         emulator,
@@ -94,7 +96,8 @@ pub fn create_snes(config: Box<SnesConfig>) -> NativeEmulatorResult<NativeSnesEm
         &window_title,
         save_writer,
         save_state_path,
-        input_mapper_fn,
+        &config.inputs.to_mapping_vec(),
+        initial_inputs,
         debug::snes::render_fn,
     )
 }

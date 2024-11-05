@@ -1,9 +1,8 @@
 pub mod input;
 
 use crate::config::input::{
-    GameBoyInputConfig, GenesisInputConfig, HotkeyConfig, JoystickInput, KeyboardInput,
-    NesControllerType, NesInputConfig, SmsGgInputConfig, SnesControllerType, SnesInputConfig,
-    SuperScopeConfig, ZapperConfig,
+    GameBoyInputConfig, GenesisInputConfig, HotkeyConfig, NesInputConfig, SmsGgInputConfig,
+    SnesInputConfig,
 };
 use crate::mainloop::NativeEmulatorError;
 use crate::{NativeEmulatorResult, archive};
@@ -141,7 +140,7 @@ pub(crate) struct RomReadResult {
 }
 
 #[derive(Debug, Clone, ConfigDisplay)]
-pub struct CommonConfig<KeyboardConfig, JoystickConfig> {
+pub struct CommonConfig {
     pub rom_file_path: String,
     pub audio_output_frequency: u64,
     pub audio_sync: bool,
@@ -160,17 +159,13 @@ pub struct CommonConfig<KeyboardConfig, JoystickConfig> {
     pub load_recent_state_at_launch: bool,
     pub launch_in_fullscreen: bool,
     pub fullscreen_mode: FullscreenMode,
-    #[indent_nested]
-    pub keyboard_inputs: KeyboardConfig,
     pub axis_deadzone: i16,
     #[indent_nested]
-    pub joystick_inputs: JoystickConfig,
-    #[indent_nested]
-    pub hotkeys: HotkeyConfig,
+    pub hotkey_config: HotkeyConfig,
     pub hide_mouse_cursor: HideMouseCursor,
 }
 
-impl<KeyboardConfig, JoystickConfig> CommonConfig<KeyboardConfig, JoystickConfig> {
+impl CommonConfig {
     pub(crate) fn read_rom_file(
         &self,
         supported_extensions: &[&str],
@@ -197,7 +192,9 @@ impl<KeyboardConfig, JoystickConfig> CommonConfig<KeyboardConfig, JoystickConfig
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct SmsGgConfig {
     #[indent_nested]
-    pub common: CommonConfig<SmsGgInputConfig<KeyboardInput>, SmsGgInputConfig<JoystickInput>>,
+    pub common: CommonConfig,
+    #[indent_nested]
+    pub inputs: SmsGgInputConfig,
     pub sms_timing_mode: TimingMode,
     pub sms_model: SmsModel,
     pub forced_psg_version: Option<Sn76489Version>,
@@ -249,7 +246,9 @@ pub(crate) fn default_smsgg_window_size(
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct GenesisConfig {
     #[indent_nested]
-    pub common: CommonConfig<GenesisInputConfig<KeyboardInput>, GenesisInputConfig<JoystickInput>>,
+    pub common: CommonConfig,
+    #[indent_nested]
+    pub inputs: GenesisInputConfig,
     pub p1_controller_type: GenesisControllerType,
     pub p2_controller_type: GenesisControllerType,
     pub forced_timing_mode: Option<TimingMode>,
@@ -336,10 +335,9 @@ impl Sega32XConfig {
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct NesConfig {
     #[indent_nested]
-    pub common: CommonConfig<NesInputConfig<KeyboardInput>, NesInputConfig<JoystickInput>>,
-    pub p2_controller_type: NesControllerType,
+    pub common: CommonConfig,
     #[indent_nested]
-    pub zapper_config: ZapperConfig,
+    pub inputs: NesInputConfig,
     pub forced_timing_mode: Option<TimingMode>,
     pub aspect_ratio: NesAspectRatio,
     pub overscan: Overscan,
@@ -368,10 +366,9 @@ impl NesConfig {
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct SnesConfig {
     #[indent_nested]
-    pub common: CommonConfig<SnesInputConfig<KeyboardInput>, SnesInputConfig<JoystickInput>>,
-    pub p2_controller_type: SnesControllerType,
+    pub common: CommonConfig,
     #[indent_nested]
-    pub super_scope_config: SuperScopeConfig,
+    pub inputs: SnesInputConfig,
     pub forced_timing_mode: Option<TimingMode>,
     pub aspect_ratio: SnesAspectRatio,
     pub audio_interpolation: AudioInterpolationMode,
@@ -415,7 +412,9 @@ fn coprocessor_read_fn(path: String) -> Box<CoprocessorRomFn> {
 #[derive(Debug, Clone, ConfigDisplay)]
 pub struct GameBoyConfig {
     #[indent_nested]
-    pub common: CommonConfig<GameBoyInputConfig<KeyboardInput>, GameBoyInputConfig<JoystickInput>>,
+    pub common: CommonConfig,
+    #[indent_nested]
+    pub inputs: GameBoyInputConfig,
     pub force_dmg_mode: bool,
     pub pretend_to_be_gba: bool,
     pub aspect_ratio: GbAspectRatio,

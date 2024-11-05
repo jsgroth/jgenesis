@@ -1,7 +1,7 @@
 use crate::config::GameBoyConfig;
 use crate::config::RomReadResult;
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
-use crate::mainloop::{basic_input_mapper_fn, debug, file_name_no_ext, save};
+use crate::mainloop::{debug, file_name_no_ext, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config};
 use gb_core::api::{GameBoyEmulator, GameBoyEmulatorConfig};
 use gb_core::inputs::{GameBoyButton, GameBoyInputs};
@@ -29,14 +29,11 @@ impl NativeGameBoyEmulator {
         // Config change could have changed target framerate (60 Hz hack)
         self.renderer.set_target_fps(self.emulator.target_fps());
 
-        if let Err(err) = self.input_mapper.reload_config(
-            config.common.keyboard_inputs,
-            config.common.joystick_inputs,
+        self.input_mapper.update_mappings(
             config.common.axis_deadzone,
-            &GameBoyButton::ALL,
-        ) {
-            log::error!("Error reloading input config: {err}");
-        }
+            &config.inputs.to_mapping_vec(),
+            &config.common.hotkey_config.to_mapping_vec(),
+        );
 
         Ok(())
     }
@@ -77,7 +74,8 @@ pub fn create_gb(config: Box<GameBoyConfig>) -> NativeEmulatorResult<NativeGameB
         &window_title,
         save_writer,
         save_state_path,
-        basic_input_mapper_fn(&GameBoyButton::ALL),
+        &config.inputs.to_mapping_vec(),
+        GameBoyInputs::default(),
         debug::gb::render_fn,
     )
 }

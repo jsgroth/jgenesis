@@ -20,9 +20,10 @@ pub use snes::{NativeSnesEmulator, create_snes};
 pub use state::{SAVE_STATE_SLOTS, SaveStateMetadata};
 
 use crate::archive::ArchiveError;
-use crate::config::input::{InputConfig, JoystickInput, KeyboardInput};
+use crate::config::input::ButtonMappingVec;
 use crate::config::{CommonConfig, FullscreenMode, HideMouseCursor, WindowSize};
-use crate::input::{Hotkey, HotkeyMapResult, HotkeyMapper, InputMapper, Joysticks, MappableInputs};
+use crate::fpstracker::FpsTracker;
+use crate::input::{Hotkey, HotkeyEvent, InputMapper, Joysticks, MappableInputs};
 use crate::mainloop::audio::SdlAudioOutput;
 use crate::mainloop::debug::{DebugRenderFn, DebuggerWindow};
 use crate::mainloop::rewind::Rewinder;
@@ -45,6 +46,8 @@ use snes_core::api::SnesLoadError;
 use std::cell::RefCell;
 use std::error::Error;
 use std::ffi::NulError;
+use std::fmt::Debug;
+use std::hash::Hash;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -149,8 +152,8 @@ impl<Emulator> HotkeyState<Emulator> {
 }
 
 impl<Emulator: PartialClone> HotkeyState<Emulator> {
-    fn new<KC, JC>(
-        common_config: &CommonConfig<KC, JC>,
+    fn new(
+        common_config: &CommonConfig,
         save_state_path: PathBuf,
         debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
     ) -> NativeEmulatorResult<Self> {
@@ -190,7 +193,6 @@ pub struct NativeEmulator<Inputs, Button, Config, Emulator> {
     renderer: WgpuRenderer<Window>,
     audio_output: SdlAudioOutput,
     input_mapper: InputMapper<Inputs, Button>,
-    hotkey_mapper: HotkeyMapper,
     save_writer: FsSaveWriter,
     sdl: Sdl,
     event_pump: EventPump,
@@ -205,10 +207,7 @@ pub struct NativeEmulator<Inputs, Button, Config, Emulator> {
 impl<Inputs, Button, Config, Emulator: EmulatorTrait>
     NativeEmulator<Inputs, Button, Config, Emulator>
 {
-    fn reload_common_config<KC, JC>(
-        &mut self,
-        config: &CommonConfig<KC, JC>,
-    ) -> Result<(), AudioError> {
+    fn reload_common_config(&mut self, config: &CommonConfig) -> Result<(), AudioError> {
         self.renderer.reload_config(config.renderer_config);
 
         self.audio_output.reload_config(config)?;
@@ -233,25 +232,13 @@ impl<Inputs, Button, Config, Emulator: EmulatorTrait>
             .rewinder
             .set_buffer_duration(Duration::from_secs(config.rewind_buffer_length_seconds));
 
-        match HotkeyMapper::from_config(&config.hotkeys) {
-            Ok(hotkey_mapper) => {
-                self.hotkey_mapper = hotkey_mapper;
-            }
-            Err(err) => {
-                log::error!("Error reloading hotkey config: {err}");
-            }
-        }
-
         let fullscreen = self.renderer.is_fullscreen();
         self.sdl.mouse().show_cursor(!config.hide_mouse_cursor.should_hide(fullscreen));
 
         Ok(())
     }
 
-    fn update_save_paths<KC, JC>(
-        &mut self,
-        config: &CommonConfig<KC, JC>,
-    ) -> NativeEmulatorResult<()> {
+    fn update_save_paths(&mut self, config: &CommonConfig) -> NativeEmulatorResult<()> {
         let DeterminedPaths { save_path, save_state_path } = save::determine_save_paths(
             &config.save_path,
             &config.state_path,
@@ -269,11 +256,8 @@ impl<Inputs, Button, Config, Emulator: EmulatorTrait>
         self.renderer.focus();
     }
 
-    pub fn event_pump_and_joysticks_mut(
-        &mut self,
-    ) -> (&mut EventPump, &mut Joysticks, &JoystickSubsystem) {
-        let (joysticks, joystick_subsystem) = self.input_mapper.joysticks_mut();
-        (&mut self.event_pump, joysticks, joystick_subsystem)
+    pub fn event_pump_and_joysticks_mut(&mut self) -> (&mut EventPump, &mut Joysticks) {
+        (&mut self.event_pump, self.input_mapper.joysticks_mut())
     }
 }
 
@@ -396,28 +380,23 @@ pub type NativeEmulatorResult<T> = Result<T, NativeEmulatorError>;
 impl<Inputs, Button, Config, Emulator> NativeEmulator<Inputs, Button, Config, Emulator>
 where
     Inputs: Default + MappableInputs<Button>,
-    Button: Copy,
+    Button: Debug + Copy + Hash + Eq,
     Emulator: EmulatorTrait<Inputs = Inputs, Config = Config>,
 {
     #[allow(clippy::too_many_arguments)]
-    fn new<KC, JC, InputMapperFn>(
+    fn new(
         mut emulator: Emulator,
         emulator_config: Emulator::Config,
-        common_config: CommonConfig<KC, JC>,
+        common_config: CommonConfig,
         rom_extension: String,
         default_window_size: WindowSize,
         window_title: &str,
         save_writer: FsSaveWriter,
         save_state_path: PathBuf,
-        input_mapper_fn: InputMapperFn,
+        button_mappings: &ButtonMappingVec<'_, Button>,
+        initial_inputs: Inputs,
         debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
-    ) -> NativeEmulatorResult<Self>
-    where
-        InputMapperFn: FnOnce(
-            JoystickSubsystem,
-            &CommonConfig<KC, JC>,
-        ) -> NativeEmulatorResult<InputMapper<Inputs, Button>>,
-    {
+    ) -> NativeEmulatorResult<Self> {
         let (sdl, video, audio, joystick, event_pump) = init_sdl(&common_config)?;
 
         let window_size = common_config.window_size.unwrap_or(default_window_size);
@@ -440,8 +419,13 @@ where
         let audio_output = SdlAudioOutput::create_and_init(&audio, &common_config)?;
         emulator.update_audio_output_frequency(audio_output.output_frequency());
 
-        let input_mapper = input_mapper_fn(joystick, &common_config)?;
-        let hotkey_mapper = HotkeyMapper::from_config(&common_config.hotkeys)?;
+        let input_mapper = InputMapper::new(
+            initial_inputs,
+            joystick,
+            common_config.axis_deadzone,
+            button_mappings,
+            &common_config.hotkey_config.to_mapping_vec(),
+        );
 
         let hotkey_state = HotkeyState::new(&common_config, save_state_path, debug_render_fn)?;
 
@@ -451,7 +435,6 @@ where
             renderer,
             audio_output,
             input_mapper,
-            hotkey_mapper,
             save_writer,
             sdl,
             event_pump,
@@ -527,15 +510,15 @@ where
                     &event,
                     self.renderer.window_id(),
                     self.renderer.current_display_info(),
-                )?;
+                );
 
                 if let Some(debugger_window) = &mut self.hotkey_state.debugger_window {
                     debugger_window.handle_sdl_event(&event);
                 }
 
-                if self.handle_hotkeys(&event)? == HotkeyResult::Quit {
-                    return Ok(NativeTickEffect::Exit);
-                }
+                // if self.handle_hotkeys(&event)? == HotkeyResult::Quit {
+                //     return Ok(NativeTickEffect::Exit);
+                // }
 
                 match event {
                     Event::Quit { .. } => {
@@ -563,6 +546,17 @@ where
                     }
                     _ => {}
                 }
+            }
+
+            let hotkey_events = self.input_mapper.hotkey_events();
+            {
+                let mut hotkey_events = hotkey_events.borrow_mut();
+                for &hotkey_event in &*hotkey_events {
+                    if self.handle_hotkey_event(hotkey_event)? == HotkeyResult::Quit {
+                        return Ok(NativeTickEffect::Exit);
+                    }
+                }
+                hotkey_events.clear();
             }
 
             if frame_rendered {
@@ -668,30 +662,23 @@ where
         &self.hotkey_state.save_state_metadata
     }
 
-    fn handle_hotkeys(&mut self, event: &Event) -> NativeEmulatorResult<HotkeyResult> {
-        match self.hotkey_mapper.check_for_hotkeys(event) {
-            HotkeyMapResult::Pressed(hotkeys) => {
-                for &hotkey in &*hotkeys {
-                    if self.handle_hotkey_pressed(hotkey)? == HotkeyResult::Quit {
-                        return Ok(HotkeyResult::Quit);
-                    }
+    fn handle_hotkey_event(&mut self, event: HotkeyEvent) -> NativeEmulatorResult<HotkeyResult> {
+        match event {
+            HotkeyEvent::Pressed(hotkey) => {
+                if self.handle_hotkey_pressed(hotkey)? == HotkeyResult::Quit {
+                    return Ok(HotkeyResult::Quit);
                 }
             }
-            HotkeyMapResult::Released(hotkeys) => {
-                for &hotkey in &*hotkeys {
-                    match hotkey {
-                        Hotkey::FastForward => {
-                            self.renderer.set_speed_multiplier(1);
-                            self.audio_output.set_speed_multiplier(1);
-                        }
-                        Hotkey::Rewind => {
-                            self.hotkey_state.rewinder.stop_rewinding();
-                        }
-                        _ => {}
-                    }
+            HotkeyEvent::Released(hotkey) => match hotkey {
+                Hotkey::FastForward => {
+                    self.renderer.set_speed_multiplier(1);
+                    self.audio_output.set_speed_multiplier(1);
                 }
-            }
-            HotkeyMapResult::None => {}
+                Hotkey::Rewind => {
+                    self.hotkey_state.rewinder.stop_rewinding();
+                }
+                _ => {}
+            },
         }
 
         Ok(HotkeyResult::None)
@@ -799,33 +786,9 @@ fn file_name_no_ext<P: AsRef<Path>>(path: P) -> NativeEmulatorResult<String> {
         .ok_or_else(|| NativeEmulatorError::ParseFileName(path.as_ref().display().to_string()))
 }
 
-fn basic_input_mapper_fn<KC, JC, Inputs, Button>(
-    all_buttons: &[Button],
-) -> impl FnOnce(
-    JoystickSubsystem,
-    &CommonConfig<KC, JC>,
-) -> NativeEmulatorResult<InputMapper<Inputs, Button>>
-+ '_
-where
-    KC: InputConfig<Button = Button, Input = KeyboardInput>,
-    JC: InputConfig<Button = Button, Input = JoystickInput>,
-    Inputs: Default + MappableInputs<Button>,
-    Button: Copy,
-{
-    |joystick, common_config| {
-        InputMapper::new(
-            joystick,
-            &common_config.keyboard_inputs,
-            &common_config.joystick_inputs,
-            common_config.axis_deadzone,
-            all_buttons,
-        )
-    }
-}
-
 // Initialize SDL2
-fn init_sdl<KC, JC>(
-    config: &CommonConfig<KC, JC>,
+fn init_sdl(
+    config: &CommonConfig,
 ) -> NativeEmulatorResult<(Sdl, VideoSubsystem, AudioSubsystem, JoystickSubsystem, EventPump)> {
     let sdl = sdl2::init().map_err(NativeEmulatorError::SdlInit)?;
     let video = sdl.video().map_err(NativeEmulatorError::SdlVideoInit)?;
@@ -880,7 +843,6 @@ macro_rules! bincode_config {
     };
 }
 
-use crate::fpstracker::FpsTracker;
 use bincode_config;
 
 #[must_use]

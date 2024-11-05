@@ -1,29 +1,183 @@
-use crate::config::input::{
-    AxisDirection, HatDirection, HotkeyConfig, InputConfig, JoystickAction, JoystickDeviceId,
-    JoystickInput, KeyboardInput, KeyboardOrMouseInput, NesControllerType, NesInputConfig,
-    SnesControllerType, SnesInputConfig, SuperScopeConfig, ZapperConfig,
-};
-use crate::mainloop::{NativeEmulatorError, NativeEmulatorResult};
+mod serialize;
+
+use arrayvec::ArrayVec;
 use gb_core::inputs::{GameBoyButton, GameBoyInputs};
 use genesis_core::GenesisInputs;
 use genesis_core::input::GenesisButton;
 use jgenesis_common::frontend::FrameSize;
 use jgenesis_common::input::Player;
+use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 use jgenesis_renderer::renderer::DisplayArea;
-use nes_core::input::{NesButton, NesInputDevice, NesInputs, NesJoypadState, ZapperState};
-use sdl2::JoystickSubsystem;
+use nes_core::input::{NesButton, NesInputDevice, NesInputs};
+use rustc_hash::{FxHashMap, FxHashSet};
 use sdl2::event::{Event, WindowEvent};
 use sdl2::joystick::{HatState, Joystick};
 use sdl2::keyboard::Keycode;
 use sdl2::mouse::MouseButton;
+use sdl2::{IntegerOrSdlError, JoystickSubsystem};
 use smsgg_core::{SmsGgButton, SmsGgInputs};
-use snes_core::input::{
-    SnesButton, SnesControllerButton, SnesInputDevice, SnesInputs, SnesJoypadState,
-    SuperScopeButton, SuperScopeState,
-};
-use std::collections::HashMap;
+use snes_core::input::{SnesButton, SnesInputDevice, SnesInputs};
+use std::array;
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::rc::Rc;
+use std::str::FromStr;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AxisDirection {
+    Positive,
+    Negative,
+}
+
+impl AxisDirection {
+    #[inline]
+    #[must_use]
+    pub fn from_value(value: i16) -> Self {
+        if value >= 0 { Self::Positive } else { Self::Negative }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn inverse(self) -> Self {
+        match self {
+            Self::Positive => Self::Negative,
+            Self::Negative => Self::Positive,
+        }
+    }
+}
+
+impl Display for AxisDirection {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Positive => write!(f, "+"),
+            Self::Negative => write!(f, "-"),
+        }
+    }
+}
+
+impl FromStr for AxisDirection {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "+" => Ok(Self::Positive),
+            "-" => Ok(Self::Negative),
+            _ => Err(format!("Invalid AxisDirection string: {s}")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumDisplay, EnumFromStr)]
+pub enum HatDirection {
+    Up,
+    Left,
+    Right,
+    Down,
+}
+
+impl HatDirection {
+    pub const ALL: [Self; 4] = [Self::Up, Self::Left, Self::Right, Self::Down];
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GamepadAction {
+    Button(u8),
+    Axis(u8, AxisDirection),
+    Hat(u8, HatDirection),
+}
+
+impl Display for GamepadAction {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Button(idx) => write!(f, "Button {idx}"),
+            Self::Axis(idx, direction) => write!(f, "Axis {idx} {direction}"),
+            Self::Hat(idx, direction) => write!(f, "Hat {idx} {direction}"),
+        }
+    }
+}
+
+impl FromStr for GamepadAction {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let err_fn = || format!("Invalid gamepad action string: {s}");
+
+        let mut split = s.split_ascii_whitespace();
+        let Some(input_type) = split.next() else {
+            return Err(err_fn());
+        };
+
+        let Some(idx) = split.next().and_then(|idx| idx.parse().ok()) else {
+            return Err(err_fn());
+        };
+
+        match input_type {
+            "Button" | "button" => Ok(Self::Button(idx)),
+            "Axis" | "axis" => {
+                let Some(direction) = split.next().and_then(|direction| direction.parse().ok())
+                else {
+                    return Err(err_fn());
+                };
+
+                Ok(Self::Axis(idx, direction))
+            }
+            "Hat" | "hat" => {
+                let Some(direction) = split.next().and_then(|direction| direction.parse().ok())
+                else {
+                    return Err(err_fn());
+                };
+
+                Ok(Self::Hat(idx, direction))
+            }
+            _ => Err(err_fn()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GenericInput {
+    Keyboard(Keycode),
+    Gamepad { gamepad_idx: u32, action: GamepadAction },
+    Mouse(MouseButton),
+}
+
+impl Display for GenericInput {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Keyboard(keycode) => write!(f, "Key: {}", keycode.name()),
+            Self::Gamepad { gamepad_idx, action } => write!(f, "Gamepad {gamepad_idx}: {action}"),
+            Self::Mouse(mouse_button) => write!(f, "Mouse: {mouse_button:?}"),
+        }
+    }
+}
+
+pub const MAX_MAPPING_LEN: usize = 3;
+type MappingArrayVec = ArrayVec<GenericInput, MAX_MAPPING_LEN>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumDisplay, EnumAll)]
+pub enum Hotkey {
+    Quit,
+    ToggleFullscreen,
+    SaveState,
+    LoadState,
+    NextSaveStateSlot,
+    PrevSaveStateSlot,
+    SoftReset,
+    HardReset,
+    Pause,
+    StepFrame,
+    FastForward,
+    Rewind,
+    OpenDebugger,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GenericButton<Button> {
+    Button(Button, Player),
+    Hotkey(Hotkey),
+}
 
 pub trait MappableInputs<Button> {
     fn set_field(&mut self, button: Button, player: Player, pressed: bool);
@@ -102,6 +256,7 @@ impl MappableInputs<NesButton> for NesInputs {
         if let NesInputDevice::Zapper(zapper_state) = &mut self.p2 {
             zapper_state.position =
                 viewport_position_to_frame_position(x, y, frame_size, display_area);
+            log::debug!("Set Zapper position to {:?}", zapper_state.position);
         }
     }
 
@@ -127,6 +282,7 @@ impl MappableInputs<SnesButton> for SnesInputs {
         if let SnesInputDevice::SuperScope(super_scope_state) = &mut self.p2 {
             super_scope_state.position =
                 viewport_position_to_frame_position(x, y, frame_size, display_area);
+            log::debug!("Set Super Scope position to {:?}", super_scope_state.position);
         }
     }
 
@@ -143,695 +299,695 @@ impl MappableInputs<GameBoyButton> for GameBoyInputs {
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HotkeyEvent {
+    Pressed(Hotkey),
+    Released(Hotkey),
+}
+
 pub struct Joysticks {
-    joysticks: HashMap<u32, Joystick>,
-    instance_id_to_device_id: HashMap<u32, u32>,
-    name_to_device_ids: HashMap<String, Vec<u32>>,
+    subsystem: JoystickSubsystem,
+    devices: BTreeMap<u32, Joystick>,
+    instance_id_to_device_id: FxHashMap<u32, u32>,
 }
 
 impl Joysticks {
     #[must_use]
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(subsystem: JoystickSubsystem) -> Self {
+        Self { subsystem, devices: BTreeMap::new(), instance_id_to_device_id: FxHashMap::default() }
     }
 
-    /// Open a joystick.
-    ///
-    /// # Errors
-    ///
-    /// Will return an error if SDL2 cannot open the given device.
-    pub fn device_added(
-        &mut self,
-        device_id: u32,
-        joystick_subsystem: &JoystickSubsystem,
-    ) -> NativeEmulatorResult<()> {
-        let joystick = joystick_subsystem
-            .open(device_id)
-            .map_err(|source| NativeEmulatorError::SdlJoystickOpen { device_id, source })?;
-        let name = joystick.name();
-        log::info!("Opened joystick id {device_id}: {name}");
+    #[allow(clippy::missing_errors_doc)]
+    pub fn handle_device_added(&mut self, joystick_idx: u32) -> Result<(), IntegerOrSdlError> {
+        let joystick = self.subsystem.open(joystick_idx)?;
 
-        let instance_id = joystick.instance_id();
-        self.joysticks.insert(device_id, joystick);
-        self.instance_id_to_device_id.insert(instance_id, device_id);
+        log::info!("Added joystick {joystick_idx}: '{}'", joystick.name());
 
-        self.name_to_device_ids
-            .entry(name)
-            .and_modify(|device_ids| {
-                device_ids.push(device_id);
-                device_ids.sort();
-            })
-            .or_insert_with(|| vec![device_id]);
+        self.instance_id_to_device_id.insert(joystick.instance_id(), joystick_idx);
+        self.devices.insert(joystick_idx, joystick);
 
         Ok(())
     }
 
-    pub fn device_removed(&mut self, instance_id: u32) {
-        let Some(device_id) = self.instance_id_to_device_id.remove(&instance_id) else { return };
+    pub fn handle_device_removed(&mut self, instance_id: u32) -> Option<u32> {
+        let device_id = self.instance_id_to_device_id.remove(&instance_id)?;
+        let Some(_) = self.devices.remove(&device_id) else { return Some(device_id) };
 
-        if let Some(joystick) = self.joysticks.remove(&device_id) {
-            log::info!("Disconnected joystick id {device_id}: {}", joystick.name());
-        }
+        log::info!("Removed joystick {device_id}");
 
-        for device_ids in self.name_to_device_ids.values_mut() {
-            device_ids.retain(|&id| id != device_id);
-        }
+        Some(device_id)
     }
 
     #[must_use]
-    pub fn joystick(&self, device_id: u32) -> Option<&Joystick> {
-        self.joysticks.get(&device_id)
-    }
-
-    #[must_use]
-    pub fn get_joystick_id(&self, device_id: u32) -> Option<JoystickDeviceId> {
-        let joystick = self.joysticks.get(&device_id)?;
-
-        let name = joystick.name();
-        let device_ids = self.name_to_device_ids.get(&name)?;
-        let (device_idx, _) =
-            device_ids.iter().copied().enumerate().find(|&(_, id)| id == device_id)?;
-        Some(JoystickDeviceId::new(name, device_idx as u32))
-    }
-
-    #[must_use]
-    pub fn device_id_for(&self, instance_id: u32) -> Option<u32> {
+    pub fn map_to_device_id(&mut self, instance_id: u32) -> Option<u32> {
         self.instance_id_to_device_id.get(&instance_id).copied()
     }
+
+    #[must_use]
+    pub fn subsystem(&self) -> &JoystickSubsystem {
+        &self.subsystem
+    }
+
+    pub fn all_devices(&self) -> impl Iterator<Item = (u32, &'_ Joystick)> + '_ {
+        self.devices.iter().map(|(&device_id, joystick)| (device_id, joystick))
+    }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum KeycodeOrMouseButton {
-    Keycode(Keycode),
-    Mouse(MouseButton),
+struct InputMapperState<Inputs, Button> {
+    inputs: Inputs,
+    hotkey_events: Rc<RefCell<Vec<HotkeyEvent>>>,
+    mappings: FxHashMap<GenericButton<Button>, Vec<MappingArrayVec>>,
+    inputs_to_buttons: FxHashMap<GenericInput, Vec<GenericButton<Button>>>,
+    active_inputs: FxHashSet<GenericInput>,
+    active_hotkeys: FxHashSet<Hotkey>,
+    changed_button_buffers: [Vec<GenericButton<Button>>; MAX_MAPPING_LEN + 1],
 }
 
-impl TryFrom<KeyboardOrMouseInput> for KeycodeOrMouseButton {
-    type Error = NativeEmulatorError;
+impl<Inputs, Button> InputMapperState<Inputs, Button>
+where
+    Button: Debug + Copy + Hash + Eq,
+    Inputs: MappableInputs<Button>,
+{
+    fn new(initial_inputs: Inputs) -> Self {
+        Self {
+            inputs: initial_inputs,
+            hotkey_events: Rc::new(RefCell::new(Vec::with_capacity(10))),
+            mappings: FxHashMap::default(),
+            inputs_to_buttons: FxHashMap::default(),
+            active_inputs: FxHashSet::default(),
+            active_hotkeys: FxHashSet::default(),
+            changed_button_buffers: array::from_fn(|_| Vec::with_capacity(10)),
+        }
+    }
 
-    fn try_from(value: KeyboardOrMouseInput) -> Result<Self, Self::Error> {
-        match value {
-            KeyboardOrMouseInput::Keyboard(keycode) => {
-                let keycode = Keycode::from_name(&keycode)
-                    .ok_or_else(|| NativeEmulatorError::InvalidKeycode(keycode))?;
-                Ok(Self::Keycode(keycode))
+    fn update_mappings(
+        &mut self,
+        button_mappings: &[((Button, Player), &Vec<GenericInput>)],
+        hotkey_mappings: &[(Hotkey, &Vec<GenericInput>)],
+    ) {
+        self.mappings.clear();
+        self.inputs_to_buttons.clear();
+        self.active_inputs.clear();
+        self.active_hotkeys.clear();
+
+        for &((button, player), mapping) in button_mappings {
+            if mapping.len() > MAX_MAPPING_LEN {
+                log::error!("Ignoring mapping, too many inputs: {mapping:?}");
+                continue;
             }
-            KeyboardOrMouseInput::MouseLeft => Ok(Self::Mouse(MouseButton::Left)),
-            KeyboardOrMouseInput::MouseRight => Ok(Self::Mouse(MouseButton::Right)),
-            KeyboardOrMouseInput::MouseMiddle => Ok(Self::Mouse(MouseButton::Middle)),
-            KeyboardOrMouseInput::MouseX1 => Ok(Self::Mouse(MouseButton::X1)),
-            KeyboardOrMouseInput::MouseX2 => Ok(Self::Mouse(MouseButton::X2)),
+
+            let generic_button = GenericButton::Button(button, player);
+            self.mappings
+                .entry(generic_button)
+                .or_default()
+                .push(mapping.iter().copied().collect());
+
+            for &mapping_input in mapping {
+                self.inputs_to_buttons.entry(mapping_input).or_default().push(generic_button);
+            }
+        }
+
+        for &(hotkey, mapping) in hotkey_mappings {
+            if mapping.len() > MAX_MAPPING_LEN {
+                log::error!("Ignoring mapping, too many inputs: {mapping:?}");
+                continue;
+            }
+
+            let generic_button = GenericButton::Hotkey(hotkey);
+            self.mappings
+                .entry(generic_button)
+                .or_default()
+                .push(mapping.iter().copied().collect());
+
+            for &mapping_input in mapping {
+                self.inputs_to_buttons.entry(mapping_input).or_default().push(generic_button);
+            }
+        }
+    }
+
+    fn handle_input(&mut self, input: GenericInput, pressed: bool) {
+        let Some(buttons) = self.inputs_to_buttons.get(&input) else { return };
+
+        log::debug!("Input {input:?}, pressed={pressed}, buttons={buttons:?}");
+
+        if pressed {
+            if !self.active_inputs.insert(input) {
+                // Input is already pressed
+                return;
+            }
+        } else if !self.active_inputs.remove(&input) {
+            // Input is already released
+            return;
+        }
+
+        for buffer in &mut self.changed_button_buffers {
+            buffer.clear();
+        }
+
+        for &button in buttons {
+            let Some(mappings) = self.mappings.get(&button) else { continue };
+
+            log::debug!("Mappings: {mappings:?}");
+
+            let other_mappings_pressed = mappings.iter().any(|mapping| {
+                mapping.iter().all(|&mapping_input| {
+                    mapping_input != input && self.active_inputs.contains(&mapping_input)
+                })
+            });
+            if other_mappings_pressed {
+                // Mappings that don't contain this input are still pressed; button state will not change
+                continue;
+            }
+
+            for mapping in mappings {
+                let mut contains_new_input = false;
+                let mut all_others_pressed = true;
+                for &mapping_input in mapping {
+                    contains_new_input |= mapping_input == input;
+                    all_others_pressed &=
+                        mapping_input == input || self.active_inputs.contains(&mapping_input);
+                }
+
+                if contains_new_input && all_others_pressed {
+                    // This was the only input in the mapping that was not already pressed, so
+                    // button state will change
+                    self.changed_button_buffers[mapping.len()].push(button);
+                }
+            }
+        }
+
+        // Iterate in reverse mapping length order
+        for changed_buttons in self.changed_button_buffers.iter().rev() {
+            if changed_buttons.is_empty() {
+                continue;
+            }
+
+            for &button in changed_buttons {
+                log::debug!("Button state changed! button={button:?} pressed={pressed}");
+
+                match button {
+                    GenericButton::Button(button, player) => {
+                        self.inputs.set_field(button, player, pressed);
+                    }
+                    GenericButton::Hotkey(hotkey) => {
+                        if pressed && self.active_hotkeys.insert(hotkey) {
+                            self.hotkey_events.borrow_mut().push(HotkeyEvent::Pressed(hotkey));
+                        } else if !pressed && self.active_hotkeys.remove(&hotkey) {
+                            self.hotkey_events.borrow_mut().push(HotkeyEvent::Released(hotkey));
+                        }
+                    }
+                }
+            }
+
+            if pressed {
+                // On input presses, only count a button/hotkey as pressed if the combination length
+                // is the maximum out of all combinations that changed state.
+                //
+                // This is to handle cases like e.g. Shift+F1 and F1 being mapped to different
+                // hotkeys, where only the Shift+F1 mapping should change state when Shift is pressed
+                // first and F1 is pressed second.
+                //
+                // There is probably a more robust way to do this - maybe making the input order significant?
+                break;
+            }
+        }
+    }
+
+    fn unset_all_gamepad_inputs(&mut self, idx: u32) {
+        // Allocation to avoid borrow checker issues is fine, this won't be called frequently
+        let gamepad_inputs: Vec<_> = self
+            .inputs_to_buttons
+            .keys()
+            .copied()
+            .filter(|&input| match input {
+                GenericInput::Gamepad { gamepad_idx, .. } => gamepad_idx == idx,
+                _ => false,
+            })
+            .collect();
+
+        for input in gamepad_inputs {
+            self.handle_input(input, false);
         }
     }
 }
 
-type KeyboardMapping<Button> = HashMap<Keycode, Vec<(Button, Player)>>;
-type JoystickMapping<Button> = HashMap<JoystickInput, Vec<(Button, Player)>>;
-
-pub(crate) struct InputMapper<Inputs, Button> {
-    inputs: Inputs,
-    joystick_subsystem: JoystickSubsystem,
+pub struct InputMapper<Inputs, Button> {
     joysticks: Joysticks,
     axis_deadzone: i16,
-    keyboard_mapping: KeyboardMapping<Button>,
-    raw_joystick_mapping: JoystickMapping<Button>,
-    joystick_mapping: HashMap<(u32, JoystickAction), Vec<(Button, Player)>>,
-    key_or_mouse_mapping: HashMap<KeycodeOrMouseButton, Vec<Button>>,
-}
-
-impl<Inputs, Button> InputMapper<Inputs, Button> {
-    pub(crate) fn joysticks_mut(&mut self) -> (&mut Joysticks, &JoystickSubsystem) {
-        (&mut self.joysticks, &self.joystick_subsystem)
-    }
-}
-
-impl<Inputs, Button> InputMapper<Inputs, Button> {
-    fn new_internal(
-        inputs: Inputs,
-        joystick_subsystem: JoystickSubsystem,
-        keyboard_mapping: KeyboardMapping<Button>,
-        joystick_mapping: JoystickMapping<Button>,
-        key_or_mouse_mapping: HashMap<KeycodeOrMouseButton, Vec<Button>>,
-        axis_deadzone: i16,
-    ) -> Self {
-        Self {
-            inputs,
-            joystick_subsystem,
-            joysticks: Joysticks::new(),
-            axis_deadzone,
-            keyboard_mapping,
-            raw_joystick_mapping: joystick_mapping,
-            joystick_mapping: HashMap::new(),
-            key_or_mouse_mapping,
-        }
-    }
-}
-
-fn generate_nes_key_or_mouse_mapping(
-    config: &ZapperConfig,
-) -> NativeEmulatorResult<HashMap<KeycodeOrMouseButton, Vec<NesButton>>> {
-    let mut map: HashMap<KeycodeOrMouseButton, Vec<NesButton>> = HashMap::new();
-    for (input, button) in [
-        (&config.fire, NesButton::ZapperFire),
-        (&config.force_offscreen, NesButton::ZapperForceOffscreen),
-    ] {
-        let Some(input) = input else { continue };
-
-        let key_or_mouse_button: KeycodeOrMouseButton = input.clone().try_into()?;
-        map.entry(key_or_mouse_button).or_default().push(button);
-    }
-
-    Ok(map)
-}
-
-fn set_default_nes_inputs(inputs: &mut NesInputs, p2_controller_type: NesControllerType) {
-    match p2_controller_type {
-        NesControllerType::Gamepad => {
-            inputs.p2 = NesInputDevice::Controller(NesJoypadState::default());
-        }
-        NesControllerType::Zapper => {
-            inputs.p2 = NesInputDevice::Zapper(ZapperState::default());
-        }
-    }
-}
-
-impl InputMapper<NesInputs, NesButton> {
-    pub(crate) fn new_nes(
-        joystick_subsystem: JoystickSubsystem,
-        p2_controller_type: NesControllerType,
-        keyboard_inputs: &NesInputConfig<KeyboardInput>,
-        joystick_inputs: &NesInputConfig<JoystickInput>,
-        zapper_config: &ZapperConfig,
-        axis_deadzone: i16,
-    ) -> NativeEmulatorResult<Self> {
-        let (keyboard_mapping, joystick_mapping) =
-            generate_mappings(keyboard_inputs, joystick_inputs, &NesButton::ALL)?;
-
-        let mut inputs = NesInputs::default();
-        set_default_nes_inputs(&mut inputs, p2_controller_type);
-
-        Ok(Self::new_internal(
-            inputs,
-            joystick_subsystem,
-            keyboard_mapping,
-            joystick_mapping,
-            generate_nes_key_or_mouse_mapping(zapper_config)?,
-            axis_deadzone,
-        ))
-    }
-
-    pub(crate) fn reload_config_nes(
-        &mut self,
-        p2_controller_type: NesControllerType,
-        keyboard_inputs: &NesInputConfig<KeyboardInput>,
-        joystick_inputs: &NesInputConfig<JoystickInput>,
-        zapper_config: &ZapperConfig,
-        axis_deadzone: i16,
-    ) -> NativeEmulatorResult<()> {
-        let (keyboard_mapping, joystick_mapping) =
-            generate_mappings(keyboard_inputs, joystick_inputs, &NesButton::ALL)?;
-
-        self.reload_config_internal(
-            keyboard_mapping,
-            joystick_mapping,
-            generate_nes_key_or_mouse_mapping(zapper_config)?,
-            axis_deadzone,
-        );
-        set_default_nes_inputs(&mut self.inputs, p2_controller_type);
-
-        Ok(())
-    }
-}
-
-fn generate_snes_key_or_mouse_mapping(
-    super_scope_config: &SuperScopeConfig,
-) -> NativeEmulatorResult<HashMap<KeycodeOrMouseButton, Vec<SnesButton>>> {
-    let mut map: HashMap<KeycodeOrMouseButton, Vec<SnesButton>> = HashMap::new();
-    for (input, button) in [
-        (&super_scope_config.fire, SuperScopeButton::Fire),
-        (&super_scope_config.cursor, SuperScopeButton::Cursor),
-        (&super_scope_config.pause, SuperScopeButton::Pause),
-        (&super_scope_config.turbo_toggle, SuperScopeButton::TurboToggle),
-    ] {
-        let Some(input) = input else { continue };
-        let key_or_mouse_button = input.clone().try_into()?;
-        map.entry(key_or_mouse_button).or_default().push(SnesButton::SuperScope(button));
-    }
-
-    Ok(map)
-}
-
-fn convert_snes_mapping<Input: Eq + Hash>(
-    map: HashMap<Input, Vec<(SnesControllerButton, Player)>>,
-) -> HashMap<Input, Vec<(SnesButton, Player)>> {
-    map.into_iter()
-        .map(|(input, buttons)| {
-            (
-                input,
-                buttons
-                    .into_iter()
-                    .map(|(button, player)| (SnesButton::Controller(button), player))
-                    .collect(),
-            )
-        })
-        .collect()
-}
-
-fn set_default_snes_inputs(
-    inputs: &mut SnesInputs,
-    p2_controller_type: SnesControllerType,
-    super_scope_turbo: bool,
-) {
-    match p2_controller_type {
-        SnesControllerType::Gamepad => {
-            inputs.p2 = SnesInputDevice::Controller(SnesJoypadState::default());
-        }
-        SnesControllerType::SuperScope => {
-            inputs.p2 = SnesInputDevice::SuperScope(SuperScopeState {
-                turbo: super_scope_turbo,
-                ..SuperScopeState::default()
-            });
-        }
-    }
-}
-
-impl InputMapper<SnesInputs, SnesButton> {
-    pub(crate) fn new_snes(
-        joystick_subsystem: JoystickSubsystem,
-        p2_controller_type: SnesControllerType,
-        keyboard_inputs: &SnesInputConfig<KeyboardInput>,
-        joystick_inputs: &SnesInputConfig<JoystickInput>,
-        super_scope_config: &SuperScopeConfig,
-        axis_deadzone: i16,
-    ) -> NativeEmulatorResult<Self> {
-        let (keyboard_mapping, joystick_mapping) =
-            generate_mappings(keyboard_inputs, joystick_inputs, &SnesControllerButton::ALL)?;
-        let keyboard_mapping = convert_snes_mapping(keyboard_mapping);
-        let joystick_mapping = convert_snes_mapping(joystick_mapping);
-
-        let mut inputs = SnesInputs::default();
-        set_default_snes_inputs(&mut inputs, p2_controller_type, SuperScopeState::default().turbo);
-
-        Ok(Self::new_internal(
-            inputs,
-            joystick_subsystem,
-            keyboard_mapping,
-            joystick_mapping,
-            generate_snes_key_or_mouse_mapping(super_scope_config)?,
-            axis_deadzone,
-        ))
-    }
-
-    pub(crate) fn reload_config_snes(
-        &mut self,
-        p2_controller_type: SnesControllerType,
-        keyboard_inputs: &SnesInputConfig<KeyboardInput>,
-        joystick_inputs: &SnesInputConfig<JoystickInput>,
-        super_scope_config: &SuperScopeConfig,
-        axis_deadzone: i16,
-    ) -> NativeEmulatorResult<()> {
-        let existing_super_scope_turbo = match self.inputs.p2 {
-            SnesInputDevice::SuperScope(super_scope_state) => super_scope_state.turbo,
-            SnesInputDevice::Controller(_) => SuperScopeState::default().turbo,
-        };
-
-        let (keyboard_mapping, joystick_mapping) =
-            generate_mappings(keyboard_inputs, joystick_inputs, &SnesControllerButton::ALL)?;
-        let keyboard_mapping = convert_snes_mapping(keyboard_mapping);
-        let joystick_mapping = convert_snes_mapping(joystick_mapping);
-
-        self.reload_config_internal(
-            keyboard_mapping,
-            joystick_mapping,
-            generate_snes_key_or_mouse_mapping(super_scope_config)?,
-            axis_deadzone,
-        );
-        set_default_snes_inputs(&mut self.inputs, p2_controller_type, existing_super_scope_turbo);
-
-        Ok(())
-    }
-}
-
-fn generate_mappings<Button, KC, JC>(
-    keyboard_config: &KC,
-    joystick_config: &JC,
-    all_buttons: &[Button],
-) -> NativeEmulatorResult<(KeyboardMapping<Button>, JoystickMapping<Button>)>
-where
-    Button: Copy,
-    KC: InputConfig<Button = Button, Input = KeyboardInput>,
-    JC: InputConfig<Button = Button, Input = JoystickInput>,
-{
-    let mut keyboard_mapping: HashMap<Keycode, Vec<(Button, Player)>> = HashMap::new();
-    let mut joystick_mapping: HashMap<JoystickInput, Vec<(Button, Player)>> = HashMap::new();
-    for player in [Player::One, Player::Two] {
-        for &button in all_buttons {
-            if let Some(key) = keyboard_config.get_input(button, player) {
-                let Some(keycode) = Keycode::from_name(&key.keycode) else {
-                    return Err(NativeEmulatorError::InvalidKeycode(key.keycode.clone()));
-                };
-                keyboard_mapping.entry(keycode).or_default().push((button, player));
-            }
-
-            if let Some(joystick_button) = joystick_config.get_input(button, player) {
-                joystick_mapping.entry(joystick_button.clone()).or_default().push((button, player));
-            }
-        }
-    }
-
-    Ok((keyboard_mapping, joystick_mapping))
+    state: InputMapperState<Inputs, Button>,
 }
 
 impl<Inputs, Button> InputMapper<Inputs, Button>
 where
-    Inputs: Default + MappableInputs<Button>,
-    Button: Copy,
+    Button: Debug + Copy + Hash + Eq,
+    Inputs: MappableInputs<Button>,
 {
-    pub(crate) fn new<KC, JC>(
+    pub fn new(
+        initial_inputs: Inputs,
         joystick_subsystem: JoystickSubsystem,
-        keyboard_config: &KC,
-        joystick_config: &JC,
         axis_deadzone: i16,
-        all_buttons: &[Button],
-    ) -> NativeEmulatorResult<Self>
-    where
-        KC: InputConfig<Button = Button, Input = KeyboardInput>,
-        JC: InputConfig<Button = Button, Input = JoystickInput>,
-    {
-        let (keyboard_mapping, joystick_mapping) =
-            generate_mappings(keyboard_config, joystick_config, all_buttons)?;
+        button_mappings: &[((Button, Player), &Vec<GenericInput>)],
+        hotkey_mappings: &[(Hotkey, &Vec<GenericInput>)],
+    ) -> Self {
+        let joysticks = Joysticks::new(joystick_subsystem);
 
-        Ok(Self::new_internal(
-            Inputs::default(),
-            joystick_subsystem,
-            keyboard_mapping,
-            joystick_mapping,
-            HashMap::new(),
-            axis_deadzone,
-        ))
+        let mut state = InputMapperState::new(initial_inputs);
+        state.update_mappings(button_mappings, hotkey_mappings);
+
+        Self { joysticks, axis_deadzone, state }
     }
 
-    pub(crate) fn reload_config<KC, JC>(
-        &mut self,
-        keyboard_config: KC,
-        joystick_config: JC,
-        axis_deadzone: i16,
-        all_buttons: &[Button],
-    ) -> NativeEmulatorResult<()>
-    where
-        KC: InputConfig<Button = Button, Input = KeyboardInput>,
-        JC: InputConfig<Button = Button, Input = JoystickInput>,
-    {
-        let (keyboard_mapping, joystick_mapping) =
-            generate_mappings(&keyboard_config, &joystick_config, all_buttons)?;
-        self.reload_config_internal(
-            keyboard_mapping,
-            joystick_mapping,
-            HashMap::new(),
-            axis_deadzone,
-        );
-
-        Ok(())
+    pub fn inputs_mut(&mut self) -> &mut Inputs {
+        &mut self.state.inputs
     }
 
-    fn reload_config_internal(
+    pub fn update_mappings(
         &mut self,
-        keyboard_mapping: KeyboardMapping<Button>,
-        joystick_mapping: JoystickMapping<Button>,
-        key_or_mouse_mapping: HashMap<KeycodeOrMouseButton, Vec<Button>>,
         axis_deadzone: i16,
+        button_mappings: &[((Button, Player), &Vec<GenericInput>)],
+        hotkey_mappings: &[(Hotkey, &Vec<GenericInput>)],
     ) {
-        self.keyboard_mapping = keyboard_mapping;
-        self.raw_joystick_mapping = joystick_mapping;
-        self.key_or_mouse_mapping = key_or_mouse_mapping;
         self.axis_deadzone = axis_deadzone;
-
-        self.update_input_mapping();
+        self.state.update_mappings(button_mappings, hotkey_mappings);
     }
 
-    pub(crate) fn device_added(&mut self, device_id: u32) -> NativeEmulatorResult<()> {
-        self.joysticks.device_added(device_id, &self.joystick_subsystem)?;
-        self.update_input_mapping();
-
-        Ok(())
-    }
-
-    pub(crate) fn device_removed(&mut self, instance_id: u32) {
-        self.joysticks.device_removed(instance_id);
-        self.update_input_mapping();
-    }
-
-    fn update_input_mapping(&mut self) {
-        self.joystick_mapping.clear();
-        self.inputs = Inputs::default();
-
-        for (input, buttons) in &self.raw_joystick_mapping {
-            if let Some(device_ids) = self.joysticks.name_to_device_ids.get(&input.device.name) {
-                if let Some(&device_id) = device_ids.get(input.device.idx as usize) {
-                    self.joystick_mapping.insert((device_id, input.action), buttons.clone());
-                }
-            }
-        }
-    }
-
-    pub(crate) fn key_down(&mut self, keycode: Keycode) {
-        self.key(keycode, true);
-    }
-
-    pub(crate) fn key_up(&mut self, keycode: Keycode) {
-        self.key(keycode, false);
-    }
-
-    fn key(&mut self, keycode: Keycode, pressed: bool) {
-        if let Some(buttons) = self.keyboard_mapping.get(&keycode) {
-            for &(button, player) in buttons {
-                self.inputs.set_field(button, player, pressed);
-            }
-        }
-
-        if let Some(buttons) =
-            self.key_or_mouse_mapping.get(&KeycodeOrMouseButton::Keycode(keycode))
-        {
-            for &button in buttons {
-                self.inputs.set_field(button, Player::One, pressed);
-            }
-        }
-    }
-
-    pub(crate) fn button_down(&mut self, instance_id: u32, button_idx: u8) {
-        self.button(instance_id, button_idx, true);
-    }
-
-    pub(crate) fn button_up(&mut self, instance_id: u32, button_idx: u8) {
-        self.button(instance_id, button_idx, false);
-    }
-
-    fn button(&mut self, instance_id: u32, button_idx: u8, pressed: bool) {
-        let Some(device_id) = self.joysticks.device_id_for(instance_id) else { return };
-
-        let Some(buttons) =
-            self.joystick_mapping.get(&(device_id, JoystickAction::Button { button_idx }))
-        else {
-            return;
-        };
-
-        for &(button, player) in buttons {
-            self.inputs.set_field(button, player, pressed);
-        }
-    }
-
-    pub(crate) fn axis_motion(&mut self, instance_id: u32, axis_idx: u8, value: i16) {
-        let Some(device_id) = self.joysticks.device_id_for(instance_id) else { return };
-
-        let negative_down = value < -self.axis_deadzone;
-        let positive_down = value > self.axis_deadzone;
-
-        for (direction, pressed) in
-            [(AxisDirection::Positive, positive_down), (AxisDirection::Negative, negative_down)]
-        {
-            if let Some(buttons) = self
-                .joystick_mapping
-                .get(&(device_id, JoystickAction::Axis { axis_idx, direction }))
-            {
-                for &(button, player) in buttons {
-                    self.inputs.set_field(button, player, pressed);
-                }
-            }
-        }
-    }
-
-    pub(crate) fn hat_motion(&mut self, instance_id: u32, hat_idx: u8, state: HatState) {
-        let Some(device_id) = self.joysticks.device_id_for(instance_id) else { return };
-
-        let up_pressed = matches!(state, HatState::LeftUp | HatState::Up | HatState::RightUp);
-        let left_pressed = matches!(state, HatState::LeftUp | HatState::Left | HatState::LeftDown);
-        let down_pressed =
-            matches!(state, HatState::LeftDown | HatState::Down | HatState::RightDown);
-        let right_pressed =
-            matches!(state, HatState::RightUp | HatState::Right | HatState::RightDown);
-
-        for (direction, pressed) in [
-            (HatDirection::Up, up_pressed),
-            (HatDirection::Left, left_pressed),
-            (HatDirection::Down, down_pressed),
-            (HatDirection::Right, right_pressed),
-        ] {
-            if let Some(buttons) =
-                self.joystick_mapping.get(&(device_id, JoystickAction::Hat { hat_idx, direction }))
-            {
-                for &(button, player) in buttons {
-                    self.inputs.set_field(button, player, pressed);
-                }
-            }
-        }
-    }
-
-    pub(crate) fn handle_mouse_button(&mut self, mouse_button: MouseButton, pressed: bool) {
-        if let Some(buttons) =
-            self.key_or_mouse_mapping.get(&KeycodeOrMouseButton::Mouse(mouse_button))
-        {
-            for &button in buttons {
-                self.inputs.set_field(button, Player::One, pressed);
-            }
-        }
-    }
-
-    pub(crate) fn handle_event(
+    pub fn handle_event(
         &mut self,
         event: &Event,
         emulator_window_id: u32,
         display_info: Option<(FrameSize, DisplayArea)>,
-    ) -> NativeEmulatorResult<()> {
+    ) {
+        log::debug!("SDL event: {event:?}");
+
         match *event {
-            Event::KeyDown { keycode: Some(keycode), .. } => {
-                self.key_down(keycode);
+            Event::KeyDown { keycode: Some(keycode), window_id, .. }
+                if window_id == emulator_window_id =>
+            {
+                self.state.handle_input(GenericInput::Keyboard(keycode), true);
             }
-            Event::KeyUp { keycode: Some(keycode), .. } => {
-                self.key_up(keycode);
-            }
-            Event::JoyDeviceAdded { which: device_id, .. } => {
-                self.device_added(device_id)?;
-            }
-            Event::JoyDeviceRemoved { which: instance_id, .. } => {
-                self.device_removed(instance_id);
-            }
-            Event::JoyButtonDown { which: instance_id, button_idx, .. } => {
-                self.button_down(instance_id, button_idx);
-            }
-            Event::JoyButtonUp { which: instance_id, button_idx, .. } => {
-                self.button_up(instance_id, button_idx);
-            }
-            Event::JoyAxisMotion { which: instance_id, axis_idx, value, .. } => {
-                self.axis_motion(instance_id, axis_idx, value);
-            }
-            Event::JoyHatMotion { which: instance_id, hat_idx, state, .. } => {
-                self.hat_motion(instance_id, hat_idx, state);
+            Event::KeyUp { keycode: Some(keycode), window_id, .. }
+                if window_id == emulator_window_id =>
+            {
+                self.state.handle_input(GenericInput::Keyboard(keycode), false);
             }
             Event::MouseButtonDown { mouse_btn, window_id, .. }
                 if window_id == emulator_window_id =>
             {
-                self.handle_mouse_button(mouse_btn, true);
+                self.state.handle_input(GenericInput::Mouse(mouse_btn), true);
             }
             Event::MouseButtonUp { mouse_btn, window_id, .. }
                 if window_id == emulator_window_id =>
             {
-                self.handle_mouse_button(mouse_btn, false);
+                self.state.handle_input(GenericInput::Mouse(mouse_btn), false);
             }
             Event::MouseMotion { x, y, window_id, .. } if window_id == emulator_window_id => {
                 if let Some((frame_size, display_area)) = display_info {
-                    self.inputs.handle_mouse_motion(x, y, frame_size, display_area);
+                    self.state.inputs.handle_mouse_motion(x, y, frame_size, display_area);
                 }
             }
             Event::Window { win_event: WindowEvent::Leave, window_id, .. }
                 if window_id == emulator_window_id =>
             {
-                self.inputs.handle_mouse_leave();
+                self.state.inputs.handle_mouse_leave();
+            }
+            Event::JoyButtonDown { which, button_idx, .. } => {
+                let Some(gamepad_idx) = self.joysticks.map_to_device_id(which) else { return };
+                self.state.handle_input(
+                    GenericInput::Gamepad {
+                        gamepad_idx,
+                        action: GamepadAction::Button(button_idx),
+                    },
+                    true,
+                );
+            }
+            Event::JoyButtonUp { which, button_idx, .. } => {
+                let Some(gamepad_idx) = self.joysticks.map_to_device_id(which) else { return };
+                self.state.handle_input(
+                    GenericInput::Gamepad {
+                        gamepad_idx,
+                        action: GamepadAction::Button(button_idx),
+                    },
+                    false,
+                );
+            }
+            Event::JoyAxisMotion { which, axis_idx, value, .. } => {
+                let Some(gamepad_idx) = self.joysticks.map_to_device_id(which) else { return };
+                self.handle_axis_input(gamepad_idx, axis_idx, value);
+            }
+            Event::JoyHatMotion { which, hat_idx, state, .. } => {
+                let Some(gamepad_idx) = self.joysticks.map_to_device_id(which) else { return };
+                self.handle_hat_input(gamepad_idx, hat_idx, state);
+            }
+            Event::JoyDeviceAdded { which, .. } => {
+                if let Err(err) = self.joysticks.handle_device_added(which) {
+                    log::error!("Error opening joystick with device id {which}: {err}");
+                }
+            }
+            Event::JoyDeviceRemoved { which, .. } => {
+                let Some(gamepad_idx) = self.joysticks.handle_device_removed(which) else { return };
+                self.state.unset_all_gamepad_inputs(gamepad_idx);
             }
             _ => {}
         }
-
-        Ok(())
     }
 
-    pub(crate) fn inputs(&self) -> &Inputs {
-        &self.inputs
-    }
-}
+    fn handle_axis_input(&mut self, gamepad_idx: u32, axis_idx: u8, value: i16) {
+        let pressed = value.saturating_abs() > self.axis_deadzone;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Hotkey {
-    Quit,
-    ToggleFullscreen,
-    SaveState,
-    LoadState,
-    NextSaveStateSlot,
-    PrevSaveStateSlot,
-    SoftReset,
-    HardReset,
-    Pause,
-    StepFrame,
-    FastForward,
-    Rewind,
-    OpenDebugger,
-}
-
-pub(crate) enum HotkeyMapResult {
-    None,
-    Pressed(Rc<[Hotkey]>),
-    Released(Rc<[Hotkey]>),
-}
-
-pub(crate) struct HotkeyMapper {
-    mapping: HashMap<Keycode, Rc<[Hotkey]>>,
-    empty_vec: Rc<[Hotkey]>,
-}
-
-impl HotkeyMapper {
-    /// Build a hotkey mapper from the given config.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the given config contains any invalid keycodes.
-    pub fn from_config(config: &HotkeyConfig) -> NativeEmulatorResult<Self> {
-        let mut mapping: HashMap<Keycode, Vec<Hotkey>> = HashMap::new();
-        for (input, hotkey) in [
-            (&config.quit, Hotkey::Quit),
-            (&config.toggle_fullscreen, Hotkey::ToggleFullscreen),
-            (&config.save_state, Hotkey::SaveState),
-            (&config.load_state, Hotkey::LoadState),
-            (&config.next_save_state_slot, Hotkey::NextSaveStateSlot),
-            (&config.prev_save_state_slot, Hotkey::PrevSaveStateSlot),
-            (&config.soft_reset, Hotkey::SoftReset),
-            (&config.hard_reset, Hotkey::HardReset),
-            (&config.pause, Hotkey::Pause),
-            (&config.step_frame, Hotkey::StepFrame),
-            (&config.fast_forward, Hotkey::FastForward),
-            (&config.rewind, Hotkey::Rewind),
-            (&config.open_debugger, Hotkey::OpenDebugger),
-        ] {
-            if let Some(input) = input {
-                let keycode = Keycode::from_name(&input.keycode)
-                    .ok_or_else(|| NativeEmulatorError::InvalidKeycode(input.keycode.clone()))?;
-                mapping.entry(keycode).or_default().push(hotkey);
+        if pressed {
+            let direction = AxisDirection::from_value(value);
+            self.state.handle_input(
+                GenericInput::Gamepad {
+                    gamepad_idx,
+                    action: GamepadAction::Axis(axis_idx, direction),
+                },
+                true,
+            );
+            self.state.handle_input(
+                GenericInput::Gamepad {
+                    gamepad_idx,
+                    action: GamepadAction::Axis(axis_idx, direction.inverse()),
+                },
+                false,
+            );
+        } else {
+            for direction in [AxisDirection::Positive, AxisDirection::Negative] {
+                self.state.handle_input(
+                    GenericInput::Gamepad {
+                        gamepad_idx,
+                        action: GamepadAction::Axis(axis_idx, direction),
+                    },
+                    false,
+                );
             }
         }
-
-        let mapping = mapping.into_iter().map(|(key, value)| (key, value.into())).collect();
-
-        Ok(Self { mapping, empty_vec: vec![].into() })
     }
 
-    #[must_use]
-    pub fn check_for_hotkeys(&self, event: &Event) -> HotkeyMapResult {
-        match event {
-            Event::KeyDown { keycode: Some(keycode), .. } => HotkeyMapResult::Pressed(
-                self.mapping.get(keycode).map_or_else(|| Rc::clone(&self.empty_vec), Rc::clone),
-            ),
-            Event::KeyUp { keycode: Some(keycode), .. } => HotkeyMapResult::Released(
-                self.mapping.get(keycode).map_or_else(|| Rc::clone(&self.empty_vec), Rc::clone),
-            ),
-            _ => HotkeyMapResult::None,
+    fn handle_hat_input(&mut self, gamepad_idx: u32, hat_idx: u8, state: HatState) {
+        for direction in HatDirection::ALL {
+            let pressed = is_hat_direction_pressed(direction, state);
+            self.state.handle_input(
+                GenericInput::Gamepad {
+                    gamepad_idx,
+                    action: GamepadAction::Hat(hat_idx, direction),
+                },
+                pressed,
+            );
         }
+    }
+
+    pub fn hotkey_events(&self) -> Rc<RefCell<Vec<HotkeyEvent>>> {
+        Rc::clone(&self.state.hotkey_events)
+    }
+}
+
+impl<Inputs, Button> InputMapper<Inputs, Button> {
+    pub fn inputs(&self) -> &Inputs {
+        &self.state.inputs
+    }
+
+    pub fn joysticks_mut(&mut self) -> &mut Joysticks {
+        &mut self.joysticks
+    }
+}
+
+fn is_hat_direction_pressed(direction: HatDirection, state: HatState) -> bool {
+    use HatDirection as HD;
+    use HatState as HS;
+
+    match direction {
+        HD::Up => matches!(state, HS::Up | HS::LeftUp | HS::RightUp),
+        HD::Left => matches!(state, HS::Left | HS::LeftUp | HS::LeftDown),
+        HD::Right => matches!(state, HS::Right | HS::RightUp | HS::RightDown),
+        HD::Down => matches!(state, HS::Down | HS::LeftDown | HS::RightDown),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::mem;
+
+    fn take_hotkey_events<I, B>(state: &mut InputMapperState<I, B>) -> Vec<HotkeyEvent> {
+        mem::take(&mut *state.hotkey_events.borrow_mut())
+    }
+
+    fn into_hash_set<T: Hash + Eq>(v: impl IntoIterator<Item = T>) -> FxHashSet<T> {
+        v.into_iter().collect()
+    }
+
+    #[test]
+    fn basic_mapping() {
+        let mut state = InputMapperState::new(SmsGgInputs::default());
+        state.update_mappings(
+            &[
+                ((SmsGgButton::Button1, Player::One), &vec![GenericInput::Keyboard(Keycode::F)]),
+                ((SmsGgButton::Button1, Player::Two), &vec![GenericInput::Keyboard(Keycode::G)]),
+                ((SmsGgButton::Button2, Player::One), &vec![GenericInput::Keyboard(Keycode::Up)]),
+            ],
+            &[(Hotkey::FastForward, &vec![GenericInput::Keyboard(Keycode::H)])],
+        );
+
+        let mut expected = SmsGgInputs::default();
+        assert_eq!(expected, state.inputs);
+        assert_eq!(*state.hotkey_events.borrow(), vec![]);
+
+        state.handle_input(GenericInput::Keyboard(Keycode::F), true);
+        expected.p1.button1 = true;
+        assert_eq!(expected, state.inputs);
+        assert_eq!(*state.hotkey_events.borrow(), vec![]);
+
+        state.handle_input(GenericInput::Keyboard(Keycode::G), true);
+        expected.p2.button1 = true;
+        assert_eq!(expected, state.inputs);
+        assert_eq!(*state.hotkey_events.borrow(), vec![]);
+
+        state.handle_input(GenericInput::Keyboard(Keycode::F), false);
+        expected.p1.button1 = false;
+        assert_eq!(expected, state.inputs);
+        assert_eq!(*state.hotkey_events.borrow(), vec![]);
+
+        state.handle_input(GenericInput::Keyboard(Keycode::H), true);
+        assert_eq!(expected, state.inputs);
+        assert_eq!(*state.hotkey_events.borrow(), vec![HotkeyEvent::Pressed(Hotkey::FastForward)]);
+
+        state.handle_input(GenericInput::Keyboard(Keycode::H), false);
+        assert_eq!(expected, state.inputs);
+        assert_eq!(*state.hotkey_events.borrow(), vec![
+            HotkeyEvent::Pressed(Hotkey::FastForward),
+            HotkeyEvent::Released(Hotkey::FastForward),
+        ]);
+    }
+
+    #[test]
+    fn one_mapping_button_and_hotkey() {
+        let mut state = InputMapperState::new(SmsGgInputs::default());
+        state.update_mappings(
+            &[((SmsGgButton::Button1, Player::One), &vec![GenericInput::Keyboard(Keycode::F)])],
+            &[(Hotkey::SaveState, &vec![GenericInput::Keyboard(Keycode::F)])],
+        );
+
+        let mut expected_inputs = SmsGgInputs::default();
+        let mut expected_hotkeys: Vec<HotkeyEvent> = vec![];
+        assert_eq!(expected_inputs, state.inputs);
+        assert_eq!(expected_hotkeys, take_hotkey_events(&mut state));
+
+        state.handle_input(GenericInput::Keyboard(Keycode::F), true);
+        expected_inputs.p1.button1 = true;
+        expected_hotkeys = vec![HotkeyEvent::Pressed(Hotkey::SaveState)];
+        assert_eq!(expected_inputs, state.inputs);
+        assert_eq!(expected_hotkeys, take_hotkey_events(&mut state));
+
+        state.handle_input(GenericInput::Keyboard(Keycode::F), false);
+        expected_inputs.p1.button1 = false;
+        expected_hotkeys = vec![HotkeyEvent::Released(Hotkey::SaveState)];
+        assert_eq!(expected_inputs, state.inputs);
+        assert_eq!(expected_hotkeys, take_hotkey_events(&mut state));
+    }
+
+    #[test]
+    fn two_mappings_same_button() {
+        let mut state = InputMapperState::new(SmsGgInputs::default());
+        state.update_mappings(
+            &[
+                ((SmsGgButton::Button1, Player::One), &vec![GenericInput::Keyboard(Keycode::F)]),
+                ((SmsGgButton::Button1, Player::One), &vec![GenericInput::Keyboard(Keycode::G)]),
+            ],
+            &[],
+        );
+
+        let mut expected = SmsGgInputs::default();
+        assert_eq!(expected, state.inputs);
+
+        state.handle_input(GenericInput::Keyboard(Keycode::F), true);
+        expected.p1.button1 = true;
+        assert_eq!(expected, state.inputs, "one mapping pressed");
+
+        state.handle_input(GenericInput::Keyboard(Keycode::G), true);
+        assert_eq!(expected, state.inputs, "two mappings pressed");
+
+        state.handle_input(GenericInput::Keyboard(Keycode::G), false);
+        assert_eq!(expected, state.inputs, "one mapping released, one still pressed");
+
+        state.handle_input(GenericInput::Keyboard(Keycode::F), false);
+        expected.p1.button1 = false;
+        assert_eq!(expected, state.inputs, "both mappings released");
+    }
+
+    #[test]
+    fn one_mapping_three_buttons() {
+        let mut state = InputMapperState::new(SmsGgInputs::default());
+        state.update_mappings(
+            &[
+                ((SmsGgButton::Button1, Player::One), &vec![GenericInput::Keyboard(Keycode::F)]),
+                ((SmsGgButton::Button2, Player::One), &vec![GenericInput::Keyboard(Keycode::F)]),
+                ((SmsGgButton::Pause, Player::One), &vec![GenericInput::Keyboard(Keycode::F)]),
+            ],
+            &[],
+        );
+
+        let mut expected = SmsGgInputs::default();
+        assert_eq!(expected, state.inputs);
+
+        state.handle_input(GenericInput::Keyboard(Keycode::F), true);
+        expected.p1.button1 = true;
+        expected.p1.button2 = true;
+        expected.pause = true;
+        assert_eq!(expected, state.inputs, "mapping pressed");
+
+        state.handle_input(GenericInput::Keyboard(Keycode::F), false);
+        expected.p1.button1 = false;
+        expected.p1.button2 = false;
+        expected.pause = false;
+        assert_eq!(expected, state.inputs, "mapping released");
+    }
+
+    #[test]
+    fn combination_mapping() {
+        let mut state = InputMapperState::new(SmsGgInputs::default());
+        state.update_mappings(
+            &[((SmsGgButton::Button1, Player::One), &vec![
+                GenericInput::Keyboard(Keycode::F),
+                GenericInput::Keyboard(Keycode::G),
+                GenericInput::Keyboard(Keycode::H),
+            ])],
+            &[],
+        );
+
+        let mut expected = SmsGgInputs::default();
+        assert_eq!(expected, state.inputs);
+
+        state.handle_input(GenericInput::Keyboard(Keycode::F), true);
+        assert_eq!(expected, state.inputs, "1/3 pressed (1)");
+
+        state.handle_input(GenericInput::Keyboard(Keycode::H), true);
+        assert_eq!(expected, state.inputs, "2/3 pressed (2)");
+
+        state.handle_input(GenericInput::Keyboard(Keycode::F), false);
+        assert_eq!(expected, state.inputs, "1/3 pressed (3)");
+
+        state.handle_input(GenericInput::Keyboard(Keycode::G), true);
+        assert_eq!(expected, state.inputs, "2/3 pressed (4)");
+
+        state.handle_input(GenericInput::Keyboard(Keycode::F), true);
+        expected.p1.button1 = true;
+        assert_eq!(expected, state.inputs, "3/3 pressed (5)");
+
+        state.handle_input(GenericInput::Keyboard(Keycode::H), false);
+        expected.p1.button1 = false;
+        assert_eq!(expected, state.inputs, "2/3 pressed (6)");
+
+        state.handle_input(GenericInput::Keyboard(Keycode::H), true);
+        expected.p1.button1 = true;
+        assert_eq!(expected, state.inputs, "3/3 pressed (7)");
+
+        state.handle_input(GenericInput::Keyboard(Keycode::G), false);
+        expected.p1.button1 = false;
+        assert_eq!(expected, state.inputs, "2/3 pressed (8)");
+    }
+
+    #[test]
+    fn combination_length_priority_basic() {
+        let mut state = InputMapperState::new(SmsGgInputs::default());
+        state.update_mappings(&[], &[
+            (Hotkey::SaveState, &vec![
+                GenericInput::Keyboard(Keycode::LShift),
+                GenericInput::Keyboard(Keycode::F1),
+            ]),
+            (Hotkey::LoadState, &vec![GenericInput::Keyboard(Keycode::F1)]),
+        ]);
+
+        let mut expected: Vec<HotkeyEvent> = vec![];
+        assert_eq!(expected, take_hotkey_events(&mut state));
+
+        state.handle_input(GenericInput::Keyboard(Keycode::F1), true);
+        expected = vec![HotkeyEvent::Pressed(Hotkey::LoadState)];
+        assert_eq!(expected, take_hotkey_events(&mut state), "single key pressed");
+
+        state.handle_input(GenericInput::Keyboard(Keycode::F1), false);
+        expected = vec![HotkeyEvent::Released(Hotkey::LoadState)];
+        assert_eq!(expected, take_hotkey_events(&mut state), "single key pressed & released");
+
+        state.handle_input(GenericInput::Keyboard(Keycode::LShift), true);
+        expected = vec![];
+        assert_eq!(expected, take_hotkey_events(&mut state), "1/2 pressed");
+
+        state.handle_input(GenericInput::Keyboard(Keycode::F1), true);
+        expected = vec![HotkeyEvent::Pressed(Hotkey::SaveState)];
+        assert_eq!(expected, take_hotkey_events(&mut state), "2/2 pressed");
+
+        state.handle_input(GenericInput::Keyboard(Keycode::F1), false);
+        expected = vec![HotkeyEvent::Released(Hotkey::SaveState)];
+        assert_eq!(expected, take_hotkey_events(&mut state), "1/2 released");
+
+        state.handle_input(GenericInput::Keyboard(Keycode::LShift), false);
+        expected = vec![];
+        assert_eq!(expected, take_hotkey_events(&mut state), "2/2 released");
+    }
+
+    #[test]
+    fn combination_length_priority_weird() {
+        let mut state = InputMapperState::new(SmsGgInputs::default());
+        state.update_mappings(&[], &[
+            (Hotkey::SaveState, &vec![
+                GenericInput::Keyboard(Keycode::LShift),
+                GenericInput::Keyboard(Keycode::F1),
+            ]),
+            (Hotkey::LoadState, &vec![GenericInput::Keyboard(Keycode::F1)]),
+        ]);
+
+        let mut expected: Vec<HotkeyEvent> = vec![];
+        assert_eq!(expected, take_hotkey_events(&mut state));
+
+        state.handle_input(GenericInput::Keyboard(Keycode::F1), true);
+        expected = vec![HotkeyEvent::Pressed(Hotkey::LoadState)];
+        assert_eq!(expected, take_hotkey_events(&mut state), "single key pressed");
+
+        state.handle_input(GenericInput::Keyboard(Keycode::LShift), true);
+        expected = vec![HotkeyEvent::Pressed(Hotkey::SaveState)];
+        assert_eq!(expected, take_hotkey_events(&mut state), "combination secondary key pressed");
+
+        state.handle_input(GenericInput::Keyboard(Keycode::F1), false);
+        expected = vec![
+            HotkeyEvent::Released(Hotkey::SaveState),
+            HotkeyEvent::Released(Hotkey::LoadState),
+        ];
+        assert_eq!(
+            into_hash_set(expected),
+            into_hash_set(take_hotkey_events(&mut state)),
+            "single key + combination released"
+        );
+
+        state.handle_input(GenericInput::Keyboard(Keycode::F1), true);
+        expected = vec![HotkeyEvent::Pressed(Hotkey::SaveState)];
+        assert_eq!(expected, take_hotkey_events(&mut state), "combination pressed second time");
+
+        state.handle_input(GenericInput::Keyboard(Keycode::F1), false);
+        expected = vec![HotkeyEvent::Released(Hotkey::SaveState)];
+        assert_eq!(expected, take_hotkey_events(&mut state), "combination released second time");
+
+        state.handle_input(GenericInput::Keyboard(Keycode::LShift), false);
+        expected = vec![];
+        assert_eq!(expected, take_hotkey_events(&mut state), "combination secondary key released");
     }
 }

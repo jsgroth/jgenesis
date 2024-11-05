@@ -15,6 +15,7 @@ pub struct Platform {
 }
 
 impl Platform {
+    #[must_use]
     pub fn new(window: &sdl2::video::Window, scale_factor: f32) -> Self {
         let context = egui::Context::default();
 
@@ -102,11 +103,13 @@ impl Platform {
         }
     }
 
+    #[must_use]
     pub fn take_raw_input(&mut self, elapsed_secs: f64) -> egui::RawInput {
         self.raw_input.time = Some(elapsed_secs);
         self.raw_input.take()
     }
 
+    #[must_use]
     pub fn context(&self) -> &egui::Context {
         &self.context
     }

@@ -51,11 +51,8 @@ impl AppConfig {
     #[must_use]
     pub fn smsgg_config(&self, path: String) -> Box<SmsGgConfig> {
         Box::new(SmsGgConfig {
-            common: self.common_config(
-                path,
-                self.inputs.smsgg_keyboard.clone(),
-                self.inputs.smsgg_joystick.clone(),
-            ),
+            common: self.common_config(path),
+            inputs: self.input.smsgg.clone(),
             sms_timing_mode: self.smsgg.sms_timing_mode,
             sms_model: self.smsgg.sms_model,
             forced_psg_version: self.smsgg.psg_version,
