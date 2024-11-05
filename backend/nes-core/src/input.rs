@@ -12,14 +12,22 @@ define_controller_inputs! {
         B,
         Start,
         Select,
-        #[console_button]
+        #[on_console]
         ZapperFire,
-        #[console_button]
+        #[on_console]
         ZapperForceOffscreen,
     }
 
     struct NesJoypadState {
         buttons!
+    }
+}
+
+impl NesButton {
+    #[inline]
+    #[must_use]
+    pub fn is_zapper(self) -> bool {
+        matches!(self, Self::ZapperFire | Self::ZapperForceOffscreen)
     }
 }
 

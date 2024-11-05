@@ -139,12 +139,8 @@ fn default_rewind_buffer_length() -> u64 {
 }
 
 impl AppConfig {
-    pub fn common_config<KC, JC>(
-        &self,
-        path: String,
-        keyboard_inputs: KC,
-        joystick_inputs: JC,
-    ) -> CommonConfig<KC, JC> {
+    #[must_use]
+    pub fn common_config(&self, path: String) -> CommonConfig {
         CommonConfig {
             rom_file_path: path,
             audio_output_frequency: self.common.audio_output_frequency,
@@ -176,10 +172,8 @@ impl AppConfig {
             load_recent_state_at_launch: self.common.load_recent_state_at_launch,
             launch_in_fullscreen: self.common.launch_in_fullscreen,
             fullscreen_mode: self.common.fullscreen_mode,
-            keyboard_inputs,
-            axis_deadzone: self.inputs.axis_deadzone,
-            joystick_inputs,
-            hotkeys: self.inputs.hotkeys.clone(),
+            axis_deadzone: self.input.axis_deadzone,
+            hotkey_config: self.input.hotkeys.clone(),
             hide_mouse_cursor: self.common.hide_mouse_cursor,
         }
     }

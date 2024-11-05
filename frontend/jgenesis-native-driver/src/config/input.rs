@@ -1,458 +1,389 @@
-use std::fmt::{Display, Formatter};
-
-use sdl2::keyboard::Keycode;
-use serde::de::Error;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
+use crate::input::{GenericInput, Hotkey};
 use gb_core::inputs::GameBoyButton;
+use genesis_core::GenesisControllerType;
 use genesis_core::input::GenesisButton;
 use jgenesis_common::input::Player;
 use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay, EnumFromStr};
 use nes_core::input::NesButton;
+use sdl2::keyboard::Keycode;
+use sdl2::mouse::MouseButton;
+use serde::{Deserialize, Serialize};
 use smsgg_core::SmsGgButton;
-use snes_core::input::{SnesControllerButton, SuperScopeButton};
+use snes_core::input::SnesButton;
+use std::fmt::Formatter;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum AxisDirection {
-    Positive,
-    Negative,
+pub(crate) type ButtonMappingVec<'a, Button> = Vec<((Button, Player), &'a Vec<GenericInput>)>;
+pub(crate) type HotkeyMappingVec<'a> = Vec<(Hotkey, &'a Vec<GenericInput>)>;
+
+macro_rules! key_input {
+    ($key:ident) => {
+        Some(vec![GenericInput::Keyboard(Keycode::$key)])
+    };
 }
 
-impl Display for AxisDirection {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Positive => write!(f, "+"),
-            Self::Negative => write!(f, "-"),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, EnumDisplay)]
-pub enum HatDirection {
-    Up,
-    Left,
-    Right,
-    Down,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum JoystickAction {
-    Button { button_idx: u8 },
-    Axis { axis_idx: u8, direction: AxisDirection },
-    Hat { hat_idx: u8, direction: HatDirection },
-}
-
-impl Display for JoystickAction {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Button { button_idx } => write!(f, "Button {button_idx}"),
-            Self::Axis { axis_idx, direction } => write!(f, "Axis {axis_idx} {direction}"),
-            Self::Hat { hat_idx, direction } => write!(f, "Hat {hat_idx} {direction}"),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct JoystickDeviceId {
-    pub name: String,
-    pub idx: u32, // Used to disambiguate if multiple controllers with the same name are connected
-}
-
-impl JoystickDeviceId {
-    #[must_use]
-    pub fn new(name: String, idx: u32) -> Self {
-        Self { name, idx }
-    }
-}
-
-impl Display for JoystickDeviceId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} #{}", self.name, self.idx)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct JoystickInput {
-    #[serde(flatten)]
-    pub device: JoystickDeviceId,
-    #[serde(flatten)]
-    pub action: JoystickAction,
-}
-
-impl Display for JoystickInput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} ({})", self.action, self.device)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KeyboardInput {
-    pub keycode: String,
-}
-
-impl Display for KeyboardInput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.keycode)
-    }
-}
-
-impl Serialize for KeyboardInput {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&self.keycode)
-    }
-}
-
-struct KeyboardInputVisitor;
-
-impl serde::de::Visitor<'_> for KeyboardInputVisitor {
-    type Value = KeyboardInput;
-
-    fn expecting(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "KeyboardInput string")
-    }
-
-    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-    where
-        E: Error,
-    {
-        Ok(KeyboardInput { keycode: v.into() })
-    }
-}
-
-impl<'de> Deserialize<'de> for KeyboardInput {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserializer.deserialize_str(KeyboardInputVisitor)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum KeyboardOrMouseInput {
-    Keyboard(String),
-    MouseLeft,
-    MouseRight,
-    MouseMiddle,
-    MouseX1,
-    MouseX2,
-}
-
-impl Display for KeyboardOrMouseInput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Keyboard(keycode) => write!(f, "{keycode}"),
-            Self::MouseLeft => write!(f, "Mouse Left Button"),
-            Self::MouseRight => write!(f, "Mouse Right Button"),
-            Self::MouseMiddle => write!(f, "Mouse Middle Button"),
-            Self::MouseX1 => write!(f, "Mouse Extra Button 1"),
-            Self::MouseX2 => write!(f, "Mouse Extra Button 2"),
-        }
-    }
-}
-
-pub trait InputConfig {
-    type Button;
-    type Input;
-
-    fn get_input(&self, button: Self::Button, player: Player) -> Option<&Self::Input>;
-
-    fn set_input(&mut self, button: Self::Button, player: Player, input: Self::Input);
-
-    fn clear_input(&mut self, button: Self::Button, player: Player);
-}
-
-macro_rules! define_controller_config {
+macro_rules! define_controller_mapping {
     (
-        controller_cfg: $controller_cfg_name:ident,
-        button: $button_t:ident,
-        fields: [$($field:ident: button $button:ident default $keycode:ident),* $(,)?]
+        $name:ident,
+        $button_enum:ident,
+        [$($field:ident: $enum_value:ident),* $(,)?] $(,)?
     ) => {
-        #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
-        pub struct $controller_cfg_name<Input> {
+        #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+        pub struct $name {
             $(
-                pub $field: Option<Input>,
+                pub $field: Option<Vec<GenericInput>>,
             )*
         }
 
-        impl<Input> Default for $controller_cfg_name<Input> {
-            fn default() -> Self {
-                Self {
-                    $(
-                        $field: None,
-                    )*
-                }
+        impl $name {
+            pub(crate) fn to_mapping_vec<'a>(&'a self, player: Player, out: &mut ButtonMappingVec<'a, $button_enum>) {
+                $(
+                    if let Some(mapping) = &self.$field {
+                        out.push((($button_enum::$enum_value, player), mapping));
+                    }
+                )*
             }
         }
 
-        impl<Input> $controller_cfg_name<Input> {
-            #[inline]
-            #[must_use]
-            #[allow(unreachable_patterns)]
-            pub fn get_button(&self, button: $button_t) -> Option<&Input> {
-                match button {
+        impl std::fmt::Display for $name {
+            // Last `first_mapping = false` will be flagged as unused without this #[allow(..)]
+            #[allow(unused_assignments)]
+            fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+                fmt_input_mapping(&[
                     $(
-                        $button_t::$button => self.$field.as_ref(),
+                        ($button_enum::$enum_value, &self.$field),
                     )*
-                    _ => None,
-                }
-            }
-
-            #[inline]
-            #[allow(unreachable_patterns)]
-            pub fn set_button(&mut self, button: $button_t, input: Input) {
-                match button {
-                    $(
-                        $button_t::$button => self.$field = Some(input),
-                    )*
-                    _ => {}
-                }
-            }
-
-            #[inline]
-            #[allow(unreachable_patterns)]
-            pub fn clear_button(&mut self, button: $button_t) {
-                match button {
-                    $(
-                        $button_t::$button => self.$field = None,
-                    )*
-                    _ => {}
-                }
-            }
-        }
-
-        impl $controller_cfg_name<KeyboardInput> {
-            #[must_use]
-            pub fn default_p1() -> Self {
-                Self {
-                    $(
-                        $field: Some(KeyboardInput { keycode: Keycode::$keycode.name() }),
-                    )*
-                }
+                ], f)
             }
         }
     }
 }
 
-macro_rules! define_input_config {
-    (
-        input_cfg: $input_cfg:ident,
-        controller_cfg: $controller_cfg:ident,
-        button: $button_t:ident
-        $(, console_button: $console_btn_field:ident: button $console_btn:ident default $console_btn_default:ident),*
-        $(,)?
-    ) => {
-        #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
-        pub struct $input_cfg<Input> {
-            #[indent_nested]
-            pub p1: $controller_cfg<Input>,
-            #[indent_nested]
-            pub p2: $controller_cfg<Input>,
-            $(pub $console_btn_field: Option<Input>,)*
+fn fmt_input_mapping<Button: std::fmt::Display>(
+    buttons: &[(Button, &Option<Vec<GenericInput>>)],
+    f: &mut Formatter<'_>,
+) -> std::fmt::Result {
+    write!(f, "{{ ")?;
+
+    let mut first_mapping = true;
+    for (button, mapping) in buttons {
+        let Some(mapping) = mapping else { continue };
+        if mapping.is_empty() {
+            continue;
         }
 
-        impl Default for $input_cfg<KeyboardInput> {
-            fn default() -> Self {
-                Self {
-                    p1: $controller_cfg::default_p1(),
-                    p2: $controller_cfg::default(),
-                    $($console_btn_field: Some(KeyboardInput { keycode: Keycode::$console_btn_default.name() }),)*
-                }
-            }
+        if !first_mapping {
+            write!(f, ", ")?;
         }
+        first_mapping = false;
 
-        impl Default for $input_cfg<JoystickInput> {
-            fn default() -> Self {
-                Self {
-                    p1: $controller_cfg::default(),
-                    p2: $controller_cfg::default(),
-                    $($console_btn_field: None,)*
-                }
-            }
-        }
-
-        impl<Input> InputConfig for $input_cfg<Input> {
-            type Button = $button_t;
-            type Input = Input;
-
-            #[inline]
-            #[must_use]
-            fn get_input(&self, button: $button_t, player: Player) -> Option<&Input> {
-                match (button, player) {
-                    $(
-                        ($button_t::$console_btn, _) => self.$console_btn_field.as_ref(),
-                    )*
-                    (_, Player::One) => self.p1.get_button(button),
-                    (_, Player::Two) => self.p2.get_button(button),
-                }
-            }
-
-            #[inline]
-            fn set_input(&mut self, button: $button_t, player: Player, input: Input) {
-                match (button, player) {
-                    $(
-                        ($button_t::$console_btn, _) => self.$console_btn_field = Some(input),
-                    )*
-                    (_, Player::One) => self.p1.set_button(button, input),
-                    (_, Player::Two) => self.p2.set_button(button, input),
-                }
-            }
-
-            #[inline]
-            fn clear_input(&mut self, button: $button_t, player: Player) {
-                match (button, player) {
-                    $(
-                        ($button_t::$console_btn, _) => self.$console_btn_field = None,
-                    )*
-                    (_, Player::One) => self.p1.clear_button(button),
-                    (_, Player::Two) => self.p2.clear_button(button),
-                }
-            }
-        }
+        write!(f, "{button} -> '")?;
+        fmt_input_mapping_field(mapping, f)?;
+        write!(f, "'")?;
     }
+
+    write!(f, " }}")
 }
 
-define_controller_config!(controller_cfg: SmsGgControllerConfig, button: SmsGgButton, fields: [
-    up: button Up default Up,
-    left: button Left default Left,
-    right: button Right default Right,
-    down: button Down default Down,
-    button1: button Button1 default S,
-    button2: button Button2 default A,
+fn fmt_input_mapping_field(mapping: &[GenericInput], f: &mut Formatter<'_>) -> std::fmt::Result {
+    if mapping.is_empty() {
+        return Ok(());
+    }
+
+    let mut first_input = true;
+    for input in mapping {
+        if !first_input {
+            write!(f, " + ")?;
+        }
+        first_input = false;
+
+        write!(f, "{input}")?;
+    }
+
+    Ok(())
+}
+
+macro_rules! impl_to_mapping_vec {
+    ($button:ty) => {
+        pub(crate) fn to_mapping_vec(&self) -> ButtonMappingVec<'_, $button> {
+            let mut out = Vec::new();
+
+            self.mapping_1.to_mapping_vec(&mut out);
+            self.mapping_2.to_mapping_vec(&mut out);
+
+            out
+        }
+    };
+}
+
+define_controller_mapping!(SmsGgControllerMapping, SmsGgButton, [
+    up: Up,
+    left: Left,
+    right: Right,
+    down: Down,
+    button1: Button1,
+    button2: Button2,
 ]);
 
-define_input_config!(
-    input_cfg: SmsGgInputConfig,
-    controller_cfg: SmsGgControllerConfig,
-    button: SmsGgButton,
-    console_button: pause: button Pause default Return,
-);
-
-define_controller_config!(controller_cfg: GenesisControllerConfig, button: GenesisButton, fields: [
-    up: button Up default Up,
-    left: button Left default Left,
-    right: button Right default Right,
-    down: button Down default Down,
-    a: button A default A,
-    b: button B default S,
-    c: button C default D,
-    x: button X default Q,
-    y: button Y default W,
-    z: button Z default E,
-    start: button Start default Return,
-    mode: button Mode default RShift,
-]);
-
-define_input_config!(input_cfg: GenesisInputConfig, controller_cfg: GenesisControllerConfig, button: GenesisButton);
-
-define_controller_config!(controller_cfg: NesControllerConfig, button: NesButton, fields: [
-    up: button Up default Up,
-    left: button Left default Left,
-    right: button Right default Right,
-    down: button Down default Down,
-    a: button A default A,
-    b: button B default S,
-    start: button Start default Return,
-    select: button Select default RShift,
-]);
-
-define_input_config!(
-    input_cfg: NesInputConfig,
-    controller_cfg: NesControllerConfig,
-    button: NesButton,
-);
-
-define_controller_config!(controller_cfg: SnesControllerConfig, button: SnesControllerButton, fields: [
-    up: button Up default Up,
-    left: button Left default Left,
-    right: button Right default Right,
-    down: button Down default Down,
-    a: button A default S,
-    b: button B default X,
-    x: button X default A,
-    y: button Y default Z,
-    l: button L default D,
-    r: button R default C,
-    start: button Start default Return,
-    select: button Select default RShift,
-]);
-
-define_input_config!(
-    input_cfg: SnesInputConfig,
-    controller_cfg: SnesControllerConfig,
-    button: SnesControllerButton,
-);
-
-define_controller_config!(controller_cfg: GameBoyInputConfig, button: GameBoyButton, fields: [
-    up: button Up default Up,
-    left: button Left default Left,
-    right: button Right default Right,
-    down: button Down default Down,
-    a: button A default A,
-    b: button B default S,
-    start: button Start default Return,
-    select: button Select default RShift,
-]);
-
-impl<Input> InputConfig for GameBoyInputConfig<Input> {
-    type Button = GameBoyButton;
-    type Input = Input;
-
-    #[inline]
+impl SmsGgControllerMapping {
     #[must_use]
-    fn get_input(&self, button: Self::Button, player: Player) -> Option<&Self::Input> {
-        if player != Player::One {
-            return None;
+    pub fn keyboard_arrows() -> Self {
+        Self {
+            up: key_input!(Up),
+            left: key_input!(Left),
+            right: key_input!(Right),
+            down: key_input!(Down),
+            button1: key_input!(S),
+            button2: key_input!(A),
         }
-
-        self.get_button(button)
     }
 
-    #[inline]
-    fn set_input(&mut self, button: Self::Button, player: Player, input: Self::Input) {
-        if player != Player::One {
-            return;
+    #[must_use]
+    pub fn keyboard_wasd() -> Self {
+        Self {
+            up: key_input!(W),
+            left: key_input!(A),
+            right: key_input!(D),
+            down: key_input!(S),
+            button1: key_input!(K),
+            button2: key_input!(L),
         }
-
-        self.set_button(button, input);
     }
 
-    #[inline]
-    fn clear_input(&mut self, button: Self::Button, player: Player) {
-        if player != Player::One {
-            return;
-        }
+    #[must_use]
+    pub fn keyboard_pause() -> Option<Vec<GenericInput>> {
+        key_input!(Return)
+    }
+}
 
-        self.clear_button(button);
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, ConfigDisplay)]
+pub struct SmsGgInputMapping {
+    #[serde(default)]
+    pub p1: SmsGgControllerMapping,
+    #[serde(default)]
+    pub p2: SmsGgControllerMapping,
+    #[debug_fmt]
+    pub pause: Option<Vec<GenericInput>>,
+}
+
+impl SmsGgInputMapping {
+    pub(crate) fn to_mapping_vec<'a>(&'a self, out: &mut ButtonMappingVec<'a, SmsGgButton>) {
+        self.p1.to_mapping_vec(Player::One, out);
+        self.p2.to_mapping_vec(Player::Two, out);
+
+        if let Some(pause) = &self.pause {
+            out.push(((SmsGgButton::Pause, Player::One), pause));
+        }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
-pub struct ZapperConfig {
-    pub fire: Option<KeyboardOrMouseInput>,
-    pub force_offscreen: Option<KeyboardOrMouseInput>,
+pub struct SmsGgInputConfig {
+    #[serde(default = "default_smsgg_mapping_1")]
+    #[indent_nested]
+    pub mapping_1: SmsGgInputMapping,
+    #[serde(default)]
+    #[indent_nested]
+    pub mapping_2: SmsGgInputMapping,
 }
 
-impl ZapperConfig {
-    pub fn set_input(&mut self, button: NesButton, input: Option<KeyboardOrMouseInput>) {
-        match button {
-            NesButton::ZapperFire => self.fire = input,
-            NesButton::ZapperForceOffscreen => self.force_offscreen = input,
-            _ => {}
+impl SmsGgInputConfig {
+    impl_to_mapping_vec!(SmsGgButton);
+}
+
+fn default_smsgg_mapping_1() -> SmsGgInputMapping {
+    SmsGgInputMapping {
+        p1: SmsGgControllerMapping::keyboard_arrows(),
+        p2: SmsGgControllerMapping::default(),
+        pause: key_input!(Return),
+    }
+}
+
+impl Default for SmsGgInputConfig {
+    fn default() -> Self {
+        Self { mapping_1: default_smsgg_mapping_1(), mapping_2: SmsGgInputMapping::default() }
+    }
+}
+
+define_controller_mapping!(GenesisControllerMapping, GenesisButton, [
+    up: Up,
+    left: Left,
+    right: Right,
+    down: Down,
+    a: A,
+    b: B,
+    c: C,
+    x: X,
+    y: Y,
+    z: Z,
+    start: Start,
+    mode: Mode,
+]);
+
+impl GenesisControllerMapping {
+    #[must_use]
+    pub fn keyboard_arrows() -> Self {
+        Self {
+            up: key_input!(Up),
+            left: key_input!(Left),
+            right: key_input!(Right),
+            down: key_input!(Down),
+            a: key_input!(A),
+            b: key_input!(S),
+            c: key_input!(D),
+            x: key_input!(Q),
+            y: key_input!(W),
+            z: key_input!(E),
+            start: key_input!(Return),
+            mode: key_input!(RShift),
+        }
+    }
+
+    #[must_use]
+    pub fn keyboard_wasd() -> Self {
+        Self {
+            up: key_input!(W),
+            left: key_input!(A),
+            right: key_input!(D),
+            down: key_input!(S),
+            a: key_input!(J),
+            b: key_input!(K),
+            c: key_input!(L),
+            x: key_input!(U),
+            y: key_input!(I),
+            z: key_input!(O),
+            start: key_input!(Return),
+            mode: key_input!(RShift),
         }
     }
 }
 
-impl Default for ZapperConfig {
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, ConfigDisplay)]
+pub struct GenesisInputMapping {
+    #[serde(default)]
+    #[indent_nested]
+    pub p1: GenesisControllerMapping,
+    #[serde(default)]
+    #[indent_nested]
+    pub p2: GenesisControllerMapping,
+}
+
+impl GenesisInputMapping {
+    pub(crate) fn to_mapping_vec<'a>(&'a self, out: &mut ButtonMappingVec<'a, GenesisButton>) {
+        self.p1.to_mapping_vec(Player::One, out);
+        self.p2.to_mapping_vec(Player::Two, out);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
+pub struct GenesisInputConfig {
+    #[serde(default)]
+    pub p1_type: GenesisControllerType,
+    #[serde(default)]
+    pub p2_type: GenesisControllerType,
+    #[serde(default = "default_genesis_mapping_1")]
+    #[indent_nested]
+    pub mapping_1: GenesisInputMapping,
+    #[serde(default)]
+    #[indent_nested]
+    pub mapping_2: GenesisInputMapping,
+}
+
+impl GenesisInputConfig {
+    impl_to_mapping_vec!(GenesisButton);
+}
+
+fn default_genesis_mapping_1() -> GenesisInputMapping {
+    GenesisInputMapping {
+        p1: GenesisControllerMapping::keyboard_arrows(),
+        p2: GenesisControllerMapping::default(),
+    }
+}
+
+impl Default for GenesisInputConfig {
     fn default() -> Self {
         Self {
-            fire: Some(KeyboardOrMouseInput::MouseLeft),
-            force_offscreen: Some(KeyboardOrMouseInput::MouseRight),
+            p1_type: GenesisControllerType::default(),
+            p2_type: GenesisControllerType::default(),
+            mapping_1: default_genesis_mapping_1(),
+            mapping_2: GenesisInputMapping::default(),
         }
+    }
+}
+
+define_controller_mapping!(NesControllerMapping, NesButton, [
+    up: Up,
+    left: Left,
+    right: Right,
+    down: Down,
+    a: A,
+    b: B,
+    start: Start,
+    select: Select,
+]);
+
+impl NesControllerMapping {
+    #[must_use]
+    pub fn keyboard_arrows() -> Self {
+        Self {
+            up: key_input!(Up),
+            left: key_input!(Left),
+            right: key_input!(Right),
+            down: key_input!(Down),
+            a: key_input!(A),
+            b: key_input!(S),
+            start: key_input!(Return),
+            select: key_input!(RShift),
+        }
+    }
+
+    #[must_use]
+    pub fn keyboard_wasd() -> Self {
+        Self {
+            up: key_input!(W),
+            left: key_input!(A),
+            right: key_input!(D),
+            down: key_input!(S),
+            a: key_input!(L),
+            b: key_input!(K),
+            start: key_input!(Return),
+            select: key_input!(RShift),
+        }
+    }
+}
+
+define_controller_mapping!(NesZapperMapping, NesButton, [
+    fire: ZapperFire,
+    force_offscreen: ZapperForceOffscreen,
+]);
+
+impl NesZapperMapping {
+    #[must_use]
+    pub fn mouse() -> Self {
+        Self {
+            fire: Some(vec![GenericInput::Mouse(MouseButton::Left)]),
+            force_offscreen: Some(vec![GenericInput::Mouse(MouseButton::Right)]),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, ConfigDisplay)]
+pub struct NesInputMapping {
+    #[serde(default)]
+    #[indent_nested]
+    pub p1: NesControllerMapping,
+    #[serde(default)]
+    #[indent_nested]
+    pub p2: NesControllerMapping,
+    #[serde(default)]
+    #[indent_nested]
+    pub zapper: NesZapperMapping,
+}
+
+impl NesInputMapping {
+    pub(crate) fn to_mapping_vec<'a>(&'a self, out: &mut ButtonMappingVec<'a, NesButton>) {
+        self.p1.to_mapping_vec(Player::One, out);
+        self.p2.to_mapping_vec(Player::Two, out);
+        self.zapper.to_mapping_vec(Player::One, out);
     }
 }
 
@@ -466,54 +397,129 @@ pub enum NesControllerType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
-pub struct SuperScopeConfig {
-    pub fire: Option<KeyboardOrMouseInput>,
-    pub cursor: Option<KeyboardOrMouseInput>,
-    pub pause: Option<KeyboardOrMouseInput>,
-    pub turbo_toggle: Option<KeyboardOrMouseInput>,
+pub struct NesInputConfig {
+    #[serde(default)]
+    pub p2_type: NesControllerType,
+    #[serde(default = "default_nes_mapping_1")]
+    #[indent_nested]
+    pub mapping_1: NesInputMapping,
+    #[serde(default)]
+    #[indent_nested]
+    pub mapping_2: NesInputMapping,
 }
 
-impl Default for SuperScopeConfig {
+impl NesInputConfig {
+    impl_to_mapping_vec!(NesButton);
+}
+
+fn default_nes_mapping_1() -> NesInputMapping {
+    NesInputMapping {
+        p1: NesControllerMapping::keyboard_arrows(),
+        p2: NesControllerMapping::default(),
+        zapper: NesZapperMapping::mouse(),
+    }
+}
+
+impl Default for NesInputConfig {
     fn default() -> Self {
         Self {
-            fire: Some(KeyboardOrMouseInput::MouseLeft),
-            cursor: Some(KeyboardOrMouseInput::MouseRight),
-            pause: Some(KeyboardOrMouseInput::MouseMiddle),
-            turbo_toggle: Some(KeyboardOrMouseInput::Keyboard("T".into())),
+            p2_type: NesControllerType::default(),
+            mapping_1: default_nes_mapping_1(),
+            mapping_2: NesInputMapping::default(),
         }
     }
 }
 
-impl SuperScopeConfig {
-    #[inline]
+define_controller_mapping!(SnesControllerMapping, SnesButton, [
+    up: Up,
+    left: Left,
+    right: Right,
+    down: Down,
+    a: A,
+    b: B,
+    x: X,
+    y: Y,
+    l: L,
+    r: R,
+    start: Start,
+    select: Select,
+]);
+
+impl SnesControllerMapping {
     #[must_use]
-    pub fn get_button(&self, button: SuperScopeButton) -> Option<&KeyboardOrMouseInput> {
-        match button {
-            SuperScopeButton::Fire => self.fire.as_ref(),
-            SuperScopeButton::Cursor => self.cursor.as_ref(),
-            SuperScopeButton::Pause => self.pause.as_ref(),
-            SuperScopeButton::TurboToggle => self.turbo_toggle.as_ref(),
+    pub fn keyboard_arrows() -> Self {
+        Self {
+            up: key_input!(Up),
+            left: key_input!(Left),
+            right: key_input!(Right),
+            down: key_input!(Down),
+            a: key_input!(S),
+            b: key_input!(X),
+            x: key_input!(A),
+            y: key_input!(Z),
+            l: key_input!(D),
+            r: key_input!(C),
+            start: key_input!(Return),
+            select: key_input!(RShift),
         }
     }
 
-    #[inline]
-    pub fn set_button(&mut self, button: SuperScopeButton, input: KeyboardOrMouseInput) {
-        match button {
-            SuperScopeButton::Fire => self.fire = Some(input),
-            SuperScopeButton::Cursor => self.cursor = Some(input),
-            SuperScopeButton::Pause => self.pause = Some(input),
-            SuperScopeButton::TurboToggle => self.turbo_toggle = Some(input),
+    #[must_use]
+    pub fn keyboard_wasd() -> Self {
+        Self {
+            up: key_input!(W),
+            left: key_input!(A),
+            right: key_input!(D),
+            down: key_input!(S),
+            a: key_input!(L),
+            b: key_input!(K),
+            x: key_input!(I),
+            y: key_input!(J),
+            l: key_input!(U),
+            r: key_input!(O),
+            start: key_input!(Return),
+            select: key_input!(RShift),
         }
     }
+}
 
-    #[inline]
-    pub fn clear_button(&mut self, button: SuperScopeButton) {
-        match button {
-            SuperScopeButton::Fire => self.fire = None,
-            SuperScopeButton::Cursor => self.cursor = None,
-            SuperScopeButton::Pause => self.pause = None,
-            SuperScopeButton::TurboToggle => self.turbo_toggle = None,
+define_controller_mapping!(SnesSuperScopeMapping, SnesButton, [
+    fire: SuperScopeFire,
+    cursor: SuperScopeCursor,
+    pause: SuperScopePause,
+    turbo_toggle: SuperScopeTurboToggle,
+]);
+
+impl SnesSuperScopeMapping {
+    #[must_use]
+    pub fn mouse() -> Self {
+        Self {
+            fire: Some(vec![GenericInput::Mouse(MouseButton::Left)]),
+            cursor: Some(vec![GenericInput::Mouse(MouseButton::Right)]),
+            pause: Some(vec![GenericInput::Mouse(MouseButton::Middle)]),
+            turbo_toggle: key_input!(T),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, ConfigDisplay)]
+pub struct SnesInputMapping {
+    #[serde(default)]
+    #[indent_nested]
+    pub p1: SnesControllerMapping,
+    #[serde(default)]
+    #[indent_nested]
+    pub p2: SnesControllerMapping,
+    #[serde(default)]
+    #[indent_nested]
+    pub super_scope: SnesSuperScopeMapping,
+}
+
+impl SnesInputMapping {
+    pub(crate) fn to_mapping_vec<'a>(&'a self, out: &mut ButtonMappingVec<'a, SnesButton>) {
+        self.p1.to_mapping_vec(Player::One, out);
+        self.p2.to_mapping_vec(Player::Two, out);
+        self.super_scope.to_mapping_vec(Player::One, out);
     }
 }
 
@@ -526,144 +532,195 @@ pub enum SnesControllerType {
     SuperScope,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, ConfigDisplay, Serialize, Deserialize)]
-pub struct HotkeyConfig {
-    #[serde(default = "default_quit", deserialize_with = "deserialize_quit")]
-    pub quit: Option<KeyboardInput>,
-    #[serde(
-        default = "default_toggle_fullscreen",
-        deserialize_with = "deserialize_toggle_fullscreen"
-    )]
-    pub toggle_fullscreen: Option<KeyboardInput>,
-    #[serde(default = "default_save_state", deserialize_with = "deserialize_save_state")]
-    pub save_state: Option<KeyboardInput>,
-    #[serde(default = "default_load_state", deserialize_with = "deserialize_load_state")]
-    pub load_state: Option<KeyboardInput>,
-    #[serde(
-        default = "default_next_save_state_slot",
-        deserialize_with = "deserialize_next_save_state_slot"
-    )]
-    pub next_save_state_slot: Option<KeyboardInput>,
-    #[serde(
-        default = "default_prev_save_state_slot",
-        deserialize_with = "deserialize_prev_save_state_slot"
-    )]
-    pub prev_save_state_slot: Option<KeyboardInput>,
-    #[serde(default = "default_soft_reset", deserialize_with = "deserialize_soft_reset")]
-    pub soft_reset: Option<KeyboardInput>,
-    #[serde(default = "default_hard_reset", deserialize_with = "deserialize_hard_reset")]
-    pub hard_reset: Option<KeyboardInput>,
-    #[serde(default = "default_pause", deserialize_with = "deserialize_pause")]
-    pub pause: Option<KeyboardInput>,
-    #[serde(default = "default_step_frame", deserialize_with = "deserialize_step_frame")]
-    pub step_frame: Option<KeyboardInput>,
-    #[serde(default = "default_fast_forward", deserialize_with = "deserialize_fast_forward")]
-    pub fast_forward: Option<KeyboardInput>,
-    #[serde(default = "default_rewind", deserialize_with = "deserialize_rewind")]
-    pub rewind: Option<KeyboardInput>,
-    #[serde(default = "default_open_debugger", deserialize_with = "deserialize_open_debugger")]
-    pub open_debugger: Option<KeyboardInput>,
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
+pub struct SnesInputConfig {
+    #[serde(default)]
+    pub p2_type: SnesControllerType,
+    #[serde(default = "default_snes_mapping_1")]
+    #[indent_nested]
+    pub mapping_1: SnesInputMapping,
+    #[serde(default)]
+    #[indent_nested]
+    pub mapping_2: SnesInputMapping,
 }
 
-impl Default for HotkeyConfig {
+impl SnesInputConfig {
+    impl_to_mapping_vec!(SnesButton);
+}
+
+fn default_snes_mapping_1() -> SnesInputMapping {
+    SnesInputMapping {
+        p1: SnesControllerMapping::keyboard_arrows(),
+        p2: SnesControllerMapping::default(),
+        super_scope: SnesSuperScopeMapping::mouse(),
+    }
+}
+
+impl Default for SnesInputConfig {
     fn default() -> Self {
         Self {
-            quit: default_quit(),
-            toggle_fullscreen: default_toggle_fullscreen(),
-            save_state: default_save_state(),
-            load_state: default_load_state(),
-            next_save_state_slot: default_next_save_state_slot(),
-            prev_save_state_slot: default_prev_save_state_slot(),
-            soft_reset: default_soft_reset(),
-            hard_reset: default_hard_reset(),
-            pause: default_pause(),
-            step_frame: default_step_frame(),
-            fast_forward: default_fast_forward(),
-            rewind: default_rewind(),
-            open_debugger: default_open_debugger(),
+            p2_type: SnesControllerType::default(),
+            mapping_1: default_snes_mapping_1(),
+            mapping_2: SnesInputMapping::default(),
         }
     }
 }
 
-macro_rules! key_input {
-    ($key:ident) => {
-        Some(KeyboardInput { keycode: Keycode::$key.name() })
-    };
-}
+define_controller_mapping!(GameBoyInputMapping, GameBoyButton, [
+    up: Up,
+    left: Left,
+    right: Right,
+    down: Down,
+    a: A,
+    b: B,
+    start: Start,
+    select: Select,
+]);
 
-fn default_quit() -> Option<KeyboardInput> {
-    key_input!(Escape)
-}
-
-fn default_toggle_fullscreen() -> Option<KeyboardInput> {
-    key_input!(F9)
-}
-
-fn default_save_state() -> Option<KeyboardInput> {
-    key_input!(F5)
-}
-
-fn default_load_state() -> Option<KeyboardInput> {
-    key_input!(F6)
-}
-
-fn default_next_save_state_slot() -> Option<KeyboardInput> {
-    key_input!(RightBracket)
-}
-
-fn default_prev_save_state_slot() -> Option<KeyboardInput> {
-    key_input!(LeftBracket)
-}
-
-fn default_soft_reset() -> Option<KeyboardInput> {
-    key_input!(F1)
-}
-
-fn default_hard_reset() -> Option<KeyboardInput> {
-    key_input!(F2)
-}
-
-fn default_pause() -> Option<KeyboardInput> {
-    key_input!(P)
-}
-
-fn default_step_frame() -> Option<KeyboardInput> {
-    key_input!(N)
-}
-
-fn default_fast_forward() -> Option<KeyboardInput> {
-    key_input!(Tab)
-}
-
-fn default_rewind() -> Option<KeyboardInput> {
-    key_input!(Backquote)
-}
-
-fn default_open_debugger() -> Option<KeyboardInput> {
-    key_input!(Quote)
-}
-
-macro_rules! impl_deserialize_or_default {
-    ($name:ident, $default_fn:ident) => {
-        fn $name<'de, D>(deserializer: D) -> Result<Option<KeyboardInput>, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            Ok(Option::<KeyboardInput>::deserialize(deserializer).unwrap_or_else(|_| $default_fn()))
+impl GameBoyInputMapping {
+    #[must_use]
+    pub fn keyboard_arrows() -> Self {
+        Self {
+            up: key_input!(Up),
+            left: key_input!(Left),
+            right: key_input!(Right),
+            down: key_input!(Down),
+            a: key_input!(A),
+            b: key_input!(S),
+            start: key_input!(Return),
+            select: key_input!(RShift),
         }
-    };
+    }
+
+    #[must_use]
+    pub fn keyboard_wasd() -> Self {
+        Self {
+            up: key_input!(W),
+            left: key_input!(A),
+            right: key_input!(D),
+            down: key_input!(S),
+            a: key_input!(L),
+            b: key_input!(K),
+            start: key_input!(Return),
+            select: key_input!(RShift),
+        }
+    }
 }
 
-impl_deserialize_or_default!(deserialize_quit, default_quit);
-impl_deserialize_or_default!(deserialize_toggle_fullscreen, default_toggle_fullscreen);
-impl_deserialize_or_default!(deserialize_save_state, default_save_state);
-impl_deserialize_or_default!(deserialize_load_state, default_load_state);
-impl_deserialize_or_default!(deserialize_soft_reset, default_soft_reset);
-impl_deserialize_or_default!(deserialize_next_save_state_slot, default_next_save_state_slot);
-impl_deserialize_or_default!(deserialize_prev_save_state_slot, default_prev_save_state_slot);
-impl_deserialize_or_default!(deserialize_hard_reset, default_hard_reset);
-impl_deserialize_or_default!(deserialize_pause, default_pause);
-impl_deserialize_or_default!(deserialize_step_frame, default_step_frame);
-impl_deserialize_or_default!(deserialize_fast_forward, default_fast_forward);
-impl_deserialize_or_default!(deserialize_rewind, default_rewind);
-impl_deserialize_or_default!(deserialize_open_debugger, default_open_debugger);
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
+pub struct GameBoyInputConfig {
+    #[serde(default = "default_gb_mapping_1")]
+    #[indent_nested]
+    pub mapping_1: GameBoyInputMapping,
+    #[serde(default)]
+    #[indent_nested]
+    pub mapping_2: GameBoyInputMapping,
+}
+
+impl GameBoyInputConfig {
+    pub(crate) fn to_mapping_vec(&self) -> ButtonMappingVec<'_, GameBoyButton> {
+        let mut out = Vec::new();
+
+        self.mapping_1.to_mapping_vec(Player::One, &mut out);
+        self.mapping_2.to_mapping_vec(Player::One, &mut out);
+
+        out
+    }
+}
+
+fn default_gb_mapping_1() -> GameBoyInputMapping {
+    GameBoyInputMapping::keyboard_arrows()
+}
+
+impl Default for GameBoyInputConfig {
+    fn default() -> Self {
+        Self { mapping_1: default_gb_mapping_1(), mapping_2: GameBoyInputMapping::default() }
+    }
+}
+
+macro_rules! define_hotkey_mapping {
+    ($($value:ident: $hotkey:ident default $default:ident,)* $(,)?) => {
+        #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+        pub struct HotkeyMapping {
+            $(
+                pub $value: Option<Vec<GenericInput>>,
+            )*
+        }
+
+        impl HotkeyMapping {
+            #[must_use]
+            pub fn default_keyboard() -> Self {
+                Self {
+                    $(
+                        $value: key_input!($default),
+                    )*
+                }
+            }
+
+            pub(crate) fn to_mapping_vec<'a>(&'a self, out: &mut HotkeyMappingVec<'a>) {
+                $(
+                    if let Some(mapping) = &self.$value {
+                        out.push((Hotkey::$hotkey, mapping));
+                    }
+                )*
+            }
+        }
+
+        impl std::fmt::Display for HotkeyMapping {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                fmt_input_mapping(&[
+                    $(
+                        (Hotkey::$hotkey, &self.$value),
+                    )*
+                ], f)
+            }
+        }
+    }
+}
+
+define_hotkey_mapping!(
+    quit: Quit default Escape,
+    toggle_fullscreen: ToggleFullscreen default F9,
+    save_state: SaveState default F5,
+    load_state: LoadState default F6,
+    next_save_state_slot: NextSaveStateSlot default RightBracket,
+    prev_save_state_slot: PrevSaveStateSlot default LeftBracket,
+    soft_reset: SoftReset default F1,
+    hard_reset: HardReset default F2,
+    pause: Pause default P,
+    step_frame: StepFrame default N,
+    fast_forward: FastForward default Tab,
+    rewind: Rewind default Backquote,
+    open_debugger: OpenDebugger default Quote,
+);
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConfigDisplay)]
+pub struct HotkeyConfig {
+    #[serde(default = "default_hotkey_mapping_1")]
+    #[indent_nested]
+    pub mapping_1: HotkeyMapping,
+    #[serde(default)]
+    #[indent_nested]
+    pub mapping_2: HotkeyMapping,
+}
+
+impl HotkeyConfig {
+    pub(crate) fn to_mapping_vec(&self) -> HotkeyMappingVec<'_> {
+        let mut out = Vec::new();
+
+        self.mapping_1.to_mapping_vec(&mut out);
+        self.mapping_2.to_mapping_vec(&mut out);
+
+        out
+    }
+}
+
+fn default_hotkey_mapping_1() -> HotkeyMapping {
+    HotkeyMapping::default_keyboard()
+}
+
+impl Default for HotkeyConfig {
+    fn default() -> Self {
+        Self { mapping_1: HotkeyMapping::default_keyboard(), mapping_2: HotkeyMapping::default() }
+    }
+}

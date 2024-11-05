@@ -19,19 +19,24 @@ jgenesis-native-config = { path = "../jgenesis-native-config"}
 jgenesis-native-driver = { path = "../jgenesis-native-driver" }
 jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
 jgenesis-renderer = { path = "../jgenesis-renderer" }
+egui-sdl2-platform = { path = "../egui-sdl2-platform" }
 
 anyhow = { workspace = true }
 clap = { workspace = true }
 eframe = { workspace = true }
 egui = { workspace = true }
 egui_extras = { workspace = true }
+egui-wgpu = { workspace = true }
 env_logger = { workspace = true }
 log = { workspace = true, features = ["release_max_level_info"] }
+pollster = { workspace = true }
 regex = { workspace = true }
 rfd = { workspace = true }
 sdl2 = { workspace = true }
 time = { workspace = true, features = ["formatting", "local-offset"] }
 toml = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+wgpu = { workspace = true }
 
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 xrandr = { workspace = true }

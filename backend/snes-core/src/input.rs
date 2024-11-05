@@ -3,7 +3,7 @@ use jgenesis_common::input::Player;
 use jgenesis_proc_macros::define_controller_inputs;
 
 define_controller_inputs! {
-    enum SnesControllerButton {
+    enum SnesButton {
         Up,
         Left,
         Right,
@@ -16,6 +16,14 @@ define_controller_inputs! {
         R,
         Start,
         Select,
+        #[on_console]
+        SuperScopeFire,
+        #[on_console]
+        SuperScopeCursor,
+        #[on_console]
+        SuperScopePause,
+        #[on_console]
+        SuperScopeTurboToggle,
     }
 
     struct SnesJoypadState {
@@ -31,10 +39,29 @@ pub enum SuperScopeButton {
     TurboToggle,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SnesButton {
-    Controller(SnesControllerButton),
-    SuperScope(SuperScopeButton),
+impl SnesButton {
+    #[must_use]
+    pub fn to_super_scope(self) -> Option<SuperScopeButton> {
+        match self {
+            Self::SuperScopeFire => Some(SuperScopeButton::Fire),
+            Self::SuperScopeCursor => Some(SuperScopeButton::Cursor),
+            Self::SuperScopePause => Some(SuperScopeButton::Pause),
+            Self::SuperScopeTurboToggle => Some(SuperScopeButton::TurboToggle),
+            _ => None,
+        }
+    }
+}
+
+impl SuperScopeButton {
+    #[must_use]
+    pub fn to_snes_button(self) -> SnesButton {
+        match self {
+            Self::Fire => SnesButton::SuperScopeFire,
+            Self::Cursor => SnesButton::SuperScopeCursor,
+            Self::Pause => SnesButton::SuperScopePause,
+            Self::TurboToggle => SnesButton::SuperScopeTurboToggle,
+        }
+    }
 }
 
 impl SnesJoypadState {
@@ -116,20 +143,22 @@ pub struct SnesInputs {
 impl SnesInputs {
     #[inline]
     pub fn set_button(&mut self, button: SnesButton, player: Player, pressed: bool) {
-        match (button, player) {
-            (SnesButton::SuperScope(button), _) => match &mut self.p2 {
-                SnesInputDevice::SuperScope(super_scope_state) => {
-                    super_scope_state.set_button(button, pressed);
-                }
-                SnesInputDevice::Controller(_) => {}
-            },
-            (SnesButton::Controller(button), Player::One) => self.p1.set_button(button, pressed),
-            (SnesButton::Controller(button), Player::Two) => match &mut self.p2 {
-                SnesInputDevice::Controller(joypad_state) => {
+        if let Some(super_scope_button) = button.to_super_scope() {
+            if let SnesInputDevice::SuperScope(super_scope_state) = &mut self.p2 {
+                super_scope_state.set_button(super_scope_button, pressed);
+            }
+            return;
+        }
+
+        match player {
+            Player::One => {
+                self.p1.set_button(button, pressed);
+            }
+            Player::Two => {
+                if let SnesInputDevice::Controller(joypad_state) = &mut self.p2 {
                     joypad_state.set_button(button, pressed);
                 }
-                SnesInputDevice::SuperScope(_) => {}
-            },
+            }
         }
     }
 

@@ -86,13 +86,10 @@ impl AppConfig {
     #[must_use]
     pub fn genesis_config(&self, path: String) -> Box<GenesisConfig> {
         Box::new(GenesisConfig {
-            common: self.common_config(
-                path,
-                self.inputs.genesis_keyboard.clone(),
-                self.inputs.genesis_joystick.clone(),
-            ),
-            p1_controller_type: self.inputs.genesis_p1_type,
-            p2_controller_type: self.inputs.genesis_p2_type,
+            common: self.common_config(path),
+            inputs: self.input.genesis.clone(),
+            p1_controller_type: self.input.genesis.p1_type,
+            p2_controller_type: self.input.genesis.p2_type,
             forced_timing_mode: self.genesis.forced_timing_mode,
             forced_region: self.genesis.forced_region,
             aspect_ratio: self.genesis.aspect_ratio,

@@ -1,4 +1,4 @@
-use crate::config::{CommonConfig, NesConfig};
+use crate::config::NesConfig;
 
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::{debug, file_name_no_ext, save};
@@ -6,11 +6,24 @@ use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config};
 use jgenesis_common::frontend::EmulatorTrait;
 
 use nes_core::api::{NesEmulator, NesEmulatorConfig};
-use nes_core::input::{NesButton, NesInputs};
+use nes_core::input::{NesButton, NesInputDevice, NesInputs, NesJoypadState, ZapperState};
 
 use crate::config::RomReadResult;
-use crate::input::InputMapper;
+use crate::config::input::NesControllerType;
 use std::path::Path;
+
+trait NesControllerTypeExt {
+    fn to_input_device(self) -> NesInputDevice;
+}
+
+impl NesControllerTypeExt for NesControllerType {
+    fn to_input_device(self) -> NesInputDevice {
+        match self {
+            Self::Gamepad => NesInputDevice::Controller(NesJoypadState::default()),
+            Self::Zapper => NesInputDevice::Zapper(ZapperState::default()),
+        }
+    }
+}
 
 pub type NativeNesEmulator = NativeEmulator<NesInputs, NesButton, NesEmulatorConfig, NesEmulator>;
 
@@ -32,15 +45,12 @@ impl NativeNesEmulator {
         // Config change could have changed target framerate (50/60 Hz hack)
         self.renderer.set_target_fps(self.emulator.target_fps());
 
-        if let Err(err) = self.input_mapper.reload_config_nes(
-            config.p2_controller_type,
-            &config.common.keyboard_inputs,
-            &config.common.joystick_inputs,
-            &config.zapper_config,
+        self.input_mapper.update_mappings(
             config.common.axis_deadzone,
-        ) {
-            log::error!("Error reloading input config: {err}");
-        }
+            &config.inputs.to_mapping_vec(),
+            &config.common.hotkey_config.to_mapping_vec(),
+        );
+        self.input_mapper.inputs_mut().p2 = config.inputs.p2_type.to_input_device();
 
         Ok(())
     }
@@ -72,16 +82,8 @@ pub fn create_nes(config: Box<NesConfig>) -> NativeEmulatorResult<NativeNesEmula
     let rom_title = file_name_no_ext(&config.common.rom_file_path)?;
     let window_title = format!("nes - {rom_title}");
 
-    let input_mapper_fn = |joystick_subsystem, common_config: &CommonConfig<_, _>| {
-        InputMapper::new_nes(
-            joystick_subsystem,
-            config.p2_controller_type,
-            &common_config.keyboard_inputs,
-            &common_config.joystick_inputs,
-            &config.zapper_config,
-            common_config.axis_deadzone,
-        )
-    };
+    let initial_inputs =
+        NesInputs { p1: NesJoypadState::default(), p2: config.inputs.p2_type.to_input_device() };
 
     NativeNesEmulator::new(
         emulator,
@@ -92,7 +94,8 @@ pub fn create_nes(config: Box<NesConfig>) -> NativeEmulatorResult<NativeNesEmula
         &window_title,
         save_writer,
         save_state_path,
-        input_mapper_fn,
+        &config.inputs.to_mapping_vec(),
+        initial_inputs,
         debug::nes::render_fn,
     )
 }

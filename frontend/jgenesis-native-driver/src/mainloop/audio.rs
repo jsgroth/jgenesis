@@ -33,9 +33,9 @@ pub struct SdlAudioOutput {
 }
 
 impl SdlAudioOutput {
-    pub fn create_and_init<KC, JC>(
+    pub fn create_and_init(
         audio: &AudioSubsystem,
-        config: &CommonConfig<KC, JC>,
+        config: &CommonConfig,
     ) -> Result<Self, AudioError> {
         let audio_queue = open_audio_queue(audio, config)?;
         let output_frequency = audio_queue.spec().freq;
@@ -54,10 +54,7 @@ impl SdlAudioOutput {
         })
     }
 
-    pub fn reload_config<KC, JC>(
-        &mut self,
-        config: &CommonConfig<KC, JC>,
-    ) -> Result<(), AudioError> {
+    pub fn reload_config(&mut self, config: &CommonConfig) -> Result<(), AudioError> {
         self.audio_sync = config.audio_sync;
         self.dynamic_resampling_ratio = config.audio_dynamic_resampling_ratio;
         self.audio_buffer_size = config.audio_buffer_size;
@@ -139,9 +136,9 @@ impl SdlAudioOutput {
     }
 }
 
-fn open_audio_queue<KC, JC>(
+fn open_audio_queue(
     audio: &AudioSubsystem,
-    config: &CommonConfig<KC, JC>,
+    config: &CommonConfig,
 ) -> Result<AudioQueue<f32>, AudioError> {
     let audio_queue = audio
         .open_queue(None, &AudioSpecDesired {

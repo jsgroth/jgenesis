@@ -23,7 +23,9 @@ use smsgg_core::psg::Sn76489Version;
 use smsgg_core::{SmsModel, SmsRegion};
 use snes_core::api::{AudioInterpolationMode, SnesAspectRatio};
 use std::ffi::OsStr;
+use std::fmt::Debug;
 use std::fs;
+use std::hash::Hash;
 use std::num::{NonZeroU32, NonZeroU64};
 use std::path::{Path, PathBuf};
 
@@ -516,9 +518,9 @@ impl Args {
             config.genesis.forced_region = Some(region);
         }
 
-        apply_overrides!(self, config.inputs, [
-            genesis_p1_controller_type -> genesis_p1_type,
-            genesis_p2_controller_type -> genesis_p2_type,
+        apply_overrides!(self, config.input.genesis, [
+            genesis_p1_controller_type -> p1_type,
+            genesis_p2_controller_type -> p2_type,
         ]);
     }
 
@@ -556,7 +558,7 @@ impl Args {
             overscan_right -> right,
         ]);
 
-        apply_overrides!(self, config.inputs, [nes_p2_controller_type -> nes_p2_type]);
+        apply_overrides!(self, config.input.nes, [nes_p2_controller_type -> p2_type]);
     }
 
     fn apply_snes_overrides(&self, config: &mut AppConfig) {
@@ -568,7 +570,7 @@ impl Args {
         ]);
 
         if let Some(p2_controller_type) = self.snes_p2_controller_type {
-            config.inputs.snes_p2_type = p2_controller_type;
+            config.input.snes.p2_type = p2_controller_type;
         }
 
         apply_path_overrides!(self, config.snes, [
@@ -811,7 +813,7 @@ fn init_emulator<Inputs, Button, Config, Emulator>(
     args: &Args,
 ) where
     Inputs: Default + MappableInputs<Button>,
-    Button: Copy,
+    Button: Debug + Copy + Hash + Eq,
     Emulator: EmulatorTrait<Inputs = Inputs, Config = Config>,
 {
     let Some(save_state_slot) = args.load_save_state else { return };

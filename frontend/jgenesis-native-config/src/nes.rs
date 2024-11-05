@@ -40,13 +40,8 @@ impl AppConfig {
     #[must_use]
     pub fn nes_config(&self, path: String) -> Box<NesConfig> {
         Box::new(NesConfig {
-            common: self.common_config(
-                path,
-                self.inputs.nes_keyboard.clone(),
-                self.inputs.nes_joystick.clone(),
-            ),
-            p2_controller_type: self.inputs.nes_p2_type,
-            zapper_config: self.inputs.nes_zapper.clone(),
+            common: self.common_config(path),
+            inputs: self.input.nes.clone(),
             forced_timing_mode: self.nes.forced_timing_mode,
             aspect_ratio: self.nes.aspect_ratio,
             overscan: self.nes.overscan,

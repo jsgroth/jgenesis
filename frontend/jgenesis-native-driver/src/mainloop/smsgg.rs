@@ -1,7 +1,7 @@
 use crate::config::SmsGgConfig;
 
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
-use crate::mainloop::{basic_input_mapper_fn, debug, file_name_no_ext, save};
+use crate::mainloop::{debug, file_name_no_ext, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config};
 use jgenesis_common::frontend::EmulatorTrait;
 
@@ -31,14 +31,11 @@ impl NativeSmsGgEmulator {
         // Config change could have changed target framerate (NTSC vs. PAL)
         self.renderer.set_target_fps(self.emulator.target_fps());
 
-        if let Err(err) = self.input_mapper.reload_config(
-            config.common.keyboard_inputs,
-            config.common.joystick_inputs,
+        self.input_mapper.update_mappings(
             config.common.axis_deadzone,
-            &SmsGgButton::ALL,
-        ) {
-            log::error!("Error reloading input config: {err}");
-        }
+            &config.inputs.to_mapping_vec(),
+            &config.common.hotkey_config.to_mapping_vec(),
+        );
 
         Ok(())
     }
@@ -82,7 +79,8 @@ pub fn create_smsgg(config: Box<SmsGgConfig>) -> NativeEmulatorResult<NativeSmsG
         &window_title,
         save_writer,
         save_state_path,
-        basic_input_mapper_fn(&SmsGgButton::ALL),
+        &config.inputs.to_mapping_vec(),
+        SmsGgInputs::default(),
         debug::smsgg::render_fn,
     )
 }

@@ -1,4 +1,3 @@
-mod eguisdl;
 pub mod gb;
 pub mod genesis;
 pub mod nes;
@@ -48,7 +47,7 @@ pub struct DebuggerWindow<Emulator> {
     surface_config: wgpu::SurfaceConfiguration,
     device: wgpu::Device,
     queue: wgpu::Queue,
-    platform: eguisdl::Platform,
+    platform: egui_sdl2_platform::Platform,
     egui_renderer: egui_wgpu::Renderer,
     start_time: SystemTime,
     render_fn: Box<DebugRenderFn<Emulator>>,
@@ -108,7 +107,7 @@ impl<Emulator> DebuggerWindow<Emulator> {
         let scale_factor = determine_scale_factor(&window, video);
         log::info!("Guessed scale factor {scale_factor}");
 
-        let platform = eguisdl::Platform::new(&window, scale_factor);
+        let platform = egui_sdl2_platform::Platform::new(&window, scale_factor);
         let start_time = SystemTime::now();
 
         let egui_renderer = egui_wgpu::Renderer::new(&device, surface_format, None, 1, false);

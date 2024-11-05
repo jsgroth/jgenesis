@@ -1,7 +1,7 @@
 use crate::config::RomReadResult;
 use crate::config::{GenesisConfig, Sega32XConfig, SegaCdConfig};
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
-use crate::mainloop::{NativeEmulatorError, basic_input_mapper_fn, debug, save};
+use crate::mainloop::{NativeEmulatorError, debug, save};
 use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config};
 use genesis_core::input::GenesisButton;
 use genesis_core::{GenesisEmulator, GenesisEmulatorConfig, GenesisInputs};
@@ -31,14 +31,11 @@ impl NativeGenesisEmulator {
         self.emulator.reload_config(&emulator_config);
         self.config = emulator_config;
 
-        if let Err(err) = self.input_mapper.reload_config(
-            config.common.keyboard_inputs,
-            config.common.joystick_inputs,
+        self.input_mapper.update_mappings(
             config.common.axis_deadzone,
-            &GenesisButton::ALL,
-        ) {
-            log::error!("Error reloading input config: {err}");
-        }
+            &config.inputs.to_mapping_vec(),
+            &config.common.hotkey_config.to_mapping_vec(),
+        );
 
         Ok(())
     }
@@ -60,14 +57,11 @@ impl NativeSegaCdEmulator {
         self.emulator.reload_config(&emulator_config);
         self.config = emulator_config;
 
-        if let Err(err) = self.input_mapper.reload_config(
-            config.genesis.common.keyboard_inputs,
-            config.genesis.common.joystick_inputs,
+        self.input_mapper.update_mappings(
             config.genesis.common.axis_deadzone,
-            &GenesisButton::ALL,
-        ) {
-            log::error!("Error reloading input config: {err}");
-        }
+            &config.genesis.inputs.to_mapping_vec(),
+            &config.genesis.common.hotkey_config.to_mapping_vec(),
+        );
 
         Ok(())
     }
@@ -130,14 +124,11 @@ impl Native32XEmulator {
         self.emulator.reload_config(&emulator_config);
         self.config = emulator_config;
 
-        if let Err(err) = self.input_mapper.reload_config(
-            config.genesis.common.keyboard_inputs,
-            config.genesis.common.joystick_inputs,
+        self.input_mapper.update_mappings(
             config.genesis.common.axis_deadzone,
-            &GenesisButton::ALL,
-        ) {
-            log::error!("Error reloading input config: {err}");
-        }
+            &config.genesis.inputs.to_mapping_vec(),
+            &config.genesis.common.hotkey_config.to_mapping_vec(),
+        );
 
         Ok(())
     }
@@ -183,7 +174,8 @@ pub fn create_genesis(config: Box<GenesisConfig>) -> NativeEmulatorResult<Native
         &window_title,
         save_writer,
         save_state_path,
-        basic_input_mapper_fn(&GenesisButton::ALL),
+        &config.inputs.to_mapping_vec(),
+        GenesisInputs::default(),
         debug::genesis::render_fn,
     )
 }
@@ -244,7 +236,8 @@ pub fn create_sega_cd(config: Box<SegaCdConfig>) -> NativeEmulatorResult<NativeS
         &window_title,
         save_writer,
         save_state_path,
-        basic_input_mapper_fn(&GenesisButton::ALL),
+        &config.genesis.inputs.to_mapping_vec(),
+        GenesisInputs::default(),
         debug::genesis::render_fn,
     )
 }
@@ -286,7 +279,8 @@ pub fn create_32x(config: Box<Sega32XConfig>) -> NativeEmulatorResult<Native32XE
         &window_title,
         save_writer,
         save_state_path,
-        basic_input_mapper_fn(&GenesisButton::ALL),
+        &config.genesis.inputs.to_mapping_vec(),
+        GenesisInputs::default(),
         debug::genesis::render_fn,
     )
 }

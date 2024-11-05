@@ -9,22 +9,25 @@ edition = "2021"
 jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
 jgenesis-renderer = { path = "../jgenesis-renderer" }
 jgenesis-common = { path = "../../common/jgenesis-common" }
+egui-sdl2-platform = { path = "../egui-sdl2-platform" }
 
-gb-core = { path = "../../backend/gb-core" }
-genesis-core = { path = "../../backend/genesis-core" }
-nes-core = { path = "../../backend/nes-core" }
+gb-core = { path = "../../backend/gb-core", features = ["serde"] }
+genesis-core = { path = "../../backend/genesis-core", features = ["serde"] }
+nes-core = { path = "../../backend/nes-core", features = ["serde"] }
 s32x-core = { path = "../../backend/s32x-core" }
 segacd-core = { path = "../../backend/segacd-core" }
-smsgg-core = { path = "../../backend/smsgg-core" }
-snes-core = { path = "../../backend/snes-core" }
+smsgg-core = { path = "../../backend/smsgg-core", features = ["serde"] }
+snes-core = { path = "../../backend/snes-core", features = ["serde"] }
 
 anyhow = { workspace = true }
+arrayvec = { workspace = true }
 bincode = { workspace = true }
 bytemuck = { workspace = true }
 egui = { workspace = true }
 egui-wgpu = { workspace = true }
 log = { workspace = true }
 pollster = { workspace = true }
+rustc-hash = { workspace = true }
 sdl2 = { workspace = true }
 serde = { workspace = true }
 sevenz-rust = { workspace = true }
