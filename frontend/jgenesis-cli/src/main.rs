@@ -40,6 +40,7 @@ enum Hardware {
     Nes,
     Snes,
     GameBoy,
+    GameBoyAdvance,
 }
 
 const SMSGG_OPTIONS_HEADING: &str = "Master System / Game Gear Options";
@@ -735,6 +736,7 @@ fn main() -> anyhow::Result<()> {
                 "nes" => Hardware::Nes,
                 "sfc" | "smc" => Hardware::Snes,
                 "gb" | "gbc" => Hardware::GameBoy,
+                "gba" => Hardware::GameBoyAdvance,
                 _ => {
                     log::warn!("Unrecognized file extension: '{file_ext}' defaulting to Genesis");
                     Hardware::Genesis
@@ -774,6 +776,7 @@ fn main() -> anyhow::Result<()> {
         Hardware::Nes => run_nes(args, config),
         Hardware::Snes => run_snes(args, config),
         Hardware::GameBoy => run_gb(args, config),
+        Hardware::GameBoyAdvance => run_gba(args, config),
     }
 }
 
@@ -817,6 +820,12 @@ fn run_snes(args: Args, config: AppConfig) -> anyhow::Result<()> {
 
 fn run_gb(args: Args, config: AppConfig) -> anyhow::Result<()> {
     let mut emulator = jgenesis_native_driver::create_gb(config.gb_config(args.file_path.clone()))?;
+    run_emulator(&mut emulator, &args)
+}
+
+fn run_gba(args: Args, config: AppConfig) -> anyhow::Result<()> {
+    let mut emulator =
+        jgenesis_native_driver::create_gba(config.gba_config(args.file_path.clone()))?;
     run_emulator(&mut emulator, &args)
 }
 

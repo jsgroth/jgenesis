@@ -1,6 +1,7 @@
 mod audio;
 mod debug;
 mod gb;
+mod gba;
 mod genesis;
 mod nes;
 mod rewind;
@@ -10,6 +11,7 @@ mod snes;
 mod state;
 
 pub use gb::{NativeGameBoyEmulator, create_gb};
+pub use gba::{NativeGbaEmulator, create_gba};
 pub use genesis::{
     Native32XEmulator, NativeGenesisEmulator, NativeSegaCdEmulator, create_32x, create_genesis,
     create_sega_cd,
@@ -871,6 +873,7 @@ pub fn all_supported_extensions() -> &'static [&'static str] {
         let mut extensions = Vec::new();
 
         extensions.extend(gb::SUPPORTED_EXTENSIONS);
+        extensions.extend(gba::SUPPORTED_EXTENSIONS);
         extensions.extend(genesis::GENESIS_SUPPORTED_EXTENSIONS);
         extensions.extend(genesis::S32X_SUPPORTED_EXTENSIONS);
         extensions.extend(nes::SUPPORTED_EXTENSIONS);

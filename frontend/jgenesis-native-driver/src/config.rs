@@ -8,6 +8,7 @@ use crate::mainloop::NativeEmulatorError;
 use crate::{NativeEmulatorResult, archive};
 use gb_core::api::{GameBoyEmulatorConfig, GbAspectRatio, GbPalette, GbcColorCorrection};
 use genesis_core::audio::LowPassFilter;
+use gba_core::api::GbaEmulatorConfig;
 use genesis_core::{
     GenesisAspectRatio, GenesisControllerType, GenesisEmulatorConfig, GenesisRegion,
 };
@@ -32,6 +33,8 @@ use std::path::{Path, PathBuf};
 pub(crate) const DEFAULT_GENESIS_WINDOW_SIZE: WindowSize = WindowSize { width: 878, height: 672 };
 pub(crate) const DEFAULT_GB_WINDOW_SIZE: WindowSize =
     WindowSize { width: 160 * 3, height: 144 * 3 };
+pub(crate) const DEFAULT_GBA_WINDOW_SIZE: WindowSize =
+    WindowSize { width: 240 * 3, height: 160 * 3 };
 
 #[derive(Debug, Clone, Copy)]
 pub struct WindowSize {
@@ -466,5 +469,18 @@ impl GameBoyConfig {
             gbc_color_correction: self.gbc_color_correction,
             audio_60hz_hack: self.audio_60hz_hack,
         }
+    }
+}
+
+#[derive(Debug, Clone, ConfigDisplay)]
+pub struct GameBoyAdvanceConfig {
+    #[indent_nested]
+    pub common: CommonConfig,
+}
+
+impl GameBoyAdvanceConfig {
+    pub(crate) fn to_emulator_config(&self) -> GbaEmulatorConfig {
+        // TODO actual config
+        GbaEmulatorConfig::default()
     }
 }

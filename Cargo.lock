@@ -269,6 +269,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "arm7tdmi-emu"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "jgenesis-common",
+ "log",
+]
+
+[[package]]
 name = "arrayref"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1781,6 +1790,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "gba-core"
+version = "0.1.0"
+dependencies = [
+ "arm7tdmi-emu",
+ "bincode",
+ "jgenesis-common",
+ "jgenesis-proc-macros",
+ "log",
+ "thiserror 2.0.3",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2403,6 +2424,7 @@ dependencies = [
  "egui-sdl2-platform",
  "egui-wgpu",
  "gb-core",
+ "gba-core",
  "genesis-core",
  "jgenesis-common",
  "jgenesis-proc-macros",

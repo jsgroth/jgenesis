@@ -2,6 +2,7 @@ mod serialize;
 
 use arrayvec::ArrayVec;
 use gb_core::inputs::{GameBoyButton, GameBoyInputs};
+use gba_core::input::{GbaButton, GbaInputs};
 use genesis_core::GenesisInputs;
 use genesis_core::input::GenesisButton;
 use jgenesis_common::frontend::FrameSize;
@@ -449,6 +450,12 @@ impl MappableInputs<SnesButton> for SnesInputs {
 
 impl MappableInputs<GameBoyButton> for GameBoyInputs {
     fn set_field(&mut self, button: GameBoyButton, _player: Player, pressed: bool) {
+        self.set_button(button, pressed);
+    }
+}
+
+impl MappableInputs<GbaButton> for GbaInputs {
+    fn set_field(&mut self, button: GbaButton, _player: Player, pressed: bool) {
         self.set_button(button, pressed);
     }
 }
