@@ -1,5 +1,6 @@
 pub mod common;
 pub mod gb;
+pub mod gba;
 pub mod genesis;
 pub mod input;
 mod migration;

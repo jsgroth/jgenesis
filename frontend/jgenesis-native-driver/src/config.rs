@@ -7,6 +7,7 @@ use crate::config::input::{
 use crate::mainloop::NativeEmulatorError;
 use crate::{NativeEmulatorResult, archive};
 use gb_core::api::GameBoyEmulatorConfig;
+use gba_core::api::GbaEmulatorConfig;
 use genesis_core::GenesisEmulatorConfig;
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay};
@@ -25,6 +26,8 @@ use std::path::{Path, PathBuf};
 pub(crate) const DEFAULT_GENESIS_WINDOW_SIZE: WindowSize = WindowSize { width: 878, height: 672 };
 pub(crate) const DEFAULT_GB_WINDOW_SIZE: WindowSize =
     WindowSize { width: 160 * 3, height: 144 * 3 };
+pub(crate) const DEFAULT_GBA_WINDOW_SIZE: WindowSize =
+    WindowSize { width: 240 * 3, height: 160 * 3 };
 
 #[derive(Debug, Clone, Copy)]
 pub struct WindowSize {
@@ -248,4 +251,17 @@ pub struct GameBoyConfig {
     pub inputs: GameBoyInputConfig,
     #[indent_nested]
     pub emulator_config: GameBoyEmulatorConfig,
+}
+
+#[derive(Debug, Clone, ConfigDisplay)]
+pub struct GameBoyAdvanceConfig {
+    #[indent_nested]
+    pub common: CommonConfig,
+}
+
+impl GameBoyAdvanceConfig {
+    pub(crate) fn to_emulator_config(&self) -> GbaEmulatorConfig {
+        // TODO actual config
+        GbaEmulatorConfig::default()
+    }
 }

@@ -1,0 +1,16 @@
+[package]
+name = "gba-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+arm7tdmi-emu = { path = "../../cpu/arm7tdmi-emu" }
+jgenesis-common = { path = "../../common/jgenesis-common" }
+jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
+
+bincode = { workspace = true, features = ["derive"] }
+log = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
