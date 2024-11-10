@@ -466,8 +466,7 @@ impl BusInterface for Sh2Bus<'_> {
             SH2_SDRAM_START..=SH2_SDRAM_END => {
                 self.cycle_counter += SH2_SDRAM_READ_CYCLES;
 
-                let word = self.sdram[((address & SDRAM_MASK) >> 1) as usize];
-                if !address.bit(0) { word.msb() } else { word.lsb() }
+                self.sdram[(address & SDRAM_MASK) as usize]
             }
             SH2_CARTRIDGE_START..=SH2_CARTRIDGE_END => {
                 self.cycle_counter += SH2_CARTRIDGE_CYCLES;
@@ -532,7 +531,9 @@ impl BusInterface for Sh2Bus<'_> {
         match address {
             SH2_SDRAM_START..=SH2_SDRAM_END => {
                 self.cycle_counter += SH2_SDRAM_READ_CYCLES;
-                self.sdram[((address & SDRAM_MASK) >> 1) as usize]
+
+                let sdram_addr = (address & SDRAM_MASK & !1) as usize;
+                u16::from_be_bytes([self.sdram[sdram_addr], self.sdram[sdram_addr + 1]])
             }
             SH2_CARTRIDGE_START..=SH2_CARTRIDGE_END => {
                 self.cycle_counter += SH2_CARTRIDGE_CYCLES;
@@ -602,10 +603,8 @@ impl BusInterface for Sh2Bus<'_> {
                 // Subtract one because SDRAM access times are not doubled for longword reads
                 self.cycle_counter += SH2_SDRAM_READ_CYCLES - 1;
 
-                let word_addr = (((address & SDRAM_MASK) >> 1) & !1) as usize;
-                let high_word = self.sdram[word_addr];
-                let low_word = self.sdram[word_addr | 1];
-                (u32::from(high_word) << 16) | u32::from(low_word)
+                let sdram_addr = (address & SDRAM_MASK & !3) as usize;
+                u32::from_be_bytes(array::from_fn(|i| self.sdram[sdram_addr + i]))
             }
             SH2_CARTRIDGE_START..=SH2_CARTRIDGE_END => {
                 self.cycle_counter += 2 * SH2_CARTRIDGE_CYCLES;
@@ -674,11 +673,10 @@ impl BusInterface for Sh2Bus<'_> {
             // The SH-2s can read a full 16-byte cache line in 12 cycles
             self.cycle_counter += SH2_SDRAM_READ_CYCLES + 1;
 
-            let base_addr = ((address & SDRAM_MASK) >> 1) as usize;
+            let base_addr = (address & SDRAM_MASK & !0xF) as usize;
             return array::from_fn(|i| {
-                let high_word = self.sdram[base_addr | (i << 1)];
-                let low_word = self.sdram[(base_addr | (i << 1)) + 1];
-                (u32::from(high_word) << 16) | u32::from(low_word)
+                let longword_addr = base_addr + 4 * i;
+                u32::from_be_bytes(array::from_fn(|j| self.sdram[longword_addr + j]))
             });
         }
 
@@ -693,12 +691,7 @@ impl BusInterface for Sh2Bus<'_> {
             SH2_SDRAM_START..=SH2_SDRAM_END => {
                 self.cycle_counter += SH2_SDRAM_WRITE_CYCLES;
 
-                let word_addr = ((address & SDRAM_MASK) >> 1) as usize;
-                if !address.bit(0) {
-                    self.sdram[word_addr].set_msb(value);
-                } else {
-                    self.sdram[word_addr].set_lsb(value);
-                }
+                self.sdram[(address & SDRAM_MASK) as usize] = value;
             }
             SH2_SYSTEM_REGISTERS_START..=SH2_SYSTEM_REGISTERS_END => {
                 log::trace!("SH-2 {:?} byte write {address:08X} {value:02X}", self.which);
@@ -773,7 +766,9 @@ impl BusInterface for Sh2Bus<'_> {
         match address {
             SH2_SDRAM_START..=SH2_SDRAM_END => {
                 self.cycle_counter += SH2_SDRAM_WRITE_CYCLES;
-                self.sdram[((address & SDRAM_MASK) >> 1) as usize] = value;
+
+                let sdram_addr = (address & SDRAM_MASK & !1) as usize;
+                self.sdram[sdram_addr..sdram_addr + 2].copy_from_slice(&value.to_be_bytes());
             }
             SH2_SYSTEM_REGISTERS_START..=SH2_SYSTEM_REGISTERS_END => {
                 log::trace!("SH-2 {:?} word write {address:08X} {value:04X}", self.which);
@@ -844,9 +839,8 @@ impl BusInterface for Sh2Bus<'_> {
             SH2_SDRAM_START..=SH2_SDRAM_END => {
                 self.cycle_counter += 2 * SH2_SDRAM_WRITE_CYCLES;
 
-                let sdram_addr = (((address & SDRAM_MASK) >> 1) & !1) as usize;
-                self.sdram[sdram_addr] = (value >> 16) as u16;
-                self.sdram[sdram_addr | 1] = value as u16;
+                let sdram_addr = (address & SDRAM_MASK & !3) as usize;
+                self.sdram[sdram_addr..sdram_addr + 4].copy_from_slice(&value.to_be_bytes());
             }
             SH2_SYSTEM_REGISTERS_START..=SH2_SYSTEM_REGISTERS_END => {
                 log::trace!("SH-2 {:?} longword write {address:08X} {value:08X}", self.which);

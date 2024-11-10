@@ -257,6 +257,7 @@ pub struct GameBoyConfig {
 pub struct GameBoyAdvanceConfig {
     #[indent_nested]
     pub common: CommonConfig,
+    pub bios_path: Option<String>,
 }
 
 impl GameBoyAdvanceConfig {

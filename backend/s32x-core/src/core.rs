@@ -11,7 +11,7 @@ use crate::registers::SystemRegisters;
 use crate::vdp::Vdp;
 use bincode::{Decode, Encode};
 use genesis_core::{GenesisRegion, timing};
-use jgenesis_common::boxedarray::BoxedWordArray;
+use jgenesis_common::boxedarray::BoxedByteArray;
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::PartialClone;
 use sh2_emu::Sh2;
@@ -23,9 +23,9 @@ const SH2_MULTIPLIER: u64 = 3;
 // Only execute SH-2 instructions in batches of at least 10 for slightly better performance
 const SH2_EXECUTION_SLICE_LEN: u64 = 10;
 
-const SDRAM_LEN_WORDS: usize = 256 * 1024 / 2;
+const SDRAM_LEN: usize = 256 * 1024;
 
-pub type Sdram = [u16; SDRAM_LEN_WORDS];
+pub type Sdram = [u8; SDRAM_LEN];
 
 #[derive(Debug, Clone, Default, Encode, Decode)]
 pub struct SerialInterface {
@@ -47,7 +47,7 @@ pub struct Sega32X {
     pub pwm: PwmChip,
     pub registers: SystemRegisters,
     pub m68k_vectors: Box<M68kVectors>,
-    pub sdram: BoxedWordArray<SDRAM_LEN_WORDS>,
+    pub sdram: BoxedByteArray<SDRAM_LEN>,
     pub serial: SerialInterface,
     pub region: GenesisRegion,
 }
@@ -74,7 +74,7 @@ impl Sega32X {
             pwm: PwmChip::new(timing_mode),
             registers: SystemRegisters::new(),
             m68k_vectors: bootrom::M68K_VECTORS.to_vec().into_boxed_slice().try_into().unwrap(),
-            sdram: BoxedWordArray::new(),
+            sdram: BoxedByteArray::new(),
             serial: SerialInterface::default(),
             region,
         }
