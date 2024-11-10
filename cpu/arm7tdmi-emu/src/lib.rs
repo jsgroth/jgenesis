@@ -1,10 +1,11 @@
 pub mod bus;
 
-use crate::bus::BusInterface;
+use crate::bus::{BusInterface, MemoryCycle};
 use bincode::{Decode, Encode};
+use jgenesis_common::num::GetBit;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
-enum CpuState {
+pub enum CpuState {
     #[default]
     Arm = 0,
     Thumb = 1,
@@ -17,7 +18,7 @@ impl CpuState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
-enum CpuMode {
+pub enum CpuMode {
     #[default]
     User = 0x10,
     Irq = 0x12,
@@ -39,64 +40,40 @@ impl CpuMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, Encode, Decode)]
-struct StatusRegister(u32);
-
-macro_rules! impl_status_accessor {
-    ($name:ident, $bit:ident) => {
-        fn $name(self) -> bool {
-            self.0 & Self::$bit != 0
-        }
-    };
+#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
+struct StatusRegister {
+    sign: bool,
+    zero: bool,
+    carry: bool,
+    overflow: bool,
+    irq_disabled: bool,
+    state: CpuState,
+    mode: CpuMode,
 }
 
-macro_rules! impl_status_setter {
-    ($name:ident, $bit:ident) => {
-        fn $name(mut self, value: bool) -> Self {
-            if value {
-                self.0 |= Self::$bit;
-            } else {
-                self.0 &= !Self::$bit;
-            }
-            self
-        }
-    };
-}
-
-impl StatusRegister {
-    const SIGN_BIT: u32 = 1 << 31;
-    const ZERO_BIT: u32 = 1 << 30;
-    const CARRY_BIT: u32 = 1 << 29;
-    const OVERFLOW_BIT: u32 = 1 << 28;
-    const DISABLE_IRQ_BIT: u32 = 1 << 7;
-    const STATE_BIT: u32 = 1 << 5;
-    const MODE_MASK: u32 = (1 << 5) - 1;
-
-    impl_status_accessor!(sign, SIGN_BIT);
-    impl_status_accessor!(zero, ZERO_BIT);
-    impl_status_accessor!(carry, CARRY_BIT);
-    impl_status_accessor!(overflow, OVERFLOW_BIT);
-    impl_status_accessor!(irq_disabled, DISABLE_IRQ_BIT);
-
-    fn state(self) -> CpuState {
-        CpuState::from_bit(self.0 & Self::STATE_BIT != 0)
+impl From<StatusRegister> for u32 {
+    fn from(value: StatusRegister) -> Self {
+        (u32::from(value.sign) << 31)
+            | (u32::from(value.zero) << 30)
+            | (u32::from(value.carry) << 29)
+            | (u32::from(value.overflow) << 28)
+            | (u32::from(value.irq_disabled) << 7)
+            | ((value.state as u32) << 5)
+            | (value.mode as u32)
     }
-
-    fn mode(self) -> CpuMode {
-        CpuMode::from_bits(self.0 & Self::MODE_MASK)
-    }
-
-    impl_status_setter!(with_sign, SIGN_BIT);
-    impl_status_setter!(with_zero, ZERO_BIT);
-    impl_status_setter!(with_carry, CARRY_BIT);
-    impl_status_setter!(with_overflow, OVERFLOW_BIT);
-    impl_status_setter!(with_irq_disabled, DISABLE_IRQ_BIT);
 }
 
-impl Default for StatusRegister {
-    fn default() -> Self {
-        // TODO is this right?
-        Self(Self::DISABLE_IRQ_BIT | ((CpuState::Arm as u32) << 5) | (CpuMode::Supervisor as u32))
+impl From<u32> for StatusRegister {
+    fn from(value: u32) -> Self {
+        Self {
+            sign: value.bit(31),
+            zero: value.bit(30),
+            carry: value.bit(29),
+            overflow: value.bit(28),
+            irq_disabled: value.bit(7),
+            state: CpuState::from_bit(value.bit(5)),
+            mode: CpuMode::from_bits(value & 0x1F),
+        }
     }
 }
 
@@ -121,14 +98,55 @@ struct Registers {
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Arm7Tdmi {
     registers: Registers,
+    prefetch: [u32; 2],
+}
+
+pub struct Arm7TdmiResetArgs {
+    pub pc: u32,
+    pub sp_usr: u32,
+    pub sp_svc: u32,
+    pub sp_irq: u32,
+    pub mode: CpuMode,
 }
 
 impl Arm7Tdmi {
     pub fn new() -> Self {
-        Self { registers: Registers::default() }
+        Self { registers: Registers::default(), prefetch: [0, 0] }
+    }
+
+    pub fn reset(&mut self, args: Arm7TdmiResetArgs, bus: &mut impl BusInterface) {
+        self.registers = Registers::default();
+        self.registers.r[15] = args.pc;
+        self.registers.r[13] = args.sp_usr;
+        self.registers.r13_svc = args.sp_svc;
+        self.registers.r13_irq = args.sp_irq;
+        self.registers.cpsr.mode = args.mode;
+        self.registers.spsr_svc = 0_u32.into();
+        self.registers.spsr_irq = 0_u32.into();
+
+        self.refill_prefetch(bus);
     }
 
     pub fn execute_instruction(&mut self, bus: &mut impl BusInterface) -> u32 {
-        todo!()
+        let opcode = self.prefetch[0];
+
+        todo!("execute opcode {opcode:08X}")
+    }
+
+    fn refill_prefetch(&mut self, bus: &mut impl BusInterface) {
+        self.fetch_opcode(MemoryCycle::NonSequential, bus);
+        self.fetch_opcode(MemoryCycle::Sequential, bus);
+    }
+
+    fn fetch_opcode(&mut self, cycle: MemoryCycle, bus: &mut impl BusInterface) {
+        self.prefetch[0] = self.prefetch[1];
+
+        match self.registers.cpsr.state {
+            CpuState::Arm => {
+                self.prefetch[1] = bus.read_word(self.registers.r[15], cycle);
+                self.registers.r[15] = self.registers.r[15].wrapping_add(4);
+            }
+            CpuState::Thumb => todo!("thumb single prefetch"),
+        }
     }
 }

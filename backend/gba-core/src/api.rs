@@ -1,11 +1,20 @@
+use crate::bus;
+use crate::bus::Bus;
+use crate::cartridge::Cartridge;
 use crate::input::GbaInputs;
-use arm7tdmi_emu::Arm7Tdmi;
+use crate::memory::Memory;
+use crate::ppu::Ppu;
+use arm7tdmi_emu::{Arm7Tdmi, Arm7TdmiResetArgs, CpuMode};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
-    AudioOutput, EmulatorTrait, PartialClone, Renderer, SaveWriter, TickResult, TimingMode,
+    AudioOutput, EmulatorTrait, PartialClone, Renderer, SaveWriter, TickEffect, TickResult,
+    TimingMode,
 };
 use std::fmt::{Debug, Display};
 use thiserror::Error;
+
+// 1 PPU cycle per 4 CPU cycles
+const PPU_DIVIDER: u32 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub struct GbaEmulatorConfig {}
@@ -20,18 +29,46 @@ pub enum GbaError<RErr, AErr, SErr> {
     SaveWrite(SErr),
 }
 
+#[derive(Debug, Error)]
+pub enum GbaInitializationError {
+    #[error("Invalid BIOS ROM; expected length 16384 bytes, was {length} bytes")]
+    InvalidBiosRom { length: usize },
+}
+
 #[derive(Debug, PartialClone, Encode, Decode)]
 pub struct GameBoyAdvanceEmulator {
     cpu: Arm7Tdmi,
+    ppu: Ppu,
+    #[partial_clone(partial)]
+    memory: Memory,
+    ppu_mclk_counter: u32,
 }
 
 impl GameBoyAdvanceEmulator {
     pub fn create<S: SaveWriter>(
-        rom: Vec<u8>,
+        cartridge_rom: Vec<u8>,
+        bios_rom: Vec<u8>,
         config: GbaEmulatorConfig,
         save_writer: &mut S,
-    ) -> Self {
-        Self { cpu: Arm7Tdmi::new() }
+    ) -> Result<Self, GbaInitializationError> {
+        let cartridge = Cartridge::new(cartridge_rom);
+        let memory = Memory::new(cartridge, bios_rom)?;
+
+        let mut emulator =
+            Self { cpu: Arm7Tdmi::new(), ppu: Ppu::new(), memory, ppu_mclk_counter: 0 };
+
+        emulator.cpu.reset(
+            Arm7TdmiResetArgs {
+                pc: bus::CARTRIDGE_ROM_0_START,
+                sp_usr: 0x03007F00,
+                sp_svc: 0x03007FE0,
+                sp_irq: 0x03007FA0,
+                mode: CpuMode::System,
+            },
+            &mut Bus { ppu: &mut emulator.ppu, memory: &mut emulator.memory },
+        );
+
+        Ok(emulator)
     }
 }
 
@@ -59,7 +96,16 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
-        todo!("tick")
+        let cpu_cycles =
+            self.cpu.execute_instruction(&mut Bus { ppu: &mut self.ppu, memory: &mut self.memory });
+
+        self.ppu_mclk_counter += cpu_cycles;
+        let ppu_cycles = self.ppu_mclk_counter / PPU_DIVIDER;
+        self.ppu_mclk_counter -= ppu_cycles * PPU_DIVIDER;
+
+        self.ppu.tick(ppu_cycles);
+
+        Ok(TickEffect::None)
     }
 
     fn force_render<R>(&mut self, renderer: &mut R) -> Result<(), R::Err>

@@ -12,6 +12,7 @@ pub use migration::{current_config_version, migrate_config};
 
 use crate::common::CommonAppConfig;
 use crate::gb::GameBoyAppConfig;
+use crate::gba::GbaAppConfig;
 use crate::genesis::{GenesisAppConfig, Sega32XAppConfig, SegaCdAppConfig};
 use crate::input::InputAppConfig;
 use crate::nes::NesAppConfig;
@@ -86,6 +87,8 @@ pub struct AppConfig {
     pub snes: SnesAppConfig,
     #[serde(default)]
     pub game_boy: GameBoyAppConfig,
+    #[serde(default)]
+    pub game_boy_advance: GbaAppConfig,
     #[serde(default)]
     pub input: InputAppConfig,
     // TODO move GUI-specific config/state somewhere else - separate file?

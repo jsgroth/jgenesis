@@ -356,7 +356,6 @@ pub enum NativeEmulatorError {
         #[source]
         source: io::Error,
     },
-
     #[error("{0}")]
     SegaCdDisc(#[from] SegaCdLoadError),
     #[error("{0}")]
@@ -365,6 +364,16 @@ pub enum NativeEmulatorError {
     SnesLoad(#[from] SnesLoadError),
     #[error("{0}")]
     GameBoyLoad(#[from] GameBoyLoadError),
+    #[error("BIOS ROM is required for GBA emulation")]
+    GbaNoBios,
+    #[error("Error opening GBA BIOS file at '{path}': {source}")]
+    GbaBiosRead {
+        path: String,
+        #[source]
+        source: io::Error,
+    },
+    #[error("Error initializing GBA emulator: {0}")]
+    GbaInit(#[from] GbaInitializationError),
     #[error("I/O error opening save state file '{path}': {source}")]
     StateFileOpen {
         path: String,
@@ -866,6 +875,7 @@ macro_rules! bincode_config {
 }
 
 use bincode_config;
+use gba_core::api::GbaInitializationError;
 
 #[must_use]
 pub fn all_supported_extensions() -> &'static [&'static str] {
