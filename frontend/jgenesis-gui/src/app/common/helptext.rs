@@ -93,8 +93,8 @@ pub const AUDIO_SYNC: HelpText = HelpText {
 pub const AUDIO_DYNAMIC_RESAMPLING: HelpText = HelpText {
     heading: "Audio Dynamic Resampling Ratio",
     text: &[
-        "If enabled, periodically adjust the audio resampling ratio to try and keep the audio buffer as close as possible to half full.",
-        "This should reduce audio pops caused by audio buffer underflow/overflow when using frame time sync or VSync.",
+        "If enabled, periodically adjust the audio resampling ratio to try and keep the audio buffer as close as possible to the target buffer size. The audio buffer is allowed to grow to double size when this is enabled.",
+        "This should reduce audio pops caused by audio buffer underflow and overflow when using frame time sync or VSync.",
         "Changing the resampling ratio this way does slightly change the audio pitch, but the difference should be inaudible - the adjusted ratio is restricted to being within 0.5% of the original ratio.",
     ],
 };
@@ -103,7 +103,7 @@ pub const AUDIO_HARDWARE_QUEUE_SIZE: HelpText = HelpText {
     heading: "Audio Hardware Queue Size",
     text: &[
         "Configure audio device queue size in samples.",
-        "Decreasing this value can increase CPU usage.",
+        "Decreasing this value can increase CPU usage, and decreasing it too much can also cause various audio playback issues.",
         "Increasing this value makes audio sync and dynamic resampling ratio less accurate, and it will also increase audio latency.",
     ],
 };
@@ -111,8 +111,9 @@ pub const AUDIO_HARDWARE_QUEUE_SIZE: HelpText = HelpText {
 pub const AUDIO_BUFFER_SIZE: HelpText = HelpText {
     heading: "Audio Buffer Size",
     text: &[
-        "If audio sync is enabled, this is the audio buffer size at which the emulation thread will block and wait for the audio thread.",
-        "If audio sync is disabled, this is the audio buffer size at which the emulator will start dropping audio samples, which causes audio pops.",
+        "Configure the size of the audio buffer in samples. This is where audio is buffered before sending to the audio device.",
+        "This value is the max buffer capacity when audio sync is disabled, and the size at which the emulator will block when audio sync is enabled.",
+        "Dynamic resampling ratio uses this value as the target buffer size and allows the buffer to grow to double this value before dropping samples or blocking.",
         "This setting affects audio latency.",
     ],
 };

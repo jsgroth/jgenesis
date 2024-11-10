@@ -364,12 +364,7 @@ impl App {
     }
 
     fn estimate_audio_latency_ms(&self) -> u32 {
-        let mut audio_buffer_size: f64 = self.config.common.audio_buffer_size.into();
-        if self.config.common.audio_dynamic_resampling_ratio {
-            // Dynamic resampling targets a half-full audio buffer
-            audio_buffer_size *= 0.5;
-        }
-
+        let audio_buffer_size: f64 = self.config.common.audio_buffer_size.into();
         let total_queue_size =
             f64::from(self.config.common.audio_hardware_queue_size) + audio_buffer_size;
         let latency_secs = total_queue_size / (self.config.common.audio_output_frequency as f64);

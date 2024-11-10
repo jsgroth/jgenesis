@@ -105,7 +105,7 @@ impl SdlAudioOutput {
         }
         self.dynamic_update_counter = 0;
 
-        let target_len: f64 = (self.audio_buffer_size / 2).into();
+        let target_len: f64 = self.audio_buffer_size.into();
         let current_len: f64 = self.audio_queue_len_samples().into();
         let difference = ((target_len - current_len) / target_len).clamp(-1.0, 1.0);
         let adjustment = 1.0 + MAX_DELTA * difference;
@@ -178,22 +178,25 @@ impl AudioOutput for SdlAudioOutput {
         self.audio_buffer.push((sample_r * self.audio_gain_multiplier) as f32);
 
         if self.audio_buffer.len() >= INTERNAL_AUDIO_BUFFER_LEN {
-            if self.audio_queue_len_samples() > self.audio_buffer_size {
-                if self.audio_sync {
-                    // Block until audio queue is not full
-                    loop {
-                        jgenesis_common::sleep(Duration::from_micros(250));
-                        if self.audio_queue_len_samples() <= self.audio_buffer_size {
-                            break;
-                        }
-                    }
-                } else if !self.dynamic_resampling_ratio {
-                    // Audio queue is full; drop samples
-                    log::debug!("Dropping audio samples because buffer is full");
-                    self.audio_buffer.clear();
-                    return Ok(());
+            let audio_buffer_threshold = if self.dynamic_resampling_ratio {
+                // If dynamic resampling ratio is enabled, let the audio buffer grow to double size
+                // before dropping samples because the audio buffer size is also the target length
+                // for dynamic resampling
+                2 * self.audio_buffer_size
+            } else {
+                self.audio_buffer_size
+            };
+
+            if self.audio_sync {
+                // Block until audio queue is not full
+                while self.audio_queue_len_samples() > audio_buffer_threshold {
+                    jgenesis_common::sleep(Duration::from_micros(250));
                 }
-                // Enqueue as normal if audio sync is disabled but dynamic resampling is enabled
+            } else if self.audio_queue_len_samples() > audio_buffer_threshold {
+                // Audio queue is full; drop samples
+                log::debug!("Dropping audio samples because buffer is full");
+                self.audio_buffer.clear();
+                return Ok(());
             }
 
             if log::log_enabled!(log::Level::Debug) && self.audio_queue.size() == 0 {
