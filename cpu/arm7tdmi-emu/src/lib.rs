@@ -1,7 +1,7 @@
 pub mod bus;
 mod instructions;
 
-use crate::bus::{BusInterface, MemoryCycle};
+use crate::bus::BusInterface;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 
@@ -22,8 +22,11 @@ impl CpuState {
 pub enum CpuMode {
     #[default]
     User = 0x10,
+    Fiq = 0x11,
     Irq = 0x12,
     Supervisor = 0x13,
+    Abort = 0x17,
+    Undefined = 0x1B,
     // Arbitrary unused mode value
     Illegal = 0x1E,
     System = 0x1F,
@@ -33,8 +36,11 @@ impl CpuMode {
     fn from_bits(bits: u32) -> Self {
         match bits {
             0x10 => Self::User,
+            0x11 => Self::Fiq,
             0x12 => Self::Irq,
             0x13 => Self::Supervisor,
+            0x17 => Self::Abort,
+            0x1B => Self::Undefined,
             0x1F => Self::System,
             _ => Self::Illegal,
         }
@@ -82,18 +88,27 @@ impl From<u32> for StatusRegister {
 struct Registers {
     // "General-purpose" registers; R15 is the program counter
     r: [u32; 16],
-    // R13 and R14 are banked by mode; these are updated on mode change
+    // R13 and R14 are banked by mode
     r13_usr: u32,
     r14_usr: u32,
     r13_svc: u32,
     r14_svc: u32,
     r13_irq: u32,
     r14_irq: u32,
+    r13_und: u32,
+    r14_und: u32,
+    r13_fiq: u32,
+    r14_fiq: u32,
+    // R8-R12 are banked only for FIQ vs. non-FIQ
+    fiq_r_8_12: [u32; 5],
+    other_r_8_12: [u32; 5],
     // Condition codes and control register
     cpsr: StatusRegister,
     // Previous condition codes and control registers, banked by CPU mode (excluding usr)
     spsr_svc: StatusRegister,
     spsr_irq: StatusRegister,
+    spsr_und: StatusRegister,
+    spsr_fiq: StatusRegister,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -125,34 +140,141 @@ impl Arm7Tdmi {
         self.registers.spsr_svc = 0_u32.into();
         self.registers.spsr_irq = 0_u32.into();
 
-        self.refill_arm_prefetch(bus);
+        self.refill_prefetch(bus);
     }
 
     pub fn execute_instruction(&mut self, bus: &mut impl BusInterface) -> u32 {
         let opcode = self.prefetch[0];
 
-        let cycles = match self.registers.cpsr.state {
+        match self.registers.cpsr.state {
             CpuState::Arm => self.execute_arm_opcode(opcode, bus),
-            CpuState::Thumb => todo!("execute Thumb opcode"),
-        };
-
-        cycles + bus.access_cycles()
+            CpuState::Thumb => todo!("execute Thumb opcode {opcode:04X}"),
+        }
     }
 
-    fn refill_arm_prefetch(&mut self, bus: &mut impl BusInterface) {
-        self.fetch_arm_opcode(MemoryCycle::NonSequential, bus);
-        self.fetch_arm_opcode(MemoryCycle::Sequential, bus);
+    fn refill_prefetch(&mut self, bus: &mut (impl BusInterface + ?Sized)) {
+        match self.registers.cpsr.state {
+            CpuState::Arm => {
+                self.fetch_arm_opcode(bus);
+                self.fetch_arm_opcode(bus);
+            }
+            CpuState::Thumb => todo!("Thumb fetch"),
+        }
     }
 
-    fn fetch_arm_opcode(&mut self, cycle: MemoryCycle, bus: &mut (impl BusInterface + ?Sized)) {
+    fn fetch_opcode(&mut self, bus: &mut (impl BusInterface + ?Sized)) {
+        match self.registers.cpsr.state {
+            CpuState::Arm => self.fetch_arm_opcode(bus),
+            CpuState::Thumb => todo!("Thumb fetch"),
+        }
+    }
+
+    fn fetch_arm_opcode(&mut self, bus: &mut (impl BusInterface + ?Sized)) {
         self.prefetch[0] = self.prefetch[1];
-        self.prefetch[1] = bus.read_word(self.registers.r[15], cycle);
+        self.prefetch[1] = bus.read_word(self.registers.r[15]);
         self.registers.r[15] = self.registers.r[15].wrapping_add(4);
 
         log::trace!(
-            "Fetched opcode {:08X} from {:08X}",
+            "Fetched ARM opcode {:08X} from {:08X}",
             self.prefetch[1],
             self.registers.r[15].wrapping_sub(4)
         );
+    }
+
+    fn write_cpsr(&mut self, value: u32) {
+        log::trace!("CPSR write: {value:08X}");
+
+        if self.registers.cpsr.mode != CpuMode::User {
+            let new_mode = CpuMode::from_bits(value);
+            self.change_mode(new_mode);
+
+            self.registers.cpsr = value.into();
+        } else {
+            // Only condition codes can be modified in user mode
+            self.write_cpsr_flags(value);
+        }
+    }
+
+    fn write_cpsr_flags(&mut self, value: u32) {
+        let new_cpsr: StatusRegister = value.into();
+        self.registers.cpsr = StatusRegister {
+            sign: new_cpsr.sign,
+            zero: new_cpsr.zero,
+            carry: new_cpsr.carry,
+            overflow: new_cpsr.overflow,
+            ..self.registers.cpsr
+        };
+    }
+
+    fn change_mode(&mut self, new_mode: CpuMode) {
+        if new_mode == self.registers.cpsr.mode {
+            return;
+        }
+
+        log::trace!("Changing CPU mode to {new_mode:?}");
+
+        // Bank R13 and R14, as well as R8-12 if changing out of FIQ mode
+        match self.registers.cpsr.mode {
+            CpuMode::User | CpuMode::System => {
+                self.registers.r13_usr = self.registers.r[13];
+                self.registers.r14_usr = self.registers.r[14];
+            }
+            CpuMode::Supervisor => {
+                self.registers.r13_svc = self.registers.r[13];
+                self.registers.r14_svc = self.registers.r[14];
+            }
+            CpuMode::Irq => {
+                self.registers.r13_irq = self.registers.r[13];
+                self.registers.r14_irq = self.registers.r[14];
+            }
+            CpuMode::Undefined => {
+                self.registers.r13_und = self.registers.r[13];
+                self.registers.r14_und = self.registers.r[14];
+            }
+            CpuMode::Fiq => {
+                self.registers.r13_fiq = self.registers.r[13];
+                self.registers.r14_fiq = self.registers.r[14];
+
+                // Bank and update R8-12 if switching out of FIQ mode
+                self.registers.fiq_r_8_12.copy_from_slice(&self.registers.r[8..13]);
+                self.registers.r[8..13].copy_from_slice(&self.registers.other_r_8_12);
+            }
+            _ => {
+                log::error!("Unexpected mode {:?}", self.registers.cpsr.mode);
+            }
+        }
+
+        // Update R13 and R14 to banked values, as well as R8-12 if switching into FIQ mode
+        match new_mode {
+            CpuMode::User | CpuMode::System => {
+                self.registers.r[13] = self.registers.r13_usr;
+                self.registers.r[14] = self.registers.r14_usr;
+            }
+            CpuMode::Supervisor => {
+                self.registers.r[13] = self.registers.r13_svc;
+                self.registers.r[14] = self.registers.r14_svc;
+            }
+            CpuMode::Irq => {
+                self.registers.r[13] = self.registers.r13_irq;
+                self.registers.r[14] = self.registers.r14_irq;
+            }
+            CpuMode::Undefined => {
+                self.registers.r[13] = self.registers.r13_und;
+                self.registers.r[14] = self.registers.r14_und;
+            }
+            CpuMode::Fiq => {
+                // Bank and update R8-12 if switching into FIQ mode
+                self.registers.other_r_8_12.copy_from_slice(&self.registers.r[8..13]);
+                self.registers.r[8..13].copy_from_slice(&self.registers.fiq_r_8_12);
+
+                self.registers.r[13] = self.registers.r13_fiq;
+                self.registers.r[14] = self.registers.r14_fiq;
+            }
+            _ => {
+                log::error!("Unexpected mode {new_mode:?}");
+            }
+        }
+
+        self.registers.cpsr.mode = new_mode;
     }
 }
