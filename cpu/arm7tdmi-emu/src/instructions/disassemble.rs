@@ -1,45 +1,62 @@
 use crate::instructions::Condition;
 use jgenesis_common::num::GetBit;
 
-pub fn arm(opcode: u32) -> String {
-    let cond = Condition::from_arm_opcode(opcode).suffix();
+struct DecodeTableEntry {
+    mask: u32,
+    target: u32,
+    decode_fn: fn(u32) -> String,
+}
 
-    if opcode & 0x0FFFFFF0 == 0x012FFF10 {
-        todo!("disassemble BX {opcode:08X}")
+impl DecodeTableEntry {
+    const fn new(mask: u32, target: u32, decode_fn: fn(u32) -> String) -> Self {
+        Self { mask, target, decode_fn }
     }
+}
 
-    if opcode & 0x0E000000 == 0x0A000000 {
-        // B / BL
-        let link = if opcode.bit(24) { "L" } else { "" };
-        let offset = (((opcode & 0xFFFFFF) as i32) << 8) >> 6;
-        return format!("B{link}{cond} {offset}");
-    }
-
-    if opcode & 0x0FC000F0 == 0x00000090 {
+const ARM_DECODE_TABLE: &[DecodeTableEntry] = &[
+    DecodeTableEntry::new(0x0FFFFFF0, 0x012FFF10, arm_bx),
+    DecodeTableEntry::new(0x0E000000, 0x0A000000, arm_b),
+    DecodeTableEntry::new(0x0FC000F0, 0x00000090, |opcode| {
         todo!("disassemble MUL/MLA {opcode:08X}")
-    }
-
-    if opcode & 0x0FC000F0 == 0x00400090 {
+    }),
+    DecodeTableEntry::new(0x0FC000F0, 0x00400090, |opcode| {
         todo!("disassemble MULL/MLAL {opcode:08X}")
-    }
-
-    if opcode & 0x0FB00FF0 == 0x01000090 {
+    }),
+    DecodeTableEntry::new(0x0FB00FF0, 0x01000090, |opcode| {
         todo!("disassemble single data swap {opcode:08X}")
-    }
-
-    if opcode & 0x0E400F90 == 0x00000090 {
+    }),
+    DecodeTableEntry::new(0x0E400F90, 0x00000090, |opcode| {
         todo!("disassemble halfword transfer register offset {opcode:08X}")
-    }
+    }),
+    DecodeTableEntry::new(0x0E400090, 0x00400090, arm_ldrh_immediate),
+    DecodeTableEntry::new(0x0FBF0FFF, 0x10F00000, arm_mrs),
+    DecodeTableEntry::new(0x0DBEF000, 0x0128F000, arm_msr),
+    DecodeTableEntry::new(0x0C000000, 0x00000000, arm_alu),
+    DecodeTableEntry::new(0x0E000010, 0x06000010, |_| "Undefined".into()),
+    DecodeTableEntry::new(0x0C000000, 0x04000000, arm_ldr),
+];
 
-    if opcode & 0x0E400090 == 0x00400090 {
-        return arm_ldrh_immediate(opcode);
-    }
-
-    if opcode & 0x0C000000 == 0x00000000 {
-        return arm_alu(opcode);
+pub fn arm(opcode: u32) -> String {
+    for &DecodeTableEntry { mask, target, decode_fn } in ARM_DECODE_TABLE {
+        if opcode & mask == target {
+            return decode_fn(opcode);
+        }
     }
 
     todo!("disassemble {opcode:08X}")
+}
+
+fn arm_bx(opcode: u32) -> String {
+    let cond = Condition::from_arm_opcode(opcode).suffix();
+    let rn = opcode & 0xF;
+    format!("BX{cond} R{rn}")
+}
+
+fn arm_b(opcode: u32) -> String {
+    let cond = Condition::from_arm_opcode(opcode).suffix();
+    let link = if opcode.bit(24) { "L" } else { "" };
+    let offset = (((opcode & 0xFFFFFF) as i32) << 8) >> 6;
+    format!("B{link}{cond} {offset}")
 }
 
 fn arm_alu(opcode: u32) -> String {
@@ -80,13 +97,7 @@ fn arm_alu(opcode: u32) -> String {
 
         let shift = (opcode >> 4) & 0xFF;
         if shift != 0 {
-            let shift_type = match (shift >> 1) & 3 {
-                0 => "LSL",
-                1 => "LSR",
-                2 => "ASR",
-                3 => "ROR",
-                _ => unreachable!(),
-            };
+            let shift_type = shift_type_str(shift >> 1);
 
             if shift.bit(0) {
                 let rs = shift >> 4;
@@ -113,6 +124,88 @@ fn arm_alu(opcode: u32) -> String {
     }
 }
 
+fn shift_type_str(shift_type: u32) -> &'static str {
+    match shift_type & 3 {
+        0 => "LSL",
+        1 => "LSR",
+        2 => "ASR",
+        3 => "ROR",
+        _ => unreachable!(),
+    }
+}
+
+fn arm_mrs(opcode: u32) -> String {
+    let cond = Condition::from_arm_opcode(opcode).suffix();
+    let psr = if opcode.bit(22) { "SPSR" } else { "CPSR" };
+    let rd = (opcode >> 12) & 0xF;
+
+    format!("MRS{cond} R{rd}, {psr}")
+}
+
+fn arm_msr(opcode: u32) -> String {
+    let cond = Condition::from_arm_opcode(opcode).suffix();
+    let psr = if opcode.bit(22) { "SPSR" } else { "CPSR" };
+    let flags_only = if opcode.bit(16) { "" } else { "_flg" };
+
+    let expression = if !opcode.bit(16) && opcode.bit(25) {
+        let immediate = opcode & 0xFF;
+        let rotation = ((opcode >> 8) & 0xF) << 1;
+        let value = immediate.rotate_right(rotation);
+        format!("#0x{value:X}")
+    } else {
+        let rm = opcode & 0xF;
+        format!("R{rm}")
+    };
+
+    format!("MSR{cond} {psr}{flags_only}, {expression}")
+}
+
+fn arm_ldr(opcode: u32) -> String {
+    let cond = Condition::from_arm_opcode(opcode).suffix();
+
+    let rn = (opcode >> 16) & 0xF;
+    let rd = (opcode >> 12) & 0xF;
+    let load = opcode.bit(20);
+    let write_back = opcode.bit(21);
+    let byte = opcode.bit(22);
+    let add = opcode.bit(23);
+    let pre_indexed = opcode.bit(24);
+    let immediate = !opcode.bit(25);
+
+    let add_str = if add { "" } else { "-" };
+
+    let offset = if immediate {
+        let offset = opcode & 0xFFF;
+        format!("#{add_str}0x{offset:X}")
+    } else {
+        let rm = opcode & 0xF;
+        let shift = (opcode >> 4) & 0xFF;
+        let shift_type = shift_type_str(shift >> 1);
+        let mut shift_amount = shift >> 3;
+        if shift_type != "LSL" && shift_amount == 0 {
+            shift_amount = 32;
+        }
+
+        if shift == 0 {
+            format!("{add_str}R{rm}")
+        } else {
+            format!("{add_str}R{rm}, {shift_type} {shift_amount}")
+        }
+    };
+
+    let address = if pre_indexed {
+        let write_back_str = if write_back { " {!}" } else { "" };
+        format!("[R{rn}, {offset}]{write_back_str}")
+    } else {
+        format!("[R{rn}], {offset}")
+    };
+
+    let operation = if load { "LDR" } else { "STR" };
+    let byte_suffix = if byte { "B" } else { "" };
+
+    format!("{operation}{cond}{byte_suffix} R{rd}, {address}")
+}
+
 fn arm_ldrh_immediate(opcode: u32) -> String {
     let cond = Condition::from_arm_opcode(opcode).suffix();
 
@@ -130,7 +223,7 @@ fn arm_ldrh_immediate(opcode: u32) -> String {
     let rn = (opcode >> 16) & 0xF;
 
     let offset = ((opcode >> 4) & 0xF0) | (opcode & 0xF);
-    let sign = if opcode.bit(23) { "" } else { "-" };
+    let sign = if opcode.bit(23) { "+" } else { "-" };
 
     let write_back = if opcode.bit(21) { " {!}" } else { "" };
 

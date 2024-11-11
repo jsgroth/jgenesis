@@ -1,6 +1,7 @@
+use crate::control::ControlRegisters;
 use crate::memory::Memory;
 use crate::ppu::Ppu;
-use arm7tdmi_emu::bus::{BusInterface, MemoryCycle};
+use arm7tdmi_emu::bus::BusInterface;
 
 // $00000000-$00003FFF: BIOS ROM (16KB)
 pub const BIOS_START: u32 = 0x00000000;
@@ -49,25 +50,39 @@ pub const CARTRIDGE_RAM_END: u32 = 0x0E00FFFF;
 pub struct Bus<'a> {
     pub ppu: &'a mut Ppu,
     pub memory: &'a mut Memory,
+    pub control: &'a mut ControlRegisters,
 }
 
 impl Bus<'_> {
     fn write_io_register(&mut self, address: u32, value: u16) {
         match address {
             0x04000000..=0x04000056 => self.ppu.write_register(address, value),
+            0x04000208 => self.control.write_ime(value.into()),
             _ => todo!("I/O register write {address:08X} {value:04X}"),
+        }
+    }
+
+    // TODO maybe collapse this to not be as separate from the u16 version
+    fn write_io_register_u32(&mut self, address: u32, value: u32) {
+        match address {
+            0x04000000..=0x004000056 => {
+                self.ppu.write_register(address, value as u16);
+                self.ppu.write_register(address + 2, (value >> 16) as u16);
+            }
+            0x04000208 => self.control.write_ime(value),
+            _ => todo!("I/O register write {address:08X} {value:08X}"),
         }
     }
 }
 
 impl BusInterface for Bus<'_> {
     #[inline]
-    fn read_byte(&mut self, address: u32, cycle: MemoryCycle) -> u8 {
+    fn read_byte(&mut self, address: u32) -> u8 {
         todo!("read byte {address:08X}")
     }
 
     #[inline]
-    fn read_halfword(&mut self, address: u32, cycle: MemoryCycle) -> u16 {
+    fn read_halfword(&mut self, address: u32) -> u16 {
         match address {
             CARTRIDGE_ROM_0_START..=CARTRIDGE_ROM_0_END => {
                 self.memory.cartridge.read_rom_halfword(address)
@@ -78,7 +93,7 @@ impl BusInterface for Bus<'_> {
     }
 
     #[inline]
-    fn read_word(&mut self, address: u32, cycle: MemoryCycle) -> u32 {
+    fn read_word(&mut self, address: u32) -> u32 {
         match address {
             CARTRIDGE_ROM_0_START..=CARTRIDGE_ROM_0_END => {
                 self.memory.cartridge.read_rom_word(address)
@@ -89,12 +104,12 @@ impl BusInterface for Bus<'_> {
     }
 
     #[inline]
-    fn write_byte(&mut self, address: u32, value: u8, cycle: MemoryCycle) {
+    fn write_byte(&mut self, address: u32, value: u8) {
         todo!("write byte {address:08X} {value:02X}")
     }
 
     #[inline]
-    fn write_halfword(&mut self, address: u32, value: u16, cycle: MemoryCycle) {
+    fn write_halfword(&mut self, address: u32, value: u16) {
         match address {
             IWRAM_START..=IWRAM_END => self.memory.write_iwram_halfword(address, value),
             MMIO_START..=MMIO_END => self.write_io_register(address, value),
@@ -104,16 +119,11 @@ impl BusInterface for Bus<'_> {
     }
 
     #[inline]
-    fn write_word(&mut self, address: u32, value: u32, cycle: MemoryCycle) {
+    fn write_word(&mut self, address: u32, value: u32) {
         match address {
             IWRAM_START..=IWRAM_END => self.memory.write_iwram_word(address, value),
+            MMIO_START..=MMIO_END => self.write_io_register_u32(address, value),
             _ => todo!("write word {address:08X} {value:08X}"),
         }
-    }
-
-    #[inline]
-    fn access_cycles(&self) -> u32 {
-        // TODO
-        0
     }
 }

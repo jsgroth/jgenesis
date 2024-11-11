@@ -1,5 +1,6 @@
 use crate::bus::Bus;
 use crate::cartridge::Cartridge;
+use crate::control::ControlRegisters;
 use crate::input::GbaInputs;
 use crate::memory::Memory;
 use crate::ppu::{Ppu, PpuTickEffect};
@@ -41,6 +42,7 @@ pub struct GameBoyAdvanceEmulator {
     ppu: Ppu,
     #[partial_clone(partial)]
     memory: Memory,
+    control: ControlRegisters,
     ppu_mclk_counter: u32,
 }
 
@@ -54,8 +56,13 @@ impl GameBoyAdvanceEmulator {
         let cartridge = Cartridge::new(cartridge_rom);
         let memory = Memory::new(cartridge, bios_rom)?;
 
-        let mut emulator =
-            Self { cpu: Arm7Tdmi::new(), ppu: Ppu::new(), memory, ppu_mclk_counter: 0 };
+        let mut emulator = Self {
+            cpu: Arm7Tdmi::new(),
+            ppu: Ppu::new(),
+            control: ControlRegisters::new(),
+            memory,
+            ppu_mclk_counter: 0,
+        };
 
         emulator.cpu.reset(
             Arm7TdmiResetArgs {
@@ -65,7 +72,11 @@ impl GameBoyAdvanceEmulator {
                 sp_irq: 0x03007FA0,
                 mode: CpuMode::System,
             },
-            &mut Bus { ppu: &mut emulator.ppu, memory: &mut emulator.memory },
+            &mut Bus {
+                ppu: &mut emulator.ppu,
+                memory: &mut emulator.memory,
+                control: &mut emulator.control,
+            },
         );
 
         Ok(emulator)
@@ -104,8 +115,11 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
-        let cpu_cycles =
-            self.cpu.execute_instruction(&mut Bus { ppu: &mut self.ppu, memory: &mut self.memory });
+        let cpu_cycles = self.cpu.execute_instruction(&mut Bus {
+            ppu: &mut self.ppu,
+            memory: &mut self.memory,
+            control: &mut self.control,
+        });
 
         self.ppu_mclk_counter += cpu_cycles;
         let ppu_cycles = self.ppu_mclk_counter / PPU_DIVIDER;
