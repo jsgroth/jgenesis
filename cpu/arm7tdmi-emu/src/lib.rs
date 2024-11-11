@@ -1,4 +1,5 @@
 pub mod bus;
+mod instructions;
 
 use crate::bus::{BusInterface, MemoryCycle};
 use bincode::{Decode, Encode};
@@ -124,29 +125,34 @@ impl Arm7Tdmi {
         self.registers.spsr_svc = 0_u32.into();
         self.registers.spsr_irq = 0_u32.into();
 
-        self.refill_prefetch(bus);
+        self.refill_arm_prefetch(bus);
     }
 
     pub fn execute_instruction(&mut self, bus: &mut impl BusInterface) -> u32 {
         let opcode = self.prefetch[0];
 
-        todo!("execute opcode {opcode:08X}")
+        let cycles = match self.registers.cpsr.state {
+            CpuState::Arm => self.execute_arm_opcode(opcode, bus),
+            CpuState::Thumb => todo!("execute Thumb opcode"),
+        };
+
+        cycles + bus.access_cycles()
     }
 
-    fn refill_prefetch(&mut self, bus: &mut impl BusInterface) {
-        self.fetch_opcode(MemoryCycle::NonSequential, bus);
-        self.fetch_opcode(MemoryCycle::Sequential, bus);
+    fn refill_arm_prefetch(&mut self, bus: &mut impl BusInterface) {
+        self.fetch_arm_opcode(MemoryCycle::NonSequential, bus);
+        self.fetch_arm_opcode(MemoryCycle::Sequential, bus);
     }
 
-    fn fetch_opcode(&mut self, cycle: MemoryCycle, bus: &mut impl BusInterface) {
+    fn fetch_arm_opcode(&mut self, cycle: MemoryCycle, bus: &mut (impl BusInterface + ?Sized)) {
         self.prefetch[0] = self.prefetch[1];
+        self.prefetch[1] = bus.read_word(self.registers.r[15], cycle);
+        self.registers.r[15] = self.registers.r[15].wrapping_add(4);
 
-        match self.registers.cpsr.state {
-            CpuState::Arm => {
-                self.prefetch[1] = bus.read_word(self.registers.r[15], cycle);
-                self.registers.r[15] = self.registers.r[15].wrapping_add(4);
-            }
-            CpuState::Thumb => todo!("thumb single prefetch"),
-        }
+        log::trace!(
+            "Fetched opcode {:08X} from {:08X}",
+            self.prefetch[1],
+            self.registers.r[15].wrapping_sub(4)
+        );
     }
 }
