@@ -27,8 +27,9 @@ pub struct Cartridge {
 }
 
 impl Cartridge {
-    pub fn new(rom: Vec<u8>) -> Self {
-        // TODO extend ROM to next highest power of 2 len
+    pub fn new(mut rom: Vec<u8>) -> Self {
+        jgenesis_common::mirror_to_power_of_two(&mut rom);
+
         Self { rom: Rom(rom.into_boxed_slice()) }
     }
 

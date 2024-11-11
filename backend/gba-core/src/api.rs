@@ -1,14 +1,14 @@
-use crate::bus;
 use crate::bus::Bus;
 use crate::cartridge::Cartridge;
 use crate::input::GbaInputs;
 use crate::memory::Memory;
-use crate::ppu::Ppu;
+use crate::ppu::{Ppu, PpuTickEffect};
+use crate::{bus, ppu};
 use arm7tdmi_emu::{Arm7Tdmi, Arm7TdmiResetArgs, CpuMode};
 use bincode::{Decode, Encode};
 use jgenesis_common::frontend::{
-    AudioOutput, EmulatorTrait, PartialClone, Renderer, SaveWriter, TickEffect, TickResult,
-    TimingMode,
+    AudioOutput, EmulatorTrait, PartialClone, PixelAspectRatio, Renderer, SaveWriter, TickEffect,
+    TickResult, TimingMode,
 };
 use std::fmt::{Debug, Display};
 use thiserror::Error;
@@ -70,6 +70,14 @@ impl GameBoyAdvanceEmulator {
 
         Ok(emulator)
     }
+
+    fn render_frame<R: Renderer>(&self, renderer: &mut R) -> Result<(), R::Err> {
+        renderer.render_frame(
+            self.ppu.frame_buffer(),
+            ppu::FRAME_SIZE,
+            Some(PixelAspectRatio::SQUARE),
+        )
+    }
 }
 
 impl EmulatorTrait for GameBoyAdvanceEmulator {
@@ -103,7 +111,10 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
         let ppu_cycles = self.ppu_mclk_counter / PPU_DIVIDER;
         self.ppu_mclk_counter -= ppu_cycles * PPU_DIVIDER;
 
-        self.ppu.tick(ppu_cycles);
+        if self.ppu.tick(ppu_cycles) == PpuTickEffect::FrameComplete {
+            self.render_frame(renderer).map_err(GbaError::Render)?;
+            return Ok(TickEffect::FrameRendered);
+        }
 
         Ok(TickEffect::None)
     }
