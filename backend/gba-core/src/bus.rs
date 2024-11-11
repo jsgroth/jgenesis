@@ -51,6 +51,15 @@ pub struct Bus<'a> {
     pub memory: &'a mut Memory,
 }
 
+impl Bus<'_> {
+    fn write_io_register(&mut self, address: u32, value: u16) {
+        match address {
+            0x04000000..=0x04000056 => self.ppu.write_register(address, value),
+            _ => todo!("I/O register write {address:08X} {value:04X}"),
+        }
+    }
+}
+
 impl BusInterface for Bus<'_> {
     #[inline]
     fn read_byte(&mut self, address: u32, cycle: MemoryCycle) -> u8 {
@@ -88,6 +97,8 @@ impl BusInterface for Bus<'_> {
     fn write_halfword(&mut self, address: u32, value: u16, cycle: MemoryCycle) {
         match address {
             IWRAM_START..=IWRAM_END => self.memory.write_iwram_halfword(address, value),
+            MMIO_START..=MMIO_END => self.write_io_register(address, value),
+            VRAM_START..=VRAM_END => self.ppu.write_vram_halfword(address, value),
             _ => todo!("write halfword {address:08X} {value:04X}"),
         }
     }
