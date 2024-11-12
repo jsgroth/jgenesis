@@ -206,9 +206,7 @@ impl ArmDecodeEntry {
 const ARM_DECODE_TABLE: &[ArmDecodeEntry] = &[
     ArmDecodeEntry::new(0b1111_1111_1111, 0b0001_0010_0001, arm_bx),
     ArmDecodeEntry::new(0b1111_1100_1111, 0b0000_0000_1001, arm_multiply),
-    ArmDecodeEntry::new(0b1111_1000_1111, 0b0000_1000_1001, |_, opcode, _| {
-        todo!("MULL/MLAL {opcode:08X}")
-    }),
+    ArmDecodeEntry::new(0b1111_1000_1111, 0b0000_1000_1001, arm_multiply_long),
     ArmDecodeEntry::new(0b1111_1011_1111, 0b0001_0000_1001, |_, opcode, _| {
         todo!("SWP {opcode:08X}")
     }),
@@ -551,7 +549,11 @@ fn alu_register_shift<const OPCODE_LEN: u32>(
     rs: u32,
     bus: &mut dyn BusInterface,
 ) -> u32 {
-    let value = cpu.registers.r[rm as usize];
+    let mut value = cpu.registers.r[rm as usize];
+    if rm == 15 {
+        value = value.wrapping_add(OPCODE_LEN);
+    }
+
     let shift = cpu.registers.r[rs as usize];
 
     let (operand2, shifter_out) = if shift == 0 {
@@ -735,6 +737,76 @@ fn multiply(
     // 1S + m*I
     // +1I for MLA
     1 + m + u32::from(accumulate)
+}
+
+fn arm_multiply_long(cpu: &mut Arm7Tdmi, opcode: u32, bus: &mut dyn BusInterface) -> u32 {
+    let rm = opcode & 0xF;
+    let rs = (opcode >> 8) & 0xF;
+    let rdlo = (opcode >> 12) & 0xF;
+    let rdhi = (opcode >> 16) & 0xF;
+    let set_condition_codes = opcode.bit(20);
+    let accumulate = opcode.bit(21);
+    let signed = opcode.bit(22);
+
+    multiply_long(cpu, rm, rs, rdlo, rdhi, set_condition_codes, accumulate, signed, bus)
+}
+
+#[inline]
+fn multiply_long(
+    cpu: &mut Arm7Tdmi,
+    rm: u32,
+    rs: u32,
+    rdlo: u32,
+    rdhi: u32,
+    set_condition_codes: bool,
+    accumulate: bool,
+    signed: bool,
+    bus: &mut dyn BusInterface,
+) -> u32 {
+    cpu.fetch_opcode(bus);
+
+    let operand = cpu.registers.r[rs as usize];
+    let product = if signed {
+        let mut product =
+            i64::from(cpu.registers.r[rm as usize] as i32) * i64::from(operand as i32);
+        if accumulate {
+            let existing = (i64::from(cpu.registers.r[rdhi as usize]) << 32)
+                | i64::from(cpu.registers.r[rdlo as usize]);
+            product = product.wrapping_add(existing);
+        }
+        product as u64
+    } else {
+        let mut product = u64::from(cpu.registers.r[rm as usize]) * u64::from(operand);
+        if accumulate {
+            let existing = (u64::from(cpu.registers.r[rdhi as usize]) << 32)
+                | u64::from(cpu.registers.r[rdlo as usize]);
+            product = product.wrapping_add(existing);
+        }
+        product
+    };
+
+    cpu.registers.r[rdlo as usize] = product as u32;
+    cpu.registers.r[rdhi as usize] = (product >> 32) as u32;
+
+    if set_condition_codes {
+        cpu.registers.cpsr.sign = product.bit(63);
+        cpu.registers.cpsr.zero = product == 0;
+        // TODO carry and overflow flags?
+    }
+
+    let m = if operand & 0xFFFFFF00 == 0 || (signed && operand & 0xFFFFFF00 == 0xFFFFFF00) {
+        1
+    } else if operand & 0xFFFF0000 == 0 || (signed && operand & 0xFFFF0000 == 0xFFFF0000) {
+        2
+    } else if operand & 0xFF000000 == 0 || (signed && operand & 0xFF000000 == 0xFF000000) {
+        3
+    } else {
+        4
+    };
+
+    // MULL: 1S + (m+1)*I
+    // +1I for MLAL
+    2 + m + u32::from(accumulate)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
