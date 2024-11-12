@@ -148,7 +148,7 @@ impl Arm7Tdmi {
 
         match self.registers.cpsr.state {
             CpuState::Arm => self.execute_arm_opcode(opcode, bus),
-            CpuState::Thumb => todo!("execute Thumb opcode {opcode:04X}"),
+            CpuState::Thumb => self.execute_thumb_opcode(opcode as u16, bus),
         }
     }
 
@@ -158,14 +158,17 @@ impl Arm7Tdmi {
                 self.fetch_arm_opcode(bus);
                 self.fetch_arm_opcode(bus);
             }
-            CpuState::Thumb => todo!("Thumb fetch"),
+            CpuState::Thumb => {
+                self.fetch_thumb_opcode(bus);
+                self.fetch_thumb_opcode(bus);
+            }
         }
     }
 
     fn fetch_opcode(&mut self, bus: &mut (impl BusInterface + ?Sized)) {
         match self.registers.cpsr.state {
             CpuState::Arm => self.fetch_arm_opcode(bus),
-            CpuState::Thumb => todo!("Thumb fetch"),
+            CpuState::Thumb => self.fetch_thumb_opcode(bus),
         }
     }
 
@@ -178,6 +181,18 @@ impl Arm7Tdmi {
             "Fetched ARM opcode {:08X} from {:08X}",
             self.prefetch[1],
             self.registers.r[15].wrapping_sub(4)
+        );
+    }
+
+    fn fetch_thumb_opcode(&mut self, bus: &mut (impl BusInterface + ?Sized)) {
+        self.prefetch[0] = self.prefetch[1];
+        self.prefetch[1] = bus.read_halfword(self.registers.r[15]).into();
+        self.registers.r[15] = self.registers.r[15].wrapping_add(2);
+
+        log::trace!(
+            "Fetched Thumb opcode {:04X} from {:08X}",
+            self.prefetch[1],
+            self.registers.r[15].wrapping_sub(2)
         );
     }
 
