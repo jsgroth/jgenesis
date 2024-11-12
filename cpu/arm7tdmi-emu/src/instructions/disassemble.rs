@@ -16,9 +16,7 @@ impl DecodeTableEntry {
 const ARM_DECODE_TABLE: &[DecodeTableEntry] = &[
     DecodeTableEntry::new(0x0FFFFFF0, 0x012FFF10, arm_bx),
     DecodeTableEntry::new(0x0E000000, 0x0A000000, arm_b),
-    DecodeTableEntry::new(0x0FC000F0, 0x00000090, |opcode| {
-        todo!("disassemble MUL/MLA {opcode:08X}")
-    }),
+    DecodeTableEntry::new(0x0FC000F0, 0x00000090, arm_mul),
     DecodeTableEntry::new(0x0FC000F0, 0x00400090, |opcode| {
         todo!("disassemble MULL/MLAL {opcode:08X}")
     }),
@@ -34,6 +32,7 @@ const ARM_DECODE_TABLE: &[DecodeTableEntry] = &[
     DecodeTableEntry::new(0x0C000000, 0x00000000, arm_alu),
     DecodeTableEntry::new(0x0E000010, 0x06000010, |_| "Undefined".into()),
     DecodeTableEntry::new(0x0C000000, 0x04000000, arm_ldr),
+    DecodeTableEntry::new(0x0E000000, 0x08000000, arm_ldm_stm),
 ];
 
 pub fn arm(opcode: u32) -> String {
@@ -160,6 +159,22 @@ fn arm_msr(opcode: u32) -> String {
     format!("MSR{cond} {psr}{flags_only}, {expression}")
 }
 
+fn arm_mul(opcode: u32) -> String {
+    let cond = Condition::from_arm_opcode(opcode).suffix();
+    let rm = opcode & 0xF;
+    let rs = (opcode >> 8) & 0xF;
+    let rn = (opcode >> 12) & 0xF;
+    let rd = (opcode >> 16) & 0xF;
+    let s = if opcode.bit(20) { "S" } else { "" };
+    let accumulate = opcode.bit(21);
+
+    if accumulate {
+        format!("MLA{cond}{s} R{rd}, R{rm}, R{rs}, R{rn}")
+    } else {
+        format!("MUL{cond}{s} R{rd}, R{rm}, R{rs}")
+    }
+}
+
 fn arm_ldr(opcode: u32) -> String {
     let cond = Condition::from_arm_opcode(opcode).suffix();
 
@@ -234,4 +249,251 @@ fn arm_ldrh_immediate(opcode: u32) -> String {
     };
 
     format!("{operation}{cond}{data_type} R{rd}, {address}")
+}
+
+fn arm_ldm_stm(opcode: u32) -> String {
+    let cond = Condition::from_arm_opcode(opcode).suffix();
+
+    let rlist = (0..16)
+        .filter_map(|i| opcode.bit(i).then(|| format!("R{i}")))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let rn = (opcode >> 16) & 0xF;
+    let load = opcode.bit(20);
+    let write_back = opcode.bit(21);
+    let s_bit = opcode.bit(22);
+    let up = opcode.bit(23);
+    let pre = opcode.bit(24);
+
+    let write_back_str = if write_back { "!" } else { "" };
+    let s_bit_str = if s_bit { "^" } else { "" };
+    let up_str = if up { "I" } else { "D" };
+    let pre_str = if pre { "B" } else { "A" };
+
+    let op = if load { "LDM" } else { "STM" };
+
+    format!("{op}{cond}{up_str}{pre_str} R{rn}{write_back_str} {{{rlist}}}{s_bit_str}")
+}
+
+struct ThumbDecodeEntry {
+    mask: u16,
+    target: u16,
+    decode_fn: fn(u16) -> String,
+}
+
+impl ThumbDecodeEntry {
+    const fn new(mask: u16, target: u16, decode_fn: fn(u16) -> String) -> Self {
+        Self { mask, target, decode_fn }
+    }
+}
+
+const THUMB_DECODE_TABLE: &[ThumbDecodeEntry] = &[
+    ThumbDecodeEntry::new(0xF800, 0x1800, thumb_2),
+    ThumbDecodeEntry::new(0xE000, 0x0000, thumb_1),
+    ThumbDecodeEntry::new(0xE000, 0x2000, thumb_3),
+    ThumbDecodeEntry::new(0xFC00, 0x4000, thumb_4),
+    ThumbDecodeEntry::new(0xFC00, 0x4400, thumb_5),
+    ThumbDecodeEntry::new(0xF800, 0x4800, thumb_6),
+    ThumbDecodeEntry::new(0xF200, 0x5000, thumb_7),
+    ThumbDecodeEntry::new(0xF200, 0x5200, |opcode| todo!("Thumb format 8 {opcode:04X}")),
+    ThumbDecodeEntry::new(0xE000, 0x6000, thumb_9),
+    ThumbDecodeEntry::new(0xFF00, 0xB000, |opcode| todo!("Thumb format 13 {opcode:04X}")),
+    ThumbDecodeEntry::new(0xF600, 0xB400, thumb_14),
+    ThumbDecodeEntry::new(0xF000, 0xC000, thumb_15),
+    ThumbDecodeEntry::new(0xFF00, 0xDF00, |opcode| todo!("Thumb format 17 {opcode:04X}")),
+    ThumbDecodeEntry::new(0xF000, 0xD000, thumb_16),
+    ThumbDecodeEntry::new(0xF000, 0xF000, thumb_19),
+];
+
+pub fn thumb(opcode: u16) -> String {
+    for &ThumbDecodeEntry { mask, target, decode_fn } in THUMB_DECODE_TABLE {
+        if opcode & mask == target {
+            return decode_fn(opcode);
+        }
+    }
+
+    todo!("disassemble Thumb {opcode:04X}")
+}
+
+// Move shifted register
+fn thumb_1(opcode: u16) -> String {
+    let rd = opcode & 7;
+    let rs = (opcode >> 3) & 7;
+    let offset = (opcode >> 6) & 0x1F;
+
+    let op = match (opcode >> 11) & 3 {
+        0 => "LSL",
+        1 => "LSR",
+        2 => "ASR",
+        _ => panic!("invalid Thumb format 1 opcode: {opcode:04X}"),
+    };
+
+    format!("{op} R{rd}, R{rs} #{offset}")
+}
+
+// Add/subtract
+fn thumb_2(opcode: u16) -> String {
+    let rd = opcode & 7;
+    let rs = (opcode >> 3) & 7;
+    let op = if opcode.bit(9) { "SUB" } else { "ADD" };
+
+    let immediate = opcode.bit(10);
+    if immediate {
+        let operand = (opcode >> 6) & 7;
+        format!("{op} R{rd}, R{rs}, #{operand}")
+    } else {
+        let rn = (opcode >> 6) & 7;
+        format!("{op} R{rd}, R{rs}, R{rn}")
+    }
+}
+
+// Move/compare/add/subtract immediate
+fn thumb_3(opcode: u16) -> String {
+    let immediate = opcode & 0xFF;
+    let rd = (opcode >> 8) & 7;
+    let op = match (opcode >> 11) & 3 {
+        0 => "MOV",
+        1 => "CMP",
+        2 => "ADD",
+        3 => "SUB",
+        _ => unreachable!(),
+    };
+
+    format!("{op} R{rd}, #0x{immediate:X}")
+}
+
+// ALU operations
+fn thumb_4(opcode: u16) -> String {
+    let rd = opcode & 7;
+    let rs = (opcode >> 3) & 7;
+    let op = match (opcode >> 6) & 0xF {
+        0x0 => "AND",
+        0x1 => "EOR",
+        0x2 => "LSL",
+        0x3 => "LSR",
+        0x4 => "ASR",
+        0x5 => "ADC",
+        0x6 => "SBC",
+        0x7 => "ROR",
+        0x8 => "TST",
+        0x9 => "NEG",
+        0xA => "CMP",
+        0xB => "CMN",
+        0xC => "ORR",
+        0xD => "MUL",
+        0xE => "BIC",
+        0xF => "MVN",
+        _ => unreachable!(),
+    };
+
+    format!("{op} R{rd}, R{rs}")
+}
+
+// Hi register operations / branch exchange
+fn thumb_5(opcode: u16) -> String {
+    let mut rd = opcode & 7;
+    let mut rs = (opcode >> 3) & 7;
+
+    let h1 = opcode.bit(7);
+    let h2 = opcode.bit(6);
+
+    if h1 {
+        rd += 8;
+    }
+
+    if h2 {
+        rs += 8;
+    }
+
+    match (opcode >> 8) & 3 {
+        0 => format!("ADD R{rd}, R{rs}"),
+        1 => format!("CMP R{rd}, R{rs}"),
+        2 => format!("MOV R{rd}, R{rs}"),
+        3 => format!("BX R{rs}"),
+        _ => unreachable!(),
+    }
+}
+
+// PC-relative load
+fn thumb_6(opcode: u16) -> String {
+    let offset = (opcode & 0xFF) << 2;
+    let rd = (opcode >> 8) & 7;
+
+    format!("LDR R{rd}, [PC, #0x{offset:X}]")
+}
+
+// Load/store with register offset
+fn thumb_7(opcode: u16) -> String {
+    let rd = opcode & 7;
+    let rb = (opcode >> 3) & 7;
+    let ro = (opcode >> 6) & 7;
+
+    let byte_suffix = if opcode.bit(10) { "B" } else { "" };
+    let op = if opcode.bit(11) { "LDR" } else { "STR" };
+
+    format!("{op}{byte_suffix} R{rd}, [R{rb}, R{ro}]")
+}
+
+// Load/store with immediate offset
+fn thumb_9(opcode: u16) -> String {
+    let rd = opcode & 7;
+    let rb = (opcode >> 3) & 7;
+
+    let mut offset = (opcode >> 6) & 0x1F;
+
+    let byte = opcode.bit(12);
+    if !byte {
+        offset <<= 2;
+    }
+
+    let byte_suffix = if byte { "B" } else { "" };
+    let op = if opcode.bit(11) { "LDR" } else { "STR" };
+
+    format!("{op}{byte_suffix} R{rd}, [R{rb}, #{offset}]")
+}
+
+// Push/pop registers
+fn thumb_14(opcode: u16) -> String {
+    let lr_pc_bit = opcode.bit(8);
+    let load = opcode.bit(11);
+
+    let op = if load { "POP" } else { "PUSH" };
+
+    let mut rlist = thumb_rlist_vec(opcode);
+    if lr_pc_bit {
+        rlist.push(if load { "PC".into() } else { "LR".into() });
+    }
+
+    format!("{op} {{{}}}", rlist.join(", "))
+}
+
+// Multiple load/store
+fn thumb_15(opcode: u16) -> String {
+    let op = if opcode.bit(11) { "LDMIA" } else { "STMIA" };
+    let rb = (opcode >> 8) & 7;
+
+    let rlist = thumb_rlist_vec(opcode).join(",");
+
+    format!("{op} R{rb}! {{{rlist}}}")
+}
+
+fn thumb_rlist_vec(opcode: u16) -> Vec<String> {
+    (0..8).filter_map(|i| opcode.bit(i).then(|| format!("R{i}"))).collect()
+}
+
+// Conditional branch
+fn thumb_16(opcode: u16) -> String {
+    let cond = Condition::from_bits((opcode >> 8).into()).suffix();
+    let offset = i16::from(opcode as i8) << 1;
+
+    format!("B{cond} {offset}")
+}
+
+// Long branch with link
+fn thumb_19(opcode: u16) -> String {
+    let which = if opcode.bit(11) { "(low)" } else { "(high)" };
+    let offset = opcode & 0x7FF;
+
+    format!("BL {which} #0x{offset:X}")
 }

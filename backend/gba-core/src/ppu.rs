@@ -1,6 +1,6 @@
 mod registers;
 
-use crate::ppu::registers::Registers;
+use crate::ppu::registers::{BgMode, Registers};
 use bincode::{Decode, Encode};
 use jgenesis_common::boxedarray::BoxedByteArray;
 use jgenesis_common::frontend::{Color, FrameSize};
@@ -16,6 +16,7 @@ const DOTS_PER_LINE: u32 = 308;
 pub const FRAME_SIZE: FrameSize = FrameSize { width: SCREEN_WIDTH, height: SCREEN_HEIGHT };
 
 const VRAM_LEN: usize = 96 * 1024;
+const PALETTE_RAM_LEN: usize = 1024;
 
 const RGB_5_TO_8: &[u8; 32] = &[
     0, 8, 16, 25, 33, 41, 49, 58, 66, 74, 82, 90, 99, 107, 115, 123, 132, 140, 148, 156, 165, 173,
@@ -52,6 +53,7 @@ pub enum PpuTickEffect {
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Ppu {
     vram: BoxedByteArray<VRAM_LEN>,
+    palette_ram: BoxedByteArray<PALETTE_RAM_LEN>,
     frame_buffer: FrameBuffer,
     registers: Registers,
     state: State,
@@ -61,6 +63,7 @@ impl Ppu {
     pub fn new() -> Self {
         Self {
             vram: BoxedByteArray::new(),
+            palette_ram: BoxedByteArray::new(),
             frame_buffer: FrameBuffer::default(),
             registers: Registers::new(),
             state: State::new(),
@@ -87,10 +90,39 @@ impl Ppu {
     }
 
     fn render_bitmap_frame(&mut self) {
+        if self.registers.bg_mode == BgMode::Four {
+            self.render_bitmap_4();
+            return;
+        }
+
         for row in 0..SCREEN_HEIGHT {
             for col in 0..SCREEN_WIDTH {
                 let vram_addr = (2 * (row * SCREEN_WIDTH + col)) as usize;
                 let pixel = u16::from_le_bytes([self.vram[vram_addr], self.vram[vram_addr + 1]]);
+
+                let r = pixel & 0x1F;
+                let g = (pixel >> 5) & 0x1F;
+                let b = (pixel >> 10) & 0x1F;
+                self.frame_buffer.0[(row * SCREEN_WIDTH + col) as usize] = Color::rgb(
+                    RGB_5_TO_8[r as usize],
+                    RGB_5_TO_8[g as usize],
+                    RGB_5_TO_8[b as usize],
+                );
+            }
+        }
+    }
+
+    fn render_bitmap_4(&mut self) {
+        let frame_buffer_addr = if self.registers.bitmap_frame_buffer_1 { 0xA000 } else { 0x0000 };
+
+        for row in 0..SCREEN_HEIGHT {
+            for col in 0..SCREEN_WIDTH {
+                let vram_addr = (frame_buffer_addr + row * SCREEN_WIDTH + col) as usize;
+                let palette_addr = 2 * (self.vram[vram_addr] as usize);
+                let pixel = u16::from_le_bytes([
+                    self.palette_ram[palette_addr],
+                    self.palette_ram[palette_addr + 1],
+                ]);
 
                 let r = pixel & 0x1F;
                 let g = (pixel >> 5) & 0x1F;
@@ -109,12 +141,39 @@ impl Ppu {
         self.vram[vram_addr..vram_addr + 2].copy_from_slice(&value.to_le_bytes())
     }
 
+    pub fn write_palette_halfword(&mut self, address: u32, value: u16) {
+        let palette_addr = (address as usize) & (PALETTE_RAM_LEN - 1);
+        self.palette_ram[palette_addr..palette_addr + 2].copy_from_slice(&value.to_le_bytes());
+    }
+
+    pub fn read_register(&mut self, address: u32) -> u16 {
+        log::trace!(
+            "PPU register read (scanline={} dot={}): {address:08X}",
+            self.state.scanline,
+            self.state.dot
+        );
+
+        match address & 0xFF {
+            // DISPSTAT
+            0x04 => {
+                let vblank = self.state.scanline >= SCREEN_HEIGHT;
+                let hblank = self.state.dot >= SCREEN_WIDTH;
+                u16::from(vblank) | (u16::from(hblank) << 1)
+            }
+            _ => todo!("PPU register read {address:08X}"),
+        }
+    }
+
     pub fn write_register(&mut self, address: u32, value: u16) {
-        log::trace!("PPU register write: {address:08X} {value:04X}");
+        log::trace!(
+            "PPU register write (scanline={} dot={}): {address:08X} {value:04X}",
+            self.state.scanline,
+            self.state.dot
+        );
 
         match address & 0xFF {
             0x00 => self.registers.write_dispcnt(value),
-            _ => todo!("PPU I/O register write {address:08X} {value:04X}"),
+            _ => log::error!("PPU I/O register write {address:08X} {value:04X}"),
         }
     }
 
