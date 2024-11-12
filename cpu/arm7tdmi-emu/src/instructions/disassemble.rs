@@ -1,4 +1,4 @@
-use crate::instructions::Condition;
+use crate::instructions::{Condition, HalfwordLoadType, load_halfword};
 use jgenesis_common::num::GetBit;
 
 struct DecodeTableEntry {
@@ -318,7 +318,7 @@ const THUMB_DECODE_TABLE: &[ThumbDecodeEntry] = &[
     ThumbDecodeEntry::new(0xFC00, 0x4400, thumb_5),
     ThumbDecodeEntry::new(0xF800, 0x4800, thumb_6),
     ThumbDecodeEntry::new(0xF200, 0x5000, thumb_7),
-    ThumbDecodeEntry::new(0xF200, 0x5200, |opcode| todo!("Thumb format 8 {opcode:04X}")),
+    ThumbDecodeEntry::new(0xF200, 0x5200, thumb_8),
     ThumbDecodeEntry::new(0xE000, 0x6000, thumb_9),
     ThumbDecodeEntry::new(0xF000, 0x8000, thumb_10),
     ThumbDecodeEntry::new(0xF000, 0x9000, thumb_11),
@@ -459,6 +459,24 @@ fn thumb_7(opcode: u16) -> String {
     let op = if opcode.bit(11) { "LDR" } else { "STR" };
 
     format!("{op}{byte_suffix} R{rd}, [R{rb}, R{ro}]")
+}
+
+// Load/store sign-extended byte/halfword
+fn thumb_8(opcode: u16) -> String {
+    let rd = opcode & 7;
+    let rb = (opcode >> 3) & 7;
+    let ro = (opcode >> 6) & 7;
+
+    let sh_bits = (opcode >> 10) & 3;
+    let op = match sh_bits {
+        0 => "STRH",
+        1 => "LDSB",
+        2 => "LDRH",
+        3 => "LDSH",
+        _ => unreachable!(),
+    };
+
+    format!("{op} R{rd}, [R{rb}, R{ro}]")
 }
 
 // Load/store with immediate offset
