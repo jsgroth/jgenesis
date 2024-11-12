@@ -4,7 +4,7 @@ use std::array;
 use std::ops::Deref;
 
 #[derive(Debug, FakeEncode, FakeDecode)]
-struct Rom(Box<[u8]>);
+pub struct Rom(Box<[u8]>);
 
 impl Deref for Rom {
     type Target = Box<[u8]>;
@@ -23,7 +23,7 @@ impl Default for Rom {
 #[derive(Debug, PartialClone, Encode, Decode)]
 pub struct Cartridge {
     #[partial_clone(default)]
-    rom: Rom,
+    pub rom: Rom,
 }
 
 impl Cartridge {

@@ -12,6 +12,7 @@ use jgenesis_common::frontend::{
     TickResult, TimingMode,
 };
 use std::fmt::{Debug, Display};
+use std::mem;
 use thiserror::Error;
 
 // 1 PPU cycle per 4 CPU cycles
@@ -139,15 +140,13 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
     where
         R: Renderer,
     {
-        todo!("force render")
+        self.render_frame(renderer)
     }
 
-    fn reload_config(&mut self, config: &Self::Config) {
-        todo!("reload config")
-    }
+    fn reload_config(&mut self, config: &Self::Config) {}
 
     fn take_rom_from(&mut self, other: &mut Self) {
-        todo!("take ROM from")
+        self.memory.cartridge.rom = mem::take(&mut other.memory.cartridge.rom);
     }
 
     fn soft_reset(&mut self) {
