@@ -3,7 +3,9 @@ mod disassemble;
 use crate::bus::BusInterface;
 use crate::{Arm7Tdmi, CpuMode, CpuState, Registers, StatusRegister};
 use jgenesis_common::num::{GetBit, SignBit};
+use std::array;
 use std::cmp::Ordering;
+use std::sync::LazyLock;
 
 #[derive(Debug, Clone, Copy)]
 struct ConditionCodes {
@@ -212,9 +214,6 @@ const ARM_DECODE_TABLE: &[ArmDecodeEntry] = &[
     ArmDecodeEntry::new(0b1110_0101_1001, 0b0000_0100_1001, arm_load_halfword::<false, true>),
     ArmDecodeEntry::new(0b1110_0101_1001, 0b0000_0001_1001, arm_load_halfword::<true, false>),
     ArmDecodeEntry::new(0b1110_0101_1001, 0b0000_0101_1001, arm_load_halfword::<true, true>),
-    ArmDecodeEntry::new(0b1110_0100_1001, 0b0000_0100_1001, |_, opcode, _| {
-        todo!("LDRH/STRH immediate offset {opcode:08X}")
-    }),
     ArmDecodeEntry::new(0b1111_1011_1111, 0b0001_0000_0000, arm_mrs),
     ArmDecodeEntry::new(0b1111_1011_0000, 0b0001_0010_0000, arm_msr::<false>),
     ArmDecodeEntry::new(0b1111_1011_0000, 0b0011_0010_0000, arm_msr::<true>),
@@ -261,6 +260,7 @@ const THUMB_DECODE_TABLE: &[ThumbDecodeEntry] = &[
     ThumbDecodeEntry::new(0xFC, 0x44, thumb_high_register_op),
     ThumbDecodeEntry::new(0xF8, 0x48, thumb_pc_relative_load),
     ThumbDecodeEntry::new(0xF2, 0x50, thumb_load_register_offset),
+    ThumbDecodeEntry::new(0xF2, 0x52, thumb_load_sign_extended),
     ThumbDecodeEntry::new(0xE0, 0x60, thumb_load_immediate_offset),
     ThumbDecodeEntry::new(0xF0, 0x80, thumb_load_halfword),
     ThumbDecodeEntry::new(0xF0, 0x90, thumb_load_sp_relative),
@@ -279,8 +279,18 @@ const THUMB_OPCODE_LEN: u32 = 2;
 
 impl Arm7Tdmi {
     pub(crate) fn execute_arm_opcode(&mut self, opcode: u32, bus: &mut impl BusInterface) -> u32 {
-        // TODO remove
-        disassemble::arm(opcode);
+        static TABLE: LazyLock<Box<[ArmFn; 4096]>> = LazyLock::new(|| {
+            Box::new(array::from_fn(|opcode_mask| {
+                let opcode_mask = opcode_mask as u32;
+                for &ArmDecodeEntry { mask, target, op_fn } in ARM_DECODE_TABLE {
+                    if opcode_mask & mask == target {
+                        return op_fn;
+                    }
+                }
+
+                |_, opcode, _| todo!("ARM opcode {opcode:08X}")
+            }))
+        });
 
         if log::log_enabled!(log::Level::Trace) {
             log::trace!(
@@ -299,18 +309,23 @@ impl Arm7Tdmi {
         }
 
         let opcode_mask = ((opcode >> 16) & 0xFF0) | ((opcode >> 4) & 0xF);
-        for &ArmDecodeEntry { mask, target, op_fn } in ARM_DECODE_TABLE {
-            if opcode_mask & mask == target {
-                return op_fn(self, opcode, bus);
-            }
-        }
-
-        todo!("decode {opcode:08X}")
+        TABLE[opcode_mask as usize](self, opcode, bus)
     }
 
     pub(crate) fn execute_thumb_opcode(&mut self, opcode: u16, bus: &mut impl BusInterface) -> u32 {
-        // TODO remove
-        disassemble::thumb(opcode);
+        static TABLE: LazyLock<Box<[ThumbFn; 256]>> = LazyLock::new(|| {
+            Box::new(array::from_fn(|opcode_mask| {
+                let opcode_mask = opcode_mask as u16;
+
+                for &ThumbDecodeEntry { mask, target, op_fn } in THUMB_DECODE_TABLE {
+                    if opcode_mask & mask == target {
+                        return op_fn;
+                    }
+                }
+
+                |_, opcode, _| todo!("Thumb opcode {opcode:04X}")
+            }))
+        });
 
         if log::log_enabled!(log::Level::Trace) {
             log::trace!(
@@ -322,13 +337,7 @@ impl Arm7Tdmi {
         }
 
         let opcode_mask = opcode >> 8;
-        for &ThumbDecodeEntry { mask, target, op_fn } in THUMB_DECODE_TABLE {
-            if opcode_mask & mask == target {
-                return op_fn(self, opcode, bus);
-            }
-        }
-
-        todo!("Decode Thumb {opcode:04X}")
+        TABLE[opcode_mask as usize](self, opcode, bus)
     }
 }
 
@@ -1457,6 +1466,50 @@ fn thumb_load_register_offset(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn Bus
             rd.into(),
             offset,
             size,
+            LoadIndexing::Pre,
+            IndexOp::Add,
+            WriteBack::No,
+            bus,
+        )
+    }
+}
+
+// Format 8: Load/store sign-extended byte/halfword
+fn thumb_load_sign_extended(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+    let rd = opcode & 7;
+    let rb = (opcode >> 3) & 7;
+    let ro = (opcode >> 6) & 7;
+
+    let offset = cpu.registers.r[ro as usize];
+
+    let sh_bits = (opcode >> 10) & 3;
+    if sh_bits == 0 {
+        // STRH
+        load_halfword::<false>(
+            cpu,
+            rb.into(),
+            rd.into(),
+            offset,
+            HalfwordLoadType::UnsignedHalfword,
+            LoadIndexing::Pre,
+            IndexOp::Add,
+            WriteBack::No,
+            bus,
+        )
+    } else {
+        let load_type = match sh_bits {
+            1 => HalfwordLoadType::SignedByte,
+            2 => HalfwordLoadType::UnsignedHalfword,
+            3 => HalfwordLoadType::SignedHalfword,
+            _ => unreachable!(),
+        };
+
+        load_halfword::<true>(
+            cpu,
+            rb.into(),
+            rd.into(),
+            offset,
+            load_type,
             LoadIndexing::Pre,
             IndexOp::Add,
             WriteBack::No,
