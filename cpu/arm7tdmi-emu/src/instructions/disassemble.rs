@@ -18,13 +18,8 @@ const ARM_DECODE_TABLE: &[DecodeTableEntry] = &[
     DecodeTableEntry::new(0x0E000000, 0x0A000000, arm_b),
     DecodeTableEntry::new(0x0FC000F0, 0x00000090, arm_mul),
     DecodeTableEntry::new(0x0F8000F0, 0x00800090, arm_mull),
-    DecodeTableEntry::new(0x0FB00FF0, 0x01000090, |opcode| {
-        todo!("disassemble single data swap {opcode:08X}")
-    }),
-    DecodeTableEntry::new(0x0E400F90, 0x00000090, |opcode| {
-        todo!("disassemble halfword transfer register offset {opcode:08X}")
-    }),
-    DecodeTableEntry::new(0x0E400090, 0x00400090, arm_ldrh_immediate),
+    DecodeTableEntry::new(0x0FB00FF0, 0x01000090, arm_swap),
+    DecodeTableEntry::new(0x0E000090, 0x00000090, arm_ldrh),
     DecodeTableEntry::new(0x0FBF0FFF, 0x10F00000, arm_mrs),
     DecodeTableEntry::new(0x0DBEF000, 0x0128F000, arm_msr),
     DecodeTableEntry::new(0x0C000000, 0x00000000, arm_alu),
@@ -221,7 +216,7 @@ fn arm_ldr(opcode: u32) -> String {
     };
 
     let address = if pre_indexed {
-        let write_back_str = if write_back { " {!}" } else { "" };
+        let write_back_str = if write_back { "!" } else { "" };
         format!("[R{rn}, {offset}]{write_back_str}")
     } else {
         format!("[R{rn}], {offset}")
@@ -233,7 +228,7 @@ fn arm_ldr(opcode: u32) -> String {
     format!("{operation}{cond}{byte_suffix} R{rd}, {address}")
 }
 
-fn arm_ldrh_immediate(opcode: u32) -> String {
+fn arm_ldrh(opcode: u32) -> String {
     let cond = Condition::from_arm_opcode(opcode).suffix();
 
     let data_type = match (opcode >> 5) & 3 {
@@ -249,15 +244,19 @@ fn arm_ldrh_immediate(opcode: u32) -> String {
     let rd = (opcode >> 12) & 0xF;
     let rn = (opcode >> 16) & 0xF;
 
-    let offset = ((opcode >> 4) & 0xF0) | (opcode & 0xF);
-    let sign = if opcode.bit(23) { "+" } else { "-" };
+    let offset = if opcode.bit(22) {
+        format!("#0x{:X}", (opcode >> 4) & 0xF0 | (opcode & 0xF))
+    } else {
+        format!("R{}", opcode & 0xF)
+    };
 
-    let write_back = if opcode.bit(21) { " {!}" } else { "" };
+    let sign = if opcode.bit(23) { "+" } else { "-" };
+    let write_back = if opcode.bit(21) { "!" } else { "" };
 
     let address = if opcode.bit(24) {
-        format!("[R{rn}, #{sign}0x{offset:X}]{write_back}")
+        format!("[R{rn}, {sign}{offset}]{write_back}")
     } else {
-        format!("[R{rn}], #{sign}0x{offset:X}{write_back}")
+        format!("[R{rn}], {sign}{offset}{write_back}")
     };
 
     format!("{operation}{cond}{data_type} R{rd}, {address}")
@@ -286,6 +285,17 @@ fn arm_ldm_stm(opcode: u32) -> String {
     let op = if load { "LDM" } else { "STM" };
 
     format!("{op}{cond}{up_str}{pre_str} R{rn}{write_back_str} {{{rlist}}}{s_bit_str}")
+}
+
+fn arm_swap(opcode: u32) -> String {
+    let cond = Condition::from_arm_opcode(opcode).suffix();
+
+    let rm = opcode & 0xF;
+    let rd = (opcode >> 12) & 0xF;
+    let rn = (opcode >> 16) & 0xF;
+    let byte = if opcode.bit(22) { "B" } else { "" };
+
+    format!("SWP{cond}{byte} R{rd}, R{rm}, [R{rn}]")
 }
 
 struct ThumbDecodeEntry {
