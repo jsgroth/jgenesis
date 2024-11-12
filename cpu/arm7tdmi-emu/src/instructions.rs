@@ -1,7 +1,7 @@
 mod disassemble;
 
 use crate::bus::BusInterface;
-use crate::{Arm7Tdmi, CpuState, StatusRegister};
+use crate::{Arm7Tdmi, CpuMode, CpuState, Registers, StatusRegister};
 use jgenesis_common::num::{GetBit, SignBit};
 use std::cmp::Ordering;
 
@@ -1147,17 +1147,20 @@ fn load_multiple<const LOAD: bool, const INCREMENT: bool, const AFTER: bool>(
                 if s_bit {
                     todo!("SPSR -> CPSR")
                 }
-            } else if s_bit {
-                todo!("user bank transfer")
+            } else if s_bit && !r15_loaded {
+                let register = get_user_register(&mut cpu.registers, r.into());
+                *register = bus.read_word(address);
             } else {
                 cpu.registers.r[r as usize] = bus.read_word(address);
             }
             log::trace!("  LDM: Loaded R{r} from {address:08X}");
         } else {
-            if s_bit {
-                todo!("user bank transfer")
-            }
-            bus.write_word(address, cpu.registers.r[r as usize]);
+            let value = if s_bit {
+                *get_user_register(&mut cpu.registers, r.into())
+            } else {
+                cpu.registers.r[r as usize]
+            };
+            bus.write_word(address, value);
             log::trace!("  STM: Stored R{r} to {address:08X}");
         }
 
@@ -1183,6 +1186,16 @@ fn load_multiple<const LOAD: bool, const INCREMENT: bool, const AFTER: bool>(
     } else {
         // STM: (n-1)*S + 2N
         1 + count
+    }
+}
+
+fn get_user_register(registers: &mut Registers, r: u32) -> &mut u32 {
+    match (registers.cpsr.mode, r) {
+        (CpuMode::User | CpuMode::System, _) => &mut registers.r[r as usize],
+        (CpuMode::Fiq, 8..=12) => &mut registers.other_r_8_12[(r - 8) as usize],
+        (_, 13) => &mut registers.r13_usr,
+        (_, 14) => &mut registers.r14_usr,
+        _ => &mut registers.r[r as usize],
     }
 }
 
