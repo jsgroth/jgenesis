@@ -168,8 +168,6 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
     }
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {
-        log::error!(
-            "Ignoring audio output frequency update to {output_frequency}; audio resampling not yet implemented"
-        );
+        // TODO audio resampling
     }
 }
