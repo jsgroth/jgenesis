@@ -617,11 +617,12 @@ fn alu(
             let result = operand1 & operand2;
             (result, ConditionCodes::logical(result, shifter_out, cpu.registers.cpsr.overflow))
         }
-        AluOp::ExclusiveOr => {
+        AluOp::ExclusiveOr | AluOp::TestEqual => {
             let result = operand1 ^ operand2;
             (result, ConditionCodes::logical(result, shifter_out, cpu.registers.cpsr.overflow))
         }
         AluOp::Subtract | AluOp::Compare => alu_add(operand1, !operand2, true),
+        AluOp::ReverseSubtract => alu_add(operand2, !operand1, true),
         AluOp::Add | AluOp::CompareNegate => alu_add(operand1, operand2, false),
         AluOp::AddCarry => alu_add(operand1, operand2, cpu.registers.cpsr.carry),
         AluOp::SubtractCarry => alu_add(operand1, !operand2, cpu.registers.cpsr.carry),
@@ -641,7 +642,6 @@ fn alu(
             !operand2,
             ConditionCodes::logical(!operand2, shifter_out, cpu.registers.cpsr.overflow),
         ),
-        _ => todo!("ALU op {op:?}"),
     };
 
     // 1S always
