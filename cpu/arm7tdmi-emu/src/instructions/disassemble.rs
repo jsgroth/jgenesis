@@ -320,11 +320,15 @@ const THUMB_DECODE_TABLE: &[ThumbDecodeEntry] = &[
     ThumbDecodeEntry::new(0xF200, 0x5000, thumb_7),
     ThumbDecodeEntry::new(0xF200, 0x5200, |opcode| todo!("Thumb format 8 {opcode:04X}")),
     ThumbDecodeEntry::new(0xE000, 0x6000, thumb_9),
-    ThumbDecodeEntry::new(0xFF00, 0xB000, |opcode| todo!("Thumb format 13 {opcode:04X}")),
+    ThumbDecodeEntry::new(0xF000, 0x8000, thumb_10),
+    ThumbDecodeEntry::new(0xF000, 0x9000, thumb_11),
+    ThumbDecodeEntry::new(0xF000, 0xA000, thumb_12),
+    ThumbDecodeEntry::new(0xFF00, 0xB000, thumb_13),
     ThumbDecodeEntry::new(0xF600, 0xB400, thumb_14),
     ThumbDecodeEntry::new(0xF000, 0xC000, thumb_15),
     ThumbDecodeEntry::new(0xFF00, 0xDF00, |opcode| todo!("Thumb format 17 {opcode:04X}")),
     ThumbDecodeEntry::new(0xF000, 0xD000, thumb_16),
+    ThumbDecodeEntry::new(0xF800, 0xE000, thumb_18),
     ThumbDecodeEntry::new(0xF000, 0xF000, thumb_19),
 ];
 
@@ -475,6 +479,46 @@ fn thumb_9(opcode: u16) -> String {
     format!("{op}{byte_suffix} R{rd}, [R{rb}, #{offset}]")
 }
 
+// Load/store halfword
+fn thumb_10(opcode: u16) -> String {
+    let rd = opcode & 7;
+    let rb = (opcode >> 3) & 7;
+    let offset = ((opcode >> 6) & 0x1F) << 1;
+    let load = opcode.bit(11);
+
+    let op = if load { "LDRH" } else { "STRH" };
+    format!("{op} R{rd}, [R{rb}, #0x{offset:X}]")
+}
+
+// SP-relative load/store
+fn thumb_11(opcode: u16) -> String {
+    let offset = (opcode & 0xFF) << 2;
+    let rd = (opcode >> 8) & 7;
+    let load = opcode.bit(11);
+
+    let op = if load { "LDR" } else { "STR" };
+    format!("{op} R{rd}, [SP, #0x{offset:X}]")
+}
+
+// Load address
+fn thumb_12(opcode: u16) -> String {
+    let immediate = (opcode & 0xFF) << 2;
+    let rd = (opcode >> 8) & 7;
+    let source = if opcode.bit(11) { "SP" } else { "PC" };
+
+    format!("ADD R{rd}, {source}, #0x{immediate:X}")
+}
+
+// Add offset to stack pointer
+fn thumb_13(opcode: u16) -> String {
+    let offset = (opcode & 0x7F) << 2;
+    let sign = opcode.bit(7);
+
+    let sign_str = if sign { "-" } else { "" };
+
+    format!("ADD SP, #{sign}0x{offset:X}")
+}
+
 // Push/pop registers
 fn thumb_14(opcode: u16) -> String {
     let lr_pc_bit = opcode.bit(8);
@@ -510,6 +554,12 @@ fn thumb_16(opcode: u16) -> String {
     let offset = i16::from(opcode as i8) << 1;
 
     format!("B{cond} {offset}")
+}
+
+// Unconditional branch
+fn thumb_18(opcode: u16) -> String {
+    let offset = (((opcode & 0x3FF) as i16) << 5) >> 4;
+    format!("B {offset}")
 }
 
 // Long branch with link

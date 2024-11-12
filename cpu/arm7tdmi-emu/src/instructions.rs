@@ -262,11 +262,15 @@ const THUMB_DECODE_TABLE: &[ThumbDecodeEntry] = &[
     ThumbDecodeEntry::new(0xF8, 0x48, thumb_pc_relative_load),
     ThumbDecodeEntry::new(0xF2, 0x50, thumb_load_register_offset),
     ThumbDecodeEntry::new(0xE0, 0x60, thumb_load_immediate_offset),
+    ThumbDecodeEntry::new(0xF0, 0x80, thumb_load_halfword),
+    ThumbDecodeEntry::new(0xF0, 0x90, thumb_load_sp_relative),
+    ThumbDecodeEntry::new(0xF0, 0xA0, thumb_load_address),
     ThumbDecodeEntry::new(0xFF, 0xB0, |_, opcode, _| todo!("Thumb format 13")),
     ThumbDecodeEntry::new(0xF6, 0xB4, thumb_push_pop),
     ThumbDecodeEntry::new(0xF0, 0xC0, thumb_load_multiple),
     ThumbDecodeEntry::new(0xFF, 0xDF, |_, opcode, _| todo!("Thumb format 17")),
     ThumbDecodeEntry::new(0xF0, 0xD0, thumb_conditional_branch),
+    ThumbDecodeEntry::new(0xF8, 0xE0, thumb_unconditional_branch),
     ThumbDecodeEntry::new(0xF0, 0xF0, thumb_long_branch),
 ];
 
@@ -1114,7 +1118,13 @@ fn load_multiple<const LOAD: bool, const INCREMENT: bool, const AFTER: bool>(
     let r15_loaded = register_bits.bit(15);
 
     let base_addr = cpu.registers.r[rn as usize];
-    let mut address = if INCREMENT { base_addr } else { base_addr.wrapping_sub(4 * count) };
+    let final_addr = if INCREMENT {
+        base_addr.wrapping_add(4 * count)
+    } else {
+        base_addr.wrapping_sub(4 * count)
+    };
+
+    let mut address = if INCREMENT { base_addr } else { final_addr };
 
     cpu.fetch_opcode(bus);
 
@@ -1125,11 +1135,7 @@ fn load_multiple<const LOAD: bool, const INCREMENT: bool, const AFTER: bool>(
         }
 
         if LOAD && need_write_back {
-            cpu.registers.r[rn as usize] = if INCREMENT {
-                base_addr.wrapping_add(4 * count)
-            } else {
-                base_addr.wrapping_sub(4 * count)
-            };
+            cpu.registers.r[rn as usize] = final_addr;
             log::trace!("  Wrote back to R{rn}: {:08X}", cpu.registers.r[rn as usize]);
             need_write_back = false;
         }
@@ -1169,11 +1175,7 @@ fn load_multiple<const LOAD: bool, const INCREMENT: bool, const AFTER: bool>(
         }
 
         if !LOAD && need_write_back {
-            cpu.registers.r[rn as usize] = if INCREMENT {
-                base_addr.wrapping_add(4 * count)
-            } else {
-                base_addr.wrapping_sub(4 * count)
-            };
+            cpu.registers.r[rn as usize] = final_addr;
             log::trace!("  Wrote back to R{rn}: {:08X}", cpu.registers.r[rn as usize]);
             need_write_back = false;
         }
@@ -1305,15 +1307,54 @@ fn thumb_alu(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32
     let basic_op = match (opcode >> 6) & 0xF {
         0x0 => AluOp::And,
         0x1 => AluOp::ExclusiveOr,
+        op @ (0x2..=0x4 | 0x7) => {
+            // LSL/LSR/ASR/ROR
+            let shift_type = match op {
+                2 => ShiftType::Left,
+                3 => ShiftType::LogicalRight,
+                4 => ShiftType::ArithmeticRight,
+                7 => ShiftType::RotateRight,
+                _ => unreachable!("nested match expressions"),
+            };
+
+            return alu_register_shift::<THUMB_OPCODE_LEN>(
+                cpu,
+                AluOp::Move,
+                rd.into(),
+                rd.into(),
+                true,
+                rd.into(),
+                shift_type,
+                rs.into(),
+                bus,
+            );
+        }
         0x5 => AluOp::AddCarry,
         0x6 => AluOp::SubtractCarry,
         0x8 => AluOp::Test,
+        0x9 => {
+            // NEG
+            return alu_rotated_immediate(
+                cpu,
+                AluOp::ReverseSubtract,
+                rs.into(),
+                rd.into(),
+                true,
+                0,
+                0,
+                bus,
+            );
+        }
         0xA => AluOp::Compare,
         0xB => AluOp::CompareNegate,
         0xC => AluOp::Or,
+        0xD => {
+            // MUL
+            return multiply(cpu, rd.into(), rs.into(), rd.into(), rd.into(), true, false, bus);
+        }
         0xE => AluOp::BitClear,
         0xF => AluOp::MoveNegate,
-        _ => todo!("thumb ALU {opcode:04X}"),
+        _ => unreachable!("value & 0xF is always <= 0xF"),
     };
 
     alu_immediate_shift(
@@ -1463,6 +1504,90 @@ fn thumb_load_immediate_offset(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn Bu
     }
 }
 
+// Format 10: Load/store halfword
+fn thumb_load_halfword(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+    let rd = opcode & 7;
+    let rb = (opcode >> 3) & 7;
+    let offset = ((opcode >> 6) & 0x1F) << 1;
+    let load = opcode.bit(11);
+
+    if load {
+        load_halfword::<true>(
+            cpu,
+            rb.into(),
+            rd.into(),
+            offset.into(),
+            HalfwordLoadType::UnsignedHalfword,
+            LoadIndexing::Pre,
+            IndexOp::Add,
+            WriteBack::No,
+            bus,
+        )
+    } else {
+        load_halfword::<false>(
+            cpu,
+            rb.into(),
+            rd.into(),
+            offset.into(),
+            HalfwordLoadType::UnsignedHalfword,
+            LoadIndexing::Pre,
+            IndexOp::Add,
+            WriteBack::No,
+            bus,
+        )
+    }
+}
+
+// Format 11: SP-relative load/store
+fn thumb_load_sp_relative(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+    let offset = (opcode & 0xFF) << 2;
+    let rd = (opcode >> 8) & 7;
+    let load = opcode.bit(11);
+
+    if load {
+        load_halfword::<true>(
+            cpu,
+            13,
+            rd.into(),
+            offset.into(),
+            HalfwordLoadType::UnsignedHalfword,
+            LoadIndexing::Pre,
+            IndexOp::Add,
+            WriteBack::No,
+            bus,
+        )
+    } else {
+        load_halfword::<false>(
+            cpu,
+            13,
+            rd.into(),
+            offset.into(),
+            HalfwordLoadType::UnsignedHalfword,
+            LoadIndexing::Pre,
+            IndexOp::Add,
+            WriteBack::No,
+            bus,
+        )
+    }
+}
+
+// Format 12: Load address
+fn thumb_load_address(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+    let mut immediate: u32 = ((opcode & 0xFF) << 2).into();
+    let rd = (opcode >> 8) & 7;
+
+    // Bit 11 selects between SP (R13) and PC (R15)
+    let rn = if opcode.bit(11) { 13 } else { 15 };
+
+    // Bit 1 is forced clear when PC is used as Rn
+    // Fake by subtracting 2 from immediate if bit 1 is set
+    if rn == 15 {
+        immediate = immediate.wrapping_sub(cpu.registers.r[15] & 2);
+    }
+
+    alu_rotated_immediate(cpu, AluOp::Add, rn, rd.into(), false, immediate, 0, bus)
+}
+
 // Format 14: Push/pop registers
 fn thumb_push_pop(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
     let lr_pc_bit = opcode.bit(8);
@@ -1525,6 +1650,12 @@ fn thumb_conditional_branch(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusIn
     }
 
     let offset = i32::from(opcode as i8) << 1;
+    branch::<false, THUMB_OPCODE_LEN>(cpu, offset, bus)
+}
+
+// Format 18: Unconditional branch
+fn thumb_unconditional_branch(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+    let offset = (i32::from(opcode & 0x7FF) << 21) >> 20;
     branch::<false, THUMB_OPCODE_LEN>(cpu, offset, bus)
 }
 
