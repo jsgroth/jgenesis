@@ -17,6 +17,7 @@ impl AppConfig {
     pub fn gba_config(&self, path: String) -> Box<GameBoyAdvanceConfig> {
         Box::new(GameBoyAdvanceConfig {
             common: self.common_config(path),
+            inputs: self.input.gba.clone(),
             bios_path: self.game_boy_advance.bios_path.clone(),
         })
     }

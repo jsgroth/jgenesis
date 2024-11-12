@@ -1,8 +1,8 @@
 pub mod input;
 
 use crate::config::input::{
-    GameBoyInputConfig, GenesisInputConfig, HotkeyConfig, NesInputConfig, SmsGgInputConfig,
-    SnesInputConfig,
+    GameBoyInputConfig, GbaInputConfig, GenesisInputConfig, HotkeyConfig, NesInputConfig,
+    SmsGgInputConfig, SnesInputConfig,
 };
 use crate::mainloop::NativeEmulatorError;
 use crate::{NativeEmulatorResult, archive};
@@ -257,6 +257,8 @@ pub struct GameBoyConfig {
 pub struct GameBoyAdvanceConfig {
     #[indent_nested]
     pub common: CommonConfig,
+    #[indent_nested]
+    pub inputs: GbaInputConfig,
     pub bios_path: Option<String>,
 }
 
