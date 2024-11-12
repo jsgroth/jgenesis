@@ -17,9 +17,7 @@ const ARM_DECODE_TABLE: &[DecodeTableEntry] = &[
     DecodeTableEntry::new(0x0FFFFFF0, 0x012FFF10, arm_bx),
     DecodeTableEntry::new(0x0E000000, 0x0A000000, arm_b),
     DecodeTableEntry::new(0x0FC000F0, 0x00000090, arm_mul),
-    DecodeTableEntry::new(0x0FC000F0, 0x00400090, |opcode| {
-        todo!("disassemble MULL/MLAL {opcode:08X}")
-    }),
+    DecodeTableEntry::new(0x0F8000F0, 0x00800090, arm_mull),
     DecodeTableEntry::new(0x0FB00FF0, 0x01000090, |opcode| {
         todo!("disassemble single data swap {opcode:08X}")
     }),
@@ -173,6 +171,20 @@ fn arm_mul(opcode: u32) -> String {
     } else {
         format!("MUL{cond}{s} R{rd}, R{rm}, R{rs}")
     }
+}
+
+fn arm_mull(opcode: u32) -> String {
+    let cond = Condition::from_arm_opcode(opcode).suffix();
+    let rm = opcode & 0xF;
+    let rs = (opcode >> 8) & 0xF;
+    let rdlo = (opcode >> 12) & 0xF;
+    let rdhi = (opcode >> 16) & 0xF;
+    let s = if opcode.bit(20) { "S" } else { "" };
+    let accumulate = opcode.bit(21);
+    let signed = if opcode.bit(22) { "S" } else { "U" };
+
+    let op = if accumulate { "MLAL" } else { "MULL" };
+    format!("{signed}{op}{cond}{s} R{rdlo}, R{rdhi}, R{rm}, R{rs}")
 }
 
 fn arm_ldr(opcode: u32) -> String {
