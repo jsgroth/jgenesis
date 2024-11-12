@@ -76,6 +76,7 @@ impl GameBoyAdvanceEmulator {
                 ppu: &mut emulator.ppu,
                 memory: &mut emulator.memory,
                 control: &mut emulator.control,
+                inputs: GbaInputs::default(),
             },
         );
 
@@ -119,6 +120,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
             ppu: &mut self.ppu,
             memory: &mut self.memory,
             control: &mut self.control,
+            inputs: *inputs,
         });
 
         self.ppu_mclk_counter += cpu_cycles;

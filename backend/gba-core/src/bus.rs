@@ -1,4 +1,5 @@
 use crate::control::ControlRegisters;
+use crate::input::GbaInputs;
 use crate::memory::Memory;
 use crate::ppu::Ppu;
 use arm7tdmi_emu::bus::BusInterface;
@@ -51,16 +52,30 @@ pub struct Bus<'a> {
     pub ppu: &'a mut Ppu,
     pub memory: &'a mut Memory,
     pub control: &'a mut ControlRegisters,
+    pub inputs: GbaInputs,
 }
 
 impl Bus<'_> {
     fn read_io_register(&mut self, address: u32) -> u16 {
         match address {
             0x04000000..=0x04000056 => self.ppu.read_register(address),
-            // TODO joypad registers
-            0x04000130 => !0,
+            0x04000130 => self.read_keyinput(),
             _ => todo!("I/O register read {address:08X}"),
         }
+    }
+
+    // $04000130: KEYINPUT (Key status)
+    fn read_keyinput(&self) -> u16 {
+        u16::from(!self.inputs.a)
+            | (u16::from(!self.inputs.b) << 1)
+            | (u16::from(!self.inputs.select) << 2)
+            | (u16::from(!self.inputs.start) << 3)
+            | (u16::from(!self.inputs.right) << 4)
+            | (u16::from(!self.inputs.left) << 5)
+            | (u16::from(!self.inputs.up) << 6)
+            | (u16::from(!self.inputs.down) << 7)
+            | (u16::from(!self.inputs.r) << 8)
+            | (u16::from(!self.inputs.l) << 9)
     }
 
     fn write_io_register(&mut self, address: u32, value: u16) {

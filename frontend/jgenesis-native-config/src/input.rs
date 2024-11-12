@@ -1,6 +1,6 @@
 use jgenesis_native_driver::config::input::{
-    GameBoyInputConfig, GenesisInputConfig, HotkeyConfig, NesInputConfig, SmsGgInputConfig,
-    SnesInputConfig,
+    GameBoyInputConfig, GbaInputConfig, GenesisInputConfig, HotkeyConfig, NesInputConfig,
+    SmsGgInputConfig, SnesInputConfig,
 };
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +16,8 @@ pub struct InputAppConfig {
     pub snes: SnesInputConfig,
     #[serde(default)]
     pub game_boy: GameBoyInputConfig,
+    #[serde(default)]
+    pub gba: GbaInputConfig,
     #[serde(default)]
     pub hotkeys: HotkeyConfig,
     #[serde(default = "default_axis_deadzone")]

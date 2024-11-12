@@ -50,8 +50,7 @@ pub fn create_gba(config: Box<GameBoyAdvanceConfig>) -> NativeEmulatorResult<Nat
         &window_title,
         save_writer,
         save_state_path,
-        // TODO actual input mapping
-        &vec![],
+        &config.inputs.to_mapping_vec(),
         GbaInputs::default(),
         || Box::new(|_ctx| {}),
     )
