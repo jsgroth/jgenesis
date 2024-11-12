@@ -163,6 +163,9 @@ impl BusInterface for Bus<'_> {
                 self.ppu.write_vram_halfword(address & !3, value as u16);
                 self.ppu.write_vram_halfword(address | 2, (value >> 16) as u16);
             }
+            CARTRIDGE_ROM_0_START..=CARTRIDGE_ROM_0_END => {
+                log::warn!("Cartridge ROM write {address:08X} {value:08X}");
+            }
             _ => todo!("write word {address:08X} {value:08X}"),
         }
     }
