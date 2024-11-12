@@ -54,6 +54,15 @@ pub struct Bus<'a> {
 }
 
 impl Bus<'_> {
+    fn read_io_register(&mut self, address: u32) -> u16 {
+        match address {
+            0x04000000..=0x04000056 => self.ppu.read_register(address),
+            // TODO joypad registers
+            0x04000130 => !0,
+            _ => todo!("I/O register read {address:08X}"),
+        }
+    }
+
     fn write_io_register(&mut self, address: u32, value: u16) {
         match address {
             0x04000000..=0x04000056 => self.ppu.write_register(address, value),
@@ -78,7 +87,13 @@ impl Bus<'_> {
 impl BusInterface for Bus<'_> {
     #[inline]
     fn read_byte(&mut self, address: u32) -> u8 {
-        todo!("read byte {address:08X}")
+        match address {
+            CARTRIDGE_ROM_0_START..=CARTRIDGE_ROM_0_END => {
+                self.memory.cartridge.read_rom_byte(address)
+            }
+            IWRAM_START..=IWRAM_END => self.memory.read_iwram_byte(address),
+            _ => todo!("read byte {address:08X}"),
+        }
     }
 
     #[inline]
@@ -88,6 +103,7 @@ impl BusInterface for Bus<'_> {
                 self.memory.cartridge.read_rom_halfword(address)
             }
             IWRAM_START..=IWRAM_END => self.memory.read_iwram_halfword(address),
+            MMIO_START..=MMIO_END => self.read_io_register(address),
             _ => todo!("read halfword {address:08X}"),
         }
     }
@@ -105,7 +121,10 @@ impl BusInterface for Bus<'_> {
 
     #[inline]
     fn write_byte(&mut self, address: u32, value: u8) {
-        todo!("write byte {address:08X} {value:02X}")
+        match address {
+            IWRAM_START..=IWRAM_END => self.memory.write_iwram_byte(address, value),
+            _ => todo!("write byte {address:08X} {value:02X}"),
+        }
     }
 
     #[inline]
@@ -114,6 +133,7 @@ impl BusInterface for Bus<'_> {
             IWRAM_START..=IWRAM_END => self.memory.write_iwram_halfword(address, value),
             MMIO_START..=MMIO_END => self.write_io_register(address, value),
             VRAM_START..=VRAM_END => self.ppu.write_vram_halfword(address, value),
+            PALETTES_START..=PALETTES_END => self.ppu.write_palette_halfword(address, value),
             _ => todo!("write halfword {address:08X} {value:04X}"),
         }
     }
@@ -122,7 +142,12 @@ impl BusInterface for Bus<'_> {
     fn write_word(&mut self, address: u32, value: u32) {
         match address {
             IWRAM_START..=IWRAM_END => self.memory.write_iwram_word(address, value),
+            EWRAM_START..=EWRAM_END => self.memory.write_ewram_word(address, value),
             MMIO_START..=MMIO_END => self.write_io_register_u32(address, value),
+            VRAM_START..=VRAM_END => {
+                self.ppu.write_vram_halfword(address & !3, value as u16);
+                self.ppu.write_vram_halfword(address | 2, (value >> 16) as u16);
+            }
             _ => todo!("write word {address:08X} {value:08X}"),
         }
     }
