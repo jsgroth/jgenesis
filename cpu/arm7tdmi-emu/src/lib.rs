@@ -34,7 +34,7 @@ pub enum CpuMode {
 
 impl CpuMode {
     fn from_bits(bits: u32) -> Self {
-        match bits {
+        match bits & 0x1F {
             0x10 => Self::User,
             0x11 => Self::Fiq,
             0x12 => Self::Irq,
@@ -175,7 +175,7 @@ impl Arm7Tdmi {
     fn fetch_arm_opcode(&mut self, bus: &mut (impl BusInterface + ?Sized)) {
         self.prefetch[0] = self.prefetch[1];
         self.prefetch[1] = bus.read_word(self.registers.r[15]);
-        self.registers.r[15] = self.registers.r[15].wrapping_add(4);
+        self.registers.r[15] = self.registers.r[15].wrapping_add(4) & !3;
 
         log::trace!(
             "Fetched ARM opcode {:08X} from {:08X}",
@@ -187,7 +187,7 @@ impl Arm7Tdmi {
     fn fetch_thumb_opcode(&mut self, bus: &mut (impl BusInterface + ?Sized)) {
         self.prefetch[0] = self.prefetch[1];
         self.prefetch[1] = bus.read_halfword(self.registers.r[15]).into();
-        self.registers.r[15] = self.registers.r[15].wrapping_add(2);
+        self.registers.r[15] = self.registers.r[15].wrapping_add(2) & !1;
 
         log::trace!(
             "Fetched Thumb opcode {:04X} from {:08X}",

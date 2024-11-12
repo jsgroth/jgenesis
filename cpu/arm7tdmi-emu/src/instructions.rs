@@ -207,9 +207,7 @@ const ARM_DECODE_TABLE: &[ArmDecodeEntry] = &[
     ArmDecodeEntry::new(0b1111_1111_1111, 0b0001_0010_0001, arm_bx),
     ArmDecodeEntry::new(0b1111_1100_1111, 0b0000_0000_1001, arm_multiply),
     ArmDecodeEntry::new(0b1111_1000_1111, 0b0000_1000_1001, arm_multiply_long),
-    ArmDecodeEntry::new(0b1111_1011_1111, 0b0001_0000_1001, |_, opcode, _| {
-        todo!("SWP {opcode:08X}")
-    }),
+    ArmDecodeEntry::new(0b1111_1011_1111, 0b0001_0000_1001, arm_swap),
     ArmDecodeEntry::new(0b1110_0101_1001, 0b0000_0000_1001, arm_load_halfword::<false, false>),
     ArmDecodeEntry::new(0b1110_0101_1001, 0b0000_0100_1001, arm_load_halfword::<false, true>),
     ArmDecodeEntry::new(0b1110_0101_1001, 0b0000_0001_1001, arm_load_halfword::<true, false>),
@@ -217,9 +215,7 @@ const ARM_DECODE_TABLE: &[ArmDecodeEntry] = &[
     ArmDecodeEntry::new(0b1110_0100_1001, 0b0000_0100_1001, |_, opcode, _| {
         todo!("LDRH/STRH immediate offset {opcode:08X}")
     }),
-    ArmDecodeEntry::new(0b1111_1011_1111, 0b0001_0000_0000, |_, opcode, _| {
-        todo!("MRS {opcode:08X}")
-    }),
+    ArmDecodeEntry::new(0b1111_1011_1111, 0b0001_0000_0000, arm_mrs),
     ArmDecodeEntry::new(0b1111_1011_0000, 0b0001_0010_0000, arm_msr::<false>),
     ArmDecodeEntry::new(0b1111_1011_0000, 0b0011_0010_0000, arm_msr::<true>),
     ArmDecodeEntry::new(0b1110_0000_0000, 0b0000_0000_0000, arm_alu::<false>),
@@ -279,6 +275,9 @@ const THUMB_OPCODE_LEN: u32 = 2;
 
 impl Arm7Tdmi {
     pub(crate) fn execute_arm_opcode(&mut self, opcode: u32, bus: &mut impl BusInterface) -> u32 {
+        // TODO remove
+        disassemble::arm(opcode);
+
         if log::log_enabled!(log::Level::Trace) {
             log::trace!(
                 "Executing opcode {opcode:08X}, PC+8={:08X}, str={}",
@@ -306,6 +305,9 @@ impl Arm7Tdmi {
     }
 
     pub(crate) fn execute_thumb_opcode(&mut self, opcode: u16, bus: &mut impl BusInterface) -> u32 {
+        // TODO remove
+        disassemble::thumb(opcode);
+
         if log::log_enabled!(log::Level::Trace) {
             log::trace!(
                 "Executing opcode {opcode:04X}, PC+4={:08X}, str={}",
@@ -371,6 +373,23 @@ fn branch_exchange(cpu: &mut Arm7Tdmi, rn: u32, bus: &mut dyn BusInterface) -> u
 
     // 2S + 1N
     3
+}
+
+// MRS: Transfer PSR contents to register
+fn arm_mrs(cpu: &mut Arm7Tdmi, opcode: u32, bus: &mut dyn BusInterface) -> u32 {
+    let rd = (opcode >> 12) & 0xF;
+    let spsr = opcode.bit(22);
+
+    if spsr {
+        todo!("MRS from SPSR")
+    } else {
+        cpu.registers.r[rd as usize] = cpu.registers.cpsr.into();
+    }
+
+    cpu.fetch_opcode(bus);
+
+    // 1S
+    1
 }
 
 // MSR: Transfer register contents to PSR
@@ -517,8 +536,20 @@ fn alu_immediate_shift(
 ) -> u32 {
     let value = cpu.registers.r[rm as usize];
 
-    let (operand2, shifter_out) = match (shift_type, shift) {
-        (ShiftType::Left, 0) => (value, cpu.registers.cpsr.carry),
+    let (operand2, shifter_out) =
+        apply_immediate_shift(value, shift_type, shift, cpu.registers.cpsr.carry);
+
+    alu(cpu, op, cpu.registers.r[rn as usize], rd, set_condition_codes, operand2, shifter_out, bus)
+}
+
+fn apply_immediate_shift(
+    value: u32,
+    shift_type: ShiftType,
+    shift: u32,
+    carry_in: bool,
+) -> (u32, bool) {
+    match (shift_type, shift) {
+        (ShiftType::Left, 0) => (value, carry_in),
         (ShiftType::Left, _) => (value << shift, value.bit((32 - shift) as u8)),
         (ShiftType::LogicalRight, 0) => (0, value.bit(31)),
         (ShiftType::LogicalRight, _) => (value >> shift, value.bit((shift - 1) as u8)),
@@ -528,13 +559,11 @@ fn alu_immediate_shift(
         }
         (ShiftType::RotateRight, 0) => {
             // RRX: Rotate right through carry
-            let result = (value >> 1) | (u32::from(cpu.registers.cpsr.carry) << 31);
+            let result = (value >> 1) | (u32::from(carry_in) << 31);
             (result, value.bit(0))
         }
         (ShiftType::RotateRight, _) => (value.rotate_right(shift), value.bit((shift - 1) as u8)),
-    };
-
-    alu(cpu, op, cpu.registers.r[rn as usize], rd, set_condition_codes, operand2, shifter_out, bus)
+    }
 }
 
 #[inline]
@@ -879,7 +908,14 @@ fn arm_load_word<const LOAD: bool, const REGISTER_OFFSET: bool>(
     let rd = (opcode >> 12) & 0xF;
 
     let offset = if REGISTER_OFFSET {
-        todo!("LDR/STR register offset {opcode:08X}")
+        let rm = opcode & 0xF;
+        let value = cpu.registers.r[rm as usize];
+        let shift_type = ShiftType::from_bits(opcode >> 5);
+        let shift = (opcode >> 7) & 0x1F;
+
+        let (shifted, _) =
+            apply_immediate_shift(value, shift_type, shift, cpu.registers.cpsr.carry);
+        shifted
     } else {
         opcode & 0xFFF
     };
@@ -916,13 +952,17 @@ fn load_word<const LOAD: bool>(
     }
 
     let mut address = cpu.registers.r[rn as usize];
+
     if indexing == LoadIndexing::Pre {
         address = address.wrapping_add(offset);
     }
 
     if LOAD {
         cpu.registers.r[rd as usize] = match size {
-            LoadSize::Word => bus.read_word(address),
+            LoadSize::Word => {
+                let word = bus.read_word(address);
+                word.rotate_right(8 * (address & 3))
+            }
             LoadSize::Byte => bus.read_byte(address).into(),
         };
 
@@ -940,10 +980,13 @@ fn load_word<const LOAD: bool>(
         }
     }
 
-    if indexing == LoadIndexing::Post {
-        cpu.registers.r[rn as usize] = address.wrapping_add(offset);
-    } else if write_back == WriteBack::Yes {
-        cpu.registers.r[rn as usize] = address;
+    // Write back only applies on loads if the base register and destination register are different
+    if !(LOAD && rn == rd) {
+        if indexing == LoadIndexing::Post {
+            cpu.registers.r[rn as usize] = address.wrapping_add(offset);
+        } else if write_back == WriteBack::Yes {
+            cpu.registers.r[rn as usize] = address;
+        }
     }
 
     if LOAD {
@@ -1021,10 +1064,13 @@ fn load_halfword<const LOAD: bool>(
         bus.write_halfword(address, cpu.registers.r[rd as usize] as u16);
     }
 
-    if indexing == LoadIndexing::Post {
-        cpu.registers.r[rn as usize] = address.wrapping_add(offset);
-    } else if write_back == WriteBack::Yes {
-        cpu.registers.r[rn as usize] = address;
+    // Write back only applies on loads if the base register and destination register are different
+    if !(LOAD && rn == rd) {
+        if indexing == LoadIndexing::Post {
+            cpu.registers.r[rn as usize] = address.wrapping_add(offset);
+        } else if write_back == WriteBack::Yes {
+            cpu.registers.r[rn as usize] = address;
+        }
     }
 
     if LOAD {
@@ -1138,6 +1184,44 @@ fn load_multiple<const LOAD: bool, const INCREMENT: bool, const AFTER: bool>(
         // STM: (n-1)*S + 2N
         1 + count
     }
+}
+
+fn arm_swap(cpu: &mut Arm7Tdmi, opcode: u32, bus: &mut dyn BusInterface) -> u32 {
+    let rm = opcode & 0xF;
+    let rd = (opcode >> 12) & 0xF;
+    let rn = (opcode >> 16) & 0xF;
+    let size = LoadSize::from_bit(opcode.bit(22));
+
+    swap(cpu, rm, rd, rn, size, bus)
+}
+
+fn swap(
+    cpu: &mut Arm7Tdmi,
+    rm: u32,
+    rd: u32,
+    rn: u32,
+    size: LoadSize,
+    bus: &mut dyn BusInterface,
+) -> u32 {
+    let address = cpu.registers.r[rn as usize];
+
+    match size {
+        LoadSize::Word => {
+            let value = bus.read_word(address);
+            bus.write_word(address, cpu.registers.r[rm as usize]);
+            cpu.registers.r[rd as usize] = value;
+        }
+        LoadSize::Byte => {
+            let value = bus.read_byte(address);
+            bus.write_byte(address, cpu.registers.r[rm as usize] as u8);
+            cpu.registers.r[rd as usize] = value.into();
+        }
+    }
+
+    cpu.fetch_opcode(bus);
+
+    // 1S + 2N + 1I
+    4
 }
 
 // Format 1: Move shifted register
@@ -1270,14 +1354,18 @@ fn thumb_high_register_op(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInte
 
 // Format 6: PC-relative load
 fn thumb_pc_relative_load(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
-    let offset = (opcode & 0xFF) << 2;
+    // Bit 1 of PC is forcibly cleared for PC-relative loads
+    // Fake this by subtracting 2 from the offset if bit 1 of PC is set
+    let mut offset: u32 = ((opcode & 0xFF) << 2).into();
+    offset = offset.wrapping_sub(cpu.registers.r[15] & 2);
+
     let rd = (opcode >> 8) & 7;
 
     load_word::<true>(
         cpu,
         15,
         rd.into(),
-        offset.into(),
+        offset,
         LoadSize::Word,
         LoadIndexing::Pre,
         IndexOp::Add,
