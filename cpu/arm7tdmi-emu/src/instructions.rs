@@ -265,7 +265,7 @@ const THUMB_DECODE_TABLE: &[ThumbDecodeEntry] = &[
     ThumbDecodeEntry::new(0xF0, 0x80, thumb_load_halfword),
     ThumbDecodeEntry::new(0xF0, 0x90, thumb_load_sp_relative),
     ThumbDecodeEntry::new(0xF0, 0xA0, thumb_load_address),
-    ThumbDecodeEntry::new(0xFF, 0xB0, |_, opcode, _| todo!("Thumb format 13")),
+    ThumbDecodeEntry::new(0xFF, 0xB0, thumb_add_offset_sp),
     ThumbDecodeEntry::new(0xF6, 0xB4, thumb_push_pop),
     ThumbDecodeEntry::new(0xF0, 0xC0, thumb_load_multiple),
     ThumbDecodeEntry::new(0xFF, 0xDF, |_, opcode, _| todo!("Thumb format 17")),
@@ -1639,6 +1639,16 @@ fn thumb_load_address(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterfac
     }
 
     alu_rotated_immediate(cpu, AluOp::Add, rn, rd.into(), false, immediate, 0, bus)
+}
+
+// Format 13: Add offset to stack pointer
+fn thumb_add_offset_sp(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+    let mut offset: u32 = ((opcode & 0x7F) << 2).into();
+    if opcode.bit(7) {
+        offset = (!offset).wrapping_add(1);
+    }
+
+    alu_rotated_immediate(cpu, AluOp::Add, 13, 13, false, offset, 0, bus)
 }
 
 // Format 14: Push/pop registers

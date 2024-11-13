@@ -65,7 +65,7 @@ impl GameBoyAdvanceEmulator {
             ppu_mclk_counter: 0,
         };
 
-        emulator.cpu.reset(
+        emulator.cpu.manual_reset(
             Arm7TdmiResetArgs {
                 pc: bus::CARTRIDGE_ROM_0_START,
                 sp_usr: 0x03007F00,

@@ -298,6 +298,13 @@ fn arm_swap(opcode: u32) -> String {
     format!("SWP{cond}{byte} R{rd}, R{rm}, [R{rn}]")
 }
 
+fn arm_swi(opcode: u32) -> String {
+    let cond = Condition::from_arm_opcode(opcode).suffix();
+    let expression = opcode & 0xFFFFFF;
+
+    format!("SWI{cond} 0x{expression:X}")
+}
+
 struct ThumbDecodeEntry {
     mask: u16,
     target: u16,
@@ -326,7 +333,7 @@ const THUMB_DECODE_TABLE: &[ThumbDecodeEntry] = &[
     ThumbDecodeEntry::new(0xFF00, 0xB000, thumb_13),
     ThumbDecodeEntry::new(0xF600, 0xB400, thumb_14),
     ThumbDecodeEntry::new(0xF000, 0xC000, thumb_15),
-    ThumbDecodeEntry::new(0xFF00, 0xDF00, |opcode| todo!("Thumb format 17 {opcode:04X}")),
+    ThumbDecodeEntry::new(0xFF00, 0xDF00, thumb_17),
     ThumbDecodeEntry::new(0xF000, 0xD000, thumb_16),
     ThumbDecodeEntry::new(0xF800, 0xE000, thumb_18),
     ThumbDecodeEntry::new(0xF000, 0xF000, thumb_19),
@@ -534,7 +541,7 @@ fn thumb_13(opcode: u16) -> String {
 
     let sign_str = if sign { "-" } else { "" };
 
-    format!("ADD SP, #{sign}0x{offset:X}")
+    format!("ADD SP, #{sign_str}0x{offset:X}")
 }
 
 // Push/pop registers
@@ -572,6 +579,12 @@ fn thumb_16(opcode: u16) -> String {
     let offset = i16::from(opcode as i8) << 1;
 
     format!("B{cond} {offset}")
+}
+
+// Software interrupt
+fn thumb_17(opcode: u16) -> String {
+    let comment = opcode & 0xFF;
+    format!("SWI 0x{comment:X}")
 }
 
 // Unconditional branch

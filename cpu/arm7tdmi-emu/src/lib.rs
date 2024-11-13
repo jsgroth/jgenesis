@@ -45,6 +45,16 @@ impl CpuMode {
             _ => Self::Illegal,
         }
     }
+
+    fn spsr(self, registers: &mut Registers) -> Option<&mut StatusRegister> {
+        match self {
+            Self::Irq => Some(&mut registers.spsr_irq),
+            Self::Fiq => Some(&mut registers.spsr_fiq),
+            Self::Supervisor => Some(&mut registers.spsr_svc),
+            Self::Undefined => Some(&mut registers.spsr_und),
+            Self::User | Self::System | Self::Illegal | Self::Abort => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, Encode, Decode)]
@@ -54,6 +64,7 @@ struct StatusRegister {
     carry: bool,
     overflow: bool,
     irq_disabled: bool,
+    fiq_disabled: bool,
     state: CpuState,
     mode: CpuMode,
 }
@@ -65,6 +76,7 @@ impl From<StatusRegister> for u32 {
             | (u32::from(value.carry) << 29)
             | (u32::from(value.overflow) << 28)
             | (u32::from(value.irq_disabled) << 7)
+            | (u32::from(value.fiq_disabled) << 6)
             | ((value.state as u32) << 5)
             | (value.mode as u32)
     }
@@ -78,6 +90,7 @@ impl From<u32> for StatusRegister {
             carry: value.bit(29),
             overflow: value.bit(28),
             irq_disabled: value.bit(7),
+            fiq_disabled: value.bit(6),
             state: CpuState::from_bit(value.bit(5)),
             mode: CpuMode::from_bits(value & 0x1F),
         }
@@ -111,6 +124,50 @@ struct Registers {
     spsr_fiq: StatusRegister,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Exception {
+    Reset,
+    UndefinedInstruction,
+    SoftwareInterrupt,
+    Irq,
+}
+
+impl Exception {
+    const fn vector_address(self) -> u32 {
+        match self {
+            Self::Reset => 0x00,
+            Self::UndefinedInstruction => 0x04,
+            Self::SoftwareInterrupt => 0x08,
+            Self::Irq => 0x18,
+        }
+    }
+
+    const fn new_mode(self) -> CpuMode {
+        match self {
+            Self::Reset | Self::SoftwareInterrupt => CpuMode::Supervisor,
+            Self::UndefinedInstruction => CpuMode::Undefined,
+            Self::Irq => CpuMode::Irq,
+        }
+    }
+
+    #[allow(clippy::match_same_arms)]
+    fn return_address(self, state: CpuState, r15: u32) -> u32 {
+        // R15 is PC+8 for ARM and PC+4 for Thumb
+        match (state, self) {
+            // ARM R14 is always PC+4 except for Data abort, which is not emulated
+            (CpuState::Arm, _) => r15.wrapping_sub(4),
+            // Thumb R14 is PC+2 for SWI and Undefined
+            (CpuState::Thumb, Self::UndefinedInstruction | Self::SoftwareInterrupt) => {
+                r15.wrapping_sub(2)
+            }
+            // Thumb R14 is PC+4 for IRQ (and FIQ and Data abort, which are not emulated)
+            (CpuState::Thumb, Self::Irq) => r15,
+            // Reset value doesn't matter because return address is not written when handling Reset
+            (CpuState::Thumb, Self::Reset) => r15,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Arm7Tdmi {
     registers: Registers,
@@ -130,7 +187,11 @@ impl Arm7Tdmi {
         Self { registers: Registers::default(), prefetch: [0, 0] }
     }
 
-    pub fn reset(&mut self, args: Arm7TdmiResetArgs, bus: &mut impl BusInterface) {
+    pub fn reset(&mut self, bus: &mut impl BusInterface) {
+        self.handle_exception(Exception::Reset, bus);
+    }
+
+    pub fn manual_reset(&mut self, args: Arm7TdmiResetArgs, bus: &mut impl BusInterface) {
         self.registers = Registers::default();
         self.registers.r[15] = args.pc;
         self.registers.r[13] = args.sp_usr;
@@ -291,5 +352,36 @@ impl Arm7Tdmi {
         }
 
         self.registers.cpsr.mode = new_mode;
+    }
+
+    fn handle_exception(
+        &mut self,
+        exception: Exception,
+        bus: &mut (impl BusInterface + ?Sized),
+    ) -> u32 {
+        let old_cpsr = self.registers.cpsr;
+
+        let mode = exception.new_mode();
+        self.change_mode(mode);
+        self.registers.cpsr.state = CpuState::Arm;
+
+        if exception != Exception::Reset {
+            self.registers.r[14] = exception.return_address(old_cpsr.state, self.registers.r[15]);
+            if let Some(spsr) = mode.spsr(&mut self.registers) {
+                *spsr = old_cpsr;
+            }
+        }
+
+        self.registers.cpsr.irq_disabled = true;
+        if exception == Exception::Reset {
+            self.registers.cpsr.fiq_disabled = true;
+        }
+
+        self.registers.r[15] = exception.vector_address();
+        self.refill_prefetch(bus);
+
+        // 2S + 1N
+        // TODO do different exception types take more cycles?
+        3
     }
 }
