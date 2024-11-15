@@ -57,7 +57,7 @@ sudo apt install libsdl2-dev
 ```
 
 Windows:
-* https://github.com/libsdl-org/SDL/releases
+* https://github.com/libsdl-org/SDL/releases (Download a 2.x version)
 
 ## Build & Run
 
