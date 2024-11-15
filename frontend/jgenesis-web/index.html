@@ -227,6 +227,25 @@
                         <label for="gen-aspect-square-pixels">Square pixels</label>
                     </fieldset>
 
+                    <fieldset>
+                        <legend>Main CPU speed</legend>
+
+                        <input type="radio" id="gen-divider-7" name="gen-m68k-divider" value="7" checked>
+                        <label for="gen-divider-7">100%</label>
+
+                        <input type="radio" id="gen-divider-6" name="gen-m68k-divider" value="6">
+                        <label for="gen-divider-6">117%</label>
+
+                        <input type="radio" id="gen-divider-5" name="gen-m68k-divider" value="5">
+                        <label for="gen-divider-5">140%</label>
+
+                        <input type="radio" id="gen-divider-4" name="gen-m68k-divider" value="4">
+                        <label for="gen-divider-4">175%</label>
+
+                        <input type="radio" id="gen-divider-3" name="gen-m68k-divider" value="3">
+                        <label for="gen-divider-3">233%</label>
+                    </fieldset>
+
                     <div>
                         <input type="checkbox" id="genesis-remove-sprite-limits">
                         <label for="genesis-remove-sprite-limits">Remove sprite-per-scanline and sprite-pixel-per-scanline limits</label>
@@ -273,6 +292,16 @@
 
                         <input type="radio" id="snes-aspect-square-pixels" name="snes-aspect-ratio" value="SquarePixels">
                         <label for="snes-aspect-square-pixels">Square pixels</label>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>ADPCM sample interpolation</legend>
+
+                        <input type="radio" id="snes-audio-gaussian" name="snes-audio-interpolation" value="Gaussian" checked>
+                        <label for="snes-audio-gaussian">Gaussian</label>
+
+                        <input type="radio" id="snes-audio-hermite" name="snes-audio-interpolation" value="Hermite">
+                        <label for="snes-audio-hermite">Cubic Hermite</label>
                     </fieldset>
 
                     <p>Controls</p>
@@ -416,6 +445,12 @@
                 });
             });
 
+            document.querySelectorAll("input[name='gen-m68k-divider']").forEach((element) => {
+                element.addEventListener("click", (event) => {
+                    config.set_genesis_m68k_divider(event.target.value);
+                });
+            });
+
             document.getElementById("genesis-remove-sprite-limits").addEventListener("click", (event) => {
                 config.set_genesis_remove_sprite_limits(event.target.checked);
             });
@@ -435,6 +470,12 @@
             document.querySelectorAll("input[name='snes-aspect-ratio']").forEach((element) => {
                 element.addEventListener("click", (event) => {
                     config.set_snes_aspect_ratio(event.target.value);
+                });
+            });
+
+            document.querySelectorAll("input[name='snes-audio-interpolation']").forEach((element) => {
+                element.addEventListener("click", (event) => {
+                    config.set_snes_audio_interpolation(event.target.value);
                 });
             });
 

@@ -136,13 +136,27 @@ impl SmsGgWebConfig {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GenesisWebConfig {
     aspect_ratio: GenesisAspectRatio,
     remove_sprite_limits: bool,
     emulate_non_linear_vdp_dac: bool,
     render_vertical_border: bool,
     render_horizontal_border: bool,
+    m68k_divider: u64,
+}
+
+impl Default for GenesisWebConfig {
+    fn default() -> Self {
+        Self {
+            aspect_ratio: GenesisAspectRatio::default(),
+            remove_sprite_limits: false,
+            emulate_non_linear_vdp_dac: false,
+            render_vertical_border: false,
+            render_horizontal_border: false,
+            m68k_divider: genesis_core::timing::NATIVE_M68K_DIVIDER,
+        }
+    }
 }
 
 impl GenesisWebConfig {
@@ -155,7 +169,7 @@ impl GenesisWebConfig {
             aspect_ratio: self.aspect_ratio,
             adjust_aspect_ratio_in_2x_resolution: true,
             remove_sprite_limits: self.remove_sprite_limits,
-            m68k_clock_divider: genesis_core::timing::NATIVE_M68K_DIVIDER,
+            m68k_clock_divider: self.m68k_divider,
             emulate_non_linear_vdp_dac: self.emulate_non_linear_vdp_dac,
             render_vertical_border: self.render_vertical_border,
             render_horizontal_border: self.render_horizontal_border,
@@ -170,6 +184,7 @@ impl GenesisWebConfig {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SnesWebConfig {
     aspect_ratio: SnesAspectRatio,
+    audio_interpolation: AudioInterpolationMode,
 }
 
 impl SnesWebConfig {
@@ -177,7 +192,7 @@ impl SnesWebConfig {
         SnesEmulatorConfig {
             forced_timing_mode: None,
             aspect_ratio: self.aspect_ratio,
-            audio_interpolation: AudioInterpolationMode::default(),
+            audio_interpolation: self.audio_interpolation,
             audio_60hz_hack: true,
             gsu_overclock_factor: NonZeroU64::new(1).unwrap(),
         }
@@ -253,6 +268,11 @@ impl WebConfigRef {
         self.borrow_mut().smsgg.fm_unit_enabled = enabled;
     }
 
+    pub fn set_genesis_m68k_divider(&self, m68k_divider: &str) {
+        let Ok(m68k_divider) = m68k_divider.parse() else { return };
+        self.borrow_mut().genesis.m68k_divider = m68k_divider;
+    }
+
     pub fn set_genesis_aspect_ratio(&self, aspect_ratio: &str) {
         let Ok(aspect_ratio) = aspect_ratio.parse() else { return };
         self.borrow_mut().genesis.aspect_ratio = aspect_ratio;
@@ -277,6 +297,11 @@ impl WebConfigRef {
     pub fn set_snes_aspect_ratio(&self, aspect_ratio: &str) {
         let Ok(aspect_ratio) = aspect_ratio.parse() else { return };
         self.borrow_mut().snes.aspect_ratio = aspect_ratio;
+    }
+
+    pub fn set_snes_audio_interpolation(&self, audio_interpolation: &str) {
+        let Ok(audio_interpolation) = audio_interpolation.parse() else { return };
+        self.borrow_mut().snes.audio_interpolation = audio_interpolation;
     }
 
     pub fn clone(&self) -> Self {
