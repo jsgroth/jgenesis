@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 const FRAME_DIVIDER: u64 = 10;
+const REWIND_SPEED: u64 = 2;
 
 pub struct Rewinder<Emulator> {
     previous_states: VecDeque<Emulator>,
@@ -64,8 +65,7 @@ impl<Emulator: PartialClone> Rewinder<Emulator> {
     {
         let Some(last_rewind_time) = self.last_rewind_time else { return Ok(()) };
 
-        // Divide by 2 so rewind runs at double speed
-        let rewind_interval_secs = 1.0 / 60.0 * FRAME_DIVIDER as f64 / 2.0;
+        let rewind_interval_secs = 1.0 / 60.0 * (FRAME_DIVIDER as f64) / (REWIND_SPEED as f64);
 
         let now = Instant::now();
         if now.duration_since(last_rewind_time) >= Duration::from_secs_f64(rewind_interval_secs) {
@@ -89,15 +89,21 @@ impl<Emulator: PartialClone> Rewinder<Emulator> {
     fn set_buffer_len(&mut self, buffer_len: usize) {
         self.buffer_len = buffer_len;
 
+        // If size increased, immediately resize deque to avoid incremental allocations later
         if buffer_len + 1 > self.previous_states.capacity() {
-            // Immediately resize deque to avoid incremental allocations later
-            let mut resized = VecDeque::with_capacity(buffer_len + 1);
-            resized.extend(self.previous_states.drain(..));
-            self.previous_states = resized;
+            self.previous_states.reserve(buffer_len + 1 - self.previous_states.capacity());
+        }
+
+        // If size decreased, immediately drop unused states
+        while self.previous_states.len() > buffer_len {
+            self.previous_states.pop_front();
         }
     }
 }
 
 fn duration_to_buffer_len(duration: Duration) -> usize {
-    (duration.as_secs() * 60 / 5) as usize
+    // Not really a better place for this, and this should get optimized out anyway
+    assert_eq!(FRAME_DIVIDER % REWIND_SPEED, 0);
+
+    (duration.as_secs() * 60 / (FRAME_DIVIDER / REWIND_SPEED)) as usize
 }
