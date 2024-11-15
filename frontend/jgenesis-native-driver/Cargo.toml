@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
-jgenesis-renderer = { path = "../jgenesis-renderer" }
+jgenesis-renderer = { path = "../jgenesis-renderer", features = ["serde", "ttf"] }
 jgenesis-common = { path = "../../common/jgenesis-common" }
 egui-sdl2-platform = { path = "../egui-sdl2-platform" }
 
@@ -19,7 +19,6 @@ segacd-core = { path = "../../backend/segacd-core" }
 smsgg-core = { path = "../../backend/smsgg-core", features = ["serde"] }
 snes-core = { path = "../../backend/snes-core", features = ["serde"] }
 
-anyhow = { workspace = true }
 arrayvec = { workspace = true }
 bincode = { workspace = true }
 bytemuck = { workspace = true }

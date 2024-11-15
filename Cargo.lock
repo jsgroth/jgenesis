@@ -2390,7 +2390,6 @@ dependencies = [
 name = "jgenesis-native-driver"
 version = "0.7.1"
 dependencies = [
- "anyhow",
  "arrayvec",
  "bincode",
  "bytemuck",

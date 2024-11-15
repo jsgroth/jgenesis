@@ -5,16 +5,21 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = []
+serde = ["dep:serde"]
+ttf = ["dep:glyphon"]
+
 [dependencies]
 jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
 jgenesis-common = { path = "../../common/jgenesis-common" }
 
 bytemuck = { workspace = true }
 cfg-if = { workspace = true }
-glyphon = { workspace = true }
+glyphon = { workspace = true, optional = true }
 log = { workspace = true }
 raw-window-handle = { workspace = true }
-serde = { workspace = true }
+serde = { workspace = true, optional = true }
 thiserror = { workspace = true }
 wgpu = { workspace = true }
 

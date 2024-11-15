@@ -1,5 +1,4 @@
 use crate::config::{PreprocessShader, PrescaleMode, RendererConfig, Scanlines, WgpuBackend};
-use crate::ttf::ModalRenderer;
 use cfg_if::cfg_if;
 use jgenesis_common::frontend::{Color, FrameSize, PixelAspectRatio, Renderer};
 use jgenesis_common::timeutils;
@@ -8,9 +7,12 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Debug;
 use std::time::Duration;
-use std::{cmp, iter, mem};
+use std::{cmp, iter};
 use thiserror::Error;
 use wgpu::util::DeviceExt;
+
+#[cfg(feature = "ttf")]
+use crate::ttf;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -25,7 +27,7 @@ impl Vertex {
 
     fn buffer_layout() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
-            array_stride: mem::size_of::<Vertex>() as u64,
+            array_stride: size_of::<Vertex>() as u64,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &Self::ATTRIBUTES,
         }
@@ -594,9 +596,9 @@ impl RenderingPipeline {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         surface: &wgpu::Surface<'_>,
-        surface_config: &wgpu::SurfaceConfiguration,
         frame_buffer: &[Color],
-        modal_renderer: &mut ModalRenderer,
+        #[cfg(feature = "ttf")] surface_config: &wgpu::SurfaceConfiguration,
+        #[cfg(feature = "ttf")] modal_renderer: &mut ttf::ModalRenderer,
         frame_time_tracker: &mut FrameTimeTracker,
     ) -> Result<RenderResult, RendererError> {
         let output = surface.get_current_texture()?;
@@ -650,6 +652,7 @@ impl RenderingPipeline {
             prescale_pass.draw(0..VERTICES.len() as u32, 0..1);
         }
 
+        #[cfg(feature = "ttf")]
         let modal_vertex_buffer = modal_renderer.prepare_modals(
             device,
             queue,
@@ -679,6 +682,7 @@ impl RenderingPipeline {
 
             render_pass.draw(0..VERTICES.len() as u32, 0..1);
 
+            #[cfg(feature = "ttf")]
             if let Some(modal_vertex_buffer) = &modal_vertex_buffer {
                 modal_renderer.render(modal_vertex_buffer, &mut render_pass)?;
             }
@@ -829,8 +833,10 @@ pub enum RendererError {
         "wgpu adapter does not support present mode {desired:?}; supported modes are {available:?}"
     )]
     UnsupportedPresentMode { desired: wgpu::PresentMode, available: Vec<wgpu::PresentMode> },
+    #[cfg(feature = "ttf")]
     #[error("Error preparing text to render: {0}")]
     GlyphonPrepare(#[from] glyphon::PrepareError),
+    #[cfg(feature = "ttf")]
     #[error("Error rendering text: {0}")]
     GlyphonRender(#[from] glyphon::RenderError),
 }
@@ -981,7 +987,8 @@ pub struct WgpuRenderer<Window> {
     texture_format: wgpu::TextureFormat,
     renderer_config: RendererConfig,
     pipelines: RenderingPipelines,
-    modal_renderer: ModalRenderer,
+    #[cfg(feature = "ttf")]
+    modal_renderer: ttf::ModalRenderer,
     frame_count: u64,
     speed_multiplier: u64,
     frame_time_tracker: FrameTimeTracker,
@@ -1089,7 +1096,8 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
         let device_limits = device.limits();
         let shaders = Shaders::create(&device);
 
-        let modal_renderer = ModalRenderer::new(&device, &queue, surface_format);
+        #[cfg(feature = "ttf")]
+        let modal_renderer = ttf::ModalRenderer::new(&device, &queue, surface_format);
 
         Ok(Self {
             surface,
@@ -1102,6 +1110,7 @@ impl<Window: HasDisplayHandle + HasWindowHandle> WgpuRenderer<Window> {
             texture_format,
             renderer_config: config,
             pipelines: RenderingPipelines::new(),
+            #[cfg(feature = "ttf")]
             modal_renderer,
             frame_count: 0,
             speed_multiplier: 1,
@@ -1201,6 +1210,7 @@ impl<Window> WgpuRenderer<Window> {
         self.pipelines.last_display_info
     }
 
+    #[cfg(feature = "ttf")]
     pub fn add_modal(&mut self, text: String, duration: Duration) {
         self.modal_renderer.add_modal(text, duration);
     }
@@ -1240,8 +1250,10 @@ impl<Window> Renderer for WgpuRenderer<Window> {
             &self.device,
             &self.queue,
             &self.surface,
-            &self.surface_config,
             frame_buffer,
+            #[cfg(feature = "ttf")]
+            &self.surface_config,
+            #[cfg(feature = "ttf")]
             &mut self.modal_renderer,
             &mut self.frame_time_tracker,
         ) {

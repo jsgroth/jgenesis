@@ -1,11 +1,9 @@
 use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay, EnumFromStr};
-use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroU32;
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumDisplay, EnumFromStr)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum WgpuBackend {
     #[default]
     Auto,
@@ -14,7 +12,8 @@ pub enum WgpuBackend {
     OpenGl,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, EnumDisplay, EnumFromStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumDisplay, EnumFromStr)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum VSyncMode {
     Enabled,
     Disabled,
@@ -37,7 +36,8 @@ impl Default for VSyncMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PrescaleFactor(u32);
 
 impl PrescaleFactor {
@@ -99,9 +99,8 @@ impl Display for PrescaleMode {
     }
 }
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumDisplay, EnumFromStr)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Scanlines {
     #[default]
     None,
@@ -109,9 +108,8 @@ pub enum Scanlines {
     Black,
 }
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumDisplay, EnumFromStr)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum FilterMode {
     Nearest,
     #[default]
@@ -127,9 +125,8 @@ impl FilterMode {
     }
 }
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumDisplay, EnumFromStr)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PreprocessShader {
     #[default]
     None,
