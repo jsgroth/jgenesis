@@ -7,8 +7,10 @@ use jgenesis_common::num::GetBit;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum CpuState {
+    // 32-bit opcodes, full instruction set
     #[default]
     Arm = 0,
+    // 16-bit opcodes, limited instruction set
     Thumb = 1,
 }
 
@@ -226,6 +228,13 @@ impl Arm7Tdmi {
         }
     }
 
+    fn align_pc(&mut self) {
+        match self.registers.cpsr.state {
+            CpuState::Arm => self.registers.r[15] &= !3,
+            CpuState::Thumb => self.registers.r[15] &= !1,
+        }
+    }
+
     fn fetch_opcode(&mut self, bus: &mut (impl BusInterface + ?Sized)) {
         match self.registers.cpsr.state {
             CpuState::Arm => self.fetch_arm_opcode(bus),
@@ -236,7 +245,7 @@ impl Arm7Tdmi {
     fn fetch_arm_opcode(&mut self, bus: &mut (impl BusInterface + ?Sized)) {
         self.prefetch[0] = self.prefetch[1];
         self.prefetch[1] = bus.read_word(self.registers.r[15]);
-        self.registers.r[15] = self.registers.r[15].wrapping_add(4) & !3;
+        self.registers.r[15] = self.registers.r[15].wrapping_add(4);
 
         log::trace!(
             "Fetched ARM opcode {:08X} from {:08X}",
@@ -248,7 +257,7 @@ impl Arm7Tdmi {
     fn fetch_thumb_opcode(&mut self, bus: &mut (impl BusInterface + ?Sized)) {
         self.prefetch[0] = self.prefetch[1];
         self.prefetch[1] = bus.read_halfword(self.registers.r[15]).into();
-        self.registers.r[15] = self.registers.r[15].wrapping_add(2) & !1;
+        self.registers.r[15] = self.registers.r[15].wrapping_add(2);
 
         log::trace!(
             "Fetched Thumb opcode {:04X} from {:08X}",
