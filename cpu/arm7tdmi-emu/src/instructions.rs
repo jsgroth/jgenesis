@@ -363,6 +363,7 @@ fn branch<const LINK: bool, const OPCODE_LEN: u32>(
     }
 
     cpu.registers.r[15] = cpu.registers.r[15].wrapping_add_signed(offset);
+    cpu.align_pc();
     cpu.refill_prefetch(bus);
 
     // 2S + 1N
@@ -381,6 +382,7 @@ fn branch_exchange(cpu: &mut Arm7Tdmi, rn: u32, bus: &mut dyn BusInterface) -> u
     log::trace!("CPU state is now {:?}", cpu.registers.cpsr.state);
 
     cpu.registers.r[15] = new_pc;
+    cpu.align_pc();
     cpu.fetch_opcode(bus);
     cpu.fetch_opcode(bus);
 
@@ -693,6 +695,7 @@ fn alu(
         cpu.registers.r[rd as usize] = result;
 
         if rd == 15 {
+            cpu.align_pc();
             cpu.fetch_opcode(bus);
 
             // +1N +1S if Rd = 15
@@ -980,6 +983,7 @@ fn load_word<const LOAD: bool>(
         };
 
         if rd == 15 {
+            cpu.align_pc();
             cpu.fetch_opcode(bus);
         }
         cpu.fetch_opcode(bus);
@@ -1069,6 +1073,7 @@ fn load_halfword<const LOAD: bool>(
         cpu.registers.r[rd as usize] = value;
 
         if rd == 15 {
+            cpu.align_pc();
             cpu.fetch_opcode(bus);
         }
         cpu.fetch_opcode(bus);
@@ -1157,6 +1162,7 @@ fn load_multiple<const LOAD: bool, const INCREMENT: bool, const AFTER: bool>(
             if r == 15 {
                 cpu.registers.r[15] = bus.read_word(address);
 
+                cpu.align_pc();
                 cpu.fetch_opcode(bus);
                 cpu.fetch_opcode(bus);
                 if s_bit {
@@ -1732,7 +1738,7 @@ fn thumb_long_branch(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInterface
     let offset = ((unsigned_offset as i32) << 10) >> 9;
 
     cpu.registers.r[14] = cpu.registers.r[15] | 1;
-    cpu.registers.r[15] = cpu.registers.r[15].wrapping_add_signed(offset);
+    cpu.registers.r[15] = cpu.registers.r[15].wrapping_add_signed(offset) & !1;
     cpu.fetch_thumb_opcode(bus);
     cpu.fetch_thumb_opcode(bus);
 
