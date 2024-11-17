@@ -3,6 +3,7 @@ use crate::input::GbaInputs;
 use crate::memory::Memory;
 use crate::ppu::Ppu;
 use arm7tdmi_emu::bus::BusInterface;
+use jgenesis_common::num::{GetBit, U16Ext};
 
 // $00000000-$00003FFF: BIOS ROM (16KB)
 pub const BIOS_START: u32 = 0x00000000;
@@ -55,13 +56,46 @@ pub struct Bus<'a> {
     pub inputs: GbaInputs,
 }
 
+// TODO open bus
+// TODO BIOS read restrictions (can only read BIOS while executing in BIOS)
 impl Bus<'_> {
     fn read_io_register(&mut self, address: u32) -> u16 {
+        log::trace!("I/O register read {address:08X}");
+
         match address {
             0x04000000..=0x04000056 => self.ppu.read_register(address),
+            0x04000060..=0x040000AF => {
+                log::error!("APU register read: {address:08X}");
+                0
+            }
+            0x040000B0..=0x040000DF => {
+                log::error!("DMA register read: {address:08X}");
+                0
+            }
+            0x04000100..=0x0400010F => {
+                log::error!("Timer register read: {address:08X}");
+                0
+            }
             0x04000130 => self.read_keyinput(),
+            0x04000204 => self.control.read_waitcnt(),
+            0x04000208 => self.control.read_ime(),
             _ => todo!("I/O register read {address:08X}"),
         }
+    }
+
+    fn read_io_register_u8(&mut self, address: u32) -> u8 {
+        log::trace!("8-bit I/O register read {address:08X}");
+
+        let halfword = self.read_io_register(address & !1);
+        (halfword >> (8 * (address & 1))) as u8
+    }
+
+    fn read_io_register_u32(&mut self, address: u32) -> u32 {
+        log::trace!("32-bit I/O register read {address:08X}");
+
+        let low_halfword: u32 = self.read_io_register(address & !2).into();
+        let high_halfword: u32 = self.read_io_register(address | 2).into();
+        (high_halfword << 16) | low_halfword
     }
 
     // $04000130: KEYINPUT (Key status)
@@ -79,23 +113,55 @@ impl Bus<'_> {
     }
 
     fn write_io_register(&mut self, address: u32, value: u16) {
+        log::trace!("I/O register write: {address:08X} {value:04X}");
+
         match address {
-            0x04000000..=0x04000056 => self.ppu.write_register(address, value),
-            0x04000208 => self.control.write_ime(value.into()),
+            0x04000000..=0x0400005F => self.ppu.write_register(address, value),
+            0x04000060..=0x040000AF => {
+                log::error!("APU register write: {address:08X} {value:04X}");
+            }
+            0x040000B0..=0x040000DF => {
+                log::error!("DMA register write: {address:08X} {value:04X}");
+            }
+            0x04000100..=0x0400010F => {
+                log::error!("Timer register write: {address:08X} {value:04X}");
+            }
+            0x04000120..=0x0400012F | 0x04000134..=0x0400015F => {
+                log::error!("Serial register write: {address:08X} {value:04X}");
+            }
+            // KEYINPUT, not writable
+            0x04000130 => {}
+            0x04000132 => {
+                log::error!("KEYCNT write: {address:08X} {value:04X}");
+            }
+            0x04000200 => self.control.write_ie(value),
+            0x04000202 => self.control.write_if(value),
+            0x04000204 => self.control.write_waitcnt(value),
+            0x04000208 => self.control.write_ime(value),
+            // Unused
+            0x0400020A => {}
             _ => todo!("I/O register write {address:08X} {value:04X}"),
         }
     }
 
-    // TODO maybe collapse this to not be as separate from the u16 version
-    fn write_io_register_u32(&mut self, address: u32, value: u32) {
-        match address {
-            0x04000000..=0x004000056 => {
-                self.ppu.write_register(address, value as u16);
-                self.ppu.write_register(address + 2, (value >> 16) as u16);
-            }
-            0x04000208 => self.control.write_ime(value),
-            _ => todo!("I/O register write {address:08X} {value:08X}"),
+    fn write_io_register_u8(&mut self, address: u32, value: u8) {
+        log::trace!("8-bit I/O register write: {address:08X} {value:02X}");
+
+        // TODO is this safe? do any I/O register reads have side effects?
+        let mut halfword = self.read_io_register(address & !1);
+        if !address.bit(0) {
+            halfword.set_lsb(value);
+        } else {
+            halfword.set_msb(value);
         }
+        self.write_io_register(address & !1, halfword);
+    }
+
+    fn write_io_register_u32(&mut self, address: u32, value: u32) {
+        log::trace!("32-bit I/O register write: {address:08X} {value:08X}");
+
+        self.write_io_register(address & !2, value as u16);
+        self.write_io_register(address | 2, (value >> 16) as u16);
     }
 }
 
@@ -107,6 +173,12 @@ impl BusInterface for Bus<'_> {
                 self.memory.cartridge.read_rom_byte(address)
             }
             IWRAM_START..=IWRAM_END => self.memory.read_iwram_byte(address),
+            EWRAM_START..=EWRAM_END => self.memory.read_ewram_byte(address),
+            MMIO_START..=MMIO_END => self.read_io_register_u8(address),
+            CARTRIDGE_RAM_START..=CARTRIDGE_RAM_END => {
+                self.memory.cartridge.read_sram_byte(address)
+            }
+            BIOS_START..=BIOS_END => self.memory.read_bios_byte(address),
             _ => todo!("read byte {address:08X}"),
         }
     }
@@ -118,7 +190,10 @@ impl BusInterface for Bus<'_> {
                 self.memory.cartridge.read_rom_halfword(address)
             }
             IWRAM_START..=IWRAM_END => self.memory.read_iwram_halfword(address),
+            EWRAM_START..=EWRAM_END => self.memory.read_ewram_halfword(address),
             MMIO_START..=MMIO_END => self.read_io_register(address),
+            VRAM_START..=VRAM_END => self.ppu.read_vram_halfword(address),
+            BIOS_START..=BIOS_END => self.memory.read_bios_halfword(address),
             _ => todo!("read halfword {address:08X}"),
         }
     }
@@ -130,6 +205,10 @@ impl BusInterface for Bus<'_> {
                 self.memory.cartridge.read_rom_word(address)
             }
             IWRAM_START..=IWRAM_END => self.memory.read_iwram_word(address),
+            EWRAM_START..=EWRAM_END => self.memory.read_ewram_word(address),
+            MMIO_START..=MMIO_END => self.read_io_register_u32(address),
+            VRAM_START..=VRAM_END => self.ppu.read_vram_word(address),
+            BIOS_START..=BIOS_END => self.memory.read_bios_word(address),
             _ => todo!("read word {address:08X}"),
         }
     }
@@ -138,6 +217,11 @@ impl BusInterface for Bus<'_> {
     fn write_byte(&mut self, address: u32, value: u8) {
         match address {
             IWRAM_START..=IWRAM_END => self.memory.write_iwram_byte(address, value),
+            EWRAM_START..=EWRAM_END => self.memory.write_ewram_byte(address, value),
+            MMIO_START..=MMIO_END => self.write_io_register_u8(address, value),
+            CARTRIDGE_RAM_START..=CARTRIDGE_RAM_END => {
+                self.memory.cartridge.write_sram_byte(address, value)
+            }
             _ => todo!("write byte {address:08X} {value:02X}"),
         }
     }
@@ -146,6 +230,7 @@ impl BusInterface for Bus<'_> {
     fn write_halfword(&mut self, address: u32, value: u16) {
         match address {
             IWRAM_START..=IWRAM_END => self.memory.write_iwram_halfword(address, value),
+            EWRAM_START..=EWRAM_END => self.memory.write_ewram_halfword(address, value),
             MMIO_START..=MMIO_END => self.write_io_register(address, value),
             VRAM_START..=VRAM_END => self.ppu.write_vram_halfword(address, value),
             PALETTES_START..=PALETTES_END => self.ppu.write_palette_halfword(address, value),
@@ -159,10 +244,9 @@ impl BusInterface for Bus<'_> {
             IWRAM_START..=IWRAM_END => self.memory.write_iwram_word(address, value),
             EWRAM_START..=EWRAM_END => self.memory.write_ewram_word(address, value),
             MMIO_START..=MMIO_END => self.write_io_register_u32(address, value),
-            VRAM_START..=VRAM_END => {
-                self.ppu.write_vram_halfword(address & !3, value as u16);
-                self.ppu.write_vram_halfword(address | 2, (value >> 16) as u16);
-            }
+            VRAM_START..=VRAM_END => self.ppu.write_vram_word(address, value),
+            OAM_START..=OAM_END => self.ppu.write_oam_word(address, value),
+            PALETTES_START..=PALETTES_END => self.ppu.write_palette_word(address, value),
             CARTRIDGE_ROM_0_START..=CARTRIDGE_ROM_0_END => {
                 log::warn!("Cartridge ROM write {address:08X} {value:08X}");
             }

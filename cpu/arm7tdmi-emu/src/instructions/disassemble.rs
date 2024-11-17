@@ -20,7 +20,7 @@ const ARM_DECODE_TABLE: &[DecodeTableEntry] = &[
     DecodeTableEntry::new(0x0F8000F0, 0x00800090, arm_mull),
     DecodeTableEntry::new(0x0FB00FF0, 0x01000090, arm_swap),
     DecodeTableEntry::new(0x0E000090, 0x00000090, arm_ldrh),
-    DecodeTableEntry::new(0x0FBF0FFF, 0x10F00000, arm_mrs),
+    DecodeTableEntry::new(0x0FBF0FFF, 0x010F0000, arm_mrs),
     DecodeTableEntry::new(0x0DBEF000, 0x0128F000, arm_msr),
     DecodeTableEntry::new(0x0C000000, 0x00000000, arm_alu),
     DecodeTableEntry::new(0x0E000010, 0x06000010, |_| "Undefined".into()),
