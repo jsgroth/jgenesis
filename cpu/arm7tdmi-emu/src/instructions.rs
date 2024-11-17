@@ -1,7 +1,7 @@
 mod disassemble;
 
 use crate::bus::BusInterface;
-use crate::{Arm7Tdmi, CpuMode, CpuState, Registers, StatusRegister};
+use crate::{Arm7Tdmi, CpuMode, CpuState, Exception, Registers, StatusRegister};
 use jgenesis_common::num::{GetBit, SignBit};
 use std::array;
 use std::cmp::Ordering;
@@ -268,7 +268,7 @@ const THUMB_DECODE_TABLE: &[ThumbDecodeEntry] = &[
     ThumbDecodeEntry::new(0xFF, 0xB0, thumb_add_offset_sp),
     ThumbDecodeEntry::new(0xF6, 0xB4, thumb_push_pop),
     ThumbDecodeEntry::new(0xF0, 0xC0, thumb_load_multiple),
-    ThumbDecodeEntry::new(0xFF, 0xDF, |_, opcode, _| todo!("Thumb format 17")),
+    ThumbDecodeEntry::new(0xFF, 0xDF, thumb_software_interrupt),
     ThumbDecodeEntry::new(0xF0, 0xD0, thumb_conditional_branch),
     ThumbDecodeEntry::new(0xF8, 0xE0, thumb_unconditional_branch),
     ThumbDecodeEntry::new(0xF0, 0xF0, thumb_long_branch),
@@ -396,7 +396,11 @@ fn arm_mrs(cpu: &mut Arm7Tdmi, opcode: u32, bus: &mut dyn BusInterface) -> u32 {
     let spsr = opcode.bit(22);
 
     if spsr {
-        todo!("MRS from SPSR")
+        let spsr = match cpu.registers.cpsr.mode.spsr(&mut cpu.registers) {
+            Some(spsr) => *spsr,
+            None => panic!("MRS R{rd}, SPSR executed in mode {:?}", cpu.registers.cpsr.mode),
+        };
+        cpu.registers.r[rd as usize] = spsr.into();
     } else {
         cpu.registers.r[rd as usize] = cpu.registers.cpsr.into();
     }
@@ -424,7 +428,13 @@ fn arm_msr<const IMMEDIATE: bool>(
     let flags_only = !opcode.bit(16);
 
     if spsr {
-        todo!("MSR to SPSR")
+        let spsr = match cpu.registers.cpsr.mode.spsr(&mut cpu.registers) {
+            Some(spsr) => spsr,
+            None => {
+                panic!("MSR SPSR, 0x{operand:X} executed in mode {:?}", cpu.registers.cpsr.mode)
+            }
+        };
+        *spsr = operand.into();
     } else if flags_only {
         cpu.write_cpsr_flags(operand);
     } else {
@@ -695,6 +705,11 @@ fn alu(
         cpu.registers.r[rd as usize] = result;
 
         if rd == 15 {
+            if set_condition_codes {
+                // TODO should this also run for test opcodes?
+                cpu.spsr_to_cpsr();
+            }
+
             cpu.align_pc();
             cpu.fetch_opcode(bus);
 
@@ -705,15 +720,11 @@ fn alu(
 
     cpu.fetch_opcode(bus);
 
-    if set_condition_codes {
-        if rd == 15 {
-            todo!("SPSR -> CPSR")
-        } else {
-            cpu.registers.cpsr.sign = codes.sign;
-            cpu.registers.cpsr.zero = codes.zero;
-            cpu.registers.cpsr.carry = codes.carry;
-            cpu.registers.cpsr.overflow = codes.overflow;
-        }
+    if set_condition_codes && rd != 15 {
+        cpu.registers.cpsr.sign = codes.sign;
+        cpu.registers.cpsr.zero = codes.zero;
+        cpu.registers.cpsr.carry = codes.carry;
+        cpu.registers.cpsr.overflow = codes.overflow;
     }
 
     cycles
@@ -1604,24 +1615,24 @@ fn thumb_load_sp_relative(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusInte
     let load = opcode.bit(11);
 
     if load {
-        load_halfword::<true>(
+        load_word::<true>(
             cpu,
             13,
             rd.into(),
             offset.into(),
-            HalfwordLoadType::UnsignedHalfword,
+            LoadSize::Word,
             LoadIndexing::Pre,
             IndexOp::Add,
             WriteBack::No,
             bus,
         )
     } else {
-        load_halfword::<false>(
+        load_word::<false>(
             cpu,
             13,
             rd.into(),
             offset.into(),
-            HalfwordLoadType::UnsignedHalfword,
+            LoadSize::Word,
             LoadIndexing::Pre,
             IndexOp::Add,
             WriteBack::No,
@@ -1720,6 +1731,11 @@ fn thumb_conditional_branch(cpu: &mut Arm7Tdmi, opcode: u16, bus: &mut dyn BusIn
 
     let offset = i32::from(opcode as i8) << 1;
     branch::<false, THUMB_OPCODE_LEN>(cpu, offset, bus)
+}
+
+// Format 17: Software interrupt
+fn thumb_software_interrupt(cpu: &mut Arm7Tdmi, _opcode: u16, bus: &mut dyn BusInterface) -> u32 {
+    cpu.handle_exception(Exception::SoftwareInterrupt, bus)
 }
 
 // Format 18: Unconditional branch

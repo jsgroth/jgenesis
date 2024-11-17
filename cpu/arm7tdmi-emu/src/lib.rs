@@ -291,6 +291,16 @@ impl Arm7Tdmi {
         };
     }
 
+    fn spsr_to_cpsr(&mut self) {
+        let spsr = match self.registers.cpsr.mode.spsr(&mut self.registers) {
+            Some(spsr) => *spsr,
+            None => panic!("Attmpted to read SPSR in mode {:?}", self.registers.cpsr.mode),
+        };
+
+        self.change_mode(spsr.mode);
+        self.registers.cpsr = spsr;
+    }
+
     fn change_mode(&mut self, new_mode: CpuMode) {
         if new_mode == self.registers.cpsr.mode {
             return;
