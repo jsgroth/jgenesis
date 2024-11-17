@@ -14,7 +14,7 @@ impl Serialize for SerializableKeycode {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&self.0.name())
+        serializer.serialize_str(&super::keycode_to_str(self.0))
     }
 }
 
@@ -36,11 +36,9 @@ impl<'de> Deserialize<'de> for SerializableKeycode {
             where
                 E: Error,
             {
-                Ok(SerializableKeycode(
-                    Keycode::from_name(v).ok_or_else(|| {
-                        Error::custom(format!("Invalid SDL2 keycode string: '{v}'"))
-                    })?,
-                ))
+                let keycode = super::keycode_from_str(v)
+                    .ok_or_else(|| Error::custom(format!("Invalid SDL2 keycode string: '{v}'")))?;
+                Ok(SerializableKeycode(keycode))
             }
         }
 

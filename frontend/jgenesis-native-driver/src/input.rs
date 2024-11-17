@@ -18,6 +18,7 @@ use sdl2::{IntegerOrSdlError, JoystickSubsystem};
 use smsgg_core::{SmsGgButton, SmsGgInputs};
 use snes_core::input::{SnesButton, SnesInputDevice, SnesInputs};
 use std::array;
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
@@ -143,18 +144,89 @@ pub enum GenericInput {
     Mouse(MouseButton),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct CanonicalInput(GenericInput);
+
+impl GenericInput {
+    pub(crate) fn canonicalize(self) -> CanonicalInput {
+        match self {
+            Self::Keyboard(keycode) => {
+                CanonicalInput(Self::Keyboard(canonicalize_keycode(keycode)))
+            }
+            _ => CanonicalInput(self),
+        }
+    }
+}
+
+fn canonicalize_keycode(keycode: Keycode) -> Keycode {
+    match keycode {
+        Keycode::RShift => Keycode::LShift,
+        Keycode::RCtrl => Keycode::LCtrl,
+        Keycode::RAlt => Keycode::LAlt,
+        _ => keycode,
+    }
+}
+
+impl CanonicalInput {
+    pub(crate) fn reverse_canonicalize(self) -> Option<&'static [GenericInput]> {
+        match self.0 {
+            GenericInput::Keyboard(Keycode::LShift) => Some(&[
+                GenericInput::Keyboard(Keycode::LShift),
+                GenericInput::Keyboard(Keycode::RShift),
+            ]),
+            GenericInput::Keyboard(Keycode::LCtrl) => Some(&[
+                GenericInput::Keyboard(Keycode::LCtrl),
+                GenericInput::Keyboard(Keycode::RCtrl),
+            ]),
+            GenericInput::Keyboard(Keycode::LAlt) => Some(&[
+                GenericInput::Keyboard(Keycode::LAlt),
+                GenericInput::Keyboard(Keycode::RAlt),
+            ]),
+            _ => None,
+        }
+    }
+}
+
 impl Display for GenericInput {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Keyboard(keycode) => write!(f, "Key: {}", keycode.name()),
+            &Self::Keyboard(keycode) => write!(f, "Key: {}", keycode_to_str(keycode)),
             Self::Gamepad { gamepad_idx, action } => write!(f, "Gamepad {gamepad_idx}: {action}"),
             Self::Mouse(mouse_button) => write!(f, "Mouse: {mouse_button:?}"),
         }
     }
 }
 
+fn keycode_to_str(keycode: Keycode) -> Cow<'static, str> {
+    match keycode {
+        Keycode::LShift | Keycode::RShift => "Shift".into(),
+        Keycode::LCtrl | Keycode::RCtrl => "Ctrl".into(),
+        Keycode::LAlt | Keycode::RAlt => "Alt".into(),
+        _ => keycode.name().into(),
+    }
+}
+
+fn keycode_from_str(s: &str) -> Option<Keycode> {
+    match s {
+        "Shift" => Some(Keycode::LShift),
+        "Ctrl" => Some(Keycode::LCtrl),
+        "Alt" => Some(Keycode::LAlt),
+        _ => {
+            if s == Keycode::RShift.name().as_str() {
+                Some(Keycode::LShift)
+            } else if s == Keycode::RCtrl.name().as_str() {
+                Some(Keycode::LCtrl)
+            } else if s == Keycode::RAlt.name().as_str() {
+                Some(Keycode::LAlt)
+            } else {
+                Keycode::from_name(s)
+            }
+        }
+    }
+}
+
 pub const MAX_MAPPING_LEN: usize = 3;
-type MappingArrayVec = ArrayVec<GenericInput, MAX_MAPPING_LEN>;
+type MappingArrayVec = ArrayVec<CanonicalInput, MAX_MAPPING_LEN>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumDisplay, EnumAll)]
 pub enum Hotkey {
@@ -436,8 +508,9 @@ struct InputMapperState<Inputs, Button> {
     inputs: Inputs,
     hotkey_events: Rc<RefCell<Vec<HotkeyEvent>>>,
     mappings: FxHashMap<GenericButton<Button>, Vec<MappingArrayVec>>,
-    inputs_to_buttons: FxHashMap<GenericInput, Vec<GenericButton<Button>>>,
+    inputs_to_buttons: FxHashMap<CanonicalInput, Vec<GenericButton<Button>>>,
     active_inputs: FxHashSet<GenericInput>,
+    active_canonical_inputs: FxHashSet<CanonicalInput>,
     active_hotkeys: FxHashSet<Hotkey>,
     changed_button_buffers: [Vec<GenericButton<Button>>; MAX_MAPPING_LEN + 1],
 }
@@ -454,6 +527,7 @@ where
             mappings: FxHashMap::default(),
             inputs_to_buttons: FxHashMap::default(),
             active_inputs: FxHashSet::default(),
+            active_canonical_inputs: FxHashSet::default(),
             active_hotkeys: FxHashSet::default(),
             changed_button_buffers: array::from_fn(|_| Vec::with_capacity(10)),
         }
@@ -479,10 +553,13 @@ where
             self.mappings
                 .entry(generic_button)
                 .or_default()
-                .push(mapping.iter().copied().collect());
+                .push(mapping.iter().copied().map(GenericInput::canonicalize).collect());
 
             for &mapping_input in mapping {
-                self.inputs_to_buttons.entry(mapping_input).or_default().push(generic_button);
+                self.inputs_to_buttons
+                    .entry(mapping_input.canonicalize())
+                    .or_default()
+                    .push(generic_button);
             }
         }
 
@@ -496,28 +573,53 @@ where
             self.mappings
                 .entry(generic_button)
                 .or_default()
-                .push(mapping.iter().copied().collect());
+                .push(mapping.iter().copied().map(GenericInput::canonicalize).collect());
 
             for &mapping_input in mapping {
-                self.inputs_to_buttons.entry(mapping_input).or_default().push(generic_button);
+                self.inputs_to_buttons
+                    .entry(mapping_input.canonicalize())
+                    .or_default()
+                    .push(generic_button);
             }
         }
     }
 
-    fn handle_input(&mut self, input: GenericInput, pressed: bool) {
-        let Some(buttons) = self.inputs_to_buttons.get(&input) else { return };
-
-        log::debug!("Input {input:?}, pressed={pressed}, buttons={buttons:?}");
-
-        if pressed {
-            if !self.active_inputs.insert(input) {
-                // Input is already pressed
-                return;
-            }
-        } else if !self.active_inputs.remove(&input) {
+    fn handle_input(&mut self, raw_input: GenericInput, pressed: bool) {
+        if pressed && !self.active_inputs.insert(raw_input) {
+            // Input is already pressed
+            return;
+        } else if !pressed && !self.active_inputs.remove(&raw_input) {
             // Input is already released
             return;
         }
+
+        let input = raw_input.canonicalize();
+        if let Some(raw_inputs) = input.reverse_canonicalize() {
+            for &other_raw_input in raw_inputs {
+                if other_raw_input == raw_input {
+                    continue;
+                }
+
+                if self.active_inputs.contains(&other_raw_input) {
+                    // Mapping will not change as a result of this press/release
+                    return;
+                }
+            }
+        }
+
+        if pressed {
+            self.active_canonical_inputs.insert(input);
+        } else {
+            self.active_canonical_inputs.remove(&input);
+        }
+
+        self.handle_canonical_input(input, pressed);
+    }
+
+    fn handle_canonical_input(&mut self, input: CanonicalInput, pressed: bool) {
+        let Some(buttons) = self.inputs_to_buttons.get(&input) else { return };
+
+        log::debug!("Input {input:?}, pressed={pressed}, buttons={buttons:?}");
 
         for buffer in &mut self.changed_button_buffers {
             buffer.clear();
@@ -530,7 +632,7 @@ where
 
             let other_mappings_pressed = mappings.iter().any(|mapping| {
                 mapping.iter().all(|&mapping_input| {
-                    mapping_input != input && self.active_inputs.contains(&mapping_input)
+                    mapping_input != input && self.active_canonical_inputs.contains(&mapping_input)
                 })
             });
             if other_mappings_pressed {
@@ -543,8 +645,8 @@ where
                 let mut all_others_pressed = true;
                 for &mapping_input in mapping {
                     contains_new_input |= mapping_input == input;
-                    all_others_pressed &=
-                        mapping_input == input || self.active_inputs.contains(&mapping_input);
+                    all_others_pressed &= mapping_input == input
+                        || self.active_canonical_inputs.contains(&mapping_input);
                 }
 
                 if contains_new_input && all_others_pressed {
@@ -598,14 +700,14 @@ where
             .inputs_to_buttons
             .keys()
             .copied()
-            .filter(|&input| match input {
+            .filter(|&input| match input.0 {
                 GenericInput::Gamepad { gamepad_idx, .. } => gamepad_idx == idx,
                 _ => false,
             })
             .collect();
 
         for input in gamepad_inputs {
-            self.handle_input(input, false);
+            self.handle_input(input.0, false);
         }
     }
 }
@@ -1068,5 +1170,95 @@ mod tests {
         state.handle_input(GenericInput::Keyboard(Keycode::LShift), false);
         expected = vec![];
         assert_eq!(expected, take_hotkey_events(&mut state), "combination secondary key released");
+    }
+
+    #[test]
+    fn shift_canonicalization_basic() {
+        let mut state = InputMapperState::new(SmsGgInputs::default());
+        state.update_mappings(
+            &[
+                ((SmsGgButton::Button1, Player::One), &vec![GenericInput::Keyboard(
+                    Keycode::RShift,
+                )]),
+                ((SmsGgButton::Button2, Player::One), &vec![GenericInput::Keyboard(
+                    Keycode::LShift,
+                )]),
+            ],
+            &[],
+        );
+
+        let mut expected = SmsGgInputs::default();
+        assert_eq!(expected, state.inputs);
+
+        state.handle_input(GenericInput::Keyboard(Keycode::LShift), true);
+        expected.p1.button1 = true;
+        expected.p1.button2 = true;
+        assert_eq!(expected, state.inputs, "Pressing LShift should trigger both Shift mappings");
+
+        state.handle_input(GenericInput::Keyboard(Keycode::LShift), false);
+        expected.p1.button1 = false;
+        expected.p1.button2 = false;
+        assert_eq!(expected, state.inputs, "Releasing LShift should trigger both Shift mappings");
+
+        state.handle_input(GenericInput::Keyboard(Keycode::RShift), true);
+        expected.p1.button1 = true;
+        expected.p1.button2 = true;
+        assert_eq!(expected, state.inputs, "Pressing RShift should trigger both Shift mappings");
+
+        state.handle_input(GenericInput::Keyboard(Keycode::RShift), false);
+        expected.p1.button1 = false;
+        expected.p1.button2 = false;
+        assert_eq!(expected, state.inputs, "Releasing RShift should trigger both Shift mappings");
+    }
+
+    #[test]
+    fn shift_canonicalization_simultaneous() {
+        let mut state = InputMapperState::new(SmsGgInputs::default());
+        state.update_mappings(
+            &[
+                ((SmsGgButton::Button1, Player::One), &vec![GenericInput::Keyboard(
+                    Keycode::RShift,
+                )]),
+                ((SmsGgButton::Button2, Player::One), &vec![GenericInput::Keyboard(
+                    Keycode::LShift,
+                )]),
+            ],
+            &[],
+        );
+
+        let mut expected = SmsGgInputs::default();
+        assert_eq!(expected, state.inputs);
+
+        state.handle_input(GenericInput::Keyboard(Keycode::LShift), true);
+        state.handle_input(GenericInput::Keyboard(Keycode::RShift), true);
+        expected.p1.button1 = true;
+        expected.p1.button2 = true;
+        assert_eq!(expected, state.inputs);
+
+        state.handle_input(GenericInput::Keyboard(Keycode::RShift), false);
+        assert_eq!(
+            expected, state.inputs,
+            "Releasing RShift while LShift is held should not change mapping"
+        );
+
+        state.handle_input(GenericInput::Keyboard(Keycode::RShift), true);
+        assert_eq!(
+            expected, state.inputs,
+            "Pressing RShift while LShift is held should not change mapping"
+        );
+
+        state.handle_input(GenericInput::Keyboard(Keycode::LShift), false);
+        assert_eq!(
+            expected, state.inputs,
+            "Releasing LShift while RShift is held should not change mapping"
+        );
+
+        state.handle_input(GenericInput::Keyboard(Keycode::RShift), false);
+        expected.p1.button1 = false;
+        expected.p1.button2 = false;
+        assert_eq!(
+            expected, state.inputs,
+            "Releasing RShift while LShift is not held should change mapping"
+        );
     }
 }
