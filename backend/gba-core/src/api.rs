@@ -1,6 +1,6 @@
 use crate::bus::Bus;
 use crate::cartridge::Cartridge;
-use crate::control::ControlRegisters;
+use crate::control::{ControlRegisters, InterruptType};
 use crate::input::GbaInputs;
 use crate::memory::Memory;
 use crate::ppu::{Ppu, PpuTickEffect};
@@ -130,6 +130,10 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
 
         if self.ppu.tick(ppu_cycles) == PpuTickEffect::FrameComplete {
             self.render_frame(renderer).map_err(GbaError::Render)?;
+
+            // TODO do this from somewhere else?
+            self.control.set_interrupt_flag(InterruptType::VBlank);
+
             return Ok(TickEffect::FrameRendered);
         }
 

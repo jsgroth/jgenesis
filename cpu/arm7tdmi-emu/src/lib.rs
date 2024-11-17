@@ -207,6 +207,10 @@ impl Arm7Tdmi {
     }
 
     pub fn execute_instruction(&mut self, bus: &mut impl BusInterface) -> u32 {
+        if !self.registers.cpsr.irq_disabled && bus.irq() {
+            return self.handle_exception(Exception::Irq, bus);
+        }
+
         let opcode = self.prefetch[0];
 
         match self.registers.cpsr.state {
@@ -378,6 +382,8 @@ impl Arm7Tdmi {
         exception: Exception,
         bus: &mut (impl BusInterface + ?Sized),
     ) -> u32 {
+        log::trace!("Handling exception of type {exception:?}");
+
         let old_cpsr = self.registers.cpsr;
 
         let mode = exception.new_mode();

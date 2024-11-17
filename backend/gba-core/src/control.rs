@@ -2,6 +2,45 @@ use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use std::array;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InterruptType {
+    VBlank,
+    HBlank,
+    VCounterMatch,
+    Timer0,
+    Timer1,
+    Timer2,
+    Timer3,
+    Serial,
+    Dma0,
+    Dma1,
+    Dma2,
+    Dma3,
+    Keypad,
+    GamePak,
+}
+
+impl InterruptType {
+    pub const fn to_bit(self) -> u16 {
+        match self {
+            Self::VBlank => 1 << 0,
+            Self::HBlank => 1 << 1,
+            Self::VCounterMatch => 1 << 2,
+            Self::Timer0 => 1 << 3,
+            Self::Timer1 => 1 << 4,
+            Self::Timer2 => 1 << 5,
+            Self::Timer3 => 1 << 6,
+            Self::Serial => 1 << 7,
+            Self::Dma0 => 1 << 8,
+            Self::Dma1 => 1 << 9,
+            Self::Dma2 => 1 << 10,
+            Self::Dma3 => 1 << 11,
+            Self::Keypad => 1 << 12,
+            Self::GamePak => 1 << 13,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct ControlRegisters {
     // IE: Interrupts enabled
@@ -18,6 +57,11 @@ pub struct ControlRegisters {
 impl ControlRegisters {
     pub fn new() -> Self {
         Self { interrupts_enabled: 0, interrupt_flags: 0, waitcnt: 0, ime: false }
+    }
+
+    // $04000200: IE (Interrupts enabled)
+    pub fn read_ie(&self) -> u16 {
+        self.interrupts_enabled
     }
 
     // $04000200: IE (Interrupts enabled)
@@ -39,6 +83,11 @@ impl ControlRegisters {
         log::trace!("  DMA 3: {}", value.bit(11));
         log::trace!("  Keypad: {}", value.bit(12));
         log::trace!("  Game Pak: {}", value.bit(13));
+    }
+
+    // $04000202: IF (Interrupt flags)
+    pub fn read_if(&self) -> u16 {
+        self.interrupt_flags
     }
 
     // $04000202: IF (Interrupt flags)
@@ -75,5 +124,14 @@ impl ControlRegisters {
         self.ime = value.bit(0);
 
         log::trace!("IME: {}", self.ime);
+    }
+
+    pub fn set_interrupt_flag(&mut self, interrupt: InterruptType) {
+        self.interrupt_flags |= interrupt.to_bit();
+        log::trace!("Set interrupt flag {interrupt:?}");
+    }
+
+    pub fn irq(&self) -> bool {
+        self.ime && self.interrupts_enabled & self.interrupt_flags != 0
     }
 }

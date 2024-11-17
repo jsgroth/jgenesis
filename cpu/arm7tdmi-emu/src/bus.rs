@@ -10,4 +10,6 @@ pub trait BusInterface {
     fn write_halfword(&mut self, address: u32, value: u16);
 
     fn write_word(&mut self, address: u32, value: u32);
+
+    fn irq(&self) -> bool;
 }
