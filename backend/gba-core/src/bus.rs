@@ -11,11 +11,11 @@ pub const BIOS_END: u32 = 0x00003FFF;
 
 // $02000000-$0203FFFF: External working RAM (256KB)
 pub const EWRAM_START: u32 = 0x02000000;
-pub const EWRAM_END: u32 = 0x0203FFFF;
+pub const EWRAM_END: u32 = 0x02FFFFFF;
 
 // $03000000-$03007FFF: Internal working RAM (32KB)
 pub const IWRAM_START: u32 = 0x03000000;
-pub const IWRAM_END: u32 = 0x03007FFF;
+pub const IWRAM_END: u32 = 0x03FFFFFF;
 
 // $04000000-$040003FF: Memory-mapped I/O registers
 pub const MMIO_START: u32 = 0x04000000;
@@ -77,6 +77,8 @@ impl Bus<'_> {
                 0
             }
             0x04000130 => self.read_keyinput(),
+            0x04000200 => self.control.read_ie(),
+            0x04000202 => self.control.read_if(),
             0x04000204 => self.control.read_waitcnt(),
             0x04000208 => self.control.read_ime(),
             _ => todo!("I/O register read {address:08X}"),
@@ -252,5 +254,10 @@ impl BusInterface for Bus<'_> {
             }
             _ => todo!("write word {address:08X} {value:08X}"),
         }
+    }
+
+    #[inline]
+    fn irq(&self) -> bool {
+        self.control.irq()
     }
 }
