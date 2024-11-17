@@ -24,13 +24,17 @@ impl Default for Rom {
 pub struct Cartridge {
     #[partial_clone(default)]
     pub rom: Rom,
+    pub sram: Box<[u8]>,
 }
 
 impl Cartridge {
     pub fn new(mut rom: Vec<u8>) -> Self {
         jgenesis_common::mirror_to_power_of_two(&mut rom);
 
-        Self { rom: Rom(rom.into_boxed_slice()) }
+        // TODO figure out actual SRAM size
+        let sram = vec![0; 64 * 1024].into_boxed_slice();
+
+        Self { rom: Rom(rom.into_boxed_slice()), sram }
     }
 
     pub fn read_rom_byte(&self, address: u32) -> u8 {
@@ -45,5 +49,13 @@ impl Cartridge {
     pub fn read_rom_word(&self, address: u32) -> u32 {
         let rom_addr = (address as usize) & (self.rom.len() - 1) & !3;
         u32::from_le_bytes(array::from_fn(|i| self.rom[rom_addr + i]))
+    }
+
+    pub fn read_sram_byte(&self, address: u32) -> u8 {
+        self.sram[(address as usize) & (self.sram.len() - 1)]
+    }
+
+    pub fn write_sram_byte(&mut self, address: u32, value: u8) {
+        self.sram[(address as usize) & (self.sram.len() - 1)] = value;
     }
 }

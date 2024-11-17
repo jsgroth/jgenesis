@@ -93,6 +93,24 @@ impl Registers {
         }
     }
 
+    // $04000000: DISPCNT (Display control)
+    pub fn read_dispcnt(&self) -> u16 {
+        (self.bg_mode as u16)
+            | (u16::from(self.bitmap_frame_buffer_1) << 4)
+            | (u16::from(self.oam_free_during_hblank) << 5)
+            | ((self.obj_tile_layout as u16) << 6)
+            | (u16::from(self.forced_blanking) << 7)
+            | (u16::from(self.bg_enabled[0]) << 8)
+            | (u16::from(self.bg_enabled[1]) << 9)
+            | (u16::from(self.bg_enabled[2]) << 10)
+            | (u16::from(self.bg_enabled[3]) << 11)
+            | (u16::from(self.obj_enabled) << 12)
+            | (u16::from(self.window_0_enabled) << 13)
+            | (u16::from(self.window_1_enabled) << 14)
+            | (u16::from(self.obj_window_enabled) << 15)
+    }
+
+    // $04000000: DISPCNT (Display control)
     pub fn write_dispcnt(&mut self, value: u16) {
         self.bg_mode = BgMode::from_bits(value);
         self.bitmap_frame_buffer_1 = value.bit(4);
