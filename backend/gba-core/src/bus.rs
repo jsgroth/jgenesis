@@ -76,6 +76,10 @@ impl Bus<'_> {
                 log::error!("Timer register read: {address:08X}");
                 0
             }
+            0x04000128 => {
+                log::error!("Serial register read: {address:08X}");
+                0
+            }
             0x04000130 => self.read_keyinput(),
             0x04000200 => self.control.read_ie(),
             0x04000202 => self.control.read_if(),

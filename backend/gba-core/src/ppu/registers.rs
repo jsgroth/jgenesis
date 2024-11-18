@@ -1,3 +1,4 @@
+use crate::ppu::{SCREEN_HEIGHT, SCREEN_WIDTH};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
 use std::array;
@@ -62,9 +63,83 @@ impl Display for ObjTileLayout {
     }
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+pub enum ColorDepthBits {
+    // 4bpp (16 palettes of 16 colors each)
+    #[default]
+    Four = 0,
+    // 8bpp (1 palette of 256 colors)
+    Eight = 1,
+}
+
+impl ColorDepthBits {
+    fn from_bit(bit: bool) -> Self {
+        if bit { Self::Eight } else { Self::Four }
+    }
+}
+
+impl Display for ColorDepthBits {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Four => write!(f, "4bpp"),
+            Self::Eight => write!(f, "8bpp"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+pub enum AffineOverflowBehavior {
+    #[default]
+    Transparent = 0,
+    Wrap = 1,
+}
+
+impl AffineOverflowBehavior {
+    fn from_bit(bit: bool) -> Self {
+        if bit { Self::Wrap } else { Self::Transparent }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+pub enum BgScreenSize {
+    // 256x256 in text mode, 128x128 in rotation/scaling mode
+    #[default]
+    Zero = 0,
+    // 512x256 in text mode, 256x256 in rotation/scaling mode
+    One = 1,
+    // 256x512 in text mode, 512x512 in rotation/scaling mode
+    Two = 2,
+    // 512x512 in text mode, 1024x1024 in rotation/scaling mode
+    Three = 3,
+}
+
+impl BgScreenSize {
+    fn from_bits(bits: u16) -> Self {
+        match bits & 3 {
+            0 => Self::Zero,
+            1 => Self::One,
+            2 => Self::Two,
+            3 => Self::Three,
+            _ => unreachable!("value & 3 is always <= 3"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Encode, Decode)]
+pub struct BgControl {
+    // BGxCNT (BG control)
+    pub priority: u8,
+    pub tile_data_base_addr: u32,
+    pub mosaic: bool,
+    pub color_depth: ColorDepthBits,
+    pub tile_map_base_addr: u32,
+    pub affine_overflow: AffineOverflowBehavior,
+    pub screen_size: BgScreenSize,
+}
+
+#[derive(Debug, Clone, Default, Encode, Decode)]
 pub struct Registers {
-    // DISPCNT: PPU control
+    // DISPCNT: Display control
     pub bg_mode: BgMode,
     pub bitmap_frame_buffer_1: bool,
     pub oam_free_during_hblank: bool,
@@ -72,25 +147,41 @@ pub struct Registers {
     pub forced_blanking: bool,
     pub bg_enabled: [bool; 4],
     pub obj_enabled: bool,
-    pub window_0_enabled: bool,
-    pub window_1_enabled: bool,
+    pub window_enabled: [bool; 2],
     pub obj_window_enabled: bool,
+    // DISPSTAT: Display status and interrupt control
+    pub vblank_irq_enabled: bool,
+    pub hblank_irq_enabled: bool,
+    pub v_counter_irq_enabled: bool,
+    pub v_counter_target: u32,
+    // BG0CNT/BG1CNT/BG2CNT/BG3CNT: BG0-3 control
+    pub bg_control: [BgControl; 4],
+    // BG0HOFS/BG1HOFS/BG2HOFS/BG3HOFS: BG0-3 horizontal offset
+    pub bg_h_scroll: [u32; 4],
+    // BG0VOFS/BG1VOFS/BG2VOFS/BG3VOFS: BG0-3 vertical offset
+    pub bg_v_scroll: [u32; 4],
+    // WIN0H/WIN1H: Window 0/1 horizontal coordinates
+    pub window_x1: [u32; 2],
+    pub window_x2: [u32; 2],
+    // WIN0V/WIN1V: Window 0/1 vertical coordinates
+    pub window_y1: [u32; 2],
+    pub window_y2: [u32; 2],
+    // WININ: Window inside control
+    pub window_in_bg_enabled: [[bool; 4]; 2],
+    pub window_in_obj_enabled: [bool; 2],
+    pub window_in_color_enabled: [bool; 2],
+    // WINOUT: Window outside control and OBJ window inside control
+    pub window_out_bg_enabled: [bool; 4],
+    pub window_out_obj_enabled: bool,
+    pub window_out_color_enabled: bool,
+    pub obj_window_bg_enabled: [bool; 4],
+    pub obj_window_obj_enabled: bool,
+    pub obj_window_color_enabled: bool,
 }
 
 impl Registers {
     pub fn new() -> Self {
-        Self {
-            bg_mode: BgMode::default(),
-            bitmap_frame_buffer_1: false,
-            oam_free_during_hblank: false,
-            obj_tile_layout: ObjTileLayout::default(),
-            forced_blanking: true,
-            bg_enabled: [false; 4],
-            obj_enabled: false,
-            window_0_enabled: false,
-            window_1_enabled: false,
-            obj_window_enabled: false,
-        }
+        Self::default()
     }
 
     // $04000000: DISPCNT (Display control)
@@ -105,8 +196,8 @@ impl Registers {
             | (u16::from(self.bg_enabled[2]) << 10)
             | (u16::from(self.bg_enabled[3]) << 11)
             | (u16::from(self.obj_enabled) << 12)
-            | (u16::from(self.window_0_enabled) << 13)
-            | (u16::from(self.window_1_enabled) << 14)
+            | (u16::from(self.window_enabled[0]) << 13)
+            | (u16::from(self.window_enabled[1]) << 14)
             | (u16::from(self.obj_window_enabled) << 15)
     }
 
@@ -119,8 +210,7 @@ impl Registers {
         self.forced_blanking = value.bit(7);
         self.bg_enabled = array::from_fn(|i| value.bit((8 + i) as u8));
         self.obj_enabled = value.bit(12);
-        self.window_0_enabled = value.bit(13);
-        self.window_1_enabled = value.bit(14);
+        self.window_enabled = [value.bit(13), value.bit(14)];
         self.obj_window_enabled = value.bit(15);
 
         log::trace!("DISPCNT write: {value:04X}");
@@ -134,8 +224,164 @@ impl Registers {
         log::trace!("  Forced blanking: {}", self.forced_blanking);
         log::trace!("  BG layers enabled: {:?}", self.bg_enabled);
         log::trace!("  OBJ layer enabled: {}", self.obj_enabled);
-        log::trace!("  Window 0 enabled: {}", self.window_0_enabled);
-        log::trace!("  Window 1 enabled: {}", self.window_1_enabled);
+        log::trace!("  Window 0 enabled: {}", self.window_enabled[0]);
+        log::trace!("  Window 1 enabled: {}", self.window_enabled[1]);
         log::trace!("  OBJ window enabled: {}", self.obj_window_enabled);
+    }
+
+    // $04000004: DISPSTAT (Display status)
+    pub fn read_dispstat(&self, in_vblank: bool, in_hblank: bool, v_counter: u32) -> u16 {
+        let v_counter_match = v_counter == self.v_counter_target;
+
+        (u16::from(in_vblank))
+            | (u16::from(in_hblank) << 1)
+            | (u16::from(v_counter_match) << 2)
+            | (u16::from(self.vblank_irq_enabled) << 3)
+            | (u16::from(self.hblank_irq_enabled) << 4)
+            | (u16::from(self.v_counter_irq_enabled) << 5)
+            | ((self.v_counter_target << 8) as u16)
+    }
+
+    // $04000004: DISPSTAT (Display status and interrupt control)
+    pub fn write_dispstat(&mut self, value: u16) {
+        self.vblank_irq_enabled = value.bit(3);
+        self.hblank_irq_enabled = value.bit(4);
+        self.v_counter_irq_enabled = value.bit(5);
+        self.v_counter_target = (value >> 8).into();
+
+        log::trace!("DISPSTAT write: {value:04X}");
+        log::trace!("  VBlank IRQ enabled: {}", self.vblank_irq_enabled);
+        log::trace!("  HBlank IRQ enabled: {}", self.hblank_irq_enabled);
+        log::trace!("  V counter match IRQ enabled: {}", self.v_counter_irq_enabled);
+        log::trace!("  V counter match value: {}", self.v_counter_target);
+    }
+
+    // $04000008: BG0CNT (BG0 control)
+    // $0400000A: BG1CNT (BG1 control)
+    // $0400000C: BG2CNT (BG2 control)
+    // $0400000E: BG3CNT (BG3 control)
+    pub fn write_bgcnt(&mut self, bg: usize, value: u16) {
+        let bg_control = &mut self.bg_control[bg];
+
+        bg_control.priority = (value & 3) as u8;
+
+        // Tile data base address is in 16KB units (2^14)
+        bg_control.tile_data_base_addr = u32::from((value >> 2) & 3) << 14;
+
+        bg_control.mosaic = value.bit(6);
+        bg_control.color_depth = ColorDepthBits::from_bit(value.bit(7));
+
+        // Tile map base address is in 2KB units (2^11)
+        bg_control.tile_map_base_addr = u32::from((value >> 8) & 0x1F) << 11;
+
+        bg_control.affine_overflow = AffineOverflowBehavior::from_bit(value.bit(13));
+        bg_control.screen_size = BgScreenSize::from_bits(value >> 14);
+
+        log::trace!("BG{bg}CNT write: {value:04X}");
+        log::trace!("  Priority: {}", bg_control.priority);
+        log::trace!("  Tile data base address: ${:05X}", bg_control.tile_data_base_addr);
+        log::trace!("  Mosaic: {}", bg_control.mosaic);
+        log::trace!("  Color depth: {}", bg_control.color_depth);
+        log::trace!("  Tile map base address: ${:05X}", bg_control.tile_map_base_addr);
+        log::trace!("  Rotation/scaling overflow behavior: {:?}", bg_control.affine_overflow);
+        log::trace!("  Screen size bits: {}", bg_control.screen_size as u8);
+    }
+
+    // $04000010: BG0HOFS (BG0 horizontal offset)
+    // $04000014: BG1HOFS (BG1 horizontal offset)
+    // $04000018: BG2HOFS (BG2 horizontal offset)
+    // $0400001C: BG3HOFS (BG3 horizontal offset)
+    pub fn write_bghofs(&mut self, bg: usize, value: u16) {
+        self.bg_h_scroll[bg] = (value & 0x1FF).into();
+
+        log::trace!("BG{bg}HOFS write: {value:04X}");
+        log::trace!("  Horizontal offset: {}", self.bg_h_scroll[bg]);
+    }
+
+    // $04000012: BG0VOFS (BG0 horizontal offset)
+    // $04000016: BG1VOFS (BG1 horizontal offset)
+    // $0400001A: BG2VOFS (BG2 horizontal offset)
+    // $0400001E: BG3VOFS (BG3 horizontal offset)
+    pub fn write_bgvofs(&mut self, bg: usize, value: u16) {
+        self.bg_v_scroll[bg] = (value & 0x1FF).into();
+
+        log::trace!("BG{bg}VOFS write: {value:04X}");
+        log::trace!("  Vertical offset: {}", self.bg_v_scroll[bg]);
+    }
+
+    // $04000040: WIN0H (Window 0 horizontal coordinates)
+    // $04000042: WIN1H (Window 1 horizontal coordinates)
+    pub fn write_winh(&mut self, window: usize, value: u16) {
+        let [mut x2, x1] = value.to_le_bytes();
+
+        // Invalid X2 coordinates force X2=240
+        if x2 > SCREEN_WIDTH as u8 || x2 < x1 {
+            x2 = SCREEN_WIDTH as u8;
+        }
+
+        self.window_x1[window] = x1.into();
+        self.window_x2[window] = x2.into();
+
+        log::trace!("WIN{window}H write: {value:04X}");
+        log::trace!("  X1: {x1}");
+        log::trace!("  X2: {x2}");
+    }
+
+    // $04000044: WIN0V (Window 0 vertical coordinates)
+    // $04000046: WIN1V (Window 1 vertical coordinates)
+    pub fn write_winv(&mut self, window: usize, value: u16) {
+        let [mut y2, y1] = value.to_le_bytes();
+
+        // Invalid Y2 coordinates force Y2=160
+        if y2 > SCREEN_HEIGHT as u8 || y2 < y1 {
+            y2 = SCREEN_HEIGHT as u8;
+        }
+
+        self.window_y1[window] = y1.into();
+        self.window_y2[window] = y2.into();
+
+        log::trace!("WIN{window}V write: {value:04X}");
+        log::trace!("  Y1: {y1}");
+        log::trace!("  Y2: {y2}");
+    }
+
+    // $04000048: WININ (Window inside control)
+    pub fn write_winin(&mut self, value: u16) {
+        self.window_in_bg_enabled =
+            array::from_fn(|window| array::from_fn(|bg| value.bit((8 * window + bg) as u8)));
+        self.window_in_obj_enabled = [value.bit(4), value.bit(12)];
+        self.window_in_color_enabled = [value.bit(5), value.bit(13)];
+
+        log::trace!("WININ write: {value:04X}");
+        log::trace!("  Window 0 inside BG enabled: {:?}", self.window_in_bg_enabled[0]);
+        log::trace!("  Window 0 inside OBJ enabled: {}", self.window_in_obj_enabled[0]);
+        log::trace!("  Window 0 inside color effects enabled: {}", self.window_in_color_enabled[0]);
+        log::trace!("  Window 1 inside BG enabled: {:?}", self.window_in_bg_enabled[1]);
+        log::trace!("  Window 1 inside OBJ enabled: {}", self.window_in_obj_enabled[1]);
+        log::trace!("  Window 1 inside color effects enabled: {}", self.window_in_color_enabled[1]);
+    }
+
+    // $0400004A: WINOUT (Window outside control and OBJ window inside control)
+    pub fn write_winout(&mut self, value: u16) {
+        self.window_out_bg_enabled = array::from_fn(|bg| value.bit(bg as u8));
+        self.window_out_obj_enabled = value.bit(4);
+        self.window_out_color_enabled = value.bit(5);
+        self.obj_window_bg_enabled = array::from_fn(|bg| value.bit((8 + bg) as u8));
+        self.obj_window_obj_enabled = value.bit(12);
+        self.obj_window_color_enabled = value.bit(13);
+
+        log::trace!("WINOUT write: {value:04X}");
+        log::trace!("  Window outside BG enabled: {:?}", self.window_out_bg_enabled);
+        log::trace!("  Window outside OBJ enabled: {}", self.window_out_obj_enabled);
+        log::trace!("  Window outside color effects enabled: {}", self.window_out_color_enabled);
+        log::trace!("  OBJ window inside BG enabled: {:?}", self.obj_window_bg_enabled);
+        log::trace!("  OBJ window inside OBJ enabled: {}", self.obj_window_obj_enabled);
+        log::trace!("  OBJ window inside color effects enabled: {}", self.obj_window_color_enabled);
+    }
+
+    pub fn window_contains_pixel(&self, window: usize, x: u32, y: u32) -> bool {
+        self.window_enabled[window]
+            && (self.window_x1[window]..self.window_x2[window]).contains(&x)
+            && (self.window_y1[window]..self.window_y2[window]).contains(&y)
     }
 }
