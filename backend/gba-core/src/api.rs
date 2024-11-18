@@ -128,12 +128,8 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
         let ppu_cycles = self.ppu_mclk_counter / PPU_DIVIDER;
         self.ppu_mclk_counter -= ppu_cycles * PPU_DIVIDER;
 
-        if self.ppu.tick(ppu_cycles) == PpuTickEffect::FrameComplete {
+        if self.ppu.tick(ppu_cycles, &mut self.control) == PpuTickEffect::FrameComplete {
             self.render_frame(renderer).map_err(GbaError::Render)?;
-
-            // TODO do this from somewhere else?
-            self.control.set_interrupt_flag(InterruptType::VBlank);
-
             return Ok(TickEffect::FrameRendered);
         }
 

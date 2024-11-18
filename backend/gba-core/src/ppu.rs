@@ -1,9 +1,11 @@
 mod registers;
 
+use crate::control::{ControlRegisters, InterruptType};
 use crate::ppu::registers::{BgMode, Registers};
 use bincode::{Decode, Encode};
 use jgenesis_common::boxedarray::{BoxedByteArray, BoxedWordArray};
 use jgenesis_common::frontend::{Color, FrameSize};
+use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
 use std::array;
 
@@ -75,7 +77,7 @@ impl Ppu {
         }
     }
 
-    pub fn tick(&mut self, ppu_cycles: u32) -> PpuTickEffect {
+    pub fn tick(&mut self, ppu_cycles: u32, control: &mut ControlRegisters) -> PpuTickEffect {
         self.state.dot += ppu_cycles;
         if self.state.dot >= DOTS_PER_LINE {
             self.state.dot -= DOTS_PER_LINE;
@@ -83,10 +85,17 @@ impl Ppu {
 
             match self.state.scanline {
                 SCREEN_HEIGHT => {
-                    self.render_bitmap_frame();
+                    self.render_frame();
+
+                    if self.registers.vblank_irq_enabled {
+                        control.set_interrupt_flag(InterruptType::VBlank);
+                    }
+
                     return PpuTickEffect::FrameComplete;
                 }
-                LINES_PER_FRAME => self.state.scanline = 0,
+                LINES_PER_FRAME => {
+                    self.state.scanline = 0;
+                }
                 _ => {}
             }
         }
@@ -94,12 +103,107 @@ impl Ppu {
         PpuTickEffect::None
     }
 
-    fn render_bitmap_frame(&mut self) {
-        if self.registers.bg_mode == BgMode::Four {
-            self.render_bitmap_4();
+    fn render_frame(&mut self) {
+        if self.registers.forced_blanking {
+            self.frame_buffer.0.fill(Color::BLACK);
             return;
         }
 
+        match self.registers.bg_mode {
+            BgMode::Zero => self.render_frame_mode_0(),
+            BgMode::Three => self.render_frame_mode_3(),
+            BgMode::Four => self.render_frame_mode_4(),
+            _ => {
+                log::error!("Mode {:?} not implemented", self.registers.bg_mode);
+                self.render_frame_mode_3();
+            }
+        }
+    }
+
+    fn render_frame_mode_0(&mut self) {
+        let backdrop = self.palette_ram[0];
+        self.frame_buffer.0.fill(Color::rgb(
+            (backdrop & 0x1F) as u8,
+            ((backdrop >> 5) & 0x1F) as u8,
+            ((backdrop >> 10) & 0x1F) as u8,
+        ));
+
+        // TODO actual BG priority
+        for bg in (0..4).rev() {
+            self.render_tile_bg(bg);
+        }
+    }
+
+    fn render_tile_bg(&mut self, bg: usize) {
+        if !self.registers.bg_enabled[bg] {
+            return;
+        }
+
+        let any_window_enabled = self.registers.window_enabled[0]
+            || self.registers.window_enabled[1]
+            || self.registers.obj_window_enabled;
+
+        let bg_control = &self.registers.bg_control[bg];
+        for row in 0..SCREEN_HEIGHT {
+            for col in 0..SCREEN_WIDTH {
+                // TODO actual window handling
+                if self.registers.window_contains_pixel(0, col, row)
+                    && !self.registers.window_in_bg_enabled[0][bg]
+                {
+                    continue;
+                }
+
+                if any_window_enabled && !self.registers.window_out_bg_enabled[bg] {
+                    continue;
+                }
+
+                // TODO don't assume 4bpp tiles and 256x256 screen size
+                let scrolled_row = (row + self.registers.bg_v_scroll[bg]) % 256;
+                let scrolled_col = (col + self.registers.bg_h_scroll[bg]) % 256;
+
+                // TODO scrolling and rotation/scaling
+                let tile_map_row = scrolled_row / 8;
+                let tile_map_col = scrolled_col / 8;
+                let tile_map_addr = (bg_control.tile_map_base_addr
+                    + 2 * (32 * tile_map_row + tile_map_col))
+                    as usize;
+
+                let tile_map_value = u16::from_le_bytes(
+                    self.vram[tile_map_addr..tile_map_addr + 2].try_into().unwrap(),
+                );
+                let tile_number: u32 = (tile_map_value & 0x3FF).into();
+                let h_flip = tile_map_value.bit(10);
+                let v_flip = tile_map_value.bit(11);
+                let palette = (tile_map_value >> 12) & 0xF;
+
+                let tile_row = if v_flip { 7 - (scrolled_row % 8) } else { scrolled_row % 8 };
+                let tile_col = if h_flip { 7 - (scrolled_col % 8) } else { scrolled_col % 8 };
+                let tile_addr = bg_control.tile_data_base_addr
+                    + 32 * tile_number
+                    + (8 * tile_row + tile_col) / 2;
+
+                let tile_byte = self.vram[tile_addr as usize];
+                let color = (tile_byte >> (4 * (tile_col & 1))) & 0xF;
+                if color == 0 {
+                    continue;
+                }
+
+                let palette_addr = (palette << 4) | u16::from(color);
+                let pixel = self.palette_ram[palette_addr as usize];
+
+                let r = pixel & 0x1F;
+                let g = (pixel >> 5) & 0x1F;
+                let b = (pixel >> 10) & 0x1F;
+                self.frame_buffer.0[(row * SCREEN_WIDTH + col) as usize] = Color::rgb(
+                    RGB_5_TO_8[r as usize],
+                    RGB_5_TO_8[g as usize],
+                    RGB_5_TO_8[b as usize],
+                );
+            }
+        }
+    }
+
+    fn render_frame_mode_3(&mut self) {
         for row in 0..SCREEN_HEIGHT {
             for col in 0..SCREEN_WIDTH {
                 let vram_addr = (2 * (row * SCREEN_WIDTH + col)) as usize;
@@ -117,7 +221,7 @@ impl Ppu {
         }
     }
 
-    fn render_bitmap_4(&mut self) {
+    fn render_frame_mode_4(&mut self) {
         let frame_buffer_addr = if self.registers.bitmap_frame_buffer_1 { 0xA000 } else { 0x0000 };
 
         for row in 0..SCREEN_HEIGHT {
@@ -200,16 +304,40 @@ impl Ppu {
 
         match address & 0xFF {
             0x00 => self.registers.write_dispcnt(value),
+            0x04 => self.registers.write_dispstat(value),
+            0x10 | 0x14 | 0x18 | 0x1C => {
+                let bg = (address >> 2) & 3;
+                self.registers.write_bghofs(bg as usize, value);
+            }
+            0x12 | 0x16 | 0x1A | 0x1E => {
+                let bg = (address >> 2) & 3;
+                self.registers.write_bgvofs(bg as usize, value);
+            }
+            0x08..=0x0F => {
+                let bg = (address >> 1) & 3;
+                self.registers.write_bgcnt(bg as usize, value);
+            }
+            0x40 | 0x42 => {
+                let window = (address >> 1) & 1;
+                self.registers.write_winh(window as usize, value);
+            }
+            0x44 | 0x46 => {
+                let window = (address >> 1) & 1;
+                self.registers.write_winv(window as usize, value);
+            }
+            0x48 => self.registers.write_winin(value),
+            0x4A => self.registers.write_winout(value),
             _ => log::error!("PPU I/O register write {address:08X} {value:04X}"),
         }
     }
 
     // $04000004: DISPSTAT (Display status)
     fn read_dispstat(&self) -> u16 {
-        // TODO other bits (LY=LYC match, IRQ enabled, LYC)
         let vblank = self.state.scanline >= SCREEN_HEIGHT;
         let hblank = self.state.dot >= SCREEN_WIDTH;
-        u16::from(vblank) | (u16::from(hblank) << 1)
+        let v_counter = self.state.scanline;
+
+        self.registers.read_dispstat(vblank, hblank, v_counter)
     }
 
     // $04000006: VCOUNT (V counter)
