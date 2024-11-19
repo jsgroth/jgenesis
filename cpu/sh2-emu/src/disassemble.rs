@@ -1,15 +1,25 @@
-pub fn disassemble(opcode: u16) -> String {
-    match opcode {
-        0b0000_0000_0001_1001 => "DIV0U".into(),
-        0b0000_0000_0000_1011 => "RTS".into(),
-        0b0000_0000_0000_1000 => "CLRT".into(),
-        0b0000_0000_0010_1000 => "CLRMAC".into(),
-        0b0000_0000_0000_1001 => "NOP".into(),
-        0b0000_0000_0010_1011 => "RTE".into(),
-        0b0000_0000_0001_1000 => "SETT".into(),
-        0b0000_0000_0001_1011 => "SLEEP".into(),
-        _ => decode_xnnx(opcode),
-    }
+use std::array;
+use std::sync::LazyLock;
+
+pub fn disassemble(opcode: u16) -> &'static str {
+    static TABLE: LazyLock<Box<[String; 65536]>> = LazyLock::new(|| {
+        Box::new(array::from_fn(|opcode| {
+            let opcode = opcode as u16;
+            match opcode {
+                0b0000_0000_0001_1001 => "DIV0U".into(),
+                0b0000_0000_0000_1011 => "RTS".into(),
+                0b0000_0000_0000_1000 => "CLRT".into(),
+                0b0000_0000_0010_1000 => "CLRMAC".into(),
+                0b0000_0000_0000_1001 => "NOP".into(),
+                0b0000_0000_0010_1011 => "RTE".into(),
+                0b0000_0000_0001_1000 => "SETT".into(),
+                0b0000_0000_0001_1011 => "SLEEP".into(),
+                _ => decode_xnnx(opcode),
+            }
+        }))
+    });
+
+    &TABLE[opcode as usize]
 }
 
 #[inline]
