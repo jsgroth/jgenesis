@@ -14,6 +14,7 @@ impl Default for GbaAppConfig {
 }
 
 impl AppConfig {
+    #[must_use]
     pub fn gba_config(&self, path: String) -> Box<GameBoyAdvanceConfig> {
         Box::new(GameBoyAdvanceConfig {
             common: self.common_config(path),

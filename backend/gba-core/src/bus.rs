@@ -226,7 +226,7 @@ impl BusInterface for Bus<'_> {
             EWRAM_START..=EWRAM_END => self.memory.write_ewram_byte(address, value),
             MMIO_START..=MMIO_END => self.write_io_register_u8(address, value),
             CARTRIDGE_RAM_START..=CARTRIDGE_RAM_END => {
-                self.memory.cartridge.write_sram_byte(address, value)
+                self.memory.cartridge.write_sram_byte(address, value);
             }
             _ => todo!("write byte {address:08X} {value:02X}"),
         }
