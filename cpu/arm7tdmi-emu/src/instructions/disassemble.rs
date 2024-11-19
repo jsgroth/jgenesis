@@ -1,4 +1,4 @@
-use crate::instructions::{Condition, HalfwordLoadType, load_halfword};
+use crate::instructions::Condition;
 use jgenesis_common::num::GetBit;
 
 struct DecodeTableEntry {
@@ -26,6 +26,7 @@ const ARM_DECODE_TABLE: &[DecodeTableEntry] = &[
     DecodeTableEntry::new(0x0E000010, 0x06000010, |_| "Undefined".into()),
     DecodeTableEntry::new(0x0C000000, 0x04000000, arm_ldr),
     DecodeTableEntry::new(0x0E000000, 0x08000000, arm_ldm_stm),
+    DecodeTableEntry::new(0x0F000000, 0x0F000000, arm_swi),
 ];
 
 pub fn arm(opcode: u32) -> String {
