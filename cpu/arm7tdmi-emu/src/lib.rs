@@ -176,6 +176,12 @@ pub struct Arm7Tdmi {
     prefetch: [u32; 2],
 }
 
+impl Default for Arm7Tdmi {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct Arm7TdmiResetArgs {
     pub pc: u32,
     pub sp_usr: u32,
@@ -185,6 +191,7 @@ pub struct Arm7TdmiResetArgs {
 }
 
 impl Arm7Tdmi {
+    #[must_use]
     pub fn new() -> Self {
         Self { registers: Registers::default(), prefetch: [0, 0] }
     }

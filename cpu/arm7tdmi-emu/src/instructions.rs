@@ -413,11 +413,8 @@ fn arm_msr<const IMMEDIATE: bool>(
     let flags_only = !opcode.bit(16);
 
     if spsr {
-        let spsr = match cpu.registers.cpsr.mode.spsr(&mut cpu.registers) {
-            Some(spsr) => spsr,
-            None => {
-                panic!("MSR SPSR, 0x{operand:X} executed in mode {:?}", cpu.registers.cpsr.mode)
-            }
+        let Some(spsr) = cpu.registers.cpsr.mode.spsr(&mut cpu.registers) else {
+            panic!("MSR SPSR, 0x{operand:X} executed in mode {:?}", cpu.registers.cpsr.mode)
         };
         *spsr = operand.into();
     } else if flags_only {
@@ -493,6 +490,7 @@ fn arm_parse_rotated_immediate(opcode: u32) -> (u32, u32) {
 }
 
 #[inline]
+#[allow(clippy::too_many_arguments)]
 fn alu_rotated_immediate(
     cpu: &mut Arm7Tdmi,
     op: AluOp,
@@ -533,6 +531,7 @@ impl ShiftType {
 }
 
 #[inline]
+#[allow(clippy::too_many_arguments)]
 fn alu_immediate_shift(
     cpu: &mut Arm7Tdmi,
     op: AluOp,
@@ -577,6 +576,7 @@ fn apply_immediate_shift(
 }
 
 #[inline]
+#[allow(clippy::too_many_arguments)]
 fn alu_register_shift<const OPCODE_LEN: u32>(
     cpu: &mut Arm7Tdmi,
     op: AluOp,
@@ -641,6 +641,7 @@ fn alu_register_shift<const OPCODE_LEN: u32>(
 }
 
 #[inline]
+#[allow(clippy::too_many_arguments)]
 fn alu(
     cpu: &mut Arm7Tdmi,
     op: AluOp,
@@ -739,6 +740,7 @@ fn arm_multiply(cpu: &mut Arm7Tdmi, opcode: u32, bus: &mut dyn BusInterface) -> 
     multiply(cpu, rm, rs, rn, rd, set_condition_codes, accumulate, bus)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn multiply(
     cpu: &mut Arm7Tdmi,
     rm: u32,
@@ -793,6 +795,7 @@ fn arm_multiply_long(cpu: &mut Arm7Tdmi, opcode: u32, bus: &mut dyn BusInterface
 }
 
 #[inline]
+#[allow(clippy::too_many_arguments)]
 fn multiply_long(
     cpu: &mut Arm7Tdmi,
     rm: u32,
@@ -948,6 +951,7 @@ impl LoadSize {
 }
 
 #[inline]
+#[allow(clippy::too_many_arguments)]
 fn load_word<const LOAD: bool>(
     cpu: &mut Arm7Tdmi,
     rn: u32,
@@ -1040,6 +1044,7 @@ fn arm_load_halfword<const LOAD: bool, const IMMEDIATE_OFFSET: bool>(
 }
 
 #[inline]
+#[allow(clippy::too_many_arguments)]
 fn load_halfword<const LOAD: bool>(
     cpu: &mut Arm7Tdmi,
     rn: u32,
