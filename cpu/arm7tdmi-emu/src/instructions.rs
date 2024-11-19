@@ -2,7 +2,7 @@ mod disassemble;
 
 use crate::bus::BusInterface;
 use crate::{Arm7Tdmi, CpuMode, CpuState, Exception, Registers, StatusRegister};
-use jgenesis_common::num::{GetBit, SignBit};
+use jgenesis_common::num::GetBit;
 use std::array;
 use std::cmp::Ordering;
 use std::sync::LazyLock;
@@ -168,21 +168,6 @@ impl AluOp {
             0xF => Self::MoveNegate,
             _ => unreachable!("value & 0xF is always <= 0xF"),
         }
-    }
-
-    // AND, EOR, TST, TEQ, ORR, MOV, BIC, MVN
-    fn is_logical(self) -> bool {
-        matches!(
-            self,
-            Self::And
-                | Self::ExclusiveOr
-                | Self::Test
-                | Self::TestEqual
-                | Self::Or
-                | Self::Move
-                | Self::BitClear
-                | Self::MoveNegate
-        )
     }
 
     // TST, TEQ, CMP, CMN

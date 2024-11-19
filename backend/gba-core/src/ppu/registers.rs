@@ -37,6 +37,23 @@ impl BgMode {
             _ => unreachable!("value & 7 is always <= 7"),
         }
     }
+
+    pub fn bg_enabled(self, bg: usize) -> bool {
+        assert!(bg < 4);
+        match bg {
+            // BG0 and BG1 enabled in modes 0 and 1
+            0 | 1 => matches!(self, Self::Zero | Self::One),
+            // BG2 always enabled
+            2 => true,
+            // BG3 enabled in modes 0 and 2
+            3 => matches!(self, Self::Zero | Self::Two),
+            _ => unreachable!("asserted bg < 4"),
+        }
+    }
+
+    pub fn is_15bpp_bitmap(self) -> bool {
+        matches!(self, Self::Three | Self::Five)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
@@ -75,6 +92,13 @@ pub enum ColorDepthBits {
 impl ColorDepthBits {
     fn from_bit(bit: bool) -> Self {
         if bit { Self::Eight } else { Self::Four }
+    }
+
+    pub fn tile_size_bytes(self) -> u32 {
+        match self {
+            Self::Four => 32,
+            Self::Eight => 64,
+        }
     }
 }
 
@@ -121,6 +145,20 @@ impl BgScreenSize {
             2 => Self::Two,
             3 => Self::Three,
             _ => unreachable!("value & 3 is always <= 3"),
+        }
+    }
+
+    pub fn tile_map_width_pixels(self) -> u32 {
+        match self {
+            Self::Zero | Self::Two => 256,
+            Self::One | Self::Three => 512,
+        }
+    }
+
+    pub fn tile_map_height_pixels(self) -> u32 {
+        match self {
+            Self::Zero | Self::One => 256,
+            Self::Two | Self::Three => 512,
         }
     }
 }
@@ -377,11 +415,5 @@ impl Registers {
         log::trace!("  OBJ window inside BG enabled: {:?}", self.obj_window_bg_enabled);
         log::trace!("  OBJ window inside OBJ enabled: {}", self.obj_window_obj_enabled);
         log::trace!("  OBJ window inside color effects enabled: {}", self.obj_window_color_enabled);
-    }
-
-    pub fn window_contains_pixel(&self, window: usize, x: u32, y: u32) -> bool {
-        self.window_enabled[window]
-            && (self.window_x1[window]..self.window_x2[window]).contains(&x)
-            && (self.window_y1[window]..self.window_y2[window]).contains(&y)
     }
 }

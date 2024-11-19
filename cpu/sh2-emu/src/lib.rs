@@ -170,18 +170,11 @@ impl Sh2 {
 
         if log::log_enabled!(log::Level::Trace) && self.trace_log_enabled {
             log::trace!(
-                "[{}] Executing opcode {opcode:04X} at PC {pc:08X}: {}",
+                "[{}] Executing opcode {opcode:04X} at PC {pc:08X}: {}\n  Registers: {:08X?}\n",
                 self.name,
-                disassemble::disassemble(opcode)
+                disassemble::disassemble(opcode),
+                self.registers.gpr,
             );
-            log::trace!("  Registers: {:08X?}", self.registers.gpr);
-            log::trace!(
-                "  GBR={:08X} VBR={:08X} PR={:08X}",
-                self.registers.gbr,
-                self.registers.vbr,
-                self.registers.pr
-            );
-            log::trace!("  SR={:?}", self.registers.sr);
         }
 
         instructions::decode(opcode)(self, opcode, bus);

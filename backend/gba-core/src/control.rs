@@ -1,6 +1,5 @@
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
-use std::array;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InterruptType {

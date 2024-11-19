@@ -1,6 +1,6 @@
 use crate::bus::Bus;
 use crate::cartridge::Cartridge;
-use crate::control::{ControlRegisters, InterruptType};
+use crate::control::ControlRegisters;
 use crate::input::GbaInputs;
 use crate::memory::Memory;
 use crate::ppu::{Ppu, PpuTickEffect};
