@@ -1,5 +1,5 @@
+use crate::app::Console;
 use jgenesis_native_config::RecentOpen;
-use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 use regex::Regex;
 use std::collections::HashSet;
 use std::ffi::OsStr;
@@ -21,19 +21,6 @@ const NES_EXTENSIONS: &[&str] = &["nes"];
 const SNES_EXTENSIONS: &[&str] = &["sfc", "smc"];
 const GB_EXTENSIONS: &[&str] = &["gb", "gbc"];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumAll, EnumDisplay, EnumFromStr)]
-pub enum Console {
-    MasterSystem,
-    GameGear,
-    Genesis,
-    SegaCd,
-    Sega32X,
-    Nes,
-    Snes,
-    GameBoy,
-    GameBoyColor,
-}
-
 impl Console {
     fn from_extension(extension: &str) -> Option<Self> {
         match extension {
@@ -50,6 +37,7 @@ impl Console {
         }
     }
 
+    #[must_use]
     pub fn display_str(self) -> &'static str {
         match self {
             Self::MasterSystem => "Master System",
@@ -64,6 +52,7 @@ impl Console {
         }
     }
 
+    #[must_use]
     pub fn supported_extensions(self) -> &'static [&'static str] {
         match self {
             Self::MasterSystem | Self::GameGear => SMSGG_EXTENSIONS,

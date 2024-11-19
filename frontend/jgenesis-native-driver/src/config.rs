@@ -38,6 +38,15 @@ pub struct WindowSize {
     pub height: u32,
 }
 
+impl WindowSize {
+    pub(crate) fn scale(self, scale_factor: f32) -> Self {
+        Self {
+            width: (self.width as f32 * scale_factor).round() as u32,
+            height: (self.height as f32 * scale_factor).round() as u32,
+        }
+    }
+}
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
 )]
@@ -152,6 +161,8 @@ pub struct CommonConfig {
     pub state_path: SavePath,
     #[debug_fmt]
     pub window_size: Option<WindowSize>,
+    #[debug_fmt]
+    pub window_scale_factor: Option<f32>,
     #[indent_nested]
     pub renderer_config: RendererConfig,
     pub fast_forward_multiplier: u64,

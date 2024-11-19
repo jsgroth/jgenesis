@@ -45,6 +45,7 @@ pub struct CommonAppConfig {
     pub custom_state_path: PathBuf,
     pub window_width: Option<u32>,
     pub window_height: Option<u32>,
+    pub window_scale_factor: Option<f32>,
     #[serde(default)]
     pub launch_in_fullscreen: bool,
     #[serde(default)]
@@ -152,6 +153,7 @@ impl AppConfig {
             save_path: save_path(self.common.save_path, &self.common.custom_save_path),
             state_path: save_path(self.common.state_path, &self.common.custom_state_path),
             window_size: self.common.window_size(),
+            window_scale_factor: self.common.window_scale_factor,
             renderer_config: RendererConfig {
                 wgpu_backend: self.common.wgpu_backend,
                 vsync_mode: self.common.vsync_mode,

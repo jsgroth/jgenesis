@@ -339,6 +339,10 @@ struct Args {
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     window_height: Option<u32>,
 
+    /// Emulator window scale factor
+    #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
+    window_scale_factor: Option<f32>,
+
     /// Launch in fullscreen
     #[arg(long, default_value_t, help_heading = VIDEO_OPTIONS_HEADING)]
     fullscreen: bool,
@@ -598,6 +602,22 @@ impl Args {
         config.common.window_width = self.window_width;
         config.common.window_height = self.window_height;
 
+        match self.window_scale_factor {
+            Some(scale_factor) => {
+                config.common.window_scale_factor = Some(scale_factor);
+            }
+            None => {
+                if config.common.window_scale_factor.is_none() {
+                    let scale_factor = try_determine_scale_factor();
+                    config.common.window_scale_factor = scale_factor;
+
+                    if let Some(scale_factor) = scale_factor {
+                        log::info!("Detected scale factor of {scale_factor} using SDL2");
+                    }
+                }
+            }
+        }
+
         if self.fullscreen {
             config.common.launch_in_fullscreen = true;
         }
@@ -643,6 +663,12 @@ impl Args {
             config.common.load_recent_state_at_launch = load_recent_state_at_launch;
         }
     }
+}
+
+fn try_determine_scale_factor() -> Option<f32> {
+    let sdl_ctx = sdl2::init().ok()?;
+    let video = sdl_ctx.video().ok()?;
+    jgenesis_native_driver::determine_scale_factor(&video, None)
 }
 
 fn main() -> anyhow::Result<()> {

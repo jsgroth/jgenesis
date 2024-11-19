@@ -1,10 +1,9 @@
 mod inputwindow;
 
+use crate::app::Console;
 use crate::emuthread::inputwindow::InputWindow;
 use anyhow::anyhow;
-use jgenesis_native_driver::config::{
-    GameBoyConfig, GenesisConfig, NesConfig, Sega32XConfig, SegaCdConfig, SmsGgConfig, SnesConfig,
-};
+use jgenesis_native_config::AppConfig;
 use jgenesis_native_driver::input::{
     AxisDirection, GamepadAction, GenericInput, HatDirection, Joysticks,
 };
@@ -67,22 +66,24 @@ impl EmuThreadStatus {
     }
 }
 
+impl Console {
+    fn running_status(self) -> EmuThreadStatus {
+        match self {
+            Self::MasterSystem | Self::GameGear => EmuThreadStatus::RunningSmsGg,
+            Self::Genesis => EmuThreadStatus::RunningGenesis,
+            Self::SegaCd => EmuThreadStatus::RunningSegaCd,
+            Self::Sega32X => EmuThreadStatus::Running32X,
+            Self::Nes => EmuThreadStatus::RunningNes,
+            Self::Snes => EmuThreadStatus::RunningSnes,
+            Self::GameBoy | Self::GameBoyColor => EmuThreadStatus::RunningGameBoy,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum EmuThreadCommand {
-    RunSms(Box<SmsGgConfig>),
-    RunGenesis(Box<GenesisConfig>),
-    RunSegaCd(Box<SegaCdConfig>),
-    Run32X(Box<Sega32XConfig>),
-    RunNes(Box<NesConfig>),
-    RunSnes(Box<SnesConfig>),
-    RunGameBoy(Box<GameBoyConfig>),
-    ReloadSmsGgConfig(Box<SmsGgConfig>),
-    ReloadGenesisConfig(Box<GenesisConfig>),
-    ReloadSegaCdConfig(Box<SegaCdConfig>),
-    Reload32XConfig(Box<Sega32XConfig>),
-    ReloadNesConfig(Box<NesConfig>),
-    ReloadSnesConfig(Box<SnesConfig>),
-    ReloadGameBoyConfig(Box<GameBoyConfig>),
+    Run { console: Console, config: Box<AppConfig>, file_path: String },
+    ReloadConfig(Box<AppConfig>, String),
     StopEmulator,
     CollectInput { axis_deadzone: i16 },
     SoftReset,
@@ -137,44 +138,6 @@ impl EmuThreadHandle {
             self.send(EmuThreadCommand::StopEmulator);
         }
     }
-
-    // TODO fix this
-    #[allow(clippy::too_many_arguments)]
-    pub fn reload_config(
-        &self,
-        smsgg_config: Box<SmsGgConfig>,
-        genesis_config: Box<GenesisConfig>,
-        sega_cd_config: Box<SegaCdConfig>,
-        s32x_config: Box<Sega32XConfig>,
-        nes_config: Box<NesConfig>,
-        snes_config: Box<SnesConfig>,
-        gb_config: Box<GameBoyConfig>,
-    ) {
-        match self.status() {
-            EmuThreadStatus::RunningSmsGg => {
-                self.send(EmuThreadCommand::ReloadSmsGgConfig(smsgg_config));
-            }
-            EmuThreadStatus::RunningGenesis => {
-                self.send(EmuThreadCommand::ReloadGenesisConfig(genesis_config));
-            }
-            EmuThreadStatus::RunningSegaCd => {
-                self.send(EmuThreadCommand::ReloadSegaCdConfig(sega_cd_config));
-            }
-            EmuThreadStatus::Running32X => {
-                self.send(EmuThreadCommand::Reload32XConfig(s32x_config));
-            }
-            EmuThreadStatus::RunningNes => {
-                self.send(EmuThreadCommand::ReloadNesConfig(nes_config));
-            }
-            EmuThreadStatus::RunningSnes => {
-                self.send(EmuThreadCommand::ReloadSnesConfig(snes_config));
-            }
-            EmuThreadStatus::RunningGameBoy => {
-                self.send(EmuThreadCommand::ReloadGameBoyConfig(gb_config));
-            }
-            EmuThreadStatus::Idle | EmuThreadStatus::WaitingForFirstCommand => {}
-        }
-    }
 }
 
 pub fn spawn(ctx: egui::Context) -> EmuThreadHandle {
@@ -222,139 +185,24 @@ fn thread_run(
         ctx.request_repaint();
 
         match command_receiver.recv() {
-            Ok(EmuThreadCommand::RunSms(config)) => {
-                status.store(EmuThreadStatus::RunningSmsGg as u8, Ordering::Relaxed);
+            Ok(EmuThreadCommand::Run { console, mut config, file_path }) => {
+                status.store(console.running_status() as u8, Ordering::Relaxed);
 
-                let emulator = match jgenesis_native_driver::create_smsgg(config) {
+                if let Some(native_ppi) = ctx.native_pixels_per_point() {
+                    log::info!("Setting emulator window scale factor to {native_ppi}");
+                    config.common.window_scale_factor = ctx.native_pixels_per_point();
+                }
+
+                let emulator = match GenericEmulator::create(console, config, file_path) {
                     Ok(emulator) => emulator,
                     Err(err) => {
-                        log::error!("Error initializing SMS/GG emulator: {err}");
+                        log::error!("Error initializing emulator: {err}");
                         *emulator_error.lock().unwrap() = Some(err.into());
                         continue;
                     }
                 };
                 run_emulator(
-                    GenericEmulator::SmsGg(emulator),
-                    &command_receiver,
-                    &input_sender,
-                    &save_state_metadata,
-                    &emulator_error,
-                    &ctx,
-                );
-            }
-            Ok(EmuThreadCommand::RunGenesis(config)) => {
-                status.store(EmuThreadStatus::RunningGenesis as u8, Ordering::Relaxed);
-
-                let emulator = match jgenesis_native_driver::create_genesis(config) {
-                    Ok(emulator) => emulator,
-                    Err(err) => {
-                        log::error!("Error initializing Genesis emulator: {err}");
-                        *emulator_error.lock().unwrap() = Some(err.into());
-                        continue;
-                    }
-                };
-                run_emulator(
-                    GenericEmulator::Genesis(emulator),
-                    &command_receiver,
-                    &input_sender,
-                    &save_state_metadata,
-                    &emulator_error,
-                    &ctx,
-                );
-            }
-            Ok(EmuThreadCommand::RunSegaCd(config)) => {
-                status.store(EmuThreadStatus::RunningSegaCd as u8, Ordering::Relaxed);
-
-                let emulator = match jgenesis_native_driver::create_sega_cd(config) {
-                    Ok(emulator) => emulator,
-                    Err(err) => {
-                        log::error!("Error initializing Sega CD emulator: {err}");
-                        *emulator_error.lock().unwrap() = Some(err.into());
-                        continue;
-                    }
-                };
-                run_emulator(
-                    GenericEmulator::SegaCd(emulator),
-                    &command_receiver,
-                    &input_sender,
-                    &save_state_metadata,
-                    &emulator_error,
-                    &ctx,
-                );
-            }
-            Ok(EmuThreadCommand::Run32X(config)) => {
-                status.store(EmuThreadStatus::Running32X as u8, Ordering::Relaxed);
-
-                let emulator = match jgenesis_native_driver::create_32x(config) {
-                    Ok(emulator) => emulator,
-                    Err(err) => {
-                        log::error!("Error initializing 32X emulator: {err}");
-                        *emulator_error.lock().unwrap() = Some(err.into());
-                        continue;
-                    }
-                };
-                run_emulator(
-                    GenericEmulator::Sega32X(emulator),
-                    &command_receiver,
-                    &input_sender,
-                    &save_state_metadata,
-                    &emulator_error,
-                    &ctx,
-                );
-            }
-            Ok(EmuThreadCommand::RunNes(config)) => {
-                status.store(EmuThreadStatus::RunningNes as u8, Ordering::Relaxed);
-
-                let emulator = match jgenesis_native_driver::create_nes(config) {
-                    Ok(emulator) => emulator,
-                    Err(err) => {
-                        log::error!("Error initializing NES emulator: {err}");
-                        *emulator_error.lock().unwrap() = Some(err.into());
-                        continue;
-                    }
-                };
-                run_emulator(
-                    GenericEmulator::Nes(emulator),
-                    &command_receiver,
-                    &input_sender,
-                    &save_state_metadata,
-                    &emulator_error,
-                    &ctx,
-                );
-            }
-            Ok(EmuThreadCommand::RunSnes(config)) => {
-                status.store(EmuThreadStatus::RunningSnes as u8, Ordering::Relaxed);
-
-                let emulator = match jgenesis_native_driver::create_snes(config) {
-                    Ok(emulator) => emulator,
-                    Err(err) => {
-                        log::error!("Error initializing SNES emulator: {err}");
-                        *emulator_error.lock().unwrap() = Some(err.into());
-                        continue;
-                    }
-                };
-                run_emulator(
-                    GenericEmulator::Snes(emulator),
-                    &command_receiver,
-                    &input_sender,
-                    &save_state_metadata,
-                    &emulator_error,
-                    &ctx,
-                );
-            }
-            Ok(EmuThreadCommand::RunGameBoy(config)) => {
-                status.store(EmuThreadStatus::RunningGameBoy as u8, Ordering::Relaxed);
-
-                let emulator = match jgenesis_native_driver::create_gb(config) {
-                    Ok(emulator) => emulator,
-                    Err(err) => {
-                        log::error!("Error initializing Game Boy emulator: {err}");
-                        *emulator_error.lock().unwrap() = Some(err.into());
-                        continue;
-                    }
-                };
-                run_emulator(
-                    GenericEmulator::GameBoy(emulator),
+                    emulator,
                     &command_receiver,
                     &input_sender,
                     &save_state_metadata,
@@ -375,13 +223,7 @@ fn thread_run(
             }
             Ok(
                 EmuThreadCommand::StopEmulator
-                | EmuThreadCommand::ReloadSmsGgConfig(_)
-                | EmuThreadCommand::ReloadGenesisConfig(_)
-                | EmuThreadCommand::ReloadSegaCdConfig(_)
-                | EmuThreadCommand::Reload32XConfig(_)
-                | EmuThreadCommand::ReloadNesConfig(_)
-                | EmuThreadCommand::ReloadSnesConfig(_)
-                | EmuThreadCommand::ReloadGameBoyConfig(_)
+                | EmuThreadCommand::ReloadConfig(..)
                 | EmuThreadCommand::SoftReset
                 | EmuThreadCommand::HardReset
                 | EmuThreadCommand::OpenMemoryViewer
@@ -425,60 +267,46 @@ macro_rules! match_each_emulator_variant {
 }
 
 impl GenericEmulator {
-    fn reload_smsgg_config(&mut self, config: Box<SmsGgConfig>) -> Result<(), AudioError> {
-        if let Self::SmsGg(emulator) = self {
-            emulator.reload_smsgg_config(config)?;
-        }
+    fn create(
+        console: Console,
+        config: Box<AppConfig>,
+        path: String,
+    ) -> NativeEmulatorResult<Self> {
+        let emulator = match console {
+            Console::MasterSystem | Console::GameGear => {
+                Self::SmsGg(jgenesis_native_driver::create_smsgg(config.smsgg_config(path))?)
+            }
+            Console::Genesis => {
+                Self::Genesis(jgenesis_native_driver::create_genesis(config.genesis_config(path))?)
+            }
+            Console::SegaCd => {
+                Self::SegaCd(jgenesis_native_driver::create_sega_cd(config.sega_cd_config(path))?)
+            }
+            Console::Sega32X => {
+                Self::Sega32X(jgenesis_native_driver::create_32x(config.sega_32x_config(path))?)
+            }
+            Console::Nes => Self::Nes(jgenesis_native_driver::create_nes(config.nes_config(path))?),
+            Console::Snes => {
+                Self::Snes(jgenesis_native_driver::create_snes(config.snes_config(path))?)
+            }
+            Console::GameBoy | Console::GameBoyColor => {
+                Self::GameBoy(jgenesis_native_driver::create_gb(config.gb_config(path))?)
+            }
+        };
 
-        Ok(())
+        Ok(emulator)
     }
 
-    fn reload_genesis_config(&mut self, config: Box<GenesisConfig>) -> Result<(), AudioError> {
-        if let Self::Genesis(emulator) = self {
-            emulator.reload_genesis_config(config)?;
+    fn reload_config(&mut self, config: Box<AppConfig>, path: String) -> Result<(), AudioError> {
+        match self {
+            Self::SmsGg(emulator) => emulator.reload_smsgg_config(config.smsgg_config(path)),
+            Self::Genesis(emulator) => emulator.reload_genesis_config(config.genesis_config(path)),
+            Self::SegaCd(emulator) => emulator.reload_sega_cd_config(config.sega_cd_config(path)),
+            Self::Sega32X(emulator) => emulator.reload_32x_config(config.sega_32x_config(path)),
+            Self::Nes(emulator) => emulator.reload_nes_config(config.nes_config(path)),
+            Self::Snes(emulator) => emulator.reload_snes_config(config.snes_config(path)),
+            Self::GameBoy(emulator) => emulator.reload_gb_config(config.gb_config(path)),
         }
-
-        Ok(())
-    }
-
-    fn reload_sega_cd_config(&mut self, config: Box<SegaCdConfig>) -> Result<(), AudioError> {
-        if let Self::SegaCd(emulator) = self {
-            emulator.reload_sega_cd_config(config)?;
-        }
-
-        Ok(())
-    }
-
-    fn reload_32x_config(&mut self, config: Box<Sega32XConfig>) -> Result<(), AudioError> {
-        if let Self::Sega32X(emulator) = self {
-            emulator.reload_32x_config(config)?;
-        }
-
-        Ok(())
-    }
-
-    fn reload_nes_config(&mut self, config: Box<NesConfig>) -> Result<(), AudioError> {
-        if let Self::Nes(emulator) = self {
-            emulator.reload_nes_config(config)?;
-        }
-
-        Ok(())
-    }
-
-    fn reload_snes_config(&mut self, config: Box<SnesConfig>) -> Result<(), AudioError> {
-        if let Self::Snes(emulator) = self {
-            emulator.reload_snes_config(config)?;
-        }
-
-        Ok(())
-    }
-
-    fn reload_gb_config(&mut self, config: Box<GameBoyConfig>) -> Result<(), AudioError> {
-        if let Self::GameBoy(emulator) = self {
-            emulator.reload_gb_config(config)?;
-        }
-
-        Ok(())
     }
 
     fn remove_disc(&mut self) {
@@ -553,44 +381,8 @@ fn run_emulator(
 
                 while let Ok(command) = command_receiver.try_recv() {
                     match command {
-                        EmuThreadCommand::ReloadSmsGgConfig(config) => {
-                            if let Err(err) = emulator.reload_smsgg_config(config) {
-                                *emulator_error.lock().unwrap() = Some(err.into());
-                                return;
-                            }
-                        }
-                        EmuThreadCommand::ReloadGenesisConfig(config) => {
-                            if let Err(err) = emulator.reload_genesis_config(config) {
-                                *emulator_error.lock().unwrap() = Some(err.into());
-                                return;
-                            }
-                        }
-                        EmuThreadCommand::ReloadSegaCdConfig(config) => {
-                            if let Err(err) = emulator.reload_sega_cd_config(config) {
-                                *emulator_error.lock().unwrap() = Some(err.into());
-                                return;
-                            }
-                        }
-                        EmuThreadCommand::Reload32XConfig(config) => {
-                            if let Err(err) = emulator.reload_32x_config(config) {
-                                *emulator_error.lock().unwrap() = Some(err.into());
-                                return;
-                            }
-                        }
-                        EmuThreadCommand::ReloadNesConfig(config) => {
-                            if let Err(err) = emulator.reload_nes_config(config) {
-                                *emulator_error.lock().unwrap() = Some(err.into());
-                                return;
-                            }
-                        }
-                        EmuThreadCommand::ReloadSnesConfig(config) => {
-                            if let Err(err) = emulator.reload_snes_config(config) {
-                                *emulator_error.lock().unwrap() = Some(err.into());
-                                return;
-                            }
-                        }
-                        EmuThreadCommand::ReloadGameBoyConfig(config) => {
-                            if let Err(err) = emulator.reload_gb_config(config) {
+                        EmuThreadCommand::ReloadConfig(config, path) => {
+                            if let Err(err) = emulator.reload_config(config, path) {
                                 *emulator_error.lock().unwrap() = Some(err.into());
                                 return;
                             }
@@ -629,13 +421,7 @@ fn run_emulator(
                                 return;
                             }
                         }
-                        EmuThreadCommand::RunSms(_)
-                        | EmuThreadCommand::RunGenesis(_)
-                        | EmuThreadCommand::RunSegaCd(_)
-                        | EmuThreadCommand::Run32X(_)
-                        | EmuThreadCommand::RunNes(_)
-                        | EmuThreadCommand::RunSnes(_)
-                        | EmuThreadCommand::RunGameBoy(_) => {}
+                        EmuThreadCommand::Run { .. } => {}
                     }
                 }
             }

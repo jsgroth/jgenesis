@@ -2309,6 +2309,7 @@ dependencies = [
  "log",
  "nes-core",
  "s32x-core",
+ "sdl2",
  "smsgg-core",
  "snes-core",
  "toml",

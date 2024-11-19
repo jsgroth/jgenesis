@@ -58,9 +58,21 @@ pub struct DebuggerWindow<Emulator> {
 impl<Emulator> DebuggerWindow<Emulator> {
     pub fn new(
         video: &VideoSubsystem,
+        scale_factor: Option<f32>,
         render_fn: Box<DebugRenderFn<Emulator>>,
     ) -> Result<Self, DebuggerError> {
-        let window = video.window("Memory Viewer", 800, 700).resizable().metal_view().build()?;
+        let mut window_width = 800;
+        let mut window_height = 700;
+        if let Some(scale_factor) = scale_factor {
+            window_width = (window_width as f32 * scale_factor).round() as u32;
+            window_height = (window_height as f32 * scale_factor).round() as u32;
+        }
+
+        let window = video
+            .window("Memory Viewer", window_width, window_height)
+            .resizable()
+            .metal_view()
+            .build()?;
         let (width, height) = window.size();
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
@@ -104,7 +116,10 @@ impl<Emulator> DebuggerWindow<Emulator> {
         };
         surface.configure(&device, &surface_config);
 
-        let scale_factor = determine_scale_factor(&window, video);
+        let scale_factor = scale_factor.unwrap_or_else(|| {
+            let display_idx = window.display_index().ok();
+            crate::determine_scale_factor(video, display_idx).unwrap_or(1.0)
+        });
         log::info!("Guessed scale factor {scale_factor}");
 
         let platform = egui_sdl2_platform::Platform::new(&window, scale_factor);
@@ -231,25 +246,6 @@ impl<Emulator> DebuggerWindow<Emulator> {
     pub fn window_id(&self) -> u32 {
         self.window.id()
     }
-}
-
-fn determine_scale_factor(window: &Window, video: &VideoSubsystem) -> f32 {
-    let scale_factor = window
-        .display_index()
-        .ok()
-        .and_then(|idx| video.display_dpi(idx).ok())
-        .and_then(|(_, hdpi, vdpi)| {
-            // Set scale factor to DPI/96 if HDPI and VDPI are equal and non-zero
-            let delta = (hdpi - vdpi).abs();
-            (delta < 1e-3 && hdpi > 0.0).then(|| {
-                let doubled_scale_factor = (hdpi / 96.0 * 2.0).round() as u32;
-                doubled_scale_factor as f32 / 2.0
-            })
-        })
-        .unwrap_or(1.0);
-
-    // Arbitrary threshold; egui will panic if pixels_per_point is too high
-    if (0.5..=10.0).contains(&scale_factor) { scale_factor } else { 1.0 }
 }
 
 fn screen_width(ctx: &egui::Context) -> f32 {

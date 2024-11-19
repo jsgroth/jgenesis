@@ -10,7 +10,7 @@ mod snes;
 use crate::app::common::SavePathSelect;
 use crate::app::input::{GenericButton, InputMappingSet};
 use crate::app::nes::OverscanState;
-use crate::app::romlist::{Console, RomListThreadHandle, RomMetadata};
+use crate::app::romlist::{RomListThreadHandle, RomMetadata};
 use crate::emuthread;
 use crate::emuthread::{EmuThreadCommand, EmuThreadHandle, EmuThreadStatus};
 use eframe::Frame;
@@ -23,6 +23,7 @@ use egui::{
 use egui_extras::{Column, TableBuilder};
 use jgenesis_native_config::{AppConfig, EguiTheme, ListFilters, RecentOpen};
 use jgenesis_native_driver::config::HideMouseCursor;
+use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::Scanlines;
 use rfd::FileDialog;
 use std::collections::{HashMap, HashSet};
@@ -34,6 +35,19 @@ use std::sync::{Arc, Mutex};
 use time::util::local_offset;
 use time::util::local_offset::Soundness;
 use time::{OffsetDateTime, UtcOffset, format_description};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumAll, EnumDisplay, EnumFromStr)]
+pub enum Console {
+    MasterSystem,
+    GameGear,
+    Genesis,
+    SegaCd,
+    Sega32X,
+    Nes,
+    Snes,
+    GameBoy,
+    GameBoyColor,
+}
 
 trait ListFiltersExt {
     fn to_console_vec(&self) -> Vec<Console>;
@@ -322,50 +336,12 @@ impl App {
         self.config.recent_open_list.truncate(10);
         self.state.recent_open_list = romlist::from_recent_opens(&self.config.recent_open_list);
 
-        match console {
-            Console::MasterSystem | Console::GameGear => {
-                self.emu_thread.stop_emulator_if_running();
-
-                let config = self.config.smsgg_config(path);
-                self.emu_thread.send(EmuThreadCommand::RunSms(config));
-            }
-            Console::Genesis => {
-                self.emu_thread.stop_emulator_if_running();
-
-                let config = self.config.genesis_config(path);
-                self.emu_thread.send(EmuThreadCommand::RunGenesis(config));
-            }
-            Console::SegaCd => {
-                self.emu_thread.stop_emulator_if_running();
-
-                let config = self.config.sega_cd_config(path);
-                self.emu_thread.send(EmuThreadCommand::RunSegaCd(config));
-            }
-            Console::Sega32X => {
-                self.emu_thread.stop_emulator_if_running();
-
-                let config = self.config.sega_32x_config(path);
-                self.emu_thread.send(EmuThreadCommand::Run32X(config));
-            }
-            Console::Nes => {
-                self.emu_thread.stop_emulator_if_running();
-
-                let config = self.config.nes_config(path);
-                self.emu_thread.send(EmuThreadCommand::RunNes(config));
-            }
-            Console::Snes => {
-                self.emu_thread.stop_emulator_if_running();
-
-                let config = self.config.snes_config(path);
-                self.emu_thread.send(EmuThreadCommand::RunSnes(config));
-            }
-            Console::GameBoy | Console::GameBoyColor => {
-                self.emu_thread.stop_emulator_if_running();
-
-                let config = self.config.gb_config(path);
-                self.emu_thread.send(EmuThreadCommand::RunGameBoy(config));
-            }
-        }
+        self.emu_thread.stop_emulator_if_running();
+        self.emu_thread.send(EmuThreadCommand::Run {
+            console,
+            config: Box::new(self.config.clone()),
+            file_path: path,
+        });
     }
 
     fn add_rom_search_directory(&mut self) {
@@ -1057,16 +1033,10 @@ impl App {
     }
 
     fn reload_config(&mut self) {
-        // TODO this is terrible; should only generate and send the config for the currently-running emulator
-        self.emu_thread.reload_config(
-            self.config.smsgg_config(self.state.current_file_path.clone()),
-            self.config.genesis_config(self.state.current_file_path.clone()),
-            self.config.sega_cd_config(self.state.current_file_path.clone()),
-            self.config.sega_32x_config(self.state.current_file_path.clone()),
-            self.config.nes_config(self.state.current_file_path.clone()),
-            self.config.snes_config(self.state.current_file_path.clone()),
-            self.config.gb_config(self.state.current_file_path.clone()),
-        );
+        self.emu_thread.send(EmuThreadCommand::ReloadConfig(
+            Box::new(self.config.clone()),
+            self.state.current_file_path.clone(),
+        ));
     }
 
     fn refresh_filtered_rom_list(&mut self) {

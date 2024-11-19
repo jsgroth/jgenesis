@@ -134,6 +134,7 @@ struct HotkeyState<Emulator> {
     fast_forward_multiplier: u64,
     rewinder: Rewinder<Emulator>,
     debugger_window: Option<DebuggerWindow<Emulator>>,
+    window_scale_factor: Option<f32>,
     debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
 }
 
@@ -176,6 +177,7 @@ impl<Emulator: PartialClone> HotkeyState<Emulator> {
                 common_config.rewind_buffer_length_seconds,
             )),
             debugger_window: None,
+            window_scale_factor: common_config.window_scale_factor,
             debug_render_fn,
         })
     }
@@ -269,10 +271,11 @@ enum HotkeyResult {
 
 fn open_debugger_window<Emulator>(
     video: &VideoSubsystem,
+    scale_factor: Option<f32>,
     debug_render_fn: fn() -> Box<DebugRenderFn<Emulator>>,
 ) -> Option<DebuggerWindow<Emulator>> {
     let render_fn = debug_render_fn();
-    match DebuggerWindow::new(video, render_fn) {
+    match DebuggerWindow::new(video, scale_factor, render_fn) {
         Ok(debugger_window) => Some(debugger_window),
         Err(err) => {
             log::error!("Error opening debugger window: {err}");
@@ -399,12 +402,16 @@ where
     ) -> NativeEmulatorResult<Self> {
         let (sdl, video, audio, joystick, event_pump) = init_sdl(&common_config)?;
 
-        let window_size = common_config.window_size.unwrap_or(default_window_size);
+        let mut initial_window_size = common_config.window_size.unwrap_or(default_window_size);
+        if let Some(scale_factor) = common_config.window_scale_factor {
+            initial_window_size = initial_window_size.scale(scale_factor);
+        }
+
         let window = create_window(
             &video,
             window_title,
-            window_size.width,
-            window_size.height,
+            initial_window_size.width,
+            initial_window_size.height,
             common_config.launch_in_fullscreen.then_some(common_config.fullscreen_mode),
         )?;
 
@@ -577,8 +584,11 @@ where
 
     pub fn open_memory_viewer(&mut self) {
         if self.hotkey_state.debugger_window.is_none() {
-            self.hotkey_state.debugger_window =
-                open_debugger_window(&self.video, self.hotkey_state.debug_render_fn);
+            self.hotkey_state.debugger_window = open_debugger_window(
+                &self.video,
+                self.hotkey_state.window_scale_factor,
+                self.hotkey_state.debug_render_fn,
+            );
         }
     }
 
@@ -759,7 +769,11 @@ where
             CompactHotkey::OpenDebugger => {
                 if self.hotkey_state.debugger_window.is_none() {
                     let debug_render_fn = (self.hotkey_state.debug_render_fn)();
-                    match DebuggerWindow::new(&self.video, debug_render_fn) {
+                    match DebuggerWindow::new(
+                        &self.video,
+                        self.hotkey_state.window_scale_factor,
+                        debug_render_fn,
+                    ) {
                         Ok(debugger_window) => {
                             self.hotkey_state.debugger_window = Some(debugger_window);
                         }
