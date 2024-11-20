@@ -499,6 +499,11 @@ impl Joysticks {
         &self.subsystem
     }
 
+    #[must_use]
+    pub fn device(&self, device_id: u32) -> Option<&Joystick> {
+        self.devices.get(&device_id)
+    }
+
     pub fn all_devices(&self) -> impl Iterator<Item = (u32, &'_ Joystick)> + '_ {
         self.devices.iter().map(|(&device_id, joystick)| (device_id, joystick))
     }
