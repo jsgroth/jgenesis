@@ -69,34 +69,6 @@ jobs:
       - name: Check Clippy warnings for web
         run: |
           cd frontend/jgenesis-web && cargo +nightly clippy --target wasm32-unknown-unknown
-  linux-release-binary:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install latest stable Rust toolchain
-        run: |
-          rustup update
-
-      - name: Install system library dependencies
-        run: |
-          sudo apt-get update && sudo apt-get install -y libsdl2-dev
-
-      - name: Build release
-        run: |
-          RUSTFLAGS="-C target-cpu=x86-64-v2" \
-          cargo build --profile release-lto
-
-      - name: Compress binaries
-        run: |
-          tar -czvf jgenesis-${JGENESIS_VERSION}-linux-x86_64.tar.gz LICENSE -C target/release-lto jgenesis-cli jgenesis-gui
-
-      - name: Upload binaries
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-x86_64-binary
-          path: jgenesis-${{ env.JGENESIS_VERSION }}-linux-x86_64.tar.gz
   linux-release-appimage:
     runs-on: ubuntu-22.04
 
