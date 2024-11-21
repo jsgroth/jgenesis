@@ -765,21 +765,13 @@ fn main() -> anyhow::Result<()> {
 fn run_sms(args: Args, config: AppConfig) -> anyhow::Result<()> {
     let mut emulator =
         jgenesis_native_driver::create_smsgg(config.smsgg_config(args.file_path.clone()))?;
-    init_emulator(&mut emulator, &args);
-
-    while emulator.render_frame()? != NativeTickEffect::Exit {}
-
-    Ok(())
+    run_emulator(&mut emulator, &args)
 }
 
 fn run_genesis(args: Args, config: AppConfig) -> anyhow::Result<()> {
     let mut emulator =
         jgenesis_native_driver::create_genesis(config.genesis_config(args.file_path.clone()))?;
-    init_emulator(&mut emulator, &args);
-
-    while emulator.render_frame()? != NativeTickEffect::Exit {}
-
-    Ok(())
+    run_emulator(&mut emulator, &args)
 }
 
 fn run_sega_cd(args: Args, config: AppConfig) -> anyhow::Result<()> {
@@ -787,66 +779,54 @@ fn run_sega_cd(args: Args, config: AppConfig) -> anyhow::Result<()> {
     scd_config.run_without_disc = args.scd_no_disc;
 
     let mut emulator = jgenesis_native_driver::create_sega_cd(scd_config)?;
-    init_emulator(&mut emulator, &args);
-
-    while emulator.render_frame()? != NativeTickEffect::Exit {}
-
-    Ok(())
+    run_emulator(&mut emulator, &args)
 }
 
 fn run_32x(args: Args, config: AppConfig) -> anyhow::Result<()> {
     let mut emulator =
         jgenesis_native_driver::create_32x(config.sega_32x_config(args.file_path.clone()))?;
-    init_emulator(&mut emulator, &args);
-
-    while emulator.render_frame()? != NativeTickEffect::Exit {}
-
-    Ok(())
+    run_emulator(&mut emulator, &args)
 }
 
 fn run_nes(args: Args, config: AppConfig) -> anyhow::Result<()> {
     let mut emulator =
         jgenesis_native_driver::create_nes(config.nes_config(args.file_path.clone()))?;
-    init_emulator(&mut emulator, &args);
-
-    while emulator.render_frame()? != NativeTickEffect::Exit {}
-
-    Ok(())
+    run_emulator(&mut emulator, &args)
 }
 
 fn run_snes(args: Args, config: AppConfig) -> anyhow::Result<()> {
     let mut emulator =
         jgenesis_native_driver::create_snes(config.snes_config(args.file_path.clone()))?;
-    init_emulator(&mut emulator, &args);
-
-    while emulator.render_frame()? != NativeTickEffect::Exit {}
-
-    Ok(())
+    run_emulator(&mut emulator, &args)
 }
 
 fn run_gb(args: Args, config: AppConfig) -> anyhow::Result<()> {
     let mut emulator = jgenesis_native_driver::create_gb(config.gb_config(args.file_path.clone()))?;
-    init_emulator(&mut emulator, &args);
-
-    while emulator.render_frame()? != NativeTickEffect::Exit {}
-
-    Ok(())
+    run_emulator(&mut emulator, &args)
 }
 
 // TODO simplify these trait bounds (required by load_state() definition)
-fn init_emulator<Inputs, Button, Config, Emulator>(
+fn run_emulator<Inputs, Button, Config, Emulator>(
     emulator: &mut NativeEmulator<Inputs, Button, Config, Emulator>,
     args: &Args,
-) where
+) -> anyhow::Result<()>
+where
     Inputs: Default + MappableInputs<Button>,
     Button: Debug + Copy + Hash + Eq,
     Emulator: EmulatorTrait<Inputs = Inputs, Config = Config>,
 {
-    let Some(save_state_slot) = args.load_save_state else { return };
+    if let Some(save_state_slot) = args.load_save_state {
+        log::info!("Loading save state slot {save_state_slot} at launch");
 
-    log::info!("Loading save state slot {save_state_slot} at launch");
+        if let Err(err) = emulator.load_state(save_state_slot) {
+            log::error!("Error loading save state slot {save_state_slot} at launch: {err}");
+        }
+    }
 
-    if let Err(err) = emulator.load_state(save_state_slot) {
-        log::error!("Error loading save state slot {save_state_slot} at launch: {err}");
+    loop {
+        match emulator.render_frame()? {
+            Some(NativeTickEffect::PowerOff | NativeTickEffect::Exit) => return Ok(()),
+            None => {}
+        }
     }
 }

@@ -1054,6 +1054,11 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
+        if self.emu_thread.exit_signal() {
+            ctx.send_viewport_cmd(ViewportCommand::Close);
+            return;
+        }
+
         if self.state.rom_list_refresh_needed && !self.rom_list_thread.any_scans_in_progress() {
             self.state.rom_list_refresh_needed = false;
             self.refresh_filtered_rom_list();

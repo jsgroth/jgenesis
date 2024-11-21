@@ -230,8 +230,9 @@ type MappingArrayVec = ArrayVec<CanonicalInput, MAX_MAPPING_LEN>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumDisplay, EnumAll)]
 pub enum Hotkey {
-    Quit,
+    Exit,
     ToggleFullscreen,
+    PowerOff,
     SaveState,
     LoadState,
     NextSaveStateSlot,
@@ -267,7 +268,8 @@ pub enum Hotkey {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompactHotkey {
-    Quit,
+    PowerOff,
+    Exit,
     ToggleFullscreen,
     SaveState,
     LoadState,
@@ -287,7 +289,8 @@ pub enum CompactHotkey {
 impl Hotkey {
     pub(crate) fn to_compact(self) -> CompactHotkey {
         match self {
-            Self::Quit => CompactHotkey::Quit,
+            Self::PowerOff => CompactHotkey::PowerOff,
+            Self::Exit => CompactHotkey::Exit,
             Self::ToggleFullscreen => CompactHotkey::ToggleFullscreen,
             Self::SaveState => CompactHotkey::SaveState,
             Self::LoadState => CompactHotkey::LoadState,

@@ -643,7 +643,14 @@ macro_rules! define_hotkey_mapping {
         None
     };
     (@default $default:ident) => {
-        key_input!($default)
+        Some(vec![GenericInput::Keyboard(Keycode::$default)])
+    };
+    (@default ($($default:ident $(+)?)*)) => {
+        Some(vec![
+            $(
+                GenericInput::Keyboard(Keycode::$default),
+            )*
+        ])
     };
     ($($value:ident: $hotkey:ident default $default:tt,)* $(,)?) => {
         #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -685,7 +692,8 @@ macro_rules! define_hotkey_mapping {
 }
 
 define_hotkey_mapping!(
-    quit: Quit default Escape,
+    power_off: PowerOff default Escape,
+    exit: Exit default (LCtrl + Q),
     toggle_fullscreen: ToggleFullscreen default F9,
     save_state: SaveState default F5,
     load_state: LoadState default F6,

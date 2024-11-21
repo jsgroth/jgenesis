@@ -206,7 +206,8 @@ fn hotkey_label(hotkey: Hotkey) -> &'static str {
     use Hotkey::*;
 
     match hotkey {
-        Quit => "Quit:",
+        PowerOff => "Power off system:",
+        Exit => "Exit application:",
         ToggleFullscreen => "Toggle fullscreen:",
         SaveState => "Save state to current slot:",
         LoadState => "Load state from current slot:",
@@ -401,7 +402,8 @@ fn access_hotkey(
     let mapping_config = mapping.hotkey(config);
 
     match hotkey {
-        Hotkey::Quit => &mut mapping_config.quit,
+        Hotkey::PowerOff => &mut mapping_config.power_off,
+        Hotkey::Exit => &mut mapping_config.exit,
         Hotkey::ToggleFullscreen => &mut mapping_config.toggle_fullscreen,
         Hotkey::SaveState => &mut mapping_config.save_state,
         Hotkey::LoadState => &mut mapping_config.load_state,
@@ -1091,8 +1093,8 @@ impl HotkeyExt for Hotkey {
         use Hotkey::*;
 
         match self {
-            Quit | ToggleFullscreen | SoftReset | HardReset | Pause | StepFrame | FastForward
-            | Rewind | OpenDebugger => HotkeyCategory::General,
+            PowerOff | Exit | ToggleFullscreen | SoftReset | HardReset | Pause | StepFrame
+            | FastForward | Rewind | OpenDebugger => HotkeyCategory::General,
             SaveState | LoadState | NextSaveStateSlot | PrevSaveStateSlot | SaveStateSlot0
             | SaveStateSlot1 | SaveStateSlot2 | SaveStateSlot3 | SaveStateSlot4
             | SaveStateSlot5 | SaveStateSlot6 | SaveStateSlot7 | SaveStateSlot8

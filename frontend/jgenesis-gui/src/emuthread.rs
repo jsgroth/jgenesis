@@ -18,7 +18,7 @@ use sdl2::joystick::{HatState, Joystick};
 use segacd_core::api::SegaCdLoadResult;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, MutexGuard, mpsc};
 use std::thread;
@@ -102,6 +102,7 @@ pub struct EmuThreadHandle {
     input_receiver: Receiver<Option<Vec<GenericInput>>>,
     save_state_metadata: Arc<Mutex<SaveStateMetadata>>,
     emulator_error: Arc<Mutex<Option<anyhow::Error>>>,
+    exit_signal: Arc<AtomicBool>,
 }
 
 impl EmuThreadHandle {
@@ -139,83 +140,93 @@ impl EmuThreadHandle {
             self.send(EmuThreadCommand::StopEmulator);
         }
     }
+
+    pub fn exit_signal(&self) -> bool {
+        self.exit_signal.load(Ordering::Relaxed)
+    }
 }
 
-pub fn spawn(ctx: egui::Context) -> EmuThreadHandle {
+pub fn spawn(egui_ctx: egui::Context) -> EmuThreadHandle {
     let status = Arc::new(AtomicU8::new(EmuThreadStatus::WaitingForFirstCommand as u8));
     let (command_sender, command_receiver) = mpsc::channel();
     let (input_sender, input_receiver) = mpsc::channel();
     let save_state_metadata = Arc::new(Mutex::new(SaveStateMetadata::default()));
     let emulator_error = Arc::new(Mutex::new(None));
+    let exit_signal = Arc::new(AtomicBool::new(false));
 
     {
         let status = Arc::clone(&status);
         let save_state_metadata = Arc::clone(&save_state_metadata);
         let emulator_error = Arc::clone(&emulator_error);
+        let exit_signal = Arc::clone(&exit_signal);
         thread::spawn(move || {
-            thread_run(
-                ctx,
+            thread_run(EmuThreadContext {
+                egui_ctx,
                 command_receiver,
                 input_sender,
                 status,
                 save_state_metadata,
                 emulator_error,
-            );
+                exit_signal,
+            });
         });
     }
 
-    EmuThreadHandle { status, command_sender, input_receiver, save_state_metadata, emulator_error }
+    EmuThreadHandle {
+        status,
+        command_sender,
+        input_receiver,
+        save_state_metadata,
+        emulator_error,
+        exit_signal,
+    }
 }
 
-fn thread_run(
-    ctx: egui::Context,
+struct EmuThreadContext {
+    egui_ctx: egui::Context,
     command_receiver: Receiver<EmuThreadCommand>,
     input_sender: Sender<Option<Vec<GenericInput>>>,
     status: Arc<AtomicU8>,
     save_state_metadata: Arc<Mutex<SaveStateMetadata>>,
     emulator_error: Arc<Mutex<Option<anyhow::Error>>>,
-) {
+    exit_signal: Arc<AtomicBool>,
+}
+
+fn thread_run(ctx: EmuThreadContext) {
     loop {
-        if status.load(Ordering::Relaxed) != EmuThreadStatus::WaitingForFirstCommand as u8 {
-            status.store(EmuThreadStatus::Idle as u8, Ordering::Relaxed);
+        if ctx.status.load(Ordering::Relaxed) != EmuThreadStatus::WaitingForFirstCommand as u8 {
+            ctx.status.store(EmuThreadStatus::Idle as u8, Ordering::Relaxed);
         }
 
         // Force a repaint at the start of the loop so that the GUI will always repaint after an
         // emulator exits. This will immediately display the error window if there was an
         // error, and it will also force quit immediately if auto-close is enabled
-        ctx.request_repaint();
+        ctx.egui_ctx.request_repaint();
 
-        match command_receiver.recv() {
+        match ctx.command_receiver.recv() {
             Ok(EmuThreadCommand::Run { console, mut config, file_path }) => {
-                status.store(console.running_status() as u8, Ordering::Relaxed);
+                ctx.status.store(console.running_status() as u8, Ordering::Relaxed);
 
-                if let Some(native_ppi) = ctx.native_pixels_per_point() {
+                if let Some(native_ppi) = ctx.egui_ctx.native_pixels_per_point() {
                     log::info!("Setting emulator window scale factor to {native_ppi}");
-                    config.common.window_scale_factor = ctx.native_pixels_per_point();
+                    config.common.window_scale_factor = Some(native_ppi);
                 }
 
                 let emulator = match GenericEmulator::create(console, config, file_path) {
                     Ok(emulator) => emulator,
                     Err(err) => {
                         log::error!("Error initializing emulator: {err}");
-                        *emulator_error.lock().unwrap() = Some(err.into());
+                        *ctx.emulator_error.lock().unwrap() = Some(err.into());
                         continue;
                     }
                 };
-                run_emulator(
-                    emulator,
-                    &command_receiver,
-                    &input_sender,
-                    &save_state_metadata,
-                    &emulator_error,
-                    &ctx,
-                );
+                run_emulator(emulator, &ctx);
             }
             Ok(EmuThreadCommand::CollectInput { axis_deadzone }) => {
-                match collect_input_not_running(axis_deadzone, ctx.pixels_per_point()) {
+                match collect_input_not_running(axis_deadzone, ctx.egui_ctx.pixels_per_point()) {
                     Ok(input) => {
-                        input_sender.send(input).unwrap();
-                        ctx.request_repaint();
+                        ctx.input_sender.send(input).unwrap();
+                        ctx.egui_ctx.request_repaint();
                     }
                     Err(err) => {
                         log::error!("Error collecting SDL2 input: {err}");
@@ -324,7 +335,7 @@ impl GenericEmulator {
         Ok(())
     }
 
-    fn render_frame(&mut self) -> NativeEmulatorResult<NativeTickEffect> {
+    fn render_frame(&mut self) -> NativeEmulatorResult<Option<NativeTickEffect>> {
         match_each_emulator_variant!(self, emulator => emulator.render_frame())
     }
 
@@ -367,24 +378,17 @@ impl GenericEmulator {
     }
 }
 
-fn run_emulator(
-    mut emulator: GenericEmulator,
-    command_receiver: &Receiver<EmuThreadCommand>,
-    input_sender: &Sender<Option<Vec<GenericInput>>>,
-    save_state_metadata: &Arc<Mutex<SaveStateMetadata>>,
-    emulator_error: &Arc<Mutex<Option<anyhow::Error>>>,
-    ctx: &egui::Context,
-) {
+fn run_emulator(mut emulator: GenericEmulator, ctx: &EmuThreadContext) {
     loop {
         match emulator.render_frame() {
-            Ok(NativeTickEffect::None) => {
-                *save_state_metadata.lock().unwrap() = emulator.save_state_metadata();
+            Ok(None) => {
+                *ctx.save_state_metadata.lock().unwrap() = emulator.save_state_metadata();
 
-                while let Ok(command) = command_receiver.try_recv() {
+                while let Ok(command) = ctx.command_receiver.try_recv() {
                     match command {
                         EmuThreadCommand::ReloadConfig(config, path) => {
                             if let Err(err) = emulator.reload_config(config, path) {
-                                *emulator_error.lock().unwrap() = Some(err.into());
+                                *ctx.emulator_error.lock().unwrap() = Some(err.into());
                                 return;
                             }
                         }
@@ -402,8 +406,8 @@ fn run_emulator(
                             let is_none = input.is_none();
 
                             log::debug!("Sending collect input result {input:?}");
-                            input_sender.send(input).unwrap();
-                            ctx.request_repaint();
+                            ctx.input_sender.send(input).unwrap();
+                            ctx.egui_ctx.request_repaint();
 
                             if is_none {
                                 // Window was closed
@@ -418,7 +422,7 @@ fn run_emulator(
                         EmuThreadCommand::SegaCdRemoveDisc => emulator.remove_disc(),
                         EmuThreadCommand::SegaCdChangeDisc(path) => {
                             if let Err(err) = emulator.change_disc(path) {
-                                *emulator_error.lock().unwrap() = Some(err.into());
+                                *ctx.emulator_error.lock().unwrap() = Some(err.into());
                                 return;
                             }
                         }
@@ -426,12 +430,16 @@ fn run_emulator(
                     }
                 }
             }
-            Ok(NativeTickEffect::Exit) => {
+            Ok(Some(NativeTickEffect::PowerOff)) => {
+                return;
+            }
+            Ok(Some(NativeTickEffect::Exit)) => {
+                ctx.exit_signal.store(true, Ordering::Relaxed);
                 return;
             }
             Err(err) => {
                 log::error!("Emulator terminated with an error: {err}");
-                *emulator_error.lock().unwrap() = Some(err.into());
+                *ctx.emulator_error.lock().unwrap() = Some(err.into());
                 return;
             }
         }

@@ -185,7 +185,7 @@ impl<Emulator: PartialClone> HotkeyState<Emulator> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeTickEffect {
-    None,
+    PowerOff,
     Exit,
 }
 
@@ -264,9 +264,9 @@ impl<Inputs, Button, Config, Emulator: EmulatorTrait>
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum HotkeyResult {
-    None,
-    Quit,
+enum HotkeyEffect {
+    PowerOff,
+    Exit,
 }
 
 fn open_debugger_window<Emulator>(
@@ -469,7 +469,7 @@ where
     ///
     /// This method will propagate any errors encountered when rendering frames, pushing audio
     /// samples, or writing save files.
-    pub fn render_frame(&mut self) -> NativeEmulatorResult<NativeTickEffect> {
+    pub fn render_frame(&mut self) -> NativeEmulatorResult<Option<NativeTickEffect>> {
         let rewinding = self.hotkey_state.rewinder.is_rewinding();
         let should_run_emulator =
             !rewinding && (!self.hotkey_state.paused || self.hotkey_state.should_step_frame);
@@ -521,12 +521,12 @@ where
 
             match event {
                 Event::Quit { .. } => {
-                    return Ok(NativeTickEffect::Exit);
+                    return Ok(Some(NativeTickEffect::PowerOff));
                 }
                 Event::Window { win_event, window_id, .. } => {
                     if win_event == WindowEvent::Close {
                         if window_id == self.renderer.window_id() {
-                            return Ok(NativeTickEffect::Exit);
+                            return Ok(Some(NativeTickEffect::PowerOff));
                         }
 
                         if self
@@ -551,8 +551,10 @@ where
         {
             let mut hotkey_events = hotkey_events.borrow_mut();
             for &hotkey_event in &*hotkey_events {
-                if self.handle_hotkey_event(hotkey_event)? == HotkeyResult::Quit {
-                    return Ok(NativeTickEffect::Exit);
+                match self.handle_hotkey_event(hotkey_event)? {
+                    Some(HotkeyEffect::PowerOff) => return Ok(Some(NativeTickEffect::PowerOff)),
+                    Some(HotkeyEffect::Exit) => return Ok(Some(NativeTickEffect::Exit)),
+                    None => {}
                 }
             }
             hotkey_events.clear();
@@ -571,7 +573,7 @@ where
             jgenesis_common::sleep(Duration::from_millis(1));
         }
 
-        Ok(NativeTickEffect::None)
+        Ok(None)
     }
 
     pub fn soft_reset(&mut self) {
@@ -659,11 +661,14 @@ where
         &self.hotkey_state.save_state_metadata
     }
 
-    fn handle_hotkey_event(&mut self, event: HotkeyEvent) -> NativeEmulatorResult<HotkeyResult> {
+    fn handle_hotkey_event(
+        &mut self,
+        event: HotkeyEvent,
+    ) -> NativeEmulatorResult<Option<HotkeyEffect>> {
         match event {
             HotkeyEvent::Pressed(hotkey) => {
-                if self.handle_hotkey_pressed(hotkey)? == HotkeyResult::Quit {
-                    return Ok(HotkeyResult::Quit);
+                if let Some(effect) = self.handle_hotkey_pressed(hotkey)? {
+                    return Ok(Some(effect));
                 }
             }
             HotkeyEvent::Released(hotkey) => match hotkey {
@@ -678,13 +683,17 @@ where
             },
         }
 
-        Ok(HotkeyResult::None)
+        Ok(None)
     }
 
-    fn handle_hotkey_pressed(&mut self, hotkey: Hotkey) -> NativeEmulatorResult<HotkeyResult> {
+    fn handle_hotkey_pressed(
+        &mut self,
+        hotkey: Hotkey,
+    ) -> NativeEmulatorResult<Option<HotkeyEffect>> {
         let hotkey = hotkey.to_compact();
         match hotkey {
-            CompactHotkey::Quit => return Ok(HotkeyResult::Quit),
+            CompactHotkey::PowerOff => return Ok(Some(HotkeyEffect::PowerOff)),
+            CompactHotkey::Exit => return Ok(Some(HotkeyEffect::Exit)),
             CompactHotkey::ToggleFullscreen => {
                 self.renderer
                     .toggle_fullscreen(self.hotkey_state.fullscreen_mode)
@@ -785,7 +794,7 @@ where
             }
         }
 
-        Ok(HotkeyResult::None)
+        Ok(None)
     }
 }
 
