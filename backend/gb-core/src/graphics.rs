@@ -34,10 +34,13 @@ impl RgbaFrameBuffer {
         ppu_frame_buffer: &PpuFrameBuffer,
         hardware_mode: HardwareMode,
         gb_palette: GbPalette,
+        gb_custom_palette: [(u8, u8, u8); 4],
         gbc_color_correction: GbcColorCorrection,
     ) {
         match hardware_mode {
-            HardwareMode::Dmg => self.copy_from_dmg(ppu_frame_buffer, gb_palette),
+            HardwareMode::Dmg => {
+                self.copy_from_dmg(ppu_frame_buffer, gb_palette, gb_custom_palette);
+            }
             HardwareMode::Cgb => match gbc_color_correction {
                 GbcColorCorrection::None => self.copy_from_cgb(ppu_frame_buffer),
                 GbcColorCorrection::GbcLcd => self.copy_gbc_correction(ppu_frame_buffer),
@@ -46,11 +49,17 @@ impl RgbaFrameBuffer {
         }
     }
 
-    fn copy_from_dmg(&mut self, ppu_frame_buffer: &PpuFrameBuffer, gb_palette: GbPalette) {
+    fn copy_from_dmg(
+        &mut self,
+        ppu_frame_buffer: &PpuFrameBuffer,
+        gb_palette: GbPalette,
+        custom_palette: [(u8, u8, u8); 4],
+    ) {
         let color_mapping = match gb_palette {
             GbPalette::BlackAndWhite => GB_COLOR_TO_RGB_BW,
             GbPalette::GreenTint => GB_COLOR_TO_RGB_GREEN_TINT,
             GbPalette::LimeGreen => GB_COLOR_TO_RGB_LIME_GREEN,
+            GbPalette::Custom => custom_palette.map(|(r, g, b)| [r, g, b]),
         };
 
         for (ppu_color, rgba_color) in ppu_frame_buffer.iter().zip(self.iter_mut()) {

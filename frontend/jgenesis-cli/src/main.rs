@@ -319,7 +319,7 @@ struct Args {
     #[arg(long, help_heading = GB_OPTIONS_HEADING)]
     gb_aspect_ratio: Option<GbAspectRatio>,
 
-    /// Game Boy palette (BlackAndWhite / GreenTint / LimeGreen)
+    /// Game Boy palette (BlackAndWhite / GreenTint / LimeGreen / Custom)
     #[arg(long, help_heading = GB_OPTIONS_HEADING)]
     gb_palette: Option<GbPalette>,
 

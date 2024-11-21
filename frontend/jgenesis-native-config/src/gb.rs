@@ -13,10 +13,18 @@ pub struct GameBoyAppConfig {
     pub aspect_ratio: GbAspectRatio,
     #[serde(default)]
     pub gb_palette: GbPalette,
+    #[serde(default = "default_gb_custom_palette")]
+    pub gb_custom_palette: [(u8, u8, u8); 4],
     #[serde(default)]
     pub gbc_color_correction: GbcColorCorrection,
     #[serde(default)]
     pub audio_60hz_hack: bool,
+}
+
+#[must_use]
+pub const fn default_gb_custom_palette() -> [(u8, u8, u8); 4] {
+    // Default to black and white
+    [(0xFF, 0xFF, 0xFF), (0xAA, 0xAA, 0xAA), (0x55, 0x55, 0x55), (0x00, 0x00, 0x00)]
 }
 
 impl Default for GameBoyAppConfig {
@@ -35,6 +43,7 @@ impl AppConfig {
             pretend_to_be_gba: self.game_boy.pretend_to_be_gba,
             aspect_ratio: self.game_boy.aspect_ratio,
             gb_palette: self.game_boy.gb_palette,
+            gb_custom_palette: self.game_boy.gb_custom_palette,
             gbc_color_correction: self.game_boy.gbc_color_correction,
             audio_60hz_hack: self.game_boy.audio_60hz_hack,
         })

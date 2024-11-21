@@ -65,6 +65,7 @@ pub enum GbPalette {
     #[default]
     GreenTint,
     LimeGreen,
+    Custom,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
@@ -82,6 +83,7 @@ pub struct GameBoyEmulatorConfig {
     pub pretend_to_be_gba: bool,
     pub aspect_ratio: GbAspectRatio,
     pub gb_palette: GbPalette,
+    pub gb_custom_palette: [(u8, u8, u8); 4],
     pub gbc_color_correction: GbcColorCorrection,
     pub audio_60hz_hack: bool,
 }
@@ -229,6 +231,7 @@ impl EmulatorTrait for GameBoyEmulator {
                 self.ppu.frame_buffer(),
                 self.hardware_mode,
                 self.config.gb_palette,
+                self.config.gb_custom_palette,
                 self.config.gbc_color_correction,
             );
             renderer
@@ -267,6 +270,7 @@ impl EmulatorTrait for GameBoyEmulator {
             self.ppu.frame_buffer(),
             self.hardware_mode,
             self.config.gb_palette,
+            self.config.gb_custom_palette,
             self.config.gbc_color_correction,
         );
         renderer.render_frame(

@@ -2,7 +2,7 @@ mod helptext;
 
 use crate::app::{App, OpenWindow};
 use crate::emuthread::EmuThreadStatus;
-use egui::{Context, Window};
+use egui::{Context, Ui, Window};
 use gb_core::api::{GbAspectRatio, GbPalette, GbcColorCorrection};
 
 impl App {
@@ -104,6 +104,19 @@ impl App {
                             GbPalette::LimeGreen,
                             "Lime green",
                         );
+                        ui.radio_value(
+                            &mut self.config.game_boy.gb_palette,
+                            GbPalette::Custom,
+                            "Custom",
+                        );
+                    });
+
+                    ui.add_enabled_ui(self.config.game_boy.gb_palette == GbPalette::Custom, |ui| {
+                        ui.label("Custom palette:");
+                        render_custom_palette_widget(
+                            &mut self.config.game_boy.gb_custom_palette,
+                            ui,
+                        );
                     });
                 })
                 .response
@@ -145,5 +158,26 @@ impl App {
         if !open {
             self.state.open_windows.remove(&WINDOW);
         }
+    }
+}
+
+fn render_custom_palette_widget(custom_palette: &mut [(u8, u8, u8); 4], ui: &mut Ui) {
+    ui.horizontal(|ui| {
+        ui.add_space(30.0);
+        ui.label("Light");
+
+        for (r, g, b) in custom_palette.iter_mut() {
+            let mut rgb = [*r, *g, *b];
+            ui.color_edit_button_srgb(&mut rgb);
+            [*r, *g, *b] = rgb;
+        }
+
+        ui.label("Dark");
+    });
+
+    ui.add_space(5.0);
+
+    if ui.button("Default custom palette").clicked() {
+        *custom_palette = jgenesis_native_config::gb::default_gb_custom_palette();
     }
 }
