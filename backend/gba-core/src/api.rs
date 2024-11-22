@@ -71,6 +71,8 @@ impl GameBoyAdvanceEmulator {
                 sp_usr: 0x03007F00,
                 sp_svc: 0x03007FE0,
                 sp_irq: 0x03007FA0,
+                // TODO what should this actually be?
+                sp_fiq: 0x03007E00,
                 mode: CpuMode::System,
             },
             &mut Bus {

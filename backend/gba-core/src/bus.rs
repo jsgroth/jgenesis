@@ -215,6 +215,11 @@ impl BusInterface for Bus<'_> {
             MMIO_START..=MMIO_END => self.read_io_register_u32(address),
             VRAM_START..=VRAM_END => self.ppu.read_vram_word(address),
             BIOS_START..=BIOS_END => self.memory.read_bios_word(address),
+            0x10000000..=0xFFFFFFFF => {
+                log::error!("Read word invalid address {address:08X}");
+                // TODO should be open bus?
+                !0
+            }
             _ => todo!("read word {address:08X}"),
         }
     }
