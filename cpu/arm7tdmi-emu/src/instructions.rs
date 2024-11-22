@@ -221,6 +221,7 @@ const ARM_DECODE_TABLE: &[ArmDecodeEntry] = &[
     ArmDecodeEntry::new(0b1111_1001_0000, 0b1001_1001_0000, arm_ldm_stm::<true, true, false>),
     ArmDecodeEntry::new(0b1111_0000_0000, 0b1010_0000_0000, arm_branch::<false>),
     ArmDecodeEntry::new(0b1111_0000_0000, 0b1011_0000_0000, arm_branch::<true>),
+    ArmDecodeEntry::new(0b1111_0000_0000, 0b1111_0000_0000, arm_swi),
 ];
 
 type ThumbFn = fn(&mut Arm7Tdmi, u16, &mut dyn BusInterface) -> u32;
@@ -593,7 +594,7 @@ fn alu_register_shift<const OPCODE_LEN: u32>(
         value = value.wrapping_add(OPCODE_LEN);
     }
 
-    let shift = cpu.registers.r[rs as usize];
+    let shift = cpu.registers.r[rs as usize] & 0xFF;
 
     let (operand2, shifter_out) = if shift == 0 {
         (value, cpu.registers.cpsr.carry)
@@ -684,6 +685,17 @@ fn alu(
         ),
     };
 
+    if set_condition_codes {
+        if rd == 15 {
+            cpu.spsr_to_cpsr();
+        } else {
+            cpu.registers.cpsr.sign = codes.sign;
+            cpu.registers.cpsr.zero = codes.zero;
+            cpu.registers.cpsr.carry = codes.carry;
+            cpu.registers.cpsr.overflow = codes.overflow;
+        }
+    }
+
     // 1S always
     let mut cycles = 1;
 
@@ -691,11 +703,6 @@ fn alu(
         cpu.registers.r[rd as usize] = result;
 
         if rd == 15 {
-            if set_condition_codes {
-                // TODO should this also run for test opcodes?
-                cpu.spsr_to_cpsr();
-            }
-
             cpu.align_pc();
             cpu.fetch_opcode(bus);
 
@@ -705,13 +712,6 @@ fn alu(
     }
 
     cpu.fetch_opcode(bus);
-
-    if set_condition_codes && rd != 15 {
-        cpu.registers.cpsr.sign = codes.sign;
-        cpu.registers.cpsr.zero = codes.zero;
-        cpu.registers.cpsr.carry = codes.carry;
-        cpu.registers.cpsr.overflow = codes.overflow;
-    }
 
     cycles
 }
@@ -1067,9 +1067,19 @@ fn load_halfword<const LOAD: bool>(
 
     if LOAD {
         let value = match load_type {
-            HalfwordLoadType::UnsignedHalfword => u32::from(bus.read_halfword(address)),
+            HalfwordLoadType::UnsignedHalfword => {
+                let halfword: u32 = bus.read_halfword(address).into();
+                halfword.rotate_right(8 * (address & 1))
+            }
             HalfwordLoadType::SignedByte => bus.read_byte(address) as i8 as u32,
-            HalfwordLoadType::SignedHalfword => bus.read_halfword(address) as i16 as u32,
+            HalfwordLoadType::SignedHalfword => {
+                if !address.bit(0) {
+                    bus.read_halfword(address) as i16 as u32
+                } else {
+                    // Unaligned LDRSH seems to behave the same as LDRSB
+                    bus.read_byte(address) as i8 as u32
+                }
+            }
         };
         cpu.registers.r[rd as usize] = value;
 
@@ -1124,19 +1134,22 @@ fn load_multiple<const LOAD: bool, const INCREMENT: bool, const AFTER: bool>(
     s_bit: bool,
     bus: &mut dyn BusInterface,
 ) -> u32 {
+    let mut empty_list = false;
     if register_bits == 0 {
-        // Hardware quirk: empty list loads/stores only R15
+        // Hardware quirk: empty list loads/stores only R15, and Rb is adjusted by 4 * 16
         register_bits = 1 << 15;
+        empty_list = true;
     }
 
     let count = register_bits.count_ones();
     let r15_loaded = register_bits.bit(15);
 
     let base_addr = cpu.registers.r[rn as usize];
+    let count_for_final_addr = if empty_list { 16 } else { count };
     let final_addr = if INCREMENT {
-        base_addr.wrapping_add(4 * count)
+        base_addr.wrapping_add(4 * count_for_final_addr)
     } else {
-        base_addr.wrapping_sub(4 * count)
+        base_addr.wrapping_sub(4 * count_for_final_addr)
     };
 
     let mut address = if INCREMENT { base_addr } else { final_addr };
@@ -1238,7 +1251,7 @@ fn swap(
 
     match size {
         LoadSize::Word => {
-            let value = bus.read_word(address);
+            let value = bus.read_word(address).rotate_right(8 * (address & 3));
             bus.write_word(address, cpu.registers.r[rm as usize]);
             cpu.registers.r[rd as usize] = value;
         }
@@ -1253,6 +1266,10 @@ fn swap(
 
     // 1S + 2N + 1I
     4
+}
+
+fn arm_swi(cpu: &mut Arm7Tdmi, _opcode: u32, bus: &mut dyn BusInterface) -> u32 {
+    cpu.handle_exception(Exception::SoftwareInterrupt, bus)
 }
 
 // Format 1: Move shifted register
