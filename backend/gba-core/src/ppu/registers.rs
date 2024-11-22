@@ -51,6 +51,10 @@ impl BgMode {
         }
     }
 
+    pub fn is_bitmap(self) -> bool {
+        matches!(self, Self::Three | Self::Four | Self::Five)
+    }
+
     pub fn is_15bpp_bitmap(self) -> bool {
         matches!(self, Self::Three | Self::Five)
     }
@@ -90,7 +94,7 @@ pub enum ColorDepthBits {
 }
 
 impl ColorDepthBits {
-    fn from_bit(bit: bool) -> Self {
+    pub fn from_bit(bit: bool) -> Self {
         if bit { Self::Eight } else { Self::Four }
     }
 
