@@ -187,6 +187,7 @@ pub struct Arm7TdmiResetArgs {
     pub sp_usr: u32,
     pub sp_svc: u32,
     pub sp_irq: u32,
+    pub sp_fiq: u32,
     pub mode: CpuMode,
 }
 
@@ -206,6 +207,7 @@ impl Arm7Tdmi {
         self.registers.r[13] = args.sp_usr;
         self.registers.r13_svc = args.sp_svc;
         self.registers.r13_irq = args.sp_irq;
+        self.registers.r13_fiq = args.sp_fiq;
         self.registers.cpsr.mode = args.mode;
         self.registers.spsr_svc = 0_u32.into();
         self.registers.spsr_irq = 0_u32.into();
@@ -305,7 +307,10 @@ impl Arm7Tdmi {
     fn spsr_to_cpsr(&mut self) {
         let spsr = match self.registers.cpsr.mode.spsr(&mut self.registers) {
             Some(spsr) => *spsr,
-            None => panic!("Attmpted to read SPSR in mode {:?}", self.registers.cpsr.mode),
+            None => {
+                log::error!("Attempted to read SPSR in mode {:?}", self.registers.cpsr.mode);
+                return;
+            }
         };
 
         self.change_mode(spsr.mode);
