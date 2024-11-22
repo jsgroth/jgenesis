@@ -1,7 +1,7 @@
 mod registers;
 
 use crate::control::{ControlRegisters, InterruptType};
-use crate::ppu::registers::{BgMode, BgScreenSize, ColorDepthBits, Registers};
+use crate::ppu::registers::{BgMode, BgScreenSize, ColorDepthBits, ObjTileLayout, Registers};
 use bincode::{Decode, Encode};
 use jgenesis_common::boxedarray::{BoxedByteArray, BoxedWordArray};
 use jgenesis_common::frontend::{Color, FrameSize};
@@ -16,13 +16,14 @@ const FRAME_BUFFER_LEN: usize = (SCREEN_WIDTH * SCREEN_HEIGHT) as usize;
 const MODE_5_BITMAP_WIDTH: u32 = 160;
 const MODE_5_BITMAP_HEIGHT: u32 = 128;
 
-const LINES_PER_FRAME: u32 = 228;
-const DOTS_PER_LINE: u32 = 308;
+pub const LINES_PER_FRAME: u32 = 228;
+pub const DOTS_PER_LINE: u32 = 308;
 
 pub const FRAME_SIZE: FrameSize = FrameSize { width: SCREEN_WIDTH, height: SCREEN_HEIGHT };
 
 const VRAM_LEN: usize = 96 * 1024;
 const OAM_LEN: usize = 1024;
+const OAM_LEN_WORDS: usize = OAM_LEN / 2;
 const PALETTE_RAM_LEN: usize = 1024;
 const PALETTE_RAM_LEN_WORDS: usize = PALETTE_RAM_LEN / 2;
 
@@ -79,6 +80,15 @@ impl Window {
             registers.window_out_bg_enabled[bg],
         ]
     }
+
+    fn obj_enabled_array(registers: &Registers) -> [bool; 4] {
+        [
+            registers.window_in_obj_enabled[0],
+            registers.window_in_obj_enabled[1],
+            registers.obj_window_obj_enabled,
+            registers.window_out_obj_enabled,
+        ]
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
@@ -92,6 +102,132 @@ enum Layer {
     Backdrop,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpriteMode {
+    Normal = 0,
+    SemiTransparent = 1,
+    ObjWindow = 2,
+    Prohibited = 3,
+}
+
+impl SpriteMode {
+    fn from_bits(bits: u16) -> Self {
+        match bits & 3 {
+            0 => Self::Normal,
+            1 => Self::SemiTransparent,
+            2 => Self::ObjWindow,
+            3 => Self::Prohibited,
+            _ => unreachable!("value & 3 is always <= 3"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpriteShape {
+    Square = 0,
+    HorizontalRect = 1,
+    VerticalRect = 2,
+    Prohibited = 3,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpriteSize {
+    // 8x8 / 16x8 / 8x16
+    Smallest = 0,
+    // 16x16 / 32x8 / 8x32
+    Small = 1,
+    // 32x32 / 32x16 / 16x32
+    Large = 2,
+    // 64x64 / 64x32 / 32x64
+    Largest = 3,
+}
+
+impl SpriteSize {
+    fn from_bits(bits: u16) -> Self {
+        match bits & 3 {
+            0 => Self::Smallest,
+            1 => Self::Small,
+            2 => Self::Large,
+            3 => Self::Largest,
+            _ => unreachable!("value & 3 is always <= 3"),
+        }
+    }
+}
+
+impl SpriteShape {
+    fn from_bits(bits: u16) -> Self {
+        match bits & 3 {
+            0 => Self::Square,
+            1 => Self::HorizontalRect,
+            2 => Self::VerticalRect,
+            3 => Self::Prohibited,
+            _ => unreachable!("value & 3 is always <= 3"),
+        }
+    }
+
+    fn width_and_height(self, size: SpriteSize) -> (u32, u32) {
+        match (self, size) {
+            (Self::Prohibited, _) => panic!("Prohibited sprite shape used"),
+            (Self::Square, SpriteSize::Smallest) => (8, 8),
+            (Self::HorizontalRect, SpriteSize::Smallest) => (16, 8),
+            (Self::VerticalRect, SpriteSize::Smallest) => (8, 16),
+            (Self::Square, SpriteSize::Small) => (16, 16),
+            (Self::HorizontalRect, SpriteSize::Small) => (32, 8),
+            (Self::VerticalRect, SpriteSize::Small) => (8, 32),
+            (Self::Square, SpriteSize::Large) => (32, 32),
+            (Self::HorizontalRect, SpriteSize::Large) => (32, 16),
+            (Self::VerticalRect, SpriteSize::Large) => (16, 32),
+            (Self::Square, SpriteSize::Largest) => (64, 64),
+            (Self::HorizontalRect, SpriteSize::Largest) => (64, 32),
+            (Self::VerticalRect, SpriteSize::Largest) => (32, 64),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct OamEntry {
+    // Attribute 0 (bytes 0-1)
+    y: u32,
+    affine: bool,
+    affine_double_size: bool,
+    mode: SpriteMode,
+    mosaic: bool,
+    color_depth: ColorDepthBits,
+    shape: SpriteShape,
+    // Attribute 1 (bytes 2-3)
+    x: u32,
+    affine_parameter_group: u16,
+    h_flip: bool,
+    v_flip: bool,
+    size: SpriteSize,
+    // Attribute 2 (bytes 4-5)
+    tile_number: u32,
+    priority: u8,
+    palette: u16,
+}
+
+impl OamEntry {
+    fn parse(attributes: &[u16]) -> Self {
+        Self {
+            y: (attributes[0] & 0xFF).into(),
+            affine: attributes[0].bit(8),
+            affine_double_size: attributes[0].bit(9),
+            mode: SpriteMode::from_bits(attributes[0] >> 10),
+            mosaic: attributes[0].bit(12),
+            color_depth: ColorDepthBits::from_bit(attributes[0].bit(13)),
+            shape: SpriteShape::from_bits(attributes[0] >> 14),
+            x: (attributes[1] & 0x1FF).into(),
+            affine_parameter_group: (attributes[1] >> 9) & 0x1F,
+            h_flip: attributes[1].bit(12),
+            v_flip: attributes[1].bit(13),
+            size: SpriteSize::from_bits(attributes[1] >> 14),
+            tile_number: (attributes[2] & 0x3FF).into(),
+            priority: ((attributes[2] >> 10) & 3) as u8,
+            palette: attributes[2] >> 12,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 struct RenderBuffers {
     windows: [Window; SCREEN_WIDTH as usize],
@@ -99,6 +235,8 @@ struct RenderBuffers {
     // Color (0-255) for 8bpp
     // BGR555 color for bitmap
     bg_colors: [[u16; SCREEN_WIDTH as usize]; 4],
+    obj_colors: [u16; SCREEN_WIDTH as usize],
+    obj_priority: [u8; SCREEN_WIDTH as usize],
     resolved_colors: [u16; SCREEN_WIDTH as usize],
     resolved_priority: [u8; SCREEN_WIDTH as usize],
     resolved_layers: [Layer; SCREEN_WIDTH as usize],
@@ -109,6 +247,8 @@ impl RenderBuffers {
         Self {
             windows: array::from_fn(|_| Window::default()),
             bg_colors: array::from_fn(|_| array::from_fn(|_| 0)),
+            obj_colors: array::from_fn(|_| 0),
+            obj_priority: array::from_fn(|_| 0),
             resolved_colors: array::from_fn(|_| 0),
             resolved_priority: array::from_fn(|_| 0),
             resolved_layers: array::from_fn(|_| Layer::default()),
@@ -125,7 +265,7 @@ pub enum PpuTickEffect {
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Ppu {
     vram: BoxedByteArray<VRAM_LEN>,
-    oam: BoxedByteArray<OAM_LEN>,
+    oam: BoxedWordArray<OAM_LEN_WORDS>,
     palette_ram: BoxedWordArray<PALETTE_RAM_LEN_WORDS>,
     frame_buffer: FrameBuffer,
     registers: Registers,
@@ -137,7 +277,7 @@ impl Ppu {
     pub fn new() -> Self {
         Self {
             vram: BoxedByteArray::new(),
-            oam: BoxedByteArray::new(),
+            oam: BoxedWordArray::new(),
             palette_ram: BoxedWordArray::new(),
             frame_buffer: FrameBuffer::default(),
             registers: Registers::new(),
@@ -177,9 +317,10 @@ impl Ppu {
     }
 
     fn render_current_line(&mut self) {
-        // TODO OBJs to buffer first
+        // TODO OBJ window
 
         self.render_windows_to_buffer();
+        self.render_sprites_to_buffer();
         self.render_bgs_to_buffer();
         self.merge_layers();
 
@@ -230,6 +371,113 @@ impl Ppu {
         self.registers.window_enabled[0]
             || self.registers.window_enabled[1]
             || self.registers.obj_window_enabled
+    }
+
+    fn render_sprites_to_buffer(&mut self) {
+        if !self.registers.obj_enabled {
+            return;
+        }
+
+        self.buffers.obj_colors.fill(0);
+
+        let is_bitmap_mode = self.registers.bg_mode.is_bitmap();
+        let window_enabled = if self.any_window_enabled() {
+            Window::obj_enabled_array(&self.registers)
+        } else {
+            [true; 4]
+        };
+
+        // TODO sprite limits
+        // TODO sprite mosaic
+        // TODO affine sprites
+        let scanline = self.state.scanline;
+        for oam_idx in 0..128 {
+            let mut oam_entry = OamEntry::parse(&self.oam[4 * oam_idx..4 * oam_idx + 3]);
+
+            let y = oam_entry.y;
+            let (width, height) = oam_entry.shape.width_and_height(oam_entry.size);
+
+            let sprite_bottom = (y + height) & 0xFF;
+            if (sprite_bottom < y && scanline >= sprite_bottom)
+                || (sprite_bottom >= y && !(y..sprite_bottom).contains(&scanline))
+            {
+                // Sprite is not on this line
+                continue;
+            }
+
+            let is_8bpp = oam_entry.color_depth == ColorDepthBits::Eight;
+            if is_8bpp {
+                oam_entry.palette = 0;
+                // TODO should this actually be masked out?
+                oam_entry.tile_number &= !1;
+            }
+
+            if is_bitmap_mode && oam_entry.tile_number < 512 {
+                // Sprite tiles 0-511 do not render in bitmap modes
+                continue;
+            }
+
+            let mut sprite_row = scanline.wrapping_sub(y) & 0xFF;
+            if oam_entry.v_flip {
+                sprite_row = height - 1 - sprite_row;
+            }
+
+            let tile_y_offset = sprite_row / 8;
+            let tile_row = sprite_row % 8;
+
+            for dx in 0..width {
+                let col = (oam_entry.x + dx) & 0x1FF;
+                if !(0..SCREEN_WIDTH).contains(&col) {
+                    continue;
+                }
+
+                let window = self.buffers.windows[col as usize];
+                if !window_enabled[window as usize] {
+                    // TODO check window while merging layers, not here
+                    continue;
+                }
+
+                if self.buffers.obj_colors[col as usize] != 0 {
+                    // Already a non-transparent sprite pixel from a sprite with a lower OAM index
+                    continue;
+                }
+
+                let sprite_col = if oam_entry.h_flip { width - 1 - dx } else { dx };
+
+                let tile_x_offset = sprite_col / 8;
+                let tile_col = sprite_col % 8;
+
+                // TODO handle 8bpp sprites correctly
+                let adjusted_tile_number = match self.registers.obj_tile_layout {
+                    ObjTileLayout::TwoD => {
+                        let x = (oam_entry.tile_number + tile_x_offset) & 0x1F;
+                        let y = (oam_entry.tile_number + (tile_y_offset << 5)) & (0x1F << 5);
+                        y | x
+                    }
+                    ObjTileLayout::OneD => {
+                        let offset = tile_y_offset * width / 8 + tile_x_offset;
+                        (oam_entry.tile_number + offset) & 0x3FF
+                    }
+                };
+
+                let tile_data_addr =
+                    (0x10000 | (32 * adjusted_tile_number)) + tile_row * 4 + tile_col / 2;
+                let color = match oam_entry.color_depth {
+                    ColorDepthBits::Four => {
+                        (self.vram[tile_data_addr as usize] >> (4 * (tile_col & 1))) & 0xF
+                    }
+                    ColorDepthBits::Eight => self.vram[tile_data_addr as usize],
+                };
+                if color == 0 {
+                    // Pixel is transparent
+                    continue;
+                }
+
+                self.buffers.obj_colors[col as usize] =
+                    0x100 | (oam_entry.palette << 4) | u16::from(color);
+                self.buffers.obj_priority[col as usize] = oam_entry.priority;
+            }
+        }
     }
 
     fn render_bgs_to_buffer(&mut self) {
@@ -466,7 +714,23 @@ impl Ppu {
             }
         }
 
-        // TODO OBJ
+        if self.registers.obj_enabled {
+            for col in 0..SCREEN_WIDTH {
+                let obj_priority = self.buffers.obj_priority[col as usize];
+                if obj_priority > self.buffers.resolved_priority[col as usize] {
+                    continue;
+                }
+
+                let color = self.buffers.obj_colors[col as usize];
+                if color == 0 {
+                    continue;
+                }
+
+                self.buffers.resolved_colors[col as usize] = color;
+                self.buffers.resolved_layers[col as usize] = Layer::Obj;
+                self.buffers.resolved_priority[col as usize] = obj_priority;
+            }
+        }
     }
 
     pub fn read_vram_halfword(&self, address: u32) -> u16 {
@@ -490,8 +754,9 @@ impl Ppu {
     }
 
     pub fn write_oam_word(&mut self, address: u32, value: u32) {
-        let oam_addr = (address as usize) & (OAM_LEN - 1) & !3;
-        self.oam[oam_addr..oam_addr + 4].copy_from_slice(&value.to_le_bytes());
+        let oam_addr = ((address as usize) & (OAM_LEN - 1) & !3) >> 1;
+        self.oam[oam_addr] = value as u16;
+        self.oam[oam_addr + 1] = (value >> 16) as u16;
     }
 
     pub fn write_palette_halfword(&mut self, address: u32, value: u16) {

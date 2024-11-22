@@ -162,8 +162,11 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
     }
 
     fn target_fps(&self) -> f64 {
-        // TODO figure out actual refresh rate
-        60.0
+        // ~59.73 Hz, same as GB/GBC
+        (1 << 24) as f64
+            / f64::from(PPU_DIVIDER)
+            / f64::from(ppu::LINES_PER_FRAME)
+            / f64::from(ppu::DOTS_PER_LINE)
     }
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {
