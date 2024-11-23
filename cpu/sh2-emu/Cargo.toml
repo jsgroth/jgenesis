@@ -9,7 +9,7 @@ jgenesis-common = { path = "../../common/jgenesis-common" }
 bincode = { workspace = true, features = ["derive"] }
 log = { workspace = true }
 
-#[dev-dependencies]
+[dev-dependencies]
 rand = { workspace = true }
 
 [lints]

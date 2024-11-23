@@ -35,7 +35,6 @@ rfd = { workspace = true }
 sdl2 = { workspace = true }
 time = { workspace = true, features = ["formatting", "local-offset"] }
 toml = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
 wgpu = { workspace = true }
 
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]

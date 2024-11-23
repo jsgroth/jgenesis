@@ -1795,7 +1795,6 @@ version = "0.7.1"
 dependencies = [
  "bincode",
  "crc",
- "env_logger",
  "jgenesis-common",
  "jgenesis-proc-macros",
  "log",
@@ -2357,7 +2356,6 @@ dependencies = [
  "s32x-core",
  "sdl2",
  "segacd-core",
- "serde",
  "smsgg-core",
  "snes-core",
  "time",
@@ -4074,12 +4072,10 @@ name = "snes-core"
 version = "0.7.1"
 dependencies = [
  "bincode",
- "bytemuck",
  "crc",
  "jgenesis-common",
  "jgenesis-proc-macros",
  "log",
- "rand",
  "serde",
  "snes-coprocessors",
  "spc700-emu",
