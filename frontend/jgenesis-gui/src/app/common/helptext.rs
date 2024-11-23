@@ -7,7 +7,9 @@ pub const FULLSCREEN: HelpText = HelpText {
 
 pub const FULLSCREEN_MODE: HelpText = HelpText {
     heading: "Fullscreen Mode",
-    text: &["Choose whether fullscreen is borderless or exclusive."],
+    text: &[
+        "Choose whether fullscreen is borderless or exclusive. Exclusive fullscreen may not work correctly on some platforms.",
+    ],
 };
 
 pub const WGPU_BACKEND: HelpText = HelpText {

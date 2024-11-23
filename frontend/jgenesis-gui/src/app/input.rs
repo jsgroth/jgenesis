@@ -206,7 +206,7 @@ fn hotkey_label(hotkey: Hotkey) -> &'static str {
     use Hotkey::*;
 
     match hotkey {
-        PowerOff => "Power off system:",
+        PowerOff => "Power off emulated system:",
         Exit => "Exit application:",
         ToggleFullscreen => "Toggle fullscreen:",
         SaveState => "Save state to current slot:",
