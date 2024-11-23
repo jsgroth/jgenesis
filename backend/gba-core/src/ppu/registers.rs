@@ -179,6 +179,27 @@ pub struct BgControl {
     pub screen_size: BgScreenSize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+pub enum BlendMode {
+    #[default]
+    None = 0,
+    AlphaBlending = 1,
+    IncreaseBrightness = 2,
+    DecreaseBrightness = 3,
+}
+
+impl BlendMode {
+    fn from_bits(bits: u16) -> Self {
+        match bits & 3 {
+            0 => Self::None,
+            1 => Self::AlphaBlending,
+            2 => Self::IncreaseBrightness,
+            3 => Self::DecreaseBrightness,
+            _ => unreachable!("value & 3 is always <= 3"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Encode, Decode)]
 pub struct Registers {
     // DISPCNT: Display control
@@ -219,11 +240,24 @@ pub struct Registers {
     pub obj_window_bg_enabled: [bool; 4],
     pub obj_window_obj_enabled: bool,
     pub obj_window_color_enabled: bool,
+    // BLDCNT: Blend control
+    pub bg_1st_target: [bool; 4],
+    pub obj_1st_target: bool,
+    pub backdrop_1st_target: bool,
+    pub bg_2nd_target: [bool; 4],
+    pub obj_2nd_target: bool,
+    pub backdrop_2nd_target: bool,
+    pub blend_mode: BlendMode,
+    // BLDALPHA: Alpha blending coefficients
+    pub alpha_1st: u16,
+    pub alpha_2nd: u16,
+    // BLDY: Brightness coefficient
+    pub brightness: u16,
 }
 
 impl Registers {
     pub fn new() -> Self {
-        Self::default()
+        Self { forced_blanking: true, ..Self::default() }
     }
 
     // $04000000: DISPCNT (Display control)
@@ -296,6 +330,22 @@ impl Registers {
         log::trace!("  HBlank IRQ enabled: {}", self.hblank_irq_enabled);
         log::trace!("  V counter match IRQ enabled: {}", self.v_counter_irq_enabled);
         log::trace!("  V counter match value: {}", self.v_counter_target);
+    }
+
+    // $04000008: BG0CNT (BG0 control)
+    // $0400000A: BG1CNT (BG1 control)
+    // $0400000C: BG2CNT (BG2 control)
+    // $0400000E: BG3CNT (BG3 control)
+    pub fn read_bgcnt(&self, bg: usize) -> u16 {
+        let bg_control = &self.bg_control[bg];
+
+        u16::from(bg_control.priority)
+            | (((bg_control.tile_data_base_addr >> 14) << 2) as u16)
+            | (u16::from(bg_control.mosaic) << 6)
+            | ((bg_control.color_depth as u16) << 7)
+            | (((bg_control.tile_map_base_addr >> 11) << 8) as u16)
+            | ((bg_control.affine_overflow as u16) << 13)
+            | ((bg_control.screen_size as u16) << 14)
     }
 
     // $04000008: BG0CNT (BG0 control)
@@ -388,6 +438,21 @@ impl Registers {
     }
 
     // $04000048: WININ (Window inside control)
+    pub fn read_winin(&self) -> u16 {
+        let mut bg_bits = 0;
+        for bg in 0..4 {
+            bg_bits |= u16::from(self.window_in_bg_enabled[0][bg]) << bg;
+            bg_bits |= u16::from(self.window_in_bg_enabled[1][bg]) << (8 + bg);
+        }
+
+        bg_bits
+            | (u16::from(self.window_in_obj_enabled[0]) << 4)
+            | (u16::from(self.window_in_color_enabled[0]) << 5)
+            | (u16::from(self.window_in_obj_enabled[1]) << 12)
+            | (u16::from(self.window_in_color_enabled[1]) << 13)
+    }
+
+    // $04000048: WININ (Window inside control)
     pub fn write_winin(&mut self, value: u16) {
         self.window_in_bg_enabled =
             array::from_fn(|window| array::from_fn(|bg| value.bit((8 * window + bg) as u8)));
@@ -401,6 +466,21 @@ impl Registers {
         log::trace!("  Window 1 inside BG enabled: {:?}", self.window_in_bg_enabled[1]);
         log::trace!("  Window 1 inside OBJ enabled: {}", self.window_in_obj_enabled[1]);
         log::trace!("  Window 1 inside color effects enabled: {}", self.window_in_color_enabled[1]);
+    }
+
+    // $0400004A: WINOUT (Window outside control and OBJ window inside control)
+    pub fn read_winout(&self) -> u16 {
+        let mut bg_bits = 0;
+        for bg in 0..4 {
+            bg_bits |= u16::from(self.window_out_bg_enabled[bg]) << bg;
+            bg_bits |= u16::from(self.obj_window_bg_enabled[bg]) << (8 + bg);
+        }
+
+        bg_bits
+            | (u16::from(self.window_out_obj_enabled) << 4)
+            | (u16::from(self.window_out_color_enabled) << 5)
+            | (u16::from(self.obj_window_obj_enabled) << 12)
+            | (u16::from(self.obj_window_color_enabled) << 13)
     }
 
     // $0400004A: WINOUT (Window outside control and OBJ window inside control)
@@ -419,5 +499,42 @@ impl Registers {
         log::trace!("  OBJ window inside BG enabled: {:?}", self.obj_window_bg_enabled);
         log::trace!("  OBJ window inside OBJ enabled: {}", self.obj_window_obj_enabled);
         log::trace!("  OBJ window inside color effects enabled: {}", self.obj_window_color_enabled);
+    }
+
+    // $04000050: BLDCNT (Blend control)
+    pub fn write_bldcnt(&mut self, value: u16) {
+        self.bg_1st_target = array::from_fn(|i| value.bit(i as u8));
+        self.obj_1st_target = value.bit(4);
+        self.backdrop_1st_target = value.bit(5);
+        self.blend_mode = BlendMode::from_bits(value >> 6);
+        self.bg_2nd_target = array::from_fn(|i| value.bit((8 + i) as u8));
+        self.obj_2nd_target = value.bit(12);
+        self.backdrop_2nd_target = value.bit(13);
+
+        log::trace!("BLDCNT write: {value:04X}");
+        log::trace!("  Blend mode: {:?}", self.blend_mode);
+        log::trace!("  BG 1st target enabled: {:?}", self.bg_1st_target);
+        log::trace!("  OBJ 1st target enabled: {}", self.obj_1st_target);
+        log::trace!("  Backdrop 1st target enabled: {}", self.backdrop_1st_target);
+        log::trace!("  BG 2nd target enabled: {:?}", self.bg_2nd_target);
+        log::trace!("  OBJ 2nd target enabled: {}", self.obj_2nd_target);
+        log::trace!("  Backdrop 2nd target enabled: {}", self.backdrop_2nd_target);
+    }
+
+    // $04000052: BLDALPHA (Alpha blending coefficients)
+    pub fn write_bldalpha(&mut self, value: u16) {
+        self.alpha_1st = value & 0x1F;
+        self.alpha_2nd = (value >> 8) & 0x1F;
+
+        log::trace!("BLDALPHA write: {value:04X}");
+        log::trace!("  1st target coefficient: {}/16", self.alpha_1st);
+        log::trace!("  2nd target coefficient: {}/16", self.alpha_2nd);
+    }
+
+    // $04000054: BLDY (Brightness coefficient)
+    pub fn write_bldy(&mut self, value: u16) {
+        self.brightness = value & 0x1F;
+        log::trace!("BLDY write: {value:04X}");
+        log::trace!("  Brightness coefficient: {}/16", self.brightness);
     }
 }

@@ -7,7 +7,7 @@ use jgenesis_common::num::{GetBit, U16Ext};
 
 // $00000000-$00003FFF: BIOS ROM (16KB)
 pub const BIOS_START: u32 = 0x00000000;
-pub const BIOS_END: u32 = 0x00003FFF;
+pub const BIOS_END: u32 = 0x00FFFFFF;
 
 // $02000000-$0203FFFF: External working RAM (256KB)
 pub const EWRAM_START: u32 = 0x02000000;
@@ -19,19 +19,19 @@ pub const IWRAM_END: u32 = 0x03FFFFFF;
 
 // $04000000-$040003FF: Memory-mapped I/O registers
 pub const MMIO_START: u32 = 0x04000000;
-pub const MMIO_END: u32 = 0x040003FF;
+pub const MMIO_END: u32 = 0x04FFFFFF;
 
 // $05000000-$050003FF: Palette RAM (1KB)
 pub const PALETTES_START: u32 = 0x05000000;
-pub const PALETTES_END: u32 = 0x050003FF;
+pub const PALETTES_END: u32 = 0x05FFFFFF;
 
 // $06000000-$06017FFF: VRAM (96KB)
 pub const VRAM_START: u32 = 0x06000000;
-pub const VRAM_END: u32 = 0x06017FFF;
+pub const VRAM_END: u32 = 0x06FFFFFF;
 
 // $07000000-$070003FF: OAM (1KB)
 pub const OAM_START: u32 = 0x07000000;
-pub const OAM_END: u32 = 0x070003FF;
+pub const OAM_END: u32 = 0x07FFFFFF;
 
 // $08000000-$09FFFFFF: Cartridge ROM (up to 32MB), waitstate config 0
 pub const CARTRIDGE_ROM_0_START: u32 = 0x08000000;
@@ -68,15 +68,12 @@ impl Bus<'_> {
                 log::error!("APU register read: {address:08X}");
                 0
             }
-            0x040000B0..=0x040000DF => {
-                log::error!("DMA register read: {address:08X}");
-                0
-            }
+            0x040000B0..=0x040000DF => self.control.read_dma_register(address),
             0x04000100..=0x0400010F => {
                 log::error!("Timer register read: {address:08X}");
                 0
             }
-            0x04000128 => {
+            0x04000120..=0x0400012F => {
                 log::error!("Serial register read: {address:08X}");
                 0
             }
@@ -85,6 +82,11 @@ impl Bus<'_> {
             0x04000202 => self.control.read_if(),
             0x04000204 => self.control.read_waitcnt(),
             0x04000208 => self.control.read_ime(),
+            0x04000300 => self.control.postflg,
+            0x04000410 => {
+                log::warn!("Invalid address read {address:08X}");
+                !0
+            }
             _ => todo!("I/O register read {address:08X}"),
         }
     }
@@ -126,12 +128,12 @@ impl Bus<'_> {
             0x04000060..=0x040000AF => {
                 log::error!("APU register write: {address:08X} {value:04X}");
             }
-            0x040000B0..=0x040000DF => {
-                log::error!("DMA register write: {address:08X} {value:04X}");
-            }
+            0x040000B0..=0x040000DF => self.control.write_dma_register(address, value),
+            0x040000E0..=0x040000FF => {}
             0x04000100..=0x0400010F => {
                 log::error!("Timer register write: {address:08X} {value:04X}");
             }
+            0x04000110..=0x0400011F => {}
             0x04000120..=0x0400012F | 0x04000134..=0x0400015F => {
                 log::error!("Serial register write: {address:08X} {value:04X}");
             }
@@ -143,9 +145,14 @@ impl Bus<'_> {
             0x04000200 => self.control.write_ie(value),
             0x04000202 => self.control.write_if(value),
             0x04000204 => self.control.write_waitcnt(value),
+            // Unused
+            0x04000206 => {}
             0x04000208 => self.control.write_ime(value),
             // Unused
-            0x0400020A => {}
+            0x0400020A..=0x040002FF => {}
+            0x04000300 => self.control.write_postflg(value),
+            // Unused/unknown
+            0x04000410 => {}
             _ => todo!("I/O register write {address:08X} {value:04X}"),
         }
     }
@@ -184,6 +191,7 @@ impl BusInterface for Bus<'_> {
             CARTRIDGE_RAM_START..=CARTRIDGE_RAM_END => {
                 self.memory.cartridge.read_sram_byte(address)
             }
+            PALETTES_START..=PALETTES_END => self.ppu.read_palette_byte(address),
             BIOS_START..=BIOS_END => self.memory.read_bios_byte(address),
             _ => todo!("read byte {address:08X}"),
         }
@@ -199,6 +207,7 @@ impl BusInterface for Bus<'_> {
             EWRAM_START..=EWRAM_END => self.memory.read_ewram_halfword(address),
             MMIO_START..=MMIO_END => self.read_io_register(address),
             VRAM_START..=VRAM_END => self.ppu.read_vram_halfword(address),
+            PALETTES_START..=PALETTES_END => self.ppu.read_palette_halfword(address),
             BIOS_START..=BIOS_END => self.memory.read_bios_halfword(address),
             _ => todo!("read halfword {address:08X}"),
         }
@@ -214,6 +223,7 @@ impl BusInterface for Bus<'_> {
             EWRAM_START..=EWRAM_END => self.memory.read_ewram_word(address),
             MMIO_START..=MMIO_END => self.read_io_register_u32(address),
             VRAM_START..=VRAM_END => self.ppu.read_vram_word(address),
+            PALETTES_START..=PALETTES_END => self.ppu.read_palette_word(address),
             BIOS_START..=BIOS_END => self.memory.read_bios_word(address),
             0x10000000..=0xFFFFFFFF => {
                 log::error!("Read word invalid address {address:08X}");
@@ -233,6 +243,9 @@ impl BusInterface for Bus<'_> {
             CARTRIDGE_RAM_START..=CARTRIDGE_RAM_END => {
                 self.memory.cartridge.write_sram_byte(address, value);
             }
+            BIOS_START..=BIOS_END => {
+                log::warn!("BIOS ROM write {address:08X} {value:02X}");
+            }
             _ => todo!("write byte {address:08X} {value:02X}"),
         }
     }
@@ -245,6 +258,9 @@ impl BusInterface for Bus<'_> {
             MMIO_START..=MMIO_END => self.write_io_register(address, value),
             VRAM_START..=VRAM_END => self.ppu.write_vram_halfword(address, value),
             PALETTES_START..=PALETTES_END => self.ppu.write_palette_halfword(address, value),
+            BIOS_START..=BIOS_END => {
+                log::warn!("BIOS ROM write {address:08X} {value:04X}");
+            }
             _ => todo!("write halfword {address:08X} {value:04X}"),
         }
     }
@@ -260,6 +276,9 @@ impl BusInterface for Bus<'_> {
             PALETTES_START..=PALETTES_END => self.ppu.write_palette_word(address, value),
             CARTRIDGE_ROM_0_START..=CARTRIDGE_ROM_0_END => {
                 log::warn!("Cartridge ROM write {address:08X} {value:08X}");
+            }
+            BIOS_START..=BIOS_END => {
+                log::warn!("BIOS ROM write {address:08X} {value:08X}");
             }
             _ => todo!("write word {address:08X} {value:08X}"),
         }

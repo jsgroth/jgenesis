@@ -1,13 +1,15 @@
 mod registers;
 
 use crate::control::{ControlRegisters, InterruptType};
-use crate::ppu::registers::{BgMode, BgScreenSize, ColorDepthBits, ObjTileLayout, Registers};
+use crate::ppu::registers::{
+    BgMode, BgScreenSize, BlendMode, ColorDepthBits, ObjTileLayout, Registers,
+};
 use bincode::{Decode, Encode};
 use jgenesis_common::boxedarray::{BoxedByteArray, BoxedWordArray};
 use jgenesis_common::frontend::{Color, FrameSize};
 use jgenesis_common::num::GetBit;
 use jgenesis_proc_macros::{FakeDecode, FakeEncode};
-use std::array;
+use std::{array, cmp};
 
 const SCREEN_WIDTH: u32 = 240;
 const SCREEN_HEIGHT: u32 = 160;
@@ -40,7 +42,12 @@ struct FrameBuffer(Box<[Color; FRAME_BUFFER_LEN]>);
 
 impl Default for FrameBuffer {
     fn default() -> Self {
-        Self(vec![Color::default(); FRAME_BUFFER_LEN].into_boxed_slice().try_into().unwrap())
+        Self(
+            vec![Color::rgb(255, 255, 255); FRAME_BUFFER_LEN]
+                .into_boxed_slice()
+                .try_into()
+                .unwrap(),
+        )
     }
 }
 
@@ -89,6 +96,15 @@ impl Window {
             registers.window_out_obj_enabled,
         ]
     }
+
+    fn blend_enabled_array(registers: &Registers) -> [bool; 4] {
+        [
+            registers.window_in_color_enabled[0],
+            registers.window_in_color_enabled[1],
+            registers.obj_window_color_enabled,
+            registers.window_out_color_enabled,
+        ]
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
@@ -99,7 +115,33 @@ enum Layer {
     Bg2,
     Bg3,
     Obj,
+    ObjSemiTransparent,
     Backdrop,
+}
+
+impl Layer {
+    fn first_target_enabled(self, registers: &Registers) -> bool {
+        match self {
+            Self::Bg0 => registers.bg_1st_target[0],
+            Self::Bg1 => registers.bg_1st_target[1],
+            Self::Bg2 => registers.bg_1st_target[2],
+            Self::Bg3 => registers.bg_1st_target[3],
+            Self::Obj => registers.obj_1st_target,
+            Self::ObjSemiTransparent => true,
+            Self::Backdrop => registers.backdrop_1st_target,
+        }
+    }
+
+    fn second_target_enabled(self, registers: &Registers) -> bool {
+        match self {
+            Self::Bg0 => registers.bg_2nd_target[0],
+            Self::Bg1 => registers.bg_2nd_target[1],
+            Self::Bg2 => registers.bg_2nd_target[2],
+            Self::Bg3 => registers.bg_2nd_target[3],
+            Self::Obj | Self::ObjSemiTransparent => registers.obj_2nd_target,
+            Self::Backdrop => registers.backdrop_2nd_target,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -237,9 +279,15 @@ struct RenderBuffers {
     bg_colors: [[u16; SCREEN_WIDTH as usize]; 4],
     obj_colors: [u16; SCREEN_WIDTH as usize],
     obj_priority: [u8; SCREEN_WIDTH as usize],
+    obj_semi_transparent: [bool; SCREEN_WIDTH as usize],
     resolved_colors: [u16; SCREEN_WIDTH as usize],
     resolved_priority: [u8; SCREEN_WIDTH as usize],
     resolved_layers: [Layer; SCREEN_WIDTH as usize],
+    second_resolved_colors: [u16; SCREEN_WIDTH as usize],
+    second_resolved_priority: [u8; SCREEN_WIDTH as usize],
+    second_resolved_layers: [Layer; SCREEN_WIDTH as usize],
+    final_colors: [u16; SCREEN_WIDTH as usize],
+    final_layers: [Layer; SCREEN_WIDTH as usize],
 }
 
 impl RenderBuffers {
@@ -249,9 +297,33 @@ impl RenderBuffers {
             bg_colors: array::from_fn(|_| array::from_fn(|_| 0)),
             obj_colors: array::from_fn(|_| 0),
             obj_priority: array::from_fn(|_| 0),
+            obj_semi_transparent: array::from_fn(|_| false),
             resolved_colors: array::from_fn(|_| 0),
             resolved_priority: array::from_fn(|_| 0),
             resolved_layers: array::from_fn(|_| Layer::default()),
+            second_resolved_colors: array::from_fn(|_| 0),
+            second_resolved_priority: array::from_fn(|_| 0),
+            second_resolved_layers: array::from_fn(|_| Layer::default()),
+            final_colors: array::from_fn(|_| 0),
+            final_layers: array::from_fn(|_| Layer::default()),
+        }
+    }
+
+    fn push_pixel(&mut self, col: usize, color: u16, priority: u8, layer: Layer) {
+        if priority <= self.resolved_priority[col] {
+            if self.resolved_priority[col] <= self.second_resolved_priority[col] {
+                self.second_resolved_colors[col] = self.resolved_colors[col];
+                self.second_resolved_priority[col] = self.resolved_priority[col];
+                self.second_resolved_layers[col] = self.resolved_layers[col];
+            }
+
+            self.resolved_colors[col] = color;
+            self.resolved_priority[col] = priority;
+            self.resolved_layers[col] = layer;
+        } else if priority <= self.second_resolved_priority[col] {
+            self.second_resolved_colors[col] = color;
+            self.second_resolved_priority[col] = priority;
+            self.second_resolved_layers[col] = layer;
         }
     }
 }
@@ -287,21 +359,35 @@ impl Ppu {
     }
 
     pub fn tick(&mut self, ppu_cycles: u32, control: &mut ControlRegisters) -> PpuTickEffect {
+        let prev_dot = self.state.dot;
         self.state.dot += ppu_cycles;
+
+        if self.state.scanline < SCREEN_HEIGHT
+            && prev_dot < SCREEN_WIDTH
+            && self.state.dot >= SCREEN_WIDTH
+        {
+            // HBlank
+            // TODO should the PPU generate an HBlank interrupt before line 0?
+            self.render_current_line();
+            if self.registers.hblank_irq_enabled {
+                control.notify_hblank();
+            }
+        }
+
         if self.state.dot >= DOTS_PER_LINE {
             self.state.dot -= DOTS_PER_LINE;
-
-            // TODO render at end of HBlank instead?
-            if self.state.scanline < SCREEN_HEIGHT {
-                self.render_current_line();
-            }
-
             self.state.scanline += 1;
+
+            if self.registers.v_counter_irq_enabled
+                && self.state.scanline == self.registers.v_counter_target
+            {
+                control.set_interrupt_flag(InterruptType::VCounterMatch);
+            }
 
             match self.state.scanline {
                 SCREEN_HEIGHT => {
                     if self.registers.vblank_irq_enabled {
-                        control.set_interrupt_flag(InterruptType::VBlank);
+                        control.notify_vblank();
                     }
 
                     return PpuTickEffect::FrameComplete;
@@ -317,23 +403,24 @@ impl Ppu {
     }
 
     fn render_current_line(&mut self) {
+        if self.registers.forced_blanking {
+            self.frame_buffer.0[(self.state.scanline * SCREEN_WIDTH) as usize
+                ..((self.state.scanline + 1) * SCREEN_WIDTH) as usize]
+                .fill(Color::rgb(255, 255, 255));
+            return;
+        }
+
         // TODO OBJ window
 
         self.render_windows_to_buffer();
         self.render_sprites_to_buffer();
         self.render_bgs_to_buffer();
         self.merge_layers();
+        self.blend_layers();
 
-        let is_15bpp_bitmap = self.registers.bg_mode.is_15bpp_bitmap();
         for col in 0..SCREEN_WIDTH {
-            let color = self.buffers.resolved_colors[col as usize];
-            let pixel =
-                if is_15bpp_bitmap && self.buffers.resolved_layers[col as usize] == Layer::Bg2 {
-                    color
-                } else {
-                    self.palette_ram[color as usize]
-                };
-            self.frame_buffer.set(self.state.scanline, col, gba_color_to_rgb888(pixel));
+            let color = self.buffers.final_colors[col as usize];
+            self.frame_buffer.set(self.state.scanline, col, gba_color_to_rgb888(color));
         }
     }
 
@@ -393,6 +480,11 @@ impl Ppu {
         let scanline = self.state.scanline;
         for oam_idx in 0..128 {
             let mut oam_entry = OamEntry::parse(&self.oam[4 * oam_idx..4 * oam_idx + 3]);
+
+            if !oam_entry.affine && oam_entry.affine_double_size {
+                // Double size flag means "do not display" for non-affine sprites
+                continue;
+            }
 
             let y = oam_entry.y;
             let (width, height) = oam_entry.shape.width_and_height(oam_entry.size);
@@ -476,6 +568,8 @@ impl Ppu {
                 self.buffers.obj_colors[col as usize] =
                     0x100 | (oam_entry.palette << 4) | u16::from(color);
                 self.buffers.obj_priority[col as usize] = oam_entry.priority;
+                self.buffers.obj_semi_transparent[col as usize] =
+                    oam_entry.mode == SpriteMode::SemiTransparent;
             }
         }
     }
@@ -516,7 +610,6 @@ impl Ppu {
         let bg_width_tiles = bg_width_pixels / 8;
         let bg_height_pixels = bg_control.screen_size.tile_map_height_pixels();
         let bg_height_tiles = bg_height_pixels / 8;
-        let total_tiles = bg_width_tiles * bg_height_tiles;
 
         let tile_size_bytes = bg_control.color_depth.tile_size_bytes();
         let tile_row_size_bytes = tile_size_bytes / 8;
@@ -540,8 +633,8 @@ impl Ppu {
         };
 
         let tile_map_row_start = bg_control.tile_map_base_addr
-            + (screen_y << screen_y_shift) * total_tiles
-            + 2 * tile_map_y * 32;
+            + (screen_y << screen_y_shift) * 2 * 32 * 32
+            + tile_map_y * 2 * 32;
 
         let mut bg_x = self.registers.bg_h_scroll[bg] & (bg_width_pixels - 1);
 
@@ -554,7 +647,7 @@ impl Ppu {
             let screen_x = bg_x / 256;
             let tile_map_x = (bg_x % 256) / 8;
 
-            let tile_map_addr = ((tile_map_row_start + screen_x * total_tiles + 2 * tile_map_x)
+            let tile_map_addr = ((tile_map_row_start + screen_x * 2 * 32 * 32 + 2 * tile_map_x)
                 & BG_TILE_MAP_MASK
                 & !1) as usize;
             let tile_map_entry =
@@ -581,6 +674,8 @@ impl Ppu {
 
                 let window = self.buffers.windows[col as usize];
                 if !bg_window_enabled[window as usize] {
+                    // TODO do window checks while merging layers
+                    bg_buffer[col as usize] = 0;
                     continue;
                 }
 
@@ -686,8 +781,11 @@ impl Ppu {
 
     fn merge_layers(&mut self) {
         self.buffers.resolved_colors.fill(0);
+        self.buffers.second_resolved_colors.fill(0);
         self.buffers.resolved_layers.fill(Layer::Backdrop);
+        self.buffers.second_resolved_layers.fill(Layer::Backdrop);
         self.buffers.resolved_priority.fill(u8::MAX);
+        self.buffers.second_resolved_priority.fill(u8::MAX);
 
         // Process BGs in reverse order because BG0 is highest priority in ties
         for bg in (0..4).rev() {
@@ -699,36 +797,105 @@ impl Ppu {
             let layer = [Layer::Bg0, Layer::Bg1, Layer::Bg2, Layer::Bg3][bg];
 
             for col in 0..SCREEN_WIDTH {
-                if priority > self.buffers.resolved_priority[col as usize] {
-                    continue;
-                }
-
                 let color = self.buffers.bg_colors[bg][col as usize];
                 if color == 0 {
                     continue;
                 }
 
-                self.buffers.resolved_colors[col as usize] = color;
-                self.buffers.resolved_layers[col as usize] = layer;
-                self.buffers.resolved_priority[col as usize] = priority;
+                self.buffers.push_pixel(col as usize, color, priority, layer);
             }
         }
 
         if self.registers.obj_enabled {
             for col in 0..SCREEN_WIDTH {
                 let obj_priority = self.buffers.obj_priority[col as usize];
-                if obj_priority > self.buffers.resolved_priority[col as usize] {
-                    continue;
-                }
-
                 let color = self.buffers.obj_colors[col as usize];
                 if color == 0 {
                     continue;
                 }
 
-                self.buffers.resolved_colors[col as usize] = color;
-                self.buffers.resolved_layers[col as usize] = Layer::Obj;
-                self.buffers.resolved_priority[col as usize] = obj_priority;
+                let layer = if self.buffers.obj_semi_transparent[col as usize] {
+                    Layer::ObjSemiTransparent
+                } else {
+                    Layer::Obj
+                };
+                self.buffers.push_pixel(col as usize, color, obj_priority, layer);
+            }
+        }
+
+        let is_15bpp_bitmap = self.registers.bg_mode.is_15bpp_bitmap();
+        for col in 0..SCREEN_WIDTH as usize {
+            if !(is_15bpp_bitmap && self.buffers.resolved_layers[col] == Layer::Bg2) {
+                let color = self.buffers.resolved_colors[col];
+                self.buffers.resolved_colors[col] = self.palette_ram[color as usize];
+            }
+
+            if !(is_15bpp_bitmap && self.buffers.second_resolved_layers[col] == Layer::Bg2) {
+                let color = self.buffers.second_resolved_colors[col];
+                self.buffers.second_resolved_colors[col] = self.palette_ram[color as usize];
+            }
+        }
+    }
+
+    fn blend_layers(&mut self) {
+        // TODO semi-transparent sprites
+        for col in 0..SCREEN_WIDTH as usize {
+            self.buffers.final_layers[col] = self.buffers.resolved_layers[col];
+
+            // TODO clean up
+            if self.any_window_enabled() {
+                let window = self.buffers.windows[col];
+                if !Window::blend_enabled_array(&self.registers)[window as usize] {
+                    self.buffers.final_colors[col] = self.buffers.resolved_colors[col];
+                    continue;
+                }
+            }
+
+            // TODO clean up
+            if self.buffers.resolved_layers[col] == Layer::ObjSemiTransparent
+                && self.buffers.second_resolved_layers[col].second_target_enabled(&self.registers)
+            {
+                self.buffers.final_colors[col] = alpha_blend(
+                    self.buffers.resolved_colors[col],
+                    self.registers.alpha_1st,
+                    self.buffers.second_resolved_colors[col],
+                    self.registers.alpha_2nd,
+                );
+                continue;
+            }
+
+            match self.registers.blend_mode {
+                BlendMode::AlphaBlending
+                    if self.buffers.resolved_layers[col].first_target_enabled(&self.registers)
+                        && self.buffers.second_resolved_layers[col]
+                            .second_target_enabled(&self.registers) =>
+                {
+                    self.buffers.final_colors[col] = alpha_blend(
+                        self.buffers.resolved_colors[col],
+                        self.registers.alpha_1st,
+                        self.buffers.second_resolved_colors[col],
+                        self.registers.alpha_2nd,
+                    );
+                }
+                BlendMode::IncreaseBrightness
+                    if self.buffers.resolved_layers[col].first_target_enabled(&self.registers) =>
+                {
+                    self.buffers.final_colors[col] = increase_brightness(
+                        self.buffers.resolved_colors[col],
+                        self.registers.brightness,
+                    );
+                }
+                BlendMode::DecreaseBrightness
+                    if self.buffers.resolved_layers[col].first_target_enabled(&self.registers) =>
+                {
+                    self.buffers.final_colors[col] = decrease_brightness(
+                        self.buffers.resolved_colors[col],
+                        self.registers.brightness,
+                    );
+                }
+                _ => {
+                    self.buffers.final_colors[col] = self.buffers.resolved_colors[col];
+                }
             }
         }
     }
@@ -744,11 +911,13 @@ impl Ppu {
     }
 
     pub fn write_vram_halfword(&mut self, address: u32, value: u16) {
+        log::trace!("VRAM write on line {} dot {}", self.state.scanline, self.state.dot);
         let vram_addr = vram_address(address) & !1;
         self.vram[vram_addr..vram_addr + 2].copy_from_slice(&value.to_le_bytes());
     }
 
     pub fn write_vram_word(&mut self, address: u32, value: u32) {
+        log::trace!("VRAM write on line {} dot {}", self.state.scanline, self.state.dot);
         let vram_addr = vram_address(address) & !3;
         self.vram[vram_addr..vram_addr + 4].copy_from_slice(&value.to_le_bytes());
     }
@@ -757,6 +926,24 @@ impl Ppu {
         let oam_addr = ((address as usize) & (OAM_LEN - 1) & !3) >> 1;
         self.oam[oam_addr] = value as u16;
         self.oam[oam_addr + 1] = (value >> 16) as u16;
+    }
+
+    pub fn read_palette_byte(&self, address: u32) -> u8 {
+        let palette_addr = (address as usize) & (PALETTE_RAM_LEN - 1);
+        let halfword = self.palette_ram[palette_addr >> 1];
+        (halfword >> (8 * (palette_addr & 1))) as u8
+    }
+
+    pub fn read_palette_halfword(&self, address: u32) -> u16 {
+        let palette_addr = (address as usize) & (PALETTE_RAM_LEN - 1);
+        self.palette_ram[palette_addr >> 1]
+    }
+
+    pub fn read_palette_word(&self, address: u32) -> u32 {
+        let palette_addr = (address as usize) & (PALETTE_RAM_LEN - 1) & !3;
+        let low: u32 = self.palette_ram[palette_addr >> 1].into();
+        let high: u32 = self.palette_ram[(palette_addr >> 1) + 1].into();
+        low | (high << 16)
     }
 
     pub fn write_palette_halfword(&mut self, address: u32, value: u16) {
@@ -780,6 +967,12 @@ impl Ppu {
             0x00 => self.registers.read_dispcnt(),
             0x04 => self.read_dispstat(),
             0x06 => self.read_vcount(),
+            0x08..=0x0F => {
+                let bg = (address >> 1) & 3;
+                self.registers.read_bgcnt(bg as usize)
+            }
+            0x48 => self.registers.read_winin(),
+            0x4A => self.registers.read_winout(),
             _ => {
                 log::error!("PPU register read {address:08X}");
                 0
@@ -819,6 +1012,9 @@ impl Ppu {
             }
             0x48 => self.registers.write_winin(value),
             0x4A => self.registers.write_winout(value),
+            0x50 => self.registers.write_bldcnt(value),
+            0x52 => self.registers.write_bldalpha(value),
+            0x54 => self.registers.write_bldy(value),
             _ => log::error!("PPU I/O register write {address:08X} {value:04X}"),
         }
     }
@@ -855,4 +1051,47 @@ fn gba_color_to_rgb888(gba_color: u16) -> Color {
     let g = (gba_color >> 5) & 0x1F;
     let b = (gba_color >> 10) & 0x1F;
     Color::rgb(RGB_5_TO_8[r as usize], RGB_5_TO_8[g as usize], RGB_5_TO_8[b as usize])
+}
+
+fn alpha_blend(color1: u16, alpha1: u16, color2: u16, alpha2: u16) -> u16 {
+    let alpha1 = cmp::min(16, alpha1);
+    let alpha2 = cmp::min(16, alpha2);
+
+    let r1 = color1 & 0x1F;
+    let g1 = (color1 >> 5) & 0x1F;
+    let b1 = (color1 >> 10) & 0x1F;
+
+    let r2 = color2 & 0x1F;
+    let g2 = (color2 >> 5) & 0x1F;
+    let b2 = (color2 >> 10) & 0x1F;
+
+    let r = cmp::min(0x1F, (r1 * alpha1 + r2 * alpha2) >> 4);
+    let g = cmp::min(0x1F, (g1 * alpha1 + g2 * alpha2) >> 4);
+    let b = cmp::min(0x1F, (b1 * alpha1 + b2 * alpha2) >> 4);
+
+    r | (g << 5) | (b << 10)
+}
+
+fn increase_brightness(color: u16, brightness: u16) -> u16 {
+    let r = color & 0x1F;
+    let g = (color >> 5) & 0x1F;
+    let b = (color >> 10) & 0x1F;
+
+    let r = cmp::min(0x1F, r + (((31 - r) * brightness) >> 4));
+    let g = cmp::min(0x1F, g + (((31 - g) * brightness) >> 4));
+    let b = cmp::min(0x1F, b + (((31 - b) * brightness) >> 4));
+
+    r | (g << 5) | (b << 10)
+}
+
+fn decrease_brightness(color: u16, brightness: u16) -> u16 {
+    let r = color & 0x1F;
+    let g = (color >> 5) & 0x1F;
+    let b = (color >> 10) & 0x1F;
+
+    let r = r.saturating_sub((r * brightness) >> 4);
+    let g = g.saturating_sub((g * brightness) >> 4);
+    let b = b.saturating_sub((b * brightness) >> 4);
+
+    r | (g << 5) | (b << 10)
 }

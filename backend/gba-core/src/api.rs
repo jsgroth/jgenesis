@@ -119,12 +119,22 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
-        let cpu_cycles = self.cpu.execute_instruction(&mut Bus {
+        let mut bus = Bus {
             ppu: &mut self.ppu,
             memory: &mut self.memory,
             control: &mut self.control,
             inputs: *inputs,
-        });
+        };
+
+        let cpu_cycles = match bus.control.dma_state.active_channels.get(0).copied() {
+            Some(channel_idx) => {
+                let mut channel = bus.control.dma[channel_idx as usize].clone();
+                let cycles = channel.run_dma(&mut bus);
+                bus.control.dma[channel_idx as usize] = channel;
+                cycles
+            }
+            None => self.cpu.execute_instruction(&mut bus),
+        };
 
         self.ppu_mclk_counter += cpu_cycles;
         let ppu_cycles = self.ppu_mclk_counter / PPU_DIVIDER;
