@@ -1,7 +1,10 @@
+use crate::bus::Bus;
+use arm7tdmi_emu::bus::BusInterface;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
+use std::array;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum InterruptType {
     VBlank,
     HBlank,
@@ -40,6 +43,312 @@ impl InterruptType {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+pub enum DmaAddressStep {
+    #[default]
+    Increment = 0,
+    Decrement = 1,
+    Fixed = 2,
+    IncrementReload = 3,
+}
+
+impl DmaAddressStep {
+    fn from_bits(bits: u16) -> Self {
+        match bits & 3 {
+            0 => Self::Increment,
+            1 => Self::Decrement,
+            2 => Self::Fixed,
+            3 => Self::IncrementReload,
+            _ => unreachable!("value & 3 is always <= 3"),
+        }
+    }
+
+    fn apply(self, address: u32, step: u32) -> u32 {
+        match self {
+            Self::Increment | Self::IncrementReload => address.wrapping_add(step),
+            Self::Decrement => address.wrapping_sub(step),
+            Self::Fixed => address,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+pub enum DmaTransferUnit {
+    #[default]
+    Halfword = 0,
+    Word = 1,
+}
+
+impl DmaTransferUnit {
+    fn from_bit(bit: bool) -> Self {
+        if bit { Self::Word } else { Self::Halfword }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
+pub enum DmaStartTrigger {
+    #[default]
+    Immediate = 0,
+    VBlank = 1,
+    HBlank = 2,
+    // Sound FIFO DRQ for DMA1 and DMA2, video capture DRQ for DMA3
+    Special = 3,
+}
+
+impl DmaStartTrigger {
+    fn from_bits(bits: u16) -> Self {
+        match bits & 3 {
+            0 => Self::Immediate,
+            1 => Self::VBlank,
+            2 => Self::HBlank,
+            3 => Self::Special,
+            _ => unreachable!("value & 3 is always <= 3"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct DmaChannel {
+    pub idx: u32,
+    pub irq: InterruptType,
+    // DMAxSAD: DMA source address
+    pub source_address: u32,
+    // DMAxDAD: DMA destination address
+    pub dest_address: u32,
+    // DMAxCNT_L: DMA length
+    pub length: u16,
+    // DMAxCNT_H: DMA control
+    pub dest_address_step: DmaAddressStep,
+    pub source_address_step: DmaAddressStep,
+    pub repeat: bool,
+    pub unit: DmaTransferUnit,
+    pub game_pak_drq: bool,
+    pub start_trigger: DmaStartTrigger,
+    pub irq_enabled: bool,
+    pub enabled: bool,
+    // Internal registers
+    pub internal_source_address: u32,
+    pub internal_dest_address: u32,
+    pub internal_length: u32,
+}
+
+impl DmaChannel {
+    pub fn new(idx: u32) -> Self {
+        let interrupt = match idx {
+            0 => InterruptType::Dma0,
+            1 => InterruptType::Dma1,
+            2 => InterruptType::Dma2,
+            3 => InterruptType::Dma3,
+            _ => panic!("Invalid DMA channel index: {idx}"),
+        };
+
+        Self {
+            idx,
+            irq: interrupt,
+            source_address: 0,
+            dest_address: 0,
+            length: 0x4000,
+            dest_address_step: DmaAddressStep::default(),
+            source_address_step: DmaAddressStep::default(),
+            repeat: false,
+            unit: DmaTransferUnit::default(),
+            game_pak_drq: false,
+            start_trigger: DmaStartTrigger::default(),
+            irq_enabled: false,
+            enabled: false,
+            internal_source_address: 0,
+            internal_dest_address: 0,
+            internal_length: 0x4000,
+        }
+    }
+
+    // $040000B0: DMA0SAD_L (DMA0 source address low)
+    // $040000BC: DMA1SAD_L
+    // $040000C8: DMA2SAD_L
+    // $040000D4: DMA3SAD_L
+    pub fn write_sad_low(&mut self, value: u16) {
+        self.source_address = (self.source_address & 0xFFFF0000) | u32::from(value);
+        log::trace!("DMA{}SAD_L write: {value:04X}", self.idx);
+        log::trace!("  Source address: {:08X}", self.source_address);
+    }
+
+    // $040000B2: DMA0SAD_H (DMA0 source address high)
+    // $040000BE: DMA1SAD_H
+    // $040000CA: DMA2SAD_H
+    // $040000D6: DMA3SAD_H
+    pub fn write_sad_high(&mut self, value: u16) {
+        self.source_address = (self.source_address & 0x0000FFFF) | (u32::from(value) << 16);
+        log::trace!("DMA{}SAD_H write: {value:04X}", self.idx);
+        log::trace!("  Source address: {:08X}", self.source_address);
+    }
+
+    // $040000B4: DMA0DAD_L (DMA0 destination address low)
+    // $040000C0: DMA1DAD_L
+    // $040000CC: DMA2DAD_L
+    // $040000D8: DMA3DAD_L
+    pub fn write_dad_low(&mut self, value: u16) {
+        self.dest_address = (self.dest_address & 0xFFFF0000) | u32::from(value);
+        log::trace!("DMA{}DAD_L write: {value:04X}", self.idx);
+        log::trace!("  Destination address: {:08X}", self.dest_address);
+    }
+
+    // $040000B6: DMA0DAD_H (DMA0 destination address high)
+    // $040000C2: DMA1DAD_H
+    // $040000CE: DMA2DAD_H
+    // $040000DA: DMA3DAD_H
+    pub fn write_dad_high(&mut self, value: u16) {
+        self.dest_address = (self.dest_address & 0x0000FFFF) | (u32::from(value) << 16);
+        log::trace!("DMA{}DAD_H write: {value:04X}", self.idx);
+        log::trace!("  Destination address: {:08X}", self.dest_address);
+    }
+
+    // $040000B8: DMA0CNT_L (DMA0 word count)
+    // $040000C4: DMA1CNT_L
+    // $040000D0: DMA2CNT_L
+    // $040000DC: DMA3CNT_L
+    pub fn write_cnt_low(&mut self, value: u16) {
+        // Value is 14 bits, and 0 is treated as 0x4000
+        self.length = value & 0x3FFF;
+        if self.length == 0 {
+            self.length = 0x4000;
+        }
+        log::trace!("DMA{}CNT_L write: {value:04X}", self.idx);
+        log::trace!("  Word length: {}", self.length);
+    }
+
+    // $040000BA: DMA0CNT_H (DMA0 control)
+    // $040000C6: DMA1CNT_H
+    // $040000D2: DMA2CNT_H
+    // $040000DE: DMA3CNT_H
+    pub fn read_cnt_high(&self) -> u16 {
+        log::trace!("Read DMA{}CNT_H", self.idx);
+
+        ((self.dest_address_step as u16) << 5)
+            | ((self.source_address_step as u16) << 7)
+            | (u16::from(self.repeat) << 9)
+            | (u16::from(self.game_pak_drq) << 11)
+            | ((self.start_trigger as u16) << 12)
+            | (u16::from(self.irq_enabled) << 14)
+            | (u16::from(self.enabled) << 15)
+    }
+
+    // $040000BA: DMA0CNT_H (DMA0 control)
+    // $040000C6: DMA1CNT_H
+    // $040000D2: DMA2CNT_H
+    // $040000DE: DMA3CNT_H
+    pub fn write_cnt_high(&mut self, value: u16, state: &mut DmaState) {
+        self.dest_address_step = DmaAddressStep::from_bits(value >> 5);
+        self.source_address_step = DmaAddressStep::from_bits(value >> 7);
+        self.repeat = value.bit(9);
+        self.unit = DmaTransferUnit::from_bit(value.bit(10));
+        self.game_pak_drq = value.bit(11);
+        self.start_trigger = DmaStartTrigger::from_bits(value >> 12);
+        self.irq_enabled = value.bit(14);
+
+        let enabled = value.bit(15);
+        if !self.enabled && enabled {
+            // Reload internal registers
+            // TODO address validation - only DMA1/DMA2 can write to audio FIFOs, and only DMA3 can access cartridge
+            self.internal_source_address = self.source_address;
+            self.internal_dest_address = self.dest_address;
+            self.internal_length = self.length.into();
+
+            if self.start_trigger == DmaStartTrigger::Immediate {
+                state.add_active_channel(self.idx);
+            }
+        }
+        self.enabled = enabled;
+
+        log::trace!("DMA{}CNT_H write: {value:04X}", self.idx);
+        log::trace!("  Destination address step: {:?}", self.dest_address_step);
+        log::trace!("  Source address step: {:?}", self.source_address_step);
+        log::trace!("  Repeat: {}", self.repeat);
+        log::trace!("  Transfer unit: {:?}", self.unit);
+        log::trace!("  DMA3 Game Pak DRQ: {}", self.game_pak_drq);
+        log::trace!("  Start trigger: {:?}", self.start_trigger);
+        log::trace!("  IRQ enabled: {}", self.irq_enabled);
+        log::trace!("  DMA enabled: {}", self.enabled);
+    }
+
+    pub fn run_dma(&mut self, bus: &mut Bus<'_>) -> u32 {
+        log::debug!("Running DMA on channel {}", self.idx);
+
+        match self.unit {
+            DmaTransferUnit::Halfword => {
+                for _ in 0..self.internal_length {
+                    let halfword = bus.read_halfword(self.internal_source_address);
+                    bus.write_halfword(self.internal_dest_address, halfword);
+
+                    self.internal_source_address =
+                        self.source_address_step.apply(self.internal_source_address, 2);
+                    self.internal_dest_address =
+                        self.dest_address_step.apply(self.internal_dest_address, 2);
+                }
+            }
+            DmaTransferUnit::Word => {
+                for _ in 0..self.internal_length {
+                    let word = bus.read_word(self.internal_source_address);
+                    bus.write_word(self.internal_dest_address, word);
+
+                    self.internal_source_address =
+                        self.source_address_step.apply(self.internal_source_address, 4);
+                    self.internal_dest_address =
+                        self.dest_address_step.apply(self.internal_dest_address, 4);
+                }
+            }
+        }
+
+        // 2N + 2*(n-1)*S + 2I
+        // TODO +2I if source and destination addresses are both in cartridge memory
+        let cycles = 4 + 2 * (self.internal_length - 1);
+
+        self.internal_length = 0;
+        self.enabled = self.repeat;
+        if self.repeat {
+            self.internal_length = self.length.into();
+            if self.dest_address_step == DmaAddressStep::IncrementReload {
+                self.internal_dest_address = self.dest_address;
+            }
+        }
+
+        bus.control.dma_state.remove_active_channel();
+
+        if self.irq_enabled {
+            bus.control.set_interrupt_flag(self.irq);
+        }
+
+        cycles
+    }
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct DmaState {
+    pub active_channels: Vec<u32>,
+}
+
+impl DmaState {
+    fn new() -> Self {
+        Self { active_channels: Vec::with_capacity(4) }
+    }
+
+    fn add_active_channel(&mut self, channel: u32) {
+        if self.active_channels.contains(&channel) {
+            return;
+        }
+
+        let i = self
+            .active_channels
+            .iter()
+            .position(|&other_channel| other_channel > channel)
+            .unwrap_or(self.active_channels.len());
+        self.active_channels.insert(i, channel);
+    }
+
+    fn remove_active_channel(&mut self) {
+        self.active_channels.remove(0);
+    }
+}
+
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct ControlRegisters {
     // IE: Interrupts enabled
@@ -51,11 +360,25 @@ pub struct ControlRegisters {
     pub waitcnt: u16,
     // IME: Interrupt master enable flag
     pub ime: bool,
+    // POSTFLG: Post boot / debug control
+    pub postflg: u16,
+    // DMA channels
+    pub dma: [DmaChannel; 4],
+    pub dma_state: DmaState,
 }
 
 impl ControlRegisters {
     pub fn new() -> Self {
-        Self { interrupts_enabled: 0, interrupt_flags: 0, waitcnt: 0, ime: false }
+        Self {
+            interrupts_enabled: 0,
+            interrupt_flags: 0,
+            waitcnt: 0,
+            ime: false,
+            // TODO default POSTFLG to 0 and let the BIOS initialize?
+            postflg: 1,
+            dma: array::from_fn(|i| DmaChannel::new(i as u32)),
+            dma_state: DmaState::new(),
+        }
     }
 
     // $04000200: IE (Interrupts enabled)
@@ -123,6 +446,55 @@ impl ControlRegisters {
         self.ime = value.bit(0);
 
         log::trace!("IME: {}", self.ime);
+    }
+
+    // $04000300: POSTFLG (Post boot / debug control)
+    pub fn write_postflg(&mut self, value: u16) {
+        self.postflg = value;
+    }
+
+    pub fn read_dma_register(&self, address: u32) -> u16 {
+        let channel = ((address / 12) & 3) as usize;
+        match address % 12 {
+            0xA => self.dma[channel].read_cnt_high(),
+            _ => {
+                log::error!("Read from write-only DMA register: {address:08X}");
+                0
+            }
+        }
+    }
+
+    pub fn write_dma_register(&mut self, address: u32, value: u16) {
+        let channel = ((address / 12) & 3) as usize;
+        match address % 12 {
+            0x0 => self.dma[channel].write_sad_low(value),
+            0x2 => self.dma[channel].write_sad_high(value),
+            0x4 => self.dma[channel].write_dad_low(value),
+            0x6 => self.dma[channel].write_dad_high(value),
+            0x8 => self.dma[channel].write_cnt_low(value),
+            0xA => self.dma[channel].write_cnt_high(value, &mut self.dma_state),
+            _ => panic!("Invalid DMA register address: {address:08X} {value:04X}"),
+        }
+    }
+
+    pub fn notify_vblank(&mut self) {
+        self.set_interrupt_flag(InterruptType::VBlank);
+
+        for (channel_idx, channel) in self.dma.iter().enumerate() {
+            if channel.enabled && channel.start_trigger == DmaStartTrigger::VBlank {
+                self.dma_state.add_active_channel(channel_idx as u32);
+            }
+        }
+    }
+
+    pub fn notify_hblank(&mut self) {
+        self.set_interrupt_flag(InterruptType::HBlank);
+
+        for (channel_idx, channel) in self.dma.iter().enumerate() {
+            if channel.enabled && channel.start_trigger == DmaStartTrigger::HBlank {
+                self.dma_state.add_active_channel(channel_idx as u32);
+            }
+        }
     }
 
     pub fn set_interrupt_flag(&mut self, interrupt: InterruptType) {
