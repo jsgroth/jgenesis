@@ -748,6 +748,9 @@ fn main() -> anyhow::Result<()> {
         log::error!("Unable to deserialize config file at '{}': {err}", config_path.display());
         AppConfig::default()
     });
+    if let Some(migrated_config) = jgenesis_native_config::migrate_config(&config, &config_str) {
+        config = migrated_config;
+    }
 
     args.apply_overrides(&mut config);
 

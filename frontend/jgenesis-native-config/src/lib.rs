@@ -2,9 +2,12 @@ pub mod common;
 pub mod gb;
 pub mod genesis;
 pub mod input;
+mod migration;
 pub mod nes;
 pub mod smsgg;
 pub mod snes;
+
+pub use migration::{current_config_version, migrate_config};
 
 use crate::common::CommonAppConfig;
 use crate::gb::GameBoyAppConfig;
@@ -64,6 +67,8 @@ pub enum EguiTheme {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
+    #[serde(default)]
+    pub config_version: Option<String>,
     #[serde(default)]
     pub common: CommonAppConfig,
     #[serde(default)]

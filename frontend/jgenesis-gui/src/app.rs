@@ -269,10 +269,30 @@ pub struct App {
     load_at_startup: Option<LoadAtStartup>,
 }
 
+fn load_app_config(config_path: &Path) -> AppConfig {
+    let config_str = fs::read_to_string(config_path).unwrap_or_default();
+    let mut config = toml::from_str(&config_str).unwrap_or_else(|err| {
+        log::error!("Error deserializing app config at '{}': {err}", config_path.display());
+        AppConfig::default()
+    });
+
+    if let Some(migrated_config) = jgenesis_native_config::migrate_config(&config, &config_str) {
+        if config != migrated_config {
+            config = migrated_config;
+            if let Err(err) = fs::write(config_path, toml::to_string_pretty(&config).unwrap()) {
+                log::error!("Error serializing app config: {err}");
+            }
+        }
+    }
+
+    config
+}
+
 impl App {
     #[must_use]
     pub fn new(config_path: PathBuf, load_at_startup: Option<LoadAtStartup>, ctx: Context) -> Self {
-        let config = AppConfig::from_file(&config_path);
+        let config = load_app_config(&config_path);
+
         let state = AppState::from_config(&config);
         let emu_thread = emuthread::spawn(ctx);
 

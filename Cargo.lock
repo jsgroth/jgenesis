@@ -2366,7 +2366,7 @@ dependencies = [
 
 [[package]]
 name = "jgenesis-native-config"
-version = "0.1.0"
+version = "0.8.3"
 dependencies = [
  "cfg-if",
  "directories",
