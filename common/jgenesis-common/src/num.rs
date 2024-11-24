@@ -3,52 +3,52 @@ pub trait GetBit: Copy {
 }
 
 macro_rules! impl_get_bit {
-    ($t:ty, $limit:expr) => {
+    ($t:ty) => {
         impl GetBit for $t {
             #[inline]
             fn bit(self, i: u8) -> bool {
-                assert!(i < $limit);
+                debug_assert!(i < (<$t>::BITS as u8));
                 self & (1 << i) != 0
             }
         }
     };
 }
 
-impl_get_bit!(u8, 8);
-impl_get_bit!(u16, 16);
-impl_get_bit!(u32, 32);
-impl_get_bit!(u64, 64);
-impl_get_bit!(usize, usize::BITS as u8);
+impl_get_bit!(u8);
+impl_get_bit!(u16);
+impl_get_bit!(u32);
+impl_get_bit!(u64);
+impl_get_bit!(usize);
 
-impl_get_bit!(i8, 8);
-impl_get_bit!(i16, 16);
-impl_get_bit!(i32, 32);
-impl_get_bit!(i64, 64);
+impl_get_bit!(i8);
+impl_get_bit!(i16);
+impl_get_bit!(i32);
+impl_get_bit!(i64);
 
 pub trait SignBit: Copy {
     fn sign_bit(self) -> bool;
 }
 
 macro_rules! impl_sign_bit {
-    ($t:ty, $bit:expr) => {
+    ($t:ty) => {
         impl SignBit for $t {
             #[inline]
             fn sign_bit(self) -> bool {
-                self.bit($bit)
+                self.bit((<$t>::BITS - 1) as u8)
             }
         }
     };
 }
 
-impl_sign_bit!(u8, 7);
-impl_sign_bit!(u16, 15);
-impl_sign_bit!(u32, 31);
-impl_sign_bit!(u64, 63);
+impl_sign_bit!(u8);
+impl_sign_bit!(u16);
+impl_sign_bit!(u32);
+impl_sign_bit!(u64);
 
-impl_sign_bit!(i8, 7);
-impl_sign_bit!(i16, 15);
-impl_sign_bit!(i32, 31);
-impl_sign_bit!(i64, 63);
+impl_sign_bit!(i8);
+impl_sign_bit!(i16);
+impl_sign_bit!(i32);
+impl_sign_bit!(i64);
 
 pub trait U16Ext {
     fn lsb(self) -> u8;
