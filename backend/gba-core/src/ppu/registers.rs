@@ -1,8 +1,8 @@
 use crate::ppu::{SCREEN_HEIGHT, SCREEN_WIDTH};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
-use std::array;
 use std::fmt::{Display, Formatter};
+use std::{array, cmp};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum BgMode {
@@ -523,8 +523,8 @@ impl Registers {
 
     // $04000052: BLDALPHA (Alpha blending coefficients)
     pub fn write_bldalpha(&mut self, value: u16) {
-        self.alpha_1st = value & 0x1F;
-        self.alpha_2nd = (value >> 8) & 0x1F;
+        self.alpha_1st = cmp::min(16, value & 0x1F);
+        self.alpha_2nd = cmp::min(16, (value >> 8) & 0x1F);
 
         log::trace!("BLDALPHA write: {value:04X}");
         log::trace!("  1st target coefficient: {}/16", self.alpha_1st);
@@ -536,5 +536,9 @@ impl Registers {
         self.brightness = value & 0x1F;
         log::trace!("BLDY write: {value:04X}");
         log::trace!("  Brightness coefficient: {}/16", self.brightness);
+    }
+
+    pub fn any_window_enabled(&self) -> bool {
+        self.window_enabled[0] || self.window_enabled[1] || self.obj_window_enabled
     }
 }
