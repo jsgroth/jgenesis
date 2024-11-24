@@ -80,6 +80,10 @@ enum Window {
 
 impl Window {
     fn bg_enabled_array(bg: usize, registers: &Registers) -> [bool; 4] {
+        if !registers.any_window_enabled() {
+            return [true; 4];
+        }
+
         [
             registers.window_in_bg_enabled[0][bg],
             registers.window_in_bg_enabled[1][bg],
@@ -89,6 +93,10 @@ impl Window {
     }
 
     fn obj_enabled_array(registers: &Registers) -> [bool; 4] {
+        if !registers.any_window_enabled() {
+            return [true; 4];
+        }
+
         [
             registers.window_in_obj_enabled[0],
             registers.window_in_obj_enabled[1],
@@ -98,6 +106,10 @@ impl Window {
     }
 
     fn blend_enabled_array(registers: &Registers) -> [bool; 4] {
+        if !registers.any_window_enabled() {
+            return [true; 4];
+        }
+
         [
             registers.window_in_color_enabled[0],
             registers.window_in_color_enabled[1],
@@ -126,8 +138,7 @@ impl Layer {
             Self::Bg1 => registers.bg_1st_target[1],
             Self::Bg2 => registers.bg_1st_target[2],
             Self::Bg3 => registers.bg_1st_target[3],
-            Self::Obj => registers.obj_1st_target,
-            Self::ObjSemiTransparent => true,
+            Self::Obj | Self::ObjSemiTransparent => registers.obj_1st_target,
             Self::Backdrop => registers.backdrop_1st_target,
         }
     }
@@ -286,8 +297,6 @@ struct RenderBuffers {
     second_resolved_colors: [u16; SCREEN_WIDTH as usize],
     second_resolved_priority: [u8; SCREEN_WIDTH as usize],
     second_resolved_layers: [Layer; SCREEN_WIDTH as usize],
-    final_colors: [u16; SCREEN_WIDTH as usize],
-    final_layers: [Layer; SCREEN_WIDTH as usize],
 }
 
 impl RenderBuffers {
@@ -304,9 +313,22 @@ impl RenderBuffers {
             second_resolved_colors: array::from_fn(|_| 0),
             second_resolved_priority: array::from_fn(|_| 0),
             second_resolved_layers: array::from_fn(|_| Layer::default()),
-            final_colors: array::from_fn(|_| 0),
-            final_layers: array::from_fn(|_| Layer::default()),
         }
+    }
+
+    fn clear(&mut self) {
+        self.windows.fill(Window::Outside);
+        self.obj_colors.fill(0);
+        self.obj_priority.fill(u8::MAX);
+        self.obj_semi_transparent.fill(false);
+        self.resolved_colors.fill(0);
+        self.resolved_priority.fill(u8::MAX);
+        self.resolved_layers.fill(Layer::Backdrop);
+        self.second_resolved_colors.fill(0);
+        self.second_resolved_priority.fill(u8::MAX);
+        self.second_resolved_layers.fill(Layer::Backdrop);
+
+        // Intentionally don't clear bg_colors; will always be completely populated during rendering
     }
 
     fn push_pixel(&mut self, col: usize, color: u16, priority: u8, layer: Layer) {
@@ -410,29 +432,24 @@ impl Ppu {
             return;
         }
 
-        // TODO OBJ window
+        self.buffers.clear();
 
-        self.render_windows_to_buffer();
+        // Render sprites before windows because OBJ window has lower priority than window 0/1
         self.render_sprites_to_buffer();
+        self.render_windows_to_buffer();
+
         self.render_bgs_to_buffer();
+
         self.merge_layers();
         self.blend_layers();
 
         for col in 0..SCREEN_WIDTH {
-            let color = self.buffers.final_colors[col as usize];
+            let color = self.buffers.resolved_colors[col as usize];
             self.frame_buffer.set(self.state.scanline, col, gba_color_to_rgb888(color));
         }
     }
 
     fn render_windows_to_buffer(&mut self) {
-        if !self.any_window_enabled() {
-            return;
-        }
-
-        // TODO OBJ window - populate as part of sprite processing before rendering windows/BGs?
-
-        self.buffers.windows.fill(Window::Outside);
-
         // Process in reverse order so that window 0 "renders" over window 1
         for window in (0..2).rev() {
             if !self.registers.window_enabled[window] {
@@ -454,25 +471,12 @@ impl Ppu {
         }
     }
 
-    fn any_window_enabled(&self) -> bool {
-        self.registers.window_enabled[0]
-            || self.registers.window_enabled[1]
-            || self.registers.obj_window_enabled
-    }
-
     fn render_sprites_to_buffer(&mut self) {
         if !self.registers.obj_enabled {
             return;
         }
 
-        self.buffers.obj_colors.fill(0);
-
         let is_bitmap_mode = self.registers.bg_mode.is_bitmap();
-        let window_enabled = if self.any_window_enabled() {
-            Window::obj_enabled_array(&self.registers)
-        } else {
-            [true; 4]
-        };
 
         // TODO sprite limits
         // TODO sprite mosaic
@@ -523,13 +527,9 @@ impl Ppu {
                     continue;
                 }
 
-                let window = self.buffers.windows[col as usize];
-                if !window_enabled[window as usize] {
-                    // TODO check window while merging layers, not here
-                    continue;
-                }
-
-                if self.buffers.obj_colors[col as usize] != 0 {
+                if oam_entry.mode != SpriteMode::ObjWindow
+                    && self.buffers.obj_colors[col as usize] != 0
+                {
                     // Already a non-transparent sprite pixel from a sprite with a lower OAM index
                     continue;
                 }
@@ -565,11 +565,22 @@ impl Ppu {
                     continue;
                 }
 
-                self.buffers.obj_colors[col as usize] =
-                    0x100 | (oam_entry.palette << 4) | u16::from(color);
-                self.buffers.obj_priority[col as usize] = oam_entry.priority;
-                self.buffers.obj_semi_transparent[col as usize] =
-                    oam_entry.mode == SpriteMode::SemiTransparent;
+                match oam_entry.mode {
+                    SpriteMode::ObjWindow => {
+                        // OBJ window; don't render the sprite pixel, only mark this position as
+                        // being inside the OBJ window
+                        self.buffers.windows[col as usize] = Window::Obj;
+                    }
+                    _ => {
+                        // Actual pixel
+                        // Sprites can only use colors from the second half of palette RAM (256-511)
+                        self.buffers.obj_colors[col as usize] =
+                            0x100 | (oam_entry.palette << 4) | u16::from(color);
+                        self.buffers.obj_priority[col as usize] = oam_entry.priority;
+                        self.buffers.obj_semi_transparent[col as usize] =
+                            oam_entry.mode == SpriteMode::SemiTransparent;
+                    }
+                }
             }
         }
     }
@@ -607,18 +618,10 @@ impl Ppu {
 
         let bg_control = &self.registers.bg_control[bg];
         let bg_width_pixels = bg_control.screen_size.tile_map_width_pixels();
-        let bg_width_tiles = bg_width_pixels / 8;
         let bg_height_pixels = bg_control.screen_size.tile_map_height_pixels();
-        let bg_height_tiles = bg_height_pixels / 8;
 
         let tile_size_bytes = bg_control.color_depth.tile_size_bytes();
         let tile_row_size_bytes = tile_size_bytes / 8;
-
-        let bg_window_enabled = if self.any_window_enabled() {
-            Window::bg_enabled_array(bg, &self.registers)
-        } else {
-            [true; 4]
-        };
 
         // TODO mosaic
 
@@ -669,13 +672,6 @@ impl Ppu {
             for i in 0..8 {
                 let col = tile_start_col + i;
                 if !(0..SCREEN_WIDTH as i32).contains(&col) {
-                    continue;
-                }
-
-                let window = self.buffers.windows[col as usize];
-                if !bg_window_enabled[window as usize] {
-                    // TODO do window checks while merging layers
-                    bg_buffer[col as usize] = 0;
                     continue;
                 }
 
@@ -761,65 +757,61 @@ impl Ppu {
             return;
         }
 
-        let window_enabled = if self.any_window_enabled() {
-            Window::bg_enabled_array(2, &self.registers)
-        } else {
-            [true; 4]
-        };
-
         let row = self.state.scanline;
         for col in 0..SCREEN_WIDTH {
-            let window = self.buffers.windows[col as usize];
-            if !window_enabled[window as usize] {
-                continue;
-            }
-
             let pixel = pixel_fn(self.vram.as_ref(), row, col);
             self.buffers.bg_colors[2][col as usize] = pixel;
         }
     }
 
     fn merge_layers(&mut self) {
-        self.buffers.resolved_colors.fill(0);
-        self.buffers.second_resolved_colors.fill(0);
-        self.buffers.resolved_layers.fill(Layer::Backdrop);
-        self.buffers.second_resolved_layers.fill(Layer::Backdrop);
-        self.buffers.resolved_priority.fill(u8::MAX);
-        self.buffers.second_resolved_priority.fill(u8::MAX);
-
         // Process BGs in reverse order because BG0 is highest priority in ties
         for bg in (0..4).rev() {
             if !self.registers.bg_enabled[bg] || !self.registers.bg_mode.bg_enabled(bg) {
                 continue;
             }
 
+            let window_bg_enabled = Window::bg_enabled_array(bg, &self.registers);
+
             let priority = self.registers.bg_control[bg].priority;
             let layer = [Layer::Bg0, Layer::Bg1, Layer::Bg2, Layer::Bg3][bg];
 
-            for col in 0..SCREEN_WIDTH {
-                let color = self.buffers.bg_colors[bg][col as usize];
+            for col in 0..SCREEN_WIDTH as usize {
+                let color = self.buffers.bg_colors[bg][col];
                 if color == 0 {
                     continue;
                 }
 
-                self.buffers.push_pixel(col as usize, color, priority, layer);
+                let window = self.buffers.windows[col];
+                if !window_bg_enabled[window as usize] {
+                    continue;
+                }
+
+                self.buffers.push_pixel(col, color, priority, layer);
             }
         }
 
         if self.registers.obj_enabled {
-            for col in 0..SCREEN_WIDTH {
-                let obj_priority = self.buffers.obj_priority[col as usize];
-                let color = self.buffers.obj_colors[col as usize];
+            let window_obj_enabled = Window::obj_enabled_array(&self.registers);
+
+            for col in 0..SCREEN_WIDTH as usize {
+                let obj_priority = self.buffers.obj_priority[col];
+                let color = self.buffers.obj_colors[col];
                 if color == 0 {
                     continue;
                 }
 
-                let layer = if self.buffers.obj_semi_transparent[col as usize] {
+                let window = self.buffers.windows[col];
+                if !window_obj_enabled[window as usize] {
+                    continue;
+                }
+
+                let layer = if self.buffers.obj_semi_transparent[col] {
                     Layer::ObjSemiTransparent
                 } else {
                     Layer::Obj
                 };
-                self.buffers.push_pixel(col as usize, color, obj_priority, layer);
+                self.buffers.push_pixel(col, color, obj_priority, layer);
             }
         }
 
@@ -838,24 +830,23 @@ impl Ppu {
     }
 
     fn blend_layers(&mut self) {
-        // TODO semi-transparent sprites
-        for col in 0..SCREEN_WIDTH as usize {
-            self.buffers.final_layers[col] = self.buffers.resolved_layers[col];
+        let window_blend_enabled = Window::blend_enabled_array(&self.registers);
 
-            // TODO clean up
-            if self.any_window_enabled() {
-                let window = self.buffers.windows[col];
-                if !Window::blend_enabled_array(&self.registers)[window as usize] {
-                    self.buffers.final_colors[col] = self.buffers.resolved_colors[col];
-                    continue;
-                }
+        for col in 0..SCREEN_WIDTH as usize {
+            let window = self.buffers.windows[col];
+            if !window_blend_enabled[window as usize] {
+                continue;
             }
 
-            // TODO clean up
-            if self.buffers.resolved_layers[col] == Layer::ObjSemiTransparent
-                && self.buffers.second_resolved_layers[col].second_target_enabled(&self.registers)
+            let top_layer = self.buffers.resolved_layers[col];
+            let second_layer = self.buffers.second_resolved_layers[col];
+
+            if top_layer == Layer::ObjSemiTransparent
+                && second_layer.second_target_enabled(&self.registers)
             {
-                self.buffers.final_colors[col] = alpha_blend(
+                // Semi-transparent sprites always have 1st target enabled, and they force alpha
+                // blending if the 2nd target is valid
+                self.buffers.resolved_colors[col] = alpha_blend(
                     self.buffers.resolved_colors[col],
                     self.registers.alpha_1st,
                     self.buffers.second_resolved_colors[col],
@@ -865,36 +856,37 @@ impl Ppu {
             }
 
             match self.registers.blend_mode {
+                // Alpha blending runs if 1st and 2nd target are both valid
                 BlendMode::AlphaBlending
-                    if self.buffers.resolved_layers[col].first_target_enabled(&self.registers)
-                        && self.buffers.second_resolved_layers[col]
-                            .second_target_enabled(&self.registers) =>
+                    if top_layer.first_target_enabled(&self.registers)
+                        && second_layer.second_target_enabled(&self.registers) =>
                 {
-                    self.buffers.final_colors[col] = alpha_blend(
+                    self.buffers.resolved_colors[col] = alpha_blend(
                         self.buffers.resolved_colors[col],
                         self.registers.alpha_1st,
                         self.buffers.second_resolved_colors[col],
                         self.registers.alpha_2nd,
                     );
                 }
+                // Brightness increase/decrease run if 1st target is valid
                 BlendMode::IncreaseBrightness
-                    if self.buffers.resolved_layers[col].first_target_enabled(&self.registers) =>
+                    if top_layer.first_target_enabled(&self.registers) =>
                 {
-                    self.buffers.final_colors[col] = increase_brightness(
+                    self.buffers.resolved_colors[col] = increase_brightness(
                         self.buffers.resolved_colors[col],
                         self.registers.brightness,
                     );
                 }
                 BlendMode::DecreaseBrightness
-                    if self.buffers.resolved_layers[col].first_target_enabled(&self.registers) =>
+                    if top_layer.first_target_enabled(&self.registers) =>
                 {
-                    self.buffers.final_colors[col] = decrease_brightness(
+                    self.buffers.resolved_colors[col] = decrease_brightness(
                         self.buffers.resolved_colors[col],
                         self.registers.brightness,
                     );
                 }
                 _ => {
-                    self.buffers.final_colors[col] = self.buffers.resolved_colors[col];
+                    // Do not blend
                 }
             }
         }
@@ -1054,9 +1046,6 @@ fn gba_color_to_rgb888(gba_color: u16) -> Color {
 }
 
 fn alpha_blend(color1: u16, alpha1: u16, color2: u16, alpha2: u16) -> u16 {
-    let alpha1 = cmp::min(16, alpha1);
-    let alpha2 = cmp::min(16, alpha2);
-
     let r1 = color1 & 0x1F;
     let g1 = (color1 >> 5) & 0x1F;
     let b1 = (color1 >> 10) & 0x1F;
