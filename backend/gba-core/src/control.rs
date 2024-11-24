@@ -477,9 +477,7 @@ impl ControlRegisters {
         }
     }
 
-    pub fn notify_vblank(&mut self) {
-        self.set_interrupt_flag(InterruptType::VBlank);
-
+    pub fn trigger_vblank_dma(&mut self) {
         for (channel_idx, channel) in self.dma.iter().enumerate() {
             if channel.enabled && channel.start_trigger == DmaStartTrigger::VBlank {
                 self.dma_state.add_active_channel(channel_idx as u32);
@@ -487,9 +485,7 @@ impl ControlRegisters {
         }
     }
 
-    pub fn notify_hblank(&mut self) {
-        self.set_interrupt_flag(InterruptType::HBlank);
-
+    pub fn trigger_hblank_dma(&mut self) {
         for (channel_idx, channel) in self.dma.iter().enumerate() {
             if channel.enabled && channel.start_trigger == DmaStartTrigger::HBlank {
                 self.dma_state.add_active_channel(channel_idx as u32);
