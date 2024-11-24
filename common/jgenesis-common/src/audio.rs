@@ -137,3 +137,61 @@ fn output_sample<const N: usize>(
             .sum::<f64>();
     (sample * (zero_padding + 1) as f64).clamp(-1.0, 1.0)
 }
+
+#[derive(Debug, Clone)]
+pub struct DynamicResamplingRate {
+    base_output_frequency: u32,
+    dynamic_output_frequency: u32,
+    dynamic_update_counter: u32,
+    target_audio_buffer_size: u32,
+}
+
+impl DynamicResamplingRate {
+    #[must_use]
+    pub fn new(base_output_frequency: u32, target_audio_buffer_size: u32) -> Self {
+        Self {
+            base_output_frequency,
+            dynamic_output_frequency: base_output_frequency,
+            dynamic_update_counter: 0,
+            target_audio_buffer_size,
+        }
+    }
+
+    pub fn update_config(&mut self, base_output_frequency: u32, target_audio_buffer_size: u32) {
+        *self = Self::new(base_output_frequency, target_audio_buffer_size);
+    }
+
+    #[must_use]
+    pub fn current_output_frequency(&self) -> u32 {
+        self.dynamic_output_frequency
+    }
+
+    pub fn adjust(&mut self, audio_buffer_len: u32) {
+        // Restrict the adjusted ratio to within 0.5% of the expected ratio
+        const MAX_DELTA: f64 = 0.005;
+
+        // Only update the ratio every 20 frames
+        const UPDATE_PERIOD: u32 = 20;
+
+        self.dynamic_update_counter += 1;
+        if self.dynamic_update_counter != UPDATE_PERIOD {
+            return;
+        }
+        self.dynamic_update_counter = 0;
+
+        let target_len: f64 = self.target_audio_buffer_size.into();
+        let current_len: f64 = audio_buffer_len.into();
+        let difference = ((target_len - current_len) / target_len).clamp(-1.0, 1.0);
+        let adjustment = 1.0 + MAX_DELTA * difference;
+
+        // This should _probably_ adjust the current dynamic frequency rather than the audio output
+        // stream frequency, but adjusting the latter seems to work much better in practice
+        self.dynamic_output_frequency =
+            (adjustment * f64::from(self.base_output_frequency)).round() as u32;
+
+        log::debug!(
+            "Adjusted dynamic frequency to {}; target={target_len}, current={current_len}, adjustment={adjustment}",
+            self.dynamic_output_frequency
+        );
+    }
+}

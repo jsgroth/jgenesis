@@ -4,14 +4,16 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{AudioContext, AudioWorkletNode, AudioWorkletNodeOptions, ChannelCountMode};
 
+pub const SAMPLE_RATE: u32 = 48000;
+
 const HEADER_LEN: u32 = 2;
 const HEADER_LEN_BYTES: u32 = HEADER_LEN * 4;
 const START_INDEX: u32 = 0;
 const END_INDEX: u32 = 1;
 
-const BUFFER_LEN: u32 = 4096;
-const BUFFER_LEN_BYTES: u32 = BUFFER_LEN * 4;
-const BUFFER_INDEX_MASK: u32 = BUFFER_LEN - 1;
+pub const BUFFER_LEN_SAMPLES: u32 = 4096;
+const BUFFER_LEN_BYTES: u32 = BUFFER_LEN_SAMPLES * 4;
+const BUFFER_INDEX_MASK: u32 = BUFFER_LEN_SAMPLES - 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EnqueueResult {
@@ -74,8 +76,11 @@ impl AudioQueue {
         let loaded_start = Atomics::load(&self.header_typed, START_INDEX)? as u32;
         let end = Atomics::load(&self.header_typed, END_INDEX)? as u32;
 
-        let queue_len =
-            if loaded_start <= end { end - loaded_start } else { end + BUFFER_LEN - loaded_start };
+        let queue_len = if loaded_start <= end {
+            end - loaded_start
+        } else {
+            end + BUFFER_LEN_SAMPLES - loaded_start
+        };
         let drain_len = cmp::min(queue_len as usize, limit as usize);
 
         let mut start = loaded_start;
@@ -98,7 +103,7 @@ impl AudioQueue {
         let end = Atomics::load(&self.header_typed, END_INDEX)? as u32;
         let start = Atomics::load(&self.header_typed, START_INDEX)? as u32;
 
-        if start <= end { Ok(end - start) } else { Ok(end + BUFFER_LEN - start) }
+        if start <= end { Ok(end - start) } else { Ok(end + BUFFER_LEN_SAMPLES - start) }
     }
 
     fn to_js_value(&self) -> JsValue {
@@ -119,7 +124,7 @@ impl AudioProcessor {
         let audio_queue = AudioQueue::try_from_js_value(audio_queue)
             .expect("Unable to initialize audio queue in audio worklet processor");
 
-        AudioProcessor { audio_queue, buffer: Vec::with_capacity(BUFFER_LEN as usize) }
+        AudioProcessor { audio_queue, buffer: Vec::with_capacity(BUFFER_LEN_SAMPLES as usize) }
     }
 
     pub fn process(&mut self, output_l: &mut [f32], output_r: &mut [f32]) {

@@ -1,4 +1,5 @@
 use crate::config::CommonConfig;
+use jgenesis_common::audio::DynamicResamplingRate;
 use jgenesis_common::frontend::AudioOutput;
 use sdl2::AudioSubsystem;
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
@@ -23,9 +24,8 @@ pub struct SdlAudioOutput {
     audio_queue: AudioQueue<f32>,
     audio_buffer: Vec<f32>,
     audio_sync: bool,
-    dynamic_resampling_ratio: bool,
-    dynamic_output_frequency: u64,
-    dynamic_update_counter: u32,
+    dynamic_resampling_ratio_enabled: bool,
+    dynamic_resampling_rate: DynamicResamplingRate,
     audio_buffer_size: u32,
     audio_gain_multiplier: f64,
     sample_count: u64,
@@ -44,9 +44,11 @@ impl SdlAudioOutput {
             audio_queue,
             audio_buffer: Vec::with_capacity(INTERNAL_AUDIO_BUFFER_LEN),
             audio_sync: config.audio_sync,
-            dynamic_resampling_ratio: config.audio_dynamic_resampling_ratio,
-            dynamic_output_frequency: output_frequency as u64,
-            dynamic_update_counter: 0,
+            dynamic_resampling_ratio_enabled: config.audio_dynamic_resampling_ratio,
+            dynamic_resampling_rate: DynamicResamplingRate::new(
+                output_frequency as u32,
+                config.audio_buffer_size,
+            ),
             audio_buffer_size: config.audio_buffer_size,
             audio_gain_multiplier: decibels_to_multiplier(config.audio_gain_db),
             sample_count: 0,
@@ -56,7 +58,7 @@ impl SdlAudioOutput {
 
     pub fn reload_config(&mut self, config: &CommonConfig) -> Result<(), AudioError> {
         self.audio_sync = config.audio_sync;
-        self.dynamic_resampling_ratio = config.audio_dynamic_resampling_ratio;
+        self.dynamic_resampling_ratio_enabled = config.audio_dynamic_resampling_ratio;
         self.audio_buffer_size = config.audio_buffer_size;
         self.audio_gain_multiplier = decibels_to_multiplier(config.audio_gain_db);
 
@@ -78,8 +80,8 @@ impl SdlAudioOutput {
             self.audio_queue.clear();
         }
 
-        self.dynamic_output_frequency = self.audio_queue.spec().freq as u64;
-        self.dynamic_update_counter = 0;
+        self.dynamic_resampling_rate
+            .update_config(self.audio_queue.spec().freq as u32, self.audio_buffer_size);
 
         Ok(())
     }
@@ -89,42 +91,17 @@ impl SdlAudioOutput {
     }
 
     pub fn adjust_dynamic_resampling_ratio(&mut self) {
-        // Restrict the adjusted ratio to within 0.5% of the expected ratio
-        const MAX_DELTA: f64 = 0.005;
-
-        // Only update the ratio every 20 frames
-        const UPDATE_PERIOD: u32 = 20;
-
-        if !self.dynamic_resampling_ratio {
+        if !self.dynamic_resampling_ratio_enabled {
             return;
         }
 
-        self.dynamic_update_counter += 1;
-        if self.dynamic_update_counter != UPDATE_PERIOD {
-            return;
-        }
-        self.dynamic_update_counter = 0;
-
-        let target_len: f64 = self.audio_buffer_size.into();
-        let current_len: f64 = self.audio_queue_len_samples().into();
-        let difference = ((target_len - current_len) / target_len).clamp(-1.0, 1.0);
-        let adjustment = 1.0 + MAX_DELTA * difference;
-
-        // This should _probably_ adjust the current dynamic frequency rather than the audio output
-        // stream frequency, but adjusting the latter seems to work much better in practice
-        self.dynamic_output_frequency =
-            (adjustment * f64::from(self.audio_queue.spec().freq)).round() as u64;
-
-        log::debug!(
-            "Adjusted dynamic frequency to {}; target={target_len}, current={current_len}, adjustment={adjustment}",
-            self.dynamic_output_frequency
-        );
+        self.dynamic_resampling_rate.adjust(self.audio_queue_len_samples());
     }
 
     #[must_use]
     pub fn output_frequency(&self) -> u64 {
-        if self.dynamic_resampling_ratio {
-            self.dynamic_output_frequency
+        if self.dynamic_resampling_ratio_enabled {
+            self.dynamic_resampling_rate.current_output_frequency().into()
         } else {
             self.audio_queue.spec().freq as u64
         }
@@ -178,7 +155,7 @@ impl AudioOutput for SdlAudioOutput {
         self.audio_buffer.push((sample_r * self.audio_gain_multiplier) as f32);
 
         if self.audio_buffer.len() >= INTERNAL_AUDIO_BUFFER_LEN {
-            let audio_buffer_threshold = if self.dynamic_resampling_ratio {
+            let audio_buffer_threshold = if self.dynamic_resampling_ratio_enabled {
                 // If dynamic resampling ratio is enabled, let the audio buffer grow to double size
                 // before dropping samples because the audio buffer size is also the target length
                 // for dynamic resampling

@@ -10,6 +10,7 @@ use base64::Engine;
 use base64::engine::general_purpose;
 use bincode::{Decode, Encode};
 use genesis_core::{GenesisEmulator, GenesisInputs};
+use jgenesis_common::audio::DynamicResamplingRate;
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, FrameSize, PixelAspectRatio, Renderer, SaveWriter,
     TickEffect,
@@ -380,6 +381,16 @@ impl Emulator {
             Self::Snes(emulator, ..) => emulator.has_sram(),
         }
     }
+
+    fn update_audio_output_frequency(&mut self, output_frequency: u64) {
+        match self {
+            Self::None(..) => {}
+            Self::SmsGg(emulator, ..) => emulator.update_audio_output_frequency(output_frequency),
+            Self::Genesis(emulator, ..) => emulator.update_audio_output_frequency(output_frequency),
+            Self::SegaCd(emulator, ..) => emulator.update_audio_output_frequency(output_frequency),
+            Self::Snes(emulator, ..) => emulator.update_audio_output_frequency(output_frequency),
+        }
+    }
 }
 
 fn handle_smsgg_input(inputs: &mut SmsGgInputs, event: &WindowEvent) {
@@ -500,7 +511,7 @@ pub async fn run_emulator(config_ref: WebConfigRef, emulator_channel: EmulatorCh
         .expect("Unable to render blank frame");
 
     let audio_ctx_options = AudioContextOptions::new();
-    audio_ctx_options.set_sample_rate(48000.0);
+    audio_ctx_options.set_sample_rate(audio::SAMPLE_RATE as f32);
 
     let audio_ctx = AudioContext::new_with_context_options(&audio_ctx_options)
         .expect("Unable to create audio context");
@@ -528,6 +539,7 @@ struct AppState {
     current_config: WebConfig,
     emulator_channel: EmulatorChannel,
     emulator: Emulator,
+    dynamic_resampling_rate: DynamicResamplingRate,
     queued_frame: QueuedFrame,
     performance: Performance,
     next_frame_time_ms: f64,
@@ -543,6 +555,8 @@ impl AppState {
     ) -> Self {
         let current_config = config_ref.borrow().clone();
         let emulator = Emulator::None(RandomNoiseGenerator::new());
+        let dynamic_resampling_rate =
+            DynamicResamplingRate::new(audio::SAMPLE_RATE, audio::BUFFER_LEN_SAMPLES / 2);
         let queued_frame = QueuedFrame::new();
         let performance = web_sys::window()
             .and_then(|window| window.performance())
@@ -557,6 +571,7 @@ impl AppState {
             current_config,
             emulator_channel,
             emulator,
+            dynamic_resampling_rate,
             queued_frame,
             performance,
             next_frame_time_ms,
@@ -567,6 +582,8 @@ impl AppState {
 impl AppState {
     fn handle_file_open(&mut self, rom: Vec<u8>, bios: Option<Vec<u8>>, rom_file_name: String) {
         self.audio_output.suspend();
+        self.dynamic_resampling_rate =
+            DynamicResamplingRate::new(audio::SAMPLE_RATE, audio::BUFFER_LEN_SAMPLES / 2);
 
         let prev_file_name = Rc::clone(&self.save_writer.file_name);
         self.save_writer.update_file_name(rom_file_name.clone());
@@ -640,6 +657,11 @@ impl AppState {
             )
             .expect("Frame render error");
         self.queued_frame.queued = false;
+
+        self.dynamic_resampling_rate.adjust(self.audio_output.audio_queue.len().unwrap());
+        self.emulator.update_audio_output_frequency(
+            self.dynamic_resampling_rate.current_output_frequency().into(),
+        );
 
         let config = self.config_ref.borrow().clone();
         if config != self.current_config {
