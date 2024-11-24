@@ -9,6 +9,8 @@ extern "C" {
 extern "C" {
     pub fn showUi();
 
+    pub fn setFullscreen(fullscreen: bool);
+
     pub fn focusCanvas();
 
     pub fn showSmsGgConfig();

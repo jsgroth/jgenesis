@@ -686,6 +686,8 @@ impl AppState {
 
                 // Show cursor only when not fullscreen
                 js::setCursorVisible(self.renderer.window().fullscreen().is_none());
+
+                js::setFullscreen(self.renderer.window().fullscreen().is_some());
             }
             WindowEvent::KeyboardInput {
                 event:

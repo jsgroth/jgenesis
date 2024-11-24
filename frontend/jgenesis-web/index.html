@@ -76,24 +76,24 @@
     </head>
     <body>
         <div id="loading-text">Loading...</div>
-        <div id="header-text" class="hidden">
+        <div id="header-text" class="hidden hide-fullscreen">
             Sega Genesis / SNES / Master System / Game Gear emulator
         </div>
         <div id="jgenesis" class="hidden">
             <div id="jgenesis-wasm-and-controls">
                 <div id="jgenesis-wasm"></div>
-                <div id="jgenesis-rom-title">(No ROM loaded)</div>
-                <div class="jgenesis-controls">
+                <div id="jgenesis-rom-title " class="hide-fullscreen">(No ROM loaded)</div>
+                <div class="jgenesis-controls hide-fullscreen">
                     <input type="button" id="open-file" value="Open ROM file">
                     <input type="button" id="reset-emulator" value="Reset">
                     <input type="button" id="download-save-file" class="save-button" value="Download save file" disabled>
                     <input type="button" id="upload-save-file" class="save-button" value="Upload save file and reset" disabled>
                 </div>
-                <div class="jgenesis-controls">
+                <div class="jgenesis-controls hide-fullscreen">
                     <input type="button" id="open-sega-cd" value="Open Sega CD image (CHD)">
                 </div>
             </div>
-            <div id="jgenesis-config">
+            <div id="jgenesis-config" class="hide-fullscreen">
                 <div id="common-config">
                     <fieldset>
                         <legend>Image filtering</legend>
@@ -320,7 +320,7 @@
                 </div>
             </div>
         </div>
-        <div id="footer" hidden>
+        <div id="footer" class="hide-fullscreen" hidden>
             <p>Built from <span id="build-commit-link"></span></p>
             <p>Source and native version: <a href="https://github.com/jsgroth/jgenesis">https://github.com/jsgroth/jgenesis</a></p>
         </div>

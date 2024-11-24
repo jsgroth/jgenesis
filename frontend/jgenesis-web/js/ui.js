@@ -5,6 +5,15 @@ export function showUi() {
     document.getElementById("footer").hidden = false;
 }
 
+/**
+ * @param fullscreen {boolean}
+ */
+export function setFullscreen(fullscreen) {
+    document.querySelectorAll(".hide-fullscreen").forEach((element) => {
+        element.hidden = fullscreen;
+    });
+}
+
 export function focusCanvas() {
     document.querySelector("canvas").focus();
 }
