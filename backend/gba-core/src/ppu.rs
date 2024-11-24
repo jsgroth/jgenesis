@@ -291,6 +291,7 @@ struct RenderBuffers {
     obj_colors: [u16; SCREEN_WIDTH as usize],
     obj_priority: [u8; SCREEN_WIDTH as usize],
     obj_semi_transparent: [bool; SCREEN_WIDTH as usize],
+    obj_mosaic: [bool; SCREEN_WIDTH as usize],
     resolved_colors: [u16; SCREEN_WIDTH as usize],
     resolved_priority: [u8; SCREEN_WIDTH as usize],
     resolved_layers: [Layer; SCREEN_WIDTH as usize],
@@ -307,6 +308,7 @@ impl RenderBuffers {
             obj_colors: array::from_fn(|_| 0),
             obj_priority: array::from_fn(|_| 0),
             obj_semi_transparent: array::from_fn(|_| false),
+            obj_mosaic: array::from_fn(|_| false),
             resolved_colors: array::from_fn(|_| 0),
             resolved_priority: array::from_fn(|_| 0),
             resolved_layers: array::from_fn(|_| Layer::default()),
@@ -321,6 +323,7 @@ impl RenderBuffers {
         self.obj_colors.fill(0);
         self.obj_priority.fill(u8::MAX);
         self.obj_semi_transparent.fill(false);
+        self.obj_mosaic.fill(false);
         self.resolved_colors.fill(0);
         self.resolved_priority.fill(u8::MAX);
         self.resolved_layers.fill(Layer::Backdrop);
@@ -384,15 +387,16 @@ impl Ppu {
         let prev_dot = self.state.dot;
         self.state.dot += ppu_cycles;
 
-        if self.state.scanline < SCREEN_HEIGHT
-            && prev_dot < SCREEN_WIDTH
-            && self.state.dot >= SCREEN_WIDTH
-        {
+        if prev_dot < SCREEN_WIDTH && self.state.dot >= SCREEN_WIDTH {
             // HBlank
-            // TODO should the PPU generate an HBlank interrupt before line 0?
-            self.render_current_line();
+            if self.state.scanline < SCREEN_HEIGHT {
+                self.render_current_line();
+                control.trigger_hblank_dma();
+            }
+
             if self.registers.hblank_irq_enabled {
-                control.notify_hblank();
+                // HBlank IRQs trigger on every line, even during VBlank
+                control.set_interrupt_flag(InterruptType::HBlank);
             }
         }
 
@@ -409,8 +413,9 @@ impl Ppu {
             match self.state.scanline {
                 SCREEN_HEIGHT => {
                     if self.registers.vblank_irq_enabled {
-                        control.notify_vblank();
+                        control.set_interrupt_flag(InterruptType::VBlank);
                     }
+                    control.trigger_vblank_dma();
 
                     return PpuTickEffect::FrameComplete;
                 }
@@ -479,21 +484,23 @@ impl Ppu {
         let is_bitmap_mode = self.registers.bg_mode.is_bitmap();
 
         // TODO sprite limits
-        // TODO sprite mosaic
-        // TODO affine sprites
         let scanline = self.state.scanline;
         for oam_idx in 0..128 {
             let mut oam_entry = OamEntry::parse(&self.oam[4 * oam_idx..4 * oam_idx + 3]);
 
-            if !oam_entry.affine && oam_entry.affine_double_size {
+            if oam_entry.affine_double_size && !oam_entry.affine {
                 // Double size flag means "do not display" for non-affine sprites
+                // TODO does this also apply to OBJ window sprites?
                 continue;
             }
 
-            let y = oam_entry.y;
             let (width, height) = oam_entry.shape.width_and_height(oam_entry.size);
+            let y = oam_entry.y;
 
-            let sprite_bottom = (y + height) & 0xFF;
+            // TODO correctly handle edge case for 128px tall affine sprites
+
+            let render_height = if oam_entry.affine_double_size { 2 * height } else { height };
+            let sprite_bottom = (y + render_height) & 0xFF;
             if (sprite_bottom < y && scanline >= sprite_bottom)
                 || (sprite_bottom >= y && !(y..sprite_bottom).contains(&scanline))
             {
@@ -513,74 +520,178 @@ impl Ppu {
                 continue;
             }
 
-            let mut sprite_row = scanline.wrapping_sub(y) & 0xFF;
-            if oam_entry.v_flip {
-                sprite_row = height - 1 - sprite_row;
+            let line = if oam_entry.mosaic {
+                let mosaic_height = self.registers.obj_mosaic_height + 1;
+                (self.state.scanline / mosaic_height) * mosaic_height
+            } else {
+                self.state.scanline
+            };
+
+            if oam_entry.affine {
+                self.render_affine_sprite(&oam_entry, line, width, height);
+            } else {
+                self.render_tile_sprite(&oam_entry, line, width, height);
+            }
+        }
+
+        // Apply horizontal mosaic
+        let mosaic_width = self.registers.obj_mosaic_width + 1;
+        if mosaic_width != 1 {
+            for x in (0..SCREEN_WIDTH).step_by(mosaic_width as usize) {
+                let end = cmp::min(mosaic_width, SCREEN_WIDTH - x);
+                for i in 1..end {
+                    if !self.buffers.obj_mosaic[(x + i) as usize] {
+                        continue;
+                    }
+                    self.buffers.obj_colors[(x + i) as usize] = self.buffers.obj_colors[x as usize];
+                    // TODO update priority?
+                }
+            }
+        }
+    }
+
+    fn render_tile_sprite(&mut self, oam_entry: &OamEntry, line: u32, width: u32, height: u32) {
+        let mut sprite_row = line.wrapping_sub(oam_entry.y) & 0xFF;
+        if oam_entry.v_flip {
+            sprite_row = height - 1 - sprite_row;
+        }
+
+        for dx in 0..width {
+            let col = (oam_entry.x + dx) & 0x1FF;
+            if !(0..SCREEN_WIDTH).contains(&col) {
+                continue;
             }
 
-            let tile_y_offset = sprite_row / 8;
-            let tile_row = sprite_row % 8;
-
-            for dx in 0..width {
-                let col = (oam_entry.x + dx) & 0x1FF;
-                if !(0..SCREEN_WIDTH).contains(&col) {
+            if oam_entry.mode != SpriteMode::ObjWindow && self.buffers.obj_colors[col as usize] != 0
+            {
+                // Already a non-transparent sprite pixel from a sprite with a lower OAM index
+                let existing_priority = self.buffers.obj_priority[col as usize];
+                self.buffers.obj_priority[col as usize] =
+                    cmp::min(existing_priority, oam_entry.priority);
+                if oam_entry.priority >= existing_priority {
                     continue;
                 }
+            }
 
-                if oam_entry.mode != SpriteMode::ObjWindow
-                    && self.buffers.obj_colors[col as usize] != 0
-                {
-                    // Already a non-transparent sprite pixel from a sprite with a lower OAM index
+            let sprite_col = if oam_entry.h_flip { width - 1 - dx } else { dx };
+            self.render_sprite_pixel(&oam_entry, col, sprite_col, sprite_row, width);
+        }
+    }
+
+    fn render_affine_sprite(&mut self, oam_entry: &OamEntry, line: u32, width: u32, height: u32) {
+        let (render_width, render_height) =
+            if oam_entry.affine_double_size { (2 * width, 2 * height) } else { (width, height) };
+
+        // Center coordinates are rounded up; e.g. for an 8x16 sprite, the center is at X=4 Y=8
+        let cx = (render_width / 2) as i32;
+        let cy = (render_height / 2) as i32;
+
+        // Sprite affine parameters are stored in every 4th word in OAM
+        // These 4th words cycle between A/B/C/D, so there is a new parameter group every 16 words
+        let parameter_group_base_addr = (4 * 4 * oam_entry.affine_parameter_group + 3) as usize;
+
+        // Parameters are 16-bit fixed-point decimal, 1/7/8; extend to signed 32-bit
+        let a: i32 = (self.oam[parameter_group_base_addr] as i16).into();
+        let b: i32 = (self.oam[parameter_group_base_addr + 4] as i16).into();
+        let c: i32 = (self.oam[parameter_group_base_addr + 8] as i16).into();
+        let d: i32 = (self.oam[parameter_group_base_addr + 12] as i16).into();
+
+        let sprite_row = (line.wrapping_sub(oam_entry.y) & 0xFF) as i32;
+
+        // Initialize sampling coordinates for X=-1 in the current sprite row
+        // Will be at X=0 after the first increment at the start of the loop
+        let mut x = a * (-1 - cx) + b * (sprite_row - cy) + (cx << 8);
+        let mut y = c * (-1 - cx) + d * (sprite_row - cy) + (cy << 8);
+        if oam_entry.affine_double_size {
+            x -= ((render_width / 4) << 8) as i32;
+            y -= ((render_height / 4) << 8) as i32;
+        }
+
+        for dx in 0..render_width {
+            x += a;
+            y += c;
+
+            let col = (oam_entry.x + dx) & 0x1FF;
+            if !(0..SCREEN_WIDTH).contains(&col) {
+                continue;
+            }
+
+            if oam_entry.mode != SpriteMode::ObjWindow && self.buffers.obj_colors[col as usize] != 0
+            {
+                // Already a non-transparent sprite pixel from a sprite with a lower OAM index
+                let existing_priority = self.buffers.obj_priority[col as usize];
+                self.buffers.obj_priority[col as usize] =
+                    cmp::min(existing_priority, oam_entry.priority);
+                if oam_entry.priority >= existing_priority {
                     continue;
                 }
+            }
 
-                let sprite_col = if oam_entry.h_flip { width - 1 - dx } else { dx };
+            // Convert from 1/256 pixel units to pixel units and check bounds
+            let sample_x = x >> 8;
+            let sample_y = y >> 8;
+            if !(0..width as i32).contains(&sample_x) || !(0..height as i32).contains(&sample_y) {
+                continue;
+            }
 
-                let tile_x_offset = sprite_col / 8;
-                let tile_col = sprite_col % 8;
+            self.render_sprite_pixel(&oam_entry, col, sample_x as u32, sample_y as u32, width);
+        }
+    }
 
-                // TODO handle 8bpp sprites correctly
-                let adjusted_tile_number = match self.registers.obj_tile_layout {
-                    ObjTileLayout::TwoD => {
-                        let x = (oam_entry.tile_number + tile_x_offset) & 0x1F;
-                        let y = (oam_entry.tile_number + (tile_y_offset << 5)) & (0x1F << 5);
-                        y | x
-                    }
-                    ObjTileLayout::OneD => {
-                        let offset = tile_y_offset * width / 8 + tile_x_offset;
-                        (oam_entry.tile_number + offset) & 0x3FF
-                    }
-                };
+    fn render_sprite_pixel(
+        &mut self,
+        oam_entry: &OamEntry,
+        col: u32,
+        sprite_x: u32,
+        sprite_y: u32,
+        width: u32,
+    ) {
+        self.buffers.obj_mosaic[col as usize] = oam_entry.mosaic;
 
-                let tile_data_addr =
-                    (0x10000 | (32 * adjusted_tile_number)) + tile_row * 4 + tile_col / 2;
-                let color = match oam_entry.color_depth {
-                    ColorDepthBits::Four => {
-                        (self.vram[tile_data_addr as usize] >> (4 * (tile_col & 1))) & 0xF
-                    }
-                    ColorDepthBits::Eight => self.vram[tile_data_addr as usize],
-                };
-                if color == 0 {
-                    // Pixel is transparent
-                    continue;
-                }
+        let tile_x_offset = sprite_x / 8;
+        let tile_col = sprite_x % 8;
+        let tile_y_offset = sprite_y / 8;
+        let tile_row = sprite_y % 8;
 
-                match oam_entry.mode {
-                    SpriteMode::ObjWindow => {
-                        // OBJ window; don't render the sprite pixel, only mark this position as
-                        // being inside the OBJ window
-                        self.buffers.windows[col as usize] = Window::Obj;
-                    }
-                    _ => {
-                        // Actual pixel
-                        // Sprites can only use colors from the second half of palette RAM (256-511)
-                        self.buffers.obj_colors[col as usize] =
-                            0x100 | (oam_entry.palette << 4) | u16::from(color);
-                        self.buffers.obj_priority[col as usize] = oam_entry.priority;
-                        self.buffers.obj_semi_transparent[col as usize] =
-                            oam_entry.mode == SpriteMode::SemiTransparent;
-                    }
-                }
+        // TODO handle 8bpp sprites correctly
+        let adjusted_tile_number = match self.registers.obj_tile_layout {
+            ObjTileLayout::TwoD => {
+                let x = (oam_entry.tile_number + tile_x_offset) & 0x1F;
+                let y = (oam_entry.tile_number + (tile_y_offset << 5)) & (0x1F << 5);
+                y | x
+            }
+            ObjTileLayout::OneD => {
+                let offset = tile_y_offset * width / 8 + tile_x_offset;
+                (oam_entry.tile_number + offset) & 0x3FF
+            }
+        };
+
+        let tile_data_addr = (0x10000 | (32 * adjusted_tile_number)) + tile_row * 4 + tile_col / 2;
+        let color = match oam_entry.color_depth {
+            ColorDepthBits::Four => {
+                (self.vram[tile_data_addr as usize] >> (4 * (tile_col & 1))) & 0xF
+            }
+            ColorDepthBits::Eight => self.vram[tile_data_addr as usize],
+        };
+        if color == 0 {
+            // Pixel is transparent
+            return;
+        }
+
+        match oam_entry.mode {
+            SpriteMode::ObjWindow => {
+                // OBJ window; don't render the sprite pixel, only mark this position as
+                // being inside the OBJ window
+                self.buffers.windows[col as usize] = Window::Obj;
+            }
+            _ => {
+                // Actual pixel
+                // Sprites can only use colors from the second half of palette RAM (256-511)
+                self.buffers.obj_colors[col as usize] =
+                    0x100 | (oam_entry.palette << 4) | u16::from(color);
+                self.buffers.obj_priority[col as usize] = oam_entry.priority;
+                self.buffers.obj_semi_transparent[col as usize] =
+                    oam_entry.mode == SpriteMode::SemiTransparent;
             }
         }
     }
@@ -623,10 +734,14 @@ impl Ppu {
         let tile_size_bytes = bg_control.color_depth.tile_size_bytes();
         let tile_row_size_bytes = tile_size_bytes / 8;
 
-        // TODO mosaic
+        let scanline = if bg_control.mosaic {
+            let mosaic_height = self.registers.bg_mosaic_height + 1;
+            (self.state.scanline / mosaic_height) * mosaic_height
+        } else {
+            self.state.scanline
+        };
 
-        let bg_y = self.state.scanline.wrapping_add(self.registers.bg_v_scroll[bg])
-            & (bg_height_pixels - 1);
+        let bg_y = scanline.wrapping_add(self.registers.bg_v_scroll[bg]) & (bg_height_pixels - 1);
         let screen_y = bg_y / 256;
         let tile_map_y = (bg_y % 256) / 8;
 
@@ -678,13 +793,17 @@ impl Ppu {
                 let tile_col = (if h_flip { 7 - i } else { i }) as u32;
                 let color = match bg_control.color_depth {
                     ColorDepthBits::Four => {
-                        let tile_data_addr = (tile_data_row_addr + tile_col / 2) & BG_TILE_MAP_MASK;
+                        let tile_data_addr = tile_data_row_addr + tile_col / 2;
                         let tile_data_byte = self.vram[tile_data_addr as usize];
                         (tile_data_byte >> (4 * (tile_col & 1))) & 0xF
                     }
                     ColorDepthBits::Eight => {
-                        let tile_data_addr = (tile_data_row_addr + tile_col) & BG_TILE_MAP_MASK;
-                        self.vram[tile_data_addr as usize]
+                        let tile_data_addr = tile_data_row_addr + tile_col;
+                        if tile_data_addr <= BG_TILE_MAP_MASK {
+                            self.vram[tile_data_addr as usize]
+                        } else {
+                            0
+                        }
                     }
                 };
 
@@ -696,6 +815,17 @@ impl Ppu {
             }
 
             bg_x = (bg_x + 8) & (bg_width_pixels - 1);
+        }
+
+        // Apply horizontal mosaic
+        if bg_control.mosaic {
+            let mosaic_width = self.registers.bg_mosaic_width + 1;
+            for x in (0..SCREEN_WIDTH).step_by(mosaic_width as usize) {
+                let end = cmp::min(mosaic_width, SCREEN_WIDTH - x);
+                for i in 1..end {
+                    bg_buffer[(x + i) as usize] = bg_buffer[x as usize];
+                }
+            }
         }
     }
 
@@ -914,6 +1044,23 @@ impl Ppu {
         self.vram[vram_addr..vram_addr + 4].copy_from_slice(&value.to_le_bytes());
     }
 
+    pub fn read_oam_halfword(&self, address: u32) -> u16 {
+        let oam_addr = ((address as usize) & (OAM_LEN - 1)) >> 1;
+        self.oam[oam_addr]
+    }
+
+    pub fn read_oam_word(&self, address: u32) -> u32 {
+        let oam_addr = ((address as usize) & (OAM_LEN - 1) & !3) >> 1;
+        let low: u32 = self.oam[oam_addr].into();
+        let high: u32 = self.oam[oam_addr + 1].into();
+        low | (high << 16)
+    }
+
+    pub fn write_oam_halfword(&mut self, address: u32, value: u16) {
+        let oam_addr = ((address as usize) & (OAM_LEN - 1)) >> 1;
+        self.oam[oam_addr] = value;
+    }
+
     pub fn write_oam_word(&mut self, address: u32, value: u32) {
         let oam_addr = ((address as usize) & (OAM_LEN - 1) & !3) >> 1;
         self.oam[oam_addr] = value as u16;
@@ -965,6 +1112,7 @@ impl Ppu {
             }
             0x48 => self.registers.read_winin(),
             0x4A => self.registers.read_winout(),
+            0x50 => self.registers.read_bldcnt(),
             _ => {
                 log::error!("PPU register read {address:08X}");
                 0
@@ -1004,6 +1152,7 @@ impl Ppu {
             }
             0x48 => self.registers.write_winin(value),
             0x4A => self.registers.write_winout(value),
+            0x4C => self.registers.write_mosaic(value),
             0x50 => self.registers.write_bldcnt(value),
             0x52 => self.registers.write_bldalpha(value),
             0x54 => self.registers.write_bldy(value),
@@ -1013,7 +1162,8 @@ impl Ppu {
 
     // $04000004: DISPSTAT (Display status)
     fn read_dispstat(&self) -> u16 {
-        let vblank = self.state.scanline >= SCREEN_HEIGHT;
+        let vblank =
+            self.state.scanline >= SCREEN_HEIGHT && self.state.scanline != LINES_PER_FRAME - 1;
         let hblank = self.state.dot >= SCREEN_WIDTH;
         let v_counter = self.state.scanline;
 

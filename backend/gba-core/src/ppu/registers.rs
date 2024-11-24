@@ -240,6 +240,11 @@ pub struct Registers {
     pub obj_window_bg_enabled: [bool; 4],
     pub obj_window_obj_enabled: bool,
     pub obj_window_color_enabled: bool,
+    // MOSAIC: Mosaic size
+    pub bg_mosaic_width: u32,
+    pub bg_mosaic_height: u32,
+    pub obj_mosaic_width: u32,
+    pub obj_mosaic_height: u32,
     // BLDCNT: Blend control
     pub bg_1st_target: [bool; 4],
     pub obj_1st_target: bool,
@@ -499,6 +504,36 @@ impl Registers {
         log::trace!("  OBJ window inside BG enabled: {:?}", self.obj_window_bg_enabled);
         log::trace!("  OBJ window inside OBJ enabled: {}", self.obj_window_obj_enabled);
         log::trace!("  OBJ window inside color effects enabled: {}", self.obj_window_color_enabled);
+    }
+
+    // $0400000C: MOSAIC (Mosaic size)
+    pub fn write_mosaic(&mut self, value: u16) {
+        self.bg_mosaic_width = (value & 0xF).into();
+        self.bg_mosaic_height = ((value >> 4) & 0xF).into();
+        self.obj_mosaic_width = ((value >> 8) & 0xF).into();
+        self.obj_mosaic_height = (value >> 12).into();
+
+        log::trace!("MOSAIC write: {value:04X}");
+        log::trace!("  BG mosaic width: {}", self.bg_mosaic_width + 1);
+        log::trace!("  BG mosaic height: {}", self.bg_mosaic_height + 1);
+        log::trace!("  Sprite mosaic width: {}", self.obj_mosaic_width + 1);
+        log::trace!("  Sprite mosaic height: {}", self.obj_mosaic_height + 1);
+    }
+
+    // $04000050: BLDCNT (Blend control)
+    pub fn read_bldcnt(&self) -> u16 {
+        let mut bg_bits = 0;
+        for bg in 0..4 {
+            bg_bits |= u16::from(self.bg_1st_target[bg]) << bg;
+            bg_bits |= u16::from(self.bg_2nd_target[bg]) << (8 + bg);
+        }
+
+        bg_bits
+            | (u16::from(self.obj_1st_target) << 4)
+            | (u16::from(self.backdrop_1st_target) << 5)
+            | ((self.blend_mode as u16) << 6)
+            | (u16::from(self.obj_2nd_target) << 12)
+            | (u16::from(self.backdrop_2nd_target) << 13)
     }
 
     // $04000050: BLDCNT (Blend control)

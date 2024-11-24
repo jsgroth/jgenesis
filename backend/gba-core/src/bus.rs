@@ -73,7 +73,7 @@ impl Bus<'_> {
                 log::error!("Timer register read: {address:08X}");
                 0
             }
-            0x04000120..=0x0400012F => {
+            0x04000120..=0x0400012F | 0x04000134..=0x0400015F => {
                 log::error!("Serial register read: {address:08X}");
                 0
             }
@@ -83,7 +83,7 @@ impl Bus<'_> {
             0x04000204 => self.control.read_waitcnt(),
             0x04000208 => self.control.read_ime(),
             0x04000300 => self.control.postflg,
-            0x04000410 => {
+            0x0400020A | 0x04000410 => {
                 log::warn!("Invalid address read {address:08X}");
                 !0
             }
@@ -207,6 +207,7 @@ impl BusInterface for Bus<'_> {
             EWRAM_START..=EWRAM_END => self.memory.read_ewram_halfword(address),
             MMIO_START..=MMIO_END => self.read_io_register(address),
             VRAM_START..=VRAM_END => self.ppu.read_vram_halfword(address),
+            OAM_START..=OAM_END => self.ppu.read_oam_halfword(address),
             PALETTES_START..=PALETTES_END => self.ppu.read_palette_halfword(address),
             BIOS_START..=BIOS_END => self.memory.read_bios_halfword(address),
             _ => todo!("read halfword {address:08X}"),
@@ -223,6 +224,7 @@ impl BusInterface for Bus<'_> {
             EWRAM_START..=EWRAM_END => self.memory.read_ewram_word(address),
             MMIO_START..=MMIO_END => self.read_io_register_u32(address),
             VRAM_START..=VRAM_END => self.ppu.read_vram_word(address),
+            OAM_START..=OAM_END => self.ppu.read_oam_word(address),
             PALETTES_START..=PALETTES_END => self.ppu.read_palette_word(address),
             BIOS_START..=BIOS_END => self.memory.read_bios_word(address),
             0x10000000..=0xFFFFFFFF => {
@@ -257,6 +259,7 @@ impl BusInterface for Bus<'_> {
             EWRAM_START..=EWRAM_END => self.memory.write_ewram_halfword(address, value),
             MMIO_START..=MMIO_END => self.write_io_register(address, value),
             VRAM_START..=VRAM_END => self.ppu.write_vram_halfword(address, value),
+            OAM_START..=OAM_END => self.ppu.write_oam_halfword(address, value),
             PALETTES_START..=PALETTES_END => self.ppu.write_palette_halfword(address, value),
             BIOS_START..=BIOS_END => {
                 log::warn!("BIOS ROM write {address:08X} {value:04X}");
