@@ -11,7 +11,8 @@ use base64::engine::general_purpose;
 use bincode::{Decode, Encode};
 use genesis_core::{GenesisEmulator, GenesisInputs};
 use jgenesis_common::frontend::{
-    AudioOutput, Color, EmulatorTrait, FrameSize, Renderer, SaveWriter, TickEffect, TimingMode,
+    AudioOutput, Color, EmulatorTrait, FrameSize, PixelAspectRatio, Renderer, SaveWriter,
+    TickEffect,
 };
 use jgenesis_renderer::renderer::{WgpuRenderer, WindowSize};
 use rfd::AsyncFileDialog;
@@ -26,10 +27,10 @@ use std::path::Path;
 use std::rc::Rc;
 use std::time::Duration;
 use wasm_bindgen::prelude::*;
-use web_sys::{AudioContext, AudioContextOptions};
+use web_sys::{AudioContext, AudioContextOptions, Performance};
 use web_time::Instant;
 use winit::event::{ElementState, Event, KeyEvent, WindowEvent};
-use winit::event_loop::{ControlFlow, EventLoop, EventLoopProxy};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::platform::web::WindowExtWebSys;
 use winit::window::{Fullscreen, Window, WindowAttributes};
@@ -199,6 +200,44 @@ impl RandomNoiseGenerator {
     }
 }
 
+struct QueuedFrame {
+    buffer: Vec<Color>,
+    size: FrameSize,
+    pixel_aspect_ratio: Option<PixelAspectRatio>,
+    queued: bool,
+}
+
+impl QueuedFrame {
+    fn new() -> Self {
+        Self {
+            buffer: Vec::with_capacity(320 * 224),
+            size: FrameSize { width: 320, height: 224 },
+            pixel_aspect_ratio: None,
+            queued: false,
+        }
+    }
+}
+
+impl Renderer for QueuedFrame {
+    type Err = String;
+
+    fn render_frame(
+        &mut self,
+        frame_buffer: &[Color],
+        frame_size: FrameSize,
+        pixel_aspect_ratio: Option<PixelAspectRatio>,
+    ) -> Result<(), Self::Err> {
+        self.buffer.clear();
+        self.buffer.extend(&frame_buffer[..(frame_size.width * frame_size.height) as usize]);
+
+        self.size = frame_size;
+        self.pixel_aspect_ratio = pixel_aspect_ratio;
+        self.queued = true;
+
+        Ok(())
+    }
+}
+
 #[allow(clippy::large_enum_variant)]
 enum Emulator {
     None(RandomNoiseGenerator),
@@ -274,29 +313,12 @@ impl Emulator {
     }
 
     fn target_fps(&self) -> f64 {
-        // ~59.9 FPS
-        let sega_ntsc_fps = 53_693_175.0 / 3420.0 / 262.0;
-        // ~49.7 FPS
-        let sega_pal_fps = 53_203_424.0 / 3420.0 / 313.0;
-
         match self {
             Self::None(..) => 30.0,
-            Self::SmsGg(emulator, ..) => match emulator.timing_mode() {
-                TimingMode::Ntsc => sega_ntsc_fps,
-                TimingMode::Pal => sega_pal_fps,
-            },
-            Self::Genesis(emulator, ..) => match emulator.timing_mode() {
-                TimingMode::Ntsc => sega_ntsc_fps,
-                TimingMode::Pal => sega_pal_fps,
-            },
-            Self::SegaCd(emulator, ..) => match emulator.timing_mode() {
-                TimingMode::Ntsc => sega_ntsc_fps,
-                TimingMode::Pal => sega_pal_fps,
-            },
-            Self::Snes(emulator, ..) => match emulator.timing_mode() {
-                TimingMode::Ntsc => 60.0,
-                TimingMode::Pal => 50.0,
-            },
+            Self::SmsGg(emulator, ..) => emulator.target_fps(),
+            Self::Genesis(emulator, ..) => emulator.target_fps(),
+            Self::SegaCd(emulator, ..) => emulator.target_fps(),
+            Self::Snes(emulator, ..) => emulator.target_fps(),
         }
     }
 
@@ -492,25 +514,204 @@ pub async fn run_emulator(config_ref: WebConfigRef, emulator_channel: EmulatorCh
 
     js::showUi();
 
-    run_event_loop(event_loop, renderer, audio_output, save_writer, config_ref, emulator_channel);
+    run_event_loop(
+        event_loop,
+        AppState::new(renderer, audio_output, save_writer, config_ref, emulator_channel),
+    );
 }
 
-fn run_event_loop(
-    event_loop: EventLoop<JgenesisUserEvent>,
-    mut renderer: WgpuRenderer<Window>,
-    mut audio_output: WebAudioOutput,
-    mut save_writer: LocalStorageSaveWriter,
+struct AppState {
+    renderer: WgpuRenderer<Window>,
+    audio_output: WebAudioOutput,
+    save_writer: LocalStorageSaveWriter,
     config_ref: WebConfigRef,
+    current_config: WebConfig,
     emulator_channel: EmulatorChannel,
-) {
-    let performance = web_sys::window()
-        .and_then(|window| window.performance())
-        .expect("Unable to get window.performance");
-    let mut next_frame_time = performance.now();
+    emulator: Emulator,
+    queued_frame: QueuedFrame,
+    performance: Performance,
+    next_frame_time_ms: f64,
+}
 
-    let mut emulator = Emulator::None(RandomNoiseGenerator::new());
-    let mut current_config = config_ref.borrow().clone();
+impl AppState {
+    fn new(
+        renderer: WgpuRenderer<Window>,
+        audio_output: WebAudioOutput,
+        save_writer: LocalStorageSaveWriter,
+        config_ref: WebConfigRef,
+        emulator_channel: EmulatorChannel,
+    ) -> Self {
+        let current_config = config_ref.borrow().clone();
+        let emulator = Emulator::None(RandomNoiseGenerator::new());
+        let queued_frame = QueuedFrame::new();
+        let performance = web_sys::window()
+            .and_then(|window| window.performance())
+            .expect("Unable to get window.performance");
+        let next_frame_time_ms = performance.now();
 
+        Self {
+            renderer,
+            audio_output,
+            save_writer,
+            config_ref,
+            current_config,
+            emulator_channel,
+            emulator,
+            queued_frame,
+            performance,
+            next_frame_time_ms,
+        }
+    }
+}
+
+impl AppState {
+    fn handle_file_open(&mut self, rom: Vec<u8>, bios: Option<Vec<u8>>, rom_file_name: String) {
+        self.audio_output.suspend();
+
+        let prev_file_name = Rc::clone(&self.save_writer.file_name);
+        self.save_writer.update_file_name(rom_file_name.clone());
+        self.emulator =
+            match open_emulator(rom, bios, &rom_file_name, &self.config_ref, &mut self.save_writer)
+            {
+                Ok(emulator) => emulator,
+                Err(err) => {
+                    js::alert(&format!("Error opening ROM file: {err}"));
+                    self.save_writer.update_file_name(prev_file_name.to_string());
+                    return;
+                }
+            };
+
+        self.emulator_channel.set_current_file_name(rom_file_name.clone());
+
+        js::setRomTitle(&self.emulator.rom_title(&rom_file_name));
+        js::setSaveUiEnabled(self.emulator.has_persistent_save());
+
+        js::focusCanvas();
+    }
+
+    fn handle_upload_save_file(&mut self, contents_base64: &str) {
+        if matches!(self.emulator, Emulator::None(..)) {
+            return;
+        }
+
+        self.audio_output.suspend();
+
+        // Immediately persist save file because it won't get written again until the game writes to SRAM
+        let file_name = self.emulator_channel.current_file_name();
+        js::localStorageSet(&file_name, contents_base64);
+
+        self.emulator.reset(&mut self.save_writer);
+
+        js::focusCanvas();
+    }
+
+    fn handle_about_to_wait(
+        &mut self,
+        event_loop_proxy: &EventLoopProxy<JgenesisUserEvent>,
+        elwt: &ActiveEventLoop,
+    ) {
+        if !self.queued_frame.queued {
+            // No frame queued; run emulator until it renders the next frame
+            self.emulator.render_frame(
+                &mut self.queued_frame,
+                &mut self.audio_output,
+                &mut self.save_writer,
+            );
+        }
+
+        let now = self.performance.now();
+        if now < self.next_frame_time_ms {
+            let wait_until_duration =
+                Duration::from_micros((1000.0 * (self.next_frame_time_ms - now)).ceil() as u64);
+            elwt.set_control_flow(ControlFlow::WaitUntil(Instant::now() + wait_until_duration));
+            return;
+        }
+
+        let fps = self.emulator.target_fps();
+        while now >= self.next_frame_time_ms {
+            self.next_frame_time_ms += 1000.0 / fps;
+        }
+
+        self.renderer
+            .render_frame(
+                &self.queued_frame.buffer,
+                self.queued_frame.size,
+                self.queued_frame.pixel_aspect_ratio,
+            )
+            .expect("Frame render error");
+        self.queued_frame.queued = false;
+
+        let config = self.config_ref.borrow().clone();
+        if config != self.current_config {
+            self.renderer.reload_config(config.common.to_renderer_config());
+            self.emulator.reload_config(&config);
+            self.current_config = config;
+        }
+
+        self.drain_emulator_channel(event_loop_proxy);
+    }
+
+    fn drain_emulator_channel(&mut self, event_loop_proxy: &EventLoopProxy<JgenesisUserEvent>) {
+        while let Some(command) = self.emulator_channel.pop_command() {
+            match command {
+                EmulatorCommand::OpenFile => {
+                    wasm_bindgen_futures::spawn_local(open_file(event_loop_proxy.clone()));
+                }
+                EmulatorCommand::OpenSegaCd => {
+                    wasm_bindgen_futures::spawn_local(open_sega_cd(event_loop_proxy.clone()));
+                }
+                EmulatorCommand::UploadSaveFile => {
+                    wasm_bindgen_futures::spawn_local(upload_save_file(event_loop_proxy.clone()));
+                }
+                EmulatorCommand::Reset => {
+                    self.audio_output.suspend();
+
+                    self.emulator.reset(&mut self.save_writer);
+
+                    js::focusCanvas();
+                }
+            }
+        }
+    }
+
+    fn handle_window_event(&mut self, window_event: WindowEvent, elwt: &ActiveEventLoop) {
+        self.emulator.handle_window_event(&window_event);
+
+        match window_event {
+            WindowEvent::CloseRequested => {
+                elwt.exit();
+            }
+            WindowEvent::Resized(_) => {
+                self.renderer.handle_resize(CANVAS_SIZE);
+
+                // Show cursor only when not fullscreen
+                js::setCursorVisible(self.renderer.window().fullscreen().is_none());
+            }
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        physical_key: PhysicalKey::Code(KeyCode::F8),
+                        state: ElementState::Pressed,
+                        ..
+                    },
+                ..
+            } => {
+                // Toggle fullscreen
+                let new_fullscreen = match self.renderer.window().fullscreen() {
+                    None => Some(Fullscreen::Borderless(None)),
+                    Some(_) => None,
+                };
+                // SAFETY: Not reassigning the window
+                unsafe {
+                    self.renderer.window_mut().set_fullscreen(new_fullscreen);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn run_event_loop(event_loop: EventLoop<JgenesisUserEvent>, mut state: AppState) {
     event_loop.set_control_flow(ControlFlow::Poll);
 
     let event_loop_proxy = event_loop.create_proxy();
@@ -520,132 +721,19 @@ fn run_event_loop(
         .run(move |event, elwt| match event {
             Event::UserEvent(user_event) => match user_event {
                 JgenesisUserEvent::FileOpen { rom, bios, rom_file_name } => {
-                    audio_output.suspend();
-
-                    let prev_file_name = Rc::clone(&save_writer.file_name);
-                    save_writer.update_file_name(rom_file_name.clone());
-                    emulator = match open_emulator(
-                        rom,
-                        bios,
-                        &rom_file_name,
-                        &config_ref,
-                        &mut save_writer,
-                    ) {
-                        Ok(emulator) => emulator,
-                        Err(err) => {
-                            js::alert(&format!("Error opening ROM file: {err}"));
-                            save_writer.update_file_name(prev_file_name.to_string());
-                            return;
-                        }
-                    };
-
-                    emulator_channel.set_current_file_name(rom_file_name.clone());
-
-                    js::setRomTitle(&emulator.rom_title(&rom_file_name));
-                    js::setSaveUiEnabled(emulator.has_persistent_save());
-
-                    js::focusCanvas();
+                    state.handle_file_open(rom, bios, rom_file_name);
                 }
                 JgenesisUserEvent::UploadSaveFile { contents_base64 } => {
-                    if matches!(emulator, Emulator::None(..)) {
-                        return;
-                    }
-
-                    audio_output.suspend();
-
-                    // Immediately persist save file because it won't get written again until the game writes to SRAM
-                    let file_name = emulator_channel.current_file_name();
-                    js::localStorageSet(&file_name, &contents_base64);
-
-                    emulator.reset(&mut save_writer);
-
-                    js::focusCanvas();
+                    state.handle_upload_save_file(&contents_base64);
                 }
             },
             Event::AboutToWait => {
-                let now = performance.now();
-                if now < next_frame_time {
-                    elwt.set_control_flow(ControlFlow::WaitUntil(
-                        Instant::now() + Duration::from_millis(1),
-                    ));
-                    return;
-                }
-
-                let fps = emulator.target_fps();
-                while now >= next_frame_time {
-                    next_frame_time += 1000.0 / fps;
-                }
-
-                emulator.render_frame(&mut renderer, &mut audio_output, &mut save_writer);
-
-                let config = config_ref.borrow().clone();
-                if config != current_config {
-                    renderer.reload_config(config.common.to_renderer_config());
-                    emulator.reload_config(&config);
-                    current_config = config;
-                }
-
-                while let Some(command) = emulator_channel.pop_command() {
-                    match command {
-                        EmulatorCommand::OpenFile => {
-                            wasm_bindgen_futures::spawn_local(open_file(event_loop_proxy.clone()));
-                        }
-                        EmulatorCommand::OpenSegaCd => {
-                            wasm_bindgen_futures::spawn_local(open_sega_cd(
-                                event_loop_proxy.clone(),
-                            ));
-                        }
-                        EmulatorCommand::UploadSaveFile => {
-                            wasm_bindgen_futures::spawn_local(upload_save_file(
-                                event_loop_proxy.clone(),
-                            ));
-                        }
-                        EmulatorCommand::Reset => {
-                            audio_output.suspend();
-
-                            emulator.reset(&mut save_writer);
-
-                            js::focusCanvas();
-                        }
-                    }
-                }
+                state.handle_about_to_wait(&event_loop_proxy, elwt);
             }
             Event::WindowEvent { event: window_event, window_id }
-                if window_id == renderer.window().id() =>
+                if window_id == state.renderer.window().id() =>
             {
-                emulator.handle_window_event(&window_event);
-
-                match window_event {
-                    WindowEvent::CloseRequested => {
-                        elwt.exit();
-                    }
-                    WindowEvent::Resized(_) => {
-                        renderer.handle_resize(CANVAS_SIZE);
-
-                        // Show cursor only when not fullscreen
-                        js::setCursorVisible(renderer.window().fullscreen().is_none());
-                    }
-                    WindowEvent::KeyboardInput {
-                        event:
-                            KeyEvent {
-                                physical_key: PhysicalKey::Code(KeyCode::F8),
-                                state: ElementState::Pressed,
-                                ..
-                            },
-                        ..
-                    } => {
-                        // Toggle fullscreen
-                        let new_fullscreen = match renderer.window().fullscreen() {
-                            None => Some(Fullscreen::Borderless(None)),
-                            Some(_) => None,
-                        };
-                        // SAFETY: Not reassigning the window
-                        unsafe {
-                            renderer.window_mut().set_fullscreen(new_fullscreen);
-                        }
-                    }
-                    _ => {}
-                }
+                state.handle_window_event(window_event, elwt);
             }
             _ => {}
         })
