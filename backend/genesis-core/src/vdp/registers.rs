@@ -23,6 +23,15 @@ pub enum VerticalScrollMode {
     TwoCell,
 }
 
+impl Display for VerticalScrollMode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::FullScreen => write!(f, "Full screen"),
+            Self::TwoCell => write!(f, "Per 2 cell"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum HorizontalScrollMode {
     #[default]
@@ -33,11 +42,31 @@ pub enum HorizontalScrollMode {
     Invalid,
 }
 
+impl Display for HorizontalScrollMode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::FullScreen => write!(f, "Full screen"),
+            Self::Cell => write!(f, "Per cell"),
+            Self::Line => write!(f, "Per line"),
+            Self::Invalid => write!(f, "Prohibited"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum HorizontalDisplaySize {
     #[default]
     ThirtyTwoCell,
     FortyCell,
+}
+
+impl Display for HorizontalDisplaySize {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ThirtyTwoCell => write!(f, "H32 (256px)"),
+            Self::FortyCell => write!(f, "H40 (320px)"),
+        }
+    }
 }
 
 impl HorizontalDisplaySize {
@@ -111,6 +140,15 @@ pub enum VerticalDisplaySize {
     ThirtyCell,
 }
 
+impl Display for VerticalDisplaySize {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TwentyEightCell => write!(f, "V28 (224px)"),
+            Self::ThirtyCell => write!(f, "V30 (240px)"),
+        }
+    }
+}
+
 impl VerticalDisplaySize {
     pub const fn active_scanlines(self) -> u16 {
         match self {
@@ -142,6 +180,16 @@ pub enum InterlacingMode {
     Progressive,
     Interlaced,
     InterlacedDouble,
+}
+
+impl Display for InterlacingMode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Progressive => write!(f, "Progressive"),
+            Self::Interlaced => write!(f, "Single-screen interlaced"),
+            Self::InterlacedDouble => write!(f, "Double-screen interlaced"),
+        }
+    }
 }
 
 impl InterlacingMode {
@@ -190,6 +238,17 @@ pub enum ScrollSize {
     Invalid,
 }
 
+impl Display for ScrollSize {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ThirtyTwo => write!(f, "32 tiles"),
+            Self::SixtyFour => write!(f, "64 tiles"),
+            Self::OneTwentyEight => write!(f, "128 tiles"),
+            Self::Invalid => write!(f, "Prohibited"),
+        }
+    }
+}
+
 impl ScrollSize {
     pub fn from_bits(bits: u8) -> Self {
         match bits & 0x03 {
@@ -228,6 +287,15 @@ pub enum WindowHorizontalMode {
     CenterToRight,
 }
 
+impl Display for WindowHorizontalMode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::LeftToCenter => write!(f, "Left to center"),
+            Self::CenterToRight => write!(f, "Center to right"),
+        }
+    }
+}
+
 impl WindowHorizontalMode {
     pub fn in_window(self, pixel: u16, window_x: u16) -> bool {
         let cell = pixel / 8;
@@ -243,6 +311,15 @@ pub enum WindowVerticalMode {
     #[default]
     TopToCenter,
     CenterToBottom,
+}
+
+impl Display for WindowVerticalMode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TopToCenter => write!(f, "Top to center"),
+            Self::CenterToBottom => write!(f, "Center to bottom"),
+        }
+    }
 }
 
 impl WindowVerticalMode {
@@ -261,6 +338,16 @@ pub enum DmaMode {
     MemoryToVram,
     VramFill,
     VramCopy,
+}
+
+impl Display for DmaMode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MemoryToVram => write!(f, "ROM/RAM to VRAM"),
+            Self::VramFill => write!(f, "VRAM fill"),
+            Self::VramCopy => write!(f, "VRAM-to-VRAM copy"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
@@ -622,6 +709,17 @@ pub enum Plane {
     Sprite,
     ScrollA,
     ScrollB,
+}
+
+impl Display for Plane {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Background => write!(f, "Backdrop"),
+            Self::Sprite => write!(f, "Sprites"),
+            Self::ScrollA => write!(f, "Plane A"),
+            Self::ScrollB => write!(f, "Plane B"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]

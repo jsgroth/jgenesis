@@ -158,6 +158,10 @@ impl Sega32XEmulator {
         self.vdp.copy_vram(out, palette, row_len);
     }
 
+    pub fn dump_vdp_registers(&self, callback: impl FnMut(&str, &[(&str, &str)])) {
+        self.vdp.dump_registers(callback);
+    }
+
     fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), R::Err> {
         let frame_size = self.vdp.frame_size();
         let aspect_ratio = self.config.genesis.aspect_ratio.to_pixel_aspect_ratio(frame_size, true);

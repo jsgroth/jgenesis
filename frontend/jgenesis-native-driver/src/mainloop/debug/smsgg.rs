@@ -1,18 +1,10 @@
 use crate::mainloop::debug;
-use crate::mainloop::debug::{DebugRenderContext, DebugRenderFn, SelectableButton};
-use egui::{CentralPanel, ScrollArea, Vec2};
+use crate::mainloop::debug::{DebugRenderContext, DebugRenderFn};
+use egui::{Grid, Pos2, ScrollArea, Vec2, Window};
 use jgenesis_common::frontend::Color;
 use smsgg_core::SmsGgEmulator;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum Tab {
-    Cram,
-    #[default]
-    Vram,
-}
-
 struct State {
-    tab: Tab,
     vram_palette: u8,
     cram_texture: Option<(wgpu::Texture, egui::TextureId)>,
     vram_texture: Option<(wgpu::Texture, egui::TextureId)>,
@@ -23,7 +15,6 @@ struct State {
 impl State {
     fn new() -> Self {
         Self {
-            tab: Tab::default(),
             vram_palette: 0,
             cram_texture: None,
             vram_texture: None,
@@ -44,36 +35,56 @@ fn render(mut ctx: DebugRenderContext<'_, SmsGgEmulator>, state: &mut State) {
 
     let screen_width = debug::screen_width(ctx.egui_ctx);
 
-    CentralPanel::default().show(ctx.egui_ctx, |ui| {
+    Window::new("CRAM").default_width(screen_width * 0.95).show(ctx.egui_ctx, |ui| {
+        let mut height = ui.available_width() * 0.125;
+        if height > ui.available_height() {
+            height = ui.available_height();
+        }
+        let width = height * 8.0;
+
+        let cram_texture = state.cram_texture.as_ref().unwrap().1;
+        ui.image((cram_texture, Vec2::new(width, height)));
+    });
+
+    Window::new("VRAM").default_width(screen_width * 0.95).show(ctx.egui_ctx, |ui| {
         ui.horizontal(|ui| {
-            ui.add(SelectableButton::new("VRAM", &mut state.tab, Tab::Vram));
-            ui.add(SelectableButton::new("CRAM", &mut state.tab, Tab::Cram));
+            ui.label("Palette");
+
+            ui.radio_value(&mut state.vram_palette, 0, "0");
+            ui.radio_value(&mut state.vram_palette, 1, "1");
         });
 
-        ui.add_space(15.0);
+        ui.add_space(5.0);
 
-        match state.tab {
-            Tab::Cram => {
-                let cram_texture = state.cram_texture.as_ref().unwrap().1;
-                ui.image((cram_texture, Vec2::new(screen_width, screen_width * 0.125)));
-            }
-            Tab::Vram => {
-                ui.horizontal(|ui| {
-                    ui.label("Palette");
-
-                    ui.radio_value(&mut state.vram_palette, 0, "0");
-                    ui.radio_value(&mut state.vram_palette, 1, "1");
-                });
-
-                ui.add_space(15.0);
-
-                ScrollArea::vertical().show(ui, |ui| {
-                    let vram_texture = state.vram_texture.as_ref().unwrap().1;
-                    ui.image((vram_texture, Vec2::new(screen_width, screen_width * 0.5)));
-                });
-            }
+        let mut height = ui.available_width() * 0.5;
+        if height > ui.available_height() {
+            height = ui.available_height();
         }
+        let width = height * 2.0;
+
+        let vram_texture = state.vram_texture.as_ref().unwrap().1;
+        ui.image((vram_texture, Vec2::new(width, height)));
     });
+
+    Window::new("VDP Registers").default_open(false).default_pos(Pos2::new(5.0, 5.0)).show(
+        ctx.egui_ctx,
+        |ui| {
+            ScrollArea::vertical().show(ui, |ui| {
+                Grid::new("smsgg_vdp_registers").num_columns(2).show(ui, |ui| {
+                    ctx.emulator.dump_vdp_registers(|register, fields| {
+                        ui.heading(format!("Register #{register}"));
+                        ui.end_row();
+
+                        for &(name, value) in fields {
+                            ui.label(format!("  {name}:"));
+                            ui.label(value);
+                            ui.end_row();
+                        }
+                    });
+                });
+            });
+        },
+    );
 }
 
 fn update_cram_texture(ctx: &mut DebugRenderContext<'_, SmsGgEmulator>, state: &mut State) {

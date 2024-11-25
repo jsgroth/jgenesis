@@ -222,6 +222,10 @@ impl SmsGgEmulator {
     pub fn copy_vram(&self, out: &mut [Color], palette: u8, row_len: usize) {
         self.vdp.copy_vram(out, palette, row_len);
     }
+
+    pub fn dump_vdp_registers(&self, callback: impl FnMut(u32, &[(&str, &str)])) {
+        self.vdp.dump_registers(callback);
+    }
 }
 
 fn init_z80(z80: &mut Z80) {

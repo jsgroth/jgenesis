@@ -314,6 +314,10 @@ impl SegaCdEmulator {
     pub fn copy_vram(&self, out: &mut [Color], palette: u8, row_len: usize) {
         self.vdp.copy_vram(out, palette, row_len);
     }
+
+    pub fn dump_vdp_registers(&self, callback: impl FnMut(&str, &[(&str, &str)])) {
+        self.vdp.dump_registers(callback);
+    }
 }
 
 impl EmulatorTrait for SegaCdEmulator {

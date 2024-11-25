@@ -15,6 +15,7 @@ use bincode::{BorrowDecode, Decode, Encode};
 use jgenesis_common::frontend::{Color, TimingMode};
 use jgenesis_common::num::{GetBit, U16Ext};
 use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
+use std::fmt::{Display, Formatter};
 use z80_emu::traits::InterruptLine;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -167,6 +168,16 @@ enum Mode {
     Four224Line,
     // TMS9918 mode 2
     GraphicsII,
+}
+
+impl Display for Mode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Four => write!(f, "4"),
+            Self::Four224Line => write!(f, "4 (224-line)"),
+            Self::GraphicsII => write!(f, "Graphics II"),
+        }
+    }
 }
 
 impl Mode {
