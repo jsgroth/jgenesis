@@ -79,7 +79,7 @@ impl Vdp {
         )]);
 
         callback(4, &[(
-            "Pattern generator start address (TMS9918)",
+            "Pattern generator address (TMS9918)",
             &format!("${:04X}", self.registers.pattern_generator_address),
         )]);
 
@@ -89,7 +89,7 @@ impl Vdp {
         )]);
 
         callback(6, &[(
-            "Sprite pattern table address",
+            "Sprite pattern generator address",
             &format!("${:04X}", self.registers.base_sprite_pattern_address),
         )]);
 

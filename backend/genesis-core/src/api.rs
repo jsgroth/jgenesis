@@ -144,6 +144,11 @@ pub struct GenesisEmulatorConfig {
     pub emulate_non_linear_vdp_dac: bool,
     pub render_vertical_border: bool,
     pub render_horizontal_border: bool,
+    pub plane_a_enabled: bool,
+    pub plane_b_enabled: bool,
+    pub sprites_enabled: bool,
+    pub window_enabled: bool,
+    pub backdrop_enabled: bool,
     pub quantize_ym2612_output: bool,
     pub emulate_ym2612_ladder_effect: bool,
     pub ym2612_enabled: bool,
@@ -158,6 +163,11 @@ impl GenesisEmulatorConfig {
             emulate_non_linear_dac: self.emulate_non_linear_vdp_dac,
             render_vertical_border: self.render_vertical_border,
             render_horizontal_border: self.render_horizontal_border,
+            plane_a_enabled: self.plane_a_enabled,
+            plane_b_enabled: self.plane_b_enabled,
+            sprites_enabled: self.sprites_enabled,
+            window_enabled: self.window_enabled,
+            backdrop_enabled: self.backdrop_enabled,
         }
     }
 

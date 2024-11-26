@@ -26,6 +26,16 @@ pub struct GenesisAppConfig {
     #[serde(default)]
     pub render_horizontal_border: bool,
     #[serde(default = "true_fn")]
+    pub plane_a_enabled: bool,
+    #[serde(default = "true_fn")]
+    pub plane_b_enabled: bool,
+    #[serde(default = "true_fn")]
+    pub window_enabled: bool,
+    #[serde(default = "true_fn")]
+    pub backdrop_enabled: bool,
+    #[serde(default = "true_fn")]
+    pub sprites_enabled: bool,
+    #[serde(default = "true_fn")]
     pub quantize_ym2612_output: bool,
     #[serde(default = "true_fn")]
     pub emulate_ym2612_ladder_effect: bool,
@@ -99,6 +109,11 @@ impl AppConfig {
             emulate_non_linear_vdp_dac: self.genesis.emulate_non_linear_vdp_dac,
             render_vertical_border: self.genesis.render_vertical_border,
             render_horizontal_border: self.genesis.render_horizontal_border,
+            plane_a_enabled: self.genesis.plane_a_enabled,
+            plane_b_enabled: self.genesis.plane_b_enabled,
+            sprites_enabled: self.genesis.sprites_enabled,
+            window_enabled: self.genesis.window_enabled,
+            backdrop_enabled: self.genesis.backdrop_enabled,
             quantize_ym2612_output: self.genesis.quantize_ym2612_output,
             emulate_ym2612_ladder_effect: self.genesis.emulate_ym2612_ladder_effect,
             ym2612_enabled: self.genesis.ym2612_enabled,

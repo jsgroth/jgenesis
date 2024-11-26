@@ -260,6 +260,26 @@ impl App {
 
             let rect = ui
                 .group(|ui| {
+                    ui.label("Enabled layers");
+
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut self.config.genesis.plane_a_enabled, "Plane A");
+                        ui.checkbox(&mut self.config.genesis.plane_b_enabled, "Plane B");
+                        ui.checkbox(&mut self.config.genesis.sprites_enabled, "Sprites");
+                        ui.checkbox(&mut self.config.genesis.window_enabled, "Window");
+                        ui.checkbox(&mut self.config.genesis.backdrop_enabled, "Backdrop");
+                    });
+                })
+                .response
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::ENABLED_LAYERS);
+            }
+
+            ui.add_space(5.0);
+
+            let rect = ui
+                .group(|ui| {
                     ui.label("32X video output");
 
                     ui.horizontal(|ui| {

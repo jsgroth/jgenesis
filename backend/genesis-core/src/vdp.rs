@@ -291,6 +291,11 @@ pub struct VdpConfig {
     pub emulate_non_linear_dac: bool,
     pub render_vertical_border: bool,
     pub render_horizontal_border: bool,
+    pub plane_a_enabled: bool,
+    pub plane_b_enabled: bool,
+    pub sprites_enabled: bool,
+    pub window_enabled: bool,
+    pub backdrop_enabled: bool,
 }
 
 type Vram = [u8; VRAM_LEN];
@@ -1273,6 +1278,11 @@ mod tests {
             emulate_non_linear_dac: false,
             render_vertical_border: false,
             render_horizontal_border: false,
+            plane_a_enabled: true,
+            plane_b_enabled: true,
+            window_enabled: true,
+            sprites_enabled: true,
+            backdrop_enabled: true,
         })
     }
 

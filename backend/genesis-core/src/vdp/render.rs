@@ -134,11 +134,7 @@ impl Vdp {
         if !self.registers.display_enabled {
             let Some(frame_buffer_row) = frame_buffer_row else { return };
 
-            let bg_color = colors::resolve_color(
-                &self.cram,
-                self.registers.background_palette,
-                self.registers.background_color_id,
-            );
+            let bg_color = self.backdrop_color();
             self.fill_frame_buffer_row(frame_buffer_row, starting_pixel, bg_color);
 
             // Clear sprite pixel buffer in case display is enabled during active display
@@ -239,11 +235,7 @@ impl Vdp {
             &self.sprite_buffers
         };
 
-        let bg_color = colors::resolve_color(
-            &self.cram,
-            self.registers.background_palette,
-            self.registers.background_color_id,
-        );
+        let bg_color = self.backdrop_color();
 
         let screen_width = self.screen_width();
 
@@ -364,24 +356,33 @@ impl Vdp {
                 }
             }
 
-            let scroll_a_color_id = read_pattern_generator(&self.vram, PatternGeneratorArgs {
-                vertical_flip: scroll_a_nt_word.vertical_flip,
-                horizontal_flip: scroll_a_nt_word.horizontal_flip,
-                pattern_generator: scroll_a_nt_word.pattern_generator,
-                row: scrolled_scanline_a,
-                col: scrolled_pixel_a,
-                cell_height,
-            });
-            let scroll_b_color_id = read_pattern_generator(&self.vram, PatternGeneratorArgs {
-                vertical_flip: scroll_b_nt_word.vertical_flip,
-                horizontal_flip: scroll_b_nt_word.horizontal_flip,
-                pattern_generator: scroll_b_nt_word.pattern_generator,
-                row: scrolled_scanline_b,
-                col: scrolled_pixel_b,
-                cell_height,
-            });
+            let scroll_a_color_id = if self.config.plane_a_enabled {
+                read_pattern_generator(&self.vram, PatternGeneratorArgs {
+                    vertical_flip: scroll_a_nt_word.vertical_flip,
+                    horizontal_flip: scroll_a_nt_word.horizontal_flip,
+                    pattern_generator: scroll_a_nt_word.pattern_generator,
+                    row: scrolled_scanline_a,
+                    col: scrolled_pixel_a,
+                    cell_height,
+                })
+            } else {
+                0
+            };
+            let scroll_b_color_id = if self.config.plane_b_enabled {
+                read_pattern_generator(&self.vram, PatternGeneratorArgs {
+                    vertical_flip: scroll_b_nt_word.vertical_flip,
+                    horizontal_flip: scroll_b_nt_word.horizontal_flip,
+                    pattern_generator: scroll_b_nt_word.pattern_generator,
+                    row: scrolled_scanline_b,
+                    col: scrolled_pixel_b,
+                    cell_height,
+                })
+            } else {
+                0
+            };
 
-            let in_window = self.latched_registers.is_in_window(raster_line.line, pixel as u16);
+            let in_window = self.config.window_enabled
+                && self.latched_registers.is_in_window(raster_line.line, pixel as u16);
             let (window_priority, window_palette, window_color_id) = if in_window {
                 let window_v_cell = raster_line.line / cell_height;
 
@@ -414,11 +415,11 @@ impl Vdp {
                 palette: sprite_palette,
                 color_id: sprite_color_id,
                 priority: sprite_priority,
-            } = sprite_buffers
-                .pixels
-                .get(pixel as usize)
-                .copied()
-                .unwrap_or(SpritePixel::default());
+            } = if self.config.sprites_enabled {
+                sprite_buffers.pixels.get(pixel as usize).copied().unwrap_or(SpritePixel::default())
+            } else {
+                SpritePixel { palette: 0, color_id: 0, priority: false }
+            };
 
             let (scroll_a_priority, scroll_a_palette, scroll_a_color_id) = if in_window {
                 // Window replaces scroll A if this pixel is inside the window
@@ -469,11 +470,7 @@ impl Vdp {
         match self.debug_register.forced_plane {
             Plane::Background => {
                 // Fill with the background color
-                let bg_color = colors::resolve_color(
-                    &self.cram,
-                    self.registers.background_palette,
-                    self.registers.background_color_id,
-                );
+                let bg_color = self.backdrop_color();
                 self.fill_frame_buffer_row(frame_buffer_row, starting_pixel, bg_color);
             }
             Plane::Sprite => {
@@ -642,11 +639,7 @@ impl Vdp {
         match self.debug_register.forced_plane {
             Plane::Background => {
                 // Fill border with background color
-                let bg_color = colors::resolve_color(
-                    &self.cram,
-                    self.registers.background_palette,
-                    self.registers.background_color_id,
-                );
+                let bg_color = self.backdrop_color();
                 for col in right_border_start..screen_width {
                     set_in_frame_buffer(
                         &mut self.frame_buffer,
@@ -732,6 +725,18 @@ impl Vdp {
             screen_width,
             self.config.emulate_non_linear_dac,
         );
+    }
+
+    fn backdrop_color(&self) -> u16 {
+        if self.config.backdrop_enabled {
+            colors::resolve_color(
+                &self.cram,
+                self.registers.background_palette,
+                self.registers.background_color_id,
+            )
+        } else {
+            0
+        }
     }
 }
 

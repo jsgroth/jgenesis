@@ -87,6 +87,14 @@ pub const RENDER_BORDERS: HelpText = HelpText {
     ],
 };
 
+pub const ENABLED_LAYERS: HelpText = HelpText {
+    heading: "Enabled Layers",
+    text: &[
+        "Control which layers are rendered.",
+        "Disabling the backdrop causes the VDP to render black instead of the backdrop color.",
+    ],
+};
+
 pub const S32X_VIDEO_OUT: HelpText = HelpText {
     heading: "32X Video Output",
     text: &[
