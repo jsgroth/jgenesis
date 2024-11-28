@@ -1,7 +1,11 @@
+//! GBA bus / memory map
+
+use crate::apu::Apu;
 use crate::control::ControlRegisters;
 use crate::input::GbaInputs;
 use crate::memory::Memory;
 use crate::ppu::Ppu;
+use crate::timers::Timers;
 use arm7tdmi_emu::bus::BusInterface;
 use jgenesis_common::num::{GetBit, U16Ext};
 
@@ -51,8 +55,10 @@ pub const CARTRIDGE_RAM_END: u32 = 0x0E00FFFF;
 
 pub struct Bus<'a> {
     pub ppu: &'a mut Ppu,
+    pub apu: &'a mut Apu,
     pub memory: &'a mut Memory,
     pub control: &'a mut ControlRegisters,
+    pub timers: &'a mut Timers,
     pub inputs: GbaInputs,
 }
 
@@ -60,19 +66,14 @@ pub struct Bus<'a> {
 // TODO BIOS read restrictions (can only read BIOS while executing in BIOS)
 impl Bus<'_> {
     fn read_io_register(&mut self, address: u32) -> u16 {
-        log::trace!("I/O register read {address:08X}");
-
-        match address {
+        let value = match address {
             0x04000000..=0x04000056 => self.ppu.read_register(address),
             0x04000060..=0x040000AF => {
                 log::error!("APU register read: {address:08X}");
                 0
             }
             0x040000B0..=0x040000DF => self.control.read_dma_register(address),
-            0x04000100..=0x0400010F => {
-                log::error!("Timer register read: {address:08X}");
-                0
-            }
+            0x04000100..=0x0400010F => self.timers.read_register(address),
             0x04000120..=0x0400012F | 0x04000134..=0x0400015F => {
                 log::error!("Serial register read: {address:08X}");
                 0
@@ -88,7 +89,11 @@ impl Bus<'_> {
                 !0
             }
             _ => todo!("I/O register read {address:08X}"),
-        }
+        };
+
+        log::trace!("I/O register read {address:08X} {value:04X}");
+
+        value
     }
 
     fn read_io_register_u8(&mut self, address: u32) -> u8 {
@@ -125,14 +130,10 @@ impl Bus<'_> {
 
         match address {
             0x04000000..=0x0400005F => self.ppu.write_register(address, value),
-            0x04000060..=0x040000AF => {
-                log::error!("APU register write: {address:08X} {value:04X}");
-            }
+            0x04000060..=0x040000AF => self.apu.write_register(address, value),
             0x040000B0..=0x040000DF => self.control.write_dma_register(address, value),
             0x040000E0..=0x040000FF => {}
-            0x04000100..=0x0400010F => {
-                log::error!("Timer register write: {address:08X} {value:04X}");
-            }
+            0x04000100..=0x0400010F => self.timers.write_register(address, value),
             0x04000110..=0x0400011F => {}
             0x04000120..=0x0400012F | 0x04000134..=0x0400015F => {
                 log::error!("Serial register write: {address:08X} {value:04X}");
@@ -188,10 +189,11 @@ impl BusInterface for Bus<'_> {
             IWRAM_START..=IWRAM_END => self.memory.read_iwram_byte(address),
             EWRAM_START..=EWRAM_END => self.memory.read_ewram_byte(address),
             MMIO_START..=MMIO_END => self.read_io_register_u8(address),
+            VRAM_START..=VRAM_END => self.ppu.read_vram_byte(address),
+            PALETTES_START..=PALETTES_END => self.ppu.read_palette_byte(address),
             CARTRIDGE_RAM_START..=CARTRIDGE_RAM_END => {
                 self.memory.cartridge.read_sram_byte(address)
             }
-            PALETTES_START..=PALETTES_END => self.ppu.read_palette_byte(address),
             BIOS_START..=BIOS_END => self.memory.read_bios_byte(address),
             _ => todo!("read byte {address:08X}"),
         }

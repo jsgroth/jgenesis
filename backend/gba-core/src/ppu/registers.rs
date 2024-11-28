@@ -94,11 +94,11 @@ pub enum ColorDepthBits {
 }
 
 impl ColorDepthBits {
-    pub fn from_bit(bit: bool) -> Self {
+    pub const fn from_bit(bit: bool) -> Self {
         if bit { Self::Eight } else { Self::Four }
     }
 
-    pub fn tile_size_bytes(self) -> u32 {
+    pub const fn tile_size_bytes(self) -> u32 {
         match self {
             Self::Four => 32,
             Self::Eight => 64,
@@ -179,6 +179,17 @@ pub struct BgControl {
     pub screen_size: BgScreenSize,
 }
 
+impl BgControl {
+    pub fn affine_size_tiles(&self) -> i32 {
+        match self.screen_size {
+            BgScreenSize::Zero => 16,
+            BgScreenSize::One => 32,
+            BgScreenSize::Two => 64,
+            BgScreenSize::Three => 128,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
 pub enum BlendMode {
     #[default]
@@ -223,6 +234,9 @@ pub struct Registers {
     pub bg_h_scroll: [u32; 4],
     // BG0VOFS/BG1VOFS/BG2VOFS/BG3VOFS: BG0-3 vertical offset
     pub bg_v_scroll: [u32; 4],
+    // Affine BG parameters (BGnX, BGnY, BGnPA, BGnPB, BGnPC, BGnPD)
+    pub bg_affine_parameters: [[i32; 4]; 2],
+    pub bg_affine_point: [[i32; 2]; 2],
     // WIN0H/WIN1H: Window 0/1 horizontal coordinates
     pub window_x1: [u32; 2],
     pub window_x2: [u32; 2],
@@ -262,7 +276,11 @@ pub struct Registers {
 
 impl Registers {
     pub fn new() -> Self {
-        Self { forced_blanking: true, ..Self::default() }
+        Self {
+            forced_blanking: true,
+            bg_affine_parameters: array::from_fn(|_| [1 << 8, 0, 0, 1 << 8]),
+            ..Self::default()
+        }
     }
 
     // $04000000: DISPCNT (Display control)
@@ -404,6 +422,69 @@ impl Registers {
 
         log::trace!("BG{bg}VOFS write: {value:04X}");
         log::trace!("  Vertical offset: {}", self.bg_v_scroll[bg]);
+    }
+
+    // $04000020: BG2PA (BG2 affine parameter A)
+    // $04000022: BG2PB (BG2 affine parameter B)
+    // $04000024: BG2PC (BG2 affine parameter C)
+    // $04000026: BG2PD (BG2 affine parameter D)
+    // $04000030: BG3PA
+    // $04000032: BG3PB
+    // $04000034: BG3PC
+    // $04000036: BG3PD
+    pub fn write_bg_affine_parameter(&mut self, bg: usize, parameter: usize, value: u16) {
+        // Sign extend from 16 to 32 bits - affine parameters are fixed point decimal 1/7/8
+        self.bg_affine_parameters[bg - 2][parameter] = (value as i16).into();
+        log::trace!("BG{bg}P{} write: {value:04X}", ["A", "B", "C", "D"][parameter]);
+        log::trace!(
+            "  Parameter value: {}",
+            f64::from(self.bg_affine_parameters[bg - 2][parameter]) / 256.0
+        );
+    }
+
+    // $04000028: BG2X_L (BG2 center X coordinate, low halfword)
+    // $04000038: BG3X_L
+    pub fn write_bgx_l(&mut self, bg: usize, value: u16) {
+        self.write_bgxy_l(bg, 0, value);
+        log::trace!("BG{bg}X_L write: {value:04X}");
+        log::trace!("  Center X: {}", f64::from(self.bg_affine_point[bg - 2][0]) / 256.0);
+    }
+
+    // $0400002A: BG2X_H (BG2 center X coordinate, high halfword)
+    // $0400003A: BG3X_H
+    pub fn write_bgx_h(&mut self, bg: usize, value: u16) {
+        self.write_bgxy_h(bg, 0, value);
+        log::trace!("BG{bg}X_H write: {value:04X}");
+        log::trace!("  Center X: {}", f64::from(self.bg_affine_point[bg - 2][0]) / 256.0);
+    }
+
+    // $0400002C: BG2Y_L (BG2 center Y coordinate, low halfword)
+    // $0400003C: BG3Y_L
+    pub fn write_bgy_l(&mut self, bg: usize, value: u16) {
+        self.write_bgxy_l(bg, 1, value);
+        log::trace!("BG{bg}Y_L write: {value:04X}");
+        log::trace!("  Center Y: {}", f64::from(self.bg_affine_point[bg - 2][1]) / 256.0);
+    }
+
+    // $0400002E: BG2Y_H (BG2 center Y coordinate, high halfword)
+    // $0400003E: BG3Y_H
+    pub fn write_bgy_h(&mut self, bg: usize, value: u16) {
+        self.write_bgxy_h(bg, 1, value);
+        log::trace!("BG{bg}Y_H write: {value:04X}");
+        log::trace!("  Center Y: {}", f64::from(self.bg_affine_point[bg - 2][1]) / 256.0);
+    }
+
+    fn write_bgxy_l(&mut self, bg: usize, xy: usize, value: u16) {
+        let field = &mut self.bg_affine_point[bg - 2][xy];
+        *field = (*field & !0xFFFF) | i32::from(value);
+    }
+
+    fn write_bgxy_h(&mut self, bg: usize, xy: usize, value: u16) {
+        let field = &mut self.bg_affine_point[bg - 2][xy];
+        *field = (*field & 0xFFFF) | (i32::from(value) << 16);
+
+        // Clip to signed 28-bit - center coordinates are fixed point decimal 1/19/8
+        *field = (*field << 4) >> 4;
     }
 
     // $04000040: WIN0H (Window 0 horizontal coordinates)
@@ -575,5 +656,9 @@ impl Registers {
 
     pub fn any_window_enabled(&self) -> bool {
         self.window_enabled[0] || self.window_enabled[1] || self.obj_window_enabled
+    }
+
+    pub fn page_flipped_bitmap_address(&self) -> u32 {
+        if self.bitmap_frame_buffer_1 { 40 * 1024 } else { 0 }
     }
 }

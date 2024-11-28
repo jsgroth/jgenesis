@@ -1,3 +1,7 @@
+//! GBA control registers and DMA
+
+use crate::apu;
+use crate::apu::Apu;
 use crate::bus::Bus;
 use arm7tdmi_emu::bus::BusInterface;
 use bincode::{Decode, Encode};
@@ -40,6 +44,10 @@ impl InterruptType {
             Self::Keypad => 1 << 12,
             Self::GamePak => 1 << 13,
         }
+    }
+
+    pub fn timer(timer_idx: usize) -> Self {
+        [Self::Timer0, Self::Timer1, Self::Timer2, Self::Timer3][timer_idx]
     }
 }
 
@@ -226,6 +234,7 @@ impl DmaChannel {
         ((self.dest_address_step as u16) << 5)
             | ((self.source_address_step as u16) << 7)
             | (u16::from(self.repeat) << 9)
+            | ((self.unit as u16) << 10)
             | (u16::from(self.game_pak_drq) << 11)
             | ((self.start_trigger as u16) << 12)
             | (u16::from(self.irq_enabled) << 14)
@@ -256,6 +265,8 @@ impl DmaChannel {
             if self.start_trigger == DmaStartTrigger::Immediate {
                 state.add_active_channel(self.idx);
             }
+        } else if self.enabled && !enabled {
+            state.remove_active_channel(self.idx);
         }
         self.enabled = enabled;
 
@@ -271,36 +282,56 @@ impl DmaChannel {
     }
 
     pub fn run_dma(&mut self, bus: &mut Bus<'_>) -> u32 {
-        log::debug!("Running DMA on channel {}", self.idx);
+        log::debug!(
+            "Running DMA on channel {}; source=${:X}, dest=${:X}, length={}",
+            self.idx,
+            self.internal_source_address,
+            self.internal_dest_address,
+            self.internal_length
+        );
 
-        match self.unit {
-            DmaTransferUnit::Halfword => {
-                for _ in 0..self.internal_length {
-                    let halfword = bus.read_halfword(self.internal_source_address);
-                    bus.write_halfword(self.internal_dest_address, halfword);
+        let audio_mode =
+            (self.idx == 1 || self.idx == 2) && self.start_trigger == DmaStartTrigger::Special;
+        if audio_mode {
+            // Audio DMA ignores length, unit, and destination address step
+            for _ in 0..4 {
+                let word = bus.read_word(self.internal_source_address);
+                bus.write_word(self.internal_dest_address, word);
 
-                    self.internal_source_address =
-                        self.source_address_step.apply(self.internal_source_address, 2);
-                    self.internal_dest_address =
-                        self.dest_address_step.apply(self.internal_dest_address, 2);
-                }
+                self.internal_source_address =
+                    self.source_address_step.apply(self.internal_source_address, 4);
             }
-            DmaTransferUnit::Word => {
-                for _ in 0..self.internal_length {
-                    let word = bus.read_word(self.internal_source_address);
-                    bus.write_word(self.internal_dest_address, word);
+        } else {
+            match self.unit {
+                DmaTransferUnit::Halfword => {
+                    for _ in 0..self.internal_length {
+                        let halfword = bus.read_halfword(self.internal_source_address);
+                        bus.write_halfword(self.internal_dest_address, halfword);
 
-                    self.internal_source_address =
-                        self.source_address_step.apply(self.internal_source_address, 4);
-                    self.internal_dest_address =
-                        self.dest_address_step.apply(self.internal_dest_address, 4);
+                        self.internal_source_address =
+                            self.source_address_step.apply(self.internal_source_address, 2);
+                        self.internal_dest_address =
+                            self.dest_address_step.apply(self.internal_dest_address, 2);
+                    }
+                }
+                DmaTransferUnit::Word => {
+                    for _ in 0..self.internal_length {
+                        let word = bus.read_word(self.internal_source_address);
+                        bus.write_word(self.internal_dest_address, word);
+
+                        self.internal_source_address =
+                            self.source_address_step.apply(self.internal_source_address, 4);
+                        self.internal_dest_address =
+                            self.dest_address_step.apply(self.internal_dest_address, 4);
+                    }
                 }
             }
         }
 
         // 2N + 2*(n-1)*S + 2I
         // TODO +2I if source and destination addresses are both in cartridge memory
-        let cycles = 4 + 2 * (self.internal_length - 1);
+        let effective_length = if audio_mode { 4 } else { self.internal_length };
+        let cycles = 4 + 2 * (effective_length - 1);
 
         self.internal_length = 0;
         self.enabled = self.repeat;
@@ -311,7 +342,7 @@ impl DmaChannel {
             }
         }
 
-        bus.control.dma_state.remove_active_channel();
+        bus.control.dma_state.remove_current_active_channel();
 
         if self.irq_enabled {
             bus.control.set_interrupt_flag(self.irq);
@@ -344,8 +375,12 @@ impl DmaState {
         self.active_channels.insert(i, channel);
     }
 
-    fn remove_active_channel(&mut self) {
+    fn remove_current_active_channel(&mut self) {
         self.active_channels.remove(0);
+    }
+
+    fn remove_active_channel(&mut self, channel: u32) {
+        self.active_channels.retain(|&active_channel| active_channel != channel);
     }
 }
 
@@ -489,6 +524,32 @@ impl ControlRegisters {
         for (channel_idx, channel) in self.dma.iter().enumerate() {
             if channel.enabled && channel.start_trigger == DmaStartTrigger::HBlank {
                 self.dma_state.add_active_channel(channel_idx as u32);
+            }
+        }
+    }
+
+    pub fn update_audio_drq(&mut self, apu: &Apu) {
+        if apu.fifo_a_drq() {
+            for channel in [1, 2] {
+                if self.dma[channel].enabled
+                    && self.dma[channel].start_trigger == DmaStartTrigger::Special
+                    && self.dma[channel].internal_dest_address == apu::FIFO_A_ADDRESS
+                {
+                    log::trace!("Adding {channel} for FIFO A; len is {}", apu.fifo_a_len());
+                    self.dma_state.add_active_channel(channel as u32);
+                }
+            }
+        }
+
+        if apu.fifo_b_drq() {
+            for channel in [1, 2] {
+                if self.dma[channel].enabled
+                    && self.dma[channel].start_trigger == DmaStartTrigger::Special
+                    && self.dma[channel].internal_dest_address == apu::FIFO_B_ADDRESS
+                {
+                    log::trace!("Adding {channel} for FIFO B; len is {}", apu.fifo_b_len());
+                    self.dma_state.add_active_channel(channel as u32);
+                }
             }
         }
     }

@@ -1,9 +1,13 @@
+//! GBA public interface and main loop
+
+use crate::apu::Apu;
 use crate::bus::Bus;
 use crate::cartridge::Cartridge;
 use crate::control::ControlRegisters;
 use crate::input::GbaInputs;
 use crate::memory::Memory;
 use crate::ppu::{Ppu, PpuTickEffect};
+use crate::timers::Timers;
 use crate::{bus, ppu};
 use arm7tdmi_emu::{Arm7Tdmi, Arm7TdmiResetArgs, CpuMode};
 use bincode::{Decode, Encode};
@@ -41,10 +45,25 @@ pub enum GbaInitializationError {
 pub struct GameBoyAdvanceEmulator {
     cpu: Arm7Tdmi,
     ppu: Ppu,
+    apu: Apu,
     #[partial_clone(partial)]
     memory: Memory,
     control: ControlRegisters,
+    timers: Timers,
     ppu_mclk_counter: u32,
+}
+
+macro_rules! new_bus {
+    ($self:expr, $inputs:expr) => {
+        Bus {
+            ppu: &mut $self.ppu,
+            apu: &mut $self.apu,
+            memory: &mut $self.memory,
+            control: &mut $self.control,
+            timers: &mut $self.timers,
+            inputs: $inputs,
+        }
+    };
 }
 
 impl GameBoyAdvanceEmulator {
@@ -60,8 +79,10 @@ impl GameBoyAdvanceEmulator {
         let mut emulator = Self {
             cpu: Arm7Tdmi::new(),
             ppu: Ppu::new(),
-            control: ControlRegisters::new(),
+            apu: Apu::new(),
             memory,
+            control: ControlRegisters::new(),
+            timers: Timers::new(),
             ppu_mclk_counter: 0,
         };
 
@@ -75,12 +96,7 @@ impl GameBoyAdvanceEmulator {
                 sp_fiq: 0x03007E00,
                 mode: CpuMode::System,
             },
-            &mut Bus {
-                ppu: &mut emulator.ppu,
-                memory: &mut emulator.memory,
-                control: &mut emulator.control,
-                inputs: GbaInputs::default(),
-            },
+            &mut new_bus!(emulator, GbaInputs::default()),
         );
 
         Ok(emulator)
@@ -119,12 +135,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
         S: SaveWriter,
         S::Err: Debug + Display + Send + Sync + 'static,
     {
-        let mut bus = Bus {
-            ppu: &mut self.ppu,
-            memory: &mut self.memory,
-            control: &mut self.control,
-            inputs: *inputs,
-        };
+        let mut bus = new_bus!(self, *inputs);
 
         let cpu_cycles = match bus.control.dma_state.active_channels.get(0).copied() {
             Some(channel_idx) => {
@@ -135,6 +146,10 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
             }
             None => self.cpu.execute_instruction(&mut bus),
         };
+
+        self.timers.tick(cpu_cycles, &mut self.apu, &mut self.control);
+        self.apu.tick(cpu_cycles, audio_output).map_err(GbaError::Audio)?;
+        self.control.update_audio_drq(&self.apu);
 
         self.ppu_mclk_counter += cpu_cycles;
         let ppu_cycles = self.ppu_mclk_counter / PPU_DIVIDER;

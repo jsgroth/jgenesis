@@ -1,8 +1,14 @@
+//! GBA PPU (picture processing unit, i.e. the graphics processor)
+//!
+//! The GBA PPU is descended from the SNES PPU, but it's simplified in ways that largely make sense.
+//! It also adds some nifty new features like affine sprites and bitmap display modes.
+
 mod registers;
 
 use crate::control::{ControlRegisters, InterruptType};
 use crate::ppu::registers::{
-    BgMode, BgScreenSize, BlendMode, ColorDepthBits, ObjTileLayout, Registers,
+    AffineOverflowBehavior, BgMode, BgScreenSize, BlendMode, ColorDepthBits, ObjTileLayout,
+    Registers,
 };
 use bincode::{Decode, Encode};
 use jgenesis_common::boxedarray::{BoxedByteArray, BoxedWordArray};
@@ -61,11 +67,44 @@ impl FrameBuffer {
 struct State {
     scanline: u32,
     dot: u32,
+    // Internal registers used for affine BG rendering
+    // For a reference point (X0, Y0) and affine parameters B and D:
+    //   X = X0 + B * line
+    //   Y = Y0 + D * line
+    affine_bg_x: [i32; 2],
+    affine_bg_y: [i32; 2],
 }
 
 impl State {
     fn new() -> Self {
-        Self { scanline: 0, dot: 0 }
+        Self { scanline: 0, dot: 0, affine_bg_x: [0, 0], affine_bg_y: [0, 0] }
+    }
+
+    // Called whenever BG2X or BG3X is written
+    fn handle_bgx_update(&mut self, bg: usize, registers: &Registers) {
+        self.affine_bg_x[bg - 2] = registers.bg_affine_point[bg - 2][0];
+    }
+
+    // Called whenever BG2Y or BG3Y is written
+    fn handle_bgy_update(&mut self, bg: usize, registers: &Registers) {
+        self.affine_bg_y[bg - 2] = registers.bg_affine_point[bg - 2][1];
+    }
+
+    // Called once per line, at the start of HBlank
+    fn increment_internal_affine_registers(&mut self, registers: &Registers) {
+        for bg in 0..2 {
+            let [_, b, _, d] = registers.bg_affine_parameters[bg];
+            self.affine_bg_x[bg] += b;
+            self.affine_bg_y[bg] += d;
+        }
+    }
+
+    // Called once per frame, at the start of VBlank
+    fn reset_internal_affine_registers(&mut self, registers: &Registers) {
+        for bg in 0..2 {
+            self.affine_bg_x[bg] = registers.bg_affine_point[bg][0];
+            self.affine_bg_y[bg] = registers.bg_affine_point[bg][1];
+        }
     }
 }
 
@@ -392,6 +431,7 @@ impl Ppu {
             if self.state.scanline < SCREEN_HEIGHT {
                 self.render_current_line();
                 control.trigger_hblank_dma();
+                self.state.increment_internal_affine_registers(&self.registers);
             }
 
             if self.registers.hblank_irq_enabled {
@@ -400,15 +440,10 @@ impl Ppu {
             }
         }
 
+        let mut tick_effect = PpuTickEffect::None;
         if self.state.dot >= DOTS_PER_LINE {
             self.state.dot -= DOTS_PER_LINE;
             self.state.scanline += 1;
-
-            if self.registers.v_counter_irq_enabled
-                && self.state.scanline == self.registers.v_counter_target
-            {
-                control.set_interrupt_flag(InterruptType::VCounterMatch);
-            }
 
             match self.state.scanline {
                 SCREEN_HEIGHT => {
@@ -417,16 +452,24 @@ impl Ppu {
                     }
                     control.trigger_vblank_dma();
 
-                    return PpuTickEffect::FrameComplete;
+                    self.state.reset_internal_affine_registers(&self.registers);
+
+                    tick_effect = PpuTickEffect::FrameComplete;
                 }
                 LINES_PER_FRAME => {
                     self.state.scanline = 0;
                 }
                 _ => {}
             }
+
+            if self.registers.v_counter_irq_enabled
+                && self.state.scanline == self.registers.v_counter_target
+            {
+                control.set_interrupt_flag(InterruptType::VCounterMatch);
+            }
         }
 
-        PpuTickEffect::None
+        tick_effect
     }
 
     fn render_current_line(&mut self) {
@@ -481,8 +524,6 @@ impl Ppu {
             return;
         }
 
-        let is_bitmap_mode = self.registers.bg_mode.is_bitmap();
-
         // TODO sprite limits
         let scanline = self.state.scanline;
         for oam_idx in 0..128 {
@@ -508,16 +549,8 @@ impl Ppu {
                 continue;
             }
 
-            let is_8bpp = oam_entry.color_depth == ColorDepthBits::Eight;
-            if is_8bpp {
+            if oam_entry.color_depth == ColorDepthBits::Eight {
                 oam_entry.palette = 0;
-                // TODO should this actually be masked out?
-                oam_entry.tile_number &= !1;
-            }
-
-            if is_bitmap_mode && oam_entry.tile_number < 512 {
-                // Sprite tiles 0-511 do not render in bitmap modes
-                continue;
             }
 
             let line = if oam_entry.mosaic {
@@ -620,11 +653,16 @@ impl Ppu {
             {
                 // Already a non-transparent sprite pixel from a sprite with a lower OAM index
                 let existing_priority = self.buffers.obj_priority[col as usize];
-                self.buffers.obj_priority[col as usize] =
-                    cmp::min(existing_priority, oam_entry.priority);
                 if oam_entry.priority >= existing_priority {
+                    // Existing pixel is same or higher priority; skip this pixel
                     continue;
                 }
+
+                // Hardware quirk: an overlapping sprite with higher OAM index and lower priority
+                // _always_ updates the priority and mosaic buffers, even if the lower-priority
+                // sprite is transparent
+                self.buffers.obj_priority[col as usize] = oam_entry.priority;
+                self.buffers.obj_mosaic[col as usize] = oam_entry.mosaic;
             }
 
             // Convert from 1/256 pixel units to pixel units and check bounds
@@ -646,27 +684,32 @@ impl Ppu {
         sprite_y: u32,
         width: u32,
     ) {
-        self.buffers.obj_mosaic[col as usize] = oam_entry.mosaic;
-
         let tile_x_offset = sprite_x / 8;
         let tile_col = sprite_x % 8;
         let tile_y_offset = sprite_y / 8;
         let tile_row = sprite_y % 8;
 
-        // TODO handle 8bpp sprites correctly
+        let bpp_shift = u32::from(oam_entry.color_depth == ColorDepthBits::Eight);
         let adjusted_tile_number = match self.registers.obj_tile_layout {
             ObjTileLayout::TwoD => {
-                let x = (oam_entry.tile_number + tile_x_offset) & 0x1F;
+                // TODO how should out-of-bounds be handled?
+                let x = (oam_entry.tile_number + (tile_x_offset << bpp_shift)) & 0x1F;
                 let y = (oam_entry.tile_number + (tile_y_offset << 5)) & (0x1F << 5);
                 y | x
             }
             ObjTileLayout::OneD => {
                 let offset = tile_y_offset * width / 8 + tile_x_offset;
-                (oam_entry.tile_number + offset) & 0x3FF
+                (oam_entry.tile_number + (offset << bpp_shift)) & 0x3FF
             }
         };
 
-        let tile_data_addr = (0x10000 | (32 * adjusted_tile_number)) + tile_row * 4 + tile_col / 2;
+        if self.registers.bg_mode.is_bitmap() && adjusted_tile_number < 512 {
+            // Sprite tiles 0-511 do not render in bitmap modes
+            return;
+        }
+
+        let tile_data_addr = (0x10000 | (32 * adjusted_tile_number))
+            + ((tile_row * 8 + tile_col) >> (1 - bpp_shift));
         let color = match oam_entry.color_depth {
             ColorDepthBits::Four => {
                 (self.vram[tile_data_addr as usize] >> (4 * (tile_col & 1))) & 0xF
@@ -692,6 +735,9 @@ impl Ppu {
                 self.buffers.obj_priority[col as usize] = oam_entry.priority;
                 self.buffers.obj_semi_transparent[col as usize] =
                     oam_entry.mode == SpriteMode::SemiTransparent;
+
+                // TODO should the mosaic flag be set for transparent sprite pixels?
+                self.buffers.obj_mosaic[col as usize] = oam_entry.mosaic;
             }
         }
     }
@@ -701,28 +747,45 @@ impl Ppu {
             BgMode::Zero => {
                 // BG0-3 all in tile map mode
                 for bg in 0..4 {
-                    self.render_tile_map_bg_to_buffer(bg);
+                    self.render_tile_map_bg(bg);
                 }
             }
             BgMode::One => {
                 // BG0-1 in tile map mode, BG2 in affine mode
                 for bg in 0..2 {
-                    self.render_tile_map_bg_to_buffer(bg);
+                    self.render_tile_map_bg(bg);
                 }
-                // TODO render BG2 affine
+
+                let affine_dimension_tiles = self.registers.bg_control[2].affine_size_tiles();
+                self.render_affine_bg(2, move |ppu, x, y| {
+                    ppu.sample_tile_map(2, affine_dimension_tiles, x, y)
+                });
             }
             BgMode::Two => {
                 // BG2-3 in affine mode
-                // TODO render BG2/BG3 affine
+                for bg in 2..4 {
+                    let affine_dimension_tiles = self.registers.bg_control[bg].affine_size_tiles();
+                    self.render_affine_bg(bg, move |ppu, x, y| {
+                        ppu.sample_tile_map(bg, affine_dimension_tiles, x, y)
+                    });
+                }
             }
-            BgMode::Three | BgMode::Four | BgMode::Five => {
-                // BG2 bitmap modes
-                self.render_bitmap_to_buffer();
+            BgMode::Three => {
+                // BG2 in bitmap mode, 15bpp 240x160
+                self.render_affine_bg(2, Self::sample_bitmap_mode_3);
+            }
+            BgMode::Four => {
+                // BG2 in bitmap mode, 8bpp 240x160 with page flipping
+                self.render_affine_bg(2, Self::sample_bitmap_mode_4);
+            }
+            BgMode::Five => {
+                // BG2 in bitmap mode, 15bpp 160x128 with page flipping
+                self.render_affine_bg(2, Self::sample_bitmap_mode_5);
             }
         }
     }
 
-    fn render_tile_map_bg_to_buffer(&mut self, bg: usize) {
+    fn render_tile_map_bg(&mut self, bg: usize) {
         if !self.registers.bg_enabled[bg] {
             return;
         }
@@ -817,84 +880,135 @@ impl Ppu {
             bg_x = (bg_x + 8) & (bg_width_pixels - 1);
         }
 
-        // Apply horizontal mosaic
-        if bg_control.mosaic {
-            let mosaic_width = self.registers.bg_mosaic_width + 1;
-            for x in (0..SCREEN_WIDTH).step_by(mosaic_width as usize) {
-                let end = cmp::min(mosaic_width, SCREEN_WIDTH - x);
-                for i in 1..end {
-                    bg_buffer[(x + i) as usize] = bg_buffer[x as usize];
-                }
-            }
-        }
+        self.apply_bg_mosaic(bg);
     }
 
-    fn render_bitmap_to_buffer(&mut self) {
-        if !self.registers.bg_enabled[2] {
+    fn render_affine_bg(&mut self, bg: usize, sample_fn: impl Fn(&Self, i32, i32) -> u16) {
+        if !self.registers.bg_enabled[bg] {
             return;
         }
 
-        match self.registers.bg_mode {
-            BgMode::Three => {
-                // 15bpp 240x160
-                self.render_bitmap_to_buffer_inner(|vram, row, col| {
-                    let vram_addr = (2 * (row * SCREEN_WIDTH + col)) as usize;
-                    u16::from_le_bytes([vram[vram_addr], vram[vram_addr + 1]])
-                });
-            }
-            BgMode::Four => {
-                // 8bpp 240x160 with page flipping
-                let base_vram_addr =
-                    if self.registers.bitmap_frame_buffer_1 { 40 * 1024 } else { 0 };
-                self.render_bitmap_to_buffer_inner(|vram, row, col| {
-                    let vram_addr = (base_vram_addr + row * SCREEN_WIDTH + col) as usize;
-                    vram[vram_addr].into()
-                });
-            }
-            BgMode::Five => {
-                // 15bpp 160x128 with page flipping
-                if self.state.scanline >= MODE_5_BITMAP_HEIGHT {
-                    self.buffers.bg_colors[2].fill(0);
-                    return;
-                }
+        let [a, _, c, _] = self.registers.bg_affine_parameters[bg - 2];
 
-                let base_vram_addr =
-                    if self.registers.bitmap_frame_buffer_1 { 40 * 1024 } else { 0 };
-                self.render_bitmap_to_buffer_inner(|vram, row, col| {
-                    if col >= MODE_5_BITMAP_WIDTH {
-                        return 0;
-                    }
+        // Given the internal affine BG registers X and Y, and affine parameters A and C:
+        //   bg_x = X + A * pixel
+        //   bg_y = Y + C * pixel
+        // Fully expanded formula (though it would be inaccurate to compute this way):
+        //   bg_x = X0 + A * pixel + B * line
+        //   bg_y = Y0 + C * pixel + D * line
+        let mut bg_x = self.state.affine_bg_x[bg - 2] - a;
+        let mut bg_y = self.state.affine_bg_y[bg - 2] - c;
+        for x in 0..SCREEN_WIDTH {
+            bg_x += a;
+            bg_y += c;
 
-                    let vram_addr =
-                        (base_vram_addr + 2 * (row * MODE_5_BITMAP_WIDTH + col)) as usize;
-                    u16::from_le_bytes([vram[vram_addr], vram[vram_addr + 1]])
-                });
+            // Convert from 1/256 pixel units to pixels
+            let bg_x = bg_x >> 8;
+            let bg_y = bg_y >> 8;
 
-                self.buffers.bg_colors[2][MODE_5_BITMAP_WIDTH as usize..].fill(0);
-            }
-            _ => panic!(
-                "render_bitmap_to_buffer() called in a non-bitmap mode {:?}",
-                self.registers.bg_mode
-            ),
+            let color = sample_fn(self, bg_x, bg_y);
+            self.buffers.bg_colors[bg][x as usize] = color.into();
         }
+
+        self.apply_bg_mosaic(bg);
     }
 
-    fn render_bitmap_to_buffer_inner(
-        &mut self,
-        pixel_fn: impl Fn(&[u8; VRAM_LEN], u32, u32) -> u16,
-    ) {
-        if !self.registers.bg_enabled[2] {
+    fn sample_tile_map(&self, bg: usize, screen_dimension_tiles: i32, x: i32, y: i32) -> u16 {
+        let mut tile_map_x = x >> 3;
+        let mut tile_map_y = y >> 3;
+        if !(0..screen_dimension_tiles).contains(&tile_map_x)
+            || !(0..screen_dimension_tiles).contains(&tile_map_y)
+        {
+            match self.registers.bg_control[bg].affine_overflow {
+                AffineOverflowBehavior::Transparent => {
+                    return 0;
+                }
+                AffineOverflowBehavior::Wrap => {
+                    tile_map_x &= screen_dimension_tiles - 1;
+                    tile_map_y &= screen_dimension_tiles - 1;
+                }
+            }
+        }
+
+        // Tile map X/Y are now guaranteed to be within the tile map
+        let tile_map_addr = self.registers.bg_control[bg].tile_map_base_addr
+            + (tile_map_y * screen_dimension_tiles + tile_map_x) as u32;
+        if tile_map_addr > 0xFFFF {
+            // TODO what should happen when tile map address goes out of bounds?
+            return 0;
+        }
+
+        let tile_number: u32 = self.vram[tile_map_addr as usize].into();
+
+        let tile_row = (y & 7) as u32;
+        let tile_col = (x & 7) as u32;
+        let tile_data_addr = self.registers.bg_control[bg].tile_data_base_addr
+            + tile_number * ColorDepthBits::Eight.tile_size_bytes()
+            + 8 * tile_row
+            + tile_col;
+        if tile_data_addr > 0xFFFF {
+            // TODO what should happen when tile data address goes out of bounds?
+            return 0;
+        }
+
+        self.vram[tile_data_addr as usize].into()
+    }
+
+    fn sample_bitmap_mode_3(&self, x: i32, y: i32) -> u16 {
+        if !(0..SCREEN_WIDTH as i32).contains(&x) || !(0..SCREEN_HEIGHT as i32).contains(&y) {
+            return 0;
+        }
+
+        let x = x as u32;
+        let y = y as u32;
+        let vram_addr = (2 * (y * SCREEN_WIDTH + x)) as usize;
+        u16::from_le_bytes(self.vram[vram_addr..vram_addr + 2].try_into().unwrap())
+    }
+
+    fn sample_bitmap_mode_4(&self, x: i32, y: i32) -> u16 {
+        if !(0..SCREEN_WIDTH as i32).contains(&x) || !(0..SCREEN_HEIGHT as i32).contains(&y) {
+            return 0;
+        }
+
+        let x = x as u32;
+        let y = y as u32;
+        let base_vram_addr = self.registers.page_flipped_bitmap_address();
+        let vram_addr = base_vram_addr + y * SCREEN_WIDTH + x;
+        self.palette_ram[self.vram[vram_addr as usize] as usize]
+    }
+
+    fn sample_bitmap_mode_5(&self, x: i32, y: i32) -> u16 {
+        if !(0..MODE_5_BITMAP_WIDTH as i32).contains(&x)
+            || !(0..MODE_5_BITMAP_HEIGHT as i32).contains(&y)
+        {
+            return 0;
+        }
+
+        let x = x as u32;
+        let y = y as u32;
+        let base_vram_addr = self.registers.page_flipped_bitmap_address();
+        let vram_addr = (base_vram_addr + 2 * (y * MODE_5_BITMAP_WIDTH + x)) as usize;
+        u16::from_le_bytes(self.vram[vram_addr..vram_addr + 2].try_into().unwrap())
+    }
+
+    fn apply_bg_mosaic(&mut self, bg: usize) {
+        if !self.registers.bg_control[bg].mosaic {
             return;
         }
 
-        let row = self.state.scanline;
-        for col in 0..SCREEN_WIDTH {
-            let pixel = pixel_fn(self.vram.as_ref(), row, col);
-            self.buffers.bg_colors[2][col as usize] = pixel;
+        let bg_buffer = &mut self.buffers.bg_colors[bg];
+        let mosaic_width = self.registers.bg_mosaic_width + 1;
+        for x in (0..SCREEN_WIDTH).step_by(mosaic_width as usize) {
+            let end = cmp::min(mosaic_width, SCREEN_WIDTH - x);
+            for i in 1..end {
+                bg_buffer[(x + i) as usize] = bg_buffer[x as usize];
+            }
         }
     }
 
     fn merge_layers(&mut self) {
+        let is_bitmap = self.registers.bg_mode.is_bitmap();
+
         // Process BGs in reverse order because BG0 is highest priority in ties
         for bg in (0..4).rev() {
             if !self.registers.bg_enabled[bg] || !self.registers.bg_mode.bg_enabled(bg) {
@@ -908,7 +1022,7 @@ impl Ppu {
 
             for col in 0..SCREEN_WIDTH as usize {
                 let color = self.buffers.bg_colors[bg][col];
-                if color == 0 {
+                if color == 0 && !is_bitmap {
                     continue;
                 }
 
@@ -945,14 +1059,13 @@ impl Ppu {
             }
         }
 
-        let is_15bpp_bitmap = self.registers.bg_mode.is_15bpp_bitmap();
         for col in 0..SCREEN_WIDTH as usize {
-            if !(is_15bpp_bitmap && self.buffers.resolved_layers[col] == Layer::Bg2) {
+            if !(is_bitmap && self.buffers.resolved_layers[col] == Layer::Bg2) {
                 let color = self.buffers.resolved_colors[col];
                 self.buffers.resolved_colors[col] = self.palette_ram[color as usize];
             }
 
-            if !(is_15bpp_bitmap && self.buffers.second_resolved_layers[col] == Layer::Bg2) {
+            if !(is_bitmap && self.buffers.second_resolved_layers[col] == Layer::Bg2) {
                 let color = self.buffers.second_resolved_colors[col];
                 self.buffers.second_resolved_colors[col] = self.palette_ram[color as usize];
             }
@@ -1020,6 +1133,10 @@ impl Ppu {
                 }
             }
         }
+    }
+
+    pub fn read_vram_byte(&self, address: u32) -> u8 {
+        self.vram[vram_address(address)]
     }
 
     pub fn read_vram_halfword(&self, address: u32) -> u16 {
@@ -1130,6 +1247,10 @@ impl Ppu {
         match address & 0xFF {
             0x00 => self.registers.write_dispcnt(value),
             0x04 => self.registers.write_dispstat(value),
+            0x08..=0x0F => {
+                let bg = (address >> 1) & 3;
+                self.registers.write_bgcnt(bg as usize, value);
+            }
             0x10 | 0x14 | 0x18 | 0x1C => {
                 let bg = (address >> 2) & 3;
                 self.registers.write_bghofs(bg as usize, value);
@@ -1138,9 +1259,30 @@ impl Ppu {
                 let bg = (address >> 2) & 3;
                 self.registers.write_bgvofs(bg as usize, value);
             }
-            0x08..=0x0F => {
-                let bg = (address >> 1) & 3;
-                self.registers.write_bgcnt(bg as usize, value);
+            0x20..=0x27 | 0x30..=0x37 => {
+                let bg = (address >> 4) & 3;
+                let parameter = (address >> 1) & 3;
+                self.registers.write_bg_affine_parameter(bg as usize, parameter as usize, value);
+            }
+            0x28 | 0x38 => {
+                let bg = (address >> 4) & 3;
+                self.registers.write_bgx_l(bg as usize, value);
+                self.state.handle_bgx_update(bg as usize, &self.registers);
+            }
+            0x2A | 0x3A => {
+                let bg = (address >> 4) & 3;
+                self.registers.write_bgx_h(bg as usize, value);
+                self.state.handle_bgx_update(bg as usize, &self.registers);
+            }
+            0x2C | 0x3C => {
+                let bg = (address >> 4) & 3;
+                self.registers.write_bgy_l(bg as usize, value);
+                self.state.handle_bgy_update(bg as usize, &self.registers);
+            }
+            0x2E | 0x3E => {
+                let bg = (address >> 4) & 3;
+                self.registers.write_bgy_h(bg as usize, value);
+                self.state.handle_bgy_update(bg as usize, &self.registers);
             }
             0x40 | 0x42 => {
                 let window = (address >> 1) & 1;

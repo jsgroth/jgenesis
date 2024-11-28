@@ -1,3 +1,5 @@
+//! GBA input model
+
 use jgenesis_proc_macros::define_controller_inputs;
 
 define_controller_inputs! {
