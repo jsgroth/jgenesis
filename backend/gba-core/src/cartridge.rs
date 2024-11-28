@@ -1,3 +1,5 @@
+//! GBA cartridge code
+
 use bincode::{Decode, Encode};
 use jgenesis_proc_macros::{FakeDecode, FakeEncode, PartialClone};
 use std::array;

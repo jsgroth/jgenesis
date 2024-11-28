@@ -1,3 +1,5 @@
+//! GBA input model
+
 use jgenesis_common::define_controller_inputs;
 use jgenesis_common::frontend::MappableInputs;
 use jgenesis_common::input::Player;

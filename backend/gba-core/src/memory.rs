@@ -1,3 +1,5 @@
+//! GBA internal memory
+
 use crate::api::GbaInitializationError;
 use crate::cartridge::Cartridge;
 use bincode::{Decode, Encode};
