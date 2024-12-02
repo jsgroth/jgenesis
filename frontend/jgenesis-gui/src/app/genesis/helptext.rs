@@ -126,6 +126,15 @@ pub const LOW_PASS_FILTER: HelpText = HelpText {
     ],
 };
 
+pub const SCD_PCM_INTERPOLATION: HelpText = HelpText {
+    heading: "Sega CD PCM interpolation",
+    text: &[
+        "Choose the method used to interpolate when a PCM sound chip channel is partway between samples.",
+        "Not interpolating is more accurate to hardware but tends to cause significant audio aliasing in PCM chip audio output.",
+        "Cubic interpolation is generally higher-quality than linear, but may sound more muffled at low sample rates.",
+    ],
+};
+
 pub const SOUND_SOURCES: HelpText = HelpText {
     heading: "Sound Sources",
     text: &["Enable or disable specific sound sources in final audio mixing."],

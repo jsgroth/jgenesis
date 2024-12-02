@@ -8,6 +8,7 @@ use genesis_core::{GenesisAspectRatio, GenesisRegion};
 use jgenesis_common::frontend::TimingMode;
 use rfd::FileDialog;
 use s32x_core::api::S32XVideoOut;
+use segacd_core::api::PcmInterpolation;
 
 impl App {
     pub(super) fn render_genesis_general_settings(&mut self, ctx: &Context) {
@@ -369,6 +370,34 @@ impl App {
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::LOW_PASS_FILTER);
+            }
+
+            let rect = ui
+                .group(|ui| {
+                    ui.label("Sega CD PCM chip interpolation");
+
+                    ui.horizontal(|ui| {
+                        ui.radio_value(
+                            &mut self.config.sega_cd.pcm_interpolation,
+                            PcmInterpolation::None,
+                            "None",
+                        );
+                        ui.radio_value(
+                            &mut self.config.sega_cd.pcm_interpolation,
+                            PcmInterpolation::Linear,
+                            "Linear",
+                        );
+                        ui.radio_value(
+                            &mut self.config.sega_cd.pcm_interpolation,
+                            PcmInterpolation::CubicHermite,
+                            "Cubic",
+                        );
+                    });
+                })
+                .response
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::SCD_PCM_INTERPOLATION);
             }
 
             let rect = ui

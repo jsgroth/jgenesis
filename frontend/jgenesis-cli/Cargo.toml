@@ -10,6 +10,7 @@ gb-core = { path = "../../backend/gb-core", features = ["clap"] }
 genesis-core = { path = "../../backend/genesis-core", features = ["clap"] }
 nes-core = { path = "../../backend/nes-core", features = ["clap"] }
 s32x-core = { path = "../../backend/s32x-core", features = ["clap"] }
+segacd-core = { path = "../../backend/segacd-core", features = ["clap"] }
 smsgg-core = { path = "../../backend/smsgg-core", features = ["clap"] }
 snes-core = { path = "../../backend/snes-core", features = ["clap"] }
 

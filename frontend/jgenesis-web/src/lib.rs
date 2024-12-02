@@ -17,7 +17,7 @@ use jgenesis_common::frontend::{
 };
 use jgenesis_renderer::renderer::{WgpuRenderer, WindowSize};
 use rfd::AsyncFileDialog;
-use segacd_core::api::{SegaCdEmulator, SegaCdEmulatorConfig};
+use segacd_core::api::{PcmInterpolation, SegaCdEmulator, SegaCdEmulatorConfig};
 use smsgg_core::{SmsGgEmulator, SmsGgHardware, SmsGgInputs};
 use snes_core::api::{CoprocessorRoms, SnesEmulator};
 use snes_core::input::SnesInputs;
@@ -350,6 +350,7 @@ impl Emulator {
             Self::SegaCd(emulator, ..) => {
                 emulator.reload_config(&SegaCdEmulatorConfig {
                     genesis: config.genesis.to_emulator_config(),
+                    pcm_interpolation: PcmInterpolation::default(),
                     enable_ram_cartridge: true,
                     load_disc_into_ram: true,
                     pcm_enabled: true,
@@ -871,6 +872,7 @@ fn open_emulator(
                 rom,
                 SegaCdEmulatorConfig {
                     genesis: config_ref.borrow().genesis.to_emulator_config(),
+                    pcm_interpolation: PcmInterpolation::default(),
                     enable_ram_cartridge: true,
                     load_disc_into_ram: true,
                     pcm_enabled: true,

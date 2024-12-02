@@ -17,6 +17,7 @@ use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig, GenesisInputs, Gen
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, PartialClone, Renderer, SaveWriter, TickEffect, TimingMode,
 };
+use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 use m68000_emu::M68000;
 use smsgg_core::psg::{Sn76489, Sn76489TickEffect, Sn76489Version};
 use std::fmt::{Debug, Display};
@@ -65,9 +66,22 @@ pub enum SegaCdError<RErr, AErr, SErr> {
 
 pub type SegaCdResult<T, RErr, AErr, SErr> = Result<T, SegaCdError<RErr, AErr, SErr>>;
 
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr, EnumAll,
+)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum PcmInterpolation {
+    None,
+    Linear,
+    #[default]
+    CubicHermite,
+}
+
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 pub struct SegaCdEmulatorConfig {
     pub genesis: GenesisEmulatorConfig,
+    pub pcm_interpolation: PcmInterpolation,
     pub enable_ram_cartridge: bool,
     pub load_disc_into_ram: bool,
     pub pcm_enabled: bool,
@@ -207,7 +221,7 @@ impl SegaCdEmulator {
         let graphics_coprocessor = GraphicsCoprocessor::new();
         let ym2612 = Ym2612::new(emulator_config.genesis);
         let psg = Sn76489::new(Sn76489Version::Standard);
-        let pcm = Rf5c164::new();
+        let pcm = Rf5c164::new(&emulator_config);
         let input = InputState::new(
             emulator_config.genesis.p1_controller_type,
             emulator_config.genesis.p2_controller_type,
@@ -482,6 +496,7 @@ impl EmulatorTrait for SegaCdEmulator {
             config.genesis.adjust_aspect_ratio_in_2x_resolution;
         self.vdp.reload_config(config.genesis.to_vdp_config());
         self.ym2612.reload_config(config.genesis);
+        self.pcm.reload_config(config);
         self.input.reload_config(config.genesis);
         self.audio_resampler.reload_config(*config);
         self.cycles.update_m68k_divider(config.genesis.clamped_m68k_divider());

@@ -16,7 +16,7 @@ use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay};
 use jgenesis_renderer::config::RendererConfig;
 use nes_core::api::{NesAspectRatio, NesEmulatorConfig, Overscan};
 use s32x_core::api::{S32XVideoOut, Sega32XEmulatorConfig};
-use segacd_core::api::SegaCdEmulatorConfig;
+use segacd_core::api::{PcmInterpolation, SegaCdEmulatorConfig};
 use serde::{Deserialize, Serialize};
 use smsgg_core::psg::Sn76489Version;
 use smsgg_core::{SmsGgEmulatorConfig, SmsGgHardware, SmsModel, SmsRegion};
@@ -323,6 +323,7 @@ pub struct SegaCdConfig {
     #[indent_nested]
     pub genesis: GenesisConfig,
     pub bios_file_path: Option<String>,
+    pub pcm_interpolation: PcmInterpolation,
     pub enable_ram_cartridge: bool,
     pub run_without_disc: bool,
     pub load_disc_into_ram: bool,
@@ -334,6 +335,7 @@ impl SegaCdConfig {
     pub(crate) fn to_emulator_config(&self) -> SegaCdEmulatorConfig {
         SegaCdEmulatorConfig {
             genesis: self.genesis.to_emulator_config(),
+            pcm_interpolation: self.pcm_interpolation,
             enable_ram_cartridge: self.enable_ram_cartridge,
             load_disc_into_ram: self.load_disc_into_ram,
             pcm_enabled: self.pcm_enabled,

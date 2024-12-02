@@ -4,6 +4,7 @@ use genesis_core::{GenesisAspectRatio, GenesisRegion};
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_native_driver::config::{GenesisConfig, Sega32XConfig, SegaCdConfig};
 use s32x_core::api::S32XVideoOut;
+use segacd_core::api::PcmInterpolation;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,6 +66,8 @@ impl Default for GenesisAppConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SegaCdAppConfig {
     pub bios_path: Option<String>,
+    #[serde(default)]
+    pub pcm_interpolation: PcmInterpolation,
     #[serde(default = "true_fn")]
     pub enable_ram_cartridge: bool,
     #[serde(default)]
@@ -130,6 +133,7 @@ impl AppConfig {
         Box::new(SegaCdConfig {
             genesis: *self.genesis_config(path),
             bios_file_path: self.sega_cd.bios_path.clone(),
+            pcm_interpolation: self.sega_cd.pcm_interpolation,
             enable_ram_cartridge: self.sega_cd.enable_ram_cartridge,
             run_without_disc: false,
             load_disc_into_ram: self.sega_cd.load_disc_into_ram,

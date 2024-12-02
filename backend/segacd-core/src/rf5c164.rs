@@ -1,5 +1,6 @@
 //! Ricoh RF5C164 PCM sound chip
 
+use crate::api::{PcmInterpolation, SegaCdEmulatorConfig};
 use bincode::{Decode, Encode};
 use jgenesis_common::num::{GetBit, U16Ext};
 use std::array;
@@ -8,11 +9,66 @@ use std::array;
 const RF5C164_DIVIDER: u64 = 384;
 
 const ADDRESS_DECIMAL_BITS: u32 = 11;
-const ADDRESS_DECIMAL_MASK: u32 = (1 << 27) - 1;
+const ADDRESS_DECIMAL_MASK: u32 = (1 << ADDRESS_DECIMAL_BITS) - 1;
 
 const WAVEFORM_RAM_LEN: usize = 64 * 1024;
+const WAVEFORM_ADDRESS_MASK: u32 = WAVEFORM_RAM_LEN as u32 - 1;
 
 type WaveformRam = [u8; WAVEFORM_RAM_LEN];
+
+#[derive(Debug, Clone, Default, Encode, Decode)]
+struct InterpolationBuffer {
+    buffer: [i8; 4],
+}
+
+impl InterpolationBuffer {
+    fn clear(&mut self) {
+        self.buffer.fill(0);
+    }
+
+    fn push(&mut self, sample: i8) {
+        self.buffer[0] = self.buffer[1];
+        self.buffer[1] = self.buffer[2];
+        self.buffer[2] = self.buffer[3];
+        self.buffer[3] = sample;
+    }
+
+    fn sample(&self, interpolation: PcmInterpolation, current_address: u32) -> f64 {
+        match interpolation {
+            PcmInterpolation::None => self.buffer[3].into(),
+            PcmInterpolation::Linear => {
+                interpolate_linear(self.buffer[2], self.buffer[3], interpolation_x(current_address))
+            }
+            PcmInterpolation::CubicHermite => {
+                interpolate_cubic(self.buffer, interpolation_x(current_address))
+            }
+        }
+    }
+}
+
+fn interpolation_x(address: u32) -> f64 {
+    f64::from(address & ADDRESS_DECIMAL_MASK) / f64::from(1 << ADDRESS_DECIMAL_BITS)
+}
+
+fn interpolate_linear(y0: i8, y1: i8, x: f64) -> f64 {
+    let y0: f64 = y0.into();
+    let y1: f64 = y1.into();
+
+    y0 * (1.0 - x) + y1 * x
+}
+
+fn interpolate_cubic(samples: [i8; 4], x: f64) -> f64 {
+    let [y0, y1, y2, y3] = samples.map(f64::from);
+
+    let c0 = y1;
+    let c1 = 0.5 * (y2 - y0);
+    let c2 = y0 - 2.5 * y1 + 2.0 * y2 - 0.5 * y3;
+    let c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
+
+    // Clamp to [-127, 126] because samples are sign+magnitude, not signed 8-bit
+    // +127 is not a valid sample value because 0xFF is the loop end marker
+    (((c3 * x + c2) * x + c1) * x + c0).clamp(-127.0, 126.0)
+}
 
 #[derive(Debug, Clone, Default, Encode, Decode)]
 struct Channel {
@@ -22,18 +78,18 @@ struct Channel {
     master_volume: u8,
     l_volume: u8,
     r_volume: u8,
-    current_sample: u8,
     // Fixed point 16.11
     current_address: u32,
     // Fixed point 5.11
     address_increment: u16,
+    interpolation_buffer: InterpolationBuffer,
 }
 
 impl Channel {
     fn enable(&mut self) {
         if !self.enabled {
             self.current_address = u32::from(self.start_address) << ADDRESS_DECIMAL_BITS;
-            self.current_sample = 0;
+            self.interpolation_buffer.clear();
             self.enabled = true;
         }
     }
@@ -48,49 +104,65 @@ impl Channel {
         }
 
         let address_increment: u32 = self.address_increment.into();
-        self.current_address = (self.current_address + address_increment) & ADDRESS_DECIMAL_MASK;
+        let incremented_address = self.current_address + address_increment;
 
-        let sample = waveform_ram[(self.current_address >> ADDRESS_DECIMAL_BITS) as usize];
-        if sample == 0xFF {
-            // Loop signal
-            self.current_address = u32::from(self.loop_address) << ADDRESS_DECIMAL_BITS;
+        // TODO is it correct to step 1-by-1 when the address increment is greater than (1 << 11)?
+        // How does this interact with looping?
+        let mut address = self.current_address >> ADDRESS_DECIMAL_BITS;
+        let steps = (incremented_address >> ADDRESS_DECIMAL_BITS) - address;
+        for _ in 0..steps {
+            address = (address + 1) & WAVEFORM_ADDRESS_MASK;
+            let sample = waveform_ram[address as usize];
+            if sample == 0xFF {
+                // Loop signal; jump to start of loop and immediately read the next sample
+                address = self.loop_address.into();
 
-            let loop_start_sample =
-                waveform_ram[(self.current_address >> ADDRESS_DECIMAL_BITS) as usize];
-            if loop_start_sample == 0xFF {
-                // Infinite loop
-                self.current_sample = 0;
+                let loop_start_sample = waveform_ram[address as usize];
+                if loop_start_sample == 0xFF {
+                    // Infinite loop
+                    // TODO what does actual hardware do when there's an infinite loop?
+                    self.interpolation_buffer.push(0);
+                } else {
+                    self.interpolation_buffer.push(sign_magnitude_to_pcm(loop_start_sample));
+                }
             } else {
-                self.current_sample = loop_start_sample;
+                self.interpolation_buffer.push(sign_magnitude_to_pcm(sample));
             }
-        } else {
-            self.current_sample = sample;
         }
+
+        let new_address_int = address & WAVEFORM_ADDRESS_MASK;
+        let new_address_fract = incremented_address & ADDRESS_DECIMAL_MASK;
+        self.current_address = (new_address_int << ADDRESS_DECIMAL_BITS) | new_address_fract;
     }
 
-    fn sample(&self) -> (f64, f64) {
+    fn sample(&self, interpolation: PcmInterpolation) -> (f64, f64) {
         if !self.enabled {
             return (0.0, 0.0);
         }
 
-        let sample = self.current_sample;
-
-        // RF5C164 samples have a sign bit and a 7-bit magnitude
-        // Sign bit 1 = Positive, 0 = Negative
-        let magnitude = u32::from(sample & 0x7F);
-        let sign = if sample.bit(7) { 1.0 } else { -1.0 };
+        let sample = self.interpolation_buffer.sample(interpolation, self.current_address);
 
         // Apply volume
-        let amplified = magnitude * u32::from(self.master_volume);
-        let panned_l = amplified * u32::from(self.l_volume);
-        let panned_r = amplified * u32::from(self.r_volume);
+        let amplified = sample * f64::from(self.master_volume);
+        let panned_l = amplified * f64::from(self.l_volume);
+        let panned_r = amplified * f64::from(self.r_volume);
 
         // Drop the lowest 5 bits and scale so that one channel at max amplitude is +/- 0.25
-        let output_l = sign * f64::from(panned_l >> 5) / f64::from(u16::MAX);
-        let output_r = sign * f64::from(panned_r >> 5) / f64::from(u16::MAX);
+        let sign = sample.signum();
+        let magnitude_l = panned_l.abs();
+        let magnitude_r = panned_r.abs();
+        let output_l = sign * f64::from((magnitude_l.round() as u32) >> 5) / f64::from(u16::MAX);
+        let output_r = sign * f64::from((magnitude_r.round() as u32) >> 5) / f64::from(u16::MAX);
 
         (output_l, output_r)
     }
+}
+
+fn sign_magnitude_to_pcm(sample: u8) -> i8 {
+    // RF5C164 samples have a sign bit and a 7-bit magnitude
+    // Sign bit 1 = Positive, 0 = Negative
+    let magnitude = (sample & 0x7F) as i8;
+    if sample.bit(7) { magnitude } else { -magnitude }
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -101,10 +173,11 @@ pub struct Rf5c164 {
     waveform_ram_bank: u8,
     selected_channel: u8,
     divider: u64,
+    interpolation: PcmInterpolation,
 }
 
 impl Rf5c164 {
-    pub fn new() -> Self {
+    pub fn new(config: &SegaCdEmulatorConfig) -> Self {
         Self {
             enabled: false,
             channels: array::from_fn(|_| Channel::default()),
@@ -112,6 +185,7 @@ impl Rf5c164 {
             waveform_ram_bank: 0,
             selected_channel: 0,
             divider: RF5C164_DIVIDER,
+            interpolation: config.pcm_interpolation,
         }
     }
 
@@ -316,11 +390,15 @@ impl Rf5c164 {
         let (sample_l, sample_r) = self
             .channels
             .iter()
-            .map(Channel::sample)
+            .map(|channel| channel.sample(self.interpolation))
             .fold((0.0, 0.0), |(sum_l, sum_r), (sample_l, sample_r)| {
                 (sum_l + sample_l, sum_r + sample_r)
             });
 
         (sample_l.clamp(-1.0, 1.0), sample_r.clamp(-1.0, 1.0))
+    }
+
+    pub fn reload_config(&mut self, config: &SegaCdEmulatorConfig) {
+        self.interpolation = config.pcm_interpolation;
     }
 }

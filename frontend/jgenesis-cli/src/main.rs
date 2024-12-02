@@ -20,6 +20,7 @@ use jgenesis_renderer::config::{
 };
 use nes_core::api::NesAspectRatio;
 use s32x_core::api::S32XVideoOut;
+use segacd_core::api::PcmInterpolation;
 use smsgg_core::psg::Sn76489Version;
 use smsgg_core::{SmsModel, SmsRegion};
 use snes_core::api::{AudioInterpolationMode, SnesAspectRatio};
@@ -199,6 +200,10 @@ struct Args {
     /// Sega CD BIOS path
     #[arg(short = 'b', long, help_heading = SCD_OPTIONS_HEADING)]
     bios_path: Option<String>,
+
+    /// Sega CD PCM sound chip interpolation
+    #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
+    scd_pcm_interpolation: Option<PcmInterpolation>,
 
     /// Enable Sega CD RAM cartridge mapping
     #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
@@ -539,6 +544,7 @@ impl Args {
 
         apply_overrides!(self, config.sega_cd, [
             enable_ram_cartridge,
+            scd_pcm_interpolation -> pcm_interpolation,
             scd_load_disc_into_ram -> load_disc_into_ram,
             scd_pcm_enabled -> pcm_enabled,
             scd_cd_da_enabled -> cd_audio_enabled,
