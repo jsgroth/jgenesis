@@ -14,7 +14,7 @@ use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, FrameSize, PartialClone, PixelAspectRatio, Renderer,
     SaveWriter, TickEffect, TimingMode,
 };
-use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
+use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
 use std::fmt::{Debug, Display};
 use std::num::NonZeroU64;
 use std::{io, mem};
@@ -27,8 +27,11 @@ const MEMORY_REFRESH_CYCLES: u64 = 40;
 
 const CRC: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr, EnumAll,
+)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum SnesAspectRatio {
     #[default]
     Ntsc,
@@ -62,8 +65,11 @@ impl SnesAspectRatio {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr, EnumAll,
+)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum AudioInterpolationMode {
     #[default]
     Gaussian,

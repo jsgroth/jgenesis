@@ -6,18 +6,18 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-gb-core = { path = "../../backend/gb-core" }
-genesis-core = { path = "../../backend/genesis-core" }
-nes-core = { path = "../../backend/nes-core" }
-s32x-core = { path = "../../backend/s32x-core" }
-smsgg-core = { path = "../../backend/smsgg-core" }
-snes-core = { path = "../../backend/snes-core" }
+gb-core = { path = "../../backend/gb-core", features = ["clap"] }
+genesis-core = { path = "../../backend/genesis-core", features = ["clap"] }
+nes-core = { path = "../../backend/nes-core", features = ["clap"] }
+s32x-core = { path = "../../backend/s32x-core", features = ["clap"] }
+smsgg-core = { path = "../../backend/smsgg-core", features = ["clap"] }
+snes-core = { path = "../../backend/snes-core", features = ["clap"] }
 
-jgenesis-common = { path = "../../common/jgenesis-common" }
-jgenesis-native-config = { path = "../jgenesis-native-config" }
-jgenesis-native-driver = { path = "../jgenesis-native-driver" }
+jgenesis-common = { path = "../../common/jgenesis-common", features = ["clap"] }
+jgenesis-native-config = { path = "../jgenesis-native-config", features = ["clap"] }
+jgenesis-native-driver = { path = "../jgenesis-native-driver", features = ["clap"] }
 jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
-jgenesis-renderer = { path = "../jgenesis-renderer" }
+jgenesis-renderer = { path = "../jgenesis-renderer", features = ["clap"] }
 
 anyhow = { workspace = true }
 clap = { workspace = true }

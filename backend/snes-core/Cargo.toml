@@ -7,6 +7,7 @@ edition = "2021"
 
 [features]
 default = []
+clap = ["dep:clap"]
 serde = ["dep:serde"]
 
 [dependencies]
@@ -17,6 +18,7 @@ spc700-emu = { path = "../../cpu/spc700-emu" }
 wdc65816-emu = { path = "../../cpu/wdc65816-emu" }
 
 bincode = { workspace = true }
+clap = { workspace = true, optional = true }
 crc = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true, optional = true }

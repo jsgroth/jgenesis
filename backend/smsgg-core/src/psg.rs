@@ -2,7 +2,7 @@
 
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
-use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
+use jgenesis_proc_macros::{EnumAll, EnumDisplay};
 use std::{array, cmp};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -233,8 +233,9 @@ pub enum Sn76489TickEffect {
     Clocked,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum Sn76489Version {
     #[default]
     MasterSystem2,

@@ -3,6 +3,10 @@ name = "jgenesis-native-config"
 version = "0.8.3"
 edition = "2021"
 
+[features]
+default = []
+clap = ["dep:clap"]
+
 [dependencies]
 gb-core = { path = "../../backend/gb-core", features = ["serde"] }
 genesis-core = { path = "../../backend/genesis-core", features = ["serde"] }
@@ -17,6 +21,7 @@ jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
 jgenesis-renderer = { path = "../jgenesis-renderer" }
 
 cfg-if = { workspace = true }
+clap = { workspace = true, optional = true }
 directories = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }

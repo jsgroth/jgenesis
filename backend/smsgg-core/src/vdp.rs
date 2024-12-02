@@ -14,7 +14,7 @@ use bincode::error::{DecodeError, EncodeError};
 use bincode::{BorrowDecode, Decode, Encode};
 use jgenesis_common::frontend::{Color, TimingMode};
 use jgenesis_common::num::{GetBit, U16Ext};
-use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
+use jgenesis_proc_macros::EnumDisplay;
 use std::fmt::{Display, Formatter};
 use z80_emu::traits::InterruptLine;
 
@@ -79,7 +79,7 @@ impl ViewportSize {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum VdpVersion {
     NtscMasterSystem1,

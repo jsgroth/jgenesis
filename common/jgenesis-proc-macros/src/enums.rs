@@ -20,17 +20,23 @@ pub fn enum_display(input: TokenStream) -> TokenStream {
 
             let variant_name_str = variant_name.to_string();
             quote! {
-                Self::#variant_name => ::std::write!(f, #variant_name_str)
+                Self::#variant_name => #variant_name_str
             }
         })
         .collect();
 
     let gen = quote! {
-        impl ::std::fmt::Display for #name {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        impl #name {
+            pub fn to_str(&self) -> &'static str {
                 match self {
                     #(#match_arms,)*
                 }
+            }
+        }
+
+        impl ::std::fmt::Display for #name {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                ::std::write!(f, "{}", self.to_str())
             }
         }
     };
@@ -102,6 +108,28 @@ pub fn enum_all(input: TokenStream) -> TokenStream {
     let gen = quote! {
         impl #type_ident {
             pub const ALL: [Self; #num_variants] = [#(#variant_constructors,)*];
+        }
+    };
+
+    gen.into()
+}
+
+pub fn custom_value_enum(input: TokenStream) -> TokenStream {
+    let input: DeriveInput = syn::parse(input).expect("Unable to parse input");
+
+    let type_ident = &input.ident;
+
+    let gen = quote! {
+        impl ::clap::ValueEnum for #type_ident {
+            fn value_variants<'a>() -> &'a [Self] {
+                &Self::ALL
+            }
+
+            fn to_possible_value(&self) -> ::std::option::Option<::clap::builder::PossibleValue> {
+                ::std::option::Option::Some(
+                    ::clap::builder::PossibleValue::new(self.to_str())
+                )
+            }
         }
     };
 

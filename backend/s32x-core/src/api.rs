@@ -14,7 +14,7 @@ use genesis_core::{GenesisEmulatorConfig, GenesisInputs, GenesisRegion};
 use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, Renderer, SaveWriter, TickEffect, TickResult, TimingMode,
 };
-use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, PartialClone};
+use jgenesis_proc_macros::{EnumAll, EnumDisplay, PartialClone};
 use m68000_emu::M68000;
 use smsgg_core::psg::{Sn76489, Sn76489TickEffect, Sn76489Version};
 use std::fmt::{Debug, Display};
@@ -32,8 +32,9 @@ pub enum Sega32XError<RErr, AErr, SErr> {
     SaveWrite(SErr),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum S32XVideoOut {
     #[default]
     Combined,

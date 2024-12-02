@@ -12,7 +12,7 @@ use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, FrameSize, PartialClone, PixelAspectRatio, Renderer,
     SaveWriter, TickEffect, TimingMode,
 };
-use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
+use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr, FakeDecode, FakeEncode};
 use std::fmt::{Debug, Display};
 use std::num::NonZeroU32;
 use std::ops::{Deref, DerefMut};
@@ -67,16 +67,20 @@ pub enum SmsGgHardware {
     GameGear,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum SmsModel {
     Sms1,
     #[default]
     Sms2,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr, EnumAll,
+)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum SmsRegion {
     #[default]
     International,

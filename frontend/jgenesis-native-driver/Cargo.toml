@@ -5,6 +5,10 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = []
+clap = ["dep:clap"]
+
 [dependencies]
 jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
 jgenesis-renderer = { path = "../jgenesis-renderer", features = ["serde", "ttf"] }
@@ -22,6 +26,7 @@ snes-core = { path = "../../backend/snes-core", features = ["serde"] }
 arrayvec = { workspace = true }
 bincode = { workspace = true }
 bytemuck = { workspace = true }
+clap = { workspace = true, optional = true }
 egui = { workspace = true }
 egui-wgpu = { workspace = true }
 log = { workspace = true }

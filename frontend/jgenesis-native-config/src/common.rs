@@ -2,7 +2,7 @@ use crate::AppConfig;
 use jgenesis_native_driver::config::{
     CommonConfig, FullscreenMode, HideMouseCursor, SavePath, WindowSize,
 };
-use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
+use jgenesis_proc_macros::{EnumAll, EnumDisplay};
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, PrescaleMode, RendererConfig, Scanlines,
     VSyncMode, WgpuBackend,
@@ -12,8 +12,9 @@ use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumAll,
 )]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum ConfigSavePath {
     #[default]
     RomFolder,

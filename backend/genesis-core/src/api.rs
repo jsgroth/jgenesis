@@ -13,7 +13,7 @@ use jgenesis_common::frontend::{
     SaveWriter, TickEffect, TimingMode,
 };
 use jgenesis_common::num::GetBit;
-use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
+use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 use m68000_emu::M68000;
 use smsgg_core::psg::{Sn76489, Sn76489TickEffect, Sn76489Version};
 use std::cmp;
@@ -34,8 +34,11 @@ pub enum GenesisError<RErr, AErr, SErr> {
 
 pub type GenesisResult<RErr, AErr, SErr> = Result<TickEffect, GenesisError<RErr, AErr, SErr>>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr, EnumAll,
+)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum GenesisAspectRatio {
     #[default]
     Ntsc,
@@ -73,8 +76,9 @@ impl GenesisAspectRatio {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumDisplay, EnumFromStr, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode, EnumDisplay, EnumAll)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum GenesisRegion {
     Americas,
     Japan,

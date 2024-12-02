@@ -11,7 +11,7 @@ use genesis_core::{
     GenesisAspectRatio, GenesisControllerType, GenesisEmulatorConfig, GenesisRegion,
 };
 use jgenesis_common::frontend::{PixelAspectRatio, TimingMode};
-use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay, EnumFromStr};
+use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay};
 use jgenesis_renderer::config::RendererConfig;
 use nes_core::api::{NesAspectRatio, NesEmulatorConfig, Overscan};
 use s32x_core::api::{S32XVideoOut, Sega32XEmulatorConfig};
@@ -48,8 +48,9 @@ impl WindowSize {
 }
 
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumAll,
 )]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum SmsAspectRatio {
     #[default]
     Ntsc,
@@ -74,8 +75,9 @@ impl SmsAspectRatio {
 }
 
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumAll,
 )]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum GgAspectRatio {
     #[default]
     GgLcd,
@@ -118,8 +120,9 @@ impl Display for SavePath {
 }
 
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumAll,
 )]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum FullscreenMode {
     #[default]
     Borderless,
@@ -127,8 +130,9 @@ pub enum FullscreenMode {
 }
 
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumAll,
 )]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum HideMouseCursor {
     #[default]
     Fullscreen,

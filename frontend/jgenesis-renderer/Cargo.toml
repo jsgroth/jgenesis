@@ -7,6 +7,7 @@ edition = "2021"
 
 [features]
 default = []
+clap = ["dep:clap"]
 serde = ["dep:serde"]
 ttf = ["dep:glyphon"]
 
@@ -16,6 +17,7 @@ jgenesis-common = { path = "../../common/jgenesis-common" }
 
 bytemuck = { workspace = true }
 cfg-if = { workspace = true }
+clap = { workspace = true, optional = true }
 glyphon = { workspace = true, optional = true }
 log = { workspace = true }
 raw-window-handle = { workspace = true }

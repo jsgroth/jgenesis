@@ -13,7 +13,7 @@ use jgenesis_native_driver::config::{
 };
 use jgenesis_native_driver::input::MappableInputs;
 use jgenesis_native_driver::{NativeEmulator, NativeTickEffect};
-use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
+use jgenesis_proc_macros::{CustomValueEnum, EnumAll, EnumDisplay};
 use jgenesis_renderer::config::{
     FilterMode, PreprocessShader, PrescaleFactor, Scanlines, VSyncMode, WgpuBackend,
 };
@@ -29,7 +29,7 @@ use std::hash::Hash;
 use std::num::{NonZeroU32, NonZeroU64};
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumDisplay, EnumFromStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumAll, EnumDisplay, CustomValueEnum)]
 enum Hardware {
     MasterSystem,
     Genesis,
@@ -53,7 +53,7 @@ const HOTKEY_OPTIONS_HEADING: &str = "Hotkey Options";
 
 #[derive(Debug, Parser)]
 struct Args {
-    /// Hardware (MasterSystem / Genesis / SegaCd / Sega32X / Nes / Snes / GameBoy); defaults based on file extension if not set
+    /// Hardware; defaults based on file extension if not set
     #[arg(long)]
     hardware: Option<Hardware>,
 
@@ -69,7 +69,7 @@ struct Args {
     #[arg(long, value_name = "SLOT")]
     load_save_state: Option<usize>,
 
-    /// Force timing mode (Ntsc / Pal)
+    /// Force timing mode
     #[arg(long)]
     forced_timing_mode: Option<TimingMode>,
 
@@ -77,11 +77,11 @@ struct Args {
     #[arg(long)]
     remove_sprite_limit: Option<bool>,
 
-    /// Hide mouse cursor when over emulator window (Fullscreen / Always / Never)
+    /// Hide mouse cursor when over emulator window
     #[arg(long)]
     hide_mouse_cursor: Option<HideMouseCursor>,
 
-    /// Save file path (RomFolder / EmulatorFolder / Custom)
+    /// Save file path
     #[arg(long)]
     save_path: Option<ConfigSavePath>,
 
@@ -89,7 +89,7 @@ struct Args {
     #[arg(long)]
     custom_save_path: Option<PathBuf>,
 
-    /// Save state path (RomFolder / EmulatorFolder / Custom)
+    /// Save state path
     #[arg(long)]
     state_path: Option<ConfigSavePath>,
 
@@ -97,23 +97,23 @@ struct Args {
     #[arg(long)]
     custom_state_path: Option<PathBuf>,
 
-    /// MasterSystem model (Sms2 / Sms1)
+    /// MasterSystem model
     #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
     sms_model: Option<SmsModel>,
 
-    /// Force PSG version (MasterSystem2 / Standard)
+    /// Force PSG version
     #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
     psg_version: Option<Sn76489Version>,
 
-    /// Master System aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
+    /// Master System aspect ratio
     #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
     sms_aspect_ratio: Option<SmsAspectRatio>,
 
-    /// Game Gear aspect ratio (GgLcd / SquarePixels / Stretched)
+    /// Game Gear aspect ratio
     #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
     gg_aspect_ratio: Option<GgAspectRatio>,
 
-    /// Master System region (International / Domestic)
+    /// Master System region
     #[arg(long, help_heading = SMSGG_OPTIONS_HEADING)]
     sms_region: Option<SmsRegion>,
 
@@ -171,7 +171,7 @@ struct Args {
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
     genesis_psg_enabled: Option<bool>,
 
-    /// Aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
+    /// Aspect ratio
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
     genesis_aspect_ratio: Option<GenesisAspectRatio>,
 
@@ -183,11 +183,11 @@ struct Args {
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
     genesis_region: Option<GenesisRegion>,
 
-    /// P1 Genesis controller type (ThreeButton / SixButton / None)
+    /// P1 Genesis controller type
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
     genesis_p1_controller_type: Option<GenesisControllerType>,
 
-    /// P2 Genesis controller type (ThreeButton / SixButton / None)
+    /// P2 Genesis controller type
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
     genesis_p2_controller_type: Option<GenesisControllerType>,
 
@@ -215,7 +215,7 @@ struct Args {
     #[arg(long, help_heading = SCD_OPTIONS_HEADING)]
     scd_cd_da_enabled: Option<bool>,
 
-    /// Set 32X video output (Combined / GenesisOnly / S32XOnly)
+    /// Set 32X video output
     #[arg(long, help_heading = S32X_OPTIONS_HEADING)]
     s32x_video_out: Option<S32XVideoOut>,
 
@@ -223,11 +223,11 @@ struct Args {
     #[arg(long, help_heading = S32X_OPTIONS_HEADING)]
     s32x_pwm_enabled: Option<bool>,
 
-    /// Aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
+    /// Aspect ratio
     #[arg(long, help_heading = NES_OPTIONS_HEADING)]
     nes_aspect_ratio: Option<NesAspectRatio>,
 
-    /// NES P2 controller type (Gamepad / Zapper)
+    /// NES P2 controller type
     #[arg(long, help_heading = NES_OPTIONS_HEADING)]
     nes_p2_controller_type: Option<NesControllerType>,
 
@@ -263,11 +263,11 @@ struct Args {
     #[arg(long, help_heading = NES_OPTIONS_HEADING)]
     nes_audio_60hz_hack: Option<bool>,
 
-    /// SNES aspect ratio (Ntsc / Pal / SquarePixels / Stretched)
+    /// SNES aspect ratio
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
     snes_aspect_ratio: Option<SnesAspectRatio>,
 
-    /// Audio interpolation mode (Gaussian / Hermite / Lagrange)
+    /// Audio interpolation mode
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
     snes_audio_interpolation: Option<AudioInterpolationMode>,
 
@@ -279,7 +279,7 @@ struct Args {
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
     gsu_overclock_factor: Option<NonZeroU64>,
 
-    /// Player 2 input device (Gamepad / SuperScope)
+    /// Player 2 input device
     #[arg(long, help_heading = SNES_OPTIONS_HEADING)]
     snes_p2_controller_type: Option<SnesControllerType>,
 
@@ -315,15 +315,15 @@ struct Args {
     #[arg(long, help_heading = GB_OPTIONS_HEADING)]
     pretend_to_be_gba: Option<bool>,
 
-    /// Aspect ratio (SquarePixels / Stretched)
+    /// Aspect ratio
     #[arg(long, help_heading = GB_OPTIONS_HEADING)]
     gb_aspect_ratio: Option<GbAspectRatio>,
 
-    /// Game Boy palette (BlackAndWhite / GreenTint / LimeGreen / Custom)
+    /// Game Boy palette
     #[arg(long, help_heading = GB_OPTIONS_HEADING)]
     gb_palette: Option<GbPalette>,
 
-    /// Game Boy Color color correction (None / GbcLcd / GbaLcd)
+    /// Game Boy Color color correction
     #[arg(long, help_heading = GB_OPTIONS_HEADING)]
     gbc_color_correction: Option<GbcColorCorrection>,
 
@@ -347,15 +347,15 @@ struct Args {
     #[arg(long, default_value_t, help_heading = VIDEO_OPTIONS_HEADING)]
     fullscreen: bool,
 
-    /// Fullscreen mode (Borderless / Exclusive)
+    /// Fullscreen mode
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     fullscreen_mode: Option<FullscreenMode>,
 
-    /// wgpu backend (Auto / Vulkan / DirectX12 / OpenGl)
+    /// wgpu backend
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     wgpu_backend: Option<WgpuBackend>,
 
-    /// VSync mode (Enabled / Disabled / Fast)
+    /// VSync mode
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     vsync_mode: Option<VSyncMode>,
 
@@ -371,7 +371,7 @@ struct Args {
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     prescale_factor: Option<u32>,
 
-    /// Scanlines (None / Dim / Black)
+    /// Scanlines
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     scanlines: Option<Scanlines>,
 
@@ -379,11 +379,11 @@ struct Args {
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     force_integer_height_scaling: Option<bool>,
 
-    /// Filter mode (Nearest / Linear)
+    /// Filter mode
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     filter_mode: Option<FilterMode>,
 
-    /// Preprocess shader (None / HorizontalBlurTwoPixels / HorizontalBlurThreePixels / HorizontalBlurSnesAdaptive / AntiDitherWeak / AntiDitherStrong)
+    /// Preprocess shader
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     preprocess_shader: Option<PreprocessShader>,
 

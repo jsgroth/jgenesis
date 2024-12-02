@@ -12,7 +12,7 @@ use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, FrameSize, PixelAspectRatio, Renderer, SaveWriter,
     TickEffect, TickResult, TimingMode,
 };
-use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, PartialClone};
+use jgenesis_proc_macros::{EnumAll, EnumDisplay, PartialClone};
 use std::fmt::{Debug, Display, Formatter};
 use std::mem;
 use thiserror::Error;
@@ -26,8 +26,9 @@ const PAL_MASTER_CLOCK_TICKS: u32 = 80;
 const PAL_CPU_DIVIDER: u32 = 16;
 const PAL_PPU_DIVIDER: u32 = 5;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum NesAspectRatio {
     #[default]
     Ntsc,

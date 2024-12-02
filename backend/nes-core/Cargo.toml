@@ -7,6 +7,7 @@ edition = "2021"
 
 [features]
 default = []
+clap = ["dep:clap"]
 serde = ["dep:serde"]
 
 [dependencies]
@@ -16,6 +17,7 @@ mos6502-emu = { path = "../../cpu/mos6502-emu" }
 ym-opll = { path = "../ym-opll" }
 
 bincode = { workspace = true }
+clap = { workspace = true, optional = true }
 crc = { workspace = true }
 log = { workspace = true }
 rand = { workspace = true }

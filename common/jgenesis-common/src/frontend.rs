@@ -1,5 +1,5 @@
 use bincode::{Decode, Encode};
-use jgenesis_proc_macros::{EnumDisplay, EnumFromStr};
+use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::num::NonZeroU32;
@@ -157,8 +157,11 @@ pub trait PartialClone {
 
 pub use jgenesis_proc_macros::PartialClone;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumDisplay, EnumFromStr, Encode, Decode)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr, EnumAll,
+)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum TimingMode {
     #[default]
     Ntsc,

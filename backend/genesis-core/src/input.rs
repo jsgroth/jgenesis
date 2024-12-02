@@ -3,7 +3,7 @@
 use crate::GenesisEmulatorConfig;
 use bincode::{Decode, Encode};
 use jgenesis_common::num::GetBit;
-use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, define_controller_inputs};
+use jgenesis_proc_macros::{EnumAll, EnumDisplay, define_controller_inputs};
 
 define_controller_inputs! {
     enum GenesisButton {
@@ -31,8 +31,9 @@ define_controller_inputs! {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumFromStr, EnumDisplay)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum GenesisControllerType {
     ThreeButton,
     #[default]

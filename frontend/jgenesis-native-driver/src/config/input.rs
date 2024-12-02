@@ -3,7 +3,7 @@ use gb_core::inputs::GameBoyButton;
 use genesis_core::GenesisControllerType;
 use genesis_core::input::GenesisButton;
 use jgenesis_common::input::Player;
-use jgenesis_proc_macros::{ConfigDisplay, EnumDisplay, EnumFromStr};
+use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay};
 use nes_core::input::NesButton;
 use sdl2::keyboard::Keycode;
 use sdl2::mouse::MouseButton;
@@ -388,8 +388,9 @@ impl NesInputMapping {
 }
 
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumAll,
 )]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum NesControllerType {
     #[default]
     Gamepad,
@@ -524,8 +525,9 @@ impl SnesInputMapping {
 }
 
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumFromStr,
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, EnumDisplay, EnumAll,
 )]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum SnesControllerType {
     #[default]
     Gamepad,

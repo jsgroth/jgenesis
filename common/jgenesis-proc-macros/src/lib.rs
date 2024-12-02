@@ -9,6 +9,9 @@ use proc_macro::TokenStream;
 /// Implement the `std::fmt::Display` trait for the given enum. Only supports enums which have only
 /// fieldless variants.
 ///
+/// This macro also implements a method `to_str(&self) -> &'static str` for cases where an owned
+/// String is not needed.
+///
 /// # Panics
 ///
 /// This macro will panic if applied to a struct, a union, or an enum with any variants that have
@@ -56,6 +59,19 @@ pub fn enum_from_str(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(EnumAll)]
 pub fn enum_all(input: TokenStream) -> TokenStream {
     enums::enum_all(input)
+}
+
+/// Implement the `clap::ValueEnum` trait for a struct, using a custom implementation rather than
+/// the one provided by `derive(clap::ValueEnum)`.
+///
+/// The implementation differs only in the string values generated. Where `derive(clap::ValueEnum)`
+/// lowercases variant names and inserts a `-` character at every word break, this implementation
+/// uses the variant name directly.
+///
+/// This macro requires that the [`EnumAll`] and [`EnumDisplay`] macros are also used.
+#[proc_macro_derive(CustomValueEnum)]
+pub fn custom_value_enum(input: TokenStream) -> TokenStream {
+    enums::custom_value_enum(input)
 }
 
 /// Implement the `std::fmt::Display` trait for a struct, with an implementation meant for

@@ -7,6 +7,7 @@ edition = "2021"
 
 [features]
 default = []
+clap = ["dep:clap"]
 serde = ["dep:serde"]
 
 [dependencies]
@@ -15,6 +16,7 @@ jgenesis-proc-macros = { path = "../jgenesis-proc-macros" }
 bincode = { workspace = true, features = ["derive"] }
 bytemuck = { workspace = true }
 cfg-if = { workspace = true }
+clap = { workspace = true, optional = true }
 log = { workspace = true }
 serde = { workspace = true, optional = true }
 time = { workspace = true }

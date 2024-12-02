@@ -19,7 +19,7 @@ use jgenesis_common::frontend::{
     AudioOutput, Color, EmulatorTrait, PixelAspectRatio, Renderer, SaveWriter, TickEffect,
     TickResult, TimingMode,
 };
-use jgenesis_proc_macros::{EnumDisplay, EnumFromStr, PartialClone};
+use jgenesis_proc_macros::{EnumAll, EnumDisplay, PartialClone};
 use std::fmt::{Debug, Display};
 use thiserror::Error;
 
@@ -41,8 +41,9 @@ pub enum GameBoyError<RErr, AErr, SErr> {
     SaveWrite(SErr),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum GbAspectRatio {
     #[default]
     SquarePixels,
@@ -58,8 +59,9 @@ impl GbAspectRatio {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum GbPalette {
     BlackAndWhite,
     #[default]
@@ -68,8 +70,9 @@ pub enum GbPalette {
     Custom,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumFromStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
 pub enum GbcColorCorrection {
     None,
     #[default]
