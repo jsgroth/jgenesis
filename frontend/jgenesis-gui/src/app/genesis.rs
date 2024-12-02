@@ -3,6 +3,7 @@ mod helptext;
 use crate::app::{App, OpenWindow};
 use crate::emuthread::EmuThreadStatus;
 use egui::{Context, Slider, Window};
+use genesis_core::audio::LowPassFilter;
 use genesis_core::{GenesisAspectRatio, GenesisRegion};
 use jgenesis_common::frontend::TimingMode;
 use rfd::FileDialog;
@@ -337,6 +338,37 @@ impl App {
                 .interact_rect;
             if ui.rect_contains_pointer(rect) {
                 self.state.help_text.insert(WINDOW, helptext::YM2612_LADDER_EFFECT);
+            }
+
+            let rect = ui
+                .group(|ui| {
+                    ui.label("Low-pass filter");
+
+                    ui.radio_value(
+                        &mut self.config.genesis.low_pass_filter,
+                        LowPassFilter::Sharp,
+                        "Sharp (~15000 Hz cutoff)",
+                    );
+                    ui.radio_value(
+                        &mut self.config.genesis.low_pass_filter,
+                        LowPassFilter::Moderate,
+                        "Moderate (~10000 Hz cutoff)",
+                    );
+                    ui.radio_value(
+                        &mut self.config.genesis.low_pass_filter,
+                        LowPassFilter::Soft,
+                        "Soft (~8000 Hz cutoff)",
+                    );
+                    ui.radio_value(
+                        &mut self.config.genesis.low_pass_filter,
+                        LowPassFilter::VerySoft,
+                        "Very soft (~5000 Hz cutoff)",
+                    );
+                })
+                .response
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::LOW_PASS_FILTER);
             }
 
             let rect = ui

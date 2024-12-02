@@ -110,7 +110,9 @@ impl AppConfig {
 
 impl Default for AppConfig {
     fn default() -> Self {
-        toml::from_str("").unwrap()
+        let mut config: AppConfig = toml::from_str("").unwrap();
+        config.config_version = Some(current_config_version().into());
+        config
     }
 }
 

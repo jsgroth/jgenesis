@@ -7,6 +7,7 @@ use crate::config::input::{
 use crate::mainloop::NativeEmulatorError;
 use crate::{NativeEmulatorResult, archive};
 use gb_core::api::{GameBoyEmulatorConfig, GbAspectRatio, GbPalette, GbcColorCorrection};
+use genesis_core::audio::LowPassFilter;
 use genesis_core::{
     GenesisAspectRatio, GenesisControllerType, GenesisEmulatorConfig, GenesisRegion,
 };
@@ -284,6 +285,7 @@ pub struct GenesisConfig {
     pub backdrop_enabled: bool,
     pub quantize_ym2612_output: bool,
     pub emulate_ym2612_ladder_effect: bool,
+    pub low_pass_filter: LowPassFilter,
     pub ym2612_enabled: bool,
     pub psg_enabled: bool,
 }
@@ -309,6 +311,7 @@ impl GenesisConfig {
             backdrop_enabled: self.backdrop_enabled,
             quantize_ym2612_output: self.quantize_ym2612_output,
             emulate_ym2612_ladder_effect: self.emulate_ym2612_ladder_effect,
+            low_pass_filter: self.low_pass_filter,
             ym2612_enabled: self.ym2612_enabled,
             psg_enabled: self.psg_enabled,
         }

@@ -1,3 +1,4 @@
+use genesis_core::audio::LowPassFilter;
 use genesis_core::input::GenesisControllerType;
 use genesis_core::{GenesisAspectRatio, GenesisEmulatorConfig};
 use jgenesis_common::frontend::{PixelAspectRatio, TimingMode};
@@ -180,6 +181,7 @@ impl GenesisWebConfig {
             backdrop_enabled: true,
             quantize_ym2612_output: true,
             emulate_ym2612_ladder_effect: true,
+            low_pass_filter: LowPassFilter::Moderate,
             ym2612_enabled: true,
             psg_enabled: true,
         }

@@ -1,6 +1,6 @@
 //! Genesis public interface and main loop
 
-use crate::audio::GenesisAudioResampler;
+use crate::audio::{GenesisAudioResampler, LowPassFilter};
 use crate::input::{GenesisInputs, InputState};
 use crate::memory::{Cartridge, MainBus, MainBusSignals, MainBusWrites, Memory};
 use crate::timing::{CycleCounters, GenesisCycleCounters};
@@ -155,6 +155,7 @@ pub struct GenesisEmulatorConfig {
     pub backdrop_enabled: bool,
     pub quantize_ym2612_output: bool,
     pub emulate_ym2612_ladder_effect: bool,
+    pub low_pass_filter: LowPassFilter,
     pub ym2612_enabled: bool,
     pub psg_enabled: bool,
 }
