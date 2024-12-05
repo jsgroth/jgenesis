@@ -3,7 +3,7 @@ mod constants;
 use crate::api::Sega32XEmulatorConfig;
 use bincode::{Decode, Encode};
 use genesis_core::audio::{LowPassFilter, Ym2612Resampler};
-use jgenesis_common::audio::FirResampler;
+use jgenesis_common::audio::{CubicResampler, DEFAULT_OUTPUT_FREQUENCY, FirResampler};
 use jgenesis_common::frontend::{AudioOutput, TimingMode};
 use smsgg_core::audio::PsgResampler;
 
@@ -12,13 +12,11 @@ const PAL_GENESIS_MCLK_FREQUENCY: f64 = genesis_core::audio::PAL_GENESIS_MCLK_FR
 
 const PSG_COEFFICIENT: f64 = genesis_core::audio::PSG_COEFFICIENT;
 
-pub type PwmResampler = FirResampler<{ constants::PWM_LPF_TAPS }, { constants::PWM_ZERO_PADDING }>;
-
-trait LpfExt {
+trait LowPassFilterExt {
     fn pwm_coefficients(self) -> &'static [f64; constants::PWM_LPF_TAPS];
 }
 
-impl LpfExt for LowPassFilter {
+impl LowPassFilterExt for LowPassFilter {
     fn pwm_coefficients(self) -> &'static [f64; constants::PWM_LPF_TAPS] {
         match self {
             Self::Sharp => &constants::PWM_SHARP_LPF_COEFFICIENTS,
@@ -29,9 +27,44 @@ impl LpfExt for LowPassFilter {
     }
 }
 
-fn new_pwm_resampler(lpf: LowPassFilter) -> PwmResampler {
-    // Source frequency is irrelevant, the PWM chip will change it almost immediately
-    PwmResampler::new(22000.0, *lpf.pwm_coefficients(), constants::PWM_HPF_CHARGE_FACTOR)
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct PwmResampler {
+    resampler: CubicResampler,
+    lpf: FirResampler<{ constants::PWM_LPF_TAPS }, 0>,
+}
+
+impl PwmResampler {
+    pub fn new(lpf: LowPassFilter) -> Self {
+        Self {
+            resampler: CubicResampler::new(22000.0),
+            lpf: FirResampler::new(DEFAULT_OUTPUT_FREQUENCY as f64, *lpf.pwm_coefficients(), 1.0),
+        }
+    }
+
+    pub fn collect_sample(&mut self, sample_l: f64, sample_r: f64) {
+        self.resampler.collect_sample(sample_l, sample_r);
+        while let Some((output_l, output_r)) = self.resampler.output_buffer_pop_front() {
+            self.lpf.collect_sample(output_l, output_r);
+        }
+    }
+
+    pub fn output_buffer_len(&self) -> usize {
+        self.lpf.output_buffer_len()
+    }
+
+    pub fn output_buffer_pop_front(&mut self) -> Option<(f64, f64)> {
+        self.lpf.output_buffer_pop_front()
+    }
+
+    pub fn update_source_frequency(&mut self, source_frequency: f64) {
+        self.resampler.update_source_frequency(source_frequency);
+    }
+
+    pub fn update_output_frequency(&mut self, output_frequency: u64) {
+        self.resampler.update_output_frequency(output_frequency);
+        self.lpf.update_source_frequency(output_frequency as f64);
+        self.lpf.update_output_frequency(output_frequency);
+    }
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -61,7 +94,7 @@ impl Sega32XResampler {
                 genesis_mclk_frequency,
                 *lpf.psg_coefficients(),
             ),
-            pwm_resampler: new_pwm_resampler(lpf),
+            pwm_resampler: PwmResampler::new(lpf),
             ym2612_enabled: config.genesis.ym2612_enabled,
             psg_enabled: config.genesis.psg_enabled,
             pwm_enabled: config.pwm_enabled,
@@ -120,7 +153,7 @@ impl Sega32XResampler {
         let lpf = config.genesis.low_pass_filter;
         self.ym2612_resampler.update_lpf_coefficients(*lpf.ym2612_coefficients());
         self.psg_resampler.update_lpf_coefficients(*lpf.psg_coefficients());
-        self.pwm_resampler.update_lpf_coefficients(*lpf.pwm_coefficients());
+        self.pwm_resampler.lpf.update_lpf_coefficients(*lpf.pwm_coefficients());
     }
 
     pub fn update_output_frequency(&mut self, output_frequency: u64) {

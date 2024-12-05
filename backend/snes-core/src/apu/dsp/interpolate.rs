@@ -38,19 +38,12 @@ pub fn gaussian(
     sum.clamp((i16::MIN >> 1).into(), (i16::MAX >> 1).into()) as i16
 }
 
-// Based on https://yehar.com/blog/wp-content/uploads/2009/08/deip.pdf
 pub fn hermite(
     InterpolateArgs { pitch_counter, oldest, older, old, sample }: InterpolateArgs,
 ) -> i16 {
-    let y3: f64 = sample.into();
-    let y2: f64 = old.into();
-    let y1: f64 = older.into();
-    let y0: f64 = oldest.into();
+    let samples = [oldest.into(), older.into(), old.into(), sample.into()];
     let x = f64::from(pitch_counter & 0xFFF) / 4096.0;
 
-    let c0 = y1;
-    let c1 = 0.5 * (y2 - y0);
-    let c2 = y0 - 2.5 * y1 + 2.0 * y2 - 0.5 * y3;
-    let c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
-    (((c3 * x + c2) * x + c1) * x + c0).round().clamp(I15_MIN, I15_MAX) as i16
+    let result = jgenesis_common::audio::interpolate_cubic_hermite(samples, x);
+    result.round().clamp(I15_MIN, I15_MAX) as i16
 }

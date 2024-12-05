@@ -58,16 +58,11 @@ fn interpolate_linear(y0: i8, y1: i8, x: f64) -> f64 {
 }
 
 fn interpolate_cubic(samples: [i8; 4], x: f64) -> f64 {
-    let [y0, y1, y2, y3] = samples.map(f64::from);
-
-    let c0 = y1;
-    let c1 = 0.5 * (y2 - y0);
-    let c2 = y0 - 2.5 * y1 + 2.0 * y2 - 0.5 * y3;
-    let c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
+    let result = jgenesis_common::audio::interpolate_cubic_hermite(samples.map(f64::from), x);
 
     // Clamp to [-127, 126] because samples are sign+magnitude, not signed 8-bit
     // +127 is not a valid sample value because 0xFF is the loop end marker
-    (((c3 * x + c2) * x + c1) * x + c0).clamp(-127.0, 126.0)
+    result.clamp(-127.0, 126.0)
 }
 
 #[derive(Debug, Clone, Default, Encode, Decode)]
