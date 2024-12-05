@@ -219,7 +219,7 @@ pub struct RomListThreadHandle {
 }
 
 impl RomListThreadHandle {
-    pub fn spawn(rom_list: Arc<Mutex<Vec<RomMetadata>>>) -> Self {
+    pub fn spawn(rom_list: Arc<Mutex<Vec<RomMetadata>>>, egui_ctx: egui::Context) -> Self {
         let (scan_requests_sender, scan_requests_receiver) = mpsc::channel::<Vec<String>>();
         let scan_request_counter = Arc::new(AtomicU32::new(0));
         let scan_request_counter_handle = Arc::clone(&scan_request_counter);
@@ -230,6 +230,7 @@ impl RomListThreadHandle {
                 *rom_list.lock().unwrap() = new_rom_list;
 
                 scan_request_counter.fetch_sub(1, Ordering::SeqCst);
+                egui_ctx.request_repaint();
             }
         });
 

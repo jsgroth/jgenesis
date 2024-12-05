@@ -294,9 +294,9 @@ impl App {
         let config = load_app_config(&config_path);
 
         let state = AppState::from_config(&config);
-        let emu_thread = emuthread::spawn(ctx);
+        let emu_thread = emuthread::spawn(ctx.clone());
 
-        let rom_list_thread = RomListThreadHandle::spawn(Arc::clone(&state.rom_list));
+        let rom_list_thread = RomListThreadHandle::spawn(Arc::clone(&state.rom_list), ctx);
         rom_list_thread.request_scan(config.rom_search_dirs.clone());
 
         Self { config, state, config_path, emu_thread, rom_list_thread, load_at_startup }
