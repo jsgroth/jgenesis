@@ -69,13 +69,11 @@ impl PwmControl {
 
     // 68000: $A15130
     fn m68k_write(&mut self, value: u16) {
-        self.timer_interval = (value >> 8) & 0xF;
         self.r_out = OutputDirection::from_value(value >> 2);
         self.l_out = OutputDirection::from_value(value);
-        // M68K cannot change RTP / DREQ1 enable
+        // M68K cannot change timer interval or RTP / DREQ1 enable
 
         log::debug!("PWM control write: {value:04X}");
-        log::debug!("  Effective timer interval: {}", self.effective_timer_interval());
         log::debug!("  L channel output direction: {:?}", self.l_out);
         log::debug!("  R channel output direction: {:?}", self.r_out);
     }
