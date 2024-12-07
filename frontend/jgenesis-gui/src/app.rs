@@ -32,8 +32,6 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
-use time::util::local_offset;
-use time::util::local_offset::Soundness;
 use time::{OffsetDateTime, UtcOffset, format_description};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumAll, EnumDisplay, EnumFromStr)]
@@ -1182,15 +1180,7 @@ fn format_time_nanos(time_nanos: u128) -> Option<String> {
     let utc_date_time = OffsetDateTime::from_unix_timestamp_nanos(time_nanos as i128)
         .unwrap_or(OffsetDateTime::UNIX_EPOCH);
 
-    // SAFETY: Nothing in this application modifies the current local time zone offset
-    let local_offset = unsafe {
-        local_offset::set_soundness(Soundness::Unsound);
-        let offset = UtcOffset::current_local_offset().ok();
-        local_offset::set_soundness(Soundness::Sound);
-
-        offset
-    }?;
-
+    let local_offset = UtcOffset::current_local_offset().ok()?;
     let local_date_time = utc_date_time.checked_to_offset(local_offset)?;
 
     let format =
