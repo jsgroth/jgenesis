@@ -51,6 +51,7 @@ pub struct GameBoyAdvanceEmulator {
     control: ControlRegisters,
     timers: Timers,
     ppu_mclk_counter: u32,
+    config: GbaEmulatorConfig,
 }
 
 macro_rules! new_bus {
@@ -84,6 +85,7 @@ impl GameBoyAdvanceEmulator {
             control: ControlRegisters::new(),
             timers: Timers::new(),
             ppu_mclk_counter: 0,
+            config,
         };
 
         emulator.cpu.manual_reset(
@@ -177,11 +179,15 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
     }
 
     fn soft_reset(&mut self) {
-        todo!("soft reset")
+        log::warn!("Game Boy Advance does not support soft reset at the hardware level");
     }
 
     fn hard_reset<S: SaveWriter>(&mut self, save_writer: &mut S) {
-        todo!("hard reset")
+        let cartridge_rom = mem::take(&mut self.memory.cartridge.rom.0);
+        let bios_rom = self.memory.bios.clone();
+        *self =
+            Self::create(cartridge_rom.into_vec(), bios_rom.into_vec(), self.config, save_writer)
+                .expect("Creating a new emulator instance during hard reset should never fail");
     }
 
     fn timing_mode(&self) -> TimingMode {

@@ -7,8 +7,8 @@ use crate::config::input::{
 use crate::mainloop::NativeEmulatorError;
 use crate::{NativeEmulatorResult, archive};
 use gb_core::api::{GameBoyEmulatorConfig, GbAspectRatio, GbPalette, GbcColorCorrection};
-use genesis_core::audio::LowPassFilter;
 use gba_core::api::GbaEmulatorConfig;
+use genesis_core::audio::LowPassFilter;
 use genesis_core::{
     GenesisAspectRatio, GenesisControllerType, GenesisEmulatorConfig, GenesisRegion,
 };
