@@ -20,6 +20,11 @@ impl<const LEN: usize> BoxedByteArray<LEN> {
     pub fn new() -> Self {
         Self(vec![0; LEN].into_boxed_slice().try_into().unwrap())
     }
+
+    #[must_use]
+    pub fn into_vec(self) -> Vec<u8> {
+        <[u8]>::into_vec(self.0)
+    }
 }
 
 impl<const LEN: usize> Default for BoxedByteArray<LEN> {
@@ -78,6 +83,11 @@ impl<const LEN: usize> BoxedWordArray<LEN> {
     #[allow(clippy::missing_panics_doc)]
     pub fn new() -> Self {
         Self(vec![0; LEN].into_boxed_slice().try_into().unwrap())
+    }
+
+    #[must_use]
+    pub fn into_vec(self) -> Vec<u16> {
+        <[u16]>::into_vec(self.0)
     }
 }
 

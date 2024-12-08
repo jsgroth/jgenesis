@@ -6,7 +6,7 @@ use std::array;
 use std::ops::Deref;
 
 #[derive(Debug, FakeEncode, FakeDecode)]
-pub struct Rom(Box<[u8]>);
+pub struct Rom(pub Box<[u8]>);
 
 impl Deref for Rom {
     type Target = Box<[u8]>;
