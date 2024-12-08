@@ -41,6 +41,8 @@ pub struct ListFilters {
     pub snes: bool,
     #[serde(default = "true_fn")]
     pub game_boy: bool,
+    #[serde(default = "true_fn")]
+    pub game_boy_advance: bool,
 }
 
 fn true_fn() -> bool {

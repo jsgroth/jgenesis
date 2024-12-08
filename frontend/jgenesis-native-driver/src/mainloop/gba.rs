@@ -1,14 +1,41 @@
 use crate::config::{GameBoyAdvanceConfig, RomReadResult};
 use crate::mainloop::save::{DeterminedPaths, FsSaveWriter};
 use crate::mainloop::{NativeEmulatorError, file_name_no_ext, save};
-use crate::{NativeEmulator, NativeEmulatorResult, config};
+use crate::{AudioError, NativeEmulator, NativeEmulatorResult, config};
 use gba_core::api::{GameBoyAdvanceEmulator, GbaEmulatorConfig};
 use gba_core::input::{GbaButton, GbaInputs};
+use jgenesis_common::frontend::EmulatorTrait;
 use std::fs;
 use std::path::Path;
 
 pub type NativeGbaEmulator =
     NativeEmulator<GbaInputs, GbaButton, GbaEmulatorConfig, GameBoyAdvanceEmulator>;
+
+impl NativeGbaEmulator {
+    /// # Errors
+    ///
+    /// This method will return an error if it is unable to reload audio config.
+    pub fn reload_gba_config(
+        &mut self,
+        config: Box<GameBoyAdvanceConfig>,
+    ) -> Result<(), AudioError> {
+        log::info!("Reloading config: {config}");
+
+        self.reload_common_config(&config.common)?;
+
+        let emulator_config = config.to_emulator_config();
+        self.emulator.reload_config(&emulator_config);
+        self.config = emulator_config;
+
+        self.input_mapper.update_mappings(
+            config.common.axis_deadzone,
+            &config.inputs.to_mapping_vec(),
+            &config.common.hotkey_config.to_mapping_vec(),
+        );
+
+        Ok(())
+    }
+}
 
 pub const SUPPORTED_EXTENSIONS: &[&str] = &["gba"];
 
