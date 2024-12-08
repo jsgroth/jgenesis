@@ -10,8 +10,10 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, LazyLock, Mutex, mpsc};
 use std::{fs, io, thread};
 
-pub const ALL_EXTENSIONS: &[&str] =
-    &["sms", "gg", "md", "bin", "cue", "chd", "32x", "nes", "sfc", "smc", "gb", "gbc", "zip", "7z"];
+pub const ALL_EXTENSIONS: &[&str] = &[
+    "sms", "gg", "md", "bin", "cue", "chd", "32x", "nes", "sfc", "smc", "gb", "gbc", "gba", "zip",
+    "7z",
+];
 
 const SMSGG_EXTENSIONS: &[&str] = &["sms", "gg"];
 const GENESIS_EXTENSIONS: &[&str] = &["md", "bin"];
@@ -20,6 +22,7 @@ const S32X_EXTENSIONS: &[&str] = &["32x"];
 const NES_EXTENSIONS: &[&str] = &["nes"];
 const SNES_EXTENSIONS: &[&str] = &["sfc", "smc"];
 const GB_EXTENSIONS: &[&str] = &["gb", "gbc"];
+const GBA_EXTENSIONS: &[&str] = &["gba"];
 
 impl Console {
     fn from_extension(extension: &str) -> Option<Self> {
@@ -33,6 +36,7 @@ impl Console {
             "sfc" | "smc" => Some(Self::Snes),
             "gb" => Some(Self::GameBoy),
             "gbc" => Some(Self::GameBoyColor),
+            "gba" => Some(Self::GameBoyAdvance),
             _ => None,
         }
     }
@@ -49,6 +53,7 @@ impl Console {
             Self::Snes => "SNES",
             Self::GameBoy => "Game Boy",
             Self::GameBoyColor => "Game Boy Color",
+            Self::GameBoyAdvance => "Game Boy Advance",
         }
     }
 
@@ -62,6 +67,7 @@ impl Console {
             Self::Nes => NES_EXTENSIONS,
             Self::Snes => SNES_EXTENSIONS,
             Self::GameBoy | Self::GameBoyColor => GB_EXTENSIONS,
+            Self::GameBoyAdvance => GBA_EXTENSIONS,
         }
     }
 }

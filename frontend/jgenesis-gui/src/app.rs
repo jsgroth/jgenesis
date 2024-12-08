@@ -1,5 +1,6 @@
 mod common;
 mod gb;
+mod gba;
 mod genesis;
 mod input;
 mod nes;
@@ -47,6 +48,7 @@ pub enum Console {
     Snes,
     GameBoy,
     GameBoyColor,
+    GameBoyAdvance,
 }
 
 trait ListFiltersExt {
@@ -71,6 +73,7 @@ impl ListFiltersExt for ListFilters {
             self.snes.then_some(Console::Snes),
             self.game_boy.then_some(Console::GameBoy),
             self.game_boy.then_some(Console::GameBoyColor),
+            self.game_boy_advance.then_some(Console::GameBoyAdvance),
         ]
         .into_iter()
         .flatten()
@@ -102,6 +105,7 @@ enum OpenWindow {
     NesGeneral,
     SnesGeneral,
     GameBoyGeneral,
+    GbaGeneral,
     Synchronization,
     Paths,
     Interface,
@@ -636,8 +640,12 @@ impl App {
 
                 ui.add_space(15.0);
 
-                let running_gb = self.emu_thread.status() == EmuThreadStatus::RunningGameBoy;
-                ui.add_enabled_ui(!running_gb, |ui| {
+                let emu_status = self.emu_thread.status();
+                let supports_soft_reset = !matches!(
+                    emu_status,
+                    EmuThreadStatus::RunningGameBoy | EmuThreadStatus::RunningGba
+                );
+                ui.add_enabled_ui(supports_soft_reset, |ui| {
                     if ui.button("Soft Reset").clicked() {
                         self.emu_thread.send(EmuThreadCommand::SoftReset);
                         ui.close_menu();
@@ -703,6 +711,11 @@ impl App {
 
             if ui.button("Game Boy").clicked() {
                 self.state.open_windows.insert(OpenWindow::GameBoyGeneral);
+                ui.close_menu();
+            }
+
+            if ui.button("Game Boy Advance").clicked() {
+                self.state.open_windows.insert(OpenWindow::GbaGeneral);
                 ui.close_menu();
             }
 
@@ -957,7 +970,7 @@ impl App {
         ui.horizontal(|ui| {
             let textedit = TextEdit::singleline(&mut self.state.title_match)
                 .hint_text("Filter by name")
-                .desired_width(280.0);
+                .desired_width(260.0);
             if ui.add(textedit).changed() {
                 self.state.title_match_lowercase = Rc::from(self.state.title_match.to_lowercase());
                 self.refresh_filtered_rom_list();
@@ -975,12 +988,13 @@ impl App {
 
             ui.checkbox(&mut self.config.list_filters.master_system, "SMS");
             ui.checkbox(&mut self.config.list_filters.game_gear, "GG");
-            ui.checkbox(&mut self.config.list_filters.genesis, "Genesis");
-            ui.checkbox(&mut self.config.list_filters.sega_cd, "Sega CD");
+            ui.checkbox(&mut self.config.list_filters.genesis, "GEN");
+            ui.checkbox(&mut self.config.list_filters.sega_cd, "SCD");
             ui.checkbox(&mut self.config.list_filters.sega_32x, "32X");
             ui.checkbox(&mut self.config.list_filters.nes, "NES");
             ui.checkbox(&mut self.config.list_filters.snes, "SNES");
             ui.checkbox(&mut self.config.list_filters.game_boy, "GB");
+            ui.checkbox(&mut self.config.list_filters.game_boy_advance, "GBA");
 
             if prev_list_filters != self.config.list_filters {
                 self.refresh_filtered_rom_list();
@@ -1130,6 +1144,7 @@ impl eframe::App for App {
                 OpenWindow::NesGeneral => self.render_nes_general_settings(ctx),
                 OpenWindow::SnesGeneral => self.render_snes_general_settings(ctx),
                 OpenWindow::GameBoyGeneral => self.render_gb_general_settings(ctx),
+                OpenWindow::GbaGeneral => self.render_gba_general_settings(ctx),
                 OpenWindow::Synchronization => self.render_sync_settings(ctx),
                 OpenWindow::Paths => self.render_path_settings(ctx),
                 OpenWindow::Interface => self.render_interface_settings(ctx),
