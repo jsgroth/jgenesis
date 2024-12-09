@@ -30,14 +30,19 @@ impl LowPassFilterExt for LowPassFilter {
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct PwmResampler {
     resampler: CubicResampler,
-    lpf: FirResampler<{ constants::PWM_LPF_TAPS }, 0>,
+    lpf: FirResampler<{ constants::PWM_LPF_TAPS }>,
 }
 
 impl PwmResampler {
     pub fn new(lpf: LowPassFilter) -> Self {
         Self {
             resampler: CubicResampler::new(22000.0),
-            lpf: FirResampler::new(DEFAULT_OUTPUT_FREQUENCY as f64, *lpf.pwm_coefficients(), 1.0),
+            lpf: FirResampler::new(
+                DEFAULT_OUTPUT_FREQUENCY as f64,
+                *lpf.pwm_coefficients(),
+                1.0,
+                0,
+            ),
         }
     }
 

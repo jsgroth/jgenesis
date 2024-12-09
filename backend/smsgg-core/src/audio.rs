@@ -22,7 +22,7 @@ impl TimingModeExt for TimingMode {
     }
 }
 
-pub type PsgResampler = FirResampler<{ constants::PSG_LPF_TAPS }, 0>;
+pub type PsgResampler = FirResampler<{ constants::PSG_LPF_TAPS }>;
 
 #[must_use]
 pub fn new_psg_resampler(
@@ -30,7 +30,7 @@ pub fn new_psg_resampler(
     lpf_coefficients: [f64; constants::PSG_LPF_TAPS],
 ) -> PsgResampler {
     let psg_frequency = compute_psg_frequency(console_mclk_frequency);
-    PsgResampler::new(psg_frequency, lpf_coefficients, constants::PSG_HPF_CHARGE_FACTOR)
+    PsgResampler::new(psg_frequency, lpf_coefficients, constants::PSG_HPF_CHARGE_FACTOR, 0)
 }
 
 fn compute_psg_frequency(console_mclk_frequency: f64) -> f64 {

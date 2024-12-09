@@ -5,7 +5,7 @@ pub const YM2612_HPF_CHARGE_FACTOR: f64 = 0.9966982656608827;
 pub const YM2612_LPF_TAPS: usize = 59;
 
 // (2 + 1) * ~53267 Hz = ~159801 Hz
-pub const YM2612_ZERO_PADDING: usize = 2;
+pub const YM2612_ZERO_PADDING: u32 = 2;
 
 // Generated with a cutoff frequency of 16000 Hz (in practice closer to 15000 Hz)
 pub const YM2612_SHARP_LPF_COEFFICIENTS: [f64; YM2612_LPF_TAPS] = [

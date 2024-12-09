@@ -26,8 +26,8 @@ const PCM_COEFFICIENT: f64 = 0.7079457843841379;
 // -7 dB (10 ^ -7/20)
 const CD_COEFFICIENT: f64 = 0.44668359215096315;
 
-type PcmResampler = FirResampler<{ constants::PCM_LPF_TAPS }, { constants::PCM_ZERO_PADDING }>;
-type CdResampler = FirResampler<{ constants::CD_LPF_TAPS }, { constants::CD_ZERO_PADDING }>;
+type PcmResampler = FirResampler<{ constants::PCM_LPF_TAPS }>;
+type CdResampler = FirResampler<{ constants::CD_LPF_TAPS }>;
 
 trait LpfExt {
     fn pcm_coefficients(self) -> &'static [f64; constants::PCM_LPF_TAPS];
@@ -57,11 +57,21 @@ impl LpfExt for LowPassFilter {
 
 fn new_pcm_resampler(lpf_coefficients: &[f64; constants::PCM_LPF_TAPS]) -> PcmResampler {
     let pcm_frequency = SEGA_CD_MCLK_FREQUENCY / 4.0 / 384.0;
-    PcmResampler::new(pcm_frequency, *lpf_coefficients, constants::PCM_HPF_CHARGE_FACTOR)
+    PcmResampler::new(
+        pcm_frequency,
+        *lpf_coefficients,
+        constants::PCM_HPF_CHARGE_FACTOR,
+        constants::PCM_ZERO_PADDING,
+    )
 }
 
 fn new_cd_resampler(lpf_coefficients: &[f64; constants::CD_LPF_TAPS]) -> CdResampler {
-    CdResampler::new(CD_DA_FREQUENCY, *lpf_coefficients, constants::CD_HPF_CHARGE_FACTOR)
+    CdResampler::new(
+        CD_DA_FREQUENCY,
+        *lpf_coefficients,
+        constants::CD_HPF_CHARGE_FACTOR,
+        constants::CD_ZERO_PADDING,
+    )
 }
 
 #[derive(Debug, Clone, Encode, Decode)]

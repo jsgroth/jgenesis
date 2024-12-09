@@ -43,7 +43,7 @@ impl<const N: usize> RingBuffer<N> {
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
-pub struct FirResampler<const LPF_TAPS: usize, const ZERO_PADDING: usize> {
+pub struct FirResampler<const LPF_TAPS: usize> {
     samples_l: RingBuffer<LPF_TAPS>,
     samples_r: RingBuffer<LPF_TAPS>,
     output: VecDeque<(f64, f64)>,
@@ -54,16 +54,19 @@ pub struct FirResampler<const LPF_TAPS: usize, const ZERO_PADDING: usize> {
     hpf_capacitor_l: f64,
     hpf_capacitor_r: f64,
     lpf_coefficients: [f64; LPF_TAPS],
+    zero_padding: u32,
 }
 
-impl<const LPF_TAPS: usize, const ZERO_PADDING: usize> FirResampler<LPF_TAPS, ZERO_PADDING> {
+impl<const LPF_TAPS: usize> FirResampler<LPF_TAPS> {
     #[must_use]
     pub fn new(
         source_frequency: f64,
         lpf_coefficients: [f64; LPF_TAPS],
         hpf_charge_factor: f64,
+        zero_padding: u32,
     ) -> Self {
-        let padded_scaled_source_frequency = Self::pad_and_scale_frequency(source_frequency);
+        let padded_scaled_source_frequency =
+            pad_and_scale_frequency(source_frequency, zero_padding);
         Self {
             samples_l: RingBuffer::new(),
             samples_r: RingBuffer::new(),
@@ -75,12 +78,8 @@ impl<const LPF_TAPS: usize, const ZERO_PADDING: usize> FirResampler<LPF_TAPS, ZE
             hpf_capacitor_l: 0.0,
             hpf_capacitor_r: 0.0,
             lpf_coefficients,
+            zero_padding,
         }
-    }
-
-    fn pad_and_scale_frequency(source_frequency: f64) -> u64 {
-        (source_frequency * (ZERO_PADDING + 1) as f64 * RESAMPLE_SCALING_FACTOR as f64).round()
-            as u64
     }
 
     fn buffer_sample(&mut self, sample_l: f64, sample_r: f64) {
@@ -91,10 +90,16 @@ impl<const LPF_TAPS: usize, const ZERO_PADDING: usize> FirResampler<LPF_TAPS, ZE
         while self.sample_count_product >= self.padded_scaled_source_frequency {
             self.sample_count_product -= self.padded_scaled_source_frequency;
 
-            let sample_l =
-                output_sample::<LPF_TAPS, ZERO_PADDING>(&self.samples_l, &self.lpf_coefficients);
-            let sample_r =
-                output_sample::<LPF_TAPS, ZERO_PADDING>(&self.samples_r, &self.lpf_coefficients);
+            let sample_l = output_sample::<LPF_TAPS>(
+                &self.samples_l,
+                &self.lpf_coefficients,
+                self.zero_padding,
+            );
+            let sample_r = output_sample::<LPF_TAPS>(
+                &self.samples_r,
+                &self.lpf_coefficients,
+                self.zero_padding,
+            );
             self.output.push_back((sample_l, sample_r));
         }
     }
@@ -107,7 +112,7 @@ impl<const LPF_TAPS: usize, const ZERO_PADDING: usize> FirResampler<LPF_TAPS, ZE
             high_pass_filter(sample_r, self.hpf_charge_factor, &mut self.hpf_capacitor_r);
 
         self.buffer_sample(sample_l, sample_r);
-        for _ in 0..ZERO_PADDING {
+        for _ in 0..self.zero_padding {
             self.buffer_sample(0.0, 0.0);
         }
     }
@@ -130,7 +135,8 @@ impl<const LPF_TAPS: usize, const ZERO_PADDING: usize> FirResampler<LPF_TAPS, ZE
 
     #[inline]
     pub fn update_source_frequency(&mut self, source_frequency: f64) {
-        self.padded_scaled_source_frequency = Self::pad_and_scale_frequency(source_frequency);
+        self.padded_scaled_source_frequency =
+            pad_and_scale_frequency(source_frequency, self.zero_padding);
     }
 
     #[inline]
@@ -139,18 +145,23 @@ impl<const LPF_TAPS: usize, const ZERO_PADDING: usize> FirResampler<LPF_TAPS, ZE
     }
 }
 
+fn pad_and_scale_frequency(source_frequency: f64, zero_padding: u32) -> u64 {
+    (source_frequency * f64::from(zero_padding + 1) * RESAMPLE_SCALING_FACTOR as f64).round() as u64
+}
+
 fn high_pass_filter(sample: f64, charge_factor: f64, capacitor: &mut f64) -> f64 {
     let filtered_sample = sample - *capacitor;
     *capacitor = sample - charge_factor * filtered_sample;
     filtered_sample
 }
 
-fn output_sample<const N: usize, const ZERO_PADDING: usize>(
+fn output_sample<const N: usize>(
     samples: &RingBuffer<N>,
     lpf_coefficients: &[f64; N],
+    zero_padding: u32,
 ) -> f64 {
     let sum = apply_fir_filter(samples, lpf_coefficients);
-    (sum * (ZERO_PADDING + 1) as f64).clamp(-1.0, 1.0)
+    (sum * f64::from(zero_padding + 1)).clamp(-1.0, 1.0)
 }
 
 #[allow(clippy::needless_range_loop)]
