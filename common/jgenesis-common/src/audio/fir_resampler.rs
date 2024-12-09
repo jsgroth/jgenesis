@@ -49,7 +49,7 @@ pub struct FirResampler<const LPF_TAPS: usize> {
     output: VecDeque<(f64, f64)>,
     sample_count_product: u64,
     output_frequency: u64,
-    padded_scaled_source_frequency: u64,
+    scaled_source_frequency: u64,
     hpf_charge_factor: f64,
     hpf_capacitor_l: f64,
     hpf_capacitor_r: f64,
@@ -65,15 +65,14 @@ impl<const LPF_TAPS: usize> FirResampler<LPF_TAPS> {
         hpf_charge_factor: f64,
         zero_padding: u32,
     ) -> Self {
-        let padded_scaled_source_frequency =
-            pad_and_scale_frequency(source_frequency, zero_padding);
+        let scaled_source_frequency = scale_frequency(source_frequency);
         Self {
             samples_l: RingBuffer::new(),
             samples_r: RingBuffer::new(),
             output: VecDeque::with_capacity((DEFAULT_OUTPUT_FREQUENCY / 30) as usize),
             sample_count_product: 0,
             output_frequency: DEFAULT_OUTPUT_FREQUENCY,
-            padded_scaled_source_frequency,
+            scaled_source_frequency,
             hpf_charge_factor,
             hpf_capacitor_l: 0.0,
             hpf_capacitor_r: 0.0,
@@ -87,8 +86,8 @@ impl<const LPF_TAPS: usize> FirResampler<LPF_TAPS> {
         self.samples_r.push(sample_r);
 
         self.sample_count_product += self.output_frequency * RESAMPLE_SCALING_FACTOR;
-        while self.sample_count_product >= self.padded_scaled_source_frequency {
-            self.sample_count_product -= self.padded_scaled_source_frequency;
+        while self.sample_count_product >= self.scaled_source_frequency {
+            self.sample_count_product -= self.scaled_source_frequency;
 
             let sample_l = output_sample::<LPF_TAPS>(
                 &self.samples_l,
@@ -135,8 +134,25 @@ impl<const LPF_TAPS: usize> FirResampler<LPF_TAPS> {
 
     #[inline]
     pub fn update_source_frequency(&mut self, source_frequency: f64) {
-        self.padded_scaled_source_frequency =
-            pad_and_scale_frequency(source_frequency, self.zero_padding);
+        self.scaled_source_frequency = scale_frequency(source_frequency);
+    }
+
+    #[inline]
+    pub fn fill_input_buffer_with(&mut self, (sample_l, sample_r): (f64, f64)) {
+        self.samples_l.buffer[self.samples_l.idx..self.samples_l.idx + self.samples_l.len]
+            .fill(sample_l);
+        self.samples_r.buffer[self.samples_r.idx..self.samples_r.idx + self.samples_r.len]
+            .fill(sample_r);
+    }
+
+    #[inline]
+    pub fn current_zero_padding(&self) -> u32 {
+        self.zero_padding
+    }
+
+    #[inline]
+    pub fn update_zero_padding(&mut self, zero_padding: u32) {
+        self.zero_padding = zero_padding;
     }
 
     #[inline]
@@ -145,8 +161,8 @@ impl<const LPF_TAPS: usize> FirResampler<LPF_TAPS> {
     }
 }
 
-fn pad_and_scale_frequency(source_frequency: f64, zero_padding: u32) -> u64 {
-    (source_frequency * f64::from(zero_padding + 1) * RESAMPLE_SCALING_FACTOR as f64).round() as u64
+fn scale_frequency(source_frequency: f64) -> u64 {
+    (source_frequency * RESAMPLE_SCALING_FACTOR as f64).round() as u64
 }
 
 fn high_pass_filter(sample: f64, charge_factor: f64, capacitor: &mut f64) -> f64 {

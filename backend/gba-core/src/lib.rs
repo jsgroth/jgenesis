@@ -8,3 +8,5 @@ pub mod input;
 mod memory;
 mod ppu;
 mod timers;
+
+const GBA_CLOCK_RATE: u32 = 1 << 24;
