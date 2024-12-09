@@ -45,11 +45,16 @@ impl TimingModeAudioExt for TimingMode {
     }
 }
 
-type NesResampler = FirResampler<{ constants::LPF_TAPS }, 0>;
+type NesResampler = FirResampler<{ constants::LPF_TAPS }>;
 
 fn new_nes_resampler(timing_mode: TimingMode, apply_refresh_rate_adjustment: bool) -> NesResampler {
     let source_frequency = compute_source_frequency(timing_mode, apply_refresh_rate_adjustment);
-    NesResampler::new(source_frequency, constants::LPF_COEFFICIENTS, constants::HPF_CHARGE_FACTOR)
+    NesResampler::new(
+        source_frequency,
+        constants::LPF_COEFFICIENTS,
+        constants::HPF_CHARGE_FACTOR,
+        0,
+    )
 }
 
 fn compute_source_frequency(timing_mode: TimingMode, apply_refresh_rate_adjustment: bool) -> f64 {

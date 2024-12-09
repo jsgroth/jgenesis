@@ -9,7 +9,7 @@ use jgenesis_common::frontend::AudioOutput;
 
 const SNES_AUDIO_FREQUENCY: f64 = apu::OUTPUT_FREQUENCY as f64;
 
-type SnesResampler = FirResampler<{ constants::LPF_TAPS }, { constants::ZERO_PADDING }>;
+type SnesResampler = FirResampler<{ constants::LPF_TAPS }>;
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct AudioResampler {
@@ -21,6 +21,7 @@ fn new_snes_resampler() -> SnesResampler {
         SNES_AUDIO_FREQUENCY,
         constants::LPF_COEFFICIENTS,
         constants::HPF_CHARGE_FACTOR,
+        constants::ZERO_PADDING,
     )
 }
 

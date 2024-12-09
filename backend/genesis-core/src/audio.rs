@@ -16,8 +16,7 @@ pub const PAL_GENESIS_MCLK_FREQUENCY: f64 = 53_203_424.0;
 // -7dB (10 ^ -7/20)
 pub const PSG_COEFFICIENT: f64 = 0.44668359215096315;
 
-pub type Ym2612Resampler =
-    FirResampler<{ constants::YM2612_LPF_TAPS }, { constants::YM2612_ZERO_PADDING }>;
+pub type Ym2612Resampler = FirResampler<{ constants::YM2612_LPF_TAPS }>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumDisplay, EnumAll)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -65,6 +64,7 @@ pub fn new_ym2612_resampler(genesis_mclk_frequency: f64, lpf: LowPassFilter) -> 
         ym2612_frequency,
         *lpf.ym2612_coefficients(),
         constants::YM2612_HPF_CHARGE_FACTOR,
+        constants::YM2612_ZERO_PADDING,
     )
 }
 

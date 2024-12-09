@@ -3,7 +3,7 @@ pub const HPF_CHARGE_FACTOR: f64 = 0.9946028448191855;
 pub const LPF_TAPS: usize = 59;
 
 // (4 + 1) * ~32040 Hz = ~160200 Hz
-pub const ZERO_PADDING: usize = 4;
+pub const ZERO_PADDING: u32 = 4;
 
 // Generated using cutoff frequency of 16000 Hz (in practice closer to 15000 Hz)
 #[allow(clippy::excessive_precision)]

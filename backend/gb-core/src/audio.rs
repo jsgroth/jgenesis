@@ -4,12 +4,17 @@ use bincode::{Decode, Encode};
 use jgenesis_common::audio::FirResampler;
 use jgenesis_common::frontend::AudioOutput;
 
-type GbApuResampler = FirResampler<{ constants::LPF_TAPS }, 0>;
+type GbApuResampler = FirResampler<{ constants::LPF_TAPS }>;
 
 pub const GB_APU_FREQUENCY: f64 = 1_048_576.0;
 
 fn new_gb_apu_resampler(source_frequency: f64) -> GbApuResampler {
-    FirResampler::new(source_frequency, constants::LPF_COEFFICIENTS, constants::HPF_CHARGE_FACTOR)
+    FirResampler::new(
+        source_frequency,
+        constants::LPF_COEFFICIENTS,
+        constants::HPF_CHARGE_FACTOR,
+        0,
+    )
 }
 
 #[derive(Debug, Clone, Encode, Decode)]

@@ -5,7 +5,7 @@ pub const PCM_HPF_CHARGE_FACTOR: f64 = 0.9946028448191855;
 pub const PCM_LPF_TAPS: usize = 61;
 
 // (4 + 1) * ~32552 Hz = ~162760 Hz
-pub const PCM_ZERO_PADDING: usize = 4;
+pub const PCM_ZERO_PADDING: u32 = 4;
 
 pub const PCM_SHARP_LPF_COEFFICIENTS: [f64; PCM_LPF_TAPS] = [
     -0.0002476591189664718,
@@ -268,7 +268,7 @@ pub const CD_HPF_CHARGE_FACTOR: f64 = 0.9960133089108504;
 pub const CD_LPF_TAPS: usize = 65;
 
 // (3 + 1) * 44100 Hz = 176400 Hz
-pub const CD_ZERO_PADDING: usize = 3;
+pub const CD_ZERO_PADDING: u32 = 3;
 
 // Target cutoff frequency of ~17000 Hz with stopband edge frequency at ~22000 Hz
 pub const CD_SHARP_LPF_COEFFICIENTS: [f64; CD_LPF_TAPS] = [
