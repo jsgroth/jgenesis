@@ -493,7 +493,7 @@ impl ControlRegisters {
         match address % 12 {
             0xA => self.dma[channel].read_cnt_high(),
             _ => {
-                log::error!("Read from write-only DMA register: {address:08X}");
+                log::debug!("Read from write-only DMA register: {address:08X}");
                 0
             }
         }
