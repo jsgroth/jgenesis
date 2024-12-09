@@ -58,7 +58,7 @@ impl LpfExt for LowPassFilter {
 fn new_pcm_resampler(lpf_coefficients: &[f64; constants::PCM_LPF_TAPS]) -> PcmResampler {
     let pcm_frequency = SEGA_CD_MCLK_FREQUENCY / 4.0 / 384.0;
     PcmResampler::new(
-        pcm_frequency,
+        pcm_frequency * f64::from(constants::PCM_ZERO_PADDING),
         *lpf_coefficients,
         constants::PCM_HPF_CHARGE_FACTOR,
         constants::PCM_ZERO_PADDING,
@@ -67,7 +67,7 @@ fn new_pcm_resampler(lpf_coefficients: &[f64; constants::PCM_LPF_TAPS]) -> PcmRe
 
 fn new_cd_resampler(lpf_coefficients: &[f64; constants::CD_LPF_TAPS]) -> CdResampler {
     CdResampler::new(
-        CD_DA_FREQUENCY,
+        CD_DA_FREQUENCY * f64::from(constants::CD_ZERO_PADDING),
         *lpf_coefficients,
         constants::CD_HPF_CHARGE_FACTOR,
         constants::CD_ZERO_PADDING,

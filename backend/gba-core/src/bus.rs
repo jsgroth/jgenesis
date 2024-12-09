@@ -68,10 +68,7 @@ impl Bus<'_> {
     fn read_io_register(&mut self, address: u32) -> u16 {
         let value = match address {
             0x04000000..=0x04000056 => self.ppu.read_register(address),
-            0x04000060..=0x040000AF => {
-                log::error!("APU register read: {address:08X}");
-                0
-            }
+            0x04000060..=0x040000AF => self.apu.read_register(address),
             0x040000B0..=0x040000DF => self.control.read_dma_register(address),
             0x04000100..=0x0400010F => self.timers.read_register(address),
             0x04000120..=0x0400012F | 0x04000134..=0x0400015F => {

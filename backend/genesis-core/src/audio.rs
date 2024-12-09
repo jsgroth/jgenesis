@@ -61,7 +61,7 @@ impl LowPassFilter {
 pub fn new_ym2612_resampler(genesis_mclk_frequency: f64, lpf: LowPassFilter) -> Ym2612Resampler {
     let ym2612_frequency = genesis_mclk_frequency / 7.0 / 6.0 / 24.0;
     Ym2612Resampler::new(
-        ym2612_frequency,
+        ym2612_frequency * f64::from(constants::YM2612_ZERO_PADDING),
         *lpf.ym2612_coefficients(),
         constants::YM2612_HPF_CHARGE_FACTOR,
         constants::YM2612_ZERO_PADDING,
