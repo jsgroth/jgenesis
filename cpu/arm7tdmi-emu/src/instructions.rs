@@ -274,7 +274,10 @@ impl Arm7Tdmi {
                     }
                 }
 
-                |_, opcode, _| todo!("ARM opcode {opcode:08X}")
+                |cpu, opcode, bus| {
+                    log::error!("Executed undefined ARM opcode: {opcode:08X}");
+                    cpu.handle_exception(Exception::UndefinedInstruction, bus)
+                }
             }))
         });
 
@@ -309,7 +312,10 @@ impl Arm7Tdmi {
                     }
                 }
 
-                |_, opcode, _| todo!("Thumb opcode {opcode:04X}")
+                |cpu, opcode, bus| {
+                    log::error!("Executed undefined Thumb opcode: {opcode:04X}");
+                    cpu.handle_exception(Exception::UndefinedInstruction, bus)
+                }
             }))
         });
 
