@@ -122,6 +122,7 @@ impl Bus<'_> {
             | (u16::from(!self.inputs.l) << 9)
     }
 
+    #[allow(clippy::match_same_arms)]
     fn write_io_register(&mut self, address: u32, value: u16) {
         log::trace!("I/O register write: {address:08X} {value:04X}");
 

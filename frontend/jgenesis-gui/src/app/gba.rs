@@ -9,13 +9,8 @@ impl App {
         let mut open = true;
         Window::new("GBA General Settings").open(&mut open).show(ctx, |ui| {
             ui.horizontal(|ui| {
-                let current_bios_path = self
-                    .config
-                    .game_boy_advance
-                    .bios_path
-                    .as_ref()
-                    .map(String::as_str)
-                    .unwrap_or("<None>");
+                let current_bios_path =
+                    self.config.game_boy_advance.bios_path.as_deref().unwrap_or("<None>");
                 if ui.button(current_bios_path).clicked() {
                     if let Some(bios_path) = FileDialog::new()
                         .add_filter("bin", &["bin"])

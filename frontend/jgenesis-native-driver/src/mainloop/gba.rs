@@ -39,6 +39,10 @@ impl NativeGbaEmulator {
 
 pub const SUPPORTED_EXTENSIONS: &[&str] = &["gba"];
 
+/// # Errors
+///
+/// Returns an error if unable to read the main ROM file or the BIOS ROM file, or if there is an
+/// error initializing the GBA emulator.
 pub fn create_gba(config: Box<GameBoyAdvanceConfig>) -> NativeEmulatorResult<NativeGbaEmulator> {
     log::info!("Running with config: {config}");
 

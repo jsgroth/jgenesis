@@ -180,5 +180,5 @@ impl WavetableChannel {
 }
 
 fn nibble_swap(byte: u8) -> u8 {
-    (byte >> 4) | (byte << 4)
+    byte.rotate_right(4)
 }

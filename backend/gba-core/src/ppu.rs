@@ -607,10 +607,11 @@ impl Ppu {
             }
 
             let sprite_col = if oam_entry.h_flip { width - 1 - dx } else { dx };
-            self.render_sprite_pixel(&oam_entry, col, sprite_col, sprite_row, width);
+            self.render_sprite_pixel(oam_entry, col, sprite_col, sprite_row, width);
         }
     }
 
+    #[allow(clippy::many_single_char_names)]
     fn render_affine_sprite(&mut self, oam_entry: &OamEntry, line: u32, width: u32, height: u32) {
         let (render_width, render_height) =
             if oam_entry.affine_double_size { (2 * width, 2 * height) } else { (width, height) };
@@ -672,7 +673,7 @@ impl Ppu {
                 continue;
             }
 
-            self.render_sprite_pixel(&oam_entry, col, sample_x as u32, sample_y as u32, width);
+            self.render_sprite_pixel(oam_entry, col, sample_x as u32, sample_y as u32, width);
         }
     }
 
@@ -907,7 +908,7 @@ impl Ppu {
             let bg_y = bg_y >> 8;
 
             let color = sample_fn(self, bg_x, bg_y);
-            self.buffers.bg_colors[bg][x as usize] = color.into();
+            self.buffers.bg_colors[bg][x as usize] = color;
         }
 
         self.apply_bg_mosaic(bg);
