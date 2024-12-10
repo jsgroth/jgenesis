@@ -158,6 +158,13 @@ impl Bus<'_> {
     fn write_io_register_u8(&mut self, address: u32, value: u8) {
         log::trace!("8-bit I/O register write: {address:08X} {value:02X}");
 
+        if (0x04000060..=0x040000AF).contains(&address) {
+            // Special case 8-bit APU register writes - read-then-write doesn't work for some of these
+            // because of write-only bits
+            self.apu.write_register_u8(address, value);
+            return;
+        }
+
         // TODO is this safe? do any I/O register reads have side effects?
         let mut halfword = self.read_io_register(address & !1);
         if !address.bit(0) {
@@ -199,7 +206,7 @@ impl BusInterface for Bus<'_> {
     #[inline]
     fn read_halfword(&mut self, address: u32) -> u16 {
         match address {
-            CARTRIDGE_ROM_0_START..=CARTRIDGE_ROM_0_END => {
+            CARTRIDGE_ROM_0_START..=CARTRIDGE_ROM_2_END => {
                 self.memory.cartridge.read_rom_halfword(address)
             }
             IWRAM_START..=IWRAM_END => self.memory.read_iwram_halfword(address),

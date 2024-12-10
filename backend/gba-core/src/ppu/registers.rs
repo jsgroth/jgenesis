@@ -54,10 +54,6 @@ impl BgMode {
     pub fn is_bitmap(self) -> bool {
         matches!(self, Self::Three | Self::Four | Self::Five)
     }
-
-    pub fn is_15bpp_bitmap(self) -> bool {
-        matches!(self, Self::Three | Self::Five)
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]

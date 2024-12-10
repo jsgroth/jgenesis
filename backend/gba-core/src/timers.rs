@@ -39,10 +39,6 @@ impl Prescaler {
             Self::TenTwentyFour => 10,
         }
     }
-
-    const fn cycles_mask(self) -> u64 {
-        !((1 << self.clock_shift()) - 1)
-    }
 }
 
 impl Display for Prescaler {

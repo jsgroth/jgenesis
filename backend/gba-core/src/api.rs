@@ -203,6 +203,6 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
     }
 
     fn update_audio_output_frequency(&mut self, output_frequency: u64) {
-        // TODO audio resampling
+        self.apu.update_output_frequency(output_frequency);
     }
 }
