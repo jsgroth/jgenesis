@@ -68,6 +68,9 @@ macro_rules! new_bus {
 }
 
 impl GameBoyAdvanceEmulator {
+    /// # Errors
+    ///
+    /// Returns an error if the BIOS ROM is not the expected length (16KB).
     pub fn create<S: SaveWriter>(
         cartridge_rom: Vec<u8>,
         bios_rom: Vec<u8>,
@@ -140,7 +143,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
     {
         let mut bus = new_bus!(self, *inputs);
 
-        let cpu_cycles = match bus.control.dma_state.active_channels.get(0).copied() {
+        let cpu_cycles = match bus.control.dma_state.active_channels.first().copied() {
             Some(channel_idx) => {
                 let mut channel = bus.control.dma[channel_idx as usize].clone();
                 let cycles = channel.run_dma(&mut bus);
@@ -173,7 +176,9 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
         self.render_frame(renderer)
     }
 
-    fn reload_config(&mut self, config: &Self::Config) {}
+    fn reload_config(&mut self, config: &Self::Config) {
+        self.config = *config;
+    }
 
     fn take_rom_from(&mut self, other: &mut Self) {
         self.memory.cartridge.rom = mem::take(&mut other.memory.cartridge.rom);
@@ -193,7 +198,7 @@ impl EmulatorTrait for GameBoyAdvanceEmulator {
 
     fn target_fps(&self) -> f64 {
         // ~59.73 Hz, same as GB/GBC
-        (1 << 24) as f64
+        f64::from(crate::GBA_CLOCK_RATE)
             / f64::from(PPU_DIVIDER)
             / f64::from(ppu::LINES_PER_FRAME)
             / f64::from(ppu::DOTS_PER_LINE)
