@@ -266,10 +266,8 @@ fn arm_ldrh(opcode: u32) -> String {
 fn arm_ldm_stm(opcode: u32) -> String {
     let cond = Condition::from_arm_opcode(opcode).suffix();
 
-    let rlist = (0..16)
-        .filter_map(|i| opcode.bit(i).then(|| format!("R{i}")))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let rlist =
+        (0..16).filter(|&i| opcode.bit(i)).map(|i| format!("R{i}")).collect::<Vec<_>>().join(", ");
 
     let rn = (opcode >> 16) & 0xF;
     let load = opcode.bit(20);
@@ -571,7 +569,7 @@ fn thumb_15(opcode: u16) -> String {
 }
 
 fn thumb_rlist_vec(opcode: u16) -> Vec<String> {
-    (0..8).filter_map(|i| opcode.bit(i).then(|| format!("R{i}"))).collect()
+    (0..8).filter(|&i| opcode.bit(i)).map(|i| format!("R{i}")).collect()
 }
 
 // Conditional branch
