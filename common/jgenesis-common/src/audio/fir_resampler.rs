@@ -146,11 +146,6 @@ impl<const LPF_TAPS: usize> FirResampler<LPF_TAPS> {
     }
 
     #[inline]
-    pub fn current_zero_padding(&self) -> u32 {
-        self.zero_padding
-    }
-
-    #[inline]
     pub fn update_zero_padding(&mut self, zero_padding: u32) {
         self.zero_padding = zero_padding;
     }

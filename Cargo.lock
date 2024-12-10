@@ -1783,6 +1783,7 @@ version = "0.1.0"
 dependencies = [
  "arm7tdmi-emu",
  "bincode",
+ "gb-core",
  "jgenesis-common",
  "jgenesis-proc-macros",
  "log",

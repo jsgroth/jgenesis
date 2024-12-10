@@ -8,6 +8,9 @@ arm7tdmi-emu = { path = "../../cpu/arm7tdmi-emu" }
 jgenesis-common = { path = "../../common/jgenesis-common" }
 jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
 
+# gb-core dependency is to reuse code from the GB/GBC APU channels
+gb-core = { path = "../gb-core" }
+
 bincode = { workspace = true, features = ["derive"] }
 log = { workspace = true }
 thiserror = { workspace = true }

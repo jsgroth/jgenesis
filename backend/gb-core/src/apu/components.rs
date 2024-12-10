@@ -8,6 +8,7 @@ pub struct LengthCounter<const MAX: u16> {
 }
 
 impl<const MAX: u16> LengthCounter<MAX> {
+    #[must_use]
     pub fn new() -> Self {
         Self { enabled: false, counter: MAX }
     }
@@ -55,6 +56,12 @@ impl<const MAX: u16> LengthCounter<MAX> {
     }
 }
 
+impl<const MAX: u16> Default for LengthCounter<MAX> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub type StandardLengthCounter = LengthCounter<64>;
 pub type WavetableLengthCounter = LengthCounter<256>;
 
@@ -88,6 +95,7 @@ pub struct Envelope {
 }
 
 impl Envelope {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             volume: 0,
@@ -101,6 +109,7 @@ impl Envelope {
         }
     }
 
+    #[must_use]
     pub fn read_register(self) -> u8 {
         (self.initial_volume << 4)
             | (u8::from(self.configured_direction.to_bit()) << 3)
@@ -158,6 +167,12 @@ impl Envelope {
     }
 }
 
+impl Default for Envelope {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TimerTickEffect {
     None,
@@ -173,6 +188,8 @@ pub struct PhaseTimer<const MAX_PHASE: u8, const SPEED_MULTIPLIER: u16> {
 }
 
 impl<const MAX_PHASE: u8, const SPEED_MULTIPLIER: u16> PhaseTimer<MAX_PHASE, SPEED_MULTIPLIER> {
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
     pub fn new() -> Self {
         // Sanity check that (MAX_PHASE + 1) is a power of 2
         assert_eq!(MAX_PHASE.trailing_ones() + MAX_PHASE.leading_zeros(), u8::BITS);
@@ -180,6 +197,7 @@ impl<const MAX_PHASE: u8, const SPEED_MULTIPLIER: u16> PhaseTimer<MAX_PHASE, SPE
         Self { phase: 0, counter: 2048, period: 2048, frequency: 0 }
     }
 
+    #[must_use]
     pub fn frequency(self) -> u16 {
         self.frequency
     }
@@ -201,19 +219,35 @@ impl<const MAX_PHASE: u8, const SPEED_MULTIPLIER: u16> PhaseTimer<MAX_PHASE, SPE
         self.counter = self.period;
     }
 
+    pub fn tick(&mut self) -> TimerTickEffect {
+        self.counter -= 1;
+        if self.counter == 0 {
+            self.counter = self.period;
+            self.phase = (self.phase + 1) & MAX_PHASE;
+            TimerTickEffect::Clocked
+        } else {
+            TimerTickEffect::None
+        }
+    }
+
     pub fn tick_m_cycle(&mut self) -> TimerTickEffect {
         let mut tick_effect = TimerTickEffect::None;
 
         for _ in 0..SPEED_MULTIPLIER {
-            self.counter -= 1;
-            if self.counter == 0 {
-                self.counter = self.period;
-                self.phase = (self.phase + 1) & MAX_PHASE;
+            if self.tick() == TimerTickEffect::Clocked {
                 tick_effect = TimerTickEffect::Clocked;
             }
         }
 
         tick_effect
+    }
+}
+
+impl<const MAX_PHASE: u8, const SPEED_MULTIPLIER: u16> Default
+    for PhaseTimer<MAX_PHASE, SPEED_MULTIPLIER>
+{
+    fn default() -> Self {
+        Self::new()
     }
 }
 
