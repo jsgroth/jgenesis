@@ -1,6 +1,6 @@
 mod helptext;
 
-use crate::app::{App, OpenWindow};
+use crate::app::{App, Console, OpenWindow};
 use crate::emuthread::EmuThreadStatus;
 use egui::{Context, Slider, Window};
 use genesis_core::audio::LowPassFilter;
@@ -95,11 +95,8 @@ impl App {
                                 .as_ref()
                                 .map_or("<None>", String::as_str);
                             if ui.button(bios_path_str).clicked() {
-                                if let Some(bios_path) =
-                                    FileDialog::new().add_filter("bin", &["bin"]).pick_file()
-                                {
-                                    self.config.sega_cd.bios_path =
-                                        Some(bios_path.to_string_lossy().to_string());
+                                if let Some(bios_path) = pick_scd_bios_path() {
+                                    self.config.sega_cd.bios_path = Some(bios_path);
                                 }
                             }
 
@@ -425,4 +422,37 @@ impl App {
             self.state.open_windows.remove(&WINDOW);
         }
     }
+
+    pub(super) fn render_scd_bios_error(&mut self, ctx: &Context, open: &mut bool) {
+        let mut path_configured = false;
+        Window::new("Missing Sega CD BIOS").open(open).resizable(false).show(ctx, |ui| {
+            ui.label("No Sega CD BIOS path is configured. A Sega CD BIOS ROM is required for Sega CD emulation.");
+
+            ui.add_space(10.0);
+
+            ui.horizontal(|ui| {
+                ui.label("Configure now:");
+                if ui.button("Configure Sega CD BIOS path").clicked() {
+                    if let Some(bios_path) = pick_scd_bios_path() {
+                        self.config.sega_cd.bios_path = Some(bios_path);
+                        path_configured = true;
+                    }
+                }
+            });
+        });
+
+        if path_configured {
+            *open = false;
+            self.launch_emulator(self.state.current_file_path.clone(), Some(Console::SegaCd));
+        }
+    }
+}
+
+fn pick_scd_bios_path() -> Option<String> {
+    let path = FileDialog::new()
+        .add_filter("bin", &["bin"])
+        .add_filter("All Types", &["*"])
+        .pick_file()?;
+
+    path.to_str().map(String::from)
 }

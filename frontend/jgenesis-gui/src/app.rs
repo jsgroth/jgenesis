@@ -11,6 +11,7 @@ use crate::app::common::SavePathSelect;
 use crate::app::input::{GenericButton, InputMappingSet};
 use crate::app::nes::OverscanState;
 use crate::app::romlist::{RomListThreadHandle, RomMetadata};
+use crate::app::snes::HandledError;
 use crate::emuthread;
 use crate::emuthread::{EmuThreadCommand, EmuThreadHandle, EmuThreadStatus};
 use eframe::Frame;
@@ -22,6 +23,7 @@ use egui::{
 };
 use egui_extras::{Column, TableBuilder};
 use jgenesis_native_config::{AppConfig, EguiTheme, ListFilters, RecentOpen};
+use jgenesis_native_driver::NativeEmulatorError;
 use jgenesis_native_driver::config::HideMouseCursor;
 use jgenesis_proc_macros::{EnumAll, EnumDisplay, EnumFromStr};
 use jgenesis_renderer::config::Scanlines;
@@ -1000,18 +1002,34 @@ impl App {
     }
 
     fn check_emulator_error(&mut self, ctx: &Context) {
-        let mut error_lock = self.emu_thread.lock_emulator_error();
+        let emulator_error = self.emu_thread.emulator_error();
+        let mut error_lock = emulator_error.lock().unwrap();
         self.state.error_window_open = error_lock.is_some();
 
-        if let Some(error) = error_lock.as_ref() {
+        if let Some(err) = error_lock.as_ref() {
             let mut open = true;
-            Window::new("Emulator Error").open(&mut open).resizable(false).show(ctx, |ui| {
-                ui.colored_label(Color32::RED, format!("Emulator terminated with error: {error}"));
-            });
+            match err {
+                NativeEmulatorError::SegaCdNoBios => self.render_scd_bios_error(ctx, &mut open),
+                NativeEmulatorError::SnesLoad(snes_load_err) => {
+                    match self.render_snes_load_error(ctx, snes_load_err, &mut open) {
+                        HandledError::Yes => {}
+                        HandledError::No => Self::render_generic_error_window(ctx, err, &mut open),
+                    }
+                }
+                _ => Self::render_generic_error_window(ctx, err, &mut open),
+            }
             if !open {
                 *error_lock = None;
             }
         }
+    }
+
+    fn render_generic_error_window(ctx: &Context, err: &NativeEmulatorError, open: &mut bool) {
+        Window::new("Emulator Error").open(open).resizable(false).show(ctx, |ui| {
+            ui.label("Emulator terminated with error:");
+            ui.add_space(10.0);
+            ui.colored_label(Color32::RED, err.to_string());
+        });
     }
 
     fn check_waiting_for_input(&mut self, ctx: &Context) {

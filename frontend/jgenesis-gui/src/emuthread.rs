@@ -8,9 +8,9 @@ use jgenesis_native_driver::input::{
     AxisDirection, GamepadAction, GenericInput, HatDirection, Joysticks,
 };
 use jgenesis_native_driver::{
-    AudioError, Native32XEmulator, NativeEmulatorResult, NativeGameBoyEmulator,
-    NativeGenesisEmulator, NativeNesEmulator, NativeSegaCdEmulator, NativeSmsGgEmulator,
-    NativeSnesEmulator, NativeTickEffect, SaveStateMetadata,
+    AudioError, Native32XEmulator, NativeEmulatorError, NativeEmulatorResult,
+    NativeGameBoyEmulator, NativeGenesisEmulator, NativeNesEmulator, NativeSegaCdEmulator,
+    NativeSmsGgEmulator, NativeSnesEmulator, NativeTickEffect, SaveStateMetadata,
 };
 use sdl2::EventPump;
 use sdl2::event::Event;
@@ -20,7 +20,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
-use std::sync::{Arc, Mutex, MutexGuard, mpsc};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Duration;
 
@@ -101,7 +101,7 @@ pub struct EmuThreadHandle {
     command_sender: Sender<EmuThreadCommand>,
     input_receiver: Receiver<Option<Vec<GenericInput>>>,
     save_state_metadata: Arc<Mutex<SaveStateMetadata>>,
-    emulator_error: Arc<Mutex<Option<anyhow::Error>>>,
+    emulator_error: Arc<Mutex<Option<NativeEmulatorError>>>,
     exit_signal: Arc<AtomicBool>,
 }
 
@@ -118,8 +118,8 @@ impl EmuThreadHandle {
         self.save_state_metadata.lock().unwrap().clone()
     }
 
-    pub fn lock_emulator_error(&mut self) -> MutexGuard<'_, Option<anyhow::Error>> {
-        self.emulator_error.lock().unwrap()
+    pub fn emulator_error(&self) -> Arc<Mutex<Option<NativeEmulatorError>>> {
+        Arc::clone(&self.emulator_error)
     }
 
     pub fn poll_input_receiver(&self) -> Result<Option<Vec<GenericInput>>, TryRecvError> {
@@ -188,7 +188,7 @@ struct EmuThreadContext {
     input_sender: Sender<Option<Vec<GenericInput>>>,
     status: Arc<AtomicU8>,
     save_state_metadata: Arc<Mutex<SaveStateMetadata>>,
-    emulator_error: Arc<Mutex<Option<anyhow::Error>>>,
+    emulator_error: Arc<Mutex<Option<NativeEmulatorError>>>,
     exit_signal: Arc<AtomicBool>,
 }
 
@@ -216,7 +216,7 @@ fn thread_run(ctx: EmuThreadContext) {
                     Ok(emulator) => emulator,
                     Err(err) => {
                         log::error!("Error initializing emulator: {err}");
-                        *ctx.emulator_error.lock().unwrap() = Some(err.into());
+                        *ctx.emulator_error.lock().unwrap() = Some(err);
                         continue;
                     }
                 };
@@ -439,7 +439,7 @@ fn run_emulator(mut emulator: GenericEmulator, ctx: &EmuThreadContext) {
             }
             Err(err) => {
                 log::error!("Emulator terminated with an error: {err}");
-                *ctx.emulator_error.lock().unwrap() = Some(err.into());
+                *ctx.emulator_error.lock().unwrap() = Some(err);
                 return;
             }
         }
