@@ -18,7 +18,7 @@ pub struct AudioResampler {
 
 fn new_snes_resampler() -> SnesResampler {
     SnesResampler::new(
-        SNES_AUDIO_FREQUENCY * f64::from(constants::ZERO_PADDING),
+        SNES_AUDIO_FREQUENCY * f64::from(constants::ZERO_PADDING + 1),
         constants::LPF_COEFFICIENTS,
         constants::HPF_CHARGE_FACTOR,
         constants::ZERO_PADDING,
