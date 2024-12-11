@@ -1036,6 +1036,7 @@ impl App {
                         HandledError::No => Self::render_generic_error_window(ctx, err, &mut open),
                     }
                 }
+                NativeEmulatorError::GbaNoBios => self.render_gba_bios_error(ctx, &mut open),
                 _ => Self::render_generic_error_window(ctx, err, &mut open),
             }
             if !open {
