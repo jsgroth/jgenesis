@@ -7,7 +7,7 @@ use crate::config::input::{
 use crate::mainloop::NativeEmulatorError;
 use crate::{NativeEmulatorResult, archive};
 use gb_core::api::GameBoyEmulatorConfig;
-use gba_core::api::GbaEmulatorConfig;
+use gba_core::api::{GbaAspectRatio, GbaEmulatorConfig};
 use genesis_core::GenesisEmulatorConfig;
 use jgenesis_common::frontend::TimingMode;
 use jgenesis_proc_macros::{ConfigDisplay, EnumAll, EnumDisplay};
@@ -260,11 +260,15 @@ pub struct GameBoyAdvanceConfig {
     #[indent_nested]
     pub inputs: GbaInputConfig,
     pub bios_path: Option<String>,
+    pub aspect_ratio: GbaAspectRatio,
+    pub skip_bios_intro_animation: bool,
 }
 
 impl GameBoyAdvanceConfig {
     pub(crate) fn to_emulator_config(&self) -> GbaEmulatorConfig {
-        // TODO actual config
-        GbaEmulatorConfig::default()
+        GbaEmulatorConfig {
+            aspect_ratio: self.aspect_ratio,
+            skip_bios_intro_animation: self.skip_bios_intro_animation,
+        }
     }
 }

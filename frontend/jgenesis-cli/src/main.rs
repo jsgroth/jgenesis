@@ -3,6 +3,7 @@
 use clap::Parser;
 use env_logger::Env;
 use gb_core::api::{GbAspectRatio, GbPalette, GbcColorCorrection};
+use gba_core::api::GbaAspectRatio;
 use genesis_core::audio::LowPassFilter;
 use genesis_core::{GenesisAspectRatio, GenesisControllerType, GenesisRegion};
 use jgenesis_common::frontend::{EmulatorTrait, TimingMode};
@@ -46,6 +47,7 @@ const S32X_OPTIONS_HEADING: &str = "32X Options";
 const NES_OPTIONS_HEADING: &str = "NES Options";
 const SNES_OPTIONS_HEADING: &str = "SNES Options";
 const GB_OPTIONS_HEADING: &str = "Game Boy Options";
+const GBA_OPTIONS_HEADING: &str = "Game Boy Advance Options";
 const VIDEO_OPTIONS_HEADING: &str = "Video Options";
 const AUDIO_OPTIONS_HEADING: &str = "Audio Options";
 const HOTKEY_OPTIONS_HEADING: &str = "Hotkey Options";
@@ -346,6 +348,18 @@ struct Args {
     #[arg(long, help_heading = GB_OPTIONS_HEADING)]
     gb_audio_60hz_hack: Option<bool>,
 
+    /// BIOS ROM path (Required if not set in config file)
+    #[arg(long, help_heading = GBA_OPTIONS_HEADING)]
+    gba_bios_path: Option<String>,
+
+    /// Aspect ratio
+    #[arg(long, help_heading = GBA_OPTIONS_HEADING)]
+    gba_aspect_ratio: Option<GbaAspectRatio>,
+
+    /// Skip BIOS intro animation
+    #[arg(long, help_heading = GBA_OPTIONS_HEADING)]
+    gba_skip_intro_animation: Option<bool>,
+
     /// Initial window width in pixels
     #[arg(long, help_heading = VIDEO_OPTIONS_HEADING)]
     window_width: Option<u32>,
@@ -471,6 +485,7 @@ impl Args {
         self.apply_nes_overrides(config);
         self.apply_snes_overrides(config);
         self.apply_gb_overrides(config);
+        self.apply_gba_overrides(config);
         self.apply_video_overrides(config);
         self.apply_audio_overrides(config);
         self.apply_hotkey_overrides(config);
@@ -614,6 +629,17 @@ impl Args {
             gb_palette,
             gbc_color_correction,
             gb_audio_60hz_hack -> audio_60hz_hack,
+        ]);
+    }
+
+    fn apply_gba_overrides(&self, config: &mut AppConfig) {
+        if let Some(bios_path) = &self.gba_bios_path {
+            config.game_boy_advance.bios_path = Some(bios_path.clone());
+        }
+
+        apply_overrides!(self, config.game_boy_advance, [
+            gba_aspect_ratio -> aspect_ratio,
+            gba_skip_intro_animation -> skip_bios_intro_animation,
         ]);
     }
 

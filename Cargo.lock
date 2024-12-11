@@ -1783,10 +1783,12 @@ version = "0.1.0"
 dependencies = [
  "arm7tdmi-emu",
  "bincode",
+ "clap",
  "gb-core",
  "jgenesis-common",
  "jgenesis-proc-macros",
  "log",
+ "serde",
  "thiserror 2.0.7",
 ]
 
@@ -2298,6 +2300,7 @@ dependencies = [
  "clap",
  "env_logger",
  "gb-core",
+ "gba-core",
  "genesis-core",
  "jgenesis-common",
  "jgenesis-native-config",
@@ -2342,6 +2345,7 @@ dependencies = [
  "egui_extras",
  "env_logger",
  "gb-core",
+ "gba-core",
  "genesis-core",
  "jgenesis-common",
  "jgenesis-native-config",
@@ -2372,6 +2376,7 @@ dependencies = [
  "clap",
  "directories",
  "gb-core",
+ "gba-core",
  "genesis-core",
  "jgenesis-common",
  "jgenesis-native-driver",
