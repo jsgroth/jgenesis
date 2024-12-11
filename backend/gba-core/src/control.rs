@@ -409,8 +409,7 @@ impl ControlRegisters {
             interrupt_flags: 0,
             waitcnt: 0,
             ime: false,
-            // TODO default POSTFLG to 0 and let the BIOS initialize?
-            postflg: 1,
+            postflg: 0,
             dma: array::from_fn(|i| DmaChannel::new(i as u32)),
             dma_state: DmaState::new(),
         }

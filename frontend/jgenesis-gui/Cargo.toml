@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 gb-core = { path = "../../backend/gb-core", features = ["serde"] }
+gba-core = { path = "../../backend/gba-core" }
 genesis-core = { path = "../../backend/genesis-core", features = ["serde"] }
 nes-core = { path = "../../backend/nes-core", features = ["serde"] }
 s32x-core = { path = "../../backend/s32x-core", features = ["serde"] }

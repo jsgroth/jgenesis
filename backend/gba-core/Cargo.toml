@@ -3,6 +3,11 @@ name = "gba-core"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+clap = ["dep:clap"]
+serde = ["dep:serde"]
+
 [dependencies]
 arm7tdmi-emu = { path = "../../cpu/arm7tdmi-emu" }
 jgenesis-common = { path = "../../common/jgenesis-common" }
@@ -12,7 +17,9 @@ jgenesis-proc-macros = { path = "../../common/jgenesis-proc-macros" }
 gb-core = { path = "../gb-core" }
 
 bincode = { workspace = true, features = ["derive"] }
+clap = { workspace = true, optional = true }
 log = { workspace = true }
+serde = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
 [lints]

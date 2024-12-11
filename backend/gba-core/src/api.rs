@@ -15,6 +15,7 @@ use jgenesis_common::frontend::{
     AudioOutput, EmulatorTrait, PartialClone, PixelAspectRatio, Renderer, SaveWriter, TickEffect,
     TickResult, TimingMode,
 };
+use jgenesis_proc_macros::{EnumAll, EnumDisplay};
 use std::fmt::{Debug, Display};
 use std::mem;
 use thiserror::Error;
@@ -22,8 +23,29 @@ use thiserror::Error;
 // 1 PPU cycle per 4 CPU cycles
 const PPU_DIVIDER: u32 = 4;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, EnumAll, EnumDisplay)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "clap", derive(jgenesis_proc_macros::CustomValueEnum))]
+pub enum GbaAspectRatio {
+    #[default]
+    SquarePixels,
+    Stretched,
+}
+
+impl GbaAspectRatio {
+    fn to_pixel_aspect_ratio(self) -> Option<PixelAspectRatio> {
+        match self {
+            Self::SquarePixels => Some(PixelAspectRatio::SQUARE),
+            Self::Stretched => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode)]
-pub struct GbaEmulatorConfig {}
+pub struct GbaEmulatorConfig {
+    pub aspect_ratio: GbaAspectRatio,
+    pub skip_bios_intro_animation: bool,
+}
 
 #[derive(Debug, Error)]
 pub enum GbaError<RErr, AErr, SErr> {
@@ -91,18 +113,23 @@ impl GameBoyAdvanceEmulator {
             config,
         };
 
-        emulator.cpu.manual_reset(
-            Arm7TdmiResetArgs {
-                pc: bus::CARTRIDGE_ROM_0_START,
-                sp_usr: 0x03007F00,
-                sp_svc: 0x03007FE0,
-                sp_irq: 0x03007FA0,
-                // TODO what should this actually be?
-                sp_fiq: 0x03007E00,
-                mode: CpuMode::System,
-            },
-            &mut new_bus!(emulator, GbaInputs::default()),
-        );
+        let mut bus = new_bus!(emulator, GbaInputs::default());
+        if config.skip_bios_intro_animation {
+            emulator.cpu.manual_reset(
+                Arm7TdmiResetArgs {
+                    pc: bus::CARTRIDGE_ROM_0_START,
+                    sp_usr: 0x03007F00,
+                    sp_svc: 0x03007FE0,
+                    sp_irq: 0x03007FA0,
+                    sp_fiq: 0x00000000,
+                    mode: CpuMode::System,
+                },
+                &mut bus,
+            );
+            bus.control.postflg = 1;
+        } else {
+            emulator.cpu.reset(&mut bus);
+        }
 
         Ok(emulator)
     }
@@ -111,7 +138,7 @@ impl GameBoyAdvanceEmulator {
         renderer.render_frame(
             self.ppu.frame_buffer(),
             ppu::FRAME_SIZE,
-            Some(PixelAspectRatio::SQUARE),
+            self.config.aspect_ratio.to_pixel_aspect_ratio(),
         )
     }
 }

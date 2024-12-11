@@ -1,5 +1,6 @@
 use crate::app::{App, OpenWindow};
 use egui::{Context, Window};
+use gba_core::api::GbaAspectRatio;
 use rfd::FileDialog;
 
 impl App {
@@ -24,6 +25,40 @@ impl App {
                 }
 
                 ui.label("BIOS path");
+            });
+
+            ui.add_space(5.0);
+
+            ui.checkbox(
+                &mut self.config.game_boy_advance.skip_bios_intro_animation,
+                "Skip BIOS intro animation",
+            );
+        });
+        if !open {
+            self.state.open_windows.remove(&WINDOW);
+        }
+    }
+
+    pub(super) fn render_gba_video_settings(&mut self, ctx: &Context) {
+        const WINDOW: OpenWindow = OpenWindow::GbaVideo;
+
+        let mut open = true;
+        Window::new("GBA Video Settings").open(&mut open).show(ctx, |ui| {
+            ui.group(|ui| {
+                ui.label("Aspect ratio");
+
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.config.game_boy_advance.aspect_ratio,
+                        GbaAspectRatio::SquarePixels,
+                        "Square pixels",
+                    );
+                    ui.radio_value(
+                        &mut self.config.game_boy_advance.aspect_ratio,
+                        GbaAspectRatio::Stretched,
+                        "Stretched",
+                    );
+                });
             });
         });
         if !open {
