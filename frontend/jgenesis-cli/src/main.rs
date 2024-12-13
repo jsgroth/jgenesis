@@ -144,6 +144,10 @@ struct Args {
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
     emulate_non_linear_vdp_dac: Option<bool>,
 
+    /// Deinterlace if a game enables an interlacing screen mode
+    #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
+    genesis_deinterlace: Option<bool>,
+
     /// Optionally decrease the main Genesis CPU's clock divider (1-7, with 7 being actual hardware speed).
     /// Lower divider = higher CPU clock speed
     #[arg(long, help_heading = GENESIS_OPTIONS_HEADING)]
@@ -517,6 +521,7 @@ impl Args {
     fn apply_genesis_overrides(&self, config: &mut AppConfig) {
         apply_overrides!(self, config.genesis, [
             emulate_non_linear_vdp_dac,
+            genesis_deinterlace -> deinterlace,
             m68k_clock_divider,
             genesis_render_vertical_border -> render_vertical_border,
             genesis_render_horizontal_border -> render_horizontal_border,

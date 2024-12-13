@@ -95,7 +95,23 @@ impl Vdp {
         );
 
         match self.latched_registers.interlacing_mode {
-            InterlacingMode::Progressive | InterlacingMode::Interlaced => {
+            InterlacingMode::Progressive => {
+                self.do_render_scanline(
+                    scanline,
+                    raster_line,
+                    starting_pixel,
+                    frame_buffer_row,
+                    false,
+                );
+            }
+            InterlacingMode::Interlaced => {
+                let odd_frame = self.state.frame_count % 2 == 1;
+                let frame_buffer_row = if !self.config.deinterlace {
+                    frame_buffer_row.map(|row| 2 * row + u32::from(odd_frame))
+                } else {
+                    frame_buffer_row
+                };
+
                 self.do_render_scanline(
                     scanline,
                     raster_line,
@@ -105,20 +121,26 @@ impl Vdp {
                 );
             }
             InterlacingMode::InterlacedDouble => {
-                self.do_render_scanline(
-                    scanline,
-                    raster_line.to_interlaced_even(),
-                    starting_pixel,
-                    frame_buffer_row.map(|row| 2 * row),
-                    false,
-                );
-                self.do_render_scanline(
-                    scanline,
-                    raster_line.to_interlaced_odd(),
-                    starting_pixel,
-                    frame_buffer_row.map(|row| 2 * row + 1),
-                    true,
-                );
+                let odd_frame = self.state.frame_count % 2 == 1;
+
+                if self.config.deinterlace || !odd_frame {
+                    self.do_render_scanline(
+                        scanline,
+                        raster_line.to_interlaced_even(),
+                        starting_pixel,
+                        frame_buffer_row.map(|row| 2 * row),
+                        false,
+                    );
+                }
+                if self.config.deinterlace || odd_frame {
+                    self.do_render_scanline(
+                        scanline,
+                        raster_line.to_interlaced_odd(),
+                        starting_pixel,
+                        frame_buffer_row.map(|row| 2 * row + 1),
+                        true,
+                    );
+                }
             }
         }
     }

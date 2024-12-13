@@ -172,6 +172,7 @@ impl GenesisWebConfig {
             remove_sprite_limits: self.remove_sprite_limits,
             m68k_clock_divider: self.m68k_divider,
             emulate_non_linear_vdp_dac: self.emulate_non_linear_vdp_dac,
+            deinterlace: true,
             render_vertical_border: self.render_vertical_border,
             render_horizontal_border: self.render_horizontal_border,
             plane_a_enabled: true,

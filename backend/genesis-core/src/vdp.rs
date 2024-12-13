@@ -94,6 +94,7 @@ struct InternalState {
     scanline_mclk_cycles: u64,
     pending_dma: Option<ActiveDma>,
     pending_writes: Vec<PendingWrite>,
+    interlaced_frame: bool,
     frame_count: u64,
 }
 
@@ -122,6 +123,7 @@ impl InternalState {
             scanline_mclk_cycles: 0,
             pending_dma: None,
             pending_writes: Vec::with_capacity(10),
+            interlaced_frame: false,
             frame_count: 0,
         }
     }
@@ -289,6 +291,7 @@ pub struct BorderSize {
 pub struct VdpConfig {
     pub enforce_sprite_limits: bool,
     pub emulate_non_linear_dac: bool,
+    pub deinterlace: bool,
     pub render_vertical_border: bool,
     pub render_horizontal_border: bool,
     pub plane_a_enabled: bool,
@@ -912,6 +915,12 @@ impl Vdp {
                 self.state.frame_count += 1;
                 self.state.v_border_forgotten = false;
 
+                self.state.interlaced_frame = match self.registers.interlacing_mode {
+                    InterlacingMode::Progressive => false,
+                    InterlacingMode::Interlaced => !self.config.deinterlace,
+                    InterlacingMode::InterlacedDouble => true,
+                };
+
                 // Top border length needs to be saved at start-of-frame in case there is a mid-frame swap between V28
                 // mode and V30 mode. Titan Overdrive 2 depends on this for the arcade scene
                 self.state.top_border =
@@ -1161,10 +1170,7 @@ impl Vdp {
             self.registers.vertical_display_size.active_scanlines().into()
         };
 
-        match self.registers.interlacing_mode {
-            InterlacingMode::Progressive | InterlacingMode::Interlaced => screen_height,
-            InterlacingMode::InterlacedDouble => 2 * screen_height,
-        }
+        if self.state.interlaced_frame { 2 * screen_height } else { screen_height }
     }
 
     #[inline]
@@ -1276,6 +1282,7 @@ mod tests {
         Vdp::new(TimingMode::Ntsc, VdpConfig {
             enforce_sprite_limits: true,
             emulate_non_linear_dac: false,
+            deinterlace: true,
             render_vertical_border: false,
             render_horizontal_border: false,
             plane_a_enabled: true,

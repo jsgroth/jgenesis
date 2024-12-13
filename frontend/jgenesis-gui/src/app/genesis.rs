@@ -207,6 +207,13 @@ impl App {
             }
 
             let rect = ui
+                .checkbox(&mut self.config.genesis.deinterlace, "Deinterlacing enabled")
+                .interact_rect;
+            if ui.rect_contains_pointer(rect) {
+                self.state.help_text.insert(WINDOW, helptext::DEINTERLACING);
+            }
+
+            let rect = ui
                 .checkbox(
                     &mut self.config.genesis.adjust_aspect_ratio_in_2x_resolution,
                     "Automatically double pixel aspect ratio in double-screen interlaced mode",

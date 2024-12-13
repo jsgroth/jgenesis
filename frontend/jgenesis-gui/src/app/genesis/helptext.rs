@@ -55,6 +55,14 @@ pub const ASPECT_RATIO: HelpText = HelpText {
     ],
 };
 
+pub const DEINTERLACING: HelpText = HelpText {
+    heading: "Deinterlacing",
+    text: &[
+        "If enabled and a game sets the VDP to an interlaced screen mode, render in progressive mode instead of interlaced.",
+        "In double-screen interlaced mode, this causes the VDP to render all 448 lines per frame (or 480 in V30 mode).",
+    ],
+};
+
 pub const DOUBLE_SCREEN_INTERLACED_ASPECT: HelpText = HelpText {
     heading: "Double-Screen Aspect Adjustment",
     text: &[
